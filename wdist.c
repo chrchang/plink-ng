@@ -20,7 +20,7 @@
 #define MAPBUFSIZE 64
 #define PEDBUFBASE 1024
 #define FNAMESIZE 2048
-#define MALLOC_DEFAULT_MB 2560
+#define MALLOC_DEFAULT_MB 1984
 #define IDLENGTH 16
 
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -105,11 +105,11 @@ int qsort_partition(char* lptr, int min_idx, int max_idx, int pivot_idx) {
   char* right_ptr = &(lptr[max_idx * max_id_len]);
   char* store_ptr = &(lptr[min_idx * max_id_len]);
   char* incr_ptr;
-  int ii = strlen(pivot_ptr) + 1;
   int si = min_idx;
-  memcpy(id_buf, pivot_ptr, ii);
+  strcpy(id_buf, pivot_ptr);
   strcpy(pivot_ptr, right_ptr);
-  while (store_ptr < pivot_ptr) {
+  strcpy(right_ptr, id_buf);
+  while (store_ptr < right_ptr) {
     if (strcmp(store_ptr, right_ptr) < 0) {
       store_ptr += max_id_len;
       si++;
@@ -126,6 +126,9 @@ int qsort_partition(char* lptr, int min_idx, int max_idx, int pivot_idx) {
       break;
     }
   }
+  strcpy(id_buf, store_ptr);
+  strcpy(store_ptr, right_ptr);
+  strcpy(right_ptr, id_buf);  
   return si;
 }
 
@@ -281,7 +284,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
   int nn;
   int* marker_chrom = NULL;
   id_string* marker_id = NULL;
-  int* marker_pos;
+  int* marker_pos = NULL;
   char* marker_alleles = NULL;
   char* marker_alleles_tmp = NULL;
   int* marker_allele_cts = NULL;
@@ -1076,6 +1079,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
       printf("Distances written to %s.\n", outname);
     }
     } */
+  retval = RET_SUCCESS;
 
  wdist_ret_9:
  wdist_ret_8:
