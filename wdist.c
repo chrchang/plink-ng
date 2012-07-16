@@ -26,14 +26,14 @@
 
 #define MAX_THREADS 64
 #define MAPBUFSIZE 128
-#define PEDBUFBASE 1024
+#define PEDBUFBASE 256
 #define FNAMESIZE 2048
 #define MALLOC_DEFAULT_MB 2176
 #define IDLENGTH 16
 // size of generic text line load buffer.  .ped lines can of course be longer
-#define MAXLINELEN 65536
+#define MAXLINELEN 131072
 
-const char errstr_append[] = "\nRun 'wdist --help | less' for more information.\n";
+const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
@@ -50,7 +50,7 @@ long long malloc_size_mb = MALLOC_DEFAULT_MB;
 int dispmsg(int retval) {
   switch(retval) {
   case RET_HELP:
-    printf("wdist <flags> {calculation}\n\nRun 'wdist --help | less' for more information.\n");
+    printf("wdist <flags> {calculation}\n%s", errstr_append);
     break;
   case RET_NOMEM:
     printf("Error: Out of memory.\n");
@@ -476,6 +476,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int oo;
   int pp;
   double dxx;
+  long long llxx;
   // int* marker_chrom = NULL;
   // id_string* marker_id = NULL;
   // int* marker_pos = NULL;
@@ -617,7 +618,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     map_linect4 = (map_linect + 3) / 4;
     pedbuflen = map_linect4;
   } else {
-    pedbuflen = map_linect * 5 + PEDBUFBASE;
+    pedbuflen = map_linect * 4 + PEDBUFBASE;
   }
   pedbuf = (unsigned char*)malloc(pedbuflen * sizeof(char));
   if (!pedbuf) {
@@ -1207,6 +1208,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     }
     memset(person_exclude, 0, ((ped_linect + 7) / 8) * sizeof(char));
     if (pedbuf[2] == '\0') {
+      // ----- individual-major .bed load, first pass -----
       for (ii = 0; ii < ped_linect; ii += 1) {
         fseek(pedfile, 3 + line_locs[ii] * map_linect4, SEEK_SET);
         if (fread(pedbuf, 1, map_linect4, pedfile) < map_linect4) {
@@ -1246,6 +1248,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
       }
     } else {
+      // ----- snp-major .bed load, first pass -----
       snp_major = 1;
       person_missing_cts = (int*)malloc(ped_linect * sizeof(int));
       if (!person_missing_cts) {
@@ -1306,28 +1309,38 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   } else {
     pedbuf[pedbuflen - 1] = ' ';
     last_tell = 0;
+    // ----- .ped load, first pass -----
     while (fgets((char*)pedbuf, pedbuflen, pedfile) != NULL) {
       if (pedbuf[0] > ' ') {
 	if (pedbuf[0] != '#') {
 	  bufptr = next_item((char*)pedbuf);
           if (filter_type) {
-            if (ped_col_1) {
-              ii = is_contained(id_list, max_id_len, filter_lines, (char*)pedbuf, (char*)pedbuf);
-            } else {
-              ii = is_contained(id_list, max_id_len, filter_lines, (char*)pedbuf, bufptr);
-            }
+	    if (!ped_col_1) {
+	      cptr = (char*)pedbuf;
+	    } else {
+	      cptr = bufptr;
+	    }
+            ii = is_contained(id_list, max_id_len, filter_lines, (char*)pedbuf, cptr);
             if (filter_type == FILTER_REMOVE) {
-              jj = 1 - ii;
-            } else {
-              jj = ii;
+              ii = 1 - ii;
             }
           } else {
-            jj = 1;
+            ii = 1;
+          }
+          if (phenoname[0]) {
+            if (ii) {
+	      if (makepheno_str || (!prune)) {
+		line_locs[ped_linect++] = last_tell;
+	      } else {
+		if (is_contained(pid_list, max_pid_len, pheno_lines, (char*)pedbuf, cptr)) {
+		  line_locs[ped_linect++] = last_tell;
+		}
+	      }
+            }
+          } else if (ii || (!ped_linect)) {
 	    if (ped_col_1) { // actually column 2
 	      bufptr = next_item(bufptr);
 	    }
-          }
-          if (jj) {
 	    if (ped_col_34) {
 	      bufptr = next_item(bufptr);
 	      bufptr = next_item(bufptr);
@@ -1340,6 +1353,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      printf(errstr_ped_format);
 	      goto wdist_ret_1;
 	    }
+            llxx = last_tell + (bufptr - (char*)pedbuf);
 	    if (!ped_linect) {
 	      if (*bufptr == '-') {
 		if ((bufptr[1] == '9') && ((bufptr[2] == ' ') || (bufptr[2] == '\t'))) {
@@ -1352,16 +1366,22 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    if (affection) {
 	      if (affection_01) {
 		if ((*bufptr == '0') || (*bufptr == '1') || !prune) {
-		  line_locs[ped_linect] = last_tell + (bufptr - (char*)pedbuf);
-		  ped_linect += 1;
+		  line_locs[ped_linect++] = llxx;
 		}
 	      } else if ((*bufptr == '1') || (*bufptr == '2') || !prune) {
-		line_locs[ped_linect] = last_tell + (bufptr - (char*)pedbuf);
-		ped_linect += 1;
+		line_locs[ped_linect++] = llxx;
+	      }
+	    } else if (tail_pheno) {
+	      if (sscanf(bufptr, "%lf", &dxx) != 1) {
+		retval = RET_INVALID_FORMAT;
+		printf(errstr_ped_format);
+		goto wdist_ret_1;
+	      }
+	      if ((dxx <= tail_bottom) || (dxx > tail_top)) {
+		line_locs[ped_linect++] = llxx;
 	      }
 	    } else {
-	      line_locs[ped_linect] = last_tell + (bufptr - (char*)pedbuf);
-	      ped_linect += 1;
+	      line_locs[ped_linect++] = llxx;
 	    }
           }
 	}
@@ -1369,7 +1389,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       if (!pedbuf[pedbuflen - 1]) {
         pedbuf[pedbuflen - 1] = ' ';
         if (pedbuf[pedbuflen - 2] == '\n') {
-          break;
+	  last_tell = ftell(pedfile);
+          continue;
         }
 	ii = 0;
 	do {
@@ -1435,28 +1456,45 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       fseek(pedfile, line_locs[ii], SEEK_SET);
       fgets((char*)pedbuf, pedbuflen, pedfile);
       bufptr = (char*)pedbuf;
-      if (affection) {
-	if (affection_01) {
-	  if (*bufptr == '0') {
-	    pheno_c[ii] = 0;
+      if (phenoname[0]) {
+        if (ped_col_1) {
+          bufptr = next_item(bufptr);
+        }
+        // TODO: stuff
+        bufptr = next_item(bufptr);
+        if (ped_col_34) {
+          bufptr = next_item(bufptr);
+          bufptr = next_item(bufptr);
+        }
+        if (ped_col_5) {
+          bufptr = next_item(bufptr);
+        }
+      } else {
+	if (affection) {
+	  if (affection_01) {
+	    if (*bufptr == '0') {
+	      pheno_c[ii] = 0;
+	    } else {
+	      pheno_c[ii] = 1;
+	    }
 	  } else {
-	    pheno_c[ii] = 1;
+	    if (*bufptr == '1') {
+	      pheno_c[ii] = 0;
+	    } else {
+	      pheno_c[ii] = 1;
+	    }
 	  }
 	} else {
-	  if (*bufptr == '1') {
-	    pheno_c[ii] = 0;
-	  } else {
-	    pheno_c[ii] = 1;
+	  if (sscanf(bufptr, "%lf", &(pheno_d[ii])) != 1) {
+	    retval = RET_INVALID_FORMAT;
+	    printf(errstr_ped_format);
+	    goto wdist_ret_1;
 	  }
 	}
-      } else {
-	if (sscanf(bufptr, "%lf", &(pheno_d[ii])) != 1) {
-	  retval = RET_INVALID_FORMAT;
-	  printf(errstr_ped_format);
-	  goto wdist_ret_1;
-	}
       }
-      bufptr = next_item(bufptr);
+      if (ped_col_6) {
+        bufptr = next_item(bufptr);
+      }
       if (ped_col_7) {
 	bufptr = next_item(bufptr);
       }
