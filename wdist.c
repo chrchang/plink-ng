@@ -86,23 +86,22 @@ int dispmsg(int retval) {
 "  --keep [filename]\n"
 "  --remove [filename]\n"
 "  --filter [filename] [val] : Keep/remove/filter individuals (see PLINK\n"
-"                              documentation).\n\n"
+"                              documentation).\n"
+"  --mfilter [col] : Specify column number in multicolumn --filter file.\n\n"
 "  --make-pheno [filename] [val] : Specify binary phenotype, where cases have\n"
 "                                  the given value.  If the value is '*', all\n"
 "                                  individuals present in the phenotype file\n"
-"                                  are cases (and other individuals in the\n"
-"                                  .ped/.fam are controls).\n"
-"  --tail-pheno [Ltop] [Hbottom] : Form 'low' (control) and 'high' (case)"
-"                                  groups from continuous phenotype data,\n"
-"                                  throwing out the center.\n\n"
+"                                  are affected (and other individuals in the\n"
+"                                  .ped/.fam are unaffected).\n"
+"  --tail-pheno [Ltop] [Hbottom] : Form 'low' (unaffected) and 'high'\n"
+"                                  (affected) groups from continuous phenotype\n"
+"                                  data, throwing out the center.\n\n"
 "Supported calculations:\n"
-"  --distance [--keep-missing-pheno]\n"
+"  --distance\n"
 "    Outputs a lower-triangular table of (weighted) genetic distances.\n"
 "    The first row contains a single number with the distance between the first\n"
 "    two genotypes, the second row has the {genotype 1-genotype 3} and\n"
-"    {genotype 2-genotype 3} distances in that order, etc.\n"
-"    If modified by the --keep-missing-pheno flag, rows with 'missing'\n"
-"    phenotype are not thrown out.\n\n"
+"    {genotype 2-genotype 3} distances in that order, etc.\n\n"
 "  --groupdist [d] [iters]\n"
 "    Two-group genetic distance analysis, using delete-d jackknife with the\n"
 "    requested number of iterations.  Binary phenotype required.  (Not actually\n"
@@ -171,6 +170,125 @@ void qsort_str(char* lptr, int max_id_len, int min_idx, int max_idx) {
     qsort_str(lptr, max_id_len, pivot_idx + 1, max_idx);
   }
 }
+
+int qsort_partition_c(char* lptr, char* cptr, int max_id_len, int min_idx, int max_idx, int pivot_idx) {
+  char* pivot_ptr = &(lptr[pivot_idx * max_id_len]);
+  char* right_ptr = &(lptr[max_idx * max_id_len]);
+  char* store_ptr = &(lptr[min_idx * max_id_len]);
+  char* pivot_ptr_c = &(cptr[pivot_idx]);
+  char* right_ptr_c = &(cptr[max_idx]);
+  char* store_ptr_c = &(cptr[min_idx]);
+  char cc;
+  char* incr_ptr;
+  char* incr_ptr_c;
+  int si = min_idx;
+  strcpy(id_buf, pivot_ptr);
+  cc = *pivot_ptr_c;
+  strcpy(pivot_ptr, right_ptr);
+  *pivot_ptr_c = *right_ptr_c;
+  strcpy(right_ptr, id_buf);
+  *right_ptr_c = cc;
+  while (store_ptr < right_ptr) {
+    if (strcmp(store_ptr, right_ptr) < 0) {
+      store_ptr += max_id_len;
+      si++;
+    } else {
+      incr_ptr = store_ptr + max_id_len;
+      incr_ptr_c = store_ptr_c + 1;
+      while (incr_ptr < pivot_ptr) {
+	if (strcmp(incr_ptr, right_ptr) < 0) {
+	  strcpy(id_buf, incr_ptr);
+          cc = *incr_ptr_c;
+	  strcpy(incr_ptr, store_ptr);
+          *incr_ptr_c = *store_ptr_c;
+	  strcpy(store_ptr, id_buf);
+          *store_ptr_c++ = cc;
+	  store_ptr += max_id_len;
+	  si++;
+	}
+        incr_ptr += max_id_len;
+        incr_ptr_c++;
+      }
+      break;
+    }
+  }
+  strcpy(id_buf, store_ptr);
+  cc = *store_ptr_c;
+  strcpy(store_ptr, right_ptr);
+  *store_ptr_c = *right_ptr_c;
+  strcpy(right_ptr, id_buf);  
+  *right_ptr_c = cc;
+  return si;
+}
+
+void qsort_str_c(char* lptr, char* cptr, int max_id_len, int min_idx, int max_idx) {
+  int pivot_idx;
+  if (max_idx > min_idx) {
+    pivot_idx = qsort_partition_c(lptr, cptr, max_id_len, min_idx, max_idx, (min_idx + max_idx) / 2);
+    qsort_str_c(lptr, cptr, max_id_len, min_idx, pivot_idx - 1);
+    qsort_str_c(lptr, cptr, max_id_len, pivot_idx + 1, max_idx);
+  }
+}
+
+int qsort_partition_d(char* lptr, double* dptr, int max_id_len, int min_idx, int max_idx, int pivot_idx) {
+  char* pivot_ptr = &(lptr[pivot_idx * max_id_len]);
+  char* right_ptr = &(lptr[max_idx * max_id_len]);
+  char* store_ptr = &(lptr[min_idx * max_id_len]);
+  double* pivot_ptr_d = &(dptr[pivot_idx]);
+  double* right_ptr_d = &(dptr[max_idx]);
+  double* store_ptr_d = &(dptr[min_idx]);
+  double dxx;
+  char* incr_ptr;
+  double* incr_ptr_d;
+  int si = min_idx;
+  strcpy(id_buf, pivot_ptr);
+  dxx = *pivot_ptr_d;
+  strcpy(pivot_ptr, right_ptr);
+  *pivot_ptr_d = *right_ptr_d;
+  strcpy(right_ptr, id_buf);
+  *right_ptr_d = dxx;
+  while (store_ptr < right_ptr) {
+    if (strcmp(store_ptr, right_ptr) < 0) {
+      store_ptr += max_id_len;
+      si++;
+    } else {
+      incr_ptr = store_ptr + max_id_len;
+      incr_ptr_d = store_ptr_d + 1;
+      while (incr_ptr < pivot_ptr) {
+	if (strcmp(incr_ptr, right_ptr) < 0) {
+	  strcpy(id_buf, incr_ptr);
+          dxx = *incr_ptr_d;
+	  strcpy(incr_ptr, store_ptr);
+          *incr_ptr_d = *store_ptr_d;
+	  strcpy(store_ptr, id_buf);
+          *store_ptr_d++ = dxx;
+	  store_ptr += max_id_len;
+	  si++;
+	}
+        incr_ptr += max_id_len;
+        incr_ptr_d++;
+      }
+      break;
+    }
+  }
+  strcpy(id_buf, store_ptr);
+  dxx = *store_ptr_d;
+  strcpy(store_ptr, right_ptr);
+  *store_ptr_d = *right_ptr_d;
+  strcpy(right_ptr, id_buf);  
+  *right_ptr_d = dxx;
+  return si;
+}
+
+void qsort_str_d(char* lptr, double* dptr, int max_id_len, int min_idx, int max_idx) {
+  int pivot_idx;
+  if (max_idx > min_idx) {
+    pivot_idx = qsort_partition_d(lptr, dptr, max_id_len, min_idx, max_idx, (min_idx + max_idx) / 2);
+    qsort_str_d(lptr, dptr, max_id_len, min_idx, pivot_idx - 1);
+    qsort_str_d(lptr, dptr, max_id_len, pivot_idx + 1, max_idx);
+  }
+}
+
 
 int bsearch_str(char* lptr, int max_id_len, int min_idx, int max_idx) {
   int mid_idx;
@@ -323,7 +441,7 @@ inline int excluded(unsigned char* exclude_arr, int loc) {
   return exclude_arr[loc / 8] & (1 << (loc % 8));
 }
 
-int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, int mpheno_col, char* phenoname_str, int prune, int affection_01, int threads, double exponent, double min_maf, double geno_thresh, double mind_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type) {
+int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, int mpheno_col, char* phenoname_str, int prune, int affection_01, int threads, double exponent, double min_maf, double geno_thresh, double mind_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type) {
   FILE* pedfile = NULL;
   FILE* mapfile = NULL;
   FILE* famfile = NULL;
@@ -426,13 +544,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     phenofile = fopen(phenoname, "r");
     if (!phenofile) {
       printf("Error: Failed to open %s.\n", famname);
-      goto wdist_ret_0;
-    }
-  }
-  if (filter_type) {
-    filterfile = fopen(filtername, "r");
-    if (!filterfile) {
-      printf("Error: Failed to open %s.\n", filtername);
       goto wdist_ret_0;
     }
   }
@@ -687,7 +798,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       if (*tbuf == '\n') {
         continue;
       }
-      cptr = &(id_list[ii * max_pid_len]);
+      cptr = &(pid_list[ii * max_pid_len]);
       bufptr = tbuf;
       while ((*bufptr != ' ') && (*bufptr != '\t')) {
         *cptr++ = *bufptr++;
@@ -730,12 +841,31 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
       }
     }
+    if (tail_pheno) {
+      qsort_str_c(pid_list, phenor_c, max_pid_len, 0, pheno_lines - 1);
+    } else if (makepheno_str) {
+      qsort_str(pid_list, max_pid_len, 0, pheno_lines - 1);
+    } else {
+      qsort_str_d(pid_list, phenor_d, max_pid_len, 0, pheno_lines - 1);
+    }
+    fclose(phenofile);
+    phenofile = NULL;
   }
 
+  if (filter_type) {
+    filterfile = fopen(filtername, "r");
+    if (!filterfile) {
+      printf("Error: Failed to open %s.\n", filtername);
+      goto wdist_ret_1;
+    }
+  }
   // ----- filter load, first pass -----
   if (filter_type) {
     if (filter_type == FILTER_CUSTOM) {
       jj = strlen(filterval);
+      if (!mfilter_col) {
+        mfilter_col = 1;
+      }
     }
     while (fgets(tbuf, MAXLINELEN, filterfile) != NULL) {
       if (*tbuf == '\n') {
@@ -764,10 +894,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         max_id_len = ii;
       }
       if (filter_type == FILTER_CUSTOM) {
-        while ((*bufptr == ' ') || (*bufptr == '\t')) {
-          bufptr++;
+        for (kk = 0; kk < mfilter_col; kk++) {
+          bufptr = next_item(bufptr);
         }
-        if ((*bufptr == '\n') || (*bufptr == '\0')) {
+	if ((!bufptr) || (*bufptr == '\n') || (*bufptr == '\0')) {
 	  retval = RET_INVALID_FORMAT;
 	  printf("Error: Improperly formatted filter file.\n");
 	  goto wdist_ret_1;
@@ -819,8 +949,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         *cptr++ = *bufptr++;
       }
       if (filter_type == FILTER_CUSTOM) {
-        while ((*bufptr == ' ') || (*bufptr == '\t')) {
-          bufptr++;
+        for (kk = 0; kk < mfilter_col; kk++) {
+          bufptr = next_item(bufptr);
         }
         if (!strncmp(filterval, bufptr, jj)) {
           ii++;
@@ -1721,6 +1851,7 @@ int main(int argc, char* argv[]) {
   char* bubble;
   int threads = 2;
   int filter_type = 0;
+  int mfilter_col = 0;
   int tail_pheno = 0;
   int prune = 0;
   double tail_bottom;
@@ -2017,11 +2148,15 @@ int main(int argc, char* argv[]) {
       cur_arg += 3;
     } else if (!strcmp(argptr, "--keep")) {
       if (cur_arg == argc - 1) {
-        printf("Error: missing --keep parameter.  Displaying general-purpose help.\n\n");
+        printf("Error: Missing --keep parameter.  Displaying general-purpose help.\n\n");
         return dispmsg(RET_HELP);
       }
       if (filter_type) {
-        printf("Error: More than one filtering flag.\n");
+        if (filter_type == 1) {
+          printf("Error: Duplicate --keep flag.\n");
+        } else {
+          printf("Error: --keep + --remove/--filter not supported.\n");
+        }
         return dispmsg(RET_INVALID_CMDLINE);
       }
       filter_type = FILTER_KEEP;
@@ -2033,11 +2168,15 @@ int main(int argc, char* argv[]) {
       cur_arg += 2;
     } else if (!strcmp(argptr, "--remove")) {
       if (cur_arg == argc - 1) {
-        printf("Error: missing --remove parameter.  Displaying general-purpose help.\n\n");
+        printf("Error: Missing --remove parameter.  Displaying general-purpose help.\n\n");
         return dispmsg(RET_HELP);
       }
       if (filter_type) {
-        printf("Error: More than one filtering flag.\n");
+        if (filter_type == 2) {
+          printf("Error: Duplicate --remove flag.\n");
+        } else {
+          printf("Error: --remove + --keep/--filter not supported.\n");
+        }
         return dispmsg(RET_INVALID_CMDLINE);
       }
       filter_type = FILTER_REMOVE;
@@ -2053,7 +2192,11 @@ int main(int argc, char* argv[]) {
         return dispmsg(RET_HELP);
       }
       if (filter_type) {
-        printf("Error: More than one filtering flag.\n");
+        if (filter_type == 3) {
+          printf("Error: Duplicate --filter flag.\n");
+        } else {
+          printf("Error: --filter + --keep/--remove not supported.\n");
+        }
         return dispmsg(RET_INVALID_CMDLINE);
       }
       filter_type = FILTER_CUSTOM;
@@ -2064,6 +2207,21 @@ int main(int argc, char* argv[]) {
       strcpy(filtername, argv[cur_arg + 1]);
       filterval = argv[cur_arg + 2];
       cur_arg += 3;
+    } else if (!strcmp(argptr, "--mfilter")) {
+      if (cur_arg == argc - 1) {
+        printf("Error: Missing --mfilter parameter.  Displaying general-purpose help.\n\n");
+        return dispmsg(RET_HELP);
+      }
+      if (mfilter_col) {
+        printf("Error: Duplicate --mfilter flag.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      mfilter_col = atoi(argv[cur_arg + 1]);
+      if (mfilter_col < 1) {
+        printf("Error: Invalid --mfilter parameter.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      cur_arg += 2;
     } else if (!strcmp(argptr, "--memory")) {
       if (cur_arg == argc - 1) {
         printf("Error: Missing --memory parameter.  Displaying general-purpose help.\n\n");
@@ -2173,12 +2331,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 1;
     } else if (!strcmp(argptr, "--distance")) {
       if (cur_arg != argc - 1) {
-        if ((cur_arg == argc - 2) && !strcmp(argv[cur_arg + 1], "--keep-missing-pheno")) {
-          
-        } else {
-          printf("Error: invalid parameter after --distance.  Displaying general-purpose help.\n");
-          return dispmsg(RET_HELP);
-        }
+	printf("Error: invalid parameter after --distance.  Displaying general-purpose help.\n");
+	return dispmsg(RET_HELP);
       }
       cur_arg = argc;
       calculation_type = CALC_DISTANCE;
@@ -2236,7 +2390,7 @@ int main(int argc, char* argv[]) {
 
   // famname[0] indicates binary vs. text
   // filtername[0] indicates existence of filter
-  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, mpheno_col, phenoname_str, prune, affection_01, threads, exponent, min_maf, geno_thresh, mind_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type);
+  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, mpheno_col, phenoname_str, prune, affection_01, threads, exponent, min_maf, geno_thresh, mind_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type);
   // gsl_rng_free(rg);
   free(wkspace);
   return dispmsg(retval);
