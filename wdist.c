@@ -33,6 +33,7 @@
 #define MAXLINELEN 65536
 
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
+const char errstr_bim_format[] = "Error: Improperly formatted .bim file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 char tbuf[MAXLINELEN];
 int iwt[256];
@@ -333,7 +334,7 @@ int bsearch_fam_indiv(char* lptr, int max_id_len, int filter_lines, char* fam_id
   return bsearch_str(lptr, max_id_len, 0, filter_lines - 1);
 }
 
-int is_contained(char* lptr, int max_id_len, int filter_lines, char* fam_id, char* indiv_id) {
+inline int is_contained(char* lptr, int max_id_len, int filter_lines, char* fam_id, char* indiv_id) {
   return (bsearch_fam_indiv(lptr, max_id_len, filter_lines, fam_id, indiv_id) != -1);
 }
 
@@ -1005,7 +1006,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 
   if (binary_files) {
     jj = 0; // line count in .bed
-    // ----- .bim load, first pass -----
+    // ----- .fam load, first pass -----
     while (fgets(tbuf, MAXLINELEN, famfile) != NULL) {
       if (tbuf[0] > ' ') {
         if (tbuf[0] != '#') {
@@ -1023,13 +1024,15 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           } else {
             ii = 1;
           }
-          if (ii && phenoname[0]) {
-            if (makepheno_str || (!prune)) {
-              line_locs[ped_linect++] = jj;
-            } else {
-              if (is_contained(pid_list, max_pid_len, pheno_lines, tbuf, cptr)) {
-                line_locs[ped_linect++] = jj;
-              }
+          if (phenoname[0]) {
+            if (ii) {
+	      if (makepheno_str || (!prune)) {
+		line_locs[ped_linect++] = jj;
+	      } else {
+		if (is_contained(pid_list, max_pid_len, pheno_lines, tbuf, cptr)) {
+		  line_locs[ped_linect++] = jj;
+		}
+	      }
             }
           } else if (ii || (!ped_linect)) {
 	    if (ped_col_1) {
@@ -1044,7 +1047,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    }
 	    if (!bufptr) {
 	      retval = RET_INVALID_FORMAT;
-	      printf(errstr_ped_format);
+	      printf(errstr_fam_format);
 	      goto wdist_ret_1;
 	    }
             if (!ped_linect) {
@@ -1058,13 +1061,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             }
             if (ii) {
 	      if (prune && affection) {
-                if ((*bufptr != '-') && (affection_01 || (bufptr[1] != '0'))) {
+                if ((*bufptr != '-') && (affection_01 || (*bufptr != '0'))) {
                   line_locs[ped_linect++] = jj;
                 }
-	      } else if (tail_pheno && (!phenoname[0])) {
+	      } else if (tail_pheno) {
                 if (sscanf(bufptr, "%lf", &dxx) != 1) {
                   retval = RET_INVALID_FORMAT;
-                  printf(errstr_ped_format);
+                  printf(errstr_fam_format);
                   goto wdist_ret_1;
                 }
                 if ((dxx <= tail_bottom) || (dxx > tail_top)) {
@@ -1080,19 +1083,107 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
       if (!tbuf[MAXLINELEN - 1]) {
         retval = RET_INVALID_FORMAT;
-        printf("Error: Excessively long line in .bim file (max %d chars).\n", MAXLINELEN - 3);
+        printf("Error: Excessively long line in .fam file (max %d chars).\n", MAXLINELEN - 3);
         goto wdist_ret_1;
       }
     }
     if (ped_linect < 2) {
       retval = RET_INVALID_FORMAT;
-      printf("Error: Less than two valid people in .bim file.\n");
+      printf("Error: Less than two valid people in .fam file.\n");
       goto wdist_ret_1;
     } else if (ped_linect > max_people) {
       retval = RET_INVALID_FORMAT;
-      printf("Error: Too many people in .bim file for this algorithm.\n");
+      printf("Error: Too many people in .fam file for this algorithm.\n");
       goto wdist_ret_1;
     }
+
+    if (makepheno_str || affection || tail_pheno) {
+      pheno_c = (char*)malloc(ped_linect * sizeof(char));
+      if (!pheno_c) {
+	goto wdist_ret_1;
+      }
+    } else {
+      pheno_d = (double*)malloc(ped_linect * sizeof(double));
+      if (!pheno_d) {
+	goto wdist_ret_1;
+      }
+    }
+
+    rewind(famfile);
+    // ----- .fam load, second pass -----
+    ii = 0; // raw line number
+    jj = 0; // loaded lines
+    while (fgets(tbuf, MAXLINELEN, famfile) != NULL) {
+      if (tbuf[0] > ' ') {
+        if (tbuf[0] != '#') {
+	  if (jj == ped_linect) {
+	    break;
+	  }
+	  if (line_locs[jj] > ii) {
+	    ii++;
+	    continue;
+	  }
+
+	  bufptr = next_item(tbuf);
+          if (phenoname[0]) {
+	    if (!ped_col_1) {
+	      cptr = tbuf;
+	    } else {
+	      cptr = bufptr;
+	    }
+	    kk = bsearch_fam_indiv(pid_list, max_pid_len, pheno_lines, tbuf, cptr);
+            if (makepheno_str) {
+              if (kk == -1) {
+                pheno_c[jj] = 0;
+              } else {
+                pheno_c[jj] = 1;
+              }
+            } else if (affection || tail_pheno) {
+              pheno_c[jj] = phenor_c[kk];
+            } else {
+              pheno_d[jj] = phenor_d[kk];
+            }
+          } else {
+	    if (ped_col_1) {
+	      bufptr = next_item(bufptr);
+	    }
+	    if (ped_col_34) {
+	      bufptr = next_item(bufptr);
+	      bufptr = next_item(bufptr);
+	    }
+	    if (ped_col_5) {
+	      bufptr = next_item(bufptr);
+	    }
+            if (affection) {
+              if ((*bufptr == '-') || ((!affection_01) && (*bufptr == '0'))) {
+                pheno_c[jj] = -1;
+              } else if (affection_01) {
+                pheno_c[jj] = *bufptr - '0';
+              } else {
+                pheno_c[jj] = *bufptr - '1';
+              }
+            } else if (tail_pheno) {
+              sscanf(bufptr, "%lf", &dxx);
+              if (dxx <= tail_bottom) {
+                pheno_c[jj] = 0;
+              } else {
+                pheno_c[jj] = 1;
+              }
+            } else {
+              if (sscanf(bufptr, "%lf", &dxx) != 1) {
+                retval = RET_INVALID_FORMAT;
+                printf(errstr_fam_format);
+                goto wdist_ret_1;
+              }
+              pheno_d[jj] = dxx;
+            }
+          }
+	  ii++;
+	  jj++;
+        }
+      }
+    }
+
     if (fread(pedbuf, 1, 3, pedfile) < 3) {
       retval = RET_READ_FAIL;
       goto wdist_ret_1;
@@ -1107,34 +1198,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       goto wdist_ret_1;
     }
     memset(marker_allele_cts, 0, map_linect * 2 * sizeof(int));
-
-    if (makepheno_str || affection || tail_pheno) {
-      pheno_c = (char*)malloc(ped_linect * sizeof(char));
-      if (!pheno_c) {
-	goto wdist_ret_1;
-      }
-    } else {
-      pheno_d = (double*)malloc(ped_linect * sizeof(double));
-      if (!pheno_d) {
-	goto wdist_ret_1;
-      }
-    }
-    rewind(famfile);
-    // ----- .bim load, second pass -----
-    ii = 0; // raw line number
-    jj = 0; // loaded lines
-    while (fgets(tbuf, MAXLINELEN, famfile) != NULL) {
-      if (jj == ped_linect) {
-        break;
-      }
-      if (line_locs[jj] > ii) {
-        ii++;
-        continue;
-      }
-      // TODO: stuff
-      ii++;
-      jj++;
-    }
 
     person_exclude = (unsigned char*)malloc(((ped_linect + 7) / 8) * sizeof(char));
     if (!person_exclude) {
@@ -2424,6 +2487,10 @@ int main(int argc, char* argv[]) {
   }
   if (calculation_type == CALC_NONE) {
     return dispmsg(RET_HELP);
+  }
+  if (prune && (!phenoname[0]) && (!ped_col_6)) {
+    printf("Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.\n");
+    return dispmsg(RET_INVALID_CMDLINE);
   }
   if (exponent == 0.0) {
     for (ii = 0; ii < 256; ii += 1) {
