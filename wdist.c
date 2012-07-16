@@ -3,6 +3,8 @@
 #include <string.h>
 #include <math.h>
 #include <pthread.h>
+#include <time.h>
+// #include "gsl/rng/gsl_rng.h"
 
 #define RET_SUCCESS 0
 #define RET_HELP 1
@@ -12,22 +14,31 @@
 #define RET_CALC_NOT_YET_SUPPORTED 5
 #define RET_INVALID_CMDLINE 6
 #define RET_WRITE_FAIL 7
+#define RET_READ_FAIL 8
+
+#define FILTER_KEEP 1
+#define FILTER_REMOVE 2
+#define FILTER_CUSTOM 3
 
 #define CALC_NONE -1
 #define CALC_DISTANCE 0
 
 #define MAX_THREADS 64
-#define MAPBUFSIZE 64
+#define MAPBUFSIZE 128
 #define PEDBUFBASE 1024
 #define FNAMESIZE 2048
-#define MALLOC_DEFAULT_MB 1984
+#define MALLOC_DEFAULT_MB 2176
 #define IDLENGTH 16
+// size of generic text line load buffer.  .ped lines can of course be longer
+#define MAXLINELEN 65536
 
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
+char tbuf[MAXLINELEN];
 int iwt[256];
-char* wkspace;
+unsigned char* wkspace;
 long long malloc_size_mb = MALLOC_DEFAULT_MB;
+// gsl_rng* rg;
 
 // TODO:
 // distance MAF histograms
@@ -37,7 +48,7 @@ int dispmsg(int retval) {
   switch(retval) {
   case RET_HELP:
     printf(
-"WDIST weighted genetic distance calculator, v0.2.0 (15 July 2012)\n"
+"WDIST weighted genetic distance calculator, v0.2.0 (16 July 2012)\n"
 "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
 "wdist <flags> {calculation}\n\n"
 "Supported flags:\n"
@@ -47,6 +58,7 @@ int dispmsg(int retval) {
 "  --no-fid         : .ped file does not contain column 1 (family ID).\n"
 "  --no-parents     : .ped file does not contain columns 3-4 (parents).\n"
 "  --no-sex         : .ped file does not contain column 5 (sex).\n"
+"  --no-pheno       : .ped file does not contain column 6 (phenotype).\n"
 "  --liability      : .ped file does contain liability (column 7).\n"
 "  --bfile [prefix] : Specify .bed/.bim/.fam prefix (default 'wdist').\n"
 "  --bed [filename] : Specify .bed file.\n"
@@ -54,21 +66,35 @@ int dispmsg(int retval) {
 "  --fam [filename] : Specify .fam file.\n"
 "  --out [prefix]   : Specify prefix for output files (default 'wdist').\n"
 "  --silent         : Suppress output to console.\n"
+"  --pheno [fname]  : Specify alternate phenotype.\n"
+"  --mpheno [col]   : Specify phenotype column number in --pheno file.\n"
+"  --pheno-name [c] : If phenotype file has a header row, use column with the\n"
+"                   : given name.\n"
+"  --prune          : Remove individuals with missing phenotypes.\n"
 "  --1              : .ped file affection phenotypes are interpreted as\n"
 "                     -9 = missing, 0 = unaffected, 1 = affected (instead of\n"
 "                     -9/0 = missing, 1 = unaffected, 2 = affected)\n"
-    // --map3 implicitly supported via autodetection
+// --map3 implicitly supported via autodetection
 "  --maf [val]      : Minor allele frequency minimum threshold (default 0.01).\n"
 "  --geno [val]     : Maximum per-SNP missing (default 0.1).\n"
 "  --mind [val]     : Maximum per-person missing (default 0.1).\n"
-"  --memory [val]   : Size, in MB, of initial malloc attempt (default 1984).\n"
+"  --rseed [val]    : Set random number seed (relevant for missing genotypes).\n"
+"  --memory [val]   : Size, in MB, of initial malloc attempt (default 2176).\n"
 "  --threads [val]  : Maximum number of concurrent threads (default 2).\n"
 "  --exponent [val] : When computing genetic distances, each locus has a weight\n"
 "                     of (2q(1-q))^{-val}, where q is the observed MAF.\n\n"
 "  --keep [filename]\n"
 "  --remove [filename]\n"
-"  --filter [filename] [val]: Keep/remove/filter individuals (see PLINK\n"
-"                             documentation).\n\n"
+"  --filter [filename] [val] : Keep/remove/filter individuals (see PLINK\n"
+"                              documentation).\n\n"
+"  --make-pheno [filename] [val] : Specify binary phenotype, where cases have\n"
+"                                  the given value.  If the value is '*', all\n"
+"                                  individuals present in the phenotype file\n"
+"                                  are cases (and other individuals in the\n"
+"                                  .ped/.fam are controls).\n"
+"  --tail-pheno [Ltop] [Hbottom] : Form 'low' (control) and 'high' (case)"
+"                                  groups from continuous phenotype data,\n"
+"                                  throwing out the center.\n\n"
 "Supported calculations:\n"
 "  --distance [--keep-missing-pheno]\n"
 "    Outputs a lower-triangular table of (weighted) genetic distances.\n"
@@ -76,13 +102,12 @@ int dispmsg(int retval) {
 "    two genotypes, the second row has the {genotype 1-genotype 3} and\n"
 "    {genotype 2-genotype 3} distances in that order, etc.\n"
 "    If modified by the --keep-missing-pheno flag, rows with 'missing'\n"
-"    phenotype are not thrown out.\n\n"    
+"    phenotype are not thrown out.\n\n"
 "  --groupdist [d] [iters]\n"
-"  --groupdist [d] [iters] [Ltop] [Hbottom]\n"
 "    Two-group genetic distance analysis, using delete-d jackknife with the\n"
-"    requested number of iterations.  For a quantitative trait, one group has\n"
-"    phenotype value less than or equal to Ltop, and the other has phenotype\n"
-"    greater than Hbottom.  (Not actually implemented yet, but soon will be.)\n"
+"    requested number of iterations.  Binary phenotype required.  (Not actually\n"
+"    implemented yet, but soon will be.)\n\n"
+
     // "  --histogram\n"
     // "  --regress\n\n"
 	   );
@@ -93,14 +118,20 @@ int dispmsg(int retval) {
   case RET_WRITE_FAIL:
     printf("Error: File write failure.\n");
     break;
+  case RET_READ_FAIL:
+    printf("Error: File read failure.\n");
+    break;
   }
   return retval;
 }
 
-int max_id_len = 4;
+inline int is_space_or_eoln(char cc) {
+  return ((cc == ' ') || (cc == '\t') || (cc == '\n') || (cc == '\0'));
+}
+
 char* id_buf = NULL;
 
-int qsort_partition(char* lptr, int min_idx, int max_idx, int pivot_idx) {
+int qsort_partition(char* lptr, int max_id_len, int min_idx, int max_idx, int pivot_idx) {
   char* pivot_ptr = &(lptr[pivot_idx * max_id_len]);
   char* right_ptr = &(lptr[max_idx * max_id_len]);
   char* store_ptr = &(lptr[min_idx * max_id_len]);
@@ -132,13 +163,59 @@ int qsort_partition(char* lptr, int min_idx, int max_idx, int pivot_idx) {
   return si;
 }
 
-void qsort_str(char* lptr, int min_idx, int max_idx) {
+void qsort_str(char* lptr, int max_id_len, int min_idx, int max_idx) {
   int pivot_idx;
   if (max_idx > min_idx) {
-    pivot_idx = qsort_partition(lptr, min_idx, max_idx, (min_idx + max_idx) / 2);
-    qsort_str(lptr, min_idx, pivot_idx - 1);
-    qsort_str(lptr, pivot_idx + 1, max_idx);
+    pivot_idx = qsort_partition(lptr, max_id_len, min_idx, max_idx, (min_idx + max_idx) / 2);
+    qsort_str(lptr, max_id_len, min_idx, pivot_idx - 1);
+    qsort_str(lptr, max_id_len, pivot_idx + 1, max_idx);
   }
+}
+
+int bsearch_str(char* lptr, int max_id_len, int min_idx, int max_idx) {
+  int mid_idx;
+  int ii;
+  if (max_idx < min_idx) {
+    return -1;
+  }
+  mid_idx = (min_idx + max_idx) / 2;
+  ii = strcmp(id_buf, &(lptr[mid_idx * max_id_len]));
+  if (ii) {
+    if (ii < 0) {
+      return bsearch_str(lptr, max_id_len, min_idx, mid_idx - 1);
+    } else {
+      return bsearch_str(lptr, max_id_len, mid_idx + 1, max_idx);
+    }
+  } else {
+    return mid_idx;
+  }
+}
+
+int bsearch_fam_indiv(char* lptr, int max_id_len, int filter_lines, char* fam_id, char* indiv_id) {
+  int ii = 0;
+  int jj = 0;
+  char* sptr = fam_id;
+  while (!is_space_or_eoln(*sptr)) {
+    sptr++;
+    ii++;
+  }
+  sptr = indiv_id;
+  while (!is_space_or_eoln(*sptr)) {
+    sptr++;
+    jj++;
+  }
+  if (ii + jj + 2 > max_id_len) {
+    return -1;
+  }
+  memcpy(id_buf, fam_id, ii);
+  id_buf[ii] = ' ';
+  memcpy(&(id_buf[ii + 1]), indiv_id, jj);
+  id_buf[ii + jj + 1] = '\0';
+  return bsearch_str(lptr, max_id_len, 0, filter_lines - 1);
+}
+
+int is_contained(char* lptr, int max_id_len, int filter_lines, char* fam_id, char* indiv_id) {
+  return (bsearch_fam_indiv(lptr, max_id_len, filter_lines, fam_id, indiv_id) != -1);
 }
 
 int marker_code(char* sptr) {
@@ -183,60 +260,46 @@ char* next_item(char* sptr) {
   return sptr;
 }
 
-void fill_weights(double* weights, int* marker_allele_cts, double exponent, double min_maf) {
+void fill_weights(double* weights, double* mafs, double exponent) {
   int ii;
   int jj;
   int kk;
   int mm;
   int nn;
-  int denom;
-  double maf;
   double wt[4];
   double twt[3];
   for (ii = 0; ii < 4; ii += 1) {
-    denom = marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1];
-    if (denom) {
-      maf = ((double)marker_allele_cts[ii * 2]) / ((double)denom);
-      if (maf > 0.5) {
-        maf = 1.0 - maf;
-      }
-      if (maf < min_maf) {
-        maf = min_maf;
-      }
-    } else {
-      maf = 0.5;
-    }
-    wt[ii] = pow(2.0 * maf * (1.0 - maf), -exponent);
+    wt[ii] = pow(2.0 * mafs[ii] * (1.0 - mafs[ii]), -exponent);
   }
   nn = 0;
   for (ii = 0; ii < 4; ii += 1) {
-    if (ii % 2) {
+    if ((ii % 4 == 1) || (ii % 4 == 2)) {
       twt[0] = wt[3];
-    } else if (ii) {
+    } else if (ii % 4 == 3) {
       twt[0] = wt[3] * 2;
     } else {
       twt[0] = 0;
     }
     for (jj = 0; jj < 4; jj += 1) {
-      if (jj % 2) {
+      if ((jj % 4 == 1) || (jj % 4 == 2)) {
         twt[1] = twt[0] + wt[2];
-      } else if (jj) {
+      } else if (jj % 4 == 3) {
         twt[1] = twt[0] + 2 * wt[2];
       } else {
         twt[1] = twt[0];
       }
       for (kk = 0; kk < 4; kk += 1) {
-        if (kk % 2) {
+        if ((kk % 4 == 1) || (kk % 4 == 2)) {
           twt[2] = twt[1] + wt[1];
-	} else if (kk) {
+	} else if (kk % 4 == 3) {
           twt[2] = twt[1] + 2 * wt[1];
         } else {
           twt[2] = twt[1];
         }
         for (mm = 0; mm < 4; mm += 1) {
-          if (mm % 2) {
+          if ((mm % 4 == 1) || (mm % 4 == 2)) {
             *weights++ = twt[2] + wt[0];
-          } else if (mm) {
+          } else if (mm % 4 == 3) {
             *weights++ = twt[2] + 2 * wt[0];
           } else {
             *weights++ = twt[2];
@@ -247,7 +310,7 @@ void fill_weights(double* weights, int* marker_allele_cts, double exponent, doub
   }
 }
 
-void exclude(char* exclude_arr, int loc, int* exclude_ct) {
+void exclude(unsigned char* exclude_arr, int loc, int* exclude_ct) {
   int maj = loc / 8;
   int min = 1 << (loc % 8);
   if (!(exclude_arr[maj] & min)) {
@@ -256,11 +319,16 @@ void exclude(char* exclude_arr, int loc, int* exclude_ct) {
   }
 }
 
-int wdist(char* pedname, char* mapname, char* famname, char* filtername, int filter_type, char* filterval, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_7, int affection_01, int threads, double exponent, double min_maf, double geno_thresh, double mind_thresh, char* outname, int calculation_type, char* ep1, char* ep2, char* ep3, char* ep4) {
+inline int excluded(unsigned char* exclude_arr, int loc) {
+  return exclude_arr[loc / 8] & (1 << (loc % 8));
+}
+
+int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, int mpheno_col, char* phenoname_str, int prune, int affection_01, int threads, double exponent, double min_maf, double geno_thresh, double mind_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type) {
   FILE* pedfile = NULL;
   FILE* mapfile = NULL;
   FILE* famfile = NULL;
   FILE* outfile = NULL;
+  FILE* phenofile = NULL;
   FILE* filterfile = NULL;
   FILE* bedtmpfile = NULL;
   FILE* bimtmpfile = NULL;
@@ -269,48 +337,52 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
   int map_linect4;
   char* outname_end;
   char mapbuf[MAPBUFSIZE];
-  char* pedbuf = NULL;
-  char* marker_exclude = NULL;
+  unsigned char* pedbuf = NULL;
+  unsigned char* marker_exclude = NULL;
   long long* line_locs = NULL;
   int max_people;
   int pedbuflen;
   int ped_recalc_len = 0;
   char* fgets_return;
   int ped_linect = 0;
+  int ped_linect4;
   int ii;
   int jj;
   int kk;
   int mm;
   int nn;
-  int* marker_chrom = NULL;
-  id_string* marker_id = NULL;
-  int* marker_pos = NULL;
+  int oo;
+  int pp;
+  double dxx;
+  // int* marker_chrom = NULL;
+  // id_string* marker_id = NULL;
+  // int* marker_pos = NULL;
   char* marker_alleles = NULL;
   char* marker_alleles_tmp = NULL;
   int* marker_allele_cts = NULL;
+  int* person_missing_cts = NULL;
   char* bufptr;
-  char* person_exclude = NULL;
+  unsigned char* person_exclude = NULL;
   int retval;
   int map_cols = 3;
   int affection = 0;
-  double* ped_pheno = NULL;
-  int* ped_phenoi = NULL;
-  char* ped_geno = NULL;
-  char* gptr;
-  char* gptr2;
+  double* phenor_d = NULL;
+  double* pheno_d = NULL;
+  char* phenor_c = NULL;
+  char* pheno_c = NULL;
+  unsigned char* ped_geno = NULL;
+  unsigned char* gptr;
+  char* cptr;
   int* iwptr;
   int* iptr;
-  double* wptr;
   int* idists;
   double* dists;
   double weights[256];
-  int dists_alloc = 0;
+  long long dists_alloc = 0;
+  long long ped_geno_size;
   int geno_window_size;
   int windows_reqd;
-  int window_num;
   int smallbuflen;
-  int cur_window_size;
-  int cur_window_size4;
   char cc;
   double* dist_ptr;
   int last_tell;
@@ -320,8 +392,16 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
   int mind_int_thresh;
   int marker_exclude_ct = 0;
   int person_exclude_ct = 0;
+  int pheno_lines = 0;
+  int pheno_header = 0;
+  int makepheno_all = 0;
   int filter_lines = 0;
+  int snp_major = 0;
+  int max_pid_len = 0;
+  int max_id_len = 4;
+  char* pid_list = NULL;
   char* id_list = NULL;
+  double maf_buf[4];
 
   retval = RET_OPENFAIL;
   pedfile = fopen(pedname, "r");
@@ -342,6 +422,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
       goto wdist_ret_0;
     }
   }
+  if (phenoname[0]) {
+    phenofile = fopen(phenoname, "r");
+    if (!phenofile) {
+      printf("Error: Failed to open %s.\n", famname);
+      goto wdist_ret_0;
+    }
+  }
   if (filter_type) {
     filterfile = fopen(filtername, "r");
     if (!filterfile) {
@@ -350,7 +437,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
     }
   }
   outname_end = outname;
-  while (*outname_end++);
+  while (*outname_end) {
+    outname_end++;
+  }
   strcpy(outname_end, ".dist");
   outfile = fopen(outname, "w");
   if (!outfile) {
@@ -359,11 +448,16 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
   }
   retval = RET_NOMEM;
 
+  // note that this actually only allocates up to half of the main workspace to
+  // the distance array, because of the difference between n(n-1)/2 and n^2.
   if (exponent == 0.0) {
     max_people = (int)sqrt((malloc_size_mb * 1048576) / sizeof(int));
   } else {
     max_people = (int)sqrt((malloc_size_mb * 1048576) / sizeof(double));
   }
+
+  // ----- .map/.bim load, first pass -----
+  mapbuf[MAPBUFSIZE - 1] = ' ';
   while (fgets(mapbuf, MAPBUFSIZE, mapfile) != NULL) {
     if (mapbuf[0] > ' ') {
       if (!map_linect) {
@@ -377,13 +471,20 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
 	if (!bufptr) {
 	  retval = RET_INVALID_FORMAT;
 	  printf(errstr_map_format);
-	  goto wdist_ret_4;
+	  goto wdist_ret_1;
 	}
 	if (*bufptr > ' ') {
 	  map_cols = 4;
 	}
       }
       map_linect += 1;
+    }
+    while (!mapbuf[MAPBUFSIZE - 1]) {
+      if (mapbuf[MAPBUFSIZE - 2] == '\n') {
+        break;
+      }
+      mapbuf[MAPBUFSIZE - 1] = ' ';
+      fgets(mapbuf, MAPBUFSIZE, mapfile);
     }
   }
   if (!map_linect) {
@@ -392,19 +493,20 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
     goto wdist_ret_0;
   }
   rewind(mapfile);
-  marker_exclude = (char*)malloc(((map_linect + 7) / 8) * sizeof(char));
+  marker_exclude = (unsigned char*)malloc(((map_linect + 7) / 8) * sizeof(char));
   if (!marker_exclude) {
-    goto wdist_ret_4;
+    goto wdist_ret_1;
   }
   memset(marker_exclude, 0, ((map_linect + 7) / 8) * sizeof(char));
   if (binary_files) {
-    pedbuflen = (map_linect + 3) / 4;
+    map_linect4 = (map_linect + 3) / 4;
+    pedbuflen = map_linect4;
   } else {
     pedbuflen = map_linect * 5 + PEDBUFBASE;
   }
-  pedbuf = (char*)malloc(pedbuflen * sizeof(char));
+  pedbuf = (unsigned char*)malloc(pedbuflen * sizeof(char));
   if (!pedbuf) {
-    goto wdist_ret_4;
+    goto wdist_ret_1;
   }
   // marker_chrom = (int*)malloc(map_linect * sizeof(int));
   // if (!marker_chrom) {
@@ -419,6 +521,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
   //   goto wdist_ret_2;
   // }
 
+  // ----- .map/.bim load, second pass -----
   for (ii = 0; ii < map_linect; ii += 1) {
     do {
       fgets(mapbuf, MAPBUFSIZE, mapfile);
@@ -428,7 +531,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
     if (!bufptr) {
       retval = RET_INVALID_FORMAT;
       printf(errstr_map_format);
-      goto wdist_ret_4;
+      goto wdist_ret_1;
     }
     // cur_item(marker_id[ii], bufptr);
     bufptr = next_item(bufptr);
@@ -438,52 +541,236 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
     if (!bufptr) {
       retval = RET_INVALID_FORMAT;
       printf(errstr_map_format);
-      goto wdist_ret_4;
+      goto wdist_ret_1;
     }
     if (*bufptr == '-') {
       exclude(marker_exclude, ii, &marker_exclude_ct);
     }
     // marker_pos[ii] = atoi(bufptr);
   }
-  if (filter_type) {
-    pedbuf[pedbuflen - 1] = ' ';
-    if (filter_type == 3) {
-      jj = strlen(filterval);
+
+  tbuf[MAXLINELEN - 1] = ' ';
+  // ----- phenotype file load, first pass -----
+  if (phenofile) {
+    if (makepheno_str) {
+      if ((makepheno_str[0] == '*') && (makepheno_str[1] == '\0')) {
+        makepheno_all = 1;
+      } else {
+        kk = strlen(makepheno_str);
+      }
     }
-    while (fgets(pedbuf, pedbuflen, filterfile) != NULL) {
-      if (*pedbuf == '\n') {
+    while (fgets(tbuf, MAXLINELEN, phenofile) != NULL) {
+      if (*tbuf == '\n') {
         continue;
       }
-      bufptr = pedbuf;
+      bufptr = tbuf;
       ii = 0;
-      while ((*bufptr != ' ') && (*bufptr != '\t') && (*bufptr != '\n') && (*bufptr)) {
+      jj = 0;
+      while (!is_space_or_eoln(*bufptr)) {
         ii++;
         bufptr++;
+      }
+      if ((*bufptr == '\n') || (*bufptr == '\0')) {
+        retval = RET_INVALID_FORMAT;
+        printf("Error: Improperly formatted phenotype file.\n");
+        goto wdist_ret_1;
       }
       while ((*bufptr == ' ') || (*bufptr == '\t')) {
         bufptr++;
       }
-      while ((*bufptr != ' ') && (*bufptr != '\t') && (*bufptr != '\n') && (*bufptr)) {
+      cptr = bufptr;
+      while (!is_space_or_eoln(*bufptr)) {
+        jj++;
+        bufptr++;
+      }
+      if (ii + jj + 2 > max_pid_len) {
+        max_pid_len = ii + jj + 2;
+      }
+      if (!pheno_lines) {
+        if ((ii == 3) && (jj == 3) && (!memcmp("FID", tbuf, 3)) && (!memcmp("IID", cptr, 3))) {
+          pheno_header = 1;
+          pheno_lines = -1;
+          if (phenoname_str) {
+            jj = strlen(phenoname_str);
+            do {
+              bufptr = next_item(bufptr);
+              if ((!bufptr) || (*bufptr == '\n') || (*bufptr == '\0')) {
+		retval = RET_INVALID_FORMAT;
+		printf("Error: --pheno-name header not found.\n");
+		goto wdist_ret_1;
+              }
+              mpheno_col++;
+              ii = 0;
+              cptr = bufptr;
+              while (!is_space_or_eoln(*bufptr)) {
+                bufptr++;
+                ii++;
+              }
+	      if (ii != jj) {
+		continue;
+	      }
+            } while (memcmp(cptr, phenoname_str, ii));
+            phenoname_str = NULL;
+          }
+        } else if (phenoname_str) {
+          retval = RET_INVALID_FORMAT;
+          printf("Error: No header row in phenotype file.\n");
+          goto wdist_ret_1;
+        }
+        if (!mpheno_col) {
+          mpheno_col = 1;
+        }
+      }
+      if (pheno_lines == -1) {
+        pheno_lines++;
+      } else {
+        for (ii = 0; ii < mpheno_col; ii++) {
+          bufptr = next_item(bufptr);
+        }
+        if (!bufptr || (*bufptr == '\n') || (*bufptr == '\0')) {
+	  retval = RET_INVALID_FORMAT;
+	  printf("Error: Improperly formatted phenotype file.\n");
+	  goto wdist_ret_1;
+        }
+        if (makepheno_str && (!makepheno_all)) {
+          if (!strncmp(makepheno_str, bufptr, kk)) {
+            if (is_space_or_eoln(bufptr[kk])) {
+              pheno_lines++;
+            }
+          }
+        } else if (tail_pheno) {
+	  if (sscanf(bufptr, "%lf", &dxx) != 1) {
+	    retval = RET_INVALID_FORMAT;
+	    printf("Improperly formatted phenotype file.\n");
+	    goto wdist_ret_1;
+	  }
+          if ((dxx <= tail_bottom) || (dxx > tail_top)) {
+            pheno_lines++;
+          }
+        } else {
+          pheno_lines++;
+        }
+      }
+      if (!tbuf[MAXLINELEN - 1]) {
+        retval = RET_INVALID_FORMAT;
+        printf("Error: Excessively long line in phenotype file (max %d chars).\n", MAXLINELEN - 3);
+        goto wdist_ret_1;
+      }
+    }
+    pid_list = (char*)malloc(max_pid_len * pheno_lines * sizeof(char));
+    if (!pid_list) {
+      goto wdist_ret_1;
+    }
+    id_buf = (char*)malloc(max_pid_len * sizeof(char));
+    if (!id_buf) {
+      goto wdist_ret_1;
+    }
+    if (tail_pheno) {
+      phenor_c = (char*)malloc(pheno_lines * sizeof(char));
+      if (!phenor_c) {
+        goto wdist_ret_1;
+      }
+    } else if (!makepheno_str) {
+      phenor_d = (double*)malloc(pheno_lines * sizeof(double));
+      if (!phenor_d) {
+        goto wdist_ret_1;
+      }
+    }
+
+    rewind(phenofile);
+    ii = 0;
+    // ----- phenotype file load, second pass -----
+    while (fgets(tbuf, MAXLINELEN, phenofile) != NULL) {
+      if (ii == pheno_lines) {
+        break;
+      }
+      if (*tbuf == '\n') {
+        continue;
+      }
+      cptr = &(id_list[ii * max_pid_len]);
+      bufptr = tbuf;
+      while ((*bufptr != ' ') && (*bufptr != '\t')) {
+        *cptr++ = *bufptr++;
+      }
+      *cptr++ = ' ';
+      while ((*bufptr == ' ') || (*bufptr == '\t')) {
+        bufptr++;
+      }
+      while (!is_space_or_eoln(*bufptr)) {
+        *cptr++ = *bufptr++;
+      }
+      for (jj = 0; jj < mpheno_col; jj++) {
+        bufptr = next_item(bufptr);
+      }
+      *cptr = '\0';
+      if (makepheno_str) {
+        if (makepheno_all) {
+          ii++;
+        } else {
+          if (!strncmp(makepheno_str, bufptr, kk)) {
+            if (is_space_or_eoln(bufptr[kk])) {
+              ii++;
+            }
+          }
+        }
+      } else {
+        if (sscanf(bufptr, "%lf", &dxx) != 1) {
+	  retval = RET_INVALID_FORMAT;
+	  printf("Improperly formatted phenotype file.\n");
+	  goto wdist_ret_1;
+        }
+        if (tail_pheno) {
+          if (dxx <= tail_bottom) {
+            phenor_c[ii++] = 0;
+          } else if (dxx > tail_top) {
+            phenor_c[ii++] = 1;
+          }
+        } else {
+          phenor_d[ii++] = dxx;
+        }
+      }
+    }
+  }
+
+  // ----- filter load, first pass -----
+  if (filter_type) {
+    if (filter_type == FILTER_CUSTOM) {
+      jj = strlen(filterval);
+    }
+    while (fgets(tbuf, MAXLINELEN, filterfile) != NULL) {
+      if (*tbuf == '\n') {
+        continue;
+      }
+      bufptr = tbuf;
+      ii = 0;
+      while (!is_space_or_eoln(*bufptr)) {
         ii++;
         bufptr++;
       }
-      if ((ii == 0) || (*bufptr == '\0')) {
+      if ((*bufptr == '\n') || (*bufptr == '\0')) {
         retval = RET_INVALID_FORMAT;
         printf("Error: Improperly formatted filter file.\n");
-        goto wdist_ret_4;
+        goto wdist_ret_1;
+      }
+      while ((*bufptr == ' ') || (*bufptr == '\t')) {
+        bufptr++;
+      }
+      while (!is_space_or_eoln(*bufptr)) {
+        ii++;
+        bufptr++;
       }
       ii += 2;
       if (ii > max_id_len) {
         max_id_len = ii;
       }
-      if (filter_type == 3) {
+      if (filter_type == FILTER_CUSTOM) {
         while ((*bufptr == ' ') || (*bufptr == '\t')) {
           bufptr++;
         }
         if ((*bufptr == '\n') || (*bufptr == '\0')) {
 	  retval = RET_INVALID_FORMAT;
 	  printf("Error: Improperly formatted filter file.\n");
-	  goto wdist_ret_4;
+	  goto wdist_ret_1;
         }
         if (!strncmp(filterval, bufptr, jj)) {
           filter_lines += 1;
@@ -491,121 +778,319 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
       } else {
         filter_lines += 1;
       }
-      while (!pedbuf[pedbuflen - 1]) {
-        pedbuf[pedbuflen - 1] = ' ';
-        if (pedbuf[pedbuflen - 2] == '\n') {
-          break;
-        }
-	fgets(pedbuf, pedbuflen, filterfile);
+      if (!tbuf[MAXLINELEN - 1]) {
+        retval = RET_INVALID_FORMAT;
+        printf("Error: Excessively long line in filter file (max %d chars).\n", MAXLINELEN - 3);
+        goto wdist_ret_1;
       }
     }
     id_list = (char*)malloc(max_id_len * filter_lines * sizeof(char));
     if (!id_list) {
-      goto wdist_ret_4;
+      goto wdist_ret_1;
+    }
+    if (max_pid_len && (max_id_len > max_pid_len)) {
+      free(id_buf);
     }
     id_buf = (char*)malloc(max_id_len * sizeof(char));
     if (!id_buf) {
-      goto wdist_ret_4;
+      goto wdist_ret_1;
     }
     rewind(filterfile);
     ii = 0;
-    while (fgets(pedbuf, pedbuflen, filterfile) != NULL) {
-      if (*pedbuf == '\n') {
+
+    // ----- filter load, second pass -----
+    while (fgets(tbuf, MAXLINELEN, filterfile) != NULL) {
+      if (ii == filter_lines) {
+        break;
+      }
+      if (*tbuf == '\n') {
         continue;
       }
-      gptr = &(id_list[ii * max_id_len]);
-      bufptr = pedbuf;
+      cptr = &(id_list[ii * max_id_len]);
+      bufptr = tbuf;
       while ((*bufptr != ' ') && (*bufptr != '\t')) {
-        *gptr++ = *bufptr++;
+        *cptr++ = *bufptr++;
       }
-      *gptr++ = ' ';
+      *cptr++ = ' ';
       while ((*bufptr == ' ') || (*bufptr == '\t')) {
         bufptr++;
       }
-      while ((*bufptr != ' ') && (*bufptr != '\t') && (*bufptr != '\n')) {
-        *gptr++ = *bufptr++;
+      while (!is_space_or_eoln(*bufptr)) {
+        *cptr++ = *bufptr++;
       }
-      if (filter_type == 3) {
+      if (filter_type == FILTER_CUSTOM) {
         while ((*bufptr == ' ') || (*bufptr == '\t')) {
           bufptr++;
         }
         if (!strncmp(filterval, bufptr, jj)) {
           ii++;
-          *gptr = '\0';
+          *cptr = '\0';
         }
       } else {
         ii++;
-        *gptr = '\0';
-      }
-      if (ii == filter_lines) {
-        break;
-      }
-      while (!pedbuf[pedbuflen - 1]) {
-        pedbuf[pedbuflen - 1] = ' ';
-        if (pedbuf[pedbuflen - 2] == '\n') {
-          break;
-        }
-	fgets(pedbuf, pedbuflen, filterfile);
+        *cptr = '\0';
       }
     }
-    qsort_str(id_list, 0, filter_lines - 1);
-
-    // debug
-    for (ii = 0; ii < filter_lines; ii++) {
-      printf("%s\n", &(id_list[ii * max_id_len]));
-    }
+    qsort_str(id_list, max_id_len, 0, filter_lines - 1);
   }
+  line_locs = (long long*)malloc(max_people * sizeof(long long));
+  if (!line_locs) {
+    goto wdist_ret_1;
+  }
+  maf_int_thresh = 2 * map_linect - (int)((1.0 - min_maf) * 2.0 * map_linect);
+  geno_int_thresh = 2 * map_linect - (int)(geno_thresh * 2.0 * map_linect);
+  mind_int_thresh = (int)(mind_thresh * map_linect);
+
   if (binary_files) {
-    // ...apply filter
+    kk = 0; // line count in .bed
+    while (fgets(tbuf, MAXLINELEN, famfile) != NULL) {
+      if (tbuf[0] > ' ') {
+        if (tbuf[0] != '#') {
+	  bufptr = next_item((char*)tbuf);
+          if (filter_type) {
+            if (ped_col_1) {
+              ii = is_contained(id_list, max_id_len, filter_lines, tbuf, tbuf);
+            } else {
+              ii = is_contained(id_list, max_id_len, filter_lines, tbuf, bufptr);
+            }
+            if (filter_type == FILTER_REMOVE) {
+              jj = 1 - ii;
+            } else {
+              jj = ii;
+            }
+          } else {
+            jj = 1;
+	    if (ped_col_1) {
+	      bufptr = next_item(bufptr);
+	    }
+          }
+          if (jj) {
+	    if (ped_col_34) {
+	      bufptr = next_item(bufptr);
+	      bufptr = next_item(bufptr);
+	    }
+	    if (ped_col_5) {
+	      bufptr = next_item(bufptr);
+	    }
+	    if (!bufptr) {
+	      retval = RET_INVALID_FORMAT;
+	      printf(errstr_ped_format);
+	      goto wdist_ret_1;
+	    }
+            // pheno stuff
+            // end pheno stuff
+            line_locs[ped_linect++] = kk;
+          }
+        }
+      }
+      if (!tbuf[MAXLINELEN - 1]) {
+        retval = RET_INVALID_FORMAT;
+        printf("Error: Excessively long line in .bim file (max %d chars).\n", MAXLINELEN - 3);
+        goto wdist_ret_1;
+      }
+      kk++;
+    }
+    if (ped_linect < 2) {
+      retval = RET_INVALID_FORMAT;
+      printf("Error: Less than two valid people in .ped file.\n");
+      goto wdist_ret_1;
+    } else if (ped_linect > max_people) {
+      retval = RET_INVALID_FORMAT;
+      printf("Too many people in .ped file for this algorithm.\n");
+      goto wdist_ret_1;
+    }
+    if (fread(pedbuf, 1, 3, pedfile) < 3) {
+      retval = RET_READ_FAIL;
+      goto wdist_ret_2;
+    }
+    if ((pedbuf[0] != 'l') || (pedbuf[1] != '\x1b')) {
+      retval = RET_INVALID_FORMAT;
+      printf("Invalid or pre-v1.00 BED file.\n");
+      goto wdist_ret_2;
+    }
+    marker_allele_cts = (int*)malloc(map_linect * 2 * sizeof(int));
+    if (!marker_allele_cts) {
+      goto wdist_ret_2;
+    }
+    memset(marker_allele_cts, 0, map_linect * 2 * sizeof(int));
+
+    /*
+    if (affection) {
+      pheno_c = (char*)malloc(ped_linect * sizeof(char));
+      if (!pheno_c) {
+	goto wdist_ret_2;
+      }
+    } else {
+      pheno_d = (double*)malloc(ped_linect * sizeof(double));
+      if (!pheno_d) {
+	goto wdist_ret_2;
+      }
+    }
+    */
+
+    person_exclude = (unsigned char*)malloc(((ped_linect + 7) / 8) * sizeof(char));
+    if (!person_exclude) {
+      goto wdist_ret_2;
+    }
+    memset(person_exclude, 0, ((ped_linect + 7) / 8) * sizeof(char));
+    if (pedbuf[2] == '\0') {
+      for (ii = 0; ii < ped_linect; ii += 1) {
+        fseek(pedfile, 3 + line_locs[ii] * map_linect4, SEEK_SET);
+        if (fread(pedbuf, 1, map_linect4, pedfile) < map_linect4) {
+          retval = RET_READ_FAIL;
+          goto wdist_ret_2;
+        }
+        gptr = pedbuf - 1;
+        mm = 0; // missing
+        for (jj = 0; jj < map_linect; jj++) {
+          kk = jj % 4;
+          if (!kk) {
+            nn = *(++gptr);
+          } else {
+            nn >>= 2;
+          }
+          oo = nn & 3;
+          if (oo) {
+            if (oo == 1) {
+              marker_allele_cts[jj * 2] += 1;
+              marker_allele_cts[jj * 2 + 1] += 1;
+            } else if (oo == 3) {
+              marker_allele_cts[jj * 2 + 1] += 2;
+            } else {
+              mm++;
+            }
+          } else {
+            marker_allele_cts[jj * 2] += 2;
+          }
+        }
+        if (mm > mind_int_thresh) {
+          exclude(person_exclude, ii, &person_exclude_ct);
+        }
+      }
+      for (ii = 0; ii < map_linect; ii++) {
+        if ((marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1] < geno_int_thresh) || (marker_allele_cts[ii * 2 + 1] < maf_int_thresh)) {
+          exclude(marker_exclude, ii, &marker_exclude_ct);
+        }
+      }
+    } else {
+      snp_major = 1;
+      person_missing_cts = (int*)malloc(ped_linect * sizeof(int));
+      if (!person_missing_cts) {
+        goto wdist_ret_2;
+      }
+      memset(person_missing_cts, 0, ped_linect * sizeof(int));
+      ped_linect4 = (ped_linect + 3) / 4;
+      if (pedbuflen < (4 * ped_linect4)) {
+        free(pedbuf);
+        pedbuflen = 4 * ped_linect4;
+        pedbuf = (unsigned char*)malloc(pedbuflen * sizeof(char));
+        if (!pedbuf) {
+          goto wdist_ret_2;
+        }
+      }
+      for (ii = 0; ii < map_linect; ii++) {
+        if (fread(pedbuf, 1, ped_linect4, pedfile) < ped_linect4) {
+          retval = RET_READ_FAIL;
+          goto wdist_ret_2;
+        }
+        mm = 0; // major allele ct
+        nn = 0; // minor allele ct
+        gptr = pedbuf - 1;
+        for (jj = 0; jj < ped_linect; jj++) {
+          kk = jj % 4;
+          if (!kk) {
+            oo = *(++gptr);
+          } else {
+            oo >>= 2;
+          }
+          pp = oo & 3;
+          if (pp) {
+            if (pp == 1) {
+              mm++;
+              nn++;
+            } else if (pp == 3) {
+              nn += 2;
+            } else {
+              person_missing_cts[jj] += 1;
+            }
+          } else {
+            mm += 2;
+          }
+        }
+        if ((mm + nn < geno_int_thresh) || (nn < maf_int_thresh)) {
+          exclude(marker_exclude, ii, &marker_exclude_ct);
+        } else {
+          marker_allele_cts[ii * 2] = mm;
+          marker_allele_cts[ii * 2 + 1] = nn;
+        }
+      }
+      for (ii = 0; ii < ped_linect; ii++) {
+        if (person_missing_cts[ii] > mind_int_thresh) {
+	  exclude(person_exclude, ii, &person_exclude_ct);
+        }
+      }
+    }
   } else {
     pedbuf[pedbuflen - 1] = ' ';
     last_tell = 0;
-    line_locs = (long long*)malloc(max_people * sizeof(long long));
-    if (!line_locs) {
-      goto wdist_ret_4;
-    }
-    while (fgets(pedbuf, pedbuflen, pedfile) != NULL) {
+    while (fgets((char*)pedbuf, pedbuflen, pedfile) != NULL) {
       if (pedbuf[0] > ' ') {
 	if (pedbuf[0] != '#') {
-	  bufptr = next_item(pedbuf);
-	  if (ped_col_1) { // actually column 2
-	    bufptr = next_item(bufptr);
-	  }
-	  if (ped_col_34) {
-	    bufptr = next_item(bufptr);
-	    bufptr = next_item(bufptr);
-	  }
-	  if (ped_col_5) {
-	    bufptr = next_item(bufptr);
-	  }
-	  if (!bufptr) {
-	    retval = RET_INVALID_FORMAT;
-	    printf(errstr_ped_format);
-	    goto wdist_ret_4;
-	  }
-	  if (!ped_linect) {
-	    if (*bufptr == '-') {
-	      if ((bufptr[1] == '9') && ((bufptr[2] == ' ') || (bufptr[2] == '\t'))) {
+	  bufptr = next_item((char*)pedbuf);
+          if (filter_type) {
+            if (ped_col_1) {
+              ii = is_contained(id_list, max_id_len, filter_lines, (char*)pedbuf, (char*)pedbuf);
+            } else {
+              ii = is_contained(id_list, max_id_len, filter_lines, (char*)pedbuf, bufptr);
+            }
+            if (filter_type == FILTER_REMOVE) {
+              jj = 1 - ii;
+            } else {
+              jj = ii;
+            }
+          } else {
+            jj = 1;
+	    if (ped_col_1) { // actually column 2
+	      bufptr = next_item(bufptr);
+	    }
+          }
+          if (jj) {
+	    if (ped_col_34) {
+	      bufptr = next_item(bufptr);
+	      bufptr = next_item(bufptr);
+	    }
+	    if (ped_col_5) {
+	      bufptr = next_item(bufptr);
+	    }
+	    if (!bufptr) {
+	      retval = RET_INVALID_FORMAT;
+	      printf(errstr_ped_format);
+	      goto wdist_ret_1;
+	    }
+	    if (!ped_linect) {
+	      if (*bufptr == '-') {
+		if ((bufptr[1] == '9') && ((bufptr[2] == ' ') || (bufptr[2] == '\t'))) {
+		  affection = 1;
+		}
+	      } else if (((*bufptr >= '0') && (*bufptr <= '2')) && ((bufptr[1] == ' ') || (bufptr[1] == '\t'))) {
 		affection = 1;
 	      }
-	    } else if (((*bufptr >= '0') && (*bufptr <= '2')) && ((bufptr[1] == ' ') || (bufptr[1] == '\t'))) {
-	      affection = 1;
 	    }
-	  }
-	  if (affection) {
-	    if (affection_01) {
-	      if ((*bufptr == '0') || (*bufptr == '1')) {
-		line_locs[ped_linect] = last_tell + (bufptr - pedbuf);
+	    if (affection) {
+	      if (affection_01) {
+		if ((*bufptr == '0') || (*bufptr == '1') || !prune) {
+		  line_locs[ped_linect] = last_tell + (bufptr - (char*)pedbuf);
+		  ped_linect += 1;
+		}
+	      } else if ((*bufptr == '1') || (*bufptr == '2') || !prune) {
+		line_locs[ped_linect] = last_tell + (bufptr - (char*)pedbuf);
 		ped_linect += 1;
 	      }
-	    } else if ((*bufptr == '1') || (*bufptr == '2')) {
-	      line_locs[ped_linect] = last_tell + (bufptr - pedbuf);
+	    } else {
+	      line_locs[ped_linect] = last_tell + (bufptr - (char*)pedbuf);
 	      ped_linect += 1;
 	    }
-	  } else {
-	    line_locs[ped_linect] = last_tell + (bufptr - pedbuf);
-	    ped_linect += 1;
-	  }
+          }
 	}
       }
       if (!pedbuf[pedbuflen - 1]) {
@@ -617,9 +1102,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
 	do {
 	  ii += pedbuflen - 1;
 	  pedbuf[pedbuflen - 1] = ' ';
-	  fgets_return = fgets(pedbuf, pedbuflen, pedfile);
+	  fgets_return = fgets((char*)pedbuf, pedbuflen, pedfile);
 	} while (fgets_return && !pedbuf[pedbuflen - 1] && (pedbuf[pedbuflen - 2] != '\n'));
-	ii += strlen(pedbuf) + 1;
+	ii += strlen((char*)pedbuf) + 1;
 	if (ii > ped_recalc_len) {
 	  ped_recalc_len = ii;
 	}
@@ -629,83 +1114,80 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
     if (ped_linect < 2) {
       retval = RET_INVALID_FORMAT;
       printf("Error: Less than two valid people in .ped file.\n");
-      goto wdist_ret_4;
+      goto wdist_ret_1;
     } else if (ped_linect > max_people) {
       retval = RET_INVALID_FORMAT;
       printf("Too many people in .ped file for this algorithm.\n");
-      goto wdist_ret_4;
+      goto wdist_ret_1;
     }
     rewind(pedfile);
     if (ped_recalc_len) {
       free(pedbuf);
       pedbuflen = ped_recalc_len;
-      pedbuf = (char*)malloc(pedbuflen * sizeof(char));
+      pedbuf = (unsigned char*)malloc(pedbuflen * sizeof(char));
       if (!pedbuf) {
-	goto wdist_ret_4;
+	goto wdist_ret_1;
       }
     }
 
     marker_alleles = (char*)malloc(map_linect * 4 * sizeof(char));
     if (!marker_alleles) {
-      goto wdist_ret_4;
+      goto wdist_ret_1;
     }
     memset(marker_alleles, 0, map_linect * 4 * sizeof(char));
     marker_allele_cts = (int*)malloc(map_linect * 4 * sizeof(int));
     if (!marker_allele_cts) {
-      goto wdist_ret_4;
+      goto wdist_ret_1;
     }
     memset(marker_allele_cts, 0, map_linect * 4 * sizeof(int));
     if (affection) {
-      ped_phenoi = (int*)malloc(ped_linect * sizeof(int));
-      if (!ped_phenoi) {
-	goto wdist_ret_4;
+      pheno_c = (char*)malloc(ped_linect * sizeof(char));
+      if (!pheno_c) {
+	goto wdist_ret_1;
       }
     } else {
-      ped_pheno = (double*)malloc(ped_linect * sizeof(double));
-      if (!ped_pheno) {
-	goto wdist_ret_4;
+      pheno_d = (double*)malloc(ped_linect * sizeof(double));
+      if (!pheno_d) {
+	goto wdist_ret_1;
       }
     }
-    person_exclude = (char*)malloc(((ped_linect + 7) / 8) * sizeof(char));
+    person_exclude = (unsigned char*)malloc(((ped_linect + 7) / 8) * sizeof(char));
     if (!person_exclude) {
-      goto wdist_ret_4;
+      goto wdist_ret_1;
     }
     memset(person_exclude, 0, ((ped_linect + 7) / 8) * sizeof(char));
 
     ped_geno = wkspace;
-    maf_int_thresh = map_linect - (int)((1.0 - min_maf) * map_linect);
-    geno_int_thresh = map_linect - (int)(geno_thresh * map_linect);
-    mind_int_thresh = (int)(mind_thresh * map_linect);
     for (ii = 0; ii < ped_linect; ii += 1) {
       fseek(pedfile, line_locs[ii], SEEK_SET);
-      fgets(pedbuf, pedbuflen, pedfile);
-      bufptr = pedbuf;
+      fgets((char*)pedbuf, pedbuflen, pedfile);
+      bufptr = (char*)pedbuf;
       if (affection) {
 	if (affection_01) {
 	  if (*bufptr == '0') {
-	    ped_phenoi[ii] = 0;
+	    pheno_c[ii] = 0;
 	  } else {
-	    ped_phenoi[ii] = 1;
+	    pheno_c[ii] = 1;
 	  }
 	} else {
 	  if (*bufptr == '1') {
-	    ped_phenoi[ii] = 0;
+	    pheno_c[ii] = 0;
 	  } else {
-	    ped_phenoi[ii] = 1;
+	    pheno_c[ii] = 1;
 	  }
 	}
       } else {
-	if (sscanf(bufptr, "%lf", &(ped_pheno[ii])) != 1) {
+	if (sscanf(bufptr, "%lf", &(pheno_d[ii])) != 1) {
 	  retval = RET_INVALID_FORMAT;
 	  printf(errstr_ped_format);
-	  goto wdist_ret_4;
+	  goto wdist_ret_1;
 	}
       }
       bufptr = next_item(bufptr);
       if (ped_col_7) {
 	bufptr = next_item(bufptr);
       }
-      line_locs[ii] += (bufptr - pedbuf);
+      line_locs[ii] += (bufptr - (char*)pedbuf);
       mm = 0; // number of missing
       for (jj = 0; jj < map_linect; jj += 1) {
         for (kk = 0; kk < 2; kk++) {
@@ -723,7 +1205,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
           } else if (marker_alleles[jj * 4 + 3]) {
             retval = RET_INVALID_FORMAT;
             printf("Error: More than 4 different allele types at marker %d.\n", jj + 1);
-            goto wdist_ret_4;
+            goto wdist_ret_1;
 	  } else if (marker_alleles[jj * 4 + 2]) {
             marker_alleles[jj * 4 + 3] = cc;
 	    marker_allele_cts[jj * 4 + 3] = 1;
@@ -744,7 +1226,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
 	  if (*bufptr == '\0') {
 	    retval = RET_INVALID_FORMAT;
 	    printf(errstr_ped_format);
-	    goto wdist_ret_4;
+	    goto wdist_ret_1;
 	  }
         }
       }
@@ -774,17 +1256,17 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
       } else if (marker_allele_cts[ii * 4 + 1] == marker_allele_cts[ii * 4 + 2]) {
         retval = RET_INVALID_FORMAT;
         printf("Error: Ambiguous minor allele at marker %d.\n", ii + 1);
-        goto wdist_ret_4;
+        goto wdist_ret_1;
       }
     }
     if (person_exclude_ct > (ped_linect - 2)) {
       retval = RET_INVALID_FORMAT;
       printf("Error: Too many people fail QC.\n");
-      goto wdist_ret_4;
+      goto wdist_ret_1;
     } else if (marker_exclude_ct == map_linect) {
       retval = RET_INVALID_FORMAT;
       printf("Error: All markers fail QC.\n");
-      goto wdist_ret_4;
+      goto wdist_ret_1;
     }
 
     ii = ((ped_linect - person_exclude_ct) * ((ped_linect - person_exclude_ct) - 1)) / 2;
@@ -807,38 +1289,38 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
       if (!bedtmpfile) {
         retval = RET_OPENFAIL;
         printf(" failed to open %s.\n", outname);
-	goto wdist_ret_5;
+	goto wdist_ret_1;
       }
       strcpy(outname_end, ".bim.tmp");
       bimtmpfile = fopen(outname, "w");
       if (!bimtmpfile) {
         retval = RET_OPENFAIL;
         printf(" failed to open %s.\n", outname);
-	goto wdist_ret_6;
+	goto wdist_ret_2;
       }
       strcpy(outname_end, ".fam.tmp");
       famtmpfile = fopen(outname, "w");
       if (!famtmpfile) {
         retval = RET_OPENFAIL;
         printf(" failed to open %s.\n", outname);
-	goto wdist_ret_6;
+	goto wdist_ret_2;
       }
       if (3 != fwrite("L\x1b", 1, 3, bedtmpfile)) {
 	retval = RET_WRITE_FAIL;
         printf("\n");
-	goto wdist_ret_7;
+	goto wdist_ret_2;
       }
       for (ii = 0; ii < ped_linect; ii += 1) {
-        if (person_exclude[ii / 8] & (1 << (ii % 8))) {
+        if (excluded(person_exclude, ii)) {
           continue;
         }
 	memset(ped_geno, 0, map_linect4 * sizeof(char));
         gptr = ped_geno;
 	fseek(pedfile, line_locs[ii], SEEK_SET);
-	fgets(pedbuf, pedbuflen, pedfile);
-	bufptr = pedbuf;
+	fgets((char*)pedbuf, pedbuflen, pedfile);
+	bufptr = (char*)pedbuf;
 	for (jj = 0; jj < map_linect; jj += 1) {
-          if (marker_exclude[jj / 8] & (1 << (jj % 8))) {
+          if (excluded(marker_exclude, jj)) {
 	    bufptr++;
 	    while ((*bufptr == ' ') || (*bufptr == '\t')) {
 	      bufptr++;
@@ -874,22 +1356,22 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
 	}
 	if (map_linect4 != fwrite(ped_geno, 1, map_linect4, bedtmpfile)) {
 	  retval = RET_WRITE_FAIL;
-	  goto wdist_ret_7;
+	  goto wdist_ret_2;
 	}
       }
       marker_alleles_tmp = (char*)malloc(map_linect4 * 2 * sizeof(char));
       if (!marker_alleles_tmp) {
-        goto wdist_ret_7;
+        goto wdist_ret_2;
       }
-      gptr = marker_alleles_tmp;
+      cptr = marker_alleles_tmp;
       iwptr = (int*)malloc(map_linect4 * 2 * sizeof(int));
       iptr = iwptr;
       for (ii = 0; ii < map_linect; ii += 1) {
-        if (marker_exclude[ii / 8] & (1 << (ii % 8))) {
+        if (excluded(marker_exclude, ii)) {
           continue;
         }
-        *gptr++ = marker_alleles[ii * 4];
-        *gptr++ = marker_alleles[ii * 4 + 1];
+        *cptr++ = marker_alleles[ii * 4];
+        *cptr++ = marker_alleles[ii * 4 + 1];
         *iptr++ = marker_allele_cts[ii * 4];
         *iptr++ = marker_allele_cts[ii * 4 + 1];
       }
@@ -905,7 +1387,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
       strcpy(outname_end, ".bed.tmp");
       pedfile = fopen(outname, "rb");
       if (!pedfile) {
-        printf(" failed to open %s.\n", outname);
+        printf("Failed to open %s.\n", outname);
       }
       binary_files = 1;
     }
@@ -925,12 +1407,54 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
     } while (--ii);
   }
   ped_geno = &(wkspace[dists_alloc]);
+  ped_geno_size = malloc_size_mb * 1048576 - dists_alloc;
 
-  /*
   if (binary_files) {
+    if (snp_major) {
+      if (ped_geno_size < 4 * ped_linect4) {
+        // extremely unlikely, but may as well check
+        goto wdist_ret_2;
+      }
+      fseek(pedfile, 3, SEEK_SET);
+      ii = 0; // current SNP index
+      while (ii < map_linect) {
+        for (jj = 0; jj < 4; jj++) {
+          maf_buf[jj] = 0.5;
+        }
+        jj = 0; // actual SNPs read
+        while ((jj < 4) && (ii < map_linect)) {
+          while (excluded(marker_exclude, ii)) {
+            ii++;
+          }
+          if (fread(&(pedbuf[jj * ped_linect4]), 1, ped_linect4, pedfile) < map_linect4) {
+            retval = RET_READ_FAIL;
+            goto wdist_ret_2;
+          }
+          maf_buf[jj] = ((double)marker_allele_cts[ii * 2 + 1]) / ((double)(marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]));
+          ii++;
+          jj++;
+        }
+        if (jj < 4) {
+          memset(&(pedbuf[jj * ped_linect4]), 0, (4 - jj) * ped_linect4);
+        }
+        gptr = ped_geno;
+        for (jj = 0; jj < ped_linect; jj++) {
+          if (!excluded(person_exclude, jj)) {
+            kk = (jj % 4) * 2;
+            *gptr++ = ((pedbuf[jj / 4] >> kk) & 3) | (((pedbuf[ped_linect4 + jj / 4] >> kk) & 3) << 2) | (((pedbuf[ped_linect4 * 2 + jj / 4] >> kk) & 3) << 4) | (((pedbuf[ped_linect4 * 3 + jj / 4] >> kk) & 3) << 6);
+          }
+        }
+        if (exponent == 0.0) {
+        } else {
+          fill_weights(weights, maf_buf, exponent);
+        }
+      }
+    } else {
+    }
   } else {
   }
 
+  /*
   for (window_num = 0; window_num < windows_reqd; window_num += 1) {
     if (window_num == windows_reqd - 1) {
       cur_window_size = map_linect - window_num * geno_window_size * 4;
@@ -950,19 +1474,19 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
 	if (affection) {
 	  if (affection_01) {
             if (*bufptr == '0') {
-              ped_phenoi[ii] = 0;
+              pheno_c[ii] = 0;
             } else {
-              ped_phenoi[ii] = 1;
+              pheno_c[ii] = 1;
             }
 	  } else {
             if (*bufptr == '1') {
-              ped_phenoi[ii] = 0;
+              pheno_c[ii] = 0;
             } else {
-              ped_phenoi[ii] = 1;
+              pheno_c[ii] = 1;
             }
 	  }
         } else {
-	  if (sscanf(bufptr, "%lf", &(ped_pheno[ii])) != 1) {
+	  if (sscanf(bufptr, "%lf", &(pheno_d[ii])) != 1) {
 	    retval = RET_INVALID_FORMAT;
 	    printf(errstr_ped_format);
 	    goto wdist_ret_9;
@@ -1081,10 +1605,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
     } */
   retval = RET_SUCCESS;
 
- wdist_ret_9:
- wdist_ret_8:
- wdist_ret_7:
- wdist_ret_6:
+ wdist_ret_2:
+  if (person_missing_cts) {
+    free(person_missing_cts);
+  }
   if (marker_alleles_tmp) {
     free(marker_alleles_tmp);
   }
@@ -1097,16 +1621,21 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
   if (famtmpfile) {
     fclose(famtmpfile);
   }
- wdist_ret_5:
- wdist_ret_4:
+ wdist_ret_1:
   if (person_exclude) {
     free(person_exclude);
   }
-  if (ped_phenoi) {
-    free(ped_phenoi);
+  if (pheno_d) {
+    free(pheno_d);
   }
-  if (ped_pheno) {
-    free(ped_pheno);
+  if (pheno_c) {
+    free(pheno_c);
+  }
+  if (phenor_d) {
+    free(phenor_d);
+  }
+  if (phenor_c) {
+    free(phenor_c);
   }
   if (marker_allele_cts) {
     free(marker_allele_cts);
@@ -1123,27 +1652,36 @@ int wdist(char* pedname, char* mapname, char* famname, char* filtername, int fil
   if (id_list) {
     free(id_list);
   }
+  if (pid_list) {
+    free(pid_list);
+  }
   if (marker_exclude) {
     free(marker_exclude);
   }
   if (pedbuf) {
     free(pedbuf);
   }
-  if (marker_pos) {
-    free(marker_pos);
-  }
-  if (marker_id) {
-    free(marker_id);
-  }
-  if (marker_chrom) {
-    free(marker_chrom);
-  }
+  // if (marker_pos) {
+  //   free(marker_pos);
+  // }
+  // if (marker_id) {
+  //   free(marker_id);
+  // }
+  // if (marker_chrom) {
+  //   free(marker_chrom);
+  // }
  wdist_ret_0:
   if (outfile) {
     fclose(outfile);
   }
   if (filterfile) {
     fclose(filterfile);
+  }
+  if (phenofile) {
+    fclose(phenofile);
+  }
+  if (famfile) {
+    fclose(famfile);
   }
   if (mapfile) {
     fclose(mapfile);
@@ -1159,7 +1697,9 @@ int main(int argc, char* argv[]) {
   char pedname[FNAMESIZE];
   char famname[FNAMESIZE];
   char outname[FNAMESIZE];
+  char phenoname[FNAMESIZE];
   char filtername[FNAMESIZE];
+  char* makepheno_str = NULL;
   char* filterval;
   char* argptr;
   int retval;
@@ -1167,7 +1707,10 @@ int main(int argc, char* argv[]) {
   int ped_col_1 = 1;
   int ped_col_34 = 1;
   int ped_col_5 = 1;
+  int ped_col_6 = 1;
   int ped_col_7 = 0;
+  int mpheno_col = 0;
+  char* phenoname_str = NULL;
   int affection_01 = 0;
   double exponent = 0.0;
   double min_maf = 0.01;
@@ -1175,18 +1718,20 @@ int main(int argc, char* argv[]) {
   double mind_thresh = 0.1;
   int cur_arg = 1;
   int calculation_type = CALC_NONE;
-  char* ep1 = NULL;
-  char* ep2 = NULL;
-  char* ep3 = NULL;
-  char* ep4 = NULL;
   char* bubble;
   int threads = 2;
   int filter_type = 0;
+  int tail_pheno = 0;
+  int prune = 0;
+  double tail_bottom;
+  double tail_top;
   int ii;
   int jj;
+  unsigned long int rseed = 0;
   strcpy(mapname, "wdist.map");
   strcpy(pedname, "wdist.ped");
   famname[0] = '\0';
+  phenoname[0] = '\0';
   filtername[0] = '\0';
   strcpy(outname, "wdist");
   while (cur_arg < argc) {
@@ -1349,31 +1894,137 @@ int main(int argc, char* argv[]) {
       }
       strcpy(famname, argv[cur_arg + 1]);
       cur_arg += 2;
-    } else if (!strcmp(argptr, "--no-sex")) {
-      ped_col_5 = 0;
+    } else if (!strcmp(argptr, "--no-fid")) {
+      ped_col_1 = 0;
       cur_arg += 1;
     } else if (!strcmp(argptr, "--no-parents")) {
       ped_col_34 = 0;
       cur_arg += 1;
-    } else if (!strcmp(argptr, "--no-fid")) {
-      ped_col_1 = 0;
+    } else if (!strcmp(argptr, "--no-sex")) {
+      ped_col_5 = 0;
+      cur_arg += 1;
+    } else if (!strcmp(argptr, "--no-pheno")) {
+      ped_col_6 = 0;
       cur_arg += 1;
     } else if (!strcmp(argptr, "--liability")) {
       ped_col_7 = 1;
       cur_arg += 1;
+    } else if (!strcmp(argptr, "--pheno")) {
+      if (cur_arg == argc - 1) {
+        printf("Error: Missing --pheno parameter.  Displaying general-purpose help.\n\n");
+        return dispmsg(RET_HELP);
+      }
+      if (phenoname[0]) {
+        if (makepheno_str) {
+          printf("Error: --pheno and --make-pheno flags cannot coexist.\n");
+        } else {
+          printf("Error: Duplicate --pheno flag.\n");
+        }
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+        printf("Error: --pheno parameter too long.\n");
+        return dispmsg(RET_OPENFAIL);
+      }
+      strcpy(phenoname, argv[cur_arg + 1]);
+      cur_arg += 2;
+    } else if (!strcmp(argptr, "--make-pheno")) {
+      if (cur_arg > argc - 2) {
+        printf("Error: Not enough --make-pheno parameters.  Displaying general-purpose help.\n\n");
+        return dispmsg(RET_HELP);
+      }
+      if (phenoname[0]) {
+        if (makepheno_str) {
+          printf("Error: Duplicate --make-pheno flag.\n");
+        } else {
+          printf("Error: --pheno and --make-pheno flags cannot coexist.\n");
+        }
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (tail_pheno) {
+        printf("Error: --make-pheno and --tail-pheno flags cannot coexist.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+        printf("Error: --make-pheno parameter too long.\n");
+        return dispmsg(RET_OPENFAIL);
+      }
+      strcpy(phenoname, argv[cur_arg + 1]);
+      makepheno_str = argv[cur_arg + 2];
+      cur_arg += 3;
+    } else if (!strcmp(argptr, "--mpheno")) {
+      if (cur_arg == argc - 1) {
+        printf("Error: Missing --mpheno parameter.  Displaying general-purpose help.\n\n");
+        return dispmsg(RET_HELP);
+      }
+      if (mpheno_col != 0) {
+        printf("Error: Duplicate --mpheno flag.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (phenoname_str) {
+        printf("Error: --mpheno and --pheno-name flags cannot coexist.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      mpheno_col = atoi(argv[cur_arg + 1]);
+      if (mpheno_col < 1) {
+        printf("Error: Invalid --mpheno parameter.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      cur_arg += 2;
+    } else if (!strcmp(argptr, "--pheno-name")) {
+      if (cur_arg == argc - 1) {
+        printf("Error: Missing --pheno-name parameter.  Displaying general-purpose help.\n\n");
+        return dispmsg(RET_HELP);
+      }
+      if (mpheno_col != 0) {
+        printf("Error: --mpheno and --pheno-name flags cannot coexist.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (phenoname_str) {
+        printf("Error: Duplicate --pheno-name flag.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      phenoname_str = argv[cur_arg + 1];
+      cur_arg += 2;
+    } else if (!strcmp(argptr, "--prune")) {
+      prune = 1;
+      cur_arg += 1;
     } else if (!strcmp(argptr, "--1")) {
       affection_01 = 1;
       cur_arg += 1;
+    } else if (!strcmp(argptr, "--tail-pheno")) {
+      if (cur_arg > argc - 2) {
+        printf("Error: Not enough --tail-pheno parameters.  Displaying general-purpose help.\n\n");
+        return dispmsg(RET_HELP);
+      }
+      if (tail_pheno) {
+        printf("Error: Duplicate --tail-pheno flag.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (makepheno_str) {
+        printf("Error: --make-pheno and --tail-pheno flags cannot coexist.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (sscanf(argv[cur_arg + 1], "%lf", &tail_bottom) != 1) {
+        printf("Error: Invalid --tail-pheno parameter.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (sscanf(argv[cur_arg + 1], "%lf", &tail_top) != 1) {
+        printf("Error: Invalid --tail-pheno parameter.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      tail_pheno = 1;
+      cur_arg += 3;
     } else if (!strcmp(argptr, "--keep")) {
       if (cur_arg == argc - 1) {
         printf("Error: missing --keep parameter.  Displaying general-purpose help.\n\n");
         return dispmsg(RET_HELP);
       }
-      if (filter_type > 0) {
+      if (filter_type) {
         printf("Error: More than one filtering flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      filter_type = 1;
+      filter_type = FILTER_KEEP;
       if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
         printf("--keep filename too long.\n");
         return dispmsg(RET_OPENFAIL);
@@ -1385,11 +2036,11 @@ int main(int argc, char* argv[]) {
         printf("Error: missing --remove parameter.  Displaying general-purpose help.\n\n");
         return dispmsg(RET_HELP);
       }
-      if (filter_type > 0) {
+      if (filter_type) {
         printf("Error: More than one filtering flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      filter_type = 2;
+      filter_type = FILTER_REMOVE;
       if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
         printf("--remove filename too long.\n");
         return dispmsg(RET_OPENFAIL);
@@ -1401,11 +2052,11 @@ int main(int argc, char* argv[]) {
         printf("Error: Not enough --filter parameters.  Displaying general-purpose help.\n\n");
         return dispmsg(RET_HELP);
       }
-      if (filter_type > 0) {
+      if (filter_type) {
         printf("Error: More than one filtering flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      filter_type = 3;
+      filter_type = FILTER_CUSTOM;
       if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
         printf("--filter filename too long.\n");
         return dispmsg(RET_OPENFAIL);
@@ -1491,6 +2142,21 @@ int main(int argc, char* argv[]) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += 2;
+    } else if (!strcmp(argptr, "--rseed")) {
+      if (cur_arg == argc - 1) {
+        printf("Error: Missing --rseed parameter.  Displaying general-purpose help.\n\n");
+        return dispmsg(RET_HELP);
+      }
+      if (rseed != 0) {
+        printf("Error: Duplicate --rseed flag.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      rseed = (unsigned long int)atoi(argv[cur_arg + 1]);
+      if (rseed == 0) {
+        printf("Error: Invalid --rseed parameter.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      cur_arg += 2;
     } else if (!strcmp(argptr, "--out")) {
       if (cur_arg == argc - 1) {
         printf("Error: Missing --out parameter.  Displaying general-purpose help.\n\n");
@@ -1507,7 +2173,7 @@ int main(int argc, char* argv[]) {
       cur_arg += 1;
     } else if (!strcmp(argptr, "--distance")) {
       if (cur_arg != argc - 1) {
-        if ((cur_arg == argc - 2) && !strcmp(argv[cur_arg + 1], "--keep-missingpheno")) {
+        if ((cur_arg == argc - 2) && !strcmp(argv[cur_arg + 1], "--keep-missing-pheno")) {
           
         } else {
           printf("Error: invalid parameter after --distance.  Displaying general-purpose help.\n");
@@ -1532,37 +2198,46 @@ int main(int argc, char* argv[]) {
       iwt[ii] = 0;
       jj = ii;
       while (jj) {
-        if (jj % 2 == 1) {
+        if (jj % 4 == 1) {
           iwt[ii] += 1;
-        } else if (jj % 4 == 2) {
-          iwt[ii] += 2;
         }
-        jj >>= 2;
+        jj >>= 1;
       }
     }
   }
-  bubble = (char*)malloc(33554432 * sizeof(char));
+  bubble = (char*)malloc(67108864 * sizeof(char));
   if (!bubble) {
     return dispmsg(RET_NOMEM);
   }
-  wkspace = (char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
+  wkspace = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
   if ((malloc_size_mb > MALLOC_DEFAULT_MB) && !wkspace) {
     printf("%lld MB malloc failed.  Using default allocation behavior.\n", malloc_size_mb);
     malloc_size_mb = MALLOC_DEFAULT_MB;
   }
   while (!wkspace) {
-    if (malloc_size_mb > 96) {
+    if (malloc_size_mb > 128) {
       malloc_size_mb -= 64;
     } else {
-      malloc_size_mb = 32;
+      malloc_size_mb = 64;
     }
-    wkspace = (char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
+    wkspace = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
+    if (wkspace) {
+      printf("Allocated %lld MB successfully.\n", malloc_size_mb);
+    }
   }
   free(bubble);
 
+  // rg = gsl_rng_alloc(gsl_rng_mt19937);
+  if (!rseed) {
+    rseed = (unsigned long int)time(NULL);
+  }
+  srand(rseed);
+  // gsl_rng_set(rg, rseed);
+
   // famname[0] indicates binary vs. text
   // filtername[0] indicates existence of filter
-  retval = wdist(pedname, mapname, famname, filtername, filter_type, filterval, ped_col_1, ped_col_34, ped_col_5, ped_col_7, affection_01, threads, exponent, min_maf, geno_thresh, mind_thresh, outname, calculation_type, ep1, ep2, ep3, ep4);
+  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, mpheno_col, phenoname_str, prune, affection_01, threads, exponent, min_maf, geno_thresh, mind_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type);
+  // gsl_rng_free(rg);
   free(wkspace);
   return dispmsg(retval);
 }
