@@ -15,6 +15,7 @@
 #define RET_INVALID_CMDLINE 6
 #define RET_WRITE_FAIL 7
 #define RET_READ_FAIL 8
+#define RET_MOREHELP 9
 
 #define FILTER_KEEP 1
 #define FILTER_REMOVE 2
@@ -32,8 +33,9 @@
 // size of generic text line load buffer.  .ped lines can of course be longer
 #define MAXLINELEN 65536
 
+const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
-const char errstr_bim_format[] = "Error: Improperly formatted .bim file.\n";
+const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 char tbuf[MAXLINELEN];
 int iwt[256];
@@ -48,8 +50,20 @@ long long malloc_size_mb = MALLOC_DEFAULT_MB;
 int dispmsg(int retval) {
   switch(retval) {
   case RET_HELP:
+    printf("wdist <flags> {calculation}\n\nRun 'wdist --help' for more information.\n");
+    break;
+  case RET_NOMEM:
+    printf("Error: Out of memory.\n");
+    break;
+  case RET_WRITE_FAIL:
+    printf("Error: File write failure.\n");
+    break;
+  case RET_READ_FAIL:
+    printf("Error: File read failure.\n");
+    break;
+  case RET_MOREHELP:
     printf(
-"WDIST weighted genetic distance calculator, v0.2.0 (16 July 2012)\n"
+"WDIST weighted genetic distance calculator, v0.2.0 (17 July 2012)\n"
 "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
 "wdist <flags> {calculation}\n\n"
 "Supported flags:\n"
@@ -70,7 +84,7 @@ int dispmsg(int retval) {
 "  --pheno [fname]  : Specify alternate phenotype.\n"
 "  --mpheno [col]   : Specify phenotype column number in --pheno file.\n"
 "  --pheno-name [c] : If phenotype file has a header row, use column with the\n"
-"                   : given name.\n"
+"                     given name.\n"
 "  --prune          : Remove individuals with missing phenotypes.\n"
 "  --1              : .ped file affection phenotypes are interpreted as\n"
 "                     -9 = missing, 0 = unaffected, 1 = affected (instead of\n"
@@ -88,16 +102,16 @@ int dispmsg(int retval) {
 "  --remove [filename]\n"
 "  --filter [filename] [val] : Keep/remove/filter individuals (see PLINK\n"
 "                              documentation).\n"
-"  --mfilter [col] : Specify column number in multicolumn --filter file.\n\n"
+"  --mfilter [col]           : Specify column number in --filter file.\n\n"
 "  --make-pheno [filename] [val] : Specify binary phenotype, where cases have\n"
 "                                  the given value.  If the value is '*', all\n"
 "                                  individuals present in the phenotype file\n"
 "                                  are affected (and other individuals in the\n"
 "                                  .ped/.fam are unaffected).\n"
-"  --tail-pheno [Ltop] [Hbottom] : Form 'low' (unaffected) and 'high'\n"
-"                                  (affected) groups from continuous phenotype\n"
-"                                  data, pruning the center.  (--prune has no\n"
-"                                  additional effect.)\n\n"
+"  --tail-pheno [Ltop] [Hbottom] : Form 'low' (<= Ltop, unaffected) and 'high'\n"
+"                                  (> Hbottom, affected) groups from continuous\n"
+"                                  phenotype data, pruning the center.\n"
+"                                  (--prune has no additional effect.)\n\n"
 "Supported calculations:\n"
 "  --distance\n"
 "    Outputs a lower-triangular table of (weighted) genetic distances.\n"
@@ -108,19 +122,7 @@ int dispmsg(int retval) {
 "    Two-group genetic distance analysis, using delete-d jackknife with the\n"
 "    requested number of iterations.  Binary phenotype required.  (Not actually\n"
 "    implemented yet, but soon will be.)\n\n"
-
-    // "  --histogram\n"
-    // "  --regress\n\n"
 	   );
-    break;
-  case RET_NOMEM:
-    printf("Error: Out of memory.\n");
-    break;
-  case RET_WRITE_FAIL:
-    printf("Error: File write failure.\n");
-    break;
-  case RET_READ_FAIL:
-    printf("Error: File read failure.\n");
     break;
   }
   return retval;
@@ -2019,8 +2021,8 @@ int main(int argc, char* argv[]) {
       }
       load_params |= 1;
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --file parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --file parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 5)) {
         printf("Error: --file parameter too long.\n");
@@ -2035,6 +2037,8 @@ int main(int argc, char* argv[]) {
 	strcat(mapname, ".map");
       }
       cur_arg += 2;
+    } else if (!strcmp(argptr, "--help")) {
+      return dispmsg(RET_MOREHELP);
     } else if (!strcmp(argptr, "--ped")) {
       if (load_params & 122) {
         if (load_params & 2) {
@@ -2046,8 +2050,8 @@ int main(int argc, char* argv[]) {
       }
       load_params |= 2;
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --ped parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --ped parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
         printf("Error: --ped parameter too long.\n");
@@ -2066,8 +2070,8 @@ int main(int argc, char* argv[]) {
       }
       load_params |= 4;
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --map parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --map parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
         printf("Error: --map parameter too long.\n");
@@ -2086,8 +2090,8 @@ int main(int argc, char* argv[]) {
       }
       load_params |= 8;
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --bfile parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --bfile parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 5)) {
         printf("Error: --bfile parameter too long.\n");
@@ -2117,8 +2121,8 @@ int main(int argc, char* argv[]) {
       }
       load_params |= 16;
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --bed parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --bed parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
         printf("Error: --bed parameter too long.\n");
@@ -2137,8 +2141,8 @@ int main(int argc, char* argv[]) {
       }
       load_params |= 32;
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --bim parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --bim parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
         printf("Error: --bim parameter too long.\n");
@@ -2157,8 +2161,8 @@ int main(int argc, char* argv[]) {
       }
       load_params |= 64;
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --fam parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --fam parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
         printf("Error: --fam parameter too long.\n");
@@ -2183,8 +2187,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 1;
     } else if (!strcmp(argptr, "--pheno")) {
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --pheno parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --pheno parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (phenoname[0]) {
         if (makepheno_str) {
@@ -2202,8 +2206,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 2;
     } else if (!strcmp(argptr, "--make-pheno")) {
       if (cur_arg > argc - 2) {
-        printf("Error: Not enough --make-pheno parameters.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Not enough --make-pheno parameters.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (phenoname[0]) {
         if (makepheno_str) {
@@ -2226,8 +2230,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 3;
     } else if (!strcmp(argptr, "--mpheno")) {
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --mpheno parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --mpheno parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (mpheno_col != 0) {
         printf("Error: Duplicate --mpheno flag.\n");
@@ -2245,8 +2249,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 2;
     } else if (!strcmp(argptr, "--pheno-name")) {
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --pheno-name parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --pheno-name parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (mpheno_col != 0) {
         printf("Error: --mpheno and --pheno-name flags cannot coexist.\n");
@@ -2266,8 +2270,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 1;
     } else if (!strcmp(argptr, "--tail-pheno")) {
       if (cur_arg > argc - 2) {
-        printf("Error: Not enough --tail-pheno parameters.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Not enough --tail-pheno parameters.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (tail_pheno) {
         printf("Error: Duplicate --tail-pheno flag.\n");
@@ -2289,8 +2293,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 3;
     } else if (!strcmp(argptr, "--keep")) {
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --keep parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --keep parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (filter_type) {
         if (filter_type == 1) {
@@ -2309,8 +2313,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 2;
     } else if (!strcmp(argptr, "--remove")) {
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --remove parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --remove parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (filter_type) {
         if (filter_type == 2) {
@@ -2329,8 +2333,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 2;
     } else if (!strcmp(argptr, "--filter")) {
       if (cur_arg > argc - 2) {
-        printf("Error: Not enough --filter parameters.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Not enough --filter parameters.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (filter_type) {
         if (filter_type == 3) {
@@ -2350,8 +2354,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 3;
     } else if (!strcmp(argptr, "--mfilter")) {
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --mfilter parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --mfilter parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (mfilter_col) {
         printf("Error: Duplicate --mfilter flag.\n");
@@ -2365,19 +2369,19 @@ int main(int argc, char* argv[]) {
       cur_arg += 2;
     } else if (!strcmp(argptr, "--memory")) {
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --memory parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --memory parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       malloc_size_mb = atoi(argv[cur_arg + 1]);
       if (malloc_size_mb < 32) {
         printf("Error: Invalid --memory parameter.\n");
-        return dispmsg(RET_HELP);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += 2;
     } else if (!strcmp(argptr, "--threads")) {
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --threads parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --threads parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = atoi(argv[cur_arg + 1]);
       if (ii < 1) {
@@ -2391,8 +2395,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 2;
     } else if (!strcmp(argptr, "--exponent")) {
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --exponent parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --exponent parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (sscanf(argv[cur_arg + 1], "%lf", &exponent) != 1) {
         printf("Error: Invalid --exponent parameter.\n");
@@ -2401,8 +2405,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 2;
     } else if (!strcmp(argptr, "--maf")) {
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --maf parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --maf parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (sscanf(argv[cur_arg + 1], "%lf", &min_maf) != 1) {
         printf("Error: Invalid --maf parameter.\n");
@@ -2415,8 +2419,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 2;
     } else if (!strcmp(argptr, "--geno")) {
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --geno parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --geno parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (sscanf(argv[cur_arg + 1], "%lf", &geno_thresh) != 1) {
         printf("Error: Invalid --geno parameter.\n");
@@ -2429,8 +2433,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 2;
     } else if (!strcmp(argptr, "--mind")) {
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --mind parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --mind parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (sscanf(argv[cur_arg + 1], "%lf", &mind_thresh) != 1) {
         printf("Error: Invalid --mind parameter.\n");
@@ -2443,8 +2447,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 2;
     } else if (!strcmp(argptr, "--rseed")) {
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --rseed parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --rseed parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (rseed != 0) {
         printf("Error: Duplicate --rseed flag.\n");
@@ -2458,8 +2462,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 2;
     } else if (!strcmp(argptr, "--out")) {
       if (cur_arg == argc - 1) {
-        printf("Error: Missing --out parameter.  Displaying general-purpose help.\n\n");
-        return dispmsg(RET_HELP);
+        printf("Error: Missing --out parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 9)) {
         printf("Error: --out parameter too long.\n");
@@ -2472,8 +2476,8 @@ int main(int argc, char* argv[]) {
       cur_arg += 1;
     } else if (!strcmp(argptr, "--distance")) {
       if (cur_arg != argc - 1) {
-	printf("Error: invalid parameter after --distance.  Displaying general-purpose help.\n");
-	return dispmsg(RET_HELP);
+	printf("Error: invalid parameter after --distance.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg = argc;
       calculation_type = CALC_DISTANCE;
@@ -2481,8 +2485,8 @@ int main(int argc, char* argv[]) {
       printf("Note: --map3 flag unnecessary (.map file format is autodetected).\n");
       cur_arg += 1;
     } else {
-      printf("Error: Invalid argument (%s).  Displaying general-purpose help.\n\n", argv[cur_arg]);
-      return dispmsg(RET_HELP);
+      printf("Error: Invalid argument (%s).%s", argv[cur_arg], errstr_append);
+      return dispmsg(RET_INVALID_CMDLINE);
     }
   }
   if (calculation_type == CALC_NONE) {
