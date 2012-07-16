@@ -33,7 +33,7 @@
 // size of generic text line load buffer.  .ped lines can of course be longer
 #define MAXLINELEN 65536
 
-const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
+const char errstr_append[] = "\nRun 'wdist --help | less' for more information.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
@@ -50,7 +50,7 @@ long long malloc_size_mb = MALLOC_DEFAULT_MB;
 int dispmsg(int retval) {
   switch(retval) {
   case RET_HELP:
-    printf("wdist <flags> {calculation}\n\nRun 'wdist --help' for more information.\n");
+    printf("wdist <flags> {calculation}\n\nRun 'wdist --help | less' for more information.\n");
     break;
   case RET_NOMEM:
     printf("Error: Out of memory.\n");
