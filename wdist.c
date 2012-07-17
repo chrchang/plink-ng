@@ -26,7 +26,6 @@
 
 #define _FILE_OFFSET_BITS 64
 #define MAX_THREADS 64
-#define MAPBUFSIZE 128
 #define PEDBUFBASE 256
 #define FNAMESIZE 2048
 #define MALLOC_DEFAULT_MB 2176
@@ -482,7 +481,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int map_linect = 0;
   int map_linect4;
   char* outname_end;
-  char mapbuf[MAPBUFSIZE];
   unsigned char* pedbuf = NULL;
   unsigned char* marker_exclude = NULL;
   long long* line_locs = NULL;
@@ -609,11 +607,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   }
 
   // ----- .map/.bim load, first pass -----
-  mapbuf[MAPBUFSIZE - 1] = ' ';
-  while (fgets(mapbuf, MAPBUFSIZE, mapfile) != NULL) {
-    if (mapbuf[0] > ' ') {
+  tbuf[MAXLINELEN - 6] = ' ';
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN - 5, mapfile) != NULL) {
+    if (tbuf[0] > ' ') {
       if (!map_linect) {
-	bufptr = next_item(mapbuf);
+	bufptr = next_item(tbuf);
 	bufptr = next_item(bufptr);
 	bufptr = next_item(bufptr);
         if (binary_files) {
@@ -631,17 +630,15 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
       map_linect += 1;
     }
-    while (!mapbuf[MAPBUFSIZE - 1]) {
-      if (mapbuf[MAPBUFSIZE - 2] == '\n') {
-        break;
-      }
-      mapbuf[MAPBUFSIZE - 1] = ' ';
-      fgets(mapbuf, MAPBUFSIZE, mapfile);
+    if (!tbuf[MAXLINELEN - 6]) {
+      retval = RET_INVALID_FORMAT;
+      printf("Error: Excessively long line in .map/.bim file (max %d chars).\n", MAXLINELEN - 8);
+      goto wdist_ret_1;
     }
   }
   if (!map_linect) {
     retval = RET_INVALID_FORMAT;
-    printf("Error: No markers in .map file.");
+    printf("Error: No markers in .map/.bim file.");
     goto wdist_ret_0;
   }
   rewind(mapfile);
@@ -676,24 +673,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   // ----- .map/.bim load, second pass -----
   for (ii = 0; ii < map_linect; ii += 1) {
     do {
-      fgets(mapbuf, MAPBUFSIZE, mapfile);
-    } while (mapbuf[0] <= ' ');
-    // marker_chrom[ii] = marker_code(mapbuf);
-    bufptr = next_item(mapbuf);
-    if (!bufptr) {
-      retval = RET_INVALID_FORMAT;
-      printf(errstr_map_format);
-      goto wdist_ret_1;
-    }
+      fgets(tbuf, MAXLINELEN, mapfile);
+    } while (tbuf[0] <= ' ');
+    // marker_chrom[ii] = marker_code(tbuf);
+    bufptr = next_item(tbuf);
     // cur_item(marker_id[ii], bufptr);
     bufptr = next_item(bufptr);
     if (map_cols == 4) {
       bufptr = next_item(bufptr);
-    }
-    if (!bufptr) {
-      retval = RET_INVALID_FORMAT;
-      printf(errstr_map_format);
-      goto wdist_ret_1;
     }
     if (*bufptr == '-') {
       if (binary_files) {
@@ -706,7 +693,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     // marker_pos[ii] = atoi(bufptr);
   }
 
-  tbuf[MAXLINELEN - 1] = ' ';
   // ----- phenotype file load, first pass -----
   if (phenofile) {
     if (makepheno_str) {
@@ -1649,7 +1635,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	goto wdist_ret_1;
       }
       strcpy(outname_end, ".bim.tmp");
-      bimtmpfile = fopen(outname, "w");
+      bimtmpfile = fopen(outname, "wb");
       if (!bimtmpfile) {
         retval = RET_OPENFAIL;
         printf("\nError: Failed to open %s.\n", outname);
@@ -1695,6 +1681,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         bufptr = (char*)(&pedbuf[jj]);
 	memset(ped_geno, 0, map_linect4 * sizeof(char));
         gptr = ped_geno;
+        mm = 0;
 	for (jj = 0; jj < map_linect; jj += 1) {
           if (excluded(marker_exclude, jj)) {
 	    bufptr++;
@@ -1707,17 +1694,16 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    }
             continue;
           }
-	  mm = jj % 4;
 	  nn = 0;
 	  for (kk = 0; kk < 2; kk++) {
 	    cc = *bufptr;
-	    if (cc == marker_alleles[jj * 2 + 1]) {
+	    if (cc == marker_alleles[jj * 4 + 1]) {
 	      if (nn % 2) {
 		nn = 3;
 	      } else if (!nn) {
 		nn = 1;
 	      }
-	    } else if (cc != marker_alleles[jj * 2]) {
+	    } else if (cc != marker_alleles[jj * 4]) {
               nn = 2;
 	    }
 	    bufptr++;
@@ -1726,7 +1712,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    }
 	  }
 	  *gptr |= (nn << (mm * 2));
-	  if (mm == 3) {
+          mm = (mm + 1) % 4;
+	  if (mm == 0) {
 	    gptr++;
 	  }
 	}
@@ -1756,11 +1743,42 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       marker_alleles_tmp = NULL;
       marker_allele_cts = iwptr;
 
-      // TODO: write .bim
+      // ----- .map -> .bim conversion -----
+      rewind(mapfile);
+      for (ii = 0; ii < map_linect; ii += 1) {
+        do {
+          fgets(tbuf, MAXLINELEN, mapfile);
+        } while (tbuf[0] <= ' ');
+        if (excluded(marker_exclude, ii)) {
+          continue;
+        }
+        bufptr = next_item(tbuf);
+        bufptr = next_item(bufptr);
+        if (map_cols == 4) {
+          bufptr = next_item(bufptr);
+        }
+        while (!is_space_or_eoln(*bufptr)) {
+          bufptr++;
+        }
+        *bufptr++ = '\t';
+        *bufptr++ = marker_alleles[ii * 2 + 1];
+        *bufptr++ = '\t';
+        *bufptr++ = marker_alleles[ii * 2];
+        *bufptr++ = '\n';
+        jj = (int)(bufptr - tbuf);
+        if (jj != fwrite(tbuf, 1, jj, bimtmpfile)) {
+	  retval = RET_WRITE_FAIL;
+	  goto wdist_ret_2;
+        }
+      }
       printf(" done.\n");
       fclose(pedfile);
       fclose(bedtmpfile);
+      fclose(bimtmpfile);
+      fclose(famtmpfile);
       bedtmpfile = NULL;
+      bimtmpfile = NULL;
+      famtmpfile = NULL;
       strcpy(outname_end, ".bed.tmp");
       pedfile = fopen(outname, "rb");
       if (!pedfile) {
