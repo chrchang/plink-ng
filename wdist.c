@@ -501,13 +501,13 @@ void incr_dists(double* dists, unsigned char* geno, int ct, double* weights) {
     gptr2 = &(geno[ii]);
     cc = *gptr2;
     while (gptr < gptr2) {
-      *dists += weights[*gptr ^ cc];
+      *dists += weights[*gptr++ ^ cc];
       dists++;
     }
   }
 }
 
-void collapse_phenoc(char* pheno_c, unsigned char* person_exclude, int ped_linect, int person_exclude_ct) {
+void collapse_phenoc(char* pheno_c, unsigned char* person_exclude, int ped_linect) {
   int ii = 0;
   int jj;
   while ((ii < ped_linect) && (!excluded(person_exclude, ii))) {
@@ -521,7 +521,7 @@ void collapse_phenoc(char* pheno_c, unsigned char* person_exclude, int ped_linec
   }
 }
 
-void collapse_phenod(double* pheno_d, unsigned char* person_exclude, int ped_linect, int person_exclude_ct) {
+void collapse_phenod(double* pheno_d, unsigned char* person_exclude, int ped_linect) {
   int ii = 0;
   int jj;
   while ((ii < ped_linect) && (!excluded(person_exclude, ii))) {
@@ -1995,9 +1995,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
       binary_files = 1;
       if (pheno_c) {
-        collapse_phenoc(pheno_c, person_exclude, ped_linect, person_exclude_ct);
+        collapse_phenoc(pheno_c, person_exclude, ped_linect);
       } else if (pheno_d) {
-        collapse_phenod(pheno_d, person_exclude, ped_linect, person_exclude_ct);
+        collapse_phenod(pheno_d, person_exclude, ped_linect);
       }
       map_linect -= marker_exclude_ct;
       marker_exclude_ct = 0;
@@ -2125,6 +2125,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     strcpy(outname_end, ".dist");
     printf("Distances written to %s.\n", outname);
   } else if (calculation_type == CALC_GROUPDIST) {
+    collapse_phenoc(pheno_c, person_exclude, ped_linect);
     high_ct = 0;
     if (exponent == 0.0) {
       low_tot_i = 0;
