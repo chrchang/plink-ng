@@ -33,6 +33,10 @@
 // size of generic text line load buffer.  .ped lines can of course be longer
 #define MAXLINELEN 131072
 
+const char info_str[] =
+  "WDIST weighted genetic distance calculator, v0.2.0 (17 July 2012)\n"
+  "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
+  "wdist <flags> {calculation}\n";
 const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
@@ -50,7 +54,7 @@ long long malloc_size_mb = MALLOC_DEFAULT_MB;
 int dispmsg(int retval) {
   switch(retval) {
   case RET_HELP:
-    printf("wdist <flags> {calculation}\n%s", errstr_append);
+    printf("%s%s", info_str, errstr_append);
     break;
   case RET_NOMEM:
     printf("Error: Out of memory.\n");
@@ -63,9 +67,7 @@ int dispmsg(int retval) {
     break;
   case RET_MOREHELP:
     printf(
-"WDIST weighted genetic distance calculator, v0.2.0 (17 July 2012)\n"
-"Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
-"wdist <flags> {calculation}\n\n"
+"%s\n"
 "Supported flags:\n"
 "  --file [prefix]  : Specify prefix for .ped and .map files (default 'wdist').\n"
 "  --ped [filename] : Specify name of .ped file.\n"
@@ -121,8 +123,8 @@ int dispmsg(int retval) {
 "  --groupdist [d] [iters]\n"
 "    Two-group genetic distance analysis, using delete-d jackknife with the\n"
 "    requested number of iterations.  Binary phenotype required.  (Not actually\n"
-"    implemented yet, but soon will be.)\n\n"
-	   );
+"    implemented yet, but soon will be.)\n\n",
+	   info_str);
     break;
   }
   return retval;
