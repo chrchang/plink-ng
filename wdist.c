@@ -535,6 +535,23 @@ void collapse_phenod(double* pheno_d, unsigned char* person_exclude, int ped_lin
   }
 }
 
+void pick_d(unsigned char* cbuf, int ct, int dd) {
+  int ii;
+  int jj;
+  int kk;
+  memset(cbuf, 0, ct);
+  kk = RAND_MAX % ct;
+  for (ii = 0; ii < dd; ii++) {
+    do {
+      do {
+        jj = rand();
+      } while (jj < kk);
+      jj %= ct;
+    } while (cbuf[jj]);
+    cbuf[jj] = 1;
+  }
+}
+
 int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int threads, double exponent, double min_maf, double geno_thresh, double mind_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int jackknife_del, int iters) {
   FILE* pedfile = NULL;
   FILE* mapfile = NULL;
@@ -567,6 +584,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   double dxx;
   double dyy;
   double dzz;
+  double dhh_sum;
+  double dhh_ssd;
+  double dhl_sum;
+  double dhl_ssd;
+  double dll_sum;
+  double dll_ssd;
   int low_ct;
   int high_ct;
   long long low_tot_i;
@@ -596,6 +619,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   unsigned char* gptr;
   char* cptr;
   char* cptr2;
+  char* cptr3;
   int* iwptr;
   int* iptr;
   int* idists;
@@ -2126,6 +2150,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     printf("Distances written to %s.\n", outname);
   } else if (calculation_type == CALC_GROUPDIST) {
     collapse_phenoc(pheno_c, person_exclude, ped_linect);
+    low_ct = 0;
     high_ct = 0;
     if (exponent == 0.0) {
       low_tot_i = 0;
@@ -2147,6 +2172,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             iptr++;
 	  }
         } else if (*cptr2 == 0) {
+          low_ct++;
           while (cptr < cptr2) {
             if (*cptr == 1) {
               lh_tot_i += *iptr;
@@ -2160,6 +2186,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           iptr += ii;
         }
       }
+      low_tot = (double)low_tot_i;
+      lh_tot = (double)lh_tot_i;
+      high_tot = (double)high_tot_i;
     } else {
       low_tot = 0.0;
       lh_tot = 0.0;
@@ -2180,6 +2209,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             dist_ptr++;
 	  }
         } else if (*cptr2 == 0) {
+          low_ct++;
           while (cptr < cptr2) {
             if (*cptr == 1) {
               lh_tot += *dist_ptr;
@@ -2194,46 +2224,155 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
       }
     }
-    low_ct = ped_linect - high_ct;
     retval = RET_SUCCESS;
     printf("Group distance analysis (%d affected, %d unaffected):\n", high_ct, low_ct);
-    if (exponent == 0.0) {
-      if (high_ct < 2) {
-        dxx = 0.0;
-      } else {
-        dxx = (double)high_tot_i / (double)((high_ct * (high_ct - 1)) / 2);
-      }
-      if (!(high_ct * low_ct)) {
-        dyy = 0.0;
-      } else {
-        dyy = (double)lh_tot_i / (double)(high_ct * low_ct);
-      }
-      if (low_ct < 2) {
-        dzz = 0.0;
-      } else {
-        dzz = (double)low_tot_i / (double)((low_ct * (low_ct - 1)) / 2);
-      }
+    if (high_ct < 2) {
+      dxx = 0.0;
     } else {
-      if (high_ct < 2) {
-        dxx = 0.0;
-      } else {
-        dxx = high_tot / (double)((high_ct * (high_ct - 1)) / 2);
-      }
-      if (!(high_ct * low_ct)) {
-        dyy = 0.0;
-      } else {
-        dyy = lh_tot / (double)(high_ct * low_ct);
-      }
-      if (low_ct < 2) {
-        dzz = 0.0;
-      } else {
-        dzz = low_tot / (double)((low_ct * (low_ct - 1)) / 2);
-      }
+      dxx = high_tot / (double)((high_ct * (high_ct - 1)) / 2);
+    }
+    if (!(high_ct * low_ct)) {
+      dyy = 0.0;
+    } else {
+      dyy = lh_tot / (double)(high_ct * low_ct);
+    }
+    if (low_ct < 2) {
+      dzz = 0.0;
+    } else {
+      dzz = low_tot / (double)((low_ct * (low_ct - 1)) / 2);
     }
     printf("  Avg dist between 2x affected             : %lf\n", dxx);
     printf("  Avg dist between affected and unaffected : %lf\n", dyy);
-    printf("  Avg dist between 2x unaffected           : %lf\n", dzz);
-    printf("Jackknife standard errors coming soon.\n");
+    printf("  Avg dist between 2x unaffected           : %lf\n\n", dzz);
+    if (2 * jackknife_del >= high_ct + low_ct) {
+      printf("Delete-d jackknife skipped because d is too large.\n");
+    } else {
+      dhh_sum = 0.0;
+      dhl_sum = 0.0;
+      dll_sum = 0.0;
+      dhh_ssd = 0.0;
+      dhl_ssd = 0.0;
+      dll_ssd = 0.0;
+      nn = 0;
+      for (jj = 0; jj < iters; jj++) {
+        kk = 0;
+        mm = 0;
+        pick_d(ped_geno, high_ct + low_ct, jackknife_del);
+	if (exponent == 0.0) {
+	  low_tot_i = 0;
+	  lh_tot_i = 0;
+	  high_tot_i = 0;
+	  iptr = idists;
+	  for (ii = 0; ii < ped_linect; ii++) {
+	    cptr = pheno_c;
+	    cptr2 = &(pheno_c[ii]);
+            cptr3 = (char*)ped_geno;
+	    if ((!ped_geno[ii]) && (*cptr2 == 1)) {
+	      kk++;
+	      while (cptr < cptr2) {
+                if (!(*cptr3)) {
+		  if (*cptr == 1) {
+		    high_tot_i += *iptr;
+		  } else if (!(*cptr)) {
+		    lh_tot_i += *iptr;
+		  }
+                }
+		cptr++;
+                cptr3++;
+		iptr++;
+	      }
+	    } else if ((!ped_geno[ii]) && (*cptr2 == 0)) {
+	      mm++;
+	      while (cptr < cptr2) {
+                if (!(*cptr3)) {
+		  if (*cptr == 1) {
+		    lh_tot_i += *iptr;
+		  } else if (!(*cptr)) {
+		    low_tot_i += *iptr;
+		  }
+                }
+		cptr++;
+                cptr3++;
+		iptr++;
+	      }
+	    } else {
+	      iptr += ii;
+	    }
+	  }
+          low_tot = (double)low_tot_i;
+          lh_tot = (double)lh_tot_i;
+          high_tot = (double)high_tot_i;
+	} else {
+	  low_tot = 0.0;
+	  lh_tot = 0.0;
+	  high_tot = 0.0;
+	  dist_ptr = dists;
+	  for (ii = 0; ii < ped_linect; ii++) {
+	    cptr = pheno_c;
+	    cptr2 = &(pheno_c[ii]);
+            cptr3 = (char*)ped_geno;
+	    if ((!ped_geno[ii]) && (*cptr2 == 1)) {
+	      kk++;
+	      while (cptr < cptr2) {
+                if (!(*cptr3)) {
+		  if (*cptr == 1) {
+		    high_tot += *dist_ptr;
+		  } else if (!(*cptr)) {
+		    lh_tot += *dist_ptr;
+		  }
+                }
+		cptr++;
+                cptr3++;
+		dist_ptr++;
+	      }
+	    } else if ((!ped_geno[ii]) && (*cptr2 == 0)) {
+	      mm++;
+	      while (cptr < cptr2) {
+                if (!(*cptr3)) {
+		  if (*cptr == 1) {
+		    lh_tot += *dist_ptr;
+		  } else if (!(*cptr)) {
+		    low_tot += *dist_ptr;
+		  }
+                }
+		cptr++;
+                cptr3++;
+		dist_ptr++;
+	      }
+	    } else {
+	      dist_ptr += ii;
+	    }
+	  }
+	}
+	if ((kk > 1) && (mm > 1)) {
+	  high_tot = high_tot / (double)((kk * (kk - 1)) / 2);
+	  lh_tot = lh_tot / (double)(kk * mm);
+	  low_tot = low_tot / (double)((mm * (mm - 1)) / 2);
+	  if (nn) {
+	    dxx = dhh_sum / (double)nn;
+	    dyy = dhl_sum / (double)nn;
+	    dzz = dll_sum / (double)nn;
+	  }
+	  dhh_sum += high_tot;
+	  dhl_sum += lh_tot;
+	  dll_sum += low_tot;
+	  nn++; // otherwise iteration doesn't count
+	  if (jj) {
+	    dhh_ssd += (high_tot - (dhh_sum / (double)nn)) * (high_tot - dxx);
+	    dhl_ssd += (lh_tot - (dhl_sum / (double)nn)) * (lh_tot - dyy);
+	    dll_ssd += (low_tot - (dll_sum / (double)nn)) * (low_tot - dzz);
+	  }
+	}
+      }
+      if (nn < 2) {
+	printf("Too few valid jackknife runs.\n");
+      } else {
+	printf("Jackknife results (%d valid runs):\n", nn);
+	printf("  Avg dist between 2x affected            : %lf (sd %lf)\n", dhh_sum / (double)nn, sqrt(dhh_ssd / (double)(nn - 1)));
+	printf("  Avg dist between affected and unaffected: %lf (sd %lf)\n", dhl_sum / (double)nn, sqrt(dhl_ssd / (double)(nn - 1)));
+	printf("  Avg dist between 2x unaffected          : %lf (sd %lf)\n", dll_sum / (double)nn, sqrt(dll_ssd / (double)(nn - 1)));
+      }
+    }
   }
 
   /*
@@ -2586,10 +2725,7 @@ int main(int argc, char* argv[]) {
         printf("Error: --bfile parameter too long.\n");
         return dispmsg(RET_OPENFAIL);
       }
-      if (make_bed) {
-        printf("Error: --make-bed cannot coexist with binary file flags.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
+      make_bed = 0;
       if (!(load_params & 16)) {
 	strcpy(pedname, argv[cur_arg + 1]);
 	strcat(pedname, ".bed");
@@ -2621,10 +2757,7 @@ int main(int argc, char* argv[]) {
         printf("Error: --bed parameter too long.\n");
         return dispmsg(RET_OPENFAIL);
       }
-      if (make_bed) {
-        printf("Error: --make-bed cannot coexist with binary file flags.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
+      make_bed = 0;
       strcpy(pedname, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--bim")) {
@@ -2645,10 +2778,7 @@ int main(int argc, char* argv[]) {
         printf("Error: --bim parameter too long.\n");
         return dispmsg(RET_OPENFAIL);
       }
-      if (make_bed) {
-        printf("Error: --make-bed cannot coexist with binary file flags.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
+      make_bed = 0;
       strcpy(mapname, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--fam")) {
@@ -2669,10 +2799,7 @@ int main(int argc, char* argv[]) {
         printf("Error: --fam parameter too long.\n");
         return dispmsg(RET_OPENFAIL);
       }
-      if (make_bed) {
-        printf("Error: --make-bed cannot coexist with binary file flags.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
+      make_bed = 0;
       strcpy(famname, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--no-fid")) {
@@ -3027,7 +3154,7 @@ int main(int argc, char* argv[]) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       iters = atoi(argv[cur_arg + 2]);
-      if (iters <= 0) {
+      if (iters < 2) {
         printf("Error: Invalid --groupdist jackknife iteration count.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
