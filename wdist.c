@@ -2368,9 +2368,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	printf("Too few valid jackknife runs.\n");
       } else {
 	printf("Jackknife results (%d valid runs):\n", nn);
-	printf("  Avg dist between 2x affected            : %lf (sd %lf)\n", dhh_sum / (double)nn, sqrt(dhh_ssd / (double)(nn - 1)));
-	printf("  Avg dist between affected and unaffected: %lf (sd %lf)\n", dhl_sum / (double)nn, sqrt(dhl_ssd / (double)(nn - 1)));
-	printf("  Avg dist between 2x unaffected          : %lf (sd %lf)\n", dll_sum / (double)nn, sqrt(dll_ssd / (double)(nn - 1)));
+	printf("  Avg dist between 2x affected             : %lf (sd %lf)\n", dhh_sum / (double)nn, sqrt(dhh_ssd / (double)(nn - 1)));
+	printf("  Avg dist between affected and unaffected : %lf (sd %lf)\n", dhl_sum / (double)nn, sqrt(dhl_ssd / (double)(nn - 1)));
+	printf("  Avg dist between 2x unaffected           : %lf (sd %lf)\n", dll_sum / (double)nn, sqrt(dll_ssd / (double)(nn - 1)));
       }
     }
   }
