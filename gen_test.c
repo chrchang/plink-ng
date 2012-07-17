@@ -22,9 +22,9 @@ int main(int argc, char* argv[]) {
     help_msg();
     return 1;
   }
-  buf = (char*)malloc((MARKERS * 4 + 12) * sizeof(char));
-  memset(buf, 32, MARKERS * 4 + 10);
-  buf[MARKERS * 4 + 11] = '\n';
+  buf = (char*)malloc((MARKERS * 4 + 21) * sizeof(char));
+  memset(buf, 32, MARKERS * 4 + 19);
+  buf[MARKERS * 4 + 20] = '\n';
   srand(time(NULL));
   FILE* mapfile = fopen("wdist.map", "w");
   FILE* pedfile = fopen("wdist.ped", "wb");
@@ -35,11 +35,11 @@ int main(int argc, char* argv[]) {
   }
   fclose(mapfile);
   for (ii = 0; ii < PEOPLE; ii += 1) {
-    memcpy(buf, "1 1 0 0 1 1", 11);
+    sprintf(buf, "1 %d 0 0 1 1", ii + 1000000000);
     for (jj = 0; jj < (MARKERS * 2); jj += 1) {
-      buf[jj * 2 + 12] = (rand() % 2) + '1';
+      buf[jj * 2 + 21] = (rand() % 2) + '1';
     }
-    fwrite(buf, 1, MARKERS * 4 + 12, pedfile);
+    fwrite(buf, 1, MARKERS * 4 + 21, pedfile);
   }
   fclose(pedfile);
   return 0;
