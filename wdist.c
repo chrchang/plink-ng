@@ -72,6 +72,7 @@ int dispmsg(int retval) {
 "  --file [prefix]  : Specify prefix for .ped and .map files (default 'wdist').\n"
 "  --ped [filename] : Specify name of .ped file.\n"
 "  --map [filename] : Specify name of .map file.\n"
+"  --make-bed       : Make .bed, .bim, and .fam files.\n"
 "  --no-fid         : .ped file does not contain column 1 (family ID).\n"
 "  --no-parents     : .ped file does not contain columns 3-4 (parents).\n"
 "  --no-sex         : .ped file does not contain column 5 (sex).\n"
@@ -474,7 +475,7 @@ int eval_affection(char* bufptr, int missing_pheno, int missing_pheno_len, int a
   return 0;
 }
 
-int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int threads, double exponent, double min_maf, double geno_thresh, double mind_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type) {
+int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int threads, double exponent, double min_maf, double geno_thresh, double mind_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type) {
   FILE* pedfile = NULL;
   FILE* mapfile = NULL;
   FILE* famfile = NULL;
@@ -1635,23 +1636,39 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     
     geno_window_size = (malloc_size_mb * 1048576 - dists_alloc) / (ped_linect - person_exclude_ct);
     map_linect4 = (map_linect - marker_exclude_ct + 3) / 4;
-    if (map_linect4 > geno_window_size) {
-      printf(".ped file too large for direct read.  Converting to binary...");
-      strcpy(outname_end, ".bed.tmp");
+    if (make_bed || (map_linect4 > geno_window_size)) {
+      if (map_linect4 > geno_window_size) {
+        printf(".ped file too large for direct read.  Converting to binary...");
+      } else {
+        printf("Writing binary files...");
+      }
+      if (make_bed) {
+        strcpy(outname_end, ".bed");
+      } else {
+        strcpy(outname_end, ".bed.tmp");
+      }
       bedtmpfile = fopen(outname, "wb");
       if (!bedtmpfile) {
         retval = RET_OPENFAIL;
         printf("\nError: Failed to open %s.\n", outname);
 	goto wdist_ret_1;
       }
-      strcpy(outname_end, ".bim.tmp");
+      if (make_bed) {
+        strcpy(outname_end, ".bim");
+      } else {
+        strcpy(outname_end, ".bim.tmp");
+      }
       bimtmpfile = fopen(outname, "wb");
       if (!bimtmpfile) {
         retval = RET_OPENFAIL;
         printf("\nError: Failed to open %s.\n", outname);
 	goto wdist_ret_2;
       }
-      strcpy(outname_end, ".fam.tmp");
+      if (make_bed) {
+        strcpy(outname_end, ".fam");
+      } else {
+        strcpy(outname_end, ".fam.tmp");
+      }
       famtmpfile = fopen(outname, "wb");
       if (!famtmpfile) {
         retval = RET_OPENFAIL;
@@ -2105,6 +2122,7 @@ int main(int argc, char* argv[]) {
   char* argptr;
   int retval;
   int load_params = 0; // describes what file parameters have been provided
+  int make_bed = 0;
   int ped_col_1 = 1;
   int ped_col_34 = 1;
   int ped_col_5 = 1;
@@ -2209,6 +2227,13 @@ int main(int argc, char* argv[]) {
       }
       strcpy(mapname, argv[cur_arg + 1]);
       cur_arg += 2;
+    } else if (!strcmp(argptr, "--make-bed")) {
+      if (load_params & 120) {
+        printf("Error: --make-bed cannot coexist with binary file flags.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      make_bed = 1;
+      cur_arg += 1;
     } else if (!strcmp(argptr, "--bfile")) {
       if (load_params & 15) {
         if (load_params & 8) {
@@ -2226,6 +2251,10 @@ int main(int argc, char* argv[]) {
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 5)) {
         printf("Error: --bfile parameter too long.\n");
         return dispmsg(RET_OPENFAIL);
+      }
+      if (make_bed) {
+        printf("Error: --make-bed cannot coexist with binary file flags.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       if (!(load_params & 16)) {
 	strcpy(pedname, argv[cur_arg + 1]);
@@ -2258,6 +2287,10 @@ int main(int argc, char* argv[]) {
         printf("Error: --bed parameter too long.\n");
         return dispmsg(RET_OPENFAIL);
       }
+      if (make_bed) {
+        printf("Error: --make-bed cannot coexist with binary file flags.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
       strcpy(pedname, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--bim")) {
@@ -2278,6 +2311,10 @@ int main(int argc, char* argv[]) {
         printf("Error: --bim parameter too long.\n");
         return dispmsg(RET_OPENFAIL);
       }
+      if (make_bed) {
+        printf("Error: --make-bed cannot coexist with binary file flags.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
       strcpy(mapname, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--fam")) {
@@ -2297,6 +2334,10 @@ int main(int argc, char* argv[]) {
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
         printf("Error: --fam parameter too long.\n");
         return dispmsg(RET_OPENFAIL);
+      }
+      if (make_bed) {
+        printf("Error: --make-bed cannot coexist with binary file flags.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       strcpy(famname, argv[cur_arg + 1]);
       cur_arg += 2;
@@ -2702,7 +2743,7 @@ int main(int argc, char* argv[]) {
 
   // famname[0] indicates binary vs. text
   // filtername[0] indicates existence of filter
-  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, threads, exponent, min_maf, geno_thresh, mind_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type);
+  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, threads, exponent, min_maf, geno_thresh, mind_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type);
   // gsl_rng_free(rg);
   free(wkspace);
   return dispmsg(retval);
