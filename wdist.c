@@ -35,7 +35,7 @@
 #define MAXLINELEN 131072
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.2.0 (18 July 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.2.1 (20 July 2012)\n"
   "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
   "wdist <flags> {calculation}\n";
 const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
@@ -792,6 +792,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     }
     // marker_pos[ii] = atoi(bufptr);
   }
+  if (marker_exclude_ct) {
+    printf("%d markers loaded (after excluding %d).", map_linect - marker_exclude_ct, marker_exclude_ct);
+  } else {
+    printf("%d markers loaded.\n", map_linect - marker_exclude_ct);
+  }
 
   // ----- phenotype file load, first pass -----
   if (phenofile) {
@@ -1132,9 +1137,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   if (!line_locs) {
     goto wdist_ret_1;
   }
-  maf_int_thresh = 2 * map_linect - (int)((1.0 - min_maf) * 2.0 * map_linect);
-  geno_int_thresh = 2 * map_linect - (int)(geno_thresh * 2.0 * map_linect);
-  mind_int_thresh = (int)(mind_thresh * map_linect);
+  mind_int_thresh = (int)(mind_thresh * (map_linect - marker_exclude_ct));
 
   if (binary_files) {
     jj = 0; // line count in .bed
@@ -1232,6 +1235,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	goto wdist_ret_1;
       }
     }
+
+    maf_int_thresh = 2 * ped_linect - (int)((1.0 - min_maf) * ped_linect * 2.0);
+    geno_int_thresh = 2 * ped_linect - (int)(geno_thresh * 2.0 * ped_linect);
 
     rewind(famfile);
     // ----- .fam load, second pass -----
@@ -1354,7 +1360,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           }
           oo = nn & 3;
           if (oo) {
-            if (oo == 1) {
+            if (oo == 2) {
               marker_allele_cts[jj * 2] += 1;
               marker_allele_cts[jj * 2 + 1] += 1;
             } else if (oo == 3) {
@@ -1409,7 +1415,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           }
           pp = oo & 3;
           if (pp) {
-            if (pp == 1) {
+            if (pp == 2) {
               mm++;
               nn++;
             } else if (pp == 3) {
@@ -1422,6 +1428,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           }
         }
         if ((mm + nn < geno_int_thresh) || (nn < maf_int_thresh)) {
+          printf("%d %d %d %d\n", mm, nn, geno_int_thresh, maf_int_thresh);
           exclude(marker_exclude, ii, &marker_exclude_ct);
         } else {
           marker_allele_cts[ii * 2] = mm;
@@ -1437,6 +1444,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   } else {
     pedbuf[pedbuflen - 1] = ' ';
     last_tell = 0;
+    // define exclude counters
     // ----- .ped load, first pass -----
     while (fgets((char*)pedbuf, pedbuflen, pedfile) != NULL) {
       if (pedbuf[0] > ' ') {
@@ -1539,6 +1547,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	goto wdist_ret_1;
       }
     }
+
+    maf_int_thresh = 2 * ped_linect - (int)((1.0 - min_maf) * ped_linect * 2.0);
+    geno_int_thresh = 2 * ped_linect - (int)(geno_thresh * 2.0 * ped_linect);
 
     marker_alleles = (char*)malloc(map_linect * 4 * sizeof(char));
     if (!marker_alleles) {
@@ -1650,33 +1661,35 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    printf(errstr_ped_format);
 	    goto wdist_ret_1;
 	  }
-          if (cc == missing_geno) {
-            mm += 1;
-          } else if (cc == marker_alleles[jj * 4]) {
-	    marker_allele_cts[jj * 4] += 1;
-	  } else if (cc == marker_alleles[jj * 4 + 1]) {
-	    marker_allele_cts[jj * 4 + 1] += 1;
-	  } else if (cc == marker_alleles[jj * 4 + 2]) {
-	    marker_allele_cts[jj * 4 + 2] += 1;
-          } else if (cc == marker_alleles[jj * 4 + 3]) {
-            marker_allele_cts[jj * 4 + 3] += 1;
-          } else if (marker_alleles[jj * 4 + 3]) {
-            retval = RET_INVALID_FORMAT;
-            printf("Error: More than 4 different allele types at marker %d.\n", jj + 1);
-            goto wdist_ret_1;
-	  } else if (marker_alleles[jj * 4 + 2]) {
-            marker_alleles[jj * 4 + 3] = cc;
-	    marker_allele_cts[jj * 4 + 3] = 1;
-	  } else if (marker_alleles[jj * 4 + 1]) {
-	    marker_alleles[jj * 4 + 2] = cc;
-	    marker_allele_cts[jj * 4 + 2] = 1;
-	  } else if (marker_alleles[jj * 4]) {
-	    marker_alleles[jj * 4 + 1] = cc;
-	    marker_allele_cts[jj * 4 + 1] = 1;
-	  } else {
-	    marker_alleles[jj * 4] = cc;
-	    marker_allele_cts[jj * 4] = 1;
-	  }
+          if (!excluded(marker_exclude, jj)) {
+	    if (cc == missing_geno) {
+	      mm += 1;
+	    } else if (cc == marker_alleles[jj * 4]) {
+	      marker_allele_cts[jj * 4] += 1;
+	    } else if (cc == marker_alleles[jj * 4 + 1]) {
+	      marker_allele_cts[jj * 4 + 1] += 1;
+	    } else if (cc == marker_alleles[jj * 4 + 2]) {
+	      marker_allele_cts[jj * 4 + 2] += 1;
+	    } else if (cc == marker_alleles[jj * 4 + 3]) {
+	      marker_allele_cts[jj * 4 + 3] += 1;
+	    } else if (marker_alleles[jj * 4 + 3]) {
+	      retval = RET_INVALID_FORMAT;
+	      printf("Error: More than 4 different allele types at marker %d.\n", jj + 1);
+	      goto wdist_ret_1;
+	    } else if (marker_alleles[jj * 4 + 2]) {
+	      marker_alleles[jj * 4 + 3] = cc;
+	      marker_allele_cts[jj * 4 + 3] = 1;
+	    } else if (marker_alleles[jj * 4 + 1]) {
+	      marker_alleles[jj * 4 + 2] = cc;
+	      marker_allele_cts[jj * 4 + 2] = 1;
+	    } else if (marker_alleles[jj * 4]) {
+	      marker_alleles[jj * 4 + 1] = cc;
+	      marker_allele_cts[jj * 4 + 1] = 1;
+	    } else {
+	      marker_alleles[jj * 4] = cc;
+	      marker_allele_cts[jj * 4] = 1;
+	    }
+          }
 	  bufptr++;
 	  while ((*bufptr == ' ') || (*bufptr == '\t')) {
 	    bufptr++;
@@ -1810,13 +1823,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  for (kk = 0; kk < 2; kk++) {
 	    cc = *bufptr;
 	    if (cc == marker_alleles[jj * 4]) {
-	      if (nn % 2) {
+	      if (nn == 2) {
 		nn = 3;
 	      } else if (!nn) {
-		nn = 1;
+		nn = 2;
 	      }
 	    } else if (cc != marker_alleles[jj * 4 + 1]) {
-              nn = 2;
+              nn = 1;
 	    }
 	    bufptr++;
 	    while ((*bufptr == ' ') || (*bufptr == '\t')) {
@@ -1923,13 +1936,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  for (kk = 0; kk < 2; kk++) {
 	    cc = *bufptr;
 	    if (cc == marker_alleles[jj * 4]) {
-	      if (nn % 2) {
+	      if (nn == 2) {
 		nn = 3;
 	      } else if (!nn) {
-		nn = 1;
+		nn = 2;
 	      }
 	    } else if (cc != marker_alleles[jj * 4 + 1]) {
-              nn = 2;
+              nn = 1;
 	    }
 	    bufptr++;
 	    while ((*bufptr == ' ') || (*bufptr == '\t')) {
@@ -2059,14 +2072,19 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     if (snp_major) {
       fseeko(pedfile, 3, SEEK_SET);
       ii = 0; // current SNP index
+      printf("map_linect, marker_exclude_ct: %d %d\n", map_linect, marker_exclude_ct);
       while (ii < map_linect) {
         for (jj = 0; jj < 4; jj++) {
           maf_buf[jj] = 0.5;
         }
         jj = 0; // actual SNPs read
         while ((jj < 4) && (ii < map_linect)) {
-          while (excluded(marker_exclude, ii)) {
+          while ((ii < map_linect) && excluded(marker_exclude, ii)) {
             ii++;
+            fseeko(pedfile, (off_t)ped_linect4, SEEK_CUR);
+          }
+          if (ii == map_linect) {
+            break;
           }
           if (fread(&(pedbuf[jj * ped_linect4]), 1, ped_linect4, pedfile) < ped_linect4) {
             retval = RET_READ_FAIL;
@@ -2077,7 +2095,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           ii++;
           jj++;
         }
-        if (jj < 4) {
+        if (!jj) {
+          break;
+        } else if (jj < 4) {
           memset(&(pedbuf[jj * ped_linect4]), 0, (4 - jj) * ped_linect4);
         }
         gptr = ped_geno;
@@ -2087,7 +2107,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             oo = 0;
             for (mm = 0; mm < 4; mm++) {
               nn = (pedbuf[jj / 4 + mm * ped_linect4] >> kk) & 3;
-              if (nn == 2) {
+              if (nn == 1) {
                 nn = 0;
                 if (rand() > rand_thresh_buf[mm]) {
                   nn++;
@@ -2107,6 +2127,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           fill_weights(weights, maf_buf, exponent);
           incr_dists(dists, ped_geno, ped_linect, weights);
         }
+        printf("\r%d/%d markers complete.", ii, map_linect);
+        fflush(stdout);
       }
     } else {
       printf("indiv-major distance calculation not done.\n");
@@ -2118,6 +2140,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     retval = RET_SUCCESS;
     goto wdist_ret_2;
   }
+
+  printf("\rDistance matrix calculation complete.\n");
 
   if (calculation_type == CALC_DISTANCE) {
     if (exponent == 0.0) {
@@ -2357,7 +2381,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  dhl_sum += lh_tot;
 	  dll_sum += low_tot;
 	  nn++; // otherwise iteration doesn't count
-	  if (jj) {
+	  if (nn > 1) {
 	    dhh_ssd += (high_tot - (dhh_sum / (double)nn)) * (high_tot - dxx);
 	    dhl_ssd += (lh_tot - (dhl_sum / (double)nn)) * (lh_tot - dyy);
 	    dll_ssd += (low_tot - (dll_sum / (double)nn)) * (low_tot - dzz);
