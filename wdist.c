@@ -35,7 +35,7 @@
 #define MAXLINELEN 131072
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.2.1 (20 July 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.2.3 (21 July 2012)\n"
   "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
   "wdist <flags> {calculation}\n";
 const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
@@ -120,11 +120,13 @@ int dispmsg(int retval) {
 "                                  phenotype data.  (Central phenotype values\n"
 "                                  are treated as missing.)\n\n"
 "Supported calculations:\n"
-"  --distance\n"
+"  --distance [--square0]\n"
 "    Outputs a lower-triangular table of (weighted) genetic distances.\n"
 "    The first row contains a single number with the distance between the first\n"
 "    two genotypes, the second row has the {genotype 1-genotype 3} and\n"
 "    {genotype 2-genotype 3} distances in that order, etc.\n\n"
+"    If modified by the --square0 flag, a square matrix is written instead (filled\n"
+"    out with zeroes).\n\n"
 "  --groupdist [d] [iters]\n"
 "    Two-group genetic distance analysis, using delete-d jackknife with the\n"
 "    requested number of iterations.  Binary phenotype required.\n\n",
@@ -140,165 +142,44 @@ inline int is_space_or_eoln(char cc) {
 
 char* id_buf = NULL;
 
-int qsort_partition(char* lptr, int max_id_len, int min_idx, int max_idx, int pivot_idx) {
-  char* pivot_ptr = &(lptr[pivot_idx * max_id_len]);
-  char* right_ptr = &(lptr[max_idx * max_id_len]);
-  char* store_ptr = &(lptr[min_idx * max_id_len]);
-  char* incr_ptr;
-  int si = min_idx;
-  strcpy(id_buf, pivot_ptr);
-  strcpy(pivot_ptr, right_ptr);
-  strcpy(right_ptr, id_buf);
-  while (store_ptr < right_ptr) {
-    if (strcmp(store_ptr, right_ptr) < 0) {
-      store_ptr += max_id_len;
-      si++;
-    } else {
-      for (incr_ptr = store_ptr + max_id_len; incr_ptr < pivot_ptr; incr_ptr += max_id_len) {
-	if (strcmp(incr_ptr, right_ptr) < 0) {
-	  strcpy(id_buf, incr_ptr);
-	  strcpy(incr_ptr, store_ptr);
-	  strcpy(store_ptr, id_buf);
-	  store_ptr += max_id_len;
-	  si++;
-	}
-      }
-      break;
-    }
-  }
-  strcpy(id_buf, store_ptr);
-  strcpy(store_ptr, right_ptr);
-  strcpy(right_ptr, id_buf);  
-  return si;
+int strcmp_casted(const void* s1, const void* s2) {
+  return strcmp((char*)s1, (char*)s2);
 }
 
-void qsort_str(char* lptr, int max_id_len, int min_idx, int max_idx) {
-  int pivot_idx;
-  if (max_idx > min_idx) {
-    pivot_idx = qsort_partition(lptr, max_id_len, min_idx, max_idx, (min_idx + max_idx) / 2);
-    qsort_str(lptr, max_id_len, min_idx, pivot_idx - 1);
-    qsort_str(lptr, max_id_len, pivot_idx + 1, max_idx);
-  }
+int strcmp_deref(const void* s1, const void* s2) {
+  return strcmp(*(char**)s1, *(char**)s2);
 }
 
-int qsort_partition_c(char* lptr, char* cptr, int max_id_len, int min_idx, int max_idx, int pivot_idx) {
-  char* pivot_ptr = &(lptr[pivot_idx * max_id_len]);
-  char* right_ptr = &(lptr[max_idx * max_id_len]);
-  char* store_ptr = &(lptr[min_idx * max_id_len]);
-  char* pivot_ptr_c = &(cptr[pivot_idx]);
-  char* right_ptr_c = &(cptr[max_idx]);
-  char* store_ptr_c = &(cptr[min_idx]);
-  char cc;
-  char* incr_ptr;
-  char* incr_ptr_c;
-  int si = min_idx;
-  strcpy(id_buf, pivot_ptr);
-  cc = *pivot_ptr_c;
-  strcpy(pivot_ptr, right_ptr);
-  *pivot_ptr_c = *right_ptr_c;
-  strcpy(right_ptr, id_buf);
-  *right_ptr_c = cc;
-  while (store_ptr < right_ptr) {
-    if (strcmp(store_ptr, right_ptr) < 0) {
-      store_ptr += max_id_len;
-      si++;
-    } else {
-      incr_ptr = store_ptr + max_id_len;
-      incr_ptr_c = store_ptr_c + 1;
-      while (incr_ptr < pivot_ptr) {
-	if (strcmp(incr_ptr, right_ptr) < 0) {
-	  strcpy(id_buf, incr_ptr);
-          cc = *incr_ptr_c;
-	  strcpy(incr_ptr, store_ptr);
-          *incr_ptr_c = *store_ptr_c;
-	  strcpy(store_ptr, id_buf);
-          *store_ptr_c++ = cc;
-	  store_ptr += max_id_len;
-	  si++;
-	}
-        incr_ptr += max_id_len;
-        incr_ptr_c++;
-      }
-      break;
-    }
+// alas, qsort_r not available on some Linux distributions
+int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len) {
+  char* proxy_arr;
+  int proxy_len = secondary_item_len + sizeof(void*);
+  int ii;
+  if (!arr_length) {
+    return 0;
   }
-  strcpy(id_buf, store_ptr);
-  cc = *store_ptr_c;
-  strcpy(store_ptr, right_ptr);
-  *store_ptr_c = *right_ptr_c;
-  strcpy(right_ptr, id_buf);  
-  *right_ptr_c = cc;
-  return si;
-}
-
-void qsort_str_c(char* lptr, char* cptr, int max_id_len, int min_idx, int max_idx) {
-  int pivot_idx;
-  if (max_idx > min_idx) {
-    pivot_idx = qsort_partition_c(lptr, cptr, max_id_len, min_idx, max_idx, (min_idx + max_idx) / 2);
-    qsort_str_c(lptr, cptr, max_id_len, min_idx, pivot_idx - 1);
-    qsort_str_c(lptr, cptr, max_id_len, pivot_idx + 1, max_idx);
+  if (proxy_len < item_length) {
+    proxy_len = item_length;
   }
-}
-
-int qsort_partition_d(char* lptr, double* dptr, int max_id_len, int min_idx, int max_idx, int pivot_idx) {
-  char* pivot_ptr = &(lptr[pivot_idx * max_id_len]);
-  char* right_ptr = &(lptr[max_idx * max_id_len]);
-  char* store_ptr = &(lptr[min_idx * max_id_len]);
-  double* pivot_ptr_d = &(dptr[pivot_idx]);
-  double* right_ptr_d = &(dptr[max_idx]);
-  double* store_ptr_d = &(dptr[min_idx]);
-  double dxx;
-  char* incr_ptr;
-  double* incr_ptr_d;
-  int si = min_idx;
-  strcpy(id_buf, pivot_ptr);
-  dxx = *pivot_ptr_d;
-  strcpy(pivot_ptr, right_ptr);
-  *pivot_ptr_d = *right_ptr_d;
-  strcpy(right_ptr, id_buf);
-  *right_ptr_d = dxx;
-  while (store_ptr < right_ptr) {
-    if (strcmp(store_ptr, right_ptr) < 0) {
-      store_ptr += max_id_len;
-      si++;
-    } else {
-      incr_ptr = store_ptr + max_id_len;
-      incr_ptr_d = store_ptr_d + 1;
-      while (incr_ptr < pivot_ptr) {
-	if (strcmp(incr_ptr, right_ptr) < 0) {
-	  strcpy(id_buf, incr_ptr);
-          dxx = *incr_ptr_d;
-	  strcpy(incr_ptr, store_ptr);
-          *incr_ptr_d = *store_ptr_d;
-	  strcpy(store_ptr, id_buf);
-          *store_ptr_d++ = dxx;
-	  store_ptr += max_id_len;
-	  si++;
-	}
-        incr_ptr += max_id_len;
-        incr_ptr_d++;
-      }
-      break;
-    }
+  proxy_arr = (char*)malloc(arr_length * proxy_len);
+  if (!proxy_arr) {
+    return -1;
   }
-  strcpy(id_buf, store_ptr);
-  dxx = *store_ptr_d;
-  strcpy(store_ptr, right_ptr);
-  *store_ptr_d = *right_ptr_d;
-  strcpy(right_ptr, id_buf);  
-  *right_ptr_d = dxx;
-  return si;
-}
-
-void qsort_str_d(char* lptr, double* dptr, int max_id_len, int min_idx, int max_idx) {
-  int pivot_idx;
-  if (max_idx > min_idx) {
-    pivot_idx = qsort_partition_d(lptr, dptr, max_id_len, min_idx, max_idx, (min_idx + max_idx) / 2);
-    qsort_str_d(lptr, dptr, max_id_len, min_idx, pivot_idx - 1);
-    qsort_str_d(lptr, dptr, max_id_len, pivot_idx + 1, max_idx);
+  for (ii = 0; ii < arr_length; ii++) {
+    *(char**)(&(proxy_arr[ii * proxy_len])) = &(main_arr[ii * item_length]);
+    memcpy(&(proxy_arr[ii * proxy_len + sizeof(void*)]), &(secondary_arr[ii * secondary_item_len]), secondary_item_len);
   }
+  qsort(proxy_arr, arr_length, proxy_len, comparator_deref);
+  for (ii = 0; ii < arr_length; ii++) {
+    memcpy(&(secondary_arr[ii * secondary_item_len]), &(proxy_arr[ii * proxy_len + sizeof(void*)]), secondary_item_len);
+    memcpy(&(proxy_arr[ii * proxy_len]), *(char**)(&(proxy_arr[ii * proxy_len])), item_length);
+  }
+  for (ii = 0; ii < arr_length; ii++) {
+    memcpy(&(main_arr[ii * item_length]), &(proxy_arr[ii * proxy_len]), item_length);
+  }
+  free(proxy_arr);
+  return 0;
 }
-
 
 int bsearch_str(char* lptr, int max_id_len, int min_idx, int max_idx) {
   int mid_idx;
@@ -552,7 +433,7 @@ void pick_d(unsigned char* cbuf, int ct, int dd) {
   }
 }
 
-int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int threads, double exponent, double min_maf, double geno_thresh, double mind_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int jackknife_del, int iters) {
+int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int threads, double exponent, double min_maf, double geno_thresh, double mind_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int calc_param_1, int iters) {
   FILE* pedfile = NULL;
   FILE* mapfile = NULL;
   FILE* famfile = NULL;
@@ -1003,11 +884,15 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	}
       }
       if (affection || tail_pheno) {
-	qsort_str_c(pid_list, phenor_c, max_pid_len, 0, pheno_lines - 1);
+	if (qsort_ext(pid_list, pheno_lines, max_pid_len, strcmp_deref, phenor_c, sizeof(char)) == -1) {
+	  goto wdist_ret_1;
+        }
       } else if (makepheno_str) {
-	qsort_str(pid_list, max_pid_len, 0, pheno_lines - 1);
+        qsort(pid_list, pheno_lines, max_pid_len, strcmp_casted);
       } else {
-	qsort_str_d(pid_list, phenor_d, max_pid_len, 0, pheno_lines - 1);
+	if (qsort_ext(pid_list, pheno_lines, max_pid_len, strcmp_deref, (char*)phenor_d, sizeof(double)) == -1) {
+          goto wdist_ret_1;
+        }
       }
     } else {
       printf("Note: No valid entries in phenotype file.\n");
@@ -1126,7 +1011,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  *cptr = '\0';
 	}
       }
-      qsort_str(id_list, max_id_len, 0, filter_lines - 1);
+      qsort(id_list, filter_lines, max_id_len, strcmp_casted);
     } else {
       printf("Note: No valid entries in filter file.\n");
     }
@@ -1428,7 +1313,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           }
         }
         if ((mm + nn < geno_int_thresh) || (nn < maf_int_thresh)) {
-          printf("%d %d %d %d\n", mm, nn, geno_int_thresh, maf_int_thresh);
           exclude(marker_exclude, ii, &marker_exclude_ct);
         } else {
           marker_allele_cts[ii * 2] = mm;
@@ -2072,12 +1956,20 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     if (snp_major) {
       fseeko(pedfile, 3, SEEK_SET);
       ii = 0; // current SNP index
-      printf("map_linect, marker_exclude_ct: %d %d\n", map_linect, marker_exclude_ct);
       while (ii < map_linect) {
         for (jj = 0; jj < 4; jj++) {
           maf_buf[jj] = 0.5;
         }
         jj = 0; // actual SNPs read
+
+        // Key insight here is to calculate distances for 4 markers at a time.
+        // Status of a single marker is stored in two bits, so four can be
+        // stored in a byte.  [Weighted] distance between two sets of four
+        // markers can be determined by XORing the corresponding bytes and
+        // looking up the corresponding array entry.
+        // It's worth testing 16 simultaneous markers in the future; this would
+        // force array lookups to refer to the L2 rather than the L1 cache,
+        // though.
         while ((jj < 4) && (ii < map_linect)) {
           while ((ii < map_linect) && excluded(marker_exclude, ii)) {
             ii++;
@@ -2146,6 +2038,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   if (calculation_type == CALC_DISTANCE) {
     if (exponent == 0.0) {
       iwptr = idists;
+      if (calc_param_1) {
+        fprintf(outfile, "0");
+        for (ii = 1; ii < ped_linect; ii += 1) {
+          fprintf(outfile, "\t0");
+        }
+        fprintf(outfile, "\n");
+      }
       for (ii = 1; ii < ped_linect; ii += 1) {
         for (jj = 0; jj < ii; jj += 1) {
           if (jj) {
@@ -2154,16 +2053,33 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             fprintf(outfile, "%d", *iwptr++);
           }
         }
+	if (calc_param_1) {
+          for (; jj < ped_linect; jj += 1) {
+            fprintf(outfile, "\t0");
+          }
+	}
         fprintf(outfile, "\n");
       }
     } else {
       dist_ptr = dists;
+      if (calc_param_1) {
+        fprintf(outfile, "%lf", 0.0);
+        for (ii = 1; ii < ped_linect; ii += 1) {
+          fprintf(outfile, "\t%lf", 0.0);
+        }
+        fprintf(outfile, "\n");
+      }
       for (ii = 1; ii < ped_linect; ii += 1) {
         for (jj = 0; jj < ii; jj += 1) {
           if (jj) {
             fprintf(outfile, "\t%lf", *dist_ptr++);
           } else {
             fprintf(outfile, "%lf", *dist_ptr++);
+          }
+        }
+	if (calc_param_1) {
+	  for (; jj < ped_linect; jj += 1) {
+            fprintf(outfile, "\t%lf", 0.0);
           }
         }
         fprintf(outfile, "\n");
@@ -2268,7 +2184,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     printf("  Avg dist between 2x affected             : %lf\n", dxx);
     printf("  Avg dist between affected and unaffected : %lf\n", dyy);
     printf("  Avg dist between 2x unaffected           : %lf\n\n", dzz);
-    if (2 * jackknife_del >= high_ct + low_ct) {
+    if (2 * calc_param_1 >= high_ct + low_ct) {
       printf("Delete-d jackknife skipped because d is too large.\n");
     } else {
       dhh_sum = 0.0;
@@ -2281,7 +2197,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       for (jj = 0; jj < iters; jj++) {
         kk = 0;
         mm = 0;
-        pick_d(ped_geno, high_ct + low_ct, jackknife_del);
+        pick_d(ped_geno, high_ct + low_ct, calc_param_1);
 	if (exponent == 0.0) {
 	  low_tot_i = 0;
 	  lh_tot_i = 0;
@@ -2642,7 +2558,7 @@ int main(int argc, char* argv[]) {
   unsigned char missing_geno = '0';
   double tail_bottom;
   double tail_top;
-  int jackknife_del;
+  int calc_param_1 = 0;
   int iters;
   int ii;
   int jj;
@@ -3162,8 +3078,12 @@ int main(int argc, char* argv[]) {
       cur_arg += 1;
     } else if (!strcmp(argptr, "--distance")) {
       if (cur_arg != argc - 1) {
-	printf("Error: Invalid parameter after --distance.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
+        if ((cur_arg == argc - 2) && (!strcmp(argv[cur_arg + 1], "--square0"))) {
+          calc_param_1 = 1;
+        } else {
+	  printf("Error: Invalid parameter after --distance.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+        }
       }
       cur_arg = argc;
       calculation_type = CALC_DISTANCE;
@@ -3172,8 +3092,8 @@ int main(int argc, char* argv[]) {
         printf("Error: --groupdist requires 2 parameters.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      jackknife_del = atoi(argv[cur_arg + 1]);
-      if (jackknife_del <= 0) {
+      calc_param_1 = atoi(argv[cur_arg + 1]);
+      if (calc_param_1 <= 0) {
         printf("Error: Invalid --groupdist jackknife delete parameter.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
@@ -3245,7 +3165,7 @@ int main(int argc, char* argv[]) {
 
   // famname[0] indicates binary vs. text
   // filtername[0] indicates existence of filter
-  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, threads, exponent, min_maf, geno_thresh, mind_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type, jackknife_del, iters);
+  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, threads, exponent, min_maf, geno_thresh, mind_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type, calc_param_1, iters);
   // gsl_rng_free(rg);
   free(wkspace);
   return dispmsg(retval);
