@@ -33,6 +33,11 @@
 #define IDLENGTH 16
 // size of generic text line load buffer.  .ped lines can of course be longer
 #define MAXLINELEN 131072
+#if __LP64__
+#define IMULTIPLEX 32
+#else
+#define IMULTIPLEX 16
+#endif
 
 const char info_str[] =
   "WDIST weighted genetic distance calculator, v0.2.4 (22 July 2012)\n"
@@ -43,7 +48,7 @@ const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 char tbuf[MAXLINELEN];
-int iwt[256];
+long iwt[256];
 unsigned char* wkspace;
 long long malloc_size_mb = MALLOC_DEFAULT_MB;
 char** subst_argv = NULL;
@@ -389,45 +394,48 @@ void fill_weights(double* weights, double* mafs, double exponent) {
   int kk;
   int mm;
   int nn;
-  double wt[4];
-  double twt[3];
-  for (ii = 0; ii < 4; ii += 1) {
-    wt[ii] = pow(2.0 * mafs[ii] * (1.0 - mafs[ii]), -exponent);
+  double wtarr[16];
+  double twt[16];
+  double* wt;
+  for (ii = 0; ii < 16; ii += 1) {
+    wtarr[ii] = pow(2.0 * mafs[ii] * (1.0 - mafs[ii]), -exponent);
   }
-  nn = 0;
-  for (ii = 0; ii < 4; ii += 1) {
-    if ((ii % 4 == 1) || (ii % 4 == 2)) {
-      twt[0] = wt[3];
-    } else if (ii % 4 == 3) {
-      twt[0] = wt[3] * 2;
-    } else {
-      twt[0] = 0;
-    }
-    for (jj = 0; jj < 4; jj += 1) {
-      if ((jj % 4 == 1) || (jj % 4 == 2)) {
-        twt[1] = twt[0] + wt[2];
-      } else if (jj % 4 == 3) {
-        twt[1] = twt[0] + 2 * wt[2];
+  for (nn = 0; nn < 4; nn++) {
+    wt = &(wtarr[4 * nn]);
+    for (ii = 0; ii < 4; ii += 1) {
+      if ((ii % 4 == 1) || (ii % 4 == 2)) {
+	twt[0] = wt[3];
+      } else if (ii % 4 == 3) {
+	twt[0] = wt[3] * 2;
       } else {
-        twt[1] = twt[0];
+	twt[0] = 0;
       }
-      for (kk = 0; kk < 4; kk += 1) {
-        if ((kk % 4 == 1) || (kk % 4 == 2)) {
-          twt[2] = twt[1] + wt[1];
-	} else if (kk % 4 == 3) {
-          twt[2] = twt[1] + 2 * wt[1];
-        } else {
-          twt[2] = twt[1];
-        }
-        for (mm = 0; mm < 4; mm += 1) {
-          if ((mm % 4 == 1) || (mm % 4 == 2)) {
-            *weights++ = twt[2] + wt[0];
-          } else if (mm % 4 == 3) {
-            *weights++ = twt[2] + 2 * wt[0];
-          } else {
-            *weights++ = twt[2];
+      for (jj = 0; jj < 4; jj += 1) {
+	if ((jj % 4 == 1) || (jj % 4 == 2)) {
+	  twt[1] = twt[0] + wt[2];
+	} else if (jj % 4 == 3) {
+	  twt[1] = twt[0] + 2 * wt[2];
+	} else {
+	  twt[1] = twt[0];
+	}
+	for (kk = 0; kk < 4; kk += 1) {
+	  if ((kk % 4 == 1) || (kk % 4 == 2)) {
+	    twt[2] = twt[1] + wt[1];
+	  } else if (kk % 4 == 3) {
+	    twt[2] = twt[1] + 2 * wt[1];
+	  } else {
+	    twt[2] = twt[1];
 	  }
-        }
+	  for (mm = 0; mm < 4; mm += 1) {
+	    if ((mm % 4 == 1) || (mm % 4 == 2)) {
+	      *weights++ = twt[2] + wt[0];
+	    } else if (mm % 4 == 3) {
+	      *weights++ = twt[2] + 2 * wt[0];
+	    } else {
+	      *weights++ = twt[2];
+	    }
+	  }
+	}
       }
     }
   }
@@ -464,33 +472,41 @@ int eval_affection(char* bufptr, int missing_pheno, int missing_pheno_len, int a
   return 0;
 }
 
-void incr_dists_i(int* idists, unsigned char* geno, int ct) {
-  unsigned char* gptr;
-  unsigned char* gptr2;
-  unsigned char cc;
+void incr_dists_i(int* idists, unsigned long* geno, int ct) {
+  unsigned long* glptr;
+  unsigned long* glptr2;
+  unsigned long ulii;
+  unsigned long uljj;
   int ii;
   for (ii = 1; ii < ct; ii++) {
-    gptr = geno;
-    gptr2 = &(geno[ii]);
-    cc = *gptr2;
-    while (gptr < gptr2) {
-      *idists += iwt[*gptr++ ^ cc];
+    glptr = geno;
+    glptr2 = &(geno[ii]);
+    ulii = *glptr2;
+    while (glptr < glptr2) {
+      uljj = *glptr++ ^ ulii;
+#if __LP64__
+      *idists += iwt[(uljj >> 56) & 255] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+#else
+      *idists += iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+#endif
       idists++;
     }
   }
 }
 
-void incr_dists(double* dists, unsigned char* geno, int ct, double* weights) {
-  unsigned char* gptr;
-  unsigned char* gptr2;
-  unsigned char cc;
+void incr_dists(double* dists, unsigned int* geno, int ct, double* weights) {
+  unsigned int* giptr;
+  unsigned int* giptr2;
+  unsigned int uii;
+  unsigned int ujj;
   int ii;
   for (ii = 1; ii < ct; ii++) {
-    gptr = geno;
-    gptr2 = &(geno[ii]);
-    cc = *gptr2;
-    while (gptr < gptr2) {
-      *dists += weights[*gptr++ ^ cc];
+    giptr = geno;
+    giptr2 = &(geno[ii]);
+    uii = *giptr2;
+    while (giptr < giptr2) {
+      ujj = *giptr++ ^ uii;
+      *dists += weights[768 + ((ujj >> 24) & 255)] + weights[512 + ((ujj >> 16) & 255)] + weights[256 + ((ujj >> 8) & 255)] + weights[ujj & 255];
       dists++;
     }
   }
@@ -570,6 +586,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int nn;
   int oo;
   int pp;
+  unsigned long ulii;
+  unsigned long uljj;
   double dxx;
   double dyy;
   double dzz;
@@ -606,6 +624,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   char* pheno_c = NULL;
   unsigned char* ped_geno = NULL;
   unsigned char* gptr;
+  unsigned long* glptr;
   char* cptr;
   char* cptr2;
   char* cptr3;
@@ -613,7 +632,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int* iptr;
   int* idists;
   double* dists;
-  double weights[256];
+  double weights[1024];
   long long dists_alloc = 0;
   long long ped_geno_size;
   int geno_window_size;
@@ -634,8 +653,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int max_id_len = 4;
   char* pid_list = NULL;
   char* id_list = NULL;
-  int rand_thresh_buf[4];
-  double maf_buf[4];
+  int rand_thresh_buf[IMULTIPLEX];
+  double maf_buf[IMULTIPLEX];
   double missing_phenod = (double)missing_pheno;
   int missing_pheno_len = 1;
   int* hwe_ll;
@@ -644,6 +663,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int hwe_lli;
   int hwe_lhi;
   int hwe_hhi;
+  int multiplex;
 
   ii = missing_pheno;
   if (ii < 0) {
@@ -2205,26 +2225,40 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     goto wdist_ret_2;
   }
 
-  printf("%d markers and %d people pass QC.\n", map_linect - marker_exclude_ct, ped_linect - person_exclude_ct);
+  printf("%d markers and %d people pass filters and QC.\n", map_linect - marker_exclude_ct, ped_linect - person_exclude_ct);
+  if (exponent == 0.0) {
+    multiplex = IMULTIPLEX;
+  } else {
+    multiplex = 16;
+  }
   if (binary_files) {
     if (snp_major) {
+      if (pedbuflen < multiplex * ped_linect4) {
+        free(pedbuf);
+        pedbuf = (unsigned char*)malloc(multiplex * ped_linect4 * sizeof(char));
+        if (!pedbuf) {
+          goto wdist_ret_2;
+        }
+      }
       fseeko(pedfile, 3, SEEK_SET);
       ii = 0; // current SNP index
       pp = 0; // after subtracting out excluded
       while (ii < map_linect) {
-        for (jj = 0; jj < 4; jj++) {
+        for (jj = 0; jj < multiplex; jj++) {
           maf_buf[jj] = 0.5;
         }
         jj = 0; // actual SNPs read
 
-        // Key insight here is to calculate distances for 4 markers at a time.
+        // Two key insights here:
+        // 1. Precalculate distances for 4 markers at a time.
         // Status of a single marker is stored in two bits, so four can be
-        // stored in a byte.  [Weighted] distance between two sets of four
-        // markers can be determined by XORing the corresponding bytes and
-        // looking up the corresponding array entry.
-        // 256 * sizeof(int) or sizeof(double) conveniently fits in Intel L1
-        // caches.  We'd lose this if we multiplexed more markers.
-        while ((jj < 4) && (ii < map_linect)) {
+        // stored in a byte while allowing bitwise operations.  [Weighted]
+        // distance between two sets of four markers can be determined by
+        // XORing the corresponding bytes and looking up the corresponding
+        // array entry.  A distance array is small enough to fit in a single
+        // 4KB L1 cache entry (this would no longer hold true for more than 4
+        // markers).
+        while ((jj < multiplex) && (ii < map_linect)) {
           while ((ii < map_linect) && excluded(marker_exclude, ii)) {
             ii++;
             fseeko(pedfile, (off_t)ped_linect4, SEEK_CUR);
@@ -2244,35 +2278,35 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
         if (!jj) {
           break;
-        } else if (jj < 4) {
-          memset(&(pedbuf[jj * ped_linect4]), 0, (4 - jj) * ped_linect4);
+        } else if (jj < multiplex) {
+          memset(&(pedbuf[jj * ped_linect4]), 0, (multiplex - jj) * ped_linect4);
         }
-        gptr = ped_geno;
+        glptr = (unsigned long*)ped_geno;
         for (jj = 0; jj < ped_linect; jj++) {
           if (!excluded(person_exclude, jj)) {
             kk = (jj % 4) * 2;
-            oo = 0;
-            for (mm = 0; mm < 4; mm++) {
-              nn = (pedbuf[jj / 4 + mm * ped_linect4] >> kk) & 3;
-              if (nn == 1) {
-                nn = 0;
+            ulii = 0;
+            for (mm = 0; mm < multiplex; mm++) {
+              uljj = (pedbuf[jj / 4 + mm * ped_linect4] >> kk) & 3;
+              if (uljj == 1) {
+                uljj = 0;
                 if (rand() > rand_thresh_buf[mm]) {
-                  nn++;
+                  uljj++;
                 }
                 if (rand() > rand_thresh_buf[mm]) {
-                  nn = nn * 2 + 1;
+                  uljj = uljj * 2 + 1;
                 }
               }
-              oo |= nn << (mm * 2);
+              ulii |= uljj << (mm * 2);
             }
-            *gptr++ = (unsigned char)oo;
+            *glptr++ = ulii;
           }
         }
         if (exponent == 0.0) {
-          incr_dists_i(idists, ped_geno, ped_linect);
+          incr_dists_i(idists, (unsigned long*)ped_geno, ped_linect);
         } else {
           fill_weights(weights, maf_buf, exponent);
-          incr_dists(dists, ped_geno, ped_linect, weights);
+          incr_dists(dists, (unsigned int*)ped_geno, ped_linect, weights);
         }
         printf("\r%d markers complete.", pp);
         fflush(stdout);
