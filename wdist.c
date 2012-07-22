@@ -1,3 +1,19 @@
+// WDIST weighted genetic distance calculator
+// Copyright (C) 2012  Christopher Chang  chrchang523@gmail.com
+
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -111,7 +127,7 @@ int dispmsg(int retval) {
 "                     This is checked after all other forms of filtering.\n"
 "  --rseed [val]    : Set random number seed (relevant for missing genotypes).\n"
 "  --memory [val]   : Size, in MB, of initial malloc attempt (default 2176).\n"
-"  --threads [val]  : Maximum number of concurrent threads (default 2).\n"
+// "  --threads [val]  : Maximum number of concurrent threads (default 2).\n"
 "  --exponent [val] : When computing genetic distances, each marker has a\n"
 "                     weight of (2q(1-q))^{-val}, where q is the observed MAF.\n\n"
 "  --keep [filename]\n"
