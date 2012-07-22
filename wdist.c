@@ -586,6 +586,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int nn;
   int oo;
   int pp;
+  unsigned int uii;
+  unsigned int ujj;
   unsigned long ulii;
   unsigned long uljj;
   double dxx;
@@ -624,6 +626,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   char* pheno_c = NULL;
   unsigned char* ped_geno = NULL;
   unsigned char* gptr;
+  unsigned int* giptr;
   unsigned long* glptr;
   char* cptr;
   char* cptr2;
@@ -2281,30 +2284,51 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         } else if (jj < multiplex) {
           memset(&(pedbuf[jj * ped_linect4]), 0, (multiplex - jj) * ped_linect4);
         }
-        glptr = (unsigned long*)ped_geno;
-        for (jj = 0; jj < ped_linect; jj++) {
-          if (!excluded(person_exclude, jj)) {
-            kk = (jj % 4) * 2;
-            ulii = 0;
-            for (mm = 0; mm < multiplex; mm++) {
-              uljj = (pedbuf[jj / 4 + mm * ped_linect4] >> kk) & 3;
-              if (uljj == 1) {
-                uljj = 0;
-                if (rand() > rand_thresh_buf[mm]) {
-                  uljj++;
-                }
-                if (rand() > rand_thresh_buf[mm]) {
-                  uljj = uljj * 2 + 1;
-                }
-              }
-              ulii |= uljj << (mm * 2);
-            }
-            *glptr++ = ulii;
-          }
-        }
         if (exponent == 0.0) {
+	  glptr = (unsigned long*)ped_geno;
+	  for (jj = 0; jj < ped_linect; jj++) {
+	    if (!excluded(person_exclude, jj)) {
+	      kk = (jj % 4) * 2;
+	      ulii = 0;
+	      for (mm = 0; mm < IMULTIPLEX; mm++) {
+		uljj = (pedbuf[jj / 4 + mm * ped_linect4] >> kk) & 3;
+		if (uljj == 1) {
+		  uljj = 0;
+		  if (rand() > rand_thresh_buf[mm]) {
+		    uljj++;
+		  }
+		  if (rand() > rand_thresh_buf[mm]) {
+		    uljj = uljj * 2 + 1;
+		  }
+		}
+		ulii |= uljj << (mm * 2);
+	      }
+	      *glptr++ = ulii;
+	    }
+          }
           incr_dists_i(idists, (unsigned long*)ped_geno, ped_linect);
-        } else {
+	} else {
+          giptr = (unsigned int*)ped_geno;
+	  for (jj = 0; jj < ped_linect; jj++) {
+	    if (!excluded(person_exclude, jj)) {
+	      kk = (jj % 4) * 2;
+	      uii = 0;
+	      for (mm = 0; mm < 16; mm++) {
+		ujj = (pedbuf[jj / 4 + mm * ped_linect4] >> kk) & 3;
+		if (ujj == 1) {
+		  ujj = 0;
+		  if (rand() > rand_thresh_buf[mm]) {
+		    ujj++;
+		  }
+		  if (rand() > rand_thresh_buf[mm]) {
+		    ujj = ujj * 2 + 1;
+		  }
+		}
+		uii |= ujj << (mm * 2);
+	      }
+	      *giptr++ = uii;
+	    }
+          }
           fill_weights(weights, maf_buf, exponent);
           incr_dists(dists, (unsigned int*)ped_geno, ped_linect, weights);
         }
