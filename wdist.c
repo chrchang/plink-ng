@@ -35,7 +35,7 @@
 #define MAXLINELEN 131072
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.2.3 (21 July 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.2.4 (22 July 2012)\n"
   "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
   "wdist <flags> {calculation}\n";
 const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
@@ -46,6 +46,7 @@ char tbuf[MAXLINELEN];
 int iwt[256];
 unsigned char* wkspace;
 long long malloc_size_mb = MALLOC_DEFAULT_MB;
+char** subst_argv = NULL;
 // gsl_rng* rg;
 
 // TODO:
@@ -70,6 +71,7 @@ int dispmsg(int retval) {
     printf(
 "%s\n"
 "Supported flags:\n"
+"  --script [fname] : Include command-line options from file.\n"
 "  --file [prefix]  : Specify prefix for .ped and .map files (default 'wdist').\n"
 "  --ped [filename] : Specify name of .ped file.\n"
 "  --map [filename] : Specify name of .map file.\n"
@@ -95,6 +97,8 @@ int dispmsg(int retval) {
 "                     1 = unaffected, 2 = affected)\n"
 // --map3 implicitly supported via autodetection
 // --compound-genotypes automatically supported
+"  --chr [num]      : Only consider markers on the given chromosome (1-22, X,"
+"                     Y, XY, MT).\n"
 "  --maf [val]      : Minor allele frequency minimum threshold.\n"
 "  --geno [val]     : Maximum per-SNP missing.\n"
 "  --mind [val]     : Maximum per-person missing.\n"
@@ -134,6 +138,9 @@ int dispmsg(int retval) {
 "    requested number of iterations.  Binary phenotype required.\n\n",
 	   info_str);
     break;
+  }
+  if (subst_argv) {
+    free(subst_argv);
   }
   return retval;
 }
@@ -341,8 +348,12 @@ int marker_code(char* sptr) {
     }
   } else if (*sptr < 'X') {
     return (sptr[0] - '0');
+  } else if (*sptr == 'X') {
+    return 23;
+  } else if (*sptr == 'Y') {
+    return 24;
   } else {
-    return (sptr[0] - 'A'); // X = 23, Y = 24
+    return 0;
   }
 }
 
@@ -530,7 +541,7 @@ void pick_d(unsigned char* cbuf, int ct, int dd) {
   }
 }
 
-int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int threads, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int calc_param_1, int iters) {
+int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int chr_num, int threads, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int calc_param_1, int iters) {
   FILE* pedfile = NULL;
   FILE* mapfile = NULL;
   FILE* famfile = NULL;
@@ -760,24 +771,28 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       fgets(tbuf, MAXLINELEN, mapfile);
     } while (tbuf[0] <= ' ');
     // marker_chrom[ii] = marker_code(tbuf);
-    bufptr = next_item(tbuf);
-    // cur_item(marker_id[ii], bufptr);
-    bufptr = next_item(bufptr);
-    if (map_cols == 4) {
-      bufptr = next_item(bufptr);
-    }
-    if (*bufptr == '-') {
-      if (binary_files) {
-        retval = RET_INVALID_FORMAT;
-        printf("Error: Negative marker position in .bim file.\n");
-        goto wdist_ret_1;
-      }
+    if (chr_num && (marker_code(tbuf) != chr_num)) {
       exclude(marker_exclude, ii, &marker_exclude_ct);
+    } else {
+      bufptr = next_item(tbuf);
+      // cur_item(marker_id[ii], bufptr);
+      bufptr = next_item(bufptr);
+      if (map_cols == 4) {
+	bufptr = next_item(bufptr);
+      }
+      if (*bufptr == '-') {
+	if (binary_files) {
+	  retval = RET_INVALID_FORMAT;
+	  printf("Error: Negative marker position in .bim file.\n");
+	  goto wdist_ret_1;
+	}
+	exclude(marker_exclude, ii, &marker_exclude_ct);
+      }
     }
     // marker_pos[ii] = atoi(bufptr);
   }
   if (marker_exclude_ct) {
-    printf("%d markers loaded (after excluding %d).", map_linect - marker_exclude_ct, marker_exclude_ct);
+    printf("%d markers loaded (after excluding %d).\n", map_linect - marker_exclude_ct, marker_exclude_ct);
   } else {
     printf("%d markers loaded.\n", map_linect - marker_exclude_ct);
   }
@@ -1330,13 +1345,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     }
     memset(person_exclude, 0, ((ped_linect + 7) / 8) * sizeof(char));
     if (pedbuf[2] == '\0') {
-      hwe_ll = (int*)wkspace;
-      hwe_lh = (int*)(&wkspace[map_linect * sizeof(int)]);
-      hwe_hh = (int*)(&wkspace[map_linect * 2 * sizeof(int)]);
-      memset(wkspace, 0, map_linect * 3 * sizeof(int));
       // ----- individual-major .bed load, first pass -----
       for (ii = 0; ii < ped_linect; ii += 1) {
-        fseeko(pedfile, 3 + line_locs[ii] * map_linect4, SEEK_SET);
         if (fread(pedbuf, 1, map_linect4, pedfile) < map_linect4) {
           retval = RET_READ_FAIL;
           goto wdist_ret_1;
@@ -1355,16 +1365,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             if (oo == 2) {
               marker_allele_cts[jj * 2] += 1;
               marker_allele_cts[jj * 2 + 1] += 1;
-              hwe_lh[jj] += 1;
             } else if (oo == 3) {
               marker_allele_cts[jj * 2] += 2;
-              hwe_hh[jj] += 1;
             } else {
               mm++;
             }
           } else {
             marker_allele_cts[jj * 2 + 1] += 2;
-            hwe_ll[jj] += 1;
           }
         }
         if (mm > mind_int_thresh) {
@@ -1374,8 +1381,50 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       for (ii = 0; ii < map_linect; ii++) {
         if ((marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1] < geno_int_thresh) || (marker_allele_cts[ii * 2 + 1] < maf_int_thresh)) {
           exclude(marker_exclude, ii, &marker_exclude_ct);
-        } else if ((hwe_thresh > 0.0) && (SNPHWE(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii]) < hwe_thresh)) {
-          exclude(marker_exclude, ii, &marker_exclude_ct);
+        }
+      }
+      if (hwe_thresh > 0.0) {
+        // ----- individual-major .bed load, second pass -----
+	fseeko(pedfile, 3, SEEK_SET);
+	hwe_ll = (int*)wkspace;
+	hwe_lh = (int*)(&wkspace[map_linect * sizeof(int)]);
+	hwe_hh = (int*)(&wkspace[map_linect * 2 * sizeof(int)]);
+	memset(wkspace, 0, map_linect * 3 * sizeof(int));
+	for (ii = 0; ii < ped_linect; ii += 1) {
+          if (excluded(person_exclude, ii)) {
+            fseeko(pedfile, (off_t)map_linect4, SEEK_CUR);
+            continue;
+          }
+	  if (fread(pedbuf, 1, map_linect4, pedfile) < map_linect4) {
+	    retval = RET_READ_FAIL;
+	    goto wdist_ret_1;
+	  }
+	  gptr = pedbuf - 1;
+	  for (jj = 0; jj < map_linect; jj++) {
+	    kk = jj % 4;
+	    if (!kk) {
+	      nn = *(++gptr);
+	    } else {
+	      nn >>= 2;
+	    }
+	    oo = nn & 3;
+	    if (oo) {
+	      if (oo == 2) {
+                hwe_lh[jj] += 1;
+	      } else if (oo == 3) {
+                hwe_hh[jj] += 1;
+	      }
+	    } else {
+              hwe_ll[jj] += 1;
+	    }
+	  }
+	}
+        for (ii = 0; ii < map_linect; ii++) {
+          if (!excluded(marker_exclude, ii)) {
+	    if (SNPHWE(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii]) < hwe_thresh) {
+	      exclude(marker_exclude, ii, &marker_exclude_ct);
+	    }
+          }
         }
       }
     } else {
@@ -1402,9 +1451,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
         mm = 0; // major allele ct
         nn = 0; // minor allele ct
-        hwe_lli = 0;
-        hwe_lhi = 0;
-        hwe_hhi = 0;
         gptr = pedbuf - 1;
         for (jj = 0; jj < ped_linect; jj++) {
           kk = jj % 4;
@@ -1418,21 +1464,16 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             if (pp == 2) {
               mm++;
               nn++;
-              hwe_lhi++;
             } else if (pp == 3) {
               mm += 2;
-              hwe_hhi++;
             } else {
               person_missing_cts[jj] += 1;
             }
           } else {
             nn += 2;
-            hwe_lli++;
           }
         }
         if ((mm + nn < geno_int_thresh) || (nn < maf_int_thresh)) {
-          exclude(marker_exclude, ii, &marker_exclude_ct);
-        } else if ((hwe_thresh > 0.0) && (SNPHWE(hwe_lhi, hwe_lli, hwe_hhi) < hwe_thresh)) {
           exclude(marker_exclude, ii, &marker_exclude_ct);
         } else {
           marker_allele_cts[ii * 2] = mm;
@@ -1442,6 +1483,47 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       for (ii = 0; ii < ped_linect; ii++) {
         if (person_missing_cts[ii] > mind_int_thresh) {
 	  exclude(person_exclude, ii, &person_exclude_ct);
+        }
+      }
+      if (hwe_thresh > 0.0) {
+        fseeko(pedfile, 3, SEEK_SET);
+        // ----- .snp-major .bed load, second pass -----
+        for (ii = 0; ii < map_linect; ii++) {
+          if (excluded(marker_exclude, ii)) {
+            fseeko(pedfile, (off_t)ped_linect4, SEEK_CUR);
+            continue;
+          }
+          if (fread(pedbuf, 1, ped_linect4, pedfile) < ped_linect4) {
+            retval = RET_READ_FAIL;
+            goto wdist_ret_2;
+          }
+          gptr = pedbuf - 1;
+          hwe_lli = 0;
+          hwe_lhi = 0;
+          hwe_hhi = 0;
+	  for (jj = 0; jj < ped_linect; jj++) {
+	    kk = jj % 4;
+	    if (!kk) {
+	      oo = *(++gptr);
+	    } else {
+	      oo >>= 2;
+	    }
+            if (!excluded(person_exclude, jj)) {
+	      pp = oo & 3;
+	      if (pp) {
+		if (pp == 2) {
+		  hwe_lhi += 1;
+		} else if (pp == 3) {
+		  hwe_hhi += 1;
+		}
+	      } else {
+		hwe_lli += 1;
+	      }
+            }
+	  }          
+	  if (SNPHWE(hwe_lhi, hwe_lli, hwe_hhi) < hwe_thresh) {
+	    exclude(marker_exclude, ii, &marker_exclude_ct);
+	  }
         }
       }
     }
@@ -2123,10 +2205,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     goto wdist_ret_2;
   }
 
+  printf("%d markers and %d people pass QC.\n", map_linect - marker_exclude_ct, ped_linect - person_exclude_ct);
   if (binary_files) {
     if (snp_major) {
       fseeko(pedfile, 3, SEEK_SET);
       ii = 0; // current SNP index
+      pp = 0; // after subtracting out excluded
       while (ii < map_linect) {
         for (jj = 0; jj < 4; jj++) {
           maf_buf[jj] = 0.5;
@@ -2138,6 +2222,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         // stored in a byte.  [Weighted] distance between two sets of four
         // markers can be determined by XORing the corresponding bytes and
         // looking up the corresponding array entry.
+        // 256 * sizeof(int) or sizeof(double) conveniently fits in Intel L1
+        // caches.  We'd lose this if we multiplexed more markers.
         while ((jj < 4) && (ii < map_linect)) {
           while ((ii < map_linect) && excluded(marker_exclude, ii)) {
             ii++;
@@ -2154,6 +2240,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           rand_thresh_buf[jj] = (int)(maf_buf[jj] * RAND_MAX);
           ii++;
           jj++;
+          pp++;
         }
         if (!jj) {
           break;
@@ -2187,7 +2274,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           fill_weights(weights, maf_buf, exponent);
           incr_dists(dists, ped_geno, ped_linect, weights);
         }
-        printf("\r%d/%d markers complete.", ii, map_linect);
+        printf("\r%d markers complete.", pp);
         fflush(stdout);
       }
     } else {
@@ -2689,7 +2776,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   return retval;
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char** argv) {
   char mapname[FNAMESIZE];
   char pedname[FNAMESIZE];
   char famname[FNAMESIZE];
@@ -2711,6 +2798,7 @@ int main(int argc, char* argv[]) {
   char* phenoname_str = NULL;
   int affection_01 = 0;
   double exponent = 0.0;
+  int chr_num = 0;
   double min_maf = 0.000000002;
   double geno_thresh = 1.0;
   double mind_thresh = 1.0;
@@ -2732,6 +2820,9 @@ int main(int argc, char* argv[]) {
   int ii;
   int jj;
   unsigned long int rseed = 0;
+  FILE* scriptfile;
+  int num_params;
+  int in_param;
   strcpy(mapname, "wdist.map");
   strcpy(pedname, "wdist.ped");
   famname[0] = '\0';
@@ -2740,7 +2831,58 @@ int main(int argc, char* argv[]) {
   strcpy(outname, "wdist");
   while (cur_arg < argc) {
     argptr = argv[cur_arg];
-    if (!strcmp(argptr, "--file")) {
+    if (!strcmp(argptr, "--script")) {
+      if (cur_arg == argc - 1) {
+        printf("Error: Missing --script parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      } else if (subst_argv) {
+        printf("Error: Duplicate --script flag.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      scriptfile = fopen(argv[cur_arg + 1], "rb");
+      if (!scriptfile) {
+        printf("Error: Failed to open %s.\n", argv[cur_arg + 1]);
+        return dispmsg(RET_OPENFAIL);
+      }
+      ii = fread(tbuf, 1, MAXLINELEN, scriptfile);
+      fclose(scriptfile);
+      if (ii == MAXLINELEN) {
+        printf("Error: Script file too long (max %d bytes).\n", MAXLINELEN - 1);
+        return dispmsg(RET_INVALID_FORMAT);
+      }
+      num_params = 0;
+      in_param = 0;
+      for (jj = 0; jj < ii; jj++) {
+        if (is_space_or_eoln(tbuf[jj])) {
+          if (in_param) {
+            in_param = 0;
+          }
+        } else if (!in_param) {
+          num_params += 1;
+          in_param = 1;
+        }
+      }
+      subst_argv = (char**)malloc((num_params + argc - cur_arg - 2) * sizeof(char*));
+      num_params = 0;
+      in_param = 0;
+      for (jj = 0; jj < ii; jj++) {
+        if (is_space_or_eoln(tbuf[jj])) {
+          if (in_param) {
+            tbuf[jj] = '\0';
+            in_param = 0;
+          }
+        } else if (!in_param) {
+          subst_argv[num_params++] = &(tbuf[jj]);
+          in_param = 1;
+        }
+      }
+      for (ii = cur_arg + 2; ii < argc; ii++) {
+        subst_argv[num_params++] = argv[ii];
+      }
+      argc = num_params;
+      cur_arg = 0;
+      argv = subst_argv;
+    } else if (!strcmp(argptr, "--file")) {
       if (load_params & 121) {
         if (load_params & 1) {
           printf("Error: Duplicate --file flag.\n");
@@ -3174,6 +3316,21 @@ int main(int argc, char* argv[]) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += 2;
+    } else if (!strcmp(argptr, "--chr")) {
+      if (cur_arg == argc - 1) {
+        printf("Error: Missing --chr parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (chr_num) {
+        printf("Error: Duplicate --chr flag.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      chr_num = marker_code(argv[cur_arg + 1]);
+      if ((chr_num < 1) || (chr_num > 26)) {
+        printf("Error: Invalid --chr parameter.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      cur_arg += 2;
     } else if (!strcmp(argptr, "--maf")) {
       if (cur_arg == argc - 1) {
         printf("Error: Missing --maf parameter.%s", errstr_append);
@@ -3305,6 +3462,9 @@ int main(int argc, char* argv[]) {
     printf("Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.\n");
     return dispmsg(RET_INVALID_CMDLINE);
   }
+  if (subst_argv) {
+    free(subst_argv);
+  }
   if (exponent == 0.0) {
     for (ii = 0; ii < 256; ii += 1) {
       iwt[ii] = 0;
@@ -3348,7 +3508,7 @@ int main(int argc, char* argv[]) {
 
   // famname[0] indicates binary vs. text
   // filtername[0] indicates existence of filter
-  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, threads, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type, calc_param_1, iters);
+  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chr_num, threads, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type, calc_param_1, iters);
   // gsl_rng_free(rg);
   free(wkspace);
   return dispmsg(retval);
