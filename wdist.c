@@ -102,7 +102,7 @@ int dispmsg(int retval) {
 "                     1 = unaffected, 2 = affected)\n"
 // --map3 implicitly supported via autodetection
 // --compound-genotypes automatically supported
-"  --chr [num]      : Only consider markers on the given chromosome (1-22, X,"
+"  --chr [num]      : Only consider markers on the given chromosome (1-22, X,\n"
 "                     Y, XY, MT).\n"
 "  --maf [val]      : Minor allele frequency minimum threshold.\n"
 "  --geno [val]     : Maximum per-SNP missing.\n"
@@ -112,8 +112,8 @@ int dispmsg(int retval) {
 "  --rseed [val]    : Set random number seed (relevant for missing genotypes).\n"
 "  --memory [val]   : Size, in MB, of initial malloc attempt (default 2176).\n"
 "  --threads [val]  : Maximum number of concurrent threads (default 2).\n"
-"  --exponent [val] : When computing genetic distances, each locus has a weight\n"
-"                     of (2q(1-q))^{-val}, where q is the observed MAF.\n\n"
+"  --exponent [val] : When computing genetic distances, each marker has a\n"
+"                     weight of (2q(1-q))^{-val}, where q is the observed MAF.\n\n"
 "  --keep [filename]\n"
 "  --remove [filename]\n"
 "  --filter [filename] [val] : Keep/remove/filter individuals (see PLINK\n"
@@ -131,7 +131,7 @@ int dispmsg(int retval) {
 "                                  phenotype data.  (Central phenotype values\n"
 "                                  are treated as missing.)\n\n"
 "Supported calculations:\n"
-"  --distance [--square0]\n"
+"  --distance <--square0>\n"
 "    Outputs a lower-triangular table of (weighted) genetic distances.\n"
 "    The first row contains a single number with the distance between the first\n"
 "    two genotypes, the second row has the {genotype 1-genotype 3} and\n"
