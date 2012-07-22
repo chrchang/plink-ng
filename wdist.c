@@ -40,7 +40,7 @@
 #endif
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.2.4 (22 July 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.2.5 (22 July 2012)\n"
   "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
   "wdist <flags> {calculation}\n";
 const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
@@ -663,10 +663,23 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int* hwe_ll;
   int* hwe_lh;
   int* hwe_hh;
+  int* hwe_u_ll;
+  int* hwe_u_lh;
+  int* hwe_u_hh;
+  int* hwe_a_ll;
+  int* hwe_a_lh;
+  int* hwe_a_hh;
   int hwe_lli;
   int hwe_lhi;
   int hwe_hhi;
+  int hwe_u_lli;
+  int hwe_u_lhi;
+  int hwe_u_hhi;
+  int hwe_a_lli;
+  int hwe_a_lhi;
+  int hwe_a_hhi;
   int multiplex;
+  int bin_pheno;
 
   ii = missing_pheno;
   if (ii < 0) {
@@ -1250,7 +1263,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       goto wdist_ret_1;
     }
 
-    if (makepheno_str || affection || tail_pheno) {
+    bin_pheno = (makepheno_str || affection || tail_pheno);
+    if (bin_pheno) {
       pheno_c = (char*)malloc(ped_linect * sizeof(char));
       if (!pheno_c) {
 	goto wdist_ret_1;
@@ -1412,7 +1426,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	hwe_ll = (int*)wkspace;
 	hwe_lh = (int*)(&wkspace[map_linect * sizeof(int)]);
 	hwe_hh = (int*)(&wkspace[map_linect * 2 * sizeof(int)]);
-	memset(wkspace, 0, map_linect * 3 * sizeof(int));
+        hwe_u_ll = (int*)(&wkspace[map_linect * 3 * sizeof(int)]);
+        hwe_u_lh = (int*)(&wkspace[map_linect * 4 * sizeof(int)]);
+        hwe_u_hh = (int*)(&wkspace[map_linect * 5 * sizeof(int)]);
+        hwe_a_ll = (int*)(&wkspace[map_linect * 6 * sizeof(int)]);
+        hwe_a_lh = (int*)(&wkspace[map_linect * 7 * sizeof(int)]);
+        hwe_a_hh = (int*)(&wkspace[map_linect * 8 * sizeof(int)]);
+	memset(wkspace, 0, map_linect * 9 * sizeof(int));
 	for (ii = 0; ii < ped_linect; ii += 1) {
           if (excluded(person_exclude, ii)) {
             fseeko(pedfile, (off_t)map_linect4, SEEK_CUR);
@@ -1434,11 +1454,32 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    if (oo) {
 	      if (oo == 2) {
                 hwe_lh[jj] += 1;
+                if (bin_pheno) {
+                  if (pheno_c[jj] == 0) {
+                    hwe_u_lh[jj] += 1;
+                  } else if (pheno_c[jj] == 1) {
+                    hwe_a_lh[jj] += 1;
+                  }
+                }
 	      } else if (oo == 3) {
                 hwe_hh[jj] += 1;
+                if (bin_pheno) {
+                  if (pheno_c[jj] == 0) {
+                    hwe_u_hh[jj] += 1;
+                  } else if (pheno_c[jj] == 1) {
+                    hwe_a_hh[jj] += 1;
+                  }
+                }
 	      }
 	    } else {
               hwe_ll[jj] += 1;
+	      if (bin_pheno) {
+		if (pheno_c[jj] == 0) {
+		  hwe_u_ll[jj] += 1;
+		} else if (pheno_c[jj] == 1) {
+		  hwe_a_ll[jj] += 1;
+		}
+	      }
 	    }
 	  }
 	}
@@ -1446,7 +1487,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           if (!excluded(marker_exclude, ii)) {
 	    if (SNPHWE(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii]) < hwe_thresh) {
 	      exclude(marker_exclude, ii, &marker_exclude_ct);
-	    }
+	    } else if (bin_pheno) {
+              if ((SNPHWE(hwe_u_lh[ii], hwe_u_ll[ii], hwe_u_hh[ii]) < hwe_thresh) || (SNPHWE(hwe_a_lh[ii], hwe_a_ll[ii], hwe_a_hh[ii]) < hwe_thresh)) {
+                exclude(marker_exclude, ii, &marker_exclude_ct);
+              }
+            }
           }
         }
       }
@@ -1524,6 +1569,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           hwe_lli = 0;
           hwe_lhi = 0;
           hwe_hhi = 0;
+          hwe_u_lli = 0;
+          hwe_u_lhi = 0;
+          hwe_u_hhi = 0;
+          hwe_a_lli = 0;
+          hwe_a_lhi = 0;
+          hwe_a_hhi = 0;
 	  for (jj = 0; jj < ped_linect; jj++) {
 	    kk = jj % 4;
 	    if (!kk) {
@@ -1536,17 +1587,42 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      if (pp) {
 		if (pp == 2) {
 		  hwe_lhi += 1;
+		  if (bin_pheno) {
+		    if (pheno_c[jj] == 0) {
+		      hwe_u_lhi += 1;
+		    } else if (pheno_c[jj] == 1) {
+		      hwe_a_lhi += 1;
+		    }
+		  }
 		} else if (pp == 3) {
 		  hwe_hhi += 1;
+		  if (bin_pheno) {
+		    if (pheno_c[jj] == 0) {
+		      hwe_u_hhi += 1;
+		    } else if (pheno_c[jj] == 1) {
+		      hwe_a_hhi += 1;
+		    }
+		  }
 		}
 	      } else {
 		hwe_lli += 1;
+		if (bin_pheno) {
+		  if (pheno_c[jj] == 0) {
+		    hwe_u_lli += 1;
+		  } else if (pheno_c[jj] == 1) {
+		    hwe_a_lli += 1;
+		  }
+		}
 	      }
             }
 	  }          
 	  if (SNPHWE(hwe_lhi, hwe_lli, hwe_hhi) < hwe_thresh) {
 	    exclude(marker_exclude, ii, &marker_exclude_ct);
-	  }
+	  } else if (bin_pheno) {
+            if ((SNPHWE(hwe_u_lhi, hwe_u_lli, hwe_u_hhi) < hwe_thresh) || (SNPHWE(hwe_a_lhi, hwe_a_lli, hwe_a_hhi) < hwe_thresh)) {
+              exclude(marker_exclude, ii, &marker_exclude_ct);
+            }
+          }
         }
       }
     }
@@ -1670,7 +1746,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       goto wdist_ret_1;
     }
     memset(marker_allele_cts, 0, map_linect * 4 * sizeof(int));
-    if (affection) {
+    bin_pheno = (makepheno_str || affection || tail_pheno);
+    if (bin_pheno) {
       pheno_c = (char*)malloc(ped_linect * sizeof(char));
       if (!pheno_c) {
 	goto wdist_ret_1;
@@ -1848,7 +1925,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       hwe_ll = (int*)ped_geno;
       hwe_lh = (int*)(&(ped_geno[map_linect * sizeof(int)]));
       hwe_hh = (int*)(&(ped_geno[map_linect * 2 * sizeof(int)]));
-      memset(ped_geno, 0, map_linect * 3 * sizeof(int));
+      hwe_u_ll = (int*)(&(ped_geno[map_linect * 3 * sizeof(int)]));
+      hwe_u_lh = (int*)(&(ped_geno[map_linect * 4 * sizeof(int)]));
+      hwe_u_hh = (int*)(&(ped_geno[map_linect * 5 * sizeof(int)]));
+      hwe_a_ll = (int*)(&(ped_geno[map_linect * 6 * sizeof(int)]));
+      hwe_a_lh = (int*)(&(ped_geno[map_linect * 7 * sizeof(int)]));
+      hwe_a_hh = (int*)(&(ped_geno[map_linect * 8 * sizeof(int)]));
+      memset(ped_geno, 0, map_linect * 9 * sizeof(int));
 
       for (ii = 0; ii < ped_linect; ii += 1) {
         if (excluded(person_exclude, ii)) {
@@ -1876,20 +1959,43 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           }
           if (mm == 0) {
             hwe_ll[jj] += 1;
+            if (bin_pheno) {
+              if (pheno_c[jj] == 0) {
+                hwe_u_ll[jj] += 1;
+              } else if (pheno_c[jj] == 1) {
+                hwe_a_ll[jj] += 1;
+              }
+            }
           } else if (mm == 1) {
             hwe_lh[jj] += 1;
+            if (bin_pheno) {
+              if (pheno_c[jj] == 0) {
+                hwe_u_lh[jj] += 1;
+              } else if (pheno_c[jj] == 1) {
+                hwe_a_lh[jj] += 1;
+              }
+            }
           } else if (mm == 2) {
             hwe_hh[jj] += 1;
+            if (bin_pheno) {
+              if (pheno_c[jj] == 0) {
+                hwe_u_hh[jj] += 1;
+              } else if (pheno_c[jj] == 1) {
+                hwe_a_hh[jj] += 1;
+              }
+            }
           }
         }
       }
       for (ii = 0; ii < map_linect; ii++) {
-        if (excluded(marker_exclude, ii)) {
-          continue;
-        }
-        dxx = SNPHWE(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii]);
-        if (dxx < hwe_thresh) {
-          exclude(marker_exclude, ii, &marker_exclude_ct);
+        if (!excluded(marker_exclude, ii)) {
+          if (SNPHWE(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii]) < hwe_thresh) {
+            exclude(marker_exclude, ii, &marker_exclude_ct);
+          } else if (bin_pheno) {
+            if ((SNPHWE(hwe_u_lh[ii], hwe_u_ll[ii], hwe_u_hh[ii]) < hwe_thresh) || (SNPHWE(hwe_a_lh[ii], hwe_a_ll[ii], hwe_a_hh[ii]) < hwe_thresh)) {
+              exclude(marker_exclude, ii, &marker_exclude_ct);
+            }
+          }
         }
       }
       rewind(pedfile);
@@ -2222,7 +2328,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   ped_geno = &(wkspace[dists_alloc]);
   ped_geno_size = malloc_size_mb * 1048576 - dists_alloc;
 
-  if ((calculation_type == CALC_GROUPDIST) && (!pheno_c)) {
+  if ((calculation_type == CALC_GROUPDIST) && (!bin_pheno)) {
     retval = RET_INVALID_CMDLINE;
     printf("Error: --groupdist calculation requires binary phenotype.\n");
     goto wdist_ret_2;
@@ -2253,14 +2359,22 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         jj = 0; // actual SNPs read
 
         // Two key insights here:
-        // 1. Precalculate distances for 4 markers at a time.
+        //
+        // 1. Precalculate distances for all possible combinations of 4
+        // markers.
         // Status of a single marker is stored in two bits, so four can be
-        // stored in a byte while allowing bitwise operations.  [Weighted]
+        // stored in a byte while supporting bitwise operations.  [Weighted]
         // distance between two sets of four markers can be determined by
         // XORing the corresponding bytes and looking up the corresponding
-        // array entry.  A distance array is small enough to fit in a single
-        // 4KB L1 cache entry (this would no longer hold true for more than 4
-        // markers).
+        // array entry.  A pair of contiguous distance arrays is small enough
+        // to fit in a single 4KB L1 cache entry.
+        //
+        // 2. Do #1 for 4-8 marker sets simultaneously, to further reduce the
+        // number of reads/writes from main memory, and take advantage of the
+        // speed of XORing 32- or 64-bit words.
+        // Empirically, when the weighting exponent is nonzero (and thus
+        // floating point arithmetic must be used), 4 sets appears to be no
+        // worse than 8 when using a 64-bit processor.
         while ((jj < multiplex) && (ii < map_linect)) {
           while ((ii < map_linect) && excluded(marker_exclude, ii)) {
             ii++;
@@ -2620,7 +2734,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       if (nn < 2) {
 	printf("Too few valid jackknife runs.\n");
       } else {
-	printf("Jackknife results (%d valid runs):\n", nn);
+	printf("Jackknife results (%d valid runs), NO INFLATION FACTOR APPLIED:\n", nn);
 	printf("  Avg dist between 2x affected             : %lf (sd %lf)\n", dhh_sum / (double)nn, sqrt(dhh_ssd / (double)(nn - 1)));
 	printf("  Avg dist between affected and unaffected : %lf (sd %lf)\n", dhl_sum / (double)nn, sqrt(dhl_ssd / (double)(nn - 1)));
 	printf("  Avg dist between 2x unaffected           : %lf (sd %lf)\n", dll_sum / (double)nn, sqrt(dll_ssd / (double)(nn - 1)));
