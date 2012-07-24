@@ -56,7 +56,7 @@
 #endif
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.2.6 (24 July 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.2.7 (25 July 2012)\n"
   "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
   "wdist <flags> {calculation}\n";
 const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
@@ -3386,7 +3386,7 @@ int main(int argc, char** argv) {
         printf("Error: Invalid --tail-pheno parameter.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      if (sscanf(argv[cur_arg + 1], "%lf", &tail_top) != 1) {
+      if (sscanf(argv[cur_arg + 2], "%lf", &tail_top) != 1) {
         printf("Error: Invalid --tail-pheno parameter.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
