@@ -56,7 +56,7 @@
 #endif
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.2.5 (22 July 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.2.6 (24 July 2012)\n"
   "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
   "wdist <flags> {calculation}\n";
 const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
@@ -64,7 +64,7 @@ const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 char tbuf[MAXLINELEN];
-long iwt[256];
+int iwt[256];
 unsigned char* wkspace;
 long long malloc_size_mb = MALLOC_DEFAULT_MB;
 char** subst_argv = NULL;
@@ -1192,7 +1192,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   if (!line_locs) {
     goto wdist_ret_1;
   }
-  mind_int_thresh = (int)(mind_thresh * (map_linect - marker_exclude_ct));
+  mind_int_thresh = (int)(2.0 * mind_thresh * (map_linect - marker_exclude_ct));
 
   if (binary_files) {
     jj = 0; // line count in .bed
