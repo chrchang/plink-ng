@@ -56,7 +56,7 @@
 #endif
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.2.7 (25 July 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.2.8 (25 July 2012)\n"
   "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
   "wdist <flags> {calculation}\n";
 const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
@@ -2425,10 +2425,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		if (uljj == 1) {
 		  uljj = 0;
 		  if (rand() > rand_thresh_buf[mm]) {
-		    uljj++;
+		    uljj = 2;
 		  }
 		  if (rand() > rand_thresh_buf[mm]) {
-		    uljj = uljj * 2 + 1;
+		    uljj = uljj / 2 + 2;
 		  }
 		}
 		ulii |= uljj << (mm * 2);
