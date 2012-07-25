@@ -148,10 +148,12 @@ int dispmsg(int retval) {
 "                                  are treated as missing.)\n\n"
 "Supported calculations:\n"
 "  --distance <--square0>\n"
-"    Outputs a lower-triangular table of (weighted) genetic distances.\n"
-"    The first row contains a single number with the distance between the first\n"
-"    two genotypes, the second row has the {genotype 1-genotype 3} and\n"
-"    {genotype 2-genotype 3} distances in that order, etc.\n\n"
+"    Outputs a lower-triangular table of (weighted) genetic distances to\n"
+"    {output prefix}.dist, and a list of the corresponding family/individual\n"
+"    IDs to {output prefix}.id.\n"
+"    The first row of the .dist file contains a single number describing the\n"
+"    distance between the first two genotypes, the second row has the {genotype\n"
+"    1-genotype 3} and {genotype 2-genotype 3} distances in that order, etc.\n\n"
 "    If modified by the --square0 flag, a square matrix is written instead\n"
 "    (filled out with zeroes).\n\n"
 "  --groupdist [d] [iters]\n"
@@ -263,6 +265,14 @@ double SNPHWE(int obs_hets, int obs_hom1, int obs_hom2)
 
 inline int is_space_or_eoln(char cc) {
   return ((cc == ' ') || (cc == '\t') || (cc == '\n') || (cc == '\0'));
+}
+
+int strlen_se(char* ss) {
+  int val = 0;
+  while (!is_space_or_eoln(*ss++)) {
+    val++;
+  }
+  return val;
 }
 
 char* id_buf = NULL;
@@ -640,6 +650,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   double* pheno_d = NULL;
   char* phenor_c = NULL;
   char* pheno_c = NULL;
+  char* person_id = NULL;
+  int max_person_id_len = 4;
   unsigned char* ped_geno = NULL;
   unsigned char* gptr;
   unsigned int* giptr;
@@ -736,12 +748,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   outname_end = outname;
   while (*outname_end) {
     outname_end++;
-  }
-  strcpy(outname_end, ".dist");
-  outfile = fopen(outname, "w");
-  if (!outfile) {
-    printf("Error: Failed to open %s.\n", outname);
-    goto wdist_ret_0;
   }
   retval = RET_NOMEM;
 
@@ -1206,6 +1212,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           } else {
             cptr = bufptr;
           }
+          ii = strlen_se(tbuf) + strlen_se(cptr) + 2;
+          if (ii > max_person_id_len) {
+            max_person_id_len = ii;
+          }
           if (filter_type) {
             ii = is_contained(id_list, max_id_len, filter_lines, tbuf, cptr);
             if (filter_type == FILTER_REMOVE) {
@@ -1291,6 +1301,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	goto wdist_ret_1;
       }
     }
+    person_id = (char*)malloc(ped_linect * max_person_id_len * sizeof(char));
+    if (!person_id) {
+      goto wdist_ret_1;
+    }
 
     maf_int_thresh = 2 * ped_linect - (int)((1.0 - min_maf) * ped_linect * 2.0);
     geno_int_thresh = 2 * ped_linect - (int)(geno_thresh * 2.0 * ped_linect);
@@ -1311,12 +1325,18 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  }
 
 	  bufptr = next_item(tbuf);
+	  if (!ped_col_1) {
+	    cptr = tbuf;
+	  } else {
+	    cptr = bufptr;
+	  }
+	  kk = strlen_se(tbuf);
+	  mm = strlen_se(cptr);
+	  memcpy(&(person_id[jj * max_person_id_len]), tbuf, kk);
+	  person_id[jj * max_person_id_len + kk] = '\t';
+	  memcpy(&(person_id[jj * max_person_id_len + kk + 1]), cptr, mm);
+	  person_id[jj * max_person_id_len + kk + mm + 1] = '\0';
           if (phenoname[0]) {
-	    if (!ped_col_1) {
-	      cptr = tbuf;
-	    } else {
-	      cptr = bufptr;
-	    }
 	    kk = bsearch_fam_indiv(pid_list, max_pid_len, pheno_lines, tbuf, cptr);
             if (makepheno_str) {
               if (kk == -1) {
@@ -2448,10 +2468,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		if (ujj == 1) {
 		  ujj = 0;
 		  if (rand() > rand_thresh_buf[mm]) {
-		    ujj++;
+		    ujj = 2;
 		  }
 		  if (rand() > rand_thresh_buf[mm]) {
-		    ujj = ujj * 2 + 1;
+		    ujj = ujj / 2 + 1;
 		  }
 		}
 		uii |= ujj << (mm * 2);
@@ -2479,6 +2499,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   printf("\rDistance matrix calculation complete.\n");
 
   if (calculation_type == CALC_DISTANCE) {
+    strcpy(outname_end, ".dist");
+    outfile = fopen(outname, "w");
+    if (!outfile) {
+      printf("Error: Failed to open %s.\n", outname);
+      goto wdist_ret_2;
+    }
+
     if (exponent == 0.0) {
       iwptr = idists;
       if (calc_param_1) {
@@ -2529,8 +2556,19 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
     }
     retval = RET_SUCCESS;
-    strcpy(outname_end, ".dist");
     printf("Distances written to %s.\n", outname);
+    fclose(outfile);
+    strcpy(outname_end, ".dist.id");
+    outfile = fopen(outname, "w");
+    if (!outfile) {
+      printf("Error: Failed to open %s.\n", outname);
+      goto wdist_ret_2;
+    }
+    for (ii = 0; ii < ped_linect; ii += 1) {
+      if (!excluded(person_exclude, ii)) {
+        fprintf(outfile, "%s\n", &(person_id[ii * max_person_id_len]));
+      }
+    }
   } else if (calculation_type == CALC_GROUPDIST) {
     collapse_phenoc(pheno_c, person_exclude, ped_linect);
     low_ct = 0;
@@ -2894,6 +2932,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     fclose(famtmpfile);
   }
  wdist_ret_1:
+  if (person_id) {
+    free(person_id);
+  }
   if (person_exclude) {
     free(person_exclude);
   }
