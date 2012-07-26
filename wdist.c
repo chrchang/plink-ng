@@ -44,6 +44,7 @@
 #define CALC_RELATIONSHIP 2
 
 #define _FILE_OFFSET_BITS 64
+#define DEFAULT_THREAD_CT 2
 #define MAX_THREADS 64
 #define MAX_THREADS_P1 65
 #define PEDBUFBASE 256
@@ -2578,6 +2579,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   }
 
   printf("%d markers and %d people pass filters and QC.\n", map_linect - marker_exclude_ct, ped_linect - person_exclude_ct);
+  if (thread_ct > 1) {
+    if (thread_ct == DEFAULT_THREAD_CT) {
+      printf("Using %d threads.  (Change this with --threads.)\n", DEFAULT_THREAD_CT);
+    } else {
+      printf("Using %d threads.\n", thread_ct);
+    }
+  }
 
   if (calculation_type == CALC_RELATIONSHIP) {
     if (binary_files && snp_major) {
@@ -3424,7 +3432,7 @@ int main(int argc, char** argv) {
   int cur_arg = 1;
   int calculation_type = CALC_NONE;
   char* bubble;
-  int thread_ct = 2;
+  int thread_ct = DEFAULT_THREAD_CT;
   int filter_type = 0;
   int mfilter_col = 0;
   int tail_pheno = 0;
