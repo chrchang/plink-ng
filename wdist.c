@@ -599,15 +599,28 @@ void incr_dists_rm(int* idists, unsigned long* genom, int ct) {
     glptr = genom;
     glptr2 = &(genom[ii]);
     ulii = *glptr2;
-    while (glptr <= glptr2) {
-      uljj = *glptr++ | ulii;
+    if (ulii) {
+      while (glptr <= glptr2) {
+	uljj = *glptr++ | ulii;
 #if __LP64__
-      *idists += iwt[uljj >> 56] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+	*idists += iwt[uljj >> 56] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
 #else
-      *idists += iwt[uljj >> 24] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+	*idists += iwt[uljj >> 24] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
 #endif
-      idists++;
-    }
+	idists++;
+      }
+    } else {
+      while (glptr <= glptr2) {
+        uljj = *glptr++;
+        if (uljj) {
+#if __LP64__
+	  *idists += iwt[uljj >> 56] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+#else
+	  *idists += iwt[uljj >> 24] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+#endif
+        }
+        idists++;
+      }
   }
 }
 
