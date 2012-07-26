@@ -159,8 +159,8 @@ int dispmsg(int retval) {
 "    (filled out with zeroes).\n\n"
 "  --relationship <--square0>\n"
 "    Outputs a lower-triangular (or filled out with zeroes to square, with\n"
-"    --square0) relationship matrix to {output prefix}.grm, and corresponding\n"
-"    IDs to {output prefix}.grm.id.\n\n"
+"    --square0) relationship matrix to {output prefix}.rel, and corresponding\n"
+"    IDs to {output prefix}.rel.id.\n\n"
 // "  --groupdist [d] [iters]\n"
 // "    Two-group genetic distance analysis, using delete-d jackknife with the\n"
 // "    requested number of iterations.  Binary phenotype required.\n\n"
@@ -2543,7 +2543,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
       printf("\rRelationship matrix calculation complete.\n");
 
-      strcpy(outname_end, ".grm");
+      strcpy(outname_end, ".rel");
       outfile = fopen(outname, "w");
       if (!outfile) {
 	printf("Error: Failed to open %s.\n", outname);
@@ -2569,7 +2569,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       retval = RET_SUCCESS;
       printf("\nRelationship matrix written to %s.\n", outname);
       fclose(outfile);
-      strcpy(outname_end, ".grm.id");
+      strcpy(outname_end, ".rel.id");
       outfile = fopen(outname, "w");
       if (!outfile) {
 	printf("Error: Failed to open %s.\n", outname);
