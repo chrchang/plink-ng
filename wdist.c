@@ -621,6 +621,7 @@ void incr_dists_rm(int* idists, unsigned long* genom, int ct) {
         }
         idists++;
       }
+    }
   }
 }
 
