@@ -293,6 +293,45 @@ int strlen_se(char* ss) {
 
 char* id_buf = NULL;
 
+int int_cmp(const void* aa, const void* bb) {
+  return *((const int*)aa) - *((const int*)bb);
+}
+
+int double_cmp(const void* aa, const void* bb) {
+  double cc = *((const double*)aa) - *((const double*)bb);
+  if (cc > 0.0) {
+    return 1;
+  } else if (cc < 0.0) {
+    return -1;
+  } else {
+    return 0;
+  }
+}
+
+double get_dmedian_i(int* sorted_arr, int len) {
+  if (len) {
+    if (len % 2) {
+      return (double)sorted_arr[len / 2];
+    } else {
+      return ((double)sorted_arr[len / 2] + (double)sorted_arr[(len / 2) - 1]) * 0.5;
+    }
+  } else {
+    return 0.0;
+  }
+}
+
+double get_dmedian(double* sorted_arr, int len) {
+  if (len) {
+    if (len % 2) {
+      return sorted_arr[len / 2];
+    } else {
+      return (sorted_arr[len / 2] + sorted_arr[(len / 2) - 1]) * 0.5;
+    }
+  } else {
+    return 0.0;
+  }
+}
+
 int strcmp_casted(const void* s1, const void* s2) {
   return strcmp((char*)s1, (char*)s2);
 }
@@ -794,7 +833,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   FILE* bimtmpfile = NULL;
   FILE* famtmpfile = NULL;
   int map_linect = 0;
-  int map_linect4;
+  int map_linect4 = 0;
   char* outname_end;
   unsigned char* pedbuf = NULL;
   unsigned char* marker_exclude = NULL;
@@ -805,13 +844,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   char* fgets_return;
   int ped_linect = 0;
   int person_exclude_ct = 0;
-  int ped_linect4;
+  int ped_linect4 = 0;
   int ii;
-  int jj;
-  int kk;
+  int jj = 0;
+  int kk = 0;
   int mm;
-  int nn;
-  int oo;
+  int nn = 0;
+  int oo = 0;
   int pp;
   unsigned int uii;
   unsigned int ujj;
@@ -820,20 +859,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   double dxx;
   double dyy;
   double dzz;
-  double dhh_sum;
-  double dhh_ssd;
-  double dhl_sum;
-  double dhl_ssd;
-  double dll_sum;
-  double dll_ssd;
-  int low_ct;
-  int high_ct;
-  long long low_tot_i;
-  long long lh_tot_i;
-  long long high_tot_i;
-  double low_tot;
-  double lh_tot;
-  double high_tot;
   long long llxx;
   // int* marker_chrom = NULL;
   // id_string* marker_id = NULL;
@@ -855,8 +880,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int max_person_id_len = 4;
   unsigned char* gptr;
   unsigned int* giptr;
-  unsigned long* glptr2;
-  char* cptr;
+  unsigned long* glptr2 = NULL;
+  char* cptr = NULL;
   char* cptr2;
   char* cptr3;
   int* iwptr;
@@ -904,6 +929,38 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int hwe_a_hhi;
   int multiplex;
   int bin_pheno;
+  int ll_size;
+  int lh_size;
+  int hh_size;
+  int* ll_pool_i;
+  int* lh_pool_i;
+  int* hh_pool_i;
+  int* ll_pool_ip;
+  int* lh_pool_ip;
+  int* hh_pool_ip;
+  double* ll_pool;
+  double* lh_pool;
+  double* hh_pool;
+  double* ll_poolp;
+  double* lh_poolp;
+  double* hh_poolp;
+  double dhh_sum;
+  double dhh_ssd;
+  double dhl_sum;
+  double dhl_ssd;
+  double dll_sum;
+  double dll_ssd;
+  int low_ct;
+  int high_ct;
+  long long low_tot_i;
+  long long lh_tot_i;
+  long long high_tot_i;
+  double low_tot;
+  double lh_tot;
+  double high_tot;
+  double ll_med;
+  double lh_med;
+  double hh_med;
   pthread_t threads[MAX_THREADS];
 
   ii = missing_pheno;
@@ -2970,31 +3027,50 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     collapse_phenoc(pheno_c, person_exclude, ped_linect);
     low_ct = 0;
     high_ct = 0;
+    for (ii = 0; ii < ped_linect; ii++) {
+      if (pheno_c[ii] == 1) {
+	high_ct++;
+      } else if (pheno_c[ii] == 0) {
+	low_ct++;
+      }
+    }
+    ll_size = (low_ct * (low_ct - 1)) / 2;
+    lh_size = low_ct * high_ct;
+    hh_size = (high_ct * (high_ct - 1)) / 2;
     if (exponent == 0.0) {
       low_tot_i = 0;
       lh_tot_i = 0;
       high_tot_i = 0;
       iptr = idists;
+      ll_pool_i = (int*)ped_geno;
+      lh_pool_i = (int*)&(ped_geno[ll_size * sizeof(int)]);
+      hh_pool_i = (int*)&(ped_geno[(ll_size + lh_size) * sizeof(int)]);
+      ll_pool_ip = ll_pool_i;
+      lh_pool_ip = lh_pool_i;
+      hh_pool_ip = hh_pool_i;
+      ped_geno = &(ped_geno[(ll_size + lh_size + hh_size) * sizeof(int)]);
       for (ii = 0; ii < ped_linect; ii++) {
         cptr = pheno_c;
         cptr2 = &(pheno_c[ii]);
         if (*cptr2 == 1) {
-          high_ct++;
           while (cptr < cptr2) {
             if (*cptr == 1) {
+              *hh_pool_ip++ = *iptr;
               high_tot_i += *iptr;
             } else if (!(*cptr)) {
+              *lh_pool_ip++ = *iptr;
               lh_tot_i += *iptr;
             }
             cptr++;
             iptr++;
 	  }
         } else if (*cptr2 == 0) {
-          low_ct++;
           while (cptr < cptr2) {
             if (*cptr == 1) {
+              *lh_pool_ip++ = *iptr;
               lh_tot_i += *iptr;
             } else if (!(*cptr)) {
+              *ll_pool_ip++ = *iptr;
               low_tot_i += *iptr;
             }
             cptr++;
@@ -3004,34 +3080,49 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           iptr += ii;
         }
       }
+      qsort(ll_pool_i, ll_size, sizeof(int), int_cmp);
+      qsort(lh_pool_i, lh_size, sizeof(int), int_cmp);
+      qsort(hh_pool_i, hh_size, sizeof(int), int_cmp);
       low_tot = (double)low_tot_i;
       lh_tot = (double)lh_tot_i;
       high_tot = (double)high_tot_i;
+      ll_med = get_dmedian_i(ll_pool_i, ll_size);
+      lh_med = get_dmedian_i(lh_pool_i, lh_size);
+      hh_med = get_dmedian_i(hh_pool_i, hh_size);
     } else {
       low_tot = 0.0;
       lh_tot = 0.0;
       high_tot = 0.0;
       dist_ptr = dists;
+      ll_pool = (double*)ped_geno;
+      lh_pool = (double*)&(ped_geno[ll_size * sizeof(double)]);
+      hh_pool = (double*)&(ped_geno[(ll_size + lh_size) * sizeof(double)]);
+      ll_poolp = ll_pool;
+      lh_poolp = lh_pool;
+      hh_poolp = hh_pool;
+      ped_geno = &(ped_geno[(ll_size + lh_size + hh_size) * sizeof(double)]);
       for (ii = 0; ii < ped_linect; ii++) {
         cptr = pheno_c;
         cptr2 = &(pheno_c[ii]);
         if (*cptr2 == 1) {
-          high_ct++;
           while (cptr < cptr2) {
             if (*cptr == 1) {
+              *hh_poolp++ = *dist_ptr;
               high_tot += *dist_ptr;
             } else if (!(*cptr)) {
+              *lh_poolp++ = *dist_ptr;
               lh_tot += *dist_ptr;
             }
             cptr++;
             dist_ptr++;
 	  }
         } else if (*cptr2 == 0) {
-          low_ct++;
           while (cptr < cptr2) {
             if (*cptr == 1) {
+              *lh_poolp++ = *dist_ptr;
               lh_tot += *dist_ptr;
             } else if (!(*cptr)) {
+              *ll_poolp++ = *dist_ptr;
               low_tot += *dist_ptr;
             }
             cptr++;
@@ -3041,6 +3132,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           dist_ptr += ii;
         }
       }
+      qsort(ll_pool, ll_size, sizeof(double), double_cmp);
+      qsort(lh_pool, lh_size, sizeof(double), double_cmp);
+      qsort(hh_pool, hh_size, sizeof(double), double_cmp);
+      ll_med = get_dmedian(ll_pool, ll_size);
+      lh_med = get_dmedian(lh_pool, lh_size);
+      hh_med = get_dmedian(hh_pool, hh_size);
     }
     retval = RET_SUCCESS;
     printf("Group distance analysis (%d affected, %d unaffected):\n", high_ct, low_ct);
@@ -3059,9 +3156,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     } else {
       dzz = low_tot / (double)((low_ct * (low_ct - 1)) / 2);
     }
-    printf("  Avg dist between 2x affected             : %lf\n", dxx);
-    printf("  Avg dist between affected and unaffected : %lf\n", dyy);
-    printf("  Avg dist between 2x unaffected           : %lf\n\n", dzz);
+    printf("  Mean, median dists between 2x affected     : %lf, %lf\n", dxx, hh_med);
+    printf("  Mean, median dists between aff, and unaff. : %lf, %lf\n", dyy, lh_med);
+    printf("  Mean, median dists between 2x unaffected   : %lf, %lf\n\n", dzz, ll_med);
     if (2 * calc_param_1 >= high_ct + low_ct) {
       printf("Delete-d jackknife skipped because d is too large.\n");
     } else {
@@ -3410,7 +3507,7 @@ int main(int argc, char** argv) {
   char phenoname[FNAMESIZE];
   char filtername[FNAMESIZE];
   char* makepheno_str = NULL;
-  char* filterval;
+  char* filterval = NULL;
   char* argptr;
   int retval;
   int load_params = 0; // describes what file parameters have been provided
@@ -3442,7 +3539,7 @@ int main(int argc, char** argv) {
   double tail_bottom;
   double tail_top;
   int calc_param_1 = 0;
-  int iters;
+  int iters = 0;
   int ii;
   int jj;
   unsigned long int rseed = 0;
