@@ -150,7 +150,7 @@ int dispmsg(int retval) {
 "  --distance <--square0>\n"
 "    Outputs a lower-triangular table of (weighted) genetic distances to\n"
 "    {output prefix}.dist, and a list of the corresponding family/individual\n"
-"    IDs to {output prefix}.id.\n"
+"    IDs to {output prefix}.dist.id.\n"
 "    The first row of the .dist file contains a single number describing the\n"
 "    distance between the first two genotypes, the second row has the {genotype\n"
 "    1-genotype 3} and {genotype 2-genotype 3} distances in that order, etc.\n\n"
