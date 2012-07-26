@@ -571,27 +571,6 @@ int eval_affection(char* bufptr, int missing_pheno, int missing_pheno_len, int a
   return 0;
 }
 
-void incr_dists(double* dists, unsigned int* geno, int ct, double* weights) {
-  unsigned int* giptr;
-  unsigned int* giptr2;
-  unsigned int uii;
-  unsigned int ujj;
-  double* weights1 = &(weights[256]);
-  double* weights2 = &(weights[512]);
-  double* weights3 = &(weights[768]);
-  int ii;
-  for (ii = 1; ii < ct; ii++) {
-    giptr = geno;
-    giptr2 = &(geno[ii]);
-    uii = *giptr2;
-    while (giptr < giptr2) {
-      ujj = *giptr++ ^ uii;
-      *dists += weights3[ujj >> 24] + weights2[(ujj >> 16) & 255] + weights1[(ujj >> 8) & 255] + weights[ujj & 255];
-      dists++;
-    }
-  }
-}
-
 void collapse_phenoc(char* pheno_c, unsigned char* person_exclude, int ped_linect) {
   int ii = 0;
   int jj;
@@ -639,8 +618,10 @@ void pick_d(unsigned char* cbuf, int ct, int dd) {
 
 int* idists;
 int* idists2;
+double* dists;
 unsigned char* ped_geno = NULL;
 unsigned long* glptr;
+double weights[1024];
 int* weights_i = NULL;
 int thread_start[MAX_THREADS_P1];
 
@@ -670,6 +651,34 @@ void* calc_idist_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
   incr_dists_i(&(idists[(ii * (ii - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
+  return NULL;
+}
+
+void incr_dists(double* dists, unsigned int* geno, int tidx) {
+  unsigned int* giptr;
+  unsigned int* giptr2;
+  unsigned int uii;
+  unsigned int ujj;
+  double* weights1 = &(weights[256]);
+  double* weights2 = &(weights[512]);
+  double* weights3 = &(weights[768]);
+  int ii;
+  for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
+    giptr = geno;
+    giptr2 = &(geno[ii]);
+    uii = *giptr2;
+    while (giptr < giptr2) {
+      ujj = *giptr++ ^ uii;
+      *dists += weights3[ujj >> 24] + weights2[(ujj >> 16) & 255] + weights1[(ujj >> 8) & 255] + weights[ujj & 255];
+      dists++;
+    }
+  }
+}
+
+void* calc_dist_thread(void* arg) {
+  long tidx = (long)arg;
+  int ii = thread_start[tidx];
+  incr_dists(&(dists[(ii * (ii - 1)) / 2]), (unsigned int*)ped_geno, (int)tidx);
   return NULL;
 }
 
@@ -851,8 +860,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   char* cptr3;
   int* iwptr;
   int* iptr;
-  double* dists;
-  double weights[1024];
   long long dists_alloc = 0;
   long long ped_geno_size;
   int geno_window_size;
@@ -2747,9 +2754,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       fseeko(pedfile, 3, SEEK_SET);
       ii = 0; // current SNP index
       pp = 0; // after subtracting out excluded
-      if (exponent == 0.0) {
-	triangle_fill(thread_start, ped_linect - person_exclude_ct, thread_ct, 1);
-      }
+      triangle_fill(thread_start, ped_linect - person_exclude_ct, thread_ct, 1);
       while (pp < (map_linect - marker_exclude_ct)) {
         for (jj = 0; jj < multiplex; jj++) {
           maf_buf[jj] = 0.5;
@@ -2854,7 +2859,17 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    }
           }
           fill_weights(weights, maf_buf, exponent);
-          incr_dists(dists, (unsigned int*)ped_geno, ped_linect - person_exclude_ct, weights);
+          for (ulii = 1; ulii < thread_ct; ulii++) {
+	    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_dist_thread, (void*)ulii)) {
+	      printf("Error: Could not create thread.\n");
+	      retval = RET_THREAD_CREATE_FAIL;
+	      goto wdist_ret_2;
+	    }
+          }
+          incr_dists(dists, (unsigned int*)ped_geno, 0);
+	  for (jj = 0; jj < thread_ct - 1; jj++) {
+	    pthread_join(threads[jj], NULL);
+	  }
         }
         printf("\r%d markers complete.", pp);
         fflush(stdout);
