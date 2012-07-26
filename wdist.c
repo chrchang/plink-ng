@@ -163,8 +163,8 @@ int dispmsg(int retval) {
 "    IDs to {output prefix}.grm.id.\n\n"
 // "  --groupdist [d] [iters]\n"
 // "    Two-group genetic distance analysis, using delete-d jackknife with the\n"
-// "    requested number of iterations.  Binary phenotype required.\n\n",
-	   info_str);
+// "    requested number of iterations.  Binary phenotype required.\n\n"
+         , info_str);
     break;
   }
   if (subst_argv) {
