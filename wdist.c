@@ -2500,18 +2500,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 
   if (calculation_type == CALC_RELATIONSHIP) {
     if (binary_files && snp_major) {
-      if (pedbuflen < BMULTIPLEX * ped_linect4) {
-        free(pedbuf);
-        pedbuf = (unsigned char*)malloc(BMULTIPLEX * ped_linect4 * sizeof(char));
-        if (!pedbuf) {
-          goto wdist_ret_2;
-        }
-      }
       fseeko(pedfile, 3, SEEK_SET);
       ii = 0;
       pp = 0;
       if (calc_param_1 == 2) {
         glptr = (unsigned long*)&(ped_geno[(ped_linect - person_exclude_ct) * sizeof(int)]);
+        gptr = ped_geno[(ped_linect - person_exclude_ct) * (sizeof(int) + sizeof(long))];
+      } else {
+        gptr = ped_geno[(ped_linect - person_exclude_ct) * sizeof(int)];
       }
       // See later comments on CALC_DISTANCE.
       // The difference is, we have to use + instead of XOR here to distinguish
@@ -2528,7 +2524,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             ii++;
             fseeko(pedfile, (off_t)ped_linect4, SEEK_CUR);
           }
-          if (fread(&(pedbuf[jj * ped_linect4]), 1, ped_linect4, pedfile) < ped_linect4) {
+          if (fread(&(gptr[jj * ped_linect4]), 1, ped_linect4, pedfile) < ped_linect4) {
             retval = RET_READ_FAIL;
             goto wdist_ret_2;
           }
@@ -2538,7 +2534,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           pp++;
         }
         if (jj < BMULTIPLEX) {
-          memset(&(pedbuf[jj * ped_linect4]), 0, (BMULTIPLEX - jj) * ped_linect4);
+          memset(&(gptr[jj * ped_linect4]), 0, (BMULTIPLEX - jj) * ped_linect4);
         }
         if (calc_param_1 == 2) {
           memset(glptr, 0, (ped_linect - person_exclude_ct) * sizeof(long));
@@ -2551,7 +2547,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      kk = (jj % 4) * 2;
 	      uii = 0;
 	      for (mm = 0; mm < 8; mm++) {
-		ujj = (pedbuf[jj / 4 + ((nn * 8) + mm) * ped_linect4] >> kk) & 3;
+		ujj = (gptr[jj / 4 + ((nn * 8) + mm) * ped_linect4] >> kk) & 3;
 		if (ujj == 1) {
 		  ujj = 7;
                   if (calc_param_1 == 2) {
