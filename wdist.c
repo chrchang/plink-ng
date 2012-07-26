@@ -184,7 +184,7 @@ int dispmsg(int retval) {
   return retval;
 }
 
-// (copied from PLINK helper.cpp)
+// (copied from PLINK helper.cpp, slightly modified)
 //
 // This function implements an exact SNP test of Hardy-Weinberg
 // Equilibrium as described in Wigginton, JE, Cutler, DJ, and
@@ -193,10 +193,12 @@ int dispmsg(int retval) {
 //
 // Written by Jan Wigginton
 
-double SNPHWE(int obs_hets, int obs_hom1, int obs_hom2)
-{
-  
-  if (obs_hom1 + obs_hom2 + obs_hets == 0 ) return 1;
+double* het_probs = NULL;
+
+int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
+  if (obs_hom1 + obs_hom2 + obs_hets == 0) {
+    return 0;
+  }
   
   // if (obs_hom1 < 0 || obs_hom2 < 0 || obs_hets < 0) 
   //   {
@@ -210,73 +212,80 @@ double SNPHWE(int obs_hets, int obs_hom1, int obs_hom2)
   int obs_homr = obs_hom1 < obs_hom2 ? obs_hom1 : obs_hom2;
 
   int rare_copies = 2 * obs_homr + obs_hets;
+  int rare_copies2 = rare_copies / 2;
   int genotypes   = obs_hets + obs_homc + obs_homr;
+  long long rare_copies_ll = (long long)rare_copies;
+  long long genotypes_ll = (long long)genotypes;
 
-  double * het_probs = (double *) malloc((size_t) (rare_copies + 1) * sizeof(double));
-  if (het_probs == NULL) {
-  //   error("Internal error: SNP-HWE: Unable to allocate array" );
-    return -1.0;
-  }
-  
   int i;
-  for (i = 0; i <= rare_copies; i++)
+  int jj;
+  for (i = 0; i <= rare_copies2; i++) {
     het_probs[i] = 0.0;
+  }
 
   /* start at midpoint */
-  int mid = rare_copies * (2 * genotypes - rare_copies) / (2 * genotypes);
+  long long mid_ll = (rare_copies_ll * (2 * genotypes_ll - rare_copies_ll)) / (2 * genotypes_ll);
   
   /* check to ensure that midpoint and rare alleles have same parity */
-  if ((rare_copies & 1) ^ (mid & 1))
-    mid++;
+  if ((rare_copies & 1) ^ (mid_ll & 1)) {
+    mid_ll++;
+  }
+  int mid2 = mid_ll / 2;
   
-  int curr_hets = mid;
-  int curr_homr = (rare_copies - mid) / 2;
-  int curr_homc = genotypes - curr_hets - curr_homr;
+  long long curr_hets = mid_ll;
 
-  het_probs[mid] = 1.0;
-  double sum = het_probs[mid];
-  for (curr_hets = mid; curr_hets > 1; curr_hets -= 2)
-    {
-      het_probs[curr_hets - 2] = het_probs[curr_hets] * curr_hets * (curr_hets - 1.0)
-	/ (4.0 * (curr_homr + 1.0) * (curr_homc + 1.0));
-      sum += het_probs[curr_hets - 2];
+  het_probs[mid2] = 1.0;
+  double sum = het_probs[mid2];
+  long long curr_homr = rare_copies2 - mid2;
+  long long curr_homc = genotypes - mid_ll - curr_homr;
+  double* hptr = &(het_probs[mid2 - 1]);
+  double dv = 1.0;
+  while (curr_hets > 1) {
+    /* 2 fewer heterozygotes for next iteration -> add one rare, one common homozygote */
+    curr_homr++;
+    curr_homc++;
+    *hptr = dv * (double)(curr_hets * (curr_hets - 1)) / (double)(4 * curr_homr * curr_homc);
+    curr_hets -= 2;
+    dv = *hptr--;
+    sum += dv;
+  }
 
-      /* 2 fewer heterozygotes for next iteration -> add one rare, one common homozygote */
-      curr_homr++;
-      curr_homc++;
-    }
+  curr_hets = mid_ll;
+  curr_homr = rare_copies2 - mid2;
+  curr_homc = genotypes - mid_ll - curr_homr;
+  hptr = &(het_probs[mid2 + 1]);
+  dv = 1.0;
+  while (curr_hets <= rare_copies - 2) {
+    curr_hets += 2;
+    *hptr = dv * (double)(4 * curr_homr * curr_homc) / (double)(curr_hets * (curr_hets - 1));
+    dv = *hptr++;
+    sum += dv;
 
-  curr_hets = mid;
-  curr_homr = (rare_copies - mid) / 2;
-  curr_homc = genotypes - curr_hets - curr_homr;
-  for (curr_hets = mid; curr_hets <= rare_copies - 2; curr_hets += 2)
-    {
-      het_probs[curr_hets + 2] = het_probs[curr_hets] * 4.0 * curr_homr * curr_homc
-	/((curr_hets + 2.0) * (curr_hets + 1.0));
-      sum += het_probs[curr_hets + 2];
-      
-      /* add 2 heterozygotes for next iteration -> subtract one rare, one common homozygote */
-      curr_homr--;
-      curr_homc--;
-    }
-  
-  for (i = 0; i <= rare_copies; i++)
-    het_probs[i] /= sum;
+    /* add 2 heterozygotes for next iteration -> subtract one rare, one common homozygote */
+    curr_homr--;
+    curr_homc--;
+  }
+
+  sum = 1.0 / sum;  
+  for (i = 0; i <= rare_copies2; i++) {
+    het_probs[i] *= sum;
+  }
 
   double p_hwe = 0.0;
+  hptr = &(het_probs[rare_copies2]);
+  sum = het_probs[obs_hets / 2];
   /*  p-value calculation for p_hwe  */
-  for (i = 0; i <= rare_copies; i++)
-    {
-      if (het_probs[i] > het_probs[obs_hets])
-	continue;
-      p_hwe += het_probs[i];
+  while (*hptr <= sum) {
+    p_hwe += *hptr--;
+    if (p_hwe > thresh) {
+      return 0;
     }
-   
-  p_hwe = p_hwe > 1.0 ? 1.0 : p_hwe;
-
-  free(het_probs);
-
-  return p_hwe;
+  }
+  hptr = het_probs;
+  while (*hptr <= sum) {
+    p_hwe += *hptr++;
+  }
+  return (!(p_hwe > thresh));
 }
 
 inline int is_space_or_eoln(char cc) {
@@ -962,6 +971,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   double lh_med;
   double hh_med;
   pthread_t threads[MAX_THREADS];
+
+  // DEBUG
+  int norm_exclude = 0;
+  int aff_exclude = 0;
+  int unaff_exclude = 0;
 
   ii = missing_pheno;
   if (ii < 0) {
@@ -1711,6 +1725,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
       }
       if (hwe_thresh > 0.0) {
+        het_probs = (double*)malloc(((map_linect - marker_exclude_ct) / 2 + 1) * sizeof(double));
+        if (!het_probs) {
+          goto wdist_ret_1;
+        }
         // ----- individual-major .bed load, second pass -----
 	fseeko(pedfile, 3, SEEK_SET);
 	hwe_ll = (int*)wkspace;
@@ -1775,15 +1793,17 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	}
         for (ii = 0; ii < map_linect; ii++) {
           if (!excluded(marker_exclude, ii)) {
-	    if (SNPHWE(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii]) < hwe_thresh) {
+	    if (SNPHWE_t(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii], hwe_thresh)) {
 	      exclude(marker_exclude, ii, &marker_exclude_ct);
 	    } else if (bin_pheno) {
-              if ((SNPHWE(hwe_u_lh[ii], hwe_u_ll[ii], hwe_u_hh[ii]) < hwe_thresh) || (SNPHWE(hwe_a_lh[ii], hwe_a_ll[ii], hwe_a_hh[ii]) < hwe_thresh)) {
+              if (SNPHWE_t(hwe_u_lh[ii], hwe_u_ll[ii], hwe_u_hh[ii], hwe_thresh) || SNPHWE_t(hwe_a_lh[ii], hwe_a_ll[ii], hwe_a_hh[ii], hwe_thresh)) {
                 exclude(marker_exclude, ii, &marker_exclude_ct);
               }
             }
           }
         }
+	free(het_probs);
+	het_probs = NULL;
       }
     } else {
       // ----- snp-major .bed load, first pass -----
@@ -1813,11 +1833,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         for (jj = 0; jj < ped_linect; jj++) {
           kk = jj % 4;
           if (!kk) {
-            oo = *(++gptr);
+            uii = *(++gptr);
           } else {
-            oo >>= 2;
+            uii >>= 2;
           }
-          pp = oo & 3;
+          pp = uii & 3;
           if (pp) {
             if (pp == 2) {
               mm++;
@@ -1844,6 +1864,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
       }
       if (hwe_thresh > 0.0) {
+        het_probs = (double*)malloc(((map_linect - marker_exclude_ct) / 2 + 1) * sizeof(double));
+        if (!het_probs) {
+          goto wdist_ret_1;
+        }
+
         fseeko(pedfile, 3, SEEK_SET);
         // ----- .snp-major .bed load, second pass -----
         for (ii = 0; ii < map_linect; ii++) {
@@ -1868,12 +1893,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  for (jj = 0; jj < ped_linect; jj++) {
 	    kk = jj % 4;
 	    if (!kk) {
-	      oo = *(++gptr);
+	      uii = *(++gptr);
 	    } else {
-	      oo >>= 2;
+	      uii >>= 2;
 	    }
             if (!excluded(person_exclude, jj)) {
-	      pp = oo & 3;
+	      pp = uii & 3;
 	      if (pp) {
 		if (pp == 2) {
 		  hwe_lhi += 1;
@@ -1906,14 +1931,25 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      }
             }
 	  }          
-	  if (SNPHWE(hwe_lhi, hwe_lli, hwe_hhi) < hwe_thresh) {
+	  if (SNPHWE_t(hwe_lhi, hwe_lli, hwe_hhi, hwe_thresh)) {
+            norm_exclude += 1;
 	    exclude(marker_exclude, ii, &marker_exclude_ct);
 	  } else if (bin_pheno) {
-            if ((SNPHWE(hwe_u_lhi, hwe_u_lli, hwe_u_hhi) < hwe_thresh) || (SNPHWE(hwe_a_lhi, hwe_a_lli, hwe_a_hhi) < hwe_thresh)) {
+            if (SNPHWE_t(hwe_u_lhi, hwe_u_lli, hwe_u_hhi, hwe_thresh)) {
+              unaff_exclude += 1;
+              exclude(marker_exclude, ii, &marker_exclude_ct);
+            } else if (SNPHWE_t(hwe_a_lhi, hwe_a_lli, hwe_a_hhi, hwe_thresh)) {
+              aff_exclude += 1;
               exclude(marker_exclude, ii, &marker_exclude_ct);
             }
           }
         }
+	free(het_probs);
+	het_probs = NULL;
+
+	printf("Full set HWE excludes: %d\n", norm_exclude);
+	printf("Control HWE excludes: %d\n", unaff_exclude);
+	printf("Case HWE excludes: %d\n", aff_exclude);
       }
     }
   } else {
@@ -2211,6 +2247,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       goto wdist_ret_1;
     }
     if (hwe_thresh > 0.0) {
+      het_probs = (double*)malloc(((map_linect - marker_exclude_ct) / 2 + 1) * sizeof(double));
+      if (!het_probs) {
+	goto wdist_ret_1;
+      }
+
       // unfortunately, this requires a third pass...
       hwe_ll = (int*)ped_geno;
       hwe_lh = (int*)(&(ped_geno[map_linect * sizeof(int)]));
@@ -2279,15 +2320,17 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
       for (ii = 0; ii < map_linect; ii++) {
         if (!excluded(marker_exclude, ii)) {
-          if (SNPHWE(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii]) < hwe_thresh) {
+          if (SNPHWE_t(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii], hwe_thresh)) {
             exclude(marker_exclude, ii, &marker_exclude_ct);
           } else if (bin_pheno) {
-            if ((SNPHWE(hwe_u_lh[ii], hwe_u_ll[ii], hwe_u_hh[ii]) < hwe_thresh) || (SNPHWE(hwe_a_lh[ii], hwe_a_ll[ii], hwe_a_hh[ii]) < hwe_thresh)) {
+            if (SNPHWE_t(hwe_u_lh[ii], hwe_u_ll[ii], hwe_u_hh[ii], hwe_thresh) || SNPHWE_t(hwe_a_lh[ii], hwe_a_ll[ii], hwe_a_hh[ii], hwe_thresh)) {
               exclude(marker_exclude, ii, &marker_exclude_ct);
             }
           }
         }
       }
+      free(het_probs);
+      het_probs = NULL;
       rewind(pedfile);
     }
 
@@ -2638,7 +2681,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   printf("%d markers and %d people pass filters and QC.\n", map_linect - marker_exclude_ct, ped_linect - person_exclude_ct);
   if (thread_ct > 1) {
     if (thread_ct == DEFAULT_THREAD_CT) {
-      printf("Using %d threads.  (Change this with --threads.)\n", DEFAULT_THREAD_CT);
+      printf("Using %d threads (change this with --threads).\n", DEFAULT_THREAD_CT);
     } else {
       printf("Using %d threads.\n", thread_ct);
     }
@@ -3426,6 +3469,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     fclose(famtmpfile);
   }
  wdist_ret_1:
+  if (het_probs) {
+    free(het_probs);
+  }
   if (person_id) {
     free(person_id);
   }
