@@ -571,28 +571,6 @@ int eval_affection(char* bufptr, int missing_pheno, int missing_pheno_len, int a
   return 0;
 }
 
-void incr_dists_i(int* idists, unsigned long* geno, int ct) {
-  unsigned long* glptr;
-  unsigned long* glptr2;
-  unsigned long ulii;
-  unsigned long uljj;
-  int ii;
-  for (ii = 1; ii < ct; ii++) {
-    glptr = geno;
-    glptr2 = &(geno[ii]);
-    ulii = *glptr2;
-    while (glptr < glptr2) {
-      uljj = *glptr++ ^ ulii;
-#if __LP64__
-      *idists += iwt[uljj >> 56] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
-#else
-      *idists += iwt[uljj >> 24] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
-#endif
-      idists++;
-    }
-  }
-}
-
 void incr_dists(double* dists, unsigned int* geno, int ct, double* weights) {
   unsigned int* giptr;
   unsigned int* giptr2;
@@ -665,6 +643,35 @@ unsigned char* ped_geno = NULL;
 unsigned long* glptr;
 int* weights_i = NULL;
 int thread_start[MAX_THREADS_P1];
+
+void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
+  unsigned long* glptr;
+  unsigned long* glptr2;
+  unsigned long ulii;
+  unsigned long uljj;
+  int ii;
+  for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
+    glptr = geno;
+    glptr2 = &(geno[ii]);
+    ulii = *glptr2;
+    while (glptr < glptr2) {
+      uljj = *glptr++ ^ ulii;
+#if __LP64__
+      *idists += iwt[uljj >> 56] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+#else
+      *idists += iwt[uljj >> 24] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+#endif
+      idists++;
+    }
+  }
+}
+
+void* calc_idist_thread(void* arg) {
+  long tidx = (long)arg;
+  int ii = thread_start[tidx];
+  incr_dists_i(&(idists[(ii * (ii - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
+  return NULL;
+}
 
 void incr_dists_r(int* dists, unsigned long* geno, int tidx, int* weights) {
   unsigned long* glptr;
@@ -746,6 +753,24 @@ void* calc_relm_thread(void* arg) {
   int ii = thread_start[tidx];
   incr_dists_rm(&(idists2[(ii * (ii + 1)) / 2]), (unsigned long*)glptr, (int)tidx);
   return NULL;
+}
+
+void triangle_fill(int* target_arr, int ct, int pieces, int start) {
+  long long ct_tr = (long long)ct;
+  long long vv = (long long)start;
+  long long modif = vv * 2 - 1;
+  long long cur_mult = 0;
+  int cur_piece = 1;
+  target_arr[0] = start;
+  target_arr[pieces] = ct;
+  ct_tr = (ct_tr * (ct_tr + modif)) / pieces;
+  while (cur_piece < pieces) {
+    cur_mult += ct_tr;
+    while ((vv * (vv + modif)) < cur_mult) {
+      vv++;
+    }
+    target_arr[cur_piece++] = (int)vv;
+  }
 }
 
 int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int chr_num, int thread_ct, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int calc_param_1, int iters) {
@@ -2559,17 +2584,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         gptr = &(ped_geno[(ped_linect - person_exclude_ct) * sizeof(long)]);
       }
       weights_i = (int*)weights;
-      thread_start[0] = 0;
-      thread_start[thread_ct] = ped_linect - person_exclude_ct;
-      jj = 0;
-      kk = ((ped_linect - person_exclude_ct) * (ped_linect + 1 - person_exclude_ct)) / thread_ct;
-      mm = 0;
-      for (jj = 1; jj < thread_ct; jj++) {
-        while ((mm * (mm + 1)) < kk * jj) {
-          mm++;
-        }
-        thread_start[jj] = mm;
-      }
+      triangle_fill(thread_start, ped_linect - person_exclude_ct, thread_ct, 1);
       // See later comments on CALC_DISTANCE.
       // The difference is, we have to use + instead of XOR here to distinguish
       // the cases, so we want to allow at least 3 bits per locus.  And given
@@ -2732,12 +2747,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       fseeko(pedfile, 3, SEEK_SET);
       ii = 0; // current SNP index
       pp = 0; // after subtracting out excluded
+      if (exponent == 0.0) {
+	triangle_fill(thread_start, ped_linect - person_exclude_ct, thread_ct, 0);
+      }
       while (pp < (map_linect - marker_exclude_ct)) {
         for (jj = 0; jj < multiplex; jj++) {
           maf_buf[jj] = 0.5;
         }
         jj = 0; // actual SNPs read
-
         // Two key insights here:
         //
         // 1. Precalculate distances for all possible combinations of 4
@@ -2799,7 +2816,17 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      *glptr++ = ulii;
 	    }
           }
-          incr_dists_i(idists, (unsigned long*)ped_geno, ped_linect - person_exclude_ct);
+          for (ulii = 1; ulii < thread_ct; ulii++) {
+	    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_idist_thread, (void*)ulii)) {
+	      printf("Error: Could not create thread.\n");
+	      retval = RET_THREAD_CREATE_FAIL;
+	      goto wdist_ret_2;
+	    }
+          }
+          incr_dists_i(idists, (unsigned long*)ped_geno, 0);
+	  for (jj = 0; jj < thread_ct - 1; jj++) {
+	    pthread_join(threads[jj], NULL);
+	  }
 	} else {
           giptr = (unsigned int*)ped_geno;
 	  for (jj = 0; jj < ped_linect; jj++) {
