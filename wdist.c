@@ -2600,6 +2600,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         if (calc_param_1 == 2) {
           memset(glptr2, 0, (ped_linect - person_exclude_ct) * sizeof(long));
         }
+
         for (nn = 0; nn < 4; nn++) {
 	  glptr = (unsigned long*)ped_geno;
           oo = 0;
@@ -2621,7 +2622,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
               oo++;
 	    }
 	  }
-	  fill_weights_r(weights_i, &(maf_buf[nn * 16]), map_linect - marker_exclude_ct);
+	  fill_weights_r(weights_i, &(maf_buf[nn * (BMULTIPLEX / 4)]), map_linect - marker_exclude_ct);
           for (ulii = 1; ulii < thread_ct; ulii++) {
 	    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_rel_thread, (void*)ulii)) {
 	      printf("Error: Could not create thread.\n");
