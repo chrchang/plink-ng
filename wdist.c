@@ -2616,7 +2616,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       retval = RET_SUCCESS;
       printf("Relationship matrix written to %s.\n", outname);
       fclose(outfile);
-      strcpy(outname_end, ".rel.id");
+      strcpy(&(outname_end[4]), ".id");
       outfile = fopen(outname, "w");
       if (!outfile) {
 	printf("Error: Failed to open %s.\n", outname);
