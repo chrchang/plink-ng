@@ -2505,9 +2505,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       pp = 0;
       if (calc_param_1 == 2) {
         glptr = (unsigned long*)&(ped_geno[(ped_linect - person_exclude_ct) * sizeof(int)]);
-        gptr = ped_geno[(ped_linect - person_exclude_ct) * (sizeof(int) + sizeof(long))];
+        gptr = &(ped_geno[(ped_linect - person_exclude_ct) * (sizeof(int) + sizeof(long))]);
       } else {
-        gptr = ped_geno[(ped_linect - person_exclude_ct) * sizeof(int)];
+        gptr = &(ped_geno[(ped_linect - person_exclude_ct) * sizeof(int)]);
       }
       // See later comments on CALC_DISTANCE.
       // The difference is, we have to use + instead of XOR here to distinguish
