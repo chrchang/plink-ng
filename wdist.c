@@ -2584,7 +2584,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         gptr = &(ped_geno[(ped_linect - person_exclude_ct) * sizeof(long)]);
       }
       weights_i = (int*)weights;
-      triangle_fill(thread_start, ped_linect - person_exclude_ct, thread_ct, 1);
+      triangle_fill(thread_start, ped_linect - person_exclude_ct, thread_ct, 0);
       // See later comments on CALC_DISTANCE.
       // The difference is, we have to use + instead of XOR here to distinguish
       // the cases, so we want to allow at least 3 bits per locus.  And given
@@ -2748,7 +2748,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       ii = 0; // current SNP index
       pp = 0; // after subtracting out excluded
       if (exponent == 0.0) {
-	triangle_fill(thread_start, ped_linect - person_exclude_ct, thread_ct, 0);
+	triangle_fill(thread_start, ped_linect - person_exclude_ct, thread_ct, 1);
       }
       while (pp < (map_linect - marker_exclude_ct)) {
         for (jj = 0; jj < multiplex; jj++) {
