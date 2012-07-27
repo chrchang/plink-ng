@@ -75,9 +75,28 @@ const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 char tbuf[MAXLINELEN];
 int iwt[256];
 unsigned char* wkspace;
+unsigned char* wkspace_base;
 long long malloc_size_mb = MALLOC_DEFAULT_MB;
+long long wkspace_left;
 char** subst_argv = NULL;
 // gsl_rng* rg;
+
+unsigned char* wkspace_alloc(long long size) {
+  unsigned char* retval;
+  if (wkspace_left < size) {
+    return NULL;
+  }
+  retval = wkspace_base;
+  wkspace_base += size;
+  wkspace_left -= size;
+  return retval;
+}
+
+void wkspace_reset(unsigned char* new_base) {
+  long long freed_bytes = wkspace_base - new_base;
+  wkspace_base = new_base;
+  wkspace_left += freed_bytes;
+}
 
 // TODO:
 // distance MAF histograms
@@ -534,14 +553,14 @@ void fill_weights_r(int* weights, double* mafs, int subjs) {
   int ii;
   int jj;
   int kk;
-  int wtarr[256];
+  int wtarr[BMULTIPLEX * 4];
   int twt;
   int* wt;
   double mean;
   double mean_m1;
   double mean_m2;
   double mult;
-  memset(wtarr, 0, 256 * sizeof(int));
+  memset(wtarr, 0, BMULTIPLEX * 4 * sizeof(int));
   for (ii = 0; ii < (BMULTIPLEX / 4); ii += 1) {
     if ((mafs[ii] > 0.00000001) && (mafs[ii] < 0.99999999)) {
       if (mafs[ii] < 0.50000001) {
@@ -804,21 +823,35 @@ void* calc_relm_thread(void* arg) {
   return NULL;
 }
 
+int triangle_bsearch(long long cur_prod, int modif, int lbound, int ubound) {
+  int center;
+  long long vv;
+  if (lbound == ubound) {
+    return lbound;
+  }
+  center = (lbound + ubound) / 2;
+  vv = center;
+  vv = vv * (vv + modif);
+  if (vv < cur_prod) {
+    return triangle_bsearch(cur_prod, modif, center + 1, ubound);
+  } else {
+    return triangle_bsearch(cur_prod, modif, lbound, center);
+  }
+}
+
 void triangle_fill(int* target_arr, int ct, int pieces, int start) {
   long long ct_tr = (long long)ct;
-  long long vv = (long long)start;
-  long long modif = vv * 2 - 1;
-  long long cur_mult = 0;
+  long long cur_prod = 0;
+  int modif = 1 - start * 2;
   int cur_piece = 1;
+  int lbound = start;
   target_arr[0] = start;
   target_arr[pieces] = ct;
   ct_tr = (ct_tr * (ct_tr + modif)) / pieces;
   while (cur_piece < pieces) {
-    cur_mult += ct_tr;
-    while ((vv * (vv + modif)) < cur_mult) {
-      vv++;
-    }
-    target_arr[cur_piece++] = (int)vv;
+    cur_prod += ct_tr;
+    lbound = triangle_bsearch(cur_prod, modif, start, ct);
+    target_arr[cur_piece++] = lbound;
   }
 }
 
@@ -856,6 +889,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   unsigned int ujj;
   unsigned long ulii;
   unsigned long uljj;
+  unsigned long ulkk;
+  unsigned long ulmm;
+  unsigned long ulnn;
   double dxx;
   double dyy;
   double dzz;
@@ -878,6 +914,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   char* pheno_c = NULL;
   char* person_id = NULL;
   int max_person_id_len = 4;
+  unsigned char* wkspace_mark;
   unsigned char* gptr;
   unsigned int* giptr;
   unsigned long* glptr2 = NULL;
@@ -887,10 +924,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int* iwptr;
   int* iptr;
   long long dists_alloc = 0;
-  long long ped_geno_size;
   int geno_window_size;
   char cc;
   double* dist_ptr;
+  double* dptr2;
   long long last_tell;
   int binary_files = 0;
   int maf_int_thresh;
@@ -1720,6 +1757,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         if (!het_probs) {
           goto wdist_ret_1;
         }
+        if (wkspace_left < map_linect * 9 * sizeof(int)) {
+          goto wdist_ret_1;
+        }
         // ----- individual-major .bed load, second pass -----
 	fseeko(pedfile, 3, SEEK_SET);
 	hwe_ll = (int*)wkspace;
@@ -2082,7 +2122,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     memset(person_exclude, 0, ((ped_linect + 7) / 8) * sizeof(char));
 
     // ----- .ped load, second pass -----
-    ped_geno = wkspace;
     for (ii = 0; ii < ped_linect; ii += 1) {
       fseeko(pedfile, line_locs[ii], SEEK_SET);
       fgets((char*)pedbuf, pedbuflen, pedfile);
@@ -2243,17 +2282,20 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	goto wdist_ret_1;
       }
 
+      if (wkspace_left < map_linect * 9 * sizeof(int)) {
+        goto wdist_ret_1;
+      }
       // unfortunately, this requires a third pass...
-      hwe_ll = (int*)ped_geno;
-      hwe_lh = (int*)(&(ped_geno[map_linect * sizeof(int)]));
-      hwe_hh = (int*)(&(ped_geno[map_linect * 2 * sizeof(int)]));
-      hwe_u_ll = (int*)(&(ped_geno[map_linect * 3 * sizeof(int)]));
-      hwe_u_lh = (int*)(&(ped_geno[map_linect * 4 * sizeof(int)]));
-      hwe_u_hh = (int*)(&(ped_geno[map_linect * 5 * sizeof(int)]));
-      hwe_a_ll = (int*)(&(ped_geno[map_linect * 6 * sizeof(int)]));
-      hwe_a_lh = (int*)(&(ped_geno[map_linect * 7 * sizeof(int)]));
-      hwe_a_hh = (int*)(&(ped_geno[map_linect * 8 * sizeof(int)]));
-      memset(ped_geno, 0, map_linect * 9 * sizeof(int));
+      hwe_ll = (int*)wkspace;
+      hwe_lh = (int*)(&(wkspace[map_linect * sizeof(int)]));
+      hwe_hh = (int*)(&(wkspace[map_linect * 2 * sizeof(int)]));
+      hwe_u_ll = (int*)(&(wkspace[map_linect * 3 * sizeof(int)]));
+      hwe_u_lh = (int*)(&(wkspace[map_linect * 4 * sizeof(int)]));
+      hwe_u_hh = (int*)(&(wkspace[map_linect * 5 * sizeof(int)]));
+      hwe_a_ll = (int*)(&(wkspace[map_linect * 6 * sizeof(int)]));
+      hwe_a_lh = (int*)(&(wkspace[map_linect * 7 * sizeof(int)]));
+      hwe_a_hh = (int*)(&(wkspace[map_linect * 8 * sizeof(int)]));
+      memset(wkspace, 0, map_linect * 9 * sizeof(int));
 
       for (ii = 0; ii < ped_linect; ii += 1) {
         if (excluded(person_exclude, ii)) {
@@ -2325,18 +2367,19 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       rewind(pedfile);
     }
 
-    ii = ((ped_linect - person_exclude_ct) * ((ped_linect - person_exclude_ct) - 1)) / 2;
+    ulii = ped_linect - person_exclude_ct;
+    ulii = (ulii * (ulii - 1)) / 2;
     if (exponent == 0.0) {
-      dists_alloc = ii * sizeof(int);
+      dists_alloc = ulii * sizeof(int);
     } else {
-      dists_alloc = ii * sizeof(double);
+      dists_alloc = ulii * sizeof(double);
     }
     
     llxx = malloc_size_mb * 1048576 - dists_alloc;
     geno_window_size = llxx / (ped_linect - person_exclude_ct);
     map_linect4 = (map_linect - marker_exclude_ct + 3) / 4;
-    pp = (ped_linect - person_exclude_ct + 3) / 4;
-    if (make_bed && (pp <= ((malloc_size_mb * 1048576) / (map_linect - marker_exclude_ct)))) {
+    uljj = (ped_linect - person_exclude_ct + 3) / 4;
+    if (make_bed && (uljj <= ((malloc_size_mb * 1048576) / (map_linect - marker_exclude_ct)))) {
       snp_major = 1;
       printf("Writing binary files...");
       strcpy(outname_end, ".bed");
@@ -2365,8 +2408,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         printf("\n");
 	goto wdist_ret_2;
       }
+      if (wkspace_left < uljj * (map_linect - marker_exclude_ct)) {
+        goto wdist_ret_2;
+      }
       ped_geno = wkspace;
-      memset(ped_geno, 0, pp * (map_linect - marker_exclude_ct));
+      memset(ped_geno, 0, uljj * (map_linect - marker_exclude_ct));
       // ----- .ped (fourth pass) -> .fam + .bed conversion, snp-major -----
       rewind(pedfile);
       ii = 0;
@@ -2397,6 +2443,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
         bufptr = (char*)(&pedbuf[jj]);
         mm = 0; // final SNP index
+        pp = uljj;
 	for (jj = 0; jj < map_linect; jj += 1) {
           if (excluded(marker_exclude, jj)) {
 	    bufptr++;
@@ -2431,8 +2478,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	}
 	oo++;
       }
-      ii = pp * (map_linect - marker_exclude_ct);
-      if (ii != fwrite(ped_geno, 1, ii, bedtmpfile)) {
+      ulii = uljj * (map_linect - marker_exclude_ct);
+      if (ulii != fwrite(ped_geno, 1, ulii, bedtmpfile)) {
 	retval = RET_WRITE_FAIL;
         printf("\n");
 	goto wdist_ret_2;
@@ -2636,31 +2683,40 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     }
   }
 
-  ii = ((ped_linect - person_exclude_ct) * ((ped_linect - person_exclude_ct) - 1)) / 2;
+  ulii = ped_linect - person_exclude_ct;
   if (calculation_type == CALC_RELATIONSHIP) {
-    ii += ped_linect - person_exclude_ct;
+    ulii = (ulii * (ulii + 1)) / 2;
+  } else {
+    ulii = (ulii * (ulii - 1)) / 2;
   }
   if ((exponent == 0.0) || (calculation_type == CALC_RELATIONSHIP)) {
-    dists_alloc = ii * sizeof(int);
-    idists = (int*)wkspace;
+    dists_alloc = ulii * sizeof(int);
+    idists = (int*)wkspace_alloc(dists_alloc);
+    if (!idists) {
+      goto wdist_ret_2;
+    }
     memset(idists, 0, dists_alloc);
   } else {
-    dists_alloc = ii * sizeof(double);
-    dists = (double*)wkspace;
+    dists_alloc = ulii * sizeof(double);
+    dists = (double*)wkspace_alloc(dists_alloc);
+    if (!dists) {
+      goto wdist_ret_2;
+    }
     dist_ptr = dists;
-    jj = ii;
-    do {
+    dptr2 = &(dist_ptr[ulii]);
+    while (dist_ptr < dptr2) {
       *dist_ptr++ = 0.0;
-    } while (--jj);
+    }
   }
   if ((calculation_type == CALC_RELATIONSHIP) && (calc_param_1 == 2)) {
-    idists2 = (int*)(&wkspace[dists_alloc]);
-    memset(idists2, 0, ii * sizeof(int));
-    ped_geno = &(wkspace[dists_alloc * 2]);
-    ped_geno_size = malloc_size_mb * 1048576 - dists_alloc * 2;
+    idists2 = (int*)wkspace_alloc(dists_alloc);
+    if (!idists2) {
+      goto wdist_ret_2;
+    }
+    memset(idists2, 0, dists_alloc);
+    wkspace_mark = &(wkspace[dists_alloc * 2]);
   } else {
-    ped_geno = &(wkspace[dists_alloc]);
-    ped_geno_size = malloc_size_mb * 1048576 - dists_alloc;
+    wkspace_mark = &(wkspace[dists_alloc]);
   }
 
   if ((calculation_type == CALC_GROUPDIST) && (!bin_pheno)) {
@@ -2683,11 +2739,19 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       fseeko(pedfile, 3, SEEK_SET);
       ii = 0;
       pp = 0;
+      ped_geno = wkspace_alloc((ped_linect - person_exclude_ct) * sizeof(long));
+      if (!ped_geno) {
+        goto wdist_ret_2;
+      }
       if (calc_param_1 == 2) {
-        glptr2 = (unsigned long*)&(ped_geno[(ped_linect - person_exclude_ct) * sizeof(long)]);
-        gptr = &(ped_geno[(ped_linect - person_exclude_ct) * 2 * sizeof(long)]);
-      } else {
-        gptr = &(ped_geno[(ped_linect - person_exclude_ct) * sizeof(long)]);
+        glptr2 = (unsigned long*)wkspace_alloc((ped_linect - person_exclude_ct) * sizeof(long));
+        if (!glptr2) {
+          goto wdist_ret_2;
+        }
+      }
+      gptr = wkspace_alloc(BMULTIPLEX * ped_linect4);
+      if (!gptr) {
+        goto wdist_ret_2;
       }
       weights_i = (int*)weights;
       triangle_fill(thread_start, ped_linect - person_exclude_ct, thread_ct, 0);
@@ -2702,9 +2766,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
         jj = 0;
         while ((jj < BMULTIPLEX) && (pp < (map_linect - marker_exclude_ct))) {
+          ulii = 0;
           while (excluded(marker_exclude, ii)) {
             ii++;
-            fseeko(pedfile, (off_t)ped_linect4, SEEK_CUR);
+            ulii++;
+          }
+          if (ulii) {
+            fseeko(pedfile, ulii * ped_linect4, SEEK_CUR);
           }
           if (fread(&(gptr[jj * ped_linect4]), 1, ped_linect4, pedfile) < ped_linect4) {
             retval = RET_READ_FAIL;
@@ -2725,6 +2793,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         for (nn = 0; nn < 4; nn++) {
 	  glptr = (unsigned long*)ped_geno;
           oo = 0;
+
 	  for (jj = 0; jj < ped_linect; jj++) {
 	    if (!excluded(person_exclude, jj)) {
 	      kk = (jj % 4) * 2;
@@ -2826,7 +2895,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  fprintf(outfile, "%s\n", &(person_id[ii * max_person_id_len]));
 	}
       }
-
+      wkspace_reset(wkspace_mark);
     } else {
       printf("Error: Relationship calculation currently doesn't support individual-major\n.bed file.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -2838,8 +2907,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 
   if (exponent == 0.0) {
     multiplex = IMULTIPLEX;
+    ped_geno = wkspace_alloc((ped_linect - person_exclude_ct) * sizeof(long));
   } else {
     multiplex = 16;
+    ped_geno = wkspace_alloc((ped_linect - person_exclude_ct) * sizeof(int));
+  }
+  if (!ped_geno) {
+    goto wdist_ret_2;
   }
   if (binary_files) {
     if (snp_major) {
@@ -2973,6 +3047,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         printf("\r%d markers complete.", pp);
         fflush(stdout);
       }
+      wkspace_reset(wkspace_mark);
     } else {
       printf("indiv-major distance calculation not done.\n");
       retval = RET_SUCCESS;
@@ -4276,6 +4351,8 @@ int main(int argc, char** argv) {
       printf("Allocated %lld MB successfully.\n", malloc_size_mb);
     }
   }
+  wkspace_base = wkspace;
+  wkspace_left = malloc_size_mb * 1048576;
   free(bubble);
 
   // rg = gsl_rng_alloc(gsl_rng_mt19937);
