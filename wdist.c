@@ -889,9 +889,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   unsigned int ujj;
   unsigned long ulii;
   unsigned long uljj;
-  unsigned long ulkk;
-  unsigned long ulmm;
-  unsigned long ulnn;
   double dxx;
   double dyy;
   double dzz;
