@@ -567,24 +567,24 @@ void fill_weights_r(int* weights, double* mafs, int subjs) {
 	mean = 2.0 * mafs[ii];
 	mean_m1 = mean - 1.0;
 	mean_m2 = mean - 2.0;
-	mult = 1.0 / (2.0 * mafs[ii] * (1.0 - mafs[ii]) * (double)subjs);
-	wtarr[ii * 16] = round_dbl(DOUBLE_INT_MULT * mean * mean * mult);
-	wtarr[ii * 16 + 2] = round_dbl(DOUBLE_INT_MULT * mean_m1 * mean * mult);
-	wtarr[ii * 16 + 3] = round_dbl(DOUBLE_INT_MULT * mean_m2 * mean * mult);
-	wtarr[ii * 16 + 4] = round_dbl(DOUBLE_INT_MULT * mean_m1 * mean_m1 * mult);
-	wtarr[ii * 16 + 5] = round_dbl(DOUBLE_INT_MULT * mean_m2 * mean_m1 * mult);
-	wtarr[ii * 16 + 6] = round_dbl(DOUBLE_INT_MULT * mean_m2 * mean_m2 * mult);
+	mult = DOUBLE_INT_MULT / (mean * (1.0 - mafs[ii]) * (double)subjs);
+	wtarr[ii * 16] = round_dbl(mean * mean * mult);
+	wtarr[ii * 16 + 2] = round_dbl(mean_m1 * mean * mult);
+	wtarr[ii * 16 + 3] = round_dbl(mean_m2 * mean * mult);
+	wtarr[ii * 16 + 4] = round_dbl(mean_m1 * mean_m1 * mult);
+	wtarr[ii * 16 + 5] = round_dbl(mean_m2 * mean_m1 * mult);
+	wtarr[ii * 16 + 6] = round_dbl(mean_m2 * mean_m2 * mult);
       } else {
 	mean = 2.0 * (1.0 - mafs[ii]);
 	mean_m1 = mean - 1.0;
 	mean_m2 = mean - 2.0;
-	mult = 1.0 / (2.0 * mafs[ii] * (1.0 - mafs[ii]) * (double)subjs);
-	wtarr[ii * 16] = round_dbl(DOUBLE_INT_MULT * mean_m2 * mean_m2 * mult);
-	wtarr[ii * 16 + 2] = round_dbl(DOUBLE_INT_MULT * mean_m2 * mean_m1 * mult);
-	wtarr[ii * 16 + 3] = round_dbl(DOUBLE_INT_MULT * mean_m2 * mean * mult);
-	wtarr[ii * 16 + 4] = round_dbl(DOUBLE_INT_MULT * mean_m1 * mean_m1 * mult);
-	wtarr[ii * 16 + 5] = round_dbl(DOUBLE_INT_MULT * mean_m1 * mean * mult);
-	wtarr[ii * 16 + 6] = round_dbl(DOUBLE_INT_MULT * mean * mean * mult);
+	mult = DOUBLE_INT_MULT / (mean * mafs[ii] * (double)subjs);
+	wtarr[ii * 16] = round_dbl(mean_m2 * mean_m2 * mult);
+	wtarr[ii * 16 + 2] = round_dbl(mean_m2 * mean_m1 * mult);
+	wtarr[ii * 16 + 3] = round_dbl(mean_m2 * mean * mult);
+	wtarr[ii * 16 + 4] = round_dbl(mean_m1 * mean_m1 * mult);
+	wtarr[ii * 16 + 5] = round_dbl(mean_m1 * mean * mult);
+	wtarr[ii * 16 + 6] = round_dbl(mean * mean * mult);
       }
     }
   }
