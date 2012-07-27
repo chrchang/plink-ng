@@ -214,62 +214,53 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
   int rare_copies = 2 * obs_homr + obs_hets;
   int rare_copies2 = rare_copies / 2;
   int genotypes   = obs_hets + obs_homc + obs_homr;
-  long long rare_copies_ll = (long long)rare_copies;
-  long long genotypes_ll = (long long)genotypes;
+  // avoid integer overflow when calculating mid
+  long long rare_copies_ll = rare_copies;
+  long long genotypes_ll = genotypes;
 
   int i;
-  int jj;
   for (i = 0; i <= rare_copies2; i++) {
     het_probs[i] = 0.0;
   }
 
   /* start at midpoint */
-  long long mid_ll = (rare_copies_ll * (2 * genotypes_ll - rare_copies_ll)) / (2 * genotypes_ll);
+  int mid = (int)((rare_copies_ll * (2 * genotypes_ll - rare_copies_ll)) / (2 * genotypes_ll));
   
   /* check to ensure that midpoint and rare alleles have same parity */
-  if ((rare_copies & 1) ^ (mid_ll & 1)) {
-    mid_ll++;
+  if ((rare_copies & 1) ^ (mid & 1)) {
+    mid++;
   }
-  int mid2 = mid_ll / 2;
+  int mid2 = mid / 2;
   
-  long long curr_hets = mid_ll;
+  int curr_hets = mid;
 
   het_probs[mid2] = 1.0;
-  double sum = het_probs[mid2];
-  long long curr_homr = rare_copies2 - mid2;
-  long long curr_homc = genotypes - mid_ll - curr_homr;
+  double sum = 1.0;
+  int curr_homr = rare_copies2 - mid2;
+  int curr_homc = genotypes - mid - curr_homr;
   double* hptr = &(het_probs[mid2 - 1]);
   double dv = 1.0;
   while (curr_hets > 1) {
     /* 2 fewer heterozygotes for next iteration -> add one rare, one common homozygote */
-    curr_homr++;
-    curr_homc++;
-    *hptr = dv * (double)(curr_hets * (curr_hets - 1)) / (double)(4 * curr_homr * curr_homc);
+    *hptr = dv * (double)curr_hets * (double)(curr_hets - 1) / ((double)(4 * (++curr_homr)) * (double)(++curr_homc));
     curr_hets -= 2;
     dv = *hptr--;
     sum += dv;
   }
 
-  curr_hets = mid_ll;
+  curr_hets = mid;
   curr_homr = rare_copies2 - mid2;
-  curr_homc = genotypes - mid_ll - curr_homr;
+  curr_homc = genotypes - mid - curr_homr;
   hptr = &(het_probs[mid2 + 1]);
   dv = 1.0;
   while (curr_hets <= rare_copies - 2) {
     curr_hets += 2;
-    *hptr = dv * (double)(4 * curr_homr * curr_homc) / (double)(curr_hets * (curr_hets - 1));
+    *hptr = dv * (double)(4 * curr_homr--) * (double)(curr_homc--) / ((double)(curr_hets * (double)(curr_hets - 1)));
     dv = *hptr++;
     sum += dv;
-
-    /* add 2 heterozygotes for next iteration -> subtract one rare, one common homozygote */
-    curr_homr--;
-    curr_homc--;
   }
 
-  sum = 1.0 / sum;  
-  for (i = 0; i <= rare_copies2; i++) {
-    het_probs[i] *= sum;
-  }
+  thresh *= sum;
 
   double p_hwe = 0.0;
   hptr = &(het_probs[rare_copies2]);
@@ -551,7 +542,7 @@ void fill_weights_r(int* weights, double* mafs, int subjs) {
   double mean_m2;
   double mult;
   memset(wtarr, 0, 256 * sizeof(int));
-  for (ii = 0; ii < 16; ii += 1) {
+  for (ii = 0; ii < (BMULTIPLEX / 4); ii += 1) {
     if ((mafs[ii] > 0.00000001) && (mafs[ii] < 0.99999999)) {
       if (mafs[ii] < 0.50000001) {
 	mean = 2.0 * mafs[ii];
@@ -578,7 +569,7 @@ void fill_weights_r(int* weights, double* mafs, int subjs) {
       }
     }
   }
-  for (kk = 0; kk < 8; kk++) {
+  for (kk = 0; kk < (BMULTIPLEX / 8); kk++) {
     wt = &(wtarr[32 * kk]);
     for (ii = 0; ii < 16; ii += 1) {
       twt = wt[ii + 16];
@@ -861,7 +852,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int nn = 0;
   int oo = 0;
   int pp;
-  unsigned int uii;
+  unsigned int uii = 0;
   unsigned int ujj;
   unsigned long ulii;
   unsigned long uljj;
