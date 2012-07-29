@@ -67,6 +67,8 @@
 #define IMULTIPLEX 16
 #endif
 
+#define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
+
 const char info_str[] =
   "WDIST weighted genetic distance calculator, v0.3.3 (29 July 2012)\n"
   "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
@@ -89,7 +91,7 @@ unsigned char* wkspace_alloc(long long size) {
   if (wkspace_left < size) {
     return NULL;
   }
-  size = (size + (CACHELINE - 1)) & ~(CACHELINE - 1);
+  size = CACHEALIGN(size);
   retval = wkspace_base;
   wkspace_base += size;
   wkspace_left -= size;
@@ -780,12 +782,12 @@ void* calc_rel_thread(void* arg) {
   int ii = thread_start[tidx];
   int nn;
   for (nn = 0; nn < ((DMULTIPLEX * 4) / BITCT); nn++) {
-    incr_dists_r(&(dists[(ii * (ii + 1)) / 2]), (unsigned long*)(&ped_geno[nn * ped_postct * sizeof(long)]), (int)tidx, &(weights[nn * DMULTIPLEX * 32]));
+    incr_dists_r(&(dists[(ii * (ii + 1)) / 2]), (unsigned long*)(&ped_geno[nn * CACHEALIGN(ped_postct * sizeof(long))]), (int)tidx, &(weights[nn * DMULTIPLEX * 32]));
   }
   return NULL;
 }
 
-void incr_dists_rm(int* idists, unsigned long* genom, int tidx) {
+void incr_dists_rm(int* idists, unsigned long* missing, int tidx) {
   // count missing
   unsigned long* glptr;
   unsigned long* glptr2;
@@ -793,8 +795,8 @@ void incr_dists_rm(int* idists, unsigned long* genom, int tidx) {
   unsigned long uljj;
   int ii;
   for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
-    glptr = genom;
-    glptr2 = &(genom[ii]);
+    glptr = missing;
+    glptr2 = &(missing[ii]);
     ulii = *glptr2;
     // most bits should be zero, so it's worth special-casing this
     if (ulii) {
@@ -846,26 +848,19 @@ int triangle_bsearch(long long cur_prod, int modif, int lbound, int ubound) {
   }
 }
 
-void triangle_fill(int* target_arr, int ct, int pieces, int start, int align) {
+void triangle_fill(int* target_arr, int ct, int pieces, int start) {
   long long ct_tr = (long long)ct;
   long long cur_prod = 0;
   int modif = 1 - start * 2;
   int cur_piece = 1;
   int lbound = start;
-  int cur_val;
   target_arr[0] = start;
   target_arr[pieces] = ct;
   ct_tr = (ct_tr * (ct_tr + modif)) / pieces;
   while (cur_piece < pieces) {
     cur_prod += ct_tr;
     lbound = triangle_bsearch(cur_prod, modif, start, ct);
-    cur_val = (lbound + align - 1) & (~(align - 1));
-    if (cur_val < ct) {
-      target_arr[cur_piece++] = cur_val;
-    } else {
-      target_arr[cur_piece] = ct;
-      return;
-    }
+    target_arr[cur_piece++] = lbound;
   }
 }
 
@@ -890,8 +885,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int ped_recalc_len = 0;
   char* fgets_return;
   int ped_linect = 0;
-  int person_exclude_ct = 0;
   int ped_linect4 = 0;
+  unsigned char* person_exclude = NULL;
+  int person_exclude_ct = 0;
   int ii;
   int jj = 0;
   int kk = 0;
@@ -915,7 +911,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int* marker_allele_cts = NULL;
   int* person_missing_cts = NULL;
   char* bufptr;
-  unsigned char* person_exclude = NULL;
   int retval;
   int map_cols = 3;
   int affection = 0;
@@ -926,12 +921,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   char* person_id = NULL;
   int max_person_id_len = 4;
   unsigned char* wkspace_mark;
-  unsigned char* gptr;
   unsigned int* giptr;
-  unsigned long* glptr2 = NULL;
   char* cptr = NULL;
   char* cptr2;
   char* cptr3;
+  unsigned char* gptr;
+  unsigned long* glptr2;
   int* iwptr;
   int* iptr;
   long long dists_alloc = 0;
@@ -2696,6 +2691,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   }
 
   ped_postct = ped_linect - person_exclude_ct;
+  ped_postct_cpy = ped_postct;
   ulii = ped_postct;
   if (calculation_type == CALC_RELATIONSHIP) {
     ulii = (ulii * (ulii + 1)) / 2;
@@ -2756,15 +2752,15 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       if (!ped_geno) {
         goto wdist_ret_2;
       }
-      glptr2 = (unsigned long*)wkspace_alloc(ped_postct * sizeof(long));
-      if (!glptr2) {
+      glptr = (unsigned long*)wkspace_alloc(ped_postct * sizeof(long));
+      if (!glptr) {
 	goto wdist_ret_2;
       }
       gptr = wkspace_alloc(DMULTIPLEX * ped_linect4);
       if (!gptr) {
         goto wdist_ret_2;
       }
-      triangle_fill(thread_start, ped_postct, thread_ct, 0, CACHELINE / sizeof(long));
+      triangle_fill(thread_start, ped_postct, thread_ct, 0);
       // See later comments on CALC_DISTANCE.
       // The difference is, we have to use + instead of XOR here to distinguish
       // the cases, so we want to allow at least 3 bits per locus.  And given
@@ -2796,29 +2792,31 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         if (jj < DMULTIPLEX) {
           memset(&(gptr[jj * ped_linect4]), 0, (DMULTIPLEX - jj) * ped_linect4);
         }
-        memset(glptr2, 0, ped_postct * sizeof(long));
+        memset(glptr, 0, ped_postct * sizeof(long));
 
-	glptr = (unsigned long*)ped_geno;
-        for (nn = 0; nn < ((DMULTIPLEX * 4) / BITCT); nn++) {
+        glptr2 = (unsigned long*)ped_geno;
+	for (nn = 0; nn < ((DMULTIPLEX * 4) / BITCT); nn++) {
           oo = 0;
-	  for (jj = 0; jj < ped_linect; jj++) {
-	    if (!excluded(person_exclude, jj)) {
-	      kk = (jj % 4) * 2;
-	      ulii = 0;
-	      for (mm = 0; mm < (BITCT / 4); mm++) {
-		uljj = (gptr[jj / 4 + ((nn * (BITCT / 4)) + mm) * ped_linect4] >> kk) & 3;
-		if (uljj == 1) {
-		  uljj = 7;
-                  glptr2[oo] |= 1 << ((nn * (BITCT / 4)) + mm);
-		}
-		ulii |= uljj << (mm * 4);
+	  for (jj = 0; oo < ped_postct; jj++) {
+	    while (excluded(person_exclude, jj)) {
+              jj++;
+            }
+	    kk = (jj % 4) * 2;
+	    ulii = 0;
+	    for (mm = 0; mm < (BITCT / 4); mm++) {
+	      uljj = (gptr[jj / 4 + ((nn * (BITCT / 4)) + mm) * ped_linect4] >> kk) & 3;
+	      if (uljj == 1) {
+		uljj = 7;
+		glptr[oo] |= 1 << ((nn * (BITCT / 4)) + mm);
 	      }
-	      *glptr++ = ulii;
-              oo++;
+	      ulii |= uljj << (mm * 4);
 	    }
+	    *glptr2++ = ulii;
+            oo++;
 	  }
 	  fill_weights_r(&(weights[nn * BITCT * 32]), &(maf_buf[nn * (BITCT / 4)]));
-        }
+	}
+
 	for (ulii = 1; ulii < thread_ct; ulii++) {
 	  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_rel_thread, (void*)ulii)) {
 	    printf("Error: Could not create thread.\n");
@@ -2827,7 +2825,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  }
 	}
         for (nn = 0; nn < ((DMULTIPLEX * 4) / BITCT); nn++) {
-	  incr_dists_r(dists, (unsigned long*)(&(ped_geno[nn * ped_postct * sizeof(long)])), 0, &(weights[nn * DMULTIPLEX * 32]));
+	  incr_dists_r(dists, (unsigned long*)(&(ped_geno[nn * CACHEALIGN(ped_postct * sizeof(long))])), 0, &(weights[nn * DMULTIPLEX * 32]));
         }
 	for (oo = 0; oo < thread_ct - 1; oo++) {
 	  pthread_join(threads[oo], NULL);
@@ -2932,12 +2930,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
       }
       fseeko(pedfile, 3, SEEK_SET);
-      if (exponent == 0.0) {
-        ii = sizeof(int);
-      } else {
-        ii = sizeof(double);
-      }
-      triangle_fill(thread_start, ped_postct, thread_ct, 1, CACHELINE / ii);
+      triangle_fill(thread_start, ped_postct, thread_ct, 1);
       ii = 0; // current SNP index
       pp = 0; // after subtracting out excluded
       while (pp < (map_linect - marker_exclude_ct)) {
