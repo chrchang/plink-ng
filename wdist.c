@@ -22,6 +22,8 @@
 #include <time.h>
 // #include "gsl/rng/gsl_rng.h"
 
+#define CACHELINE 64 // assumed number of bytes per cache line, for alignment
+
 #define RET_SUCCESS 0
 #define RET_HELP 1
 #define RET_NOMEM 2
@@ -45,8 +47,8 @@
 
 #define _FILE_OFFSET_BITS 64
 #define DEFAULT_THREAD_CT 2
-#define MAX_THREADS 64
-#define MAX_THREADS_P1 65
+#define MAX_THREADS 63
+#define MAX_THREADS_P1 64
 #define PEDBUFBASE 256
 #define FNAMESIZE 2048
 #define MALLOC_DEFAULT_MB 2176
@@ -54,18 +56,19 @@
 // size of generic text line load buffer.  .ped lines can of course be longer
 #define MAXLINELEN 131072
 #if __LP64__
-#define BMULTIPLEX 64
+#define BITCT 64
+ // number of snp-major .bed lines to read at once
+#define DMULTIPLEX 64
+
 #define IMULTIPLEX 32
 #else
-#define BMULTIPLEX 32
+#define BITCT 32
+#define DMULTIPLEX 32
 #define IMULTIPLEX 16
 #endif
 
-#define DOUBLE_INT_MULT 1000000000.0
-#define DOUBLE_INT_MULT_RECIP 0.000000001
-
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.3.2 (27 July 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.3.3 (29 July 2012)\n"
   "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
   "wdist <flags> {calculation}\n";
 const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
@@ -86,6 +89,7 @@ unsigned char* wkspace_alloc(long long size) {
   if (wkspace_left < size) {
     return NULL;
   }
+  size = (size + (CACHELINE - 1)) & ~(CACHELINE - 1);
   retval = wkspace_base;
   wkspace_base += size;
   wkspace_left -= size;
@@ -246,7 +250,7 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
   int mid = (int)((rare_copies_ll * (2 * genotypes_ll - rare_copies_ll)) / (2 * genotypes_ll));
   
   /* check to ensure that midpoint and rare alleles have same parity */
-  if ((rare_copies & 1) ^ (mid & 1)) {
+  if ((rare_copies ^ mid) & 1) {
     mid++;
   }
   int mid2 = mid / 2;
@@ -540,55 +544,53 @@ void fill_weights(double* weights, double* mafs, double exponent) {
     }
   }
 }
-inline int round_dbl(double dd) {
-  if (dd >= 0.0) {
-    return (int)(dd + 0.5);
-  } else {
-    return (int)(dd - 0.5);
-  }
-}
 
-
-void fill_weights_r(int* weights, double* mafs, int subjs) {
+void fill_weights_r(double* weights, double* mafs) {
   int ii;
   int jj;
   int kk;
-  int wtarr[BMULTIPLEX * 4];
-  int twt;
-  int* wt;
+  // (BITCT / 4) markers to process, in pairs.  Each pair of markers requires
+  // 32 wtarr entries, and induces 256 writes to weights[].
+  // 32 * ((BITCT / 4) / 2) pairs = BITCT * 4 total wtarr entries.
+  // 256 * ((BITCT / 4) / 2) pairs = BITCT * 32 total weights entries.
+  double wtarr[BITCT * 4];
+  double twt;
+  double* wt;
   double mean;
   double mean_m1;
   double mean_m2;
   double mult;
-  memset(wtarr, 0, BMULTIPLEX * 4 * sizeof(int));
-  for (ii = 0; ii < (BMULTIPLEX / 4); ii += 1) {
+  for (ii = 0; ii < BITCT * 4; ii++) {
+    wtarr[ii] = 0.0;
+  }
+  for (ii = 0; ii < BITCT / 4; ii += 1) {
     if ((mafs[ii] > 0.00000001) && (mafs[ii] < 0.99999999)) {
       if (mafs[ii] < 0.50000001) {
 	mean = 2.0 * mafs[ii];
 	mean_m1 = mean - 1.0;
 	mean_m2 = mean - 2.0;
-	mult = DOUBLE_INT_MULT / (mean * (1.0 - mafs[ii]) * (double)subjs);
-	wtarr[ii * 16] = round_dbl(mean * mean * mult);
-	wtarr[ii * 16 + 2] = round_dbl(mean_m1 * mean * mult);
-	wtarr[ii * 16 + 3] = round_dbl(mean_m2 * mean * mult);
-	wtarr[ii * 16 + 4] = round_dbl(mean_m1 * mean_m1 * mult);
-	wtarr[ii * 16 + 5] = round_dbl(mean_m2 * mean_m1 * mult);
-	wtarr[ii * 16 + 6] = round_dbl(mean_m2 * mean_m2 * mult);
+	mult = 1.0 / (mean * (1.0 - mafs[ii]));
+	wtarr[ii * 16] = mean * mean * mult;
+	wtarr[ii * 16 + 2] = mean_m1 * mean * mult;
+	wtarr[ii * 16 + 3] = mean_m2 * mean * mult;
+	wtarr[ii * 16 + 4] = mean_m1 * mean_m1 * mult;
+	wtarr[ii * 16 + 5] = mean_m2 * mean_m1 * mult;
+	wtarr[ii * 16 + 6] = mean_m2 * mean_m2 * mult;
       } else {
 	mean = 2.0 * (1.0 - mafs[ii]);
 	mean_m1 = mean - 1.0;
 	mean_m2 = mean - 2.0;
-	mult = DOUBLE_INT_MULT / (mean * mafs[ii] * (double)subjs);
-	wtarr[ii * 16] = round_dbl(mean_m2 * mean_m2 * mult);
-	wtarr[ii * 16 + 2] = round_dbl(mean_m2 * mean_m1 * mult);
-	wtarr[ii * 16 + 3] = round_dbl(mean_m2 * mean * mult);
-	wtarr[ii * 16 + 4] = round_dbl(mean_m1 * mean_m1 * mult);
-	wtarr[ii * 16 + 5] = round_dbl(mean_m1 * mean * mult);
-	wtarr[ii * 16 + 6] = round_dbl(mean * mean * mult);
+	mult = 1.0 / (mean * mafs[ii]);
+	wtarr[ii * 16] = mean_m2 * mean_m2 * mult;
+	wtarr[ii * 16 + 2] = mean_m2 * mean_m1 * mult;
+	wtarr[ii * 16 + 3] = mean_m2 * mean * mult;
+	wtarr[ii * 16 + 4] = mean_m1 * mean_m1 * mult;
+	wtarr[ii * 16 + 5] = mean_m1 * mean * mult;
+	wtarr[ii * 16 + 6] = mean * mean * mult;
       }
     }
   }
-  for (kk = 0; kk < (BMULTIPLEX / 8); kk++) {
+  for (kk = 0; kk < (BITCT / 8); kk++) {
     wt = &(wtarr[32 * kk]);
     for (ii = 0; ii < 16; ii += 1) {
       twt = wt[ii + 16];
@@ -680,9 +682,10 @@ int* idists2;
 double* dists;
 unsigned char* ped_geno = NULL;
 unsigned long* glptr;
-double weights[1024];
+double weights[DMULTIPLEX * 128];
 int* weights_i = NULL;
 int thread_start[MAX_THREADS_P1];
+int ped_postct;
 
 void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
   unsigned long* glptr;
@@ -741,19 +744,19 @@ void* calc_dist_thread(void* arg) {
   return NULL;
 }
 
-void incr_dists_r(int* dists, unsigned long* geno, int tidx, int* weights) {
+void incr_dists_r(double* dists, unsigned long* geno, int tidx, double* weights) {
   unsigned long* glptr;
   unsigned long* glptr2;
   unsigned long ulii;
   unsigned long uljj;
-  int* weights1 = &(weights[256]);
-  int* weights2 = &(weights[512]);
-  int* weights3 = &(weights[768]);
+  double* weights1 = &(weights[256]);
+  double* weights2 = &(weights[512]);
+  double* weights3 = &(weights[768]);
 #if __LP64__
-  int* weights4 = &(weights[1024]);
-  int* weights5 = &(weights[1280]);
-  int* weights6 = &(weights[1536]);
-  int* weights7 = &(weights[1792]);
+  double* weights4 = &(weights[1024]);
+  double* weights5 = &(weights[1280]);
+  double* weights6 = &(weights[1536]);
+  double* weights7 = &(weights[1792]);
 #endif
   int ii;
   for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
@@ -775,7 +778,10 @@ void incr_dists_r(int* dists, unsigned long* geno, int tidx, int* weights) {
 void* calc_rel_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
-  incr_dists_r(&(idists[(ii * (ii + 1)) / 2]), (unsigned long*)ped_geno, (int)tidx, weights_i);
+  int nn;
+  for (nn = 0; nn < ((DMULTIPLEX * 4) / BITCT); nn++) {
+    incr_dists_r(&(dists[(ii * (ii + 1)) / 2]), (unsigned long*)(&ped_geno[nn * ped_postct * sizeof(long)]), (int)tidx, &(weights[nn * DMULTIPLEX * 32]));
+  }
   return NULL;
 }
 
@@ -790,6 +796,7 @@ void incr_dists_rm(int* idists, unsigned long* genom, int tidx) {
     glptr = genom;
     glptr2 = &(genom[ii]);
     ulii = *glptr2;
+    // most bits should be zero, so it's worth special-casing this
     if (ulii) {
       while (glptr <= glptr2) {
 	uljj = *glptr++ | ulii;
@@ -839,19 +846,26 @@ int triangle_bsearch(long long cur_prod, int modif, int lbound, int ubound) {
   }
 }
 
-void triangle_fill(int* target_arr, int ct, int pieces, int start) {
+void triangle_fill(int* target_arr, int ct, int pieces, int start, int align) {
   long long ct_tr = (long long)ct;
   long long cur_prod = 0;
   int modif = 1 - start * 2;
   int cur_piece = 1;
   int lbound = start;
+  int cur_val;
   target_arr[0] = start;
   target_arr[pieces] = ct;
   ct_tr = (ct_tr * (ct_tr + modif)) / pieces;
   while (cur_piece < pieces) {
     cur_prod += ct_tr;
     lbound = triangle_bsearch(cur_prod, modif, start, ct);
-    target_arr[cur_piece++] = lbound;
+    cur_val = (lbound + align - 1) & (~(align - 1));
+    if (cur_val < ct) {
+      target_arr[cur_piece++] = cur_val;
+    } else {
+      target_arr[cur_piece] = ct;
+      return;
+    }
   }
 }
 
@@ -940,7 +954,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   char* pid_list = NULL;
   char* id_list = NULL;
   int rand_thresh_buf[IMULTIPLEX];
-  double maf_buf[BMULTIPLEX];
+  double maf_buf[DMULTIPLEX];
   double missing_phenod = (double)missing_pheno;
   int missing_pheno_len = 1;
   int* hwe_ll;
@@ -1892,6 +1906,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
       }
       if (hwe_thresh > 0.0) {
+        fflush(stdout);
         het_probs = (double*)malloc(((map_linect - marker_exclude_ct) / 2 + 1) * sizeof(double));
         if (!het_probs) {
           goto wdist_ret_1;
@@ -2680,20 +2695,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     }
   }
 
-  ulii = ped_linect - person_exclude_ct;
+  ped_postct = ped_linect - person_exclude_ct;
+  ulii = ped_postct;
   if (calculation_type == CALC_RELATIONSHIP) {
     ulii = (ulii * (ulii + 1)) / 2;
   } else {
     ulii = (ulii * (ulii - 1)) / 2;
   }
-  if ((exponent == 0.0) || (calculation_type == CALC_RELATIONSHIP)) {
-    dists_alloc = ulii * sizeof(int);
-    idists = (int*)wkspace_alloc(dists_alloc);
-    if (!idists) {
-      goto wdist_ret_2;
-    }
-    memset(idists, 0, dists_alloc);
-  } else {
+  if ((exponent != 0.0) || (calculation_type == CALC_RELATIONSHIP)) {
     dists_alloc = ulii * sizeof(double);
     dists = (double*)wkspace_alloc(dists_alloc);
     if (!dists) {
@@ -2704,16 +2713,23 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     while (dist_ptr < dptr2) {
       *dist_ptr++ = 0.0;
     }
+  } else {
+    dists_alloc = ulii * sizeof(int);
+    idists = (int*)wkspace_alloc(dists_alloc);
+    if (!idists) {
+      goto wdist_ret_2;
+    }
+    memset(idists, 0, dists_alloc);
   }
-  if ((calculation_type == CALC_RELATIONSHIP) && (calc_param_1 == 2)) {
+  if (calculation_type == CALC_RELATIONSHIP) {
     idists2 = (int*)wkspace_alloc(dists_alloc);
     if (!idists2) {
       goto wdist_ret_2;
     }
     memset(idists2, 0, dists_alloc);
-    wkspace_mark = &(wkspace[dists_alloc * 2]);
+    wkspace_mark = wkspace_base;
   } else {
-    wkspace_mark = &(wkspace[dists_alloc]);
+    wkspace_mark = wkspace_base;
   }
 
   if ((calculation_type == CALC_GROUPDIST) && (!bin_pheno)) {
@@ -2722,7 +2738,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     goto wdist_ret_2;
   }
 
-  printf("%d markers and %d people pass filters and QC.\n", map_linect - marker_exclude_ct, ped_linect - person_exclude_ct);
+  printf("%d markers and %d people pass filters and QC.\n", map_linect - marker_exclude_ct, ped_postct);
   if (thread_ct > 1) {
     if (thread_ct == DEFAULT_THREAD_CT) {
       printf("Using %d threads (change this with --threads).\n", DEFAULT_THREAD_CT);
@@ -2736,33 +2752,30 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       fseeko(pedfile, 3, SEEK_SET);
       ii = 0;
       pp = 0;
-      ped_geno = wkspace_alloc((ped_linect - person_exclude_ct) * sizeof(long));
+      ped_geno = wkspace_alloc(ped_postct * sizeof(long) * ((DMULTIPLEX * 4) / BITCT));
       if (!ped_geno) {
         goto wdist_ret_2;
       }
-      if (calc_param_1 == 2) {
-        glptr2 = (unsigned long*)wkspace_alloc((ped_linect - person_exclude_ct) * sizeof(long));
-        if (!glptr2) {
-          goto wdist_ret_2;
-        }
+      glptr2 = (unsigned long*)wkspace_alloc(ped_postct * sizeof(long));
+      if (!glptr2) {
+	goto wdist_ret_2;
       }
-      gptr = wkspace_alloc(BMULTIPLEX * ped_linect4);
+      gptr = wkspace_alloc(DMULTIPLEX * ped_linect4);
       if (!gptr) {
         goto wdist_ret_2;
       }
-      weights_i = (int*)weights;
-      triangle_fill(thread_start, ped_linect - person_exclude_ct, thread_ct, 0);
+      triangle_fill(thread_start, ped_postct, thread_ct, 0, CACHELINE / sizeof(long));
       // See later comments on CALC_DISTANCE.
       // The difference is, we have to use + instead of XOR here to distinguish
       // the cases, so we want to allow at least 3 bits per locus.  And given
       // that, the additional cost of supporting exact handling of missing
       // markers is smaller (3->4 bits), so we do it.
       while (pp < (map_linect - marker_exclude_ct)) {
-        for (jj = 0; jj < BMULTIPLEX; jj++) {
+        for (jj = 0; jj < DMULTIPLEX; jj++) {
           maf_buf[jj] = 0.0;
         }
         jj = 0;
-        while ((jj < BMULTIPLEX) && (pp < (map_linect - marker_exclude_ct))) {
+        while ((jj < DMULTIPLEX) && (pp < (map_linect - marker_exclude_ct))) {
           ulii = 0;
           while (excluded(marker_exclude, ii)) {
             ii++;
@@ -2780,28 +2793,23 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           jj++;
           pp++;
         }
-        if (jj < BMULTIPLEX) {
-          memset(&(gptr[jj * ped_linect4]), 0, (BMULTIPLEX - jj) * ped_linect4);
+        if (jj < DMULTIPLEX) {
+          memset(&(gptr[jj * ped_linect4]), 0, (DMULTIPLEX - jj) * ped_linect4);
         }
-        if (calc_param_1 == 2) {
-          memset(glptr2, 0, (ped_linect - person_exclude_ct) * sizeof(long));
-        }
+        memset(glptr2, 0, ped_postct * sizeof(long));
 
-        for (nn = 0; nn < 4; nn++) {
-	  glptr = (unsigned long*)ped_geno;
+	glptr = (unsigned long*)ped_geno;
+        for (nn = 0; nn < ((DMULTIPLEX * 4) / BITCT); nn++) {
           oo = 0;
-
 	  for (jj = 0; jj < ped_linect; jj++) {
 	    if (!excluded(person_exclude, jj)) {
 	      kk = (jj % 4) * 2;
 	      ulii = 0;
-	      for (mm = 0; mm < (BMULTIPLEX / 4); mm++) {
-		uljj = (gptr[jj / 4 + ((nn * (BMULTIPLEX / 4)) + mm) * ped_linect4] >> kk) & 3;
+	      for (mm = 0; mm < (BITCT / 4); mm++) {
+		uljj = (gptr[jj / 4 + ((nn * (BITCT / 4)) + mm) * ped_linect4] >> kk) & 3;
 		if (uljj == 1) {
 		  uljj = 7;
-                  if (calc_param_1 == 2) {
-                    glptr2[oo] |= 1 << (nn * (BMULTIPLEX / 4) + mm);
-		  }
+                  glptr2[oo] |= 1 << ((nn * (BITCT / 4)) + mm);
 		}
 		ulii |= uljj << (mm * 4);
 	      }
@@ -2809,37 +2817,38 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
               oo++;
 	    }
 	  }
-	  fill_weights_r(weights_i, &(maf_buf[nn * (BMULTIPLEX / 4)]), map_linect - marker_exclude_ct);
-          for (ulii = 1; ulii < thread_ct; ulii++) {
-	    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_rel_thread, (void*)ulii)) {
-	      printf("Error: Could not create thread.\n");
-	      retval = RET_THREAD_CREATE_FAIL;
-	      goto wdist_ret_2;
-	    }
-          }
-	  incr_dists_r(idists, (unsigned long*)ped_geno, 0, weights_i);
-	  for (oo = 0; oo < thread_ct - 1; oo++) {
-	    pthread_join(threads[oo], NULL);
+	  fill_weights_r(&(weights[nn * BITCT * 32]), &(maf_buf[nn * (BITCT / 4)]));
+        }
+	for (ulii = 1; ulii < thread_ct; ulii++) {
+	  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_rel_thread, (void*)ulii)) {
+	    printf("Error: Could not create thread.\n");
+	    retval = RET_THREAD_CREATE_FAIL;
+	    goto wdist_ret_2;
 	  }
+	}
+        for (nn = 0; nn < ((DMULTIPLEX * 4) / BITCT); nn++) {
+	  incr_dists_r(dists, (unsigned long*)(&(ped_geno[nn * ped_postct * sizeof(long)])), 0, &(weights[nn * DMULTIPLEX * 32]));
         }
-        if (calc_param_1 == 2) {
-          for (ulii = 1; ulii < thread_ct; ulii++) {
-            if (pthread_create(&(threads[ulii - 1]), NULL, &calc_relm_thread, (void*)ulii)) {
-	      printf("Error: Could not create thread.\n");
-	      retval = RET_THREAD_CREATE_FAIL;
-	      goto wdist_ret_2;
-            }
-          }
-          incr_dists_rm(idists2, (unsigned long*)glptr, 0);
-          for (oo = 0; oo < thread_ct - 1; oo++) {
-            pthread_join(threads[oo], NULL);
-          }
-        }
+	for (oo = 0; oo < thread_ct - 1; oo++) {
+	  pthread_join(threads[oo], NULL);
+	}
+	for (ulii = 1; ulii < thread_ct; ulii++) {
+	  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_relm_thread, (void*)ulii)) {
+	    printf("Error: Could not create thread.\n");
+	    retval = RET_THREAD_CREATE_FAIL;
+	    goto wdist_ret_2;
+	  }
+	}
+	incr_dists_rm(idists2, (unsigned long*)glptr, 0);
+	for (oo = 0; oo < thread_ct - 1; oo++) {
+	  pthread_join(threads[oo], NULL);
+	}
         printf("\r%d markers complete.", pp);
         fflush(stdout);
       }
       printf("\rRelationship matrix calculation complete.\n");
 
+      iwptr = idists2;
       if (calc_param_1 == 2) {
         strcpy(outname_end, ".grm");
         outfile = fopen(outname, "w");
@@ -2847,11 +2856,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  printf("Error: Failed to open %s.\n", outname);
 	  goto wdist_ret_2;
         }
-        iptr = idists;
-        iwptr = idists2;
-        for (ii = 0; ii < (ped_linect - person_exclude_ct); ii += 1) {
+        dist_ptr = dists;
+        for (ii = 0; ii < ped_postct; ii += 1) {
           for (jj = 0; jj <= ii; jj += 1) {
-            fprintf(outfile, "%d\t%d\t%d\t%lf\n", ii + 1, jj + 1, map_linect - marker_exclude_ct - *iwptr++, ((double)(*iptr++)) * DOUBLE_INT_MULT_RECIP);
+            kk = map_linect - marker_exclude_ct - *iwptr++;
+            fprintf(outfile, "%d\t%d\t%d\t%lf\n", ii + 1, jj + 1, kk, (*dist_ptr++) / (double)kk);
           }
         }
       } else {
@@ -2861,17 +2870,18 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  printf("Error: Failed to open %s.\n", outname);
 	  goto wdist_ret_2;
 	}
-	iptr = idists;
-	for (ii = 0; ii < (ped_linect - person_exclude_ct); ii += 1) {
+	dist_ptr = dists;
+	for (ii = 0; ii < ped_postct; ii += 1) {
 	  for (jj = 0; jj <= ii; jj += 1) {
+            kk = map_linect - marker_exclude_ct - *iwptr++;
 	    if (jj) {
-	      fprintf(outfile, "\t%lf", ((double)(*iptr++)) * DOUBLE_INT_MULT_RECIP);
+	      fprintf(outfile, "\t%lf", *dist_ptr++ / (double)kk);
 	    } else {
-	      fprintf(outfile, "%lf", ((double)(*iptr++)) * DOUBLE_INT_MULT_RECIP);
+	      fprintf(outfile, "%lf", *dist_ptr++ / (double)kk);
 	    }
 	  }
 	  if (calc_param_1) {
-	    for (; jj < (ped_linect - person_exclude_ct); jj += 1) {
+	    for (; jj < ped_postct; jj += 1) {
 	      fprintf(outfile, "\t%lf", 0.0);
 	    }
 	  }
@@ -2904,10 +2914,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 
   if (exponent == 0.0) {
     multiplex = IMULTIPLEX;
-    ped_geno = wkspace_alloc((ped_linect - person_exclude_ct) * sizeof(long));
+    ped_geno = wkspace_alloc(ped_postct * sizeof(long));
   } else {
     multiplex = 16;
-    ped_geno = wkspace_alloc((ped_linect - person_exclude_ct) * sizeof(int));
+    ped_geno = wkspace_alloc(ped_postct * sizeof(int));
   }
   if (!ped_geno) {
     goto wdist_ret_2;
@@ -2922,9 +2932,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
       }
       fseeko(pedfile, 3, SEEK_SET);
+      if (exponent == 0.0) {
+        ii = sizeof(int);
+      } else {
+        ii = sizeof(double);
+      }
+      triangle_fill(thread_start, ped_postct, thread_ct, 1, CACHELINE / ii);
       ii = 0; // current SNP index
       pp = 0; // after subtracting out excluded
-      triangle_fill(thread_start, ped_linect - person_exclude_ct, thread_ct, 1);
       while (pp < (map_linect - marker_exclude_ct)) {
         for (jj = 0; jj < multiplex; jj++) {
           maf_buf[jj] = 0.5;
@@ -3070,12 +3085,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       iwptr = idists;
       if (calc_param_1) {
         fprintf(outfile, "0");
-        for (ii = 1; ii < (ped_linect - person_exclude_ct); ii += 1) {
+        for (ii = 1; ii < ped_postct; ii += 1) {
           fprintf(outfile, "\t0");
         }
         fprintf(outfile, "\n");
       }
-      for (ii = 1; ii < (ped_linect - person_exclude_ct); ii += 1) {
+      for (ii = 1; ii < ped_postct; ii += 1) {
         for (jj = 0; jj < ii; jj += 1) {
           if (jj) {
             fprintf(outfile, "\t%d", *iwptr++);
@@ -3084,7 +3099,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           }
         }
 	if (calc_param_1) {
-          for (; jj < (ped_linect - person_exclude_ct); jj += 1) {
+          for (; jj < ped_postct; jj += 1) {
             fprintf(outfile, "\t0");
           }
 	}
