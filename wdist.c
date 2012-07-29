@@ -848,23 +848,32 @@ int triangle_bsearch(long long cur_prod, int modif, int lbound, int ubound) {
   }
 }
 
-void triangle_fill(int* target_arr, int ct, int pieces, int start) {
+void triangle_fill(int* target_arr, int ct, int pieces, int start, int align) {
   long long ct_tr = (long long)ct;
   long long cur_prod = 0;
   int modif = 1 - start * 2;
   int cur_piece = 1;
   int lbound = start;
+  int ii;
+  int align_m1;
+  // x(x+1)/2 is divisible by y iff (x % (2y)) is 0 or (2y - 1).
+  align *= 2;
+  align_m1 = align - 1;
   target_arr[0] = start;
   target_arr[pieces] = ct;
   ct_tr = (ct_tr * (ct_tr + modif)) / pieces;
   while (cur_piece < pieces) {
     cur_prod += ct_tr;
     lbound = triangle_bsearch(cur_prod, modif, start, ct);
+    ii = (lbound - start) & align_m1;
+    if ((ii) && (ii != align_m1)) {
+      lbound = start + ((lbound - start) | align_m1);
+    }
     target_arr[cur_piece++] = lbound;
   }
 }
 
-int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int chr_num, int thread_ct, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int calc_param_1, int iters) {
+int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int chr_num, int thread_ct, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int calc_param_1, int iters, int hwe_log) {
   FILE* pedfile = NULL;
   FILE* mapfile = NULL;
   FILE* famfile = NULL;
@@ -1257,7 +1266,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
               pheno_lines++;
             }
           } else {
-	    if (sscanf(bufptr, "%lf", &dxx) != 1) {
+	    if (sscanf(bufptr, "%lg", &dxx) != 1) {
 	      retval = RET_INVALID_FORMAT;
 	      printf("Error: Improperly formatted phenotype file.\n");
 	      goto wdist_ret_1;
@@ -1343,7 +1352,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    phenor_c[ii++] = cc;
 	  }
 	} else {
-	  sscanf(bufptr, "%lf", &dxx);
+	  sscanf(bufptr, "%lg", &dxx);
 	  if (!(prune && (dxx == missing_phenod))) {
 	    if (tail_pheno) {
 	      if (dxx == missing_phenod) {
@@ -1561,7 +1570,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
                   line_locs[ped_linect++] = jj;
                 }
 	      } else {
-                if (sscanf(bufptr, "%lf", &dxx) != 1) {
+                if (sscanf(bufptr, "%lg", &dxx) != 1) {
                   retval = RET_INVALID_FORMAT;
                   printf(errstr_fam_format);
                   goto wdist_ret_1;
@@ -1677,7 +1686,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
                 pheno_c[jj] = *bufptr - '1';
               }
             } else {
-              sscanf(bufptr, "%lf", &dxx);
+              sscanf(bufptr, "%lg", &dxx);
               if (tail_pheno) {
                 if (dxx == missing_phenod) {
                   pheno_c[jj] = -1;
@@ -1908,6 +1917,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
 
         fseeko(pedfile, 3, SEEK_SET);
+        FILE* hwelogfile = NULL;
+        if (hwe_log) {
+	  strcpy(outname_end, ".hwelog");
+	  hwelogfile = fopen(outname, "w");
+          fprintf(hwelogfile, "Threshold: %g\n", hwe_thresh);
+        }
         // ----- .snp-major .bed load, second pass -----
         for (ii = 0; ii < map_linect; ii++) {
           if (excluded(marker_exclude, ii)) {
@@ -1971,13 +1986,22 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  }          
 	  if (SNPHWE_t(hwe_lhi, hwe_lli, hwe_hhi, hwe_thresh)) {
             norm_exclude += 1;
+            if (hwe_log) {
+              fprintf(hwelogfile, "%d %d %d\n", hwe_lhi, hwe_lli, hwe_hhi);
+            }
 	    exclude(marker_exclude, ii, &marker_exclude_ct);
 	  } else if (bin_pheno) {
             if (SNPHWE_t(hwe_u_lhi, hwe_u_lli, hwe_u_hhi, hwe_thresh)) {
               unaff_exclude += 1;
+	      if (hwe_log) {
+		fprintf(hwelogfile, "%d %d %d\n", hwe_lhi, hwe_lli, hwe_hhi);
+	      }
               exclude(marker_exclude, ii, &marker_exclude_ct);
             } else if (SNPHWE_t(hwe_a_lhi, hwe_a_lli, hwe_a_hhi, hwe_thresh)) {
               aff_exclude += 1;
+	      if (hwe_log) {
+		fprintf(hwelogfile, "%d %d %d\n", hwe_lhi, hwe_lli, hwe_hhi);
+	      }
               exclude(marker_exclude, ii, &marker_exclude_ct);
             }
           }
@@ -1985,9 +2009,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	free(het_probs);
 	het_probs = NULL;
 
-	printf("Full set HWE excludes: %d\n", norm_exclude);
-	printf("Control HWE excludes: %d\n", unaff_exclude);
-	printf("Case HWE excludes: %d\n", aff_exclude);
+        if (hwe_log) {
+          fclose(hwelogfile);
+	  printf("Full set HWE excludes: %d\n", norm_exclude);
+	  printf("Control HWE excludes: %d\n", unaff_exclude);
+	  printf("Case HWE excludes: %d\n", aff_exclude);
+        }
       }
     }
   } else {
@@ -2047,7 +2074,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
                 line_locs[ped_linect++] = llxx;
               }
 	    } else {
-	      if (sscanf(bufptr, "%lf", &dxx) != 1) {
+	      if (sscanf(bufptr, "%lg", &dxx) != 1) {
 		retval = RET_INVALID_FORMAT;
 		printf(errstr_ped_format);
 		goto wdist_ret_1;
@@ -2173,7 +2200,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             pheno_c[ii] = *bufptr - '1';
 	  }
 	} else {
-	  sscanf(bufptr, "%lf", &dxx);
+	  sscanf(bufptr, "%lg", &dxx);
           if (tail_pheno) {
             if (dxx == missing_phenod) {
               pheno_c[ii] = -1;
@@ -2691,7 +2718,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   }
 
   ped_postct = ped_linect - person_exclude_ct;
-  ped_postct_cpy = ped_postct;
   ulii = ped_postct;
   if (calculation_type == CALC_RELATIONSHIP) {
     ulii = (ulii * (ulii + 1)) / 2;
@@ -2760,7 +2786,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       if (!gptr) {
         goto wdist_ret_2;
       }
-      triangle_fill(thread_start, ped_postct, thread_ct, 0);
+      triangle_fill(thread_start, ped_postct, thread_ct, 0, CACHELINE / sizeof(double));
       // See later comments on CALC_DISTANCE.
       // The difference is, we have to use + instead of XOR here to distinguish
       // the cases, so we want to allow at least 3 bits per locus.  And given
@@ -2858,7 +2884,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         for (ii = 0; ii < ped_postct; ii += 1) {
           for (jj = 0; jj <= ii; jj += 1) {
             kk = map_linect - marker_exclude_ct - *iwptr++;
-            fprintf(outfile, "%d\t%d\t%d\t%lf\n", ii + 1, jj + 1, kk, (*dist_ptr++) / (double)kk);
+            fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, (*dist_ptr++) / (double)kk);
           }
         }
       } else {
@@ -2873,14 +2899,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  for (jj = 0; jj <= ii; jj += 1) {
             kk = map_linect - marker_exclude_ct - *iwptr++;
 	    if (jj) {
-	      fprintf(outfile, "\t%lf", *dist_ptr++ / (double)kk);
+	      fprintf(outfile, "\t%g", *dist_ptr++ / (double)kk);
 	    } else {
-	      fprintf(outfile, "%lf", *dist_ptr++ / (double)kk);
+	      fprintf(outfile, "%g", *dist_ptr++ / (double)kk);
 	    }
 	  }
 	  if (calc_param_1) {
 	    for (; jj < ped_postct; jj += 1) {
-	      fprintf(outfile, "\t%lf", 0.0);
+	      fprintf(outfile, "\t%g", 0.0);
 	    }
 	  }
 	  fprintf(outfile, "\n");
@@ -2930,7 +2956,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
       }
       fseeko(pedfile, 3, SEEK_SET);
-      triangle_fill(thread_start, ped_postct, thread_ct, 1);
+      if (exponent == 0.0) {
+        ii = sizeof(int);
+      } else {
+        ii = sizeof(double);
+      }
+      triangle_fill(thread_start, ped_postct, thread_ct, 1, CACHELINE / ii);
       ii = 0; // current SNP index
       pp = 0; // after subtracting out excluded
       while (pp < (map_linect - marker_exclude_ct)) {
@@ -3101,23 +3132,23 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     } else {
       dist_ptr = dists;
       if (calc_param_1) {
-        fprintf(outfile, "%lf", 0.0);
+        fprintf(outfile, "%g", 0.0);
         for (ii = 1; ii < ped_linect; ii += 1) {
-          fprintf(outfile, "\t%lf", 0.0);
+          fprintf(outfile, "\t%g", 0.0);
         }
         fprintf(outfile, "\n");
       }
       for (ii = 1; ii < ped_linect; ii += 1) {
         for (jj = 0; jj < ii; jj += 1) {
           if (jj) {
-            fprintf(outfile, "\t%lf", *dist_ptr++);
+            fprintf(outfile, "\t%g", *dist_ptr++);
           } else {
-            fprintf(outfile, "%lf", *dist_ptr++);
+            fprintf(outfile, "%g", *dist_ptr++);
           }
         }
 	if (calc_param_1) {
 	  for (; jj < ped_linect; jj += 1) {
-            fprintf(outfile, "\t%lf", 0.0);
+            fprintf(outfile, "\t%g", 0.0);
           }
         }
         fprintf(outfile, "\n");
@@ -3270,9 +3301,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     } else {
       dzz = low_tot / (double)((low_ct * (low_ct - 1)) / 2);
     }
-    printf("  Mean, median dists between 2x affected     : %lf, %lf\n", dxx, hh_med);
-    printf("  Mean, median dists between aff, and unaff. : %lf, %lf\n", dyy, lh_med);
-    printf("  Mean, median dists between 2x unaffected   : %lf, %lf\n\n", dzz, ll_med);
+    printf("  Mean, median dists between 2x affected     : %g, %g\n", dxx, hh_med);
+    printf("  Mean, median dists between aff, and unaff. : %g, %g\n", dyy, lh_med);
+    printf("  Mean, median dists between 2x unaffected   : %g, %g\n\n", dzz, ll_med);
     if (2 * calc_param_1 >= high_ct + low_ct) {
       printf("Delete-d jackknife skipped because d is too large.\n");
     } else {
@@ -3397,9 +3428,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	printf("Too few valid jackknife runs.\n");
       } else {
 	printf("Jackknife results (%d valid runs), NO INFLATION FACTOR APPLIED:\n", nn);
-	printf("  Avg dist between 2x affected             : %lf (sd %lf)\n", dhh_sum / (double)nn, sqrt(dhh_ssd / (double)(nn - 1)));
-	printf("  Avg dist between affected and unaffected : %lf (sd %lf)\n", dhl_sum / (double)nn, sqrt(dhl_ssd / (double)(nn - 1)));
-	printf("  Avg dist between 2x unaffected           : %lf (sd %lf)\n", dll_sum / (double)nn, sqrt(dll_ssd / (double)(nn - 1)));
+	printf("  Avg dist between 2x affected             : %g (sd %g)\n", dhh_sum / (double)nn, sqrt(dhh_ssd / (double)(nn - 1)));
+	printf("  Avg dist between affected and unaffected : %g (sd %g)\n", dhl_sum / (double)nn, sqrt(dhl_ssd / (double)(nn - 1)));
+	printf("  Avg dist between 2x unaffected           : %g (sd %g)\n", dll_sum / (double)nn, sqrt(dll_ssd / (double)(nn - 1)));
       }
     }
   }
@@ -3663,6 +3694,7 @@ int main(int argc, char** argv) {
   FILE* scriptfile;
   int num_params;
   int in_param;
+  int hwe_log = 0;
   strcpy(mapname, "wdist.map");
   strcpy(pedname, "wdist.ped");
   famname[0] = '\0';
@@ -4034,11 +4066,11 @@ int main(int argc, char** argv) {
         printf("Error: --make-pheno and --tail-pheno flags cannot coexist.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      if (sscanf(argv[cur_arg + 1], "%lf", &tail_bottom) != 1) {
+      if (sscanf(argv[cur_arg + 1], "%lg", &tail_bottom) != 1) {
         printf("Error: Invalid --tail-pheno parameter.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      if (sscanf(argv[cur_arg + 2], "%lf", &tail_top) != 1) {
+      if (sscanf(argv[cur_arg + 2], "%lg", &tail_top) != 1) {
         printf("Error: Invalid --tail-pheno parameter.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
@@ -4151,7 +4183,7 @@ int main(int argc, char** argv) {
         printf("Error: Missing --exponent parameter.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      if (sscanf(argv[cur_arg + 1], "%lf", &exponent) != 1) {
+      if (sscanf(argv[cur_arg + 1], "%lg", &exponent) != 1) {
         printf("Error: Invalid --exponent parameter.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
@@ -4176,7 +4208,7 @@ int main(int argc, char** argv) {
         printf("Error: Missing --maf parameter.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      if (sscanf(argv[cur_arg + 1], "%lf", &min_maf) != 1) {
+      if (sscanf(argv[cur_arg + 1], "%lg", &min_maf) != 1) {
         printf("Error: Invalid --maf parameter.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
@@ -4190,7 +4222,7 @@ int main(int argc, char** argv) {
         printf("Error: Missing --geno parameter.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      if (sscanf(argv[cur_arg + 1], "%lf", &geno_thresh) != 1) {
+      if (sscanf(argv[cur_arg + 1], "%lg", &geno_thresh) != 1) {
         printf("Error: Invalid --geno parameter.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
@@ -4204,7 +4236,7 @@ int main(int argc, char** argv) {
         printf("Error: Missing --mind parameter.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      if (sscanf(argv[cur_arg + 1], "%lf", &mind_thresh) != 1) {
+      if (sscanf(argv[cur_arg + 1], "%lg", &mind_thresh) != 1) {
         printf("Error: Invalid --mind parameter.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
@@ -4218,7 +4250,7 @@ int main(int argc, char** argv) {
         printf("Error: Missing --hwe parameter.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      if (sscanf(argv[cur_arg + 1], "%lf", &hwe_thresh) != 1) {
+      if (sscanf(argv[cur_arg + 1], "%lg", &hwe_thresh) != 1) {
         printf("Error: Invalid --hwe parameter.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
@@ -4227,6 +4259,9 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += 2;
+    } else if (!strcmp(argptr, "--hwelog")) {
+      hwe_log = 1;
+      cur_arg += 1;
     } else if (!strcmp(argptr, "--rseed")) {
       if (cur_arg == argc - 1) {
         printf("Error: Missing --rseed parameter.%s", errstr_append);
@@ -4369,7 +4404,7 @@ int main(int argc, char** argv) {
 
   // famname[0] indicates binary vs. text
   // filtername[0] indicates existence of filter
-  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chr_num, thread_ct, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type, calc_param_1, iters);
+  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chr_num, thread_ct, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type, calc_param_1, iters, hwe_log);
   // gsl_rng_free(rg);
   free(wkspace);
   return dispmsg(retval);
