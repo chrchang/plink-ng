@@ -70,7 +70,7 @@
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.3.3 (29 July 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.3.3 (30 July 2012)\n"
   "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
   "wdist <flags> {calculation}\n";
 const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
