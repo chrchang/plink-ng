@@ -202,9 +202,9 @@ int dispmsg(int retval) {
 // "    Two-group genetic distance analysis, using delete-d jackknife with the\n"
 // "    requested number of iterations.  Binary phenotype required.\n\n"
 "  --regress [d] [iters]\n"
-"       Regresses genetic distances on average phenotypes, using delete-d\n"
-"       jackknife with the requested number of iterations to estimate standard\n"
-"       errors.  Scalar phenotype required.\n\n"
+"    Regresses genetic distances on average phenotypes, using delete-d\n"
+"    jackknife with the requested number of iterations to estimate standard\n"
+"    errors.  Scalar phenotype required.\n\n"
          , info_str);
     break;
   }
