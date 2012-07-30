@@ -686,7 +686,8 @@ void pick_d(unsigned char* cbuf, int ct, int dd) {
 
 int* idists;
 int* idists2;
-double* dists;
+double* dists = NULL;
+double* pheno_d = NULL;
 unsigned char* ped_geno = NULL;
 unsigned long* glptr;
 double weights[DMULTIPLEX * 128];
@@ -697,6 +698,10 @@ double reg_tot_xy;
 double reg_tot_x;
 double reg_tot_y;
 double reg_tot_xx;
+int jackknife_d;
+int jackknife_iters;
+double calc_result[MAX_THREADS];
+double calc_result2[MAX_THREADS];
 
 void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
   unsigned long* glptr;
@@ -882,6 +887,112 @@ void triangle_fill(int* target_arr, int ct, int pieces, int start, int align) {
   }
 }
 
+double regress_jack_i(unsigned char* cbuf) {
+  int ii;
+  int jj;
+  int* iptr;
+  double neg_tot_xy = 0.0;
+  double neg_tot_x = 0.0;
+  double neg_tot_y = 0.0;
+  double neg_tot_xx = 0.0;
+  double dxx;
+  double dxx1;
+  double dyy;
+  for (ii = 1; ii < ped_postct; ii++) {
+    iptr = &(idists[(ii * (ii - 1)) / 2]);
+    dxx1 = pheno_d[ii];
+    if (cbuf[ii]) {
+      for (jj = 0; jj < ii; jj++) {
+	dxx = (dxx1 + pheno_d[jj]) * 0.5;
+	dyy = (double)iptr[jj];
+	neg_tot_xy += dxx * dyy;
+	neg_tot_x += dxx;
+	neg_tot_y += dyy;
+	neg_tot_xx += dxx * dxx;
+      }
+    } else {
+      for (jj = 0; jj < ii; jj++) {
+	if (cbuf[jj]) {
+	  dxx = (dxx1 + pheno_d[jj]) * 0.5;
+	  dyy = (double)iptr[jj];
+	  neg_tot_xy += dxx * dyy;
+	  neg_tot_x += dxx;
+	  neg_tot_y += dyy;
+	  neg_tot_xx += dxx * dxx;
+	}
+      }
+    }
+  }
+  dxx = reg_tot_x - neg_tot_x;
+  dyy = ped_postct - jackknife_d;
+  dyy = dyy * (dyy - 1.0) / 2.0;
+  return ((reg_tot_xy - neg_tot_xy) / dyy - dxx * (reg_tot_y - neg_tot_y) / (dyy * dyy)) / ((reg_tot_xx - neg_tot_xx) / dyy - dxx * dxx / (dyy * dyy));
+}
+
+double regress_jack(unsigned char* cbuf) {
+  int ii;
+  int jj;
+  double* dptr;
+  double neg_tot_xy = 0.0;
+  double neg_tot_x = 0.0;
+  double neg_tot_y = 0.0;
+  double neg_tot_xx = 0.0;
+  double dxx;
+  double dxx1;
+  double dyy;
+  for (ii = 1; ii < ped_postct; ii++) {
+    dptr = &(dists[(ii * (ii - 1)) / 2]);
+    dxx1 = pheno_d[ii];
+    if (cbuf[ii]) {
+      for (jj = 0; jj < ii; jj++) {
+	dxx = (dxx1 + pheno_d[jj]) * 0.5;
+	dyy = dptr[jj];
+	neg_tot_xy += dxx * dyy;
+	neg_tot_x += dxx;
+	neg_tot_y += dyy;
+	neg_tot_xx += dxx * dxx;
+      }
+    } else {
+      for (jj = 0; jj < ii; jj++) {
+	if (cbuf[jj]) {
+	  dxx = (dxx1 + pheno_d[jj]) * 0.5;
+	  dyy = dptr[jj];
+	  neg_tot_xy += dxx * dyy;
+	  neg_tot_x += dxx;
+	  neg_tot_y += dyy;
+	  neg_tot_xx += dxx * dxx;
+	}
+      }
+    }
+  }
+  dxx = reg_tot_x - neg_tot_x;
+  dyy = ped_postct - jackknife_d;
+  dyy = dyy * (dyy - 1.0) / 2.0;
+  return ((reg_tot_xy - neg_tot_xy) / dyy - dxx * (reg_tot_y - neg_tot_y) / (dyy * dyy)) / ((reg_tot_xx - neg_tot_xx) / dyy - dxx * dxx / (dyy * dyy));
+}
+
+void* regress_jack_thread(void* arg) {
+  long tidx = (long)arg;
+  unsigned char* cbuf = &(ped_geno[tidx * CACHEALIGN(ped_postct)]);
+  int ii;
+  double sum = 0.0;
+  double sum_sq = 0.0;
+  double dxx;
+  for (ii = 0; ii < jackknife_iters; ii++) {
+    pick_d(cbuf, ped_postct, jackknife_d);
+    if (dists) {
+      dxx = regress_jack(cbuf);
+    } else {
+      dxx = regress_jack_i(cbuf);
+    }
+    sum += dxx;
+    sum_sq += dxx * dxx;
+  }
+  calc_result[tidx - 1] = sum;
+  calc_result2[tidx - 1] = sum_sq;
+  return NULL;
+}
+
 int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int chr_num, int thread_ct, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int calc_param_1, int iters, int hwe_log) {
   FILE* pedfile = NULL;
   FILE* mapfile = NULL;
@@ -933,7 +1044,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int map_cols = 3;
   int affection = 0;
   double* phenor_d = NULL;
-  double* pheno_d = NULL;
   char* phenor_c = NULL;
   char* pheno_c = NULL;
   char* person_id = NULL;
@@ -3494,10 +3604,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
     }
 
-    printf("Regression slope (y = genetic distance, x = phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y) / (reg_tot_xx - reg_tot_x * reg_tot_x));
-    printf("Jackknife will be implemented soon.\n");
-    retval = RET_SUCCESS;
-    /*
+    dxx = ulii;
+    printf("Regression slope (y = genetic distance, x = phenotype): %g\n", (reg_tot_xy / dxx - reg_tot_x * reg_tot_y / (dxx * dxx)) / (reg_tot_xx / dxx - reg_tot_x * reg_tot_x / (dxx * dxx)));
+
+    jackknife_d = calc_param_1;
+    jackknife_iters = (iters + thread_ct - 1) / thread_ct;
     for (ulii = 1; ulii < thread_ct; ulii++) {
       if (pthread_create(&(threads[ulii - 1]), NULL, &regress_jack_thread, (void*)ulii)) {
 	printf("Error: Could not create thread.\n");
@@ -3505,12 +3616,26 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	goto wdist_ret_2;
       }
     }
-    regress_jack(dists, (unsigned int*)ped_geno, 0);
-    for (jj = 0; jj < thread_ct - 1; jj++) {
-      pthread_join(threads[jj], NULL);
+    dyy = 0.0; // sum
+    dzz = 0.0; // sum of squares
+    for (ii = 0; ii < jackknife_iters; ii++) {
+      pick_d(ped_geno, ped_postct, calc_param_1);
+      if (dists) {
+        dxx = regress_jack(ped_geno);
+      } else {
+        dxx = regress_jack_i(ped_geno);
+      }
+      dyy += dxx;
+      dzz += dxx * dxx;
     }
-    */
-
+    for (ii = 0; ii < thread_ct - 1; ii++) {
+      pthread_join(threads[ii], NULL);
+      dyy += calc_result[ii];
+      dzz += calc_result2[ii];
+    }
+    iters = jackknife_iters * thread_ct;
+    printf("Jackknife mean (sd): %g (%g)\n", dyy / iters, sqrt(((ped_linect - calc_param_1) / calc_param_1) * (dzz - dyy * dyy / iters) / (iters - 1)));
+    retval = RET_SUCCESS;
   }
 
  wdist_ret_2:
