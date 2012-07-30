@@ -3618,7 +3618,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     }
     dyy = 0.0; // sum
     dzz = 0.0; // sum of squares
-    for (ii = 0; ii < jackknife_iters; ii++) {
+    uljj = jackknife_iters / 100;
+    for (ulii = 0; ulii < jackknife_iters; ulii++) {
       pick_d(ped_geno, ped_postct, calc_param_1);
       if (dists) {
         dxx = regress_jack(ped_geno);
@@ -3627,6 +3628,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
       dyy += dxx;
       dzz += dxx * dxx;
+      if (ulii >= uljj) {
+        uljj = (ulii * 100) / jackknife_iters;
+        printf("\r%ld%%", uljj);
+        fflush(stdout);
+        uljj = ((uljj + 1) * jackknife_iters) / 100;
+      }
     }
     for (ii = 0; ii < thread_ct - 1; ii++) {
       pthread_join(threads[ii], NULL);
@@ -3634,7 +3641,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       dzz += calc_result2[ii];
     }
     iters = jackknife_iters * thread_ct;
-    printf("Jackknife mean (sd): %g (%g)\n", dyy / iters, sqrt(((ped_linect - calc_param_1) / calc_param_1) * (dzz - dyy * dyy / iters) / (iters - 1)));
+    printf("\rJackknife sd: %g\n", sqrt(((ped_linect - calc_param_1) / calc_param_1) * (dzz - dyy * dyy / iters) / (iters - 1)));
     retval = RET_SUCCESS;
   }
 
