@@ -890,37 +890,43 @@ void triangle_fill(int* target_arr, int ct, int pieces, int start, int align) {
 double regress_jack_i(unsigned char* cbuf) {
   int ii;
   int jj;
-  int* iptr;
+  int* iptr = idists;
+  unsigned char* cptr;
+  double* dptr2;
+  double* dptr3;
   double neg_tot_xy = 0.0;
   double neg_tot_x = 0.0;
-  double neg_tot_y = 0.0;
+  double neg_tot_y = 0;
   double neg_tot_xx = 0.0;
   double dxx;
   double dxx1;
   double dyy;
   for (ii = 1; ii < ped_postct; ii++) {
-    iptr = &(idists[(ii * (ii - 1)) / 2]);
     dxx1 = pheno_d[ii];
     if (cbuf[ii]) {
-      for (jj = 0; jj < ii; jj++) {
-	dxx = (dxx1 + pheno_d[jj]) * 0.5;
-	dyy = (double)iptr[jj];
+      dptr2 = pheno_d;
+      dptr3 = &(pheno_d[ii]);
+      do {
+	dxx = (dxx1 + (*dptr2++)) * 0.5;
+	dyy = (double)(*iptr++);
 	neg_tot_xy += dxx * dyy;
 	neg_tot_x += dxx;
 	neg_tot_y += dyy;
 	neg_tot_xx += dxx * dxx;
-      }
+      } while (dptr2 < dptr3);
     } else {
+      cptr = cbuf;
       for (jj = 0; jj < ii; jj++) {
-	if (cbuf[jj]) {
+        if (*cptr++) {
 	  dxx = (dxx1 + pheno_d[jj]) * 0.5;
 	  dyy = (double)iptr[jj];
 	  neg_tot_xy += dxx * dyy;
 	  neg_tot_x += dxx;
 	  neg_tot_y += dyy;
 	  neg_tot_xx += dxx * dxx;
-	}
+        }
       }
+      iptr = &(idists[(ii * (ii + 1)) / 2]);
     }
   }
   dxx = reg_tot_x - neg_tot_x;
@@ -932,7 +938,10 @@ double regress_jack_i(unsigned char* cbuf) {
 double regress_jack(unsigned char* cbuf) {
   int ii;
   int jj;
-  double* dptr;
+  double* dptr = dists;
+  unsigned char* cptr;
+  double* dptr2;
+  double* dptr3;
   double neg_tot_xy = 0.0;
   double neg_tot_x = 0.0;
   double neg_tot_y = 0.0;
@@ -941,28 +950,31 @@ double regress_jack(unsigned char* cbuf) {
   double dxx1;
   double dyy;
   for (ii = 1; ii < ped_postct; ii++) {
-    dptr = &(dists[(ii * (ii - 1)) / 2]);
     dxx1 = pheno_d[ii];
     if (cbuf[ii]) {
-      for (jj = 0; jj < ii; jj++) {
-	dxx = (dxx1 + pheno_d[jj]) * 0.5;
-	dyy = dptr[jj];
+      dptr2 = pheno_d;
+      dptr3 = &(pheno_d[ii]);
+      do {
+	dxx = (dxx1 + (*dptr2++)) * 0.5;
+	dyy = *dptr++;
 	neg_tot_xy += dxx * dyy;
 	neg_tot_x += dxx;
 	neg_tot_y += dyy;
 	neg_tot_xx += dxx * dxx;
-      }
+      } while (dptr2 < dptr3);
     } else {
+      cptr = cbuf;
       for (jj = 0; jj < ii; jj++) {
-	if (cbuf[jj]) {
+        if (*cptr++) {
 	  dxx = (dxx1 + pheno_d[jj]) * 0.5;
 	  dyy = dptr[jj];
 	  neg_tot_xy += dxx * dyy;
 	  neg_tot_x += dxx;
 	  neg_tot_y += dyy;
 	  neg_tot_xx += dxx * dxx;
-	}
+        }
       }
+      dptr = &(dists[(ii * (ii + 1)) / 2]);
     }
   }
   dxx = reg_tot_x - neg_tot_x;
@@ -3023,6 +3035,18 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  goto wdist_ret_2;
 	}
 	dist_ptr = dists;
+        if (calc_param_1) {
+          cptr2 = (char*)(&ulii);
+          for (ii = 0; ii < sizeof(long); ii += 2) {
+            cptr2[ii] = '\t';
+            cptr2[ii + 1] = '0';
+          }
+          ii = (ped_postct * 2 + sizeof(long) - 4) / sizeof(long);
+          glptr2 = (unsigned long*)ped_geno;
+          for (jj = 0; jj < ii; jj++) {
+            *glptr2++ = ulii;
+          }
+        }
 	for (ii = 0; ii < ped_postct; ii += 1) {
 	  for (jj = 0; jj <= ii; jj += 1) {
             kk = map_linect - marker_exclude_ct - *iwptr++;
@@ -3033,9 +3057,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    }
 	  }
 	  if (calc_param_1) {
-	    for (; jj < ped_postct; jj += 1) {
-	      fprintf(outfile, "\t%g", 0.0);
-	    }
+            fwrite(ped_geno, 1, (ped_postct - jj) * 2, outfile);
 	  }
 	  fprintf(outfile, "\n");
 	}
@@ -3260,13 +3282,20 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     } else {
       dist_ptr = dists;
       if (calc_param_1) {
-        fprintf(outfile, "%g", 0.0);
-        for (ii = 1; ii < ped_linect; ii += 1) {
-          fprintf(outfile, "\t%g", 0.0);
-        }
+	cptr2 = (char*)(&ulii);
+	for (ii = 0; ii < sizeof(long); ii += 2) {
+	  cptr2[ii] = '\t';
+	  cptr2[ii + 1] = '0';
+	}
+	ii = (ped_postct * 2 + sizeof(long) - 2) / sizeof(long);
+	glptr2 = (unsigned long*)ped_geno;
+	for (jj = 0; jj < ii; jj++) {
+	  *glptr2++ = ulii;
+	}
+        fwrite(&(ped_geno[1]), 1, ped_postct * 2 - 1, outfile);
         fprintf(outfile, "\n");
       }
-      for (ii = 1; ii < ped_linect; ii += 1) {
+      for (ii = 1; ii < ped_postct; ii += 1) {
         for (jj = 0; jj < ii; jj += 1) {
           if (jj) {
             fprintf(outfile, "\t%g", *dist_ptr++);
@@ -3275,9 +3304,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           }
         }
 	if (calc_param_1) {
-	  for (; jj < ped_linect; jj += 1) {
-            fprintf(outfile, "\t%g", 0.0);
-          }
+          fwrite(ped_geno, 1, (ped_postct - jj) * 2, outfile);
         }
         fprintf(outfile, "\n");
       }
