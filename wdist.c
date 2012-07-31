@@ -71,7 +71,7 @@
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.4.1 (31 July 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.4.2 (1 August 2012)\n"
   "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
   "wdist <flags> {calculation}\n";
 const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
@@ -198,13 +198,13 @@ int dispmsg(int retval) {
 "  --make-grm\n"
 "    Writes the relationship matrix in GCTA's .grm format instead (except\n"
 "    without gzipping).\n\n"
-// "  --groupdist [d] [iters]\n"
-// "    Two-group genetic distance analysis, using delete-d jackknife with the\n"
-// "    requested number of iterations.  Binary phenotype required.\n\n"
+"  --groupdist [d] [iters]\n"
+"    Two-group genetic distance analysis, using delete-d jackknife with the\n"
+"    requested number of iterations to estimate standard errors.  Binary\n"
+"    phenotype required.\n\n"
 "  --regress [d] [iters]\n"
 "    Regresses genetic distances on average phenotypes, using delete-d\n"
-"    jackknife with the requested number of iterations to estimate standard\n"
-"    errors.  Scalar phenotype required.\n\n"
+"    jackknife for standard errors.  Scalar phenotype required.\n\n"
          , info_str);
     break;
   }
@@ -214,7 +214,8 @@ int dispmsg(int retval) {
   return retval;
 }
 
-// (copied from PLINK helper.cpp, slightly modified)
+// (copied from PLINK helper.cpp, modified to perform threshold test and avoid
+// repeated allocation of the same memory)
 //
 // This function implements an exact SNP test of Hardy-Weinberg
 // Equilibrium as described in Wigginton, JE, Cutler, DJ, and
@@ -1005,7 +1006,7 @@ void* regress_jack_thread(void* arg) {
   return NULL;
 }
 
-int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int chr_num, int thread_ct, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int calc_param_1, int iters, int hwe_log) {
+int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int chr_num, int thread_ct, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int calc_param_1, int iters) {
   FILE* pedfile = NULL;
   FILE* mapfile = NULL;
   FILE* famfile = NULL;
@@ -1064,7 +1065,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   unsigned int* giptr;
   char* cptr = NULL;
   char* cptr2;
-  char* cptr3;
+  // char* cptr3;
   unsigned char* gptr;
   unsigned long* glptr2;
   int* iwptr;
@@ -1129,12 +1130,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   double* ll_poolp;
   double* lh_poolp;
   double* hh_poolp;
+  /*
   double dhh_sum;
   double dhh_ssd;
   double dhl_sum;
   double dhl_ssd;
   double dll_sum;
   double dll_ssd;
+  */
   int low_ct;
   int high_ct;
   long long low_tot_i;
@@ -2057,14 +2060,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
 
         fseeko(pedfile, 3, SEEK_SET);
-        FILE* hwelogfile = NULL;
-        if (hwe_log) {
-	  strcpy(outname_end, ".hwelog");
-	  hwelogfile = fopen(outname, "w");
-          fprintf(hwelogfile, "Threshold: %g\n", hwe_thresh);
-          fprintf(hwelogfile, "Original number of people: %d\n", ped_linect);
-          fprintf(hwelogfile, "Bytes per SNP: %d\n", ped_linect4);
-        }
         // ----- .snp-major .bed load, second pass -----
         for (ii = 0; ii < map_linect; ii++) {
           if (excluded(marker_exclude, ii)) {
@@ -2125,38 +2120,22 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		}
 	      }
             }
-	  }          
+	  }
 	  if (SNPHWE_t(hwe_lhi, hwe_lli, hwe_hhi, hwe_thresh)) {
             norm_exclude += 1;
-            if (hwe_log) {
-              fprintf(hwelogfile, "%d %d %d %d\n", ii, hwe_lhi, hwe_lli, hwe_hhi);
-            }
 	    exclude(marker_exclude, ii, &marker_exclude_ct);
 	  } else if (bin_pheno) {
             if (SNPHWE_t(hwe_u_lhi, hwe_u_lli, hwe_u_hhi, hwe_thresh)) {
               unaff_exclude += 1;
-	      if (hwe_log) {
-		fprintf(hwelogfile, "%d %d %d %d\n", ii, hwe_lhi, hwe_lli, hwe_hhi);
-	      }
               exclude(marker_exclude, ii, &marker_exclude_ct);
             } else if (SNPHWE_t(hwe_a_lhi, hwe_a_lli, hwe_a_hhi, hwe_thresh)) {
               aff_exclude += 1;
-	      if (hwe_log) {
-		fprintf(hwelogfile, "%d %d %d %d\n", ii, hwe_lhi, hwe_lli, hwe_hhi);
-	      }
               exclude(marker_exclude, ii, &marker_exclude_ct);
             }
           }
         }
 	free(het_probs);
 	het_probs = NULL;
-
-        if (hwe_log) {
-          fclose(hwelogfile);
-	  printf("Full set HWE excludes: %d\n", norm_exclude);
-	  printf("Control HWE excludes: %d\n", unaff_exclude);
-	  printf("Case HWE excludes: %d\n", aff_exclude);
-        }
       }
     }
   } else {
@@ -3465,9 +3444,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     printf("  Mean, median dists between 2x affected     : %g, %g\n", dxx, hh_med);
     printf("  Mean, median dists between aff, and unaff. : %g, %g\n", dyy, lh_med);
     printf("  Mean, median dists between 2x unaffected   : %g, %g\n\n", dzz, ll_med);
+    printf("Remainder of this calculation not yet implemented.\n");
+    /*
     if (2 * calc_param_1 >= high_ct + low_ct) {
       printf("Delete-d jackknife skipped because d is too large.\n");
     } else {
+      // TODO: multithread this
       dhh_sum = 0.0;
       dhl_sum = 0.0;
       dll_sum = 0.0;
@@ -3475,7 +3457,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       dhl_ssd = 0.0;
       dll_ssd = 0.0;
       nn = 0;
+      oo = iters / 100;
+      pp = 1;
       for (jj = 0; jj < iters; jj++) {
+        if (jj == oo) {
+          printf("\r%d%%", pp++);
+          fflush(stdout);
+          oo = (pp * iters) / 100;
+        }
         kk = 0;
         mm = 0;
         pick_d(ped_geno, high_ct + low_ct, calc_param_1);
@@ -3586,14 +3575,15 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	}
       }
       if (nn < 2) {
-	printf("Too few valid jackknife runs.\n");
+	printf("\rToo few valid jackknife runs.\n");
       } else {
-	printf("Jackknife results (%d valid runs), NO INFLATION FACTOR APPLIED:\n", nn);
-	printf("  Avg dist between 2x affected             : %g (sd %g)\n", dhh_sum / (double)nn, sqrt(dhh_ssd / (double)(nn - 1)));
-	printf("  Avg dist between affected and unaffected : %g (sd %g)\n", dhl_sum / (double)nn, sqrt(dhl_ssd / (double)(nn - 1)));
-	printf("  Avg dist between 2x unaffected           : %g (sd %g)\n", dll_sum / (double)nn, sqrt(dll_ssd / (double)(nn - 1)));
+	printf("\rJackknife results (%d valid runs):\n", nn);
+	printf("  2x affected distance mean s.e.: %g\n", sqrt(((ped_linect - calc_param_1) / calc_param_1) * (dhh_ssd / (double)(nn - 1))));
+	printf("  Affected-unaffected distance mean s.e.: %g\n", sqrt(((ped_linect - calc_param_1) / calc_param_1) * (dhl_ssd / (double)(nn - 1))));
+	printf("  2x unaffected distance mean s.e.: %g\n", sqrt(((ped_linect - calc_param_1) / calc_param_1) * (dll_ssd / (double)(nn - 1))));
       }
     }
+    */
   } else if (calculation_type == CALC_REGRESS) {
     // beta = (mean(xy) - mean(x)*mean(y)) / (mean(x^2) - mean(x)^2)
     collapse_phenod(pheno_d, person_exclude, ped_linect);
@@ -3638,7 +3628,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     }
 
     dxx = ulii;
-    printf("Regression slope (y = genetic distance, x = phenotype): %g\n", (reg_tot_xy / dxx - reg_tot_x * reg_tot_y / (dxx * dxx)) / (reg_tot_xx / dxx - reg_tot_x * reg_tot_x / (dxx * dxx)));
+    printf("Regression slope (y = genetic distance, x = phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_xx - reg_tot_x * reg_tot_x / dxx));
 
     jackknife_d = calc_param_1;
     jackknife_iters = (iters + thread_ct - 1) / thread_ct;
@@ -3818,7 +3808,6 @@ int main(int argc, char** argv) {
   FILE* scriptfile;
   int num_params;
   int in_param;
-  int hwe_log = 0;
   strcpy(mapname, "wdist.map");
   strcpy(pedname, "wdist.ped");
   famname[0] = '\0';
@@ -4383,9 +4372,6 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += 2;
-    } else if (!strcmp(argptr, "--hwelog")) {
-      hwe_log = 1;
-      cur_arg += 1;
     } else if (!strcmp(argptr, "--rseed")) {
       if (cur_arg == argc - 1) {
         printf("Error: Missing --rseed parameter.%s", errstr_append);
@@ -4545,7 +4531,7 @@ int main(int argc, char** argv) {
 
   // famname[0] indicates binary vs. text
   // filtername[0] indicates existence of filter
-  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chr_num, thread_ct, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type, calc_param_1, iters, hwe_log);
+  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chr_num, thread_ct, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type, calc_param_1, iters);
   // gsl_rng_free(rg);
   free(wkspace);
   return dispmsg(retval);
