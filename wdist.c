@@ -1730,7 +1730,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       retval = RET_INVALID_FORMAT;
       printf("Error: Less than two valid people in .fam file after initial filter.\n");
       goto wdist_ret_1;
-    } else if (ped_linect > max_people) {
+    } else if (nn > max_people) {
       retval = RET_INVALID_FORMAT;
       printf("Error: Too many people in .fam file for this algorithm.\n");
       goto wdist_ret_1;
@@ -1738,23 +1738,29 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 
     bin_pheno = (makepheno_str || affection || tail_pheno);
     if (bin_pheno) {
-      pheno_c = (char*)malloc(ped_linect * sizeof(char));
+      pheno_c = (char*)malloc(nn * sizeof(char));
       if (!pheno_c) {
 	goto wdist_ret_1;
       }
     } else {
-      pheno_d = (double*)malloc(ped_linect * sizeof(double));
+      pheno_d = (double*)malloc(nn * sizeof(double));
       if (!pheno_d) {
 	goto wdist_ret_1;
       }
     }
-    person_id = (char*)malloc(ped_linect * max_person_id_len * sizeof(char));
+    person_id = (char*)malloc(nn * max_person_id_len * sizeof(char));
     if (!person_id) {
       goto wdist_ret_1;
     }
 
-    maf_int_thresh = 2 * ped_linect - (int)((1.0 - min_maf) * ped_linect * 2.0);
-    geno_int_thresh = 2 * ped_linect - (int)(geno_thresh * 2.0 * ped_linect);
+    maf_int_thresh = 2 * nn - (int)((1.0 - min_maf) * nn * 2.0);
+    geno_int_thresh = 2 * nn - (int)(geno_thresh * 2.0 * nn);
+
+    person_exclude = (unsigned char*)malloc(((ped_linect + 7) / 8) * sizeof(char));
+    if (!person_exclude) {
+      goto wdist_ret_1;
+    }
+    memset(person_exclude, 0, ((ped_linect + 7) / 8) * sizeof(char));
 
     rewind(famfile);
     // ----- .fam load, second pass -----
@@ -1764,10 +1770,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       if (tbuf[0] > ' ') {
         if (tbuf[0] != '#') {
 	  if (jj == nn) {
+            while (ii < ped_linect) {
+              exclude(person_exclude, ii++, &person_exclude_ct);
+            }
 	    break;
 	  }
 	  if (line_locs[jj] > ii) {
-	    ii++;
+            exclude(person_exclude, ii++, &person_exclude_ct);
 	    continue;
 	  }
 
@@ -1859,11 +1868,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     }
     memset(marker_allele_cts, 0, map_linect * 2 * sizeof(int));
 
-    person_exclude = (unsigned char*)malloc(((ped_linect + 7) / 8) * sizeof(char));
-    if (!person_exclude) {
-      goto wdist_ret_1;
-    }
-    memset(person_exclude, 0, ((ped_linect + 7) / 8) * sizeof(char));
     if (pedbuf[2] == '\0') {
       // ----- individual-major .bed load, first pass -----
       for (ii = 0; ii < ped_linect; ii += 1) {
@@ -2058,6 +2062,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  strcpy(outname_end, ".hwelog");
 	  hwelogfile = fopen(outname, "w");
           fprintf(hwelogfile, "Threshold: %g\n", hwe_thresh);
+          fprintf(hwelogfile, "Original number of people: %d\n", ped_linect);
+          fprintf(hwelogfile, "Bytes per SNP: %d\n", ped_linect4);
         }
         // ----- .snp-major .bed load, second pass -----
         for (ii = 0; ii < map_linect; ii++) {
