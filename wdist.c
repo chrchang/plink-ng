@@ -58,7 +58,7 @@
 #define MAXLINELEN 131072
 #if __LP64__
 #define BITCT 64
- // number of snp-major .bed lines to read at once
+// number of snp-major .bed lines to read at once
 #define DMULTIPLEX 64
 
 #define IMULTIPLEX 32
@@ -71,7 +71,7 @@
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.4.0 (30 July 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.4.1 (31 July 2012)\n"
   "Christopher Chang (chrchang523@gmail.com), BGI Cognitive Genomics Lab\n\n"
   "wdist <flags> {calculation}\n";
 const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
@@ -1648,7 +1648,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   mind_int_thresh = (int)(2.0 * mind_thresh * (map_linect - marker_exclude_ct));
 
   if (binary_files) {
-    jj = 0; // line count in .bed
+    nn = 0; // number of people that pass initial filter
     // ----- .fam load, first pass -----
     while (fgets(tbuf, MAXLINELEN, famfile) != NULL) {
       if (tbuf[0] > ' ') {
@@ -1674,10 +1674,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           if (phenoname[0]) {
             if (ii) {
 	      if (makepheno_str || (!prune)) {
-		line_locs[ped_linect++] = jj;
+		line_locs[nn++] = ped_linect;
 	      } else {
 		if (is_contained(pid_list, max_pid_len, pheno_lines, tbuf, cptr)) {
-		  line_locs[ped_linect++] = jj;
+		  line_locs[nn++] = ped_linect;
 		}
 	      }
             }
@@ -1703,7 +1703,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             if (ii) {
 	      if (affection) {
                 if ((!prune) || (!is_missing(bufptr, missing_pheno, missing_pheno_len, affection_01))) {
-                  line_locs[ped_linect++] = jj;
+                  line_locs[nn++] = ped_linect;
                 }
 	      } else {
                 if (sscanf(bufptr, "%lg", &dxx) != 1) {
@@ -1712,12 +1712,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
                   goto wdist_ret_1;
                 }
                 if ((!prune) || ((dxx != missing_phenod) && ((!tail_pheno) || ((dxx <= tail_bottom) || (dxx > tail_top))))) {
-                  line_locs[ped_linect++] = jj;
+                  line_locs[nn++] = ped_linect;
                 }
 	      }
             }
           }
-          jj++;
+          ped_linect++;
         }
       }
       if (!tbuf[MAXLINELEN - 1]) {
@@ -1726,9 +1726,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         goto wdist_ret_1;
       }
     }
-    if (ped_linect < 2) {
+    if (nn < 2) {
       retval = RET_INVALID_FORMAT;
-      printf("Error: Less than two valid people in .fam file.\n");
+      printf("Error: Less than two valid people in .fam file after initial filter.\n");
       goto wdist_ret_1;
     } else if (ped_linect > max_people) {
       retval = RET_INVALID_FORMAT;
@@ -1763,7 +1763,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     while (fgets(tbuf, MAXLINELEN, famfile) != NULL) {
       if (tbuf[0] > ' ') {
         if (tbuf[0] != '#') {
-	  if (jj == ped_linect) {
+	  if (jj == nn) {
 	    break;
 	  }
 	  if (line_locs[jj] > ii) {
@@ -2069,7 +2069,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             retval = RET_READ_FAIL;
             goto wdist_ret_2;
           }
-          gptr = pedbuf - 1;
+          gptr = pedbuf;
           hwe_lli = 0;
           hwe_lhi = 0;
           hwe_hhi = 0;
@@ -2082,14 +2082,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  for (jj = 0; jj < ped_linect; jj++) {
 	    kk = jj % 4;
 	    if (!kk) {
-	      uii = *(++gptr);
+	      uii = *gptr++;
 	    } else {
 	      uii >>= 2;
 	    }
             if (!excluded(person_exclude, jj)) {
-	      pp = uii & 3;
-	      if (pp) {
-		if (pp == 2) {
+	      ujj = uii & 3;
+	      if (ujj) {
+		if (ujj == 2) {
 		  hwe_lhi += 1;
 		  if (bin_pheno) {
 		    if (pheno_c[jj] == 0) {
@@ -2098,7 +2098,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		      hwe_a_lhi += 1;
 		    }
 		  }
-		} else if (pp == 3) {
+		} else if (ujj == 3) {
 		  hwe_hhi += 1;
 		  if (bin_pheno) {
 		    if (pheno_c[jj] == 0) {
@@ -2123,20 +2123,20 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  if (SNPHWE_t(hwe_lhi, hwe_lli, hwe_hhi, hwe_thresh)) {
             norm_exclude += 1;
             if (hwe_log) {
-              fprintf(hwelogfile, "%d %d %d\n", hwe_lhi, hwe_lli, hwe_hhi);
+              fprintf(hwelogfile, "%d %d %d %d\n", ii, hwe_lhi, hwe_lli, hwe_hhi);
             }
 	    exclude(marker_exclude, ii, &marker_exclude_ct);
 	  } else if (bin_pheno) {
             if (SNPHWE_t(hwe_u_lhi, hwe_u_lli, hwe_u_hhi, hwe_thresh)) {
               unaff_exclude += 1;
 	      if (hwe_log) {
-		fprintf(hwelogfile, "%d %d %d\n", hwe_lhi, hwe_lli, hwe_hhi);
+		fprintf(hwelogfile, "%d %d %d %d\n", ii, hwe_lhi, hwe_lli, hwe_hhi);
 	      }
               exclude(marker_exclude, ii, &marker_exclude_ct);
             } else if (SNPHWE_t(hwe_a_lhi, hwe_a_lli, hwe_a_hhi, hwe_thresh)) {
               aff_exclude += 1;
 	      if (hwe_log) {
-		fprintf(hwelogfile, "%d %d %d\n", hwe_lhi, hwe_lli, hwe_hhi);
+		fprintf(hwelogfile, "%d %d %d %d\n", ii, hwe_lhi, hwe_lli, hwe_hhi);
 	      }
               exclude(marker_exclude, ii, &marker_exclude_ct);
             }
@@ -3668,7 +3668,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       dzz += calc_result2[ii];
     }
     iters = jackknife_iters * thread_ct;
-    printf("\rJackknife sd: %g\n", sqrt(((ped_linect - calc_param_1) / calc_param_1) * (dzz - dyy * dyy / iters) / (iters - 1)));
+    printf("\rJackknife s.e.: %g\n", sqrt(((ped_linect - calc_param_1) / calc_param_1) * (dzz - dyy * dyy / iters) / (iters - 1)));
     retval = RET_SUCCESS;
   }
 
