@@ -1,0 +1,7 @@
+#!/bin/bash
+tar -xzvf zlib-1.2.7.tar.gz
+cd zlib-1.2.7
+./configure
+make
+cd ..
+make wdist
