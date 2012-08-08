@@ -3372,7 +3372,32 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    fclose(outfile);
 	    outfile = NULL;
 	  }
-	} else {
+	} else if (calculation_type & CALC_RELATIONSHIP_BIN) {
+          if (calculation_type & CALC_RELATIONSHIP_SQ) {
+            dptr3 = (double*)ped_geno;
+            dptr4 = &(dptr3[ped_postct - 1]);
+            while (dptr3 < dptr4) {
+              *dptr3++ = 0.0;
+            }
+          }
+          // .rel.bin is more logical, but better to play well with other
+          // researchers' existing R scripts
+          strcpy(outname_end, ".grm.bin");
+          outfile = fopen(outname, "wb");
+          for (ii = 0; ii < ped_postct; ii++) {
+            fwrite(&(rel_dists[(ii * (ii - 1)) / 2]), 1, ii * sizeof(double), outfile);
+            fwrite(dptr2++, 1, sizeof(double), outfile);
+            if (calculation_type & CALC_RELATIONSHIP_SQ) {
+              fwrite(ped_geno, 1, (ped_postct - ii - 1) * sizeof(double), outfile);
+            } else {
+              for (jj = ii + 1; jj < ped_postct; jj++) {
+                fwrite(&(rel_dists[(jj * (jj - 1) / 2) + ii]), 1, sizeof(double), outfile);
+              }
+            }
+          }
+          fclose(outfile);
+          outfile = NULL;
+        } else {
 	  if (calculation_type & CALC_RELATIONSHIP_SQ) {
 	    cptr2 = (char*)(&ulii);
 	    for (ii = 0; ii < sizeof(long); ii += 2) {
