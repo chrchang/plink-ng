@@ -1354,7 +1354,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   long long dists_alloc = 0;
   int geno_window_size;
   char cc;
-  double* dist_ptr;
+  double* dist_ptr = NULL;
   double* dptr2;
   double* dptr3 = NULL;
   double* dptr4 = NULL;
@@ -3145,14 +3145,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	goto wdist_ret_2;
       }
       fill_double_zero(rel_dists, ulii);
-      ulii = ped_postct;
-      ulii = (ulii * (ulii + 1)) / 2;
-      dists_alloc = ulii * sizeof(int);
-      rel_missing = (int*)wkspace_alloc(dists_alloc);
-      if (!rel_missing) {
-	goto wdist_ret_2;
-      }
-      fill_int_zero(rel_missing, ulii);
     }
     if (calculation_type & CALC_IBC) {
       ii = ped_postct * 3;
@@ -3169,6 +3161,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     } else if (calculation_type & CALC_RELATIONSHIP_IBC2) {
       ibc_type = 2;
     }
+    ulii = ped_postct;
+    ulii = (ulii * (ulii + 1)) / 2;
+    dists_alloc = ulii * sizeof(int);
+    rel_missing = (int*)wkspace_alloc(dists_alloc);
+    if (!rel_missing) {
+      goto wdist_ret_2;
+    }
+    fill_int_zero(rel_missing, ulii);
     wkspace_mark = wkspace_base;
     if (binary_files && snp_major) {
       fseeko(pedfile, 3, SEEK_SET);
@@ -3264,24 +3264,27 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  for (oo = 0; oo < thread_ct - 1; oo++) {
 	    pthread_join(threads[oo], NULL);
 	  }
-	  for (ulii = 1; ulii < thread_ct; ulii++) {
-	    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_relm_thread, (void*)ulii)) {
-	      printf("Error: Could not create thread.\n");
-	      retval = RET_THREAD_CREATE_FAIL;
-	      goto wdist_ret_2;
-	    }
+	}
+	for (ulii = 1; ulii < thread_ct; ulii++) {
+	  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_relm_thread, (void*)ulii)) {
+	    printf("Error: Could not create thread.\n");
+	    retval = RET_THREAD_CREATE_FAIL;
+	    goto wdist_ret_2;
 	  }
-	  incr_dists_rm(rel_missing, (unsigned long*)glptr, 0);
-	  for (oo = 0; oo < thread_ct - 1; oo++) {
-	    pthread_join(threads[oo], NULL);
-	  }
-        }
+	}
+	incr_dists_rm(rel_missing, (unsigned long*)glptr, 0);
+	for (oo = 0; oo < thread_ct - 1; oo++) {
+	  pthread_join(threads[oo], NULL);
+	}
         printf("\r%d markers complete.", pp);
         fflush(stdout);
       }
-      printf("\rRelationship matrix calculation complete.\n");
-
-      dist_ptr = rel_dists;
+      if (calculation_type & CALC_RELATIONSHIP_MASK) {
+        printf("\rRelationship matrix calculation complete.\n");
+        dist_ptr = rel_dists;
+      } else {
+        printf("\n");
+      }
       ulii = ped_postct;
       ulii = ulii * (ulii + 1) / 2;
       dptr2 = rel_ibc;
@@ -3291,9 +3294,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
       iwptr = rel_missing;
       for (ii = 0; ii < ped_postct; ii++) {
-        for (jj = 0; jj < ii; jj++) {
-          *dist_ptr /= map_linect - marker_exclude_ct - *iwptr++;
-          dist_ptr++;
+        if (calculation_type & CALC_RELATIONSHIP_MASK) {
+	  for (jj = 0; jj < ii; jj++) {
+	    *dist_ptr /= map_linect - marker_exclude_ct - *iwptr++;
+	    dist_ptr++;
+	  }
+        } else {
+          iwptr = &(iwptr[ii]);
         }
         if (calculation_type & CALC_IBC) {
           kk = map_linect - marker_exclude_ct - *iwptr++;
