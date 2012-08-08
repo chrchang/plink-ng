@@ -88,7 +88,7 @@
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.5.2 (8 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.5.2 (9 August 2012)\n"
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
 const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
@@ -163,7 +163,7 @@ int dispmsg(int retval) {
 "  --make-rel <square0> <gz | bin> <ibc1 | ibc2>\n"
 "    Outputs a lower-triangular relationship matrix to {output prefix}.rel,\n"
 "    and corresponding IDs to {output prefix}.rel.id.\n"
-"    'square0' and 'gz' modifiers have the same effect as with --distance.\n"
+"    'square0' and 'gz' have the same effect as with --distance.\n"
 "    'bin' writes a square matrix binary file (i.e. it yields the same output\n"
 "    as GCTA's --make-grm-bin, unless 'square0' is also present, in which case\n"
 "    the upper right is zeroed out).\n"
@@ -2037,12 +2037,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 
     bin_pheno = (makepheno_str || affection || tail_pheno);
     if (bin_pheno) {
-      pheno_c = (char*)malloc(nn * sizeof(char));
+      pheno_c = (char*)malloc(ped_linect * sizeof(char));
       if (!pheno_c) {
 	goto wdist_ret_1;
       }
     } else {
-      pheno_d = (double*)malloc(nn * sizeof(double));
+      pheno_d = (double*)malloc(ped_linect * sizeof(double));
       if (!pheno_d) {
 	goto wdist_ret_1;
       }
@@ -2094,20 +2094,20 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    kk = bsearch_fam_indiv(pid_list, max_pid_len, pheno_lines, tbuf, cptr);
             if (makepheno_str) {
               if (kk == -1) {
-                pheno_c[jj] = 0;
+                pheno_c[ii] = 0;
               } else {
-                pheno_c[jj] = 1;
+                pheno_c[ii] = 1;
               }
             } else if (affection || tail_pheno) {
               if (kk == -1) {
-                pheno_c[jj] = -1;
+                pheno_c[ii] = -1;
               } else {
-                pheno_c[jj] = phenor_c[kk];
+                pheno_c[ii] = phenor_c[kk];
               }
             } else if (kk == -1) {
-              pheno_d[jj] = missing_phenod;
+              pheno_d[ii] = missing_phenod;
             } else {
-              pheno_d[jj] = phenor_d[kk];
+              pheno_d[ii] = phenor_d[kk];
             }
           } else {
 	    if (ped_col_1) {
@@ -2122,26 +2122,26 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    }
             if (affection) {
               if (is_missing(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
-                pheno_c[jj] = -1;
+                pheno_c[ii] = -1;
               } else if (affection_01) {
-                pheno_c[jj] = *bufptr - '0';
+                pheno_c[ii] = *bufptr - '0';
               } else {
-                pheno_c[jj] = *bufptr - '1';
+                pheno_c[ii] = *bufptr - '1';
               }
             } else {
               sscanf(bufptr, "%lg", &dxx);
               if (tail_pheno) {
                 if (dxx == missing_phenod) {
-                  pheno_c[jj] = -1;
+                  pheno_c[ii] = -1;
                 } if (dxx <= tail_bottom) {
-                  pheno_c[jj] = 0;
+                  pheno_c[ii] = 0;
                 } else if (dxx > tail_top) {
-                  pheno_c[jj] = 1;
+                  pheno_c[ii] = 1;
                 } else {
-                  pheno_c[jj] = -1;
+                  pheno_c[ii] = -1;
                 }
               } else {
-                pheno_d[jj] = dxx;
+                pheno_d[ii] = dxx;
               }
             }
           }
@@ -2246,18 +2246,18 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      if (oo == 2) {
                 hwe_lh[jj] += 1;
                 if (bin_pheno) {
-                  if (pheno_c[jj] == 0) {
+                  if (pheno_c[ii] == 0) {
                     hwe_u_lh[jj] += 1;
-                  } else if (pheno_c[jj] == 1) {
+                  } else if (pheno_c[ii] == 1) {
                     hwe_a_lh[jj] += 1;
                   }
                 }
 	      } else if (oo == 3) {
                 hwe_hh[jj] += 1;
                 if (bin_pheno) {
-                  if (pheno_c[jj] == 0) {
+                  if (pheno_c[ii] == 0) {
                     hwe_u_hh[jj] += 1;
-                  } else if (pheno_c[jj] == 1) {
+                  } else if (pheno_c[ii] == 1) {
                     hwe_a_hh[jj] += 1;
                   }
                 }
@@ -2265,9 +2265,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    } else {
               hwe_ll[jj] += 1;
 	      if (bin_pheno) {
-		if (pheno_c[jj] == 0) {
+		if (pheno_c[ii] == 0) {
 		  hwe_u_ll[jj] += 1;
-		} else if (pheno_c[jj] == 1) {
+		} else if (pheno_c[ii] == 1) {
 		  hwe_a_ll[jj] += 1;
 		}
 	      }
@@ -2769,27 +2769,27 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           if (mm == 0) {
             hwe_ll[jj] += 1;
             if (bin_pheno) {
-              if (pheno_c[jj] == 0) {
+              if (pheno_c[ii] == 0) {
                 hwe_u_ll[jj] += 1;
-              } else if (pheno_c[jj] == 1) {
+              } else if (pheno_c[ii] == 1) {
                 hwe_a_ll[jj] += 1;
               }
             }
           } else if (mm == 1) {
             hwe_lh[jj] += 1;
             if (bin_pheno) {
-              if (pheno_c[jj] == 0) {
+              if (pheno_c[ii] == 0) {
                 hwe_u_lh[jj] += 1;
-              } else if (pheno_c[jj] == 1) {
+              } else if (pheno_c[ii] == 1) {
                 hwe_a_lh[jj] += 1;
               }
             }
           } else if (mm == 2) {
             hwe_hh[jj] += 1;
             if (bin_pheno) {
-              if (pheno_c[jj] == 0) {
+              if (pheno_c[ii] == 0) {
                 hwe_u_hh[jj] += 1;
-              } else if (pheno_c[jj] == 1) {
+              } else if (pheno_c[ii] == 1) {
                 hwe_a_hh[jj] += 1;
               }
             }
@@ -3804,7 +3804,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     collapse_phenoc(pheno_c, person_exclude, ped_linect);
     low_ct = 0;
     high_ct = 0;
-    for (ii = 0; ii < ped_linect; ii++) {
+    for (ii = 0; ii < ped_postct; ii++) {
       if (pheno_c[ii] == 1) {
 	high_ct++;
       } else if (pheno_c[ii] == 0) {
@@ -3826,7 +3826,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       lh_pool_ip = lh_pool_i;
       hh_pool_ip = hh_pool_i;
       ped_geno = &(ped_geno[(ll_size + lh_size + hh_size) * sizeof(int)]);
-      for (ii = 0; ii < ped_linect; ii++) {
+      for (ii = 0; ii < ped_postct; ii++) {
         cptr = pheno_c;
         cptr2 = &(pheno_c[ii]);
         if (*cptr2 == 1) {
@@ -3878,7 +3878,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       lh_poolp = lh_pool;
       hh_poolp = hh_pool;
       ped_geno = &(ped_geno[(ll_size + lh_size + hh_size) * sizeof(double)]);
-      for (ii = 0; ii < ped_linect; ii++) {
+      for (ii = 0; ii < ped_postct; ii++) {
         cptr = pheno_c;
         cptr2 = &(pheno_c[ii]);
         if (*cptr2 == 1) {
@@ -3933,7 +3933,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       dzz = low_tot / (double)((low_ct * (low_ct - 1)) / 2);
     }
     printf("  Mean, median dists between 2x affected     : %g, %g\n", dxx, hh_med);
-    printf("  Mean, median dists between aff, and unaff. : %g, %g\n", dyy, lh_med);
+    printf("  Mean, median dists between aff. and unaff. : %g, %g\n", dyy, lh_med);
     printf("  Mean, median dists between 2x unaffected   : %g, %g\n\n", dzz, ll_med);
     printf("Remainder of this calculation not yet implemented.\n");
     /*
