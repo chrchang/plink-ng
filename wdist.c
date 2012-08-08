@@ -1098,6 +1098,22 @@ void incr_dists_rm(int* idists, unsigned long* missing, int tidx) {
   }
 }
 
+void incr_dists_rm_diag(int* idists, unsigned long* missing) {
+  // special case, --ibc without relationship calc
+  unsigned long ulii;
+  long long uljj;
+  for (uljj = 0; uljj < ped_postct; uljj++) {
+    ulii = *missing++;
+    if (ulii) {
+#if __LP64__
+      idists[((uljj + 1) * (uljj + 2)) / 2 - 1] += iwt[ulii >> 56] + iwt[(ulii >> 48) & 255] + iwt[(ulii >> 40) & 255] + iwt[(ulii >> 32) & 255] + iwt[(ulii >> 24) & 255] + iwt[(ulii >> 16) & 255] + iwt[(ulii >> 8) & 255] + iwt[ulii & 255];
+#else
+      idists[((uljj + 1) * (uljj + 2)) / 2 - 1] += iwt[ulii >> 24] + iwt[(ulii >> 16) & 255] + iwt[(ulii >> 8) & 255] + iwt[ulii & 255];
+#endif
+    }
+  }
+}
+
 void* calc_relm_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start0[tidx];
@@ -1551,7 +1567,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   //   goto wdist_ret_2;
   // }
 
-  if (!(calculation_type & (CALC_DISTANCE_MASK | CALC_RELATIONSHIP_MASK))) {
+  if (!(calculation_type & (CALC_DISTANCE_MASK | CALC_RELATIONSHIP_MASK | CALC_IBC))) {
     prune = 1;
   }
   // ----- .map/.bim load, second pass -----
@@ -3264,18 +3280,20 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  for (oo = 0; oo < thread_ct - 1; oo++) {
 	    pthread_join(threads[oo], NULL);
 	  }
-	}
-	for (ulii = 1; ulii < thread_ct; ulii++) {
-	  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_relm_thread, (void*)ulii)) {
-	    printf("Error: Could not create thread.\n");
-	    retval = RET_THREAD_CREATE_FAIL;
-	    goto wdist_ret_2;
+	  for (ulii = 1; ulii < thread_ct; ulii++) {
+	    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_relm_thread, (void*)ulii)) {
+	      printf("Error: Could not create thread.\n");
+	      retval = RET_THREAD_CREATE_FAIL;
+	      goto wdist_ret_2;
+	    }
 	  }
-	}
-	incr_dists_rm(rel_missing, (unsigned long*)glptr, 0);
-	for (oo = 0; oo < thread_ct - 1; oo++) {
-	  pthread_join(threads[oo], NULL);
-	}
+	  incr_dists_rm(rel_missing, (unsigned long*)glptr, 0);
+	  for (oo = 0; oo < thread_ct - 1; oo++) {
+	    pthread_join(threads[oo], NULL);
+	  }
+	} else {
+          incr_dists_rm_diag(rel_missing, (unsigned long*)glptr);
+        }
         printf("\r%d markers complete.", pp);
         fflush(stdout);
       }
@@ -3322,13 +3340,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  printf("Error: Failed to open %s.\n", outname);
 	  goto wdist_ret_2;
 	}
-        iwptr = rel_missing;
         dptr2 = rel_ibc;
         dptr3 = &(rel_ibc[ped_postct]);
         dptr4 = &(rel_ibc[ped_postct * 2]);
         fprintf(outfile, "FID\tIID\tNOMISS\tFhat1\tFhat2\tFhat3\n");
 	for (ii = 0; ii < ped_postct; ii++) {
-          fprintf(outfile, "%d\t%d\t%d\t%g\t%g\t%g\n", ii + 1, ii + 1, map_linect - marker_exclude_ct - *iwptr++, *dptr3++ - 1.0, *dptr4++ - 1.0, *dptr2++ - 1.0);
+          fprintf(outfile, "%d\t%d\t%d\t%g\t%g\t%g\n", ii + 1, ii + 1, map_linect - marker_exclude_ct - rel_missing[((ii + 1) * (ii + 2)) / 2 - 1], *dptr3++ - 1.0, *dptr4++ - 1.0, *dptr2++ - 1.0);
 	}
 	fclose(outfile);
         printf("%s written.\n", outname);
