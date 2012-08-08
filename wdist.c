@@ -700,13 +700,10 @@ void fill_weights(double* weights, double* mafs, double exponent) {
 
 // Strangely, these functions optimize better than memset(arr, 0, x) under gcc.
 inline void fill_long_zero(long* larr, size_t size) {
-  memset(larr, 0, size * sizeof(long));
-  /*
   long* lptr = &(larr[size]);
   while (larr < lptr) {
     *larr++ = 0;
   }
-  */
 }
 
 inline void fill_int_zero(int* iarr, size_t size) {
@@ -1034,7 +1031,7 @@ void* calc_rel_thread(void* arg) {
   int ii = thread_start[tidx];
   int nn;
   for (nn = 0; nn < ((DMULTIPLEX * 4) / BITCT); nn++) {
-    incr_dists_r(&(rel_dists[(ii * (ii + 1)) / 2]), (unsigned long*)(&ped_geno[nn * CACHEALIGN(ped_postct * sizeof(long))]), (int)tidx, &(weights[nn * DMULTIPLEX * 32]));
+    incr_dists_r(&(rel_dists[(ii * (ii - 1)) / 2]), (unsigned long*)(&ped_geno[nn * CACHEALIGN(ped_postct * sizeof(long))]), (int)tidx, &(weights[nn * DMULTIPLEX * 32]));
   }
   return NULL;
 }
@@ -3136,7 +3133,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       fseeko(pedfile, 3, SEEK_SET);
       ii = 0;
       pp = 0;
-      ped_geno = wkspace_alloc(ped_postct * sizeof(long) * ((DMULTIPLEX * 4) / BITCT));
+      ped_geno = wkspace_alloc(CACHEALIGN(ped_postct * sizeof(long)) * ((DMULTIPLEX * 4) / BITCT));
       if (!ped_geno) {
         goto wdist_ret_2;
       }
