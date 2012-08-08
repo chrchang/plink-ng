@@ -162,7 +162,7 @@ int dispmsg(int retval) {
 "    normally compresses the .grm file, WDIST does the same unless the 'no-gz'\n"
 "    modifier is present.\n"
 "    (Note that the diagonal elements will differ from GCTA's --make-grm\n"
-"    output; instead, they will be equal to 1 + Fhat3 from running GCTA --ibc.)\n"
+"    output; instead, they will be equal to 1 + Fhat3 from running GCTA --ibc.)\n\n"
 "  --groupdist {iters} {d}\n"
 "    Two-group genetic distance analysis, using delete-d jackknife with the\n"
 "    requested number of iterations to estimate standard errors.  Binary\n"
@@ -3237,16 +3237,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       ulii = ulii * (ulii + 1) / 2;
       dptr2 = rel_diag;
       iwptr = rel_missing;
-      dxx = 0.0;
       for (ii = 0; ii < ped_postct; ii++) {
         for (jj = 0; jj < ii; jj++) {
           *dist_ptr /= map_linect - marker_exclude_ct - *iwptr++;
           dist_ptr++;
         }
         *dptr2 /= map_linect - marker_exclude_ct - *iwptr++;
-        dxx += *dptr2++;
+        dptr2++;
       }
-      printf("Inbreeding coefficient estimate: %g\n", dxx / ped_postct - 1.0);
       if (calculation_type & CALC_RELATIONSHIP_MASK) {
 	if ((calculation_type & CALC_RELATIONSHIP_GRM) == CALC_RELATIONSHIP_GRM) {
           iwptr = rel_missing;
