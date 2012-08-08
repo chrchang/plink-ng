@@ -160,7 +160,10 @@ int dispmsg(int retval) {
 "  --make-grm <no-gz>\n"
 "    Writes the relationship matrix in GCTA's .grm format instead.  Since GCTA\n"
 "    normally compresses the .grm file, WDIST does the same unless the 'no-gz'\n"
-"    modifier is present.\n\n"
+"    modifier is present.\n"
+"    (Note that the diagonal elements will differ from those calculated by\n"
+"    GCTA, at least as of GCTA v1.02, since the latter does not implement the\n"
+"    diagonal inbreeding estimator.)\n"
 "  --groupdist {iters} {d}\n"
 "    Two-group genetic distance analysis, using delete-d jackknife with the\n"
 "    requested number of iterations to estimate standard errors.  Binary\n"
@@ -697,10 +700,13 @@ void fill_weights(double* weights, double* mafs, double exponent) {
 
 // Strangely, these functions optimize better than memset(arr, 0, x) under gcc.
 inline void fill_long_zero(long* larr, size_t size) {
+  memset(larr, 0, size * sizeof(long));
+  /*
   long* lptr = &(larr[size]);
   while (larr < lptr) {
     *larr++ = 0;
   }
+  */
 }
 
 inline void fill_int_zero(int* iarr, size_t size) {
@@ -712,16 +718,6 @@ inline void fill_int_zero(int* iarr, size_t size) {
 #else
   fill_long_zero((long*)iarr, size);
 #endif
-}
-
-inline void fill_char_zero(char* carr, size_t size) {
-  char* cend;
-  fill_long_zero((long*)carr, size / sizeof(long));
-  cend = &(carr[size]);
-  carr = &(carr[size & (~(sizeof(long) - 1))]);
-  while (carr < cend) {
-    *carr++ = '\0';
-  }
 }
 
 inline void fill_double_zero(double* darr, size_t size) {
@@ -811,50 +807,46 @@ void update_rel_diag(double* rel_diag, unsigned long* geno, double* mafs) {
   int ii;
   int jj;
   int kk;
-  double weights[DMULTIPLEX * 128];
+  double weights[DMULTIPLEX * 64];
   double *wptr = weights;
-  double wtarr[BITCT * 4];
+  double wtarr[BITCT * 2];
   double twt;
   double* wt;
-  double mean;
-  double mult;
   unsigned long* glptr;
   unsigned long ulii;
-  double* weights1 = &(weights[256]);
-  double* weights2 = &(weights[512]);
-  double* weights3 = &(weights[768]);
+  double* weights1 = &(weights[128]);
+  double* weights2 = &(weights[256]);
+  double* weights3 = &(weights[384]);
 #if __LP64__
-  double* weights4 = &(weights[1024]);
-  double* weights5 = &(weights[1280]);
-  double* weights6 = &(weights[1536]);
-  double* weights7 = &(weights[1792]);
+  double* weights4 = &(weights[512]);
+  double* weights5 = &(weights[640]);
+  double* weights6 = &(weights[768]);
+  double* weights7 = &(weights[896]);
 #endif
-  fill_double_zero(wtarr, BITCT * 4);
+  fill_double_zero(wtarr, BITCT * 2);
   for (ii = 0; ii < BITCT / 4; ii += 1) {
     if ((mafs[ii] > 0.00000001) && (mafs[ii] < 0.99999999)) {
-      mean = 2.0 * mafs[ii];
-      mult = 1.0 / (mean * (1.0 - mafs[ii]));
-      wtarr[ii * 16] = 1.0 + mean * mafs[ii] * mult;
-      wtarr[ii * 16 + 2] = 1.0 + mean * (mafs[ii] - 1.0) * mult;
-      wtarr[ii * 16 + 3] = 1.0 + (2.0 - 4.0 * mafs[ii] + mean * mafs[ii]) * mult;
+      wtarr[ii * 8] = 1.0 + mafs[ii] / (1.0 - mafs[ii]);
+      wtarr[ii * 8 + 3] = 1.0 + (1.0 - mafs[ii]) / mafs[ii];
     }
   }
   for (kk = 0; kk < (BITCT / 8); kk++) {
-    wt = &(wtarr[32 * kk]);
-    for (ii = 0; ii < 16; ii += 1) {
-      twt = wt[ii + 16];
-      for (jj = 0; jj < 16; jj += 1) {
+    wt = &(wtarr[16 * kk]);
+    for (ii = 0; ii < 8; ii += 1) {
+      twt = wt[ii + 8];
+      for (jj = 0; jj < 8; jj += 1) {
         *wptr++ = twt + wt[jj];
       }
+      wptr = &(wptr[8]);
     }
   }
   glptr = &(geno[ped_postct]);
   while (geno < glptr) {
     ulii = *geno++;
 #if __LP64__
-    *rel_diag += weights7[ulii >> 56] + weights6[(ulii >> 48) & 255] + weights5[(ulii >> 40) & 255] + weights4[(ulii >> 32) & 255] + weights3[(ulii >> 24) & 255] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights[ulii & 255];
+    *rel_diag += weights7[(ulii >> 56)] + weights6[(ulii >> 48) & 127] + weights5[(ulii >> 40) & 127] + weights4[(ulii >> 32) & 127] + weights3[(ulii >> 24) & 127] + weights2[(ulii >> 16) & 127] + weights1[(ulii >> 8) & 127] + weights[ulii & 127];
 #else
-    *rel_diag += weights3[ulii >> 24] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights[ulii & 255];
+    *rel_diag += weights3[ulii >> 24] + weights2[(ulii >> 16) & 127] + weights1[(ulii >> 8) & 127] + weights[ulii & 127];
 #endif
     rel_diag++;
   }
@@ -923,7 +915,7 @@ void pick_d(unsigned char* cbuf, unsigned int ct, unsigned int dd) {
   unsigned int ii;
   unsigned int jj;
   unsigned int kk;
-  fill_char_zero((char*)cbuf, ct);
+  memset(cbuf, 0, ct);
   kk = 1073741824 % ct;
   kk = (kk * 4) % ct;
   for (ii = 0; ii < dd; ii++) {
@@ -2823,7 +2815,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         goto wdist_ret_2;
       }
       ped_geno = wkspace;
-      fill_char_zero((char*)ped_geno, uljj * (map_linect - marker_exclude_ct));
+      memset(ped_geno, 0, uljj * (map_linect - marker_exclude_ct));
       // ----- .ped (fourth pass) -> .fam + .bed conversion, snp-major -----
       rewind(pedfile);
       ii = 0;
@@ -2965,7 +2957,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           goto wdist_ret_2;
         }
         bufptr = (char*)(&pedbuf[jj]);
-        fill_char_zero((char*)ped_geno, map_linect4);
+        memset(ped_geno, 0, map_linect4);
         gptr = ped_geno;
         mm = 0;
 	for (jj = 0; jj < map_linect; jj += 1) {
@@ -3086,11 +3078,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
       map_linect -= marker_exclude_ct;
       marker_exclude_ct = 0;
-      fill_char_zero((char*)marker_exclude, (map_linect + 7) / 8);
+      memset(marker_exclude, 0, (map_linect + 7) / 8);
       ped_linect -= person_exclude_ct;
       ped_linect4 = (ped_linect + 3) / 4;
       person_exclude_ct = 0;
-      fill_char_zero((char*)person_exclude, (ped_linect + 7) / 8);
+      memset(person_exclude, 0, (ped_linect + 7) / 8);
     }
   }
 
@@ -3187,7 +3179,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           pp++;
         }
         if (jj < DMULTIPLEX) {
-          fill_char_zero((char*)(&(gptr[jj * ped_linect4])), (DMULTIPLEX - jj) * ped_linect4);
+          memset(&(gptr[jj * ped_linect4]), 0, (DMULTIPLEX - jj) * ped_linect4);
         }
         fill_long_zero((long*)glptr, ped_postct);
 
@@ -3249,12 +3241,16 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       ulii = ulii * (ulii + 1) / 2;
       dptr2 = rel_diag;
       iwptr = rel_missing;
+      dxx = 0.0;
       for (ii = 0; ii < ped_postct; ii++) {
         for (jj = 0; jj < ii; jj++) {
-          *dist_ptr++ /= map_linect - marker_exclude_ct - *iwptr++;
+          *dist_ptr /= map_linect - marker_exclude_ct - *iwptr++;
+          dist_ptr++;
         }
-        *dptr2++ /= map_linect - marker_exclude_ct - *iwptr++;
+        *dptr2 /= map_linect - marker_exclude_ct - *iwptr++;
+        dxx += *dptr2++;
       }
+      printf("Inbreeding coefficient estimate: %g\n", dxx / ped_postct - 1.0);
       if (calculation_type & CALC_RELATIONSHIP_MASK) {
 	if ((calculation_type & CALC_RELATIONSHIP_GRM) == CALC_RELATIONSHIP_GRM) {
           iwptr = rel_missing;
@@ -3478,7 +3474,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    pp++;
 	  }
 	  if (jj < multiplex) {
-	    fill_char_zero((char*)(&(pedbuf[jj * ped_linect4])), (multiplex - jj) * ped_linect4);
+	    memset(&(pedbuf[jj * ped_linect4]), 0, (multiplex - jj) * ped_linect4);
 	  }
 	  if (exponent == 0.0) {
 	    glptr = (unsigned long*)ped_geno;
