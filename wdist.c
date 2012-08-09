@@ -44,20 +44,25 @@
 #define FILTER_REMOVE 2
 #define FILTER_CUSTOM 3
 
-#define CALC_RELATIONSHIP 1
-#define CALC_RELATIONSHIP_SQ 2
+#define CALC_RELATIONSHIP_SQ 1
+#define CALC_RELATIONSHIP_GZ 2
 #define CALC_RELATIONSHIP_BIN 4
 #define CALC_RELATIONSHIP_GRM 8
 #define CALC_RELATIONSHIP_IBC1 16
 #define CALC_RELATIONSHIP_IBC2 32
+#define CALC_RELATIONSHIP_NULL 48
+#define CALC_RELATIONSHIP_IBC_MASK 48
 #define CALC_RELATIONSHIP_MASK 63
 #define CALC_IBC 64
-#define CALC_DISTANCE 128
-#define CALC_DISTANCE_SQ 256
-#define CALC_DISTANCE_MASK 384
-#define CALC_GROUPDIST 512
-#define CALC_REGRESS_DISTANCE 1024
-#define CALC_UNRELATED_HERITABILITY 2048
+#define CALC_DISTANCE_SQ 128
+#define CALC_DISTANCE_GZ 256
+#define CALC_DISTANCE_BIN 512
+#define CALC_DISTANCE_NULL 768
+#define CALC_DISTANCE_GZBIN_MASK 768
+#define CALC_DISTANCE_MASK 896
+#define CALC_GROUPDIST 1024
+#define CALC_REGRESS_DISTANCE 2048
+#define CALC_UNRELATED_HERITABILITY 4096
 
 #define _FILE_OFFSET_BITS 64
 #define DEFAULT_THREAD_CT 2
@@ -88,7 +93,7 @@
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.5.2 (9 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.5.3 (9 August 2012)\n"
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
 const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
@@ -97,6 +102,8 @@ const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 char tbuf[MAXLINELEN];
 int iwt[256];
+
+// manually managed, very large stack
 unsigned char* wkspace;
 unsigned char* wkspace_base;
 long long malloc_size_mb = MALLOC_DEFAULT_MB;
@@ -141,38 +148,42 @@ int dispmsg(int retval) {
 "In the command line flag definitions that follow,\n"
 "  * [square brackets] denote a required parameter, where the text between the\n"
 "    brackets describes its nature.\n"
-"  * <angle brackets> denote an optional modifier (or if '|'s are present, a\n"
-"    set of mutually exclusive optional modifiers).  Type the EXACT text in\n"
-"    the definition, e.g. '--distance square0'.\n"
+"  * <angle brackets> denote an optional modifier (or if '|' is present, a set\n"
+"    of mutually exclusive optional modifiers).  Use the EXACT text in the\n"
+"    definition, e.g. '--distance square0'.\n"
 "  * {curly braces} denote an optional parameter, where the text between the\n"
 "    braces describes its nature.\n\n"
 "Each run must invoke at least one of the following calculations:\n\n"
-"  --distance <square0> <gz>\n"
-"    Outputs a lower-triangular table of (weighted) genetic distances to\n"
-"    {output prefix}.dist, and a list of the corresponding family/individual\n"
-"    IDs to {output prefix}.dist.id.\n"
+"  --distance <square0> <gz | bin>\n"
+"    Outputs a lower-triangular tab-delimited table of (weighted) genetic\n"
+"    distances to {output prefix}.dist, and a list of the corresponding\n"
+"    family/individual IDs to {output prefix}.dist.id.\n"
 "    The first row of the .dist file contains a single number describing the\n"
 "    distance between the first two genotypes, the second row has the {genotype\n"
 "    1-genotype 3} and {genotype 2-genotype 3} distances in that order, etc.\n"
 "    If the 'square0' modifier is present, a square matrix is written instead,\n"
 "    with the upper right triangle filled out with zeroes.\n"
 "    If the 'gz' modifier is present, a compressed .dist.gz file is written\n"
-"    instead of a plain text file.\n\n"
+"    instead of a plain text file.\n"
+"    If the 'bin' modifier is present, a binary (square) matrix of\n"
+"    double-precision floating point values, suitable for loading from R, is\n"
+"    instead written to {output prefix}.dist.bin.  This can be combined with\n"
+"    'square0' if you still want the upper right zeroed out.\n\n"
 "  --ibc\n"
 "    This yields the same output as GCTA --ibc.\n\n"
 "  --make-rel <square0> <gz | bin> <ibc1 | ibc2>\n"
 "    Outputs a lower-triangular relationship matrix to {output prefix}.rel,\n"
 "    and corresponding IDs to {output prefix}.rel.id.\n"
-"    'square0' and 'gz' have the same effect as with --distance.\n"
-"    'bin' writes a square matrix binary file (i.e. it yields the same output\n"
-"    as GCTA's --make-grm-bin, unless 'square0' is also present, in which case\n"
-"    the upper right is zeroed out).\n"
+"    'square0', 'gz', and 'bin' have the same effect as with --distance.\n"
 "    By default, the diagonal elements are based on --ibc's Fhat3.  Use the\n"
 "    'ibc1' or 'ibc2' modifiers to base them on Fhat1 or Fhat2 instead.\n"
 "  --make-grm <no-gz> <ibc1 | ibc2>\n"
 "    Writes the relationship matrix in GCTA's .grm format instead.  Since GCTA\n"
 "    normally compresses the .grm file, WDIST does the same unless the 'no-gz'\n"
-"    modifier is present.\n\n"
+"    modifier is present.\n"
+"  --make-grm-bin <square0> <ibc1 | ibc2>\n"
+"    This is identical to --make-rel bin, except the output file extension is\n"
+"    .grm.bin.\n\n"
 "  --groupdist {iters} {d}\n"
 "    Two-group genetic distance analysis, using delete-d jackknife with the\n"
 "    requested number of iterations to estimate standard errors.  Binary\n"
@@ -1301,7 +1312,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int chr_num, int thread_ct, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol, int dist_gz, int rel_gz) {
+int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int chr_num, int thread_ct, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol) {
   FILE* pedfile = NULL;
   FILE* mapfile = NULL;
   FILE* famfile = NULL;
@@ -3172,9 +3183,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       goto wdist_ret_2;
     }
     fill_double_zero(rel_ibc, ii);
-    if (calculation_type & CALC_RELATIONSHIP_IBC1) {
+    if ((calculation_type & CALC_RELATIONSHIP_IBC_MASK) == CALC_RELATIONSHIP_IBC1) {
       ibc_type = 1;
-    } else if (calculation_type & CALC_RELATIONSHIP_IBC2) {
+    } else if ((calculation_type & CALC_RELATIONSHIP_IBC_MASK) == CALC_RELATIONSHIP_IBC2) {
       ibc_type = 2;
     }
     ulii = ped_postct;
@@ -3357,9 +3368,32 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         } else {
           dptr2 = rel_ibc;
         }
-	if (calculation_type & CALC_RELATIONSHIP_GRM) {
+	if (calculation_type & CALC_RELATIONSHIP_BIN) {
+          if (calculation_type & CALC_RELATIONSHIP_SQ) {
+            fill_double_zero((double*)ped_geno, ped_postct - 1);
+          }
+          if (calculation_type & CALC_RELATIONSHIP_GRM) {
+            strcpy(outname_end, ".grm.bin");
+          } else {
+            strcpy(outname_end, ".rel.bin");
+          }
+          outfile = fopen(outname, "wb");
+          for (ii = 0; ii < ped_postct; ii++) {
+            fwrite(&(rel_dists[(ii * (ii - 1)) / 2]), 1, ii * sizeof(double), outfile);
+            fwrite(dptr2++, 1, sizeof(double), outfile);
+            if (calculation_type & CALC_RELATIONSHIP_SQ) {
+              fwrite(ped_geno, 1, (ped_postct - ii - 1) * sizeof(double), outfile);
+            } else {
+              for (jj = ii + 1; jj < ped_postct; jj++) {
+                fwrite(&(rel_dists[(jj * (jj - 1) / 2) + ii]), 1, sizeof(double), outfile);
+              }
+            }
+          }
+          fclose(outfile);
+          outfile = NULL;
+        } else if (calculation_type & CALC_RELATIONSHIP_GRM) {
           iwptr = rel_missing;
-	  if (rel_gz) {
+	  if (calculation_type & CALC_RELATIONSHIP_GZ) {
 	    strcpy(outname_end, ".grm.gz");
 	    gz_outfile = gzopen(outname, "wb");
 	    if (!gz_outfile) {
@@ -3396,31 +3430,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    fclose(outfile);
 	    outfile = NULL;
 	  }
-	} else if (calculation_type & CALC_RELATIONSHIP_BIN) {
-          if (calculation_type & CALC_RELATIONSHIP_SQ) {
-            dptr3 = (double*)ped_geno;
-            dptr4 = &(dptr3[ped_postct - 1]);
-            while (dptr3 < dptr4) {
-              *dptr3++ = 0.0;
-            }
-          }
-          // .rel.bin is more logical, but better to play well with other
-          // researchers' existing R scripts
-          strcpy(outname_end, ".grm.bin");
-          outfile = fopen(outname, "wb");
-          for (ii = 0; ii < ped_postct; ii++) {
-            fwrite(&(rel_dists[(ii * (ii - 1)) / 2]), 1, ii * sizeof(double), outfile);
-            fwrite(dptr2++, 1, sizeof(double), outfile);
-            if (calculation_type & CALC_RELATIONSHIP_SQ) {
-              fwrite(ped_geno, 1, (ped_postct - ii - 1) * sizeof(double), outfile);
-            } else {
-              for (jj = ii + 1; jj < ped_postct; jj++) {
-                fwrite(&(rel_dists[(jj * (jj - 1) / 2) + ii]), 1, sizeof(double), outfile);
-              }
-            }
-          }
-          fclose(outfile);
-          outfile = NULL;
         } else {
 	  if (calculation_type & CALC_RELATIONSHIP_SQ) {
 	    cptr2 = (char*)(&ulii);
@@ -3434,7 +3443,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      *glptr2++ = ulii;
 	    }
 	  }
-	  if (rel_gz) {
+	  if (calculation_type & CALC_RELATIONSHIP_GZ) {
 	    strcpy(outname_end, ".rel.gz");
 	    gz_outfile = gzopen(outname, "wb");
 	    if (!gz_outfile) {
@@ -3709,7 +3718,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	*glptr2++ = ulii;
       }
     }
-    if (dist_gz) {
+    if ((calculation_type & CALC_DISTANCE_GZBIN_MASK) == CALC_DISTANCE_GZ) {
       strcpy(outname_end, ".dist.gz");
       gz_outfile = gzopen(outname, "wb");
       if (!gz_outfile) {
@@ -3747,6 +3756,52 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
       gzclose(gz_outfile);
       gz_outfile = NULL;
+    } else if ((calculation_type & CALC_DISTANCE_GZBIN_MASK) == CALC_DISTANCE_BIN) {
+      strcpy(outname_end, ".dist.bin");
+      outfile = fopen(outname, "wb");
+      if (!outfile) {
+	printf("Error: Failed to open %s.\n", outname);
+	goto wdist_ret_2;
+      }
+      if (calculation_type & CALC_DISTANCE_SQ) {
+        fill_double_zero((double*)ped_geno, ped_postct);
+      } else {
+        dxx = 0.0;
+      }
+      if (exponent == 0.0) {
+        iwptr = idists;
+        for (ii = 0; ii < ped_postct; ii++) {
+          for (jj = 0; jj < ii; jj++) {
+            dyy = (double)(*iwptr++);
+            fwrite(&dyy, 1, sizeof(double), outfile);
+          }
+          if (calculation_type & CALC_DISTANCE_SQ) {
+            fwrite(ped_geno, 1, (ped_postct - ii) * sizeof(double), outfile);
+          } else {
+            fwrite(&dxx, 1, sizeof(double), outfile);
+            for (jj = ii + 1; jj < ped_postct; jj++) {
+              dyy = (double)idists[(jj * (jj - 1)) / 2 + ii];
+              fwrite(&dyy, 1, sizeof(double), outfile);
+            }
+          }
+        }
+      } else {
+        dist_ptr = dists;
+        for (ii = 0; ii < ped_postct; ii++) {
+          fwrite(dist_ptr, 1, ii * sizeof(double), outfile);
+          dist_ptr = &(dist_ptr[ii]);
+          if (calculation_type & CALC_DISTANCE_SQ) {
+            fwrite(ped_geno, 1, (ped_postct - ii) * sizeof(double), outfile);
+          } else {
+            fwrite(&dxx, 1, sizeof(double), outfile);
+            for (jj = ii + 1; jj < ped_postct; jj++) {
+              fwrite(&(dists[(jj * (jj - 1)) / 2 + ii]), 1, sizeof(double), outfile);
+            }
+          }
+        }
+      }
+      fclose(outfile);
+      outfile = NULL;
     } else {
       strcpy(outname_end, ".dist");
       outfile = fopen(outname, "w");
@@ -4325,8 +4380,6 @@ int main(int argc, char** argv) {
   int regress_iters = ITERS_DEFAULT;
   int regress_d = 0;
   double unrelated_herit_tol = 0.0001;
-  int dist_gz = 0;
-  int rel_gz = 0;
   int ii;
   int jj;
   int kk;
@@ -4944,7 +4997,7 @@ int main(int argc, char** argv) {
         printf("Error: Missing --out parameter.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 9)) {
+      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 10)) {
         printf("Error: --out parameter too long.\n");
         return dispmsg(RET_OPENFAIL);
       }
@@ -4970,17 +5023,17 @@ int main(int argc, char** argv) {
             printf("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
             return dispmsg(RET_INVALID_CMDLINE);
           }
-          rel_gz = 1;
+          calculation_type |= CALC_RELATIONSHIP_GZ;
         } else if (!strcmp(argv[cur_arg + kk], "bin")) {
-          if (rel_gz) {
+          if (calculation_type & CALC_RELATIONSHIP_GZ) {
             printf("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
             return dispmsg(RET_INVALID_CMDLINE);
           }
           calculation_type |= CALC_RELATIONSHIP_BIN;
         } else if (!strcmp(argv[cur_arg + kk], "square0")) {
-          jj = 1;
+          calculation_type |= CALC_RELATIONSHIP_SQ;
         } else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
-          if (calculation_type & (CALC_RELATIONSHIP_IBC1 | CALC_RELATIONSHIP_IBC2)) {
+          if (calculation_type & CALC_RELATIONSHIP_IBC_MASK) {
             printf("Error: --make-rel '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + kk], errstr_append);
             return dispmsg(RET_INVALID_CMDLINE);
           }
@@ -4995,10 +5048,8 @@ int main(int argc, char** argv) {
         }
       }
       cur_arg += ii + 1;
-      if (jj) {
-        calculation_type |= CALC_RELATIONSHIP_SQ;
-      } else {
-        calculation_type |= CALC_RELATIONSHIP;
+      if (!(calculation_type & CALC_RELATIONSHIP_MASK)) {
+        calculation_type |= CALC_RELATIONSHIP_NULL;
       }
     } else if (!strcmp(argptr, "--make-grm")) {
       if (calculation_type & CALC_RELATIONSHIP_MASK) {
@@ -5010,12 +5061,12 @@ int main(int argc, char** argv) {
         printf("Error: --make-grm accepts at most 2 parameters.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      rel_gz = 1;
+      calculation_type |= CALC_RELATIONSHIP_GZ;
       for (kk = 1; kk <= ii; kk++) {
         if (!strcmp(argv[cur_arg + kk], "no-gz")) {
-          rel_gz = 0;
+          calculation_type &= ~CALC_RELATIONSHIP_GZ;
         } else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
-          if (calculation_type & (CALC_RELATIONSHIP_IBC1 | CALC_RELATIONSHIP_IBC2)) {
+          if (calculation_type & CALC_RELATIONSHIP_IBC_MASK) {
             printf("Error: --make-grm '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + kk], errstr_append);
             return dispmsg(RET_INVALID_CMDLINE);
           }
@@ -5031,6 +5082,36 @@ int main(int argc, char** argv) {
       }
       cur_arg += ii + 1;
       calculation_type |= CALC_RELATIONSHIP_GRM;
+    } else if (!strcmp(argptr, "--make-grm-bin")) {
+      if (calculation_type & CALC_RELATIONSHIP_MASK) {
+        printf("Error: --make-grm-bin cannot coexist with another relationship matrix file\ncreation flag.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      ii = param_count(argc, argv, cur_arg);
+      if (ii > 2) {
+        printf("Error: --make-grm-bin accepts at most 2 parameters.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      for (kk = 1; kk <= ii; kk++) {
+        if (!strcmp(argv[cur_arg + kk], "square0")) {
+          calculation_type |= CALC_RELATIONSHIP_SQ;
+        } else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
+          if (calculation_type & (CALC_RELATIONSHIP_IBC1 | CALC_RELATIONSHIP_IBC2)) {
+            printf("Error: --make-grm-bin '%s' modifier cannot coexist with another IBC\nmodifier.%s", argv[cur_arg + kk], errstr_append);
+            return dispmsg(RET_INVALID_CMDLINE);
+          }
+          if (argv[cur_arg + kk][3] == '1') {
+            calculation_type |= CALC_RELATIONSHIP_IBC1;
+          } else {
+            calculation_type |= CALC_RELATIONSHIP_IBC2;
+          }
+        } else {
+          printf("Error: Invalid --make-grm-bin parameter.%s", errstr_append);
+          return dispmsg(RET_INVALID_CMDLINE);
+        }
+      }
+      cur_arg += ii + 1;
+      calculation_type |= CALC_RELATIONSHIP_GRM | CALC_RELATIONSHIP_BIN;
     } else if (!strcmp(argptr, "--ibc")) {
       cur_arg += 1;
       calculation_type |= CALC_IBC;
@@ -5046,20 +5127,28 @@ int main(int argc, char** argv) {
       }
       jj = 0;
       for (kk = 1; kk <= ii; kk++) {
-        if (!strcmp(argv[cur_arg + kk], "gz")) {
-          dist_gz = 1;
-        } else if (!strcmp(argv[cur_arg + kk], "square0")) {
-          jj = 1;
+        if (!strcmp(argv[cur_arg + kk], "square0")) {
+          calculation_type |= CALC_DISTANCE_SQ;
+        } else if (!strcmp(argv[cur_arg + kk], "gz")) {
+          if (calculation_type & CALC_DISTANCE_BIN) {
+            printf("Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
+            return dispmsg(RET_INVALID_CMDLINE);
+          }
+          calculation_type |= CALC_DISTANCE_GZ;
+        } else if (!strcmp(argv[cur_arg + kk], "bin")) {
+          if (calculation_type & CALC_DISTANCE_GZ) {
+            printf("Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
+            return dispmsg(RET_INVALID_CMDLINE);
+          }
+          calculation_type |= CALC_DISTANCE_BIN;
         } else {
           printf("Error: Invalid --distance parameter.%s", errstr_append);
           return dispmsg(RET_INVALID_CMDLINE);
         }
       }
       cur_arg += ii + 1;
-      if (jj) {
-        calculation_type |= CALC_DISTANCE_SQ;
-      } else {
-        calculation_type |= CALC_DISTANCE;
+      if (!(calculation_type & CALC_DISTANCE_MASK)) {
+        calculation_type |= CALC_DISTANCE_NULL;
       }
     } else if (!strcmp(argptr, "--groupdist")) {
       if (calculation_type & CALC_GROUPDIST) {
@@ -5202,7 +5291,7 @@ int main(int argc, char** argv) {
 
   // famname[0] indicates binary vs. text
   // filtername[0] indicates existence of filter
-  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chr_num, thread_ct, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol, dist_gz, rel_gz);
+  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chr_num, thread_ct, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol);
   free(wkspace);
   return dispmsg(retval);
 }
