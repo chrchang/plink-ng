@@ -206,10 +206,11 @@ int dispmsg(int retval) {
 "    REML estimate of additive heritability, iterating with the EM algorithm\n"
 "    until the rate of change of the log likelihood function is less than tol.\n"
 "    Scalar phenotype required.  tol defaults to 10^{-4}, genetic covariance\n"
-"    prior defaults to 0.45, and residual covariance prior defaults to 0.55.\n"
-"    (For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
+"    prior defaults to 0.45, and residual covariance prior defaults to\n"
+"    (1 - covg).\n"
+"    For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
 "    Genetic Correlations Explained by Common SNPs for Metabolic Syndrome\n"
-"    Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637)\n\n"
+"    Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
 "The following other flags are supported.\n"
 "  --script [fname] : Include command-line options from file.\n"
 "  --file [prefix]  : Specify prefix for .ped and .map files.  (When this flag\n"
@@ -5402,6 +5403,8 @@ int main(int argc, char** argv) {
 	      printf("Error: Invalid --unrelated-heritability residual covariance prior.\n");
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
+          } else {
+            unrelated_herit_cove = 1.0 - unrelated_herit_covg;
           }
         }
       }

@@ -4,4 +4,8 @@ cd zlib-1.2.7
 ./configure
 make
 cd ..
+unamestr=$(uname)
+if [[ "$unamestr" == 'Linux' ]]; then
+  sudo yum install -y blas-devel lapack lapack-devel atlas-devel
+fi
 make wdist
