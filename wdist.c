@@ -28,6 +28,8 @@
 
 #ifdef __APPLE__
 #include <vecLib/clapack.h>
+#else
+#include <clapack.h>
 #endif
 
 #include "zlib-1.2.7/zlib.h"
@@ -1326,17 +1328,21 @@ void* regress_jack_thread(void* arg) {
 // Replaces matrix[][] with mult_val * matrix[][] + add_val * I, assuming only
 // the upper right (according to FORTRAN convention) is relevant.
 // Multithreading doesn't help here.
-void matrix_const_mult_add_ur(double* matrix, double mult_val, double add_val) {
+void matrix_const_mult_add(double* matrix, double mult_val, double add_val) {
   int ii;
   int jj;
-  double* dptr;
+  double* dptr = matrix;
   for (ii = 0; ii < ped_postct; ii++) {
-    dptr = &(matrix[ii * ped_postct]);
     for (jj = 0; jj < ii; jj++) {
       *dptr *= mult_val;
       dptr++;
     }
     *dptr = *dptr * mult_val + add_val;
+    dptr++;
+    for (jj = ii + 1; jj < ped_postct; jj++) {
+      *dptr *= mult_val;
+      dptr++;
+    }
   }
 }
 
@@ -1367,8 +1373,7 @@ void matrix_row_sum_ur(double* sums, double* matrix) {
 //
 // wkbase is assumed to have space for three cache-aligned
 // ped_postct * ped_postct double matrices plus three more rows.  The unpacked
-// relationship matrix (only upper right, under FORTRAN convention, needs to be
-// filled) is stored in the SECOND slot.
+// relationship matrix is stored in the SECOND slot.
 void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* cove_ref, double tol) {
   double ll_change;
   long long mat_offset = ped_postct;
@@ -1381,7 +1386,9 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   double* dptr2;
   double* matrix_pvg;
   int lwork;
+#ifdef __APPLE__
   int info;
+#endif
   double dxx;
   double dlg;
   double dle;
@@ -1399,11 +1406,19 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   if (!lwork) {
     lwork = CACHELINE_DBL;
   }
+  fill_double_zero(matrix_pvg, mat_offset);
+  fill_double_zero(row, ped_postct);
+  fill_double_zero(row2, ped_postct);
   do {
     memcpy(wkbase, rel_dists, mat_offset * sizeof(double));
-    matrix_const_mult_add_ur(wkbase, *covg_ref, *cove_ref);
-    dsytrf_("U", &ped_postct, wkbase, &ped_postct, irow, work, &lwork, &info);
-    dsytri_("U", &ped_postct, wkbase, &ped_postct, irow, work, &info);
+    matrix_const_mult_add(wkbase, *covg_ref, *cove_ref);
+#ifdef __APPLE__
+    dgetrf_(&ped_postct, &ped_postct, wkbase, &ped_postct, irow, &info);
+    dgetri_(&ped_postct, wkbase, &ped_postct, irow, work, &lwork, &info);
+#else
+    clapack_dgetrf(CblasColMajor, ped_postct, ped_postct, wkbase, ped_postct, irow);
+    clapack_dgetri(CblasColMajor, ped_postct, wkbase, ped_postct, irow);
+#endif
     matrix_row_sum_ur(row, wkbase);
     dxx = 0.0;
     dptr = row;
@@ -1412,9 +1427,8 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
       dxx += *dptr++;
     }
     dxx = -1.0 / dxx;
-    cblas_dsyr(CblasColMajor, CblasUpper, ped_postct, dxx, row, 1, wkbase, ped_postct);
-    fill_double_zero(matrix_pvg, mat_offset);
-    cblas_dsymm(CblasColMajor, CblasLeft, CblasUpper, ped_postct, ped_postct, 1.0, wkbase, ped_postct, rel_dists, ped_postct, 0.0, matrix_pvg, ped_postct);
+    cblas_dger(CblasColMajor, ped_postct, ped_postct, dxx, row, 1, row, 1, wkbase, ped_postct);
+    cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, ped_postct, ped_postct, ped_postct, 1.0, wkbase, ped_postct, rel_dists, ped_postct, 0.0, matrix_pvg, ped_postct);
     dlg = 0.0;
     dle = 0.0;
     jj = ped_postct + 1;
@@ -1422,8 +1436,6 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
       dlg -= matrix_pvg[ii * jj];
       dle -= wkbase[ii * jj];
     }
-    fill_double_zero(row, ped_postct);
-    fill_double_zero(row2, ped_postct);
     cblas_dsymv(CblasColMajor, CblasUpper, ped_postct, 1.0, wkbase, ped_postct, pheno, 1, 0.0, row2, 1);
     cblas_dsymv(CblasColMajor, CblasUpper, ped_postct, 1.0, matrix_pvg, ped_postct, row2, 1, 0.0, row, 1);
     dlg += cblas_ddot(ped_postct, pheno, 1, row, 1);
@@ -3669,6 +3681,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       for (ulii = 0; ulii < ped_postct; ulii++) {
 	memcpy(&(dptr4[ulii * ped_postct]), &(rel_dists[(ulii * (ulii - 1)) / 2]), ulii * sizeof(double));
         dptr4[ulii * (ped_postct + 1)] = *dptr3++;
+        for (uljj = ulii + 1; uljj < ped_postct; uljj++) {
+          dptr4[ulii * ped_postct + uljj] = rel_dists[(uljj * (uljj - 1)) / 2 + ulii];
+        }
       }
       reml_em_one_trait(rel_dists, dptr2, &unrelated_herit_covg, &unrelated_herit_cove, unrelated_herit_tol);
       printf("Heritability estimate: %g\n", unrelated_herit_covg);
