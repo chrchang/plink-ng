@@ -24,9 +24,16 @@
 #include <math.h>
 #include <pthread.h>
 #include <time.h>
+#include <cblas.h>
+
+#ifdef __APPLE__
+#include <vecLib/clapack.h>
+#endif
+
 #include "zlib-1.2.7/zlib.h"
 
 #define CACHELINE 64 // assumed number of bytes per cache line, for alignment
+#define CACHELINE_DBL (CACHELINE / sizeof(double))
 
 #define RET_SUCCESS 0
 #define RET_HELP 1
@@ -47,22 +54,19 @@
 #define CALC_RELATIONSHIP_SQ 1
 #define CALC_RELATIONSHIP_GZ 2
 #define CALC_RELATIONSHIP_BIN 4
+#define CALC_RELATIONSHIP_NULL 6
 #define CALC_RELATIONSHIP_GRM 8
-#define CALC_RELATIONSHIP_IBC1 16
-#define CALC_RELATIONSHIP_IBC2 32
-#define CALC_RELATIONSHIP_NULL 48
-#define CALC_RELATIONSHIP_IBC_MASK 48
-#define CALC_RELATIONSHIP_MASK 63
-#define CALC_IBC 64
-#define CALC_DISTANCE_SQ 128
-#define CALC_DISTANCE_GZ 256
-#define CALC_DISTANCE_BIN 512
-#define CALC_DISTANCE_NULL 768
-#define CALC_DISTANCE_GZBIN_MASK 768
-#define CALC_DISTANCE_MASK 896
-#define CALC_GROUPDIST 1024
-#define CALC_REGRESS_DISTANCE 2048
-#define CALC_UNRELATED_HERITABILITY 4096
+#define CALC_RELATIONSHIP_MASK 15
+#define CALC_IBC 16
+#define CALC_DISTANCE_SQ 32
+#define CALC_DISTANCE_GZ 64
+#define CALC_DISTANCE_BIN 128
+#define CALC_DISTANCE_NULL 192
+#define CALC_DISTANCE_GZBIN_MASK 192
+#define CALC_DISTANCE_MASK 224
+#define CALC_GROUPDIST 256
+#define CALC_REGRESS_DISTANCE 512
+#define CALC_UNRELATED_HERITABILITY 1024
 
 #define _FILE_OFFSET_BITS 64
 #define DEFAULT_THREAD_CT 2
@@ -91,12 +95,13 @@
 #endif
 
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
+#define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.5.3 (9 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.6.0 (13 August 2012)\n"
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
-const char errstr_append[] = "\nRun 'wdist --help' for more information.\n";
+const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
@@ -108,7 +113,6 @@ unsigned char* wkspace;
 unsigned char* wkspace_base;
 long long malloc_size_mb = MALLOC_DEFAULT_MB;
 long long wkspace_left;
-char** subst_argv = NULL;
 
 unsigned char* wkspace_alloc(long long size) {
   unsigned char* retval;
@@ -128,13 +132,15 @@ void wkspace_reset(unsigned char* new_base) {
   wkspace_left += freed_bytes;
 }
 
+char** subst_argv = NULL;
+
 int dispmsg(int retval) {
   switch(retval) {
   case RET_HELP:
     printf("%s%s", info_str, errstr_append);
     break;
   case RET_NOMEM:
-    printf("Error: Out of memory.\n");
+    printf("Error: Out of memory.  Try the --memory flag.\n");
     break;
   case RET_WRITE_FAIL:
     printf("Error: File write failure.\n");
@@ -194,13 +200,14 @@ int dispmsg(int retval) {
 "    Regresses genetic distances on average phenotypes, using delete-d\n"
 "    jackknife for standard errors.  Scalar phenotype required.  Defaults for\n"
 "    iters and d are the same as for --groupdist.\n\n"
-// "  --unrelated-heritability {tol}\n"
-// "    REML estimate of additive heritability, iterating with the EM algorithm\n"
-// "    until the rate of change of the log likelihood function is less than tol.\n"
-// "    Scalar phenotype required.  tol defaults to 10^{-4}.\n"
-// "    (For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
-// "    Genetic Correlations Explained by Common SNPs for Metabolic Syndrome\n"
-// "    Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637)\n\n"
+"  --unrelated-heritability {tol} {covg prior} {cove prior}\n"
+"    REML estimate of additive heritability, iterating with the EM algorithm\n"
+"    until the rate of change of the log likelihood function is less than tol.\n"
+"    Scalar phenotype required.  tol defaults to 10^{-4}, genetic covariance\n"
+"    prior defaults to 0.45, and residual covariance prior defaults to 0.55.\n"
+"    (For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
+"    Genetic Correlations Explained by Common SNPs for Metabolic Syndrome\n"
+"    Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637)\n\n"
 "The following other flags are supported.\n"
 "  --script [fname] : Include command-line options from file.\n"
 "  --file [prefix]  : Specify prefix for .ped and .map files.  (When this flag\n"
@@ -474,6 +481,8 @@ unsigned long genrand_int32(void)
     return y;
 }
 
+
+// back to our regular program
 
 inline int is_space_or_eoln(char cc) {
   return ((cc == ' ') || (cc == '\t') || (cc == '\n') || (cc == '\0'));
@@ -799,6 +808,7 @@ void fill_weights_r(double* weights, double* mafs) {
 }
 
 int ped_postct;
+int thread_ct = DEFAULT_THREAD_CT;
 double* rel_dists = NULL;
 int* rel_missing = NULL;
 int* idists;
@@ -810,6 +820,7 @@ double weights[DMULTIPLEX * 128];
 int* weights_i = NULL;
 int thread_start[MAX_THREADS_P1];
 int thread_start0[MAX_THREADS_P1];
+int thread_start0_na[MAX_THREADS_P1];
 double reg_tot_xy;
 double reg_tot_x;
 double reg_tot_y;
@@ -940,6 +951,17 @@ void collapse_phenod(double* pheno_d, unsigned char* person_exclude, int ped_lin
     if (!excluded(person_exclude, ii)) {
       pheno_d[jj++] = pheno_d[ii];
     }
+  }
+}
+
+void collapse_copy_phenod(double *target, double* pheno_d, unsigned char* person_exclude, int ped_linect) {
+  int ii = 0;
+  double* target_end = &(target[ped_postct]);
+  while (target < target_end) {
+    while (excluded(person_exclude, ii)) {
+      ii++;
+    }
+    *target++ = pheno_d[ii++];
   }
 }
 
@@ -1148,6 +1170,7 @@ int triangle_bsearch(long long cur_prod, int modif, int lbound, int ubound) {
   }
 }
 
+// set align to 2 for no alignment
 void triangle_fill(int* target_arr, int ct, int pieces, int start, int align) {
   long long ct_tr = (long long)ct;
   long long cur_prod = 0;
@@ -1300,6 +1323,121 @@ void* regress_jack_thread(void* arg) {
   return NULL;
 }
 
+// Replaces matrix[][] with mult_val * matrix[][] + add_val * I, assuming only
+// the upper right (according to FORTRAN convention) is relevant.
+// Multithreading doesn't help here.
+void matrix_const_mult_add_ur(double* matrix, double mult_val, double add_val) {
+  int ii;
+  int jj;
+  double* dptr;
+  for (ii = 0; ii < ped_postct; ii++) {
+    dptr = &(matrix[ii * ped_postct]);
+    for (jj = 0; jj < ii; jj++) {
+      *dptr *= mult_val;
+      dptr++;
+    }
+    *dptr = *dptr * mult_val + add_val;
+  }
+}
+
+// sums[idx] = matrix[idx][1] + matrix[idx][2] + ....  matrix assumed to be
+// symmetric, and only FORTRAN upper right is referenced.
+void matrix_row_sum_ur(double* sums, double* matrix) {
+  int ii;
+  double* dptr;
+  double acc;
+  double* sptr_end;
+  double* sptr;
+  fill_double_zero(sums, ped_postct);
+  for (ii = 0; ii < ped_postct; ii++) {
+    dptr = &(matrix[ii * ped_postct]);
+    acc = 0.0;
+    sptr_end = &(sums[ii]);
+    sptr = sums;
+    while (sptr < sptr_end) {
+      acc += *dptr;
+      *sptr += *dptr++;
+      sptr++;
+    }
+    *sptr += acc + *dptr;
+  }
+}
+
+// one-trait REML via EM.
+//
+// wkbase is assumed to have space for three cache-aligned
+// ped_postct * ped_postct double matrices plus three more rows.  The unpacked
+// relationship matrix (only upper right, under FORTRAN convention, needs to be
+// filled) is stored in the SECOND slot.
+void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* cove_ref, double tol) {
+  double ll_change;
+  long long mat_offset = ped_postct;
+  double* rel_dists;
+  int* irow;
+  double* row;
+  double* row2;
+  double* work;
+  double* dptr;
+  double* dptr2;
+  double* matrix_pvg;
+  int lwork;
+  int info;
+  double dxx;
+  double dlg;
+  double dle;
+  double ped_postct_d = 1.0 / (double)ped_postct;
+  int ii;
+  int jj;
+  mat_offset = CACHEALIGN_DBL(mat_offset * mat_offset);
+  rel_dists = &(wkbase[mat_offset]);
+  row = &(wkbase[mat_offset * 3]);
+  irow = (int*)row;
+  row2 = &(row[ped_postct]);
+  work = &(wkbase[mat_offset * 2]);
+  lwork = mat_offset;
+  matrix_pvg = work;
+  if (!lwork) {
+    lwork = CACHELINE_DBL;
+  }
+  do {
+    memcpy(wkbase, rel_dists, mat_offset * sizeof(double));
+    matrix_const_mult_add_ur(wkbase, *covg_ref, *cove_ref);
+    dsytrf_("U", &ped_postct, wkbase, &ped_postct, irow, work, &lwork, &info);
+    dsytri_("U", &ped_postct, wkbase, &ped_postct, irow, work, &info);
+    matrix_row_sum_ur(row, wkbase);
+    dxx = 0.0;
+    dptr = row;
+    dptr2 = &(row[ped_postct]);
+    while (dptr < dptr2) {
+      dxx += *dptr++;
+    }
+    dxx = -1.0 / dxx;
+    cblas_dsyr(CblasColMajor, CblasUpper, ped_postct, dxx, row, 1, wkbase, ped_postct);
+    fill_double_zero(matrix_pvg, mat_offset);
+    cblas_dsymm(CblasColMajor, CblasLeft, CblasUpper, ped_postct, ped_postct, 1.0, wkbase, ped_postct, rel_dists, ped_postct, 0.0, matrix_pvg, ped_postct);
+    dlg = 0.0;
+    dle = 0.0;
+    jj = ped_postct + 1;
+    for (ii = 0; ii < ped_postct; ii++) {
+      dlg -= matrix_pvg[ii * jj];
+      dle -= wkbase[ii * jj];
+    }
+    fill_double_zero(row, ped_postct);
+    fill_double_zero(row2, ped_postct);
+    cblas_dsymv(CblasColMajor, CblasUpper, ped_postct, 1.0, wkbase, ped_postct, pheno, 1, 0.0, row2, 1);
+    cblas_dsymv(CblasColMajor, CblasUpper, ped_postct, 1.0, matrix_pvg, ped_postct, row2, 1, 0.0, row, 1);
+    dlg += cblas_ddot(ped_postct, pheno, 1, row, 1);
+    cblas_dsymv(CblasColMajor, CblasUpper, ped_postct, 1.0, wkbase, ped_postct, row2, 1, 0.0, row, 1);
+    dle += cblas_ddot(ped_postct, pheno, 1, row, 1);
+    *covg_ref *= 1.0 + (*covg_ref * dlg * ped_postct_d);
+    *cove_ref *= 1.0 + (*cove_ref * dle * ped_postct_d);
+    ll_change = (*covg_ref * (*covg_ref) * ped_postct_d * dlg * dlg) + (*cove_ref * (*cove_ref) * ped_postct_d * dle * dle);
+    printf("\b\b\b\b\b\b      \rcovg: %g  cove: %g  ll_change: %g", *covg_ref, *cove_ref, ll_change);
+    fflush(stdout);
+  } while (ll_change > tol);
+  printf("\n");
+}
+
 inline int distance_req(int calculation_type) {
   return ((calculation_type & CALC_DISTANCE_MASK) || (calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE));
 }
@@ -1312,7 +1450,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int chr_num, int thread_ct, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol) {
+int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, int chr_num, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_cove, int ibc_type) {
   FILE* pedfile = NULL;
   FILE* mapfile = NULL;
   FILE* famfile = NULL;
@@ -1344,7 +1482,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int nn = 0;
   int oo = 0;
   int pp;
-  int ibc_type = 0;
   unsigned int uii = 0;
   unsigned int ujj;
   unsigned long ulii;
@@ -1459,11 +1596,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   double lh_med;
   double hh_med;
   pthread_t threads[MAX_THREADS];
-
-  // DEBUG
-  int norm_exclude = 0;
-  int aff_exclude = 0;
-  int unaff_exclude = 0;
 
   ii = missing_pheno;
   if (ii < 0) {
@@ -2426,14 +2558,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             }
 	  }
 	  if (SNPHWE_t(hwe_lhi, hwe_lli, hwe_hhi, hwe_thresh)) {
-            norm_exclude += 1;
 	    exclude(marker_exclude, ii, &marker_exclude_ct);
 	  } else if (bin_pheno) {
             if (SNPHWE_t(hwe_u_lhi, hwe_u_lli, hwe_u_hhi, hwe_thresh)) {
-              unaff_exclude += 1;
               exclude(marker_exclude, ii, &marker_exclude_ct);
             } else if (SNPHWE_t(hwe_a_lhi, hwe_a_lli, hwe_a_hhi, hwe_thresh)) {
-              aff_exclude += 1;
               exclude(marker_exclude, ii, &marker_exclude_ct);
             }
           }
@@ -3121,7 +3250,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
       pedfile = fopen(outname, "rb");
       if (!pedfile) {
+        retval = RET_OPENFAIL;
         printf("Error: Failed to open %s.\n", outname);
+        goto wdist_ret_2;
       }
       binary_files = 1;
       if (pheno_c) {
@@ -3183,11 +3314,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       goto wdist_ret_2;
     }
     fill_double_zero(rel_ibc, ii);
-    if ((calculation_type & CALC_RELATIONSHIP_IBC_MASK) == CALC_RELATIONSHIP_IBC1) {
-      ibc_type = 1;
-    } else if ((calculation_type & CALC_RELATIONSHIP_IBC_MASK) == CALC_RELATIONSHIP_IBC2) {
-      ibc_type = 2;
-    }
     ulii = ped_postct;
     ulii = (ulii * (ulii + 1)) / 2;
     dists_alloc = ulii * sizeof(int);
@@ -3213,8 +3339,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       if (!gptr) {
         goto wdist_ret_2;
       }
-      triangle_fill(thread_start, ped_postct, thread_ct, 1, CACHELINE / sizeof(double));
-      triangle_fill(thread_start0, ped_postct, thread_ct, 0, CACHELINE / sizeof(double));
+      triangle_fill(thread_start, ped_postct, thread_ct, 1, CACHELINE_DBL);
+      triangle_fill(thread_start0, ped_postct, thread_ct, 0, CACHELINE_DBL);
       // See later comments on CALC_DISTANCE.
       // The difference is, we have to use + instead of XOR here to distinguish
       // the cases, so we want to allow at least 3 bits per locus.  And given
@@ -3308,7 +3434,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         printf("\r%d markers complete.", pp);
         fflush(stdout);
       }
-      if (calculation_type & CALC_RELATIONSHIP_MASK) {
+      if (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY)) {
         printf("\rRelationship matrix calculation complete.\n");
         dist_ptr = rel_dists;
       } else {
@@ -3323,7 +3449,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
       iwptr = rel_missing;
       for (ii = 0; ii < ped_postct; ii++) {
-        if (calculation_type & CALC_RELATIONSHIP_MASK) {
+        if (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY)) {
 	  for (jj = 0; jj < ii; jj++) {
 	    *dist_ptr /= map_linect - marker_exclude_ct - *iwptr++;
 	    dist_ptr++;
@@ -3348,6 +3474,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	strcpy(outname_end, ".ibc");
 	outfile = fopen(outname, "w");
 	if (!outfile) {
+          retval = RET_OPENFAIL;
 	  printf("Error: Failed to open %s.\n", outname);
 	  goto wdist_ret_2;
 	}
@@ -3397,6 +3524,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    strcpy(outname_end, ".grm.gz");
 	    gz_outfile = gzopen(outname, "wb");
 	    if (!gz_outfile) {
+              retval = RET_OPENFAIL;
 	      printf("Error: Failed to open %s.\n", outname);
 	      goto wdist_ret_2;
 	    }
@@ -3415,6 +3543,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    strcpy(outname_end, ".grm");
 	    outfile = fopen(outname, "w");
 	    if (!outfile) {
+              retval = RET_OPENFAIL;
 	      printf("Error: Failed to open %s.\n", outname);
 	      goto wdist_ret_2;
 	    }
@@ -3447,6 +3576,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    strcpy(outname_end, ".rel.gz");
 	    gz_outfile = gzopen(outname, "wb");
 	    if (!gz_outfile) {
+              retval = RET_OPENFAIL;
 	      printf("Error: Failed to open %s.\n", outname);
 	      goto wdist_ret_2;
 	    }
@@ -3473,6 +3603,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    strcpy(outname_end, ".rel");
 	    outfile = fopen(outname, "w");
 	    if (!outfile) {
+              retval = RET_OPENFAIL;
 	      printf("Error: Failed to open %s.\n", outname);
 	      goto wdist_ret_2;
 	    }
@@ -3501,6 +3632,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	strcpy(&(outname_end[4]), ".id");
 	outfile = fopen(outname, "w");
 	if (!outfile) {
+          retval = RET_OPENFAIL;
 	  printf("Error: Failed to open %s.\n", outname);
 	  goto wdist_ret_2;
 	}
@@ -3518,6 +3650,28 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     }
 
     if (calculation_type & CALC_UNRELATED_HERITABILITY) {
+      ulii = ped_postct;
+      ulii = CACHEALIGN_DBL(ulii * ulii);
+      dptr4 = &(rel_dists[ulii]);
+      ulii = ulii * 3 + CACHEALIGN_DBL(ped_postct) * 3;
+      wkspace_reset((unsigned char*)rel_dists);
+      rel_dists = (double*)wkspace_alloc(ulii * sizeof(double));
+      if (!rel_dists) {
+        goto wdist_ret_2;
+      }
+      dptr2 = &(rel_dists[ulii - CACHEALIGN_DBL(ped_postct)]);
+      collapse_copy_phenod(dptr2, pheno_d, person_exclude, ped_linect);
+      if (calculation_type & CALC_IBC) {
+        dptr3 = &(rel_ibc[ibc_type * ped_postct]);
+      } else {
+        dptr3 = rel_ibc;
+      }
+      for (ulii = 0; ulii < ped_postct; ulii++) {
+	memcpy(&(dptr4[ulii * ped_postct]), &(rel_dists[(ulii * (ulii - 1)) / 2]), ulii * sizeof(double));
+        dptr4[ulii * (ped_postct + 1)] = *dptr3++;
+      }
+      reml_em_one_trait(rel_dists, dptr2, &unrelated_herit_covg, &unrelated_herit_cove, unrelated_herit_tol);
+      printf("Heritability estimate: %g\n", unrelated_herit_covg);
     }
     wkspace_reset(wkspace);
   }
@@ -4336,6 +4490,7 @@ int param_count(int argc, char** argv, int flag_idx) {
 }
 
 int main(int argc, char** argv) {
+  unsigned char* wkspace_ua;
   char mapname[FNAMESIZE];
   char pedname[FNAMESIZE];
   char famname[FNAMESIZE];
@@ -4366,7 +4521,6 @@ int main(int argc, char** argv) {
   int cur_arg = 1;
   int calculation_type = 0;
   char* bubble;
-  int thread_ct = DEFAULT_THREAD_CT;
   int filter_type = 0;
   int mfilter_col = 0;
   int tail_pheno = 0;
@@ -4380,6 +4534,9 @@ int main(int argc, char** argv) {
   int regress_iters = ITERS_DEFAULT;
   int regress_d = 0;
   double unrelated_herit_tol = 0.0001;
+  double unrelated_herit_covg = 0.45;
+  double unrelated_herit_cove = 0.55;
+  int ibc_type = 0;
   int ii;
   int jj;
   int kk;
@@ -5033,15 +5190,11 @@ int main(int argc, char** argv) {
         } else if (!strcmp(argv[cur_arg + kk], "square0")) {
           calculation_type |= CALC_RELATIONSHIP_SQ;
         } else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
-          if (calculation_type & CALC_RELATIONSHIP_IBC_MASK) {
+          if (ibc_type) {
             printf("Error: --make-rel '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + kk], errstr_append);
             return dispmsg(RET_INVALID_CMDLINE);
           }
-          if (argv[cur_arg + kk][3] == '1') {
-            calculation_type |= CALC_RELATIONSHIP_IBC1;
-          } else {
-            calculation_type |= CALC_RELATIONSHIP_IBC2;
-          }
+          ibc_type = argv[cur_arg + kk][3] - '0';
         } else {
           printf("Error: Invalid --make-rel parameter.%s", errstr_append);
           return dispmsg(RET_INVALID_CMDLINE);
@@ -5066,15 +5219,11 @@ int main(int argc, char** argv) {
         if (!strcmp(argv[cur_arg + kk], "no-gz")) {
           calculation_type &= ~CALC_RELATIONSHIP_GZ;
         } else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
-          if (calculation_type & CALC_RELATIONSHIP_IBC_MASK) {
+          if (ibc_type) {
             printf("Error: --make-grm '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + kk], errstr_append);
             return dispmsg(RET_INVALID_CMDLINE);
           }
-          if (argv[cur_arg + kk][3] == '1') {
-            calculation_type |= CALC_RELATIONSHIP_IBC1;
-          } else {
-            calculation_type |= CALC_RELATIONSHIP_IBC2;
-          }
+          ibc_type = argv[cur_arg + kk][3] - '0';
         } else {
           printf("Error: Invalid --make-grm parameter.%s", errstr_append);
           return dispmsg(RET_INVALID_CMDLINE);
@@ -5096,15 +5245,11 @@ int main(int argc, char** argv) {
         if (!strcmp(argv[cur_arg + kk], "square0")) {
           calculation_type |= CALC_RELATIONSHIP_SQ;
         } else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
-          if (calculation_type & (CALC_RELATIONSHIP_IBC1 | CALC_RELATIONSHIP_IBC2)) {
+          if (ibc_type) {
             printf("Error: --make-grm-bin '%s' modifier cannot coexist with another IBC\nmodifier.%s", argv[cur_arg + kk], errstr_append);
             return dispmsg(RET_INVALID_CMDLINE);
           }
-          if (argv[cur_arg + kk][3] == '1') {
-            calculation_type |= CALC_RELATIONSHIP_IBC1;
-          } else {
-            calculation_type |= CALC_RELATIONSHIP_IBC2;
-          }
+          ibc_type = argv[cur_arg + kk][3] - '0';
         } else {
           printf("Error: Invalid --make-grm-bin parameter.%s", errstr_append);
           return dispmsg(RET_INVALID_CMDLINE);
@@ -5211,8 +5356,8 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = param_count(argc, argv, cur_arg);
-      if (ii > 1) {
-        printf("Error: --unrelated-heritability accepts at most one parameter.%s", errstr_append);
+      if (ii > 3) {
+        printf("Error: --unrelated-heritability accepts at most three parameters.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
       if (ii) {
@@ -5224,6 +5369,26 @@ int main(int argc, char** argv) {
 	  printf("Error: Invalid --unrelated-heritability EM tolerance parameter.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
+	if (ii > 1) {
+	  if (sscanf(argv[cur_arg + 2], "%lg", &unrelated_herit_covg) != 1) {
+	    printf("Error: Invalid --unrelated-heritability genetic covariance prior.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  if ((unrelated_herit_covg <= 0.0) || (unrelated_herit_covg > 1.0)) {
+	    printf("Error: Invalid --unrelated-heritability genetic covariance prior.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+          if (ii == 3) {
+	    if (sscanf(argv[cur_arg + 3], "%lg", &unrelated_herit_cove) != 1) {
+	      printf("Error: Invalid --unrelated-heritability residual covariance prior.\n");
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    if ((unrelated_herit_cove <= 0.0) || (unrelated_herit_cove > 1.0)) {
+	      printf("Error: Invalid --unrelated-heritability residual covariance prior.\n");
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+          }
+        }
       }
       cur_arg += ii + 1;
       calculation_type |= CALC_UNRELATED_HERITABILITY;
@@ -5264,24 +5429,26 @@ int main(int argc, char** argv) {
   if (!bubble) {
     return dispmsg(RET_NOMEM);
   }
-  wkspace = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
-  if ((malloc_size_mb > MALLOC_DEFAULT_MB) && !wkspace) {
-    printf("%lld MB malloc failed.  Using default allocation behavior.\n", malloc_size_mb);
+  wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
+  if ((malloc_size_mb > MALLOC_DEFAULT_MB) && !wkspace_ua) {
+    printf("%lld MB memory allocation failed.  Using default allocation behavior.\n", malloc_size_mb);
     malloc_size_mb = MALLOC_DEFAULT_MB;
   }
-  while (!wkspace) {
+  while (!wkspace_ua) {
     if (malloc_size_mb > 128) {
       malloc_size_mb -= 64;
     } else {
       malloc_size_mb = 64;
     }
-    wkspace = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
-    if (wkspace) {
+    wkspace_ua = (unsigned char*)(malloc_size_mb * 1048576 * sizeof(char));
+    if (wkspace_ua) {
       printf("Allocated %lld MB successfully.\n", malloc_size_mb);
     }
   }
+  // force 64-byte align on OS X to make cache line sensitivity work
+  wkspace = (unsigned char*)CACHEALIGN((unsigned long)wkspace_ua);
   wkspace_base = wkspace;
-  wkspace_left = malloc_size_mb * 1048576;
+  wkspace_left = malloc_size_mb * 1048576 - (unsigned long)(wkspace - wkspace_ua);
   free(bubble);
 
   if (!rseed) {
@@ -5291,7 +5458,7 @@ int main(int argc, char** argv) {
 
   // famname[0] indicates binary vs. text
   // filtername[0] indicates existence of filter
-  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chr_num, thread_ct, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol);
-  free(wkspace);
+  retval = wdist(pedname, mapname, famname, phenoname, filtername, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chr_num, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_cove, ibc_type);
+  free(wkspace_ua);
   return dispmsg(retval);
 }
