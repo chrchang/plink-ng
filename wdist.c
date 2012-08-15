@@ -815,17 +815,41 @@ void fill_weights_m(double* weights, double* wtbuf) {
   int jj;
   int kk;
   double dxx;
-  for (ii = 0; ii < BITCT; ii += 8) {
-    for (jj = 0; jj < 256; jj++) {
+
+#if __LP64__
+  for (jj = 0; jj < 256; jj++) {
+    dxx = 0.0;
+    for (kk = 0; kk < 8; kk++) {
+      if (jj & (1 << kk)) {
+	dxx += wtbuf[kk];
+      }
+    }
+    *weights++ = dxx;
+  }
+  for (ii = 8; ii < BITCT; ii += 7) {
+    for (jj = 0; jj < 128; jj++) {
       dxx = 0.0;
-      for (kk = 0; kk < 8; kk++) {
-        if (jj & (1 << kk)) {
-          dxx += wtbuf[kk + ii];
-        }
+      for (kk = 0; kk < 7; kk++) {
+	if (jj & (1 << kk)) {
+	  dxx += wtbuf[kk + ii];
+	}
       }
       *weights++ = dxx;
     }
   }
+#else
+  for (ii = 0; ii < BITCT; ii += 8) {
+    for (jj = 0; jj < 256; jj++) {
+      dxx = 0.0;
+      for (kk = 0; kk < 8; kk++) {
+	if (jj & (1 << kk)) {
+	  dxx += wtbuf[kk + ii];
+	}
+      }
+      *weights++ = dxx;
+    }
+  }
+#endif
 }
 
 double calc_wt_mean(double exponent, int lhi, int lli, int hhi) {
@@ -1121,14 +1145,19 @@ void decr_dist_missing(double* mtw, int tidx) {
   unsigned long* glptr2;
   unsigned long ulii;
   unsigned long uljj;
+#if __LP64__
+  double* weights1 = &(weights[256]);
+  double* weights2 = &(weights[384]);
+  double* weights3 = &(weights[512]);
+  double* weights4 = &(weights[640]);
+  double* weights5 = &(weights[768]);
+  double* weights6 = &(weights[896]);
+  double* weights7 = &(weights[1024]);
+  double* weights8 = &(weights[1152]);
+#else
   double* weights1 = &(weights[256]);
   double* weights2 = &(weights[512]);
   double* weights3 = &(weights[768]);
-#if __LP64__
-  double* weights4 = &(weights[1024]);
-  double* weights5 = &(weights[1280]);
-  double* weights6 = &(weights[1536]);
-  double* weights7 = &(weights[1792]);
 #endif
   int ii;
   double dweight;
@@ -1138,7 +1167,7 @@ void decr_dist_missing(double* mtw, int tidx) {
     ulii = *glptr2;
     if (ulii) {
 #if __LP64__
-      dweight = weights7[ulii >> 56] + weights6[(ulii >> 48) & 255] + weights5[(ulii >> 40) & 255] + weights4[(ulii >> 32) & 255] + weights3[(ulii >> 24) & 255] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights[ulii & 255];
+      dweight = weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights[ulii & 255];
 #else
       dweight = weights3[(ulii >> 24) & 255] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights[ulii & 255];
 #endif
@@ -1148,7 +1177,7 @@ void decr_dist_missing(double* mtw, int tidx) {
           *mtw += dweight;
         } else {
 #if __LP64__
-	  *mtw += weights7[uljj >> 56] + weights6[(uljj >> 48) & 255] + weights5[(uljj >> 40) & 255] + weights4[(uljj >> 32) & 255] + weights3[(uljj >> 24) & 255] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights[uljj & 255];
+          *mtw += weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights[ulii & 255];
 #else
 	  *mtw += weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights[uljj & 255];
 #endif
@@ -1160,7 +1189,7 @@ void decr_dist_missing(double* mtw, int tidx) {
 	uljj = *glptr++;
         if (uljj) {
 #if __LP64__
-	  *mtw += weights7[uljj >> 56] + weights6[(uljj >> 48) & 255] + weights5[(uljj >> 40) & 255] + weights4[(uljj >> 32) & 255] + weights3[(uljj >> 24) & 255] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights[uljj & 255];
+          *mtw += weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights[ulii & 255];
 #else
 	  *mtw += weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights[uljj & 255];
 #endif
@@ -1226,19 +1255,29 @@ void incr_dists_rm(int* idists, unsigned long* missing, int tidx) {
   unsigned long ulii;
   unsigned long uljj;
   int ii;
+  int dwt;
   for (ii = thread_start0[tidx]; ii < thread_start0[tidx + 1]; ii++) {
     glptr = missing;
     glptr2 = &(missing[ii]);
     ulii = *glptr2;
     // most bits should be zero, so it's worth special-casing this
     if (ulii) {
+#if __LP64__
+      dwt = iwt[ulii >> 56] + iwt[(ulii >> 48) & 255] + iwt[(ulii >> 40) & 255] + iwt[(ulii >> 32) & 255] + iwt[(ulii >> 24) & 255] + iwt[(ulii >> 16) & 255] + iwt[(ulii >> 8) & 255] + iwt[ulii & 255];
+#else
+      dwt = iwt[ulii >> 24] + iwt[(ulii >> 16) & 255] + iwt[(ulii >> 8) & 255] + iwt[ulii & 255];
+#endif
       while (glptr <= glptr2) {
 	uljj = *glptr++ | ulii;
+        if (uljj == ulii) {
+          *idists += dwt;
+        } else {
 #if __LP64__
-	*idists += iwt[uljj >> 56] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+	  *idists += iwt[uljj >> 56] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
 #else
-	*idists += iwt[uljj >> 24] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+	  *idists += iwt[uljj >> 24] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
 #endif
+        }
 	idists++;
       }
     } else {
