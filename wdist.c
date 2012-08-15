@@ -34,6 +34,7 @@
 
 #include "zlib-1.2.7/zlib.h"
 
+#define PI 3.141592653589793
 #define CACHELINE 64 // assumed number of bytes per cache line, for alignment
 #define CACHELINE_DBL (CACHELINE / sizeof(double))
 
@@ -100,7 +101,7 @@
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.6.1 (16 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.6.2 (16 August 2012)\n"
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
@@ -202,12 +203,12 @@ int dispmsg(int retval) {
 "    Regresses genetic distances on average phenotypes, using delete-d\n"
 "    jackknife for standard errors.  Scalar phenotype required.  Defaults for\n"
 "    iters and d are the same as for --groupdist.\n\n"
-"  --unrelated-heritability {tol} {covg prior} {cove prior}\n"
-"    REML estimate of additive heritability, iterating with the EM algorithm\n"
-"    until the rate of change of the log likelihood function is less than tol.\n"
-"    Scalar phenotype required.  tol defaults to 10^{-4}, genetic covariance\n"
-"    prior defaults to 0.45, and residual covariance prior defaults to\n"
-"    (1 - covg).\n"
+"  --unrelated-heritability {tol} {initial covg} {initial cove}\n"
+"    REML estimate of additive heritability, iterating with an accelerated\n"
+"    variant of the EM algorithm until the rate of change of the log likelihood\n"
+"    function is less than tol.  Scalar phenotype required.  tol defaults to\n"
+"    10^{-4}, genetic covariance prior defaults to 0.45, and residual\n"
+"    covariance prior defaults to (1 - covg).\n"
 "    For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
 "    Genetic Correlations Explained by Common SNPs for Metabolic Syndrome\n"
 "    Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
@@ -1553,8 +1554,15 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   int info;
 #endif
   double dxx;
+  double dyy;
+  double max_jump;
+  double dzz;
   double dlg;
   double dle;
+  double covg_cur_change = 1.0;
+  double cove_cur_change = 1.0;
+  double covg_last_change;
+  double cove_last_change;
   double ped_postct_d = 1.0 / (double)ped_postct;
   int ii;
   int jj;
@@ -1604,10 +1612,51 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     dlg += cblas_ddot(ped_postct, pheno, 1, row, 1);
     cblas_dsymv(CblasColMajor, CblasUpper, ped_postct, 1.0, wkbase, ped_postct, row2, 1, 0.0, row, 1);
     dle += cblas_ddot(ped_postct, pheno, 1, row, 1);
-    *covg_ref *= 1.0 + (*covg_ref * dlg * ped_postct_d);
-    *cove_ref *= 1.0 + (*cove_ref * dle * ped_postct_d);
-    ll_change = (*covg_ref * (*covg_ref) * ped_postct_d * dlg * dlg) + (*cove_ref * (*cove_ref) * ped_postct_d * dle * dle);
-    printf("\b\b\b\b\b\b      \rcovg: %g  cove: %g  ll_change: %g", *covg_ref, *cove_ref, ll_change);
+    covg_last_change = covg_cur_change;
+    cove_last_change = cove_cur_change;
+    covg_cur_change = (*covg_ref) * (*covg_ref) * dlg * ped_postct_d;
+    cove_cur_change = (*cove_ref) * (*cove_ref) * dle * ped_postct_d;
+    // acceleration factor:
+    // min(half covg distance to 0 or 1, cove distance to 0 or 1, pi/4 divided
+    // by last angular change, 1.0 / (1 - ratio of last two step lengths))
+    dxx = atan2(covg_last_change, cove_last_change) - atan2(covg_cur_change, cove_cur_change);
+    if (dxx < 0.0) {
+      dxx = -dxx;
+    }
+    if (dxx > PI) {
+      dxx = 2.0 * PI - dxx;
+    }
+    dyy = sqrt((covg_cur_change * covg_cur_change + cove_cur_change * cove_cur_change) / (covg_last_change * covg_last_change + cove_last_change * cove_last_change));
+    if (covg_cur_change < 0.0) {
+      max_jump = *covg_ref * (-0.5) / covg_cur_change;
+    } else {
+      max_jump = (1.0 - *covg_ref) * 0.5 / covg_cur_change;
+    }
+    if (cove_cur_change < 0.0) {
+      dzz = *cove_ref * (-0.5) / cove_cur_change;
+    } else {
+      dzz = (1.0 - *cove_ref) * 0.5 / cove_cur_change;
+    }
+    if (dzz < max_jump) {
+      max_jump = dzz;
+    }
+    dzz = (PI / 4) / dxx;
+    if (dzz < max_jump) {
+      max_jump = dzz;
+    }
+    if (dyy < 1.0) {
+      dzz = 1.0 / (1.0 - dyy);
+    }
+    if (dzz < max_jump) {
+      max_jump = dzz;
+    }
+    if (max_jump < 1.0) {
+      max_jump = 1.0;
+    }
+    *covg_ref += covg_cur_change * max_jump;
+    *cove_ref += cove_cur_change * max_jump;
+    ll_change = (covg_cur_change * dlg) + (cove_cur_change * dle);
+    printf("\b\b\b\b\b\b      \rcovg: %g  cove: %g  EM step log likelihood change: %g", *covg_ref, *cove_ref, ll_change);
     fflush(stdout);
   } while (ll_change > tol);
   printf("\n");
@@ -3858,6 +3907,22 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
       dptr2 = &(rel_dists[ulii - CACHEALIGN_DBL(ped_postct)]);
       collapse_copy_phenod(dptr2, pheno_d, person_exclude, ped_linect);
+      dxx = 0.0;
+      dyy = 0.0;
+      dptr3 = dptr2;
+      dist_ptr = &(dptr2[ped_postct]);
+      while (dptr3 < dist_ptr) {
+        dzz = *dptr3++;
+        dxx += dzz;
+        dyy += dzz * dzz;
+      }
+      dxx /= (double)ped_postct;
+      dxx = 1.0 / sqrt((dyy / (double)ped_postct) - dxx * dxx);
+      dptr3 = dptr2;
+      while (dptr3 < dist_ptr) {
+        *dptr3 *= dxx;
+        dptr3++;
+      }
       if (calculation_type & CALC_IBC) {
         dptr3 = &(rel_ibc[ibc_type * ped_postct]);
       } else {
@@ -3871,7 +3936,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
       }
       reml_em_one_trait(rel_dists, dptr2, &unrelated_herit_covg, &unrelated_herit_cove, unrelated_herit_tol);
-      printf("Heritability estimate: %g\n", unrelated_herit_covg);
+      printf("h^2 estimate: %g\n", unrelated_herit_covg);
     }
     wkspace_reset((unsigned char*)rel_dists);
   }
