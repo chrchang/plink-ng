@@ -209,7 +209,7 @@ int dispmsg(int retval) {
 "    REML estimate of additive heritability, iterating with an accelerated\n"
 "    variant of the EM algorithm until the rate of change of the log likelihood\n"
 "    function is less than tol.  Scalar phenotype required.  tol defaults to\n"
-"    10^{-4}, genetic covariance prior defaults to 0.45, and residual\n"
+"    10^{-7}, genetic covariance prior defaults to 0.45, and residual\n"
 "    covariance prior defaults to (1 - covg).\n"
 "    For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
 "    Genetic Correlations Explained by Common SNPs for Metabolic Syndrome\n"
@@ -4753,7 +4753,7 @@ int main(int argc, char** argv) {
   int groupdist_d = 0;
   int regress_iters = ITERS_DEFAULT;
   int regress_d = 0;
-  double unrelated_herit_tol = 0.0001;
+  double unrelated_herit_tol = 0.0000001;
   double unrelated_herit_covg = 0.45;
   double unrelated_herit_cove = 0.55;
   int ibc_type = 0;
