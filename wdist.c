@@ -1131,18 +1131,28 @@ void decr_dist_missing(double* mtw, int tidx) {
   double* weights7 = &(weights[1792]);
 #endif
   int ii;
+  double dweight;
   for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
     glptr = mmasks;
     glptr2 = &(mmasks[ii]);
     ulii = *glptr2;
     if (ulii) {
+#if __LP64__
+      dweight = weights7[ulii >> 56] + weights6[(ulii >> 48) & 255] + weights5[(ulii >> 40) & 255] + weights4[(ulii >> 32) & 255] + weights3[(ulii >> 24) & 255] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights[ulii & 255];
+#else
+      dweight = weights3[(ulii >> 24) & 255] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights[ulii & 255];
+#endif
       while (glptr < glptr2) {
 	uljj = *glptr++ | ulii;
+        if (uljj == ulii) {
+          *mtw += dweight;
+        } else {
 #if __LP64__
-	*mtw += weights7[uljj >> 56] + weights6[(uljj >> 48) & 255] + weights5[(uljj >> 40) & 255] + weights4[(uljj >> 32) & 255] + weights3[(uljj >> 24) & 255] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights[uljj & 255];
+	  *mtw += weights7[uljj >> 56] + weights6[(uljj >> 48) & 255] + weights5[(uljj >> 40) & 255] + weights4[(uljj >> 32) & 255] + weights3[(uljj >> 24) & 255] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights[uljj & 255];
 #else
-	*mtw += weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights[uljj & 255];
+	  *mtw += weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights[uljj & 255];
 #endif
+        }
 	mtw++;
       }
     } else {
