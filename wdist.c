@@ -3584,7 +3584,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      uljj = (gptr2[mm * ped_linect4] >> kk) & 3;
 	      if (uljj == 1) {
 		uljj = 7;
-		glptr[oo] |= 1 << ((nn * (BITCT / 4)) + mm);
+		glptr[oo] |= 1LLU << ((nn * (BITCT / 4)) + mm);
 	      }
 	      ulii |= uljj << (mm * 4);
 	    }
