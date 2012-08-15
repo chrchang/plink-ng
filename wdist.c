@@ -100,7 +100,7 @@
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.6.0 (13 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.6.1 (15 August 2012)\n"
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
@@ -855,10 +855,10 @@ void fill_weights_m(double* weights, double* wtbuf) {
 double calc_wt_mean(double exponent, int lhi, int lli, int hhi) {
   double lfreq = (double)lli + ((double)lhi * 0.5);
   long long tot = lhi + lli + hhi;
-  double dtot = (double)dtot;
+  double dtot = (double)tot;
   double weight = pow(2.0 * (lfreq / dtot) * ((dtot - lfreq) / dtot), -exponent);
   long long subcount = lli; // avoid 32-bit integer overflow
-  subcount = lhi * (subcount * hhi) + 2 * subcount * hhi;
+  subcount = lhi * (subcount + hhi) + 2 * subcount * hhi;
   return (subcount * weight) / (double)(tot * (tot - 1) / 2);
 }
 
@@ -1743,12 +1743,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int ll_size;
   int lh_size;
   int hh_size;
-  int* ll_pool_i;
-  int* lh_pool_i;
-  int* hh_pool_i;
-  int* ll_pool_ip;
-  int* lh_pool_ip;
-  int* hh_pool_ip;
   double* ll_pool;
   double* lh_pool;
   double* hh_pool;
@@ -1765,9 +1759,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   */
   int low_ct;
   int high_ct;
-  long long low_tot_i;
-  long long lh_tot_i;
-  long long high_tot_i;
   double low_tot;
   double lh_tot;
   double high_tot;
@@ -1775,6 +1766,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   double lh_med;
   double hh_med;
   pthread_t threads[MAX_THREADS];
+  int exp0 = (exponent == 0.0);
 
   ii = missing_pheno;
   if (ii < 0) {
@@ -1820,7 +1812,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 
   // note that this actually only allocates up to half of the main workspace to
   // the distance array, because of the difference between n(n-1)/2 and n^2.
-  if (exponent == 0.0) {
+  if (exp0) {
     max_people = (int)sqrt((malloc_size_mb * 1048576) / sizeof(int));
   } else {
     max_people = (int)sqrt((malloc_size_mb * 1048576) / sizeof(double));
@@ -3156,10 +3148,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 
     ulii = ped_linect - person_exclude_ct;
     ulii = (ulii * (ulii - 1)) / 2;
-    if (exponent == 0.0) {
-      dists_alloc = ulii * sizeof(int);
+    if (exp0) {
+      dists_alloc = ulii * (sizeof(int) + sizeof(double));
     } else {
-      dists_alloc = ulii * sizeof(double);
+      dists_alloc = ulii * (sizeof(double) * 2);
     }
     
     llxx = malloc_size_mb * 1048576 - dists_alloc;
@@ -3487,7 +3479,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   }
   ped_postct = ped_linect - person_exclude_ct;
   wkspace_reset(wkspace);
-  marker_weights = (double*)wkspace_alloc(ped_postct * sizeof(double));
+  marker_weights = (double*)wkspace_alloc((map_linect - marker_exclude_ct) * sizeof(double));
   printf("%d markers and %d people pass filters and QC.\n", map_linect - marker_exclude_ct, ped_postct);
   if (thread_ct > 1) {
     if (thread_ct == DEFAULT_THREAD_CT) {
@@ -3887,7 +3879,17 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   if (distance_req(calculation_type)) {
     ulii = ped_postct;
     ulii = (ulii * (ulii - 1)) / 2;
-    if (exponent != 0.0) {
+    missing_tot_weights = (double*)wkspace_alloc(ulii * sizeof(double));
+    if (!missing_tot_weights) {
+      goto wdist_ret_2;
+    }
+    dptr2 = &(missing_tot_weights[ulii]);
+    dptr3 = missing_tot_weights;
+    while (dptr3 < dptr2) {
+      *dptr3++ = 1.0;
+    }
+
+    if (!exp0) {
       dists_alloc = ulii * sizeof(double);
       dists = (double*)wkspace_alloc(dists_alloc);
       if (!dists) {
@@ -3900,7 +3902,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       dists_alloc = ulii * sizeof(int);
       idists = (int*)wkspace_alloc(dists_alloc);
       if (!idists) {
-	goto wdist_ret_2;
+        goto wdist_ret_2;
       }
       fill_int_zero(idists, ulii);
       masks = (unsigned long*)wkspace_alloc(ped_postct * sizeof(long));
@@ -3912,18 +3914,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     if (!mmasks) {
       goto wdist_ret_2;
     }
-    missing_tot_weights = (double*)wkspace_alloc(ulii * sizeof(double));
-    if (!missing_tot_weights) {
-      goto wdist_ret_2;
-    }
-    dptr2 = &(missing_tot_weights[ulii]);
-    dptr3 = missing_tot_weights;
-    while (dptr3 < dptr2) {
-      *dptr3++ = 1.0;
-    }
 
     wkspace_mark = wkspace_base;
-    if (exponent == 0.0) {
+    if (exp0) {
       multiplex = IMULTIPLEX;
       ped_geno = wkspace_alloc(ped_postct * sizeof(long));
     } else {
@@ -3937,7 +3930,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     // normalize marker weights to add to -1
     dxx = 0.0;
     dptr2 = marker_weights;
-    dptr3 = &(marker_weights[ped_postct]);
+    dptr3 = &(marker_weights[map_linect - marker_exclude_ct]);
     while (dptr2 < dptr3) {
       dxx += *dptr2++;
     }
@@ -3958,7 +3951,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  }
 	}
 	fseeko(pedfile, 3, SEEK_SET);
-        if (exponent == 0.0) {
+        if (exp0) {
           ii = sizeof(int);
         } else {
           ii = sizeof(double);
@@ -3999,17 +3992,15 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      goto wdist_ret_2;
 	    }
 	    maf_buf[jj] = ((double)marker_allele_cts[ii * 2]) / ((double)(marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]));
-            wtbuf[jj] = marker_weights[ii];
+            wtbuf[jj++] = marker_weights[pp++];
 	    ii++;
-	    jj++;
-	    pp++;
 	  }
 	  if (jj < BITCT) {
 	    memset(&(pedbuf[jj * ped_linect4]), 0, (BITCT - jj) * ped_linect4);
 	  }
           fill_long_zero((long*)mmasks, ped_linect);
           for (nn = 0; nn < jj; nn += multiplex) {
-	    if (exponent == 0.0) {
+	    if (exp0) {
 	      glptr = (unsigned long*)ped_geno;
 	      glptr2 = masks;
               glptr3 = mmasks;
@@ -4023,7 +4014,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		    uljj = (gptr[mm * ped_linect4] >> kk) & 3;
 		    ulii |= uljj << (mm * 2);
                     if (uljj == 1) {
-                      ulkk |= 1 << mm;
+                      ulkk |= 1LLU << mm;
                     }
 		  }
 		  // use xor to convert representation to 0 = missing,
@@ -4053,43 +4044,41 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		pthread_join(threads[oo], NULL);
 	      }
 	    } else {
-              for (nn = 0; nn < jj; nn += multiplex) {
-		giptr = (unsigned int*)ped_geno;
-		giptr2 = (unsigned int*)masks;
-		glptr3 = mmasks;
-		for (oo = 0; oo < ped_linect; oo++) {
-		  if (!excluded(person_exclude, oo)) {
-		    kk = (oo % 4) * 2;
-		    uii = 0;
-		    ulkk = 0;
-                    gptr = &(pedbuf[oo / 4 + nn * ped_linect4]);
-		    for (mm = 0; mm < 16; mm++) {
-		      ujj = (pedbuf[mm * ped_linect4] >> kk) & 3;
-		      uii |= ujj << (mm * 2);
-		      if (ujj == 1) {
-			ulkk |= 1 << mm;
-		      }
+	      giptr = (unsigned int*)ped_geno;
+	      giptr2 = (unsigned int*)masks;
+	      glptr3 = mmasks;
+	      for (oo = 0; oo < ped_linect; oo++) {
+		if (!excluded(person_exclude, oo)) {
+		  kk = (oo % 4) * 2;
+		  uii = 0;
+		  ulkk = 0;
+		  gptr = &(pedbuf[oo / 4 + nn * ped_linect4]);
+		  for (mm = 0; mm < 16; mm++) {
+		    ujj = (gptr[mm * ped_linect4] >> kk) & 3;
+		    uii |= ujj << (mm * 2);
+		    if (ujj == 1) {
+		      ulkk |= 1LLU << mm;
 		    }
-		    uii ^= 0x55555555;
-		    *giptr++ = uii;
-		    uii = (uii | (uii >> 1)) & 0x55555555;
-		    *giptr2++ = uii * 3;
-		    *glptr3++ |= ulkk << nn;
 		  }
+		  uii ^= 0x55555555;
+		  *giptr++ = uii;
+		  uii = (uii | (uii >> 1)) & 0x55555555;
+		  *giptr2++ = uii * 3;
+		  *glptr3++ |= ulkk << nn;
 		}
-		fill_weights(weights, maf_buf, exponent);
-		for (ulii = 1; ulii < thread_ct; ulii++) {
-		  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_dist_thread, (void*)ulii)) {
-		    printf("Error: Could not create thread.\n");
-		    retval = RET_THREAD_CREATE_FAIL;
-		    goto wdist_ret_2;
-		  }
+	      }
+	      fill_weights(weights, &(maf_buf[nn]), exponent);
+	      for (ulii = 1; ulii < thread_ct; ulii++) {
+		if (pthread_create(&(threads[ulii - 1]), NULL, &calc_dist_thread, (void*)ulii)) {
+		  printf("Error: Could not create thread.\n");
+		  retval = RET_THREAD_CREATE_FAIL;
+		  goto wdist_ret_2;
 		}
-		incr_dists(dists, (unsigned int*)ped_geno, 0);
-		for (oo = 0; oo < thread_ct - 1; oo++) {
-		  pthread_join(threads[oo], NULL);
-		}
-              }
+	      }
+	      incr_dists(dists, (unsigned int*)ped_geno, 0);
+	      for (oo = 0; oo < thread_ct - 1; oo++) {
+		pthread_join(threads[oo], NULL);
+	      }
 	    }
           }
           fill_weights_m(weights, wtbuf);
@@ -4106,6 +4095,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           }
 	  printf("\r%d markers complete.", pp);
 	  fflush(stdout);
+          if (pp == 2240) {
+            break;
+          }
 	}
 	wkspace_reset(wkspace_mark);
       } else {
@@ -4118,7 +4110,24 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto wdist_ret_2;
     }
-
+    ulii = ped_postct;
+    ulii = ulii * (ulii - 1) / 2;
+    dptr2 = missing_tot_weights;
+    dptr3 = &(missing_tot_weights[ulii]);
+    if (exp0) {
+      iptr = idists;
+      while (dptr2 < dptr3) {
+	*dptr2 = (1.0 / (*dptr2)) * (*iptr++);
+	dptr2++;
+      }
+    } else {
+      dptr4 = dists;
+      while (dptr2 < dptr3) {
+        *dptr2 = (1.0 / (*dptr2)) * (*dptr4++);
+        dptr2++;
+      }
+    }
+    dists = missing_tot_weights;
     printf("\rDistance matrix calculation complete.\n");
   }
 
@@ -4146,30 +4155,16 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	gzwrite(gz_outfile, &(ped_geno[1]), ped_postct * 2 - 1);
 	gzprintf(gz_outfile, "\n");
       }
-      if (exponent == 0.0) {
-	iwptr = idists;
-	for (ii = 1; ii < ped_postct; ii += 1) {
-          gzprintf(gz_outfile, "%d", *iwptr++);
-	  for (jj = 1; jj < ii; jj += 1) {
-	    gzprintf(gz_outfile, "\t%d", *iwptr++);
-	  }
-	  if (calculation_type & CALC_DISTANCE_SQ) {
-            gzwrite(gz_outfile, ped_geno, (ped_postct - jj) * 2);
-	  }
-	  gzprintf(gz_outfile, "\n");
+      dist_ptr = dists;
+      for (ii = 1; ii < ped_postct; ii += 1) {
+	gzprintf(gz_outfile, "%g", *dist_ptr++);
+	for (jj = 1; jj < ii; jj += 1) {
+	  gzprintf(gz_outfile, "\t%g", *dist_ptr++);
 	}
-      } else {
-	dist_ptr = dists;
-	for (ii = 1; ii < ped_postct; ii += 1) {
-          gzprintf(gz_outfile, "%g", *dist_ptr++);
-	  for (jj = 1; jj < ii; jj += 1) {
-	    gzprintf(gz_outfile, "\t%g", *dist_ptr++);
-	  }
-	  if (calculation_type & CALC_DISTANCE_SQ) {
-	    gzwrite(gz_outfile, ped_geno, (ped_postct - jj) * 2);
-	  }
-	  gzprintf(gz_outfile, "\n");
+	if (calculation_type & CALC_DISTANCE_SQ) {
+	  gzwrite(gz_outfile, ped_geno, (ped_postct - jj) * 2);
 	}
+	gzprintf(gz_outfile, "\n");
       }
       gzclose(gz_outfile);
       gz_outfile = NULL;
@@ -4185,37 +4180,18 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       } else {
         dxx = 0.0;
       }
-      if (exponent == 0.0) {
-        iwptr = idists;
-        for (ii = 0; ii < ped_postct; ii++) {
-          for (jj = 0; jj < ii; jj++) {
-            dyy = (double)(*iwptr++);
-            fwrite(&dyy, 1, sizeof(double), outfile);
-          }
-          if (calculation_type & CALC_DISTANCE_SQ) {
-            fwrite(ped_geno, 1, (ped_postct - ii) * sizeof(double), outfile);
-          } else {
-            fwrite(&dxx, 1, sizeof(double), outfile);
-            for (jj = ii + 1; jj < ped_postct; jj++) {
-              dyy = (double)idists[(jj * (jj - 1)) / 2 + ii];
-              fwrite(&dyy, 1, sizeof(double), outfile);
-            }
-          }
-        }
-      } else {
-        dist_ptr = dists;
-        for (ii = 0; ii < ped_postct; ii++) {
-          fwrite(dist_ptr, 1, ii * sizeof(double), outfile);
-          dist_ptr = &(dist_ptr[ii]);
-          if (calculation_type & CALC_DISTANCE_SQ) {
-            fwrite(ped_geno, 1, (ped_postct - ii) * sizeof(double), outfile);
-          } else {
-            fwrite(&dxx, 1, sizeof(double), outfile);
-            for (jj = ii + 1; jj < ped_postct; jj++) {
-              fwrite(&(dists[(jj * (jj - 1)) / 2 + ii]), 1, sizeof(double), outfile);
-            }
-          }
-        }
+      dist_ptr = dists;
+      for (ii = 0; ii < ped_postct; ii++) {
+	fwrite(dist_ptr, 1, ii * sizeof(double), outfile);
+	dist_ptr = &(dist_ptr[ii]);
+	if (calculation_type & CALC_DISTANCE_SQ) {
+	  fwrite(ped_geno, 1, (ped_postct - ii) * sizeof(double), outfile);
+	} else {
+	  fwrite(&dxx, 1, sizeof(double), outfile);
+	  for (jj = ii + 1; jj < ped_postct; jj++) {
+	    fwrite(&(dists[(jj * (jj - 1)) / 2 + ii]), 1, sizeof(double), outfile);
+	  }
+	}
       }
       fclose(outfile);
       outfile = NULL;
@@ -4230,30 +4206,16 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	fwrite(&(ped_geno[1]), 1, ped_postct * 2 - 1, outfile);
 	fprintf(outfile, "\n");
       }
-      if (exponent == 0.0) {
-	iwptr = idists;
-	for (ii = 1; ii < ped_postct; ii += 1) {
-          fprintf(outfile, "%d", *iwptr++);
-	  for (jj = 1; jj < ii; jj += 1) {
-	    fprintf(outfile, "\t%d", *iwptr++);
-	  }
-	  if (calculation_type & CALC_DISTANCE_SQ) {
-            fwrite(ped_geno, 1, (ped_postct - jj) * 2, outfile);
-	  }
-	  fprintf(outfile, "\n");
+      dist_ptr = dists;
+      for (ii = 1; ii < ped_postct; ii += 1) {
+	fprintf(outfile, "%g", *dist_ptr++);
+	for (jj = 1; jj < ii; jj += 1) {
+	  fprintf(outfile, "\t%g", *dist_ptr++);
 	}
-      } else {
-	dist_ptr = dists;
-	for (ii = 1; ii < ped_postct; ii += 1) {
-          fprintf(outfile, "%g", *dist_ptr++);
-	  for (jj = 1; jj < ii; jj += 1) {
-	    fprintf(outfile, "\t%g", *dist_ptr++);
-	  }
-	  if (calculation_type & CALC_DISTANCE_SQ) {
-	    fwrite(ped_geno, 1, (ped_postct - jj) * 2, outfile);
-	  }
-	  fprintf(outfile, "\n");
+	if (calculation_type & CALC_DISTANCE_SQ) {
+	  fwrite(ped_geno, 1, (ped_postct - jj) * 2, outfile);
 	}
+	fprintf(outfile, "\n");
       }
       fclose(outfile);
       outfile = NULL;
@@ -4286,108 +4248,54 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     ll_size = (low_ct * (low_ct - 1)) / 2;
     lh_size = low_ct * high_ct;
     hh_size = (high_ct * (high_ct - 1)) / 2;
-    if (exponent == 0.0) {
-      low_tot_i = 0;
-      lh_tot_i = 0;
-      high_tot_i = 0;
-      iptr = idists;
-      ll_pool_i = (int*)ped_geno;
-      lh_pool_i = (int*)&(ped_geno[ll_size * sizeof(int)]);
-      hh_pool_i = (int*)&(ped_geno[(ll_size + lh_size) * sizeof(int)]);
-      ll_pool_ip = ll_pool_i;
-      lh_pool_ip = lh_pool_i;
-      hh_pool_ip = hh_pool_i;
-      ped_geno = &(ped_geno[(ll_size + lh_size + hh_size) * sizeof(int)]);
-      for (ii = 0; ii < ped_postct; ii++) {
-        cptr = pheno_c;
-        cptr2 = &(pheno_c[ii]);
-        if (*cptr2 == 1) {
-          while (cptr < cptr2) {
-            if (*cptr == 1) {
-              *hh_pool_ip++ = *iptr;
-              high_tot_i += *iptr;
-            } else if (!(*cptr)) {
-              *lh_pool_ip++ = *iptr;
-              lh_tot_i += *iptr;
-            }
-            cptr++;
-            iptr++;
+    low_tot = 0.0;
+    lh_tot = 0.0;
+    high_tot = 0.0;
+    dist_ptr = dists;
+    ll_pool = (double*)ped_geno;
+    lh_pool = (double*)&(ped_geno[ll_size * sizeof(double)]);
+    hh_pool = (double*)&(ped_geno[(ll_size + lh_size) * sizeof(double)]);
+    ll_poolp = ll_pool;
+    lh_poolp = lh_pool;
+    hh_poolp = hh_pool;
+    ped_geno = &(ped_geno[(ll_size + lh_size + hh_size) * sizeof(double)]);
+    for (ii = 0; ii < ped_postct; ii++) {
+      cptr = pheno_c;
+      cptr2 = &(pheno_c[ii]);
+      if (*cptr2 == 1) {
+	while (cptr < cptr2) {
+	  if (*cptr == 1) {
+	    *hh_poolp++ = *dist_ptr;
+	    high_tot += *dist_ptr;
+	  } else if (!(*cptr)) {
+	    *lh_poolp++ = *dist_ptr;
+	    lh_tot += *dist_ptr;
 	  }
-        } else if (*cptr2 == 0) {
-          while (cptr < cptr2) {
-            if (*cptr == 1) {
-              *lh_pool_ip++ = *iptr;
-              lh_tot_i += *iptr;
-            } else if (!(*cptr)) {
-              *ll_pool_ip++ = *iptr;
-              low_tot_i += *iptr;
-            }
-            cptr++;
-            iptr++;
+	  cptr++;
+	  dist_ptr++;
+	}
+      } else if (*cptr2 == 0) {
+	while (cptr < cptr2) {
+	  if (*cptr == 1) {
+	    *lh_poolp++ = *dist_ptr;
+	    lh_tot += *dist_ptr;
+	  } else if (!(*cptr)) {
+	    *ll_poolp++ = *dist_ptr;
+	    low_tot += *dist_ptr;
 	  }
-	} else {
-          iptr += ii;
-        }
+	  cptr++;
+	  dist_ptr++;
+	}
+      } else {
+	dist_ptr += ii;
       }
-      qsort(ll_pool_i, ll_size, sizeof(int), int_cmp);
-      qsort(lh_pool_i, lh_size, sizeof(int), int_cmp);
-      qsort(hh_pool_i, hh_size, sizeof(int), int_cmp);
-      low_tot = (double)low_tot_i;
-      lh_tot = (double)lh_tot_i;
-      high_tot = (double)high_tot_i;
-      ll_med = get_dmedian_i(ll_pool_i, ll_size);
-      lh_med = get_dmedian_i(lh_pool_i, lh_size);
-      hh_med = get_dmedian_i(hh_pool_i, hh_size);
-    } else {
-      low_tot = 0.0;
-      lh_tot = 0.0;
-      high_tot = 0.0;
-      dist_ptr = dists;
-      ll_pool = (double*)ped_geno;
-      lh_pool = (double*)&(ped_geno[ll_size * sizeof(double)]);
-      hh_pool = (double*)&(ped_geno[(ll_size + lh_size) * sizeof(double)]);
-      ll_poolp = ll_pool;
-      lh_poolp = lh_pool;
-      hh_poolp = hh_pool;
-      ped_geno = &(ped_geno[(ll_size + lh_size + hh_size) * sizeof(double)]);
-      for (ii = 0; ii < ped_postct; ii++) {
-        cptr = pheno_c;
-        cptr2 = &(pheno_c[ii]);
-        if (*cptr2 == 1) {
-          while (cptr < cptr2) {
-            if (*cptr == 1) {
-              *hh_poolp++ = *dist_ptr;
-              high_tot += *dist_ptr;
-            } else if (!(*cptr)) {
-              *lh_poolp++ = *dist_ptr;
-              lh_tot += *dist_ptr;
-            }
-            cptr++;
-            dist_ptr++;
-	  }
-        } else if (*cptr2 == 0) {
-          while (cptr < cptr2) {
-            if (*cptr == 1) {
-              *lh_poolp++ = *dist_ptr;
-              lh_tot += *dist_ptr;
-            } else if (!(*cptr)) {
-              *ll_poolp++ = *dist_ptr;
-              low_tot += *dist_ptr;
-            }
-            cptr++;
-            dist_ptr++;
-	  }
-	} else {
-          dist_ptr += ii;
-        }
-      }
-      qsort(ll_pool, ll_size, sizeof(double), double_cmp);
-      qsort(lh_pool, lh_size, sizeof(double), double_cmp);
-      qsort(hh_pool, hh_size, sizeof(double), double_cmp);
-      ll_med = get_dmedian(ll_pool, ll_size);
-      lh_med = get_dmedian(lh_pool, lh_size);
-      hh_med = get_dmedian(hh_pool, hh_size);
     }
+    qsort(ll_pool, ll_size, sizeof(double), double_cmp);
+    qsort(lh_pool, lh_size, sizeof(double), double_cmp);
+    qsort(hh_pool, hh_size, sizeof(double), double_cmp);
+    ll_med = get_dmedian(ll_pool, ll_size);
+    lh_med = get_dmedian(lh_pool, lh_size);
+    hh_med = get_dmedian(hh_pool, hh_size);
     printf("Group distance analysis (%d affected, %d unaffected):\n", high_ct, low_ct);
     if (high_ct < 2) {
       dxx = 0.0;
@@ -4560,37 +4468,19 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     reg_tot_x = 0.0;
     reg_tot_y = 0.0;
     reg_tot_xx = 0.0;
-    if (exponent == 0.0) {
-      iptr = idists;
-      dptr3 = &(pheno_d[ped_postct]);
-      dist_ptr = pheno_d;
-      while (++dist_ptr < dptr3) {
-        dzz = *dist_ptr;
-        dptr2 = pheno_d;
-        while (dptr2 < dist_ptr) {
-	  dxx = (dzz + *dptr2++) * 0.5;
-	  dyy = (double)(*iptr++);
-          reg_tot_xy += dxx * dyy;
-          reg_tot_x += dxx;
-          reg_tot_y += dyy;
-          reg_tot_xx += dxx * dxx;
-        }
-      }
-    } else {
-      dptr4 = dists;
-      dptr3 = &(pheno_d[ped_postct]);
-      dist_ptr = pheno_d;
-      while (++dist_ptr < dptr3) {
-        dzz = *dist_ptr;
-        dptr2 = pheno_d;
-        while (dptr2 < dist_ptr) {
-	  dxx = (dzz + *dptr2++) * 0.5;
-	  dyy = (*dptr4++);
-          reg_tot_xy += dxx * dyy;
-          reg_tot_x += dxx;
-          reg_tot_y += dyy;
-          reg_tot_xx += dxx * dxx;
-        }
+    dptr4 = dists;
+    dptr3 = &(pheno_d[ped_postct]);
+    dist_ptr = pheno_d;
+    while (++dist_ptr < dptr3) {
+      dzz = *dist_ptr;
+      dptr2 = pheno_d;
+      while (dptr2 < dist_ptr) {
+	dxx = (dzz + *dptr2++) * 0.5;
+	dyy = (*dptr4++);
+	reg_tot_xy += dxx * dyy;
+	reg_tot_x += dxx;
+	reg_tot_y += dyy;
+	reg_tot_xx += dxx * dxx;
       }
     }
 
