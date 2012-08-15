@@ -82,6 +82,8 @@
 // size of generic text line load buffer.  .ped lines can of course be longer
 #define MAXLINELEN 131072
 
+#define MAX_EM_MULTIPLY 100.0
+
 // default jackknife iterations
 #define ITERS_DEFAULT 100000
 
@@ -1618,7 +1620,8 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     cove_cur_change = (*cove_ref) * (*cove_ref) * dle * ped_postct_d;
     // acceleration factor:
     // min(half covg distance to 0 or 1, cove distance to 0 or 1, pi/4 divided
-    // by last angular change, 1.0 / (1 - ratio of last two step lengths))
+    // by last angular change, 1.0 / (1 - ratio of last two step lengths),
+    // MAX_EM_MULTIPLY)
     dxx = atan2(covg_last_change, cove_last_change) - atan2(covg_cur_change, cove_cur_change);
     if (dxx < 0.0) {
       dxx = -dxx;
@@ -1652,6 +1655,8 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     }
     if (max_jump < 1.0) {
       max_jump = 1.0;
+    } else if (max_jump > MAX_EM_ACCEL) {
+      max_jump = MAX_EM_ACCEL;
     }
     *covg_ref += covg_cur_change * max_jump;
     *cove_ref += cove_cur_change * max_jump;
