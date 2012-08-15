@@ -100,7 +100,7 @@
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.6.1 (15 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.6.1 (16 August 2012)\n"
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
@@ -3888,6 +3888,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     while (dptr3 < dptr2) {
       *dptr3++ = 1.0;
     }
+    wkspace_mark = wkspace_base;
 
     if (!exp0) {
       dists_alloc = ulii * sizeof(double);
@@ -3915,7 +3916,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       goto wdist_ret_2;
     }
 
-    wkspace_mark = wkspace_base;
     if (exp0) {
       multiplex = IMULTIPLEX;
       ped_geno = wkspace_alloc(ped_postct * sizeof(long));
@@ -4095,9 +4095,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           }
 	  printf("\r%d markers complete.", pp);
 	  fflush(stdout);
-          if (pp == 2240) {
-            break;
-          }
 	}
 	wkspace_reset(wkspace_mark);
       } else {
