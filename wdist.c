@@ -823,7 +823,7 @@ void fill_weights_m(double* weights, double* wtbuf) {
           dxx += wtbuf[kk + ii];
         }
       }
-      weights[jj + (ii * 32)] = dxx;
+      *weights++ = dxx;
     }
   }
 }
