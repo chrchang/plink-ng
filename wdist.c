@@ -328,17 +328,17 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
   }
   int mid2 = mid / 2;
   
-  int curr_hets = mid;
+  long long curr_hets = mid;
 
   het_probs[mid2] = 1.0;
   double sum = 1.0;
-  int curr_homr = rare_copies2 - mid2;
+  long long curr_homr = rare_copies2 - mid2;
   int curr_homc = genotypes - mid - curr_homr;
   double* hptr = &(het_probs[mid2 - 1]);
   double dv = 1.0;
   while (curr_hets > 1) {
     /* 2 fewer heterozygotes for next iteration -> add one rare, one common homozygote */
-    *hptr = dv * (double)curr_hets * (double)(curr_hets - 1) / ((double)(4 * (++curr_homr)) * (double)(++curr_homc));
+    *hptr = dv * (double)(curr_hets * (curr_hets - 1)) / ((double)(4 * (++curr_homr) * (++curr_homc)));
     curr_hets -= 2;
     dv = *hptr--;
     sum += dv;
@@ -351,7 +351,7 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
   dv = 1.0;
   while (curr_hets <= rare_copies - 2) {
     curr_hets += 2;
-    *hptr = dv * (double)(4 * curr_homr--) * (double)(curr_homc--) / ((double)(curr_hets * (double)(curr_hets - 1)));
+    *hptr = dv * (double)(4 * (curr_homr--) * (curr_homc--)) / ((double)(curr_hets * (curr_hets - 1)));
     dv = *hptr++;
     sum += dv;
   }
@@ -731,14 +731,14 @@ void fill_weights(double* weights, double* mafs, double exponent) {
 }
 
 // Strangely, these functions optimize better than memset(arr, 0, x) under gcc.
-inline void fill_long_zero(long* larr, size_t size) {
+void fill_long_zero(long* larr, size_t size) {
   long* lptr = &(larr[size]);
   while (larr < lptr) {
     *larr++ = 0;
   }
 }
 
-inline void fill_int_zero(int* iarr, size_t size) {
+void fill_int_zero(int* iarr, size_t size) {
 #if __LP64__
   fill_long_zero((long*)iarr, size >> 1);
   if (size & 1) {
@@ -749,7 +749,7 @@ inline void fill_int_zero(int* iarr, size_t size) {
 #endif
 }
 
-inline void fill_double_zero(double* darr, size_t size) {
+void fill_double_zero(double* darr, size_t size) {
   double* dptr = &(darr[size]);
   while (darr < dptr) {
     *darr++ = 0.0;
@@ -810,6 +810,35 @@ void fill_weights_r(double* weights, double* mafs) {
   }
 }
 
+void fill_weights_m(double* weights, double* wtbuf) {
+  int ii;
+  int jj;
+  int kk;
+  double dxx;
+  for (ii = 0; ii < BITCT; ii += 8) {
+    for (jj = 0; jj < 256; jj++) {
+      dxx = 0.0;
+      for (kk = 0; kk < 8; kk++) {
+        if (jj & (1 << kk)) {
+          dxx += wtbuf[kk + ii];
+        }
+      }
+      weights[jj + (ii * 32)] = dxx;
+    }
+  }
+}
+
+double calc_wt_mean(double exponent, int lhi, int lli, int hhi) {
+  double lfreq = (double)lli + ((double)lhi * 0.5);
+  long long tot = lhi + lli + hhi;
+  double dtot = (double)dtot;
+  double weight = pow(2.0 * (lfreq / dtot) * ((dtot - lfreq) / dtot), -exponent);
+  long long subcount = lli; // avoid 32-bit integer overflow
+  subcount = lhi * (subcount * hhi) + 2 * subcount * hhi;
+  return (subcount * weight) / (double)(tot * (tot - 1) / 2);
+}
+
+// ----- multithread globals -----
 int ped_postct;
 int thread_ct = DEFAULT_THREAD_CT;
 double* rel_dists = NULL;
@@ -832,6 +861,10 @@ int jackknife_iters;
 int jackknife_d;
 double calc_result[MAX_THREADS];
 double calc_result2[MAX_THREADS];
+unsigned long* masks;
+unsigned long* mmasks;
+double* marker_weights;
+double* missing_tot_weights;
 
 void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_type) {
   // first calculate weight array, then loop
@@ -1002,20 +1035,36 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
   unsigned long* glptr;
   unsigned long* glptr2;
   unsigned long ulii;
+  unsigned long mask_fixed;
   unsigned long uljj;
+  unsigned long* mptr;
   int ii;
   for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
     glptr = geno;
     glptr2 = &(geno[ii]);
     ulii = *glptr2;
-    while (glptr < glptr2) {
-      uljj = *glptr++ ^ ulii;
+    mptr = masks;
+    mask_fixed = masks[ii];
+    if (~mask_fixed) {
+      while (glptr < glptr2) {
+	uljj = (*glptr++ ^ ulii) & (mask_fixed & (*mptr++));
 #if __LP64__
-      *idists += iwt[uljj >> 56] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+	*idists += iwt[uljj >> 56] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
 #else
-      *idists += iwt[uljj >> 24] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+	*idists += iwt[uljj >> 24] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
 #endif
-      idists++;
+	idists++;
+      }
+    } else {
+      while (glptr < glptr2) {
+	uljj = (*glptr++ ^ ulii) & (*mptr++);
+#if __LP64__
+	*idists += iwt[uljj >> 56] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+#else
+	*idists += iwt[uljj >> 24] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+#endif
+	idists++;
+      }
     }
   }
 }
@@ -1031,7 +1080,9 @@ void incr_dists(double* dists, unsigned int* geno, int tidx) {
   unsigned int* giptr;
   unsigned int* giptr2;
   unsigned int uii;
+  unsigned int mask_fixed;
   unsigned int ujj;
+  unsigned int* mptr;
   double* weights1 = &(weights[256]);
   double* weights2 = &(weights[512]);
   double* weights3 = &(weights[768]);
@@ -1040,10 +1091,20 @@ void incr_dists(double* dists, unsigned int* geno, int tidx) {
     giptr = geno;
     giptr2 = &(geno[ii]);
     uii = *giptr2;
-    while (giptr < giptr2) {
-      ujj = *giptr++ ^ uii;
-      *dists += weights3[ujj >> 24] + weights2[(ujj >> 16) & 255] + weights1[(ujj >> 8) & 255] + weights[ujj & 255];
-      dists++;
+    mptr = (unsigned int*)masks;
+    mask_fixed = ((unsigned int*)masks)[ii];
+    if (~mask_fixed) {
+      while (giptr < giptr2) {
+	ujj = (*giptr++ ^ uii) & (mask_fixed & (*mptr++));
+	*dists += weights3[ujj >> 24] + weights2[(ujj >> 16) & 255] + weights1[(ujj >> 8) & 255] + weights[ujj & 255];
+	dists++;
+      }
+    } else {
+      while (giptr < giptr2) {
+	ujj = (*giptr++ ^ uii) & (*mptr++);
+	*dists += weights3[ujj >> 24] + weights2[(ujj >> 16) & 255] + weights1[(ujj >> 8) & 255] + weights[ujj & 255];
+	dists++;
+      }
     }
   }
 }
@@ -1052,6 +1113,56 @@ void* calc_dist_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
   incr_dists(&(dists[(ii * (ii - 1)) / 2]), (unsigned int*)ped_geno, (int)tidx);
+  return NULL;
+}
+
+void decr_dist_missing(double* mtw, int tidx) {
+  unsigned long* glptr;
+  unsigned long* glptr2;
+  unsigned long ulii;
+  unsigned long uljj;
+  double* weights1 = &(weights[256]);
+  double* weights2 = &(weights[512]);
+  double* weights3 = &(weights[768]);
+#if __LP64__
+  double* weights4 = &(weights[1024]);
+  double* weights5 = &(weights[1280]);
+  double* weights6 = &(weights[1536]);
+  double* weights7 = &(weights[1792]);
+#endif
+  int ii;
+  for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
+    glptr = mmasks;
+    glptr2 = &(mmasks[ii]);
+    ulii = *glptr2;
+    if (ulii) {
+      while (glptr < glptr2) {
+	uljj = *glptr++ | ulii;
+#if __LP64__
+	*mtw += weights7[uljj >> 56] + weights6[(uljj >> 48) & 255] + weights5[(uljj >> 40) & 255] + weights4[(uljj >> 32) & 255] + weights3[(uljj >> 24) & 255] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights[uljj & 255];
+#else
+	*mtw += weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights[uljj & 255];
+#endif
+	mtw++;
+      }
+    } else {
+      while (glptr < glptr2) {
+	uljj = *glptr++;
+#if __LP64__
+	*mtw += weights7[uljj >> 56] + weights6[(uljj >> 48) & 255] + weights5[(uljj >> 40) & 255] + weights4[(uljj >> 32) & 255] + weights3[(uljj >> 24) & 255] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights[uljj & 255];
+#else
+	*mtw += weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights[uljj & 255];
+#endif
+	mtw++;
+      }
+    }
+  }
+}
+
+void* calc_distm_thread(void* arg) {
+  long tidx = (long)arg;
+  int ii = thread_start[tidx];
+  decr_dist_missing(&(missing_tot_weights[(ii * (ii - 1)) / 2]), (int)tidx);
   return NULL;
 }
 
@@ -1499,6 +1610,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   unsigned int ujj;
   unsigned long ulii;
   unsigned long uljj;
+  unsigned long ulkk;
   double dxx;
   double dyy;
   double dzz;
@@ -1521,11 +1633,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int max_person_id_len = 4;
   unsigned char* wkspace_mark;
   unsigned int* giptr;
+  unsigned int* giptr2;
   char* cptr = NULL;
   char* cptr2;
   // char* cptr3;
   unsigned char* gptr;
+  unsigned char* gptr2;
   unsigned long* glptr2;
+  unsigned long* glptr3;
   int* iwptr;
   int* iptr;
   long long dists_alloc = 0;
@@ -1550,8 +1665,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int max_id_len = 4;
   char* pid_list = NULL;
   char* id_list = NULL;
-  int rand_thresh_buf[IMULTIPLEX];
   double maf_buf[DMULTIPLEX];
+  double wtbuf[BITCT];
   double missing_phenod = (double)missing_pheno;
   int missing_pheno_len = 1;
   int* hwe_ll;
@@ -2430,6 +2545,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    }
 	  }
 	}
+	marker_weights = (double*)wkspace_alloc((map_linect - marker_exclude_ct) * sizeof(double));
+	if (!marker_weights) {
+	  goto wdist_ret_2;
+	}
+	dptr2 = marker_weights;
+
         for (ii = 0; ii < map_linect; ii++) {
           if (!excluded(marker_exclude, ii)) {
 	    if (SNPHWE_t(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii], hwe_thresh)) {
@@ -2438,6 +2559,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
               if (SNPHWE_t(hwe_u_lh[ii], hwe_u_ll[ii], hwe_u_hh[ii], hwe_thresh) || SNPHWE_t(hwe_a_lh[ii], hwe_a_ll[ii], hwe_a_hh[ii], hwe_thresh)) {
                 exclude(marker_exclude, ii, &marker_exclude_ct);
               }
+            }
+            if (!excluded(marker_exclude, ii)) {
+              *dptr2++ = calc_wt_mean(exponent, hwe_lh[ii], hwe_ll[ii], hwe_hh[ii]);
             }
           }
         }
@@ -2501,88 +2625,94 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  exclude(person_exclude, ii, &person_exclude_ct);
         }
       }
-      if (hwe_thresh > 0.0) {
-        fflush(stdout);
-        het_probs = (double*)malloc(((map_linect - marker_exclude_ct) / 2 + 1) * sizeof(double));
-        if (!het_probs) {
-          goto wdist_ret_1;
-        }
+      het_probs = (double*)malloc(((map_linect - marker_exclude_ct) / 2 + 1) * sizeof(double));
+      if (!het_probs) {
+	goto wdist_ret_1;
+      }
 
-        fseeko(pedfile, 3, SEEK_SET);
-        // ----- .snp-major .bed load, second pass -----
-        for (ii = 0; ii < map_linect; ii++) {
-          if (excluded(marker_exclude, ii)) {
-            fseeko(pedfile, (off_t)ped_linect4, SEEK_CUR);
-            continue;
-          }
-          if (fread(pedbuf, 1, ped_linect4, pedfile) < ped_linect4) {
-            retval = RET_READ_FAIL;
-            goto wdist_ret_2;
-          }
-          gptr = pedbuf;
-          hwe_lli = 0;
-          hwe_lhi = 0;
-          hwe_hhi = 0;
-          hwe_u_lli = 0;
-          hwe_u_lhi = 0;
-          hwe_u_hhi = 0;
-          hwe_a_lli = 0;
-          hwe_a_lhi = 0;
-          hwe_a_hhi = 0;
-	  for (jj = 0; jj < ped_linect; jj++) {
-	    kk = jj % 4;
-	    if (!kk) {
-	      uii = *gptr++;
-	    } else {
-	      uii >>= 2;
-	    }
-            if (!excluded(person_exclude, jj)) {
-	      ujj = uii & 3;
-	      if (ujj) {
-		if (ujj == 2) {
-		  hwe_lhi += 1;
-		  if (bin_pheno) {
-		    if (pheno_c[jj] == 0) {
-		      hwe_u_lhi += 1;
-		    } else if (pheno_c[jj] == 1) {
-		      hwe_a_lhi += 1;
-		    }
-		  }
-		} else if (ujj == 3) {
-		  hwe_hhi += 1;
-		  if (bin_pheno) {
-		    if (pheno_c[jj] == 0) {
-		      hwe_u_hhi += 1;
-		    } else if (pheno_c[jj] == 1) {
-		      hwe_a_hhi += 1;
-		    }
-		  }
-		}
-	      } else {
-		hwe_lli += 1;
+      marker_weights = (double*)wkspace_alloc((map_linect - marker_exclude_ct) * sizeof(double));
+      if (!marker_weights) {
+        goto wdist_ret_2;
+      }
+      dptr2 = marker_weights;
+
+      fseeko(pedfile, 3, SEEK_SET);
+      // ----- .snp-major .bed load, second pass -----
+      for (ii = 0; ii < map_linect; ii++) {
+	if (excluded(marker_exclude, ii)) {
+	  fseeko(pedfile, (off_t)ped_linect4, SEEK_CUR);
+	  continue;
+	}
+	if (fread(pedbuf, 1, ped_linect4, pedfile) < ped_linect4) {
+	  retval = RET_READ_FAIL;
+	  goto wdist_ret_2;
+	}
+	gptr = pedbuf;
+	hwe_lli = 0;
+	hwe_lhi = 0;
+	hwe_hhi = 0;
+	hwe_u_lli = 0;
+	hwe_u_lhi = 0;
+	hwe_u_hhi = 0;
+	hwe_a_lli = 0;
+	hwe_a_lhi = 0;
+	hwe_a_hhi = 0;
+	for (jj = 0; jj < ped_linect; jj++) {
+	  kk = jj % 4;
+	  if (!kk) {
+	    uii = *gptr++;
+	  } else {
+	    uii >>= 2;
+	  }
+	  if (!excluded(person_exclude, jj)) {
+	    ujj = uii & 3;
+	    if (ujj) {
+	      if (ujj == 2) {
+		hwe_lhi += 1;
 		if (bin_pheno) {
 		  if (pheno_c[jj] == 0) {
-		    hwe_u_lli += 1;
+		    hwe_u_lhi += 1;
 		  } else if (pheno_c[jj] == 1) {
-		    hwe_a_lli += 1;
+		    hwe_a_lhi += 1;
+		  }
+		}
+	      } else if (ujj == 3) {
+		hwe_hhi += 1;
+		if (bin_pheno) {
+		  if (pheno_c[jj] == 0) {
+		    hwe_u_hhi += 1;
+		  } else if (pheno_c[jj] == 1) {
+		    hwe_a_hhi += 1;
 		  }
 		}
 	      }
-            }
+	    } else {
+	      hwe_lli += 1;
+	      if (bin_pheno) {
+		if (pheno_c[jj] == 0) {
+		  hwe_u_lli += 1;
+		} else if (pheno_c[jj] == 1) {
+		  hwe_a_lli += 1;
+		}
+	      }
+	    }
 	  }
-	  if (SNPHWE_t(hwe_lhi, hwe_lli, hwe_hhi, hwe_thresh)) {
+	}
+	if (SNPHWE_t(hwe_lhi, hwe_lli, hwe_hhi, hwe_thresh)) {
+	  exclude(marker_exclude, ii, &marker_exclude_ct);
+	} else if (bin_pheno) {
+	  if (SNPHWE_t(hwe_u_lhi, hwe_u_lli, hwe_u_hhi, hwe_thresh)) {
 	    exclude(marker_exclude, ii, &marker_exclude_ct);
-	  } else if (bin_pheno) {
-            if (SNPHWE_t(hwe_u_lhi, hwe_u_lli, hwe_u_hhi, hwe_thresh)) {
-              exclude(marker_exclude, ii, &marker_exclude_ct);
-            } else if (SNPHWE_t(hwe_a_lhi, hwe_a_lli, hwe_a_hhi, hwe_thresh)) {
-              exclude(marker_exclude, ii, &marker_exclude_ct);
-            }
-          }
+	  } else if (SNPHWE_t(hwe_a_lhi, hwe_a_lli, hwe_a_hhi, hwe_thresh)) {
+	    exclude(marker_exclude, ii, &marker_exclude_ct);
+	  }
+	}
+        if (!excluded(marker_exclude, ii)) {
+          *dptr2++ = calc_wt_mean(exponent, hwe_lhi, hwe_lli, hwe_hhi);
         }
-	free(het_probs);
-	het_probs = NULL;
       }
+      free(het_probs);
+      het_probs = NULL;
     }
   } else {
     pedbuf[pedbuflen - 1] = ' ';
@@ -2874,96 +3004,103 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       printf("Error: All markers fail QC.\n");
       goto wdist_ret_1;
     }
-    if (hwe_thresh > 0.0) {
-      het_probs = (double*)malloc(((map_linect - marker_exclude_ct) / 2 + 1) * sizeof(double));
-      if (!het_probs) {
-	goto wdist_ret_1;
-      }
-
-      if (wkspace_left < map_linect * 9 * sizeof(int)) {
-        goto wdist_ret_1;
-      }
-      // unfortunately, this requires a third pass...
-      hwe_ll = (int*)wkspace;
-      hwe_lh = (int*)(&(wkspace[map_linect * sizeof(int)]));
-      hwe_hh = (int*)(&(wkspace[map_linect * 2 * sizeof(int)]));
-      hwe_u_ll = (int*)(&(wkspace[map_linect * 3 * sizeof(int)]));
-      hwe_u_lh = (int*)(&(wkspace[map_linect * 4 * sizeof(int)]));
-      hwe_u_hh = (int*)(&(wkspace[map_linect * 5 * sizeof(int)]));
-      hwe_a_ll = (int*)(&(wkspace[map_linect * 6 * sizeof(int)]));
-      hwe_a_lh = (int*)(&(wkspace[map_linect * 7 * sizeof(int)]));
-      hwe_a_hh = (int*)(&(wkspace[map_linect * 8 * sizeof(int)]));
-      fill_int_zero((int*)wkspace, map_linect * 9);
-
-      for (ii = 0; ii < ped_linect; ii += 1) {
-        if (excluded(person_exclude, ii)) {
-          continue;
-        }
-        fseeko(pedfile, line_locs[ii], SEEK_SET);
-        fgets((char*)pedbuf, pedbuflen, pedfile);
-        bufptr = (char*)pedbuf;
-        for (jj = 0; jj < map_linect; jj += 1) {
-          if (excluded(marker_exclude, jj)) {
-            continue;
-          }
-          mm = 0;
-          for (kk = 0; kk < 2; kk++) {
-            cc = *bufptr;
-	    if (cc == marker_alleles[jj * 4 + 1]) {
-	      mm += 1;
-            } else if (cc != marker_alleles[jj * 4]) {
-              mm = -2;
-            }
-	    bufptr++;
-	    while ((*bufptr == ' ') || (*bufptr == '\t')) {
-	      bufptr++;
-	    }
-          }
-          if (mm == 0) {
-            hwe_ll[jj] += 1;
-            if (bin_pheno) {
-              if (pheno_c[ii] == 0) {
-                hwe_u_ll[jj] += 1;
-              } else if (pheno_c[ii] == 1) {
-                hwe_a_ll[jj] += 1;
-              }
-            }
-          } else if (mm == 1) {
-            hwe_lh[jj] += 1;
-            if (bin_pheno) {
-              if (pheno_c[ii] == 0) {
-                hwe_u_lh[jj] += 1;
-              } else if (pheno_c[ii] == 1) {
-                hwe_a_lh[jj] += 1;
-              }
-            }
-          } else if (mm == 2) {
-            hwe_hh[jj] += 1;
-            if (bin_pheno) {
-              if (pheno_c[ii] == 0) {
-                hwe_u_hh[jj] += 1;
-              } else if (pheno_c[ii] == 1) {
-                hwe_a_hh[jj] += 1;
-              }
-            }
-          }
-        }
-      }
-      for (ii = 0; ii < map_linect; ii++) {
-        if (!excluded(marker_exclude, ii)) {
-          if (SNPHWE_t(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii], hwe_thresh)) {
-            exclude(marker_exclude, ii, &marker_exclude_ct);
-          } else if (bin_pheno) {
-            if (SNPHWE_t(hwe_u_lh[ii], hwe_u_ll[ii], hwe_u_hh[ii], hwe_thresh) || SNPHWE_t(hwe_a_lh[ii], hwe_a_ll[ii], hwe_a_hh[ii], hwe_thresh)) {
-              exclude(marker_exclude, ii, &marker_exclude_ct);
-            }
-          }
-        }
-      }
-      free(het_probs);
-      het_probs = NULL;
-      rewind(pedfile);
+    het_probs = (double*)malloc(((map_linect - marker_exclude_ct) / 2 + 1) * sizeof(double));
+    if (!het_probs) {
+      goto wdist_ret_1;
     }
+
+    marker_weights = (double*)wkspace_alloc((map_linect - marker_exclude_ct) * sizeof(double));
+    if (!marker_weights) {
+      goto wdist_ret_2;
+    }
+    dptr2 = marker_weights;
+
+    if (wkspace_left < map_linect * 9 * sizeof(int)) {
+      goto wdist_ret_1;
+    }
+    // unfortunately, this requires a third pass...
+    hwe_ll = (int*)wkspace_base;
+    hwe_lh = (int*)(&(wkspace_base[map_linect * sizeof(int)]));
+    hwe_hh = (int*)(&(wkspace_base[map_linect * 2 * sizeof(int)]));
+    hwe_u_ll = (int*)(&(wkspace_base[map_linect * 3 * sizeof(int)]));
+    hwe_u_lh = (int*)(&(wkspace_base[map_linect * 4 * sizeof(int)]));
+    hwe_u_hh = (int*)(&(wkspace_base[map_linect * 5 * sizeof(int)]));
+    hwe_a_ll = (int*)(&(wkspace_base[map_linect * 6 * sizeof(int)]));
+    hwe_a_lh = (int*)(&(wkspace_base[map_linect * 7 * sizeof(int)]));
+    hwe_a_hh = (int*)(&(wkspace_base[map_linect * 8 * sizeof(int)]));
+    fill_int_zero((int*)wkspace_base, map_linect * 9);
+
+    for (ii = 0; ii < ped_linect; ii += 1) {
+      if (excluded(person_exclude, ii)) {
+	continue;
+      }
+      fseeko(pedfile, line_locs[ii], SEEK_SET);
+      fgets((char*)pedbuf, pedbuflen, pedfile);
+      bufptr = (char*)pedbuf;
+      for (jj = 0; jj < map_linect; jj += 1) {
+	if (excluded(marker_exclude, jj)) {
+	  continue;
+	}
+	mm = 0;
+	for (kk = 0; kk < 2; kk++) {
+	  cc = *bufptr;
+	  if (cc == marker_alleles[jj * 4 + 1]) {
+	    mm += 1;
+	  } else if (cc != marker_alleles[jj * 4]) {
+	    mm = -2;
+	  }
+	  bufptr++;
+	  while ((*bufptr == ' ') || (*bufptr == '\t')) {
+	    bufptr++;
+	  }
+	}
+	if (mm == 0) {
+	  hwe_ll[jj] += 1;
+	  if (bin_pheno) {
+	    if (pheno_c[ii] == 0) {
+	      hwe_u_ll[jj] += 1;
+	    } else if (pheno_c[ii] == 1) {
+	      hwe_a_ll[jj] += 1;
+	    }
+	  }
+	} else if (mm == 1) {
+	  hwe_lh[jj] += 1;
+	  if (bin_pheno) {
+	    if (pheno_c[ii] == 0) {
+	      hwe_u_lh[jj] += 1;
+	    } else if (pheno_c[ii] == 1) {
+	      hwe_a_lh[jj] += 1;
+	    }
+	  }
+	} else if (mm == 2) {
+	  hwe_hh[jj] += 1;
+	  if (bin_pheno) {
+	    if (pheno_c[ii] == 0) {
+	      hwe_u_hh[jj] += 1;
+	    } else if (pheno_c[ii] == 1) {
+	      hwe_a_hh[jj] += 1;
+	    }
+	  }
+	}
+      }
+    }
+    for (ii = 0; ii < map_linect; ii++) {
+      if (!excluded(marker_exclude, ii)) {
+	if (SNPHWE_t(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii], hwe_thresh)) {
+	  exclude(marker_exclude, ii, &marker_exclude_ct);
+	} else if (bin_pheno) {
+	  if (SNPHWE_t(hwe_u_lh[ii], hwe_u_ll[ii], hwe_u_hh[ii], hwe_thresh) || SNPHWE_t(hwe_a_lh[ii], hwe_a_ll[ii], hwe_a_hh[ii], hwe_thresh)) {
+	    exclude(marker_exclude, ii, &marker_exclude_ct);
+	  }
+	}
+        if (!excluded(marker_exclude, ii)) {
+          *dptr2++ = calc_wt_mean(exponent, hwe_lh[ii], hwe_ll[ii], hwe_hh[ii]);
+        }
+      }
+    }
+    free(het_probs);
+    het_probs = NULL;
+    rewind(pedfile);
 
     ulii = ped_linect - person_exclude_ct;
     ulii = (ulii * (ulii - 1)) / 2;
@@ -3297,6 +3434,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     goto wdist_ret_2;
   }
   ped_postct = ped_linect - person_exclude_ct;
+  wkspace_reset(wkspace);
+  marker_weights = (double*)wkspace_alloc(ped_postct * sizeof(double));
   printf("%d markers and %d people pass filters and QC.\n", map_linect - marker_exclude_ct, ped_postct);
   if (thread_ct > 1) {
     if (thread_ct == DEFAULT_THREAD_CT) {
@@ -3356,9 +3495,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       triangle_fill(thread_start0, ped_postct, thread_ct, 0, CACHELINE_DBL);
       // See later comments on CALC_DISTANCE.
       // The difference is, we have to use + instead of XOR here to distinguish
-      // the cases, so we want to allow at least 3 bits per locus.  And given
-      // that, the additional cost of supporting exact handling of missing
-      // markers is smaller (3->4 bits), so we do it.
+      // the cases, so we want to allow at least 3 bits per marker.  And given
+      // that, the additional cost of supporting single-operation handling of
+      // missing markers is smaller (3->4 bits), so we do it.
       while (pp < (map_linect - marker_exclude_ct)) {
         for (jj = 0; jj < DMULTIPLEX; jj++) {
           maf_buf[jj] = 0.0;
@@ -3396,8 +3535,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             }
 	    kk = (jj % 4) * 2;
 	    ulii = 0;
+            gptr2 = &(gptr[jj / 4 + nn * (BITCT / 4) * ped_linect4]);
 	    for (mm = 0; mm < (BITCT / 4); mm++) {
-	      uljj = (gptr[jj / 4 + ((nn * (BITCT / 4)) + mm) * ped_linect4] >> kk) & 3;
+	      uljj = (gptr2[mm * ped_linect4] >> kk) & 3;
 	      if (uljj == 1) {
 		uljj = 7;
 		glptr[oo] |= 1 << ((nn * (BITCT / 4)) + mm);
@@ -3689,7 +3829,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       reml_em_one_trait(rel_dists, dptr2, &unrelated_herit_covg, &unrelated_herit_cove, unrelated_herit_tol);
       printf("Heritability estimate: %g\n", unrelated_herit_covg);
     }
-    wkspace_reset(wkspace);
+    wkspace_reset((unsigned char*)rel_dists);
   }
 
   if (distance_req(calculation_type)) {
@@ -3703,6 +3843,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
       dist_ptr = dists;
       fill_double_zero(dist_ptr, ulii);
+      masks = (unsigned long*)wkspace_alloc(ped_postct * sizeof(int));
     } else {
       dists_alloc = ulii * sizeof(int);
       idists = (int*)wkspace_alloc(dists_alloc);
@@ -3710,7 +3851,25 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	goto wdist_ret_2;
       }
       fill_int_zero(idists, ulii);
+      masks = (unsigned long*)wkspace_alloc(ped_postct * sizeof(long));
     }
+    if (!masks) {
+      goto wdist_ret_2;
+    }
+    mmasks = (unsigned long*)wkspace_alloc(ped_postct * sizeof(long));
+    if (!mmasks) {
+      goto wdist_ret_2;
+    }
+    missing_tot_weights = (double*)wkspace_alloc(ulii * sizeof(double));
+    if (!missing_tot_weights) {
+      goto wdist_ret_2;
+    }
+    dptr2 = &(missing_tot_weights[ulii]);
+    dptr3 = missing_tot_weights;
+    while (dptr3 < dptr2) {
+      *dptr3++ = 1.0;
+    }
+
     wkspace_mark = wkspace_base;
     if (exponent == 0.0) {
       multiplex = IMULTIPLEX;
@@ -3723,27 +3882,42 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       goto wdist_ret_2;
     }
 
+    // normalize marker weights to add to -1
+    dxx = 0.0;
+    dptr2 = marker_weights;
+    dptr3 = &(marker_weights[ped_postct]);
+    while (dptr2 < dptr3) {
+      dxx += *dptr2++;
+    }
+    dxx = -1.0 / dxx;
+    dptr2 = marker_weights;
+    while (dptr2 < dptr3) {
+      *dptr2 *= dxx;
+      dptr2++;
+    }
+
     if (binary_files) {
       if (snp_major) {
-	if (pedbuflen < multiplex * ped_linect4) {
+	if (pedbuflen < BITCT * ped_linect4) {
 	  free(pedbuf);
-	  pedbuf = (unsigned char*)malloc(multiplex * ped_linect4 * sizeof(char));
+	  pedbuf = (unsigned char*)malloc(BITCT * ped_linect4 * sizeof(char));
 	  if (!pedbuf) {
 	    goto wdist_ret_2;
 	  }
 	}
 	fseeko(pedfile, 3, SEEK_SET);
-	if (exponent == 0.0) {
-	  ii = sizeof(int);
-	} else {
-	  ii = sizeof(double);
-	}
+        if (exponent == 0.0) {
+          ii = sizeof(int);
+        } else {
+          ii = sizeof(double);
+        }
 	triangle_fill(thread_start, ped_postct, thread_ct, 1, CACHELINE / ii);
 	ii = 0; // current SNP index
 	pp = 0; // after subtracting out excluded
 	while (pp < (map_linect - marker_exclude_ct)) {
-	  for (jj = 0; jj < multiplex; jj++) {
+	  for (jj = 0; jj < BITCT; jj++) {
 	    maf_buf[jj] = 0.5;
+            wtbuf[jj] = 0.0;
 	  }
 	  jj = 0; // actual SNPs read
 	  // Two key insights here:
@@ -3763,7 +3937,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  // Empirically, when the weighting exponent is nonzero (and thus
 	  // floating point arithmetic must be used), 4 sets appears to be no
 	  // worse than 8 when using a 64-bit processor.
-	  while ((jj < multiplex) && (pp < (map_linect - marker_exclude_ct))) {
+	  while ((jj < BITCT) && (pp < (map_linect - marker_exclude_ct))) {
 	    while (excluded(marker_exclude, ii)) {
 	      ii++;
 	      fseeko(pedfile, (off_t)ped_linect4, SEEK_CUR);
@@ -3773,90 +3947,115 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      goto wdist_ret_2;
 	    }
 	    maf_buf[jj] = ((double)marker_allele_cts[ii * 2]) / ((double)(marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]));
-	    rand_thresh_buf[jj] = (int)(maf_buf[jj] * 4294967296.0);
+            wtbuf[jj] = marker_weights[ii];
 	    ii++;
 	    jj++;
 	    pp++;
 	  }
-	  if (jj < multiplex) {
-	    memset(&(pedbuf[jj * ped_linect4]), 0, (multiplex - jj) * ped_linect4);
+	  if (jj < BITCT) {
+	    memset(&(pedbuf[jj * ped_linect4]), 0, (BITCT - jj) * ped_linect4);
 	  }
-	  if (exponent == 0.0) {
-	    glptr = (unsigned long*)ped_geno;
-	    for (jj = 0; jj < ped_linect; jj++) {
-	      if (!excluded(person_exclude, jj)) {
-		kk = (jj % 4) * 2;
-		ulii = 0;
-		for (mm = 0; mm < IMULTIPLEX; mm++) {
-		  uljj = (pedbuf[jj / 4 + mm * ped_linect4] >> kk) & 3;
-		  if (uljj == 1) {
-		    if (genrand_int32() > rand_thresh_buf[mm]) {
-		      if (genrand_int32() > rand_thresh_buf[mm]) {
-			uljj = 3;
-		      } else {
-			uljj = 2;
-		      }
-		    } else if (genrand_int32() > rand_thresh_buf[mm]) {
-		      uljj = 2;
-		    } else {
-		      uljj = 0;
-		    }
+          fill_long_zero((long*)mmasks, ped_linect);
+          for (nn = 0; nn < jj; nn += multiplex) {
+	    if (exponent == 0.0) {
+	      glptr = (unsigned long*)ped_geno;
+	      glptr2 = masks;
+              glptr3 = mmasks;
+	      for (oo = 0; oo < ped_linect; oo++) {
+		if (!excluded(person_exclude, oo)) {
+		  kk = (oo % 4) * 2;
+		  ulii = 0;
+                  ulkk = 0;
+                  gptr = &(pedbuf[oo / 4 + nn * ped_linect4]);
+		  for (mm = 0; mm < IMULTIPLEX; mm++) {
+		    uljj = (gptr[mm * ped_linect4] >> kk) & 3;
+		    ulii |= uljj << (mm * 2);
+                    /*
+                    if (uljj == 1) {
+                      ulkk |= 1 << mm;
+                    }
+                    */
 		  }
-		  ulii |= uljj << (mm * 2);
+		  // use xor to convert representation to 0 = missing,
+		  // 1 or 2 = homozygote, 3 = heterozygote
+#if __LP64__
+		  ulii ^= 0x5555555555555555LLU;
+		  *glptr++ = ulii;
+		  ulii = (ulii | (ulii >> 1)) & 0x5555555555555555LLU;
+#else
+		  ulii ^= 0x55555555;
+		  *glptr++ = ulii;
+		  ulii = (ulii | (ulii >> 1)) & 0x55555555;
+#endif
+		  *glptr2++ = ulii * 3;
+                  *glptr3++ |= ulkk << nn;
 		}
-		*glptr++ = ulii;
 	      }
-	    }
-	    for (ulii = 1; ulii < thread_ct; ulii++) {
-	      if (pthread_create(&(threads[ulii - 1]), NULL, &calc_idist_thread, (void*)ulii)) {
-		printf("Error: Could not create thread.\n");
-		retval = RET_THREAD_CREATE_FAIL;
-		goto wdist_ret_2;
+	      for (ulii = 1; ulii < thread_ct; ulii++) {
+		if (pthread_create(&(threads[ulii - 1]), NULL, &calc_idist_thread, (void*)ulii)) {
+		  printf("Error: Could not create thread.\n");
+		  retval = RET_THREAD_CREATE_FAIL;
+		  goto wdist_ret_2;
+		}
 	      }
-	    }
-	    incr_dists_i(idists, (unsigned long*)ped_geno, 0);
-	    for (jj = 0; jj < thread_ct - 1; jj++) {
-	      pthread_join(threads[jj], NULL);
-	    }
-	  } else {
-	    giptr = (unsigned int*)ped_geno;
-	    for (jj = 0; jj < ped_linect; jj++) {
-	      if (!excluded(person_exclude, jj)) {
-		kk = (jj % 4) * 2;
-		uii = 0;
-		for (mm = 0; mm < 16; mm++) {
-		  ujj = (pedbuf[jj / 4 + mm * ped_linect4] >> kk) & 3;
-		  if (ujj == 1) {
-		    if (genrand_int32() > rand_thresh_buf[mm]) {
-		      if (genrand_int32() > rand_thresh_buf[mm]) {
-			ujj = 3;
-		      } else {
-			ujj = 2;
+	      incr_dists_i(idists, (unsigned long*)ped_geno, 0);
+	      for (oo = 0; oo < thread_ct - 1; oo++) {
+		pthread_join(threads[oo], NULL);
+	      }
+	    } else {
+              for (nn = 0; nn < jj; nn += multiplex) {
+		giptr = (unsigned int*)ped_geno;
+		giptr2 = (unsigned int*)masks;
+		glptr3 = mmasks;
+		for (oo = 0; oo < ped_linect; oo++) {
+		  if (!excluded(person_exclude, oo)) {
+		    kk = (oo % 4) * 2;
+		    uii = 0;
+		    ulkk = 0;
+                    gptr = &(pedbuf[oo / 4 + nn * ped_linect4]);
+		    for (mm = 0; mm < 16; mm++) {
+		      ujj = (pedbuf[mm * ped_linect4] >> kk) & 3;
+		      uii |= ujj << (mm * 2);
+		      if (ujj == 1) {
+			ulkk |= 1 << mm;
 		      }
-		    } else if (genrand_int32() > rand_thresh_buf[mm]) {
-		      ujj = 2;
-		    } else {
-		      ujj = 0;
 		    }
+		    uii ^= 0x55555555;
+		    *giptr++ = uii;
+		    uii = (uii | (uii >> 1)) & 0x55555555;
+		    *giptr2++ = uii * 3;
+		    *glptr3++ |= ulkk << nn;
 		  }
-		  uii |= ujj << (mm * 2);
 		}
-		*giptr++ = uii;
-	      }
+		fill_weights(weights, maf_buf, exponent);
+		for (ulii = 1; ulii < thread_ct; ulii++) {
+		  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_dist_thread, (void*)ulii)) {
+		    printf("Error: Could not create thread.\n");
+		    retval = RET_THREAD_CREATE_FAIL;
+		    goto wdist_ret_2;
+		  }
+		}
+		incr_dists(dists, (unsigned int*)ped_geno, 0);
+		for (oo = 0; oo < thread_ct - 1; oo++) {
+		  pthread_join(threads[oo], NULL);
+		}
+              }
 	    }
-	    fill_weights(weights, maf_buf, exponent);
-	    for (ulii = 1; ulii < thread_ct; ulii++) {
-	      if (pthread_create(&(threads[ulii - 1]), NULL, &calc_dist_thread, (void*)ulii)) {
-		printf("Error: Could not create thread.\n");
-		retval = RET_THREAD_CREATE_FAIL;
-		goto wdist_ret_2;
-	      }
-	    }
-	    incr_dists(dists, (unsigned int*)ped_geno, 0);
-	    for (jj = 0; jj < thread_ct - 1; jj++) {
-	      pthread_join(threads[jj], NULL);
+          }
+          /*
+          fill_weights_m(weights, wtbuf);
+          for (ulii = 1; ulii < thread_ct; ulii++) {
+	    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_thread, (void*)ulii)) {
+	      printf("Error: Could not create thread.\n");
+	      retval = RET_THREAD_CREATE_FAIL;
+	      goto wdist_ret_2;
 	    }
 	  }
+          decr_dist_missing(missing_tot_weights, 0);
+          for (oo = 0; oo < thread_ct - 1; oo++) {
+            pthread_join(threads[oo], NULL);
+          }
+          */
 	  printf("\r%d markers complete.", pp);
 	  fflush(stdout);
 	}
