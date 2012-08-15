@@ -292,7 +292,7 @@ int dispmsg(int retval) {
 double* het_probs = NULL;
 
 int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
-  if (obs_hom1 + obs_hom2 + obs_hets == 0) {
+  if ((thresh == 0.0) || !(obs_hom1 + obs_hom2 + obs_hets)) {
     return 0;
   }
   
