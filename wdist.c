@@ -70,6 +70,7 @@
 #define CALC_GROUPDIST 256
 #define CALC_REGRESS_DISTANCE 512
 #define CALC_UNRELATED_HERITABILITY 1024
+#define CALC_UNRELATED_HERITABILITY_STRICT 2048
 
 #define _FILE_OFFSET_BITS 64
 #define DEFAULT_THREAD_CT 2
@@ -205,10 +206,11 @@ int dispmsg(int retval) {
 "    Regresses genetic distances on average phenotypes, using delete-d\n"
 "    jackknife for standard errors.  Scalar phenotype required.  Defaults for\n"
 "    iters and d are the same as for --groupdist.\n\n"
-"  --unrelated-heritability {tol} {initial covg} {initial cove}\n"
+"  --unrelated-heritability <strict> {tol} {initial covg} {initial cove}\n"
 "    REML estimate of additive heritability, iterating with an accelerated\n"
 "    variant of the EM algorithm until the rate of change of the log likelihood\n"
-"    function is less than tol.  Scalar phenotype required.  tol defaults to\n"
+"    function is less than tol.  Scalar phenotype required.\n"
+"    The 'strict' modifier forces regular EM to be used.  tol defaults to\n"
 "    10^{-7}, genetic covariance prior defaults to 0.45, and residual\n"
 "    covariance prior defaults to (1 - covg).\n"
 "    For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
@@ -1562,7 +1564,7 @@ void matrix_row_sum_ur(double* sums, double* matrix) {
 // wkbase is assumed to have space for three cache-aligned
 // ped_postct * ped_postct double matrices plus three more rows.  The unpacked
 // relationship matrix is stored in the SECOND slot.
-void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* cove_ref, double tol) {
+void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* cove_ref, double tol, int strict) {
   double ll_change;
   long long mat_offset = ped_postct;
   double* rel_dists;
@@ -1659,45 +1661,49 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     cove_last_change = cove_cur_change;
     covg_cur_change = (*covg_ref) * (*covg_ref) * dlg * ped_postct_d;
     cove_cur_change = (*cove_ref) * (*cove_ref) * dle * ped_postct_d;
-    // acceleration factor:
-    // min(half covg distance to 0 or 1, cove distance to 0 or 1, pi/4 divided
-    // by last angular change, 1.0 / (1 - ratio of last two step lengths),
-    // MAX_EM_ACCEL)
-    dxx = atan2(covg_last_change, cove_last_change) - atan2(covg_cur_change, cove_cur_change);
-    if (dxx < 0.0) {
-      dxx = -dxx;
-    }
-    if (dxx > PI) {
-      dxx = 2.0 * PI - dxx;
-    }
-    dyy = sqrt((covg_cur_change * covg_cur_change + cove_cur_change * cove_cur_change) / (covg_last_change * covg_last_change + cove_last_change * cove_last_change));
-    if (covg_cur_change < 0.0) {
-      max_jump = *covg_ref * (-0.5) / covg_cur_change;
-    } else {
-      max_jump = (1.0 - *covg_ref) * 0.5 / covg_cur_change;
-    }
-    if (cove_cur_change < 0.0) {
-      dzz = *cove_ref * (-0.5) / cove_cur_change;
-    } else {
-      dzz = (1.0 - *cove_ref) * 0.5 / cove_cur_change;
-    }
-    if (dzz < max_jump) {
-      max_jump = dzz;
-    }
-    dzz = (PI / 4) / dxx;
-    if (dzz < max_jump) {
-      max_jump = dzz;
-    }
-    if (dyy < 1.0) {
-      dzz = 1.0 / (1.0 - dyy);
-    }
-    if (dzz < max_jump) {
-      max_jump = dzz;
-    }
-    if (max_jump < 1.0) {
+    if (strict) {
       max_jump = 1.0;
-    } else if (max_jump > MAX_EM_ACCEL) {
-      max_jump = MAX_EM_ACCEL;
+    } else {
+      // acceleration factor:
+      // min(half covg distance to 0 or 1, cove distance to 0 or 1, pi/4 divided
+      // by last angular change, 1.0 / (1 - ratio of last two step lengths),
+      // MAX_EM_ACCEL)
+      dxx = atan2(covg_last_change, cove_last_change) - atan2(covg_cur_change, cove_cur_change);
+      if (dxx < 0.0) {
+	dxx = -dxx;
+      }
+      if (dxx > PI) {
+	dxx = 2.0 * PI - dxx;
+      }
+      dyy = sqrt((covg_cur_change * covg_cur_change + cove_cur_change * cove_cur_change) / (covg_last_change * covg_last_change + cove_last_change * cove_last_change));
+      if (covg_cur_change < 0.0) {
+	max_jump = *covg_ref * (-0.5) / covg_cur_change;
+      } else {
+	max_jump = (1.0 - *covg_ref) * 0.5 / covg_cur_change;
+      }
+      if (cove_cur_change < 0.0) {
+	dzz = *cove_ref * (-0.5) / cove_cur_change;
+      } else {
+	dzz = (1.0 - *cove_ref) * 0.5 / cove_cur_change;
+      }
+      if (dzz < max_jump) {
+	max_jump = dzz;
+      }
+      dzz = (PI / 4) / dxx;
+      if (dzz < max_jump) {
+	max_jump = dzz;
+      }
+      if (dyy < 1.0) {
+	dzz = 1.0 / (1.0 - dyy);
+      }
+      if (dzz < max_jump) {
+	max_jump = dzz;
+      }
+      if (max_jump < 1.0) {
+	max_jump = 1.0;
+      } else if (max_jump > MAX_EM_ACCEL) {
+	max_jump = MAX_EM_ACCEL;
+      }
     }
     *covg_ref += covg_cur_change * max_jump;
     *cove_ref += cove_cur_change * max_jump;
@@ -3993,7 +3999,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           dptr4[ulii * ped_postct + uljj] = rel_dists[(uljj * (uljj - 1)) / 2 + ulii];
         }
       }
-      reml_em_one_trait(rel_dists, dptr2, &unrelated_herit_covg, &unrelated_herit_cove, unrelated_herit_tol);
+      reml_em_one_trait(rel_dists, dptr2, &unrelated_herit_covg, &unrelated_herit_cove, unrelated_herit_tol, calculation_type & CALC_UNRELATED_HERITABILITY_STRICT);
       printf("h^2 estimate: %g\n", unrelated_herit_covg);
     }
     wkspace_reset((unsigned char*)rel_dists);
@@ -5607,39 +5613,47 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = param_count(argc, argv, cur_arg);
-      if (ii > 3) {
-        printf("Error: --unrelated-heritability accepts at most three parameters.%s", errstr_append);
+      if (ii > 4) {
+        printf("Error: --unrelated-heritability accepts at most four parameters.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
       if (ii) {
-	if (sscanf(argv[cur_arg + 1], "%lg", &unrelated_herit_tol) != 1) {
-	  printf("Error: Invalid --unrelated-heritability EM tolerance parameter.\n");
-	  return dispmsg(RET_INVALID_CMDLINE);
-	}
-	if (unrelated_herit_tol <= 0.0) {
-	  printf("Error: Invalid --unrelated-heritability EM tolerance parameter.\n");
-	  return dispmsg(RET_INVALID_CMDLINE);
-	}
-	if (ii > 1) {
-	  if (sscanf(argv[cur_arg + 2], "%lg", &unrelated_herit_covg) != 1) {
-	    printf("Error: Invalid --unrelated-heritability genetic covariance prior.\n");
+        if (!strcmp(argv[cur_arg + 1], "strict")) {
+          calculation_type |= CALC_UNRELATED_HERITABILITY_STRICT;
+          jj = 2;
+        } else {
+          jj = 1;
+        }
+        if (ii >= jj) {
+	  if (sscanf(argv[cur_arg + jj], "%lg", &unrelated_herit_tol) != 1) {
+	    printf("Error: Invalid --unrelated-heritability EM tolerance parameter.\n");
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
-	  if ((unrelated_herit_covg <= 0.0) || (unrelated_herit_covg > 1.0)) {
-	    printf("Error: Invalid --unrelated-heritability genetic covariance prior.\n");
+	  if (unrelated_herit_tol <= 0.0) {
+	    printf("Error: Invalid --unrelated-heritability EM tolerance parameter.\n");
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
-          if (ii == 3) {
-	    if (sscanf(argv[cur_arg + 3], "%lg", &unrelated_herit_cove) != 1) {
-	      printf("Error: Invalid --unrelated-heritability residual covariance prior.\n");
+	  if (ii > jj) {
+	    if (sscanf(argv[cur_arg + jj + 1], "%lg", &unrelated_herit_covg) != 1) {
+	      printf("Error: Invalid --unrelated-heritability genetic covariance prior.\n");
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
-	    if ((unrelated_herit_cove <= 0.0) || (unrelated_herit_cove > 1.0)) {
-	      printf("Error: Invalid --unrelated-heritability residual covariance prior.\n");
+	    if ((unrelated_herit_covg <= 0.0) || (unrelated_herit_covg > 1.0)) {
+	      printf("Error: Invalid --unrelated-heritability genetic covariance prior.\n");
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
-          } else {
-            unrelated_herit_cove = 1.0 - unrelated_herit_covg;
+	    if (ii == jj + 2) {
+	      if (sscanf(argv[cur_arg + jj + 2], "%lg", &unrelated_herit_cove) != 1) {
+		printf("Error: Invalid --unrelated-heritability residual covariance prior.\n");
+		return dispmsg(RET_INVALID_CMDLINE);
+	      }
+	      if ((unrelated_herit_cove <= 0.0) || (unrelated_herit_cove > 1.0)) {
+		printf("Error: Invalid --unrelated-heritability residual covariance prior.\n");
+		return dispmsg(RET_INVALID_CMDLINE);
+	      }
+	    } else {
+	      unrelated_herit_cove = 1.0 - unrelated_herit_covg;
+	    }
           }
         }
       }
