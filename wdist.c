@@ -113,7 +113,7 @@ const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 char tbuf[MAXLINELEN];
 #if __LP64__
-unsigned char popcount[8192];
+unsigned char popcount[65536];
 #else
 unsigned char popcount[2048];
 #endif
@@ -1105,7 +1105,7 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
       while (glptr < glptr2) {
 	uljj = (*glptr++ ^ ulii) & (mask_fixed & (*mptr++));
 #if __LP64__
-	*idists += popcount[uljj >> 52] + popcount[(uljj >> 39) & 8191] + popcount[(uljj >> 26) & 8191] + popcount[(uljj >> 13) & 8191] + popcount[uljj & 8191];
+	*idists += popcount[uljj >> 48] + popcount[(uljj >> 32) & 65535] + popcount[(uljj >> 16) & 65535] + popcount[uljj & 65535];
 #else
 	*idists += popcount[uljj >> 22] + popcount[(uljj >> 11) & 2047] + popcount[uljj & 2047];
 #endif
@@ -1115,7 +1115,7 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
       while (glptr < glptr2) {
 	uljj = (*glptr++ ^ ulii) & (*mptr++);
 #if __LP64__
-	*idists += popcount[uljj >> 52] + popcount[(uljj >> 39) & 8191] + popcount[(uljj >> 26) & 8191] + popcount[(uljj >> 13) & 8191] + popcount[uljj & 8191];
+	*idists += popcount[uljj >> 48] + popcount[(uljj >> 32) & 65535] + popcount[(uljj >> 16) & 65535] + popcount[uljj & 65535];
 #else
 	*idists += popcount[uljj >> 22] + popcount[(uljj >> 11) & 2047] + popcount[uljj & 2047];
 #endif
@@ -1294,7 +1294,7 @@ void incr_dists_rm(int* idists, unsigned long* missing, int tidx) {
     // most bits should be zero, so it's worth special-casing this
     if (ulii) {
 #if __LP64__
-      dwt = popcount[ulii >> 52] + popcount[(ulii >> 39) & 8191] + popcount[(ulii >> 26) & 8191] + popcount[(ulii >> 13) & 8191] + popcount[ulii & 8191];
+      dwt = popcount[ulii >> 48] + popcount[(ulii >> 32) & 65535] + popcount[(ulii >> 16) & 65535] + popcount[ulii & 65535];
 #else
       dwt = popcount[ulii >> 22] + popcount[(ulii >> 11) & 2047] + popcount[ulii & 2047];
 #endif
@@ -1304,7 +1304,7 @@ void incr_dists_rm(int* idists, unsigned long* missing, int tidx) {
           *idists += dwt;
         } else {
 #if __LP64__
-	  *idists += popcount[uljj >> 52] + popcount[(uljj >> 39) & 8191] + popcount[(uljj >> 26) & 8191] + popcount[(uljj >> 13) & 8191] + popcount[uljj & 8191];
+	  *idists += popcount[uljj >> 48] + popcount[(uljj >> 32) & 65535] + popcount[(uljj >> 16) & 65535] + popcount[uljj & 65535];
 #else
 	  *idists += popcount[uljj >> 22] + popcount[(uljj >> 11) & 2047] + popcount[uljj & 2047];
 #endif
@@ -1316,7 +1316,7 @@ void incr_dists_rm(int* idists, unsigned long* missing, int tidx) {
         uljj = *glptr++;
         if (uljj) {
 #if __LP64__
-	  *idists += popcount[uljj >> 52] + popcount[(uljj >> 39) & 8191] + popcount[(uljj >> 26) & 8191] + popcount[(uljj >> 13) & 8191] + popcount[uljj & 8191];
+	  *idists += popcount[uljj >> 48] + popcount[(uljj >> 32) & 65535] + popcount[(uljj >> 16) & 65535] + popcount[uljj & 65535];
 #else
 	  *idists += popcount[uljj >> 22] + popcount[(uljj >> 11) & 2047] + popcount[uljj & 2047];
 #endif
@@ -1335,7 +1335,7 @@ void incr_dists_rm_diag(int* idists, unsigned long* missing) {
     ulii = *missing++;
     if (ulii) {
 #if __LP64__
-      idists[((uljj + 1) * (uljj + 2)) / 2 - 1] += popcount[ulii >> 52] + popcount[(ulii >> 39) & 8191] + popcount[(ulii >> 26) & 8191] + popcount[(ulii >> 13) & 8191] + popcount[ulii & 8191];
+      idists[((uljj + 1) * (uljj + 2)) / 2 - 1] += popcount[ulii >> 48] + popcount[(ulii >> 32) & 65535] + popcount[(ulii >> 16) & 65535] + popcount[ulii & 65535];
 #else
       idists[((uljj + 1) * (uljj + 2)) / 2 - 1] += popcount[ulii >> 22] + popcount[(ulii >> 11) & 2047] + popcount[ulii & 2047];
 #endif
@@ -5568,27 +5568,14 @@ int main(int argc, char** argv) {
   if (subst_argv) {
     free(subst_argv);
   }
+  popcount[0] = 0;
 #if __LP64__
-  for (ii = 0; ii < 8192; ii += 1) {
-    popcount[ii] = 0;
-    jj = ii;
-    while (jj) {
-      if (jj % 2 == 1) {
-	popcount[ii] += 1;
-      }
-      jj >>= 1;
-    }
+  for (ii = 0; ii < 65536; ii++) {
+    popcount[ii] = (ii & 1) + popcount[ii / 2];
   }
 #else
   for (ii = 0; ii < 2048; ii += 1) {
-    popcount[ii] = 0;
-    jj = ii;
-    while (jj) {
-      if (jj % 2 == 1) {
-	popcount[ii] += 1;
-      }
-      jj >>= 1;
-    }
+    popcount[ii] = (ii & 1) + popcount[ii / 2];
   }
 #endif
   bubble = (char*)malloc(67108864 * sizeof(char));
