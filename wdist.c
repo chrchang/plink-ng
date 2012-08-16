@@ -898,7 +898,7 @@ double* pheno_d = NULL;
 unsigned char* ped_geno = NULL;
 unsigned long* glptr;
 double weights[DMULTIPLEX * 128];
-int* weights_i = NULL;
+unsigned int* weights_i = (unsigned int*)weights;
 int thread_start[MAX_THREADS_P1];
 int thread_start0[MAX_THREADS_P1];
 int thread_start0_na[MAX_THREADS_P1];
@@ -1171,20 +1171,19 @@ void decr_dist_missing(unsigned int* mtw, int tidx) {
   unsigned long* glptr2;
   unsigned long ulii;
   unsigned long uljj;
-  unsigned int* weights0 = (unsigned int*)weights;
 #if __LP64__
-  unsigned int* weights1 = &(weights0[256]);
-  unsigned int* weights2 = &(weights0[384]);
-  unsigned int* weights3 = &(weights0[512]);
-  unsigned int* weights4 = &(weights0[640]);
-  unsigned int* weights5 = &(weights0[768]);
-  unsigned int* weights6 = &(weights0[896]);
-  unsigned int* weights7 = &(weights0[1024]);
-  unsigned int* weights8 = &(weights0[1152]);
+  unsigned int* weights1 = &(weights_i[256]);
+  unsigned int* weights2 = &(weights_i[384]);
+  unsigned int* weights3 = &(weights_i[512]);
+  unsigned int* weights4 = &(weights_i[640]);
+  unsigned int* weights5 = &(weights_i[768]);
+  unsigned int* weights6 = &(weights_i[896]);
+  unsigned int* weights7 = &(weights_i[1024]);
+  unsigned int* weights8 = &(weights_i[1152]);
 #else
-  unsigned int* weights1 = &(weights0[256]);
-  unsigned int* weights2 = &(weights0[512]);
-  unsigned int* weights3 = &(weights0[768]);
+  unsigned int* weights1 = &(weights_i[256]);
+  unsigned int* weights2 = &(weights_i[512]);
+  unsigned int* weights3 = &(weights_i[768]);
 #endif
   int ii;
   unsigned int twt;
@@ -1194,7 +1193,7 @@ void decr_dist_missing(unsigned int* mtw, int tidx) {
     ulii = *glptr2;
     if (ulii) {
 #if __LP64__
-      twt = weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights0[ulii & 255];
+      twt = weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights_i[ulii & 255];
 #else
       twt = weights3[(ulii >> 24) & 255] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights[ulii & 255];
 #endif
@@ -1204,9 +1203,9 @@ void decr_dist_missing(unsigned int* mtw, int tidx) {
           *mtw -= twt;
         } else {
 #if __LP64__
-          *mtw -= weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights0[ulii & 255];
+          *mtw -= weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights_i[ulii & 255];
 #else
-	  *mtw -= weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights0[uljj & 255];
+	  *mtw -= weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights_i[uljj & 255];
 #endif
         }
 	mtw++;
@@ -1216,9 +1215,9 @@ void decr_dist_missing(unsigned int* mtw, int tidx) {
 	uljj = *glptr++;
         if (uljj) {
 #if __LP64__
-          *mtw -= weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights0[ulii & 255];
+          *mtw -= weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights_i[ulii & 255];
 #else
-	  *mtw -= weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights0[uljj & 255];
+	  *mtw -= weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights_i[uljj & 255];
 #endif
         }
 	mtw++;
@@ -1568,16 +1567,19 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   double ll_change;
   long long mat_offset = ped_postct;
   double* rel_dists;
-  int* irow;
+  long int* irow;
   double* row;
   double* row2;
   double* work;
   double* dptr;
   double* dptr2;
   double* matrix_pvg;
-  int lwork;
+  long int lwork;
 #ifdef __APPLE__
-  int info;
+#ifndef __LP64__
+  long int ped_postct_li = ped_postct;
+#endif
+  long int info;
 #endif
   double dxx;
   double dyy;
@@ -1595,7 +1597,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   mat_offset = CACHEALIGN_DBL(mat_offset * mat_offset);
   rel_dists = &(wkbase[mat_offset]);
   row = &(wkbase[mat_offset * 3]);
-  irow = (int*)row;
+  irow = (long int*)row;
   row2 = &(row[ped_postct]);
   work = &(wkbase[mat_offset * 2]);
   lwork = mat_offset;
@@ -1610,8 +1612,13 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     memcpy(wkbase, rel_dists, mat_offset * sizeof(double));
     matrix_const_mult_add(wkbase, *covg_ref, *cove_ref);
 #ifdef __APPLE__
+#if __LP64__
     dgetrf_(&ped_postct, &ped_postct, wkbase, &ped_postct, irow, &info);
     dgetri_(&ped_postct, wkbase, &ped_postct, irow, work, &lwork, &info);
+#else
+    dgetrf_(&ped_postct_li, &ped_postct_li, wkbase, &ped_postct_li, irow, &info);
+    dgetri_(&ped_postct_li, wkbase, &ped_postct_li, irow, work, &lwork, &info);
+#endif
 #else
     clapack_dgetrf(CblasColMajor, ped_postct, ped_postct, wkbase, ped_postct, irow);
     clapack_dgetri(CblasColMajor, ped_postct, wkbase, ped_postct, irow);
@@ -4174,7 +4181,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      }
 	    }
           }
-          fill_weights_m((unsigned int*)weights, wtbuf);
+          fill_weights_m(weights_i, wtbuf);
 
           for (ulii = 1; ulii < thread_ct; ulii++) {
 	    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_thread, (void*)ulii)) {
@@ -5688,7 +5695,7 @@ int main(int argc, char** argv) {
     } else {
       malloc_size_mb = 64;
     }
-    wkspace_ua = (unsigned char*)(malloc_size_mb * 1048576 * sizeof(char));
+    wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
     if (wkspace_ua) {
       printf("Allocated %lld MB successfully.\n", malloc_size_mb);
     }
