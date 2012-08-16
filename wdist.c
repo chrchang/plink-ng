@@ -103,7 +103,7 @@
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.6.2 (16 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.6.3 (16 August 2012)\n"
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
