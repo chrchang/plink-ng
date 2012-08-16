@@ -741,6 +741,17 @@ inline void fill_long_zero(long* larr, size_t size) {
   }
 }
 
+inline void fill_long_one(unsigned long* larr, size_t size) {
+  unsigned long* lptr = &(larr[size]);
+  while (larr < lptr) {
+#if __LP64__
+    *larr++ = ~(0LLU);
+#else
+    *larr++ = ~0;
+#endif
+  }
+}
+
 inline void fill_int_zero(int* iarr, size_t size) {
 #if __LP64__
   fill_long_zero((long*)iarr, size >> 1);
@@ -749,6 +760,17 @@ inline void fill_int_zero(int* iarr, size_t size) {
   }
 #else
   fill_long_zero((long*)iarr, size);
+#endif
+}
+
+inline void fill_int_one(unsigned int* iarr, size_t size) {
+#if __LP64__
+  fill_long_one((unsigned long*)iarr, size >> 1);
+  if (size & 1) {
+    iarr[size - 1] = -1;
+  }
+#else
+  fill_long_one((unsigned long*)iarr, size);
 #endif
 }
 
@@ -813,43 +835,43 @@ void fill_weights_r(double* weights, double* mafs) {
   }
 }
 
-void fill_weights_m(double* weights, double* wtbuf) {
+void fill_weights_m(unsigned int* weights, unsigned int* wtbuf) {
   int ii;
   int jj;
   int kk;
-  double dxx;
+  unsigned int uxx;
 
 #if __LP64__
   for (jj = 0; jj < 256; jj++) {
-    dxx = 0.0;
+    uxx = 0;
     for (kk = 0; kk < 8; kk++) {
       if (jj & (1 << kk)) {
-	dxx += wtbuf[kk];
+	uxx += wtbuf[kk];
       }
     }
-    *weights++ = dxx;
+    *weights++ = uxx;
   }
   for (ii = 8; ii < BITCT; ii += 7) {
     for (jj = 0; jj < 128; jj++) {
-      dxx = 0.0;
+      uxx = 0;
       for (kk = 0; kk < 7; kk++) {
 	if (jj & (1 << kk)) {
-	  dxx += wtbuf[kk + ii];
+	  uxx += wtbuf[kk + ii];
 	}
       }
-      *weights++ = dxx;
+      *weights++ = uxx;
     }
   }
 #else
   for (ii = 0; ii < BITCT; ii += 8) {
     for (jj = 0; jj < 256; jj++) {
-      dxx = 0.0;
+      uxx = 0;
       for (kk = 0; kk < 8; kk++) {
 	if (jj & (1 << kk)) {
-	  dxx += wtbuf[kk + ii];
+	  uxx += wtbuf[kk + ii];
 	}
       }
-      *weights++ = dxx;
+      *weights++ = uxx;
     }
   }
 #endif
@@ -891,7 +913,8 @@ double calc_result2[MAX_THREADS];
 unsigned long* masks;
 unsigned long* mmasks;
 double* marker_weights;
-double* missing_tot_weights;
+unsigned int* marker_weights_i;
+unsigned int* missing_tot_weights;
 
 void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_type) {
   // first calculate weight array, then loop
@@ -1143,46 +1166,47 @@ void* calc_dist_thread(void* arg) {
   return NULL;
 }
 
-void decr_dist_missing(double* mtw, int tidx) {
+void decr_dist_missing(unsigned int* mtw, int tidx) {
   unsigned long* glptr;
   unsigned long* glptr2;
   unsigned long ulii;
   unsigned long uljj;
+  unsigned int* weights0 = (unsigned int*)weights;
 #if __LP64__
-  double* weights1 = &(weights[256]);
-  double* weights2 = &(weights[384]);
-  double* weights3 = &(weights[512]);
-  double* weights4 = &(weights[640]);
-  double* weights5 = &(weights[768]);
-  double* weights6 = &(weights[896]);
-  double* weights7 = &(weights[1024]);
-  double* weights8 = &(weights[1152]);
+  unsigned int* weights1 = &(weights0[256]);
+  unsigned int* weights2 = &(weights0[384]);
+  unsigned int* weights3 = &(weights0[512]);
+  unsigned int* weights4 = &(weights0[640]);
+  unsigned int* weights5 = &(weights0[768]);
+  unsigned int* weights6 = &(weights0[896]);
+  unsigned int* weights7 = &(weights0[1024]);
+  unsigned int* weights8 = &(weights0[1152]);
 #else
-  double* weights1 = &(weights[256]);
-  double* weights2 = &(weights[512]);
-  double* weights3 = &(weights[768]);
+  unsigned int* weights1 = &(weights0[256]);
+  unsigned int* weights2 = &(weights0[512]);
+  unsigned int* weights3 = &(weights0[768]);
 #endif
   int ii;
-  double dweight;
+  unsigned int twt;
   for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
     glptr = mmasks;
     glptr2 = &(mmasks[ii]);
     ulii = *glptr2;
     if (ulii) {
 #if __LP64__
-      dweight = weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights[ulii & 255];
+      twt = weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights0[ulii & 255];
 #else
-      dweight = weights3[(ulii >> 24) & 255] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights[ulii & 255];
+      twt = weights3[(ulii >> 24) & 255] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights[ulii & 255];
 #endif
       while (glptr < glptr2) {
 	uljj = *glptr++ | ulii;
         if (uljj == ulii) {
-          *mtw += dweight;
+          *mtw -= twt;
         } else {
 #if __LP64__
-          *mtw += weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights[ulii & 255];
+          *mtw -= weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights0[ulii & 255];
 #else
-	  *mtw += weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights[uljj & 255];
+	  *mtw -= weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights0[uljj & 255];
 #endif
         }
 	mtw++;
@@ -1192,9 +1216,9 @@ void decr_dist_missing(double* mtw, int tidx) {
 	uljj = *glptr++;
         if (uljj) {
 #if __LP64__
-          *mtw += weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights[ulii & 255];
+          *mtw -= weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights0[ulii & 255];
 #else
-	  *mtw += weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights[uljj & 255];
+	  *mtw -= weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights0[uljj & 255];
 #endif
         }
 	mtw++;
@@ -1771,7 +1795,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   char* pid_list = NULL;
   char* id_list = NULL;
   double maf_buf[DMULTIPLEX];
-  double wtbuf[BITCT];
+  unsigned int wtbuf[BITCT];
   double missing_phenod = (double)missing_pheno;
   int missing_pheno_len = 1;
   int* hwe_ll;
@@ -3532,8 +3556,24 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     goto wdist_ret_2;
   }
   ped_postct = ped_linect - person_exclude_ct;
-  wkspace_reset(wkspace);
-  marker_weights = (double*)wkspace_alloc((map_linect - marker_exclude_ct) * sizeof(double));
+  if (distance_req(calculation_type)) {
+    // normalize marker weights to add to 2^32 - 1
+    dxx = 0.0;
+    dptr2 = marker_weights;
+    dptr3 = &(marker_weights[map_linect - marker_exclude_ct]);
+    while (dptr2 < dptr3) {
+      dxx += *dptr2++;
+    }
+    dxx = 4294967295.0 / dxx;
+    dptr2 = marker_weights;
+    giptr = (unsigned int*)marker_weights;
+    while (dptr2 < dptr3) {
+      *giptr++ = (unsigned int)((*dptr2++) * dxx + 0.5);
+    }
+
+    wkspace_reset(wkspace);
+    marker_weights_i = (unsigned int*)wkspace_alloc((map_linect - marker_exclude_ct) * sizeof(int));
+  }
   printf("%d markers and %d people pass filters and QC.\n", map_linect - marker_exclude_ct, ped_postct);
   if (thread_ct > 1) {
     if (thread_ct == DEFAULT_THREAD_CT) {
@@ -3949,15 +3989,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   if (distance_req(calculation_type)) {
     ulii = ped_postct;
     ulii = (ulii * (ulii - 1)) / 2;
-    missing_tot_weights = (double*)wkspace_alloc(ulii * sizeof(double));
+    missing_tot_weights = (unsigned int*)wkspace_alloc(ulii * sizeof(double));
     if (!missing_tot_weights) {
       goto wdist_ret_2;
     }
-    dptr2 = &(missing_tot_weights[ulii]);
-    dptr3 = missing_tot_weights;
-    while (dptr3 < dptr2) {
-      *dptr3++ = 1.0;
-    }
+    missing_tot_weights = (unsigned int*)(wkspace_base - CACHEALIGN(ulii * sizeof(int)));
+    fill_int_one(missing_tot_weights, ulii);
     wkspace_mark = wkspace_base;
 
     if (!exp0) {
@@ -3997,20 +4034,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       goto wdist_ret_2;
     }
 
-    // normalize marker weights to add to -1
-    dxx = 0.0;
-    dptr2 = marker_weights;
-    dptr3 = &(marker_weights[map_linect - marker_exclude_ct]);
-    while (dptr2 < dptr3) {
-      dxx += *dptr2++;
-    }
-    dxx = -1.0 / dxx;
-    dptr2 = marker_weights;
-    while (dptr2 < dptr3) {
-      *dptr2 *= dxx;
-      dptr2++;
-    }
-
     if (binary_files) {
       if (snp_major) {
 	if (pedbuflen < BITCT * ped_linect4) {
@@ -4032,7 +4055,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	while (pp < (map_linect - marker_exclude_ct)) {
 	  for (jj = 0; jj < BITCT; jj++) {
 	    maf_buf[jj] = 0.5;
-            wtbuf[jj] = 0.0;
+            wtbuf[jj] = 0;
 	  }
 	  jj = 0; // actual SNPs read
 	  // Two key insights here:
@@ -4062,7 +4085,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      goto wdist_ret_2;
 	    }
 	    maf_buf[jj] = ((double)marker_allele_cts[ii * 2]) / ((double)(marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]));
-            wtbuf[jj++] = marker_weights[pp++];
+            wtbuf[jj++] = marker_weights_i[pp++];
 	    ii++;
 	  }
 	  if (jj < BITCT) {
@@ -4151,7 +4174,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      }
 	    }
           }
-          fill_weights_m(weights, wtbuf);
+          fill_weights_m((unsigned int*)weights, wtbuf);
+
           for (ulii = 1; ulii < thread_ct; ulii++) {
 	    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_thread, (void*)ulii)) {
 	      printf("Error: Could not create thread.\n");
@@ -4179,22 +4203,24 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     }
     ulii = ped_postct;
     ulii = ulii * (ulii - 1) / 2;
-    dptr2 = missing_tot_weights;
-    dptr3 = &(missing_tot_weights[ulii]);
+    giptr = missing_tot_weights;
+    giptr2 = &(missing_tot_weights[ulii]);
+    dptr2 = (double*)(wkspace_mark - CACHEALIGN(ulii * sizeof(double)));
     if (exp0) {
       iptr = idists;
-      while (dptr2 < dptr3) {
-	*dptr2 = (1.0 / (*dptr2)) * (*iptr++);
-	dptr2++;
+      dists = dptr2;
+      while (giptr < giptr2) {
+	*dptr2 = (4294967295.0 / (*giptr++)) * (*iptr++);
+        dptr2++;
       }
     } else {
       dptr4 = dists;
-      while (dptr2 < dptr3) {
-        *dptr2 = (1.0 / (*dptr2)) * (*dptr4++);
+      dists = dptr2;
+      while (giptr < giptr2) {
+        *dptr2 = (4294967295.0 / (double)(*giptr++)) * (*dptr4++);
         dptr2++;
       }
     }
-    dists = missing_tot_weights;
     printf("\rDistance matrix calculation complete.\n");
   }
 
