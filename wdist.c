@@ -1191,9 +1191,6 @@ void decr_dist_missing(unsigned int* mtw, int tidx) {
     glptr = mmasks;
     glptr2 = &(mmasks[ii]);
     ulii = *glptr2;
-    if (ii == 2) {
-      printf("%lu %lu\n", *glptr, *glptr2);
-    }
     if (ulii) {
 #if __LP64__
       twt = weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights_i[ulii & 255];
@@ -4210,10 +4207,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           }
 	  printf("\r%d markers complete.", pp);
 	  fflush(stdout);
-          printf("%u %u\n", missing_tot_weights[0], missing_tot_weights[1]);
-          if (pp == 2240) {
-            break;
-          }
 	}
 	wkspace_reset(wkspace_mark);
       } else {
