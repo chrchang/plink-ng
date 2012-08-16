@@ -112,7 +112,11 @@ const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 char tbuf[MAXLINELEN];
-int iwt[256];
+#if __LP64__
+unsigned char popcount[8192];
+#else
+unsigned char popcount[2048];
+#endif
 
 // manually managed, very large stack
 unsigned char* wkspace;
@@ -1101,9 +1105,9 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
       while (glptr < glptr2) {
 	uljj = (*glptr++ ^ ulii) & (mask_fixed & (*mptr++));
 #if __LP64__
-	*idists += iwt[uljj >> 56] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+	*idists += popcount[uljj >> 52] + popcount[(uljj >> 39) & 8191] + popcount[(uljj >> 26) & 8191] + popcount[(uljj >> 13) & 8191] + popcount[uljj & 8191];
 #else
-	*idists += iwt[uljj >> 24] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+	*idists += popcount[uljj >> 22] + popcount[(uljj >> 11) & 2047] + popcount[uljj & 2047];
 #endif
 	idists++;
       }
@@ -1111,9 +1115,9 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
       while (glptr < glptr2) {
 	uljj = (*glptr++ ^ ulii) & (*mptr++);
 #if __LP64__
-	*idists += iwt[uljj >> 56] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+	*idists += popcount[uljj >> 52] + popcount[(uljj >> 39) & 8191] + popcount[(uljj >> 26) & 8191] + popcount[(uljj >> 13) & 8191] + popcount[uljj & 8191];
 #else
-	*idists += iwt[uljj >> 24] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+	*idists += popcount[uljj >> 22] + popcount[(uljj >> 11) & 2047] + popcount[uljj & 2047];
 #endif
 	idists++;
       }
@@ -1290,9 +1294,9 @@ void incr_dists_rm(int* idists, unsigned long* missing, int tidx) {
     // most bits should be zero, so it's worth special-casing this
     if (ulii) {
 #if __LP64__
-      dwt = iwt[ulii >> 56] + iwt[(ulii >> 48) & 255] + iwt[(ulii >> 40) & 255] + iwt[(ulii >> 32) & 255] + iwt[(ulii >> 24) & 255] + iwt[(ulii >> 16) & 255] + iwt[(ulii >> 8) & 255] + iwt[ulii & 255];
+      dwt = popcount[ulii >> 52] + popcount[(ulii >> 39) & 8191] + popcount[(ulii >> 26) & 8191] + popcount[(ulii >> 13) & 8191] + popcount[ulii & 8191];
 #else
-      dwt = iwt[ulii >> 24] + iwt[(ulii >> 16) & 255] + iwt[(ulii >> 8) & 255] + iwt[ulii & 255];
+      dwt = popcount[ulii >> 22] + popcount[(ulii >> 11) & 2047] + popcount[ulii & 2047];
 #endif
       while (glptr <= glptr2) {
 	uljj = *glptr++ | ulii;
@@ -1300,9 +1304,9 @@ void incr_dists_rm(int* idists, unsigned long* missing, int tidx) {
           *idists += dwt;
         } else {
 #if __LP64__
-	  *idists += iwt[uljj >> 56] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+	  *idists += popcount[uljj >> 52] + popcount[(uljj >> 39) & 8191] + popcount[(uljj >> 26) & 8191] + popcount[(uljj >> 13) & 8191] + popcount[uljj & 8191];
 #else
-	  *idists += iwt[uljj >> 24] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+	  *idists += popcount[uljj >> 22] + popcount[(uljj >> 11) & 2047] + popcount[uljj & 2047];
 #endif
         }
 	idists++;
@@ -1312,9 +1316,9 @@ void incr_dists_rm(int* idists, unsigned long* missing, int tidx) {
         uljj = *glptr++;
         if (uljj) {
 #if __LP64__
-	  *idists += iwt[uljj >> 56] + iwt[(uljj >> 48) & 255] + iwt[(uljj >> 40) & 255] + iwt[(uljj >> 32) & 255] + iwt[(uljj >> 24) & 255] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+	  *idists += popcount[uljj >> 52] + popcount[(uljj >> 39) & 8191] + popcount[(uljj >> 26) & 8191] + popcount[(uljj >> 13) & 8191] + popcount[uljj & 8191];
 #else
-	  *idists += iwt[uljj >> 24] + iwt[(uljj >> 16) & 255] + iwt[(uljj >> 8) & 255] + iwt[uljj & 255];
+	  *idists += popcount[uljj >> 22] + popcount[(uljj >> 11) & 2047] + popcount[uljj & 2047];
 #endif
         }
         idists++;
@@ -1331,9 +1335,9 @@ void incr_dists_rm_diag(int* idists, unsigned long* missing) {
     ulii = *missing++;
     if (ulii) {
 #if __LP64__
-      idists[((uljj + 1) * (uljj + 2)) / 2 - 1] += iwt[ulii >> 56] + iwt[(ulii >> 48) & 255] + iwt[(ulii >> 40) & 255] + iwt[(ulii >> 32) & 255] + iwt[(ulii >> 24) & 255] + iwt[(ulii >> 16) & 255] + iwt[(ulii >> 8) & 255] + iwt[ulii & 255];
+      idists[((uljj + 1) * (uljj + 2)) / 2 - 1] += popcount[ulii >> 52] + popcount[(ulii >> 39) & 8191] + popcount[(ulii >> 26) & 8191] + popcount[(ulii >> 13) & 8191] + popcount[ulii & 8191];
 #else
-      idists[((uljj + 1) * (uljj + 2)) / 2 - 1] += iwt[ulii >> 24] + iwt[(ulii >> 16) & 255] + iwt[(ulii >> 8) & 255] + iwt[ulii & 255];
+      idists[((uljj + 1) * (uljj + 2)) / 2 - 1] += popcount[ulii >> 22] + popcount[(ulii >> 11) & 2047] + popcount[ulii & 2047];
 #endif
     }
   }
@@ -5564,18 +5568,29 @@ int main(int argc, char** argv) {
   if (subst_argv) {
     free(subst_argv);
   }
-  if (exponent == 0.0) {
-    for (ii = 0; ii < 256; ii += 1) {
-      iwt[ii] = 0;
-      jj = ii;
-      while (jj) {
-        if (jj % 2 == 1) {
-          iwt[ii] += 1;
-        }
-        jj >>= 1;
+#if __LP64__
+  for (ii = 0; ii < 8192; ii += 1) {
+    popcount[ii] = 0;
+    jj = ii;
+    while (jj) {
+      if (jj % 2 == 1) {
+	popcount[ii] += 1;
       }
+      jj >>= 1;
     }
   }
+#else
+  for (ii = 0; ii < 2048; ii += 1) {
+    popcount[ii] = 0;
+    jj = ii;
+    while (jj) {
+      if (jj % 2 == 1) {
+	popcount[ii] += 1;
+      }
+      jj >>= 1;
+    }
+  }
+#endif
   bubble = (char*)malloc(67108864 * sizeof(char));
   if (!bubble) {
     return dispmsg(RET_NOMEM);
