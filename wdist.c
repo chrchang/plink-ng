@@ -843,28 +843,6 @@ void fill_weights_m(unsigned int* weights, unsigned int* wtbuf) {
   int kk;
   unsigned int uxx;
 
-#if __LP64__
-  for (jj = 0; jj < 256; jj++) {
-    uxx = 0;
-    for (kk = 0; kk < 8; kk++) {
-      if (jj & (1 << kk)) {
-	uxx += wtbuf[kk];
-      }
-    }
-    *weights++ = uxx;
-  }
-  for (ii = 8; ii < BITCT; ii += 7) {
-    for (jj = 0; jj < 128; jj++) {
-      uxx = 0;
-      for (kk = 0; kk < 7; kk++) {
-	if (jj & (1 << kk)) {
-	  uxx += wtbuf[kk + ii];
-	}
-      }
-      *weights++ = uxx;
-    }
-  }
-#else
   for (ii = 0; ii < BITCT; ii += 8) {
     for (jj = 0; jj < 256; jj++) {
       uxx = 0;
@@ -876,7 +854,6 @@ void fill_weights_m(unsigned int* weights, unsigned int* wtbuf) {
       *weights++ = uxx;
     }
   }
-#endif
 }
 
 double calc_wt_mean(double exponent, int lhi, int lli, int hhi) {
@@ -1174,17 +1151,13 @@ void decr_dist_missing(unsigned int* mtw, int tidx) {
   unsigned long ulii;
   unsigned long uljj;
   unsigned int* weights1 = &(weights_i[256]);
-#if __LP64__
-  unsigned int* weights2 = &(weights_i[384]);
-  unsigned int* weights3 = &(weights_i[512]);
-  unsigned int* weights4 = &(weights_i[640]);
-  unsigned int* weights5 = &(weights_i[768]);
-  unsigned int* weights6 = &(weights_i[896]);
-  unsigned int* weights7 = &(weights_i[1024]);
-  unsigned int* weights8 = &(weights_i[1152]);
-#else
   unsigned int* weights2 = &(weights_i[512]);
   unsigned int* weights3 = &(weights_i[768]);
+#if __LP64__
+  unsigned int* weights4 = &(weights_i[1024]);
+  unsigned int* weights5 = &(weights_i[1280]);
+  unsigned int* weights6 = &(weights_i[1536]);
+  unsigned int* weights7 = &(weights_i[1792]);
 #endif
   int ii;
   unsigned int twt;
@@ -1194,7 +1167,7 @@ void decr_dist_missing(unsigned int* mtw, int tidx) {
     ulii = *glptr2;
     if (ulii) {
 #if __LP64__
-      twt = weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights_i[ulii & 255];
+      twt = weights7[ulii >> 56] + weights6[(ulii >> 48) & 255] + weights5[(ulii >> 40) & 255] + weights4[(ulii >> 32) & 255] + weights3[(ulii >> 24) & 255] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights_i[ulii & 255];
 #else
       twt = weights3[ulii >> 24] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights_i[ulii & 255];
 #endif
@@ -1204,7 +1177,7 @@ void decr_dist_missing(unsigned int* mtw, int tidx) {
           *mtw -= twt;
         } else {
 #if __LP64__
-          *mtw -= weights8[uljj >> 57] + weights7[(uljj >> 50) & 127] + weights6[(uljj >> 43) & 127] + weights5[(uljj >> 36) & 127] + weights4[(uljj >> 29) & 127] + weights3[(uljj >> 22) & 127] + weights2[(uljj >> 15) & 127] + weights1[(uljj >> 8) & 127] + weights_i[uljj & 255];
+          *mtw -= weights7[uljj >> 56] + weights6[(uljj >> 48) & 255] + weights5[(uljj >> 40) & 255] + weights4[(uljj >> 32) & 255] + weights3[(uljj >> 24) & 255] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights_i[uljj & 255];
 #else
 	  *mtw -= weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights_i[uljj & 255];
 #endif
@@ -1216,7 +1189,7 @@ void decr_dist_missing(unsigned int* mtw, int tidx) {
 	uljj = *glptr++;
         if (uljj) {
 #if __LP64__
-          *mtw -= weights8[uljj >> 57] + weights7[(uljj >> 50) & 127] + weights6[(uljj >> 43) & 127] + weights5[(uljj >> 36) & 127] + weights4[(uljj >> 29) & 127] + weights3[(uljj >> 22) & 127] + weights2[(uljj >> 15) & 127] + weights1[(uljj >> 8) & 127] + weights_i[uljj & 255];
+          *mtw -= weights7[uljj >> 56] + weights6[(uljj >> 48) & 255] + weights5[(uljj >> 40) & 255] + weights4[(uljj >> 32) & 255] + weights3[(uljj >> 24) & 255] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights_i[uljj & 255];
 #else
 	  *mtw -= weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights_i[uljj & 255];
 #endif
@@ -5568,6 +5541,7 @@ int main(int argc, char** argv) {
   for (ii = 0; ii < 65536; ii++) {
     popcount[ii] = (ii & 1) + popcount[ii / 2];
   }
+
   bubble = (char*)malloc(67108864 * sizeof(char));
   if (!bubble) {
     return dispmsg(RET_NOMEM);
