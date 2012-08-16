@@ -1191,11 +1191,14 @@ void decr_dist_missing(unsigned int* mtw, int tidx) {
     glptr = mmasks;
     glptr2 = &(mmasks[ii]);
     ulii = *glptr2;
+    if (ii == 2) {
+      printf("%lu %lu\n", *glptr, *glptr2);
+    }
     if (ulii) {
 #if __LP64__
       twt = weights8[ulii >> 57] + weights7[(ulii >> 50) & 127] + weights6[(ulii >> 43) & 127] + weights5[(ulii >> 36) & 127] + weights4[(ulii >> 29) & 127] + weights3[(ulii >> 22) & 127] + weights2[(ulii >> 15) & 127] + weights1[(ulii >> 8) & 127] + weights_i[ulii & 255];
 #else
-      twt = weights3[(ulii >> 24) & 255] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights[ulii & 255];
+      twt = weights3[ulii >> 24] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights_i[ulii & 255];
 #endif
       while (glptr < glptr2) {
 	uljj = *glptr++ | ulii;
@@ -1567,19 +1570,26 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   double ll_change;
   long long mat_offset = ped_postct;
   double* rel_dists;
+#ifdef __LP64__
+  int* irow;
+  int lwork;
+#else
   long int* irow;
+  long int lwork;
+#endif
   double* row;
   double* row2;
   double* work;
   double* dptr;
   double* dptr2;
   double* matrix_pvg;
-  long int lwork;
 #ifdef __APPLE__
-#ifndef __LP64__
+#ifdef __LP64__
+  int info;
+#else
   long int ped_postct_li = ped_postct;
-#endif
   long int info;
+#endif
 #endif
   double dxx;
   double dyy;
@@ -1597,7 +1607,11 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   mat_offset = CACHEALIGN_DBL(mat_offset * mat_offset);
   rel_dists = &(wkbase[mat_offset]);
   row = &(wkbase[mat_offset * 3]);
+#ifdef __LP64__
+  irow = (int*)row;
+#else
   irow = (long int*)row;
+#endif
   row2 = &(row[ped_postct]);
   work = &(wkbase[mat_offset * 2]);
   lwork = mat_offset;
@@ -4196,6 +4210,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           }
 	  printf("\r%d markers complete.", pp);
 	  fflush(stdout);
+          printf("%u %u\n", missing_tot_weights[0], missing_tot_weights[1]);
+          if (pp == 2240) {
+            break;
+          }
 	}
 	wkspace_reset(wkspace_mark);
       } else {
