@@ -1097,21 +1097,21 @@ static inline unsigned int popcount_xor_1mask_1920_bit(unsigned long** xor1p, un
   return (unsigned int)acc;
 }
 
-static inline unsigned int popcount_xor_2mask_1920_bit(unsigned long* xor1, unsigned long* xor2, unsigned long* mask1, unsigned long* mask2) {
+static inline unsigned int popcount_xor_2mask_1920_bit(unsigned long** xor1p, unsigned long* xor2, unsigned long** mask1p, unsigned long* mask2) {
   const unsigned long m1 = 0x5555555555555555LLU;
   const unsigned long m2 = 0x3333333333333333LLU;
   const unsigned long m4 = 0x0f0f0f0f0f0f0f0fLLU;
   const unsigned long m8 = 0x00ff00ff00ff00ffLLU;
   const unsigned long m16 = 0x0000ffff0000ffffLLU;
-  unsigned int jj;
   unsigned long count1, count2, half1, half2, acc;
+  unsigned long* xor2_end = &(xor2[30]);
 
   // 64-bit tree merging (merging3)
   acc = 0;
-  for (jj = 0; jj < 30; jj += 3) {
-    count1  =  (xor1[jj] ^ xor2[jj]) & (mask1[jj] & mask2[jj]);
-    count2  =  (xor1[jj + 1] ^ xor2[jj + 1]) & (mask1[jj + 1] & mask2[jj + 1]);
-    half1   =  (xor1[jj + 2] ^ xor2[jj + 2]) & (mask1[jj + 2] & mask2[jj + 2]);
+  while (xor2 < xor2_end) {
+    count1  =  ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
+    count2  =  ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
+    half1   =  ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
     half2   =  half1;
     half1  &=  m1;
     half2   = (half2  >> 1) & m1;
@@ -1129,13 +1129,24 @@ static inline unsigned int popcount_xor_2mask_1920_bit(unsigned long* xor1, unsi
   return (unsigned int)acc;
 }
 #else
-unsigned int popcount_1920_bit(unsigned long* data) {
-  const unsigned long* data_end = &(data[60]);
+static inline unsigned int popcount_xor_1mask_1920_bit(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
+  unsigned long* xor2_end = &(xor2[60]);
   unsigned int bit_count = 0;
-  int ii;
-  while (data < data_end) {
-    ii += popcount[(*data) >> 16] + popcount[(*data) & 65535];
-    data++;
+  unsigned long ulii;
+  while (xor2 < xor2_end) {
+    ulii = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
+    bit_count += popcount[ulii >> 16] + popcount[ulii & 65535];
+  }
+  return bit_count;
+}
+
+static inline unsigned int popcount_xor_2mask_1920_bit(unsigned long** xor1p, unsigned long* xor2, unsigned long** mask1p, unsigned long* mask2) {
+  unsigned long* xor2_end = &(xor2[60]);
+  unsigned int bit_count = 0;
+  unsigned long ulii;
+  while (xor2 < xor2_end) {
+    ulii = ((*((*xor1p)++)) ^ *xor2++) & (*((*mask1p)++));
+    bit_count += popcount[ulii >> 16] + popcount[ulii & 65535];
   }
   return bit_count;
 }
@@ -1167,9 +1178,7 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
     }
     if (~mask_fixed) {
       while (glptr < glptr2) {
-	*idists += popcount_xor_2mask_1920_bit(glptr, glptr2, mcptr_start, mptr);
-        glptr += (1920 / BITCT);
-        mptr += (1920 / BITCT);
+	*idists += popcount_xor_2mask_1920_bit(&glptr, glptr2, &mptr, mcptr_start);
 	idists++;
       }
     } else {
