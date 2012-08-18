@@ -25,6 +25,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <cblas.h>
+#include <emmintrin.h>
 
 #ifdef __APPLE__
 #include <vecLib/clapack.h>
@@ -90,8 +91,9 @@
 
 // number of snp-major .bed lines to read at once for distance calc
 #define MULTIPLEX_DIST 960
+#define MULTIPLEX_2DIST (MULTIPLEX_DIST * 2)
 // number of snp-major .bed lines to read at once for relationship calc
-#define MULTIPLEX_REL 1920
+#define MULTIPLEX_REL MULTIPLEX_DIST
 
 #if __LP64__
 #define BITCT 64
@@ -1067,72 +1069,77 @@ void pick_d_small(unsigned char* tmp_cbuf, int* ibuf, unsigned int ct, unsigned 
 }
 
 #if __LP64__
-static inline unsigned int popcount_xor_1mask_1920_bit(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
-  const unsigned long m1 = 0x5555555555555555LLU;
-  const unsigned long m2 = 0x3333333333333333LLU;
-  const unsigned long m4 = 0x0f0f0f0f0f0f0f0fLLU;
-  const unsigned long m8 = 0x00ff00ff00ff00ffLLU;
-  const unsigned long m16 = 0x0000ffff0000ffffLLU;
-  unsigned long count1, count2, half1, half2, acc;
-  unsigned long* xor2_end = &(xor2[30]);
+typedef union {
+  __m128i vi;
+  unsigned long u8[2];
+} __uni16;
+
+static inline unsigned int popcount_xor_1mask_multibyte(__m128i** xor1p, __m128i* xor2, __m128i** maskp) {
+  const __m128i m1 = {0x5555555555555555LLU, 0x5555555555555555LLU};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
+  __m128i count1, count2, half1, half2;
+  __uni16 acc;
+  __m128i* xor2_end = &(xor2[MULTIPLEX_DIST / BITCT]);
 
   // 64-bit tree merging (merging3)
-  acc = 0;
+  acc.vi = _mm_setzero_si128();
   while (xor2 < xor2_end) {
-    count1  =  ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
-    count2  =  ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
-    half1   =  ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
-    half2   =  half1;
-    half1  &=  m1;
-    half2   = (half2  >> 1) & m1;
-    count1 -= (count1 >> 1) & m1;
-    count2 -= (count2 >> 1) & m1;
-    count1 +=  half1;
-    count2 +=  half2;
-    count1  = (count1 & m2) + ((count1 >> 2) & m2);
-    count1 += (count2 & m2) + ((count2 >> 2) & m2);
-    acc    += (count1 & m4) + ((count1 >> 4) & m4);
+    count1 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    count2 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    half1 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    half2 = _mm_and_si128(_mm_srli_epi64(half1, 1), m1);
+    half1 = _mm_and_si128(half1, m1);
+    count1 = _mm_sub_epi64(count1, _mm_and_si128(_mm_srli_epi64(count1, 1), m1));
+    count2 = _mm_sub_epi64(count2, _mm_and_si128(_mm_srli_epi64(count2, 1), m1));
+    count1 = _mm_add_epi64(count1, half1);
+    count2 = _mm_add_epi64(count2, half2);
+    count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
+    count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
+    acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
   }
-  acc = (acc & m8) + ((acc >>  8)  & m8);
-  acc = (acc       +  (acc >> 16)) & m16;
-  acc =  acc       +  (acc >> 32);
-  return (unsigned int)acc;
+  acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
+  acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
+  acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
+  return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 
-static inline unsigned int popcount_xor_2mask_1920_bit(unsigned long** xor1p, unsigned long* xor2, unsigned long** mask1p, unsigned long* mask2) {
-  const unsigned long m1 = 0x5555555555555555LLU;
-  const unsigned long m2 = 0x3333333333333333LLU;
-  const unsigned long m4 = 0x0f0f0f0f0f0f0f0fLLU;
-  const unsigned long m8 = 0x00ff00ff00ff00ffLLU;
-  const unsigned long m16 = 0x0000ffff0000ffffLLU;
-  unsigned long count1, count2, half1, half2, acc;
-  unsigned long* xor2_end = &(xor2[30]);
+static inline unsigned int popcount_xor_2mask_multibyte(__m128i** xor1p, __m128i* xor2, __m128i** mask1p, __m128i* mask2) {
+  const __m128i m1 = {0x5555555555555555LLU, 0x5555555555555555LLU};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
+  __m128i count1, count2, half1, half2;
+  __uni16 acc;
+  __m128i* xor2_end = &(xor2[MULTIPLEX_DIST / BITCT]);
 
   // 64-bit tree merging (merging3)
-  acc = 0;
+  acc.vi = _mm_setzero_si128();
   while (xor2 < xor2_end) {
-    count1  =  ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
-    count2  =  ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
-    half1   =  ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
-    half2   =  half1;
-    half1  &=  m1;
-    half2   = (half2  >> 1) & m1;
-    count1 -= (count1 >> 1) & m1;
-    count2 -= (count2 >> 1) & m1;
-    count1 +=  half1;
-    count2 +=  half2;
-    count1  = (count1 & m2) + ((count1 >> 2) & m2);
-    count1 += (count2 & m2) + ((count2 >> 2) & m2);
-    acc    += (count1 & m4) + ((count1 >> 4) & m4);
+    count1 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    count2 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    half1 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    half2 = _mm_and_si128(_mm_srli_epi64(half1, 1), m1);
+    half1 = _mm_and_si128(half1, m1);
+    count1 = _mm_sub_epi64(count1, _mm_and_si128(_mm_srli_epi64(count1, 1), m1));
+    count2 = _mm_sub_epi64(count2, _mm_and_si128(_mm_srli_epi64(count2, 1), m1));
+    count1 = _mm_add_epi64(count1, half1);
+    count2 = _mm_add_epi64(count2, half2);
+    count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
+    count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
+    acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
   }
-  acc = (acc & m8) + ((acc >>  8)  & m8);
-  acc = (acc       +  (acc >> 16)) & m16;
-  acc =  acc       +  (acc >> 32);
-  return (unsigned int)acc;
+  acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
+  acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
+  acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
+  return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 #else
-static inline unsigned int popcount_xor_1mask_1920_bit(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
-  unsigned long* xor2_end = &(xor2[60]);
+static inline unsigned int popcount_xor_1mask_multibyte(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
+  unsigned long* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
   unsigned int bit_count = 0;
   unsigned long ulii;
   while (xor2 < xor2_end) {
@@ -1142,8 +1149,8 @@ static inline unsigned int popcount_xor_1mask_1920_bit(unsigned long** xor1p, un
   return bit_count;
 }
 
-static inline unsigned int popcount_xor_2mask_1920_bit(unsigned long** xor1p, unsigned long* xor2, unsigned long** mask1p, unsigned long* mask2) {
-  unsigned long* xor2_end = &(xor2[60]);
+static inline unsigned int popcount_xor_2mask_multibyte(unsigned long** xor1p, unsigned long* xor2, unsigned long** mask1p, unsigned long* mask2) {
+  unsigned long* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
   unsigned int bit_count = 0;
   unsigned long ulii;
   while (xor2 < xor2_end) {
@@ -1167,25 +1174,25 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
   int jj;
   for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
     glptr = geno;
-    jj = ii * (1920 / BITCT);
+    jj = ii * (MULTIPLEX_2DIST / BITCT);
     glptr2 = &(geno[jj]);
     ulii = *glptr2;
     mptr = masks;
     mcptr_start = &(masks[jj]);
     mcptr = mcptr_start;
-    bptr_end = &(mcptr[1920 / BITCT]);
+    bptr_end = &(mcptr[MULTIPLEX_2DIST / BITCT]);
     mask_fixed = *mcptr++;
     while (mcptr < bptr_end) {
       mask_fixed &= *mcptr++;
     }
     if (~mask_fixed) {
       while (glptr < glptr2) {
-	*idists += popcount_xor_2mask_1920_bit(&glptr, glptr2, &mptr, mcptr_start);
+	*idists += popcount_xor_2mask_multibyte((__m128i**)(&glptr), (__m128i*)glptr2, (__m128i**)(&mptr), (__m128i*)mcptr_start);
 	idists++;
       }
     } else {
       while (glptr < glptr2) {
-        *idists += popcount_xor_1mask_1920_bit(&glptr, glptr2, &mptr);
+        *idists += popcount_xor_1mask_multibyte((__m128i**)(&glptr), (__m128i*)glptr2, (__m128i**)(&mptr));
 	idists++;
       }
     }
@@ -4091,7 +4098,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     if (exp0) {
       idists = (int*)(((char*)missing_tot_weights) - CACHEALIGN(ulii * sizeof(int)));
       fill_int_zero(idists, ulii);
-      masks = (unsigned long*)wkspace_alloc(indiv_ct * (1920 / 8));
+      masks = (unsigned long*)wkspace_alloc(indiv_ct * (MULTIPLEX_2DIST / 8));
     } else {
       fill_double_zero(dists, ulii);
       masks = (unsigned long*)wkspace_alloc(indiv_ct * sizeof(int));
@@ -4106,7 +4113,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 
     if (exp0) {
       multiplex = MULTIPLEX_DIST;
-      ped_geno = wkspace_alloc(indiv_ct * (1920 / 8));
+      ped_geno = wkspace_alloc(indiv_ct * (MULTIPLEX_2DIST / 8));
     } else {
       multiplex = BITCT;
       ped_geno = wkspace_alloc(indiv_ct * sizeof(int));
@@ -4172,11 +4179,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  if (jj < multiplex) {
 	    memset(&(pedbuf[jj * unfiltered_indiv_ct4]), 0, (multiplex - jj) * unfiltered_indiv_ct4);
             if (exp0) {
-              fill_long_zero((long*)ped_geno, indiv_ct * (1920 / BITCT));
-              fill_long_zero((long*)masks, indiv_ct * (1920 / BITCT));
+              fill_long_zero((long*)ped_geno, indiv_ct * (MULTIPLEX_2DIST / BITCT));
+              fill_long_zero((long*)masks, indiv_ct * (MULTIPLEX_2DIST / BITCT));
 	    }
 	  }
-          fill_long_zero((long*)mmasks, unfiltered_indiv_ct);
+          fill_long_zero((long*)mmasks, indiv_ct);
 	  if (exp0) {
             for (nn = 0; nn < jj; nn += BITCT) {
 	      glptr = &(((unsigned long*)ped_geno)[nn / BITCT2]);
@@ -4229,8 +4236,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 #endif
 		  *glptr2 = ulii * 3;
                   *glptr3++ |= ulkk << BITCT2;
-                  glptr = &(glptr[(1920 / BITCT) - 1]);
-                  glptr2 = &(glptr2[(1920 / BITCT) - 1]);
+                  glptr = &(glptr[(MULTIPLEX_2DIST / BITCT) - 1]);
+                  glptr2 = &(glptr2[(MULTIPLEX_2DIST / BITCT) - 1]);
 		}
 	      }
 	      fill_weights_m(weights_i, &(wtbuf[nn]));
