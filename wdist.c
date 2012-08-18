@@ -1134,7 +1134,7 @@ static inline unsigned int popcount_xor_1mask_1920_bit(unsigned long** xor1p, un
   unsigned int bit_count = 0;
   unsigned long ulii;
   while (xor2 < xor2_end) {
-    ulii = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
+    ulii = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
     bit_count += popcount[ulii >> 16] + popcount[ulii & 65535];
   }
   return bit_count;
@@ -1145,7 +1145,7 @@ static inline unsigned int popcount_xor_2mask_1920_bit(unsigned long** xor1p, un
   unsigned int bit_count = 0;
   unsigned long ulii;
   while (xor2 < xor2_end) {
-    ulii = ((*((*xor1p)++)) ^ *xor2++) & (*((*mask1p)++));
+    ulii = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
     bit_count += popcount[ulii >> 16] + popcount[ulii & 65535];
   }
   return bit_count;
@@ -4177,8 +4177,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           fill_long_zero((long*)mmasks, unfiltered_indiv_ct);
 	  if (exp0) {
             for (nn = 0; nn < jj; nn += BITCT) {
-	      glptr = &(((unsigned long*)ped_geno)[nn / 32]);
-	      glptr2 = &(masks[nn / 32]);
+	      glptr = &(((unsigned long*)ped_geno)[nn / BITCT2]);
+	      glptr2 = &(masks[nn / BITCT2]);
               glptr3 = mmasks;
 	      for (oo = 0; oo < unfiltered_indiv_ct; oo++) {
 		if (!excluded(indiv_exclude, oo)) {
