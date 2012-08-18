@@ -90,6 +90,8 @@
 
 // number of snp-major .bed lines to read at once for distance calc
 #define MULTIPLEX_DIST 960
+// number of snp-major .bed lines to read at once for relationship calc
+#define MULTIPLEX_REL 1920
 
 #if __LP64__
 #define BITCT 64
@@ -878,7 +880,7 @@ double* dists = NULL;
 double* pheno_d = NULL;
 unsigned char* ped_geno = NULL;
 unsigned long* glptr;
-double weights[DMULTIPLEX * 128];
+double weights[MULTIPLEX_REL * 32];
 unsigned int* weights_i = (unsigned int*)weights;
 int thread_start[MAX_THREADS_P1];
 int thread_start0[MAX_THREADS_P1];
@@ -902,7 +904,7 @@ void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_
   int ii;
   int jj;
   int kk;
-  double weights[DMULTIPLEX * 64];
+  double weights[BITCT * 16];
   double *wptr = weights;
   double wtarr[BITCT * 2];
   double twt;
@@ -956,9 +958,9 @@ void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_
   while (geno < glptr) {
     ulii = *geno++;
 #if __LP64__
-    *rel_ibc += weights7[(ulii >> 56)] + weights6[(ulii >> 48) & 127] + weights5[(ulii >> 40) & 127] + weights4[(ulii >> 32) & 127] + weights3[(ulii >> 24) & 127] + weights2[(ulii >> 16) & 127] + weights1[(ulii >> 8) & 127] + weights[ulii & 127];
+    *rel_ibc += weights7[ulii >> 56] + weights6[(ulii >> 48) & 255] + weights5[(ulii >> 40) & 255] + weights4[(ulii >> 32) & 255] + weights3[(ulii >> 24) & 255] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights[ulii & 255];
 #else
-    *rel_ibc += weights3[ulii >> 24] + weights2[(ulii >> 16) & 127] + weights1[(ulii >> 8) & 127] + weights[ulii & 127];
+    *rel_ibc += weights3[ulii >> 24] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights[ulii & 255];
 #endif
     rel_ibc++;
   }
