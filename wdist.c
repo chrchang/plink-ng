@@ -90,7 +90,7 @@
 #define ITERS_DEFAULT 100000
 
 // number of snp-major .bed lines to read at once for distance calc
-#define MULTIPLEX_DIST 960
+#define MULTIPLEX_DIST 1152
 #define MULTIPLEX_2DIST (MULTIPLEX_DIST * 2)
 // number of snp-major .bed lines to read at once for relationship calc
 #define MULTIPLEX_REL MULTIPLEX_DIST
@@ -1164,7 +1164,6 @@ static inline unsigned int popcount_xor_2mask_multibyte(unsigned long** xor1p, u
 void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
   unsigned long* glptr;
   unsigned long* glptr2;
-  unsigned long ulii;
   unsigned long mask_fixed;
   unsigned long* mptr;
   unsigned long* bptr_end;
@@ -1176,7 +1175,6 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
     glptr = geno;
     jj = ii * (MULTIPLEX_2DIST / BITCT);
     glptr2 = &(geno[jj]);
-    ulii = *glptr2;
     mptr = masks;
     mcptr_start = &(masks[jj]);
     mcptr = mcptr_start;
