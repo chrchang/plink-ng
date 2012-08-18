@@ -88,17 +88,19 @@
 // default jackknife iterations
 #define ITERS_DEFAULT 100000
 
+// number of snp-major .bed lines to read at once for distance calc
+#define MULTIPLEX_DIST 960
+
 #if __LP64__
 #define BITCT 64
-// number of snp-major .bed lines to read at once
+// number of snp-major .bed lines to read at once for relationship calc
 #define DMULTIPLEX 64
-
-#define IMULTIPLEX 32
 #else
 #define BITCT 32
 #define DMULTIPLEX 32
-#define IMULTIPLEX 16
 #endif
+
+#define BITCT2 (BITCT / 2)
 
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
@@ -1062,38 +1064,117 @@ void pick_d_small(unsigned char* tmp_cbuf, int* ibuf, unsigned int ct, unsigned 
   ibuf[jj] = ct;
 }
 
+#if __LP64__
+static inline unsigned int popcount_xor_1mask_1920_bit(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
+  const unsigned long m1 = 0x5555555555555555LLU;
+  const unsigned long m2 = 0x3333333333333333LLU;
+  const unsigned long m4 = 0x0f0f0f0f0f0f0f0fLLU;
+  const unsigned long m8 = 0x00ff00ff00ff00ffLLU;
+  const unsigned long m16 = 0x0000ffff0000ffffLLU;
+  unsigned long count1, count2, half1, half2, acc;
+  unsigned long* xor2_end = &(xor2[30]);
+
+  // 64-bit tree merging (merging3)
+  acc = 0;
+  while (xor2 < xor2_end) {
+    count1  =  ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
+    count2  =  ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
+    half1   =  ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
+    half2   =  half1;
+    half1  &=  m1;
+    half2   = (half2  >> 1) & m1;
+    count1 -= (count1 >> 1) & m1;
+    count2 -= (count2 >> 1) & m1;
+    count1 +=  half1;
+    count2 +=  half2;
+    count1  = (count1 & m2) + ((count1 >> 2) & m2);
+    count1 += (count2 & m2) + ((count2 >> 2) & m2);
+    acc    += (count1 & m4) + ((count1 >> 4) & m4);
+  }
+  acc = (acc & m8) + ((acc >>  8)  & m8);
+  acc = (acc       +  (acc >> 16)) & m16;
+  acc =  acc       +  (acc >> 32);
+  return (unsigned int)acc;
+}
+
+static inline unsigned int popcount_xor_2mask_1920_bit(unsigned long* xor1, unsigned long* xor2, unsigned long* mask1, unsigned long* mask2) {
+  const unsigned long m1 = 0x5555555555555555LLU;
+  const unsigned long m2 = 0x3333333333333333LLU;
+  const unsigned long m4 = 0x0f0f0f0f0f0f0f0fLLU;
+  const unsigned long m8 = 0x00ff00ff00ff00ffLLU;
+  const unsigned long m16 = 0x0000ffff0000ffffLLU;
+  unsigned int jj;
+  unsigned long count1, count2, half1, half2, acc;
+
+  // 64-bit tree merging (merging3)
+  acc = 0;
+  for (jj = 0; jj < 30; jj += 3) {
+    count1  =  (xor1[jj] ^ xor2[jj]) & (mask1[jj] & mask2[jj]);
+    count2  =  (xor1[jj + 1] ^ xor2[jj + 1]) & (mask1[jj + 1] & mask2[jj + 1]);
+    half1   =  (xor1[jj + 2] ^ xor2[jj + 2]) & (mask1[jj + 2] & mask2[jj + 2]);
+    half2   =  half1;
+    half1  &=  m1;
+    half2   = (half2  >> 1) & m1;
+    count1 -= (count1 >> 1) & m1;
+    count2 -= (count2 >> 1) & m1;
+    count1 +=  half1;
+    count2 +=  half2;
+    count1  = (count1 & m2) + ((count1 >> 2) & m2);
+    count1 += (count2 & m2) + ((count2 >> 2) & m2);
+    acc    += (count1 & m4) + ((count1 >> 4) & m4);
+  }
+  acc = (acc & m8) + ((acc >>  8)  & m8);
+  acc = (acc       +  (acc >> 16)) & m16;
+  acc =  acc       +  (acc >> 32);
+  return (unsigned int)acc;
+}
+#else
+unsigned int popcount_1920_bit(unsigned long* data) {
+  const unsigned long* data_end = &(data[60]);
+  unsigned int bit_count = 0;
+  int ii;
+  while (data < data_end) {
+    ii += popcount[(*data) >> 16] + popcount[(*data) & 65535];
+    data++;
+  }
+  return bit_count;
+}
+#endif
+
 void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
   unsigned long* glptr;
   unsigned long* glptr2;
   unsigned long ulii;
   unsigned long mask_fixed;
-  unsigned long uljj;
   unsigned long* mptr;
+  unsigned long* bptr_end;
+  unsigned long* mcptr;
+  unsigned long* mcptr_start;
   int ii;
+  int jj;
   for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
     glptr = geno;
-    glptr2 = &(geno[ii]);
+    jj = ii * (1920 / BITCT);
+    glptr2 = &(geno[jj]);
     ulii = *glptr2;
     mptr = masks;
-    mask_fixed = masks[ii];
+    mcptr_start = &(masks[jj]);
+    mcptr = mcptr_start;
+    bptr_end = &(mcptr[1920 / BITCT]);
+    mask_fixed = *mcptr++;
+    while (mcptr < bptr_end) {
+      mask_fixed &= *mcptr++;
+    }
     if (~mask_fixed) {
       while (glptr < glptr2) {
-	uljj = (*glptr++ ^ ulii) & (mask_fixed & (*mptr++));
-#if __LP64__
-	*idists += popcount[uljj >> 48] + popcount[(uljj >> 32) & 65535] + popcount[(uljj >> 16) & 65535] + popcount[uljj & 65535];
-#else
-	*idists += popcount[uljj >> 16] + popcount[uljj & 65535];
-#endif
+	*idists += popcount_xor_2mask_1920_bit(glptr, glptr2, mcptr_start, mptr);
+        glptr += (1920 / BITCT);
+        mptr += (1920 / BITCT);
 	idists++;
       }
     } else {
       while (glptr < glptr2) {
-	uljj = (*glptr++ ^ ulii) & (*mptr++);
-#if __LP64__
-	*idists += popcount[uljj >> 48] + popcount[(uljj >> 32) & 65535] + popcount[(uljj >> 16) & 65535] + popcount[uljj & 65535];
-#else
-	*idists += popcount[uljj >> 16] + popcount[uljj & 65535];
-#endif
+        *idists += popcount_xor_1mask_1920_bit(&glptr, glptr2, &mptr);
 	idists++;
       }
     }
@@ -1794,8 +1875,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int max_id_len = 4;
   char* pid_list = NULL;
   char* id_list = NULL;
-  double maf_buf[DMULTIPLEX];
-  unsigned int wtbuf[BITCT];
+  double maf_buf[MULTIPLEX_DIST];
+  unsigned int wtbuf[MULTIPLEX_DIST];
   double missing_phenod = (double)missing_pheno;
   int missing_pheno_len = 1;
   int* hwe_ll;
@@ -3999,7 +4080,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     if (exp0) {
       idists = (int*)(((char*)missing_tot_weights) - CACHEALIGN(ulii * sizeof(int)));
       fill_int_zero(idists, ulii);
-      masks = (unsigned long*)wkspace_alloc(indiv_ct * sizeof(long));
+      masks = (unsigned long*)wkspace_alloc(indiv_ct * (1920 / 8));
     } else {
       fill_double_zero(dists, ulii);
       masks = (unsigned long*)wkspace_alloc(indiv_ct * sizeof(int));
@@ -4013,10 +4094,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     }
 
     if (exp0) {
-      multiplex = IMULTIPLEX;
-      ped_geno = wkspace_alloc(indiv_ct * sizeof(long));
+      multiplex = MULTIPLEX_DIST;
+      ped_geno = wkspace_alloc(indiv_ct * (1920 / 8));
     } else {
-      multiplex = 16;
+      multiplex = BITCT;
       ped_geno = wkspace_alloc(indiv_ct * sizeof(int));
     }
     if (!ped_geno) {
@@ -4025,9 +4106,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 
     if (binary_files) {
       if (snp_major) {
-	if (pedbuflen < BITCT * unfiltered_indiv_ct4) {
+	if (pedbuflen < multiplex * unfiltered_indiv_ct4) {
 	  free(pedbuf);
-	  pedbuf = (unsigned char*)malloc(BITCT * unfiltered_indiv_ct4 * sizeof(char));
+	  pedbuf = (unsigned char*)malloc(multiplex * unfiltered_indiv_ct4 * sizeof(char));
 	  if (!pedbuf) {
 	    goto wdist_ret_2;
 	  }
@@ -4042,10 +4123,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	ii = 0; // current SNP index
 	pp = 0; // after subtracting out excluded
 	while (pp < marker_ct) {
-	  for (jj = 0; jj < BITCT; jj++) {
+	  for (jj = 0; jj < multiplex; jj++) {
 	    maf_buf[jj] = 0.5;
-            wtbuf[jj] = 0;
 	  }
+          fill_int_zero((int*)wtbuf, multiplex);
 	  jj = 0; // actual SNPs read
 	  // Two key insights here:
 	  //
@@ -4064,7 +4145,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  // Empirically, when the weighting exponent is nonzero (and thus
 	  // floating point arithmetic must be used), 4 sets appears to be no
 	  // worse than 8 when using a 64-bit processor.
-	  while ((jj < BITCT) && (pp < marker_ct)) {
+	  while ((jj < multiplex) && (pp < marker_ct)) {
 	    while (excluded(marker_exclude, ii)) {
 	      ii++;
 	      fseeko(pedfile, (off_t)unfiltered_indiv_ct4, SEEK_CUR);
@@ -4077,14 +4158,18 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             wtbuf[jj++] = marker_weights_i[pp++];
 	    ii++;
 	  }
-	  if (jj < BITCT) {
-	    memset(&(pedbuf[jj * unfiltered_indiv_ct4]), 0, (BITCT - jj) * unfiltered_indiv_ct4);
+	  if (jj < multiplex) {
+	    memset(&(pedbuf[jj * unfiltered_indiv_ct4]), 0, (multiplex - jj) * unfiltered_indiv_ct4);
+            if (exp0) {
+              fill_long_zero((long*)ped_geno, indiv_ct * (1920 / BITCT));
+              fill_long_zero((long*)masks, indiv_ct * (1920 / BITCT));
+	    }
 	  }
           fill_long_zero((long*)mmasks, unfiltered_indiv_ct);
-          for (nn = 0; nn < jj; nn += multiplex) {
-	    if (exp0) {
-	      glptr = (unsigned long*)ped_geno;
-	      glptr2 = masks;
+	  if (exp0) {
+            for (nn = 0; nn < jj; nn += BITCT) {
+	      glptr = &(((unsigned long*)ped_geno)[nn / 32]);
+	      glptr2 = &(masks[nn / 32]);
               glptr3 = mmasks;
 	      for (oo = 0; oo < unfiltered_indiv_ct; oo++) {
 		if (!excluded(indiv_exclude, oo)) {
@@ -4092,7 +4177,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		  ulii = 0;
                   ulkk = 0;
                   gptr = &(pedbuf[oo / 4 + nn * unfiltered_indiv_ct4]);
-		  for (mm = 0; mm < IMULTIPLEX; mm++) {
+		  for (mm = 0; mm < BITCT2; mm++) {
 		    uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
 		    ulii |= uljj << (mm * 2);
                     if (uljj == 1) {
@@ -4111,21 +4196,59 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		  ulii = (ulii | (ulii >> 1)) & 0x55555555;
 #endif
 		  *glptr2++ = ulii * 3;
-                  *glptr3++ |= ulkk << nn;
+                  *glptr3 = ulkk;
+		  ulii = 0;
+                  ulkk = 0;
+                  gptr = &(pedbuf[oo / 4 + (nn + BITCT2) * unfiltered_indiv_ct4]);
+		  for (mm = 0; mm < BITCT2; mm++) {
+		    uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
+		    ulii |= uljj << (mm * 2);
+                    if (uljj == 1) {
+                      ulkk |= 1LLU << mm;
+                    }
+		  }
+#if __LP64__
+		  ulii ^= 0x5555555555555555LLU;
+		  *glptr = ulii;
+		  ulii = (ulii | (ulii >> 1)) & 0x5555555555555555LLU;
+#else
+		  ulii ^= 0x55555555;
+		  *glptr = ulii;
+		  ulii = (ulii | (ulii >> 1)) & 0x55555555;
+#endif
+		  *glptr2 = ulii * 3;
+                  *glptr3++ |= ulkk << BITCT2;
+                  glptr = &(glptr[(1920 / BITCT) - 1]);
+                  glptr2 = &(glptr2[(1920 / BITCT) - 1]);
 		}
 	      }
+	      fill_weights_m(weights_i, &(wtbuf[nn]));
+
 	      for (ulii = 1; ulii < thread_ct; ulii++) {
-		if (pthread_create(&(threads[ulii - 1]), NULL, &calc_idist_thread, (void*)ulii)) {
+		if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_thread, (void*)ulii)) {
 		  printf("Error: Could not create thread.\n");
 		  retval = RET_THREAD_CREATE_FAIL;
 		  goto wdist_ret_2;
 		}
 	      }
-	      incr_dists_i(idists, (unsigned long*)ped_geno, 0);
+	      decr_dist_missing(missing_tot_weights, 0);
 	      for (oo = 0; oo < thread_ct - 1; oo++) {
 		pthread_join(threads[oo], NULL);
 	      }
-	    } else {
+            }
+	    for (ulii = 1; ulii < thread_ct; ulii++) {
+	      if (pthread_create(&(threads[ulii - 1]), NULL, &calc_idist_thread, (void*)ulii)) {
+		printf("Error: Could not create thread.\n");
+		retval = RET_THREAD_CREATE_FAIL;
+		goto wdist_ret_2;
+	      }
+	    }
+	    incr_dists_i(idists, (unsigned long*)ped_geno, 0);
+	    for (oo = 0; oo < thread_ct - 1; oo++) {
+	      pthread_join(threads[oo], NULL);
+	    }
+	  } else {
+            for (nn = 0; nn < jj; nn += 16) {
 	      giptr = (unsigned int*)ped_geno;
 	      giptr2 = (unsigned int*)masks;
 	      glptr3 = mmasks;
@@ -4162,19 +4285,18 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		pthread_join(threads[oo], NULL);
 	      }
 	    }
-          }
-          fill_weights_m(weights_i, wtbuf);
-
-          for (ulii = 1; ulii < thread_ct; ulii++) {
-	    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_thread, (void*)ulii)) {
-	      printf("Error: Could not create thread.\n");
-	      retval = RET_THREAD_CREATE_FAIL;
-	      goto wdist_ret_2;
+	    fill_weights_m(weights_i, wtbuf);
+	    for (ulii = 1; ulii < thread_ct; ulii++) {
+	      if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_thread, (void*)ulii)) {
+		printf("Error: Could not create thread.\n");
+		retval = RET_THREAD_CREATE_FAIL;
+		goto wdist_ret_2;
+	      }
 	    }
-	  }
-          decr_dist_missing(missing_tot_weights, 0);
-          for (oo = 0; oo < thread_ct - 1; oo++) {
-            pthread_join(threads[oo], NULL);
+	    decr_dist_missing(missing_tot_weights, 0);
+	    for (oo = 0; oo < thread_ct - 1; oo++) {
+	      pthread_join(threads[oo], NULL);
+	    }
           }
 	  printf("\r%d markers complete.", pp);
 	  fflush(stdout);
