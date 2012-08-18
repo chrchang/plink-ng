@@ -860,7 +860,7 @@ double calc_wt_mean(double exponent, int lhi, int lli, int hhi) {
   double lfreq = (double)lli + ((double)lhi * 0.5);
   long long tot = lhi + lli + hhi;
   double dtot = (double)tot;
-  double weight = pow(2.0 * (lfreq / dtot) * ((dtot - lfreq) / dtot), -exponent);
+  double weight = pow(2.0 * lfreq * (dtot - lfreq) / (dtot * dtot), -exponent);
   long long subcount = lli; // avoid 32-bit integer overflow
   subcount = lhi * (subcount + hhi) + 2 * subcount * hhi;
   return (subcount * weight) / (double)(tot * (tot - 1) / 2);
@@ -924,7 +924,7 @@ void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_
         if (ibc_type == 1) {
           twt = 2.0 * mafs[ii];
           mult = 1.0 / (twt * (1.0 - mafs[ii]));
-          wtarr[ii * 8] = twt / (1.0 - mafs[ii]);
+          wtarr[ii * 8] = twt * twt * mult;
           wtarr[ii * 8 + 2] = (1.0 - twt) * (1.0 - twt) * mult;
           wtarr[ii * 8 + 3] = (2.0 - twt) * (2.0 - twt) * mult;
         } else {
@@ -933,8 +933,10 @@ void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_
           wtarr[ii * 8 + 3] = 2.0;
         }
       } else {
-        wtarr[ii * 8] = 1.0 + mafs[ii] / (1.0 - mafs[ii]);
-        wtarr[ii * 8 + 3] = 1.0 + (1.0 - mafs[ii]) / mafs[ii];
+        twt = 1.0 - mafs[ii];
+        mult = 1.0 / (mafs[ii] * twt);
+        wtarr[ii * 8] = 1.0 + mafs[ii] * mafs[ii] * mult;
+        wtarr[ii * 8 + 3] = 1.0 + twt * twt * mult;
       }
     }
   }
