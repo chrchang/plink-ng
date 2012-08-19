@@ -1143,15 +1143,34 @@ static inline unsigned int popcount_xor_2mask_multibyte(unsigned long** xor1p, u
 #endif
 
 void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
+#if __LP64__
+  __m128i* glptr;
+  __m128i* glptr2;
+  __m128i* mptr;
+  __m128i* mcptr_start;
+  unsigned long* lptr;
+#else
   unsigned long* glptr;
   unsigned long* glptr2;
   unsigned long* mptr;
   unsigned long* mcptr_start;
+#endif
   int ii;
   int jj;
   unsigned long mask_fixed;
   for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
     jj = ii * (MULTIPLEX_2DIST / BITCT);
+#if __LP64__
+    glptr = (__m128i*)geno;
+    glptr2 = (__m128i*)(&(geno[jj]));
+    lptr = (&(masks[jj]));
+    mcptr_start = (__m128i*)lptr;
+    mask_fixed = *lptr++;
+    for (jj = 0; jj < MULTIPLEX_2DIST / BITCT - 1; jj++) {
+      mask_fixed &= *lptr++;
+    }
+    mptr = (__m128i*)masks;
+#else
     glptr = geno;
     glptr2 = &(geno[jj]);
     mcptr_start = &(masks[jj]);
@@ -1161,22 +1180,15 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
       mask_fixed &= *mptr++;
     }
     mptr = masks;
+#endif
     if (~mask_fixed) {
       while (glptr < glptr2) {
-#if __LP64__
-	*idists += popcount_xor_2mask_multibyte((__m128i**)(&glptr), (__m128i*)glptr2, (__m128i**)(&mptr), (__m128i*)mcptr_start);
-#else
 	*idists += popcount_xor_2mask_multibyte(&glptr, glptr2, &mptr, mcptr_start);
-#endif
 	idists++;
       }
     } else {
       while (glptr < glptr2) {
-#if __LP64__
-	*idists += popcount_xor_1mask_multibyte((__m128i**)(&glptr), (__m128i*)glptr2, (__m128i**)(&mptr));
-#else
 	*idists += popcount_xor_1mask_multibyte(&glptr, glptr2, &mptr);
-#endif
 	idists++;
       }
     }
