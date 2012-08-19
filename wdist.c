@@ -3853,7 +3853,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         } else {
           dptr2 = rel_ibc;
         }
-	if (calculation_type & CALC_RELATIONSHIP_BIN) {
+        mm = 1;
+	if ((calculation_type & CALC_RELATIONSHIP_BIN) && !(calculation_type & CALC_RELATIONSHIP_GZ)) {
           if (calculation_type & CALC_RELATIONSHIP_SQ) {
             fill_double_zero((double*)ped_geno, indiv_ct - 1);
           }
@@ -3873,6 +3874,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
                 fwrite(&(rel_dists[(jj * (jj - 1) / 2) + ii]), 1, sizeof(double), outfile);
               }
             }
+	    if ((ii + 1) * 100 >= mm * indiv_ct) {
+	      mm = (ii + 1) / indiv_ct;
+	      printf("\rWriting... %d%%", mm++);
+	      fflush(stdout);
+	    }
           }
           fclose(outfile);
           outfile = NULL;
@@ -3888,6 +3894,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    }
 	    dist_ptr = rel_dists;
 	    for (ii = 0; ii < indiv_ct; ii += 1) {
+	      if ((long long)ii * (ii + 1) * 100 >= (long long)indiv_ct * (indiv_ct + 1) * mm) {
+		mm = ((long long)ii * (ii + 1) * 100) / ((long long)indiv_ct * (indiv_ct + 1));
+		printf("\rWriting... %d%%", mm++);
+		fflush(stdout);
+	      }
 	      for (jj = 0; jj < ii; jj += 1) {
 		kk = marker_ct - *iwptr++;
 		gzprintf(gz_outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++);
@@ -3907,6 +3918,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    }
 	    dist_ptr = rel_dists;
 	    for (ii = 0; ii < indiv_ct; ii += 1) {
+	      if ((long long)ii * (ii + 1) * 100 >= (long long)indiv_ct * (indiv_ct + 1) * mm) {
+		mm = ((long long)ii * (ii + 1) * 100) / ((long long)indiv_ct * (indiv_ct + 1));
+		printf("\rWriting... %d%%", mm++);
+		fflush(stdout);
+	      }
 	      for (jj = 0; jj < ii; jj += 1) {
 		kk = marker_ct - *iwptr++;
 		fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++);
@@ -3930,7 +3946,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      *glptr2++ = ulii;
 	    }
 	  }
-	  if (calculation_type & CALC_RELATIONSHIP_GZ) {
+	  if ((calculation_type & CALC_RELATIONSHIP_GZ) && !(calculation_type & CALC_RELATIONSHIP_BIN)) {
 	    strcpy(outname_end, ".rel.gz");
 	    gz_outfile = gzopen(outname, "wb");
 	    if (!gz_outfile) {
@@ -3952,7 +3968,18 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
               gzprintf(gz_outfile, "\t%g", *dptr2++);
 	      if (calculation_type & CALC_RELATIONSHIP_SQ) {
 		gzwrite(gz_outfile, ped_geno, (indiv_ct - jj - 1) * 2);
-	      }
+		if ((ii + 1) * 100 >= mm * indiv_ct) {
+		  mm = (ii + 1) / indiv_ct;
+		  printf("\rWriting... %d%%", mm++);
+		  fflush(stdout);
+		}
+	      } else {
+		if ((long long)(ii + 1) * (ii + 2) * 100 >= (long long)indiv_ct * (indiv_ct + 1) * mm) {
+		  mm = ((long long)(ii + 1) * (ii + 2) * 100) / ((long long)indiv_ct * (indiv_ct + 1));
+		  printf("\rWriting... %d%%", mm++);
+		  fflush(stdout);
+		}
+              }
 	      gzprintf(gz_outfile, "\n");
 	    }
 	    gzclose(gz_outfile);
@@ -3979,14 +4006,25 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
               fprintf(outfile, "\t%g", *dptr2++);
 	      if (calculation_type & CALC_RELATIONSHIP_SQ) {
 		fwrite(ped_geno, 1, (indiv_ct - jj - 1) * 2, outfile);
-	      }
+		if ((ii + 1) * 100 >= mm * indiv_ct) {
+		  mm = (ii + 1) / indiv_ct;
+		  printf("\rWriting... %d%%", mm++);
+		  fflush(stdout);
+		}
+	      } else {
+		if ((long long)(ii + 1) * (ii + 2) * 100 >= (long long)indiv_ct * (indiv_ct + 1) * mm) {
+		  mm = ((long long)(ii + 1) * (ii + 2) * 100) / ((long long)indiv_ct * (indiv_ct + 1));
+		  printf("\rWriting... %d%%", mm++);
+		  fflush(stdout);
+		}
+              }
 	      fprintf(outfile, "\n");
 	    }
 	    fclose(outfile);
 	    outfile = NULL;
 	  }
 	}
-	printf("Relationship matrix written to %s.\n", outname);
+	printf("\rRelationship matrix written to %s.\n", outname);
 	strcpy(&(outname_end[4]), ".id");
 	outfile = fopen(outname, "w");
 	if (!outfile) {
@@ -4337,6 +4375,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	*glptr2++ = ulii;
       }
     }
+    kk = 1;
     if ((calculation_type & CALC_DISTANCE_GZBIN_MASK) == CALC_DISTANCE_GZ) {
       strcpy(outname_end, ".dist.gz");
       gz_outfile = gzopen(outname, "wb");
@@ -4356,7 +4395,18 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	}
 	if (calculation_type & CALC_DISTANCE_SQ) {
 	  gzwrite(gz_outfile, ped_geno, (indiv_ct - jj) * 2);
-	}
+          if (ii * 100 >= (kk * indiv_ct)) {
+            kk = (ii * 100) / indiv_ct;
+            printf("\rWriting... %d%%", kk++);
+            fflush(stdout);
+          }
+	} else {
+          if ((long long)ii * (ii + 1) * 100 >= (long long)indiv_ct * (indiv_ct - 1) * kk) {
+            kk = ((long long)ii * (ii + 1) * 100) / ((long long)indiv_ct * (indiv_ct - 1));
+            printf("\rWriting... %d%%", kk++);
+            fflush(stdout);
+          }
+        }
 	gzprintf(gz_outfile, "\n");
       }
       gzclose(gz_outfile);
@@ -4385,6 +4435,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    fwrite(&(dists[(jj * (jj - 1)) / 2 + ii]), 1, sizeof(double), outfile);
 	  }
 	}
+	if (ii * 100 >= (kk * indiv_ct)) {
+	  kk = (ii * 100) / indiv_ct;
+	  printf("\rWriting... %d%%", kk++);
+	  fflush(stdout);
+	}
       }
       fclose(outfile);
       outfile = NULL;
@@ -4407,13 +4462,24 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	}
 	if (calculation_type & CALC_DISTANCE_SQ) {
 	  fwrite(ped_geno, 1, (indiv_ct - jj) * 2, outfile);
-	}
+	  if (ii * 100 >= (kk * indiv_ct)) {
+	    kk = (ii * 100) / indiv_ct;
+	    printf("\rWriting... %d%%", kk++);
+	    fflush(stdout);
+	  }
+	} else {
+          if ((long long)ii * (ii + 1) * 100 >= (long long)indiv_ct * (indiv_ct - 1) * kk) {
+            kk = ((long long)ii * (ii + 1) * 100) / ((long long)indiv_ct * (indiv_ct - 1));
+            printf("\rWriting... %d%%", kk++);
+            fflush(stdout);
+          }
+        }
 	fprintf(outfile, "\n");
       }
       fclose(outfile);
       outfile = NULL;
     }
-    printf("Distances written to %s.\n", outname);
+    printf("\rDistances written to %s.\n", outname);
     strcpy(outname_end, ".dist.id");
     outfile = fopen(outname, "w");
     if (!outfile) {
