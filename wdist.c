@@ -90,7 +90,7 @@
 #define ITERS_DEFAULT 100000
 
 // number of snp-major .bed lines to read at once for distance calc
-#define MULTIPLEX_DIST 1152
+#define MULTIPLEX_DIST 768
 #define MULTIPLEX_2DIST (MULTIPLEX_DIST * 2)
 // number of snp-major .bed lines to read at once for relationship calc
 #define MULTIPLEX_REL MULTIPLEX_DIST
@@ -1164,25 +1164,23 @@ static inline unsigned int popcount_xor_2mask_multibyte(unsigned long** xor1p, u
 void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
   unsigned long* glptr;
   unsigned long* glptr2;
-  unsigned long mask_fixed;
   unsigned long* mptr;
-  unsigned long* bptr_end;
-  unsigned long* mcptr;
   unsigned long* mcptr_start;
   int ii;
   int jj;
+  unsigned long mask_fixed;
   for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
-    glptr = geno;
     jj = ii * (MULTIPLEX_2DIST / BITCT);
     glptr2 = &(geno[jj]);
-    mptr = masks;
     mcptr_start = &(masks[jj]);
-    mcptr = mcptr_start;
-    bptr_end = &(mcptr[MULTIPLEX_2DIST / BITCT]);
-    mask_fixed = *mcptr++;
-    while (mcptr < bptr_end) {
-      mask_fixed &= *mcptr++;
+    mptr = mcptr_start;
+    glptr = &(mptr[MULTIPLEX_2DIST / BITCT]);
+    mask_fixed = *mptr++;
+    while (mptr < glptr) {
+      mask_fixed &= *mptr++;
     }
+    glptr = geno;
+    mptr = masks;
     if (~mask_fixed) {
       while (glptr < glptr2) {
 	*idists += popcount_xor_2mask_multibyte((__m128i**)(&glptr), (__m128i*)glptr2, (__m128i**)(&mptr), (__m128i*)mcptr_start);
@@ -1190,7 +1188,7 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
       }
     } else {
       while (glptr < glptr2) {
-        *idists += popcount_xor_1mask_multibyte((__m128i**)(&glptr), (__m128i*)glptr2, (__m128i**)(&mptr));
+	*idists += popcount_xor_1mask_multibyte((__m128i**)(&glptr), (__m128i*)glptr2, (__m128i**)(&mptr));
 	idists++;
       }
     }
