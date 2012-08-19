@@ -897,7 +897,6 @@ double calc_result[MAX_THREADS];
 double calc_result2[MAX_THREADS];
 unsigned long* masks;
 unsigned long* mmasks;
-unsigned char* mmask_digest;
 double* marker_weights;
 unsigned int* marker_weights_i;
 unsigned int* missing_tot_weights;
@@ -1167,19 +1166,22 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
   unsigned long* glptr2;
   unsigned long* mptr;
   unsigned long* mcptr_start;
-  unsigned char* mdptr;
   int ii;
   int jj;
+  unsigned long mask_fixed;
   for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
     jj = ii * (MULTIPLEX_2DIST / BITCT);
     glptr2 = &(geno[jj]);
     mcptr_start = &(masks[jj]);
     mptr = mcptr_start;
     glptr = &(mptr[MULTIPLEX_2DIST / BITCT]);
+    mask_fixed = *mptr++;
+    while (mptr < glptr) {
+      mask_fixed &= *mptr++;
+    }
     glptr = geno;
     mptr = masks;
-    mdptr = mmask_digest;
-    if (mmask_digest[ii]) {
+    if (~mask_fixed) {
       while (glptr < glptr2) {
 	*idists += popcount_xor_2mask_multibyte((__m128i**)(&glptr), (__m128i*)glptr2, (__m128i**)(&mptr), (__m128i*)mcptr_start);
 	idists++;
@@ -4104,10 +4106,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     if (!mmasks) {
       goto wdist_ret_2;
     }
-    mmask_digest = (unsigned char*)wkspace_alloc(indiv_ct * sizeof(char));
-    if (!mmask_digest) {
-      goto wdist_ret_2;
-    }
 
     if (exp0) {
       multiplex = MULTIPLEX_DIST;
@@ -4182,13 +4180,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    }
 	  }
           fill_long_zero((long*)mmasks, indiv_ct);
-          memset(mmask_digest, 0, indiv_ct);
 	  if (exp0) {
             for (nn = 0; nn < jj; nn += BITCT) {
 	      glptr = &(((unsigned long*)ped_geno)[nn / BITCT2]);
 	      glptr2 = &(masks[nn / BITCT2]);
               glptr3 = mmasks;
-              gptr = mmask_digest;
 	      for (oo = 0; oo < unfiltered_indiv_ct; oo++) {
 		if (!excluded(indiv_exclude, oo)) {
 		  kk = (oo % 4) * 2;
@@ -4235,9 +4231,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		  ulii = (ulii | (ulii >> 1)) & 0x55555555;
 #endif
 		  *glptr2 = ulii * 3;
-                  *glptr3 |= ulkk << BITCT2;
-                  *gptr |= (*glptr3++ != 0);
-                  gptr++;
+                  *glptr3++ |= ulkk << BITCT2;
                   glptr = &(glptr[(MULTIPLEX_2DIST / BITCT) - 1]);
                   glptr2 = &(glptr2[(MULTIPLEX_2DIST / BITCT) - 1]);
 		}
