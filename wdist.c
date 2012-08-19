@@ -90,7 +90,7 @@
 #define ITERS_DEFAULT 100000
 
 // number of snp-major .bed lines to read at once for distance calc
-#define MULTIPLEX_DIST 768
+#define MULTIPLEX_DIST 960
 #define MULTIPLEX_2DIST (MULTIPLEX_DIST * 2)
 // number of snp-major .bed lines to read at once for relationship calc
 #define MULTIPLEX_REL MULTIPLEX_DIST
