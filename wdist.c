@@ -843,25 +843,6 @@ void fill_weights_r(double* weights, double* mafs) {
   }
 }
 
-void fill_weights_m(unsigned int* weights, unsigned int* wtbuf) {
-  int ii;
-  int jj;
-  int kk;
-  unsigned int uxx;
-
-  for (ii = 0; ii < BITCT; ii += 8) {
-    for (jj = 0; jj < 256; jj++) {
-      uxx = 0;
-      for (kk = 0; kk < 8; kk++) {
-	if (jj & (1 << kk)) {
-	  uxx += wtbuf[kk + ii];
-	}
-      }
-      *weights++ = uxx;
-    }
-  }
-}
-
 double calc_wt_mean(double exponent, int lhi, int lli, int hhi) {
   double lfreq = (double)lli + ((double)lhi * 0.5);
   long long tot = lhi + lli + hhi;
@@ -1246,50 +1227,41 @@ void decr_dist_missing(unsigned int* mtw, int tidx) {
   unsigned long* glptr;
   unsigned long* glptr2;
   unsigned long ulii;
-  unsigned long uljj;
-  unsigned int* weights1 = &(weights_i[256]);
-  unsigned int* weights2 = &(weights_i[512]);
-  unsigned int* weights3 = &(weights_i[768]);
-#if __LP64__
-  unsigned int* weights4 = &(weights_i[1024]);
-  unsigned int* weights5 = &(weights_i[1280]);
-  unsigned int* weights6 = &(weights_i[1536]);
-  unsigned int* weights7 = &(weights_i[1792]);
-#endif
+  unsigned long tmpmask;
   int ii;
+  unsigned int decr;
   unsigned int twt;
   for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
     glptr = mmasks;
     glptr2 = &(mmasks[ii]);
     ulii = *glptr2;
     if (ulii) {
-#if __LP64__
-      twt = weights7[ulii >> 56] + weights6[(ulii >> 48) & 255] + weights5[(ulii >> 40) & 255] + weights4[(ulii >> 32) & 255] + weights3[(ulii >> 24) & 255] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights_i[ulii & 255];
-#else
-      twt = weights3[ulii >> 24] + weights2[(ulii >> 16) & 255] + weights1[(ulii >> 8) & 255] + weights_i[ulii & 255];
-#endif
+      tmpmask = ~ulii;
+      twt = 0;
+      do {
+        twt += weights_i[__builtin_ctzl(ulii)];
+        ulii &= ulii - 1;
+      } while (ulii);
       while (glptr < glptr2) {
-	uljj = *glptr++ | ulii;
-        if (uljj == ulii) {
-          *mtw -= twt;
-        } else {
-#if __LP64__
-          *mtw -= weights7[uljj >> 56] + weights6[(uljj >> 48) & 255] + weights5[(uljj >> 40) & 255] + weights4[(uljj >> 32) & 255] + weights3[(uljj >> 24) & 255] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights_i[uljj & 255];
-#else
-	  *mtw -= weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights_i[uljj & 255];
-#endif
+	ulii = (*glptr++) & tmpmask;
+        decr = twt;
+        while (ulii) {
+          decr += weights_i[__builtin_ctzl(ulii)];
+          ulii &= ulii - 1;
         }
-	mtw++;
+        *mtw -= decr;
+        mtw++;
       }
     } else {
       while (glptr < glptr2) {
-	uljj = *glptr++;
-        if (uljj) {
-#if __LP64__
-          *mtw -= weights7[uljj >> 56] + weights6[(uljj >> 48) & 255] + weights5[(uljj >> 40) & 255] + weights4[(uljj >> 32) & 255] + weights3[(uljj >> 24) & 255] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights_i[uljj & 255];
-#else
-	  *mtw -= weights3[uljj >> 24] + weights2[(uljj >> 16) & 255] + weights1[(uljj >> 8) & 255] + weights_i[uljj & 255];
-#endif
+	ulii = *glptr++;
+        if (ulii) {
+          decr = 0;
+          do {
+            decr += weights_i[__builtin_ctzl(ulii)];
+            ulii &= ulii - 1;
+          } while (ulii);
+          *mtw -= decr;
         }
 	mtw++;
       }
@@ -4179,7 +4151,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
               fill_long_zero((long*)masks, indiv_ct * (MULTIPLEX_2DIST / BITCT));
 	    }
 	  }
-          fill_long_zero((long*)mmasks, indiv_ct);
 	  if (exp0) {
             for (nn = 0; nn < jj; nn += BITCT) {
 	      glptr = &(((unsigned long*)ped_geno)[nn / BITCT2]);
@@ -4236,7 +4207,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
                   glptr2 = &(glptr2[(MULTIPLEX_2DIST / BITCT) - 1]);
 		}
 	      }
-	      fill_weights_m(weights_i, &(wtbuf[nn]));
+	      weights_i = &(wtbuf[nn]);
 
 	      for (ulii = 1; ulii < thread_ct; ulii++) {
 		if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_thread, (void*)ulii)) {
@@ -4299,7 +4270,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		pthread_join(threads[oo], NULL);
 	      }
 	    }
-	    fill_weights_m(weights_i, wtbuf);
+	    weights_i = wtbuf;
 	    for (ulii = 1; ulii < thread_ct; ulii++) {
 	      if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_thread, (void*)ulii)) {
 		printf("Error: Could not create thread.\n");
