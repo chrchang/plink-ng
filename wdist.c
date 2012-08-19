@@ -110,7 +110,7 @@
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.6.3 (16 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.6.4 (20 August 2012)\n"
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
@@ -1152,24 +1152,31 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
   unsigned long mask_fixed;
   for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
     jj = ii * (MULTIPLEX_2DIST / BITCT);
+    glptr = geno;
     glptr2 = &(geno[jj]);
     mcptr_start = &(masks[jj]);
     mptr = mcptr_start;
-    glptr = &(mptr[MULTIPLEX_2DIST / BITCT]);
     mask_fixed = *mptr++;
-    while (mptr < glptr) {
+    for (jj = 0; jj < MULTIPLEX_2DIST / BITCT - 1; jj++) {
       mask_fixed &= *mptr++;
     }
-    glptr = geno;
     mptr = masks;
     if (~mask_fixed) {
       while (glptr < glptr2) {
+#if __LP64__
 	*idists += popcount_xor_2mask_multibyte((__m128i**)(&glptr), (__m128i*)glptr2, (__m128i**)(&mptr), (__m128i*)mcptr_start);
+#else
+	*idists += popcount_xor_2mask_multibyte(&glptr, glptr2, &mptr, mcptr_start);
+#endif
 	idists++;
       }
     } else {
       while (glptr < glptr2) {
+#if __LP64__
 	*idists += popcount_xor_1mask_multibyte((__m128i**)(&glptr), (__m128i*)glptr2, (__m128i**)(&mptr));
+#else
+	*idists += popcount_xor_1mask_multibyte(&glptr, glptr2, &mptr);
+#endif
 	idists++;
       }
     }
