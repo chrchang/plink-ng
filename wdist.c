@@ -1834,6 +1834,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   unsigned char* wkspace_mark;
   unsigned int* giptr;
   unsigned int* giptr2;
+  unsigned int* giptr3;
   char* cptr = NULL;
   char* cptr2;
   // char* cptr3;
@@ -4288,6 +4289,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      giptr = (unsigned int*)ped_geno;
 	      giptr2 = (unsigned int*)masks;
 	      glptr3 = mmasks;
+              giptr3 = indiv_missing;
 	      for (oo = 0; oo < unfiltered_indiv_ct; oo++) {
 		if (!excluded(indiv_exclude, oo)) {
 		  kk = (oo % 4) * 2;
@@ -4299,6 +4301,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		    uii |= ujj << (mm * 2);
 		    if (ujj == 1) {
 		      ulkk |= 1LLU << mm;
+                      *giptr3 += wtbuf[mm + nn];
 		    }
 		  }
 		  uii ^= 0x55555555;
@@ -4306,6 +4309,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		  uii = (uii | (uii >> 1)) & 0x55555555;
 		  *giptr2++ = uii * 3;
 		  *glptr3++ |= ulkk << nn;
+                  giptr3++;
 		}
 	      }
 	      fill_weights(weights, &(maf_buf[nn]), exponent);
@@ -4364,9 +4368,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
     } else {
       giptr2 = &(missing_tot_weights[ulii]);
-      while (giptr < giptr2) {
-        *dptr2 *= (4294967295.0 / (*giptr++));
-        dptr2++;
+      for (ii = 1; ii < indiv_ct; ii++) {
+        giptr3 = indiv_missing;
+        uii = giptr3[ii];
+        for (jj = 0; jj < ii; jj++) {
+	  *dptr2 *= (4294967295.0 / ((4294967295U - uii - (*giptr3++)) + (*giptr++)));
+	  dptr2++;
+        }
       }
     }
     printf("\rDistance matrix calculation complete.\n");
