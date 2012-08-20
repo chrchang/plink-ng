@@ -4215,7 +4215,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		    ulii |= uljj << (mm * 2);
                     if (uljj == 1) {
                       ulkk |= 1LLU << mm;
-                      *giptr += wtbuf[mm];
+                      *giptr += wtbuf[mm + nn];
                     }
 		  }
 		  // use xor to convert representation to 0 = missing,
@@ -4239,7 +4239,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		    ulii |= uljj << (mm * 2);
                     if (uljj == 1) {
                       ulkk |= 1LLU << mm;
-                      *giptr += wtbuf[mm + BITCT2];
+                      *giptr += wtbuf[mm + nn + BITCT2];
                     }
 		  }
 #if __LP64__
@@ -4358,7 +4358,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         giptr2 = indiv_missing;
         uii = giptr2[ii];
         for (jj = 0; jj < ii; jj++) {
-          *dptr2 = (4294967295.0 / (4294967295U - (*giptr++) - uii - (*giptr2++))) * (*iptr++);
+          *dptr2 = (4294967295.0 / ((4294967295U - uii - (*giptr2++)) + (*giptr++))) * (*iptr++);
           dptr2++;
         }
       }
