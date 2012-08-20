@@ -90,6 +90,8 @@
 #define ITERS_DEFAULT 100000
 
 // number of snp-major .bed lines to read at once for distance calc
+// currently assumed to be a multiple of 192 by the popcount_..._multibyte
+// functions.
 #define MULTIPLEX_DIST 960
 #define MULTIPLEX_2DIST (MULTIPLEX_DIST * 2)
 // number of snp-major .bed lines to read at once for relationship calc
@@ -881,6 +883,7 @@ unsigned long* mmasks;
 double* marker_weights;
 unsigned int* marker_weights_i;
 unsigned int* missing_tot_weights;
+unsigned int* indiv_missing;
 
 void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_type) {
   // first calculate weight array, then loop
@@ -1055,6 +1058,11 @@ typedef union {
   unsigned long u8[2];
 } __uni16;
 
+// SSE2 implementations of Lauradoux popcount, combined with xor to handle
+// Hamming distance, and masking to handle missingness.
+// Note that the size of the popcounted buffer is a hardcoded constant
+// (specifically, (MULTIPLEX_DIST / BITCT) * 16 bytes).  The current code
+// assumes (MULTIPLEX / BITCT) is a multiple of 3, and no greater than 30.
 static inline unsigned int popcount_xor_1mask_multibyte(__m128i** xor1p, __m128i* xor2, __m128i** maskp) {
   const __m128i m1 = {0x5555555555555555LLU, 0x5555555555555555LLU};
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
@@ -1065,7 +1073,6 @@ static inline unsigned int popcount_xor_1mask_multibyte(__m128i** xor1p, __m128i
   __uni16 acc;
   __m128i* xor2_end = &(xor2[MULTIPLEX_DIST / BITCT]);
 
-  // 64-bit tree merging (merging3)
   acc.vi = _mm_setzero_si128();
   while (xor2 < xor2_end) {
     count1 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
@@ -1097,7 +1104,6 @@ static inline unsigned int popcount_xor_2mask_multibyte(__m128i** xor1p, __m128i
   __uni16 acc;
   __m128i* xor2_end = &(xor2[MULTIPLEX_DIST / BITCT]);
 
-  // 64-bit tree merging (merging3)
   acc.vi = _mm_setzero_si128();
   while (xor2 < xor2_end) {
     count1 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
@@ -1119,6 +1125,9 @@ static inline unsigned int popcount_xor_2mask_multibyte(__m128i** xor1p, __m128i
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 #else
+// Simple 32-bit popcount implementation (using a 16-bit lookup table) for
+// testing purposes.  If there is a serious need for a fast 32-bit SSE2
+// version, one can just modify the last line of each function above.
 static inline unsigned int popcount_xor_1mask_multibyte(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
   unsigned long* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
   unsigned int bit_count = 0;
@@ -1244,47 +1253,23 @@ void* calc_dist_thread(void* arg) {
 
 void decr_dist_missing(unsigned int* mtw, int tidx) {
   unsigned long* glptr;
-  unsigned long* glptr2;
   unsigned long ulii;
-  unsigned long tmpmask;
+  unsigned long uljj;
   int ii;
-  unsigned int decr;
-  unsigned int twt;
+  int jj;
   for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
     glptr = mmasks;
-    glptr2 = &(mmasks[ii]);
-    ulii = *glptr2;
+    ulii = mmasks[ii];
     if (ulii) {
-      tmpmask = ~ulii;
-      twt = 0;
-      do {
-        twt += weights_i[__builtin_ctzl(ulii)];
-        ulii &= ulii - 1;
-      } while (ulii);
-      while (glptr < glptr2) {
-	ulii = (*glptr++) & tmpmask;
-        decr = twt;
-        while (ulii) {
-          decr += weights_i[__builtin_ctzl(ulii)];
-          ulii &= ulii - 1;
+      for (jj = 0; jj < ii; jj++) {
+	uljj = (*glptr++) & ulii;
+        while (uljj) {
+          mtw[jj] += weights_i[__builtin_ctzl(uljj)];
+          uljj &= uljj - 1;
         }
-        *mtw -= decr;
-        mtw++;
-      }
-    } else {
-      while (glptr < glptr2) {
-	ulii = *glptr++;
-        if (ulii) {
-          decr = 0;
-          do {
-            decr += weights_i[__builtin_ctzl(ulii)];
-            ulii &= ulii - 1;
-          } while (ulii);
-          *mtw -= decr;
-        }
-	mtw++;
       }
     }
+    mtw = &(mtw[ii]);
   }
 }
 
@@ -4118,7 +4103,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     if (!missing_tot_weights) {
       goto wdist_ret_2;
     }
-    fill_int_one(missing_tot_weights, ulii);
+    fill_int_zero((int*)missing_tot_weights, ulii);
 
     if (exp0) {
       idists = (int*)(((char*)missing_tot_weights) - CACHEALIGN(ulii * sizeof(int)));
@@ -4131,6 +4116,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     if (!masks) {
       goto wdist_ret_2;
     }
+    indiv_missing = (unsigned int*)wkspace_alloc(indiv_ct * sizeof(int));
+    if (!indiv_missing) {
+      goto wdist_ret_2;
+    }
+    fill_int_zero((int*)indiv_missing, indiv_ct);
     mmasks = (unsigned long*)wkspace_alloc(indiv_ct * sizeof(long));
     if (!mmasks) {
       goto wdist_ret_2;
@@ -4213,6 +4203,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	      glptr = &(((unsigned long*)ped_geno)[nn / BITCT2]);
 	      glptr2 = &(masks[nn / BITCT2]);
               glptr3 = mmasks;
+              giptr = indiv_missing;
 	      for (oo = 0; oo < unfiltered_indiv_ct; oo++) {
 		if (!excluded(indiv_exclude, oo)) {
 		  kk = (oo % 4) * 2;
@@ -4224,6 +4215,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		    ulii |= uljj << (mm * 2);
                     if (uljj == 1) {
                       ulkk |= 1LLU << mm;
+                      *giptr += wtbuf[mm];
                     }
 		  }
 		  // use xor to convert representation to 0 = missing,
@@ -4247,6 +4239,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		    ulii |= uljj << (mm * 2);
                     if (uljj == 1) {
                       ulkk |= 1LLU << mm;
+                      *giptr += wtbuf[mm + BITCT2];
                     }
 		  }
 #if __LP64__
@@ -4262,6 +4255,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
                   *glptr3++ |= ulkk << BITCT2;
                   glptr = &(glptr[(MULTIPLEX_2DIST / BITCT) - 1]);
                   glptr2 = &(glptr2[(MULTIPLEX_2DIST / BITCT) - 1]);
+                  giptr++;
 		}
 	      }
 	      weights_i = &(wtbuf[nn]);
@@ -4357,15 +4351,19 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     ulii = indiv_ct;
     ulii = ulii * (ulii - 1) / 2;
     giptr = missing_tot_weights;
-    giptr2 = &(missing_tot_weights[ulii]);
     dptr2 = dists;
     if (exp0) {
       iptr = idists;
-      while (giptr < giptr2) {
-	*dptr2 = (4294967295.0 / (*giptr++)) * (*iptr++);
-        dptr2++;
+      for (ii = 1; ii < indiv_ct; ii++) {
+        giptr2 = indiv_missing;
+        uii = giptr2[ii];
+        for (jj = 0; jj < ii; jj++) {
+          *dptr2 = (4294967295.0 / (4294967295U - (*giptr++) - uii - (*giptr2++))) * (*iptr++);
+          dptr2++;
+        }
       }
     } else {
+      giptr2 = &(missing_tot_weights[ulii]);
       while (giptr < giptr2) {
         *dptr2 *= (4294967295.0 / (*giptr++));
         dptr2++;
