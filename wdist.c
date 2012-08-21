@@ -100,12 +100,12 @@
 #define BITCT 64
 // number of snp-major .bed lines to read at once for distance calc if exponent
 // is nonzero.  currently assumed to be a multiple of 12.
-#define MULTIPLEX_DIST_EXP 60
+#define MULTIPLEX_DIST_EXP 56
 // number of snp-major .bed lines to read at once for relationship calc
 #define MULTIPLEX_REL 60
 #else
 #define BITCT 32
-#define MULTIPLEX_DIST_EXP 24
+#define MULTIPLEX_DIST_EXP 28
 #define MULTIPLEX_REL 30
 #endif
 
@@ -701,75 +701,53 @@ void fill_weights(double* weights, double* mafs, double exponent) {
   int nn;
   int oo;
   int pp;
+  int qq;
   double wtarr[MULTIPLEX_DIST_EXP / 2];
-  double twt[5];
+  double twt[7];
   double* wt;
   for (ii = 0; ii < MULTIPLEX_DIST_EXP / 2; ii++) {
     wtarr[ii] = pow(2.0 * mafs[ii] * (1.0 - mafs[ii]), -exponent);
   }
-  for (pp = 0; pp < 5; pp++) {
-    wt = &(wtarr[6 * pp]);
+  for (qq = 0; qq < 4; qq++) {
+    wt = &(wtarr[7 * qq]);
+    twt[0] = 0;
     for (ii = 0; ii < 4; ii += 1) {
-      if (ii) {
-        if (ii == 3) {
-          twt[0] = wt[5] * 2;
-        } else {
-          twt[0] = wt[5];
-        }
-      } else {
-        twt[0] = 0;
+      if (ii & 1) {
+        twt[0] += wt[6];
       }
+      twt[1] = twt[0];
       for (jj = 0; jj < 4; jj += 1) {
-        if (jj) {
-          if (jj == 3) {
-            twt[1] = twt[0] + wt[4] * 2;
-          } else {
-            twt[1] = twt[0] + wt[4];
-          }
-	} else {
-          twt[1] = twt[0];
+        if (jj & 1) {
+          twt[1] += wt[5];
         }
+        twt[2] = twt[1];
 	for (kk = 0; kk < 4; kk += 1) {
-          if (kk) {
-            if (kk == 3) {
-              twt[2] = twt[1] + wt[3] * 2;
-            } else {
-              twt[2] = twt[1] + wt[3];
-            }
-          } else {
-            twt[2] = twt[1];
+          if (kk & 1) {
+            twt[2] += wt[4];
           }
+          twt[3] = twt[2];
           for (mm = 0; mm < 4; mm++) {
-            if (mm) {
-              if (mm == 3) {
-                twt[3] = twt[2] + 2 * wt[2];
-	      } else {
-                twt[3] = twt[2] + wt[2];
-	      }
-	    } else {
-              twt[3] = twt[2];
+            if (mm & 1) {
+              twt[3] += wt[3];
             }
+            twt[4] = twt[3];
             for (nn = 0; nn < 4; nn++) {
-	      if (nn) {
-		if (nn == 3) {
-		  twt[4] = twt[3] + 2 * wt[1];
-		} else {
-		  twt[4] = twt[3] + wt[1];
-		}
-	      } else {
-		twt[4] = twt[3];
-	      }
-              for (oo = 0; oo < 4; oo++) {
-                if (oo) {
-                  if (oo == 3) {
-                    *weights++ = twt[4] + 2 * wt[0];
-                  } else {
-                    *weights++ = twt[4] + wt[0];
-                  }
-                } else {
-                  *weights++ = twt[4];
-                }
+              if (nn & 1) {
+                twt[4] += wt[2];
               }
+              twt[5] = twt[4];
+              for (oo = 0; oo < 4; oo++) {
+                if (oo & 1) {
+                  twt[5] += wt[1];
+                }
+                twt[6] = twt[5];
+		for (pp = 0; pp < 4; pp++) {
+                  if (pp & 1) {
+                    twt[6] += wt[0];
+                  }
+                  *weights++ = twt[6];
+		}
+	      }
             }
           }
 	}
@@ -1274,11 +1252,10 @@ void incr_dists(double* dists, unsigned long* geno, int tidx) {
   unsigned long mask_fixed;
   unsigned long uljj;
   unsigned long* mptr;
-  double* weights1 = &(weights[4096]);
+  double* weights1 = &(weights[16384]);
 #if __LP64__
-  double* weights2 = &(weights[8192]);
-  double* weights3 = &(weights[12288]);
-  double* weights4 = &(weights[16384]);
+  double* weights2 = &(weights[32768]);
+  double* weights3 = &(weights[49152]);
 #endif
   int ii;
   int jj;
@@ -1288,16 +1265,16 @@ void incr_dists(double* dists, unsigned long* geno, int tidx) {
     mptr = masks;
     mask_fixed = masks[ii];
 #if __LP64__
-    if (mask_fixed == 0x3fffffffffffffffLLU) {
+    if (mask_fixed == 0x00ffffffffffffffLLU) {
 #else
-    if (mask_fixed == 0x00ffffff) {
+    if (mask_fixed == 0x0fffffff) {
 #endif
       for (jj = 0; jj < ii; jj++) {
 	uljj = (*glptr++ ^ ulii) & (*mptr++);
 #if __LP64__
-        *dists += weights4[uljj >> 48] + weights3[(uljj >> 36) & 4095] + weights2[(uljj >> 24) & 4095] + weights1[(uljj >> 12) & 4095] + weights[uljj & 4095];
+        *dists += weights3[uljj >> 42] + weights2[(uljj >> 28) & 16383] + weights1[(uljj >> 14) & 16383] + weights[uljj & 16383];
 #else
-	*dists += weights1[uljj >> 12] + weights[uljj & 4095];
+	*dists += weights1[uljj >> 14] + weights[uljj & 16383];
 #endif
 	dists++;
       }
@@ -1305,9 +1282,9 @@ void incr_dists(double* dists, unsigned long* geno, int tidx) {
       for (jj = 0; jj < ii; jj++) {
 	uljj = (*glptr++ ^ ulii) & (mask_fixed & (*mptr++));
 #if __LP64__
-        *dists += weights4[uljj >> 48] + weights3[(uljj >> 36) & 4095] + weights2[(uljj >> 24) & 4095] + weights1[(uljj >> 12) & 4095] + weights[uljj & 4095];
+        *dists += weights3[uljj >> 42] + weights2[(uljj >> 28) & 16383] + weights1[(uljj >> 14) & 16383] + weights[uljj & 16383];
 #else
-	*dists += weights1[uljj >> 12] + weights[uljj & 4095];
+	*dists += weights1[uljj >> 14] + weights[uljj & 16383];
 #endif
 	dists++;
       }
@@ -4366,13 +4343,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		    }
 		  }
 #if __LP64__
-		  ulii ^= 0x0555555555555555LLU;
+		  ulii ^= 0x0055555555555555LLU;
 		  *glptr++ = ulii;
-		  ulii = (ulii | (ulii >> 1)) & 0x0555555555555555LLU;
+		  ulii = (ulii | (ulii >> 1)) & 0x0055555555555555LLU;
 #else
-                  ulii ^= 0x00555555;
+                  ulii ^= 0x05555555;
 		  *glptr++ = ulii;
-		  ulii = (ulii | (ulii >> 1)) & 0x00555555;
+		  ulii = (ulii | (ulii >> 1)) & 0x05555555;
 #endif
 		  *glptr2++ = ulii * 3;
 		  *glptr3++ |= ulkk << nn;
