@@ -111,7 +111,7 @@
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
 
 const char info_str[] =
-  "WDIST weighted genetic distance calculator, v0.6.4 (20 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.6.5 (22 August 2012)\n"
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
@@ -1327,9 +1327,9 @@ void incr_dists_r(double* dists, unsigned long* geno, unsigned long* masks, int 
       for (jj = 0; jj < ii; jj++) {
 	uljj = ((*glptr++) + ulii) | (*maskptr++);
 #if __LP64__
-	*dists += weights3[uljj >> 45] + weights2[(uljj >> 30) & 32767] + weights1[(uljj >> 15) & 32767] + weights[uljj & 32767];
+	*dists += weights3[uljj >> 48] + weights2[(uljj >> 32) & 65535] + weights1[(uljj >> 16) & 65535] + weights[uljj & 65535];
 #else
-	*dists += weights1[uljj >> 15] + weights[uljj & 32767];
+	*dists += weights1[uljj >> 16] + weights[uljj & 65535];
 #endif
 	dists++;
       }
@@ -1337,9 +1337,9 @@ void incr_dists_r(double* dists, unsigned long* geno, unsigned long* masks, int 
       for (jj = 0; jj < ii; jj++) {
         uljj = ((*glptr++) + ulii) | ((*maskptr++) | basemask);
 #if __LP64__
-	*dists += weights3[uljj >> 45] + weights2[(uljj >> 30) & 32767] + weights1[(uljj >> 15) & 32767] + weights[uljj & 32767];
+	*dists += weights3[uljj >> 48] + weights2[(uljj >> 32) & 65535] + weights1[(uljj >> 16) & 65535] + weights[uljj & 65535];
 #else
-	*dists += weights1[uljj >> 15] + weights[uljj & 32767];
+	*dists += weights1[uljj >> 16] + weights[uljj & 65535];
 #endif
 	dists++;
       }
@@ -1797,6 +1797,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int nn = 0;
   int oo = 0;
   int pp;
+  int qq;
   unsigned int uii = 0;
   unsigned int ujj;
   unsigned long ulii;
@@ -3738,17 +3739,19 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    kk = (jj % 4) * 2;
 	    ulii = 0;
             gptr2 = &(gptr[jj / 4 + nn * unfiltered_indiv_ct4]);
-	    for (mm = 0; mm < (MULTIPLEX_REL / 3); mm++) {
-	      uljj = (gptr2[mm * unfiltered_indiv_ct4] >> kk) & 3;
-	      if (uljj == 1) {
-		masks[oo] |= 7LLU << (mm * 3);
-		mmasks[oo] |= 1LLU << (nn + mm);
-                indiv_missing[oo] += 1;
+            for (qq = 0; qq < BITCT / 16; qq++) {
+	      for (mm = qq * 5; mm < (qq + 1) * 5; mm++) {
+		uljj = (gptr2[mm * unfiltered_indiv_ct4] >> kk) & 3;
+		if (uljj == 1) {
+		  masks[oo] |= 7LLU << (mm * 3 + qq);
+		  mmasks[oo] |= 1LLU << (nn + mm);
+		  indiv_missing[oo] += 1;
+		}
+		ulii |= uljj << (mm * 3 + qq);
 	      }
-	      ulii |= uljj << (mm * 3);
-	    }
-	    *glptr2++ = ulii;
-            oo++;
+	      *glptr2++ = ulii;
+	      oo++;
+            }
 	  }
           if (calculation_type & CALC_IBC) {
             for (oo = 0; oo < 3; oo++) {
