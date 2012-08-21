@@ -1361,13 +1361,9 @@ void incr_dists_r(double* dists, unsigned long* geno, unsigned long* masks, int 
     maskptr2 = &(masks[ii]);
     ulii = *glptr2;
     basemask = *maskptr2;
-#if __LP64__
-    if (basemask == 0x7fffffffffffffffLLU) {
-#else
-    if (basemask == 0x3fffffff) {
-#endif
+    if (!basemask) {
       for (jj = 0; jj < ii; jj++) {
-	uljj = ((*glptr++) + ulii) & (*maskptr++);
+	uljj = ((*glptr++) + ulii) | (*maskptr++);
 #if __LP64__
 	*dists += weights6[uljj >> 54] + weights5[(uljj >> 45) & 511] + weights4[(uljj >> 36) & 511] + weights3[(uljj >> 27) & 511] + weights2[(uljj >> 18) & 511] + weights1[(uljj >> 9) & 511] + weights[uljj & 511];
 #else
@@ -1377,7 +1373,7 @@ void incr_dists_r(double* dists, unsigned long* geno, unsigned long* masks, int 
       }
     } else {
       for (jj = 0; jj < ii; jj++) {
-        uljj = ((*glptr++) + ulii) & ((*maskptr++) & basemask);
+        uljj = ((*glptr++) + ulii) | ((*maskptr++) | basemask);
 #if __LP64__
 	*dists += weights6[uljj >> 54] + weights5[(uljj >> 45) & 511] + weights4[(uljj >> 36) & 511] + weights3[(uljj >> 27) & 511] + weights2[(uljj >> 18) & 511] + weights1[(uljj >> 9) & 511] + weights[uljj & 511];
 #else
@@ -3731,7 +3727,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       if (!gptr) {
         goto wdist_ret_2;
       }
-      masks = (unsigned long*)wkspace_alloc(indiv_ct * sizeof(int));
+      masks = (unsigned long*)wkspace_alloc(indiv_ct * sizeof(long));
       if (!masks) {
 	goto wdist_ret_2;
       }
@@ -3770,17 +3766,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         fill_long_zero((long*)mmasks, indiv_ct);
 
 	for (nn = 0; nn < MULTIPLEX_REL; nn += BITCT / 3) {
-	  glptr3 = masks;
-	  for (oo = 0; oo < indiv_ct; oo++) {
-#if __LP64__
-	    *glptr3++ = 0x7fffffffffffffffLLU;
-#else
-	    *glptr3++ = 0x3fffffff;
-#endif
-	  }
+          fill_long_zero((long*)masks, indiv_ct);
           oo = 0;
           glptr2 = (unsigned long*)ped_geno;
-          glptr3 = masks;
 	  for (jj = 0; oo < indiv_ct; jj++) {
 	    while (excluded(indiv_exclude, jj)) {
               jj++;
@@ -3791,14 +3779,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    for (mm = 0; mm < (BITCT / 3); mm++) {
 	      uljj = (gptr2[mm * unfiltered_indiv_ct4] >> kk) & 3;
 	      if (uljj == 1) {
-		*glptr3 &= ~(7LLU << (mm * 3));
+		masks[oo] |= 7LLU << (mm * 3);
 		mmasks[oo] |= 1LLU << (nn + mm);
                 indiv_missing[oo] += 1;
 	      }
 	      ulii |= uljj << (mm * 3);
 	    }
 	    *glptr2++ = ulii;
-            glptr3++;
             oo++;
 	  }
           if (calculation_type & CALC_IBC) {
