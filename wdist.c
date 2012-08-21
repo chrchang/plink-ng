@@ -912,21 +912,20 @@ void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_
   int ii;
   int jj;
   int kk;
+  int mm;
   double twt;
+  double twt2;
   double* wtptr;
   double mult;
   unsigned long ulii;
-  double weights[BITCT * 10];
   double* weights1 = &(weights[64]);
-  double* weights2 = &(weights[128]);
-  double* weights3 = &(weights[192]);
-  double* weights4 = &(weights[256]);
+  double* weights2 = &(weights[576]);
+  double* weights3 = &(weights[640]);
 #if __LP64__
-  double* weights5 = &(weights[320]);
-  double* weights6 = &(weights[384]);
-  double* weights7 = &(weights[448]);
-  double* weights8 = &(weights[512]);
-  double* weights9 = &(weights[576]);
+  double* weights4 = &(weights[1152]);
+  double* weights5 = &(weights[1216]);
+  double* weights6 = &(weights[1728]);
+  double* weights7 = &(weights[1792]);
 #endif
   double wtarr[BITCT2 * 5];
   fill_double_zero(wtarr, BITCT2 * 5);
@@ -953,21 +952,30 @@ void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_
       }
     }
   }
-  for (kk = 0; kk < (BITCT * 5) / 32; kk++) {
-    wtptr = &(wtarr[16 * kk]);
+  for (mm = 0; mm < BITCT / 16; mm++) {
+    wtptr = &(wtarr[40 * mm]);
     for (ii = 0; ii < 8; ii++) {
       twt = wtptr[ii + 8];
       for (jj = 0; jj < 8; jj++) {
         *wptr++ = twt + wtptr[jj];
       }
     }
+    for (ii = 0; ii < 8; ii++) {
+      twt = wtptr[ii + 32];
+      for (jj = 0; jj < 8; jj++) {
+        twt2 = twt + wtptr[jj + 24];
+        for (kk = 0; kk < 8; kk++) {
+          *wptr++ = twt2 + wtptr[kk + 16];
+        }
+      }
+    }
   }
   for (ii = 0; ii < indiv_ct; ii++) {
     ulii = *geno++;
 #if __LP64__
-    *rel_ibc += weights9[ulii >> 54] + weights8[(ulii >> 48) & 63] + weights7[(ulii >> 42) & 63] + weights6[(ulii >> 36) & 63] + weights5[(ulii >> 30) & 63] + weights4[(ulii >> 24) & 63] + weights3[(ulii >> 18) & 63] + weights2[(ulii >> 12) & 63] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
+    *rel_ibc += weights[ulii & 63] + weights1[(ulii >> 6) & 511] + weights2[(ulii >> 16) & 63] + weights3[(ulii >> 22) & 511] + weights4[(ulii >> 32) & 63] + weights5[(ulii >> 38) & 511] + weights6[(ulii >> 48) & 63] + weights7[ulii >> 54];
 #else
-    *rel_ibc += weights4[ulii >> 24] + weights3[(ulii >> 18) & 63] + weights2[(ulii >> 12) & 63] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
+    *rel_ibc += weights[ulii & 63] + weights1[(ulii >> 6) & 511] + weights2[(ulii >> 16) & 63] + weights3[ulii >> 22];
 #endif
     rel_ibc++;
   }
@@ -1301,7 +1309,7 @@ void* calc_distm_thread(void* arg) {
   return NULL;
 }
 
-void incr_dists_r(double* dists, unsigned long* geno, unsigned long* masks, int tidx, double* weights) {
+void incr_dists_r(double* dists, unsigned long* geno, unsigned long* masks, int tidx) {
   unsigned long* glptr;
   unsigned long* glptr2;
   unsigned long* maskptr;
@@ -1350,7 +1358,7 @@ void incr_dists_r(double* dists, unsigned long* geno, unsigned long* masks, int 
 void* calc_rel_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
-  incr_dists_r(&(rel_dists[(ii * (ii - 1)) / 2]), (unsigned long*)ped_geno, masks, (int)tidx, weights);
+  incr_dists_r(&(rel_dists[(ii * (ii - 1)) / 2]), (unsigned long*)ped_geno, masks, (int)tidx);
   return NULL;
 }
 
@@ -3749,9 +3757,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		}
 		ulii |= uljj << (mm * 3 + qq);
 	      }
-	      *glptr2++ = ulii;
-	      oo++;
             }
+	    *glptr2++ = ulii;
+	    oo++;
 	  }
           if (calculation_type & CALC_IBC) {
             for (oo = 0; oo < 3; oo++) {
@@ -3769,7 +3777,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		goto wdist_ret_2;
 	      }
 	    }
-	    incr_dists_r(rel_dists, (unsigned long*)ped_geno, masks, 0, weights);
+	    incr_dists_r(rel_dists, (unsigned long*)ped_geno, masks, 0);
 	    for (oo = 0; oo < thread_ct - 1; oo++) {
 	      pthread_join(threads[oo], NULL);
 	    }
