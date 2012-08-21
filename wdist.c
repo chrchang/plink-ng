@@ -99,11 +99,9 @@
 #if __LP64__
 #define BITCT 64
 // number of snp-major .bed lines to read at once for relationship calc
-#define DMULTIPLEX 64
-#define MULTIPLEX_REL 63
+#define MULTIPLEX_REL 60
 #else
 #define BITCT 32
-#define DMULTIPLEX 32
 #define MULTIPLEX_REL 30
 #endif
 
@@ -795,25 +793,25 @@ inline void fill_double_zero(double* darr, size_t size) {
 void fill_weights_r(double* weights, double* mafs) {
   int ii;
   int jj;
-  int mm;
-  // 21 markers to process in triples, for 64-bit; 10 in pairs, for 32-bit.
-  // Each triple (pair) of markers requires 24 (16) wtarr entries, and induces
-  // 512 (64) writes to weights[].
-#if __LP64__
-  double wtarr[168];
   int kk;
-  double twt2;
-#else
-  double wtarr[80];
-#endif
+  int mm;
+  int nn;
+  int oo;
+  // 20 markers to process in quintuplets, for 64-bit; 10, for 32-bit.
+  // Each quintuplet of markers requires 40 wtarr entries, and induces
+  // 2^15 writes to weights[].
+  double wtarr[BITCT2 * 5];
   double twt;
+  double twt2;
+  double twt3;
+  double twt4;
   double* wtptr;
   double mean;
   double mean_m1;
   double mean_m2;
   double mult;
   double aux;
-  for (ii = 0; ii < BITCT / 3; ii += 1) {
+  for (ii = 0; ii < MULTIPLEX_REL / 3; ii += 1) {
     if ((mafs[ii] > 0.00000001) && (mafs[ii] < 0.99999999)) {
       if (mafs[ii] < 0.50000001) {
 	mean = 2.0 * mafs[ii];
@@ -849,30 +847,24 @@ void fill_weights_r(double* weights, double* mafs) {
       }
     }
   }
-#if __LP64__
-  for (mm = 0; mm < 7; mm++) {
-    wtptr = &(wtarr[24 * mm]);
+  for (oo = 0; oo < BITCT / 16; oo++) {
+    wtptr = &(wtarr[40 * oo]);
     for (ii = 0; ii < 8; ii++) {
-      twt = wtptr[ii + 16];
+      twt = wtptr[ii + 32];
       for (jj = 0; jj < 8; jj++) {
-        twt2 = twt + wtptr[jj + 8];
+        twt2 = twt + wtptr[jj + 24];
         for (kk = 0; kk < 8; kk++) {
-          *weights++ = twt2 + wtptr[kk];
+          twt3 = twt2 + wtptr[kk + 16];
+          for (mm = 0; mm < 8; mm++) {
+            twt4 = twt3 + wtptr[mm + 8];
+            for (nn = 0; nn < 8; nn++) {
+              *weights++ = twt4 + wtptr[nn];
+            }
+          }
         }
       }
     }
   }
-#else
-  for (mm = 0; mm < 5; mm++) {
-    wtptr = &(wtarr[16 * mm]);
-    for (ii = 0; ii < 8; ii++) {
-      twt = wtptr[ii + 8];
-      for (jj = 0; jj < 8; jj++) {
-        *weights++ = twt + wtptr[jj];
-      }
-    }
-  }
-#endif
 }
 
 double calc_wt_mean(double exponent, int lhi, int lli, int hhi) {
@@ -895,7 +887,7 @@ double* dists = NULL;
 double* pheno_d = NULL;
 unsigned char* ped_geno = NULL;
 unsigned long* glptr;
-double weights[3584];
+double weights[2048 * BITCT];
 unsigned int* weights_i = (unsigned int*)weights;
 int thread_start[MAX_THREADS_P1];
 int thread_start0[MAX_THREADS_P1];
@@ -919,34 +911,27 @@ void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_
   // first calculate weight array, then loop
   int ii;
   int jj;
-  int mm;
+  int kk;
   double twt;
   double* wtptr;
   double mult;
   unsigned long ulii;
-#if __LP64__
-  double weights[3584];
-  double* weights1 = &(weights[512]);
-  double* weights2 = &(weights[1024]);
-  double* weights3 = &(weights[1536]);
-  double* weights4 = &(weights[2048]);
-  double* weights5 = &(weights[2560]);
-  double* weights6 = &(weights[3072]);
-  int kk;
-  double twt2;
-  double wtarr[168];
-  fill_double_zero(wtarr, 168);
-#else
-  double weights[320];
+  double weights[BITCT * 10];
   double* weights1 = &(weights[64]);
   double* weights2 = &(weights[128]);
   double* weights3 = &(weights[192]);
   double* weights4 = &(weights[256]);
-  double wtarr[80];
-  fill_double_zero(wtarr, 80);
+#if __LP64__
+  double* weights5 = &(weights[320]);
+  double* weights6 = &(weights[384]);
+  double* weights7 = &(weights[448]);
+  double* weights8 = &(weights[512]);
+  double* weights9 = &(weights[576]);
 #endif
+  double wtarr[BITCT2 * 5];
+  fill_double_zero(wtarr, BITCT2 * 5);
   double *wptr = weights;
-  for (ii = 0; ii < BITCT / 3; ii += 1) {
+  for (ii = 0; ii < MULTIPLEX_REL / 3; ii += 1) {
     if ((mafs[ii] > 0.00000001) && (mafs[ii] < 0.99999999)) {
       if (ibc_type) {
         if (ibc_type == 1) {
@@ -968,22 +953,8 @@ void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_
       }
     }
   }
-#if __LP64__
-  for (mm = 0; mm < 7; mm++) {
-    wtptr = &(wtarr[24 * mm]);
-    for (ii = 0; ii < 8; ii++) {
-      twt = wtptr[ii + 16];
-      for (jj = 0; jj < 8; jj++) {
-        twt2 = twt + wtptr[jj + 8];
-        for (kk = 0; kk < 8; kk++) {
-          *wptr++ = twt2 + wtptr[kk];
-        }
-      }
-    }
-  }
-#else
-  for (mm = 0; mm < 5; mm++) {
-    wtptr = &(wtarr[16 * mm]);
+  for (kk = 0; kk < (BITCT * 5) / 32; kk++) {
+    wtptr = &(wtarr[16 * kk]);
     for (ii = 0; ii < 8; ii++) {
       twt = wtptr[ii + 8];
       for (jj = 0; jj < 8; jj++) {
@@ -991,11 +962,10 @@ void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_
       }
     }
   }
-#endif
   for (ii = 0; ii < indiv_ct; ii++) {
     ulii = *geno++;
 #if __LP64__
-    *rel_ibc += weights6[ulii >> 54] + weights5[(ulii >> 45) & 511] + weights4[(ulii >> 36) & 511] + weights3[(ulii >> 27) & 511] + weights2[(ulii >> 18) & 511] + weights1[(ulii >> 9) & 511] + weights[ulii & 511];
+    *rel_ibc += weights9[ulii >> 54] + weights8[(ulii >> 48) & 63] + weights7[(ulii >> 42) & 63] + weights6[(ulii >> 36) & 63] + weights5[(ulii >> 30) & 63] + weights4[(ulii >> 24) & 63] + weights3[(ulii >> 18) & 63] + weights2[(ulii >> 12) & 63] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
 #else
     *rel_ibc += weights4[ulii >> 24] + weights3[(ulii >> 18) & 63] + weights2[(ulii >> 12) & 63] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
 #endif
@@ -1109,8 +1079,8 @@ typedef union {
   unsigned long u8[2];
 } __uni16;
 
-// SSE2 implementations of Lauradoux popcount, combined with xor to handle
-// Hamming distance, and masking to handle missingness.
+// SSE2 implementations of Lauradoux/Walisch popcount, combined with xor to
+// handle Hamming distance, and masking to handle missingness.
 // Note that the size of the popcounted buffer is a hardcoded constant
 // (specifically, (MULTIPLEX_DIST / BITCT) * 16 bytes).  The current code
 // assumes (MULTIPLEX / BITCT) is a multiple of 3, and no greater than 30.
@@ -1339,18 +1309,10 @@ void incr_dists_r(double* dists, unsigned long* geno, unsigned long* masks, int 
   unsigned long ulii;
   unsigned long uljj;
   unsigned long basemask;
+  double* weights1 = &(weights[32768]);
 #if __LP64__
-  double* weights1 = &(weights[512]);
-  double* weights2 = &(weights[1024]);
-  double* weights3 = &(weights[1536]);
-  double* weights4 = &(weights[2048]);
-  double* weights5 = &(weights[2560]);
-  double* weights6 = &(weights[3072]);
-#else
-  double* weights1 = &(weights[64]);
-  double* weights2 = &(weights[128]);
-  double* weights3 = &(weights[192]);
-  double* weights4 = &(weights[256]);
+  double* weights2 = &(weights[65536]);
+  double* weights3 = &(weights[98304]);
 #endif
   int ii;
   int jj;
@@ -1365,9 +1327,9 @@ void incr_dists_r(double* dists, unsigned long* geno, unsigned long* masks, int 
       for (jj = 0; jj < ii; jj++) {
 	uljj = ((*glptr++) + ulii) | (*maskptr++);
 #if __LP64__
-	*dists += weights6[uljj >> 54] + weights5[(uljj >> 45) & 511] + weights4[(uljj >> 36) & 511] + weights3[(uljj >> 27) & 511] + weights2[(uljj >> 18) & 511] + weights1[(uljj >> 9) & 511] + weights[uljj & 511];
+	*dists += weights3[uljj >> 45] + weights2[(uljj >> 30) & 32767] + weights1[(uljj >> 15) & 32767] + weights[uljj & 32767];
 #else
-	*dists += weights4[uljj >> 24] + weights3[(uljj >> 18) & 63] + weights2[(uljj >> 12) & 63] + weights1[(uljj >> 6) & 63] + weights[uljj & 63];
+	*dists += weights1[uljj >> 15] + weights[uljj & 32767];
 #endif
 	dists++;
       }
@@ -1375,9 +1337,9 @@ void incr_dists_r(double* dists, unsigned long* geno, unsigned long* masks, int 
       for (jj = 0; jj < ii; jj++) {
         uljj = ((*glptr++) + ulii) | ((*maskptr++) | basemask);
 #if __LP64__
-	*dists += weights6[uljj >> 54] + weights5[(uljj >> 45) & 511] + weights4[(uljj >> 36) & 511] + weights3[(uljj >> 27) & 511] + weights2[(uljj >> 18) & 511] + weights1[(uljj >> 9) & 511] + weights[uljj & 511];
+	*dists += weights3[uljj >> 45] + weights2[(uljj >> 30) & 32767] + weights1[(uljj >> 15) & 32767] + weights[uljj & 32767];
 #else
-	*dists += weights4[uljj >> 24] + weights3[(uljj >> 18) & 63] + weights2[(uljj >> 12) & 63] + weights1[(uljj >> 6) & 63] + weights[uljj & 63];
+	*dists += weights1[uljj >> 15] + weights[uljj & 32767];
 #endif
 	dists++;
       }
@@ -3723,7 +3685,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       if (!mmasks) {
 	goto wdist_ret_2;
       }
-      gptr = wkspace_alloc(DMULTIPLEX * unfiltered_indiv_ct4);
+      gptr = wkspace_alloc(MULTIPLEX_REL * unfiltered_indiv_ct4);
       if (!gptr) {
         goto wdist_ret_2;
       }
@@ -3765,7 +3727,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
         fill_long_zero((long*)mmasks, indiv_ct);
 
-	for (nn = 0; nn < MULTIPLEX_REL; nn += BITCT / 3) {
+	for (nn = 0; nn < MULTIPLEX_REL; nn += MULTIPLEX_REL / 3) {
           fill_long_zero((long*)masks, indiv_ct);
           oo = 0;
           glptr2 = (unsigned long*)ped_geno;
@@ -3776,7 +3738,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	    kk = (jj % 4) * 2;
 	    ulii = 0;
             gptr2 = &(gptr[jj / 4 + nn * unfiltered_indiv_ct4]);
-	    for (mm = 0; mm < (BITCT / 3); mm++) {
+	    for (mm = 0; mm < (MULTIPLEX_REL / 3); mm++) {
 	      uljj = (gptr2[mm * unfiltered_indiv_ct4] >> kk) & 3;
 	      if (uljj == 1) {
 		masks[oo] |= 7LLU << (mm * 3);
@@ -4197,23 +4159,37 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  }
           fill_int_zero((int*)wtbuf, multiplex);
 	  jj = 0; // actual SNPs read
-	  // Two key insights here:
+	  // If exponent == 0.0, we just need to calculate bitwise Hamming
+          // distance between two strings (throwing in some masking if there
+          // are missing markers).  Since the x86 processor has (at least until
+          // very recently) lacked a popcount instruction, others have spent a
+          // fair bit of effort on designing efficient popcount
+          // implementations.  The popcount_..._multibyte functions reimplement
+          // the most efficient known 64-bit algorithm (developed by Cedric
+          // Lauradoux and Kim Walisch) using SSE2 instructions, and, to the
+          // best of my knowledge, is faster than all other x86_64 open source
+          // implementations.  (Other existing SSE2/SSSE3 implementations are
+          // based on simpler algorithms.  See
+          // http://www.dalkescientific.com/writings/diary/archive/2011/11/02/faster_popcount_update.html
+          // for more information.)
+          //
+          // For nonzero exponents, there are two key insights.
 	  //
-	  // 1. Precalculate distances for all possible combinations of 4
-	  // markers.
+	  // 1. Create a lookup table for all possible combinations of 4
+	  // markers, to roughly quarter the number of floating point adds
+          // required.
 	  // Status of a single marker is stored in two bits, so four can be
 	  // stored in a byte while supporting bitwise operations.  [Weighted]
 	  // distance between two sets of four markers can be determined by
 	  // XORing the corresponding bytes and looking up the corresponding
 	  // array entry.  A pair of contiguous distance arrays is small enough
-	  // to fit in a single 4KB L1 cache entry.
+	  // to fit in 4KB of L1 cache.
 	  //
 	  // 2. Do #1 for 4-8 marker sets simultaneously, to further reduce the
 	  // number of reads/writes from main memory, and take advantage of the
 	  // speed of XORing 32- or 64-bit words.
-	  // Empirically, when the weighting exponent is nonzero (and thus
-	  // floating point arithmetic must be used), 4 sets appears to be no
-	  // worse than 8 when using a 64-bit processor.
+	  // Empirically, 4 sets appears to be no worse than 8 when using a
+          // 64-bit processor; floating point adds are the bottleneck.
 	  while ((jj < multiplex) && (pp < marker_ct)) {
 	    while (excluded(marker_exclude, ii)) {
 	      ii++;
