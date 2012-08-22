@@ -712,63 +712,74 @@ void fill_weights(double* weights, double* mafs, double exponent) {
   int mm;
   int nn;
   int oo;
-  int pp;
-  int qq;
   double wtarr[MULTIPLEX_DIST_EXP / 2];
-  double twt[7];
+  double twt[5];
+  double twtf;
   double* wt;
+  __m128d* wpairs = (__m128d*)weights;
+  __m128d vpen;
+  __m128d vfinal1;
+  __m128d vfinal2;
   for (ii = 0; ii < MULTIPLEX_DIST_EXP / 2; ii++) {
     wtarr[ii] = pow(2.0 * mafs[ii] * (1.0 - mafs[ii]), -exponent);
   }
-  for (qq = 0; qq < 2; qq++) {
-    wt = &(wtarr[7 * qq]);
+  for (oo = 0; oo < 2; oo++) {
+    wt = &(wtarr[7 * oo]);
+    vfinal1 = _mm_set_pd(wt[0], 0.0);
+    vfinal2 = _mm_set_pd(wt[0] * 2, wt[0]);
     twt[0] = 0;
     for (ii = 0; ii < 4; ii += 1) {
+      // bizarrely, turning the ii == 2 case into a memcpy doesn't actually
+      // seem to speed this up
       if (ii & 1) {
-        twt[0] += wt[6];
+	twt[0] += wt[6];
       }
       twt[1] = twt[0];
       for (jj = 0; jj < 4; jj += 1) {
-        if (jj & 1) {
-          twt[1] += wt[5];
-        }
-        twt[2] = twt[1];
+	if (jj & 1) {
+	  twt[1] += wt[5];
+	}
+	twt[2] = twt[1];
 	for (kk = 0; kk < 4; kk += 1) {
-          if (kk & 1) {
-            twt[2] += wt[4];
-          }
-          twt[3] = twt[2];
-          for (mm = 0; mm < 4; mm++) {
-            if (mm & 1) {
-              twt[3] += wt[3];
-            }
-            twt[4] = twt[3];
-            for (nn = 0; nn < 4; nn++) {
-              if (nn & 1) {
-                twt[4] += wt[2];
-              }
-              twt[5] = twt[4];
-              for (oo = 0; oo < 4; oo++) {
-                if (oo & 1) {
-                  twt[5] += wt[1];
-                }
-                twt[6] = twt[5];
-		for (pp = 0; pp < 4; pp++) {
-                  if (pp & 1) {
-                    twt[6] += wt[0];
-                  }
-                  *weights++ = twt[6];
-		}
+	  if (kk & 1) {
+	    twt[2] += wt[4];
+	  }
+	  twt[3] = twt[2];
+	  for (mm = 0; mm < 4; mm++) {
+	    if (mm & 1) {
+	      twt[3] += wt[3];
+	    }
+	    twt[4] = twt[3];
+	    for (nn = 0; nn < 4; nn++) {
+	      if (nn & 1) {
+		twt[4] += wt[2];
 	      }
-            }
+	      twtf = twt[4];
+	      vpen = _mm_set1_pd(twtf);
+	      *wpairs++ = _mm_add_pd(vpen, vfinal1);
+	      *wpairs++ = _mm_add_pd(vpen, vfinal2);
+	      twtf += wt[1];
+	      vpen = _mm_set1_pd(twtf);
+	      *wpairs++ = _mm_add_pd(vpen, vfinal1);
+	      *wpairs++ = _mm_add_pd(vpen, vfinal2);
+	      *wpairs = *(wpairs - 2);
+	      wpairs++;
+	      *wpairs = *(wpairs - 2);
+	      wpairs++;
+	      vpen = _mm_set1_pd(twtf + wt[1]);
+	      *wpairs++ = _mm_add_pd(vpen, vfinal1);
+	      *wpairs++ = _mm_add_pd(vpen, vfinal2);
+	    }
           }
 	}
       }
     }
   }
 #if __LP64__
-  for (qq = 0; qq < 3; qq++) {
-    wt = &(wtarr[14 + 6 * qq]);
+  for (oo = 0; oo < 3; oo++) {
+    wt = &(wtarr[14 + 6 * oo]);
+    vfinal1 = _mm_set_pd(wt[0], 0.0);
+    vfinal2 = _mm_set_pd(2 * wt[0], wt[0]);
     twt[0] = 0;
     for (ii = 0; ii < 4; ii += 1) {
       if (ii & 1) {
@@ -786,22 +797,24 @@ void fill_weights(double* weights, double* mafs, double exponent) {
           }
           twt[3] = twt[2];
           for (mm = 0; mm < 4; mm++) {
-            if (mm & 1) {
-              twt[3] += wt[2];
-            }
-            twt[4] = twt[3];
-            for (nn = 0; nn < 4; nn++) {
-              if (nn & 1) {
-                twt[4] += wt[1];
-              }
-              twt[5] = twt[4];
-              for (oo = 0; oo < 4; oo++) {
-                if (oo & 1) {
-                  twt[5] += wt[0];
-                }
-                *weights++ = twt[5];
-	      }
-            }
+	    if (mm & 1) {
+	      twt[3] += wt[2];
+	    }
+	    twtf = twt[3];
+	    vpen = _mm_set1_pd(twtf);
+	    *wpairs++ = _mm_add_pd(vpen, vfinal1);
+	    *wpairs++ = _mm_add_pd(vpen, vfinal2);
+	    twtf += wt[1];
+	    vpen = _mm_set1_pd(twtf);
+	    *wpairs++ = _mm_add_pd(vpen, vfinal1);
+	    *wpairs++ = _mm_add_pd(vpen, vfinal2);
+	    *wpairs = *(wpairs - 2);
+	    wpairs++;
+	    *wpairs = *(wpairs - 2);
+	    wpairs++;
+	    vpen = _mm_set1_pd(twtf + wt[1]);
+	    *wpairs++ = _mm_add_pd(vpen, vfinal1);
+	    *wpairs++ = _mm_add_pd(vpen, vfinal2);
           }
 	}
       }
@@ -864,11 +877,11 @@ void fill_weights_r(double* weights, double* mafs) {
   int kk;
   int mm;
   int nn;
-  int oo;
   // 20 markers to process in quintuplets, for 64-bit; 10, for 32-bit.
   // Each quintuplet of markers requires 40 wtarr entries, and induces
   // 2^15 writes to weights[].
-  double wtarr[BITCT2 * 5];
+  double wtarr_raw[BITCT2 * 5 + 1];
+  double* wtarr = wtarr_raw;
   double twt;
   double twt2;
   double twt3;
@@ -879,6 +892,17 @@ void fill_weights_r(double* weights, double* mafs) {
   double mean_m2;
   double mult;
   double aux;
+  __m128d* wpairs = (__m128d*)weights;
+  __m128d vpen;
+  __m128d vfinal1;
+  __m128d vfinal2;
+  __m128d vfinal3;
+  __m128d vfinal4;
+  if (((unsigned long)wtarr) & 15) {
+    // force 16-byte alignment; can't do this at compile-time since stack
+    // pointer has no 16-byte align guarantee
+    wtarr++;
+  }
   for (ii = 0; ii < MULTIPLEX_REL / 3; ii += 1) {
     if ((mafs[ii] > 0.00000001) && (mafs[ii] < 0.99999999)) {
       if (mafs[ii] < 0.50000001) {
@@ -915,8 +939,12 @@ void fill_weights_r(double* weights, double* mafs) {
       }
     }
   }
-  for (oo = 0; oo < BITCT / 16; oo++) {
-    wtptr = &(wtarr[40 * oo]);
+  for (nn = 0; nn < BITCT / 16; nn++) {
+    wtptr = &(wtarr[40 * nn]);
+    vfinal1 = _mm_load_pd(wtptr);
+    vfinal2 = _mm_load_pd(&(wtptr[2]));
+    vfinal3 = _mm_load_pd(&(wtptr[4]));
+    vfinal4 = _mm_load_pd(&(wtptr[6]));
     for (ii = 0; ii < 8; ii++) {
       twt = wtptr[ii + 32];
       for (jj = 0; jj < 8; jj++) {
@@ -925,9 +953,11 @@ void fill_weights_r(double* weights, double* mafs) {
           twt3 = twt2 + wtptr[kk + 16];
           for (mm = 0; mm < 8; mm++) {
             twt4 = twt3 + wtptr[mm + 8];
-            for (nn = 0; nn < 8; nn++) {
-              *weights++ = twt4 + wtptr[nn];
-            }
+            vpen = _mm_set1_pd(twt4);
+            *wpairs++ = _mm_add_pd(vpen, vfinal1);
+            *wpairs++ = _mm_add_pd(vpen, vfinal2);
+            *wpairs++ = _mm_add_pd(vpen, vfinal3);
+            *wpairs++ = _mm_add_pd(vpen, vfinal4);
           }
         }
       }
@@ -1052,6 +1082,14 @@ void exclude(unsigned char* exclude_arr, int loc, int* exclude_ct) {
 
 inline int excluded(unsigned char* exclude_arr, int loc) {
   return exclude_arr[loc / 8] & (1 << (loc % 8));
+}
+
+inline int excluded4(unsigned char* exclude_arr, int loc) {
+  if (loc & 7) {
+    return exclude_arr[loc / 8] & 240;
+  } else {
+    return exclude_arr[loc / 8] & 15;
+  }
 }
 
 int is_missing(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01) {
@@ -1890,11 +1928,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int nn = 0;
   int oo = 0;
   int pp;
+  int qq;
   unsigned int uii = 0;
   unsigned int ujj;
   unsigned long ulii;
   unsigned long uljj;
   unsigned long ulkk;
+  unsigned long ulmm;
+  unsigned long ulnn;
   double dxx;
   double dyy;
   double dzz;
@@ -3820,28 +3861,67 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
         fill_long_zero((long*)mmasks, indiv_ct);
 
-	for (nn = 0; nn < MULTIPLEX_REL; nn += MULTIPLEX_REL / 3) {
+	for (nn = 0; nn < jj; nn += MULTIPLEX_REL / 3) {
           fill_long_zero((long*)masks, indiv_ct);
           oo = 0;
           glptr2 = (unsigned long*)ped_geno;
-	  for (jj = 0; oo < indiv_ct; jj++) {
-	    while (excluded(indiv_exclude, jj)) {
-              jj++;
+	  for (qq = 0; oo < indiv_ct; qq++) {
+	    while (excluded(indiv_exclude, qq)) {
+              qq++;
             }
-	    kk = (jj % 4) * 2;
 	    ulii = 0;
-            gptr2 = &(gptr[jj / 4 + nn * unfiltered_indiv_ct4]);
-	    for (mm = 0; mm < (MULTIPLEX_REL / 3); mm++) {
-	      uljj = (gptr2[mm * unfiltered_indiv_ct4] >> kk) & 3;
-	      if (uljj == 1) {
-		masks[oo] |= 7LLU << (mm * 3);
-		mmasks[oo] |= 1LLU << (nn + mm);
-                indiv_missing[oo] += 1;
+	    gptr2 = &(gptr[qq / 4 + nn * unfiltered_indiv_ct4]);
+            if (excluded4(indiv_exclude, qq)) {
+	      kk = (qq % 4) * 2;
+	      for (mm = 0; mm < (MULTIPLEX_REL / 3); mm++) {
+		uljj = (gptr2[mm * unfiltered_indiv_ct4] >> kk) & 3;
+		if (uljj == 1) {
+		  masks[oo] |= 7LLU << (mm * 3);
+		  mmasks[oo] |= 1LLU << (nn + mm);
+		  indiv_missing[oo] += 1;
+		}
+		ulii |= uljj << (mm * 3);
 	      }
-	      ulii |= uljj << (mm * 3);
-	    }
-	    *glptr2++ = ulii;
-            oo++;
+	      *glptr2++ = ulii;
+	      oo++;
+            } else {
+              // assemble four individuals simultaneously
+              ulkk = 0;
+              ulmm = 0;
+              ulnn = 0;
+              for (mm = 0; mm < (MULTIPLEX_REL / 3); mm++) {
+                uljj = gptr2[mm * unfiltered_indiv_ct4];
+                if ((uljj & 3) == 1) {
+                  masks[oo] |= 7LLU << (mm * 3);
+                  mmasks[oo] |= 1LLU << (nn + mm);
+                  indiv_missing[oo] += 1;
+                }
+                if ((uljj & 12) == 4) {
+                  masks[oo + 1] |= 7LLU << (mm * 3);
+                  mmasks[oo + 1] |= 1LLU << (nn + mm);
+                  indiv_missing[oo + 1] += 1;
+                }
+                if ((uljj & 48) == 16) {
+                  masks[oo + 2] |= 7LLU << (mm * 3);
+                  mmasks[oo + 2] |= 1LLU << (nn + mm);
+                  indiv_missing[oo + 2] += 1;
+                }
+                if ((uljj & 192) == 64) {
+                  masks[oo + 3] |= 7LLU << (mm * 3);
+                  mmasks[oo + 3] |= 1LLU << (nn + mm);
+                  indiv_missing[oo + 3] += 1;
+                }
+		ulii |= (uljj & 3) << (mm * 3);
+		ulkk |= (uljj & 12) << (mm * 3);
+                ulmm |= (uljj & 48) << (mm * 3); // assumes MULTIPLEX_REL <= 60
+                ulnn |= ((uljj & 192) >> 6) << (mm * 3);
+              }
+              *glptr2++ = ulii;
+              *glptr2++ = ulkk >> 2;
+              *glptr2++ = ulmm >> 4;
+              *glptr2++ = ulnn;
+              oo += 4;
+            }
 	  }
           if (calculation_type & CALC_IBC) {
             for (oo = 0; oo < 3; oo++) {
