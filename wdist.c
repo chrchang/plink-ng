@@ -4299,23 +4299,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           // http://www.dalkescientific.com/writings/diary/archive/2011/11/02/
           // faster_popcount_update.html for more information.)
           //
-          // For nonzero exponents, there are two key insights.
-	  //
-	  // 1. Create a lookup table for all possible combinations of 4
-	  // markers, to roughly quarter the number of floating point adds
-          // required.
-	  // Status of a single marker is stored in two bits, so four can be
-	  // stored in a byte while supporting bitwise operations.  [Weighted]
-	  // distance between two sets of four markers can be determined by
-	  // XORing the corresponding bytes and looking up the corresponding
-	  // array entry.  A pair of contiguous distance arrays is small enough
-	  // to fit in 4KB of L1 cache.
-	  //
-	  // 2. Do #1 for 4-8 marker sets simultaneously, to further reduce the
-	  // number of reads/writes from main memory, and take advantage of the
-	  // speed of XORing 32- or 64-bit words.
-	  // Empirically, 4 sets appears to be no worse than 8 when using a
-          // 64-bit processor; floating point adds are the bottleneck.
+          // For nonzero exponents, we create lookup tables for all possible
+          // combinations of 6-7 markers (splitting up the 32 markers that fit
+          // into a 64-bit word 7-7-6-6-6; unfortunately, an 8-8-8-8 split is
+          // too hard on the L2 cache of many machines).  Floating point adds
+          // are the primary bottleneck here.
 	  while ((jj < multiplex) && (pp < marker_ct)) {
 	    while (excluded(marker_exclude, ii)) {
 	      ii++;
@@ -4655,6 +4643,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         fprintf(outfile, "%s\n", &(person_id[ii * max_person_id_len]));
       }
     }
+    fclose(outfile);
+    outfile = NULL;
   }
 
   if (calculation_type & CALC_GROUPDIST) {
