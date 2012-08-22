@@ -1106,24 +1106,35 @@ static inline unsigned int popcount_xor_1mask_multibyte(__m128i** xor1p, __m128i
   const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   __m128i count1, count2, half1, half2;
   __uni16 acc;
-  __m128i* xor2_end = &(xor2[MULTIPLEX_DIST / BITCT]);
+  __m128i* xor2_end = &(xor2[MULTIPLEX_2DIST / 128]);
 
   acc.vi = _mm_setzero_si128();
+  // while loop seems to optimize better than for here
   while (xor2 < xor2_end) {
     count1 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
     count2 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
     half1 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
     half2 = _mm_and_si128(_mm_srli_epi64(half1, 1), m1);
     half1 = _mm_and_si128(half1, m1);
+    // Two bits can represent values from 0-3, so make each pair in count1 and
+    // count2 store a partial bitcount covering themselves AND another bit from
+    // elsewhere.
     count1 = _mm_sub_epi64(count1, _mm_and_si128(_mm_srli_epi64(count1, 1), m1));
     count2 = _mm_sub_epi64(count2, _mm_and_si128(_mm_srli_epi64(count2, 1), m1));
     count1 = _mm_add_epi64(count1, half1);
     count2 = _mm_add_epi64(count2, half2);
+    // Four bits represent 0-15, so we can add four 0-3 partial bitcounts
+    // together.
     count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
     count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
+    // Accumulator stores sixteen 0-255 counts in parallel.
     acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
   }
-  acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
+  // can get away with this with MULTIPLEX_DIST <= 960, since the 8-bit counts
+  // are guaranteed to be <= 120, thus adding two together does not overflow
+  // 255.
+  acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 8)), m8);
+  // acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
   acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
   acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
@@ -1137,7 +1148,7 @@ static inline unsigned int popcount_xor_2mask_multibyte(__m128i** xor1p, __m128i
   const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   __m128i count1, count2, half1, half2;
   __uni16 acc;
-  __m128i* xor2_end = &(xor2[MULTIPLEX_DIST / BITCT]);
+  __m128i* xor2_end = &(xor2[MULTIPLEX_2DIST / 128]);
 
   acc.vi = _mm_setzero_si128();
   while (xor2 < xor2_end) {
@@ -1154,7 +1165,9 @@ static inline unsigned int popcount_xor_2mask_multibyte(__m128i** xor1p, __m128i
     count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
     acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
   }
-  acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
+  // can get away with this with MULTIPLEX_DIST <= 960
+  acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 8)), m8);
+  // acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
   acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
   acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
@@ -1207,7 +1220,7 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
 #if __LP64__
     glptr = (__m128i*)geno;
     glptr2 = (__m128i*)(&(geno[jj]));
-    lptr = (&(masks[jj]));
+    lptr = &(masks[jj]);
     mcptr_start = (__m128i*)lptr;
     mask_fixed = *lptr++;
     for (jj = 0; jj < MULTIPLEX_2DIST / BITCT - 1; jj++) {
