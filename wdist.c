@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+// uncomment this to build without CBLAS/CLAPACK
+// #define NOLAPACK
 
 // TODO:
 // distance MAF histograms
@@ -24,13 +26,15 @@
 #include <math.h>
 #include <pthread.h>
 #include <time.h>
-#include <cblas.h>
 #include <emmintrin.h>
 
+#ifndef NOLAPACK
+#include <cblas.h>
 #ifdef __APPLE__
 #include <vecLib/clapack.h>
 #else
 #include <clapack.h>
+#endif
 #endif
 
 #include "zlib-1.2.7/zlib.h"
@@ -99,8 +103,8 @@
 #if __LP64__
 #define BITCT 64
 // number of snp-major .bed lines to read at once for distance calc if exponent
-// is nonzero.  currently assumed to be a multiple of 12.
-#define MULTIPLEX_DIST_EXP 56
+// is nonzero.
+#define MULTIPLEX_DIST_EXP 64
 // number of snp-major .bed lines to read at once for relationship calc
 #define MULTIPLEX_REL 60
 #else
@@ -115,7 +119,11 @@
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
 
 const char info_str[] =
+#ifdef NOLAPACK
+  "WDIST weighted genetic distance calculator, v0.5.6 (22 August 2012)\n"
+#else
   "WDIST weighted genetic distance calculator, v0.6.5 (22 August 2012)\n"
+#endif
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
@@ -219,6 +227,7 @@ int dispmsg(int retval) {
 "    Regresses genetic distances on average phenotypes, using delete-d\n"
 "    jackknife for standard errors.  Scalar phenotype required.  Defaults for\n"
 "    iters and d are the same as for --groupdist.\n\n"
+#ifndef NOLAPACK
 "  --unrelated-heritability <strict> {tol} {initial covg} {initial cove}\n"
 "    REML estimate of additive heritability, iterating with an accelerated\n"
 "    variant of the EM algorithm until the rate of change of the log likelihood\n"
@@ -229,6 +238,7 @@ int dispmsg(int retval) {
 "    For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
 "    Genetic Correlations Explained by Common SNPs for Metabolic Syndrome\n"
 "    Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
+#endif
 "The following other flags are supported.\n"
 "  --script [fname] : Include command-line options from file.\n"
 "  --file [prefix]  : Specify prefix for .ped and .map files.  (When this flag\n"
@@ -710,7 +720,7 @@ void fill_weights(double* weights, double* mafs, double exponent) {
   for (ii = 0; ii < MULTIPLEX_DIST_EXP / 2; ii++) {
     wtarr[ii] = pow(2.0 * mafs[ii] * (1.0 - mafs[ii]), -exponent);
   }
-  for (qq = 0; qq < 4; qq++) {
+  for (qq = 0; qq < 2; qq++) {
     wt = &(wtarr[7 * qq]);
     twt[0] = 0;
     for (ii = 0; ii < 4; ii += 1) {
@@ -756,6 +766,48 @@ void fill_weights(double* weights, double* mafs, double exponent) {
       }
     }
   }
+#if __LP64__
+  for (qq = 0; qq < 3; qq++) {
+    wt = &(wtarr[14 + 6 * qq]);
+    twt[0] = 0;
+    for (ii = 0; ii < 4; ii += 1) {
+      if (ii & 1) {
+        twt[0] += wt[5];
+      }
+      twt[1] = twt[0];
+      for (jj = 0; jj < 4; jj += 1) {
+        if (jj & 1) {
+          twt[1] += wt[4];
+        }
+        twt[2] = twt[1];
+	for (kk = 0; kk < 4; kk += 1) {
+          if (kk & 1) {
+            twt[2] += wt[3];
+          }
+          twt[3] = twt[2];
+          for (mm = 0; mm < 4; mm++) {
+            if (mm & 1) {
+              twt[3] += wt[2];
+            }
+            twt[4] = twt[3];
+            for (nn = 0; nn < 4; nn++) {
+              if (nn & 1) {
+                twt[4] += wt[1];
+              }
+              twt[5] = twt[4];
+              for (oo = 0; oo < 4; oo++) {
+                if (oo & 1) {
+                  twt[5] += wt[0];
+                }
+                *weights++ = twt[5];
+	      }
+            }
+          }
+	}
+      }
+    }
+  }
+#endif
 }
 
 // Strangely, these functions optimize better than memset(arr, 0, x) under gcc.
@@ -1270,7 +1322,8 @@ void incr_dists(double* dists, unsigned long* geno, int tidx) {
   double* weights1 = &(weights[16384]);
 #if __LP64__
   double* weights2 = &(weights[32768]);
-  double* weights3 = &(weights[49152]);
+  double* weights3 = &(weights[36864]);
+  double* weights4 = &(weights[40960]);
 #endif
   int ii;
   int jj;
@@ -1280,14 +1333,14 @@ void incr_dists(double* dists, unsigned long* geno, int tidx) {
     mptr = masks;
     mask_fixed = masks[ii];
 #if __LP64__
-    if (mask_fixed == 0x00ffffffffffffffLLU) {
+    if (mask_fixed == 0xffffffffffffffffLLU) {
 #else
     if (mask_fixed == 0x0fffffff) {
 #endif
       for (jj = 0; jj < ii; jj++) {
 	uljj = (*glptr++ ^ ulii) & (*mptr++);
 #if __LP64__
-        *dists += weights3[uljj >> 42] + weights2[(uljj >> 28) & 16383] + weights1[(uljj >> 14) & 16383] + weights[uljj & 16383];
+        *dists += weights4[uljj >> 52] + weights3[(uljj >> 40) & 4095] + weights2[(uljj >> 28) & 4095] + weights1[(uljj >> 14) & 16383] + weights[uljj & 16383];
 #else
 	*dists += weights1[uljj >> 14] + weights[uljj & 16383];
 #endif
@@ -1297,7 +1350,7 @@ void incr_dists(double* dists, unsigned long* geno, int tidx) {
       for (jj = 0; jj < ii; jj++) {
 	uljj = (*glptr++ ^ ulii) & (mask_fixed & (*mptr++));
 #if __LP64__
-        *dists += weights3[uljj >> 42] + weights2[(uljj >> 28) & 16383] + weights1[(uljj >> 14) & 16383] + weights[uljj & 16383];
+        *dists += weights4[uljj >> 52] + weights3[(uljj >> 40) & 4095] + weights2[(uljj >> 28) & 4095] + weights1[(uljj >> 14) & 16383] + weights[uljj & 16383];
 #else
 	*dists += weights1[uljj >> 14] + weights[uljj & 16383];
 #endif
@@ -1591,6 +1644,7 @@ void* regress_jack_thread(void* arg) {
   return NULL;
 }
 
+#ifndef NOLAPACK
 // Replaces matrix[][] with mult_val * matrix[][] + add_val * I, assuming only
 // the upper right (according to FORTRAN convention) is relevant.
 // Multithreading doesn't help here.
@@ -1789,6 +1843,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   } while (ll_change > tol);
   printf("\n");
 }
+#endif // NOLAPACK
 
 inline int distance_req(int calculation_type) {
   return ((calculation_type & CALC_DISTANCE_MASK) || (calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE));
@@ -4078,6 +4133,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       goto wdist_ret_2;
     }
 
+#ifndef NOLAPACK
     if (calculation_type & CALC_UNRELATED_HERITABILITY) {
       ulii = indiv_ct;
       ulii = CACHEALIGN_DBL(ulii * ulii);
@@ -4121,6 +4177,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       reml_em_one_trait(rel_dists, dptr2, &unrelated_herit_covg, &unrelated_herit_cove, unrelated_herit_tol, calculation_type & CALC_UNRELATED_HERITABILITY_STRICT);
       printf("h^2 estimate: %g\n", unrelated_herit_covg);
     }
+#endif
     wkspace_reset((unsigned char*)rel_dists);
   }
 
@@ -4358,9 +4415,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 		    }
 		  }
 #if __LP64__
-		  ulii ^= 0x0055555555555555LLU;
+		  ulii ^= 0x5555555555555555LLU;
 		  *glptr++ = ulii;
-		  ulii = (ulii | (ulii >> 1)) & 0x0055555555555555LLU;
+		  ulii = (ulii | (ulii >> 1)) & 0x5555555555555555LLU;
 #else
                   ulii ^= 0x05555555;
 		  *glptr++ = ulii;
