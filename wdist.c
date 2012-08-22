@@ -5170,15 +5170,15 @@ int main(int argc, char** argv) {
       }
       make_bed = 0;
       if (!(load_params & 16)) {
-	strcpy(pedname, argv[cur_arg + 1]);
+	strcpy(pedname, sptr);
 	strcat(pedname, ".bed");
       }
       if (!(load_params & 32)) {
-	strcpy(mapname, argv[cur_arg + 1]);
+	strcpy(mapname, sptr);
 	strcat(mapname, ".bim");
       }
       if (!(load_params & 64)) {
-        strcpy(famname, argv[cur_arg + 1]);
+        strcpy(famname, sptr);
         strcat(famname, ".fam");
       }
       cur_arg += ii + 1;
