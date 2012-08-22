@@ -123,7 +123,9 @@ const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 char tbuf[MAXLINELEN];
+#ifndef __LP64__
 unsigned char popcount[65536];
+#endif
 
 // manually managed, very large stack
 unsigned char* wkspace;
@@ -5793,10 +5795,12 @@ int main(int argc, char** argv) {
   if (subst_argv) {
     free(subst_argv);
   }
+#ifndef __LP64__
   popcount[0] = 0;
   for (ii = 0; ii < 65536; ii++) {
     popcount[ii] = (ii & 1) + popcount[ii / 2];
   }
+#endif
 
   bubble = (char*)malloc(67108864 * sizeof(char));
   if (!bubble) {
