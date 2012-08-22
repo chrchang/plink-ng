@@ -120,9 +120,9 @@
 
 const char info_str[] =
 #ifdef NOLAPACK
-  "WDIST weighted genetic distance calculator, v0.5.6 (22 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.5.7 (23 August 2012)\n"
 #else
-  "WDIST weighted genetic distance calculator, v0.6.5 (22 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.6.6 (23 August 2012)\n"
 #endif
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
@@ -1547,56 +1547,9 @@ void triangle_fill(int* target_arr, int ct, int pieces, int start, int align) {
   }
 }
 
-double regress_jack_i(int* ibuf) {
-  int* iptr = ibuf;
-  int* jptr;
-  int ii;
-  int jj;
-  int* idptr = idists;
-  double* dptr2;
-  double* dptr3;
-  double neg_tot_xy = 0.0;
-  double neg_tot_x = 0.0;
-  double neg_tot_y = 0.0;
-  double neg_tot_xx = 0.0;
-  double dxx;
-  double dxx1;
-  double dyy;
-  if (*iptr == 0) {
-    iptr++;
-  }
-  for (ii = 1; ii < indiv_ct; ii++) {
-    dxx1 = pheno_d[ii];
-    if (ii == *iptr) {
-      dptr2 = pheno_d;
-      dptr3 = &(pheno_d[ii]);
-      do {
-	dxx = (dxx1 + (*dptr2++)) * 0.5;
-	dyy = (double)(*idptr++);
-	neg_tot_xy += dxx * dyy;
-	neg_tot_x += dxx;
-	neg_tot_y += dyy;
-	neg_tot_xx += dxx * dxx;
-      } while (dptr2 < dptr3);
-      iptr++;
-    } else {
-      jptr = ibuf;
-      do {
-        jj = *jptr++;
-        dxx = (dxx1 + pheno_d[jj]) * 0.5;
-        dyy = (double)(idptr[jj]);
-	neg_tot_xy += dxx * dyy;
-	neg_tot_x += dxx;
-	neg_tot_y += dyy;
-	neg_tot_xx += dxx * dxx;
-      } while (jptr < iptr);
-      idptr = &(idists[(ii * (ii + 1)) / 2]);
-    }
-  }
-  dxx = reg_tot_x - neg_tot_x;
-  dyy = indiv_ct - jackknife_d;
-  dyy = dyy * (dyy - 1.0) * 0.5;
-  return ((reg_tot_xy - neg_tot_xy) / dyy - dxx * (reg_tot_y - neg_tot_y) / (dyy * dyy)) / ((reg_tot_xx - neg_tot_xx) / dyy - dxx * dxx / (dyy * dyy));
+void* groupdist_jack_thread(void* arg) {
+  // long tidx = (long)arg;
+  return NULL;
 }
 
 double regress_jack(int* ibuf) {
@@ -1655,22 +1608,25 @@ void* regress_jack_thread(void* arg) {
   long tidx = (long)arg;
   int* ibuf = (int*)(&(ped_geno[tidx * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int))]));
   unsigned char* cbuf = &(ped_geno[tidx * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int)) + jackknife_d * sizeof(int)]);
-  int ii;
+  unsigned long long ulii;
+  unsigned long long uljj = jackknife_iters / 100;
   double sum = 0.0;
   double sum_sq = 0.0;
   double dxx;
-  for (ii = 0; ii < jackknife_iters; ii++) {
+  for (ulii = 0; ulii < jackknife_iters; ulii++) {
     pick_d_small(cbuf, ibuf, indiv_ct, jackknife_d);
-    if (dists) {
-      dxx = regress_jack(ibuf);
-    } else {
-      dxx = regress_jack_i(ibuf);
-    }
+    dxx = regress_jack(ibuf);
     sum += dxx;
     sum_sq += dxx * dxx;
+    if ((!tidx) && (ulii >= uljj)) {
+      uljj = (ulii * 100) / jackknife_iters;
+      printf("\r%lld%%", uljj);
+      fflush(stdout);
+      uljj = ((uljj + 1) * jackknife_iters) / 100;
+    }
   }
-  calc_result[tidx - 1] = sum;
-  calc_result2[tidx - 1] = sum_sq;
+  calc_result[tidx] = sum;
+  calc_result2[tidx] = sum_sq;
   return NULL;
 }
 
@@ -1680,20 +1636,34 @@ void* regress_jack_thread(void* arg) {
 // Multithreading doesn't help here.
 void matrix_const_mult_add(double* matrix, double mult_val, double add_val) {
   int ii;
+  int loop_end = indiv_ct - 1;
   int jj;
   double* dptr = matrix;
-  for (ii = 0; ii < indiv_ct; ii++) {
-    for (jj = 0; jj < ii; jj++) {
+  __m128d* vptr;
+  __m128d v_mult_val = _mm_set1_pd(mult_val);
+  for (ii = 0; ii < loop_end; ii++) {
+    *dptr = (*dptr) * mult_val + add_val;
+    dptr++;
+    if ((unsigned long)dptr & 8) {
       *dptr *= mult_val;
       dptr++;
+      jj = 1;
+    } else {
+      jj = 0;
     }
-    *dptr = *dptr * mult_val + add_val;
-    dptr++;
-    for (jj = ii + 1; jj < indiv_ct; jj++) {
+    vptr = (__m128d*)dptr;
+    while (jj < loop_end) {
+      *vptr = _mm_mul_pd(*vptr, v_mult_val);
+      vptr++;
+      jj += 2;
+    }
+    dptr += jj & (~1);
+    if (jj < indiv_ct) {
       *dptr *= mult_val;
       dptr++;
     }
   }
+  *dptr = (*dptr) * mult_val + add_val;
 }
 
 // sums[idx] = matrix[idx][1] + matrix[idx][2] + ....  matrix assumed to be
@@ -1947,7 +1917,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   char* pheno_c = NULL;
   char* person_id = NULL;
   int max_person_id_len = 4;
-  unsigned char* wkspace_mark;
+  unsigned char* wkspace_mark = NULL;
   unsigned int* giptr;
   unsigned int* giptr2;
   unsigned int* giptr3;
@@ -3797,11 +3767,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	goto wdist_ret_2;
       }
       fill_double_zero(rel_dists, ulii);
-      rel_missing = (int*)wkspace_alloc(dists_alloc);
-      if (!rel_missing) {
-	goto wdist_ret_2;
-      }
-      fill_int_zero(rel_missing, ulii);
     }
     if (calculation_type & CALC_IBC) {
       ii = indiv_ct * 3;
@@ -3814,6 +3779,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     }
     fill_double_zero(rel_ibc, ii);
     wkspace_mark = wkspace_base;
+    if (relationship_req(calculation_type)) {
+      rel_missing = (int*)wkspace_alloc(dists_alloc);
+      if (!rel_missing) {
+	goto wdist_ret_2;
+      }
+      fill_int_zero(rel_missing, ulii);
+    }
     indiv_missing = (unsigned int*)wkspace_alloc(indiv_ct * sizeof(int));
     if (!indiv_missing) {
       goto wdist_ret_2;
@@ -4499,7 +4471,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  printf("\r%d markers complete.", pp);
 	  fflush(stdout);
 	}
-	wkspace_reset(wkspace_mark);
       } else {
 	printf("indiv-major distance calculation not done.\n");
         retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -4669,6 +4640,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     fclose(outfile);
     outfile = NULL;
   }
+  wkspace_reset(wkspace_mark);
 
   if (calculation_type & CALC_GROUPDIST) {
     collapse_phenoc(pheno_c, indiv_exclude, unfiltered_indiv_ct);
@@ -4697,7 +4669,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     ll_poolp = ll_pool;
     lh_poolp = lh_pool;
     hh_poolp = hh_pool;
-    ped_geno = &(ped_geno[(ll_size + lh_size + hh_size) * sizeof(double)]);
+    ped_geno = wkspace_base; // make this an explicit allocation
     for (ii = 1; ii < indiv_ct; ii++) {
       cptr = pheno_c;
       cptr2 = &(pheno_c[ii]);
@@ -4775,6 +4747,31 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       printf("Delete-d jackknife skipped because d is too large.\n");
     } else {
       printf("Jackknife not yet implemented.\n");
+    /*
+      jackknife_iters = (groupdist_iters + thread_ct - 1) / thread_ct;
+
+      // IN PROGRESS
+      if (groupdist_d) {
+	jackknife_d = groupdist_d;
+      } else {
+	jackknife_d = (int)pow((double)indiv_ct, 0.600000000001);
+	printf("Setting d=%d for jackknife.\n", jackknife_d);
+      }
+
+      for (ulii = 1; ulii < thread_ct; ulii++) {
+	if (pthread_create(&(threads[ulii - 1]), NULL, &groupdist_jack_thread, (void*)ulii)) {
+	  printf("Error: Could not create thread.\n");
+	  retval = RET_THREAD_CREATE_FAIL;
+	  goto wdist_ret_2;
+	}
+      }
+      ulii = 0;
+      groupdist_jack_thread((void*)ulii);
+      for (ii = 0; ii < thread_ct - 1; ii++) {
+        pthread_join(threads[ii], NULL);
+      }
+      jackknife_iters *= thread_ct;
+    */
     }
   }
   if (calculation_type & CALC_REGRESS_DISTANCE) {
@@ -4814,6 +4811,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       jackknife_d = (int)pow((double)indiv_ct, 0.600000000001);
       printf("Setting d=%d for jackknife.\n", jackknife_d);
     }
+    ped_geno = wkspace_base; // make this an explicit allocation
     for (ulii = 1; ulii < thread_ct; ulii++) {
       if (pthread_create(&(threads[ulii - 1]), NULL, &regress_jack_thread, (void*)ulii)) {
 	printf("Error: Could not create thread.\n");
@@ -4821,29 +4819,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	goto wdist_ret_2;
       }
     }
-    dyy = 0.0; // sum
-    dzz = 0.0; // sum of squares
-    uljj = jackknife_iters / 100;
-    for (ulii = 0; ulii < jackknife_iters; ulii++) {
-      pick_d_small(&(ped_geno[(jackknife_d + 1) * sizeof(int)]), (int*)ped_geno, indiv_ct, jackknife_d);
-      if (dists) {
-        dxx = regress_jack((int*)ped_geno);
-      } else {
-        dxx = regress_jack_i((int*)ped_geno);
-      }
-      dyy += dxx;
-      dzz += dxx * dxx;
-      if (ulii >= uljj) {
-        uljj = (ulii * 100) / jackknife_iters;
-        printf("\r%ld%%", uljj);
-        fflush(stdout);
-        uljj = ((uljj + 1) * jackknife_iters) / 100;
-      }
-    }
+    ulii = 0;
+    regress_jack_thread((void*)ulii);
+    dyy = calc_result[0]; // sum
+    dzz = calc_result2[0]; // sum of squares
     for (ii = 0; ii < thread_ct - 1; ii++) {
       pthread_join(threads[ii], NULL);
-      dyy += calc_result[ii];
-      dzz += calc_result2[ii];
+      dyy += calc_result[ii + 1];
+      dzz += calc_result2[ii + 1];
     }
     regress_iters = jackknife_iters * thread_ct;
     printf("\rJackknife s.e.: %g\n", sqrt((indiv_ct / jackknife_d) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
@@ -5020,6 +5003,8 @@ int main(int argc, char** argv) {
   thread_ct = sysconf(_SC_NPROCESSORS_ONLN);
   if (thread_ct == -1) {
     thread_ct = 1;
+  } else if (thread_ct > MAX_THREADS) {
+    thread_ct = MAX_THREADS;
   }
   strcpy(mapname, "wdist.map");
   strcpy(pedname, "wdist.ped");
