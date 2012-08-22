@@ -26,6 +26,7 @@
 #include <math.h>
 #include <pthread.h>
 #include <time.h>
+#include <unistd.h>
 #include <emmintrin.h>
 
 #ifndef NOLAPACK
@@ -78,7 +79,6 @@
 #define CALC_UNRELATED_HERITABILITY_STRICT 2048
 
 #define _FILE_OFFSET_BITS 64
-#define DEFAULT_THREAD_CT 2
 #define MAX_THREADS 63
 #define MAX_THREADS_P1 64
 #define PEDBUFBASE 256
@@ -977,7 +977,7 @@ double calc_wt_mean(double exponent, int lhi, int lli, int hhi) {
 
 // ----- multithread globals -----
 int indiv_ct;
-int thread_ct = DEFAULT_THREAD_CT;
+int thread_ct;
 double* rel_dists = NULL;
 int* rel_missing = NULL;
 int* idists;
@@ -3020,76 +3020,74 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     }
   } else {
     pedbuf[pedbuflen - 1] = ' ';
-    last_tell = 0;
+    nn = 0; // number of individuals after first-level filter
     // define exclude counters
     // ----- .ped load, first pass -----
     while (fgets((char*)pedbuf, pedbuflen, pedfile) != NULL) {
-      if (pedbuf[0] > ' ') {
-	if (pedbuf[0] != '#') {
-	  bufptr = next_item((char*)pedbuf);
-          if (!ped_col_1) {
-            cptr = (char*)pedbuf;
-          } else {
-            cptr = bufptr;
-          }
-          ii = strlen_se(tbuf) + strlen_se(cptr) + 2;
-          if (ii > max_person_id_len) {
-            max_person_id_len = ii;
-          }
-          if (filter_type) {
-            ii = is_contained(id_list, max_id_len, filter_lines, (char*)pedbuf, cptr);
-            if (filter_type == FILTER_REMOVE) {
-              ii = 1 - ii;
-            }
-          } else {
-            ii = 1;
-          }
-          if (phenoname[0]) {
-            if (ii) {
-	      if (makepheno_str || (!prune)) {
-		line_locs[unfiltered_indiv_ct++] = last_tell;
-	      } else {
-		if (is_contained(pid_list, max_pid_len, pheno_lines, (char*)pedbuf, cptr)) {
-		  line_locs[unfiltered_indiv_ct++] = last_tell;
-		}
+      if ((pedbuf[0] > ' ') && (pedbuf[0] != '#')) {
+	bufptr = next_item((char*)pedbuf);
+	if (!ped_col_1) {
+	  cptr = (char*)pedbuf;
+	} else {
+	  cptr = bufptr;
+	}
+	ii = strlen_se(tbuf) + strlen_se(cptr) + 2;
+	if (ii > max_person_id_len) {
+	  max_person_id_len = ii;
+	}
+	if (filter_type) {
+	  ii = is_contained(id_list, max_id_len, filter_lines, (char*)pedbuf, cptr);
+	  if (filter_type == FILTER_REMOVE) {
+	    ii = 1 - ii;
+	  }
+	} else {
+	  ii = 1;
+	}
+	if (phenoname[0]) {
+	  if (ii) {
+	    if (makepheno_str || (!prune)) {
+	      line_locs[nn++] = unfiltered_indiv_ct;
+	    } else {
+	      if (is_contained(pid_list, max_pid_len, pheno_lines, (char*)pedbuf, cptr)) {
+		line_locs[nn++] = unfiltered_indiv_ct;
 	      }
-            }
-          } else if (ii || (!unfiltered_indiv_ct)) {
-	    if (ped_col_1) { // actually column 2
-	      bufptr = next_item(bufptr);
 	    }
-	    if (ped_col_34) {
-	      bufptr = next_item(bufptr);
-	      bufptr = next_item(bufptr);
+	  }
+	} else if (ii || (!unfiltered_indiv_ct)) {
+	  if (ped_col_1) { // actually column 2
+	    bufptr = next_item(bufptr);
+	  }
+	  if (ped_col_34) {
+	    bufptr = next_item(bufptr);
+	    bufptr = next_item(bufptr);
+	  }
+	  if (ped_col_5) {
+	    bufptr = next_item(bufptr);
+	  }
+	  if (!bufptr) {
+	    retval = RET_INVALID_FORMAT;
+	    printf(errstr_ped_format);
+	    goto wdist_ret_1;
+	  }
+	  if (!unfiltered_indiv_ct) {
+	    affection = eval_affection(bufptr, missing_pheno, missing_pheno_len, affection_01);
+	  }
+	  if (affection) {
+	    if ((!prune) || (!is_missing(bufptr, missing_pheno, missing_pheno_len, affection_01))) {
+	      line_locs[nn++] = unfiltered_indiv_ct;
 	    }
-	    if (ped_col_5) {
-	      bufptr = next_item(bufptr);
-	    }
-	    if (!bufptr) {
+	  } else {
+	    if (sscanf(bufptr, "%lg", &dxx) != 1) {
 	      retval = RET_INVALID_FORMAT;
 	      printf(errstr_ped_format);
 	      goto wdist_ret_1;
 	    }
-            llxx = last_tell + (bufptr - (char*)pedbuf);
-	    if (!unfiltered_indiv_ct) {
-              affection = eval_affection(bufptr, missing_pheno, missing_pheno_len, affection_01);
-	    }
-	    if (affection) {
-              if ((!prune) || (!is_missing(bufptr, missing_pheno, missing_pheno_len, affection_01))) {
-                line_locs[unfiltered_indiv_ct++] = llxx;
-              }
-	    } else {
-	      if (sscanf(bufptr, "%lg", &dxx) != 1) {
-		retval = RET_INVALID_FORMAT;
-		printf(errstr_ped_format);
-		goto wdist_ret_1;
-	      }
-              if ((!prune) || ((dxx != missing_phenod) && ((!tail_pheno) || ((dxx <= tail_bottom) || (dxx > tail_top))))) {
-                line_locs[unfiltered_indiv_ct++] = llxx;
-              }
+	    if ((!prune) || ((dxx != missing_phenod) && ((!tail_pheno) || ((dxx <= tail_bottom) || (dxx > tail_top))))) {
+	      line_locs[nn++] = unfiltered_indiv_ct;
 	    }
           }
 	}
+        unfiltered_indiv_ct++;
       }
       if (!pedbuf[pedbuflen - 1]) {
         pedbuf[pedbuflen - 1] = ' ';
@@ -3108,9 +3106,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  ped_recalc_len = ii;
 	}
       }
-      last_tell = ftello(pedfile);
     }
-    if (unfiltered_indiv_ct < 2) {
+    if (nn < 2) {
       retval = RET_INVALID_FORMAT;
       printf("Error: Less than two valid people in .ped file.\n");
       goto wdist_ret_1;
@@ -3163,20 +3160,27 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     }
 
     // ----- .ped load, second pass -----
+    kk = 0;
     for (ii = 0; ii < unfiltered_indiv_ct; ii += 1) {
-      fseeko(pedfile, line_locs[ii], SEEK_SET);
-      fgets((char*)pedbuf, pedbuflen, pedfile);
+      do {
+        last_tell = ftello(pedfile);
+        fgets((char*)pedbuf, pedbuflen, pedfile);
+      } while ((pedbuf[0] <= ' ') || (pedbuf[0] == '#'));
+      if (line_locs[kk] > ii) {
+        exclude(indiv_exclude, ii, &indiv_exclude_ct);
+        continue;
+      }
       bufptr = (char*)pedbuf;
+      oo = strlen_se(bufptr);
+      if (ped_col_1) {
+	bufptr = next_item(bufptr);
+      }
+      mm = strlen_se(bufptr);
+      memcpy(&(person_id[ii * max_person_id_len]), pedbuf, oo);
+      person_id[ii * max_person_id_len + oo] = '\t';
+      memcpy(&(person_id[ii * max_person_id_len + oo + 1]), bufptr, mm);
+      person_id[ii * max_person_id_len + oo + mm + 1] = '\0';
       if (phenoname[0]) {
-        if (ped_col_1) {
-          bufptr = next_item(bufptr);
-        }
-        kk = strlen_se((char*)pedbuf);
-        mm = strlen_se(bufptr);
-        memcpy(&(person_id[ii * max_person_id_len]), pedbuf, kk);
-        person_id[ii * max_person_id_len + kk] = '\t';
-        memcpy(&(person_id[ii * max_person_id_len + kk + 1]), bufptr, mm);
-        person_id[ii * max_person_id_len + kk + mm + 1] = '\0';
         jj = bsearch_fam_indiv(pid_list, max_pid_len, pheno_lines, (char*)pedbuf, bufptr);
         cc = 0;
         if (makepheno_str) {
@@ -3204,6 +3208,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           bufptr = next_item(bufptr);
         }
       } else {
+	if (ped_col_34) {
+	  bufptr = next_item(bufptr);
+	  bufptr = next_item(bufptr);
+	}
+	if (ped_col_5) {
+	  bufptr = next_item(bufptr);
+	}
 	if (affection) {
           if (is_missing(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
             pheno_c[ii] = -1;
@@ -3240,10 +3251,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         printf(errstr_ped_format);
         goto wdist_ret_1;
       }
-      line_locs[ii] += (bufptr - (char*)pedbuf);
+      line_locs[kk] = last_tell + (bufptr - (char*)pedbuf);
       mm = 0; // number of missing
       for (jj = 0; jj < unfiltered_marker_ct; jj += 1) {
-        for (kk = 0; kk < 2; kk++) {
+        for (mm = 0; mm < 2; mm++) {
           cc = *bufptr;
 	  if (cc == '\0') {
 	    retval = RET_INVALID_FORMAT;
@@ -3288,6 +3299,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       if (mm > mind_int_thresh) {
         exclude(indiv_exclude, ii, &indiv_exclude_ct);
       }
+      kk++;
     }
     rewind(pedfile);
     for (ii = 0; ii < unfiltered_marker_ct; ii += 1) {
@@ -3772,11 +3784,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   }
   printf("%d markers and %d people pass filters and QC.\n", marker_ct, indiv_ct);
   if (thread_ct > 1) {
-    if (thread_ct == DEFAULT_THREAD_CT) {
-      printf("Using %d threads (change this with --threads).\n", DEFAULT_THREAD_CT);
-    } else {
-      printf("Using %d threads.\n", thread_ct);
-    }
+    printf("Using %d threads (change this with --threads).\n", thread_ct);
   }
 
   if (relationship_or_ibc_req(calculation_type)) {
@@ -5009,6 +5017,10 @@ int main(int argc, char** argv) {
   FILE* scriptfile;
   int num_params;
   int in_param;
+  thread_ct = sysconf(_SC_NPROCESSORS_ONLN);
+  if (thread_ct == -1) {
+    thread_ct = 1;
+  }
   strcpy(mapname, "wdist.map");
   strcpy(pedname, "wdist.ped");
   famname[0] = '\0';
