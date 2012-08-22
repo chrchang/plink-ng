@@ -721,7 +721,7 @@ void fill_weights(double* weights, double* mafs, double exponent) {
   __m128d vfinal1;
   __m128d vfinal2;
   for (ii = 0; ii < MULTIPLEX_DIST_EXP / 2; ii++) {
-    wtarr[ii] = pow(2.0 * mafs[ii] * (1.0 - mafs[ii]), -exponent);
+    wtarr[ii] = pow(2 * mafs[ii] * (1.0 - mafs[ii]), -exponent);
   }
   for (oo = 0; oo < 2; oo++) {
     wt = &(wtarr[7 * oo]);
@@ -906,10 +906,10 @@ void fill_weights_r(double* weights, double* mafs) {
   for (ii = 0; ii < MULTIPLEX_REL / 3; ii += 1) {
     if ((mafs[ii] > 0.00000001) && (mafs[ii] < 0.99999999)) {
       if (mafs[ii] < 0.50000001) {
-	mean = 2.0 * mafs[ii];
+	mean = 2 * mafs[ii];
 	mean_m1 = mean - 1.0;
 	mean_m2 = mean - 2.0;
-	mult = 1.0 / (mean * (1.0 - mafs[ii]));
+	mult = 1 / (mean * (1.0 - mafs[ii]));
         aux = mean * mult;
 	wtarr[ii * 8] = mean * aux;
         wtarr[ii * 8 + 1] = 0.0;
@@ -919,10 +919,10 @@ void fill_weights_r(double* weights, double* mafs) {
 	wtarr[ii * 8 + 5] = mean_m2 * mean_m1 * mult;
 	wtarr[ii * 8 + 6] = mean_m2 * mean_m2 * mult;
       } else {
-	mean = 2.0 * (1.0 - mafs[ii]);
+	mean = 2 * (1.0 - mafs[ii]);
 	mean_m1 = mean - 1.0;
 	mean_m2 = mean - 2.0;
-	mult = 1.0 / (mean * mafs[ii]);
+	mult = 1 / (mean * mafs[ii]);
         aux = mean_m2 * mult;
 	wtarr[ii * 8] = mean_m2 * aux;
         wtarr[ii * 8 + 1] = 0.0;
@@ -969,7 +969,7 @@ double calc_wt_mean(double exponent, int lhi, int lli, int hhi) {
   double lfreq = (double)lli + ((double)lhi * 0.5);
   long long tot = lhi + lli + hhi;
   double dtot = (double)tot;
-  double weight = pow(2.0 * lfreq * (dtot - lfreq) / (dtot * dtot), -exponent);
+  double weight = pow(2 * lfreq * (dtot - lfreq) / (dtot * dtot), -exponent);
   long long subcount = lli; // avoid 32-bit integer overflow
   subcount = lhi * (subcount + hhi) + 2 * subcount * hhi;
   return (subcount * weight) / (double)(tot * (tot - 1) / 2);
@@ -1033,19 +1033,19 @@ void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_
     if ((mafs[ii] > 0.00000001) && (mafs[ii] < 0.99999999)) {
       if (ibc_type) {
         if (ibc_type == 1) {
-          twt = 2.0 * mafs[ii];
-          mult = 1.0 / (twt * (1.0 - mafs[ii]));
+          twt = 2 * mafs[ii];
+          mult = 1 / (twt * (1.0 - mafs[ii]));
           wtarr[ii * 8] = twt * twt * mult;
           wtarr[ii * 8 + 2] = (1.0 - twt) * (1.0 - twt) * mult;
           wtarr[ii * 8 + 3] = (2.0 - twt) * (2.0 - twt) * mult;
         } else {
-          wtarr[ii * 8] = 2.0;
-          wtarr[ii * 8 + 2] = 2.0 - 1.0 / (2.0 * mafs[ii] * (1.0 - mafs[ii]));
-          wtarr[ii * 8 + 3] = 2.0;
+          wtarr[ii * 8] = 2;
+          wtarr[ii * 8 + 2] = 2.0 - 1.0 / (2 * mafs[ii] * (1.0 - mafs[ii]));
+          wtarr[ii * 8 + 3] = 2;
         }
       } else {
         twt = 1.0 - mafs[ii];
-        mult = 1.0 / (mafs[ii] * twt);
+        mult = 1 / (mafs[ii] * twt);
         wtarr[ii * 8] = 1.0 + mafs[ii] * mafs[ii] * mult;
         wtarr[ii * 8 + 3] = 1.0 + twt * twt * mult;
       }
@@ -1595,7 +1595,7 @@ double regress_jack_i(int* ibuf) {
   }
   dxx = reg_tot_x - neg_tot_x;
   dyy = indiv_ct - jackknife_d;
-  dyy = dyy * (dyy - 1.0) / 2.0;
+  dyy = dyy * (dyy - 1.0) * 0.5;
   return ((reg_tot_xy - neg_tot_xy) / dyy - dxx * (reg_tot_y - neg_tot_y) / (dyy * dyy)) / ((reg_tot_xx - neg_tot_xx) / dyy - dxx * dxx / (dyy * dyy));
 }
 
@@ -1647,7 +1647,7 @@ double regress_jack(int* ibuf) {
   }
   dxx = reg_tot_x - neg_tot_x;
   dyy = indiv_ct - jackknife_d;
-  dyy = dyy * (dyy - 1.0) / 2.0;
+  dyy = dyy * (dyy - 1.0) * 0.5;
   return ((reg_tot_xy - neg_tot_xy) - dxx * (reg_tot_y - neg_tot_y) / dyy) / ((reg_tot_xx - neg_tot_xx) - dxx * dxx / dyy);
 }
 
@@ -1759,7 +1759,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   double cove_cur_change = 1.0;
   double covg_last_change;
   double cove_last_change;
-  double indiv_ct_d = 1.0 / (double)indiv_ct;
+  double indiv_ct_d = 1 / (double)indiv_ct;
   int ii;
   int jj;
   mat_offset = CACHEALIGN_DBL(mat_offset * mat_offset);
@@ -1802,7 +1802,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     while (dptr < dptr2) {
       dxx += *dptr++;
     }
-    dxx = -1.0 / dxx;
+    dxx = -1 / dxx;
     cblas_dger(CblasColMajor, indiv_ct, indiv_ct, dxx, row, 1, row, 1, wkbase, indiv_ct);
     cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, indiv_ct, indiv_ct, indiv_ct, 1.0, wkbase, indiv_ct, rel_dists, indiv_ct, 0.0, matrix_pvg, indiv_ct);
     dlg = 0.0;
@@ -1833,7 +1833,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
 	dxx = -dxx;
       }
       if (dxx > PI) {
-	dxx = 2.0 * PI - dxx;
+	dxx = 2 * PI - dxx;
       }
       dyy = sqrt((covg_cur_change * covg_cur_change + cove_cur_change * cove_cur_change) / (covg_last_change * covg_last_change + cove_last_change * cove_last_change));
       if (covg_cur_change < 0.0) {
@@ -1854,7 +1854,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
 	max_jump = dzz;
       }
       if (dyy < 1.0) {
-	dzz = 1.0 / (1.0 - dyy);
+	dzz = 1 / (1.0 - dyy);
       }
       if (dzz < max_jump) {
 	max_jump = dzz;
@@ -2523,7 +2523,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   if (!line_locs) {
     goto wdist_ret_1;
   }
-  mind_int_thresh = (int)(2.0 * mind_thresh * (unfiltered_marker_ct - marker_exclude_ct));
+  mind_int_thresh = (int)(2 * mind_thresh * (unfiltered_marker_ct - marker_exclude_ct));
   if (binary_files) {
     nn = 0; // number of people that pass initial filter
     // ----- .fam load, first pass -----
@@ -2628,8 +2628,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       goto wdist_ret_1;
     }
 
-    maf_int_thresh = 2 * nn - (int)((1.0 - min_maf) * nn * 2.0);
-    geno_int_thresh = 2 * nn - (int)(geno_thresh * 2.0 * nn);
+    maf_int_thresh = 2 * nn - (int)((1.0 - min_maf) * nn * 2);
+    geno_int_thresh = 2 * nn - (int)(geno_thresh * 2 * nn);
 
     indiv_exclude = (unsigned char*)calloc(sizeof(char), ((unfiltered_indiv_ct + 7) / 8));
     if (!indiv_exclude) {
@@ -3125,8 +3125,8 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
     }
 
-    maf_int_thresh = 2 * unfiltered_indiv_ct - (int)((1.0 - min_maf) * unfiltered_indiv_ct * 2.0);
-    geno_int_thresh = 2 * unfiltered_indiv_ct - (int)(geno_thresh * 2.0 * unfiltered_indiv_ct);
+    maf_int_thresh = 2 * unfiltered_indiv_ct - (int)((1.0 - min_maf) * unfiltered_indiv_ct * 2);
+    geno_int_thresh = 2 * unfiltered_indiv_ct - (int)(geno_thresh * 2 * unfiltered_indiv_ct);
 
     marker_alleles = (char*)calloc(sizeof(char), unfiltered_marker_ct * 4);
     if (!marker_alleles) {
@@ -4187,7 +4187,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         dyy += dzz * dzz;
       }
       dxx /= (double)indiv_ct;
-      dxx = 1.0 / sqrt((dyy / (double)indiv_ct) - dxx * dxx);
+      dxx = 1 / sqrt((dyy / (double)indiv_ct) - dxx * dxx);
       dptr3 = dptr2;
       while (dptr3 < dist_ptr) {
         *dptr3 *= dxx;
