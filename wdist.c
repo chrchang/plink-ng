@@ -2623,7 +2623,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	goto wdist_ret_1;
       }
     }
-    person_id = (char*)malloc(nn * max_person_id_len * sizeof(char));
+    person_id = (char*)malloc(unfiltered_indiv_ct * max_person_id_len * sizeof(char));
     if (!person_id) {
       goto wdist_ret_1;
     }
@@ -2662,10 +2662,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  }
 	  kk = strlen_se(tbuf);
 	  mm = strlen_se(cptr);
-	  memcpy(&(person_id[jj * max_person_id_len]), tbuf, kk);
-	  person_id[jj * max_person_id_len + kk] = '\t';
-	  memcpy(&(person_id[jj * max_person_id_len + kk + 1]), cptr, mm);
-	  person_id[jj * max_person_id_len + kk + mm + 1] = '\0';
+	  memcpy(&(person_id[ii * max_person_id_len]), tbuf, kk);
+	  person_id[ii * max_person_id_len + kk] = '\t';
+	  memcpy(&(person_id[ii * max_person_id_len + kk + 1]), cptr, mm);
+	  person_id[ii * max_person_id_len + kk + mm + 1] = '\0';
           if (phenoname[0]) {
 	    kk = bsearch_fam_indiv(pid_list, max_pid_len, pheno_lines, tbuf, cptr);
             if (makepheno_str) {
@@ -3027,12 +3027,16 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       if (pedbuf[0] > ' ') {
 	if (pedbuf[0] != '#') {
 	  bufptr = next_item((char*)pedbuf);
+          if (!ped_col_1) {
+            cptr = (char*)pedbuf;
+          } else {
+            cptr = bufptr;
+          }
+          ii = strlen_se(tbuf) + strlen_se(cptr) + 2;
+          if (ii > max_person_id_len) {
+            max_person_id_len = ii;
+          }
           if (filter_type) {
-	    if (!ped_col_1) {
-	      cptr = (char*)pedbuf;
-	    } else {
-	      cptr = bufptr;
-	    }
             ii = is_contained(id_list, max_id_len, filter_lines, (char*)pedbuf, cptr);
             if (filter_type == FILTER_REMOVE) {
               ii = 1 - ii;
@@ -3125,6 +3129,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
     }
 
+    person_id = (char*)malloc(unfiltered_indiv_ct * max_person_id_len * sizeof(char));
+    if (!person_id) {
+      goto wdist_ret_1;
+    }
+
     maf_int_thresh = 2 * unfiltered_indiv_ct - (int)((1.0 - min_maf) * unfiltered_indiv_ct * 2);
     geno_int_thresh = 2 * unfiltered_indiv_ct - (int)(geno_thresh * 2 * unfiltered_indiv_ct);
 
@@ -3162,6 +3171,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         if (ped_col_1) {
           bufptr = next_item(bufptr);
         }
+        kk = strlen_se((char*)pedbuf);
+        mm = strlen_se(bufptr);
+        memcpy(&(person_id[ii * max_person_id_len]), pedbuf, kk);
+        person_id[ii * max_person_id_len + kk] = '\t';
+        memcpy(&(person_id[ii * max_person_id_len + kk + 1]), bufptr, mm);
+        person_id[ii * max_person_id_len + kk + mm + 1] = '\0';
         jj = bsearch_fam_indiv(pid_list, max_pid_len, pheno_lines, (char*)pedbuf, bufptr);
         cc = 0;
         if (makepheno_str) {
