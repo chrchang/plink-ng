@@ -1084,14 +1084,6 @@ inline int excluded(unsigned char* exclude_arr, int loc) {
   return exclude_arr[loc / 8] & (1 << (loc % 8));
 }
 
-inline int excluded4(unsigned char* exclude_arr, int loc) {
-  if (loc & 7) {
-    return exclude_arr[loc / 8] & 240;
-  } else {
-    return exclude_arr[loc / 8] & 15;
-  }
-}
-
 int is_missing(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01) {
   if ((atoi(bufptr) == missing_pheno) && is_space_or_eoln(bufptr[missing_pheno_len])) {
     return 1;
@@ -1934,8 +1926,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   unsigned long ulii;
   unsigned long uljj;
   unsigned long ulkk;
-  unsigned long ulmm;
-  unsigned long ulnn;
   double dxx;
   double dyy;
   double dzz;
@@ -3871,57 +3861,18 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             }
 	    ulii = 0;
 	    gptr2 = &(gptr[qq / 4 + nn * unfiltered_indiv_ct4]);
-            if (excluded4(indiv_exclude, qq)) {
-	      kk = (qq % 4) * 2;
-	      for (mm = 0; mm < (MULTIPLEX_REL / 3); mm++) {
-		uljj = (gptr2[mm * unfiltered_indiv_ct4] >> kk) & 3;
-		if (uljj == 1) {
-		  masks[oo] |= 7LLU << (mm * 3);
-		  mmasks[oo] |= 1LLU << (nn + mm);
-		  indiv_missing[oo] += 1;
-		}
-		ulii |= uljj << (mm * 3);
+	    kk = (qq % 4) * 2;
+	    for (mm = 0; mm < (MULTIPLEX_REL / 3); mm++) {
+	      uljj = (gptr2[mm * unfiltered_indiv_ct4] >> kk) & 3;
+	      if (uljj == 1) {
+		masks[oo] |= 7LLU << (mm * 3);
+		mmasks[oo] |= 1LLU << (nn + mm);
+		indiv_missing[oo] += 1;
 	      }
-	      *glptr2++ = ulii;
-	      oo++;
-            } else {
-              // assemble four individuals simultaneously
-              ulkk = 0;
-              ulmm = 0;
-              ulnn = 0;
-              for (mm = 0; mm < (MULTIPLEX_REL / 3); mm++) {
-                uljj = gptr2[mm * unfiltered_indiv_ct4];
-                if ((uljj & 3) == 1) {
-                  masks[oo] |= 7LLU << (mm * 3);
-                  mmasks[oo] |= 1LLU << (nn + mm);
-                  indiv_missing[oo] += 1;
-                }
-                if ((uljj & 12) == 4) {
-                  masks[oo + 1] |= 7LLU << (mm * 3);
-                  mmasks[oo + 1] |= 1LLU << (nn + mm);
-                  indiv_missing[oo + 1] += 1;
-                }
-                if ((uljj & 48) == 16) {
-                  masks[oo + 2] |= 7LLU << (mm * 3);
-                  mmasks[oo + 2] |= 1LLU << (nn + mm);
-                  indiv_missing[oo + 2] += 1;
-                }
-                if ((uljj & 192) == 64) {
-                  masks[oo + 3] |= 7LLU << (mm * 3);
-                  mmasks[oo + 3] |= 1LLU << (nn + mm);
-                  indiv_missing[oo + 3] += 1;
-                }
-		ulii |= (uljj & 3) << (mm * 3);
-		ulkk |= (uljj & 12) << (mm * 3);
-                ulmm |= (uljj & 48) << (mm * 3); // assumes MULTIPLEX_REL <= 60
-                ulnn |= ((uljj & 192) >> 6) << (mm * 3);
-              }
-              *glptr2++ = ulii;
-              *glptr2++ = ulkk >> 2;
-              *glptr2++ = ulmm >> 4;
-              *glptr2++ = ulnn;
-              oo += 4;
-            }
+	      ulii |= uljj << (mm * 3);
+	    }
+	    *glptr2++ = ulii;
+	    oo++;
 	  }
           if (calculation_type & CALC_IBC) {
             for (oo = 0; oo < 3; oo++) {
