@@ -27,7 +27,10 @@
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
+
+#if __LP64__
 #include <emmintrin.h>
+#endif
 
 #ifndef NOLAPACK
 #include <cblas.h>
@@ -713,20 +716,28 @@ void fill_weights(double* weights, double* mafs, double exponent) {
   int nn;
   int oo;
   double wtarr[MULTIPLEX_DIST_EXP / 2];
+  double* wt;
+#if __LP64__
   double twt[5];
   double twtf;
-  double* wt;
   __m128d* wpairs = (__m128d*)weights;
   __m128d vpen;
   __m128d vfinal1;
   __m128d vfinal2;
+#else
+  int pp;
+  int qq;
+  double twt[7];
+#endif
   for (ii = 0; ii < MULTIPLEX_DIST_EXP / 2; ii++) {
     wtarr[ii] = pow(2 * mafs[ii] * (1.0 - mafs[ii]), -exponent);
   }
   for (oo = 0; oo < 2; oo++) {
     wt = &(wtarr[7 * oo]);
+#if __LP64__
     vfinal1 = _mm_set_pd(wt[0], 0.0);
     vfinal2 = _mm_set_pd(wt[0] * 2, wt[0]);
+#endif
     twt[0] = 0;
     for (ii = 0; ii < 4; ii += 1) {
       // bizarrely, turning the ii == 2 case into a memcpy doesn't actually
@@ -754,6 +765,7 @@ void fill_weights(double* weights, double* mafs, double exponent) {
 	      if (nn & 1) {
 		twt[4] += wt[2];
 	      }
+#if __LP64__
 	      twtf = twt[4];
 	      vpen = _mm_set1_pd(twtf);
 	      *wpairs++ = _mm_add_pd(vpen, vfinal1);
@@ -769,6 +781,21 @@ void fill_weights(double* weights, double* mafs, double exponent) {
 	      vpen = _mm_set1_pd(twtf + wt[1]);
 	      *wpairs++ = _mm_add_pd(vpen, vfinal1);
 	      *wpairs++ = _mm_add_pd(vpen, vfinal2);
+#else
+              twt[5] = twt[4];
+              for (pp = 0; pp < 4; pp++) {
+                if (pp & 1) {
+                  twt[5] += wt[1];
+                }
+                twt[6] = twt[5];
+                for (qq = 0; qq < 4; qq++) {
+                  if (qq & 1) {
+                    twt[6] += wt[0];
+                  }
+                  *weights++ = twt[6];
+                }
+              }
+#endif
 	    }
           }
 	}
@@ -892,12 +919,14 @@ void fill_weights_r(double* weights, double* mafs) {
   double mean_m2;
   double mult;
   double aux;
+#if __LP64__
   __m128d* wpairs = (__m128d*)weights;
   __m128d vpen;
   __m128d vfinal1;
   __m128d vfinal2;
   __m128d vfinal3;
   __m128d vfinal4;
+#endif
   if (((unsigned long)wtarr) & 15) {
     // force 16-byte alignment; can't do this at compile-time since stack
     // pointer has no 16-byte align guarantee
@@ -941,10 +970,12 @@ void fill_weights_r(double* weights, double* mafs) {
   }
   for (nn = 0; nn < BITCT / 16; nn++) {
     wtptr = &(wtarr[40 * nn]);
+#if __LP64__
     vfinal1 = _mm_load_pd(wtptr);
     vfinal2 = _mm_load_pd(&(wtptr[2]));
     vfinal3 = _mm_load_pd(&(wtptr[4]));
     vfinal4 = _mm_load_pd(&(wtptr[6]));
+#endif
     for (ii = 0; ii < 8; ii++) {
       twt = wtptr[ii + 32];
       for (jj = 0; jj < 8; jj++) {
@@ -953,11 +984,17 @@ void fill_weights_r(double* weights, double* mafs) {
           twt3 = twt2 + wtptr[kk + 16];
           for (mm = 0; mm < 8; mm++) {
             twt4 = twt3 + wtptr[mm + 8];
+#if __LP64__
             vpen = _mm_set1_pd(twt4);
             *wpairs++ = _mm_add_pd(vpen, vfinal1);
             *wpairs++ = _mm_add_pd(vpen, vfinal2);
             *wpairs++ = _mm_add_pd(vpen, vfinal3);
             *wpairs++ = _mm_add_pd(vpen, vfinal4);
+#else
+            for (nn = 0; nn < 8; nn++) {
+              *weights++ = twt4 + wtptr[nn];
+            }
+#endif
           }
         }
       }
@@ -1258,8 +1295,9 @@ static inline unsigned int popcount_xor_2mask_multibyte(__m128i** xor1p, __m128i
 }
 #else
 // Simple 32-bit popcount implementation (using a 16-bit lookup table) for
-// testing purposes.  If there is a serious need for a fast 32-bit SSE2
-// version, one can just modify the last line of each function above.
+// testing purposes.  If there is a serious need for a fast 32-bit version, one
+// can make minor modifications to the code above, or revert to standard
+// Walisch/Lauradoux if SSE2 is unavailable.
 static inline unsigned int popcount_xor_1mask_multibyte(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
   unsigned long* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
   unsigned int bit_count = 0;
@@ -1631,19 +1669,21 @@ void* regress_jack_thread(void* arg) {
 }
 
 #ifndef NOLAPACK
-// Replaces matrix[][] with mult_val * matrix[][] + add_val * I, assuming only
-// the upper right (according to FORTRAN convention) is relevant.
+// Replaces matrix[][] with mult_val * matrix[][] + add_val * I.
 // Multithreading doesn't help here.
 void matrix_const_mult_add(double* matrix, double mult_val, double add_val) {
   int ii;
   int loop_end = indiv_ct - 1;
   int jj;
   double* dptr = matrix;
+#if __LP64__
   __m128d* vptr;
   __m128d v_mult_val = _mm_set1_pd(mult_val);
+#endif
   for (ii = 0; ii < loop_end; ii++) {
     *dptr = (*dptr) * mult_val + add_val;
     dptr++;
+#if __LP64__
     if ((unsigned long)dptr & 8) {
       *dptr *= mult_val;
       dptr++;
@@ -1657,11 +1697,17 @@ void matrix_const_mult_add(double* matrix, double mult_val, double add_val) {
       vptr++;
       jj += 2;
     }
-    dptr += jj & (~1);
+    dptr = (double*)vptr;
     if (jj < indiv_ct) {
       *dptr *= mult_val;
       dptr++;
     }
+#else
+    for (jj = 0; jj < indiv_ct; jj++) {
+      *dptr *= mult_val;
+      dptr++;
+    }
+#endif
   }
   *dptr = (*dptr) * mult_val + add_val;
 }
@@ -1774,6 +1820,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     }
     dxx = -1 / dxx;
     cblas_dger(CblasColMajor, indiv_ct, indiv_ct, dxx, row, 1, row, 1, wkbase, indiv_ct);
+    // unfortunately, cblas_dsymm is much worse than cblas_dgemm on OS X
     cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, indiv_ct, indiv_ct, indiv_ct, 1.0, wkbase, indiv_ct, rel_dists, indiv_ct, 0.0, matrix_pvg, indiv_ct);
     dlg = 0.0;
     dle = 0.0;
@@ -3819,9 +3866,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       // The difference is, we have to use + instead of XOR here to distinguish
       // the cases, so it's best to allow 3 bits per marker.
       while (pp < marker_ct) {
-        for (jj = 0; jj < MULTIPLEX_REL; jj++) {
-          maf_buf[jj] = 0.0;
-        }
         jj = 0;
         while ((jj < MULTIPLEX_REL) && (pp < marker_ct)) {
           ulii = 0;
@@ -3843,6 +3887,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         }
         if (jj < MULTIPLEX_REL) {
           memset(&(gptr[jj * unfiltered_indiv_ct4]), 0, (MULTIPLEX_REL - jj) * unfiltered_indiv_ct4);
+          fill_double_zero(&(maf_buf[jj]), MULTIPLEX_REL - jj);
         }
         fill_long_zero((long*)mmasks, indiv_ct);
 
