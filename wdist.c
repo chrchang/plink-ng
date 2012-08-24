@@ -123,9 +123,9 @@
 
 const char info_str[] =
 #ifdef NOLAPACK
-  "WDIST weighted genetic distance calculator, v0.5.7 (23 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.5.7 (24 August 2012)\n"
 #else
-  "WDIST weighted genetic distance calculator, v0.6.6 (23 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.7.0 (24 August 2012)\n"
 #endif
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
@@ -1019,6 +1019,7 @@ double* rel_dists = NULL;
 int* rel_missing = NULL;
 int* idists;
 double* dists = NULL;
+char* pheno_c = NULL;
 double* pheno_d = NULL;
 unsigned char* ped_geno = NULL;
 unsigned long* glptr;
@@ -1031,10 +1032,19 @@ double reg_tot_xy;
 double reg_tot_x;
 double reg_tot_y;
 double reg_tot_xx;
+int low_ct;
+int high_ct;
 int jackknife_iters;
 int jackknife_d;
 double calc_result[MAX_THREADS];
 double calc_result2[MAX_THREADS];
+double calc_result3[MAX_THREADS];
+double calc_result4[MAX_THREADS];
+double calc_result5[MAX_THREADS];
+double calc_result6[MAX_THREADS];
+double calc_result7[MAX_THREADS];
+double calc_result8[MAX_THREADS];
+double calc_result9[MAX_THREADS];
 unsigned long* masks;
 unsigned long* mmasks;
 double* marker_weights;
@@ -1402,29 +1412,33 @@ void incr_dists(double* dists, unsigned long* geno, int tidx) {
     mask_fixed = masks[ii];
 #if __LP64__
     if (mask_fixed == 0xffffffffffffffffLLU) {
-#else
-    if (mask_fixed == 0x0fffffff) {
-#endif
       for (jj = 0; jj < ii; jj++) {
 	uljj = (*glptr++ ^ ulii) & (*mptr++);
-#if __LP64__
         *dists += weights4[uljj >> 52] + weights3[(uljj >> 40) & 4095] + weights2[(uljj >> 28) & 4095] + weights1[(uljj >> 14) & 16383] + weights[uljj & 16383];
-#else
-	*dists += weights1[uljj >> 14] + weights[uljj & 16383];
-#endif
 	dists++;
       }
     } else {
       for (jj = 0; jj < ii; jj++) {
 	uljj = (*glptr++ ^ ulii) & (mask_fixed & (*mptr++));
-#if __LP64__
         *dists += weights4[uljj >> 52] + weights3[(uljj >> 40) & 4095] + weights2[(uljj >> 28) & 4095] + weights1[(uljj >> 14) & 16383] + weights[uljj & 16383];
-#else
-	*dists += weights1[uljj >> 14] + weights[uljj & 16383];
-#endif
 	dists++;
       }
     }
+#else
+    if (mask_fixed == 0x0fffffff) {
+      for (jj = 0; jj < ii; jj++) {
+	uljj = (*glptr++ ^ ulii) & (*mptr++);
+	*dists += weights1[uljj >> 14] + weights[uljj & 16383];
+	dists++;
+      }
+    } else {
+      for (jj = 0; jj < ii; jj++) {
+	uljj = (*glptr++ ^ ulii) & (mask_fixed & (*mptr++));
+	*dists += weights1[uljj >> 14] + weights[uljj & 16383];
+	dists++;
+      }
+    }
+#endif
   }
 }
 
@@ -1585,8 +1599,137 @@ void triangle_fill(int* target_arr, int ct, int pieces, int start, int align) {
   }
 }
 
+void groupdist_jack(int* ibuf, double* returns) {
+  int* iptr = ibuf;
+  int* jptr;
+  int ii;
+  int jj;
+  int kk;
+  int mm;
+  double* dptr = dists;
+  char* cptr;
+  char* cptr2;
+  char cc;
+  char cc2;
+  double neg_tot_aa = 0.0;
+  double neg_tot_ah = 0.0;
+  double neg_tot_hh = 0.0;
+  int neg_a = 0;
+  int neg_h = 0;
+  double dxx;
+  jj = 0;
+  for (ii = 0; ii < indiv_ct; ii++) {
+    cc = pheno_c[ii];
+    if (cc == -1) {
+      continue;
+    }
+    dptr = &(dists[(ii * (ii - 1)) / 2]);
+    if (jj == *iptr) {
+      cptr = pheno_c;
+      cptr2 = &(pheno_c[ii]);
+      if (cc) {
+        neg_a++;
+        while (cptr < cptr2) {
+          cc2 = *cptr++;
+          dxx = *dptr++;
+          if (cc2 == 1) {
+            neg_tot_aa += dxx;
+          } else if (!cc2) {
+            neg_tot_ah += dxx;
+          }
+        }
+      } else {
+        neg_h++;
+        while (cptr < cptr2) {
+          cc2 = *cptr++;
+          dxx = *dptr++;
+          if (cc2 == 1) {
+            neg_tot_ah += dxx;
+          } else if (!cc2) {
+            neg_tot_hh += dxx;
+          }
+        }
+      }
+      iptr++;
+    } else {
+      jptr = ibuf;
+      mm = 0;
+      for (kk = 0; kk < ii; kk++) {
+        cc2 = pheno_c[kk];
+        if (cc2 == -1) {
+          continue;
+        }
+        if (*jptr != mm) {
+          mm++;
+          continue;
+        }
+	dxx = dptr[kk];
+	if ((cc == 1) && (cc2 == 1)) {
+	  neg_tot_aa += dxx;
+	} else if ((cc == 0) && (cc2 == 0)) {
+	  neg_tot_hh += dxx;
+	} else {
+	  neg_tot_ah += dxx;
+	}
+        mm++;
+        jptr++;
+      }
+    }
+    jj++;
+  }
+  returns[0] = (reg_tot_x - neg_tot_aa) / (double)(((high_ct - neg_a) * (high_ct - neg_a - 1)) / 2);
+  returns[1] = (reg_tot_xy - neg_tot_ah) / (double)((high_ct - neg_a) * (low_ct - neg_h));
+  returns[2] = (reg_tot_y - neg_tot_hh) / (double)(((low_ct - neg_h) * (low_ct - neg_h - 1)) / 2);
+}
+
 void* groupdist_jack_thread(void* arg) {
-  // long tidx = (long)arg;
+  long tidx = (long)arg;
+  int* ibuf = (int*)(&(ped_geno[tidx * CACHEALIGN(high_ct + low_ct + (jackknife_d + 1) * sizeof(int))]));
+  unsigned char* cbuf = &(ped_geno[tidx * CACHEALIGN(high_ct + low_ct + (jackknife_d + 1) * sizeof(int)) + jackknife_d * sizeof(int)]);
+  unsigned long long ulii;
+  unsigned long long uljj = jackknife_iters / 100;
+  double returns[3];
+  double results[9];
+  double new_old_diff[3];
+  fill_double_zero(results, 9);
+  for (ulii = 0; ulii < jackknife_iters; ulii++) {
+    pick_d_small(cbuf, ibuf, high_ct + low_ct, jackknife_d);
+    groupdist_jack(ibuf, returns);
+    if (ulii > 0) {
+      new_old_diff[0] = returns[0] - results[0];
+      new_old_diff[1] = returns[1] - results[1];
+      new_old_diff[2] = returns[2] - results[2];
+      results[0] += new_old_diff[0] / (ulii + 1); // AA mean
+      results[1] += new_old_diff[1] / (ulii + 1); // AH mean
+      results[2] += new_old_diff[2] / (ulii + 1); // HH mean
+      results[3] += (returns[0] - results[0]) * new_old_diff[0]; // AA var
+      results[4] += (returns[1] - results[1]) * new_old_diff[1]; // AH var
+      results[5] += (returns[2] - results[2]) * new_old_diff[2]; // HH var
+      results[6] += (returns[0] - results[0]) * new_old_diff[1]; // AA-AH cov
+      results[7] += (returns[0] - results[0]) * new_old_diff[2]; // AA-HH cov
+      results[8] += (returns[1] - results[1]) * new_old_diff[2]; // AH-HH cov
+    } else {
+      results[0] += returns[0];
+      results[1] += returns[1];
+      results[2] += returns[2];
+    }
+    if ((!tidx) && (ulii >= uljj)) {
+      uljj = (ulii * 100) / jackknife_iters;
+      printf("\r%lld%%", uljj);
+      fflush(stdout);
+      uljj = ((uljj + 1) * jackknife_iters) / 100;
+    }
+  }
+  // don't write until end, to avoid false sharing
+  calc_result[tidx] = results[0];
+  calc_result2[tidx] = results[1];
+  calc_result3[tidx] = results[2];
+  calc_result4[tidx] = results[3];
+  calc_result5[tidx] = results[4];
+  calc_result6[tidx] = results[5];
+  calc_result7[tidx] = results[6];
+  calc_result8[tidx] = results[7];
+  calc_result9[tidx] = results[8];
   return NULL;
 }
 
@@ -1961,7 +2104,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int affection = 0;
   double* phenor_d = NULL;
   char* phenor_c = NULL;
-  char* pheno_c = NULL;
   char* person_id = NULL;
   int max_person_id_len = 4;
   unsigned char* wkspace_mark = NULL;
@@ -2023,9 +2165,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   int hwe_a_hhi;
   int multiplex = 0;
   int bin_pheno;
-  int ll_size;
-  int lh_size;
-  int hh_size;
   double* ll_pool;
   double* lh_pool;
   double* hh_pool;
@@ -2038,11 +2177,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
   double dhh_sd;
   double dhl_sd;
   double dll_sd;
-  int low_ct;
-  int high_ct;
-  double low_tot;
-  double lh_tot;
-  double high_tot;
+  int ll_size;
+  int lh_size;
+  int hh_size;
   double ll_med;
   double lh_med;
   double hh_med;
@@ -4701,9 +4838,9 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     ll_size = (low_ct * (low_ct - 1)) / 2;
     lh_size = low_ct * high_ct;
     hh_size = (high_ct * (high_ct - 1)) / 2;
-    low_tot = 0.0;
-    lh_tot = 0.0;
-    high_tot = 0.0;
+    reg_tot_y = 0.0;
+    reg_tot_xy = 0.0;
+    reg_tot_x = 0.0;
     dhh_ssq = 0.0;
     dhl_ssq = 0.0;
     dll_ssq = 0.0;
@@ -4723,12 +4860,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  if (*cptr == 1) {
             dxx = *dist_ptr;
 	    *hh_poolp++ = dxx;
-	    high_tot += dxx;
+	    reg_tot_x += dxx;
             dhh_ssq += dxx * dxx;
 	  } else if (!(*cptr)) {
             dxx = *dist_ptr;
 	    *lh_poolp++ = dxx;
-	    lh_tot += dxx;
+	    reg_tot_xy += dxx;
             dhl_ssq += dxx * dxx;
 	  }
 	  cptr++;
@@ -4739,12 +4876,12 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
 	  if (*cptr == 1) {
             dxx = *dist_ptr;
 	    *lh_poolp++ = dxx;
-	    lh_tot += dxx;
+	    reg_tot_xy += dxx;
             dhl_ssq += dxx * dxx;
 	  } else if (!(*cptr)) {
             dxx = *dist_ptr;
 	    *ll_poolp++ = dxx;
-	    low_tot += dxx;
+	    reg_tot_y += dxx;
             dll_ssq += dxx * dxx;
 	  }
 	  cptr++;
@@ -4766,7 +4903,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       dhh_sd = 0.0;
     } else {
       dww = (double)((high_ct * (high_ct - 1)) / 2);
-      dxx = high_tot / dww;
+      dxx = reg_tot_x / dww;
       dhh_sd = sqrt((dhh_ssq / dww - dxx * dxx) / (dww - 1.0));
     }
     if (!(high_ct * low_ct)) {
@@ -4774,7 +4911,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       dhl_sd = 0.0;
     } else {
       dww = (double)(high_ct * low_ct);
-      dyy = lh_tot / dww;
+      dyy = reg_tot_xy / dww;
       dhl_sd = sqrt((dhl_ssq / dww - dyy * dyy) / (dww - 1.0));
     }
     if (low_ct < 2) {
@@ -4782,7 +4919,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       dll_sd = 0.0;
     } else {
       dww = (double)((low_ct * (low_ct - 1)) / 2);
-      dzz = low_tot / dww;
+      dzz = reg_tot_y / dww;
       dll_sd = sqrt((dll_ssq / dww - dzz * dzz) / (dww - 1.0));
     }
     printf("  Mean (sd), median dists between 2x affected     : %g (%g), %g\n", dxx, dhh_sd, hh_med);
@@ -4791,15 +4928,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
     if (2 * jackknife_d >= high_ct + low_ct) {
       printf("Delete-d jackknife skipped because d is too large.\n");
     } else {
-      printf("Jackknife not yet implemented.\n");
-    /*
       jackknife_iters = (groupdist_iters + thread_ct - 1) / thread_ct;
 
       // IN PROGRESS
       if (groupdist_d) {
 	jackknife_d = groupdist_d;
       } else {
-	jackknife_d = (int)pow((double)indiv_ct, 0.600000000001);
+	jackknife_d = (int)pow((double)(high_ct + low_ct), 0.600000000001);
 	printf("Setting d=%d for jackknife.\n", jackknife_d);
       }
 
@@ -4812,11 +4947,32 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       }
       ulii = 0;
       groupdist_jack_thread((void*)ulii);
-      for (ii = 0; ii < thread_ct - 1; ii++) {
-        pthread_join(threads[ii], NULL);
+      for (ii = 1; ii < thread_ct; ii++) {
+        pthread_join(threads[ii - 1], NULL);
+	calc_result[0] += calc_result[ii];
+	calc_result2[0] += calc_result2[ii];
+	calc_result3[0] += calc_result3[ii];
+	calc_result4[0] += calc_result4[ii];
+	calc_result5[0] += calc_result5[ii];
+	calc_result6[0] += calc_result6[ii];
+	calc_result7[0] += calc_result7[ii];
+	calc_result8[0] += calc_result8[ii];
+	calc_result9[0] += calc_result9[ii];
       }
-      jackknife_iters *= thread_ct;
-    */
+      dxx = 1.0 / thread_ct;
+      calc_result[0] *= dxx;
+      calc_result2[0] *= dxx;
+      calc_result3[0] *= dxx;
+      dxx /= (jackknife_iters - 1) * thread_ct;
+      calc_result4[0] *= dxx;
+      calc_result5[0] *= dxx;
+      calc_result6[0] *= dxx;
+      calc_result7[0] *= dxx;
+      calc_result8[0] *= dxx;
+      calc_result9[0] *= dxx;
+      printf("\r  AA - AH avg distance (avg s.e.): %g (%g)\n", calc_result[0] - calc_result2[0], sqrt(((high_ct + low_ct) / jackknife_d) * (calc_result4[0] + calc_result5[0] - 2 * calc_result7[0])));
+      printf("  AA - HH avg distance (avg s.e.): %g (%g)\n", calc_result[0] - calc_result3[0], sqrt(((high_ct + low_ct) / jackknife_d) * (calc_result4[0] + calc_result6[0] - 2 * calc_result8[0])));
+      printf("  AH - HH avg distance (avg s.e.): %g (%g)\n", calc_result2[0] - calc_result3[0], sqrt(((high_ct + low_ct) / jackknife_d) * (calc_result5[0] + calc_result6[0] - 2 * calc_result9[0])));
     }
   }
   if (calculation_type & CALC_REGRESS_DISTANCE) {
