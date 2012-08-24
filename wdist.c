@@ -5592,6 +5592,10 @@ int main(int argc, char** argv) {
         printf("Error: Invalid --tail-pheno parameter.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
+      if (tail_bottom > tail_top) {
+        printf("Error: Ltop cannot be larger than Hbottom for --tail-pheno.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
       tail_pheno = 1;
       cur_arg += 3;
     } else if (!strcmp(argptr, "--keep")) {
@@ -5649,7 +5653,7 @@ int main(int argc, char** argv) {
       }
       filter_type = FILTER_CUSTOM;
       if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-        printf("--filter filename too long.\n");
+        printf("Error: --filter filename too long.\n");
         return dispmsg(RET_OPENFAIL);
       }
       strcpy(filtername, argv[cur_arg + 1]);
