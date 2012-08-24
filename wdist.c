@@ -1603,9 +1603,6 @@ void groupdist_jack(int* ibuf, double* returns) {
   int* iptr = ibuf;
   int* jptr;
   int ii;
-  int jj;
-  int kk;
-  int mm;
   double* dptr = dists;
   char* cptr;
   char* cptr2;
@@ -1617,14 +1614,13 @@ void groupdist_jack(int* ibuf, double* returns) {
   int neg_a = 0;
   int neg_h = 0;
   double dxx;
-  jj = 0;
   for (ii = 0; ii < indiv_ct; ii++) {
     cc = pheno_c[ii];
     if (cc == -1) {
       continue;
     }
     dptr = &(dists[(ii * (ii - 1)) / 2]);
-    if (jj == *iptr) {
+    if (ii == *iptr) {
       cptr = pheno_c;
       cptr2 = &(pheno_c[ii]);
       if (cc) {
@@ -1653,17 +1649,9 @@ void groupdist_jack(int* ibuf, double* returns) {
       iptr++;
     } else {
       jptr = ibuf;
-      mm = 0;
-      for (kk = 0; kk < ii; kk++) {
-        cc2 = pheno_c[kk];
-        if (cc2 == -1) {
-          continue;
-        }
-        if (*jptr != mm) {
-          mm++;
-          continue;
-        }
-	dxx = dptr[kk];
+      while (jptr < iptr) {
+        cc2 = pheno_c[*jptr];
+        dxx = dptr[*jptr];
 	if ((cc == 1) && (cc2 == 1)) {
 	  neg_tot_aa += dxx;
 	} else if ((cc == 0) && (cc2 == 0)) {
@@ -1671,15 +1659,28 @@ void groupdist_jack(int* ibuf, double* returns) {
 	} else {
 	  neg_tot_ah += dxx;
 	}
-        mm++;
         jptr++;
       }
     }
-    jj++;
   }
   returns[0] = (reg_tot_x - neg_tot_aa) / (double)(((high_ct - neg_a) * (high_ct - neg_a - 1)) / 2);
   returns[1] = (reg_tot_xy - neg_tot_ah) / (double)((high_ct - neg_a) * (low_ct - neg_h));
   returns[2] = (reg_tot_y - neg_tot_hh) / (double)(((low_ct - neg_h) * (low_ct - neg_h - 1)) / 2);
+}
+
+void small_remap(int* ibuf, unsigned int ct, unsigned int dd) {
+  int* ibuf_end = &(ibuf[dd]);
+  int missings = 0;
+  int curpos = 0;
+  do {
+    if (pheno_c[curpos] == -1) {
+      missings++;
+    } else if (*ibuf == curpos - missings) {
+      *ibuf = curpos;
+      ibuf++;
+    }
+    curpos++;
+  } while (ibuf < ibuf_end);
 }
 
 void* groupdist_jack_thread(void* arg) {
@@ -1694,6 +1695,9 @@ void* groupdist_jack_thread(void* arg) {
   fill_double_zero(results, 9);
   for (ulii = 0; ulii < jackknife_iters; ulii++) {
     pick_d_small(cbuf, ibuf, high_ct + low_ct, jackknife_d);
+    if (high_ct + low_ct < indiv_ct) {
+      small_remap(ibuf, high_ct + low_ct, jackknife_d);
+    }
     groupdist_jack(ibuf, returns);
     if (ulii > 0) {
       new_old_diff[0] = returns[0] - results[0];
