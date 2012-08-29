@@ -82,6 +82,7 @@
 #define CALC_UNRELATED_HERITABILITY_STRICT 2048
 #define CALC_FREQ 4096
 #define CALC_FREQ_GCTA 8192
+#define CALC_GRM_CUTOFF 16384
 
 #define _FILE_OFFSET_BITS 64
 #define MAX_THREADS 63
@@ -128,9 +129,9 @@
 
 const char info_str[] =
 #ifdef NOLAPACK
-  "WDIST weighted genetic distance calculator, v0.5.8 (29 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.5.9 (29 August 2012)\n"
 #else
-  "WDIST weighted genetic distance calculator, v0.7.1 (29 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.7.2 (29 August 2012)\n"
 #endif
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
@@ -281,16 +282,26 @@ int dispmsg(int retval) {
 // --map3 implicitly supported via autodetection
 // --compound-genotypes automatically supported
 "  --chr [num...]   : Only consider markers on the given chromosome (1-22, XY).\n"
-"                     More than one chromosome can be listed.  (X, Y, and MT\n"
-"                     markers are currently unconditionally ignored, but this\n"
-"                     will change in the future.)\n\n"
+"                     More than one chromosome can be listed (separate them\n"
+"                     with spaces, e.g. '--chr 1 2 5').  X, Y, and MT markers\n"
+"                     are currently unconditionally ignored, but this will\n"
+"                     change in the future.\n\n"
 "  --maf {val}      : Minor allele frequency minimum threshold (default 0.01).\n"
 "  --geno {val}     : Maximum per-SNP missing (default 0.1).\n"
 "  --mind {val}     : Maximum per-person missing (default 0.1).\n"
 "  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
 "                     default 0.001.  This is checked after all other forms of\n"
 "                     filtering.\n"
-"  --rseed [val]    : Set random number seed (relevant for missing genotypes).\n"
+"  --grm-cutoff {v} : Exclude individuals until no remaining pairs have\n"
+"                     relatedness greater than the given cutoff value (default\n"
+"                     0.025).  Note that maximizing the remaining sample size\n"
+"                     is equivalent to the NP-hard maximum independent set\n"
+"                     problem, so we do not attempt to achieve optimality;\n"
+"                     instead we use the obvious greedy algorithm, repeatedly\n"
+"                     removing the individual with the most close relations\n"
+"                     (choosing the first one when there's a tie).\n"
+"  --rseed [val]    : Set random number seed (relevant for jackknife standard\n"
+"                     error estimation).\n"
 "  --memory [val]   : Size, in MB, of initial malloc attempt.\n"
 "  --threads [val]  : Maximum number of concurrent threads.\n"
 "  --exponent [val] : When computing genetic distances, each marker has a\n"
@@ -1197,11 +1208,11 @@ int update_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, u
           sscanf(bufptr, "%lg", &maf);
           if (marker_alleles[ii * 2] == cc) {
             if (marker_alleles[ii * 2 + 1] == *bufptr2) {
-              mafs[ii] = maf;
+              mafs[ii] = 1.0 - maf;
             }
           } else if (marker_alleles[ii * 2 + 1] == cc) {
             if (marker_alleles[ii * 2] == *bufptr2) {
-              mafs[ii] = 1.0 - maf;
+              mafs[ii] = maf;
             }
           }
         }
@@ -2144,14 +2155,14 @@ inline int distance_req(int calculation_type) {
 }
 
 inline int relationship_req(int calculation_type) {
-  return ((calculation_type & CALC_RELATIONSHIP_MASK) || (calculation_type & CALC_UNRELATED_HERITABILITY));
+  return ((calculation_type & CALC_RELATIONSHIP_MASK) || (calculation_type & CALC_UNRELATED_HERITABILITY) || (calculation_type & CALC_GRM_CUTOFF));
 }
 
 inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* freqname, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_cove, int ibc_type) {
+int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* freqname, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double grm_cutoff, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_cove, int ibc_type) {
   FILE* pedfile = NULL;
   FILE* mapfile = NULL;
   FILE* famfile = NULL;
@@ -4295,7 +4306,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
         printf("\r%d markers complete.", pp);
         fflush(stdout);
       }
-      if (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY)) {
+      if (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY | CALC_GRM_CUTOFF)) {
         printf("\rRelationship matrix calculation complete.\n");
         dist_ptr = rel_dists;
       } else {
@@ -4311,7 +4322,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
       iwptr = rel_missing;
       for (ii = 0; ii < indiv_ct; ii++) {
         uii = marker_ct - indiv_missing[ii];
-        if (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY)) {
+        if (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY | CALC_GRM_CUTOFF)) {
           giptr = indiv_missing;
 	  for (jj = 0; jj < ii; jj++) {
 	    *dist_ptr /= uii - (*giptr++) + (*iwptr++);
@@ -4330,6 +4341,97 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
           dptr2++;
         }
       }
+      if (calculation_type & CALC_GRM_CUTOFF) {
+	ii = 0; // total number of individuals excluded
+	iptr = (int*)wkspace_alloc(indiv_ct * sizeof(int));
+	fill_int_zero(iptr, indiv_ct);
+        dist_ptr = rel_dists;
+        dyy = -grm_cutoff;
+	for (jj = 1; jj < indiv_ct; jj++) {
+	  for (kk = 0; kk < jj; kk++) {
+	    if (*dist_ptr++ > grm_cutoff) {
+	      iptr[jj] += 1;
+	      iptr[kk] += 1;
+	    }
+	  }
+	}
+	do {
+	  kk = 0; // highest too-close pair count
+          mm = -1; // individual index
+	  for (jj = 0; jj < indiv_ct; jj++) {
+	    if (iptr[jj] > kk) {
+	      kk = iptr[jj];
+	      mm = jj;
+	    }
+	  }
+	  if (!kk) {
+	    break;
+	  }
+	  dist_ptr = &(rel_dists[(mm * (mm - 1)) / 2]);
+	  for (jj = 0; jj < mm; jj++) {
+            if (*dist_ptr > grm_cutoff) {
+              iptr[jj] -= 1;
+              *dist_ptr = 0.0;
+            }
+            dist_ptr++;
+	  }
+	  for (jj = mm + 1; jj < indiv_ct; jj++) {
+            if (iptr[jj] > 0) {
+	      dist_ptr = &(rel_dists[(jj * (jj - 1)) / 2 + mm]);
+	      if (*dist_ptr > grm_cutoff) {
+		iptr[jj] -= 1;
+		*dist_ptr = 0.0;
+	      }
+            }
+	  }
+	  exclude(indiv_exclude, mm, &indiv_exclude_ct);
+	  iptr[mm] = -1;
+	  ii++;
+	} while (1);
+        if (ii) {
+	  dist_ptr = rel_dists; // write
+	  dptr2 = rel_dists; // read
+	  dptr3 = rel_ibc; // write
+	  dptr4 = rel_ibc; // read
+	  for (jj = 0; jj < indiv_ct; jj++) {
+	    if (iptr[jj] != -1) {
+	      if (calculation_type & CALC_IBC) {
+		dptr3[indiv_ct] = dptr4[indiv_ct];
+		dptr3[indiv_ct * 2] = dptr4[indiv_ct * 2];
+	      }
+	      *dptr3 = *dptr4++;
+	      dptr3++;
+	      for (kk = 0; kk < jj; kk++) {
+		if (iptr[kk] != -1) {
+		  *dist_ptr = *dptr2++;
+		  dist_ptr++;
+		} else {
+		  dptr2++;
+		}
+	      }
+	    } else {
+	      dptr4++;
+	      dptr2 = &(dptr2[jj]);
+	    }
+	  }
+	  indiv_ct -= ii;
+	  if (calculation_type & CALC_IBC) {
+	    for (jj = 0; jj < indiv_ct; jj++) {
+	      *dptr3++ = *dptr4++;
+	    }
+            dptr4 = &(dptr4[ii]);
+            for (jj = 0; jj < indiv_ct; jj++) {
+              *dptr3++ = *dptr4++;
+            }
+	  }
+        }
+        if (ii == 1) {
+          printf("1 individual excluded by --grm-cutoff.\n");
+        } else {
+	  printf("%d individuals excluded by --grm-cutoff.\n", ii);
+        }
+      }
+
       if (calculation_type & CALC_IBC) {
 	strcpy(outname_end, ".ibc");
 	outfile = fopen(outname, "w");
@@ -5398,6 +5500,7 @@ int main(int argc, char** argv) {
   double geno_thresh = 1.0;
   double mind_thresh = 1.0;
   double hwe_thresh = 0.0;
+  double grm_cutoff = 0.025;
   int cur_arg = 1;
   int calculation_type = 0;
   char* bubble;
@@ -6040,6 +6143,28 @@ int main(int argc, char** argv) {
         hwe_thresh = 0.001;
       }
       cur_arg += ii + 1;
+    } else if (!strcmp(argptr, "--grm-cutoff")) {
+      ii = param_count(argc, argv, cur_arg);
+      if (calculation_type & CALC_GRM_CUTOFF) {
+        printf("Error: Duplicate --grm-cutoff flag.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (ii > 1) {
+        printf("Error: Too many --grm-cutoff parameters.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (ii) {
+        if (sscanf(argv[cur_arg + 1], "%lg", &grm_cutoff) != 1) {
+          printf("Error: Invalid --grm-cutoff parameter.\n");
+          return dispmsg(RET_INVALID_CMDLINE);
+        }
+        if ((grm_cutoff <= 0.0) || (grm_cutoff >= 1.0)) {
+          printf("Error: Invalid --grm-cutoff parameter.\n");
+          return dispmsg(RET_INVALID_CMDLINE);
+        }
+      }
+      calculation_type |= CALC_GRM_CUTOFF;
+      cur_arg += ii + 1;
     } else if (!strcmp(argptr, "--rseed")) {
       if (cur_arg == argc - 1) {
         printf("Error: Missing --rseed parameter.%s", errstr_append);
@@ -6414,7 +6539,7 @@ int main(int argc, char** argv) {
   // famname[0] indicates binary vs. text
   // filtername[0] indicates existence of filter
   // freqname[0] signals --update-freq
-  retval = wdist(pedname, mapname, famname, phenoname, filtername, freqname, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, tail_pheno, tail_bottom, tail_top, outname, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_cove, ibc_type);
+  retval = wdist(pedname, mapname, famname, phenoname, filtername, freqname, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, grm_cutoff, tail_pheno, tail_bottom, tail_top, outname, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_cove, ibc_type);
   free(wkspace_ua);
   return dispmsg(retval);
 }
