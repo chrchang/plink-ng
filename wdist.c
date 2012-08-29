@@ -129,9 +129,9 @@
 
 const char info_str[] =
 #ifdef NOLAPACK
-  "WDIST weighted genetic distance calculator, v0.5.9 (29 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.5.10 (30 August 2012)\n"
 #else
-  "WDIST weighted genetic distance calculator, v0.7.2 (29 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.7.3 (30 August 2012)\n"
 #endif
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
@@ -281,17 +281,20 @@ int dispmsg(int retval) {
 "                     1 = unaffected, 2 = affected)\n"
 // --map3 implicitly supported via autodetection
 // --compound-genotypes automatically supported
-"  --chr [num...]   : Only consider markers on the given chromosome (1-22, XY).\n"
-"                     More than one chromosome can be listed (separate them\n"
-"                     with spaces, e.g. '--chr 1 2 5').  X, Y, and MT markers\n"
-"                     are currently unconditionally ignored, but this will\n"
-"                     change in the future.\n\n"
+"  --autosome       : Include markers on all autosomes (chromosomes 1-22), and\n"
+"                     no others.\n"
+"  --chr [num...]   : Only consider markers on the given chromosome(s) (valid\n"
+"                     choices are 1-22 and the XY pseudo-autosomal region).\n"
+"                     Separate multiple chromosomes with spaces, e.g. '--chr 1\n"
+"                     3 XY'.\n"
+"                     The X, Y, and MT chromosomes are currently unsupported,\n"
+"                     but this will change in the future.\n"
 "  --maf {val}      : Minor allele frequency minimum threshold (default 0.01).\n"
 "  --geno {val}     : Maximum per-SNP missing (default 0.1).\n"
 "  --mind {val}     : Maximum per-person missing (default 0.1).\n"
 "  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
 "                     default 0.001.  This is checked after all other forms of\n"
-"                     filtering.\n"
+"                     filtering, except for --grm-cutoff.\n"
 "  --grm-cutoff {v} : Exclude individuals until no remaining pairs have\n"
 "                     relatedness greater than the given cutoff value (default\n"
 "                     0.025).  Note that maximizing the remaining sample size\n"
@@ -305,14 +308,21 @@ int dispmsg(int retval) {
 "  --memory [val]   : Size, in MB, of initial malloc attempt.\n"
 "  --threads [val]  : Maximum number of concurrent threads.\n"
 "  --exponent [val] : When computing genetic distances, each marker has a\n"
-"                     weight of (2q(1-q))^{-val}, where q is the observed MAF.\n\n"
+"                     weight of (2q(1-q))^{-val}, where q is the observed MAF.\n"
+// "  --extract [file] : Only include SNPs in the given list.\n"
+// "  --exclude [file] : Exclude all SNPs in the given list.\n"
+// "  --exclude-before-extract : Perform exclude before extract (default is the\n"
+// "                             opposite).\n\n"
 "  --update-freq [filename] : Loads MAFs from the given PLINK- or GCTA-style\n"
 "                             frequency file.\n\n"
 "  --keep [filename]\n"
 "  --remove [filename]\n"
 "  --filter [filename] [val] : Keep/remove/filter individuals (see PLINK\n"
 "                              documentation).\n"
-"  --mfilter [col]           : Specify column number in --filter file.\n\n"
+"  --mfilter [col]           : Specify column number in --filter file.\n"
+// not supported yet:
+// "  --keep-before-remove      : Perform keep before remove (default is the\n"
+// "                              opposite).\n\n"
 "  --missing-genotype [char]     : Code for missing genotype.\n"
 "  --missing-phenotype [val]     : Code for missing phenotype.\n"
 "  --make-pheno [filename] [val] : Specify binary phenotype, where cases have\n"
@@ -2162,7 +2172,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* filtername, char* freqname, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double grm_cutoff, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_cove, int ibc_type) {
+int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* filtername, char* freqname, char* makepheno_str, int exclude_before_extract, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double grm_cutoff, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_cove, int ibc_type) {
   FILE* pedfile = NULL;
   FILE* mapfile = NULL;
   FILE* famfile = NULL;
@@ -4423,6 +4433,16 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* fi
             for (jj = 0; jj < indiv_ct; jj++) {
               *dptr3++ = *dptr4++;
             }
+            giptr = indiv_missing;
+            giptr2 = indiv_missing;
+            for (jj = 0; jj < indiv_ct + ii; jj++) {
+              if (iptr[jj] != -1) {
+                *giptr = *giptr2++;
+                giptr++;
+              } else {
+                giptr2++;
+              }
+            }
 	  }
         }
         if (ii == 1) {
@@ -5478,6 +5498,8 @@ int main(int argc, char** argv) {
   char famname[FNAMESIZE];
   char outname[FNAMESIZE];
   char phenoname[FNAMESIZE];
+  char extractname[FNAMESIZE];
+  char excludename[FNAMESIZE];
   char filtername[FNAMESIZE];
   char freqname[FNAMESIZE];
   char* makepheno_str = NULL;
@@ -5520,6 +5542,7 @@ int main(int argc, char** argv) {
   double unrelated_herit_covg = 0.45;
   double unrelated_herit_cove = 0.55;
   int ibc_type = 0;
+  int exclude_before_extract = 0;
   int ii;
   int jj;
   int kk;
@@ -5538,6 +5561,8 @@ int main(int argc, char** argv) {
   strcpy(pedname, "wdist.ped");
   famname[0] = '\0';
   phenoname[0] = '\0';
+  extractname[0] = '\0';
+  excludename[0] = '\0';
   filtername[0] = '\0';
   freqname[0] = '\0';
   strcpy(outname, "wdist");
@@ -5934,6 +5959,51 @@ int main(int argc, char** argv) {
       }
       tail_pheno = 1;
       cur_arg += 3;
+    } else if (!strcmp(argptr, "--extract")) {
+      if (extractname[0]) {
+        printf("Error: Duplicate --extract flag.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      ii = param_count(argc, argv, cur_arg);
+      if (ii == 0) {
+        printf("Error: Missing --extract parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      } else if (ii > 1) {
+        printf("Error: Too many --extract parameters.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
+        printf("--extract filename too long.\n");
+        return dispmsg(RET_OPENFAIL);
+      }
+      strcpy(extractname, argv[cur_arg + 1]);
+      cur_arg += 2;
+    } else if (!strcmp(argptr, "--exclude")) {
+      if (excludename[0]) {
+        printf("Error: Duplicate --exclude flag.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      ii = param_count(argc, argv, cur_arg);
+      if (ii == 0) {
+        printf("Error: Missing --exclude parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      } else if (ii > 1) {
+        printf("Error: Too many --exclude parameters.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
+        printf("--exclude filename too long.\n");
+        return dispmsg(RET_OPENFAIL);
+      }
+      strcpy(excludename, argv[cur_arg + 1]);
+      cur_arg += 2;
+    } else if (!strcmp(argptr, "--exclude-before-extract")) {
+      if (exclude_before_extract) {
+        printf("Error: Duplicate --exclude-before-extract flag.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      exclude_before_extract = 1;
+      cur_arg += 1;
     } else if (!strcmp(argptr, "--keep")) {
       if (cur_arg == argc - 1) {
         printf("Error: Missing --keep parameter.%s", errstr_append);
@@ -6046,10 +6116,25 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += 2;
+    } else if (!strcmp(argptr, "--autosome")) {
+      if (chrom_mask != DEFAULT_CHROM_MASK) {
+        if (chrom_mask == 0x007ffffe) {
+          printf("Error: Duplicate --autosome flag.\n");
+        } else {
+          printf("Error: --chr and --autosome flags cannot coexist.\n");
+        }
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      chrom_mask = 0x007ffffe;
+      cur_arg += 1;
     } else if (!strcmp(argptr, "--chr")) {
       ii = param_count(argc, argv, cur_arg);
       if (chrom_mask != DEFAULT_CHROM_MASK) {
-        printf("Error: Duplicate --chr flag.\n");
+        if (chrom_mask == 0x007ffffe) {
+          printf("Error: --chr and --autosome flags cannot coexist.\n");
+        } else {
+          printf("Error: Duplicate --chr flag.\n");
+        }
         return dispmsg(RET_INVALID_CMDLINE);
       }
       if (!ii) {
@@ -6488,7 +6573,7 @@ int main(int argc, char** argv) {
       return dispmsg(RET_INVALID_CMDLINE);
     }
   }
-  if (calculation_type == 0) {
+  if ((calculation_type & ~CALC_GRM_CUTOFF) == 0) {
     return dispmsg(RET_HELP);
   }
   if (prune && (!phenoname[0]) && (!ped_col_6)) {
@@ -6539,7 +6624,7 @@ int main(int argc, char** argv) {
   // famname[0] indicates binary vs. text
   // filtername[0] indicates existence of filter
   // freqname[0] signals --update-freq
-  retval = wdist(pedname, mapname, famname, phenoname, filtername, freqname, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, grm_cutoff, tail_pheno, tail_bottom, tail_top, outname, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_cove, ibc_type);
+  retval = wdist(pedname, mapname, famname, phenoname, extractname, excludename, filtername, freqname, makepheno_str, exclude_before_extract, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, grm_cutoff, tail_pheno, tail_bottom, tail_top, outname, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_cove, ibc_type);
   free(wkspace_ua);
   return dispmsg(retval);
 }
