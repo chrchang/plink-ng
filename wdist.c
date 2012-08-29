@@ -128,9 +128,9 @@
 
 const char info_str[] =
 #ifdef NOLAPACK
-  "WDIST weighted genetic distance calculator, v0.5.8 (27 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.5.8 (29 August 2012)\n"
 #else
-  "WDIST weighted genetic distance calculator, v0.7.1 (27 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.7.1 (29 August 2012)\n"
 #endif
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
