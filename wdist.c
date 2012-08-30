@@ -131,7 +131,7 @@ const char info_str[] =
 #ifdef NOLAPACK
   "WDIST weighted genetic distance calculator, v0.5.10 (30 August 2012)\n"
 #else
-  "WDIST weighted genetic distance calculator, v0.7.3 (30 August 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.7.4 (30 August 2012)\n"
 #endif
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
@@ -1164,6 +1164,21 @@ inline int excluded(unsigned char* exclude_arr, int loc) {
   return exclude_arr[loc / 8] & (1 << (loc % 8));
 }
 
+void exclude_multi(unsigned char* exclude_arr, int* new_excl, int indiv_ct, int* exclude_ct) {
+  int ii;
+  int true_loc = 0;
+  for (ii = 0; ii < indiv_ct; ii++) {
+    while (excluded(exclude_arr, true_loc)) {
+      true_loc++;
+    }
+    if (new_excl[ii] == -1) {
+      exclude(exclude_arr, true_loc, exclude_ct);
+    }
+    true_loc++;
+  }
+}
+
+
 int update_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, unsigned char* marker_exclude, int marker_exclude_ct, char* marker_id, unsigned long max_marker_id_len, int* marker_chrom, char* marker_alleles, double* mafs) {
   unsigned char* wkspace_mark;
   char* sorted_ids;
@@ -1715,6 +1730,9 @@ void triangle_fill(int* target_arr, int ct, int pieces, int start, int align) {
     ii = (lbound - start) & align_m1;
     if ((ii) && (ii != align_m1)) {
       lbound = start + ((lbound - start) | align_m1);
+    }
+    if (lbound > ct) {
+      lbound = ct;
     }
     target_arr[cur_piece++] = lbound;
   }
@@ -4113,7 +4131,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
       *giptr++ = (unsigned int)((*dptr2++) * dxx + 0.5);
     }
 
-    wkspace_reset(wkspace);
+    wkspace_reset((unsigned char*)marker_weights);
     marker_weights_i = (unsigned int*)wkspace_alloc(marker_ct * sizeof(int));
   }
   printf("%d markers and %d people pass filters and QC.\n", marker_ct, indiv_ct);
@@ -4356,7 +4374,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
 	iptr = (int*)wkspace_alloc(indiv_ct * sizeof(int));
 	fill_int_zero(iptr, indiv_ct);
         dist_ptr = rel_dists;
-        dyy = -grm_cutoff;
 	for (jj = 1; jj < indiv_ct; jj++) {
 	  for (kk = 0; kk < jj; kk++) {
 	    if (*dist_ptr++ > grm_cutoff) {
@@ -4394,10 +4411,10 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
 	      }
             }
 	  }
-	  exclude(indiv_exclude, mm, &indiv_exclude_ct);
 	  iptr[mm] = -1;
 	  ii++;
 	} while (1);
+	exclude_multi(indiv_exclude, iptr, indiv_ct, &indiv_exclude_ct);
         if (ii) {
 	  dist_ptr = rel_dists; // write
 	  dptr2 = rel_dists; // read
@@ -4833,6 +4850,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
             }
 	  }
 	  if (exp0) {
+            fill_long_zero((long*)mmasks, indiv_ct);
             for (nn = 0; nn < jj; nn += BITCT) {
 	      glptr = &(((unsigned long*)ped_geno)[nn / BITCT2]);
 	      glptr2 = &(masks[nn / BITCT2]);
