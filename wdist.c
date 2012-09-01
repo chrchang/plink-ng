@@ -4490,6 +4490,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
         }
       }
       if (calculation_type & CALC_GRM_CUTOFF) {
+        // Algorithm:
+        // - Whenever there is at least one individual with exactly one
+        // remaining too-close relation, prune the other side of that
+        // relationship, because doing so is never suboptimal.
+        // - Otherwise, there's no efficient rule that is always optimal, so we
+        // use a simple heuristic: prune the first individual with the
+        // largest number of remaining too-close relationships.
 	ii = 0; // total number of individuals excluded
         jj = 0; // number of individuals with exactly one too-close relation
 
@@ -4512,11 +4519,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
         }
 	do {
           if (jj) {
+            // there is at least one individual with exactly one too-close
+            // relation left, find the first one
             kk = 0;
             while (iptr[kk] != 1) {
               kk++;
             }
-            // find identity of too-close relation
+            // and now find the identity of the other side
             dist_ptr = &(rel_dists[(kk * (kk - 1)) / 2]);
             for (mm = 0; mm < kk; mm++) {
               if (*dist_ptr > grm_cutoff) {
@@ -4536,77 +4545,57 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
             jj--;
             if (iptr[mm] == 1) {
               jj--;
-            } else {
-              dist_ptr = &(rel_dists[(mm * (mm - 1)) / 2]);
-              for (kk = 0; kk < mm; kk++) {
-                if (*dist_ptr > grm_cutoff) {
-                  *dist_ptr = 0.0;
-                  iptr[kk] -= 1;
-                  if (iptr[kk] < 2) {
-                    if (iptr[kk] == 0) {
-                      jj--;
-                    } else if (iptr[kk] == 1) {
-                      jj++;
-                    }
-                  }
-                }
-              }
-              for (kk = mm + 1; kk < indiv_ct; kk++) {
-                dist_ptr = &(rel_dists[(kk * (kk - 1)) / 2 + mm]);
-                if (*dist_ptr > grm_cutoff) {
-                  *dist_ptr = 0.0;
-                  iptr[kk] -= 1;
-                  if (iptr[kk] < 2) {
-                    if (iptr[kk] == 0) {
-                      jj--;
-                    } else if (iptr[kk] == 1) {
-                      jj++;
-                    }
-                  }
-                }
-              }
+              iptr[mm] = -1;
+              ii++;
+              continue;
             }
-            iptr[mm] = -1;
-            ii++;
           } else {
+            // find identity of first individual with maximum number of
+            // remaining too-close relations
             kk = 0; // highest too-close pair count
             mm = -1; // associated individual index
             for (nn = 0; nn < indiv_ct; nn++) {
-              // TODO
+              if (iptr[nn] > kk) {
+                kk = iptr[nn];
+                mm = nn;
+              }
+            }
+            // no too-close relations left at all, we're done
+            if (mm == -1) {
+              break;
             }
           }
-	  /*
-	  kk = 0; // highest too-close pair count
-          mm = -1; // individual index
-	  for (jj = 0; jj < indiv_ct; jj++) {
-	    if (iptr[jj] > kk) {
-	      kk = iptr[jj];
-	      mm = jj;
-	    }
-	  }
-	  if (!kk) {
-	    break;
-	  }
 	  dist_ptr = &(rel_dists[(mm * (mm - 1)) / 2]);
-	  for (jj = 0; jj < mm; jj++) {
-            if (*dist_ptr > grm_cutoff) {
-              iptr[jj] -= 1;
-              *dist_ptr = 0.0;
-            }
+	  for (kk = 0; kk < mm; kk++) {
+	    if (*dist_ptr > grm_cutoff) {
+	      *dist_ptr = 0.0;
+	      iptr[kk] -= 1;
+	      if (iptr[kk] < 2) {
+		if (iptr[kk] == 0) {
+		  jj--;
+		} else if (iptr[kk] == 1) {
+		  jj++;
+		}
+	      }
+	    }
             dist_ptr++;
 	  }
-	  for (jj = mm + 1; jj < indiv_ct; jj++) {
-            if (iptr[jj] > 0) {
-	      dist_ptr = &(rel_dists[(jj * (jj - 1)) / 2 + mm]);
-	      if (*dist_ptr > grm_cutoff) {
-		iptr[jj] -= 1;
-		*dist_ptr = 0.0;
+	  for (kk = mm + 1; kk < indiv_ct; kk++) {
+	    dist_ptr = &(rel_dists[(kk * (kk - 1)) / 2 + mm]);
+	    if (*dist_ptr > grm_cutoff) {
+	      *dist_ptr = 0.0;
+	      iptr[kk] -= 1;
+	      if (iptr[kk] < 2) {
+		if (iptr[kk] == 0) {
+		  jj--;
+		} else if (iptr[kk] == 1) {
+		  jj++;
+		}
 	      }
-            }
+	    }
 	  }
 	  iptr[mm] = -1;
 	  ii++;
-	  */
 	} while (1);
 	exclude_multi(indiv_exclude, iptr, indiv_ct, &indiv_exclude_ct);
         if (ii) {
