@@ -321,9 +321,6 @@ int dispmsg(int retval) {
 "  --filter [filename] [val] : Keep/remove/filter individuals (see PLINK\n"
 "                              documentation).\n"
 "  --mfilter [col]           : Specify column number in --filter file.\n"
-// not supported yet:
-// "  --keep-before-remove      : Perform keep before remove (default is the\n"
-// "                              opposite).\n\n"
 "  --missing-genotype [char]     : Code for missing genotype.\n"
 "  --missing-phenotype [val]     : Code for missing phenotype.\n"
 "  --make-pheno [filename] [val] : Specify binary phenotype, where cases have\n"
@@ -5536,6 +5533,14 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
     if (unfiltered_indiv_ct != indiv_ct) {
       collapse_phenod(pheno_d, indiv_exclude, unfiltered_indiv_ct);
     }
+    reg_tot_x = 0.0;
+    reg_tot_xx = 0.0;
+    for (ii = 0; ii < indiv_ct; ii++) {
+      dxx = pheno_d[ii];
+      reg_tot_x += dxx;
+      reg_tot_xx += dxx * dxx;
+    }
+    printf("Phenotype stdev: %g\n", sqrt((reg_tot_xx - reg_tot_x * reg_tot_x / indiv_ct) / (indiv_ct - 1)));
     ulii = indiv_ct;
     ulii = ulii * (ulii - 1) / 2;
     reg_tot_xy = 0.0;
