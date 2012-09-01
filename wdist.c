@@ -27,7 +27,7 @@
 
 // In particular, for relationship matrices, each of the six different normal pair possibilities
 // (00-00, 00-10, 00-11, 10-10, 10-11, 11-11) corresponds to a different relationship value;
-// and then you have to have special handling for missing genotypes
+// and then you have to have special handling for missing genotypes.
 
 // Fortunately, every pairwise sum is a different number (0, 2, 3, 4, 5, 6), so we use the following strategy:
 
