@@ -83,6 +83,7 @@
 #define CALC_FREQ 4096
 #define CALC_FREQ_GCTA 8192
 #define CALC_GRM_CUTOFF 16384
+#define CALC_WRITE_SNPLIST 32768
 
 #define _FILE_OFFSET_BITS 64
 #define MAX_THREADS 63
@@ -98,7 +99,7 @@
 // default jackknife iterations
 #define ITERS_DEFAULT 100000
 
-#define DEFAULT_CHROM_MASK 0x027ffffe
+#define DEFAULT_CHROM_MASK 0x027fffff
 
 // number of snp-major .bed lines to read at once for distance calc if exponent
 // is zero.
@@ -129,9 +130,9 @@
 
 const char info_str[] =
 #ifdef NOLAPACK
-  "WDIST weighted genetic distance calculator, v0.5.11 (1 September 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.5.11 (2 September 2012)\n"
 #else
-  "WDIST weighted genetic distance calculator, v0.7.5 (1 September 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.7.5 (2 September 2012)\n"
 #endif
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
@@ -283,10 +284,10 @@ int dispmsg(int retval) {
 // --compound-genotypes automatically supported
 "  --autosome       : Include markers on all autosomes (chromosomes 1-22), and\n"
 "                     no others.\n"
-"  --chr [num...]   : Only consider markers on the given chromosome(s) (valid\n"
-"                     choices are 1-22 and the XY pseudo-autosomal region).\n"
-"                     Separate multiple chromosomes with spaces, e.g. '--chr 1\n"
-"                     3 XY'.\n"
+"  --chr [num...]   : Only consider markers on the given chromosome(s).  Valid\n"
+"                     choices are 0 (unplaced), 1-22, and the XY\n"
+"                     pseudo-autosomal region.  Separate multiple chromosomes\n"
+"                     with spaces, e.g. '--chr 1 3 XY'.\n"
 "                     The X, Y, and MT chromosomes are currently unsupported,\n"
 "                     but this will change in the future.\n"
 "  --maf {val}      : Minor allele frequency minimum threshold (default 0.01).\n"
@@ -300,9 +301,9 @@ int dispmsg(int retval) {
 "                     0.025).  Note that maximizing the remaining sample size\n"
 "                     is equivalent to the NP-hard maximum independent set\n"
 "                     problem, so we do not attempt to achieve optimality;\n"
-"                     instead we use the obvious greedy algorithm, repeatedly\n"
-"                     removing the individual with the most close relations\n"
-"                     (choosing the first one when there's a tie).\n"
+"                     instead we use a greedy algorithm.  (Use the --make-rel\n"
+"                     and --keep flags if you want to prune in a different\n"
+"                     manner.)\n"
 "  --rseed [val]    : Set random number seed (relevant for jackknife standard\n"
 "                     error estimation).\n"
 "  --memory [val]   : Size, in MB, of initial malloc attempt.\n"
@@ -311,6 +312,8 @@ int dispmsg(int retval) {
 "                     weight of (2q(1-q))^{-val}, where q is the observed MAF.\n"
 "  --extract [file] : Only include SNPs in the given list.\n"
 "  --exclude [file] : Exclude all SNPs in the given list.\n"
+"  --write-snplist  : Write a .snplist file listing the names of all SNPs that\n"
+"                     pass all filters.\n"
 "  --update-freq [filename] : Loads MAFs from the given PLINK- or GCTA-style\n"
 "                             frequency file.\n\n"
 "  --keep [filename]\n"
@@ -711,13 +714,20 @@ int marker_code(char* sptr) {
   } else if (*sptr == 'Y') {
     return 24;
   } else {
-    return 0;
+    return -1;
   }
 }
 
 void cur_item(char* buf, char* sptr) {
   // no bounds-checking
   while ((*sptr != ' ') && (*sptr != '\t')) {
+    *buf++ = *sptr++;
+  }
+  *buf = '\0';
+}
+
+void cur_item_n(char* buf, char* sptr) {
+  while ((*sptr != ' ') && (*sptr != '\t') && (*sptr != '\n') && (*sptr != '\0')) {
     *buf++ = *sptr++;
   }
   *buf = '\0';
@@ -1241,7 +1251,7 @@ int extract_exclude_markers(char* fname, char* sorted_ids, int sorted_ids_len, u
     return RET_OPENFAIL;
   }
   while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
-    cur_item(tbuf, tbuf);
+    cur_item_n(tbuf, tbuf);
     ii = bsearch_str(tbuf, sorted_ids, max_marker_id_len, 0, sorted_ids_len - 1);
     if (ii != -1) {
       jj = id_map[ii];
@@ -1294,11 +1304,11 @@ int update_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, u
       jj = marker_code(bufptr);
       bufptr = next_item(bufptr); // now at beginning of SNP name
       bufptr2 = next_item(bufptr);
-      cur_item(bufptr, bufptr); // destructive read (\0 at end of item)
+      cur_item_n(bufptr, bufptr); // destructive read (\0 at end of item)
       ii = bsearch_str(bufptr, sorted_ids, max_marker_id_len, 0, unfiltered_marker_ct - marker_exclude_ct - 1);
       if (ii != -1) {
         ii = id_map[ii];
-        if (jj == marker_chrom[ii]) {
+        if ((jj == marker_chrom[ii]) || (jj == 0) || (marker_chrom[ii] == 0)) {
           cc = *bufptr2;
           bufptr2 = next_item(bufptr2);
           bufptr = next_item(bufptr2);
@@ -1318,7 +1328,7 @@ int update_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, u
   } else {
     do {
       bufptr = next_item(tbuf);
-      cur_item(tbuf, tbuf); // destructive read
+      cur_item_n(tbuf, tbuf); // destructive read
       ii = bsearch_str(tbuf, sorted_ids, max_marker_id_len, 0, unfiltered_marker_ct - marker_exclude_ct - 1);
       if (ii != -1) {
         ii = id_map[ii];
@@ -2537,7 +2547,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
   //   goto wdist_ret_2;
   // }
 
-  if (!(calculation_type & (CALC_DISTANCE_MASK | CALC_RELATIONSHIP_MASK | CALC_IBC | CALC_FREQ))) {
+  if (!(calculation_type & (CALC_DISTANCE_MASK | CALC_RELATIONSHIP_MASK | CALC_IBC | CALC_FREQ | CALC_WRITE_SNPLIST))) {
     prune = 1;
   }
   // ----- .map/.bim load, second pass -----
@@ -2545,7 +2555,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
     do {
       fgets(tbuf, MAXLINELEN, mapfile);
     } while (tbuf[0] <= ' ');
-    marker_chrom[ii] = marker_code(tbuf);
+    jj = marker_code(tbuf);
+    if (jj == -1) {
+      retval = RET_INVALID_FORMAT;
+      printf("Error: Invalid chromosome index in .map/.bim file.\n");
+      goto wdist_ret_1;
+    }
+    marker_chrom[ii] = jj;
     if (!(chrom_mask & (1 << marker_code(tbuf)))) {
       exclude(marker_exclude, ii, &marker_exclude_ct);
     } else {
@@ -2558,7 +2574,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
       if (*bufptr == '-') {
 	if (binary_files) {
 	  retval = RET_INVALID_FORMAT;
-	  printf("Error: Negative marker position in .bim file.\n");
+	  printf("Error: Negative marker position in .map/.bim file.\n");
 	  goto wdist_ret_1;
 	}
 	exclude(marker_exclude, ii, &marker_exclude_ct);
@@ -2813,13 +2829,13 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
     retval = marker_id_sort(&cptr, &iptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_id, max_marker_id_len);
     if (extractname[0]) {
       retval = extract_exclude_markers(extractname, cptr, ii, max_marker_id_len, iptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0);
-      if (!retval) {
+      if (retval) {
 	goto wdist_ret_1;
       }
     }
     if (excludename[0]) {
       retval = extract_exclude_markers(excludename, cptr, ii, max_marker_id_len, iptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 1);
-      if (!retval) {
+      if (retval) {
 	goto wdist_ret_1;
       }
     }
@@ -4475,18 +4491,91 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
       }
       if (calculation_type & CALC_GRM_CUTOFF) {
 	ii = 0; // total number of individuals excluded
+        jj = 0; // number of individuals with exactly one too-close relation
+
+        // number of too-close relations, -1 if excluded
 	iptr = (int*)wkspace_alloc(indiv_ct * sizeof(int));
 	fill_int_zero(iptr, indiv_ct);
         dist_ptr = rel_dists;
-	for (jj = 1; jj < indiv_ct; jj++) {
-	  for (kk = 0; kk < jj; kk++) {
+	for (kk = 1; kk < indiv_ct; kk++) {
+	  for (mm = 0; mm < kk; mm++) {
 	    if (*dist_ptr++ > grm_cutoff) {
-	      iptr[jj] += 1;
 	      iptr[kk] += 1;
+	      iptr[mm] += 1;
 	    }
 	  }
 	}
+        for (kk = 0; kk < indiv_ct; kk++) {
+          if (iptr[kk] == 1) {
+            jj++;
+          }
+        }
 	do {
+          if (jj) {
+            kk = 0;
+            while (iptr[kk] != 1) {
+              kk++;
+            }
+            // find identity of too-close relation
+            dist_ptr = &(rel_dists[(kk * (kk - 1)) / 2]);
+            for (mm = 0; mm < kk; mm++) {
+              if (*dist_ptr > grm_cutoff) {
+                *dist_ptr = 0.0;
+                break;
+              }
+              dist_ptr++;
+            }
+            if (mm == kk) {
+              do {
+                mm++;
+	        dist_ptr = &(rel_dists[(mm * (mm - 1)) / 2 + kk]);
+              } while (*dist_ptr <= grm_cutoff);
+              *dist_ptr = 0.0;
+            }
+            iptr[kk] = 0;
+            jj--;
+            if (iptr[mm] == 1) {
+              jj--;
+            } else {
+              dist_ptr = &(rel_dists[(mm * (mm - 1)) / 2]);
+              for (kk = 0; kk < mm; kk++) {
+                if (*dist_ptr > grm_cutoff) {
+                  *dist_ptr = 0.0;
+                  iptr[kk] -= 1;
+                  if (iptr[kk] < 2) {
+                    if (iptr[kk] == 0) {
+                      jj--;
+                    } else if (iptr[kk] == 1) {
+                      jj++;
+                    }
+                  }
+                }
+              }
+              for (kk = mm + 1; kk < indiv_ct; kk++) {
+                dist_ptr = &(rel_dists[(kk * (kk - 1)) / 2 + mm]);
+                if (*dist_ptr > grm_cutoff) {
+                  *dist_ptr = 0.0;
+                  iptr[kk] -= 1;
+                  if (iptr[kk] < 2) {
+                    if (iptr[kk] == 0) {
+                      jj--;
+                    } else if (iptr[kk] == 1) {
+                      jj++;
+                    }
+                  }
+                }
+              }
+            }
+            iptr[mm] = -1;
+            ii++;
+          } else {
+            kk = 0; // highest too-close pair count
+            mm = -1; // associated individual index
+            for (nn = 0; nn < indiv_ct; nn++) {
+              // TODO
+            }
+          }
+	  /*
 	  kk = 0; // highest too-close pair count
           mm = -1; // individual index
 	  for (jj = 0; jj < indiv_ct; jj++) {
@@ -4517,6 +4606,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
 	  }
 	  iptr[mm] = -1;
 	  ii++;
+	  */
 	} while (1);
 	exclude_multi(indiv_exclude, iptr, indiv_ct, &indiv_exclude_ct);
         if (ii) {
@@ -4836,6 +4926,23 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
     }
 #endif
     wkspace_reset((unsigned char*)rel_dists);
+  }
+
+  if (calculation_type & CALC_WRITE_SNPLIST) {
+    strcpy(outname_end, ".snplist");
+    outfile = fopen(outname, "w");
+    if (!outfile) {
+      retval = RET_OPENFAIL;
+      printf("Error: Failed to open %s.\n", outname);
+      goto wdist_ret_2;
+    }
+    for (ii = 0; ii < unfiltered_marker_ct; ii++) {
+      if (!excluded(marker_exclude, ii)) {
+        fprintf(outfile, "%s\n", &(marker_id[ii * max_marker_id_len]));
+      }
+    }
+    fclose(outfile);
+    outfile = NULL;
   }
 
   if (distance_req(calculation_type)) {
@@ -6117,6 +6224,13 @@ int main(int argc, char** argv) {
       }
       strcpy(excludename, argv[cur_arg + 1]);
       cur_arg += 2;
+    } else if (!strcmp(argptr, "--write-snplist")) {
+      if (calculation_type & CALC_WRITE_SNPLIST) {
+        printf("Error: Duplicate --write-snplist flag.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      calculation_type |= CALC_WRITE_SNPLIST;
+      cur_arg += 1;
     } else if (!strcmp(argptr, "--keep")) {
       if (cur_arg == argc - 1) {
         printf("Error: Missing --keep parameter.%s", errstr_append);
@@ -6258,7 +6372,7 @@ int main(int argc, char** argv) {
       for (jj = 0; jj < ii; jj++) {
         kk = marker_code(argv[cur_arg + 1 + jj]);
         // will allow some non-autosomal in future
-        if ((kk < 1) || ((kk > 22) && (kk != 25))) {
+        if ((kk == -1) || ((kk > 22) && (kk != 25))) {
           printf("Error: Invalid --chr parameter.\n");
           return dispmsg(RET_INVALID_CMDLINE);
         }
