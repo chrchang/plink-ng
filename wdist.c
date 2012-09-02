@@ -19,13 +19,14 @@
 // #define NOLAPACK
 
 
-// The core ideas behind this calculator's design are:
+// The key ideas behind this calculator's design are:
 //
 // 1. Incremental processing of SNPs.  Each element A_{jk} of a distance or
-// relationship matrix is a sum of N terms, one for each SNP.  We can walk
-// through the SNPs sequentially without keeping anything in memory beyond
-// partial sums; conveniently, this plays well with the decision made by the
-// PLINK team a few years ago to switch to SNP-major binary files.
+// relationship matrix is a sum of N terms, one for each SNP, multiplied by a
+// missingness correction at the end.  We can walk through the SNPs
+// sequentially without keeping much in memory beyond partial sums;
+// conveniently, this plays well with the decision made by the PLINK team a few
+// years ago to switch to SNP-major binary files.
 //
 // 2. Parallel processing of multiple markers using bitwise operations.  For
 // instance, there are only seven possible ways SNP i can affect the
@@ -37,31 +38,32 @@
 //    e. one is heterozygous, one is homozygous common
 //    f. both are homozygous common
 //    g. one or both has missing genotype data
-//    Seven cases can be distinguished by three bits, and there's a fairly
-// straightforward set of bitwise operations that map a pair of padded 2-bit
-// PLINK genotypes to seven different 3-bit values according to this breakdown.
-// On 64-bit machines, this allows you to process 20 markers in parallel.
+//    Seven cases can be distinguished by three bits, so one can compose a
+// sequence of bitwise operations that maps a pair of padded 2-bit PLINK
+// genotypes to seven different 3-bit values according to this breakdown.
+// On 64-bit machines, this allows processing of 20 markers in parallel.
+// (There's space for a 21st, but we currently choose not to use it.)
 //
 // 3. Lookup tables describing the effect of 5-7 markers at a time on a
 // distance or relationship, rather than just one.  For relationship matrices,
 // idea #2 allows computation of a single 64-bit integer where bits 0-2
-// describe the relationship on marker #1, bits 3-5 describe the relationship
-// on marker #2, ..., all the way up to bits 57-59 describing the relationship
-// on marker #20.  We then want to perform the update
-//    A_{jk} := A_{jk} + a_1(x_1) + a_2(x_2) + ... + a_20(x_20)
-// where the x_i's are bit trios, and the a_i's map them to floating point
+// describe the relationship on marker #0, bits 3-5 describe the relationship
+// on marker #1, ..., all the way up to bits 57-59 describing the relationship
+// on marker #19.  We then want to perform the update
+//    A_{jk} := A_{jk} + f_0(x_0) + f_1(x_1) + ... + f_19(x_19)
+// where the x_i's are bit trios, and the f_i's map them to floating point
 // numbers.  We could do this with 20 table lookups and floating point
 // additions.  Or, we could structure this as
-//    A_{jk} := A_{jk} + a_{1-5}(x_{1-5}) + ... + a_{16-20}(x_{16-20})
-// where x_{1-5} denotes the lowest order *15* bits, and a_{1-5} maps them
-// directly to a_1(x_1) + a_2(x_2) + a_3(x_3) + a_4(x_4) + a_5(x_5); similarly
-// for a_{6-10}, a_{11-15}, and a_{16-20}.  This requires precomputation of
-// four lookup tables of size 2^15, total size 1 MB (which fits comfortably in
-// a typical L2 cache these days), and lets you get away with FOUR table
-// lookups and adds instead of twenty.  Given that a typical dataset has
-// thousands of individuals, these SNP-specific lookup tables are usually
-// referenced millions of times before being retired, repaying their
-// precomputation cost hundreds of times over.
+//    A_{jk} := A_{jk} + f_{0-4}(x_{0-4}) + ... + f_{15-19}(x_{15-19})
+// where x_{0-4} denotes the lowest order *15* bits, and f_{0-4} maps them
+// directly to f_0(x_0) + f_1(x_1) + f_2(x_2) + f_3(x_3) + f_4(x_4); similarly
+// for f_{5-9}, f_{10-14}, and f_{15-19}.  This requires precomputation of four
+// lookup tables of size 2^15, total size 1 MB (which fits comfortably in a
+// typical L2 cache these days), and lets you get away with four table lookups
+// and adds instead of twenty.  Since datasets often have thousands of
+// individuals, these SNP-specific lookup tables are frequently referenced
+// millions of times before being retired, repaying their precomputation cost
+// hundreds of times over.
 //
 // 4. Splitting the distance/relationship matrix into pieces of roughly equal
 // size and assigning one thread to each piece.  This is an "embarrassingly
@@ -5194,17 +5196,18 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
           //      homozygote common.
           //
           // 4. Finally, we perform the update
-          //    A_{jk} := A_{jk} + f_1(x_1) + f_2(x_2) + ... + f_32(x_32)
+          //    A_{jk} := A_{jk} + f_0(x_0) + f_1(x_1) + ... + f_31(x_31)
           // in the nonzero exponent case, or
-          //    A_{jk} := A_{jk} + f(x_1) + f(x_2) + ... + f(x_960)
+          //    A_{jk} := A_{jk} + f(x_0) + f(x_1) + ... + f(x_959)
           // in the zero exponent case.
           //
           // For nonzero exponents, we restructure as
-          //    A_{jk} := A_{jk} + f_{1-7}(x_{1-7}) + f_{8-14}(x_{8-14}) +
-          //              f_{15-20}(x_{15-20}) + f_{21-26}(x_{21-26}) +
-          //              f_{27-32}(x_{27-32})
-          // which requires 352 KB of table space.  Unfortunately, the more
-          // obvious 8-8-8-8 split hogs a bit too much cache for now.
+          //    A_{jk} := A_{jk} + f_{0-6}(x_{0-6}) + f_{7-13}(x_{7-13}) +
+          //              f_{14-19}(x_{14-19}) + f_{20-25}(x_{20-25}) +
+          //              f_{26-31}(x_{26-31})
+          // which requires 352 KB of table space.  (This is a conservative
+          // choice; the 2 MB 8-8-8-8 table works better on some newer
+          // systems.)
           //
           // See the comments at the beginning of this file for discussion of
           // the zero exponent special case.
