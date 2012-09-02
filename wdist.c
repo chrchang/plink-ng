@@ -14,30 +14,71 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-// uncomment this to build without CBLAS/CLAPACK
+
+// Uncomment this to build without CBLAS/CLAPACK:
 // #define NOLAPACK
 
-// TODO:
-// distance MAF histograms
 
-// For calculating relationship matrices, the main idea is to pack each marker into three bits.
-// The usual binary data format actually stores each marker in two bits
-// (00/10/11 = homozygote rare/heterozygote homozygote common, 01 = missing),
-// but this is often inconvenient to calculate with.
-
-// In particular, for relationship matrices, each of the six different normal pair possibilities
-// (00-00, 00-10, 00-11, 10-10, 10-11, 11-11) corresponds to a different relationship value;
-// and then you have to have special handling for missing genotypes.
-
-// Fortunately, every pairwise sum is a different number (0, 2, 3, 4, 5, 6), so we use the following strategy:
-
-// 1. for each individual, pack 20 markers into each 64-bit word.
-// 2. to determine the relationship between two individuals on all 20 markers, just add the two 64-bit numbers.
-// 3. the bottom 15 bits tell you what's going on with the first five markers.  There are no more than 2^15 total possibilities; precalculate them all and put them in a lookup table.  (Do the same for the other three groups of 5 markers.)
-// 4. so after adding the two numbers to get a relationship summary, the table entries for [bits 0-14], [bits 15-29], [bits 30-44], and [bits 45-59] of the summary are enough to update the final relationship matrix value.  In other words, perform the update x := x + x_1 + x_2 + ... + x_20 by actually adding only four numbers because all the (x_1 + x_2 + x_3 + x_4 + x_5) possibilities are precalculated.
-
-
-
+// The core ideas behind this calculator's design are:
+//
+// 1. Incremental processing of SNPs.  Each element A_{jk} of a distance or
+// relationship matrix is a sum of N terms, one for each SNP.  We can walk
+// through the SNPs sequentially without keeping anything in memory beyond
+// partial sums; conveniently, this plays well with the decision made by the
+// PLINK team a few years ago to switch to SNP-major binary files.
+//
+// 2. Parallel processing of multiple markers using bitwise operations.  For
+// instance, there are only seven possible ways SNP i can affect the
+// relationship matrix entry between individuals j and k:
+//    a. j and k are both homozygous for the rare allele
+//    b. one is homozygous rare, one is heterozygous
+//    c. one is homozygous rare, one is homozygous common
+//    d. both are heterozygous
+//    e. one is heterozygous, one is homozygous common
+//    f. both are homozygous common
+//    g. one or both has missing genotype data
+//    Seven cases can be distinguished by three bits, and there's a fairly
+// straightforward set of bitwise operations that map a pair of padded 2-bit
+// PLINK genotypes to seven different 3-bit values according to this breakdown.
+// On 64-bit machines, this allows you to process 20 markers in parallel.
+//
+// 3. Lookup tables describing the effect of 5-7 markers at a time on a
+// distance or relationship, rather than just one.  For relationship matrices,
+// idea #2 allows computation of a single 64-bit integer where bits 0-2
+// describe the relationship on marker #1, bits 3-5 describe the relationship
+// on marker #2, ..., all the way up to bits 57-59 describing the relationship
+// on marker #20.  We then want to perform the update
+//    A_{jk} := A_{jk} + a_1(x_1) + a_2(x_2) + ... + a_20(x_20)
+// where the x_i's are bit trios, and the a_i's map them to floating point
+// numbers.  We could do this with 20 table lookups and floating point
+// additions.  Or, we could structure this as
+//    A_{jk} := A_{jk} + a_{1-5}(x_{1-5}) + ... + a_{16-20}(x_{16-20})
+// where x_{1-5} denotes the lowest order *15* bits, and a_{1-5} maps them
+// directly to a_1(x_1) + a_2(x_2) + a_3(x_3) + a_4(x_4) + a_5(x_5); similarly
+// for a_{6-10}, a_{11-15}, and a_{16-20}.  This requires precomputation of
+// four lookup tables of size 2^15, total size 1 MB (which fits comfortably in
+// a typical L2 cache these days), and lets you get away with FOUR table
+// lookups and adds instead of twenty.  Given that a typical dataset has
+// thousands of individuals, these SNP-specific lookup tables are usually
+// referenced millions of times before being retired, repaying their
+// precomputation cost hundreds of times over.
+//
+// 4. Splitting the distance/relationship matrix into pieces of roughly equal
+// size and assigning one thread to each piece.  This is an "embarrassingly
+// parallel" problem with no need for careful synchronization.  Explicit
+// cluster support is not present, but it would be straightforward to add it
+// using the same idea currently supporting multithreading.
+//
+//
+// We also note that zero exponent distance matrices are special cases,
+// reducing to Hamming weight computations plus a bit of dressing to handle
+// missing markers.  Hamming weight computation on x86 CPUs has been studied
+// extensively by others; a good reference as of this writing is
+// http://www.dalkescientific.com/writings/diary/archive/2011/11/02/faster_popcount_update.html .
+// We use a variant of the Kim Walisch/Cedric Lauradoux bitslicing algorithm
+// discussed there (with most 64-bit integer operations replaced by SSE2
+// instructions), which runs several times faster than our corresponding
+// nonzero exponent distance matrix computation.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -242,20 +283,20 @@ int dispmsg(int retval) {
 "    'square0' if you still want the upper right zeroed out.\n\n"
 "  --ibc\n"
 "    This yields the same output as GCTA --ibc.\n\n"
-"  --make-rel <no-var-std> <square | square0> <gz | bin> <ibc1 | ibc2>\n"
+"  --make-rel <square | square0> <gz | bin> <no-var-std | ibc1 | ibc2>\n"
 "    Writes a lower-triangular variance-standardized relationship matrix to\n"
 "    {output prefix}.rel, and corresponding IDs to {output prefix}.rel.id.\n"
+"    'square', 'square0', 'gz', and 'bin' act as they do on --distance.\n"
 "    The 'no-var-std' modifier causes GEMMA's \"centered relationship matrix\" to\n"
 "    be calculated instead.\n"
-"    'square', 'square0', 'gz', and 'bin' act as they do on --distance.\n"
 "    By default, the diagonal elements in the variance-standardized matrix are\n"
-"    based on --ibc's Fhat3.  Use the 'ibc1' or 'ibc2' modifiers to base them on\n"
+"    based on --ibc's Fhat3; use the 'ibc1' or 'ibc2' modifiers to base them on\n"
 "    Fhat1 or Fhat2 instead.\n"
-"  --make-grm <no-var-std> <no-gz> <ibc1 | ibc2>\n"
+"  --make-grm <no-gz> <no-var-std | ibc1 | ibc2>\n"
 "    Writes the relationship matrix in GCTA's .grm format instead.  Since GCTA\n"
 "    normally compresses the .grm file, WDIST does the same unless the 'no-gz'\n"
 "    modifier is present.\n"
-"  --make-grm-bin <no-var-std> <square0> <ibc1 | ibc2>\n"
+"  --make-grm-bin <square0> <no-var-std | ibc1 | ibc2>\n"
 "    This is identical to --make-rel bin, except the output file extension is\n"
 "    .grm.bin.\n\n"
 "  --groupdist {iters} {d}\n"
@@ -1560,8 +1601,8 @@ static inline unsigned int popcount_xor_1mask_multibyte(__m128i** xor1p, __m128i
     count2 = _mm_sub_epi64(count2, _mm_and_si128(_mm_srli_epi64(count2, 1), m1));
     count1 = _mm_add_epi64(count1, half1);
     count2 = _mm_add_epi64(count2, half2);
-    // Four bits represent 0-15, so we can add four 0-3 partial bitcounts
-    // together.
+    // Four bits represent 0-15, so we can safely add four 0-3 partial
+    // bitcounts together.
     count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
     count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
     // Accumulator stores sixteen 0-255 counts in parallel.
@@ -1570,7 +1611,7 @@ static inline unsigned int popcount_xor_1mask_multibyte(__m128i** xor1p, __m128i
 #if MULTIPLEX_DIST > 960
   acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
 #else
-  // can get away with this with MULTIPLEX_DIST <= 960, since the 8-bit counts
+  // can get away with this when MULTIPLEX_DIST <= 960, since the 8-bit counts
   // are guaranteed to be <= 120, thus adding two together does not overflow
   // 255.
   acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 8)), m8);
@@ -2365,7 +2406,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* filtername, char* freqname, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double grm_cutoff, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_cove, int ibc_type) {
+int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* makepheno_str, int filter_type, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double grm_cutoff, int tail_pheno, double tail_bottom, double tail_top, char* outname, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_cove, int ibc_type) {
   FILE* pedfile = NULL;
   FILE* mapfile = NULL;
   FILE* famfile = NULL;
@@ -4458,13 +4499,11 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
 
       triangle_fill(thread_start, indiv_ct, thread_ct, 1, CACHELINE_DBL);
       triangle_fill(thread_start0, indiv_ct, thread_ct, 0, CACHELINE_DBL);
-      // See later comments on CALC_DISTANCE.
-      // The difference is, we have to use + instead of XOR here to distinguish
-      // the cases, so it's best to allow 3 bits per marker.
-      // The rest is similar to CALC_DISTANCE on nonzero exponents: we
-      // precalculate tables covering all possible pairwise differences between
-      // two individuals on sets of 5 consecutive markers, slashing the number
-      // of floating-point additions we need to perform by roughly 80%.
+      // See comments at the beginning of this file, and those in the main
+      // CALC_DISTANCE loop.  The main difference between this calculation and
+      // the (nonzero exponent) distance calculation is that we have to pad
+      // each marker to 3 bits and use + instead of XOR to distinguish the
+      // cases.
       while (pp < marker_ct) {
         jj = 0;
         while ((jj < MULTIPLEX_REL) && (pp < marker_ct)) {
@@ -5124,25 +5163,51 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
 	  }
           fill_int_zero((int*)wtbuf, multiplex);
 	  jj = 0; // actual SNPs read
-	  // If exponent == 0.0, we just need to calculate bitwise Hamming
-          // distance between two strings (throwing in some masking if there
-          // are missing markers).  Since the x86 processor has (at least until
-          // very recently) lacked a popcount instruction, others have spent a
-          // fair bit of effort on designing efficient popcount
-          // implementations.  The popcount_..._multibyte functions reimplement
-          // the most efficient known 64-bit algorithm (developed by Cedric
-          // Lauradoux and Kim Walisch) using SSE2 instructions, and, to the
-          // best of my knowledge, is faster than all other x86_64 open source
-          // implementations.  (Other existing SSE2/SSSE3 implementations are
-          // based on simpler algorithms.  See
-          // http://www.dalkescientific.com/writings/diary/archive/2011/11/02/
-          // faster_popcount_update.html for more information.)
+
+          // For each pair (g_j, g_k) of 2-bit PLINK genotypes, we perform the
+          // following operations:
           //
-          // For nonzero exponents, we create lookup tables for all possible
-          // combinations of 6-7 markers (splitting up the 32 markers that fit
-          // into a 64-bit word 7-7-6-6-6; unfortunately, an 8-8-8-8 split is
-          // too hard on the L2 cache of many machines).  Floating point adds
-          // are the primary bottleneck here.
+          // 1. XOR each genotype with 01.  This shuffles the genotypes around
+          // to:
+          //    00 = missing (this is key)
+          //    01 = homozygote rare
+          //    10 = homozygote common
+          //    11 = heterozygote
+          // (The calculation is still performed correctly if rare/common are
+          // reversed sometimes.)
+          //
+          // 2. Next, compute
+          //    mask_j := ((g_j | (g_j >> 1)) & 01) * 3
+          // which is a contrived way of setting it equal to 00 whenever g_j is
+          // 00, and 11 whenever g_j is not missing.
+          //
+	  // 3. Then, (g_j ^ g_k) & (mask_j & mask_k) distinguishes the
+          // possible distances between the genotypes:
+          //    - It's equal to zero iff either g_j == g_k or one/both is
+          //      missing.  It's fine for these cases to overlap since either
+          //      way we want to increment the numerator of our final distance
+          //      by zero.  (We can handle the effect of missingness on the
+          //      denominator outside the main loop.)
+          //    - It's equal to 01 or 10 iff neither is missing, and exactly
+          //      one is a heterozygote.
+          //    - It's equal to 11 iff one is homozygote rare and the other is
+          //      homozygote common.
+          //
+          // 4. Finally, we perform the update
+          //    A_{jk} := A_{jk} + f_1(x_1) + f_2(x_2) + ... + f_32(x_32)
+          // in the nonzero exponent case, or
+          //    A_{jk} := A_{jk} + f(x_1) + f(x_2) + ... + f(x_960)
+          // in the zero exponent case.
+          //
+          // For nonzero exponents, we restructure as
+          //    A_{jk} := A_{jk} + f_{1-7}(x_{1-7}) + f_{8-14}(x_{8-14}) +
+          //              f_{15-20}(x_{15-20}) + f_{21-26}(x_{21-26}) +
+          //              f_{27-32}(x_{27-32})
+          // which requires 352 KB of table space.  Unfortunately, the more
+          // obvious 8-8-8-8 split hogs a bit too much cache for now.
+          //
+          // See the comments at the beginning of this file for discussion of
+          // the zero exponent special case.
 	  while ((jj < multiplex) && (pp < marker_ct)) {
 	    while (excluded(marker_exclude, ii)) {
 	      ii++;
@@ -5866,6 +5931,8 @@ int main(int argc, char** argv) {
   char phenoname[FNAMESIZE];
   char extractname[FNAMESIZE];
   char excludename[FNAMESIZE];
+  char keepname[FNAMESIZE];
+  char removename[FNAMESIZE];
   char filtername[FNAMESIZE];
   char freqname[FNAMESIZE];
   char* makepheno_str = NULL;
@@ -6650,8 +6717,8 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = param_count(argc, argv, cur_arg);
-      if (ii > 4) {
-        printf("Error: --make-rel accepts at most 4 parameters.%s", errstr_append);
+      if (ii > 3) {
+        printf("Error: --make-rel accepts at most 3 parameters.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
       jj = 0;
@@ -6719,8 +6786,8 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = param_count(argc, argv, cur_arg);
-      if (ii > 3) {
-        printf("Error: --make-grm accepts at most 3 parameters.%s", errstr_append);
+      if (ii > 2) {
+        printf("Error: --make-grm accepts at most 2 parameters.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
       calculation_type |= CALC_RELATIONSHIP_GZ;
@@ -6764,8 +6831,8 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = param_count(argc, argv, cur_arg);
-      if (ii > 3) {
-        printf("Error: --make-grm-bin accepts at most 3 parameters.%s", errstr_append);
+      if (ii > 2) {
+        printf("Error: --make-grm-bin accepts at most 2 parameters.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
       for (kk = 1; kk <= ii; kk++) {
@@ -7079,9 +7146,11 @@ int main(int argc, char** argv) {
   init_genrand(rseed);
 
   // famname[0] indicates binary vs. text
+  // extractname[0], excludename[0], keepname[0], and removename[0] indicate
+  // the presence of their respective flags
   // filtername[0] indicates existence of filter
   // freqname[0] signals --update-freq
-  retval = wdist(pedname, mapname, famname, phenoname, extractname, excludename, filtername, freqname, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, grm_cutoff, tail_pheno, tail_bottom, tail_top, outname, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_cove, ibc_type);
+  retval = wdist(pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, makepheno_str, filter_type, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, grm_cutoff, tail_pheno, tail_bottom, tail_top, outname, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_cove, ibc_type);
   free(wkspace_ua);
   return dispmsg(retval);
 }
