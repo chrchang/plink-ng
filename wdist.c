@@ -20,6 +20,25 @@
 // TODO:
 // distance MAF histograms
 
+// For calculating relationship matrices, the main idea is to pack each marker into three bits.
+// The usual binary data format actually stores each marker in two bits
+// (00/10/11 = homozygote rare/heterozygote homozygote common, 01 = missing),
+// but this is often inconvenient to calculate with.
+
+// In particular, for relationship matrices, each of the six different normal pair possibilities
+// (00-00, 00-10, 00-11, 10-10, 10-11, 11-11) corresponds to a different relationship value;
+// and then you have to have special handling for missing genotypes.
+
+// Fortunately, every pairwise sum is a different number (0, 2, 3, 4, 5, 6), so we use the following strategy:
+
+// 1. for each individual, pack 20 markers into each 64-bit word.
+// 2. to determine the relationship between two individuals on all 20 markers, just add the two 64-bit numbers.
+// 3. the bottom 15 bits tell you what's going on with the first five markers.  There are no more than 2^15 total possibilities; precalculate them all and put them in a lookup table.  (Do the same for the other three groups of 5 markers.)
+// 4. so after adding the two numbers to get a relationship summary, the table entries for [bits 0-14], [bits 15-29], [bits 30-44], and [bits 45-59] of the summary are enough to update the final relationship matrix value.  In other words, perform the update x := x + x_1 + x_2 + ... + x_20 by actually adding only four numbers because all the (x_1 + x_2 + x_3 + x_4 + x_5) possibilities are precalculated.
+
+
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
