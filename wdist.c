@@ -426,7 +426,9 @@ int dispmsg(int retval) {
 }
 
 // (copied from PLINK helper.cpp, modified to perform threshold test and avoid
-// repeated allocation of the same memory)
+// repeated allocation of the same memory.  Substantial further optimization
+// should be possible, but it's unimportant for now.)
+//
 //
 // This function implements an exact SNP test of Hardy-Weinberg
 // Equilibrium as described in Wigginton, JE, Cutler, DJ, and
@@ -465,10 +467,10 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
     het_probs[i] = 0.0;
   }
 
-  /* start at midpoint */
+  // start at midpoint
   int mid = (int)((rare_copies_ll * (2 * genotypes_ll - rare_copies_ll)) / (2 * genotypes_ll));
   
-  /* check to ensure that midpoint and rare alleles have same parity */
+  // check to ensure that midpoint and rare alleles have same parity
   if ((rare_copies ^ mid) & 1) {
     mid++;
   }
@@ -483,7 +485,7 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
   double* hptr = &(het_probs[mid2 - 1]);
   double dv = 1.0;
   while (curr_hets > 1) {
-    /* 2 fewer heterozygotes for next iteration -> add one rare, one common homozygote */
+    // 2 fewer heterozygotes for next iteration -> add one rare, one common homozygote
     *hptr = dv * (double)(curr_hets * (curr_hets - 1)) / (double)(4 * (++curr_homr) * (++curr_homc));
     curr_hets -= 2;
     dv = *hptr--;
@@ -507,7 +509,7 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
   double p_hwe = 0.0;
   hptr = &(het_probs[rare_copies2]);
   sum = het_probs[obs_hets / 2];
-  /*  p-value calculation for p_hwe  */
+  // p-value calculation for p_hwe
   while (*hptr <= sum) {
     p_hwe += *hptr--;
     if (p_hwe > thresh) {
@@ -2541,7 +2543,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
   double dww;
   long long llxx;
   int* marker_chrom = NULL;
-  char* marker_id = NULL;
+  char* marker_id;
   // int* marker_pos = NULL;
   char* marker_alleles = NULL;
   char* marker_alleles_tmp = NULL;
@@ -2757,7 +2759,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
   if (!marker_chrom) {
     goto wdist_ret_1;
   }
-  marker_id = (char*)malloc(unfiltered_marker_ct * max_marker_id_len);
+  marker_id = (char*)wkspace_alloc(unfiltered_marker_ct * max_marker_id_len);
   if (!marker_id) {
     goto wdist_ret_1;
   }
@@ -3455,21 +3457,25 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
       if (!het_probs) {
 	goto wdist_ret_1;
       }
-      if (wkspace_left < unfiltered_marker_ct * 9 * sizeof(int)) {
+      marker_weights = (double*)wkspace_alloc((unfiltered_marker_ct - marker_exclude_ct) * sizeof(double));
+      if (!marker_weights) {
 	goto wdist_ret_1;
+      }
+      hwe_ll = (int*)wkspace_alloc(unfiltered_marker_ct * 9 * sizeof(int));
+      if (!hwe_ll) {
+        goto wdist_ret_1;
       }
       // ----- individual-major .bed load, second pass -----
       fseeko(pedfile, 3, SEEK_SET);
-      hwe_ll = (int*)wkspace;
-      hwe_lh = (int*)(&wkspace[unfiltered_marker_ct * sizeof(int)]);
-      hwe_hh = (int*)(&wkspace[unfiltered_marker_ct * 2 * sizeof(int)]);
-      hwe_u_ll = (int*)(&wkspace[unfiltered_marker_ct * 3 * sizeof(int)]);
-      hwe_u_lh = (int*)(&wkspace[unfiltered_marker_ct * 4 * sizeof(int)]);
-      hwe_u_hh = (int*)(&wkspace[unfiltered_marker_ct * 5 * sizeof(int)]);
-      hwe_a_ll = (int*)(&wkspace[unfiltered_marker_ct * 6 * sizeof(int)]);
-      hwe_a_lh = (int*)(&wkspace[unfiltered_marker_ct * 7 * sizeof(int)]);
-      hwe_a_hh = (int*)(&wkspace[unfiltered_marker_ct * 8 * sizeof(int)]);
-      fill_int_zero((int*)wkspace, unfiltered_marker_ct * 9);
+      hwe_lh = &(hwe_ll[unfiltered_marker_ct]);
+      hwe_hh = &(hwe_ll[unfiltered_marker_ct * 2]);
+      hwe_u_ll = &(hwe_ll[unfiltered_marker_ct * 3]);
+      hwe_u_lh = &(hwe_ll[unfiltered_marker_ct * 4]);
+      hwe_u_hh = &(hwe_ll[unfiltered_marker_ct * 5]);
+      hwe_a_ll = &(hwe_ll[unfiltered_marker_ct * 6]);
+      hwe_a_lh = &(hwe_ll[unfiltered_marker_ct * 7]);
+      hwe_a_hh = &(hwe_ll[unfiltered_marker_ct * 8]);
+      fill_int_zero(hwe_ll, unfiltered_marker_ct * 9);
       for (ii = 0; ii < unfiltered_indiv_ct; ii += 1) {
 	if (excluded(indiv_exclude, ii)) {
 	  fseeko(pedfile, (off_t)unfiltered_marker_ct4, SEEK_CUR);
@@ -3520,12 +3526,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
 	  }
 	}
       }
-      marker_weights = (double*)wkspace_alloc((unfiltered_marker_ct - marker_exclude_ct) * sizeof(double));
-      if (!marker_weights) {
-	goto wdist_ret_2;
-      }
       dptr2 = marker_weights;
-
       for (ii = 0; ii < unfiltered_marker_ct; ii++) {
 	if (!excluded(marker_exclude, ii)) {
 	  if (SNPHWE_t(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii], hwe_thresh)) {
@@ -3547,6 +3548,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
 	  }
 	}
       }
+      wkspace_reset((unsigned char*)hwe_ll);
       free(het_probs);
       het_probs = NULL;
     } else {
@@ -4037,20 +4039,20 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
     }
     dptr2 = marker_weights;
 
-    if (wkspace_left < unfiltered_marker_ct * 9 * sizeof(int)) {
+    hwe_ll = (int*)wkspace_alloc(unfiltered_marker_ct * 9 * sizeof(int));
+    if (!hwe_ll) {
       goto wdist_ret_1;
     }
     // unfortunately, this requires a third pass...
-    hwe_ll = (int*)wkspace_base;
-    hwe_lh = (int*)(&(wkspace_base[unfiltered_marker_ct * sizeof(int)]));
-    hwe_hh = (int*)(&(wkspace_base[unfiltered_marker_ct * 2 * sizeof(int)]));
-    hwe_u_ll = (int*)(&(wkspace_base[unfiltered_marker_ct * 3 * sizeof(int)]));
-    hwe_u_lh = (int*)(&(wkspace_base[unfiltered_marker_ct * 4 * sizeof(int)]));
-    hwe_u_hh = (int*)(&(wkspace_base[unfiltered_marker_ct * 5 * sizeof(int)]));
-    hwe_a_ll = (int*)(&(wkspace_base[unfiltered_marker_ct * 6 * sizeof(int)]));
-    hwe_a_lh = (int*)(&(wkspace_base[unfiltered_marker_ct * 7 * sizeof(int)]));
-    hwe_a_hh = (int*)(&(wkspace_base[unfiltered_marker_ct * 8 * sizeof(int)]));
-    fill_int_zero((int*)wkspace_base, unfiltered_marker_ct * 9);
+    hwe_lh = &(hwe_ll[unfiltered_marker_ct]);
+    hwe_hh = &(hwe_ll[unfiltered_marker_ct * 2]);
+    hwe_u_ll = &(hwe_ll[unfiltered_marker_ct * 3]);
+    hwe_u_lh = &(hwe_ll[unfiltered_marker_ct * 4]);
+    hwe_u_hh = &(hwe_ll[unfiltered_marker_ct * 5]);
+    hwe_a_ll = &(hwe_ll[unfiltered_marker_ct * 6]);
+    hwe_a_lh = &(hwe_ll[unfiltered_marker_ct * 7]);
+    hwe_a_hh = &(hwe_ll[unfiltered_marker_ct * 8]);
+    fill_int_zero(hwe_ll, unfiltered_marker_ct * 9);
 
     for (ii = 0; ii < unfiltered_indiv_ct; ii += 1) {
       if (excluded(indiv_exclude, ii)) {
@@ -4127,6 +4129,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
     }
     free(het_probs);
     het_probs = NULL;
+    wkspace_reset((unsigned char*)hwe_ll);
     rewind(pedfile);
 
     ulii = unfiltered_indiv_ct - indiv_exclude_ct;
@@ -4169,7 +4172,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
       if (wkspace_left < uljj * (unfiltered_marker_ct - marker_exclude_ct)) {
         goto wdist_ret_2;
       }
-      ped_geno = wkspace;
+      ped_geno = wkspace_base;
       memset(ped_geno, 0, uljj * (unfiltered_marker_ct - marker_exclude_ct));
       // ----- .ped (fourth pass) -> .fam + .bed conversion, snp-major -----
       rewind(pedfile);
@@ -4476,7 +4479,7 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
     wkspace_reset((unsigned char*)marker_weights);
     marker_weights_i = (unsigned int*)wkspace_alloc(marker_ct * sizeof(int));
   }
-  printf("%d markers and %d people pass filters and QC.\n", marker_ct, indiv_ct);
+  printf("%d markers and %d people pass filters and QC%s.\n", marker_ct, indiv_ct, (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
   if (thread_ct > 1) {
     printf("Using %d threads (change this with --threads).\n", thread_ct);
   }
@@ -5961,9 +5964,6 @@ int wdist(char* pedname, char* mapname, char* famname, char* phenoname, char* ex
   // }
   if (mafs) {
     free(mafs);
-  }
-  if (marker_id) {
-    free(marker_id);
   }
   if (marker_chrom) {
     free(marker_chrom);
