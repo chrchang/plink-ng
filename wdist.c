@@ -225,11 +225,30 @@ int fopen_checked(FILE** target_ptr, char* fname, char* mode) {
   return 0;
 }
 
-int fwrite_checked(void* buf, size_t len, FILE* outfile) {
+inline int fwrite_checked(void* buf, size_t len, FILE* outfile) {
   if (fwrite(buf, len, 1, outfile)) {
     return 0;
   }
   return -1;
+}
+
+inline int fclose_null(FILE** fptr_ptr) {
+  int ii;
+  ii = fclose(*fptr_ptr);
+  *fptr_ptr = NULL;
+  return ii;
+}
+
+inline void fclose_cond(FILE* fptr) {
+  if (fptr) {
+    fclose(fptr);
+  }
+}
+
+inline void free_cond(void* memptr) {
+  if (memptr) {
+    free(memptr);
+  }
 }
 
 // manually managed, very large stack
@@ -250,9 +269,9 @@ unsigned char* wkspace_alloc(long long size) {
   return retval;
 }
 
-void wkspace_reset(unsigned char* new_base) {
-  long long freed_bytes = wkspace_base - new_base;
-  wkspace_base = new_base;
+void wkspace_reset(void* new_base) {
+  long long freed_bytes = wkspace_base - (unsigned char*)new_base;
+  wkspace_base = (unsigned char*)new_base;
   wkspace_left += freed_bytes;
 }
 
@@ -437,9 +456,7 @@ int dispmsg(int retval) {
          , info_str);
     break;
   }
-  if (subst_argv) {
-    free(subst_argv);
-  }
+  free_cond(subst_argv);
   return retval;
 }
 
@@ -1523,10 +1540,7 @@ int extract_exclude_markers(char* fname, char* sorted_ids, int sorted_ids_len, u
     *marker_exclude_ct_ptr = unfiltered_marker_ct - marker_include_ct;
     wkspace_reset(wkspace_mark);
   }
-
-  if (infile) {
-    fclose(infile);
-  }
+  fclose(infile);
   return 0;
 }
 
@@ -1594,8 +1608,7 @@ int update_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, u
       }
     } while (fgets(tbuf, MAXLINELEN, *freqfile_ptr) != NULL);
   }
-  fclose(*freqfile_ptr);
-  *freqfile_ptr = NULL;
+  fclose_null(freqfile_ptr);
   wkspace_reset(wkspace_mark);
   return 0;
 }
@@ -2583,7 +2596,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   int* marker_allele_cts = NULL;
   int* person_missing_cts = NULL;
   char* bufptr;
-  int retval = RET_SUCCESS;
+  int retval = RET_NOMEM;
   int map_cols = 3;
   int affection = 0;
   double* phenor_d = NULL;
@@ -2776,6 +2789,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
   marker_chrom = (int*)malloc(unfiltered_marker_ct * sizeof(int));
   if (!marker_chrom) {
+    goto wdist_ret_1;
+  }
+  marker_weights = (double*)wkspace_alloc(unfiltered_marker_ct * sizeof(double));
+  if (!marker_weights) {
     goto wdist_ret_1;
   }
   marker_id = (char*)wkspace_alloc(unfiltered_marker_ct * max_marker_id_len);
@@ -3030,8 +3047,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     } else {
       printf("Note: No valid entries in phenotype file.\n");
     }
-    fclose(phenofile);
-    phenofile = NULL;
+    fclose_null(&phenofile);
   }
 
   if (extractname[0] || excludename[0]) {
@@ -3116,8 +3132,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     } else {
       printf("Note: No valid entries in filter file.\n");
     }
-    fclose(filterfile);
-    filterfile = NULL;
+    fclose_null(&filterfile);
   }
   if (removename[0]) {
     if (fopen_checked(&filterfile, removename, "r")) {
@@ -3194,8 +3209,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	printf("Note: No valid entries in --remove file.\n");
       }
     }
-    fclose(filterfile);
-    filterfile = NULL;
+    fclose_null(&filterfile);
   }
 
   line_locs = (long long*)malloc(max_people * sizeof(long long));
@@ -3474,10 +3488,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       if (!het_probs) {
 	goto wdist_ret_1;
       }
-      marker_weights = (double*)wkspace_alloc((unfiltered_marker_ct - marker_exclude_ct) * sizeof(double));
-      if (!marker_weights) {
-	goto wdist_ret_1;
-      }
       hwe_ll = (int*)wkspace_alloc(unfiltered_marker_ct * 9 * sizeof(int));
       if (!hwe_ll) {
         goto wdist_ret_1;
@@ -3565,7 +3575,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
 	}
       }
-      wkspace_reset((unsigned char*)hwe_ll);
+      wkspace_reset(hwe_ll);
       free(het_probs);
       het_probs = NULL;
     } else {
@@ -3633,10 +3643,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       het_probs = (double*)malloc(((unfiltered_marker_ct - marker_exclude_ct) / 2 + 1) * sizeof(double));
       if (!het_probs) {
 	goto wdist_ret_1;
-      }
-      marker_weights = (double*)wkspace_alloc((unfiltered_marker_ct - marker_exclude_ct) * sizeof(double));
-      if (!marker_weights) {
-	goto wdist_ret_2;
       }
       dptr2 = marker_weights;
 
@@ -4050,10 +4056,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (!het_probs) {
       goto wdist_ret_1;
     }
-    marker_weights = (double*)wkspace_alloc((unfiltered_marker_ct - marker_exclude_ct) * sizeof(double));
-    if (!marker_weights) {
-      goto wdist_ret_2;
-    }
     dptr2 = marker_weights;
 
     hwe_ll = (int*)wkspace_alloc(unfiltered_marker_ct * 9 * sizeof(int));
@@ -4146,7 +4148,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     free(het_probs);
     het_probs = NULL;
-    wkspace_reset((unsigned char*)hwe_ll);
+    wkspace_reset(hwe_ll);
     rewind(pedfile);
 
     ulii = unfiltered_indiv_ct - indiv_exclude_ct;
@@ -4402,12 +4404,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       printf(" done.\n");
       fclose(pedfile);
-      fclose(bedtmpfile);
-      fclose(bimtmpfile);
-      fclose(famtmpfile);
-      bedtmpfile = NULL;
-      bimtmpfile = NULL;
-      famtmpfile = NULL;
+      fclose_null(&bedtmpfile);
+      fclose_null(&bimtmpfile);
+      fclose_null(&famtmpfile);
       if (make_bed) {
         strcpy(outname_end, ".bed");
       } else {
@@ -4466,13 +4465,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         }
       }
     }
-    if (!fclose(outfile)) {
-      outfile = NULL;
-      printf(errstr_fprintf, outname);
-      retval = RET_WRITE_FAIL;
-      goto wdist_ret_2;
+    if (fclose_null(&outfile)) {
+      goto wdist_ret_WRITE_FAIL;
     }
-    outfile = NULL;
   }
 
   if (distance_req(calculation_type)) {
@@ -4489,9 +4484,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     while (dptr2 < dptr3) {
       *giptr++ = (unsigned int)((*dptr2++) * dxx + 0.5);
     }
-
-    wkspace_reset((unsigned char*)marker_weights);
+    wkspace_reset(marker_weights);
     marker_weights_i = (unsigned int*)wkspace_alloc(marker_ct * sizeof(int));
+  } else {
+    wkspace_reset(marker_id);
   }
 
   if (calculation_type & CALC_FREQ) {
@@ -4540,9 +4536,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	}
       }
     }
-    fclose(outfile);
+    if (fclose_null(&outfile)) {
+      goto wdist_ret_WRITE_FAIL;
+    }
     printf("Allele frequencies written to %s.\n", outname);
-    outfile = NULL;
   }
 
   if (relationship_or_ibc_req(calculation_type)) {
@@ -4910,9 +4907,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
             goto wdist_ret_WRITE_FAIL;
           }
 	}
-	fclose(outfile);
+	if (fclose_null(&outfile)) {
+          goto wdist_ret_WRITE_FAIL;
+        }
         printf("%s written.\n", outname);
-	outfile = NULL;
       }
       if (calculation_type & CALC_RELATIONSHIP_MASK) {
         if (calculation_type & CALC_IBC) {
@@ -4957,8 +4955,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      fflush(stdout);
 	    }
           }
-          fclose(outfile);
-          outfile = NULL;
+          if (fclose_null(&outfile)) {
+            goto wdist_ret_WRITE_FAIL;
+          }
         } else if (calculation_type & CALC_RELATIONSHIP_GRM) {
           iwptr = rel_missing;
 	  if (calculation_type & CALC_RELATIONSHIP_GZ) {
@@ -5008,8 +5007,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
                 goto wdist_ret_WRITE_FAIL;
               }
 	    }
-	    fclose(outfile);
-	    outfile = NULL;
+	    if (fclose_null(&outfile)) {
+              goto wdist_ret_WRITE_FAIL;
+            }
 	  }
         } else {
 	  if (calculation_type & CALC_RELATIONSHIP_SQ0) {
@@ -5133,8 +5133,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
                 goto wdist_ret_WRITE_FAIL;
               }
 	    }
-	    fclose(outfile);
-	    outfile = NULL;
+	    if (fclose_null(&outfile)) {
+              goto wdist_ret_WRITE_FAIL;
+            }
 	  }
 	}
 	printf("\rRelationship matrix written to %s.\n", outname);
@@ -5158,7 +5159,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       ulii = CACHEALIGN_DBL(ulii * ulii);
       dptr4 = &(rel_dists[ulii]);
       ulii = ulii * 3 + CACHEALIGN_DBL(indiv_ct) * 3;
-      wkspace_reset((unsigned char*)rel_dists);
+      wkspace_reset(rel_dists);
       rel_dists = (double*)wkspace_alloc(ulii * sizeof(double));
       if (!rel_dists) {
         goto wdist_ret_2;
@@ -5197,7 +5198,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       printf("h^2 estimate: %g\n", unrelated_herit_covg);
     }
 #endif
-    wkspace_reset((unsigned char*)rel_dists);
+    wkspace_reset(rel_dists);
   }
 
   if (distance_req(calculation_type)) {
@@ -5501,6 +5502,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto wdist_ret_2;
     }
+    fclose_null(&pedfile);
     ulii = indiv_ct;
     ulii = ulii * (ulii - 1) / 2;
     giptr = missing_tot_weights;
@@ -5642,8 +5644,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  fflush(stdout);
 	}
       }
-      fclose(outfile);
-      outfile = NULL;
+      if (fclose_null(&outfile)) {
+        goto wdist_ret_WRITE_FAIL;
+      }
     } else {
       strcpy(outname_end, ".dist");
       if (fopen_checked(&outfile, outname, "w")) {
@@ -5709,8 +5712,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           goto wdist_ret_WRITE_FAIL;
         }
       }
-      fclose(outfile);
-      outfile = NULL;
+      if (fclose_null(&outfile)) {
+        goto wdist_ret_WRITE_FAIL;
+      }
     }
     printf("\rDistances written to %s.\n", outname);
   }
@@ -5947,98 +5951,40 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   if (gz_outfile) {
     gzclose(gz_outfile);
   }
-  if (person_missing_cts) {
-    free(person_missing_cts);
-  }
-  if (marker_alleles_tmp) {
-    free(marker_alleles_tmp);
-  }
-  if (bedtmpfile) {
-    fclose(bedtmpfile);
-  }
-  if (bimtmpfile) {
-    fclose(bimtmpfile);
-  }
-  if (famtmpfile) {
-    fclose(famtmpfile);
-  }
+  free_cond(person_missing_cts);
+  free_cond(marker_alleles_tmp);
+  fclose_cond(bedtmpfile);
+  fclose_cond(bimtmpfile);
+  fclose_cond(famtmpfile);
  wdist_ret_1:
-  if (het_probs) {
-    free(het_probs);
-  }
-  if (person_id) {
-    free(person_id);
-  }
-  if (indiv_exclude) {
-    free(indiv_exclude);
-  }
-  if (pheno_d) {
-    free(pheno_d);
-  }
-  if (pheno_c) {
-    free(pheno_c);
-  }
-  if (phenor_d) {
-    free(phenor_d);
-  }
-  if (phenor_c) {
-    free(phenor_c);
-  }
-  if (marker_allele_cts) {
-    free(marker_allele_cts);
-  }
-  if (marker_alleles) {
-    free(marker_alleles);
-  }
-  if (line_locs) {
-    free(line_locs);
-  }
-  if (id_buf) {
-    free(id_buf);
-  }
-  if (id_list) {
-    free(id_list);
-  }
-  if (pid_list) {
-    free(pid_list);
-  }
-  if (marker_exclude) {
-    free(marker_exclude);
-  }
-  if (pedbuf) {
-    free(pedbuf);
-  }
+  free_cond(het_probs);
+  free_cond(person_id);
+  free_cond(indiv_exclude);
+  free_cond(pheno_d);
+  free_cond(pheno_c);
+  free_cond(phenor_d);
+  free_cond(phenor_c);
+  free_cond(marker_allele_cts);
+  free_cond(marker_alleles);
+  free_cond(line_locs);
+  free_cond(id_buf);
+  free_cond(id_list);
+  free_cond(pid_list);
+  free_cond(marker_exclude);
+  free_cond(pedbuf);
   // if (marker_pos) {
   //   free(marker_pos);
   // }
-  if (mafs) {
-    free(mafs);
-  }
-  if (marker_chrom) {
-    free(marker_chrom);
-  }
+  free_cond(mafs);
+  free_cond(marker_chrom);
  wdist_ret_0:
-  if (outfile) {
-    fclose(outfile);
-  }
-  if (freqfile) {
-    fclose(freqfile);
-  }
-  if (filterfile) {
-    fclose(filterfile);
-  }
-  if (phenofile) {
-    fclose(phenofile);
-  }
-  if (famfile) {
-    fclose(famfile);
-  }
-  if (mapfile) {
-    fclose(mapfile);
-  }
-  if (pedfile) {
-    fclose(pedfile);
-  }
+  fclose_cond(freqfile);
+  fclose_cond(filterfile);
+  fclose_cond(phenofile);
+  fclose_cond(famfile);
+  fclose_cond(mapfile);
+  fclose_cond(pedfile);
+  fclose_cond(outfile);
   return retval;
 }
 
@@ -7243,9 +7189,7 @@ int main(int argc, char** argv) {
     printf("Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.\n");
     return dispmsg(RET_INVALID_CMDLINE);
   }
-  if (subst_argv) {
-    free(subst_argv);
-  }
+  free_cond(subst_argv);
 #ifndef __LP64__
   popcount[0] = 0;
   for (ii = 0; ii < 65536; ii++) {
