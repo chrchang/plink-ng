@@ -67,9 +67,8 @@
 //
 // 4. Splitting the distance/relationship matrix into pieces of roughly equal
 // size and assigning one thread to each piece.  This is an "embarrassingly
-// parallel" problem with no need for careful synchronization.  Explicit
-// cluster support is not present, but it would be straightforward to add it
-// using the same idea currently supporting multithreading.
+// parallel" problem with no need for careful synchronization.  Cluster
+// computing is supported in essentially the same manner.
 //
 //
 // We also note that zero exponent distance matrices are special cases,
@@ -201,9 +200,9 @@
 
 const char info_str[] =
 #ifdef NOLAPACK
-  "WDIST weighted genetic distance calculator, v0.5.12 (4 September 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.5.13 (5 September 2012)\n"
 #else
-  "WDIST weighted genetic distance calculator, v0.7.6 (4 September 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.7.7 (5 September 2012)\n"
 #endif
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
@@ -215,7 +214,6 @@ const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
-const char errstr_fprintf[] = "\nError: Failed to finish writing to %s.\n";
 char tbuf[MAXLINELEN];
 #ifndef __LP64__
 unsigned char popcount[65536];
@@ -411,7 +409,7 @@ int dispmsg(int retval) {
 "                     Note that the default threshold is only applied if --maf\n"
 "                     is used without an accompanying value; if you do not\n"
 "                     invoke --maf, WDIST does not perform any MAF-based SNP\n"
-"                     filtering at all.  The other filters work the same way.\n"
+"                     filtering at all.  Other QC flags work the same way.\n"
 "  --geno {val}     : Maximum per-SNP missing (default 0.1).\n"
 "  --mind {val}     : Maximum per-person missing (default 0.1).\n"
 "  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
@@ -435,15 +433,23 @@ int dispmsg(int retval) {
 "  --exponent [val] : When computing genetic distances, each marker has a weight\n"
 "                     of (2q(1-q))^{-val}, where q is the observed MAF after\n"
 "                     applying --keep/--remove/--filter/--prune and before\n"
-"                     applying any other filters.  (Use --update-freq if you\n"
-"                     want to explicitly specify some or all of the MAFs.)\n"
-"  --update-freq [filename]  : Loads MAFs from the given PLINK- or GCTA-style\n"
-"                              frequency file, instead of just setting them to\n"
+"                     applying any other filters.  (Use --read-freq if you want\n"
+"                     to explicitly specify some or all of the MAFs.)\n"
+"  --read-freq [filename]    : Loads MAFs from the given PLINK- or GCTA-style\n"
+"  --update-freq [filename]    frequency file, instead of just setting them to\n"
 "                              frequencies observed in the .ped/.bed file.\n"
 "                              (This can be important when performing multiple\n"
 "                              rounds of filtering, because MAFs affect the\n"
 "                              behavior of some filters, and observed MAFs\n"
 "                              change when you filter people out.)\n"
+/*
+"  --parallel [k] [n]        : Divide the output matrix into n pieces, and only\n"
+"                              compute the kth piece.  The primary output file\n"
+"                              will have the piece number appended to its name,\n"
+"                              e.g. wdist.rel.gz.13 if k is 13.  Concatenating\n"
+"                              these files in order will yield the full matrix\n"
+"                              of interest.\n"
+*/
 "  --filter [filename] [val] : Filter individuals (see PLINK documentation).\n"
 "  --mfilter [col]           : Specify column number in --filter file.\n"
 "  --missing-genotype [char] : Code for missing genotype.\n"
@@ -1541,7 +1547,7 @@ int extract_exclude_markers(char* fname, char* sorted_ids, int sorted_ids_len, u
   return 0;
 }
 
-int update_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, unsigned char* marker_exclude, int marker_exclude_ct, char* marker_ids, unsigned long max_marker_id_len, int* marker_chroms, char* marker_alleles, double* mafs) {
+int read_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, unsigned char* marker_exclude, int marker_exclude_ct, char* marker_ids, unsigned long max_marker_id_len, int* marker_chroms, char* marker_alleles, double* mafs) {
   unsigned char* wkspace_mark;
   char* sorted_ids;
   int* id_map;
@@ -1555,7 +1561,7 @@ int update_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, u
     return RET_OPENFAIL;
   }
   if (fgets(tbuf, MAXLINELEN, *freqfile_ptr) == NULL) {
-    printf("Error: Empty --update-freq file.\n");
+    printf("Error: Empty --read-freq file.\n");
     return RET_INVALID_FORMAT;
   }
   wkspace_mark = wkspace_base;
@@ -1569,7 +1575,7 @@ int update_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, u
       bufptr = next_item(bufptr); // now at beginning of SNP name
       bufptr2 = next_item(bufptr);
       if (!bufptr2) {
-        goto update_freq_ret_INVALID_FORMAT;
+        goto read_freq_ret_INVALID_FORMAT;
       }
       read_next_terminate(bufptr, bufptr); // destructive read (\0 at end of item)
       ii = bsearch_str(bufptr, sorted_ids, max_marker_id_len, 0, unfiltered_marker_ct - marker_exclude_ct - 1);
@@ -1580,10 +1586,10 @@ int update_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, u
           bufptr2 = next_item(bufptr2);
           bufptr = next_item(bufptr2);
           if (!bufptr) {
-            goto update_freq_ret_INVALID_FORMAT;
+            goto read_freq_ret_INVALID_FORMAT;
           }
           if (sscanf(bufptr, "%lg", &maf) != 1) {
-            goto update_freq_ret_INVALID_FORMAT;
+            goto read_freq_ret_INVALID_FORMAT;
           }
           if (marker_alleles[ii * 2] == cc) {
             if (marker_alleles[ii * 2 + 1] == *bufptr2) {
@@ -1601,7 +1607,7 @@ int update_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, u
     do {
       bufptr = next_item(tbuf);
       if (!bufptr) {
-        goto update_freq_ret_INVALID_FORMAT;
+        goto read_freq_ret_INVALID_FORMAT;
       }
       read_next_terminate(tbuf, tbuf); // destructive read
       ii = bsearch_str(tbuf, sorted_ids, max_marker_id_len, 0, unfiltered_marker_ct - marker_exclude_ct - 1);
@@ -1610,10 +1616,10 @@ int update_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, u
         cc = *bufptr;
         bufptr = next_item(bufptr);
 	if (!bufptr) {
-          goto update_freq_ret_INVALID_FORMAT;
+          goto read_freq_ret_INVALID_FORMAT;
 	}
         if (sscanf(bufptr, "%lg", &maf) != 1) {
-          goto update_freq_ret_INVALID_FORMAT;
+          goto read_freq_ret_INVALID_FORMAT;
         }
         if (marker_alleles[ii * 2] == cc) {
           mafs[ii] = 1.0 - maf;
@@ -1626,7 +1632,7 @@ int update_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, u
   fclose_null(freqfile_ptr);
   wkspace_reset(wkspace_mark);
   return 0;
- update_freq_ret_INVALID_FORMAT:
+ read_freq_ret_INVALID_FORMAT:
   printf(errstr_freq_format);
   return RET_INVALID_FORMAT;
 }
@@ -2723,7 +2729,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* makepheno_str, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double grm_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_cove, int ibc_type) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* makepheno_str, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_cove, int ibc_type) {
   FILE* outfile = NULL;
   FILE* mapfile = NULL;
   FILE* pedfile = NULL;
@@ -3480,7 +3486,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
 
     if (freqname[0]) {
-      retval = update_freq(freqname, &freqfile, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, marker_chroms, marker_alleles, mafs);
+      retval = read_freq(freqname, &freqfile, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, marker_chroms, marker_alleles, mafs);
       if (retval) {
 	goto wdist_ret_1;
       }
@@ -3785,7 +3791,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
   } else {
     if (freqname[0]) {
-      printf("--update-freq currently ignored on text file load.\n");
+      printf("--read-freq currently ignored on text file load.\n");
     }
     pedbuf[pedbuflen - 1] = ' ';
     nn = 0; // number of individuals after first-level filter
@@ -3971,6 +3977,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           bufptr = next_item(bufptr);
         }
       } else {
+        bufptr = next_item(bufptr);
 	if (ped_col_34) {
 	  bufptr = next_item(bufptr);
 	  bufptr = next_item(bufptr);
@@ -4126,6 +4133,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       bufptr = (char*)pedbuf;
       for (jj = 0; jj < unfiltered_marker_ct; jj += 1) {
 	if (excluded(marker_exclude, jj)) {
+          bufptr = next_item(next_item(bufptr));
 	  continue;
 	}
 	mm = 0;
@@ -4402,6 +4410,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       cptr = marker_alleles_tmp;
       iwptr = (int*)malloc((unfiltered_marker_ct - marker_exclude_ct) * 2 * sizeof(int));
       iptr = iwptr;
+      dptr2 = mafs;
       for (ii = 0; ii < unfiltered_marker_ct; ii += 1) {
         if (excluded(marker_exclude, ii)) {
           continue;
@@ -4410,6 +4419,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         *cptr++ = marker_alleles[ii * 4 + 1];
         *iptr++ = marker_allele_cts[ii * 4];
         *iptr++ = marker_allele_cts[ii * 4 + 1];
+        *dptr2++ = mafs[ii];
       }
       free(marker_alleles);
       marker_alleles = marker_alleles_tmp;
@@ -4780,7 +4790,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         dist_ptr = rel_dists;
 	for (kk = 1; kk < indiv_ct; kk++) {
 	  for (mm = 0; mm < kk; mm++) {
-	    if (*dist_ptr++ > grm_cutoff) {
+	    if (*dist_ptr++ > rel_cutoff) {
 	      iptr[kk] += 1;
 	      iptr[mm] += 1;
 	    }
@@ -4802,7 +4812,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
             // and now find the identity of the other side
             dist_ptr = &(rel_dists[(kk * (kk - 1)) / 2]);
             for (mm = 0; mm < kk; mm++) {
-              if (*dist_ptr > grm_cutoff) {
+              if (*dist_ptr > rel_cutoff) {
                 *dist_ptr = 0.0;
                 break;
               }
@@ -4812,7 +4822,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
               do {
                 mm++;
 	        dist_ptr = &(rel_dists[(mm * (mm - 1)) / 2 + kk]);
-              } while (*dist_ptr <= grm_cutoff);
+              } while (*dist_ptr <= rel_cutoff);
               *dist_ptr = 0.0;
             }
             iptr[kk] = 0;
@@ -4841,7 +4851,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           }
 	  dist_ptr = &(rel_dists[(mm * (mm - 1)) / 2]);
 	  for (kk = 0; kk < mm; kk++) {
-	    if (*dist_ptr > grm_cutoff) {
+	    if (*dist_ptr > rel_cutoff) {
 	      *dist_ptr = 0.0;
 	      iptr[kk] -= 1;
 	      if (iptr[kk] < 2) {
@@ -4856,7 +4866,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
 	  for (kk = mm + 1; kk < indiv_ct; kk++) {
 	    dist_ptr = &(rel_dists[(kk * (kk - 1)) / 2 + mm]);
-	    if (*dist_ptr > grm_cutoff) {
+	    if (*dist_ptr > rel_cutoff) {
 	      *dist_ptr = 0.0;
 	      iptr[kk] -= 1;
 	      if (iptr[kk] < 2) {
@@ -5173,7 +5183,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         strcpy(&(outname_end[4]), ".id");
 	retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
         if (retval) {
-          goto wdist_ret_OPEN_OR_WRITE_FAIL;
+          goto wdist_ret_2;
         }
       }
       wkspace_reset(wkspace_mark);
@@ -5552,7 +5562,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     strcpy(outname_end, ".dist.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
     if (retval) {
-      goto wdist_ret_OPEN_OR_WRITE_FAIL;
+      goto wdist_ret_2;
     }
   }
 
@@ -5946,12 +5956,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   wdist_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
-  wdist_ret_OPEN_OR_WRITE_FAIL:
-    if (retval == RET_OPENFAIL) {
-      break;
-    }
   wdist_ret_WRITE_FAIL:
-    printf(errstr_fprintf, outname);
     retval = RET_WRITE_FAIL;
     break;
   wdist_ret_READ_FAIL:
@@ -6054,7 +6059,7 @@ int main(int argc, char** argv) {
   double geno_thresh = 1.0;
   double mind_thresh = 1.0;
   double hwe_thresh = 0.0;
-  double grm_cutoff = 0.025;
+  double rel_cutoff = 0.025;
   int cur_arg = 1;
   int calculation_type = 0;
   char* bubble;
@@ -6772,11 +6777,11 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       if (ii) {
-        if (sscanf(argv[cur_arg + 1], "%lg", &grm_cutoff) != 1) {
+        if (sscanf(argv[cur_arg + 1], "%lg", &rel_cutoff) != 1) {
           printf("Error: Invalid --rel-cutoff parameter.\n");
           return dispmsg(RET_INVALID_CMDLINE);
         }
-        if ((grm_cutoff <= 0.0) || (grm_cutoff >= 1.0)) {
+        if ((rel_cutoff <= 0.0) || (rel_cutoff >= 1.0)) {
           printf("Error: Invalid --rel-cutoff parameter.\n");
           return dispmsg(RET_INVALID_CMDLINE);
         }
@@ -7145,7 +7150,7 @@ int main(int argc, char** argv) {
       calculation_type |= CALC_UNRELATED_HERITABILITY;
     } else if (!strcmp(argptr, "--freq")) {
       if (freqname[0]) {
-        printf("Error: --freq and --update-freq flags cannot coexist.%s", errstr_append);
+        printf("Error: --freq and --read-freq flags cannot coexist.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
       if (calculation_type & CALC_FREQ) {
@@ -7167,22 +7172,25 @@ int main(int argc, char** argv) {
       }
       cur_arg += ii + 1;
       calculation_type |= CALC_FREQ;
-    } else if (!strcmp(argptr, "--update-freq")) {
+    } else if ((!strcmp(argptr, "--read-freq")) || (!strcmp(argptr, "--update-freq"))) {
       if (calculation_type & CALC_FREQ) {
-        printf("Error: --freq and --update-freq flags cannot coexist.%s", errstr_append);
+        printf("Error: --freq and %s flags cannot coexist.%s", argptr, errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
       if (freqname[0]) {
-        printf("Error: Duplicate --update-freq flag.\n");
+        printf("Error: Duplicate %s flag.\n", argptr);
         return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = param_count(argc, argv, cur_arg);
-      if (ii > 1) {
-        printf("Error: --update-freq accepts at most one parameter.%s", errstr_append);
+      if (!ii) {
+        printf("Error: Missing %s parameter.%s", argptr, errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      } else if (ii > 1) {
+        printf("Error: %s accepts only one parameter.%s", argptr, errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-        printf("Error: --update-freq filename too long.\n");
+        printf("Error: %s filename too long.\n", argptr);
         return dispmsg(RET_OPENFAIL);
       }
       strcpy(freqname, argv[cur_arg + 1]);
@@ -7248,8 +7256,8 @@ int main(int argc, char** argv) {
   // extractname[0], excludename[0], keepname[0], and removename[0] indicate
   // the presence of their respective flags
   // filtername[0] indicates existence of filter
-  // freqname[0] signals --update-freq
-  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, makepheno_str, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, grm_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_cove, ibc_type);
+  // freqname[0] signals --read-freq
+  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, makepheno_str, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_cove, ibc_type);
   free(wkspace_ua);
   return dispmsg(retval);
 }
