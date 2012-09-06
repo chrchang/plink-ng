@@ -5799,7 +5799,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           }
           giptr2++;
           for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	    uljj = (ulii * (ulii + 1)) / 2 + ii;
+	    uljj = (ulii * (ulii - 1)) / 2 + ii;
             if (fprintf(outfile, "%g ", 1.0 - (((double)idists[uljj]) / (2 * (uii - (*giptr2++) + missing_tot_unweighted[uljj])))) < 0) {
               goto wdist_ret_WRITE_FAIL;
             }
