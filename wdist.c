@@ -5816,7 +5816,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       if ((calculation_type & CALC_PLINK_DISTANCE_MATRIX) && (calculation_type & CALC_PLINK_IBS_MATRIX)) {
         outname_end[0] = '\0';
-        printf("\rDistances written to %s.mdist, and IBS values to %s.mibs.", outname, outname);
+        printf("\rDistances written to %s.mdist, and IBS values to %s.mibs.\n", outname, outname);
       } else if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
         printf("\rDistances written to %s.\n", outname);
       } else {
