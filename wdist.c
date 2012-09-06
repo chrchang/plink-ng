@@ -143,14 +143,18 @@
 #define CALC_DISTANCE_GZ 512
 #define CALC_DISTANCE_BIN 1024
 #define CALC_DISTANCE_MASK 1920
-#define CALC_GROUPDIST 2048
-#define CALC_REGRESS_DISTANCE 4096
-#define CALC_UNRELATED_HERITABILITY 8192
-#define CALC_UNRELATED_HERITABILITY_STRICT 16384
-#define CALC_FREQ 32768
-#define CALC_FREQ_GCTA 65536
-#define CALC_REL_CUTOFF 131072
-#define CALC_WRITE_SNPLIST 262144
+#define CALC_PLINK_DISTANCE_MATRIX 2048
+#define CALC_PLINK_IBS_MATRIX 4096
+#define CALC_GDISTANCE_MASK 8064
+#define CALC_LOAD_DISTANCES 8192
+#define CALC_GROUPDIST 16384
+#define CALC_REGRESS_DISTANCE 32768
+#define CALC_UNRELATED_HERITABILITY 65536
+#define CALC_UNRELATED_HERITABILITY_STRICT 131072
+#define CALC_FREQ 262144
+#define CALC_FREQ_GCTA 524288
+#define CALC_REL_CUTOFF 1048576
+#define CALC_WRITE_SNPLIST 2097152
 
 #define _FILE_OFFSET_BITS 64
 #define MAX_THREADS 63
@@ -205,9 +209,9 @@
 
 const char info_str[] =
 #ifdef NOLAPACK
-  "WDIST weighted genetic distance calculator, v0.5.14 (6 September 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.5.15 (6 September 2012)\n"
 #else
-  "WDIST weighted genetic distance calculator, v0.7.8 (6 September 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.8.0 (6 September 2012)\n"
 #endif
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
@@ -329,7 +333,13 @@ int dispmsg(int retval) {
 "    double-precision floating point values, suitable for loading from R, is\n"
 "    instead written to {output prefix}.dist.bin.  This can be combined with\n"
 "    'square0' if you still want the upper right zeroed out, or 'triangle' if\n"
-"    you don't want to pad the upper right at all.\n\n"
+"    you don't want to pad the upper right at all.\n"
+"  --distance-matrix\n"
+"  --matrix\n"
+"    This yields the same output as the corresponding PLINK flags (i.e. distance\n"
+"    and/or similarity proportions are written, rather than SNP counts).  Note\n"
+"    that PLINK does not use MAF to adjust the weights of missing markers, so\n"
+"    this isn't quite a linear transformation of --distance.\n\n"
 "  --ibc\n"
 "    This yields the same output as GCTA --ibc.\n\n"
 "  --make-rel <square | square0 | triangle> <gz | bin>\n"
@@ -450,14 +460,12 @@ int dispmsg(int retval) {
 "                              rounds of filtering, because MAFs affect the\n"
 "                              behavior of some filters, and observed MAFs\n"
 "                              change when you filter people out.)\n"
-/*
 "  --parallel [k] [n]        : Divide the output matrix into n pieces, and only\n"
 "                              compute the kth piece.  The primary output file\n"
 "                              will have the piece number appended to its name,\n"
 "                              e.g. wdist.rel.gz.13 if k is 13.  Concatenating\n"
 "                              these files in order will yield the full matrix\n"
 "                              of interest.\n"
-*/
 "  --filter [filename] [val] : Filter individuals (see PLINK documentation).\n"
 "  --mfilter [col]           : Specify column number in --filter file.\n"
 "  --missing-genotype [char] : Code for missing genotype.\n"
@@ -472,11 +480,9 @@ int dispmsg(int retval) {
 "                              phenotype data.  If Hbt is unspecified, it is set\n"
 "                              equal to Ltop.  Central phenotype values are\n"
 "                              treated as missing.\n"
-/*
 "  --load-distances [fname]  : Load a binary TRIANGULAR distance matrix for\n"
 "                              --groupdist or --regress-distance analysis,\n"
 "                              instead of recalculating it from scratch.\n\n"
-*/
          , info_str);
     break;
   }
@@ -1315,7 +1321,7 @@ double calc_wt_mean_maf(double exponent, double maf) {
 int indiv_ct;
 int thread_ct;
 double* rel_dists = NULL;
-int* rel_missing = NULL;
+int* missing_tot_unweighted = NULL;
 int* idists;
 double* dists = NULL;
 char* pheno_c = NULL;
@@ -1339,9 +1345,10 @@ double calc_result[9][MAX_THREADS];
 unsigned long* masks;
 unsigned long* mmasks;
 double* marker_weights;
-unsigned int* marker_weights_i;
+unsigned int* marker_weights_i = NULL;
 unsigned int* missing_tot_weights;
 unsigned int* indiv_missing;
+unsigned int* indiv_missing_unwt;
 
 void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_type) {
   // first calculate weight array, then loop
@@ -2074,7 +2081,7 @@ void incr_dists_rm(int* idists, int tidx) {
 void* calc_relm_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start0[tidx];
-  incr_dists_rm(&(rel_missing[(ii * (ii - 1)) / 2]), (int)tidx);
+  incr_dists_rm(&(missing_tot_unweighted[(ii * (ii - 1)) / 2]), (int)tidx);
   return NULL;
 }
 
@@ -2737,8 +2744,12 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
   return 0;
 }
 
+inline int distance_wt_req(int calculation_type) {
+  return ((calculation_type & CALC_DISTANCE_MASK) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
+}
+
 inline int distance_req(int calculation_type) {
-  return ((calculation_type & CALC_DISTANCE_MASK) || (calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE));
+  return ((calculation_type & CALC_GDISTANCE_MASK) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
 
 inline int relationship_req(int calculation_type) {
@@ -2749,8 +2760,9 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* makepheno_str, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_cove, int ibc_type, int parallel_idx, int parallel_tot) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* makepheno_str, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_cove, int ibc_type, int parallel_idx, int parallel_tot) {
   FILE* outfile = NULL;
+  FILE* outfile2 = NULL;
   FILE* mapfile = NULL;
   FILE* pedfile = NULL;
   FILE* famfile = NULL;
@@ -2940,7 +2952,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     goto wdist_ret_2;
   }
 
-  if (!(calculation_type & (CALC_DISTANCE_MASK | CALC_RELATIONSHIP_MASK | CALC_IBC | CALC_FREQ | CALC_WRITE_SNPLIST))) {
+  if (!(calculation_type & (CALC_GDISTANCE_MASK | CALC_LOAD_DISTANCES | CALC_RELATIONSHIP_MASK | CALC_IBC | CALC_FREQ | CALC_WRITE_SNPLIST))) {
     prune = 1;
   }
 
@@ -4593,7 +4605,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   wkspace_reset(marker_weights);
-  if (distance_req(calculation_type)) {
+  if (distance_wt_req(calculation_type)) {
     // normalize marker weights to add to 2^32 - 1
     dxx = 0.0;
     dptr2 = marker_weights;
@@ -4611,10 +4623,26 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (relationship_or_ibc_req(calculation_type)) {
+    indiv_missing_unwt = (unsigned int*)wkspace_alloc(indiv_ct * sizeof(int));
+    if (!indiv_missing_unwt) {
+      goto wdist_ret_NOMEM;
+    }
+    fill_int_zero((int*)indiv_missing_unwt, indiv_ct);
+;
     if (relationship_req(calculation_type)) {
       ulii = indiv_ct;
       ulii = (ulii * (ulii - 1)) / 2;
       dists_alloc = ulii * sizeof(double);
+      if (!(calculation_type & CALC_UNRELATED_HERITABILITY)) {
+        // if the memory isn't needed for CALC_UNRELATED_HERITABILITY,
+	// positioning the missingness matrix here will let us avoid
+	// recalculating it if --distance-matrix or --matrix is requested
+        missing_tot_unweighted = (int*)wkspace_alloc(ulii * sizeof(int));
+        if (!missing_tot_unweighted) {
+          goto wdist_ret_NOMEM;
+        }
+        fill_int_zero(missing_tot_unweighted, ulii);
+      }
       rel_dists = (double*)wkspace_alloc(dists_alloc);
       if (!rel_dists) {
 	goto wdist_ret_NOMEM;
@@ -4632,19 +4660,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     fill_double_zero(rel_ibc, ii);
     wkspace_mark = wkspace_base;
-    if (relationship_req(calculation_type)) {
-      rel_missing = (int*)wkspace_alloc(dists_alloc);
-      if (!rel_missing) {
+    if (relationship_req(calculation_type) && (!missing_tot_unweighted)) {
+      missing_tot_unweighted = (int*)wkspace_alloc(ulii * sizeof(int));
+      if (!missing_tot_unweighted) {
 	goto wdist_ret_NOMEM;
       }
-      fill_int_zero(rel_missing, ulii);
+      fill_int_zero(missing_tot_unweighted, ulii);
     }
-    indiv_missing = (unsigned int*)wkspace_alloc(indiv_ct * sizeof(int));
-    if (!indiv_missing) {
-      goto wdist_ret_NOMEM;
-    }
-    fill_int_zero((int*)indiv_missing, indiv_ct);
-;
     if (binary_files && snp_major) {
       fseeko(pedfile, 3, SEEK_SET);
       ii = 0;
@@ -4714,7 +4736,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      if (uljj == 1) {
 		masks[oo] |= 7LLU << (mm * 3);
 		mmasks[oo] |= 1LLU << (nn + mm);
-		indiv_missing[oo] += 1;
+		indiv_missing_unwt[oo] += 1;
 	      }
 	      ulii |= uljj << (mm * 3);
 	    }
@@ -4747,7 +4769,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      goto wdist_ret_THREAD_CREATE_FAIL;
 	    }
 	  }
-	  incr_dists_rm(rel_missing, 0);
+	  incr_dists_rm(missing_tot_unweighted, 0);
 	  for (oo = 0; oo < thread_ct - 1; oo++) {
 	    pthread_join(threads[oo], NULL);
 	  }
@@ -4768,11 +4790,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         dptr3 = &(rel_ibc[indiv_ct]);
         dptr4 = &(rel_ibc[indiv_ct * 2]);
       }
-      iwptr = rel_missing;
+      iwptr = missing_tot_unweighted;
       for (ii = 0; ii < indiv_ct; ii++) {
-        uii = marker_ct - indiv_missing[ii];
+        uii = marker_ct - indiv_missing_unwt[ii];
         if (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF)) {
-          giptr = indiv_missing;
+          giptr = indiv_missing_unwt;
 	  for (jj = 0; jj < ii; jj++) {
 	    *dist_ptr /= uii - (*giptr++) + (*iwptr++);
 	    dist_ptr++;
@@ -4935,8 +4957,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
             for (jj = 0; jj < indiv_ct; jj++) {
               *dptr3++ = *dptr4++;
             }
-            giptr = indiv_missing;
-            giptr2 = indiv_missing;
+            giptr = indiv_missing_unwt;
+            giptr2 = indiv_missing_unwt;
             for (jj = 0; jj < indiv_ct + ii; jj++) {
               if (iptr[jj] != -1) {
                 *giptr = *giptr2++;
@@ -4966,7 +4988,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           goto wdist_ret_WRITE_FAIL;
         }
 	for (ii = 0; ii < indiv_ct; ii++) {
-          if (fprintf(outfile, "%d\t%d\t%d\t%g\t%g\t%g\n", ii + 1, ii + 1, marker_ct - indiv_missing[ii], *dptr3++ - 1.0, *dptr4++ - 1.0, *dptr2++ - 1.0) < 0) {
+          if (fprintf(outfile, "%d\t%d\t%d\t%g\t%g\t%g\n", ii + 1, ii + 1, marker_ct - indiv_missing_unwt[ii], *dptr3++ - 1.0, *dptr4++ - 1.0, *dptr2++ - 1.0) < 0) {
             goto wdist_ret_WRITE_FAIL;
           }
 	}
@@ -5031,7 +5053,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
             goto wdist_ret_WRITE_FAIL;
           }
         } else if (calculation_type & CALC_RELATIONSHIP_GRM) {
-          iwptr = rel_missing;
+          iwptr = missing_tot_unweighted;
 	  if (calculation_type & CALC_RELATIONSHIP_GZ) {
 	    strcpy(outname_end, ".grm.gz");
 	    gz_outfile = gzopen(outname, "wb");
@@ -5049,7 +5071,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		kk = marker_ct - *iwptr++;
 		gzprintf(gz_outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++);
 	      }
-              kk = marker_ct - indiv_missing[ii];
+              kk = marker_ct - indiv_missing_unwt[ii];
               gzprintf(gz_outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dptr2++);
 	    }
 	    gzclose(gz_outfile);
@@ -5265,7 +5287,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       printf("h^2 estimate: %g\n", unrelated_herit_covg);
     }
 #endif
-    wkspace_reset(rel_dists);
+    if (calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) {
+      wkspace_reset(rel_dists);
+    } else {
+      wkspace_reset(indiv_missing_unwt);
+    }
   }
 
   if (distance_req(calculation_type)) {
@@ -5561,6 +5587,108 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_2;
     }
     fclose_null(&pedfile);
+    printf("\rDistance matrix calculation complete.\n");
+    if (calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) {
+      if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
+	strcpy(outname_end, ".mdist");
+	if (fopen_checked(&outfile, outname, "w")) {
+	  goto wdist_ret_OPENFAIL;
+	}
+	if (calculation_type & CALC_PLINK_IBS_MATRIX) {
+	  // if both --distance-matrix and --matrix are requested, call the IBS
+	  // matrix {output prefix}.mdist.ibs, and do not write a second
+	  // .mdist.id file.
+	  strcpy(outname_end, ".mdist.ibs");
+	  if (fopen_checked(&outfile2, outname, "w")) {
+	    goto wdist_ret_OPENFAIL;
+	  }
+	}
+	iptr = idists;
+        iwptr = (int*)missing_tot_unweighted;
+	for (ii = 0; ii < indiv_ct; ii++) {
+	  giptr2 = indiv_missing_unwt;
+	  uii = marker_ct - giptr2[ii];
+	  if (outfile2) {
+            for (jj = 0; jj < ii; jj++) {
+            }
+            if (fwrite_checked("0 ", 2, outfile)) {
+              goto wdist_ret_WRITE_FAIL;
+            }
+            if (fwrite_checked("1 ", 2, outfile2)) {
+              goto wdist_ret_WRITE_FAIL;
+            }
+            giptr2++;
+            for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+	      uljj = (ulii * (ulii - 1)) / 2 + ii;
+              dxx = ((double)idists[uljj]) / (uii - (*giptr2++) + missing_tot_unweighted[uljj]);
+              if (fprintf(outfile, "%g ", dxx) < 0) {
+                goto wdist_ret_WRITE_FAIL;
+	      }
+              if (fprintf(outfile2, "%g ", 1.0 - dxx) < 0) {
+                goto wdist_ret_WRITE_FAIL;
+              }
+            }
+            if (fwrite_checked("\n", 1, outfile2)) {
+              goto wdist_ret_WRITE_FAIL;
+	    }
+	  } else {
+	    for (jj = 0; jj < ii; jj++) {
+	      if (fprintf(outfile, "%g ", ((double)(*iptr++)) / (uii - (*giptr2++) + (*iwptr++))) < 0) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
+	    }
+	    if (fwrite_checked("0 ", 2, outfile)) {
+	      goto wdist_ret_WRITE_FAIL;
+	    }
+	    giptr2++;
+	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+              uljj = ulii * (ulii - 1) / 2 + ii;
+	      if (fprintf(outfile, "%g ", ((double)idists[uljj]) / (uii - (*giptr2++) + missing_tot_unweighted[uljj])) < 0) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
+	    }
+	  }
+          if (fwrite_checked("\n", 1, outfile)) {
+            goto wdist_ret_WRITE_FAIL;
+          }
+	}
+      } else {
+        strcpy(outname_end, ".mdist");
+        if (fopen_checked(&outfile, outname, "w")) {
+	  goto wdist_ret_OPENFAIL;
+        }
+	iptr = idists;
+        iwptr = missing_tot_unweighted;
+	for (ii = 0; ii < indiv_ct; ii++) {
+	  giptr2 = indiv_missing_unwt;
+	  uii = marker_ct - giptr2[ii];
+          for (jj = 0; jj < ii; jj++) {
+            if (fprintf(outfile, "%g ", 1.0 - (((double)(*iptr++)) / (uii - (*giptr2++) + (*iwptr++)))) < 0) {
+              goto wdist_ret_WRITE_FAIL;
+            }
+          }
+          if (fwrite_checked("1 ", 2, outfile)) {
+            goto wdist_ret_WRITE_FAIL;
+          }
+          giptr2++;
+          for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+	    uljj = (ulii * (ulii + 1)) / 2 + ii;
+            if (fprintf(outfile, "%g ", 1.0 - (((double)idists[uljj]) / (uii - (*giptr2++) + missing_tot_unweighted[uljj]))) < 0) {
+              goto wdist_ret_WRITE_FAIL;
+            }
+          }
+        }
+      }
+      strcpy(outname_end, ".mdist.id");
+      retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
+      if (retval) {
+        goto wdist_ret_2;
+      }
+      fclose_null(&outfile);
+      if (outfile2) {
+        fclose_null(&outfile2);
+      }
+    }
     ulii = indiv_ct;
     ulii = ulii * (ulii - 1) / 2;
     giptr = missing_tot_weights;
@@ -5585,15 +5713,14 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         }
       }
     }
-    printf("\rDistance matrix calculation complete.\n");
+  }
+
+  if (calculation_type & CALC_DISTANCE_MASK) {
     strcpy(outname_end, ".dist.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
     if (retval) {
       goto wdist_ret_2;
     }
-  }
-
-  if (calculation_type & CALC_DISTANCE_MASK) {
     mm = calculation_type & CALC_DISTANCE_SHAPEMASK;
     if (mm == CALC_DISTANCE_SQ0) {
       cptr2 = (char*)(&ulii);
@@ -6073,6 +6200,7 @@ int main(int argc, char** argv) {
   char removename[FNAMESIZE];
   char filtername[FNAMESIZE];
   char freqname[FNAMESIZE];
+  char loaddistname[FNAMESIZE];
   char* makepheno_str = NULL;
   char* filterval = NULL;
   char* argptr;
@@ -6681,6 +6809,10 @@ int main(int argc, char** argv) {
       thread_ct = ii;
       cur_arg += 2;
     } else if (!strcmp(argptr, "--exponent")) {
+      if (calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) {
+        printf("Error: --exponent flag cannot be used with --distance-matrix or --matrix.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
       if (cur_arg == argc - 1) {
         printf("Error: Missing --exponent parameter.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
@@ -7045,8 +7177,11 @@ int main(int argc, char** argv) {
       cur_arg += 1;
       calculation_type |= CALC_IBC;
     } else if (!strcmp(argptr, "--distance")) {
-      if (calculation_type & CALC_DISTANCE_MASK) {
-        printf("Error: --distance cannot coexist with another distance matrix file creation\nflag.%s", errstr_append);
+      if (calculation_type & CALC_LOAD_DISTANCES) {
+        printf("Error: --load-distances cannot coexist with a distance matrix calculation flag.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      } else if (calculation_type & CALC_DISTANCE_MASK) {
+        printf("Error: Duplicate --distance flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = param_count(argc, argv, cur_arg);
@@ -7104,6 +7239,43 @@ int main(int argc, char** argv) {
       if (!(calculation_type & CALC_DISTANCE_MASK)) {
         calculation_type |= CALC_DISTANCE_TRI;
       }
+    } else if ((!strcmp(argptr, "--distance-matrix")) || (!strcmp(argptr, "--matrix"))) {
+      if (calculation_type & CALC_LOAD_DISTANCES) {
+        printf("Error: --load-distances cannot coexist with a distance matrix calculation flag.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      } else if (exponent != 0.0) {
+        printf("Error: --exponent flag cannot be used with --distance-matrix or --matrix.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      cur_arg += 1;
+      if (argptr[2] == 'd') {
+        calculation_type |= CALC_PLINK_DISTANCE_MATRIX;
+      } else {
+        calculation_type |= CALC_PLINK_IBS_MATRIX;
+      }
+    } else if (!strcmp(argptr, "--load-distances")) {
+      if (calculation_type & CALC_GDISTANCE_MASK) {
+        printf("Error: --load-distances cannot coexist with a distance matrix calculation flag.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      } else if (calculation_type & CALC_LOAD_DISTANCES) {
+        printf("Error: Duplicate --load-distances flag.\n");
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      ii = param_count(argc, argv, cur_arg);
+      if (!ii) {
+        printf("Error: Missing --load-distances parameter.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      } else if (ii > 1) {
+        printf("Error: Too many --load-distances parameters.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
+        printf("Error: --load-distances filename too long.\n");
+        return dispmsg(RET_OPENFAIL);
+      }
+      strcpy(loaddistname, argv[cur_arg + 1]);
+      cur_arg += 2;
+      calculation_type |= CALC_LOAD_DISTANCES;
     } else if (!strcmp(argptr, "--parallel")) {
       ii = param_count(argc, argv, cur_arg);
       if (ii < 2) {
@@ -7301,6 +7473,10 @@ int main(int argc, char** argv) {
     printf("Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.\n");
     return dispmsg(RET_INVALID_CMDLINE);
   }
+  if ((calculation_type & CALC_LOAD_DISTANCES) && (!(calculation_type & (CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))) {
+    printf("Error: --load-distances cannot be used without either --groupdist or\n--regress-distance.\n");
+    return dispmsg(RET_INVALID_CMDLINE);
+  }
   free_cond(subst_argv);
 #ifndef __LP64__
   popcount[0] = 0;
@@ -7345,7 +7521,7 @@ int main(int argc, char** argv) {
   // the presence of their respective flags
   // filtername[0] indicates existence of filter
   // freqname[0] signals --read-freq
-  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, makepheno_str, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_cove, ibc_type, parallel_idx, parallel_tot);
+  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, makepheno_str, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_cove, ibc_type, parallel_idx, parallel_tot);
   free(wkspace_ua);
   return dispmsg(retval);
 }
