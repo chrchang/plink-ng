@@ -1321,7 +1321,7 @@ double calc_wt_mean_maf(double exponent, double maf) {
 int indiv_ct;
 int thread_ct;
 double* rel_dists = NULL;
-int* missing_tot_unweighted = NULL;
+unsigned int* missing_tot_unweighted = NULL;
 int* idists;
 double* dists = NULL;
 char* pheno_c = NULL;
@@ -1977,7 +1977,7 @@ void* calc_dist_thread(void* arg) {
   return NULL;
 }
 
-void decr_dist_missing(unsigned int* mtw, int tidx) {
+void incr_wt_dist_missing(unsigned int* mtw, int tidx) {
   unsigned long* glptr;
   unsigned long ulii;
   unsigned long uljj;
@@ -2002,7 +2002,7 @@ void decr_dist_missing(unsigned int* mtw, int tidx) {
 void* calc_distm_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
-  decr_dist_missing(&(missing_tot_weights[(ii * (ii - 1)) / 2]), (int)tidx);
+  incr_wt_dist_missing(&(missing_tot_weights[(ii * (ii - 1)) / 2]), (int)tidx);
   return NULL;
 }
 
@@ -2055,7 +2055,7 @@ void* calc_rel_thread(void* arg) {
   return NULL;
 }
 
-void incr_dists_rm(int* idists, int tidx) {
+void incr_dists_rm(unsigned int* idists, int tidx) {
   // count missing intersection, optimized for sparsity
   unsigned long* glptr;
   unsigned long ulii;
@@ -2081,6 +2081,13 @@ void incr_dists_rm(int* idists, int tidx) {
 void* calc_relm_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start0[tidx];
+  incr_dists_rm(&(missing_tot_unweighted[(ii * (ii - 1)) / 2]), (int)tidx);
+  return NULL;
+}
+
+void* calc_distm_unwt_thread(void* arg) {
+  long tidx = (long)arg;
+  int ii = thread_start[tidx];
   incr_dists_rm(&(missing_tot_unweighted[(ii * (ii - 1)) / 2]), (int)tidx);
   return NULL;
 }
@@ -2824,8 +2831,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   char* person_id = NULL;
   int max_person_id_len = 4;
   unsigned char* wkspace_mark = NULL;
-  unsigned int* giptr;
-  unsigned int* giptr2;
+  unsigned int* giptr = NULL;
+  unsigned int* giptr2 = NULL;
   unsigned int* giptr3;
   char* cptr = NULL;
   char* cptr2;
@@ -2904,6 +2911,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   pthread_t threads[MAX_THREADS];
   int exp0 = (exponent == 0.0);
   int filter_type = FILTER_NONE;
+  int wt_needed = 0;
+  int unwt_needed = 0;
+  int unwt_needed_full = 0;
 
   ii = missing_pheno;
   if (ii < 0) {
@@ -4605,7 +4615,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   wkspace_reset(marker_weights);
-  if (distance_wt_req(calculation_type)) {
+  wt_needed = distance_wt_req(calculation_type);
+  if (wt_needed) {
     // normalize marker weights to add to 2^32 - 1
     dxx = 0.0;
     dptr2 = marker_weights;
@@ -4637,11 +4648,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         // if the memory isn't needed for CALC_UNRELATED_HERITABILITY,
 	// positioning the missingness matrix here will let us avoid
 	// recalculating it if --distance-matrix or --matrix is requested
-        missing_tot_unweighted = (int*)wkspace_alloc(ulii * sizeof(int));
+        missing_tot_unweighted = (unsigned int*)wkspace_alloc(ulii * sizeof(int));
         if (!missing_tot_unweighted) {
           goto wdist_ret_NOMEM;
         }
-        fill_int_zero(missing_tot_unweighted, ulii);
+        fill_int_zero((int*)missing_tot_unweighted, ulii);
       }
       rel_dists = (double*)wkspace_alloc(dists_alloc);
       if (!rel_dists) {
@@ -4661,11 +4672,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     fill_double_zero(rel_ibc, ii);
     wkspace_mark = wkspace_base;
     if (relationship_req(calculation_type) && (!missing_tot_unweighted)) {
-      missing_tot_unweighted = (int*)wkspace_alloc(ulii * sizeof(int));
+      missing_tot_unweighted = (unsigned int*)wkspace_alloc(ulii * sizeof(int));
       if (!missing_tot_unweighted) {
 	goto wdist_ret_NOMEM;
       }
-      fill_int_zero(missing_tot_unweighted, ulii);
+      fill_int_zero((int*)missing_tot_unweighted, ulii);
     }
     if (binary_files && snp_major) {
       fseeko(pedfile, 3, SEEK_SET);
@@ -4790,13 +4801,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         dptr3 = &(rel_ibc[indiv_ct]);
         dptr4 = &(rel_ibc[indiv_ct * 2]);
       }
-      iwptr = missing_tot_unweighted;
+      giptr2 = missing_tot_unweighted;
       for (ii = 0; ii < indiv_ct; ii++) {
         uii = marker_ct - indiv_missing_unwt[ii];
         if (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF)) {
           giptr = indiv_missing_unwt;
 	  for (jj = 0; jj < ii; jj++) {
-	    *dist_ptr /= uii - (*giptr++) + (*iwptr++);
+	    *dist_ptr /= uii - (*giptr++) + (*giptr2++);
 	    dist_ptr++;
 	  }
         }
@@ -5053,7 +5064,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
             goto wdist_ret_WRITE_FAIL;
           }
         } else if (calculation_type & CALC_RELATIONSHIP_GRM) {
-          iwptr = missing_tot_unweighted;
+          giptr2 = missing_tot_unweighted;
 	  if (calculation_type & CALC_RELATIONSHIP_GZ) {
 	    strcpy(outname_end, ".grm.gz");
 	    gz_outfile = gzopen(outname, "wb");
@@ -5068,7 +5079,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		fflush(stdout);
 	      }
 	      for (jj = 0; jj < ii; jj += 1) {
-		kk = marker_ct - *iwptr++;
+		kk = marker_ct - *giptr2++;
 		gzprintf(gz_outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++);
 	      }
               kk = marker_ct - indiv_missing_unwt[ii];
@@ -5089,12 +5100,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		fflush(stdout);
 	      }
 	      for (jj = 0; jj < ii; jj += 1) {
-		kk = marker_ct - *iwptr++;
+		kk = marker_ct - *giptr2++;
 		if (fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++) < 0) {
                   goto wdist_ret_WRITE_FAIL;
                 }
 	      }
-              kk = marker_ct - *iwptr++;
+              kk = marker_ct - *giptr2++;
               if (fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dptr2++) < 0) {
                 goto wdist_ret_WRITE_FAIL;
               }
@@ -5291,6 +5302,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       wkspace_reset(rel_dists);
     } else {
       wkspace_reset(indiv_missing_unwt);
+      indiv_missing_unwt = NULL;
     }
   }
 
@@ -5305,14 +5317,37 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_NOMEM;
     }
     wkspace_mark = wkspace_base;
-    missing_tot_weights = (unsigned int*)wkspace_alloc(ulii * sizeof(int));
-    if (!missing_tot_weights) {
-      goto wdist_ret_NOMEM;
+    if (wt_needed) {
+      missing_tot_weights = (unsigned int*)wkspace_alloc(ulii * sizeof(int));
+      if (!missing_tot_weights) {
+	goto wdist_ret_NOMEM;
+      }
+      fill_int_zero((int*)missing_tot_weights, ulii);
+      indiv_missing = (unsigned int*)wkspace_alloc(indiv_ct * sizeof(int));
+      if (!indiv_missing) {
+	goto wdist_ret_NOMEM;
+      }
+      fill_int_zero((int*)indiv_missing, indiv_ct);
     }
-    fill_int_zero((int*)missing_tot_weights, ulii);
+    if ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!missing_tot_unweighted)) {
+      missing_tot_unweighted = (unsigned int*)wkspace_alloc(ulii * sizeof(int));
+      if (!missing_tot_unweighted) {
+        goto wdist_ret_NOMEM;
+      }
+      fill_int_zero((int*)missing_tot_unweighted, ulii);
+      unwt_needed = 1;
+      if (!indiv_missing_unwt) {
+        indiv_missing_unwt = (unsigned int*)wkspace_alloc(indiv_ct * sizeof(int));
+        if (!indiv_missing_unwt) {
+          goto wdist_ret_NOMEM;
+        }
+	unwt_needed_full = 1;
+        fill_int_zero((int*)indiv_missing_unwt, indiv_ct);
+      }
+    }
 
     if (exp0) {
-      idists = (int*)(((char*)missing_tot_weights) - CACHEALIGN(ulii * sizeof(int)));
+      idists = (int*)(((char*)wkspace_mark) - CACHEALIGN(ulii * sizeof(int)));
       fill_int_zero(idists, ulii);
       masks = (unsigned long*)wkspace_alloc(indiv_ct * (MULTIPLEX_2DIST / 8));
     } else {
@@ -5322,11 +5357,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (!masks) {
       goto wdist_ret_NOMEM;
     }
-    indiv_missing = (unsigned int*)wkspace_alloc(indiv_ct * sizeof(int));
-    if (!indiv_missing) {
-      goto wdist_ret_NOMEM;
-    }
-    fill_int_zero((int*)indiv_missing, indiv_ct);
     mmasks = (unsigned long*)wkspace_alloc(indiv_ct * sizeof(long));
     if (!mmasks) {
       goto wdist_ret_NOMEM;
@@ -5422,7 +5452,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      goto wdist_ret_READ_FAIL;
 	    }
 	    maf_buf[jj] = mafs[ii];
-            wtbuf[jj++] = marker_weights_i[pp++];
+	    if (wt_needed) {
+              wtbuf[jj++] = marker_weights_i[pp++];
+	    } else {
+	      jj++;
+	      pp++;
+	    }
 	    ii++;
 	  }
 	  if (jj < multiplex) {
@@ -5440,20 +5475,54 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      glptr = &(((unsigned long*)ped_geno)[nn / BITCT2]);
 	      glptr2 = &(masks[nn / BITCT2]);
               glptr3 = mmasks;
-              giptr = indiv_missing;
+              if (wt_needed) {
+                giptr = indiv_missing;
+	      }
+              if (unwt_needed_full) {
+                giptr2 = indiv_missing_unwt;
+	      }
 	      for (oo = 0; oo < unfiltered_indiv_ct; oo++) {
 		if (!excluded(indiv_exclude, oo)) {
 		  kk = (oo % 4) * 2;
 		  ulii = 0;
                   ulkk = 0;
                   gptr = &(pedbuf[oo / 4 + nn * unfiltered_indiv_ct4]);
-		  for (mm = 0; mm < BITCT2; mm++) {
-		    uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
-		    ulii |= uljj << (mm * 2);
-                    if (uljj == 1) {
-                      ulkk |= 1LLU << mm;
-                      *giptr += wtbuf[mm + nn];
-                    }
+		  if (wt_needed && unwt_needed_full) {
+		    for (mm = 0; mm < BITCT2; mm++) {
+		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
+		      ulii |= uljj << (mm * 2);
+		      if (uljj == 1) {
+			ulkk |= 1LLU << mm;
+			*giptr += wtbuf[mm + nn];
+			*giptr2 += 1;
+		      }
+		    }
+		  } else if (wt_needed) {
+		    for (mm = 0; mm < BITCT2; mm++) {
+		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
+		      ulii |= uljj << (mm * 2);
+		      if (uljj == 1) {
+			ulkk |= 1LLU << mm;
+			*giptr += wtbuf[mm + nn];
+		      }
+		    }
+		  } else if (unwt_needed_full) {
+		    for (mm = 0; mm < BITCT2; mm++) {
+		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
+		      ulii |= uljj << (mm * 2);
+		      if (uljj == 1) {
+			ulkk |= 1LLU << mm;
+			*giptr2 += 1;
+		      }
+		    }
+		  } else {
+		    for (mm = 0; mm < BITCT2; mm++) {
+		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
+		      ulii |= uljj << (mm * 2);
+		      if (uljj == 1) {
+			ulkk |= 1LLU << mm;
+		      }
+		    }
 		  }
 		  // use xor to convert representation to 0 = missing,
 		  // 1 or 2 = homozygote, 3 = heterozygote
@@ -5471,13 +5540,42 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		  ulii = 0;
                   ulkk = 0;
                   gptr = &(pedbuf[oo / 4 + (nn + BITCT2) * unfiltered_indiv_ct4]);
-		  for (mm = 0; mm < BITCT2; mm++) {
-		    uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
-		    ulii |= uljj << (mm * 2);
-                    if (uljj == 1) {
-                      ulkk |= 1LLU << mm;
-                      *giptr += wtbuf[mm + nn + BITCT2];
-                    }
+		  if (wt_needed && unwt_needed_full) {
+		    for (mm = 0; mm < BITCT2; mm++) {
+		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
+		      ulii |= uljj << (mm * 2);
+		      if (uljj == 1) {
+			ulkk |= 1LLU << mm;
+			*giptr += wtbuf[mm + nn + BITCT2];
+			*giptr2 += 1;
+		      }
+		    }
+		  } else if (wt_needed) {
+		    for (mm = 0; mm < BITCT2; mm++) {
+		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
+		      ulii |= uljj << (mm * 2);
+		      if (uljj == 1) {
+			ulkk |= 1LLU << mm;
+			*giptr += wtbuf[mm + nn + BITCT2];
+		      }
+		    }
+		  } else if (unwt_needed_full) {
+		    for (mm = 0; mm < BITCT2; mm++) {
+		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
+		      ulii |= uljj << (mm * 2);
+		      if (uljj == 1) {
+			ulkk |= 1LLU << mm;
+                        *giptr2 += 1;
+		      }
+		    }
+		  } else {
+		    for (mm = 0; mm < BITCT2; mm++) {
+		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
+		      ulii |= uljj << (mm * 2);
+		      if (uljj == 1) {
+			ulkk |= 1LLU << mm;
+		      }
+		    }
 		  }
 #if __LP64__
 		  ulii ^= 0x5555555555555555LLU;
@@ -5495,16 +5593,28 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
                   giptr++;
 		}
 	      }
-	      weights_i = &(wtbuf[nn]);
-
-	      for (ulii = 1; ulii < thread_ct; ulii++) {
-		if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_thread, (void*)ulii)) {
-		  goto wdist_ret_THREAD_CREATE_FAIL;
+	      if (wt_needed) {
+		weights_i = &(wtbuf[nn]);
+		for (ulii = 1; ulii < thread_ct; ulii++) {
+		  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_thread, (void*)ulii)) {
+		    goto wdist_ret_THREAD_CREATE_FAIL;
+		  }
+		}
+		incr_wt_dist_missing(missing_tot_weights, 0);
+		for (oo = 0; oo < thread_ct - 1; oo++) {
+		  pthread_join(threads[oo], NULL);
 		}
 	      }
-	      decr_dist_missing(missing_tot_weights, 0);
-	      for (oo = 0; oo < thread_ct - 1; oo++) {
-		pthread_join(threads[oo], NULL);
+	      if (unwt_needed) {
+		for (ulii = 1; ulii < thread_ct; ulii++) {
+		  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_unwt_thread, (void*)ulii)) {
+		    goto wdist_ret_THREAD_CREATE_FAIL;
+		  }
+		}
+		incr_dists_rm(missing_tot_unweighted, 0);
+		for (oo = 0; oo < thread_ct - 1; oo++) {
+		  pthread_join(threads[oo], NULL);
+		}
 	      }
             }
 	    for (ulii = 1; ulii < thread_ct; ulii++) {
@@ -5568,7 +5678,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		goto wdist_ret_THREAD_CREATE_FAIL;
 	      }
 	    }
-	    decr_dist_missing(missing_tot_weights, 0);
+	    incr_wt_dist_missing(missing_tot_weights, 0);
 	    for (oo = 0; oo < thread_ct - 1; oo++) {
 	      pthread_join(threads[oo], NULL);
 	    }
@@ -5604,12 +5714,20 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
 	}
 	iptr = idists;
-        iwptr = (int*)missing_tot_unweighted;
+        giptr = missing_tot_unweighted;
+	kk = 1;
 	for (ii = 0; ii < indiv_ct; ii++) {
 	  giptr2 = indiv_missing_unwt;
 	  uii = marker_ct - giptr2[ii];
 	  if (outfile2) {
             for (jj = 0; jj < ii; jj++) {
+	      dxx = ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)));
+	      if (fprintf(outfile, "%g ", dxx) < 0) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
+	      if (fprintf(outfile2, "%g ", 1.0 - dxx) < 0) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
             }
             if (fwrite_checked("0 ", 2, outfile)) {
               goto wdist_ret_WRITE_FAIL;
@@ -5620,7 +5738,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
             giptr2++;
             for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
 	      uljj = (ulii * (ulii - 1)) / 2 + ii;
-              dxx = ((double)idists[uljj]) / (uii - (*giptr2++) + missing_tot_unweighted[uljj]);
+              dxx = ((double)idists[uljj]) / (2 * (uii - (*giptr2++) + missing_tot_unweighted[uljj]));
               if (fprintf(outfile, "%g ", dxx) < 0) {
                 goto wdist_ret_WRITE_FAIL;
 	      }
@@ -5633,7 +5751,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    }
 	  } else {
 	    for (jj = 0; jj < ii; jj++) {
-	      if (fprintf(outfile, "%g ", ((double)(*iptr++)) / (uii - (*giptr2++) + (*iwptr++))) < 0) {
+	      if (fprintf(outfile, "%g ", ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)))) < 0) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
 	    }
@@ -5643,13 +5761,18 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    giptr2++;
 	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
               uljj = ulii * (ulii - 1) / 2 + ii;
-	      if (fprintf(outfile, "%g ", ((double)idists[uljj]) / (uii - (*giptr2++) + missing_tot_unweighted[uljj])) < 0) {
+	      if (fprintf(outfile, "%g ", ((double)idists[uljj]) / (2 * (uii - (*giptr2++) + missing_tot_unweighted[uljj]))) < 0) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
 	    }
 	  }
-          if (fwrite_checked("\n", 1, outfile)) {
-            goto wdist_ret_WRITE_FAIL;
+	  if (fwrite_checked("\n", 1, outfile)) {
+	    goto wdist_ret_WRITE_FAIL;
+	  }
+          if (ii * 100 >= (kk * indiv_ct)) {
+            kk = (ii * 100) / indiv_ct;
+            printf("\rWriting... %d%%", kk++);
+            fflush(stdout);
           }
 	}
       } else {
@@ -5658,12 +5781,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  goto wdist_ret_OPENFAIL;
         }
 	iptr = idists;
-        iwptr = missing_tot_unweighted;
+        giptr = missing_tot_unweighted;
+	kk = 1;
 	for (ii = 0; ii < indiv_ct; ii++) {
 	  giptr2 = indiv_missing_unwt;
 	  uii = marker_ct - giptr2[ii];
           for (jj = 0; jj < ii; jj++) {
-            if (fprintf(outfile, "%g ", 1.0 - (((double)(*iptr++)) / (uii - (*giptr2++) + (*iwptr++)))) < 0) {
+            if (fprintf(outfile, "%g ", 1.0 - (((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++))))) < 0) {
               goto wdist_ret_WRITE_FAIL;
             }
           }
@@ -5673,11 +5797,27 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           giptr2++;
           for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
 	    uljj = (ulii * (ulii + 1)) / 2 + ii;
-            if (fprintf(outfile, "%g ", 1.0 - (((double)idists[uljj]) / (uii - (*giptr2++) + missing_tot_unweighted[uljj]))) < 0) {
+            if (fprintf(outfile, "%g ", 1.0 - (((double)idists[uljj]) / (2 * (uii - (*giptr2++) + missing_tot_unweighted[uljj])))) < 0) {
               goto wdist_ret_WRITE_FAIL;
             }
           }
+	  if (fwrite_checked("\n", 1, outfile)) {
+	    goto wdist_ret_WRITE_FAIL;
+	  }
+          if (ii * 100 >= (kk * indiv_ct)) {
+            kk = (ii * 100) / indiv_ct;
+            printf("\rWriting... %d%%", kk++);
+            fflush(stdout);
+          }
         }
+      }
+      if ((calculation_type & CALC_PLINK_DISTANCE_MATRIX) && (calculation_type & CALC_PLINK_IBS_MATRIX)) {
+        outname_end[0] = '\0';
+        printf("\rDistances written to %s.mdist, and IBS values to %s.mdist.ibs.", outname, outname);
+      } else if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
+        printf("\rDistances written to %s.\n", outname);
+      } else {
+	printf("\rIBS values written to %s.\n", outname);
       }
       strcpy(outname_end, ".mdist.id");
       retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
@@ -5689,28 +5829,30 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         fclose_null(&outfile2);
       }
     }
-    ulii = indiv_ct;
-    ulii = ulii * (ulii - 1) / 2;
-    giptr = missing_tot_weights;
-    dptr2 = dists;
-    if (exp0) {
-      iptr = idists;
-      for (ii = 1; ii < indiv_ct; ii++) {
-        giptr2 = indiv_missing;
-        uii = giptr2[ii];
-        for (jj = 0; jj < ii; jj++) {
-          *dptr2 = (4294967295.0 / ((4294967295U - uii - (*giptr2++)) + (*giptr++))) * (*iptr++);
-          dptr2++;
-        }
-      }
-    } else {
-      for (ii = 1; ii < indiv_ct; ii++) {
-        giptr2 = indiv_missing;
-        uii = giptr2[ii];
-        for (jj = 0; jj < ii; jj++) {
-	  *dptr2 *= (4294967295.0 / ((4294967295U - uii - (*giptr2++)) + (*giptr++)));
-	  dptr2++;
-        }
+    if (wt_needed) {
+      ulii = indiv_ct;
+      ulii = ulii * (ulii - 1) / 2;
+      giptr = missing_tot_weights;
+      dptr2 = dists;
+      if (exp0) {
+	iptr = idists;
+	for (ii = 1; ii < indiv_ct; ii++) {
+	  giptr2 = indiv_missing;
+	  uii = giptr2[ii];
+	  for (jj = 0; jj < ii; jj++) {
+	    *dptr2 = (4294967295.0 / ((4294967295U - uii - (*giptr2++)) + (*giptr++))) * (*iptr++);
+	    dptr2++;
+	  }
+	}
+      } else {
+	for (ii = 1; ii < indiv_ct; ii++) {
+	  giptr2 = indiv_missing;
+	  uii = giptr2[ii];
+	  for (jj = 0; jj < ii; jj++) {
+	    *dptr2 *= (4294967295.0 / ((4294967295U - uii - (*giptr2++)) + (*giptr++)));
+	    dptr2++;
+	  }
+	}
       }
     }
   }
