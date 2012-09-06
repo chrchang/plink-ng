@@ -16,7 +16,7 @@
 
 
 // Uncomment this to build without CBLAS/CLAPACK:
-// #define NOLAPACK
+#define NOLAPACK
 
 
 // The key ideas behind this calculator's design are:
@@ -170,7 +170,7 @@
 
 // Number of snp-major .bed lines to read at once for distance calc if exponent
 // is zero.  Currently assumed to be a multiple of 192, and no larger than
-// 1920, by the popcount_..._multibyte functions.  (The optimal value depends
+// 1920, by the popcount_..._multiword functions.  (The optimal value depends
 // on both system-specific properties such as cache sizes, as well as the
 // number of individuals in the current calculation, so in principle it's best
 // to select this value at runtime.  But 960 usually works well in practice in
@@ -200,9 +200,9 @@
 
 const char info_str[] =
 #ifdef NOLAPACK
-  "WDIST weighted genetic distance calculator, v0.5.13 (5 September 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.5.14 (5 September 2012)\n"
 #else
-  "WDIST weighted genetic distance calculator, v0.7.7 (5 September 2012)\n"
+  "WDIST weighted genetic distance calculator, v0.7.8 (5 September 2012)\n"
 #endif
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
@@ -1732,7 +1732,7 @@ typedef union {
 // Note that the size of the popcounted buffer is a hardcoded constant
 // (specifically, (MULTIPLEX_DIST / BITCT) * 16 bytes).  The current code
 // assumes (MULTIPLEX / BITCT) is a multiple of 3, and no greater than 30.
-static inline unsigned int popcount_xor_1mask_multibyte(__m128i** xor1p, __m128i* xor2, __m128i** maskp) {
+static inline unsigned int popcount_xor_1mask_multiword(__m128i** xor1p, __m128i* xor2, __m128i** maskp) {
   const __m128i m1 = {0x5555555555555555LLU, 0x5555555555555555LLU};
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
@@ -1777,7 +1777,7 @@ static inline unsigned int popcount_xor_1mask_multibyte(__m128i** xor1p, __m128i
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 
-static inline unsigned int popcount_xor_2mask_multibyte(__m128i** xor1p, __m128i* xor2, __m128i** mask1p, __m128i* mask2) {
+static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i* xor2, __m128i** mask1p, __m128i* mask2) {
   const __m128i m1 = {0x5555555555555555LLU, 0x5555555555555555LLU};
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
@@ -1816,7 +1816,7 @@ static inline unsigned int popcount_xor_2mask_multibyte(__m128i** xor1p, __m128i
 // testing purposes.  If there is a serious need for a fast 32-bit version, one
 // can make minor modifications to the code above, or revert to standard
 // Walisch/Lauradoux if SSE2 is unavailable.
-static inline unsigned int popcount_xor_1mask_multibyte(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
+static inline unsigned int popcount_xor_1mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
   unsigned long* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
   unsigned int bit_count = 0;
   unsigned long ulii;
@@ -1827,7 +1827,7 @@ static inline unsigned int popcount_xor_1mask_multibyte(unsigned long** xor1p, u
   return bit_count;
 }
 
-static inline unsigned int popcount_xor_2mask_multibyte(unsigned long** xor1p, unsigned long* xor2, unsigned long** mask1p, unsigned long* mask2) {
+static inline unsigned int popcount_xor_2mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** mask1p, unsigned long* mask2) {
   unsigned long* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
   unsigned int bit_count = 0;
   unsigned long ulii;
@@ -1880,12 +1880,12 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
 #endif
     if (~mask_fixed) {
       while (glptr < glptr2) {
-	*idists += popcount_xor_2mask_multibyte(&glptr, glptr2, &mptr, mcptr_start);
+	*idists += popcount_xor_2mask_multiword(&glptr, glptr2, &mptr, mcptr_start);
 	idists++;
       }
     } else {
       while (glptr < glptr2) {
-	*idists += popcount_xor_1mask_multibyte(&glptr, glptr2, &mptr);
+	*idists += popcount_xor_1mask_multiword(&glptr, glptr2, &mptr);
 	idists++;
       }
     }
@@ -4023,7 +4023,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       line_locs[kk] = last_tell + (bufptr - (char*)pedbuf);
       mm = 0; // number of missing
       for (jj = 0; jj < unfiltered_marker_ct; jj += 1) {
-        for (mm = 0; mm < 2; mm++) {
+        for (nn = 0; nn < 2; nn++) {
           cc = *bufptr;
 	  if (cc == '\0') {
 	    printf(errstr_ped_format);
@@ -4069,9 +4069,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       kk++;
     }
     rewind(pedfile);
-    for (ii = 0; ii < unfiltered_marker_ct; ii += 1) {
-      for (jj = 1; jj < 3; jj += 1) {
-        for (kk = jj - 1; kk >= 0; kk -= 1) {
+    for (ii = 0; ii < unfiltered_marker_ct; ii++) {
+      for (jj = 1; jj < 4; jj++) {
+        for (kk = jj - 1; kk >= 0; kk--) {
           if (marker_allele_cts[ii * 4 + kk] < marker_allele_cts[ii * 4 + kk + 1]) {
             cc = marker_alleles[ii * 4 + kk];
             marker_alleles[ii * 4 + kk] = marker_alleles[ii * 4 + kk + 1];
@@ -4572,6 +4572,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     printf("Allele frequencies written to %s.\n", outname);
   }
 
+  wkspace_reset(marker_weights);
   if (distance_req(calculation_type)) {
     // normalize marker weights to add to 2^32 - 1
     dxx = 0.0;
@@ -4586,10 +4587,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     while (dptr2 < dptr3) {
       *giptr++ = (unsigned int)((*dptr2++) * dxx + 0.5);
     }
-    wkspace_reset(marker_weights);
     marker_weights_i = (unsigned int*)wkspace_alloc(marker_ct * sizeof(int));
-  } else {
-    wkspace_reset(marker_weights);
   }
 
   if (relationship_or_ibc_req(calculation_type)) {
@@ -6078,6 +6076,8 @@ int main(int argc, char** argv) {
   double unrelated_herit_covg = 0.45;
   double unrelated_herit_cove = 0.55;
   int ibc_type = 0;
+  // int parallel_tot = 0;
+  // int parallel_idx = 0;
   int ii;
   int jj;
   int kk;
@@ -7037,6 +7037,16 @@ int main(int argc, char** argv) {
       if (!(calculation_type & CALC_DISTANCE_MASK)) {
         calculation_type |= CALC_DISTANCE_NULL;
       }
+    } else if (!strcmp(argptr, "--parallel")) {
+      ii = param_count(argc, argv, cur_arg);
+      if (ii < 2) {
+        printf("Error: Not enough --parallel parameters.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      } else if (ii > 2) {
+        printf("Error: Too many --parallel parameters.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      cur_arg += 3;
     } else if (!strcmp(argptr, "--groupdist")) {
       if (calculation_type & CALC_GROUPDIST) {
         printf("Error: Duplicate --groupdist flag.%s", errstr_append);
