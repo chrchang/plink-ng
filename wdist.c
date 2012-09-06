@@ -1,4 +1,4 @@
-// WDIST weighted genetic distance calculator
+// WDIST weighted genomic distance calculator
 // Copyright (C) 2012  Christopher Chang  chrchang@alumni.caltech.edu
 
 // This program is free software: you can redistribute it and/or modify
@@ -209,9 +209,9 @@
 
 const char info_str[] =
 #ifdef NOLAPACK
-  "WDIST weighted genetic distance calculator, v0.5.15 (6 September 2012)\n"
+  "WDIST weighted genomic distance calculator, v0.5.15 (6 September 2012)\n"
 #else
-  "WDIST weighted genetic distance calculator, v0.8.0 (6 September 2012)\n"
+  "WDIST weighted genomic distance calculator, v0.7.9 (6 September 2012)\n"
 #endif
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
@@ -319,7 +319,7 @@ int dispmsg(int retval) {
 "    Generates the same allele frequency report as PLINK --freq (or GCTA --freq,\n"
 "    if the 'gcta' modifier is present).\n\n"
 "  --distance <square | square0 | triangle> <gz | bin>\n"
-"    Writes a lower-triangular tab-delimited table of (weighted) genetic\n"
+"    Writes a lower-triangular tab-delimited table of (weighted) genomic\n"
 "    distances to {output prefix}.dist, and a list of the corresponding\n"
 "    family/individual IDs to {output prefix}.dist.id.\n"
 "    The first row of the .dist file contains a single number describing the\n"
@@ -336,7 +336,7 @@ int dispmsg(int retval) {
 "    you don't want to pad the upper right at all.\n"
 "  --distance-matrix\n"
 "  --matrix\n"
-"    This yields the same output as the corresponding PLINK flags (i.e. distance\n"
+"    These yield the same output as the corresponding PLINK flags (i.e. distance\n"
 "    and/or similarity proportions are written, rather than SNP counts).  Note\n"
 "    that PLINK does not use MAF to adjust the weights of missing markers, so\n"
 "    this isn't quite a linear transformation of --distance.\n\n"
@@ -361,13 +361,13 @@ int dispmsg(int retval) {
 "    This is identical to --make-rel bin, except the output file extension is\n"
 "    .grm.bin.\n\n"
 "  --groupdist {iters} {d}\n"
-"    Two-group genetic distance analysis, using delete-d jackknife with the\n"
+"    Two-group genomic distance analysis, using delete-d jackknife with the\n"
 "    requested number of iterations to estimate standard errors.  Binary\n"
 "    phenotype required.\n"
 "    If only one parameter is provided, d defaults to {number of people}^0.6\n"
 "    rounded down.  With no parameters, 100k iterations are run.\n\n"
 "  --regress-distance {iters} {d}\n"
-"    Regresses genetic distances on average phenotypes, using delete-d\n"
+"    Regresses genomic distances on average phenotypes, using delete-d\n"
 "    jackknife for standard errors.  Scalar phenotype required.  Defaults for\n"
 "    iters and d are the same as for --groupdist.\n\n"
 #ifndef NOLAPACK
@@ -376,7 +376,7 @@ int dispmsg(int retval) {
 "    variant of the EM algorithm until the rate of change of the log likelihood\n"
 "    function is less than tol.  Scalar phenotype required.\n"
 "    The 'strict' modifier forces regular EM to be used.  tol defaults to\n"
-"    10^{-7}, genetic covariance prior defaults to 0.45, and residual\n"
+"    10^{-7}, genomic covariance prior defaults to 0.45, and residual\n"
 "    covariance prior defaults to (1 - covg).\n"
 "    For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
 "    Genetic Correlations Explained by Common SNPs for Metabolic Syndrome\n"
@@ -451,7 +451,7 @@ int dispmsg(int retval) {
 "  --exclude [file] : Exclude all SNPs in the given list.\n"
 "  --keep [fname]   : Only include individuals in the given list.\n"
 "  --remove [fname] : Exclude all individuals in the given list.\n"
-"  --exponent [val] : When computing genetic distances, each marker has a weight\n"
+"  --exponent [val] : When computing genomic distances, each marker has a weight\n"
 "                     of (2q(1-q))^{-val}, where q is the observed MAF after\n"
 "                     applying --keep/--remove/--filter/--prune and before\n"
 "                     applying any other filters.  (Use --read-freq if you want\n"
@@ -463,12 +463,14 @@ int dispmsg(int retval) {
 "                              rounds of filtering, because MAFs affect the\n"
 "                              behavior of some filters, and observed MAFs\n"
 "                              change when you filter people out.)\n"
+/*
 "  --parallel [k] [n]        : Divide the output matrix into n pieces, and only\n"
 "                              compute the kth piece.  The primary output file\n"
 "                              will have the piece number appended to its name,\n"
 "                              e.g. wdist.rel.gz.13 if k is 13.  Concatenating\n"
 "                              these files in order will yield the full matrix\n"
 "                              of interest.\n"
+*/
 "  --filter [filename] [val] : Filter individuals (see PLINK documentation).\n"
 "  --mfilter [col]           : Specify column number in --filter file.\n"
 "  --missing-genotype [char] : Code for missing genotype.\n"
@@ -6201,7 +6203,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
 
     dxx = ulii;
-    printf("Regression slope (y = genetic distance, x = phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_xx - reg_tot_x * reg_tot_x / dxx));
+    printf("Regression slope (y = genomic distance, x = phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_xx - reg_tot_x * reg_tot_x / dxx));
 
     jackknife_iters = (regress_iters + thread_ct - 1) / thread_ct;
     if (regress_d) {
@@ -7511,11 +7513,11 @@ int main(int argc, char** argv) {
 	  }
 	  if (ii > jj) {
 	    if (sscanf(argv[cur_arg + jj + 1], "%lg", &unrelated_herit_covg) != 1) {
-	      printf("Error: Invalid --unrelated-heritability genetic covariance prior.\n");
+	      printf("Error: Invalid --unrelated-heritability genomic covariance prior.\n");
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    if ((unrelated_herit_covg <= 0.0) || (unrelated_herit_covg > 1.0)) {
-	      printf("Error: Invalid --unrelated-heritability genetic covariance prior.\n");
+	      printf("Error: Invalid --unrelated-heritability genomic covariance prior.\n");
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    if (ii == jj + 2) {
