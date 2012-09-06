@@ -1348,7 +1348,7 @@ double* marker_weights;
 unsigned int* marker_weights_i = NULL;
 unsigned int* missing_tot_weights;
 unsigned int* indiv_missing;
-unsigned int* indiv_missing_unwt;
+unsigned int* indiv_missing_unwt = NULL;
 
 void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_type) {
   // first calculate weight array, then loop
@@ -5590,9 +5590,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
                   *glptr3++ |= ulkk << BITCT2;
                   glptr = &(glptr[(MULTIPLEX_2DIST / BITCT) - 1]);
                   glptr2 = &(glptr2[(MULTIPLEX_2DIST / BITCT) - 1]);
-                  giptr++;
+		  if (wt_needed) {
+                    giptr++;
+		  }
+		  if (unwt_needed_full) {
+		    giptr2++;
+		  }
 		}
 	      }
+
 	      if (wt_needed) {
 		weights_i = &(wtbuf[nn]);
 		for (ulii = 1; ulii < thread_ct; ulii++) {
