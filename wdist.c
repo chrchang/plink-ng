@@ -2769,7 +2769,6 @@ inline int relationship_or_ibc_req(int calculation_type) {
 
 int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* makepheno_str, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_cove, int ibc_type, int parallel_idx, int parallel_tot) {
   FILE* outfile = NULL;
-  FILE* outfile2 = NULL;
   FILE* mapfile = NULL;
   FILE* pedfile = NULL;
   FILE* famfile = NULL;
@@ -5710,75 +5709,42 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	if (fopen_checked(&outfile, outname, "w")) {
 	  goto wdist_ret_OPENFAIL;
 	}
-	if (calculation_type & CALC_PLINK_IBS_MATRIX) {
-	  strcpy(outname_end, ".mibs");
-	  if (fopen_checked(&outfile2, outname, "w")) {
-	    goto wdist_ret_OPENFAIL;
-	  }
-	}
 	iptr = idists;
         giptr = missing_tot_unweighted;
 	kk = 1;
 	for (ii = 0; ii < indiv_ct; ii++) {
 	  giptr2 = indiv_missing_unwt;
 	  uii = marker_ct - giptr2[ii];
-	  if (outfile2) {
-            for (jj = 0; jj < ii; jj++) {
-	      dxx = ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)));
-	      if (fprintf(outfile, "%g ", dxx) < 0) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	      if (fprintf(outfile2, "%g ", 1.0 - dxx) < 0) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-            }
-            if (fwrite_checked("0 ", 2, outfile)) {
-              goto wdist_ret_WRITE_FAIL;
-            }
-            if (fwrite_checked("1 ", 2, outfile2)) {
-              goto wdist_ret_WRITE_FAIL;
-            }
-            giptr2++;
-            for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      uljj = (ulii * (ulii - 1)) / 2 + ii;
-              dxx = ((double)idists[uljj]) / (2 * (uii - (*giptr2++) + missing_tot_unweighted[uljj]));
-              if (fprintf(outfile, "%g ", dxx) < 0) {
-                goto wdist_ret_WRITE_FAIL;
-	      }
-              if (fprintf(outfile2, "%g ", 1.0 - dxx) < 0) {
-                goto wdist_ret_WRITE_FAIL;
-              }
-            }
-            if (fwrite_checked("\n", 1, outfile2)) {
-              goto wdist_ret_WRITE_FAIL;
-	    }
-	  } else {
-	    for (jj = 0; jj < ii; jj++) {
-	      if (fprintf(outfile, "%g ", ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)))) < 0) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	    }
-	    if (fwrite_checked("0 ", 2, outfile)) {
+	  for (jj = 0; jj < ii; jj++) {
+	    if (fprintf(outfile, "%g ", ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)))) < 0) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    giptr2++;
-	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-              uljj = ulii * (ulii - 1) / 2 + ii;
-	      if (fprintf(outfile, "%g ", ((double)idists[uljj]) / (2 * (uii - (*giptr2++) + missing_tot_unweighted[uljj]))) < 0) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
+	  }
+	  if (fwrite_checked("0 ", 2, outfile)) {
+	    goto wdist_ret_WRITE_FAIL;
+	  }
+	  giptr2++;
+	  for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+	    uljj = ulii * (ulii - 1) / 2 + ii;
+	    if (fprintf(outfile, "%g ", ((double)idists[uljj]) / (2 * (uii - (*giptr2++) + missing_tot_unweighted[uljj]))) < 0) {
+	      goto wdist_ret_WRITE_FAIL;
 	    }
 	  }
 	  if (fwrite_checked("\n", 1, outfile)) {
 	    goto wdist_ret_WRITE_FAIL;
 	  }
-          if (ii * 100 >= (kk * indiv_ct)) {
-            kk = (ii * 100) / indiv_ct;
-            printf("\rWriting... %d%%", kk++);
-            fflush(stdout);
-          }
+	  if (ii * 100 >= (kk * indiv_ct)) {
+	    kk = (ii * 100) / indiv_ct;
+	    printf("\rWriting... %d%%", kk++);
+	    fflush(stdout);
+	  }
 	}
-      } else {
+        if (fclose_null(&outfile)) {
+	  goto wdist_ret_WRITE_FAIL;
+	}
+        printf("\rDistances (proportional) written to %s.\n", outname);
+      }
+      if (calculation_type & CALC_PLINK_IBS_MATRIX) {
         strcpy(outname_end, ".mibs");
         if (fopen_checked(&outfile, outname, "w")) {
 	  goto wdist_ret_OPENFAIL;
@@ -5813,23 +5779,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
             fflush(stdout);
           }
         }
-      }
-      if ((calculation_type & CALC_PLINK_DISTANCE_MATRIX) && (calculation_type & CALC_PLINK_IBS_MATRIX)) {
-        outname_end[0] = '\0';
-        printf("\rDistances written to %s.mdist, and IBS values to %s.mibs.\n", outname, outname);
-      } else if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
-        printf("\rDistances written to %s.\n", outname);
-      } else {
+	fclose_null(&outfile);
 	printf("\rIBS values written to %s.\n", outname);
       }
       strcpy(outname_end, ".mdist.id");
       retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
       if (retval) {
         goto wdist_ret_2;
-      }
-      fclose_null(&outfile);
-      if (outfile2) {
-        fclose_null(&outfile2);
       }
     }
     if (wt_needed) {
@@ -6040,7 +5996,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         goto wdist_ret_WRITE_FAIL;
       }
     }
-    printf("\rDistances written to %s.\n", outname);
+    printf("\rDistances (in SNPs) written to %s.\n", outname);
   }
   wkspace_reset(wkspace_mark);
 
