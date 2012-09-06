@@ -403,6 +403,9 @@ int dispmsg(int retval) {
 "  --bed [filename] : Specify .bed file.\n"
 "  --bim [filename] : Specify .bim file.\n"
 "  --fam [filename] : Specify .fam file.\n"
+"  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --groupdist\n"
+"                     or --regress-distance analysis, instead of recalculating\n"
+"                     it from scratch.\n"
 "  --out [prefix]   : Specify prefix for output files.\n"
 "  --silent         : Suppress output to console.\n"
 "  --pheno [fname]  : Specify alternate phenotype.\n"
@@ -479,10 +482,7 @@ int dispmsg(int retval) {
 "                              (greater than Hbt, affected) groups from scalar\n"
 "                              phenotype data.  If Hbt is unspecified, it is set\n"
 "                              equal to Ltop.  Central phenotype values are\n"
-"                              treated as missing.\n"
-"  --load-distances [fname]  : Load a binary TRIANGULAR distance matrix for\n"
-"                              --groupdist or --regress-distance analysis,\n"
-"                              instead of recalculating it from scratch.\n\n"
+"                              treated as missing.\n\n"
          , info_str);
     break;
   }
@@ -2779,6 +2779,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   FILE* bimtmpfile = NULL;
   FILE* famtmpfile = NULL;
   FILE* freqfile = NULL;
+  FILE* loaddistfile = NULL;
   int unfiltered_marker_ct = 0;
   int unfiltered_marker_ct4 = 0;
   int marker_ct;
@@ -5703,89 +5704,92 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     fclose_null(&pedfile);
     printf("\rDistance matrix calculation complete.\n");
-    if (calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) {
-      if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
-	strcpy(outname_end, ".mdist");
-	if (fopen_checked(&outfile, outname, "w")) {
-	  goto wdist_ret_OPENFAIL;
-	}
-	iptr = idists;
-        giptr = missing_tot_unweighted;
-	kk = 1;
-	for (ii = 0; ii < indiv_ct; ii++) {
-	  giptr2 = indiv_missing_unwt;
-	  uii = marker_ct - giptr2[ii];
-	  for (jj = 0; jj < ii; jj++) {
-	    if (fprintf(outfile, "%g ", ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)))) < 0) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-	  }
-	  if (fwrite_checked("0 ", 2, outfile)) {
+    if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
+      strcpy(outname_end, ".mdist");
+      if (fopen_checked(&outfile, outname, "w")) {
+	goto wdist_ret_OPENFAIL;
+      }
+      iptr = idists;
+      giptr = missing_tot_unweighted;
+      kk = 1;
+      for (ii = 0; ii < indiv_ct; ii++) {
+	giptr2 = indiv_missing_unwt;
+	uii = marker_ct - giptr2[ii];
+	for (jj = 0; jj < ii; jj++) {
+	  if (fprintf(outfile, "%g ", ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)))) < 0) {
 	    goto wdist_ret_WRITE_FAIL;
 	  }
-	  giptr2++;
-	  for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	    uljj = ulii * (ulii - 1) / 2 + ii;
-	    if (fprintf(outfile, "%g ", ((double)idists[uljj]) / (2 * (uii - (*giptr2++) + missing_tot_unweighted[uljj]))) < 0) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-	  }
-	  if (fwrite_checked("\n", 1, outfile)) {
-	    goto wdist_ret_WRITE_FAIL;
-	  }
-	  if (ii * 100 >= (kk * indiv_ct)) {
-	    kk = (ii * 100) / indiv_ct;
-	    printf("\rWriting... %d%%", kk++);
-	    fflush(stdout);
-	  }
 	}
-        if (fclose_null(&outfile)) {
+	if (fwrite_checked("0 ", 2, outfile)) {
 	  goto wdist_ret_WRITE_FAIL;
 	}
-        printf("\rDistances (proportional) written to %s.\n", outname);
-      }
-      if (calculation_type & CALC_PLINK_IBS_MATRIX) {
-        strcpy(outname_end, ".mibs");
-        if (fopen_checked(&outfile, outname, "w")) {
-	  goto wdist_ret_OPENFAIL;
-        }
-	iptr = idists;
-        giptr = missing_tot_unweighted;
-	kk = 1;
-	for (ii = 0; ii < indiv_ct; ii++) {
-	  giptr2 = indiv_missing_unwt;
-	  uii = marker_ct - giptr2[ii];
-          for (jj = 0; jj < ii; jj++) {
-            if (fprintf(outfile, "%g ", 1.0 - (((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++))))) < 0) {
-              goto wdist_ret_WRITE_FAIL;
-            }
-          }
-          if (fwrite_checked("1 ", 2, outfile)) {
-            goto wdist_ret_WRITE_FAIL;
-          }
-          giptr2++;
-          for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	    uljj = (ulii * (ulii - 1)) / 2 + ii;
-            if (fprintf(outfile, "%g ", 1.0 - (((double)idists[uljj]) / (2 * (uii - (*giptr2++) + missing_tot_unweighted[uljj])))) < 0) {
-              goto wdist_ret_WRITE_FAIL;
-            }
-          }
-	  if (fwrite_checked("\n", 1, outfile)) {
+	giptr2++;
+	for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+	  uljj = ulii * (ulii - 1) / 2 + ii;
+	  if (fprintf(outfile, "%g ", ((double)idists[uljj]) / (2 * (uii - (*giptr2++) + missing_tot_unweighted[uljj]))) < 0) {
 	    goto wdist_ret_WRITE_FAIL;
 	  }
-          if (ii * 100 >= (kk * indiv_ct)) {
-            kk = (ii * 100) / indiv_ct;
-            printf("\rWriting... %d%%", kk++);
-            fflush(stdout);
-          }
-        }
-	fclose_null(&outfile);
-	printf("\rIBS values written to %s.\n", outname);
+	}
+	if (fwrite_checked("\n", 1, outfile)) {
+	  goto wdist_ret_WRITE_FAIL;
+	}
+	if (ii * 100 >= (kk * indiv_ct)) {
+	  kk = (ii * 100) / indiv_ct;
+	  printf("\rWriting... %d%%", kk++);
+	  fflush(stdout);
+	}
       }
+      if (fclose_null(&outfile)) {
+	goto wdist_ret_WRITE_FAIL;
+      }
+      printf("\rDistances (proportions) written to %s.\n", outname);
       strcpy(outname_end, ".mdist.id");
       retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
       if (retval) {
-        goto wdist_ret_2;
+	goto wdist_ret_2;
+      }
+    }
+    if (calculation_type & CALC_PLINK_IBS_MATRIX) {
+      strcpy(outname_end, ".mibs");
+      if (fopen_checked(&outfile, outname, "w")) {
+	goto wdist_ret_OPENFAIL;
+      }
+      iptr = idists;
+      giptr = missing_tot_unweighted;
+      kk = 1;
+      for (ii = 0; ii < indiv_ct; ii++) {
+	giptr2 = indiv_missing_unwt;
+	uii = marker_ct - giptr2[ii];
+	for (jj = 0; jj < ii; jj++) {
+	  if (fprintf(outfile, "%g ", 1.0 - (((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++))))) < 0) {
+	    goto wdist_ret_WRITE_FAIL;
+	  }
+	}
+	if (fwrite_checked("1 ", 2, outfile)) {
+	  goto wdist_ret_WRITE_FAIL;
+	}
+	giptr2++;
+	for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+	  uljj = (ulii * (ulii - 1)) / 2 + ii;
+	  if (fprintf(outfile, "%g ", 1.0 - (((double)idists[uljj]) / (2 * (uii - (*giptr2++) + missing_tot_unweighted[uljj])))) < 0) {
+	    goto wdist_ret_WRITE_FAIL;
+	  }
+	}
+	if (fwrite_checked("\n", 1, outfile)) {
+	  goto wdist_ret_WRITE_FAIL;
+	}
+	if (ii * 100 >= (kk * indiv_ct)) {
+	  kk = (ii * 100) / indiv_ct;
+	  printf("\rWriting... %d%%", kk++);
+	  fflush(stdout);
+	}
+      }
+      fclose_null(&outfile);
+      printf("\rIBS values written to %s.\n", outname);
+      strcpy(outname_end, ".mibs.id");
+      retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
+      if (retval) {
+	goto wdist_ret_2;
       }
     }
     if (wt_needed) {
@@ -5997,8 +6001,29 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
     }
     printf("\rDistances (in SNPs) written to %s.\n", outname);
+    wkspace_reset(wkspace_mark);
+  } else if (calculation_type & CALC_LOAD_DISTANCES) {
+    dists_alloc = ((long)indiv_ct * (indiv_ct - 1)) * (sizeof(double) / 2);
+    dists = (double*)wkspace_alloc(dists_alloc);
+    if (!dists) {
+      goto wdist_ret_NOMEM;
+    }
+    if (fopen_checked(&loaddistfile, loaddistname, "rb")) {
+      goto wdist_ret_OPENFAIL;
+    }
+    if (fseeko(loaddistfile, 0, SEEK_END)) {
+      goto wdist_ret_READ_FAIL;
+    }
+    if (ftello(loaddistfile) != dists_alloc) {
+      printf("Invalid --load-dists file.  (Triangular binary of size %lld expected.)\n", dists_alloc);
+      goto wdist_ret_INVALID_FORMAT;
+    }
+    rewind(loaddistfile);
+    if (fread(dists, 1, dists_alloc, loaddistfile) < dists_alloc) {
+      goto wdist_ret_READ_FAIL;
+    }
+    fclose(loaddistfile);
   }
-  wkspace_reset(wkspace_mark);
 
   if (calculation_type & CALC_GROUPDIST) {
     collapse_phenoc(pheno_c, indiv_exclude, unfiltered_indiv_ct);
@@ -6261,6 +6286,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   // if (marker_pos) {
   //   free(marker_pos);
   // }
+  fclose_cond(loaddistfile);
   fclose_cond(freqfile);
   fclose_cond(filterfile);
   fclose_cond(phenofile);
@@ -7279,7 +7305,7 @@ int main(int argc, char** argv) {
       calculation_type |= CALC_IBC;
     } else if (!strcmp(argptr, "--distance")) {
       if (calculation_type & CALC_LOAD_DISTANCES) {
-        printf("Error: --load-distances cannot coexist with a distance matrix calculation flag.%s", errstr_append);
+        printf("Error: --load-dists cannot coexist with a distance matrix calculation flag.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       } else if (calculation_type & CALC_DISTANCE_MASK) {
         printf("Error: Duplicate --distance flag.\n");
@@ -7342,7 +7368,7 @@ int main(int argc, char** argv) {
       }
     } else if ((!strcmp(argptr, "--distance-matrix")) || (!strcmp(argptr, "--matrix"))) {
       if (calculation_type & CALC_LOAD_DISTANCES) {
-        printf("Error: --load-distances cannot coexist with a distance matrix calculation flag.%s", errstr_append);
+        printf("Error: --load-dists cannot coexist with a distance matrix calculation flag.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       } else if (exponent != 0.0) {
         printf("Error: --exponent flag cannot be used with --distance-matrix or --matrix.\n");
@@ -7354,24 +7380,24 @@ int main(int argc, char** argv) {
       } else {
         calculation_type |= CALC_PLINK_IBS_MATRIX;
       }
-    } else if (!strcmp(argptr, "--load-distances")) {
+    } else if (!strcmp(argptr, "--load-dists")) {
       if (calculation_type & CALC_GDISTANCE_MASK) {
-        printf("Error: --load-distances cannot coexist with a distance matrix calculation flag.%s", errstr_append);
+        printf("Error: --load-dists cannot coexist with a distance matrix calculation flag.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       } else if (calculation_type & CALC_LOAD_DISTANCES) {
-        printf("Error: Duplicate --load-distances flag.\n");
+        printf("Error: Duplicate --load-dists flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = param_count(argc, argv, cur_arg);
       if (!ii) {
-        printf("Error: Missing --load-distances parameter.%s", errstr_append);
+        printf("Error: Missing --load-dists parameter.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       } else if (ii > 1) {
-        printf("Error: Too many --load-distances parameters.%s", errstr_append);
+        printf("Error: Too many --load-dists parameters.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-        printf("Error: --load-distances filename too long.\n");
+        printf("Error: --load-dists filename too long.\n");
         return dispmsg(RET_OPENFAIL);
       }
       strcpy(loaddistname, argv[cur_arg + 1]);
