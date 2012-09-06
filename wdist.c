@@ -5711,10 +5711,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  goto wdist_ret_OPENFAIL;
 	}
 	if (calculation_type & CALC_PLINK_IBS_MATRIX) {
-	  // if both --distance-matrix and --matrix are requested, call the IBS
-	  // matrix {output prefix}.mdist.ibs, and do not write a second
-	  // .mdist.id file.
-	  strcpy(outname_end, ".mdist.ibs");
+	  strcpy(outname_end, ".mibs");
 	  if (fopen_checked(&outfile2, outname, "w")) {
 	    goto wdist_ret_OPENFAIL;
 	  }
@@ -5782,7 +5779,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           }
 	}
       } else {
-        strcpy(outname_end, ".mdist");
+        strcpy(outname_end, ".mibs");
         if (fopen_checked(&outfile, outname, "w")) {
 	  goto wdist_ret_OPENFAIL;
         }
@@ -5819,7 +5816,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       if ((calculation_type & CALC_PLINK_DISTANCE_MATRIX) && (calculation_type & CALC_PLINK_IBS_MATRIX)) {
         outname_end[0] = '\0';
-        printf("\rDistances written to %s.mdist, and IBS values to %s.mdist.ibs.", outname, outname);
+        printf("\rDistances written to %s.mdist, and IBS values to %s.mibs.", outname, outname);
       } else if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
         printf("\rDistances written to %s.\n", outname);
       } else {
