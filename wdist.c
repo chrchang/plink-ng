@@ -126,7 +126,7 @@
 #define FILTER_KEEP 1
 #define FILTER_REMOVE 2
 
-#define CALC_RELATIONSHIP_NO_VAR_STD 1
+#define CALC_RELATIONSHIP_COV 1
 #define CALC_RELATIONSHIP_SQ 2
 #define CALC_RELATIONSHIP_SQ0 4
 #define CALC_RELATIONSHIP_TRI 6
@@ -142,19 +142,21 @@
 #define CALC_DISTANCE_SHAPEMASK 384
 #define CALC_DISTANCE_GZ 512
 #define CALC_DISTANCE_BIN 1024
-#define CALC_DISTANCE_MASK 1920
-#define CALC_PLINK_DISTANCE_MATRIX 2048
-#define CALC_PLINK_IBS_MATRIX 4096
-#define CALC_GDISTANCE_MASK 8064
-#define CALC_LOAD_DISTANCES 8192
-#define CALC_GROUPDIST 16384
-#define CALC_REGRESS_DISTANCE 32768
-#define CALC_UNRELATED_HERITABILITY 65536
-#define CALC_UNRELATED_HERITABILITY_STRICT 131072
-#define CALC_FREQ 262144
-#define CALC_FREQ_GCTA 524288
-#define CALC_REL_CUTOFF 1048576
-#define CALC_WRITE_SNPLIST 2097152
+#define CALC_DISTANCE_1_MINUS_IBS 2048
+#define CALC_DISTANCE_IBS 4096
+#define CALC_DISTANCE_SNPS 8192
+#define CALC_DISTANCE_MASK 16256
+#define CALC_PLINK_DISTANCE_MATRIX 16384
+#define CALC_PLINK_IBS_MATRIX 32768
+#define CALC_GDISTANCE_MASK 65408
+#define CALC_LOAD_DISTANCES 65536
+#define CALC_GROUPDIST 131072
+#define CALC_REGRESS_DISTANCE 262144
+#define CALC_UNRELATED_HERITABILITY 524288
+#define CALC_UNRELATED_HERITABILITY_STRICT 1048576
+#define CALC_FREQ 2097152
+#define CALC_REL_CUTOFF 4194304
+#define CALC_WRITE_SNPLIST 8388608
 
 #define _FILE_OFFSET_BITS 64
 #define MAX_THREADS 63
@@ -209,9 +211,9 @@
 
 const char info_str[] =
 #ifdef NOLAPACK
-  "WDIST weighted genomic distance calculator, v0.5.15 (6 September 2012)\n"
+  "WDIST weighted genomic distance calculator, v0.5.16 (8 September 2012)\n"
 #else
-  "WDIST weighted genomic distance calculator, v0.7.9 (6 September 2012)\n"
+  "WDIST weighted genomic distance calculator, v0.8.0 (8 September 2012)\n"
 #endif
   "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
   "wdist [flags...]\n";
@@ -315,72 +317,79 @@ int dispmsg(int retval) {
 "  * {curly braces} denote an optional parameter, where the text between the\n"
 "    braces describes its nature.\n\n"
 "Each run must invoke at least one of the following calculations:\n\n"
-"  --freq <gcta>\n"
-"    Generates the same allele frequency report as PLINK --freq (or GCTA --freq,\n"
-"    if the 'gcta' modifier is present).\n\n"
-"  --distance <square | square0 | triangle> <gz | bin>\n"
+"  --freq\n"
+"    Generates an allele frequency report (identical to PLINK --freq).\n\n"
+"  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <snps>\n"
 "    Writes a lower-triangular tab-delimited table of (weighted) genomic\n"
-"    distances to {output prefix}.dist, and a list of the corresponding\n"
-"    family/individual IDs to {output prefix}.dist.id.\n"
-"    The first row of the .dist file contains a single number describing the\n"
-"    distance between the first two genotypes, the second row has the {genotype\n"
-"    1-genotype 3} and {genotype 2-genotype 3} distances in that order, etc.\n"
-"    If the 'square' or 'square0' modifier is present, a square matrix is\n"
-"    written instead; 'square0' fills the upper right triangle with zeroes.\n"
-"    If the 'gz' modifier is present, a compressed .dist.gz file is written\n"
-"    instead of a plain text file.\n"
-"    If the 'bin' modifier is present, a binary (square) matrix of\n"
-"    double-precision floating point values, suitable for loading from R, is\n"
-"    instead written to {output prefix}.dist.bin.  This can be combined with\n"
-"    'square0' if you still want the upper right zeroed out, or 'triangle' if\n"
-"    you don't want to pad the upper right at all.\n"
-"  --distance-matrix\n"
+"    distances in SNP units to {output prefix}.dist, and a list of the\n"
+"    corresponding family/individual IDs to {output prefix}.dist.id.  The first\n"
+"    row of the .dist file contains a single {genotype 1-genotype 2} distance,\n"
+"    the second row has the {genotype 1-genotype 3} and {genotype 2-genotype 3}\n"
+"    distances in that order, etc.\n"
+"    * If the 'square' or 'square0' modifier is present, a square matrix is\n"
+"      written instead; 'square0' fills the upper right triangle with zeroes.\n"
+"    * If the 'gz' modifier is present, a compressed .dist.gz file is written\n"
+"      instead of a plain text file.\n"
+"    * If the 'bin' modifier is present, a binary (square) matrix of\n"
+"      double-precision floating point values, suitable for loading from R, is\n"
+"      instead written to {output prefix}.dist.bin.  This can be combined with\n"
+"      'square0' if you still want the upper right zeroed out, or 'triangle' if\n"
+"      you don't want to pad the upper right at all.\n"
+"    * If the 'ibs' modifier is present, an identity-by-state matrix is written\n"
+"      to {output prefix}.mibs.  '1-ibs' causes distances expressed as genomic\n"
+"      proportions (i.e. 1 - IBS) to be written to {output prefix}.mdist.\n"
+"      Combine with 'snps' if you want to generate the usual .dist file as well.\n"
 "  --matrix\n"
-"    These yield the same output as the corresponding PLINK flags (i.e. distance\n"
-"    and/or similarity proportions are written, rather than SNP counts).  Note\n"
-"    that PLINK does not use MAF to adjust the weights of missing markers, so\n"
-"    this isn't quite a linear transformation of --distance.\n\n"
+"  --distance-matrix\n"
+"    These generate space-delimited text matrices, and are included for\n"
+"    backwards compatibility with old scripts relying on the corresponding PLINK\n"
+"    flags.  New scripts should migrate to '--distance ibs' and '--distance\n"
+"    1-ibs', which support output formats better suited to parallel computation\n"
+"    and have more accurate handling of missing markers.\n\n"
 "  --ibc\n"
-"    This yields the same output as GCTA --ibc.\n\n"
+"    Calculates inbreeding coefficients in three different ways.\n"
+"    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
+"    a tool for Genome-wide Complex Trait Analysis.  Am J Hum Genet. 2011 Jan\n"
+"    88(1): 76-82.  This also describes the relationship matrix computation we\n"
+"    implement.\n\n"
 "  --make-rel <square | square0 | triangle> <gz | bin>\n"
-"             <no-var-std | ibc1 | ibc2>\n"
-"    Writes a lower-triangular variance-standardized relationship matrix to\n"
-"    {output prefix}.rel, and corresponding IDs to {output prefix}.rel.id.\n"
-"    'square', 'square0', 'triangle', 'gz', and 'bin' act as they do on\n"
-"    --distance.\n"
-"    The 'no-var-std' modifier causes GEMMA's \"centered relationship matrix\" to\n"
-"    be calculated instead.\n"
-"    By default, the diagonal elements in the variance-standardized matrix are\n"
-"    based on --ibc's Fhat3; use the 'ibc1' or 'ibc2' modifiers to base them on\n"
-"    Fhat1 or Fhat2 instead.\n"
-"  --make-grm <no-gz> <no-var-std | ibc1 | ibc2>\n"
-"    Writes the relationship matrix in GCTA's .grm format instead.  Since GCTA\n"
-"    normally compresses the .grm file, WDIST does the same unless the 'no-gz'\n"
-"    modifier is present.\n"
-"  --make-grm-bin <square0 | triangle> <no-var-std | ibc1 | ibc2>\n"
-"    This is identical to --make-rel bin, except the output file extension is\n"
-"    .grm.bin.\n\n"
+"             <cov | ibc1 | ibc2>\n"
+"    Writes a lower-triangular variance-standardized relationship (coancestry)\n"
+"    matrix to {output prefix}.rel, and corresponding IDs to\n"
+"    {output prefix}.rel.id.\n"
+"    * 'square', 'square0', 'triangle', 'gz', and 'bin' act as they do on\n"
+"      --distance.\n"
+"    * The 'cov' modifier removes the variance standardization step, causing a\n"
+"      covariance matrix to be calculated instead.\n"
+"    * By default, the diagonal elements in the relationship matrix are based on\n"
+"      --ibc's Fhat3; use the 'ibc1' or 'ibc2' modifiers to base them on Fhat1\n"
+"      or Fhat2 instead.\n"
+"  --make-grm <no-gz> <cov | ibc1 | ibc2>\n"
+"    Writes the relationships in a gzipped list format, describing one pair per\n"
+"    line.  Note that this file explicitly stores the number of valid\n"
+"    observations (where neither individual has a missing call) for each pair,\n"
+"    which is useful input for some scripts.\n\n"
 "  --groupdist {iters} {d}\n"
 "    Two-group genomic distance analysis, using delete-d jackknife with the\n"
 "    requested number of iterations to estimate standard errors.  Binary\n"
-"    phenotype required.\n"
-"    If only one parameter is provided, d defaults to {number of people}^0.6\n"
-"    rounded down.  With no parameters, 100k iterations are run.\n\n"
+"    phenotype data is required.\n"
+"    * If only one parameter is provided, d defaults to {number of people}^0.6\n"
+"      rounded down.  With no parameters, 100k iterations are run.\n\n"
 "  --regress-distance {iters} {d}\n"
 "    Regresses genomic distances on average phenotypes, using delete-d\n"
-"    jackknife for standard errors.  Scalar phenotype required.  Defaults for\n"
-"    iters and d are the same as for --groupdist.\n\n"
+"    jackknife for standard errors.  Scalar phenotype data is required.\n"
+"    Defaults for iters and d are the same as for --groupdist.\n\n"
 #ifndef NOLAPACK
 "  --unrelated-heritability <strict> {tol} {initial covg} {initial cove}\n"
 "    REML estimate of additive heritability, iterating with an accelerated\n"
 "    variant of the EM algorithm until the rate of change of the log likelihood\n"
-"    function is less than tol.  Scalar phenotype required.\n"
-"    The 'strict' modifier forces regular EM to be used.  tol defaults to\n"
-"    10^{-7}, genomic covariance prior defaults to 0.45, and residual\n"
-"    covariance prior defaults to (1 - covg).\n"
-"    For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
-"    Genetic Correlations Explained by Common SNPs for Metabolic Syndrome\n"
-"    Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
+"    function is less than tol.  Scalar phenotype data is required.\n"
+"    * The 'strict' modifier forces regular EM to be used.  tol defaults to\n"
+"      10^{-7}, genomic covariance prior defaults to 0.45, and residual\n"
+"      covariance prior defaults to (1 - covg).\n"
+"    * For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
+"      Genetic Correlations Explained by Common SNPs for Metabolic Syndrome\n"
+"      Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
 #endif
 "  --write-snplist\n"
 "    Write a .snplist file listing the names of all SNPs that pass the filters\n"
@@ -423,9 +432,9 @@ int dispmsg(int retval) {
 "  --chr [num...]   : Only consider markers on the given chromosome(s).  Valid\n"
 "                     choices are 0 (unplaced), 1-22, and XY (pseudo-autosomal\n"
 "                     region of X).  Separate multiple chromosomes with spaces,\n"
-"                     e.g. '--chr 1 3 xy'.\n"
-"                     The X, Y, and MT chromosome values are currently\n"
-"                     unsupported, but this will change in the future.\n"
+"                     e.g. '--chr 1 3 xy'.  The X, Y, and MT chromosome values\n"
+"                     are currently unsupported, but this will change in the\n"
+"                     future.\n"
 "  --maf {val}      : Minor allele frequency minimum threshold (default 0.01).\n"
 "                     Note that the default threshold is only applied if --maf\n"
 "                     is used without an accompanying value; if you do not\n"
@@ -456,21 +465,23 @@ int dispmsg(int retval) {
 "                     applying --keep/--remove/--filter/--prune and before\n"
 "                     applying any other filters.  (Use --read-freq if you want\n"
 "                     to explicitly specify some or all of the MAFs.)\n"
-"  --read-freq [filename]    : Loads MAFs from the given PLINK- or GCTA-style\n"
-"  --update-freq [filename]    frequency file, instead of just setting them to\n"
-"                              frequencies observed in the .ped/.bed file.\n"
-"                              (This can be important when performing multiple\n"
-"                              rounds of filtering, because MAFs affect the\n"
-"                              behavior of some filters, and observed MAFs\n"
-"                              change when you filter people out.)\n"
-/*
+"  --read-freq [filename]    : Loads MAFs from the given PLINK-style frequency\n"
+"  --update-freq [filename]    file, instead of just setting them to frequencies\n"
+"                              observed in the .ped/.bed file.  (This can be\n"
+"                              important when performing multiple rounds of\n"
+"                              filtering, because MAFs affect the behavior of\n"
+"                              some filters, and observed MAFs change when you\n"
+"                              filter people out.)\n"
 "  --parallel [k] [n]        : Divide the output matrix into n pieces, and only\n"
 "                              compute the kth piece.  The primary output file\n"
 "                              will have the piece number appended to its name,\n"
 "                              e.g. wdist.rel.gz.13 if k is 13.  Concatenating\n"
 "                              these files in order will yield the full matrix\n"
 "                              of interest.\n"
-*/
+"                              N.B. This cannot be used to directly write a\n"
+"                              symmetric square matrix.  Choose the square0 or\n"
+"                              triangle format instead, and postprocess as\n"
+"                              necessary.\n"
 "  --filter [filename] [val] : Filter individuals (see PLINK documentation).\n"
 "  --mfilter [col]           : Specify column number in --filter file.\n"
 "  --missing-genotype [char] : Code for missing genotype.\n"
@@ -1334,7 +1345,6 @@ double weights[2048 * BITCT];
 unsigned int* weights_i = (unsigned int*)weights;
 int thread_start[MAX_THREADS_P1];
 int thread_start0[MAX_THREADS_P1];
-int thread_start0_na[MAX_THREADS_P1];
 double reg_tot_xy;
 double reg_tot_x;
 double reg_tot_y;
@@ -1474,7 +1484,6 @@ inline int next_non_excluded(unsigned char* exclude_arr, int loc) {
 }
 
 int write_ids(char* outname, int unfiltered_indiv_ct, unsigned char* indiv_exclude, char* person_id, int max_person_id_len) {
-  // assumed that outfile is not opened initially
   FILE* outfile;
   int ii;
   if (fopen_checked(&outfile, outname, "w")) {
@@ -1626,6 +1635,9 @@ int read_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, uns
       }
     }
   } else {
+    // Also support simpler frequency files with each line in the following
+    // format:
+    // [marker ID]\t[reference allele]\t[frequency of reference allele]\n
     do {
       bufptr = next_item(tbuf);
       if (!bufptr) {
@@ -1691,16 +1703,16 @@ void collapse_phenoc(char* pheno_c, unsigned char* indiv_exclude, int unfiltered
   }
 }
 
-void collapse_phenod(double* pheno_d, unsigned char* indiv_exclude, int unfiltered_indiv_ct) {
+void collapse_double(double* darr, unsigned char* exclude_arr, int exclude_ct) {
   int ii = 0;
   int jj;
-  while ((ii < unfiltered_indiv_ct) && (!excluded(indiv_exclude, ii))) {
+  while ((ii < exclude_ct) && (!excluded(exclude_arr, ii))) {
     ii++;
   }
   jj = ii;
-  while (++ii < unfiltered_indiv_ct) {
-    if (!excluded(indiv_exclude, ii)) {
-      pheno_d[jj++] = pheno_d[ii];
+  while (++ii < exclude_ct) {
+    if (!excluded(exclude_arr, ii)) {
+      darr[jj++] = darr[ii];
     }
   }
 }
@@ -1711,6 +1723,20 @@ void collapse_copy_phenod(double *target, double* pheno_d, unsigned char* indiv_
   while (target < target_end) {
     ii = next_non_excluded(indiv_exclude, ii);
     *target++ = pheno_d[ii++];
+  }
+}
+
+void collapse_person_id(char* person_id, int max_person_id_len, unsigned char* indiv_exclude, int unfiltered_indiv_ct) {
+  int ii = 0;
+  int jj;
+  while ((ii < unfiltered_indiv_ct) && (!excluded(indiv_exclude, ii))) {
+    ii++;
+  }
+  jj = ii;
+  while (++ii < unfiltered_indiv_ct) {
+    if (!excluded(indiv_exclude, ii)) {
+      memcpy(&(person_id[(jj++) * max_person_id_len]), &(person_id[ii * max_person_id_len]), max_person_id_len);
+    }
   }
 }
 
@@ -1917,7 +1943,8 @@ void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
 void* calc_idist_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
-  incr_dists_i(&(idists[(ii * (ii - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
+  int jj = thread_start[0];
+  incr_dists_i(&(idists[(ii * (ii - 1) - jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
   return NULL;
 }
 
@@ -1975,7 +2002,8 @@ void incr_dists(double* dists, unsigned long* geno, int tidx) {
 void* calc_dist_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
-  incr_dists(&(dists[(ii * (ii - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
+  int jj = thread_start[0];
+  incr_dists(&(dists[(ii * (ii - 1) - jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
   return NULL;
 }
 
@@ -2004,7 +2032,8 @@ void incr_wt_dist_missing(unsigned int* mtw, int tidx) {
 void* calc_distm_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
-  incr_wt_dist_missing(&(missing_tot_weights[(ii * (ii - 1)) / 2]), (int)tidx);
+  int jj = thread_start[0];
+  incr_wt_dist_missing(&(missing_tot_weights[(ii * (ii - 1) - jj * (jj - 1)) / 2]), (int)tidx);
   return NULL;
 }
 
@@ -2053,7 +2082,8 @@ void incr_dists_r(double* dists, unsigned long* geno, unsigned long* masks, int 
 void* calc_rel_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
-  incr_dists_r(&(rel_dists[(ii * (ii - 1)) / 2]), (unsigned long*)ped_geno, masks, (int)tidx, weights);
+  int jj = thread_start[0];
+  incr_dists_r(&(rel_dists[(ii * (ii - 1) - jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, masks, (int)tidx, weights);
   return NULL;
 }
 
@@ -2083,14 +2113,16 @@ void incr_dists_rm(unsigned int* idists, int tidx) {
 void* calc_relm_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start0[tidx];
-  incr_dists_rm(&(missing_tot_unweighted[(ii * (ii - 1)) / 2]), (int)tidx);
+  int jj = thread_start0[0];
+  incr_dists_rm(&(missing_tot_unweighted[(ii * (ii - 1) - jj * (jj - 1)) / 2]), (int)tidx);
   return NULL;
 }
 
 void* calc_distm_unwt_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
-  incr_dists_rm(&(missing_tot_unweighted[(ii * (ii - 1)) / 2]), (int)tidx);
+  int jj = thread_start[0];
+  incr_dists_rm(&(missing_tot_unweighted[(ii * (ii - 1) - jj * (jj - 1)) / 2]), (int)tidx);
   return NULL;
 }
 
@@ -2926,7 +2958,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     ii /= 10;
     missing_pheno_len++;
   }
-  if (calculation_type & CALC_RELATIONSHIP_NO_VAR_STD) {
+  if (calculation_type & CALC_RELATIONSHIP_COV) {
     var_std = 0;
     ibc_type = -1;
   }
@@ -3849,7 +3881,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	} else {
 	  cptr = bufptr;
 	}
-	ii = strlen_se(tbuf) + strlen_se(cptr) + 2;
+	ii = strlen_se((char*)pedbuf) + strlen_se(cptr) + 2;
 	if (ii > max_person_id_len) {
 	  max_person_id_len = ii;
 	}
@@ -3974,6 +4006,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
     // ----- .ped load, second pass -----
     kk = 0;
+    // FILE* outfile_debug;
+    // outfile_debug = fopen("wdist.debug.id", "w");
     for (ii = 0; ii < unfiltered_indiv_ct; ii += 1) {
       do {
         last_tell = ftello(pedfile);
@@ -3993,6 +4027,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       person_id[ii * max_person_id_len + oo] = '\t';
       memcpy(&(person_id[ii * max_person_id_len + oo + 1]), bufptr, mm);
       person_id[ii * max_person_id_len + oo + mm + 1] = '\0';
+      // fprintf(outfile_debug, "%d %d %s\n", ii, oo + mm + 1, &(person_id[ii * max_person_id_len]));
       if (phenoname[0]) {
         jj = bsearch_fam_indiv(id_buf, pid_list, max_pid_len, pheno_line_ct, (char*)pedbuf, bufptr);
         cc = 0;
@@ -4112,6 +4147,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       kk++;
     }
+    // fclose(outfile_debug);
     rewind(pedfile);
     for (ii = 0; ii < unfiltered_marker_ct; ii++) {
       for (jj = 1; jj < 4; jj++) {
@@ -4516,8 +4552,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       if (pheno_c) {
         collapse_phenoc(pheno_c, indiv_exclude, unfiltered_indiv_ct);
       } else if (pheno_d) {
-        collapse_phenod(pheno_d, indiv_exclude, unfiltered_indiv_ct);
+        collapse_double(pheno_d, indiv_exclude, unfiltered_indiv_ct);
       }
+      collapse_person_id(person_id, max_person_id_len, indiv_exclude, unfiltered_indiv_ct);
+      collapse_double(mafs, marker_exclude, unfiltered_marker_ct);
+      collapse_double(marker_weights, marker_exclude, unfiltered_marker_ct);
       unfiltered_marker_ct -= marker_exclude_ct;
       marker_exclude_ct = 0;
       memset(marker_exclude, 0, (unfiltered_marker_ct + 7) / 8);
@@ -4565,48 +4604,33 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (calculation_type & CALC_FREQ) {
-    if (calculation_type & CALC_FREQ_GCTA) {
-      strcpy(outname_end, ".freq");
-      if (fopen_checked(&outfile, outname, "w")) {
-	goto wdist_ret_OPENFAIL;
+    strcpy(outname_end, ".frq");
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto wdist_ret_OPENFAIL;
+    }
+    if (max_marker_id_len < 4) {
+      if (fprintf(outfile, " CHR  SNP   A1   A2          MAF  NCHROBS\n") < 0) {
+	goto wdist_ret_WRITE_FAIL;
       }
-      for (ii = 0; ii < unfiltered_marker_ct; ii++) {
-        if (excluded(marker_exclude, ii)) {
-          continue;
-        }
-        if (fprintf(outfile, "%s\t%c\t%g\n", &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2], 1.0 - mafs[ii]) < 0) {
-          goto wdist_ret_WRITE_FAIL;
-        }
-      }
+      strcpy(tbuf, "%4d  %3s    %c    %c  %11g  %7d\n");
     } else {
-      strcpy(outname_end, ".frq");
-      if (fopen_checked(&outfile, outname, "w")) {
-	goto wdist_ret_OPENFAIL;
+      sprintf(tbuf, " CHR  %%%lus   A1   A2          MAF  NCHROBS\n", max_marker_id_len - 1);
+      if (fprintf(outfile, tbuf, "SNP") < 0) {
+	goto wdist_ret_WRITE_FAIL;
       }
-      if (max_marker_id_len < 4) {
-	if (fprintf(outfile, " CHR  SNP   A1   A2          MAF  NCHROBS\n") < 0) {
-          goto wdist_ret_WRITE_FAIL;
-        }
-	strcpy(tbuf, "%4d  %3s    %c    %c  %11g  %7d\n");
-      } else {
-	sprintf(tbuf, " CHR  %%%lus   A1   A2          MAF  NCHROBS\n", max_marker_id_len - 1);
-        if (fprintf(outfile, tbuf, "SNP") < 0) {
-          goto wdist_ret_WRITE_FAIL;
-        }
-	sprintf(tbuf, "%%4d  %%%lus    %%c    %%c  %%11g  %%7d\n", max_marker_id_len - 1);
+      sprintf(tbuf, "%%4d  %%%lus    %%c    %%c  %%11g  %%7d\n", max_marker_id_len - 1);
+    }
+    for (ii = 0; ii < unfiltered_marker_ct; ii++) {
+      if (excluded(marker_exclude, ii)) {
+	continue;
       }
-      for (ii = 0; ii < unfiltered_marker_ct; ii++) {
-	if (excluded(marker_exclude, ii)) {
-	  continue;
+      if (mafs[ii] < 0.5) {
+	if (fprintf(outfile, tbuf, marker_chroms[ii], &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2 + 1], marker_alleles[ii * 2], mafs[ii], marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]) < 0) {
+	  goto wdist_ret_WRITE_FAIL;
 	}
-	if (mafs[ii] < 0.5) {
-	  if (fprintf(outfile, tbuf, marker_chroms[ii], &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2 + 1], marker_alleles[ii * 2], mafs[ii], marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]) < 0) {
-            goto wdist_ret_WRITE_FAIL;
-          }
-	} else {
-	  if (fprintf(outfile, tbuf, marker_chroms[ii], &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2], marker_alleles[ii * 2 + 1], 1.0 - mafs[ii], marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]) < 0) {
-            goto wdist_ret_WRITE_FAIL;
-          }
+      } else {
+	if (fprintf(outfile, tbuf, marker_chroms[ii], &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2], marker_alleles[ii * 2 + 1], 1.0 - mafs[ii], marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]) < 0) {
+	  goto wdist_ret_WRITE_FAIL;
 	}
       }
     }
@@ -5022,11 +5046,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           if (nn == CALC_RELATIONSHIP_SQ0) {
             fill_double_zero((double*)ped_geno, indiv_ct - 1);
           }
-          if (calculation_type & CALC_RELATIONSHIP_GRM) {
-            strcpy(outname_end, ".grm.bin");
-          } else {
-            strcpy(outname_end, ".rel.bin");
-          }
+          strcpy(outname_end, ".rel.bin");
           if (fopen_checked(&outfile, outname, "wb")) {
             goto wdist_ret_OPENFAIL;
           }
@@ -5489,40 +5509,16 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		  ulii = 0;
                   ulkk = 0;
                   gptr = &(pedbuf[oo / 4 + nn * unfiltered_indiv_ct4]);
-		  if (wt_needed && unwt_needed_full) {
-		    for (mm = 0; mm < BITCT2; mm++) {
-		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
-		      ulii |= uljj << (mm * 2);
-		      if (uljj == 1) {
-			ulkk |= 1LLU << mm;
-			*giptr += wtbuf[mm + nn];
-			*giptr2 += 1;
-		      }
-		    }
-		  } else if (wt_needed) {
-		    for (mm = 0; mm < BITCT2; mm++) {
-		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
-		      ulii |= uljj << (mm * 2);
-		      if (uljj == 1) {
-			ulkk |= 1LLU << mm;
+		  for (mm = 0; mm < BITCT2; mm++) {
+		    uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
+		    ulii |= uljj << (mm * 2);
+		    if (uljj == 1) {
+		      ulkk |= 1LLU << mm;
+		      if (wt_needed) {
 			*giptr += wtbuf[mm + nn];
 		      }
-		    }
-		  } else if (unwt_needed_full) {
-		    for (mm = 0; mm < BITCT2; mm++) {
-		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
-		      ulii |= uljj << (mm * 2);
-		      if (uljj == 1) {
-			ulkk |= 1LLU << mm;
+		      if (unwt_needed_full) {
 			*giptr2 += 1;
-		      }
-		    }
-		  } else {
-		    for (mm = 0; mm < BITCT2; mm++) {
-		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
-		      ulii |= uljj << (mm * 2);
-		      if (uljj == 1) {
-			ulkk |= 1LLU << mm;
 		      }
 		    }
 		  }
@@ -5542,40 +5538,16 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		  ulii = 0;
                   ulkk = 0;
                   gptr = &(pedbuf[oo / 4 + (nn + BITCT2) * unfiltered_indiv_ct4]);
-		  if (wt_needed && unwt_needed_full) {
-		    for (mm = 0; mm < BITCT2; mm++) {
-		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
-		      ulii |= uljj << (mm * 2);
-		      if (uljj == 1) {
-			ulkk |= 1LLU << mm;
+		  for (mm = 0; mm < BITCT2; mm++) {
+		    uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
+		    ulii |= uljj << (mm * 2);
+		    if (uljj == 1) {
+		      ulkk |= 1LLU << mm;
+		      if (wt_needed) {
 			*giptr += wtbuf[mm + nn + BITCT2];
+		      }
+		      if (unwt_needed_full) {
 			*giptr2 += 1;
-		      }
-		    }
-		  } else if (wt_needed) {
-		    for (mm = 0; mm < BITCT2; mm++) {
-		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
-		      ulii |= uljj << (mm * 2);
-		      if (uljj == 1) {
-			ulkk |= 1LLU << mm;
-			*giptr += wtbuf[mm + nn + BITCT2];
-		      }
-		    }
-		  } else if (unwt_needed_full) {
-		    for (mm = 0; mm < BITCT2; mm++) {
-		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
-		      ulii |= uljj << (mm * 2);
-		      if (uljj == 1) {
-			ulkk |= 1LLU << mm;
-                        *giptr2 += 1;
-		      }
-		    }
-		  } else {
-		    for (mm = 0; mm < BITCT2; mm++) {
-		      uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
-		      ulii |= uljj << (mm * 2);
-		      if (uljj == 1) {
-			ulkk |= 1LLU << mm;
 		      }
 		    }
 		  }
@@ -6170,7 +6142,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   if (calculation_type & CALC_REGRESS_DISTANCE) {
     // beta = (mean(xy) - mean(x)*mean(y)) / (mean(x^2) - mean(x)^2)
     if (unfiltered_indiv_ct != indiv_ct) {
-      collapse_phenod(pheno_d, indiv_exclude, unfiltered_indiv_ct);
+      collapse_double(pheno_d, indiv_exclude, unfiltered_indiv_ct);
     }
     reg_tot_x = 0.0;
     reg_tot_xx = 0.0;
@@ -6370,7 +6342,7 @@ int main(int argc, char** argv) {
   double unrelated_herit_cove = 0.55;
   int ibc_type = 0;
   int parallel_idx = 0;
-  int parallel_tot = 0;
+  int parallel_tot = 1;
   int ii;
   int jj;
   int kk;
@@ -7127,20 +7099,20 @@ int main(int argc, char** argv) {
       }
       jj = 0;
       for (kk = 1; kk <= ii; kk++) {
-        if (!strcmp(argv[cur_arg + kk], "no-var-std")) {
+        if (!strcmp(argv[cur_arg + kk], "cov")) {
           if (calculation_type & CALC_IBC) {
-            printf("Error: --make-rel 'no-var-std' modifier cannot coexist with --ibc flag.\n");
+            printf("Error: --make-rel 'cov' modifier cannot coexist with --ibc flag.\n");
             return dispmsg(RET_INVALID_CMDLINE);
           }
           if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-            printf("Error: --make-rel 'no-var-std' modifier cannot coexist with\n--unrelated-heritability flag.\n");
+            printf("Error: --make-rel 'cov' modifier cannot coexist with\n--unrelated-heritability flag.\n");
             return dispmsg(RET_INVALID_CMDLINE);
           }
           if (ibc_type) {
-            printf("Error: --make-rel 'no-var-std' modifier cannot coexist with an IBC modifier.%s", errstr_append);
+            printf("Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
             return dispmsg(RET_INVALID_CMDLINE);
           }
-          calculation_type |= CALC_RELATIONSHIP_NO_VAR_STD;
+          calculation_type |= CALC_RELATIONSHIP_COV;
         } else if (!strcmp(argv[cur_arg + kk], "gz")) {
           if (calculation_type & CALC_RELATIONSHIP_BIN) {
             printf("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
@@ -7160,7 +7132,10 @@ int main(int argc, char** argv) {
           } else if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_TRI) {
             printf("Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
             return dispmsg(RET_INVALID_CMDLINE);
-          }
+          } else if (parallel_tot > 1) {
+            printf("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
           calculation_type |= CALC_RELATIONSHIP_SQ;
         } else if (!strcmp(argv[cur_arg + kk], "square0")) {
           if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ) {
@@ -7181,8 +7156,8 @@ int main(int argc, char** argv) {
           }
           calculation_type |= CALC_RELATIONSHIP_TRI;
         } else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
-          if (calculation_type & CALC_RELATIONSHIP_NO_VAR_STD) {
-            printf("Error: --make-rel 'no-var-std' modifier cannot coexist with an IBC modifier.%s", errstr_append);
+          if (calculation_type & CALC_RELATIONSHIP_COV) {
+            printf("Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
             return dispmsg(RET_INVALID_CMDLINE);
           }
           if (ibc_type) {
@@ -7194,6 +7169,10 @@ int main(int argc, char** argv) {
           printf("Error: Invalid --make-rel parameter.%s", errstr_append);
           return dispmsg(RET_INVALID_CMDLINE);
         }
+      }
+      if (((calculation_type & CALC_RELATIONSHIP_BIN) && (!(calculation_type & CALC_RELATIONSHIP_SHAPEMASK))) && (parallel_tot > 1)) {
+        printf("Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += ii + 1;
       if (!(calculation_type & CALC_RELATIONSHIP_MASK)) {
@@ -7211,25 +7190,25 @@ int main(int argc, char** argv) {
       }
       calculation_type |= CALC_RELATIONSHIP_GZ;
       for (kk = 1; kk <= ii; kk++) {
-        if (!strcmp(argv[cur_arg + kk], "no-var-std")) {
+        if (!strcmp(argv[cur_arg + kk], "cov")) {
           if (calculation_type & CALC_IBC) {
-            printf("Error: --make-grm 'no-var-std' modifier cannot coexist with --ibc flag.\n");
+            printf("Error: --make-grm 'cov' modifier cannot coexist with --ibc flag.\n");
             return dispmsg(RET_INVALID_CMDLINE);
           }
           if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-            printf("Error: --make-grm 'no-var-std' modifier cannot coexist with\n--unrelated-heritability flag.\n");
+            printf("Error: --make-grm 'cov' modifier cannot coexist with --unrelated-heritability\nflag.\n");
             return dispmsg(RET_INVALID_CMDLINE);
           }
           if (ibc_type) {
-            printf("Error: --make-grm 'no-var-std' modifier cannot coexist with an IBC modifier.%s", errstr_append);
+            printf("Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
             return dispmsg(RET_INVALID_CMDLINE);
           }
-          calculation_type |= CALC_RELATIONSHIP_NO_VAR_STD;
+          calculation_type |= CALC_RELATIONSHIP_COV;
         } else if (!strcmp(argv[cur_arg + kk], "no-gz")) {
           calculation_type &= ~CALC_RELATIONSHIP_GZ;
         } else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
-          if (calculation_type & CALC_RELATIONSHIP_NO_VAR_STD) {
-            printf("Error: --make-grm 'no-var-std' modifier cannot coexist with an IBC modifier.%s", errstr_append);
+          if (calculation_type & CALC_RELATIONSHIP_COV) {
+            printf("Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
             return dispmsg(RET_INVALID_CMDLINE);
           }
           if (ibc_type) {
@@ -7244,63 +7223,9 @@ int main(int argc, char** argv) {
       }
       cur_arg += ii + 1;
       calculation_type |= CALC_RELATIONSHIP_GRM;
-    } else if (!strcmp(argptr, "--make-grm-bin")) {
-      if (calculation_type & CALC_RELATIONSHIP_MASK) {
-        printf("Error: --make-grm-bin cannot coexist with another relationship matrix file\ncreation flag.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 2) {
-        printf("Error: --make-grm-bin accepts at most 2 parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      for (kk = 1; kk <= ii; kk++) {
-        if (!strcmp(argv[cur_arg + kk], "no-var-std")) {
-          if (calculation_type & CALC_IBC) {
-            printf("Error: --make-grm-bin 'no-var-std' modifier cannot coexist with --ibc flag.\n");
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-            printf("Error: --make-grm-bin 'no-var-std' modifier cannot coexist with\n--unrelated-heritability flag.\n");
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          if (ibc_type) {
-            printf("Error: --make-grm-bin 'no-var-std' modifier cannot coexist with an IBC\nmodifier.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          calculation_type |= CALC_RELATIONSHIP_NO_VAR_STD;
-        } else if (!strcmp(argv[cur_arg + kk], "square0")) {
-          if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_TRI) {
-            printf("Error: --make-grm-bin 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          calculation_type |= CALC_RELATIONSHIP_SQ0;
-        } else if (!strcmp(argv[cur_arg + kk], "triangle")) {
-          if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ0) {
-            printf("Error: --make-grm-bin 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-	  }
-          calculation_type |= CALC_RELATIONSHIP_TRI;
-	} else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
-          if (calculation_type & CALC_RELATIONSHIP_NO_VAR_STD) {
-            printf("Error: --make-grm-bin 'no-var-std' modifier cannot coexist with an IBC\nmodifier.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          if (ibc_type) {
-            printf("Error: --make-grm-bin '%s' modifier cannot coexist with another IBC\nmodifier.%s", argv[cur_arg + kk], errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          ibc_type = argv[cur_arg + kk][3] - '0';
-        } else {
-          printf("Error: Invalid --make-grm-bin parameter.%s", errstr_append);
-          return dispmsg(RET_INVALID_CMDLINE);
-        }
-      }
-      cur_arg += ii + 1;
-      calculation_type |= CALC_RELATIONSHIP_GRM | CALC_RELATIONSHIP_BIN;
     } else if (!strcmp(argptr, "--ibc")) {
-      if (calculation_type & CALC_RELATIONSHIP_NO_VAR_STD) {
-        printf("Error: --ibc flag cannot coexist with a 'no-var-std' relationship matrix\ncalculation.\n");
+      if (calculation_type & CALC_RELATIONSHIP_COV) {
+        printf("Error: --ibc flag cannot coexist with a covariance matrix calculation.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += 1;
@@ -7314,8 +7239,8 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = param_count(argc, argv, cur_arg);
-      if (ii > 2) {
-        printf("Error: --distance accepts at most 2 parameters.%s", errstr_append);
+      if (ii > 5) {
+        printf("Error: --distance accepts at most 5 parameters.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
       jj = 0;
@@ -7327,7 +7252,10 @@ int main(int argc, char** argv) {
           } else if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_TRI) {
             printf("Error: --distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
             return dispmsg(RET_INVALID_CMDLINE);
-          }
+          } else if (parallel_tot > 1) {
+            printf("Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
           calculation_type |= CALC_DISTANCE_SQ;
         } else if (!strcmp(argv[cur_arg + kk], "square0")) {
           if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
@@ -7359,10 +7287,38 @@ int main(int argc, char** argv) {
             return dispmsg(RET_INVALID_CMDLINE);
           }
           calculation_type |= CALC_DISTANCE_BIN;
+	} else if (!strcmp(argv[cur_arg + kk], "ibs")) {
+	  if (calculation_type & CALC_PLINK_IBS_MATRIX) {
+            printf("Error: --matrix flag cannot be used with '--distance ibs'.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  } else if (calculation_type & CALC_DISTANCE_IBS) {
+	    printf("Error: Duplicate 'ibs' modifier.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  calculation_type |= CALC_DISTANCE_IBS;
+	} else if (!strcmp(argv[cur_arg + kk], "1-ibs")) {
+	  if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
+            printf("Error: --matrix flag cannot be used with '--distance 1-ibs'.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  } else if (calculation_type & CALC_DISTANCE_1_MINUS_IBS) {
+	    printf("Error: Duplicate '1-ibs' modifier.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  calculation_type |= CALC_DISTANCE_1_MINUS_IBS;
+	} else if (!strcmp(argv[cur_arg + kk], "snps")) {
+	  if (calculation_type & CALC_DISTANCE_SNPS) {
+	    printf("Error: Duplicate 'snps' modifier.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  calculation_type |= CALC_DISTANCE_SNPS;
         } else {
           printf("Error: Invalid --distance parameter.%s", errstr_append);
           return dispmsg(RET_INVALID_CMDLINE);
         }
+      }
+      if (((calculation_type & CALC_DISTANCE_BIN) && (!(calculation_type & CALC_DISTANCE_SHAPEMASK))) && (parallel_tot > 1)) {
+        printf("Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += ii + 1;
       if (!(calculation_type & CALC_DISTANCE_MASK)) {
@@ -7375,11 +7331,22 @@ int main(int argc, char** argv) {
       } else if (exponent != 0.0) {
         printf("Error: --exponent flag cannot be used with --distance-matrix or --matrix.\n");
         return dispmsg(RET_INVALID_CMDLINE);
+      } else if (parallel_tot > 1) {
+        printf("Error: --parallel and --distance-matrix/--matrix flags cannot coexist.  Use\n--distance instead.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += 1;
       if (argptr[2] == 'd') {
+	if (calculation_type & CALC_DISTANCE_1_MINUS_IBS) {
+	  printf("Error: --distance-matrix flag cannot be used with '--distance 1-ibs'.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
         calculation_type |= CALC_PLINK_DISTANCE_MATRIX;
       } else {
+	if (calculation_type & CALC_DISTANCE_IBS) {
+	  printf("Error: --matrix flag cannot be used with '--distance ibs'.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
         calculation_type |= CALC_PLINK_IBS_MATRIX;
       }
     } else if (!strcmp(argptr, "--load-dists")) {
@@ -7406,6 +7373,32 @@ int main(int argc, char** argv) {
       cur_arg += 2;
       calculation_type |= CALC_LOAD_DISTANCES;
     } else if (!strcmp(argptr, "--parallel")) {
+      if (calculation_type & CALC_DISTANCE_SQ) {
+        printf("Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      } else if ((calculation_type & CALC_DISTANCE_BIN) && (!(calculation_type & CALC_DISTANCE_SHAPEMASK))) {
+        printf("Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      } else if (calculation_type & CALC_RELATIONSHIP_SQ) {
+        printf("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      } else if ((calculation_type & CALC_RELATIONSHIP_BIN) && (!(calculation_type & CALC_RELATIONSHIP_SHAPEMASK))) {
+        printf("Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      } else if (calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) {
+	printf("Error: --parallel and --distance-matrix/--matrix flags cannot coexist.  Use\n--distance instead.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      } else if (calculation_type & CALC_GROUPDIST) {
+	printf("Error: --parallel and --groupdist flags cannot coexist.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      } else if (calculation_type & CALC_REGRESS_DISTANCE) {
+	printf("Error: --parallel and --regress-distance flags cannot coexist.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (parallel_tot > 1) {
+	printf("Error: Duplicate --parallel flag.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
       ii = param_count(argc, argv, cur_arg);
       if (ii < 2) {
         printf("Error: Not enough --parallel parameters.%s", errstr_append);
@@ -7427,7 +7420,10 @@ int main(int argc, char** argv) {
       }
       cur_arg += 3;
     } else if (!strcmp(argptr, "--groupdist")) {
-      if (calculation_type & CALC_GROUPDIST) {
+      if (parallel_tot > 1) {
+	printf("Error: --parallel and --groupdist flags cannot coexist.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      } else if (calculation_type & CALC_GROUPDIST) {
         printf("Error: Duplicate --groupdist flag.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
@@ -7452,11 +7448,11 @@ int main(int argc, char** argv) {
       }
       cur_arg += ii + 1;
       calculation_type |= CALC_GROUPDIST;
-    } else if (!strcmp(argptr, "--regress")) {
-      printf("Error: --regress flag has been renamed to --regress-distance.%s", errstr_append);
-      return dispmsg(RET_INVALID_CMDLINE);
     } else if (!strcmp(argptr, "--regress-distance")) {
-      if (calculation_type & CALC_REGRESS_DISTANCE) {
+      if (parallel_tot > 1) {
+	printf("Error: --parallel and --regress-distance flags cannot coexist.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      } else if (calculation_type & CALC_REGRESS_DISTANCE) {
         printf("Error: Duplicate --regress-distance flag.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
@@ -7482,8 +7478,8 @@ int main(int argc, char** argv) {
       cur_arg += ii + 1;
       calculation_type |= CALC_REGRESS_DISTANCE;
     } else if (!strcmp(argptr, "--unrelated-heritability")) {
-      if (calculation_type & CALC_RELATIONSHIP_NO_VAR_STD) {
-        printf("Error: --unrelated-heritability flag cannot coexist with a 'no-var-std'\nrelationship matrix calculation.\n");
+      if (calculation_type & CALC_RELATIONSHIP_COV) {
+        printf("Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
       if (calculation_type & CALC_UNRELATED_HERITABILITY) {
@@ -7546,20 +7542,7 @@ int main(int argc, char** argv) {
         printf("Error: Duplicate --freq flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 1) {
-        printf("Error: --freq accepts at most one parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii) {
-        if (!strcmp(argv[cur_arg + 1], "gcta")) {
-          calculation_type |= CALC_FREQ_GCTA;
-        } else {
-          printf("Error: Invalid --freq parameter.\n");
-          return dispmsg(RET_INVALID_CMDLINE);
-        }
-      }
-      cur_arg += ii + 1;
+      cur_arg += 1;
       calculation_type |= CALC_FREQ;
     } else if ((!strcmp(argptr, "--read-freq")) || (!strcmp(argptr, "--update-freq"))) {
       if (calculation_type & CALC_FREQ) {
