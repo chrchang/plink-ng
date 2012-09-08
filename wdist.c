@@ -7452,7 +7452,7 @@ int main(int argc, char** argv) {
       cur_arg += 2;
       calculation_type |= CALC_LOAD_DISTANCES;
     } else if (!strcmp(argptr, "--parallel")) {
-      if (calculation_type & CALC_DISTANCE_SQ) {
+      if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
         printf("Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       } else if ((calculation_type & CALC_DISTANCE_BIN) && (!(calculation_type & CALC_DISTANCE_SHAPEMASK))) {
