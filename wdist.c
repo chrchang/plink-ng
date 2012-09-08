@@ -145,6 +145,7 @@
 #define CALC_DISTANCE_1_MINUS_IBS 2048
 #define CALC_DISTANCE_IBS 4096
 #define CALC_DISTANCE_SNPS 8192
+#define CALC_DISTANCE_FORMATMASK 14336
 #define CALC_DISTANCE_MASK 16256
 #define CALC_PLINK_DISTANCE_MATRIX 16384
 #define CALC_PLINK_IBS_MATRIX 32768
@@ -317,8 +318,6 @@ int dispmsg(int retval) {
 "  * {curly braces} denote an optional parameter, where the text between the\n"
 "    braces describes its nature.\n\n"
 "Each run must invoke at least one of the following calculations:\n\n"
-"  --freq\n"
-"    Generates an allele frequency report (identical to PLINK --freq).\n\n"
 "  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <snps>\n"
 "    Writes a lower-triangular tab-delimited table of (weighted) genomic\n"
 "    distances in SNP units to {output prefix}.dist, and a list of the\n"
@@ -391,6 +390,8 @@ int dispmsg(int retval) {
 "      Genetic Correlations Explained by Common SNPs for Metabolic Syndrome\n"
 "      Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
 #endif
+"  --freq\n"
+"    Generates an allele frequency report (identical to PLINK --freq).\n\n"
 "  --write-snplist\n"
 "    Write a .snplist file listing the names of all SNPs that pass the filters\n"
 "    you've specified.\n\n"
@@ -398,8 +399,8 @@ int dispmsg(int retval) {
 "  --script [fname] : Include command-line options from file.\n"
 "  --file [prefix]  : Specify prefix for .ped and .map files.  (When this flag\n"
 "                     isn't present, the prefix is assumed to be 'wdist'.)\n"
-"  --ped [filename] : Specify name of .ped file.\n"
-"  --map [filename] : Specify name of .map file.\n"
+"  --ped [filename] : Specify full name of .ped file.\n"
+"  --map [filename] : Specify full name of .map file.\n"
 "  --make-bed       : Make .bed, .bim, and .fam files.  Note: this is ALWAYS ON\n"
 "                     for now, since the program core currently only handles\n"
 "                     binary files.\n"
@@ -409,9 +410,9 @@ int dispmsg(int retval) {
 "  --no-pheno       : .ped file does not contain column 6 (phenotype).\n"
 "  --liability      : .ped file does contain liability (column 7).\n"
 "  --bfile {prefix} : Specify .bed/.bim/.fam prefix (default 'wdist').\n"
-"  --bed [filename] : Specify .bed file.\n"
-"  --bim [filename] : Specify .bim file.\n"
-"  --fam [filename] : Specify .fam file.\n"
+"  --bed [filename] : Specify full name of .bed file.\n"
+"  --bim [filename] : Specify full name of .bim file.\n"
+"  --fam [filename] : Specify full name of .fam file.\n"
 "  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --groupdist\n"
 "                     or --regress-distance analysis, instead of recalculating\n"
 "                     it from scratch.\n"
@@ -724,8 +725,6 @@ int strlen_se(char* ss) {
   }
   return val;
 }
-
-char* id_buf = NULL;
 
 int int_cmp(const void* aa, const void* bb) {
   return *((const int*)aa) - *((const int*)bb);
@@ -2126,55 +2125,60 @@ void* calc_distm_unwt_thread(void* arg) {
   return NULL;
 }
 
-int triangle_bsearch(long long cur_prod, int modif, int lbound, int ubound) {
+int triangle_divide(long long cur_prod, int modif) {
   // return smallest integer vv for which (vv * (vv + modif)) is no smaller
-  // than cur_prod.  (Note the lack of a divide by two; cur_prod should also
-  // be double its "true" value as a result.)
-  int center;
+  // than cur_prod, and neither term in the product is negative.  (Note the
+  // lack of a divide by two; cur_prod should also be double its "true" value
+  // as a result.)
   long long vv;
-  if (lbound == ubound) {
-    return lbound;
+  if (cur_prod == 0) {
+    if (modif < 0) {
+      return -modif;
+    } else {
+      return 0;
+    }
   }
-  center = (lbound + ubound) / 2;
-  vv = center;
-  vv = vv * (vv + modif);
-  if (vv < cur_prod) {
-    return triangle_bsearch(cur_prod, modif, center + 1, ubound);
-  } else {
-    return triangle_bsearch(cur_prod, modif, lbound, center);
+  vv = (long long)sqrt((double)cur_prod);
+  while ((vv - 1) * (vv + modif - 1) >= cur_prod) {
+    vv--;
   }
+  while (vv * (vv + modif) < cur_prod) {
+    vv++;
+  }
+  return vv;
 }
 
 void parallel_bounds(int ct, int start, int parallel_idx, int parallel_tot, int* bound_start_ptr, int* bound_end_ptr) {
   int modif = 1 - start * 2;
   long long ct_tot = (long long)ct * (ct + modif);
-  *bound_start_ptr = triangle_bsearch((ct_tot * parallel_idx) / parallel_tot, modif, start, ct) - start;
-  *bound_end_ptr = triangle_bsearch((ct_tot * (parallel_idx + 1)) / parallel_tot, modif, start, ct) - start;
+  *bound_start_ptr = triangle_divide((ct_tot * parallel_idx) / parallel_tot, modif);
+  *bound_end_ptr = triangle_divide((ct_tot * (parallel_idx + 1)) / parallel_tot, modif);
 }
 
-// set align to 2 for no alignment
-void triangle_fill(int* target_arr, int ct, int pieces, int start, int align) {
+// set align to 1 for no alignment
+void triangle_fill(int* target_arr, int ct, int pieces, int parallel_idx, int parallel_tot, int start, int align) {
   long long ct_tr = (long long)ct;
   long long cur_prod = 0;
   int modif = 1 - start * 2;
   int cur_piece = 1;
-  int lbound = start;
+  int lbound;
+  int ubound;
   int ii;
   int align_m1;
+  parallel_bounds(ct, start, parallel_idx, parallel_tot, &lbound, &ubound);
   // x(x+1)/2 is divisible by y iff (x % (2y)) is 0 or (2y - 1).
   align *= 2;
   align_m1 = align - 1;
   target_arr[0] = start;
-  target_arr[pieces] = ct;
-  ct_tr = (ct_tr * (ct_tr + modif)) / pieces;
+  target_arr[pieces] = ubound;
+  ct_tr = ((long long)ubound * (ubound + modif)) / pieces;
   while (cur_piece < pieces) {
     cur_prod += ct_tr;
-    lbound = triangle_bsearch(cur_prod, modif, start, ct);
+    lbound = triangle_divide(cur_prod, modif);
     ii = (lbound - start) & align_m1;
     if ((ii) && (ii != align_m1)) {
       lbound = start + ((lbound - start) | align_m1);
     }
-
     // lack of this check caused a nasty bug earlier
     if (lbound > ct) {
       lbound = ct;
@@ -2814,6 +2818,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   FILE* famtmpfile = NULL;
   FILE* freqfile = NULL;
   FILE* loaddistfile = NULL;
+  char* id_buf = NULL;
   int unfiltered_marker_ct = 0;
   int unfiltered_marker_ct4 = 0;
   int marker_ct;
@@ -2893,7 +2898,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   int marker_exclude_ct = 0;
   int pheno_line_ct = 0;
   int makepheno_all = 0;
-  int filter_lines = 0;
+  int filter_line_ct = 0;
   int snp_major = 0;
   int max_pid_len = 0;
   int max_id_len = 0;
@@ -3229,7 +3234,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (filterfile) {
     // ----- --keep/--filter load, two passes -----
-    max_id_len = determine_max_id_len(filterfile, filterval, mfilter_col, &filter_lines);
+    max_id_len = determine_max_id_len(filterfile, filterval, mfilter_col, &filter_line_ct);
     if (max_id_len < 0) {
       goto wdist_ret_INVALID_FORMAT;
     }
@@ -3237,8 +3242,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (!id_buf) {
       goto wdist_ret_NOMEM;
     }
-    if (filter_lines) {
-      id_list = (char*)malloc(max_id_len * filter_lines * sizeof(char));
+    if (filter_line_ct) {
+      id_list = (char*)malloc(max_id_len * filter_line_ct * sizeof(char));
       if (!id_list) {
 	goto wdist_ret_NOMEM;
       }
@@ -3261,11 +3266,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
         }
 	ii++;
-	if (ii == filter_lines) {
+	if (ii == filter_line_ct) {
 	  break;
 	}
       }
-      qsort(id_list, filter_lines, max_id_len, strcmp_casted);
+      qsort(id_list, filter_line_ct, max_id_len, strcmp_casted);
     } else {
       printf("Note: No valid entries in filter file.\n");
     }
@@ -3287,7 +3292,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         if (no_more_items(cptr)) {
           continue;
         }
-        ii = bsearch_fam_indiv(id_buf, id_list, max_id_len, filter_lines, tbuf, cptr);
+        ii = bsearch_fam_indiv(id_buf, id_list, max_id_len, filter_line_ct, tbuf, cptr);
         if (ii != -1) {
           // mark item for removal
           id_list[ii * max_id_len] = '\0';
@@ -3299,7 +3304,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         while (id_list[ii * max_id_len]) {
           ii++;
         }
-        filter_lines -= jj;
+        filter_line_ct -= jj;
         kk = ii + 1;
         while (ii < jj) {
           if (id_list[kk * max_id_len]) {
@@ -3312,7 +3317,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     } else {
       filter_type = FILTER_REMOVE;
       // ----- --remove load without --keep/--filter, two passes -----
-      max_id_len = determine_max_id_len(filterfile, NULL, 0, &filter_lines);
+      max_id_len = determine_max_id_len(filterfile, NULL, 0, &filter_line_ct);
       if (max_id_len < 0) {
         goto wdist_ret_INVALID_FORMAT;
       }
@@ -3320,8 +3325,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       if (!id_buf) {
 	goto wdist_ret_NOMEM;
       }
-      if (filter_lines) {
-	id_list = (char*)malloc(max_id_len * filter_lines * sizeof(char));
+      if (filter_line_ct) {
+	id_list = (char*)malloc(max_id_len * filter_line_ct * sizeof(char));
 	if (!id_list) {
 	  goto wdist_ret_NOMEM;
 	}
@@ -3336,11 +3341,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  *cptr++ = '\t';
           read_next_terminate(cptr, next_item(tbuf));
 	  ii++;
-	  if (ii == filter_lines) {
+	  if (ii == filter_line_ct) {
 	    break;
           }
 	}
-	qsort(id_list, filter_lines, max_id_len, strcmp_casted);
+	qsort(id_list, filter_line_ct, max_id_len, strcmp_casted);
       } else {
 	printf("Note: No valid entries in --remove file.\n");
       }
@@ -3384,7 +3389,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
             max_person_id_len = ii;
           }
           if (filter_type) {
-            ii = is_contained(id_buf, id_list, max_id_len, filter_lines, tbuf, cptr);
+            ii = is_contained(id_buf, id_list, max_id_len, filter_line_ct, tbuf, cptr);
             if (filter_type == FILTER_REMOVE) {
               ii = 1 - ii;
             }
@@ -3886,7 +3891,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  max_person_id_len = ii;
 	}
 	if (filter_type) {
-	  ii = is_contained(id_buf, id_list, max_id_len, filter_lines, (char*)pedbuf, cptr);
+	  ii = is_contained(id_buf, id_list, max_id_len, filter_line_ct, (char*)pedbuf, cptr);
 	  if (filter_type == FILTER_REMOVE) {
 	    ii = 1 - ii;
 	  }
@@ -3896,10 +3901,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	if (phenoname[0]) {
 	  if (ii) {
 	    if (makepheno_str || (!prune)) {
-	      line_locs[nn++] = unfiltered_indiv_ct;
+	      line_locs[unfiltered_indiv_ct] = 1;
+	      nn++;
 	    } else {
 	      if (is_contained(id_buf, pid_list, max_pid_len, pheno_line_ct, (char*)pedbuf, cptr)) {
-		line_locs[nn++] = unfiltered_indiv_ct;
+		line_locs[unfiltered_indiv_ct] = 1;
+		nn++;
 	      }
 	    }
 	  }
@@ -3920,23 +3927,29 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  if (!unfiltered_indiv_ct) {
 	    affection = eval_affection(bufptr, missing_pheno, missing_pheno_len, affection_01);
 	  }
-	  if (affection) {
-	    if ((!prune) || (!is_missing(bufptr, missing_pheno, missing_pheno_len, affection_01))) {
-	      line_locs[nn++] = unfiltered_indiv_ct;
+	  if (ii) {
+	    if (affection) {
+	      if ((!prune) || (!is_missing(bufptr, missing_pheno, missing_pheno_len, affection_01))) {
+		line_locs[unfiltered_indiv_ct] = 1;
+		nn++;
+	      }
+	    } else {
+	      if (sscanf(bufptr, "%lg", &dxx) != 1) {
+		printf(errstr_ped_format);
+		goto wdist_ret_INVALID_FORMAT;
+	      }
+	      if ((!prune) || ((dxx != missing_phenod) && ((!tail_pheno) || ((dxx <= tail_bottom) || (dxx > tail_top))))) {
+		line_locs[unfiltered_indiv_ct] = 1;
+		nn++;
+	      }
 	    }
-	  } else {
-	    if (sscanf(bufptr, "%lg", &dxx) != 1) {
-	      printf(errstr_ped_format);
-	      goto wdist_ret_INVALID_FORMAT;
-	    }
-	    if ((!prune) || ((dxx != missing_phenod) && ((!tail_pheno) || ((dxx <= tail_bottom) || (dxx > tail_top))))) {
-	      line_locs[nn++] = unfiltered_indiv_ct;
-	    }
-          }
+	  }
 	}
         unfiltered_indiv_ct++;
       }
       if (!pedbuf[pedbuflen - 1]) {
+	// determine extended read buffer length needed to handle unexpectedly
+        // long line
         pedbuf[pedbuflen - 1] = ' ';
         if (pedbuf[pedbuflen - 2] == '\n') {
 	  last_tell = ftello(pedfile);
@@ -4006,14 +4019,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
     // ----- .ped load, second pass -----
     kk = 0;
-    // FILE* outfile_debug;
-    // outfile_debug = fopen("wdist.debug.id", "w");
     for (ii = 0; ii < unfiltered_indiv_ct; ii += 1) {
       do {
         last_tell = ftello(pedfile);
         fgets((char*)pedbuf, pedbuflen, pedfile);
       } while ((pedbuf[0] <= ' ') || (pedbuf[0] == '#'));
-      if (line_locs[kk] > ii) {
+      if (!line_locs[ii]) {
         exclude(indiv_exclude, ii, &indiv_exclude_ct);
         continue;
       }
@@ -4027,7 +4038,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       person_id[ii * max_person_id_len + oo] = '\t';
       memcpy(&(person_id[ii * max_person_id_len + oo + 1]), bufptr, mm);
       person_id[ii * max_person_id_len + oo + mm + 1] = '\0';
-      // fprintf(outfile_debug, "%d %d %s\n", ii, oo + mm + 1, &(person_id[ii * max_person_id_len]));
       if (phenoname[0]) {
         jj = bsearch_fam_indiv(id_buf, pid_list, max_pid_len, pheno_line_ct, (char*)pedbuf, bufptr);
         cc = 0;
@@ -4099,7 +4109,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         printf(errstr_ped_format);
         goto wdist_ret_INVALID_FORMAT;
       }
-      line_locs[kk] = last_tell + (bufptr - (char*)pedbuf);
+      line_locs[ii] = last_tell + (bufptr - (char*)pedbuf);
       mm = 0; // number of missing
       for (jj = 0; jj < unfiltered_marker_ct; jj += 1) {
         for (nn = 0; nn < 2; nn++) {
@@ -4147,7 +4157,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       kk++;
     }
-    // fclose(outfile_debug);
     rewind(pedfile);
     for (ii = 0; ii < unfiltered_marker_ct; ii++) {
       for (jj = 1; jj < 4; jj++) {
@@ -4725,8 +4734,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	goto wdist_ret_NOMEM;
       }
 
-      triangle_fill(thread_start, indiv_ct, thread_ct, 1, CACHELINE_DBL);
-      triangle_fill(thread_start0, indiv_ct, thread_ct, 0, CACHELINE_DBL);
+      triangle_fill(thread_start, indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
+      triangle_fill(thread_start0, indiv_ct, thread_ct, parallel_idx, parallel_tot, 0, 1);
       // See comments at the beginning of this file, and those in the main
       // CALC_DISTANCE loop.  The main difference between this calculation and
       // the (nonzero exponent) distance calculation is that we have to pad
@@ -5405,12 +5414,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
 	}
 	fseeko(pedfile, 3, SEEK_SET);
-        if (exp0) {
-          ii = sizeof(int);
-        } else {
-          ii = sizeof(double);
-        }
-	triangle_fill(thread_start, indiv_ct, thread_ct, 1, CACHELINE / ii);
+	triangle_fill(thread_start, indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
 	ii = 0; // current SNP index
 	pp = 0; // after subtracting out excluded
 	while (pp < marker_ct) {
@@ -5440,8 +5444,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           // possible distances between the genotypes:
           //    - It's equal to zero iff either g_j == g_k or one/both is
           //      missing.  It's fine for these cases to overlap since either
-          //      way we want to increment the numerator of our final distance
-          //      by zero.  (We can handle the effect of missingness on the
+          //      way we do not want to increment the numerator of our final
+          //      distance.  (We can handle the effect of missingness on the
           //      denominator outside the main loop.)
           //    - It's equal to 01 or 10 iff neither is missing and exactly
           //      one is a heterozygote.
@@ -7321,8 +7325,8 @@ int main(int argc, char** argv) {
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += ii + 1;
-      if (!(calculation_type & CALC_DISTANCE_MASK)) {
-        calculation_type |= CALC_DISTANCE_TRI;
+      if (!(calculation_type & CALC_DISTANCE_FORMATMASK)) {
+        calculation_type |= CALC_DISTANCE_SNPS;
       }
     } else if ((!strcmp(argptr, "--distance-matrix")) || (!strcmp(argptr, "--matrix"))) {
       if (calculation_type & CALC_LOAD_DISTANCES) {
