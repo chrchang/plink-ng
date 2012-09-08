@@ -1943,7 +1943,7 @@ void* calc_idist_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
   int jj = thread_start[0];
-  incr_dists_i(&(idists[(ii * (ii - 1) - jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
+  incr_dists_i(&(idists[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
   return NULL;
 }
 
@@ -2082,7 +2082,7 @@ void* calc_rel_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
   int jj = thread_start[0];
-  incr_dists_r(&(rel_dists[(ii * (ii - 1) - jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, masks, (int)tidx, weights);
+  incr_dists_r(&(rel_dists[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, masks, (int)tidx, weights);
   return NULL;
 }
 
@@ -2113,7 +2113,7 @@ void* calc_relm_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start0[tidx];
   int jj = thread_start0[0];
-  incr_dists_rm(&(missing_tot_unweighted[(ii * (ii - 1) - jj * (jj - 1)) / 2]), (int)tidx);
+  incr_dists_rm(&(missing_tot_unweighted[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (int)tidx);
   return NULL;
 }
 
@@ -2121,7 +2121,7 @@ void* calc_distm_unwt_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
   int jj = thread_start[0];
-  incr_dists_rm(&(missing_tot_unweighted[(ii * (ii - 1) - jj * (jj - 1)) / 2]), (int)tidx);
+  incr_dists_rm(&(missing_tot_unweighted[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (int)tidx);
   return NULL;
 }
 
@@ -2157,8 +2157,8 @@ void parallel_bounds(int ct, int start, int parallel_idx, int parallel_tot, int*
 
 // set align to 1 for no alignment
 void triangle_fill(int* target_arr, int ct, int pieces, int parallel_idx, int parallel_tot, int start, int align) {
-  long long ct_tr = (long long)ct;
-  long long cur_prod = 0;
+  long long ct_tr;
+  long long cur_prod;
   int modif = 1 - start * 2;
   int cur_piece = 1;
   int lbound;
@@ -2169,9 +2169,10 @@ void triangle_fill(int* target_arr, int ct, int pieces, int parallel_idx, int pa
   // x(x+1)/2 is divisible by y iff (x % (2y)) is 0 or (2y - 1).
   align *= 2;
   align_m1 = align - 1;
-  target_arr[0] = start;
+  target_arr[0] = lbound;
   target_arr[pieces] = ubound;
-  ct_tr = ((long long)ubound * (ubound + modif)) / pieces;
+  cur_prod = (long long)lbound * (lbound + modif);
+  ct_tr = ((long long)ubound * (ubound + modif) - cur_prod) / pieces;
   while (cur_piece < pieces) {
     cur_prod += ct_tr;
     lbound = triangle_divide(cur_prod, modif);
@@ -2853,7 +2854,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   double dyy;
   double dzz;
   double dww;
-  long long llxx;
+  long long llxx = 0;
+  long long llyy;
   char* marker_ids = NULL;
   int* marker_chroms = NULL;
   // int* marker_pos = NULL;
@@ -4591,6 +4593,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
 
   printf("%d markers and %d people pass filters and QC%s.\n", marker_ct, indiv_ct, (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
+  if (parallel_tot > indiv_ct / 2) {
+    printf("Error: Too many --parallel jobs (maximum %d/2 = %d).\n", indiv_ct, indiv_ct / 2);
+    goto wdist_ret_INVALID_CMDLINE;
+  }
   if (thread_ct > 1) {
     printf("Using %d threads (change this with --threads).\n", thread_ct);
   }
@@ -4675,25 +4681,27 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     fill_int_zero((int*)indiv_missing_unwt, indiv_ct);
 ;
+    triangle_fill(thread_start, indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
+    triangle_fill(thread_start0, indiv_ct, thread_ct, parallel_idx, parallel_tot, 0, 1);
     if (relationship_req(calculation_type)) {
-      ulii = indiv_ct;
-      ulii = (ulii * (ulii - 1)) / 2;
-      dists_alloc = ulii * sizeof(double);
+      llxx = thread_start[thread_ct];
+      llxx = ((llxx * (llxx - 1)) - (long long)thread_start[0] * (thread_start[0] - 1)) / 2;
+      dists_alloc = llxx * sizeof(double);
       if (!(calculation_type & CALC_UNRELATED_HERITABILITY)) {
         // if the memory isn't needed for CALC_UNRELATED_HERITABILITY,
 	// positioning the missingness matrix here will let us avoid
 	// recalculating it if --distance-matrix or --matrix is requested
-        missing_tot_unweighted = (unsigned int*)wkspace_alloc(ulii * sizeof(int));
+        missing_tot_unweighted = (unsigned int*)wkspace_alloc(llxx * sizeof(int));
         if (!missing_tot_unweighted) {
           goto wdist_ret_NOMEM;
         }
-        fill_int_zero((int*)missing_tot_unweighted, ulii);
+        fill_int_zero((int*)missing_tot_unweighted, llxx);
       }
       rel_dists = (double*)wkspace_alloc(dists_alloc);
       if (!rel_dists) {
 	goto wdist_ret_NOMEM;
       }
-      fill_double_zero(rel_dists, ulii);
+      fill_double_zero(rel_dists, llxx);
     }
     if (calculation_type & CALC_IBC) {
       ii = indiv_ct * 3;
@@ -4707,11 +4715,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     fill_double_zero(rel_ibc, ii);
     wkspace_mark = wkspace_base;
     if (relationship_req(calculation_type) && (!missing_tot_unweighted)) {
-      missing_tot_unweighted = (unsigned int*)wkspace_alloc(ulii * sizeof(int));
+      missing_tot_unweighted = (unsigned int*)wkspace_alloc(llxx * sizeof(int));
       if (!missing_tot_unweighted) {
 	goto wdist_ret_NOMEM;
       }
-      fill_int_zero((int*)missing_tot_unweighted, ulii);
+      fill_int_zero((int*)missing_tot_unweighted, llxx);
     }
     if (binary_files && snp_major) {
       fseeko(pedfile, 3, SEEK_SET);
@@ -4734,8 +4742,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	goto wdist_ret_NOMEM;
       }
 
-      triangle_fill(thread_start, indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
-      triangle_fill(thread_start0, indiv_ct, thread_ct, parallel_idx, parallel_tot, 0, 1);
       // See comments at the beginning of this file, and those in the main
       // CALC_DISTANCE loop.  The main difference between this calculation and
       // the (nonzero exponent) distance calculation is that we have to pad
@@ -4829,8 +4835,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       } else {
         printf("\n");
       }
-      ulii = indiv_ct;
-      ulii = ulii * (ulii + 1) / 2;
       dptr2 = rel_ibc;
       if (calculation_type & CALC_IBC) {
         dptr3 = &(rel_ibc[indiv_ct]);
@@ -4839,13 +4843,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       giptr2 = missing_tot_unweighted;
       for (ii = 0; ii < indiv_ct; ii++) {
         uii = marker_ct - indiv_missing_unwt[ii];
-        if (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF)) {
-          giptr = indiv_missing_unwt;
-	  for (jj = 0; jj < ii; jj++) {
-	    *dist_ptr /= uii - (*giptr++) + (*giptr2++);
-	    dist_ptr++;
+	if ((ii >= thread_start[0]) && (ii < thread_start[thread_ct])) {
+	  if (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF)) {
+	    giptr = indiv_missing_unwt;
+	    for (jj = 0; jj < ii; jj++) {
+	      *dist_ptr /= uii - (*giptr++) + (*giptr2++);
+	      dist_ptr++;
+	    }
 	  }
-        }
+	}
         if (calculation_type & CALC_IBC) {
           *dptr2 /= uii;
           dptr2++;
@@ -5044,31 +5050,41 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         printf("%s written.\n", outname);
       }
       if (calculation_type & CALC_RELATIONSHIP_MASK) {
-        if (calculation_type & CALC_IBC) {
-          dptr2 = &(rel_ibc[ibc_type * indiv_ct]);
-        } else {
-          dptr2 = rel_ibc;
-        }
         mm = 1;
         nn = calculation_type & CALC_RELATIONSHIP_SHAPEMASK;
+	oo = thread_start[thread_ct];
+	pp = thread_start[0];
+	if (pp == 1) {
+	  pp = 0;
+	}
+        if (calculation_type & CALC_IBC) {
+          dptr2 = &(rel_ibc[ibc_type * indiv_ct + pp]);
+        } else {
+          dptr2 = &(rel_ibc[pp]);
+        }
+	llxx = ((long long)pp * (pp - 1)) / 2;
+	llyy = (((long long)oo * (oo + 1)) / 2) - llxx;
 	if (calculation_type & CALC_RELATIONSHIP_BIN) {
           if (nn == CALC_RELATIONSHIP_SQ0) {
             fill_double_zero((double*)ped_geno, indiv_ct - 1);
           }
           strcpy(outname_end, ".rel.bin");
+	  if (parallel_tot > 1) {
+	    sprintf(&(outname_end[8]), ".%d", parallel_idx + 1);
+	  }
           if (fopen_checked(&outfile, outname, "wb")) {
             goto wdist_ret_OPENFAIL;
           }
-	  for (ii = 0; ii < indiv_ct; ii++) {
-	    if (fwrite_checked(&(rel_dists[(ii * (ii - 1)) / 2]), ii * sizeof(double), outfile)) {
+	  for (ii = pp; ii < oo; ii++) {
+	    if (fwrite_checked(&(rel_dists[((long long)ii * (ii - 1)) / 2 - llxx]), ii * sizeof(double), outfile)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
 	    if (fwrite_checked(dptr2++, sizeof(double), outfile)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
             if (nn == CALC_RELATIONSHIP_TRI) {
-              if (((long long)ii + 1) * (ii + 2) * 100 >= (long long)mm * indiv_ct * (indiv_ct + 1)) {
-		mm = ((long long)(ii + 1) * (ii + 2) * 100) / ((long long)indiv_ct * (indiv_ct + 1));
+              if ((((long long)ii + 1) * (ii + 2) / 2 - llxx) * 100 >= llyy * mm) {
+		mm = (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100) / llyy;
                 printf("\rWriting... %d%%", mm++);
                 fflush(stdout);
               }
@@ -5079,13 +5095,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		}
 	      } else {
 		for (jj = ii + 1; jj < indiv_ct; jj++) {
-		  if (fwrite_checked(&(rel_dists[(jj * (jj - 1) / 2) + ii]), sizeof(double), outfile)) {
+		  if (fwrite_checked(&(rel_dists[((long long)jj * (jj - 1) / 2) + ii - llxx]), sizeof(double), outfile)) {
 		    goto wdist_ret_WRITE_FAIL;
 		  }
 		}
 	      }
-	      if ((ii + 1) * 100 >= mm * indiv_ct) {
-		mm = ((ii + 1) * 100) / indiv_ct;
+	      if ((ii + 1 - pp) * 100 >= mm * (oo - pp)) {
+		mm = ((ii + 1 - pp) * 100) / (oo - pp);
 		printf("\rWriting... %d%%", mm++);
 		fflush(stdout);
 	      }
@@ -5098,14 +5114,17 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           giptr2 = missing_tot_unweighted;
 	  if (calculation_type & CALC_RELATIONSHIP_GZ) {
 	    strcpy(outname_end, ".grm.gz");
+	    if (parallel_tot > 1) {
+	      sprintf(&(outname_end[7]), ".%d", parallel_idx + 1);
+	    }
 	    gz_outfile = gzopen(outname, "wb");
 	    if (!gz_outfile) {
 	      goto wdist_ret_OPENFAIL_GZ;
 	    }
 	    dist_ptr = rel_dists;
-	    for (ii = 0; ii < indiv_ct; ii += 1) {
-	      if ((long long)ii * (ii + 1) * 100 >= (long long)indiv_ct * (indiv_ct + 1) * mm) {
-		mm = ((long long)ii * (ii + 1) * 100) / ((long long)indiv_ct * (indiv_ct + 1));
+	    for (ii = pp; ii < oo; ii++) {
+	      if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * mm) {
+		mm = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
 		printf("\rWriting... %d%%", mm++);
 		fflush(stdout);
 	      }
@@ -5120,17 +5139,20 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    gz_outfile = NULL;
 	  } else {
 	    strcpy(outname_end, ".grm");
+	    if (parallel_tot > 1) {
+	      sprintf(&(outname_end[4]), ".%d", parallel_idx + 1);
+	    }
             if (fopen_checked(&outfile, outname, "w")) {
 	      goto wdist_ret_OPENFAIL;
 	    }
 	    dist_ptr = rel_dists;
-	    for (ii = 0; ii < indiv_ct; ii += 1) {
-	      if ((long long)ii * (ii + 1) * 100 >= (long long)indiv_ct * (indiv_ct + 1) * mm) {
-		mm = ((long long)ii * (ii + 1) * 100) / ((long long)indiv_ct * (indiv_ct + 1));
+	    for (ii = pp; ii < oo; ii++) {
+	      if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * mm) {
+		mm = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
 		printf("\rWriting... %d%%", mm++);
 		fflush(stdout);
 	      }
-	      for (jj = 0; jj < ii; jj += 1) {
+	      for (jj = 0; jj < ii; jj++) {
 		kk = marker_ct - *giptr2++;
 		if (fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++) < 0) {
                   goto wdist_ret_WRITE_FAIL;
@@ -5160,21 +5182,29 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
 	  if (calculation_type & CALC_RELATIONSHIP_GZ) {
 	    strcpy(outname_end, ".rel.gz");
+	    if (parallel_tot > 1) {
+	      sprintf(&(outname_end[7]), ".%d", parallel_idx + 1);
+	    }
 	    gz_outfile = gzopen(outname, "wb");
 	    if (!gz_outfile) {
 	      goto wdist_ret_OPENFAIL_GZ;
 	    }
 	    dist_ptr = rel_dists;
-            gzprintf(gz_outfile, "%g", *dptr2++);
-            if (nn == CALC_RELATIONSHIP_SQ0) {
-              gzwrite(gz_outfile, ped_geno, (indiv_ct - 1) * 2);
-            } else if (nn == CALC_RELATIONSHIP_SQ) {
-              for (jj = 1; jj < indiv_ct; jj++) {
-                gzprintf(gz_outfile, "\t%g", rel_dists[(jj * (jj - 1)) / 2]);
+	    if (pp) {
+	      ii = pp;
+	    } else {
+	      gzprintf(gz_outfile, "%g", *dptr2++);
+	      if (nn == CALC_RELATIONSHIP_SQ0) {
+		gzwrite(gz_outfile, ped_geno, (indiv_ct - 1) * 2);
+	      } else if (nn == CALC_RELATIONSHIP_SQ) {
+		for (jj = 1; jj < indiv_ct; jj++) {
+		  gzprintf(gz_outfile, "\t%g", rel_dists[(jj * (jj - 1)) / 2]);
+		}
 	      }
-            }
-            gzprintf(gz_outfile, "\n");
-	    for (ii = 1; ii < indiv_ct; ii++) {
+	      gzprintf(gz_outfile, "\n");
+	      ii = 1;
+	    }
+	    for (; ii < oo; ii++) {
 	      gzprintf(gz_outfile, "%g", *dist_ptr++);
 	      for (jj = 1; jj < ii; jj++) {
 		gzprintf(gz_outfile, "\t%g", *dist_ptr++);
@@ -5182,8 +5212,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
               gzprintf(gz_outfile, "\t%g", *dptr2++);
 	      if (nn == CALC_RELATIONSHIP_SQ0) {
 		gzwrite(gz_outfile, ped_geno, (indiv_ct - jj - 1) * 2);
-		if ((ii + 1) * 100 >= mm * indiv_ct) {
-		  mm = ((ii + 1) * 100) / indiv_ct;
+		if ((ii + 1 - pp) * 100 >= mm * oo) {
+		  mm = ((ii + 1 - pp) * 100) / oo;
 		  printf("\rWriting... %d%%", mm++);
 		  fflush(stdout);
 		}
@@ -5193,8 +5223,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
                     gzprintf(gz_outfile, "\t%g", rel_dists[((jj * (jj - 1)) / 2) + ii]);
                   }
                 }
-		if ((long long)(ii + 1) * (ii + 2) * 100 >= (long long)indiv_ct * (indiv_ct + 1) * mm) {
-		  mm = ((long long)(ii + 1) * (ii + 2) * 100) / ((long long)indiv_ct * (indiv_ct + 1));
+		if (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100 >= llyy * mm) {
+		  mm = (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100) / llyy;
 		  printf("\rWriting... %d%%", mm++);
 		  fflush(stdout);
 		}
@@ -5205,28 +5235,36 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    gz_outfile = NULL;
 	  } else {
 	    strcpy(outname_end, ".rel");
+	    if (parallel_tot > 1) {
+	      sprintf(&(outname_end[4]), ".%d", parallel_idx + 1);
+	    }
             if (fopen_checked(&outfile, outname, "w")) {
 	      goto wdist_ret_OPENFAIL;
 	    }
 	    dist_ptr = rel_dists;
-            if (fprintf(outfile, "%g", *dptr2++) < 0) {
-              goto wdist_ret_WRITE_FAIL;
-            }
-            if (nn == CALC_RELATIONSHIP_SQ0) {
-              if (fwrite_checked(ped_geno, (indiv_ct - 1) * 2, outfile)) {
-                goto wdist_ret_WRITE_FAIL;
-              }
-            } else if (nn == CALC_RELATIONSHIP_SQ) {
-              for (jj = 1; jj < indiv_ct; jj++) {
-                if (fprintf(outfile, "\t%g", rel_dists[(jj * (jj - 1)) / 2]) < 0) {
-                  goto wdist_ret_WRITE_FAIL;
-                }
-              }
-            }
-            if (fwrite_checked("\n", 1, outfile)) {
-              goto wdist_ret_WRITE_FAIL;
-            }
-	    for (ii = 1; ii < indiv_ct; ii++) {
+	    if (pp) {
+	      ii = pp;
+	    } else {
+	      if (fprintf(outfile, "%g", *dptr2++) < 0) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
+	      if (nn == CALC_RELATIONSHIP_SQ0) {
+		if (fwrite_checked(ped_geno, (indiv_ct - 1) * 2, outfile)) {
+		  goto wdist_ret_WRITE_FAIL;
+		}
+	      } else if (nn == CALC_RELATIONSHIP_SQ) {
+		for (jj = 1; jj < indiv_ct; jj++) {
+		  if (fprintf(outfile, "\t%g", rel_dists[(jj * (jj - 1)) / 2]) < 0) {
+		    goto wdist_ret_WRITE_FAIL;
+		  }
+		}
+	      }
+	      if (fwrite_checked("\n", 1, outfile)) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
+	      ii = 1;
+	    }
+	    for (; ii < oo; ii++) {
               if (fprintf(outfile, "%g", *dist_ptr++) < 0) {
                 goto wdist_ret_WRITE_FAIL;
               }
@@ -5242,8 +5280,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		if (fwrite_checked(ped_geno, (indiv_ct - jj - 1) * 2, outfile)) {
 		  goto wdist_ret_WRITE_FAIL;
 		}
-		if ((ii + 1) * 100 >= mm * indiv_ct) {
-		  mm = ((ii + 1) * 100) / indiv_ct;
+		if ((ii + 1 - pp) * 100 >= mm * (oo - pp)) {
+		  mm = ((ii + 1 - pp) * 100) / (oo - pp);
 		  printf("\rWriting... %d%%", mm++);
 		  fflush(stdout);
 		}
@@ -5255,8 +5293,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
                     }
                   }
                 }
-		if ((long long)(ii + 1) * (ii + 2) * 100 >= (long long)indiv_ct * (indiv_ct + 1) * mm) {
-		  mm = ((long long)(ii + 1) * (ii + 2) * 100) / ((long long)indiv_ct * (indiv_ct + 1));
+		if (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100 >= llyy * mm) {
+		  mm = (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100) / llyy;
 		  printf("\rWriting... %d%%", mm++);
 		  fflush(stdout);
 		}
@@ -5271,11 +5309,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
 	}
 	printf("\rRelationship matrix written to %s.\n", outname);
-        strcpy(&(outname_end[4]), ".id");
-	retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
-        if (retval) {
-          goto wdist_ret_2;
-        }
+	if (!parallel_idx) {
+	  strcpy(&(outname_end[4]), ".id");
+	  retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
+	  if (retval) {
+	    goto wdist_ret_2;
+	  }
+	}
       }
       wkspace_reset(wkspace_mark);
     } else {
@@ -5338,9 +5378,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (distance_req(calculation_type)) {
-    ulii = indiv_ct;
-    ulii = (ulii * (ulii - 1)) / 2;
-    dists_alloc = ulii * sizeof(double);
+    triangle_fill(thread_start, indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
+    llxx = thread_start[thread_ct];
+    llxx = ((llxx * (llxx - 1)) - (long long)thread_start[0] * (thread_start[0] - 1)) / 2;
+    dists_alloc = llxx * sizeof(double);
     // additional + CACHELINE is to fix weird-ass aliasing bug that shows up
     // with -O2 in some cases
     dists = (double*)wkspace_alloc(dists_alloc + CACHELINE);
@@ -5349,11 +5390,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     wkspace_mark = wkspace_base;
     if (wt_needed) {
-      missing_tot_weights = (unsigned int*)wkspace_alloc(ulii * sizeof(int));
+      missing_tot_weights = (unsigned int*)wkspace_alloc(llxx * sizeof(int));
       if (!missing_tot_weights) {
 	goto wdist_ret_NOMEM;
       }
-      fill_int_zero((int*)missing_tot_weights, ulii);
+      fill_int_zero((int*)missing_tot_weights, llxx);
       indiv_missing = (unsigned int*)wkspace_alloc(indiv_ct * sizeof(int));
       if (!indiv_missing) {
 	goto wdist_ret_NOMEM;
@@ -5361,11 +5402,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       fill_int_zero((int*)indiv_missing, indiv_ct);
     }
     if ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!missing_tot_unweighted)) {
-      missing_tot_unweighted = (unsigned int*)wkspace_alloc(ulii * sizeof(int));
+      missing_tot_unweighted = (unsigned int*)wkspace_alloc(llxx * sizeof(int));
       if (!missing_tot_unweighted) {
         goto wdist_ret_NOMEM;
       }
-      fill_int_zero((int*)missing_tot_unweighted, ulii);
+      fill_int_zero((int*)missing_tot_unweighted, llxx);
       unwt_needed = 1;
       if (!indiv_missing_unwt) {
         indiv_missing_unwt = (unsigned int*)wkspace_alloc(indiv_ct * sizeof(int));
@@ -5378,11 +5419,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
 
     if (exp0) {
-      idists = (int*)(((char*)wkspace_mark) - CACHEALIGN(ulii * sizeof(int)));
-      fill_int_zero(idists, ulii);
+      idists = (int*)(((char*)wkspace_mark) - CACHEALIGN(llxx * sizeof(int)));
+      fill_int_zero(idists, llxx);
       masks = (unsigned long*)wkspace_alloc(indiv_ct * (MULTIPLEX_2DIST / 8));
     } else {
-      fill_double_zero(dists, ulii);
+      fill_double_zero(dists, llxx);
       masks = (unsigned long*)wkspace_alloc(indiv_ct * sizeof(long));
     }
     if (!masks) {
@@ -5414,7 +5455,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
 	}
 	fseeko(pedfile, 3, SEEK_SET);
-	triangle_fill(thread_start, indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
 	ii = 0; // current SNP index
 	pp = 0; // after subtracting out excluded
 	while (pp < marker_ct) {
@@ -5721,10 +5761,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	goto wdist_ret_WRITE_FAIL;
       }
       printf("\rDistances (proportions) written to %s.\n", outname);
-      strcpy(outname_end, ".mdist.id");
-      retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
-      if (retval) {
-	goto wdist_ret_2;
+      if (!parallel_idx) {
+	strcpy(outname_end, ".mdist.id");
+	retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
+	if (retval) {
+	  goto wdist_ret_2;
+	}
       }
     }
     if (calculation_type & CALC_PLINK_IBS_MATRIX) {
@@ -5799,12 +5841,21 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (calculation_type & CALC_DISTANCE_MASK) {
-    strcpy(outname_end, ".dist.id");
-    retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
-    if (retval) {
-      goto wdist_ret_2;
+    if (!parallel_idx) {
+      strcpy(outname_end, ".dist.id");
+      retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
+      if (retval) {
+	goto wdist_ret_2;
+      }
     }
     mm = calculation_type & CALC_DISTANCE_SHAPEMASK;
+    oo = thread_start[thread_ct];
+    pp = thread_start[0];
+    if (pp == 1) {
+      pp = 0;
+    }
+    llxx = ((long long)pp * (pp - 1)) / 2;
+    llyy = (((long long)oo * (oo - 1)) / 2) - llxx;
     if (mm == CALC_DISTANCE_SQ0) {
       cptr2 = (char*)(&ulii);
       for (ii = 0; ii < sizeof(long); ii += 2) {
@@ -5820,30 +5871,38 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     kk = 1;
     if (calculation_type & CALC_DISTANCE_GZ) {
       strcpy(outname_end, ".dist.gz");
+      if (parallel_tot > 1) {
+        sprintf(&(outname_end[8]), ".%d", parallel_idx + 1);
+      }
       gz_outfile = gzopen(outname, "wb");
       if (!gz_outfile) {
 	goto wdist_ret_OPENFAIL_GZ;
       }
-      if (mm == CALC_DISTANCE_SQ0) {
-	gzwrite(gz_outfile, &(ped_geno[1]), indiv_ct * 2 - 1);
-	gzprintf(gz_outfile, "\n");
-      } else if (mm == CALC_DISTANCE_SQ) {
-        gzprintf(gz_outfile, "0");
-        for (jj = 1; jj < indiv_ct; jj++) {
-          gzprintf(gz_outfile, "\t%g", dists[(jj * (jj - 1)) / 2]);
-        }
-        gzprintf(gz_outfile, "\n");
+      if (pp) {
+	ii = pp;
+      } else {
+	if (mm == CALC_DISTANCE_SQ0) {
+	  gzwrite(gz_outfile, &(ped_geno[1]), indiv_ct * 2 - 1);
+	  gzprintf(gz_outfile, "\n");
+	} else if (mm == CALC_DISTANCE_SQ) {
+	  gzprintf(gz_outfile, "0");
+	  for (jj = 1; jj < indiv_ct; jj++) {
+	    gzprintf(gz_outfile, "\t%g", dists[(jj * (jj - 1)) / 2]);
+	  }
+	  gzprintf(gz_outfile, "\n");
+	}
+	ii = 1;
       }
       dist_ptr = dists;
-      for (ii = 1; ii < indiv_ct; ii++) {
+      for (; ii < oo; ii++) {
 	gzprintf(gz_outfile, "%g", *dist_ptr++);
 	for (jj = 1; jj < ii; jj++) {
 	  gzprintf(gz_outfile, "\t%g", *dist_ptr++);
 	}
 	if (mm == CALC_DISTANCE_SQ0) {
 	  gzwrite(gz_outfile, ped_geno, (indiv_ct - jj) * 2);
-          if (ii * 100 >= (kk * indiv_ct)) {
-            kk = (ii * 100) / indiv_ct;
+          if ((ii - pp) * 100 >= kk * (oo - pp)) {
+	    kk = ((ii - pp) * 100) / (oo - pp);
             printf("\rWriting... %d%%", kk++);
             fflush(stdout);
           }
@@ -5854,8 +5913,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
               gzprintf(gz_outfile, "\t%g", dists[((jj * (jj - 1)) / 2) + ii]);
 	    }
           }
-          if ((long long)ii * (ii + 1) * 100 >= (long long)indiv_ct * (indiv_ct - 1) * kk) {
-            kk = ((long long)ii * (ii + 1) * 100) / ((long long)indiv_ct * (indiv_ct - 1));
+          if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * kk) {
+            kk = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
             printf("\rWriting... %d%%", kk++);
             fflush(stdout);
           }
@@ -5866,11 +5925,14 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       gz_outfile = NULL;
     } else if (calculation_type & CALC_DISTANCE_BIN) {
       strcpy(outname_end, ".dist.bin");
+      if (parallel_tot > 1) {
+        sprintf(&(outname_end[9]), ".%d", parallel_idx + 1);
+      }
       if (fopen_checked(&outfile, outname, "wb")) {
 	goto wdist_ret_OPENFAIL;
       }
       if (mm == CALC_DISTANCE_TRI) {
-        if (fwrite_checked(dists, ((long long)indiv_ct * (indiv_ct - 1)) * sizeof(double) / 2, outfile)) {
+        if (fwrite_checked(dists, llyy * sizeof(double), outfile)) {
           goto wdist_ret_WRITE_FAIL;
         }
       } else {
@@ -5880,7 +5942,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  dxx = 0.0;
 	}
 	dist_ptr = dists;
-	for (ii = 0; ii < indiv_ct; ii++) {
+	for (ii = pp; ii < oo; ii++) {
 	  if (fwrite_checked(dist_ptr, ii * sizeof(double), outfile)) {
 	    goto wdist_ret_WRITE_FAIL;
 	  }
@@ -5890,6 +5952,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      goto wdist_ret_WRITE_FAIL;
 	    }
 	  } else {
+	    // square matrix, no need to handle parallel case
 	    if (fwrite_checked(&dxx, sizeof(double), outfile)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
@@ -5899,8 +5962,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      }
 	    }
 	  }
-	  if (ii * 100 >= (kk * indiv_ct)) {
-	    kk = (ii * 100) / indiv_ct;
+	  if ((ii - pp) * 100 >= kk * (oo - pp)) {
+	    kk = ((ii - pp) * 100) / (oo - pp);
 	    printf("\rWriting... %d%%", kk++);
 	    fflush(stdout);
 	  }
@@ -5911,31 +5974,39 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
     } else {
       strcpy(outname_end, ".dist");
+      if (parallel_tot > 1) {
+	sprintf(&(outname_end[5]), ".%d", parallel_idx + 1);
+      }
       if (fopen_checked(&outfile, outname, "w")) {
 	goto wdist_ret_OPENFAIL;
       }
-      if (mm == CALC_DISTANCE_SQ0) {
-	if (fwrite_checked(&(ped_geno[1]), indiv_ct * 2 - 1, outfile)) {
-          goto wdist_ret_WRITE_FAIL;
-        }
-        if (fwrite_checked("\n", 1, outfile)) {
-          goto wdist_ret_WRITE_FAIL;
-        }
-      } else if (mm == CALC_DISTANCE_SQ) {
-        if (fwrite_checked("0", 1, outfile)) {
-          goto wdist_ret_WRITE_FAIL;
-        }
-        for (jj = 1; jj < indiv_ct; jj++) {
-          if (fprintf(outfile, "\t%g", dists[(jj * (jj - 1)) / 2]) < 0) {
-            goto wdist_ret_WRITE_FAIL;
-          }
-        }
-        if (fwrite_checked("\n", 1, outfile)) {
-          goto wdist_ret_WRITE_FAIL;
-        }
+      if (pp) {
+	ii = pp;
+      } else {
+	if (mm == CALC_DISTANCE_SQ0) {
+	  if (fwrite_checked(&(ped_geno[1]), indiv_ct * 2 - 1, outfile)) {
+	    goto wdist_ret_WRITE_FAIL;
+	  }
+	  if (fwrite_checked("\n", 1, outfile)) {
+	    goto wdist_ret_WRITE_FAIL;
+	  }
+	} else if (mm == CALC_DISTANCE_SQ) {
+	  if (fwrite_checked("0", 1, outfile)) {
+	    goto wdist_ret_WRITE_FAIL;
+	  }
+	  for (jj = 1; jj < indiv_ct; jj++) {
+	    if (fprintf(outfile, "\t%g", dists[(jj * (jj - 1)) / 2]) < 0) {
+	      goto wdist_ret_WRITE_FAIL;
+	    }
+	  }
+	  if (fwrite_checked("\n", 1, outfile)) {
+	    goto wdist_ret_WRITE_FAIL;
+	  }
+	}
+	ii = 1;
       }
       dist_ptr = dists;
-      for (ii = 1; ii < indiv_ct; ii++) {
+      for (; ii < oo; ii++) {
 	if (fprintf(outfile, "%g", *dist_ptr++) < 0) {
           goto wdist_ret_WRITE_FAIL;
         }
@@ -5948,8 +6019,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  if (fwrite_checked(ped_geno, (indiv_ct - jj) * 2, outfile)) {
             goto wdist_ret_WRITE_FAIL;
           }
-	  if (ii * 100 >= (kk * indiv_ct)) {
-	    kk = (ii * 100) / indiv_ct;
+	  if ((ii - pp) * 100 >= (kk * (oo - pp))) {
+	    kk = ((ii - pp) * 100) / (oo - pp);
 	    printf("\rWriting... %d%%", kk++);
 	    fflush(stdout);
 	  }
@@ -5964,8 +6035,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
               }
             }
           }
-          if ((long long)ii * (ii + 1) * 100 >= (long long)indiv_ct * (indiv_ct - 1) * kk) {
-            kk = ((long long)ii * (ii + 1) * 100) / ((long long)indiv_ct * (indiv_ct - 1));
+          if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * kk) {
+            kk = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
             printf("\rWriting... %d%%", kk++);
             fflush(stdout);
           }
@@ -7040,6 +7111,10 @@ int main(int argc, char** argv) {
       }
       cur_arg += ii + 1;
     } else if ((!strcmp(argptr, "--rel-cutoff")) || (!strcmp(argptr, "--grm-cutoff"))) {
+      if (parallel_tot > 1) {
+	printf("Error: --parallel cannot be used with --rel-cutoff.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
       ii = param_count(argc, argv, cur_arg);
       if (calculation_type & CALC_REL_CUTOFF) {
         printf("Error: Duplicate --rel-cutoff flag.\n");
@@ -7383,7 +7458,7 @@ int main(int argc, char** argv) {
       } else if ((calculation_type & CALC_DISTANCE_BIN) && (!(calculation_type & CALC_DISTANCE_SHAPEMASK))) {
         printf("Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.%s", errstr_append);
 	return dispmsg(RET_INVALID_CMDLINE);
-      } else if (calculation_type & CALC_RELATIONSHIP_SQ) {
+      } else if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ) {
         printf("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       } else if ((calculation_type & CALC_RELATIONSHIP_BIN) && (!(calculation_type & CALC_RELATIONSHIP_SHAPEMASK))) {
@@ -7398,6 +7473,12 @@ int main(int argc, char** argv) {
       } else if (calculation_type & CALC_REGRESS_DISTANCE) {
 	printf("Error: --parallel and --regress-distance flags cannot coexist.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
+      } else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
+	printf("Error: --parallel cannot be used with --unrelated-heritability.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      } else if (calculation_type & CALC_REL_CUTOFF) {
+	printf("Error: --parallel cannot be used with --rel-cutoff.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (parallel_tot > 1) {
 	printf("Error: Duplicate --parallel flag.\n");
@@ -7485,6 +7566,9 @@ int main(int argc, char** argv) {
       if (calculation_type & CALC_RELATIONSHIP_COV) {
         printf("Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.\n");
         return dispmsg(RET_INVALID_CMDLINE);
+      } else if (parallel_tot > 1) {
+	printf("Error: --parallel cannot be used with --unrelated-heritability.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (calculation_type & CALC_UNRELATED_HERITABILITY) {
         printf("Error: Duplicate --unrelated-heritability flag.%s", errstr_append);
