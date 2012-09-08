@@ -476,7 +476,7 @@ int dispmsg(int retval) {
 "  --parallel [k] [n]        : Divide the output matrix into n pieces, and only\n"
 "                              compute the kth piece.  The primary output file\n"
 "                              will have the piece number appended to its name,\n"
-"                              e.g. wdist.rel.gz.13 if k is 13.  Concatenating\n"
+"                              e.g. wdist.rel.13 if k is 13.  Concatenating\n"
 "                              these files in order will yield the full matrix\n"
 "                              of interest.\n"
 "                              N.B. This cannot be used to directly write a\n"
@@ -5113,9 +5113,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         } else if (calculation_type & CALC_RELATIONSHIP_GRM) {
           giptr2 = missing_tot_unweighted;
 	  if (calculation_type & CALC_RELATIONSHIP_GZ) {
-	    strcpy(outname_end, ".grm.gz");
 	    if (parallel_tot > 1) {
-	      sprintf(&(outname_end[7]), ".%d", parallel_idx + 1);
+	      sprintf(outname_end, ".grm.%d.gz", parallel_idx + 1);
+	    } else {
+	      strcpy(outname_end, ".grm.gz");
 	    }
 	    gz_outfile = gzopen(outname, "wb");
 	    if (!gz_outfile) {
@@ -5158,7 +5159,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
                   goto wdist_ret_WRITE_FAIL;
                 }
 	      }
-              kk = marker_ct - *giptr2++;
+              kk = marker_ct - indiv_missing_unwt[ii];
               if (fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dptr2++) < 0) {
                 goto wdist_ret_WRITE_FAIL;
               }
@@ -5181,9 +5182,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    }
 	  }
 	  if (calculation_type & CALC_RELATIONSHIP_GZ) {
-	    strcpy(outname_end, ".rel.gz");
 	    if (parallel_tot > 1) {
-	      sprintf(&(outname_end[7]), ".%d", parallel_idx + 1);
+	      sprintf(outname_end, ".rel.%d.gz", parallel_idx + 1);
+	    } else {
+	      strcpy(outname_end, ".rel.gz");
 	    }
 	    gz_outfile = gzopen(outname, "wb");
 	    if (!gz_outfile) {
@@ -5870,9 +5872,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     kk = 1;
     if (calculation_type & CALC_DISTANCE_GZ) {
-      strcpy(outname_end, ".dist.gz");
       if (parallel_tot > 1) {
-        sprintf(&(outname_end[8]), ".%d", parallel_idx + 1);
+        sprintf(outname_end, ".dist.%d.gz", parallel_idx + 1);
+      } else {
+        strcpy(outname_end, ".dist.gz");
       }
       gz_outfile = gzopen(outname, "wb");
       if (!gz_outfile) {
