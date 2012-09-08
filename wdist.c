@@ -1726,16 +1726,17 @@ void collapse_copy_phenod(double *target, double* pheno_d, unsigned char* indiv_
   }
 }
 
-void collapse_person_id(char* person_id, int max_person_id_len, unsigned char* indiv_exclude, int unfiltered_indiv_ct) {
+void collapse_bufs(char* buf_arr, int max_buf_len, unsigned char* exclude_arr, int exclude_ct) {
+  // collapses array of fixed-length buffers
   int ii = 0;
   int jj;
-  while ((ii < unfiltered_indiv_ct) && (!excluded(indiv_exclude, ii))) {
+  while ((ii < exclude_ct) && (!excluded(exclude_arr, ii))) {
     ii++;
   }
   jj = ii;
-  while (++ii < unfiltered_indiv_ct) {
-    if (!excluded(indiv_exclude, ii)) {
-      memcpy(&(person_id[(jj++) * max_person_id_len]), &(person_id[ii * max_person_id_len]), max_person_id_len);
+  while (++ii < exclude_ct) {
+    if (!excluded(exclude_arr, ii)) {
+      memcpy(&(buf_arr[(jj++) * max_buf_len]), &(buf_arr[ii * max_buf_len]), max_buf_len);
     }
   }
 }
@@ -4184,11 +4185,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         exclude(marker_exclude, ii, &marker_exclude_ct);
       } else if (marker_allele_cts[ii * 4 + 1] < maf_int_thresh) {
         exclude(marker_exclude, ii, &marker_exclude_ct);
+      } else if (!marker_allele_cts[ii * 4 + 1]) {
+        marker_alleles[ii * 4 + 1] = '0';
       } else if (marker_allele_cts[ii * 4 + 1] == marker_allele_cts[ii * 4 + 2]) {
         printf("Error: Ambiguous minor allele at marker %d.\n", ii + 1);
-        if (!marker_allele_cts[ii * 4 + 1]) {
-          printf("(Only one allele is present.  Consider using the --maf flag to avoid this\nproblem.)\n");
-        }
         goto wdist_ret_INVALID_FORMAT;
       }
     }
@@ -4512,10 +4512,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         if (excluded(marker_exclude, ii)) {
           continue;
         }
-        *cptr++ = marker_alleles[ii * 4];
         *cptr++ = marker_alleles[ii * 4 + 1];
-        *iptr++ = marker_allele_cts[ii * 4];
+        *cptr++ = marker_alleles[ii * 4];
         *iptr++ = marker_allele_cts[ii * 4 + 1];
+        *iptr++ = marker_allele_cts[ii * 4];
         *dptr2++ = mafs[ii];
       }
       free(marker_alleles);
@@ -4571,8 +4571,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       } else if (pheno_d) {
         collapse_double(pheno_d, indiv_exclude, unfiltered_indiv_ct);
       }
-      collapse_person_id(person_id, max_person_id_len, indiv_exclude, unfiltered_indiv_ct);
-      collapse_double(mafs, marker_exclude, unfiltered_marker_ct);
+      if (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST)) {
+        collapse_bufs(marker_ids, max_marker_id_len, marker_exclude, unfiltered_marker_ct);
+	collapse_bufs((char*)marker_chroms, sizeof(int), marker_exclude, unfiltered_marker_ct);
+      }
+      collapse_bufs(person_id, max_person_id_len, indiv_exclude, unfiltered_indiv_ct);
       collapse_double(marker_weights, marker_exclude, unfiltered_marker_ct);
       unfiltered_marker_ct -= marker_exclude_ct;
       marker_exclude_ct = 0;
