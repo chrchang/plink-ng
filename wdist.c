@@ -111,16 +111,15 @@
 #define CACHELINE_DBL (CACHELINE / sizeof(double))
 
 #define RET_SUCCESS 0
-#define RET_HELP 1
-#define RET_NOMEM 2
-#define RET_OPENFAIL 3
-#define RET_INVALID_FORMAT 4
-#define RET_CALC_NOT_YET_SUPPORTED 5
-#define RET_INVALID_CMDLINE 6
-#define RET_WRITE_FAIL 7
-#define RET_READ_FAIL 8
-#define RET_MOREHELP 9
-#define RET_THREAD_CREATE_FAIL 10
+#define RET_NOMEM 1
+#define RET_OPENFAIL 2
+#define RET_INVALID_FORMAT 3
+#define RET_CALC_NOT_YET_SUPPORTED 4
+#define RET_INVALID_CMDLINE 5
+#define RET_WRITE_FAIL 6
+#define RET_READ_FAIL 7
+#define RET_MOREHELP 8
+#define RET_THREAD_CREATE_FAIL 9
 
 #define FILTER_NONE 0
 #define FILTER_KEEP 1
@@ -217,7 +216,7 @@ const char ver_str[] =
 #ifdef NOLAPACK
   "WDIST genomic distance calculator, v0.5.16 "
 #else
-  "WDIST genomic distance calculator, v0.8.0 "
+  "WDIST genomic distance calculator, v0.8.1 "
 #endif
 #if __LP64__
   "64-bit"
@@ -225,9 +224,6 @@ const char ver_str[] =
   "32-bit"
 #endif
   " (9 September 2012)\n";
-const char info_str[] =
-  "Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
-  "wdist [flags...]\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -304,9 +300,6 @@ char** subst_argv = NULL;
 
 int dispmsg(int retval) {
   switch(retval) {
-  case RET_HELP:
-    printf("%s%s", info_str, errstr_append);
-    break;
   case RET_NOMEM:
     printf("Error: Out of memory.  Try the --memory flag.\n");
     break;
@@ -318,7 +311,8 @@ int dispmsg(int retval) {
     break;
   case RET_MOREHELP:
     printf(
-"%s\n"
+"Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
+"wdist [flags...]\n\n"
 "In the command line flag definitions that follow,\n"
 "  * [square brackets] denote a required parameter, where the text between the\n"
 "    brackets describes its nature.\n"
@@ -460,13 +454,13 @@ int dispmsg(int retval) {
 "  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
 "                     default 0.001.  This is checked after all other forms of\n"
 "                     filtering except for --rel-cutoff.\n"
-"  --rel-cutoff {v} : Exclude individuals until no remaining pairs have\n"
-"  --grm-cutoff {v}   relatedness greater than the given cutoff value (default\n"
-"                     0.025).  Note that maximizing the remaining sample size is\n"
-"                     equivalent to the NP-hard maximum independent set problem,\n"
-"                     so we use a greedy algorithm instead of guaranteeing\n"
-"                     optimality.  (Use the --make-rel and --keep/--remove flags\n"
-"                     if you want to try to do better.)\n"
+"  --rel-cutoff [v] : Exclude individuals until no remaining pairs have\n"
+"  --grm-cutoff [v]   relatedness greater than the given cutoff value.  Note\n"
+"                     that maximizing the remaining sample size is equivalent to\n"
+"                     the NP-hard maximum independent set problem, so we use a\n"
+"                     greedy algorithm instead of guaranteeing optimality.  (Use\n"
+"                     the --make-rel and --keep/--remove flags if you want to\n"
+"                     try to do better.)\n"
 "  --rseed [val]    : Set random number seed (relevant for jackknife standard\n"
 "                     error estimation).\n"
 "  --memory [val]   : Size, in MB, of initial malloc attempt.\n"
@@ -512,7 +506,7 @@ int dispmsg(int retval) {
 "                              phenotype data.  If Hbt is unspecified, it is set\n"
 "                              equal to Ltop.  Central phenotype values are\n"
 "                              treated as missing.\n\n"
-         , info_str);
+         );
     break;
   }
   free_cond(subst_argv);
@@ -6890,7 +6884,7 @@ int main(int argc, char** argv) {
   double geno_thresh = 1.0;
   double mind_thresh = 1.0;
   double hwe_thresh = 0.0;
-  double rel_cutoff = 0.025;
+  double rel_cutoff = 0.0;
   int cur_arg = 1;
   int calculation_type = 0;
   char* bubble;
@@ -7617,16 +7611,17 @@ int main(int argc, char** argv) {
       if (ii > 1) {
         printf("Error: Too many --rel-cutoff parameters.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
+      } else if (!ii) {
+        printf("Error: Missing --rel-cutoff parameter.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
       }
-      if (ii) {
-        if (sscanf(argv[cur_arg + 1], "%lg", &rel_cutoff) != 1) {
-          printf("Error: Invalid --rel-cutoff parameter.\n");
-          return dispmsg(RET_INVALID_CMDLINE);
-        }
-        if ((rel_cutoff <= 0.0) || (rel_cutoff >= 1.0)) {
-          printf("Error: Invalid --rel-cutoff parameter.\n");
-          return dispmsg(RET_INVALID_CMDLINE);
-        }
+      if (sscanf(argv[cur_arg + 1], "%lg", &rel_cutoff) != 1) {
+	printf("Error: Invalid --rel-cutoff parameter.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if ((rel_cutoff <= 0.0) || (rel_cutoff >= 1.0)) {
+	printf("Error: Invalid --rel-cutoff parameter.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       calculation_type |= CALC_REL_CUTOFF;
       cur_arg += ii + 1;
