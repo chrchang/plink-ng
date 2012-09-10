@@ -22,15 +22,15 @@
 // The key ideas behind this calculator's design are:
 //
 // 1. Incremental processing of SNPs.  Each element A_{jk} of a distance or
-// relationship matrix is a sum of N terms, one for each SNP, multiplied by a
+// relationship matrix is a sum of M terms, one for each SNP, multiplied by a
 // missingness correction at the end.  We can walk through the SNPs
 // sequentially without keeping much in memory beyond partial sums;
 // conveniently, this plays well with the decision made by the PLINK team a few
 // years ago to switch to SNP-major binary files.
 //
-// 2. Parallel processing of multiple markers using bitwise operations.  For
-// instance, there are only seven possible ways SNP i can affect the
-// relationship matrix entry between individuals j and k:
+// 2. Small-scale parallel processing of multiple markers using integer bitwise
+// operations.  For instance, there are only seven possible ways SNP i can
+// affect the relationship matrix entry between individuals j and k:
 //    a. j and k are both homozygous for the rare allele
 //    b. one is homozygous rare, one is heterozygous
 //    c. one is homozygous rare, one is homozygous common
@@ -38,11 +38,12 @@
 //    e. one is heterozygous, one is homozygous common
 //    f. both are homozygous common
 //    g. one or both has missing genotype data
-//    Seven cases can be distinguished by three bits, so one can compose a
+// Seven cases can be distinguished by three bits, so one can compose a
 // sequence of bitwise operations that maps a pair of padded 2-bit PLINK
 // genotypes to seven different 3-bit values according to this breakdown.
-// On 64-bit machines, this allows processing of 20 markers in parallel.
-// (There's space for a 21st, but we currently choose not to use it.)
+// On 64-bit machines, this allows integer operations to act on 20 markers
+// simultaneously.  (There's space for a 21st, but we currently choose not to
+// use it.)
 //
 // 3. Lookup tables describing the effect of 5-7 markers at a time on a
 // distance or relationship, rather than just one.  For relationship matrices,
@@ -60,18 +61,16 @@
 // for f_{5-9}, f_{10-14}, and f_{15-19}.  This requires precomputation of four
 // lookup tables of size 2^15, total size 1 MB (which fits comfortably in a
 // typical L2 cache these days), and lets you get away with four table lookups
-// and adds instead of twenty.  Since datasets often have thousands of
-// individuals, these SNP-specific lookup tables are frequently referenced
-// millions of times before being retired, repaying their precomputation cost
-// hundreds of times over.
+// and adds instead of twenty.  These tables are referenced N(N-1)/2 times
+// before being retired, so they tend to repay their precomputation cost
+// hundreds or thousands of times over.
 //
 // 4. Splitting the distance/relationship matrix into pieces of roughly equal
 // size and assigning one thread to each piece.  This is an "embarrassingly
 // parallel" problem with no need for careful synchronization.  Cluster
 // computing is supported in essentially the same manner.
 //
-//
-// We also note that zero exponent distance matrices are special cases,
+// We also note that IBS/zero exponent distance matrices are special cases,
 // reducing to Hamming weight computations plus a bit of dressing to handle
 // missing markers.  Hamming weight computation on x86 CPUs has been studied
 // extensively by others; a good reference as of this writing is
@@ -80,6 +79,11 @@
 // discussed there (with most 64-bit integer operations replaced by SSE2
 // instructions), which runs several times faster than our corresponding
 // nonzero exponent distance matrix computation.
+//
+//
+// In the end, we can't get around the O(MN^2) nature of these calculations,
+// but we believe we have beaten down the leading constant by a large enough
+// factor to matter.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -157,6 +161,9 @@
 #define CALC_FREQ 2097152
 #define CALC_REL_CUTOFF 4194304
 #define CALC_WRITE_SNPLIST 8388608
+#define CALC_GENOME 16777216
+#define CALC_GENOME_GZ 33554432
+#define CALC_GENOME_FULL 67108864
 
 #define _FILE_OFFSET_BITS 64
 #define MAX_THREADS 63
@@ -223,7 +230,7 @@ const char ver_str[] =
 #else
   "32-bit"
 #endif
-  " (9 September 2012)\n";
+  " (10 September 2012)\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -372,6 +379,10 @@ int dispmsg(int retval) {
 "    line.  Note that this file explicitly stores the number of valid\n"
 "    observations (where neither individual has a missing call) for each pair,\n"
 "    which is useful input for some scripts.\n\n"
+"  --genome <full>\n"
+"  --Z-genome <full>\n"
+"    These are equivalent to PLINK's --genome and --Z-genome flags, except that\n"
+"    the 'full' modifier replaces PLINK's --full-genome.\n"
 "  --groupdist {iters} {d}\n"
 "    Considers three subsets of the distance matrix: pairs of affected\n"
 "    individuals, affected-unaffected pairs, and pairs of unaffected\n"
@@ -454,13 +465,13 @@ int dispmsg(int retval) {
 "  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
 "                     default 0.001.  This is checked after all other forms of\n"
 "                     filtering except for --rel-cutoff.\n"
-"  --rel-cutoff [v] : Exclude individuals until no remaining pairs have\n"
-"  --grm-cutoff [v]   relatedness greater than the given cutoff value.  Note\n"
-"                     that maximizing the remaining sample size is equivalent to\n"
-"                     the NP-hard maximum independent set problem, so we use a\n"
-"                     greedy algorithm instead of guaranteeing optimality.  (Use\n"
-"                     the --make-rel and --keep/--remove flags if you want to\n"
-"                     try to do better.)\n"
+"  --rel-cutoff {v} : Exclude individuals until no remaining pairs have\n"
+"  --grm-cutoff {v}   relatedness greater than the given cutoff value (default\n"
+"                     0.025).  Note that maximizing the remaining sample size is\n"
+"                     equivalent to the NP-hard maximum independent set problem,\n"
+"                     so we use a greedy algorithm instead of guaranteeing\n"
+"                     optimality.  (Use the --make-rel and --keep/--remove flags\n"
+"                     if you want to try to do better.)\n"
 "  --rseed [val]    : Set random number seed (relevant for jackknife standard\n"
 "                     error estimation).\n"
 "  --memory [val]   : Size, in MB, of initial malloc attempt.\n"
@@ -6884,7 +6895,7 @@ int main(int argc, char** argv) {
   double geno_thresh = 1.0;
   double mind_thresh = 1.0;
   double hwe_thresh = 0.0;
-  double rel_cutoff = 0.0;
+  double rel_cutoff = 0.025;
   int cur_arg = 1;
   int calculation_type = 0;
   char* bubble;
@@ -7611,17 +7622,16 @@ int main(int argc, char** argv) {
       if (ii > 1) {
         printf("Error: Too many --rel-cutoff parameters.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
-      } else if (!ii) {
-        printf("Error: Missing --rel-cutoff parameter.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
       }
-      if (sscanf(argv[cur_arg + 1], "%lg", &rel_cutoff) != 1) {
-	printf("Error: Invalid --rel-cutoff parameter.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if ((rel_cutoff <= 0.0) || (rel_cutoff >= 1.0)) {
-	printf("Error: Invalid --rel-cutoff parameter.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
+      if (ii) {
+	if (sscanf(argv[cur_arg + 1], "%lg", &rel_cutoff) != 1) {
+	  printf("Error: Invalid --rel-cutoff parameter.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if ((rel_cutoff <= 0.0) || (rel_cutoff >= 1.0)) {
+	  printf("Error: Invalid --rel-cutoff parameter.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
       }
       calculation_type |= CALC_REL_CUTOFF;
       cur_arg += ii + 1;
@@ -7992,6 +8002,52 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += 3;
+    } else if (!strcmp(argptr, "--genome")) {
+      if (calculation_type & CALC_GENOME_GZ) {
+	printf("Error: --genome and --Z-genome flags cannot be used together.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      } else if (calculation_type & CALC_GENOME) {
+	printf("Error: Duplicate --genome flag.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      ii = param_count(argc, argv, cur_arg);
+      if (ii > 1) {
+	printf("Error: --genome accepts at most 1 parameter.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (ii) {
+	if (!strcmp(argv[cur_arg + 1], "full")) {
+	  calculation_type |= CALC_GENOME_FULL;
+	} else {
+	  printf("Error: Invalid --genome flag.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+      }
+      cur_arg += ii + 1;
+      calculation_type |= CALC_GENOME;
+    } else if (!strcmp(argptr, "--Z-genome")) {
+      if (calculation_type & CALC_GENOME) {
+	printf("Error: --genome and --Z-genome flags cannot be used together.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      } else if (calculation_type & CALC_GENOME_GZ) {
+	printf("Error: Duplicate --Z-genome flag.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      ii = param_count(argc, argv, cur_arg);
+      if (ii > 1) {
+	printf("Error: --Z-genome accepts at most 1 parameter.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (ii) {
+	if (!strcmp(argv[cur_arg + 1], "full")) {
+	  calculation_type |= CALC_GENOME_FULL;
+	} else {
+	  printf("Error: Invalid --Z-genome flag.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+      }
+      cur_arg += ii + 1;
+      calculation_type |= CALC_GENOME_GZ;
     } else if (!strcmp(argptr, "--groupdist")) {
       if (parallel_tot > 1) {
 	printf("Error: --parallel and --groupdist flags cannot coexist.%s", errstr_append);
