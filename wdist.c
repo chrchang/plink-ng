@@ -1380,6 +1380,7 @@ unsigned int* marker_weights_i = NULL;
 unsigned int* missing_tot_weights;
 unsigned int* indiv_missing;
 unsigned int* indiv_missing_unwt = NULL;
+double* jackknife_precomp = NULL;
 
 void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_type) {
   // first calculate weight array, then loop
@@ -2295,7 +2296,7 @@ void small_remap(int* ibuf, unsigned int ct, unsigned int dd) {
 void* groupdist_jack_thread(void* arg) {
   long tidx = (long)arg;
   int* ibuf = (int*)(&(ped_geno[tidx * CACHEALIGN(high_ct + low_ct + (jackknife_d + 1) * sizeof(int))]));
-  unsigned char* cbuf = &(ped_geno[tidx * CACHEALIGN(high_ct + low_ct + (jackknife_d + 1) * sizeof(int)) + jackknife_d * sizeof(int)]);
+  unsigned char* cbuf = &(ped_geno[tidx * CACHEALIGN(high_ct + low_ct + (jackknife_d + 1) * sizeof(int)) + (jackknife_d + 1) * sizeof(int)]);
   unsigned long long ulii;
   unsigned long long uljj = jackknife_iters / 100;
   double returns[3];
@@ -2342,12 +2343,12 @@ void* groupdist_jack_thread(void* arg) {
 
 double regress_jack(int* ibuf) {
   int* iptr = ibuf;
-  int* jptr;
+  int* jptr = &(ibuf[jackknife_d]);
   int ii;
   int jj;
-  double* dptr = dists;
+  int kk;
+  double* dptr;
   double* dptr2;
-  double* dptr3;
   double neg_tot_xy = 0.0;
   double neg_tot_x = 0.0;
   double neg_tot_y = 0.0;
@@ -2355,35 +2356,27 @@ double regress_jack(int* ibuf) {
   double dxx;
   double dxx1;
   double dyy;
-  if (*iptr == 0) {
-    iptr++;
+  while (iptr < jptr) {
+    dptr2 = &(jackknife_precomp[(*iptr++) * 4]);
+    neg_tot_xy += *dptr2++;
+    neg_tot_x += *dptr2++;
+    neg_tot_y += *dptr2++;
+    neg_tot_xx += *dptr2++;
   }
-  for (ii = 1; ii < indiv_ct; ii++) {
-    dxx1 = pheno_d[ii];
-    if (ii == *iptr) {
-      dptr2 = pheno_d;
-      dptr3 = &(pheno_d[ii]);
-      do {
-	dxx = (dxx1 + (*dptr2++)) * 0.5;
-	dyy = *dptr++;
-	neg_tot_xy += dxx * dyy;
-	neg_tot_x += dxx;
-	neg_tot_y += dyy;
-	neg_tot_xx += dxx * dxx;
-      } while (dptr2 < dptr3);
-      iptr++;
-    } else {
-      jptr = ibuf;
-      do {
-        jj = *jptr++;
-        dxx = (dxx1 + pheno_d[jj]) * 0.5;
-        dyy = dptr[jj];
-	neg_tot_xy += dxx * dyy;
-	neg_tot_x += dxx;
-	neg_tot_y += dyy;
-	neg_tot_xx += dxx * dxx;
-      } while (jptr < iptr);
-      dptr = &(dists[(ii * (ii + 1)) / 2]);
+  iptr = ibuf;
+  for (ii = 1; ii < jackknife_d; ii++) {
+    jj = *(++iptr);
+    dxx1 = pheno_d[jj];
+    jptr = ibuf;
+    dptr = &(dists[(jj * (jj - 1)) / 2]);
+    while (jptr < iptr) {
+      kk = *jptr++;
+      dxx = (dxx1 + pheno_d[kk]) * 0.5;
+      dyy = dptr[kk];
+      neg_tot_xy -= dxx * dyy;
+      neg_tot_x -= dxx;
+      neg_tot_y -= dyy;
+      neg_tot_xx -= dxx * dxx;
     }
   }
   dxx = reg_tot_x - neg_tot_x;
@@ -2395,7 +2388,7 @@ double regress_jack(int* ibuf) {
 void* regress_jack_thread(void* arg) {
   long tidx = (long)arg;
   int* ibuf = (int*)(&(ped_geno[tidx * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int))]));
-  unsigned char* cbuf = &(ped_geno[tidx * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int)) + jackknife_d * sizeof(int)]);
+  unsigned char* cbuf = &(ped_geno[tidx * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int)) + (jackknife_d + 1) * sizeof(int)]);
   unsigned long long ulii;
   unsigned long long uljj = jackknife_iters / 100;
   double sum = 0.0;
@@ -2970,6 +2963,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   double dyy;
   double dzz;
   double dww;
+  double dvv;
   long long llxx = 0;
   long long llyy;
   char* marker_ids = NULL;
@@ -3007,6 +3001,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   double* dptr2;
   double* dptr3 = NULL;
   double* dptr4 = NULL;
+  double* dptr5;
   double* rel_ibc;
   long long last_tell;
   int binary_files = 0;
@@ -6591,7 +6586,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     ll_poolp = ll_pool;
     lh_poolp = lh_pool;
     hh_poolp = hh_pool;
-    ped_geno = wkspace_base; // make this an explicit allocation
+    ped_geno = wkspace_alloc(thread_ct * CACHEALIGN(high_ct + low_ct + (jackknife_d + 1) * sizeof(int)));
     for (ii = 1; ii < indiv_ct; ii++) {
       cptr = pheno_c;
       cptr2 = &(pheno_c[ii]);
@@ -6668,9 +6663,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (2 * jackknife_d >= high_ct + low_ct) {
       printf("Delete-d jackknife skipped because d is too large.\n");
     } else {
+      // this can be sped up using the same method used in regress-distance,
+      // if it's important
       jackknife_iters = (groupdist_iters + thread_ct - 1) / thread_ct;
 
-      // IN PROGRESS
       if (groupdist_d) {
 	jackknife_d = groupdist_d;
       } else {
@@ -6724,18 +6720,45 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     reg_tot_y = 0.0;
     reg_tot_xx = 0.0;
     dptr4 = dists;
-    dptr3 = &(pheno_d[indiv_ct]);
     dist_ptr = pheno_d;
-    while (++dist_ptr < dptr3) {
-      dzz = *dist_ptr;
+    // Linear regression slope is a function of sum(xy), sum(x), sum(y),
+    // sum(x^2), and n.  To speed up the jackknife calculation, we precompute
+    // (i) the global xy, x, y, and x^2 sums, and
+    // (ii) the xy, x, y, and x^2 sums for each row.
+    // Then for each delete-d jackknife iteration, we take the global sums,
+    // subtract the partial row sums corresponding to the deleted individuals,
+    // and then add back the elements in the intersection of two deletions.
+    jackknife_precomp = (double*)wkspace_alloc(indiv_ct * 4 * sizeof(double));
+    if (!jackknife_precomp) {
+      goto wdist_ret_NOMEM;
+    }
+    fill_double_zero(jackknife_precomp, indiv_ct * 4);
+    for (ii = 1; ii < indiv_ct; ii++) {
+      dzz = *(++dist_ptr);
       dptr2 = pheno_d;
+      dptr3 = &(jackknife_precomp[ii * 4]);
+      dptr5 = jackknife_precomp;
       while (dptr2 < dist_ptr) {
 	dxx = (dzz + *dptr2++) * 0.5;
 	dyy = (*dptr4++);
-	reg_tot_xy += dxx * dyy;
+	dww = dxx * dyy;
+	dvv = dxx * dxx;
+	reg_tot_xy += dww;
+	*dptr3 += dww;
+	*dptr5 += dww;
+	dptr5++;
 	reg_tot_x += dxx;
+	dptr3[1] += dxx;
+	*dptr5 += dxx;
+	dptr5++;
 	reg_tot_y += dyy;
-	reg_tot_xx += dxx * dxx;
+	dptr3[2] += dyy;
+	*dptr5 += dyy;
+	dptr5++;
+	reg_tot_xx += dvv;
+	dptr3[3] += dvv;
+	*dptr5 += dvv;
+	dptr5++;
       }
     }
 
@@ -6749,7 +6772,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       jackknife_d = (int)pow((double)indiv_ct, 0.600000000001);
       printf("Setting d=%d for jackknife.\n", jackknife_d);
     }
-    ped_geno = wkspace_base; // make this an explicit allocation
+    ped_geno = wkspace_alloc(thread_ct * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int)));
+    if (!ped_geno) {
+      goto wdist_ret_NOMEM;
+    }
     for (ulii = 1; ulii < thread_ct; ulii++) {
       if (pthread_create(&(threads[ulii - 1]), NULL, &regress_jack_thread, (void*)ulii)) {
 	goto wdist_ret_THREAD_CREATE_FAIL;
