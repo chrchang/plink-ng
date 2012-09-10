@@ -3021,7 +3021,7 @@ void distance_print_done(int format_code, char* outname, char* outname_end) {
   }
 }
 
-int calc_genome(FILE* pedfile, int unfiltered_marker_ct, unsigned char* marker_exclude, unsigned int* marker_pos, int unfiltered_indiv_ct, unsigned char* indiv_exclude, char* person_id, int max_person_id_len, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int calculation_type) {
+int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, unsigned int* marker_pos, int unfiltered_indiv_ct, unsigned char* indiv_exclude, char* person_id, int max_person_id_len, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int calculation_type) {
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
   int retval = 0;
@@ -3042,6 +3042,9 @@ int calc_genome(FILE* pedfile, int unfiltered_marker_ct, unsigned char* marker_e
   int oo;
   int pp;
   int qq;
+  unsigned long* glptr2;
+  unsigned long* glptr3;
+  unsigned int* giptr;
   unsigned long ulii;
   unsigned long uljj;
   unsigned long ulkk;
@@ -3120,11 +3123,11 @@ int calc_genome(FILE* pedfile, int unfiltered_marker_ct, unsigned char* marker_e
     jj += mm;
     if (kk < GENOME_MULTIPLEX) {
       memset(&(loadbuf[kk * unfiltered_indiv_ct4]), 0, (GENOME_MULTIPLEX - kk) * unfiltered_indiv_ct4);
-      fill_long_zero((long*)process_buf, indiv_ct * (GENOME_MULTIPLEX2 / BITCT));
+      fill_long_zero((long*)processbuf, indiv_ct * (GENOME_MULTIPLEX2 / BITCT));
       fill_long_zero((long*)masks, indiv_ct * (GENOME_MULTIPLEX2 / BITCT));
     }
     for (kk = 0; kk < mm; kk += BITCT) {
-      glptr = &(((unsigned long*)process_buf)[kk / BITCT2]);
+      glptr = &(((unsigned long*)processbuf)[kk / BITCT2]);
       glptr2 = &(masks[kk / BITCT2]);
       glptr3 = mmasks;
       giptr = indiv_missing_unwt;
@@ -3184,7 +3187,7 @@ int calc_genome(FILE* pedfile, int unfiltered_marker_ct, unsigned char* marker_e
 	oo++;
       }
       for (ulii = 1; ulii < thread_ct; ulii++) {
-	if (pthread_create(&(threads[ulii - 1]), NULL, &calc_genomem_unwt_thread, (void*)ulii)) {
+	if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_unwt_thread, (void*)ulii)) {
 	  retval = RET_THREAD_CREATE_FAIL;
 	  goto calc_genome_ret_1;
 	}
@@ -7264,7 +7267,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (calculation_type & CALC_GENOME_MASK) {
     wkspace_reset((char*)CACHEALIGN((unsigned long)(&(marker_pos[unfiltered_indiv_ct]))));
-    retval = calc_genome(pedfile, unfiltered_marker_ct, marker_exclude, marker_pos, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len, parallel_idx, parallel_tot, outname, outname_end, calculation_type);
+    retval = calc_genome(threads, pedfile, marker_ct, unfiltered_marker_ct, marker_exclude, marker_pos, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len, parallel_idx, parallel_tot, outname, outname_end, calculation_type);
     if (retval) {
       goto wdist_ret_2;
     }
