@@ -135,36 +135,37 @@
 #define CALC_RELATIONSHIP_TRI 6
 #define CALC_RELATIONSHIP_SHAPEMASK 6
 #define CALC_RELATIONSHIP_GZ 8
-#define CALC_RELATIONSHIP_BIN 16
-#define CALC_RELATIONSHIP_GRM 32
-#define CALC_RELATIONSHIP_MASK 63
-#define CALC_IBC 64
-#define CALC_DISTANCE_SQ 128
-#define CALC_DISTANCE_SQ0 256
-#define CALC_DISTANCE_TRI 384
-#define CALC_DISTANCE_SHAPEMASK 384
-#define CALC_DISTANCE_GZ 512
-#define CALC_DISTANCE_BIN 1024
-#define CALC_DISTANCE_IBS 2048
-#define CALC_DISTANCE_1_MINUS_IBS 4096
-#define CALC_DISTANCE_SNPS 8192
-#define CALC_DISTANCE_FORMATMASK 14336
-#define CALC_DISTANCE_MASK 16256
-#define CALC_PLINK_DISTANCE_MATRIX 16384
-#define CALC_PLINK_IBS_MATRIX 32768
-#define CALC_GDISTANCE_MASK 65408
-#define CALC_LOAD_DISTANCES 65536
-#define CALC_GROUPDIST 131072
-#define CALC_REGRESS_DISTANCE 262144
-#define CALC_UNRELATED_HERITABILITY 524288
-#define CALC_UNRELATED_HERITABILITY_STRICT 1048576
-#define CALC_FREQ 2097152
-#define CALC_REL_CUTOFF 4194304
-#define CALC_WRITE_SNPLIST 8388608
-#define CALC_GENOME 16777216
-#define CALC_GENOME_GZ 33554432
-#define CALC_GENOME_FULL 67108864
-#define CALC_GENOME_MASK 117440512
+#define CALC_RELATIONSHIP_BIN 0x10
+#define CALC_RELATIONSHIP_GRM 0x20
+#define CALC_RELATIONSHIP_MASK 0x3f
+#define CALC_IBC 0x40
+#define CALC_DISTANCE_SQ 0x80
+#define CALC_DISTANCE_SQ0 0x100
+#define CALC_DISTANCE_TRI 0x180
+#define CALC_DISTANCE_SHAPEMASK 0x180
+#define CALC_DISTANCE_GZ 0x200
+#define CALC_DISTANCE_BIN 0x400
+#define CALC_DISTANCE_IBS 0x800
+#define CALC_DISTANCE_1_MINUS_IBS 0x1000
+#define CALC_DISTANCE_SNPS 0x2000
+#define CALC_DISTANCE_FORMATMASK 0x3800
+#define CALC_DISTANCE_MASK 0x3f80
+#define CALC_PLINK_DISTANCE_MATRIX 0x4000
+#define CALC_PLINK_IBS_MATRIX 0x8000
+#define CALC_GDISTANCE_MASK 0xff80
+#define CALC_LOAD_DISTANCES 0x10000
+#define CALC_GROUPDIST 0x20000
+#define CALC_REGRESS_DISTANCE 0x40000
+#define CALC_UNRELATED_HERITABILITY 0x80000
+#define CALC_UNRELATED_HERITABILITY_STRICT 0x100000
+#define CALC_FREQ 0x200000
+#define CALC_REL_CUTOFF 0x400000
+#define CALC_WRITE_SNPLIST 0x800000
+#define CALC_GENOME 0x1000000
+#define CALC_GENOME_GZ 0x2000000
+#define CALC_GENOME_FULL 0x4000000
+#define CALC_GENOME_UNBOUNDED 0x8000000
+#define CALC_GENOME_MASK 0xf000000
 
 #define _FILE_OFFSET_BITS 64
 #define MAX_THREADS 63
@@ -403,11 +404,11 @@ int dispmsg(int retval) {
 "    flags.  New scripts should migrate to '--distance ibs' and '--distance\n"
 "    1-ibs', which support output formats better suited to parallel computation\n"
 "    and have more accurate handling of missing markers.\n\n"
-"  --genome <full>\n"
-"  --Z-genome <full>\n"
+"  --genome <full> <unbounded>\n"
+"  --Z-genome <full> <unbounded>\n"
 "    Identity-by-descent analysis.  These yield the same output as PLINK's\n"
-"    --genome and --Z-genome flags, and the 'full' modifier has the same effect\n"
-"    as PLINK's --full-genome.\n\n"
+"    --genome and --Z-genome, and the 'full' and 'unbounded' modifiers have the\n"
+"    same effect as PLINK's --full-genome and --unbounded flags.\n\n"
 "  --ibc\n"
 "    Calculates inbreeding coefficients in three different ways.\n"
 "    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
@@ -3422,6 +3423,23 @@ void distance_print_done(int format_code, char* outname, char* outname_end) {
   }
 }
 
+// implementation used in PLINK stats.cpp
+double normdist(double zz) {
+  double sqrt2pi = 2.50662827463;
+  double t0;
+  double z1;
+  double p0;
+  t0 = 1 / (1 + 0.2316419 * fabs(zz));
+  z1 = exp(-0.5 * zz * zz ) / sqrt2pi;
+  p0 = z1 * t0
+   * (0.31938153 +
+   t0 * (-0.356563782 +
+   t0 * (1.781477937 +
+   t0 * (-1.821255978 +
+   1.330274429 * t0))));
+ return zz >= 0 ? 1 - p0 : p0;
+}
+
 int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, double* mafs, int marker_pos_start, int unfiltered_indiv_ct, unsigned char* indiv_exclude, char* person_id, int max_person_id_len, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int calculation_type) {
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
@@ -3459,6 +3477,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   int ibd_prect = 0;
   int genome_output_gz = calculation_type & CALC_GENOME_GZ;
   int genome_output_full = calculation_type & CALC_GENOME_FULL;
+  int unbounded = calculation_type & CALC_GENOME_UNBOUNDED;
   double dpp;
   double dqq;
   double dpp_sq;
@@ -3517,7 +3536,6 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
       }
     }
   }
-  // todo: avoid unnecessarily repeating this calculation
   if (wkspace_alloc_ui_checked(&missing_tot_unweighted, tot_cells * sizeof(int))) {
     goto calc_genome_ret_NOMEM;
   }
@@ -3655,8 +3673,8 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
       for (mm = 0; mm < nn; mm++) {
 	dpp = maf_buf[jj + mm];
 	dqq = 1.0 - dpp;
-	num_alleles = (double)(2 * indiv_ct - missing_ct_buf[mm]);
-	if ((num_alleles > 3.5) && (dpp > 0.0) && (dqq > 0.0)) {
+	num_alleles = (double)(2 * (indiv_ct - missing_ct_buf[mm]));
+	if ((num_alleles > 3) && (dpp > 0.0) && (dqq > 0.0)) {
 	  // update e00, e01, e02, e11, e12, ibd_prect
 	  // see Plink::preCalcGenomeIBD() in genome.cpp
 	  num_allelesf2 = num_alleles * num_alleles / ((num_alleles - 1) * (num_alleles - 2));
@@ -3670,7 +3688,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	  dxx1 = (dxx - 1) * dxx_recip;
 	  dxx2 = dxx1 * (dxx - 2) * dxx_recip;
 	  dyy1 = (dyy - 1) * dyy_recip;
-	  dyy2 = (dyy - 2) * dyy_recip;
+	  dyy2 = dyy1 * (dyy - 2) * dyy_recip;
 	  e00 += 2 * dpp_sq * dqq_sq * dxx1 * dyy1 * num_allelesf3;
 	  e01 += 4 * dpp * dqq * num_allelesf3 * (dpp_sq * dxx2 + dqq_sq * dyy2);
 	  e02 += num_allelesf3 * (dqq_sq * dqq_sq * dyy2 * (dyy - 3) * dyy_recip + dpp_sq * dpp_sq * dxx2 * (dxx - 3) * dxx_recip + 4 * dpp_sq * dqq_sq * dxx1 * dyy1);
@@ -3712,7 +3730,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 
   // todo: --matrix, --distance-matrix in here
 
-  sprintf(tbuf, " %%%ds %%%ds %%%ds %%%ds %%n", max_person_fid_len - 1, max_person_iid_len - 1, max_person_fid_len - 1, max_person_iid_len - 1);
+  sprintf(tbuf, " %%%ds %%%ds %%%ds %%%ds ", max_person_fid_len - 1, max_person_iid_len - 1, max_person_fid_len - 1, max_person_iid_len - 1);
   if (!parallel_idx) {
     if (genome_output_full) {
       sprintf(tbuf_mid, "%%%ds%%%ds%%%ds%%%ds RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO    IBS0    IBS1    IBS2  HOMHOM  HETHET\n", max_person_fid_len, max_person_iid_len, max_person_fid_len, max_person_iid_len);
@@ -3751,16 +3769,52 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
     for (jj = ii + 1; jj < indiv_ct; jj++) {
       cptr3 = &(person_id[jj * max_person_id_len]);
       cptr4 = &(cptr3[strlen(cptr3) + 1]);
-      kk = 0;
-      sprintf(tbuf_mid, tbuf, cptr, cptr2, cptr3, cptr4, &kk);
+      kk = sprintf(tbuf_mid, tbuf, cptr, cptr2, cptr3, cptr4);
       if (!strcmp(cptr, cptr3)) {
         memcpy(&(tbuf_mid[kk]), "OT     0", 8);
       } else {
 	memcpy(&(tbuf_mid[kk]), "UN    NA", 8);
       }
       kk += 8;
-      sprintf(&(tbuf_mid[kk]), "  %1.4f  %1.4f  %1.4f  %1.4f  %n", 1.0, 0.0, 0.0, 0.0, &mm);
-      kk += mm;
+      nn = marker_ct - indiv_missing_unwt[ii] - indiv_missing_unwt[jj] + missing_tot_unweighted[uljj];
+      oo = nn - genome_main[ulii + 1] - genome_main[ulii + 2];
+      dxx = (double)genome_main[ulii + 2] / (e00 * nn);
+      dyy = ((double)genome_main[ulii + 1] - dxx * e01 * nn) / (e11 * nn);
+      dxx1 = ((double)oo - nn * (dxx * e02 + dyy * e12)) / ((double)nn);
+      if (!unbounded) {
+	if (dxx > 1) {
+	  dxx = 1;
+	  dyy = 0;
+	  dxx1 = 0;
+	} else if (dyy > 1) {
+	  dyy = 1;
+	  dxx = 0;
+	  dxx1 = 0;
+	} else if (dxx1 > 1) {
+	  dxx1 = 1;
+	  dyy = 0;
+	  dxx1 = 0;
+	} else if (dxx < 0) {
+	  dxx2 = 1.0 / (dyy + dxx1);
+	  dyy *= dxx2;
+	  dxx1 *= dxx2;
+	  dxx = 0;
+	}
+	if (dyy < 0) {
+	  dxx2 = 1.0 / (dxx + dxx1);
+	  dxx *= dxx2;
+	  dxx1 *= dxx2;
+	  dyy = 0;
+	}
+	if (dxx1 < 0) {
+	  dxx2 = 1.0 / (dxx + dyy);
+	  dxx *= dxx2;
+	  dyy *= dxx2;
+	  dxx1 = 0;
+	}
+      }
+
+      kk += sprintf(&(tbuf_mid[kk]), "  %1.4f  %1.4f  %1.4f  %1.4f  ", dxx, dyy, dxx1, dyy * 0.5 + dxx1);
       if (pheno_c) {
 	if ((pheno_c[ii] != 1) && (pheno_c[jj] != 1)) {
 	  memcpy(&(tbuf_mid[kk]), "-1", 2);
@@ -3773,16 +3827,17 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	memcpy(&(tbuf_mid[kk]), "NA", 2);
       }
       kk += 2;
+      dxx = (double)genome_main[ulii + 3];
+      dyy = (double)genome_main[ulii + 4];
+      dxx1 = 1.0 / ((double)(genome_main[ulii + 3] + genome_main[ulii + 4]));
+      dxx2 = normdist((dxx * dxx1 - 0.666666) / (sqrt(0.2222222 * dxx1)));
       if (genome_main[ulii + 4]) {
-	sprintf(&(tbuf_mid[kk]), "  %1.6f  %1.4f  %1.4f%n", 1.0 - marker_recip * (genome_main[ulii + 1] + 2 * genome_main[ulii + 2]), 0.3463, ((double)genome_main[ulii + 3]) / ((double)genome_main[ulii + 4]), &mm);
+	kk += sprintf(&(tbuf_mid[kk]), "  %1.6f  %1.4f  %1.4f", 1.0 - marker_recip * (genome_main[ulii + 1] + 2 * genome_main[ulii + 2]), dxx2, dxx / dyy);
       } else {
-	sprintf(&(tbuf_mid[kk]), "  %1.6f  %1.4f      NA%n", 1.0 - marker_recip * (genome_main[ulii + 1] + 2 * genome_main[ulii + 2]), 0.3463, &mm);
+	kk += sprintf(&(tbuf_mid[kk]), "  %1.6f  %1.4f      NA", 1.0 - marker_recip * (genome_main[ulii + 1] + 2 * genome_main[ulii + 2]), dxx2);
       }
-      kk += mm;
       if (genome_output_full) {
-	dxx = 1.0 / (double)(genome_main[ulii + 3] + genome_main[ulii + 4]);
-	sprintf(&(tbuf_mid[kk]), " %7d %7d %7d  %1.4f  %1.4f\n%n", genome_main[ulii + 2], genome_main[ulii + 1], marker_ct - indiv_missing_unwt[ii] - indiv_missing_unwt[jj] + missing_tot_unweighted[uljj] - genome_main[ulii + 1] - genome_main[ulii + 2], ((double)genome_main[ulii + 4]) * dxx, ((double)genome_main[ulii + 3]) * dxx, &mm);
-	kk += mm;
+	kk += sprintf(&(tbuf_mid[kk]), " %7d %7d %7d  %1.4f  %1.4f\n", genome_main[ulii + 2], genome_main[ulii + 1], oo, dyy * dxx1, dxx * dxx1);
       } else {
 	tbuf_mid[kk++] = '\n';
       }
@@ -9064,15 +9119,17 @@ int main(int argc, char** argv) {
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = param_count(argc, argv, cur_arg);
-      if (ii > 1) {
-	printf("Error: --genome accepts at most 1 parameter.%s", errstr_append);
+      if (ii > 2) {
+	printf("Error: --genome accepts at most 2 parameters.%s", errstr_append);
 	return dispmsg(RET_INVALID_CMDLINE);
       }
-      if (ii) {
-	if (!strcmp(argv[cur_arg + 1], "full")) {
+      for (kk = 1; kk <= ii; kk++) {
+	if (!strcmp(argv[cur_arg + kk], "full")) {
 	  calculation_type |= CALC_GENOME_FULL;
+	} else if (!strcmp(argv[cur_arg + kk], "unbounded")) {
+	  calculation_type |= CALC_GENOME_UNBOUNDED;
 	} else {
-	  printf("Error: Invalid --genome flag.%s", errstr_append);
+	  printf("Error: Invalid --genome parameter.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
       }
@@ -9087,15 +9144,17 @@ int main(int argc, char** argv) {
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = param_count(argc, argv, cur_arg);
-      if (ii > 1) {
-	printf("Error: --Z-genome accepts at most 1 parameter.%s", errstr_append);
+      if (ii > 2) {
+	printf("Error: --Z-genome accepts at most 2 parameters.%s", errstr_append);
 	return dispmsg(RET_INVALID_CMDLINE);
       }
-      if (ii) {
-	if (!strcmp(argv[cur_arg + 1], "full")) {
+      for (kk = 1; kk <= ii; kk++) {
+	if (!strcmp(argv[cur_arg + kk], "full")) {
 	  calculation_type |= CALC_GENOME_FULL;
+	} else if (!strcmp(argv[cur_arg + kk], "unbounded")) {
+	  calculation_type |= CALC_GENOME_UNBOUNDED;
 	} else {
-	  printf("Error: Invalid --Z-genome flag.%s", errstr_append);
+	  printf("Error: Invalid --Z-genome parameter.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
       }
