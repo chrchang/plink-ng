@@ -2122,7 +2122,7 @@ static inline unsigned int popcountg_xor_1mask_multiword(unsigned long** xor1p, 
     bitfield_ibs1 = (ulii ^ uljj) & 0x55555555;
     bitfield_ibs0 = (ulii & uljj) & 0x55555555;
     ulii = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
-    uljj = ulii >> 1;
+    uljj = ulii << 1;
     bitfield_ibs1 |= (ulii ^ uljj) & 0xaaaaaaaa;
     bitfield_ibs0 |= (ulii & uljj) & 0xaaaaaaaa;
     bit_count_ibs1 += popcount[bitfield_ibs1 >> 16] + popcount[bitfield_ibs1 & 65535];
@@ -2157,7 +2157,7 @@ static inline unsigned int popcountg_xor_2mask_multiword(unsigned long** xor1p, 
     bitfield_ibs1 = (ulii ^ uljj) & 0x55555555;
     bitfield_ibs0 = (ulii & uljj) & 0x55555555;
     ulii = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
-    uljj = ulii >> 1;
+    uljj = ulii << 1;
     bitfield_ibs1 |= (ulii ^ uljj) & 0xaaaaaaaa;
     bitfield_ibs0 |= (ulii & uljj) & 0xaaaaaaaa;
     bit_count_ibs1 += popcount[bitfield_ibs1 >> 16] + popcount[bitfield_ibs1 & 65535];
@@ -2319,7 +2319,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 #if __LP64__
 	    ulval = (((uland & (uland >> 1)) & 0x5555555555555555LLU) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaaLLU)) & (ulmask & ((~0LLU) << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
 #else
-	    ulval = (((uland & (uland >> 1)) & 0x55555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaa)) & (ulmask & ((~0LLU) << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
+	    ulval = (((uland & (uland >> 1)) & 0x55555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaa)) & (ulmask & ((~0) << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
 #endif
 	    while (1) {
 	      if (ulval) {
@@ -2373,7 +2373,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 #if __LP64__
             ulval = (((uland & (uland >> 1)) & 0x5555555555555555LLU) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaaLLU)) & (ulmask & (~0LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
 #else
-            ulval = (((uland & (uland >> 1)) & 0x55555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaa)) & (ulmask & (~0LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
+            ulval = (((uland & (uland >> 1)) & 0x55555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaa)) & (ulmask & (~0 << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
 #endif
 	    while (1) {
 	      if (ulval) {
