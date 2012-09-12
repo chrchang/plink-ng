@@ -2269,19 +2269,21 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	    //
 	    // ~0LLU << xx masks out the bottom xx bits.
 	    ulval = (((uland & (uland >> 1)) & 0x5555555555555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaa)) & (ulmask & ((~0LLU) << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
-	    do {
+	    while (1) {
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
 		ibs_incr += 1 << ((jj & 1) * 32);
 		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
 		if (next_ppc_marker_idx < (cur_floor + BITCT2)) {
 		  ulval &= (~0LLU) << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2);
-		  continue;
+		} else {
+		  break;
 		}
 	      } else {
 		next_ppc_marker_idx = cur_floor + BITCT2;
+		break;
 	      }
-	    } while (0);
+	    }
 	  } while (next_ppc_marker_idx < high_ct);
 	  *genome_main++ = next_ppc_marker_idx;
 	  *genome_main += popcountg_xor_2mask_multiword(&glptr, glptr_fixed, &maskptr, maskptr_fixed, &(genome_main[1]));
@@ -2312,19 +2314,21 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	    uland = ularg1 & ularg2;
 	    ulmask = ((unsigned long*)maskptr)[offset];
             ulval = (((uland & (uland >> 1)) & 0x5555555555555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaa)) & (ulmask & (~0LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
-	    do {
+	    while (1) {
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
 		ibs_incr += 1 << ((jj & 1) * 32);
 		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
 		if (next_ppc_marker_idx < (cur_floor + BITCT2)) {
 		  ulval &= ~0LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2);
-		  continue;
+		} else {
+		  break;
 		}
 	      } else {
 		next_ppc_marker_idx = cur_floor + BITCT2;
+		break;
 	      }
-	    } while (0);
+	    }
 	  } while (next_ppc_marker_idx < high_ct);
 	  *genome_main++ = next_ppc_marker_idx;
 	  *genome_main += popcountg_xor_1mask_multiword(&glptr, glptr_fixed, &maskptr, &(genome_main[1]));
