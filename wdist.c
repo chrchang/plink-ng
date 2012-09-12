@@ -2269,8 +2269,8 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	    // but the subsequent masking filters that out.)
 	    //
 	    // ~0LLU << xx masks out the bottom xx bits.
-	    ulval = (((uland & (uland >> 1)) & 0x5555555555555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaa)) & (ulmask & (~0LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
-	    while (1) {
+	    do {
+	      ulval = (((uland & (uland >> 1)) & 0x5555555555555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaa)) & (ulmask & (~0LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
 		if (jj & 1) {
@@ -2279,16 +2279,11 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 		  hethet_incr++;
 		}
 		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
-		if (next_ppc_marker_idx < (cur_floor + BITCT2)) {
-		  ulval &= ~0LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2);
-		} else {
-		  break;
-		}
 	      } else {
 		next_ppc_marker_idx = cur_floor + BITCT2;
 		break;
 	      }
-	    }
+	    } while (next_ppc_marker_idx < (cur_floor + BITCT2));
 	  } while (next_ppc_marker_idx < high_ct);
 	  *genome_main++ = next_ppc_marker_idx;
 	  *genome_main += popcountg_xor_2mask_multiword(&glptr, glptr_fixed, &maskptr, maskptr_fixed, &(genome_main[1]));
