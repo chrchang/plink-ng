@@ -204,7 +204,7 @@
 #define MULTIPLEX_2DIST (MULTIPLEX_DIST * 2)
 
 // Must be multiple of 384, no larger than 3840.
-#define GENOME_MULTIPLEX 384
+#define GENOME_MULTIPLEX 768
 #define GENOME_MULTIPLEX2 (GENOME_MULTIPLEX * 2)
 
 #if __LP64__
@@ -2257,20 +2257,20 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	    ulxor = ularg1 ^ ularg2;
 	    uland = ularg1 & ularg2;
 	    ulmask = (((unsigned long*)maskptr)[offset]) & (((unsigned long*)maskptr_fixed)[offset]);
-	    do {
-	      // het is represented as 11, so
-              //   (uland & (uland >> 1)) & 0x5555555555555555
-              // stores whether a particular marker is a hethet hit in the
-	      // corresponding even bit.
-	      //
-              // homozygotes are represented as 01 and 10, so
-              //   (ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaa
-              // stores whether a particular marker is a hom1-hom2 hit in the
-              // corresponding odd bit.  (het-missing pairs also set that bit,
-              // but the subsequent masking filters that out.)
-              //
-              // ~((1LLU << xx) - 1) masks out the bottom xx bits.
-	      ulval = (((uland & (uland >> 1)) & 0x5555555555555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaa)) & (ulmask & (~((1LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)) - 1)));
+	    // het is represented as 11, so
+	    //   (uland & (uland >> 1)) & 0x5555555555555555
+	    // stores whether a particular marker is a hethet hit in the
+	    // corresponding even bit.
+	    //
+	    // homozygotes are represented as 01 and 10, so
+	    //   (ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaa
+	    // stores whether a particular marker is a hom1-hom2 hit in the
+	    // corresponding odd bit.  (het-missing pairs also set that bit,
+	    // but the subsequent masking filters that out.)
+	    //
+	    // ~0LLU << xx masks out the bottom xx bits.
+	    ulval = (((uland & (uland >> 1)) & 0x5555555555555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaa)) & (ulmask & (~0LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
+	    while (1) {
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
 		if (jj & 1) {
@@ -2279,10 +2279,16 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 		  hethet_incr++;
 		}
 		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
+		if (next_ppc_marker_idx < (cur_floor + BITCT2)) {
+		  ulval &= ~0LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2);
+		} else {
+		  break;
+		}
 	      } else {
 		next_ppc_marker_idx = cur_floor + BITCT2;
+		break;
 	      }
-	    } while (next_ppc_marker_idx < (cur_floor + BITCT2));
+	    }
 	  } while (next_ppc_marker_idx < high_ct);
 	  *genome_main++ = next_ppc_marker_idx;
 	  *genome_main += popcountg_xor_2mask_multiword(&glptr, glptr_fixed, &maskptr, maskptr_fixed, &(genome_main[1]));
@@ -2313,8 +2319,8 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	    ulxor = ularg1 ^ ularg2;
 	    uland = ularg1 & ularg2;
 	    ulmask = ((unsigned long*)maskptr)[offset];
-	    do {
-	      ulval = (((uland & (uland >> 1)) & 0x5555555555555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaa)) & (ulmask & (~((1LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)) - 1)));
+            ulval = (((uland & (uland >> 1)) & 0x5555555555555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaa)) & (ulmask & (~0LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
+	    while (1) {
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
 		if (jj & 1) {
@@ -2323,11 +2329,16 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 		  hethet_incr++;
 		}
 		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
+		if (next_ppc_marker_idx < (cur_floor + BITCT2)) {
+		  ulval &= ~0LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2);
+		} else {
+		  break;
+		}
 	      } else {
 		next_ppc_marker_idx = cur_floor + BITCT2;
 		break;
 	      }
-	    } while (next_ppc_marker_idx < (cur_floor + BITCT2));
+	    }
 	  } while (next_ppc_marker_idx < high_ct);
 	  *genome_main++ = next_ppc_marker_idx;
 	  *genome_main += popcountg_xor_1mask_multiword(&glptr, glptr_fixed, &maskptr, &(genome_main[1]));
