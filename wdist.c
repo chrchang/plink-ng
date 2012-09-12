@@ -202,6 +202,7 @@
 #define MULTIPLEX_DIST 960
 #define MULTIPLEX_2DIST (MULTIPLEX_DIST * 2)
 
+// Must be multiple of 384, no larger than 3840.
 #define GENOME_MULTIPLEX 384
 #define GENOME_MULTIPLEX2 (GENOME_MULTIPLEX * 2)
 
@@ -227,16 +228,17 @@
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.5.16 "
+  "WDIST genomic distance calculator, v0.9.0 "
 #else
-  "WDIST genomic distance calculator, v0.8.1 "
+  "WDIST genomic distance calculator, v0.9.0L "
 #endif
 #if __LP64__
   "64-bit"
 #else
   "32-bit"
 #endif
-  " (10 September 2012)\n";
+  " (12 September 2012)\n"
+  "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -364,8 +366,7 @@ int dispmsg(int retval) {
     break;
   case RET_MOREHELP:
     printf(
-"Christopher Chang (chrchang@alumni.caltech.edu), BGI Cognitive Genomics Lab\n\n"
-"wdist [flags...]\n\n"
+"\nwdist [flags...]\n\n"
 "In the command line flag definitions that follow,\n"
 "  * [square brackets] denote a required parameter, where the text between the\n"
 "    brackets describes its nature.\n"
@@ -402,6 +403,11 @@ int dispmsg(int retval) {
 "    flags.  New scripts should migrate to '--distance ibs' and '--distance\n"
 "    1-ibs', which support output formats better suited to parallel computation\n"
 "    and have more accurate handling of missing markers.\n\n"
+"  --genome <full>\n"
+"  --Z-genome <full>\n"
+"    Identity-by-descent analysis.  These yield the same output as PLINK's\n"
+"    --genome and --Z-genome flags, and the 'full' modifier has the same effect\n"
+"    as PLINK's --full-genome.\n\n"
 "  --ibc\n"
 "    Calculates inbreeding coefficients in three different ways.\n"
 "    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
@@ -425,10 +431,6 @@ int dispmsg(int retval) {
 "    line.  Note that this file explicitly stores the number of valid\n"
 "    observations (where neither individual has a missing call) for each pair,\n"
 "    which is useful input for some scripts.\n\n"
-"  --genome <full>\n"
-"  --Z-genome <full>\n"
-"    These are equivalent to PLINK's --genome and --Z-genome flags, except that\n"
-"    the 'full' modifier replaces PLINK's --full-genome.\n"
 "  --groupdist {iters} {d}\n"
 "    Considers three subsets of the distance matrix: pairs of affected\n"
 "    individuals, affected-unaffected pairs, and pairs of unaffected\n"
@@ -1431,6 +1433,7 @@ unsigned int* indiv_missing;
 unsigned int* indiv_missing_unwt = NULL;
 double* jackknife_precomp = NULL;
 unsigned int* genome_main;
+unsigned int* marker_pos = NULL;
 
 void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_type) {
   // first calculate weight array, then loop
@@ -1867,6 +1870,7 @@ void pick_d_small(unsigned char* tmp_cbuf, int* ibuf, unsigned int ct, unsigned 
 typedef union {
   __m128i vi;
   unsigned long u8[2];
+  unsigned int u4[4];
 } __uni16;
 
 // SSE2 implementations of Lauradoux/Walisch popcount, combined with xor to
@@ -1919,6 +1923,76 @@ static inline unsigned int popcount_xor_1mask_multiword(__m128i** xor1p, __m128i
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 
+static inline unsigned int popcountg_xor_1mask_multiword(__m128i** xor1p, __m128i* xor2, __m128i** maskp, unsigned int* ibs0ct_ptr) {
+  // Instead of doing a straight bitcount, we want to obtain two specialized
+  // counts here:
+  // - Number of IBS 1 loci, i.e. xor is 01 or 10
+  // - Number of IBS 0 loci, i.e. xor is 11
+  // If we xor the bits together, we get 1 iff we have IBS 1, whereas if we
+  // and them, we get 1 iff we have IBS 0.
+  // We also note that the result is either 00 or 01, so we add three such
+  // results together while starting our bitcount.
+  const __m128i m1 = {0x5555555555555555LLU, 0x5555555555555555LLU};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
+  __m128i loader, loader2, count_ibs1, count_ibs0, count2_ibs1, count2_ibs0;
+  __uni16 acc_ibs1, acc_ibs0;
+  __m128i* xor2_end = &(xor2[GENOME_MULTIPLEX2 / 128]);
+
+  acc_ibs1.vi = _mm_setzero_si128();
+  acc_ibs0.vi = _mm_setzero_si128();
+  while (xor2 < xor2_end) {
+    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    loader2 = _mm_srli_epi64(loader, 1);
+    count_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
+    count_ibs0 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    loader2 = _mm_srli_epi64(loader, 1);
+    count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+    count_ibs0 = _mm_add_epi64(count_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
+
+    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    loader2 = _mm_srli_epi64(loader, 1);
+    count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+    count_ibs0 = _mm_add_epi64(count_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
+    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    loader2 = _mm_srli_epi64(loader, 1);
+    count2_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
+    count2_ibs0 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+
+    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    loader2 = _mm_srli_epi64(loader, 1);
+    count2_ibs1 = _mm_add_epi64(count2_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+    count2_ibs0 = _mm_add_epi64(count2_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
+    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    loader2 = _mm_srli_epi64(loader, 1);
+    count2_ibs1 = _mm_add_epi64(count2_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+    count2_ibs0 = _mm_add_epi64(count2_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
+
+    count_ibs1 = _mm_add_epi64(_mm_and_si128(count_ibs1, m2), _mm_and_si128(_mm_srli_epi64(count_ibs1, 2), m2));
+    count_ibs0 = _mm_add_epi64(_mm_and_si128(count_ibs0, m2), _mm_and_si128(_mm_srli_epi64(count_ibs0, 2), m2));
+    count_ibs1 = _mm_add_epi64(count_ibs1, _mm_add_epi64(_mm_and_si128(count2_ibs1, m2), _mm_and_si128(_mm_srli_epi64(count2_ibs1, 2), m2)));
+    count_ibs0 = _mm_add_epi64(count_ibs0, _mm_add_epi64(_mm_and_si128(count2_ibs0, m2), _mm_and_si128(_mm_srli_epi64(count2_ibs0, 2), m2)));
+    acc_ibs1.vi = _mm_add_epi64(acc_ibs1.vi, _mm_add_epi64(_mm_and_si128(count_ibs1, m4), _mm_and_si128(_mm_srli_epi64(count_ibs1, 4), m4)));
+    acc_ibs0.vi = _mm_add_epi64(acc_ibs0.vi, _mm_add_epi64(_mm_and_si128(count_ibs0, m4), _mm_and_si128(_mm_srli_epi64(count_ibs0, 4), m4)));
+  }
+#if GENOME_MULTIPLEX > 1920
+  acc_ibs1.vi = _mm_add_epi64(_mm_and_si128(acc_ibs1.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_ibs1.vi, 8), m8));
+  acc_ibs0.vi = _mm_add_epi64(_mm_and_si128(acc_ibs0.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_ibs0.vi, 8), m8));
+#else
+  acc_ibs1.vi = _mm_and_si128(_mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 8)), m8);
+  acc_ibs0.vi = _mm_and_si128(_mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 8)), m8);
+#endif
+  acc_ibs1.vi = _mm_and_si128(_mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 16)), m16);
+  acc_ibs0.vi = _mm_and_si128(_mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 16)), m16);
+  acc_ibs1.vi = _mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 32));
+  acc_ibs0.vi = _mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 32));
+  *ibs0ct_ptr += (unsigned int)(acc_ibs0.u8[0] + acc_ibs0.u8[1]);
+  return (unsigned int)(acc_ibs1.u8[0] + acc_ibs1.u8[1]);
+}
+
 static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i* xor2, __m128i** mask1p, __m128i* mask2) {
   const __m128i m1 = {0x5555555555555555LLU, 0x5555555555555555LLU};
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
@@ -1953,6 +2027,66 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
   acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
+
+static inline unsigned int popcountg_xor_2mask_multiword(__m128i** xor1p, __m128i* xor2, __m128i** mask1p, __m128i* mask2, unsigned int* ibs0ct_ptr) {
+  const __m128i m1 = {0x5555555555555555LLU, 0x5555555555555555LLU};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
+  __m128i loader, loader2, count_ibs1, count_ibs0, count2_ibs1, count2_ibs0;
+  __uni16 acc_ibs1, acc_ibs0;
+  __m128i* xor2_end = &(xor2[GENOME_MULTIPLEX2 / 128]);
+
+  acc_ibs1.vi = _mm_setzero_si128();
+  acc_ibs0.vi = _mm_setzero_si128();
+  while (xor2 < xor2_end) {
+    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    loader2 = _mm_srli_epi64(loader, 1);
+    count_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
+    count_ibs0 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    loader2 = _mm_srli_epi64(loader, 1);
+    count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+    count_ibs0 = _mm_add_epi64(count_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
+    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    loader2 = _mm_srli_epi64(loader, 1);
+    count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+    count_ibs0 = _mm_add_epi64(count_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
+    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    loader2 = _mm_srli_epi64(loader, 1);
+    count2_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
+    count2_ibs0 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    loader2 = _mm_srli_epi64(loader, 1);
+    count2_ibs1 = _mm_add_epi64(count2_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+    count2_ibs0 = _mm_add_epi64(count2_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
+    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    loader2 = _mm_srli_epi64(loader, 1);
+    count2_ibs1 = _mm_add_epi64(count2_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+    count2_ibs0 = _mm_add_epi64(count2_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
+
+    count_ibs1 = _mm_add_epi64(_mm_and_si128(count_ibs1, m2), _mm_and_si128(_mm_srli_epi64(count_ibs1, 2), m2));
+    count_ibs0 = _mm_add_epi64(_mm_and_si128(count_ibs0, m2), _mm_and_si128(_mm_srli_epi64(count_ibs0, 2), m2));
+    count_ibs1 = _mm_add_epi64(count_ibs1, _mm_add_epi64(_mm_and_si128(count2_ibs1, m2), _mm_and_si128(_mm_srli_epi64(count2_ibs1, 2), m2)));
+    count_ibs0 = _mm_add_epi64(count_ibs0, _mm_add_epi64(_mm_and_si128(count2_ibs0, m2), _mm_and_si128(_mm_srli_epi64(count2_ibs0, 2), m2)));
+    acc_ibs1.vi = _mm_add_epi64(acc_ibs1.vi, _mm_add_epi64(_mm_and_si128(count_ibs1, m4), _mm_and_si128(_mm_srli_epi64(count_ibs1, 4), m4)));
+    acc_ibs0.vi = _mm_add_epi64(acc_ibs0.vi, _mm_add_epi64(_mm_and_si128(count_ibs0, m4), _mm_and_si128(_mm_srli_epi64(count_ibs0, 4), m4)));
+  }
+#if GENOME_MULTIPLEX > 1920
+  acc_ibs1.vi = _mm_add_epi64(_mm_and_si128(acc_ibs1.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_ibs1.vi, 8), m8));
+  acc_ibs0.vi = _mm_add_epi64(_mm_and_si128(acc_ibs0.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_ibs0.vi, 8), m8));
+#else
+  acc_ibs1.vi = _mm_and_si128(_mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 8)), m8);
+  acc_ibs0.vi = _mm_and_si128(_mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 8)), m8);
+#endif
+  acc_ibs1.vi = _mm_and_si128(_mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 16)), m16);
+  acc_ibs0.vi = _mm_and_si128(_mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 16)), m16);
+  acc_ibs1.vi = _mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 32));
+  acc_ibs0.vi = _mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 32));
+  *ibs0ct_ptr += (unsigned int)(acc_ibs0.u8[0] + acc_ibs0.u8[1]);
+  return (unsigned int)(acc_ibs1.u8[0] + acc_ibs1.u8[1]);
+}
 #else
 // Simple 32-bit popcount implementation (using a 16-bit lookup table) for
 // testing purposes.  If there is a serious need for a fast 32-bit version, one
@@ -1969,8 +2103,31 @@ static inline unsigned int popcount_xor_1mask_multiword(unsigned long** xor1p, u
   return bit_count;
 }
 
+// todo
+static inline unsigned int popcountg_xor_1mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
+  unsigned long* xor2_end = &(xor2[GENOME_MULTIPLEX / 16]);
+  unsigned int bit_count = 0;
+  unsigned long ulii;
+  while (xor2 < xor2_end) {
+    ulii = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
+    bit_count += popcount[ulii >> 16] + popcount[ulii & 65535];
+  }
+  return bit_count;
+}
+
 static inline unsigned int popcount_xor_2mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** mask1p, unsigned long* mask2) {
   unsigned long* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
+  unsigned int bit_count = 0;
+  unsigned long ulii;
+  while (xor2 < xor2_end) {
+    ulii = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
+    bit_count += popcount[ulii >> 16] + popcount[ulii & 65535];
+  }
+  return bit_count;
+}
+
+static inline unsigned int popcountg_xor_2mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** mask1p, unsigned long* mask2) {
+  unsigned long* xor2_end = &(xor2[GENOME_MULTIPLEX / 16]);
   unsigned int bit_count = 0;
   unsigned long ulii;
   while (xor2 < xor2_end) {
@@ -2039,6 +2196,210 @@ void* calc_idist_thread(void* arg) {
   int ii = thread_start[tidx];
   int jj = thread_start[0];
   incr_dists_i(&(idists[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
+  return NULL;
+}
+
+void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
+#if __LP64__
+  __m128i* glptr;
+  __m128i* glptr_fixed;
+  __m128i* glptr_end;
+  __m128i* maskptr;
+  __m128i* maskptr_fixed;
+  unsigned long* lptr;
+  unsigned int hethet_incr;
+  unsigned int ibs0_incr;
+#else
+#endif
+  int ii;
+  int jj;
+  int offset;
+  unsigned long ularg1;
+  unsigned long ularg2;
+  unsigned long ulxor;
+  unsigned long uland;
+  unsigned long ulmask;
+  unsigned long ulval;
+  unsigned int next_ppc_marker_idx;
+  unsigned int cur_floor;
+  unsigned long mask_fixed_test;
+  glptr_end = (__m128i*)(&(geno[indiv_ct * (GENOME_MULTIPLEX2 / BITCT)]));
+  for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
+    jj = ii * (GENOME_MULTIPLEX2 / BITCT);
+#if __LP64__
+    glptr_fixed = (__m128i*)(&(geno[jj]));
+    glptr = (__m128i*)(&(geno[jj + (GENOME_MULTIPLEX2 / BITCT)]));
+    lptr = &(masks[jj]);
+    maskptr = (__m128i*)(&(masks[jj + (GENOME_MULTIPLEX2 / BITCT)]));
+    maskptr_fixed = (__m128i*)lptr;
+    mask_fixed_test = *lptr++;
+    for (jj = 0; jj < GENOME_MULTIPLEX2 / BITCT - 1; jj++) {
+      mask_fixed_test &= *lptr++;
+    }
+#else
+#endif
+    if (~mask_fixed_test) {
+      while (glptr < glptr_end) {
+#if __LP64__
+	next_ppc_marker_idx = *genome_main;
+	if (next_ppc_marker_idx >= high_ct) {
+          genome_main[1] += popcountg_xor_2mask_multiword(&glptr, glptr_fixed, &maskptr, maskptr_fixed, &(genome_main[2]));
+	  genome_main = &(genome_main[5]);
+	} else {
+	  hethet_incr = 0;
+	  ibs0_incr = 0;
+	  do {
+	    cur_floor = next_ppc_marker_idx & 0xffffffe0;
+	    offset = (cur_floor - low_ct) / BITCT2;
+	    ularg1 = ((unsigned long*)glptr)[offset];
+	    ularg2 = ((unsigned long*)glptr_fixed)[offset];
+	    ulxor = ularg1 ^ ularg2;
+	    uland = ularg1 & ularg2;
+	    ulmask = (((unsigned long*)maskptr)[offset]) & (((unsigned long*)maskptr_fixed)[offset]);
+	    do {
+	      // het is represented as 11, so
+              //   (uland & (uland >> 1)) & 0x5555555555555555
+              // stores whether a particular marker is a hethet hit in the
+	      // corresponding even bit.
+	      //
+              // homozygotes are represented as 01 and 10, so
+              //   (ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaa
+              // stores whether a particular marker is a hom1-hom2 hit in the
+              // corresponding odd bit.  (het-missing pairs also set that bit,
+              // but the subsequent masking filters that out.)
+              //
+              // ~((1LLU << xx) - 1) masks out the bottom xx bits.
+	      ulval = (((uland & (uland >> 1)) & 0x5555555555555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaa)) & (ulmask & (~((1LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)) - 1)));
+	      if (ulval) {
+		jj = __builtin_ctzl(ulval);
+		if (jj & 1) {
+		  ibs0_incr++;
+		} else {
+		  hethet_incr++;
+		}
+		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
+	      } else {
+		next_ppc_marker_idx = cur_floor + BITCT2;
+	      }
+	    } while (next_ppc_marker_idx < (cur_floor + BITCT2));
+	  } while (next_ppc_marker_idx < high_ct);
+	  *genome_main++ = next_ppc_marker_idx;
+	  *genome_main += popcountg_xor_2mask_multiword(&glptr, glptr_fixed, &maskptr, maskptr_fixed, &(genome_main[1]));
+	  genome_main = &(genome_main[2]);
+	  *genome_main += hethet_incr;
+	  genome_main++;
+	  *genome_main += ibs0_incr;
+	  genome_main++;
+	}
+#else
+#endif
+      }
+    } else {
+      while (glptr < glptr_end) {
+#if __LP64__
+	next_ppc_marker_idx = *genome_main;
+	if (next_ppc_marker_idx >= high_ct) {
+	  genome_main[1] += popcountg_xor_1mask_multiword(&glptr, glptr_fixed, &maskptr, &(genome_main[2]));
+	  genome_main = &(genome_main[5]);
+	} else {
+	  hethet_incr = 0;
+	  ibs0_incr = 0;
+	  do {
+	    cur_floor = next_ppc_marker_idx & 0xffffffe0;
+	    offset = (cur_floor - low_ct) / BITCT2;
+	    ularg1 = ((unsigned long*)glptr)[offset];
+	    ularg2 = ((unsigned long*)glptr_fixed)[offset];
+	    ulxor = ularg1 ^ ularg2;
+	    uland = ularg1 & ularg2;
+	    ulmask = ((unsigned long*)maskptr)[offset];
+	    do {
+	      ulval = (((uland & (uland >> 1)) & 0x5555555555555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaa)) & (ulmask & (~((1LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)) - 1)));
+	      if (ulval) {
+		jj = __builtin_ctzl(ulval);
+		if (jj & 1) {
+		  ibs0_incr++;
+		} else {
+		  hethet_incr++;
+		}
+		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
+	      } else {
+		next_ppc_marker_idx = cur_floor + BITCT2;
+		break;
+	      }
+	    } while (next_ppc_marker_idx < (cur_floor + BITCT2));
+	  } while (next_ppc_marker_idx < high_ct);
+	  *genome_main++ = next_ppc_marker_idx;
+	  *genome_main += popcountg_xor_1mask_multiword(&glptr, glptr_fixed, &maskptr, &(genome_main[1]));
+	  genome_main = &(genome_main[2]);
+	  *genome_main += hethet_incr;
+	  genome_main++;
+	  *genome_main += ibs0_incr;
+	  genome_main++;
+	}
+#else
+#endif
+      }
+    }
+  }
+  /*
+#if __LP64__
+  __m128i* glptr;
+  __m128i* glptr2;
+  __m128i* mptr;
+  __m128i* mcptr_start;
+  unsigned long* lptr;
+#else
+  unsigned long* glptr;
+  unsigned long* glptr2;
+  unsigned long* mptr;
+  unsigned long* mcptr_start;
+#endif
+  int ii;
+  int jj;
+  unsigned long mask_fixed;
+  for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
+    jj = ii * (MULTIPLEX_2DIST / BITCT);
+#if __LP64__
+    glptr = (__m128i*)geno;
+    glptr2 = (__m128i*)(&(geno[jj]));
+    lptr = &(masks[jj]);
+    mcptr_start = (__m128i*)lptr;
+    mask_fixed = *lptr++;
+    for (jj = 0; jj < MULTIPLEX_2DIST / BITCT - 1; jj++) {
+      mask_fixed &= *lptr++;
+    }
+    mptr = (__m128i*)masks;
+#else
+    glptr = geno;
+    glptr2 = &(geno[jj]);
+    mcptr_start = &(masks[jj]);
+    mptr = mcptr_start;
+    mask_fixed = *mptr++;
+    for (jj = 0; jj < MULTIPLEX_2DIST / BITCT - 1; jj++) {
+      mask_fixed &= *mptr++;
+    }
+    mptr = masks;
+#endif
+    if (~mask_fixed) {
+      while (glptr < glptr2) {
+	*idists += popcount_xor_2mask_multiword(&glptr, glptr2, &mptr, mcptr_start);
+	idists++;
+      }
+    } else {
+      while (glptr < glptr2) {
+	*idists += popcount_xor_1mask_multiword(&glptr, glptr2, &mptr);
+	idists++;
+      }
+    }
+  }
+  */
+}
+
+void* calc_genome_thread(void* arg) {
+  long tidx = (long)arg;
+  int ii = thread_start[tidx];
+  int jj = thread_start[0];
+  incr_genome(&(genome_main[((long long)indiv_ct * (ii - jj) - ((long long)ii * (ii + 1) - (long long)jj * (jj + 1)) / 2) * 5]), (unsigned long*)ped_geno, (int)tidx);
   return NULL;
 }
 
@@ -2181,14 +2542,14 @@ void* calc_rel_thread(void* arg) {
   return NULL;
 }
 
-void incr_dists_rm(unsigned int* idists, int tidx) {
+void incr_dists_rm(unsigned int* idists, int tidx, int* thread_start) {
   // count missing intersection, optimized for sparsity
   unsigned long* glptr;
   unsigned long ulii;
   unsigned long uljj;
   int ii;
   int jj;
-  for (ii = thread_start0[tidx]; ii < thread_start0[tidx + 1]; ii++) {
+  for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
     glptr = mmasks;
     ulii = mmasks[ii];
     if (ulii) {
@@ -2208,7 +2569,7 @@ void* calc_relm_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start0[tidx];
   int jj = thread_start0[0];
-  incr_dists_rm(&(missing_tot_unweighted[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (int)tidx);
+  incr_dists_rm(&(missing_tot_unweighted[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (int)tidx, thread_start0);
   return NULL;
 }
 
@@ -2216,7 +2577,46 @@ void* calc_distm_unwt_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
   int jj = thread_start[0];
-  incr_dists_rm(&(missing_tot_unweighted[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (int)tidx);
+  incr_dists_rm(&(missing_tot_unweighted[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (int)tidx, thread_start);
+  return NULL;
+}
+
+void incr_dists_rm_inv(unsigned int* idists, int tidx) {
+  // inverted loops for --genome --parallel
+  unsigned long* glptr;
+  unsigned long ulii;
+  unsigned long uljj;
+  int kk = indiv_ct - 1;
+  int ii;
+  int jj;
+  for (ii = thread_start[tidx]; ii < kk; ii++) {
+    ulii = mmasks[ii];
+    if (ulii) {
+      glptr = &(mmasks[ii + 1]);
+      // jj is deliberately biased down by 1
+      for (jj = ii; jj < kk; jj++) {
+        uljj = (*glptr++) & ulii;
+        while (uljj) {
+          idists[jj] += 1;
+          uljj &= uljj - 1;
+        }
+      }
+    }
+    idists = &(idists[kk - ii - 1]);
+  }
+}
+
+void* calc_genomem_thread(void* arg) {
+  long tidx = (long)arg;
+  int ii = thread_start[tidx];
+  int jj = thread_start[0];
+  // f(0) = 0
+  // f(1) = ic - 2
+  // f(2) = 2ic - 5
+  // f(3) = 3ic - 9
+  // ...
+  // f(n) = nic - (n+1)(n+2)/2 + 1
+  incr_dists_rm_inv(&(missing_tot_unweighted[(long long)indiv_ct * (ii - jj) - ((long long)(ii + 1) * (ii + 2) - (long long)(jj + 1) * (jj + 2)) / 2]), (int)tidx);
   return NULL;
 }
 
@@ -2709,13 +3109,12 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
 }
 #endif // NOLAPACK
 
-int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* map_cols_ptr, int* unfiltered_marker_ct_ptr, int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned char** marker_exclude_ptr, double** mafs_ptr, int** marker_allele_cts_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, unsigned int** marker_pos_ptr, int** marker_chroms_ptr, unsigned int chrom_mask, char extractname_0, char excludename_0, char freqname_0, int ppc_gap, int calculation_type) {
+int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* map_cols_ptr, int* unfiltered_marker_ct_ptr, int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned char** marker_exclude_ptr, double** mafs_ptr, int** marker_allele_cts_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, int** marker_chroms_ptr, unsigned int chrom_mask, int* marker_pos_start_ptr, char extractname_0, char excludename_0, char freqname_0, int ppc_gap, int calculation_type) {
   int marker_ids_needed = (extractname_0 || excludename_0 || freqname_0 || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST)));
   int unfiltered_marker_ct = 0;
   unsigned long max_marker_id_len = 0;
   int loaded_chrom_mask = 0;
   int last_chrom = -1;
-  int last_pos;
   unsigned int* mpptr = NULL;
   unsigned int* mpptr2 = NULL;
   char* bufptr;
@@ -2793,14 +3192,14 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
   }
   // permanent stack allocation #3, if needed: marker_pos
   if (calculation_type & CALC_GENOME_MASK) {
-    *marker_pos_ptr = (unsigned int*)wkspace_alloc(unfiltered_marker_ct * sizeof(int));
-    if (!(*marker_pos_ptr)) {
+    marker_pos = (unsigned int*)wkspace_alloc(unfiltered_marker_ct * sizeof(int));
+    if (!marker_pos) {
       return RET_NOMEM;
     }
     // mpptr loads the distance values in the .map/.bim file into the
     // marker_pos array.  mpptr2 makes a second pass through the array,
     // converting these raw positions into PPC next-marker-index values.
-    mpptr = *marker_pos_ptr;
+    mpptr = marker_pos;
     mpptr2 = mpptr;
     mpptr--;
   }
@@ -2857,7 +3256,9 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
 	}
 	loaded_chrom_mask &= 1 << jj;
 	if (jj) {
-	  last_pos = 0;
+	  if (*marker_pos_start_ptr == -1) {
+	    *marker_pos_start_ptr = ii;
+	  }
 	  while (mpptr2 < mpptr) {
 	    *mpptr2++ = ii;
 	  }
@@ -3021,7 +3422,7 @@ void distance_print_done(int format_code, char* outname, char* outname_end) {
   }
 }
 
-int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, unsigned int* marker_pos, int unfiltered_indiv_ct, unsigned char* indiv_exclude, char* person_id, int max_person_id_len, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int calculation_type) {
+int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, double* mafs, int marker_pos_start, int unfiltered_indiv_ct, unsigned char* indiv_exclude, char* person_id, int max_person_id_len, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int calculation_type) {
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
   int retval = 0;
@@ -3029,11 +3430,11 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   unsigned char* loadbuf; // from file
   unsigned char* gptr;
-  unsigned char* processbuf; // reshuffled for inner loop usage
   char* cptr;
   char* cptr2;
   char* cptr3;
   char* cptr4;
+  char* tbuf_mid = &(tbuf[64]);
   int ii;
   int jj;
   int kk;
@@ -3041,19 +3442,66 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   int nn;
   int oo;
   int pp;
-  int qq;
   unsigned long* glptr2;
   unsigned long* glptr3;
   unsigned int* giptr;
   unsigned long ulii;
   unsigned long uljj;
   unsigned long ulkk;
-  long long cur_line = 1;
-  long long tot_cells = ((long long)indiv_ct * (indiv_ct - 1)) / 2;
-  long long tot_lines = tot_cells + 1;
+  int missing_ct_buf[BITCT];
+  double marker_recip = 0.5 / (double)marker_ct;
+  double maf_buf[GENOME_MULTIPLEX];
+  double e00 = 0.0;
+  double e01 = 0.0;
+  double e02 = 0.0;
+  double e11 = 0.0;
+  double e12 = 0.0;
+  int ibd_prect = 0;
+  int genome_output_gz = calculation_type & CALC_GENOME_GZ;
+  int genome_output_full = calculation_type & CALC_GENOME_FULL;
+  double dpp;
+  double dqq;
+  double dpp_sq;
+  double dqq_sq;
+  double dxx;
+  double dyy;
+  double dxx_recip;
+  double dyy_recip;
+  double dxx1;
+  double dxx2;
+  double dyy1;
+  double dyy2;
+  long long cur_line = 0;
+  long long tot_cells;
+  long long tot_lines;
   // imitate PLINK behavior (see Plink::prettyPrintLengths() in helper.cpp);
   int max_person_fid_len = 4;
   int max_person_iid_len = 4;
+  double num_alleles;
+  double num_allelesf2;
+  double num_allelesf3;
+  int tstc;
+
+  triangle_fill(thread_start, indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
+  // invert order, for --genome --parallel to naturally work
+  for (ii = 0; ii <= thread_ct / 2; ii++) {
+    jj = thread_start[ii];
+    thread_start[ii] = indiv_ct - thread_start[thread_ct - ii];
+    thread_start[thread_ct - ii] = indiv_ct - jj;
+  }
+
+  if (!parallel_idx) {
+    cur_line = 1;
+  }
+  tstc = thread_start[thread_ct];
+  // f(tstc) - f(thread_start[0])
+  // f(0) = 0
+  // f(1) = indiv_ct - 1
+  // f(2) = 2indiv_ct - 3
+  // ...
+  // f(n) = nindiv_ct - n(n+1)/2
+  tot_cells = (long long)indiv_ct * (tstc - thread_start[0]) - ((long long)tstc * (tstc + 1) - (long long)thread_start[0] * (thread_start[0] + 1)) / 2;
+  tot_lines = cur_line + tot_cells;
   for (ii = 0; ii < unfiltered_indiv_ct; ii++) {
     if (!excluded(indiv_exclude, ii)) {
       cptr = &(person_id[ii * max_person_id_len]);
@@ -3076,13 +3524,13 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   if (wkspace_alloc_ui_checked(&indiv_missing_unwt, indiv_ct * sizeof(int))) {
     goto calc_genome_ret_NOMEM;
   }
-  if (wkspace_alloc_ui_checked(&genome_main, tot_cells * 4 * sizeof(int))) {
+  if (wkspace_alloc_ui_checked(&genome_main, tot_cells * 5 * sizeof(int))) {
     goto calc_genome_ret_NOMEM;
   }
   if (wkspace_alloc_uc_checked(&loadbuf, GENOME_MULTIPLEX * unfiltered_indiv_ct4)) {
     goto calc_genome_ret_NOMEM;
   }
-  if (wkspace_alloc_uc_checked(&processbuf, (GENOME_MULTIPLEX / 4) * unfiltered_indiv_ct)) {
+  if (wkspace_alloc_uc_checked(&ped_geno, (GENOME_MULTIPLEX / 4) * unfiltered_indiv_ct)) {
     goto calc_genome_ret_NOMEM;
   }
   if (wkspace_alloc_ul_checked(&masks, indiv_ct * (GENOME_MULTIPLEX2 / 8))) {
@@ -3094,57 +3542,70 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 
   fill_int_zero((int*)missing_tot_unweighted, tot_cells);
   fill_int_zero((int*)indiv_missing_unwt, indiv_ct);
-  fill_int_zero((int*)genome_main, tot_cells * 4);
-  triangle_fill(thread_start, indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
+  if (!marker_pos_start) {
+    fill_int_zero((int*)genome_main, tot_cells * 5);
+  } else {
+    giptr = genome_main;
+    for (ulii = 0; ulii < tot_cells; ulii++) {
+      *giptr++ = marker_pos_start;
+      *giptr++ = 0;
+      *giptr++ = 0;
+      *giptr++ = 0;
+      *giptr++ = 0;
+    }
+  }
   if (!excluded(marker_exclude, 0)) {
     fseeko(pedfile, 3, SEEK_SET);
   }
 
   ii = 0; // raw marker index
-  jj = 0; // after excluding missing
+  low_ct = 0; // after excluding missing
   do {
-    mm = marker_ct - jj;
-    if (mm > GENOME_MULTIPLEX) {
-      mm = GENOME_MULTIPLEX;
+    kk = marker_ct - low_ct;
+    if (kk > GENOME_MULTIPLEX) {
+      kk = GENOME_MULTIPLEX;
     }
-    for (kk = 0; kk < mm; kk++) {
+    for (jj = 0; jj < kk; jj++) {
       if (excluded(marker_exclude, ii)) {
 	do {
 	  ii++;
 	} while (excluded(marker_exclude, ii));
 	fseeko(pedfile, 3 + ii * unfiltered_indiv_ct4, SEEK_SET);
       }
-      if (fread(&(loadbuf[kk * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, pedfile) < unfiltered_indiv_ct4) {
+      if (fread(&(loadbuf[jj * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, pedfile) < unfiltered_indiv_ct4) {
 	retval = RET_READ_FAIL;
 	goto calc_genome_ret_1;
       }
+      maf_buf[jj] = mafs[ii];
       ii++;
     }
-    jj += mm;
     if (kk < GENOME_MULTIPLEX) {
       memset(&(loadbuf[kk * unfiltered_indiv_ct4]), 0, (GENOME_MULTIPLEX - kk) * unfiltered_indiv_ct4);
-      fill_long_zero((long*)processbuf, indiv_ct * (GENOME_MULTIPLEX2 / BITCT));
+      fill_long_zero((long*)ped_geno, indiv_ct * (GENOME_MULTIPLEX2 / BITCT));
       fill_long_zero((long*)masks, indiv_ct * (GENOME_MULTIPLEX2 / BITCT));
     }
-    for (kk = 0; kk < mm; kk += BITCT) {
-      glptr = &(((unsigned long*)processbuf)[kk / BITCT2]);
-      glptr2 = &(masks[kk / BITCT2]);
+    high_ct = low_ct + kk;
+    for (jj = 0; jj < kk; jj += BITCT) {
+      glptr = &(((unsigned long*)ped_geno)[jj / BITCT2]);
+      glptr2 = &(masks[jj / BITCT2]);
       glptr3 = mmasks;
       giptr = indiv_missing_unwt;
-      oo = 0; // raw indiv index
-      for (nn = 0; nn < indiv_ct; nn++) {
-	while (excluded(indiv_exclude, oo)) {
-	  oo++;
+      nn = 0; // raw indiv index
+      fill_int_zero(missing_ct_buf, BITCT);
+      for (mm = 0; mm < indiv_ct; mm++) {
+	while (excluded(indiv_exclude, nn)) {
+	  nn++;
 	}
-	pp = (oo % 4) * 2;
+	oo = (nn % 4) * 2;
 	ulii = 0;
 	ulkk = 0;
-        gptr = &(loadbuf[oo / 4 + kk * unfiltered_indiv_ct4]);
-	for (qq = 0; qq < BITCT2; qq++) {
-	  uljj = (gptr[qq * unfiltered_indiv_ct4] >> pp) & 3;
-	  ulii |= uljj << (qq * 2);
+        gptr = &(loadbuf[nn / 4 + jj * unfiltered_indiv_ct4]);
+	for (pp = 0; pp < BITCT2; pp++) {
+	  uljj = (gptr[pp * unfiltered_indiv_ct4] >> oo) & 3;
+	  ulii |= uljj << (pp * 2);
 	  if (uljj == 1) {
-	    ulkk |= 1LLU << qq;
+	    missing_ct_buf[pp] += 1;
+	    ulkk |= 1LLU << pp;
 	    *giptr += 1;
 	  }
 	}
@@ -3161,52 +3622,116 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	*glptr3 = ulkk;
 	ulii = 0;
 	ulkk = 0;
-	gptr = &(loadbuf[oo / 4 + (kk + BITCT2) * unfiltered_indiv_ct4]);
-	for (qq = 0; qq < BITCT2; qq++) {
-	  uljj = (gptr[qq * unfiltered_indiv_ct4] >> pp) & 3;
-	  ulii |= uljj << (qq * 2);
+	gptr = &(loadbuf[nn / 4 + (jj + BITCT2) * unfiltered_indiv_ct4]);
+	for (pp = 0; pp < BITCT2; pp++) {
+	  uljj = (gptr[pp * unfiltered_indiv_ct4] >> oo) & 3;
+	  ulii |= uljj << (pp * 2);
 	  if (uljj == 1) {
-	    ulkk |= 1LLU << qq;
+	    missing_ct_buf[pp + BITCT2] += 1;
+	    ulkk |= 1LLU << pp;
 	    *giptr += 1;
 	  }
 	}
 #if __LP64__
 	ulii ^= 0x5555555555555555LLU;
-	*glptr++ = ulii;
+	*glptr = ulii;
 	ulii = (ulii | (ulii >> 1)) & 0x5555555555555555LLU;
 #else
 	ulii ^= 0x55555555;
-	*glptr++ = ulii;
+	*glptr = ulii;
 	ulii = (ulii | (ulii >> 1)) & 0x55555555;
 #endif
-	*glptr2++ = ulii * 3;
+	*glptr2 = ulii * 3;
 	*glptr3 |= ulkk << BITCT2;
 	glptr = &(glptr[(GENOME_MULTIPLEX2 / BITCT) - 1]);
 	glptr2 = &(glptr2[(GENOME_MULTIPLEX2 / BITCT) - 1]);
 	giptr++;
-	oo++;
+	nn++;
       }
-      for (ulii = 1; ulii < thread_ct; ulii++) {
-	if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_unwt_thread, (void*)ulii)) {
-	  retval = RET_THREAD_CREATE_FAIL;
-	  goto calc_genome_ret_1;
+      nn = kk - jj;
+      if (nn > BITCT) {
+	nn = BITCT;
+      }
+      for (mm = 0; mm < nn; mm++) {
+	dpp = maf_buf[jj + mm];
+	dqq = 1.0 - dpp;
+	num_alleles = (double)(2 * indiv_ct - missing_ct_buf[mm]);
+	if ((num_alleles > 3.5) && (dpp > 0.0) && (dqq > 0.0)) {
+	  // update e00, e01, e02, e11, e12, ibd_prect
+	  // see Plink::preCalcGenomeIBD() in genome.cpp
+	  num_allelesf2 = num_alleles * num_alleles / ((num_alleles - 1) * (num_alleles - 2));
+	  num_allelesf3 = num_allelesf2 * num_alleles / (num_alleles - 3);
+	  dxx = dpp * num_alleles;
+	  dyy = dqq * num_alleles;
+	  dxx_recip = 1.0 / dxx;
+	  dyy_recip = 1.0 / dyy;
+	  dpp_sq = dpp * dpp;
+	  dqq_sq = dqq * dqq;
+	  dxx1 = (dxx - 1) * dxx_recip;
+	  dxx2 = dxx1 * (dxx - 2) * dxx_recip;
+	  dyy1 = (dyy - 1) * dyy_recip;
+	  dyy2 = (dyy - 2) * dyy_recip;
+	  e00 += 2 * dpp_sq * dqq_sq * dxx1 * dyy1 * num_allelesf3;
+	  e01 += 4 * dpp * dqq * num_allelesf3 * (dpp_sq * dxx2 + dqq_sq * dyy2);
+	  e02 += num_allelesf3 * (dqq_sq * dqq_sq * dyy2 * (dyy - 3) * dyy_recip + dpp_sq * dpp_sq * dxx2 * (dxx - 3) * dxx_recip + 4 * dpp_sq * dqq_sq * dxx1 * dyy1);
+	  e11 += 2 * dpp * dqq * num_allelesf2 * (dpp * dxx1 + dqq * dyy1);
+	  e12 += num_allelesf2 * (dpp_sq * dpp * dxx2 + dqq_sq * dqq * dyy2 + dpp_sq * dqq * dxx1 + dpp * dqq_sq * dyy1);
+	  ibd_prect++;
 	}
       }
-      incr_dists_rm(missing_tot_unweighted, 0);
-      for (oo = 0; oo < thread_ct - 1; oo++) {
-	pthread_join(threads[oo], NULL);
+      for (ulii = 1; ulii < thread_ct; ulii++) {
+	if (pthread_create(&(threads[ulii - 1]), NULL, &calc_genomem_thread, (void*)ulii)) {
+	  goto calc_genome_ret_THREAD_CREATE_FAIL;
+	}
+      }
+      incr_dists_rm_inv(missing_tot_unweighted, 0);
+      for (nn = 0; nn < thread_ct - 1; nn++) {
+	pthread_join(threads[nn], NULL);
       }
     }
-  } while (jj < marker_ct);
+    for (ulii = 1; ulii < thread_ct; ulii++) {
+      if (pthread_create(&(threads[ulii - 1]), NULL, &calc_genome_thread, (void*)ulii)) {
+	goto calc_genome_ret_THREAD_CREATE_FAIL;
+      }
+    }
+    incr_genome(genome_main, (unsigned long*)ped_geno, 0);
+    for (nn = 0; nn < thread_ct - 1; nn++) {
+      pthread_join(threads[nn], NULL);
+    }
+    low_ct = high_ct;
+    printf("\r%d markers complete.", low_ct);
+    fflush(stdout);
+  } while (low_ct < marker_ct);
+  printf("\r                            \r");
+  dxx = 1.0 / (double)ibd_prect;
+  e00 *= dxx;
+  e01 *= dxx;
+  e02 *= dxx;
+  e11 *= dxx;
+  e12 *= dxx;
 
-  sprintf(tbuf, "%%%ds%%%ds%%%ds%%%ds RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO\n", max_person_fid_len, max_person_iid_len, max_person_fid_len, max_person_iid_len);
-  if (calculation_type & CALC_GENOME_GZ) {
+  // todo: --matrix, --distance-matrix in here
+
+  sprintf(tbuf, " %%%ds %%%ds %%%ds %%%ds %%n", max_person_fid_len - 1, max_person_iid_len - 1, max_person_fid_len - 1, max_person_iid_len - 1);
+  if (!parallel_idx) {
+    if (genome_output_full) {
+      sprintf(tbuf_mid, "%%%ds%%%ds%%%ds%%%ds RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO    IBS0    IBS1    IBS2  HOMHOM  HETHET\n", max_person_fid_len, max_person_iid_len, max_person_fid_len, max_person_iid_len);
+    } else {
+      sprintf(tbuf_mid, "%%%ds%%%ds%%%ds%%%ds RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO\n", max_person_fid_len, max_person_iid_len, max_person_fid_len, max_person_iid_len);
+    }
+  }
+  kk = 1;
+  ulii = 0;
+  uljj = 0;
+  if (genome_output_gz) {
     strcpy(outname_end, ".genome.gz");
     if (gzopen_checked(&gz_outfile, outname, "wb")) {
       goto calc_genome_ret_1;
     }
-    if (!gzprintf(gz_outfile, tbuf, " FID1", " IID1", " FID2", " IID2")) {
-      goto calc_genome_ret_WRITE_FAIL;
+    if (!parallel_idx) {
+      if (!gzprintf(gz_outfile, tbuf_mid, " FID1", " IID1", " FID2", " IID2")) {
+	goto calc_genome_ret_WRITE_FAIL;
+      }
     }
   } else {
     strcpy(outname_end, ".genome");
@@ -3214,47 +3739,70 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
       retval = RET_OPENFAIL;
       goto calc_genome_ret_1;
     }
-    if (fprintf(outfile, tbuf, " FID1", " IID1", " FID2", " IID2") < 0) {
-      goto calc_genome_ret_WRITE_FAIL;
+    if (!parallel_idx) {
+      if (fprintf(outfile, tbuf_mid, " FID1", " IID1", " FID2", " IID2") < 0) {
+	goto calc_genome_ret_WRITE_FAIL;
+      }
     }
   }
-  kk = 1;
-  sprintf(tbuf, " %%%ds %%%ds %%%ds %%%ds UN    NA  %%1.4f  %%1.4f  %%1.4f  %%1.4f  NA  %%g  %%1.4f  %%1.4f\n", max_person_fid_len - 1, max_person_iid_len - 1, max_person_fid_len - 1, max_person_iid_len - 1);
-  if (calculation_type & CALC_GENOME_GZ) {
-    for (ii = 0; ii < indiv_ct - 1; ii++) {
-      cptr = &(person_id[ii * max_person_id_len]);
-      cptr2 = &(cptr[strlen(cptr) + 1]);
-      for (jj = ii + 1; jj < indiv_ct; jj++) {
-	cptr3 = &(person_id[jj * max_person_id_len]);
-	cptr4 = &(cptr3[strlen(cptr3) + 1]);
-	if (!gzprintf(gz_outfile, tbuf, cptr, cptr2, cptr3, cptr4, 1.0, 0.0, 0.0, 0.0, 0.729005, 0.3463, 1.9727)) {
+  for (ii = thread_start[0]; ii < tstc; ii++) {
+    cptr = &(person_id[ii * max_person_id_len]);
+    cptr2 = &(cptr[strlen(cptr) + 1]);
+    for (jj = ii + 1; jj < indiv_ct; jj++) {
+      cptr3 = &(person_id[jj * max_person_id_len]);
+      cptr4 = &(cptr3[strlen(cptr3) + 1]);
+      kk = 0;
+      sprintf(tbuf_mid, tbuf, cptr, cptr2, cptr3, cptr4, &kk);
+      if (!strcmp(cptr, cptr3)) {
+        memcpy(&(tbuf_mid[kk]), "OT     0", 8);
+      } else {
+	memcpy(&(tbuf_mid[kk]), "UN    NA", 8);
+      }
+      kk += 8;
+      sprintf(&(tbuf_mid[kk]), "  %1.4f  %1.4f  %1.4f  %1.4f  %n", 1.0, 0.0, 0.0, 0.0, &mm);
+      kk += mm;
+      if (pheno_c) {
+	if ((pheno_c[ii] != 1) && (pheno_c[jj] != 1)) {
+	  memcpy(&(tbuf_mid[kk]), "-1", 2);
+	} else if ((pheno_c[ii] == 1) && (pheno_c[jj] == 1)) {
+	  memcpy(&(tbuf_mid[kk]), " 1", 2);
+	} else {
+	  memcpy(&(tbuf_mid[kk]), " 0", 2);
+	}
+      } else {
+	memcpy(&(tbuf_mid[kk]), "NA", 2);
+      }
+      kk += 2;
+      if (genome_main[ulii + 4]) {
+	sprintf(&(tbuf_mid[kk]), "  %1.6f  %1.4f  %1.4f%n", 1.0 - marker_recip * (genome_main[ulii + 1] + 2 * genome_main[ulii + 2]), 0.3463, ((double)genome_main[ulii + 3]) / ((double)genome_main[ulii + 4]), &mm);
+      } else {
+	sprintf(&(tbuf_mid[kk]), "  %1.6f  %1.4f      NA%n", 1.0 - marker_recip * (genome_main[ulii + 1] + 2 * genome_main[ulii + 2]), 0.3463, &mm);
+      }
+      kk += mm;
+      if (genome_output_full) {
+	dxx = 1.0 / (double)(genome_main[ulii + 3] + genome_main[ulii + 4]);
+	sprintf(&(tbuf_mid[kk]), " %7d %7d %7d  %1.4f  %1.4f\n%n", genome_main[ulii + 2], genome_main[ulii + 1], marker_ct - indiv_missing_unwt[ii] - indiv_missing_unwt[jj] + missing_tot_unweighted[uljj] - genome_main[ulii + 1] - genome_main[ulii + 2], ((double)genome_main[ulii + 4]) * dxx, ((double)genome_main[ulii + 3]) * dxx, &mm);
+	kk += mm;
+      } else {
+	tbuf_mid[kk++] = '\n';
+      }
+      if (genome_output_gz) {
+	if (gzwrite_checked(gz_outfile, tbuf_mid, kk)) {
+	  goto calc_genome_ret_WRITE_FAIL;
+	}
+      } else {
+	if (fwrite_checked(tbuf_mid, kk, outfile)) {
 	  goto calc_genome_ret_WRITE_FAIL;
 	}
       }
-      cur_line += indiv_ct - ii - 1;
-      if (cur_line * 100 >= tot_lines * kk) {
-	kk = (cur_line * 100) / tot_lines;
-	printf("\rWriting... %d%%", kk++);
-	fflush(stdout);
-      }
+      ulii += 5;
+      uljj++;
     }
-  } else {
-    for (ii = 0; ii < indiv_ct - 1; ii++) {
-      cptr = &(person_id[ii * max_person_id_len]);
-      cptr2 = &(cptr[strlen(cptr) + 1]);
-      for (jj = ii + 1; jj < indiv_ct; jj++) {
-	cptr3 = &(person_id[jj * max_person_id_len]);
-	cptr4 = &(cptr3[strlen(cptr3) + 1]);
-	if (fprintf(outfile, tbuf, cptr, cptr2, cptr3, cptr4, 1.0, 0.0, 0.0, 0.0, 0.729005, 0.3463, 1.9727) < 0) {
-	  goto calc_genome_ret_WRITE_FAIL;
-	}
-      }
-      cur_line += indiv_ct - ii - 1;
-      if (cur_line * 100 >= tot_lines * kk) {
-	kk = (cur_line * 100) / tot_lines;
-	printf("\rWriting... %d%%", kk++);
-	fflush(stdout);
-      }
+    cur_line += indiv_ct - ii - 1;
+    if (cur_line * 100 >= tot_lines * kk) {
+      kk = (cur_line * 100) / tot_lines;
+      printf("\rWriting... %d%%", kk++);
+      fflush(stdout);
     }
   }
   printf("\rFinished writing %s.\n", outname);
@@ -3265,6 +3813,10 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
     break;
   calc_genome_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  calc_genome_ret_THREAD_CREATE_FAIL:
+    retval = RET_THREAD_CREATE_FAIL;
+    // todo: thread join, etc.
     break;
   }
  calc_genome_ret_1:
@@ -3349,7 +3901,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   long long llyy;
   char* marker_ids = NULL;
   int* marker_chroms = NULL;
-  unsigned int* marker_pos = NULL;
+  int marker_pos_start = -1;
   int* marker_allele_cts = NULL;
   char* marker_alleles = NULL;
   char* marker_alleles_tmp = NULL;
@@ -3471,7 +4023,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_OPENFAIL;
     }
   }
-  // take advantage of short-circuit
   if (phenoname[0] && fopen_checked(&phenofile, phenoname, "r")) {
     goto wdist_ret_OPENFAIL;
   }
@@ -3490,12 +4041,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   tbuf[MAXLINELEN - 6] = ' ';
   tbuf[MAXLINELEN - 1] = ' ';
-  retval = load_map_or_bim(&mapfile, mapname, binary_files, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &mafs, &marker_allele_cts, &marker_alleles, &marker_ids, &marker_pos, &marker_chroms, chrom_mask, *extractname, *excludename, *freqname, ppc_gap, calculation_type);
+  retval = load_map_or_bim(&mapfile, mapname, binary_files, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &mafs, &marker_allele_cts, &marker_alleles, &marker_ids, &marker_chroms, chrom_mask, &marker_pos_start, *extractname, *excludename, *freqname, ppc_gap, calculation_type);
   if (retval) {
     goto wdist_ret_2;
   }
 
-  if (!(calculation_type & (CALC_GDISTANCE_MASK | CALC_LOAD_DISTANCES | CALC_RELATIONSHIP_MASK | CALC_IBC | CALC_FREQ | CALC_WRITE_SNPLIST))) {
+  if (!(calculation_type & (CALC_GDISTANCE_MASK | CALC_LOAD_DISTANCES | CALC_RELATIONSHIP_MASK | CALC_IBC | CALC_FREQ | CALC_WRITE_SNPLIST | CALC_GENOME_MASK))) {
     prune = 1;
   }
 
@@ -5318,7 +5869,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      goto wdist_ret_THREAD_CREATE_FAIL;
 	    }
 	  }
-	  incr_dists_rm(missing_tot_unweighted, 0);
+	  incr_dists_rm(missing_tot_unweighted, 0, thread_start0);
 	  for (oo = 0; oo < thread_ct - 1; oo++) {
 	    pthread_join(threads[oo], NULL);
 	  }
@@ -6156,7 +6707,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		    goto wdist_ret_THREAD_CREATE_FAIL;
 		  }
 		}
-		incr_dists_rm(missing_tot_unweighted, 0);
+		incr_dists_rm(missing_tot_unweighted, 0, thread_start);
 		for (oo = 0; oo < thread_ct - 1; oo++) {
 		  pthread_join(threads[oo], NULL);
 		}
@@ -7266,8 +7817,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (calculation_type & CALC_GENOME_MASK) {
-    wkspace_reset((char*)CACHEALIGN((unsigned long)(&(marker_pos[unfiltered_indiv_ct]))));
-    retval = calc_genome(threads, pedfile, marker_ct, unfiltered_marker_ct, marker_exclude, marker_pos, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len, parallel_idx, parallel_tot, outname, outname_end, calculation_type);
+    wkspace_reset((char*)CACHEALIGN((unsigned long)(&(marker_pos[unfiltered_marker_ct]))));
+    retval = calc_genome(threads, pedfile, marker_ct, unfiltered_marker_ct, marker_exclude, mafs, marker_pos_start, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len, parallel_idx, parallel_tot, outname, outname_end, calculation_type);
     if (retval) {
       goto wdist_ret_2;
     }
