@@ -2324,10 +2324,10 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	    while (1) {
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
-		ibs_incr += 1 << ((jj & 1) * BITCT2);
+		ibs_incr += (1LU << ((jj & 1) * BITCT2));
 		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
 		if (next_ppc_marker_idx < (cur_floor + BITCT2)) {
-		  ulval &= (~0LLU) << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2);
+		  ulval &= (~0LU) << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2);
 		} else {
 		  break;
 		}
@@ -2378,7 +2378,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	    while (1) {
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
-		ibs_incr += 1 << ((jj & 1) * BITCT2);
+		ibs_incr += (1LU << ((jj & 1) * BITCT2));
 		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
 		if (next_ppc_marker_idx < (cur_floor + BITCT2)) {
 		  ulval &= ~0LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2);
@@ -3528,7 +3528,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   double num_allelesf3;
   int tstc;
 
-  triangle_fill(thread_start, indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
+  triangle_fill(thread_start, indiv_ct, thread_ct, parallel_tot - parallel_idx - 1, parallel_tot, 1, 1);
   // invert order, for --genome --parallel to naturally work
   for (ii = 0; ii <= thread_ct / 2; ii++) {
     jj = thread_start[ii];
@@ -3863,7 +3863,11 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   ulii = 0;
   uljj = 0;
   if (genome_output_gz) {
-    strcpy(outname_end, ".genome.gz");
+    if (parallel_tot > 1) {
+      sprintf(outname_end, ".genome.%d.gz", parallel_idx + 1);
+    } else {
+      strcpy(outname_end, ".genome.gz");
+    }
     if (gzopen_checked(&gz_outfile, outname, "wb")) {
       goto calc_genome_ret_1;
     }
@@ -3873,7 +3877,11 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
       }
     }
   } else {
-    strcpy(outname_end, ".genome");
+    if (parallel_tot > 1) {
+      sprintf(outname_end, ".genome.%d", parallel_idx + 1);
+    } else {
+      strcpy(outname_end, ".genome");
+    }
     if (fopen_checked(&outfile, outname, "w")) {
       goto calc_genome_ret_OPENFAIL;
     }
