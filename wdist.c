@@ -215,6 +215,7 @@
 // number of snp-major .bed lines to read at once for relationship calc
 #define MULTIPLEX_REL 60
 #else
+// N.B. 32-bit version not as carefully maintained
 #define BITCT 32
 #define MULTIPLEX_DIST_EXP 28
 #define MULTIPLEX_REL 30
@@ -1278,6 +1279,8 @@ void fill_weights_r(double* weights, double* mafs, int var_std) {
   __m128d vfinal2;
   __m128d vfinal3;
   __m128d vfinal4;
+#else
+  int oo;
 #endif
   if (((unsigned long)wtarr) & 15) {
     // force 16-byte alignment; can't do this at compile-time since stack
@@ -1361,8 +1364,8 @@ void fill_weights_r(double* weights, double* mafs, int var_std) {
             *wpairs++ = _mm_add_pd(vpen, vfinal3);
             *wpairs++ = _mm_add_pd(vpen, vfinal4);
 #else
-            for (nn = 0; nn < 8; nn++) {
-              *weights++ = twt4 + wtptr[nn];
+            for (oo = 0; oo < 8; oo++) {
+              *weights++ = twt4 + wtptr[oo];
             }
 #endif
           }
@@ -3572,10 +3575,10 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   if (wkspace_alloc_uc_checked(&loadbuf, GENOME_MULTIPLEX * unfiltered_indiv_ct4)) {
     goto calc_genome_ret_NOMEM;
   }
-  if (wkspace_alloc_uc_checked(&ped_geno, (GENOME_MULTIPLEX / 4) * unfiltered_indiv_ct)) {
+  if (wkspace_alloc_uc_checked(&ped_geno, indiv_ct * (GENOME_MULTIPLEX / 4))) {
     goto calc_genome_ret_NOMEM;
   }
-  if (wkspace_alloc_ul_checked(&masks, indiv_ct * (GENOME_MULTIPLEX2 / 8))) {
+  if (wkspace_alloc_ul_checked(&masks, indiv_ct * (GENOME_MULTIPLEX / 4))) {
     goto calc_genome_ret_NOMEM;
   }
   if (wkspace_alloc_ul_checked(&mmasks, indiv_ct * sizeof(long))) {
@@ -3623,8 +3626,8 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
     }
     if (kk < GENOME_MULTIPLEX) {
       memset(&(loadbuf[kk * unfiltered_indiv_ct4]), 0, (GENOME_MULTIPLEX - kk) * unfiltered_indiv_ct4);
-      fill_long_zero((long*)ped_geno, indiv_ct * (GENOME_MULTIPLEX2 / BITCT));
-      fill_long_zero((long*)masks, indiv_ct * (GENOME_MULTIPLEX2 / BITCT));
+      fill_long_zero((long*)ped_geno, indiv_ct * (GENOME_MULTIPLEX / BITCT2));
+      fill_long_zero((long*)masks, indiv_ct * (GENOME_MULTIPLEX / BITCT2));
     }
     high_ct = low_ct + kk;
     for (jj = 0; jj < kk; jj += BITCT) {
