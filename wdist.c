@@ -3463,6 +3463,9 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   unsigned long* glptr2;
   unsigned long* glptr3;
   unsigned int* giptr;
+  unsigned int* giptr2;
+  unsigned int* giptr3;
+  unsigned int uii;
   unsigned long ulii;
   unsigned long uljj;
   unsigned long ulkk;
@@ -3728,7 +3731,101 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   e11 *= dxx;
   e12 *= dxx;
 
-  // todo: --matrix, --distance-matrix in here
+  if (calculation_type & CALC_PLINK_IBS_MATRIX) {
+    strcpy(outname_end, ".mibs");
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto calc_genome_ret_OPENFAIL;
+    }
+    giptr = &(genome_main[1]);
+    giptr2 = missing_tot_unweighted;
+    kk = 1;
+    for (ii = 0; ii < indiv_ct; ii++) {
+      giptr3 = indiv_missing_unwt;
+      uii = marker_ct - giptr3[ii];
+      uljj = ii - 1;
+      for (ulii = 0; ulii < ii; ulii++) {
+	if (fprintf(outfile, "%g ", 1.0 - ((double)(genome_main[uljj * 5 + 1] + 2 * genome_main[uljj * 5 + 2])) / ((double)(2 * (uii - (*giptr3++) + missing_tot_unweighted[uljj])))) < 0) {
+	  goto calc_genome_ret_WRITE_FAIL;
+	}
+	uljj += indiv_ct - ulii - 2;
+      }
+      if (fwrite_checked("1 ", 2, outfile)) {
+	goto calc_genome_ret_WRITE_FAIL;
+      }
+      giptr3++;
+      for (jj = ii + 1; jj < indiv_ct; jj++) {
+	if (fprintf(outfile, "%g ", 1.0 - ((double)((*giptr) + 2 * giptr[1])) / ((double)(2 * (uii - (*giptr3++) + (*giptr2++))))) < 0) {
+	  goto calc_genome_ret_WRITE_FAIL;
+	}
+	giptr = &(giptr[5]);
+      }
+      if (fwrite_checked("\n", 1, outfile)) {
+	goto calc_genome_ret_WRITE_FAIL;
+      }
+      if (ii * 100 >= (kk * indiv_ct)) {
+	kk = (ii * 100) / indiv_ct;
+	printf("\rWriting... %d%%", kk++);
+	fflush(stdout);
+      }
+    }
+    if (fclose_null(&outfile)) {
+      goto calc_genome_ret_WRITE_FAIL;
+    }
+    printf("\rIBS matrix written to %s.\n", outname);
+    strcpy(outname_end, ".mibs.id");
+    retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
+    if (retval) {
+      goto calc_genome_ret_1;
+    }
+  }
+
+  if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
+    strcpy(outname_end, ".mdist");
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto calc_genome_ret_OPENFAIL;
+    }
+    giptr = &(genome_main[1]);
+    giptr2 = missing_tot_unweighted;
+    kk = 1;
+    for (ii = 0; ii < indiv_ct; ii++) {
+      giptr3 = indiv_missing_unwt;
+      uii = marker_ct - giptr3[ii];
+      uljj = ii - 1;
+      for (ulii = 0; ulii < ii; ulii++) {
+	if (fprintf(outfile, "%g ", ((double)(genome_main[uljj * 5 + 1] + 2 * genome_main[uljj * 5 + 2])) / ((double)(2 * (uii - (*giptr3++) + missing_tot_unweighted[uljj])))) < 0) {
+	  goto calc_genome_ret_WRITE_FAIL;
+	}
+	uljj += indiv_ct - ulii - 2;
+      }
+      if (fwrite_checked("0 ", 2, outfile)) {
+	goto calc_genome_ret_WRITE_FAIL;
+      }
+      giptr3++;
+      for (jj = ii + 1; jj < indiv_ct; jj++) {
+	if (fprintf(outfile, "%g ", ((double)((*giptr) + 2 * giptr[1])) / ((double)(2 * (uii - (*giptr3++) + (*giptr2++))))) < 0) {
+	  goto calc_genome_ret_WRITE_FAIL;
+	}
+	giptr = &(giptr[5]);
+      }
+      if (fwrite_checked("\n", 1, outfile)) {
+	goto calc_genome_ret_WRITE_FAIL;
+      }
+      if (ii * 100 >= (kk * indiv_ct)) {
+	kk = (ii * 100) / indiv_ct;
+	printf("\rWriting... %d%%", kk++);
+	fflush(stdout);
+      }
+    }
+    if (fclose_null(&outfile)) {
+      goto calc_genome_ret_WRITE_FAIL;
+    }
+    printf("\rDistances (proportions) written to %s.\n", outname);
+    strcpy(outname_end, ".mdist.id");
+    retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len);
+    if (retval) {
+      goto calc_genome_ret_1;
+    }
+  }
 
   sprintf(tbuf, " %%%ds %%%ds %%%ds %%%ds ", max_person_fid_len - 1, max_person_iid_len - 1, max_person_fid_len - 1, max_person_iid_len - 1);
   if (!parallel_idx) {
@@ -3738,7 +3835,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
       sprintf(tbuf_mid, "%%%ds%%%ds%%%ds%%%ds RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO\n", max_person_fid_len, max_person_iid_len, max_person_fid_len, max_person_iid_len);
     }
   }
-  kk = 1;
+  mm = 1;
   ulii = 0;
   uljj = 0;
   if (genome_output_gz) {
@@ -3754,8 +3851,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   } else {
     strcpy(outname_end, ".genome");
     if (fopen_checked(&outfile, outname, "w")) {
-      retval = RET_OPENFAIL;
-      goto calc_genome_ret_1;
+      goto calc_genome_ret_OPENFAIL;
     }
     if (!parallel_idx) {
       if (fprintf(outfile, tbuf_mid, " FID1", " IID1", " FID2", " IID2") < 0) {
@@ -3854,9 +3950,9 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
       uljj++;
     }
     cur_line += indiv_ct - ii - 1;
-    if (cur_line * 100 >= tot_lines * kk) {
-      kk = (cur_line * 100) / tot_lines;
-      printf("\rWriting... %d%%", kk++);
+    if (cur_line * 100 >= tot_lines * mm) {
+      mm = (cur_line * 100) / tot_lines;
+      printf("\rWriting... %d%%", mm++);
       fflush(stdout);
     }
   }
@@ -3865,6 +3961,9 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   while (0) {
   calc_genome_ret_NOMEM:
     retval = RET_NOMEM;
+    break;
+  calc_genome_ret_OPENFAIL:
+    retval = RET_OPENFAIL;
     break;
   calc_genome_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
