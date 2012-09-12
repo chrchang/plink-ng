@@ -2208,7 +2208,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
   __m128i* maskptr;
   __m128i* maskptr_fixed;
   unsigned long* lptr;
-  unsigned int ibs_incr[2];
+  unsigned long ibs_incr;
 #else
 #endif
   int ii;
@@ -2246,8 +2246,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
           genome_main[1] += popcountg_xor_2mask_multiword(&glptr, glptr_fixed, &maskptr, maskptr_fixed, &(genome_main[2]));
 	  genome_main = &(genome_main[5]);
 	} else {
-	  ibs_incr[0] = 0; // hethet
-	  ibs_incr[1] = 0; // ibs0
+	  ibs_incr = 0; // hethet low-order, ibs0 high-order
 	  do {
 	    cur_floor = next_ppc_marker_idx & 0xffffffe0;
 	    offset = (cur_floor - low_ct) / BITCT2;
@@ -2272,7 +2271,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	    do {
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
-		ibs_incr[jj & 1] += 1;
+		ibs_incr += 1 << ((jj & 1) * 32);
 		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
 		if (next_ppc_marker_idx < (cur_floor + BITCT2)) {
 		  ulval &= (~0LLU) << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2);
@@ -2286,9 +2285,9 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	  *genome_main++ = next_ppc_marker_idx;
 	  *genome_main += popcountg_xor_2mask_multiword(&glptr, glptr_fixed, &maskptr, maskptr_fixed, &(genome_main[1]));
 	  genome_main = &(genome_main[2]);
-	  *genome_main += ibs_incr[0];
+	  *genome_main += ibs_incr & 0xffffffffLLU;
 	  genome_main++;
-	  *genome_main += ibs_incr[1];
+	  *genome_main += ibs_incr >> 32;
 	  genome_main++;
 	}
 #else
@@ -2302,8 +2301,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	  genome_main[1] += popcountg_xor_1mask_multiword(&glptr, glptr_fixed, &maskptr, &(genome_main[2]));
 	  genome_main = &(genome_main[5]);
 	} else {
-	  ibs_incr[0] = 0;
-	  ibs_incr[1] = 0;
+	  ibs_incr = 0;
 	  do {
 	    cur_floor = next_ppc_marker_idx & 0xffffffe0;
 	    offset = (cur_floor - low_ct) / BITCT2;
@@ -2316,7 +2314,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	    do {
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
-		ibs_incr[jj & 1] += 1;
+		ibs_incr += 1 << ((jj & 1) * 32);
 		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
 		if (next_ppc_marker_idx < (cur_floor + BITCT2)) {
 		  ulval &= ~0LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2);
@@ -2330,9 +2328,9 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	  *genome_main++ = next_ppc_marker_idx;
 	  *genome_main += popcountg_xor_1mask_multiword(&glptr, glptr_fixed, &maskptr, &(genome_main[1]));
 	  genome_main = &(genome_main[2]);
-	  *genome_main += ibs_incr[0];
+	  *genome_main += ibs_incr & 0xffffffffLLU;
 	  genome_main++;
-	  *genome_main += ibs_incr[1];
+	  *genome_main += ibs_incr >> 32;
 	  genome_main++;
 	}
 #else
