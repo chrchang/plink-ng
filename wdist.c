@@ -3966,6 +3966,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	    }
 	  }
 	} else {
+	  missing_ct_all++;
 	  for (pp = 0; pp < BITCT2; pp++) {
 	    uljj = (gptr[pp * unfiltered_indiv_ct4] >> oo) & 3;
 	    ulii |= uljj << (pp * 2);
@@ -4564,12 +4565,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_OPENFAIL;
     }
   }
+
+  /*
   if (!binary_files) {
     if (!nonfounders) {
       printf("Note: Setting --nonfounders (since family-related code is incomplete).\n");
       nonfounders = 1;
     }
   }
+  */
 
   if (phenoname[0] && fopen_checked(&phenofile, phenoname, "r")) {
     goto wdist_ret_OPENFAIL;
