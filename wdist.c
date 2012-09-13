@@ -176,6 +176,9 @@
 // size of generic text line load buffer.  .ped lines can of course be longer
 #define MAXLINELEN 131072
 
+// number of different types of jackknife values to precompute (x^2, x, y, xy)
+#define JACKKNIFE_VALS 4
+
 // allow .mdist.bin.xxxxxxxxxx extension
 #define MAX_POST_EXT 22
 
@@ -208,6 +211,7 @@
 #define GENOME_MULTIPLEX2 (GENOME_MULTIPLEX * 2)
 
 #if __LP64__
+#define FIVEMASK 0x5555555555555555LLU
 #define BITCT 64
 // number of snp-major .bed lines to read at once for distance calc if exponent
 // is nonzero.
@@ -215,7 +219,9 @@
 // number of snp-major .bed lines to read at once for relationship calc
 #define MULTIPLEX_REL 60
 #else
-// N.B. 32-bit version not as carefully maintained
+// N.B. 32-bit version not as carefully tested or optimized, but I'll try to
+// make sure it works properly
+#define FIVEMASK 0x55555555
 #define BITCT 32
 #define MULTIPLEX_DIST_EXP 28
 #define MULTIPLEX_REL 30
@@ -230,9 +236,9 @@
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.9.1 "
+  "WDIST genomic distance calculator, v0.9.2 "
 #else
-  "WDIST genomic distance calculator, v0.9.1L "
+  "WDIST genomic distance calculator, v0.9.2L "
 #endif
 #if __LP64__
   "64-bit"
@@ -1420,7 +1426,7 @@ double reg_tot_xy;
 double reg_tot_x;
 double reg_tot_y;
 double reg_tot_xx;
-double reg_tot_yy;
+// double reg_tot_yy;
 int low_ct;
 int high_ct;
 int jackknife_iters;
@@ -2824,7 +2830,8 @@ void* groupdist_jack_thread(void* arg) {
   return NULL;
 }
 
-double regress_jack(int* ibuf, double* ret2_ptr) {
+double regress_jack(int* ibuf) {
+// double regress_jack(int* ibuf, double* ret2_ptr) {
   int* iptr = ibuf;
   int* jptr = &(ibuf[jackknife_d]);
   int ii;
@@ -2836,17 +2843,17 @@ double regress_jack(int* ibuf, double* ret2_ptr) {
   double neg_tot_x = 0.0;
   double neg_tot_y = 0.0;
   double neg_tot_xx = 0.0;
-  double neg_tot_yy = 0.0;
+  // double neg_tot_yy = 0.0;
   double dxx;
   double dxx1;
   double dyy;
   while (iptr < jptr) {
-    dptr2 = &(jackknife_precomp[(*iptr++) * 5]);
+    dptr2 = &(jackknife_precomp[(*iptr++) * JACKKNIFE_VALS]);
     neg_tot_xy += *dptr2++;
     neg_tot_x += *dptr2++;
     neg_tot_y += *dptr2++;
     neg_tot_xx += *dptr2++;
-    neg_tot_yy += *dptr2++;
+    // neg_tot_yy += *dptr2++;
   }
   iptr = ibuf;
   for (ii = 1; ii < jackknife_d; ii++) {
@@ -2862,13 +2869,13 @@ double regress_jack(int* ibuf, double* ret2_ptr) {
       neg_tot_x -= dxx;
       neg_tot_y -= dyy;
       neg_tot_xx -= dxx * dxx;
-      neg_tot_yy -= dyy * dyy;
+      // neg_tot_yy -= dyy * dyy;
     }
   }
-  dxx = reg_tot_y - neg_tot_y;
+  // dxx = reg_tot_y - neg_tot_y;
   dyy = indiv_ct - jackknife_d;
   dyy = dyy * (dyy - 1.0) * 0.5;
-  *ret2_ptr = ((reg_tot_xy - neg_tot_xy) - dxx * (reg_tot_x - neg_tot_x) / dyy) / ((reg_tot_yy - neg_tot_yy) - dxx * dxx / dyy);
+  // *ret2_ptr = ((reg_tot_xy - neg_tot_xy) - dxx * (reg_tot_x - neg_tot_x) / dyy) / ((reg_tot_yy - neg_tot_yy) - dxx * dxx / dyy);
   dxx = reg_tot_x - neg_tot_x;
   return ((reg_tot_xy - neg_tot_xy) - dxx * (reg_tot_y - neg_tot_y) / dyy) / ((reg_tot_xx - neg_tot_xx) - dxx * dxx / dyy);
 }
@@ -2881,17 +2888,18 @@ void* regress_jack_thread(void* arg) {
   unsigned long long uljj = jackknife_iters / 100;
   double sum = 0.0;
   double sum_sq = 0.0;
-  double sum2 = 0;
-  double sum2_sq = 0.0;
+  // double sum2 = 0;
+  // double sum2_sq = 0.0;
   double dxx;
-  double ret2;
+  // double ret2;
   for (ulii = 0; ulii < jackknife_iters; ulii++) {
     pick_d_small(cbuf, ibuf, indiv_ct, jackknife_d);
-    dxx = regress_jack(ibuf, &ret2);
+    // dxx = regress_jack(ibuf, &ret2);
+    dxx = regress_jack(ibuf);
     sum += dxx;
     sum_sq += dxx * dxx;
-    sum2 += ret2;
-    sum2_sq += ret2 * ret2;
+    // sum2 += ret2;
+    // sum2_sq += ret2 * ret2;
     if ((!tidx) && (ulii >= uljj)) {
       uljj = (ulii * 100) / jackknife_iters;
       printf("\r%lld%%", uljj);
@@ -2901,8 +2909,8 @@ void* regress_jack_thread(void* arg) {
   }
   calc_result[0][tidx] = sum;
   calc_result[1][tidx] = sum_sq;
-  calc_result[2][tidx] = sum2;
-  calc_result[3][tidx] = sum2_sq;
+  // calc_result[2][tidx] = sum2;
+  // calc_result[3][tidx] = sum2_sq;
   return NULL;
 }
 
@@ -3489,6 +3497,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   int nn;
   int oo;
   int pp;
+  int qq;
   unsigned long* glptr2;
   unsigned long* glptr3;
   unsigned int* giptr;
@@ -3499,6 +3508,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   unsigned long uljj;
   unsigned long ulkk;
   int missing_ct_buf[BITCT];
+  int missing_ct_all;
   double marker_recip = 0.5 / (double)marker_ct;
   double maf_buf[GENOME_MULTIPLEX];
   double e00 = 0.0;
@@ -3643,6 +3653,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
       giptr = indiv_missing_unwt;
       nn = 0; // raw indiv index
       fill_int_zero(missing_ct_buf, BITCT);
+      missing_ct_all = 0;
       for (mm = 0; mm < indiv_ct; mm++) {
 	while (excluded(indiv_exclude, nn)) {
 	  nn++;
@@ -3651,7 +3662,8 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	ulii = 0;
 	ulkk = 0;
         gptr = &(loadbuf[nn / 4 + jj * unfiltered_indiv_ct4]);
-	if (nonfounders || is_founder(founder_info, mm)) {
+	qq = (nonfounders || is_founder(founder_info, mm));
+	if (qq) {
 	  for (pp = 0; pp < BITCT2; pp++) {
 	    uljj = (gptr[pp * unfiltered_indiv_ct4] >> oo) & 3;
 	    ulii |= uljj << (pp * 2);
@@ -3665,7 +3677,6 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	  for (pp = 0; pp < BITCT2; pp++) {
 	    uljj = (gptr[pp * unfiltered_indiv_ct4] >> oo) & 3;
 	    ulii |= uljj << (pp * 2);
-	    missing_ct_buf[pp] += 1;
 	    if (uljj == 1) {
 	      ulkk |= 1LLU << pp;
 	      *giptr += 1;
@@ -3686,7 +3697,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	ulii = 0;
 	ulkk = 0;
 	gptr = &(loadbuf[nn / 4 + (jj + BITCT2) * unfiltered_indiv_ct4]);
-	if (nonfounders || is_founder(founder_info, mm)) {
+	if (qq) {
 	  for (pp = 0; pp < BITCT2; pp++) {
 	    uljj = (gptr[pp * unfiltered_indiv_ct4] >> oo) & 3;
 	    ulii |= uljj << (pp * 2);
@@ -3700,7 +3711,6 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	  for (pp = 0; pp < BITCT2; pp++) {
 	    uljj = (gptr[pp * unfiltered_indiv_ct4] >> oo) & 3;
 	    ulii |= uljj << (pp * 2);
-	    missing_ct_buf[pp + BITCT2] += 1;
 	    if (uljj == 1) {
 	      ulkk |= 1LU << pp;
 	      *giptr += 1;
@@ -3730,7 +3740,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
       for (mm = 0; mm < nn; mm++) {
 	dpp = maf_buf[jj + mm];
 	dqq = 1.0 - dpp;
-	num_alleles = (double)(2 * (indiv_ct - missing_ct_buf[mm]));
+	num_alleles = (double)(2 * (indiv_ct - missing_ct_buf[mm] - missing_ct_all));
 	if ((num_alleles > 3) && (dpp > 0.0) && (dqq > 0.0)) {
 	  // update e00, e01, e02, e11, e12, ibd_prect
 	  // see Plink::preCalcGenomeIBD() in genome.cpp
@@ -5404,8 +5414,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	cptr2 = next_item(cptr);
 	pp = strlen_se(cptr2);
 	founder_info[ii] = ((oo == 1) && (pp == 1) && (*cptr == '0') && (*cptr2 == '0'));
-	memcpy(&(maternal_id[ii * max_maternal_id_len]), cptr2, oo);
-	maternal_id[ii * max_maternal_id_len + oo] = '\0';
+	memcpy(&(maternal_id[ii * max_maternal_id_len]), cptr2, pp);
+	maternal_id[ii * max_maternal_id_len + pp] = '\0';
       }
       if (phenoname[0]) {
         jj = bsearch_fam_indiv(id_buf, pid_list, max_pid_len, pheno_line_ct, (char*)pedbuf, bufptr);
@@ -5490,7 +5500,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           if (!excluded(marker_exclude, jj)) {
 	    if (cc == missing_geno) {
 	      mm += 1;
-	    } else if (nonfounders || is_founder(founder_info, ii)) {
+	    } else {
+	      // turning this off for now since it seems to have unintended
+              // effects
+	      // if (nonfounders || is_founder(founder_info, ii)) {
 	      if (cc == marker_alleles[jj * 4]) {
 		marker_allele_cts[jj * 4] += 1;
 	      } else if (cc == marker_alleles[jj * 4 + 1]) {
@@ -8072,25 +8085,25 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     reg_tot_x = 0.0;
     reg_tot_y = 0.0;
     reg_tot_xx = 0.0;
-    reg_tot_yy = 0.0;
+    // reg_tot_yy = 0.0;
     dptr4 = dists;
     dist_ptr = pheno_d;
     // Linear regression slope is a function of sum(xy), sum(x), sum(y),
     // sum(x^2), and n.  To speed up the jackknife calculation, we precompute
-    // (i) the global xy, x, y, x^2, and y^2 sums, and
-    // (ii) the xy, x, y, x^2, and y^2 sums for each row.
+    // (i) the global xy, x, y, x^2, and
+    // (ii) the xy, x, y, x^2 for each row.
     // Then for each delete-d jackknife iteration, we take the global sums,
     // subtract the partial row sums corresponding to the deleted individuals,
     // and then add back the elements in the intersection of two deletions.
-    jackknife_precomp = (double*)wkspace_alloc(indiv_ct * 5 * sizeof(double));
+    jackknife_precomp = (double*)wkspace_alloc(indiv_ct * JACKKNIFE_VALS * sizeof(double));
     if (!jackknife_precomp) {
       goto wdist_ret_NOMEM;
     }
-    fill_double_zero(jackknife_precomp, indiv_ct * 5);
+    fill_double_zero(jackknife_precomp, indiv_ct * JACKKNIFE_VALS);
     for (ii = 1; ii < indiv_ct; ii++) {
       dzz = *(++dist_ptr);
       dptr2 = pheno_d;
-      dptr3 = &(jackknife_precomp[ii * 5]);
+      dptr3 = &(jackknife_precomp[ii * JACKKNIFE_VALS]);
       dptr5 = jackknife_precomp;
       while (dptr2 < dist_ptr) {
 	dxx = (dzz + *dptr2++) * 0.5;
@@ -8114,16 +8127,16 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	dptr3[3] += dvv;
 	*dptr5 += dvv;
 	dptr5++;
-	reg_tot_yy += duu;
-	dptr3[4] += duu;
-	*dptr5 += duu;
-	dptr5++;
+	// reg_tot_yy += duu;
+	// dptr3[4] += duu;
+	// *dptr5 += duu;
+	// dptr5++;
       }
     }
 
     dxx = ulii;
     printf("Regression slope (y = genomic distance, x = avg phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_xx - reg_tot_x * reg_tot_x / dxx));
-    printf("Regression slope (y = avg phenotype, x = genomic distance): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_yy - reg_tot_y * reg_tot_y / dxx));
+    // printf("Regression slope (y = avg phenotype, x = genomic distance): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_yy - reg_tot_y * reg_tot_y / dxx));
 
     jackknife_iters = (regress_iters + thread_ct - 1) / thread_ct;
     if (regress_d) {
@@ -8145,18 +8158,18 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     regress_jack_thread((void*)ulii);
     dyy = calc_result[0][0]; // sum
     dzz = calc_result[1][0]; // sum of squares
-    dww = calc_result[2][0]; // reverse regression sum
-    dvv = calc_result[3][0]; // reverse regression sum of squares
+    // dww = calc_result[2][0]; // reverse regression sum
+    // dvv = calc_result[3][0]; // reverse regression sum of squares
     for (ii = 0; ii < thread_ct - 1; ii++) {
       pthread_join(threads[ii], NULL);
       dyy += calc_result[0][ii + 1];
       dzz += calc_result[1][ii + 1];
-      dww += calc_result[2][ii + 1];
-      dvv += calc_result[3][ii + 1];
+      // dww += calc_result[2][ii + 1];
+      // dvv += calc_result[3][ii + 1];
     }
     regress_iters = jackknife_iters * thread_ct;
-    printf("\rJackknife s.e. (y = genomic distance): %g\n", sqrt((indiv_ct / jackknife_d) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
-    printf("Jackknife s.e. (y = avg phenotype): %g\n", sqrt((indiv_ct / jackknife_d) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
+    printf("\rJackknife s.e.: %g\n", sqrt((indiv_ct / jackknife_d) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
+    // printf("Jackknife s.e. (y = avg phenotype): %g\n", sqrt((indiv_ct / jackknife_d) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
   }
 
   if (calculation_type & CALC_GENOME_MASK) {
