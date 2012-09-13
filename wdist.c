@@ -4275,6 +4275,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     ibc_type = -1;
   }
 
+  // stopgap
+  if (!binary_files) {
+    nonfounders = 1;
+  }
+
   if (fopen_checked(&pedfile, pedname, "r")) {
     goto wdist_ret_OPENFAIL;
   }
@@ -4677,7 +4682,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     goto wdist_ret_NOMEM;
   }
 
-  mind_int_thresh = (int)(2 * mind_thresh * (unfiltered_marker_ct - marker_exclude_ct));
+  mind_int_thresh = (int)(mind_thresh * (unfiltered_marker_ct - marker_exclude_ct));
   if (binary_files) {
     nn = 0; // number of people that pass initial filter
     // ----- .fam load, first pass -----
@@ -5357,9 +5362,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
     }
 
-    maf_int_thresh = 2 * unfiltered_indiv_ct - (int)((1.0 - min_maf) * unfiltered_indiv_ct * 2);
-    geno_int_thresh = 2 * unfiltered_indiv_ct - (int)(geno_thresh * 2 * unfiltered_indiv_ct);
-
     marker_alleles = (char*)calloc(sizeof(char), unfiltered_marker_ct * 4);
     if (!marker_alleles) {
       goto wdist_ret_NOMEM;
@@ -5499,11 +5501,16 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
           if (!excluded(marker_exclude, jj)) {
 	    if (cc == missing_geno) {
+	      if (nn) {
+		printf("Error: Second allele marked as missing when first was not.\n(individual %d, marker %d)\n", ii, jj);
+		goto wdist_ret_INVALID_FORMAT;
+	      }
 	      mm += 1;
-	    } else {
-	      // turning this off for now since it seems to have unintended
-              // effects
-	      // if (nonfounders || is_founder(founder_info, ii)) {
+	      bufptr++;
+	      while ((*bufptr == ' ') || (*bufptr == '\t')) {
+		bufptr++;
+	      }
+	    } else if (nonfounders || is_founder(founder_info, ii)) {
 	      if (cc == marker_alleles[jj * 4]) {
 		marker_allele_cts[jj * 4] += 1;
 	      } else if (cc == marker_alleles[jj * 4 + 1]) {
@@ -5556,6 +5563,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         }
       }
       mm = marker_allele_cts[ii * 4] + marker_allele_cts[ii * 4 + 1] + marker_allele_cts[ii * 4 + 2] + marker_allele_cts[ii * 4 + 3];
+      maf_int_thresh = mm - (int)((1.0 - min_maf) * mm * 2);
+      geno_int_thresh = mm - (int)(geno_thresh * mm);
+
       if (marker_allele_cts[ii * 4] + marker_allele_cts[ii * 4 + 1] < geno_int_thresh) {
         exclude(marker_exclude, ii, &marker_exclude_ct);
       } else if (marker_allele_cts[ii * 4 + 1] < maf_int_thresh) {
