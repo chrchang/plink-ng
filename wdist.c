@@ -61,9 +61,9 @@
 // for f_{5-9}, f_{10-14}, and f_{15-19}.  This requires precomputation of four
 // lookup tables of size 2^15, total size 1 MB (which fits comfortably in a
 // typical L2 cache these days), and lets you get away with four table lookups
-// and adds instead of twenty.  These tables are referenced N(N-1)/2 times
-// before being retired, so they tend to repay their precomputation cost
-// hundreds or thousands of times over.
+// and adds instead of twenty.  These updates are performed N(N-1)/2 times
+// before the tables need to be recalculated, so the precomputation cost is
+// often recouped hundreds or thousands of times over.
 //
 // 4. Splitting the distance/relationship matrix into pieces of roughly equal
 // size and assigning one thread to each piece.  This is an "embarrassingly
@@ -162,10 +162,7 @@
 #define CALC_REL_CUTOFF 0x400000
 #define CALC_WRITE_SNPLIST 0x800000
 #define CALC_GENOME 0x1000000
-#define CALC_GENOME_GZ 0x2000000
-#define CALC_GENOME_FULL 0x4000000
-#define CALC_GENOME_UNBOUNDED 0x8000000
-#define CALC_GENOME_MASK 0xf000000
+#define CALC_REGRESS_REL 0x2000000
 
 #define _FILE_OFFSET_BITS 64
 #define MAX_THREADS 63
@@ -177,7 +174,8 @@
 #define MAXLINELEN 131072
 
 // number of different types of jackknife values to precompute (x^2, x, y, xy)
-#define JACKKNIFE_VALS 4
+#define JACKKNIFE_VALS_DIST 4
+#define JACKKNIFE_VALS_REL 5
 
 // allow .mdist.bin.xxxxxxxxxx extension
 #define MAX_POST_EXT 22
@@ -211,7 +209,8 @@
 #define GENOME_MULTIPLEX2 (GENOME_MULTIPLEX * 2)
 
 #if __LP64__
-#define FIVEMASK 0x5555555555555555LLU
+#define FIVEMASK 0x5555555555555555LU
+#define AAAAMASK 0xaaaaaaaaaaaaaaaaLU
 #define BITCT 64
 // number of snp-major .bed lines to read at once for distance calc if exponent
 // is nonzero.
@@ -222,6 +221,7 @@
 // N.B. 32-bit version not as carefully tested or optimized, but I'll try to
 // make sure it works properly
 #define FIVEMASK 0x55555555
+#define AAAAMASK 0xaaaaaaaa
 #define BITCT 32
 #define MULTIPLEX_DIST_EXP 28
 #define MULTIPLEX_REL 30
@@ -236,9 +236,9 @@
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.9.2 "
+  "WDIST genomic distance calculator, v0.9.3 "
 #else
-  "WDIST genomic distance calculator, v0.9.2L "
+  "WDIST genomic distance calculator, v0.9.3L "
 #endif
 #if __LP64__
   "64-bit"
@@ -255,7 +255,8 @@ const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
-char tbuf[MAXLINELEN];
+// fit 4 pathologically long IDs plus other stuff
+char tbuf[MAXLINELEN * 4 + 256];
 #ifndef __LP64__
 unsigned char popcount[65536];
 #endif
@@ -364,7 +365,7 @@ char** subst_argv = NULL;
 int dispmsg(int retval) {
   switch(retval) {
   case RET_NOMEM:
-    printf("Error: Out of memory.  Try the --memory flag.\n");
+    printf("Error: Out of memory.  Try the --memory and/or --parallel flags.\n");
     break;
   case RET_WRITE_FAIL:
     printf("\nError: File write failure.\n");
@@ -411,10 +412,9 @@ int dispmsg(int retval) {
 "    flags.  New scripts should migrate to '--distance ibs' and '--distance\n"
 "    1-ibs', which support output formats better suited to parallel computation\n"
 "    and have more accurate handling of missing markers.\n\n"
-"  --genome <full> <unbounded>\n"
-"  --Z-genome <full> <unbounded>\n"
-"    Identity-by-descent analysis.  These yield the same output as PLINK's\n"
-"    --genome and --Z-genome, and the 'full' and 'unbounded' modifiers have the\n"
+"  --genome <gz> <full> <unbounded>\n"
+"    Identity-by-descent analysis.  This yields the same output as PLINK's\n"
+"    --genome or --Z-genome, and the 'full' and 'unbounded' modifiers have the\n"
 "    same effect as PLINK's --full-genome and --unbounded flags.\n\n"
 "  --ibc\n"
 "    Calculates inbreeding coefficients in three different ways.\n"
@@ -453,6 +453,9 @@ int dispmsg(int retval) {
 "    phenotypes, using delete-d jackknife for standard errors.  Scalar phenotype\n"
 "    data is required.  Defaults for iters and d are the same as for\n"
 "    --groupdist.\n\n"
+"  --regress-rel {iters} {d}\n"
+"    Linear regression of pairwise genomic relationships on pairwise average\n"
+"    phenotypes, and vice versa.\n\n"
 #ifndef NOLAPACK
 "  --unrelated-heritability <strict> {tol} {initial covg} {initial covr}\n"
 "    REML estimate of additive heritability, iterating with an accelerated\n"
@@ -1426,7 +1429,7 @@ double reg_tot_xy;
 double reg_tot_x;
 double reg_tot_y;
 double reg_tot_xx;
-// double reg_tot_yy;
+double reg_tot_yy;
 int low_ct;
 int high_ct;
 int jackknife_iters;
@@ -1442,6 +1445,7 @@ unsigned int* indiv_missing_unwt = NULL;
 double* jackknife_precomp = NULL;
 unsigned int* genome_main;
 unsigned int* marker_pos = NULL;
+double* pheno_packed;
 
 void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_type) {
   // first calculate weight array, then loop
@@ -1770,21 +1774,8 @@ int eval_affection(char* bufptr, int missing_pheno, int missing_pheno_len, int a
   return 0;
 }
 
-void collapse_phenoc(char* pheno_c, unsigned char* indiv_exclude, int unfiltered_indiv_ct) {
-  int ii = 0;
-  int jj;
-  while ((ii < unfiltered_indiv_ct) && (!excluded(indiv_exclude, ii))) {
-    ii++;
-  }
-  jj = ii;
-  while (++ii < unfiltered_indiv_ct) {
-    if (!excluded(indiv_exclude, ii)) {
-      pheno_c[jj++] = pheno_c[ii];
-    }
-  }
-}
-
-void collapse_double(double* darr, unsigned char* exclude_arr, int exclude_ct) {
+void collapse_arr(char* item_arr, int fixed_item_len, unsigned char* exclude_arr, int exclude_ct) {
+  // collapses array of fixed-length items
   int ii = 0;
   int jj;
   while ((ii < exclude_ct) && (!excluded(exclude_arr, ii))) {
@@ -1793,7 +1784,27 @@ void collapse_double(double* darr, unsigned char* exclude_arr, int exclude_ct) {
   jj = ii;
   while (++ii < exclude_ct) {
     if (!excluded(exclude_arr, ii)) {
-      darr[jj++] = darr[ii];
+      memcpy(&(item_arr[(jj++) * fixed_item_len]), &(item_arr[ii * fixed_item_len]), fixed_item_len);
+    }
+  }
+}
+
+void collapse_bitarr(unsigned char* bitarr, unsigned char* exclude_arr, int orig_ct) {
+  int ii = 0;
+  int jj;
+  while ((ii < orig_ct) && (!excluded(exclude_arr, ii))) {
+    ii++;
+  }
+  jj = ii;
+  while (++ii < orig_ct) {
+    if (!excluded(exclude_arr, ii)) {
+      if (excluded(bitarr, ii)) {
+        // set bit jj
+        bitarr[jj / 8] |= (1 << (jj % 8));
+      } else {
+	bitarr[jj / 8] &= (~(1 << (jj % 8)));
+      }
+      jj++;
     }
   }
 }
@@ -1804,21 +1815,6 @@ void collapse_copy_phenod(double *target, double* pheno_d, unsigned char* indiv_
   while (target < target_end) {
     ii = next_non_excluded(indiv_exclude, ii);
     *target++ = pheno_d[ii++];
-  }
-}
-
-void collapse_bufs(char* buf_arr, int max_buf_len, unsigned char* exclude_arr, int exclude_ct) {
-  // collapses array of fixed-length buffers
-  int ii = 0;
-  int jj;
-  while ((ii < exclude_ct) && (!excluded(exclude_arr, ii))) {
-    ii++;
-  }
-  jj = ii;
-  while (++ii < exclude_ct) {
-    if (!excluded(exclude_arr, ii)) {
-      memcpy(&(buf_arr[(jj++) * max_buf_len]), &(buf_arr[ii * max_buf_len]), max_buf_len);
-    }
   }
 }
 
@@ -1843,6 +1839,19 @@ void collapse_marker_pos(unsigned int* marker_pos, unsigned char* marker_exclude
       *mpptr++ = remap_new_idx;
     }
   }
+}
+
+void print_pheno_stdev(double* pheno_d) {
+  double reg_tot_x = 0.0;
+  double reg_tot_xx = 0.0;
+  double dxx;
+  int ii;
+  for (ii = 0; ii < indiv_ct; ii++) {
+    dxx = pheno_d[ii];
+    reg_tot_x += dxx;
+    reg_tot_xx += dxx * dxx;
+  }
+  printf("Phenotype stdev: %g\n", sqrt((reg_tot_xx - reg_tot_x * reg_tot_x / indiv_ct) / (indiv_ct - 1)));
 }
 
 void pick_d(unsigned char* cbuf, unsigned int ct, unsigned int dd) {
@@ -1887,11 +1896,11 @@ typedef union {
 // (specifically, (MULTIPLEX_DIST / BITCT) * 16 bytes).  The current code
 // assumes (MULTIPLEX / BITCT) is a multiple of 3, and no greater than 30.
 static inline unsigned int popcount_xor_1mask_multiword(__m128i** xor1p, __m128i* xor2, __m128i** maskp) {
-  const __m128i m1 = {0x5555555555555555LLU, 0x5555555555555555LLU};
-  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
-  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
+  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
   __m128i count1, count2, half1, half2;
   __uni16 acc;
   __m128i* xor2_end = &(xor2[MULTIPLEX_2DIST / 128]);
@@ -1940,11 +1949,11 @@ static inline unsigned int popcountg_xor_1mask_multiword(__m128i** xor1p, __m128
   // and them, we get 1 iff we have IBS 0.
   // We also note that the result is either 00 or 01, so we add three such
   // results together while starting our bitcount.
-  const __m128i m1 = {0x5555555555555555LLU, 0x5555555555555555LLU};
-  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
-  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
+  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
   __m128i loader, loader2, count_ibs1, count_ibs0, count2_ibs1, count2_ibs0;
   __uni16 acc_ibs1, acc_ibs0;
   __m128i* xor2_end = &(xor2[GENOME_MULTIPLEX2 / 128]);
@@ -2002,11 +2011,11 @@ static inline unsigned int popcountg_xor_1mask_multiword(__m128i** xor1p, __m128
 }
 
 static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i* xor2, __m128i** mask1p, __m128i* mask2) {
-  const __m128i m1 = {0x5555555555555555LLU, 0x5555555555555555LLU};
-  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
-  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
+  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
   __m128i count1, count2, half1, half2;
   __uni16 acc;
   __m128i* xor2_end = &(xor2[MULTIPLEX_2DIST / 128]);
@@ -2037,11 +2046,11 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
 }
 
 static inline unsigned int popcountg_xor_2mask_multiword(__m128i** xor1p, __m128i* xor2, __m128i** mask1p, __m128i* mask2, unsigned int* ibs0ct_ptr) {
-  const __m128i m1 = {0x5555555555555555LLU, 0x5555555555555555LLU};
-  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
-  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
+  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
   __m128i loader, loader2, count_ibs1, count_ibs0, count2_ibs1, count2_ibs0;
   __uni16 acc_ibs1, acc_ibs0;
   __m128i* xor2_end = &(xor2[GENOME_MULTIPLEX2 / 128]);
@@ -2296,11 +2305,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	} else {
 	  ibs_incr = 0; // hethet low-order, ibs0 high-order
 	  do {
-#if __LP64__
-	    cur_floor = next_ppc_marker_idx & 0xffffffe0;
-#else
-            cur_floor = next_ppc_marker_idx & 0xfffffff0;
-#endif
+	    cur_floor = next_ppc_marker_idx & (~(BITCT2 - 1));
 	    offset = (cur_floor - low_ct) / BITCT2;
 	    ularg1 = ((unsigned long*)glptr)[offset];
 	    ularg2 = ((unsigned long*)glptr_fixed)[offset];
@@ -2319,11 +2324,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	    // but the subsequent masking filters that out.)
 	    //
 	    // ~0LU << xx masks out the bottom xx bits.
-#if __LP64__
-	    ulval = (((uland & (uland >> 1)) & 0x5555555555555555LLU) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaaLLU)) & (ulmask & ((~0LLU) << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
-#else
-	    ulval = (((uland & (uland >> 1)) & 0x55555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaa)) & (ulmask & ((~0) << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
-#endif
+	    ulval = (((uland & (uland >> 1)) & FIVEMASK) | ((ulxor & (ulxor << 1)) & AAAAMASK)) & (ulmask & ((~0LU) << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
 	    while (1) {
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
@@ -2343,11 +2344,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	  *genome_main++ = next_ppc_marker_idx;
 	  *genome_main += popcountg_xor_2mask_multiword(&glptr, glptr_fixed, &maskptr, maskptr_fixed, &(genome_main[1]));
 	  genome_main = &(genome_main[2]);
-#if __LP64__
-	  *genome_main += ibs_incr & 0xffffffffLLU;
-#else
-	  *genome_main += ibs_incr & 0xffff;
-#endif
+	  *genome_main += ibs_incr & ((~0LU) >> BITCT2);
 	  genome_main++;
 	  *genome_main += ibs_incr >> BITCT2;
 	  genome_main++;
@@ -2362,22 +2359,14 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	} else {
 	  ibs_incr = 0;
 	  do {
-#if __LP64__
-	    cur_floor = next_ppc_marker_idx & 0xffffffe0;
-#else
-	    cur_floor = next_ppc_marker_idx & 0xfffffff0;
-#endif
+	    cur_floor = next_ppc_marker_idx & (~(BITCT2 - 1));
 	    offset = (cur_floor - low_ct) / BITCT2;
 	    ularg1 = ((unsigned long*)glptr)[offset];
 	    ularg2 = ((unsigned long*)glptr_fixed)[offset];
 	    ulxor = ularg1 ^ ularg2;
 	    uland = ularg1 & ularg2;
 	    ulmask = ((unsigned long*)maskptr)[offset];
-#if __LP64__
-            ulval = (((uland & (uland >> 1)) & 0x5555555555555555LLU) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaaaaaaaaaaLLU)) & (ulmask & (~0LLU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
-#else
-            ulval = (((uland & (uland >> 1)) & 0x55555555) | ((ulxor & (ulxor << 1)) & 0xaaaaaaaa)) & (ulmask & (~0 << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
-#endif
+            ulval = (((uland & (uland >> 1)) & FIVEMASK) | ((ulxor & (ulxor << 1)) & AAAAMASK)) & (ulmask & (~0LU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2)));
 	    while (1) {
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
@@ -2397,11 +2386,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	  *genome_main++ = next_ppc_marker_idx;
 	  *genome_main += popcountg_xor_1mask_multiword(&glptr, glptr_fixed, &maskptr, &(genome_main[1]));
 	  genome_main = &(genome_main[2]);
-#if __LP64__
-	  *genome_main += ibs_incr & 0xffffffffLLU;
-#else
-	  *genome_main += ibs_incr & 0xffff;
-#endif
+	  *genome_main += ibs_incr & ((~0LU) >> BITCT2);
 	  genome_main++;
 	  *genome_main += ibs_incr >> BITCT2;
 	  genome_main++;
@@ -2439,7 +2424,7 @@ void incr_dists(double* dists, unsigned long* geno, int tidx) {
     mptr = masks;
     mask_fixed = masks[ii];
 #if __LP64__
-    if (mask_fixed == 0xffffffffffffffffLLU) {
+    if (mask_fixed == ~0LU) {
       for (jj = 0; jj < ii; jj++) {
 	uljj = (*glptr++ ^ ulii) & (*mptr++);
         *dists += weights4[uljj >> 52] + weights3[(uljj >> 40) & 4095] + weights2[(uljj >> 28) & 4095] + weights1[(uljj >> 14) & 16383] + weights[uljj & 16383];
@@ -2848,7 +2833,7 @@ double regress_jack(int* ibuf) {
   double dxx1;
   double dyy;
   while (iptr < jptr) {
-    dptr2 = &(jackknife_precomp[(*iptr++) * JACKKNIFE_VALS]);
+    dptr2 = &(jackknife_precomp[(*iptr++) * JACKKNIFE_VALS_DIST]);
     neg_tot_xy += *dptr2++;
     neg_tot_x += *dptr2++;
     neg_tot_y += *dptr2++;
@@ -2912,6 +2897,203 @@ void* regress_jack_thread(void* arg) {
   // calc_result[2][tidx] = sum2;
   // calc_result[3][tidx] = sum2_sq;
   return NULL;
+}
+
+double regress_rel_jack(int* ibuf, double* ret2_ptr) {
+  int* iptr = ibuf;
+  int* jptr = &(ibuf[jackknife_d]);
+  int ii;
+  int jj;
+  int kk;
+  double* dptr;
+  double* dptr2;
+  double neg_tot_xy = 0.0;
+  double neg_tot_x = 0.0;
+  double neg_tot_y = 0.0;
+  double neg_tot_xx = 0.0;
+  double neg_tot_yy = 0.0;
+  double dxx;
+  double dxx1;
+  double dyy;
+  while (iptr < jptr) {
+    dptr2 = &(jackknife_precomp[(*iptr++) * JACKKNIFE_VALS_REL]);
+    neg_tot_xy += *dptr2++;
+    neg_tot_x += *dptr2++;
+    neg_tot_y += *dptr2++;
+    neg_tot_xx += *dptr2++;
+    neg_tot_yy += *dptr2++;
+  }
+  iptr = ibuf;
+  for (ii = 1; ii < jackknife_d; ii++) {
+    jj = *(++iptr);
+    dxx1 = pheno_packed[jj];
+    jptr = ibuf;
+    dptr = &(rel_dists[(jj * (jj - 1)) / 2]);
+    while (jptr < iptr) {
+      kk = *jptr++;
+      dxx = (dxx1 + pheno_packed[kk]) * 0.5;
+      dyy = dptr[kk];
+      neg_tot_xy -= dxx * dyy;
+      neg_tot_x -= dxx;
+      neg_tot_y -= dyy;
+      neg_tot_xx -= dxx * dxx;
+      neg_tot_yy -= dyy * dyy;
+    }
+  }
+  dxx = reg_tot_y - neg_tot_y;
+  dyy = indiv_ct - jackknife_d;
+  dyy = dyy * (dyy - 1.0) * 0.5;
+  *ret2_ptr = ((reg_tot_xy - neg_tot_xy) - dxx * (reg_tot_x - neg_tot_x) / dyy) / ((reg_tot_yy - neg_tot_yy) - dxx * dxx / dyy);
+  dxx = reg_tot_x - neg_tot_x;
+  return ((reg_tot_xy - neg_tot_xy) - dxx * (reg_tot_y - neg_tot_y) / dyy) / ((reg_tot_xx - neg_tot_xx) - dxx * dxx / dyy);
+}
+
+void* regress_rel_jack_thread(void* arg) {
+  long tidx = (long)arg;
+  int* ibuf = (int*)(&(ped_geno[tidx * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int))]));
+  unsigned char* cbuf = &(ped_geno[tidx * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int)) + (jackknife_d + 1) * sizeof(int)]);
+  unsigned long long ulii;
+  unsigned long long uljj = jackknife_iters / 100;
+  double sum = 0.0;
+  double sum_sq = 0.0;
+  double sum2 = 0;
+  double sum2_sq = 0.0;
+  double dxx;
+  double ret2;
+  for (ulii = 0; ulii < jackknife_iters; ulii++) {
+    pick_d_small(cbuf, ibuf, indiv_ct, jackknife_d);
+    dxx = regress_rel_jack(ibuf, &ret2);
+    sum += dxx;
+    sum_sq += dxx * dxx;
+    sum2 += ret2;
+    sum2_sq += ret2 * ret2;
+    if ((!tidx) && (ulii >= uljj)) {
+      uljj = (ulii * 100) / jackknife_iters;
+      printf("\r%lld%%", uljj);
+      fflush(stdout);
+      uljj = ((uljj + 1) * jackknife_iters) / 100;
+    }
+  }
+  calc_result[0][tidx] = sum;
+  calc_result[1][tidx] = sum_sq;
+  calc_result[2][tidx] = sum2;
+  calc_result[3][tidx] = sum2_sq;
+  return NULL;
+}
+
+
+int set_default_jackknife_d(int ct) {
+  int dd = (int)pow((double)ct, 0.600000000001);
+  printf("Setting d=%d for jackknife.\n", dd);
+  return dd;
+}
+
+int regress_rel_main(unsigned char* indiv_exclude, int unfiltered_indiv_ct, int regress_rel_iters, int regress_rel_d, pthread_t* threads) {
+  double* rel_ptr;
+  double* pheno_ptr;
+  double* pheno_ptr2;
+  double* jp_fixed_ptr;
+  double* jp_moving_ptr;
+  int ii;
+  unsigned long ulii;
+  unsigned long trimatrix_size;
+  double trimatrix_size_recip;
+  double half_avg_pheno;
+  double dxx;
+  double dyy;
+  double dxxyy;
+  double dxxsq;
+  double dyysq;
+  pheno_packed = (double*)wkspace_alloc(indiv_ct * sizeof(double));
+  if (!pheno_packed) {
+    return RET_NOMEM;
+  }
+  collapse_copy_phenod(pheno_packed, pheno_d, indiv_exclude, unfiltered_indiv_ct);
+  print_pheno_stdev(pheno_packed);
+  trimatrix_size = ((unsigned long)indiv_ct * (indiv_ct - 1)) / 2;
+  reg_tot_xy = 0.0;
+  reg_tot_x = 0.0;
+  reg_tot_y = 0.0;
+  reg_tot_xx = 0.0;
+  reg_tot_yy = 0.0;
+  rel_ptr = rel_dists;
+  pheno_ptr = pheno_packed;
+  jackknife_precomp = (double*)wkspace_alloc(indiv_ct * JACKKNIFE_VALS_REL * sizeof(double));
+  if (!jackknife_precomp) {
+    return RET_NOMEM;
+  }
+  fill_double_zero(jackknife_precomp, indiv_ct * JACKKNIFE_VALS_REL);
+  for (ii = 1; ii < indiv_ct; ii++) {
+    half_avg_pheno = *(++pheno_ptr);
+    pheno_ptr2 = pheno_packed;
+    jp_fixed_ptr = &(jackknife_precomp[ii * JACKKNIFE_VALS_REL]);
+    jp_moving_ptr = jackknife_precomp;
+    while (pheno_ptr2 < pheno_ptr) {
+      dxx = (half_avg_pheno + (*pheno_ptr2++)) * 0.5;
+      dyy = (*rel_ptr++);
+      dxxyy = dxx * dyy;
+      dxxsq = dxx * dxx;
+      dyysq = dyy * dyy;
+      reg_tot_xy += dxxyy;
+      jp_fixed_ptr[0] += dxxyy;
+      *jp_moving_ptr += dxxyy;
+      jp_moving_ptr++;
+      reg_tot_x += dxx;
+      jp_fixed_ptr[1] += dxx;
+      *jp_moving_ptr += dxx;
+      jp_moving_ptr++;
+      reg_tot_y += dyy;
+      jp_fixed_ptr[2] += dyy;
+      *jp_moving_ptr += dyy;
+      jp_moving_ptr++;
+      reg_tot_xx += dxxsq;
+      jp_fixed_ptr[3] += dxxsq;
+      *jp_moving_ptr += dxxsq;
+      jp_moving_ptr++;
+      reg_tot_yy += dyysq;
+      jp_fixed_ptr[4] += dyysq;
+      *jp_moving_ptr += dyysq;
+      jp_moving_ptr++;
+    }
+  }
+  trimatrix_size_recip = 1.0 / (double)trimatrix_size;
+  printf("Regression slope (y = genomic relationship, x = avg phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y * trimatrix_size_recip) / (reg_tot_xx - reg_tot_x * reg_tot_x * trimatrix_size_recip));
+  printf("                 (y = avg phenotype, x = genomic relationship): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y * trimatrix_size_recip) / (reg_tot_yy - reg_tot_y * reg_tot_y * trimatrix_size_recip));
+  jackknife_iters = (regress_rel_iters + thread_ct - 1) / thread_ct;
+  if (regress_rel_d) {
+    jackknife_d = regress_rel_d;
+  } else {
+    jackknife_d = set_default_jackknife_d(indiv_ct);
+  }
+  ped_geno = wkspace_alloc(thread_ct * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int)));
+  if (!ped_geno) {
+    return RET_NOMEM;
+  }
+  for (ulii = 1; ulii < thread_ct; ulii++) {
+    if (pthread_create(&(threads[ulii - 1]), NULL, &regress_rel_jack_thread, (void*)ulii)) {
+      // todo: better error handling
+      return RET_THREAD_CREATE_FAIL;
+    }
+  }
+  ulii = 0;
+  regress_rel_jack_thread((void*)ulii);
+  dxx = calc_result[0][0]; // relationship on pheno
+  dxxsq = calc_result[1][0];
+
+  dyy = calc_result[2][0]; // pheno on relationship
+  dyysq = calc_result[3][0];
+
+  for (ii = 0; ii < thread_ct - 1; ii++) {
+    pthread_join(threads[ii], NULL);
+    dxx += calc_result[0][ii + 1];
+    dxxsq += calc_result[1][ii + 1];
+    dyy += calc_result[2][ii + 1];
+    dyysq += calc_result[3][ii + 1];
+  }
+  ulii = jackknife_iters * thread_ct;
+  printf("\rJackknife s.e. (y = genomic relationship): %g\n", sqrt((indiv_ct / (double)jackknife_d) * (dxxsq - dxx * dxx / (double)ulii) / ((double)ulii - 1)));
+  printf("               (y = phenotype): %g\n", sqrt((indiv_ct / (double)jackknife_d) * (dyysq - dyy * dyy / (double)ulii) / ((double)ulii - 1)));
+  return 0;
 }
 
 #ifndef NOLAPACK
@@ -3221,7 +3403,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
     (*mafs_ptr)[ii] = -1.0;
   }
   // permanent stack allocation #3, if needed: marker_pos
-  if (calculation_type & CALC_GENOME_MASK) {
+  if (calculation_type & CALC_GENOME) {
     marker_pos = (unsigned int*)wkspace_alloc(unfiltered_marker_ct * sizeof(int));
     if (!marker_pos) {
       return RET_NOMEM;
@@ -3277,7 +3459,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
       printf("Error: Invalid chromosome index in .map/.bim file.\n");
       return RET_INVALID_FORMAT;
     }
-    if (calculation_type & CALC_GENOME_MASK) {
+    if (calculation_type & CALC_GENOME) {
       mpptr++;
       if (jj != last_chrom) {
         if (loaded_chrom_mask & (1 << jj)) {
@@ -3325,7 +3507,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
 	}
 	exclude(*marker_exclude_ptr, ii, marker_exclude_ct_ptr);
       } else {
-	if ((calculation_type & CALC_GENOME_MASK) && jj) {
+	if ((calculation_type & CALC_GENOME) && jj) {
 	  kk = atoi(bufptr);
 	  *mpptr = kk;
 	  if (kk >= ppc_gap) {
@@ -3351,7 +3533,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
       }
     }
   }
-  if (calculation_type & CALC_GENOME_MASK) {
+  if (calculation_type & CALC_GENOME) {
     ii = unfiltered_marker_ct + GENOME_MULTIPLEX - (unfiltered_marker_ct % GENOME_MULTIPLEX);
     while (mpptr2 <= mpptr) {
       *mpptr2++ = ii;
@@ -3459,21 +3641,20 @@ double normdist(double zz) {
   double z1;
   double p0;
   t0 = 1 / (1 + 0.2316419 * fabs(zz));
-  z1 = exp(-0.5 * zz * zz ) / sqrt2pi;
-  p0 = z1 * t0
-   * (0.31938153 +
-   t0 * (-0.356563782 +
-   t0 * (1.781477937 +
-   t0 * (-1.821255978 +
-   1.330274429 * t0))));
+  z1 = exp(-0.5 * zz * zz) / sqrt2pi;
+  p0 = z1 * t0 * (0.31938153 + t0 * (-0.356563782 + t0 * (1.781477937 + t0 * (-1.821255978 + 1.330274429 * t0))));
  return zz >= 0 ? 1 - p0 : p0;
 }
 
 inline int is_founder(unsigned char* founder_info, int ii) {
-  return ((!founder_info) || (founder_info[ii]));
+  return ((!founder_info) || ((founder_info[ii / 8]) & (1 << (ii % 8))));
 }
 
-int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, double* mafs, int marker_pos_start, int unfiltered_indiv_ct, unsigned char* indiv_exclude, char* person_id, int max_person_id_len, char* paternal_id, int max_paternal_id_len, char* maternal_id, int max_maternal_id_len, unsigned char* founder_info, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int nonfounders, int calculation_type) {
+inline void set_founder_info(unsigned char* founder_info, int ii) {
+  founder_info[ii / 8] |= (1 << (ii % 8));
+}
+
+int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, double* mafs, int marker_pos_start, int unfiltered_indiv_ct, unsigned char* indiv_exclude, char* person_id, int max_person_id_len, char* paternal_id, int max_paternal_id_len, char* maternal_id, int max_maternal_id_len, unsigned char* founder_info, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int nonfounders, int calculation_type, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded) {
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
   int retval = 0;
@@ -3490,6 +3671,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   char* cptr7 = NULL;
   char* cptr8 = NULL;
   char* tbuf_mid = &(tbuf[64]);
+  char* sptr_cur;
   int ii;
   int jj;
   int kk;
@@ -3517,9 +3699,6 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
   double e11 = 0.0;
   double e12 = 0.0;
   int ibd_prect = 0;
-  int genome_output_gz = calculation_type & CALC_GENOME_GZ;
-  int genome_output_full = calculation_type & CALC_GENOME_FULL;
-  int unbounded = calculation_type & CALC_GENOME_UNBOUNDED;
   double dpp;
   double dqq;
   double dpp_sq;
@@ -3669,7 +3848,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	    ulii |= uljj << (pp * 2);
 	    if (uljj == 1) {
 	      missing_ct_buf[pp] += 1;
-	      ulkk |= 1LLU << pp;
+	      ulkk |= 1LU << pp;
 	      *giptr += 1;
 	    }
 	  }
@@ -3678,20 +3857,14 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	    uljj = (gptr[pp * unfiltered_indiv_ct4] >> oo) & 3;
 	    ulii |= uljj << (pp * 2);
 	    if (uljj == 1) {
-	      ulkk |= 1LLU << pp;
+	      ulkk |= 1LU << pp;
 	      *giptr += 1;
 	    }
 	  }
 	}
-#if __LP64__
-	ulii ^= 0x5555555555555555LLU;
+	ulii ^= FIVEMASK;
 	*glptr++ = ulii;
-	ulii = (ulii | (ulii >> 1)) & 0x5555555555555555LLU;
-#else
-	ulii ^= 0x55555555;
-	*glptr++ = ulii;
-	ulii = (ulii | (ulii >> 1)) & 0x55555555;
-#endif
+	ulii = (ulii | (ulii >> 1)) & FIVEMASK;
 	*glptr2++ = ulii * 3;
 	*glptr3 = ulkk;
 	ulii = 0;
@@ -3717,15 +3890,9 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	    }
 	  }
 	}
-#if __LP64__
-	ulii ^= 0x5555555555555555LLU;
+	ulii ^= FIVEMASK;
 	*glptr = ulii;
-	ulii = (ulii | (ulii >> 1)) & 0x5555555555555555LLU;
-#else
-	ulii ^= 0x55555555;
-	*glptr = ulii;
-	ulii = (ulii | (ulii >> 1)) & 0x55555555;
-#endif
+	ulii = (ulii | (ulii >> 1)) & FIVEMASK;
 	*glptr2 = ulii * 3;
 	*glptr3++ |= ulkk << BITCT2;
 	glptr = &(glptr[(GENOME_MULTIPLEX2 / BITCT) - 1]);
@@ -3946,39 +4113,39 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	cptr7 = &(paternal_id[jj * max_paternal_id_len]);
 	cptr8 = &(maternal_id[jj * max_maternal_id_len]);
       }
-      kk = sprintf(tbuf_mid, tbuf, cptr, cptr2, cptr3, cptr4);
+      sptr_cur = &(tbuf_mid[sprintf(tbuf_mid, tbuf, cptr, cptr2, cptr3, cptr4)]);
       if (!strcmp(cptr, cptr3)) {
 	// eventually need to replace this with a recursive pedigree analysis
 	while (1) {
 	  if (paternal_id) {
 	    if (!(is_founder_fixed || is_founder(founder_info, jj))) {
 	      if ((!strcmp(cptr5, cptr7)) && (!strcmp(cptr6, cptr8))) {
-		kk += sprintf(&(tbuf_mid[kk]), "FS   0.5");
+		sptr_cur += sprintf(sptr_cur, "FS   0.5");
 		break;
 	      } else if ((!strcmp(cptr5, cptr7)) || (!strcmp(cptr6, cptr8))) {
-		kk += sprintf(&(tbuf_mid[kk]), "HS  0.25");
+		sptr_cur += sprintf(sptr_cur, "HS  0.25");
 		break;
 	      }
 	    }
 	    if ((!strcmp(cptr5, cptr4)) || (!strcmp(cptr6, cptr4)) || (!strcmp(cptr7, cptr2)) || (!strcmp(cptr8, cptr2))) {
-	      kk += sprintf(&(tbuf_mid[kk]), "PO   0.5");
+	      sptr_cur += sprintf(sptr_cur, "PO   0.5");
 	      break;
 	    }
 	  }
-	  memcpy(&(tbuf_mid[kk]), "OT     0", 8);
-	  kk += 8;
+	  memcpy(sptr_cur, "OT     0", 8);
+	  sptr_cur += 8;
 	  break;
 	}
       } else {
-	memcpy(&(tbuf_mid[kk]), "UN    NA", 8);
-	kk += 8;
+	memcpy(sptr_cur, "UN    NA", 8);
+	sptr_cur += 8;
       }
       nn = marker_ct - indiv_missing_unwt[ii] - indiv_missing_unwt[jj] + missing_tot_unweighted[uljj];
       oo = nn - genome_main[ulii + 1] - genome_main[ulii + 2];
       dxx = (double)genome_main[ulii + 2] / (e00 * nn);
       dyy = ((double)genome_main[ulii + 1] - dxx * e01 * nn) / (e11 * nn);
       dxx1 = ((double)oo - nn * (dxx * e02 + dyy * e12)) / ((double)nn);
-      if (!unbounded) {
+      if (!genome_ibd_unbounded) {
 	if (dxx > 1) {
 	  dxx = 1;
 	  dyy = 0;
@@ -4011,39 +4178,39 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	}
       }
 
-      kk += sprintf(&(tbuf_mid[kk]), "  %1.4f  %1.4f  %1.4f  %1.4f  ", dxx, dyy, dxx1, dyy * 0.5 + dxx1);
+      sptr_cur += sprintf(sptr_cur, "  %1.4f  %1.4f  %1.4f  %1.4f  ", dxx, dyy, dxx1, dyy * 0.5 + dxx1);
       if (pheno_c) {
 	if ((pheno_c[ii] != 1) && (pheno_c[jj] != 1)) {
-	  memcpy(&(tbuf_mid[kk]), "-1", 2);
+	  memcpy(sptr_cur, "-1", 2);
 	} else if ((pheno_c[ii] == 1) && (pheno_c[jj] == 1)) {
-	  memcpy(&(tbuf_mid[kk]), " 1", 2);
+	  memcpy(sptr_cur, " 1", 2);
 	} else {
-	  memcpy(&(tbuf_mid[kk]), " 0", 2);
+	  memcpy(sptr_cur, " 0", 2);
 	}
       } else {
-	memcpy(&(tbuf_mid[kk]), "NA", 2);
+	memcpy(sptr_cur, "NA", 2);
       }
-      kk += 2;
+      sptr_cur += 2;
       dxx = (double)genome_main[ulii + 3];
       dyy = (double)genome_main[ulii + 4];
       dxx1 = 1.0 / ((double)(genome_main[ulii + 3] + genome_main[ulii + 4]));
       dxx2 = normdist((dxx * dxx1 - 0.666666) / (sqrt(0.2222222 * dxx1)));
       if (genome_main[ulii + 4]) {
-	kk += sprintf(&(tbuf_mid[kk]), "  %1.6f  %1.4f  %1.4f", 1.0 - marker_recip * (genome_main[ulii + 1] + 2 * genome_main[ulii + 2]), dxx2, dxx / dyy);
+	sptr_cur += sprintf(sptr_cur, "  %1.6f  %1.4f  %1.4f", 1.0 - marker_recip * (genome_main[ulii + 1] + 2 * genome_main[ulii + 2]), dxx2, dxx / dyy);
       } else {
-	kk += sprintf(&(tbuf_mid[kk]), "  %1.6f  %1.4f      NA", 1.0 - marker_recip * (genome_main[ulii + 1] + 2 * genome_main[ulii + 2]), dxx2);
+	sptr_cur += sprintf(sptr_cur, "  %1.6f  %1.4f      NA", 1.0 - marker_recip * (genome_main[ulii + 1] + 2 * genome_main[ulii + 2]), dxx2);
       }
       if (genome_output_full) {
-	kk += sprintf(&(tbuf_mid[kk]), " %7d %7d %7d  %1.4f  %1.4f\n", genome_main[ulii + 2], genome_main[ulii + 1], oo, dyy * dxx1, dxx * dxx1);
+	sptr_cur += sprintf(sptr_cur, " %7d %7d %7d  %1.4f  %1.4f\n", genome_main[ulii + 2], genome_main[ulii + 1], oo, dyy * dxx1, dxx * dxx1);
       } else {
-	tbuf_mid[kk++] = '\n';
+	*sptr_cur++ = '\n';
       }
       if (genome_output_gz) {
-	if (gzwrite_checked(gz_outfile, tbuf_mid, kk)) {
+	if (gzwrite_checked(gz_outfile, tbuf_mid, (unsigned long)(sptr_cur - tbuf_mid))) {
 	  goto calc_genome_ret_WRITE_FAIL;
 	}
       } else {
-	if (fwrite_checked(tbuf_mid, kk, outfile)) {
+	if (fwrite_checked(tbuf_mid, (unsigned long)(sptr_cur - tbuf_mid), outfile)) {
 	  goto calc_genome_ret_WRITE_FAIL;
 	}
       }
@@ -4087,18 +4254,18 @@ inline int distance_wt_req(int calculation_type) {
 }
 
 inline int distance_req(int calculation_type) {
-  return ((calculation_type & CALC_DISTANCE_MASK) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME_MASK))) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
+  return ((calculation_type & CALC_DISTANCE_MASK) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
 
 inline int relationship_req(int calculation_type) {
-  return ((calculation_type & CALC_RELATIONSHIP_MASK) || (calculation_type & CALC_UNRELATED_HERITABILITY) || (calculation_type & CALC_REL_CUTOFF));
+  return (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF | CALC_REGRESS_REL));
 }
 
 inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* makepheno_str, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, int parallel_tot, int ppc_gap, int nonfounders) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* makepheno_str, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, int parallel_tot, int ppc_gap, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -4275,11 +4442,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     ibc_type = -1;
   }
 
-  // stopgap
-  if (!binary_files) {
-    nonfounders = 1;
-  }
-
   if (fopen_checked(&pedfile, pedname, "r")) {
     goto wdist_ret_OPENFAIL;
   }
@@ -4289,6 +4451,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_OPENFAIL;
     }
   }
+  if (!binary_files) {
+    if (!nonfounders) {
+      printf("Note: Setting --nonfounders (since family-related code is incomplete).\n");
+      nonfounders = 1;
+    }
+  }
+
   if (phenoname[0] && fopen_checked(&phenofile, phenoname, "r")) {
     goto wdist_ret_OPENFAIL;
   }
@@ -4312,7 +4481,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     goto wdist_ret_2;
   }
 
-  if (!(calculation_type & (CALC_GDISTANCE_MASK | CALC_LOAD_DISTANCES | CALC_RELATIONSHIP_MASK | CALC_IBC | CALC_FREQ | CALC_WRITE_SNPLIST | CALC_GENOME_MASK))) {
+  if (!(calculation_type & (CALC_GDISTANCE_MASK | CALC_LOAD_DISTANCES | CALC_RELATIONSHIP_MASK | CALC_IBC | CALC_FREQ | CALC_WRITE_SNPLIST | CALC_GENOME))) {
     prune = 1;
   }
 
@@ -4801,10 +4970,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       if (!maternal_id) {
 	goto wdist_ret_NOMEM;
       }
-      founder_info = (unsigned char*)malloc(unfiltered_indiv_ct * sizeof(char));
+      founder_info = (unsigned char*)malloc(((unfiltered_indiv_ct + 7) / 8) * sizeof(char));
       if (!founder_info) {
 	goto wdist_ret_NOMEM;
       }
+      memset(founder_info, 0, (unfiltered_indiv_ct + 7) / 8);
     }
 
     indiv_exclude = (unsigned char*)calloc(sizeof(char), ((unfiltered_indiv_ct + 7) / 8));
@@ -4849,7 +5019,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    paternal_id[ii * max_paternal_id_len + kk] = '\0';
 	    cptr2 = next_item(cptr2);
 	    mm = strlen_se(cptr2);
-	    founder_info[ii] = ((kk == 1) && (mm == 1) && (paternal_id[ii * max_paternal_id_len] == '0') && (*cptr2 == '0'));
+	    if ((kk == 1) && (mm == 1) && (paternal_id[ii * max_paternal_id_len] == '0') && (*cptr2 == '0')) {
+	      set_founder_info(founder_info, ii);
+	    }
 	    memcpy(&(maternal_id[ii * max_maternal_id_len]), cptr2, mm);
 	    maternal_id[ii * max_maternal_id_len + kk] = '\0';
 	  }
@@ -5356,10 +5528,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       if (!maternal_id) {
 	goto wdist_ret_NOMEM;
       }
-      founder_info = (unsigned char*)malloc(unfiltered_indiv_ct * sizeof(char));
+      founder_info = (unsigned char*)malloc(((unfiltered_indiv_ct + 7) / 8) * sizeof(char));
       if (!founder_info) {
 	goto wdist_ret_NOMEM;
       }
+      memset(founder_info, 0, (unfiltered_indiv_ct + 7) / 8);
     }
 
     marker_alleles = (char*)calloc(sizeof(char), unfiltered_marker_ct * 4);
@@ -5415,7 +5588,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	paternal_id[ii * max_paternal_id_len + oo] = '\0';
 	cptr2 = next_item(cptr);
 	pp = strlen_se(cptr2);
-	founder_info[ii] = ((oo == 1) && (pp == 1) && (*cptr == '0') && (*cptr2 == '0'));
+	if ((oo == 1) && (pp == 1) && (*cptr == '0') && (*cptr2 == '0')) {
+	  set_founder_info(founder_info, ii);
+	}
 	memcpy(&(maternal_id[ii * max_maternal_id_len]), cptr2, pp);
 	maternal_id[ii * max_maternal_id_len + pp] = '\0';
       }
@@ -5491,7 +5666,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         goto wdist_ret_INVALID_FORMAT;
       }
       line_locs[ii] = last_tell + (bufptr - (char*)pedbuf);
-      mm = 0; // number of missing
+      mm = 0; // number of missing markers not previously filtered out
       for (jj = 0; jj < unfiltered_marker_ct; jj += 1) {
         for (nn = 0; nn < 2; nn++) {
           cc = *bufptr;
@@ -5505,7 +5680,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		printf("Error: Second allele marked as missing when first was not.\n(individual %d, marker %d)\n", ii, jj);
 		goto wdist_ret_INVALID_FORMAT;
 	      }
-	      mm += 1;
+	      mm++;
 	      bufptr++;
 	      while ((*bufptr == ' ') || (*bufptr == '\t')) {
 		bufptr++;
@@ -5549,6 +5724,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       kk++;
     }
     rewind(pedfile);
+    // to match PLINK, --geno applies after --mind filter
+    geno_int_thresh = (unfiltered_indiv_ct - indiv_exclude_ct) * 2 - (int)(geno_thresh * (unfiltered_indiv_ct - indiv_exclude_ct) * 2);
     for (ii = 0; ii < unfiltered_marker_ct; ii++) {
       for (jj = 1; jj < 4; jj++) {
         for (kk = jj - 1; kk >= 0; kk--) {
@@ -5563,8 +5740,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         }
       }
       mm = marker_allele_cts[ii * 4] + marker_allele_cts[ii * 4 + 1] + marker_allele_cts[ii * 4 + 2] + marker_allele_cts[ii * 4 + 3];
-      maf_int_thresh = mm - (int)((1.0 - min_maf) * mm * 2);
-      geno_int_thresh = mm - (int)(geno_thresh * mm);
+      maf_int_thresh = mm - (int)((1.0 - min_maf) * mm);
 
       if (marker_allele_cts[ii * 4] + marker_allele_cts[ii * 4 + 1] < geno_int_thresh) {
         exclude(marker_exclude, ii, &marker_exclude_ct);
@@ -5952,22 +6128,22 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       binary_files = 1;
       if (pheno_c) {
-        collapse_phenoc(pheno_c, indiv_exclude, unfiltered_indiv_ct);
+        collapse_arr(pheno_c, sizeof(char), indiv_exclude, unfiltered_indiv_ct);
       } else if (pheno_d) {
-        collapse_double(pheno_d, indiv_exclude, unfiltered_indiv_ct);
+        collapse_arr((char*)pheno_d, sizeof(double), indiv_exclude, unfiltered_indiv_ct);
       }
       if (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST)) {
-        collapse_bufs(marker_ids, max_marker_id_len, marker_exclude, unfiltered_marker_ct);
-	collapse_bufs((char*)marker_chroms, sizeof(int), marker_exclude, unfiltered_marker_ct);
+        collapse_arr(marker_ids, max_marker_id_len, marker_exclude, unfiltered_marker_ct);
+	collapse_arr((char*)marker_chroms, sizeof(int), marker_exclude, unfiltered_marker_ct);
       }
-      collapse_bufs(person_id, max_person_id_len, indiv_exclude, unfiltered_indiv_ct);
+      collapse_arr(person_id, max_person_id_len, indiv_exclude, unfiltered_indiv_ct);
       if (ped_col_34) {
-        collapse_bufs(paternal_id, max_paternal_id_len, indiv_exclude, unfiltered_indiv_ct);
-        collapse_bufs(maternal_id, max_maternal_id_len, indiv_exclude, unfiltered_indiv_ct);
-	collapse_bufs((char*)founder_info, 1, indiv_exclude, unfiltered_indiv_ct);
+        collapse_arr(paternal_id, max_paternal_id_len, indiv_exclude, unfiltered_indiv_ct);
+        collapse_arr(maternal_id, max_maternal_id_len, indiv_exclude, unfiltered_indiv_ct);
+	collapse_bitarr(founder_info, indiv_exclude, unfiltered_indiv_ct);
       }
-      collapse_double(marker_weights, marker_exclude, unfiltered_marker_ct);
-      if (calculation_type & CALC_GENOME_MASK) {
+      collapse_arr((char*)marker_weights, sizeof(double), marker_exclude, unfiltered_marker_ct);
+      if (calculation_type & CALC_GENOME) {
 	collapse_marker_pos(marker_pos, marker_exclude, unfiltered_marker_ct, marker_exclude_ct);
       }
       unfiltered_marker_ct -= marker_exclude_ct;
@@ -6231,7 +6407,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         printf("\r%d markers complete.", pp);
         fflush(stdout);
       }
-      if (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF)) {
+      if (relationship_req(calculation_type)) {
         printf("\rRelationship matrix calculation complete.\n");
         dist_ptr = rel_dists;
       } else {
@@ -6246,7 +6422,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       for (ii = 0; ii < indiv_ct; ii++) {
         uii = marker_ct - indiv_missing_unwt[ii];
 	if ((ii >= thread_start[0]) && (ii < thread_start[thread_ct])) {
-	  if (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF)) {
+	  if (relationship_req(calculation_type)) {
 	    giptr = indiv_missing_unwt;
 	    for (jj = 0; jj < ii; jj++) {
 	      *dist_ptr /= uii - (*giptr++) + (*giptr2++);
@@ -6750,6 +6926,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_2;
     }
 
+    if (calculation_type & CALC_REGRESS_REL) {
+      retval = regress_rel_main(indiv_exclude, unfiltered_indiv_ct, regress_rel_iters, regress_rel_d, threads);
+      if (retval) {
+	goto wdist_ret_2;
+      }
+    }
 #ifndef NOLAPACK
     if (calculation_type & CALC_UNRELATED_HERITABILITY) {
       missing_tot_unweighted = NULL;
@@ -6796,7 +6978,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       printf("h^2 estimate: %g\n", unrelated_herit_covg);
     }
 #endif
-    if ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX | CALC_GENOME_MASK)) && (!(calculation_type & CALC_REL_CUTOFF))) {
+    if ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX | CALC_GENOME)) && (!(calculation_type & CALC_REL_CUTOFF))) {
       wkspace_reset(rel_dists);
     } else {
       wkspace_reset(indiv_missing_unwt);
@@ -6994,15 +7176,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		  }
 		  // use xor to convert representation to 0 = missing,
 		  // 1 or 2 = homozygote, 3 = heterozygote
-#if __LP64__
-		  ulii ^= 0x5555555555555555LLU;
+		  ulii ^= FIVEMASK;
 		  *glptr++ = ulii;
-		  ulii = (ulii | (ulii >> 1)) & 0x5555555555555555LLU;
-#else
-		  ulii ^= 0x55555555;
-		  *glptr++ = ulii;
-		  ulii = (ulii | (ulii >> 1)) & 0x55555555;
-#endif
+		  ulii = (ulii | (ulii >> 1)) & FIVEMASK;
 		  *glptr2++ = ulii * 3;
                   *glptr3 = ulkk;
 		  ulii = 0;
@@ -7021,15 +7197,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		      }
 		    }
 		  }
-#if __LP64__
-		  ulii ^= 0x5555555555555555LLU;
+		  ulii ^= FIVEMASK;
 		  *glptr = ulii;
-		  ulii = (ulii | (ulii >> 1)) & 0x5555555555555555LLU;
-#else
-		  ulii ^= 0x55555555;
-		  *glptr = ulii;
-		  ulii = (ulii | (ulii >> 1)) & 0x55555555;
-#endif
+		  ulii = (ulii | (ulii >> 1)) & FIVEMASK;
 		  *glptr2 = ulii * 3;
                   *glptr3++ |= ulkk << BITCT2;
                   glptr = &(glptr[(MULTIPLEX_2DIST / BITCT) - 1]);
@@ -7098,10 +7268,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		    }
 		  }
 #if __LP64__
-		  ulii ^= 0x5555555555555555LLU;
+		  ulii ^= FIVEMASK;
 		  *glptr++ = ulii;
-		  ulii = (ulii | (ulii >> 1)) & 0x5555555555555555LLU;
+		  ulii = (ulii | (ulii >> 1)) & FIVEMASK;
 #else
+		  // note that FIVEMASK does NOT work here because the mask is
+		  // only 28 bits
                   ulii ^= 0x05555555;
 		  *glptr++ = ulii;
 		  ulii = (ulii | (ulii >> 1)) & 0x05555555;
@@ -7936,7 +8108,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (calculation_type & CALC_GROUPDIST) {
-    collapse_phenoc(pheno_c, indiv_exclude, unfiltered_indiv_ct);
+    collapse_arr(pheno_c, 1, indiv_exclude, unfiltered_indiv_ct);
     low_ct = 0;
     high_ct = 0;
     for (ii = 0; ii < indiv_ct; ii++) {
@@ -8046,8 +8218,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       if (groupdist_d) {
 	jackknife_d = groupdist_d;
       } else {
-	jackknife_d = (int)pow((double)(high_ct + low_ct), 0.600000000001);
-	printf("Setting d=%d for jackknife.\n", jackknife_d);
+	jackknife_d = set_default_jackknife_d(high_ct + low_ct);
       }
 
       for (ulii = 1; ulii < thread_ct; ulii++) {
@@ -8071,24 +8242,19 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       for (ii = 3; ii < 9; ii++) {
         calc_result[ii][0] *= dxx;
       }
-      printf("\r  AA mean - AU mean avg difference (s.e.): %g (%g)\n", calc_result[0][0] - calc_result[1][0], sqrt(((high_ct + low_ct) / jackknife_d) * (calc_result[3][0] + calc_result[4][0] - 2 * calc_result[6][0])));
-      printf("  AA mean - UU mean avg difference (s.e.): %g (%g)\n", calc_result[0][0] - calc_result[2][0], sqrt(((high_ct + low_ct) / jackknife_d) * (calc_result[3][0] + calc_result[5][0] - 2 * calc_result[7][0])));
-      printf("  AU mean - UU mean avg difference (s.e.): %g (%g)\n", calc_result[1][0] - calc_result[2][0], sqrt(((high_ct + low_ct) / jackknife_d) * (calc_result[4][0] + calc_result[5][0] - 2 * calc_result[8][0])));
+      printf("\r  AA mean - AU mean avg difference (s.e.): %g (%g)\n", calc_result[0][0] - calc_result[1][0], sqrt(((high_ct + low_ct) / ((double)jackknife_d)) * (calc_result[3][0] + calc_result[4][0] - 2 * calc_result[6][0])));
+      printf("  AA mean - UU mean avg difference (s.e.): %g (%g)\n", calc_result[0][0] - calc_result[2][0], sqrt(((high_ct + low_ct) / ((double)jackknife_d)) * (calc_result[3][0] + calc_result[5][0] - 2 * calc_result[7][0])));
+      printf("  AU mean - UU mean avg difference (s.e.): %g (%g)\n", calc_result[1][0] - calc_result[2][0], sqrt(((high_ct + low_ct) / ((double)jackknife_d)) * (calc_result[4][0] + calc_result[5][0] - 2 * calc_result[8][0])));
     }
   }
   if (calculation_type & CALC_REGRESS_DISTANCE) {
     // beta = (mean(xy) - mean(x)*mean(y)) / (mean(x^2) - mean(x)^2)
     if (unfiltered_indiv_ct != indiv_ct) {
-      collapse_double(pheno_d, indiv_exclude, unfiltered_indiv_ct);
+      collapse_arr((char*)pheno_d, sizeof(double), indiv_exclude, unfiltered_indiv_ct);
     }
-    reg_tot_x = 0.0;
-    reg_tot_xx = 0.0;
-    for (ii = 0; ii < indiv_ct; ii++) {
-      dxx = pheno_d[ii];
-      reg_tot_x += dxx;
-      reg_tot_xx += dxx * dxx;
+    if (!(calculation_type & CALC_REGRESS_REL)) {
+      print_pheno_stdev(pheno_d);
     }
-    printf("Phenotype stdev: %g\n", sqrt((reg_tot_xx - reg_tot_x * reg_tot_x / indiv_ct) / (indiv_ct - 1)));
     ulii = indiv_ct;
     ulii = ulii * (ulii - 1) / 2;
     reg_tot_xy = 0.0;
@@ -8105,15 +8271,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     // Then for each delete-d jackknife iteration, we take the global sums,
     // subtract the partial row sums corresponding to the deleted individuals,
     // and then add back the elements in the intersection of two deletions.
-    jackknife_precomp = (double*)wkspace_alloc(indiv_ct * JACKKNIFE_VALS * sizeof(double));
+    jackknife_precomp = (double*)wkspace_alloc(indiv_ct * JACKKNIFE_VALS_DIST * sizeof(double));
     if (!jackknife_precomp) {
       goto wdist_ret_NOMEM;
     }
-    fill_double_zero(jackknife_precomp, indiv_ct * JACKKNIFE_VALS);
+    fill_double_zero(jackknife_precomp, indiv_ct * JACKKNIFE_VALS_DIST);
     for (ii = 1; ii < indiv_ct; ii++) {
       dzz = *(++dist_ptr);
       dptr2 = pheno_d;
-      dptr3 = &(jackknife_precomp[ii * JACKKNIFE_VALS]);
+      dptr3 = &(jackknife_precomp[ii * JACKKNIFE_VALS_DIST]);
       dptr5 = jackknife_precomp;
       while (dptr2 < dist_ptr) {
 	dxx = (dzz + *dptr2++) * 0.5;
@@ -8152,8 +8318,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (regress_d) {
       jackknife_d = regress_d;
     } else {
-      jackknife_d = (int)pow((double)indiv_ct, 0.600000000001);
-      printf("Setting d=%d for jackknife.\n", jackknife_d);
+      jackknife_d = set_default_jackknife_d(indiv_ct);
     }
     ped_geno = wkspace_alloc(thread_ct * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int)));
     if (!ped_geno) {
@@ -8178,13 +8343,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       // dvv += calc_result[3][ii + 1];
     }
     regress_iters = jackknife_iters * thread_ct;
-    printf("\rJackknife s.e.: %g\n", sqrt((indiv_ct / jackknife_d) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
-    // printf("Jackknife s.e. (y = avg phenotype): %g\n", sqrt((indiv_ct / jackknife_d) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
+    printf("\rJackknife s.e.: %g\n", sqrt((indiv_ct / ((double)jackknife_d)) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
+    // printf("Jackknife s.e. (y = avg phenotype): %g\n", sqrt((indiv_ct / ((double)jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
   }
 
-  if (calculation_type & CALC_GENOME_MASK) {
+  if (calculation_type & CALC_GENOME) {
     wkspace_reset((char*)CACHEALIGN((unsigned long)(&(marker_pos[unfiltered_marker_ct]))));
-    retval = calc_genome(threads, pedfile, marker_ct, unfiltered_marker_ct, marker_exclude, mafs, marker_pos_start, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len, paternal_id, max_paternal_id_len, maternal_id, max_maternal_id_len, founder_info, parallel_idx, parallel_tot, outname, outname_end, nonfounders, calculation_type);
+    retval = calc_genome(threads, pedfile, marker_ct, unfiltered_marker_ct, marker_exclude, mafs, marker_pos_start, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len, paternal_id, max_paternal_id_len, maternal_id, max_maternal_id_len, founder_info, parallel_idx, parallel_tot, outname, outname_end, nonfounders, calculation_type, genome_output_gz, genome_output_full, genome_ibd_unbounded);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -8331,6 +8496,8 @@ int main(int argc, char** argv) {
   int groupdist_d = 0;
   int regress_iters = ITERS_DEFAULT;
   int regress_d = 0;
+  int regress_rel_iters = ITERS_DEFAULT;
+  int regress_rel_d = 0;
   double unrelated_herit_tol = 0.0000001;
   double unrelated_herit_covg = 0.45;
   double unrelated_herit_covr = 0.55;
@@ -8344,6 +8511,9 @@ int main(int argc, char** argv) {
   unsigned int chrom_mask = DEFAULT_CHROM_MASK;
   int ppc_gap = DEFAULT_PPC_GAP;
   unsigned long int rseed = 0;
+  int genome_output_gz = 0;
+  int genome_output_full = 0;
+  int genome_ibd_unbounded = 0;
   FILE* scriptfile;
   int num_params;
   int in_param;
@@ -9335,7 +9505,7 @@ int main(int argc, char** argv) {
         printf("Error: --exponent flag cannot be used with --distance-matrix or --matrix.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       } else if (parallel_tot > 1) {
-        printf("Error: --parallel and --distance-matrix/--matrix flags cannot coexist.  Use\n--distance instead.%s", errstr_append);
+	printf("Error: --parallel and --distance-matrix/--matrix cannot be used together.  Use\n--distance instead.%s", errstr_append);
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += 1;
@@ -9389,16 +9559,18 @@ int main(int argc, char** argv) {
         printf("Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       } else if (calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) {
-	printf("Error: --parallel and --distance-matrix/--matrix flags cannot coexist.  Use\n--distance instead.%s", errstr_append);
+	printf("Error: --parallel and --distance-matrix/--matrix cannot be used together.  Use\n--distance instead.%s", errstr_append);
 	return dispmsg(RET_INVALID_CMDLINE);
       } else if (calculation_type & CALC_GROUPDIST) {
-	printf("Error: --parallel and --groupdist flags cannot coexist.%s", errstr_append);
+	printf("Error: --parallel and --groupdist cannot be used together.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       } else if (calculation_type & CALC_REGRESS_DISTANCE) {
-	printf("Error: --parallel and --regress-distance flags cannot coexist.%s", errstr_append);
+	printf("Error: --parallel and --regress-distance cannot be used together.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
+      } else if (calculation_type & CALC_REGRESS_REL) {
+	printf("Error: --parallel and --regress-rel cannot be used together.%s", errstr_append);
       } else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-	printf("Error: --parallel cannot be used with --unrelated-heritability.%s", errstr_append);
+	printf("Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
 	return dispmsg(RET_INVALID_CMDLINE);
       } else if (calculation_type & CALC_REL_CUTOFF) {
 	printf("Error: --parallel cannot be used with --rel-cutoff.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", errstr_append);
@@ -9429,23 +9601,22 @@ int main(int argc, char** argv) {
       }
       cur_arg += 3;
     } else if (!strcmp(argptr, "--genome")) {
-      if (calculation_type & CALC_GENOME_GZ) {
-	printf("Error: --genome and --Z-genome flags cannot be used together.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else if (calculation_type & CALC_GENOME) {
+      if (calculation_type & CALC_GENOME) {
 	printf("Error: Duplicate --genome flag.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = param_count(argc, argv, cur_arg);
-      if (ii > 2) {
-	printf("Error: --genome accepts at most 2 parameters.%s", errstr_append);
+      if (ii > 3) {
+	printf("Error: --genome accepts at most 3 parameters.%s", errstr_append);
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       for (kk = 1; kk <= ii; kk++) {
 	if (!strcmp(argv[cur_arg + kk], "full")) {
-	  calculation_type |= CALC_GENOME_FULL;
+	  genome_output_full = 1;
 	} else if (!strcmp(argv[cur_arg + kk], "unbounded")) {
-	  calculation_type |= CALC_GENOME_UNBOUNDED;
+	  genome_ibd_unbounded = 1;
+	} else if (!strcmp(argv[cur_arg + kk], "gz")) {
+	  genome_output_gz = 1;
 	} else {
 	  printf("Error: Invalid --genome parameter.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
@@ -9455,10 +9626,7 @@ int main(int argc, char** argv) {
       calculation_type |= CALC_GENOME;
     } else if (!strcmp(argptr, "--Z-genome")) {
       if (calculation_type & CALC_GENOME) {
-	printf("Error: --genome and --Z-genome flags cannot be used together.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else if (calculation_type & CALC_GENOME_GZ) {
-	printf("Error: Duplicate --Z-genome flag.\n");
+	printf("Error: Duplicate --genome flag.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = param_count(argc, argv, cur_arg);
@@ -9468,16 +9636,17 @@ int main(int argc, char** argv) {
       }
       for (kk = 1; kk <= ii; kk++) {
 	if (!strcmp(argv[cur_arg + kk], "full")) {
-	  calculation_type |= CALC_GENOME_FULL;
+	  genome_output_full = 1;
 	} else if (!strcmp(argv[cur_arg + kk], "unbounded")) {
-	  calculation_type |= CALC_GENOME_UNBOUNDED;
+	  genome_ibd_unbounded = 1;
 	} else {
 	  printf("Error: Invalid --Z-genome parameter.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
       }
       cur_arg += ii + 1;
-      calculation_type |= CALC_GENOME_GZ;
+      calculation_type |= CALC_GENOME;
+      genome_output_gz = 1;
     } else if (!strcmp(argptr, "--ppc-gap")) {
       if (ppc_gap != DEFAULT_PPC_GAP) {
 	printf("Error: Duplicate --ppc-gap flag.\n");
@@ -9504,7 +9673,7 @@ int main(int argc, char** argv) {
       cur_arg += 2;
     } else if (!strcmp(argptr, "--groupdist")) {
       if (parallel_tot > 1) {
-	printf("Error: --parallel and --groupdist flags cannot coexist.%s", errstr_append);
+	printf("Error: --parallel and --groupdist cannot be used together.%s", errstr_append);
 	return dispmsg(RET_INVALID_CMDLINE);
       } else if (calculation_type & CALC_GROUPDIST) {
         printf("Error: Duplicate --groupdist flag.%s", errstr_append);
@@ -9533,7 +9702,7 @@ int main(int argc, char** argv) {
       calculation_type |= CALC_GROUPDIST;
     } else if (!strcmp(argptr, "--regress-distance")) {
       if (parallel_tot > 1) {
-	printf("Error: --parallel and --regress-distance flags cannot coexist.%s", errstr_append);
+	printf("Error: --parallel and --regress-distance cannot be used together.%s", errstr_append);
 	return dispmsg(RET_INVALID_CMDLINE);
       } else if (calculation_type & CALC_REGRESS_DISTANCE) {
         printf("Error: Duplicate --regress-distance flag.%s", errstr_append);
@@ -9560,12 +9729,41 @@ int main(int argc, char** argv) {
       }
       cur_arg += ii + 1;
       calculation_type |= CALC_REGRESS_DISTANCE;
+    } else if (!strcmp(argptr, "--regress-rel")) {
+      if (parallel_tot > 1) {
+	printf("Error: --parallel and --regress-rel flags cannot coexist.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      } else if (calculation_type & CALC_REGRESS_REL) {
+        printf("Error: Duplicate --regress-rel flag.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      ii = param_count(argc, argv, cur_arg);
+      if (ii > 2) {
+        printf("Error: --regress-rel accepts at most 2 parameters.%s", errstr_append);
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (ii) {
+	regress_rel_iters = atoi(argv[cur_arg + 1]);
+	if (regress_rel_iters < 2) {
+	  printf("Error: Invalid --regress-rel jackknife iteration count.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+        if (ii == 2) {
+	  regress_rel_d = atoi(argv[cur_arg + 2]);
+	  if (regress_rel_d <= 0) {
+	    printf("Error: Invalid --regress-rel jackknife delete parameter.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+        }
+      }
+      cur_arg += ii + 1;
+      calculation_type |= CALC_REGRESS_REL;
     } else if (!strcmp(argptr, "--unrelated-heritability")) {
       if (calculation_type & CALC_RELATIONSHIP_COV) {
         printf("Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       } else if (parallel_tot > 1) {
-	printf("Error: --parallel cannot be used with --unrelated-heritability.%s", errstr_append);
+	printf("Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (calculation_type & CALC_UNRELATED_HERITABILITY) {
@@ -9720,7 +9918,7 @@ int main(int argc, char** argv) {
   // the presence of their respective flags
   // filtername[0] indicates existence of filter
   // freqname[0] signals --read-freq
-  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, makepheno_str, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, nonfounders);
+  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, makepheno_str, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded);
   free(wkspace_ua);
   return dispmsg(retval);
 }
