@@ -2379,6 +2379,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
   unsigned long ulval;
   unsigned int next_ppc_marker_idx;
   unsigned int cur_floor;
+  unsigned int cur_floor_next;
   unsigned long mask_fixed_test;
 #if __LP64__
   glptr_end = (__m128i*)(&(geno[indiv_ct * (GENOME_MULTIPLEX2 / BITCT)]));
@@ -2503,17 +2504,18 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	    //
 	    // ~0LU << xx masks out the bottom xx bits.
 	    ulval = (((uland & (uland << 1)) & AAAAMASK) | (((unsigned long*)xor_buf)[offset])) & (~0LU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2));
+	    cur_floor_next = cur_floor + BITCT2;
 	    while (1) {
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
 		ibs_incr += (1LU << ((jj & 1) * BITCT2));
 		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
-		if (next_ppc_marker_idx >= (cur_floor + BITCT2)) {
+		if (next_ppc_marker_idx >= cur_floor_next) {
 		  break;
 		}
                 ulval &= (~0LU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2));
 	      } else {
-		next_ppc_marker_idx = cur_floor + BITCT2;
+		next_ppc_marker_idx = cur_floor_next;
 		break;
 	      }
 	    }
@@ -2609,17 +2611,18 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	    uland = glptr_back[offset] & (((unsigned long*)glptr_fixed)[offset]);
 	    cur_floor = next_ppc_marker_idx & (~(BITCT2 - 1));
             ulval = (((uland & (uland << 1)) & AAAAMASK) | (((unsigned long*)xor_buf)[offset])) & (~0LU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2));
+	    cur_floor_next = cur_floor + BITCT2;
 	    while (1) {
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
 		ibs_incr += (1LU << ((jj & 1) * BITCT2));
 		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
-		if (next_ppc_marker_idx >= (cur_floor + BITCT2)) {
+		if (next_ppc_marker_idx >= cur_floor_next) {
 		  break;
 		}
                 ulval &= (~0LU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2));
 	      } else {
-	        next_ppc_marker_idx = cur_floor + BITCT2;
+	        next_ppc_marker_idx = cur_floor_next;
 		break;
 	      }
 	    }
