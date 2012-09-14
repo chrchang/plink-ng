@@ -2266,6 +2266,8 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
   unsigned long next_ppc_marker_hybrid;
   unsigned long mask_fixed_test;
   unsigned long* marker_window_ptr;
+  int lowct2 = low_ct * 2;
+  int highct2 = high_ct * 2;
 #if __LP64__
   glptr_end = (__m128i*)(&(geno[indiv_ct * (GENOME_MULTIPLEX2 / BITCT)]));
 #else
@@ -2367,7 +2369,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 #else
 	*genome_main += popcountg_xor_2mask_multiword(glptr, glptr_fixed, maskptr, maskptr_fixed, &(genome_main[1]));
 #endif
-	next_ppc_marker_hybrid = *genome_main - (low_ct * 2);
+	next_ppc_marker_hybrid = *genome_main - lowct2;
 	if (next_ppc_marker_hybrid >= GENOME_MULTIPLEX2) {
 	  genome_main = &(genome_main[3]);
 	} else {
@@ -2406,12 +2408,12 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 		marker_window_ptr = &(marker_window_ptr[BITCT]);
 		goto incr_genome_2mask_loop;
 	      } else {
-	        *genome_main = high_ct * 2;
+	        *genome_main = highct2;
 	        goto incr_genome_2mask_exit;
 	      }
 	    }
 	  } while (next_ppc_marker_hybrid < GENOME_MULTIPLEX2);
-	  *genome_main = next_ppc_marker_hybrid + low_ct * 2;
+	  *genome_main = next_ppc_marker_hybrid + lowct2;
 	incr_genome_2mask_exit:
 	  genome_main++;
           *genome_main += ibs_incr & ((~0LU) >> BITCT2);
@@ -2494,7 +2496,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 #else
 	*genome_main += popcountg_xor_1mask_multiword(glptr, glptr_fixed, maskptr, &(genome_main[1]));
 #endif
-	next_ppc_marker_hybrid = *genome_main - low_ct * 2;
+	next_ppc_marker_hybrid = *genome_main - lowct2;
 	if (next_ppc_marker_hybrid >= GENOME_MULTIPLEX2) {
 	  genome_main = &(genome_main[3]);
 	} else {
@@ -2522,12 +2524,12 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 		  marker_window_ptr = &(marker_window_ptr[BITCT]);
 		  goto incr_genome_1mask_loop;
 		}
-		*genome_main = high_ct * 2;
+		*genome_main = highct2;
 		goto incr_genome_1mask_exit;
 	      }
 	    }
 	  } while (next_ppc_marker_hybrid < GENOME_MULTIPLEX2);
-	  *genome_main = next_ppc_marker_hybrid + low_ct * 2;
+	  *genome_main = next_ppc_marker_hybrid + lowct2;
 	incr_genome_1mask_exit:
 	  genome_main++;
 	  *genome_main += ibs_incr & ((~0LU) >> BITCT2);
