@@ -2291,7 +2291,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 #if __LP64__
 	acc_ibs1.vi = _mm_setzero_si128();
 	acc_ibs0.vi = _mm_setzero_si128();
-	while (xor_ptr < xor_buf_end) {
+	do {
 	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), _mm_and_si128(*maskptr++, *maskptr_fixed_tmp++));
           loader2 = _mm_srli_epi64(loader, 1);
 	  count_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
@@ -2338,7 +2338,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
           count_ibs0 = _mm_add_epi64(count_ibs0, _mm_add_epi64(_mm_and_si128(count2_ibs0, m2), _mm_and_si128(_mm_srli_epi64(count2_ibs0, 2), m2)));
           acc_ibs1.vi = _mm_add_epi64(acc_ibs1.vi, _mm_add_epi64(_mm_and_si128(count_ibs1, m4), _mm_and_si128(_mm_srli_epi64(count_ibs1, 4), m4)));
           acc_ibs0.vi = _mm_add_epi64(acc_ibs0.vi, _mm_add_epi64(_mm_and_si128(count_ibs0, m4), _mm_and_si128(_mm_srli_epi64(count_ibs0, 4), m4)));
-	}
+	} while (xor_ptr < xor_buf_end);
 #if GENOME_MULTIPLEX > 1920
 	acc_ibs1.vi = _mm_add_epi64(_mm_and_si128(acc_ibs1.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_ibs1.vi, 8), m8));
 	acc_ibs0.vi = _mm_add_epi64(_mm_and_si128(acc_ibs0.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_ibs0.vi, 8), m8));
@@ -2356,7 +2356,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 #else
         bit_count_ibs1 = 0;
 	bit_count_ibs0 = 0;
-	while (xor_ptr < xor_buf_end) {
+	do {
 	  loader = ((*glptr++) ^ (*glptr_fixed_tmp++)) & ((*maskptr++) & (*maskptr_fixed_tmp++));
 	  loader2 = loader >> 1;
 	  bitfield_ibs1 = (loader ^ loader2) & 0x55555555;
@@ -2370,16 +2370,14 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	  *xor_ptr++ = loader2 >> 1;
 	  bit_count_ibs1 += popcount[bitfield_ibs1 >> 16] + popcount[bitfield_ibs1 & 65535];
 	  bit_count_ibs0 += popcount[bitfield_ibs0 >> 16] + popcount[bitfield_ibs0 & 65535];
-	}
+	} while (xor_ptr < xor_buf_end);
 	*genome_main += bit_count_ibs1;
 	genome_main++;
 	*genome_main += bit_count_ibs0;
 #endif
 	genome_main++;
 	next_ppc_marker_hybrid = *genome_main - lowct2;
-	if (next_ppc_marker_hybrid >= GENOME_MULTIPLEX2) {
-	  genome_main = &(genome_main[3]);
-	} else {
+	if (next_ppc_marker_hybrid < GENOME_MULTIPLEX2) {
 	  ibs_incr = 0; // hethet low-order, ibs0 high-order
 	  do {
 	    offset = next_ppc_marker_hybrid / BITCT;
@@ -2424,6 +2422,8 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	  genome_main++;
 	  *genome_main += ibs_incr >> BITCT2;
 	  genome_main++;
+	} else {
+	  genome_main = &(genome_main[3]);
 	}
       }
     } else {
@@ -2434,7 +2434,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 #if __LP64__
 	acc_ibs1.vi = _mm_setzero_si128();
 	acc_ibs0.vi = _mm_setzero_si128();
-	while (xor_ptr < xor_buf_end) {
+	do {
 	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), *maskptr++);
           loader2 = _mm_srli_epi64(loader, 1);
 	  count_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
@@ -2477,7 +2477,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
           count_ibs0 = _mm_add_epi64(count_ibs0, _mm_add_epi64(_mm_and_si128(count2_ibs0, m2), _mm_and_si128(_mm_srli_epi64(count2_ibs0, 2), m2)));
           acc_ibs1.vi = _mm_add_epi64(acc_ibs1.vi, _mm_add_epi64(_mm_and_si128(count_ibs1, m4), _mm_and_si128(_mm_srli_epi64(count_ibs1, 4), m4)));
           acc_ibs0.vi = _mm_add_epi64(acc_ibs0.vi, _mm_add_epi64(_mm_and_si128(count_ibs0, m4), _mm_and_si128(_mm_srli_epi64(count_ibs0, 4), m4)));
-	}
+	} while (xor_ptr < xor_buf_end);
 #if GENOME_MULTIPLEX > 1920
 	acc_ibs1.vi = _mm_add_epi64(_mm_and_si128(acc_ibs1.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_ibs1.vi, 8), m8));
 	acc_ibs0.vi = _mm_add_epi64(_mm_and_si128(acc_ibs0.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_ibs0.vi, 8), m8));
@@ -2495,7 +2495,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 #else
         bit_count_ibs1 = 0;
 	bit_count_ibs0 = 0;
-	while (xor_ptr < xor_buf_end) {
+	do {
 	  loader = ((*glptr++) ^ (*glptr_fixed_tmp++)) & (*maskptr++);
 	  loader2 = loader >> 1;
 	  bitfield_ibs1 = (loader ^ loader2) & 0x55555555;
@@ -2509,16 +2509,14 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	  *xor_ptr++ = loader2 >> 1;
 	  bit_count_ibs1 += popcount[bitfield_ibs1 >> 16] + popcount[bitfield_ibs1 & 65535];
 	  bit_count_ibs0 += popcount[bitfield_ibs0 >> 16] + popcount[bitfield_ibs0 & 65535];
-	}
+	} while (xor_ptr < xor_buf_end);
 	*genome_main += bit_count_ibs1;
 	genome_main++;
 	*genome_main += bit_count_ibs0;
 #endif
 	genome_main++;
 	next_ppc_marker_hybrid = *genome_main - lowct2;
-	if (next_ppc_marker_hybrid >= GENOME_MULTIPLEX2) {
-	  genome_main = &(genome_main[3]);
-	} else {
+	if (next_ppc_marker_hybrid < GENOME_MULTIPLEX2) {
 	  ibs_incr = 0; // hethet low-order, ibs0 high-order
 	  do {
 	    offset = next_ppc_marker_hybrid / BITCT;
@@ -2551,6 +2549,8 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	  genome_main++;
 	  *genome_main += ibs_incr >> BITCT2;
 	  genome_main++;
+	} else {
+	  genome_main = &(genome_main[3]);
 	}
       }
     }
