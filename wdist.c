@@ -2050,7 +2050,7 @@ static inline unsigned int popcount_xor_1mask_multiword(__m128i** xor1p, __m128i
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 
-unsigned int popcountg_xor_1mask_multiword(__m128i* xor1, __m128i* xor2, __m128i* mask, unsigned int* ibs0ct_ptr) {
+static inline unsigned int popcountg_xor_1mask_multiword(__m128i* xor1, __m128i* xor2, __m128i* mask, unsigned int* ibs0ct_ptr) {
   // Instead of doing a straight bitcount, we want to obtain two specialized
   // counts here:
   // - Number of IBS 1 loci, i.e. xor between two genotypes is 01 or 10
@@ -2153,7 +2153,7 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 
-unsigned int popcountg_xor_2mask_multiword(__m128i* xor1, __m128i* xor2, __m128i* mask1, __m128i* mask2, unsigned int* ibs0ct_ptr) {
+static inline unsigned int popcountg_xor_2mask_multiword(__m128i* xor1, __m128i* xor2, __m128i* mask1, __m128i* mask2, unsigned int* ibs0ct_ptr) {
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
@@ -2448,7 +2448,11 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	  genome_main++;
 	}
 	glptr = &(glptr[GENOME_MULTIPLEX2 / BITCT]);
+#if __LP64__
+        maskptr = &(maskptr[GENOME_MULTIPLEX / BITCT]);
+#else
 	maskptr = &(maskptr[GENOME_MULTIPLEX2 / BITCT]);
+#endif
       }
     } else {
       while (glptr < glptr_end) {
@@ -2491,7 +2495,11 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	  genome_main++;
 	}
 	glptr = &(glptr[GENOME_MULTIPLEX2 / BITCT]);
+#if __LP64__
+        maskptr = &(maskptr[GENOME_MULTIPLEX / BITCT]);
+#else
 	maskptr = &(maskptr[GENOME_MULTIPLEX2 / BITCT]);
+#endif
       }
     }
   }
