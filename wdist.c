@@ -1937,7 +1937,7 @@ void collapse_marker_pos(unsigned int* marker_pos, unsigned char* marker_exclude
   unsigned int uii;
   for (ii = 0; ii < unfiltered_marker_ct; ii++) {
     if (!excluded(marker_exclude, ii)) {
-      uii = *mpptr;
+      uii = marker_pos[ii];
       while (remap_old_idx < uii) {
 	if (!excluded(marker_exclude, remap_old_idx)) {
 	  remap_new_idx++;
@@ -3989,12 +3989,10 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
       if (ulii < BITCT + (2 * (jj & (~(BITCT2 - 1))))) {
 	ulii = ~0LU << (ulii & (BITCT - 1));
       }
-      // printf("%d: %lu  ", jj, ulii);
       *glptr2++ = ulii;
       *glptr2++ = ulii;
       ii++;
     }
-    // printf("\n");
     if (kk < GENOME_MULTIPLEX) {
       memset(&(loadbuf[kk * unfiltered_indiv_ct4]), 0, (GENOME_MULTIPLEX - kk) * unfiltered_indiv_ct4);
       fill_long_zero((long*)ped_geno, indiv_ct * (GENOME_MULTIPLEX / BITCT2));
