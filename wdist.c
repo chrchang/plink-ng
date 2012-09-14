@@ -1554,7 +1554,7 @@ unsigned int* indiv_missing;
 unsigned int* indiv_missing_unwt = NULL;
 double* jackknife_precomp = NULL;
 unsigned int* genome_main;
-unsigned int* marker_pos = NULL;
+unsigned long* marker_pos = NULL;
 double* pheno_packed;
 
 void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_type) {
@@ -1928,12 +1928,12 @@ void collapse_copy_phenod(double *target, double* pheno_d, unsigned char* indiv_
   }
 }
 
-void collapse_marker_pos(unsigned int* marker_pos, unsigned char* marker_exclude, int unfiltered_marker_ct, int marker_exclude_ct) {
+void collapse_marker_pos(unsigned long* marker_pos, unsigned char* marker_exclude, int unfiltered_marker_ct, int marker_exclude_ct) {
   unsigned int remap_old_idx = 0;
   unsigned int remap_new_idx = 0;
-  unsigned int* mpptr = marker_pos;
+  unsigned long* mpptr = marker_pos;
   int ii;
-  unsigned int uii;
+  unsigned long uii;
   for (ii = 0; ii < unfiltered_marker_ct; ii++) {
     if (!excluded(marker_exclude, ii)) {
       uii = *mpptr;
@@ -2377,10 +2377,10 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
   int offset;
   unsigned long uland;
   unsigned long ulval;
-  unsigned int next_ppc_marker_idx;
+  unsigned long next_ppc_marker_hybrid;
   unsigned int cur_floor;
-  unsigned int cur_floor_next;
   unsigned long mask_fixed_test;
+  unsigned long* marker_window = &(marker_pos[low_ct]);
 #if __LP64__
   glptr_end = (__m128i*)(&(geno[indiv_ct * (GENOME_MULTIPLEX2 / BITCT)]));
 #else
@@ -2482,15 +2482,17 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 #else
 	*genome_main += popcountg_xor_2mask_multiword(glptr, glptr_fixed, maskptr, maskptr_fixed, &(genome_main[1]));
 #endif
-	next_ppc_marker_idx = *genome_main;
-	if (next_ppc_marker_idx >= high_ct) {
+	next_ppc_marker_hybrid = *genome_main - low_ct;
+	if (next_ppc_marker_hybrid >= GENOME_MULTIPLEX) {
 	  genome_main = &(genome_main[3]);
 	} else {
 	  ibs_incr = 0; // hethet low-order, ibs0 high-order
 	  do {
-	    offset = (next_ppc_marker_idx - low_ct) / BITCT2;
+	    cur_floor = next_ppc_marker_hybrid & (~(BITCT2 - 1));
+	    offset = cur_floor / BITCT2;
+	    next_ppc_marker_hybrid = ~0LU << ((next_ppc_marker_hybrid & (BITCT2 - 1)) * 2);
+	  incr_genome_2mask_loop:
 	    uland = glptr_back[offset] & (((unsigned long*)glptr_fixed)[offset]);
-	    cur_floor = next_ppc_marker_idx & (~(BITCT2 - 1));
 	    // het is represented as 11, so
 	    //   (uland & (uland << 1)) & 0xaaaaaaaaaaaaaaaa
 	    // stores whether a particular marker is a hethet hit in the
@@ -2503,24 +2505,30 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	    // but the masking filters that out.)
 	    //
 	    // ~0LU << xx masks out the bottom xx bits.
-	    ulval = (((uland & (uland << 1)) & AAAAMASK) | (((unsigned long*)xor_buf)[offset])) & (~0LU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2));
-	    cur_floor_next = cur_floor + BITCT2;
+	    ulval = (((uland & (uland << 1)) & AAAAMASK) | (((unsigned long*)xor_buf)[offset])) & next_ppc_marker_hybrid;
 	    while (1) {
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
 		ibs_incr += (1LU << ((jj & 1) * BITCT2));
-		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
-		if (next_ppc_marker_idx >= cur_floor_next) {
+		next_ppc_marker_hybrid = marker_window[cur_floor + (jj / 2)];
+		if (!(next_ppc_marker_hybrid & 0x4000000000000000LU)) {
 		  break;
 		}
-                ulval &= (~0LU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2));
+                ulval &= next_ppc_marker_hybrid;
+	      } else if (cur_floor < (GENOME_MULTIPLEX - BITCT2)) {
+		offset++;
+		next_ppc_marker_hybrid = 0xffffffffffffffffLU;
+		cur_floor += BITCT2;
+		goto incr_genome_2mask_loop;
 	      } else {
-		next_ppc_marker_idx = cur_floor_next;
-		break;
+	        *genome_main = high_ct;
+	        goto incr_genome_2mask_exit;
 	      }
 	    }
-	  } while (next_ppc_marker_idx < high_ct);
-	  *genome_main++ = next_ppc_marker_idx;
+	  } while (next_ppc_marker_hybrid < GENOME_MULTIPLEX);
+	  *genome_main = next_ppc_marker_hybrid + low_ct;
+	incr_genome_2mask_exit:
+	  genome_main++;
           *genome_main += ibs_incr & ((~0LU) >> BITCT2);
 	  genome_main++;
 	  *genome_main += ibs_incr >> BITCT2;
@@ -2601,33 +2609,55 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 #else
 	*genome_main += popcountg_xor_1mask_multiword(glptr, glptr_fixed, maskptr, &(genome_main[1]));
 #endif
-	next_ppc_marker_idx = *genome_main;
-	if (next_ppc_marker_idx >= high_ct) {
+
+	next_ppc_marker_hybrid = *genome_main - low_ct;
+	if (next_ppc_marker_hybrid >= GENOME_MULTIPLEX) {
 	  genome_main = &(genome_main[3]);
 	} else {
-	  ibs_incr = 0;
+	  ibs_incr = 0; // hethet low-order, ibs0 high-order
 	  do {
-	    offset = (next_ppc_marker_idx - low_ct) / BITCT2;
+	    cur_floor = next_ppc_marker_hybrid & (~(BITCT2 - 1));
+	    offset = cur_floor / BITCT2;
+	    next_ppc_marker_hybrid = ~0LU << ((next_ppc_marker_hybrid & (BITCT2 - 1)) * 2);
+	  incr_genome_1mask_loop:
 	    uland = glptr_back[offset] & (((unsigned long*)glptr_fixed)[offset]);
-	    cur_floor = next_ppc_marker_idx & (~(BITCT2 - 1));
-            ulval = (((uland & (uland << 1)) & AAAAMASK) | (((unsigned long*)xor_buf)[offset])) & (~0LU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2));
-	    cur_floor_next = cur_floor + BITCT2;
+	    // het is represented as 11, so
+	    //   (uland & (uland << 1)) & 0xaaaaaaaaaaaaaaaa
+	    // stores whether a particular marker is a hethet hit in the
+	    // corresponding odd bit.
+	    //
+	    // homozygotes are represented as 01 and 10, so
+	    //   (ulxor & (ulxor >> 1)) & 0x5555555555555555
+	    // stores whether a particular marker is a hom1-hom2 hit in the
+	    // corresponding even bit.  (het-missing pairs also set that bit,
+	    // but the masking filters that out.)
+	    //
+	    // ~0LU << xx masks out the bottom xx bits.
+	    ulval = (((uland & (uland << 1)) & AAAAMASK) | (((unsigned long*)xor_buf)[offset])) & next_ppc_marker_hybrid;
 	    while (1) {
 	      if (ulval) {
 		jj = __builtin_ctzl(ulval);
 		ibs_incr += (1LU << ((jj & 1) * BITCT2));
-		next_ppc_marker_idx = marker_pos[cur_floor + (jj / 2)];
-		if (next_ppc_marker_idx >= cur_floor_next) {
+		next_ppc_marker_hybrid = marker_window[cur_floor + (jj / 2)];
+		if (!(next_ppc_marker_hybrid & 0x4000000000000000LU)) {
 		  break;
 		}
-                ulval &= (~0LU << ((next_ppc_marker_idx & (BITCT2 - 1)) * 2));
+                ulval &= next_ppc_marker_hybrid;
 	      } else {
-	        next_ppc_marker_idx = cur_floor_next;
-		break;
+		if (cur_floor < (GENOME_MULTIPLEX - BITCT2)) {
+		  offset++;
+		  next_ppc_marker_hybrid = 0xffffffffffffffffLU;
+		  cur_floor += BITCT2;
+		  goto incr_genome_1mask_loop;
+		}
+		*genome_main = high_ct;
+		goto incr_genome_1mask_exit;
 	      }
 	    }
-	  } while (next_ppc_marker_idx < high_ct);
-	  *genome_main++ = next_ppc_marker_idx;
+	  } while (next_ppc_marker_hybrid < GENOME_MULTIPLEX);
+	  *genome_main = next_ppc_marker_hybrid + low_ct;
+	incr_genome_1mask_exit:
+	  genome_main++;
 	  *genome_main += ibs_incr & ((~0LU) >> BITCT2);
 	  genome_main++;
 	  *genome_main += ibs_incr >> BITCT2;
@@ -3574,8 +3604,8 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
   int plink_maxsnp = 4;
   int loaded_chrom_mask = 0;
   int last_chrom = -1;
-  unsigned int* mpptr = NULL;
-  unsigned int* mpptr2 = NULL;
+  unsigned long* mpptr = NULL;
+  unsigned long* mpptr2 = NULL;
   char* bufptr;
   char* bufptr2;
   unsigned long ulii;
@@ -3655,7 +3685,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
   }
   // permanent stack allocation #3, if needed: marker_pos
   if (calculation_type & CALC_GENOME) {
-    marker_pos = (unsigned int*)wkspace_alloc(unfiltered_marker_ct * sizeof(int));
+    marker_pos = (unsigned long*)wkspace_alloc(unfiltered_marker_ct * sizeof(long));
     if (!marker_pos) {
       return RET_NOMEM;
     }
@@ -4038,9 +4068,9 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
   } else {
     giptr = genome_main;
     for (ulii = 0; ulii < tot_cells; ulii++) {
+      *giptr++ = 0;
+      *giptr++ = 0;
       *giptr++ = marker_pos_start;
-      *giptr++ = 0;
-      *giptr++ = 0;
       *giptr++ = 0;
       *giptr++ = 0;
     }
@@ -4049,6 +4079,21 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
     fseeko(pedfile, bed_offset, SEEK_SET);
   }
 
+  for (ii = 0; ii < marker_ct; ii += GENOME_MULTIPLEX) {
+    kk = ii + GENOME_MULTIPLEX;
+    if (kk > marker_ct) {
+      kk = marker_ct;
+    }
+    for (jj = ii; jj < kk; jj++) {
+      ulii = marker_pos[jj];
+      if ((ulii ^ jj) & (~(BITCT2 - 1))) {
+        marker_pos[jj] = ulii - ii;
+      } else {
+	// convert to mask
+	marker_pos[jj] = ~0LU << ((ulii & (BITCT2 - 1)) * 2);
+      }
+    }
+  }
   ii = 0; // raw marker index
   low_ct = 0; // after excluding missing
   do {
