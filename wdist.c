@@ -2225,6 +2225,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
   __m128i count2_ibs0;
   __uni16 acc_ibs1;
   __uni16 acc_ibs0;
+  unsigned long* lptr;
   __m128i* glptr;
   __m128i* glptr_fixed;
   __m128i* glptr_end;
@@ -2254,6 +2255,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
   unsigned long uland;
   unsigned long ulval;
   unsigned long next_ppc_marker_hybrid;
+  unsigned long mask_fixed_test;
   unsigned long* marker_window_ptr;
   int lowct2 = low_ct * 2;
   int highct2 = high_ct * 2;
@@ -2267,155 +2269,293 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 #if __LP64__
     glptr_fixed = (__m128i*)(&(geno[jj]));
     glptr = (__m128i*)(&(geno[jj + (GENOME_MULTIPLEX2 / BITCT)]));
-    maskptr_fixed = (__m128i*)(&(masks[jj]));
+    lptr = &(masks[jj]);
     maskptr = (__m128i*)(&(masks[jj + (GENOME_MULTIPLEX2 / BITCT)]));
+    maskptr_fixed = (__m128i*)lptr;
+    mask_fixed_test = *lptr++;
+    for (jj = 0; jj < GENOME_MULTIPLEX2 / BITCT - 1; jj++) {
+      mask_fixed_test &= *lptr++;
+    }
 #else
     glptr_fixed = &(geno[jj]);
     glptr = &(geno[jj + (GENOME_MULTIPLEX2 / BITCT)]);
     maskptr_fixed = &(masks[jj]);
-    maskptr = &(masks[jj + (GENOME_MULTIPLEX2 / BITCT)]);
+    maskptr = maskptr_fixed;
+    mask_fixed_test = *maskptr++;
+    for (jj = 0; jj < GENOME_MULTIPLEX2 / BITCT - 1; jj++) {
+      mask_fixed_test &= *maskptr++;
+    }
 #endif
-    while (glptr < glptr_end) {
-      xor_ptr = xor_buf;
-      glptr_back = (unsigned long*)glptr;
-      glptr_fixed_tmp = glptr_fixed;
-      maskptr_fixed_tmp = maskptr_fixed;
+    if (~mask_fixed_test) {
+      while (glptr < glptr_end) {
+	xor_ptr = xor_buf;
+	glptr_back = (unsigned long*)glptr;
+	glptr_fixed_tmp = glptr_fixed;
+	maskptr_fixed_tmp = maskptr_fixed;
 #if __LP64__
-      acc_ibs1.vi = _mm_setzero_si128();
-      acc_ibs0.vi = _mm_setzero_si128();
-      do {
-	loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), _mm_and_si128(*maskptr++, *maskptr_fixed_tmp++));
-	loader2 = _mm_srli_epi64(loader, 1);
-	count_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
-	count_ibs0 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
-	*xor_ptr++ = count_ibs0;
-
-	loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), _mm_and_si128(*maskptr++, *maskptr_fixed_tmp++));
-	loader2 = _mm_srli_epi64(loader, 1);
-	count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
-	loader3 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
-	*xor_ptr++ = loader3;
-	count_ibs0 = _mm_add_epi64(count_ibs0, loader3);
-
-	loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), *maskptr++);
-	loader2 = _mm_srli_epi64(loader, 1);
-	count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
-	loader3 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
-	*xor_ptr++ = loader3;
-	count_ibs0 = _mm_add_epi64(count_ibs0, loader3);
-
-	loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), _mm_and_si128(*maskptr++, *maskptr_fixed_tmp++));
-	loader2 = _mm_srli_epi64(loader, 1);
-	count2_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
-	count2_ibs0 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
-	*xor_ptr++ = count2_ibs0;
-
-	loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), _mm_and_si128(*maskptr++, *maskptr_fixed_tmp++));
-	loader2 = _mm_srli_epi64(loader, 1);
-	count2_ibs1 = _mm_add_epi64(count2_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
-	loader3 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
-	*xor_ptr++ = loader3;
-	count2_ibs0 = _mm_add_epi64(count2_ibs0, loader3);
-
-	loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), _mm_and_si128(*maskptr++, *maskptr_fixed_tmp++));
-	loader2 = _mm_srli_epi64(loader, 1);
-	count2_ibs1 = _mm_add_epi64(count2_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
-	loader3 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
-	*xor_ptr++ = loader3;
-	count2_ibs0 = _mm_add_epi64(count2_ibs0, loader3);
-
-	count_ibs1 = _mm_add_epi64(_mm_and_si128(count_ibs1, m2), _mm_and_si128(_mm_srli_epi64(count_ibs1, 2), m2));
-	count_ibs0 = _mm_add_epi64(_mm_and_si128(count_ibs0, m2), _mm_and_si128(_mm_srli_epi64(count_ibs0, 2), m2));
-	count_ibs1 = _mm_add_epi64(count_ibs1, _mm_add_epi64(_mm_and_si128(count2_ibs1, m2), _mm_and_si128(_mm_srli_epi64(count2_ibs1, 2), m2)));
-	count_ibs0 = _mm_add_epi64(count_ibs0, _mm_add_epi64(_mm_and_si128(count2_ibs0, m2), _mm_and_si128(_mm_srli_epi64(count2_ibs0, 2), m2)));
-	acc_ibs1.vi = _mm_add_epi64(acc_ibs1.vi, _mm_add_epi64(_mm_and_si128(count_ibs1, m4), _mm_and_si128(_mm_srli_epi64(count_ibs1, 4), m4)));
-	acc_ibs0.vi = _mm_add_epi64(acc_ibs0.vi, _mm_add_epi64(_mm_and_si128(count_ibs0, m4), _mm_and_si128(_mm_srli_epi64(count_ibs0, 4), m4)));
-      } while (xor_ptr < xor_buf_end);
-#if GENOME_MULTIPLEX > 1920
-      acc_ibs1.vi = _mm_add_epi64(_mm_and_si128(acc_ibs1.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_ibs1.vi, 8), m8));
-      acc_ibs0.vi = _mm_add_epi64(_mm_and_si128(acc_ibs0.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_ibs0.vi, 8), m8));
-#else
-      acc_ibs1.vi = _mm_and_si128(_mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 8)), m8);
-      acc_ibs0.vi = _mm_and_si128(_mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 8)), m8);
-#endif
-      acc_ibs1.vi = _mm_and_si128(_mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 16)), m16);
-      acc_ibs0.vi = _mm_and_si128(_mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 16)), m16);
-      acc_ibs1.vi = _mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 32));
-      acc_ibs0.vi = _mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 32));
-      *genome_main += (unsigned int)(acc_ibs1.u8[0] + acc_ibs1.u8[1]);
-      genome_main++;
-      *genome_main += (unsigned int)(acc_ibs0.u8[0] + acc_ibs0.u8[1]);
-#else
-      bit_count_ibs1 = 0;
-      bit_count_ibs0 = 0;
-      do {
-	loader = ((*glptr++) ^ (*glptr_fixed_tmp++)) & ((*maskptr++) & (*maskptr_fixed_tmp++));
-	loader2 = loader >> 1;
-	bitfield_ibs1 = (loader ^ loader2) & 0x55555555;
-	bitfield_ibs0 = (loader & loader2) & 0x55555555;
-	*xor_ptr++ = bitfield_ibs0;
-	loader = ((*glptr++) ^ (*glptr_fixed_tmp++)) & ((*maskptr++) & (*maskptr_fixed_tmp++));
-	loader2 = loader << 1;
-	bitfield_ibs1 |= (loader ^ loader2) & 0xaaaaaaaa;
-	loader2 = (loader & loader2) & 0xaaaaaaaa;
-	bitfield_ibs0 |= loader2;
-	*xor_ptr++ = loader2 >> 1;
-	bit_count_ibs1 += popcount[bitfield_ibs1 >> 16] + popcount[bitfield_ibs1 & 65535];
-	bit_count_ibs0 += popcount[bitfield_ibs0 >> 16] + popcount[bitfield_ibs0 & 65535];
-      } while (xor_ptr < xor_buf_end);
-      *genome_main += bit_count_ibs1;
-      genome_main++;
-      *genome_main += bit_count_ibs0;
-#endif
-      genome_main++;
-      next_ppc_marker_hybrid = *genome_main - lowct2;
-      if (next_ppc_marker_hybrid < GENOME_MULTIPLEX2) {
-	ibs_incr = 0; // hethet low-order, ibs0 high-order
+	acc_ibs1.vi = _mm_setzero_si128();
+	acc_ibs0.vi = _mm_setzero_si128();
 	do {
-	  offset = next_ppc_marker_hybrid / BITCT;
-	  marker_window_ptr = &(marker_window[offset * BITCT]);
-	  next_ppc_marker_hybrid = ~0LU << (next_ppc_marker_hybrid & (BITCT - 1));
-	incr_genome_2mask_loop:
-	  uland = glptr_back[offset] & (((unsigned long*)glptr_fixed)[offset]);
-	  // het is represented as 11, so
-	  //   (uland & (uland << 1)) & 0xaaaaaaaaaaaaaaaa
-	  // stores whether a particular marker is a hethet hit in the
-	  // corresponding odd bit.
-	  //
-	  // homozygotes are represented as 01 and 10, so
-	  //   (ulxor & (ulxor >> 1)) & 0x5555555555555555
-	  // stores whether a particular marker is a hom1-hom2 hit in the
-	  // corresponding even bit.  (het-missing pairs also set that bit,
-	  // but the masking filters that out.)
-	  //
-	  // ~0LU << xx masks out the bottom xx bits.
-	  ulval = (((uland & (uland << 1)) & AAAAMASK) | (((unsigned long*)xor_buf)[offset]));
+	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), _mm_and_si128(*maskptr++, *maskptr_fixed_tmp++));
+          loader2 = _mm_srli_epi64(loader, 1);
+	  count_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
+	  count_ibs0 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+	  *xor_ptr++ = count_ibs0;
+
+	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), _mm_and_si128(*maskptr++, *maskptr_fixed_tmp++));
+          loader2 = _mm_srli_epi64(loader, 1);
+          count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+	  loader3 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+	  *xor_ptr++ = loader3;
+	  count_ibs0 = _mm_add_epi64(count_ibs0, loader3);
+
+	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), *maskptr++);
+          loader2 = _mm_srli_epi64(loader, 1);
+          count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+	  loader3 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+	  *xor_ptr++ = loader3;
+	  count_ibs0 = _mm_add_epi64(count_ibs0, loader3);
+
+	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), _mm_and_si128(*maskptr++, *maskptr_fixed_tmp++));
+          loader2 = _mm_srli_epi64(loader, 1);
+	  count2_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
+	  count2_ibs0 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+	  *xor_ptr++ = count2_ibs0;
+
+	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), _mm_and_si128(*maskptr++, *maskptr_fixed_tmp++));
+          loader2 = _mm_srli_epi64(loader, 1);
+          count2_ibs1 = _mm_add_epi64(count2_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+	  loader3 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+	  *xor_ptr++ = loader3;
+	  count2_ibs0 = _mm_add_epi64(count2_ibs0, loader3);
+
+	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), _mm_and_si128(*maskptr++, *maskptr_fixed_tmp++));
+          loader2 = _mm_srli_epi64(loader, 1);
+          count2_ibs1 = _mm_add_epi64(count2_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+	  loader3 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+	  *xor_ptr++ = loader3;
+	  count2_ibs0 = _mm_add_epi64(count2_ibs0, loader3);
+
+          count_ibs1 = _mm_add_epi64(_mm_and_si128(count_ibs1, m2), _mm_and_si128(_mm_srli_epi64(count_ibs1, 2), m2));
+          count_ibs0 = _mm_add_epi64(_mm_and_si128(count_ibs0, m2), _mm_and_si128(_mm_srli_epi64(count_ibs0, 2), m2));
+          count_ibs1 = _mm_add_epi64(count_ibs1, _mm_add_epi64(_mm_and_si128(count2_ibs1, m2), _mm_and_si128(_mm_srli_epi64(count2_ibs1, 2), m2)));
+          count_ibs0 = _mm_add_epi64(count_ibs0, _mm_add_epi64(_mm_and_si128(count2_ibs0, m2), _mm_and_si128(_mm_srli_epi64(count2_ibs0, 2), m2)));
+          acc_ibs1.vi = _mm_add_epi64(acc_ibs1.vi, _mm_add_epi64(_mm_and_si128(count_ibs1, m4), _mm_and_si128(_mm_srli_epi64(count_ibs1, 4), m4)));
+          acc_ibs0.vi = _mm_add_epi64(acc_ibs0.vi, _mm_add_epi64(_mm_and_si128(count_ibs0, m4), _mm_and_si128(_mm_srli_epi64(count_ibs0, 4), m4)));
+	} while (xor_ptr < xor_buf_end);
+#if GENOME_MULTIPLEX > 1920
+	acc_ibs1.vi = _mm_add_epi64(_mm_and_si128(acc_ibs1.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_ibs1.vi, 8), m8));
+	acc_ibs0.vi = _mm_add_epi64(_mm_and_si128(acc_ibs0.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_ibs0.vi, 8), m8));
+#else
+	acc_ibs1.vi = _mm_and_si128(_mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 8)), m8);
+	acc_ibs0.vi = _mm_and_si128(_mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 8)), m8);
+#endif
+	acc_ibs1.vi = _mm_and_si128(_mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 16)), m16);
+	acc_ibs0.vi = _mm_and_si128(_mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 16)), m16);
+	acc_ibs1.vi = _mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 32));
+	acc_ibs0.vi = _mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 32));
+	*genome_main += (unsigned int)(acc_ibs1.u8[0] + acc_ibs1.u8[1]);
+	genome_main++;
+        *genome_main += (unsigned int)(acc_ibs0.u8[0] + acc_ibs0.u8[1]);
+#else
+        bit_count_ibs1 = 0;
+	bit_count_ibs0 = 0;
+	do {
+	  loader = ((*glptr++) ^ (*glptr_fixed_tmp++)) & ((*maskptr++) & (*maskptr_fixed_tmp++));
+	  loader2 = loader >> 1;
+	  bitfield_ibs1 = (loader ^ loader2) & 0x55555555;
+	  bitfield_ibs0 = (loader & loader2) & 0x55555555;
+	  *xor_ptr++ = bitfield_ibs0;
+	  loader = ((*glptr++) ^ (*glptr_fixed_tmp++)) & ((*maskptr++) & (*maskptr_fixed_tmp++));
+	  loader2 = loader << 1;
+	  bitfield_ibs1 |= (loader ^ loader2) & 0xaaaaaaaa;
+	  loader2 = (loader & loader2) & 0xaaaaaaaa;
+	  bitfield_ibs0 |= loader2;
+	  *xor_ptr++ = loader2 >> 1;
+	  bit_count_ibs1 += popcount[bitfield_ibs1 >> 16] + popcount[bitfield_ibs1 & 65535];
+	  bit_count_ibs0 += popcount[bitfield_ibs0 >> 16] + popcount[bitfield_ibs0 & 65535];
+	} while (xor_ptr < xor_buf_end);
+	*genome_main += bit_count_ibs1;
+	genome_main++;
+	*genome_main += bit_count_ibs0;
+#endif
+	genome_main++;
+	next_ppc_marker_hybrid = *genome_main - lowct2;
+	if (next_ppc_marker_hybrid < GENOME_MULTIPLEX2) {
+	  ibs_incr = 0; // hethet low-order, ibs0 high-order
 	  do {
-	    ulval &= next_ppc_marker_hybrid;
-	    if (ulval) {
-	      jj = __builtin_ctzl(ulval);
-	      next_ppc_marker_hybrid = marker_window_ptr[jj];
-	      ibs_incr += (1LU << ((jj & 1) * BITCT2));
-	    } else if (offset < ((GENOME_MULTIPLEX2 - BITCT) / BITCT)) {
-	      offset++;
-	      next_ppc_marker_hybrid = ~0LU;
-	      marker_window_ptr = &(marker_window_ptr[BITCT]);
-	      goto incr_genome_2mask_loop;
-	    } else {
-	      *genome_main = highct2;
-	      goto incr_genome_2mask_exit;
-	    }
-	  } while (next_ppc_marker_hybrid & (1LU << (BITCT - 1)));
-	} while (next_ppc_marker_hybrid < GENOME_MULTIPLEX2);
-	*genome_main = next_ppc_marker_hybrid + lowct2;
-      incr_genome_2mask_exit:
+	    offset = next_ppc_marker_hybrid / BITCT;
+	    marker_window_ptr = &(marker_window[offset * BITCT]);
+	    next_ppc_marker_hybrid = ~0LU << (next_ppc_marker_hybrid & (BITCT - 1));
+	  incr_genome_2mask_loop:
+	    uland = glptr_back[offset] & (((unsigned long*)glptr_fixed)[offset]);
+	    // het is represented as 11, so
+	    //   (uland & (uland << 1)) & 0xaaaaaaaaaaaaaaaa
+	    // stores whether a particular marker is a hethet hit in the
+	    // corresponding odd bit.
+	    //
+	    // homozygotes are represented as 01 and 10, so
+	    //   (ulxor & (ulxor >> 1)) & 0x5555555555555555
+	    // stores whether a particular marker is a hom1-hom2 hit in the
+	    // corresponding even bit.  (het-missing pairs also set that bit,
+	    // but the masking filters that out.)
+	    //
+	    // ~0LU << xx masks out the bottom xx bits.
+	    ulval = (((uland & (uland << 1)) & AAAAMASK) | (((unsigned long*)xor_buf)[offset]));
+	    do {
+	      ulval &= next_ppc_marker_hybrid;
+	      if (ulval) {
+		jj = __builtin_ctzl(ulval);
+		next_ppc_marker_hybrid = marker_window_ptr[jj];
+		ibs_incr += (1LU << ((jj & 1) * BITCT2));
+	      } else if (offset < ((GENOME_MULTIPLEX2 - BITCT) / BITCT)) {
+		offset++;
+		next_ppc_marker_hybrid = ~0LU;
+		marker_window_ptr = &(marker_window_ptr[BITCT]);
+		goto incr_genome_2mask_loop;
+	      } else {
+		*genome_main = highct2;
+		goto incr_genome_2mask_exit;
+	      }
+	    } while (next_ppc_marker_hybrid & (1LU << (BITCT - 1)));
+	  } while (next_ppc_marker_hybrid < GENOME_MULTIPLEX2);
+	  *genome_main = next_ppc_marker_hybrid + lowct2;
+        incr_genome_2mask_exit:
+	  genome_main++;
+          *genome_main += ibs_incr & ((~0LU) >> BITCT2);
+	  genome_main++;
+	  *genome_main += ibs_incr >> BITCT2;
+	  genome_main++;
+	} else {
+	  genome_main = &(genome_main[3]);
+	}
+      }
+    } else {
+      while (glptr < glptr_end) {
+	xor_ptr = xor_buf;
+	glptr_back = (unsigned long*)glptr;
+	glptr_fixed_tmp = glptr_fixed;
+#if __LP64__
+	acc_ibs1.vi = _mm_setzero_si128();
+	acc_ibs0.vi = _mm_setzero_si128();
+	do {
+	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), *maskptr++);
+          loader2 = _mm_srli_epi64(loader, 1);
+	  count_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
+	  count_ibs0 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+	  *xor_ptr++ = count_ibs0;
+	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), *maskptr++);
+          loader2 = _mm_srli_epi64(loader, 1);
+          count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+	  loader3 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+	  *xor_ptr++ = loader3;
+	  count_ibs0 = _mm_add_epi64(count_ibs0, loader3);
+	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), *maskptr++);
+          loader2 = _mm_srli_epi64(loader, 1);
+          count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+	  loader3 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+	  *xor_ptr++ = loader3;
+	  count_ibs0 = _mm_add_epi64(count_ibs0, loader3);
+
+	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), *maskptr++);
+          loader2 = _mm_srli_epi64(loader, 1);
+	  count2_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
+	  count2_ibs0 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+	  *xor_ptr++ = count2_ibs0;
+	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), *maskptr++);
+          loader2 = _mm_srli_epi64(loader, 1);
+          count2_ibs1 = _mm_add_epi64(count2_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+	  loader3 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+	  *xor_ptr++ = loader3;
+	  count2_ibs0 = _mm_add_epi64(count2_ibs0, loader3);
+	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), *maskptr++);
+          loader2 = _mm_srli_epi64(loader, 1);
+          count2_ibs1 = _mm_add_epi64(count2_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
+	  loader3 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
+	  *xor_ptr++ = loader3;
+	  count2_ibs0 = _mm_add_epi64(count2_ibs0, loader3);
+
+          count_ibs1 = _mm_add_epi64(_mm_and_si128(count_ibs1, m2), _mm_and_si128(_mm_srli_epi64(count_ibs1, 2), m2));
+          count_ibs0 = _mm_add_epi64(_mm_and_si128(count_ibs0, m2), _mm_and_si128(_mm_srli_epi64(count_ibs0, 2), m2));
+          count_ibs1 = _mm_add_epi64(count_ibs1, _mm_add_epi64(_mm_and_si128(count2_ibs1, m2), _mm_and_si128(_mm_srli_epi64(count2_ibs1, 2), m2)));
+          count_ibs0 = _mm_add_epi64(count_ibs0, _mm_add_epi64(_mm_and_si128(count2_ibs0, m2), _mm_and_si128(_mm_srli_epi64(count2_ibs0, 2), m2)));
+          acc_ibs1.vi = _mm_add_epi64(acc_ibs1.vi, _mm_add_epi64(_mm_and_si128(count_ibs1, m4), _mm_and_si128(_mm_srli_epi64(count_ibs1, 4), m4)));
+          acc_ibs0.vi = _mm_add_epi64(acc_ibs0.vi, _mm_add_epi64(_mm_and_si128(count_ibs0, m4), _mm_and_si128(_mm_srli_epi64(count_ibs0, 4), m4)));
+	} while (xor_ptr < xor_buf_end);
+#if GENOME_MULTIPLEX > 1920
+	acc_ibs1.vi = _mm_add_epi64(_mm_and_si128(acc_ibs1.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_ibs1.vi, 8), m8));
+	acc_ibs0.vi = _mm_add_epi64(_mm_and_si128(acc_ibs0.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_ibs0.vi, 8), m8));
+#else
+	acc_ibs1.vi = _mm_and_si128(_mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 8)), m8);
+	acc_ibs0.vi = _mm_and_si128(_mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 8)), m8);
+#endif
+	acc_ibs1.vi = _mm_and_si128(_mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 16)), m16);
+	acc_ibs0.vi = _mm_and_si128(_mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 16)), m16);
+	acc_ibs1.vi = _mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 32));
+	acc_ibs0.vi = _mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 32));
+	*genome_main += (unsigned int)(acc_ibs1.u8[0] + acc_ibs1.u8[1]);
 	genome_main++;
-	*genome_main += ibs_incr & ((~0LU) >> BITCT2);
+        *genome_main += (unsigned int)(acc_ibs0.u8[0] + acc_ibs0.u8[1]);
+#else
+        bit_count_ibs1 = 0;
+	bit_count_ibs0 = 0;
+	do {
+	  loader = ((*glptr++) ^ (*glptr_fixed_tmp++)) & (*maskptr++);
+	  loader2 = loader >> 1;
+	  bitfield_ibs1 = (loader ^ loader2) & 0x55555555;
+	  bitfield_ibs0 = (loader & loader2) & 0x55555555;
+	  *xor_ptr++ = bitfield_ibs0;
+	  loader = ((*glptr++) ^ (*glptr_fixed_tmp++)) & (*maskptr++);
+	  loader2 = loader << 1;
+	  bitfield_ibs1 |= (loader ^ loader2) & 0xaaaaaaaa;
+	  loader2 = (loader & loader2) & 0xaaaaaaaa;
+	  bitfield_ibs0 |= loader2;
+	  *xor_ptr++ = loader2 >> 1;
+	  bit_count_ibs1 += popcount[bitfield_ibs1 >> 16] + popcount[bitfield_ibs1 & 65535];
+	  bit_count_ibs0 += popcount[bitfield_ibs0 >> 16] + popcount[bitfield_ibs0 & 65535];
+	} while (xor_ptr < xor_buf_end);
+	*genome_main += bit_count_ibs1;
 	genome_main++;
-	*genome_main += ibs_incr >> BITCT2;
+	*genome_main += bit_count_ibs0;
+#endif
 	genome_main++;
-      } else {
-	genome_main = &(genome_main[3]);
+	next_ppc_marker_hybrid = *genome_main - lowct2;
+	if (next_ppc_marker_hybrid < GENOME_MULTIPLEX2) {
+	  ibs_incr = 0; // hethet low-order, ibs0 high-order
+	  do {
+	    offset = next_ppc_marker_hybrid / BITCT;
+	    marker_window_ptr = &(marker_window[offset * BITCT]);
+	    next_ppc_marker_hybrid = ~0LU << (next_ppc_marker_hybrid & (BITCT - 1));
+	  incr_genome_1mask_loop:
+	    uland = glptr_back[offset] & (((unsigned long*)glptr_fixed)[offset]);
+	    ulval = ((uland & (uland << 1)) & AAAAMASK) | (((unsigned long*)xor_buf)[offset]);
+	    do {
+	      ulval &= next_ppc_marker_hybrid;
+	      if (ulval) {
+		jj = __builtin_ctzl(ulval);
+		next_ppc_marker_hybrid = marker_window_ptr[jj];
+		ibs_incr += (1LU << ((jj & 1) * BITCT2));
+	      } else if (offset < ((GENOME_MULTIPLEX2 - BITCT) / BITCT)) {
+		offset++;
+		next_ppc_marker_hybrid = ~0LU;
+		marker_window_ptr = &(marker_window_ptr[BITCT]);
+		goto incr_genome_1mask_loop;
+	      } else {
+		*genome_main = highct2;
+		goto incr_genome_1mask_exit;
+	      }
+	    } while (next_ppc_marker_hybrid & (1LU << (BITCT - 1)));
+	  } while (next_ppc_marker_hybrid < GENOME_MULTIPLEX2);
+	  *genome_main = next_ppc_marker_hybrid + lowct2;
+	incr_genome_1mask_exit:
+	  genome_main++;
+	  *genome_main += ibs_incr & ((~0LU) >> BITCT2);
+	  genome_main++;
+	  *genome_main += ibs_incr >> BITCT2;
+	  genome_main++;
+	} else {
+	  genome_main = &(genome_main[3]);
+	}
       }
     }
   }
