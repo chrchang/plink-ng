@@ -837,6 +837,8 @@ int indiv_major_to_snp_major(char* indiv_major_fname, char* outname, FILE** outf
   }
   if ((in_contents[0] == 'l') && (in_contents[1] == '\x1b') && (!in_contents[2])) {
     ii = 3;
+  } else if ((!in_contents[0]) && (!((sb.st_size - 1) % unfiltered_marker_ct4))) {
+    ii = 1;
   } else {
     ii = 0;
   }
@@ -2048,7 +2050,7 @@ static inline unsigned int popcount_xor_1mask_multiword(__m128i** xor1p, __m128i
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 
-static inline unsigned int popcountg_xor_1mask_multiword(__m128i** xor1p, __m128i* xor2, __m128i** maskp, unsigned int* ibs0ct_ptr) {
+unsigned int popcountg_xor_1mask_multiword(__m128i* xor1, __m128i* xor2, __m128i* mask, unsigned int* ibs0ct_ptr) {
   // Instead of doing a straight bitcount, we want to obtain two specialized
   // counts here:
   // - Number of IBS 1 loci, i.e. xor is 01 or 10
@@ -2069,29 +2071,27 @@ static inline unsigned int popcountg_xor_1mask_multiword(__m128i** xor1p, __m128
   acc_ibs1.vi = _mm_setzero_si128();
   acc_ibs0.vi = _mm_setzero_si128();
   while (xor2 < xor2_end) {
-    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    loader = _mm_and_si128(_mm_xor_si128(*xor1++, *xor2++), *mask++);
     loader2 = _mm_srli_epi64(loader, 1);
     count_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
     count_ibs0 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
-    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    loader = _mm_and_si128(_mm_xor_si128(*xor1++, *xor2++), *mask++);
     loader2 = _mm_srli_epi64(loader, 1);
     count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
     count_ibs0 = _mm_add_epi64(count_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
-
-    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    loader = _mm_and_si128(_mm_xor_si128(*xor1++, *xor2++), *mask++);
     loader2 = _mm_srli_epi64(loader, 1);
     count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
     count_ibs0 = _mm_add_epi64(count_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
-    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    loader = _mm_and_si128(_mm_xor_si128(*xor1++, *xor2++), *mask++);
     loader2 = _mm_srli_epi64(loader, 1);
     count2_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
     count2_ibs0 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
-
-    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    loader = _mm_and_si128(_mm_xor_si128(*xor1++, *xor2++), *mask++);
     loader2 = _mm_srli_epi64(loader, 1);
     count2_ibs1 = _mm_add_epi64(count2_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
     count2_ibs0 = _mm_add_epi64(count2_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
-    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
+    loader = _mm_and_si128(_mm_xor_si128(*xor1++, *xor2++), *mask++);
     loader2 = _mm_srli_epi64(loader, 1);
     count2_ibs1 = _mm_add_epi64(count2_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
     count2_ibs0 = _mm_add_epi64(count2_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
@@ -2153,7 +2153,7 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 
-static inline unsigned int popcountg_xor_2mask_multiword(__m128i** xor1p, __m128i* xor2, __m128i** mask1p, __m128i* mask2, unsigned int* ibs0ct_ptr) {
+unsigned int popcountg_xor_2mask_multiword(__m128i* xor1, __m128i* xor2, __m128i* mask1, __m128i* mask2, unsigned int* ibs0ct_ptr) {
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
@@ -2166,27 +2166,27 @@ static inline unsigned int popcountg_xor_2mask_multiword(__m128i** xor1p, __m128
   acc_ibs1.vi = _mm_setzero_si128();
   acc_ibs0.vi = _mm_setzero_si128();
   while (xor2 < xor2_end) {
-    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    loader = _mm_and_si128(_mm_xor_si128(*xor1++, *xor2++), _mm_and_si128(*mask1++, *mask2++));
     loader2 = _mm_srli_epi64(loader, 1);
     count_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
     count_ibs0 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
-    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    loader = _mm_and_si128(_mm_xor_si128(*xor1++, *xor2++), _mm_and_si128(*mask1++, *mask2++));
     loader2 = _mm_srli_epi64(loader, 1);
     count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
     count_ibs0 = _mm_add_epi64(count_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
-    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    loader = _mm_and_si128(_mm_xor_si128(*xor1++, *xor2++), _mm_and_si128(*mask1++, *mask2++));
     loader2 = _mm_srli_epi64(loader, 1);
     count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
     count_ibs0 = _mm_add_epi64(count_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
-    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    loader = _mm_and_si128(_mm_xor_si128(*xor1++, *xor2++), _mm_and_si128(*mask1++, *mask2++));
     loader2 = _mm_srli_epi64(loader, 1);
     count2_ibs1 = _mm_and_si128(_mm_xor_si128(loader, loader2), m1);
     count2_ibs0 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
-    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    loader = _mm_and_si128(_mm_xor_si128(*xor1++, *xor2++), _mm_and_si128(*mask1++, *mask2++));
     loader2 = _mm_srli_epi64(loader, 1);
     count2_ibs1 = _mm_add_epi64(count2_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
     count2_ibs0 = _mm_add_epi64(count2_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
-    loader = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
+    loader = _mm_and_si128(_mm_xor_si128(*xor1++, *xor2++), _mm_and_si128(*mask1++, *mask2++));
     loader2 = _mm_srli_epi64(loader, 1);
     count2_ibs1 = _mm_add_epi64(count2_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
     count2_ibs0 = _mm_add_epi64(count2_ibs0, _mm_and_si128(_mm_and_si128(loader, loader2), m1));
@@ -2228,7 +2228,7 @@ static inline unsigned int popcount_xor_1mask_multiword(unsigned long** xor1p, u
   return bit_count;
 }
 
-static inline unsigned int popcountg_xor_1mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp, unsigned int* ibs0ct_ptr) {
+static inline unsigned int popcountg_xor_1mask_multiword(unsigned long* xor1, unsigned long* xor2, unsigned long* mask, unsigned int* ibs0ct_ptr) {
   unsigned long* xor2_end = &(xor2[GENOME_MULTIPLEX / 16]);
   unsigned int bit_count_ibs1 = 0;
   unsigned int bit_count_ibs0 = 0;
@@ -2237,11 +2237,11 @@ static inline unsigned int popcountg_xor_1mask_multiword(unsigned long** xor1p, 
   unsigned long bitfield_ibs1;
   unsigned long bitfield_ibs0;
   while (xor2 < xor2_end) {
-    ulii = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
+    ulii = ((*xor1++) ^ (*xor2++)) & (*mask++);
     uljj = ulii >> 1;
     bitfield_ibs1 = (ulii ^ uljj) & 0x55555555;
     bitfield_ibs0 = (ulii & uljj) & 0x55555555;
-    ulii = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
+    ulii = ((*xor1++) ^ (*xor2++)) & (*mask++);
     uljj = ulii << 1;
     bitfield_ibs1 |= (ulii ^ uljj) & 0xaaaaaaaa;
     bitfield_ibs0 |= (ulii & uljj) & 0xaaaaaaaa;
@@ -2263,7 +2263,7 @@ static inline unsigned int popcount_xor_2mask_multiword(unsigned long** xor1p, u
   return bit_count;
 }
 
-static inline unsigned int popcountg_xor_2mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** mask1p, unsigned long* mask2, unsigned int* ibs0ct_ptr) {
+static inline unsigned int popcountg_xor_2mask_multiword(unsigned long* xor1, unsigned long* xor2, unsigned long* mask1, unsigned long* mask2, unsigned int* ibs0ct_ptr) {
   unsigned long* xor2_end = &(xor2[GENOME_MULTIPLEX / 16]);
   unsigned int bit_count_ibs1 = 0;
   unsigned int bit_count_ibs0 = 0;
@@ -2272,11 +2272,11 @@ static inline unsigned int popcountg_xor_2mask_multiword(unsigned long** xor1p, 
   unsigned long bitfield_ibs1;
   unsigned long bitfield_ibs0;
   while (xor2 < xor2_end) {
-    ulii = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
+    ulii = ((*xor1++) ^ (*xor2++)) & ((*mask1++) & (*mask2++));
     uljj = ulii >> 1;
     bitfield_ibs1 = (ulii ^ uljj) & 0x55555555;
     bitfield_ibs0 = (ulii & uljj) & 0x55555555;
-    ulii = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
+    ulii = ((*xor1++) ^ (*xor2++)) & ((*mask1++) & (*mask2++));
     uljj = ulii << 1;
     bitfield_ibs1 |= (ulii ^ uljj) & 0xaaaaaaaa;
     bitfield_ibs0 |= (ulii & uljj) & 0xaaaaaaaa;
@@ -2406,9 +2406,9 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 #endif
     if (~mask_fixed_test) {
       while (glptr < glptr_end) {
-	next_ppc_marker_idx = *genome_main;
+	*genome_main += popcountg_xor_2mask_multiword(glptr, glptr_fixed, maskptr, maskptr_fixed, &(genome_main[1]));
+	next_ppc_marker_idx = genome_main[2];
 	if (next_ppc_marker_idx >= high_ct) {
-          genome_main[1] += popcountg_xor_2mask_multiword(&glptr, glptr_fixed, &maskptr, maskptr_fixed, &(genome_main[2]));
 	  genome_main = &(genome_main[5]);
 	} else {
 	  ibs_incr = 0; // hethet low-order, ibs0 high-order
@@ -2449,20 +2449,21 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	      }
 	    }
 	  } while (next_ppc_marker_idx < high_ct);
-	  *genome_main++ = next_ppc_marker_idx;
-	  *genome_main += popcountg_xor_2mask_multiword(&glptr, glptr_fixed, &maskptr, maskptr_fixed, &(genome_main[1]));
 	  genome_main = &(genome_main[2]);
-	  *genome_main += ibs_incr & ((~0LU) >> BITCT2);
+	  *genome_main++ = next_ppc_marker_idx;
+          *genome_main += ibs_incr & ((~0LU) >> BITCT2);
 	  genome_main++;
 	  *genome_main += ibs_incr >> BITCT2;
 	  genome_main++;
 	}
+	glptr = &(glptr[GENOME_MULTIPLEX / BITCT]);
+	maskptr = &(maskptr[GENOME_MULTIPLEX2 / BITCT]);
       }
     } else {
       while (glptr < glptr_end) {
-	next_ppc_marker_idx = *genome_main;
+	*genome_main += popcountg_xor_1mask_multiword(glptr, glptr_fixed, maskptr, &(genome_main[1]));
+	next_ppc_marker_idx = genome_main[2];
 	if (next_ppc_marker_idx >= high_ct) {
-	  genome_main[1] += popcountg_xor_1mask_multiword(&glptr, glptr_fixed, &maskptr, &(genome_main[2]));
 	  genome_main = &(genome_main[5]);
 	} else {
 	  ibs_incr = 0;
@@ -2491,14 +2492,15 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	      }
 	    }
 	  } while (next_ppc_marker_idx < high_ct);
-	  *genome_main++ = next_ppc_marker_idx;
-	  *genome_main += popcountg_xor_1mask_multiword(&glptr, glptr_fixed, &maskptr, &(genome_main[1]));
 	  genome_main = &(genome_main[2]);
+	  *genome_main++ = next_ppc_marker_idx;
 	  *genome_main += ibs_incr & ((~0LU) >> BITCT2);
 	  genome_main++;
 	  *genome_main += ibs_incr >> BITCT2;
 	  genome_main++;
 	}
+	glptr = &(glptr[GENOME_MULTIPLEX / BITCT]);
+	maskptr = &(maskptr[GENOME_MULTIPLEX2 / BITCT]);
       }
     }
   }
@@ -3767,7 +3769,7 @@ inline void set_founder_info(unsigned char* founder_info, int ii) {
   founder_info[ii / 8] |= (1 << (ii % 8));
 }
 
-int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, double* mafs, int marker_pos_start, int unfiltered_indiv_ct, unsigned char* indiv_exclude, char* person_id, int max_person_id_len, char* paternal_id, int max_paternal_id_len, char* maternal_id, int max_maternal_id_len, unsigned char* founder_info, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int nonfounders, int calculation_type, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded) {
+int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, double* mafs, int marker_pos_start, int unfiltered_indiv_ct, unsigned char* indiv_exclude, char* person_id, int max_person_id_len, char* paternal_id, int max_paternal_id_len, char* maternal_id, int max_maternal_id_len, unsigned char* founder_info, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int nonfounders, int calculation_type, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded) {
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
   int retval = 0;
@@ -3908,7 +3910,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
     }
   }
   if (!excluded(marker_exclude, 0)) {
-    fseeko(pedfile, 3, SEEK_SET);
+    fseeko(pedfile, bed_offset, SEEK_SET);
   }
 
   ii = 0; // raw marker index
@@ -3923,7 +3925,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	do {
 	  ii++;
 	} while (excluded(marker_exclude, ii));
-	fseeko(pedfile, 3 + ii * unfiltered_indiv_ct4, SEEK_SET);
+	fseeko(pedfile, bed_offset + ii * unfiltered_indiv_ct4, SEEK_SET);
       }
       if (fread(&(loadbuf[jj * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, pedfile) < unfiltered_indiv_ct4) {
 	retval = RET_READ_FAIL;
@@ -4081,7 +4083,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
     if (fopen_checked(&outfile, outname, "w")) {
       goto calc_genome_ret_OPENFAIL;
     }
-    giptr = &(genome_main[1]);
+    giptr = genome_main;
     giptr2 = missing_tot_unweighted;
     kk = 1;
     for (ii = 0; ii < indiv_ct; ii++) {
@@ -4089,7 +4091,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
       uii = marker_ct - giptr3[ii];
       uljj = ii - 1;
       for (ulii = 0; ulii < ii; ulii++) {
-	if (fprintf(outfile, "%g ", 1.0 - ((double)(genome_main[uljj * 5 + 1] + 2 * genome_main[uljj * 5 + 2])) / ((double)(2 * (uii - (*giptr3++) + missing_tot_unweighted[uljj])))) < 0) {
+	if (fprintf(outfile, "%g ", 1.0 - ((double)(genome_main[uljj * 5] + 2 * genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + missing_tot_unweighted[uljj])))) < 0) {
 	  goto calc_genome_ret_WRITE_FAIL;
 	}
 	uljj += indiv_ct - ulii - 2;
@@ -4129,7 +4131,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
     if (fopen_checked(&outfile, outname, "w")) {
       goto calc_genome_ret_OPENFAIL;
     }
-    giptr = &(genome_main[1]);
+    giptr = genome_main;
     giptr2 = missing_tot_unweighted;
     kk = 1;
     for (ii = 0; ii < indiv_ct; ii++) {
@@ -4137,7 +4139,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
       uii = marker_ct - giptr3[ii];
       uljj = ii - 1;
       for (ulii = 0; ulii < ii; ulii++) {
-	if (fprintf(outfile, "%g ", ((double)(genome_main[uljj * 5 + 1] + 2 * genome_main[uljj * 5 + 2])) / ((double)(2 * (uii - (*giptr3++) + missing_tot_unweighted[uljj])))) < 0) {
+	if (fprintf(outfile, "%g ", ((double)(genome_main[uljj * 5] + 2 * genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + missing_tot_unweighted[uljj])))) < 0) {
 	  goto calc_genome_ret_WRITE_FAIL;
 	}
 	uljj += indiv_ct - ulii - 2;
@@ -4255,9 +4257,9 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
 	sptr_cur += 8;
       }
       nn = marker_ct - indiv_missing_unwt[ii] - indiv_missing_unwt[jj] + missing_tot_unweighted[uljj];
-      oo = nn - genome_main[ulii + 1] - genome_main[ulii + 2];
-      dxx = (double)genome_main[ulii + 2] / (e00 * nn);
-      dyy = ((double)genome_main[ulii + 1] - dxx * e01 * nn) / (e11 * nn);
+      oo = nn - genome_main[ulii] - genome_main[ulii + 1];
+      dxx = (double)genome_main[ulii + 1] / (e00 * nn);
+      dyy = ((double)genome_main[ulii] - dxx * e01 * nn) / (e11 * nn);
       dxx1 = ((double)oo - nn * (dxx * e02 + dyy * e12)) / ((double)nn);
       if (!genome_ibd_unbounded) {
 	if (dxx > 1) {
@@ -4310,12 +4312,12 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int marker_ct, int unfiltered
       dxx1 = 1.0 / ((double)(genome_main[ulii + 3] + genome_main[ulii + 4]));
       dxx2 = normdist((dxx * dxx1 - 0.666666) / (sqrt(0.2222222 * dxx1)));
       if (genome_main[ulii + 4]) {
-	sptr_cur += sprintf(sptr_cur, "  %1.6f  %1.4f  %1.4f", 1.0 - marker_recip * (genome_main[ulii + 1] + 2 * genome_main[ulii + 2]), dxx2, dxx / dyy);
+	sptr_cur += sprintf(sptr_cur, "  %1.6f  %1.4f  %1.4f", 1.0 - marker_recip * (genome_main[ulii] + 2 * genome_main[ulii + 1]), dxx2, dxx / dyy);
       } else {
-	sptr_cur += sprintf(sptr_cur, "  %1.6f  %1.4f      NA", 1.0 - marker_recip * (genome_main[ulii + 1] + 2 * genome_main[ulii + 2]), dxx2);
+	sptr_cur += sprintf(sptr_cur, "  %1.6f  %1.4f      NA", 1.0 - marker_recip * (genome_main[ulii] + 2 * genome_main[ulii + 1]), dxx2);
       }
       if (genome_output_full) {
-	sptr_cur += sprintf(sptr_cur, " %7d %7d %7d  %1.4f  %1.4f\n", genome_main[ulii + 2], genome_main[ulii + 1], oo, dyy * dxx1, dxx * dxx1);
+	sptr_cur += sprintf(sptr_cur, " %7d %7d %7d  %1.4f  %1.4f\n", genome_main[ulii + 1], genome_main[ulii], oo, dyy * dxx1, dxx * dxx1);
       } else {
 	*sptr_cur++ = '\n';
       }
@@ -4541,6 +4543,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   int wt_needed = 0;
   int unwt_needed = 0;
   int unwt_needed_full = 0;
+  int bed_offset = 3;
 
   ii = missing_pheno;
   if (ii < 0) {
@@ -5216,18 +5219,22 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_READ_FAIL;
     }
     if ((pedbuf[0] != 'l') || (pedbuf[1] != '\x1b') || (pedbuf[2] != '\x01')) {
-      strcpy(outname_end, ".bed.tmp");
-      printf("Individual-major .bed file detected.  Transposing to %s.\n", outname);
-      fclose(pedfile);
-      retval = indiv_major_to_snp_major(pedname, outname, &outfile, unfiltered_marker_ct);
-      if (retval) {
-	goto wdist_ret_1;
+      if (pedbuf[0] == '\x01') {
+	bed_offset = 1;
+      } else {
+	strcpy(outname_end, ".bed.tmp");
+	printf("Individual-major .bed file detected.  Converting to SNP-major.\n");
+	fclose(pedfile);
+	retval = indiv_major_to_snp_major(pedname, outname, &outfile, unfiltered_marker_ct);
+	if (retval) {
+	  goto wdist_ret_1;
+	}
+	strcpy(pedname, outname);
+	if (fopen_checked(&pedfile, pedname, "rb")) {
+	  goto wdist_ret_OPENFAIL;
+	}
+	fseeko(pedfile, 3, SEEK_SET);
       }
-      strcpy(pedname, outname);
-      if (fopen_checked(&pedfile, pedname, "rb")) {
-	goto wdist_ret_OPENFAIL;
-      }
-      fseeko(pedfile, 3, SEEK_SET);
     }
 
     // ----- snp-major .bed load, first pass -----
@@ -5295,7 +5302,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     dptr2 = marker_weights;
 
-    fseeko(pedfile, 3, SEEK_SET);
+    fseeko(pedfile, bed_offset, SEEK_SET);
     // ----- .snp-major .bed load, second pass -----
     for (ii = 0; ii < unfiltered_marker_ct; ii++) {
       if (excluded(marker_exclude, ii)) {
@@ -6279,7 +6286,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       fill_int_zero((int*)missing_tot_unweighted, llxx);
     }
     if (binary_files) {
-      fseeko(pedfile, 3, SEEK_SET);
+      fseeko(pedfile, bed_offset, SEEK_SET);
       ii = 0;
       pp = 0;
       ped_geno = wkspace_alloc(indiv_ct * sizeof(long));
@@ -7038,7 +7045,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  goto wdist_ret_NOMEM;
 	}
       }
-      fseeko(pedfile, 3, SEEK_SET);
+      fseeko(pedfile, bed_offset, SEEK_SET);
       ii = 0; // current SNP index
       pp = 0; // after subtracting out excluded
       while (pp < marker_ct) {
@@ -8318,7 +8325,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (calculation_type & CALC_GENOME) {
     wkspace_reset((char*)CACHEALIGN((unsigned long)(&(marker_pos[unfiltered_marker_ct]))));
-    retval = calc_genome(threads, pedfile, marker_ct, unfiltered_marker_ct, marker_exclude, mafs, marker_pos_start, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len, paternal_id, max_paternal_id_len, maternal_id, max_maternal_id_len, founder_info, parallel_idx, parallel_tot, outname, outname_end, nonfounders, calculation_type, genome_output_gz, genome_output_full, genome_ibd_unbounded);
+    retval = calc_genome(threads, pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, mafs, marker_pos_start, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len, paternal_id, max_paternal_id_len, maternal_id, max_maternal_id_len, founder_info, parallel_idx, parallel_tot, outname, outname_end, nonfounders, calculation_type, genome_output_gz, genome_output_full, genome_ibd_unbounded);
     if (retval) {
       goto wdist_ret_2;
     }
