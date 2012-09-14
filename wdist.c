@@ -1929,7 +1929,7 @@ void collapse_copy_phenod(double *target, double* pheno_d, unsigned char* indiv_
   }
 }
 
-void collapse_marker_pos(unsigned int* marker_pos, unsigned char* marker_exclude, int unfiltered_marker_ct, int marker_exclude_ct) {
+int collapse_marker_pos(unsigned int* marker_pos, unsigned char* marker_exclude, int unfiltered_marker_ct, int marker_exclude_ct, int marker_pos_start) {
   unsigned int remap_old_idx = 0;
   unsigned int remap_new_idx = 0;
   unsigned int* mpptr = marker_pos;
@@ -1939,6 +1939,9 @@ void collapse_marker_pos(unsigned int* marker_pos, unsigned char* marker_exclude
     if (!excluded(marker_exclude, ii)) {
       uii = marker_pos[ii];
       while (remap_old_idx < uii) {
+	if (marker_pos_start == remap_old_idx) {
+	  marker_pos_start = remap_new_idx;
+	}
 	if (!excluded(marker_exclude, remap_old_idx)) {
 	  remap_new_idx++;
 	  if (remap_new_idx == unfiltered_marker_ct - marker_exclude_ct) {
@@ -1950,6 +1953,7 @@ void collapse_marker_pos(unsigned int* marker_pos, unsigned char* marker_exclude
       *mpptr++ = remap_new_idx;
     }
   }
+  return marker_pos_start;
 }
 
 void print_pheno_stdev(double* pheno_d) {
@@ -5445,7 +5449,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     free(het_probs);
     het_probs = NULL;
     if (calculation_type & CALC_GENOME) {
-      collapse_marker_pos(marker_pos, marker_exclude, unfiltered_marker_ct, marker_exclude_ct);
+      marker_pos_start = collapse_marker_pos(marker_pos, marker_exclude, unfiltered_marker_ct, marker_exclude_ct, marker_pos_start);
     }
   } else {
     if (freqname[0]) {
@@ -6196,7 +6200,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     collapse_arr((char*)marker_weights, sizeof(double), marker_exclude, unfiltered_marker_ct);
     if (calculation_type & CALC_GENOME) {
-      collapse_marker_pos(marker_pos, marker_exclude, unfiltered_marker_ct, marker_exclude_ct);
+      marker_pos_start = collapse_marker_pos(marker_pos, marker_exclude, unfiltered_marker_ct, marker_exclude_ct, marker_pos_start);
     }
     unfiltered_marker_ct -= marker_exclude_ct;
     marker_exclude_ct = 0;
