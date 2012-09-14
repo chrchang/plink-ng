@@ -178,7 +178,7 @@
 #define MAXLINELEN 131072
 
 // number of different types of jackknife values to precompute (x^2, x, y, xy)
-#define JACKKNIFE_VALS_DIST 4
+#define JACKKNIFE_VALS_DIST 5
 #define JACKKNIFE_VALS_REL 5
 
 // allow .mdist.bin.xxxxxxxxxx extension
@@ -240,16 +240,16 @@
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.9.4 "
+  "WDIST genomic distance calculator, v0.9.5 "
 #else
-  "WDIST genomic distance calculator, v0.9.4L "
+  "WDIST genomic distance calculator, v0.9.5L "
 #endif
 #if __LP64__
   "64-bit"
 #else
   "32-bit"
 #endif
-  " (14 September 2012)\n"
+  " (15 September 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
@@ -477,15 +477,15 @@ int dispmsg(int retval) {
 "  --write-snplist\n"
 "    Write a .snplist file listing the names of all SNPs that pass the filters\n"
 "    you've specified.\n\n"
-"The following other flags are supported.\n"
+"The following other flags are supported.  (Order of operations conforms to the\n"
+"PLINK specification at http://pngu.mgh.harvard.edu/~purcell/plink/flow.shtml.\n"
+"Or, to be more precise, it does not yet conform, but I am currently fixing\n"
+"that.)\n"
 "  --script [fname] : Include command-line options from file.\n"
 "  --file [prefix]  : Specify prefix for .ped and .map files.  (When this flag\n"
 "                     isn't present, the prefix is assumed to be 'wdist'.)\n"
 "  --ped [filename] : Specify full name of .ped file.\n"
 "  --map [filename] : Specify full name of .map file.\n"
-"  --make-bed       : Make .bed, .bim, and .fam files.  Note: this is ALWAYS ON\n"
-"                     for now, since the program core currently only handles\n"
-"                     binary files.\n"
 "  --no-fid         : .ped file does not contain column 1 (family ID).\n"
 "  --no-parents     : .ped file does not contain columns 3-4 (parents).\n"
 "  --no-sex         : .ped file does not contain column 5 (sex).\n"
@@ -526,8 +526,7 @@ int dispmsg(int retval) {
 "  --geno {val}     : Maximum per-SNP missing (default 0.1).\n"
 "  --mind {val}     : Maximum per-person missing (default 0.1).\n"
 "  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
-"                     default 0.001.  This is checked after all other forms of\n"
-"                     filtering except for --rel-cutoff.\n"
+"                     default 0.001.\n"
 "  --nonfounders    : Include all individuals in MAF/HWE calculations.\n"
 "  --rel-cutoff {v} : Exclude individuals until no remaining pairs have\n"
 "  --grm-cutoff {v}   relatedness greater than the given cutoff value (default\n"
@@ -548,10 +547,9 @@ int dispmsg(int retval) {
 "  --keep [fname]   : Only include individuals in the given list.\n"
 "  --remove [fname] : Exclude all individuals in the given list.\n"
 "  --exponent [val] : When computing genomic distances, each marker has a weight\n"
-"                     of (2q(1-q))^{-val}, where q is the observed MAF after\n"
-"                     applying --keep/--remove/--filter/--prune and before\n"
-"                     applying any other filters.  (Use --read-freq if you want\n"
-"                     to explicitly specify some or all of the MAFs.)\n"
+"                     of (2q(1-q))^{-val}, where q is the observed MAF.  (Use\n"
+"                     --read-freq if you want to explicitly specify some or all\n"
+"                     of the MAFs.)\n"
 "  --read-freq [filename]    : Loads MAFs from the given PLINK-style frequency\n"
 "  --update-freq [filename]    file, instead of just setting them to frequencies\n"
 "                              observed in the .ped/.bed file.  (This can be\n"
@@ -584,6 +582,11 @@ int dispmsg(int retval) {
 "                              phenotype data.  If Hbt is unspecified, it is set\n"
 "                              equal to Ltop.  Central phenotype values are\n"
 "                              treated as missing.\n\n"
+"One final note.  If you provide input in a different format, WDIST will always\n"
+"convert to PLINK SNP-major binary files before proceeding with its calculations\n"
+"(i.e. --make-bed is effectively always on).  These files will be saved to\n"
+"{output prefix}.bed, .bim, and .fam, and you are encouraged to use them\n"
+"directly in future analyses.\n"
          );
     break;
   }
@@ -2980,8 +2983,8 @@ void* groupdist_jack_thread(void* arg) {
   return NULL;
 }
 
-double regress_jack(int* ibuf) {
-// double regress_jack(int* ibuf, double* ret2_ptr) {
+// double regress_jack(int* ibuf) {
+double regress_jack(int* ibuf, double* ret2_ptr) {
   int* iptr = ibuf;
   int* jptr = &(ibuf[jackknife_d]);
   int ii;
@@ -2993,7 +2996,7 @@ double regress_jack(int* ibuf) {
   double neg_tot_x = 0.0;
   double neg_tot_y = 0.0;
   double neg_tot_xx = 0.0;
-  // double neg_tot_yy = 0.0;
+  double neg_tot_yy = 0.0;
   double dxx;
   double dxx1;
   double dyy;
@@ -3003,7 +3006,7 @@ double regress_jack(int* ibuf) {
     neg_tot_x += *dptr2++;
     neg_tot_y += *dptr2++;
     neg_tot_xx += *dptr2++;
-    // neg_tot_yy += *dptr2++;
+    neg_tot_yy += *dptr2++;
   }
   iptr = ibuf;
   for (ii = 1; ii < jackknife_d; ii++) {
@@ -3019,13 +3022,13 @@ double regress_jack(int* ibuf) {
       neg_tot_x -= dxx;
       neg_tot_y -= dyy;
       neg_tot_xx -= dxx * dxx;
-      // neg_tot_yy -= dyy * dyy;
+      neg_tot_yy -= dyy * dyy;
     }
   }
-  // dxx = reg_tot_y - neg_tot_y;
+  dxx = reg_tot_y - neg_tot_y;
   dyy = indiv_ct - jackknife_d;
   dyy = dyy * (dyy - 1.0) * 0.5;
-  // *ret2_ptr = ((reg_tot_xy - neg_tot_xy) - dxx * (reg_tot_x - neg_tot_x) / dyy) / ((reg_tot_yy - neg_tot_yy) - dxx * dxx / dyy);
+  *ret2_ptr = ((reg_tot_xy - neg_tot_xy) - dxx * (reg_tot_x - neg_tot_x) / dyy) / ((reg_tot_yy - neg_tot_yy) - dxx * dxx / dyy);
   dxx = reg_tot_x - neg_tot_x;
   return ((reg_tot_xy - neg_tot_xy) - dxx * (reg_tot_y - neg_tot_y) / dyy) / ((reg_tot_xx - neg_tot_xx) - dxx * dxx / dyy);
 }
@@ -3038,18 +3041,18 @@ void* regress_jack_thread(void* arg) {
   unsigned long long uljj = jackknife_iters / 100;
   double sum = 0.0;
   double sum_sq = 0.0;
-  // double sum2 = 0;
-  // double sum2_sq = 0.0;
+  double sum2 = 0;
+  double sum2_sq = 0.0;
   double dxx;
-  // double ret2;
+  double ret2;
   for (ulii = 0; ulii < jackknife_iters; ulii++) {
     pick_d_small(cbuf, ibuf, indiv_ct, jackknife_d);
-    // dxx = regress_jack(ibuf, &ret2);
-    dxx = regress_jack(ibuf);
+    dxx = regress_jack(ibuf, &ret2);
+    // dxx = regress_jack(ibuf);
     sum += dxx;
     sum_sq += dxx * dxx;
-    // sum2 += ret2;
-    // sum2_sq += ret2 * ret2;
+    sum2 += ret2;
+    sum2_sq += ret2 * ret2;
     if ((!tidx) && (ulii >= uljj)) {
       uljj = (ulii * 100) / jackknife_iters;
       printf("\r%lld%%", uljj);
@@ -3059,8 +3062,8 @@ void* regress_jack_thread(void* arg) {
   }
   calc_result[0][tidx] = sum;
   calc_result[1][tidx] = sum_sq;
-  // calc_result[2][tidx] = sum2;
-  // calc_result[3][tidx] = sum2_sq;
+  calc_result[2][tidx] = sum2;
+  calc_result[3][tidx] = sum2_sq;
   return NULL;
 }
 
@@ -4136,7 +4139,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
     printf("\r%d markers complete.", low_ct);
     fflush(stdout);
   } while (low_ct < marker_ct);
-  printf("\r                            \r");
+  printf("\rIBD calculations complete.  \n");
   dxx = 1.0 / (double)ibd_prect;
   e00 *= dxx;
   e01 *= dxx;
@@ -4447,7 +4450,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* makepheno_str, char* filterval, int mfilter_col, int make_bed, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, int parallel_tot, int ppc_gap, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* makepheno_str, char* filterval, int mfilter_col, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, int parallel_tot, int ppc_gap, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -4634,15 +4637,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_OPENFAIL;
     }
   }
-
-  /*
-  if (!binary_files) {
-    if (!nonfounders) {
-      printf("Note: Setting --nonfounders (since family-related code is incomplete).\n");
-      nonfounders = 1;
-    }
-  }
-  */
 
   if (phenoname[0] && fopen_checked(&phenofile, phenoname, "r")) {
     goto wdist_ret_OPENFAIL;
@@ -6174,11 +6168,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     fclose(pedfile);
     fclose_null(&bimtmpfile);
     fclose_null(&famtmpfile);
-    if (make_bed) {
-      strcpy(outname_end, ".bed");
-    } else {
-      strcpy(outname_end, ".bed.tmp");
-    }
+    strcpy(outname_end, ".bed");
     if (fopen_checked(&pedfile, outname, "rb")) {
       goto wdist_ret_OPENFAIL;
     }
@@ -8306,7 +8296,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     reg_tot_x = 0.0;
     reg_tot_y = 0.0;
     reg_tot_xx = 0.0;
-    // reg_tot_yy = 0.0;
+    reg_tot_yy = 0.0;
     dptr4 = dists;
     dist_ptr = pheno_d;
     // Linear regression slope is a function of sum(xy), sum(x), sum(y),
@@ -8348,16 +8338,16 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	dptr3[3] += dvv;
 	*dptr5 += dvv;
 	dptr5++;
-	// reg_tot_yy += duu;
-	// dptr3[4] += duu;
-	// *dptr5 += duu;
-	// dptr5++;
+	reg_tot_yy += duu;
+	dptr3[4] += duu;
+	*dptr5 += duu;
+	dptr5++;
       }
     }
 
     dxx = ulii;
     printf("Regression slope (y = genomic distance, x = avg phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_xx - reg_tot_x * reg_tot_x / dxx));
-    // printf("Regression slope (y = avg phenotype, x = genomic distance): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_yy - reg_tot_y * reg_tot_y / dxx));
+    printf("Regression slope (y = avg phenotype, x = genomic distance): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_yy - reg_tot_y * reg_tot_y / dxx));
 
     jackknife_iters = (regress_iters + thread_ct - 1) / thread_ct;
     if (regress_d) {
@@ -8378,18 +8368,18 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     regress_jack_thread((void*)ulii);
     dyy = calc_result[0][0]; // sum
     dzz = calc_result[1][0]; // sum of squares
-    // dww = calc_result[2][0]; // reverse regression sum
-    // dvv = calc_result[3][0]; // reverse regression sum of squares
+    dww = calc_result[2][0]; // reverse regression sum
+    dvv = calc_result[3][0]; // reverse regression sum of squares
     for (ii = 0; ii < thread_ct - 1; ii++) {
       pthread_join(threads[ii], NULL);
       dyy += calc_result[0][ii + 1];
       dzz += calc_result[1][ii + 1];
-      // dww += calc_result[2][ii + 1];
-      // dvv += calc_result[3][ii + 1];
+      dww += calc_result[2][ii + 1];
+      dvv += calc_result[3][ii + 1];
     }
     regress_iters = jackknife_iters * thread_ct;
     printf("\rJackknife s.e.: %g\n", sqrt((indiv_ct / ((double)jackknife_d)) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
-    // printf("Jackknife s.e. (y = avg phenotype): %g\n", sqrt((indiv_ct / ((double)jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
+    printf("Jackknife s.e. (y = avg phenotype): %g\n", sqrt((indiv_ct / ((double)jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
   }
 
   if (calculation_type & CALC_GENOME) {
@@ -8512,7 +8502,6 @@ int main(int argc, char** argv) {
   char* sptr;
   int retval;
   int load_params = 0; // describes what file parameters have been provided
-  int make_bed = 1; // STOPGAP
   int ped_col_1 = 1;
   int ped_col_34 = 1;
   int ped_col_5 = 1;
@@ -8701,11 +8690,7 @@ int main(int argc, char** argv) {
       strcpy(mapname, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--make-bed")) {
-      if (load_params & 120) {
-        printf("Error: --make-bed cannot coexist with binary file flags.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      make_bed = 1;
+      printf("Note: --make-bed is effectively always on.\n");
       cur_arg += 1;
     } else if (!strcmp(argptr, "--bfile")) {
       if (load_params & 15) {
@@ -8731,7 +8716,6 @@ int main(int argc, char** argv) {
       } else {
         sptr = "wdist";
       }
-      make_bed = 0;
       if (!(load_params & 16)) {
 	strcpy(pedname, sptr);
 	strcat(pedname, ".bed");
@@ -8763,7 +8747,6 @@ int main(int argc, char** argv) {
         printf("Error: --bed parameter too long.\n");
         return dispmsg(RET_OPENFAIL);
       }
-      make_bed = 0;
       strcpy(pedname, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--bim")) {
@@ -8784,7 +8767,6 @@ int main(int argc, char** argv) {
         printf("Error: --bim parameter too long.\n");
         return dispmsg(RET_OPENFAIL);
       }
-      make_bed = 0;
       strcpy(mapname, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--fam")) {
@@ -8805,7 +8787,6 @@ int main(int argc, char** argv) {
         printf("Error: --fam parameter too long.\n");
         return dispmsg(RET_OPENFAIL);
       }
-      make_bed = 0;
       strcpy(famname, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--no-fid")) {
@@ -9963,7 +9944,7 @@ int main(int argc, char** argv) {
   // the presence of their respective flags
   // filtername[0] indicates existence of filter
   // freqname[0] signals --read-freq
-  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, makepheno_str, filterval, mfilter_col, make_bed, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded);
+  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, makepheno_str, filterval, mfilter_col, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded);
   free(wkspace_ua);
   return dispmsg(retval);
 }
