@@ -9086,6 +9086,12 @@ int main(int argc, char** argv) {
         printf("Error: Invalid --memory parameter.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
+#ifndef __LP64__
+      if (malloc_size_mb > 2944) {
+	printf("Error: --memory parameter too large for 32-bit version.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+#endif
       cur_arg += 2;
     } else if (!strcmp(argptr, "--threads")) {
       if (cur_arg == argc - 1) {
