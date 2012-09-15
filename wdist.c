@@ -28,9 +28,9 @@
 // conveniently, this plays well with the decision made by the PLINK team a few
 // years ago to switch to SNP-major binary files.
 //
-// 2. Small-scale parallel processing of multiple markers using integer bitwise
-// operations.  For instance, there are only seven possible ways SNP i can
-// affect the relationship matrix entry between individuals j and k:
+// 2. Multiplexing  of markers using bitwise operations.  For instance, there
+// are only seven possible ways SNP i can affect the relationship matrix entry
+// between individuals j and k:
 //    a. j and k are both homozygous for the rare allele
 //    b. one is homozygous rare, one is heterozygous
 //    c. one is homozygous rare, one is homozygous common
