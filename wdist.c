@@ -4380,7 +4380,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
       dyy = (double)genome_main[ulii + 3];
       dxx1 = 1.0 / ((double)(genome_main[ulii + 4] + genome_main[ulii + 3]));
       dxx2 = normdist((dxx * dxx1 - 0.666666) / (sqrt(0.2222222 * dxx1)));
-      if (genome_main[ulii + 4]) {
+      if (genome_main[ulii + 3]) {
 	sptr_cur += sprintf(sptr_cur, "  %1.6f  %1.4f  %1.4f", 1.0 - marker_recip * (genome_main[ulii] + 2 * genome_main[ulii + 1]), dxx2, dxx / dyy);
       } else {
 	sptr_cur += sprintf(sptr_cur, "  %1.6f  %1.4f      NA", 1.0 - marker_recip * (genome_main[ulii] + 2 * genome_main[ulii + 1]), dxx2);
