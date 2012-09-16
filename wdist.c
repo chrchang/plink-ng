@@ -266,9 +266,6 @@ const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n"
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
 // fit 4 pathologically long IDs plus other stuff
 char tbuf[MAXLINELEN * 4 + 256];
-#ifndef __LP64__
-unsigned char popcount[65536];
-#endif
 
 int fopen_checked(FILE** target_ptr, char* fname, char* mode) {
   *target_ptr = fopen(fname, mode);
@@ -2142,9 +2139,9 @@ static inline unsigned int vec_dot_prod_biased(__m128i** vec1_ptr, __m128i** vec
     loader1 = *((*vec1_ptr)++);
     loader2 = *((*vec2_ptr)++);
     count2 = _mm_or_si128(_mm_and_si128(loader1, loader2), _mm_and_si128(_mm_add_epi64(loader1, loader2), mx0a));
-    count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
     loader1 = *((*vec1_ptr)++);
     loader2 = *((*vec2_ptr)++);
+    count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
     count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
     count2 = _mm_or_si128(_mm_and_si128(loader1, loader2), _mm_and_si128(_mm_add_epi64(loader1, loader2), mx0a));
     // count1 currently has 4-bit values in the 4..12 range.  To avoid
@@ -2168,53 +2165,121 @@ static inline unsigned int vec_dot_prod_biased(__m128i** vec1_ptr, __m128i** vec
 }
 #else
 static inline unsigned int popcount_xor_1mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
+  // The humble 16-bit lookup table actually beats
+  // http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
+  // on my development machine by a hair.
+  // However, if we take the hint from Walisch-Lauradoux and postpone the
+  // multiply and right shift, this is no longer true.  Ah well.
   unsigned long* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
   unsigned int bit_count = 0;
-  unsigned long ulii;
-  do {
-    ulii = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
-    // don't knock this; it's actually a tad faster than e.g. the algorithm
-    // described at
-    // http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
-    // on my development machine.
-    bit_count += popcount[ulii >> 16] + popcount[ulii & 0xffff];
-  } while (xor2 < xor2_end);
-  return bit_count;
-}
-
-static inline unsigned int popcountg_xor_1mask_multiword(unsigned long* xor1, unsigned long* xor2, unsigned long* mask, unsigned int* ibs0ct_ptr) {
-  unsigned long* xor2_end = &(xor2[GENOME_MULTIPLEX / 16]);
-  unsigned int bit_count_ibs1 = 0;
-  unsigned int bit_count_ibs0 = 0;
+  unsigned int tmp_stor;
+  unsigned long loader;
   unsigned long ulii;
   unsigned long uljj;
-  unsigned long bitfield_ibs1;
-  unsigned long bitfield_ibs0;
   do {
-    ulii = ((*xor1++) ^ (*xor2++)) & (*mask++);
-    uljj = ulii >> 1;
-    bitfield_ibs1 = (ulii ^ uljj) & 0x55555555;
-    bitfield_ibs0 = (ulii & uljj) & 0x55555555;
-    ulii = ((*xor1++) ^ (*xor2++)) & (*mask++);
-    uljj = ulii << 1;
-    bitfield_ibs1 |= (ulii ^ uljj) & 0xaaaaaaaa;
-    bitfield_ibs0 |= (ulii & uljj) & 0xaaaaaaaa;
-    bit_count_ibs1 += popcount[bitfield_ibs1 >> 16] + popcount[bitfield_ibs1 & 65535];
-    bit_count_ibs0 += popcount[bitfield_ibs0 >> 16] + popcount[bitfield_ibs0 & 65535];
+    loader = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
+    ulii = loader - ((loader >> 1) & FIVEMASK);
+    loader = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
+    uljj = loader - ((loader >> 1) & FIVEMASK);
+    loader = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
+    ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
+    loader -= ((loader >> 1) & FIVEMASK);
+    ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
+    ulii += (loader & 0x33333333) + ((loader >> 2) & 0x33333333);
+    tmp_stor = (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
+
+    loader = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
+    ulii = loader - ((loader >> 1) & FIVEMASK);
+    loader = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
+    uljj = loader - ((loader >> 1) & FIVEMASK);
+    loader = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
+    ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
+    loader -= ((loader >> 1) & FIVEMASK);
+    ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
+    ulii += (loader & 0x33333333) + ((loader >> 2) & 0x33333333);
+    tmp_stor += (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
+
+    // Each 8 bit slot stores a number in 0..48.  Multiplying by 0x01010101 is
+    // equivalent to the left-shifts and adds we need to sum those four 8-bit
+    // numbers in the high-order slot.
+    bit_count += (tmp_stor * 0x01010101) >> 24;
   } while (xor2 < xor2_end);
-  *ibs0ct_ptr += bit_count_ibs0;
-  return bit_count_ibs1;
+  return bit_count;
 }
 
 static inline unsigned int popcount_xor_2mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** mask1p, unsigned long* mask2) {
   unsigned long* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
   unsigned int bit_count = 0;
+  unsigned int tmp_stor;
+  unsigned long loader;
   unsigned long ulii;
+  unsigned long uljj;
   do {
-    ulii = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
-    bit_count += popcount[ulii >> 16] + popcount[ulii & 65535];
+    loader = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
+    ulii = loader - ((loader >> 1) & FIVEMASK);
+    loader = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
+    uljj = loader - ((loader >> 1) & FIVEMASK);
+    loader = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
+    loader -= ((loader >> 1) & FIVEMASK);
+    ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
+    ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
+    ulii += (loader & 0x33333333) + ((loader >> 2) & 0x33333333);
+    tmp_stor = (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
+
+    loader = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
+    ulii = loader - ((loader >> 1) & FIVEMASK);
+    loader = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
+    uljj = loader - ((loader >> 1) & FIVEMASK);
+    loader = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
+    loader -= ((loader >> 1) & FIVEMASK);
+    ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
+    ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
+    ulii += (loader & 0x33333333) + ((loader >> 2) & 0x33333333);
+    tmp_stor += (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
+
+    bit_count += (tmp_stor * 0x01010101) >> 24;
   } while (xor2 < xor2_end);
   return bit_count;
+}
+
+static inline unsigned int vec_dot_product_biased(unsigned long** vec1_ptr, unsigned long** vec2_ptr) {
+  unsigned long* vec1_end = &((*vec1_ptr)[MULTIPLEX_COV / 16]);
+  unsigned int biased_dot_product = 0;
+  unsigned long loader1;
+  unsigned long loader2;
+  unsigned long ulii;
+  unsigned long uljj;
+  unsigned long tmp_stor;
+  do {
+    loader1 = *((*vec1_ptr)++);
+    loader2 = *((*vec2_ptr)++);
+    ulii = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
+    loader1 = *((*vec1_ptr)++);
+    loader2 = *((*vec2_ptr)++);
+    uljj = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
+    loader1 = *((*vec1_ptr)++);
+    loader2 = *((*vec1_ptr)++);
+    ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
+    ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
+    uljj = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
+    ulii = (ulii - 0x44444444) + (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
+    tmp_stor = (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
+    loader1 = *((*vec1_ptr)++);
+    loader2 = *((*vec2_ptr)++);
+    ulii = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
+    loader1 = *((*vec1_ptr)++);
+    loader2 = *((*vec2_ptr)++);
+    uljj = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
+    loader1 = *((*vec1_ptr)++);
+    loader2 = *((*vec1_ptr)++);
+    ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
+    ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
+    uljj = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
+    ulii = (ulii - 0x44444444) + (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
+    tmp_stor = (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
+    biased_dot_product += (tmp_stor * 0x01010101) >> 24;
+  } while ((*vec1_ptr) < vec1_end);
+  return biased_dot_product;
 }
 #endif
 
@@ -2323,6 +2388,8 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
   unsigned long bitfield_ibs0;
   unsigned long loader;
   unsigned long loader2;
+  unsigned long tmp_stor_ibs1;
+  unsigned long tmp_stor_ibs0;
 #endif
   unsigned long* glptr_back;
   unsigned long ibs_incr;
@@ -2440,17 +2507,28 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	do {
 	  loader = ((*glptr++) ^ (*glptr_fixed_tmp++)) & ((*maskptr++) & (*maskptr_fixed_tmp++));
 	  loader2 = loader >> 1;
-	  bitfield_ibs1 = (loader ^ loader2) & 0x55555555;
-	  bitfield_ibs0 = (loader & loader2) & 0x55555555;
+	  bitfield_ibs1 = (loader ^ loader2) & FIVEMASK;
+	  bitfield_ibs0 = (loader & loader2) & FIVEMASK;
 	  *xor_ptr++ = bitfield_ibs0;
 	  loader = ((*glptr++) ^ (*glptr_fixed_tmp++)) & ((*maskptr++) & (*maskptr_fixed_tmp++));
-	  loader2 = loader << 1;
-	  bitfield_ibs1 |= (loader ^ loader2) & 0xaaaaaaaa;
-	  loader2 = (loader & loader2) & 0xaaaaaaaa;
-	  bitfield_ibs0 |= loader2;
-	  *xor_ptr++ = loader2 >> 1;
-	  bit_count_ibs1 += popcount[bitfield_ibs1 >> 16] + popcount[bitfield_ibs1 & 65535];
-	  bit_count_ibs0 += popcount[bitfield_ibs0 >> 16] + popcount[bitfield_ibs0 & 65535];
+	  loader2 = loader >> 1;
+	  bitfield_ibs1 += (loader ^ loader2) & FIVEMASK;
+	  loader2 = (loader & loader2) & FIVEMASK;
+	  bitfield_ibs0 += loader2;
+	  *xor_ptr++ = loader2;
+	  loader = ((*glptr++) ^ (*glptr_fixed_tmp++)) & ((*maskptr++) & (*maskptr_fixed_tmp++));
+	  loader2 = loader >> 1;
+	  bitfield_ibs1 += (loader ^ loader2) & FIVEMASK;
+	  loader2 = (loader & loader2) & FIVEMASK;
+	  bitfield_ibs0 += loader2;
+	  *xor_ptr++ = loader2;
+          bitfield_ibs1 = (bitfield_ibs1 & 0x33333333) + ((bitfield_ibs1 >> 2) & 0x33333333);
+	  bitfield_ibs0 = (bitfield_ibs0 & 0x33333333) + ((bitfield_ibs0 >> 2) & 0x33333333);
+	  tmp_stor_ibs1 = (bitfield_ibs1 + (bitfield_ibs1 >> 4)) & 0x0f0f0f0f;
+	  tmp_stor_ibs0 = (bitfield_ibs0 + (bitfield_ibs0 >> 4)) & 0x0f0f0f0f;
+
+          bit_count_ibs1 += (tmp_stor_ibs1 * 0x01010101) >> 24;
+	  bit_count_ibs0 += (tmp_stor_ibs0 * 0x01010101) >> 24;
 	} while (xor_ptr < xor_buf_end);
 	*genome_main += bit_count_ibs1;
 	genome_main++;
@@ -2579,17 +2657,28 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	do {
 	  loader = ((*glptr++) ^ (*glptr_fixed_tmp++)) & (*maskptr++);
 	  loader2 = loader >> 1;
-	  bitfield_ibs1 = (loader ^ loader2) & 0x55555555;
-	  bitfield_ibs0 = (loader & loader2) & 0x55555555;
+	  bitfield_ibs1 = (loader ^ loader2) & FIVEMASK;
+	  bitfield_ibs0 = (loader & loader2) & FIVEMASK;
 	  *xor_ptr++ = bitfield_ibs0;
 	  loader = ((*glptr++) ^ (*glptr_fixed_tmp++)) & (*maskptr++);
-	  loader2 = loader << 1;
-	  bitfield_ibs1 |= (loader ^ loader2) & 0xaaaaaaaa;
-	  loader2 = (loader & loader2) & 0xaaaaaaaa;
-	  bitfield_ibs0 |= loader2;
-	  *xor_ptr++ = loader2 >> 1;
-	  bit_count_ibs1 += popcount[bitfield_ibs1 >> 16] + popcount[bitfield_ibs1 & 65535];
-	  bit_count_ibs0 += popcount[bitfield_ibs0 >> 16] + popcount[bitfield_ibs0 & 65535];
+	  loader2 = loader >> 1;
+	  bitfield_ibs1 += (loader ^ loader2) & FIVEMASK;
+	  loader2 = (loader & loader2) & FIVEMASK;
+	  bitfield_ibs0 += loader2;
+	  *xor_ptr++ = loader2;
+	  loader = ((*glptr++) ^ (*glptr_fixed_tmp++)) & (*maskptr++);
+	  loader2 = loader >> 1;
+	  bitfield_ibs1 += (loader ^ loader2) & FIVEMASK;
+	  loader2 = (loader & loader2) & FIVEMASK;
+	  bitfield_ibs0 += loader2;
+	  *xor_ptr++ = loader2;
+          bitfield_ibs1 = (bitfield_ibs1 & 0x33333333) + ((bitfield_ibs1 >> 2) & 0x33333333);
+	  bitfield_ibs0 = (bitfield_ibs0 & 0x33333333) + ((bitfield_ibs0 >> 2) & 0x33333333);
+	  tmp_stor_ibs1 = (bitfield_ibs1 + (bitfield_ibs1 >> 4)) & 0x0f0f0f0f;
+	  tmp_stor_ibs0 = (bitfield_ibs0 + (bitfield_ibs0 >> 4)) & 0x0f0f0f0f;
+
+          bit_count_ibs1 += (tmp_stor_ibs1 * 0x01010101) >> 24;
+	  bit_count_ibs0 += (tmp_stor_ibs0 * 0x01010101) >> 24;
 	} while (xor_ptr < xor_buf_end);
 	*genome_main += bit_count_ibs1;
 	genome_main++;
@@ -9981,12 +10070,6 @@ int main(int argc, char** argv) {
     return dispmsg(RET_INVALID_CMDLINE);
   }
   free_cond(subst_argv);
-#ifndef __LP64__
-  popcount[0] = 0;
-  for (ii = 0; ii < 65536; ii++) {
-    popcount[ii] = (ii & 1) + popcount[ii / 2];
-  }
-#endif
 
   bubble = (char*)malloc(67108864 * sizeof(char));
   if (!bubble) {
