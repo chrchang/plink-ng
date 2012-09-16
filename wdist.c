@@ -208,6 +208,11 @@
 #define MULTIPLEX_DIST 960
 #define MULTIPLEX_2DIST (MULTIPLEX_DIST * 2)
 
+// Multiple of 192, no larger than 1728.  (Can be increased to 1920 with a
+// minor dot product implementation change.)
+#define MULTIPLEX_COV 768
+#define MULTIPLEX_2COV (MULTIPLEX_COV * 2)
+
 // Must be multiple of 384, no larger than 3840.
 #define GENOME_MULTIPLEX 1152
 #define GENOME_MULTIPLEX2 (GENOME_MULTIPLEX * 2)
@@ -2024,8 +2029,7 @@ static inline unsigned int popcount_xor_1mask_multiword(__m128i** xor1p, __m128i
   __m128i* xor2_end = &(xor2[MULTIPLEX_2DIST / 128]);
 
   acc.vi = _mm_setzero_si128();
-  // while loop seems to optimize better than for here
-  while (xor2 < xor2_end) {
+  do {
     count1 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
     count2 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
     half1 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
@@ -2044,7 +2048,7 @@ static inline unsigned int popcount_xor_1mask_multiword(__m128i** xor1p, __m128i
     count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
     // Accumulator stores sixteen 0-255 counts in parallel.
     acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
-  }
+  } while (xor2 < xor2_end);
 #if MULTIPLEX_DIST > 960
   acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
 #else
@@ -2069,7 +2073,7 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
   __m128i* xor2_end = &(xor2[MULTIPLEX_2DIST / 128]);
 
   acc.vi = _mm_setzero_si128();
-  while (xor2 < xor2_end) {
+  do {
     count1 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
     count2 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
     half1 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), _mm_and_si128(*((*mask1p)++), *mask2++));
@@ -2082,7 +2086,7 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
     count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
     count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
     acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
-  }
+  } while (xor2 < xor2_end);
 #if MULTIPLEX_DIST > 960
   acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
 #else
@@ -2092,19 +2096,89 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
   acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
+
+static inline unsigned int vec_dot_prod_biased(__m128i** vec1_ptr, __m128i** vec2_ptr) {
+  // Assumes vec1_ptr and vec2_ptr point to vectors of packed 2-bit values in
+  // {-1, 0, 1} which we wish to compute the dot product of.  These values are
+  // assumed to be stored with a bias of 2, i.e. -1 -> 01, 0 -> 10, 1 -> 11.
+  //
+  // MULTIPLEX_COV pairs of values are handled per function call; if fewer
+  // values are present, pad the end with 10s.  Note that no missingness mask
+  // is needed, because zero times anything is zero.
+  //
+  // Return value is ((MULTIPLEX_COV * 4) / 3) + the true dot product.
+  const __m128i mx0a = {AAAAMASK, AAAAMASK};
+  const __m128i mx04 = {0x4444444444444444LU, 0x4444444444444444LU};
+  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
+  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
+  __m128i count1, count2, loader1, loader2;
+  __uni16 acc;
+  __m128i* vec1_end = &((*vec1_ptr)[MULTIPLEX_2COV / 128]);
+  acc.vi = _mm_setzero_si128();
+  do {
+    loader1 = *((*vec1_ptr)++);
+    loader2 = *((*vec2_ptr)++);
+
+    // This is the key dot product operation: (x & y) | ((x + y) & 10).
+    //
+    //      01  10  11
+    //      ----------
+    // 01 | 11  10  01
+    // 10 | 10  10  10
+    // 11 | 01  10  11
+    //
+    // Unless I made a mistake in my inspection of the possibilities, there is
+    // no other combination of four x86_64 integer operations which can be
+    // interpreted as a parallel ternary dot product.  (Note that, while + is
+    // NOT an admissible operation by itself because it corrupts an adjacent
+    // value, immediately masking out the even bits afterward eliminates the
+    // corruption.)  So we build our heavy-duty dot product computations around
+    // the "2 biased" encoding this implies.
+
+    count1 = _mm_or_si128(_mm_and_si128(loader1, loader2), _mm_and_si128(_mm_add_epi64(loader1, loader2), mx0a));
+
+    loader1 = *((*vec1_ptr)++);
+    loader2 = *((*vec2_ptr)++);
+    count2 = _mm_or_si128(_mm_and_si128(loader1, loader2), _mm_and_si128(_mm_add_epi64(loader1, loader2), mx0a));
+    count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
+    loader1 = *((*vec1_ptr)++);
+    loader2 = *((*vec2_ptr)++);
+    count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
+    count2 = _mm_or_si128(_mm_and_si128(loader1, loader2), _mm_and_si128(_mm_add_epi64(loader1, loader2), mx0a));
+    // count1 currently has 4-bit values in the 4..12 range.  To avoid
+    // overflows we must subtract from these values before adding more partial
+    // sums...
+    count1 = _mm_add_epi64(_mm_sub_epi64(count1, mx04), _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
+    // and now count1 now has 32 four-bit 2..14 partial sums (each equal to
+    // [six dot product terms] + 8)
+    acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
+  } while ((*vec1_ptr) < vec1_end);
+#if MULTIPLEX_COV > 768
+  // 20..140 + 20..140 does not fit in 8 bits
+  acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
 #else
-// Simple 32-bit popcount implementation (using a 16-bit lookup table) for
-// testing purposes.  If there is a serious need for a fast 32-bit version, one
-// can make minor modifications to the code above, or revert to standard
-// Walisch/Lauradoux if SSE2 is unavailable.
+  // 16..112 + 16..112 fits in 8 bits
+  acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 8)), m8);
+#endif
+  acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
+  acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
+  return (unsigned int)(acc.u8[0] + acc.u8[1]);
+}
+#else
 static inline unsigned int popcount_xor_1mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
   unsigned long* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
   unsigned int bit_count = 0;
   unsigned long ulii;
-  while (xor2 < xor2_end) {
+  do {
     ulii = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
-    bit_count += popcount[ulii >> 16] + popcount[ulii & 65535];
-  }
+    // don't knock this; it's actually a tad faster than e.g. the algorithm
+    // described at
+    // http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
+    // on my development machine.
+    bit_count += popcount[ulii >> 16] + popcount[ulii & 0xffff];
+  } while (xor2 < xor2_end);
   return bit_count;
 }
 
@@ -2116,7 +2190,7 @@ static inline unsigned int popcountg_xor_1mask_multiword(unsigned long* xor1, un
   unsigned long uljj;
   unsigned long bitfield_ibs1;
   unsigned long bitfield_ibs0;
-  while (xor2 < xor2_end) {
+  do {
     ulii = ((*xor1++) ^ (*xor2++)) & (*mask++);
     uljj = ulii >> 1;
     bitfield_ibs1 = (ulii ^ uljj) & 0x55555555;
@@ -2127,7 +2201,7 @@ static inline unsigned int popcountg_xor_1mask_multiword(unsigned long* xor1, un
     bitfield_ibs0 |= (ulii & uljj) & 0xaaaaaaaa;
     bit_count_ibs1 += popcount[bitfield_ibs1 >> 16] + popcount[bitfield_ibs1 & 65535];
     bit_count_ibs0 += popcount[bitfield_ibs0 >> 16] + popcount[bitfield_ibs0 & 65535];
-  }
+  } while (xor2 < xor2_end);
   *ibs0ct_ptr += bit_count_ibs0;
   return bit_count_ibs1;
 }
@@ -2136,10 +2210,10 @@ static inline unsigned int popcount_xor_2mask_multiword(unsigned long** xor1p, u
   unsigned long* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
   unsigned int bit_count = 0;
   unsigned long ulii;
-  while (xor2 < xor2_end) {
+  do {
     ulii = ((*((*xor1p)++)) ^ *xor2++) & ((*((*mask1p)++)) & *mask2++);
     bit_count += popcount[ulii >> 16] + popcount[ulii & 65535];
-  }
+  } while (xor2 < xor2_end);
   return bit_count;
 }
 #endif
