@@ -2094,7 +2094,7 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 
-static inline unsigned int vec_dot_prod_biased(__m128i** vec1_ptr, __m128i** vec2_ptr) {
+static inline unsigned int vec_dot_product_biased(__m128i** vec1_ptr, __m128i* vec2) {
   // Assumes vec1_ptr and vec2_ptr point to vectors of packed 2-bit values in
   // {-1, 0, 1} which we wish to compute the dot product of.  These values are
   // assumed to be stored with a bias of 2, i.e. -1 -> 01, 0 -> 10, 1 -> 11.
@@ -2112,13 +2112,13 @@ static inline unsigned int vec_dot_prod_biased(__m128i** vec1_ptr, __m128i** vec
   const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
   __m128i count1, count2, loader1, loader2;
   __uni16 acc;
-  __m128i* vec1_end = &((*vec1_ptr)[MULTIPLEX_2COV / 128]);
+  __m128i* vec2_end = &(vec2[MULTIPLEX_2COV / 128]);
   acc.vi = _mm_setzero_si128();
   do {
     loader1 = *((*vec1_ptr)++);
-    loader2 = *((*vec2_ptr)++);
+    loader2 = *vec2++;
 
-    // This is the key dot product operation: (x & y) | ((x + y) & 10).
+    // This is the key two-bit product operation: (x & y) | ((x + y) & 10).
     //
     //      01  10  11
     //      ----------
@@ -2127,20 +2127,38 @@ static inline unsigned int vec_dot_prod_biased(__m128i** vec1_ptr, __m128i** vec
     // 11 | 01  10  11
     //
     // Unless I made a mistake in my inspection of the possibilities, there is
-    // no other combination of four x86_64 integer operations which can be
-    // interpreted as a parallel ternary dot product.  (Note that, while + is
-    // NOT an admissible operation by itself because it corrupts an adjacent
-    // value, immediately masking out the even bits afterward eliminates the
-    // corruption.)  So we build our heavy-duty dot product computations around
-    // the "2 biased" encoding this implies.
-
+    // no other combination of four x86_64 integer operations which acts as a
+    // multiplexed ternary product.  (Note that, while + is NOT an admissible
+    // operation by itself because it corrupts an adjacent value, masking the
+    // low-order bits out immediately afterward eliminates the corruption.)  So
+    // we build our heavy-duty dot product computations around the excess-2
+    // encoding this implies.
+    //
+    // A slight improvement may be possible using newer vector instructions
+    // that enable multiplexed usage of lookup tables.  Such instructions would
+    // have a greater impact on the Hamming weight calculation, though (since
+    // they would eliminate the need for separate mask arrays there; I have not
+    // found a way to implement any permutation of
+    //
+    //      00  01  10  11
+    //      --------------
+    // 00 | 00  00  00  00
+    // 01 | 00  00  10  01
+    // 10 | 00  10  00  01
+    // 11 | 00  01  01  00
+    //
+    // that is as fast as precomputing missingness masks).
+    //
+    // There may be other sequences of operations which directly yield partial
+    // sums of two or more dot product terms, but it seems unlikely to me that
+    // any would be faster than the current implementation.
     count1 = _mm_or_si128(_mm_and_si128(loader1, loader2), _mm_and_si128(_mm_add_epi64(loader1, loader2), mx0a));
 
     loader1 = *((*vec1_ptr)++);
-    loader2 = *((*vec2_ptr)++);
+    loader2 = *vec2++;
     count2 = _mm_or_si128(_mm_and_si128(loader1, loader2), _mm_and_si128(_mm_add_epi64(loader1, loader2), mx0a));
     loader1 = *((*vec1_ptr)++);
-    loader2 = *((*vec2_ptr)++);
+    loader2 = *vec2++;
     count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
     count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
     count2 = _mm_or_si128(_mm_and_si128(loader1, loader2), _mm_and_si128(_mm_add_epi64(loader1, loader2), mx0a));
@@ -2242,8 +2260,8 @@ static inline unsigned int popcount_xor_2mask_multiword(unsigned long** xor1p, u
   return bit_count;
 }
 
-static inline unsigned int vec_dot_product_biased(unsigned long** vec1_ptr, unsigned long** vec2_ptr) {
-  unsigned long* vec1_end = &((*vec1_ptr)[MULTIPLEX_COV / 16]);
+static inline unsigned int vec_dot_product_biased(unsigned long** vec1_ptr, unsigned long* vec2) {
+  unsigned long* vec2_end = &(vec2[MULTIPLEX_COV / 16]);
   unsigned int biased_dot_product = 0;
   unsigned long loader1;
   unsigned long loader2;
@@ -2252,33 +2270,33 @@ static inline unsigned int vec_dot_product_biased(unsigned long** vec1_ptr, unsi
   unsigned long tmp_stor;
   do {
     loader1 = *((*vec1_ptr)++);
-    loader2 = *((*vec2_ptr)++);
+    loader2 = *vec2++;
     ulii = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
     loader1 = *((*vec1_ptr)++);
-    loader2 = *((*vec2_ptr)++);
+    loader2 = *vec2++;
     uljj = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
     loader1 = *((*vec1_ptr)++);
-    loader2 = *((*vec1_ptr)++);
+    loader2 = *vec2++;
     ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
     ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
     uljj = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
     ulii = (ulii - 0x44444444) + (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
     tmp_stor = (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
     loader1 = *((*vec1_ptr)++);
-    loader2 = *((*vec2_ptr)++);
+    loader2 = *vec2++;
     ulii = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
     loader1 = *((*vec1_ptr)++);
-    loader2 = *((*vec2_ptr)++);
+    loader2 = *vec2++;
     uljj = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
     loader1 = *((*vec1_ptr)++);
-    loader2 = *((*vec1_ptr)++);
+    loader2 = *vec2++;
     ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
     ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
     uljj = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
     ulii = (ulii - 0x44444444) + (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
     tmp_stor = (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
     biased_dot_product += (tmp_stor * 0x01010101) >> 24;
-  } while ((*vec1_ptr) < vec1_end);
+  } while (vec2 < vec2_end);
   return biased_dot_product;
 }
 #endif
@@ -2342,6 +2360,33 @@ void* calc_idist_thread(void* arg) {
   int jj = thread_start[0];
   incr_dists_i(&(idists[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
   return NULL;
+}
+
+void incr_cov(int* idists, unsigned long* geno, int tidx) {
+#if __LP64__
+  __m128i* glptr;
+  __m128i* glptr2;
+  unsigned long* lptr;
+#else
+  unsigned long* glptr;
+  unsigned long* glptr2;
+#endif
+  int ii;
+  int jj;
+  for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
+    jj = ii * (MULTIPLEX_2DIST / BITCT);
+#if __LP64__
+    glptr = (__m128i*)geno;
+    glptr2 = (__m128i*)(&(geno[jj]));
+#else
+    glptr = geno;
+    glptr2 = &(geno[jj]);
+#endif
+    while (glptr < glptr2) {
+      *idists += vec_dot_product_biased(&glptr, glptr2);
+      idists++;
+    }
+  }
 }
 
 void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
