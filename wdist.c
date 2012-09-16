@@ -2182,10 +2182,10 @@ static inline unsigned int popcount_xor_1mask_multiword(unsigned long** xor1p, u
     loader = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
     uljj = loader - ((loader >> 1) & FIVEMASK);
     loader = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
+    ulii += (loader >> 1) & FIVEMASK;
+    uljj += loader & FIVEMASK;
     ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
-    loader -= ((loader >> 1) & FIVEMASK);
     ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
-    ulii += (loader & 0x33333333) + ((loader >> 2) & 0x33333333);
     tmp_stor = (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
 
     loader = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
@@ -2193,10 +2193,10 @@ static inline unsigned int popcount_xor_1mask_multiword(unsigned long** xor1p, u
     loader = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
     uljj = loader - ((loader >> 1) & FIVEMASK);
     loader = ((*((*xor1p)++)) ^ *xor2++) & (*((*maskp)++));
+    ulii += (loader >> 1) & FIVEMASK;
+    uljj += loader & FIVEMASK;
     ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
-    loader -= ((loader >> 1) & FIVEMASK);
     ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
-    ulii += (loader & 0x33333333) + ((loader >> 2) & 0x33333333);
     tmp_stor += (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
 
     // Each 8 bit slot stores a number in 0..48.  Multiplying by 0x01010101 is
