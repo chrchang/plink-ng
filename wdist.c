@@ -2169,7 +2169,7 @@ static inline unsigned int vec_dot_product_biased(__m128i** vec1_ptr, __m128i* v
     // and now count1 now has 32 four-bit 2..14 partial sums (each equal to
     // [six dot product terms] + 8)
     acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
-  } while ((*vec1_ptr) < vec1_end);
+  } while (vec2 < vec2_end);
 #if MULTIPLEX_COV > 768
   // 20..140 + 20..140 does not fit in 8 bits
   acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
@@ -2366,7 +2366,6 @@ void incr_cov(int* idists, unsigned long* geno, int tidx) {
 #if __LP64__
   __m128i* glptr;
   __m128i* glptr2;
-  unsigned long* lptr;
 #else
   unsigned long* glptr;
   unsigned long* glptr2;
