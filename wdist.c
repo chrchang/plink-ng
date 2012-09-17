@@ -1539,7 +1539,7 @@ unsigned long* glptr;
 double weights[2048 * BITCT];
 unsigned int* weights_i = (unsigned int*)weights;
 int thread_start[MAX_THREADS_P1];
-int thread_start0[MAX_THREADS_P1];
+// int thread_start0[MAX_THREADS_P1];
 double reg_tot_xy;
 double reg_tot_x;
 double reg_tot_y;
@@ -2373,7 +2373,7 @@ void incr_cov(int* idists, unsigned long* geno, int tidx) {
   int ii;
   int jj;
   for (ii = thread_start[tidx]; ii < thread_start[tidx + 1]; ii++) {
-    jj = ii * (MULTIPLEX_2DIST / BITCT);
+    jj = ii * (MULTIPLEX_2COV / BITCT);
 #if __LP64__
     glptr = (__m128i*)geno;
     glptr2 = (__m128i*)(&(geno[jj]));
@@ -2381,10 +2381,71 @@ void incr_cov(int* idists, unsigned long* geno, int tidx) {
     glptr = geno;
     glptr2 = &(geno[jj]);
 #endif
-    while (glptr < glptr2) {
+    do {
       *idists += vec_dot_product_biased(&glptr, glptr2);
       idists++;
+    } while (glptr <= glptr2);
+  }
+}
+
+void* calc_cov_thread(void* arg) {
+  long tidx = (long)arg;
+  int ii = thread_start[tidx];
+  int jj = thread_start[0];
+  incr_cov(&(idists[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
+  return NULL;
+}
+
+void incr_cov_consts(double* maf_buf, unsigned long* geno, double* cov_linear_terms) {
+  // maf_buf values are assumed to not actually be MAFs, but
+  // (2 * nonzero coded allele freq) - 1 instead.
+  int ii;
+  int jj;
+  int kk;
+  int mm;
+  double maf_ptr;
+  double* wt_ptr = &(weights[64]);
+  double twt[3];
+  double partial_sum = 0.0;
+  unsigned long geno_val;
+  for (ii = 0; ii < MULTIPLEX_COV / 4; ii++) {
+    // 192 lookup table slots required per set of 4 markers
+    // Have to be careful that (48 * MULTIPLEX_COV) + 64 does not exceed the
+    // 2048 * BITCT size of weights[].
+    maf_ptr = &(maf_buf[ii * 4]);
+    twt[0] = maf_ptr[0];
+    for (jj = 1; jj < 4; jj++) {
+      twt[1] = twt[0] + maf_ptr[1];
+      wt_ptr = &(wt_ptr[16]);
+      for (kk = 1; kk < 4; kk++) {
+        twt[2] = twt[1] + maf_ptr[2];
+	wt_ptr = &(wt_ptr[4]);
+        for (mm = 1; mm < 4; mm++) {
+          wt_ptr++;
+	  *wt_ptr++ = twt[2] + maf_ptr[3];
+	  *wt_ptr++ = twt[2];
+	  *wt_ptr++ = twt[2] - maf_ptr[3];
+          twt[2] -= maf_ptr[2];
+	}
+	twt[1] -= maf_ptr[1];
+      }
+      twt[0] -= maf_ptr[0];
     }
+  }
+  wt_ptr = weights;
+  for (ii = 0; ii < indiv_ct; ii++) {
+    partial_sum = 0.0;
+    for (jj = 0; jj < MULTIPLEX_COV / BITCT2; jj++) {
+      geno_val = *geno++;
+#if __LP64__
+      partial_sum += wt_ptr[1344 + (geno_val >> 56)] + wt_ptr[1152 + ((geno_val >> 48) & 255)] + wt_ptr[960 + ((geno_val >> 40) & 255)] + wt_ptr[768 + ((geno_val >> 32) & 255)] + wt_ptr[576 + ((geno_val >> 24) & 255)] + wt_ptr[384 + ((geno_val >> 16) & 255)] + wt_ptr[192 + ((geno_val >> 8) & 255)] + wt_ptr[geno_val & 255];
+#else
+      partial_sum += wt_ptr[576 + ((geno_val >> 24) & 255)] + wt_ptr[384 + ((geno_val >> 16) & 255)] + wt_ptr[192 + ((geno_val >> 8) & 255)] + wt_ptr[geno_val & 255];
+#endif
+      wt_ptr = &(wt_ptr[24 * BITCT]);
+    }
+    *cov_linear_terms += partial_sum;
+    cov_linear_terms++;
   }
 }
 
@@ -2943,9 +3004,9 @@ void incr_dists_rm(unsigned int* idists, int tidx, int* thread_start) {
 
 void* calc_relm_thread(void* arg) {
   long tidx = (long)arg;
-  int ii = thread_start0[tidx];
-  int jj = thread_start0[0];
-  incr_dists_rm(&(missing_tot_unweighted[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (int)tidx, thread_start0);
+  int ii = thread_start[tidx];
+  int jj = thread_start[0];
+  incr_dists_rm(&(missing_tot_unweighted[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (int)tidx, thread_start);
   return NULL;
 }
 
@@ -4072,6 +4133,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
   int missing_ct_buf[BITCT];
   int missing_ct_all;
   double marker_recip = 0.5 / (double)marker_ct;
+  // assumes GENOME_MULTIPLEX >= MULTIPLEX_COV
   double maf_buf[GENOME_MULTIPLEX];
   double e00 = 0.0;
   double e01 = 0.0;
@@ -6512,7 +6574,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     fill_int_zero((int*)indiv_missing_unwt, indiv_ct);
 ;
     triangle_fill(thread_start, indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
-    triangle_fill(thread_start0, indiv_ct, thread_ct, parallel_idx, parallel_tot, 0, 1);
+    // triangle_fill(thread_start0, indiv_ct, thread_ct, parallel_idx, parallel_tot, 0, 1);
     if (relationship_req(calculation_type)) {
       llxx = thread_start[thread_ct];
       llxx = ((llxx * (llxx - 1)) - (long long)thread_start[0] * (thread_start[0] - 1)) / 2;
@@ -6651,7 +6713,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      goto wdist_ret_THREAD_CREATE_FAIL;
 	    }
 	  }
-	  incr_dists_rm(missing_tot_unweighted, 0, thread_start0);
+	  incr_dists_rm(missing_tot_unweighted, 0, thread_start);
 	  for (oo = 0; oo < thread_ct - 1; oo++) {
 	    pthread_join(threads[oo], NULL);
 	  }
