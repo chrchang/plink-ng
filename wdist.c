@@ -312,7 +312,7 @@ inline void fclose_cond(FILE* fptr) {
   }
 }
 
-inline void gzclose_cond(gzFile* gz_outfile) {
+inline void gzclose_cond(gzFile gz_outfile) {
   if (gz_outfile) {
     gzclose(gz_outfile);
   }
@@ -1558,6 +1558,7 @@ double* dists = NULL;
 char* pheno_c = NULL;
 double* pheno_d = NULL;
 unsigned char* ped_geno = NULL;
+unsigned long* geno = NULL;
 unsigned long* glptr;
 double weights[2048 * BITCT];
 unsigned int* weights_i = (unsigned int*)weights;
@@ -2307,7 +2308,9 @@ static inline unsigned int vec_dot_product_biased(unsigned long** vec1_ptr, unsi
   do {
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
+    printf("%lu %lu\n", loader2 >> 16, (loader1 + loader2) & 65535);
     ulii = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
+    printf("%lu %lu\n", ulii >> 16, ulii & 65535);
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
     uljj = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
@@ -2330,7 +2333,7 @@ static inline unsigned int vec_dot_product_biased(unsigned long** vec1_ptr, unsi
     ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
     uljj = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
     ulii = (ulii - 0x44444444) + (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
-    tmp_stor = (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
+    tmp_stor += (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
     biased_dot_product += (tmp_stor * 0x01010101) >> 24;
   } while (vec2 < vec2_end);
   return biased_dot_product;
@@ -2409,11 +2412,12 @@ void incr_cov(int* idists, unsigned long* geno, int tidx) {
   int ii;
   int jj;
   for (ii = thread_start0[tidx]; ii < thread_start0[tidx + 1]; ii++) {
-    jj = ii * (MULTIPLEX_2COV / BITCT);
 #if __LP64__
+    jj = ii * (MULTIPLEX_2COV / BITCT);
     glptr = (__m128i*)geno;
     glptr2 = (__m128i*)(&(geno[jj]));
 #else
+    jj = ii * (MULTIPLEX_2COV / BITCT);
     glptr = geno;
     glptr2 = &(geno[jj]);
 #endif
@@ -2428,7 +2432,7 @@ void* calc_cov_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start0[tidx];
   int jj = thread_start0[0];
-  incr_cov(&(idists[((long long)ii * (ii + 1) - (long long)jj * (jj + 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
+  incr_cov(&(idists[((long long)ii * (ii + 1) - (long long)jj * (jj + 1)) / 2]), geno, (int)tidx);
   return NULL;
 }
 
@@ -3090,11 +3094,12 @@ void incr_cov_consts(double* centered_freq_buf, unsigned long* geno, double* cov
       twt[0] -= centered_freq_ptr[0];
     }
   }
-  wt_ptr = weights;
   for (ii = 0; ii < indiv_ct; ii++) {
+    wt_ptr = weights;
     partial_sum = 0.0;
     for (jj = 0; jj < 2; jj++) {
-      geno_val = *geno++;
+      geno_val = *geno;
+      geno = &(geno[MULTIPLEX_COV / BITCT2]);
 #if __LP64__
       partial_sum += wt_ptr[1344 + (geno_val >> 56)] + wt_ptr[1152 + ((geno_val >> 48) & 255)] + wt_ptr[960 + ((geno_val >> 40) & 255)] + wt_ptr[768 + ((geno_val >> 32) & 255)] + wt_ptr[576 + ((geno_val >> 24) & 255)] + wt_ptr[384 + ((geno_val >> 16) & 255)] + wt_ptr[192 + ((geno_val >> 8) & 255)] + wt_ptr[geno_val & 255];
 #else
@@ -3102,6 +3107,7 @@ void incr_cov_consts(double* centered_freq_buf, unsigned long* geno, double* cov
 #endif
       wt_ptr = &(wt_ptr[24 * BITCT]);
     }
+
     *cov_linear_terms += partial_sum;
     cov_linear_terms++;
   }
@@ -3126,12 +3132,11 @@ inline int flexclose_null(FILE** outfile_ptr, gzFile* gz_outfile_ptr) {
   }
 }
 
-int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, unsigned char* marker_exclude, int marker_ct, double* mafs, int unfiltered_indiv_ct, unsigned char* indiv_exclude, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int calculation_type, pthread_t* threads) {
+int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, unsigned char* marker_exclude, int marker_ct, double* mafs, int unfiltered_indiv_ct, unsigned char* indiv_exclude, int parallel_idx, int parallel_tot, char* outname, char* outname_end, char* person_id, int max_person_id_len, int calculation_type, pthread_t* threads) {
   unsigned char* wkspace_mark = wkspace_base;
   int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   int indiv_ct4long = (indiv_ct + 4 * sizeof(long) - 1) / (4 * sizeof(long));
   unsigned char* loadbuf = NULL;
-  unsigned long* geno = NULL;
   double centered_freq_buf[MULTIPLEX_COV];
   int marker_unfiltered_offset = 0;
   int markers_processed = 0;
@@ -3171,8 +3176,8 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
   long long pct_cur_compare;
   int write_gz = calculation_type & CALC_RELATIONSHIP_GZ;
   int fixed_missing_ct;
-  unsigned int* biased_dot_prod_reader;
-  unsigned int* dbl_exclude_reader;
+  int* biased_dot_prod_reader;
+  unsigned int* missing_dbl_exclude_reader;
   double* cov_linear_reader;
   int slen;
   char* cptr;
@@ -3183,7 +3188,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
   write_start_iidx = thread_start0[0];
   write_end_iidx = thread_start0[thread_ct];
   write_midx_offset = ((long long)write_start_iidx * (write_start_iidx + 1)) / 2;
-  write_midx_ct = (((long long)write_end_iidx * (write_end_iidx + 1)) / 2) - write_start_midx;
+  write_midx_ct = (((long long)write_end_iidx * (write_end_iidx + 1)) / 2) - write_midx_offset;
   ulii = ((unsigned long)indiv_ct * (indiv_ct - 1)) / 2;
   uljj = ulii + indiv_ct;
   if (wkspace_alloc_i_checked(&idists, uljj * sizeof(int))) {
@@ -3235,9 +3240,9 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
       if (fread(&(loadbuf[marker_buf_idx * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	goto calc_cov_ret_READ_FAIL;
       }
-      // todo: check if this is reversed, and document
+      // mafs[] is actually currently the frequency of the set allele
       dxx = 2 * mafs[marker_unfiltered_offset] - 1;
-      centered_freq_sq_sum = dxx * dxx;
+      centered_freq_sq_sum += dxx * dxx;
       centered_freq_buf[marker_buf_idx] = dxx;
       marker_unfiltered_offset++;
     }
@@ -3246,7 +3251,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
       geno_writer = &(geno[marker_buf_offset / BITCT2]);
       missing_writer = mmasks;
       missing_ct_ref = missing_cts;
-
+      indiv_idx = 0;
       for (indiv_unfiltered_idx = 0; indiv_idx < indiv_ct; indiv_unfiltered_idx++) {
         indiv_unfiltered_idx = next_non_excluded(indiv_exclude, indiv_unfiltered_idx);
         loadbuf_ref = &(loadbuf[indiv_unfiltered_idx / 4 + marker_buf_offset * unfiltered_indiv_ct4]);
@@ -3269,11 +3274,12 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	  new_missing |= (ulii & uljj) << (marker_buf_idx + (BITCT / 2));
 	  new_geno |= (ulii + uljj) << (marker_buf_idx * 2);
 	}
-	*geno_writer = new_word;
+	*geno_writer = new_geno;
 	*missing_writer++ = new_missing;
 	*missing_ct_ref += popcount_long(new_missing);
 	missing_ct_ref++;
 	geno_writer = &(geno_writer[(MULTIPLEX_COV / BITCT2) - 1]);
+	indiv_idx++;
       }
 
       for (ulii = 1; ulii < thread_ct; ulii++) {
@@ -3286,7 +3292,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	pthread_join(threads[ii], NULL);
       }
 
-      incr_cov_consts(&(centered_freq_buf[marker_buf_offset]), geno, cov_linear_terms);
+      incr_cov_consts(&(centered_freq_buf[marker_buf_offset]), &(geno[marker_buf_offset / BITCT2]), cov_linear_terms);
     }
 
     for (ulii = 1; ulii < thread_ct; ulii++) {
@@ -3295,13 +3301,16 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
       }
     }
     incr_cov(idists, geno, 0);
+
     for (ii = 0; ii < thread_ct - 1; ii++) {
       pthread_join(threads[ii], NULL);
     }
 
     markers_processed += marker_batch_size;
     printf("\r%d markers complete.", markers_processed);
+    fflush(stdout);
   } while (markers_processed < marker_ct);
+  printf("\r                            \r");
 
   // subtract bias from all terms
   centered_freq_sq_sum -= ((markers_processed - marker_batch_size + MULTIPLEX_COV) * 4) / 3;
@@ -3340,8 +3349,8 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	  } else {
 	    ii = fixed_missing_ct;
 	  }
-	  dxx = (((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) * marker_ct) / ((double)ii);
-	  if (fwrite_checked(&dxx), sizeof(double), outfile) {
+	  dxx = ((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)ii);
+	  if (fwrite_checked(&dxx, sizeof(double), outfile)) {
 	    goto calc_cov_ret_WRITE_FAIL;
 	  }
 	}
@@ -3356,7 +3365,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	    ulii = ((unsigned long)row_num * (row_num + 3)) / 2;
             for (col_num = row_num + 1; col_num < indiv_ct; col_num++) {
 	      ulii += col_num;
-	      dxx = ((idists[ulii] + row_and_fixed_adj + (*cov_linear_reader++)) * marker_ct) / ((double)(fixed_missing_ct - (*missing_ct_ref++) + missing_dbl_excluded[ulii]));
+	      dxx = (idists[ulii] + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)(fixed_missing_ct - (*missing_ct_ref++) + missing_dbl_excluded[ulii]));
               if (fwrite_checked(&dxx, sizeof(double), outfile)) {
 		goto calc_cov_ret_WRITE_FAIL;
 	      }
@@ -3404,7 +3413,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	  } else {
 	    ii = fixed_missing_ct;
 	  }
-	  dxx = (((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) * marker_ct) / ((double)ii);
+	  dxx = ((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)ii);
 	  slen = sprintf(tbuf, "%d\t%d\t%d\t%g\n", row_num + 1, col_num + 1, ii, dxx);
 	  if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
 	    goto calc_cov_ret_WRITE_FAIL;
@@ -3423,7 +3432,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
       ii = (indiv_ct * 2 + sizeof(long) - 4) / sizeof(long);
       geno_writer = geno;
       for (jj = 0; jj < ii; jj++) {
-	geno_writer++ = ulii;
+	*geno_writer++ = ulii;
       }
     }
     if (write_gz) {
@@ -3459,12 +3468,18 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	fixed_missing_ct = marker_ct - missing_cts[row_num];
 	missing_ct_ref = missing_cts;
         for (col_num = 0; col_num < row_num; col_num++) {
-          slen = sprintf(tbuf, "%g\t", (((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) * marker_ct) / ((double)(fixed_missing_ct - (*missing_ct_ref++) + (*missing_dbl_exclude_reader++))));
+	  if (row_num < 3) {
+	    printf("%d %g %g\n", (*biased_dot_prod_reader), row_and_fixed_adj, (*cov_linear_reader));
+	  }
+          slen = sprintf(tbuf, "%g\t", ((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)(fixed_missing_ct - (*missing_ct_ref++) + (*missing_dbl_exclude_reader++))));
 	  if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
 	    goto calc_cov_ret_WRITE_FAIL;
 	  }
 	}
-	slen = sprintf(tbuf, "%g", (((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) * marker_ct) / ((double)fixed_missing_ct));
+	if (row_num < 3) {
+	  printf("%d %g %g\n", (*biased_dot_prod_reader), row_and_fixed_adj, (*cov_linear_reader));
+	}
+	slen = sprintf(tbuf, "%g", ((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)fixed_missing_ct));
 	if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
 	  goto calc_cov_ret_WRITE_FAIL;
 	}
@@ -3472,16 +3487,16 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	  pct_cur_compare += (row_num + 1) * 100;
 	} else {
 	  if (write_shape == CALC_RELATIONSHIP_SQ0) {
-	    if (flexwrite_checked(outfile, gz_outfile, geno, (indiv_ct - row_num - 1) * 2)) {
+	    if (flexwrite_checked(outfile, gz_outfile, (char*)geno, (indiv_ct - row_num - 1) * 2)) {
 	      goto calc_cov_ret_WRITE_FAIL;
 	    }
 	  } else {
 	    ulii = ((unsigned long)row_num * (row_num + 3)) / 2;
 	    for (col_num = row_num + 1; col_num < indiv_ct; col_num++) {
 	      ulii += col_num;
-	      slen = sprintf(tbuf, "\t%g", ((idists[ulii] + row_and_fixed_adj + (*cov_linear_reader++)) * marker_ct) / ((double)(fixed_missing_ct - (*(++missing_ct_ref)) + missing_dbl_excluded[ulii])));
+	      slen = sprintf(tbuf, "\t%g", (idists[ulii] + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)(fixed_missing_ct - (*(++missing_ct_ref)) + missing_dbl_excluded[ulii])));
 	      if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
-		goto wdist_ret_WRITE_FAIL;
+		goto calc_cov_ret_WRITE_FAIL;
 	      }
 	    }
 	  }
@@ -7011,7 +7026,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (calculation_type & CALC_RELATIONSHIP_COV) {
-    retval = calc_cov(pedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_ct, mafs, unfiltered_indiv_ct, indiv_exclude, parallel_idx, parallel_tot, outname, outname_end, calculation_type, threads);
+    retval = calc_cov(pedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_ct, mafs, unfiltered_indiv_ct, indiv_exclude, parallel_idx, parallel_tot, outname, outname_end, person_id, max_person_id_len, calculation_type, threads);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -10649,6 +10664,15 @@ int main(int argc, char** argv) {
     rseed = (unsigned long int)time(NULL);
   }
   init_genrand(rseed);
+
+  unsigned long buf1[48];
+  unsigned long buf2[48];
+  unsigned long* bptr = buf1;
+  for (ii = 0; ii < 48; ii++) {
+    buf1[ii] = 0xaaaaaaaaUL;
+    buf2[ii] = 0xaaff55ffUL;
+  }
+  printf("%u\n", vec_dot_product_biased(&bptr, buf2));
 
   // famname[0] indicates binary vs. text
   // extractname[0], excludename[0], keepname[0], and removename[0] indicate
