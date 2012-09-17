@@ -244,16 +244,16 @@
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.9.5 "
+  "WDIST genomic distance calculator, v0.9.6 "
 #else
-  "WDIST genomic distance calculator, v0.9.5L "
+  "WDIST genomic distance calculator, v0.9.6L "
 #endif
 #if __LP64__
   "64-bit"
 #else
   "32-bit"
 #endif
-  " (15 September 2012)\n"
+  " (18 September 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
@@ -3209,6 +3209,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
       // 0xff = quadruple zero in our ternary representation
       // does not increase missing counts
       memset(&(loadbuf[marker_batch_size * unfiltered_indiv_ct4]), 0xff, (MULTIPLEX_COV - marker_batch_size) * unfiltered_indiv_ct4);
+      memset(geno, 0xff, MULTIPLEX_COV * indiv_ct4long * sizeof(long));
       fill_double_zero(&(centered_freq_buf[marker_batch_size]), MULTIPLEX_COV - marker_batch_size);
       fill_long_zero((long*)mmasks, indiv_ct);
     }
@@ -3242,16 +3243,16 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
         loadbuf_shift = (indiv_unfiltered_idx % 4) * 2;
 	new_geno = 0;
 	new_missing = 0;
-        for (marker_buf_idx = 0; marker_buf_idx < BITCT / 2; marker_buf_idx++) {
+        for (marker_buf_idx = 0; marker_buf_idx < BITCT2; marker_buf_idx++) {
           ulii = (loadbuf_ref[marker_buf_idx * unfiltered_indiv_ct4] >> loadbuf_shift) & 3;
 	  uljj = ulii & ((ulii ^ 2) >> 1);
 	  new_missing |= uljj << marker_buf_idx;
 	  new_geno |= ((ulii ^ 1) + uljj * 3) << (marker_buf_idx * 2);
 	}
         *geno_writer++ = new_geno;
-	loadbuf_ref = &(loadbuf_ref[unfiltered_indiv_ct4 * (BITCT / 2)]);
+	loadbuf_ref = &(loadbuf_ref[unfiltered_indiv_ct4 * BITCT2]);
 	new_geno = 0;
-	for (marker_buf_idx = 0; marker_buf_idx < BITCT / 2; marker_buf_idx++) {
+	for (marker_buf_idx = 0; marker_buf_idx < BITCT2; marker_buf_idx++) {
           ulii = (loadbuf_ref[marker_buf_idx * unfiltered_indiv_ct4] >> loadbuf_shift) & 3;
 	  uljj = ulii & ((ulii ^ 2) >> 1);
 	  new_missing |= uljj << (marker_buf_idx + BITCT2);
@@ -3294,8 +3295,8 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
   } while (markers_processed < marker_ct);
   printf("\r                            \r");
 
-  // subtract bias from all terms
-  centered_freq_sq_sum += markers_processed - marker_batch_size + MULTIPLEX_COV;
+  // adjust for dot product bias
+  centered_freq_sq_sum += marker_ct - marker_batch_size + MULTIPLEX_COV;
 
   row_num = write_start_iidx;
   biased_dot_prod_reader = idists;
@@ -4576,7 +4577,6 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
   int missing_ct_buf[BITCT];
   int missing_ct_all;
   double marker_recip = 0.5 / (double)marker_ct;
-  // assumes GENOME_MULTIPLEX >= MULTIPLEX_COV
   double maf_buf[GENOME_MULTIPLEX];
   double e00 = 0.0;
   double e01 = 0.0;
