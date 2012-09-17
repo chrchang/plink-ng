@@ -2403,7 +2403,7 @@ void incr_cov_consts(double* maf_buf, unsigned long* geno, double* cov_linear_te
   int jj;
   int kk;
   int mm;
-  double maf_ptr;
+  double* maf_ptr;
   double* wt_ptr = &(weights[64]);
   double twt[3];
   double partial_sum = 0.0;
