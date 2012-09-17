@@ -208,8 +208,7 @@
 #define MULTIPLEX_DIST 960
 #define MULTIPLEX_2DIST (MULTIPLEX_DIST * 2)
 
-// Multiple of 192, no larger than 1728.  (Can be increased to 1920 with a
-// minor dot product implementation change.)
+// Multiple of 192, no larger than 1920.
 #define MULTIPLEX_COV 768
 #define MULTIPLEX_2COV (MULTIPLEX_COV * 2)
 
@@ -2131,23 +2130,24 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 
-static inline unsigned int vec_dot_product_biased(__m128i** vec1_ptr, __m128i* vec2) {
+static inline unsigned int vec_dot_product_neg_biased(__m128i** vec1_ptr, __m128i* vec2) {
   // Assumes vec1_ptr and vec2_ptr point to vectors of packed 2-bit values in
-  // {-1, 0, 1} which we wish to compute the dot product of.  These values are
-  // assumed to be stored with a bias of 2, i.e. -1 -> 01, 0 -> 10, 1 -> 11.
+  // which we wish to compute the dot product of, using the input
+  // representation -1 -> 01, 0 -> 11, 1 -> 10.  (Or equivalently, -1 -> 10 and
+  // 1 -> 01.  The distinction between -1 and 1 in the input is irrelevant.)
   //
   // MULTIPLEX_COV pairs of values are handled per function call; if fewer
-  // values are present, pad the end with 10s.  Note that no missingness mask
+  // values are present, pad the end with 11s.  Note that no missingness mask
   // is needed, because zero times anything is zero.
   //
-  // Return value is ((MULTIPLEX_COV * 4) / 3) + the true dot product.
-  const __m128i mx0a = {AAAAMASK, AAAAMASK};
-  const __m128i mx04 = {0x4444444444444444LU, 0x4444444444444444LU};
+  // Return value is MULTIPLEX_COV *minus* the dot product.
+
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
   const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
-  __m128i count1, count2, loader1, loader2;
+  __m128i count1, count2, loader1, loader2, half1, half2;
   __uni16 acc;
   __m128i* vec2_end = &(vec2[MULTIPLEX_2COV / 128]);
   acc.vi = _mm_setzero_si128();
@@ -2155,63 +2155,37 @@ static inline unsigned int vec_dot_product_biased(__m128i** vec1_ptr, __m128i* v
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
 
-    // This is the key two-bit product operation: (x & y) | ((x + y) & 10).
-    //
-    //      01  10  11
-    //      ----------
-    // 01 | 11  10  01
-    // 10 | 10  10  10
-    // 11 | 01  10  11
-    //
-    // Unless I made a mistake in my inspection of the possibilities, there is
-    // no other combination of four x86_64 integer operations which acts as a
-    // multiplexed ternary product.  (Note that, while + is NOT an admissible
-    // operation by itself because it corrupts an adjacent value, masking the
-    // low-order bits out immediately afterward eliminates the corruption.)  So
-    // we build our heavy-duty dot product computations around the excess-2
-    // encoding this implies.
-    //
-    // A slight improvement may be possible using newer vector instructions
-    // that enable multiplexed usage of lookup tables.  Such instructions would
-    // have a greater impact on the Hamming weight calculation, though (since
-    // they would eliminate the need for separate mask arrays there; I have not
-    // found a way to implement any permutation of
-    //
-    //      00  01  10  11
-    //      --------------
-    // 00 | 00  00  00  00
-    // 01 | 00  00  10  01
-    // 10 | 00  10  00  01
-    // 11 | 00  01  01  00
-    //
-    // that is as fast as precomputing missingness masks).
-    //
-    // There may be other sequences of operations which directly yield partial
-    // sums of two or more dot product terms, but it seems unlikely to me that
-    // any would be faster than the current implementation.
-    count1 = _mm_or_si128(_mm_and_si128(loader1, loader2), _mm_and_si128(_mm_add_epi64(loader1, loader2), mx0a));
+    // (x ^ y) | (((x & y) >> 1) & (x & y) & 0x55555555...)
+    // Precise dot product implementation may change in the near future, since
+    // there are several alternatives and testing may reveal one of them to be
+    // consistently better.
+    count1 = _mm_and_si128(loader1, loader2);
+    count1 = _mm_or_si128(_mm_xor_si128(loader1, loader2), _mm_and_si128(_mm_and_si128(count1, m1), _mm_srli_epi64(count1, 1)));
 
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
-    count2 = _mm_or_si128(_mm_and_si128(loader1, loader2), _mm_and_si128(_mm_add_epi64(loader1, loader2), mx0a));
+    count2 = _mm_and_si128(loader1, loader2);
+    count2 = _mm_or_si128(_mm_xor_si128(loader1, loader2), _mm_and_si128(_mm_and_si128(count2, m1), _mm_srli_epi64(count2, 1)));
+    
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
+    half1 = _mm_and_si128(loader1, loader2);
+    half1 = _mm_or_si128(_mm_xor_si128(loader1, loader2), _mm_and_si128(_mm_and_si128(half1, m1), _mm_srli_epi64(half1, 1)));
+
+    // rest is standard popcount
+    half2 = _mm_and_si128(_mm_srli_epi64(half1, 1), m1);
+    half1 = _mm_and_si128(half1, m1);
+    count1 = _mm_sub_epi64(count1, _mm_and_si128(_mm_srli_epi64(count1, 1), m1));
+    count2 = _mm_sub_epi64(count2, _mm_and_si128(_mm_srli_epi64(count2, 1), m1));
+    count1 = _mm_add_epi64(count1, half1);
+    count2 = _mm_add_epi64(count2, half2);
     count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
     count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
-    count2 = _mm_or_si128(_mm_and_si128(loader1, loader2), _mm_and_si128(_mm_add_epi64(loader1, loader2), mx0a));
-    // count1 currently has 4-bit values in the 4..12 range.  To avoid
-    // overflows we must subtract from these values before adding more partial
-    // sums...
-    count1 = _mm_add_epi64(_mm_sub_epi64(count1, mx04), _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
-    // and now count1 now has 32 four-bit 2..14 partial sums (each equal to
-    // [six dot product terms] + 8)
     acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
   } while (vec2 < vec2_end);
-#if MULTIPLEX_COV > 768
-  // 20..140 + 20..140 does not fit in 8 bits
+#if MULTIPLEX_COV > 960
   acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
 #else
-  // 16..112 + 16..112 fits in 8 bits
   acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 8)), m8);
 #endif
   acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
@@ -2297,42 +2271,53 @@ static inline unsigned int popcount_xor_2mask_multiword(unsigned long** xor1p, u
   return bit_count;
 }
 
-static inline unsigned int vec_dot_product_biased(unsigned long** vec1_ptr, unsigned long* vec2) {
+static inline unsigned int vec_dot_product_neg_biased(unsigned long** vec1_ptr, unsigned long* vec2) {
   unsigned long* vec2_end = &(vec2[MULTIPLEX_COV / 16]);
   unsigned int biased_dot_product = 0;
   unsigned long loader1;
   unsigned long loader2;
   unsigned long ulii;
   unsigned long uljj;
+  unsigned long ulkk;
   unsigned long tmp_stor;
   do {
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
-    printf("%lu %lu\n", loader2 >> 16, (loader1 + loader2) & 65535);
-    ulii = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
-    printf("%lu %lu\n", ulii >> 16, ulii & 65535);
+    ulii = loader1 & loader2;
+    ulii = (loader1 ^ loader2) | ((ulii >> 1) & ulii & FIVEMASK);
+    ulii -= (ulii >> 1) & FIVEMASK;
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
-    uljj = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
+    uljj = loader1 & loader2;
+    uljj = (loader1 ^ loader2) | ((uljj >> 1) & uljj & FIVEMASK);
+    uljj -= (uljj >> 1) & FIVEMASK;
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
+    ulkk = loader1 & loader2;
+    ulkk = (loader1 ^ loader2) | ((ulkk >> 1) & ulkk & FIVEMASK);
+    ulii += (ulkk >> 1) & FIVEMASK;
+    uljj += ulkk & FIVEMASK;
     ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
     ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
-    uljj = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
-    ulii = (ulii - 0x44444444) + (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
     tmp_stor = (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
-    ulii = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
+    ulii = loader1 & loader2;
+    ulii = (loader1 ^ loader2) | ((ulii >> 1) & ulii & FIVEMASK);
+    ulii -= (ulii >> 1) & FIVEMASK;
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
-    uljj = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
+    uljj = loader1 & loader2;
+    uljj = (loader1 ^ loader2) | ((uljj >> 1) & uljj & FIVEMASK);
+    uljj -= (uljj >> 1) & FIVEMASK;
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
+    ulkk = loader1 & loader2;
+    ulkk = (loader1 ^ loader2) | ((ulkk >> 1) & ulkk & FIVEMASK);
+    ulii += (ulkk >> 1) & FIVEMASK;
+    uljj += ulkk & FIVEMASK;
     ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
     ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
-    uljj = (loader1 & loader2) | ((loader1 + loader2) & AAAAMASK);
-    ulii = (ulii - 0x44444444) + (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
     tmp_stor += (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
     biased_dot_product += (tmp_stor * 0x01010101) >> 24;
   } while (vec2 < vec2_end);
@@ -2422,7 +2407,7 @@ void incr_cov(int* idists, unsigned long* geno, int tidx) {
     glptr2 = &(geno[jj]);
 #endif
     do {
-      *idists += vec_dot_product_biased(&glptr, glptr2);
+      *idists -= vec_dot_product_neg_biased(&glptr, glptr2);
       idists++;
     } while (glptr <= glptr2);
   }
@@ -3070,36 +3055,36 @@ void incr_cov_consts(double* centered_freq_buf, unsigned long* geno, double* cov
   double* centered_freq_ptr;
   double* wt_ptr = &(weights[64]);
   double twt[3];
-  double partial_sum = 0.0;
+  double partial_sum;
+  int encoding[4];
   unsigned long geno_val;
+  encoding[1] = 1;
+  encoding[2] = -1;
+  encoding[3] = 0;
   for (ii = 0; ii < BITCT / 4; ii++) {
     // 192 lookup table slots required per set of 4 markers
     centered_freq_ptr = &(centered_freq_buf[ii * 4]);
-    twt[0] = centered_freq_ptr[0];
     for (jj = 1; jj < 4; jj++) {
-      twt[1] = twt[0] + centered_freq_ptr[1];
+      twt[0] = encoding[jj] * centered_freq_ptr[3];
       wt_ptr = &(wt_ptr[16]);
       for (kk = 1; kk < 4; kk++) {
-        twt[2] = twt[1] + centered_freq_ptr[2];
+	twt[1] = twt[0] + encoding[kk] * centered_freq_ptr[2];
 	wt_ptr = &(wt_ptr[4]);
         for (mm = 1; mm < 4; mm++) {
+	  twt[2] = twt[1] + encoding[mm] * centered_freq_ptr[1];
           wt_ptr++;
-	  *wt_ptr++ = twt[2] + centered_freq_ptr[3];
-	  *wt_ptr++ = twt[2];
-	  *wt_ptr++ = twt[2] - centered_freq_ptr[3];
-          twt[2] -= centered_freq_ptr[2];
+	  *wt_ptr++ = twt[2] + encoding[1] * centered_freq_ptr[0];
+	  *wt_ptr++ = twt[2] + encoding[2] * centered_freq_ptr[0];
+	  *wt_ptr++ = twt[2] + encoding[3] * centered_freq_ptr[0];
 	}
-	twt[1] -= centered_freq_ptr[1];
       }
-      twt[0] -= centered_freq_ptr[0];
     }
   }
   for (ii = 0; ii < indiv_ct; ii++) {
     wt_ptr = weights;
     partial_sum = 0.0;
     for (jj = 0; jj < 2; jj++) {
-      geno_val = *geno;
-      geno = &(geno[MULTIPLEX_COV / BITCT2]);
+      geno_val = *geno++;
 #if __LP64__
       partial_sum += wt_ptr[1344 + (geno_val >> 56)] + wt_ptr[1152 + ((geno_val >> 48) & 255)] + wt_ptr[960 + ((geno_val >> 40) & 255)] + wt_ptr[768 + ((geno_val >> 32) & 255)] + wt_ptr[576 + ((geno_val >> 24) & 255)] + wt_ptr[384 + ((geno_val >> 16) & 255)] + wt_ptr[192 + ((geno_val >> 8) & 255)] + wt_ptr[geno_val & 255];
 #else
@@ -3107,7 +3092,7 @@ void incr_cov_consts(double* centered_freq_buf, unsigned long* geno, double* cov
 #endif
       wt_ptr = &(wt_ptr[24 * BITCT]);
     }
-
+    geno = &(geno[MULTIPLEX_COV / BITCT2 - 2]);
     *cov_linear_terms += partial_sum;
     cov_linear_terms++;
   }
@@ -3221,9 +3206,9 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
     if (marker_batch_size >= MULTIPLEX_COV) {
       marker_batch_size = MULTIPLEX_COV;
     } else {
-      // 0xaa = quadruple zero in our excess-2 ternary representation
+      // 0xff = quadruple zero in our ternary representation
       // does not increase missing counts
-      memset(&(loadbuf[marker_batch_size * unfiltered_indiv_ct4]), 0xaa, (MULTIPLEX_COV - marker_batch_size) * unfiltered_indiv_ct4);
+      memset(&(loadbuf[marker_batch_size * unfiltered_indiv_ct4]), 0xff, (MULTIPLEX_COV - marker_batch_size) * unfiltered_indiv_ct4);
       fill_double_zero(&(centered_freq_buf[marker_batch_size]), MULTIPLEX_COV - marker_batch_size);
       fill_long_zero((long*)mmasks, indiv_ct);
     }
@@ -3246,7 +3231,6 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
       centered_freq_buf[marker_buf_idx] = dxx;
       marker_unfiltered_offset++;
     }
-
     for (marker_buf_offset = 0; marker_buf_offset < marker_batch_size; marker_buf_offset += BITCT) {
       geno_writer = &(geno[marker_buf_offset / BITCT2]);
       missing_writer = mmasks;
@@ -3260,19 +3244,18 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	new_missing = 0;
         for (marker_buf_idx = 0; marker_buf_idx < BITCT / 2; marker_buf_idx++) {
           ulii = (loadbuf_ref[marker_buf_idx * unfiltered_indiv_ct4] >> loadbuf_shift) & 3;
-	  uljj = 1 ^ (ulii >> 1);
-	  // ulii & uljj == 1 iff missing
-	  new_missing |= (ulii & uljj) << marker_buf_idx;
-          // plink 00 -> -1, 01/10 -> 0, 11 -> +1
-	  new_geno |= (ulii + uljj) << (marker_buf_idx * 2);
+	  uljj = ulii & ((ulii ^ 2) >> 1);
+	  new_missing |= uljj << marker_buf_idx;
+	  new_geno |= ((ulii ^ 1) + uljj * 3) << (marker_buf_idx * 2);
 	}
         *geno_writer++ = new_geno;
 	loadbuf_ref = &(loadbuf_ref[unfiltered_indiv_ct4 * (BITCT / 2)]);
+	new_geno = 0;
 	for (marker_buf_idx = 0; marker_buf_idx < BITCT / 2; marker_buf_idx++) {
           ulii = (loadbuf_ref[marker_buf_idx * unfiltered_indiv_ct4] >> loadbuf_shift) & 3;
-	  uljj = 1 ^ (ulii >> 1);
-	  new_missing |= (ulii & uljj) << (marker_buf_idx + (BITCT / 2));
-	  new_geno |= (ulii + uljj) << (marker_buf_idx * 2);
+	  uljj = ulii & ((ulii ^ 2) >> 1);
+	  new_missing |= uljj << (marker_buf_idx + BITCT2);
+	  new_geno |= ((ulii ^ 1) + uljj * 3) << (marker_buf_idx * 2);
 	}
 	*geno_writer = new_geno;
 	*missing_writer++ = new_missing;
@@ -3281,7 +3264,6 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	geno_writer = &(geno_writer[(MULTIPLEX_COV / BITCT2) - 1]);
 	indiv_idx++;
       }
-
       for (ulii = 1; ulii < thread_ct; ulii++) {
 	if (pthread_create(&(threads[ulii - 1]), NULL, &calc_missing_thread, (void*)ulii)) {
 	  goto calc_cov_ret_THREAD_CREATE_FAIL;
@@ -3313,7 +3295,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
   printf("\r                            \r");
 
   // subtract bias from all terms
-  centered_freq_sq_sum -= ((markers_processed - marker_batch_size + MULTIPLEX_COV) * 4) / 3;
+  centered_freq_sq_sum += markers_processed - marker_batch_size + MULTIPLEX_COV;
 
   row_num = write_start_iidx;
   biased_dot_prod_reader = idists;
@@ -3469,7 +3451,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	missing_ct_ref = missing_cts;
         for (col_num = 0; col_num < row_num; col_num++) {
 	  if (row_num < 3) {
-	    printf("%d %g %g\n", (*biased_dot_prod_reader), row_and_fixed_adj, (*cov_linear_reader));
+	    printf("%d %g %g %g\n", (*biased_dot_prod_reader), cov_linear_terms[row_num], centered_freq_sq_sum, (*cov_linear_reader));
 	  }
           slen = sprintf(tbuf, "%g\t", ((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)(fixed_missing_ct - (*missing_ct_ref++) + (*missing_dbl_exclude_reader++))));
 	  if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
@@ -3477,7 +3459,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	  }
 	}
 	if (row_num < 3) {
-	  printf("%d %g %g\n", (*biased_dot_prod_reader), row_and_fixed_adj, (*cov_linear_reader));
+	  printf("%d %g %g %g\n", (*biased_dot_prod_reader), cov_linear_terms[row_num], centered_freq_sq_sum, (*cov_linear_reader));
 	}
 	slen = sprintf(tbuf, "%g", ((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)fixed_missing_ct));
 	if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
@@ -10664,15 +10646,6 @@ int main(int argc, char** argv) {
     rseed = (unsigned long int)time(NULL);
   }
   init_genrand(rseed);
-
-  unsigned long buf1[48];
-  unsigned long buf2[48];
-  unsigned long* bptr = buf1;
-  for (ii = 0; ii < 48; ii++) {
-    buf1[ii] = 0xaaaaaaaaUL;
-    buf2[ii] = 0xaaff55ffUL;
-  }
-  printf("%u\n", vec_dot_product_biased(&bptr, buf2));
 
   // famname[0] indicates binary vs. text
   // extractname[0], excludename[0], keepname[0], and removename[0] indicate
