@@ -3206,9 +3206,9 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
     if (marker_batch_size >= MULTIPLEX_COV) {
       marker_batch_size = MULTIPLEX_COV;
     } else {
+      memset(&(loadbuf[marker_batch_size * unfiltered_indiv_ct4]), 0xaa, (MULTIPLEX_COV - marker_batch_size) * unfiltered_indiv_ct4);
       // 0xff = quadruple zero in our ternary representation
       // does not increase missing counts
-      memset(&(loadbuf[marker_batch_size * unfiltered_indiv_ct4]), 0xff, (MULTIPLEX_COV - marker_batch_size) * unfiltered_indiv_ct4);
       memset(geno, 0xff, MULTIPLEX_COV * indiv_ct4long * sizeof(long));
       fill_double_zero(&(centered_freq_buf[marker_batch_size]), MULTIPLEX_COV - marker_batch_size);
       fill_long_zero((long*)mmasks, indiv_ct);
@@ -3451,16 +3451,10 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	fixed_missing_ct = marker_ct - missing_cts[row_num];
 	missing_ct_ref = missing_cts;
         for (col_num = 0; col_num < row_num; col_num++) {
-	  if (row_num < 3) {
-	    printf("%d %g %g %g\n", (*biased_dot_prod_reader), cov_linear_terms[row_num], centered_freq_sq_sum, (*cov_linear_reader));
-	  }
           slen = sprintf(tbuf, "%g\t", ((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)(fixed_missing_ct - (*missing_ct_ref++) + (*missing_dbl_exclude_reader++))));
 	  if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
 	    goto calc_cov_ret_WRITE_FAIL;
 	  }
-	}
-	if (row_num < 3) {
-	  printf("%d %g %g %g\n", (*biased_dot_prod_reader), cov_linear_terms[row_num], centered_freq_sq_sum, (*cov_linear_reader));
 	}
 	slen = sprintf(tbuf, "%g", ((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)fixed_missing_ct));
 	if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
