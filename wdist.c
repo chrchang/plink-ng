@@ -3057,6 +3057,8 @@ void triangle_fill(int* target_arr, int ct, int pieces, int parallel_idx, int pa
 }
 
 void incr_cov_consts(double* centered_freq_buf, unsigned long* geno, double* cov_linear_terms) {
+  // Note that this subtracts, not adds, so during the final matrix write step
+  // additions should be formed.
   int ii;
   int jj;
   int kk;
@@ -3152,6 +3154,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
   unsigned int* missing_cts;
   unsigned int* missing_ct_ref;
   double* cov_linear_terms;
+  double row_and_fixed_adj;
   double centered_freq_sq_sum = 0.0;
   double dxx;
   FILE* outfile = NULL;
@@ -3170,6 +3173,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
   int fixed_missing_ct;
   unsigned int* biased_dot_prod_reader;
   unsigned int* dbl_exclude_reader;
+  double* cov_linear_reader;
   int slen;
   char* cptr;
 
@@ -3299,13 +3303,13 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
     printf("\r%d markers complete.", markers_processed);
   } while (markers_processed < marker_ct);
 
-  // divide, etc.
+  // subtract bias from all terms
+  centered_freq_sq_sum -= ((markers_processed - marker_batch_size + MULTIPLEX_COV) * 4) / 3;
 
-  // int write_shape = calculation_type & CALC_RELATIONSHIP_SHAPEMASK;
-  // int write_start_iidx;
-  // int write_end_iidx;
-  // long long write_midx_offset;
-  // long long write_midx_ct;
+  row_num = write_start_iidx;
+  biased_dot_prod_reader = idists;
+  missing_dbl_exclude_reader = missing_dbl_excluded;
+  pct_cur_compare = 0;
 
   if (calculation_type & CALC_RELATIONSHIP_BIN) {
     if (write_shape == CALC_RELATIONSHIP_SQ0) {
@@ -3318,18 +3322,25 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
     if (fopen_checked(&outfile, outname, "wb")) {
       goto calc_cov_ret_OPENFAIL;
     }
-    row_num = write_start_iidx;
     for (pct = 1; pct <= 100; pct++) {
       if (write_shape == CALC_RELATIONSHIP_TRI) {
         pct_thresh = write_midx_ct * pct;
-	pct_cur_compare = 100 * ((((long long)row_num * (row_num + 1)) / 2) - write_midx_offset);
       } else {
         pct_thresh = ((long long)pct) * (write_end_iidx - write_start_iidx);
-	pct_cur_compare = 100 * (row_num - write_start_iidx);
       }
+
       while (pct_cur_compare < pct_thresh) {
+	row_and_fixed_adj = cov_linear_terms[row_num] + centered_freq_sq_sum;
+	cov_linear_reader = cov_linear_terms;
+	fixed_missing_ct = marker_ct - missing_cts[row_num];
+	missing_ct_ref = missing_cts;
 	for (col_num = 0; col_num <= row_num; col_num++) {
-	  dxx = ;
+	  if (col_num < row_num) {
+	    ii = fixed_missing_ct - (*missing_ct_ref++) + (*missing_dbl_exclude_reader++);
+	  } else {
+	    ii = fixed_missing_ct;
+	  }
+	  dxx = (((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) * marker_ct) / ((double)ii);
 	  if (fwrite_checked(&dxx), sizeof(double), outfile) {
 	    goto calc_cov_ret_WRITE_FAIL;
 	  }
@@ -3342,8 +3353,10 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	      goto calc_cov_ret_WRITE_FAIL;
 	    }
 	  } else {
+	    ulii = ((unsigned long)row_num * (row_num + 3)) / 2;
             for (col_num = row_num + 1; col_num < indiv_ct; col_num++) {
-	      dxx = ;
+	      ulii += col_num;
+	      dxx = ((idists[ulii] + row_and_fixed_adj + (*cov_linear_reader++)) * marker_ct) / ((double)(fixed_missing_ct - (*missing_ct_ref++) + missing_dbl_excluded[ulii]));
               if (fwrite_checked(&dxx, sizeof(double), outfile)) {
 		goto calc_cov_ret_WRITE_FAIL;
 	      }
@@ -3376,15 +3389,13 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	goto calc_cov_ret_OPENFAIL;
       }
     }
-    row_num = write_start_iidx;
-    biased_dot_prod_reader = idists;
-    missing_dbl_exclude_reader = missing_dbl_excluded;
     for (pct = 1; pct <= 100; pct++) {
       printf("\rWriting... %d%%", pct - 1);
       fflush(stdout);
       pct_thresh = write_midx_ct * pct;
-      pct_cur_compare = 100 * ((((long long)row_num * (row_num + 1)) / 2) - write_midx_offset);
       while (pct_cur_compare < pct_thresh) {
+	row_and_fixed_adj = cov_linear_terms[row_num] + centered_freq_sq_sum;
+	cov_linear_reader = cov_linear_terms;
 	fixed_missing_ct = marker_ct - missing_cts[row_num];
 	missing_ct_ref = missing_cts;
 	for (col_num = 0; col_num <= row_num; col_num++) {
@@ -3393,8 +3404,8 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	  } else {
 	    ii = fixed_missing_ct;
 	  }
-	  dxx = ;
-	  slen = sprintf(tbuf, "%d\t%d\t%d\t%g\n", row_num + 1, col_num + 1, ii);
+	  dxx = (((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) * marker_ct) / ((double)ii);
+	  slen = sprintf(tbuf, "%d\t%d\t%d\t%g\n", row_num + 1, col_num + 1, ii, dxx);
 	  if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
 	    goto calc_cov_ret_WRITE_FAIL;
 	  }
@@ -3434,69 +3445,52 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	goto calc_cov_ret_OPENFAIL;
       }      
     }
-    biased_dot_prod_reader = idists;
-    if (write_start_iidx) {
-      row_num = write_start_iidx;
-    } else {
-      slen = sprintf(tbuf, "%g", ??);
-      if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
-	goto calc_cov_ret_WRITE_FAIL;
+    for (pct = 1; pct <= 100; pct++) {
+      printf("\rWriting... %d%%", pct - 1);
+      fflush(stdout);
+      if (write_shape == CALC_RELATIONSHIP_TRI) {
+        pct_thresh = write_midx_ct * pct;
+      } else {
+        pct_thresh = ((long long)pct) * (write_end_iidx - write_start_iidx);
       }
-      if (write_shape == CALC_RELATIONSHIP_SQ) {
-        for (col_num = 1; col_num < indiv_ct; col_num++) {
-          slen = sprintf(tbuf, "\t%g", ??);
-          if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
+      while (pct_cur_compare < pct_thresh) {
+	row_and_fixed_adj = cov_linear_terms[row_num] + centered_freq_sq_sum;
+	cov_linear_reader = cov_linear_terms;
+	fixed_missing_ct = marker_ct - missing_cts[row_num];
+	missing_ct_ref = missing_cts;
+        for (col_num = 0; col_num < row_num; col_num++) {
+          slen = sprintf(tbuf, "%g\t", (((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) * marker_ct) / ((double)(fixed_missing_ct - (*missing_ct_ref++) + (*missing_dbl_exclude_reader++))));
+	  if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
 	    goto calc_cov_ret_WRITE_FAIL;
 	  }
+	}
+	slen = sprintf(tbuf, "%g", (((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) * marker_ct) / ((double)fixed_missing_ct));
+	if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
+	  goto calc_cov_ret_WRITE_FAIL;
+	}
+	if (write_shape == CALC_RELATIONSHIP_TRI) {
+	  pct_cur_compare += (row_num + 1) * 100;
+	} else {
+	  if (write_shape == CALC_RELATIONSHIP_SQ0) {
+	    if (flexwrite_checked(outfile, gz_outfile, geno, (indiv_ct - row_num - 1) * 2)) {
+	      goto calc_cov_ret_WRITE_FAIL;
+	    }
+	  } else {
+	    ulii = ((unsigned long)row_num * (row_num + 3)) / 2;
+	    for (col_num = row_num + 1; col_num < indiv_ct; col_num++) {
+	      ulii += col_num;
+	      slen = sprintf(tbuf, "\t%g", ((idists[ulii] + row_and_fixed_adj + (*cov_linear_reader++)) * marker_ct) / ((double)(fixed_missing_ct - (*(++missing_ct_ref)) + missing_dbl_excluded[ulii])));
+	      if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
+	    }
+	  }
+	  pct_cur_compare += 100;
 	}
 	if (flexwrite_checked(outfile, gz_outfile, "\n", 1)) {
 	  goto calc_cov_ret_WRITE_FAIL;
 	}
-      }
-      row_num = 1;
-    }
-    for (pct = 1; pct <= 100; pct++) {
-      printf("\rWriting... %d%%", pct - 1);
-      fflush(stdout);
-      if (write_shape == (CALC_RELATIONSHIP_SQ0 | CALC_RELATIONSHIP_SQ)) {
-        pct_thresh = ((long long)pct) * (write_end_iidx - write_start_iidx);
-	pct_cur_compare = 100 * (row_num - write_start_iidx);
-      } else {
-        pct_thresh = write_midx_ct * pct;
-	pct_cur_compare = 100 * ((((long long)row_num * (row_num + 1)) / 2) - write_midx_offset);
-      }
-      while (pct_cur_compare < pct_thresh) {
-        for (col_num = 0; col_num < row_num; col_num++) {
-          slen = sprintf(tbuf, "%g\t", ??);
-	  if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
-	    goto calc_cov_ret_WRITE_FAIL;
-	  }
-	  slen = sprintf(tbuf, "%g", ??);
-          if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
-	    goto calc_cov_ret_WRITE_FAIL;
-	  }
-	  if (write_shape == (CALC_RELATIONSHIP_SQ0 | CALC_RELATIONSHIP_SQ)) {
-	    if (write_shape == CALC_RELATIONSHIP_SQ0) {
-	      if (flexwrite_checked(outfile, gz_outfile, geno, (indiv_ct - row_num - 1) * 2)) {
-		goto calc_cov_ret_WRITE_FAIL;
-	      }
-	    } else {
-	      for (col_num = row_num + 1; col_num < indiv_ct; col_num++) {
-		slen = sprintf(tbuf, "\t%g", ??);
-		if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
-		  goto wdist_ret_WRITE_FAIL;
-		}
-	      }
-	    }
-	    pct_cur_compare += 100;
-	  } else {
-            pct_cur_compare += (row_num + 1) * 100;
-	  }
-	  if (flexwrite_checked(outfile, gz_outfile, "\n", 1)) {
-	    goto calc_cov_ret_WRITE_FAIL;
-	  }
-	}
-	row_num++;
+        row_num++;
       }
     }
   }
@@ -10097,7 +10091,7 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += ii + 1;
-      if (!(calculation_type & CALC_RELATIONSHIP_MASK)) {
+      if (!(calculation_type & CALC_RELATIONSHIP_SHAPEMASK)) {
         calculation_type |= CALC_RELATIONSHIP_TRI;
       }
     } else if (!strcmp(argptr, "--make-grm")) {
