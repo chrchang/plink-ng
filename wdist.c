@@ -209,7 +209,7 @@
 #define MULTIPLEX_2DIST (MULTIPLEX_DIST * 2)
 
 // Multiple of 192, no larger than 1920.
-#define MULTIPLEX_COV 768
+#define MULTIPLEX_COV 1152
 #define MULTIPLEX_2COV (MULTIPLEX_COV * 2)
 
 // Must be multiple of 384, no larger than 3840.
