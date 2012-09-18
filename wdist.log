@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.1415926-2.3-1.40.12 (TeX Live 2011) (format=pdflatex 2011.7.3)  17 SEP 2012 22:38
+This is pdfTeX, Version 3.1415926-2.3-1.40.12 (TeX Live 2011) (format=pdflatex 2011.7.3)  17 SEP 2012 22:44
 entering extended mode
  \write18 enabled.
  file:line:error style messages enabled.
@@ -207,8 +207,7 @@ Package: natbib 2010/09/13 8.31b (PWD, AO)
 \bibsep=\skip55
 LaTeX Info: Redefining \cite on input line 694.
 \c@NAT@ctr=\count105
-))
-No file wdist.aux.
+)) (./wdist.aux)
 \openout1 = `wdist.aux'.
 
 LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 5.
@@ -307,8 +306,6 @@ LaTeX Font Info:    Font shape `OT1/phv/b/it' in size <19> not available
 (Font)              Font shape `OT1/phv/b/sl' tried instead on input line 24.
 LaTeX Font Info:    Font shape `OT1/phv/m/it' in size <8> not available
 (Font)              Font shape `OT1/phv/m/sl' tried instead on input line 24.
-LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <8> not available
-(Font)              Font shape `OT1/ptm/b/n' tried instead on input line 24.
 LaTeX Font Info:    Font shape `OT1/phv/bx/n' in size <9> not available
 (Font)              Font shape `OT1/phv/b/n' tried instead on input line 24.
 LaTeX Font Info:    Font shape `OT1/phv/bx/n' in size <16> not available
@@ -390,12 +387,6 @@ ion is available
 
 LaTeX Font Info:    Font shape `OT1/phv/bx/n' in size <10> not available
 (Font)              Font shape `OT1/phv/b/n' tried instead on input line 42.
-LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <9> not available
-(Font)              Font shape `OT1/ptm/b/n' tried instead on input line 44.
-
-Package natbib Warning: Citation `price2010' on page 1 undefined on input line 
-44.
-
 
 Underfull \hbox (badness 2351) in paragraph at lines 44--45
 \OT1/ptm/m/n/9 is to ensure that a reported association is attributable to a
@@ -417,18 +408,12 @@ Underfull \hbox (badness 1048) in paragraph at lines 44--45
  []
 
 
-Package natbib Warning: Citation `yang2010' on page 1 undefined on input line 4
-6.
-
-
-Package natbib Warning: Citation `vattikuti2012' on page 1 undefined on input l
-ine 46.
-
-
 Underfull \hbox (badness 3168) in paragraph at lines 46--47
 \OT1/ptm/m/n/9 constraining the possible genetic architectures. This general
  []
 
+LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <8> not available
+(Font)              Font shape `OT1/ptm/b/n' tried instead on input line 53.
 
 Underfull \hbox (badness 1117) in paragraph at lines 70--71
 \OT1/ptm/m/n/9 can be magnified by exploiting the multiple cores commonly
@@ -450,6 +435,21 @@ Underfull \hbox (badness 1097) in paragraph at lines 72--73
  []
 
 
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+LaTeX Font Info:    Try loading font information for OMS+phv on input line 79.
+
+(/usr/local/texlive/2011/texmf-dist/tex/latex/psnfss/omsphv.fd
+File: omsphv.fd 
+)
+LaTeX Font Info:    Font shape `OMS/phv/m/n' in size <7> not available
+(Font)              Font shape `OMS/cmsy/m/n' tried instead on input line 79.
+ [1
+
+{/usr/local/texlive/2011/texmf-var/fonts/map/pdftex/updmap/pdftex.map}
+
+
+]
 Overfull \hbox (3.04268pt too wide) in paragraph at lines 80--82
 []\OT1/ptm/m/n/9 Adopting the mean IBS as the metric, we can use multidimension
 al
@@ -460,25 +460,6 @@ Underfull \hbox (badness 1448) in paragraph at lines 80--82
 \OT1/ptm/m/n/9 scaling to force each sample member into a space of given
  []
 
-LaTeX Font Info:    Try loading font information for OMS+phv on input line 83.
-(/usr/local/texlive/2011/texmf-dist/tex/latex/psnfss/omsphv.fd
-File: omsphv.fd 
-)
-LaTeX Font Info:    Font shape `OMS/phv/m/n' in size <7> not available
-(Font)              Font shape `OMS/cmsy/m/n' tried instead on input line 83.
- [1
-
-{/usr/local/texlive/2011/texmf-var/fonts/map/pdftex/updmap/pdftex.map}
-
-
-]
-
-Package natbib Warning: Citation `purcell2007' on page 2 undefined on input lin
-e 83.
-
-
-LaTeX Warning: Reference `runtimes' on page 2 undefined on input line 83.
-
 LaTeX Font Info:    Try loading font information for OML+ptm on input line 83.
 (/usr/local/texlive/2011/texmf-dist/tex/latex/psnfss/omlptm.fd
 File: omlptm.fd 
@@ -486,37 +467,19 @@ File: omlptm.fd
 LaTeX Font Info:    Font shape `OML/ptm/m/n' in size <9> not available
 (Font)              Font shape `OML/cmm/m/it' tried instead on input line 83.
 
-
-LaTeX Warning: Reference `runtimes' on page 2 undefined on input line 95.
-
-
-Package natbib Warning: Citation `zhou:2012' on page 2 undefined on input line 
-95.
-
-
-Package natbib Warning: Citation `yang2010' on page 2 undefined on input line 9
-9.
-
-
-LaTeX Warning: Reference `related' on page 2 undefined on input line 99.
-
-
 Underfull \hbox (badness 5345) in paragraph at lines 99--100
 \OT1/ptm/m/n/9 Perhaps the most important recent development in human
  []
 
 
-Underfull \hbox (badness 1097) in paragraph at lines 99--100
-\OT1/ptm/m/n/9 individuals. This method requires calculating the standardized
+Underfull \hbox (badness 1038) in paragraph at lines 101--102
+[]\OT1/ptm/m/n/9 The most commonly employed package for this method of
  []
 
 
-Package natbib Warning: Citation `yang2011' on page 2 undefined on input line 1
-01.
-
-
-Underfull \hbox (badness 1038) in paragraph at lines 101--102
-[]\OT1/ptm/m/n/9 The most commonly employed package for this method of
+Underfull \hbox (badness 1817) in paragraph at lines 101--102
+\OT1/ptm/m/n/9 heritability estimation is GCTA (Yang \OT1/ptm/m/it/9 et al\OT1/
+ptm/m/n/9 ., 2011). In our
  []
 
 
@@ -534,10 +497,15 @@ Underfull \hbox (badness 10000) in paragraph at lines 113--116
 
  []
 
+LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <9> not available
+(Font)              Font shape `OT1/ptm/b/n' tried instead on input line 123.
+
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
 LaTeX Font Info:    Font shape `OT1/phv/bx/it' in size <8> not available
-(Font)              Font shape `OT1/phv/b/it' tried instead on input line 133.
+(Font)              Font shape `OT1/phv/b/it' tried instead on input line 125.
 LaTeX Font Info:    Font shape `OT1/phv/b/it' in size <8> not available
-(Font)              Font shape `OT1/phv/b/sl' tried instead on input line 133.
+(Font)              Font shape `OT1/phv/b/sl' tried instead on input line 125.
 
 Overfull \hbox (261.0pt too wide) has occurred while \output is active
 [][] 
@@ -554,40 +522,23 @@ Overfull \hbox (261.0pt too wide) has occurred while \output is active
 [2]
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
-Extra height:10.0pt when 27.47421pt
 
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
-Extra height:10.0pt when 28.47421pt
+Extra height:32.94843pt when 89.47421pt
 
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
-Extra height:10.0pt when 29.47421pt
+Extra height:0.0pt when 90.47421pt
 
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
-Extra height:10.0pt when 30.47421pt
-
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
-Extra height:10.0pt when 31.47421pt
-
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
-Extra height:10.0pt when 32.47421pt
-
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
-Extra height:0.0pt when 33.47421pt
-
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
-(2)Left:33.47421pt Right:32.94843pt Output:33.47421pt
+(2)Left:90.47421pt Right:87.94843pt Output:90.47421pt
 - LAST -
 Extra skip:0.0pt
-Left:33.47421pt
-Right:32.94843pt
-Output:33.47421pt
+Left:90.47421pt
+Right:87.94843pt
+Output:90.47421pt
 
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
@@ -602,34 +553,20 @@ Overfull \vbox (1.0pt too high) has occurred while \output is active []
  [3
 
 ]
-
-Package natbib Warning: There were undefined citations.
-
-(./wdist.aux
-
-Package natbib Warning: Citation(s) may have changed.
-(natbib)                Rerun to get citations correct.
-
-)
+(./wdist.aux)
 
 LaTeX Font Warning: Size substitutions with differences
 (Font)              up to 1.0pt have occurred.
 
-
-LaTeX Warning: There were undefined references.
-
-
-LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
-
  ) 
 Here is how much of TeX's memory you used:
- 3376 strings out of 493633
- 44464 string characters out of 3143378
- 109691 words of memory out of 3000000
+ 3378 strings out of 493633
+ 44484 string characters out of 3143378
+ 109921 words of memory out of 3000000
  6575 multiletter control sequences out of 15000+200000
  45691 words of font info for 97 fonts, out of 3000000 for 9000
  835 hyphenation exceptions out of 8191
- 38i,12n,26p,848b,297s stack positions out of 5000i,500n,10000p,200000b,50000s
+ 38i,11n,26p,848b,289s stack positions out of 5000i,500n,10000p,200000b,50000s
 {/usr/local/texlive/2011/texmf-dist/fonts/enc/dvips/base/8r.enc}</usr/local/t
 exlive/2011/texmf-dist/fonts/type1/public/amsfonts/cmextra/cmex9.pfb></usr/loca
 l/texlive/2011/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></usr/local/
@@ -646,7 +583,7 @@ type1/urw/helvetic/uhvr8a.pfb></usr/local/texlive/2011/texmf-dist/fonts/type1/u
 rw/helvetic/uhvro8a.pfb></usr/local/texlive/2011/texmf-dist/fonts/type1/urw/tim
 es/utmb8a.pfb></usr/local/texlive/2011/texmf-dist/fonts/type1/urw/times/utmr8a.
 pfb></usr/local/texlive/2011/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
-Output written on wdist.pdf (3 pages, 157205 bytes).
+Output written on wdist.pdf (3 pages, 157322 bytes).
 PDF statistics:
  79 PDF objects out of 1000 (max. 8388607)
  57 compressed objects within 1 object stream
