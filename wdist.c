@@ -5272,7 +5272,6 @@ int ld_process_load(unsigned char* loadbuf, unsigned long* geno_buf, unsigned lo
   int write_offset;
   int sloop_max;
   int write_idx;
-  int ii;
   unsigned long ulii;
   unsigned long uljj;
   unsigned long new_geno;
@@ -5345,11 +5344,11 @@ int ld_process_load(unsigned char* loadbuf, unsigned long* geno_buf, unsigned lo
     *missing_buf++ = new_missing;
     missing_ct += popcount_long(new_missing);
   }
-  fill_long_zero(geno_buf, indiv_trail_ct);
-  fill_long_zero(mask_buf, indiv_trail_ct);
-  fill_long_zero(missing_buf, indiv_trail_ct / 2);
+  fill_long_zero((long*)geno_buf, indiv_trail_ct);
+  fill_long_zero((long*)mask_buf, indiv_trail_ct);
+  fill_long_zero((long*)missing_buf, indiv_trail_ct / 2);
   sum += missing_ct;
-  *marker_stdev_ptr = sqrt(indiv_recip * (sq_sum - (indiv_ct_recip * sum) * sum));
+  *marker_stdev_ptr = sqrt(indiv_ct_recip * (sq_sum - (indiv_ct_recip * sum) * sum));
   return missing_ct;
 }
 
@@ -5381,7 +5380,7 @@ int ld_prune_next_valid_chrom_start(unsigned char* marker_exclude, int cur_idx, 
   return cur_idx;
 }
 
-void ld_prune_start_chrom(int ld_window_kb, int* chrom_end_ptr, int window_unfiltered_start, int* live_indices, int* window_unfiltered_end_ptr, int ld_window_size, int* cur_window_size_ptr, int unfiltered_marker_ct, unsigned char* marker_exclude, int* marker_chroms) {
+void ld_prune_start_chrom(int ld_window_kb, int* chrom_end_ptr, int window_unfiltered_start, unsigned int* live_indices, int* window_unfiltered_end_ptr, int ld_window_size, int* cur_window_size_ptr, int unfiltered_marker_ct, unsigned char* marker_exclude, int* marker_chroms) {
   int cur_chrom = get_marker_chrom(marker_chroms, window_unfiltered_start);
   int window_unfiltered_end = window_unfiltered_start + 1;
   int chrom_end = marker_chroms[2 * cur_chrom + 1];
@@ -5409,7 +5408,7 @@ void ld_prune_start_chrom(int ld_window_kb, int* chrom_end_ptr, int window_unfil
   *window_unfiltered_end_ptr = window_unfiltered_end;
 }
 
-int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, char* marker_ids, unsigned long max_marker_id_len, int* marker_chroms, int unfiltered_indiv_ct, unsigned char* indiv_exclude, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, char* outname, char* outname_end, int calculation_type) {
+int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, char* marker_ids, unsigned long max_marker_id_len, int* marker_chroms, double* mafs, unsigned int* marker_pos, int unfiltered_indiv_ct, unsigned char* indiv_exclude, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, char* outname, char* outname_end, int calculation_type) {
   // todo: replace is_set with founder-sensitive check
   // for future consideration: chromosome-based multithread/parallel?
   FILE* outfile_in = NULL;
@@ -5420,7 +5419,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   int indiv_ct_mld = (indiv_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
   int indiv_ct_mld_long = indiv_ct_mld * (MULTIPLEX_LD / BITCT2);
   int indiv_trail_ct = indiv_ct_mld_long - indiv_ctbit * 2;
-  int retval;
+  int retval = 0;
   unsigned char* wkspace_mark = wkspace_base;
   unsigned char* pruned_arr;
   unsigned int* live_indices;
@@ -5442,7 +5441,6 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   unsigned int* missing_cts;
   unsigned long window_max = 0; // kb only
   unsigned long ulii;
-  unsigned long uljj;
   double dxx;
   double cov12;
   unsigned int fixed_non_missing_ct;
@@ -5522,7 +5520,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   if (wkspace_alloc_ul_checked(&mmasks, ulii * indiv_ctbit * sizeof(long))) {
     goto ld_prune_ret_NOMEM;
   }
-  if (wkspace_alloc_ul_checked(&missing_cts, indiv_ct * sizeof(int))) {
+  if (wkspace_alloc_ui_checked(&missing_cts, indiv_ct * sizeof(int))) {
     goto ld_prune_ret_NOMEM;
   }
   memset(pruned_arr, 0, unfiltered_marker_ct8);
@@ -5543,8 +5541,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
       if (cur_window_size > 1) {
 	for (ii = 0; ii < cur_window_size; ii++) {
 	  if (marker_stdevs[ii] == 0.0) {
-	    cur_exclude_ct++;
-	    exclude(pruned_arr, live_indices[ii]);
+	    exclude(pruned_arr, live_indices[ii], &cur_exclude_ct);
 	  }
 	}
         for (ii = 0; ii < cur_window_size - 1; ii++) {
@@ -5585,11 +5582,11 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit);
 #if __LP64__
 	    for (kk = 0; kk < indiv_ct_mld_long / 2; kk++) {
-	      ld_dot_prod(&geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), &mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), indiv_ct_mld_long, dp_result);
+	      ld_dot_prod(&geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), &mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result);
 	    }
 #else
 	    for (kk = 0; kk < indiv_ct_mld_long; kk++) {
-	      ld_dot_prod(&geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), &mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), indiv_ct_mld_long, dp_result);
+	      ld_dot_prod(&geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), &mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), dp_result);
 	    }
 #endif
 	    // variance = \frac{1}{N}(\sum_i^N x_i^2) - \mu^2
@@ -5600,12 +5597,11 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    // r-squared
             dxx = cov12 / (marker_stdevs[ii] * marker_stdevs[jj]);
 	    if (fabs(dxx) > ld_last_param) {
-	      cur_exclude_ct++;
               // remove SNP with lower MAF
               if (true_maf(mafs[live_indices[ii]]) < true_maf(mafs[live_indices[jj]])) {
-		exclude(pruned_arr, live_indices[ii]);
+		exclude(pruned_arr, live_indices[ii], &cur_exclude_ct);
 	      } else {
-		exclude(pruned_arr, live_indices[jj]);
+		exclude(pruned_arr, live_indices[jj], &cur_exclude_ct);
 	      }
 	    }
 	  }
@@ -5720,7 +5716,6 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
     retval = RET_WRITE_FAIL;
     break;
   }
- ld_prune_ret_1:
   fclose_cond(outfile_in);
   fclose_cond(outfile_out);
   wkspace_reset(wkspace_mark);
@@ -7571,7 +7566,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (calculation_type & CALC_LD_PRUNE) {
-    retval = ld_prune(pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_chroms, unfiltered_indiv_ct, indiv_exclude, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type);
+    retval = ld_prune(pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_chroms, mafs, marker_pos, unfiltered_indiv_ct, indiv_exclude, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type);
     if (retval) {
       goto wdist_ret_2;
     }
