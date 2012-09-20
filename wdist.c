@@ -5385,6 +5385,7 @@ void ld_prune_start_chrom(int ld_window_kb, int* chrom_end_ptr, int window_unfil
   int window_unfiltered_end = window_unfiltered_start + 1;
   int chrom_end = marker_chroms[2 * cur_chrom + 1];
   int ii;
+  printf("Processing chromosome %d (marker %d, end %d).\n", cur_chrom, window_unfiltered_start, chrom_end);
   live_indices[0] = window_unfiltered_start;
   if (ld_window_kb) {
     // todo
@@ -5494,8 +5495,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
     goto ld_prune_ret_NOMEM;
   }
 
-  // replace with memcpy of marker_exclude?
-  memset(pruned_arr, 0, unfiltered_marker_ct8);
+  memcpy(pruned_arr, marker_exclude, unfiltered_marker_ct8);
 
   if (ld_window_kb) {
     ulii = window_max;
@@ -5526,18 +5526,18 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   memset(pruned_arr, 0, unfiltered_marker_ct8);
   do {
     prev_end = 0;
-    ld_prune_start_chrom(ld_window_kb, &chrom_end, window_unfiltered_start, live_indices, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, marker_exclude, marker_chroms);
+    ld_prune_start_chrom(ld_window_kb, &chrom_end, window_unfiltered_start, live_indices, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, marker_chroms);
     if (cur_window_size > 1) {
       for (ulii = 0; ulii < cur_window_size; ulii++) {
-	fseeko(bedfile, bed_offset + (live_indices[ulii] * unfiltered_indiv_ct), SEEK_SET);
+	fseeko(bedfile, bed_offset + (live_indices[ulii] * unfiltered_indiv_ct4), SEEK_SET);
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
         missing_cts[ulii] = ld_process_load(loadbuf, &(geno[ulii * indiv_ct_mld_long]), &(masks[ulii * indiv_ct_mld_long]), &(mmasks[ulii * indiv_ctbit]), &(marker_stdevs[ulii]), unfiltered_indiv_ct, indiv_exclude, indiv_ct, indiv_ctbit, indiv_trail_ct);
       }
     }
-    cur_exclude_ct = 0;
-    while ((window_unfiltered_end < chrom_end) || (cur_window_size > 1)) {
+    while ((window_unfiltered_start < chrom_end) || (cur_window_size > 1)) {
+      cur_exclude_ct = 0;
       if (cur_window_size > 1) {
 	for (ii = 0; ii < cur_window_size; ii++) {
 	  if (marker_stdevs[ii] == 0.0) {
@@ -5581,11 +5581,11 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    dp_result[2] = -indiv_ct;
 	    non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit);
 #if __LP64__
-	    for (kk = 0; kk < indiv_ct_mld_long / 2; kk++) {
+	    for (kk = 0; kk < indiv_ct_mld; kk++) {
 	      ld_dot_prod(&geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), &mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result);
 	    }
 #else
-	    for (kk = 0; kk < indiv_ct_mld_long; kk++) {
+	    for (kk = 0; kk < indiv_ct_mld; kk++) {
 	      ld_dot_prod(&geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), &mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), dp_result);
 	    }
 #endif
@@ -5626,10 +5626,16 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
       if (window_unfiltered_start == chrom_end) {
 	break;
       }
+      if (cur_window_size < 0) {
+	cur_window_size = 0;
+      }
       jj = 0;
       // copy back previously loaded/computed results
       while (live_indices[jj] < window_unfiltered_start) {
 	jj++;
+	if ((!ld_window_kb) && (jj == ld_window_size)) {
+	  break;
+	}
       }
       for (ii = 0; jj < prev_end; jj++) {
 	if (is_set(pruned_arr, jj)) {
@@ -5639,22 +5645,25 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	memcpy(&(masks[ii * indiv_ct_mld_long]), &(masks[jj * indiv_ct_mld_long]), indiv_ct_mld_long * sizeof(long));
 	memcpy(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit * sizeof(long));
 	marker_stdevs[ii] = marker_stdevs[jj];
+	live_indices[ii] = live_indices[jj];
 	ii++;
       }
       prev_end = ii;
+      cur_window_size = ii;
       if (ld_window_kb) {
 	// todo
       } else {
 	for (ii = 0; ii < ld_window_incr; ii++) {
-	  while ((window_unfiltered_end < chrom_end) && is_set(marker_exclude, window_unfiltered_end)) {
+	  while ((window_unfiltered_end < chrom_end) && is_set(pruned_arr, window_unfiltered_end)) {
 	    window_unfiltered_end++;
 	  }
 	  if (window_unfiltered_end < chrom_end) {
-	    fseeko(bedfile, bed_offset + (live_indices[cur_window_size] * unfiltered_indiv_ct), SEEK_SET);
+	    live_indices[cur_window_size] = window_unfiltered_end;
+	    fseeko(bedfile, bed_offset + (window_unfiltered_end * unfiltered_indiv_ct4), SEEK_SET);
 	    if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	      goto ld_prune_ret_READ_FAIL;
 	    }
-	    missing_cts[cur_window_size] = ld_process_load(loadbuf, &(geno[cur_window_size * indiv_ctbit * 2]), &(masks[cur_window_size * indiv_ctbit * 2]), &(mmasks[cur_window_size * indiv_ctbit]), &(marker_stdevs[cur_window_size]), unfiltered_indiv_ct, indiv_exclude, indiv_ct, indiv_ctbit, indiv_trail_ct);
+	    missing_cts[cur_window_size] = ld_process_load(loadbuf, &(geno[cur_window_size * indiv_ct_mld_long]), &(masks[cur_window_size * indiv_ct_mld_long]), &(mmasks[cur_window_size * indiv_ct_mld_long / 2]), &(marker_stdevs[cur_window_size]), unfiltered_indiv_ct, indiv_exclude, indiv_ct, indiv_ctbit, indiv_trail_ct);
 	    cur_window_size++;
 	    window_unfiltered_end++;
 	  }
@@ -5662,7 +5671,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
       }
     }
     // advance chromosomes as necessary
-    window_unfiltered_start = ld_prune_next_valid_chrom_start(marker_exclude, 0, marker_chroms, unfiltered_marker_ct);
+    window_unfiltered_start = ld_prune_next_valid_chrom_start(pruned_arr, window_unfiltered_start, marker_chroms, unfiltered_marker_ct);
   } while (window_unfiltered_start < unfiltered_marker_ct);
 
   strcpy(outname_end, ".prune.in");
@@ -5949,7 +5958,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     goto wdist_ret_2;
   }
 
-  if (!(calculation_type & (CALC_GDISTANCE_MASK | CALC_LOAD_DISTANCES | CALC_RELATIONSHIP_MASK | CALC_IBC | CALC_FREQ | CALC_WRITE_SNPLIST | CALC_GENOME))) {
+  if (!(calculation_type & (CALC_GDISTANCE_MASK | CALC_LOAD_DISTANCES | CALC_RELATIONSHIP_MASK | CALC_IBC | CALC_FREQ | CALC_WRITE_SNPLIST | CALC_GENOME | CALC_LD_PRUNE))) {
     prune = 1;
   }
 
@@ -7968,7 +7977,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       if (calculation_type & CALC_RELATIONSHIP_MASK) {
         mm = 1;
         nn = calculation_type & CALC_RELATIONSHIP_SHAPEMASK;
-	oo = thread_start[thread_ct];
+	if (parallel_tot == 1) {
+	  oo = indiv_ct;
+	  // nasty rel-cutoff bug
+	} else {
+	  oo = thread_start[thread_ct];
+	}
 	pp = thread_start[0];
 	if (pp == 1) {
 	  pp = 0;
