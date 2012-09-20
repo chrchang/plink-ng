@@ -2174,7 +2174,7 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
 }
 
 /*
-static inline void cov_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** present1_ptr, __m128i* present2, int* idists_ptr) {
+static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** present1_ptr, __m128i* present2, int* idists_ptr) {
   // Main routine for computation of \sum_i^M (x_i - \mu_x)(y_i - \mu_y), where
   // x_i, y_i \in \{-1, 0, 1\}, but there are missing values.
   //
@@ -2399,7 +2399,7 @@ static inline unsigned int popcount_xor_2mask_multiword(unsigned long** xor1p, u
 }
 
 /*
-static inline void cov_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, unsigned long** present1_ptr, unsigned long* present2, int* idists_ptr) {
+static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, unsigned long** present1_ptr, unsigned long* present2, int* idists_ptr) {
   unsigned long* vec2_end = &(vec2[MULTIPLEX_COV / 16]);
   unsigned int final_sum1 = 0;
   unsigned int final_sum2 = 0;
