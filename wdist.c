@@ -5386,7 +5386,6 @@ void ld_prune_start_chrom(int ld_window_kb, int* chrom_end_ptr, int window_unfil
   int window_unfiltered_end = window_unfiltered_start + 1;
   int chrom_end = marker_chroms[2 * cur_chrom + 1];
   int ii = 0;
-  printf("Processing chromosome %d (marker %d, end %d).\n", cur_chrom, window_unfiltered_start, chrom_end);
   live_indices[0] = window_unfiltered_start;
   if (ld_window_kb) {
     // todo
@@ -5464,6 +5463,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   unsigned long* mask_var_vec_ptr;
 #endif
   int cur_exclude_ct;
+  int tot_exclude_ct = 0;
   int prev_end;
 
   if (ld_window_kb) {
@@ -5545,8 +5545,8 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
         missing_cts[ulii] = ld_process_load(loadbuf, &(geno[ulii * indiv_ct_mld_long]), &(masks[ulii * indiv_ct_mld_long]), &(mmasks[ulii * indiv_ctbit]), &(marker_stdevs[ulii]), unfiltered_indiv_ct, indiv_exclude, indiv_ct, indiv_ctbit, indiv_trail_ct);
       }
     }
+    cur_exclude_ct = 0;
     while ((window_unfiltered_start < chrom_end) || (cur_window_size > 1)) {
-      cur_exclude_ct = 0;
       if (cur_window_size > 1) {
 	for (ii = 0; ii < cur_window_size; ii++) {
 	  if (marker_stdevs[ii] == 0.0) {
@@ -5699,10 +5699,15 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	}
       }
     }
+    ii = get_marker_chrom(marker_chroms, window_unfiltered_start - 1);
+    printf("Pruned %d SNPs from chromosome %d, leaving %d.\n", cur_exclude_ct, ii, marker_chroms[2 * ii + 1] - marker_chroms[2 * ii] - cur_exclude_ct);
+    tot_exclude_ct += cur_exclude_ct;
+
     // advance chromosomes as necessary
     window_unfiltered_start = ld_prune_next_valid_chrom_start(pruned_arr, window_unfiltered_start, marker_chroms, unfiltered_marker_ct);
   } while (window_unfiltered_start < unfiltered_marker_ct);
 
+  printf("Pruning complete.  %d of %d SNPs removed.\n", tot_exclude_ct, marker_ct);
   strcpy(outname_end, ".prune.in");
   if (fopen_checked(&outfile_in, outname, "w")) {
     goto ld_prune_ret_OPENFAIL;
