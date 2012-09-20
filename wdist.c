@@ -168,6 +168,7 @@
 #define CALC_GENOME 0x1000000
 #define CALC_REGRESS_REL 0x2000000
 #define CALC_LD_PRUNE 0x4000000
+#define CALC_LD_PRUNE_PAIRWISE 0x8000000
 
 #define _FILE_OFFSET_BITS 64
 #define MAX_THREADS 63
@@ -213,6 +214,9 @@
 #define MULTIPLEX_COV 1152
 #define MULTIPLEX_2COV (MULTIPLEX_COV * 2)
 
+#define MULTIPLEX_LD 960
+#define MULTIPLEX_2LD (MULTIPLEX_LD * 2)
+
 // Must be multiple of 384, no larger than 3840.
 #define GENOME_MULTIPLEX 1152
 #define GENOME_MULTIPLEX2 (GENOME_MULTIPLEX * 2)
@@ -245,16 +249,16 @@
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.9.6 "
+  "WDIST genomic distance calculator, v0.9.7 "
 #else
-  "WDIST genomic distance calculator, v0.9.6L "
+  "WDIST genomic distance calculator, v0.9.7L "
 #endif
 #if __LP64__
   "64-bit"
 #else
   "32-bit"
 #endif
-  " (18 September 2012)\n"
+  " (20 September 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
@@ -327,8 +331,8 @@ inline void free_cond(void* memptr) {
 // manually managed, very large stack
 unsigned char* wkspace;
 unsigned char* wkspace_base;
-long long malloc_size_mb = MALLOC_DEFAULT_MB;
-long long wkspace_left;
+long malloc_size_mb = MALLOC_DEFAULT_MB;
+long wkspace_left;
 
 unsigned char* wkspace_alloc(unsigned long size) {
   unsigned char* retval;
@@ -445,6 +449,12 @@ int dispmsg(int retval) {
 "    Identity-by-descent analysis.  This yields the same output as PLINK's\n"
 "    --genome or --Z-genome, and the 'full' and 'unbounded' modifiers have the\n"
 "    same effect as PLINK's --full-genome and --unbounded flags.\n\n"
+"  --indep-pairwise [window size] <kb> [step size (SNPs)] [r^2 threshold]\n"
+"    Generates a list of SNPs in approximate linkage equilibrium; see PLINK\n"
+"    documentation for more details.  With the 'kb' modifier, the window size is\n"
+"    in kilobase units instead of SNPs.\n"
+"    Note that you need to rerun WDIST using --extract or --exclude on the\n"
+"    .prune.in/.prune.out file to apply the list to another computation.\n\n"
 "  --ibc\n"
 "    Calculates inbreeding coefficients in three different ways.\n"
 "    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
@@ -571,6 +581,10 @@ int dispmsg(int retval) {
 "  --exclude [file] : Exclude all SNPs in the given list.\n"
 "  --keep [fname]   : Only include individuals in the given list.\n"
 "  --remove [fname] : Exclude all individuals in the given list.\n"
+"  --maf-succ       : Rule of succession MAF estimation (used in EIGENSTRAT).\n"
+"                     Given j observations of one allele and k >= j observations\n"
+"                     of the other, infer a MAF of (j + 1) / (j + k + 2), rather\n"
+"                     than the usual j / (j + k).\n"
 "  --exponent [val] : When computing genomic distances, each marker has a weight\n"
 "                     of (2q(1-q))^{-val}, where q is the observed MAF.  (Use\n"
 "                     --read-freq if you want to explicitly specify some or all\n"
@@ -1694,17 +1708,37 @@ void exclude(unsigned char* exclude_arr, int loc, int* exclude_ct_ptr) {
   }
 }
 
-inline int excluded(unsigned char* exclude_arr, int loc) {
+inline int is_set(unsigned char* exclude_arr, int loc) {
   return exclude_arr[loc / 8] & (1 << (loc % 8));
 }
 
 // note that this is unsafe if you don't know there's another included marker
 // or person remaining
-inline int next_non_excluded(unsigned char* exclude_arr, int loc) {
-  while (excluded(exclude_arr, loc)) {
+inline int next_non_set(unsigned char* exclude_arr, int loc) {
+  while (is_set(exclude_arr, loc)) {
     loc++;
   }
   return loc;
+}
+
+int get_marker_chrom(int* marker_chroms, int idx) {
+  int ii;
+  for (ii = 0; ii < 27; ii++) {
+    if (idx < marker_chroms[ii * 2 + 1]) {
+      if (idx >= marker_chroms[ii * 2]) {
+	return ii;
+      }
+    }
+  }
+  return -1;
+}
+
+int get_chrom_end(int* marker_chroms, int idx) {
+  return marker_chroms[get_marker_chrom(marker_chroms, idx) * 2 + 1];
+}
+
+inline int nz_chrom(int* marker_chrom, int idx) {
+  return (idx >= marker_chrom[1]) || (idx < marker_chrom[0]);
 }
 
 int write_ids(char* outname, int unfiltered_indiv_ct, unsigned char* indiv_exclude, char* person_id, int max_person_id_len) {
@@ -1714,7 +1748,7 @@ int write_ids(char* outname, int unfiltered_indiv_ct, unsigned char* indiv_exclu
     return RET_OPENFAIL;
   }
   for (ii = 0; ii < unfiltered_indiv_ct; ii++) {
-    if (!excluded(indiv_exclude, ii) && (fprintf(outfile, "%s\n", &(person_id[ii * max_person_id_len])) < 0)) {
+    if (!is_set(indiv_exclude, ii) && (fprintf(outfile, "%s\n", &(person_id[ii * max_person_id_len])) < 0)) {
       return RET_WRITE_FAIL;
     }
   }
@@ -1728,7 +1762,7 @@ void exclude_multi(unsigned char* exclude_arr, int* new_excl, int indiv_ct, int*
   int ii;
   int true_loc = 0;
   for (ii = 0; ii < indiv_ct; ii++) {
-    true_loc = next_non_excluded(exclude_arr, true_loc);
+    true_loc = next_non_set(exclude_arr, true_loc);
     if (new_excl[ii] == -1) {
       exclude(exclude_arr, true_loc, exclude_ct_ptr);
     }
@@ -1751,7 +1785,7 @@ int sort_marker_ids(char** sorted_ids_ptr, int** id_map_ptr, int unfiltered_mark
   }
   ii = 0;
   for (jj = 0; jj < marker_ct; jj++) {
-    ii = next_non_excluded(marker_exclude, ii);
+    ii = next_non_set(marker_exclude, ii);
     memcpy(&((*sorted_ids_ptr)[jj * max_marker_id_len]), &(marker_ids[ii * max_marker_id_len]), max_marker_id_len);
     (*id_map_ptr)[jj] = ii++;
   }
@@ -1787,7 +1821,7 @@ int extract_exclude_markers(char* fname, char* sorted_ids, int sorted_ids_len, u
       jj = id_map[ii];
       if (do_exclude) {
         exclude(marker_exclude, jj, marker_exclude_ct_ptr);
-      } else if ((!excluded(marker_exclude, jj)) && excluded(marker_exclude_new, jj)) {
+      } else if ((!is_set(marker_exclude, jj)) && is_set(marker_exclude_new, jj)) {
 	marker_exclude_new[jj / 8] -= (1 << (jj % 8));
 	marker_include_ct++;
       }
@@ -1836,7 +1870,7 @@ int read_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, uns
       ii = bsearch_str(bufptr, sorted_ids, max_marker_id_len, 0, unfiltered_marker_ct - marker_exclude_ct - 1);
       if (ii != -1) {
         ii = id_map[ii];
-        if ((jj == marker_chroms[ii]) || (!jj) || (!marker_chroms[ii])) {
+        if ((jj == get_marker_chrom(marker_chroms, ii)) || (!jj) || (!get_marker_chrom(marker_chroms, ii))) {
           cc = *bufptr2;
           bufptr2 = next_item(bufptr2);
           bufptr = next_item(bufptr2);
@@ -1917,12 +1951,12 @@ void collapse_arr(char* item_arr, int fixed_item_len, unsigned char* exclude_arr
   // collapses array of fixed-length items
   int ii = 0;
   int jj;
-  while ((ii < exclude_ct) && (!excluded(exclude_arr, ii))) {
+  while ((ii < exclude_ct) && (!is_set(exclude_arr, ii))) {
     ii++;
   }
   jj = ii;
   while (++ii < exclude_ct) {
-    if (!excluded(exclude_arr, ii)) {
+    if (!is_set(exclude_arr, ii)) {
       memcpy(&(item_arr[(jj++) * fixed_item_len]), &(item_arr[ii * fixed_item_len]), fixed_item_len);
     }
   }
@@ -1931,13 +1965,13 @@ void collapse_arr(char* item_arr, int fixed_item_len, unsigned char* exclude_arr
 void collapse_bitarr(unsigned char* bitarr, unsigned char* exclude_arr, int orig_ct) {
   int ii = 0;
   int jj;
-  while ((ii < orig_ct) && (!excluded(exclude_arr, ii))) {
+  while ((ii < orig_ct) && (!is_set(exclude_arr, ii))) {
     ii++;
   }
   jj = ii;
   while (++ii < orig_ct) {
-    if (!excluded(exclude_arr, ii)) {
-      if (excluded(bitarr, ii)) {
+    if (!is_set(exclude_arr, ii)) {
+      if (is_set(bitarr, ii)) {
         // set bit jj
         bitarr[jj / 8] |= (1 << (jj % 8));
       } else {
@@ -1948,11 +1982,51 @@ void collapse_bitarr(unsigned char* bitarr, unsigned char* exclude_arr, int orig
   }
 }
 
+void collapse_marker_chroms(int* marker_chroms, unsigned char* marker_exclude, int unfiltered_marker_ct) {
+  int chrom_end[27];
+  int ii;
+  int jj;
+  int marker_idx;
+  int end_idx;
+  for (ii = 0; ii < 27; ii++) {
+    chrom_end[ii] = -1;
+  }
+  for (ii = 0; ii < 27; ii++) {
+    if (marker_chroms[ii * 2 + 1]) {
+      // 27 is small
+      jj = 0;
+      while (chrom_end[jj] != -1) {
+        if (marker_chroms[chrom_end[jj] * 2 + 1] < marker_chroms[ii * 2 + 1]) {
+	  jj++;
+	} else {
+	  break;
+	}
+      }
+      chrom_end[jj] = ii;
+    }
+  }
+  jj = 0;
+  marker_idx = 0;
+  end_idx = marker_chroms[chrom_end[jj] * 2 + 1];
+  marker_chroms[chrom_end[jj] * 2] = 0;
+  for (ii = 0; ii < unfiltered_marker_ct; ii++) {
+    if (marker_idx == end_idx) {
+      marker_chroms[chrom_end[jj] * 2 + 1] = marker_idx;
+      jj++;
+      marker_chroms[chrom_end[jj] * 2] = marker_idx;
+    }
+    if (!is_set(marker_exclude, ii)) {
+      marker_idx++;
+    }
+  }
+  marker_chroms[chrom_end[jj] * 2 + 1] = marker_idx;
+}
+
 void collapse_copy_phenod(double *target, double* pheno_d, unsigned char* indiv_exclude, int unfiltered_indiv_ct) {
   int ii = 0;
   double* target_end = &(target[indiv_ct]);
   while (target < target_end) {
-    ii = next_non_excluded(indiv_exclude, ii);
+    ii = next_non_set(indiv_exclude, ii);
     *target++ = pheno_d[ii++];
   }
 }
@@ -2103,67 +2177,149 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 
-static inline unsigned int vec_dot_product_neg_biased(__m128i** vec1_ptr, __m128i* vec2) {
-  // Assumes vec1_ptr and vec2_ptr point to vectors of packed 2-bit values in
-  // which we wish to compute the dot product of, using the input
-  // representation -1 -> 01, 0 -> 11, 1 -> 10.  (Or equivalently, -1 -> 10 and
-  // 1 -> 01.  The distinction between -1 and 1 in the input is irrelevant.)
+static inline void cov_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** present1_ptr, __m128i* present2, int* idists_ptr) {
+  // Main routine for computation of \sum_i^M (x_i - \mu_x)(y_i - \mu_y), where
+  // x_i, y_i \in \{-1, 0, 1\}, but there are missing values.
   //
-  // MULTIPLEX_COV pairs of values are handled per function call; if fewer
-  // values are present, pad the end with 11s.  Note that no missingness mask
-  // is needed, because zero times anything is zero.
+  // vec1_ptr and vec2 refer to vectors of packed 2-bit values which we wish to
+  // compute the dot product of, using the input representation
+  //   -1 -> 00, 0/missing -> 01, 1 -> 10.
+  // present1_ptr and present2 mask out missing values.
+  // mu_ptr_1 and mu_ptr_2 are additional return values.
   //
-  // Return value is MULTIPLEX_COV *minus* the dot product.
+  //
+  // We decompose this sum into
+  //   \sum_i x_iy_i - \mu_y\sum_i x_i - \mu_x\sum_i y_i +
+  //   (M - # missing)\mu_x\mu_y.
+  // *Without* missing values, this can be handled very cleanly.  The last
+  // three terms can all be precomputed, and \sum_i x_iy_i can be handled in a
+  // manner very similar to bitwise Hamming distance.  This is more than twice
+  // as fast as the lookup tables used for variance-standardized matrices.
+  //
+  // Unfortunately, when missing values are present, \mu_y\sum_i x_i and
+  // \mu_x\sum_i y_i must be handled in the main loop, and this removes much of
+  // the speed advantage.  So the best applications of the underlying ternary
+  // dot product algorithm used here lie elsewhere.  Still, this is faster than
+  // the size-2^15 lookup tables we use in the absence of any useful
+  // mathematical insight.
+  //
+  //
+  // Input:
+  // * vec1_ptr and vec2 are encoded -1 -> 00, 0/missing -> 01, 1 -> 10.
+  // * present1_ptr and present2 mask out missing values (i.e. 00 for missing,
+  //   11 for nonmissing).
+  // * idists_ptr is a pointer to the big triangular results array.  (Three
+  //   consecutive values are updated:
+  //     idists_ptr[0] += \sum_i x_iy_i
+  //     idists_ptr[1] += \sum_i x_i
+  //     idists_ptr[2] += \sum_i y_i)
+  //
+  // The calculation currently proceeds as follows:
+  //
+  // 1. \sum_i x_i = (popcount_variant(vec1 & present2) - constant bias)
+  // We don't deal with biases until the very end.  The "variant" suffix refers
+  // to starting with two-bit integers instead of one-bit integers in our
+  // summing process, so we get to skip a few operations.  (Once everyone is
+  // using machines with fast hardware popcount, a slightly different
+  // implementation would perform better.)
+  //
+  // 2. zcheck := (vec1 | vec2) & 0x5555...
+  // Detects whether at least one member of the pair has a 0/missing value.
+  //
+  // 3. popcount_variant(((vec1 ^ vec2) & (0xaaaa... - zcheck)) | zcheck)
+  // Subtracting this *from* a bias will give us our desired dot product.
+  //
+  // MULTIPLEX_COV sets of values are handled per function call.  If fewer
+  // values are present, it is currently safe to zero out the ends of all
+  // vectors, and the biases are linearly reduced.  (This may change if other
+  // parts of the implementation change.)
 
   const __m128i m1 = {FIVEMASK, FIVEMASK};
+  const __m128i mn1 = {AAAAMASK, AAAAMASK};
   const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
-  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
-  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
-  __m128i count1, count2, loader1, loader2, half1, half2;
+  __m128i loader1;
+  __m128i loader2;
+  __m128i sum1;
+  __m128i sum2;
+  __m128i sum12;
+  __m128i tmp_sum1;
+  __m128i tmp_sum2;
+  __m128i tmp_sum12;
   __uni16 acc;
+  __uni16 acc1;
+  __uni16 acc2;
   __m128i* vec2_end = &(vec2[MULTIPLEX_2COV / 128]);
   acc.vi = _mm_setzero_si128();
   do {
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
+    sum1 = *present2++;
+    sum2 = *((*present1_ptr)++);
+    sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
+    sum1 = _mm_and_si128(sum1, loader1);
+    sum2 = _mm_and_si128(sum2, loader2);
+    tmp_sum12 = _mm_and_si128(_mm_xor_si128(loader1, loader2), _mm_sub_epi64(mn1, sum12));
+    sum12 = _mm_or_si128(sum12, tmp_sum12);
 
-    // (x ^ y) | (((x & y) >> 1) & (x & y) & 0x55555555...)
-    // Precise dot product implementation may change in the near future, since
-    // there are several alternatives and testing may reveal one of them to be
-    // consistently better.
-    count1 = _mm_and_si128(loader1, loader2);
-    count1 = _mm_or_si128(_mm_xor_si128(loader1, loader2), _mm_and_si128(_mm_and_si128(count1, m1), _mm_srli_epi64(count1, 1)));
+    // sum1, sum2, and sum12 now store the (biased) two-bit sums of interest
+    sum1 = _mm_add_epi64(_mm_and_si128(sum1, m2), _mm_and_si128(_mm_srli_epi64(sum1, 2), m2));
+    sum2 = _mm_add_epi64(_mm_and_si128(sum2, m2), _mm_and_si128(_mm_srli_epi64(sum2, 2), m2));
+    sum12 = _mm_add_epi64(_mm_and_si128(sum12, m2), _mm_and_si128(_mm_srli_epi64(sum12, 2), m2));
 
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
-    count2 = _mm_and_si128(loader1, loader2);
-    count2 = _mm_or_si128(_mm_xor_si128(loader1, loader2), _mm_and_si128(_mm_and_si128(count2, m1), _mm_srli_epi64(count2, 1)));
-    
+    tmp_sum1 = *present2++;
+    tmp_sum2 = *((*present1_ptr)++);
+    tmp_sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
+    tmp_sum1 = _mm_and_si128(tmp_sum1, loader1);
+    tmp_sum2 = _mm_and_si128(tmp_sum2, loader2);
+    loader1 = _mm_and_si128(_mm_xor_si128(loader1, loader2), _mm_sub_epi64(mn1, tmp_sum12));
+    tmp_sum12 = _mm_or_si128(loader1, tmp_sum12);
+
+    sum1 = _mm_add_epi64(sum1, _mm_add_epi64(_mm_and_si128(tmp_sum1, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum1, 2), m2)));
+    sum2 = _mm_add_epi64(sum2, _mm_add_epi64(_mm_and_si128(tmp_sum2, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum2, 2), m2)));
+    sum12 = _mm_add_epi64(sum12, _mm_add_epi64(_mm_and_si128(tmp_sum12, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum12, 2), m2)));
+
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
-    half1 = _mm_and_si128(loader1, loader2);
-    half1 = _mm_or_si128(_mm_xor_si128(loader1, loader2), _mm_and_si128(_mm_and_si128(half1, m1), _mm_srli_epi64(half1, 1)));
+    tmp_sum1 = *present2++;
+    tmp_sum2 = *((*present1_ptr)++);
+    tmp_sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
+    tmp_sum1 = _mm_and_si128(tmp_sum1, loader1);
+    tmp_sum2 = _mm_and_si128(tmp_sum2, loader2);
+    loader1 = _mm_and_si128(_mm_xor_si128(loader1, loader2), _mm_sub_epi64(mn1, tmp_sum12));
+    tmp_sum12 = _mm_or_si128(loader1, tmp_sum12);
 
-    // rest is standard popcount
-    half2 = _mm_and_si128(_mm_srli_epi64(half1, 1), m1);
-    half1 = _mm_and_si128(half1, m1);
-    count1 = _mm_sub_epi64(count1, _mm_and_si128(_mm_srli_epi64(count1, 1), m1));
-    count2 = _mm_sub_epi64(count2, _mm_and_si128(_mm_srli_epi64(count2, 1), m1));
-    count1 = _mm_add_epi64(count1, half1);
-    count2 = _mm_add_epi64(count2, half2);
-    count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
-    count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
-    acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
+    sum1 = _mm_add_epi64(sum1, _mm_add_epi64(_mm_and_si128(tmp_sum1, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum1, 2), m2)));
+    sum2 = _mm_add_epi64(sum2, _mm_add_epi64(_mm_and_si128(tmp_sum2, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum2, 2), m2)));
+    sum12 = _mm_add_epi64(sum12, _mm_add_epi64(_mm_and_si128(tmp_sum12, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum12, 2), m2)));
+
+    acc1.vi = _mm_add_epi64(acc1.vi, _mm_add_epi64(_mm_and_si128(sum1, m4), _mm_and_si128(_mm_srli_epi64(sum1, 4), m4)));
+    acc2.vi = _mm_add_epi64(acc2.vi, _mm_add_epi64(_mm_and_si128(sum2, m4), _mm_and_si128(_mm_srli_epi64(sum2, 4), m4)));
+    acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(sum12, m4), _mm_and_si128(_mm_srli_epi64(sum12, 4), m4)));
   } while (vec2 < vec2_end);
+  // moved down since we're running out of xmm registers...
+  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
+  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
 #if MULTIPLEX_COV > 960
+  acc1.vi = _mm_add_epi64(_mm_and_si128(acc1.vi, m8), _mm_and_si128(_mm_srli_epi64(acc1.vi, 8), m8));
+  acc2.vi = _mm_add_epi64(_mm_and_si128(acc2.vi, m8), _mm_and_si128(_mm_srli_epi64(acc2.vi, 8), m8));
   acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
 #else
+  acc1.vi = _mm_and_si128(_mm_add_epi64(acc1.vi, _mm_srli_epi64(acc1.vi, 8)), m8);
+  acc2.vi = _mm_and_si128(_mm_add_epi64(acc2.vi, _mm_srli_epi64(acc2.vi, 8)), m8);
   acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 8)), m8);
 #endif
+  acc1.vi = _mm_and_si128(_mm_add_epi64(acc1.vi, _mm_srli_epi64(acc1.vi, 16)), m16);
+  acc2.vi = _mm_and_si128(_mm_add_epi64(acc2.vi, _mm_srli_epi64(acc2.vi, 16)), m16);
   acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
+  acc1.vi = _mm_add_epi64(acc1.vi, _mm_srli_epi64(acc1.vi, 32));
+  acc2.vi = _mm_add_epi64(acc2.vi, _mm_srli_epi64(acc2.vi, 32));
   acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
-  return (unsigned int)(acc.u8[0] + acc.u8[1]);
+  idists_ptr[0] += (unsigned int)(acc.u8[0] + acc.u8[1]);
+  idists_ptr[1] += (unsigned int)(acc1.u8[0] + acc1.u8[1]);
+  idists_ptr[2] += (unsigned int)(acc2.u8[0] + acc2.u8[1]);
 }
 #else
 static inline unsigned int popcount_xor_1mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
@@ -2244,57 +2400,101 @@ static inline unsigned int popcount_xor_2mask_multiword(unsigned long** xor1p, u
   return bit_count;
 }
 
-static inline unsigned int vec_dot_product_neg_biased(unsigned long** vec1_ptr, unsigned long* vec2) {
+static inline void cov_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, unsigned long** present1_ptr, unsigned long* present2, int* idists_ptr) {
   unsigned long* vec2_end = &(vec2[MULTIPLEX_COV / 16]);
-  unsigned int biased_dot_product = 0;
+  unsigned int final_sum1 = 0;
+  unsigned int final_sum2 = 0;
+  unsigned int final_sum12 = 0;
   unsigned long loader1;
   unsigned long loader2;
-  unsigned long ulii;
-  unsigned long uljj;
-  unsigned long ulkk;
-  unsigned long tmp_stor;
+  unsigned long sum1;
+  unsigned long sum2;
+  unsigned long sum12;
+  unsigned long tmp_sum1;
+  unsigned long tmp_sum2;
+  unsigned long tmp_sum12;
   do {
+    // (The important part of the header comment on the 64-bit version is
+    // copied below.)
+    //
+    // * vec1_ptr and vec2 are encoded -1 -> 00, 0/missing -> 01, 1 -> 10.
+    // * present1_ptr and present2 mask out missing values (i.e. 00 for
+    //   missing, 11 for nonmissing).
+    // * idists_ptr is a pointer to the big triangular results array.  (Three
+    //   consecutive values are updated:
+    //     idists_ptr[0] += \sum_i x_iy_i
+    //     idists_ptr[1] += \sum_i x_i
+    //     idists_ptr[2] += \sum_i y_i)
+    //
+    // The calculation currently proceeds as follows:
+    //
+    // 1. \sum_i x_i = (popcount_variant(vec1 & present2) - constant bias)
+    // We don't deal with biases until the very end.  The "variant" suffix
+    // refers to starting with two-bit integers instead of one-bit integers in
+    // our summing process, so we get to skip a few operations.
+    //
+    // 2. zcheck := (vec1 | vec2) & 0x5555...
+    // Detects whether at least one member of the pair has a 0/missing value.
+    //
+    // 3. popcount_variant(((vec1 ^ vec2) & (0xaaaa... - zcheck)) | zcheck)
+    // Subtracting this *from* a bias will give us our desired dot product.
+
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
-    ulii = loader1 & loader2;
-    ulii = (loader1 ^ loader2) | ((ulii >> 1) & ulii & FIVEMASK);
-    ulii -= (ulii >> 1) & FIVEMASK;
+    sum1 = *present2++;
+    sum2 = *((*present1_ptr)++);
+    sum12 = (loader1 | loader2) & FIVEMASK;
+
+    sum1 = sum1 & loader1;
+    sum2 = sum2 & loader2;
+    loader1 = (loader1 ^ loader2) & (AAAAMASK - sum12);
+    sum12 = sum12 | loader1;
+
+    sum1 = (sum1 & 0x33333333) + ((sum1 >> 2) & 0x33333333);
+    sum2 = (sum2 & 0x33333333) + ((sum2 >> 2) & 0x33333333);
+    sum12 = (sum12 & 0x33333333) + ((sum12 >> 2) & 0x33333333);
+
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
-    uljj = loader1 & loader2;
-    uljj = (loader1 ^ loader2) | ((uljj >> 1) & uljj & FIVEMASK);
-    uljj -= (uljj >> 1) & FIVEMASK;
+    tmp_sum1 = *present2++;
+    tmp_sum2 = *((*present1_ptr)++);
+    tmp_sum12 = (loader1 | loader2) & FIVEMASK;
+
+    tmp_sum1 = tmp_sum1 & loader1;
+    tmp_sum2 = tmp_sum2 & loader2;
+    loader1 = (loader1 ^ loader2) & (AAAAMASK - tmp_sum12);
+    tmp_sum12 = tmp_sum12 | loader1;
+
+    sum1 += (tmp_sum1 & 0x33333333) + ((tmp_sum1 >> 2) & 0x33333333);
+    sum2 += (tmp_sum2 & 0x33333333) + ((tmp_sum2 >> 2) & 0x33333333);
+    sum12 += (tmp_sum12 & 0x33333333) + ((tmp_sum12 >> 2) & 0x33333333);
+
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
-    ulkk = loader1 & loader2;
-    ulkk = (loader1 ^ loader2) | ((ulkk >> 1) & ulkk & FIVEMASK);
-    ulii += (ulkk >> 1) & FIVEMASK;
-    uljj += ulkk & FIVEMASK;
-    ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
-    ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
-    tmp_stor = (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
-    loader1 = *((*vec1_ptr)++);
-    loader2 = *vec2++;
-    ulii = loader1 & loader2;
-    ulii = (loader1 ^ loader2) | ((ulii >> 1) & ulii & FIVEMASK);
-    ulii -= (ulii >> 1) & FIVEMASK;
-    loader1 = *((*vec1_ptr)++);
-    loader2 = *vec2++;
-    uljj = loader1 & loader2;
-    uljj = (loader1 ^ loader2) | ((uljj >> 1) & uljj & FIVEMASK);
-    uljj -= (uljj >> 1) & FIVEMASK;
-    loader1 = *((*vec1_ptr)++);
-    loader2 = *vec2++;
-    ulkk = loader1 & loader2;
-    ulkk = (loader1 ^ loader2) | ((ulkk >> 1) & ulkk & FIVEMASK);
-    ulii += (ulkk >> 1) & FIVEMASK;
-    uljj += ulkk & FIVEMASK;
-    ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
-    ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
-    tmp_stor += (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
-    biased_dot_product += (tmp_stor * 0x01010101) >> 24;
+    tmp_sum1 = *present2++;
+    tmp_sum2 = *((*present1_ptr)++);
+    tmp_sum12 = (loader1 | loader2) & FIVEMASK;
+
+    tmp_sum1 = tmp_sum1 & loader1;
+    tmp_sum2 = tmp_sum2 & loader2;
+    loader1 = (loader1 ^ loader2) & (AAAAMASK - tmp_sum12);
+    tmp_sum12 = tmp_sum12 | loader1;
+
+    sum1 += (tmp_sum1 & 0x33333333) + ((tmp_sum1 >> 2) & 0x33333333);
+    sum2 += (tmp_sum2 & 0x33333333) + ((tmp_sum2 >> 2) & 0x33333333);
+    sum12 += (tmp_sum12 & 0x33333333) + ((tmp_sum12 >> 2) & 0x33333333);
+
+    sum1 = (sum1 & 0x0f0f0f0f) + ((sum1 >> 4) & 0x0f0f0f0f);
+    sum2 = (sum2 & 0x0f0f0f0f) + ((sum2 >> 4) & 0x0f0f0f0f);
+    sum12 = (sum12 & 0x0f0f0f0f) + ((sum12 >> 4) & 0x0f0f0f0f);
+
+    final_sum1 += (sum1 * 0x01010101) >> 24;
+    final_sum2 += (sum2 * 0x01010101) >> 24;
+    final_sum12 += (sum12 * 0x01010101) >> 24;
   } while (vec2 < vec2_end);
-  return biased_dot_product;
+  idists_ptr[0] += final_sum12;
+  idists_ptr[1] += final_sum1;
+  idists_ptr[2] += final_sum2;
 }
 #endif
 
@@ -2363,9 +2563,13 @@ void incr_cov(int* idists, unsigned long* geno, int tidx) {
 #if __LP64__
   __m128i* glptr;
   __m128i* glptr2;
+  __m128i* maskptr;
+  __m128i* maskptr2;
 #else
   unsigned long* glptr;
   unsigned long* glptr2;
+  unsigned long* maskptr;
+  unsigned long* maskptr2;
 #endif
   int ii;
   int jj;
@@ -2374,14 +2578,18 @@ void incr_cov(int* idists, unsigned long* geno, int tidx) {
     jj = ii * (MULTIPLEX_2COV / BITCT);
     glptr = (__m128i*)geno;
     glptr2 = (__m128i*)(&(geno[jj]));
+    maskptr = (__m128i*)masks;
+    maskptr2 = (__m128i*)(&(masks[jj]));
 #else
     jj = ii * (MULTIPLEX_2COV / BITCT);
     glptr = geno;
     glptr2 = &(geno[jj]);
+    maskptr = masks;
+    maskptr2 = &(masks[jj]);
 #endif
     do {
-      *idists -= vec_dot_product_neg_biased(&glptr, glptr2);
-      idists++;
+      cov_dot_prod(&glptr, glptr2, &maskptr, maskptr2, idists);
+      idists = &(idists[3]);
     } while (glptr <= glptr2);
   }
 }
@@ -2390,7 +2598,8 @@ void* calc_cov_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start0[tidx];
   int jj = thread_start0[0];
-  incr_cov(&(idists[((long long)ii * (ii + 1) - (long long)jj * (jj + 1)) / 2]), geno, (int)tidx);
+  int offset = ;
+  incr_cov(&(idists[(((long long)ii * (ii + 1) - (long long)jj * (jj + 1)) * 3) / 2]), geno, (int)tidx);
   return NULL;
 }
 
@@ -2599,11 +2808,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
           // loop is quite short.  In the long run, we want to implement
 	  // support for better IBD estimation; see e.g. Browning B.L.,
 	  // Browning S.R. "A Fast, Powerful Method for Detecting Identity by
-	  // Descent", which discusses some weaknesses of PLINK --genome.  My
-	  // intention is for this implementation to feel fast enough that
-	  // researchers do not feel bound by performance considerations when
-	  // brainstorming more computationally expensive ways to improve
-          // accuracy.
+	  // Descent", which discusses some weaknesses of PLINK --genome.
 	  do {
 	    offset = next_ppc_marker_hybrid / BITCT;
 	    marker_window_ptr = &(marker_window[offset * BITCT]);
@@ -3034,6 +3239,7 @@ void triangle_fill(int* target_arr, int ct, int pieces, int parallel_idx, int pa
   }
 }
 
+/*
 void incr_cov_consts(double* centered_freq_buf, unsigned long* geno, double* cov_linear_terms) {
   // Note that this subtracts, not adds, so during the final matrix write step
   // additions should be formed.
@@ -3086,6 +3292,7 @@ void incr_cov_consts(double* centered_freq_buf, unsigned long* geno, double* cov
     cov_linear_terms++;
   }
 }
+*/
 
 inline int flexwrite_checked(FILE* outfile, gzFile gz_outfile, char* contents, unsigned long len) {
   if (outfile) {
@@ -3123,16 +3330,18 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
   int ii;
   int jj;
   unsigned long new_geno;
+  unsigned long new_mask;
   unsigned long new_missing;
   unsigned long ulii;
   unsigned long uljj;
   unsigned char* loadbuf_ref;
   int loadbuf_shift;
   unsigned long* geno_writer;
+  unsigned long* mask_writer;
   unsigned long* missing_writer;
   unsigned int* missing_cts;
   unsigned int* missing_ct_ref;
-  double* cov_linear_terms;
+  // double* cov_linear_terms;
   double row_and_fixed_adj;
   double centered_freq_sq_sum = 0.0;
   double dxx;
@@ -3152,7 +3361,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
   int fixed_missing_ct;
   int* biased_dot_prod_reader;
   unsigned int* missing_dbl_exclude_reader;
-  double* cov_linear_reader;
+  // double* cov_linear_reader;
   int slen;
   char* cptr;
 
@@ -3165,7 +3374,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
   write_midx_ct = (((long long)write_end_iidx * (write_end_iidx + 1)) / 2) - write_midx_offset;
   ulii = ((unsigned long)indiv_ct * (indiv_ct - 1)) / 2;
   uljj = ulii + indiv_ct;
-  if (wkspace_alloc_i_checked(&idists, uljj * sizeof(int))) {
+  if (wkspace_alloc_i_checked(&idists, uljj * 3 * sizeof(int))) {
     goto calc_cov_ret_NOMEM;
   }
   fill_int_zero(idists, uljj);
@@ -3173,12 +3382,15 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
     goto calc_cov_ret_NOMEM;
   }
   fill_int_zero((int*)missing_dbl_excluded, ulii);
-  if (wkspace_alloc_d_checked(&cov_linear_terms, indiv_ct * sizeof(double))) {
-    goto calc_cov_ret_NOMEM;
-  }
-  fill_double_zero(cov_linear_terms, indiv_ct);
+  // if (wkspace_alloc_d_checked(&cov_linear_terms, indiv_ct * sizeof(double))) {
+  //   goto calc_cov_ret_NOMEM;
+  // }
+  // fill_double_zero(cov_linear_terms, indiv_ct);
   if (wkspace_alloc_ul_checked(&geno, MULTIPLEX_COV * indiv_ct4long * sizeof(long))) {
     goto calc_cov_ret_NOMEM; 
+  }
+  if (wkspace_alloc_ul_checked(&masks, MULTIPLEX_COV * indiv_ct4long * sizeof(long))) {
+    goto calc_cov_ret_NOMEM;
   }
   if (wkspace_alloc_ul_checked(&mmasks, indiv_ct * sizeof(long))) {
     goto calc_cov_ret_NOMEM;
@@ -3196,20 +3408,19 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
       marker_batch_size = MULTIPLEX_COV;
     } else {
       memset(&(loadbuf[marker_batch_size * unfiltered_indiv_ct4]), 0xaa, (MULTIPLEX_COV - marker_batch_size) * unfiltered_indiv_ct4);
-      // 0xff = quadruple zero in our ternary representation
-      // does not increase missing counts
-      memset(geno, 0xff, MULTIPLEX_COV * indiv_ct4long * sizeof(long));
+      fill_long_zero(geno, 0, MULTIPLEX_COV * indiv_ct4long);
+      fill_long_zero(masks, 0, MULTIPLEX_COV * indiv_ct4long);
       fill_double_zero(&(centered_freq_buf[marker_batch_size]), MULTIPLEX_COV - marker_batch_size);
       fill_long_zero((long*)mmasks, indiv_ct);
     }
 
     for (marker_buf_idx = 0; marker_buf_idx < marker_batch_size; marker_buf_idx++) {
-      if (excluded(marker_exclude, marker_unfiltered_offset)) {
+      if (is_set(marker_exclude, marker_unfiltered_offset)) {
 	ii = 0;
 	do {
 	  marker_unfiltered_offset++;
 	  ii++;
-	} while (excluded(marker_exclude, marker_unfiltered_offset));
+	} while (is_set(marker_exclude, marker_unfiltered_offset));
 	fseeko(bedfile, ii * unfiltered_indiv_ct4, SEEK_CUR);
       }
       if (fread(&(loadbuf[marker_buf_idx * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
@@ -3223,35 +3434,59 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
     }
     for (marker_buf_offset = 0; marker_buf_offset < marker_batch_size; marker_buf_offset += BITCT) {
       geno_writer = &(geno[marker_buf_offset / BITCT2]);
+      mask_writer = &(masks[marker_buf_offset / BITCT2]);
       missing_writer = mmasks;
       missing_ct_ref = missing_cts;
       indiv_idx = 0;
       for (indiv_unfiltered_idx = 0; indiv_idx < indiv_ct; indiv_unfiltered_idx++) {
-        indiv_unfiltered_idx = next_non_excluded(indiv_exclude, indiv_unfiltered_idx);
+        indiv_unfiltered_idx = next_non_set(indiv_exclude, indiv_unfiltered_idx);
         loadbuf_ref = &(loadbuf[indiv_unfiltered_idx / 4 + marker_buf_offset * unfiltered_indiv_ct4]);
         loadbuf_shift = (indiv_unfiltered_idx % 4) * 2;
 	new_geno = 0;
+	new_mask = 0;
 	new_missing = 0;
         for (marker_buf_idx = 0; marker_buf_idx < BITCT2; marker_buf_idx++) {
           ulii = (loadbuf_ref[marker_buf_idx * unfiltered_indiv_ct4] >> loadbuf_shift) & 3;
-	  uljj = ulii & ((ulii ^ 2) >> 1);
+	  // Nothing time-critical here, but may as well do it branchlessly.
+          // Desired encodings:
+	  // new_geno: nonset homozygote -> 00
+          //           het/missing       -> 01
+          //           set homozygote    -> 10
+          // Given PLINK encoding xx, this is (xx - (xx >> 1)).
+          //
+          // new_missing: missing   -> 1
+          //              otherwise -> 0
+          // xx & ((xx ^ 2) >> 1) is one way to do this.
+          //
+          // new_mask: missing   -> 00
+          //           otherwise -> 11
+          // (new_missing ^ 1) * 3 works.
+	  uljj = ulii >> 1;
+          new_geno |= (ulii - uljj) << (marker_buf_idx * 2);
+	  uljj = ulii & (uljj ^ 1);
 	  new_missing |= uljj << marker_buf_idx;
-	  new_geno |= ((ulii ^ 1) + uljj * 3) << (marker_buf_idx * 2);
+	  new_mask |= ((uljj ^ 1) * 3) << (marker_buf_idx * 2);
 	}
         *geno_writer++ = new_geno;
+	*mask_writer++ = new_mask;
 	loadbuf_ref = &(loadbuf_ref[unfiltered_indiv_ct4 * BITCT2]);
 	new_geno = 0;
+	new_mask = 0;
 	for (marker_buf_idx = 0; marker_buf_idx < BITCT2; marker_buf_idx++) {
           ulii = (loadbuf_ref[marker_buf_idx * unfiltered_indiv_ct4] >> loadbuf_shift) & 3;
-	  uljj = ulii & ((ulii ^ 2) >> 1);
-	  new_missing |= uljj << (marker_buf_idx + BITCT2);
-	  new_geno |= ((ulii ^ 1) + uljj * 3) << (marker_buf_idx * 2);
+	  uljj = ulii >> 1;
+          new_geno |= (ulii - uljj) << (marker_buf_idx * 2);
+	  uljj = ulii & (uljj ^ 1);
+	  new_missing |= uljj << marker_buf_idx;
+	  new_mask |= ((uljj ^ 1) * 3) << (marker_buf_idx * 2);
 	}
 	*geno_writer = new_geno;
+	*mask_writer = new_mask;
 	*missing_writer++ = new_missing;
 	*missing_ct_ref += popcount_long(new_missing);
 	missing_ct_ref++;
 	geno_writer = &(geno_writer[(MULTIPLEX_COV / BITCT2) - 1]);
+	mask_writer = &(mask_writer[(MULTIPLEX_COV / BITCT2) - 1]);
 	indiv_idx++;
       }
       for (ulii = 1; ulii < thread_ct; ulii++) {
@@ -3264,7 +3499,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	pthread_join(threads[ii], NULL);
       }
 
-      incr_cov_consts(&(centered_freq_buf[marker_buf_offset]), &(geno[marker_buf_offset / BITCT2]), cov_linear_terms);
+      // incr_cov_consts(&(centered_freq_buf[marker_buf_offset]), &(geno[marker_buf_offset / BITCT2]), cov_linear_terms);
     }
 
     for (ulii = 1; ulii < thread_ct; ulii++) {
@@ -4185,7 +4420,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
 #endif // NOLAPACK
 
 int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* map_cols_ptr, int* unfiltered_marker_ct_ptr, int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, int* plink_maxsnp_ptr, unsigned char** marker_exclude_ptr, double** mafs_ptr, int** marker_allele_cts_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, int** marker_chroms_ptr, unsigned int chrom_mask, unsigned int** marker_pos_ptr, char extractname_0, char excludename_0, char freqname_0, int calculation_type) {
-  int marker_ids_needed = (extractname_0 || excludename_0 || freqname_0 || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST)));
+  int marker_ids_needed = (extractname_0 || excludename_0 || freqname_0 || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE)));
   int unfiltered_marker_ct = 0;
   unsigned long max_marker_id_len = 0;
   int plink_maxsnp = 4;
@@ -4271,13 +4506,14 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
   }
   // permanent stack allocation #3, if needed: marker_chroms
   if (marker_chroms_needed) {
-    *marker_chroms_ptr = (int*)wkspace_alloc(unfiltered_marker_ct * sizeof(int));
+    *marker_chroms_ptr = (int*)wkspace_alloc(54 * sizeof(int));
     if (!(*marker_chroms_ptr)) {
       return RET_NOMEM;
     }
+    fill_int_zero(*marker_chroms_ptr, 54);
   }
   // permanent stack allocation #4, if needed: marker_pos
-  if (calculation_type & CALC_GENOME) {
+  if (marker_pos_needed) {
     *marker_pos_ptr = (unsigned int*)wkspace_alloc(unfiltered_marker_ct * sizeof(int));
     if (!(*marker_pos_ptr)) {
       return RET_NOMEM;
@@ -4321,19 +4557,21 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
       printf("Error: Invalid chromosome index in .map/.bim file.\n");
       return RET_INVALID_FORMAT;
     }
-    if (calculation_type & CALC_GENOME) {
+    if (marker_chroms_needed) {
       if (jj != last_chrom) {
+	if (last_chrom != -1) {
+          (*marker_chroms_ptr)[last_chrom * 2 + 1] = ii;
+	}
         if (loaded_chrom_mask & (1 << jj)) {
 	  printf("Error: .map/.bim is unsorted.  Use PLINK --make-bed to remedy this.\n");
 	  return RET_INVALID_FORMAT;
 	}
 	loaded_chrom_mask &= 1 << jj;
 	last_chrom = jj;
+        (*marker_chroms_ptr)[jj * 2] = ii;
       }
     }
-    if (*marker_chroms_ptr) {
-      (*marker_chroms_ptr)[ii] = jj;
-    }
+
     if (!(chrom_mask & (1 << marker_code(tbuf)))) {
       exclude(*marker_exclude_ptr, ii, marker_exclude_ct_ptr);
     } else {
@@ -4375,6 +4613,9 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
 	}
       }
     }
+  }
+  if (marker_chroms_needed) {
+    (*marker_chroms_ptr)[last_chrom * 2 + 1] = ii;
   }
   if (*marker_exclude_ct_ptr) {
     printf("%d markers loaded (after excluding %d).\n", unfiltered_marker_ct - *marker_exclude_ct_ptr, *marker_exclude_ct_ptr);
@@ -4563,7 +4804,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
   unsigned int mp_lead_unfiltered_idx = 0;
   unsigned int mp_lead_idx = 0;
 
-  while ((mp_lead_unfiltered_idx < unfiltered_marker_ct) && (excluded(marker_exclude, mp_lead_unfiltered_idx) || (!marker_chroms[mp_lead_unfiltered_idx]))) {
+  while ((mp_lead_unfiltered_idx < unfiltered_marker_ct) && (is_set(marker_exclude, mp_lead_unfiltered_idx) || (!get_marker_chrom(marker_chroms, mp_lead_unfiltered_idx)))) {
     mp_lead_unfiltered_idx++;
   }
 
@@ -4588,7 +4829,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
   tot_cells = (long long)indiv_ct * (tstc - thread_start[0]) - ((long long)tstc * (tstc + 1) - (long long)thread_start[0] * (thread_start[0] + 1)) / 2;
   tot_lines = cur_line + tot_cells;
   for (ii = 0; ii < unfiltered_indiv_ct; ii++) {
-    if (!excluded(indiv_exclude, ii)) {
+    if (!is_set(indiv_exclude, ii)) {
       cptr = &(person_id[ii * max_person_id_len]);
       jj = strlen_se(cptr);
       cptr2 = next_item(cptr);
@@ -4627,7 +4868,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
   fill_int_zero((int*)missing_dbl_excluded, tot_cells);
   fill_int_zero((int*)indiv_missing_unwt, indiv_ct);
   fill_int_zero((int*)genome_main, tot_cells * 5);
-  if (!excluded(marker_exclude, 0)) {
+  if (!is_set(marker_exclude, 0)) {
     fseeko(pedfile, bed_offset, SEEK_SET);
   }
 
@@ -4640,10 +4881,10 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
     }
     glptr2 = marker_window;
     for (jj = 0; jj < kk; jj++) {
-      if (excluded(marker_exclude, ii)) {
+      if (is_set(marker_exclude, ii)) {
 	do {
 	  ii++;
-	} while (excluded(marker_exclude, ii));
+	} while (is_set(marker_exclude, ii));
 	fseeko(pedfile, bed_offset + ii * unfiltered_indiv_ct4, SEEK_SET);
       }
       if (fread(&(loadbuf[jj * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, pedfile) < unfiltered_indiv_ct4) {
@@ -4665,16 +4906,16 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
       // Then advance glptr two spaces.  The double storage eliminates a
       // divide-by-two in the inner loop at a low cost in cache space.
       if (mp_lead_unfiltered_idx < unfiltered_marker_ct) {
-	if (marker_chroms[mp_lead_unfiltered_idx] == marker_chroms[low_ct + jj]) {
+	if (get_marker_chrom(marker_chroms, mp_lead_unfiltered_idx) == get_marker_chrom(marker_chroms, low_ct + jj)) {
 	  mm = ppc_gap + marker_pos[low_ct + jj];
 	  if (marker_pos[mp_lead_unfiltered_idx] <= mm) {
-	    nn = marker_chroms[mp_lead_unfiltered_idx];
+	    nn = get_chrom_end(marker_chroms, mp_lead_unfiltered_idx);
 	    do {
-	      if (!excluded(marker_exclude, mp_lead_unfiltered_idx)) {
+	      if (!is_set(marker_exclude, mp_lead_unfiltered_idx)) {
 		mp_lead_idx++;
 	      }
 	      mp_lead_unfiltered_idx++;
-	    } while ((mp_lead_unfiltered_idx < unfiltered_marker_ct) && (excluded(marker_exclude, mp_lead_unfiltered_idx) || ((marker_chroms[mp_lead_unfiltered_idx] == nn) && (marker_pos[mp_lead_unfiltered_idx] <= mm))));
+	    } while ((mp_lead_unfiltered_idx < unfiltered_marker_ct) && (is_set(marker_exclude, mp_lead_unfiltered_idx) || ((mp_lead_unfiltered_idx < nn) && (marker_pos[mp_lead_unfiltered_idx] <= mm))));
 	  }
 	}
       }
@@ -4709,7 +4950,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
       fill_int_zero(missing_ct_buf, BITCT);
       missing_ct_all = 0;
       for (mm = 0; mm < indiv_ct; mm++) {
-	while (excluded(indiv_exclude, nn)) {
+	while (is_set(indiv_exclude, nn)) {
 	  nn++;
 	}
 	oo = (nn % 4) * 2;
@@ -5123,6 +5364,440 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
   return retval;
 }
 
+/*
+int ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* present1, __m128i* present2, int* mu_mult_ptr) {
+  // See comments on cov_dot_prod.  This case is a bit simpler, because
+  //   \sum_i^N (x_i - \mu)(y_i - \mu)
+  // has the same multiplier for the x_i and y_i component sums.
+
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  const __m128i mn1 = {AAAAMASK, AAAAMASK};
+  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
+  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
+  __m128i count1, hmp, count_mu1, count_mu2, loader1, loader2;
+  __uni16 acc_mu;
+  __uni16 acc;
+  __m128i* vec2_end = &(vec2[MULTIPLEX_2LD / 128]);
+  acc_mu.vi = _mm_setzero_si128();
+  acc.vi = _mm_setzero_si128();
+  do {
+    loader1 = *vec1++;
+    loader2 = *vec2++;
+    count_mu1 = *present2++;
+    count_mu2 = *present1++;
+    hmp = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
+    count_mu1 = _mm_and_si128(loader1, present2);
+    count_mu2 = _mm_and_si128(loader2, present1);
+    count1 = _mm_or_si128(_mm_and_si128(_mm_xor_si128(loader1, loader2), _mm_sub_epi64(mn1, hmp)), hmp);
+
+    count_mu1 = _mm_add_epi64(_mm_and_si128(count_mu1, m2), _mm_and_si128(_mm_srli_epi64(count_mu1, 2), m2));
+    count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
+    acc_mu.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
+    
+
+    count1 = _mm_and_si128(loader1, loader2);
+    count1 = _mm_or_si128(_mm_xor_si128(loader1, loader2), _mm_and_si128(_mm_and_si128(count1, m1), _mm_srli_epi64(count1, 1)));
+
+    loader1 = *((*vec1_ptr)++);
+    loader2 = *vec2++;
+    count2 = _mm_and_si128(loader1, loader2);
+    count2 = _mm_or_si128(_mm_xor_si128(loader1, loader2), _mm_and_si128(_mm_and_si128(count2, m1), _mm_srli_epi64(count2, 1)));
+    
+    loader1 = *((*vec1_ptr)++);
+    loader2 = *vec2++;
+    half1 = _mm_and_si128(loader1, loader2);
+    half1 = _mm_or_si128(_mm_xor_si128(loader1, loader2), _mm_and_si128(_mm_and_si128(half1, m1), _mm_srli_epi64(half1, 1)));
+
+    // rest is standard popcount
+    half2 = _mm_and_si128(_mm_srli_epi64(half1, 1), m1);
+    half1 = _mm_and_si128(half1, m1);
+    count1 = _mm_sub_epi64(count1, _mm_and_si128(_mm_srli_epi64(count1, 1), m1));
+    count2 = _mm_sub_epi64(count2, _mm_and_si128(_mm_srli_epi64(count2, 1), m1));
+    count1 = _mm_add_epi64(count1, half1);
+    count2 = _mm_add_epi64(count2, half2);
+    count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
+    count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
+    acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
+  } while (vec2 < vec2_end);
+#if MULTIPLEX_LD > 960
+  acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
+#else
+  acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 8)), m8);
+#endif
+  acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
+  acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
+  return (unsigned int)(acc.u8[0] + acc.u8[1]);
+}
+
+}
+
+int ld_process_load(unsigned char* loadbuf, unsigned long* mainbuf, unsigned long* missing_buf, int unfiltered_indiv_ct, unsigned char* indiv_exclude, int indiv_ct8long, int* marker_sum_ptr, double* marker_mean_ptr, double* marker_inv_stdev_ptr) {
+  int unfiltered_idx = 0;
+  int write_offset;
+  int sloop_max;
+  int write_idx;
+  int ii;
+  unsigned long ulii;
+  unsigned long missing_flag;
+  unsigned long uljj;
+  unsigned long new_geno;
+  unsigned long new_missing;
+  int het_ct = 0;
+  int missing_ct = 0;
+  int marker_sum;
+  double dxx;
+  for (write_offset = 0; write_offset < indiv_ct8long * BITCT; write_offset += BITCT) {
+    sloop_max = indiv_ct - write_offset;
+    if (sloop_max > BITCT2) {
+      sloop_max = BITCT2;
+    }
+    new_geno = 0;
+    new_missing = 0;
+    for (write_idx = 0; write_idx < sloop_max; write_idx++) {
+      unfiltered_idx = next_non_set(indiv_exclude, unfiltered_idx);
+      // original representation:
+      // 00 hom1, 01 missing, 02 het, 03 hom2
+      ulii = (loadbuf[unfiltered_idx / 4] >> ((unfiltered_idx % 4) * 2)) & 3;
+
+      uljj = ulii >> 1;
+      missing_flag = ulii & (uljj ^ 1);
+      // convert ulii to 00 missing, 01 hom1, 02 hom2, 03 het
+      ulii = ulii ^ 1;
+
+      het_ct += ulii & uljj;
+      new_missing |= missing_flag << write_idx;
+
+      // missing can be treated as het in dot product
+      new_geno |= (ulii + missing_flag * 3) << (write_idx * 2);
+      unfiltered_idx++;
+    }
+    *mainbuf++ = new_geno;
+    if (write_offset + BITCT2 <= indiv_ct) {
+      // +0 hom1, +1 het or missing, +2 hom2
+      marker_sum += popcount_long(new_geno ^ FIVEMASK);
+      new_geno = 0;
+      sloop_max = indiv_ct - write_offset - BITCT2;
+      if (sloop_max > BITCT2) {
+	sloop_max = BITCT2;
+      }
+      for (write_idx = 0; write_idx < sloop_max; write_idx++) {
+	unfiltered_idx = next_non_set(indiv_exclude, unfiltered_idx);
+	ulii = (loadbuf[unfiltered_idx / 4] >> ((unfiltered_idx % 4) * 2)) & 3;
+	uljj = ulii >> 1;
+	missing_flag = ulii & (uljj ^ 1);
+	ulii = ulii ^ 1;
+	het_ct += ulii & uljj;
+	new_missing |= missing_flag << (write_idx + BITCT2);
+	new_geno |= (ulii + missing_flag * 3) << (write_idx * 2);
+	unfiltered_idx++;
+      }
+      if (sloop_max == BITCT2) {
+        marker_sum += popcount_long(new_geno ^ FIVEMASK);
+      } else {
+        marker_sum += popcount_long((new_geno ^ FIVEMASK) & ((~0LU) >> (BITCT - 2 * sloop_max)));
+      }
+      *mainbuf++ = new_geno;
+    } else {
+      marker_sum += popcount_long((new_geno ^ FIVEMASK) & ((~0LU) >> (BITCT - 2 * sloop_max)));
+    }
+    *missing_buf++ = new_missing;
+    missing_ct += popcount_long(new_missing);
+  }
+  fill_long_zero(mainbuf, );
+  fill_long_zero(missing_buf, );
+  marker_sum -= indiv_ct;
+  *marker_sum_ptr = marker_sum;
+  dxx = ((double)marker_sum) / ((double)indiv_ct);
+  *marker_mean_ptr = ((double)marker_sum) / ((double)indiv_ct);
+  *marker_het_ct = het_ct;
+  return missing_ct;
+}
+
+unsigned int sparse_intersection_ct(unsigned long* sparse_buf1, unsigned long* sparse_buf2, int len) {
+  int ii;
+  unsigned int ct = 0;
+  unsigned long ulii;
+  for (ii = 0; ii < len; ii++) {
+    ulii = (*sparse_buf1++) & (*sparse_buf2++);
+    while (ulii) {
+      ulii &= ulii - 1;
+      ct++;
+    }
+  }
+  return ct;
+}
+
+int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, char* marker_ids, unsigned long max_marker_id_len, int* marker_chroms, int unfiltered_indiv_ct, unsigned char* indiv_exclude, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, char* outname, char* outname_end, int calculation_type) {
+  // for future consideration: chromosome-based multithread/parallel?
+  FILE* outfile_in = NULL;
+  FILE* outfile_out = NULL;
+  int unfiltered_marker_ct8 = (unfiltered_marker_ct + 7) / 8;
+  int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  int indiv_ct_mcov = (indiv_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
+  int indiv_ct_mcov_long = indiv_ct_mcov / BITCT2;
+  int retval = 0;
+  unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* pruned_arr;
+  unsigned int* live_indices;
+  int marker_unfiltered_idx;
+  int marker_idx;
+  int pct;
+  int pct_thresh;
+  int pairwise = calculation_type & CALC_LD_PRUNE_PAIRWISE;
+  int window_unfiltered_start;
+  int window_unfiltered_end;
+  int cur_window_size;
+  int ii;
+  int jj;
+  int cur_chrom;
+  int chrom_end;
+  unsigned char* loadbuf;
+  unsigned long* process_buf;
+  unsigned long* missing_buf;
+  unsigned int* missing_cts;
+  unsigned long window_max = 0; // kb only
+  int* marker_sums;
+  double* marker_means;
+  double* marker_inv_stdevs;
+  unsigned long ulii;
+  double dxx;
+  unsigned int fixed_non_missing_ct;
+  unsigned int non_missing_ct;
+
+  if (ld_window_kb) {
+    for (cur_chrom = 0; cur_chrom < 27; cur_chrom++) {
+      if (marker_chroms[cur_chrom * 2 + 1]) {
+        ii = marker_chroms[cur_chrom * 2]; // base
+        do {
+	  jj = ii + 1;
+	  while ((jj < marker_chroms[cur_chrom * 2 + 1]) && (marker_pos[jj] <= marker_pos[ii] + (1000 * ld_window_size))) {
+	    jj++;
+	  }
+          if (jj - ii > window_max) {
+	    window_max = jj - ii;
+	  }
+	  ii++;
+	} while (jj < marker_chroms[cur_chrom * 2 + 1]);
+      }
+    }
+  }
+
+  // todo: replace is_set with founder-sensitive check
+  window_unfiltered_start = next_non_set(marker_exclude, 0);
+  if (!nz_chrom(marker_chroms, window_unfiltered_start)) {
+    window_unfiltered_start = marker_chroms[1];
+    while (is_set(marker_exclude, window_unfiltered_start)) {
+      window_unfiltered_start++;
+      if (window_unfiltered_start == unfiltered_marker_ct) {
+	if (pairwise) {
+          printf("Error: No valid markers for --indep-pairwise.\n");
+	} else {
+	  printf("Error: No valid markers for --indep.\n");
+        }
+        return RET_INVALID_FORMAT;
+      }
+    }
+  }
+  if (wkspace_alloc_uc_checked(&pruned_arr, unfiltered_marker_ct8)) {
+    goto ld_prune_ret_NOMEM;
+  }
+  if (ld_window_kb) {
+    ulii = window_max;
+  } else {
+    ulii = ld_window_size;
+  }
+  if (wkspace_alloc_ui_checked(&live_indices, ulii * sizeof(int))) {
+    goto ld_prune_ret_NOMEM;
+  }
+  if (wkspace_alloc_i_checked(&marker_sums, ulii * sizeof(int))) {
+    goto ld_prune_ret_NOMEM;
+  }
+  if (wkspace_alloc_d_checked(&marker_means, ulii * sizeof(double))) {
+    goto ld_prune_ret_NOMEM;
+  }
+  if (wkspace_alloc_d_checked(&marker_inv_stdevs, ulii * sizeof(double))) {
+    goto ld_prune_ret_NOMEM;
+  }
+  if (wkspace_alloc_ul_checked(&process_buf, ulii * indiv_ct_mcov * MULTIPLEX_LD / 4)) {
+    goto ld_prune_ret_NOMEM;
+  }
+  if (wkspace_alloc_uc_checked(&loadbuf, unfiltered_indiv_ct4)) {
+    goto ld_prune_ret_NOMEM;
+  }
+  if (wkspace_alloc_ul_checked(&missing_buf, ulii * indiv_ct8long * sizeof(long))) {
+    goto ld_prune_ret_NOMEM;
+  }
+  if (wkspace_alloc_ul_checked(&missing_cts, indiv_ct * sizeof(int))) {
+    goto ld_prune_ret_NOMEM;
+  }
+  memset(pruned_arr, 0, unfiltered_marker_ct8);
+  do {
+    cur_chrom = get_marker_chrom(marker_chroms, window_unfiltered_start);
+    chrom_end = marker_chroms[2 * cur_chrom + 1];
+    live_indices[0] = window_unfiltered_start;
+    window_unfiltered_end = window_unfiltered_start + 1;
+    if (ld_window_kb) {
+      // todo
+    } else {
+      for (ii = 1; ii < ld_window_size; ii++) {
+	while (is_set(marker_exclude, window_unfiltered_end)) {
+	  window_unfiltered_end++;
+	  if (window_unfiltered_end == chrom_end) {
+	    break;
+	  }
+	}
+	if (window_unfiltered_end == chrom_end) {
+	  break;
+	}
+	live_indices[ii] = window_unfiltered_end;
+	window_unfiltered_end++;
+      }
+      cur_window_size = ii;
+    }
+    if (cur_window_size > 1) {
+      for (ulii = 0; ulii < cur_window_size; ulii++) {
+	fseeko(bedfile, bed_offset + (live_indices[ulii] * unfiltered_indiv_ct), SEEK_SET);
+	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	  goto ld_prune_ret_READ_FAIL;
+	}
+        missing_cts[ulii] = ld_process_load(loadbuf, &(process_buf[ulii * indiv_ct_mcov_long]), &(missing_buf[ulii * indiv_ct8long]), unfiltered_indiv_ct, indiv_exclude, indiv_ct8long, &(marker_sums[ulii]), &(marker_means[ulii]), &(marker_inv_stdevs[ulii]));
+      }
+    }
+    while ((window_unfiltered_end < chrom_end) || (cur_window_size > 1)) {
+      if (cur_window_size > 1) {
+        for (ii = 0; ii < cur_window_size - 1; ii++) {
+	  fixed_non_missing_ct = indiv_ct - missing_cts[ii];
+	  for (jj = 1; jj < cur_window_size; jj++) {
+	    non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(missing_buf[ii * indiv_ct8long]), &(missing_buf[jj * indiv_ct8long]), indiv_ct8long);
+	    // variance = (\frac{1}{N}\sum_i^N x_i^2) - \mu^2
+	    //          = 1 - \frac{het_ct}{N} - \mu^2
+            dxx = (MULTIPLEX_LD - vector_dot_prod(&(process_buf[ii * indiv_ct_mcov_long]), &(process_buf[jj * indiv_ct_mcov_long])) - marker_means[jj] * marker_sums[ii] - marker_means[ii] * marker_sums[jj] + non_missing_ct * marker_means[ii] * marker_means[jj]) * marker_inv_stdevs[ii] * marker_inv_stdevs[jj];
+            if (fabs(dxx) 
+	  }
+        }
+      }
+      for (ii = 0; ii < ld_window_incr; ii++) {
+        while (is_set(marker_exclude, window_unfiltered_start)) {
+	  window_unfiltered_start++;
+	  if (window_unfiltered_start == chrom_end) {
+	    break;
+	  }
+	}
+	if (window_unfiltered_start == chrom_end) {
+	  // ??
+	  cur_window_size = 0;
+	  break;
+	}
+	window_unfiltered_start++;
+	// ??
+	cur_window_size -= 1;
+      }
+      jj = 0;
+      while () {
+      }
+      for (; ii < ; ii++) {
+      }
+      // todo: buffer cleanup
+      if (ld_window_kb) {
+	// todo
+      } else {
+	for (ii = 0; ii < ld_window_incr; ii++) {
+	  while ((window_unfiltered_end < chrom_end) && is_set(marker_exclude, window_unfiltered_end)) {
+	    window_unfiltered_end++;
+	  }
+	  if (window_unfiltered_end < chrom_end) {
+	    fseeko(bedfile, bed_offset + (live_indices[cur_window_size] * unfiltered_indiv_ct), SEEK_SET);
+	    if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	      goto ld_prune_ret_READ_FAIL;
+	    }
+	    missing_cts[cur_window_size] = ld_process_load(loadbuf, &(process_buf[cur_window_size * indiv_ct4long]), &(missing_buf[cur_window_size * indiv_ct8long]), unfiltered_indiv_ct, indiv_exclude, indiv_ct4long, &(marker_sums[cur_window_size]), &(marker_means[cur_window_size]), &(marker_inv_stdevs[cur_window_size]));
+	    cur_window_size++;
+	    window_unfiltered_end++;
+	  }
+	}
+      }
+    }
+    window_unfiltered_start = chrom_end;
+    while (is_set(marker_exclude, window_unfiltered_start)) {
+      window_unfiltered_start++;
+      if (window_unfiltered_start == unfiltered_marker_ct) {
+	break;
+      }
+    }
+    if (window_unfiltered_start < unfiltered_marker_ct) {
+      if (!nz_chrom(marker_chroms, window_unfiltered_start)) {
+        window_unfiltered_start = marker_chroms[1];
+	while (is_set(marker_exclude, window_unfiltered_start)) {
+	  window_unfiltered_start++;
+	  if (window_unfiltered_start == unfiltered_marker_ct) {
+	    break;
+	  }
+	}        
+      }
+    }
+  } while (window_unfiltered_start < unfiltered_marker_ct);
+
+  strcpy(outname_end, ".prune.in");
+  if (fopen_checked(&outfile_in, outname, "w")) {
+    goto ld_prune_ret_OPENFAIL;
+  }
+  strcpy(outname_end, ".prune.out");
+  if (fopen_checked(&outfile_out, outname, "w")) {
+    goto ld_prune_ret_OPENFAIL;
+  }
+  marker_unfiltered_idx = 0;
+  marker_idx = 0;
+  for (pct = 1; pct <= 100; pct++) {
+    pct_thresh = ((long long)pct * marker_ct) / 100;
+    for (; marker_idx < pct_thresh; marker_idx++) {
+      marker_unfiltered_idx = next_non_set(marker_exclude, marker_unfiltered_idx);
+      if (is_set(pruned_arr, marker_unfiltered_idx)) {
+        if (fprintf(outfile_out, "%s\n", &(marker_ids[marker_unfiltered_idx * max_marker_id_len])) < 0) {
+	  goto ld_prune_ret_WRITE_FAIL;
+	}
+      } else {
+	if (fprintf(outfile_in, "%s\n", &(marker_ids[marker_unfiltered_idx * max_marker_id_len])) < 0) {
+	  goto ld_prune_ret_WRITE_FAIL;
+	}
+      }
+      marker_unfiltered_idx++;
+    }
+    printf("\rWriting... %d%%", pct);
+    fflush(stdout);
+  }
+  if (fclose(outfile_in)) {
+    goto ld_prune_ret_WRITE_FAIL;
+  }
+  if (fclose(outfile_out)) {
+    goto ld_prune_ret_WRITE_FAIL;
+  }
+  *outname_end = '\0';
+  printf("\r--indep-pairwise SNP lists written to %s.prune.in and %s.prune.out.\n", outname, outname);
+
+  while (0) {
+  ld_prune_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  ld_prune_ret_OPENFAIL:
+    retval = RET_OPENFAIL;
+    break;
+  ld_prune_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  ld_prune_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+
+  fclose_cond(outfile_in);
+  fclose_cond(outfile_out);
+  wkspace_reset(wkspace_mark);
+  return retval;
+}
+*/
+
 inline int distance_wt_req(int calculation_type) {
   return ((calculation_type & CALC_DISTANCE_MASK) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
@@ -5139,7 +5814,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* makepheno_str, char* filterval, int mfilter_col, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, int parallel_tot, int ppc_gap, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* makepheno_str, char* filterval, int mfilter_col, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, unsigned int chrom_mask, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, int parallel_tot, int ppc_gap, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -6001,7 +6676,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
     }
     for (ii = 0; ii < unfiltered_marker_ct; ii++) {
-      if (excluded(marker_exclude, ii)) {
+      if (is_set(marker_exclude, ii)) {
 	fseeko(pedfile, (off_t)unfiltered_indiv_ct4, SEEK_CUR);
 	continue;
       }
@@ -6012,7 +6687,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       nn = 0; // minor allele ct
       gptr = pedbuf - 1;
       for (jj = 0; jj < unfiltered_indiv_ct; jj++) {
-	if (excluded(indiv_exclude, jj)) {
+	if (is_set(indiv_exclude, jj)) {
 	  continue;
 	}
 	kk = jj % 4;
@@ -6054,7 +6729,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     fseeko(pedfile, bed_offset, SEEK_SET);
     // ----- .snp-major .bed load, second pass -----
     for (ii = 0; ii < unfiltered_marker_ct; ii++) {
-      if (excluded(marker_exclude, ii)) {
+      if (is_set(marker_exclude, ii)) {
 	fseeko(pedfile, (off_t)unfiltered_indiv_ct4, SEEK_CUR);
 	continue;
       }
@@ -6078,7 +6753,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	} else {
 	  uii >>= 2;
 	}
-	if ((!excluded(indiv_exclude, jj)) && (nonfounders || is_founder(founder_info, jj))) {
+	if ((!is_set(indiv_exclude, jj)) && (nonfounders || is_founder(founder_info, jj))) {
 	  ujj = uii & 3;
 	  if (ujj) {
 	    if (ujj == 2) {
@@ -6123,7 +6798,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	marker_allele_cts[ii * 2 + 1] = hwe_lli * 2 + hwe_lhi;
 	if (mafs[ii] < 0.0) {
 	  *dptr2++ = calc_wt_mean(exponent, hwe_lhi, hwe_lli, hwe_hhi);
-	  mafs[ii] = ((double)marker_allele_cts[ii * 2]) / ((double)(marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]));
+	  mafs[ii] = ((double)marker_allele_cts[ii * 2] + maf_succ) / ((double)(marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1] + 2 * maf_succ));
 	} else {
 	  *dptr2++ = calc_wt_mean_maf(exponent, mafs[ii]);
 	}
@@ -6416,7 +7091,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    printf(errstr_ped_format);
 	    goto wdist_ret_INVALID_FORMAT;
 	  }
-          if (!excluded(marker_exclude, jj)) {
+          if (!is_set(marker_exclude, jj)) {
 	    if (cc == missing_geno) {
 	      if (nn) {
 		printf("Error: Second allele marked as missing when first was not.\n(individual %d, marker %d)\n", ii, jj);
@@ -6526,14 +7201,14 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     fill_int_zero(hwe_ll, unfiltered_marker_ct * 9);
 
     for (ii = 0; ii < unfiltered_indiv_ct; ii += 1) {
-      if (excluded(indiv_exclude, ii) || ((!nonfounders) && (!is_founder(founder_info, ii)))) {
+      if (is_set(indiv_exclude, ii) || ((!nonfounders) && (!is_founder(founder_info, ii)))) {
 	continue;
       }
       fseeko(pedfile, line_locs[ii], SEEK_SET);
       fgets((char*)pedbuf, pedbuflen, pedfile);
       bufptr = (char*)pedbuf;
       for (jj = 0; jj < unfiltered_marker_ct; jj += 1) {
-	if (excluded(marker_exclude, jj)) {
+	if (is_set(marker_exclude, jj)) {
           bufptr = next_item(next_item(bufptr));
 	  continue;
 	}
@@ -6581,7 +7256,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
     }
     for (ii = 0; ii < unfiltered_marker_ct; ii++) {
-      if (!excluded(marker_exclude, ii)) {
+      if (!is_set(marker_exclude, ii)) {
 	if (SNPHWE_t(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii], hwe_thresh)) {
 	  exclude(marker_exclude, ii, &marker_exclude_ct);
 	} else if (bin_pheno) {
@@ -6589,13 +7264,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    exclude(marker_exclude, ii, &marker_exclude_ct);
 	  }
 	}
-	if (!excluded(marker_exclude, ii)) {
+	if (!is_set(marker_exclude, ii)) {
 	  *dptr2++ = calc_wt_mean(exponent, hwe_lh[ii], hwe_ll[ii], hwe_hh[ii]);
           // most common allele is counted in hwe_ll, not hwe_hh as in the
           // binary loads
           // should standardize this when implementing .ped load without forced
           // --make-bed
-	  mafs[ii] = ((double)(hwe_ll[ii] * 2 + hwe_lh[ii])) / ((double)(hwe_ll[ii] + hwe_lh[ii] + hwe_hh[ii]) * 2);
+	  mafs[ii] = ((double)(hwe_ll[ii] * 2 + hwe_lh[ii] + maf_succ)) / ((double)(hwe_ll[ii] + hwe_lh[ii] + hwe_hh[ii] + maf_succ) * 2);
 	}
       }
     }
@@ -6645,7 +7320,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           last_tell = llxx;
           continue;
         }
-        if (excluded(indiv_exclude, ii)) {
+        if (is_set(indiv_exclude, ii)) {
           last_tell = llxx;
           ii++;
           continue;
@@ -6660,7 +7335,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         mm = 0; // final SNP index
         pp = uljj;
 	for (jj = 0; jj < unfiltered_marker_ct; jj += 1) {
-          if (excluded(marker_exclude, jj)) {
+          if (is_set(marker_exclude, jj)) {
 	    bufptr++;
 	    while ((*bufptr == ' ') || (*bufptr == '\t')) {
 	      bufptr++;
@@ -6726,7 +7401,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           last_tell = llxx;
           continue;
         }
-        if (excluded(indiv_exclude, ii)) {
+        if (is_set(indiv_exclude, ii)) {
           last_tell = llxx;
           ii++;
           continue;
@@ -6743,7 +7418,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         mm = 0;
 
 	for (jj = 0; jj < unfiltered_marker_ct; jj += 1) {
-          if (excluded(marker_exclude, jj)) {
+          if (is_set(marker_exclude, jj)) {
 	    bufptr++;
 	    while ((*bufptr == ' ') || (*bufptr == '\t')) {
 	      bufptr++;
@@ -6807,7 +7482,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     iptr = iwptr;
     dptr2 = mafs;
     for (ii = 0; ii < unfiltered_marker_ct; ii += 1) {
-      if (excluded(marker_exclude, ii)) {
+      if (is_set(marker_exclude, ii)) {
 	continue;
       }
       *cptr++ = marker_alleles[ii * 4 + 1];
@@ -6828,7 +7503,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       do {
 	fgets(tbuf, MAXLINELEN, mapfile);
       } while (tbuf[0] <= ' ');
-      if (excluded(marker_exclude, ii)) {
+      if (is_set(marker_exclude, ii)) {
 	continue;
       }
       bufptr = next_item(tbuf);
@@ -6868,7 +7543,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       collapse_arr(marker_ids, max_marker_id_len, marker_exclude, unfiltered_marker_ct);
     }
     if (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_GENOME | CALC_LD_PRUNE)) {
-      collapse_arr((char*)marker_chroms, sizeof(int), marker_exclude, unfiltered_marker_ct);
+      collapse_marker_chroms(marker_chroms, marker_exclude, unfiltered_marker_ct);
       if (calculation_type & (CALC_GENOME | CALC_LD_PRUNE)) {
 	collapse_arr((char*)marker_pos, sizeof(int), marker_exclude, unfiltered_marker_ct);
       }
@@ -6918,7 +7593,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_OPENFAIL;
     }
     for (ii = 0; ii < unfiltered_marker_ct; ii++) {
-      if (!excluded(marker_exclude, ii)) {
+      if (!is_set(marker_exclude, ii)) {
         if (fprintf(outfile, "%s\n", &(marker_ids[ii * max_marker_id_len])) < 0) {
           goto wdist_ret_WRITE_FAIL;
         }
@@ -6940,22 +7615,22 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       strcpy(tbuf, "%4d %4s    %c    %c       %6.4g  %7d\n");
     } else {
-      sprintf(tbuf, " CHR %%%ds   A1   A2       MAF  NCHROBS\n", plink_maxsnp);
+      sprintf(tbuf, " CHR %%%ds   A1   A2          MAF  NCHROBS\n", plink_maxsnp);
       if (fprintf(outfile, tbuf, "SNP") < 0) {
 	goto wdist_ret_WRITE_FAIL;
       }
-      sprintf(tbuf, "%%4d %%%ds    %%c    %%c    %%6.4g  %%7d\n", plink_maxsnp);
+      sprintf(tbuf, "%%4d %%%ds    %%c    %%c       %%6.4g  %%7d\n", plink_maxsnp);
     }
     for (ii = 0; ii < unfiltered_marker_ct; ii++) {
-      if (excluded(marker_exclude, ii)) {
+      if (is_set(marker_exclude, ii)) {
 	continue;
       }
       if (mafs[ii] < 0.5) {
-	if (fprintf(outfile, tbuf, marker_chroms[ii], &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2 + 1], marker_alleles[ii * 2], mafs[ii], marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]) < 0) {
+	if (fprintf(outfile, tbuf, get_marker_chrom(marker_chroms, ii), &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2 + 1], marker_alleles[ii * 2], mafs[ii], marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]) < 0) {
 	  goto wdist_ret_WRITE_FAIL;
 	}
       } else {
-	if (fprintf(outfile, tbuf, marker_chroms[ii], &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2], marker_alleles[ii * 2 + 1], 1.0 - mafs[ii], marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]) < 0) {
+	if (fprintf(outfile, tbuf, get_marker_chrom(marker_chroms, ii), &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2], marker_alleles[ii * 2 + 1], 1.0 - mafs[ii], marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]) < 0) {
 	  goto wdist_ret_WRITE_FAIL;
 	}
       }
@@ -6964,6 +7639,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_WRITE_FAIL;
     }
     printf("Allele frequencies written to %s.\n", outname);
+  }
+
+  if (calculation_type & CALC_LD_PRUNE) {
+    // retval = ld_prune(pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_chroms, unfiltered_indiv_ct, indiv_exclude, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type);
+    if (retval) {
+      goto wdist_ret_2;
+    }
   }
 
   wkspace_reset(marker_weights);
@@ -7066,7 +7748,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         jj = 0;
         while ((jj < MULTIPLEX_REL) && (pp < marker_ct)) {
           ulii = 0;
-          while (excluded(marker_exclude, ii)) {
+          while (is_set(marker_exclude, ii)) {
             ii++;
             ulii++;
           }
@@ -7092,7 +7774,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           oo = 0;
           glptr2 = (unsigned long*)ped_geno;
 	  for (qq = 0; oo < indiv_ct; qq++) {
-	    while (excluded(indiv_exclude, qq)) {
+	    while (is_set(indiv_exclude, qq)) {
               qq++;
             }
 	    ulii = 0;
@@ -7850,7 +8532,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	// the zero exponent special case.
 
 	while ((jj < multiplex) && (pp < marker_ct)) {
-	  while (excluded(marker_exclude, ii)) {
+	  while (is_set(marker_exclude, ii)) {
 	    ii++;
 	    fseeko(pedfile, (off_t)unfiltered_indiv_ct4, SEEK_CUR);
 	  }
@@ -7888,7 +8570,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      giptr2 = indiv_missing_unwt;
 	    }
 	    for (oo = 0; oo < unfiltered_indiv_ct; oo++) {
-	      if (!excluded(indiv_exclude, oo)) {
+	      if (!is_set(indiv_exclude, oo)) {
 		kk = (oo % 4) * 2;
 		ulii = 0;
 		ulkk = 0;
@@ -7986,7 +8668,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    glptr3 = mmasks;
 	    giptr3 = indiv_missing;
 	    for (oo = 0; oo < unfiltered_indiv_ct; oo++) {
-	      if (!excluded(indiv_exclude, oo)) {
+	      if (!is_set(indiv_exclude, oo)) {
 		kk = (oo % 4) * 2;
 		ulii = 0;
 		ulkk = 0;
@@ -9237,6 +9919,11 @@ int main(int argc, char** argv) {
   FILE* scriptfile;
   int num_params;
   int in_param;
+  int ld_window_size = 0;
+  int ld_window_incr = 0;
+  double ld_last_param;
+  int ld_window_kb = 0;
+  int maf_succ = 0;
   printf(ver_str);
   thread_ct = sysconf(_SC_NPROCESSORS_ONLN);
   if (thread_ct == -1) {
@@ -10569,6 +11256,44 @@ int main(int argc, char** argv) {
       }
       strcpy(freqname, argv[cur_arg + 1]);
       cur_arg += 1 + ii;
+    } else if (!strcmp(argptr, "--maf-succ")) {
+      maf_succ = 1;
+      cur_arg += 1;
+    } else if (!strcmp(argptr, "--indep-pairwise")) {
+      ii = param_count(argc, argv, cur_arg);
+      if (ii < 3) {
+	printf("Error: --indep-pairwise requires at least 3 parameters.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      } else if (ii > 4) {
+	printf("Error: --indep-pairwise accepts at most 4 parameters.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      ld_window_size = atoi(argv[cur_arg + 1]);
+      if ((ld_window_size < 1) || ((ld_window_size == 1) && (ii == 3))) {
+	printf("Error: Invalid --indep-pairwise window size.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (ii == 4) {
+	if (strcmp(argv[cur_arg + 2], "kb")) {
+          printf("Error: Invalid argument for --indep-pairwise.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	ld_window_kb = 1;
+      }
+      ld_window_incr = atoi(argv[cur_arg + ii - 1]);
+      if (ld_window_incr < 1) {
+	printf("Error: Invalid increment for --indep-pairwise.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (sscanf(argv[cur_arg + ii], "%lg", &ld_last_param) != 1) {
+	printf("Error: Invalid --indep-pairwise r^2 threshold.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      cur_arg += 1 + ii;
+      calculation_type |= (CALC_LD_PRUNE | CALC_LD_PRUNE_PAIRWISE);
+    } else if (!strcmp(argptr, "--indep")) {
+      printf("--indep implementation coming soon.\n");
+      cur_arg += 1;
     } else if (!strcmp(argptr, "--map3")) {
       printf("Note: --map3 flag unnecessary (.map file format is autodetected).\n");
       cur_arg += 1;
@@ -10630,7 +11355,7 @@ int main(int argc, char** argv) {
   // the presence of their respective flags
   // filtername[0] indicates existence of filter
   // freqname[0] signals --read-freq
-  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, makepheno_str, filterval, mfilter_col, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded);
+  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, makepheno_str, filterval, mfilter_col, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ);
   free(wkspace_ua);
   return dispmsg(retval);
 }
