@@ -5280,7 +5280,7 @@ int ld_process_load(unsigned char* loadbuf, unsigned long* geno_buf, unsigned lo
   int missing_ct = 0;
   int sq_sum = 0;
   int sum = -indiv_ct;
-  double indiv_ct_recip = 1.0 / ((double)indiv_ct);
+  double non_missing_recip;
   for (write_offset = 0; write_offset < indiv_ctbit * BITCT; write_offset += BITCT) {
     sloop_max = indiv_ct - write_offset;
     if (sloop_max > BITCT2) {
@@ -5348,7 +5348,8 @@ int ld_process_load(unsigned char* loadbuf, unsigned long* geno_buf, unsigned lo
   fill_long_zero((long*)mask_buf, indiv_trail_ct);
   fill_long_zero((long*)missing_buf, indiv_trail_ct / 2);
   sum += missing_ct;
-  *marker_stdev_ptr = sqrt(indiv_ct_recip * (sq_sum - (indiv_ct_recip * sum) * sum));
+  non_missing_recip = 1.0 / (indiv_ct - missing_ct);
+  *marker_stdev_ptr = sqrt((sq_sum - (non_missing_recip * sum) * sum) * non_missing_recip);
   return missing_ct;
 }
 
@@ -5482,6 +5483,8 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	} while (jj < marker_chroms[cur_chrom * 2 + 1]);
       }
     }
+  } else {
+    ld_last_param = sqrt(ld_last_param);
   }
 
   window_unfiltered_start = ld_prune_next_valid_chrom_start(marker_exclude, 0, marker_chroms, unfiltered_marker_ct);
@@ -5587,10 +5590,10 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 #endif
 	      continue;
 	    }
-	    dp_result[0] = indiv_ct;
-	    dp_result[1] = -indiv_ct;
-	    dp_result[2] = -indiv_ct;
 	    non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit);
+	    dp_result[0] = non_missing_ct;
+	    dp_result[1] = -non_missing_ct;
+	    dp_result[2] = -non_missing_ct;
 #if __LP64__
 	    for (kk = 0; kk < indiv_ct_mld; kk++) {
 	      ld_dot_prod(&geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), &mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result);
