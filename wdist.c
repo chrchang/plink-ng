@@ -249,9 +249,9 @@
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.10.0 "
+  "WDIST genomic distance calculator, v0.9.7 "
 #else
-  "WDIST genomic distance calculator, v0.10.0L "
+  "WDIST genomic distance calculator, v0.9.7L "
 #endif
 #if __LP64__
   "64-bit"
@@ -5551,22 +5551,21 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	  fixed_non_missing_ct = indiv_ct - missing_cts[ii];
 #if __LP64__
           geno_fixed_vec_ptr = (__m128i*)(&(geno[ii * indiv_ct_mld_long]));
-	  geno_var_vec_ptr = (__m128i*)(&(geno_fixed_vec_ptr[indiv_ct_mld_long / 2]));
 	  mask_fixed_vec_ptr = (__m128i*)(&(masks[ii * indiv_ct_mld_long]));
-	  mask_var_vec_ptr = (__m128i*)(&(mask_fixed_vec_ptr[indiv_ct_mld_long / 2]));
 #else
 	  geno_fixed_vec_ptr = &(geno[ii * indiv_ct_mld_long]);
-	  geno_var_vec_ptr = &(geno_fixed_vec_ptr[indiv_ct_mld_long]);
 	  mask_fixed_vec_ptr = &(masks[ii * indiv_ct_mld_long]);
-	  mask_var_vec_ptr = &(mask_fixed_vec_ptr[indiv_ct_mld_long]);
 #endif
-	  if (ii < prev_end) {
-	    jj = prev_end + 1;
-	  } else {
-	    jj = ii + 1;
-	  }
+	  jj = ii + 1;
+#if __LP64__
+	  geno_var_vec_ptr = (__m128i*)(&(geno[jj * indiv_ct_mld_long]));
+	  mask_var_vec_ptr = (__m128i*)(&(masks[jj * indiv_ct_mld_long]));
+#else
+	  geno_var_vec_ptr = &(geno[jj * indiv_ct_mld_long]);
+	  mask_var_vec_ptr = &(mask[jj * indiv_ct_mld_long]);
+#endif
 	  for (; jj < cur_window_size; jj++) {
-	    if (is_set(pruned_arr, live_indices[ii])) {
+	    if (is_set(pruned_arr, live_indices[jj])) {
 #if __LP64__
 	      geno_var_vec_ptr = &(geno_var_vec_ptr[indiv_ct_mld_long / 2]);
 	      mask_var_vec_ptr = &(mask_var_vec_ptr[indiv_ct_mld_long / 2]);
@@ -5603,12 +5602,11 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	      } else {
 		exclude(pruned_arr, live_indices[jj], &cur_exclude_ct);
 	      }
+	      break;
 	    }
 	  }
         }
       }
-      prev_end = cur_window_size;
-      cur_window_size -= cur_exclude_ct;
       for (ii = 0; ii < ld_window_incr; ii++) {
         while (is_set(marker_exclude, window_unfiltered_start)) {
 	  window_unfiltered_start++;
@@ -5617,17 +5615,12 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	  }
 	}
 	if (window_unfiltered_start == chrom_end) {
-	  cur_window_size = 0;
 	  break;
 	}
 	window_unfiltered_start++;
-	cur_window_size -= 1;
       }
       if (window_unfiltered_start == chrom_end) {
 	break;
-      }
-      if (cur_window_size < 0) {
-	cur_window_size = 0;
       }
       jj = 0;
       // copy back previously loaded/computed results
@@ -5637,8 +5630,8 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	  break;
 	}
       }
-      for (ii = 0; jj < prev_end; jj++) {
-	if (is_set(pruned_arr, jj)) {
+      for (ii = 0; jj < cur_window_size; jj++) {
+	if (is_set(pruned_arr, live_indices[jj])) {
 	  continue;
 	}
 	memcpy(&(geno[ii * indiv_ct_mld_long]), &(geno[jj * indiv_ct_mld_long]), indiv_ct_mld_long * sizeof(long));
@@ -5654,7 +5647,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	// todo
       } else {
 	for (ii = 0; ii < ld_window_incr; ii++) {
-	  while ((window_unfiltered_end < chrom_end) && is_set(pruned_arr, window_unfiltered_end)) {
+	  while ((window_unfiltered_end < chrom_end) && is_set(marker_exclude, window_unfiltered_end)) {
 	    window_unfiltered_end++;
 	  }
 	  if (window_unfiltered_end < chrom_end) {
@@ -5663,7 +5656,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	      goto ld_prune_ret_READ_FAIL;
 	    }
-	    missing_cts[cur_window_size] = ld_process_load(loadbuf, &(geno[cur_window_size * indiv_ct_mld_long]), &(masks[cur_window_size * indiv_ct_mld_long]), &(mmasks[cur_window_size * indiv_ct_mld_long / 2]), &(marker_stdevs[cur_window_size]), unfiltered_indiv_ct, indiv_exclude, indiv_ct, indiv_ctbit, indiv_trail_ct);
+	    missing_cts[cur_window_size] = ld_process_load(loadbuf, &(geno[cur_window_size * indiv_ct_mld_long]), &(masks[cur_window_size * indiv_ct_mld_long]), &(mmasks[cur_window_size * indiv_ctbit]), &(marker_stdevs[cur_window_size]), unfiltered_indiv_ct, indiv_exclude, indiv_ct, indiv_ctbit, indiv_trail_ct);
 	    cur_window_size++;
 	    window_unfiltered_end++;
 	  }
