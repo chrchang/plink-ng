@@ -28,7 +28,7 @@
 // conveniently, this plays well with the decision made by the PLINK team a few
 // years ago to switch to SNP-major binary files.
 //
-// 2. Multiplexing  of markers using bitwise operations.  For instance, there
+// 2. Multiplexing of markers using bitwise operations.  For instance, there
 // are only seven possible ways SNP i can affect the relationship matrix entry
 // between individuals j and k:
 //    a. j and k are both homozygous for the rare allele
@@ -210,10 +210,6 @@
 #define MULTIPLEX_DIST 960
 #define MULTIPLEX_2DIST (MULTIPLEX_DIST * 2)
 
-// Multiple of 192, no larger than 1920.
-#define MULTIPLEX_COV 1152
-#define MULTIPLEX_2COV (MULTIPLEX_COV * 2)
-
 #define MULTIPLEX_LD 960
 #define MULTIPLEX_2LD (MULTIPLEX_LD * 2)
 
@@ -249,9 +245,9 @@
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.9.7 "
+  "WDIST genomic distance calculator, v0.9.6 "
 #else
-  "WDIST genomic distance calculator, v0.9.7L "
+  "WDIST genomic distance calculator, v0.9.6L "
 #endif
 #if __LP64__
   "64-bit"
@@ -2074,7 +2070,7 @@ void pick_d_small(unsigned char* tmp_cbuf, int* ibuf, unsigned int ct, unsigned 
 }
 
 static inline unsigned int popcount_long(unsigned long val) {
-  // the simple version, and good enough for all non-time-critical stuff
+  // the simple version, good enough for all non-time-critical stuff
   val = val - ((val >> 1) & FIVEMASK);
 #if __LP64__
   val = (val & 0x3333333333333333LU) + ((val >> 2) & 0x3333333333333333LU);
@@ -2177,6 +2173,7 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 
+/*
 static inline void cov_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** present1_ptr, __m128i* present2, int* idists_ptr) {
   // Main routine for computation of \sum_i^M (x_i - \mu_x)(y_i - \mu_y), where
   // x_i, y_i \in \{-1, 0, 1\}, but there are missing values.
@@ -2208,31 +2205,31 @@ static inline void cov_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** pre
   // * vec1_ptr and vec2 are encoded -1 -> 00, 0/missing -> 01, 1 -> 10.
   // * present1_ptr and present2 mask out missing values (i.e. 00 for missing,
   //   11 for nonmissing).
-  // * idists_ptr is a pointer to the big triangular results array.  (Three
-  //   consecutive values are updated:
-  //     idists_ptr[0] += \sum_i x_iy_i
-  //     idists_ptr[1] += \sum_i x_i
-  //     idists_ptr[2] += \sum_i y_i)
+  // * idists_ptr provides space for return values.
   //
-  // The calculation currently proceeds as follows:
+  // This function should perform the update
+  //   idists[0] += (-M) + \sum_i x_iy_i
+  //   idists[1] += M + \sum_i x_i
+  //   idists[2] += M + \sum_i y_i
+  // where M is the number of markers processed.  The calculation currently
+  // proceeds as follows:
   //
-  // 1. \sum_i x_i = (popcount_variant(vec1 & present2) - constant bias)
-  // We don't deal with biases until the very end.  The "variant" suffix refers
-  // to starting with two-bit integers instead of one-bit integers in our
-  // summing process, so we get to skip a few operations.  (Once everyone is
-  // using machines with fast hardware popcount, a slightly different
-  // implementation would perform better.)
+  // 1. M + \sum_i x_i = popcount_variant(vec1 & present2)
+  // The "variant" suffix refers to starting with two-bit integers instead of
+  // one-bit integers in our summing process, so we get to skip a few
+  // operations.  (Once everyone is using machines with fast hardware popcount,
+  // a slightly different implementation would perform better.)
   //
   // 2. zcheck := (vec1 | vec2) & 0x5555...
   // Detects whether at least one member of the pair has a 0/missing value.
   //
   // 3. popcount_variant(((vec1 ^ vec2) & (0xaaaa... - zcheck)) | zcheck)
-  // Subtracting this *from* a bias will give us our desired dot product.
+  // Subtracting this *from* a bias will give us our desired \sum_i x_iy_i dot
+  // product.
   //
   // MULTIPLEX_COV sets of values are handled per function call.  If fewer
   // values are present, it is currently safe to zero out the ends of all
-  // vectors, and the biases are linearly reduced.  (This may change if other
-  // parts of the implementation change.)
+  // vectors.
 
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i mn1 = {AAAAMASK, AAAAMASK};
@@ -2317,10 +2314,11 @@ static inline void cov_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** pre
   acc1.vi = _mm_add_epi64(acc1.vi, _mm_srli_epi64(acc1.vi, 32));
   acc2.vi = _mm_add_epi64(acc2.vi, _mm_srli_epi64(acc2.vi, 32));
   acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
-  idists_ptr[0] += (unsigned int)(acc.u8[0] + acc.u8[1]);
+  idists_ptr[0] -= (unsigned int)(acc.u8[0] + acc.u8[1]);
   idists_ptr[1] += (unsigned int)(acc1.u8[0] + acc1.u8[1]);
   idists_ptr[2] += (unsigned int)(acc2.u8[0] + acc2.u8[1]);
 }
+*/
 #else
 static inline unsigned int popcount_xor_1mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
   // The humble 16-bit lookup table actually beats
@@ -2400,6 +2398,7 @@ static inline unsigned int popcount_xor_2mask_multiword(unsigned long** xor1p, u
   return bit_count;
 }
 
+/*
 static inline void cov_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, unsigned long** present1_ptr, unsigned long* present2, int* idists_ptr) {
   unsigned long* vec2_end = &(vec2[MULTIPLEX_COV / 16]);
   unsigned int final_sum1 = 0;
@@ -2420,24 +2419,26 @@ static inline void cov_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, u
     // * vec1_ptr and vec2 are encoded -1 -> 00, 0/missing -> 01, 1 -> 10.
     // * present1_ptr and present2 mask out missing values (i.e. 00 for
     //   missing, 11 for nonmissing).
-    // * idists_ptr is a pointer to the big triangular results array.  (Three
-    //   consecutive values are updated:
-    //     idists_ptr[0] += \sum_i x_iy_i
-    //     idists_ptr[1] += \sum_i x_i
-    //     idists_ptr[2] += \sum_i y_i)
+    // * idists_ptr provides space for return values.
     //
-    // The calculation currently proceeds as follows:
+    // This function should perform the update
+    //   idists[0] += (-M) + \sum_i x_iy_i
+    //   idists[1] += M + \sum_i x_i
+    //   idists[2] += M + \sum_i y_i
+    // where M is the number of markers processed.  The calculation currently
+    // proceeds as follows:
     //
-    // 1. \sum_i x_i = (popcount_variant(vec1 & present2) - constant bias)
-    // We don't deal with biases until the very end.  The "variant" suffix
-    // refers to starting with two-bit integers instead of one-bit integers in
-    // our summing process, so we get to skip a few operations.
+    // 1. M + \sum_i x_i = popcount_variant(vec1 & present2)
+    // The "variant" suffix refers to starting with two-bit integers instead of
+    // one-bit integers in our summing process, so we get to skip a few
+    // operations.
     //
     // 2. zcheck := (vec1 | vec2) & 0x5555...
     // Detects whether at least one member of the pair has a 0/missing value.
     //
     // 3. popcount_variant(((vec1 ^ vec2) & (0xaaaa... - zcheck)) | zcheck)
-    // Subtracting this *from* a bias will give us our desired dot product.
+    // Subtracting this *from* a bias will give us our desired \sum_i x_iy_i
+    // dot product.
 
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
@@ -2488,14 +2489,16 @@ static inline void cov_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, u
     sum2 = (sum2 & 0x0f0f0f0f) + ((sum2 >> 4) & 0x0f0f0f0f);
     sum12 = (sum12 & 0x0f0f0f0f) + ((sum12 >> 4) & 0x0f0f0f0f);
 
+    // technically could do the multiply-and-shift only once every two rounds
     final_sum1 += (sum1 * 0x01010101) >> 24;
     final_sum2 += (sum2 * 0x01010101) >> 24;
     final_sum12 += (sum12 * 0x01010101) >> 24;
   } while (vec2 < vec2_end);
-  idists_ptr[0] += final_sum12;
+  idists_ptr[0] -= final_sum12;
   idists_ptr[1] += final_sum1;
   idists_ptr[2] += final_sum2;
 }
+*/
 #endif
 
 void incr_dists_i(int* idists, unsigned long* geno, int tidx) {
@@ -2559,6 +2562,7 @@ void* calc_idist_thread(void* arg) {
   return NULL;
 }
 
+/*
 void incr_cov(int* idists, unsigned long* geno, int tidx) {
 #if __LP64__
   __m128i* glptr;
@@ -2598,10 +2602,10 @@ void* calc_cov_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start0[tidx];
   int jj = thread_start0[0];
-  int offset = ;
   incr_cov(&(idists[(((long long)ii * (ii + 1) - (long long)jj * (jj + 1)) * 3) / 2]), geno, (int)tidx);
   return NULL;
 }
+*/
 
 void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 #if __LP64__
@@ -3239,61 +3243,6 @@ void triangle_fill(int* target_arr, int ct, int pieces, int parallel_idx, int pa
   }
 }
 
-/*
-void incr_cov_consts(double* centered_freq_buf, unsigned long* geno, double* cov_linear_terms) {
-  // Note that this subtracts, not adds, so during the final matrix write step
-  // additions should be formed.
-  int ii;
-  int jj;
-  int kk;
-  int mm;
-  double* centered_freq_ptr;
-  double* wt_ptr = &(weights[64]);
-  double twt[3];
-  double partial_sum;
-  int encoding[4];
-  unsigned long geno_val;
-  encoding[1] = 1;
-  encoding[2] = -1;
-  encoding[3] = 0;
-  for (ii = 0; ii < BITCT / 4; ii++) {
-    // 192 lookup table slots required per set of 4 markers
-    centered_freq_ptr = &(centered_freq_buf[ii * 4]);
-    for (jj = 1; jj < 4; jj++) {
-      twt[0] = encoding[jj] * centered_freq_ptr[3];
-      wt_ptr = &(wt_ptr[16]);
-      for (kk = 1; kk < 4; kk++) {
-	twt[1] = twt[0] + encoding[kk] * centered_freq_ptr[2];
-	wt_ptr = &(wt_ptr[4]);
-        for (mm = 1; mm < 4; mm++) {
-	  twt[2] = twt[1] + encoding[mm] * centered_freq_ptr[1];
-          wt_ptr++;
-	  *wt_ptr++ = twt[2] + encoding[1] * centered_freq_ptr[0];
-	  *wt_ptr++ = twt[2] + encoding[2] * centered_freq_ptr[0];
-	  *wt_ptr++ = twt[2] + encoding[3] * centered_freq_ptr[0];
-	}
-      }
-    }
-  }
-  for (ii = 0; ii < indiv_ct; ii++) {
-    wt_ptr = weights;
-    partial_sum = 0.0;
-    for (jj = 0; jj < 2; jj++) {
-      geno_val = *geno++;
-#if __LP64__
-      partial_sum += wt_ptr[1344 + (geno_val >> 56)] + wt_ptr[1152 + ((geno_val >> 48) & 255)] + wt_ptr[960 + ((geno_val >> 40) & 255)] + wt_ptr[768 + ((geno_val >> 32) & 255)] + wt_ptr[576 + ((geno_val >> 24) & 255)] + wt_ptr[384 + ((geno_val >> 16) & 255)] + wt_ptr[192 + ((geno_val >> 8) & 255)] + wt_ptr[geno_val & 255];
-#else
-      partial_sum += wt_ptr[576 + ((geno_val >> 24) & 255)] + wt_ptr[384 + ((geno_val >> 16) & 255)] + wt_ptr[192 + ((geno_val >> 8) & 255)] + wt_ptr[geno_val & 255];
-#endif
-      wt_ptr = &(wt_ptr[24 * BITCT]);
-    }
-    geno = &(geno[MULTIPLEX_COV / BITCT2 - 2]);
-    *cov_linear_terms += partial_sum;
-    cov_linear_terms++;
-  }
-}
-*/
-
 inline int flexwrite_checked(FILE* outfile, gzFile gz_outfile, char* contents, unsigned long len) {
   if (outfile) {
     return fwrite_checked(contents, len, outfile);
@@ -3313,6 +3262,7 @@ inline int flexclose_null(FILE** outfile_ptr, gzFile* gz_outfile_ptr) {
   }
 }
 
+/*
 int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, unsigned char* marker_exclude, int marker_ct, double* mafs, int unfiltered_indiv_ct, unsigned char* indiv_exclude, int parallel_idx, int parallel_tot, char* outname, char* outname_end, char* person_id, int max_person_id_len, int calculation_type, pthread_t* threads) {
   unsigned char* wkspace_mark = wkspace_base;
   int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -3341,8 +3291,6 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
   unsigned long* missing_writer;
   unsigned int* missing_cts;
   unsigned int* missing_ct_ref;
-  // double* cov_linear_terms;
-  double row_and_fixed_adj;
   double centered_freq_sq_sum = 0.0;
   double dxx;
   FILE* outfile = NULL;
@@ -3359,9 +3307,8 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
   long long pct_cur_compare;
   int write_gz = calculation_type & CALC_RELATIONSHIP_GZ;
   int fixed_missing_ct;
-  int* biased_dot_prod_reader;
+  double* dot_prod_reader;
   unsigned int* missing_dbl_exclude_reader;
-  // double* cov_linear_reader;
   int slen;
   char* cptr;
 
@@ -3374,18 +3321,14 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
   write_midx_ct = (((long long)write_end_iidx * (write_end_iidx + 1)) / 2) - write_midx_offset;
   ulii = ((unsigned long)indiv_ct * (indiv_ct - 1)) / 2;
   uljj = ulii + indiv_ct;
-  if (wkspace_alloc_i_checked(&idists, uljj * 3 * sizeof(int))) {
+  if (wkspace_alloc_i_checked(&idists, uljj * 3 * sizeof(double))) {
     goto calc_cov_ret_NOMEM;
   }
-  fill_int_zero(idists, uljj);
+  fill_int_zero(idists, uljj * 3);
   if (wkspace_alloc_ui_checked(&missing_dbl_excluded, ulii * sizeof(int))) {
     goto calc_cov_ret_NOMEM;
   }
   fill_int_zero((int*)missing_dbl_excluded, ulii);
-  // if (wkspace_alloc_d_checked(&cov_linear_terms, indiv_ct * sizeof(double))) {
-  //   goto calc_cov_ret_NOMEM;
-  // }
-  // fill_double_zero(cov_linear_terms, indiv_ct);
   if (wkspace_alloc_ul_checked(&geno, MULTIPLEX_COV * indiv_ct4long * sizeof(long))) {
     goto calc_cov_ret_NOMEM; 
   }
@@ -3408,8 +3351,8 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
       marker_batch_size = MULTIPLEX_COV;
     } else {
       memset(&(loadbuf[marker_batch_size * unfiltered_indiv_ct4]), 0xaa, (MULTIPLEX_COV - marker_batch_size) * unfiltered_indiv_ct4);
-      fill_long_zero(geno, 0, MULTIPLEX_COV * indiv_ct4long);
-      fill_long_zero(masks, 0, MULTIPLEX_COV * indiv_ct4long);
+      fill_long_zero((long*)geno, MULTIPLEX_COV * indiv_ct4long);
+      fill_long_zero((long*)masks, MULTIPLEX_COV * indiv_ct4long);
       fill_double_zero(&(centered_freq_buf[marker_batch_size]), MULTIPLEX_COV - marker_batch_size);
       fill_long_zero((long*)mmasks, indiv_ct);
     }
@@ -3498,8 +3441,6 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
       for (ii = 0; ii < thread_ct - 1; ii++) {
 	pthread_join(threads[ii], NULL);
       }
-
-      // incr_cov_consts(&(centered_freq_buf[marker_buf_offset]), &(geno[marker_buf_offset / BITCT2]), cov_linear_terms);
     }
 
     for (ulii = 1; ulii < thread_ct; ulii++) {
@@ -3519,11 +3460,8 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
   } while (markers_processed < marker_ct);
   printf("\r                            \r");
 
-  // adjust for dot product bias
-  centered_freq_sq_sum += marker_ct - marker_batch_size + MULTIPLEX_COV;
-
   row_num = write_start_iidx;
-  biased_dot_prod_reader = idists;
+  dot_prod_reader = dists;
   missing_dbl_exclude_reader = missing_dbl_excluded;
   pct_cur_compare = 0;
 
@@ -3546,8 +3484,6 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
       }
 
       while (pct_cur_compare < pct_thresh) {
-	row_and_fixed_adj = cov_linear_terms[row_num] + centered_freq_sq_sum;
-	cov_linear_reader = cov_linear_terms;
 	fixed_missing_ct = marker_ct - missing_cts[row_num];
 	missing_ct_ref = missing_cts;
 	for (col_num = 0; col_num <= row_num; col_num++) {
@@ -3556,7 +3492,8 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	  } else {
 	    ii = fixed_missing_ct;
 	  }
-	  dxx = ((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)ii);
+          dxx = (assemble_dot_prod(dot_prod_reader, ) + centered_freq_sq_sum) / ((double)ii);
+	  dot_prod_reader = &(dot_prod_reader[3]);
 	  if (fwrite_checked(&dxx, sizeof(double), outfile)) {
 	    goto calc_cov_ret_WRITE_FAIL;
 	  }
@@ -3572,7 +3509,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	    ulii = ((unsigned long)row_num * (row_num + 3)) / 2;
             for (col_num = row_num + 1; col_num < indiv_ct; col_num++) {
 	      ulii += col_num;
-	      dxx = (idists[ulii] + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)(fixed_missing_ct - (*missing_ct_ref++) + missing_dbl_excluded[ulii]));
+	      dxx = (dists[ulii] + centered_freq_sq_sum) / ((double)(fixed_missing_ct - (*missing_ct_ref++) + missing_dbl_excluded[ulii]));
               if (fwrite_checked(&dxx, sizeof(double), outfile)) {
 		goto calc_cov_ret_WRITE_FAIL;
 	      }
@@ -3610,8 +3547,6 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
       fflush(stdout);
       pct_thresh = write_midx_ct * pct;
       while (pct_cur_compare < pct_thresh) {
-	row_and_fixed_adj = cov_linear_terms[row_num] + centered_freq_sq_sum;
-	cov_linear_reader = cov_linear_terms;
 	fixed_missing_ct = marker_ct - missing_cts[row_num];
 	missing_ct_ref = missing_cts;
 	for (col_num = 0; col_num <= row_num; col_num++) {
@@ -3620,7 +3555,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	  } else {
 	    ii = fixed_missing_ct;
 	  }
-	  dxx = ((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)ii);
+	  dxx = ((*dot_prod_reader++) + centered_freq_sq_sum) / ((double)ii);
 	  slen = sprintf(tbuf, "%d\t%d\t%d\t%g\n", row_num + 1, col_num + 1, ii, dxx);
 	  if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
 	    goto calc_cov_ret_WRITE_FAIL;
@@ -3670,17 +3605,15 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
         pct_thresh = ((long long)pct) * (write_end_iidx - write_start_iidx);
       }
       while (pct_cur_compare < pct_thresh) {
-	row_and_fixed_adj = cov_linear_terms[row_num] + centered_freq_sq_sum;
-	cov_linear_reader = cov_linear_terms;
 	fixed_missing_ct = marker_ct - missing_cts[row_num];
 	missing_ct_ref = missing_cts;
         for (col_num = 0; col_num < row_num; col_num++) {
-          slen = sprintf(tbuf, "%g\t", ((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)(fixed_missing_ct - (*missing_ct_ref++) + (*missing_dbl_exclude_reader++))));
+          slen = sprintf(tbuf, "%g\t", ((*dot_prod_reader++) + centered_freq_sq_sum) / ((double)(fixed_missing_ct - (*missing_ct_ref++) + (*missing_dbl_exclude_reader++))));
 	  if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
 	    goto calc_cov_ret_WRITE_FAIL;
 	  }
 	}
-	slen = sprintf(tbuf, "%g", ((*biased_dot_prod_reader++) + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)fixed_missing_ct));
+	slen = sprintf(tbuf, "%g", ((*dot_prod_reader++) + centered_freq_sq_sum) / ((double)fixed_missing_ct));
 	if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
 	  goto calc_cov_ret_WRITE_FAIL;
 	}
@@ -3695,7 +3628,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
 	    ulii = ((unsigned long)row_num * (row_num + 3)) / 2;
 	    for (col_num = row_num + 1; col_num < indiv_ct; col_num++) {
 	      ulii += col_num;
-	      slen = sprintf(tbuf, "\t%g", (idists[ulii] + row_and_fixed_adj + (*cov_linear_reader++)) / ((double)(fixed_missing_ct - (*(++missing_ct_ref)) + missing_dbl_excluded[ulii])));
+	      slen = sprintf(tbuf, "\t%g", (dists[ulii] + centered_freq_sq_sum) / ((double)(fixed_missing_ct - (*(++missing_ct_ref)) + missing_dbl_excluded[ulii])));
 	      if (flexwrite_checked(outfile, gz_outfile, tbuf, slen)) {
 		goto calc_cov_ret_WRITE_FAIL;
 	      }
@@ -3742,6 +3675,7 @@ int calc_cov(FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, u
   wkspace_reset(wkspace_mark);
   return retval;
 }
+*/
 
 void incr_dists_rm_inv(unsigned int* idists, int tidx) {
   // inverted loops for --genome --parallel
@@ -7667,12 +7601,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     marker_weights_i = (unsigned int*)wkspace_alloc(marker_ct * sizeof(int));
   }
 
-  if (calculation_type & CALC_RELATIONSHIP_COV) {
-    retval = calc_cov(pedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_ct, mafs, unfiltered_indiv_ct, indiv_exclude, parallel_idx, parallel_tot, outname, outname_end, person_id, max_person_id_len, calculation_type, threads);
-    if (retval) {
-      goto wdist_ret_2;
-    }
-  } else if (relationship_or_ibc_req(calculation_type)) {
+  if (relationship_or_ibc_req(calculation_type)) {
     indiv_missing_unwt = (unsigned int*)wkspace_alloc(indiv_ct * sizeof(int));
     if (!indiv_missing_unwt) {
       goto wdist_ret_NOMEM;
@@ -11325,7 +11254,7 @@ int main(int argc, char** argv) {
   }
   wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
   if ((malloc_size_mb > MALLOC_DEFAULT_MB) && !wkspace_ua) {
-    printf("%lld MB memory allocation failed.  Using default allocation behavior.\n", malloc_size_mb);
+    printf("%ld MB memory allocation failed.  Using default allocation behavior.\n", malloc_size_mb);
     malloc_size_mb = MALLOC_DEFAULT_MB;
   }
   while (!wkspace_ua) {
@@ -11336,7 +11265,7 @@ int main(int argc, char** argv) {
     }
     wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
     if (wkspace_ua) {
-      printf("Allocated %lld MB successfully.\n", malloc_size_mb);
+      printf("Allocated %ld MB successfully.\n", malloc_size_mb);
     }
   }
   // force 64-byte align on OS X to make cache line sensitivity work
