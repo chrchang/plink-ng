@@ -5380,11 +5380,11 @@ int ld_prune_next_valid_chrom_start(unsigned char* marker_exclude, int cur_idx, 
   return cur_idx;
 }
 
-void ld_prune_start_chrom(int ld_window_kb, int* chrom_end_ptr, int window_unfiltered_start, unsigned int* live_indices, int* window_unfiltered_end_ptr, int ld_window_size, int* cur_window_size_ptr, int unfiltered_marker_ct, unsigned char* marker_exclude, int* marker_chroms) {
+void ld_prune_start_chrom(int ld_window_kb, int* chrom_end_ptr, int window_unfiltered_start, unsigned int* live_indices, unsigned int* start_arr, int* window_unfiltered_end_ptr, int ld_window_size, int* cur_window_size_ptr, int unfiltered_marker_ct, unsigned char* marker_exclude, int* marker_chroms) {
   int cur_chrom = get_marker_chrom(marker_chroms, window_unfiltered_start);
   int window_unfiltered_end = window_unfiltered_start + 1;
   int chrom_end = marker_chroms[2 * cur_chrom + 1];
-  int ii;
+  int ii = 0;
   printf("Processing chromosome %d (marker %d, end %d).\n", cur_chrom, window_unfiltered_start, chrom_end);
   live_indices[0] = window_unfiltered_start;
   if (ld_window_kb) {
@@ -5400,11 +5400,13 @@ void ld_prune_start_chrom(int ld_window_kb, int* chrom_end_ptr, int window_unfil
       if (window_unfiltered_end == chrom_end) {
 	break;
       }
+      start_arr[ii - 1] = window_unfiltered_end;
       live_indices[ii] = window_unfiltered_end;
       window_unfiltered_end++;
     }
     *cur_window_size_ptr = ii;
   }
+  start_arr[ii - 1] = window_unfiltered_end;
   *chrom_end_ptr = chrom_end;
   *window_unfiltered_end_ptr = window_unfiltered_end;
 }
@@ -5424,6 +5426,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   unsigned char* wkspace_mark = wkspace_base;
   unsigned char* pruned_arr;
   unsigned int* live_indices;
+  unsigned int* start_arr;
   int marker_unfiltered_idx;
   int marker_idx;
   int pct;
@@ -5505,6 +5508,9 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   if (wkspace_alloc_ui_checked(&live_indices, ulii * sizeof(int))) {
     goto ld_prune_ret_NOMEM;
   }
+  if (wkspace_alloc_ui_checked(&start_arr, ulii * sizeof(int))) {
+    goto ld_prune_ret_NOMEM;
+  }
   if (wkspace_alloc_d_checked(&marker_stdevs, ulii * sizeof(double))) {
     goto ld_prune_ret_NOMEM;
   }
@@ -5526,7 +5532,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   memset(pruned_arr, 0, unfiltered_marker_ct8);
   do {
     prev_end = 0;
-    ld_prune_start_chrom(ld_window_kb, &chrom_end, window_unfiltered_start, live_indices, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, marker_chroms);
+    ld_prune_start_chrom(ld_window_kb, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, marker_chroms);
     if (cur_window_size > 1) {
       for (ulii = 0; ulii < cur_window_size; ulii++) {
 	fseeko(bedfile, bed_offset + (live_indices[ulii] * unfiltered_indiv_ct4), SEEK_SET);
@@ -5557,6 +5563,12 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	  mask_fixed_vec_ptr = &(masks[ii * indiv_ct_mld_long]);
 #endif
 	  jj = ii + 1;
+	  while (live_indices[jj] < start_arr[ii]) {
+	    jj++;
+	    if (jj == cur_window_size) {
+	      break;
+	    }
+	  }
 #if __LP64__
 	  geno_var_vec_ptr = (__m128i*)(&(geno[jj * indiv_ct_mld_long]));
 	  mask_var_vec_ptr = (__m128i*)(&(masks[jj * indiv_ct_mld_long]));
@@ -5601,9 +5613,22 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 		exclude(pruned_arr, live_indices[ii], &cur_exclude_ct);
 	      } else {
 		exclude(pruned_arr, live_indices[jj], &cur_exclude_ct);
+		jj++;
+		while (jj < cur_window_size) {
+		  if (!is_set(pruned_arr, live_indices[jj])) {
+		    break;
+		  }
+		  jj++;
+		}
+		if (jj < cur_window_size) {
+		  start_arr[ii] = live_indices[jj];
+		}
 	      }
 	      break;
 	    }
+	  }
+	  if (jj == cur_window_size) {
+	    start_arr[ii] = window_unfiltered_end;
 	  }
         }
       }
@@ -5639,8 +5664,10 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	memcpy(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit * sizeof(long));
 	marker_stdevs[ii] = marker_stdevs[jj];
 	live_indices[ii] = live_indices[jj];
+	start_arr[ii] = start_arr[jj];
 	ii++;
       }
+
       prev_end = ii;
       cur_window_size = ii;
       if (ld_window_kb) {
@@ -5652,6 +5679,9 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	  }
 	  if (window_unfiltered_end < chrom_end) {
 	    live_indices[cur_window_size] = window_unfiltered_end;
+	    if (cur_window_size > prev_end) {
+	      start_arr[cur_window_size - 1] = window_unfiltered_end;
+	    }
 	    fseeko(bedfile, bed_offset + (window_unfiltered_end * unfiltered_indiv_ct4), SEEK_SET);
 	    if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	      goto ld_prune_ret_READ_FAIL;
@@ -5660,6 +5690,9 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    cur_window_size++;
 	    window_unfiltered_end++;
 	  }
+	}
+	if (cur_window_size > prev_end) {
+	  start_arr[cur_window_size] = window_unfiltered_end;
 	}
       }
     }
