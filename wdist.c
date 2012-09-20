@@ -249,9 +249,9 @@
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.9.7 "
+  "WDIST genomic distance calculator, v0.10.0 "
 #else
-  "WDIST genomic distance calculator, v0.9.7L "
+  "WDIST genomic distance calculator, v0.10.0L "
 #endif
 #if __LP64__
   "64-bit"
@@ -5316,7 +5316,7 @@ int ld_process_load(unsigned char* loadbuf, unsigned long* geno_buf, unsigned lo
     }
     *geno_buf++ = new_geno;
     *mask_buf++ = new_mask;
-    sq_sum += popcount2_long((new_geno ^ FIVEMASK) & FIVEMASK);
+    sq_sum += popcount2_long((new_geno ^ FIVEMASK) & FIVEMASK & new_mask);
     sum += popcount2_long(new_geno);
     new_geno = 0;
     new_mask = 0;
@@ -5339,7 +5339,7 @@ int ld_process_load(unsigned char* loadbuf, unsigned long* geno_buf, unsigned lo
     }
     *geno_buf++ = new_geno;
     *mask_buf++ = new_mask;
-    sq_sum += popcount2_long((new_geno ^ FIVEMASK) & FIVEMASK);
+    sq_sum += popcount2_long((new_geno ^ FIVEMASK) & FIVEMASK & new_mask);
     sum += popcount2_long(new_geno);
     *missing_buf++ = new_missing;
     missing_ct += popcount_long(new_missing);
@@ -5577,7 +5577,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	  mask_var_vec_ptr = (__m128i*)(&(masks[jj * indiv_ct_mld_long]));
 #else
 	  geno_var_vec_ptr = &(geno[jj * indiv_ct_mld_long]);
-	  mask_var_vec_ptr = &(mask[jj * indiv_ct_mld_long]);
+	  mask_var_vec_ptr = &(masks[jj * indiv_ct_mld_long]);
 #endif
 	  for (; jj < cur_window_size; jj++) {
 	    if (is_set(pruned_arr, live_indices[jj])) {
