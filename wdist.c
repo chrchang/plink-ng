@@ -5736,14 +5736,14 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
     printf("\rWriting... %d%%", pct);
     fflush(stdout);
   }
-  if (fclose(outfile_in)) {
+  if (fclose_null(&outfile_in)) {
     goto ld_prune_ret_WRITE_FAIL;
   }
-  if (fclose(outfile_out)) {
+  if (fclose_null(&outfile_out)) {
     goto ld_prune_ret_WRITE_FAIL;
   }
   *outname_end = '\0';
-  printf("\r--indep-pairwise SNP lists written to %s.prune.in and %s.prune.out.\n", outname, outname);
+  printf("\rSNP lists written to %s.prune.in and %s.prune.out.\n", outname, outname);
 
   while (0) {
   ld_prune_ret_NOMEM:
