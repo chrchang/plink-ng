@@ -2069,9 +2069,7 @@ void pick_d_small(unsigned char* tmp_cbuf, int* ibuf, unsigned int ct, unsigned 
   *ibuf = ct;
 }
 
-static inline unsigned int popcount_long(unsigned long val) {
-  // the simple version, good enough for all non-time-critical stuff
-  val = val - ((val >> 1) & FIVEMASK);
+static inline unsigned int popcount2_long(unsigned long val) {
 #if __LP64__
   val = (val & 0x3333333333333333LU) + ((val >> 2) & 0x3333333333333333LU);
   return (((val + (val >> 4)) & 0x0f0f0f0f0f0f0f0fLU) * 0x0101010101010101) >> 56;
@@ -2079,6 +2077,11 @@ static inline unsigned int popcount_long(unsigned long val) {
   val = (val & 0x33333333) + ((val >> 2) & 0x33333333);
   return (((val + (val >> 4)) & 0x0f0f0f0f) * 0x01010101) >> 24;
 #endif
+}
+
+static inline unsigned int popcount_long(unsigned long val) {
+  // the simple version, good enough for all non-time-critical stuff
+  return popcount2_long(val - ((val >> 1) & FIVEMASK));
 }
 
 
@@ -2173,7 +2176,7 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 
-static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** present1_ptr, __m128i* present2, int* idists_ptr) {
+static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** present1_ptr, __m128i* present2, int* return_vals) {
   // Main routine for computation of \sum_i^M (x_i - \mu_x)(y_i - \mu_y), where
   // x_i, y_i \in \{-1, 0, 1\}, but there are missing values.
   //
@@ -2203,12 +2206,12 @@ static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** pres
   // * vec1_ptr and vec2 are encoded -1 -> 00, 0/missing -> 01, 1 -> 10.
   // * present1_ptr and present2 mask out missing values (i.e. 00 for missing,
   //   11 for nonmissing).
-  // * idists_ptr provides space for return values.
+  // * return_vals provides space for return values.
   //
   // This function performs the update
-  //   idists[0] += (-N) + \sum_i x_iy_i
-  //   idists[1] += N + \sum_i x_i
-  //   idists[2] += N + \sum_i y_i
+  //   return_vals[0] += (-N) + \sum_i x_iy_i
+  //   return_vals[1] += N + \sum_i x_i
+  //   return_vals[2] += N + \sum_i y_i
   // where N is the number of individuals processed.  The calculation currently
   // proceeds as follows:
   //
@@ -2216,7 +2219,7 @@ static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** pres
   // The "variant" suffix refers to starting with two-bit integers instead of
   // one-bit integers in our summing process, so we get to skip a few
   // operations.  (Once all reserachers are using machines with fast hardware
-  // popcount, a slightly different implementation would perform better.)
+  // popcount, a slightly different implementation would be better.)
   //
   // 2. zcheck := (vec1 | vec2) & 0x5555...
   // Detects whether at least one member of the pair has a 0/missing value.
@@ -2237,36 +2240,56 @@ static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** pres
   __m128i loader2;
   __m128i sum1;
   __m128i sum2;
+  __m128i sum3;
+  __m128i sum4;
   __m128i sum12;
+  /*
   __m128i tmp_sum1;
   __m128i tmp_sum2;
+  __m128i tmp_sum3;
+  __m128i tmp_sum4;
   __m128i tmp_sum12;
+  */
   __uni16 acc;
   __uni16 acc1;
   __uni16 acc2;
+  __uni16 acc3;
+  __uni16 acc4;
   __m128i* vec2_end = &(vec2[MULTIPLEX_2LD / 128]);
   acc.vi = _mm_setzero_si128();
+  acc1.vi = _mm_setzero_si128();
+  acc2.vi = _mm_setzero_si128();
+  acc3.vi = _mm_setzero_si128();
+  acc4.vi = _mm_setzero_si128();
   do {
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
     sum1 = *present2++;
     sum2 = *((*present1_ptr)++);
     sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
+    sum3 = _mm_and_si128(sum1, _mm_and_si128(_mm_xor_si128(loader1, m1), m1));
+    sum4 = _mm_and_si128(sum2, _mm_and_si128(_mm_xor_si128(loader2, m1), m1));
     sum1 = _mm_and_si128(sum1, loader1);
     sum2 = _mm_and_si128(sum2, loader2);
-    tmp_sum12 = _mm_and_si128(_mm_xor_si128(loader1, loader2), _mm_sub_epi64(mn1, sum12));
-    sum12 = _mm_or_si128(sum12, tmp_sum12);
+    loader1 = _mm_and_si128(_mm_xor_si128(loader1, loader2), _mm_sub_epi64(mn1, sum12));
+    sum12 = _mm_or_si128(sum12, loader1);
 
-    // sum1, sum2, and sum12 now store the (biased) two-bit sums of interest
+    // sum1, sum2, sum3, sum4, and sum12 now store the (biased) two-bit sums of
+    // interest
     sum1 = _mm_add_epi64(_mm_and_si128(sum1, m2), _mm_and_si128(_mm_srli_epi64(sum1, 2), m2));
     sum2 = _mm_add_epi64(_mm_and_si128(sum2, m2), _mm_and_si128(_mm_srli_epi64(sum2, 2), m2));
+    sum3 = _mm_add_epi64(_mm_and_si128(sum3, m2), _mm_and_si128(_mm_srli_epi64(sum3, 2), m2));
+    sum4 = _mm_add_epi64(_mm_and_si128(sum4, m2), _mm_and_si128(_mm_srli_epi64(sum4, 2), m2));
     sum12 = _mm_add_epi64(_mm_and_si128(sum12, m2), _mm_and_si128(_mm_srli_epi64(sum12, 2), m2));
 
+    /*
     loader1 = *((*vec1_ptr)++);
     loader2 = *vec2++;
     tmp_sum1 = *present2++;
     tmp_sum2 = *((*present1_ptr)++);
     tmp_sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
+    tmp_sum3 = _mm_and_si128(tmp_sum1, _mm_and_si128(_mm_xor_si128(loader1, m1), m1));
+    tmp_sum4 = _mm_and_si128(tmp_sum2, _mm_and_si128(_mm_xor_si128(loader2, m1), m1));
     tmp_sum1 = _mm_and_si128(tmp_sum1, loader1);
     tmp_sum2 = _mm_and_si128(tmp_sum2, loader2);
     loader1 = _mm_and_si128(_mm_xor_si128(loader1, loader2), _mm_sub_epi64(mn1, tmp_sum12));
@@ -2274,6 +2297,8 @@ static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** pres
 
     sum1 = _mm_add_epi64(sum1, _mm_add_epi64(_mm_and_si128(tmp_sum1, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum1, 2), m2)));
     sum2 = _mm_add_epi64(sum2, _mm_add_epi64(_mm_and_si128(tmp_sum2, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum2, 2), m2)));
+    sum3 = _mm_add_epi64(sum3, _mm_add_epi64(_mm_and_si128(tmp_sum3, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum3, 2), m2)));
+    sum4 = _mm_add_epi64(sum4, _mm_add_epi64(_mm_and_si128(tmp_sum4, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum4, 2), m2)));
     sum12 = _mm_add_epi64(sum12, _mm_add_epi64(_mm_and_si128(tmp_sum12, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum12, 2), m2)));
 
     loader1 = *((*vec1_ptr)++);
@@ -2281,42 +2306,54 @@ static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** pres
     tmp_sum1 = *present2++;
     tmp_sum2 = *((*present1_ptr)++);
     tmp_sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
+    tmp_sum3 = _mm_and_si128(tmp_sum1, _mm_and_si128(_mm_xor_si128(loader1, m1), m1));
+    tmp_sum4 = _mm_and_si128(tmp_sum2, _mm_and_si128(_mm_xor_si128(loader2, m1), m1));
     tmp_sum1 = _mm_and_si128(tmp_sum1, loader1);
     tmp_sum2 = _mm_and_si128(tmp_sum2, loader2);
     loader1 = _mm_and_si128(_mm_xor_si128(loader1, loader2), _mm_sub_epi64(mn1, tmp_sum12));
     tmp_sum12 = _mm_or_si128(loader1, tmp_sum12);
+    */
 
     sum1 = _mm_add_epi64(sum1, _mm_add_epi64(_mm_and_si128(tmp_sum1, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum1, 2), m2)));
     sum2 = _mm_add_epi64(sum2, _mm_add_epi64(_mm_and_si128(tmp_sum2, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum2, 2), m2)));
+    sum3 = _mm_add_epi64(sum3, _mm_add_epi64(_mm_and_si128(tmp_sum3, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum3, 2), m2)));
+    sum4 = _mm_add_epi64(sum4, _mm_add_epi64(_mm_and_si128(tmp_sum4, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum4, 2), m2)));
     sum12 = _mm_add_epi64(sum12, _mm_add_epi64(_mm_and_si128(tmp_sum12, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum12, 2), m2)));
 
     acc1.vi = _mm_add_epi64(acc1.vi, _mm_add_epi64(_mm_and_si128(sum1, m4), _mm_and_si128(_mm_srli_epi64(sum1, 4), m4)));
     acc2.vi = _mm_add_epi64(acc2.vi, _mm_add_epi64(_mm_and_si128(sum2, m4), _mm_and_si128(_mm_srli_epi64(sum2, 4), m4)));
+    acc3.vi = _mm_add_epi64(acc3.vi, _mm_add_epi64(_mm_and_si128(sum3, m4), _mm_and_si128(_mm_srli_epi64(sum3, 4), m4)));
+    acc4.vi = _mm_add_epi64(acc4.vi, _mm_add_epi64(_mm_and_si128(sum4, m4), _mm_and_si128(_mm_srli_epi64(sum4, 4), m4)));
     acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(sum12, m4), _mm_and_si128(_mm_srli_epi64(sum12, 4), m4)));
   } while (vec2 < vec2_end);
-  // moved down since we're running out of xmm registers...
+  // moved down since we're out of xmm registers
   const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
   const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
 #if MULTIPLEX_COV > 960
   acc1.vi = _mm_add_epi64(_mm_and_si128(acc1.vi, m8), _mm_and_si128(_mm_srli_epi64(acc1.vi, 8), m8));
   acc2.vi = _mm_add_epi64(_mm_and_si128(acc2.vi, m8), _mm_and_si128(_mm_srli_epi64(acc2.vi, 8), m8));
+  acc3.vi = _mm_add_epi64(_mm_and_si128(acc3.vi, m8), _mm_and_si128(_mm_srli_epi64(acc3.vi, 8), m8));
+  acc4.vi = _mm_add_epi64(_mm_and_si128(acc4.vi, m8), _mm_and_si128(_mm_srli_epi64(acc4.vi, 8), m8));
   acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
 #else
   acc1.vi = _mm_and_si128(_mm_add_epi64(acc1.vi, _mm_srli_epi64(acc1.vi, 8)), m8);
   acc2.vi = _mm_and_si128(_mm_add_epi64(acc2.vi, _mm_srli_epi64(acc2.vi, 8)), m8);
+  acc3.vi = _mm_and_si128(_mm_add_epi64(acc3.vi, _mm_srli_epi64(acc3.vi, 8)), m8);
+  acc4.vi = _mm_and_si128(_mm_add_epi64(acc4.vi, _mm_srli_epi64(acc4.vi, 8)), m8);
   acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 8)), m8);
 #endif
   acc1.vi = _mm_and_si128(_mm_add_epi64(acc1.vi, _mm_srli_epi64(acc1.vi, 16)), m16);
   acc2.vi = _mm_and_si128(_mm_add_epi64(acc2.vi, _mm_srli_epi64(acc2.vi, 16)), m16);
+  acc3.vi = _mm_and_si128(_mm_add_epi64(acc3.vi, _mm_srli_epi64(acc3.vi, 16)), m16);
+  acc4.vi = _mm_and_si128(_mm_add_epi64(acc4.vi, _mm_srli_epi64(acc4.vi, 16)), m16);
   acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
   acc1.vi = _mm_add_epi64(acc1.vi, _mm_srli_epi64(acc1.vi, 32));
   acc2.vi = _mm_add_epi64(acc2.vi, _mm_srli_epi64(acc2.vi, 32));
   acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
-  idists_ptr[0] -= (unsigned int)(acc.u8[0] + acc.u8[1]);
-  idists_ptr[1] += (unsigned int)(acc1.u8[0] + acc1.u8[1]);
-  idists_ptr[2] += (unsigned int)(acc2.u8[0] + acc2.u8[1]);
+  return_vals[0] -= (unsigned int)(acc.u8[0] + acc.u8[1]);
+  return_vals[1] += (unsigned int)(acc1.u8[0] + acc1.u8[1]);
+  return_vals[2] += (unsigned int)(acc2.u8[0] + acc2.u8[1]);
 }
-*/
 #else
 static inline unsigned int popcount_xor_1mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
   // The humble 16-bit lookup table actually beats
@@ -2396,18 +2433,24 @@ static inline unsigned int popcount_xor_2mask_multiword(unsigned long** xor1p, u
   return bit_count;
 }
 
-static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, unsigned long** present1_ptr, unsigned long* present2, int* idists_ptr) {
+static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, unsigned long** present1_ptr, unsigned long* present2, int* return_vals) {
   unsigned long* vec2_end = &(vec2[MULTIPLEX_LD / 16]);
   unsigned int final_sum1 = 0;
   unsigned int final_sum2 = 0;
+  unsigned int final_sum3 = 0;
+  unsigned int final_sum4 = 0;
   unsigned int final_sum12 = 0;
   unsigned long loader1;
   unsigned long loader2;
   unsigned long sum1;
   unsigned long sum2;
+  unsigned long sum3;
+  unsigned long sum4;
   unsigned long sum12;
   unsigned long tmp_sum1;
   unsigned long tmp_sum2;
+  unsigned long tmp_sum3;
+  unsigned long tmp_sum4;
   unsigned long tmp_sum12;
   do {
     // (The important part of the header comment on the 64-bit version is
@@ -2416,20 +2459,23 @@ static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, un
     // * vec1_ptr and vec2 are encoded -1 -> 00, 0/missing -> 01, 1 -> 10.
     // * present1_ptr and present2 mask out missing values (i.e. 00 for
     //   missing, 11 for nonmissing).
-    // * idists_ptr provides space for return values.
+    // * return_vals provides space for return values.
     //
     // This function performs the update
-    //   idists[0] += (-N) + \sum_i x_iy_i
-    //   idists[1] += N + \sum_i x_i
-    //   idists[2] += N + \sum_i y_i
-    // where N is the number of individuals processed.  The calculation
+    //   return_vals[0] += (-N) + \sum_i x_iy_i
+    //   return_vals[1] += N + \sum_i x_i
+    //   return_vals[2] += N + \sum_i y_i
+    //   return_vals[3] += N + \sum_i x_i^2
+    //   return_vals[4] += N + \sum_i y_i^2
+    // where N is the number of individuals processed.  (The last two values
+    // are needed to convert covariance to correlation.)  The calculation
     // currently proceeds as follows:
     //
     // 1. N + \sum_i x_i = popcount_variant(vec1 & present2)
     // The "variant" suffix refers to starting with two-bit integers instead of
     // one-bit integers in our summing process, so we get to skip a few
     // operations.  (Once all reserachers are using machines with fast hardware
-    // popcount, a slightly different implementation would perform better.)
+    // popcount, a slightly different implementation would be better.)
     //
     // 2. zcheck := (vec1 | vec2) & 0x5555...
     // Detects whether at least one member of the pair has a 0/missing value.
@@ -2443,6 +2489,8 @@ static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, un
     sum1 = *present2++;
     sum2 = *((*present1_ptr)++);
     sum12 = (loader1 | loader2) & FIVEMASK;
+    sum3 = (loader1 ^ FIVEMASK) & sum1;
+    sum4 = (loader2 ^ FIVEMASK) & sum2;
 
     sum1 = sum1 & loader1;
     sum2 = sum2 & loader2;
@@ -2451,6 +2499,8 @@ static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, un
 
     sum1 = (sum1 & 0x33333333) + ((sum1 >> 2) & 0x33333333);
     sum2 = (sum2 & 0x33333333) + ((sum2 >> 2) & 0x33333333);
+    sum3 = (sum3 & 0x11111111) + ((sum3 >> 2) & 0x11111111);
+    sum4 = (sum4 & 0x11111111) + ((sum4 >> 2) & 0x11111111);
     sum12 = (sum12 & 0x33333333) + ((sum12 >> 2) & 0x33333333);
 
     loader1 = *((*vec1_ptr)++);
@@ -2458,6 +2508,8 @@ static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, un
     tmp_sum1 = *present2++;
     tmp_sum2 = *((*present1_ptr)++);
     tmp_sum12 = (loader1 | loader2) & FIVEMASK;
+    tmp_sum3 = (loader1 ^ FIVEMASK) & tmp_sum1;
+    tmp_sum4 = (loader2 ^ FIVEMASK) & tmp_sum2;
 
     tmp_sum1 = tmp_sum1 & loader1;
     tmp_sum2 = tmp_sum2 & loader2;
@@ -2466,6 +2518,8 @@ static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, un
 
     sum1 += (tmp_sum1 & 0x33333333) + ((tmp_sum1 >> 2) & 0x33333333);
     sum2 += (tmp_sum2 & 0x33333333) + ((tmp_sum2 >> 2) & 0x33333333);
+    sum3 += (tmp_sum3 & 0x11111111) + ((tmp_sum3 >> 2) & 0x11111111);
+    sum4 += (tmp_sum4 & 0x11111111) + ((tmp_sum4 >> 2) & 0x11111111);
     sum12 += (tmp_sum12 & 0x33333333) + ((tmp_sum12 >> 2) & 0x33333333);
 
     loader1 = *((*vec1_ptr)++);
@@ -2473,6 +2527,8 @@ static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, un
     tmp_sum1 = *present2++;
     tmp_sum2 = *((*present1_ptr)++);
     tmp_sum12 = (loader1 | loader2) & FIVEMASK;
+    tmp_sum3 = (loader1 ^ FIVEMASK) & tmp_sum1;
+    tmp_sum4 = (loader2 ^ FIVEMASK) & tmp_sum2;
 
     tmp_sum1 = tmp_sum1 & loader1;
     tmp_sum2 = tmp_sum2 & loader2;
@@ -2481,20 +2537,28 @@ static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, un
 
     sum1 += (tmp_sum1 & 0x33333333) + ((tmp_sum1 >> 2) & 0x33333333);
     sum2 += (tmp_sum2 & 0x33333333) + ((tmp_sum2 >> 2) & 0x33333333);
+    sum3 += (tmp_sum3 & 0x11111111) + ((tmp_sum3 >> 2) & 0x11111111);
+    sum4 += (tmp_sum4 & 0x11111111) + ((tmp_sum4 >> 2) & 0x11111111);
     sum12 += (tmp_sum12 & 0x33333333) + ((tmp_sum12 >> 2) & 0x33333333);
 
     sum1 = (sum1 & 0x0f0f0f0f) + ((sum1 >> 4) & 0x0f0f0f0f);
     sum2 = (sum2 & 0x0f0f0f0f) + ((sum2 >> 4) & 0x0f0f0f0f);
+    sum3 = (sum3 & 0x0f0f0f0f) + ((sum3 >> 4) & 0x0f0f0f0f);
+    sum4 = (sum4 & 0x0f0f0f0f) + ((sum4 >> 4) & 0x0f0f0f0f);
     sum12 = (sum12 & 0x0f0f0f0f) + ((sum12 >> 4) & 0x0f0f0f0f);
 
     // technically could do the multiply-and-shift only once every two rounds
     final_sum1 += (sum1 * 0x01010101) >> 24;
     final_sum2 += (sum2 * 0x01010101) >> 24;
+    final_sum3 += (sum3 * 0x01010101) >> 24;
+    final_sum4 += (sum4 * 0x01010101) >> 24;
     final_sum12 += (sum12 * 0x01010101) >> 24;
   } while (vec2 < vec2_end);
-  idists_ptr[0] -= final_sum12;
-  idists_ptr[1] += final_sum1;
-  idists_ptr[2] += final_sum2;
+  return_vals[0] -= final_sum12;
+  return_vals[1] += final_sum1;
+  return_vals[2] += final_sum2;
+  return_vals[3] += final_sum3;
+  return_vals[4] += final_sum4;
 }
 #endif
 
@@ -5250,51 +5314,58 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
   return retval;
 }
 
-int ld_process_load(unsigned char* loadbuf, unsigned long* mainbuf, unsigned long* missing_buf, int unfiltered_indiv_ct, unsigned char* indiv_exclude, int indiv_ct8long, int* marker_sum_ptr, double* marker_mean_ptr, double* marker_inv_stdev_ptr) {
+int ld_process_load(unsigned char* loadbuf, unsigned long* geno_buf, unsigned long* mask_buf, unsigned long* missing_buf, int unfiltered_indiv_ct, unsigned char* indiv_exclude, int indiv_ctbit, int indiv_trail_ct) {
   int unfiltered_idx = 0;
   int write_offset;
   int sloop_max;
   int write_idx;
   int ii;
   unsigned long ulii;
-  unsigned long missing_flag;
   unsigned long uljj;
   unsigned long new_geno;
+  unsigned long new_mask;
   unsigned long new_missing;
-  int het_ct = 0;
   int missing_ct = 0;
-  int marker_sum;
-  double dxx;
-  for (write_offset = 0; write_offset < indiv_ct8long * BITCT; write_offset += BITCT) {
+  for (write_offset = 0; write_offset < indiv_ctbit * BITCT; write_offset += BITCT) {
     sloop_max = indiv_ct - write_offset;
     if (sloop_max > BITCT2) {
       sloop_max = BITCT2;
     }
     new_geno = 0;
+    new_mask = 0;
     new_missing = 0;
     for (write_idx = 0; write_idx < sloop_max; write_idx++) {
       unfiltered_idx = next_non_set(indiv_exclude, unfiltered_idx);
-      // original representation:
-      // 00 hom1, 01 missing, 02 het, 03 hom2
       ulii = (loadbuf[unfiltered_idx / 4] >> ((unfiltered_idx % 4) * 2)) & 3;
 
+      // Nothing time-critical here, but may as well do it branchlessly.
+      // Desired encodings:
+      // new_geno: nonset homozygote -> 00
+      //           het/missing       -> 01
+      //           set homozygote    -> 10
+      // Given PLINK encoding xx, this is (xx - (xx >> 1)).
+      //
+      // new_missing: missing   -> 1
+      //              otherwise -> 0
+      // xx & ((xx ^ 2) >> 1) is one way to do this.
+      //
+      // new_mask: missing   -> 00
+      //           otherwise -> 11
+      // (new_missing ^ 1) * 3 works.
       uljj = ulii >> 1;
-      missing_flag = ulii & (uljj ^ 1);
-      // convert ulii to 00 missing, 01 hom1, 02 hom2, 03 het
-      ulii = ulii ^ 1;
-
-      het_ct += ulii & uljj;
-      new_missing |= missing_flag << write_idx;
-
-      // missing can be treated as het in dot product
-      new_geno |= (ulii + missing_flag * 3) << (write_idx * 2);
+      new_geno |= (ulii - uljj) << (write_idx * 2);
+      uljj = ulii & (uljj ^ 1);
+      new_missing |= uljj << write_idx;
+      new_mask |= ((uljj ^ 1) * 3) << (write_idx * 2);
       unfiltered_idx++;
     }
-    *mainbuf++ = new_geno;
+    *geno_buf++ = new_geno;
+    *mask_buf++ = new_mask;
+    marker_sum += popcount2_long(new_geno);
+    new_geno = 0;
+    new_mask = 0;
     if (write_offset + BITCT2 <= indiv_ct) {
       // +0 hom1, +1 het or missing, +2 hom2
-      marker_sum += popcount_long(new_geno ^ FIVEMASK);
-      new_geno = 0;
       sloop_max = indiv_ct - write_offset - BITCT2;
       if (sloop_max > BITCT2) {
 	sloop_max = BITCT2;
@@ -5303,32 +5374,22 @@ int ld_process_load(unsigned char* loadbuf, unsigned long* mainbuf, unsigned lon
 	unfiltered_idx = next_non_set(indiv_exclude, unfiltered_idx);
 	ulii = (loadbuf[unfiltered_idx / 4] >> ((unfiltered_idx % 4) * 2)) & 3;
 	uljj = ulii >> 1;
-	missing_flag = ulii & (uljj ^ 1);
-	ulii = ulii ^ 1;
-	het_ct += ulii & uljj;
-	new_missing |= missing_flag << (write_idx + BITCT2);
-	new_geno |= (ulii + missing_flag * 3) << (write_idx * 2);
+	new_geno |= (ulii - uljj) << (write_idx * 2);
+	uljj = ulii & (uljj ^ 1);
+	new_missing |= uljj << (write_idx + BITCT2);
+	new_mask |= ((uljj ^ 1) * 3) << (write_idx * 2);
 	unfiltered_idx++;
       }
-      if (sloop_max == BITCT2) {
-        marker_sum += popcount_long(new_geno ^ FIVEMASK);
-      } else {
-        marker_sum += popcount_long((new_geno ^ FIVEMASK) & ((~0LU) >> (BITCT - 2 * sloop_max)));
-      }
-      *mainbuf++ = new_geno;
-    } else {
-      marker_sum += popcount_long((new_geno ^ FIVEMASK) & ((~0LU) >> (BITCT - 2 * sloop_max)));
     }
+    *geno_buf++ = new_geno;
+    *mask_buf++ = new_mask;
+    marker_sum += popcount2_long(new_geno);
     *missing_buf++ = new_missing;
     missing_ct += popcount_long(new_missing);
   }
-  fill_long_zero(mainbuf, );
-  fill_long_zero(missing_buf, );
-  marker_sum -= indiv_ct;
-  *marker_sum_ptr = marker_sum;
-  dxx = ((double)marker_sum) / ((double)indiv_ct);
-  *marker_mean_ptr = ((double)marker_sum) / ((double)indiv_ct);
-  *marker_het_ct = het_ct;
+  fill_long_zero(geno_buf, indiv_trail_ct);
+  fill_long_zero(mask_buf, indiv_trail_ct);
+  fill_long_zero(missing_buf, indiv_trail_ct / 2);
   return missing_ct;
 }
 
@@ -5352,8 +5413,10 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   FILE* outfile_out = NULL;
   int unfiltered_marker_ct8 = (unfiltered_marker_ct + 7) / 8;
   int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-  int indiv_ct_mcov = (indiv_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
-  int indiv_ct_mcov_long = indiv_ct_mcov / BITCT2;
+  int indiv_ctbit = (indiv_ct + BITCT - 1) / BITCT;
+  int indiv_ct_mld = (indiv_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
+  int indiv_ct_mld_long = indiv_ct_mld * (MULTIPLEX_LD / BITCT2);
+  int indiv_trail_ct = indiv_ct_mld_long - indiv_ctbit * 2;
   int retval = 0;
   unsigned char* wkspace_mark = wkspace_base;
   unsigned char* pruned_arr;
@@ -5368,20 +5431,34 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   int cur_window_size;
   int ii;
   int jj;
+  int kk;
   int cur_chrom;
   int chrom_end;
   unsigned char* loadbuf;
-  unsigned long* process_buf;
-  unsigned long* missing_buf;
   unsigned int* missing_cts;
   unsigned long window_max = 0; // kb only
   int* marker_sums;
   double* marker_means;
   double* marker_inv_stdevs;
   unsigned long ulii;
+  unsigned long uljj;
   double dxx;
+  double cov12;
   unsigned int fixed_non_missing_ct;
   unsigned int non_missing_ct;
+  int dp_result[5];
+  double indiv_ct_recip = 1.0 / ((double)indiv_ct);
+#if __LP64__
+  __m128i* geno_fixed_vec_ptr;
+  __m128i* geno_var_vec_ptr;
+  __m128i* mask_fixed_vec_ptr;
+  __m128i* mask_var_vec_ptr;
+#else
+  unsigned long* geno_fixed_vec_ptr;
+  unsigned long* geno_var_vec_ptr;
+  unsigned long* mask_fixed_vec_ptr;
+  unsigned long* mask_var_vec_ptr;
+#endif
 
   if (ld_window_kb) {
     for (cur_chrom = 0; cur_chrom < 27; cur_chrom++) {
@@ -5420,6 +5497,8 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   if (wkspace_alloc_uc_checked(&pruned_arr, unfiltered_marker_ct8)) {
     goto ld_prune_ret_NOMEM;
   }
+  // or memcpy of marker_exclude?
+  memset(pruned_arr, 0, unfiltered_marker_ct8);
   if (ld_window_kb) {
     ulii = window_max;
   } else {
@@ -5437,13 +5516,17 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   if (wkspace_alloc_d_checked(&marker_inv_stdevs, ulii * sizeof(double))) {
     goto ld_prune_ret_NOMEM;
   }
-  if (wkspace_alloc_ul_checked(&process_buf, ulii * indiv_ct_mcov * MULTIPLEX_LD / 4)) {
-    goto ld_prune_ret_NOMEM;
-  }
+
   if (wkspace_alloc_uc_checked(&loadbuf, unfiltered_indiv_ct4)) {
     goto ld_prune_ret_NOMEM;
   }
-  if (wkspace_alloc_ul_checked(&missing_buf, ulii * indiv_ct8long * sizeof(long))) {
+  if (wkspace_alloc_ul_checked(&geno, ulii * indiv_ct_mld_long * sizeof(long))) {
+    goto ld_prune_ret_NOMEM;
+  }
+  if (wkspace_alloc_ul_checked(&masks, ulii * indiv_ct_mld_long * sizeof(long))) {
+    goto ld_prune_ret_NOMEM;
+  }
+  if (wkspace_alloc_ul_checked(&mmasks, ulii * indiv_ctbit * sizeof(long))) {
     goto ld_prune_ret_NOMEM;
   }
   if (wkspace_alloc_ul_checked(&missing_cts, indiv_ct * sizeof(int))) {
@@ -5479,19 +5562,61 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
-        missing_cts[ulii] = ld_process_load(loadbuf, &(process_buf[ulii * indiv_ct_mcov_long]), &(missing_buf[ulii * indiv_ct8long]), unfiltered_indiv_ct, indiv_exclude, indiv_ct8long, &(marker_sums[ulii]), &(marker_means[ulii]), &(marker_inv_stdevs[ulii]));
+        missing_cts[ulii] = ld_process_load(loadbuf, &(geno[ulii * indiv_ct_mld_long]), &(masks[ulii * indiv_ct_mld_long]), &(mmasks[ulii * indiv_ctbit]), unfiltered_indiv_ct, indiv_exclude, indiv_ctbit, indiv_trail_ct);
       }
     }
     while ((window_unfiltered_end < chrom_end) || (cur_window_size > 1)) {
       if (cur_window_size > 1) {
         for (ii = 0; ii < cur_window_size - 1; ii++) {
+	  if (is_set(pruned_arr, live_indices[ii])) {
+	    continue;
+	  }
 	  fixed_non_missing_ct = indiv_ct - missing_cts[ii];
-	  for (jj = 1; jj < cur_window_size; jj++) {
-	    non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(missing_buf[ii * indiv_ct8long]), &(missing_buf[jj * indiv_ct8long]), indiv_ct8long);
-	    // variance = (\frac{1}{N}\sum_i^N x_i^2) - \mu^2
-	    //          = 1 - \frac{het_ct}{N} - \mu^2
-            dxx = (MULTIPLEX_LD - vector_dot_prod(&(process_buf[ii * indiv_ct_mcov_long]), &(process_buf[jj * indiv_ct_mcov_long])) - marker_means[jj] * marker_sums[ii] - marker_means[ii] * marker_sums[jj] + non_missing_ct * marker_means[ii] * marker_means[jj]) * marker_inv_stdevs[ii] * marker_inv_stdevs[jj];
-            if (fabs(dxx) 
+#if __LP64__
+          geno_fixed_vec_ptr = (__m128i*)(&(geno[ii * indiv_ct_mld_long]));
+	  geno_var_vec_ptr = (__m128i*)(&(geno_fixed_vec_ptr[indiv_ct_mld_long / 2]));
+	  mask_fixed_vec_ptr = (__m128i*)(&(masks[ii * indiv_ct_mld_long]));
+	  mask_var_vec_ptr = (__m128i*)(&(mask_fixed_vec_ptr[indiv_ct_mld_long / 2]));
+#else
+	  geno_fixed_vec_ptr = &(geno[ii * indiv_ct_mld_long]);
+	  geno_var_vec_ptr = &(geno_fixed_vec_ptr[indiv_ct_mld_long]);
+	  mask_fixed_vec_ptr = &(masks[ii * indiv_ct_mld_long]);
+	  mask_var_vec_ptr = &(mask_fixed_vec_ptr[indiv_ct_mld_long]);
+#endif
+	  for (jj = ii + 1; jj < cur_window_size; jj++) {
+	    if (is_set(pruned_arr, live_indices[ii])) {
+#if __LP64__
+	      geno_var_vec_ptr = &(geno_var_vec_ptr[indiv_ct_mld_long / 2]);
+	      mask_var_vec_ptr = &(mask_var_vec_ptr[indiv_ct_mld_long / 2]);
+#else
+              geno_var_vec_ptr = &(geno_var_vec_ptr[indiv_ct_mld_long]);
+	      mask_var_vec_ptr = &(mask_var_vec_ptr[indiv_ct_mld_long]);
+#endif
+	      continue;
+	    }
+	    dp_result[0] = indiv_ct;
+	    dp_result[1] = -indiv_ct;
+	    dp_result[2] = -indiv_ct;
+	    dp_result[3] = -indiv_ct;
+	    dp_result[4] = -indiv_ct;
+	    non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit);
+#if __LP64__
+	    for (kk = 0; kk < indiv_ct_mld_long / 2; kk++) {
+	      ld_dot_prod(&geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), &mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), indiv_ct_mld_long, dp_result);
+	    }
+#else
+	    for (kk = 0; kk < indiv_ct_mld_long; kk++) {
+	      ld_dot_prod(&geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), &mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), indiv_ct_mld_long, dp_result);
+	    }
+#endif
+	    // variance = \frac{1}{N}(\sum_i^N x_i^2) - \mu^2
+	    // var1 = dp_result[3]/N - (dp_result[1]/N)^2
+            // var2 = dp_result[4]/N - (dp_result[2]/N)^2
+            // cov12 = dp_result[0]/N - (dp_result[1] * dp_result[2])/(N^2)
+	    cov12 = indiv_ct_recip * (dp_result[0] - dp_result[1] * dp_result[2] * indiv_ct_recip);
+            // r-squared
+            dxx = cov12 * cov12 / (indiv_ct_recip * (dp_result[3] - dp_result[1] * dp_result[1] * indiv_ct_recip) * indiv_ct_recip * (dp_result[4] - dp_result[2] * dp_result[2] * indiv_ct_recip));
+	    if (fabs(dxx) > 
 	  }
         }
       }
@@ -5529,7 +5654,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	      goto ld_prune_ret_READ_FAIL;
 	    }
-	    missing_cts[cur_window_size] = ld_process_load(loadbuf, &(process_buf[cur_window_size * indiv_ct4long]), &(missing_buf[cur_window_size * indiv_ct8long]), unfiltered_indiv_ct, indiv_exclude, indiv_ct4long, &(marker_sums[cur_window_size]), &(marker_means[cur_window_size]), &(marker_inv_stdevs[cur_window_size]));
+	    missing_cts[cur_window_size] = ld_process_load(loadbuf, &(geno[cur_window_size * indiv_ctbit * 2]), &(masks[cur_window_size * indiv_ctbit * 2]), &(mmasks[cur_window_size * indiv_ctbit]), unfiltered_indiv_ct, indiv_exclude, indiv_ctbit, indiv_trail_ct);
 	    cur_window_size++;
 	    window_unfiltered_end++;
 	  }
@@ -7458,7 +7583,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (calculation_type & CALC_LD_PRUNE) {
-    // retval = ld_prune(pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_chroms, unfiltered_indiv_ct, indiv_exclude, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type);
+    retval = ld_prune(pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_chroms, unfiltered_indiv_ct, indiv_exclude, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type);
     if (retval) {
       goto wdist_ret_2;
     }
