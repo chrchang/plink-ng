@@ -5192,6 +5192,8 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    }
 	    non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit);
 	    dp_result[0] = indiv_ct;
+	    // reversed from what I initially thought because I'm passing the
+            // jj-associated buffers before the ii-associated ones.
 	    dp_result[1] = -fixed_non_missing_ct;
 	    dp_result[2] = missing_cts[jj] - indiv_ct;
 #if __LP64__
