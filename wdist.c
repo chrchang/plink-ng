@@ -16,7 +16,7 @@
 
 
 // Uncomment this to build without CBLAS/CLAPACK:
-#define NOLAPACK
+// #define NOLAPACK
 
 
 // The key ideas behind this calculator's design are:
@@ -210,7 +210,7 @@
 #define MULTIPLEX_DIST 960
 #define MULTIPLEX_2DIST (MULTIPLEX_DIST * 2)
 
-#define MULTIPLEX_LD 960
+#define MULTIPLEX_LD 1920
 #define MULTIPLEX_2LD (MULTIPLEX_LD * 2)
 
 // Must be multiple of 384, no larger than 3840.
@@ -2192,7 +2192,7 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 
-static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** present1_ptr, __m128i* present2, int* return_vals) {
+static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* present1, __m128i* present2, int* return_vals, int iters) {
   // Main routine for computation of \sum_i^M (x_i - \mu_x)(y_i - \mu_y), where
   // x_i, y_i \in \{-1, 0, 1\}, but there are missing values.
   //
@@ -2264,15 +2264,15 @@ static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** pres
   __uni16 acc;
   __uni16 acc1;
   __uni16 acc2;
-  __m128i* vec2_end = &(vec2[MULTIPLEX_2LD / 128]);
+  int ii = 0;
   acc.vi = _mm_setzero_si128();
   acc1.vi = _mm_setzero_si128();
   acc2.vi = _mm_setzero_si128();
   do {
-    loader1 = *((*vec1_ptr)++);
+    loader1 = *vec1++;
     loader2 = *vec2++;
     sum1 = *present2++;
-    sum2 = *((*present1_ptr)++);
+    sum2 = *present1++;
     sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
     sum1 = _mm_and_si128(sum1, loader1);
     sum2 = _mm_and_si128(sum2, loader2);
@@ -2285,10 +2285,10 @@ static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** pres
     sum2 = _mm_add_epi64(_mm_and_si128(sum2, m2), _mm_and_si128(_mm_srli_epi64(sum2, 2), m2));
     sum12 = _mm_add_epi64(_mm_and_si128(sum12, m2), _mm_and_si128(_mm_srli_epi64(sum12, 2), m2));
 
-    loader1 = *((*vec1_ptr)++);
+    loader1 = *vec1++;
     loader2 = *vec2++;
     tmp_sum1 = *present2++;
-    tmp_sum2 = *((*present1_ptr)++);
+    tmp_sum2 = *present1++;
     tmp_sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
     tmp_sum1 = _mm_and_si128(tmp_sum1, loader1);
     tmp_sum2 = _mm_and_si128(tmp_sum2, loader2);
@@ -2299,10 +2299,10 @@ static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** pres
     sum2 = _mm_add_epi64(sum2, _mm_add_epi64(_mm_and_si128(tmp_sum2, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum2, 2), m2)));
     sum12 = _mm_add_epi64(sum12, _mm_add_epi64(_mm_and_si128(tmp_sum12, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum12, 2), m2)));
 
-    loader1 = *((*vec1_ptr)++);
+    loader1 = *vec1++;
     loader2 = *vec2++;
     tmp_sum1 = *present2++;
-    tmp_sum2 = *((*present1_ptr)++);
+    tmp_sum2 = *present1++;
     tmp_sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
     tmp_sum1 = _mm_and_si128(tmp_sum1, loader1);
     tmp_sum2 = _mm_and_si128(tmp_sum2, loader2);
@@ -2316,7 +2316,7 @@ static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** pres
     acc1.vi = _mm_add_epi64(acc1.vi, _mm_add_epi64(_mm_and_si128(sum1, m4), _mm_and_si128(_mm_srli_epi64(sum1, 4), m4)));
     acc2.vi = _mm_add_epi64(acc2.vi, _mm_add_epi64(_mm_and_si128(sum2, m4), _mm_and_si128(_mm_srli_epi64(sum2, 4), m4)));
     acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(sum12, m4), _mm_and_si128(_mm_srli_epi64(sum12, 4), m4)));
-  } while (vec2 < vec2_end);
+  } while (++ii < iters);
   // moved down since we're out of xmm registers
   const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
   const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
@@ -5327,6 +5327,7 @@ int ld_process_load(unsigned char* loadbuf, unsigned long* geno_buf, unsigned lo
     }
     *geno_buf++ = new_geno;
     *mask_buf++ = new_mask;
+    // new_mask needed for proper post-ending handling
     sq_sum += popcount2_long((new_geno ^ FIVEMASK) & FIVEMASK & new_mask);
     sum += popcount2_long(new_geno);
     new_geno = 0;
@@ -5430,6 +5431,8 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   int indiv_ctbit = (indiv_ct + BITCT - 1) / BITCT;
   int indiv_ct_mld = (indiv_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
+  int indiv_ct_mld_m1 = indiv_ct_mld - 1;
+  int indiv_ct_mld_rem = (MULTIPLEX_LD / 192) - (indiv_ct_mld * MULTIPLEX_LD - indiv_ct) / 192;
   int indiv_ct_mld_long = indiv_ct_mld * (MULTIPLEX_LD / BITCT2);
   int indiv_trail_ct = indiv_ct_mld_long - indiv_ctbit * 2;
   int retval = 0;
@@ -5460,7 +5463,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   unsigned int fixed_non_missing_ct;
   unsigned int non_missing_ct;
   int dp_result[3];
-  double indiv_ct_recip = 1.0 / ((double)indiv_ct);
+  double non_missing_recip;
 #if __LP64__
   __m128i* geno_fixed_vec_ptr;
   __m128i* geno_var_vec_ptr;
@@ -5605,9 +5608,14 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    dp_result[1] = missing_cts[jj] - indiv_ct;
 	    dp_result[2] = -fixed_non_missing_ct;
 #if __LP64__
-	    for (kk = 0; kk < indiv_ct_mld; kk++) {
-	      ld_dot_prod(&geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), &mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result);
+	    for (kk = 0; kk < indiv_ct_mld_m1; kk++) {
+	      ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result, MULTIPLEX_LD / 192);
+	      geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT]);
+	      mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT]);
 	    }
+	    ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result, indiv_ct_mld_rem);
+	    geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT]);
+	    mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT]);
 #else
 	    for (kk = 0; kk < indiv_ct_mld; kk++) {
 	      ld_dot_prod(&geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), &mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), dp_result);
@@ -5617,7 +5625,8 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    // var1 = dp_result[3]/N - (dp_result[1]/N)^2
             // var2 = dp_result[4]/N - (dp_result[2]/N)^2
             // cov12 = dp_result[0]/N - (dp_result[1] * dp_result[2])/(N^2)
-	    cov12 = indiv_ct_recip * (dp_result[0] - dp_result[1] * dp_result[2] * indiv_ct_recip);
+	    non_missing_recip = 1.0 / ((double)non_missing_ct);
+	    cov12 = non_missing_recip * (dp_result[0] - dp_result[1] * dp_result[2] * non_missing_recip);
 	    // r-squared
             dxx = cov12 / (marker_stdevs[ii] * marker_stdevs[jj]);
 	    if (fabs(dxx) > ld_last_param) {
