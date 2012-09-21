@@ -16,7 +16,7 @@
 
 
 // Uncomment this to build without CBLAS/CLAPACK:
-// #define NOLAPACK
+#define NOLAPACK
 
 
 // The key ideas behind this calculator's design are:

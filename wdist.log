@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.1415926-2.4-1.40.13 (TeX Live 2012) (format=pdflatex 2012.9.15)  21 SEP 2012 07:06
+This is pdfTeX, Version 3.1415926-2.4-1.40.13 (TeX Live 2012) (format=pdflatex 2012.9.15)  21 SEP 2012 13:56
 entering extended mode
  \write18 enabled.
  %&-line parsing enabled.
@@ -415,11 +415,6 @@ Underfull \hbox (badness 3168) in paragraph at lines 46--47
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <8> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 53.
 
-Overfull \hbox (7.65231pt too wide) in paragraph at lines 55--65
- [] 
- []
-
-
 Underfull \hbox (badness 1117) in paragraph at lines 70--71
 \OT1/ptm/m/n/9 can be magnified by exploiting the multiple cores commonly
  []
@@ -554,7 +549,7 @@ LaTeX Font Warning: Size substitutions with differences
 Here is how much of TeX's memory you used:
  3409 strings out of 493488
  44970 string characters out of 3141326
- 111640 words of memory out of 3000000
+ 111641 words of memory out of 3000000
  6613 multiletter control sequences out of 15000+200000
  45691 words of font info for 97 fonts, out of 3000000 for 9000
  961 hyphenation exceptions out of 8191
@@ -575,7 +570,7 @@ type1/urw/helvetic/uhvr8a.pfb></usr/local/texlive/2012/texmf-dist/fonts/type1/u
 rw/helvetic/uhvro8a.pfb></usr/local/texlive/2012/texmf-dist/fonts/type1/urw/tim
 es/utmb8a.pfb></usr/local/texlive/2012/texmf-dist/fonts/type1/urw/times/utmr8a.
 pfb></usr/local/texlive/2012/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
-Output written on wdist.pdf (3 pages, 158705 bytes).
+Output written on wdist.pdf (3 pages, 158700 bytes).
 PDF statistics:
  79 PDF objects out of 1000 (max. 8388607)
  57 compressed objects within 1 object stream
