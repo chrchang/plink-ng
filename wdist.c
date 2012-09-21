@@ -1729,20 +1729,24 @@ inline int next_non_set(unsigned char* exclude_arr, int loc) {
   return loc;
 }
 
-int get_marker_chrom(int* marker_chroms, int idx) {
-  int ii;
-  for (ii = 0; ii < MAX_CHROM; ii++) {
-    if (idx < marker_chroms[ii * 2 + 1]) {
-      if (idx >= marker_chroms[ii * 2]) {
-	return ii;
-      }
+int get_marker_chrom(int* marker_chroms, int chrom_ct, int idx) {
+  // rewrite
+  int* marker_binsearch = &(marker_chroms[3 * MAX_CHROM]);
+  int chrom_min = 0;
+  int chrom_cur;
+  while (chrom_ct - chrom_min > 1) {
+    chrom_cur = (chrom_ct + chrom_min) / 2;
+    if (marker_binsearch[chrom_cur] > idx) {
+      chrom_ct = chrom_cur;
+    } else {
+      chrom_min = chrom_cur;
     }
   }
-  return -1;
+  return marker_chroms[2 * MAX_CHROM + chrom_min];
 }
 
-int get_chrom_end(int* marker_chroms, int idx) {
-  return marker_chroms[get_marker_chrom(marker_chroms, idx) * 2 + 1];
+int get_chrom_end(int* marker_chroms, int chrom_ct, int idx) {
+  return marker_chroms[get_marker_chrom(marker_chroms, chrom_ct, idx) * 2 + 1];
 }
 
 inline int nz_chrom(int* marker_chrom, int idx) {
@@ -1844,7 +1848,7 @@ int extract_exclude_markers(char* fname, char* sorted_ids, int sorted_ids_len, u
   return 0;
 }
 
-int read_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, unsigned char* marker_exclude, int marker_exclude_ct, char* marker_ids, unsigned long max_marker_id_len, int* marker_chroms, char* marker_alleles, double* mafs) {
+int read_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, unsigned char* marker_exclude, int marker_exclude_ct, char* marker_ids, unsigned long max_marker_id_len, int* marker_chroms, int chrom_ct, char* marker_alleles, double* mafs) {
   unsigned char* wkspace_mark;
   char* sorted_ids;
   int* id_map;
@@ -1878,7 +1882,7 @@ int read_freq(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, uns
       ii = bsearch_str(bufptr, sorted_ids, max_marker_id_len, 0, unfiltered_marker_ct - marker_exclude_ct - 1);
       if (ii != -1) {
         ii = id_map[ii];
-        if ((jj == get_marker_chrom(marker_chroms, ii)) || (!jj) || (!get_marker_chrom(marker_chroms, ii))) {
+        if ((jj == get_marker_chrom(marker_chroms, chrom_ct, ii)) || (!jj) || (!get_marker_chrom(marker_chroms, chrom_ct, ii))) {
           cc = *bufptr2;
           bufptr2 = next_item(bufptr2);
           bufptr = next_item(bufptr2);
@@ -2222,9 +2226,10 @@ static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** pres
   //
   // This function performs the update
   //   return_vals[0] += (-N) + \sum_i x_iy_i
-  //   return_vals[1] += N + \sum_i x_i
-  //   return_vals[2] += N + \sum_i y_i
-  // where N is the number of individuals processed.  The calculation currently
+  //   return_vals[1] += N_y + \sum_i x_i
+  //   return_vals[2] += N_x + \sum_i y_i
+  // where N is the number of individuals processed after applying the
+  // missingness masks indicated by the subscripts.  The calculation currently
   // proceeds as follows:
   //
   // 1. N + \sum_i x_i = popcount_variant(vec1 & present2)
@@ -2315,7 +2320,7 @@ static inline void ld_dot_prod(__m128i** vec1_ptr, __m128i* vec2, __m128i** pres
   // moved down since we're out of xmm registers
   const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
   const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
-#if MULTIPLEX_COV > 960
+#if MULTIPLEX_LD > 960
   acc1.vi = _mm_add_epi64(_mm_and_si128(acc1.vi, m8), _mm_and_si128(_mm_srli_epi64(acc1.vi, 8), m8));
   acc2.vi = _mm_add_epi64(_mm_and_si128(acc2.vi, m8), _mm_and_si128(_mm_srli_epi64(acc2.vi, 8), m8));
   acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
@@ -4322,7 +4327,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
 }
 #endif // NOLAPACK
 
-int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* map_cols_ptr, int* unfiltered_marker_ct_ptr, int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, int* plink_maxsnp_ptr, unsigned char** marker_exclude_ptr, double** mafs_ptr, int** marker_allele_cts_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, int** marker_chroms_ptr, unsigned int chrom_mask, unsigned int** marker_pos_ptr, char extractname_0, char excludename_0, char freqname_0, int calculation_type) {
+int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* map_cols_ptr, int* unfiltered_marker_ct_ptr, int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, int* plink_maxsnp_ptr, unsigned char** marker_exclude_ptr, double** mafs_ptr, int** marker_allele_cts_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, int** marker_chroms_ptr, int* chrom_ct_ptr, unsigned int chrom_mask, unsigned int** marker_pos_ptr, char extractname_0, char excludename_0, char freqname_0, int calculation_type) {
   int marker_ids_needed = (extractname_0 || excludename_0 || freqname_0 || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE)));
   int unfiltered_marker_ct = 0;
   unsigned long max_marker_id_len = 0;
@@ -4336,6 +4341,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
   unsigned long ulii;
   int ii;
   int jj;
+  int chroms_encountered_m1 = -1;
   if (fopen_checked(mapfile_ptr, mapname, "r")) {
     return RET_OPENFAIL;
   }
@@ -4409,11 +4415,11 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
   }
   // permanent stack allocation #3, if needed: marker_chroms
   if (marker_chroms_needed) {
-    *marker_chroms_ptr = (int*)wkspace_alloc(54 * sizeof(int));
+    *marker_chroms_ptr = (int*)wkspace_alloc((MAX_CHROM * 4 + 1) * sizeof(int));
     if (!(*marker_chroms_ptr)) {
       return RET_NOMEM;
     }
-    fill_int_zero(*marker_chroms_ptr, 54);
+    fill_int_zero(*marker_chroms_ptr, MAX_CHROM * 4 + 1);
   }
   // permanent stack allocation #4, if needed: marker_pos
   if (marker_pos_needed) {
@@ -4462,6 +4468,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
     }
     if (marker_chroms_needed) {
       if (jj != last_chrom) {
+	chroms_encountered_m1++;
 	if (last_chrom != -1) {
           (*marker_chroms_ptr)[last_chrom * 2 + 1] = ii;
 	}
@@ -4472,6 +4479,8 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
 	loaded_chrom_mask &= 1 << jj;
 	last_chrom = jj;
         (*marker_chroms_ptr)[jj * 2] = ii;
+	(*marker_chroms_ptr)[MAX_CHROM * 2 + chroms_encountered_m1] = jj;
+	(*marker_chroms_ptr)[MAX_CHROM * 3 + chroms_encountered_m1] = ii;
       }
     }
 
@@ -4519,6 +4528,8 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
   }
   if (marker_chroms_needed) {
     (*marker_chroms_ptr)[last_chrom * 2 + 1] = ii;
+    *chrom_ct_ptr = chroms_encountered_m1 + 1;
+    (*marker_chroms_ptr)[MAX_CHROM * 3 + chroms_encountered_m1 + 1] = ii;
   }
   if (*marker_exclude_ct_ptr) {
     printf("%d markers loaded (after excluding %d).\n", unfiltered_marker_ct - *marker_exclude_ct_ptr, *marker_exclude_ct_ptr);
@@ -4635,7 +4646,7 @@ inline void set_founder_info(unsigned char* founder_info, int ii) {
   founder_info[ii / 8] |= (1 << (ii % 8));
 }
 
-int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, int* marker_chroms, unsigned int* marker_pos, double* mafs, int unfiltered_indiv_ct, unsigned char* indiv_exclude, char* person_id, int max_person_id_len, char* paternal_id, int max_paternal_id_len, char* maternal_id, int max_maternal_id_len, unsigned char* founder_info, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int nonfounders, int calculation_type, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ppc_gap) {
+int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, int* marker_chroms, int chrom_ct, unsigned int* marker_pos, double* mafs, int unfiltered_indiv_ct, unsigned char* indiv_exclude, char* person_id, int max_person_id_len, char* paternal_id, int max_paternal_id_len, char* maternal_id, int max_maternal_id_len, unsigned char* founder_info, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int nonfounders, int calculation_type, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ppc_gap) {
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
   int retval = 0;
@@ -4707,7 +4718,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
   unsigned int mp_lead_unfiltered_idx = 0;
   unsigned int mp_lead_idx = 0;
 
-  while ((mp_lead_unfiltered_idx < unfiltered_marker_ct) && (is_set(marker_exclude, mp_lead_unfiltered_idx) || (!get_marker_chrom(marker_chroms, mp_lead_unfiltered_idx)))) {
+  while ((mp_lead_unfiltered_idx < unfiltered_marker_ct) && (is_set(marker_exclude, mp_lead_unfiltered_idx) || (!get_marker_chrom(marker_chroms, chrom_ct, mp_lead_unfiltered_idx)))) {
     mp_lead_unfiltered_idx++;
   }
 
@@ -4809,10 +4820,10 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
       // Then advance glptr two spaces.  The double storage eliminates a
       // divide-by-two in the inner loop at a low cost in cache space.
       if (mp_lead_unfiltered_idx < unfiltered_marker_ct) {
-	if (get_marker_chrom(marker_chroms, mp_lead_unfiltered_idx) == get_marker_chrom(marker_chroms, low_ct + jj)) {
+	if (get_marker_chrom(marker_chroms, chrom_ct, mp_lead_unfiltered_idx) == get_marker_chrom(marker_chroms, chrom_ct, low_ct + jj)) {
 	  mm = ppc_gap + marker_pos[low_ct + jj];
 	  if (marker_pos[mp_lead_unfiltered_idx] <= mm) {
-	    nn = get_chrom_end(marker_chroms, mp_lead_unfiltered_idx);
+	    nn = get_chrom_end(marker_chroms, chrom_ct, mp_lead_unfiltered_idx);
 	    do {
 	      if (!is_set(marker_exclude, mp_lead_unfiltered_idx)) {
 		mp_lead_idx++;
@@ -5381,8 +5392,8 @@ int ld_prune_next_valid_chrom_start(unsigned char* marker_exclude, int cur_idx, 
   return cur_idx;
 }
 
-void ld_prune_start_chrom(int ld_window_kb, int* chrom_end_ptr, int window_unfiltered_start, unsigned int* live_indices, unsigned int* start_arr, int* window_unfiltered_end_ptr, int ld_window_size, int* cur_window_size_ptr, int unfiltered_marker_ct, unsigned char* marker_exclude, int* marker_chroms) {
-  int cur_chrom = get_marker_chrom(marker_chroms, window_unfiltered_start);
+void ld_prune_start_chrom(int ld_window_kb, int* chrom_end_ptr, int window_unfiltered_start, unsigned int* live_indices, unsigned int* start_arr, int* window_unfiltered_end_ptr, int ld_window_size, int* cur_window_size_ptr, int unfiltered_marker_ct, unsigned char* marker_exclude, int* marker_chroms, int chrom_ct) {
+  int cur_chrom = get_marker_chrom(marker_chroms, chrom_ct, window_unfiltered_start);
   int window_unfiltered_end = window_unfiltered_start + 1;
   int chrom_end = marker_chroms[2 * cur_chrom + 1];
   int ii = 0;
@@ -5411,7 +5422,7 @@ void ld_prune_start_chrom(int ld_window_kb, int* chrom_end_ptr, int window_unfil
   *window_unfiltered_end_ptr = window_unfiltered_end;
 }
 
-int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, char* marker_ids, unsigned long max_marker_id_len, int* marker_chroms, double* mafs, unsigned int* marker_pos, int unfiltered_indiv_ct, unsigned char* indiv_exclude, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, char* outname, char* outname_end, int calculation_type) {
+int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, char* marker_ids, unsigned long max_marker_id_len, int* marker_chroms, int chrom_ct, double* mafs, unsigned int* marker_pos, int unfiltered_indiv_ct, unsigned char* indiv_exclude, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, char* outname, char* outname_end, int calculation_type) {
   // todo: replace is_set with founder-sensitive check
   // for future consideration: chromosome-based multithread/parallel?
   FILE* outfile_in = NULL;
@@ -5535,7 +5546,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   memset(pruned_arr, 0, unfiltered_marker_ct8);
   do {
     prev_end = 0;
-    ld_prune_start_chrom(ld_window_kb, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, marker_chroms);
+    ld_prune_start_chrom(ld_window_kb, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, marker_chroms, chrom_ct);
     if (cur_window_size > 1) {
       for (ulii = 0; ulii < cur_window_size; ulii++) {
 	fseeko(bedfile, bed_offset + (live_indices[ulii] * unfiltered_indiv_ct4), SEEK_SET);
@@ -5591,7 +5602,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	      continue;
 	    }
 	    non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit);
-	    dp_result[0] = non_missing_ct;
+	    dp_result[0] = indiv_ct;
 	    dp_result[1] = missing_cts[jj] - indiv_ct;
 	    dp_result[2] = -fixed_non_missing_ct;
 #if __LP64__
@@ -5699,7 +5710,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	}
       }
     }
-    ii = get_marker_chrom(marker_chroms, window_unfiltered_start - 1);
+    ii = get_marker_chrom(marker_chroms, chrom_ct, window_unfiltered_start - 1);
     printf("Pruned %d SNPs from chromosome %d, leaving %d.\n", cur_exclude_ct, ii, marker_chroms[2 * ii + 1] - marker_chroms[2 * ii] - cur_exclude_ct);
     tot_exclude_ct += cur_exclude_ct;
 
@@ -5842,6 +5853,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   long long llyy;
   char* marker_ids = NULL;
   int* marker_chroms = NULL;
+  int chrom_ct = 0;
   int* marker_allele_cts = NULL;
   char* marker_alleles = NULL;
   char* marker_alleles_tmp = NULL;
@@ -5987,7 +5999,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   tbuf[MAXLINELEN - 6] = ' ';
   tbuf[MAXLINELEN - 1] = ' ';
-  retval = load_map_or_bim(&mapfile, mapname, binary_files, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &mafs, &marker_allele_cts, &marker_alleles, &marker_ids, &marker_chroms, chrom_mask, &marker_pos, *extractname, *excludename, *freqname, calculation_type);
+  retval = load_map_or_bim(&mapfile, mapname, binary_files, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &mafs, &marker_allele_cts, &marker_alleles, &marker_ids, &marker_chroms, &chrom_ct, chrom_mask, &marker_pos, *extractname, *excludename, *freqname, calculation_type);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -6597,7 +6609,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
 
     if (freqname[0]) {
-      retval = read_freq(freqname, &freqfile, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, marker_chroms, marker_alleles, mafs);
+      retval = read_freq(freqname, &freqfile, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, marker_chroms, chrom_ct, marker_alleles, mafs);
       if (retval) {
 	goto wdist_ret_1;
       }
@@ -7593,11 +7605,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	continue;
       }
       if (mafs[ii] < 0.5) {
-	if (fprintf(outfile, tbuf, get_marker_chrom(marker_chroms, ii), &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2 + 1], marker_alleles[ii * 2], mafs[ii], marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]) < 0) {
+	if (fprintf(outfile, tbuf, get_marker_chrom(marker_chroms, chrom_ct, ii), &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2 + 1], marker_alleles[ii * 2], mafs[ii], marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]) < 0) {
 	  goto wdist_ret_WRITE_FAIL;
 	}
       } else {
-	if (fprintf(outfile, tbuf, get_marker_chrom(marker_chroms, ii), &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2], marker_alleles[ii * 2 + 1], 1.0 - mafs[ii], marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]) < 0) {
+	if (fprintf(outfile, tbuf, get_marker_chrom(marker_chroms, chrom_ct, ii), &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2], marker_alleles[ii * 2 + 1], 1.0 - mafs[ii], marker_allele_cts[ii * 2] + marker_allele_cts[ii * 2 + 1]) < 0) {
 	  goto wdist_ret_WRITE_FAIL;
 	}
       }
@@ -7609,7 +7621,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (calculation_type & CALC_LD_PRUNE) {
-    retval = ld_prune(pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_chroms, mafs, marker_pos, unfiltered_indiv_ct, indiv_exclude, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type);
+    retval = ld_prune(pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_chroms, chrom_ct, mafs, marker_pos, unfiltered_indiv_ct, indiv_exclude, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -9725,7 +9737,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (calculation_type & CALC_GENOME) {
     wkspace_reset((char*)CACHEALIGN((unsigned long)(&(marker_pos[unfiltered_marker_ct]))));
-    retval = calc_genome(threads, pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_chroms, marker_pos, mafs, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len, paternal_id, max_paternal_id_len, maternal_id, max_maternal_id_len, founder_info, parallel_idx, parallel_tot, outname, outname_end, nonfounders, calculation_type, genome_output_gz, genome_output_full, genome_ibd_unbounded, ppc_gap);
+    retval = calc_genome(threads, pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_chroms, chrom_ct, marker_pos, mafs, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len, paternal_id, max_paternal_id_len, maternal_id, max_maternal_id_len, founder_info, parallel_idx, parallel_tot, outname, outname_end, nonfounders, calculation_type, genome_output_gz, genome_output_full, genome_ibd_unbounded, ppc_gap);
     if (retval) {
       goto wdist_ret_2;
     }
