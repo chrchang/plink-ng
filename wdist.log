@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.1415926-2.4-1.40.13 (TeX Live 2012) (format=pdflatex 2012.9.15)  21 SEP 2012 13:58
+This is pdfTeX, Version 3.1415926-2.4-1.40.13 (TeX Live 2012) (format=pdflatex 2012.9.15)  21 SEP 2012 13:59
 entering extended mode
  \write18 enabled.
  %&-line parsing enabled.
@@ -380,94 +380,94 @@ Underfull \hbox (badness 10000) detected at line 24
 LaTeX Font Info:    Font shape `OT1/phv/bx/n' in size <8> not available
 (Font)              Font shape `OT1/phv/b/n' tried instead on input line 28.
 
-Overfull \hbox (0.42159pt too wide) in paragraph at lines 39--40
+Overfull \hbox (0.42159pt too wide) in paragraph at lines 40--41
 \OT1/phv/b/n/8 Supplementary information: \OT1/phv/m/n/8 Supplementary informat
 ion is available
  []
 
 LaTeX Font Info:    Font shape `OT1/phv/bx/n' in size <10> not available
-(Font)              Font shape `OT1/phv/b/n' tried instead on input line 42.
+(Font)              Font shape `OT1/phv/b/n' tried instead on input line 43.
 
-Underfull \hbox (badness 2351) in paragraph at lines 44--45
+Underfull \hbox (badness 2351) in paragraph at lines 45--46
 \OT1/ptm/m/n/9 is to ensure that a reported association is attributable to a
  []
 
 
-Underfull \hbox (badness 3078) in paragraph at lines 44--45
+Underfull \hbox (badness 3078) in paragraph at lines 45--46
 \OT1/ptm/m/n/9 can be subdivided into two related strategies: (1) using a
  []
 
 
-Underfull \hbox (badness 3838) in paragraph at lines 44--45
+Underfull \hbox (badness 3838) in paragraph at lines 45--46
 \OT1/ptm/m/n/9 dimension-reduction technique such as principal components
  []
 
 
-Underfull \hbox (badness 1048) in paragraph at lines 44--45
+Underfull \hbox (badness 1048) in paragraph at lines 45--46
 \OT1/ptm/m/n/9 or multidimensional scaling to reduce the many thousands of
  []
 
 
-Underfull \hbox (badness 3168) in paragraph at lines 46--47
+Underfull \hbox (badness 3168) in paragraph at lines 47--48
 \OT1/ptm/m/n/9 constraining the possible genetic architectures. This general
  []
 
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <8> not available
-(Font)              Font shape `OT1/ptm/b/n' tried instead on input line 53.
+(Font)              Font shape `OT1/ptm/b/n' tried instead on input line 54.
 
-Underfull \hbox (badness 1117) in paragraph at lines 70--71
+Underfull \hbox (badness 1117) in paragraph at lines 71--72
 \OT1/ptm/m/n/9 can be magnified by exploiting the multiple cores commonly
  []
 
 
-Underfull \hbox (badness 3000) in paragraph at lines 72--73
+Underfull \hbox (badness 3000) in paragraph at lines 73--74
 \OT1/ptm/m/n/9 with respect to (1) a simulated dataset consisting of 1000
  []
 
 
-Underfull \hbox (badness 1072) in paragraph at lines 72--73
+Underfull \hbox (badness 1072) in paragraph at lines 73--74
 \OT1/ptm/m/n/9 individuals and 100,000 makers with minor allele frequencies
  []
 
 
-Underfull \hbox (badness 1097) in paragraph at lines 72--73
+Underfull \hbox (badness 1097) in paragraph at lines 73--74
 \OT1/ptm/m/n/9 consisting of 3435 European-ancestry individuals and 842,228
  []
 
 
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
-LaTeX Font Info:    Try loading font information for OMS+phv on input line 79.
+LaTeX Font Info:    Try loading font information for OMS+phv on input line 80.
 
 (/usr/local/texlive/2012/texmf-dist/tex/latex/psnfss/omsphv.fd
 File: omsphv.fd 
 )
 LaTeX Font Info:    Font shape `OMS/phv/m/n' in size <7> not available
-(Font)              Font shape `OMS/cmsy/m/n' tried instead on input line 79.
+(Font)              Font shape `OMS/cmsy/m/n' tried instead on input line 80.
  [1
 
 {/usr/local/texlive/2012/texmf-var/fonts/map/pdftex/updmap/pdftex.map}
 
 
 ]
-Overfull \hbox (3.04268pt too wide) in paragraph at lines 80--82
+Overfull \hbox (3.04268pt too wide) in paragraph at lines 81--83
 []\OT1/ptm/m/n/9 Adopting the mean IBS as the metric, we can use multidimension
 al
  []
 
 
-Underfull \hbox (badness 1448) in paragraph at lines 80--82
+Underfull \hbox (badness 1448) in paragraph at lines 81--83
 \OT1/ptm/m/n/9 scaling to force each sample member into a space of given
  []
 
-LaTeX Font Info:    Try loading font information for OML+ptm on input line 83.
+LaTeX Font Info:    Try loading font information for OML+ptm on input line 84.
 (/usr/local/texlive/2012/texmf-dist/tex/latex/psnfss/omlptm.fd
 File: omlptm.fd 
 )
 LaTeX Font Info:    Font shape `OML/ptm/m/n' in size <9> not available
-(Font)              Font shape `OML/cmm/m/it' tried instead on input line 83.
+(Font)              Font shape `OML/cmm/m/it' tried instead on input line 84.
 
-Underfull \hbox (badness 5345) in paragraph at lines 99--100
+Underfull \hbox (badness 5345) in paragraph at lines 100--101
 \OT1/ptm/m/n/9 Perhaps the most important recent development in human
  []
 
@@ -475,35 +475,35 @@ Underfull \hbox (badness 5345) in paragraph at lines 99--100
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
 
-Underfull \hbox (badness 1038) in paragraph at lines 101--102
+Underfull \hbox (badness 1038) in paragraph at lines 102--103
 []\OT1/ptm/m/n/9 The most commonly employed package for this method of
  []
 
 
-Underfull \hbox (badness 1817) in paragraph at lines 101--102
+Underfull \hbox (badness 1817) in paragraph at lines 102--103
 \OT1/ptm/m/n/9 heritability estimation is GCTA (Yang \OT1/ptm/m/it/9 et al\OT1/
 ptm/m/n/9 ., 2011). In our
  []
 
 
-Underfull \hbox (badness 1881) in paragraph at lines 103--104
+Underfull \hbox (badness 1881) in paragraph at lines 104--105
 []\OT1/ptm/m/n/9 WDIST can also perform several analyses relating genetic
  []
 
 
-Underfull \hbox (badness 1742) in paragraph at lines 113--117
+Underfull \hbox (badness 1742) in paragraph at lines 114--118
 \OT1/ptm/m/n/9 calculations of pairwise genetic similarity measures and new
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 113--117
+Underfull \hbox (badness 10000) in paragraph at lines 114--118
 
  []
 
 LaTeX Font Info:    Font shape `OT1/phv/bx/it' in size <8> not available
-(Font)              Font shape `OT1/phv/b/it' tried instead on input line 118.
+(Font)              Font shape `OT1/phv/b/it' tried instead on input line 119.
 LaTeX Font Info:    Font shape `OT1/phv/b/it' in size <8> not available
-(Font)              Font shape `OT1/phv/b/sl' tried instead on input line 118.
+(Font)              Font shape `OT1/phv/b/sl' tried instead on input line 119.
 
 Overfull \hbox (261.0pt too wide) has occurred while \output is active
 [][] 
@@ -519,7 +519,7 @@ Overfull \hbox (261.0pt too wide) has occurred while \output is active
 
 [2]
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <9> not available
-(Font)              Font shape `OT1/ptm/b/n' tried instead on input line 124.
+(Font)              Font shape `OT1/ptm/b/n' tried instead on input line 125.
 Extra height:10.0pt when 111.97421pt
 Extra height:10.0pt when 112.97421pt
 Extra height:0.0pt when 113.97421pt
