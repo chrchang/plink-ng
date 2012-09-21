@@ -5133,7 +5133,6 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   if (wkspace_alloc_ui_checked(&missing_cts, indiv_ct * sizeof(int))) {
     goto ld_prune_ret_NOMEM;
   }
-  memset(pruned_arr, 0, unfiltered_marker_ct8);
   do {
     prev_end = 0;
     ld_prune_start_chrom(ld_window_kb, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, marker_chroms, chrom_ct);
@@ -5193,8 +5192,8 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    }
 	    non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit);
 	    dp_result[0] = indiv_ct;
-	    dp_result[1] = missing_cts[jj] - indiv_ct;
-	    dp_result[2] = -fixed_non_missing_ct;
+	    dp_result[1] = -fixed_non_missing_ct;
+	    dp_result[2] = missing_cts[jj] - indiv_ct;
 #if __LP64__
 	    for (kk = 0; kk < indiv_ct_mld_m1; kk++) {
 	      ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result, MULTIPLEX_LD / 192);
@@ -5215,10 +5214,9 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
 #endif
 	    non_missing_recip = 1.0 / ((double)non_missing_ct);
-	    cov12 = non_missing_recip * (dp_result[0] - dp_result[1] * dp_result[2] * non_missing_recip);
+	    cov12 = non_missing_recip * (dp_result[0] - (non_missing_recip * dp_result[1]) * dp_result[2]);
 	    // r-squared
             dxx = cov12 / (marker_stdevs[ii] * marker_stdevs[jj]);
-            kk = get_marker_chrom(marker_chroms, chrom_ct, live_indices[ii]);
 	    if (fabs(dxx) > ld_last_param) {
               // remove SNP with lower MAF
               if (true_maf(mafs[live_indices[ii]]) < true_maf(mafs[live_indices[jj]])) {
