@@ -5592,8 +5592,8 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    }
 	    non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit);
 	    dp_result[0] = non_missing_ct;
-	    dp_result[1] = -non_missing_ct;
-	    dp_result[2] = -non_missing_ct;
+	    dp_result[1] = missing_cts[jj] - indiv_ct;
+	    dp_result[2] = -fixed_non_missing_ct;
 #if __LP64__
 	    for (kk = 0; kk < indiv_ct_mld; kk++) {
 	      ld_dot_prod(&geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), &mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result);
