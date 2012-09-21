@@ -5358,7 +5358,6 @@ int ld_process_load(unsigned char* loadbuf, unsigned long* geno_buf, unsigned lo
   fill_long_zero((long*)geno_buf, indiv_trail_ct);
   fill_long_zero((long*)mask_buf, indiv_trail_ct);
   fill_long_zero((long*)missing_buf, indiv_trail_ct / 2);
-  sum += missing_ct;
   non_missing_recip = 1.0 / (indiv_ct - missing_ct);
   *marker_stdev_ptr = sqrt((sq_sum - (non_missing_recip * sum) * sum) * non_missing_recip);
   return missing_ct;
