@@ -2192,15 +2192,9 @@ static inline unsigned int popcount_xor_2mask_multiword(__m128i** xor1p, __m128i
   return (unsigned int)(acc.u8[0] + acc.u8[1]);
 }
 
-static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* present1, __m128i* present2, int* return_vals, int iters) {
+static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m128i* mask2, int* return_vals, int iters) {
   // Main routine for computation of \sum_i^M (x_i - \mu_x)(y_i - \mu_y), where
   // x_i, y_i \in \{-1, 0, 1\}, but there are missing values.
-  //
-  // vec1_ptr and vec2 refer to vectors of packed 2-bit values which we wish to
-  // compute the dot product of, using the input representation
-  //   -1 -> 00, 0/missing -> 01, 1 -> 10.
-  // present1_ptr and present2 mask out missing values.
-  // mu_ptr_1 and mu_ptr_2 are additional return values.
   //
   //
   // We decompose this sum into
@@ -2219,10 +2213,13 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* present1, 
   //
   //
   // Input:
-  // * vec1_ptr and vec2 are encoded -1 -> 00, 0/missing -> 01, 1 -> 10.
-  // * present1_ptr and present2 mask out missing values (i.e. 00 for missing,
-  //   11 for nonmissing).
+  // * vec1 and vec2 are encoded -1 -> 00, 0/missing -> 01, 1 -> 10.
+  // * mask1 and mask2 mask out missing values (i.e. 00 for missing, 11 for
+  //   nonmissing).
   // * return_vals provides space for return values.
+  // * iters is the number of 48-byte windows to process, anywhere from 1 to 10
+  //   inclusive.  (No, this is not the interface you'd use for a
+  //   general-purpose library.)
   //
   // This function performs the update
   //   return_vals[0] += (-N) + \sum_i x_iy_i
@@ -2232,7 +2229,7 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* present1, 
   // missingness masks indicated by the subscripts.  The calculation currently
   // proceeds as follows:
   //
-  // 1. N + \sum_i x_i = popcount_variant(vec1 & present2)
+  // 1. N + \sum_i x_i = popcount_variant(vec1 & mask2)
   // The "variant" suffix refers to starting with two-bit integers instead of
   // one-bit integers in our summing process, so we get to skip a few
   // operations.  (Once all reserachers are using machines with fast hardware
@@ -2264,15 +2261,14 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* present1, 
   __uni16 acc;
   __uni16 acc1;
   __uni16 acc2;
-  int ii = 0;
   acc.vi = _mm_setzero_si128();
   acc1.vi = _mm_setzero_si128();
   acc2.vi = _mm_setzero_si128();
   do {
     loader1 = *vec1++;
     loader2 = *vec2++;
-    sum1 = *present2++;
-    sum2 = *present1++;
+    sum1 = *mask2++;
+    sum2 = *mask1++;
     sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
     sum1 = _mm_and_si128(sum1, loader1);
     sum2 = _mm_and_si128(sum2, loader2);
@@ -2287,8 +2283,8 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* present1, 
 
     loader1 = *vec1++;
     loader2 = *vec2++;
-    tmp_sum1 = *present2++;
-    tmp_sum2 = *present1++;
+    tmp_sum1 = *mask2++;
+    tmp_sum2 = *mask1++;
     tmp_sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
     tmp_sum1 = _mm_and_si128(tmp_sum1, loader1);
     tmp_sum2 = _mm_and_si128(tmp_sum2, loader2);
@@ -2301,8 +2297,8 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* present1, 
 
     loader1 = *vec1++;
     loader2 = *vec2++;
-    tmp_sum1 = *present2++;
-    tmp_sum2 = *present1++;
+    tmp_sum1 = *mask2++;
+    tmp_sum2 = *mask1++;
     tmp_sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
     tmp_sum1 = _mm_and_si128(tmp_sum1, loader1);
     tmp_sum2 = _mm_and_si128(tmp_sum2, loader2);
@@ -2316,7 +2312,7 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* present1, 
     acc1.vi = _mm_add_epi64(acc1.vi, _mm_add_epi64(_mm_and_si128(sum1, m4), _mm_and_si128(_mm_srli_epi64(sum1, 4), m4)));
     acc2.vi = _mm_add_epi64(acc2.vi, _mm_add_epi64(_mm_and_si128(sum2, m4), _mm_and_si128(_mm_srli_epi64(sum2, 4), m4)));
     acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(sum12, m4), _mm_and_si128(_mm_srli_epi64(sum12, 4), m4)));
-  } while (++ii < iters);
+  } while (--iters);
   // moved down since we're out of xmm registers
   const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
   const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
@@ -2418,8 +2414,7 @@ static inline unsigned int popcount_xor_2mask_multiword(unsigned long** xor1p, u
   return bit_count;
 }
 
-static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, unsigned long** present1_ptr, unsigned long* present2, int* return_vals) {
-  unsigned long* vec2_end = &(vec2[MULTIPLEX_LD / 16]);
+static inline void ld_dot_prod(unsigned long* vec1, unsigned long* vec2, unsigned long* mask1, unsigned long* mask2, int* return_vals, int iters) {
   unsigned int final_sum1 = 0;
   unsigned int final_sum2 = 0;
   unsigned int final_sum12 = 0;
@@ -2435,19 +2430,24 @@ static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, un
     // (The important part of the header comment on the 64-bit version is
     // copied below.)
     //
-    // * vec1_ptr and vec2 are encoded -1 -> 00, 0/missing -> 01, 1 -> 10.
-    // * present1_ptr and present2 mask out missing values (i.e. 00 for
-    //   missing, 11 for nonmissing).
+    // Input:
+    // * vec1 and vec2 are encoded -1 -> 00, 0/missing -> 01, 1 -> 10.
+    // * mask1 and mask2 mask out missing values (i.e. 00 for missing, 11 for
+    //   nonmissing).
     // * return_vals provides space for return values.
+    // * iters is the number of 12-byte windows to process, anywhere from 1 to
+    //   40 inclusive.  (No, this is not the interface you'd use for a
+    //   general-purpose library.)  [32- and 64-bit differ here.]
     //
     // This function performs the update
     //   return_vals[0] += (-N) + \sum_i x_iy_i
-    //   return_vals[1] += N + \sum_i x_i
-    //   return_vals[2] += N + \sum_i y_i
-    // where N is the number of individuals processed.  The calculation
+    //   return_vals[1] += N_y + \sum_i x_i
+    //   return_vals[2] += N_x + \sum_i y_i
+    // where N is the number of individuals processed after applying the
+    // missingness masks indicated by the subscripts.  The calculation
     // currently proceeds as follows:
     //
-    // 1. N + \sum_i x_i = popcount_variant(vec1 & present2)
+    // 1. N + \sum_i x_i = popcount_variant(vec1 & mask2)
     // The "variant" suffix refers to starting with two-bit integers instead of
     // one-bit integers in our summing process, so we get to skip a few
     // operations.  (Once all reserachers are using machines with fast hardware
@@ -2460,10 +2460,10 @@ static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, un
     // Subtracting this *from* a bias will give us our desired \sum_i x_iy_i
     // dot product.
 
-    loader1 = *((*vec1_ptr)++);
+    loader1 = *vec1++;
     loader2 = *vec2++;
-    sum1 = *present2++;
-    sum2 = *((*present1_ptr)++);
+    sum1 = *mask2++;
+    sum2 = *mask1++;
     sum12 = (loader1 | loader2) & FIVEMASK;
 
     sum1 = sum1 & loader1;
@@ -2475,10 +2475,10 @@ static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, un
     sum2 = (sum2 & 0x33333333) + ((sum2 >> 2) & 0x33333333);
     sum12 = (sum12 & 0x33333333) + ((sum12 >> 2) & 0x33333333);
 
-    loader1 = *((*vec1_ptr)++);
+    loader1 = *vec1++;
     loader2 = *vec2++;
-    tmp_sum1 = *present2++;
-    tmp_sum2 = *((*present1_ptr)++);
+    tmp_sum1 = *mask2++;
+    tmp_sum2 = *mask1++;
     tmp_sum12 = (loader1 | loader2) & FIVEMASK;
 
     tmp_sum1 = tmp_sum1 & loader1;
@@ -2490,10 +2490,10 @@ static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, un
     sum2 += (tmp_sum2 & 0x33333333) + ((tmp_sum2 >> 2) & 0x33333333);
     sum12 += (tmp_sum12 & 0x33333333) + ((tmp_sum12 >> 2) & 0x33333333);
 
-    loader1 = *((*vec1_ptr)++);
+    loader1 = *vec1++;
     loader2 = *vec2++;
-    tmp_sum1 = *present2++;
-    tmp_sum2 = *((*present1_ptr)++);
+    tmp_sum1 = *mask2++;
+    tmp_sum2 = *mask1++;
     tmp_sum12 = (loader1 | loader2) & FIVEMASK;
 
     tmp_sum1 = tmp_sum1 & loader1;
@@ -2513,7 +2513,7 @@ static inline void ld_dot_prod(unsigned long** vec1_ptr, unsigned long* vec2, un
     final_sum1 += (sum1 * 0x01010101) >> 24;
     final_sum2 += (sum2 * 0x01010101) >> 24;
     final_sum12 += (sum12 * 0x01010101) >> 24;
-  } while (vec2 < vec2_end);
+  } while (--iters);
   return_vals[0] -= final_sum12;
   return_vals[1] += final_sum1;
   return_vals[2] += final_sum2;
@@ -5432,7 +5432,11 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   int indiv_ctbit = (indiv_ct + BITCT - 1) / BITCT;
   int indiv_ct_mld = (indiv_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
   int indiv_ct_mld_m1 = indiv_ct_mld - 1;
+#if __LP64__
   int indiv_ct_mld_rem = (MULTIPLEX_LD / 192) - (indiv_ct_mld * MULTIPLEX_LD - indiv_ct) / 192;
+#else
+  int indiv_ct_mld_rem = (MULTIPLEX_LD / 48) - (indiv_ct_mld * MULTIPLEX_LD - indiv_ct) / 48;
+#endif
   int indiv_ct_mld_long = indiv_ct_mld * (MULTIPLEX_LD / BITCT2);
   int indiv_trail_ct = indiv_ct_mld_long - indiv_ctbit * 2;
   int retval = 0;
@@ -5617,9 +5621,14 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT]);
 	    mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT]);
 #else
-	    for (kk = 0; kk < indiv_ct_mld; kk++) {
-	      ld_dot_prod(&geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), &mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), dp_result);
+	    for (kk = 0; kk < indiv_ct_mld_m1; kk++) {
+	      ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), dp_result, MULTIPLEX_LD / 48);
+	      geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
+	      mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
 	    }
+	    ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), dp_result, indiv_ct_mld_rem);
+	    geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
+	    mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
 #endif
 	    // variance = \frac{1}{N}(\sum_i^N x_i^2) - \mu^2
 	    // var1 = dp_result[3]/N - (dp_result[1]/N)^2
