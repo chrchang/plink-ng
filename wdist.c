@@ -60,25 +60,29 @@
 // directly to f_0(x_0) + f_1(x_1) + f_2(x_2) + f_3(x_3) + f_4(x_4); similarly
 // for f_{5-9}, f_{10-14}, and f_{15-19}.  This requires precomputation of four
 // lookup tables of size 2^15, total size 1 MB (which fits comfortably in a
-// typical L2 cache these days), and lets you get away with four table lookups
-// and adds instead of twenty.  These updates are performed N(N-1)/2 times
-// before the tables need to be recalculated, so the precomputation cost is
-// often recouped hundreds or thousands of times over.
+// typical L2 cache these days), and licenses the use of four table lookups and
+// adds instead of twenty.
 //
-// 4. Splitting the distance/relationship matrix into pieces of roughly equal
-// size and assigning one thread to each piece.  This is an "embarrassingly
-// parallel" problem with no need for careful synchronization.  Cluster
-// computing is supported in essentially the same manner.
-//
-// We also note that IBS/zero exponent distance matrices are special cases,
-// reducing to Hamming weight computations plus a bit of dressing to handle
-// missing markers.  Hamming weight computation on x86 CPUs has been studied
-// extensively by others; a good reference as of this writing is
-// http://www.dalkescientific.com/writings/diary/archive/2011/11/02/faster_popcount_update.html .
+// 4. Bitslicing algorithms for especially fast calculation of unweighted
+// distances and SNP covariances.  Zero-exponent distance matrices and IBS
+// matrices are special cases, reducing to Hamming weight computations plus a
+// bit of dressing to handle missing markers.  Hamming weight computation on
+// x86 CPUs has been studied extensively by others; a good reference as of this
+// writing is
+//    http://www.dalkescientific.com/writings/diary/archive/2011/11/02/faster_popcount_update.html .
 // We use a variant of the Kim Walisch/Cedric Lauradoux bitslicing algorithm
 // discussed there (with most 64-bit integer operations replaced by SSE2
 // instructions), which runs several times faster than our corresponding
 // nonzero exponent distance matrix computation.
+//
+// We also reduce SNP covariance calculation (used in LD-based pruning) to
+// a few Hamming weights.
+//
+// 5. Splitting the distance/relationship matrix into pieces of roughly equal
+// size and assigning one thread to each piece.  This is an "embarrassingly
+// parallel" problem with no need for careful synchronization.  Cluster
+// computing is supported in essentially the same manner.
+//
 //
 //
 // In the end, we can't get around the O(MN^2) nature of these calculations,
@@ -3912,6 +3916,50 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
 }
 #endif // NOLAPACK
 
+inline int is_founder(unsigned char* founder_info, int ii) {
+  return ((!founder_info) || ((founder_info[ii / 8]) & (1 << (ii % 8))));
+}
+
+inline void set_founder_info(unsigned char* founder_info, int ii) {
+  founder_info[ii / 8] |= (1 << (ii % 8));
+}
+
+// Okay, okay, I'll finally define a struct.  Yeah, there are like 10 other
+// clusters of variables which I should do this for.
+// All dynamic allocations on "stack" in practice.
+typedef struct {
+  char* family_ids;
+  unsigned int family_id_ct;
+  unsigned int max_family_id_len; // includes trailing null
+  unsigned int* family_info_offsets; // offset for family_info_space lookup
+  unsigned int* family_rel_space_offsets; // offset for rel_space lookup
+  unsigned int* family_sizes; // number of members of family
+
+  // sorted indiv raw IDs (relative file position) within each family
+  int* family_info_space;
+
+  // triangular arrays of pedigree coefficient of relationship
+  double* rel_space;
+} pedigree_rel_info;
+
+int populate_pedigree_rel_info(pedigree_rel_info* pri_ptr, int unfiltered_indiv_ct, char* person_id, int max_person_id_len, char* paternal_id, int max_paternal_id_len, char* maternal_id, int max_maternal_id_len, unsigned char* founder_info) {
+  // 1. Count number of families, max_family_id_len
+  // 2. Allocate space for family_ids, family_info_offsets,
+  //    family_rel_space_offsets, family_sizes, family_info_space
+  // 3. Store family names, count sizes
+  // 4. qsort_ext family_ids, with family_sizes as extra field
+  // 5. Allocate space for rel_space, set family_info_offsets and
+  //    family_rel_space_offsets
+  // 6. For each family:
+  //    a. Identify founders; set bits, pairwise relationships to zero.
+  //    b. Until there's nobody left:
+  //       i. Determine all members of next generation.  (Error out--circular
+  //          relationship--if it's empty yet there are still family members.)
+  //       ii. Relationship between these folks and other
+  //           same/previous-generation folks is a quick function of
+  //           previously-calculated relationships.
+}
+
 int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* map_cols_ptr, int* unfiltered_marker_ct_ptr, int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, int* plink_maxsnp_ptr, unsigned char** marker_exclude_ptr, double** mafs_ptr, int** marker_allele_cts_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, int** marker_chroms_ptr, int* chrom_ct_ptr, unsigned int chrom_mask, unsigned int** marker_pos_ptr, char extractname_0, char excludename_0, char freqname_0, int calculation_type) {
   int marker_ids_needed = (extractname_0 || excludename_0 || freqname_0 || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE)));
   int unfiltered_marker_ct = 0;
@@ -4221,14 +4269,6 @@ double normdist(double zz) {
   z1 = exp(-0.5 * zz * zz) / sqrt2pi;
   p0 = z1 * t0 * (0.31938153 + t0 * (-0.356563782 + t0 * (1.781477937 + t0 * (-1.821255978 + 1.330274429 * t0))));
  return zz >= 0 ? 1 - p0 : p0;
-}
-
-inline int is_founder(unsigned char* founder_info, int ii) {
-  return ((!founder_info) || ((founder_info[ii / 8]) & (1 << (ii % 8))));
-}
-
-inline void set_founder_info(unsigned char* founder_info, int ii) {
-  founder_info[ii / 8] |= (1 << (ii % 8));
 }
 
 int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct, int unfiltered_marker_ct, unsigned char* marker_exclude, int* marker_chroms, int chrom_ct, unsigned int* marker_pos, double* mafs, int unfiltered_indiv_ct, unsigned char* indiv_exclude, char* person_id, int max_person_id_len, char* paternal_id, int max_paternal_id_len, char* maternal_id, int max_maternal_id_len, unsigned char* founder_info, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int nonfounders, int calculation_type, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ppc_gap) {
