@@ -5066,6 +5066,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   int cur_exclude_ct;
   int tot_exclude_ct = 0;
   int prev_end;
+  int at_least_one_prune = 0;
 
   if (ld_window_kb) {
     // determine maximum number of markers that may need to be loaded at once
@@ -5153,96 +5154,100 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    exclude(pruned_arr, live_indices[ii], &cur_exclude_ct);
 	  }
 	}
-        for (ii = 0; ii < cur_window_size - 1; ii++) {
-	  if (is_set(pruned_arr, live_indices[ii])) {
-	    continue;
-	  }
-	  fixed_non_missing_ct = indiv_ct - missing_cts[ii];
-#if __LP64__
-          geno_fixed_vec_ptr = (__m128i*)(&(geno[ii * indiv_ct_mld_long]));
-	  mask_fixed_vec_ptr = (__m128i*)(&(masks[ii * indiv_ct_mld_long]));
-#else
-	  geno_fixed_vec_ptr = &(geno[ii * indiv_ct_mld_long]);
-	  mask_fixed_vec_ptr = &(masks[ii * indiv_ct_mld_long]);
-#endif
-	  jj = ii + 1;
-	  while (live_indices[jj] < start_arr[ii]) {
-	    jj++;
-	    if (jj == cur_window_size) {
-	      break;
-	    }
-	  }
-#if __LP64__
-	  geno_var_vec_ptr = (__m128i*)(&(geno[jj * indiv_ct_mld_long]));
-	  mask_var_vec_ptr = (__m128i*)(&(masks[jj * indiv_ct_mld_long]));
-#else
-	  geno_var_vec_ptr = &(geno[jj * indiv_ct_mld_long]);
-	  mask_var_vec_ptr = &(masks[jj * indiv_ct_mld_long]);
-#endif
-	  for (; jj < cur_window_size; jj++) {
-	    if (is_set(pruned_arr, live_indices[jj])) {
-#if __LP64__
-	      geno_var_vec_ptr = &(geno_var_vec_ptr[indiv_ct_mld_long / 2]);
-	      mask_var_vec_ptr = &(mask_var_vec_ptr[indiv_ct_mld_long / 2]);
-#else
-              geno_var_vec_ptr = &(geno_var_vec_ptr[indiv_ct_mld_long]);
-	      mask_var_vec_ptr = &(mask_var_vec_ptr[indiv_ct_mld_long]);
-#endif
+	do {
+	  at_least_one_prune = 0;
+	  for (ii = 0; ii < cur_window_size - 1; ii++) {
+	    if (is_set(pruned_arr, live_indices[ii])) {
 	      continue;
 	    }
-	    non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit);
-	    dp_result[0] = indiv_ct;
-	    // reversed from what I initially thought because I'm passing the
-            // jj-associated buffers before the ii-associated ones.
-	    dp_result[1] = -fixed_non_missing_ct;
-	    dp_result[2] = missing_cts[jj] - indiv_ct;
+	    fixed_non_missing_ct = indiv_ct - missing_cts[ii];
 #if __LP64__
-	    for (kk = 0; kk < indiv_ct_mld_m1; kk++) {
-	      ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result, MULTIPLEX_LD / 192);
+	    geno_fixed_vec_ptr = (__m128i*)(&(geno[ii * indiv_ct_mld_long]));
+	    mask_fixed_vec_ptr = (__m128i*)(&(masks[ii * indiv_ct_mld_long]));
+#else
+	    geno_fixed_vec_ptr = &(geno[ii * indiv_ct_mld_long]);
+	    mask_fixed_vec_ptr = &(masks[ii * indiv_ct_mld_long]);
+#endif
+	    jj = ii + 1;
+	    while (live_indices[jj] < start_arr[ii]) {
+	      jj++;
+	      if (jj == cur_window_size) {
+		break;
+	      }
+	    }
+#if __LP64__
+	    geno_var_vec_ptr = (__m128i*)(&(geno[jj * indiv_ct_mld_long]));
+	    mask_var_vec_ptr = (__m128i*)(&(masks[jj * indiv_ct_mld_long]));
+#else
+	    geno_var_vec_ptr = &(geno[jj * indiv_ct_mld_long]);
+	    mask_var_vec_ptr = &(masks[jj * indiv_ct_mld_long]);
+#endif
+	    for (; jj < cur_window_size; jj++) {
+	      if (is_set(pruned_arr, live_indices[jj])) {
+#if __LP64__
+		geno_var_vec_ptr = &(geno_var_vec_ptr[indiv_ct_mld_long / 2]);
+		mask_var_vec_ptr = &(mask_var_vec_ptr[indiv_ct_mld_long / 2]);
+#else
+		geno_var_vec_ptr = &(geno_var_vec_ptr[indiv_ct_mld_long]);
+		mask_var_vec_ptr = &(mask_var_vec_ptr[indiv_ct_mld_long]);
+#endif
+		continue;
+	      }
+	      non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit);
+	      dp_result[0] = indiv_ct;
+	      // reversed from what I initially thought because I'm passing the
+	      // jj-associated buffers before the ii-associated ones.
+	      dp_result[1] = -fixed_non_missing_ct;
+	      dp_result[2] = missing_cts[jj] - indiv_ct;
+  #if __LP64__
+	      for (kk = 0; kk < indiv_ct_mld_m1; kk++) {
+		ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result, MULTIPLEX_LD / 192);
+		geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT]);
+		mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT]);
+	      }
+	      ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result, indiv_ct_mld_rem);
 	      geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT]);
 	      mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT]);
-	    }
-	    ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result, indiv_ct_mld_rem);
-	    geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT]);
-	    mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT]);
-#else
-	    for (kk = 0; kk < indiv_ct_mld_m1; kk++) {
-	      ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), dp_result, MULTIPLEX_LD / 48);
+  #else
+	      for (kk = 0; kk < indiv_ct_mld_m1; kk++) {
+		ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), dp_result, MULTIPLEX_LD / 48);
+		geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
+		mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
+	      }
+	      ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), dp_result, indiv_ct_mld_rem);
 	      geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
 	      mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
-	    }
-	    ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), dp_result, indiv_ct_mld_rem);
-	    geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
-	    mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
-#endif
-	    non_missing_recip = 1.0 / ((double)non_missing_ct);
-	    cov12 = non_missing_recip * (dp_result[0] - (non_missing_recip * dp_result[1]) * dp_result[2]);
-	    // r-squared
-            dxx = cov12 / (marker_stdevs[ii] * marker_stdevs[jj]);
-	    if (fabs(dxx) > ld_last_param) {
-              // remove SNP with lower MAF
-              if (true_maf(mafs[live_indices[ii]]) < true_maf(mafs[live_indices[jj]])) {
-		exclude(pruned_arr, live_indices[ii], &cur_exclude_ct);
-	      } else {
-		exclude(pruned_arr, live_indices[jj], &cur_exclude_ct);
-		jj++;
-		while (jj < cur_window_size) {
-		  if (!is_set(pruned_arr, live_indices[jj])) {
-		    break;
-		  }
+  #endif
+	      non_missing_recip = 1.0 / ((double)non_missing_ct);
+	      cov12 = non_missing_recip * (dp_result[0] - (non_missing_recip * dp_result[1]) * dp_result[2]);
+	      // r-squared
+	      dxx = cov12 / (marker_stdevs[ii] * marker_stdevs[jj]);
+	      if (fabs(dxx) > ld_last_param) {
+		at_least_one_prune = 1;
+		// remove SNP with lower MAF
+		if (true_maf(mafs[live_indices[ii]]) < true_maf(mafs[live_indices[jj]])) {
+		  exclude(pruned_arr, live_indices[ii], &cur_exclude_ct);
+		} else {
+		  exclude(pruned_arr, live_indices[jj], &cur_exclude_ct);
 		  jj++;
+		  while (jj < cur_window_size) {
+		    if (!is_set(pruned_arr, live_indices[jj])) {
+		      break;
+		    }
+		    jj++;
+		  }
+		  if (jj < cur_window_size) {
+		    start_arr[ii] = live_indices[jj];
+		  }
 		}
-		if (jj < cur_window_size) {
-		  start_arr[ii] = live_indices[jj];
-		}
+		break;
 	      }
-	      break;
+	    }
+	    if (jj == cur_window_size) {
+	      start_arr[ii] = window_unfiltered_end;
 	    }
 	  }
-	  if (jj == cur_window_size) {
-	    start_arr[ii] = window_unfiltered_end;
-	  }
-        }
+	} while (at_least_one_prune);
       }
       for (ii = 0; ii < ld_window_incr; ii++) {
         while (is_set(marker_exclude, window_unfiltered_start)) {
