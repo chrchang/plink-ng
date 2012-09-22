@@ -27,7 +27,6 @@ int main(int argc, char* argv[]) {
   int PEOPLE;
   int MARKERS;
   char* buf;
-  char* str_end;
   if (argc != 3) {
     help_msg();
     return 1;
@@ -44,27 +43,27 @@ int main(int argc, char* argv[]) {
   FILE* pedfile = fopen("wdist.ped", "wb");
   int ii;
   int jj;
+  int kk;
   int rand2;    // p0 = 0.02, p1 = 0.49, p2 = 0.49 
   int rand50;
   for (ii = 0; ii < MARKERS; ii += 1) {
-    fprintf(mapfile, "1\trs%d\t0\t1000\n", ii);
+    fprintf(mapfile, "1\trs%d\t0\t%d\n", ii, 992+999*rand()%22 -87*rand()%5 +100000);
   }
   fclose(mapfile);
   for (ii = 0; ii < PEOPLE; ii += 1) {
-    str_end = buf;
-    str_end += sprintf(buf, "1 %d 0 0 1 %f ", ii + 1000000000, zscore());
+    sprintf(buf, "1 %d 0 0 1 %f ", ii + 1000000000, zscore());
     for (jj = 0; jj < (MARKERS * 2); jj += 2) {
       rand50 = rand() %50;
       if (rand50 < 1){
         rand2 = 0;}
       else 
         rand2 = rand() %2 +1;
-      str_end += sprintf(str_end, "%d ", rand2);
+      sprintf(&buf[strlen(buf)], "%d ", rand2);
       if (rand2 > 0){
-        str_end += sprintf(str_end, "%d ", rand() %2 +1);
+        sprintf(&buf[strlen(buf)], "%d ", rand() %2 +1);
       }
       else 
-	str_end += sprintf(str_end, "%d ", 0);
+	sprintf(&buf[strlen(buf)], "%d ", 0);
     }
     fprintf(pedfile, "%s \n", buf);
   }
