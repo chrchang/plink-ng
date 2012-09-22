@@ -1,6 +1,11 @@
+<<<<<<< HEAD
 This is pdfTeX, Version 3.1415926-2.4-1.40.13 (TeX Live 2012) (format=pdflatex 2012.9.15)  22 SEP 2012 07:27
+=======
+This is pdfTeX, Version 3.1415926-2.4-1.40.13 (TeX Live 2012) (format=pdflatex 2012.9.11)  21 SEP 2012 21:41
+>>>>>>> Replicant Generator in c
 entering extended mode
- \write18 enabled.
+ restricted \write18 enabled.
+ file:line:error style messages enabled.
  %&-line parsing enabled.
 **wdist.tex
 (./wdist.tex
@@ -572,7 +577,11 @@ type1/urw/helvetic/uhvr8a.pfb></usr/local/texlive/2012/texmf-dist/fonts/type1/u
 rw/helvetic/uhvro8a.pfb></usr/local/texlive/2012/texmf-dist/fonts/type1/urw/tim
 es/utmb8a.pfb></usr/local/texlive/2012/texmf-dist/fonts/type1/urw/times/utmr8a.
 pfb></usr/local/texlive/2012/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
+<<<<<<< HEAD
 Output written on wdist.pdf (3 pages, 158009 bytes).
+=======
+Output written on wdist.pdf (3 pages, 158496 bytes).
+>>>>>>> Replicant Generator in c
 PDF statistics:
  79 PDF objects out of 1000 (max. 8388607)
  57 compressed objects within 1 object stream
