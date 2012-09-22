@@ -43,10 +43,11 @@ int main(int argc, char* argv[]) {
   FILE* pedfile = fopen("wdist.ped", "wb");
   int ii;
   int jj;
+  int kk;
   int rand2;    // p0 = 0.02, p1 = 0.49, p2 = 0.49 
   int rand50;
   for (ii = 0; ii < MARKERS; ii += 1) {
-    fprintf(mapfile, "1\trs%d\t0\t1000\n", ii);
+    fprintf(mapfile, "1\trs%d\t0\t%d\n", ii, 992+999*rand()%22 -87*rand()%5 +100000);
   }
   fclose(mapfile);
   for (ii = 0; ii < PEOPLE; ii += 1) {
