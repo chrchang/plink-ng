@@ -249,9 +249,9 @@
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.10.1 "
+  "WDIST genomic distance calculator, v0.10.2d "
 #else
-  "WDIST genomic distance calculator, v0.10.1L "
+  "WDIST genomic distance calculator, v0.10.2Ld "
 #endif
 #if __LP64__
   "64-bit"
@@ -5673,7 +5673,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       if (!nn) {
         nn = 1;
-        if ((ii == 3) && (jj == 3) && (!memcmp("FID", tbuf, 3)) && (!memcmp("IID", cptr, 3))) {
+        if (((ii == 3) && (jj == 3) && (!memcmp("FID", tbuf, 3)) && (!memcmp("IID", cptr, 3))) || phenoname_str) {
           pheno_line_ct = -1;
           if (phenoname_str) {
             jj = strlen(phenoname_str);
@@ -5688,9 +5688,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
             } while ((ii != jj) || memcmp(cptr, phenoname_str, ii));
             phenoname_str = NULL;
           }
-        } else if (phenoname_str) {
-          printf("Error: No header row in phenotype file.\n");
-          goto wdist_ret_INVALID_FORMAT;
         }
         if (!mpheno_col) {
           mpheno_col = 1;
