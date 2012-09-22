@@ -249,16 +249,16 @@
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.10.0 "
+  "WDIST genomic distance calculator, v0.10.1 "
 #else
-  "WDIST genomic distance calculator, v0.10.0L "
+  "WDIST genomic distance calculator, v0.10.1L "
 #endif
 #if __LP64__
   "64-bit"
 #else
   "32-bit"
 #endif
-  " (21 September 2012)\n"
+  " (22 September 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
@@ -5246,10 +5246,10 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
       }
       for (ii = 0; ii < ld_window_incr; ii++) {
         while (is_set(marker_exclude, window_unfiltered_start)) {
-	  window_unfiltered_start++;
 	  if (window_unfiltered_start == chrom_end) {
 	    break;
 	  }
+	  window_unfiltered_start++;
 	}
 	if (window_unfiltered_start == chrom_end) {
 	  break;
