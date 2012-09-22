@@ -5175,24 +5175,18 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 		break;
 	      }
 	    }
-#if __LP64__
-	    geno_var_vec_ptr = (__m128i*)(&(geno[jj * indiv_ct_mld_long]));
-	    mask_var_vec_ptr = (__m128i*)(&(masks[jj * indiv_ct_mld_long]));
-#else
-	    geno_var_vec_ptr = &(geno[jj * indiv_ct_mld_long]);
-	    mask_var_vec_ptr = &(masks[jj * indiv_ct_mld_long]);
-#endif
 	    for (; jj < cur_window_size; jj++) {
 	      if (is_set(pruned_arr, live_indices[jj])) {
-#if __LP64__
-		geno_var_vec_ptr = &(geno_var_vec_ptr[indiv_ct_mld_long / 2]);
-		mask_var_vec_ptr = &(mask_var_vec_ptr[indiv_ct_mld_long / 2]);
-#else
-		geno_var_vec_ptr = &(geno_var_vec_ptr[indiv_ct_mld_long]);
-		mask_var_vec_ptr = &(mask_var_vec_ptr[indiv_ct_mld_long]);
-#endif
 		continue;
 	      }
+#if __LP64__
+	      geno_var_vec_ptr = (__m128i*)(&(geno[jj * indiv_ct_mld_long]));
+	      mask_var_vec_ptr = (__m128i*)(&(masks[jj * indiv_ct_mld_long]));
+#else
+	      geno_var_vec_ptr = &(geno[jj * indiv_ct_mld_long]);
+	      mask_var_vec_ptr = &(masks[jj * indiv_ct_mld_long]);
+#endif
+
 	      non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit);
 	      dp_result[0] = indiv_ct;
 	      // reversed from what I initially thought because I'm passing the
