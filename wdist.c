@@ -4976,31 +4976,36 @@ int ld_prune_next_valid_chrom_start(unsigned char* marker_exclude, int cur_idx, 
   return cur_idx;
 }
 
-void ld_prune_start_chrom(int ld_window_kb, int* cur_chrom_ptr, int* chrom_end_ptr, int window_unfiltered_start, unsigned int* live_indices, unsigned int* start_arr, int* window_unfiltered_end_ptr, int ld_window_size, int* cur_window_size_ptr, int unfiltered_marker_ct, unsigned char* marker_exclude, int* marker_chroms, int chrom_ct) {
+void ld_prune_start_chrom(int ld_window_kb, int* cur_chrom_ptr, int* chrom_end_ptr, int window_unfiltered_start, unsigned int* live_indices, unsigned int* start_arr, int* window_unfiltered_end_ptr, int ld_window_size, int* cur_window_size_ptr, int unfiltered_marker_ct, unsigned char* marker_exclude, int* marker_chroms, int chrom_ct, unsigned int* marker_pos) {
   int cur_chrom = get_marker_chrom(marker_chroms, chrom_ct, window_unfiltered_start);
   int window_unfiltered_end = window_unfiltered_start + 1;
   int chrom_end = marker_chroms[2 * cur_chrom + 1];
   int ii = 0;
+  int window_size;
   live_indices[0] = window_unfiltered_start;
   if (ld_window_kb) {
-    // todo
+    window_size = 0;
+    while ((window_unfiltered_start + window_size < chrom_end) && (marker_pos[window_unfiltered_start + window_size] <= marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
+      window_size++;
+    }
   } else {
-    for (ii = 1; ii < ld_window_size; ii++) {
-      while (is_set(marker_exclude, window_unfiltered_end)) {
-	window_unfiltered_end++;
-	if (window_unfiltered_end == chrom_end) {
-	  break;
-	}
-      }
+    window_size = ld_window_size;
+  }
+  for (ii = 1; ii < window_size; ii++) {
+    while (is_set(marker_exclude, window_unfiltered_end)) {
+      window_unfiltered_end++;
       if (window_unfiltered_end == chrom_end) {
 	break;
       }
-      start_arr[ii - 1] = window_unfiltered_end;
-      live_indices[ii] = window_unfiltered_end;
-      window_unfiltered_end++;
     }
-    *cur_window_size_ptr = ii;
+    if (window_unfiltered_end == chrom_end) {
+      break;
+    }
+    start_arr[ii - 1] = window_unfiltered_end;
+    live_indices[ii] = window_unfiltered_end;
+    window_unfiltered_end++;
   }
+  *cur_window_size_ptr = ii;
   start_arr[ii - 1] = window_unfiltered_end;
   *cur_chrom_ptr = cur_chrom;
   *chrom_end_ptr = chrom_end;
@@ -5086,7 +5091,8 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	} while (jj < marker_chroms[cur_chrom * 2 + 1]);
       }
     }
-  } else {
+  }
+  if (pairwise) {
     ld_last_param = sqrt(ld_last_param);
   }
 
@@ -5137,7 +5143,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   }
   do {
     prev_end = 0;
-    ld_prune_start_chrom(ld_window_kb, &cur_chrom, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, marker_chroms, chrom_ct);
+    ld_prune_start_chrom(ld_window_kb, &cur_chrom, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, marker_chroms, chrom_ct, marker_pos);
     if (cur_window_size > 1) {
       for (ulii = 0; ulii < cur_window_size; ulii++) {
 	fseeko(bedfile, bed_offset + (live_indices[ulii] * unfiltered_indiv_ct4), SEEK_SET);
@@ -5196,7 +5202,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	      // jj-associated buffers before the ii-associated ones.
 	      dp_result[1] = -fixed_non_missing_ct;
 	      dp_result[2] = missing_cts[jj] - indiv_ct;
-  #if __LP64__
+#if __LP64__
 	      for (kk = 0; kk < indiv_ct_mld_m1; kk++) {
 		ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result, MULTIPLEX_LD / 192);
 		geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT]);
@@ -5205,7 +5211,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	      ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result, indiv_ct_mld_rem);
 	      geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT]);
 	      mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT]);
-  #else
+#else
 	      for (kk = 0; kk < indiv_ct_mld_m1; kk++) {
 		ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), dp_result, MULTIPLEX_LD / 48);
 		geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
@@ -5214,7 +5220,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	      ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT2)]), dp_result, indiv_ct_mld_rem);
 	      geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
 	      mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
-  #endif
+#endif
 	      non_missing_recip = 1.0 / ((double)non_missing_ct);
 	      cov12 = non_missing_recip * (dp_result[0] - (non_missing_recip * dp_result[1]) * dp_result[2]);
 	      // r-squared
@@ -5271,7 +5277,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
       // copy back previously loaded/computed results
       while (live_indices[jj] < window_unfiltered_start) {
 	jj++;
-	if ((!ld_window_kb) && (jj == ld_window_size)) {
+	if (jj == cur_window_size) {
 	  break;
 	}
       }
@@ -5292,29 +5298,33 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
       prev_end = ii;
       cur_window_size = ii;
       if (ld_window_kb) {
-	// todo
+	jj = 0;
+	while ((window_unfiltered_end + jj < chrom_end) && (marker_pos[window_unfiltered_end + jj] <= marker_pos[window_unfiltered_start] + (1000 * ld_window_size))) {
+	  jj++;
+	}
       } else {
-	for (ii = 0; ii < ld_window_incr; ii++) {
-	  while ((window_unfiltered_end < chrom_end) && is_set(marker_exclude, window_unfiltered_end)) {
-	    window_unfiltered_end++;
-	  }
-	  if (window_unfiltered_end < chrom_end) {
-	    live_indices[cur_window_size] = window_unfiltered_end;
-	    if (cur_window_size > prev_end) {
-	      start_arr[cur_window_size - 1] = window_unfiltered_end;
-	    }
-	    fseeko(bedfile, bed_offset + (window_unfiltered_end * unfiltered_indiv_ct4), SEEK_SET);
-	    if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
-	      goto ld_prune_ret_READ_FAIL;
-	    }
-	    missing_cts[cur_window_size] = ld_process_load(loadbuf, &(geno[cur_window_size * indiv_ct_mld_long]), &(masks[cur_window_size * indiv_ct_mld_long]), &(mmasks[cur_window_size * indiv_ctbit]), &(marker_stdevs[cur_window_size]), unfiltered_indiv_ct, indiv_exclude, indiv_ct, indiv_ctbit, indiv_trail_ct);
-	    cur_window_size++;
-	    window_unfiltered_end++;
-	  }
+        jj = ld_window_incr;
+      }
+      for (ii = 0; ii < jj; ii++) {
+	while ((window_unfiltered_end < chrom_end) && is_set(marker_exclude, window_unfiltered_end)) {
+	  window_unfiltered_end++;
 	}
-	if (cur_window_size > prev_end) {
-	  start_arr[cur_window_size] = window_unfiltered_end;
+	if (window_unfiltered_end < chrom_end) {
+	  live_indices[cur_window_size] = window_unfiltered_end;
+	  if (cur_window_size > prev_end) {
+	    start_arr[cur_window_size - 1] = window_unfiltered_end;
+	  }
+	  fseeko(bedfile, bed_offset + (window_unfiltered_end * unfiltered_indiv_ct4), SEEK_SET);
+	  if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	    goto ld_prune_ret_READ_FAIL;
+	  }
+	  missing_cts[cur_window_size] = ld_process_load(loadbuf, &(geno[cur_window_size * indiv_ct_mld_long]), &(masks[cur_window_size * indiv_ct_mld_long]), &(mmasks[cur_window_size * indiv_ctbit]), &(marker_stdevs[cur_window_size]), unfiltered_indiv_ct, indiv_exclude, indiv_ct, indiv_ctbit, indiv_trail_ct);
+	  cur_window_size++;
+	  window_unfiltered_end++;
 	}
+      }
+      if (cur_window_size > prev_end) {
+	start_arr[cur_window_size] = window_unfiltered_end;
       }
     }
     ii = get_marker_chrom(marker_chroms, chrom_ct, window_unfiltered_start - 1);
