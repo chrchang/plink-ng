@@ -13,7 +13,7 @@ double drand()   /* just a uniform distribution for zscore, (0..1] */
   return (rand()+1.0)/(RAND_MAX+1.0);
 }
 
-double zscore()  /* normal distribution, mean 0, sd 1 */
+double zscore()  /* normal distribution, mean 0, sd 1 - can make non-zscore if needed */
 {
   return sqrt(-2*log(drand())) * cos(2*M_PI*drand());
 }
@@ -45,15 +45,26 @@ int main(int argc, char* argv[]) {
   FILE* pedfile = fopen("wdist.ped", "wb");
   int ii;
   int jj;
-  int randInt;
+  int rand2;    // p0 = 0.02, p1 = 0.49, p2 = 0.49 
+  int rand50;
   for (ii = 0; ii < MARKERS; ii += 1) {
     fprintf(mapfile, "1\trs%d\t0\t1000\n", ii);
   }
   fclose(mapfile);
   for (ii = 0; ii < PEOPLE; ii += 1) {
     sprintf(buf, "1 %d 0 0 1 %f ", ii + 1000000000, zscore());
-    for (jj = 0; jj < (MARKERS * 2); jj += 1) {
-      sprintf(&buf[strlen(buf)], "%d ", randInt = rand() %2 + 1); 
+    for (jj = 0; jj < (MARKERS * 2); jj += 2) {
+      rand50 = rand() %50;
+      if (rand50 < 1){
+        rand2 = 0;}
+      else 
+        rand2 = rand() %2 +1;
+      sprintf(&buf[strlen(buf)], "%d ", rand2);
+      if (rand2 > 0){
+        sprintf(&buf[strlen(buf)], "%d ", rand() %2 +1);
+      }
+      else 
+	sprintf(&buf[strlen(buf)], "%d ", 0);
     }
     fprintf(pedfile, "%s \n", buf);
   }
