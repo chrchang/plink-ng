@@ -1,6 +1,7 @@
-This is pdfTeX, Version 3.1415926-2.4-1.40.13 (TeX Live 2012) (format=pdflatex 2012.9.15)  22 SEP 2012 12:25
+This is pdfTeX, Version 3.1415926-2.4-1.40.13 (TeX Live 2012) (format=pdflatex 2012.9.11)  22 SEP 2012 21:17
 entering extended mode
- \write18 enabled.
+ restricted \write18 enabled.
+ file:line:error style messages enabled.
  %&-line parsing enabled.
 **wdist.tex
 (./wdist.tex
@@ -405,13 +406,13 @@ Underfull \hbox (badness 2142) in paragraph at lines 46--47
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <8> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 55.
 
-Underfull \hbox (badness 3000) in paragraph at lines 72--73
-\OT1/ptm/m/n/9 with respect to (1) a simulated dataset consisting of 1000
+Overfull \hbox (3.65623pt too wide) in paragraph at lines 57--67
+ [] 
  []
 
 
-Underfull \hbox (badness 1072) in paragraph at lines 72--73
-\OT1/ptm/m/n/9 individuals and 100,000 makers with minor allele frequencies
+Underfull \hbox (badness 3000) in paragraph at lines 72--73
+\OT1/ptm/m/n/9 with respect to (1) a simulated dataset consisting of 1000
  []
 
 
@@ -423,11 +424,6 @@ Underfull \hbox (badness 1097) in paragraph at lines 72--73
 Overfull \hbox (3.04268pt too wide) in paragraph at lines 82--84
 []\OT1/ptm/m/n/9 Adopting the mean IBS as the metric, we can use multidimension
 al
- []
-
-
-Underfull \hbox (badness 1448) in paragraph at lines 82--84
-\OT1/ptm/m/n/9 scaling to force each sample member into a space of given
  []
 
 LaTeX Font Info:    Try loading font information for OML+ptm on input line 85.
@@ -449,6 +445,14 @@ LaTeX Font Info:    Font shape `OMS/phv/m/n' in size <7> not available
 
 
 ]
+LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <9> not available
+(Font)              Font shape `OT1/ptm/b/n' tried instead on input line 89.
+
+
+Package natbib Warning: Citation `stahl2012' on page 2 undefined on input line 
+89.
+
+
 Underfull \hbox (badness 5345) in paragraph at lines 107--108
 \OT1/ptm/m/n/9 Perhaps the most important recent development in human
  []
@@ -479,8 +483,6 @@ Underfull \hbox (badness 2351) in paragraph at lines 120--125
  by the
  []
 
-LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <9> not available
-(Font)              Font shape `OT1/ptm/b/n' tried instead on input line 134.
 LaTeX Font Info:    Font shape `OT1/phv/bx/it' in size <8> not available
 (Font)              Font shape `OT1/phv/b/it' tried instead on input line 146.
 LaTeX Font Info:    Font shape `OT1/phv/b/it' in size <8> not available
@@ -528,20 +530,28 @@ Overfull \vbox (1.0pt too high) has occurred while \output is active []
  [3
 
 ]
-(./wdist.aux)
+
+Package natbib Warning: There were undefined citations.
+
+(./wdist.aux
+
+Package natbib Warning: Citation(s) may have changed.
+(natbib)                Rerun to get citations correct.
+
+)
 
 LaTeX Font Warning: Size substitutions with differences
 (Font)              up to 1.0pt have occurred.
 
  ) 
 Here is how much of TeX's memory you used:
- 3406 strings out of 493488
- 44907 string characters out of 3141326
- 111603 words of memory out of 3000000
- 6610 multiletter control sequences out of 15000+200000
+ 3408 strings out of 493488
+ 44933 string characters out of 3141326
+ 111641 words of memory out of 3000000
+ 6612 multiletter control sequences out of 15000+200000
  45691 words of font info for 97 fonts, out of 3000000 for 9000
  961 hyphenation exceptions out of 8191
- 38i,11n,26p,652b,291s stack positions out of 5000i,500n,10000p,200000b,50000s
+ 38i,11n,26p,652b,294s stack positions out of 5000i,500n,10000p,200000b,50000s
 {/usr/local/texlive/2012/texmf-dist/fonts/enc/dvips/base/8r.enc}</usr/local/t
 exlive/2012/texmf-dist/fonts/type1/public/amsfonts/cmextra/cmex9.pfb></usr/loca
 l/texlive/2012/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></usr/local/
@@ -558,7 +568,7 @@ type1/urw/helvetic/uhvr8a.pfb></usr/local/texlive/2012/texmf-dist/fonts/type1/u
 rw/helvetic/uhvro8a.pfb></usr/local/texlive/2012/texmf-dist/fonts/type1/urw/tim
 es/utmb8a.pfb></usr/local/texlive/2012/texmf-dist/fonts/type1/urw/times/utmr8a.
 pfb></usr/local/texlive/2012/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
-Output written on wdist.pdf (3 pages, 157486 bytes).
+Output written on wdist.pdf (3 pages, 158049 bytes).
 PDF statistics:
  79 PDF objects out of 1000 (max. 8388607)
  57 compressed objects within 1 object stream
