@@ -262,7 +262,7 @@ const char ver_str[] =
 #else
   "32-bit"
 #endif
-  " (22 September 2012)\n"
+  " (23 September 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
@@ -2348,7 +2348,7 @@ static inline unsigned int popcount_xor_1mask_multiword(unsigned long** xor1p, u
   // multiply and right shift, this is no longer true.  Ah well.
   unsigned long* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
   unsigned int bit_count = 0;
-  unsigned int tmp_stor;
+  unsigned long tmp_stor;
   unsigned long loader;
   unsigned long ulii;
   unsigned long uljj;
@@ -2386,7 +2386,7 @@ static inline unsigned int popcount_xor_1mask_multiword(unsigned long** xor1p, u
 static inline unsigned int popcount_xor_2mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** mask1p, unsigned long* mask2) {
   unsigned long* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
   unsigned int bit_count = 0;
-  unsigned int tmp_stor;
+  unsigned long tmp_stor;
   unsigned long loader;
   unsigned long ulii;
   unsigned long uljj;
@@ -3933,7 +3933,8 @@ typedef struct {
   unsigned int max_family_id_len; // includes trailing null
   unsigned int* family_info_offsets; // offset for family_info_space lookup
   unsigned int* family_rel_space_offsets; // offset for rel_space lookup
-  unsigned int* family_sizes; // number of members of family
+  unsigned int* family_founder_cts;
+  unsigned int* family_nonfounder_cts;
 
   // sorted indiv raw IDs (relative file position) within each family
   int* family_info_space;
@@ -3945,19 +3946,18 @@ typedef struct {
 int populate_pedigree_rel_info(pedigree_rel_info* pri_ptr, int unfiltered_indiv_ct, char* person_id, int max_person_id_len, char* paternal_id, int max_paternal_id_len, char* maternal_id, int max_maternal_id_len, unsigned char* founder_info) {
   // 1. Count number of families, max_family_id_len
   // 2. Allocate space for family_ids, family_info_offsets,
-  //    family_rel_space_offsets, family_sizes, family_info_space
+  //    family_rel_space_offsets, family_founder_cts, family_nonfounder_cts,
+  //    family_info_space
   // 3. Store family names, count sizes
   // 4. qsort_ext family_ids, with family_sizes as extra field
   // 5. Allocate space for rel_space, set family_info_offsets and
   //    family_rel_space_offsets
-  // 6. For each family:
-  //    a. Identify founders; set bits, pairwise relationships to zero.
-  //    b. Until there's nobody left:
-  //       i. Determine all members of next generation.  (Error out--circular
-  //          relationship--if it's empty yet there are still family members.)
-  //       ii. Relationship between these folks and other
-  //           same/previous-generation folks is a quick function of
-  //           previously-calculated relationships.
+  // 6. For each family, until there's nobody left:
+  //    a. Determine all members of next generation.  (Error out--circular
+  //       relationship--if it's empty yet there are still family members.)
+  //    b. Relationship between these folks and other same/previous-generation
+  //       folks is a quick function of previously-calculated relationships.
+  return 0;
 }
 
 int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* map_cols_ptr, int* unfiltered_marker_ct_ptr, int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, int* plink_maxsnp_ptr, unsigned char** marker_exclude_ptr, double** mafs_ptr, int** marker_allele_cts_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, int** marker_chroms_ptr, int* chrom_ct_ptr, unsigned int chrom_mask, unsigned int** marker_pos_ptr, char extractname_0, char excludename_0, char freqname_0, int calculation_type) {
@@ -5871,6 +5871,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     fclose_null(&phenofile);
   }
+  if (pheno_line_ct >= 5) {
+    printf("Debug info:\n");
+    printf("max_pid_len: %d\n", max_pid_len);
+    printf("pheno_line_ct: %d\n", pheno_line_ct);
+    printf("First five entries:\n");
+    for (jj = 0; jj < 5; jj++) {
+      printf("%s (length %ld)\n", &(pid_list[jj * max_pid_len]), strlen(&(pid_list[jj * max_pid_len])));
+    }
+  }
 
   if (extractname[0] || excludename[0]) {
     wkspace_mark = wkspace_base;
@@ -6051,6 +6060,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   mind_int_thresh = (int)(mind_thresh * (unfiltered_marker_ct - marker_exclude_ct));
   if (binary_files) {
     nn = 0; // number of people that pass initial filter
+    int debug_prints = 0;
+    printf("\nFirst five .fam lines:\n");
     // ----- .fam load, first pass -----
     while (fgets(tbuf, MAXLINELEN, famfile) != NULL) {
       if (tbuf[0] > ' ') {
@@ -6086,6 +6097,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    }
 	  }
           if (phenoname[0]) {
+	    if (debug_prints < 5) {
+	      printf("(%d hits so far) %s", nn, tbuf);
+	      debug_prints++;
+	    }
             if (ii) {
 	      if (makepheno_str || (!prune)) {
 		line_locs[nn++] = unfiltered_indiv_ct;
