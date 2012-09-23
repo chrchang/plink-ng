@@ -2251,7 +2251,6 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m
   // input vectors.
 
   const __m128i m1 = {FIVEMASK, FIVEMASK};
-  const __m128i mn1 = {AAAAMASK, AAAAMASK};
   const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
   __m128i loader1;
@@ -2276,7 +2275,8 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m
     sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
     sum1 = _mm_and_si128(sum1, loader1);
     sum2 = _mm_and_si128(sum2, loader2);
-    loader1 = _mm_and_si128(_mm_xor_si128(loader1, loader2), _mm_sub_epi64(mn1, sum12));
+    // use andnot to eliminate need for 0xaaaa... to occupy an xmm register
+    loader1 = _mm_andnot_si128(_mm_add_epi64(m1, sum12), _mm_xor_si128(loader1, loader2));
     sum12 = _mm_or_si128(sum12, loader1);
 
     // sum1, sum2, and sum12 now store the (biased) two-bit sums of
@@ -2292,7 +2292,7 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m
     tmp_sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
     tmp_sum1 = _mm_and_si128(tmp_sum1, loader1);
     tmp_sum2 = _mm_and_si128(tmp_sum2, loader2);
-    loader1 = _mm_and_si128(_mm_xor_si128(loader1, loader2), _mm_sub_epi64(mn1, tmp_sum12));
+    loader1 = _mm_andnot_si128(_mm_add_epi64(m1, tmp_sum12), _mm_xor_si128(loader1, loader2));
     tmp_sum12 = _mm_or_si128(loader1, tmp_sum12);
 
     sum1 = _mm_add_epi64(sum1, _mm_add_epi64(_mm_and_si128(tmp_sum1, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum1, 2), m2)));
@@ -2306,7 +2306,7 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m
     tmp_sum12 = _mm_and_si128(_mm_or_si128(loader1, loader2), m1);
     tmp_sum1 = _mm_and_si128(tmp_sum1, loader1);
     tmp_sum2 = _mm_and_si128(tmp_sum2, loader2);
-    loader1 = _mm_and_si128(_mm_xor_si128(loader1, loader2), _mm_sub_epi64(mn1, tmp_sum12));
+    loader1 = _mm_andnot_si128(_mm_add_epi64(m1, tmp_sum12), _mm_xor_si128(loader1, loader2));
     tmp_sum12 = _mm_or_si128(loader1, tmp_sum12);
 
     sum1 = _mm_add_epi64(sum1, _mm_add_epi64(_mm_and_si128(tmp_sum1, m2), _mm_and_si128(_mm_srli_epi64(tmp_sum1, 2), m2)));
@@ -3952,11 +3952,23 @@ int populate_pedigree_rel_info(pedigree_rel_info* pri_ptr, int unfiltered_indiv_
   // 4. qsort_ext family_ids, with family_sizes as extra field
   // 5. Allocate space for rel_space, set family_info_offsets and
   //    family_rel_space_offsets
-  // 6. For each family, until there's nobody left:
-  //    a. Determine all members of next generation.  (Error out--circular
-  //       relationship--if it's empty yet there are still family members.)
-  //    b. Relationship between these folks and other same/previous-generation
-  //       folks is a quick function of previously-calculated relationships.
+  // 6. For each family,
+  //    a. Identify parents who are referred to by individual ID, but are NOT
+  //       in the dataset.  Designate temporary space to store their
+  //       relationship coefficients.
+  //    b. Then, if there are empty pedigree relationship matrix entries, loop
+  //       through the unhandled individuals in index order:
+  //        i. If both parents of unhandled individual A have been handled
+  //           (not-in-dataset parents are handled by step (6a)), use the
+  //           formula
+  //             rel(A, B) = 0.5rel(A_{father}, B) + 0.5rel(A_{mother}, B)
+  //           to calculate relationships with all previously-handled
+  //           individuals B.
+  //       ii. If a full loop iteration occurs without handling any more
+  //           individuals, error out (circulal relationship present, warn
+  //           researcher to check for evidence of time travel).
+  unsigned char* wkspace_mark;
+  wkspace_mark = wkspace_base;
   return 0;
 }
 
@@ -6061,7 +6073,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   if (binary_files) {
     nn = 0; // number of people that pass initial filter
     int debug_prints = 0;
-    printf("\nFirst five .fam lines:\n");
+    if (phenoname[0]) {
+      printf("\nFirst five .fam lines:\n");
+    }
     // ----- .fam load, first pass -----
     while (fgets(tbuf, MAXLINELEN, famfile) != NULL) {
       if (tbuf[0] > ' ') {
