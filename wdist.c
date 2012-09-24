@@ -390,7 +390,6 @@ inline int wkspace_alloc_d_checked(double** dp_ptr, unsigned long size) {
   return 0;
 }
 
-
 void wkspace_reset(void* new_base) {
   unsigned long freed_bytes = wkspace_base - (unsigned char*)new_base;
   wkspace_base = (unsigned char*)new_base;
@@ -4258,6 +4257,7 @@ int distance_open_gz(gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz
   return 0;
 }
 
+// notify user what output is, and where it is output to
 void distance_print_done(int format_code, char* outname, char* outname_end) {
   if (!format_code) {
     strcpy(outname_end, tbuf);
@@ -8182,7 +8182,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	//
 	// 2. Next, compute
 	//    mask_i := ((g_i | (g_i >> 1)) & 01) * 11
-	// which is 00 whenever g_i is missing, and 11 otherwise.
+	//    which is 00 whenever g_i is missing, and 11 otherwise.
 	//
 	// 3. Then, (g_j ^ g_k) & (mask_j & mask_k) distinguishes the
 	// possible distances between the genotypes:
@@ -8198,9 +8198,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	//
 	// 4. Finally, we perform the update
 	//    A_{jk} := A_{jk} + f_0(x_0) + f_1(x_1) + ... + f_31(x_31)
-	// in the nonzero exponent case, or
+	//    in the nonzero exponent case, or
 	//    A_{jk} := A_{jk} + f(x_0) + f(x_1) + ... + f(x_959)
-	// in the zero exponent case.
+	//    in the zero exponent case.
 	//
 	// For nonzero exponents, we structure the update as
 	//    A_{jk} := A_{jk} + f_{0-6}(x_{0-6}) + f_{7-13}(x_{7-13}) +
@@ -11032,11 +11032,11 @@ int main(int argc, char** argv) {
   }
   init_genrand(rseed);
 
-  // famname[0] indicates binary vs. text
+  // famname[0] indicates binary vs. text.
   // extractname[0], excludename[0], keepname[0], and removename[0] indicate
-  // the presence of their respective flags
-  // filtername[0] indicates existence of filter
-  // freqname[0] signals --read-freq
+  // the presence of their respective flags.
+  // filtername[0] indicates existence of filter.
+  // freqname[0] signals --read-freq.
   retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, makepheno_str, filterval, mfilter_col, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, chrom_mask, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ);
   free(wkspace_ua);
   return dispmsg(retval);
