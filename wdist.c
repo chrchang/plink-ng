@@ -253,16 +253,16 @@
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.10.2d "
+  "WDIST genomic distance calculator, v0.10.2 "
 #else
-  "WDIST genomic distance calculator, v0.10.2Ld "
+  "WDIST genomic distance calculator, v0.10.2L "
 #endif
 #if __LP64__
   "64-bit"
 #else
   "32-bit"
 #endif
-  " (23 September 2012)\n"
+  " (28 September 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
@@ -3995,7 +3995,6 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
   int mm;
   int nn;
   int oo;
-  int pp;
   long long llii;
   char* family_ids;
   char* cur_person_id;
@@ -4082,43 +4081,46 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
       *uiptr += 1;
     }
   }
-  if (qsort_ext(cur_person_id, unfiltered_indiv_ct, max_person_id_len, strcmp_deref, (char*)family_sizes, sizeof(int))) {
+  if (qsort_ext(family_ids, uiptr + 1 - family_sizes, max_family_id_len, strcmp_deref, (char*)family_sizes, sizeof(int))) {
     return RET_NOMEM;
   }
-
-  uiptr = family_sizes;
   last_family_id = family_ids;
   cur_family_id = &(family_ids[max_family_id_len]);
   family_id_ct = 1;
-  while (strcmp(cur_family_id, last_family_id)) {
-    family_id_ct++;
-    uiptr++;
-    if (family_id_ct == unfiltered_indiv_ct) {
-      break;
-    }
-    last_family_id = cur_family_id;
-    cur_family_id = &(cur_family_id[max_family_id_len]);
-  }
-  jj = family_id_ct + 1; // read idx
-  uiptr2 = uiptr; // family_sizes read pointer
-  *uiptr += *(++uiptr2);
-  cur_family_id = &(cur_family_id[max_family_id_len]); // read pointer
-  while (jj < unfiltered_indiv_ct) {
-    while (!strcmp(cur_family_id, last_family_id)) {
-      *uiptr += *(++uiptr2);
-      jj++;
-      if (jj == unfiltered_indiv_ct) {
+  if (uiptr != family_sizes) {
+    uiptr = family_sizes;
+    while (strcmp(cur_family_id, last_family_id)) {
+      family_id_ct++;
+      uiptr++;
+      if (family_id_ct == unfiltered_indiv_ct) {
 	break;
       }
+      last_family_id = cur_family_id;
       cur_family_id = &(cur_family_id[max_family_id_len]);
     }
+    jj = family_id_ct + 1; // read idx
     if (jj < unfiltered_indiv_ct) {
-      *(++uiptr) = *(++uiptr2);
-      last_family_id = &(last_family_id[max_family_id_len]);
-      strcpy(last_family_id, cur_family_id);
-      family_id_ct++;
-      jj++;
-      cur_family_id = &(cur_family_id[max_family_id_len]);
+      uiptr2 = uiptr; // family_sizes read pointer
+      *uiptr += *(++uiptr2);
+      cur_family_id = &(cur_family_id[max_family_id_len]); // read pointer
+    }
+    while (jj < unfiltered_indiv_ct) {
+      while (!strcmp(cur_family_id, last_family_id)) {
+	*uiptr += *(++uiptr2);
+	jj++;
+	if (jj == unfiltered_indiv_ct) {
+	  break;
+	}
+	cur_family_id = &(cur_family_id[max_family_id_len]);
+      }
+      if (jj < unfiltered_indiv_ct) {
+	*(++uiptr) = *(++uiptr2);
+	last_family_id = &(last_family_id[max_family_id_len]);
+	strcpy(last_family_id, cur_family_id);
+	family_id_ct++;
+	jj++;
+	cur_family_id = &(cur_family_id[max_family_id_len]);
+      }
     }
   }
 
@@ -4176,7 +4178,6 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
     cur_person_id = &(cur_person_id[max_person_id_len]);
   }
   wkspace_reset(uiptr);
-
   jj = 0; // running rel_space offset
   for (fidx = 0; fidx < family_id_ct; fidx++) {
     family_size = pri_ptr->family_sizes[fidx];
@@ -4309,6 +4310,10 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
 	}
         remaining_indiv_idxs[jj] = kk;
       }
+      while (ii < family_size) {
+	complete_indiv_idxs[complete_indiv_idx_ct++] = fis_ptr[ii];
+	ii++;
+      }
       qsort(stray_parent_ids, stray_parent_ct, max_pm_id_len, strcmp_casted);
       cur_person_id = stray_parent_ids;
       ii = 0; // read idx
@@ -4357,7 +4362,6 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
 	  remaining_indiv_parent_idxs[ii * 2 + 1] = kk;
 	}
       }
-
       llii = (long long)founder_ct * (founder_ct - 1);
       while (remaining_indiv_ct) {
 	indiv_idx_write = 0;
@@ -4367,20 +4371,24 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
 	  jj = remaining_indiv_idxs[ii];
 	  if (is_set(processed_indivs, kk) && is_set(processed_indivs, mm)) {
 	    for (nn = 0; nn < founder_ct; nn++) {
+	      // relationship between kk and nnth founder
 	      if ((kk >= unfiltered_indiv_ct) || (kk == -1)) {
 		dxx = 0.0;
-	      } else if (kk == complete_indiv_idxs[nn]) {
-		dxx = 0.5;
+	      } else if (is_set(founder_info, kk)) {
+		if (kk == complete_indiv_idxs[nn]) {
+		  dxx = 0.5;
+		} else {
+		  dxx = 0.0;
+		}
 	      } else {
 		oo = pri_ptr->family_rel_nf_idxs[kk];
-		// relationship between kk and nnth founder
-                dxx = 0.5 * rs_ptr[((long long)oo * (oo - 1) + nn - llii) / 2];
+                dxx = 0.5 * rs_ptr[((long long)oo * (oo - 1) - llii) / 2 + nn];
 	      }
 	      if (mm == complete_indiv_idxs[nn]) {
 		dxx += 0.5;
-	      } else if ((mm != -1) && (mm < unfiltered_indiv_ct)) {
+	      } else if ((mm != -1) && (mm < unfiltered_indiv_ct) && (!is_set(founder_info, mm))) {
 		oo = pri_ptr->family_rel_nf_idxs[mm];
-		dxx += 0.5 * rs_ptr[((long long)oo * (oo - 1) + nn - llii) / 2];
+		dxx += 0.5 * rs_ptr[((long long)oo * (oo - 1) - llii) / 2 + nn];
 	      }
 	      *rel_writer++ = dxx;
 	    }
@@ -4389,30 +4397,26 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
 		dxx = 0.0;
 	      } else if (kk >= unfiltered_indiv_ct) {
 		dxx = 0.5 * tmp_rel_space[(nn - founder_ct) * stray_parent_ct + kk - unfiltered_indiv_ct8m];
-	      } else if (kk == complete_indiv_idxs[nn]) {
-		dxx = 0.5;
+	      } else if (is_set(founder_info, kk)) {
+                dxx = 0.5 * rs_ptr[((long long)nn * (nn - 1) - llii) / 2 + pri_ptr->family_rel_nf_idxs[kk]];
 	      } else {
 		oo = pri_ptr->family_rel_nf_idxs[kk];
 		if (oo > nn) {
-		  pp = nn - founder_ct;
-		  dxx = 0.5 * rs_ptr[((long long)pp * (pp - 1) + oo - llii) / 2];
+		  dxx = 0.5 * rs_ptr[((long long)nn * (nn - 1) - llii) / 2 + oo];
 		} else {
-		  pp = oo - founder_ct;
-		  dxx = 0.5 * rs_ptr[((long long)pp * (pp - 1) + nn - llii) / 2];
+		  dxx = 0.5 * rs_ptr[((long long)oo * (oo - 1) - llii) / 2 + nn];
 		}
 	      }
 	      if (mm >= unfiltered_indiv_ct) {
 		dxx += 0.5 * tmp_rel_space[(nn - founder_ct) * stray_parent_ct + mm - unfiltered_indiv_ct8m];
-	      } else if (mm == complete_indiv_idxs[nn]) {
-		dxx += 0.5;
+	      } else if (is_set(founder_info, mm)) {
+		dxx += 0.5 * rs_ptr[((long long)nn * (nn - 1) - llii) / 2 + pri_ptr->family_rel_nf_idxs[mm]];
 	      } else if (mm != -1) {
 		oo = pri_ptr->family_rel_nf_idxs[mm];
 		if (oo > nn) {
-		  pp = nn - founder_ct;
-		  dxx += 0.5 * rs_ptr[((long long)pp * (pp - 1) + oo - llii) / 2];
+		  dxx += 0.5 * rs_ptr[((long long)nn * (nn - 1) - llii) / 2 + oo];
 		} else {
-		  pp = oo - founder_ct;
-		  dxx += 0.5 * rs_ptr[((long long)pp * (pp - 1) + nn - llii) / 2];
+		  dxx += 0.5 * rs_ptr[((long long)oo * (oo - 1) - llii) / 2 + nn];
 		}
 	      }
 	      *rel_writer++ = dxx;
@@ -4447,6 +4451,7 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
 	      *tmp_rel_writer++ = dxx;
 	    }
 	    pri_ptr->family_rel_nf_idxs[jj] = complete_indiv_idx_ct;
+	    complete_indiv_idxs[complete_indiv_idx_ct] = jj;
 	    exclude(processed_indivs, jj, &complete_indiv_idx_ct);
 	  } else {
             remaining_indiv_parent_idxs[indiv_idx_write * 2] = kk;
@@ -4849,9 +4854,10 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
   int is_founder_fixed = 0;
   unsigned int mp_lead_unfiltered_idx = 0;
   unsigned int mp_lead_idx = 0;
-  unsigned int rel_space_id_fixed;
-  unsigned int family_idx_fixed;
-  unsigned int founder_ct;
+  unsigned int rel_space_id_fixed = 0;
+  unsigned int family_id_fixed;
+  unsigned int founder_ct = 0;
+  long long llfct = 0;
 
   while ((mp_lead_unfiltered_idx < unfiltered_marker_ct) && (is_set(marker_exclude, mp_lead_unfiltered_idx) || (!get_marker_chrom(marker_chroms, chrom_ct, mp_lead_unfiltered_idx)))) {
     mp_lead_unfiltered_idx++;
@@ -5274,32 +5280,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct
       rel_space_id_fixed = pri.family_rel_nf_idxs[ii];
       family_id_fixed = pri.family_idxs[ii];
       founder_ct = pri.family_founder_cts[family_id_fixed];
-      /*
-typedef struct {
-  char* family_ids;
-  unsigned int max_family_id_len; // includes trailing null
-  unsigned int* family_sizes;
-
-  unsigned int* family_rel_space_offsets; // offset for rel_space lookup
-  unsigned int* family_founder_cts;
-  // direct indiv idx -> family idx lookup, to reduce number of bsearches
-  unsigned int* family_idxs;
-
-  // truncated triangular arrays of pedigree coefficient of relationship
-  double* rel_space;
-
-  // direct indiv idx -> rel_space idx lookup
-  unsigned int* family_rel_nf_idxs;
-
-  // following three variables are technically unnecessary for --genome, but we
-  // get them for "free" in the process of calculating everything else, and
-  // they'll be nice to use if we ever need to iterate by family in the future.
-  unsigned int family_id_ct;
-  // list of idxs of all individuals in first family, then second family, etc.
-  unsigned int* family_info_space;
-  unsigned int* family_info_offsets; // offset in family_info_space
-} Pedigree_rel_info;
-      */
+      llfct = (long long)founder_ct * (founder_ct - 1);
     }
     for (jj = ii + 1; jj < indiv_ct; jj++) {
       cptr3 = &(person_id[jj * max_person_id_len]);
@@ -5312,7 +5293,7 @@ typedef struct {
       if (!strcmp(cptr, cptr3)) {
 	while (1) {
 	  if (paternal_id) {
-	    if (!(is_founder_fixed || is_founder(founder_info, jj))) {
+	    if (!(is_founder_fixed || is_set(founder_info, jj))) {
 	      if ((!strcmp(cptr5, cptr7)) && (!strcmp(cptr6, cptr8))) {
 		sptr_cur += sprintf(sptr_cur, "FS ");
 		break;
@@ -5326,33 +5307,35 @@ typedef struct {
 	      break;
 	    }
 	  }
-	  memcpy(sptr_cur, "OT ", 3);
-	  sptr_cur += 3;
+	  sptr_cur += sprintf(sptr_cur, "OT ");
 	  break;
 	}
 	// insert relationship
 	if (!paternal_id) {
-	  memcpy(sptr_cur, "    0", 5);
-	  sptr_cur += 5;
+	  sptr_cur += sprintf(sptr_cur, "    0");
 	} else {
-	  if (is_founder_fixed && is_founder(founder_info, jj)) {
+	  oo = is_set(founder_info, jj);
+	  if (is_founder_fixed && oo) {
 	    dxx = 0.0;
-	  } else if (is_founder_fixed) {
-
 	  } else {
+	    nn = pri.family_rel_nf_idxs[jj];
+            if (is_founder_fixed || ((nn > rel_space_id_fixed) && (!oo))) {
+	      dxx = pri.rel_space[rel_space_id_fixed + ((long long)nn * (nn - 1) - llfct) / 2];
+	    } else {
+	      dxx = pri.rel_space[nn + ((long long)rel_space_id_fixed * (rel_space_id_fixed - 1) - llfct) / 2];
+	    }
 	  }
-          nn = sprintf(sptr_cur, "%f", dxx);
+          nn = sprintf(sptr_cur, "%g", dxx);
 	  if (nn < 5) {
 	    memset(sptr_cur, 32, 5 - nn);
 	    sptr_cur += 5 - nn;
-	    sptr_cur += sprintf(sptr_cur, "%f", dxx);
+	    sptr_cur += sprintf(sptr_cur, "%g", dxx);
 	  } else {
 	    sptr_cur += nn;
 	  }
 	}
       } else {
-	memcpy(sptr_cur, "UN    NA", 8);
-	sptr_cur += 8;
+	sptr_cur += sprintf(sptr_cur, "UN    NA");
       }
       nn = marker_ct - indiv_missing_unwt[ii] - indiv_missing_unwt[jj] + missing_dbl_excluded[uljj];
       oo = nn - genome_main[ulii] - genome_main[ulii + 1];
@@ -6192,6 +6175,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   int bed_offset = 3;
   unsigned int* marker_pos = NULL;
   Pedigree_rel_info pri;
+  unsigned char* wkspace_mark2 = NULL;
 
   ii = missing_pheno;
   if (ii < 0) {
@@ -7878,12 +7862,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   wkspace_reset(marker_weights);
-  if (calculation_type & CALC_GENOME) {
-    retval = populate_pedigree_rel_info(&pri, unfiltered_indiv_ct, id_buf, person_id, max_person_id_len, paternal_id, max_paternal_id_len, maternal_id, max_maternal_id_len, founder_info);
-    if (retval) {
-      goto wdist_ret_2;
-    }
-  }
   wt_needed = distance_wt_req(calculation_type);
   if (wt_needed) {
     // normalize marker weights to add to 2^32 - 1
@@ -7900,6 +7878,19 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       *giptr++ = (unsigned int)((*dptr2++) * dxx + 0.5);
     }
     marker_weights_i = (unsigned int*)wkspace_alloc(marker_ct * sizeof(int));
+  }
+  if (calculation_type & CALC_GENOME) {
+    if (!id_buf) {
+      id_buf = (char*)malloc(max_person_id_len * sizeof(char));
+      if (!id_buf) {
+	goto wdist_ret_NOMEM;
+      }
+    }
+    retval = populate_pedigree_rel_info(&pri, unfiltered_indiv_ct, id_buf, person_id, max_person_id_len, paternal_id, max_paternal_id_len, maternal_id, max_maternal_id_len, founder_info);
+    if (retval) {
+      goto wdist_ret_2;
+    }
+    wkspace_mark2 = wkspace_base;
   }
 
   if (relationship_or_ibc_req(calculation_type)) {
@@ -9992,7 +9983,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (calculation_type & CALC_GENOME) {
-    wkspace_reset((char*)CACHEALIGN((unsigned long)(&(marker_pos[unfiltered_marker_ct]))));
+    wkspace_reset(wkspace_mark2);
     retval = calc_genome(threads, pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_chroms, chrom_ct, marker_pos, mafs, unfiltered_indiv_ct, indiv_exclude, person_id, max_person_id_len, paternal_id, max_paternal_id_len, maternal_id, max_maternal_id_len, founder_info, parallel_idx, parallel_tot, outname, outname_end, nonfounders, calculation_type, genome_output_gz, genome_output_full, genome_ibd_unbounded, ppc_gap, pri);
     if (retval) {
       goto wdist_ret_2;
