@@ -3960,33 +3960,6 @@ typedef struct {
 } Pedigree_rel_info;
 
 int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_ct, char* id_buf, char* person_ids, int max_person_id_len, char* paternal_ids, int max_paternal_id_len, char* maternal_ids, int max_maternal_id_len, unsigned char* founder_info) {
-  // Assumes unfiltered_indiv_ct >= 2.
-  //
-  // 1. Count number of families, max_family_id_len.  This is actually a
-  //    stopgap; it should be done during initial load.
-  // 2. Allocate space for family_ids, family_idxs, family_info_offsets,
-  //    family_rel_space_offsets, family_founder_cts, family_nonfounder_cts,
-  //    family_info_space
-  // 3. Store family names, initial size count
-  // 4. qsort family_ids with family_sizes as extra field, collapse family_ids
-  //    and count true sizes
-  // 5. Allocate space for rel_space; set family_idxs, family_info_offsets and
-  //    family_rel_space_offsets
-  // 6. For each family,
-  //    a. Identify parents who are referred to by individual ID, but are NOT
-  //       in the dataset.  Designate temporary space to store their
-  //       relationship coefficients.
-  //    b. Then, if there are empty pedigree relationship matrix entries, loop
-  //       through the unhandled individuals in index order:
-  //        i. If both parents of unhandled individual A have been handled
-  //           (not-in-dataset parents are handled by step (6a)), use the
-  //           formula
-  //             rel(A, B) = 0.5rel(A_{father}, B) + 0.5rel(A_{mother}, B)
-  //           to calculate relationships with all previously-handled
-  //           individuals B.
-  //       ii. If a full loop iteration occurs without handling any more
-  //           individuals, error out (circulal relationship present, warn
-  //           researcher to check for evidence of time travel).
   unsigned char* wkspace_mark;
   unsigned char* wkspace_mark2;
   int ii;
@@ -4198,21 +4171,6 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
     return RET_NOMEM;
   }
 
-  // 6. For each family,
-  //    a. Identify parents who are referred to by individual ID, but are NOT
-  //       in the dataset.  Designate temporary space to store their
-  //       relationship coefficients.
-  //    b. Then, if there are empty pedigree relationship matrix entries, loop
-  //       through the unhandled individuals in index order:
-  //        i. If both parents of unhandled individual A have been handled
-  //           (not-in-dataset parents are handled by step (6a)), use the
-  //           formula
-  //             rel(A, B) = 0.5rel(A_{father}, B) + 0.5rel(A_{mother}, B)
-  //           to calculate relationships with all previously-handled
-  //           individuals B.
-  //       ii. If a full loop iteration occurs without handling any more
-  //           individuals, error out.
-
   wkspace_mark = wkspace_base;
   if (wkspace_alloc_ui_checked(&uiptr, family_id_ct * sizeof(int))) {
     return RET_NOMEM;
@@ -4282,7 +4240,7 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
 	kk = fis_ptr[ii++];
 
 	// does not track sex for now
-	if (memcmp("0", &(maternal_ids[kk * max_paternal_id_len]), 2)) {
+	if (memcmp("0", &(paternal_ids[kk * max_paternal_id_len]), 2)) {
 	  mm = bsearch_str(&(paternal_ids[kk * max_paternal_id_len]), indiv_ids, max_indiv_id_len, 0, family_size - 1);
 	  if (mm == -1) {
 	    strcpy(cur_person_id, &(paternal_ids[kk * max_paternal_id_len]));
@@ -4298,7 +4256,7 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
 	if (memcmp("0", &(maternal_ids[kk * max_maternal_id_len]), 2)) {
 	  mm = bsearch_str(&(maternal_ids[kk * max_maternal_id_len]), indiv_ids, max_indiv_id_len, 0, family_size - 1);
 	  if (mm == -1) {
-	    strcpy(cur_person_id, &(paternal_ids[kk * max_paternal_id_len]));
+	    strcpy(cur_person_id, &(maternal_ids[kk * max_maternal_id_len]));
 	    cur_person_id = &(cur_person_id[max_pm_id_len]);
 	    stray_parent_ct++;
 	    remaining_indiv_parent_idxs[jj * 2 + 1] = -2;
@@ -4369,7 +4327,7 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
 	  kk = remaining_indiv_parent_idxs[ii * 2];
 	  mm = remaining_indiv_parent_idxs[ii * 2 + 1];
 	  jj = remaining_indiv_idxs[ii];
-	  if (is_set(processed_indivs, kk) && is_set(processed_indivs, mm)) {
+	  if (((kk == -1) || is_set(processed_indivs, kk)) && ((mm == -1) || is_set(processed_indivs, mm))) {
 	    for (nn = 0; nn < founder_ct; nn++) {
 	      // relationship between kk and nnth founder
 	      if ((kk >= unfiltered_indiv_ct) || (kk == -1)) {
@@ -4384,9 +4342,11 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
 		oo = pri_ptr->family_rel_nf_idxs[kk];
                 dxx = 0.5 * rs_ptr[((long long)oo * (oo - 1) - llii) / 2 + nn];
 	      }
-	      if (mm == complete_indiv_idxs[nn]) {
-		dxx += 0.5;
-	      } else if ((mm != -1) && (mm < unfiltered_indiv_ct) && (!is_set(founder_info, mm))) {
+	      if (is_set(founder_info, mm)) {
+		if (mm == complete_indiv_idxs[nn]) {
+		  dxx += 0.5;
+		}
+	      } else if ((mm != -1) && (mm < unfiltered_indiv_ct)) {
 		oo = pri_ptr->family_rel_nf_idxs[mm];
 		dxx += 0.5 * rs_ptr[((long long)oo * (oo - 1) - llii) / 2 + nn];
 	      }
@@ -4401,7 +4361,9 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
                 dxx = 0.5 * rs_ptr[((long long)nn * (nn - 1) - llii) / 2 + pri_ptr->family_rel_nf_idxs[kk]];
 	      } else {
 		oo = pri_ptr->family_rel_nf_idxs[kk];
-		if (oo > nn) {
+		if (oo == nn) {
+		  dxx = 0.5;
+		} else if (oo < nn) {
 		  dxx = 0.5 * rs_ptr[((long long)nn * (nn - 1) - llii) / 2 + oo];
 		} else {
 		  dxx = 0.5 * rs_ptr[((long long)oo * (oo - 1) - llii) / 2 + nn];
@@ -4413,7 +4375,9 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
 		dxx += 0.5 * rs_ptr[((long long)nn * (nn - 1) - llii) / 2 + pri_ptr->family_rel_nf_idxs[mm]];
 	      } else if (mm != -1) {
 		oo = pri_ptr->family_rel_nf_idxs[mm];
-		if (oo > nn) {
+		if (oo == nn) {
+		  dxx += 0.5;
+		} else if (oo < nn) {
 		  dxx += 0.5 * rs_ptr[((long long)nn * (nn - 1) - llii) / 2 + oo];
 		} else {
 		  dxx += 0.5 * rs_ptr[((long long)oo * (oo - 1) - llii) / 2 + nn];
@@ -4442,7 +4406,7 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
 		if (mm == nn + unfiltered_indiv_ct8m) {
 		  dxx += 0.5;
 		}
-	      } else if (kk != -1) {
+	      } else if (mm != -1) {
 		oo = pri_ptr->family_rel_nf_idxs[mm];
 		if (oo >= founder_ct) {
 		  dxx += 0.5 * tmp_rel_space[(oo - founder_ct) * stray_parent_ct + nn];
@@ -5654,6 +5618,10 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   int tot_exclude_ct = 0;
   int prev_end;
   int at_least_one_prune = 0;
+#ifndef NOLAPACK
+  double* cov_matrix;
+  double* new_cov_matrix;
+#endif
 
   if (ld_window_kb) {
     // determine maximum number of markers that may need to be loaded at once
@@ -5721,6 +5689,14 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   }
   if (wkspace_alloc_ui_checked(&missing_cts, indiv_ct * sizeof(int))) {
     goto ld_prune_ret_NOMEM;
+  }
+  if (!pairwise) {
+    if (wkspace_alloc_d_checked(&cov_matrix, window_max * window_max * sizeof(double))) {
+      goto ld_prune_ret_NOMEM;
+    }
+    if (wkspace_alloc_d_checked(&new_cov_matrix, window_max * window_max * sizeof(double))) {
+      goto ld_prune_ret_NOMEM;
+    }
   }
   do {
     prev_end = 0;
@@ -10147,7 +10123,7 @@ int main(int argc, char** argv) {
   int in_param;
   int ld_window_size = 0;
   int ld_window_incr = 0;
-  double ld_last_param;
+  double ld_last_param = 0.0;
   int ld_window_kb = 0;
   int maf_succ = 0;
   printf(ver_str);
@@ -11390,6 +11366,10 @@ int main(int argc, char** argv) {
       cur_arg += ii + 1;
       calculation_type |= CALC_REGRESS_REL;
     } else if (!strcmp(argptr, "--unrelated-heritability")) {
+#ifdef NOLAPACK
+      printf("Error: --unrelated-heritability does not work without LAPACK.  Download a wdist\nbuild with 'L' at the end of the version number.\n");
+      return dispmsg(RET_INVALID_CMDLINE);
+#else
       if (calculation_type & CALC_RELATIONSHIP_COV) {
         printf("Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.\n");
         return dispmsg(RET_INVALID_CMDLINE);
@@ -11448,6 +11428,7 @@ int main(int argc, char** argv) {
       }
       cur_arg += ii + 1;
       calculation_type |= CALC_UNRELATED_HERITABILITY;
+#endif
     } else if (!strcmp(argptr, "--freq")) {
       if (freqname[0]) {
         printf("Error: --freq and --read-freq flags cannot coexist.%s", errstr_append);
@@ -11486,6 +11467,10 @@ int main(int argc, char** argv) {
       maf_succ = 1;
       cur_arg += 1;
     } else if (!strcmp(argptr, "--indep-pairwise")) {
+      if (calculation_type | CALC_LD_PRUNE) {
+	printf("Error: Multiple LD pruning flags.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
       ii = param_count(argc, argv, cur_arg);
       if (ii < 3) {
 	printf("Error: --indep-pairwise requires at least 3 parameters.%s", errstr_append);
@@ -11518,8 +11503,46 @@ int main(int argc, char** argv) {
       cur_arg += 1 + ii;
       calculation_type |= (CALC_LD_PRUNE | CALC_LD_PRUNE_PAIRWISE);
     } else if (!strcmp(argptr, "--indep")) {
-      printf("--indep implementation coming soon.\n");
-      cur_arg += 1;
+#ifdef NOLAPACK
+      printf("Error: --indep does not work without LAPACK.  Download a wdist build with 'L'\nat the end of the version number.\n");
+      return dispmsg(RET_INVALID_CMDLINE);
+#else
+      if (calculation_type | CALC_LD_PRUNE) {
+	printf("Error: Multiple LD pruning flags.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      ii = param_count(argc, argv, cur_arg);
+      if (ii < 3) {
+	printf("Error: --indep requires at least 3 parameters.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      } else if (ii > 4) {
+	printf("Error: --indep accepts at most 4 parameters.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      ld_window_size = atoi(argv[cur_arg + 1]);
+      if ((ld_window_size < 1) || ((ld_window_size == 1) && (ii == 3))) {
+	printf("Error: Invalid --indep window size.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (ii == 4) {
+	if (strcmp(argv[cur_arg + 2], "kb")) {
+          printf("Error: Invalid argument for --indep.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	ld_window_kb = 1;
+      }
+      ld_window_incr = atoi(argv[cur_arg + ii - 1]);
+      if (ld_window_incr < 1) {
+	printf("Error: Invalid increment for --indep.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (sscanf(argv[cur_arg + ii], "%lg", &ld_last_param) != 1) {
+	printf("Error: Invalid --indep VIF threshold.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      cur_arg += 1 + ii;
+      calculation_type |= CALC_LD_PRUNE;
+#endif
     } else if (!strcmp(argptr, "--map3")) {
       printf("Note: --map3 flag unnecessary (.map file format is autodetected).\n");
       cur_arg += 1;
