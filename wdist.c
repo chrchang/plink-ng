@@ -4002,7 +4002,7 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
   char* cur_family_id;
   unsigned int* family_sizes;
   unsigned int* uiptr;
-  unsigned int* uiptr2;
+  unsigned int* uiptr2 = NULL;
   int fidx;
   int family_size;
   unsigned int* remaining_indiv_idxs;
