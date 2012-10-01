@@ -89,6 +89,7 @@
 // but we believe we have beaten down the leading constant by a large enough
 // factor to matter.
 
+#include <ctype.h>
 #include <fcntl.h>
 #include <math.h>
 #include <pthread.h>
@@ -460,7 +461,10 @@ int dispmsg(int retval) {
 "    Identity-by-descent analysis.  This yields the same output as PLINK's\n"
 "    --genome or --Z-genome, and the 'full' and 'unbounded' modifiers have the\n"
 "    same effect as PLINK's --full-genome and --unbounded flags.\n\n"
-"  --indep-pairwise [window size] <kb> [step size (SNPs)] [r^2 threshold]\n"
+#ifndef NOLAPACK
+"  --indep [window size]<kb> [step size (SNPs)] [VIF threshold]\n"
+#endif
+"  --indep-pairwise [window size]<kb> [step size (SNPs)] [r^2 threshold]\n"
 "    Generates a list of SNPs in approximate linkage equilibrium; see PLINK\n"
 "    documentation for more details.  With the 'kb' modifier, the window size is\n"
 "    in kilobase units instead of SNPs.\n"
@@ -5622,17 +5626,20 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 #ifndef NOLAPACK
   double* cov_matrix = NULL;
   double* new_cov_matrix = NULL;
-  int* irow = NULL;
 #if __APPLE__
 #if __LP64__
+  int* irow = NULL;
   int info;
   int lwork;
 #else
+  long int* irow = NULL;
   long int info;
   long int lwork;
   long int window_rem_li;
 #endif // __LP64__
   double* work = NULL;
+#else
+  int* irow = NULL;
 #endif // __APPLE__
   int window_rem;
 #endif // NOLAPACK
@@ -5718,9 +5725,24 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
     if (wkspace_alloc_ui_checked(&idx_remap, window_max * sizeof(int))) {
       goto ld_prune_ret_NOMEM;
     }
+
+#if __APPLE__
+#if __LP64__
     if (wkspace_alloc_i_checked(&irow, window_max * sizeof(int))) {
       goto ld_prune_ret_NOMEM;
     }
+#else
+    irow = (long int*)wkspace_alloc(window_max * sizeof(int));
+    if (!irow) {
+      goto ld_prune_ret_NOMEM;
+    }
+#endif // __LP64__
+#else
+    if (wkspace_alloc_i_checked(&irow, window_max * sizeof(int))) {
+      goto ld_prune_ret_NOMEM;
+    }
+#endif // __APPLE__
+
 #if __APPLE__
     lwork = window_max * window_max;
     if (wkspace_alloc_d_checked(&work, window_max * window_max * sizeof(double))) {
@@ -11586,6 +11608,11 @@ int main(int argc, char** argv) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	ld_window_kb = 1;
+      } else {
+        jj = strlen(argv[cur_arg + 1]);
+        if ((jj > 2) && (tolower(argv[cur_arg + 1][jj - 2]) == 'k') && (tolower(argv[cur_arg + 1][jj - 1]) == 'b')) {
+	  ld_window_kb = 1;
+	}
       }
       ld_window_incr = atoi(argv[cur_arg + ii - 1]);
       if (ld_window_incr < 1) {
@@ -11626,6 +11653,11 @@ int main(int argc, char** argv) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	ld_window_kb = 1;
+      } else {
+        jj = strlen(argv[cur_arg + 1]);
+        if ((jj > 2) && (tolower(argv[cur_arg + 1][jj - 2]) == 'k') && (tolower(argv[cur_arg + 1][jj - 1]) == 'b')) {
+	  ld_window_kb = 1;
+	}
       }
       ld_window_incr = atoi(argv[cur_arg + ii - 1]);
       if (ld_window_incr < 1) {
