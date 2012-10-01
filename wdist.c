@@ -255,14 +255,14 @@ const char ver_str[] =
 #ifdef NOLAPACK
   "WDIST genomic distance calculator, v0.10.2 "
 #else
-  "WDIST genomic distance calculator, v0.10.2L "
+  "WDIST genomic distance calculator, v0.10.3L "
 #endif
 #if __LP64__
   "64-bit"
 #else
   "32-bit"
 #endif
-  " (28 September 2012)\n"
+  " (1 October 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
@@ -5595,7 +5595,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   double* marker_stdevs;
   unsigned char* loadbuf;
   unsigned int* missing_cts;
-  unsigned long window_max = 0; // kb only
+  unsigned long window_max = 0;
   unsigned long ulii;
   double dxx;
   double cov12;
@@ -5618,10 +5618,26 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   int tot_exclude_ct = 0;
   int prev_end;
   int at_least_one_prune = 0;
+
 #ifndef NOLAPACK
-  double* cov_matrix;
-  double* new_cov_matrix;
-#endif
+  double* cov_matrix = NULL;
+  double* new_cov_matrix = NULL;
+  int* irow = NULL;
+#if __APPLE__
+#if __LP64__
+  int info;
+  int lwork;
+#else
+  long int info;
+  long int lwork;
+  long int window_rem_li;
+#endif // __LP64__
+  double* work = NULL;
+#endif // __APPLE__
+  int window_rem;
+#endif // NOLAPACK
+  double prune_ld_r2;
+  unsigned int* idx_remap = NULL;
 
   if (ld_window_kb) {
     // determine maximum number of markers that may need to be loaded at once
@@ -5642,7 +5658,9 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
     }
   }
   if (pairwise) {
-    ld_last_param = sqrt(ld_last_param);
+    prune_ld_r2 = sqrt(ld_last_param);
+  } else {
+    prune_ld_r2 = 0.999999;
   }
 
   window_unfiltered_start = ld_prune_next_valid_chrom_start(marker_exclude, 0, marker_chroms, unfiltered_marker_ct);
@@ -5661,11 +5679,10 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 
   memcpy(pruned_arr, marker_exclude, unfiltered_marker_ct8);
 
-  if (ld_window_kb) {
-    ulii = window_max;
-  } else {
-    ulii = ld_window_size;
+  if (!ld_window_kb) {
+    window_max = ld_window_size;
   }
+  ulii = window_max;
   if (wkspace_alloc_ui_checked(&live_indices, ulii * sizeof(int))) {
     goto ld_prune_ret_NOMEM;
   }
@@ -5690,6 +5707,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   if (wkspace_alloc_ui_checked(&missing_cts, indiv_ct * sizeof(int))) {
     goto ld_prune_ret_NOMEM;
   }
+#ifndef NOLAPACK
   if (!pairwise) {
     if (wkspace_alloc_d_checked(&cov_matrix, window_max * window_max * sizeof(double))) {
       goto ld_prune_ret_NOMEM;
@@ -5697,7 +5715,20 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
     if (wkspace_alloc_d_checked(&new_cov_matrix, window_max * window_max * sizeof(double))) {
       goto ld_prune_ret_NOMEM;
     }
+    if (wkspace_alloc_ui_checked(&idx_remap, window_max * sizeof(int))) {
+      goto ld_prune_ret_NOMEM;
+    }
+    if (wkspace_alloc_i_checked(&irow, window_max * sizeof(int))) {
+      goto ld_prune_ret_NOMEM;
+    }
+#if __APPLE__
+    lwork = window_max * window_max;
+    if (wkspace_alloc_d_checked(&work, window_max * window_max * sizeof(double))) {
+      goto ld_prune_ret_NOMEM;
+    }
+#endif
   }
+#endif
   do {
     prev_end = 0;
     ld_prune_start_chrom(ld_window_kb, &cur_chrom, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, marker_chroms, chrom_ct, marker_pos);
@@ -5782,7 +5813,10 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	      cov12 = non_missing_recip * (dp_result[0] - (non_missing_recip * dp_result[1]) * dp_result[2]);
 	      // r-squared
 	      dxx = cov12 / (marker_stdevs[ii] * marker_stdevs[jj]);
-	      if (fabs(dxx) > ld_last_param) {
+	      if (!pairwise) {
+		cov_matrix[ii * window_max + jj] = dxx;
+	      }
+	      if (fabs(dxx) > prune_ld_r2) {
 		at_least_one_prune = 1;
 		// remove SNP with lower MAF
 		if (true_maf(mafs[live_indices[ii]]) < true_maf(mafs[live_indices[jj]])) {
@@ -5808,9 +5842,65 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    }
 	  }
 	} while (at_least_one_prune);
+#ifndef NOLAPACK
+	if (!pairwise) {
+	  window_rem = 0;
+	  for (ii = 0; ii < cur_window_size; ii++) {
+	    if (is_set(pruned_arr, live_indices[ii])) {
+	      continue;
+	    }
+            idx_remap[window_rem++] = ii;
+	  }
+	  while (window_rem > 1) {
+	    for (ii = 1; ii < window_rem; ii++) {
+	      kk = idx_remap[ii];
+	      for (jj = 0; jj < ii; jj++) {
+		dxx = cov_matrix[idx_remap[jj] * window_max + kk];
+		new_cov_matrix[jj * window_rem + ii] = dxx;
+		new_cov_matrix[ii * window_rem + jj] = dxx;
+	      }
+	      new_cov_matrix[ii * (window_rem + 1)] = 1.0;
+	    }
+
+	    // invert the matrix
+#ifdef __APPLE__
+#if __LP64__
+	    dgetrf_(&window_rem, &window_rem, new_cov_matrix, &window_rem, irow, &info);
+	    dgetri_(&window_rem, new_cov_matrix, &window_rem, irow, work, &lwork, &info);
+#else
+	    window_rem_li = window_rem;
+	    dgetrf_(&window_rem_li, &window_rem_li, new_cov_matrix, &window_rem_li, irow, &info);
+	    dgetri_(&window_rem_li, new_cov_matrix, &window_rem_li, irow, work, &lwork, &info);
+#endif // __LP64__
+#else
+	    clapack_dgetrf(CblasColMajor, window_rem, window_rem, new_cov_matrix, window_rem, irow);
+	    clapack_dgetri(CblasColMajor, window_rem, new_cov_matrix, window_rem, irow);
+#endif // __APPLE__
+
+	    dxx = new_cov_matrix[0];
+	    jj = 0;
+	    for (ii = 1; ii < window_rem; ii++) {
+              if (new_cov_matrix[ii * (window_rem + 1)] > dxx) {
+		dxx = new_cov_matrix[ii * (window_rem + 1)];
+		jj = ii;
+	      }
+	    }
+	    if (dxx > ld_last_param) {
+	      exclude(pruned_arr, live_indices[idx_remap[jj]], &cur_exclude_ct);
+	      window_rem--;
+	      for (ii = jj; ii < window_rem; ii++) {
+                idx_remap[ii] = idx_remap[ii + 1];
+	      }
+	    } else {
+	      // break out
+	      window_rem = 1;
+	    }
+	  }
+	}
       }
+#endif // NOLAPACK
       for (ii = 0; ii < ld_window_incr; ii++) {
-        while (is_set(marker_exclude, window_unfiltered_start)) {
+	while (is_set(marker_exclude, window_unfiltered_start)) {
 	  if (window_unfiltered_start == chrom_end) {
 	    break;
 	  }
@@ -5826,9 +5916,9 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
       }
       if (window_unfiltered_start >= pct_thresh) {
 	pct = (((long long)(window_unfiltered_start - marker_chroms[2 * cur_chrom])) * 100) / (chrom_end - marker_chroms[2 * cur_chrom]);
-        printf("\r%d%%", pct++);
+	printf("\r%d%%", pct++);
 	fflush(stdout);
-        pct_thresh = marker_chroms[2 * cur_chrom] + (((long long)pct * (chrom_end - marker_chroms[2 * cur_chrom])) / 100);
+	pct_thresh = marker_chroms[2 * cur_chrom] + (((long long)pct * (chrom_end - marker_chroms[2 * cur_chrom])) / 100);
       }
       jj = 0;
       // copy back previously loaded/computed results
@@ -5849,6 +5939,12 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	live_indices[ii] = live_indices[jj];
 	start_arr[ii] = start_arr[jj];
 	missing_cts[ii] = missing_cts[jj];
+	if (!pairwise) {
+	  for (kk = 0; kk < ii; kk++) {
+	    cov_matrix[kk * window_max + ii] = cov_matrix[idx_remap[kk] * window_max + jj];
+	  }
+	  idx_remap[ii] = jj;
+	}
 	ii++;
       }
 
@@ -5860,7 +5956,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	  jj++;
 	}
       } else {
-        jj = ld_window_incr;
+	jj = ld_window_incr;
       }
       for (ii = 0; ii < jj; ii++) {
 	while ((window_unfiltered_end < chrom_end) && is_set(marker_exclude, window_unfiltered_end)) {
@@ -11467,7 +11563,7 @@ int main(int argc, char** argv) {
       maf_succ = 1;
       cur_arg += 1;
     } else if (!strcmp(argptr, "--indep-pairwise")) {
-      if (calculation_type | CALC_LD_PRUNE) {
+      if (calculation_type & CALC_LD_PRUNE) {
 	printf("Error: Multiple LD pruning flags.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
       }
@@ -11507,7 +11603,7 @@ int main(int argc, char** argv) {
       printf("Error: --indep does not work without LAPACK.  Download a wdist build with 'L'\nat the end of the version number.\n");
       return dispmsg(RET_INVALID_CMDLINE);
 #else
-      if (calculation_type | CALC_LD_PRUNE) {
+      if (calculation_type & CALC_LD_PRUNE) {
 	printf("Error: Multiple LD pruning flags.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
       }
@@ -11538,6 +11634,10 @@ int main(int argc, char** argv) {
       }
       if (sscanf(argv[cur_arg + ii], "%lg", &ld_last_param) != 1) {
 	printf("Error: Invalid --indep VIF threshold.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (ld_last_param < 1.0) {
+	printf("Error: --indep VIF threshold cannot be less than 1.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       cur_arg += 1 + ii;
