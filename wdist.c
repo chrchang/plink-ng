@@ -7890,7 +7890,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     goto wdist_ret_INVALID_CMDLINE;
   }
   if (thread_ct > 1) {
-    printf("Using %d threads (change this with --threads).\n", thread_ct);
+    if (calculation_type & (~(CALC_LD_PRUNE | CALC_LD_PRUNE_PAIRWISE))) {
+      printf("Using %d threads (change this with --threads).\n", thread_ct);
+    } else {
+      printf("Using 1 thread (--indep and --indep-pairwise currently aren't multithreaded).\n");
+    }
   }
 
   if (calculation_type & CALC_WRITE_SNPLIST) {
