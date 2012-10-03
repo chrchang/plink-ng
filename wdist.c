@@ -254,7 +254,7 @@
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.10.4 "
+  "WDIST genomic distance calculator, v0.10.2 "
 #else
   "WDIST genomic distance calculator, v0.10.4L "
 #endif
