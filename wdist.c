@@ -198,6 +198,7 @@ const char species_x_code[] = {23, 30, 39, 32, 20, -1, 27};
 const char species_y_code[] = {24, 31, 40, 33, 21, -1, 28};
 const char species_xy_code[] = {25, -1, 41, -1, -1, -1, -1};
 const char species_mt_code[] = {26, -1, -1, -1, -1, -1, -1};
+const char species_max_code[] = {26, 31, 41, 33, 21, 12, 28};
 const unsigned long long species_haploid_mask[] = {}; // todo
 
 #define _FILE_OFFSET_BITS 64
@@ -281,16 +282,16 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.11.0 "
+  "WDIST genomic distance calculator, v0.10.5 "
 #else
-  "WDIST genomic distance calculator, v0.11.0L "
+  "WDIST genomic distance calculator, v0.10.5L "
 #endif
 #if __LP64__
   "64-bit"
 #else
   "32-bit"
 #endif
-  " (7 October 2012)\n"
+  " (10 October 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
@@ -1179,6 +1180,7 @@ inline int is_contained(char* id_buf, char* lptr, int max_id_len, int filter_lin
 
 int marker_code_raw(char* sptr) {
   // any character <= ' ' is considered a terminator
+  int ii;
   if (sptr[1] > ' ') {
     if (sptr[2] > ' ') {
       return -1;
@@ -1197,7 +1199,12 @@ int marker_code_raw(char* sptr) {
     }
     if ((sptr[0] >= '0') && (sptr[0] <= '9')) {
       if ((sptr[1] >= '0') && (sptr[1] <= '9')) {
-        return ((sptr[0] - '0') * 10 + (sptr[1] - '0'));
+        ii = ((sptr[0] - '0') * 10 + (sptr[1] - '0'));
+	if (ii < MAX_POSSIBLE_CHROM) {
+	  return ii;
+	} else {
+	  return -1;
+	}
       } else {
 	return -1;
       }
@@ -1232,6 +1239,8 @@ int marker_code(unsigned int species, char* sptr) {
     case CHROM_MT:
       ii = species_mt_code[species];
     }
+  } else if (ii > species_max_code[species]) {
+    return -1;
   }
   return ii;
 }
@@ -1807,7 +1816,7 @@ void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_
 
 void exclude(unsigned long* exclude_arr, int loc, int* exclude_ct_ptr) {
   int maj = loc / BITCT;
-  int min = 1 << (loc % BITCT);
+  unsigned long min = 1LU << (loc % BITCT);
   if (!(exclude_arr[maj] & min)) {
     exclude_arr[maj] |= min;
     *exclude_ct_ptr += 1;
@@ -1815,7 +1824,7 @@ void exclude(unsigned long* exclude_arr, int loc, int* exclude_ct_ptr) {
 }
 
 inline int is_set(unsigned long* exclude_arr, int loc) {
-  return exclude_arr[loc / BITCT] & (1 << (loc % BITCT));
+  return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
 // unsafe if you don't know there's another included marker or person remaining
@@ -4668,7 +4677,6 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
     }
     if (chrom_info_needed) {
       if (jj != last_chrom) {
-	chroms_encountered_m1++;
 	if (last_chrom != -1) {
 	  chrom_info_ptr->chrom_end[last_chrom] = ii;
 	}
@@ -4679,7 +4687,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
 	loaded_chrom_mask |= 1LLU << jj;
 	last_chrom = jj;
 	chrom_info_ptr->chrom_start[jj] = ii;
-	chrom_info_ptr->chrom_file_order[chroms_encountered_m1] = jj;
+	chrom_info_ptr->chrom_file_order[++chroms_encountered_m1] = jj;
 	chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = ii;
       }
     }
@@ -6602,15 +6610,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     fclose_null(&phenofile);
   }
-  if (pheno_line_ct >= 5) {
-    printf("Debug info:\n");
-    printf("max_pid_len: %d\n", max_pid_len);
-    printf("pheno_line_ct: %d\n", pheno_line_ct);
-    printf("First five entries:\n");
-    for (jj = 0; jj < 5; jj++) {
-      printf("%s (length %ld)\n", &(pid_list[jj * max_pid_len]), strlen(&(pid_list[jj * max_pid_len])));
-    }
-  }
+  // if (pheno_line_ct >= 5) {
+  //   printf("Debug info:\n");
+  //   printf("max_pid_len: %d\n", max_pid_len);
+  //   printf("pheno_line_ct: %d\n", pheno_line_ct);
+  //   printf("First five entries:\n");
+  //   for (jj = 0; jj < 5; jj++) {
+  //     printf("%s (length %ld)\n", &(pid_list[jj * max_pid_len]), strlen(&(pid_list[jj * max_pid_len])));
+  //   }
+  // }
 
   if (extractname[0] || excludename[0]) {
     wkspace_mark = wkspace_base;
@@ -6791,10 +6799,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   mind_int_thresh = (int)(mind_thresh * (unfiltered_marker_ct - marker_exclude_ct));
   if (binary_files) {
     nn = 0; // number of people that pass initial filter
-    int debug_prints = 0;
-    if (phenoname[0]) {
-      printf("\nFirst five .fam lines:\n");
-    }
+    // int debug_prints = 0;
+    // if (phenoname[0]) {
+    //   printf("\nFirst five .fam lines:\n");
+    // }
     // ----- .fam load, first pass -----
     while (fgets(tbuf, MAXLINELEN, famfile) != NULL) {
       if (tbuf[0] > ' ') {
@@ -6830,10 +6838,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    }
 	  }
           if (phenoname[0]) {
-	    if (debug_prints < 5) {
-	      printf("(%d hits so far) %s", nn, tbuf);
-	      debug_prints++;
-	    }
+	    // if (debug_prints < 5) {
+	    //   printf("(%d hits so far) %s", nn, tbuf);
+	    //   debug_prints++;
+	    // }
             if (ii) {
 	      if (makepheno_str || (!prune)) {
 		line_locs[nn++] = unfiltered_indiv_ct;
@@ -11744,6 +11752,10 @@ int main(int argc, char** argv) {
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (sscanf(argv[cur_arg + ii], "%lg", &ld_last_param) != 1) {
+	printf("Error: Invalid --indep-pairwise r^2 threshold.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if ((ld_last_param < 0.0) || (ld_last_param >= 1.0)) {
 	printf("Error: Invalid --indep-pairwise r^2 threshold.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
       }
