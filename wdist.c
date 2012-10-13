@@ -296,7 +296,7 @@ const char ver_str[] =
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
-const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
+const char errstr_fam_format[] = "Error: Improperly formatted .fam/.ped file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
@@ -568,7 +568,6 @@ int dispmsg(int retval) {
 "  --no-parents     : .ped file does not contain columns 3-4 (parents).\n"
 "  --no-sex         : .ped file does not contain column 5 (sex).\n"
 "  --no-pheno       : .ped file does not contain column 6 (phenotype).\n"
-"  --liability      : .ped file does contain liability (column 7).\n"
 "  --bfile {prefix} : Specify .bed/.bim/.fam prefix (default 'wdist').\n"
 "  --bed [filename] : Specify full name of .bed file.\n"
 "  --bim [filename] : Specify full name of .bim file.\n"
@@ -1814,7 +1813,11 @@ void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* mafs, int ibc_
   }
 }
 
-void exclude(unsigned long* exclude_arr, int loc, int* exclude_ct_ptr) {
+inline void set_bit_noct(unsigned long* exclude_arr, int loc) {
+  exclude_arr[loc / BITCT] |= (1LU << (loc % BITCT));
+}
+
+void set_bit(unsigned long* exclude_arr, int loc, int* exclude_ct_ptr) {
   int maj = loc / BITCT;
   unsigned long min = 1LU << (loc % BITCT);
   if (!(exclude_arr[maj] & min)) {
@@ -1886,7 +1889,7 @@ inline int nz_chrom(Chrom_info* chrom_info_ptr, unsigned int marker_idx) {
   return (marker_idx >= chrom_info_ptr->chrom_end[0]) || (marker_idx < chrom_info_ptr->chrom_start[0]);
 }
 
-int write_ids(char* outname, int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_id, int max_person_id_len) {
+int write_ids(char* outname, int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_id, unsigned int max_person_id_len) {
   FILE* outfile;
   int ii;
   if (fopen_checked(&outfile, outname, "w")) {
@@ -1909,7 +1912,7 @@ void exclude_multi(unsigned long* exclude_arr, int* new_excl, int indiv_ct, int*
   for (ii = 0; ii < indiv_ct; ii++) {
     true_loc = next_non_set_unsafe(exclude_arr, true_loc);
     if (new_excl[ii] == -1) {
-      exclude(exclude_arr, true_loc, exclude_ct_ptr);
+      set_bit(exclude_arr, true_loc, exclude_ct_ptr);
     }
     true_loc++;
   }
@@ -1964,7 +1967,7 @@ int extract_exclude_markers(char* fname, char* sorted_ids, int sorted_ids_len, u
     if (ii != -1) {
       jj = id_map[ii];
       if (do_exclude) {
-        exclude(marker_exclude, jj, marker_exclude_ct_ptr);
+        set_bit(marker_exclude, jj, marker_exclude_ct_ptr);
       } else if ((!is_set(marker_exclude, jj)) && is_set(marker_exclude_new, jj)) {
 	marker_exclude_new[jj / BITCT] -= (1LU << (jj % BITCT));
 	marker_include_ct++;
@@ -4032,10 +4035,6 @@ inline int is_founder(unsigned long* founder_info, int ii) {
   return ((!founder_info) || ((founder_info[ii / BITCT]) & (1LU << (ii % BITCT))));
 }
 
-inline void set_founder_info(unsigned long* founder_info, int ii) {
-  founder_info[ii / BITCT] |= (1LU << (ii % BITCT));
-}
-
 typedef struct {
   char* family_ids;
   unsigned int max_family_id_len; // includes trailing null
@@ -4061,7 +4060,7 @@ typedef struct {
   unsigned int* family_info_offsets; // offset in family_info_space
 } Pedigree_rel_info;
 
-int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_ct, char* id_buf, char* person_ids, int max_person_id_len, char* paternal_ids, int max_paternal_id_len, char* maternal_ids, int max_maternal_id_len, unsigned long* founder_info) {
+int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_ct, char* id_buf, char* person_ids, unsigned int max_person_id_len, char* paternal_ids, unsigned int max_paternal_id_len, char* maternal_ids, unsigned int max_maternal_id_len, unsigned long* founder_info) {
   unsigned char* wkspace_mark;
   unsigned char* wkspace_mark2;
   int ii;
@@ -4518,7 +4517,7 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, int unfiltered_indiv_
 	    }
 	    pri_ptr->family_rel_nf_idxs[jj] = complete_indiv_idx_ct;
 	    complete_indiv_idxs[complete_indiv_idx_ct] = jj;
-	    exclude(processed_indivs, jj, &complete_indiv_idx_ct);
+	    set_bit(processed_indivs, jj, &complete_indiv_idx_ct);
 	  } else {
             remaining_indiv_parent_idxs[indiv_idx_write * 2] = kk;
 	    remaining_indiv_parent_idxs[indiv_idx_write * 2 + 1] = mm;
@@ -4693,7 +4692,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
     }
 
     if (!(chrom_info_ptr->chrom_mask & (1LLU << jj))) {
-      exclude(*marker_exclude_ptr, ii, marker_exclude_ct_ptr);
+      set_bit(*marker_exclude_ptr, ii, marker_exclude_ct_ptr);
     } else {
       bufptr = next_item(tbuf);
       if (*marker_ids_ptr) {
@@ -4716,7 +4715,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
 	  printf("Error: Negative marker position in .bim file.\n");
 	  return RET_INVALID_FORMAT;
 	}
-	exclude(*marker_exclude_ptr, ii, marker_exclude_ct_ptr);
+	set_bit(*marker_exclude_ptr, ii, marker_exclude_ct_ptr);
       } else {
 	if ((calculation_type & marker_pos_needed) && jj) {
 	  (*marker_pos_ptr)[ii] = atoi(bufptr);
@@ -4745,6 +4744,230 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
     printf("%d markers loaded.\n", unfiltered_marker_ct);
   }
   return 0;
+}
+
+int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, int missing_pheno, int missing_pheno_len, int affection_01, int* unfiltered_indiv_ct_ptr, char** person_ids_ptr, unsigned int* max_person_id_len_ptr, char** paternal_ids_ptr, unsigned int* max_paternal_id_len_ptr, char** maternal_ids_ptr, unsigned int* max_maternal_id_len_ptr, int* affection_ptr, char** pheno_c_ptr, double** pheno_d_ptr, unsigned long** founder_info_ptr, unsigned long** indiv_exclude_ptr) {
+  char* bufptr;
+  unsigned int unfiltered_indiv_ct = 0;
+  unsigned int max_person_id_len = 4;
+  unsigned int max_paternal_id_len = 2;
+  unsigned int max_maternal_id_len = 2;
+  int affection = 1;
+  unsigned long long last_tell = 0;
+  unsigned long new_buflen = 0;
+  unsigned char* wkspace_mark = wkspace_base;
+  char* linebuf;
+  char* person_ids;
+  char* paternal_ids;
+  char* maternal_ids;
+  char* pheno_c;
+  double* pheno_d;
+  char cc;
+  unsigned long long* line_locs;
+  unsigned long long* tmp_ullp;
+  unsigned int max_people;
+  unsigned long tmp_len;
+  unsigned long tmp_len2;
+  double dxx;
+  unsigned int indiv_num;
+  unsigned int unfiltered_indiv_ctl;
+  unsigned int uii;
+  int fgets_return;
+  if (wkspace_alloc_c_checked(&linebuf, buflen)) {
+    return RET_NOMEM;
+  }
+  linebuf[buflen - 1] = ' ';
+  line_locs = (unsigned long long*)wkspace_base;
+  max_people = wkspace_left / sizeof(long long);
+  // ----- .fam/[.ped first columns] read, first pass -----
+  // count number of people, determine maximum person/father/mother ID lengths,
+  // affection status, verify all floating point phenotype values are valid
+  while (fgets(linebuf, buflen, famfile) != NULL) {
+    if (linebuf[0] > ' ') {
+      if (linebuf[0] != '#') {
+	if (fam_col_1) {
+	  bufptr = next_item(linebuf);
+	} else {
+	  bufptr = linebuf;
+	}
+	tmp_len = strlen_se(linebuf) + strlen_se(bufptr) + 2;
+        if (tmp_len > max_person_id_len) {
+	  max_person_id_len = person_id_len;
+	}
+	if (fam_col_34) {
+	  bufptr = next_item(bufptr);
+          tmp_len = strlen_se(bufptr) + 1;
+	  if (tmp_len > max_paternal_id_len) {
+	    max_paternal_id_len = tmp_len;
+	  }
+	  bufptr = next_item(bufptr);
+	  tmp_len = strlen_se(bufptr) + 1;
+	  if (tmp_len > max_maternal_id_len) {
+	    max_maternal_id_len = tmp_len;
+	  }
+	}
+        if (fam_col_5) {
+	  // todo: load sex, add consistency checks
+	  bufptr = next_item(bufptr);
+	}
+	if (fam_col_6) {
+	  if (!bufptr) {
+	    printf(errstr_fam_format);
+	    return RET_INVALID_FORMAT;
+	  }
+	  if (affection) {
+	    affection = eval_affection(bufptr, missing_pheno, missing_pheno_len, affection01);
+	  }
+	  if (!affection) {
+	    if (sscanf(bufptr, "%lg", &dxx) != 1) {
+	      printf(errstr_fam_format);
+	      return RET_INVALID_FORMAT;
+	    }
+	  }
+	}
+	if (unfiltered_indiv_ct == max_people) {
+	  return RET_NOMEM;
+	}
+	line_locs[unfiltered_indiv_ct++] = last_tell;
+      }
+    }
+    if (!linebuf[buflen - 1]) {
+      // determine extended read buffer length needed to handle unexpectedly
+      // long line
+      linebuf[buflen - 1] = ' ';
+      if (linebuf[buflen - 2] != '\n') {
+	tmp_len = 0;
+	do {
+	  tmp_len += buflen - 1;
+	  linebuf[buflen - 1] = ' ';
+	  fgets_return = fgets(linebuf, buflen, famfile);
+	} while (fgets_return && (!linebuf[buflen - 1]) && (linebuf[buflen - 2] != '\n'));
+	tmp_len += strlen(linebuf) + 1;
+	if (tmp_len > new_buflen) {
+	  new_buflen = tmp_len;
+	}
+      }
+    }
+    last_tell = ftello(famfile);
+  }
+  if (ferror(famfile)) {
+    return RET_READ_FAIL;
+  }
+  if (unfiltered_indiv_ct < 2) {
+    printf("Error: Less than two people in .fam/.ped file.\n");
+    return RET_INVALID_FORMAT;
+  }
+  wkspace_reset(wkspace_mark);
+  if (wkspace_alloc_c_checked(person_ids_ptr, unfiltered_indiv_ct * max_person_id_len)) {
+    return RET_NOMEM;
+  }
+  person_ids = *person_ids_ptr;
+  if (fam_col_34) {
+    if (wkspace_alloc_c_checked(paternal_ids_ptr, unfiltered_indiv_ct * max_paternal_id_len)) {
+      return RET_NOMEM;
+    }
+    paternal_ids = *paternal_ids_ptr;
+    if (wkspace_alloc_c_checked(maternal_ids_ptr, unfiltered_indiv_ct * max_maternal_id_len)) {
+      return RET_NOMEM;
+    }
+    maternal_ids = *maternal_ids_ptr;
+  }
+  unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  if (wkspace_alloc_ul_checked(founder_info_ptr, unfiltered_indiv_ctl * sizeof(long))) {
+    return RET_NOMEM;
+  }
+  if (wkspace_alloc_ul_checked(indiv_exclude_ptr, unfiltered_indiv_ctl * sizeof(long))) {
+    return RET_NOMEM;
+  }
+
+  if (fam_col_6) {
+    if (affection) {
+      pheno_c = (char*)malloc(unfiltered_indiv_ct * sizeof(char));
+      if (!pheno_c) {
+	return RET_NOMEM;
+      }
+      *pheno_c_ptr = pheno_c;
+    } else {
+      pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
+      if (!pheno_d) {
+	return RET_NOMEM;
+      }
+      *pheno_d_ptr = pheno_d;
+    }
+  }
+  wkspace_mark = wkspace_base;
+  if (new_buflen) {
+    if (wkspace_alloc_c_checked(&linebuf, new_buflen)) {
+      return RET_NOMEM;
+    }
+    if (wkspace_alloc_ull_checked(&tmp_ullp, unfiltered_indiv_ct * sizeof(long long))) {
+      return RET_NOMEM;
+    }
+    buflen = new_buflen;
+    for (uii = unfiltered_indiv_ct - 1; uii >= 0; uii--) {
+      tmp_ullp[uii] = line_locs[uii];
+    }
+    line_locs = tmp_ullp;
+  }
+  fill_ulong_zero(founder_info_ptr, unfiltered_indiv_ctl);
+  fill_ulong_zero(indiv_exclude_ptr, unfiltered_indiv_ctl);
+
+  // ----- .fam/[.ped first columns] read, second pass -----
+  for (indiv_num = 0; indiv_num < unfiltered_indiv_ct; indiv_num++) {
+    fseeko(famfile, line_locs[indiv_num], SEEK_SET);
+    if (fgets(linebuf, buflen, famfile) == NULL) {
+      return RET_READ_FAIL;
+    }
+    if (fam_col_1) {
+      bufptr = next_item(linebuf);
+    } else {
+      bufptr = linebuf;
+    }
+    tmp_len = strlen_se(linebuf);
+    tmp_len2 = strlen_se(bufptr);
+    memcpy(&(person_ids[indiv_num * max_person_id_len]), linebuf, tmp_len);
+    person_ids[indiv_num * max_person_id_len + tmp_len] = '\t';
+    memcpy(&(person_ids[indiv_num * max_person_id_len + tmp_len + 1]), bufptr, tmp_len2);
+    person_ids[indiv_num * max_person_id_len + tmp_len + tmp_len2 + 1] = '\0';
+    if (fam_col_34) {
+      bufptr = next_item(bufptr);
+      cc = *bufptr;
+      tmp_len = strlen_se(bufptr);
+      memcpy(&(paternal_ids[indiv_num * max_paternal_id_len]), bufptr, tmp_len);
+      paternal_ids[indiv_num * max_paternal_id_len + tmp_len] = '\0';
+      bufptr = next_item(bufptr);
+      tmp_len2 = strlen_se(bufptr);
+      memcpy(&(maternal_ids[indiv_num * max_maternal_id_len]), bufptr, tmp_len2);
+      maternal_ids[indiv_num * max_maternal_id_len + tmp_len] = '\0';
+      if ((tmp_len == 1) && (tmp_len2 == 1) && (cc == '0') && (*bufptr == '0')) {
+	set_bit_noct(*founder_info_ptr, indiv_num);
+      }
+    }
+    if (fam_col_6) {
+      if (fam_col_5) {
+	bufptr = next_item(bufptr);
+      }
+      bufptr = next_item(bufptr);
+      if (affection) {
+	if (is_missing(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
+	  pheno_c[indiv_num] = -1;
+	} else if (affection_01) {
+	  pheno_c[indiv_num] = *bufptr - '0';
+	} else {
+	  pheno_c[indiv_num] = *bufptr - '1';
+	}
+      } else {
+	sscanf(bufptr, "%lg", &(pheno_d[indiv_num]));
+      }
+    }
+  }
+
+  *unfiltered_indiv_ct_ptr = unfiltered_indiv_ct;
+  *max_person_id_len_ptr = max_person_id_len;
+  *max_paternal_id_len_ptr = max_paternal_id_len;
+  *max_maternal_id_len_ptr = max_maternal_id_len;
+  *affection_ptr = affection;
+  wkspace_reset(wkspace_mark);
 }
 
 int distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, char* outname, char* outname_end, char* varsuffix, char* mode, int calculation_type, int parallel_idx, int parallel_tot) {
@@ -4846,7 +5069,7 @@ double normdist(double zz) {
  return zz >= 0 ? 1 - p0 : p0;
 }
 
-int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct, int unfiltered_marker_ct, unsigned long* marker_exclude, Chrom_info* chrom_info_ptr, unsigned int* marker_pos, double* mafs, int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_id, int max_person_id_len, char* paternal_id, int max_paternal_id_len, char* maternal_id, int max_maternal_id_len, unsigned long* founder_info, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int nonfounders, int calculation_type, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ppc_gap, Pedigree_rel_info pri) {
+int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, int marker_ct, int unfiltered_marker_ct, unsigned long* marker_exclude, Chrom_info* chrom_info_ptr, unsigned int* marker_pos, double* mafs, int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_id, unsigned int max_person_id_len, char* paternal_id, unsigned int max_paternal_id_len, char* maternal_id, unsigned int max_maternal_id_len, unsigned long* founder_info, int parallel_idx, int parallel_tot, char* outname, char* outname_end, int nonfounders, int calculation_type, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ppc_gap, Pedigree_rel_info pri) {
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
   int retval = 0;
@@ -5866,7 +6089,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
       if (cur_window_size > 1) {
 	for (ii = 0; ii < cur_window_size; ii++) {
 	  if (marker_stdevs[ii] == 0.0) {
-	    exclude(pruned_arr, live_indices[ii], &cur_exclude_ct);
+	    set_bit(pruned_arr, live_indices[ii], &cur_exclude_ct);
 	  }
 	}
 	do {
@@ -5938,9 +6161,9 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 		at_least_one_prune = 1;
 		// remove SNP with lower MAF
 		if (true_maf(mafs[live_indices[ii]]) < true_maf(mafs[live_indices[jj]])) {
-		  exclude(pruned_arr, live_indices[ii], &cur_exclude_ct);
+		  set_bit(pruned_arr, live_indices[ii], &cur_exclude_ct);
 		} else {
-		  exclude(pruned_arr, live_indices[jj], &cur_exclude_ct);
+		  set_bit(pruned_arr, live_indices[jj], &cur_exclude_ct);
 		  jj++;
 		  while (jj < cur_window_size) {
 		    if (!is_set(pruned_arr, live_indices[jj])) {
@@ -6005,7 +6228,7 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	      }
 	    }
 	    if (dxx > ld_last_param) {
-	      exclude(pruned_arr, live_indices[idx_remap[jj]], &cur_exclude_ct);
+	      set_bit(pruned_arr, live_indices[idx_remap[jj]], &cur_exclude_ct);
 	      window_rem--;
 	      for (ii = jj; ii < window_rem; ii++) {
                 idx_remap[ii] = idx_remap[ii + 1];
@@ -6201,7 +6424,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* makepheno_str, char* filterval, int mfilter_col, int ped_col_1, int ped_col_34, int ped_col_5, int ped_col_6, int ped_col_7, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, int parallel_tot, int ppc_gap, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* makepheno_str, char* filterval, int mfilter_col, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, int parallel_tot, int ppc_gap, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -6272,11 +6495,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   double* phenor_d = NULL;
   char* phenor_c = NULL;
   char* person_id = NULL;
-  int max_person_id_len = 4;
+  unsigned int max_person_id_len;
   char* paternal_id = NULL;
-  int max_paternal_id_len = 2;
+  unsigned int max_paternal_id_len = 2;
   char* maternal_id = NULL;
-  int max_maternal_id_len = 2;
+  unsigned int max_maternal_id_len = 2;
   unsigned char* wkspace_mark = NULL;
   unsigned int* giptr = NULL;
   unsigned int* giptr2 = NULL;
@@ -6400,7 +6623,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   // This bound assumes about half of the main workspace is spent on the
   // distance matrix.  The reality will differ, depending on the requested
-  // calculation.
+  // calculation, but it's reasonable to enforce this upper bound.
   if (exp0) {
     max_people = (int)sqrt((malloc_size_mb * 1048576) / sizeof(int));
   } else {
@@ -6414,11 +6637,18 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   if (retval) {
     goto wdist_ret_2;
   }
-  // todo: load .fam/[first few columns of .ped], count indivs
-  // retval = load_fam_or_ped_first_cols();
-  // if (retval) {
-  //   goto wdist_ret_2;
-  // }
+
+  if (binary_files) {
+    ulii = MAXLINELEN;
+  } else {
+    ulii = unfiltered_marker_ct * 4 + PEDBUFBASE;
+  }
+  // load .fam/[first few columns of .ped], count indivs
+  retval = load_fam(binary_files? famfile : pedfile, ulii, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_pheno, missing_pheno_len, affection_01, &unfiltered_indiv_ct, &person_id, &max_person_id_len, &paternal_id, &max_paternal_id_len, &maternal_id, &max_maternal_id_len, &affection, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
+  if (retval) {
+    goto wdist_ret_2;
+  }
+  unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
 
   if (!(calculation_type & (CALC_GDISTANCE_MASK | CALC_LOAD_DISTANCES | CALC_RELATIONSHIP_MASK | CALC_IBC | CALC_FREQ | CALC_WRITE_SNPLIST | CALC_GENOME | CALC_LD_PRUNE))) {
     prune = 1;
@@ -6808,7 +7038,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       if (tbuf[0] > ' ') {
         if (tbuf[0] != '#') {
 	  bufptr = next_item(tbuf);
-          if (!ped_col_1) {
+          if (!fam_col_1) {
             cptr = tbuf;
           } else {
             cptr = bufptr;
@@ -6825,7 +7055,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           } else {
             ii = 1;
           }
-	  if (ii && ped_col_34) {
+	  if (ii && fam_col_34) {
 	    cptr2 = next_item(cptr);
 	    jj = strlen_se(cptr2) + 1;
 	    if (jj > max_paternal_id_len) {
@@ -6850,13 +7080,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      }
             }
           } else if (ii || (!unfiltered_indiv_ct)) {
-	    if (ped_col_1) {
+	    if (fam_col_1) {
 	      bufptr = next_item(bufptr);
 	    }
-	    if (ped_col_34) {
+	    if (fam_col_34) {
 	      bufptr = next_item(next_item(bufptr));
 	    }
-	    if (ped_col_5) {
+	    if (fam_col_5) {
 	      bufptr = next_item(bufptr);
 	    }
 	    if (!bufptr) {
@@ -6914,7 +7144,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (!person_id) {
       goto wdist_ret_NOMEM;
     }
-    if (ped_col_34) {
+    if (fam_col_34) {
       paternal_id = (char*)malloc(unfiltered_indiv_ct * max_paternal_id_len * sizeof(char));
       if (!paternal_id) {
 	goto wdist_ret_NOMEM;
@@ -6944,17 +7174,17 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         if (tbuf[0] != '#') {
 	  if (jj == nn) {
             while (ii < unfiltered_indiv_ct) {
-              exclude(indiv_exclude, ii++, &indiv_exclude_ct);
+              set_bit(indiv_exclude, ii++, &indiv_exclude_ct);
             }
 	    break;
 	  }
 	  if (line_locs[jj] > ii) {
-            exclude(indiv_exclude, ii++, &indiv_exclude_ct);
+            set_bit(indiv_exclude, ii++, &indiv_exclude_ct);
 	    continue;
 	  }
 
 	  bufptr = next_item(tbuf);
-	  if (!ped_col_1) {
+	  if (!fam_col_1) {
 	    cptr = tbuf;
 	  } else {
 	    cptr = bufptr;
@@ -6965,7 +7195,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  person_id[ii * max_person_id_len + kk] = '\t';
 	  memcpy(&(person_id[ii * max_person_id_len + kk + 1]), cptr, mm);
 	  person_id[ii * max_person_id_len + kk + mm + 1] = '\0';
-	  if (ped_col_34) {
+	  if (fam_col_34) {
 	    cptr2 = next_item(cptr);
 	    kk = strlen_se(cptr2);
 	    memcpy(&(paternal_id[ii * max_paternal_id_len]), cptr2, kk);
@@ -6973,7 +7203,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    cptr2 = next_item(cptr2);
 	    mm = strlen_se(cptr2);
 	    if ((kk == 1) && (mm == 1) && (paternal_id[ii * max_paternal_id_len] == '0') && (*cptr2 == '0')) {
-	      set_founder_info(founder_info, ii);
+	      set_bit_noct(founder_info, ii);
 	    }
 	    memcpy(&(maternal_id[ii * max_maternal_id_len]), cptr2, mm);
 	    maternal_id[ii * max_maternal_id_len + kk] = '\0';
@@ -6998,13 +7228,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
               pheno_d[ii] = phenor_d[kk];
             }
           } else {
-	    if (ped_col_1) {
+	    if (fam_col_1) {
 	      bufptr = next_item(bufptr);
 	    }
-	    if (ped_col_34) {
+	    if (fam_col_34) {
 	      bufptr = next_item(next_item(bufptr));
 	    }
-	    if (ped_col_5) {
+	    if (fam_col_5) {
 	      bufptr = next_item(bufptr);
 	    }
             if (affection) {
@@ -7120,12 +7350,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	}
       }
       if ((mm + nn < geno_int_thresh) || ((mafs[ii] < 0.0) && ((mm < maf_int_thresh) || (nn < maf_int_thresh))) || ((mafs[ii] >= 0.0) && ((mafs[ii] < min_maf) || (mafs[ii] > 1.0 - min_maf)))) {
-	exclude(marker_exclude, ii, &marker_exclude_ct);
+	set_bit(marker_exclude, ii, &marker_exclude_ct);
       }
     }
     for (ii = 0; ii < unfiltered_indiv_ct; ii++) {
       if (person_missing_cts[ii] > mind_int_thresh) {
-	exclude(indiv_exclude, ii, &indiv_exclude_ct);
+	set_bit(indiv_exclude, ii, &indiv_exclude_ct);
       }
     }
 
@@ -7201,7 +7431,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	kk = SNPHWE_t(hwe_u_lhi, hwe_u_lli, hwe_u_hhi, hwe_thresh) || SNPHWE_t(hwe_a_lhi, hwe_a_lli, hwe_a_hhi, hwe_thresh);
       }
       if (kk) {
-	exclude(marker_exclude, ii, &marker_exclude_ct);
+	set_bit(marker_exclude, ii, &marker_exclude_ct);
       } else {
 	marker_allele_cts[ii * 2] = hwe_hhi * 2 + hwe_lhi;
 	marker_allele_cts[ii * 2 + 1] = hwe_lli * 2 + hwe_lhi;
@@ -7226,7 +7456,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     while (fgets((char*)pedbuf, pedbuflen, pedfile) != NULL) {
       if ((pedbuf[0] > ' ') && (pedbuf[0] != '#')) {
 	bufptr = next_item((char*)pedbuf);
-	if (!ped_col_1) {
+	if (!fam_col_1) {
 	  cptr = (char*)pedbuf;
 	} else {
 	  cptr = bufptr;
@@ -7243,7 +7473,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	} else {
 	  ii = 1;
 	}
-	if (ii && ped_col_34) {
+	if (ii && fam_col_34) {
 	  cptr2 = next_item(cptr);
 	  jj = strlen_se(cptr2) + 1;
 	  if (jj > max_paternal_id_len) {
@@ -7268,13 +7498,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    }
 	  }
 	} else if (ii || (!unfiltered_indiv_ct)) {
-	  if (ped_col_1) { // actually column 2
+	  if (fam_col_1) { // actually column 2
 	    bufptr = next_item(bufptr);
 	  }
-	  if (ped_col_34) {
+	  if (fam_col_34) {
 	    bufptr = next_item(next_item(bufptr));
 	  }
-	  if (ped_col_5) {
+	  if (fam_col_5) {
 	    bufptr = next_item(bufptr);
 	  }
 	  if (!bufptr) {
@@ -7345,7 +7575,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (!person_id) {
       goto wdist_ret_NOMEM;
     }
-    if (ped_col_34) {
+    if (fam_col_34) {
       paternal_id = (char*)malloc(unfiltered_indiv_ct * max_paternal_id_len * sizeof(char));
       if (!paternal_id) {
 	goto wdist_ret_NOMEM;
@@ -7394,12 +7624,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         fgets((char*)pedbuf, pedbuflen, pedfile);
       } while ((pedbuf[0] <= ' ') || (pedbuf[0] == '#'));
       if (!line_locs[ii]) {
-        exclude(indiv_exclude, ii, &indiv_exclude_ct);
+        set_bit(indiv_exclude, ii, &indiv_exclude_ct);
         continue;
       }
       bufptr = (char*)pedbuf;
       oo = strlen_se(bufptr);
-      if (ped_col_1) {
+      if (fam_col_1) {
 	bufptr = next_item(bufptr);
       }
       mm = strlen_se(bufptr);
@@ -7407,7 +7637,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       person_id[ii * max_person_id_len + oo] = '\t';
       memcpy(&(person_id[ii * max_person_id_len + oo + 1]), bufptr, mm);
       person_id[ii * max_person_id_len + oo + mm + 1] = '\0';
-      if (ped_col_34) {
+      if (fam_col_34) {
         cptr = next_item(bufptr);
 	oo = strlen_se(cptr);
 	memcpy(&(paternal_id[ii * max_paternal_id_len]), cptr, oo);
@@ -7415,7 +7645,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	cptr2 = next_item(cptr);
 	pp = strlen_se(cptr2);
 	if ((oo == 1) && (pp == 1) && (*cptr == '0') && (*cptr2 == '0')) {
-	  set_founder_info(founder_info, ii);
+	  set_bit_noct(founder_info, ii);
 	}
 	memcpy(&(maternal_id[ii * max_maternal_id_len]), cptr2, pp);
 	maternal_id[ii * max_maternal_id_len + pp] = '\0';
@@ -7440,20 +7670,20 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           pheno_d[ii] = phenor_d[jj];
         }
         bufptr = next_item(bufptr);
-        if (ped_col_34) {
+        if (fam_col_34) {
           bufptr = next_item(bufptr);
           bufptr = next_item(bufptr);
         }
-        if (ped_col_5) {
+        if (fam_col_5) {
           bufptr = next_item(bufptr);
         }
       } else {
         bufptr = next_item(bufptr);
-	if (ped_col_34) {
+	if (fam_col_34) {
 	  bufptr = next_item(bufptr);
 	  bufptr = next_item(bufptr);
 	}
-	if (ped_col_5) {
+	if (fam_col_5) {
 	  bufptr = next_item(bufptr);
 	}
 	if (affection) {
@@ -7481,11 +7711,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
           }
 	}
       }
-      if (ped_col_6) {
+      if (fam_col_6) {
         bufptr = next_item(bufptr);
-      }
-      if (ped_col_7) {
-	bufptr = next_item(bufptr);
       }
       if (!bufptr) {
         printf(errstr_ped_format);
@@ -7546,7 +7773,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         }
       }
       if (mm > mind_int_thresh) {
-        exclude(indiv_exclude, ii, &indiv_exclude_ct);
+        set_bit(indiv_exclude, ii, &indiv_exclude_ct);
       }
       kk++;
     }
@@ -7570,9 +7797,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       maf_int_thresh = mm - (int)((1.0 - min_maf) * mm);
 
       if (marker_allele_cts[ii * 4] + marker_allele_cts[ii * 4 + 1] < geno_int_thresh) {
-        exclude(marker_exclude, ii, &marker_exclude_ct);
+        set_bit(marker_exclude, ii, &marker_exclude_ct);
       } else if (marker_allele_cts[ii * 4 + 1] < maf_int_thresh) {
-        exclude(marker_exclude, ii, &marker_exclude_ct);
+        set_bit(marker_exclude, ii, &marker_exclude_ct);
       } else if (!marker_allele_cts[ii * 4 + 1]) {
         marker_alleles[ii * 4 + 1] = missing_geno;
       } else if (marker_allele_cts[ii * 4 + 1] == marker_allele_cts[ii * 4 + 2]) {
@@ -7667,10 +7894,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     for (ii = 0; ii < unfiltered_marker_ct; ii++) {
       if (!is_set(marker_exclude, ii)) {
 	if (SNPHWE_t(hwe_lh[ii], hwe_ll[ii], hwe_hh[ii], hwe_thresh)) {
-	  exclude(marker_exclude, ii, &marker_exclude_ct);
+	  set_bit(marker_exclude, ii, &marker_exclude_ct);
 	} else if (bin_pheno) {
 	  if (SNPHWE_t(hwe_u_lh[ii], hwe_u_ll[ii], hwe_u_hh[ii], hwe_thresh) || SNPHWE_t(hwe_a_lh[ii], hwe_a_ll[ii], hwe_a_hh[ii], hwe_thresh)) {
-	    exclude(marker_exclude, ii, &marker_exclude_ct);
+	    set_bit(marker_exclude, ii, &marker_exclude_ct);
 	  }
 	}
 	if (!is_set(marker_exclude, ii)) {
@@ -7958,7 +8185,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
     }
     collapse_arr(person_id, max_person_id_len, indiv_exclude, unfiltered_indiv_ct);
-    if (ped_col_34) {
+    if (fam_col_34) {
       collapse_arr(paternal_id, max_paternal_id_len, indiv_exclude, unfiltered_indiv_ct);
       collapse_arr(maternal_id, max_maternal_id_len, indiv_exclude, unfiltered_indiv_ct);
       collapse_bitarr(founder_info, indiv_exclude, unfiltered_indiv_ct);
@@ -10228,7 +10455,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   fclose_cond(famtmpfile);
  wdist_ret_1:
   free_cond(het_probs);
-  free_cond(founder_info);
   free_cond(maternal_id);
   free_cond(paternal_id);
   free_cond(person_id);
@@ -10296,11 +10522,10 @@ int main(int argc, char** argv) {
   char* sptr;
   int retval;
   int load_params = 0; // describes what file parameters have been provided
-  int ped_col_1 = 1;
-  int ped_col_34 = 1;
-  int ped_col_5 = 1;
-  int ped_col_6 = 1;
-  int ped_col_7 = 0;
+  int fam_col_1 = 1;
+  int fam_col_34 = 1;
+  int fam_col_5 = 1;
+  int fam_col_6 = 1;
   int mpheno_col = 0;
   char* phenoname_str = NULL;
   int affection_01 = 0;
@@ -10592,19 +10817,16 @@ int main(int argc, char** argv) {
       strcpy(famname, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--no-fid")) {
-      ped_col_1 = 0;
+      fam_col_1 = 0;
       cur_arg += 1;
     } else if (!strcmp(argptr, "--no-parents")) {
-      ped_col_34 = 0;
+      fam_col_34 = 0;
       cur_arg += 1;
     } else if (!strcmp(argptr, "--no-sex")) {
-      ped_col_5 = 0;
+      fam_col_5 = 0;
       cur_arg += 1;
     } else if (!strcmp(argptr, "--no-pheno")) {
-      ped_col_6 = 0;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--liability")) {
-      ped_col_7 = 1;
+      fam_col_6 = 0;
       cur_arg += 1;
     } else if (!strcmp(argptr, "--missing-genotype")) {
       if (cur_arg == argc - 1) {
@@ -11826,7 +12048,7 @@ int main(int argc, char** argv) {
     printf("Error: No output requested.%s", errstr_append);
     return dispmsg(RET_INVALID_CMDLINE);
   }
-  if (prune && (!phenoname[0]) && (!ped_col_6)) {
+  if (prune && (!phenoname[0]) && (!fam_col_6)) {
     printf("Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.\n");
     return dispmsg(RET_INVALID_CMDLINE);
   }
@@ -11880,7 +12102,7 @@ int main(int argc, char** argv) {
   // the presence of their respective flags
   // filtername[0] indicates existence of filter
   // freqname[0] signals --read-freq
-  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, makepheno_str, filterval, mfilter_col, ped_col_1, ped_col_34, ped_col_5, ped_col_6, ped_col_7, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, &chrom_info, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ);
+  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, makepheno_str, filterval, mfilter_col, fam_col_1, fam_col_34, fam_col_5, fam_col_6, (char)missing_geno, missing_pheno, mpheno_col, phenoname_str, prune, affection_01, &chrom_info, exponent, min_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ);
   free(wkspace_ua);
   return dispmsg(retval);
 }
