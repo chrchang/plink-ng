@@ -5439,7 +5439,7 @@ int incr_text_allele(char cc, char* marker_alleles, int* marker_allele_cts, int 
   return -1;
 }
 
-int calc_freqs_and_binary_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned long* founder_info, int nonfounders, int maf_succ, double* set_allele_freqs, char** marker_alleles_ptr, int** marker_allele_cts_ptr, unsigned int** missing_cts_ptr, int bed_offset, unsigned long long* line_locs, int pedbuflen, unsigned char missing_geno, int hwe_all, char* pheno_c, int** hwe_lls_ptr, int** hwe_lhs_ptr, int** hwe_hhs_ptr, int** ll_cts_ptr, int** lh_cts_ptr, int** hh_cts_ptr) {
+int calc_freqs_and_binary_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned long* founder_info, int nonfounders, int maf_succ, double* set_allele_freqs, char** marker_alleles_ptr, int** marker_allele_cts_ptr, unsigned int** missing_cts_ptr, int bed_offset, unsigned long long* line_locs, int pedbuflen, unsigned char missing_geno, int hwe_all, char* pheno_c, int** hwe_lls_ptr, int** hwe_lhs_ptr, int** hwe_hhs_ptr, int** hwe_ll_allfs_ptr, int** hwe_lh_allfs_ptr, int** hwe_hh_allfs_ptr, int** ll_cts_ptr, int** lh_cts_ptr, int** hh_cts_ptr) {
   int binary_files = (line_locs == NULL);
   unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   unsigned char* wkspace_mark;
@@ -5462,12 +5462,18 @@ int calc_freqs_and_binary_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned 
   int* hwe_lls;
   int* hwe_lhs;
   int* hwe_hhs;
+  int* hwe_ll_allfs;
+  int* hwe_lh_allfs;
+  int* hwe_hh_allfs;
   int* ll_cts;
   int* lh_cts;
   int* hh_cts;
   int hwe_ll;
   int hwe_lh;
   int hwe_hh;
+  int hwe_ll_allf;
+  int hwe_lh_allf;
+  int hwe_hh_allf;
   int ll_extra;
   int lh_extra;
   int hh_extra;
@@ -5493,6 +5499,20 @@ int calc_freqs_and_binary_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned 
       return RET_NOMEM;
     }
     *hwe_hhs_ptr = hwe_hhs;
+
+    if (wkspace_alloc_i_checked(&hwe_ll_allfs, unfiltered_marker_ct * sizeof(int))) {
+      return RET_NOMEM;
+    }
+    *hwe_ll_allfs_ptr = hwe_ll_allfs;
+    if (wkspace_alloc_i_checked(&hwe_lh_allfs, unfiltered_marker_ct * sizeof(int))) {
+      return RET_NOMEM;
+    }
+    *hwe_lh_allfs_ptr = hwe_lh_allfs;
+    if (wkspace_alloc_i_checked(&hwe_hh_allfs, unfiltered_marker_ct * sizeof(int))) {
+      return RET_NOMEM;
+    }
+    *hwe_hh_allfs_ptr = hwe_hh_allfs;
+
     if (wkspace_alloc_i_checked(&ll_cts, unfiltered_marker_ct * sizeof(int))) {
       return RET_NOMEM;
     }
@@ -5540,6 +5560,9 @@ int calc_freqs_and_binary_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned 
       hwe_ll = 0;
       hwe_lh = 0;
       hwe_hh = 0;
+      hwe_ll_allf = 0;
+      hwe_lh_allf = 0;
+      hwe_hh_allf = 0;
       ll_extra = 0;
       lh_extra = 0;
       hh_extra = 0;
@@ -5558,14 +5581,14 @@ int calc_freqs_and_binary_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned 
 	      if (hwe_all || (!pheno_c[indiv_idx])) {
 	        hwe_hh++;
 	      } else {
-		hh_extra++;
+		hwe_hh_allf++;
 	      }
 	      set_allele_ct += 2;
 	    } else if (uii == 2) {
 	      if (hwe_all || (!pheno_c[indiv_idx])) {
 	        hwe_lh++;
 	      } else {
-		lh_extra++;
+		hwe_lh_allf++;
 	      }
 	      set_allele_ct++;
 	      clear_allele_ct++;
@@ -5573,7 +5596,7 @@ int calc_freqs_and_binary_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned 
 	      if (hwe_all || (!pheno_c[indiv_idx])) {
 	        hwe_ll++;
 	      } else {
-		ll_extra++;
+		hwe_ll_allf++;
 	      }
 	      clear_allele_ct += 2;
 	    }
@@ -5595,9 +5618,12 @@ int calc_freqs_and_binary_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned 
       hwe_lls[marker_uidx] = hwe_ll;
       hwe_lhs[marker_uidx] = hwe_lh;
       hwe_hhs[marker_uidx] = hwe_hh;
-      ll_cts[marker_uidx] = hwe_ll + ll_extra;
-      lh_cts[marker_uidx] = hwe_lh + lh_extra;
-      hh_cts[marker_uidx] = hwe_hh + hh_extra;
+      hwe_ll_allfs[marker_uidx] = hwe_ll + hwe_ll_allf;
+      hwe_lh_allfs[marker_uidx] = hwe_lh + hwe_lh_allf;
+      hwe_hh_allfs[marker_uidx] = hwe_hh + hwe_hh_allf;
+      ll_cts[marker_uidx] = hwe_ll + hwe_ll_allf + ll_extra;
+      lh_cts[marker_uidx] = hwe_lh + hwe_lh_allf + lh_extra;
+      hh_cts[marker_uidx] = hwe_hh + hwe_hh_allf + hh_extra;
       marker_allele_cts[2 * marker_uidx] += clear_allele_ct;
       marker_allele_cts[2 * marker_uidx + 1] += set_allele_ct;
       uii = set_allele_ct + clear_allele_ct + 2 * maf_succ;
@@ -5973,7 +5999,7 @@ int write_freqs(FILE** outfile_ptr, char* outname, int plink_maxsnp, int unfilte
 
 unsigned int binary_geno_filter(double geno_thresh, int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int* marker_exclude_ct_ptr, int indiv_ct, int* marker_allele_cts) {
   unsigned int orig_exclude_ct = *marker_exclude_ct_ptr;
-  unsigned int geno_int_thresh = 2 * indiv_ct - (int)(geno_thresh * indiv_ct);
+  unsigned int geno_int_thresh = 2 * indiv_ct - (int)(geno_thresh * 2 * indiv_ct);
   unsigned int marker_uidx;
   for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
     if (is_set(marker_exclude, marker_uidx)) {
@@ -5988,13 +6014,13 @@ unsigned int binary_geno_filter(double geno_thresh, int unfiltered_marker_ct, un
 
 unsigned int text_geno_filter(double geno_thresh, int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int* marker_exclude_ct_ptr, int indiv_ct, int* marker_allele_cts, unsigned int* missing_cts) {
   unsigned int orig_exclude_ct = *marker_exclude_ct_ptr;
-  unsigned int geno_int_thresh = (int)(geno_thresh * indiv_ct);
+  unsigned int geno_int_thresh = (int)(geno_thresh * 2 * indiv_ct);
   unsigned int marker_uidx;
   for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
     if (is_set(marker_exclude, marker_uidx)) {
       continue;
     }
-    if ((missing_cts[marker_uidx] + marker_allele_cts[4 * marker_uidx + 2] + marker_allele_cts[4 * marker_uidx + 3]) > geno_int_thresh) {
+    if ((missing_cts[marker_uidx] * 2 + marker_allele_cts[4 * marker_uidx + 2] + marker_allele_cts[4 * marker_uidx + 3]) > geno_int_thresh) {
       set_bit(marker_exclude, marker_uidx, marker_exclude_ct_ptr);
     }
   }
@@ -6017,11 +6043,12 @@ void text_normalize_marker_alleles(char* marker_alleles, int unfiltered_marker_c
   marker_alleles = (char*)wkspace_alloc(unfiltered_marker_ct * 2);
 }
 
-int text_load_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned long* founder_info, int nonfounders, char* marker_alleles, unsigned long long* line_locs, int pedbuflen, int hwe_all, char* pheno_c, int** hwe_lls_ptr, int** hwe_lhs_ptr, int** hwe_hhs_ptr, int** ll_cts_ptr, int** lh_cts_ptr, int** hh_cts_ptr) {
+int text_load_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned long* founder_info, int nonfounders, char* marker_alleles, unsigned long long* line_locs, int pedbuflen, int hwe_all, char* pheno_c, int** hwe_lls_ptr, int** hwe_lhs_ptr, int** hwe_hhs_ptr, int** hwe_ll_allfs_ptr, int** hwe_lh_allfs_ptr, int** hwe_hh_allfs_ptr, int** ll_cts_ptr, int** lh_cts_ptr, int** hh_cts_ptr) {
   unsigned char* wkspace_mark;
   char* loadbuf;
   int indiv_idx;
   char* cptr;
+  unsigned int is_effective_founder;
   unsigned int always_count;
   int marker_uidx;
   char cc;
@@ -6029,6 +6056,9 @@ int text_load_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned long* marker
   int* hwe_lls;
   int* hwe_lhs;
   int* hwe_hhs;
+  int* hwe_ll_allfs;
+  int* hwe_lh_allfs;
+  int* hwe_hh_allfs;
   int* ll_cts;
   int* lh_cts;
   int* hh_cts;
@@ -6050,6 +6080,23 @@ int text_load_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned long* marker
   }
   *hwe_hhs_ptr = hwe_hhs;
   fill_int_zero(hwe_hhs, unfiltered_marker_ct);
+
+  if (wkspace_alloc_i_checked(&hwe_ll_allfs, unfiltered_marker_ct * sizeof(int))) {
+    return RET_NOMEM;
+  }
+  *hwe_ll_allfs_ptr = hwe_ll_allfs;
+  fill_int_zero(hwe_ll_allfs, unfiltered_marker_ct);
+  if (wkspace_alloc_i_checked(&hwe_lh_allfs, unfiltered_marker_ct * sizeof(int))) {
+    return RET_NOMEM;
+  }
+  *hwe_lh_allfs_ptr = hwe_lh_allfs;
+  fill_int_zero(hwe_lh_allfs, unfiltered_marker_ct);
+  if (wkspace_alloc_i_checked(&hwe_hh_allfs, unfiltered_marker_ct * sizeof(int))) {
+    return RET_NOMEM;
+  }
+  *hwe_hh_allfs_ptr = hwe_hh_allfs;
+  fill_int_zero(hwe_hh_allfs, unfiltered_marker_ct);
+
   if (wkspace_alloc_i_checked(&ll_cts, unfiltered_marker_ct * sizeof(int))) {
     return RET_NOMEM;
   }
@@ -6081,7 +6128,8 @@ int text_load_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned long* marker
       return RET_READ_FAIL;
     }
     cptr = loadbuf;
-    always_count = ((nonfounders || is_set(founder_info, indiv_idx)) && (hwe_all || (!pheno_c[indiv_idx])));
+    is_effective_founder = (nonfounders || is_set(founder_info, indiv_idx));
+    always_count = (is_effective_founder && (hwe_all || (!pheno_c[indiv_idx])));
     for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
       cc = *cptr;
       // no more need to check for invalid format, since this is at least
@@ -6096,12 +6144,16 @@ int text_load_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned long* marker
 	  if (cc == cc2) {
 	    if (always_count) {
 	      hwe_lls[marker_uidx] += 1;
+	    } else if (is_effective_founder) {
+	      hwe_ll_allfs[marker_uidx] += 1;
 	    } else {
 	      ll_cts[marker_uidx] += 1;
 	    }
 	  } else {
 	    if (always_count) {
 	      hwe_lhs[marker_uidx] += 1;
+	    } else if (is_effective_founder) {
+	      hwe_lh_allfs[marker_uidx] += 1;
 	    } else {
 	      lh_cts[marker_uidx] += 1;
 	    }
@@ -6110,12 +6162,16 @@ int text_load_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned long* marker
 	  if (cc == cc2) {
 	    if (always_count) {
 	      hwe_hhs[marker_uidx] += 1;
+	    } else if (is_effective_founder) {
+	      hwe_hh_allfs[marker_uidx] += 1;
 	    } else {
 	      hh_cts[marker_uidx] += 1;
 	    }
 	  } else {
 	    if (always_count) {
 	      hwe_lhs[marker_uidx] += 1;
+	    } else if (is_effective_founder) {
+	      hwe_lh_allfs[marker_uidx] += 1;
 	    } else {
 	      lh_cts[marker_uidx] += 1;
 	    }
@@ -6132,15 +6188,18 @@ int text_load_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned long* marker
     if (is_set(marker_exclude, marker_uidx)) {
       continue;
     }
-    ll_cts[marker_uidx] += hwe_lls[marker_uidx];
-    lh_cts[marker_uidx] += hwe_lhs[marker_uidx];
-    hh_cts[marker_uidx] += hwe_hhs[marker_uidx];
+    hwe_ll_allfs[marker_uidx] += hwe_lls[marker_uidx];
+    hwe_lh_allfs[marker_uidx] += hwe_lhs[marker_uidx];
+    hwe_hh_allfs[marker_uidx] += hwe_hhs[marker_uidx];
+    ll_cts[marker_uidx] += hwe_ll_allfs[marker_uidx];
+    lh_cts[marker_uidx] += hwe_lh_allfs[marker_uidx];
+    hh_cts[marker_uidx] += hwe_hh_allfs[marker_uidx];
   }
   wkspace_reset(wkspace_mark);
   return 0;
 }
 
-void enforce_hwe_threshold(double hwe_thresh, int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int* marker_exclude_ct_ptr, int* hwe_lls, int* hwe_lhs, int* hwe_hhs) {
+void enforce_hwe_threshold(double hwe_thresh, int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int* marker_exclude_ct_ptr, int* hwe_lls, int* hwe_lhs, int* hwe_hhs, int hwe_all, int* hwe_ll_allfs, int* hwe_lh_allfs, int* hwe_hh_allfs) {
   // N.B. requires het_probs to be allocated
   unsigned int removed_ct = 0;
   int marker_uidx;
@@ -6151,6 +6210,11 @@ void enforce_hwe_threshold(double hwe_thresh, int unfiltered_marker_ct, unsigned
     if (SNPHWE_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh)) {
       set_bit(marker_exclude, marker_uidx, marker_exclude_ct_ptr);
       removed_ct++;
+    } else if (!hwe_all) {
+      if (SNPHWE_t(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], hwe_thresh)) {
+	set_bit(marker_exclude, marker_uidx, marker_exclude_ct_ptr);
+	removed_ct++;
+      }
     }
   }
   printf("%u SNP%s removed due to Hardy-Weinberg exact test (--hwe).\n", removed_ct, (removed_ct == 1)? "" : "s");
@@ -8020,6 +8084,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   int* hwe_lls;
   int* hwe_lhs;
   int* hwe_hhs;
+  int* hwe_ll_allfs;
+  int* hwe_lh_allfs;
+  int* hwe_hh_allfs;
   int* ll_cts;
   int* lh_cts;
   int* hh_cts;
@@ -8295,7 +8362,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   // text HWE waits until after external freq file has had a chance to modify
   // major/minor allele
   nonfounders = (nonfounders || (!fam_col_34));
-  retval = calc_freqs_and_binary_hwe(pedfile, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_alleles, &marker_allele_cts, &missing_cts, bed_offset, line_locs, pedbuflen, (unsigned char)missing_geno, hwe_all, pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &ll_cts, &lh_cts, &hh_cts);
+  retval = calc_freqs_and_binary_hwe(pedfile, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_alleles, &marker_allele_cts, &missing_cts, bed_offset, line_locs, pedbuflen, (unsigned char)missing_geno, hwe_all, pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &ll_cts, &lh_cts, &hh_cts);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -8330,7 +8397,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     // now marker_alleles[2 * ii + 1] is the set allele, just like binary case.
     // wkspace is also reset.
     missing_cts = NULL;
-    retval = text_load_hwe(pedfile, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, founder_info, nonfounders, marker_alleles, line_locs, pedbuflen, hwe_all, pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &ll_cts, &lh_cts, &hh_cts);
+    retval = text_load_hwe(pedfile, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, founder_info, nonfounders, marker_alleles, line_locs, pedbuflen, hwe_all, pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &ll_cts, &lh_cts, &hh_cts);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -8341,7 +8408,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (!het_probs) {
       goto wdist_ret_NOMEM;
     }
-    enforce_hwe_threshold(hwe_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, hwe_lls, hwe_lhs, hwe_hhs);
+    enforce_hwe_threshold(hwe_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, hwe_lls, hwe_lhs, hwe_hhs, hwe_all || (!pheno_c), hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs);
     free(het_probs);
     het_probs = NULL;
   }
@@ -11409,6 +11476,7 @@ int main(int argc, char** argv) {
 	printf("Error: --max-maf parameter too large.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
       }
+      cur_arg += 2;
     } else if (!strcmp(argptr, "--geno")) {
       ii = param_count(argc, argv, cur_arg);
       if (ii > 1) {
