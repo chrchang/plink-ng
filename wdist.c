@@ -546,6 +546,11 @@ int dispmsg(int retval) {
 "    Linear regression of pairwise genomic relationships on pairwise average\n"
 "    phenotypes, and vice versa.\n\n"
 #ifndef NOLAPACK
+"  --regress-pcs [.evec file] <sex-specific> {max PCs}\n"
+"    Regresses phenotypes and discrete genotypes on the given list of principal\n"
+"    components (produced by SMARTPCA), and then converts phenotypes to\n"
+"    Z-scores (optionally sex-specific).  By default, at most 10 PCs are\n"
+"    included in the regression.\n\n"
 "  --unrelated-heritability <strict> {tol} {initial covg} {initial covr}\n"
 "    REML estimate of additive heritability, iterating with an accelerated\n"
 "    variant of the EM algorithm until the rate of change of the log likelihood\n"
@@ -4902,7 +4907,7 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
     memset(pheno_c, 255, unfiltered_indiv_ct);
     *pheno_c_ptr = pheno_c;
   }
-  if (!wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
+  if (wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
     return RET_NOMEM;
   }
   // ----- phenotype file load -----
@@ -5018,7 +5023,7 @@ int makepheno_load(FILE* phenofile, char* makepheno_str, unsigned int unfiltered
   char* bufptr;
   int person_idx;
   unsigned int tmp_len;
-  if (!wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
+  if (wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
     return RET_NOMEM;
   }
   if (!pheno_c) {
@@ -12060,6 +12065,13 @@ int main(int argc, char** argv) {
       }
       cur_arg += ii + 1;
       calculation_type |= CALC_REGRESS_REL;
+    } else if (!strcmp(argptr, "--regress-pcs")) {
+#ifdef NOLAPACK
+      printf("Error: --regress-pcs does not work without LAPACK.  Download a wdist build with\n'L' at the end of the version number.\n");
+      return dispmsg(RET_INVALID_CMDLINE);
+#else
+      // todo
+#endif
     } else if (!strcmp(argptr, "--unrelated-heritability")) {
 #ifdef NOLAPACK
       printf("Error: --unrelated-heritability does not work without LAPACK.  Download a wdist\nbuild with 'L' at the end of the version number.\n");
