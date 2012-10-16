@@ -4618,11 +4618,6 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
     chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
     chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = ii;
   }
-  if (*marker_exclude_ct_ptr) {
-    printf("%d markers loaded (after excluding %d).\n", unfiltered_marker_ct - *marker_exclude_ct_ptr, *marker_exclude_ct_ptr);
-  } else {
-    printf("%d markers loaded.\n", unfiltered_marker_ct);
-  }
   return 0;
 }
 
@@ -8158,6 +8153,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   if (retval) {
     goto wdist_ret_2;
   }
+  printf("%d markers and %d people loaded.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct);
+
   unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
 
   if (phenofile || tail_pheno) {
