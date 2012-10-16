@@ -5023,7 +5023,6 @@ int makepheno_load(FILE* phenofile, char* makepheno_str, unsigned int unfiltered
   char* bufptr;
   int person_idx;
   unsigned int tmp_len;
-  unsigned int tmp_len2;
   if (!wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
     return RET_NOMEM;
   }
@@ -5043,13 +5042,11 @@ int makepheno_load(FILE* phenofile, char* makepheno_str, unsigned int unfiltered
       printf("Error: Excessively long line in phenotype file (max %d chars).\n", MAXLINELEN - 3);
       return RET_INVALID_FORMAT;
     }
-    tmp_len = strlen_se(tbuf);
     bufptr = next_item(tbuf);
     if (no_more_items(bufptr)) {
       printf(errstr_phenotype_format);
       return RET_INVALID_FORMAT;
     }
-    tmp_len2 = strlen_se(bufptr);
     person_idx = bsearch_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, indiv_ct, tbuf, bufptr);
     if (person_idx != -1) {
       person_idx = id_map[person_idx];
@@ -8052,14 +8049,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   FILE* loaddistfile = NULL;
   char* id_buf = NULL;
   int unfiltered_marker_ct = 0;
-  int unfiltered_marker_ct4 = 0;
   int marker_ct;
   char* outname_end;
   unsigned char* pedbuf = NULL;
   unsigned long* marker_exclude = NULL;
   unsigned long long* line_locs = NULL;
   unsigned long long* line_mids = NULL;
-  int max_people;
   int pedbuflen;
   unsigned long max_marker_id_len = 0;
   int plink_maxsnp;
@@ -8211,15 +8206,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     outname_end++;
   }
 
-  // This bound assumes about half of the main workspace is spent on the
-  // distance matrix.  The reality will differ, depending on the requested
-  // calculation, but it's reasonable to enforce this upper bound.
-  if (exp0) {
-    max_people = (int)sqrt((malloc_size_mb * 1048576) / sizeof(int));
-  } else {
-    max_people = (int)sqrt((malloc_size_mb * 1048576) / sizeof(double));
-  }
-
   tbuf[MAXLINELEN - 6] = ' ';
   tbuf[MAXLINELEN - 1] = ' ';
   // load .map/.bim, count markers, filter chromosomes
@@ -8227,7 +8213,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   if (retval) {
     goto wdist_ret_2;
   }
-  unfiltered_marker_ct4 = (unfiltered_marker_ct + 3) / 4;
 
   if (binary_files) {
     ulii = MAXLINELEN;
