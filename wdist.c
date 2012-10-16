@@ -4691,6 +4691,7 @@ int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34,
 	  bufptr = next_item(bufptr);
 	}
 	if (fam_col_6) {
+	  bufptr = next_item(bufptr);
 	  if (no_more_items(bufptr)) {
 	    printf(errstr_fam_format);
 	    return RET_INVALID_FORMAT;
@@ -6142,19 +6143,16 @@ int text_load_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned long* marker
 void enforce_hwe_threshold(double hwe_thresh, int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int* marker_exclude_ct_ptr, int* hwe_lls, int* hwe_lhs, int* hwe_hhs) {
   // N.B. requires het_probs to be allocated
   unsigned int removed_ct = 0;
-  int attempts = 0;
   int marker_uidx;
   for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
     if (is_set(marker_exclude, marker_uidx)) {
       continue;
     }
-    attempts++;
     if (SNPHWE_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh)) {
       set_bit(marker_exclude, marker_uidx, marker_exclude_ct_ptr);
       removed_ct++;
     }
   }
-  printf("%d attempts\n", attempts);
   printf("%u SNP%s removed due to Hardy-Weinberg exact test (--hwe).\n", removed_ct, (removed_ct == 1)? "" : "s");
 }
 
