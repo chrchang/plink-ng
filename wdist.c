@@ -5431,9 +5431,9 @@ int incr_text_allele(char cc, char* marker_alleles, int* marker_allele_cts, int 
     if (marker_alleles[ii] == '\0') {
       marker_alleles[ii] = cc;
       if (is_founder) {
-	marker_nf_allele_cts[ii] = 1;
+	marker_allele_cts[ii] = 1;
       } else {
-        marker_allele_cts[ii] = 1;
+        marker_nf_allele_cts[ii] = 1;
       }
       return 0;
     } else if (marker_alleles[ii] == cc) {
@@ -8557,633 +8557,631 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       fill_int_zero((int*)missing_dbl_excluded, llxx);
     }
-    if (binary_files) {
-      fseeko(pedfile, bed_offset, SEEK_SET);
-      ii = 0;
-      pp = 0;
-      ped_geno = wkspace_alloc(indiv_ct * sizeof(long));
-      if (!ped_geno) {
-        goto wdist_ret_NOMEM;
-      }
-      mmasks = (unsigned long*)wkspace_alloc(indiv_ct * sizeof(long));
-      if (!mmasks) {
-	goto wdist_ret_NOMEM;
-      }
-      gptr = wkspace_alloc(MULTIPLEX_REL * unfiltered_indiv_ct4);
-      if (!gptr) {
-        goto wdist_ret_NOMEM;
-      }
-      masks = (unsigned long*)wkspace_alloc(indiv_ct * sizeof(long));
-      if (!masks) {
-	goto wdist_ret_NOMEM;
-      }
+    fseeko(pedfile, bed_offset, SEEK_SET);
+    ii = 0;
+    pp = 0;
+    ped_geno = wkspace_alloc(indiv_ct * sizeof(long));
+    if (!ped_geno) {
+      goto wdist_ret_NOMEM;
+    }
+    mmasks = (unsigned long*)wkspace_alloc(indiv_ct * sizeof(long));
+    if (!mmasks) {
+      goto wdist_ret_NOMEM;
+    }
+    gptr = wkspace_alloc(MULTIPLEX_REL * unfiltered_indiv_ct4);
+    if (!gptr) {
+      goto wdist_ret_NOMEM;
+    }
+    masks = (unsigned long*)wkspace_alloc(indiv_ct * sizeof(long));
+    if (!masks) {
+      goto wdist_ret_NOMEM;
+    }
 
-      // See comments at the beginning of this file, and those in the main
-      // CALC_DISTANCE loop.  The main difference between this calculation and
-      // the (nonzero exponent) distance calculation is that we have to pad
-      // each marker to 3 bits and use + instead of XOR to distinguish the
-      // cases.
-      while (pp < marker_ct) {
-        jj = 0;
-        while ((jj < MULTIPLEX_REL) && (pp < marker_ct)) {
-          ulii = 0;
-          while (is_set(marker_exclude, ii)) {
-            ii++;
-            ulii++;
-          }
-          if (ulii) {
-            fseeko(pedfile, ulii * unfiltered_indiv_ct4, SEEK_CUR);
-          }
-          if (fread(&(gptr[jj * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, pedfile) < unfiltered_indiv_ct4) {
-            goto wdist_ret_READ_FAIL;
-          }
-          set_allele_freq_buf[jj] = set_allele_freqs[ii];
-          ii++;
-          jj++;
-          pp++;
-        }
-        if (jj < MULTIPLEX_REL) {
-          memset(&(gptr[jj * unfiltered_indiv_ct4]), 0, (MULTIPLEX_REL - jj) * unfiltered_indiv_ct4);
-          fill_double_zero(&(set_allele_freq_buf[jj]), MULTIPLEX_REL - jj);
-        }
-        fill_ulong_zero(mmasks, indiv_ct);
-
-	for (nn = 0; nn < jj; nn += MULTIPLEX_REL / 3) {
-          fill_ulong_zero(masks, indiv_ct);
-          oo = 0;
-          glptr2 = (unsigned long*)ped_geno;
-	  for (qq = 0; oo < indiv_ct; qq++) {
-	    while (is_set(indiv_exclude, qq)) {
-              qq++;
-            }
-	    ulii = 0;
-	    gptr2 = &(gptr[qq / 4 + nn * unfiltered_indiv_ct4]);
-	    kk = (qq % 4) * 2;
-	    for (mm = 0; mm < (MULTIPLEX_REL / 3); mm++) {
-	      uljj = (gptr2[mm * unfiltered_indiv_ct4] >> kk) & 3;
-	      if (uljj == 1) {
-		masks[oo] |= 7LU << (mm * 3);
-		mmasks[oo] |= 1LU << (nn + mm);
-		indiv_missing_unwt[oo] += 1;
-	      }
-	      ulii |= uljj << (mm * 3);
-	    }
-	    *glptr2++ = ulii;
-	    oo++;
-	  }
-          if (calculation_type & CALC_IBC) {
-            for (oo = 0; oo < 3; oo++) {
-              update_rel_ibc(&(rel_ibc[oo * indiv_ct]), (unsigned long*)ped_geno, &(set_allele_freq_buf[nn]), oo);
-            }
-          } else {
-            update_rel_ibc(rel_ibc, (unsigned long*)ped_geno, &(set_allele_freq_buf[nn]), ibc_type);
-          }
-          if (relationship_req(calculation_type)) {
-	    fill_weights_r(weights, &(set_allele_freq_buf[nn]), var_std);
-	    for (ulii = 1; ulii < thread_ct; ulii++) {
-	      if (pthread_create(&(threads[ulii - 1]), NULL, &calc_rel_thread, (void*)ulii)) {
-		goto wdist_ret_THREAD_CREATE_FAIL;
-	      }
-	    }
-	    incr_dists_r(rel_dists, (unsigned long*)ped_geno, masks, 0, weights);
-	    for (oo = 0; oo < thread_ct - 1; oo++) {
-	      pthread_join(threads[oo], NULL);
-	    }
-          }
+    // See comments at the beginning of this file, and those in the main
+    // CALC_DISTANCE loop.  The main difference between this calculation and
+    // the (nonzero exponent) distance calculation is that we have to pad
+    // each marker to 3 bits and use + instead of XOR to distinguish the
+    // cases.
+    while (pp < marker_ct) {
+      jj = 0;
+      while ((jj < MULTIPLEX_REL) && (pp < marker_ct)) {
+	ulii = 0;
+	while (is_set(marker_exclude, ii)) {
+	  ii++;
+	  ulii++;
 	}
-        if (relationship_req(calculation_type)) {
+	if (ulii) {
+	  fseeko(pedfile, ulii * unfiltered_indiv_ct4, SEEK_CUR);
+	}
+	if (fread(&(gptr[jj * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, pedfile) < unfiltered_indiv_ct4) {
+	  goto wdist_ret_READ_FAIL;
+	}
+	set_allele_freq_buf[jj] = set_allele_freqs[ii];
+	ii++;
+	jj++;
+	pp++;
+      }
+      if (jj < MULTIPLEX_REL) {
+	memset(&(gptr[jj * unfiltered_indiv_ct4]), 0, (MULTIPLEX_REL - jj) * unfiltered_indiv_ct4);
+	fill_double_zero(&(set_allele_freq_buf[jj]), MULTIPLEX_REL - jj);
+      }
+      fill_ulong_zero(mmasks, indiv_ct);
+
+      for (nn = 0; nn < jj; nn += MULTIPLEX_REL / 3) {
+	fill_ulong_zero(masks, indiv_ct);
+	oo = 0;
+	glptr2 = (unsigned long*)ped_geno;
+	for (qq = 0; oo < indiv_ct; qq++) {
+	  while (is_set(indiv_exclude, qq)) {
+	    qq++;
+	  }
+	  ulii = 0;
+	  gptr2 = &(gptr[qq / 4 + nn * unfiltered_indiv_ct4]);
+	  kk = (qq % 4) * 2;
+	  for (mm = 0; mm < (MULTIPLEX_REL / 3); mm++) {
+	    uljj = (gptr2[mm * unfiltered_indiv_ct4] >> kk) & 3;
+	    if (uljj == 1) {
+	      masks[oo] |= 7LU << (mm * 3);
+	      mmasks[oo] |= 1LU << (nn + mm);
+	      indiv_missing_unwt[oo] += 1;
+	    }
+	    ulii |= uljj << (mm * 3);
+	  }
+	  *glptr2++ = ulii;
+	  oo++;
+	}
+	if (calculation_type & CALC_IBC) {
+	  for (oo = 0; oo < 3; oo++) {
+	    update_rel_ibc(&(rel_ibc[oo * indiv_ct]), (unsigned long*)ped_geno, &(set_allele_freq_buf[nn]), oo);
+	  }
+	} else {
+	  update_rel_ibc(rel_ibc, (unsigned long*)ped_geno, &(set_allele_freq_buf[nn]), ibc_type);
+	}
+	if (relationship_req(calculation_type)) {
+	  fill_weights_r(weights, &(set_allele_freq_buf[nn]), var_std);
 	  for (ulii = 1; ulii < thread_ct; ulii++) {
-	    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_missing_thread, (void*)ulii)) {
+	    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_rel_thread, (void*)ulii)) {
 	      goto wdist_ret_THREAD_CREATE_FAIL;
 	    }
 	  }
-	  incr_dists_rm(missing_dbl_excluded, 0, thread_start);
+	  incr_dists_r(rel_dists, (unsigned long*)ped_geno, masks, 0, weights);
 	  for (oo = 0; oo < thread_ct - 1; oo++) {
 	    pthread_join(threads[oo], NULL);
 	  }
 	}
-        printf("\r%d markers complete.", pp);
-        fflush(stdout);
       }
       if (relationship_req(calculation_type)) {
-        printf("\rRelationship matrix calculation complete.\n");
-        dist_ptr = rel_dists;
+	for (ulii = 1; ulii < thread_ct; ulii++) {
+	  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_missing_thread, (void*)ulii)) {
+	    goto wdist_ret_THREAD_CREATE_FAIL;
+	  }
+	}
+	incr_dists_rm(missing_dbl_excluded, 0, thread_start);
+	for (oo = 0; oo < thread_ct - 1; oo++) {
+	  pthread_join(threads[oo], NULL);
+	}
+      }
+      printf("\r%d markers complete.", pp);
+      fflush(stdout);
+    }
+    if (relationship_req(calculation_type)) {
+      printf("\rRelationship matrix calculation complete.\n");
+      dist_ptr = rel_dists;
+    } else {
+      printf("\n");
+    }
+    dptr2 = rel_ibc;
+    if (calculation_type & CALC_IBC) {
+      dptr3 = &(rel_ibc[indiv_ct]);
+      dptr4 = &(rel_ibc[indiv_ct * 2]);
+    }
+    giptr2 = missing_dbl_excluded;
+    for (ii = 0; ii < indiv_ct; ii++) {
+      uii = marker_ct - indiv_missing_unwt[ii];
+      if ((ii >= thread_start[0]) && (ii < thread_start[thread_ct])) {
+	if (relationship_req(calculation_type)) {
+	  giptr = indiv_missing_unwt;
+	  for (jj = 0; jj < ii; jj++) {
+	    *dist_ptr /= uii - (*giptr++) + (*giptr2++);
+	    dist_ptr++;
+	  }
+	}
+      }
+      if (calculation_type & CALC_IBC) {
+	*dptr2 /= uii;
+	dptr2++;
+	*dptr3 /= uii;
+	dptr3++;
+	*dptr4 /= uii;
+	dptr4++;
       } else {
-        printf("\n");
+	*dptr2 /= uii;
+	dptr2++;
+      }
+    }
+    if (calculation_type & CALC_REL_CUTOFF) {
+      // Algorithm:
+      // - Whenever there is at least one individual with exactly one
+      // remaining too-close relation, prune the other side of that
+      // relationship, because doing so is never suboptimal.
+      // - Otherwise, there's no efficient rule that is always optimal
+      // (assuming P != NP, anyway), so we use a simple heuristic: prune the
+      // first individual with the largest number of remaining too-close
+      // relationships.
+      ii = 0; // total number of individuals excluded
+      jj = 0; // number of individuals with exactly one too-close relation
+
+      // number of too-close relations, -1 if excluded
+      iptr = (int*)wkspace_alloc(indiv_ct * sizeof(int));
+      fill_int_zero(iptr, indiv_ct);
+      dist_ptr = rel_dists;
+      for (kk = 1; kk < indiv_ct; kk++) {
+	for (mm = 0; mm < kk; mm++) {
+	  if (*dist_ptr++ > rel_cutoff) {
+	    iptr[kk] += 1;
+	    iptr[mm] += 1;
+	  }
+	}
+      }
+      for (kk = 0; kk < indiv_ct; kk++) {
+	if (iptr[kk] == 1) {
+	  jj++;
+	}
+      }
+      do {
+	if (jj) {
+	  // there is at least one individual with exactly one too-close
+	  // relation left, find the first one
+	  kk = 0;
+	  while (iptr[kk] != 1) {
+	    kk++;
+	  }
+	  // and now find the identity of the other side
+	  dist_ptr = &(rel_dists[(kk * (kk - 1)) / 2]);
+	  for (mm = 0; mm < kk; mm++) {
+	    if (*dist_ptr > rel_cutoff) {
+	      *dist_ptr = 0.0;
+	      break;
+	    }
+	    dist_ptr++;
+	  }
+	  if (mm == kk) {
+	    do {
+	      mm++;
+	      dist_ptr = &(rel_dists[(mm * (mm - 1)) / 2 + kk]);
+	    } while (*dist_ptr <= rel_cutoff);
+	    *dist_ptr = 0.0;
+	  }
+	  iptr[kk] = 0;
+	  jj--;
+	  if (iptr[mm] == 1) {
+	    jj--;
+	    iptr[mm] = -1;
+	    ii++;
+	    continue;
+	  }
+	} else {
+	  // find identity of first individual with maximum number of
+	  // remaining too-close relations
+	  kk = 0; // highest too-close pair count
+	  mm = -1; // associated individual index
+	  for (nn = 0; nn < indiv_ct; nn++) {
+	    if (iptr[nn] > kk) {
+	      kk = iptr[nn];
+	      mm = nn;
+	    }
+	  }
+	  // no too-close relations left at all, we're done
+	  if (mm == -1) {
+	    break;
+	  }
+	}
+	dist_ptr = &(rel_dists[(mm * (mm - 1)) / 2]);
+	for (kk = 0; kk < mm; kk++) {
+	  if (*dist_ptr > rel_cutoff) {
+	    *dist_ptr = 0.0;
+	    iptr[kk] -= 1;
+	    if (iptr[kk] < 2) {
+	      if (iptr[kk] == 0) {
+		jj--;
+	      } else if (iptr[kk] == 1) {
+		jj++;
+	      }
+	    }
+	  }
+	  dist_ptr++;
+	}
+	for (kk = mm + 1; kk < indiv_ct; kk++) {
+	  dist_ptr = &(rel_dists[(kk * (kk - 1)) / 2 + mm]);
+	  if (*dist_ptr > rel_cutoff) {
+	    *dist_ptr = 0.0;
+	    iptr[kk] -= 1;
+	    if (iptr[kk] < 2) {
+	      if (iptr[kk] == 0) {
+		jj--;
+	      } else if (iptr[kk] == 1) {
+		jj++;
+	      }
+	    }
+	  }
+	}
+	iptr[mm] = -1;
+	ii++;
+      } while (1);
+      exclude_multi(indiv_exclude, iptr, indiv_ct, &indiv_exclude_ct);
+      if (ii) {
+	dist_ptr = rel_dists; // write
+	dptr2 = rel_dists; // read
+	dptr3 = rel_ibc; // write
+	dptr4 = rel_ibc; // read
+	for (jj = 0; jj < indiv_ct; jj++) {
+	  if (iptr[jj] != -1) {
+	    if (calculation_type & CALC_IBC) {
+	      dptr3[indiv_ct] = dptr4[indiv_ct];
+	      dptr3[indiv_ct * 2] = dptr4[indiv_ct * 2];
+	    }
+	    *dptr3 = *dptr4++;
+	    dptr3++;
+	    for (kk = 0; kk < jj; kk++) {
+	      if (iptr[kk] != -1) {
+		*dist_ptr = *dptr2++;
+		dist_ptr++;
+	      } else {
+		dptr2++;
+	      }
+	    }
+	  } else {
+	    dptr4++;
+	    dptr2 = &(dptr2[jj]);
+	  }
+	}
+	indiv_ct -= ii;
+	if (calculation_type & CALC_IBC) {
+	  for (jj = 0; jj < indiv_ct; jj++) {
+	    *dptr3++ = *dptr4++;
+	  }
+	  dptr4 = &(dptr4[ii]);
+	  for (jj = 0; jj < indiv_ct; jj++) {
+	    *dptr3++ = *dptr4++;
+	  }
+	  giptr = indiv_missing_unwt;
+	  giptr2 = indiv_missing_unwt;
+	  for (jj = 0; jj < indiv_ct + ii; jj++) {
+	    if (iptr[jj] != -1) {
+	      *giptr = *giptr2++;
+	      giptr++;
+	    } else {
+	      giptr2++;
+	    }
+	  }
+	}
+      }
+      if (ii == 1) {
+	printf("1 individual excluded by --rel-cutoff.\n");
+      } else {
+	printf("%d individuals excluded by --rel-cutoff.\n", ii);
+      }
+    }
+
+    if (calculation_type & CALC_IBC) {
+      strcpy(outname_end, ".ibc");
+      if (fopen_checked(&outfile, outname, "w")) {
+	goto wdist_ret_OPEN_FAIL;
       }
       dptr2 = rel_ibc;
-      if (calculation_type & CALC_IBC) {
-        dptr3 = &(rel_ibc[indiv_ct]);
-        dptr4 = &(rel_ibc[indiv_ct * 2]);
+      dptr3 = &(rel_ibc[indiv_ct]);
+      dptr4 = &(rel_ibc[indiv_ct * 2]);
+      if (fprintf(outfile, "FID\tIID\tNOMISS\tFhat1\tFhat2\tFhat3\n") < 0) {
+	goto wdist_ret_WRITE_FAIL;
       }
-      giptr2 = missing_dbl_excluded;
       for (ii = 0; ii < indiv_ct; ii++) {
-        uii = marker_ct - indiv_missing_unwt[ii];
-	if ((ii >= thread_start[0]) && (ii < thread_start[thread_ct])) {
-	  if (relationship_req(calculation_type)) {
-	    giptr = indiv_missing_unwt;
-	    for (jj = 0; jj < ii; jj++) {
-	      *dist_ptr /= uii - (*giptr++) + (*giptr2++);
-	      dist_ptr++;
-	    }
-	  }
+	if (fprintf(outfile, "%d\t%d\t%d\t%g\t%g\t%g\n", ii + 1, ii + 1, marker_ct - indiv_missing_unwt[ii], *dptr3++ - 1.0, *dptr4++ - 1.0, *dptr2++ - 1.0) < 0) {
+	  goto wdist_ret_WRITE_FAIL;
 	}
-        if (calculation_type & CALC_IBC) {
-          *dptr2 /= uii;
-          dptr2++;
-          *dptr3 /= uii;
-          dptr3++;
-          *dptr4 /= uii;
-          dptr4++;
-        } else {
-          *dptr2 /= uii;
-          dptr2++;
-        }
       }
-      if (calculation_type & CALC_REL_CUTOFF) {
-        // Algorithm:
-        // - Whenever there is at least one individual with exactly one
-        // remaining too-close relation, prune the other side of that
-        // relationship, because doing so is never suboptimal.
-        // - Otherwise, there's no efficient rule that is always optimal
-        // (assuming P != NP, anyway), so we use a simple heuristic: prune the
-        // first individual with the largest number of remaining too-close
-        // relationships.
-	ii = 0; // total number of individuals excluded
-        jj = 0; // number of individuals with exactly one too-close relation
-
-        // number of too-close relations, -1 if excluded
-	iptr = (int*)wkspace_alloc(indiv_ct * sizeof(int));
-	fill_int_zero(iptr, indiv_ct);
-        dist_ptr = rel_dists;
-	for (kk = 1; kk < indiv_ct; kk++) {
-	  for (mm = 0; mm < kk; mm++) {
-	    if (*dist_ptr++ > rel_cutoff) {
-	      iptr[kk] += 1;
-	      iptr[mm] += 1;
-	    }
-	  }
-	}
-        for (kk = 0; kk < indiv_ct; kk++) {
-          if (iptr[kk] == 1) {
-            jj++;
-          }
-        }
-	do {
-          if (jj) {
-            // there is at least one individual with exactly one too-close
-            // relation left, find the first one
-            kk = 0;
-            while (iptr[kk] != 1) {
-              kk++;
-            }
-            // and now find the identity of the other side
-            dist_ptr = &(rel_dists[(kk * (kk - 1)) / 2]);
-            for (mm = 0; mm < kk; mm++) {
-              if (*dist_ptr > rel_cutoff) {
-                *dist_ptr = 0.0;
-                break;
-              }
-              dist_ptr++;
-            }
-            if (mm == kk) {
-              do {
-                mm++;
-	        dist_ptr = &(rel_dists[(mm * (mm - 1)) / 2 + kk]);
-              } while (*dist_ptr <= rel_cutoff);
-              *dist_ptr = 0.0;
-            }
-            iptr[kk] = 0;
-            jj--;
-            if (iptr[mm] == 1) {
-              jj--;
-              iptr[mm] = -1;
-              ii++;
-              continue;
-            }
-          } else {
-            // find identity of first individual with maximum number of
-            // remaining too-close relations
-            kk = 0; // highest too-close pair count
-            mm = -1; // associated individual index
-            for (nn = 0; nn < indiv_ct; nn++) {
-              if (iptr[nn] > kk) {
-                kk = iptr[nn];
-                mm = nn;
-              }
-            }
-            // no too-close relations left at all, we're done
-            if (mm == -1) {
-              break;
-            }
-          }
-	  dist_ptr = &(rel_dists[(mm * (mm - 1)) / 2]);
-	  for (kk = 0; kk < mm; kk++) {
-	    if (*dist_ptr > rel_cutoff) {
-	      *dist_ptr = 0.0;
-	      iptr[kk] -= 1;
-	      if (iptr[kk] < 2) {
-		if (iptr[kk] == 0) {
-		  jj--;
-		} else if (iptr[kk] == 1) {
-		  jj++;
-		}
-	      }
-	    }
-            dist_ptr++;
-	  }
-	  for (kk = mm + 1; kk < indiv_ct; kk++) {
-	    dist_ptr = &(rel_dists[(kk * (kk - 1)) / 2 + mm]);
-	    if (*dist_ptr > rel_cutoff) {
-	      *dist_ptr = 0.0;
-	      iptr[kk] -= 1;
-	      if (iptr[kk] < 2) {
-		if (iptr[kk] == 0) {
-		  jj--;
-		} else if (iptr[kk] == 1) {
-		  jj++;
-		}
-	      }
-	    }
-	  }
-	  iptr[mm] = -1;
-	  ii++;
-	} while (1);
-	exclude_multi(indiv_exclude, iptr, indiv_ct, &indiv_exclude_ct);
-        if (ii) {
-	  dist_ptr = rel_dists; // write
-	  dptr2 = rel_dists; // read
-	  dptr3 = rel_ibc; // write
-	  dptr4 = rel_ibc; // read
-	  for (jj = 0; jj < indiv_ct; jj++) {
-	    if (iptr[jj] != -1) {
-	      if (calculation_type & CALC_IBC) {
-		dptr3[indiv_ct] = dptr4[indiv_ct];
-		dptr3[indiv_ct * 2] = dptr4[indiv_ct * 2];
-	      }
-	      *dptr3 = *dptr4++;
-	      dptr3++;
-	      for (kk = 0; kk < jj; kk++) {
-		if (iptr[kk] != -1) {
-		  *dist_ptr = *dptr2++;
-		  dist_ptr++;
-		} else {
-		  dptr2++;
-		}
-	      }
-	    } else {
-	      dptr4++;
-	      dptr2 = &(dptr2[jj]);
-	    }
-	  }
-	  indiv_ct -= ii;
-	  if (calculation_type & CALC_IBC) {
-	    for (jj = 0; jj < indiv_ct; jj++) {
-	      *dptr3++ = *dptr4++;
-	    }
-            dptr4 = &(dptr4[ii]);
-            for (jj = 0; jj < indiv_ct; jj++) {
-              *dptr3++ = *dptr4++;
-            }
-            giptr = indiv_missing_unwt;
-            giptr2 = indiv_missing_unwt;
-            for (jj = 0; jj < indiv_ct + ii; jj++) {
-              if (iptr[jj] != -1) {
-                *giptr = *giptr2++;
-                giptr++;
-              } else {
-                giptr2++;
-              }
-            }
-	  }
-        }
-        if (ii == 1) {
-          printf("1 individual excluded by --rel-cutoff.\n");
-        } else {
-	  printf("%d individuals excluded by --rel-cutoff.\n", ii);
-        }
+      if (fclose_null(&outfile)) {
+	goto wdist_ret_WRITE_FAIL;
       }
-
+      printf("%s written.\n", outname);
+    }
+    if (calculation_type & CALC_RELATIONSHIP_MASK) {
+      mm = 1;
+      nn = calculation_type & CALC_RELATIONSHIP_SHAPEMASK;
+      if (parallel_tot == 1) {
+	oo = indiv_ct;
+	// nasty rel-cutoff bug
+      } else {
+	oo = thread_start[thread_ct];
+      }
+      pp = thread_start[0];
+      if (pp == 1) {
+	pp = 0;
+      }
       if (calculation_type & CALC_IBC) {
-	strcpy(outname_end, ".ibc");
-        if (fopen_checked(&outfile, outname, "w")) {
+	dptr2 = &(rel_ibc[ibc_type * indiv_ct + pp]);
+      } else {
+	dptr2 = &(rel_ibc[pp]);
+      }
+      llxx = ((long long)pp * (pp - 1)) / 2;
+      llyy = (((long long)oo * (oo + 1)) / 2) - llxx;
+      if (calculation_type & CALC_RELATIONSHIP_BIN) {
+	if (nn == CALC_RELATIONSHIP_SQ0) {
+	  fill_double_zero((double*)ped_geno, indiv_ct - 1);
+	}
+	strcpy(outname_end, ".rel.bin");
+	if (parallel_tot > 1) {
+	  sprintf(&(outname_end[8]), ".%d", parallel_idx + 1);
+	}
+	if (fopen_checked(&outfile, outname, "wb")) {
 	  goto wdist_ret_OPEN_FAIL;
 	}
-        dptr2 = rel_ibc;
-        dptr3 = &(rel_ibc[indiv_ct]);
-        dptr4 = &(rel_ibc[indiv_ct * 2]);
-        if (fprintf(outfile, "FID\tIID\tNOMISS\tFhat1\tFhat2\tFhat3\n") < 0) {
-          goto wdist_ret_WRITE_FAIL;
-        }
-	for (ii = 0; ii < indiv_ct; ii++) {
-          if (fprintf(outfile, "%d\t%d\t%d\t%g\t%g\t%g\n", ii + 1, ii + 1, marker_ct - indiv_missing_unwt[ii], *dptr3++ - 1.0, *dptr4++ - 1.0, *dptr2++ - 1.0) < 0) {
-            goto wdist_ret_WRITE_FAIL;
-          }
-	}
-	if (fclose_null(&outfile)) {
-          goto wdist_ret_WRITE_FAIL;
-        }
-        printf("%s written.\n", outname);
-      }
-      if (calculation_type & CALC_RELATIONSHIP_MASK) {
-        mm = 1;
-        nn = calculation_type & CALC_RELATIONSHIP_SHAPEMASK;
-	if (parallel_tot == 1) {
-	  oo = indiv_ct;
-	  // nasty rel-cutoff bug
-	} else {
-	  oo = thread_start[thread_ct];
-	}
-	pp = thread_start[0];
-	if (pp == 1) {
-	  pp = 0;
-	}
-        if (calculation_type & CALC_IBC) {
-          dptr2 = &(rel_ibc[ibc_type * indiv_ct + pp]);
-        } else {
-          dptr2 = &(rel_ibc[pp]);
-        }
-	llxx = ((long long)pp * (pp - 1)) / 2;
-	llyy = (((long long)oo * (oo + 1)) / 2) - llxx;
-	if (calculation_type & CALC_RELATIONSHIP_BIN) {
-          if (nn == CALC_RELATIONSHIP_SQ0) {
-            fill_double_zero((double*)ped_geno, indiv_ct - 1);
-          }
-          strcpy(outname_end, ".rel.bin");
-	  if (parallel_tot > 1) {
-	    sprintf(&(outname_end[8]), ".%d", parallel_idx + 1);
+	for (ii = pp; ii < oo; ii++) {
+	  if (fwrite_checked(&(rel_dists[((long long)ii * (ii - 1)) / 2 - llxx]), ii * sizeof(double), outfile)) {
+	    goto wdist_ret_WRITE_FAIL;
 	  }
-          if (fopen_checked(&outfile, outname, "wb")) {
-            goto wdist_ret_OPEN_FAIL;
-          }
-	  for (ii = pp; ii < oo; ii++) {
-	    if (fwrite_checked(&(rel_dists[((long long)ii * (ii - 1)) / 2 - llxx]), ii * sizeof(double), outfile)) {
-	      goto wdist_ret_WRITE_FAIL;
+	  if (fwrite_checked(dptr2++, sizeof(double), outfile)) {
+	    goto wdist_ret_WRITE_FAIL;
+	  }
+	  if (nn == CALC_RELATIONSHIP_TRI) {
+	    if ((((long long)ii + 1) * (ii + 2) / 2 - llxx) * 100 >= llyy * mm) {
+	      mm = (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100) / llyy;
+	      printf("\rWriting... %d%%", mm++);
+	      fflush(stdout);
 	    }
-	    if (fwrite_checked(dptr2++, sizeof(double), outfile)) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-            if (nn == CALC_RELATIONSHIP_TRI) {
-              if ((((long long)ii + 1) * (ii + 2) / 2 - llxx) * 100 >= llyy * mm) {
-		mm = (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100) / llyy;
-                printf("\rWriting... %d%%", mm++);
-                fflush(stdout);
-              }
-            } else {
-	      if (nn == CALC_RELATIONSHIP_SQ0) {
-		if (fwrite_checked(ped_geno, (indiv_ct - ii - 1) * sizeof(double), outfile)) {
+	  } else {
+	    if (nn == CALC_RELATIONSHIP_SQ0) {
+	      if (fwrite_checked(ped_geno, (indiv_ct - ii - 1) * sizeof(double), outfile)) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
+	    } else {
+	      for (jj = ii + 1; jj < indiv_ct; jj++) {
+		if (fwrite_checked(&(rel_dists[((long long)jj * (jj - 1) / 2) + ii - llxx]), sizeof(double), outfile)) {
 		  goto wdist_ret_WRITE_FAIL;
 		}
-	      } else {
+	      }
+	    }
+	    if ((ii + 1 - pp) * 100 >= mm * (oo - pp)) {
+	      mm = ((ii + 1 - pp) * 100) / (oo - pp);
+	      printf("\rWriting... %d%%", mm++);
+	      fflush(stdout);
+	    }
+	  }
+	}
+	if (fclose_null(&outfile)) {
+	  goto wdist_ret_WRITE_FAIL;
+	}
+      } else if (calculation_type & CALC_RELATIONSHIP_GRM) {
+	giptr2 = missing_dbl_excluded;
+	if (calculation_type & CALC_RELATIONSHIP_GZ) {
+	  if (parallel_tot > 1) {
+	    sprintf(outname_end, ".grm.%d.gz", parallel_idx + 1);
+	  } else {
+	    strcpy(outname_end, ".grm.gz");
+	  }
+	  if (gzopen_checked(&gz_outfile, outname, "wb")) {
+	    goto wdist_ret_OPEN_FAIL;
+	  }
+	  dist_ptr = rel_dists;
+	  for (ii = pp; ii < oo; ii++) {
+	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * mm) {
+	      mm = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
+	      printf("\rWriting... %d%%", mm++);
+	      fflush(stdout);
+	    }
+	    for (jj = 0; jj < ii; jj += 1) {
+	      kk = marker_ct - *giptr2++;
+	      if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++)) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
+	    }
+	    kk = marker_ct - indiv_missing_unwt[ii];
+	    if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dptr2++)) {
+	      goto wdist_ret_WRITE_FAIL;
+	    }
+	  }
+	  gzclose(gz_outfile);
+	  gz_outfile = NULL;
+	} else {
+	  strcpy(outname_end, ".grm");
+	  if (parallel_tot > 1) {
+	    sprintf(&(outname_end[4]), ".%d", parallel_idx + 1);
+	  }
+	  if (fopen_checked(&outfile, outname, "w")) {
+	    goto wdist_ret_OPEN_FAIL;
+	  }
+	  dist_ptr = rel_dists;
+	  for (ii = pp; ii < oo; ii++) {
+	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * mm) {
+	      mm = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
+	      printf("\rWriting... %d%%", mm++);
+	      fflush(stdout);
+	    }
+	    for (jj = 0; jj < ii; jj++) {
+	      kk = marker_ct - *giptr2++;
+	      if (fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++) < 0) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
+	    }
+	    kk = marker_ct - indiv_missing_unwt[ii];
+	    if (fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dptr2++) < 0) {
+	      goto wdist_ret_WRITE_FAIL;
+	    }
+	  }
+	  if (fclose_null(&outfile)) {
+	    goto wdist_ret_WRITE_FAIL;
+	  }
+	}
+      } else {
+	if (nn == CALC_RELATIONSHIP_SQ0) {
+	  cptr2 = (char*)(&ulii);
+	  for (ii = 0; ii < sizeof(long); ii += 2) {
+	    cptr2[ii] = '\t';
+	    cptr2[ii + 1] = '0';
+	  }
+	  ii = (indiv_ct * 2 + sizeof(long) - 4) / sizeof(long);
+	  glptr2 = (unsigned long*)ped_geno;
+	  for (jj = 0; jj < ii; jj++) {
+	    *glptr2++ = ulii;
+	  }
+	}
+	if (calculation_type & CALC_RELATIONSHIP_GZ) {
+	  if (parallel_tot > 1) {
+	    sprintf(outname_end, ".rel.%d.gz", parallel_idx + 1);
+	  } else {
+	    strcpy(outname_end, ".rel.gz");
+	  }
+	  if (gzopen_checked(&gz_outfile, outname, "wb")) {
+	    goto wdist_ret_OPEN_FAIL;
+	  }
+	  dist_ptr = rel_dists;
+	  if (pp) {
+	    ii = pp;
+	  } else {
+	    if (!gzprintf(gz_outfile, "%g", *dptr2++)) {
+	      goto wdist_ret_WRITE_FAIL;
+	    }
+	    if (nn == CALC_RELATIONSHIP_SQ0) {
+	      if (gzwrite_checked(gz_outfile, ped_geno, (indiv_ct - 1) * 2)) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
+	    } else if (nn == CALC_RELATIONSHIP_SQ) {
+	      for (jj = 1; jj < indiv_ct; jj++) {
+		if (!gzprintf(gz_outfile, "\t%g", rel_dists[(jj * (jj - 1)) / 2])) {
+		  goto wdist_ret_WRITE_FAIL;
+		}
+	      }
+	    }
+	    if (gzwrite_checked(gz_outfile, "\n", 1)) {
+	      goto wdist_ret_WRITE_FAIL;
+	    }
+	    ii = 1;
+	  }
+	  for (; ii < oo; ii++) {
+	    if (!gzprintf(gz_outfile, "%g", *dist_ptr++)) {
+	      goto wdist_ret_WRITE_FAIL;
+	    }
+	    for (jj = 1; jj < ii; jj++) {
+	      if (!gzprintf(gz_outfile, "\t%g", *dist_ptr++)) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
+	    }
+	    if (!gzprintf(gz_outfile, "\t%g", *dptr2++)) {
+	      goto wdist_ret_WRITE_FAIL;
+	    }
+	    if (nn == CALC_RELATIONSHIP_SQ0) {
+	      if (gzwrite_checked(gz_outfile, ped_geno, (indiv_ct - jj - 1) * 2)) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
+	      if ((ii + 1 - pp) * 100 >= mm * oo) {
+		mm = ((ii + 1 - pp) * 100) / oo;
+		printf("\rWriting... %d%%", mm++);
+		fflush(stdout);
+	      }
+	    } else {
+	      if (nn == CALC_RELATIONSHIP_SQ) {
 		for (jj = ii + 1; jj < indiv_ct; jj++) {
-		  if (fwrite_checked(&(rel_dists[((long long)jj * (jj - 1) / 2) + ii - llxx]), sizeof(double), outfile)) {
+		  if (!gzprintf(gz_outfile, "\t%g", rel_dists[((jj * (jj - 1)) / 2) + ii])) {
 		    goto wdist_ret_WRITE_FAIL;
 		  }
 		}
+	      }
+	      if (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100 >= llyy * mm) {
+		mm = (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100) / llyy;
+		printf("\rWriting... %d%%", mm++);
+		fflush(stdout);
+	      }
+	    }
+	    if (gzwrite_checked(gz_outfile, "\n", 1)) {
+	      goto wdist_ret_WRITE_FAIL;
+	    }
+	  }
+	  gzclose(gz_outfile);
+	  gz_outfile = NULL;
+	} else {
+	  strcpy(outname_end, ".rel");
+	  if (parallel_tot > 1) {
+	    sprintf(&(outname_end[4]), ".%d", parallel_idx + 1);
+	  }
+	  if (fopen_checked(&outfile, outname, "w")) {
+	    goto wdist_ret_OPEN_FAIL;
+	  }
+	  dist_ptr = rel_dists;
+	  if (pp) {
+	    ii = pp;
+	  } else {
+	    if (fprintf(outfile, "%g", *dptr2++) < 0) {
+	      goto wdist_ret_WRITE_FAIL;
+	    }
+	    if (nn == CALC_RELATIONSHIP_SQ0) {
+	      if (fwrite_checked(ped_geno, (indiv_ct - 1) * 2, outfile)) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
+	    } else if (nn == CALC_RELATIONSHIP_SQ) {
+	      for (jj = 1; jj < indiv_ct; jj++) {
+		if (fprintf(outfile, "\t%g", rel_dists[(jj * (jj - 1)) / 2]) < 0) {
+		  goto wdist_ret_WRITE_FAIL;
+		}
+	      }
+	    }
+	    if (fwrite_checked("\n", 1, outfile)) {
+	      goto wdist_ret_WRITE_FAIL;
+	    }
+	    ii = 1;
+	  }
+	  for (; ii < oo; ii++) {
+	    if (fprintf(outfile, "%g", *dist_ptr++) < 0) {
+	      goto wdist_ret_WRITE_FAIL;
+	    }
+	    for (jj = 1; jj < ii; jj++) {
+	      if (fprintf(outfile, "\t%g", *dist_ptr++) < 0) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
+	    }
+	    if (fprintf(outfile, "\t%g", *dptr2++) < 0) {
+	      goto wdist_ret_WRITE_FAIL;
+	    }
+	    if (nn == CALC_RELATIONSHIP_SQ0) {
+	      if (fwrite_checked(ped_geno, (indiv_ct - jj - 1) * 2, outfile)) {
+		goto wdist_ret_WRITE_FAIL;
 	      }
 	      if ((ii + 1 - pp) * 100 >= mm * (oo - pp)) {
 		mm = ((ii + 1 - pp) * 100) / (oo - pp);
 		printf("\rWriting... %d%%", mm++);
 		fflush(stdout);
 	      }
-            }
-	  }
-          if (fclose_null(&outfile)) {
-            goto wdist_ret_WRITE_FAIL;
-          }
-        } else if (calculation_type & CALC_RELATIONSHIP_GRM) {
-          giptr2 = missing_dbl_excluded;
-	  if (calculation_type & CALC_RELATIONSHIP_GZ) {
-	    if (parallel_tot > 1) {
-	      sprintf(outname_end, ".grm.%d.gz", parallel_idx + 1);
 	    } else {
-	      strcpy(outname_end, ".grm.gz");
-	    }
-	    if (gzopen_checked(&gz_outfile, outname, "wb")) {
-	      goto wdist_ret_OPEN_FAIL;
-	    }
-	    dist_ptr = rel_dists;
-	    for (ii = pp; ii < oo; ii++) {
-	      if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * mm) {
-		mm = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
-		printf("\rWriting... %d%%", mm++);
-		fflush(stdout);
-	      }
-	      for (jj = 0; jj < ii; jj += 1) {
-		kk = marker_ct - *giptr2++;
-		if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++)) {
-		  goto wdist_ret_WRITE_FAIL;
-		}
-	      }
-              kk = marker_ct - indiv_missing_unwt[ii];
-              if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dptr2++)) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	    }
-	    gzclose(gz_outfile);
-	    gz_outfile = NULL;
-	  } else {
-	    strcpy(outname_end, ".grm");
-	    if (parallel_tot > 1) {
-	      sprintf(&(outname_end[4]), ".%d", parallel_idx + 1);
-	    }
-            if (fopen_checked(&outfile, outname, "w")) {
-	      goto wdist_ret_OPEN_FAIL;
-	    }
-	    dist_ptr = rel_dists;
-	    for (ii = pp; ii < oo; ii++) {
-	      if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * mm) {
-		mm = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
-		printf("\rWriting... %d%%", mm++);
-		fflush(stdout);
-	      }
-	      for (jj = 0; jj < ii; jj++) {
-		kk = marker_ct - *giptr2++;
-		if (fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++) < 0) {
-                  goto wdist_ret_WRITE_FAIL;
-                }
-	      }
-              kk = marker_ct - indiv_missing_unwt[ii];
-              if (fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dptr2++) < 0) {
-                goto wdist_ret_WRITE_FAIL;
-              }
-	    }
-	    if (fclose_null(&outfile)) {
-              goto wdist_ret_WRITE_FAIL;
-            }
-	  }
-        } else {
-	  if (nn == CALC_RELATIONSHIP_SQ0) {
-	    cptr2 = (char*)(&ulii);
-	    for (ii = 0; ii < sizeof(long); ii += 2) {
-	      cptr2[ii] = '\t';
-	      cptr2[ii + 1] = '0';
-	    }
-	    ii = (indiv_ct * 2 + sizeof(long) - 4) / sizeof(long);
-	    glptr2 = (unsigned long*)ped_geno;
-	    for (jj = 0; jj < ii; jj++) {
-	      *glptr2++ = ulii;
-	    }
-	  }
-	  if (calculation_type & CALC_RELATIONSHIP_GZ) {
-	    if (parallel_tot > 1) {
-	      sprintf(outname_end, ".rel.%d.gz", parallel_idx + 1);
-	    } else {
-	      strcpy(outname_end, ".rel.gz");
-	    }
-	    if (gzopen_checked(&gz_outfile, outname, "wb")) {
-	      goto wdist_ret_OPEN_FAIL;
-	    }
-	    dist_ptr = rel_dists;
-	    if (pp) {
-	      ii = pp;
-	    } else {
-	      if (!gzprintf(gz_outfile, "%g", *dptr2++)) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	      if (nn == CALC_RELATIONSHIP_SQ0) {
-		if (gzwrite_checked(gz_outfile, ped_geno, (indiv_ct - 1) * 2)) {
-		  goto wdist_ret_WRITE_FAIL;
-		}
-	      } else if (nn == CALC_RELATIONSHIP_SQ) {
-		for (jj = 1; jj < indiv_ct; jj++) {
-		  if (!gzprintf(gz_outfile, "\t%g", rel_dists[(jj * (jj - 1)) / 2])) {
+	      if (nn == CALC_RELATIONSHIP_SQ) {
+		for (jj = ii + 1; jj < indiv_ct; jj++) {
+		  if (fprintf(outfile, "\t%g", rel_dists[((jj * (jj - 1)) / 2) + ii]) < 0) {
 		    goto wdist_ret_WRITE_FAIL;
 		  }
 		}
 	      }
-	      if (gzwrite_checked(gz_outfile, "\n", 1)) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	      ii = 1;
-	    }
-	    for (; ii < oo; ii++) {
-	      if (!gzprintf(gz_outfile, "%g", *dist_ptr++)) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	      for (jj = 1; jj < ii; jj++) {
-		if (!gzprintf(gz_outfile, "\t%g", *dist_ptr++)) {
-		  goto wdist_ret_WRITE_FAIL;
-		}
-	      }
-              if (!gzprintf(gz_outfile, "\t%g", *dptr2++)) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	      if (nn == CALC_RELATIONSHIP_SQ0) {
-		if (gzwrite_checked(gz_outfile, ped_geno, (indiv_ct - jj - 1) * 2)) {
-		  goto wdist_ret_WRITE_FAIL;
-		}
-		if ((ii + 1 - pp) * 100 >= mm * oo) {
-		  mm = ((ii + 1 - pp) * 100) / oo;
-		  printf("\rWriting... %d%%", mm++);
-		  fflush(stdout);
-		}
-	      } else {
-                if (nn == CALC_RELATIONSHIP_SQ) {
-                  for (jj = ii + 1; jj < indiv_ct; jj++) {
-                    if (!gzprintf(gz_outfile, "\t%g", rel_dists[((jj * (jj - 1)) / 2) + ii])) {
-		      goto wdist_ret_WRITE_FAIL;
-		    }
-                  }
-                }
-		if (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100 >= llyy * mm) {
-		  mm = (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100) / llyy;
-		  printf("\rWriting... %d%%", mm++);
-		  fflush(stdout);
-		}
-              }
-	      if (gzwrite_checked(gz_outfile, "\n", 1)) {
-		goto wdist_ret_WRITE_FAIL;
+	      if (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100 >= llyy * mm) {
+		mm = (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100) / llyy;
+		printf("\rWriting... %d%%", mm++);
+		fflush(stdout);
 	      }
 	    }
-	    gzclose(gz_outfile);
-	    gz_outfile = NULL;
-	  } else {
-	    strcpy(outname_end, ".rel");
-	    if (parallel_tot > 1) {
-	      sprintf(&(outname_end[4]), ".%d", parallel_idx + 1);
+	    if (fwrite_checked("\n", 1, outfile)) {
+	      goto wdist_ret_WRITE_FAIL;
 	    }
-            if (fopen_checked(&outfile, outname, "w")) {
-	      goto wdist_ret_OPEN_FAIL;
-	    }
-	    dist_ptr = rel_dists;
-	    if (pp) {
-	      ii = pp;
-	    } else {
-	      if (fprintf(outfile, "%g", *dptr2++) < 0) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	      if (nn == CALC_RELATIONSHIP_SQ0) {
-		if (fwrite_checked(ped_geno, (indiv_ct - 1) * 2, outfile)) {
-		  goto wdist_ret_WRITE_FAIL;
-		}
-	      } else if (nn == CALC_RELATIONSHIP_SQ) {
-		for (jj = 1; jj < indiv_ct; jj++) {
-		  if (fprintf(outfile, "\t%g", rel_dists[(jj * (jj - 1)) / 2]) < 0) {
-		    goto wdist_ret_WRITE_FAIL;
-		  }
-		}
-	      }
-	      if (fwrite_checked("\n", 1, outfile)) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	      ii = 1;
-	    }
-	    for (; ii < oo; ii++) {
-              if (fprintf(outfile, "%g", *dist_ptr++) < 0) {
-                goto wdist_ret_WRITE_FAIL;
-              }
-	      for (jj = 1; jj < ii; jj++) {
-		if (fprintf(outfile, "\t%g", *dist_ptr++) < 0) {
-                  goto wdist_ret_WRITE_FAIL;
-                }
-	      }
-              if (fprintf(outfile, "\t%g", *dptr2++) < 0) {
-                goto wdist_ret_WRITE_FAIL;
-              }
-	      if (nn == CALC_RELATIONSHIP_SQ0) {
-		if (fwrite_checked(ped_geno, (indiv_ct - jj - 1) * 2, outfile)) {
-		  goto wdist_ret_WRITE_FAIL;
-		}
-		if ((ii + 1 - pp) * 100 >= mm * (oo - pp)) {
-		  mm = ((ii + 1 - pp) * 100) / (oo - pp);
-		  printf("\rWriting... %d%%", mm++);
-		  fflush(stdout);
-		}
-	      } else {
-                if (nn == CALC_RELATIONSHIP_SQ) {
-                  for (jj = ii + 1; jj < indiv_ct; jj++) {
-                    if (fprintf(outfile, "\t%g", rel_dists[((jj * (jj - 1)) / 2) + ii]) < 0) {
-                      goto wdist_ret_WRITE_FAIL;
-                    }
-                  }
-                }
-		if (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100 >= llyy * mm) {
-		  mm = (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100) / llyy;
-		  printf("\rWriting... %d%%", mm++);
-		  fflush(stdout);
-		}
-              }
-	      if (fwrite_checked("\n", 1, outfile)) {
-                goto wdist_ret_WRITE_FAIL;
-              }
-	    }
-	    if (fclose_null(&outfile)) {
-              goto wdist_ret_WRITE_FAIL;
-            }
 	  }
-	}
-	printf("\rRelationship matrix written to %s.\n", outname);
-	if (!parallel_idx) {
-	  strcpy(&(outname_end[4]), ".id");
-	  retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
-	  if (retval) {
-	    goto wdist_ret_2;
+	  if (fclose_null(&outfile)) {
+	    goto wdist_ret_WRITE_FAIL;
 	  }
 	}
       }
-      wkspace_reset(wkspace_mark);
+      printf("\rRelationship matrix written to %s.\n", outname);
+      if (!parallel_idx) {
+	strcpy(&(outname_end[4]), ".id");
+	retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
+	if (retval) {
+	  goto wdist_ret_2;
+	}
+      }
     }
+    wkspace_reset(wkspace_mark);
 
     if (calculation_type & CALC_REGRESS_REL) {
       retval = regress_rel_main(indiv_exclude, unfiltered_indiv_ct, regress_rel_iters, regress_rel_d, threads);
