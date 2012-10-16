@@ -6252,7 +6252,8 @@ void calc_marker_weights(double exponent, int unfiltered_marker_ct, unsigned lon
   }
 }
 
-int make_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr, char* outname, char* outname_end, FILE** pedfile_ptr, unsigned long long* line_locs, unsigned long long* line_mids, int pedbuflen, FILE* mapfile, int map_cols, int unfiltered_marker_ct, unsigned long* marker_exclude, int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, int indiv_ct, char* marker_alleles) {
+int make_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** pedfile_ptr, unsigned long long* line_locs, unsigned long long* line_mids, int pedbuflen, FILE* mapfile, int map_cols, int unfiltered_marker_ct, unsigned long* marker_exclude, int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, int indiv_ct, char* marker_alleles) {
+  int marker_ct4 = (marker_ct + 3) / 4;
   int indiv_ct4 = (indiv_ct + 3) / 4;
   unsigned char* wkspace_mark = wkspace_base;
   unsigned int marker_uidx;
@@ -6266,6 +6267,7 @@ int make_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr
   char cc;
   char cc2;
   unsigned char newval;
+  int retval;
   if (wkspace_alloc_c_checked(&loadbuf, pedbuflen)) {
     return RET_NOMEM;
   }
@@ -6353,12 +6355,102 @@ int make_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr
     if (fclose_null(bedtmpfile_ptr)) {
       return RET_WRITE_FAIL;
     }
+  } else if (wkspace_left < marker_ct4) {
+    return RET_NOMEM;
   } else {
     printf("Converting very large .ped file to temporary individual-major .bed.\n");
-    printf("(not actually written yet)\n");
-    return RET_CALC_NOT_YET_SUPPORTED;
+    strcpy(outname_end, ".fam");
+    if (fopen_checked(famtmpfile_ptr, outname, "wb")) {
+      return RET_OPEN_FAIL;
+    }
+    // .bed.tmp must be last since filename is copied before
+    // indiv_major_to_snp_major() call
+    strcpy(outname_end, ".bed.tmp");
+    if (fopen_checked(bedtmpfile_ptr, outname, "wb")) {
+      return RET_OPEN_FAIL;
+    }
+    if (fwrite_checked("l\x1b", 3, *bedtmpfile_ptr)) {
+      return RET_WRITE_FAIL;
+    }
+    rewind(*pedfile_ptr);
+
+    indiv_idx = 0;
+    for (indiv_uidx = 0; indiv_idx < indiv_ct; indiv_uidx++) {
+      if (is_set(indiv_exclude, indiv_uidx)) {
+	indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx + 1);
+	if (fseeko(*pedfile_ptr, line_locs[indiv_uidx], SEEK_SET)) {
+	  return RET_READ_FAIL;
+	}
+      }
+      if (fgets(loadbuf, pedbuflen, *pedfile_ptr) == NULL) {
+	return RET_READ_FAIL;
+      }
+      bufptr = &(loadbuf[line_mids[indiv_uidx] - line_locs[indiv_uidx]]);
+      bufptr2 = bufptr - 2;
+      while ((*bufptr2 == ' ') || (*bufptr2 == '\t')) {
+	bufptr2--;
+      }
+      bufptr2[1] = '\n';
+      // note that if the .ped file is missing a few columns, the generated
+      // .fam will also be missing the same columns
+      if (fwrite_checked(loadbuf, 2 + (long)(bufptr2 - loadbuf), *famtmpfile_ptr)) {
+	return RET_WRITE_FAIL;
+      }
+      marker_idx = 0;
+      memset(writebuf, 0, marker_ct4);
+      for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+        if (is_set(marker_exclude, marker_uidx)) {
+	  bufptr++;
+	  while ((*bufptr == ' ') || (*bufptr == '\t')) {
+	    bufptr++;
+	  }
+	  bufptr++;
+	  while ((*bufptr == ' ') || (*bufptr == '\t')) {
+	    bufptr++;
+	  }
+	  continue;
+	}
+	cc = *bufptr++;
+	while ((*bufptr == ' ') || (*bufptr == '\t')) {
+	  bufptr++;
+	}
+	cc2 = *bufptr++;
+	while ((*bufptr == ' ') || (*bufptr == '\t')) {
+	  bufptr++;
+	}
+	newval = 1;
+        if (cc == marker_alleles[2 * marker_uidx]) {
+	  if (cc2 == cc) {
+	    newval = 0;
+	  } else if (cc2 == marker_alleles[2 * marker_uidx + 1]) {
+	    newval = 2;
+	  }
+	} else if (cc == marker_alleles[2 * marker_uidx + 1]) {
+	  if (cc2 == marker_alleles[2 * marker_uidx]) {
+	    newval = 2;
+	  } else if (cc2 == cc) {
+	    newval = 3;
+	  }
+	}
+        writebuf[marker_idx / 4] |= newval << ((marker_idx % 4) * 2);
+        marker_idx++;
+      }
+      if (fwrite_checked(writebuf, marker_ct4, *bedtmpfile_ptr)) {
+	return RET_WRITE_FAIL;
+      }
+      indiv_idx++;
+    }
+    if (fclose_null(bedtmpfile_ptr)) {
+      return RET_WRITE_FAIL;
+    }
 
     printf("Now transposing to SNP-major %s.\n", outname);
+    strcpy(tbuf, outname);
+    strcpy(outname_end, ".bed");
+    retval = indiv_major_to_snp_major(tbuf, outname, outfile_ptr, marker_ct);
+    if (retval) {
+      return retval;
+    }
   }
 
   strcpy(outname_end, ".bim");
@@ -6402,168 +6494,6 @@ int make_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr
   printf("Automatic --make-bed complete.\n");
   wkspace_reset(wkspace_mark);
   return 0;
-
-  /*
-    } else {
-      printf("Using two-step .ped -> .bed conversion, since .ped is very large...");
-      strcpy(outname_end, ".fam");
-      if (fopen_checked(&famtmpfile, outname, "wb")) {
-	goto wdist_ret_OPEN_FAIL;
-      }
-      strcpy(outname_end, ".bed.tmp");
-      if (fopen_checked(&bedtmpfile, outname, "wb")) {
-	goto wdist_ret_OPEN_FAIL;
-      }
-      if (fwrite_checked("l\x1b", 3, bedtmpfile)) {
-	goto wdist_ret_WRITE_FAIL;
-      }
-      // ----- .ped (fourth pass) -> .fam + .bed conversion, indiv-major -----
-      rewind(pedfile);
-      ii = 0; // line count
-      last_tell = 0; // last file location
-      while (fgets((char*)pedbuf, pedbuflen, pedfile) != NULL) {
-        if (ii == unfiltered_indiv_ct) {
-          break;
-        }
-        llxx = ftello(pedfile);
-        if (llxx < line_locs[ii]) {
-          last_tell = llxx;
-          continue;
-        }
-        if (is_set(indiv_exclude, ii)) {
-          last_tell = llxx;
-          ii++;
-          continue;
-        }
-        jj = (int)(line_locs[ii++] - last_tell);
-        last_tell = llxx;
-        pedbuf[jj - 1] = '\n';
-        if (fwrite_checked(pedbuf, jj, famtmpfile)) {
-          goto wdist_ret_WRITE_FAIL;
-        }
-        bufptr = (char*)(&pedbuf[jj]);
-        memset(ped_geno, 0, unfiltered_marker_ct4);
-        gptr = ped_geno;
-        mm = 0;
-
-	for (jj = 0; jj < unfiltered_marker_ct; jj += 1) {
-          if (is_set(marker_exclude, jj)) {
-	    bufptr++;
-	    while ((*bufptr == ' ') || (*bufptr == '\t')) {
-	      bufptr++;
-	    }
-	    bufptr++;
-	    while ((*bufptr == ' ') || (*bufptr == '\t')) {
-	      bufptr++;
-	    }
-            continue;
-          }
-	  nn = 0;
-	  for (kk = 0; kk < 2; kk++) {
-	    cc = *bufptr;
-	    if (cc == marker_alleles[jj * 4]) {
-	      if (nn == 2) {
-		nn = 3;
-	      } else if (!nn) {
-		nn = 2;
-	      }
-	    } else if (cc != marker_alleles[jj * 4 + 1]) {
-              nn = 1;
-	    }
-	    bufptr++;
-	    while ((*bufptr == ' ') || (*bufptr == '\t')) {
-	      bufptr++;
-	    }
-	  }
-	  *gptr |= (nn << (mm * 2));
-          mm = (mm + 1) % 4;
-	  if (mm == 0) {
-	    gptr++;
-	  }
-	}
-	if (fwrite_checked(ped_geno, unfiltered_marker_ct4, bedtmpfile)) {
-	  goto wdist_ret_WRITE_FAIL;
-	}
-      }
-      if (fclose_null(&bedtmpfile)) {
-	goto wdist_ret_WRITE_FAIL;
-      }
-
-      strcpy(tbuf, outname);
-      strcpy(outname_end, ".bed");
-      retval = indiv_major_to_snp_major(tbuf, outname, &outfile, unfiltered_marker_ct);
-      if (retval) {
-	goto wdist_ret_1;
-      }
-    }
-
-    strcpy(outname_end, ".bim");
-    if (fopen_checked(&bimtmpfile, outname, "wb")) {
-      goto wdist_ret_OPEN_FAIL;
-    }
-
-    marker_alleles_tmp = (char*)malloc((unfiltered_marker_ct - marker_exclude_ct) * 2 * sizeof(char));
-    if (!marker_alleles_tmp) {
-      goto wdist_ret_NOMEM;
-    }
-    cptr = marker_alleles_tmp;
-    iwptr = (int*)malloc((unfiltered_marker_ct - marker_exclude_ct) * 2 * sizeof(int));
-    iptr = iwptr;
-    dptr2 = set_allele_freqs;
-    for (ii = 0; ii < unfiltered_marker_ct; ii += 1) {
-      if (is_set(marker_exclude, ii)) {
-	continue;
-      }
-      *cptr++ = marker_alleles[ii * 4 + 1];
-      *cptr++ = marker_alleles[ii * 4];
-      *iptr++ = marker_allele_cts[ii * 4 + 1];
-      *iptr++ = marker_allele_cts[ii * 4];
-      *dptr2++ = set_allele_freqs[ii];
-    }
-    free(marker_alleles);
-    marker_alleles = marker_alleles_tmp;
-    marker_alleles_tmp = NULL;
-    marker_allele_cts = iwptr;
-
-    // ----- .map -> .bim conversion -----
-    rewind(mapfile);
-    kk = 0;
-    for (ii = 0; ii < unfiltered_marker_ct; ii += 1) {
-      do {
-	fgets(tbuf, MAXLINELEN, mapfile);
-      } while (tbuf[0] <= ' ');
-      if (is_set(marker_exclude, ii)) {
-	continue;
-      }
-      bufptr = next_item(tbuf);
-      bufptr = next_item(bufptr);
-      if (map_cols == 4) {
-	bufptr = next_item(bufptr);
-      }
-      while (!is_space_or_eoln(*bufptr)) {
-	bufptr++;
-      }
-      *bufptr++ = '\t';
-      *bufptr++ = marker_alleles[kk * 2];
-      *bufptr++ = '\t';
-      *bufptr++ = marker_alleles[kk * 2 + 1];
-      *bufptr++ = '\n';
-      kk++;
-      jj = (int)(bufptr - tbuf);
-      if (fwrite_checked(tbuf, jj, bimtmpfile)) {
-	goto wdist_ret_WRITE_FAIL;
-      }
-    }
-    printf(" done.\n");
-    fclose(pedfile);
-    fclose_null(&bimtmpfile);
-    fclose_null(&famtmpfile);
-    strcpy(outname_end, ".bed");
-    if (fopen_checked(&pedfile, outname, "rb")) {
-      goto wdist_ret_OPEN_FAIL;
-    }
-  }
-*/
 }
 
 int distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, char* outname, char* outname_end, char* varsuffix, char* mode, int calculation_type, int parallel_idx, int parallel_tot) {
@@ -8473,7 +8403,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   wkspace_reset(hwe_lls);
 
   if (!binary_files) {
-    retval = make_bed(&bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, &pedfile, line_locs, line_mids, pedbuflen, mapfile, map_cols, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct, marker_alleles);
+    retval = make_bed(&bedtmpfile, &famtmpfile, &bimtmpfile, &outfile, outname, outname_end, &pedfile, line_locs, line_mids, pedbuflen, mapfile, map_cols, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct, marker_alleles);
     if (retval) {
       goto wdist_ret_2;
     }
