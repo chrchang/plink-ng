@@ -6505,6 +6505,27 @@ int make_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr
   return 0;
 }
 
+int write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, int unfiltered_marker_ct, unsigned long* marker_exclude, char* marker_ids, unsigned long max_marker_id_len) {
+  int marker_uidx;
+  strcpy(outname_end, ".snplist");
+  if (fopen_checked(outfile_ptr, outname, "w")) {
+    return RET_OPEN_FAIL;
+  }
+  for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+    if (is_set(marker_exclude, marker_uidx)) {
+      continue;
+    }
+    if (fprintf(*outfile_ptr, "%s\n", &(marker_ids[marker_uidx * max_marker_id_len])) < 0) {
+      return RET_WRITE_FAIL;
+    }
+  }
+  if (fclose_null(outfile_ptr)) {
+    return RET_WRITE_FAIL;
+  }
+  printf("Final list of SNP IDs written to %s.\n", outname);
+  return 0;
+}
+
 int distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, char* outname, char* outname_end, char* varsuffix, char* mode, int calculation_type, int parallel_idx, int parallel_tot) {
   if (calculation_type & CALC_DISTANCE_SNPS) {
     if (parallel_tot > 1) {
@@ -8363,7 +8384,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   if (calculation_type & CALC_FREQ) {
     strcpy(outname_end, ".frq");
     retval = write_freqs(&outfile, outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_alleles, marker_allele_cts, binary_files);
-    if (retval) {
+    if (retval || (binary_files && (calculation_type == CALC_FREQ))) {
       goto wdist_ret_2;
     }
   }
@@ -8416,9 +8437,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (!binary_files) {
     retval = make_bed(&bedtmpfile, &famtmpfile, &bimtmpfile, &outfile, outname, outname_end, &pedfile, line_locs, line_mids, pedbuflen, mapfile, map_cols, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct, marker_alleles);
-    if (retval) {
+    if (retval || (calculation_type == CALC_FREQ)) {
       goto wdist_ret_2;
     }
+    // if this becomes much more of a maintenance nightmare, consider exiting
+    // function and reloading from .bed from scratch
     if (pheno_c) {
       collapse_arr(pheno_c, sizeof(char), indiv_exclude, unfiltered_indiv_ct);
     } else if (pheno_d) {
@@ -8465,19 +8488,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (calculation_type & CALC_WRITE_SNPLIST) {
-    strcpy(outname_end, ".snplist");
-    if (fopen_checked(&outfile, outname, "w")) {
-      goto wdist_ret_OPEN_FAIL;
-    }
-    for (ii = 0; ii < unfiltered_marker_ct; ii++) {
-      if (!is_set(marker_exclude, ii)) {
-        if (fprintf(outfile, "%s\n", &(marker_ids[ii * max_marker_id_len])) < 0) {
-          goto wdist_ret_WRITE_FAIL;
-        }
-      }
-    }
-    if (fclose_null(&outfile)) {
-      goto wdist_ret_WRITE_FAIL;
+    retval = write_snplist(&outfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len);
+    if (retval) {
+      goto wdist_ret_2;
     }
   }
 
