@@ -288,7 +288,7 @@ const char ver_str[] =
 #else
   "32-bit"
 #endif
-  " (18 October 2012)\n"
+  " (19 October 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
@@ -622,6 +622,8 @@ int dispmsg(int retval) {
 "  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
 "                     default 0.001.\n"
 "  --hwe-all        : Given case-control data, don't ignore cases in HWE test.\n"
+"  --allow-no-sex   : Do not remove ambiguously-sexed individuals.\n"
+"                     (Automatically on if --no-sex flag is present.)\n"
 "  --nonfounders    : Include all individuals in MAF/HWE calculations.\n"
 "  --rel-cutoff {v} : Exclude individuals until no remaining pairs have\n"
 "  --grm-cutoff {v}   relatedness greater than the given cutoff value (default\n"
@@ -1079,6 +1081,10 @@ int strcmp_casted(const void* s1, const void* s2) {
 int strcmp_deref(const void* s1, const void* s2) {
   return strcmp(*(char**)s1, *(char**)s2);
 }
+
+// Worthwhile to look into switching to g++ just to use STL, if sorting ever
+// becomes a time-critical step.  See e.g. Anders Kaseorg's answer to
+// http://www.quora.com/Software-Engineering/Generally-how-much-faster-is-C-compared-to-C++
 
 // alas, qsort_r not available on some Linux distributions
 int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len) {
@@ -6581,6 +6587,21 @@ int make_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr
   return 0;
 }
 
+// int filter_indivs_var(unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int* indiv_exclude_ct_ptr, char* pheno_c, unsigned long* founder_info, int filter_setting) {
+
+void exclude_ambiguous_sex(unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int* indiv_exclude_ct_ptr, unsigned char* sex_info) {
+  int indiv_uidx;
+  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
+    if (is_set(indiv_exclude, indiv_uidx)) {
+      continue;
+    }
+    if (sex_info[indiv_uidx] == '\0') {
+      set_bit(indiv_exclude, indiv_uidx, indiv_exclude_ct_ptr);
+    }
+  }
+}
+
+
 int write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, int unfiltered_marker_ct, unsigned long* marker_exclude, char* marker_ids, unsigned long max_marker_id_len) {
   int marker_uidx;
   strcpy(outname_end, ".snplist");
@@ -8066,7 +8087,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, int parallel_tot, int ppc_gap, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_sex_specific, int max_pcs, int freqx) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_sex_specific, int max_pcs, int freqx) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -8268,7 +8289,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
   count_genders(sex_info, unfiltered_indiv_ct, indiv_exclude, &ii, &jj, &kk);
   if (kk) {
-    printf("%d markers and %d people (%d male%s, %d female%s, and %d unknown) loaded.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s", kk);
+    printf("%d markers and %d people (%d male%s, %d female%s, %d unknown) loaded.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s", kk);
   } else {
     printf("%d markers and %d people (%d male%s, %d female%s) loaded.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s");
   }
@@ -8528,7 +8549,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     printf("Error: All markers fail QC.\n");
     goto wdist_ret_INVALID_FORMAT;
   }
-  printf("%d markers and %d people pass filters and QC%s.\n", marker_ct, indiv_ct, (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
 
   if (wt_needed) {
     calc_marker_weights(exponent, unfiltered_marker_ct, marker_exclude, ll_cts, lh_cts, hh_cts, marker_weights);
@@ -8546,6 +8566,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       collapse_arr(pheno_c, sizeof(char), indiv_exclude, unfiltered_indiv_ct);
     } else if (pheno_d) {
       collapse_arr((char*)pheno_d, sizeof(double), indiv_exclude, unfiltered_indiv_ct);
+    }
+    if (sex_info) {
+      collapse_arr((char*)sex_info, sizeof(char), indiv_exclude, unfiltered_indiv_ct);
     }
     if (calculation_type & CALC_WRITE_SNPLIST) {
       collapse_arr(marker_ids, max_marker_id_len, marker_exclude, unfiltered_marker_ct);
@@ -8574,6 +8597,17 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     indiv_exclude_ct = 0;
     fill_ulong_zero(indiv_exclude, (unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
   }
+  if (!allow_no_sex) {
+    ii = indiv_exclude_ct;
+    exclude_ambiguous_sex(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, sex_info);
+    ii = indiv_exclude_ct - ii;
+    if (ii) {
+      printf("%d individual%s with unknown sex removed (prevent with --allow-no-sex).\n", ii, (ii == 1)? "" : "s");
+    }
+    indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
+  }
+  printf("%d markers and %d people pass filters and QC%s.\n", marker_ct, indiv_ct, (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
+
 
   if (parallel_tot > indiv_ct / 2) {
     printf("Error: Too many --parallel jobs (maximum %d/2 = %d).\n", indiv_ct, indiv_ct / 2);
@@ -10857,6 +10891,7 @@ int main(int argc, char** argv) {
   int ibc_type = 0;
   int parallel_idx = 0;
   int parallel_tot = 1;
+  int allow_no_sex = 0;
   int nonfounders = 0;
   int ii;
   int jj;
@@ -11135,6 +11170,7 @@ int main(int argc, char** argv) {
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       fam_col_5 = 0;
+      allow_no_sex = 1;
       cur_arg += 1;
     } else if (!strcmp(argptr, "--no-pheno")) {
       fam_col_6 = 0;
@@ -11665,6 +11701,9 @@ int main(int argc, char** argv) {
       cur_arg += ii + 1;
     } else if (!strcmp(argptr, "--hwe-all")) {
       hwe_all = 1;
+      cur_arg += 1;
+    } else if (!strcmp(argptr, "--allow-no-sex")) {
+      allow_no_sex = 1;
       cur_arg += 1;
     } else if (!strcmp(argptr, "--nonfounders")) {
       nonfounders = 1;
@@ -12528,7 +12567,7 @@ int main(int argc, char** argv) {
   // filtername[0] indicates existence of filter
   // freqname[0] signals --read-freq
   // evecname[0] signals --regress-pcs
-  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_sex_specific, max_pcs, freqx);
+  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_sex_specific, max_pcs, freqx);
   free(wkspace_ua);
   return dispmsg(retval);
 }
