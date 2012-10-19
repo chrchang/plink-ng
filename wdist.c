@@ -8239,7 +8239,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   unsigned char* wkspace_mark2 = NULL;
   unsigned int marker_uidx;
   unsigned int marker_idx;
+  unsigned int indiv_uidx;
   unsigned int indiv_idx;
+  unsigned int pct;
 
   ii = missing_pheno;
   if (ii < 0) {
@@ -9310,11 +9312,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      goto wdist_ret_WRITE_FAIL;
 	    }
 	    if (nn == CALC_RELATIONSHIP_SQ0) {
-	      if (fwrite_checked(ped_geno, (indiv_ct - jj - 1) * 2, outfile)) {
+	      if (fwrite_checked(ped_geno, (indiv_ct - ii - 1) * 2, outfile)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
-	      if ((ii + 1 - pp) * 100 >= mm * (oo - pp)) {
-		mm = ((ii + 1 - pp) * 100) / (oo - pp);
+	      if ((ii + 1 - pp) * 100LL >= (long long)mm * (oo - pp)) {
+		mm = ((ii + 1 - pp) * 100LL) / (oo - pp);
 		printf("\rWriting... %d%%", mm++);
 		fflush(stdout);
 	      }
@@ -9576,12 +9578,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  if (unwt_needed_full) {
 	    giptr2 = indiv_missing_unwt;
 	  }
-	  for (oo = 0; oo < unfiltered_indiv_ct; oo++) {
-	    if (!is_set(indiv_exclude, oo)) {
-	      kk = (oo % 4) * 2;
+	  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
+	    if (!is_set(indiv_exclude, indiv_uidx)) {
+	      kk = (indiv_uidx % 4) * 2;
 	      ulii = 0;
 	      ulkk = 0;
-	      gptr = &(pedbuf[oo / 4 + nn * unfiltered_indiv_ct4]);
+	      gptr = &(pedbuf[indiv_uidx / 4 + nn * unfiltered_indiv_ct4]);
 	      for (mm = 0; mm < BITCT2; mm++) {
 		uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
 		ulii |= uljj << (mm * 2);
@@ -9604,7 +9606,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      *glptr3 = ulkk;
 	      ulii = 0;
 	      ulkk = 0;
-	      gptr = &(pedbuf[oo / 4 + (nn + BITCT2) * unfiltered_indiv_ct4]);
+	      gptr = &(pedbuf[indiv_uidx / 4 + (nn + BITCT2) * unfiltered_indiv_ct4]);
 	      for (mm = 0; mm < BITCT2; mm++) {
 		uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
 		ulii |= uljj << (mm * 2);
@@ -9642,8 +9644,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      }
 	    }
 	    incr_wt_dist_missing(missing_tot_weights, 0);
-	    for (oo = 0; oo < thread_ct - 1; oo++) {
-	      pthread_join(threads[oo], NULL);
+	    for (uii = 0; uii < thread_ct - 1; uii++) {
+	      pthread_join(threads[uii], NULL);
 	    }
 	  }
 	  if (unwt_needed) {
@@ -9653,8 +9655,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      }
 	    }
 	    incr_dists_rm(missing_dbl_excluded, 0, thread_start);
-	    for (oo = 0; oo < thread_ct - 1; oo++) {
-	      pthread_join(threads[oo], NULL);
+	    for (uii = 0; uii < thread_ct - 1; uii++) {
+	      pthread_join(threads[uii], NULL);
 	    }
 	  }
 	}
@@ -9664,8 +9666,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
 	}
 	incr_dists_i(idists, (unsigned long*)ped_geno, 0);
-	for (oo = 0; oo < thread_ct - 1; oo++) {
-	  pthread_join(threads[oo], NULL);
+	for (uii = 0; uii < thread_ct - 1; uii++) {
+	  pthread_join(threads[uii], NULL);
 	}
       } else {
 	fill_ulong_zero(mmasks, indiv_ct);
@@ -9674,12 +9676,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  glptr2 = masks;
 	  glptr3 = mmasks;
 	  giptr3 = indiv_missing;
-	  for (oo = 0; oo < unfiltered_indiv_ct; oo++) {
-	    if (!is_set(indiv_exclude, oo)) {
-	      kk = (oo % 4) * 2;
+	  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
+	    if (!is_set(indiv_exclude, indiv_uidx)) {
+	      kk = (indiv_uidx % 4) * 2;
 	      ulii = 0;
 	      ulkk = 0;
-	      gptr = &(pedbuf[oo / 4 + nn * unfiltered_indiv_ct4]);
+	      gptr = &(pedbuf[indiv_uidx / 4 + nn * unfiltered_indiv_ct4]);
 	      for (mm = 0; mm < MULTIPLEX_DIST_EXP / 2; mm++) {
 		uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
 		ulii |= uljj << (mm * 2);
@@ -9711,8 +9713,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    }
 	  }
 	  incr_dists(dists, (unsigned long*)ped_geno, 0);
-	  for (oo = 0; oo < thread_ct - 1; oo++) {
-	    pthread_join(threads[oo], NULL);
+	  for (uii = 0; uii < thread_ct - 1; uii++) {
+	    pthread_join(threads[uii], NULL);
 	  }
 	}
 	weights_i = wtbuf;
@@ -9722,8 +9724,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
 	}
 	incr_wt_dist_missing(missing_tot_weights, 0);
-	for (oo = 0; oo < thread_ct - 1; oo++) {
-	  pthread_join(threads[oo], NULL);
+	for (uii = 0; uii < thread_ct - 1; uii++) {
+	  pthread_join(threads[uii], NULL);
 	}
       }
       printf("\r%d markers complete.", marker_idx);
@@ -9737,11 +9739,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       iptr = idists;
       giptr = missing_dbl_excluded;
-      kk = 1;
-      for (ii = 0; ii < indiv_ct; ii++) {
+      pct = 1;
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
 	giptr2 = indiv_missing_unwt;
-	uii = marker_ct - giptr2[ii];
-	for (jj = 0; jj < ii; jj++) {
+	uii = marker_ct - giptr2[indiv_idx];
+	for (ujj = 0; ujj < indiv_idx; ujj++) {
 	  if (fprintf(outfile, "%g ", ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)))) < 0) {
 	    goto wdist_ret_WRITE_FAIL;
 	  }
@@ -9750,8 +9752,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  goto wdist_ret_WRITE_FAIL;
 	}
 	giptr2++;
-	for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	  uljj = ulii * (ulii - 1) / 2 + ii;
+	for (ulii = indiv_idx + 1; ulii < indiv_ct; ulii++) {
+	  uljj = ulii * (ulii - 1) / 2 + indiv_idx;
 	  if (fprintf(outfile, "%g ", ((double)idists[uljj]) / (2 * (uii - (*giptr2++) + missing_dbl_excluded[uljj]))) < 0) {
 	    goto wdist_ret_WRITE_FAIL;
 	  }
@@ -9759,9 +9761,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	if (fwrite_checked("\n", 1, outfile)) {
 	  goto wdist_ret_WRITE_FAIL;
 	}
-	if (ii * 100 >= (kk * indiv_ct)) {
-	  kk = (ii * 100) / indiv_ct;
-	  printf("\rWriting... %d%%", kk++);
+	if (indiv_idx * 100LL >= ((long long)pct * indiv_ct)) {
+	  pct = (indiv_idx * 100LL) / indiv_ct;
+	  printf("\rWriting... %d%%", pct++);
 	  fflush(stdout);
 	}
       }
@@ -9784,11 +9786,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       iptr = idists;
       giptr = missing_dbl_excluded;
-      kk = 1;
-      for (ii = 0; ii < indiv_ct; ii++) {
+      pct = 1;
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
 	giptr2 = indiv_missing_unwt;
-	uii = marker_ct - giptr2[ii];
-	for (jj = 0; jj < ii; jj++) {
+	uii = marker_ct - giptr2[indiv_idx];
+	for (ujj = 0; ujj < indiv_idx; ujj++) {
 	  if (fprintf(outfile, "%g ", 1.0 - (((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++))))) < 0) {
 	    goto wdist_ret_WRITE_FAIL;
 	  }
@@ -9797,8 +9799,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  goto wdist_ret_WRITE_FAIL;
 	}
 	giptr2++;
-	for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	  uljj = (ulii * (ulii - 1)) / 2 + ii;
+	for (ulii = indiv_idx + 1; ulii < indiv_ct; ulii++) {
+	  uljj = (ulii * (ulii - 1)) / 2 + indiv_idx;
 	  if (fprintf(outfile, "%g ", 1.0 - (((double)idists[uljj]) / (2 * (uii - (*giptr2++) + missing_dbl_excluded[uljj])))) < 0) {
 	    goto wdist_ret_WRITE_FAIL;
 	  }
@@ -9806,9 +9808,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	if (fwrite_checked("\n", 1, outfile)) {
 	  goto wdist_ret_WRITE_FAIL;
 	}
-	if (ii * 100 >= (kk * indiv_ct)) {
-	  kk = (ii * 100) / indiv_ct;
-	  printf("\rWriting... %d%%", kk++);
+	if (indiv_idx * 100 >= (pct * indiv_ct)) {
+	  pct = (indiv_idx * 100) / indiv_ct;
+	  printf("\rWriting... %d%%", pct++);
 	  fflush(stdout);
 	}
       }
@@ -9827,19 +9829,19 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       dptr2 = dists;
       if (exp0) {
 	iptr = idists;
-	for (ii = 1; ii < indiv_ct; ii++) {
+	for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
 	  giptr2 = indiv_missing;
-	  uii = giptr2[ii];
-	  for (jj = 0; jj < ii; jj++) {
+	  uii = giptr2[indiv_idx];
+	  for (ujj = 0; ujj < indiv_idx; ujj++) {
 	    *dptr2 = (4294967295.0 / ((4294967295U - uii - (*giptr2++)) + (*giptr++))) * (*iptr++);
 	    dptr2++;
 	  }
 	}
       } else {
-	for (ii = 1; ii < indiv_ct; ii++) {
+	for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
 	  giptr2 = indiv_missing;
-	  uii = giptr2[ii];
-	  for (jj = 0; jj < ii; jj++) {
+	  uii = giptr2[indiv_idx];
+	  for (ujj = 0; ujj < indiv_idx; ujj++) {
 	    *dptr2 *= (4294967295.0 / ((4294967295U - uii - (*giptr2++)) + (*giptr++)));
 	    dptr2++;
 	  }
@@ -9896,7 +9898,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	*glptr2++ = ulii;
       }
     }
-    kk = 1;
+    pct = 1;
     if (calculation_type & CALC_DISTANCE_GZ) {
       if (distance_open_gz(&gz_outfile, &gz_outfile2, &gz_outfile3, outname, outname_end, calculation_type, parallel_idx, parallel_tot)) {
         goto wdist_ret_OPEN_FAIL;
@@ -9936,8 +9938,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    if (gzwrite_checked(gz_outfile, "0", 1)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    for (jj = 1; jj < indiv_ct; jj++) {
-	      if (!gzprintf(gz_outfile, "\t%g", dists[(jj * (jj - 1)) / 2])) {
+	    for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
+	      if (!gzprintf(gz_outfile, "\t%g", dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2])) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
 	    }
@@ -9949,8 +9951,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    if (gzwrite_checked(gz_outfile2, "1", 1)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    for (jj = 1; jj < indiv_ct; jj++) {
-	      if (!gzprintf(gz_outfile2, "\t%g", 1.0 - dists[(jj * (jj - 1)) / 2] * dyy)) {
+	    for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
+	      if (!gzprintf(gz_outfile2, "\t%g", 1.0 - dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2] * dyy)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
 	    }
@@ -9962,8 +9964,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    if (gzwrite_checked(gz_outfile3, "0", 1)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    for (jj = 1; jj < indiv_ct; jj++) {
-	      if (!gzprintf(gz_outfile3, "\t%g", dists[(jj * (jj - 1)) / 2] * dyy)) {
+	    for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
+	      if (!gzprintf(gz_outfile3, "\t%g", dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2] * dyy)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
 	    }
@@ -9986,12 +9988,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    }
 	  }
 	  if (mm == CALC_DISTANCE_SQ0) {
-	    if (gzwrite_checked(gz_outfile, ped_geno, (indiv_ct - jj) * 2)) {
+	    if (gzwrite_checked(gz_outfile, ped_geno, (indiv_ct - ii) * 2)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    if ((ii - pp) * 100 >= kk * (oo - pp)) {
-	      kk = ((ii - pp) * 100) / (oo - pp);
-	      printf("\rWriting... %d%%", kk++);
+	    if ((ii - pp) * 100LL >= (long long)pct * (oo - pp)) {
+	      pct = ((ii - pp) * 100LL) / (oo - pp);
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  } else {
@@ -9999,15 +10001,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      if (gzwrite_checked(gz_outfile, "\t0", 2)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
-	      for (jj = ii + 1; jj < indiv_ct; jj++) {
-		if (!gzprintf(gz_outfile, "\t%g", dists[((jj * (jj - 1)) / 2) + ii])) {
+	      for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+		if (!gzprintf(gz_outfile, "\t%g", dists[((ulii * (ulii - 1)) / 2) + ii])) {
 		  goto wdist_ret_WRITE_FAIL;
 		}
 	      }
 	    }
-	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * kk) {
-	      kk = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
-	      printf("\rWriting... %d%%", kk++);
+	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * pct) {
+	      pct = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  }
@@ -10017,7 +10019,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	}
 	gzclose(gz_outfile);
 	distance_print_done(0, outname, outname_end);
-	kk = 1;
+	pct = 1;
 	gz_outfile = NULL;
       }
       if (pp) {
@@ -10038,12 +10040,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    }
 	  }
 	  if (mm == CALC_DISTANCE_SQ0) {
-	    if (gzwrite_checked(gz_outfile2, ped_geno, (indiv_ct - jj) * 2)) {
+	    if (gzwrite_checked(gz_outfile2, ped_geno, (indiv_ct - ii) * 2)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    if ((ii - pp) * 100 >= kk * (oo - pp)) {
-	      kk = ((ii - pp) * 100) / (oo - pp);
-	      printf("\rWriting... %d%%", kk++);
+	    if ((ii - pp) * 100LL >= (long long)pct * (oo - pp)) {
+	      pct = ((ii - pp) * 100LL) / (oo - pp);
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  } else {
@@ -10051,15 +10053,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      if (gzwrite_checked(gz_outfile2, "\t1", 2)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
-	      for (jj = ii + 1; jj < indiv_ct; jj++) {
-		if (!gzprintf(gz_outfile2, "\t%g", 1.0 - dists[((jj * (jj - 1)) / 2) + ii] * dyy)) {
+	      for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+		if (!gzprintf(gz_outfile2, "\t%g", 1.0 - dists[((ulii * (ulii - 1)) / 2) + ii] * dyy)) {
 		  goto wdist_ret_WRITE_FAIL;
 		}
 	      }
 	    }
-	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * kk) {
-	      kk = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
-	      printf("\rWriting... %d%%", kk++);
+	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * pct) {
+	      pct = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  }
@@ -10070,7 +10072,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	ped_geno[1] = '0';
 	gzclose(gz_outfile2);
 	distance_print_done(1, outname, outname_end);
-	kk = 1;
+	pct = 1;
 	gz_outfile2 = NULL;
       }
       if (pp) {
@@ -10090,12 +10092,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    }
 	  }
 	  if (mm == CALC_DISTANCE_SQ0) {
-	    if (gzwrite_checked(gz_outfile3, ped_geno, (indiv_ct - jj) * 2)) {
+	    if (gzwrite_checked(gz_outfile3, ped_geno, (indiv_ct - ii) * 2)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    if ((ii - pp) * 100 >= kk * (oo - pp)) {
-	      kk = ((ii - pp) * 100) / (oo - pp);
-	      printf("\rWriting... %d%%", kk++);
+	    if ((ii - pp) * 100LL >= (long long)pct * (oo - pp)) {
+	      pct = ((ii - pp) * 100LL) / (oo - pp);
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  } else {
@@ -10103,15 +10105,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      if (gzwrite_checked(gz_outfile3, "\t0", 2)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
-	      for (jj = ii + 1; jj < indiv_ct; jj++) {
-		if (!gzprintf(gz_outfile3, "\t%g", dists[((jj * (jj - 1)) / 2) + ii] * dyy)) {
+	      for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+		if (!gzprintf(gz_outfile3, "\t%g", dists[((ulii * (ulii - 1)) / 2) + ii] * dyy)) {
 		  goto wdist_ret_WRITE_FAIL;
 		}
 	      }
 	    }
-	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * kk) {
-	      kk = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
-	      printf("\rWriting... %d%%", kk++);
+	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * pct) {
+	      pct = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  }
@@ -10172,15 +10174,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      if (fwrite_checked(&dxx, sizeof(double), outfile)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
-	      for (jj = ii + 1; jj < indiv_ct; jj++) {
-		if (fwrite_checked(&(dists[(jj * (jj - 1)) / 2 + ii]), sizeof(double), outfile)) {
+	      for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+		if (fwrite_checked(&(dists[(ulii * (ulii - 1)) / 2 + ii]), sizeof(double), outfile)) {
 		  goto wdist_ret_WRITE_FAIL;
 		}
 	      }
 	    }
-	    if ((ii - pp) * 100 >= kk * (oo - pp)) {
-	      kk = ((ii - pp) * 100) / (oo - pp);
-	      printf("\rWriting... %d%%", kk++);
+	    if ((ii - pp) * 100LL >= (long long)pct * (oo - pp)) {
+	      pct = ((ii - pp) * 100LL) / (oo - pp);
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  }
@@ -10188,7 +10190,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    goto wdist_ret_WRITE_FAIL;
 	  }
 	  distance_print_done(0, outname, outname_end);
-	  kk = 1;
+	  pct = 1;
 	}
 	if (qq) {
 	  dist_ptr = dists;
@@ -10210,16 +10212,16 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      if (fwrite_checked(&dzz, sizeof(double), outfile2)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
-	      for (jj = ii + 1; jj < indiv_ct; jj++) {
-		dxx = 1.0 - dists[(jj * (jj - 1)) / 2 + ii] * dyy;
+	      for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+		dxx = 1.0 - dists[(ulii * (ulii - 1)) / 2 + ii] * dyy;
 		if (fwrite_checked(&dxx, sizeof(double), outfile2)) {
 		  goto wdist_ret_WRITE_FAIL;
 		}
 	      }
 	    }
-	    if ((ii - pp) * 100 >= kk * (oo - pp)) {
-	      kk = ((ii - pp) * 100) / (oo - pp);
-	      printf("\rWriting... %d%%", kk++);
+	    if ((ii - pp) * 100LL >= (long long)pct * (oo - pp)) {
+	      pct = ((ii - pp) * 100LL) / (oo - pp);
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  }
@@ -10228,7 +10230,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    goto wdist_ret_WRITE_FAIL;
 	  }
 	  distance_print_done(1, outname, outname_end);
-	  kk = 1;
+	  pct = 1;
 	}
 	if (rr) {
 	  dist_ptr = dists;
@@ -10249,16 +10251,16 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      if (fwrite_checked(&dzz, sizeof(double), outfile3)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
-	      for (jj = ii + 1; jj < indiv_ct; jj++) {
-		dxx = dists[(jj * (jj - 1)) / 2 + ii] * dyy;
+	      for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+		dxx = dists[(ulii * (ulii - 1)) / 2 + ii] * dyy;
 		if (fwrite_checked(&dxx, sizeof(double), outfile3)) {
 		  goto wdist_ret_WRITE_FAIL;
 		}
 	      }
 	    }
-	    if ((ii - pp) * 100 >= kk * (oo - pp)) {
-	      kk = ((ii - pp) * 100) / (oo - pp);
-	      printf("\rWriting... %d%%", kk++);
+	    if ((ii - pp) * 100LL >= (long long)pct * (oo - pp)) {
+	      pct = ((ii - pp) * 100LL) / (oo - pp);
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  }
@@ -10287,8 +10289,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    if (fwrite_checked("0", 1, outfile)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    for (jj = 1; jj < indiv_ct; jj++) {
-	      if (fprintf(outfile, "\t%g", dists[(jj * (jj - 1)) / 2]) < 0) {
+	    for (ulii = 1; ulii < indiv_ct; ulii++) {
+	      if (fprintf(outfile, "\t%g", dists[(ulii * (ulii - 1)) / 2]) < 0) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
 	    }
@@ -10309,12 +10311,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    }
 	  }
 	  if (mm == CALC_DISTANCE_SQ0) {
-	    if (fwrite_checked(ped_geno, (indiv_ct - jj) * 2, outfile)) {
+	    if (fwrite_checked(ped_geno, (indiv_ct - ii) * 2, outfile)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    if ((ii - pp) * 100 >= (kk * (oo - pp))) {
-	      kk = ((ii - pp) * 100) / (oo - pp);
-	      printf("\rWriting... %d%%", kk++);
+	    if ((ii - pp) * 100LL >= ((long long)pct * (oo - pp))) {
+	      pct = ((ii - pp) * 100LL) / (oo - pp);
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  } else {
@@ -10322,15 +10324,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      if (fwrite_checked("\t0", 2, outfile)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
-	      for (jj = ii + 1; jj < indiv_ct; jj++) {
-		if (fprintf(outfile, "\t%g", dists[((jj * (jj - 1)) / 2) + ii]) < 0) {
+	      for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+		if (fprintf(outfile, "\t%g", dists[((ulii * (ulii - 1)) / 2) + ii]) < 0) {
 		  goto wdist_ret_WRITE_FAIL;
 		}
 	      }
 	    }
-	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * kk) {
-	      kk = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
-	      printf("\rWriting... %d%%", kk++);
+	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * pct) {
+	      pct = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  }
@@ -10342,7 +10344,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  goto wdist_ret_WRITE_FAIL;
 	}
 	distance_print_done(0, outname, outname_end);
-	kk = 1;
+	pct = 1;
       }
       if (qq) {
 	ped_geno[1] = '1';
@@ -10360,8 +10362,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    if (fwrite_checked("1", 1, outfile2)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    for (jj = 1; jj < indiv_ct; jj++) {
-	      if (fprintf(outfile2, "\t%g", 1.0 - dists[(jj * (jj - 1)) / 2] * dyy) < 0) {
+	    for (ulii = 1; ulii < indiv_ct; ulii++) {
+	      if (fprintf(outfile2, "\t%g", 1.0 - dists[(ulii * (ulii - 1)) / 2] * dyy) < 0) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
 	    }
@@ -10386,12 +10388,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    }
 	  }
 	  if (mm == CALC_DISTANCE_SQ0) {
-	    if (fwrite_checked(ped_geno, (indiv_ct - jj) * 2, outfile2)) {
+	    if (fwrite_checked(ped_geno, (indiv_ct - ii) * 2, outfile2)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    if ((ii - pp) * 100 >= (kk * (oo - pp))) {
-	      kk = ((ii - pp) * 100) / (oo - pp);
-	      printf("\rWriting... %d%%", kk++);
+	    if ((ii - pp) * 100LL >= ((long long)pct * (oo - pp))) {
+	      pct = ((ii - pp) * 100LL) / (oo - pp);
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  } else {
@@ -10399,15 +10401,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      goto wdist_ret_WRITE_FAIL;
 	    }
 	    if (mm == CALC_DISTANCE_SQ) {
-	      for (jj = ii + 1; jj < indiv_ct; jj++) {
-		if (fprintf(outfile2, "\t%g", 1.0 - dists[((jj * (jj - 1)) / 2) + ii] * dyy) < 0) {
+	      for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+		if (fprintf(outfile2, "\t%g", 1.0 - dists[((ulii * (ulii - 1)) / 2) + ii] * dyy) < 0) {
 		  goto wdist_ret_WRITE_FAIL;
 		}
 	      }
 	    }
-	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * kk) {
-	      kk = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
-	      printf("\rWriting... %d%%", kk++);
+	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * pct) {
+	      pct = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  }
@@ -10420,7 +10422,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  goto wdist_ret_WRITE_FAIL;
 	}
 	distance_print_done(1, outname, outname_end);
-	kk = 1;
+	pct = 1;
       }
       if (rr) {
 	if (pp) {
@@ -10437,8 +10439,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    if (fwrite_checked("0", 1, outfile3)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    for (jj = 1; jj < indiv_ct; jj++) {
-	      if (fprintf(outfile3, "\t%g", dists[(jj * (jj - 1)) / 2] * dyy) < 0) {
+	    for (ulii = 1; ulii < indiv_ct; ulii++) {
+	      if (fprintf(outfile3, "\t%g", dists[(ulii * (ulii - 1)) / 2] * dyy) < 0) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
 	    }
@@ -10459,12 +10461,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    }
 	  }
 	  if (mm == CALC_DISTANCE_SQ0) {
-	    if (fwrite_checked(ped_geno, (indiv_ct - jj) * 2, outfile3)) {
+	    if (fwrite_checked(ped_geno, (indiv_ct - ii) * 2, outfile3)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    if ((ii - pp) * 100 >= (kk * (oo - pp))) {
-	      kk = ((ii - pp) * 100) / (oo - pp);
-	      printf("\rWriting... %d%%", kk++);
+	    if ((ii - pp) * 100LL >= ((long long)pct * (oo - pp))) {
+	      pct = ((ii - pp) * 100LL) / (oo - pp);
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  } else {
@@ -10472,15 +10474,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      if (fwrite_checked("\t0", 2, outfile3)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
-	      for (jj = ii + 1; jj < indiv_ct; jj++) {
-		if (fprintf(outfile3, "\t%g", dists[((jj * (jj - 1)) / 2) + ii] * dyy) < 0) {
+	      for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
+		if (fprintf(outfile3, "\t%g", dists[((ulii * (ulii - 1)) / 2) + ii] * dyy) < 0) {
 		  goto wdist_ret_WRITE_FAIL;
 		}
 	      }
 	    }
-	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * kk) {
-	      kk = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
-	      printf("\rWriting... %d%%", kk++);
+	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * pct) {
+	      pct = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
+	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
 	  }
@@ -10522,10 +10524,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     collapse_arr(pheno_c, 1, indiv_exclude, unfiltered_indiv_ct);
     low_ct = 0;
     high_ct = 0;
-    for (ii = 0; ii < indiv_ct; ii++) {
-      if (pheno_c[ii] == 1) {
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      if (pheno_c[indiv_idx] == 1) {
 	high_ct++;
-      } else if (pheno_c[ii] == 0) {
+      } else if (pheno_c[indiv_idx] == 0) {
 	low_ct++;
       }
     }
@@ -10546,9 +10548,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     lh_poolp = lh_pool;
     hh_poolp = hh_pool;
     ped_geno = wkspace_alloc(thread_ct * CACHEALIGN(high_ct + low_ct + (jackknife_d + 1) * sizeof(int)));
-    for (ii = 1; ii < indiv_ct; ii++) {
+    for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
       cptr = pheno_c;
-      cptr2 = &(pheno_c[ii]);
+      cptr2 = &(pheno_c[indiv_idx]);
       if (*cptr2 == 1) {
 	while (cptr < cptr2) {
 	  if (*cptr == 1) {
@@ -10582,7 +10584,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  dist_ptr++;
 	}
       } else {
-	dist_ptr += ii;
+	dist_ptr += indiv_idx;
       }
     }
     qsort(ll_pool, ll_size, sizeof(double), double_cmp);
@@ -10619,7 +10621,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     printf("  Mean (sd), median dists between 2x affected     : %g (%g), %g\n", dxx, dhh_sd, hh_med);
     printf("  Mean (sd), median dists between aff. and unaff. : %g (%g), %g\n", dyy, dhl_sd, lh_med);
     printf("  Mean (sd), median dists between 2x unaffected   : %g (%g), %g\n\n", dzz, dll_sd, ll_med);
-    if (2 * jackknife_d >= high_ct + low_ct) {
+    if (2 * jackknife_d >= (int)(high_ct + low_ct)) {
       printf("Delete-d jackknife skipped because d is too large.\n");
     } else {
       // this can be sped up using the same method used in regress-distance,
