@@ -291,16 +291,16 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.11.2 "
+  "WDIST genomic distance calculator, v0.11.3d "
 #else
-  "WDIST genomic distance calculator, v0.11.2L "
+  "WDIST genomic distance calculator, v0.11.3Ld "
 #endif
 #if __LP64__
   "64-bit"
 #else
   "32-bit"
 #endif
-  " (19 October 2012)\n"
+  " (20 October 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
@@ -559,7 +559,7 @@ int dispmsg(int retval) {
 "    phenotypes, and vice versa.\n\n"
 #ifndef NOLAPACK
 "  --regress-pcs [.evec file] <sex-specific> {max PCs}\n"
-"    Regresses phenotypes and discrete genotypes on the given list of principal\n"
+"    Regresses phenotypes and genotypes on the given list of principal\n"
 "    components (produced by SMARTPCA), and then converts phenotypes to\n"
 "    Z-scores (optionally sex-specific).  Output is a .gen and a .sample file in\n"
 "    the Oxford SNPTEST v2 format.\n"
@@ -578,7 +578,7 @@ int dispmsg(int retval) {
 "  --freq\n"
 "  --freqx\n"
 "    --freq generates an allele frequency report identical to that of PLINK\n"
-"    --freq.  --freqx adds homozygosity/heterozygosity counts.\n\n"
+"    --freq.  --freqx adds homozygote/heterozygote counts.\n\n"
 "  --write-snplist\n"
 "    Write a .snplist file listing the names of all SNPs that pass the filters\n"
 "    and inclusion thresholds you've specified.\n\n"
@@ -597,6 +597,9 @@ int dispmsg(int retval) {
 "  --bed [filename] : Specify full name of .bed file.\n"
 "  --bim [filename] : Specify full name of .bim file.\n"
 "  --fam [filename] : Specify full name of .fam file.\n"
+"  --data {prefix}  : Specify Oxford .gen/.sample prefix (default 'wdist').\n"
+"  --gen [filename] : Specify full name of .gen file.\n"
+"  --sample [fname] : Specify full name of .sample file.\n"
 "  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --groupdist\n"
 "                     or --regress-distance analysis, instead of recalculating\n"
 "                     it from scratch.\n"
@@ -7620,9 +7623,9 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 #endif // __LP64__
   double* work = NULL;
   int window_rem;
+  unsigned int* idx_remap = NULL;
 #endif // NOLAPACK
   double prune_ld_r2;
-  unsigned int* idx_remap = NULL;
 
   if (ld_window_kb) {
     // determine maximum number of markers that may need to be loaded at once
@@ -7808,9 +7811,11 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	      cov12 = non_missing_recip * (dp_result[0] - (non_missing_recip * dp_result[1]) * dp_result[2]);
 	      // r-squared
 	      dxx = cov12 / (marker_stdevs[ii] * marker_stdevs[jj]);
+#ifndef NOLAPACK
 	      if (!pairwise) {
 		cov_matrix[ii * window_max + jj] = dxx;
 	      }
+#endif
 	      if (fabs(dxx) > prune_ld_r2) {
 		at_least_one_prune = 1;
 		// remove SNP with lower MAF
@@ -7888,8 +7893,8 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    }
 	  }
 	}
-      }
 #endif // NOLAPACK
+      }
       for (ii = 0; ii < ld_window_incr; ii++) {
 	while (is_set(marker_exclude, window_unfiltered_start)) {
 	  if (window_unfiltered_start == chrom_end) {
@@ -7930,12 +7935,14 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	live_indices[ii] = live_indices[jj];
 	start_arr[ii] = start_arr[jj];
 	missing_cts[ii] = missing_cts[jj];
+#ifndef NOLAPACK
 	if (!pairwise) {
 	  for (kk = 0; kk < ii; kk++) {
 	    cov_matrix[kk * window_max + ii] = cov_matrix[idx_remap[kk] * window_max + jj];
 	  }
 	  idx_remap[ii] = jj;
 	}
+#endif
 	ii++;
       }
 
@@ -10645,17 +10652,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     ulii = indiv_ct;
     ulii = ulii * (ulii - 1) / 2;
-    printf("First and last distances at start of regression: %g %g\n", dists[0], dists[ulii - 1]);
-    printf("First and last phenos at start of regression: %g %g\n", pheno_d[0], pheno_d[indiv_ct - 1]);
-    double sumd = 0.0;
-    double sump = 0.0;
-    for (uljj = 0; uljj < ulii; uljj++) {
-      sumd += dists[uljj];
-    }
-    for (uljj = 0; uljj < indiv_ct; uljj++) {
-      sump += pheno_d[uljj];
-    }
-    printf("Distance and pheno sums at end of regression: %g %g\n", sumd, sump);
     reg_tot_xy = 0.0;
     reg_tot_x = 0.0;
     reg_tot_y = 0.0;
@@ -10710,20 +10706,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
 
     dxx = ulii;
-    printf("First and last distances at end of regression: %g %g\n", dists[0], dists[ulii - 1]);
-    printf("First and last phenos at end of regression: %g %g\n", pheno_d[0], pheno_d[indiv_ct - 1]);
-    sumd = 0.0;
-    sump = 0.0;
-    for (uljj = 0; uljj < ulii; uljj++) {
-      sumd += dists[uljj];
-    }
-    for (uljj = 0; uljj < indiv_ct; uljj++) {
-      sump += pheno_d[uljj];
-    }
-    printf("Distance and pheno sums at end of regression: %g %g\n", sumd, sump);
-    printf("Regression slope (y = genomic distance, x = avg phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_xx - reg_tot_x * reg_tot_x / dxx));
-    printf("Regression slope (y = avg phenotype, x = genomic distance): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_yy - reg_tot_y * reg_tot_y / dxx));
-
     jackknife_iters = (regress_iters + thread_ct - 1) / thread_ct;
     if (regress_d) {
       jackknife_d = regress_d;
@@ -10825,6 +10807,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   return retval;
 }
 
+int wdist_dosage(char* genname, char* samplename) {
+  printf("Dosage support currently under development.\n");
+  return 0;
+}
+
 int param_count(int argc, char** argv, int flag_idx) {
   // Counts the number of optional parameters given to the flag at position
   // flag_idx, treating any parameter not beginning with "--" as optional.
@@ -10842,6 +10829,27 @@ int param_count(int argc, char** argv, int flag_idx) {
   return opt_params;
 }
 
+int enforce_param_ct_range(int argc, char** argv, int flag_idx, int min_ct, int max_ct, int* param_ct_ptr) {
+  int param_ct = param_count(argc, argv, flag_idx);
+  if (param_ct > max_ct) {
+    if (max_ct > min_ct) {
+      printf("Error: %s accepts at most %d parameter%s.%s", argv[flag_idx], max_ct, (max_ct == 1)? "" : "s", errstr_append);
+    } else {
+      printf("Error: %s only accepts %d parameter%s.%s", argv[flag_idx], max_ct, (max_ct == 1)? "" : "s", errstr_append);
+    }
+    return -1;
+  } else if (param_ct < min_ct) {
+    if (min_ct == 1) {
+      printf("Error: Missing %s parameter.%s", argv[flag_idx], errstr_append);
+    } else if (min_ct < max_ct) {
+      printf("Error: %s requires %s%d parameters.%s", argv[flag_idx], (min_ct < max_ct)? "at least " : "", min_ct, errstr_append);
+    }
+    return -1;
+  }
+  *param_ct_ptr = param_ct;
+  return 0;
+}
+
 int main(int argc, char** argv) {
   unsigned char* wkspace_ua;
   char outname[FNAMESIZE];
@@ -10857,6 +10865,8 @@ int main(int argc, char** argv) {
   char freqname[FNAMESIZE];
   char loaddistname[FNAMESIZE];
   char evecname[FNAMESIZE];
+  char genname[FNAMESIZE];
+  char samplename[FNAMESIZE];
   char* makepheno_str = NULL;
   char* filterval = NULL;
   char* argptr;
@@ -10947,16 +10957,18 @@ int main(int argc, char** argv) {
   filtername[0] = '\0';
   freqname[0] = '\0';
   evecname[0] = '\0';
+  genname[0] = '\0';
+  samplename[0] = '\0';
   strcpy(outname, "wdist");
   while (cur_arg < argc) {
     argptr = argv[cur_arg];
     if (!strcmp(argptr, "--script")) {
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --script parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (subst_argv) {
+      if (subst_argv) {
         printf("Error: Duplicate --script flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (fopen_checked(&scriptfile, argv[cur_arg + 1], "rb")) {
         return dispmsg(RET_OPEN_FAIL);
@@ -11000,18 +11012,17 @@ int main(int argc, char** argv) {
       cur_arg = 0;
       argv = subst_argv;
     } else if (!strcmp(argptr, "--file")) {
-      if (load_params & 121) {
+      if (load_params & 0x3f9) {
         if (load_params & 1) {
           printf("Error: Duplicate --file flag.\n");
         } else {
-          printf("Error: --file flag cannot coexist with binary file flags.\n");
+          printf("Error: --file flag cannot coexist with binary or Oxford file flags.\n");
         }
         return dispmsg(RET_INVALID_CMDLINE);
       }
       load_params |= 1;
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --file parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 5)) {
         printf("Error: --file parameter too long.\n");
@@ -11029,18 +11040,17 @@ int main(int argc, char** argv) {
     } else if (!strcmp(argptr, "--help")) {
       return dispmsg(RET_MOREHELP);
     } else if (!strcmp(argptr, "--ped")) {
-      if (load_params & 122) {
+      if (load_params & 0x3fa) {
         if (load_params & 2) {
           printf("Error: Duplicate --ped flag.\n");
         } else {
-          printf("Error: --ped flag cannot coexist with binary file flags.\n");
+          printf("Error: --ped flag cannot coexist with binary or Oxford file flags.\n");
         }
         return dispmsg(RET_INVALID_CMDLINE);
       }
       load_params |= 2;
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --ped parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
         printf("Error: --ped parameter too long.\n");
@@ -11049,18 +11059,17 @@ int main(int argc, char** argv) {
       strcpy(pedname, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--map")) {
-      if (load_params & 124) {
+      if (load_params & 0x3fc) {
         if (load_params & 4) {
           printf("Error: Duplicate --map flag.\n");
         } else {
-          printf("Error: --map flag cannot coexist with binary file flags.\n");
+          printf("Error: --map flag cannot coexist with binary or Oxford file flags.\n");
         }
         return dispmsg(RET_INVALID_CMDLINE);
       }
       load_params |= 4;
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --map parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
         printf("Error: --map parameter too long.\n");
@@ -11072,7 +11081,7 @@ int main(int argc, char** argv) {
       printf("Note: --make-bed is effectively always on.\n");
       cur_arg += 1;
     } else if (!strcmp(argptr, "--bfile")) {
-      if (load_params & 15) {
+      if (load_params & 0x38f) {
         if (load_params & 8) {
           printf("Error: Duplicate --bfile flag.\n");
         } else {
@@ -11081,10 +11090,8 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       load_params |= 8;
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 1) {
-        printf("Error: Too many --bfile parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (ii) {
         sptr = argv[cur_arg + 1];
@@ -11109,7 +11116,7 @@ int main(int argc, char** argv) {
       }
       cur_arg += ii + 1;
     } else if (!strcmp(argptr, "--bed")) {
-      if (load_params & 23) {
+      if (load_params & 0x397) {
         if (load_params & 16) {
           printf("Error: Duplicate --bed flag.\n");
         } else {
@@ -11118,9 +11125,8 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       load_params |= 16;
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --bed parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
         printf("Error: --bed parameter too long.\n");
@@ -11129,7 +11135,7 @@ int main(int argc, char** argv) {
       strcpy(pedname, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--bim")) {
-      if (load_params & 39) {
+      if (load_params & 0x3a7) {
         if (load_params & 32) {
           printf("Error: Duplicate --bim flag.\n");
         } else {
@@ -11138,9 +11144,8 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       load_params |= 32;
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --bim parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
         printf("Error: --bim parameter too long.\n");
@@ -11149,7 +11154,7 @@ int main(int argc, char** argv) {
       strcpy(mapname, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--fam")) {
-      if (load_params & 71) {
+      if (load_params & 0x3c7) {
         if (load_params & 64) {
           printf("Error: Duplicate --fam flag.\n");
         } else {
@@ -11158,15 +11163,83 @@ int main(int argc, char** argv) {
         return dispmsg(RET_INVALID_CMDLINE);
       }
       load_params |= 64;
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --fam parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
         printf("Error: --fam parameter too long.\n");
         return dispmsg(RET_OPEN_FAIL);
       }
       strcpy(famname, argv[cur_arg + 1]);
+      cur_arg += 2;
+    } else if (!strcmp(argptr, "--data")) {
+      if (load_params & 0xff) {
+        if (load_params & 0x80) {
+          printf("Error: Duplicate --data flag.\n");
+        } else {
+          printf("Error: --data flag cannot coexist with PLINK input file flags.\n");
+        }
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      load_params |= 0x80;
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (ii) {
+        sptr = argv[cur_arg + 1];
+        if (strlen(sptr) > (FNAMESIZE - 5)) {
+          printf("Error: --data parameter too long.\n");
+          return dispmsg(RET_OPEN_FAIL);
+        }
+      } else {
+        sptr = "wdist";
+      }
+      if (!(load_params & 0x100)) {
+	strcpy(genname, sptr);
+	strcat(genname, ".gen");
+      }
+      if (!(load_params & 0x200)) {
+	strcpy(samplename, sptr);
+	strcat(samplename, ".sample");
+      }
+      cur_arg += ii + 1;
+    } else if (!strcmp(argptr, "--gen")) {
+      if (load_params & 0x17f) {
+        if (load_params & 0x100) {
+          printf("Error: Duplicate --gen flag.\n");
+        } else {
+          printf("Error: --gen flag cannot coexist with PLINK input file flags.\n");
+        }
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      load_params |= 0x100;
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+        printf("Error: --gen parameter too long.\n");
+        return dispmsg(RET_OPEN_FAIL);
+      }
+      strcpy(genname, argv[cur_arg + 1]);
+      cur_arg += 2;
+    } else if (!strcmp(argptr, "--sample")) {
+      if (load_params & 0x27f) {
+        if (load_params & 0x200) {
+          printf("Error: Duplicate --sample flag.\n");
+        } else {
+          printf("Error: --sample flag cannot coexist with PLINK input file flags.\n");
+        }
+        return dispmsg(RET_INVALID_CMDLINE);
+      }
+      load_params |= 0x200;
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+        printf("Error: --sample parameter too long.\n");
+        return dispmsg(RET_OPEN_FAIL);
+      }
+      strcpy(samplename, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--no-fid")) {
       fam_col_1 = 0;
@@ -11186,9 +11259,8 @@ int main(int argc, char** argv) {
       fam_col_6 = 0;
       cur_arg += 1;
     } else if (!strcmp(argptr, "--missing-genotype")) {
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --missing-genotype parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (missing_geno != '0') {
         printf("Error: Duplicate --missing-genotype flag.\n");
@@ -11201,9 +11273,8 @@ int main(int argc, char** argv) {
       }
       cur_arg += 2;
     } else if (!strcmp(argptr, "--missing-phenotype")) {
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --missing-phenotype parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (missing_pheno != -9) {
         printf("Error: Duplicate --missing-phenotype flag.\n");
@@ -11216,9 +11287,8 @@ int main(int argc, char** argv) {
       }
       cur_arg += 2;
     } else if (!strcmp(argptr, "--pheno")) {
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --pheno parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (phenoname[0]) {
         if (makepheno_str) {
@@ -11235,9 +11305,8 @@ int main(int argc, char** argv) {
       strcpy(phenoname, argv[cur_arg + 1]);
       cur_arg += 2;
     } else if (!strcmp(argptr, "--make-pheno")) {
-      if (cur_arg > argc - 2) {
-        printf("Error: Not enough --make-pheno parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (phenoname[0]) {
         if (makepheno_str) {
@@ -11259,9 +11328,8 @@ int main(int argc, char** argv) {
       makepheno_str = argv[cur_arg + 2];
       cur_arg += 3;
     } else if (!strcmp(argptr, "--mpheno")) {
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --mpheno parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (mpheno_col != 0) {
         printf("Error: Duplicate --mpheno flag.\n");
@@ -11278,9 +11346,8 @@ int main(int argc, char** argv) {
       }
       cur_arg += 2;
     } else if (!strcmp(argptr, "--pheno-name")) {
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --pheno-name parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (mpheno_col != 0) {
         printf("Error: --mpheno and --pheno-name flags cannot coexist.\n");
@@ -11302,13 +11369,8 @@ int main(int argc, char** argv) {
       affection_01 = 1;
       cur_arg += 1;
     } else if (!strcmp(argptr, "--tail-pheno")) {
-      ii = param_count(argc, argv, cur_arg);
-      if (ii == 0) {
-        printf("Error: Not enough --tail-pheno parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (ii > 2) {
-        printf("Error: Too many --tail-pheno paramaters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 2, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (tail_pheno) {
         printf("Error: Duplicate --tail-pheno flag.\n");
@@ -11341,13 +11403,8 @@ int main(int argc, char** argv) {
         printf("Error: Duplicate --extract flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii == 0) {
-        printf("Error: Missing --extract parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (ii > 1) {
-        printf("Error: Too many --extract parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
         printf("--extract filename too long.\n");
@@ -11360,13 +11417,8 @@ int main(int argc, char** argv) {
         printf("Error: Duplicate --exclude flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii == 0) {
-        printf("Error: Missing --exclude parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (ii > 1) {
-        printf("Error: Too many --exclude parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
         printf("--exclude filename too long.\n");
@@ -11386,13 +11438,8 @@ int main(int argc, char** argv) {
         printf("Error: Duplicate --keep flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii == 0) {
-        printf("Error: Missing --keep parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (ii > 1) {
-        printf("Error: Too many --keep parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
         printf("--keep filename too long.\n");
@@ -11405,13 +11452,8 @@ int main(int argc, char** argv) {
         printf("Error: Duplicate --remove flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii == 0) {
-        printf("Error: Missing --remove parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (ii > 1) {
-        printf("Error: Too many --remove parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
         printf("--remove filename too long.\n");
@@ -11424,13 +11466,8 @@ int main(int argc, char** argv) {
         printf("Error: Duplicate --filter flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii < 2) {
-        printf("Error: Not enough --filter parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (ii > 2) {
-        printf("Error: Too many --filter parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
         printf("Error: --filter filename too long.\n");
@@ -11440,9 +11477,8 @@ int main(int argc, char** argv) {
       filterval = argv[cur_arg + 2];
       cur_arg += 3;
     } else if (!strcmp(argptr, "--mfilter")) {
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --mfilter parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (mfilter_col) {
         printf("Error: Duplicate --mfilter flag.\n");
@@ -11505,9 +11541,8 @@ int main(int argc, char** argv) {
       filter_founder_nonf = 2;
       cur_arg += 1;
     } else if (!strcmp(argptr, "--memory")) {
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --memory parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       malloc_size_mb = atoi(argv[cur_arg + 1]);
       if (malloc_size_mb < 64) {
@@ -11522,9 +11557,8 @@ int main(int argc, char** argv) {
 #endif
       cur_arg += 2;
     } else if (!strcmp(argptr, "--threads")) {
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --threads parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       ii = atoi(argv[cur_arg + 1]);
       if (ii < 1) {
@@ -11541,9 +11575,8 @@ int main(int argc, char** argv) {
         printf("Error: --exponent flag cannot be used with --distance-matrix or --matrix.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --exponent parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (sscanf(argv[cur_arg + 1], "%lg", &exponent) != 1) {
         printf("Error: Invalid --exponent parameter.\n");
@@ -11610,10 +11643,8 @@ int main(int argc, char** argv) {
       }
       cur_arg += 1 + ii;
     } else if (!strcmp(argptr, "--maf")) {
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 1) {
-        printf("Error: Too many --maf parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (ii) {
         if (sscanf(argv[cur_arg + 1], "%lg", &min_maf) != 1) {
@@ -11632,12 +11663,7 @@ int main(int argc, char** argv) {
       }
       cur_arg += ii + 1;
     } else if (!strcmp(argptr, "--max-maf")) {
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 1) {
-	printf("Error: Too many --max-maf parameters.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else if (!ii) {
-	printf("Error: Missing --max-maf parameter.%s", errstr_append);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (sscanf(argv[cur_arg + 1], "%lg", &max_maf) != 1) {
@@ -11653,10 +11679,8 @@ int main(int argc, char** argv) {
       }
       cur_arg += 2;
     } else if (!strcmp(argptr, "--geno")) {
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 1) {
-        printf("Error: Too many --geno parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (ii) {
         if (sscanf(argv[cur_arg + 1], "%lg", &geno_thresh) != 1) {
@@ -11672,10 +11696,8 @@ int main(int argc, char** argv) {
       }
       cur_arg += ii + 1;
     } else if (!strcmp(argptr, "--mind")) {
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 1) {
-        printf("Error: Too many --mind parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (ii) {
 	if (sscanf(argv[cur_arg + 1], "%lg", &mind_thresh) != 1) {
@@ -11691,10 +11713,8 @@ int main(int argc, char** argv) {
       }
       cur_arg += ii + 1;
     } else if (!strcmp(argptr, "--hwe")) {
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 1) {
-        printf("Error: Too many --hwe parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (ii) {
 	if (sscanf(argv[cur_arg + 1], "%lg", &hwe_thresh) != 1) {
@@ -11723,13 +11743,11 @@ int main(int argc, char** argv) {
 	printf("Error: --parallel cannot be used with --rel-cutoff.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", errstr_append);
 	return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
       if (calculation_type & CALC_REL_CUTOFF) {
         printf("Error: Duplicate --rel-cutoff flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii > 1) {
-        printf("Error: Too many --rel-cutoff parameters.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
       if (ii) {
@@ -11745,9 +11763,8 @@ int main(int argc, char** argv) {
       calculation_type |= CALC_REL_CUTOFF;
       cur_arg += ii + 1;
     } else if (!strcmp(argptr, "--rseed")) {
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --rseed parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (rseed != 0) {
         printf("Error: Duplicate --rseed flag.\n");
@@ -11760,9 +11777,8 @@ int main(int argc, char** argv) {
       }
       cur_arg += 2;
     } else if (!strcmp(argptr, "--out")) {
-      if (cur_arg == argc - 1) {
-        printf("Error: Missing --out parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - MAX_POST_EXT)) {
         printf("Error: --out parameter too long.\n");
@@ -11778,10 +11794,8 @@ int main(int argc, char** argv) {
         printf("Error: --make-rel cannot coexist with another relationship matrix file\ncreation flag.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 3) {
-        printf("Error: --make-rel accepts at most 3 parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 3, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       jj = 0;
       for (kk = 1; kk <= ii; kk++) {
@@ -11869,10 +11883,8 @@ int main(int argc, char** argv) {
         printf("Error: --make-grm cannot coexist with another relationship matrix file\ncreation flag.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 2) {
-        printf("Error: --make-grm accepts at most 2 parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       calculation_type |= CALC_RELATIONSHIP_GZ;
       for (kk = 1; kk <= ii; kk++) {
@@ -11924,10 +11936,8 @@ int main(int argc, char** argv) {
         printf("Error: Duplicate --distance flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 5) {
-        printf("Error: --distance accepts at most 5 parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 5, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       jj = 0;
       for (kk = 1; kk <= ii; kk++) {
@@ -12043,13 +12053,8 @@ int main(int argc, char** argv) {
         printf("Error: Duplicate --load-dists flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (!ii) {
-        printf("Error: Missing --load-dists parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (ii > 1) {
-        printf("Error: Too many --load-dists parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
         printf("Error: --load-dists filename too long.\n");
@@ -12093,13 +12098,8 @@ int main(int argc, char** argv) {
 	printf("Error: Duplicate --parallel flag.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii < 2) {
-        printf("Error: Not enough --parallel parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (ii > 2) {
-        printf("Error: Too many --parallel parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       parallel_idx = atoi(argv[cur_arg + 1]);
       if ((parallel_idx < 1) || (parallel_idx > PARALLEL_MAX)) {
@@ -12118,9 +12118,7 @@ int main(int argc, char** argv) {
 	printf("Error: Duplicate --genome flag.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 3) {
-	printf("Error: --genome accepts at most 3 parameters.%s", errstr_append);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 3, &ii)) {
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       for (kk = 1; kk <= ii; kk++) {
@@ -12142,9 +12140,7 @@ int main(int argc, char** argv) {
 	printf("Error: Duplicate --genome flag.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 2) {
-	printf("Error: --Z-genome accepts at most 2 parameters.%s", errstr_append);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       for (kk = 1; kk <= ii; kk++) {
@@ -12165,12 +12161,7 @@ int main(int argc, char** argv) {
 	printf("Error: Duplicate --ppc-gap flag.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (!ii) {
-	printf("Error: Missing --ppc-gap parameter.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else if (ii > 1) {
-	printf("Error: Too many --ppc-gap parameters.%s", errstr_append);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       if ((argv[cur_arg + 1][0] < '0') || (argv[cur_arg + 1][0] > '9')) {
@@ -12192,10 +12183,8 @@ int main(int argc, char** argv) {
         printf("Error: Duplicate --groupdist flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 2) {
-        printf("Error: --groupdist accepts at most 2 parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (ii) {
 	groupdist_iters = atoi(argv[cur_arg + 1]);
@@ -12221,10 +12210,8 @@ int main(int argc, char** argv) {
         printf("Error: Duplicate --regress-distance flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 2) {
-        printf("Error: --regress-distance accepts at most 2 parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (ii) {
 	regress_iters = atoi(argv[cur_arg + 1]);
@@ -12250,10 +12237,8 @@ int main(int argc, char** argv) {
         printf("Error: Duplicate --regress-rel flag.\n");
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 2) {
-        printf("Error: --regress-rel accepts at most 2 parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (ii) {
 	regress_rel_iters = atoi(argv[cur_arg + 1]);
@@ -12273,19 +12258,14 @@ int main(int argc, char** argv) {
       calculation_type |= CALC_REGRESS_REL;
     } else if (!strcmp(argptr, "--regress-pcs")) {
 #ifdef NOLAPACK
-      printf("Error: --regress-pcs does not work without LAPACK.  Download a wdist build with\n'L' at the end of the version number.\n");
+      printf("Error: --regress-pcs does not work without LAPACK.  Use a wdist build with 'L'\n at the end of the version number.\n");
       return dispmsg(RET_INVALID_CMDLINE);
 #else
       if (evecname[0]) {
 	printf("Error: Duplicate --regress-pcs flag.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 3) {
-	printf("Error: --regress-pcs accepts at most 3 parameters.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else if (!ii) {
-	printf("Error: Missing --regress-pcs parameter.%s", errstr_append);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 3, &ii)) {
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
@@ -12310,7 +12290,7 @@ int main(int argc, char** argv) {
 #endif
     } else if (!strcmp(argptr, "--unrelated-heritability")) {
 #ifdef NOLAPACK
-      printf("Error: --unrelated-heritability does not work without LAPACK.  Download a wdist\nbuild with 'L' at the end of the version number.\n");
+      printf("Error: --unrelated-heritability does not work without LAPACK.  Use a wdist\nbuild with 'L' at the end of the version number.\n");
       return dispmsg(RET_INVALID_CMDLINE);
 #else
       if (calculation_type & CALC_RELATIONSHIP_COV) {
@@ -12324,10 +12304,8 @@ int main(int argc, char** argv) {
         printf("Error: Duplicate --unrelated-heritability flag.%s", errstr_append);
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii > 4) {
-        printf("Error: --unrelated-heritability accepts at most four parameters.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 4, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (ii) {
         if (!strcmp(argv[cur_arg + 1], "strict")) {
@@ -12395,13 +12373,8 @@ int main(int argc, char** argv) {
         printf("Error: Duplicate %s flag.\n", argptr);
         return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (!ii) {
-        printf("Error: Missing %s parameter.%s", argptr, errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (ii > 1) {
-        printf("Error: %s accepts only one parameter.%s", argptr, errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	return dispmsg(RET_INVALID_CMDLINE);
       }
       if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
         printf("Error: %s filename too long.\n", argptr);
@@ -12417,12 +12390,7 @@ int main(int argc, char** argv) {
 	printf("Error: Multiple LD pruning flags.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii < 3) {
-	printf("Error: --indep-pairwise requires at least 3 parameters.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else if (ii > 4) {
-	printf("Error: --indep-pairwise accepts at most 4 parameters.%s", errstr_append);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 3, 4, &ii)) {
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       ld_window_size = atoi(argv[cur_arg + 1]);
@@ -12459,19 +12427,14 @@ int main(int argc, char** argv) {
       calculation_type |= (CALC_LD_PRUNE | CALC_LD_PRUNE_PAIRWISE);
     } else if (!strcmp(argptr, "--indep")) {
 #ifdef NOLAPACK
-      printf("Error: --indep does not work without LAPACK.  Download a wdist build with 'L'\nat the end of the version number.\n");
+      printf("Error: --indep does not work without LAPACK.  Use a wdist build with 'L' at the\nend of the version number.\n");
       return dispmsg(RET_INVALID_CMDLINE);
 #else
       if (calculation_type & CALC_LD_PRUNE) {
 	printf("Error: Multiple LD pruning flags.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
       }
-      ii = param_count(argc, argv, cur_arg);
-      if (ii < 3) {
-	printf("Error: --indep requires at least 3 parameters.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else if (ii > 4) {
-	printf("Error: --indep accepts at most 4 parameters.%s", errstr_append);
+      if (enforce_param_ct_range(argc, argv, cur_arg, 3, 4, &ii)) {
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       ld_window_size = atoi(argv[cur_arg + 1]);
@@ -12577,7 +12540,12 @@ int main(int argc, char** argv) {
   // filtername[0] indicates existence of filter
   // freqname[0] signals --read-freq
   // evecname[0] signals --regress-pcs
-  retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_sex_specific, max_pcs, freqx);
+  if (genname[0]) {
+    // check for supported calculations
+    retval = wdist_dosage(genname, samplename);
+  } else {
+    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_sex_specific, max_pcs, freqx);
+  }
   free(wkspace_ua);
   return dispmsg(retval);
 }
