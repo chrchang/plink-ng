@@ -120,12 +120,14 @@ typedef int __CLPK_integer;
 typedef long int __CLPK_integer;
 #endif
 typedef double __CLPK_doublereal;
-int dgetrf_(__CLPK_integer* m, __CLPK_integer* n, __CLPK_doublereal* a,
-            __CLPK_integer* lda, __CLPK_integer* ipiv, __CLPK_integer* info);
+int dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
+	    __CLPK_doublereal* a, __CLPK_integer* lda,
+	    __CLPK_integer* ipiv, __CLPK_integer* info);
 
-int dgetri_(__CLPK_integer* n, __CLPK_doublereal* a, __CLPK_integer* lda,
-            __CLPK_integer* ipiv, __CLPK_doublereal* work,
-            __CLPK_integer* lwork, __CLPK_integer* info);
+int dgetri_(__CLPK_integer* n, __CLPK_doublereal* a,
+	    __CLPK_integer* lda, __CLPK_integer* ipiv,
+	    __CLPK_doublereal* work, __CLPK_integer* lwork,
+	    __CLPK_integer* info);
 #endif
 #endif
 
