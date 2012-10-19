@@ -109,11 +109,11 @@
 #endif
 
 #ifndef NOLAPACK
-#include <cblas.h>
 #ifdef __APPLE__
-#include <vecLib/clapack.h>
+#include <Accelerate/Accelerate.h>
 #else
 // allow the same code to work for OS X and Linux
+#include <cblas.h>
 #if __LP64__
 typedef int __CLPK_integer;
 #else
@@ -291,16 +291,16 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.11.2 "
+  "WDIST genomic distance calculator, v0.11.3d "
 #else
-  "WDIST genomic distance calculator, v0.11.2L "
+  "WDIST genomic distance calculator, v0.11.3Ld "
 #endif
 #if __LP64__
   "64-bit"
 #else
   "32-bit"
 #endif
-  " (19 October 2012)\n"
+  " (20 October 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
@@ -314,7 +314,7 @@ const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n
 // fit 4 pathologically long IDs plus a bit extra
 char tbuf[MAXLINELEN * 4 + 256];
 
-int fopen_checked(FILE** target_ptr, char* fname, char* mode) {
+int fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
   *target_ptr = fopen(fname, mode);
   if (!(*target_ptr)) {
     printf(errstr_fopen, fname);
@@ -323,7 +323,7 @@ int fopen_checked(FILE** target_ptr, char* fname, char* mode) {
   return 0;
 }
 
-int gzopen_checked(gzFile* target_ptr, char* fname, char* mode) {
+int gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode) {
   *target_ptr = gzopen(fname, mode);
   if (!(*target_ptr)) {
     printf(errstr_fopen, fname);
@@ -332,14 +332,14 @@ int gzopen_checked(gzFile* target_ptr, char* fname, char* mode) {
   return 0;
 }
 
-inline int fwrite_checked(void* buf, size_t len, FILE* outfile) {
+inline int fwrite_checked(const void* buf, size_t len, FILE* outfile) {
   if ((!len) || fwrite(buf, len, 1, outfile)) {
     return 0;
   }
   return -1;
 }
 
-inline int gzwrite_checked(gzFile gz_outfile, void* buf, size_t len) {
+inline int gzwrite_checked(gzFile gz_outfile, const void* buf, size_t len) {
   if ((!len) || gzwrite(gz_outfile, buf, len)) {
     return 0;
   }
@@ -934,7 +934,7 @@ inline double get_maf(double allele_freq) {
 
 int indiv_major_to_snp_major(char* indiv_major_fname, char* outname, FILE** outfile_ptr, int unfiltered_marker_ct) {
   int in_fd = open(indiv_major_fname, O_RDONLY);
-  unsigned char* in_contents = MAP_FAILED;
+  unsigned char* in_contents = (unsigned char*)MAP_FAILED;
   int unfiltered_marker_ct4 = (unfiltered_marker_ct + 3) / 4;
   struct stat sb;
   unsigned char* icoff;
@@ -959,7 +959,7 @@ int indiv_major_to_snp_major(char* indiv_major_fname, char* outname, FILE** outf
   if (fstat(in_fd, &sb) == -1) {
     goto indiv_major_to_snp_major_ret_READ_FAIL;
   }
-  in_contents = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, in_fd, 0);
+  in_contents = (unsigned char*)mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, in_fd, 0);
   if (in_contents == MAP_FAILED) {
     goto indiv_major_to_snp_major_ret_READ_FAIL;
   }
