@@ -113,6 +113,9 @@
 #include <Accelerate/Accelerate.h>
 #else
 // allow the same code to work for OS X and Linux
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <cblas.h>
 #if __LP64__
 typedef int __CLPK_integer;
@@ -128,6 +131,9 @@ int dgetri_(__CLPK_integer* n, __CLPK_doublereal* a,
 	    __CLPK_integer* lda, __CLPK_integer* ipiv,
 	    __CLPK_doublereal* work, __CLPK_integer* lwork,
 	    __CLPK_integer* info);
+#ifdef __cplusplus
+}
+#endif
 #endif
 #endif
 
@@ -6635,7 +6641,7 @@ int write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, int unfi
   return 0;
 }
 
-int distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, char* outname, char* outname_end, char* varsuffix, char* mode, int calculation_type, int parallel_idx, int parallel_tot) {
+int distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, char* outname, char* outname_end, const char* varsuffix, const char* mode, int calculation_type, int parallel_idx, int parallel_tot) {
   if (calculation_type & CALC_DISTANCE_SNPS) {
     if (parallel_tot > 1) {
       sprintf(outname_end, ".dist%s.%d", varsuffix, parallel_idx + 1);
@@ -11125,7 +11131,7 @@ int main(int argc, char** argv) {
           return dispmsg(RET_OPEN_FAIL);
         }
       } else {
-        sptr = "wdist";
+        sptr = (char*)"wdist";
       }
       if (!(load_params & 16)) {
 	strcpy(pedname, sptr);
@@ -11217,7 +11223,7 @@ int main(int argc, char** argv) {
           return dispmsg(RET_OPEN_FAIL);
         }
       } else {
-        sptr = "wdist";
+        sptr = (char*)"wdist";
       }
       if (!(load_params & 0x100)) {
 	strcpy(genname, sptr);
