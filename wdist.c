@@ -113,7 +113,19 @@
 #ifdef __APPLE__
 #include <vecLib/clapack.h>
 #else
-#include <clapack.h>
+// allow the same code to work for OS X and Linux
+#if __LP64__
+typedef int __CLPK_integer;
+#else
+typedef long int __CLPK_integer;
+#endif
+typedef double __CLPK_doublereal;
+int dgetrf_(__CLPK_integer* m, __CLPK_integer* n, __CLPK_doublereal* a,
+            __CLPK_integer* lda, __CLPK_integer* ipiv, __CLPK_integer* info);
+
+int dgetri_(__CLPK_integer* n, __CLPK_doublereal* a, __CLPK_integer* lda,
+            __CLPK_integer* ipiv, __CLPK_doublereal* work,
+            __CLPK_integer* lwork, __CLPK_integer* info);
 #endif
 #endif
 
@@ -2016,15 +2028,15 @@ int eval_affection(char* bufptr, int missing_pheno, int missing_pheno_len, int a
   return 0;
 }
 
-void collapse_arr(char* item_arr, int fixed_item_len, unsigned long* exclude_arr, int exclude_ct) {
+void collapse_arr(char* item_arr, int fixed_item_len, unsigned long* exclude_arr, int exclude_arr_size) {
   // collapses array of fixed-length items
   int ii = 0;
   int jj;
-  while ((ii < exclude_ct) && (!is_set(exclude_arr, ii))) {
+  while ((ii < exclude_arr_size) && (!is_set(exclude_arr, ii))) {
     ii++;
   }
   jj = ii;
-  while (++ii < exclude_ct) {
+  while (++ii < exclude_arr_size) {
     if (!is_set(exclude_arr, ii)) {
       memcpy(&(item_arr[(jj++) * fixed_item_len]), &(item_arr[ii * fixed_item_len]), fixed_item_len);
     }
@@ -3817,13 +3829,11 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   double* dptr;
   double* dptr2;
   double* matrix_pvg;
-#ifdef __APPLE__
 #ifdef __LP64__
   int info;
 #else
   long int indiv_ct_li = indiv_ct;
   long int info;
-#endif
 #endif
   double dxx;
   double dyy;
@@ -3859,17 +3869,12 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   do {
     memcpy(wkbase, rel_dists, mat_offset * sizeof(double));
     matrix_const_mult_add(wkbase, *covg_ref, *covr_ref);
-#ifdef __APPLE__
 #if __LP64__
     dgetrf_(&indiv_ct, &indiv_ct, wkbase, &indiv_ct, irow, &info);
     dgetri_(&indiv_ct, wkbase, &indiv_ct, irow, work, &lwork, &info);
 #else
     dgetrf_(&indiv_ct_li, &indiv_ct_li, wkbase, &indiv_ct_li, irow, &info);
     dgetri_(&indiv_ct_li, wkbase, &indiv_ct_li, irow, work, &lwork, &info);
-#endif
-#else
-    clapack_dgetrf(CblasColMajor, indiv_ct, indiv_ct, wkbase, indiv_ct, irow);
-    clapack_dgetri(CblasColMajor, indiv_ct, wkbase, indiv_ct, irow);
 #endif
     matrix_row_sum_ur(row, wkbase);
     dxx = 0.0;
@@ -7603,7 +7608,6 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 #ifndef NOLAPACK
   double* cov_matrix = NULL;
   double* new_cov_matrix = NULL;
-#if __APPLE__
 #if __LP64__
   int* irow = NULL;
   int info;
@@ -7615,9 +7619,6 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
   long int window_rem_li;
 #endif // __LP64__
   double* work = NULL;
-#else
-  int* irow = NULL;
-#endif // __APPLE__
   int window_rem;
 #endif // NOLAPACK
   double prune_ld_r2;
@@ -7704,7 +7705,6 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
       goto ld_prune_ret_NOMEM;
     }
 
-#if __APPLE__
 #if __LP64__
     if (wkspace_alloc_i_checked(&irow, window_max * sizeof(int))) {
       goto ld_prune_ret_NOMEM;
@@ -7715,18 +7715,11 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
       goto ld_prune_ret_NOMEM;
     }
 #endif // __LP64__
-#else
-    if (wkspace_alloc_i_checked(&irow, window_max * sizeof(int))) {
-      goto ld_prune_ret_NOMEM;
-    }
-#endif // __APPLE__
 
-#if __APPLE__
     lwork = window_max * window_max;
     if (wkspace_alloc_d_checked(&work, window_max * window_max * sizeof(double))) {
       goto ld_prune_ret_NOMEM;
     }
-#endif
   }
 #endif
   do {
@@ -7866,7 +7859,6 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    }
 
 	    // invert the matrix
-#ifdef __APPLE__
 #if __LP64__
 	    dgetrf_(&window_rem, &window_rem, new_cov_matrix, &window_rem, irow, &info);
 	    dgetri_(&window_rem, new_cov_matrix, &window_rem, irow, work, &lwork, &info);
@@ -7875,10 +7867,6 @@ int ld_prune(FILE* bedfile, int bed_offset, int marker_ct, int unfiltered_marker
 	    dgetrf_(&window_rem_li, &window_rem_li, new_cov_matrix, &window_rem_li, irow, &info);
 	    dgetri_(&window_rem_li, new_cov_matrix, &window_rem_li, irow, work, &lwork, &info);
 #endif // __LP64__
-#else
-	    clapack_dgetrf(CblasColMajor, window_rem, window_rem, new_cov_matrix, window_rem, irow);
-	    clapack_dgetri(CblasColMajor, window_rem, new_cov_matrix, window_rem, irow);
-#endif // __APPLE__
 
 	    dxx = new_cov_matrix[0];
 	    jj = 0;
@@ -10657,6 +10645,17 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     ulii = indiv_ct;
     ulii = ulii * (ulii - 1) / 2;
+    printf("First and last distances at start of regression: %g %g\n", dists[0], dists[ulii - 1]);
+    printf("First and last phenos at start of regression: %g %g\n", pheno_d[0], pheno_d[indiv_ct - 1]);
+    double sumd = 0.0;
+    double sump = 0.0;
+    for (uljj = 0; uljj < ulii; uljj++) {
+      sumd += dists[uljj];
+    }
+    for (uljj = 0; uljj < indiv_ct; uljj++) {
+      sump += pheno_d[uljj];
+    }
+    printf("Distance and pheno sums at end of regression: %g %g\n", sumd, sump);
     reg_tot_xy = 0.0;
     reg_tot_x = 0.0;
     reg_tot_y = 0.0;
@@ -10711,6 +10710,17 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
 
     dxx = ulii;
+    printf("First and last distances at end of regression: %g %g\n", dists[0], dists[ulii - 1]);
+    printf("First and last phenos at end of regression: %g %g\n", pheno_d[0], pheno_d[indiv_ct - 1]);
+    sumd = 0.0;
+    sump = 0.0;
+    for (uljj = 0; uljj < ulii; uljj++) {
+      sumd += dists[uljj];
+    }
+    for (uljj = 0; uljj < indiv_ct; uljj++) {
+      sump += pheno_d[uljj];
+    }
+    printf("Distance and pheno sums at end of regression: %g %g\n", sumd, sump);
     printf("Regression slope (y = genomic distance, x = avg phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_xx - reg_tot_x * reg_tot_x / dxx));
     printf("Regression slope (y = avg phenotype, x = genomic distance): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_yy - reg_tot_y * reg_tot_y / dxx));
 
