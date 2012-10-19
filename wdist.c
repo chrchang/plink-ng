@@ -300,7 +300,7 @@ const char ver_str[] =
 #else
   "32-bit"
 #endif
-  " (20 October 2012)\n"
+  " (19 October 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
