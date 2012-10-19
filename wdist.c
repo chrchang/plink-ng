@@ -291,9 +291,9 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.11.3d "
+  "WDIST genomic distance calculator, v0.11.2 "
 #else
-  "WDIST genomic distance calculator, v0.11.3Ld "
+  "WDIST genomic distance calculator, v0.11.2L "
 #endif
 #if __LP64__
   "64-bit"
