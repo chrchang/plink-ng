@@ -104,6 +104,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifdef __cplusplus
+#include <algorithm>
+#endif
+
 #if __LP64__
 #include <emmintrin.h>
 #endif
@@ -570,7 +574,7 @@ int dispmsg(int retval) {
 "    Regresses phenotypes and genotypes on the given list of principal\n"
 "    components (produced by SMARTPCA), and then converts phenotypes to\n"
 "    Z-scores (optionally sex-specific).  Output is a .gen and a .sample file in\n"
-"    the Oxford SNPTEST v2 format.\n"
+"    the Oxford IMPUTE/SNPTEST v2 format.\n"
 "    By default, at most 10 PCs are included in the regression.\n\n"
 "  --unrelated-heritability <strict> {tol} {initial covg} {initial covr}\n"
 "    REML estimate of additive heritability, iterating with an accelerated\n"
@@ -587,7 +591,9 @@ int dispmsg(int retval) {
 "  --freqx\n"
 "    --freq generates an allele frequency report identical to that of PLINK\n"
 "    --freq; --freqx replaces the NCHROBS column with homozygote/heterozygote\n"
-"    counts.\n\n"
+"    counts, which (when reloaded with --read-freq) allow relationship and\n"
+"    distance matrix terms to be weighted consistently through multiple\n"
+"    filtering runs.\n\n"
 "  --write-snplist\n"
 "    Write a .snplist file listing the names of all SNPs that pass the filters\n"
 "    and inclusion thresholds you've specified.\n\n"
@@ -678,8 +684,6 @@ int dispmsg(int retval) {
 "  --read-freq [filename]    : Loads MAFs from the given PLINK-style or --freqx\n"
 "  --update-freq [filename]    frequency file, instead of just setting them to\n"
 "                              frequencies observed in the .ped/.bed file.\n"
-"                              (This can be important when applying multiple\n"
-"                              filters and inclusion thresholds.)\n"
 "  --parallel [k] [n]        : Divide the output matrix into n pieces, and only\n"
 "                              compute the kth piece.  The primary output file\n"
 "                              will have the piece number included in its name,\n"
@@ -1058,10 +1062,13 @@ int strlen_se(char* ss) {
   return val;
 }
 
-int int_cmp(const void* aa, const void* bb) {
-  return *((const int*)aa) - *((const int*)bb);
+#ifdef __cplusplus
+/*
+template<size_t length> int fixedstr_less(const char* left, const char* right) {
+  return strcmp(left, right, length) < 0;
 }
-
+*/
+#else
 int double_cmp(const void* aa, const void* bb) {
   double cc = *((const double*)aa) - *((const double*)bb);
   if (cc > 0.0) {
@@ -1071,6 +1078,14 @@ int double_cmp(const void* aa, const void* bb) {
   } else {
     return 0;
   }
+}
+#endif
+int strcmp_casted(const void* s1, const void* s2) {
+  return strcmp((char*)s1, (char*)s2);
+}
+
+int strcmp_deref(const void* s1, const void* s2) {
+  return strcmp(*(char**)s1, *(char**)s2);
 }
 
 double get_dmedian_i(int* sorted_arr, int len) {
@@ -1096,18 +1111,6 @@ double get_dmedian(double* sorted_arr, int len) {
     return 0.0;
   }
 }
-
-int strcmp_casted(const void* s1, const void* s2) {
-  return strcmp((char*)s1, (char*)s2);
-}
-
-int strcmp_deref(const void* s1, const void* s2) {
-  return strcmp(*(char**)s1, *(char**)s2);
-}
-
-// Worthwhile to look into switching to g++ just to use STL, if sorting ever
-// becomes a time-critical step.  See e.g. Anders Kaseorg's answer to
-// http://www.quora.com/Software-Engineering/Generally-how-much-faster-is-C-compared-to-C++
 
 // alas, qsort_r not available on some Linux distributions
 int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len) {
@@ -1140,6 +1143,7 @@ int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_
     *(char**)(&(proxy_arr[ii * proxy_len])) = &(main_arr[ii * item_length]);
     memcpy(&(proxy_arr[ii * proxy_len + sizeof(void*)]), &(secondary_arr[ii * secondary_item_len]), secondary_item_len);
   }
+
   qsort(proxy_arr, arr_length, proxy_len, comparator_deref);
   for (ii = 0; ii < arr_length; ii++) {
     memcpy(&(secondary_arr[ii * secondary_item_len]), &(proxy_arr[ii * proxy_len + sizeof(void*)]), secondary_item_len);
@@ -6822,6 +6826,8 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
   unsigned int indiv_uidx;
   unsigned int indiv_idx;
   unsigned int pct;
+  char* fam1;
+  char* fam2;
 
   while ((mp_lead_unfiltered_idx < unfiltered_marker_ct) && (is_set(marker_exclude, mp_lead_unfiltered_idx) || (!get_marker_chrom(chrom_info_ptr, mp_lead_unfiltered_idx)))) {
     mp_lead_unfiltered_idx++;
@@ -6852,7 +6858,6 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
       cptr = &(person_ids[indiv_uidx * max_person_id_len]);
       jj = strlen_se(cptr);
       cptr2 = next_item(cptr);
-      cptr[jj] = '\0';
       if (jj > max_person_fid_len) {
 	max_person_fid_len = jj + 2;
       }
@@ -6881,6 +6886,12 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
     goto calc_genome_ret_NOMEM;
   }
   if (wkspace_alloc_ul_checked(&mmasks, indiv_ct * sizeof(long))) {
+    goto calc_genome_ret_NOMEM;
+  }
+  if (wkspace_alloc_c_checked(&fam1, max_person_fid_len)) {
+    goto calc_genome_ret_NOMEM;
+  }
+  if (wkspace_alloc_c_checked(&fam2, max_person_fid_len)) {
     goto calc_genome_ret_NOMEM;
   }
 
@@ -7242,7 +7253,10 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
   }
   for (ii = thread_start[0]; ii < tstc; ii++) {
     cptr = &(person_ids[ii * max_person_id_len]);
-    cptr2 = &(cptr[strlen(cptr) + 1]);
+    jj = strlen_se(cptr);
+    memcpy(fam1, cptr, jj);
+    fam1[jj] = '\0';
+    cptr2 = next_item(cptr);
     if (paternal_ids) {
       cptr5 = &(paternal_ids[ii * max_paternal_id_len]);
       cptr6 = &(maternal_ids[ii * max_maternal_id_len]);
@@ -7254,13 +7268,16 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
     }
     for (ujj = ii + 1; ujj < indiv_ct; ujj++) {
       cptr3 = &(person_ids[ujj * max_person_id_len]);
-      cptr4 = &(cptr3[strlen(cptr3) + 1]);
+      jj = strlen_se(cptr3);
+      memcpy(fam2, cptr3, jj);
+      fam2[jj] = '\0';
+      cptr4 = next_item(cptr3);
       if (paternal_ids) {
 	cptr7 = &(paternal_ids[ujj * max_paternal_id_len]);
 	cptr8 = &(maternal_ids[ujj * max_maternal_id_len]);
       }
-      sptr_cur = &(tbuf_mid[sprintf(tbuf_mid, tbuf, cptr, cptr2, cptr3, cptr4)]);
-      if (!strcmp(cptr, cptr3)) {
+      sptr_cur = &(tbuf_mid[sprintf(tbuf_mid, tbuf, fam1, cptr2, fam2, cptr4)]);
+      if (!strcmp(fam1, fam2)) {
 	while (1) {
 	  if (paternal_ids) {
 	    if (!(is_founder_fixed || is_set(founder_info, ujj))) {
@@ -10597,9 +10614,18 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	dist_ptr += indiv_idx;
       }
     }
+#ifdef __cplusplus
+    // std::sort is faster than qsort for basic types.  See e.g. Anders
+    // Kaseorg's answer to
+    // http://www.quora.com/Software-Engineering/Generally-how-much-faster-is-C-compared-to-C++
+    std::sort(ll_pool, &(ll_pool[ll_size]));
+    std::sort(lh_pool, &(lh_pool[lh_size]));
+    std::sort(hh_pool, &(hh_pool[hh_size]));
+#else
     qsort(ll_pool, ll_size, sizeof(double), double_cmp);
     qsort(lh_pool, lh_size, sizeof(double), double_cmp);
     qsort(hh_pool, hh_size, sizeof(double), double_cmp);
+#endif
     ll_med = get_dmedian(ll_pool, ll_size);
     lh_med = get_dmedian(lh_pool, lh_size);
     hh_med = get_dmedian(hh_pool, hh_size);
@@ -11035,16 +11061,19 @@ int main(int argc, char** argv) {
     argptr2 = &(argptr[3]);
     cur_arg_start = cur_arg;
     switch (argptr[2]) {
-      // yeah, difference between memcmp and strcmp is utterly negligible, but
-      // it's also essentially painless to use memcmp, so, why not.
     case '1':
-      if (!memcmp(argptr2, "", 1)) {
+      if (*argptr2 == '\0') {
+	// --1
 	affection_01 = 1;
 	cur_arg += 1;
       }
       break;
 
     case 'Z':
+      // Yeah, difference between memcmp and strcmp is utterly negligible, but
+      // it's also essentially painless to use memcmp (the maintenance danger
+      // is miscounted string length, but that's both easy to test and
+      // practically harmless in the command line parser), so, why not.
       if (!memcmp(argptr2, "-genome", 8)) {
 	if (calculation_type & CALC_GENOME) {
 	  printf("Error: Duplicate --genome flag.\n");
