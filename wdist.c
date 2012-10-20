@@ -586,7 +586,8 @@ int dispmsg(int retval) {
 "  --freq\n"
 "  --freqx\n"
 "    --freq generates an allele frequency report identical to that of PLINK\n"
-"    --freq.  --freqx adds homozygote/heterozygote counts.\n\n"
+"    --freq; --freqx replaces the NCHROBS column with homozygote/heterozygote\n"
+"    counts.\n\n"
 "  --write-snplist\n"
 "    Write a .snplist file listing the names of all SNPs that pass the filters\n"
 "    and inclusion thresholds you've specified.\n\n"
@@ -1750,7 +1751,7 @@ static double reg_tot_yy;
 static unsigned int low_ct;
 static unsigned int high_ct;
 static unsigned int jackknife_iters;
-static int jackknife_d;
+static unsigned int jackknife_d;
 static double calc_result[9][MAX_THREADS];
 static unsigned long* masks;
 static unsigned long* mmasks;
@@ -3102,7 +3103,7 @@ void* calc_dist_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
   int jj = thread_start[0];
-  incr_dists(&(dists[(ii * (ii - 1) - jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
+  incr_dists(&(dists[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
   return NULL;
 }
 
@@ -3132,7 +3133,7 @@ void* calc_distm_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
   int jj = thread_start[0];
-  incr_wt_dist_missing(&(missing_tot_weights[(ii * (ii - 1) - jj * (jj - 1)) / 2]), (int)tidx);
+  incr_wt_dist_missing(&(missing_tot_weights[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (int)tidx);
   return NULL;
 }
 
@@ -3358,7 +3359,7 @@ void groupdist_jack(int* ibuf, double* returns) {
     if (cc == -1) {
       continue;
     }
-    dptr = &(dists[(indiv_idx * (indiv_idx - 1)) / 2]);
+    dptr = &(dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2]);
     if (indiv_idx == (unsigned int)(*iptr)) {
       cptr = pheno_c;
       cptr2 = &(pheno_c[indiv_idx]);
@@ -3402,9 +3403,9 @@ void groupdist_jack(int* ibuf, double* returns) {
       }
     }
   }
-  returns[0] = (reg_tot_x - neg_tot_aa) / (double)(((high_ct - neg_a) * (high_ct - neg_a - 1)) / 2);
-  returns[1] = (reg_tot_xy - neg_tot_au) / (double)((high_ct - neg_a) * (low_ct - neg_u));
-  returns[2] = (reg_tot_y - neg_tot_uu) / (double)(((low_ct - neg_u) * (low_ct - neg_u - 1)) / 2);
+  returns[0] = (reg_tot_x - neg_tot_aa) / (double)(((long)(high_ct - neg_a) * (high_ct - neg_a - 1)) / 2);
+  returns[1] = (reg_tot_xy - neg_tot_au) / (double)((long)(high_ct - neg_a) * (low_ct - neg_u));
+  returns[2] = (reg_tot_y - neg_tot_uu) / (double)(((long)(low_ct - neg_u) * (low_ct - neg_u - 1)) / 2);
 }
 
 void small_remap(int* ibuf, unsigned int ct, unsigned int dd) {
@@ -3473,7 +3474,7 @@ void* groupdist_jack_thread(void* arg) {
 double regress_jack(int* ibuf, double* ret2_ptr) {
   int* iptr = ibuf;
   int* jptr = &(ibuf[jackknife_d]);
-  int ii;
+  unsigned int uii;
   int jj;
   int kk;
   double* dptr;
@@ -3495,11 +3496,11 @@ double regress_jack(int* ibuf, double* ret2_ptr) {
     neg_tot_yy += *dptr2++;
   }
   iptr = ibuf;
-  for (ii = 1; ii < jackknife_d; ii++) {
+  for (uii = 1; uii < jackknife_d; uii++) {
     jj = *(++iptr);
     dxx1 = pheno_d[jj];
     jptr = ibuf;
-    dptr = &(dists[(jj * (jj - 1)) / 2]);
+    dptr = &(dists[((long)jj * (jj - 1)) / 2]);
     while (jptr < iptr) {
       kk = *jptr++;
       dxx = (dxx1 + pheno_d[kk]) * 0.5;
@@ -3556,7 +3557,7 @@ void* regress_jack_thread(void* arg) {
 double regress_rel_jack(int* ibuf, double* ret2_ptr) {
   int* iptr = ibuf;
   int* jptr = &(ibuf[jackknife_d]);
-  int ii;
+  unsigned int uii;
   int jj;
   int kk;
   double* dptr;
@@ -3578,11 +3579,11 @@ double regress_rel_jack(int* ibuf, double* ret2_ptr) {
     neg_tot_yy += *dptr2++;
   }
   iptr = ibuf;
-  for (ii = 1; ii < jackknife_d; ii++) {
+  for (uii = 1; uii < jackknife_d; uii++) {
     jj = *(++iptr);
     dxx1 = pheno_packed[jj];
     jptr = ibuf;
-    dptr = &(rel_dists[(jj * (jj - 1)) / 2]);
+    dptr = &(rel_dists[((long)jj * (jj - 1)) / 2]);
     while (jptr < iptr) {
       kk = *jptr++;
       dxx = (dxx1 + pheno_packed[kk]) * 0.5;
@@ -3636,9 +3637,9 @@ void* regress_rel_jack_thread(void* arg) {
 }
 
 
-int set_default_jackknife_d(int ct) {
-  int dd = (int)pow((double)ct, 0.600000000001);
-  printf("Setting d=%d for jackknife.\n", dd);
+unsigned int set_default_jackknife_d(unsigned int ct) {
+  unsigned int dd = (unsigned int)pow((double)ct, 0.600000000001);
+  printf("Setting d=%u for jackknife.\n", dd);
   return dd;
 }
 
@@ -6019,7 +6020,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
         }
       }
     }
-  } else if (!strcmp(tbuf, "CHR\tSNP\tA1\tA2\tMAF\tNCHROBS\tC(HOM A1)\tC(HET)\tC(HOM A2)\n")) {
+  } else if (!strcmp(tbuf, "CHR\tSNP\tA1\tA2\tMAF\tC(HOM A1)\tC(HET)\tC(HOM A2)\n")) {
     // known --freqx format
     while (fgets(tbuf, MAXLINELEN, *freqfile_ptr) != NULL) {
       jj = marker_code(species, tbuf);
@@ -6111,7 +6112,9 @@ int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, in
     return RET_OPEN_FAIL;
   }
   if (freqx) {
-    if (fprintf(*outfile_ptr, "CHR\tSNP\tA1\tA2\tMAF\tNCHROBS\tC(HOM A1)\tC(HET)\tC(HOM A2)\n") < 0) {
+    // MAF is not quite redundant with the hom/het counts, since it's affected
+    // by --maf-succ.
+    if (fprintf(*outfile_ptr, "CHR\tSNP\tA1\tA2\tMAF\tC(HOM A1)\tC(HET)\tC(HOM A2)\n") < 0) {
       return RET_WRITE_FAIL;
     }
   } else if (plink_maxsnp < 5) {
@@ -6140,7 +6143,7 @@ int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, in
       minor_allele = missing_geno;
     }
     if (freqx) {
-      if (fprintf(*outfile_ptr, "%d\t%s\t%c\t%c\t%g\t%d\t%d\t%d\t%d\n", get_marker_chrom(chrom_info_ptr, ii), &(marker_ids[ii * max_marker_id_len]), minor_allele, marker_alleles[ii * 2 + (1 ^ reverse)], reverse? set_allele_freqs[ii] : (1.0 - set_allele_freqs[ii]), 2 * (ll_cts[ii] + lh_cts[ii] + hh_cts[ii]), reverse? hh_cts[ii] : ll_cts[ii], lh_cts[ii], reverse? ll_cts[ii] :  hh_cts[ii]) < 0) {
+      if (fprintf(*outfile_ptr, "%d\t%s\t%c\t%c\t%g\t%d\t%d\t%d\n", get_marker_chrom(chrom_info_ptr, ii), &(marker_ids[ii * max_marker_id_len]), minor_allele, marker_alleles[ii * 2 + (1 ^ reverse)], reverse? set_allele_freqs[ii] : (1.0 - set_allele_freqs[ii]), reverse? hh_cts[ii] : ll_cts[ii], lh_cts[ii], reverse? ll_cts[ii] :  hh_cts[ii]) < 0) {
 	return RET_WRITE_FAIL;
       }
     } else {
@@ -8915,7 +8918,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    kk++;
 	  }
 	  // and now find the identity of the other side
-	  dist_ptr = &(rel_dists[(kk * (kk - 1)) / 2]);
+	  dist_ptr = &(rel_dists[((long)kk * (kk - 1)) / 2]);
 	  for (mm = 0; mm < kk; mm++) {
 	    if (*dist_ptr > rel_cutoff) {
 	      *dist_ptr = 0.0;
@@ -8926,7 +8929,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  if (mm == kk) {
 	    do {
 	      mm++;
-	      dist_ptr = &(rel_dists[(mm * (mm - 1)) / 2 + kk]);
+	      dist_ptr = &(rel_dists[((long)mm * (mm - 1)) / 2 + kk]);
 	    } while (*dist_ptr <= rel_cutoff);
 	    *dist_ptr = 0.0;
 	  }
@@ -8954,7 +8957,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    break;
 	  }
 	}
-	dist_ptr = &(rel_dists[(mm * (mm - 1)) / 2]);
+	dist_ptr = &(rel_dists[((long)mm * (mm - 1)) / 2]);
 	for (kk = 0; kk < mm; kk++) {
 	  if (*dist_ptr > rel_cutoff) {
 	    *dist_ptr = 0.0;
@@ -10538,9 +10541,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	low_ct++;
       }
     }
-    ll_size = (low_ct * (low_ct - 1)) / 2;
+    ll_size = ((unsigned long)low_ct * (low_ct - 1)) / 2;
     lh_size = low_ct * high_ct;
-    hh_size = (high_ct * (high_ct - 1)) / 2;
+    hh_size = ((unsigned long)high_ct * (high_ct - 1)) / 2;
     reg_tot_y = 0.0;
     reg_tot_xy = 0.0;
     reg_tot_x = 0.0;
@@ -10605,7 +10608,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       dxx = 0.0;
       dhh_sd = 0.0;
     } else {
-      dww = (double)((high_ct * (high_ct - 1)) / 2);
+      dww = (double)(((unsigned long)high_ct * (high_ct - 1)) / 2);
       dxx = reg_tot_x / dww;
       dhh_sd = sqrt((dhh_ssq / dww - dxx * dxx) / (dww - 1.0));
     }
@@ -10613,7 +10616,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       dyy = 0.0;
       dhl_sd = 0.0;
     } else {
-      dww = (double)(high_ct * low_ct);
+      dww = (double)((unsigned long)high_ct * low_ct);
       dyy = reg_tot_xy / dww;
       dhl_sd = sqrt((dhl_ssq / dww - dyy * dyy) / (dww - 1.0));
     }
@@ -10621,14 +10624,14 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       dzz = 0.0;
       dll_sd = 0.0;
     } else {
-      dww = (double)((low_ct * (low_ct - 1)) / 2);
+      dww = (double)(((unsigned long)low_ct * (low_ct - 1)) / 2);
       dzz = reg_tot_y / dww;
       dll_sd = sqrt((dll_ssq / dww - dzz * dzz) / (dww - 1.0));
     }
     printf("  Mean (sd), median dists between 2x affected     : %g (%g), %g\n", dxx, dhh_sd, hh_med);
     printf("  Mean (sd), median dists between aff. and unaff. : %g (%g), %g\n", dyy, dhl_sd, lh_med);
     printf("  Mean (sd), median dists between 2x unaffected   : %g (%g), %g\n\n", dzz, dll_sd, ll_med);
-    if (2 * jackknife_d >= (int)(high_ct + low_ct)) {
+    if (2 * jackknife_d >= (high_ct + low_ct)) {
       printf("Delete-d jackknife skipped because d is too large.\n");
     } else {
       // this can be sped up using the same method used in regress-distance,

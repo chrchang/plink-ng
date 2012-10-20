@@ -11,6 +11,9 @@ endif
 wdist: wdist.c
 	gcc $(CFLAGS) $(BLASFLAGS) wdist.c -o wdist -L. $(ZLIB)
 
+wdist++: wdist.c
+	g++ $(CFLAGS) $(BLASFLAGS) wdist.c -o wdist -L. $(ZLIB)
+
 wdist64: wdist.c
 	gcc $(CFLAGS) $(BLASFLAGS) -arch x86_64 wdist.c -o wdist -L. zlib-1.2.7/libz.1.2.7-64.dylib
 
