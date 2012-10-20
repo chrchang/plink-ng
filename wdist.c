@@ -710,11 +710,10 @@ int dispmsg(int retval) {
 "                              phenotype data.  If Hbt is unspecified, it is set\n"
 "                              equal to Ltop.  Central phenotype values are\n"
 "                              treated as missing.\n\n"
-"One final note.  If you provide input in a different format, WDIST will always\n"
-"convert to PLINK SNP-major binary files before proceeding with its calculations\n"
-"(i.e. --make-bed is effectively always on).  These files will be saved to\n"
-"{output prefix}.bed, .bim, and .fam, and you are encouraged to use them\n"
-"directly in future analyses.\n"
+"One final note.  If a PLINK plain text fileset (.ped/.map) is given as input,\n"
+"WDIST will convert them to binary (without deleting the original files).  The\n"
+"converted files are saved as {output prefix}.bed, .bim, and .fam, and you are\n"
+"encouraged to use them directly in future analyses.\n"
          );
     break;
   }
@@ -10879,6 +10878,38 @@ int enforce_param_ct_range(int argc, char** argv, int flag_idx, int min_ct, int 
   return 0;
 }
 
+int species_flag(Chrom_info* chrom_info_ptr, int species_val) {
+  if (chrom_info_ptr->species) {
+    printf("Error: Duplicate species flag.\n");
+    return -1;
+  }
+  chrom_info_ptr->species = species_val;
+  if (chrom_info_ptr->chrom_mask & (~(species_valid_chrom_mask[species_val]))) {
+    printf("Error: Invalid --chr parameter.\n");
+    return -1;
+  }
+  return 0;
+}
+
+int plink_dist_flag(char* argptr, int calculation_type, double exponent, int parallel_tot) {
+  if (calculation_type & CALC_LOAD_DISTANCES) {
+    printf("Error: --load-dists cannot coexist with a distance matrix calculation flag.%s", errstr_append);
+    return -1;
+  } else if (exponent != 0.0) {
+    printf("Error: --exponent flag cannot be used with %s.\n", argptr);
+    return -1;
+  } else if (parallel_tot > 1) {
+    printf("Error: --parallel and --distance-matrix/--matrix cannot be used together.  Use\n--distance instead.%s", errstr_append);
+    return -1;
+  }
+  return 0;
+}
+
+int invalid_arg(char* argv) {
+  printf("Error: Invalid argument (%s).%s", argv, errstr_append);
+  return dispmsg(RET_INVALID_CMDLINE);
+}
+
 int main(int argc, char** argv) {
   unsigned char* wkspace_ua;
   char outname[FNAMESIZE];
@@ -10966,6 +10997,8 @@ int main(int argc, char** argv) {
   int max_pcs = 10;
   int freqx = 0;
   Chrom_info chrom_info;
+  char* argptr2;
+  int cur_arg_start;
   printf(ver_str);
   chrom_info.species = SPECIES_HUMAN;
   chrom_info.chrom_mask = 0;
@@ -10993,1523 +11026,1632 @@ int main(int argc, char** argv) {
   strcpy(outname, "wdist");
   while (cur_arg < argc) {
     argptr = argv[cur_arg];
-    if (!strcmp(argptr, "--script")) {
-      if (subst_argv) {
-        printf("Error: Duplicate --script flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
+    if ((argptr[0] != '-') || (argptr[1] != '-')) {
+      return invalid_arg(argptr);
+    }
+    argptr2 = &(argptr[3]);
+    cur_arg_start = cur_arg;
+    switch (argptr[2]) {
+      // yeah, difference between memcmp and strcmp is utterly negligible, but
+      // it's also essentially painless to use memcmp, so, why not.
+    case '1':
+      if (!memcmp(argptr2, "", 1)) {
+	affection_01 = 1;
+	cur_arg += 1;
       }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
+      break;
+
+    case 'Z':
+      if (!memcmp(argptr2, "-genome", 8)) {
+	if (calculation_type & CALC_GENOME) {
+	  printf("Error: Duplicate --genome flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	for (kk = 1; kk <= ii; kk++) {
+	  if (!strcmp(argv[cur_arg + kk], "full")) {
+	    genome_output_full = 1;
+	  } else if (!strcmp(argv[cur_arg + kk], "unbounded")) {
+	    genome_ibd_unbounded = 1;
+	  } else {
+	    printf("Error: Invalid --Z-genome parameter.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	}
+	cur_arg += ii + 1;
+	calculation_type |= CALC_GENOME;
+	genome_output_gz = 1;
       }
-      if (fopen_checked(&scriptfile, argv[cur_arg + 1], "rb")) {
-        return dispmsg(RET_OPEN_FAIL);
+      break;
+
+    case 'a':
+      if (!memcmp(argptr2, "utosome", 8)) {
+	if (chrom_info.chrom_mask) {
+	  printf("Error: --chr and --autosome flags cannot coexist.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (autosome) {
+	  printf("Error: Duplicate --autosome flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	autosome = 1;
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "llow-no-sex", 12)) {
+	allow_no_sex = 1;
+	cur_arg += 1;
       }
-      ii = fread(tbuf, 1, MAXLINELEN, scriptfile);
-      fclose(scriptfile);
-      if (ii == MAXLINELEN) {
-        printf("Error: Script file too long (max %d bytes).\n", MAXLINELEN - 1);
-        return dispmsg(RET_INVALID_FORMAT);
-      }
-      num_params = 0;
-      in_param = 0;
-      for (jj = 0; jj < ii; jj++) {
-        if (is_space_or_eoln(tbuf[jj])) {
-          if (in_param) {
-            in_param = 0;
-          }
-        } else if (!in_param) {
-          num_params += 1;
-          in_param = 1;
-        }
-      }
-      subst_argv = (char**)malloc((num_params + argc - cur_arg - 2) * sizeof(char*));
-      num_params = 0;
-      in_param = 0;
-      for (jj = 0; jj < ii; jj++) {
-        if (is_space_or_eoln(tbuf[jj])) {
-          if (in_param) {
-            tbuf[jj] = '\0';
-            in_param = 0;
-          }
-        } else if (!in_param) {
-          subst_argv[num_params++] = &(tbuf[jj]);
-          in_param = 1;
-        }
-      }
-      for (ii = cur_arg + 2; ii < argc; ii++) {
-        subst_argv[num_params++] = argv[ii];
-      }
-      argc = num_params;
-      cur_arg = 0;
-      argv = subst_argv;
-    } else if (!strcmp(argptr, "--file")) {
-      if (load_params & 0x3f9) {
-        if (load_params & 1) {
-          printf("Error: Duplicate --file flag.\n");
-        } else {
-          printf("Error: --file flag cannot coexist with binary or Oxford file flags.\n");
-        }
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      load_params |= 1;
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 5)) {
-        printf("Error: --file parameter too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      if (!(load_params & 2)) {
+      break;
+
+    case 'b':
+      if (!memcmp(argptr2, "file", 5)) {
+	if (load_params & 0x38f) {
+	  if (load_params & 8) {
+	    printf("Error: Duplicate --bfile flag.\n");
+	  } else {
+	    printf("Error: --bfile flag cannot coexist with text input file flags.\n");
+	  }
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	load_params |= 8;
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  sptr = argv[cur_arg + 1];
+	  if (strlen(sptr) > (FNAMESIZE - 5)) {
+	    printf("Error: --bfile parameter too long.\n");
+	    return dispmsg(RET_OPEN_FAIL);
+	  }
+	} else {
+	  sptr = (char*)"wdist";
+	}
+	if (!(load_params & 16)) {
+	  strcpy(pedname, sptr);
+	  strcat(pedname, ".bed");
+	}
+	if (!(load_params & 32)) {
+	  strcpy(mapname, sptr);
+	  strcat(mapname, ".bim");
+	}
+	if (!(load_params & 64)) {
+	  strcpy(famname, sptr);
+	  strcat(famname, ".fam");
+	}
+	cur_arg += ii + 1;
+      } else if (!memcmp(argptr2, "ed", 3)) {
+	if (load_params & 0x397) {
+	  if (load_params & 16) {
+	    printf("Error: Duplicate --bed flag.\n");
+	  } else {
+	    printf("Error: --bed flag cannot coexist with text input file flags.\n");
+	  }
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	load_params |= 16;
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+	  printf("Error: --bed parameter too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
 	strcpy(pedname, argv[cur_arg + 1]);
-	strcat(pedname, ".ped");
-      }
-      if (!(load_params & 4)) {
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "im", 3)) {
+	if (load_params & 0x3a7) {
+	  if (load_params & 32) {
+	    printf("Error: Duplicate --bim flag.\n");
+	  } else {
+	    printf("Error: --bim flag cannot coexist with text input file flags.\n");
+	  }
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	load_params |= 32;
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+	  printf("Error: --bim parameter too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
 	strcpy(mapname, argv[cur_arg + 1]);
-	strcat(mapname, ".map");
+	cur_arg += 2;
       }
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--help")) {
-      return dispmsg(RET_MOREHELP);
-    } else if (!strcmp(argptr, "--ped")) {
-      if (load_params & 0x3fa) {
-        if (load_params & 2) {
-          printf("Error: Duplicate --ped flag.\n");
-        } else {
-          printf("Error: --ped flag cannot coexist with binary or Oxford file flags.\n");
-        }
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      load_params |= 2;
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
-        printf("Error: --ped parameter too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(pedname, argv[cur_arg + 1]);
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--map")) {
-      if (load_params & 0x3fc) {
-        if (load_params & 4) {
-          printf("Error: Duplicate --map flag.\n");
-        } else {
-          printf("Error: --map flag cannot coexist with binary or Oxford file flags.\n");
-        }
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      load_params |= 4;
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
-        printf("Error: --map parameter too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(mapname, argv[cur_arg + 1]);
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--make-bed")) {
-      printf("Note: --make-bed is effectively always on.\n");
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--bfile")) {
-      if (load_params & 0x38f) {
-        if (load_params & 8) {
-          printf("Error: Duplicate --bfile flag.\n");
-        } else {
-          printf("Error: --bfile flag cannot coexist with text input file flags.\n");
-        }
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      load_params |= 8;
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii) {
-        sptr = argv[cur_arg + 1];
-        if (strlen(sptr) > (FNAMESIZE - 5)) {
-          printf("Error: --bfile parameter too long.\n");
-          return dispmsg(RET_OPEN_FAIL);
-        }
-      } else {
-        sptr = (char*)"wdist";
-      }
-      if (!(load_params & 16)) {
-	strcpy(pedname, sptr);
-	strcat(pedname, ".bed");
-      }
-      if (!(load_params & 32)) {
-	strcpy(mapname, sptr);
-	strcat(mapname, ".bim");
-      }
-      if (!(load_params & 64)) {
-        strcpy(famname, sptr);
-        strcat(famname, ".fam");
-      }
-      cur_arg += ii + 1;
-    } else if (!strcmp(argptr, "--bed")) {
-      if (load_params & 0x397) {
-        if (load_params & 16) {
-          printf("Error: Duplicate --bed flag.\n");
-        } else {
-          printf("Error: --bed flag cannot coexist with text input file flags.\n");
-        }
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      load_params |= 16;
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
-        printf("Error: --bed parameter too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(pedname, argv[cur_arg + 1]);
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--bim")) {
-      if (load_params & 0x3a7) {
-        if (load_params & 32) {
-          printf("Error: Duplicate --bim flag.\n");
-        } else {
-          printf("Error: --bim flag cannot coexist with text input file flags.\n");
-        }
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      load_params |= 32;
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
-        printf("Error: --bim parameter too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(mapname, argv[cur_arg + 1]);
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--fam")) {
-      if (load_params & 0x3c7) {
-        if (load_params & 64) {
-          printf("Error: Duplicate --fam flag.\n");
-        } else {
-          printf("Error: --fam flag cannot coexist with text input file flags.\n");
-        }
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      load_params |= 64;
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
-        printf("Error: --fam parameter too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(famname, argv[cur_arg + 1]);
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--data")) {
-      if (load_params & 0xff) {
-        if (load_params & 0x80) {
-          printf("Error: Duplicate --data flag.\n");
-        } else {
-          printf("Error: --data flag cannot coexist with PLINK input file flags.\n");
-        }
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      load_params |= 0x80;
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii) {
-        sptr = argv[cur_arg + 1];
-        if (strlen(sptr) > (FNAMESIZE - 5)) {
-          printf("Error: --data parameter too long.\n");
-          return dispmsg(RET_OPEN_FAIL);
-        }
-      } else {
-        sptr = (char*)"wdist";
-      }
-      if (!(load_params & 0x100)) {
-	strcpy(genname, sptr);
-	strcat(genname, ".gen");
-      }
-      if (!(load_params & 0x200)) {
-	strcpy(samplename, sptr);
-	strcat(samplename, ".sample");
-      }
-      cur_arg += ii + 1;
-    } else if (!strcmp(argptr, "--gen")) {
-      if (load_params & 0x17f) {
-        if (load_params & 0x100) {
-          printf("Error: Duplicate --gen flag.\n");
-        } else {
-          printf("Error: --gen flag cannot coexist with PLINK input file flags.\n");
-        }
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      load_params |= 0x100;
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
-        printf("Error: --gen parameter too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(genname, argv[cur_arg + 1]);
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--sample")) {
-      if (load_params & 0x27f) {
-        if (load_params & 0x200) {
-          printf("Error: Duplicate --sample flag.\n");
-        } else {
-          printf("Error: --sample flag cannot coexist with PLINK input file flags.\n");
-        }
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      load_params |= 0x200;
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
-        printf("Error: --sample parameter too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(samplename, argv[cur_arg + 1]);
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--no-fid")) {
-      fam_col_1 = 0;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--no-parents")) {
-      fam_col_34 = 0;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--no-sex")) {
-      if (filter_sex) {
-	printf("Error: --filter-males/--filter-females cannot be used with --no-sex.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      fam_col_5 = 0;
-      allow_no_sex = 1;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--no-pheno")) {
-      fam_col_6 = 0;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--missing-genotype")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (missing_geno != '0') {
-        printf("Error: Duplicate --missing-genotype flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      missing_geno = argv[cur_arg + 1][0];
-      if ((strlen(argv[cur_arg + 1]) > 1) || (((unsigned char)missing_geno) <= ' ')) {
-        printf("Error: Invalid --missing-genotype parameter.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--missing-phenotype")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (missing_pheno != -9) {
-        printf("Error: Duplicate --missing-phenotype flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      missing_pheno = atoi(argv[cur_arg + 1]);
-      if ((missing_pheno == 0) || (missing_pheno == 1)) {
-        printf("Error: Invalid --missing-phenotype parameter.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--pheno")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (phenoname[0]) {
-        if (makepheno_str) {
-          printf("Error: --pheno and --make-pheno flags cannot coexist.\n");
-        } else {
-          printf("Error: Duplicate --pheno flag.\n");
-        }
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
-        printf("Error: --pheno parameter too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(phenoname, argv[cur_arg + 1]);
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--make-pheno")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (phenoname[0]) {
-        if (makepheno_str) {
-          printf("Error: Duplicate --make-pheno flag.\n");
-        } else {
-          printf("Error: --pheno and --make-pheno flags cannot coexist.\n");
-        }
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (tail_pheno) {
-        printf("Error: --make-pheno and --tail-pheno flags cannot coexist.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
-        printf("Error: --make-pheno parameter too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(phenoname, argv[cur_arg + 1]);
-      makepheno_str = argv[cur_arg + 2];
-      cur_arg += 3;
-    } else if (!strcmp(argptr, "--mpheno")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (mpheno_col != 0) {
-        printf("Error: Duplicate --mpheno flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (phenoname_str) {
-        printf("Error: --mpheno and --pheno-name flags cannot coexist.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      mpheno_col = atoi(argv[cur_arg + 1]);
-      if (mpheno_col < 1) {
-        printf("Error: Invalid --mpheno parameter.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--pheno-name")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (mpheno_col != 0) {
-        printf("Error: --mpheno and --pheno-name flags cannot coexist.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (phenoname_str) {
-        printf("Error: Duplicate --pheno-name flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      phenoname_str = argv[cur_arg + 1];
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--pheno-merge")) {
-      pheno_merge = 1;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--prune")) {
-      prune = 1;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--1")) {
-      affection_01 = 1;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--tail-pheno")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 2, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (tail_pheno) {
-        printf("Error: Duplicate --tail-pheno flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (makepheno_str) {
-        printf("Error: --make-pheno and --tail-pheno flags cannot coexist.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (sscanf(argv[cur_arg + 1], "%lg", &tail_bottom) != 1) {
-        printf("Error: Invalid --tail-pheno parameter.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii == 1) {
-        tail_top = tail_bottom;
-      } else {
-	if (sscanf(argv[cur_arg + 2], "%lg", &tail_top) != 1) {
-	  printf("Error: Invalid --tail-pheno parameter.\n");
+      break;
+
+    case 'c':
+      if (!memcmp(argptr2, "ow", 3)) {
+	if (species_flag(&chrom_info, SPECIES_COW)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-      }
-      if (tail_bottom > tail_top) {
-        printf("Error: Ltop cannot be larger than Hbottom for --tail-pheno.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      tail_pheno = 1;
-      cur_arg += ii + 1;
-    } else if (!strcmp(argptr, "--extract")) {
-      if (extractname[0]) {
-        printf("Error: Duplicate --extract flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-        printf("--extract filename too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(extractname, argv[cur_arg + 1]);
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--exclude")) {
-      if (excludename[0]) {
-        printf("Error: Duplicate --exclude flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-        printf("--exclude filename too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(excludename, argv[cur_arg + 1]);
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--write-snplist")) {
-      if (calculation_type & CALC_WRITE_SNPLIST) {
-        printf("Error: Duplicate --write-snplist flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      calculation_type |= CALC_WRITE_SNPLIST;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--keep")) {
-      if (keepname[0]) {
-        printf("Error: Duplicate --keep flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-        printf("--keep filename too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(keepname, argv[cur_arg + 1]);
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--remove")) {
-      if (removename[0]) {
-        printf("Error: Duplicate --remove flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-        printf("--remove filename too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(removename, argv[cur_arg + 1]);
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--filter")) {
-      if (filtername[0]) {
-        printf("Error: Duplicate --filter flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-        printf("Error: --filter filename too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(filtername, argv[cur_arg + 1]);
-      filterval = argv[cur_arg + 2];
-      cur_arg += 3;
-    } else if (!strcmp(argptr, "--mfilter")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (mfilter_col) {
-        printf("Error: Duplicate --mfilter flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      mfilter_col = atoi(argv[cur_arg + 1]);
-      if (mfilter_col < 1) {
-        printf("Error: Invalid --mfilter parameter.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--filter-cases")) {
-      if (filter_case_control == 2) {
-	printf("Error: --filter-cases and --filter-controls cannot be used together.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      filter_case_control = 1;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--filter-controls")) {
-      if (filter_case_control == 1) {
-	printf("Error: --filter-cases and --filter-controls cannot be used together.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      filter_case_control = 2;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--filter-males")) {
-      if (!fam_col_5) {
-	printf("Error: --filter-males/--filter-females cannot be used with --no-sex.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (filter_sex == 2) {
-	printf("Error: --filter-males and --filter-females cannot be used together.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      filter_sex = 1;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--filter-females")) {
-      if (!fam_col_5) {
-	printf("Error: --filter-males/--filter-females cannot be used with --no-sex.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (filter_sex == 1) {
-	printf("Error: --filter-males and --filter-females cannot be used together.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      filter_sex = 2;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--filter-founders")) {
-      if (filter_founder_nonf == 2) {
-	printf("Error: --filter-founders and --filter-nonfounders cannot be used together.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      filter_founder_nonf = 1;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--filter-nonfounders")) {
-      if (filter_founder_nonf == 1) {
-	printf("Error: --filter-founders and --filter-nonfounders cannot be used together.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      filter_founder_nonf = 2;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--memory")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      malloc_size_mb = atoi(argv[cur_arg + 1]);
-      if (malloc_size_mb < 64) {
-        printf("Error: Invalid --memory parameter.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-#ifndef __LP64__
-      if (malloc_size_mb > 2944) {
-	printf("Error: --memory parameter too large for 32-bit version.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-#endif
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--threads")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      ii = atoi(argv[cur_arg + 1]);
-      if (ii < 1) {
-        printf("Error: Invalid --threads parameter.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (ii > MAX_THREADS) {
-        printf("Error: --threads parameter too large (max %d).\n", MAX_THREADS);
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      thread_ct = ii;
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--exponent")) {
-      if (calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) {
-        printf("Error: --exponent flag cannot be used with --distance-matrix or --matrix.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (sscanf(argv[cur_arg + 1], "%lg", &exponent) != 1) {
-        printf("Error: Invalid --exponent parameter.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += 2;
-    } else if ((!strcmp(argptr, "--cow")) || (!strcmp(argptr, "--dog")) || (!strcmp(argptr, "--horse")) || (!strcmp(argptr, "--mouse")) || (!strcmp(argptr, "--rice")) || (!strcmp(argptr, "--sheep"))) {
-      if (chrom_info.species) {
-	printf("Error: Duplicate species flag.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (!strcmp(argptr, "--cow")) {
-        chrom_info.species = SPECIES_COW;
-      } else if (!strcmp(argptr, "--dog")) {
-	chrom_info.species = SPECIES_DOG;
-      } else if (!strcmp(argptr, "--horse")) {
-	chrom_info.species = SPECIES_HORSE;
-      } else if (!strcmp(argptr, "--mouse")) {
-	chrom_info.species = SPECIES_MOUSE;
-      } else if (!strcmp(argptr, "--rice")) {
-	printf("Error: --rice not yet supported.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else {
-	chrom_info.species = SPECIES_SHEEP;
-      }
-      if (chrom_info.chrom_mask & (~(species_valid_chrom_mask[chrom_info.species]))) {
-	printf("Error: Invalid --chr parameter.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--autosome")) {
-      if (chrom_info.chrom_mask) {
-        printf("Error: --chr and --autosome flags cannot coexist.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (autosome) {
-        printf("Error: Duplicate --autosome flag.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      autosome = 1;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--chr")) {
-      ii = param_count(argc, argv, cur_arg);
-      if (autosome) {
-        printf("Error: --chr and --autosome flags cannot coexist.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (chrom_info.chrom_mask) {
-        printf("Error: Duplicate --chr flag.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (!ii) {
-        printf("Error: Missing --chr parameter.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      for (jj = 0; jj < ii; jj++) {
-        kk = marker_code_raw(argv[cur_arg + 1 + jj]);
-        // will allow some non-autosomal in future
-        if ((kk == -1) || (kk == CHROM_X) || (kk == CHROM_Y) || (kk == CHROM_MT) || ((kk == CHROM_XY) && (species_xy_code[chrom_info.species] == -1))) {
-          printf("Error: Invalid --chr parameter.\n");
-          return dispmsg(RET_INVALID_CMDLINE);
-        }
-        chrom_info.chrom_mask |= 1LLU << kk;
-      }
-      cur_arg += 1 + ii;
-    } else if (!strcmp(argptr, "--maf")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii) {
-        if (sscanf(argv[cur_arg + 1], "%lg", &min_maf) != 1) {
-          printf("Error: Invalid --maf parameter.\n");
-          return dispmsg(RET_INVALID_CMDLINE);
-        }
-	if (min_maf <= 0.0) {
-	  printf("Error: --maf parameter too small.\n");
-	  return dispmsg(RET_INVALID_CMDLINE);
-	} else if (min_maf > max_maf) {
-	  printf("Error: --maf parameter too large.\n");
+	cur_arg++;
+      } else if (!memcmp(argptr2, "hr", 3)) {
+	ii = param_count(argc, argv, cur_arg);
+	if (autosome) {
+	  printf("Error: --chr and --autosome flags cannot coexist.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-      } else {
-        min_maf = 0.01;
-      }
-      cur_arg += ii + 1;
-    } else if (!strcmp(argptr, "--max-maf")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (sscanf(argv[cur_arg + 1], "%lg", &max_maf) != 1) {
-	printf("Error: Invalid --max-maf parameter.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (max_maf < min_maf) {
-	printf("Error: --max-maf parameter too small.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else if (max_maf >= 0.5) {
-	printf("Error: --max-maf parameter too large.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--geno")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii) {
-        if (sscanf(argv[cur_arg + 1], "%lg", &geno_thresh) != 1) {
-          printf("Error: Invalid --geno parameter.\n");
-          return dispmsg(RET_INVALID_CMDLINE);
-        }
-	if ((geno_thresh < 0.0) || (geno_thresh > 1.0)) {
-	  printf("Error: Invalid --geno parameter.\n");
+	if (chrom_info.chrom_mask) {
+	  printf("Error: Duplicate --chr flag.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-      } else {
-        geno_thresh = 0.1;
-      }
-      cur_arg += ii + 1;
-    } else if (!strcmp(argptr, "--mind")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii) {
-	if (sscanf(argv[cur_arg + 1], "%lg", &mind_thresh) != 1) {
-	  printf("Error: Invalid --mind parameter.\n");
+	if (!ii) {
+	  printf("Error: Missing --chr parameter.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-	if ((mind_thresh < 0.0) || (mind_thresh > 1.0)) {
-	  printf("Error: Invalid --mind parameter.\n");
-	  return dispmsg(RET_INVALID_CMDLINE);
-	}
-      } else {
-        mind_thresh = 0.1;
-      }
-      cur_arg += ii + 1;
-    } else if (!strcmp(argptr, "--hwe")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii) {
-	if (sscanf(argv[cur_arg + 1], "%lg", &hwe_thresh) != 1) {
-	  printf("Error: Invalid --hwe parameter.\n");
-	  return dispmsg(RET_INVALID_CMDLINE);
-	}
-	if ((hwe_thresh < 0.0) || (hwe_thresh >= 1.0)) {
-	  printf("Error: Invalid --hwe parameter.\n");
-	  return dispmsg(RET_INVALID_CMDLINE);
-	}
-      } else {
-        hwe_thresh = 0.001;
-      }
-      cur_arg += ii + 1;
-    } else if (!strcmp(argptr, "--hwe-all")) {
-      hwe_all = 1;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--allow-no-sex")) {
-      allow_no_sex = 1;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--nonfounders")) {
-      nonfounders = 1;
-      cur_arg += 1;
-    } else if ((!strcmp(argptr, "--rel-cutoff")) || (!strcmp(argptr, "--grm-cutoff"))) {
-      if (parallel_tot > 1) {
-	printf("Error: --parallel cannot be used with --rel-cutoff.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (calculation_type & CALC_REL_CUTOFF) {
-        printf("Error: Duplicate --rel-cutoff flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii) {
-	if (sscanf(argv[cur_arg + 1], "%lg", &rel_cutoff) != 1) {
-	  printf("Error: Invalid --rel-cutoff parameter.\n");
-	  return dispmsg(RET_INVALID_CMDLINE);
-	}
-	if ((rel_cutoff <= 0.0) || (rel_cutoff >= 1.0)) {
-	  printf("Error: Invalid --rel-cutoff parameter.\n");
-	  return dispmsg(RET_INVALID_CMDLINE);
-	}
-      }
-      calculation_type |= CALC_REL_CUTOFF;
-      cur_arg += ii + 1;
-    } else if (!strcmp(argptr, "--rseed")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (rseed != 0) {
-        printf("Error: Duplicate --rseed flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      rseed = (unsigned long int)atoi(argv[cur_arg + 1]);
-      if (rseed == 0) {
-        printf("Error: Invalid --rseed parameter.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--out")) {
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - MAX_POST_EXT)) {
-        printf("Error: --out parameter too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(outname, argv[cur_arg + 1]);
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--silent")) {
-      freopen("/dev/null", "w", stdout);
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--make-rel")) {
-      if (calculation_type & CALC_RELATIONSHIP_MASK) {
-        printf("Error: --make-rel cannot coexist with another relationship matrix file\ncreation flag.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 3, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      jj = 0;
-      for (kk = 1; kk <= ii; kk++) {
-        if (!strcmp(argv[cur_arg + kk], "cov")) {
-          if (calculation_type & CALC_IBC) {
-            printf("Error: --make-rel 'cov' modifier cannot coexist with --ibc flag.\n");
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-            printf("Error: --make-rel 'cov' modifier cannot coexist with\n--unrelated-heritability flag.\n");
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          if (ibc_type) {
-            printf("Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          calculation_type |= CALC_RELATIONSHIP_COV;
-        } else if (!strcmp(argv[cur_arg + kk], "gz")) {
-          if (calculation_type & CALC_RELATIONSHIP_BIN) {
-            printf("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          calculation_type |= CALC_RELATIONSHIP_GZ;
-        } else if (!strcmp(argv[cur_arg + kk], "bin")) {
-          if (calculation_type & CALC_RELATIONSHIP_GZ) {
-            printf("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          calculation_type |= CALC_RELATIONSHIP_BIN;
-        } else if (!strcmp(argv[cur_arg + kk], "square")) {
-          if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ0) {
-            printf("Error: --make-rel 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          } else if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_TRI) {
-            printf("Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          } else if (parallel_tot > 1) {
-            printf("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.%s", errstr_append);
+	for (jj = 0; jj < ii; jj++) {
+	  kk = marker_code_raw(argv[cur_arg + 1 + jj]);
+	  // will allow some non-autosomal in future
+	  if ((kk == -1) || (kk == CHROM_X) || (kk == CHROM_Y) || (kk == CHROM_MT) || ((kk == CHROM_XY) && (species_xy_code[chrom_info.species] == -1))) {
+	    printf("Error: Invalid --chr parameter.\n");
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
-          calculation_type |= CALC_RELATIONSHIP_SQ;
-        } else if (!strcmp(argv[cur_arg + kk], "square0")) {
-          if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ) {
-            printf("Error: --make-rel 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          } else if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_TRI) {
-            printf("Error: --make-rel 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          calculation_type |= CALC_RELATIONSHIP_SQ0;
-	} else if (!strcmp(argv[cur_arg + kk], "triangle")) {
-          if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ) {
-            printf("Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          } else if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ0) {
-            printf("Error: --make-rel 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          calculation_type |= CALC_RELATIONSHIP_TRI;
-        } else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
-          if (calculation_type & CALC_RELATIONSHIP_COV) {
-            printf("Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          if (ibc_type) {
-            printf("Error: --make-rel '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + kk], errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          ibc_type = argv[cur_arg + kk][3] - '0';
-        } else {
-          printf("Error: Invalid --make-rel parameter.%s", errstr_append);
-          return dispmsg(RET_INVALID_CMDLINE);
-        }
+	  chrom_info.chrom_mask |= 1LLU << kk;
+	}
+	cur_arg += 1 + ii;
+      } else if (!memcmp(argptr2, "ompound-genotypes", 18)) {
+	printf("Note: --compound-genotypes flag unnecessary (spaces between alleles in .ped\nare optional).\n");
+	cur_arg += 1;
       }
-      if (((calculation_type & CALC_RELATIONSHIP_BIN) && (!(calculation_type & CALC_RELATIONSHIP_SHAPEMASK))) && (parallel_tot > 1)) {
-        printf("Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += ii + 1;
-      if (!(calculation_type & CALC_RELATIONSHIP_SHAPEMASK)) {
-        calculation_type |= CALC_RELATIONSHIP_TRI;
-      }
-    } else if (!strcmp(argptr, "--make-grm")) {
-      if (calculation_type & CALC_RELATIONSHIP_MASK) {
-        printf("Error: --make-grm cannot coexist with another relationship matrix file\ncreation flag.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      calculation_type |= CALC_RELATIONSHIP_GZ;
-      for (kk = 1; kk <= ii; kk++) {
-        if (!strcmp(argv[cur_arg + kk], "cov")) {
-          if (calculation_type & CALC_IBC) {
-            printf("Error: --make-grm 'cov' modifier cannot coexist with --ibc flag.\n");
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-            printf("Error: --make-grm 'cov' modifier cannot coexist with --unrelated-heritability\nflag.\n");
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          if (ibc_type) {
-            printf("Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          calculation_type |= CALC_RELATIONSHIP_COV;
-        } else if (!strcmp(argv[cur_arg + kk], "no-gz")) {
-          calculation_type &= ~CALC_RELATIONSHIP_GZ;
-        } else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
-          if (calculation_type & CALC_RELATIONSHIP_COV) {
-            printf("Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          if (ibc_type) {
-            printf("Error: --make-grm '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + kk], errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          ibc_type = argv[cur_arg + kk][3] - '0';
-        } else {
-          printf("Error: Invalid --make-grm parameter.%s", errstr_append);
-          return dispmsg(RET_INVALID_CMDLINE);
-        }
-      }
-      cur_arg += ii + 1;
-      calculation_type |= CALC_RELATIONSHIP_GRM;
-    } else if (!strcmp(argptr, "--ibc")) {
-      if (calculation_type & CALC_RELATIONSHIP_COV) {
-        printf("Error: --ibc flag cannot coexist with a covariance matrix calculation.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += 1;
-      calculation_type |= CALC_IBC;
-    } else if (!strcmp(argptr, "--distance")) {
-      if (calculation_type & CALC_LOAD_DISTANCES) {
-        printf("Error: --load-dists cannot coexist with a distance matrix calculation flag.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (calculation_type & CALC_DISTANCE_MASK) {
-        printf("Error: Duplicate --distance flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 5, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      jj = 0;
-      for (kk = 1; kk <= ii; kk++) {
-        if (!strcmp(argv[cur_arg + kk], "square")) {
-          if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ0) {
-            printf("Error: --distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          } else if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_TRI) {
-            printf("Error: --distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          } else if (parallel_tot > 1) {
-            printf("Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.%s", errstr_append);
+      break;
+
+    case 'd':
+      if (!memcmp(argptr2, "ata", 4)) {
+	if (load_params & 0xff) {
+	  if (load_params & 0x80) {
+	    printf("Error: Duplicate --data flag.\n");
+	  } else {
+	    printf("Error: --data flag cannot coexist with PLINK input file flags.\n");
+	  }
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	load_params |= 0x80;
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  sptr = argv[cur_arg + 1];
+	  if (strlen(sptr) > (FNAMESIZE - 5)) {
+	    printf("Error: --data parameter too long.\n");
+	    return dispmsg(RET_OPEN_FAIL);
+	  }
+	} else {
+	  sptr = (char*)"wdist";
+	}
+	if (!(load_params & 0x100)) {
+	  strcpy(genname, sptr);
+	  strcat(genname, ".gen");
+	}
+	if (!(load_params & 0x200)) {
+	  strcpy(samplename, sptr);
+	  strcat(samplename, ".sample");
+	}
+	cur_arg += ii + 1;
+      } else if (!memcmp(argptr2, "og", 3)) {
+	if (species_flag(&chrom_info, SPECIES_DOG)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg++;
+      } else if (!memcmp(argptr2, "istance", 8)) {
+	if (calculation_type & CALC_LOAD_DISTANCES) {
+	  printf("Error: --load-dists cannot coexist with a distance matrix calculation flag.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if (calculation_type & CALC_DISTANCE_MASK) {
+	  printf("Error: Duplicate --distance flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 5, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	jj = 0;
+	for (kk = 1; kk <= ii; kk++) {
+	  if (!strcmp(argv[cur_arg + kk], "square")) {
+	    if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ0) {
+	      printf("Error: --distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    } else if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_TRI) {
+	      printf("Error: --distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    } else if (parallel_tot > 1) {
+	      printf("Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_DISTANCE_SQ;
+	  } else if (!strcmp(argv[cur_arg + kk], "square0")) {
+	    if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
+	      printf("Error: --distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    } else if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_TRI) {
+	      printf("Error: --distance 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_DISTANCE_SQ0;
+	  } else if (!strcmp(argv[cur_arg + kk], "triangle")) {
+	    if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
+	      printf("Error: --distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    } else if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ0) {
+	      printf("Error: --distance 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_DISTANCE_TRI;
+	  } else if (!strcmp(argv[cur_arg + kk], "gz")) {
+	    if (calculation_type & CALC_DISTANCE_BIN) {
+	      printf("Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_DISTANCE_GZ;
+	  } else if (!strcmp(argv[cur_arg + kk], "bin")) {
+	    if (calculation_type & CALC_DISTANCE_GZ) {
+	      printf("Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_DISTANCE_BIN;
+	  } else if (!strcmp(argv[cur_arg + kk], "ibs")) {
+	    if (calculation_type & CALC_PLINK_IBS_MATRIX) {
+	      printf("Error: --matrix flag cannot be used with '--distance ibs'.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    } else if (calculation_type & CALC_DISTANCE_IBS) {
+	      printf("Error: Duplicate 'ibs' modifier.\n");
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_DISTANCE_IBS;
+	  } else if (!strcmp(argv[cur_arg + kk], "1-ibs")) {
+	    if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
+	      printf("Error: --matrix flag cannot be used with '--distance 1-ibs'.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    } else if (calculation_type & CALC_DISTANCE_1_MINUS_IBS) {
+	      printf("Error: Duplicate '1-ibs' modifier.\n");
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_DISTANCE_1_MINUS_IBS;
+	  } else if (!strcmp(argv[cur_arg + kk], "snps")) {
+	    if (calculation_type & CALC_DISTANCE_SNPS) {
+	      printf("Error: Duplicate 'snps' modifier.\n");
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_DISTANCE_SNPS;
+	  } else {
+	    printf("Error: Invalid --distance parameter.%s", errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
-          calculation_type |= CALC_DISTANCE_SQ;
-        } else if (!strcmp(argv[cur_arg + kk], "square0")) {
-          if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
-            printf("Error: --distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          } else if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_TRI) {
-            printf("Error: --distance 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          calculation_type |= CALC_DISTANCE_SQ0;
-        } else if (!strcmp(argv[cur_arg + kk], "triangle")) {
-          if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
-            printf("Error: --distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          } else if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ0) {
-            printf("Error: --distance 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          calculation_type |= CALC_DISTANCE_TRI;
-        } else if (!strcmp(argv[cur_arg + kk], "gz")) {
-          if (calculation_type & CALC_DISTANCE_BIN) {
-            printf("Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          calculation_type |= CALC_DISTANCE_GZ;
-        } else if (!strcmp(argv[cur_arg + kk], "bin")) {
-          if (calculation_type & CALC_DISTANCE_GZ) {
-            printf("Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
-            return dispmsg(RET_INVALID_CMDLINE);
-          }
-          calculation_type |= CALC_DISTANCE_BIN;
-	} else if (!strcmp(argv[cur_arg + kk], "ibs")) {
-	  if (calculation_type & CALC_PLINK_IBS_MATRIX) {
-            printf("Error: --matrix flag cannot be used with '--distance ibs'.%s", errstr_append);
-	    return dispmsg(RET_INVALID_CMDLINE);
-	  } else if (calculation_type & CALC_DISTANCE_IBS) {
-	    printf("Error: Duplicate 'ibs' modifier.\n");
-	    return dispmsg(RET_INVALID_CMDLINE);
-	  }
-	  calculation_type |= CALC_DISTANCE_IBS;
-	} else if (!strcmp(argv[cur_arg + kk], "1-ibs")) {
-	  if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
-            printf("Error: --matrix flag cannot be used with '--distance 1-ibs'.%s", errstr_append);
-	    return dispmsg(RET_INVALID_CMDLINE);
-	  } else if (calculation_type & CALC_DISTANCE_1_MINUS_IBS) {
-	    printf("Error: Duplicate '1-ibs' modifier.\n");
-	    return dispmsg(RET_INVALID_CMDLINE);
-	  }
-	  calculation_type |= CALC_DISTANCE_1_MINUS_IBS;
-	} else if (!strcmp(argv[cur_arg + kk], "snps")) {
-	  if (calculation_type & CALC_DISTANCE_SNPS) {
-	    printf("Error: Duplicate 'snps' modifier.\n");
-	    return dispmsg(RET_INVALID_CMDLINE);
-	  }
+	}
+	if (((calculation_type & CALC_DISTANCE_BIN) && (!(calculation_type & CALC_DISTANCE_SHAPEMASK))) && (parallel_tot > 1)) {
+	  printf("Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += ii + 1;
+	if (!(calculation_type & CALC_DISTANCE_FORMATMASK)) {
 	  calculation_type |= CALC_DISTANCE_SNPS;
-        } else {
-          printf("Error: Invalid --distance parameter.%s", errstr_append);
-          return dispmsg(RET_INVALID_CMDLINE);
-        }
-      }
-      if (((calculation_type & CALC_DISTANCE_BIN) && (!(calculation_type & CALC_DISTANCE_SHAPEMASK))) && (parallel_tot > 1)) {
-        printf("Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += ii + 1;
-      if (!(calculation_type & CALC_DISTANCE_FORMATMASK)) {
-        calculation_type |= CALC_DISTANCE_SNPS;
-      }
-    } else if ((!strcmp(argptr, "--distance-matrix")) || (!strcmp(argptr, "--matrix"))) {
-      if (calculation_type & CALC_LOAD_DISTANCES) {
-        printf("Error: --load-dists cannot coexist with a distance matrix calculation flag.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (exponent != 0.0) {
-        printf("Error: --exponent flag cannot be used with --distance-matrix or --matrix.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (parallel_tot > 1) {
-	printf("Error: --parallel and --distance-matrix/--matrix cannot be used together.  Use\n--distance instead.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += 1;
-      if (argptr[2] == 'd') {
+	}
+      } else if (!memcmp(argptr2, "istance-matrix", 15)) {
+	if (plink_dist_flag(argptr, calculation_type, exponent, parallel_tot)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
 	if (calculation_type & CALC_DISTANCE_1_MINUS_IBS) {
 	  printf("Error: --distance-matrix flag cannot be used with '--distance 1-ibs'.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-        calculation_type |= CALC_PLINK_DISTANCE_MATRIX;
-      } else {
+	calculation_type |= CALC_PLINK_DISTANCE_MATRIX;
+	cur_arg++;
+      }
+      break;
+
+    case 'e':
+      if (!memcmp(argptr2, "xtract", 7)) {
+	if (extractname[0]) {
+	  printf("Error: Duplicate --extract flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
+	  printf("--extract filename too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(extractname, argv[cur_arg + 1]);
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "xclude", 7)) {
+	if (excludename[0]) {
+	  printf("Error: Duplicate --exclude flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
+	  printf("--exclude filename too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(excludename, argv[cur_arg + 1]);
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "xponent", 8)) {
+	if (calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) {
+	  printf("Error: --exponent flag cannot be used with --distance-matrix or --matrix.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (sscanf(argv[cur_arg + 1], "%lg", &exponent) != 1) {
+	  printf("Error: Invalid --exponent parameter.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += 2;
+      }
+      break;
+
+    case 'f':
+      if (!memcmp(argptr2, "ile", 4)) {
+	if (load_params & 0x3f9) {
+	  if (load_params & 1) {
+	    printf("Error: Duplicate --file flag.\n");
+	  } else {
+	    printf("Error: --file flag cannot coexist with binary or Oxford file flags.\n");
+	  }
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	load_params |= 1;
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 5)) {
+	  printf("Error: --file parameter too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	if (!(load_params & 2)) {
+	  strcpy(pedname, argv[cur_arg + 1]);
+	  strcat(pedname, ".ped");
+	}
+	if (!(load_params & 4)) {
+	  strcpy(mapname, argv[cur_arg + 1]);
+	  strcat(mapname, ".map");
+	}
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "am", 3)) {
+	if (load_params & 0x3c7) {
+	  if (load_params & 64) {
+	    printf("Error: Duplicate --fam flag.\n");
+	  } else {
+	    printf("Error: --fam flag cannot coexist with text input file flags.\n");
+	  }
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	load_params |= 64;
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+	  printf("Error: --fam parameter too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(famname, argv[cur_arg + 1]);
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "ilter", 6)) {
+	if (filtername[0]) {
+	  printf("Error: Duplicate --filter flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
+	  printf("Error: --filter filename too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(filtername, argv[cur_arg + 1]);
+	filterval = argv[cur_arg + 2];
+	cur_arg += 3;
+      } else if (!memcmp(argptr2, "ilter-cases", 12)) {
+	if (filter_case_control == 2) {
+	  printf("Error: --filter-cases and --filter-controls cannot be used together.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	filter_case_control = 1;
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "ilter-controls", 15)) {
+	if (filter_case_control == 1) {
+	  printf("Error: --filter-cases and --filter-controls cannot be used together.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	filter_case_control = 2;
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "ilter-males", 12)) {
+	if (!fam_col_5) {
+	  printf("Error: --filter-males/--filter-females cannot be used with --no-sex.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (filter_sex == 2) {
+	  printf("Error: --filter-males and --filter-females cannot be used together.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	filter_sex = 1;
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "ilter-females", 14)) {
+	if (!fam_col_5) {
+	  printf("Error: --filter-males/--filter-females cannot be used with --no-sex.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (filter_sex == 1) {
+	  printf("Error: --filter-males and --filter-females cannot be used together.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	filter_sex = 2;
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "ilter-founders", 15)) {
+	if (filter_founder_nonf == 2) {
+	  printf("Error: --filter-founders and --filter-nonfounders cannot be used together.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	filter_founder_nonf = 1;
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "ilter-nonfounders", 18)) {
+	if (filter_founder_nonf == 1) {
+	  printf("Error: --filter-founders and --filter-nonfounders cannot be used together.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	filter_founder_nonf = 2;
+	cur_arg += 1;
+      } else if ((!memcmp(argptr2, "req", 4)) || (!memcmp(argptr2, "reqx", 5))) {
+	if (freqname[0]) {
+	  printf("Error: %s and --read-freq flags cannot coexist.%s", argptr, errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (calculation_type & CALC_FREQ) {
+	  printf("Error: Duplicate --freq/--freqx flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += 1;
+	calculation_type |= CALC_FREQ;
+	if (argptr[6] == 'x') {
+	  freqx = 1;
+	}
+      }
+      break;
+
+    case 'g':
+      if (!memcmp(argptr2, "en", 3)) {
+	if (load_params & 0x17f) {
+	  if (load_params & 0x100) {
+	    printf("Error: Duplicate --gen flag.\n");
+	  } else {
+	    printf("Error: --gen flag cannot coexist with PLINK input file flags.\n");
+	  }
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	load_params |= 0x100;
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+	  printf("Error: --gen parameter too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(genname, argv[cur_arg + 1]);
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "eno", 4)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  if (sscanf(argv[cur_arg + 1], "%lg", &geno_thresh) != 1) {
+	    printf("Error: Invalid --geno parameter.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  if ((geno_thresh < 0.0) || (geno_thresh > 1.0)) {
+	    printf("Error: Invalid --geno parameter.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	} else {
+	  geno_thresh = 0.1;
+	}
+	cur_arg += ii + 1;
+      } else if (!memcmp(argptr2, "rm-cutoff", 10)) {
+	goto main_rel_cutoff;
+      } else if (!memcmp(argptr2, "enome", 6)) {
+	if (calculation_type & CALC_GENOME) {
+	  printf("Error: Duplicate --genome flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 3, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	for (kk = 1; kk <= ii; kk++) {
+	  if (!strcmp(argv[cur_arg + kk], "full")) {
+	    genome_output_full = 1;
+	  } else if (!strcmp(argv[cur_arg + kk], "unbounded")) {
+	    genome_ibd_unbounded = 1;
+	  } else if (!strcmp(argv[cur_arg + kk], "gz")) {
+	    genome_output_gz = 1;
+	  } else {
+	    printf("Error: Invalid --genome parameter.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	}
+	cur_arg += ii + 1;
+	calculation_type |= CALC_GENOME;
+      } else if (!memcmp(argptr2, "roupdist", 9)) {
+	if (parallel_tot > 1) {
+	  printf("Error: --parallel and --groupdist cannot be used together.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if (calculation_type & CALC_GROUPDIST) {
+	  printf("Error: Duplicate --groupdist flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  groupdist_iters = atoi(argv[cur_arg + 1]);
+	  if (groupdist_iters < 2) {
+	    printf("Error: Invalid --groupdist jackknife iteration count.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  if (ii == 2) {
+	    groupdist_d = atoi(argv[cur_arg + 2]);
+	    if (groupdist_d <= 0) {
+	      printf("Error: Invalid --groupdist jackknife delete parameter.\n");
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	  }
+	}
+	cur_arg += ii + 1;
+	calculation_type |= CALC_GROUPDIST;
+      }
+
+      break;
+
+    case 'h':
+      if (!memcmp(argptr2, "elp", 4)) {
+        return dispmsg(RET_MOREHELP);
+      } else if (!memcmp(argptr2, "orse", 5)) {
+	if (species_flag(&chrom_info, SPECIES_HORSE)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg++;
+      } else if (!memcmp(argptr2, "we", 3)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  if (sscanf(argv[cur_arg + 1], "%lg", &hwe_thresh) != 1) {
+	    printf("Error: Invalid --hwe parameter.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  if ((hwe_thresh < 0.0) || (hwe_thresh >= 1.0)) {
+	    printf("Error: Invalid --hwe parameter.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	} else {
+	  hwe_thresh = 0.001;
+	}
+	cur_arg += ii + 1;
+      } else if (!memcmp(argptr2, "we-all", 7)) {
+	hwe_all = 1;
+	cur_arg += 1;
+      }
+      break;
+
+    case 'i':
+      if (!memcmp(argptr2, "bc", 3)) {
+	if (calculation_type & CALC_RELATIONSHIP_COV) {
+	  printf("Error: --ibc flag cannot coexist with a covariance matrix calculation.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += 1;
+	calculation_type |= CALC_IBC;
+      } else if (!memcmp(argptr2, "ndep-pairwise", 14)) {
+	if (calculation_type & CALC_LD_PRUNE) {
+	  printf("Error: Multiple LD pruning flags.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 3, 4, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	ld_window_size = atoi(argv[cur_arg + 1]);
+	if ((ld_window_size < 1) || ((ld_window_size == 1) && (ii == 3))) {
+	  printf("Error: Invalid --indep-pairwise window size.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii == 4) {
+	  if (strcmp(argv[cur_arg + 2], "kb")) {
+	    printf("Error: Invalid argument for --indep-pairwise.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  ld_window_kb = 1;
+	} else {
+	  jj = strlen(argv[cur_arg + 1]);
+	  if ((jj > 2) && (tolower(argv[cur_arg + 1][jj - 2]) == 'k') && (tolower(argv[cur_arg + 1][jj - 1]) == 'b')) {
+	    ld_window_kb = 1;
+	  }
+	}
+	ld_window_incr = atoi(argv[cur_arg + ii - 1]);
+	if (ld_window_incr < 1) {
+	  printf("Error: Invalid increment for --indep-pairwise.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (sscanf(argv[cur_arg + ii], "%lg", &ld_last_param) != 1) {
+	  printf("Error: Invalid --indep-pairwise r^2 threshold.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if ((ld_last_param < 0.0) || (ld_last_param >= 1.0)) {
+	  printf("Error: Invalid --indep-pairwise r^2 threshold.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += 1 + ii;
+	calculation_type |= (CALC_LD_PRUNE | CALC_LD_PRUNE_PAIRWISE);
+      } else if (!memcmp(argptr2, "ndep", 5)) {
+#ifdef NOLAPACK
+	printf("Error: --indep does not work without LAPACK.  Use a wdist build with 'L' at the\nend of the version number.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+#else
+	if (calculation_type & CALC_LD_PRUNE) {
+	  printf("Error: Multiple LD pruning flags.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 3, 4, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	ld_window_size = atoi(argv[cur_arg + 1]);
+	if ((ld_window_size < 1) || ((ld_window_size == 1) && (ii == 3))) {
+	  printf("Error: Invalid --indep window size.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii == 4) {
+	  if (strcmp(argv[cur_arg + 2], "kb")) {
+	    printf("Error: Invalid argument for --indep.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  ld_window_kb = 1;
+	} else {
+	  jj = strlen(argv[cur_arg + 1]);
+	  if ((jj > 2) && (tolower(argv[cur_arg + 1][jj - 2]) == 'k') && (tolower(argv[cur_arg + 1][jj - 1]) == 'b')) {
+	    ld_window_kb = 1;
+	  }
+	}
+	ld_window_incr = atoi(argv[cur_arg + ii - 1]);
+	if (ld_window_incr < 1) {
+	  printf("Error: Invalid increment for --indep.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (sscanf(argv[cur_arg + ii], "%lg", &ld_last_param) != 1) {
+	  printf("Error: Invalid --indep VIF threshold.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ld_last_param < 1.0) {
+	  printf("Error: --indep VIF threshold cannot be less than 1.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += 1 + ii;
+	calculation_type |= CALC_LD_PRUNE;
+#endif
+      }
+
+      break;
+
+    case 'k':
+      if (!memcmp(argptr2, "eep", 4)) {
+	if (keepname[0]) {
+	  printf("Error: Duplicate --keep flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
+	  printf("--keep filename too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(keepname, argv[cur_arg + 1]);
+	cur_arg += 2;
+      }
+      break;
+
+    case 'l':
+      if (!memcmp(argptr2, "oad-dists", 10)) {
+	if (calculation_type & CALC_GDISTANCE_MASK) {
+	  printf("Error: --load-dists cannot coexist with a distance matrix calculation flag.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if (calculation_type & CALC_LOAD_DISTANCES) {
+	  printf("Error: Duplicate --load-dists flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
+	  printf("Error: --load-dists filename too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(loaddistname, argv[cur_arg + 1]);
+	cur_arg += 2;
+	calculation_type |= CALC_LOAD_DISTANCES;
+      }
+      break;
+
+    case 'm':
+      if (!memcmp(argptr2, "ap", 3)) {
+	if (load_params & 0x3fc) {
+	  if (load_params & 4) {
+	    printf("Error: Duplicate --map flag.\n");
+	  } else {
+	    printf("Error: --map flag cannot coexist with binary or Oxford file flags.\n");
+	  }
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	load_params |= 4;
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+	  printf("Error: --map parameter too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(mapname, argv[cur_arg + 1]);
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "ake-bed", 8)) {
+	printf("Note: --make-bed is effectively always on.\n");
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "issing-genotype", 16)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (missing_geno != '0') {
+	  printf("Error: Duplicate --missing-genotype flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	missing_geno = argv[cur_arg + 1][0];
+	if ((strlen(argv[cur_arg + 1]) > 1) || (((unsigned char)missing_geno) <= ' ')) {
+	  printf("Error: Invalid --missing-genotype parameter.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "issing-phenotype", 17)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (missing_pheno != -9) {
+	  printf("Error: Duplicate --missing-phenotype flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	missing_pheno = atoi(argv[cur_arg + 1]);
+	if ((missing_pheno == 0) || (missing_pheno == 1)) {
+	  printf("Error: Invalid --missing-phenotype parameter.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "ake-pheno", 10)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (phenoname[0]) {
+	  if (makepheno_str) {
+	    printf("Error: Duplicate --make-pheno flag.\n");
+	  } else {
+	    printf("Error: --pheno and --make-pheno flags cannot coexist.\n");
+	  }
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (tail_pheno) {
+	  printf("Error: --make-pheno and --tail-pheno flags cannot coexist.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+	  printf("Error: --make-pheno parameter too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(phenoname, argv[cur_arg + 1]);
+	makepheno_str = argv[cur_arg + 2];
+	cur_arg += 3;
+      } else if (!memcmp(argptr2, "pheno", 6)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (mpheno_col != 0) {
+	  printf("Error: Duplicate --mpheno flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (phenoname_str) {
+	  printf("Error: --mpheno and --pheno-name flags cannot coexist.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	mpheno_col = atoi(argv[cur_arg + 1]);
+	if (mpheno_col < 1) {
+	  printf("Error: Invalid --mpheno parameter.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "filter", 7)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (mfilter_col) {
+	  printf("Error: Duplicate --mfilter flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	mfilter_col = atoi(argv[cur_arg + 1]);
+	if (mfilter_col < 1) {
+	  printf("Error: Invalid --mfilter parameter.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "emory", 6)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	malloc_size_mb = atoi(argv[cur_arg + 1]);
+	if (malloc_size_mb < 64) {
+	  printf("Error: Invalid --memory parameter.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+#ifndef __LP64__
+	if (malloc_size_mb > 2944) {
+	  printf("Error: --memory parameter too large for 32-bit version.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+#endif
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "ouse", 5)) {
+	if (species_flag(&chrom_info, SPECIES_MOUSE)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg++;
+      } else if (!memcmp(argptr2, "af", 3)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  if (sscanf(argv[cur_arg + 1], "%lg", &min_maf) != 1) {
+	    printf("Error: Invalid --maf parameter.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  if (min_maf <= 0.0) {
+	    printf("Error: --maf parameter too small.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  } else if (min_maf > max_maf) {
+	    printf("Error: --maf parameter too large.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	} else {
+	  min_maf = 0.01;
+	}
+	cur_arg += ii + 1;
+      } else if (!memcmp(argptr2, "ax-maf", 7)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (sscanf(argv[cur_arg + 1], "%lg", &max_maf) != 1) {
+	  printf("Error: Invalid --max-maf parameter.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (max_maf < min_maf) {
+	  printf("Error: --max-maf parameter too small.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if (max_maf >= 0.5) {
+	  printf("Error: --max-maf parameter too large.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "ind", 4)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  if (sscanf(argv[cur_arg + 1], "%lg", &mind_thresh) != 1) {
+	    printf("Error: Invalid --mind parameter.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  if ((mind_thresh < 0.0) || (mind_thresh > 1.0)) {
+	    printf("Error: Invalid --mind parameter.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	} else {
+	  mind_thresh = 0.1;
+	}
+	cur_arg += ii + 1;
+      } else if (!memcmp(argptr2, "ake-rel", 8)) {
+	if (calculation_type & CALC_RELATIONSHIP_MASK) {
+	  printf("Error: --make-rel cannot coexist with another relationship matrix file\ncreation flag.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 3, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	jj = 0;
+	for (kk = 1; kk <= ii; kk++) {
+	  if (!strcmp(argv[cur_arg + kk], "cov")) {
+	    if (calculation_type & CALC_IBC) {
+	      printf("Error: --make-rel 'cov' modifier cannot coexist with --ibc flag.\n");
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    if (calculation_type & CALC_UNRELATED_HERITABILITY) {
+	      printf("Error: --make-rel 'cov' modifier cannot coexist with\n--unrelated-heritability flag.\n");
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    if (ibc_type) {
+	      printf("Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_RELATIONSHIP_COV;
+	  } else if (!strcmp(argv[cur_arg + kk], "gz")) {
+	    if (calculation_type & CALC_RELATIONSHIP_BIN) {
+	      printf("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_RELATIONSHIP_GZ;
+	  } else if (!strcmp(argv[cur_arg + kk], "bin")) {
+	    if (calculation_type & CALC_RELATIONSHIP_GZ) {
+	      printf("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_RELATIONSHIP_BIN;
+	  } else if (!strcmp(argv[cur_arg + kk], "square")) {
+	    if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ0) {
+	      printf("Error: --make-rel 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    } else if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_TRI) {
+	      printf("Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    } else if (parallel_tot > 1) {
+	      printf("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_RELATIONSHIP_SQ;
+	  } else if (!strcmp(argv[cur_arg + kk], "square0")) {
+	    if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ) {
+	      printf("Error: --make-rel 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    } else if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_TRI) {
+	      printf("Error: --make-rel 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_RELATIONSHIP_SQ0;
+	  } else if (!strcmp(argv[cur_arg + kk], "triangle")) {
+	    if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ) {
+	      printf("Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    } else if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ0) {
+	      printf("Error: --make-rel 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_RELATIONSHIP_TRI;
+	  } else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
+	    if (calculation_type & CALC_RELATIONSHIP_COV) {
+	      printf("Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    if (ibc_type) {
+	      printf("Error: --make-rel '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + kk], errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    ibc_type = argv[cur_arg + kk][3] - '0';
+	  } else {
+	    printf("Error: Invalid --make-rel parameter.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	}
+	if (((calculation_type & CALC_RELATIONSHIP_BIN) && (!(calculation_type & CALC_RELATIONSHIP_SHAPEMASK))) && (parallel_tot > 1)) {
+	  printf("Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += ii + 1;
+	if (!(calculation_type & CALC_RELATIONSHIP_SHAPEMASK)) {
+	  calculation_type |= CALC_RELATIONSHIP_TRI;
+	}
+      } else if (!memcmp(argptr2, "ake-grm", 8)) {
+	if (calculation_type & CALC_RELATIONSHIP_MASK) {
+	  printf("Error: --make-grm cannot coexist with another relationship matrix file\ncreation flag.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	calculation_type |= CALC_RELATIONSHIP_GZ;
+	for (kk = 1; kk <= ii; kk++) {
+	  if (!strcmp(argv[cur_arg + kk], "cov")) {
+	    if (calculation_type & CALC_IBC) {
+	      printf("Error: --make-grm 'cov' modifier cannot coexist with --ibc flag.\n");
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    if (calculation_type & CALC_UNRELATED_HERITABILITY) {
+	      printf("Error: --make-grm 'cov' modifier cannot coexist with --unrelated-heritability\nflag.\n");
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    if (ibc_type) {
+	      printf("Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    calculation_type |= CALC_RELATIONSHIP_COV;
+	  } else if (!strcmp(argv[cur_arg + kk], "no-gz")) {
+	    calculation_type &= ~CALC_RELATIONSHIP_GZ;
+	  } else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
+	    if (calculation_type & CALC_RELATIONSHIP_COV) {
+	      printf("Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    if (ibc_type) {
+	      printf("Error: --make-grm '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + kk], errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    ibc_type = argv[cur_arg + kk][3] - '0';
+	  } else {
+	    printf("Error: Invalid --make-grm parameter.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	}
+	cur_arg += ii + 1;
+	calculation_type |= CALC_RELATIONSHIP_GRM;
+      } else if (!memcmp(argptr2, "atrix", 6)) {
+	if (plink_dist_flag(argptr, calculation_type, exponent, parallel_tot)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
 	if (calculation_type & CALC_DISTANCE_IBS) {
 	  printf("Error: --matrix flag cannot be used with '--distance ibs'.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-        calculation_type |= CALC_PLINK_IBS_MATRIX;
+	calculation_type |= CALC_PLINK_IBS_MATRIX;
+	cur_arg++;
+      } else if (!memcmp(argptr2, "af-succ", 8)) {
+	maf_succ = 1;
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "ap3", 4)) {
+	printf("Note: --map3 flag unnecessary (.map file format is autodetected).\n");
+	cur_arg += 1;
       }
-    } else if (!strcmp(argptr, "--load-dists")) {
-      if (calculation_type & CALC_GDISTANCE_MASK) {
-        printf("Error: --load-dists cannot coexist with a distance matrix calculation flag.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (calculation_type & CALC_LOAD_DISTANCES) {
-        printf("Error: Duplicate --load-dists flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-        printf("Error: --load-dists filename too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(loaddistname, argv[cur_arg + 1]);
-      cur_arg += 2;
-      calculation_type |= CALC_LOAD_DISTANCES;
-    } else if (!strcmp(argptr, "--parallel")) {
-      if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
-        printf("Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if ((calculation_type & CALC_DISTANCE_BIN) && (!(calculation_type & CALC_DISTANCE_SHAPEMASK))) {
-        printf("Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ) {
-        printf("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if ((calculation_type & CALC_RELATIONSHIP_BIN) && (!(calculation_type & CALC_RELATIONSHIP_SHAPEMASK))) {
-        printf("Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) {
-	printf("Error: --parallel and --distance-matrix/--matrix cannot be used together.  Use\n--distance instead.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else if (calculation_type & CALC_GROUPDIST) {
-	printf("Error: --parallel and --groupdist cannot be used together.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (calculation_type & CALC_REGRESS_DISTANCE) {
-	printf("Error: --parallel and --regress-distance cannot be used together.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (calculation_type & CALC_REGRESS_REL) {
-	printf("Error: --parallel and --regress-rel cannot be used together.%s", errstr_append);
-      } else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-	printf("Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else if (calculation_type & CALC_REL_CUTOFF) {
-	printf("Error: --parallel cannot be used with --rel-cutoff.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (parallel_tot > 1) {
-	printf("Error: Duplicate --parallel flag.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      parallel_idx = atoi(argv[cur_arg + 1]);
-      if ((parallel_idx < 1) || (parallel_idx > PARALLEL_MAX)) {
-        printf("Error: Invalid --parallel job index.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      parallel_idx -= 1; // internal 0..(n-1) indexing
-      parallel_tot = atoi(argv[cur_arg + 2]);
-      if ((parallel_tot < 2) || (parallel_tot > PARALLEL_MAX) || (parallel_tot < parallel_idx)) {
-        printf("Error: Invalid --parallel total job count.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += 3;
-    } else if (!strcmp(argptr, "--genome")) {
-      if (calculation_type & CALC_GENOME) {
-	printf("Error: Duplicate --genome flag.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 3, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      for (kk = 1; kk <= ii; kk++) {
-	if (!strcmp(argv[cur_arg + kk], "full")) {
-	  genome_output_full = 1;
-	} else if (!strcmp(argv[cur_arg + kk], "unbounded")) {
-	  genome_ibd_unbounded = 1;
-	} else if (!strcmp(argv[cur_arg + kk], "gz")) {
-	  genome_output_gz = 1;
-	} else {
-	  printf("Error: Invalid --genome parameter.%s", errstr_append);
+      break;
+
+    case 'n':
+      if (!memcmp(argptr2, "o-fid", 6)) {
+	fam_col_1 = 0;
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "o-parents", 10)) {
+	fam_col_34 = 0;
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "o-sex", 6)) {
+	if (filter_sex) {
+	  printf("Error: --filter-males/--filter-females cannot be used with --no-sex.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
+	fam_col_5 = 0;
+	allow_no_sex = 1;
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "o-pheno", 8)) {
+	fam_col_6 = 0;
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "onfounders", 11)) {
+	nonfounders = 1;
+	cur_arg += 1;
       }
-      cur_arg += ii + 1;
-      calculation_type |= CALC_GENOME;
-    } else if (!strcmp(argptr, "--Z-genome")) {
-      if (calculation_type & CALC_GENOME) {
-	printf("Error: Duplicate --genome flag.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      for (kk = 1; kk <= ii; kk++) {
-	if (!strcmp(argv[cur_arg + kk], "full")) {
-	  genome_output_full = 1;
-	} else if (!strcmp(argv[cur_arg + kk], "unbounded")) {
-	  genome_ibd_unbounded = 1;
-	} else {
-	  printf("Error: Invalid --Z-genome parameter.%s", errstr_append);
+      break;
+
+    case 'o':
+      if (!memcmp(argptr2, "ut", 3)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
+	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - MAX_POST_EXT)) {
+	  printf("Error: --out parameter too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(outname, argv[cur_arg + 1]);
+	cur_arg += 2;
       }
-      cur_arg += ii + 1;
-      calculation_type |= CALC_GENOME;
-      genome_output_gz = 1;
-    } else if (!strcmp(argptr, "--ppc-gap")) {
-      if (ppc_gap != DEFAULT_PPC_GAP) {
-	printf("Error: Duplicate --ppc-gap flag.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if ((argv[cur_arg + 1][0] < '0') || (argv[cur_arg + 1][0] > '9')) {
-	printf("Error: Invalid --ppc-gap parameter.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      ppc_gap = atoi(argv[cur_arg + 1]);
-      if (ppc_gap > 2147483) {
-	printf("Error: Invalid --ppc-gap parameter.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      ppc_gap *= 1000;
-      cur_arg += 2;
-    } else if (!strcmp(argptr, "--groupdist")) {
-      if (parallel_tot > 1) {
-	printf("Error: --parallel and --groupdist cannot be used together.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else if (calculation_type & CALC_GROUPDIST) {
-        printf("Error: Duplicate --groupdist flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii) {
-	groupdist_iters = atoi(argv[cur_arg + 1]);
-	if (groupdist_iters < 2) {
-	  printf("Error: Invalid --groupdist jackknife iteration count.\n");
+      break;
+
+    case 'p':
+      if (!memcmp(argptr2, "ed", 3)) {
+	if (load_params & 0x3fa) {
+	  if (load_params & 2) {
+	    printf("Error: Duplicate --ped flag.\n");
+	  } else {
+	    printf("Error: --ped flag cannot coexist with binary or Oxford file flags.\n");
+	  }
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-        if (ii == 2) {
-	  groupdist_d = atoi(argv[cur_arg + 2]);
-	  if (groupdist_d <= 0) {
-	    printf("Error: Invalid --groupdist jackknife delete parameter.\n");
+	load_params |= 2;
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+	  printf("Error: --ped parameter too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(pedname, argv[cur_arg + 1]);
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "heno", 5)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (phenoname[0]) {
+	  if (makepheno_str) {
+	    printf("Error: --pheno and --make-pheno flags cannot coexist.\n");
+	  } else {
+	    printf("Error: Duplicate --pheno flag.\n");
+	  }
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+	  printf("Error: --pheno parameter too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(phenoname, argv[cur_arg + 1]);
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "heno-name", 10)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (mpheno_col != 0) {
+	  printf("Error: --mpheno and --pheno-name flags cannot coexist.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (phenoname_str) {
+	  printf("Error: Duplicate --pheno-name flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	phenoname_str = argv[cur_arg + 1];
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "heno-merge", 11)) {
+	pheno_merge = 1;
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "rune", 5)) {
+	prune = 1;
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "arallel", 8)) {
+	if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
+	  printf("Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if ((calculation_type & CALC_DISTANCE_BIN) && (!(calculation_type & CALC_DISTANCE_SHAPEMASK))) {
+	  printf("Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ) {
+	  printf("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if ((calculation_type & CALC_RELATIONSHIP_BIN) && (!(calculation_type & CALC_RELATIONSHIP_SHAPEMASK))) {
+	  printf("Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if (calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) {
+	  printf("Error: --parallel and --distance-matrix/--matrix cannot be used together.  Use\n--distance instead.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if (calculation_type & CALC_GROUPDIST) {
+	  printf("Error: --parallel and --groupdist cannot be used together.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if (calculation_type & CALC_REGRESS_DISTANCE) {
+	  printf("Error: --parallel and --regress-distance cannot be used together.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if (calculation_type & CALC_REGRESS_REL) {
+	  printf("Error: --parallel and --regress-rel cannot be used together.%s", errstr_append);
+	} else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
+	  printf("Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if (calculation_type & CALC_REL_CUTOFF) {
+	  printf("Error: --parallel cannot be used with --rel-cutoff.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (parallel_tot > 1) {
+	  printf("Error: Duplicate --parallel flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	parallel_idx = atoi(argv[cur_arg + 1]);
+	if ((parallel_idx < 1) || (parallel_idx > PARALLEL_MAX)) {
+	  printf("Error: Invalid --parallel job index.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	parallel_idx -= 1; // internal 0..(n-1) indexing
+	parallel_tot = atoi(argv[cur_arg + 2]);
+	if ((parallel_tot < 2) || (parallel_tot > PARALLEL_MAX) || (parallel_tot < parallel_idx)) {
+	  printf("Error: Invalid --parallel total job count.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += 3;
+      } else if (!memcmp(argptr2, "pc-gap", 7)) {
+	if (ppc_gap != DEFAULT_PPC_GAP) {
+	  printf("Error: Duplicate --ppc-gap flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if ((argv[cur_arg + 1][0] < '0') || (argv[cur_arg + 1][0] > '9')) {
+	  printf("Error: Invalid --ppc-gap parameter.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	ppc_gap = atoi(argv[cur_arg + 1]);
+	if (ppc_gap > 2147483) {
+	  printf("Error: Invalid --ppc-gap parameter.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	ppc_gap *= 1000;
+	cur_arg += 2;
+      }
+      break;
+
+    case 'r':
+      if (!memcmp(argptr2, "emove", 6)) {
+	if (removename[0]) {
+	  printf("Error: Duplicate --remove flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
+	  printf("--remove filename too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(removename, argv[cur_arg + 1]);
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "ice", 4)) {
+	printf("Error: --rice not yet supported.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+	// if (species_flag(&chrom_info, SPECIES_RICE)) {
+	//   return dispmsg(RET_INVALID_CMDLINE);
+	// }
+	// cur_arg++;
+      } else if (!memcmp(argptr2, "el-cutoff", 10)) {
+      main_rel_cutoff:
+	// can use --grm-cutoff too
+	if (parallel_tot > 1) {
+	  printf("Error: --parallel cannot be used with %s.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", argptr, errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (calculation_type & CALC_REL_CUTOFF) {
+	  printf("Error: Duplicate %s flag.\n", argptr);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  if (sscanf(argv[cur_arg + 1], "%lg", &rel_cutoff) != 1) {
+	    printf("Error: Invalid %s parameter.\n", argptr);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
-        }
-      }
-      cur_arg += ii + 1;
-      calculation_type |= CALC_GROUPDIST;
-    } else if (!strcmp(argptr, "--regress-distance")) {
-      if (parallel_tot > 1) {
-	printf("Error: --parallel and --regress-distance cannot be used together.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else if (calculation_type & CALC_REGRESS_DISTANCE) {
-        printf("Error: Duplicate --regress-distance flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii) {
-	regress_iters = atoi(argv[cur_arg + 1]);
-	if (regress_iters < 2) {
-	  printf("Error: Invalid --regress-distance jackknife iteration count.\n");
+	  if ((rel_cutoff <= 0.0) || (rel_cutoff >= 1.0)) {
+	    printf("Error: Invalid %s parameter.\n", argptr);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	}
+	calculation_type |= CALC_REL_CUTOFF;
+	cur_arg += ii + 1;
+      } else if (!memcmp(argptr2, "seed", 5)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-        if (ii == 2) {
-	  regress_d = atoi(argv[cur_arg + 2]);
-	  if (regress_d <= 0) {
-	    printf("Error: Invalid --regress-distance jackknife delete parameter.\n");
-	    return dispmsg(RET_INVALID_CMDLINE);
-	  }
-        }
-      }
-      cur_arg += ii + 1;
-      calculation_type |= CALC_REGRESS_DISTANCE;
-    } else if (!strcmp(argptr, "--regress-rel")) {
-      if (parallel_tot > 1) {
-	printf("Error: --parallel and --regress-rel flags cannot coexist.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      } else if (calculation_type & CALC_REGRESS_REL) {
-        printf("Error: Duplicate --regress-rel flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii) {
-	regress_rel_iters = atoi(argv[cur_arg + 1]);
-	if (regress_rel_iters < 2) {
-	  printf("Error: Invalid --regress-rel jackknife iteration count.\n");
+	if (rseed != 0) {
+	  printf("Error: Duplicate --rseed flag.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-        if (ii == 2) {
-	  regress_rel_d = atoi(argv[cur_arg + 2]);
-	  if (regress_rel_d <= 0) {
-	    printf("Error: Invalid --regress-rel jackknife delete parameter.\n");
-	    return dispmsg(RET_INVALID_CMDLINE);
-	  }
-        }
-      }
-      cur_arg += ii + 1;
-      calculation_type |= CALC_REGRESS_REL;
-    } else if (!strcmp(argptr, "--regress-pcs")) {
-#ifdef NOLAPACK
-      printf("Error: --regress-pcs does not work without LAPACK.  Use a wdist build with 'L'\n at the end of the version number.\n");
-      return dispmsg(RET_INVALID_CMDLINE);
-#else
-      if (evecname[0]) {
-	printf("Error: Duplicate --regress-pcs flag.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 3, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-        printf("Error: --regress-pcs .evec filename too long.\n");
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(evecname, argv[cur_arg + 1]);
-      if (!strcmp(argv[cur_arg + 2], "sex-specific")) {
-	regress_pcs_sex_specific = 1;
-      }
-      if (ii == 2 + regress_pcs_sex_specific) {
-        max_pcs = atoi(argv[cur_arg + ii]);
-	if (max_pcs < 1) {
-	  printf("Error: Invalid --regress-pcs principal component ceiling.%s", errstr_append);
+	rseed = (unsigned long int)atoi(argv[cur_arg + 1]);
+	if (rseed == 0) {
+	  printf("Error: Invalid --rseed parameter.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-      } else if (ii == 3) {
-	printf("Error: Too many --regress-pcs parameters.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += ii + 1;
-#endif
-    } else if (!strcmp(argptr, "--unrelated-heritability")) {
-#ifdef NOLAPACK
-      printf("Error: --unrelated-heritability does not work without LAPACK.  Use a wdist\nbuild with 'L' at the end of the version number.\n");
-      return dispmsg(RET_INVALID_CMDLINE);
-#else
-      if (calculation_type & CALC_RELATIONSHIP_COV) {
-        printf("Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      } else if (parallel_tot > 1) {
-	printf("Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-        printf("Error: Duplicate --unrelated-heritability flag.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 0, 4, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii) {
-        if (!strcmp(argv[cur_arg + 1], "strict")) {
-          calculation_type |= CALC_UNRELATED_HERITABILITY_STRICT;
-          jj = 2;
-        } else {
-          jj = 1;
-        }
-        if (ii >= jj) {
-	  if (sscanf(argv[cur_arg + jj], "%lg", &unrelated_herit_tol) != 1) {
-	    printf("Error: Invalid --unrelated-heritability EM tolerance parameter.\n");
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "egress-distance", 16)) {
+	if (parallel_tot > 1) {
+	  printf("Error: --parallel and --regress-distance cannot be used together.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if (calculation_type & CALC_REGRESS_DISTANCE) {
+	  printf("Error: Duplicate --regress-distance flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  regress_iters = atoi(argv[cur_arg + 1]);
+	  if (regress_iters < 2) {
+	    printf("Error: Invalid --regress-distance jackknife iteration count.\n");
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
-	  if (unrelated_herit_tol <= 0.0) {
-	    printf("Error: Invalid --unrelated-heritability EM tolerance parameter.\n");
-	    return dispmsg(RET_INVALID_CMDLINE);
-	  }
-	  if (ii > jj) {
-	    if (sscanf(argv[cur_arg + jj + 1], "%lg", &unrelated_herit_covg) != 1) {
-	      printf("Error: Invalid --unrelated-heritability genomic covariance prior.\n");
+	  if (ii == 2) {
+	    regress_d = atoi(argv[cur_arg + 2]);
+	    if (regress_d <= 0) {
+	      printf("Error: Invalid --regress-distance jackknife delete parameter.\n");
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
-	    if ((unrelated_herit_covg <= 0.0) || (unrelated_herit_covg > 1.0)) {
-	      printf("Error: Invalid --unrelated-heritability genomic covariance prior.\n");
+	  }
+	}
+	cur_arg += ii + 1;
+	calculation_type |= CALC_REGRESS_DISTANCE;
+      } else if (!memcmp(argptr2, "egress-rel", 11)) {
+	if (parallel_tot > 1) {
+	  printf("Error: --parallel and --regress-rel flags cannot coexist.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if (calculation_type & CALC_REGRESS_REL) {
+	  printf("Error: Duplicate --regress-rel flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  regress_rel_iters = atoi(argv[cur_arg + 1]);
+	  if (regress_rel_iters < 2) {
+	    printf("Error: Invalid --regress-rel jackknife iteration count.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  if (ii == 2) {
+	    regress_rel_d = atoi(argv[cur_arg + 2]);
+	    if (regress_rel_d <= 0) {
+	      printf("Error: Invalid --regress-rel jackknife delete parameter.\n");
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
-	    if (ii == jj + 2) {
-	      if (sscanf(argv[cur_arg + jj + 2], "%lg", &unrelated_herit_covr) != 1) {
-		printf("Error: Invalid --unrelated-heritability residual covariance prior.\n");
-		return dispmsg(RET_INVALID_CMDLINE);
-	      }
-	      if ((unrelated_herit_covr <= 0.0) || (unrelated_herit_covr > 1.0)) {
-		printf("Error: Invalid --unrelated-heritability residual covariance prior.\n");
-		return dispmsg(RET_INVALID_CMDLINE);
-	      }
-	    } else {
-	      unrelated_herit_covr = 1.0 - unrelated_herit_covg;
-	    }
-          }
-        }
-      }
-      cur_arg += ii + 1;
-      calculation_type |= CALC_UNRELATED_HERITABILITY;
-#endif
-    } else if ((!strcmp(argptr, "--freq")) || (!strcmp(argptr, "--freqx"))) {
-      if (freqname[0]) {
-        printf("Error: --freq/--freqx and --read-freq flags cannot coexist.%s", errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (calculation_type & CALC_FREQ) {
-        printf("Error: Duplicate --freq/--freqx flag.\n");
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += 1;
-      calculation_type |= CALC_FREQ;
-      if (!strcmp(argptr, "--freqx")) {
-	freqx = 1;
-      }
-    } else if ((!strcmp(argptr, "--read-freq")) || (!strcmp(argptr, "--update-freq"))) {
-      if (calculation_type & CALC_FREQ) {
-        printf("Error: --freq and %s flags cannot coexist.%s", argptr, errstr_append);
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (freqname[0]) {
-        printf("Error: Duplicate %s flag.\n", argptr);
-        return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-        printf("Error: %s filename too long.\n", argptr);
-        return dispmsg(RET_OPEN_FAIL);
-      }
-      strcpy(freqname, argv[cur_arg + 1]);
-      cur_arg += 1 + ii;
-    } else if (!strcmp(argptr, "--maf-succ")) {
-      maf_succ = 1;
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--indep-pairwise")) {
-      if (calculation_type & CALC_LD_PRUNE) {
-	printf("Error: Multiple LD pruning flags.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 3, 4, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      ld_window_size = atoi(argv[cur_arg + 1]);
-      if ((ld_window_size < 1) || ((ld_window_size == 1) && (ii == 3))) {
-	printf("Error: Invalid --indep-pairwise window size.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii == 4) {
-	if (strcmp(argv[cur_arg + 2], "kb")) {
-          printf("Error: Invalid argument for --indep-pairwise.%s", errstr_append);
-	  return dispmsg(RET_INVALID_CMDLINE);
+	  }
 	}
-	ld_window_kb = 1;
-      } else {
-        jj = strlen(argv[cur_arg + 1]);
-        if ((jj > 2) && (tolower(argv[cur_arg + 1][jj - 2]) == 'k') && (tolower(argv[cur_arg + 1][jj - 1]) == 'b')) {
-	  ld_window_kb = 1;
-	}
-      }
-      ld_window_incr = atoi(argv[cur_arg + ii - 1]);
-      if (ld_window_incr < 1) {
-	printf("Error: Invalid increment for --indep-pairwise.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (sscanf(argv[cur_arg + ii], "%lg", &ld_last_param) != 1) {
-	printf("Error: Invalid --indep-pairwise r^2 threshold.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if ((ld_last_param < 0.0) || (ld_last_param >= 1.0)) {
-	printf("Error: Invalid --indep-pairwise r^2 threshold.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += 1 + ii;
-      calculation_type |= (CALC_LD_PRUNE | CALC_LD_PRUNE_PAIRWISE);
-    } else if (!strcmp(argptr, "--indep")) {
+	cur_arg += ii + 1;
+	calculation_type |= CALC_REGRESS_REL;
+      } else if (!memcmp(argptr2, "egress-pcs", 11)) {
 #ifdef NOLAPACK
-      printf("Error: --indep does not work without LAPACK.  Use a wdist build with 'L' at the\nend of the version number.\n");
-      return dispmsg(RET_INVALID_CMDLINE);
+	printf("Error: --regress-pcs does not work without LAPACK.  Use a wdist build with 'L'\n at the end of the version number.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
 #else
-      if (calculation_type & CALC_LD_PRUNE) {
-	printf("Error: Multiple LD pruning flags.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (enforce_param_ct_range(argc, argv, cur_arg, 3, 4, &ii)) {
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      ld_window_size = atoi(argv[cur_arg + 1]);
-      if ((ld_window_size < 1) || ((ld_window_size == 1) && (ii == 3))) {
-	printf("Error: Invalid --indep window size.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ii == 4) {
-	if (strcmp(argv[cur_arg + 2], "kb")) {
-          printf("Error: Invalid argument for --indep.%s", errstr_append);
+	if (evecname[0]) {
+	  printf("Error: Duplicate --regress-pcs flag.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-	ld_window_kb = 1;
-      } else {
-        jj = strlen(argv[cur_arg + 1]);
-        if ((jj > 2) && (tolower(argv[cur_arg + 1][jj - 2]) == 'k') && (tolower(argv[cur_arg + 1][jj - 1]) == 'b')) {
-	  ld_window_kb = 1;
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 3, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-      }
-      ld_window_incr = atoi(argv[cur_arg + ii - 1]);
-      if (ld_window_incr < 1) {
-	printf("Error: Invalid increment for --indep.%s", errstr_append);
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (sscanf(argv[cur_arg + ii], "%lg", &ld_last_param) != 1) {
-	printf("Error: Invalid --indep VIF threshold.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      if (ld_last_param < 1.0) {
-	printf("Error: --indep VIF threshold cannot be less than 1.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-      }
-      cur_arg += 1 + ii;
-      calculation_type |= CALC_LD_PRUNE;
+	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
+	  printf("Error: --regress-pcs .evec filename too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(evecname, argv[cur_arg + 1]);
+	if (!strcmp(argv[cur_arg + 2], "sex-specific")) {
+	  regress_pcs_sex_specific = 1;
+	}
+	if (ii == 2 + regress_pcs_sex_specific) {
+	  max_pcs = atoi(argv[cur_arg + ii]);
+	  if (max_pcs < 1) {
+	    printf("Error: Invalid --regress-pcs principal component ceiling.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	} else if (ii == 3) {
+	  printf("Error: Too many --regress-pcs parameters.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += ii + 1;
 #endif
-    } else if (!strcmp(argptr, "--map3")) {
-      printf("Note: --map3 flag unnecessary (.map file format is autodetected).\n");
-      cur_arg += 1;
-    } else if (!strcmp(argptr, "--compound-genotypes")) {
-      printf("Note: --compound-genotypes flag unnecessary (spaces between alleles in .ped\nare optional).\n");
-      cur_arg += 1;
-    } else {
-      printf("Error: Invalid argument (%s).%s", argv[cur_arg], errstr_append);
-      return dispmsg(RET_INVALID_CMDLINE);
+      } else if (!memcmp(argptr2, "nrelated-heritability", 22)) {
+#ifdef NOLAPACK
+	printf("Error: --unrelated-heritability does not work without LAPACK.  Use a wdist\nbuild with 'L' at the end of the version number.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+#else
+	if (calculation_type & CALC_RELATIONSHIP_COV) {
+	  printf("Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if (parallel_tot > 1) {
+	  printf("Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (calculation_type & CALC_UNRELATED_HERITABILITY) {
+	  printf("Error: Duplicate --unrelated-heritability flag.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 4, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  if (!strcmp(argv[cur_arg + 1], "strict")) {
+	    calculation_type |= CALC_UNRELATED_HERITABILITY_STRICT;
+	    jj = 2;
+	  } else {
+	    jj = 1;
+	  }
+	  if (ii >= jj) {
+	    if (sscanf(argv[cur_arg + jj], "%lg", &unrelated_herit_tol) != 1) {
+	      printf("Error: Invalid --unrelated-heritability EM tolerance parameter.\n");
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    if (unrelated_herit_tol <= 0.0) {
+	      printf("Error: Invalid --unrelated-heritability EM tolerance parameter.\n");
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    if (ii > jj) {
+	      if (sscanf(argv[cur_arg + jj + 1], "%lg", &unrelated_herit_covg) != 1) {
+		printf("Error: Invalid --unrelated-heritability genomic covariance prior.\n");
+		return dispmsg(RET_INVALID_CMDLINE);
+	      }
+	      if ((unrelated_herit_covg <= 0.0) || (unrelated_herit_covg > 1.0)) {
+		printf("Error: Invalid --unrelated-heritability genomic covariance prior.\n");
+		return dispmsg(RET_INVALID_CMDLINE);
+	      }
+	      if (ii == jj + 2) {
+		if (sscanf(argv[cur_arg + jj + 2], "%lg", &unrelated_herit_covr) != 1) {
+		  printf("Error: Invalid --unrelated-heritability residual covariance prior.\n");
+		  return dispmsg(RET_INVALID_CMDLINE);
+		}
+		if ((unrelated_herit_covr <= 0.0) || (unrelated_herit_covr > 1.0)) {
+		  printf("Error: Invalid --unrelated-heritability residual covariance prior.\n");
+		  return dispmsg(RET_INVALID_CMDLINE);
+		}
+	      } else {
+		unrelated_herit_covr = 1.0 - unrelated_herit_covg;
+	      }
+	    }
+	  }
+	}
+	cur_arg += ii + 1;
+	calculation_type |= CALC_UNRELATED_HERITABILITY;
+#endif
+      } else if (!memcmp(argptr2, "ead-freq", 9)) {
+      main_read_freq:
+	// allow --update-freq synonym
+	if (calculation_type & CALC_FREQ) {
+	  printf("Error: --freq and %s flags cannot coexist.%s", argptr, errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (freqname[0]) {
+	  printf("Error: Duplicate %s flag.\n", argptr);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
+	  printf("Error: %s filename too long.\n", argptr);
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(freqname, argv[cur_arg + 1]);
+	cur_arg += 1 + ii;
+      }
+      break;
+
+    case 's':
+      if (!memcmp(argptr2, "cript", 6)) {
+	if (subst_argv) {
+	  printf("Error: Duplicate --script flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (fopen_checked(&scriptfile, argv[cur_arg + 1], "rb")) {
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	ii = fread(tbuf, 1, MAXLINELEN, scriptfile);
+	fclose(scriptfile);
+	if (ii == MAXLINELEN) {
+	  printf("Error: Script file too long (max %d bytes).\n", MAXLINELEN - 1);
+	  return dispmsg(RET_INVALID_FORMAT);
+	}
+	num_params = 0;
+	in_param = 0;
+	for (jj = 0; jj < ii; jj++) {
+	  if (is_space_or_eoln(tbuf[jj])) {
+	    if (in_param) {
+	      in_param = 0;
+	    }
+	  } else if (!in_param) {
+	    num_params += 1;
+	    in_param = 1;
+	  }
+	}
+	subst_argv = (char**)malloc((num_params + argc - cur_arg - 2) * sizeof(char*));
+	num_params = 0;
+	in_param = 0;
+	for (jj = 0; jj < ii; jj++) {
+	  if (is_space_or_eoln(tbuf[jj])) {
+	    if (in_param) {
+	      tbuf[jj] = '\0';
+	      in_param = 0;
+	    }
+	  } else if (!in_param) {
+	    subst_argv[num_params++] = &(tbuf[jj]);
+	    in_param = 1;
+	  }
+	}
+	for (ii = cur_arg + 2; ii < argc; ii++) {
+	  subst_argv[num_params++] = argv[ii];
+	}
+	argc = num_params;
+	cur_arg = 0; // fortunately, can't be equal to cur_arg_start
+	argv = subst_argv;
+      } else if (!memcmp(argptr2, "ample", 6)) {
+	if (load_params & 0x27f) {
+	  if (load_params & 0x200) {
+	    printf("Error: Duplicate --sample flag.\n");
+	  } else {
+	    printf("Error: --sample flag cannot coexist with PLINK input file flags.\n");
+	  }
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	load_params |= 0x200;
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
+	  printf("Error: --sample parameter too long.\n");
+	  return dispmsg(RET_OPEN_FAIL);
+	}
+	strcpy(samplename, argv[cur_arg + 1]);
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "heep", 5)) {
+	if (species_flag(&chrom_info, SPECIES_SHEEP)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg++;
+      } else if (!memcmp(argptr2, "ilent", 6)) {
+	freopen("/dev/null", "w", stdout);
+	cur_arg += 1;
+      }
+      break;
+
+    case 't':
+      if (!memcmp(argptr2, "ail-pheno", 10)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 2, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (tail_pheno) {
+	  printf("Error: Duplicate --tail-pheno flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (makepheno_str) {
+	  printf("Error: --make-pheno and --tail-pheno flags cannot coexist.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (sscanf(argv[cur_arg + 1], "%lg", &tail_bottom) != 1) {
+	  printf("Error: Invalid --tail-pheno parameter.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii == 1) {
+	  tail_top = tail_bottom;
+	} else {
+	  if (sscanf(argv[cur_arg + 2], "%lg", &tail_top) != 1) {
+	    printf("Error: Invalid --tail-pheno parameter.\n");
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	}
+	if (tail_bottom > tail_top) {
+	  printf("Error: Ltop cannot be larger than Hbottom for --tail-pheno.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	tail_pheno = 1;
+	cur_arg += ii + 1;
+      } else if (!memcmp(argptr2, "hreads", 7)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 1) {
+	  printf("Error: Invalid --threads parameter.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if (ii > MAX_THREADS) {
+	  printf("Error: --threads parameter too large (max %d).\n", MAX_THREADS);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	thread_ct = ii;
+	cur_arg += 2;
+      }
+      break;
+
+    case 'u':
+      if (!memcmp(argptr2, "pdate-freq", 11)) {
+	goto main_read_freq;
+      }
+      break;
+
+    case 'w':
+      if (!memcmp(argptr2, "rite-snplist", 13)) {
+	if (calculation_type & CALC_WRITE_SNPLIST) {
+	  printf("Error: Duplicate --write-snplist flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	calculation_type |= CALC_WRITE_SNPLIST;
+	cur_arg += 1;
+      }
+      break;
+    }
+
+    if (cur_arg_start == cur_arg) {
+      return invalid_arg(argptr);
     }
   }
   if ((calculation_type & ~CALC_REL_CUTOFF) == 0) {
