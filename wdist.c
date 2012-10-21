@@ -312,7 +312,7 @@ const char ver_str[] =
 #else
   "32-bit"
 #endif
-  " (20 October 2012)\n"
+  " (21 October 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
@@ -1113,6 +1113,9 @@ double get_dmedian(double* sorted_arr, int len) {
 }
 
 // alas, qsort_r not available on some Linux distributions
+
+// This actually tends to be faster than just sorting an array of indices,
+// because of memory locality issues.
 int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len) {
   // main_arr = packed array of equal-length items to sort
   // arr_length = number of items
@@ -2003,13 +2006,16 @@ int sort_item_ids(char** sorted_ids_ptr, int** id_map_ptr, int unfiltered_ct, un
   // stores a lexicographically sorted list of IDs in *sorted_ids_ptr and
   // the raw positions of the corresponding SNPs/indivs in *id_map_ptr.  Does
   // not include excluded SNPs/indivs in the list.
+  // Also detects duplicates (returns RET_INVALID_FORMAT).
   int item_ct = unfiltered_ct - exclude_ct;
   int ii;
   int jj;
-  *sorted_ids_ptr = (char*)wkspace_alloc(item_ct * max_id_len);
-  if (!(*sorted_ids_ptr)) {
+  char* sorted_ids;
+  sorted_ids = (char*)wkspace_alloc(item_ct * max_id_len);
+  if (!sorted_ids) {
     return RET_NOMEM;
   }
+  *sorted_ids_ptr = sorted_ids;
   *id_map_ptr = (int*)wkspace_alloc(item_ct * sizeof(int));
   if (!(*id_map_ptr)) {
     return RET_NOMEM;
@@ -2017,11 +2023,18 @@ int sort_item_ids(char** sorted_ids_ptr, int** id_map_ptr, int unfiltered_ct, un
   ii = 0;
   for (jj = 0; jj < item_ct; jj++) {
     ii = next_non_set_unsafe(exclude_arr, ii);
-    memcpy(&((*sorted_ids_ptr)[jj * max_id_len]), &(item_ids[ii * max_id_len]), max_id_len);
+    memcpy(&(sorted_ids[jj * max_id_len]), &(item_ids[ii * max_id_len]), max_id_len);
     (*id_map_ptr)[jj] = ii++;
   }
-  if (qsort_ext(*sorted_ids_ptr, item_ct, max_id_len, strcmp_deref, (char*)(*id_map_ptr), sizeof(int))) {
+  if (qsort_ext(sorted_ids, item_ct, max_id_len, strcmp_deref, (char*)(*id_map_ptr), sizeof(int))) {
     return RET_NOMEM;
+  }
+  jj = item_ct - 1;
+  for (ii = 0; ii < jj; ii++) {
+    if (!strcmp(&(sorted_ids[ii * max_id_len]), &(sorted_ids[(ii + 1) * max_id_len]))) {
+      printf("Error: Duplicate IDs.\n");
+      return RET_INVALID_FORMAT;
+    }
   }
   return 0;
 }
@@ -5056,7 +5069,16 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
 	if (affection) {
 	  if (eval_affection(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
 	    if (is_missing(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
-	      pheno_c[person_idx] = -1;
+	      // Since we're only making one pass through the file, we don't
+	      // have the luxury of knowing in advance whether the phenotype is
+	      // binary or scalar.  If there is a '0' entry that occurs before
+	      // we know the phenotype is scalar, we need to not set the
+	      // phenotype to zero during the binary -> scalar conversion step.
+	      if (*bufptr == '0') {
+		pheno_c[person_idx] = -2;
+	      } else {
+	        pheno_c[person_idx] = -1;
+	      }
 	    } else if (affection_01) {
 	      pheno_c[person_idx] = *bufptr - '0';
 	    } else {
@@ -5081,8 +5103,11 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
 		pheno_d[uii] = missing_phenod;
 	      } else if (!cc) {
 		pheno_d[uii] = dxx;
-	      } else {
+	      } else if (cc == 1) {
 		pheno_d[uii] = dyy;
+	      } else {
+		// -2 means phenotype entry was '0'
+		pheno_d[uii] = 0.0;
 	      }
 	    }
 	    free(pheno_c);
@@ -5096,6 +5121,13 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
 	    return RET_INVALID_FORMAT;
 	  }
 	}
+      }
+    }
+  }
+  if (pheno_c) {
+    for (uii = 0; uii < unfiltered_indiv_ct; uii++) {
+      if (pheno_c[uii] == -2) {
+	pheno_c[uii] = -1;
       }
     }
   }
@@ -5986,8 +6018,9 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
     return RET_INVALID_FORMAT;
   }
   wkspace_mark = wkspace_base;
-  if (sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len)) {
-    return RET_NOMEM;
+  ii = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len);
+  if (ii) {
+    return ii;
   }
   if (!memcmp(tbuf, " CHR  ", 6)) {
     while (fgets(tbuf, MAXLINELEN, *freqfile_ptr) != NULL) {
@@ -6054,7 +6087,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
 	    goto read_external_freqs_ret_ALLELE_MISMATCH;
 	  }
 	  if (wt_needed) {
-	    bufptr = next_item(next_item(bufptr));
+	    bufptr = next_item(bufptr);
 	    bufptr2 = next_item(bufptr);
 	    bufptr3 = next_item(bufptr2);
 	    if (no_more_items(bufptr3)) {
@@ -6888,10 +6921,10 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
   if (wkspace_alloc_ul_checked(&mmasks, indiv_ct * sizeof(long))) {
     goto calc_genome_ret_NOMEM;
   }
-  if (wkspace_alloc_c_checked(&fam1, max_person_fid_len)) {
+  if (wkspace_alloc_c_checked(&fam1, max_person_fid_len + 1)) {
     goto calc_genome_ret_NOMEM;
   }
-  if (wkspace_alloc_c_checked(&fam2, max_person_fid_len)) {
+  if (wkspace_alloc_c_checked(&fam2, max_person_fid_len + 1)) {
     goto calc_genome_ret_NOMEM;
   }
 
@@ -8335,8 +8368,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (phenofile || tail_pheno) {
     wkspace_mark = wkspace_base;
-    if (sort_item_ids(&cptr, &iptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len)) {
-      goto wdist_ret_NOMEM;
+    retval = sort_item_ids(&cptr, &iptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len);
+    if (retval) {
+      goto wdist_ret_2;
     }
 
     if (makepheno_str) {
@@ -8376,8 +8410,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (extractname[0] || excludename[0]) {
     wkspace_mark = wkspace_base;
-    if (sort_item_ids(&cptr, &iptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len)) {
-      goto wdist_ret_NOMEM;
+    retval = sort_item_ids(&cptr, &iptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len);
+    if (retval) {
+      goto wdist_ret_2;
     }
     // length of sorted list is NOT necessarily equal to unfiltered_marker_ct -
     // marker_exclude_ct, since marker_exclude_ct may change before second call
@@ -8399,8 +8434,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (removename[0] || keepname[0] || filtername[0]) {
     wkspace_mark = wkspace_base;
-    if (sort_item_ids(&cptr, &iptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len)) {
-      goto wdist_ret_NOMEM;
+    retval = sort_item_ids(&cptr, &iptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len);
+    if (retval) {
+      goto wdist_ret_2;
     }
     ii = unfiltered_indiv_ct - indiv_exclude_ct;
     if (removename[0]) {
