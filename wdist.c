@@ -157,7 +157,7 @@ int dgetri_(__CLPK_integer* n, __CLPK_doublereal* a,
 #define RET_INVALID_CMDLINE 5
 #define RET_WRITE_FAIL 6
 #define RET_READ_FAIL 7
-#define RET_MOREHELP 8
+#define RET_HELP 8
 #define RET_THREAD_CREATE_FAIL 9
 #define RET_ALLELE_MISMATCH 10
 
@@ -197,6 +197,7 @@ int dgetri_(__CLPK_integer* n, __CLPK_doublereal* a,
 #define CALC_REGRESS_REL 0x2000000
 #define CALC_LD_PRUNE 0x4000000
 #define CALC_LD_PRUNE_PAIRWISE 0x8000000
+#define CALC_REGRESS_PCS 0x10000000
 
 #define SPECIES_HUMAN 0
 #define SPECIES_COW 1
@@ -312,9 +313,9 @@ const char ver_str[] =
 #else
   "32-bit"
 #endif
-  " (21 October 2012)\n"
+  " (22 October 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
-const char errstr_append[] = "\nRun 'wdist --help | more' for more information.\n";
+const char errstr_append[] = "\nFor more information, try 'wdist --help {cmds...}' or 'wdist --help | more'.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam/.ped file.\n";
@@ -325,6 +326,783 @@ const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n
 
 // fit 4 pathologically long IDs plus a bit extra
 char tbuf[MAXLINELEN * 4 + 256];
+
+inline void set_bit_noct(unsigned long* exclude_arr, int loc) {
+  exclude_arr[loc / BITCT] |= (1LU << (loc % BITCT));
+}
+
+void set_bit(unsigned long* bit_arr, int loc, unsigned int* bit_set_ct_ptr) {
+  int maj = loc / BITCT;
+  unsigned long min = 1LU << (loc % BITCT);
+  if (!(bit_arr[maj] & min)) {
+    bit_arr[maj] |= min;
+    *bit_set_ct_ptr += 1;
+  }
+}
+
+void set_bit_sub(unsigned long* bit_arr, int loc, unsigned int* bit_unset_ct_ptr) {
+  int maj = loc / BITCT;
+  unsigned long min = 1LU << (loc % BITCT);
+  if (!(bit_arr[maj] & min)) {
+    bit_arr[maj] |= min;
+    *bit_unset_ct_ptr -= 1;
+  }
+}
+
+void clear_bit(unsigned long* exclude_arr, int loc, unsigned int* include_ct_ptr) {
+  int maj = loc / BITCT;
+  unsigned long min = 1LU << (loc % BITCT);
+  if (exclude_arr[maj] & min) {
+    exclude_arr[maj] -= min;
+    *include_ct_ptr += 1;
+  }
+}
+
+inline int is_set(unsigned long* exclude_arr, int loc) {
+  return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
+}
+
+// unsafe if you don't know there's another included marker or person remaining
+inline int next_non_set_unsafe(unsigned long* exclude_arr, int loc) {
+  int idx = loc / BITCT;
+  unsigned long ulii;
+  exclude_arr = &(exclude_arr[idx]);
+  ulii = (~(*exclude_arr)) >> (loc % BITCT);
+  if (ulii) {
+    return loc + __builtin_ctzl(ulii);
+  }
+  do {
+    idx++;
+  } while (*(++exclude_arr) == ~0LU);
+  return (idx * BITCT) + __builtin_ctzl(~(*exclude_arr));
+}
+
+// These functions seem to optimize better than memset(arr, 0, x) under gcc.
+inline void fill_long_zero(long* larr, size_t size) {
+  long* lptr = &(larr[size]);
+  while (larr < lptr) {
+    *larr++ = 0;
+  }
+}
+
+inline void fill_ulong_zero(unsigned long* ularr, size_t size) {
+  unsigned long* ulptr = &(ularr[size]);
+  while (ularr < ulptr) {
+    *ularr++ = 0;
+  }
+}
+
+inline void fill_ulong_one(unsigned long* ularr, size_t size) {
+  unsigned long* ulptr = &(ularr[size]);
+  while (ularr < ulptr) {
+    *ularr++ = ~0LU;
+  }
+}
+
+inline void fill_int_zero(int* iarr, size_t size) {
+#if __LP64__
+  fill_long_zero((long*)iarr, size >> 1);
+  if (size & 1) {
+    iarr[size - 1] = 0;
+  }
+#else
+  fill_long_zero((long*)iarr, size);
+#endif
+}
+
+inline void fill_uint_zero(unsigned int* uiarr, size_t size) {
+#if __LP64__
+  fill_long_zero((long*)uiarr, size >> 1);
+  if (size & 1) {
+    uiarr[size - 1] = 0;
+  }
+#else
+  fill_long_zero((long*)uiarr, size);
+#endif
+}
+
+inline void fill_int_one(unsigned int* iarr, size_t size) {
+#if __LP64__
+  fill_ulong_one((unsigned long*)iarr, size >> 1);
+  if (size & 1) {
+    iarr[size - 1] = -1;
+  }
+#else
+  fill_ulong_one((unsigned long*)iarr, size);
+#endif
+}
+
+inline void fill_double_zero(double* darr, size_t size) {
+  double* dptr = &(darr[size]);
+  while (darr < dptr) {
+    *darr++ = 0.0;
+  }
+}
+
+int edit1_match(int len1, char* s1, int len2, char* s2) {
+  // permit one difference of the following forms:
+  // - inserted/deleted character
+  // - replaced character
+  // - adjacent pair of swapped characters
+  int diff_found = 0;
+  int pos = 0;
+  if (len1 == len2) {
+    while (pos < len1) {
+      if (s1[pos] != s2[pos]) {
+	if (diff_found) {
+	  if ((diff_found == 2) || (s1[pos] != s2[pos - 1]) || (s1[pos - 1] != s2[pos])) {
+	    return 0;
+	  }
+	}
+	diff_found++;
+      }
+      pos++;
+    }
+  } else if (len1 == len2 - 1) {
+    do {
+      if (s1[pos - diff_found] != s2[pos]) {
+	if (diff_found) {
+	  return 0;
+	}
+	diff_found++;
+      }
+      pos++;
+    } while (pos < len2);
+  } else if (len1 == len2 + 1) {
+    do {
+      if (s1[pos] != s2[pos - diff_found]) {
+	if (diff_found) {
+	  return 0;
+	}
+	diff_found++;
+      }
+      pos++;
+    } while (pos < len1);
+  } else {
+    return 0;
+  }
+  return 1;
+}
+
+#define MAX_EQUAL_HELP_PARAMS 5
+
+void help_print(char* cur_params, int iters_left, unsigned int param_ct, char** argv, unsigned int* unmatched_ct_ptr, unsigned long* all_match_arr, unsigned long* prefix_match_arr, unsigned long* perfect_match_arr, unsigned int* param_lens, char* payload) {
+  // unmatched_ct fixed during call, *unmatched_ct_ptr may decrease
+  unsigned int unmatched_ct = *unmatched_ct_ptr;
+  int print_this = 0;
+  int cur_param_lens[MAX_EQUAL_HELP_PARAMS];
+  char* cur_param_start[MAX_EQUAL_HELP_PARAMS];
+  int cur_param_ct;
+  int cur_param_idx;
+  unsigned int arg_uidx;
+  unsigned int arg_idx;
+  int uii;
+  int payload_len;
+  char* payload_ptr;
+  char* line_end;
+  char* payload_end;
+  if (param_ct) {
+    strcpy(tbuf, cur_params);
+    cur_param_ct = 1;
+    cur_param_start[0] = tbuf;
+    payload_ptr = strchr(tbuf, '\t');
+    while (payload_ptr) {
+      *payload_ptr++ = '\0';
+      cur_param_start[cur_param_ct++] = payload_ptr;
+      payload_ptr = strchr(payload_ptr, '\t');
+    }
+    if (iters_left) {
+      if (*unmatched_ct_ptr) {
+	arg_uidx = 0;
+	if (iters_left == 2) {
+	  for (arg_idx = 0; arg_idx < unmatched_ct; arg_idx++) {
+	    arg_uidx = next_non_set_unsafe(all_match_arr, arg_uidx);
+	    for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
+	      if (!strcmp(cur_param_start[cur_param_idx], argv[arg_uidx])) {
+		set_bit_noct(perfect_match_arr, arg_uidx);
+		set_bit_noct(prefix_match_arr, arg_uidx);
+		set_bit_sub(all_match_arr, arg_uidx, unmatched_ct_ptr);
+		break;
+	      }
+	    }
+	    arg_uidx++;
+	  }
+	} else {
+	  for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
+	    cur_param_lens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
+	  }
+	  for (arg_idx = 0; arg_idx < unmatched_ct; arg_idx++) {
+	    arg_uidx = next_non_set_unsafe(all_match_arr, arg_uidx);
+	    uii = param_lens[arg_uidx];
+	    for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
+	      if (cur_param_lens[cur_param_idx] > uii) {
+		if (!memcmp(argv[arg_uidx], cur_param_start[cur_param_idx], uii)) {
+		  set_bit_noct(prefix_match_arr, arg_uidx);
+		  set_bit_sub(all_match_arr, arg_uidx, unmatched_ct_ptr);
+		  break;
+		}
+	      }
+	    }
+	    arg_uidx++;
+	  }
+	}
+      }
+    } else {
+      for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
+	cur_param_lens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
+      }
+      for (arg_uidx = 0; arg_uidx < param_ct; arg_uidx++) {
+	if (is_set(prefix_match_arr, arg_uidx)) {
+	  if (!print_this) {
+	    if (is_set(perfect_match_arr, arg_uidx)) {
+	      for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
+		if (!strcmp(cur_param_start[cur_param_idx], argv[arg_uidx])) {
+		  print_this = 1;
+		  break;
+		}
+	      }
+	    } else {
+	      uii = param_lens[arg_uidx];
+	      for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
+		if (cur_param_lens[cur_param_idx] > uii) {
+		  if (!memcmp(argv[arg_uidx], cur_param_start[cur_param_idx], uii)) {
+		    print_this = 1;
+		    break;
+		  }
+		}
+	      }
+	    }
+	  }
+	} else {
+	  for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
+	    if (edit1_match(cur_param_lens[cur_param_idx], cur_param_start[cur_param_idx], param_lens[arg_uidx], argv[arg_uidx])) {
+	      print_this = 1;
+	      set_bit_sub(all_match_arr, arg_uidx, unmatched_ct_ptr);
+	      break;
+	    }
+	  }
+	}
+      }
+      if (print_this) {
+	payload_len = strlen(payload);
+	if (payload[payload_len - 2] == '\n') {
+	  payload_end = &(payload[payload_len - 1]);
+	} else {
+	  payload_end = &(payload[payload_len]);
+	}
+	printf("\n");
+	payload_ptr = payload;
+	do {
+	  line_end = strchr(payload_ptr, '\n') + 1;
+	  uii = (unsigned int)(line_end - payload_ptr);
+	  if (uii > 2) {
+	    payload_ptr = &(payload_ptr[2]);
+	    uii -= 2;
+	  }
+	  memcpy(tbuf, payload_ptr, uii);
+	  tbuf[uii] = '\0';
+	  printf(tbuf);
+	  payload_ptr = line_end;
+	} while (payload_ptr < payload_end);
+      }
+    }
+  } else {
+    printf(payload);
+  }
+}
+
+int disp_help(unsigned int prct, char** argv) {
+  // yes, this is overkill.  But it should be a good template for other
+  // command-line programs to use.
+  int il = prct? 2 : 0; // iterations left (for main loop)
+  unsigned int param_ctl = (prct + (BITCT - 1)) / BITCT;
+  unsigned int* plens = NULL;
+  unsigned long* allms = NULL; // all matched terms
+  unsigned long* prems = NULL; // perfect or prefix matches
+  unsigned long* perms = NULL; // perfect matches only
+  unsigned int umct = prct; // number of unmatched terms
+  unsigned int arg_uidx;
+  unsigned int arg_idx;
+  unsigned int net_umct;
+  int col_num;
+  if (prct) {
+    plens = (unsigned int*)malloc(prct * sizeof(int));
+    if (!plens) {
+      return RET_NOMEM;
+    }
+    allms = (unsigned long*)malloc(param_ctl * 3 * sizeof(long));
+    if (!allms) {
+      free(plens);
+      return RET_NOMEM;
+    }
+    for (arg_idx = 0; arg_idx < prct; arg_idx++) {
+      plens[arg_idx] = strlen(argv[arg_idx]);
+    }
+    fill_ulong_zero(allms, param_ctl * 3);
+    prems = &(allms[param_ctl]);
+    perms = &(allms[param_ctl * 2]);
+  }
+  if (!prct) {
+    printf(
+"\nwdist [flags...]\n\n"
+"In the command line flag definitions that follow,\n"
+"  * [square brackets] denote a required parameter, where the text between the\n"
+"    brackets describes its nature.\n"
+"  * <angle brackets> denote an optional modifier (or if '|' is present, a set\n"
+"    of mutually exclusive optional modifiers).  Use the EXACT text in the\n"
+"    definition, e.g. '--distance square0'.\n"
+"  * {curly braces} denote an optional parameter, where the text between the\n"
+"    braces describes its nature.\n\n"
+"Each run must invoke at least one of the following calculations:\n\n"
+	   );
+  }
+  do {
+    help_print("distance", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <snps>\n"
+"    Writes a lower-triangular tab-delimited table of (weighted) genomic\n"
+"    distances in SNP units to {output prefix}.dist, and a list of the\n"
+"    corresponding family/individual IDs to {output prefix}.dist.id.  The first\n"
+"    row of the .dist file contains a single {genotype 1-genotype 2} distance,\n"
+"    the second row has the {genotype 1-genotype 3} and {genotype 2-genotype 3}\n"
+"    distances in that order, etc.\n"
+"    * If the 'square' or 'square0' modifier is present, a square matrix is\n"
+"      written instead; 'square0' fills the upper right triangle with zeroes.\n"
+"    * If the 'gz' modifier is present, a compressed .dist.gz file is written\n"
+"      instead of a plain text file.\n"
+"    * If the 'bin' modifier is present, a binary (square) matrix of\n"
+"      double-precision floating point values, suitable for loading from R, is\n"
+"      instead written to {output prefix}.dist.bin.  This can be combined with\n"
+"      'square0' if you still want the upper right zeroed out, or 'triangle' if\n"
+"      you don't want to pad the upper right at all.\n"
+"    * If the 'ibs' modifier is present, an identity-by-state matrix is written\n"
+"      to {output prefix}.mibs.  '1-ibs' causes distances expressed as genomic\n"
+"      proportions (i.e. 1 - IBS) to be written to {output prefix}.mdist.\n"
+"      Combine with 'snps' if you want to generate the usual .dist file as well.\n"
+	       );
+    help_print("matrix\tdistance-matrix", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --matrix\n"
+"  --distance-matrix\n"
+"    These generate space-delimited text matrices, and are included for\n"
+"    backwards compatibility with old scripts relying on the corresponding PLINK\n"
+"    flags.  New scripts should migrate to '--distance ibs' and '--distance\n"
+"    1-ibs', which support output formats better suited to parallel computation\n"
+"    and have more accurate handling of missing markers.\n\n"
+		);
+    help_print("genome\tZ-genome", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --genome <gz> <full> <unbounded>\n"
+"    Identity-by-descent analysis.  This yields the same output as PLINK's\n"
+"    --genome or --Z-genome, and the 'full' and 'unbounded' modifiers have the\n"
+"    same effect as PLINK's --full-genome and --unbounded flags.\n\n"
+		);
+    help_print(
+#ifndef NOLAPACK
+"indep\tindep-pairwise", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --indep [window size]<kb> [step size (SNPs)] [VIF threshold]\n"
+#else
+"indep-pairwise", NULL, il, prct, argv, &umct, allms, prems, perms, plens,
+#endif
+"  --indep-pairwise [window size]<kb> [step size (SNPs)] [r^2 threshold]\n"
+"    Generates a list of SNPs in approximate linkage equilibrium; see PLINK\n"
+"    documentation for more details.  With the 'kb' modifier, the window size is\n"
+"    in kilobase units instead of SNPs.  (Space before 'kb' is optional, i.e.\n"
+"    '--indep-pairwise 500 kb 5 0.5' and '--indep-pairwise 500kb 5 0.5' have the\n"
+"    same effect.)\n"
+"    Note that you need to rerun WDIST using --extract or --exclude on the\n"
+"    .prune.in/.prune.out file to apply the list to another computation.\n\n"
+		);
+    help_print("ibc", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --ibc\n"
+"    Calculates inbreeding coefficients in three different ways.\n"
+"    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
+"      a tool for Genome-wide Complex Trait Analysis.  Am J Hum Genet. 2011 Jan\n"
+"      88(1): 76-82.  This paper also describes the relationship matrix\n"
+"      computation we implement.\n\n"
+	       );
+    help_print("make-rel", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --make-rel <square | square0 | triangle> <gz | bin> <cov | ibc1 | ibc2>\n"
+"    Writes a lower-triangular variance-standardized relationship (coancestry)\n"
+"    matrix to {output prefix}.rel, and corresponding IDs to\n"
+"    {output prefix}.rel.id.\n"
+"    * 'square', 'square0', 'triangle', 'gz', and 'bin' act as they do on\n"
+"      --distance.\n"
+"    * The 'cov' modifier removes the variance standardization step, causing a\n"
+"      covariance matrix to be calculated instead.\n"
+"    * By default, the diagonal elements in the relationship matrix are based on\n"
+"      --ibc's Fhat3; use the 'ibc1' or 'ibc2' modifiers to base them on Fhat1\n"
+"      or Fhat2 instead.\n"
+               );
+    help_print("make-grm", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --make-grm <no-gz> <cov | ibc1 | ibc2>\n"
+"    Writes the relationships in GCTA's gzipped list format, describing one pair\n"
+"    per line.  Note that this file explicitly stores the number of valid\n"
+"    observations (where neither individual has a missing call) for each pair,\n"
+"    which is useful input for some scripts.\n\n"
+	       );
+    help_print("groupdist", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --groupdist {iters} {d}\n"
+"    Considers three subsets of the distance matrix: pairs of affected\n"
+"    individuals, affected-unaffected pairs, and pairs of unaffected\n"
+"    individuals.  Each of these subsets has an average pairwise genomic\n"
+"    distance; --groupdist computes the differences between those three\n"
+"    averages, and estimates standard errors via delete-d jackknife.  Binary\n"
+"    phenotype data is required.\n"
+"    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
+"      down.  With no parameters, 100k iterations are run.\n\n"
+	       );
+    help_print("regress-distance", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --regress-distance {iters} {d}\n"
+"    Linear regression of pairwise genomic distances on pairwise average\n"
+"    phenotypes and vice versa, using delete-d jackknife for standard errors.\n"
+"    Scalar phenotype data is required.  Defaults for iters and d are the same\n"
+"    as for --groupdist.\n\n"
+	       );
+    help_print("regress-rel", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --regress-rel {iters} {d}\n"
+"    Linear regression of pairwise genomic relationships on pairwise average\n"
+"    phenotypes, and vice versa.\n\n"
+	       );
+#ifndef NOLAPACK
+    help_print("regress-pcs", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --regress-pcs [.evec file] <sex-specific> {max PCs}\n"
+"    Regresses phenotypes and genotypes on the given list of principal\n"
+"    components (produced by SMARTPCA), and then converts phenotypes to\n"
+"    Z-scores (optionally sex-specific).  Output is a .gen and a .sample file in\n"
+"    the Oxford IMPUTE/SNPTEST v2 format.\n"
+"    By default, at most 10 PCs are included in the regression.\n\n"
+	       );
+    help_print("unrelated-heritability", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --unrelated-heritability <strict> {tol} {initial covg} {initial covr}\n"
+"    REML estimate of additive heritability, iterating with an accelerated\n"
+"    variant of the EM algorithm until the rate of change of the log likelihood\n"
+"    function is less than tol.  Scalar phenotype data is required.\n"
+"    * The 'strict' modifier forces regular EM to be used.  tol defaults to\n"
+"      10^{-7}, genomic covariance prior defaults to 0.45, and residual\n"
+"      covariance prior defaults to (1 - covg).\n"
+"    * For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
+"      Genetic Correlations Explained by Common SNPs for Metabolic Syndrome\n"
+"      Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
+	       );
+#endif
+    help_print("freq\tfreqx", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --freq\n"
+"  --freqx\n"
+"    --freq generates an allele frequency report identical to that of PLINK\n"
+"    --freq; --freqx replaces the NCHROBS column with homozygote/heterozygote\n"
+"    counts, which (when reloaded with --read-freq) allow relationship and\n"
+"    distance matrix terms to be weighted consistently through multiple\n"
+"    filtering runs.\n\n"
+		);
+    help_print("write-snplist", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --write-snplist\n"
+"    Write a .snplist file listing the names of all SNPs that pass the filters\n"
+"    and inclusion thresholds you've specified.\n\n"
+	       );
+    help_print("help\t{cmds...}", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --help {cmds...}\n"
+"    Describe WDIST functionality.  {cmds...} is a list of flag names or\n"
+"    prefixes, e.g. 'wdist --help filter- missing-' will display information\n"
+"    about all flags with names starting with 'filter-' or 'missing-', while\n"
+"    'wdist --help filter' will just describe --filter since that's an exact\n"
+"    match.  If no parameters are given, all commands are listed.\n\n"
+		);
+    if (!prct) {
+      printf(
+"The following other flags are supported.  (Order of operations conforms to the\n"
+"PLINK specification at http://pngu.mgh.harvard.edu/~purcell/plink/flow.shtml.)\n"
+	     );
+    }
+    help_print("script", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --script [fname] : Include command-line options from file.\n"
+	       );
+    help_print("file", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --file [prefix]  : Specify prefix for .ped and .map files.  (When this flag\n"
+"                     isn't present, the prefix is assumed to be 'wdist'.)\n"
+	       );
+    help_print("ped", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --ped [filename] : Specify full name of .ped file.\n"
+	       );
+    help_print("map", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --map [filename] : Specify full name of .map file.\n"
+	       );
+    help_print("no-fid", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --no-fid         : .fam/.ped file does not contain column 1 (family ID).\n"
+	       );
+    help_print("no-parents", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --no-parents     : .fam/.ped file does not contain columns 3-4 (parents).\n"
+	       );
+    help_print("no-sex", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --no-sex         : .fam/.ped file does not contain column 5 (sex).\n"
+	       );
+    help_print("no-pheno", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --no-pheno       : .fam/.ped file does not contain column 6 (phenotype).\n"
+	       );
+    help_print("bfile", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --bfile {prefix} : Specify .bed/.bim/.fam prefix (default 'wdist').\n"
+	       );
+    help_print("bed", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --bed [filename] : Specify full name of .bed file.\n"
+	       );
+    help_print("bim", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --bim [filename] : Specify full name of .bim file.\n"
+	       );
+    help_print("fam", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --fam [filename] : Specify full name of .fam file.\n"
+	       );
+    help_print("data", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --data {prefix}  : Specify Oxford .gen/.sample prefix (default 'wdist').\n"
+	       );
+    help_print("gen", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --gen [filename] : Specify full name of .gen file.\n"
+	       );
+    help_print("sample", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --sample [fname] : Specify full name of .sample file.\n"
+	       );
+    help_print("load-dists", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --groupdist\n"
+"                     or --regress-distance analysis, instead of recalculating\n"
+"                     it from scratch.\n"
+	       );
+    help_print("out", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --out [prefix]   : Specify prefix for output files.\n"
+	       );
+    help_print("silent", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --silent         : Suppress output to console.\n"
+	       );
+    help_print("pheno", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --pheno [fname]  : Specify alternate phenotype.\n"
+	       );
+    help_print("mpheno", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --mpheno [col]   : Specify phenotype column number in --pheno file.\n"
+	       );
+    help_print("pheno-name", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --pheno-name [c] : If phenotype file has a header row, use column with the\n"
+"                     given name.\n"
+	       );
+    help_print("pheno-merge", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --pheno-merge    : If a phenotype is present in the original but not the\n"
+"                     alternate file, use the original value instead of setting\n"
+"                     the phenotype to missing.\n"
+	       );
+    help_print("prune", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --prune          : Remove individuals with missing phenotypes.\n"
+	       );
+    help_print("1", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --1              : Affection phenotypes are interpreted as 0 = unaffected,\n"
+"                     1 = affected (instead of 0 = missing, 1 = unaffected,\n"
+"                     2 = affected).\n"
+	       );
+// --map3 implicitly supported via autodetection
+// --compound-genotypes automatically supported
+    help_print("cow\tdog\thorse\tmouse\tsheep", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --cow/--dog/--horse/--mouse/--sheep : Specify nonhuman species.\n"
+	       );
+    help_print("autosome", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --autosome       : Include markers on all autosomes, and no others.\n"
+	       );
+    help_print("chr", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --chr [num...]   : Only consider markers on the given chromosome(s).  Valid\n"
+"                     choices for humans are 0 (unplaced), 1-22, and XY\n"
+"                     (pseudo-autosomal region of X).  Separate multiple\n"
+"                     chromosomes with spaces, e.g. '--chr 1 3 xy'.  The X, Y,\n"
+"                     and MT chromosome values are currently unsupported, but\n"
+"                     this will change in the future.\n"
+	       );
+    help_print("maf", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --maf {val}      : Minor allele frequency minimum threshold (default 0.01).\n"
+"                     Note that the default threshold is only applied if --maf\n"
+"                     is used without an accompanying value; if you do not\n"
+"                     invoke --maf, no MAF inclusion threshold is applied.\n"
+"                     Other inclusion thresholds work the same way.\n"
+	       );
+    help_print("max-maf", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --max-maf [val]  : Minor allele frequency maximum threshold.\n"
+	       );
+    help_print("geno", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --geno {val}     : Maximum per-SNP missing (default 0.1).\n"
+	       );
+    help_print("mind", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --mind {val}     : Maximum per-person missing (default 0.1).\n"
+	       );
+    help_print("hwe", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
+"                     default 0.001.\n"
+	       );
+    help_print("hwe-all", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --hwe-all        : Given case-control data, don't ignore cases in HWE test.\n"
+	       );
+    help_print("allow-no-sex", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --allow-no-sex   : Do not remove ambiguously-sexed individuals.\n"
+"                     (Automatically on if --no-sex flag is present.)\n"
+	       );
+    help_print("nonfounders", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --nonfounders    : Include all individuals in MAF/HWE calculations.\n"
+	       );
+    help_print("rel-cutoff\tgrm-cutoff", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --rel-cutoff {v} : Exclude individuals until no remaining pairs have\n"
+"  --grm-cutoff {v}   relatedness greater than the given cutoff value (default\n"
+"                     0.025).  Note that maximizing the remaining sample size is\n"
+"                     equivalent to the NP-hard maximum independent set problem,\n"
+"                     so we use a greedy algorithm instead of guaranteeing\n"
+"                     optimality.  (Use the --make-rel and --keep/--remove flags\n"
+"                     if you want to try to do better.)\n"
+	       );
+    help_print("ppc-gap", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --ppc-gap [val]  : Minimum number of base pairs, in thousands, between\n"
+"                     informative pairs of SNPs used in --genome PPC test.  500\n"
+"                     if unspecified.\n"
+	       );
+    help_print("rseed", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --rseed [val]    : Set random number seed (relevant for jackknife standard\n"
+"                     error estimation).\n"
+	       );
+    help_print("memory", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --memory [val]   : Size, in MB, of initial malloc attempt.\n"
+	       );
+    help_print("threads", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --threads [val]  : Maximum number of concurrent threads.\n"
+	       );
+    help_print("extract", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --extract [file] : Only include SNPs in the given list.\n"
+	       );
+    help_print("exclude", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --exclude [file] : Exclude all SNPs in the given list.\n"
+	       );
+    help_print("keep", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --keep [fname]   : Only include individuals in the given list.\n"
+	       );
+    help_print("remove", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --remove [fname] : Exclude all individuals in the given list.\n"
+	       );
+    help_print("maf-succ", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --maf-succ       : Rule of succession MAF estimation (used in EIGENSTRAT).\n"
+"                     Given j observations of one allele and k >= j observations\n"
+"                     of the other, infer a MAF of (j+1) / (j+k+2), rather than\n"
+"                     the usual j / (j+k).\n"
+	       );
+    help_print("exponent", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --exponent [val] : When computing genomic distances, each marker has a weight\n"
+"                     of (2q(1-q))^{-val}, where q is the inferred MAF.  (Use\n"
+"                     --read-freq if you want to explicitly specify some or all\n"
+"                     of the MAFs.)\n"
+	       );
+    help_print("read-freq\tupdate-freq", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --read-freq [filename]    : Loads MAFs from the given PLINK-style or --freqx\n"
+"  --update-freq [filename]    frequency file, instead of just setting them to\n"
+"                              frequencies observed in the .ped/.bed file.\n"
+	       );
+    help_print("parallel", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --parallel [k] [n]        : Divide the output matrix into n pieces, and only\n"
+"                              compute the kth piece.  The primary output file\n"
+"                              will have the piece number included in its name,\n"
+"                              e.g. wdist.rel.13 or wdist.rel.13.gz if k is 13.\n"
+"                              Concatenating these files in order will yield the\n"
+"                              full matrix of interest.  (Yes, this can be done\n"
+"                              before unzipping.)\n"
+"                              N.B. This cannot be used to directly write a\n"
+"                              symmetric square matrix.  Choose the square0 or\n"
+"                              triangle format instead, and postprocess as\n"
+"                              necessary.\n"
+	       );
+    help_print("filter", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --filter [filename] [val] : Filter individuals (see PLINK documentation).\n"
+	       );
+    help_print("mfilter", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --mfilter [col]           : Specify column number in --filter file.\n"
+	       );
+    help_print("filter-cases", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --filter-cases            : Include only cases.\n"
+	       );
+    help_print("filter-controls", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --filter-controls         : Include only controls.\n"
+	       );
+    help_print("filter-males", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --filter-males            : Include only males.\n"
+	       );
+    help_print("filter-females", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --filter-females          : Include only females.\n"
+	       );
+    help_print("filter-founders", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --filter-founders         : Include only founders.\n"
+	       );
+    help_print("filter-nonfounders", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --filter-nonfounders      : Include only nonfounders.\n"
+	       );
+    help_print("missing-genotype", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --missing-genotype [char] : Code for missing genotype (normally '0').\n"
+	       );
+    help_print("missing-phenotype", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --missing-phenotype [val] : Code for missing phenotype (normally -9).\n"
+	       );
+    help_print("make-pheno", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --make-pheno [file] [val] : Specify binary phenotype, where cases have the\n"
+"                              given value.  If the value is '*', all\n"
+"                              individuals present in the phenotype file are\n"
+"                              affected (and other individuals in the .ped/.fam\n"
+"                              are unaffected).\n"
+	       );
+    help_print("tail-pheno", il, prct, argv, &umct, allms, prems, perms, plens,
+"  --tail-pheno [Ltop] {Hbt} : Form 'low' (<= Ltop, unaffected) and 'high'\n"
+"                              (greater than Hbt, affected) groups from scalar\n"
+"                              phenotype data.  If Hbt is unspecified, it is set\n"
+"                              equal to Ltop.  Central phenotype values are\n"
+"                              treated as missing.\n\n"
+	       );
+    if (!prct) {
+      printf(
+"One final note.  If a PLINK plain text fileset (.ped/.map) is given as input,\n"
+"WDIST will convert them to binary (without deleting the original files).  The\n"
+"converted files are saved as {output prefix}.bed, .bim, and .fam, and you are\n"
+"encouraged to use them directly in future analyses.\n"
+	     );
+    }
+  } while (il--);
+  if (umct) {
+    net_umct = umct;
+    printf("\nNo help entr%s for", (umct == 1)? "y" : "ies");
+    col_num = (umct == 1)? 17 : 19;
+    arg_uidx = 0;
+    while (umct) {
+      arg_uidx = next_non_set_unsafe(allms, arg_uidx);
+      umct--;
+      if (umct) {
+	if (net_umct == 2) {
+	  if (plens[arg_uidx] + col_num > 76) {
+	    printf("\n'%s'", argv[arg_uidx]);
+	    col_num = 2 + plens[arg_uidx];
+	  } else {
+	    printf(" '%s'", argv[arg_uidx]);
+	    col_num += 3 + plens[arg_uidx];
+	  }
+	} else {
+	  if (plens[arg_uidx] + col_num > 75) {
+	    printf("\n'%s',", argv[arg_uidx]);
+	    col_num = 3 + plens[arg_uidx];
+	  } else {
+	    printf(" '%s',", argv[arg_uidx]);
+	    col_num += 4 + plens[arg_uidx];
+	  }
+	}
+	if (umct == 1) {
+	  if (col_num > 76) {
+	    printf("\nor");
+	    col_num = 2;
+	  } else {
+	    printf(" or");
+	    col_num += 3;
+	  }
+	}
+      } else {
+	if (plens[arg_uidx] + col_num > 75) {
+	  printf("\n'%s'.\n", argv[arg_uidx]);
+	} else {
+	  printf(" '%s'.\n", argv[arg_uidx]);
+	}
+      }
+      arg_uidx++;
+    }
+  }
+  return RET_HELP;
+}
 
 int fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
   *target_ptr = fopen(fname, mode);
@@ -475,251 +1253,6 @@ int dispmsg(int retval) {
     break;
   case RET_READ_FAIL:
     printf("\nError: File read failure.\n");
-    break;
-  case RET_MOREHELP:
-    printf(
-"\nwdist [flags...]\n\n"
-"In the command line flag definitions that follow,\n"
-"  * [square brackets] denote a required parameter, where the text between the\n"
-"    brackets describes its nature.\n"
-"  * <angle brackets> denote an optional modifier (or if '|' is present, a set\n"
-"    of mutually exclusive optional modifiers).  Use the EXACT text in the\n"
-"    definition, e.g. '--distance square0'.\n"
-"  * {curly braces} denote an optional parameter, where the text between the\n"
-"    braces describes its nature.\n\n"
-"Each run must invoke at least one of the following calculations:\n\n"
-"  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <snps>\n"
-"    Writes a lower-triangular tab-delimited table of (weighted) genomic\n"
-"    distances in SNP units to {output prefix}.dist, and a list of the\n"
-"    corresponding family/individual IDs to {output prefix}.dist.id.  The first\n"
-"    row of the .dist file contains a single {genotype 1-genotype 2} distance,\n"
-"    the second row has the {genotype 1-genotype 3} and {genotype 2-genotype 3}\n"
-"    distances in that order, etc.\n"
-"    * If the 'square' or 'square0' modifier is present, a square matrix is\n"
-"      written instead; 'square0' fills the upper right triangle with zeroes.\n"
-"    * If the 'gz' modifier is present, a compressed .dist.gz file is written\n"
-"      instead of a plain text file.\n"
-"    * If the 'bin' modifier is present, a binary (square) matrix of\n"
-"      double-precision floating point values, suitable for loading from R, is\n"
-"      instead written to {output prefix}.dist.bin.  This can be combined with\n"
-"      'square0' if you still want the upper right zeroed out, or 'triangle' if\n"
-"      you don't want to pad the upper right at all.\n"
-"    * If the 'ibs' modifier is present, an identity-by-state matrix is written\n"
-"      to {output prefix}.mibs.  '1-ibs' causes distances expressed as genomic\n"
-"      proportions (i.e. 1 - IBS) to be written to {output prefix}.mdist.\n"
-"      Combine with 'snps' if you want to generate the usual .dist file as well.\n"
-"  --matrix\n"
-"  --distance-matrix\n"
-"    These generate space-delimited text matrices, and are included for\n"
-"    backwards compatibility with old scripts relying on the corresponding PLINK\n"
-"    flags.  New scripts should migrate to '--distance ibs' and '--distance\n"
-"    1-ibs', which support output formats better suited to parallel computation\n"
-"    and have more accurate handling of missing markers.\n\n"
-"  --genome <gz> <full> <unbounded>\n"
-"    Identity-by-descent analysis.  This yields the same output as PLINK's\n"
-"    --genome or --Z-genome, and the 'full' and 'unbounded' modifiers have the\n"
-"    same effect as PLINK's --full-genome and --unbounded flags.\n\n"
-#ifndef NOLAPACK
-"  --indep [window size]<kb> [step size (SNPs)] [VIF threshold]\n"
-#endif
-"  --indep-pairwise [window size]<kb> [step size (SNPs)] [r^2 threshold]\n"
-"    Generates a list of SNPs in approximate linkage equilibrium; see PLINK\n"
-"    documentation for more details.  With the 'kb' modifier, the window size is\n"
-"    in kilobase units instead of SNPs.  (Space before 'kb' is optional, i.e.\n"
-"    '--indep-pairwise 500 kb 5 0.5' and '--indep-pairwise 500kb 5 0.5' have the\n"
-"    same effect.)\n"
-"    Note that you need to rerun WDIST using --extract or --exclude on the\n"
-"    .prune.in/.prune.out file to apply the list to another computation.\n\n"
-"  --ibc\n"
-"    Calculates inbreeding coefficients in three different ways.\n"
-"    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
-"      a tool for Genome-wide Complex Trait Analysis.  Am J Hum Genet. 2011 Jan\n"
-"      88(1): 76-82.  This paper also describes the relationship matrix\n"
-"      computation we implement.\n\n"
-"  --make-rel <square | square0 | triangle> <gz | bin> <cov | ibc1 | ibc2>\n"
-"    Writes a lower-triangular variance-standardized relationship (coancestry)\n"
-"    matrix to {output prefix}.rel, and corresponding IDs to\n"
-"    {output prefix}.rel.id.\n"
-"    * 'square', 'square0', 'triangle', 'gz', and 'bin' act as they do on\n"
-"      --distance.\n"
-"    * The 'cov' modifier removes the variance standardization step, causing a\n"
-"      covariance matrix to be calculated instead.\n"
-"    * By default, the diagonal elements in the relationship matrix are based on\n"
-"      --ibc's Fhat3; use the 'ibc1' or 'ibc2' modifiers to base them on Fhat1\n"
-"      or Fhat2 instead.\n"
-"  --make-grm <no-gz> <cov | ibc1 | ibc2>\n"
-"    Writes the relationships in GCTA's gzipped list format, describing one pair\n"
-"    per line.  Note that this file explicitly stores the number of valid\n"
-"    observations (where neither individual has a missing call) for each pair,\n"
-"    which is useful input for some scripts.\n\n"
-"  --groupdist {iters} {d}\n"
-"    Considers three subsets of the distance matrix: pairs of affected\n"
-"    individuals, affected-unaffected pairs, and pairs of unaffected\n"
-"    individuals.  Each of these subsets has an average pairwise genomic\n"
-"    distance; --groupdist computes the differences between those three\n"
-"    averages, and estimates standard errors via delete-d jackknife.  Binary\n"
-"    phenotype data is required.\n"
-"    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
-"      down.  With no parameters, 100k iterations are run.\n\n"
-"  --regress-distance {iters} {d}\n"
-"    Linear regression of pairwise genomic distances on pairwise average\n"
-"    phenotypes and vice versa, using delete-d jackknife for standard errors.\n"
-"    Scalar phenotype data is required.  Defaults for iters and d are the same\n"
-"    as for --groupdist.\n\n"
-"  --regress-rel {iters} {d}\n"
-"    Linear regression of pairwise genomic relationships on pairwise average\n"
-"    phenotypes, and vice versa.\n\n"
-#ifndef NOLAPACK
-"  --regress-pcs [.evec file] <sex-specific> {max PCs}\n"
-"    Regresses phenotypes and genotypes on the given list of principal\n"
-"    components (produced by SMARTPCA), and then converts phenotypes to\n"
-"    Z-scores (optionally sex-specific).  Output is a .gen and a .sample file in\n"
-"    the Oxford IMPUTE/SNPTEST v2 format.\n"
-"    By default, at most 10 PCs are included in the regression.\n\n"
-"  --unrelated-heritability <strict> {tol} {initial covg} {initial covr}\n"
-"    REML estimate of additive heritability, iterating with an accelerated\n"
-"    variant of the EM algorithm until the rate of change of the log likelihood\n"
-"    function is less than tol.  Scalar phenotype data is required.\n"
-"    * The 'strict' modifier forces regular EM to be used.  tol defaults to\n"
-"      10^{-7}, genomic covariance prior defaults to 0.45, and residual\n"
-"      covariance prior defaults to (1 - covg).\n"
-"    * For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
-"      Genetic Correlations Explained by Common SNPs for Metabolic Syndrome\n"
-"      Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
-#endif
-"  --freq\n"
-"  --freqx\n"
-"    --freq generates an allele frequency report identical to that of PLINK\n"
-"    --freq; --freqx replaces the NCHROBS column with homozygote/heterozygote\n"
-"    counts, which (when reloaded with --read-freq) allow relationship and\n"
-"    distance matrix terms to be weighted consistently through multiple\n"
-"    filtering runs.\n\n"
-"  --write-snplist\n"
-"    Write a .snplist file listing the names of all SNPs that pass the filters\n"
-"    and inclusion thresholds you've specified.\n\n"
-"The following other flags are supported.  (Order of operations conforms to the\n"
-"PLINK specification at http://pngu.mgh.harvard.edu/~purcell/plink/flow.shtml.)\n"
-"  --script [fname] : Include command-line options from file.\n"
-"  --file [prefix]  : Specify prefix for .ped and .map files.  (When this flag\n"
-"                     isn't present, the prefix is assumed to be 'wdist'.)\n"
-"  --ped [filename] : Specify full name of .ped file.\n"
-"  --map [filename] : Specify full name of .map file.\n"
-"  --no-fid         : .fam/.ped file does not contain column 1 (family ID).\n"
-"  --no-parents     : .fam/.ped file does not contain columns 3-4 (parents).\n"
-"  --no-sex         : .fam/.ped file does not contain column 5 (sex).\n"
-"  --no-pheno       : .fam/.ped file does not contain column 6 (phenotype).\n"
-"  --bfile {prefix} : Specify .bed/.bim/.fam prefix (default 'wdist').\n"
-"  --bed [filename] : Specify full name of .bed file.\n"
-"  --bim [filename] : Specify full name of .bim file.\n"
-"  --fam [filename] : Specify full name of .fam file.\n"
-"  --data {prefix}  : Specify Oxford .gen/.sample prefix (default 'wdist').\n"
-"  --gen [filename] : Specify full name of .gen file.\n"
-"  --sample [fname] : Specify full name of .sample file.\n"
-"  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --groupdist\n"
-"                     or --regress-distance analysis, instead of recalculating\n"
-"                     it from scratch.\n"
-"  --out [prefix]   : Specify prefix for output files.\n"
-"  --silent         : Suppress output to console.\n"
-"  --pheno [fname]  : Specify alternate phenotype.\n"
-"  --mpheno [col]   : Specify phenotype column number in --pheno file.\n"
-"  --pheno-name [c] : If phenotype file has a header row, use column with the\n"
-"                     given name.\n"
-"  --pheno-merge    : If a phenotype is present in the original but not the\n"
-"                     alternate file, use the original value instead of setting\n"
-"                     the phenotype to missing.\n"
-"  --prune          : Remove individuals with missing phenotypes.\n"
-"  --1              : Affection phenotypes are interpreted as 0 = unaffected,\n"
-"                     1 = affected (instead of 0 = missing, 1 = unaffected,\n"
-"                     2 = affected).\n"
-// --map3 implicitly supported via autodetection
-// --compound-genotypes automatically supported
-"  --cow/--dog/--horse/--mouse/--sheep : Specify nonhuman species.\n"
-"  --autosome       : Include markers on all autosomes, and no others.\n"
-"  --chr [num...]   : Only consider markers on the given chromosome(s).  Valid\n"
-"                     choices for humans are 0 (unplaced), 1-22, and XY\n"
-"                     (pseudo-autosomal region of X).  Separate multiple\n"
-"                     chromosomes with spaces, e.g. '--chr 1 3 xy'.  The X, Y,\n"
-"                     and MT chromosome values are currently unsupported, but\n"
-"                     this will change in the future.\n"
-"  --maf {val}      : Minor allele frequency minimum threshold (default 0.01).\n"
-"                     Note that the default threshold is only applied if --maf\n"
-"                     is used without an accompanying value; if you do not\n"
-"                     invoke --maf, no MAF inclusion threshold is applied.\n"
-"                     Other inclusion thresholds work the same way.\n"
-"  --max-maf [val]  : Minor allele frequency maximum threshold.\n"
-"  --geno {val}     : Maximum per-SNP missing (default 0.1).\n"
-"  --mind {val}     : Maximum per-person missing (default 0.1).\n"
-"  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
-"                     default 0.001.\n"
-"  --hwe-all        : Given case-control data, don't ignore cases in HWE test.\n"
-"  --allow-no-sex   : Do not remove ambiguously-sexed individuals.\n"
-"                     (Automatically on if --no-sex flag is present.)\n"
-"  --nonfounders    : Include all individuals in MAF/HWE calculations.\n"
-"  --rel-cutoff {v} : Exclude individuals until no remaining pairs have\n"
-"  --grm-cutoff {v}   relatedness greater than the given cutoff value (default\n"
-"                     0.025).  Note that maximizing the remaining sample size is\n"
-"                     equivalent to the NP-hard maximum independent set problem,\n"
-"                     so we use a greedy algorithm instead of guaranteeing\n"
-"                     optimality.  (Use the --make-rel and --keep/--remove flags\n"
-"                     if you want to try to do better.)\n"
-"  --ppc-gap [val]  : Minimum number of base pairs, in thousands, between\n"
-"                     informative pairs of SNPs used in --genome PPC test.  500\n"
-"                     if unspecified.\n"
-"  --rseed [val]    : Set random number seed (relevant for jackknife standard\n"
-"                     error estimation).\n"
-"  --memory [val]   : Size, in MB, of initial malloc attempt.\n"
-"  --threads [val]  : Maximum number of concurrent threads.\n"
-"  --extract [file] : Only include SNPs in the given list.\n"
-"  --exclude [file] : Exclude all SNPs in the given list.\n"
-"  --keep [fname]   : Only include individuals in the given list.\n"
-"  --remove [fname] : Exclude all individuals in the given list.\n"
-"  --maf-succ       : Rule of succession MAF estimation (used in EIGENSTRAT).\n"
-"                     Given j observations of one allele and k >= j observations\n"
-"                     of the other, infer a MAF of (j+1) / (j+k+2), rather than\n"
-"                     the usual j / (j+k).\n"
-"  --exponent [val] : When computing genomic distances, each marker has a weight\n"
-"                     of (2q(1-q))^{-val}, where q is the inferred MAF.  (Use\n"
-"                     --read-freq if you want to explicitly specify some or all\n"
-"                     of the MAFs.)\n"
-"  --read-freq [filename]    : Loads MAFs from the given PLINK-style or --freqx\n"
-"  --update-freq [filename]    frequency file, instead of just setting them to\n"
-"                              frequencies observed in the .ped/.bed file.\n"
-"  --parallel [k] [n]        : Divide the output matrix into n pieces, and only\n"
-"                              compute the kth piece.  The primary output file\n"
-"                              will have the piece number included in its name,\n"
-"                              e.g. wdist.rel.13 or wdist.rel.13.gz if k is 13.\n"
-"                              Concatenating these files in order will yield the\n"
-"                              full matrix of interest.  (Yes, this can be done\n"
-"                              before unzipping.)\n"
-"                              N.B. This cannot be used to directly write a\n"
-"                              symmetric square matrix.  Choose the square0 or\n"
-"                              triangle format instead, and postprocess as\n"
-"                              necessary.\n"
-"  --filter [filename] [val] : Filter individuals (see PLINK documentation).\n"
-"  --mfilter [col]           : Specify column number in --filter file.\n"
-"  --filter-cases            : Include only cases.\n"
-"  --filter-controls         : Include only controls.\n"
-"  --filter-males            : Include only males.\n"
-"  --filter-females          : Include only females.\n"
-"  --filter-founders         : Include only founders.\n"
-"  --filter-nonfounders      : Include only nonfounders.\n"
-"  --missing-genotype [char] : Code for missing genotype (normally '0').\n"
-"  --missing-phenotype [val] : Code for missing phenotype (normally -9).\n"
-"  --make-pheno [file] [val] : Specify binary phenotype, where cases have the\n"
-"                              given value.  If the value is '*', all\n"
-"                              individuals present in the phenotype file are\n"
-"                              affected (and other individuals in the .ped/.fam\n"
-"                              are unaffected).\n"
-"  --tail-pheno [Ltop] {Hbt} : Form 'low' (<= Ltop, unaffected) and 'high'\n"
-"                              (greater than Hbt, affected) groups from scalar\n"
-"                              phenotype data.  If Hbt is unspecified, it is set\n"
-"                              equal to Ltop.  Central phenotype values are\n"
-"                              treated as missing.\n\n"
-"One final note.  If a PLINK plain text fileset (.ped/.map) is given as input,\n"
-"WDIST will convert them to binary (without deleting the original files).  The\n"
-"converted files are saved as {output prefix}.bed, .bim, and .fam, and you are\n"
-"encouraged to use them directly in future analyses.\n"
-         );
     break;
   }
   free_cond(subst_argv);
@@ -1062,13 +1595,7 @@ int strlen_se(char* ss) {
   return val;
 }
 
-#ifdef __cplusplus
-/*
-template<size_t length> int fixedstr_less(const char* left, const char* right) {
-  return strcmp(left, right, length) < 0;
-}
-*/
-#else
+#ifndef __cplusplus
 int double_cmp(const void* aa, const void* bb) {
   double cc = *((const double*)aa) - *((const double*)bb);
   if (cc > 0.0) {
@@ -1518,68 +2045,6 @@ void fill_weights(double* weights, double* set_allele_freqs, double exponent) {
 #endif
 }
 
-// These functions seem to optimize better than memset(arr, 0, x) under gcc.
-inline void fill_long_zero(long* larr, size_t size) {
-  long* lptr = &(larr[size]);
-  while (larr < lptr) {
-    *larr++ = 0;
-  }
-}
-
-inline void fill_ulong_zero(unsigned long* ularr, size_t size) {
-  unsigned long* ulptr = &(ularr[size]);
-  while (ularr < ulptr) {
-    *ularr++ = 0;
-  }
-}
-
-inline void fill_ulong_one(unsigned long* ularr, size_t size) {
-  unsigned long* ulptr = &(ularr[size]);
-  while (ularr < ulptr) {
-    *ularr++ = ~0LU;
-  }
-}
-
-inline void fill_int_zero(int* iarr, size_t size) {
-#if __LP64__
-  fill_long_zero((long*)iarr, size >> 1);
-  if (size & 1) {
-    iarr[size - 1] = 0;
-  }
-#else
-  fill_long_zero((long*)iarr, size);
-#endif
-}
-
-inline void fill_uint_zero(unsigned int* uiarr, size_t size) {
-#if __LP64__
-  fill_long_zero((long*)uiarr, size >> 1);
-  if (size & 1) {
-    uiarr[size - 1] = 0;
-  }
-#else
-  fill_long_zero((long*)uiarr, size);
-#endif
-}
-
-inline void fill_int_one(unsigned int* iarr, size_t size) {
-#if __LP64__
-  fill_ulong_one((unsigned long*)iarr, size >> 1);
-  if (size & 1) {
-    iarr[size - 1] = -1;
-  }
-#else
-  fill_ulong_one((unsigned long*)iarr, size);
-#endif
-}
-
-inline void fill_double_zero(double* darr, size_t size) {
-  double* dptr = &(darr[size]);
-  while (darr < dptr) {
-    *darr++ = 0.0;
-  }
-}
-
 void fill_weights_r(double* weights, double* set_allele_freqs, int var_std) {
   int ii;
   int jj;
@@ -1872,47 +2337,6 @@ void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* set_allele_fre
   }
 }
 
-inline void set_bit_noct(unsigned long* exclude_arr, int loc) {
-  exclude_arr[loc / BITCT] |= (1LU << (loc % BITCT));
-}
-
-void set_bit(unsigned long* exclude_arr, int loc, unsigned int* exclude_ct_ptr) {
-  int maj = loc / BITCT;
-  unsigned long min = 1LU << (loc % BITCT);
-  if (!(exclude_arr[maj] & min)) {
-    exclude_arr[maj] |= min;
-    *exclude_ct_ptr += 1;
-  }
-}
-
-void clear_bit(unsigned long* exclude_arr, int loc, unsigned int* include_ct_ptr) {
-  int maj = loc / BITCT;
-  unsigned long min = 1LU << (loc % BITCT);
-  if (exclude_arr[maj] & min) {
-    exclude_arr[maj] -= min;
-    *include_ct_ptr += 1;
-  }
-}
-
-inline int is_set(unsigned long* exclude_arr, int loc) {
-  return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
-}
-
-// unsafe if you don't know there's another included marker or person remaining
-inline int next_non_set_unsafe(unsigned long* exclude_arr, int loc) {
-  int idx = loc / BITCT;
-  unsigned long ulii;
-  exclude_arr = &(exclude_arr[idx]);
-  ulii = (~(*exclude_arr)) >> (loc % BITCT);
-  if (ulii) {
-    return loc + __builtin_ctzl(ulii);
-  }
-  do {
-    idx++;
-  } while (*(++exclude_arr) == ~0LU);
-  return (idx * BITCT) + __builtin_ctzl(~(*exclude_arr));
-}
-
 // The following functions may come in handy if we need to store large array(s)
 // of auxiliary ternary data in memory.
 //
@@ -1948,14 +2372,14 @@ int chrom_exists(Chrom_info* chrom_info_ptr, unsigned int chrom_idx) {
   return (chrom_info_ptr->chrom_mask & (1LLU << chrom_idx));
 }
 
-int get_marker_chrom(Chrom_info* chrom_info_ptr, unsigned int marker_idx) {
+int get_marker_chrom(Chrom_info* chrom_info_ptr, unsigned int marker_uidx) {
   unsigned int* marker_binsearch = chrom_info_ptr->chrom_file_order_marker_idx;
   int chrom_min = 0;
   int chrom_ct = chrom_info_ptr->chrom_ct;
   int chrom_cur;
   while (chrom_ct - chrom_min > 1) {
     chrom_cur = (chrom_ct + chrom_min) / 2;
-    if (marker_binsearch[chrom_cur] > marker_idx) {
+    if (marker_binsearch[chrom_cur] > marker_uidx) {
       chrom_ct = chrom_cur;
     } else {
       chrom_min = chrom_cur;
@@ -4495,13 +4919,13 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, unsigned int unfilter
 }
 
 int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char extractname_0, char excludename_0, char freqname_0, int calculation_type) {
-  int marker_ids_needed = (extractname_0 || excludename_0 || freqname_0 || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE)));
+  int marker_ids_needed = (extractname_0 || excludename_0 || freqname_0 || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE | CALC_REGRESS_PCS)));
   unsigned int unfiltered_marker_ct = 0;
   unsigned long max_marker_id_len = 0;
   unsigned int plink_maxsnp = 4;
   unsigned long long loaded_chrom_mask = 0;
   int last_chrom = -1;
-  int marker_pos_needed = calculation_type & (CALC_GENOME | CALC_LD_PRUNE);
+  int marker_pos_needed = calculation_type & (CALC_GENOME | CALC_LD_PRUNE | CALC_REGRESS_PCS);
   int chrom_info_needed = (freqname_0 || marker_pos_needed || (calculation_type & CALC_FREQ));
   unsigned int species = chrom_info_ptr->species;
   char* bufptr;
@@ -4595,7 +5019,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
     }
   }
   if (binary_files) {
-    if (freqname_0 || (calculation_type & CALC_FREQ)) {
+    if (freqname_0 || (calculation_type & (CALC_FREQ | CALC_REGRESS_PCS))) {
       *marker_alleles_ptr = (char*)wkspace_alloc(unfiltered_marker_ct * 2 * sizeof(char));
       if (!(*marker_alleles_ptr)) {
 	return RET_NOMEM;
@@ -4808,6 +5232,8 @@ int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34,
   }
   person_ids = *person_ids_ptr;
   if (fam_col_34) {
+    // could make this conditional, but memory footprint of this is typically
+    // negligible
     if (wkspace_alloc_c_checked(paternal_ids_ptr, unfiltered_indiv_ct * max_paternal_id_len)) {
       return RET_NOMEM;
     }
@@ -6238,8 +6664,6 @@ void text_normalize_marker_alleles(char* marker_alleles, unsigned int unfiltered
     marker_alleles[2 * marker_uidx] = marker_alleles[4 * marker_uidx + 1];
     marker_alleles[2 * marker_uidx + 1] = marker_alleles[4 * marker_uidx];
   }
-  // wkspace_reset(marker_alleles);
-  marker_alleles = (char*)wkspace_alloc(unfiltered_marker_ct * 2);
 }
 
 int text_load_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned long* founder_info, int nonfounders, char* marker_alleles, unsigned long long* line_mids, int pedbuflen, int hwe_all, char* pheno_c, int* hwe_lls, int* hwe_lhs, int* hwe_hhs, int* hwe_ll_allfs, int* hwe_lh_allfs, int* hwe_hh_allfs, int* ll_cts, int* lh_cts, int* hh_cts) {
@@ -6679,6 +7103,101 @@ int write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, int unfi
   printf("Final list of SNP IDs written to %s.\n", outname);
   return 0;
 }
+
+const char* gen_strs[] = {" 1 0 0", " 0 0 0", " 0 1 0", " 0 0 1"};
+
+int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int max_pcs, FILE* pedfile, int bed_offset, unsigned int marker_ct, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, Chrom_info* chrom_info_ptr, unsigned int* marker_pos, unsigned int indiv_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len, unsigned char* sex_info, double* pheno_d, FILE** outfile_ptr, char* outname, char* outname_end) {
+  unsigned char* wkspace_mark = wkspace_base;
+  unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  unsigned int marker_uidx;
+  unsigned int marker_idx;
+  unsigned int indiv_uidx;
+  unsigned int indiv_idx;
+  unsigned char* loadbuf;
+  unsigned int* missing_cts;
+  char* id_buf;
+  int uii;
+  char* person_id_ptr;
+  if (wkspace_alloc_uc_checked(&loadbuf, unfiltered_indiv_ct4)) {
+    return RET_NOMEM;
+  }
+  if (wkspace_alloc_ui_checked(&missing_cts, unfiltered_indiv_ct * sizeof(int))) {
+    return RET_NOMEM;
+  }
+  if (wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
+    return RET_NOMEM;
+  }
+  fill_uint_zero(missing_cts, unfiltered_indiv_ct);
+  strcpy(outname_end, ".gen");
+  if (fopen_checked(outfile_ptr, outname, "w")) {
+    return RET_OPEN_FAIL;
+  }
+  // stub, no regression yet
+  marker_uidx = 0;
+  if (fseeko(pedfile, bed_offset, SEEK_SET)) {
+    return RET_READ_FAIL;
+  }
+  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+    if (is_set(marker_exclude, marker_uidx)) {
+      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+      if (fseeko(pedfile, bed_offset + (unsigned long long)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
+	return RET_READ_FAIL;
+      }
+    }
+    if (fread(loadbuf, 1, unfiltered_indiv_ct4, pedfile) < unfiltered_indiv_ct4) {
+      return RET_READ_FAIL;
+    }
+    if (fprintf(*outfile_ptr, "%d %s %u %c %c", get_marker_chrom(chrom_info_ptr, marker_uidx), &(marker_ids[marker_uidx * max_marker_id_len]), marker_pos[marker_uidx], marker_alleles[2 * marker_uidx], marker_alleles[2 * marker_uidx + 1]) < 0) {
+      return RET_WRITE_FAIL;
+    }
+    indiv_uidx = 0;
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+      uii = ((loadbuf[indiv_uidx / 4] >> ((indiv_uidx % 4) * 2)) & 3);
+      if (fwrite_checked(gen_strs[uii], 6, *outfile_ptr)) {
+	return RET_WRITE_FAIL;
+      }
+      if (uii == 1) {
+	missing_cts[indiv_uidx] += 1;
+      }
+      indiv_uidx++;
+    }
+    if (fwrite_checked("\n", 1, *outfile_ptr)) {
+      return RET_WRITE_FAIL;
+    }
+    marker_uidx++;
+  }
+  if (fclose_null(outfile_ptr)) {
+    return RET_WRITE_FAIL;
+  }
+  strcpy(outname_end, ".sample");
+  if (fopen_checked(outfile_ptr, outname, "w")) {
+    return RET_OPEN_FAIL;
+  }
+  if (fprintf(*outfile_ptr, "ID_1 ID_2 missing sex phenotype\n0 0 0 D P\n") < 0) {
+    return RET_WRITE_FAIL;
+  }
+  indiv_uidx = 0;
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+    person_id_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
+    uii = strlen_se(person_id_ptr);
+    memcpy(id_buf, person_id_ptr, uii);
+    id_buf[uii] = '\0';
+    if (fprintf(*outfile_ptr, "%s %s %g %u %g\n", id_buf, next_item(person_id_ptr), (double)missing_cts[indiv_uidx] / (double)marker_ct, sex_info[indiv_uidx], pheno_d[indiv_uidx]) < 0) {
+      return RET_WRITE_FAIL;
+    }
+    indiv_uidx++;
+  }
+  if (fclose_null(outfile_ptr)) {
+    return RET_WRITE_FAIL;
+  }
+  *outname_end = '\0';
+  printf("Principal component regression residuals and %sphenotype Z-scores %s%s.gen and %s.sample.\n", regress_pcs_sex_specific? "sex-specific " : "", regress_pcs_sex_specific? "\nwritten to " : "written to\n", outname, outname); 
+  wkspace_reset(wkspace_mark);
+  return 0;
+}
+
 
 int distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, char* outname, char* outname_end, const char* varsuffix, const char* mode, int calculation_type, int parallel_idx, int parallel_tot) {
   if (calculation_type & CALC_DISTANCE_SNPS) {
@@ -8219,7 +8738,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   //   marker_alleles[4 * ii] is identity of major allele at SNP ii
   //   marker_alleles[4 * ii + 1] is identity of 2nd most frequent allele, etc.
   char* marker_alleles = NULL;
-  char* marker_alleles_tmp = NULL;
   unsigned int* marker_allele_cts;
   unsigned int* missing_cts;
   int retval = RET_SUCCESS;
@@ -8401,6 +8919,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     goto wdist_ret_INVALID_CMDLINE;
   } else if ((calculation_type & CALC_UNRELATED_HERITABILITY) && (!pheno_d)) {
     printf("Error: --unrelated-heritability requires scalar phenotype.\n");
+    goto wdist_ret_INVALID_CMDLINE;
+  } else if ((calculation_type & CALC_REGRESS_PCS) && (!pheno_d)) {
+    printf("Error: --regress-pcs requires scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
   }
 
@@ -8707,6 +9228,14 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (calculation_type & CALC_LD_PRUNE) {
     retval = ld_prune(pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, indiv_exclude, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type);
+    if (retval) {
+      goto wdist_ret_2;
+    }
+  }
+
+  if (calculation_type & CALC_REGRESS_PCS) {
+    // do this before marker_alleles is overwritten in memory...
+    retval = calc_regress_pcs(evecname, regress_pcs_sex_specific, max_pcs, pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, chrom_info_ptr, marker_pos, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, sex_info, pheno_d, &outfile, outname, outname_end);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -10584,6 +11113,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (calculation_type & CALC_GROUPDIST) {
+    wkspace_mark = wkspace_base;
     collapse_arr(pheno_c, 1, indiv_exclude, unfiltered_indiv_ct);
     low_ct = 0;
     high_ct = 0;
@@ -10731,8 +11261,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       printf("  AA mean - UU mean avg difference (s.e.): %g (%g)\n", calc_result[0][0] - calc_result[2][0], sqrt(((high_ct + low_ct) / ((double)jackknife_d)) * (calc_result[3][0] + calc_result[5][0] - 2 * calc_result[7][0])));
       printf("  AU mean - UU mean avg difference (s.e.): %g (%g)\n", calc_result[1][0] - calc_result[2][0], sqrt(((high_ct + low_ct) / ((double)jackknife_d)) * (calc_result[4][0] + calc_result[5][0] - 2 * calc_result[8][0])));
     }
+    wkspace_reset(wkspace_mark);
   }
   if (calculation_type & CALC_REGRESS_DISTANCE) {
+    wkspace_mark = wkspace_base;
     // beta = (mean(xy) - mean(x)*mean(y)) / (mean(x^2) - mean(x)^2)
     if (unfiltered_indiv_ct != indiv_ct) {
       collapse_arr((char*)pheno_d, sizeof(double), indiv_exclude, unfiltered_indiv_ct);
@@ -10830,6 +11362,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     regress_iters = jackknife_iters * thread_ct;
     printf("\rJackknife s.e.: %g\n", sqrt((indiv_ct / ((double)jackknife_d)) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
     printf("Jackknife s.e. (y = avg phenotype): %g\n", sqrt((indiv_ct / ((double)jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
+    wkspace_reset(wkspace_mark);
   }
 
   if (calculation_type & CALC_GENOME) {
@@ -10871,7 +11404,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   gzclose_cond(gz_outfile3);
   gzclose_cond(gz_outfile2);
   gzclose_cond(gz_outfile);
-  free_cond(marker_alleles_tmp);
   fclose_cond(bedtmpfile);
   fclose_cond(bimtmpfile);
   fclose_cond(famtmpfile);
@@ -11061,6 +11593,7 @@ int main(int argc, char** argv) {
   int regress_pcs_sex_specific = 0;
   int max_pcs = 10;
   int freqx = 0;
+  int silent = 0;
   Chrom_info chrom_info;
   char* argptr2;
   int cur_arg_start;
@@ -11674,7 +12207,11 @@ int main(int argc, char** argv) {
 
     case 'h':
       if (!memcmp(argptr2, "elp", 4)) {
-        return dispmsg(RET_MOREHELP);
+	ii = param_count(argc, argv, cur_arg);
+	if ((argc != 2 + ii) || subst_argv) {
+	  printf("(--help present, ignoring other flags.)\n");
+	}
+	return disp_help(ii, &(argv[cur_arg + 1]));
       } else if (!memcmp(argptr2, "orse", 5)) {
 	if (species_flag(&chrom_info, SPECIES_HORSE)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
@@ -12460,7 +12997,7 @@ int main(int argc, char** argv) {
 	printf("Error: --regress-pcs does not work without LAPACK.  Use a wdist build with 'L'\n at the end of the version number.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
 #else
-	if (evecname[0]) {
+	if (calculation_type & CALC_REGRESS_PCS) {
 	  printf("Error: Duplicate --regress-pcs flag.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
@@ -12472,19 +13009,22 @@ int main(int argc, char** argv) {
 	  return dispmsg(RET_OPEN_FAIL);
 	}
 	strcpy(evecname, argv[cur_arg + 1]);
-	if (!strcmp(argv[cur_arg + 2], "sex-specific")) {
-	  regress_pcs_sex_specific = 1;
+	if (ii != 1) {
+	  if (!strcmp(argv[cur_arg + 2], "sex-specific")) {
+	    regress_pcs_sex_specific = 1;
+	  }
 	}
 	if (ii == 2 + regress_pcs_sex_specific) {
 	  max_pcs = atoi(argv[cur_arg + ii]);
 	  if (max_pcs < 1) {
-	    printf("Error: Invalid --regress-pcs principal component ceiling.%s", errstr_append);
+	    printf("Error: Invalid --regress-pcs maximum principal component count.%s", errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	} else if (ii == 3) {
-	  printf("Error: Too many --regress-pcs parameters.%s", errstr_append);
+	  printf("Error: Extra --regress-pcs parameter.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
+	calculation_type |= CALC_REGRESS_PCS;
 	cur_arg += ii + 1;
 #endif
       } else if (!memcmp(argptr2, "nrelated-heritability", 22)) {
@@ -12647,7 +13187,7 @@ int main(int argc, char** argv) {
 	}
 	cur_arg++;
       } else if (!memcmp(argptr2, "ilent", 6)) {
-	freopen("/dev/null", "w", stdout);
+	silent = 1;
 	cur_arg += 1;
       }
       break;
@@ -12740,6 +13280,11 @@ int main(int argc, char** argv) {
   if (!bubble) {
     return dispmsg(RET_NOMEM);
   }
+
+  if (silent) {
+    freopen("/dev/null", "w", stdout);
+  }
+
   wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
   if ((malloc_size_mb > MALLOC_DEFAULT_MB) && !wkspace_ua) {
     printf("%ld MB memory allocation failed.  Using default allocation behavior.\n", malloc_size_mb);
