@@ -486,7 +486,7 @@ int edit1_match(int len1, char* s1, int len2, char* s2) {
 
 #define MAX_EQUAL_HELP_PARAMS 5
 
-void help_print(char* cur_params, int iters_left, unsigned int param_ct, char** argv, unsigned int* unmatched_ct_ptr, unsigned long* all_match_arr, unsigned long* prefix_match_arr, unsigned long* perfect_match_arr, unsigned int* param_lens, char* payload) {
+void help_print(const char* cur_params, int iters_left, unsigned int param_ct, char** argv, unsigned int* unmatched_ct_ptr, unsigned long* all_match_arr, unsigned long* prefix_match_arr, unsigned long* perfect_match_arr, unsigned int* param_lens, const char* payload) {
   // unmatched_ct fixed during call, *unmatched_ct_ptr may decrease
   unsigned int unmatched_ct = *unmatched_ct_ptr;
   int print_this = 0;
@@ -586,12 +586,12 @@ void help_print(char* cur_params, int iters_left, unsigned int param_ct, char** 
       if (print_this) {
 	payload_len = strlen(payload);
 	if (payload[payload_len - 2] == '\n') {
-	  payload_end = &(payload[payload_len - 1]);
+	  payload_end = (char*)(&(payload[payload_len - 1]));
 	} else {
-	  payload_end = &(payload[payload_len]);
+	  payload_end = (char*)(&(payload[payload_len]));
 	}
 	printf("\n");
-	payload_ptr = payload;
+	payload_ptr = (char*)payload;
 	do {
 	  line_end = strchr(payload_ptr, '\n') + 1;
 	  uii = (unsigned int)(line_end - payload_ptr);
