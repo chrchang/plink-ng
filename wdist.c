@@ -486,9 +486,21 @@ int edit1_match(int len1, char* s1, int len2, char* s2) {
 
 #define MAX_EQUAL_HELP_PARAMS 5
 
-void help_print(const char* cur_params, int iters_left, unsigned int param_ct, char** argv, unsigned int* unmatched_ct_ptr, unsigned long* all_match_arr, unsigned long* prefix_match_arr, unsigned long* perfect_match_arr, unsigned int* param_lens, const char* payload) {
+typedef struct {
+  int iters_left;
+  unsigned int param_ct;
+  char** argv;
+  unsigned int unmatched_ct;
+  unsigned long* all_match_arr;
+  unsigned long* prefix_match_arr;
+  unsigned long* perfect_match_arr;
+  unsigned int* param_lens;
+  int preprint_newline;
+} Help_ctrl;
+
+void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, int postprint_newline, const char* payload) {
   // unmatched_ct fixed during call, *unmatched_ct_ptr may decrease
-  unsigned int unmatched_ct = *unmatched_ct_ptr;
+  unsigned int unmatched_ct = help_ctrl_ptr->unmatched_ct;
   int print_this = 0;
   int cur_param_lens[MAX_EQUAL_HELP_PARAMS];
   char* cur_param_start[MAX_EQUAL_HELP_PARAMS];
@@ -501,7 +513,7 @@ void help_print(const char* cur_params, int iters_left, unsigned int param_ct, c
   char* payload_ptr;
   char* line_end;
   char* payload_end;
-  if (param_ct) {
+  if (help_ctrl_ptr->param_ct) {
     strcpy(tbuf, cur_params);
     cur_param_ct = 1;
     cur_param_start[0] = tbuf;
@@ -511,17 +523,17 @@ void help_print(const char* cur_params, int iters_left, unsigned int param_ct, c
       cur_param_start[cur_param_ct++] = payload_ptr;
       payload_ptr = strchr(payload_ptr, '\t');
     }
-    if (iters_left) {
-      if (*unmatched_ct_ptr) {
+    if (help_ctrl_ptr->iters_left) {
+      if (help_ctrl_ptr->unmatched_ct) {
 	arg_uidx = 0;
-	if (iters_left == 2) {
+	if (help_ctrl_ptr->iters_left == 2) {
 	  for (arg_idx = 0; arg_idx < unmatched_ct; arg_idx++) {
-	    arg_uidx = next_non_set_unsafe(all_match_arr, arg_uidx);
+	    arg_uidx = next_non_set_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
 	    for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
-	      if (!strcmp(cur_param_start[cur_param_idx], argv[arg_uidx])) {
-		set_bit_noct(perfect_match_arr, arg_uidx);
-		set_bit_noct(prefix_match_arr, arg_uidx);
-		set_bit_sub(all_match_arr, arg_uidx, unmatched_ct_ptr);
+	      if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
+		set_bit_noct(help_ctrl_ptr->perfect_match_arr, arg_uidx);
+		set_bit_noct(help_ctrl_ptr->prefix_match_arr, arg_uidx);
+		set_bit_sub(help_ctrl_ptr->all_match_arr, arg_uidx, &(help_ctrl_ptr->unmatched_ct));
 		break;
 	      }
 	    }
@@ -532,13 +544,13 @@ void help_print(const char* cur_params, int iters_left, unsigned int param_ct, c
 	    cur_param_lens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
 	  }
 	  for (arg_idx = 0; arg_idx < unmatched_ct; arg_idx++) {
-	    arg_uidx = next_non_set_unsafe(all_match_arr, arg_uidx);
-	    uii = param_lens[arg_uidx];
+	    arg_uidx = next_non_set_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
+	    uii = help_ctrl_ptr->param_lens[arg_uidx];
 	    for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
 	      if (cur_param_lens[cur_param_idx] > uii) {
-		if (!memcmp(argv[arg_uidx], cur_param_start[cur_param_idx], uii)) {
-		  set_bit_noct(prefix_match_arr, arg_uidx);
-		  set_bit_sub(all_match_arr, arg_uidx, unmatched_ct_ptr);
+		if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], uii)) {
+		  set_bit_noct(help_ctrl_ptr->prefix_match_arr, arg_uidx);
+		  set_bit_sub(help_ctrl_ptr->all_match_arr, arg_uidx, &(help_ctrl_ptr->unmatched_ct));
 		  break;
 		}
 	      }
@@ -551,21 +563,21 @@ void help_print(const char* cur_params, int iters_left, unsigned int param_ct, c
       for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
 	cur_param_lens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
       }
-      for (arg_uidx = 0; arg_uidx < param_ct; arg_uidx++) {
-	if (is_set(prefix_match_arr, arg_uidx)) {
+      for (arg_uidx = 0; arg_uidx < help_ctrl_ptr->param_ct; arg_uidx++) {
+	if (is_set(help_ctrl_ptr->prefix_match_arr, arg_uidx)) {
 	  if (!print_this) {
-	    if (is_set(perfect_match_arr, arg_uidx)) {
+	    if (is_set(help_ctrl_ptr->perfect_match_arr, arg_uidx)) {
 	      for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
-		if (!strcmp(cur_param_start[cur_param_idx], argv[arg_uidx])) {
+		if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
 		  print_this = 1;
 		  break;
 		}
 	      }
 	    } else {
-	      uii = param_lens[arg_uidx];
+	      uii = help_ctrl_ptr->param_lens[arg_uidx];
 	      for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
 		if (cur_param_lens[cur_param_idx] > uii) {
-		  if (!memcmp(argv[arg_uidx], cur_param_start[cur_param_idx], uii)) {
+		  if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], uii)) {
 		    print_this = 1;
 		    break;
 		  }
@@ -575,9 +587,9 @@ void help_print(const char* cur_params, int iters_left, unsigned int param_ct, c
 	  }
 	} else {
 	  for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
-	    if (edit1_match(cur_param_lens[cur_param_idx], cur_param_start[cur_param_idx], param_lens[arg_uidx], argv[arg_uidx])) {
+	    if (edit1_match(cur_param_lens[cur_param_idx], cur_param_start[cur_param_idx], help_ctrl_ptr->param_lens[arg_uidx], help_ctrl_ptr->argv[arg_uidx])) {
 	      print_this = 1;
-	      set_bit_sub(all_match_arr, arg_uidx, unmatched_ct_ptr);
+	      set_bit_sub(help_ctrl_ptr->all_match_arr, arg_uidx, &(help_ctrl_ptr->unmatched_ct));
 	      break;
 	    }
 	  }
@@ -590,7 +602,10 @@ void help_print(const char* cur_params, int iters_left, unsigned int param_ct, c
 	} else {
 	  payload_end = (char*)(&(payload[payload_len]));
 	}
-	printf("\n");
+	if (help_ctrl_ptr->preprint_newline) {
+	  printf("\n");
+	}
+	help_ctrl_ptr->preprint_newline = postprint_newline;
 	payload_ptr = (char*)payload;
 	do {
 	  line_end = strchr(payload_ptr, '\n') + 1;
@@ -611,38 +626,38 @@ void help_print(const char* cur_params, int iters_left, unsigned int param_ct, c
   }
 }
 
-int disp_help(unsigned int prct, char** argv) {
+int disp_help(unsigned int param_ct, char** argv) {
   // yes, this is overkill.  But it should be a good template for other
   // command-line programs to use.
-  int il = prct? 2 : 0; // iterations left (for main loop)
-  unsigned int param_ctl = (prct + (BITCT - 1)) / BITCT;
-  unsigned int* plens = NULL;
-  unsigned long* allms = NULL; // all matched terms
-  unsigned long* prems = NULL; // perfect or prefix matches
-  unsigned long* perms = NULL; // perfect matches only
-  unsigned int umct = prct; // number of unmatched terms
+  Help_ctrl help_ctrl;
+  unsigned int param_ctl = (param_ct + (BITCT - 1)) / BITCT;
   unsigned int arg_uidx;
   unsigned int arg_idx;
-  unsigned int net_umct;
+  unsigned int net_unmatched_ct;
   int col_num;
-  if (prct) {
-    plens = (unsigned int*)malloc(prct * sizeof(int));
-    if (!plens) {
+  help_ctrl.iters_left = param_ct? 2 : 0;
+  help_ctrl.param_ct = param_ct;
+  help_ctrl.argv = argv;
+  help_ctrl.unmatched_ct = param_ct;
+  if (param_ct) {
+    help_ctrl.param_lens = (unsigned int*)malloc(param_ct * sizeof(int));
+    if (!help_ctrl.param_lens) {
       return RET_NOMEM;
     }
-    allms = (unsigned long*)malloc(param_ctl * 3 * sizeof(long));
-    if (!allms) {
-      free(plens);
+    help_ctrl.all_match_arr = (unsigned long*)malloc(param_ctl * 3 * sizeof(long));
+    if (!help_ctrl.all_match_arr) {
+      free(help_ctrl.param_lens);
       return RET_NOMEM;
     }
-    for (arg_idx = 0; arg_idx < prct; arg_idx++) {
-      plens[arg_idx] = strlen(argv[arg_idx]);
+    for (arg_idx = 0; arg_idx < param_ct; arg_idx++) {
+      help_ctrl.param_lens[arg_idx] = strlen(argv[arg_idx]);
     }
-    fill_ulong_zero(allms, param_ctl * 3);
-    prems = &(allms[param_ctl]);
-    perms = &(allms[param_ctl * 2]);
+    fill_ulong_zero(help_ctrl.all_match_arr, param_ctl * 3);
+    help_ctrl.prefix_match_arr = &(help_ctrl.all_match_arr[param_ctl]);
+    help_ctrl.perfect_match_arr = &(help_ctrl.all_match_arr[param_ctl * 2]);
+    help_ctrl.preprint_newline = 1;
   }
-  if (!prct) {
+  if (!param_ct) {
     printf(
 "\nwdist [flags...]\n\n"
 "In the command line flag definitions that follow,\n"
@@ -657,7 +672,7 @@ int disp_help(unsigned int prct, char** argv) {
 	   );
   }
   do {
-    help_print("distance", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("distance", &help_ctrl, 1,
 "  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <snps>\n"
 "    Writes a lower-triangular tab-delimited table of (weighted) genomic\n"
 "    distances in SNP units to {output prefix}.dist, and a list of the\n"
@@ -679,7 +694,7 @@ int disp_help(unsigned int prct, char** argv) {
 "      proportions (i.e. 1 - IBS) to be written to {output prefix}.mdist.\n"
 "      Combine with 'snps' if you want to generate the usual .dist file as well.\n"
 	       );
-    help_print("matrix\tdistance-matrix", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("matrix\tdistance-matrix", &help_ctrl, 1,
 "  --matrix\n"
 "  --distance-matrix\n"
 "    These generate space-delimited text matrices, and are included for\n"
@@ -688,7 +703,7 @@ int disp_help(unsigned int prct, char** argv) {
 "    1-ibs', which support output formats better suited to parallel computation\n"
 "    and have more accurate handling of missing markers.\n\n"
 		);
-    help_print("genome\tZ-genome", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("genome\tZ-genome", &help_ctrl, 1,
 "  --genome <gz> <full> <unbounded>\n"
 "    Identity-by-descent analysis.  This yields the same output as PLINK's\n"
 "    --genome or --Z-genome, and the 'full' and 'unbounded' modifiers have the\n"
@@ -696,10 +711,10 @@ int disp_help(unsigned int prct, char** argv) {
 		);
     help_print(
 #ifndef NOLAPACK
-"indep\tindep-pairwise", il, prct, argv, &umct, allms, prems, perms, plens,
+"indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (SNPs)] [VIF threshold]\n"
 #else
-"indep-pairwise", NULL, il, prct, argv, &umct, allms, prems, perms, plens,
+"indep-pairwise", NULL, &help_ctrl, 1,
 #endif
 "  --indep-pairwise [window size]<kb> [step size (SNPs)] [r^2 threshold]\n"
 "    Generates a list of SNPs in approximate linkage equilibrium; see PLINK\n"
@@ -710,7 +725,7 @@ int disp_help(unsigned int prct, char** argv) {
 "    Note that you need to rerun WDIST using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
 		);
-    help_print("ibc", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("ibc", &help_ctrl, 1,
 "  --ibc\n"
 "    Calculates inbreeding coefficients in three different ways.\n"
 "    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
@@ -718,7 +733,7 @@ int disp_help(unsigned int prct, char** argv) {
 "      88(1): 76-82.  This paper also describes the relationship matrix\n"
 "      computation we implement.\n\n"
 	       );
-    help_print("make-rel", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("make-rel", &help_ctrl, 1,
 "  --make-rel <square | square0 | triangle> <gz | bin> <cov | ibc1 | ibc2>\n"
 "    Writes a lower-triangular variance-standardized relationship (coancestry)\n"
 "    matrix to {output prefix}.rel, and corresponding IDs to\n"
@@ -731,14 +746,14 @@ int disp_help(unsigned int prct, char** argv) {
 "      --ibc's Fhat3; use the 'ibc1' or 'ibc2' modifiers to base them on Fhat1\n"
 "      or Fhat2 instead.\n"
                );
-    help_print("make-grm", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("make-grm", &help_ctrl, 1,
 "  --make-grm <no-gz> <cov | ibc1 | ibc2>\n"
 "    Writes the relationships in GCTA's gzipped list format, describing one pair\n"
 "    per line.  Note that this file explicitly stores the number of valid\n"
 "    observations (where neither individual has a missing call) for each pair,\n"
 "    which is useful input for some scripts.\n\n"
 	       );
-    help_print("groupdist", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("groupdist", &help_ctrl, 1,
 "  --groupdist {iters} {d}\n"
 "    Considers three subsets of the distance matrix: pairs of affected\n"
 "    individuals, affected-unaffected pairs, and pairs of unaffected\n"
@@ -749,28 +764,27 @@ int disp_help(unsigned int prct, char** argv) {
 "    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
 "      down.  With no parameters, 100k iterations are run.\n\n"
 	       );
-    help_print("regress-distance", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("regress-distance", &help_ctrl, 1,
 "  --regress-distance {iters} {d}\n"
 "    Linear regression of pairwise genomic distances on pairwise average\n"
 "    phenotypes and vice versa, using delete-d jackknife for standard errors.\n"
 "    Scalar phenotype data is required.  Defaults for iters and d are the same\n"
 "    as for --groupdist.\n\n"
 	       );
-    help_print("regress-rel", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("regress-rel", &help_ctrl, 1,
 "  --regress-rel {iters} {d}\n"
 "    Linear regression of pairwise genomic relationships on pairwise average\n"
 "    phenotypes, and vice versa.\n\n"
 	       );
 #ifndef NOLAPACK
-    help_print("regress-pcs", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("regress-pcs", &help_ctrl, 1,
 "  --regress-pcs [.evec file] <sex-specific> {max PCs}\n"
 "    Regresses phenotypes and genotypes on the given list of principal\n"
 "    components (produced by SMARTPCA), and then converts phenotypes to\n"
 "    Z-scores (optionally sex-specific).  Output is a .gen and a .sample file in\n"
-"    the Oxford IMPUTE/SNPTEST v2 format.\n"
-"    By default, at most 10 PCs are included in the regression.\n\n"
+"    the Oxford IMPUTE/SNPTEST v2 format.  Max PCs defaults to 10.\n\n"
 	       );
-    help_print("unrelated-heritability", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("unrelated-heritability", &help_ctrl, 1,
 "  --unrelated-heritability <strict> {tol} {initial covg} {initial covr}\n"
 "    REML estimate of additive heritability, iterating with an accelerated\n"
 "    variant of the EM algorithm until the rate of change of the log likelihood\n"
@@ -783,7 +797,7 @@ int disp_help(unsigned int prct, char** argv) {
 "      Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
 	       );
 #endif
-    help_print("freq\tfreqx", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("freq\tfreqx", &help_ctrl, 1,
 "  --freq\n"
 "  --freqx\n"
 "    --freq generates an allele frequency report identical to that of PLINK\n"
@@ -792,12 +806,12 @@ int disp_help(unsigned int prct, char** argv) {
 "    distance matrix terms to be weighted consistently through multiple\n"
 "    filtering runs.\n\n"
 		);
-    help_print("write-snplist", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("write-snplist", &help_ctrl, 1,
 "  --write-snplist\n"
 "    Write a .snplist file listing the names of all SNPs that pass the filters\n"
 "    and inclusion thresholds you've specified.\n\n"
 	       );
-    help_print("help\t{cmds...}", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("help\t{cmds...}", &help_ctrl, 1,
 "  --help {cmds...}\n"
 "    Describe WDIST functionality.  {cmds...} is a list of flag names or\n"
 "    prefixes, e.g. 'wdist --help filter- missing-' will display information\n"
@@ -805,101 +819,101 @@ int disp_help(unsigned int prct, char** argv) {
 "    'wdist --help filter' will just describe --filter since that's an exact\n"
 "    match.  If no parameters are given, all commands are listed.\n\n"
 		);
-    if (!prct) {
+    if (!param_ct) {
       printf(
 "The following other flags are supported.  (Order of operations conforms to the\n"
 "PLINK specification at http://pngu.mgh.harvard.edu/~purcell/plink/flow.shtml.)\n"
 	     );
     }
-    help_print("script", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("script", &help_ctrl, 0,
 "  --script [fname] : Include command-line options from file.\n"
 	       );
-    help_print("file", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("file", &help_ctrl, 0,
 "  --file [prefix]  : Specify prefix for .ped and .map files.  (When this flag\n"
 "                     isn't present, the prefix is assumed to be 'wdist'.)\n"
 	       );
-    help_print("ped", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("ped", &help_ctrl, 0,
 "  --ped [filename] : Specify full name of .ped file.\n"
 	       );
-    help_print("map", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("map", &help_ctrl, 0,
 "  --map [filename] : Specify full name of .map file.\n"
 	       );
-    help_print("no-fid", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("no-fid", &help_ctrl, 0,
 "  --no-fid         : .fam/.ped file does not contain column 1 (family ID).\n"
 	       );
-    help_print("no-parents", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("no-parents", &help_ctrl, 0,
 "  --no-parents     : .fam/.ped file does not contain columns 3-4 (parents).\n"
 	       );
-    help_print("no-sex", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("no-sex", &help_ctrl, 0,
 "  --no-sex         : .fam/.ped file does not contain column 5 (sex).\n"
 	       );
-    help_print("no-pheno", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("no-pheno", &help_ctrl, 0,
 "  --no-pheno       : .fam/.ped file does not contain column 6 (phenotype).\n"
 	       );
-    help_print("bfile", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("bfile", &help_ctrl, 0,
 "  --bfile {prefix} : Specify .bed/.bim/.fam prefix (default 'wdist').\n"
 	       );
-    help_print("bed", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("bed", &help_ctrl, 0,
 "  --bed [filename] : Specify full name of .bed file.\n"
 	       );
-    help_print("bim", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("bim", &help_ctrl, 0,
 "  --bim [filename] : Specify full name of .bim file.\n"
 	       );
-    help_print("fam", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("fam", &help_ctrl, 0,
 "  --fam [filename] : Specify full name of .fam file.\n"
 	       );
-    help_print("data", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("data", &help_ctrl, 0,
 "  --data {prefix}  : Specify Oxford .gen/.sample prefix (default 'wdist').\n"
 	       );
-    help_print("gen", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("gen", &help_ctrl, 0,
 "  --gen [filename] : Specify full name of .gen file.\n"
 	       );
-    help_print("sample", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("sample", &help_ctrl, 0,
 "  --sample [fname] : Specify full name of .sample file.\n"
 	       );
-    help_print("load-dists", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("load-dists", &help_ctrl, 0,
 "  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --groupdist\n"
 "                     or --regress-distance analysis, instead of recalculating\n"
 "                     it from scratch.\n"
 	       );
-    help_print("out", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("out", &help_ctrl, 0,
 "  --out [prefix]   : Specify prefix for output files.\n"
 	       );
-    help_print("silent", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("silent", &help_ctrl, 0,
 "  --silent         : Suppress output to console.\n"
 	       );
-    help_print("pheno", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("pheno", &help_ctrl, 0,
 "  --pheno [fname]  : Specify alternate phenotype.\n"
 	       );
-    help_print("mpheno", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("mpheno", &help_ctrl, 0,
 "  --mpheno [col]   : Specify phenotype column number in --pheno file.\n"
 	       );
-    help_print("pheno-name", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("pheno-name", &help_ctrl, 0,
 "  --pheno-name [c] : If phenotype file has a header row, use column with the\n"
 "                     given name.\n"
 	       );
-    help_print("pheno-merge", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("pheno-merge", &help_ctrl, 0,
 "  --pheno-merge    : If a phenotype is present in the original but not the\n"
 "                     alternate file, use the original value instead of setting\n"
 "                     the phenotype to missing.\n"
 	       );
-    help_print("prune", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("prune", &help_ctrl, 0,
 "  --prune          : Remove individuals with missing phenotypes.\n"
 	       );
-    help_print("1", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("1", &help_ctrl, 0,
 "  --1              : Affection phenotypes are interpreted as 0 = unaffected,\n"
 "                     1 = affected (instead of 0 = missing, 1 = unaffected,\n"
 "                     2 = affected).\n"
 	       );
 // --map3 implicitly supported via autodetection
 // --compound-genotypes automatically supported
-    help_print("cow\tdog\thorse\tmouse\tsheep", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("cow\tdog\thorse\tmouse\tsheep", &help_ctrl, 0,
 "  --cow/--dog/--horse/--mouse/--sheep : Specify nonhuman species.\n"
 	       );
-    help_print("autosome", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("autosome", &help_ctrl, 0,
 "  --autosome       : Include markers on all autosomes, and no others.\n"
 	       );
-    help_print("chr", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("chr", &help_ctrl, 0,
 "  --chr [num...]   : Only consider markers on the given chromosome(s).  Valid\n"
 "                     choices for humans are 0 (unplaced), 1-22, and XY\n"
 "                     (pseudo-autosomal region of X).  Separate multiple\n"
@@ -907,37 +921,37 @@ int disp_help(unsigned int prct, char** argv) {
 "                     and MT chromosome values are currently unsupported, but\n"
 "                     this will change in the future.\n"
 	       );
-    help_print("maf", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("maf", &help_ctrl, 0,
 "  --maf {val}      : Minor allele frequency minimum threshold (default 0.01).\n"
 "                     Note that the default threshold is only applied if --maf\n"
 "                     is used without an accompanying value; if you do not\n"
 "                     invoke --maf, no MAF inclusion threshold is applied.\n"
 "                     Other inclusion thresholds work the same way.\n"
 	       );
-    help_print("max-maf", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("max-maf", &help_ctrl, 0,
 "  --max-maf [val]  : Minor allele frequency maximum threshold.\n"
 	       );
-    help_print("geno", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("geno", &help_ctrl, 0,
 "  --geno {val}     : Maximum per-SNP missing (default 0.1).\n"
 	       );
-    help_print("mind", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("mind", &help_ctrl, 0,
 "  --mind {val}     : Maximum per-person missing (default 0.1).\n"
 	       );
-    help_print("hwe", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("hwe", &help_ctrl, 0,
 "  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
 "                     default 0.001.\n"
 	       );
-    help_print("hwe-all", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("hwe-all", &help_ctrl, 0,
 "  --hwe-all        : Given case-control data, don't ignore cases in HWE test.\n"
 	       );
-    help_print("allow-no-sex", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("allow-no-sex", &help_ctrl, 0,
 "  --allow-no-sex   : Do not remove ambiguously-sexed individuals.\n"
 "                     (Automatically on if --no-sex flag is present.)\n"
 	       );
-    help_print("nonfounders", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("nonfounders", &help_ctrl, 0,
 "  --nonfounders    : Include all individuals in MAF/HWE calculations.\n"
 	       );
-    help_print("rel-cutoff\tgrm-cutoff", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("rel-cutoff\tgrm-cutoff", &help_ctrl, 0,
 "  --rel-cutoff {v} : Exclude individuals until no remaining pairs have\n"
 "  --grm-cutoff {v}   relatedness greater than the given cutoff value (default\n"
 "                     0.025).  Note that maximizing the remaining sample size is\n"
@@ -946,51 +960,51 @@ int disp_help(unsigned int prct, char** argv) {
 "                     optimality.  (Use the --make-rel and --keep/--remove flags\n"
 "                     if you want to try to do better.)\n"
 	       );
-    help_print("ppc-gap", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("ppc-gap", &help_ctrl, 0,
 "  --ppc-gap [val]  : Minimum number of base pairs, in thousands, between\n"
 "                     informative pairs of SNPs used in --genome PPC test.  500\n"
 "                     if unspecified.\n"
 	       );
-    help_print("rseed", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("rseed", &help_ctrl, 0,
 "  --rseed [val]    : Set random number seed (relevant for jackknife standard\n"
 "                     error estimation).\n"
 	       );
-    help_print("memory", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("memory", &help_ctrl, 0,
 "  --memory [val]   : Size, in MB, of initial malloc attempt.\n"
 	       );
-    help_print("threads", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("threads", &help_ctrl, 0,
 "  --threads [val]  : Maximum number of concurrent threads.\n"
 	       );
-    help_print("extract", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("extract", &help_ctrl, 0,
 "  --extract [file] : Only include SNPs in the given list.\n"
 	       );
-    help_print("exclude", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("exclude", &help_ctrl, 0,
 "  --exclude [file] : Exclude all SNPs in the given list.\n"
 	       );
-    help_print("keep", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("keep", &help_ctrl, 0,
 "  --keep [fname]   : Only include individuals in the given list.\n"
 	       );
-    help_print("remove", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("remove", &help_ctrl, 0,
 "  --remove [fname] : Exclude all individuals in the given list.\n"
 	       );
-    help_print("maf-succ", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("maf-succ", &help_ctrl, 0,
 "  --maf-succ       : Rule of succession MAF estimation (used in EIGENSTRAT).\n"
 "                     Given j observations of one allele and k >= j observations\n"
 "                     of the other, infer a MAF of (j+1) / (j+k+2), rather than\n"
 "                     the usual j / (j+k).\n"
 	       );
-    help_print("exponent", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("exponent", &help_ctrl, 0,
 "  --exponent [val] : When computing genomic distances, each marker has a weight\n"
 "                     of (2q(1-q))^{-val}, where q is the inferred MAF.  (Use\n"
 "                     --read-freq if you want to explicitly specify some or all\n"
 "                     of the MAFs.)\n"
 	       );
-    help_print("read-freq\tupdate-freq", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("read-freq\tupdate-freq", &help_ctrl, 0,
 "  --read-freq [filename]    : Loads MAFs from the given PLINK-style or --freqx\n"
 "  --update-freq [filename]    frequency file, instead of just setting them to\n"
 "                              frequencies observed in the .ped/.bed file.\n"
 	       );
-    help_print("parallel", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("parallel", &help_ctrl, 0,
 "  --parallel [k] [n]        : Divide the output matrix into n pieces, and only\n"
 "                              compute the kth piece.  The primary output file\n"
 "                              will have the piece number included in its name,\n"
@@ -1003,51 +1017,51 @@ int disp_help(unsigned int prct, char** argv) {
 "                              triangle format instead, and postprocess as\n"
 "                              necessary.\n"
 	       );
-    help_print("filter", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("filter", &help_ctrl, 0,
 "  --filter [filename] [val] : Filter individuals (see PLINK documentation).\n"
 	       );
-    help_print("mfilter", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("mfilter", &help_ctrl, 0,
 "  --mfilter [col]           : Specify column number in --filter file.\n"
 	       );
-    help_print("filter-cases", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("filter-cases", &help_ctrl, 0,
 "  --filter-cases            : Include only cases.\n"
 	       );
-    help_print("filter-controls", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("filter-controls", &help_ctrl, 0,
 "  --filter-controls         : Include only controls.\n"
 	       );
-    help_print("filter-males", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("filter-males", &help_ctrl, 0,
 "  --filter-males            : Include only males.\n"
 	       );
-    help_print("filter-females", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("filter-females", &help_ctrl, 0,
 "  --filter-females          : Include only females.\n"
 	       );
-    help_print("filter-founders", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("filter-founders", &help_ctrl, 0,
 "  --filter-founders         : Include only founders.\n"
 	       );
-    help_print("filter-nonfounders", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("filter-nonfounders", &help_ctrl, 0,
 "  --filter-nonfounders      : Include only nonfounders.\n"
 	       );
-    help_print("missing-genotype", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("missing-genotype", &help_ctrl, 0,
 "  --missing-genotype [char] : Code for missing genotype (normally '0').\n"
 	       );
-    help_print("missing-phenotype", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("missing-phenotype", &help_ctrl, 0,
 "  --missing-phenotype [val] : Code for missing phenotype (normally -9).\n"
 	       );
-    help_print("make-pheno", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("make-pheno", &help_ctrl, 0,
 "  --make-pheno [file] [val] : Specify binary phenotype, where cases have the\n"
 "                              given value.  If the value is '*', all\n"
 "                              individuals present in the phenotype file are\n"
 "                              affected (and other individuals in the .ped/.fam\n"
 "                              are unaffected).\n"
 	       );
-    help_print("tail-pheno", il, prct, argv, &umct, allms, prems, perms, plens,
+    help_print("tail-pheno", &help_ctrl, 0,
 "  --tail-pheno [Ltop] {Hbt} : Form 'low' (<= Ltop, unaffected) and 'high'\n"
 "                              (greater than Hbt, affected) groups from scalar\n"
 "                              phenotype data.  If Hbt is unspecified, it is set\n"
 "                              equal to Ltop.  Central phenotype values are\n"
 "                              treated as missing.\n\n"
 	       );
-    if (!prct) {
+    if (!param_ct) {
       printf(
 "One final note.  If a PLINK plain text fileset (.ped/.map) is given as input,\n"
 "WDIST will convert them to binary (without deleting the original files).  The\n"
@@ -1055,34 +1069,34 @@ int disp_help(unsigned int prct, char** argv) {
 "encouraged to use them directly in future analyses.\n"
 	     );
     }
-  } while (il--);
-  if (umct) {
-    net_umct = umct;
-    printf("\nNo help entr%s for", (umct == 1)? "y" : "ies");
-    col_num = (umct == 1)? 17 : 19;
+  } while (help_ctrl.iters_left--);
+  if (help_ctrl.unmatched_ct) {
+    net_unmatched_ct = help_ctrl.unmatched_ct;
+    printf("\nNo help entr%s for", (help_ctrl.unmatched_ct == 1)? "y" : "ies");
+    col_num = (help_ctrl.unmatched_ct == 1)? 17 : 19;
     arg_uidx = 0;
-    while (umct) {
-      arg_uidx = next_non_set_unsafe(allms, arg_uidx);
-      umct--;
-      if (umct) {
-	if (net_umct == 2) {
-	  if (plens[arg_uidx] + col_num > 76) {
+    while (help_ctrl.unmatched_ct) {
+      arg_uidx = next_non_set_unsafe(help_ctrl.all_match_arr, arg_uidx);
+      help_ctrl.unmatched_ct--;
+      if (help_ctrl.unmatched_ct) {
+	if (net_unmatched_ct == 2) {
+	  if (help_ctrl.param_lens[arg_uidx] + col_num > 76) {
 	    printf("\n'%s'", argv[arg_uidx]);
-	    col_num = 2 + plens[arg_uidx];
+	    col_num = 2 + help_ctrl.param_lens[arg_uidx];
 	  } else {
 	    printf(" '%s'", argv[arg_uidx]);
-	    col_num += 3 + plens[arg_uidx];
+	    col_num += 3 + help_ctrl.param_lens[arg_uidx];
 	  }
 	} else {
-	  if (plens[arg_uidx] + col_num > 75) {
+	  if (help_ctrl.param_lens[arg_uidx] + col_num > 75) {
 	    printf("\n'%s',", argv[arg_uidx]);
-	    col_num = 3 + plens[arg_uidx];
+	    col_num = 3 + help_ctrl.param_lens[arg_uidx];
 	  } else {
 	    printf(" '%s',", argv[arg_uidx]);
-	    col_num += 4 + plens[arg_uidx];
+	    col_num += 4 + help_ctrl.param_lens[arg_uidx];
 	  }
 	}
-	if (umct == 1) {
+	if (help_ctrl.unmatched_ct == 1) {
 	  if (col_num > 76) {
 	    printf("\nor");
 	    col_num = 2;
@@ -1092,7 +1106,7 @@ int disp_help(unsigned int prct, char** argv) {
 	  }
 	}
       } else {
-	if (plens[arg_uidx] + col_num > 75) {
+	if (help_ctrl.param_lens[arg_uidx] + col_num > 75) {
 	  printf("\n'%s'.\n", argv[arg_uidx]);
 	} else {
 	  printf(" '%s'.\n", argv[arg_uidx]);
@@ -1833,6 +1847,13 @@ inline int no_more_items(char* sptr) {
   return ((!sptr) || (*sptr == '\n') || (*sptr == '\0'));
 }
 
+char* skip_initial_spaces(char* sptr) {
+  while ((*sptr == ' ') || (*sptr == '\t')) {
+    sptr++;
+  }
+  return sptr;
+}
+
 char* next_item(char* sptr) {
   if (!sptr) {
     return NULL;
@@ -1843,10 +1864,7 @@ char* next_item(char* sptr) {
     }
     sptr++;
   }
-  while ((*sptr == ' ') || (*sptr == '\t')) {
-    sptr++;
-  }
-  return sptr;
+  return skip_initial_spaces(sptr);
 }
 
 int determine_max_id_len(FILE* filterfile, char* filterval, int mfilter_col, int* filter_line_ct_ptr) {
@@ -6450,7 +6468,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
   }
   if (!memcmp(tbuf, " CHR  ", 6)) {
     while (fgets(tbuf, MAXLINELEN, *freqfile_ptr) != NULL) {
-      bufptr = next_item(tbuf); // just initial spaces
+      bufptr = skip_initial_spaces(tbuf);
       jj = marker_code(species, bufptr);
       bufptr = next_item(bufptr); // now at beginning of SNP name
       bufptr2 = next_item(bufptr);
@@ -6826,7 +6844,7 @@ void calc_marker_weights(double exponent, int unfiltered_marker_ct, unsigned lon
   }
 }
 
-int make_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** pedfile_ptr, unsigned long long* line_locs, unsigned long long* line_mids, int pedbuflen, FILE* mapfile, int map_cols, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* marker_alleles) {
+int make_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** pedfile_ptr, unsigned long long* line_locs, unsigned long long* line_mids, int pedbuflen, FILE* mapfile, int map_cols, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* marker_alleles, char missing_geno) {
   unsigned int marker_ct4 = (marker_ct + 3) / 4;
   unsigned int indiv_ct4 = (indiv_ct + 3) / 4;
   unsigned char* wkspace_mark = wkspace_base;
@@ -7050,7 +7068,11 @@ int make_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr
       bufptr++;
     }
     *bufptr++ = '\t';
-    *bufptr++ = marker_alleles[2 * marker_uidx];
+    if (marker_alleles[2 * marker_uidx]) {
+      *bufptr++ = marker_alleles[2 * marker_uidx];
+    } else {
+      *bufptr++ = missing_geno;
+    }
     *bufptr++ = '\t';
     *bufptr++ = marker_alleles[2 * marker_uidx + 1];
     *bufptr++ = '\n';
@@ -7107,16 +7129,26 @@ int write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, int unfi
 const char* gen_strs[] = {" 1 0 0", " 0 0 0", " 0 1 0", " 0 0 1"};
 
 int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int max_pcs, FILE* pedfile, int bed_offset, unsigned int marker_ct, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, Chrom_info* chrom_info_ptr, unsigned int* marker_pos, unsigned int indiv_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len, unsigned char* sex_info, double* pheno_d, FILE** outfile_ptr, char* outname, char* outname_end) {
+  FILE* evecfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  int retval = 0;
+  int pc_ct = 0;
+  double* pc_matrix;
+  double* pc_orig_sums;
+  double* pc_orig_prod_sums; // pc_ct * pc_ct array, upper triangle filled
+  double* pc_sums;
+  double* pc_prod_sums;
   unsigned int marker_uidx;
   unsigned int marker_idx;
   unsigned int indiv_uidx;
   unsigned int indiv_idx;
   unsigned char* loadbuf;
   unsigned int* missing_cts;
+  char* bufptr;
   char* id_buf;
-  int uii;
+  unsigned int uii;
+  int ii;
   char* person_id_ptr;
   if (wkspace_alloc_uc_checked(&loadbuf, unfiltered_indiv_ct4)) {
     return RET_NOMEM;
@@ -7127,7 +7159,91 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int max_pcs, 
   if (wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
     return RET_NOMEM;
   }
+  if (fopen_checked(&evecfile, evecname, "r")) {
+    return RET_OPEN_FAIL;
+  }
+
+  tbuf[MAXLINELEN - 7] = ' ';
+  tbuf[MAXLINELEN - 1] = ' ';
+  if (!fgets(tbuf, MAXLINELEN - 6, evecfile)) {
+    if (feof(evecfile)) {
+      goto calc_regress_pcs_ret_INVALID_FORMAT;
+    } else {
+      goto calc_regress_pcs_ret_READ_FAIL;
+    }
+  }
+  if (!tbuf[MAXLINELEN - 7]) {
+    printf("Error: Excessively long line in .evec file.\n");
+    goto calc_regress_pcs_ret_INVALID_FORMAT2;
+  }
+  bufptr = skip_initial_spaces(tbuf);
+  if (no_more_items(bufptr)) {
+    goto calc_regress_pcs_ret_INVALID_FORMAT;
+  }
+  if (memcmp(bufptr, "#eigvals:", 9)) {
+    goto calc_regress_pcs_ret_INVALID_FORMAT;
+  }
+  bufptr = next_item(bufptr);
+  while ((!no_more_items(bufptr)) && (*bufptr >= '0') && (*bufptr <= '9')) {
+    pc_ct++;
+    bufptr = next_item(bufptr);
+  }
+  if (!pc_ct) {
+    goto calc_regress_pcs_ret_INVALID_FORMAT;
+  }
+  if (pc_ct > max_pcs) {
+    printf("Regressing on %d principal components (truncated from %d).\n", max_pcs, pc_ct);
+    pc_ct = max_pcs;
+  } else {
+    printf("Regressing on %d principal components.\n", pc_ct);
+  }
+  if (wkspace_alloc_d_checked(&pc_matrix, pc_ct * indiv_ct * sizeof(double))) {
+    goto calc_regress_pcs_ret_NOMEM;
+  }
+  if (wkspace_alloc_d_checked(&pc_orig_sums, pc_ct * sizeof(double))) {
+    goto calc_regress_pcs_ret_NOMEM;
+  }
+  if (wkspace_alloc_d_checked(&pc_orig_prod_sums, pc_ct * pc_ct * sizeof(double))) {
+    goto calc_regress_pcs_ret_NOMEM;
+  }
+  if (wkspace_alloc_d_checked(&pc_sums, pc_ct * sizeof(double))) {
+    goto calc_regress_pcs_ret_NOMEM;
+  }
+  if (wkspace_alloc_d_checked(&pc_prod_sums, pc_ct * pc_ct * sizeof(double))) {
+    goto calc_regress_pcs_ret_NOMEM;
+  }
+  fill_double_zero(pc_orig_sums, pc_ct);
+  fill_double_zero(pc_orig_prod_sums, pc_ct * pc_ct);
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    if (!fgets(tbuf, MAXLINELEN, evecfile)) {
+      if (feof(evecfile)) {
+	printf("Error: Fewer individuals in .evec file than expected.\n");
+	goto calc_regress_pcs_ret_INVALID_FORMAT2;
+      } else {
+        goto calc_regress_pcs_ret_READ_FAIL;
+      }
+    }
+    bufptr = next_item(skip_initial_spaces(tbuf));
+    for (ii = 0; ii < pc_ct; ii++) {
+      if (no_more_items(bufptr)) {
+	goto calc_regress_pcs_ret_INVALID_FORMAT;
+      }
+      if (sscanf(bufptr, "%lg", &(pc_matrix[ii * indiv_ct + indiv_idx])) != 1) {
+	goto calc_regress_pcs_ret_INVALID_FORMAT;
+      }
+      bufptr = next_item(bufptr);
+    }
+  }
+  if (fgets(tbuf, MAXLINELEN, evecfile)) {
+    if (!no_more_items(skip_initial_spaces(tbuf))) {
+      printf("Error: More individuals in .evec file than expected.\n");
+      goto calc_regress_pcs_ret_INVALID_FORMAT2;
+    }
+  }
+  fclose(evecfile);
   fill_uint_zero(missing_cts, unfiltered_indiv_ct);
+  // .gen instead of .bgen because latter actually has lower precision(!), and
+  // there's no need for repeated random access.
   strcpy(outname_end, ".gen");
   if (fopen_checked(outfile_ptr, outname, "w")) {
     return RET_OPEN_FAIL;
@@ -7195,7 +7311,21 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int max_pcs, 
   *outname_end = '\0';
   printf("Principal component regression residuals and %sphenotype Z-scores %s%s.gen and %s.sample.\n", regress_pcs_sex_specific? "sex-specific " : "", regress_pcs_sex_specific? "\nwritten to " : "written to\n", outname, outname); 
   wkspace_reset(wkspace_mark);
-  return 0;
+  while (0) {
+  calc_regress_pcs_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  calc_regress_pcs_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  calc_regress_pcs_ret_INVALID_FORMAT:
+    printf("Error: Improperly formatted .evec file.\n");
+  calc_regress_pcs_ret_INVALID_FORMAT2:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  fclose_cond(evecfile);
+  return retval;
 }
 
 
@@ -9150,7 +9280,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   wkspace_reset(hwe_lls);
 
   if (!binary_files) {
-    retval = make_bed(&bedtmpfile, &famtmpfile, &bimtmpfile, &outfile, outname, outname_end, &pedfile, line_locs, line_mids, pedbuflen, mapfile, map_cols, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct, marker_alleles);
+    retval = make_bed(&bedtmpfile, &famtmpfile, &bimtmpfile, &outfile, outname, outname_end, &pedfile, line_locs, line_mids, pedbuflen, mapfile, map_cols, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct, marker_alleles, missing_geno);
     if (retval || (calculation_type == CALC_FREQ)) {
       goto wdist_ret_2;
     }
