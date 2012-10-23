@@ -160,6 +160,7 @@ int dgetri_(__CLPK_integer* n, __CLPK_doublereal* a,
 #define RET_HELP 8
 #define RET_THREAD_CREATE_FAIL 9
 #define RET_ALLELE_MISMATCH 10
+#define RET_NULL_CALC 11
 
 #define CALC_RELATIONSHIP_COV 1
 #define CALC_RELATIONSHIP_SQ 2
@@ -304,18 +305,18 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.11.3d "
+  "WDIST genomic distance calculator, v0.11.3 "
 #else
-  "WDIST genomic distance calculator, v0.11.3Ld "
+  "WDIST genomic distance calculator, v0.11.3L "
 #endif
 #if __LP64__
   "64-bit"
 #else
   "32-bit"
 #endif
-  " (22 October 2012)\n"
+  " (23 October 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
-const char errstr_append[] = "\nFor more information, try 'wdist --help {cmds...}' or 'wdist --help | more'.\n";
+const char errstr_append[] = "\nFor more information, try 'wdist --help {flags...}' or 'wdist --help | more'.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam/.ped file.\n";
@@ -436,6 +437,12 @@ inline void fill_double_zero(double* darr, size_t size) {
   double* dptr = &(darr[size]);
   while (darr < dptr) {
     *darr++ = 0.0;
+  }
+}
+
+inline void free_cond(void* memptr) {
+  if (memptr) {
+    free(memptr);
   }
 }
 
@@ -629,35 +636,65 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, int postprint_
 int disp_help(unsigned int param_ct, char** argv) {
   // yes, this is overkill.  But it should be a good template for other
   // command-line programs to use.
-  Help_ctrl help_ctrl;
   unsigned int param_ctl = (param_ct + (BITCT - 1)) / BITCT;
+  int retval = 0;
+  Help_ctrl help_ctrl;
   unsigned int arg_uidx;
   unsigned int arg_idx;
   unsigned int net_unmatched_ct;
   int col_num;
+  int leading_dashes;
   help_ctrl.iters_left = param_ct? 2 : 0;
   help_ctrl.param_ct = param_ct;
   help_ctrl.argv = argv;
   help_ctrl.unmatched_ct = param_ct;
+  help_ctrl.param_lens = NULL;
+  help_ctrl.all_match_arr = NULL;
+  help_ctrl.argv = NULL;
   if (param_ct) {
     help_ctrl.param_lens = (unsigned int*)malloc(param_ct * sizeof(int));
     if (!help_ctrl.param_lens) {
-      return RET_NOMEM;
+      goto disp_help_ret_NOMEM;
     }
     help_ctrl.all_match_arr = (unsigned long*)malloc(param_ctl * 3 * sizeof(long));
     if (!help_ctrl.all_match_arr) {
-      free(help_ctrl.param_lens);
-      return RET_NOMEM;
+      goto disp_help_ret_NOMEM;
+    }
+    leading_dashes = 0;
+    for (arg_uidx = 0; arg_uidx < param_ct; arg_uidx++) {
+      if (argv[arg_uidx][0] == '-') {
+	leading_dashes = 1;
+	break;
+      }
+    }
+    if (leading_dashes) {
+      help_ctrl.argv = (char**)malloc(param_ct * sizeof(char*));
+      if (!help_ctrl.argv) {
+	goto disp_help_ret_NOMEM;
+      }
+      for (arg_uidx = 0; arg_uidx < param_ct; arg_uidx++) {
+	if (argv[arg_uidx][0] == '-') {
+	  if (argv[arg_uidx][1] == '-') {
+	    help_ctrl.argv[arg_uidx] = &(argv[arg_uidx][2]);
+	  } else {
+	    help_ctrl.argv[arg_uidx] = &(argv[arg_uidx][1]);
+	  }
+	} else {
+	  help_ctrl.argv[arg_uidx] = argv[arg_uidx];
+	}
+      }
+    } else {
+      help_ctrl.argv = argv;
     }
     for (arg_idx = 0; arg_idx < param_ct; arg_idx++) {
-      help_ctrl.param_lens[arg_idx] = strlen(argv[arg_idx]);
+      help_ctrl.param_lens[arg_idx] = strlen(help_ctrl.argv[arg_idx]);
     }
     fill_ulong_zero(help_ctrl.all_match_arr, param_ctl * 3);
     help_ctrl.prefix_match_arr = &(help_ctrl.all_match_arr[param_ctl]);
     help_ctrl.perfect_match_arr = &(help_ctrl.all_match_arr[param_ctl * 2]);
     help_ctrl.preprint_newline = 1;
-  }
-  if (!param_ct) {
+  } else {
+    help_ctrl.argv = NULL;
     printf(
 "\nwdist [flags...]\n\n"
 "In the command line flag definitions that follow,\n"
@@ -668,7 +705,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    definition, e.g. '--distance square0'.\n"
 "  * {curly braces} denote an optional parameter, where the text between the\n"
 "    braces describes its nature.\n\n"
-"Each run must invoke at least one of the following calculations:\n\n"
+"Each run should invoke one of the following primary functions:\n\n"
 	   );
   }
   do {
@@ -802,9 +839,8 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --freqx\n"
 "    --freq generates an allele frequency report identical to that of PLINK\n"
 "    --freq; --freqx replaces the NCHROBS column with homozygote/heterozygote\n"
-"    counts, which (when reloaded with --read-freq) allow relationship and\n"
-"    distance matrix terms to be weighted consistently through multiple\n"
-"    filtering runs.\n\n"
+"    counts, which (when reloaded with --read-freq) allow distance matrix terms\n"
+"    to be weighted consistently through multiple filtering runs.\n\n"
 		);
     help_print("write-snplist", &help_ctrl, 1,
 "  --write-snplist\n"
@@ -1115,7 +1151,18 @@ int disp_help(unsigned int param_ct, char** argv) {
       arg_uidx++;
     }
   }
-  return RET_HELP;
+  if (param_ct) {
+    while (0) {
+    disp_help_ret_NOMEM:
+      retval = RET_NOMEM;
+    }
+    free_cond(help_ctrl.param_lens);
+    free_cond(help_ctrl.all_match_arr);
+    if (help_ctrl.argv && (help_ctrl.argv != argv)) {
+      free(help_ctrl.argv);
+    }
+  }
+  return retval;
 }
 
 int fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
@@ -1166,12 +1213,6 @@ inline void fclose_cond(FILE* fptr) {
 inline void gzclose_cond(gzFile gz_outfile) {
   if (gz_outfile) {
     gzclose(gz_outfile);
-  }
-}
-
-inline void free_cond(void* memptr) {
-  if (memptr) {
-    free(memptr);
   }
 }
 
@@ -11574,7 +11615,7 @@ int param_count(int argc, char** argv, int flag_idx) {
   int cur_idx = flag_idx + 1;
   while (cur_idx < argc) {
     if (argv[cur_idx][0] == '-') {
-      if (argv[cur_idx][1] == '-') {
+      if ((argv[cur_idx][1] < '0') || (argv[cur_idx][1] > '9')) {
         break;
       }
     }
@@ -11633,7 +11674,7 @@ int plink_dist_flag(char* argptr, int calculation_type, double exponent, int par
 }
 
 int invalid_arg(char* argv) {
-  printf("Error: Invalid argument (%s).%s", argv, errstr_append);
+  printf("Error: Invalid flag ('%s').%s%s", argv, (argv[0] == '-')? "" : "  All flags must be preceded by 1-2 dashes.", errstr_append);
   return dispmsg(RET_INVALID_CMDLINE);
 }
 
@@ -11727,6 +11768,7 @@ int main(int argc, char** argv) {
   Chrom_info chrom_info;
   char* argptr2;
   int cur_arg_start;
+  int num_dash;
   printf(ver_str);
   chrom_info.species = SPECIES_HUMAN;
   chrom_info.chrom_mask = 0;
@@ -11754,12 +11796,23 @@ int main(int argc, char** argv) {
   strcpy(outname, "wdist");
   while (cur_arg < argc) {
     argptr = argv[cur_arg];
-    if ((argptr[0] != '-') || (argptr[1] != '-')) {
+    if (argptr[0] != '-') {
       return invalid_arg(argptr);
     }
-    argptr2 = &(argptr[3]);
+    if (argptr[1] == '-') {
+      num_dash = 2;
+    } else if ((argptr[1] == '1') && (argptr[2] == '\0')) {
+      // special case: don't accept -1 as an alias for --1.  This restriction
+      // allows param_count() to determine argument counts for each flag using
+      // local information.
+      printf("Error: Invalid flag ('-1').  To avoid confusion with the number -1, WDIST\nrequires the --1 flag to be preceded by two dashes.%s", errstr_append);
+      return dispmsg(RET_INVALID_CMDLINE);
+    } else {
+      num_dash = 1;
+    }
+    argptr2 = &(argptr[num_dash + 1]);
     cur_arg_start = cur_arg;
-    switch (argptr[2]) {
+    switch (argptr[num_dash]) {
     case '1':
       if (*argptr2 == '\0') {
 	// --1
@@ -12337,11 +12390,10 @@ int main(int argc, char** argv) {
 
     case 'h':
       if (!memcmp(argptr2, "elp", 4)) {
-	ii = param_count(argc, argv, cur_arg);
-	if ((argc != 2 + ii) || subst_argv) {
+	if ((cur_arg != 1) || subst_argv) {
 	  printf("(--help present, ignoring other flags.)\n");
 	}
-	return disp_help(ii, &(argv[cur_arg + 1]));
+	return disp_help(argc - cur_arg - 1, &(argv[cur_arg + 1]));
       } else if (!memcmp(argptr2, "orse", 5)) {
 	if (species_flag(&chrom_info, SPECIES_HORSE)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
@@ -13393,8 +13445,8 @@ int main(int argc, char** argv) {
     }
   }
   if ((calculation_type & ~CALC_REL_CUTOFF) == 0) {
-    printf("Error: No output requested.%s", errstr_append);
-    return dispmsg(RET_INVALID_CMDLINE);
+    printf("Note: No output requested.  Exiting.\n\n'wdist --help | more' describes all functions.  You can also look up specific\nflags with 'wdist --help [flag #1] {flag #2} ...'.\n");
+    return dispmsg(RET_NULL_CALC);
   }
   if (prune && (!phenoname[0]) && (!fam_col_6)) {
     printf("Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.\n");
