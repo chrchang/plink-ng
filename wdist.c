@@ -783,7 +783,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (SNPs)] [VIF threshold]\n"
 #else
-"indep-pairwise", NULL, &help_ctrl, 1,
+"indep-pairwise", &help_ctrl, 1,
 #endif
 "  --indep-pairwise [window size]<kb> [step size (SNPs)] [r^2 threshold]\n"
 "    Generates a list of SNPs in approximate linkage equilibrium; see PLINK\n"
