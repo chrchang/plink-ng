@@ -18,6 +18,8 @@
 // Uncomment this to build without CBLAS/CLAPACK:
 // #define NOLAPACK
 
+// Uncomment this to enable debug logging:
+#define DEBUG
 
 // The key ideas behind this calculator's design are:
 //
@@ -122,19 +124,21 @@ extern "C" {
 #endif
 #include <cblas.h>
 #if __LP64__
-typedef int __CLPK_integer;
+  typedef int __CLPK_integer;
 #else
-typedef long int __CLPK_integer;
+  typedef long int __CLPK_integer;
 #endif
-typedef double __CLPK_doublereal;
-int dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
-	    __CLPK_doublereal* a, __CLPK_integer* lda,
-	    __CLPK_integer* ipiv, __CLPK_integer* info);
+  typedef double __CLPK_doublereal;
+  int dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
+              __CLPK_doublereal* a, __CLPK_integer* lda,
+              __CLPK_integer* ipiv, __CLPK_integer* info);
 
-int dgetri_(__CLPK_integer* n, __CLPK_doublereal* a,
-	    __CLPK_integer* lda, __CLPK_integer* ipiv,
-	    __CLPK_doublereal* work, __CLPK_integer* lwork,
-	    __CLPK_integer* info);
+  int dgetri_(__CLPK_integer* n, __CLPK_doublereal* a,
+              __CLPK_integer* lda, __CLPK_integer* ipiv,
+              __CLPK_doublereal* work, __CLPK_integer* lwork,
+              __CLPK_integer* info);
+
+  void xerbla_(void) {} // fix static linking error
 #ifdef __cplusplus
 }
 #endif
@@ -233,6 +237,28 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 // size of generic text line load buffer.  .ped lines can of course be longer
 #define MAXLINELEN 131072
 
+#ifdef DEBUG
+FILE* dlogfile = NULL;
+// char debug_buf[MAXLINELEN]; // safe sprintf buffer, if one is needed
+int debug_log_failed = 0;
+
+void debug_log(const char* ss) {
+  if (dlogfile) {
+    if (debug_log_failed) {
+      printf("%s", ss);
+    } else if (fprintf(dlogfile, "%s", ss) < 0) {
+      if (!debug_log_failed) {
+	printf("\nError: Debug logging failure.  Dumping to standard output.\n%s", ss);
+	debug_log_failed = 1;
+      }
+    }
+  }
+}
+#else
+static inline void debug_log(char* ss) {
+}
+#endif
+
 // number of different types of jackknife values to precompute (x^2, x, y, xy)
 #define JACKKNIFE_VALS_DIST 5
 #define JACKKNIFE_VALS_REL 5
@@ -248,8 +274,8 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 
 // default jackknife iterations
 #define ITERS_DEFAULT 100000
-
 #define DEFAULT_PPC_GAP 500000
+#define MAX_PCS_DEFAULT 20
 
 // Number of snp-major .bed lines to read at once for distance calc if exponent
 // is zero.  Currently assumed to be a multiple of 192, and no larger than
@@ -305,18 +331,21 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.11.3d "
+  "WDIST genomic distance calculator, v0.11.3NL "
 #else
-  "WDIST genomic distance calculator, v0.11.3Ld "
+  "WDIST genomic distance calculator, v0.11.3 "
 #endif
 #if __LP64__
   "64-bit"
 #else
   "32-bit"
 #endif
-  " (23 October 2012)\n"
+#ifdef DEBUG
+  " debug"
+#endif
+  " (27 October 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
-const char errstr_append[] = "\nFor more information, try 'wdist --help {flags...}' or 'wdist --help | more'.\n";
+const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam/.ped file.\n";
@@ -710,7 +739,7 @@ int disp_help(unsigned int param_ct, char** argv) {
   }
   do {
     help_print("distance", &help_ctrl, 1,
-"  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <snps>\n"
+"  --distance <square | square0 | triangle> <gz | bin> <3d> <ibs> <1-ibs> <snps>\n"
 "    Writes a lower-triangular tab-delimited table of (weighted) genomic\n"
 "    distances in SNP units to {output prefix}.dist, and a list of the\n"
 "    corresponding family/individual IDs to {output prefix}.dist.id.  The first\n"
@@ -726,6 +755,9 @@ int disp_help(unsigned int param_ct, char** argv) {
 "      instead written to {output prefix}.dist.bin.  This can be combined with\n"
 "      'square0' if you still want the upper right zeroed out, or 'triangle' if\n"
 "      you don't want to pad the upper right at all.\n"
+"    * With dosage data, the '3d' modifier considers 0-1-2 allele count\n"
+"      probabilities separately, instead of collapsing them into an expected\n"
+"      value and a missingness probability.\n"
 "    * If the 'ibs' modifier is present, an identity-by-state matrix is written\n"
 "      to {output prefix}.mibs.  '1-ibs' causes distances expressed as genomic\n"
 "      proportions (i.e. 1 - IBS) to be written to {output prefix}.mdist.\n"
@@ -815,11 +847,17 @@ int disp_help(unsigned int param_ct, char** argv) {
 	       );
 #ifndef NOLAPACK
     help_print("regress-pcs", &help_ctrl, 1,
-"  --regress-pcs [.evec file] <sex-specific> {max PCs}\n"
-"    Regresses phenotypes and genotypes on the given list of principal\n"
-"    components (produced by SMARTPCA), and then converts phenotypes to\n"
-"    Z-scores (optionally sex-specific).  Output is a .gen and a .sample file in\n"
-"    the Oxford IMPUTE/SNPTEST v2 format.  Max PCs defaults to 10.\n\n"
+"  --regress-pcs [.evec or .eigenvec file] <sex-specific> <clip> {max PCs}\n"
+"    Linear regression of phenotypes and genotypes on the given list of\n"
+"    principal components (produced by SMARTPCA or GCTA).  Phenotype residuals\n"
+"    are then converted to Z-scores.  Output is a .gen + .sample fileset in the\n"
+"    Oxford IMPUTE/SNPTEST v2 format.\n"
+"    * The 'sex-specific' modifier normalizes Z-scores separately by sex.\n"
+"    * The 'clip' modifier clips out-of-range genotype residuals.  Without it,\n"
+"      they are represented as negative probabilities in the .gen file, which\n"
+"      are invalid input for some programs.\n"
+"    * By default, principal components beyond the 20th are ignored; change this\n"
+"      by setting the max PCs parameter.\n\n"
 	       );
     help_print("unrelated-heritability", &help_ctrl, 1,
 "  --unrelated-heritability <strict> {tol} {initial covg} {initial covr}\n"
@@ -844,12 +882,12 @@ int disp_help(unsigned int param_ct, char** argv) {
 		);
     help_print("write-snplist", &help_ctrl, 1,
 "  --write-snplist\n"
-"    Write a .snplist file listing the names of all SNPs that pass the filters\n"
+"    Writes a .snplist file listing the names of all SNPs that pass the filters\n"
 "    and inclusion thresholds you've specified.\n\n"
 	       );
-    help_print("help\t{cmds...}", &help_ctrl, 1,
-"  --help {cmds...}\n"
-"    Describe WDIST functionality.  {cmds...} is a list of flag names or\n"
+    help_print("help\t{flag names}", &help_ctrl, 1,
+"  --help {flag names...}\n"
+"    Describes WDIST functionality.  {flag names...} is a list of flag names or\n"
 "    prefixes, e.g. 'wdist --help filter- missing-' will display information\n"
 "    about all flags with names starting with 'filter-' or 'missing-', while\n"
 "    'wdist --help filter' will just describe --filter since that's an exact\n"
@@ -861,6 +899,11 @@ int disp_help(unsigned int param_ct, char** argv) {
 "PLINK specification at http://pngu.mgh.harvard.edu/~purcell/plink/flow.shtml.)\n"
 	     );
     }
+#ifdef DEBUG
+    help_print("debug", &help_ctrl, 0,
+"  --debug {fname}  : Enable debug logging.  (Default log file is 'wdist.log').\n"
+	       );
+#endif
     help_print("script", &help_ctrl, 0,
 "  --script [fname] : Include command-line options from file.\n"
 	       );
@@ -1012,13 +1055,13 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --threads [val]  : Maximum number of concurrent threads.\n"
 	       );
     help_print("extract", &help_ctrl, 0,
-"  --extract [file] : Only include SNPs in the given list.\n"
+"  --extract [file] : Exclude all SNPs not in the given list.\n"
 	       );
     help_print("exclude", &help_ctrl, 0,
 "  --exclude [file] : Exclude all SNPs in the given list.\n"
 	       );
     help_print("keep", &help_ctrl, 0,
-"  --keep [fname]   : Only include individuals in the given list.\n"
+"  --keep [fname]   : Exclude all individuals not in the given list.\n"
 	       );
     help_print("remove", &help_ctrl, 0,
 "  --remove [fname] : Exclude all individuals in the given list.\n"
@@ -1081,7 +1124,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --missing-genotype [char] : Code for missing genotype (normally '0').\n"
 	       );
     help_print("missing-phenotype", &help_ctrl, 0,
-"  --missing-phenotype [val] : Code for missing phenotype (normally -9).\n"
+"  --missing-phenotype [val] : Numeric code for missing phenotype (normally -9).\n"
 	       );
     help_print("make-pheno", &help_ctrl, 0,
 "  --make-pheno [file] [val] : Specify binary phenotype, where cases have the\n"
@@ -2652,7 +2695,7 @@ void pick_d_small(unsigned char* tmp_cbuf, int* ibuf, unsigned int ct, unsigned 
 static inline unsigned int popcount2_long(unsigned long val) {
 #if __LP64__
   val = (val & 0x3333333333333333LU) + ((val >> 2) & 0x3333333333333333LU);
-  return (((val + (val >> 4)) & 0x0f0f0f0f0f0f0f0fLU) * 0x0101010101010101) >> 56;
+  return (((val + (val >> 4)) & 0x0f0f0f0f0f0f0f0fLU) * 0x0101010101010101LU) >> 56;
 #else
   val = (val & 0x33333333) + ((val >> 2) & 0x33333333);
   return (((val + (val >> 4)) & 0x0f0f0f0f) * 0x01010101) >> 24;
@@ -7169,14 +7212,15 @@ int write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, int unfi
 
 const char* gen_strs[] = {" 1 0 0", " 0 0 0", " 0 1 0", " 0 0 1"};
 
-int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int max_pcs, FILE* pedfile, int bed_offset, unsigned int marker_ct, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, Chrom_info* chrom_info_ptr, unsigned int* marker_pos, unsigned int indiv_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len, unsigned char* sex_info, double* pheno_d, FILE** outfile_ptr, char* outname, char* outname_end) {
+int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, FILE* pedfile, int bed_offset, unsigned int marker_ct, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, Chrom_info* chrom_info_ptr, unsigned int* marker_pos, unsigned int indiv_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len, unsigned char* sex_info, double* pheno_d, FILE** outfile_ptr, char* outname, char* outname_end) {
   FILE* evecfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   int retval = 0;
   int pc_ct = 0;
+  int is_eigenvec = 0; // GCTA .eigenvec format instead of SMARTPCA .evec?
   double* pc_matrix;
-  double* pc_orig_sums;
+  double* pc_orig_sums; // FIRST TODO: check if this is needed
   double* pc_orig_prod_sums; // pc_ct * pc_ct array, upper triangle filled
   double* pc_sums;
   double* pc_prod_sums;
@@ -7200,8 +7244,24 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int max_pcs, 
   if (wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
     return RET_NOMEM;
   }
-  if (fopen_checked(&evecfile, evecname, "r")) {
-    return RET_OPEN_FAIL;
+  
+  // try unaltered filename.  If that fails and the unaltered filename didn't
+  // have an .evec or .eigenvec extension, then also try appending .evec and
+  // appending .eigenvec.
+  evecfile = fopen(evecname, "r");
+  if (!evecfile) {
+    ii = strlen(evecname);
+    if (((ii >= 5) && (!memcmp(".evec", &(evecname[ii - 5]), 5))) || ((ii >= 9) && (!memcmp(".eigenvec", &(evecname[ii - 9]), 9)))) {
+      return RET_OPEN_FAIL;
+    }
+    strcpy(&(evecname[ii]), ".evec");
+    evecfile = fopen(evecname, "r");
+    if (!evecfile) {
+      strcpy(&(evecname[ii]), ".eigenvec");
+      if (fopen_checked(&evecfile, evecname, "r")) {
+	return RET_OPEN_FAIL;
+      }
+    }
   }
 
   tbuf[MAXLINELEN - 7] = ' ';
@@ -7214,7 +7274,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int max_pcs, 
     }
   }
   if (!tbuf[MAXLINELEN - 7]) {
-    printf("Error: Excessively long line in .evec file.\n");
+    printf("Error: Excessively long line in .evec/.eigenvec file.\n");
     goto calc_regress_pcs_ret_INVALID_FORMAT2;
   }
   bufptr = skip_initial_spaces(tbuf);
@@ -7222,7 +7282,8 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int max_pcs, 
     goto calc_regress_pcs_ret_INVALID_FORMAT;
   }
   if (memcmp(bufptr, "#eigvals:", 9)) {
-    goto calc_regress_pcs_ret_INVALID_FORMAT;
+    is_eigenvec = 1;
+    bufptr = next_item(bufptr);
   }
   bufptr = next_item(bufptr);
   while ((!no_more_items(bufptr)) && (*bufptr >= '0') && (*bufptr <= '9')) {
@@ -7233,10 +7294,10 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int max_pcs, 
     goto calc_regress_pcs_ret_INVALID_FORMAT;
   }
   if (pc_ct > max_pcs) {
-    printf("Regressing on %d principal components (truncated from %d).\n", max_pcs, pc_ct);
+    printf("%svec format detected.  Regressing on %d (out of %d) principal components.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", max_pcs, pc_ct);
     pc_ct = max_pcs;
   } else {
-    printf("Regressing on %d principal components.\n", pc_ct);
+    printf("%svec format detected.  Regressing on %d principal components.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", pc_ct);
   }
   if (wkspace_alloc_d_checked(&pc_matrix, pc_ct * indiv_ct * sizeof(double))) {
     goto calc_regress_pcs_ret_NOMEM;
@@ -7255,36 +7316,65 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int max_pcs, 
   }
   fill_double_zero(pc_orig_sums, pc_ct);
   fill_double_zero(pc_orig_prod_sums, pc_ct * pc_ct);
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    if (!fgets(tbuf, MAXLINELEN, evecfile)) {
-      if (feof(evecfile)) {
-	printf("Error: Fewer individuals in .evec file than expected.\n");
-	goto calc_regress_pcs_ret_INVALID_FORMAT2;
-      } else {
-        goto calc_regress_pcs_ret_READ_FAIL;
+  if (is_eigenvec) {
+    indiv_idx = 0;
+    while (1) {
+      // todo: validate, and perhaps permute, family/indiv IDs
+      bufptr = next_item(next_item(skip_initial_spaces(tbuf)));
+      for (ii = 0; ii < pc_ct; ii++) {
+	if (no_more_items(bufptr)) {
+	  goto calc_regress_pcs_ret_INVALID_FORMAT;
+	}
+	if (sscanf(bufptr, "%lg", &(pc_matrix[ii * indiv_ct + indiv_idx])) != 1) {
+	  goto calc_regress_pcs_ret_INVALID_FORMAT;
+	}
+	bufptr = next_item(bufptr);
+      }
+      if (++indiv_idx >= indiv_ct) {
+	break;
+      }
+      if (!fgets(tbuf, MAXLINELEN, evecfile)) {
+	if (feof(evecfile)) {
+	  printf("Error: Fewer individuals in .eigenvec file than expected.\n");
+	  goto calc_regress_pcs_ret_INVALID_FORMAT2;
+	} else {
+	  goto calc_regress_pcs_ret_READ_FAIL;
+	}
       }
     }
-    bufptr = next_item(skip_initial_spaces(tbuf));
-    for (ii = 0; ii < pc_ct; ii++) {
-      if (no_more_items(bufptr)) {
-	goto calc_regress_pcs_ret_INVALID_FORMAT;
+  } else {
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      if (!fgets(tbuf, MAXLINELEN, evecfile)) {
+	if (feof(evecfile)) {
+	  printf("Error: Fewer individuals in .evec file than expected.\n");
+	  goto calc_regress_pcs_ret_INVALID_FORMAT2;
+	} else {
+	  goto calc_regress_pcs_ret_READ_FAIL;
+	}
       }
-      if (sscanf(bufptr, "%lg", &(pc_matrix[ii * indiv_ct + indiv_idx])) != 1) {
-	goto calc_regress_pcs_ret_INVALID_FORMAT;
+      bufptr = next_item(skip_initial_spaces(tbuf));
+      for (ii = 0; ii < pc_ct; ii++) {
+	if (no_more_items(bufptr)) {
+	  goto calc_regress_pcs_ret_INVALID_FORMAT;
+	}
+	if (sscanf(bufptr, "%lg", &(pc_matrix[ii * indiv_ct + indiv_idx])) != 1) {
+	  goto calc_regress_pcs_ret_INVALID_FORMAT;
+	}
+	bufptr = next_item(bufptr);
       }
-      bufptr = next_item(bufptr);
     }
   }
   if (fgets(tbuf, MAXLINELEN, evecfile)) {
     if (!no_more_items(skip_initial_spaces(tbuf))) {
-      printf("Error: More individuals in .evec file than expected.\n");
+      printf("Error: More individuals in .e%svec file than expected.\n", is_eigenvec? "igen" : "");
       goto calc_regress_pcs_ret_INVALID_FORMAT2;
     }
   }
   fclose(evecfile);
   fill_uint_zero(missing_cts, unfiltered_indiv_ct);
-  // .gen instead of .bgen because latter actually has lower precision(!), and
-  // there's no need for repeated random access.
+  // .gen instead of .bgen because latter actually has lower precision(!) (15
+  // bits instead of the ~20 you get from printf("%g", dxx)), and there's no
+  // need for repeated random access.
   strcpy(outname_end, ".gen");
   if (fopen_checked(outfile_ptr, outname, "w")) {
     return RET_OPEN_FAIL;
@@ -8841,7 +8931,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_sex_specific, int max_pcs, int freqx) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freqx) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -9406,7 +9496,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (calculation_type & CALC_REGRESS_PCS) {
     // do this before marker_alleles is overwritten in memory...
-    retval = calc_regress_pcs(evecname, regress_pcs_sex_specific, max_pcs, pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, chrom_info_ptr, marker_pos, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, sex_info, pheno_d, &outfile, outname, outname_end);
+    retval = calc_regress_pcs(evecname, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, chrom_info_ptr, marker_pos, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, sex_info, pheno_d, &outfile, outname, outname_end);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -10894,27 +10984,44 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       if (mm == CALC_DISTANCE_TRI) {
 	if (nn) {
+	  printf("Writing...");
+	  fflush(stdout);
           if (fwrite_checked(dists, llyy * sizeof(double), outfile)) {
             goto wdist_ret_WRITE_FAIL;
           }
+          distance_print_done(0, outname, outname_end);
 	}
 	if (qq) {
 	  dist_ptr = dists;
-          for (ii = 0; ii < llyy; ii++) {
-	    dxx = 1.0 - (*dist_ptr++) * dyy;
-	    if (fwrite_checked(&dxx, sizeof(double), outfile2)) {
-	      goto wdist_ret_WRITE_FAIL;
+	  ulii = 0;
+	  do {
+	    uljj = (llyy * pct) / 100L;
+	    for (; ulii < uljj; ulii++) {
+	      dxx = 1.0 - (*dist_ptr++) * dyy;
+	      if (fwrite_checked(&dxx, sizeof(double), outfile2)) {
+	        goto wdist_ret_WRITE_FAIL;
+	      }
 	    }
-	  }
+	    printf("\rWriting... %d%%", pct++);
+	    fflush(stdout);
+	  } while (pct <= 100);
+          distance_print_done(1, outname, outname_end);
 	}
 	if (rr) {
 	  dist_ptr = dists;
-          for (ii = 0; ii < llyy; ii++) {
-	    dxx = (*dist_ptr++) * dyy;
-	    if (fwrite_checked(&dxx, sizeof(double), outfile3)) {
-	      goto wdist_ret_WRITE_FAIL;
+	  ulii = 0;
+	  do {
+	    uljj = (llyy * pct) / 100L;
+	    for (; ulii < uljj; ulii++) {
+	      dxx = (*dist_ptr++) * dyy;
+	      if (fwrite_checked(&dxx, sizeof(double), outfile3)) {
+		goto wdist_ret_WRITE_FAIL;
+	      }
 	    }
-	  }
+	    printf("\rWriting... %d%%", pct++);
+	    fflush(stdout);
+	  } while (pct <= 100);
+          distance_print_done(2, outname, outname_end);
 	}
       } else {
 	if (mm == CALC_DISTANCE_SQ0) {
@@ -11603,7 +11710,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   return retval;
 }
 
-int wdist_dosage(char* genname, char* samplename) {
+int wdist_dosage(int calculation_type, char* genname, char* samplename, int distance_3d) {
   printf("Dosage support currently under development.\n");
   return 0;
 }
@@ -11695,6 +11802,11 @@ int main(int argc, char** argv) {
   char evecname[FNAMESIZE];
   char genname[FNAMESIZE];
   char samplename[FNAMESIZE];
+#ifdef DEBUG
+  char debugname[FNAMESIZE];
+  debugname[0] = '\0';
+  time_t rawtime;
+#endif
   char* makepheno_str = NULL;
   char* filterval = NULL;
   char* argptr;
@@ -11727,6 +11839,7 @@ int main(int argc, char** argv) {
   char missing_geno = '0';
   double tail_bottom;
   double tail_top;
+  int distance_3d = 0;
   int groupdist_iters = ITERS_DEFAULT;
   int groupdist_d = 0;
   int regress_iters = ITERS_DEFAULT;
@@ -11762,13 +11875,13 @@ int main(int argc, char** argv) {
   int filter_sex = 0;
   int filter_founder_nonf = 0;
   int regress_pcs_sex_specific = 0;
-  int max_pcs = 10;
+  int regress_pcs_clip = 0;
+  int max_pcs = MAX_PCS_DEFAULT;
   int freqx = 0;
   int silent = 0;
   Chrom_info chrom_info;
   char* argptr2;
   int cur_arg_start;
-  int num_dash;
   printf(ver_str);
   chrom_info.species = SPECIES_HUMAN;
   chrom_info.chrom_mask = 0;
@@ -11800,22 +11913,22 @@ int main(int argc, char** argv) {
       return invalid_arg(argptr);
     }
     if (argptr[1] == '-') {
-      num_dash = 2;
-    } else if ((argptr[1] == '1') && (argptr[2] == '\0')) {
-      // special case: don't accept -1 as an alias for --1.  This restriction
-      // allows param_count() to determine argument counts for each flag using
-      // local information.
-      printf("Error: Invalid flag ('-1').  To avoid confusion with the number -1, WDIST\nrequires the --1 flag to be preceded by two dashes.%s", errstr_append);
-      return dispmsg(RET_INVALID_CMDLINE);
+      argptr2 = &(argptr[3]);
     } else {
-      num_dash = 1;
+      argptr2 = &(argptr[2]);
     }
-    argptr2 = &(argptr[num_dash + 1]);
     cur_arg_start = cur_arg;
-    switch (argptr[num_dash]) {
+    switch (argptr2[-1]) {
     case '1':
       if (*argptr2 == '\0') {
 	// --1
+	if (argptr[1] == '1') {
+	  // special case: don't accept -1 as an alias for --1.  This
+          // restriction allows param_count() to determine argument counts for
+	  // each flag using local information.
+	  printf("Error: Invalid flag ('-1').  To avoid confusion with the number -1, WDIST\nrequires the --1 flag to be preceded by two dashes.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
 	affection_01 = 1;
 	cur_arg += 1;
       }
@@ -11834,13 +11947,13 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-	for (kk = 1; kk <= ii; kk++) {
-	  if (!strcmp(argv[cur_arg + kk], "full")) {
+	for (jj = 1; jj <= ii; jj++) {
+	  if (!strcmp(argv[cur_arg + jj], "full")) {
 	    genome_output_full = 1;
-	  } else if (!strcmp(argv[cur_arg + kk], "unbounded")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "unbounded")) {
 	    genome_ibd_unbounded = 1;
 	  } else {
-	    printf("Error: Invalid --Z-genome parameter.%s", errstr_append);
+	    printf("Error: Invalid --Z-genome parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	}
@@ -11969,7 +12082,7 @@ int main(int argc, char** argv) {
 	  kk = marker_code_raw(argv[cur_arg + 1 + jj]);
 	  // will allow some non-autosomal in future
 	  if ((kk == -1) || (kk == CHROM_X) || (kk == CHROM_Y) || (kk == CHROM_MT) || ((kk == CHROM_XY) && (species_xy_code[chrom_info.species] == -1))) {
-	    printf("Error: Invalid --chr parameter.\n");
+	    printf("Error: Invalid --chr parameter '%s'.\n", argv[cur_arg + 1 + jj]);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	  chrom_info.chrom_mask |= 1LLU << kk;
@@ -12013,6 +12126,29 @@ int main(int argc, char** argv) {
 	  strcat(samplename, ".sample");
 	}
 	cur_arg += ii + 1;
+      } else if (!memcmp(argptr2, "ebug", 5)) {
+#ifdef DEBUG
+	if (debugname[0]) {
+	  printf("Error: Duplicate --debug flag.\n");
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  sptr = argv[cur_arg + 1];
+	  if (strlen(sptr) > (FNAMESIZE - 1)) {
+	    printf("Error: --debug parameter too long.\n");
+	    return dispmsg(RET_OPEN_FAIL);
+	  }
+	} else {
+	  sptr = (char*)"wdist.log";
+	}
+	strcpy(debugname, sptr);
+	cur_arg += ii + 1;
+#else
+        printf("Error: This is not a debug build of WDIST.  Obtain one, or recompile the source\nafter uncommenting '#define DEBUG'.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+#endif
       } else if (!memcmp(argptr2, "og", 3)) {
 	if (species_flag(&chrom_info, SPECIES_DOG)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
@@ -12029,9 +12165,8 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 5, &ii)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-	jj = 0;
-	for (kk = 1; kk <= ii; kk++) {
-	  if (!strcmp(argv[cur_arg + kk], "square")) {
+	for (jj = 1; jj <= ii; jj++) {
+	  if (!strcmp(argv[cur_arg + jj], "square")) {
 	    if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ0) {
 	      printf("Error: --distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
@@ -12043,7 +12178,7 @@ int main(int argc, char** argv) {
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_DISTANCE_SQ;
-	  } else if (!strcmp(argv[cur_arg + kk], "square0")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "square0")) {
 	    if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
 	      printf("Error: --distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
@@ -12052,7 +12187,7 @@ int main(int argc, char** argv) {
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_DISTANCE_SQ0;
-	  } else if (!strcmp(argv[cur_arg + kk], "triangle")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "triangle")) {
 	    if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
 	      printf("Error: --distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
@@ -12061,19 +12196,21 @@ int main(int argc, char** argv) {
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_DISTANCE_TRI;
-	  } else if (!strcmp(argv[cur_arg + kk], "gz")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "gz")) {
 	    if (calculation_type & CALC_DISTANCE_BIN) {
 	      printf("Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_DISTANCE_GZ;
-	  } else if (!strcmp(argv[cur_arg + kk], "bin")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "bin")) {
 	    if (calculation_type & CALC_DISTANCE_GZ) {
 	      printf("Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_DISTANCE_BIN;
-	  } else if (!strcmp(argv[cur_arg + kk], "ibs")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "3d")) {
+	    distance_3d = 1;
+	  } else if (!strcmp(argv[cur_arg + jj], "ibs")) {
 	    if (calculation_type & CALC_PLINK_IBS_MATRIX) {
 	      printf("Error: --matrix flag cannot be used with '--distance ibs'.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
@@ -12082,7 +12219,7 @@ int main(int argc, char** argv) {
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_DISTANCE_IBS;
-	  } else if (!strcmp(argv[cur_arg + kk], "1-ibs")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "1-ibs")) {
 	    if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
 	      printf("Error: --matrix flag cannot be used with '--distance 1-ibs'.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
@@ -12091,14 +12228,14 @@ int main(int argc, char** argv) {
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_DISTANCE_1_MINUS_IBS;
-	  } else if (!strcmp(argv[cur_arg + kk], "snps")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "snps")) {
 	    if (calculation_type & CALC_DISTANCE_SNPS) {
 	      printf("Error: Duplicate 'snps' modifier.\n");
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_DISTANCE_SNPS;
 	  } else {
-	    printf("Error: Invalid --distance parameter.%s", errstr_append);
+	    printf("Error: Invalid --distance parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	}
@@ -12161,7 +12298,7 @@ int main(int argc, char** argv) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (sscanf(argv[cur_arg + 1], "%lg", &exponent) != 1) {
-	  printf("Error: Invalid --exponent parameter.\n");
+	  printf("Error: Invalid --exponent parameter '%s'.\n", argv[cur_arg + 1]);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	cur_arg += 2;
@@ -12322,11 +12459,11 @@ int main(int argc, char** argv) {
 	}
 	if (ii) {
 	  if (sscanf(argv[cur_arg + 1], "%lg", &geno_thresh) != 1) {
-	    printf("Error: Invalid --geno parameter.\n");
+	    printf("Error: Invalid --geno parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	  if ((geno_thresh < 0.0) || (geno_thresh > 1.0)) {
-	    printf("Error: Invalid --geno parameter.\n");
+	    printf("Error: Invalid --geno parameter '%s' (must be between 0 and 1).%s", argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	} else {
@@ -12343,15 +12480,15 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 3, &ii)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-	for (kk = 1; kk <= ii; kk++) {
-	  if (!strcmp(argv[cur_arg + kk], "full")) {
+	for (jj = 1; jj <= ii; jj++) {
+	  if (!strcmp(argv[cur_arg + jj], "full")) {
 	    genome_output_full = 1;
-	  } else if (!strcmp(argv[cur_arg + kk], "unbounded")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "unbounded")) {
 	    genome_ibd_unbounded = 1;
-	  } else if (!strcmp(argv[cur_arg + kk], "gz")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "gz")) {
 	    genome_output_gz = 1;
 	  } else {
-	    printf("Error: Invalid --genome parameter.%s", errstr_append);
+	    printf("Error: Invalid --genome parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	}
@@ -12371,13 +12508,13 @@ int main(int argc, char** argv) {
 	if (ii) {
 	  groupdist_iters = atoi(argv[cur_arg + 1]);
 	  if (groupdist_iters < 2) {
-	    printf("Error: Invalid --groupdist jackknife iteration count.\n");
+	    printf("Error: Invalid --groupdist jackknife iteration count '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	  if (ii == 2) {
 	    groupdist_d = atoi(argv[cur_arg + 2]);
 	    if (groupdist_d <= 0) {
-	      printf("Error: Invalid --groupdist jackknife delete parameter.\n");
+	      printf("Error: Invalid --groupdist jackknife delete parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	  }
@@ -12391,7 +12528,7 @@ int main(int argc, char** argv) {
     case 'h':
       if (!memcmp(argptr2, "elp", 4)) {
 	if ((cur_arg != 1) || subst_argv) {
-	  printf("(--help present, ignoring other flags.)\n");
+	  printf("--help present, ignoring other flags.\n");
 	}
 	return disp_help(argc - cur_arg - 1, &(argv[cur_arg + 1]));
       } else if (!memcmp(argptr2, "orse", 5)) {
@@ -12405,11 +12542,11 @@ int main(int argc, char** argv) {
 	}
 	if (ii) {
 	  if (sscanf(argv[cur_arg + 1], "%lg", &hwe_thresh) != 1) {
-	    printf("Error: Invalid --hwe parameter.\n");
+	    printf("Error: Invalid --hwe parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	  if ((hwe_thresh < 0.0) || (hwe_thresh >= 1.0)) {
-	    printf("Error: Invalid --hwe parameter.\n");
+	    printf("Error: Invalid --hwe parameter '%s' (must be between 0 and 1).%s", argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	} else {
@@ -12440,12 +12577,12 @@ int main(int argc, char** argv) {
 	}
 	ld_window_size = atoi(argv[cur_arg + 1]);
 	if ((ld_window_size < 1) || ((ld_window_size == 1) && (ii == 3))) {
-	  printf("Error: Invalid --indep-pairwise window size.%s", errstr_append);
+	  printf("Error: Invalid --indep-pairwise window size '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (ii == 4) {
-	  if (strcmp(argv[cur_arg + 2], "kb")) {
-	    printf("Error: Invalid argument for --indep-pairwise.%s", errstr_append);
+	  if ((tolower(argv[cur_arg + 2][0]) != 'k') || (tolower(argv[cur_arg + 2][1]) != 'b') || (argv[cur_arg + 2][2] != '\0')) {
+	    printf("Error: Invalid --indep-pairwise parameter sequence.%s", errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	  ld_window_kb = 1;
@@ -12457,22 +12594,22 @@ int main(int argc, char** argv) {
 	}
 	ld_window_incr = atoi(argv[cur_arg + ii - 1]);
 	if (ld_window_incr < 1) {
-	  printf("Error: Invalid increment for --indep-pairwise.%s", errstr_append);
+	  printf("Error: Invalid increment '%s' for --indep-pairwise.%s", argv[cur_arg + ii + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (sscanf(argv[cur_arg + ii], "%lg", &ld_last_param) != 1) {
-	  printf("Error: Invalid --indep-pairwise r^2 threshold.\n");
+	  printf("Error: Invalid --indep-pairwise r^2 threshold '%s'.%s", argv[cur_arg + ii], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if ((ld_last_param < 0.0) || (ld_last_param >= 1.0)) {
-	  printf("Error: Invalid --indep-pairwise r^2 threshold.\n");
+	  printf("Error: Invalid --indep-pairwise r^2 threshold '%s'.%s", argv[cur_arg + ii], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	cur_arg += 1 + ii;
 	calculation_type |= (CALC_LD_PRUNE | CALC_LD_PRUNE_PAIRWISE);
       } else if (!memcmp(argptr2, "ndep", 5)) {
 #ifdef NOLAPACK
-	printf("Error: --indep does not work without LAPACK.  Use a wdist build with 'L' at the\nend of the version number.\n");
+	printf("Error: --indep does not work without LAPACK.  Use a wdist build without 'NL' at\nthe end of the version number.");
 	return dispmsg(RET_INVALID_CMDLINE);
 #else
 	if (calculation_type & CALC_LD_PRUNE) {
@@ -12484,12 +12621,12 @@ int main(int argc, char** argv) {
 	}
 	ld_window_size = atoi(argv[cur_arg + 1]);
 	if ((ld_window_size < 1) || ((ld_window_size == 1) && (ii == 3))) {
-	  printf("Error: Invalid --indep window size.%s", errstr_append);
+	  printf("Error: Invalid --indep window size '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (ii == 4) {
-	  if (strcmp(argv[cur_arg + 2], "kb")) {
-	    printf("Error: Invalid argument for --indep.%s", errstr_append);
+	  if ((tolower(argv[cur_arg + 2][0]) != 'k') || (tolower(argv[cur_arg + 2][1]) != 'b') || (argv[cur_arg + 2][2] != '\0')) {
+	    printf("Error: Invalid --indep parameter sequence.%s", errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	  ld_window_kb = 1;
@@ -12501,15 +12638,15 @@ int main(int argc, char** argv) {
 	}
 	ld_window_incr = atoi(argv[cur_arg + ii - 1]);
 	if (ld_window_incr < 1) {
-	  printf("Error: Invalid increment for --indep.%s", errstr_append);
+	  printf("Error: Invalid increment '%s' for --indep.%s", argv[cur_arg + ii - 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (sscanf(argv[cur_arg + ii], "%lg", &ld_last_param) != 1) {
-	  printf("Error: Invalid --indep VIF threshold.\n");
+	  printf("Error: Invalid --indep VIF threshold '%s'.%s", argv[cur_arg + ii], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (ld_last_param < 1.0) {
-	  printf("Error: --indep VIF threshold cannot be less than 1.\n");
+	  printf("Error: Invalid --indep VIF threshold '%s' (must be >= 1).%s", argv[cur_arg + ii], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	cur_arg += 1 + ii;
@@ -12592,7 +12729,7 @@ int main(int argc, char** argv) {
 	}
 	missing_geno = argv[cur_arg + 1][0];
 	if ((strlen(argv[cur_arg + 1]) > 1) || (((unsigned char)missing_geno) <= ' ')) {
-	  printf("Error: Invalid --missing-genotype parameter.\n");
+	  printf("Error: Invalid --missing-genotype parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	cur_arg += 2;
@@ -12606,7 +12743,7 @@ int main(int argc, char** argv) {
 	}
 	missing_pheno = atoi(argv[cur_arg + 1]);
 	if ((missing_pheno == 0) || (missing_pheno == 1)) {
-	  printf("Error: Invalid --missing-phenotype parameter.\n");
+	  printf("Error: Invalid --missing-phenotype parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	cur_arg += 2;
@@ -12647,7 +12784,7 @@ int main(int argc, char** argv) {
 	}
 	mpheno_col = atoi(argv[cur_arg + 1]);
 	if (mpheno_col < 1) {
-	  printf("Error: Invalid --mpheno parameter.\n");
+	  printf("Error: Invalid --mpheno parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	cur_arg += 2;
@@ -12661,7 +12798,7 @@ int main(int argc, char** argv) {
 	}
 	mfilter_col = atoi(argv[cur_arg + 1]);
 	if (mfilter_col < 1) {
-	  printf("Error: Invalid --mfilter parameter.\n");
+	  printf("Error: Invalid --mfilter parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	cur_arg += 2;
@@ -12671,7 +12808,7 @@ int main(int argc, char** argv) {
 	}
 	malloc_size_mb = atoi(argv[cur_arg + 1]);
 	if (malloc_size_mb < 64) {
-	  printf("Error: Invalid --memory parameter.\n");
+	  printf("Error: Invalid --memory parameter '%s' %s.%s", argv[cur_arg + 1], (malloc_size_mb > 0)? "(minimum 64)" : "", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 #ifndef __LP64__
@@ -12747,9 +12884,8 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 3, &ii)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-	jj = 0;
-	for (kk = 1; kk <= ii; kk++) {
-	  if (!strcmp(argv[cur_arg + kk], "cov")) {
+	for (jj = 1; jj <= ii; jj++) {
+	  if (!strcmp(argv[cur_arg + jj], "cov")) {
 	    if (calculation_type & CALC_IBC) {
 	      printf("Error: --make-rel 'cov' modifier cannot coexist with --ibc flag.\n");
 	      return dispmsg(RET_INVALID_CMDLINE);
@@ -12763,19 +12899,19 @@ int main(int argc, char** argv) {
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_RELATIONSHIP_COV;
-	  } else if (!strcmp(argv[cur_arg + kk], "gz")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "gz")) {
 	    if (calculation_type & CALC_RELATIONSHIP_BIN) {
 	      printf("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_RELATIONSHIP_GZ;
-	  } else if (!strcmp(argv[cur_arg + kk], "bin")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "bin")) {
 	    if (calculation_type & CALC_RELATIONSHIP_GZ) {
 	      printf("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_RELATIONSHIP_BIN;
-	  } else if (!strcmp(argv[cur_arg + kk], "square")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "square")) {
 	    if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ0) {
 	      printf("Error: --make-rel 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
@@ -12787,7 +12923,7 @@ int main(int argc, char** argv) {
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_RELATIONSHIP_SQ;
-	  } else if (!strcmp(argv[cur_arg + kk], "square0")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "square0")) {
 	    if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ) {
 	      printf("Error: --make-rel 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
@@ -12796,7 +12932,7 @@ int main(int argc, char** argv) {
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_RELATIONSHIP_SQ0;
-	  } else if (!strcmp(argv[cur_arg + kk], "triangle")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "triangle")) {
 	    if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ) {
 	      printf("Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
@@ -12805,16 +12941,16 @@ int main(int argc, char** argv) {
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_RELATIONSHIP_TRI;
-	  } else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
+	  } else if ((!strcmp(argv[cur_arg + jj], "ibc1")) || (!strcmp(argv[cur_arg + jj], "ibc2"))) {
 	    if (calculation_type & CALC_RELATIONSHIP_COV) {
 	      printf("Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    if (ibc_type) {
-	      printf("Error: --make-rel '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + kk], errstr_append);
+	      printf("Error: --make-rel '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + jj], errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
-	    ibc_type = argv[cur_arg + kk][3] - '0';
+	    ibc_type = argv[cur_arg + jj][3] - '0';
 	  } else {
 	    printf("Error: Invalid --make-rel parameter.%s", errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
@@ -12837,8 +12973,8 @@ int main(int argc, char** argv) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	calculation_type |= CALC_RELATIONSHIP_GZ;
-	for (kk = 1; kk <= ii; kk++) {
-	  if (!strcmp(argv[cur_arg + kk], "cov")) {
+	for (jj = 1; jj <= ii; jj++) {
+	  if (!strcmp(argv[cur_arg + jj], "cov")) {
 	    if (calculation_type & CALC_IBC) {
 	      printf("Error: --make-grm 'cov' modifier cannot coexist with --ibc flag.\n");
 	      return dispmsg(RET_INVALID_CMDLINE);
@@ -12852,18 +12988,18 @@ int main(int argc, char** argv) {
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_RELATIONSHIP_COV;
-	  } else if (!strcmp(argv[cur_arg + kk], "no-gz")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "no-gz")) {
 	    calculation_type &= ~CALC_RELATIONSHIP_GZ;
-	  } else if ((!strcmp(argv[cur_arg + kk], "ibc1")) || (!strcmp(argv[cur_arg + kk], "ibc2"))) {
+	  } else if ((!strcmp(argv[cur_arg + jj], "ibc1")) || (!strcmp(argv[cur_arg + jj], "ibc2"))) {
 	    if (calculation_type & CALC_RELATIONSHIP_COV) {
 	      printf("Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    if (ibc_type) {
-	      printf("Error: --make-grm '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + kk], errstr_append);
+	      printf("Error: --make-grm '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + jj], errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
-	    ibc_type = argv[cur_arg + kk][3] - '0';
+	    ibc_type = argv[cur_arg + jj][3] - '0';
 	  } else {
 	    printf("Error: Invalid --make-grm parameter.%s", errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
@@ -13176,35 +13312,37 @@ int main(int argc, char** argv) {
 	calculation_type |= CALC_REGRESS_REL;
       } else if (!memcmp(argptr2, "egress-pcs", 11)) {
 #ifdef NOLAPACK
-	printf("Error: --regress-pcs does not work without LAPACK.  Use a wdist build with 'L'\n at the end of the version number.\n");
+	printf("Error: --regress-pcs does not work without LAPACK.  Use a wdist build without\n'NL' at the end of the version number.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
 #else
 	if (calculation_type & CALC_REGRESS_PCS) {
 	  printf("Error: Duplicate --regress-pcs flag.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 3, &ii)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 4, &ii)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-	  printf("Error: --regress-pcs .evec filename too long.\n");
+	jj = strlen(argv[cur_arg + 1]);
+	if (jj > FNAMESIZE - 10) {
+	  printf("Error: --regress-pcs .evec/.eigenvec filename too long.\n");
 	  return dispmsg(RET_OPEN_FAIL);
 	}
 	strcpy(evecname, argv[cur_arg + 1]);
-	if (ii != 1) {
-	  if (!strcmp(argv[cur_arg + 2], "sex-specific")) {
+	for (jj = 2; jj <= ii; jj++) {
+	  if (!strcmp(argv[cur_arg + jj], "sex-specific") && (!regress_pcs_sex_specific)) {
 	    regress_pcs_sex_specific = 1;
-	  }
-	}
-	if (ii == 2 + regress_pcs_sex_specific) {
-	  max_pcs = atoi(argv[cur_arg + ii]);
-	  if (max_pcs < 1) {
-	    printf("Error: Invalid --regress-pcs maximum principal component count.%s", errstr_append);
+	  } else if (!strcmp(argv[cur_arg + jj], "clip") && (!regress_pcs_clip)) {
+	    regress_pcs_clip = 1;
+	  } else if ((max_pcs != MAX_PCS_DEFAULT) || (argv[cur_arg + jj][0] < '0') || (argv[cur_arg + jj][0] > '9')) {
+	    printf("Error: Invalid --regress-pcs parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
+	  } else {
+	    max_pcs = atoi(argv[cur_arg + jj]);
+	    if (max_pcs < 1) {
+	      printf("Error: Invalid --regress-pcs maximum principal component count.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
 	  }
-	} else if (ii == 3) {
-	  printf("Error: Extra --regress-pcs parameter.%s", errstr_append);
-	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	calculation_type |= CALC_REGRESS_PCS;
 	cur_arg += ii + 1;
@@ -13467,6 +13605,31 @@ int main(int argc, char** argv) {
     freopen("/dev/null", "w", stdout);
   }
 
+#ifdef DEBUG
+  if (debugname[0]) {
+    if (fopen_checked(&dlogfile, debugname, "w")) {
+      return dispmsg(RET_OPEN_FAIL);
+    }
+    printf("Writing debug log to %s.\n", debugname);
+    if (subst_argv) {
+      debug_log("--script used, cannot reconstruct full command line.  Known arguments:\n");
+      ii = 0;
+    } else {
+      debug_log("wdist");
+      ii = 1;
+    }
+    while (ii < argc) {
+      if (ii) {
+	debug_log(" ");
+      }
+      debug_log(argv[ii++]);
+    }
+    debug_log("\n\nStart time: ");
+    time(&rawtime);
+    debug_log(ctime(&rawtime));
+  }
+#endif
+
   wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
   if ((malloc_size_mb > MALLOC_DEFAULT_MB) && !wkspace_ua) {
     printf("%ld MB memory allocation failed.  Using default allocation behavior.\n", malloc_size_mb);
@@ -13509,11 +13672,25 @@ int main(int argc, char** argv) {
   // freqname[0] signals --read-freq
   // evecname[0] signals --regress-pcs
   if (genname[0]) {
-    // check for supported calculations
-    retval = wdist_dosage(genname, samplename);
+    if (calculation_type & (~CALC_DISTANCE_MASK)) {
+      printf("Error: \n");
+      retval = RET_CALC_NOT_YET_SUPPORTED;
+    } else {
+      retval = wdist_dosage(calculation_type, genname, samplename, distance_3d);
+    }
   } else {
-    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_sex_specific, max_pcs, freqx);
+    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freqx);
   }
   free(wkspace_ua);
+#ifdef DEBUG
+  if (dlogfile) {
+    debug_log("End time: ");
+    time(&rawtime);
+    debug_log(ctime(&rawtime));
+    if (fclose(dlogfile)) {
+      printf("Error: Failed to finish writing to debug log.\n");
+    }
+  }
+#endif
   return dispmsg(retval);
 }
