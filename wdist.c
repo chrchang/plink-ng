@@ -114,7 +114,10 @@
 #include <emmintrin.h>
 #endif
 
-#ifndef NOLAPACK
+#ifdef NOLAPACK
+#define MATRIX_INVERT_BUF1_TYPE double
+#define __CLPK_integer int
+#else
 #ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
 #else
@@ -141,9 +144,10 @@ extern "C" {
   void xerbla_(void) {} // fix static linking error
 #ifdef __cplusplus
 }
-#endif
-#endif
-#endif
+#endif // __cplusplus
+#endif // __APPLE__
+#define MATRIX_INVERT_BUF1_TYPE __CLPK_integer
+#endif // NOLAPACK
 
 #include "zlib-1.2.7/zlib.h"
 
@@ -328,12 +332,13 @@ static inline void debug_log(char* ss) {
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
 
 #define MIN(aa, bb) ((aa) > (bb))? (bb) : (aa)
+#define MAX(aa, bb) ((bb) > (aa))? (bb) : (aa)
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.11.3NL "
+  "WDIST genomic distance calculator, v0.12.0NL "
 #else
-  "WDIST genomic distance calculator, v0.11.3 "
+  "WDIST genomic distance calculator, v0.12.0 "
 #endif
 #if __LP64__
   "64-bit"
@@ -343,7 +348,7 @@ const char ver_str[] =
 #ifdef DEBUG
   " debug"
 #endif
-  " (27 October 2012)\n"
+  " (1 November 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
@@ -779,12 +784,8 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    same effect as PLINK's --full-genome and --unbounded flags.\n\n"
 		);
     help_print(
-#ifndef NOLAPACK
 "indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (SNPs)] [VIF threshold]\n"
-#else
-"indep-pairwise", &help_ctrl, 1,
-#endif
 "  --indep-pairwise [window size]<kb> [step size (SNPs)] [r^2 threshold]\n"
 "    Generates a list of SNPs in approximate linkage equilibrium; see PLINK\n"
 "    documentation for more details.  With the 'kb' modifier, the window size is\n"
@@ -845,20 +846,22 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    Linear regression of pairwise genomic relationships on pairwise average\n"
 "    phenotypes, and vice versa.\n\n"
 	       );
-#ifndef NOLAPACK
     help_print("regress-pcs", &help_ctrl, 1,
-"  --regress-pcs [.evec or .eigenvec file] <sex-specific> <clip> {max PCs}\n"
+"  --regress-pcs [.evec or .eigenvec filename] <normalize-pheno> <sex-specific>\n"
+"                <clip> {max PCs}\n"
 "    Linear regression of phenotypes and genotypes on the given list of\n"
-"    principal components (produced by SMARTPCA or GCTA).  Phenotype residuals\n"
-"    are then converted to Z-scores.  Output is a .gen + .sample fileset in the\n"
-"    Oxford IMPUTE/SNPTEST v2 format.\n"
-"    * The 'sex-specific' modifier normalizes Z-scores separately by sex.\n"
+"    principal components (produced by SMARTPCA or GCTA).  Output is a .gen +\n"
+"    .sample fileset in the Oxford IMPUTE/SNPTEST v2 format.\n"
+"    * The 'normalize-pheno' modifier converts all phenotype residuals to\n"
+"      Z-scores.  When combined with 'sex-specific', the Z-scores are evaluated\n"
+"      separately by sex.\n"
 "    * The 'clip' modifier clips out-of-range genotype residuals.  Without it,\n"
 "      they are represented as negative probabilities in the .gen file, which\n"
 "      are invalid input for some programs.\n"
 "    * By default, principal components beyond the 20th are ignored; change this\n"
 "      by setting the max PCs parameter.\n\n"
 	       );
+#ifndef NOLAPACK
     help_print("unrelated-heritability", &help_ctrl, 1,
 "  --unrelated-heritability <strict> {tol} {initial covg} {initial covr}\n"
 "    REML estimate of additive heritability, iterating with an accelerated\n"
@@ -1576,6 +1579,8 @@ inline double get_maf(double allele_freq) {
 }
 
 int indiv_major_to_snp_major(char* indiv_major_fname, char* outname, FILE** outfile_ptr, int unfiltered_marker_ct) {
+  // This implementation only handles large files on 64-bit Unix systems; a
+  // more portable version needs to be written for Windows and 32-bit Unix.
   int in_fd = open(indiv_major_fname, O_RDONLY);
   unsigned char* in_contents = (unsigned char*)MAP_FAILED;
   int unfiltered_marker_ct4 = (unfiltered_marker_ct + 3) / 4;
@@ -4294,7 +4299,6 @@ int regress_rel_main(unsigned long* indiv_exclude, unsigned int indiv_ct, int re
   return 0;
 }
 
-#ifndef NOLAPACK
 // Replaces matrix[][] with mult_val * matrix[][] + add_val * I.
 // Multithreading doesn't help here.
 void matrix_const_mult_add(double* matrix, double mult_val, double add_val) {
@@ -4362,6 +4366,274 @@ void matrix_row_sum_ur(double* sums, double* matrix) {
   }
 }
 
+#ifdef NOLAPACK
+inline double SQR(const double a) {
+  return a * a;
+}
+
+inline double SIGN(const double &a, const double &b) {
+  // PLINK helper.h SIGN() template specialized to doubles.
+  return (b >= 0)? (a >= 0 ? a : -a) : (a >= 0 ? -a : a);
+}
+
+double pythag(const double a, const double b) {
+  // PLINK stats.cpp pythag().
+  double absa,absb;
+ 
+  absa=fabs(a);
+  absb=fabs(b);
+  if (absa > absb) return absa*sqrt(1.0+SQR(absb/absa));
+  else return (absb == 0.0 ? 0.0 : absb*sqrt(1.0+SQR(absa/absb)));
+}
+
+int svdcmp_c(int m, double* a, double* w, double* v) {
+  // C port of PLINK stats.cpp svdcmp().
+  // Note that this function is NOT thread-safe, due to the buffer allocated
+  // from the workspace stack.  Pass in a preallocated buffer if that's not
+  // okay.
+  unsigned char* wkspace_mark = wkspace_base;
+  int n = m;
+  int flag;
+  int l = 0; // suppress compile warning
+  int i,its,j,jj,k,nm;
+  double anorm,c,f,g,h,s,scale,x,y,z;
+  double volatile temp;
+  double* rv1;
+  if (wkspace_alloc_d_checked(&rv1, m * sizeof(double))) {
+    return 0;
+  }
+
+  g=scale=anorm=0.0;
+  for (i=0;i<n;i++) {
+    l=i+2;
+    rv1[i]=scale*g;
+    g=s=scale=0.0;
+    if (i < m) {
+      for (k=i;k<m;k++) scale += fabs(a[k * m + i]);
+      if (scale != 0.0) {
+	for (k=i;k<m;k++) {
+	  a[k * m + i] /= scale;
+	  s += a[k * m + i]*a[k * m + i];
+	}
+	f=a[i * m + i];
+	g = -SIGN(sqrt(s),f);
+	h=f*g-s;
+	a[i * m + i]=f-g;
+	for (j=l-1;j<n;j++) {
+	  for (s=0.0,k=i;k<m;k++) s += a[k * m + i]*a[k * m + j];
+	  f=s/h;
+	  for (k=i;k<m;k++) a[k * m + j] += f*a[k * m + i];
+	}
+	for (k=i;k<m;k++) a[k * m + i] *= scale;
+      }
+    }
+    w[i]=scale *g;
+    g=s=scale=0.0;
+    if (i+1 <= m && i+1 != n) {
+      for (k=l-1;k<n;k++) scale += fabs(a[i * m + k]);
+      if (scale != 0.0) {
+	for (k=l-1;k<n;k++) {
+	  a[i * m + k] /= scale;
+	  s += a[i * m + k]*a[i * m + k];
+	}
+	f=a[i * m + l-1];
+	g = -SIGN(sqrt(s),f);
+	h=f*g-s;
+	a[i * m + l-1]=f-g;
+	for (k=l-1;k<n;k++) rv1[k]=a[i * m + k]/h;
+	for (j=l-1;j<m;j++) {
+	  for (s=0.0,k=l-1;k<n;k++) s += a[j * m + k]*a[i * m + k];
+	  for (k=l-1;k<n;k++) a[j * m + k] += s*rv1[k];
+	}
+	for (k=l-1;k<n;k++) a[i * m + k] *= scale;
+      }
+    }
+    anorm=MAX(anorm,(fabs(w[i])+fabs(rv1[i])));
+  }
+  for (i=n-1;i>=0;i--) {
+    if (i < n-1) {
+      if (g != 0.0) {
+	for (j=l;j<n;j++)
+	  v[j * m + i]=(a[i * m + j]/a[i * m + l])/g;
+	for (j=l;j<n;j++) {
+	  for (s=0.0,k=l;k<n;k++) s += a[i * m + k]*v[k * m + j];
+	  for (k=l;k<n;k++) v[k * m + j] += s*v[k * m + i];
+	}
+      }
+      for (j=l;j<n;j++) v[i * m + j]=v[j * m + i]=0.0;
+    }
+    v[i * m + i]=1.0;
+    g=rv1[i];
+    l=i;
+  }
+  for (i=MIN(m,n)-1;i>=0;i--) {
+    l=i+1;
+    g=w[i];
+    for (j=l;j<n;j++) a[i * m + j]=0.0;
+    if (g != 0.0) {
+      g=1.0/g;
+      for (j=l;j<n;j++) {
+	for (s=0.0,k=l;k<m;k++) s += a[k * m + i]*a[k * m + j];
+	f=(s/a[i * m + i])*g;
+	for (k=i;k<m;k++) a[k * m + j] += f*a[k * m + i];
+      }
+      for (j=i;j<m;j++) a[j * m + i] *= g;
+    } else for (j=i;j<m;j++) a[j * m + i]=0.0;
+    ++a[i * m + i];
+  }
+  for (k=n-1;k>=0;k--) {
+    for (its=0;its<30;its++) {
+      flag=1;
+      for (l=k;l>=0;l--) {
+	nm=l-1;
+	temp=fabs(rv1[l])+anorm;
+	if (temp == anorm) {
+	  flag=0;
+	  break;
+	}
+	temp=fabs(w[nm])+anorm;
+	if (temp == anorm) break;
+      }
+      if (flag) {
+	c=0.0;
+	s=1.0;
+	for (i=l;i<k+1;i++) {
+	  f=s*rv1[i];
+	  rv1[i]=c*rv1[i];
+	  temp = fabs(f)+anorm;
+	  if (temp == anorm) break;
+	  g=w[i];
+	  h=pythag(f,g);
+	  w[i]=h;
+	  h=1.0/h;
+	  c=g*h;
+	  s = -f*h;
+	  for (j=0;j<m;j++) {
+	    y=a[j * m + nm];
+	    z=a[j * m + i];
+	    a[j * m + nm]=y*c+z*s;
+	    a[j * m + i]=z*c-y*s;
+	  }
+	}
+      }
+      z=w[k];
+      if (l == k) {
+	if (z < 0.0) {
+	  w[k] = -z;
+	  for (j=0;j<n;j++) v[j * m + k] = -v[j * m + k];
+	}
+	break;
+      }
+      if (its == 29) 
+	return 0; // cannot converge: multi-collinearity?
+      x=w[l];
+      nm=k-1;
+      y=w[nm];
+      g=rv1[nm];
+      h=rv1[k];
+      f=((y-z)*(y+z)+(g-h)*(g+h))/(2.0*h*y);
+      g=pythag(f,1.0);
+      f=((x-z)*(x+z)+h*((y/(f+SIGN(g,f)))-h))/x;
+      c=s=1.0;
+      for (j=l;j<=nm;j++) {
+	i=j+1;
+	g=rv1[i];
+	y=w[i];
+	h=s*g;
+	g=c*g;
+	z=pythag(f,h);
+	rv1[j]=z;
+	c=f/z;
+	s=h/z;
+	f=x*c+g*s;
+	g=g*c-x*s;
+	h=y*s;
+	y *= c;
+	for (jj=0;jj<n;jj++) {
+	  x=v[jj * m + j];
+	  z=v[jj * m + i];
+	  v[jj * m + j]=x*c+z*s;
+	  v[jj * m + i]=z*c-x*s;
+	}
+	z=pythag(f,h);
+	w[j]=z;
+	if (z) {
+	  z=1.0/z;
+	  c=f*z;
+	  s=h*z;
+	}
+	f=c*g+s*y;
+	x=c*y-s*g;
+	for (jj=0;jj<m;jj++) {
+	  y=a[jj * m + j];
+	  z=a[jj * m + i];
+	  a[jj * m + j]=y*c+z*s;
+	  a[jj * m + i]=z*c-y*s;
+	}
+      }
+      rv1[l]=0.0;
+      rv1[k]=f;
+      w[k]=x;
+    }
+  }
+  wkspace_reset(wkspace_mark);
+  return 1;
+}
+
+int invert_matrix(int dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_1d_buf, double* dbl_2d_buf) {
+  // C port of PLINK stats.cpp's svd_inverse() function.  The return value
+  // takes the place of bool& flag.
+  // We don't actually pay attention to the return value yet since PLINK
+  // --indep ignores it.
+
+  // w -> dbl_1d_buf
+  // v -> dbl_2d_buf
+  const double eps = 1e-24;
+  int flag = svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf);
+
+  // Look for singular values
+  double wmax = 0;
+  for (int i=0; i<dim; i++) {
+    wmax = dbl_1d_buf[i] > wmax ? dbl_1d_buf[i] : wmax;
+  }
+  double wmin = wmax * eps;
+  for (int i=0; i<dim; i++) {
+    dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : 1/dbl_1d_buf[i];
+  }
+  
+  for (int i=0; i<dim; i++) {
+    for (int j=0; j<dim; j++) {
+      matrix[i * dim + j] = matrix[i * dim + j] * dbl_1d_buf[j];
+    }
+  }
+
+
+  // [nxn].[t(v)] 
+  for (int i=0; i<dim; i++) {
+    fill_double_zero(dbl_1d_buf, dim);
+    for (int j=0; j<dim; j++) {
+      for (int k=0; k<dim; k++) {
+	dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];
+      }
+    }
+    for (int j = 0; j < dim; j++) {
+      matrix[i * dim + j] = dbl_1d_buf[j];
+    }
+  }
+  return flag;
+}
+#else
+void invert_matrix(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf) {
+  // should create a variant of this function which detects singular matrices
+  // (using dgecon_, etc.)
+  __CLPK_integer lwork = dim * dim;
+  __CLPK_integer info;
+  dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
+  dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
+}
+#endif
+
+#ifndef NOLAPACK
 // one-trait REML via EM.
 //
 // wkbase is assumed to have space for three cache-aligned
@@ -4371,25 +4643,15 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   double ll_change;
   long long mat_offset = indiv_ct;
   double* rel_dists;
-#ifdef __LP64__
-  int* irow;
-  int lwork;
-#else
-  long int* irow;
-  long int lwork;
-#endif
+  MATRIX_INVERT_BUF1_TYPE* irow;
+  __CLPK_integer lwork;
   double* row;
   double* row2;
   double* work;
   double* dptr;
   double* dptr2;
   double* matrix_pvg;
-#ifdef __LP64__
-  int info;
-#else
-  long int indiv_ct_li = indiv_ct;
-  long int info;
-#endif
+  __CLPK_integer indiv_ct_li = indiv_ct;
   double dxx;
   double dyy;
   double max_jump;
@@ -4406,11 +4668,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   mat_offset = CACHEALIGN_DBL(mat_offset * mat_offset);
   rel_dists = &(wkbase[mat_offset]);
   row = &(wkbase[mat_offset * 3]);
-#ifdef __LP64__
-  irow = (int*)row;
-#else
-  irow = (long int*)row;
-#endif
+  irow = (MATRIX_INVERT_BUF1_TYPE*)row;
   row2 = &(row[indiv_ct]);
   work = &(wkbase[mat_offset * 2]);
   lwork = mat_offset;
@@ -4419,18 +4677,11 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     lwork = CACHELINE_DBL;
   }
   fill_double_zero(matrix_pvg, mat_offset);
-  fill_double_zero(row, indiv_ct);
   fill_double_zero(row2, indiv_ct);
   do {
     memcpy(wkbase, rel_dists, mat_offset * sizeof(double));
     matrix_const_mult_add(wkbase, *covg_ref, *covr_ref);
-#if __LP64__
-    dgetrf_((int*)(&indiv_ct), (int*)(&indiv_ct), wkbase, (int*)(&indiv_ct), irow, &info);
-    dgetri_((int*)(&indiv_ct), wkbase, (int*)(&indiv_ct), irow, work, &lwork, &info);
-#else
-    dgetrf_(&indiv_ct_li, &indiv_ct_li, wkbase, &indiv_ct_li, irow, &info);
-    dgetri_(&indiv_ct_li, wkbase, &indiv_ct_li, irow, work, &lwork, &info);
-#endif
+    invert_matrix(indiv_ct_li, wkbase, irow, work);
     matrix_row_sum_ur(row, wkbase);
     dxx = 0.0;
     dptr = row;
@@ -4510,7 +4761,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   } while (ll_change > tol);
   printf("\n");
 }
-#endif // NOLAPACK
+#endif
 
 inline int is_founder(unsigned long* founder_info, int ii) {
   return ((!founder_info) || ((founder_info[ii / BITCT]) & (1LU << (ii % BITCT))));
@@ -7210,20 +7461,57 @@ int write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, int unfi
   return 0;
 }
 
-const char* gen_strs[] = {" 1 0 0", " 0 0 0", " 0 1 0", " 0 0 1"};
+void normalize_phenos(double* new_phenos, unsigned int indiv_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned char* sex_info, unsigned int sex_exclude) {
+  // Assumes sex information is available for everyone.
+  unsigned int indiv_uidx = 0;
+  double pheno_tot = 0.0;
+  double pheno_sq_tot = 0.0;
+  unsigned int pheno_ct = 0;
+  unsigned int indiv_idx;
+  double dxx;
+  double mean;
+  double stdev_recip;
 
-int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, FILE* pedfile, int bed_offset, unsigned int marker_ct, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, Chrom_info* chrom_info_ptr, unsigned int* marker_pos, unsigned int indiv_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len, unsigned char* sex_info, double* pheno_d, FILE** outfile_ptr, char* outname, char* outname_end) {
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+    if (sex_info[indiv_uidx] != sex_exclude) {
+      dxx = new_phenos[indiv_idx];
+      pheno_tot += dxx;
+      pheno_sq_tot += dxx * dxx;
+      pheno_ct++;
+    }
+    indiv_uidx++;
+  }
+  if (!pheno_ct) {
+    return;
+  }
+  mean = pheno_tot / pheno_ct;
+  stdev_recip = sqrt((double)(pheno_ct - 1) / (pheno_sq_tot - pheno_tot * mean));
+  indiv_uidx = 0;
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+    if (sex_info[indiv_uidx] != sex_exclude) {
+      new_phenos[indiv_idx] = (new_phenos[indiv_idx] - mean) * stdev_recip;
+    }
+    indiv_uidx++;
+  }
+}
+
+int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, FILE* pedfile, int bed_offset, unsigned int marker_ct, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, Chrom_info* chrom_info_ptr, unsigned int* marker_pos, unsigned int indiv_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len, unsigned char* sex_info, double* pheno_d, double missing_phenod, FILE** outfile_ptr, char* outname, char* outname_end) {
   FILE* evecfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   int retval = 0;
   int pc_ct = 0;
+  unsigned int pct = 1;
   int is_eigenvec = 0; // GCTA .eigenvec format instead of SMARTPCA .evec?
+  int pc_ct_p1; // plus 1 to account for intercept
   double* pc_matrix;
-  double* pc_orig_sums; // FIRST TODO: check if this is needed
-  double* pc_orig_prod_sums; // pc_ct * pc_ct array, upper triangle filled
-  double* pc_sums;
-  double* pc_prod_sums;
+  double* pc_orig_prod_sums; // pc_ct_p1 * pc_ct_p1, upper triangle filled
+  double* pc_prod_sums; // (X'X)^{-1}
+  double* x_prime_y; // X'Y
+  double* beta_vec; // (X'X)^{-1}X'Y
+  double* residual_vec;
   unsigned int marker_uidx;
   unsigned int marker_idx;
   unsigned int indiv_uidx;
@@ -7234,11 +7522,16 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int regress_p
   char* id_buf;
   unsigned int uii;
   int ii;
+  int jj;
+  int cur_missing;
   char* person_id_ptr;
+  MATRIX_INVERT_BUF1_TYPE* inv_1d_buf;
+  double* dbl_2d_buf;
+  double dxx;
   if (wkspace_alloc_uc_checked(&loadbuf, unfiltered_indiv_ct4)) {
     return RET_NOMEM;
   }
-  if (wkspace_alloc_ui_checked(&missing_cts, unfiltered_indiv_ct * sizeof(int))) {
+  if (wkspace_alloc_ui_checked(&missing_cts, indiv_ct * sizeof(int))) {
     return RET_NOMEM;
   }
   if (wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
@@ -7299,23 +7592,33 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int regress_p
   } else {
     printf("%svec format detected.  Regressing on %d principal components.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", pc_ct);
   }
-  if (wkspace_alloc_d_checked(&pc_matrix, pc_ct * indiv_ct * sizeof(double))) {
+  pc_ct_p1 = pc_ct + 1;
+  if (wkspace_alloc_d_checked(&pc_matrix, pc_ct_p1 * indiv_ct * sizeof(double))) {
     goto calc_regress_pcs_ret_NOMEM;
   }
-  if (wkspace_alloc_d_checked(&pc_orig_sums, pc_ct * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&pc_orig_prod_sums, pc_ct_p1 * pc_ct_p1 * sizeof(double))) {
     goto calc_regress_pcs_ret_NOMEM;
   }
-  if (wkspace_alloc_d_checked(&pc_orig_prod_sums, pc_ct * pc_ct * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&pc_prod_sums, pc_ct_p1 * pc_ct_p1 * sizeof(double))) {
     goto calc_regress_pcs_ret_NOMEM;
   }
-  if (wkspace_alloc_d_checked(&pc_sums, pc_ct * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&x_prime_y, pc_ct_p1 * sizeof(double))) {
     goto calc_regress_pcs_ret_NOMEM;
   }
-  if (wkspace_alloc_d_checked(&pc_prod_sums, pc_ct * pc_ct * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&beta_vec, pc_ct_p1 * sizeof(double))) {
     goto calc_regress_pcs_ret_NOMEM;
   }
-  fill_double_zero(pc_orig_sums, pc_ct);
-  fill_double_zero(pc_orig_prod_sums, pc_ct * pc_ct);
+  if (wkspace_alloc_d_checked(&residual_vec, pc_ct_p1 * sizeof(double))) {
+    goto calc_regress_pcs_ret_NOMEM;
+  }
+  inv_1d_buf = (MATRIX_INVERT_BUF1_TYPE*)wkspace_alloc(pc_ct_p1 * sizeof(MATRIX_INVERT_BUF1_TYPE));
+  if (!inv_1d_buf) {
+    goto calc_regress_pcs_ret_NOMEM;
+  }
+  if (wkspace_alloc_d_checked(&dbl_2d_buf, pc_ct_p1 * pc_ct_p1 * sizeof(double))) {
+    goto calc_regress_pcs_ret_NOMEM;
+  }
+
   if (is_eigenvec) {
     indiv_idx = 0;
     while (1) {
@@ -7341,6 +7644,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int regress_p
 	  goto calc_regress_pcs_ret_READ_FAIL;
 	}
       }
+      pc_matrix[pc_ct * indiv_ct + indiv_idx] = 1.0; // intercept
     }
   } else {
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
@@ -7362,6 +7666,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int regress_p
 	}
 	bufptr = next_item(bufptr);
       }
+      pc_matrix[pc_ct * indiv_ct + indiv_idx] = 1.0;
     }
   }
   if (fgets(tbuf, MAXLINELEN, evecfile)) {
@@ -7371,7 +7676,19 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int regress_p
     }
   }
   fclose(evecfile);
-  fill_uint_zero(missing_cts, unfiltered_indiv_ct);
+
+  // precalculate (X'X)
+  fill_double_zero(pc_orig_prod_sums, pc_ct_p1 * pc_ct_p1);
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    for (ii = 0; ii < pc_ct_p1; ii++) {
+      for (jj = ii; jj < pc_ct_p1; jj++) {
+        pc_orig_prod_sums[ii * pc_ct_p1 + jj] += pc_matrix[ii * indiv_ct + indiv_idx] * pc_matrix[jj * indiv_ct + indiv_idx];
+      }
+    }
+  }
+
+  fill_uint_zero(missing_cts, indiv_ct);
+  marker_uidx = 0;
   // .gen instead of .bgen because latter actually has lower precision(!) (15
   // bits instead of the ~20 you get from printf("%g", dxx)), and there's no
   // need for repeated random access.
@@ -7379,8 +7696,6 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int regress_p
   if (fopen_checked(outfile_ptr, outname, "w")) {
     return RET_OPEN_FAIL;
   }
-  // stub, no regression yet
-  marker_uidx = 0;
   if (fseeko(pedfile, bed_offset, SEEK_SET)) {
     return RET_READ_FAIL;
   }
@@ -7397,20 +7712,102 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int regress_p
     if (fprintf(*outfile_ptr, "%d %s %u %c %c", get_marker_chrom(chrom_info_ptr, marker_uidx), &(marker_ids[marker_uidx * max_marker_id_len]), marker_pos[marker_uidx], marker_alleles[2 * marker_uidx], marker_alleles[2 * marker_uidx + 1]) < 0) {
       return RET_WRITE_FAIL;
     }
+    memcpy(pc_prod_sums, pc_orig_prod_sums, pc_ct_p1 * pc_ct_p1 * sizeof(double));
+    fill_double_zero(x_prime_y, pc_ct_p1);
+    indiv_uidx = 0;
+    cur_missing = 0;
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+      uii = ((loadbuf[indiv_uidx / 4] >> ((indiv_uidx % 4) * 2)) & 3);
+      if (uii == 1) {
+	cur_missing++;
+	missing_cts[indiv_idx] += 1;
+	for (ii = 0; ii < pc_ct_p1; ii++) {
+	  for (jj = ii; jj < pc_ct_p1; jj++) {
+	    pc_prod_sums[ii * pc_ct_p1 + jj] -= pc_matrix[ii * indiv_ct + indiv_idx] * pc_matrix[jj * indiv_ct + indiv_idx];
+	  }
+	}
+      } else {
+	uii = uii - (uii >> 1);
+        for (ii = 0; ii < pc_ct_p1; ii++) {
+	  x_prime_y[ii] += pc_matrix[ii * indiv_ct + indiv_idx] * uii;
+	}
+      }
+      indiv_uidx++;
+    }
+    // last-minute update of lower triangle
+    for (ii = 1; ii < pc_ct_p1; ii++) {
+      for (jj = 0; jj < ii; jj++) {
+	pc_prod_sums[ii * pc_ct_p1 + jj] = pc_prod_sums[jj * pc_ct_p1 + ii];
+      }
+    }
+    invert_matrix(pc_ct_p1, pc_prod_sums, inv_1d_buf, dbl_2d_buf);
+    for (ii = 0; ii < pc_ct_p1; ii++) {
+      dxx = 0.0;
+      for (jj = 0; jj < pc_ct_p1; jj++) {
+        dxx += pc_prod_sums[ii * pc_ct_p1 + jj] * x_prime_y[jj];
+      }
+      beta_vec[ii] = dxx;
+    }
     indiv_uidx = 0;
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
       uii = ((loadbuf[indiv_uidx / 4] >> ((indiv_uidx % 4) * 2)) & 3);
-      if (fwrite_checked(gen_strs[uii], 6, *outfile_ptr)) {
-	return RET_WRITE_FAIL;
-      }
       if (uii == 1) {
-	missing_cts[indiv_uidx] += 1;
+	if (fwrite_checked(" 0 0 0", 6, *outfile_ptr)) {
+	  return RET_WRITE_FAIL;
+	}
+      } else {
+	uii = uii - (uii >> 1);
+	dxx = 0.0;
+        for (ii = 0; ii < pc_ct_p1; ii++) {
+          dxx += pc_matrix[ii * indiv_ct + indiv_idx] * beta_vec[ii];
+	}
+	dxx = (double)uii - dxx;
+	// now dxx is the residual, normally but not always in [0, 2]
+	if (dxx < 1.0) {
+	  if (dxx < 0.0) {
+	    if (regress_pcs_clip) {
+	      if (fwrite_checked(" 1 0 0", 6, *outfile_ptr)) {
+		return RET_WRITE_FAIL;
+	      }
+	    } else {
+	      if (fprintf(*outfile_ptr, " %g 0 %g", 1.0 - dxx * 0.5, dxx * 0.5) < 0) {
+		return RET_WRITE_FAIL;
+	      }
+	    }
+	  } else {
+	    if (fprintf(*outfile_ptr, " %g %g 0", 1.0 - dxx, dxx) < 0) {
+	      return RET_WRITE_FAIL;
+	    }
+	  }
+	} else {
+	  if (dxx > 2.0) {
+	    if (regress_pcs_clip) {
+	      if (fwrite_checked(" 0 0 1", 6, *outfile_ptr)) {
+		return RET_WRITE_FAIL;
+	      }
+	    } else {
+	      if (fprintf(*outfile_ptr, " %g 0 %g", 1.0 - dxx * 0.5, dxx * 0.5) < 0) {
+		return RET_WRITE_FAIL;
+	      }
+	    }
+	  } else {
+	    if (fprintf(*outfile_ptr, " 0 %g %g", 2.0 - dxx, dxx - 1.0) < 0) {
+	      return RET_WRITE_FAIL;
+	    }
+	  }
+	}
       }
       indiv_uidx++;
     }
     if (fwrite_checked("\n", 1, *outfile_ptr)) {
       return RET_WRITE_FAIL;
+    }
+    if (marker_idx * 100LLU >= ((unsigned long long)pct * marker_ct)) {
+      pct = ((unsigned long long)marker_idx * 100) / marker_ct;
+      printf("\r%d%%", pct++);
+      fflush(stdout);
     }
     marker_uidx++;
   }
@@ -7424,6 +7821,51 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int regress_p
   if (fprintf(*outfile_ptr, "ID_1 ID_2 missing sex phenotype\n0 0 0 D P\n") < 0) {
     return RET_WRITE_FAIL;
   }
+  // regress phenotype
+  fill_double_zero(x_prime_y, pc_ct_p1);
+  indiv_uidx = 0;
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+    dxx = pheno_d[indiv_uidx];
+    for (ii = 0; ii < pc_ct_p1; ii++) {
+      x_prime_y[ii] += pc_matrix[ii * indiv_ct + indiv_idx] * dxx;
+    }
+    indiv_uidx++;
+  }
+  for (ii = 1; ii < pc_ct_p1; ii++) {
+    for (jj = 0; jj < ii; jj++) {
+      pc_orig_prod_sums[ii * pc_ct_p1 + jj] = pc_orig_prod_sums[jj * pc_ct_p1 + ii];
+    }
+  }
+  invert_matrix(pc_ct_p1, pc_orig_prod_sums, inv_1d_buf, dbl_2d_buf);
+  for (ii = 0; ii < pc_ct_p1; ii++) {
+    dxx = 0.0;
+    for (jj = 0; jj < pc_ct_p1; jj++) {
+      dxx += pc_orig_prod_sums[ii * pc_ct_p1 + jj] * x_prime_y[jj];
+    }
+    beta_vec[ii] = dxx;
+  }
+
+  indiv_uidx = 0;
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+    dxx = 0.0;
+    for (ii = 0; ii < pc_ct_p1; ii++) {
+      dxx += pc_matrix[ii * indiv_ct + indiv_idx] * beta_vec[ii];
+    }
+    residual_vec[indiv_idx] = pheno_d[indiv_uidx] - dxx;
+    indiv_uidx++;
+  }
+
+  if (regress_pcs_normalize_pheno) {
+    if (regress_pcs_sex_specific) {
+      normalize_phenos(residual_vec, indiv_ct, unfiltered_indiv_ct, indiv_exclude, sex_info, 1);
+      normalize_phenos(residual_vec, indiv_ct, unfiltered_indiv_ct, indiv_exclude, sex_info, 2);
+    } else {
+      normalize_phenos(residual_vec, indiv_ct, unfiltered_indiv_ct, indiv_exclude, sex_info, 3);
+    }
+  }
+
   indiv_uidx = 0;
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
     indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
@@ -7431,7 +7873,8 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int regress_p
     uii = strlen_se(person_id_ptr);
     memcpy(id_buf, person_id_ptr, uii);
     id_buf[uii] = '\0';
-    if (fprintf(*outfile_ptr, "%s %s %g %u %g\n", id_buf, next_item(person_id_ptr), (double)missing_cts[indiv_uidx] / (double)marker_ct, sex_info[indiv_uidx], pheno_d[indiv_uidx]) < 0) {
+    // todo: adjust pheno_d
+    if (fprintf(*outfile_ptr, "%s %s %g %u %g\n", id_buf, next_item(person_id_ptr), (double)missing_cts[indiv_uidx] / (double)marker_ct, sex_info[indiv_uidx], residual_vec[indiv_idx]) < 0) {
       return RET_WRITE_FAIL;
     }
     indiv_uidx++;
@@ -7440,7 +7883,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_sex_specific, int regress_p
     return RET_WRITE_FAIL;
   }
   *outname_end = '\0';
-  printf("Principal component regression residuals and %sphenotype Z-scores %s%s.gen and %s.sample.\n", regress_pcs_sex_specific? "sex-specific " : "", regress_pcs_sex_specific? "\nwritten to " : "written to\n", outname, outname); 
+  printf("\rPrincipal component regression residuals and %sphenotype Z-scores %s%s.gen and %s.sample.\n", regress_pcs_sex_specific? "sex-specific " : "", regress_pcs_sex_specific? "\nwritten to " : "written to\n", outname, outname); 
   wkspace_reset(wkspace_mark);
   while (0) {
   calc_regress_pcs_ret_NOMEM:
@@ -8457,23 +8900,13 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
   int prev_end;
   int at_least_one_prune = 0;
 
-#ifndef NOLAPACK
   double* cov_matrix = NULL;
   double* new_cov_matrix = NULL;
-#if __LP64__
-  int* irow = NULL;
-  int info;
-  int lwork;
-#else
-  long int* irow = NULL;
-  long int info;
-  long int lwork;
-  long int window_rem_li;
-#endif // __LP64__
+  MATRIX_INVERT_BUF1_TYPE* irow = NULL;
+  __CLPK_integer window_rem_li;
   double* work = NULL;
   int window_rem;
   unsigned int* idx_remap = NULL;
-#endif // NOLAPACK
   double prune_ld_r2;
 
   if (ld_window_kb) {
@@ -8545,7 +8978,6 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
   if (wkspace_alloc_ui_checked(&missing_cts, indiv_ct * sizeof(int))) {
     goto ld_prune_ret_NOMEM;
   }
-#ifndef NOLAPACK
   if (!pairwise) {
     if (wkspace_alloc_d_checked(&cov_matrix, window_max * window_max * sizeof(double))) {
       goto ld_prune_ret_NOMEM;
@@ -8557,23 +8989,15 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
       goto ld_prune_ret_NOMEM;
     }
 
-#if __LP64__
-    if (wkspace_alloc_i_checked(&irow, window_max * sizeof(int))) {
-      goto ld_prune_ret_NOMEM;
-    }
-#else
-    irow = (long int*)wkspace_alloc(window_max * sizeof(int));
+    irow = (MATRIX_INVERT_BUF1_TYPE*)wkspace_alloc(window_max * sizeof(MATRIX_INVERT_BUF1_TYPE));
     if (!irow) {
       goto ld_prune_ret_NOMEM;
     }
-#endif // __LP64__
 
-    lwork = window_max * window_max;
     if (wkspace_alloc_d_checked(&work, window_max * window_max * sizeof(double))) {
       goto ld_prune_ret_NOMEM;
     }
   }
-#endif
   do {
     prev_end = 0;
     ld_prune_start_chrom(ld_window_kb, &cur_chrom, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, chrom_info_ptr, marker_pos);
@@ -8660,11 +9084,9 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
 	      cov12 = non_missing_recip * (dp_result[0] - (non_missing_recip * dp_result[1]) * dp_result[2]);
 	      // r-squared
 	      dxx = cov12 / (marker_stdevs[ii] * marker_stdevs[jj]);
-#ifndef NOLAPACK
 	      if (!pairwise) {
 		cov_matrix[ii * window_max + jj] = dxx;
 	      }
-#endif
 	      if (fabs(dxx) > prune_ld_r2) {
 		at_least_one_prune = 1;
 		// remove SNP with lower MAF
@@ -8691,7 +9113,6 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
 	    }
 	  }
 	} while (at_least_one_prune);
-#ifndef NOLAPACK
 	if (!pairwise) {
 	  window_rem = 0;
 	  for (ii = 0; ii < cur_window_size; ii++) {
@@ -8711,17 +9132,8 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
 	      }
 	      new_cov_matrix[ii * (window_rem + 1)] = 1.0;
 	    }
-
-	    // invert the matrix
-#if __LP64__
-	    dgetrf_(&window_rem, &window_rem, new_cov_matrix, &window_rem, irow, &info);
-	    dgetri_(&window_rem, new_cov_matrix, &window_rem, irow, work, &lwork, &info);
-#else
 	    window_rem_li = window_rem;
-	    dgetrf_(&window_rem_li, &window_rem_li, new_cov_matrix, &window_rem_li, irow, &info);
-	    dgetri_(&window_rem_li, new_cov_matrix, &window_rem_li, irow, work, &lwork, &info);
-#endif // __LP64__
-
+	    invert_matrix(window_rem_li, new_cov_matrix, irow, work);
 	    dxx = new_cov_matrix[0];
 	    jj = 0;
 	    for (ii = 1; ii < window_rem; ii++) {
@@ -8742,7 +9154,6 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
 	    }
 	  }
 	}
-#endif // NOLAPACK
       }
       for (ii = 0; ii < ld_window_incr; ii++) {
 	while (is_set(marker_exclude, window_unfiltered_start)) {
@@ -8784,14 +9195,12 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
 	live_indices[ii] = live_indices[jj];
 	start_arr[ii] = start_arr[jj];
 	missing_cts[ii] = missing_cts[jj];
-#ifndef NOLAPACK
 	if (!pairwise) {
 	  for (kk = 0; kk < ii; kk++) {
 	    cov_matrix[kk * window_max + ii] = cov_matrix[idx_remap[kk] * window_max + jj];
 	  }
 	  idx_remap[ii] = jj;
 	}
-#endif
 	ii++;
       }
 
@@ -8931,7 +9340,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freqx) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freqx) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -9496,7 +9905,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (calculation_type & CALC_REGRESS_PCS) {
     // do this before marker_alleles is overwritten in memory...
-    retval = calc_regress_pcs(evecname, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, chrom_info_ptr, marker_pos, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, sex_info, pheno_d, &outfile, outname, outname_end);
+    retval = calc_regress_pcs(evecname, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, chrom_info_ptr, marker_pos, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, sex_info, pheno_d, missing_phenod, &outfile, outname, outname_end);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -11874,6 +12283,7 @@ int main(int argc, char** argv) {
   int filter_case_control = 0;
   int filter_sex = 0;
   int filter_founder_nonf = 0;
+  int regress_pcs_normalize_pheno = 0;
   int regress_pcs_sex_specific = 0;
   int regress_pcs_clip = 0;
   int max_pcs = MAX_PCS_DEFAULT;
@@ -12608,10 +13018,6 @@ int main(int argc, char** argv) {
 	cur_arg += 1 + ii;
 	calculation_type |= (CALC_LD_PRUNE | CALC_LD_PRUNE_PAIRWISE);
       } else if (!memcmp(argptr2, "ndep", 5)) {
-#ifdef NOLAPACK
-	printf("Error: --indep does not work without LAPACK.  Use a wdist build without 'NL' at\nthe end of the version number.");
-	return dispmsg(RET_INVALID_CMDLINE);
-#else
 	if (calculation_type & CALC_LD_PRUNE) {
 	  printf("Error: Multiple LD pruning flags.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
@@ -12646,12 +13052,11 @@ int main(int argc, char** argv) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (ld_last_param < 1.0) {
-	  printf("Error: Invalid --indep VIF threshold '%s' (must be >= 1).%s", argv[cur_arg + ii], errstr_append);
+	  printf("Error: --indep VIF threshold '%s' too small (must be >= 1).%s", argv[cur_arg + ii], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	cur_arg += 1 + ii;
 	calculation_type |= CALC_LD_PRUNE;
-#endif
       }
 
       break;
@@ -12829,14 +13234,14 @@ int main(int argc, char** argv) {
 	}
 	if (ii) {
 	  if (sscanf(argv[cur_arg + 1], "%lg", &min_maf) != 1) {
-	    printf("Error: Invalid --maf parameter.\n");
+	    printf("Error: Invalid --maf parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	  if (min_maf <= 0.0) {
-	    printf("Error: --maf parameter too small.\n");
+	    printf("Error: --maf parameter '%s' too small (must be > 0).%s", argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  } else if (min_maf > max_maf) {
-	    printf("Error: --maf parameter too large.\n");
+	    printf("Error: --maf parameter '%s' too large (must be <= %g).%s", argv[cur_arg + 1], max_maf, errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	} else {
@@ -12848,14 +13253,14 @@ int main(int argc, char** argv) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (sscanf(argv[cur_arg + 1], "%lg", &max_maf) != 1) {
-	  printf("Error: Invalid --max-maf parameter.\n");
+	  printf("Error: Invalid --max-maf parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (max_maf < min_maf) {
-	  printf("Error: --max-maf parameter too small.\n");
+	  printf("Error: --max-maf parameter '%s' too small (must be >= %g).%s", argv[cur_arg + 1], min_maf, errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	} else if (max_maf >= 0.5) {
-	  printf("Error: --max-maf parameter too large.\n");
+	  printf("Error: --max-maf parameter '%s' too large (must be < 0.5).%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	cur_arg += 2;
@@ -12865,11 +13270,11 @@ int main(int argc, char** argv) {
 	}
 	if (ii) {
 	  if (sscanf(argv[cur_arg + 1], "%lg", &mind_thresh) != 1) {
-	    printf("Error: Invalid --mind parameter.\n");
+	    printf("Error: Invalid --mind parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	  if ((mind_thresh < 0.0) || (mind_thresh > 1.0)) {
-	    printf("Error: Invalid --mind parameter.\n");
+	    printf("Error: Invalid --mind parameter '%s' (must be between 0 and 1).%s", argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	} else {
@@ -12952,7 +13357,7 @@ int main(int argc, char** argv) {
 	    }
 	    ibc_type = argv[cur_arg + jj][3] - '0';
 	  } else {
-	    printf("Error: Invalid --make-rel parameter.%s", errstr_append);
+	    printf("Error: Invalid --make-rel parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	}
@@ -13001,7 +13406,7 @@ int main(int argc, char** argv) {
 	    }
 	    ibc_type = argv[cur_arg + jj][3] - '0';
 	  } else {
-	    printf("Error: Invalid --make-grm parameter.%s", errstr_append);
+	    printf("Error: Invalid --make-grm parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	}
@@ -13162,13 +13567,13 @@ int main(int argc, char** argv) {
 	}
 	parallel_idx = atoi(argv[cur_arg + 1]);
 	if ((parallel_idx < 1) || (parallel_idx > PARALLEL_MAX)) {
-	  printf("Error: Invalid --parallel job index.%s", errstr_append);
+	  printf("Error: Invalid --parallel job index '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	parallel_idx -= 1; // internal 0..(n-1) indexing
 	parallel_tot = atoi(argv[cur_arg + 2]);
 	if ((parallel_tot < 2) || (parallel_tot > PARALLEL_MAX) || (parallel_tot < parallel_idx)) {
-	  printf("Error: Invalid --parallel total job count.%s", errstr_append);
+	  printf("Error: Invalid --parallel total job count '%s'.%s", argv[cur_arg + 2], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	cur_arg += 3;
@@ -13181,12 +13586,12 @@ int main(int argc, char** argv) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if ((argv[cur_arg + 1][0] < '0') || (argv[cur_arg + 1][0] > '9')) {
-	  printf("Error: Invalid --ppc-gap parameter.%s", errstr_append);
+	  printf("Error: Invalid --ppc-gap parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	ppc_gap = atoi(argv[cur_arg + 1]);
 	if (ppc_gap > 2147483) {
-	  printf("Error: Invalid --ppc-gap parameter.%s", errstr_append);
+	  printf("Error: --ppc-gap parameter '%s' too large.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	ppc_gap *= 1000;
@@ -13232,11 +13637,11 @@ int main(int argc, char** argv) {
 	}
 	if (ii) {
 	  if (sscanf(argv[cur_arg + 1], "%lg", &rel_cutoff) != 1) {
-	    printf("Error: Invalid %s parameter.\n", argptr);
+	    printf("Error: Invalid %s parameter '%s'.%s", argptr, argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	  if ((rel_cutoff <= 0.0) || (rel_cutoff >= 1.0)) {
-	    printf("Error: Invalid %s parameter.\n", argptr);
+	    printf("Error: Invalid %s parameter '%s'.%s", argptr, argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	}
@@ -13252,7 +13657,7 @@ int main(int argc, char** argv) {
 	}
 	rseed = (unsigned long int)atoi(argv[cur_arg + 1]);
 	if (rseed == 0) {
-	  printf("Error: Invalid --rseed parameter.\n");
+	  printf("Error: Invalid --rseed parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	cur_arg += 2;
@@ -13270,13 +13675,13 @@ int main(int argc, char** argv) {
 	if (ii) {
 	  regress_iters = atoi(argv[cur_arg + 1]);
 	  if (regress_iters < 2) {
-	    printf("Error: Invalid --regress-distance jackknife iteration count.\n");
+	    printf("Error: Invalid --regress-distance jackknife iteration count '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	  if (ii == 2) {
 	    regress_d = atoi(argv[cur_arg + 2]);
 	    if (regress_d <= 0) {
-	      printf("Error: Invalid --regress-distance jackknife delete parameter.\n");
+	      printf("Error: Invalid --regress-distance jackknife delete parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	  }
@@ -13297,13 +13702,13 @@ int main(int argc, char** argv) {
 	if (ii) {
 	  regress_rel_iters = atoi(argv[cur_arg + 1]);
 	  if (regress_rel_iters < 2) {
-	    printf("Error: Invalid --regress-rel jackknife iteration count.\n");
+	    printf("Error: Invalid --regress-rel jackknife iteration count '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	  if (ii == 2) {
 	    regress_rel_d = atoi(argv[cur_arg + 2]);
 	    if (regress_rel_d <= 0) {
-	      printf("Error: Invalid --regress-rel jackknife delete parameter.\n");
+	      printf("Error: Invalid --regress-rel jackknife delete parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	  }
@@ -13311,15 +13716,11 @@ int main(int argc, char** argv) {
 	cur_arg += ii + 1;
 	calculation_type |= CALC_REGRESS_REL;
       } else if (!memcmp(argptr2, "egress-pcs", 11)) {
-#ifdef NOLAPACK
-	printf("Error: --regress-pcs does not work without LAPACK.  Use a wdist build without\n'NL' at the end of the version number.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-#else
 	if (calculation_type & CALC_REGRESS_PCS) {
 	  printf("Error: Duplicate --regress-pcs flag.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 4, &ii)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 5, &ii)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	jj = strlen(argv[cur_arg + 1]);
@@ -13329,7 +13730,9 @@ int main(int argc, char** argv) {
 	}
 	strcpy(evecname, argv[cur_arg + 1]);
 	for (jj = 2; jj <= ii; jj++) {
-	  if (!strcmp(argv[cur_arg + jj], "sex-specific") && (!regress_pcs_sex_specific)) {
+	  if (!strcmp(argv[cur_arg + jj], "normalize-pheno") && (!regress_pcs_normalize_pheno)) {
+	    regress_pcs_normalize_pheno = 1;
+	  } else if (!strcmp(argv[cur_arg + jj], "sex-specific") && (!regress_pcs_sex_specific)) {
 	    regress_pcs_sex_specific = 1;
 	  } else if (!strcmp(argv[cur_arg + jj], "clip") && (!regress_pcs_clip)) {
 	    regress_pcs_clip = 1;
@@ -13339,76 +13742,13 @@ int main(int argc, char** argv) {
 	  } else {
 	    max_pcs = atoi(argv[cur_arg + jj]);
 	    if (max_pcs < 1) {
-	      printf("Error: Invalid --regress-pcs maximum principal component count.%s", errstr_append);
+	      printf("Error: Invalid --regress-pcs maximum principal component count '%s'.%s", argv[cur_arg + jj], errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	  }
 	}
 	calculation_type |= CALC_REGRESS_PCS;
 	cur_arg += ii + 1;
-#endif
-      } else if (!memcmp(argptr2, "nrelated-heritability", 22)) {
-#ifdef NOLAPACK
-	printf("Error: --unrelated-heritability does not work without LAPACK.  Use a wdist\nbuild with 'L' at the end of the version number.\n");
-	return dispmsg(RET_INVALID_CMDLINE);
-#else
-	if (calculation_type & CALC_RELATIONSHIP_COV) {
-	  printf("Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.\n");
-	  return dispmsg(RET_INVALID_CMDLINE);
-	} else if (parallel_tot > 1) {
-	  printf("Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
-	  return dispmsg(RET_INVALID_CMDLINE);
-	}
-	if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-	  printf("Error: Duplicate --unrelated-heritability flag.%s", errstr_append);
-	  return dispmsg(RET_INVALID_CMDLINE);
-	}
-	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 4, &ii)) {
-	  return dispmsg(RET_INVALID_CMDLINE);
-	}
-	if (ii) {
-	  if (!strcmp(argv[cur_arg + 1], "strict")) {
-	    calculation_type |= CALC_UNRELATED_HERITABILITY_STRICT;
-	    jj = 2;
-	  } else {
-	    jj = 1;
-	  }
-	  if (ii >= jj) {
-	    if (sscanf(argv[cur_arg + jj], "%lg", &unrelated_herit_tol) != 1) {
-	      printf("Error: Invalid --unrelated-heritability EM tolerance parameter.\n");
-	      return dispmsg(RET_INVALID_CMDLINE);
-	    }
-	    if (unrelated_herit_tol <= 0.0) {
-	      printf("Error: Invalid --unrelated-heritability EM tolerance parameter.\n");
-	      return dispmsg(RET_INVALID_CMDLINE);
-	    }
-	    if (ii > jj) {
-	      if (sscanf(argv[cur_arg + jj + 1], "%lg", &unrelated_herit_covg) != 1) {
-		printf("Error: Invalid --unrelated-heritability genomic covariance prior.\n");
-		return dispmsg(RET_INVALID_CMDLINE);
-	      }
-	      if ((unrelated_herit_covg <= 0.0) || (unrelated_herit_covg > 1.0)) {
-		printf("Error: Invalid --unrelated-heritability genomic covariance prior.\n");
-		return dispmsg(RET_INVALID_CMDLINE);
-	      }
-	      if (ii == jj + 2) {
-		if (sscanf(argv[cur_arg + jj + 2], "%lg", &unrelated_herit_covr) != 1) {
-		  printf("Error: Invalid --unrelated-heritability residual covariance prior.\n");
-		  return dispmsg(RET_INVALID_CMDLINE);
-		}
-		if ((unrelated_herit_covr <= 0.0) || (unrelated_herit_covr > 1.0)) {
-		  printf("Error: Invalid --unrelated-heritability residual covariance prior.\n");
-		  return dispmsg(RET_INVALID_CMDLINE);
-		}
-	      } else {
-		unrelated_herit_covr = 1.0 - unrelated_herit_covg;
-	      }
-	    }
-	  }
-	}
-	cur_arg += ii + 1;
-	calculation_type |= CALC_UNRELATED_HERITABILITY;
-#endif
       } else if (!memcmp(argptr2, "ead-freq", 9)) {
       main_read_freq:
 	// allow --update-freq synonym
@@ -13526,14 +13866,14 @@ int main(int argc, char** argv) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (sscanf(argv[cur_arg + 1], "%lg", &tail_bottom) != 1) {
-	  printf("Error: Invalid --tail-pheno parameter.\n");
+	  printf("Error: Invalid --tail-pheno parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (ii == 1) {
 	  tail_top = tail_bottom;
 	} else {
 	  if (sscanf(argv[cur_arg + 2], "%lg", &tail_top) != 1) {
-	    printf("Error: Invalid --tail-pheno parameter.\n");
+	    printf("Error: Invalid --tail-pheno parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	}
@@ -13549,11 +13889,11 @@ int main(int argc, char** argv) {
 	}
 	ii = atoi(argv[cur_arg + 1]);
 	if (ii < 1) {
-	  printf("Error: Invalid --threads parameter.\n");
+	  printf("Error: Invalid --threads parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	} else if (ii > MAX_THREADS) {
-	  printf("Error: --threads parameter too large (max %d).\n", MAX_THREADS);
-	  return dispmsg(RET_INVALID_CMDLINE);
+	  printf("Note: Reducing --threads parameter to %d.  (If this is not large enough,\nrecompile with a larger MAX_THREADS setting.)\n", MAX_THREADS);
+	  ii = MAX_THREADS;
 	}
 	thread_ct = ii;
 	cur_arg += 2;
@@ -13563,6 +13903,68 @@ int main(int argc, char** argv) {
     case 'u':
       if (!memcmp(argptr2, "pdate-freq", 11)) {
 	goto main_read_freq;
+      } else if (!memcmp(argptr2, "nrelated-heritability", 22)) {
+#ifdef NOLAPACK
+        printf("Error: --unrelated-heritability does not work without LAPACK.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
+#else
+	if (calculation_type & CALC_RELATIONSHIP_COV) {
+	  printf("Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	} else if (parallel_tot > 1) {
+	  printf("Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (calculation_type & CALC_UNRELATED_HERITABILITY) {
+	  printf("Error: Duplicate --unrelated-heritability flag.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 4, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  if (!strcmp(argv[cur_arg + 1], "strict")) {
+	    calculation_type |= CALC_UNRELATED_HERITABILITY_STRICT;
+	    jj = 2;
+	  } else {
+	    jj = 1;
+	  }
+	  if (ii >= jj) {
+	    if (sscanf(argv[cur_arg + jj], "%lg", &unrelated_herit_tol) != 1) {
+	      printf("Error: Invalid --unrelated-heritability EM tolerance parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    if (unrelated_herit_tol <= 0.0) {
+	      printf("Error: Invalid --unrelated-heritability EM tolerance parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    if (ii > jj) {
+	      if (sscanf(argv[cur_arg + jj + 1], "%lg", &unrelated_herit_covg) != 1) {
+		printf("Error: Invalid --unrelated-heritability genomic covariance prior '%s'.%s", argv[cur_arg + jj + 1], errstr_append);
+		return dispmsg(RET_INVALID_CMDLINE);
+	      }
+	      if ((unrelated_herit_covg <= 0.0) || (unrelated_herit_covg > 1.0)) {
+		printf("Error: Invalid --unrelated-heritability genomic covariance prior '%s'.%s", argv[cur_arg + jj + 1], errstr_append);
+		return dispmsg(RET_INVALID_CMDLINE);
+	      }
+	      if (ii == jj + 2) {
+		if (sscanf(argv[cur_arg + jj + 2], "%lg", &unrelated_herit_covr) != 1) {
+		  printf("Error: Invalid --unrelated-heritability residual covariance prior '%s'.%s", argv[cur_arg + jj + 2], errstr_append);
+		  return dispmsg(RET_INVALID_CMDLINE);
+		}
+		if ((unrelated_herit_covr <= 0.0) || (unrelated_herit_covr > 1.0)) {
+		  printf("Error: Invalid --unrelated-heritability residual covariance prior '%s'.%s", argv[cur_arg + jj + 2], errstr_append);
+		  return dispmsg(RET_INVALID_CMDLINE);
+		}
+	      } else {
+		unrelated_herit_covr = 1.0 - unrelated_herit_covg;
+	      }
+	    }
+	  }
+	}
+	cur_arg += ii + 1;
+	calculation_type |= CALC_UNRELATED_HERITABILITY;
+#endif
       }
       break;
 
@@ -13679,7 +14081,7 @@ int main(int argc, char** argv) {
       retval = wdist_dosage(calculation_type, genname, samplename, distance_3d);
     }
   } else {
-    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freqx);
+    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freqx);
   }
   free(wkspace_ua);
 #ifdef DEBUG

@@ -27,3 +27,6 @@ wdist64: wdist.c
 
 wdist64c: wdist.c
 	gcc $(CFLAGS) -arch x86_64 wdist.c -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. zlib-1.2.7/libz.1.2.7-64.dylib
+
+wdist64nl: wdist.c
+	g++ $(CFLAGS) -arch x86_64 wdist.c -o wdist $(LINKFLAGS) -L. zlib-1.2.7/libz.1.2.7-64.dylib
