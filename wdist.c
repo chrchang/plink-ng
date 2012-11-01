@@ -95,11 +95,6 @@
 
 #include <ctype.h>
 #include <fcntl.h>
-#include <math.h>
-#include <pthread.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -157,44 +152,6 @@ extern "C" {
 // floating point comparison-to-nonzero tolerance, currently 2^{-30}
 #define EPSILON 0.000000000931322574615478515625
 
-#define CALC_RELATIONSHIP_COV 1
-#define CALC_RELATIONSHIP_SQ 2
-#define CALC_RELATIONSHIP_SQ0 4
-#define CALC_RELATIONSHIP_TRI 6
-#define CALC_RELATIONSHIP_SHAPEMASK 6
-#define CALC_RELATIONSHIP_GZ 8
-#define CALC_RELATIONSHIP_BIN 0x10
-#define CALC_RELATIONSHIP_GRM 0x20
-#define CALC_RELATIONSHIP_MASK 0x3f
-#define CALC_IBC 0x40
-#define CALC_DISTANCE_SQ 0x80
-#define CALC_DISTANCE_SQ0 0x100
-#define CALC_DISTANCE_TRI 0x180
-#define CALC_DISTANCE_SHAPEMASK 0x180
-#define CALC_DISTANCE_GZ 0x200
-#define CALC_DISTANCE_BIN 0x400
-#define CALC_DISTANCE_IBS 0x800
-#define CALC_DISTANCE_1_MINUS_IBS 0x1000
-#define CALC_DISTANCE_SNPS 0x2000
-#define CALC_DISTANCE_FORMATMASK 0x3800
-#define CALC_DISTANCE_MASK 0x3f80
-#define CALC_PLINK_DISTANCE_MATRIX 0x4000
-#define CALC_PLINK_IBS_MATRIX 0x8000
-#define CALC_GDISTANCE_MASK 0xff80
-#define CALC_LOAD_DISTANCES 0x10000
-#define CALC_GROUPDIST 0x20000
-#define CALC_REGRESS_DISTANCE 0x40000
-#define CALC_UNRELATED_HERITABILITY 0x80000
-#define CALC_UNRELATED_HERITABILITY_STRICT 0x100000
-#define CALC_FREQ 0x200000
-#define CALC_REL_CUTOFF 0x400000
-#define CALC_WRITE_SNPLIST 0x800000
-#define CALC_GENOME 0x1000000
-#define CALC_REGRESS_REL 0x2000000
-#define CALC_LD_PRUNE 0x4000000
-#define CALC_LD_PRUNE_PAIRWISE 0x8000000
-#define CALC_REGRESS_PCS 0x10000000
-
 #define SPECIES_HUMAN 0
 #define SPECIES_COW 1
 #define SPECIES_DOG 2
@@ -219,13 +176,8 @@ const char species_mt_code[] = {26, -1, -1, -1, -1, -1, -1};
 const char species_max_code[] = {26, 31, 41, 33, 21, 12, 28};
 const unsigned long long species_haploid_mask[] = {}; // todo
 
-#define _FILE_OFFSET_BITS 64
-#define MAX_THREADS 63
-#define MAX_THREADS_P1 64
 #define PEDBUFBASE 256
 #define FNAMESIZE 2048
-// size of generic text line load buffer.  .ped lines can of course be longer
-#define MAXLINELEN 131072
 
 #ifdef DEBUG
 FILE* dlogfile = NULL;
@@ -296,7 +248,6 @@ static inline void debug_log(char* ss) {
 #if __LP64__
 #define FIVEMASK 0x5555555555555555LU
 #define AAAAMASK 0xaaaaaaaaaaaaaaaaLU
-#define BITCT 64
 // number of snp-major .bed lines to read at once for distance calc if exponent
 // is nonzero.
 #define MULTIPLEX_DIST_EXP 64
@@ -307,7 +258,6 @@ static inline void debug_log(char* ss) {
 // make sure it works properly
 #define FIVEMASK 0x55555555
 #define AAAAMASK 0xaaaaaaaa
-#define BITCT 32
 #define MULTIPLEX_DIST_EXP 28
 #define MULTIPLEX_REL 30
 #endif
@@ -319,9 +269,9 @@ static inline void debug_log(char* ss) {
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.12.0NL "
+  "WDIST genomic distance calculator, v0.12.1NL "
 #else
-  "WDIST genomic distance calculator, v0.12.0 "
+  "WDIST genomic distance calculator, v0.12.1 "
 #endif
 #if __LP64__
   "64-bit"
@@ -331,136 +281,15 @@ const char ver_str[] =
 #ifdef DEBUG
   " debug"
 #endif
-  " (1 November 2012)\n"
+  " (2 November 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
-const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
+// const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam/.ped file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
-
-// fit 4 pathologically long IDs plus a bit extra
-char tbuf[MAXLINELEN * 4 + 256];
-
-inline void set_bit_noct(unsigned long* exclude_arr, int loc) {
-  exclude_arr[loc / BITCT] |= (1LU << (loc % BITCT));
-}
-
-void set_bit(unsigned long* bit_arr, int loc, unsigned int* bit_set_ct_ptr) {
-  int maj = loc / BITCT;
-  unsigned long min = 1LU << (loc % BITCT);
-  if (!(bit_arr[maj] & min)) {
-    bit_arr[maj] |= min;
-    *bit_set_ct_ptr += 1;
-  }
-}
-
-void set_bit_sub(unsigned long* bit_arr, int loc, unsigned int* bit_unset_ct_ptr) {
-  int maj = loc / BITCT;
-  unsigned long min = 1LU << (loc % BITCT);
-  if (!(bit_arr[maj] & min)) {
-    bit_arr[maj] |= min;
-    *bit_unset_ct_ptr -= 1;
-  }
-}
-
-void clear_bit(unsigned long* exclude_arr, int loc, unsigned int* include_ct_ptr) {
-  int maj = loc / BITCT;
-  unsigned long min = 1LU << (loc % BITCT);
-  if (exclude_arr[maj] & min) {
-    exclude_arr[maj] -= min;
-    *include_ct_ptr += 1;
-  }
-}
-
-inline int is_set(unsigned long* exclude_arr, int loc) {
-  return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
-}
-
-// unsafe if you don't know there's another included marker or person remaining
-inline int next_non_set_unsafe(unsigned long* exclude_arr, int loc) {
-  int idx = loc / BITCT;
-  unsigned long ulii;
-  exclude_arr = &(exclude_arr[idx]);
-  ulii = (~(*exclude_arr)) >> (loc % BITCT);
-  if (ulii) {
-    return loc + __builtin_ctzl(ulii);
-  }
-  do {
-    idx++;
-  } while (*(++exclude_arr) == ~0LU);
-  return (idx * BITCT) + __builtin_ctzl(~(*exclude_arr));
-}
-
-// These functions seem to optimize better than memset(arr, 0, x) under gcc.
-inline void fill_long_zero(long* larr, size_t size) {
-  long* lptr = &(larr[size]);
-  while (larr < lptr) {
-    *larr++ = 0;
-  }
-}
-
-inline void fill_ulong_zero(unsigned long* ularr, size_t size) {
-  unsigned long* ulptr = &(ularr[size]);
-  while (ularr < ulptr) {
-    *ularr++ = 0;
-  }
-}
-
-inline void fill_ulong_one(unsigned long* ularr, size_t size) {
-  unsigned long* ulptr = &(ularr[size]);
-  while (ularr < ulptr) {
-    *ularr++ = ~0LU;
-  }
-}
-
-inline void fill_int_zero(int* iarr, size_t size) {
-#if __LP64__
-  fill_long_zero((long*)iarr, size >> 1);
-  if (size & 1) {
-    iarr[size - 1] = 0;
-  }
-#else
-  fill_long_zero((long*)iarr, size);
-#endif
-}
-
-inline void fill_uint_zero(unsigned int* uiarr, size_t size) {
-#if __LP64__
-  fill_long_zero((long*)uiarr, size >> 1);
-  if (size & 1) {
-    uiarr[size - 1] = 0;
-  }
-#else
-  fill_long_zero((long*)uiarr, size);
-#endif
-}
-
-inline void fill_int_one(unsigned int* iarr, size_t size) {
-#if __LP64__
-  fill_ulong_one((unsigned long*)iarr, size >> 1);
-  if (size & 1) {
-    iarr[size - 1] = -1;
-  }
-#else
-  fill_ulong_one((unsigned long*)iarr, size);
-#endif
-}
-
-inline void fill_double_zero(double* darr, size_t size) {
-  double* dptr = &(darr[size]);
-  while (darr < dptr) {
-    *darr++ = 0.0;
-  }
-}
-
-inline void free_cond(void* memptr) {
-  if (memptr) {
-    free(memptr);
-  }
-}
 
 int edit1_match(int len1, char* s1, int len2, char* s2) {
   // permit one difference of the following forms:
@@ -1110,6 +939,10 @@ int disp_help(unsigned int param_ct, char** argv) {
 	       );
     help_print("missing-phenotype", &help_ctrl, 0,
 "  --missing-phenotype [val] : Numeric code for missing phenotype (normally -9).\n"
+	       );
+    help_print("missing-code\tmissing_code", &help_ctrl, 0,
+"  --missing-code {vals}     : Comma-separated list of missing phenotype values,\n"
+"  --missing_code {vals}       for Oxford-formatted filesets (normally 'NA').\n"
 	       );
     help_print("make-pheno", &help_ctrl, 0,
 "  --make-pheno [file] [val] : Specify binary phenotype, where cases have the\n"
@@ -1821,30 +1654,6 @@ int marker_code(unsigned int species, char* sptr) {
     return -1;
   }
   return ii;
-}
-
-inline int no_more_items(char* sptr) {
-  return ((!sptr) || (*sptr == '\n') || (*sptr == '\0'));
-}
-
-char* skip_initial_spaces(char* sptr) {
-  while ((*sptr == ' ') || (*sptr == '\t')) {
-    sptr++;
-  }
-  return sptr;
-}
-
-char* next_item(char* sptr) {
-  if (!sptr) {
-    return NULL;
-  }
-  while ((*sptr != ' ') && (*sptr != '\t')) {
-    if (!(*sptr)) {
-      return NULL;
-    }
-    sptr++;
-  }
-  return skip_initial_spaces(sptr);
 }
 
 int determine_max_id_len(FILE* filterfile, char* filterval, int mfilter_col, int* filter_line_ct_ptr) {
@@ -3655,69 +3464,6 @@ void* calc_missing_thread(void* arg) {
   int jj = thread_start[0];
   incr_dists_rm(&(missing_dbl_excluded[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (int)tidx, thread_start);
   return NULL;
-}
-
-int triangle_divide(long long cur_prod, int modif) {
-  // return smallest integer vv for which (vv * (vv + modif)) is no smaller
-  // than cur_prod, and neither term in the product is negative.  (Note the
-  // lack of a divide by two; cur_prod should also be double its "true" value
-  // as a result.)
-  long long vv;
-  if (cur_prod == 0) {
-    if (modif < 0) {
-      return -modif;
-    } else {
-      return 0;
-    }
-  }
-  vv = (long long)sqrt((double)cur_prod);
-  while ((vv - 1) * (vv + modif - 1) >= cur_prod) {
-    vv--;
-  }
-  while (vv * (vv + modif) < cur_prod) {
-    vv++;
-  }
-  return vv;
-}
-
-void parallel_bounds(int ct, int start, int parallel_idx, int parallel_tot, int* bound_start_ptr, int* bound_end_ptr) {
-  int modif = 1 - start * 2;
-  long long ct_tot = (long long)ct * (ct + modif);
-  *bound_start_ptr = triangle_divide((ct_tot * parallel_idx) / parallel_tot, modif);
-  *bound_end_ptr = triangle_divide((ct_tot * (parallel_idx + 1)) / parallel_tot, modif);
-}
-
-// set align to 1 for no alignment
-void triangle_fill(unsigned int* target_arr, int ct, int pieces, int parallel_idx, int parallel_tot, int start, int align) {
-  long long ct_tr;
-  long long cur_prod;
-  int modif = 1 - start * 2;
-  int cur_piece = 1;
-  int lbound;
-  int ubound;
-  int ii;
-  int align_m1;
-  parallel_bounds(ct, start, parallel_idx, parallel_tot, &lbound, &ubound);
-  // x(x+1)/2 is divisible by y iff (x % (2y)) is 0 or (2y - 1).
-  align *= 2;
-  align_m1 = align - 1;
-  target_arr[0] = lbound;
-  target_arr[pieces] = ubound;
-  cur_prod = (long long)lbound * (lbound + modif);
-  ct_tr = ((long long)ubound * (ubound + modif) - cur_prod) / pieces;
-  while (cur_piece < pieces) {
-    cur_prod += ct_tr;
-    lbound = triangle_divide(cur_prod, modif);
-    ii = (lbound - start) & align_m1;
-    if ((ii) && (ii != align_m1)) {
-      lbound = start + ((lbound - start) | align_m1);
-    }
-    // lack of this check caused a nasty bug earlier
-    if (lbound > ct) {
-      lbound = ct;
-    }
-    target_arr[cur_piece++] = lbound;
-  }
 }
 
 inline int flexwrite_checked(FILE* outfile, gzFile gz_outfile, char* contents, unsigned long len) {
@@ -9219,10 +8965,6 @@ inline int distance_wt_req(int calculation_type) {
   return ((calculation_type & CALC_DISTANCE_MASK) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
 
-inline int distance_req(int calculation_type) {
-  return ((calculation_type & CALC_DISTANCE_MASK) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
-}
-
 inline int relationship_req(int calculation_type) {
   return (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF | CALC_REGRESS_REL));
 }
@@ -12178,6 +11920,7 @@ int main(int argc, char** argv) {
   Chrom_info chrom_info;
   char* argptr2;
   int cur_arg_start;
+  char* missing_code = NULL;
   printf(ver_str);
   chrom_info.species = SPECIES_HUMAN;
   chrom_info.chrom_mask = 0;
@@ -13038,6 +12781,20 @@ int main(int argc, char** argv) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	cur_arg += 2;
+      } else if ((!memcmp(argptr2, "issing-code", 12)) || (!memcmp(argptr2, "issing_code", 12))) {
+        if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (missing_code) {
+	  printf("Error: Duplicate --missing-code flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  missing_code = argv[cur_arg + 1];
+	} else {
+	  missing_code = "";
+	}
+	cur_arg += 1 + ii;
       } else if (!memcmp(argptr2, "ake-pheno", 10)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
@@ -13960,11 +13717,14 @@ int main(int argc, char** argv) {
   // freqname[0] signals --read-freq
   // evecname[0] signals --regress-pcs
   if (genname[0]) {
-    if (calculation_type & (~CALC_DISTANCE_MASK)) {
+    if (calculation_type & (~(CALC_DISTANCE_MASK | CALC_REGRESS_DISTANCE))) {
       printf("Error: Only --distance calculations are currently supported with --data.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
     } else {
-      retval = wdist_dosage(calculation_type, genname, samplename, distance_3d);
+      if (!missing_code) {
+	missing_code = "NA";
+      }
+      retval = wdist_dosage(calculation_type, genname, samplename, missing_code, distance_3d, thread_ct, parallel_idx, parallel_tot);
     }
   } else {
     retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freqx);
