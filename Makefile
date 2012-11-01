@@ -10,23 +10,25 @@ LINKFLAGS=
 ZLIB=zlib-1.2.7/libz.1.2.7.dylib
 endif
 
-wdist: wdist.c
-	g++ $(CFLAGS) wdist.c -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+SRC = wdist.c wdist_common.c wdist_dosage.c
 
-wdistc: wdist.c
-	gcc $(CFLAGS) wdist.c -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+wdist: $(SRC)
+	g++ $(CFLAGS) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
-wdists: wdist.c
-	g++ $(CFLAGS) wdist.c -o wdist_linux_s -Wl,-Bstatic $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
+wdistc: $(SRC)
+	gcc $(CFLAGS) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
-wdistd: wdist.c
-	g++ $(CFLAGS) wdist.c -o wdist_linux $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
+wdists: $(SRC)
+	g++ $(CFLAGS) $(SRC) -o wdist_linux_s -Wl,-Bstatic $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
 
-wdist64: wdist.c
-	g++ $(CFLAGS) -arch x86_64 wdist.c -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. zlib-1.2.7/libz.1.2.7-64.dylib
+wdistd: $(SRC)
+	g++ $(CFLAGS) $(SRC) -o wdist_linux $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
 
-wdist64c: wdist.c
-	gcc $(CFLAGS) -arch x86_64 wdist.c -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. zlib-1.2.7/libz.1.2.7-64.dylib
+wdist64: $(SRC)
+	g++ $(CFLAGS) -arch x86_64 $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. zlib-1.2.7/libz.1.2.7-64.dylib
 
-wdist64nl: wdist.c
-	g++ $(CFLAGS) -arch x86_64 wdist.c -o wdist $(LINKFLAGS) -L. zlib-1.2.7/libz.1.2.7-64.dylib
+wdist64c: $(SRC)
+	gcc $(CFLAGS) -arch x86_64 $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. zlib-1.2.7/libz.1.2.7-64.dylib
+
+wdist64nl: $(SRC)
+	g++ $(CFLAGS) -arch x86_64 $(SRC) -o wdist $(LINKFLAGS) -L. zlib-1.2.7/libz.1.2.7-64.dylib

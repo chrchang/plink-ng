@@ -150,25 +150,12 @@ extern "C" {
 #endif // NOLAPACK
 
 #include "zlib-1.2.7/zlib.h"
+#include "wdist_common.h"
+#include "wdist_dosage.h"
 
 #define PI 3.141592653589793
 // floating point comparison-to-nonzero tolerance, currently 2^{-30}
 #define EPSILON 0.000000000931322574615478515625
-#define CACHELINE 64 // assumed number of bytes per cache line, for alignment
-#define CACHELINE_DBL (CACHELINE / sizeof(double))
-
-#define RET_SUCCESS 0
-#define RET_NOMEM 1
-#define RET_OPEN_FAIL 2
-#define RET_INVALID_FORMAT 3
-#define RET_CALC_NOT_YET_SUPPORTED 4
-#define RET_INVALID_CMDLINE 5
-#define RET_WRITE_FAIL 6
-#define RET_READ_FAIL 7
-#define RET_HELP 8
-#define RET_THREAD_CREATE_FAIL 9
-#define RET_ALLELE_MISMATCH 10
-#define RET_NULL_CALC 11
 
 #define CALC_RELATIONSHIP_COV 1
 #define CALC_RELATIONSHIP_SQ 2
@@ -237,7 +224,6 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 #define MAX_THREADS_P1 64
 #define PEDBUFBASE 256
 #define FNAMESIZE 2048
-#define MALLOC_DEFAULT_MB 2176
 // size of generic text line load buffer.  .ped lines can of course be longer
 #define MAXLINELEN 131072
 
@@ -328,9 +314,6 @@ static inline void debug_log(char* ss) {
 
 #define BITCT2 (BITCT / 2)
 
-#define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
-#define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
-
 #define MIN(aa, bb) ((aa) > (bb))? (bb) : (aa)
 #define MAX(aa, bb) ((bb) > (aa))? (bb) : (aa)
 
@@ -351,7 +334,6 @@ const char ver_str[] =
   " (1 November 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
-const char errstr_fopen[] = "Error: Failed to open %s.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam/.ped file.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
@@ -1211,15 +1193,6 @@ int disp_help(unsigned int param_ct, char** argv) {
   return retval;
 }
 
-int fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
-  *target_ptr = fopen(fname, mode);
-  if (!(*target_ptr)) {
-    printf(errstr_fopen, fname);
-    return -1;
-  }
-  return 0;
-}
-
 int gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode) {
   *target_ptr = gzopen(fname, mode);
   if (!(*target_ptr)) {
@@ -1250,97 +1223,15 @@ inline int fclose_null(FILE** fptr_ptr) {
   return ii;
 }
 
-inline void fclose_cond(FILE* fptr) {
-  if (fptr) {
-    fclose(fptr);
-  }
-}
-
 inline void gzclose_cond(gzFile gz_outfile) {
   if (gz_outfile) {
     gzclose(gz_outfile);
   }
 }
 
-// manually managed, very large stack
-unsigned char* wkspace;
-unsigned char* wkspace_base;
 long malloc_size_mb = MALLOC_DEFAULT_MB;
-unsigned long wkspace_left;
 
-unsigned char* wkspace_alloc(unsigned long size) {
-  unsigned char* retval;
-  if (wkspace_left < size) {
-    return NULL;
-  }
-  size = CACHEALIGN(size);
-  retval = wkspace_base;
-  wkspace_base += size;
-  wkspace_left -= size;
-  return retval;
-}
-
-inline int wkspace_alloc_c_checked(char** dc_ptr, unsigned long size) {
-  *dc_ptr = (char*)wkspace_alloc(size);
-  if (!(*dc_ptr)) {
-    return 1;
-  }
-  return 0;
-}
-
-inline int wkspace_alloc_d_checked(double** dp_ptr, unsigned long size) {
-  *dp_ptr = (double*)wkspace_alloc(size);
-  if (!(*dp_ptr)) {
-    return 1;
-  }
-  return 0;
-}
-
-inline int wkspace_alloc_i_checked(int** ip_ptr, unsigned long size) {
-  *ip_ptr = (int*)wkspace_alloc(size);
-  if (!(*ip_ptr)) {
-    return 1;
-  }
-  return 0;
-}
-
-inline int wkspace_alloc_uc_checked(unsigned char** ucp_ptr, unsigned long size) {
-  *ucp_ptr = wkspace_alloc(size);
-  if (!(*ucp_ptr)) {
-    return 1;
-  }
-  return 0;
-}
-
-inline int wkspace_alloc_ui_checked(unsigned int** uip_ptr, unsigned long size) {
-  *uip_ptr = (unsigned int*)wkspace_alloc(size);
-  if (!(*uip_ptr)) {
-    return 1;
-  }
-  return 0;
-}
-
-inline int wkspace_alloc_ul_checked(unsigned long** ulp_ptr, unsigned long size) {
-  *ulp_ptr = (unsigned long*)wkspace_alloc(size);
-  if (!(*ulp_ptr)) {
-    return 1;
-  }
-  return 0;
-}
-
-inline int wkspace_alloc_ull_checked(unsigned long long** ullp_ptr, unsigned long size) {
-  *ullp_ptr = (unsigned long long*)wkspace_alloc(size);
-  if (!(*ullp_ptr)) {
-    return 1;
-  }
-  return 0;
-}
-
-void wkspace_reset(void* new_base) {
-  unsigned long freed_bytes = wkspace_base - (unsigned char*)new_base;
-  wkspace_base = (unsigned char*)new_base;
-  wkspace_left += freed_bytes;
-}
+unsigned char* wkspace;
 
 char** subst_argv = NULL;
 
@@ -12119,11 +12010,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   return retval;
 }
 
-int wdist_dosage(int calculation_type, char* genname, char* samplename, int distance_3d) {
-  printf("Dosage support currently under development.\n");
-  return 0;
-}
-
 int param_count(int argc, char** argv, int flag_idx) {
   // Counts the number of optional parameters given to the flag at position
   // flag_idx, treating any parameter not beginning with "--" as optional.
@@ -14075,7 +13961,7 @@ int main(int argc, char** argv) {
   // evecname[0] signals --regress-pcs
   if (genname[0]) {
     if (calculation_type & (~CALC_DISTANCE_MASK)) {
-      printf("Error: \n");
+      printf("Error: Only --distance calculations are currently supported with --data.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
     } else {
       retval = wdist_dosage(calculation_type, genname, samplename, distance_3d);
