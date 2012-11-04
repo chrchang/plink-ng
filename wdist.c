@@ -3470,7 +3470,7 @@ void incr_dists_rm_inv(unsigned int* idists, int tidx) {
   unsigned int indiv_ct_m1 = indiv_ct - 1;
   unsigned int uii;
   unsigned int ujj;
-  for (uii = thread_start[tidx]; uii < indiv_ct_m1; uii++) {
+  for (uii = thread_start[tidx]; uii < thread_start[tidx + 1]; uii++) {
     ulii = mmasks[uii];
     if (ulii) {
       glptr = &(mmasks[uii + 1]);
@@ -4532,7 +4532,7 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, unsigned int unfilter
       *uiptr += *(++uiptr2);
       uii++;
       cur_family_id = &(cur_family_id[max_family_id_len]); // read pointer
-      do {
+      while (uii < initial_family_blocks) {
 	while (!strcmp(cur_family_id, last_family_id)) {
 	  *uiptr += *(++uiptr2);
 	  uii++;
@@ -4549,7 +4549,7 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, unsigned int unfilter
 	  uii++;
 	  cur_family_id = &(cur_family_id[max_family_id_len]);
 	}
-      } while (uii < initial_family_blocks);
+      }
     }
   }
 
@@ -7897,6 +7897,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
 	ulii = (ulii | (ulii >> 1)) & FIVEMASK;
 	*glptr2++ = ulii * 3;
 	*glptr3 = ulkk;
+
 	ulii = 0;
 	ulkk = 0;
 	gptr = &(loadbuf[indiv_uidx / 4 + (jj + BITCT2) * unfiltered_indiv_ct4]);
@@ -7971,6 +7972,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
 	pthread_join(threads[ukk], NULL);
       }
     }
+
     for (ulii = 1; ulii < thread_ct; ulii++) {
       if (pthread_create(&(threads[ulii - 1]), NULL, &calc_genome_thread, (void*)ulii)) {
 	goto calc_genome_ret_THREAD_CREATE_FAIL;
@@ -8003,7 +8005,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       giptr3 = indiv_missing_unwt;
       uii = marker_ct - giptr3[indiv_idx];
-      uljj = (int)indiv_idx - 1;
+      uljj = (int)indiv_idx - 1; // not referenced when indiv_idx == 0
       for (ulii = 0; ulii < indiv_idx; ulii++) {
 	if (fprintf(outfile, "%g ", 1.0 - ((double)(genome_main[uljj * 5] + 2 * genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + missing_dbl_excluded[uljj])))) < 0) {
 	  goto calc_genome_ret_WRITE_FAIL;
