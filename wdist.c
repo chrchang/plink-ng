@@ -2979,7 +2979,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	  *xor_ptr++ = loader3;
 	  count_ibs0 = _mm_add_epi64(count_ibs0, loader3);
 
-	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), *maskptr++);
+	  loader = _mm_and_si128(_mm_xor_si128(*glptr++, *glptr_fixed_tmp++), _mm_and_si128(*maskptr++, *maskptr_fixed_tmp++));
           loader2 = _mm_srli_epi64(loader, 1);
           count_ibs1 = _mm_add_epi64(count_ibs1, _mm_and_si128(_mm_xor_si128(loader, loader2), m1));
 	  loader3 = _mm_and_si128(_mm_and_si128(loader, loader2), m1);
