@@ -4515,41 +4515,41 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, unsigned int unfilter
   cur_family_id = &(family_ids[max_family_id_len]);
   family_id_ct = 1;
   uii = 1; // read idx
-  if (uiptr != family_sizes) {
+  if (initial_family_blocks != 1) {
     uiptr = family_sizes;
     while (strcmp(cur_family_id, last_family_id)) {
       family_id_ct++;
       uiptr++;
-      if (uii == initial_family_blocks - 1) {
-	break;
-      }
       last_family_id = cur_family_id;
       cur_family_id = &(cur_family_id[max_family_id_len]);
       uii++;
+      if (uii == initial_family_blocks) {
+	break;
+      }
     }
     if (uii < initial_family_blocks) {
       uiptr2 = uiptr; // family_sizes read pointer
       *uiptr += *(++uiptr2);
       uii++;
       cur_family_id = &(cur_family_id[max_family_id_len]); // read pointer
-    }
-    while (uii < initial_family_blocks) {
-      while (!strcmp(cur_family_id, last_family_id)) {
-	*uiptr += *(++uiptr2);
-	uii++;
-	if (uii == initial_family_blocks) {
-	  break;
+      do {
+	while (!strcmp(cur_family_id, last_family_id)) {
+	  *uiptr += *(++uiptr2);
+	  uii++;
+	  if (uii == initial_family_blocks) {
+	    break;
+	  }
+	  cur_family_id = &(cur_family_id[max_family_id_len]);
 	}
-	cur_family_id = &(cur_family_id[max_family_id_len]);
-      }
-      if (uii < initial_family_blocks) {
-	*(++uiptr) = *(++uiptr2);
-	last_family_id = &(last_family_id[max_family_id_len]);
-	strcpy(last_family_id, cur_family_id);
-	family_id_ct++;
-	uii++;
-	cur_family_id = &(cur_family_id[max_family_id_len]);
-      }
+	if (uii < initial_family_blocks) {
+	  *(++uiptr) = *(++uiptr2);
+	  last_family_id = &(last_family_id[max_family_id_len]);
+	  strcpy(last_family_id, cur_family_id);
+	  family_id_ct++;
+	  uii++;
+	  cur_family_id = &(cur_family_id[max_family_id_len]);
+	}
+      } while (uii < initial_family_blocks);
     }
   }
 
@@ -4723,6 +4723,9 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, unsigned int unfilter
 	  remaining_indiv_parent_idxs[jj * 2 + 1] = -1;
 	}
         remaining_indiv_idxs[jj] = kk;
+      }
+      if (fidx == 999) {
+	printf("step 4\n");
       }
       while (ii < family_size) {
 	complete_indiv_idxs[complete_indiv_idx_ct++] = fis_ptr[ii];
@@ -7781,7 +7784,6 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
       goto calc_genome_ret_1;
     }
   }
-
   ii = 0; // raw marker index
   low_ct = 0; // after excluding missing
   do {
@@ -7859,18 +7861,16 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
       glptr2 = &(masks[jj / BITCT2]);
       glptr3 = mmasks;
       giptr = indiv_missing_unwt;
-      nn = 0; // raw indiv index
+      indiv_uidx = 0;
       fill_int_zero(missing_ct_buf, BITCT);
       missing_ct_all = 0;
       for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-	while (is_set(indiv_exclude, nn)) {
-	  nn++;
-	}
-	oo = (nn % 4) * 2;
+	indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+	oo = (indiv_uidx % 4) * 2;
 	ulii = 0;
 	ulkk = 0;
-        gptr = &(loadbuf[nn / 4 + jj * unfiltered_indiv_ct4]);
-	qq = (nonfounders || is_founder(founder_info, indiv_idx));
+        gptr = &(loadbuf[indiv_uidx / 4 + jj * unfiltered_indiv_ct4]);
+	qq = (nonfounders || is_founder(founder_info, indiv_uidx));
 	if (qq) {
 	  for (pp = 0; pp < BITCT2; pp++) {
 	    uljj = (gptr[pp * unfiltered_indiv_ct4] >> oo) & 3;
@@ -7899,7 +7899,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
 	*glptr3 = ulkk;
 	ulii = 0;
 	ulkk = 0;
-	gptr = &(loadbuf[nn / 4 + (jj + BITCT2) * unfiltered_indiv_ct4]);
+	gptr = &(loadbuf[indiv_uidx / 4 + (jj + BITCT2) * unfiltered_indiv_ct4]);
 	if (qq) {
 	  for (pp = 0; pp < BITCT2; pp++) {
 	    uljj = (gptr[pp * unfiltered_indiv_ct4] >> oo) & 3;
@@ -7928,7 +7928,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
 	glptr = &(glptr[(GENOME_MULTIPLEX2 / BITCT) - 1]);
 	glptr2 = &(glptr2[(GENOME_MULTIPLEX2 / BITCT) - 1]);
 	giptr++;
-	nn++;
+	indiv_uidx++;
       }
       nn = kk - jj;
       if (nn > BITCT) {
