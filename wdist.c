@@ -4416,6 +4416,7 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, unsigned int unfilter
   int nn;
   int oo;
   unsigned int uii;
+  unsigned int initial_family_blocks;
   unsigned int indiv_uidx;
   long long llii;
   char* family_ids;
@@ -4505,39 +4506,43 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, unsigned int unfilter
       *uiptr += 1;
     }
   }
-  if (qsort_ext(family_ids, (unsigned int)(uiptr - family_sizes) + 1, max_family_id_len, strcmp_deref, (char*)family_sizes, sizeof(int))) {
+  initial_family_blocks = 1 + (unsigned int)(uiptr - family_sizes);
+  if (qsort_ext(family_ids, initial_family_blocks, max_family_id_len, strcmp_deref, (char*)family_sizes, sizeof(int))) {
     return RET_NOMEM;
   }
+
   last_family_id = family_ids;
   cur_family_id = &(family_ids[max_family_id_len]);
   family_id_ct = 1;
+  uii = 1; // read idx
   if (uiptr != family_sizes) {
     uiptr = family_sizes;
     while (strcmp(cur_family_id, last_family_id)) {
       family_id_ct++;
       uiptr++;
-      if (family_id_ct == unfiltered_indiv_ct) {
+      if (uii == initial_family_blocks - 1) {
 	break;
       }
       last_family_id = cur_family_id;
       cur_family_id = &(cur_family_id[max_family_id_len]);
+      uii++;
     }
-    uii = family_id_ct + 1; // read idx
-    if (uii < unfiltered_indiv_ct) {
+    if (uii < initial_family_blocks) {
       uiptr2 = uiptr; // family_sizes read pointer
       *uiptr += *(++uiptr2);
+      uii++;
       cur_family_id = &(cur_family_id[max_family_id_len]); // read pointer
     }
-    while (uii < unfiltered_indiv_ct) {
+    while (uii < initial_family_blocks) {
       while (!strcmp(cur_family_id, last_family_id)) {
 	*uiptr += *(++uiptr2);
 	uii++;
-	if (uii == unfiltered_indiv_ct) {
+	if (uii == initial_family_blocks) {
 	  break;
 	}
 	cur_family_id = &(cur_family_id[max_family_id_len]);
       }
-      if (uii < unfiltered_indiv_ct) {
+      if (uii < initial_family_blocks) {
 	*(++uiptr) = *(++uiptr2);
 	last_family_id = &(last_family_id[max_family_id_len]);
 	strcpy(last_family_id, cur_family_id);
