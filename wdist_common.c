@@ -170,3 +170,16 @@ void triangle_fill(unsigned int* target_arr, int ct, int pieces, int parallel_id
 int distance_req(int calculation_type) {
   return ((calculation_type & CALC_DISTANCE_MASK) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
+
+#ifndef __cplusplus
+int double_cmp(const void* aa, const void* bb) {
+  double cc = *((const double*)aa) - *((const double*)bb);
+  if (cc > 0.0) {
+    return 1;
+  } else if (cc < 0.0) {
+    return -1;
+  } else {
+    return 0;
+  }
+}
+#endif

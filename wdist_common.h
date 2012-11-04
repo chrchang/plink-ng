@@ -9,6 +9,22 @@
 #include <math.h>
 #include <pthread.h>
 
+#ifdef __cplusplus
+#include <algorithm>
+#endif
+
+#if __LP64__
+#include <emmintrin.h>
+
+typedef union {
+  __m128i vi;
+  __m128d vd;
+  unsigned long u8[2];
+  double d8[2];
+  unsigned int u4[4];
+} __uni16;
+#endif
+
 #define RET_SUCCESS 0
 #define RET_NOMEM 1
 #define RET_OPEN_FAIL 2
@@ -77,6 +93,8 @@
 #else
 #define BITCT 32
 #endif
+
+#define BITCT2 (BITCT / 2)
 
 // size of generic text line load buffer.  .ped lines can of course be longer
 #define MAXLINELEN 131072
@@ -262,4 +280,8 @@ void triangle_fill(unsigned int* target_arr, int ct, int pieces, int parallel_id
 
 int distance_req(int calculation_type);
 
-#endif
+#ifndef __cplusplus
+int double_cmp(const void* aa, const void* bb);
+#endif // __cplusplus
+
+#endif // __WDIST_COMMON_H__

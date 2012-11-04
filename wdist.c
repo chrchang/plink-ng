@@ -101,14 +101,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#ifdef __cplusplus
-#include <algorithm>
-#endif
-
-#if __LP64__
-#include <emmintrin.h>
-#endif
-
 #ifdef NOLAPACK
 #define MATRIX_INVERT_BUF1_TYPE double
 #define __CLPK_integer int
@@ -262,8 +254,6 @@ static inline void debug_log(char* ss) {
 #define MULTIPLEX_REL 30
 #endif
 
-#define BITCT2 (BITCT / 2)
-
 #define MIN(aa, bb) ((aa) > (bb))? (bb) : (aa)
 #define MAX(aa, bb) ((bb) > (aa))? (bb) : (aa)
 
@@ -281,7 +271,7 @@ const char ver_str[] =
 #ifdef DEBUG
   " debug"
 #endif
-  " (2 November 2012)\n"
+  " (4 November 2012)\n"
   "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -555,7 +545,8 @@ int disp_help(unsigned int param_ct, char** argv) {
   }
   do {
     help_print("distance", &help_ctrl, 1,
-"  --distance <square | square0 | triangle> <gz | bin> <3d> <ibs> <1-ibs> <snps>\n"
+"  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <snps> <3d>\n"
+"             <flat-missing>\n"
 "    Writes a lower-triangular tab-delimited table of (weighted) genomic\n"
 "    distances in SNP units to {output prefix}.dist, and a list of the\n"
 "    corresponding family/individual IDs to {output prefix}.dist.id.  The first\n"
@@ -571,13 +562,18 @@ int disp_help(unsigned int param_ct, char** argv) {
 "      instead written to {output prefix}.dist.bin.  This can be combined with\n"
 "      'square0' if you still want the upper right zeroed out, or 'triangle' if\n"
 "      you don't want to pad the upper right at all.\n"
-"    * With dosage data, the '3d' modifier considers 0-1-2 allele count\n"
-"      probabilities separately, instead of collapsing them into an expected\n"
-"      value and a missingness probability.\n"
 "    * If the 'ibs' modifier is present, an identity-by-state matrix is written\n"
 "      to {output prefix}.mibs.  '1-ibs' causes distances expressed as genomic\n"
 "      proportions (i.e. 1 - IBS) to be written to {output prefix}.mdist.\n"
 "      Combine with 'snps' if you want to generate the usual .dist file as well.\n"
+"    * With dosage data, the '3d' modifier considers 0-1-2 allele count\n"
+"      probabilities separately, instead of collapsing them into an expected\n"
+"      value and a missingness probability.\n"
+"    * By default, distance rescaling in the presence of missing markers is\n"
+"      MAF-sensitive: if allele A contributes, on average, twice as much to\n"
+"      other pairwise distances as allele B, a missing allele A will result in\n"
+"      twice as large of a missingness correction.  To turn this off, use the\n"
+"      'flat-missing' modifier.\n"
 	       );
     help_print("matrix\tdistance-matrix", &help_ctrl, 1,
 "  --matrix\n"
@@ -592,7 +588,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --genome <gz> <full> <unbounded>\n"
 "    Identity-by-descent analysis.  This yields the same output as PLINK's\n"
 "    --genome or --Z-genome, and the 'full' and 'unbounded' modifiers have the\n"
-"    same effect as PLINK's --full-genome and --unbounded flags.\n\n"
+"    same effect as PLINK's --genome-full and --unbounded flags.\n\n"
 		);
     help_print(
 "indep\tindep-pairwise", &help_ctrl, 1,
@@ -778,14 +774,14 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_print("pheno", &help_ctrl, 0,
 "  --pheno [fname]  : Specify alternate phenotype.\n"
 	       );
-    help_print("mpheno", &help_ctrl, 0,
+    help_print("mpheno\tpheno", &help_ctrl, 0,
 "  --mpheno [col]   : Specify phenotype column number in --pheno file.\n"
 	       );
-    help_print("pheno-name", &help_ctrl, 0,
+    help_print("pheno-name\tpheno", &help_ctrl, 0,
 "  --pheno-name [c] : If phenotype file has a header row, use column with the\n"
 "                     given name.\n"
 	       );
-    help_print("pheno-merge", &help_ctrl, 0,
+    help_print("pheno-merge\tpheno", &help_ctrl, 0,
 "  --pheno-merge    : If a phenotype is present in the original but not the\n"
 "                     alternate file, use the original value instead of setting\n"
 "                     the phenotype to missing.\n"
@@ -886,7 +882,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "                     of the other, infer a MAF of (j+1) / (j+k+2), rather than\n"
 "                     the usual j / (j+k).\n"
 	       );
-    help_print("exponent", &help_ctrl, 0,
+    help_print("exponent\tdistance", &help_ctrl, 0,
 "  --exponent [val] : When computing genomic distances, each marker has a weight\n"
 "                     of (2q(1-q))^{-val}, where q is the inferred MAF.  (Use\n"
 "                     --read-freq if you want to explicitly specify some or all\n"
@@ -1422,18 +1418,6 @@ int strlen_se(char* ss) {
   return val;
 }
 
-#ifndef __cplusplus
-int double_cmp(const void* aa, const void* bb) {
-  double cc = *((const double*)aa) - *((const double*)bb);
-  if (cc > 0.0) {
-    return 1;
-  } else if (cc < 0.0) {
-    return -1;
-  } else {
-    return 0;
-  }
-}
-#endif
 int strcmp_casted(const void* s1, const void* s2) {
   return strcmp((char*)s1, (char*)s2);
 }
@@ -2412,14 +2396,7 @@ static inline unsigned int popcount_long(unsigned long val) {
   return popcount2_long(val - ((val >> 1) & FIVEMASK));
 }
 
-
 #if __LP64__
-typedef union {
-  __m128i vi;
-  unsigned long u8[2];
-  unsigned int u4[4];
-} __uni16;
-
 // SSE2 implementations of Lauradoux/Walisch popcount, combined with xor to
 // handle Hamming distance, and masking to handle missingness.
 // Note that the size of the popcounted buffer is a hardcoded constant
@@ -4505,6 +4482,7 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, unsigned int unfilter
   if (wkspace_alloc_ui_checked(&family_sizes, unfiltered_indiv_ct * sizeof(int))) {
     return RET_NOMEM;
   }
+
   // copy all the items over in order, then qsort, then eliminate duplicates
   // and count family sizes.
   cur_family_id = family_ids;
@@ -4521,12 +4499,13 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, unsigned int unfilter
       cur_family_id = &(cur_family_id[max_family_id_len]);
       memcpy(cur_family_id, cur_person_id, mm);
       cur_family_id[mm] = '\0';
+      jj = mm;
       *(++uiptr) = 1;
     } else {
       *uiptr += 1;
     }
   }
-  if (qsort_ext(family_ids, uiptr + 1 - family_sizes, max_family_id_len, strcmp_deref, (char*)family_sizes, sizeof(int))) {
+  if (qsort_ext(family_ids, (unsigned int)(uiptr - family_sizes) + 1, max_family_id_len, strcmp_deref, (char*)family_sizes, sizeof(int))) {
     return RET_NOMEM;
   }
   last_family_id = family_ids;
@@ -8272,13 +8251,23 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
       dyy = (double)genome_main[ulii + 3];
       dxx1 = 1.0 / ((double)(genome_main[ulii + 4] + genome_main[ulii + 3]));
       dxx2 = normdist((dxx * dxx1 - 0.666666) / (sqrt(0.2222222 * dxx1)));
+      sptr_cur += sprintf(sptr_cur, "  %1.6f  %1.4f ", 1.0 - marker_recip * (genome_main[ulii] + 2 * genome_main[ulii + 1]), dxx2);
       if (genome_main[ulii + 3]) {
-	sptr_cur += sprintf(sptr_cur, "  %1.6f  %1.4f  %1.4f", 1.0 - marker_recip * (genome_main[ulii] + 2 * genome_main[ulii + 1]), dxx2, dxx / dyy);
+	dxx1 = dxx / dyy;
+        nn = sprintf(sptr_cur, "%1.4f", dxx1);
+	if (nn < 7) {
+	  memset(sptr_cur, 32, 7 - nn);
+	  sptr_cur += 7 - nn;
+	  sptr_cur += sprintf(sptr_cur, "%1.4f", dxx1);
+	} else {
+	  sptr_cur += nn;
+	}
       } else {
-	sptr_cur += sprintf(sptr_cur, "  %1.6f  %1.4f      NA", 1.0 - marker_recip * (genome_main[ulii] + 2 * genome_main[ulii + 1]), dxx2);
+	memcpy(sptr_cur, "     NA", 7);
+	sptr_cur += 7;
       }
       if (genome_output_full) {
-	sptr_cur += sprintf(sptr_cur, " %7d %7d %7d  %1.4f  %1.4f\n", genome_main[ulii + 1], genome_main[ulii], oo, dyy * dxx1, dxx * dxx1);
+	sptr_cur += sprintf(sptr_cur, " %7d %7d %7d %s%1.4f %s%1.4f\n", genome_main[ulii + 1], genome_main[ulii], oo, (dyy < 9.5)? " " : "", dyy, (dxx < 9.5)? " " : "", dxx);
       } else {
 	*sptr_cur++ = '\n';
       }
@@ -8973,7 +8962,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freqx) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, int regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freqx, int distance_flat_missing) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -9384,7 +9373,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   // text HWE waits until after external freq file has had a chance to modify
   // major/minor allele
   nonfounders = (nonfounders || (!fam_col_34));
-  wt_needed = distance_wt_req(calculation_type);
+  wt_needed = distance_wt_req(calculation_type) && (!distance_flat_missing);
   retval = calc_freqs_and_binary_hwe(pedfile, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_alleles, &marker_allele_cts, &missing_cts, bed_offset, line_mids, pedbuflen, (unsigned char)missing_geno, hwe_all, pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &ll_cts, &lh_cts, &hh_cts, wt_needed, &marker_weights_base, &marker_weights);
   if (retval) {
     goto wdist_ret_2;
@@ -10315,9 +10304,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     llxx = thread_start[thread_ct];
     llxx = ((llxx * (llxx - 1)) - (long long)thread_start[0] * (thread_start[0] - 1)) / 2;
     dists_alloc = llxx * sizeof(double);
-    // additional + CACHELINE is to fix weird-ass aliasing bug that shows up
+    // Additional + CACHELINE is to fix weird-ass aliasing bug that shows up
     // with -O2 in some cases
-    if ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!missing_dbl_excluded)) {
+    // The missing_dbl_excluded check is to avoid recalculation, if a
+    // relationship matrix was already calculated, the missing_dbl_excluded
+    // matrix was not overwritten, and no --rel-cutoff filtering was performed
+    // to make the results obsolete, 
+    if (((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX )) || distance_flat_missing) && (!missing_dbl_excluded)) {
       missing_dbl_excluded = (unsigned int*)wkspace_alloc(llxx * sizeof(int));
       if (!missing_dbl_excluded) {
         goto wdist_ret_NOMEM;
@@ -10742,6 +10735,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
 	}
       }
+    } else if (distance_flat_missing) {
+      printf("Error: flat-missing modifier not yet finished for PLINK-formatted input.  Use\n--matrix/--distance-matrix for now.\n");
+      retval = RET_CALC_NOT_YET_SUPPORTED;
+      goto wdist_ret_2;
     }
   }
 
@@ -11877,6 +11874,7 @@ int main(int argc, char** argv) {
   double tail_bottom;
   double tail_top;
   int distance_3d = 0;
+  int distance_flat_missing = 0;
   int groupdist_iters = ITERS_DEFAULT;
   int groupdist_d = 0;
   int regress_iters = ITERS_DEFAULT;
@@ -12201,7 +12199,7 @@ int main(int argc, char** argv) {
 	  printf("Error: Duplicate --distance flag.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 5, &ii)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 7, &ii)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	for (jj = 1; jj <= ii; jj++) {
@@ -12247,8 +12245,6 @@ int main(int argc, char** argv) {
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_DISTANCE_BIN;
-	  } else if (!strcmp(argv[cur_arg + jj], "3d")) {
-	    distance_3d = 1;
 	  } else if (!strcmp(argv[cur_arg + jj], "ibs")) {
 	    if (calculation_type & CALC_PLINK_IBS_MATRIX) {
 	      printf("Error: --matrix flag cannot be used with '--distance ibs'.%s", errstr_append);
@@ -12273,6 +12269,10 @@ int main(int argc, char** argv) {
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_DISTANCE_SNPS;
+	  } else if (!strcmp(argv[cur_arg + jj], "3d")) {
+	    distance_3d = 1;
+	  } else if (!strcmp(argv[cur_arg + jj], "flat-missing")) {
+	    distance_flat_missing = 1;
 	  } else {
 	    printf("Error: Invalid --distance parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
@@ -13724,10 +13724,10 @@ int main(int argc, char** argv) {
       if (!missing_code) {
 	missing_code = "NA";
       }
-      retval = wdist_dosage(calculation_type, genname, samplename, missing_code, distance_3d, thread_ct, parallel_idx, parallel_tot);
+      retval = wdist_dosage(calculation_type, genname, samplename, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, thread_ct, parallel_idx, parallel_tot);
     }
   } else {
-    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freqx);
+    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freqx, distance_flat_missing);
   }
   free(wkspace_ua);
 #ifdef DEBUG
