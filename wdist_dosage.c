@@ -334,10 +334,6 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
   return 0;
 }
 
-int distance_d_write() {
-  return 0;
-}
-
 // ----- multithread globals -----
 static double* distance_matrix;
 static double* distance_wt_matrix;
@@ -421,8 +417,9 @@ int update_distance_dosage_matrix(int is_missing_01, int distance_3d, int distan
   if (is_missing_01 && (!distance_3d)) {
     for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
       if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_distance_dosage_2d_thread, (void*)thread_idx)) {
+	printf(errstr_thread_create);
 	while (--thread_idx) {
-	  pthread_join(threads[thread_idx], NULL);
+	  pthread_join(threads[thread_idx - 1], NULL);
 	}
 	return RET_THREAD_CREATE_FAIL;
       }
@@ -469,6 +466,9 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
   if (llxx > 4294967295LL) {
     return RET_NOMEM;
   }
+#else
+  printf("Error: 32-bit dosage distance calculation not yet supported.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
 #endif
   ulii = (unsigned long)llxx;
   if (wkspace_alloc_d_checked(&distance_matrix, ulii * sizeof(double))) {
@@ -667,9 +667,17 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
   return retval;
 }
 
-int wdist_dosage(int calculation_type, char* genname, char* samplename, char* missing_code, int distance_3d, int distance_flat_missing, double exponent, int maf_succ, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
+int wdist_dosage(int calculation_type, char* genname, char* samplename, char* outname, char* missing_code, int distance_3d, int distance_flat_missing, double exponent, int maf_succ, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
   FILE* genfile = NULL;
+  FILE* outfile = NULL;
+  FILE* outfile2 = NULL;
+  FILE* outfile3 = NULL;
+  gzFile gz_outfile = NULL;
+  gzFile gz_outfile2 = NULL;
+  gzFile gz_outfile3 = NULL;
   double* missing_cts = NULL;
+  char* outname_end = (char*)memchr(outname, 0, FNAMESIZE);
+  unsigned char* membuf;
   unsigned int gen_buf_len;
   unsigned char* wkspace_mark;
   double* phenos;
@@ -678,6 +686,7 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* mi
   unsigned int unfiltered_marker_ct;
   unsigned int unfiltered_marker_ctl;
   unsigned long* marker_exclude;
+  unsigned int marker_ct;
   unsigned int unfiltered_indiv_ct;
   unsigned long* indiv_exclude;
   char* person_ids;
@@ -696,10 +705,14 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* mi
     goto wdist_dosage_ret_1;
   }
   unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  marker_ct = unfiltered_marker_ct;
   if (wkspace_alloc_ul_checked(&marker_exclude, unfiltered_marker_ctl * sizeof(long))) {
     goto wdist_dosage_ret_NOMEM;
   }
   fill_ulong_zero(marker_exclude, unfiltered_marker_ctl);
+  if (thread_ct > 1) {
+    printf("Using %d threads (change this with --threads).\n", thread_ct);
+  }
   if (distance_req(calculation_type)) {
     wkspace_mark = wkspace_base;
     indiv_ct = unfiltered_indiv_ct;
@@ -707,7 +720,10 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* mi
     if (retval) {
       goto wdist_dosage_ret_1;
     }
-    retval = distance_d_write();
+    if (wkspace_alloc_uc_checked(&membuf, indiv_ct * sizeof(double))) {
+      goto wdist_dosage_ret_NOMEM;
+    }
+    retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, distance_matrix, marker_ct, indiv_ct, thread_start[0], thread_start[thread_ct], parallel_idx, parallel_tot, membuf);
     if (retval) {
       goto wdist_dosage_ret_1;
     }

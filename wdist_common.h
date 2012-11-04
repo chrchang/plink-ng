@@ -25,6 +25,8 @@ typedef union {
 } __uni16;
 #endif
 
+#include "zlib-1.2.7/zlib.h"
+
 #define RET_SUCCESS 0
 #define RET_NOMEM 1
 #define RET_OPEN_FAIL 2
@@ -99,17 +101,54 @@ typedef union {
 // size of generic text line load buffer.  .ped lines can of course be longer
 #define MAXLINELEN 131072
 
+#define FNAMESIZE 2048
+
+// allow .mdist.bin.xxxxxxxxxx extension
+#define MAX_POST_EXT 22
+
 // fit 4 pathologically long IDs plus a bit extra
 extern char tbuf[];
 
 extern const char errstr_fopen[];
 extern const char errstr_append[];
+extern const char errstr_thread_create[];
 
 int fopen_checked(FILE** target_ptr, const char* fname, const char* mode);
+
+static inline int fwrite_checked(const void* buf, size_t len, FILE* outfile) {
+  if ((!len) || fwrite(buf, len, 1, outfile)) {
+    return 0;
+  }
+  return -1;
+}
 
 static inline void fclose_cond(FILE* fptr) {
   if (fptr) {
     fclose(fptr);
+  }
+}
+
+static inline int fclose_null(FILE** fptr_ptr) {
+  int ii;
+  ii = fclose(*fptr_ptr);
+  *fptr_ptr = NULL;
+  return ii;
+}
+
+int gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode);
+
+static inline int gzwrite_checked(gzFile gz_outfile, const void* buf, size_t len) {
+  if ((!len) || gzwrite(gz_outfile, buf, len)) {
+    return 0;
+  }
+  return -1;
+}
+
+static inline int flexwrite_checked(FILE* outfile, gzFile gz_outfile, char* contents, unsigned long len) {
+  if (outfile) {
+    return fwrite_checked(contents, len, outfile);
+  } else {
+    return gzwrite_checked(gz_outfile, contents, len);
   }
 }
 
@@ -283,5 +322,7 @@ int distance_req(int calculation_type);
 #ifndef __cplusplus
 int double_cmp(const void* aa, const void* bb);
 #endif // __cplusplus
+
+int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int calculation_type, char* outname, char* outname_end, double* dists, unsigned int marker_ct, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf);
 
 #endif // __WDIST_COMMON_H__
