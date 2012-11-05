@@ -733,7 +733,7 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
   return retval;
 }
 
-int wdist_dosage(int calculation_type, char* genname, char* samplename, char* outname, char* missing_code, int distance_3d, int distance_flat_missing, double exponent, int maf_succ, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
+int wdist_dosage(int calculation_type, char* genname, char* samplename, char* outname, char* missing_code, int distance_3d, int distance_flat_missing, double exponent, int maf_succ, unsigned long regress_iters, unsigned int regress_d, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
   FILE* genfile = NULL;
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
@@ -746,7 +746,7 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
   unsigned char* membuf;
   unsigned int gen_buf_len;
   unsigned char* wkspace_mark;
-  double* phenos;
+  double* pheno_d;
   unsigned long* pheno_exclude;
   double* set_allele_freqs;
   unsigned int unfiltered_marker_ct;
@@ -759,7 +759,7 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
   unsigned int max_person_id_len;
   int is_missing_01;
   int retval;
-  retval = oxford_sample_load(samplename, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &phenos, &pheno_exclude, &indiv_exclude, missing_code);
+  retval = oxford_sample_load(samplename, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &pheno_d, &pheno_exclude, &indiv_exclude, missing_code);
   if (retval) {
     goto wdist_dosage_ret_1;
   }
@@ -776,6 +776,7 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
     goto wdist_dosage_ret_NOMEM;
   }
   fill_ulong_zero(marker_exclude, unfiltered_marker_ctl);
+  // todo: enforce indiv_ct >= 2 * thread_ct
   if (thread_ct > 1) {
     printf("Using %d threads (change this with --threads).\n", thread_ct);
   }
@@ -789,10 +790,18 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
     if (wkspace_alloc_uc_checked(&membuf, indiv_ct * sizeof(double))) {
       goto wdist_dosage_ret_NOMEM;
     }
-    // todo: write IDs
-    retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, distance_matrix, marker_ct, indiv_ct, thread_start[0], thread_start[thread_ct], parallel_idx, parallel_tot, membuf);
-    if (retval) {
-      goto wdist_dosage_ret_1;
+    if (calculation_type & CALC_DISTANCE_MASK) {
+      // todo: write IDs
+      retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, distance_matrix, marker_ct, indiv_ct, thread_start[0], thread_start[thread_ct], parallel_idx, parallel_tot, membuf);
+      if (retval) {
+        goto wdist_dosage_ret_1;
+      }
+    }
+    if (calculation_type & CALC_REGRESS_DISTANCE) {
+      retval = regress_distance(calculation_type, distance_matrix, pheno_d, unfiltered_indiv_ct, indiv_exclude, indiv_ct, thread_ct, regress_iters, regress_d);
+      if (retval) {
+	goto wdist_dosage_ret_1;
+      }
     }
     wkspace_reset(wkspace_mark);
   }

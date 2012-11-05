@@ -8,6 +8,7 @@
 #include <string.h>
 #include <math.h>
 #include <pthread.h>
+#include <limits.h>
 
 #ifdef __cplusplus
 #include <algorithm>
@@ -105,6 +106,9 @@ typedef union {
 
 // allow .mdist.bin.xxxxxxxxxx extension
 #define MAX_POST_EXT 22
+
+// number of different types of jackknife values to precompute (x^2, x, y, xy)
+#define JACKKNIFE_VALS_DIST 5
 
 // fit 4 pathologically long IDs plus a bit extra
 extern char tbuf[];
@@ -326,5 +330,21 @@ int double_cmp(const void* aa, const void* bb);
 #endif // __cplusplus
 
 int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int calculation_type, char* outname, char* outname_end, double* dists, unsigned int marker_ct, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf);
+
+void collapse_arr(char* item_arr, int fixed_item_len, unsigned long* exclude_arr, int exclude_arr_size);
+
+void init_genrand(unsigned long s);
+
+// unsigned long genrand_int32(void);
+
+// void pick_d(unsigned char* cbuf, unsigned int ct, unsigned int dd);
+
+void pick_d_small(unsigned char* tmp_cbuf, int* ibuf, unsigned int ct, unsigned int dd);
+
+void print_pheno_stdev(double* pheno_d, unsigned int indiv_ct);
+
+unsigned int set_default_jackknife_d(unsigned int ct);
+
+int regress_distance(int calculation_type, double* dists_local, double* pheno_d_local, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct_local, unsigned int thread_ct, unsigned long regress_iters, unsigned int regress_d);
 
 #endif // __WDIST_COMMON_H__
