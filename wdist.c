@@ -3380,18 +3380,16 @@ void* calc_rel_thread(void* arg) {
 void incr_dists_rm(unsigned int* idists, int tidx, unsigned int* thread_start) {
   // count missing intersection, optimized for sparsity
   unsigned long* mlptr;
-  unsigned long* mlptr2;
   unsigned long ulii;
   unsigned long uljj;
   unsigned int uii;
   unsigned int ujj;
-  mlptr = &(mmasks[thread_start[tidx]]);
   for (uii = thread_start[tidx]; uii < thread_start[tidx + 1]; uii++) {
-    ulii = *mlptr++;
+    mlptr = mmasks;
+    ulii = mmasks[uii];
     if (ulii) {
-      mlptr2 = mmasks;
       for (ujj = 0; ujj < uii; ujj++) {
-        uljj = (*mlptr2++) & ulii;
+        uljj = (*mlptr++) & ulii;
         while (uljj) {
           idists[ujj] += 1;
           uljj &= uljj - 1;

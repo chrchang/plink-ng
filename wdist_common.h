@@ -245,7 +245,9 @@ static inline int is_set(unsigned long* exclude_arr, int loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
-int next_non_set_unsafe(unsigned long* exclude_arr, int loc);
+int next_non_set_unsafe(unsigned long* exclude_arr, unsigned int loc);
+
+int next_set_unsafe(unsigned long* include_arr, unsigned int loc);
 
 // These functions seem to optimize better than memset(arr, 0, x) under gcc.
 static inline void fill_long_zero(long* larr, size_t size) {

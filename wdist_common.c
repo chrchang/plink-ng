@@ -100,8 +100,8 @@ void clear_bit(unsigned long* exclude_arr, int loc, unsigned int* include_ct_ptr
 }
 
 // unsafe if you don't know there's another included marker or person remaining
-int next_non_set_unsafe(unsigned long* exclude_arr, int loc) {
-  int idx = loc / BITCT;
+int next_non_set_unsafe(unsigned long* exclude_arr, unsigned int loc) {
+  unsigned int idx = loc / BITCT;
   unsigned long ulii;
   exclude_arr = &(exclude_arr[idx]);
   ulii = (~(*exclude_arr)) >> (loc % BITCT);
@@ -112,6 +112,20 @@ int next_non_set_unsafe(unsigned long* exclude_arr, int loc) {
     idx++;
   } while (*(++exclude_arr) == ~0LU);
   return (idx * BITCT) + __builtin_ctzl(~(*exclude_arr));
+}
+
+int next_set_unsafe(unsigned long* include_arr, unsigned int loc) {
+  unsigned int idx = loc / BITCT;
+  unsigned long ulii;
+  include_arr = &(include_arr[idx]);
+  ulii = (*include_arr) >> (loc % BITCT);
+  if (ulii) {
+    return loc + __builtin_ctzl(ulii);
+  }
+  do {
+    idx++;
+  } while (*(++include_arr) == 0);
+  return (idx * BITCT) + __builtin_ctzl(*include_arr);
 }
 
 int triangle_divide(long long cur_prod, int modif) {

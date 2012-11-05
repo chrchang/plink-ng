@@ -414,19 +414,16 @@ void* incr_distance_dosage_2d_thread(void* arg) {
 void incr_dosage_missing_wt_01(double* distance_wt_matrix_slice, int thread_idx) {
   // count missing intersection
   unsigned long* mlptr;
-  unsigned long* mlptr2;
   unsigned long ulii;
   unsigned long uljj;
   unsigned long maskii;
   unsigned long mask;
-  mlptr = &(missing_vals[thread_start[thread_idx]]);
   for (ulii = thread_start[thread_idx]; ulii < thread_start[thread_idx + 1]; ulii++) {
-    maskii = *mlptr++;
+    mlptr = missing_vals;
+    maskii = missing_vals[ulii];
     if (maskii) {
-      mlptr2 = missing_vals;
-      printf("%lu\n", ulii);
       for (uljj = 0; uljj < ulii; uljj++) {
-	mask = (*mlptr2++) & maskii;
+	mask = (*mlptr++) & maskii;
 	while (mask) {
 	  distance_wt_matrix_slice[uljj] += missing_wts[__builtin_ctzl(mask)];
 	  mask &= mask - 1;
@@ -501,7 +498,6 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
   long long llxx;
   unsigned long ulii;
   unsigned long uljj;
-  unsigned long* ulptr;
   unsigned int marker_uidx;
   unsigned int marker_idxl;
   unsigned int indiv_uidx;
@@ -673,12 +669,11 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
 	    dxx *= 2.0 / ((double)((unsigned long long)non_missing_ct * non_missing_ct));
 	    missing_wts[marker_idxl] += dxx;
 	    tot_missing_wt += dxx;
-	    ulii = 1 << marker_idxl;
-	    ulptr = cur_missings;
-	    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-	      if ((*ulptr++) & ulii) {
-		missing_tots[indiv_idx] += dxx;
-	      }
+	    uljj = indiv_ct - non_missing_ct;
+	    indiv_idx = 0;
+	    for (ulii = 0; ulii < uljj; ulii++) {
+	      indiv_idx = next_set_unsafe(cur_missings, indiv_idx);
+	      missing_tots[indiv_idx++] += dxx;
 	    }
 	  } else {
 	    // TBD
