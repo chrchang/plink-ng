@@ -380,6 +380,8 @@ void incr_distance_dosage_2d(double* distance_matrix_slice, int thread_idx) {
 	do {
 	  acc.vd = _mm_add_pd(acc.vd, _mm_and_pd(_mm_and_pd(*mptr++, *mptr2++), _mm_sub_pd(*dptr++, *dptr2++)));
 	} while (dptr != dptr_end);
+        *distance_matrix_slice += acc.d8[0] + acc.d8[1];
+        *distance_matrix_slice++;
 #else
 #endif
       }
@@ -392,13 +394,11 @@ void incr_distance_dosage_2d(double* distance_matrix_slice, int thread_idx) {
 	do {
 	  acc.vd = _mm_add_pd(acc.vd, _mm_and_pd(*mptr2++, _mm_sub_pd(*dptr++, *dptr2++)));
 	} while (dptr != dptr_end);
+        *distance_matrix_slice += acc.d8[0] + acc.d8[1];
+        *distance_matrix_slice++;
 #else
 #endif
       }
-#if __LP64__
-      *distance_matrix_slice++ = acc.d8[0] + acc.d8[1];
-#else
-#endif
     }
   }
 }
@@ -408,6 +408,40 @@ void* incr_distance_dosage_2d_thread(void* arg) {
   int ts = thread_start[tidx];
   int ts0 = thread_start[0];
   incr_distance_dosage_2d(&(distance_matrix[((long long)ts * (ts - 1) - (long long)ts0 * (ts0 - 1)) / 2]), (int)tidx);
+  return NULL;
+}
+
+void incr_dosage_missing_wt_01(double* distance_wt_matrix_slice, int thread_idx) {
+  // count missing intersection
+  unsigned long* mlptr;
+  unsigned long* mlptr2;
+  unsigned long ulii;
+  unsigned long uljj;
+  unsigned long maskii;
+  unsigned long mask;
+  mlptr = &(missing_vals[thread_start[thread_idx]]);
+  for (ulii = thread_start[thread_idx]; ulii < thread_start[thread_idx + 1]; ulii++) {
+    maskii = *mlptr++;
+    if (maskii) {
+      mlptr2 = missing_vals;
+      printf("%lu\n", ulii);
+      for (uljj = 0; uljj < ulii; uljj++) {
+	mask = (*mlptr2++) & maskii;
+	while (mask) {
+	  distance_wt_matrix_slice[uljj] += missing_wts[__builtin_ctzl(mask)];
+	  mask &= mask - 1;
+	}
+      }
+    }
+    distance_wt_matrix_slice = &(distance_wt_matrix_slice[ulii]);
+  }
+}
+
+void* incr_dosage_missing_wt_01_thread(void* arg) {
+  long tidx = (long)arg;
+  int ts = thread_start[tidx];
+  int ts0 = thread_start[0];
+  incr_dosage_missing_wt_01(&(distance_wt_matrix[((long long)ts * (ts - 1) - (long long)ts0 * (ts0 - 1)) / 2]), (int)tidx);
   return NULL;
 }
 
@@ -432,54 +466,77 @@ int update_distance_dosage_matrix(int is_missing_01, int distance_3d, int distan
   for (thread_idx = 0; thread_idx < thread_ct - 1; thread_idx++) {
     pthread_join(threads[thread_idx], NULL);
   }
+  if (is_missing_01 && (!distance_3d)) {
+    for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
+      if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_dosage_missing_wt_01_thread, (void*)thread_idx)) {
+	printf(errstr_thread_create);
+	while (--thread_idx) {
+	  pthread_join(threads[thread_idx - 1], NULL);
+	}
+	return RET_THREAD_CREATE_FAIL;
+      }
+    }
+    thread_idx = 0;
+    incr_dosage_missing_wt_01_thread((void*)thread_idx);
+  } else {
+    // TBD
+  }
+  for (thread_idx = 0; thread_idx < thread_ct - 1; thread_idx++) {
+    pthread_join(threads[thread_idx], NULL);
+  }
   return 0;
 }
 
-int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_allele_freqs, double* missing_cts, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, int is_missing_01, int distance_3d, int distance_flat_missing, double exponent, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
+int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_allele_freqs, double* missing_cts, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, int is_missing_01, int distance_3d, int distance_flat_missing, double exponent, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
   int is_exponent_zero = (exponent == 0.0);
   unsigned int indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
   double marker_wt = 1.0;
   double* cur_marker_freqs = NULL;
   double* cmf_ptr = NULL;
   unsigned long* cur_missings = NULL;
+  double tot_missing_wt = 0.0;
   unsigned char* wkspace_mark;
   char* loadbuf;
   char* bufptr;
   long long llxx;
   unsigned long ulii;
+  unsigned long uljj;
+  unsigned long* ulptr;
   unsigned int marker_uidx;
   unsigned int marker_idxl;
   unsigned int indiv_uidx;
   unsigned int indiv_idx;
   unsigned int non_missing_ct;
   double* missing_tots;
+  double* dptr;
+  double* dptr2;
+  double* dptr3;
   int retval;
   double pzero;
   double pone;
   double ptwo;
   double dxx;
-  double tot_missing_wt;
+  unsigned int tstc;
   triangle_fill(thread_start, indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
   llxx = thread_start[thread_ct];
   llxx = ((llxx * (llxx - 1)) - (long long)thread_start[0] * (thread_start[0] - 1)) / 2;
 #ifndef __LP64__
+  printf("Error: 32-bit dosage distance calculation not yet supported.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
   if (llxx > 4294967295LL) {
     return RET_NOMEM;
   }
-#else
-  printf("Error: 32-bit dosage distance calculation not yet supported.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
 #endif
   ulii = (unsigned long)llxx;
   if (wkspace_alloc_d_checked(&distance_matrix, ulii * sizeof(double))) {
     return RET_NOMEM;
   }
+  wkspace_mark = wkspace_base;
   if (wkspace_alloc_d_checked(&distance_wt_matrix, ulii * sizeof(double))) {
     return RET_NOMEM;
   }
   fill_double_zero(distance_matrix, ulii);
   fill_double_zero(distance_wt_matrix, ulii);
-  wkspace_mark = wkspace_base;
   if (wkspace_alloc_c_checked(&loadbuf, gen_buf_len)) {
     return RET_NOMEM;
   }
@@ -502,14 +559,15 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
       if (wkspace_alloc_d_checked(&missing_dmasks, indiv_ct * BITCT * sizeof(double))) {
 	return RET_NOMEM;
       }
-      if (!distance_flat_missing) {
+      if (distance_flat_missing) {
+	tot_missing_wt = (double)marker_ct;
+      } else {
 	if (wkspace_alloc_d_checked(&cur_marker_freqs, indiv_ct * sizeof(double))) {
 	  return RET_NOMEM;
 	}
         if (wkspace_alloc_ul_checked(&cur_missings, indiv_ctl * sizeof(long))) {
           return RET_NOMEM;
         }
-	tot_missing_wt = 0.0;
       }
     } else {
       printf("Error: Missing probabilities unequal to 0 and 1 not yet supported.\n");
@@ -544,26 +602,31 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
 	if (is_set(indiv_exclude, indiv_uidx)) {
           bufptr = next_item(next_item(next_item(bufptr)));
 	} else {
-	  if (no_more_items(bufptr)) {
-	    goto oxford_distance_calc_ret_INVALID_FORMAT;
-	  }
-	  if (sscanf(bufptr, "%lg", &pzero) != 1) {
-	    goto oxford_distance_calc_ret_INVALID_FORMAT;
-	  }
+	  // if (no_more_items(bufptr)) {
+	  //   goto oxford_distance_calc_ret_INVALID_FORMAT;
+	  // }
+	  // if (sscanf(bufptr, "%lg", &pzero) != 1) {
+	  //   goto oxford_distance_calc_ret_INVALID_FORMAT;
+	  // }
+	  // bufptr = next_item(bufptr);
+	  // if (no_more_items(bufptr)) {
+	  //   goto oxford_distance_calc_ret_INVALID_FORMAT;
+	  // }
+	  // if (sscanf(bufptr, "%lg", &pone) != 1) {
+	  //   goto oxford_distance_calc_ret_INVALID_FORMAT;
+	  // }
+	  // bufptr = next_item(bufptr);
+	  // if (no_more_items(bufptr)) {
+	  //   goto oxford_distance_calc_ret_INVALID_FORMAT;
+	  // }
+	  // if (sscanf(bufptr, "%lg", &ptwo) != 1) {
+	  //   goto oxford_distance_calc_ret_INVALID_FORMAT;
+	  // }
+	  sscanf(bufptr, "%lg", &pzero);
 	  bufptr = next_item(bufptr);
-	  if (no_more_items(bufptr)) {
-	    goto oxford_distance_calc_ret_INVALID_FORMAT;
-	  }
-	  if (sscanf(bufptr, "%lg", &pone) != 1) {
-	    goto oxford_distance_calc_ret_INVALID_FORMAT;
-	  }
+	  sscanf(bufptr, "%lg", &pone);
 	  bufptr = next_item(bufptr);
-	  if (no_more_items(bufptr)) {
-	    goto oxford_distance_calc_ret_INVALID_FORMAT;
-	  }
-	  if (sscanf(bufptr, "%lg", &ptwo) != 1) {
-	    goto oxford_distance_calc_ret_INVALID_FORMAT;
-	  }
+	  sscanf(bufptr, "%lg", &ptwo);
 	  bufptr = next_item(bufptr);
 	  dxx = (pone + 2 * ptwo) * marker_wt;
           dosage_vals[indiv_idx * BITCT + marker_idxl] = dxx;
@@ -596,12 +659,7 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
       }
       if (!distance_flat_missing) {
 	non_missing_ct = (unsigned int)(cmf_ptr - cur_marker_freqs);
-	if (non_missing_ct < 2) {
-	  // todo: silently throw out the marker
-	  printf("Error: Too few non-missing markers at locus %d for current WDIST version.\n", marker_uidx);
-	  retval = RET_CALC_NOT_YET_SUPPORTED;
-	  goto oxford_distance_calc_ret_1;
-	} else {
+	if (non_missing_ct) {
 #ifdef __cplusplus
 	  std::sort(cur_marker_freqs, cmf_ptr);
 #else
@@ -612,15 +670,15 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
 	    for (ulii = 1; ulii < non_missing_ct; ulii++) {
 	      dxx += ulii * (non_missing_ct - ulii) * (cur_marker_freqs[ulii] - cur_marker_freqs[ulii - 1]);
 	    }
-	    dxx /= (((unsigned long long)non_missing_ct * (non_missing_ct - 1)) / 2);
+	    dxx *= 2.0 / ((double)((unsigned long long)non_missing_ct * non_missing_ct));
 	    missing_wts[marker_idxl] += dxx;
 	    tot_missing_wt += dxx;
-	    ulii = indiv_ct - non_missing_ct;
-	    indiv_idx = 0;
-	    while (ulii) {
-	      indiv_idx = next_non_set_unsafe(cur_missings, indiv_idx);
-	      missing_tots[indiv_idx] += dxx;
-	      ulii--;
+	    ulii = 1 << marker_idxl;
+	    ulptr = cur_missings;
+	    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	      if ((*ulptr++) & ulii) {
+		missing_tots[indiv_idx] += dxx;
+	      }
 	    }
 	  } else {
 	    // TBD
@@ -652,15 +710,28 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
       goto oxford_distance_calc_ret_1;
     }
   }
+  tstc = thread_start[thread_ct];
+  if (is_missing_01) {
+    dptr = distance_matrix;
+    dptr2 = distance_wt_matrix;
+    for (indiv_idx = thread_start[0]; indiv_idx < tstc; indiv_idx++) {
+      dptr3 = missing_tots;
+      dxx = tot_missing_wt - missing_tots[indiv_idx];
+      for (uljj = 0; uljj < indiv_idx; uljj++) {
+	*dptr *= tot_missing_wt / (dxx - (*dptr3++) + (*dptr2++));
+	dptr++;
+      }
+    }
+  }
   retval = 0;
   while (0) {
   oxford_distance_calc_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  oxford_distance_calc_ret_INVALID_FORMAT:
-    printf("Error: Improperly formatted .gen file.\n");
-    retval = RET_INVALID_FORMAT;
-    break;
+    // oxford_distance_calc_ret_INVALID_FORMAT:
+    // printf("Error: Improperly formatted .gen file.\n");
+    // retval = RET_INVALID_FORMAT;
+    // break;
   }
  oxford_distance_calc_ret_1:
   wkspace_reset(wkspace_mark);
@@ -716,13 +787,14 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
   if (distance_req(calculation_type)) {
     wkspace_mark = wkspace_base;
     indiv_ct = unfiltered_indiv_ct;
-    retval = oxford_distance_calc(genfile, gen_buf_len, set_allele_freqs, missing_cts, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, is_missing_01, distance_3d, distance_flat_missing, exponent, thread_ct, parallel_idx, parallel_tot);
+    retval = oxford_distance_calc(genfile, gen_buf_len, set_allele_freqs, missing_cts, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, is_missing_01, distance_3d, distance_flat_missing, exponent, thread_ct, parallel_idx, parallel_tot);
     if (retval) {
       goto wdist_dosage_ret_1;
     }
     if (wkspace_alloc_uc_checked(&membuf, indiv_ct * sizeof(double))) {
       goto wdist_dosage_ret_NOMEM;
     }
+    // todo: write IDs
     retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, distance_matrix, marker_ct, indiv_ct, thread_start[0], thread_start[thread_ct], parallel_idx, parallel_tot, membuf);
     if (retval) {
       goto wdist_dosage_ret_1;

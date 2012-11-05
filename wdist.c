@@ -19,7 +19,7 @@
 // #define NOLAPACK
 
 // Uncomment this to enable debug logging:
-#define DEBUG
+// #define DEBUG
 
 // The key ideas behind this calculator's design are:
 //
@@ -254,20 +254,20 @@ static inline void debug_log(char* ss) {
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST genomic distance calculator, v0.13.0NL "
+  "WDIST v0.13.0NL"
 #else
-  "WDIST genomic distance calculator, v0.13.0 "
-#endif
-#if __LP64__
-  "64-bit"
-#else
-  "32-bit"
+  "WDIST v0.13.0"
 #endif
 #ifdef DEBUG
-  " debug"
+  "d"
 #endif
-  " (5 November 2012)\n"
-  "(C) 2012 Christopher Chang, BGI Cognitive Genomics Lab    GNU GPL, version 3\n";
+#if __LP64__
+  " 64-bit"
+#else
+  " 32-bit"
+#endif
+  " (5 Nov 2012)    https://www.cog-genomics.org/wdist\n"
+  "(C) 2012 Christopher Chang, chrchang@alumni.caltech.edu    GNU GPL version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam/.ped file.\n";
@@ -755,7 +755,7 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_print("sample", &help_ctrl, 0,
 "  --sample [fname] : Specify full name of .sample file.\n"
 	       );
-    help_print("load-dists", &help_ctrl, 0,
+    help_print("load-dists\tgroupdist\tregress-distance", &help_ctrl, 0,
 "  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --groupdist\n"
 "                     or --regress-distance analysis, instead of recalculating\n"
 "                     it from scratch.\n"
@@ -1937,7 +1937,7 @@ double calc_wt_mean(double exponent, int lhi, int lli, int hhi) {
   }
   weight = pow(2 * lcount * (dtot - lcount) / (dtot * dtot), -exponent);
   subcount = lhi * (subcount + hhi) + 2 * subcount * hhi;
-  return (subcount * weight) / (double)(tot * (tot - 1) / 2);
+  return (subcount * weight * 2) / (double)(tot * tot);
 }
 
 double calc_wt_mean_maf(double exponent, double maf) {
@@ -3379,17 +3379,19 @@ void* calc_rel_thread(void* arg) {
 
 void incr_dists_rm(unsigned int* idists, int tidx, unsigned int* thread_start) {
   // count missing intersection, optimized for sparsity
-  unsigned long* glptr;
+  unsigned long* mlptr;
+  unsigned long* mlptr2;
   unsigned long ulii;
   unsigned long uljj;
   unsigned int uii;
   unsigned int ujj;
+  mlptr = &(mmasks[thread_start[tidx]]);
   for (uii = thread_start[tidx]; uii < thread_start[tidx + 1]; uii++) {
-    glptr = mmasks;
-    ulii = mmasks[uii];
+    ulii = *mlptr++;
     if (ulii) {
+      mlptr2 = mmasks;
       for (ujj = 0; ujj < uii; ujj++) {
-        uljj = (*glptr++) & ulii;
+        uljj = (*mlptr2++) & ulii;
         while (uljj) {
           idists[ujj] += 1;
           uljj &= uljj - 1;
@@ -8992,6 +8994,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   unsigned int indiv_uidx;
   unsigned int indiv_idx;
   unsigned int pct;
+  unsigned int tstc;
 
   ii = missing_pheno;
   if (ii < 0) {
@@ -9980,6 +9983,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		goto wdist_ret_WRITE_FAIL;
 	      }
 	    } else if (nn == CALC_RELATIONSHIP_SQ) {
+	      // parallel_tot must be 1 for SQ shape
 	      for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
 		if (!gzprintf(gz_outfile, "\t%g", rel_dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2])) {
 		  goto wdist_ret_WRITE_FAIL;
@@ -10508,6 +10512,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       iptr = idists;
       giptr = missing_dbl_excluded;
       pct = 1;
+      // parallel_tot must be 1 for --distance-matrix
       for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
 	giptr2 = indiv_missing_unwt;
 	uii = marker_ct - giptr2[indiv_idx];
@@ -10590,12 +10595,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	goto wdist_ret_2;
       }
     }
+    tstc = thread_start[thread_ct];
     if (wt_needed) {
       giptr = missing_tot_weights;
       dptr2 = dists;
       if (exp0) {
 	iptr = idists;
-	for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
+	for (indiv_idx = thread_start[0]; indiv_idx < tstc; indiv_idx++) {
 	  giptr2 = indiv_missing;
 	  uii = giptr2[indiv_idx];
 	  for (ujj = 0; ujj < indiv_idx; ujj++) {
@@ -10603,7 +10609,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
 	}
       } else {
-	for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
+	for (indiv_idx = thread_start[0]; indiv_idx < tstc; indiv_idx++) {
 	  giptr2 = indiv_missing;
 	  uii = giptr2[indiv_idx];
 	  for (ujj = 0; ujj < indiv_idx; ujj++) {
@@ -10617,7 +10623,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       giptr = missing_dbl_excluded;
       if (exp0) {
         iptr = idists;
-	for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
+	for (indiv_idx = thread_start[0]; indiv_idx < tstc; indiv_idx++) {
 	  giptr2 = indiv_missing_unwt;
 	  uii = marker_ct - giptr2[indiv_idx];
 	  for (ujj = 0; ujj < indiv_idx; ujj++) {
@@ -10626,7 +10632,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	}
 
       } else {
-	for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
+	for (indiv_idx = thread_start[0]; indiv_idx < tstc; indiv_idx++) {
 	  giptr2 = indiv_missing_unwt;
 	  uii = marker_ct - giptr2[indiv_idx];
 	  for (ujj = 0; ujj < indiv_idx; ujj++) {
