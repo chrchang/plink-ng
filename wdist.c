@@ -12057,7 +12057,7 @@ int main(int argc, char** argv) {
 	if (ii) {
 	  missing_code = argv[cur_arg + 1];
 	} else {
-	  missing_code = "";
+	  missing_code = (char*)"";
 	}
 	cur_arg += 1 + ii;
       } else if (!memcmp(argptr2, "ake-pheno", 10)) {
@@ -12987,7 +12987,7 @@ int main(int argc, char** argv) {
       retval = RET_CALC_NOT_YET_SUPPORTED;
     } else {
       if (!missing_code) {
-	missing_code = "NA";
+	missing_code = (char*)"NA";
       }
       retval = wdist_dosage(calculation_type, genname, samplename, outname, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, thread_ct, parallel_idx, parallel_tot);
     }
