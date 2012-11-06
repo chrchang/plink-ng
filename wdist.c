@@ -6905,7 +6905,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     bufptr = next_item(bufptr);
   }
   bufptr = next_item(bufptr);
-  while ((!no_more_items(bufptr)) && ((*bufptr == '-') || (*bufptr >= '0') && (*bufptr <= '9'))) {
+  while ((!no_more_items(bufptr)) && ((*bufptr == '-') || ((*bufptr >= '0') && (*bufptr <= '9')))) {
     pc_ct++;
     bufptr = next_item(bufptr);
   }
