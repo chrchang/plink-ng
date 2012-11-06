@@ -723,6 +723,7 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
       }
     }
   }
+  printf("\rDistance matrix calculation complete.\n");
   retval = 0;
   while (0) {
   oxford_distance_calc_ret_READ_FAIL:
