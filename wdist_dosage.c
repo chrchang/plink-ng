@@ -589,7 +589,11 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
       indiv_idx = 0;
       if (!is_exponent_zero) {
 	dxx = set_allele_freqs[marker_uidx];
-        marker_wt = pow(2 * dxx * (1.0 - dxx), -exponent);
+	if ((dxx > 0.0) && (dxx < 1.0)) {
+          marker_wt = pow(2 * dxx * (1.0 - dxx), -exponent);
+	} else {
+	  marker_wt = 1.0;
+	}
       }
       if (!distance_flat_missing) {
 	cmf_ptr = cur_marker_freqs;
@@ -814,7 +818,11 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
 	for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
 	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
 	  dyy = set_allele_freqs[marker_uidx];
-          dxx += pow(2 * dyy * (1.0 - dyy), -exponent);
+	  if ((dyy > 0.0) && (dyy < 1.0)) {
+            dxx += pow(2 * dyy * (1.0 - dyy), -exponent);
+	  } else {
+	    dxx += 1.0;
+	  }
 	  marker_uidx++;
 	}
 	dxx = 0.5 / dxx;

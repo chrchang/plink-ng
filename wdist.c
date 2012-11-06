@@ -10412,7 +10412,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       marker_uidx = 0;
       for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
 	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-	dxx += marker_weights[marker_uidx];
+	dyy = set_allele_freqs[marker_uidx];
+	if ((dyy > 0.0) && (dyy < 1.0)) {
+	  dxx += pow(2 * dyy * (1.0 - dyy), -exponent);
+	} else {
+	  dxx += 1.0;
+	}
 	marker_uidx++;
       }
       dxx = 0.5 / dxx;
