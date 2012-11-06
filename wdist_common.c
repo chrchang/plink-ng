@@ -295,13 +295,12 @@ void distance_print_done(int format_code, char* outname, char* outname_end) {
   }
 }
 
-int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int calculation_type, char* outname, char* outname_end, double* dists, unsigned int marker_ct, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf) {
+int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int calculation_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf) {
   // membuf assumed to be of at least size indiv_ct * 8.
   int shape = calculation_type & CALC_DISTANCE_SHAPEMASK;
   int write_snp_cts = calculation_type & CALC_DISTANCE_SNPS;
   int write_ibs_matrix = calculation_type & CALC_DISTANCE_IBS;
   int write_1mibs_matrix = calculation_type & CALC_DISTANCE_1_MINUS_IBS;
-  double half_marker_ct_recip = 0.5 / (double)marker_ct;
   long long indiv_idx_offset = ((long long)first_indiv_idx * (first_indiv_idx - 1)) / 2;
   long long indiv_idx_ct = ((long long)end_indiv_idx * (end_indiv_idx - 1)) / 2 - indiv_idx_offset;
   double dxx;

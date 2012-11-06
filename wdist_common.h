@@ -88,8 +88,8 @@ typedef union {
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
 
 #define _FILE_OFFSET_BITS 64
-#define MAX_THREADS 63
-#define MAX_THREADS_P1 64
+#define MAX_THREADS 127
+#define MAX_THREADS_P1 128
 
 #ifdef __LP64__
 #define BITCT 64
@@ -329,7 +329,7 @@ int distance_req(int calculation_type);
 int double_cmp(const void* aa, const void* bb);
 #endif // __cplusplus
 
-int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int calculation_type, char* outname, char* outname_end, double* dists, unsigned int marker_ct, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf);
+int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int calculation_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf);
 
 void collapse_arr(char* item_arr, int fixed_item_len, unsigned long* exclude_arr, int exclude_arr_size);
 

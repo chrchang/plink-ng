@@ -253,9 +253,9 @@ static inline void debug_log(char* ss) {
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST v0.13.0NL"
+  "WDIST v0.13.1NL"
 #else
-  "WDIST v0.13.0"
+  "WDIST v0.13.1"
 #endif
 #ifdef DEBUG
   "d"
@@ -265,8 +265,8 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (5 Nov 2012)    https://www.cog-genomics.org/wdist\n"
-  "(C) 2012 Christopher Chang, chrchang@alumni.caltech.edu    GNU GPL version 3\n";
+  " (7 Nov 2012)    https://www.cog-genomics.org/wdist\n"
+  "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam/.ped file.\n";
@@ -951,7 +951,7 @@ int disp_help(unsigned int param_ct, char** argv) {
     if (!param_ct) {
       printf(
 "One final note.  If a PLINK plain text fileset (.ped/.map) is given as input,\n"
-"WDIST will convert them to binary (without deleting the original files).  The\n"
+"WDIST will convert it to binary (without deleting the original files).  The\n"
 "converted files are saved as {output prefix}.bed, .bim, and .fam, and you are\n"
 "encouraged to use them directly in future analyses.\n"
 	     );
@@ -3503,7 +3503,7 @@ void* regress_rel_jack_thread(void* arg) {
   return NULL;
 }
 
-int regress_rel_main(unsigned long* indiv_exclude, unsigned int indiv_ct, int regress_rel_iters, int regress_rel_d, pthread_t* threads) {
+int regress_rel_main(unsigned long* indiv_exclude, unsigned int indiv_ct, unsigned long regress_rel_iters, int regress_rel_d, pthread_t* threads) {
   double* rel_ptr;
   double* pheno_ptr;
   double* pheno_ptr2;
@@ -3939,6 +3939,7 @@ int invert_matrix(int dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_1d_buf, 
 }
 #else
 void invert_matrix(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf) {
+  // dgetrf_/dgetri_ is more efficient than dpotrf_/dpotri_ on OS X.
   // should create a variant of this function which detects singular matrices
   // (using dgecon_, etc.)
   __CLPK_integer lwork = dim * dim;
@@ -6904,7 +6905,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     bufptr = next_item(bufptr);
   }
   bufptr = next_item(bufptr);
-  while ((!no_more_items(bufptr)) && (*bufptr >= '0') && (*bufptr <= '9')) {
+  while ((!no_more_items(bufptr)) && ((*bufptr == '-') || (*bufptr >= '0') && (*bufptr <= '9'))) {
     pc_ct++;
     bufptr = next_item(bufptr);
   }
@@ -6912,10 +6913,10 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     goto calc_regress_pcs_ret_INVALID_FORMAT;
   }
   if (pc_ct > max_pcs) {
-    printf("%svec format detected.  Regressing on %d (out of %d) principal components.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", max_pcs, pc_ct);
+    printf("%svec format detected.  Regressing on %d (out of %d) principal component%s.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", max_pcs, pc_ct, (max_pcs == 1)? "" : "s");
     pc_ct = max_pcs;
   } else {
-    printf("%svec format detected.  Regressing on %d principal components.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", pc_ct);
+    printf("%svec format detected.  Regressing on %d principal component%s.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", pc_ct, (pc_ct == 1)? "" : "s");
   }
   pc_ct_p1 = pc_ct + 1;
   if (wkspace_alloc_d_checked(&pc_matrix, pc_ct_p1 * indiv_ct * sizeof(double))) {
@@ -8584,7 +8585,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, int regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freqx, int distance_flat_missing) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freqx, int distance_flat_missing) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -10404,7 +10405,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	}
       }
     }
-    retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, dists, marker_ct, indiv_ct, thread_start[0], thread_start[thread_ct], parallel_idx, parallel_tot, ped_geno);
+    if ((exponent == 0.0) || (!(calculation_type & (CALC_DISTANCE_IBS | CALC_DISTANCE_1_MINUS_IBS)))) {
+      dxx = 0.5 / (double)marker_ct;
+    } else {
+      // todo
+      dxx = 0.5 / (double)marker_ct;
+    }
+    retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, dists, dxx, indiv_ct, thread_start[0], thread_start[thread_ct], parallel_idx, parallel_tot, ped_geno);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -10783,11 +10790,11 @@ int main(int argc, char** argv) {
   double tail_top;
   int distance_3d = 0;
   int distance_flat_missing = 0;
-  int groupdist_iters = ITERS_DEFAULT;
+  unsigned long groupdist_iters = ITERS_DEFAULT;
   int groupdist_d = 0;
   unsigned long regress_iters = ITERS_DEFAULT;
   int regress_d = 0;
-  int regress_rel_iters = ITERS_DEFAULT;
+  unsigned long regress_rel_iters = ITERS_DEFAULT;
   int regress_rel_d = 0;
   double unrelated_herit_tol = 0.0000001;
   double unrelated_herit_covg = 0.45;
@@ -11453,8 +11460,8 @@ int main(int argc, char** argv) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (ii) {
-	  groupdist_iters = atoi(argv[cur_arg + 1]);
-	  if (groupdist_iters < 2) {
+	  groupdist_iters = strtoul(argv[cur_arg + 1], NULL, 10);
+	  if ((groupdist_iters < 2) || (groupdist_iters == ULONG_MAX)) {
 	    printf("Error: Invalid --groupdist jackknife iteration count '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
@@ -12206,7 +12213,7 @@ int main(int argc, char** argv) {
 	  printf("Error: Duplicate --rseed flag.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-	rseed = (unsigned long int)atoi(argv[cur_arg + 1]);
+	rseed = (unsigned long int)atol(argv[cur_arg + 1]);
 	if (rseed == 0) {
 	  printf("Error: Invalid --rseed parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
@@ -12251,8 +12258,8 @@ int main(int argc, char** argv) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (ii) {
-	  regress_rel_iters = atoi(argv[cur_arg + 1]);
-	  if (regress_rel_iters < 2) {
+	  regress_rel_iters = strtoul(argv[cur_arg + 1], NULL, 10);
+	  if ((regress_rel_iters < 2) || (regress_rel_iters == ULONG_MAX)) {
 	    printf("Error: Invalid --regress-rel jackknife iteration count '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }

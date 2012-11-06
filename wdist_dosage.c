@@ -299,17 +299,18 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
 	}
       }
       total_ref_allele_ct += cur_ref_allele_ct;
-      total_allele_wt = cur_allele_wt;
+      total_allele_wt += cur_allele_wt;
     }
     uii = strlen(bufptr) + (unsigned int)(bufptr - stack_base) - (1 + unfiltered_marker_ct) * sizeof(double);
     if (uii >= gen_buf_len) {
       gen_buf_len = uii + 1;
     }
     if (total_allele_wt == 0.0) {
-      total_ref_allele_ct = 1.0;
-      total_allele_wt = 1.0;
+      // mark all-missing markers for removal
+      (*set_allele_freqs_ptr)[unfiltered_marker_ct] = -1.0;
+    } else {
+      (*set_allele_freqs_ptr)[unfiltered_marker_ct] = (total_ref_allele_ct * 0.5) / total_allele_wt;
     }
-    (*set_allele_freqs_ptr)[unfiltered_marker_ct] = (total_ref_allele_ct * 0.5) / total_allele_wt;
     unfiltered_marker_ct++;
     file_pos_100 = ftello(genfile) * 100LLU;
     if (file_pos_100 >= pct * file_length) {
@@ -759,6 +760,8 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
   unsigned int max_person_id_len;
   int is_missing_01;
   int retval;
+  unsigned int marker_uidx;
+  double dxx;
   retval = oxford_sample_load(samplename, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &pheno_d, &pheno_exclude, &indiv_exclude, missing_code);
   if (retval) {
     goto wdist_dosage_ret_1;
@@ -776,7 +779,16 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
     goto wdist_dosage_ret_NOMEM;
   }
   fill_ulong_zero(marker_exclude, unfiltered_marker_ctl);
-  // todo: enforce indiv_ct >= 2 * thread_ct
+  for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+    if (set_allele_freqs[marker_uidx] == -1.0) {
+      set_bit_noct(marker_exclude, marker_uidx);
+      marker_ct--;
+    }
+  }
+  if (parallel_tot > indiv_ct / 2) {
+    printf("Error: Too many --parallel jobs (maximum %d/2 = %d).\n", indiv_ct, indiv_ct / 2);
+    goto wdist_dosage_ret_INVALID_CMDLINE;
+  }
   if (thread_ct > 1) {
     printf("Using %d threads (change this with --threads).\n", thread_ct);
   }
@@ -792,7 +804,13 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
     }
     if (calculation_type & CALC_DISTANCE_MASK) {
       // todo: write IDs
-      retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, distance_matrix, marker_ct, indiv_ct, thread_start[0], thread_start[thread_ct], parallel_idx, parallel_tot, membuf);
+      if ((exponent == 0.0) || (!(calculation_type & (CALC_DISTANCE_IBS | CALC_DISTANCE_1_MINUS_IBS)))) {
+        dxx = 0.5 / (double)marker_ct;
+      } else {
+	// todo
+	dxx = 0.5 / (double)marker_ct;
+      }
+      retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, distance_matrix, dxx, indiv_ct, thread_start[0], thread_start[thread_ct], parallel_idx, parallel_tot, membuf);
       if (retval) {
         goto wdist_dosage_ret_1;
       }
@@ -808,6 +826,10 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
   while (0) {
   wdist_dosage_ret_NOMEM:
     retval = RET_NOMEM;
+    break;
+  wdist_dosage_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
   }
   wdist_dosage_ret_1:
   fclose_cond(genfile);
