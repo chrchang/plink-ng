@@ -6913,7 +6913,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     goto calc_regress_pcs_ret_INVALID_FORMAT;
   }
   if (pc_ct > max_pcs) {
-    printf("%svec format detected.  Regressing on %d (out of %d) principal component%s.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", max_pcs, pc_ct, (max_pcs == 1)? "" : "s");
+    printf("%svec format detected.  Regressing on %d (out of %d) PC%s.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", max_pcs, pc_ct, (max_pcs == 1)? "" : "s");
     pc_ct = max_pcs;
   } else {
     printf("%svec format detected.  Regressing on %d principal component%s.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", pc_ct, (pc_ct == 1)? "" : "s");
