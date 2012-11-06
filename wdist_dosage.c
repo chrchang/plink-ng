@@ -761,7 +761,9 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
   int is_missing_01;
   int retval;
   unsigned int marker_uidx;
+  unsigned int marker_idx;
   double dxx;
+  double dyy;
   retval = oxford_sample_load(samplename, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &pheno_d, &pheno_exclude, &indiv_exclude, missing_code);
   if (retval) {
     goto wdist_dosage_ret_1;
@@ -785,6 +787,7 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
       marker_ct--;
     }
   }
+  indiv_ct = unfiltered_indiv_ct;
   if (parallel_tot > indiv_ct / 2) {
     printf("Error: Too many --parallel jobs (maximum %d/2 = %d).\n", indiv_ct, indiv_ct / 2);
     goto wdist_dosage_ret_INVALID_CMDLINE;
@@ -794,7 +797,6 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
   }
   if (distance_req(calculation_type)) {
     wkspace_mark = wkspace_base;
-    indiv_ct = unfiltered_indiv_ct;
     retval = oxford_distance_calc(genfile, gen_buf_len, set_allele_freqs, missing_cts, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, is_missing_01, distance_3d, distance_flat_missing, exponent, thread_ct, parallel_idx, parallel_tot);
     if (retval) {
       goto wdist_dosage_ret_1;
@@ -807,8 +809,15 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
       if ((exponent == 0.0) || (!(calculation_type & (CALC_DISTANCE_IBS | CALC_DISTANCE_1_MINUS_IBS)))) {
         dxx = 0.5 / (double)marker_ct;
       } else {
-	// todo
-	dxx = 0.5 / (double)marker_ct;
+	dxx = 0.0;
+	marker_uidx = 0;
+	for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+	  dyy = set_allele_freqs[marker_uidx];
+          dxx += pow(2 * dyy * (1.0 - dyy), -exponent);
+	  marker_uidx++;
+	}
+	dxx = 0.5 / dxx;
       }
       retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, distance_matrix, dxx, indiv_ct, thread_start[0], thread_start[thread_ct], parallel_idx, parallel_tot, membuf);
       if (retval) {
