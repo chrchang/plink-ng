@@ -433,43 +433,55 @@ void* incr_distance_dosage_2d_01_thread(void* arg) {
 }
 
 void incr_distance_dosage_2d(double* distance_matrix_slice, double* distance_wt_matrix_slice, int thread_idx) {
-  // next todo
-
-  /*
-void incr_dosage_missing_wt(double* distance_wt_matrix_slice, int thread_idx) {
-  // straight multiply-and-sum
 #if __LP64__
-  __m128d* mdptr_start;
-  __m128d* mdptr_end;
-  __m128d* mdptr;
-  __m128d* mdptr2;
+  // take absolute value = force sign bit to zero
+  const __m128d absmask = (__m128d){0x7fffffffffffffffLU, 0x7fffffffffffffffLU};
+  __m128d* dptr_start;
+  __m128d* dptr_end;
+  __m128d* dptr;
+  __m128d* dptr2;
+  __m128d* mptr_start;
+  __m128d* mptr;
+  __m128d* mptr2;
+  __m128d cur_nonmissing_wts;
   __uni16 acc;
+  __uni16 accm;
 #else
 #endif
   unsigned long ulii;
   unsigned long uljj;
   for (ulii = thread_start[thread_idx]; ulii < thread_start[thread_idx + 1]; ulii++) {
 #if __LP64__
-    mdptr_start = (__m128d*)(&(nonmissing_vals[ulii * MULTIPLEX_DOSAGE_NM]));
-    mdptr_end = (__m128d*)(&(nonmissing_vals[(ulii + 1) * MULTIPLEX_DOSAGE_NM]));
-    mdptr2 = (__m128d*)nonmissing_vals;
+    dptr_start = (__m128d*)(&(dosage_vals[ulii * MULTIPLEX_DOSAGE_NM]));
+    dptr_end = &(dptr_start[MULTIPLEX_DOSAGE_NM / 2]);
+    dptr2 = (__m128d*)dosage_vals;
+    mptr2 = (__m128d*)nonmissing_vals;
+#else
+#endif
+#if __LP64__
+    mptr_start = (__m128d*)(&(nonmissing_vals[ulii * MULTIPLEX_DOSAGE_NM]));
 #else
 #endif
     for (uljj = 0; uljj < ulii; uljj++) {
 #if __LP64__
-      mdptr = mdptr_start;
+      dptr = dptr_start;
+      mptr = mptr_start;
       acc.vd = _mm_setzero_pd();
+      accm.vd = _mm_setzero_pd();
       do {
-	acc.vd = _mm_add_pd(acc.vd, _mm_mul_pd(*mdptr++, *mdptr2++));
-      } while (mdptr != mdptr_end);
-      *distance_wt_matrix_slice += acc.d8[0] + acc.d8[1];
+	cur_nonmissing_wts = _mm_mul_pd(*mptr++, *mptr2++);
+	acc.vd = _mm_add_pd(acc.vd, _mm_mul_pd(cur_nonmissing_wts, _mm_and_pd(absmask, _mm_sub_pd(*dptr++, *dptr2++))));
+	accm.vd = _mm_add_pd(accm.vd, cur_nonmissing_wts);
+      } while (dptr != dptr_end);
+      *distance_matrix_slice += acc.d8[0] + acc.d8[1];
+      *distance_wt_matrix_slice += accm.d8[0] + accm.d8[1];
 #else
+      // TBD
 #endif
-      distance_wt_matrix_slice++;
+      *distance_matrix_slice++;
+      *distance_wt_matrix_slice++;
     }
   }
-}
-  */
 }
 
 void* incr_distance_dosage_2d_thread(void* arg) {
