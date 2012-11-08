@@ -325,9 +325,9 @@ void triangle_fill(unsigned int* target_arr, int ct, int pieces, int parallel_id
 
 int distance_req(int calculation_type);
 
-#ifndef __cplusplus
 int double_cmp(const void* aa, const void* bb);
-#endif // __cplusplus
+
+int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len);
 
 int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int calculation_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf);
 

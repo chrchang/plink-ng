@@ -195,7 +195,6 @@ int distance_req(int calculation_type) {
   return ((calculation_type & CALC_DISTANCE_MASK) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
 
-#ifndef __cplusplus
 int double_cmp(const void* aa, const void* bb) {
   double cc = *((const double*)aa) - *((const double*)bb);
   if (cc > 0.0) {
@@ -206,7 +205,53 @@ int double_cmp(const void* aa, const void* bb) {
     return 0;
   }
 }
-#endif
+
+// alas, qsort_r not available on some Linux distributions
+
+// This actually tends to be faster than just sorting an array of indices,
+// because of memory locality issues.
+int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len) {
+  // main_arr = packed array of equal-length items to sort
+  // arr_length = number of items
+  // item_length = byte count of each main_arr item
+  // comparator_deref = returns positive if first > second, 0 if equal,
+  //                    negative if first < second
+  // secondary_arr = packed array of fixed-length records associated with the
+  //                 main_arr items, to be resorted in the same way.  (e.g.
+  //                 if one is building an index, this could start as a sorted
+  //                 0..(n-1) sequence of integers; then, post-sort, this would
+  //                 be a lookup table for the original position of each
+  //                 main_arr item.)
+  // secondary_item_len = byte count of each secondary_arr item
+  char* proxy_arr;
+  int proxy_len = secondary_item_len + sizeof(void*);
+  int ii;
+  if (!arr_length) {
+    return 0;
+  }
+  if (proxy_len < item_length) {
+    proxy_len = item_length;
+  }
+  proxy_arr = (char*)malloc(arr_length * proxy_len);
+  if (!proxy_arr) {
+    return -1;
+  }
+  for (ii = 0; ii < arr_length; ii++) {
+    *(char**)(&(proxy_arr[ii * proxy_len])) = &(main_arr[ii * item_length]);
+    memcpy(&(proxy_arr[ii * proxy_len + sizeof(void*)]), &(secondary_arr[ii * secondary_item_len]), secondary_item_len);
+  }
+
+  qsort(proxy_arr, arr_length, proxy_len, comparator_deref);
+  for (ii = 0; ii < arr_length; ii++) {
+    memcpy(&(secondary_arr[ii * secondary_item_len]), &(proxy_arr[ii * proxy_len + sizeof(void*)]), secondary_item_len);
+    memcpy(&(proxy_arr[ii * proxy_len]), *(char**)(&(proxy_arr[ii * proxy_len])), item_length);
+  }
+  for (ii = 0; ii < arr_length; ii++) {
+    memcpy(&(main_arr[ii * item_length]), &(proxy_arr[ii * proxy_len]), item_length);
+  }
+  free(proxy_arr);
+  return 0;
+}
 
 int distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, char* outname, char* outname_end, const char* varsuffix, const char* mode, int calculation_type, int parallel_idx, int parallel_tot) {
   if (calculation_type & CALC_DISTANCE_SNPS) {
