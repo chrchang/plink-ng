@@ -72,6 +72,22 @@ char* next_item(char* sptr) {
   return skip_initial_spaces(sptr);
 }
 
+char* next_item_mult(char* sptr, unsigned int ct) {
+  if (!sptr) {
+    return NULL;
+  }
+  do {
+    while ((*sptr != ' ') && (*sptr != '\t')) {
+      if (!(*sptr)) {
+	return NULL;
+      }
+      sptr++;
+    }
+    sptr = skip_initial_spaces(sptr);
+  } while (--ct);
+  return sptr;
+}
+
 void set_bit(unsigned long* bit_arr, int loc, unsigned int* bit_set_ct_ptr) {
   int maj = loc / BITCT;
   unsigned long min = 1LU << (loc % BITCT);

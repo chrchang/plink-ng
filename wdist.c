@@ -265,7 +265,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (8 Nov 2012)    https://www.cog-genomics.org/wdist\n"
+  " (9 Nov 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -4592,9 +4592,9 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
 	  plink_maxsnp = ulii + 1;
 	}
 	if (!unfiltered_marker_ct) {
-	  bufptr = next_item(next_item(bufptr));
+	  bufptr = next_item_mult(bufptr, 2);
 	  if (binary_files) {
-	    bufptr = next_item(next_item(bufptr));
+	    bufptr = next_item_mult(bufptr, 2);
 	  }
 	  if (!bufptr) {
 	    printf(errstr_map_format);
@@ -6192,7 +6192,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
   printf(errstr_freq_format);
   return RET_INVALID_FORMAT;
  read_external_freqs_ret_ALLELE_MISMATCH:
-  printf("Error: Mismatch between .bim/.ped and --freq alleles at %s.\n", next_item(next_item(tbuf)));
+  printf("Error: Mismatch between .bim/.ped and --freq alleles at %s.\n", next_item_mult(tbuf, 2));
   return RET_ALLELE_MISMATCH;
  read_external_freqs_ret_ALLELE_MISMATCH2:
   printf("Error: Mismatch between .bim/.ped and --freq alleles at %s.\n", tbuf);
@@ -6902,7 +6902,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     indiv_idx = 0;
     while (1) {
       // todo: validate, and perhaps permute, family/indiv IDs
-      bufptr = next_item(next_item(skip_initial_spaces(tbuf)));
+      bufptr = next_item_mult(skip_initial_spaces(tbuf), 2);
       for (ii = 0; ii < pc_ct; ii++) {
 	if (no_more_items(bufptr)) {
 	  goto calc_regress_pcs_ret_INVALID_FORMAT;

@@ -169,7 +169,7 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
     memcpy(&(person_ids[indiv_uidx * max_person_id_len + uii + 1]), item_begin, ujj);
     person_ids[indiv_uidx * max_person_id_len + uii + 1 + ujj] = '\0';
     // assume columns 3-5 are missing, sex, pheno
-    item_begin = next_item(next_item(skip_initial_spaces(bufptr)));
+    item_begin = next_item_mult(skip_initial_spaces(bufptr), 2);
     if (no_more_items(item_begin)) {
       goto oxford_sample_load_ret_INVALID_FORMAT;
     }
@@ -229,14 +229,16 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
   // Determine maximum line length, calculate reference allele frequencies,
   // and check if all missingness probabilities are 0 or ~1.
   unsigned int unfiltered_marker_ct = 0;
+  unsigned int uicm1 = unfiltered_indiv_ct - 1;
   unsigned int gen_buf_len = 0;
   char* stack_base = (char*)wkspace_base;
+  char* loadbuf = (&(stack_base[sizeof(double)]));
   int is_missing_01 = 1;
   unsigned int pct = 1;
   unsigned long long file_length;
   unsigned long long file_pos_100;
   char* bufptr;
-  unsigned int max_load;
+  int max_load;
   unsigned int uii;
   unsigned int indiv_uidx;
   double total_ref_allele_ct;
@@ -244,6 +246,9 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
   double cur_ref_allele_ct;
   double cur_allele_wt;
   double dxx;
+  double cur_ref_allele_ct2;
+  double cur_allele_wt2;
+  double dxx2;
   if (wkspace_left > 2147483584) {
     max_load = 2147483584;
   } else {
@@ -256,16 +261,15 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
   fflush(stdout);
   file_length = ftello(genfile);
   rewind(genfile);
-  stack_base[max_load - 1] = ' ';
-  while (fgets(&(stack_base[(1 + unfiltered_marker_ct) * sizeof(double)]), max_load - (1 + unfiltered_marker_ct) * sizeof(double), genfile)) {
-    if (*stack_base == '\n') {
+  max_load -= sizeof(double);
+  if (max_load <= 0) {
+    return RET_NOMEM;
+  }
+  while (fgets(loadbuf, max_load, genfile)) {
+    if (*loadbuf == '\n') {
       continue;
     }
-    if (!stack_base[max_load - 1]) {
-      printf("Extremely long line found in .gen file.\n");
-      return RET_NOMEM;
-    }
-    bufptr = next_item(next_item(next_item(next_item(skip_initial_spaces(&(stack_base[(1 + unfiltered_marker_ct) * sizeof(double)]))))));
+    bufptr = next_item_mult(skip_initial_spaces(loadbuf), 4);
     if (maf_succ) {
       total_ref_allele_ct = 1.0;
       total_allele_wt = 1.0;
@@ -273,42 +277,50 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
       total_ref_allele_ct = 0.0;
       total_allele_wt = 0.0;
     }
-    for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
+    for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct;) {
       bufptr = next_item(bufptr);
       if (no_more_items(bufptr)) {
 	goto oxford_gen_load1_ret_INVALID_FORMAT;
       }
-      if (sscanf(bufptr, "%lg", &dxx) != 1) {
-	goto oxford_gen_load1_ret_INVALID_FORMAT;
-      }
-      cur_allele_wt = dxx;
-      bufptr = next_item(bufptr);
-      if (no_more_items(bufptr)) {
-	goto oxford_gen_load1_ret_INVALID_FORMAT;
-      }
-      if (sscanf(bufptr, "%lg", &dxx) != 1) {
-	goto oxford_gen_load1_ret_INVALID_FORMAT;
-      }
-      cur_ref_allele_ct = dxx;
-      cur_allele_wt += dxx;
-      bufptr = next_item(bufptr);
-      if (no_more_items(bufptr)) {
-	goto oxford_gen_load1_ret_INVALID_FORMAT;
-      }
-      if (sscanf(bufptr, "%lg", &dxx) != 1) {
-	goto oxford_gen_load1_ret_INVALID_FORMAT;
-      }
-      cur_ref_allele_ct += 2 * dxx;
-      cur_allele_wt += dxx;
-      if (is_missing_01) {
-	if ((cur_allele_wt != 0.0) && ((cur_allele_wt < 1.0 - D_EPSILON) || (cur_allele_wt > 1.0 + D_EPSILON))) {
-	  is_missing_01 = 0;
+      if (indiv_uidx == uicm1) {
+	if (sscanf(bufptr, "%lg %lg %lg", &cur_allele_wt, &cur_ref_allele_ct, &dxx) != 3) {
+	  goto oxford_gen_load1_ret_INVALID_FORMAT;
 	}
+	bufptr = next_item_mult(bufptr, 2);
+	cur_allele_wt += dxx + cur_ref_allele_ct;
+	cur_ref_allele_ct += 2 * dxx;
+	if (is_missing_01) {
+	  if ((cur_allele_wt != 0.0) && ((cur_allele_wt < 1.0 - D_EPSILON) || (cur_allele_wt > 1.0 + D_EPSILON))) {
+	    is_missing_01 = 0;
+	  }
+	}
+	total_ref_allele_ct += cur_ref_allele_ct;
+	total_allele_wt += cur_allele_wt;
+	indiv_uidx++;
+      } else {
+	if (sscanf(bufptr, "%lg %lg %lg %lg %lg %lg", &cur_allele_wt, &cur_ref_allele_ct, &dxx, &cur_allele_wt2, &cur_ref_allele_ct2, &dxx2) != 6) {
+	  goto oxford_gen_load1_ret_INVALID_FORMAT;
+	}
+	bufptr = next_item_mult(bufptr, 5);
+	cur_allele_wt += dxx + cur_ref_allele_ct;
+	cur_ref_allele_ct += 2 * dxx;
+	cur_allele_wt2 += dxx2 + cur_ref_allele_ct2;
+	cur_ref_allele_ct2 += 2 * dxx2;
+	if (is_missing_01) {
+	  if (((cur_allele_wt != 0.0) && ((cur_allele_wt < 1.0 - D_EPSILON) || (cur_allele_wt > 1.0 + D_EPSILON))) || ((cur_allele_wt2 != 0.0) && ((cur_allele_wt2 < 1.0 - D_EPSILON) || (cur_allele_wt2 > 1.0 + D_EPSILON)))) {
+	    is_missing_01 = 0;
+	  }
+	}
+	total_ref_allele_ct += cur_ref_allele_ct + cur_ref_allele_ct2;
+	total_allele_wt += cur_allele_wt + cur_allele_wt2;
+	indiv_uidx += 2;
       }
-      total_ref_allele_ct += cur_ref_allele_ct;
-      total_allele_wt += cur_allele_wt;
     }
-    uii = strlen(bufptr) + (unsigned int)(bufptr - stack_base) - (1 + unfiltered_marker_ct) * sizeof(double);
+    uii = strlen(bufptr) + (unsigned int)(bufptr - loadbuf);
+    if (loadbuf[uii - 1] != '\n') {
+      printf("Excessively long line in .gen file.\n");
+      return RET_NOMEM;
+    }
     if (uii >= gen_buf_len) {
       gen_buf_len = uii + 1;
     }
@@ -318,6 +330,8 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
       (*set_allele_freqs_ptr)[unfiltered_marker_ct] = (total_ref_allele_ct * 0.5) / total_allele_wt;
     }
     unfiltered_marker_ct++;
+    loadbuf = &(loadbuf[sizeof(double)]);
+    max_load -= sizeof(double);
     file_pos_100 = ftello(genfile) * 100LLU;
     if (file_pos_100 >= pct * file_length) {
       pct = (unsigned int)(file_pos_100 / file_length);
@@ -678,7 +692,7 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
       marker_uidx++;
       continue;
     }
-    bufptr = next_item(next_item(next_item(next_item(next_item(skip_initial_spaces(loadbuf))))));
+    bufptr = next_item_mult(skip_initial_spaces(loadbuf), 5);
     marker_idxl = marker_uidx % BITCT;
     indiv_idx = 0;
     if (distance_3d) {
@@ -697,15 +711,8 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
 	fill_ulong_zero(cur_missings, indiv_ctl);
       }
       for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-	if (is_set(indiv_exclude, indiv_uidx)) {
-          bufptr = next_item(next_item(next_item(bufptr)));
-	} else {
-	  sscanf(bufptr, "%lg", &pzero);
-	  bufptr = next_item(bufptr);
-	  sscanf(bufptr, "%lg", &pone);
-	  bufptr = next_item(bufptr);
-	  sscanf(bufptr, "%lg", &ptwo);
-	  bufptr = next_item(bufptr);
+	if (!is_set(indiv_exclude, indiv_uidx)) {
+	  sscanf(bufptr, "%lg %lg %lg", &pzero, &pone, &ptwo);
 	  dxx = (pone + 2 * ptwo) * marker_wt;
           dosage_vals[indiv_idx * BITCT + marker_idxl] = dxx;
 	  if (is_missing_01) {
@@ -734,6 +741,7 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
 	  }
 	  indiv_idx++;
 	}
+	bufptr = next_item_mult(bufptr, 3);
       }
       if (!distance_flat_missing) {
 	non_missing_ct = (unsigned int)(cmf_ptr - cur_marker_freqs);
@@ -911,7 +919,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
       printf("Extremely long line found in .gen file.\n");
       return RET_NOMEM;
     }
-    bufptr = next_item(next_item(next_item(next_item(next_item(skip_initial_spaces(loadbuf))))));
+    bufptr = next_item_mult(skip_initial_spaces(loadbuf), 5);
     indiv_idx = 0;
     ref_freq_numer = 0.0;
     ref_freq_denom = 0.0;
@@ -919,36 +927,22 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
       // TBD
     } else {
       for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-	if (is_set(indiv_exclude, indiv_uidx)) {
-	  bufptr = next_item(next_item(next_item(bufptr)));
+	if (!is_set(indiv_exclude, indiv_uidx)) {
+	  if (no_more_items(bufptr)) {
+	    goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
+	  }
+	  if (sscanf(bufptr, "%lg %lg %lg", &pzero, &pone, &ptwo) != 3) {
+	    goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
+	  }
+	  dxx = pone + 2 * ptwo;
+	  dosage_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl] = dxx;
+	  ref_freq_numer += dxx;
+	  dxx = pzero + pone + ptwo;
+	  cur_nonmissings[indiv_idx] = dxx;
+	  ref_freq_denom += 2 * dxx;
+	  indiv_idx++;
 	}
-	if (no_more_items(bufptr)) {
-	  goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
-	}
-	if (sscanf(bufptr, "%lg", &pzero) != 1) {
-	  goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
-	}
-	bufptr = next_item(bufptr);
-	if (no_more_items(bufptr)) {
-	  goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
-	}
-	if (sscanf(bufptr, "%lg", &pone) != 1) {
-	  goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
-	}
-	bufptr = next_item(bufptr);
-	if (no_more_items(bufptr)) {
-	  goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
-	}
-	if (sscanf(bufptr, "%lg", &ptwo) != 1) {
-	  goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
-	}
-	dxx = pone + 2 * ptwo;
-	dosage_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl] = dxx;
-	ref_freq_numer += dxx;
-	dxx = pzero + pone + ptwo;
-	cur_nonmissings[indiv_idx] = dxx;
-	ref_freq_denom += 2 * dxx;
-	indiv_idx++;
+	bufptr = next_item_mult(bufptr, 3);
       }
     }
     uii = strlen(bufptr) + (unsigned int)(bufptr - loadbuf) + 1;

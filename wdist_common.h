@@ -235,6 +235,8 @@ char* item_end(char* sptr);
 
 char* next_item(char* sptr);
 
+char* next_item_mult(char* sptr, unsigned int ct);
+
 static inline void set_bit_noct(unsigned long* exclude_arr, int loc) {
   exclude_arr[loc / BITCT] |= (1LU << (loc % BITCT));
 }
