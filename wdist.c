@@ -265,7 +265,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (7 Nov 2012)    https://www.cog-genomics.org/wdist\n"
+  " (8 Nov 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -6913,7 +6913,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     goto calc_regress_pcs_ret_INVALID_FORMAT;
   }
   if (pc_ct > max_pcs) {
-    printf("%svec format detected.  Regressing on %d (out of %d) PC%s.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", max_pcs, pc_ct, (max_pcs == 1)? "" : "s");
+    printf("%svec format detected.  Regressing on %d PC%s (out of %d).\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", max_pcs, (max_pcs == 1)? "" : "s", pc_ct);
     pc_ct = max_pcs;
   } else {
     printf("%svec format detected.  Regressing on %d principal component%s.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", pc_ct, (pc_ct == 1)? "" : "s");
@@ -6959,6 +6959,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
 	}
 	bufptr = next_item(bufptr);
       }
+      pc_matrix[pc_ct * indiv_ct + indiv_idx] = 1.0; // intercept
       if (++indiv_idx >= indiv_ct) {
 	break;
       }
@@ -6970,7 +6971,6 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
 	  goto calc_regress_pcs_ret_READ_FAIL;
 	}
       }
-      pc_matrix[pc_ct * indiv_ct + indiv_idx] = 1.0; // intercept
     }
   } else {
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
