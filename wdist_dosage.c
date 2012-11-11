@@ -229,7 +229,7 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
   // Determine maximum line length, calculate reference allele frequencies,
   // and check if all missingness probabilities are 0 or ~1.
   unsigned int unfiltered_marker_ct = 0;
-  unsigned int uicm1 = unfiltered_indiv_ct - 1;
+  unsigned int unfiltered_indiv_ct8m = unfiltered_indiv_ct & 0xfffffff8U;
   unsigned int gen_buf_len = 0;
   char* stack_base = (char*)wkspace_base;
   char* loadbuf = (&(stack_base[sizeof(double)]));
@@ -243,12 +243,12 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
   unsigned int indiv_uidx;
   double total_ref_allele_ct;
   double total_allele_wt;
+  double cur_ref_allele_cts[8];
+  double cur_allele_wts[8];
+  double cur_ref_homs[8];
   double cur_ref_allele_ct;
   double cur_allele_wt;
   double dxx;
-  double cur_ref_allele_ct2;
-  double cur_allele_wt2;
-  double dxx2;
   if (wkspace_left > 2147483584) {
     max_load = 2147483584;
   } else {
@@ -282,13 +282,14 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
       if (no_more_items(bufptr)) {
 	goto oxford_gen_load1_ret_INVALID_FORMAT;
       }
-      if (indiv_uidx == uicm1) {
+      if (indiv_uidx >= unfiltered_indiv_ct8m) {
 	if (sscanf(bufptr, "%lg %lg %lg", &cur_allele_wt, &cur_ref_allele_ct, &dxx) != 3) {
 	  goto oxford_gen_load1_ret_INVALID_FORMAT;
 	}
 	bufptr = next_item_mult(bufptr, 2);
 	cur_allele_wt += dxx + cur_ref_allele_ct;
 	cur_ref_allele_ct += 2 * dxx;
+
 	if (is_missing_01) {
 	  if ((cur_allele_wt != 0.0) && ((cur_allele_wt < 1.0 - D_EPSILON) || (cur_allele_wt > 1.0 + D_EPSILON))) {
 	    is_missing_01 = 0;
@@ -298,22 +299,30 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
 	total_allele_wt += cur_allele_wt;
 	indiv_uidx++;
       } else {
-	if (sscanf(bufptr, "%lg %lg %lg %lg %lg %lg", &cur_allele_wt, &cur_ref_allele_ct, &dxx, &cur_allele_wt2, &cur_ref_allele_ct2, &dxx2) != 6) {
+	// sadly, this kludge is an important performance optimization
+	if (sscanf(bufptr, "%lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg", &(cur_allele_wts[0]), &(cur_ref_allele_cts[0]), &(cur_ref_homs[0]), &(cur_allele_wts[1]), &(cur_ref_allele_cts[1]), &(cur_ref_homs[1]), &(cur_allele_wts[2]), &(cur_ref_allele_cts[2]), &(cur_ref_homs[2]), &(cur_allele_wts[3]), &(cur_ref_allele_cts[3]), &(cur_ref_homs[3]), &(cur_allele_wts[4]), &(cur_ref_allele_cts[4]), &(cur_ref_homs[4]), &(cur_allele_wts[5]), &(cur_ref_allele_cts[5]), &(cur_ref_homs[5]), &(cur_allele_wts[6]), &(cur_ref_allele_cts[6]), &(cur_ref_homs[6]), &(cur_allele_wts[7]), &(cur_ref_allele_cts[7]), &(cur_ref_homs[7])) != 24) {
 	  goto oxford_gen_load1_ret_INVALID_FORMAT;
 	}
-	bufptr = next_item_mult(bufptr, 5);
-	cur_allele_wt += dxx + cur_ref_allele_ct;
-	cur_ref_allele_ct += 2 * dxx;
-	cur_allele_wt2 += dxx2 + cur_ref_allele_ct2;
-	cur_ref_allele_ct2 += 2 * dxx2;
+	bufptr = next_item_mult(bufptr, 23);
 	if (is_missing_01) {
-	  if (((cur_allele_wt != 0.0) && ((cur_allele_wt < 1.0 - D_EPSILON) || (cur_allele_wt > 1.0 + D_EPSILON))) || ((cur_allele_wt2 != 0.0) && ((cur_allele_wt2 < 1.0 - D_EPSILON) || (cur_allele_wt2 > 1.0 + D_EPSILON)))) {
-	    is_missing_01 = 0;
+	  for (uii = 0; uii < 8; uii++) {
+	    cur_allele_wts[uii] += cur_ref_homs[uii] + cur_ref_allele_cts[uii];
+	    cur_ref_allele_cts[uii] += 2 * cur_ref_homs[uii];
+	    if ((cur_allele_wts[uii] != 0.0) && ((cur_allele_wts[uii] < 1.0 - D_EPSILON) || (cur_allele_wts[uii] > 1.0 + D_EPSILON))) {
+	      is_missing_01 = 0;
+	    }
+	    total_ref_allele_ct += cur_ref_allele_cts[uii];
+	    total_allele_wt += cur_allele_wts[uii];
+	  }
+	} else {
+	  for (uii = 0; uii < 8; uii++) {
+	    cur_allele_wts[uii] += cur_ref_homs[uii] + cur_ref_allele_cts[uii];
+	    cur_ref_allele_cts[uii] += 2 * cur_ref_homs[uii];
+	    total_ref_allele_ct += cur_ref_allele_cts[uii];
+	    total_allele_wt += cur_allele_wts[uii];
 	  }
 	}
-	total_ref_allele_ct += cur_ref_allele_ct + cur_ref_allele_ct2;
-	total_allele_wt += cur_allele_wt + cur_allele_wt2;
-	indiv_uidx += 2;
+	indiv_uidx += 8;
       }
     }
     uii = strlen(bufptr) + (unsigned int)(bufptr - loadbuf);
@@ -594,6 +603,7 @@ int update_distance_dosage_matrix(int is_missing_01, int distance_3d, int distan
 
 int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_allele_freqs, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, int is_missing_01, int distance_3d, int distance_flat_missing, double exponent, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
   int is_exponent_zero = (exponent == 0.0);
+  unsigned int unfiltered_indiv_ct8m = unfiltered_indiv_ct & 0xfffffff8U;
   unsigned int indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
   double marker_wt = 1.0;
   double* cur_marker_freqs = NULL;
@@ -617,6 +627,9 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
   double* dptr2;
   double* dptr3;
   int retval;
+  double pbuf0[8];
+  double pbuf1[8];
+  double pbuf2[8];
   double pzero;
   double pone;
   double ptwo;
@@ -710,38 +723,53 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
 	cmf_ptr = cur_marker_freqs;
 	fill_ulong_zero(cur_missings, indiv_ctl);
       }
-      for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-	if (!is_set(indiv_exclude, indiv_uidx)) {
-	  sscanf(bufptr, "%lg %lg %lg", &pzero, &pone, &ptwo);
-	  dxx = (pone + 2 * ptwo) * marker_wt;
-          dosage_vals[indiv_idx * BITCT + marker_idxl] = dxx;
-	  if (is_missing_01) {
-	    // IEEE 754 zero is actually zero bitmask
-	    if (pzero + pone + ptwo == 0.0) {
-#if __LP64__
-	      missing_dmasks[indiv_idx * BITCT + marker_idxl] = 0.0;
-#endif
-	      if (distance_flat_missing) {
-		missing_tots[indiv_idx] += 1.0;
-	      } else {
-                set_bit_noct(cur_missings, indiv_idx);
-	      }
-	      missing_vals[indiv_idx] |= 1 << marker_idxl;
-	    } else {
-#if __LP64__
-              *((unsigned long*)(&missing_dmasks[indiv_idx * BITCT + marker_idxl])) = 0x7fffffffffffffffLU;
-#endif
-              if (!distance_flat_missing) {
-	        // defer missing_tots[indiv_idx] update until we know weight
-                *cmf_ptr++ = dxx;
-	      }
-	    }
-	  } else {
-	    // TBD
+      for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct;) {
+	if (indiv_uidx < unfiltered_indiv_ct8m) {
+	  sscanf(bufptr, "%lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg", &(pbuf0[0]), &(pbuf1[0]), &(pbuf2[0]), &(pbuf0[1]), &(pbuf1[1]), &(pbuf2[1]), &(pbuf0[2]), &(pbuf1[2]), &(pbuf2[2]), &(pbuf0[3]), &(pbuf1[3]), &(pbuf2[3]), &(pbuf0[4]), &(pbuf1[4]), &(pbuf2[4]), &(pbuf0[5]), &(pbuf1[5]), &(pbuf2[5]), &(pbuf0[6]), &(pbuf1[6]), &(pbuf2[6]), &(pbuf0[7]), &(pbuf1[7]), &(pbuf2[7]));
+	  bufptr = next_item_mult(bufptr, 24);
+	  uljj = 8;
+	} else {
+	  uljj = unfiltered_indiv_ct - unfiltered_indiv_ct8m;
+	  for (ulii = 0; ulii < uljj; ulii++) {
+	    sscanf(bufptr, "%lg %lg %lg", &(pbuf0[ulii]), &(pbuf1[ulii]), &(pbuf2[ulii]));
+	    bufptr = next_item_mult(bufptr, 3);
 	  }
-	  indiv_idx++;
 	}
-	bufptr = next_item_mult(bufptr, 3);
+	for (ulii = 0; ulii < uljj; ulii++) {
+	  if (!is_set(indiv_exclude, indiv_uidx + ulii)) {
+	    pzero = pbuf0[ulii];
+	    pone = pbuf1[ulii];
+	    ptwo = pbuf2[ulii];
+	    dxx = (pone + 2 * ptwo) * marker_wt;
+	    dosage_vals[indiv_idx * BITCT + marker_idxl] = dxx;
+	    if (is_missing_01) {
+	      // IEEE 754 zero is actually zero bitmask
+	      if (pzero + pone + ptwo == 0.0) {
+#if __LP64__
+		missing_dmasks[indiv_idx * BITCT + marker_idxl] = 0.0;
+#endif
+		if (distance_flat_missing) {
+		  missing_tots[indiv_idx] += 1.0;
+		} else {
+		  set_bit_noct(cur_missings, indiv_idx);
+		}
+		missing_vals[indiv_idx] |= 1 << marker_idxl;
+	      } else {
+#if __LP64__
+		*((unsigned long*)(&missing_dmasks[indiv_idx * BITCT + marker_idxl])) = 0x7fffffffffffffffLU;
+#endif
+		if (!distance_flat_missing) {
+		  // defer missing_tots[indiv_idx] update until we know weight
+		  *cmf_ptr++ = dxx;
+		}
+	      }
+	    } else {
+	      // TBD
+	    }
+	    indiv_idx++;
+	  }
+	}
+	indiv_uidx += uljj;
       }
       if (!distance_flat_missing) {
 	non_missing_ct = (unsigned int)(cmf_ptr - cur_marker_freqs);
@@ -830,6 +858,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   unsigned char* wkspace_mark = NULL;
   int is_exponent_zero = (exponent == 0.0);
   unsigned int unfiltered_marker_ct = 0;
+  unsigned int unfiltered_indiv_ct8m = unfiltered_indiv_ct & 0xfffffff8U;
   unsigned int marker_idxl = 0;
   unsigned int marker_ct = 0;
   unsigned int gen_buf_len = 0;
@@ -842,7 +871,9 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   int retval;
   double dxx;
   long long llxx;
-  double pzero;
+  double pbuf0[8];
+  double pbuf1[8];
+  double pbuf2[8];
   double pone;
   double ptwo;
   unsigned long ulii;
@@ -850,6 +881,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   unsigned int indiv_uidx;
   unsigned int indiv_idx;
   unsigned int uii;
+  unsigned int subloop_end;
   double* cur_nonmissings;
   double marker_wt;
   // double missing_wt;
@@ -927,22 +959,37 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
       // TBD
     } else {
       for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-	if (!is_set(indiv_exclude, indiv_uidx)) {
-	  if (no_more_items(bufptr)) {
-	    goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
-	  }
-	  if (sscanf(bufptr, "%lg %lg %lg", &pzero, &pone, &ptwo) != 3) {
-	    goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
-	  }
-	  dxx = pone + 2 * ptwo;
-	  dosage_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl] = dxx;
-	  ref_freq_numer += dxx;
-	  dxx = pzero + pone + ptwo;
-	  cur_nonmissings[indiv_idx] = dxx;
-	  ref_freq_denom += 2 * dxx;
-	  indiv_idx++;
+	if (no_more_items(bufptr)) {
+	  goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
 	}
-	bufptr = next_item_mult(bufptr, 3);
+	if (indiv_uidx < unfiltered_indiv_ct8m) {
+	  if (sscanf(bufptr, "%lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg", &(pbuf0[0]), &(pbuf1[0]), &(pbuf2[0]), &(pbuf0[1]), &(pbuf1[1]), &(pbuf2[1]), &(pbuf0[2]), &(pbuf1[2]), &(pbuf2[2]), &(pbuf0[3]), &(pbuf1[3]), &(pbuf2[3]), &(pbuf0[4]), &(pbuf1[4]), &(pbuf2[4]), &(pbuf0[5]), &(pbuf1[5]), &(pbuf2[5]), &(pbuf0[6]), &(pbuf1[6]), &(pbuf2[6]), &(pbuf0[7]), &(pbuf1[7]), &(pbuf2[7])) != 24) {
+	    goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
+	  }
+	  bufptr = next_item_mult(bufptr, 24);
+	  subloop_end = 24;
+	} else {
+	  subloop_end = unfiltered_indiv_ct - unfiltered_indiv_ct8m;
+	  for (uii = 0; uii < subloop_end; uii++) {
+	    if (sscanf(bufptr, "%lg %lg %lg", &(pbuf0[uii]), &(pbuf1[uii]), &(pbuf2[uii])) != 3) {
+	      goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
+	    }
+	    bufptr = next_item_mult(bufptr, 3);
+	  }
+	}
+	for (uii = 0; uii < subloop_end; uii++) {
+	  if (!is_set(indiv_exclude, indiv_uidx + uii)) {
+	    pone = pbuf1[uii];
+	    ptwo = pbuf2[uii];
+	    dxx = pone + 2 * ptwo;
+	    dosage_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl] = dxx;
+	    ref_freq_numer += dxx;
+	    dxx = pbuf0[uii] + pone + ptwo;
+	    cur_nonmissings[indiv_idx] = dxx;
+	    ref_freq_denom += 2 * dxx;
+	    indiv_idx++;
+	  }
+	}
       }
     }
     uii = strlen(bufptr) + (unsigned int)(bufptr - loadbuf) + 1;
