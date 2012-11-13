@@ -253,9 +253,9 @@ static inline void debug_log(char* ss) {
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST v0.13.1NL"
+  "WDIST v0.13.2NL"
 #else
-  "WDIST v0.13.1"
+  "WDIST v0.13.2"
 #endif
 #ifdef DEBUG
   "d"
@@ -265,7 +265,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (11 Nov 2012)    https://www.cog-genomics.org/wdist\n"
+  " (14 Nov 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -720,6 +720,9 @@ int disp_help(unsigned int param_ct, char** argv) {
 	       );
     help_print("map", &help_ctrl, 0,
 "  --map [filename] : Specify full name of .map file.\n"
+	       );
+    help_print("make-bed", &help_ctrl, 0,
+"  --make-bed       : Create a new binary fileset with all filters applied.\n"
 	       );
     help_print("no-fid", &help_ctrl, 0,
 "  --no-fid         : .fam/.ped file does not contain column 1 (family ID).\n"
@@ -6441,7 +6444,7 @@ void calc_marker_weights(double exponent, int unfiltered_marker_ct, unsigned lon
   }
 }
 
-int make_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** pedfile_ptr, unsigned long long* line_locs, unsigned long long* line_mids, int pedbuflen, FILE* mapfile, int map_cols, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* marker_alleles, char missing_geno) {
+int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** pedfile_ptr, unsigned long long* line_locs, unsigned long long* line_mids, int pedbuflen, FILE* mapfile, int map_cols, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* marker_alleles, char missing_geno) {
   unsigned int marker_ct4 = (marker_ct + 3) / 4;
   unsigned int indiv_ct4 = (indiv_ct + 3) / 4;
   unsigned char* wkspace_mark = wkspace_base;
@@ -6685,6 +6688,114 @@ int make_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr
     return RET_OPEN_FAIL;
   }
   printf("Automatic --make-bed complete.\n");
+  wkspace_reset(wkspace_mark);
+  return 0;
+}
+
+int make_bed(FILE* bedfile, int bed_offset, FILE* famfile, FILE* bimfile, FILE** bedoutfile_ptr, FILE** famoutfile_ptr, FILE** bimoutfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct) {
+  unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  unsigned int indiv_ct4 = (indiv_ct + 3) / 4;
+  unsigned char* wkspace_mark = wkspace_base;
+  unsigned int marker_uidx;
+  unsigned int marker_idx;
+  unsigned int indiv_uidx;
+  unsigned int indiv_idx;
+  unsigned int ii_mod4;
+  unsigned char* loadbuf;
+  unsigned char* writebuf;
+  unsigned char cc;
+
+  if (wkspace_alloc_uc_checked(&loadbuf, unfiltered_indiv_ct4)) {
+    return RET_NOMEM;
+  }
+  if (wkspace_alloc_uc_checked(&writebuf, indiv_ct4)) {
+    return RET_NOMEM;
+  }
+  if (fseeko(bedfile, bed_offset, SEEK_SET)) {
+    return RET_READ_FAIL;
+  }
+  strcpy(outname_end, ".bed");
+  if (fopen_checked(bedoutfile_ptr, outname, "wb")) {
+    return RET_OPEN_FAIL;
+  }
+
+  marker_uidx = 0;
+  printf("Writing new binary fileset (--make-bed)...");
+  if (fwrite_checked("l\x1b\x01", 3, *bedoutfile_ptr)) {
+    return RET_WRITE_FAIL;
+  }
+  fflush(stdout);
+  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+    if (is_set(marker_exclude, marker_uidx)) {
+      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+      if (fseeko(bedfile, bed_offset + (unsigned long long)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
+	return RET_READ_FAIL;
+      }
+    }
+    if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      return RET_READ_FAIL;
+    }
+    indiv_uidx = 0;
+    cc = 0;
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+      ii_mod4 = indiv_idx & 3;
+      cc |= (((loadbuf[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3) << (ii_mod4 * 2));
+      if (ii_mod4 == 3) {
+        writebuf[indiv_idx / 4] = cc;
+	cc = 0;
+      }
+      indiv_uidx++;
+    }
+    if (indiv_ct & 3) {
+      writebuf[indiv_ct4 - 1] = cc;
+    }
+    if (fwrite_checked(writebuf, indiv_ct4, *bedoutfile_ptr)) {
+      return RET_WRITE_FAIL;
+    }
+    marker_uidx++;
+  }
+  fclose_null(bedoutfile_ptr);
+
+  strcpy(outname_end, ".fam");
+  if (fopen_checked(famoutfile_ptr, outname, "w")) {
+    return RET_OPEN_FAIL;
+  }
+  rewind(famfile);
+  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
+    do {
+      if (fgets(tbuf, MAXLINELEN, famfile) == NULL) {
+	return RET_READ_FAIL;
+      }
+    } while ((tbuf[0] <= ' ') || (tbuf[0] == '#'));
+    if (is_set(indiv_exclude, indiv_uidx)) {
+      continue;
+    }
+    if (fputs(tbuf, *famoutfile_ptr) == EOF) {
+      return RET_WRITE_FAIL;
+    }
+  }
+  fclose_null(famoutfile_ptr);
+
+  strcpy(outname_end, ".bim");
+  if (fopen_checked(bimoutfile_ptr, outname, "w")) {
+    return RET_OPEN_FAIL;
+  }
+  rewind(bimfile);
+  for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+    do {
+      fgets(tbuf, MAXLINELEN, bimfile);
+    } while (tbuf[0] <= ' ');
+    if (is_set(marker_exclude, marker_uidx)) {
+      continue;
+    }
+    if (fputs(tbuf, *bimoutfile_ptr) == EOF) {
+      return RET_WRITE_FAIL;
+    }
+  }
+  fclose_null(bimoutfile_ptr);
+
+  printf(" done.\n");
   wkspace_reset(wkspace_mark);
   return 0;
 }
@@ -8998,7 +9109,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   wkspace_reset(hwe_lls);
 
   if (!binary_files) {
-    retval = make_bed(&bedtmpfile, &famtmpfile, &bimtmpfile, &outfile, outname, outname_end, &pedfile, line_locs, line_mids, pedbuflen, mapfile, map_cols, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct, marker_alleles, missing_geno);
+    retval = text_to_bed(&bedtmpfile, &famtmpfile, &bimtmpfile, &outfile, outname, outname_end, &pedfile, line_locs, line_mids, pedbuflen, mapfile, map_cols, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct, marker_alleles, missing_geno);
     if (retval || (calculation_type == CALC_FREQ)) {
       goto wdist_ret_2;
     }
@@ -9071,6 +9182,17 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     retval = write_snplist(&outfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len);
     if (retval) {
       goto wdist_ret_2;
+    }
+  }
+
+  if (binary_files && (calculation_type & CALC_MAKE_BED)) {
+    if ((unfiltered_marker_ct == marker_ct) && (unfiltered_indiv_ct == indiv_ct)) {
+      printf("Note: No markers or individuals filtered out.  Skipping --make-bed.\n");
+    } else {
+      retval = make_bed(pedfile, bed_offset, famfile, mapfile, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct);
+      if (retval) {
+	goto wdist_ret_2;
+      }
     }
   }
 
@@ -11596,9 +11718,6 @@ int main(int argc, char** argv) {
 	}
 	strcpy(mapname, argv[cur_arg + 1]);
 	cur_arg += 2;
-      } else if (!memcmp(argptr2, "ake-bed", 8)) {
-	printf("Note: --make-bed is effectively always on.\n");
-	cur_arg += 1;
       } else if (!memcmp(argptr2, "issing-genotype", 16)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
@@ -11917,6 +12036,9 @@ int main(int argc, char** argv) {
       } else if (!memcmp(argptr2, "ap3", 4)) {
 	printf("Note: --map3 flag unnecessary (.map file format is autodetected).\n");
 	cur_arg += 1;
+      } else if (!memcmp(argptr2, "ake-bed", 8)) {
+	calculation_type |= CALC_MAKE_BED;
+	cur_arg++;
       }
       break;
 

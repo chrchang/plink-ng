@@ -863,6 +863,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   unsigned int marker_ct = 0;
   unsigned int gen_buf_len = 0;
   double tot_missing_wt = 0.0;
+  double missing_wt = 1.0;
   double* set_allele_freqs_tmp;
   unsigned int unfiltered_marker_ctl;
   char* loadbuf;
@@ -884,7 +885,6 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   unsigned int subloop_end;
   double* cur_nonmissings;
   double marker_wt;
-  // double missing_wt;
   double ref_freq_numer;
   double ref_freq_denom;
 
@@ -1006,8 +1006,13 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
       }
     }
 
-    // calculate missing_wt
-
+    if (!distance_flat_missing) {
+      // calculate missing_wt
+      // dosage_vals[] vs. cur_nonmissings
+      // missing_wt = ;
+    }
+    tot_missing_wt += missing_wt;
+ 
     // multiply to set nonmissing_vals
 
     unfiltered_marker_ct++;
