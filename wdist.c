@@ -6704,6 +6704,8 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* famfile, FILE* bimfile, FILE**
   unsigned char* loadbuf;
   unsigned char* writebuf;
   unsigned char cc;
+  unsigned int pct;
+  unsigned int loop_end;
 
   if (wkspace_alloc_uc_checked(&loadbuf, unfiltered_indiv_ct4)) {
     return RET_NOMEM;
@@ -6720,40 +6722,54 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* famfile, FILE* bimfile, FILE**
   }
 
   marker_uidx = 0;
+  marker_idx = 0;
   printf("Writing new binary fileset (--make-bed)...");
   if (fwrite_checked("l\x1b\x01", 3, *bedoutfile_ptr)) {
     return RET_WRITE_FAIL;
   }
   fflush(stdout);
-  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-    if (is_set(marker_exclude, marker_uidx)) {
-      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
-      if (fseeko(bedfile, bed_offset + (unsigned long long)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
+  for (pct = 1; pct <= 100; pct++) {
+    loop_end = ((unsigned long long)pct * marker_ct) / 100;
+    for (; marker_idx < loop_end; marker_idx++) {
+      if (is_set(marker_exclude, marker_uidx)) {
+	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+	if (fseeko(bedfile, bed_offset + (unsigned long long)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
+	  return RET_READ_FAIL;
+	}
+      }
+      if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	return RET_READ_FAIL;
       }
-    }
-    if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
-      return RET_READ_FAIL;
-    }
-    indiv_uidx = 0;
-    cc = 0;
-    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-      indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
-      ii_mod4 = indiv_idx & 3;
-      cc |= (((loadbuf[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3) << (ii_mod4 * 2));
-      if (ii_mod4 == 3) {
-        writebuf[indiv_idx / 4] = cc;
-	cc = 0;
+      indiv_uidx = 0;
+      cc = 0;
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+	ii_mod4 = indiv_idx & 3;
+	cc |= (((loadbuf[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3) << (ii_mod4 * 2));
+	if (ii_mod4 == 3) {
+	  writebuf[indiv_idx / 4] = cc;
+	  cc = 0;
+	}
+	indiv_uidx++;
       }
-      indiv_uidx++;
+      if (indiv_ct & 3) {
+	writebuf[indiv_ct4 - 1] = cc;
+      }
+      if (fwrite_checked(writebuf, indiv_ct4, *bedoutfile_ptr)) {
+	return RET_WRITE_FAIL;
+      }
+      marker_uidx++;
     }
-    if (indiv_ct & 3) {
-      writebuf[indiv_ct4 - 1] = cc;
+    if (pct < 100) {
+      if (pct > 10) {
+	printf("\b\b\b%u%%", pct);
+      } else if (pct == 1) {
+	printf(" 1%%");
+      } else {
+	printf("\b\b%u%%", pct);
+      }
+      fflush(stdout);
     }
-    if (fwrite_checked(writebuf, indiv_ct4, *bedoutfile_ptr)) {
-      return RET_WRITE_FAIL;
-    }
-    marker_uidx++;
   }
   fclose_null(bedoutfile_ptr);
 
@@ -6795,7 +6811,7 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* famfile, FILE* bimfile, FILE**
   }
   fclose_null(bimoutfile_ptr);
 
-  printf(" done.\n");
+  printf("\b\b\bdone.\n");
   wkspace_reset(wkspace_mark);
   return 0;
 }
