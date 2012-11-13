@@ -1994,23 +1994,6 @@ inline int nz_chrom(Chrom_info* chrom_info_ptr, unsigned int marker_idx) {
   return (marker_idx >= chrom_info_ptr->chrom_end[0]) || (marker_idx < chrom_info_ptr->chrom_start[0]);
 }
 
-int write_ids(char* outname, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len) {
-  FILE* outfile;
-  unsigned int uii;
-  if (fopen_checked(&outfile, outname, "w")) {
-    return RET_OPEN_FAIL;
-  }
-  for (uii = 0; uii < unfiltered_indiv_ct; uii++) {
-    if (!is_set(indiv_exclude, uii) && (fprintf(outfile, "%s\n", &(person_ids[uii * max_person_id_len])) < 0)) {
-      return RET_WRITE_FAIL;
-    }
-  }
-  if (fclose(outfile)) {
-    return RET_WRITE_FAIL;
-  }
-  return 0;
-}
-
 void exclude_multi(unsigned long* exclude_arr, int* new_excl, unsigned int indiv_ct, unsigned int* exclude_ct_ptr) {
   unsigned int uii;
   int true_loc = 0;
@@ -9878,12 +9861,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     llxx = thread_start[thread_ct];
     llxx = ((llxx * (llxx - 1)) - (long long)thread_start[0] * (thread_start[0] - 1)) / 2;
     dists_alloc = llxx * sizeof(double);
-    // Additional + CACHELINE is to fix weird-ass aliasing bug that shows up
-    // with -O2 in some cases
+    // Additional + CACHELINE is to fix aliasing bug that shows up with -O2 in
+    // some cases.
     // The missing_dbl_excluded check is to avoid recalculation, if a
     // relationship matrix was already calculated, the missing_dbl_excluded
     // matrix was not overwritten, and no --rel-cutoff filtering was performed
-    // to make the results obsolete, 
+    // to make the results obsolete.  It's unimportant to keep this
+    // optimization around if it ever complicates maintenance.
     if (((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX )) || distance_flat_missing) && (!missing_dbl_excluded)) {
       missing_dbl_excluded = (unsigned int*)wkspace_alloc(llxx * sizeof(int));
       if (!missing_dbl_excluded) {
@@ -10336,26 +10320,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (calculation_type & CALC_DISTANCE_MASK) {
     if (!parallel_idx) {
-      if (calculation_type & CALC_DISTANCE_SNPS) {
-	strcpy(outname_end, ".dist.id");
-	retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
-	if (retval) {
-	  goto wdist_ret_2;
-	}
-      }
-      if (calculation_type & CALC_DISTANCE_IBS) {
-	strcpy(outname_end, ".mibs.id");
-	retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
-	if (retval) {
-	  goto wdist_ret_2;
-	}
-      }
-      if (calculation_type & CALC_DISTANCE_1_MINUS_IBS) {
-	strcpy(outname_end, ".mdist.id");
-	retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
-	if (retval) {
-	  goto wdist_ret_2;
-	}
+      retval = distance_d_write_ids(outname, outname_end, calculation_type, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
+      if (retval) {
+	goto wdist_ret_2;
       }
     }
     if ((exponent == 0.0) || (!(calculation_type & (CALC_DISTANCE_IBS | CALC_DISTANCE_1_MINUS_IBS)))) {

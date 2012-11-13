@@ -1159,7 +1159,10 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
       goto wdist_dosage_ret_NOMEM;
     }
     if (calculation_type & CALC_DISTANCE_MASK) {
-      // todo: write IDs
+      retval = distance_d_write_ids(outname, outname_end, calculation_type, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
+      if (retval) {
+	goto wdist_dosage_ret_1;
+      }
       if ((exponent == 0.0) || (!(calculation_type & (CALC_DISTANCE_IBS | CALC_DISTANCE_1_MINUS_IBS)))) {
         dxx = 0.5 / (double)marker_ct;
       } else {

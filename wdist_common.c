@@ -207,6 +207,49 @@ void triangle_fill(unsigned int* target_arr, int ct, int pieces, int parallel_id
   }
 }
 
+int write_ids(char* outname, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len) {
+  FILE* outfile;
+  unsigned int uii;
+  if (fopen_checked(&outfile, outname, "w")) {
+    return RET_OPEN_FAIL;
+  }
+  for (uii = 0; uii < unfiltered_indiv_ct; uii++) {
+    if (!is_set(indiv_exclude, uii) && (fprintf(outfile, "%s\n", &(person_ids[uii * max_person_id_len])) < 0)) {
+      return RET_WRITE_FAIL;
+    }
+  }
+  if (fclose(outfile)) {
+    return RET_WRITE_FAIL;
+  }
+  return 0;
+}
+
+int distance_d_write_ids(char* outname, char* outname_end, int calculation_type, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len) {
+  int retval;
+  if (calculation_type & CALC_DISTANCE_SNPS) {
+    strcpy(outname_end, ".dist.id");
+    retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
+    if (retval) {
+      return retval;
+    }
+  }
+  if (calculation_type & CALC_DISTANCE_IBS) {
+    strcpy(outname_end, ".mibs.id");
+    retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
+    if (retval) {
+      return retval;
+    }
+  }
+  if (calculation_type & CALC_DISTANCE_1_MINUS_IBS) {
+    strcpy(outname_end, ".mdist.id");
+    retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
+    if (retval) {
+      return retval;
+    }
+  }
+  return 0;
+}
+
 int distance_req(int calculation_type) {
   return ((calculation_type & CALC_DISTANCE_MASK) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }

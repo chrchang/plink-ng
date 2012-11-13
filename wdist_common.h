@@ -325,6 +325,10 @@ static inline void free_cond(void* memptr) {
 
 void triangle_fill(unsigned int* target_arr, int ct, int pieces, int parallel_idx, int parallel_tot, int start, int align);
 
+int write_ids(char* outname, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len);
+
+int distance_d_write_ids(char* outname, char* outname_end, int calculation_type, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len);
+
 int distance_req(int calculation_type);
 
 int double_cmp(const void* aa, const void* bb);
