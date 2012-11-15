@@ -9759,9 +9759,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    qq = marker_ct - indiv_missing_unwt[ii];
 	    giptr = indiv_missing_unwt;
 	    for (jj = 0; jj < ii; jj++) {
-	      if (ii == 2) {
-		printf("%d %d  %d %d %d %d %d\n", ii + 1, jj + 1, marker_ct, indiv_missing_unwt[ii], qq, *giptr, *giptr2);;
-	      }
 	      kk = qq - (*giptr++) + (*giptr2++);
 	      if (fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++) < 0) {
 		goto wdist_ret_WRITE_FAIL;
