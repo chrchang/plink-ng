@@ -167,6 +167,10 @@ const char species_mt_code[] = {26, -1, -1, -1, -1, -1, -1};
 const char species_max_code[] = {26, 31, 41, 33, 21, 12, 28};
 const unsigned long long species_haploid_mask[] = {}; // todo
 
+#define RECODE_12 1
+#define RECODE_1234 2
+#define RECODE_ACGT 3
+
 #define PEDBUFBASE 256
 
 #ifdef DEBUG
@@ -940,6 +944,14 @@ int disp_help(unsigned int param_ct, char** argv) {
 	       );
     help_print("missing-phenotype", &help_ctrl, 0,
 "  --missing-phenotype [val] : Numeric code for missing phenotype (normally -9).\n"
+	       );
+    help_print("output-missing-genotype", &help_ctrl, 0,
+"  --output-missing-genotype [c]  : Code for missing genotype when creating new\n"
+"                                   text fileset (--recode).\n"
+	       );
+    help_print("output-missing-phenotype", &help_ctrl, 0,
+"  --output-missing-phenotype [c] : Code for missing phenotype when creating new\n"
+"                                   fileset. (--make-bed/--recode)\n"
 	       );
     help_print("missing-code\tmissing_code", &help_ctrl, 0,
 "  --missing-code {vals}     : Comma-separated list of missing phenotype values,\n"
@@ -4645,7 +4657,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
     }
   }
   if (binary_files) {
-    if (freqname_0 || (calculation_type & (CALC_FREQ | CALC_REGRESS_PCS))) {
+    if (freqname_0 || (calculation_type & (CALC_FREQ | CALC_RECODE | CALC_REGRESS_PCS))) {
       *marker_alleles_ptr = (char*)wkspace_alloc(unfiltered_marker_ct * 2 * sizeof(char));
       if (!(*marker_alleles_ptr)) {
 	return RET_NOMEM;
@@ -6454,10 +6466,12 @@ void calc_marker_weights(double exponent, int unfiltered_marker_ct, unsigned lon
   }
 }
 
-int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** pedfile_ptr, unsigned long long* line_locs, unsigned long long* line_mids, int pedbuflen, FILE* mapfile, int map_cols, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* marker_alleles, char missing_geno) {
+int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** pedfile_ptr, unsigned long long* line_locs, unsigned long long* line_mids, int pedbuflen, FILE* mapfile, int map_cols, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* marker_alleles, char* person_ids, unsigned int max_person_id_len, char* paternal_ids, unsigned int max_paternal_id_len, char* maternal_ids, unsigned int max_maternal_id_len, unsigned char* sex_info, char* pheno_c, double* pheno_d, double missing_phenod, int output_missing_pheno) {
   unsigned int marker_ct4 = (marker_ct + 3) / 4;
   unsigned int indiv_ct4 = (indiv_ct + 3) / 4;
   unsigned char* wkspace_mark = wkspace_base;
+  int affection = (pheno_c != NULL);
+  int phenos_present = (affection || (pheno_d != NULL));
   unsigned int marker_uidx;
   unsigned int marker_idx;
   unsigned int indiv_uidx;
@@ -6500,17 +6514,22 @@ int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_
       if (fgets(loadbuf, pedbuflen, *pedfile_ptr) == NULL) {
 	return RET_READ_FAIL;
       }
-      bufptr = &(loadbuf[line_mids[indiv_uidx] - line_locs[indiv_uidx]]);
-      bufptr2 = bufptr - 2;
-      while ((*bufptr2 == ' ') || (*bufptr2 == '\t')) {
-	bufptr2--;
+      bufptr = tbuf;
+      bufptr2 = &(person_ids[indiv_uidx * max_person_id_len]);
+      bufptr += sprintf(tbuf, "%s %s %s %d ", bufptr2, paternal_ids? (&(paternal_ids[indiv_uidx * max_paternal_id_len])) : "0", maternal_ids? (&(maternal_ids[indiv_uidx * max_maternal_id_len])) : "0", sex_info? sex_info[indiv_uidx] : 0);
+      tbuf[strlen_se(bufptr2)] = ' ';
+      if (affection) {
+	cc = pheno_c[indiv_uidx];
+	sprintf(bufptr, "%d\n", (cc == -1)? output_missing_pheno : (cc + 1));
+      } else if ((!phenos_present) || (pheno_d[indiv_uidx] == missing_phenod)) {
+	sprintf(bufptr, "%d\n", output_missing_pheno);
+      } else {
+	sprintf(bufptr, "%g\n", pheno_d[indiv_uidx]);
       }
-      bufptr2[1] = '\n';
-      // note that if the .ped file is missing a few columns, the generated
-      // .fam will also be missing the same columns
-      if (fwrite_checked(loadbuf, 2 + (long)(bufptr2 - loadbuf), *famtmpfile_ptr)) {
+      if (fputs(tbuf, *famtmpfile_ptr) == EOF) {
 	return RET_WRITE_FAIL;
       }
+      bufptr = &(loadbuf[line_mids[indiv_uidx] - line_locs[indiv_uidx]]);
       marker_idx = 0;
       for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
         if (is_set(marker_exclude, marker_uidx)) {
@@ -6591,6 +6610,9 @@ int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_
       bufptr2 = bufptr - 2;
       while ((*bufptr2 == ' ') || (*bufptr2 == '\t')) {
 	bufptr2--;
+      }
+      cc = 0;
+      if (cc) {
       }
       bufptr2[1] = '\n';
       // note that if the .ped file is missing a few columns, the generated
@@ -6681,7 +6703,7 @@ int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_
     if (marker_alleles[2 * marker_uidx]) {
       *bufptr++ = marker_alleles[2 * marker_uidx];
     } else {
-      *bufptr++ = missing_geno;
+      *bufptr++ = '0';
     }
     *bufptr++ = '\t';
     *bufptr++ = marker_alleles[2 * marker_uidx + 1];
@@ -6702,10 +6724,12 @@ int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_
   return 0;
 }
 
-int make_bed(FILE* bedfile, int bed_offset, FILE* famfile, FILE* bimfile, FILE** bedoutfile_ptr, FILE** famoutfile_ptr, FILE** bimoutfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct) {
+int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, FILE** bedoutfile_ptr, FILE** famoutfile_ptr, FILE** bimoutfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* person_ids, unsigned int max_person_id_len, char* paternal_ids, unsigned int max_paternal_id_len, char* maternal_ids, unsigned int max_maternal_id_len, unsigned char* sex_info, char* pheno_c, double* pheno_d, double missing_phenod, int output_missing_pheno) {
   unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   unsigned int indiv_ct4 = (indiv_ct + 3) / 4;
   unsigned char* wkspace_mark = wkspace_base;
+  int affection = (pheno_c != NULL);
+  int phenos_present = (affection || (pheno_d != NULL));
   unsigned int marker_uidx;
   unsigned int marker_idx;
   unsigned int indiv_uidx;
@@ -6713,7 +6737,10 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* famfile, FILE* bimfile, FILE**
   unsigned int ii_mod4;
   unsigned char* loadbuf;
   unsigned char* writebuf;
+  char* bufptr;
+  char* cptr;
   unsigned char cc;
+  char cc2;
   unsigned int pct;
   unsigned int loop_end;
 
@@ -6787,19 +6814,25 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* famfile, FILE* bimfile, FILE**
   if (fopen_checked(famoutfile_ptr, outname, "w")) {
     return RET_OPEN_FAIL;
   }
-  rewind(famfile);
-  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-    do {
-      if (fgets(tbuf, MAXLINELEN, famfile) == NULL) {
-	return RET_READ_FAIL;
-      }
-    } while ((tbuf[0] <= ' ') || (tbuf[0] == '#'));
-    if (is_set(indiv_exclude, indiv_uidx)) {
-      continue;
+  indiv_uidx = 0;
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+    bufptr = tbuf;
+    cptr = &(person_ids[indiv_uidx * max_person_id_len]);
+    bufptr += sprintf(tbuf, "%s %s %s %d ", cptr, paternal_ids? (&(paternal_ids[indiv_uidx * max_paternal_id_len])) : "0", maternal_ids? (&(maternal_ids[indiv_uidx * max_maternal_id_len])) : "0", sex_info? sex_info[indiv_uidx] : 0);
+    tbuf[strlen_se(cptr)] = ' ';
+    if (affection) {
+      cc2 = pheno_c[indiv_uidx];
+      sprintf(bufptr, "%d\n", (cc2 == -1)? output_missing_pheno : (cc2 + 1));
+    } else if ((!phenos_present) || (pheno_d[indiv_uidx] == missing_phenod)) {
+      sprintf(bufptr, "%d\n", output_missing_pheno);
+    } else {
+      sprintf(bufptr, "%g\n", pheno_d[indiv_uidx]);
     }
     if (fputs(tbuf, *famoutfile_ptr) == EOF) {
       return RET_WRITE_FAIL;
     }
+    indiv_uidx++;
   }
   fclose_null(famoutfile_ptr);
 
@@ -6822,6 +6855,165 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* famfile, FILE* bimfile, FILE**
   fclose_null(bimoutfile_ptr);
 
   printf("\b\b\bdone.\n");
+  wkspace_reset(wkspace_mark);
+  return 0;
+}
+
+int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* bimfile, FILE** outfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* marker_alleles, char* person_ids, unsigned int max_person_id_len, char* paternal_ids, unsigned int max_paternal_id_len, char* maternal_ids, unsigned int max_maternal_id_len, unsigned char* sex_info, char* pheno_c, double* pheno_d, double missing_phenod, char output_missing_geno, int output_missing_pheno) {
+  unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  unsigned char* wkspace_mark = wkspace_base;
+  int affection = (pheno_c != NULL);
+  int phenos_present = (affection || (pheno_d != NULL));
+  unsigned int marker_uidx;
+  unsigned int marker_idx;
+  unsigned int indiv_uidx;
+  unsigned int indiv_idx;
+  unsigned char* loadbuf;
+  char* writebuf;
+  unsigned char* bufptr;
+  char* wbufptr;
+  char* cptr;
+  unsigned char cc;
+  char cc2;
+  unsigned int pct;
+  unsigned int loop_end;
+  unsigned long ulii;
+  unsigned int shiftval;
+  if (wkspace_alloc_c_checked(&writebuf, marker_ct * 4)) {
+    return RET_NOMEM;
+  }
+  if (fseeko(bedfile, bed_offset, SEEK_SET)) {
+    return RET_READ_FAIL;
+  }
+  strcpy(outname_end, ".ped");
+  printf("Writing new text fileset (--recode%s)...", (recode_modifier == RECODE_12)? "12" : "");
+  fflush(stdout);
+  marker_uidx = 0;
+  marker_idx = 0;
+  if ((long long)wkspace_left >= (long long)unfiltered_indiv_ct4 * marker_ct) {
+    if (fopen_checked(outfile_ptr, outname, "w")) {
+      return RET_OPEN_FAIL;
+    }
+    loadbuf = wkspace_base;
+    while (marker_idx < marker_ct) {
+      if (is_set(marker_exclude, marker_uidx)) {
+	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+	if (fseeko(bedfile, bed_offset + (marker_uidx * unfiltered_indiv_ct4), SEEK_SET)) {
+	  return RET_READ_FAIL;
+	}
+      }
+      if (unfiltered_marker_ct - marker_uidx > marker_ct - marker_idx) {
+	ulii = next_set_unsafe(marker_exclude, marker_uidx) - marker_uidx;
+      } else {
+	ulii = unfiltered_marker_ct - marker_uidx;
+      }
+      marker_uidx += ulii;
+      marker_idx += ulii;
+      ulii *= unfiltered_indiv_ct4;
+      if (fread(loadbuf, 1, ulii, bedfile) < ulii) {
+	return RET_READ_FAIL;
+      }
+      loadbuf = &(loadbuf[ulii]);
+    }
+    loadbuf = wkspace_base;
+    indiv_uidx = 0;
+    indiv_idx = 0;
+    memset(writebuf, 32, marker_ct * 4 - 1);
+    writebuf[marker_ct * 4 - 1] = '\n';
+    for (pct = 1; pct <= 100; pct++) {
+      loop_end = ((unsigned long long)pct * indiv_ct) / 100;
+      for (; indiv_idx < loop_end; indiv_idx++) {
+	indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+	cptr = &(person_ids[indiv_uidx * max_person_id_len]);
+	ulii = strlen_se(cptr);
+	if (fwrite_checked(cptr, ulii, *outfile_ptr)) {
+	  return RET_WRITE_FAIL;
+	}
+	if (fprintf(*outfile_ptr, " %s %s %s %d ", &(cptr[ulii + 1]), paternal_ids? (&(paternal_ids[indiv_uidx * max_paternal_id_len])) : "0", maternal_ids? (&(maternal_ids[indiv_uidx * max_maternal_id_len])) : "0", sex_info? sex_info[indiv_uidx] : 0) < 0) {
+	  return RET_WRITE_FAIL;
+	}
+	if (affection) {
+	  cc2 = pheno_c[indiv_uidx];
+	  if (fprintf(*outfile_ptr, "%d ", (cc2 == -1)? output_missing_pheno : (cc2 + 1)) < 0) {
+	    return RET_WRITE_FAIL;
+	  }
+	} else if ((!phenos_present) || (pheno_d[indiv_uidx] == missing_phenod)) {
+	  if (fprintf(*outfile_ptr, "%d ", output_missing_pheno) < 0) {
+	    return RET_WRITE_FAIL;
+	  }
+	} else {
+	  if (fprintf(*outfile_ptr, "%g ", pheno_d[indiv_uidx]) < 0) {
+	    return RET_WRITE_FAIL;
+	  }
+	}
+	bufptr = &(loadbuf[indiv_idx / 4]);
+	wbufptr = writebuf;
+	shiftval = (indiv_idx % 4) * 2;
+	marker_uidx = 0;
+	for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+	  cc = ((*bufptr) >> shiftval) & 3;
+	  if (cc) {
+	    if (cc == 2) {
+	      *wbufptr = marker_alleles[2 * marker_uidx];
+	      wbufptr[2] = marker_alleles[2 * marker_uidx + 1];
+	    } else if (cc == 3) {
+	      *wbufptr = marker_alleles[2 * marker_uidx + 1];
+	      wbufptr[2] = marker_alleles[2 * marker_uidx + 1];
+	    } else {
+	      *wbufptr = output_missing_geno;
+	      wbufptr[2] = output_missing_geno;
+	    }
+	  } else {
+	    *wbufptr = marker_alleles[2 * marker_uidx];
+	    wbufptr[2] = marker_alleles[2 * marker_uidx];
+	  }
+	  bufptr = &(bufptr[unfiltered_indiv_ct4]);
+	  wbufptr = &(wbufptr[4]);
+	  marker_uidx++;
+	}
+	if (fwrite_checked(writebuf, marker_ct * 4, *outfile_ptr)) {
+	  return RET_WRITE_FAIL;
+	}
+	indiv_uidx++;
+      }
+      if (pct < 100) {
+	if (pct > 10) {
+	  printf("\b\b\b%u%%", pct);
+	} else if (pct == 1) {
+	  printf(" 1%%");
+	} else {
+	  printf("\b\b%u%%", pct);
+	}
+	fflush(stdout);
+      }
+    }
+  } else {
+    printf("Error: --recode does not yet support very large .bed files.\n");
+    return RET_CALC_NOT_YET_SUPPORTED;
+  }
+  fclose_null(outfile_ptr);
+  strcpy(outname_end, ".map");
+  if (fopen_checked(outfile_ptr, outname, "w")) {
+    return RET_OPEN_FAIL;
+  }
+  rewind(bimfile);
+  for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+    do {
+      fgets(tbuf, MAXLINELEN, bimfile);
+    } while (tbuf[0] <= ' ');
+    if (is_set(marker_exclude, marker_uidx)) {
+      continue;
+    }
+    wbufptr = item_end(next_item_mult(tbuf, 3));
+    *wbufptr = '\n';
+    if (fwrite_checked(tbuf, 1 + (wbufptr - tbuf), *outfile_ptr)) {
+      return RET_WRITE_FAIL;
+    }
+  }
+  fclose_null(outfile_ptr);
+  printf("\b\b\bdone.\n");
+
   wkspace_reset(wkspace_mark);
   return 0;
 }
@@ -8658,7 +8850,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freqx, int distance_flat_missing) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, int output_missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freqx, int distance_flat_missing, int recode_modifier) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -9135,7 +9327,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   wkspace_reset(hwe_lls);
 
   if (!binary_files) {
-    retval = text_to_bed(&bedtmpfile, &famtmpfile, &bimtmpfile, &outfile, outname, outname_end, &pedfile, line_locs, line_mids, pedbuflen, mapfile, map_cols, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct, marker_alleles, missing_geno);
+    retval = text_to_bed(&bedtmpfile, &famtmpfile, &bimtmpfile, &outfile, outname, outname_end, &pedfile, line_locs, line_mids, pedbuflen, mapfile, map_cols, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct, marker_alleles, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, pheno_c, pheno_d, missing_phenod, output_missing_pheno);
+    if (missing_pheno != output_missing_pheno) {
+      // todo
+    }
     if (retval || (calculation_type == CALC_FREQ)) {
       goto wdist_ret_2;
     }
@@ -9212,13 +9407,16 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (binary_files && (calculation_type & CALC_MAKE_BED)) {
-    if ((unfiltered_marker_ct == marker_ct) && (unfiltered_indiv_ct == indiv_ct)) {
-      printf("Note: No markers or individuals filtered out.  Skipping --make-bed.\n");
-    } else {
-      retval = make_bed(pedfile, bed_offset, famfile, mapfile, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct);
-      if (retval) {
-	goto wdist_ret_2;
-      }
+    retval = make_bed(pedfile, bed_offset, mapfile, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, pheno_c, pheno_d, missing_phenod, output_missing_pheno);
+    if (retval) {
+      goto wdist_ret_2;
+    }
+  }
+
+  if (calculation_type & CALC_RECODE) {
+    retval = recode(recode_modifier, pedfile, bed_offset, mapfile, &outfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, indiv_ct, marker_alleles, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, pheno_c, pheno_d, missing_phenod, output_missing_geno, output_missing_pheno);
+    if (retval) {
+      goto wdist_ret_2;
     }
   }
 
@@ -10869,6 +11067,8 @@ int main(int argc, char** argv) {
   int prune = 0;
   int missing_pheno = -9;
   char missing_geno = '0';
+  int output_missing_pheno = -9;
+  char output_missing_geno = '0';
   double tail_bottom;
   double tail_top;
   int distance_3d = 0;
@@ -10913,6 +11113,7 @@ int main(int argc, char** argv) {
   int max_pcs = MAX_PCS_DEFAULT;
   int freqx = 0;
   int silent = 0;
+  int recode_modifier = 0;
   Chrom_info chrom_info;
   char* argptr2;
   int cur_arg_start;
@@ -11757,7 +11958,7 @@ int main(int argc, char** argv) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	missing_geno = argv[cur_arg + 1][0];
-	if ((strlen(argv[cur_arg + 1]) > 1) || (((unsigned char)missing_geno) <= ' ')) {
+	if ((argv[cur_arg + 1][1] != '\0') || (((unsigned char)missing_geno) <= ' ')) {
 	  printf("Error: Invalid --missing-genotype parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
@@ -12107,6 +12308,34 @@ int main(int argc, char** argv) {
 	}
 	strcpy(outname, argv[cur_arg + 1]);
 	cur_arg += 2;
+      } else if (!memcmp(argptr2, "utput-missing-genotype", 23)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (output_missing_geno != '0') {
+	  printf("Error: Duplicate --output-missing-genotype flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	output_missing_geno = argv[cur_arg + 1][0];
+	if ((argv[cur_arg + 1][1] != '\0') || (((unsigned char)output_missing_geno) <= ' ')) {
+	  printf("Error: Invalid --output-missing-genotype parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += 2;
+      } else if (!memcmp(argptr2, "utput-missing-phenotype", 24)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (output_missing_pheno != -9) {
+	  printf("Error: Duplicate --output-missing-phenotype flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	output_missing_pheno = atoi(argv[cur_arg + 1]);
+	if ((output_missing_pheno == 0) || (output_missing_pheno == 1)) {
+	  printf("Error: Invalid --output-missing-phenotype parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cur_arg += 2;
       }
       break;
 
@@ -12410,6 +12639,47 @@ int main(int argc, char** argv) {
 	}
 	strcpy(freqname, argv[cur_arg + 1]);
 	cur_arg += 1 + ii;
+      } else if (!memcmp(argptr2, "ecode", 6)) {
+	if (calculation_type & CALC_RECODE) {
+	  printf("Error: Duplicate --recode flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	for (jj = 1; jj <= ii; jj++) {
+	  if ((!memcmp(argv[cur_arg + jj], "allele", 6)) && (strlen(argv[cur_arg + jj]) == 10)) {
+	    if (!memcmp(&(argv[cur_arg + jj][6]), "1234", 4)) {
+	      if (recode_modifier == RECODE_ACGT) {
+		printf("Error: --recode 'allele1234' and 'alleleACGT' modifiers cannot coexist.%s", errstr_append);
+		return dispmsg(RET_INVALID_CMDLINE);
+	      }
+	      recode_modifier = RECODE_1234;
+	    } else if ((tolower(argv[cur_arg + jj][6]) == 'a') && (tolower(argv[cur_arg + jj][7] == 'c')) && (tolower(argv[cur_arg + jj][8]) == 'g') && (tolower(argv[cur_arg + jj][9]) == 't')) {
+	      if (recode_modifier == RECODE_1234) {
+		printf("Error: --recode 'allele1234' and '%s' modifiers cannot coexist.%s", argv[cur_arg + jj], errstr_append);
+		return dispmsg(RET_INVALID_CMDLINE);
+	      }
+	      recode_modifier = RECODE_ACGT;
+	    } else {
+	      printf("Error: Invalid --recode parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	  } else {
+	    printf("Error: Invalid --recode parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	}
+	calculation_type |= CALC_RECODE;
+	cur_arg += 1 + ii;
+      } else if (!memcmp(argptr2, "ecode12", 8)) {
+	if (calculation_type & CALC_RECODE) {
+	  printf("Error: Duplicate --recode/--recode12 flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	recode_modifier = RECODE_12;
+	calculation_type |= CALC_RECODE;
+	cur_arg++;
       }
       break;
 
@@ -12725,7 +12995,7 @@ int main(int argc, char** argv) {
       retval = wdist_dosage(calculation_type, genname, samplename, outname, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, thread_ct, parallel_idx, parallel_tot);
     }
   } else {
-    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freqx, distance_flat_missing);
+    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freqx, distance_flat_missing, recode_modifier);
   }
   free(wkspace_ua);
 #ifdef DEBUG
