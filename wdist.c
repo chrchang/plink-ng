@@ -12727,7 +12727,7 @@ int main(int argc, char** argv) {
 		return dispmsg(RET_INVALID_CMDLINE);
 	      }
 	      recode_modifier = RECODE_1234;
-	    } else if ((tolower(argv[cur_arg + jj][6]) == 'a') && (tolower(argv[cur_arg + jj][7] == 'c')) && (tolower(argv[cur_arg + jj][8]) == 'g') && (tolower(argv[cur_arg + jj][9]) == 't')) {
+	    } else if ((tolower(argv[cur_arg + jj][6]) == 'a') && (tolower(argv[cur_arg + jj][7]) == 'c') && (tolower(argv[cur_arg + jj][8]) == 'g') && (tolower(argv[cur_arg + jj][9]) == 't')) {
 	      if (recode_modifier == RECODE_1234) {
 		printf("Error: --recode 'allele1234' and '%s' modifiers cannot coexist.%s", argv[cur_arg + jj], errstr_append);
 		return dispmsg(RET_INVALID_CMDLINE);
