@@ -257,9 +257,9 @@ static inline void debug_log(char* ss) {
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST v0.13.3NL"
+  "WDIST v0.13.4NL"
 #else
-  "WDIST v0.13.3"
+  "WDIST v0.13.4"
 #endif
 #ifdef DEBUG
   "d"
@@ -269,7 +269,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (15 Nov 2012)    https://www.cog-genomics.org/wdist\n"
+  " (16 Nov 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -10013,11 +10013,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    giptr = indiv_missing_unwt;
 	    for (jj = 0; jj < ii; jj += 1) {
 	      kk = qq - (*giptr++) + (*giptr2++);
-	      if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++)) {
+	      if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%e\n", ii + 1, jj + 1, kk, *dist_ptr++)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
 	    }
-	    if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, qq, *dptr2++)) {
+	    if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%e\n", ii + 1, jj + 1, qq, *dptr2++)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
 	  }
@@ -10042,11 +10042,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    giptr = indiv_missing_unwt;
 	    for (jj = 0; jj < ii; jj++) {
 	      kk = qq - (*giptr++) + (*giptr2++);
-	      if (fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++) < 0) {
+	      if (fprintf(outfile, "%d\t%d\t%d\t%e\n", ii + 1, jj + 1, kk, *dist_ptr++) < 0) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
 	    }
-	    if (fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, qq, *dptr2++) < 0) {
+	    if (fprintf(outfile, "%d\t%d\t%d\t%e\n", ii + 1, jj + 1, qq, *dptr2++) < 0) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
 	  }
@@ -12723,7 +12723,7 @@ int main(int argc, char** argv) {
 	cur_arg += 1 + ii;
       } else if (!memcmp(argptr2, "ecode", 6)) {
 	if (calculation_type & CALC_RECODE) {
-	  printf("Error: Duplicate --recode flag.\n");
+	  printf("Error: Duplicate --recode/--recode12 flag.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
