@@ -6058,10 +6058,14 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
   int ii;
   int jj;
   char cc;
+  char cc2;
   char* bufptr;
   char* bufptr2;
   char* bufptr3;
   double maf;
+  int c_hom_a1;
+  int c_het;
+  int c_hom_a2;
   if (fopen_checked(freqfile_ptr, freqname, "r")) {
     return RET_OPEN_FAIL;
   }
@@ -6125,27 +6129,25 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
         if ((jj == get_marker_chrom(chrom_info_ptr, ii)) || (!jj) || (!get_marker_chrom(chrom_info_ptr, ii))) {
           cc = *bufptr2;
           bufptr2 = next_item(bufptr2);
-	  if (cc == *bufptr2) {
+	  cc2 = *bufptr2;
+	  if (cc == cc2) {
 	    goto read_external_freqs_ret_INVALID_FORMAT;
 	  }
-          bufptr = next_item(bufptr2);
-          if (no_more_items(bufptr)) {
-            goto read_external_freqs_ret_INVALID_FORMAT;
-          }
-          if (sscanf(bufptr, "%lg", &maf) != 1) {
-            goto read_external_freqs_ret_INVALID_FORMAT;
-          }
-	  if (load_one_freq(cc, *bufptr2, maf, &(set_allele_freqs[ii]), binary_files? (&(marker_alleles[ii * 2])) : (&(marker_alleles[ii * 4])), binary_files? NULL : (&(marker_allele_cts[ii * 4])), missing_geno)) {
+	  bufptr = next_item_mult(bufptr2, 2);
+	  bufptr2 = next_item(bufptr);
+	  bufptr3 = next_item(bufptr2);
+	  if (no_more_items(bufptr3)) {
+	    goto read_external_freqs_ret_INVALID_FORMAT;
+	  }
+	  c_hom_a1 = atoi(bufptr);
+	  c_het = atoi(bufptr2);
+	  c_hom_a2 = atoi(bufptr3);
+	  maf = ((double)(c_hom_a1 * 2 + c_het)) / ((double)(2 * (c_hom_a1 + c_het + c_hom_a2))) ;
+	  if (load_one_freq(cc, cc2, maf, &(set_allele_freqs[ii]), binary_files? (&(marker_alleles[ii * 2])) : (&(marker_alleles[ii * 4])), binary_files? NULL : (&(marker_allele_cts[ii * 4])), missing_geno)) {
 	    goto read_external_freqs_ret_ALLELE_MISMATCH;
 	  }
 	  if (wt_needed) {
-	    bufptr = next_item(bufptr);
-	    bufptr2 = next_item(bufptr);
-	    bufptr3 = next_item(bufptr2);
-	    if (no_more_items(bufptr3)) {
-	      goto read_external_freqs_ret_INVALID_FORMAT;
-	    }
-	    marker_weights[ii] = calc_wt_mean(exponent, atoi(bufptr2), atoi(bufptr), atoi(bufptr3));
+	    marker_weights[ii] = calc_wt_mean(exponent, c_het, c_hom_a1, c_hom_a2);
 	  }
         }
       }
