@@ -253,9 +253,9 @@ static inline void debug_log(char* ss) {
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST v0.13.2NL"
+  "WDIST v0.13.3NL"
 #else
-  "WDIST v0.13.2"
+  "WDIST v0.13.3"
 #endif
 #ifdef DEBUG
   "d"
@@ -265,7 +265,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (14 Nov 2012)    https://www.cog-genomics.org/wdist\n"
+  " (15 Nov 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -689,6 +689,17 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    Writes a .snplist file listing the names of all SNPs that pass the filters\n"
 "    and inclusion thresholds you've specified.\n\n"
 	       );
+    help_print("make-bed", &help_ctrl, 1,
+"  --make-bed\n"
+"    Creates a new binary fileset with all filters applied.\n"
+	       );
+    help_print("recode\trecode12", &help_ctrl, 1,
+"  --recode <allele1234 | alleleACGT>\n"
+"  --recode12\n"
+"    Creates a new text fileset with all filters applied.  --recode12 codes all\n"
+"    alleles as 1s or 2s.  With --recode, the 'allele1234' and 'alleleACGT'\n"
+"    modifiers convert A/C/G/T to 1/2/3/4 or vice versa.\n\n"
+	       );
     help_print("help\t{flag names}", &help_ctrl, 1,
 "  --help {flag names...}\n"
 "    Describes WDIST functionality.  {flag names...} is a list of flag names or\n"
@@ -720,9 +731,6 @@ int disp_help(unsigned int param_ct, char** argv) {
 	       );
     help_print("map", &help_ctrl, 0,
 "  --map [filename] : Specify full name of .map file.\n"
-	       );
-    help_print("make-bed", &help_ctrl, 0,
-"  --make-bed       : Create a new binary fileset with all filters applied.\n"
 	       );
     help_print("no-fid", &help_ctrl, 0,
 "  --no-fid         : .fam/.ped file does not contain column 1 (family ID).\n"
@@ -9563,6 +9571,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	dptr2 = rel_dists; // read
 	dptr3 = rel_ibc; // write
 	dptr4 = rel_ibc; // read
+	giptr = missing_dbl_excluded; // write
+	giptr2 = missing_dbl_excluded; // read
 	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
 	  if (iptr[indiv_idx] != -1) {
 	    if (calculation_type & CALC_IBC) {
@@ -9575,13 +9585,17 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      if (iptr[uii] != -1) {
 		*dist_ptr = *dptr2++;
 		dist_ptr++;
+		*giptr = *giptr2++;
+		giptr++;
 	      } else {
 		dptr2++;
+		giptr2++;
 	      }
 	    }
 	  } else {
 	    dptr4++;
 	    dptr2 = &(dptr2[indiv_idx]);
+	    giptr2 = &(giptr2[indiv_idx]);
 	  }
 	}
 	indiv_ct -= ii;
@@ -9593,23 +9607,19 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
 	    *dptr3++ = *dptr4++;
 	  }
-	  giptr = indiv_missing_unwt;
-	  giptr2 = indiv_missing_unwt;
-	  for (indiv_idx = 0; indiv_idx < indiv_ct + ii; indiv_idx++) {
-	    if (iptr[indiv_idx] != -1) {
-	      *giptr = *giptr2++;
-	      giptr++;
-	    } else {
-	      giptr2++;
-	    }
+	}
+	giptr = indiv_missing_unwt;
+	giptr2 = indiv_missing_unwt;
+	for (indiv_idx = 0; indiv_idx < indiv_ct + ii; indiv_idx++) {
+	  if (iptr[indiv_idx] != -1) {
+	    *giptr = *giptr2++;
+	    giptr++;
+	  } else {
+	    giptr2++;
 	  }
 	}
       }
-      if (ii == 1) {
-	printf("1 individual excluded by --rel-cutoff.\n");
-      } else {
-	printf("%d individuals excluded by --rel-cutoff.\n", ii);
-      }
+      printf("%d individual%s excluded by --rel-cutoff.\n", ii, (ii == 1)? "" : "s");
     }
 
     if (calculation_type & CALC_IBC) {
@@ -9717,14 +9727,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      printf("\rWriting... %d%%", mm++);
 	      fflush(stdout);
 	    }
+	    qq = marker_ct - indiv_missing_unwt[ii];
+	    giptr = indiv_missing_unwt;
 	    for (jj = 0; jj < ii; jj += 1) {
-	      kk = marker_ct - *giptr2++;
+	      kk = qq - (*giptr++) + (*giptr2++);
 	      if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
 	    }
-	    kk = marker_ct - indiv_missing_unwt[ii];
-	    if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dptr2++)) {
+	    if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, qq, *dptr2++)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
 	  }
@@ -9745,14 +9756,18 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      printf("\rWriting... %d%%", mm++);
 	      fflush(stdout);
 	    }
+	    qq = marker_ct - indiv_missing_unwt[ii];
+	    giptr = indiv_missing_unwt;
 	    for (jj = 0; jj < ii; jj++) {
-	      kk = marker_ct - *giptr2++;
+	      if (ii == 2) {
+		printf("%d %d  %d %d %d %d %d\n", ii + 1, jj + 1, marker_ct, indiv_missing_unwt[ii], qq, *giptr, *giptr2);;
+	      }
+	      kk = qq - (*giptr++) + (*giptr2++);
 	      if (fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dist_ptr++) < 0) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
 	    }
-	    kk = marker_ct - indiv_missing_unwt[ii];
-	    if (fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, kk, *dptr2++) < 0) {
+	    if (fprintf(outfile, "%d\t%d\t%d\t%g\n", ii + 1, jj + 1, qq, *dptr2++) < 0) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
 	  }
