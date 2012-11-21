@@ -269,7 +269,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (16 Nov 2012)    https://www.cog-genomics.org/wdist\n"
+  " (21 Nov 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
