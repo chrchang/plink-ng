@@ -458,7 +458,9 @@ void* incr_distance_dosage_2d_01_thread(void* arg) {
 void incr_distance_dosage_2d(double* distance_matrix_slice, double* distance_wt_matrix_slice, int thread_idx) {
 #if __LP64__
   // take absolute value = force sign bit to zero
-  const __m128d absmask = (__m128d){0x7fffffffffffffffLU, 0x7fffffffffffffffLU};
+  const __m128i absmask_raw = {0x7fffffffffffffffLU, 0x7fffffffffffffffLU};
+  __m128d* absmask_ptr = (__m128d*)(&absmask_raw);
+  __m128d absmask = *absmask_ptr;
   __m128d* dptr_start;
   __m128d* dptr_end;
   __m128d* dptr;
@@ -882,7 +884,6 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   unsigned int indiv_uidx;
   unsigned int indiv_idx;
   unsigned int uii;
-  unsigned int ujj;
   unsigned int subloop_end;
   double* cur_nonmissings;
   double marker_wt;
@@ -1023,21 +1024,18 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
 	return RET_NOMEM;
       }
       dxx = 0.0;
-      ujj = indiv_ct - 1;
+      uii = indiv_ct - 1;
       dyy = ref_freq_denom * 0.5;
       missing_wt = 0.0;
-      for (uii = 0; uii < ujj; uii++) {
-	dxx += cur_nonmissings[uii];
-	missing_wt += (cur_marker_freqs[uii + 1] - cur_marker_freqs[uii]) * dxx * (dyy - dxx);
+      for (indiv_idx = 0; indiv_idx < uii; indiv_idx++) {
+	dxx += cur_nonmissings[indiv_idx];
+	missing_wt += (cur_marker_freqs[indiv_idx + 1] - cur_marker_freqs[indiv_idx]) * dxx * (dyy - dxx);
       }
       missing_wt *= 2.0 / (dyy * dyy);
-      for (uii = 0; uii < indiv_ct; uii++) {
-	nonmissing_vals[uii * MULTIPLEX_DOSAGE_NM + marker_idxl] *= missing_wt;
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	nonmissing_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl] *= missing_wt;
       }
     }
-    // if (!unfiltered_marker_ct) {
-    //   printf("%g %g %g\n", );
-    // }
     tot_missing_wt += missing_wt;
 
     unfiltered_marker_ct++;
