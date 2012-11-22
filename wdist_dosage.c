@@ -385,6 +385,7 @@ static unsigned long* missing_vals; // bit array marking missing values
 // If missingness is continuous
 static double* nonmissing_vals;
 
+// assumes BITCT >= MULTIPLEX_DOSAGE_NM
 static double missing_wts[BITCT]; // missingness rescale weights
 static double* missing_dmasks; // 0x7fff... if non-missing, 0x0000... otherwise
 
@@ -455,7 +456,7 @@ void* incr_distance_dosage_2d_01_thread(void* arg) {
   return NULL;
 }
 
-void incr_distance_dosage_2d(double* distance_matrix_slice, double* distance_wt_matrix_slice, int thread_idx) {
+void incr_distance_dosage_2d_flat(double* distance_matrix_slice, double* distance_wt_matrix_slice, int thread_idx) {
 #if __LP64__
   // take absolute value = force sign bit to zero
   const __m128i absmask_raw = {0x7fffffffffffffffLU, 0x7fffffffffffffffLU};
@@ -497,6 +498,71 @@ void incr_distance_dosage_2d(double* distance_matrix_slice, double* distance_wt_
 	cur_nonmissing_wts = _mm_mul_pd(*mptr++, *mptr2++);
 	acc.vd = _mm_add_pd(acc.vd, _mm_mul_pd(cur_nonmissing_wts, _mm_and_pd(absmask, _mm_sub_pd(*dptr++, *dptr2++))));
 	accm.vd = _mm_add_pd(accm.vd, cur_nonmissing_wts);
+      } while (dptr != dptr_end);
+      *distance_matrix_slice += acc.d8[0] + acc.d8[1];
+      *distance_wt_matrix_slice += accm.d8[0] + accm.d8[1];
+#else
+      // TBD
+#endif
+      *distance_matrix_slice++;
+      *distance_wt_matrix_slice++;
+    }
+  }
+}
+
+void* incr_distance_dosage_2d_flat_thread(void* arg) {
+  long tidx = (long)arg;
+  int ts = thread_start[tidx];
+  int ts0 = thread_start[0];
+  long long offset = ((long long)ts * (ts - 1) - (long long)ts0 * (ts0 - 1)) / 2;
+  incr_distance_dosage_2d_flat(&(distance_matrix[offset]), &(distance_wt_matrix[offset]), (int)tidx);
+  return NULL;
+}
+
+void incr_distance_dosage_2d(double* distance_matrix_slice, double* distance_wt_matrix_slice, int thread_idx) {
+#if __LP64__
+  // take absolute value = force sign bit to zero
+  const __m128i absmask_raw = {0x7fffffffffffffffLU, 0x7fffffffffffffffLU};
+  __m128d* absmask_ptr = (__m128d*)(&absmask_raw);
+  __m128d absmask = *absmask_ptr;
+  __m128d* dptr_start;
+  __m128d* dptr_end;
+  __m128d* dptr;
+  __m128d* dptr2;
+  __m128d* mptr_start;
+  __m128d* mptr;
+  __m128d* mptr2;
+  __m128d* mwptr;
+  __m128d cur_nonmissing_wts;
+  __uni16 acc;
+  __uni16 accm;
+#else
+#endif
+  unsigned long ulii;
+  unsigned long uljj;
+  for (ulii = thread_start[thread_idx]; ulii < thread_start[thread_idx + 1]; ulii++) {
+#if __LP64__
+    dptr_start = (__m128d*)(&(dosage_vals[ulii * MULTIPLEX_DOSAGE_NM]));
+    dptr_end = &(dptr_start[MULTIPLEX_DOSAGE_NM / 2]);
+    dptr2 = (__m128d*)dosage_vals;
+    mptr2 = (__m128d*)nonmissing_vals;
+#else
+#endif
+#if __LP64__
+    mptr_start = (__m128d*)(&(nonmissing_vals[ulii * MULTIPLEX_DOSAGE_NM]));
+#else
+#endif
+    for (uljj = 0; uljj < ulii; uljj++) {
+#if __LP64__
+      dptr = dptr_start;
+      mptr = mptr_start;
+      mwptr = (__m128d*)missing_wts;
+      acc.vd = _mm_setzero_pd();
+      accm.vd = _mm_setzero_pd();
+      do {
+	cur_nonmissing_wts = _mm_mul_pd(*mptr++, *mptr2++);
+	acc.vd = _mm_add_pd(acc.vd, _mm_mul_pd(cur_nonmissing_wts, _mm_and_pd(absmask, _mm_sub_pd(*dptr++, *dptr2++))));
+	accm.vd = _mm_add_pd(accm.vd, _mm_mul_pd(*mwptr++, cur_nonmissing_wts));
       } while (dptr != dptr_end);
       *distance_matrix_slice += acc.d8[0] + acc.d8[1];
       *distance_wt_matrix_slice += accm.d8[0] + accm.d8[1];
@@ -565,6 +631,18 @@ int update_distance_dosage_matrix(int is_missing_01, int distance_3d, int distan
       }
       thread_idx = 0;
       incr_distance_dosage_2d_01_thread((void*)thread_idx);
+    } else if (distance_flat_missing) {
+      for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
+	if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_distance_dosage_2d_flat_thread, (void*)thread_idx)) {
+	  printf(errstr_thread_create);
+	  while (--thread_idx) {
+	    pthread_join(threads[thread_idx - 1], NULL);
+	  }
+	  return RET_THREAD_CREATE_FAIL;
+	}
+      }
+      thread_idx = 0;
+      incr_distance_dosage_2d_flat_thread((void*)thread_idx);
     } else {
       for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
 	if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_distance_dosage_2d_thread, (void*)thread_idx)) {
@@ -881,6 +959,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   double pone;
   double ptwo;
   unsigned long ulii;
+  unsigned long uljj;
   unsigned int indiv_uidx;
   unsigned int indiv_idx;
   unsigned int uii;
@@ -1032,9 +1111,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
 	missing_wt += (cur_marker_freqs[indiv_idx + 1] - cur_marker_freqs[indiv_idx]) * dxx * (dyy - dxx);
       }
       missing_wt *= 2.0 / (dyy * dyy);
-      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-	nonmissing_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl] *= missing_wt;
-      }
+      missing_wts[marker_idxl] = missing_wt;
     }
     tot_missing_wt += missing_wt;
 
@@ -1078,6 +1155,13 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
   *marker_ct_ptr = marker_ct;
   *gen_buf_len_ptr = gen_buf_len;
+
+  uljj = (((unsigned long)indiv_ct) * (indiv_ct - 1)) / 2;
+  dxx = tot_missing_wt;
+  for (ulii = 0; ulii < uljj; ulii++) {
+    distance_matrix[ulii] *= dxx / distance_wt_matrix[ulii];
+  }
+
   wkspace_reset(wkspace_mark);
   *set_allele_freqs_ptr = (double*)wkspace_alloc(unfiltered_marker_ct * sizeof(double));
   if (wkspace_alloc_ul_checked(marker_exclude_ptr, unfiltered_marker_ctl * sizeof(long))) {
@@ -1091,9 +1175,6 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
     } else {
       (*set_allele_freqs_ptr)[marker_idxl] = dxx;
     }
-  }
-  if (distance_flat_missing) {
-    tot_missing_wt = (double)marker_ct;
   }
 
   printf("\rDistance matrix calculation complete.\n");
