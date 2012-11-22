@@ -1099,7 +1099,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
     }
 
     if (!distance_flat_missing) {
-      if (qsort_ext((char*)cur_marker_freqs, indiv_ct, sizeof(double), double_cmp, (char*)cur_nonmissings, sizeof(double))) {
+      if (qsort_ext((char*)cur_marker_freqs, indiv_ct, sizeof(double), double_cmp_deref, (char*)cur_nonmissings, sizeof(double))) {
 	return RET_NOMEM;
       }
       dxx = 0.0;
@@ -1225,7 +1225,7 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
   if (fopen_checked(&genfile, genname, "r")) {
     return RET_OPEN_FAIL;
   }
-  if (0) {
+  if (0) { // enable this if filters are requested
     retval = oxford_gen_load1(genfile, &gen_buf_len, &unfiltered_marker_ct, &set_allele_freqs, &is_missing_01, unfiltered_indiv_ct, maf_succ);
     if (retval) {
       goto wdist_dosage_ret_1;

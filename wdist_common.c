@@ -265,6 +265,17 @@ int double_cmp(const void* aa, const void* bb) {
   }
 }
 
+int double_cmp_deref(const void* aa, const void* bb) {
+  double cc = **((const double**)aa) - **((const double**)bb);
+  if (cc > 0.0) {
+    return 1;
+  } else if (cc < 0.0) {
+    return -1;
+  } else {
+    return 0;
+  }
+}
+
 // alas, qsort_r not available on some Linux distributions
 
 // This actually tends to be faster than just sorting an array of indices,
@@ -273,8 +284,9 @@ int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_
   // main_arr = packed array of equal-length items to sort
   // arr_length = number of items
   // item_length = byte count of each main_arr item
-  // comparator_deref = returns positive if first > second, 0 if equal,
-  //                    negative if first < second
+  // comparator_deref = returns positive if *first > *second, 0 if equal,
+  //                    negative if *first < *second.  Note the extra
+  //                    dereference.
   // secondary_arr = packed array of fixed-length records associated with the
   //                 main_arr items, to be resorted in the same way.  (e.g.
   //                 if one is building an index, this could start as a sorted
