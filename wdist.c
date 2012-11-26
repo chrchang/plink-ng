@@ -1825,12 +1825,11 @@ static unsigned int g_indiv_ct;
 static unsigned int g_thread_ct;
 static double* g_rel_dists = NULL;
 static unsigned int* g_missing_dbl_excluded = NULL;
-static int* idists;
-static double* dists = NULL;
-static char* pheno_c = NULL;
-static double* pheno_d = NULL;
+static int* g_idists;
+static double* g_dists = NULL;
+static char* g_pheno_c = NULL;
+static double* g_pheno_d = NULL;
 static unsigned char* ped_geno = NULL;
-static unsigned long* geno = NULL;
 static unsigned long* glptr;
 static double weights[2048 * BITCT];
 static unsigned int* weights_i = (unsigned int*)weights;
@@ -2622,7 +2621,7 @@ void* calc_idist_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
   int jj = thread_start[0];
-  incr_dists_i(&(idists[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
+  incr_dists_i(&(g_idists[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
   return NULL;
 }
 
@@ -3084,7 +3083,7 @@ void* calc_dist_thread(void* arg) {
   long tidx = (long)arg;
   int ii = thread_start[tidx];
   int jj = thread_start[0];
-  incr_dists(&(dists[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
+  incr_dists(&(g_dists[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (unsigned long*)ped_geno, (int)tidx);
   return NULL;
 }
 
@@ -3253,7 +3252,7 @@ void groupdist_jack(int* ibuf, double* returns) {
   int* iptr = ibuf;
   int* jptr;
   unsigned int indiv_idx;
-  double* dptr = dists;
+  double* dptr = g_dists;
   char* cptr;
   char* cptr2;
   char cc;
@@ -3265,14 +3264,14 @@ void groupdist_jack(int* ibuf, double* returns) {
   int neg_u = 0;
   double dxx;
   for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-    cc = pheno_c[indiv_idx];
+    cc = g_pheno_c[indiv_idx];
     if (cc == -1) {
       continue;
     }
-    dptr = &(dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2]);
+    dptr = &(g_dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2]);
     if (indiv_idx == (unsigned int)(*iptr)) {
-      cptr = pheno_c;
-      cptr2 = &(pheno_c[indiv_idx]);
+      cptr = g_pheno_c;
+      cptr2 = &(g_pheno_c[indiv_idx]);
       if (cc) {
         neg_a++;
         while (cptr < cptr2) {
@@ -3300,7 +3299,7 @@ void groupdist_jack(int* ibuf, double* returns) {
     } else {
       jptr = ibuf;
       while (jptr < iptr) {
-        cc2 = pheno_c[*jptr];
+        cc2 = g_pheno_c[*jptr];
         dxx = dptr[*jptr];
 	if ((cc == 1) && (cc2 == 1)) {
 	  neg_tot_aa += dxx;
@@ -3323,7 +3322,7 @@ void small_remap(int* ibuf, unsigned int ct, unsigned int dd) {
   int missings = 0;
   int curpos = 0;
   do {
-    if (pheno_c[curpos] == -1) {
+    if (g_pheno_c[curpos] == -1) {
       missings++;
     } else if (*ibuf == curpos - missings) {
       *ibuf++ = curpos;
@@ -3482,7 +3481,7 @@ int regress_rel_main(unsigned long* indiv_exclude, unsigned int indiv_ct, unsign
   if (!pheno_packed) {
     return RET_NOMEM;
   }
-  collapse_copy_phenod(pheno_packed, pheno_d, indiv_exclude, indiv_ct);
+  collapse_copy_phenod(pheno_packed, g_pheno_d, indiv_exclude, indiv_ct);
   print_pheno_stdev(pheno_packed, indiv_ct);
   trimatrix_size = ((unsigned long)indiv_ct * (indiv_ct - 1)) / 2;
   reg_tot_xy = 0.0;
@@ -8202,10 +8201,10 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
       }
 
       sptr_cur += sprintf(sptr_cur, "  %1.4f  %1.4f  %1.4f  %1.4f  ", dxx, dyy, dxx1, dyy * 0.5 + dxx1);
-      if (pheno_c) {
-	if ((pheno_c[ii] != 1) && (pheno_c[ujj] != 1)) {
+      if (g_pheno_c) {
+	if ((g_pheno_c[ii] != 1) && (g_pheno_c[ujj] != 1)) {
 	  memcpy(sptr_cur, "-1", 2);
-	} else if ((pheno_c[ii] == 1) && (pheno_c[ujj] == 1)) {
+	} else if ((g_pheno_c[ii] == 1) && (g_pheno_c[ujj] == 1)) {
 	  memcpy(sptr_cur, " 1", 2);
 	} else {
 	  memcpy(sptr_cur, " 0", 2);
@@ -8451,6 +8450,7 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
   int indiv_trail_ct = indiv_ct_mld_long - indiv_ctbit * 2;
   int retval = 0;
   unsigned char* wkspace_mark = wkspace_base;
+  unsigned long* geno = NULL;
   unsigned long* pruned_arr;
   unsigned int* live_indices;
   unsigned int* start_arr;
@@ -9130,7 +9130,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   if (ii && phenofile) {
     ii = pheno_merge && (!makepheno_str);
   }
-  retval = load_fam(binary_files? famfile : pedfile, ulii, fam_col_1, fam_col_34, fam_col_5, ii, fam_col_6, missing_pheno, missing_pheno_len, affection_01, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_info, &affection, &pheno_c, &pheno_d, &founder_info, &indiv_exclude, binary_files, &line_locs, &line_mids, &pedbuflen);
+  retval = load_fam(binary_files? famfile : pedfile, ulii, fam_col_1, fam_col_34, fam_col_5, ii, fam_col_6, missing_pheno, missing_pheno_len, affection_01, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_info, &affection, &g_pheno_c, &g_pheno_d, &founder_info, &indiv_exclude, binary_files, &line_locs, &line_mids, &pedbuflen);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -9151,18 +9151,18 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
 
     if (makepheno_str) {
-      retval = makepheno_load(phenofile, makepheno_str, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, iptr, &pheno_c);
+      retval = makepheno_load(phenofile, makepheno_str, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, iptr, &g_pheno_c);
       if (retval) {
 	goto wdist_ret_2;
       }
     } else if (phenofile) {
-      retval = load_pheno(phenofile, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, iptr, missing_pheno, missing_pheno_len, affection_01, mpheno_col, phenoname_str, &pheno_c, &pheno_d);
+      retval = load_pheno(phenofile, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, iptr, missing_pheno, missing_pheno_len, affection_01, mpheno_col, phenoname_str, &g_pheno_c, &g_pheno_d);
       if (retval) {
 	goto wdist_ret_2;
       }
     }
     if (tail_pheno) {
-      retval = convert_tail_pheno(unfiltered_indiv_ct, &pheno_c, &pheno_d, tail_bottom, tail_top, missing_phenod);
+      retval = convert_tail_pheno(unfiltered_indiv_ct, &g_pheno_c, &g_pheno_d, tail_bottom, tail_top, missing_phenod);
       if (retval) {
 	goto wdist_ret_2;
       }
@@ -9170,22 +9170,22 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     wkspace_reset(wkspace_mark);
   }
 
-  if ((calculation_type & CALC_GROUPDIST) && (!pheno_c)) {
+  if ((calculation_type & CALC_GROUPDIST) && (!g_pheno_c)) {
     printf("Error: --groupdist calculation requires binary phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
-  } else if ((calculation_type & CALC_REGRESS_DISTANCE) && (!pheno_d)) {
+  } else if ((calculation_type & CALC_REGRESS_DISTANCE) && (!g_pheno_d)) {
     printf("Error: --regress-distance calculation requires scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
-  } else if ((calculation_type & CALC_UNRELATED_HERITABILITY) && (!pheno_d)) {
+  } else if ((calculation_type & CALC_UNRELATED_HERITABILITY) && (!g_pheno_d)) {
     printf("Error: --unrelated-heritability requires scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
-  } else if ((calculation_type & CALC_REGRESS_PCS) && (!pheno_d)) {
+  } else if ((calculation_type & CALC_REGRESS_PCS) && (!g_pheno_d)) {
     printf("Error: --regress-pcs requires scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
   }
 
   if (prune) {
-    prune_missing_phenos(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, pheno_c, pheno_d, missing_phenod);
+    prune_missing_phenos(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, g_pheno_c, g_pheno_d, missing_phenod);
   }
 
   if (extractname[0] || excludename[0]) {
@@ -9244,12 +9244,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (filter_case_control) {
-    if (!pheno_c) {
+    if (!g_pheno_c) {
       printf("Error: --filter-cases/--filter-controls requires binary phenotype.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
     ii = indiv_exclude_ct;
-    if (filter_indivs_var(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, pheno_c, NULL, 2 - filter_case_control)) {
+    if (filter_indivs_var(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, g_pheno_c, NULL, 2 - filter_case_control)) {
       goto wdist_ret_NOMEM;
     }
     ii = indiv_exclude_ct - ii;
@@ -9341,7 +9341,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   // major/minor allele
   nonfounders = (nonfounders || (!fam_col_34));
   wt_needed = distance_wt_req(calculation_type) && (!distance_flat_missing);
-  retval = calc_freqs_and_binary_hwe(pedfile, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_alleles, &marker_allele_cts, &missing_cts, bed_offset, line_mids, pedbuflen, (unsigned char)missing_geno, hwe_all, pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &ll_cts, &lh_cts, &hh_cts, wt_needed, &marker_weights_base, &marker_weights);
+  retval = calc_freqs_and_binary_hwe(pedfile, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_alleles, &marker_allele_cts, &missing_cts, bed_offset, line_mids, pedbuflen, (unsigned char)missing_geno, hwe_all, g_pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &ll_cts, &lh_cts, &hh_cts, wt_needed, &marker_weights_base, &marker_weights);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -9355,7 +9355,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     text_normalize_marker_alleles(marker_alleles, unfiltered_marker_ct, marker_exclude);
     // now marker_alleles[2 * ii + 1] is the set allele, just like binary case.
     // however, marker COUNTS are not normalized.
-    retval = text_load_hwe(pedfile, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, founder_info, nonfounders, marker_alleles, line_mids, pedbuflen, hwe_all, pheno_c, hwe_lls, hwe_lhs, hwe_hhs, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, ll_cts, lh_cts, hh_cts);
+    retval = text_load_hwe(pedfile, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, founder_info, nonfounders, marker_alleles, line_mids, pedbuflen, hwe_all, g_pheno_c, hwe_lls, hwe_lhs, hwe_hhs, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, ll_cts, lh_cts, hh_cts);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -9390,7 +9390,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (!het_probs) {
       goto wdist_ret_NOMEM;
     }
-    enforce_hwe_threshold(hwe_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, hwe_lls, hwe_lhs, hwe_hhs, hwe_all || (!pheno_c), hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs);
+    enforce_hwe_threshold(hwe_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, hwe_lls, hwe_lhs, hwe_hhs, hwe_all || (!g_pheno_c), hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs);
     free(het_probs);
     het_probs = NULL;
   }
@@ -9409,7 +9409,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   wkspace_reset(hwe_lls);
 
   if (!binary_files) {
-    retval = text_to_bed(&bedtmpfile, &famtmpfile, &bimtmpfile, &outfile, outname, outname_end, &pedfile, line_locs, line_mids, pedbuflen, mapfile, map_cols, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_alleles, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, pheno_c, pheno_d, missing_phenod, output_missing_pheno);
+    retval = text_to_bed(&bedtmpfile, &famtmpfile, &bimtmpfile, &outfile, outname, outname_end, &pedfile, line_locs, line_mids, pedbuflen, mapfile, map_cols, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_alleles, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_pheno);
     if (missing_pheno != output_missing_pheno) {
       // todo
     }
@@ -9418,10 +9418,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     // if this becomes much more of a maintenance nightmare, consider exiting
     // function and reloading from .bed from scratch
-    if (pheno_c) {
-      collapse_arr(pheno_c, sizeof(char), indiv_exclude, unfiltered_indiv_ct);
-    } else if (pheno_d) {
-      collapse_arr((char*)pheno_d, sizeof(double), indiv_exclude, unfiltered_indiv_ct);
+    if (g_pheno_c) {
+      collapse_arr(g_pheno_c, sizeof(char), indiv_exclude, unfiltered_indiv_ct);
+    } else if (g_pheno_d) {
+      collapse_arr((char*)g_pheno_d, sizeof(double), indiv_exclude, unfiltered_indiv_ct);
     }
     if (sex_info) {
       collapse_arr((char*)sex_info, sizeof(char), indiv_exclude, unfiltered_indiv_ct);
@@ -9489,14 +9489,14 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (binary_files && (calculation_type & CALC_MAKE_BED)) {
-    retval = make_bed(pedfile, bed_offset, mapfile, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, pheno_c, pheno_d, missing_phenod, output_missing_pheno);
+    retval = make_bed(pedfile, bed_offset, mapfile, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_pheno);
     if (retval) {
       goto wdist_ret_2;
     }
   }
 
   if (calculation_type & CALC_RECODE) {
-    retval = recode(recode_modifier, pedfile, bed_offset, mapfile, &outfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_alleles, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, pheno_c, pheno_d, missing_phenod, output_missing_geno, output_missing_pheno, binary_files, set_allele_freqs);
+    retval = recode(recode_modifier, pedfile, bed_offset, mapfile, &outfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_alleles, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_geno, output_missing_pheno, binary_files, set_allele_freqs);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -9511,7 +9511,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (calculation_type & CALC_REGRESS_PCS) {
     // do this before marker_alleles is overwritten in memory...
-    retval = calc_regress_pcs(evecname, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, chrom_info_ptr, marker_pos, g_indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, sex_info, pheno_d, missing_phenod, &outfile, outname, outname_end);
+    retval = calc_regress_pcs(evecname, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, pedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, chrom_info_ptr, marker_pos, g_indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, sex_info, g_pheno_d, missing_phenod, &outfile, outname, outname_end);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -10246,7 +10246,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         goto wdist_ret_NOMEM;
       }
       dptr2 = &(g_rel_dists[ulii - CACHEALIGN_DBL(g_indiv_ct)]);
-      collapse_copy_phenod(dptr2, pheno_d, indiv_exclude, unfiltered_indiv_ct);
+      collapse_copy_phenod(dptr2, g_pheno_d, indiv_exclude, unfiltered_indiv_ct);
       dxx = 0.0;
       dyy = 0.0;
       dptr3 = dptr2;
@@ -10316,8 +10316,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         fill_int_zero((int*)indiv_missing_unwt, g_indiv_ct);
       }
     }
-    dists = (double*)wkspace_alloc(dists_alloc + CACHELINE);
-    if (!dists) {
+    g_dists = (double*)wkspace_alloc(dists_alloc + CACHELINE);
+    if (!g_dists) {
       goto wdist_ret_NOMEM;
     }
     wkspace_mark = wkspace_base;
@@ -10335,11 +10335,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
 
     if (exp0) {
-      idists = (int*)(((char*)wkspace_mark) - CACHEALIGN(llxx * sizeof(int)));
-      fill_int_zero(idists, llxx);
+      g_idists = (int*)(((char*)wkspace_mark) - CACHEALIGN(llxx * sizeof(int)));
+      fill_int_zero(g_idists, llxx);
       masks = (unsigned long*)wkspace_alloc(g_indiv_ct * (MULTIPLEX_2DIST / 8));
     } else {
-      fill_double_zero(dists, llxx);
+      fill_double_zero(g_dists, llxx);
       masks = (unsigned long*)wkspace_alloc(g_indiv_ct * sizeof(long));
     }
     if (!masks) {
@@ -10543,7 +10543,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    goto wdist_ret_THREAD_CREATE_FAIL;
 	  }
 	}
-	incr_dists_i(idists, (unsigned long*)ped_geno, 0);
+	incr_dists_i(g_idists, (unsigned long*)ped_geno, 0);
 	for (uii = 0; uii < g_thread_ct - 1; uii++) {
 	  pthread_join(threads[uii], NULL);
 	}
@@ -10590,7 +10590,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	      goto wdist_ret_THREAD_CREATE_FAIL;
 	    }
 	  }
-	  incr_dists(dists, (unsigned long*)ped_geno, 0);
+	  incr_dists(g_dists, (unsigned long*)ped_geno, 0);
 	  for (uii = 0; uii < g_thread_ct - 1; uii++) {
 	    pthread_join(threads[uii], NULL);
 	  }
@@ -10615,7 +10615,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       if (fopen_checked(&outfile, outname, "w")) {
 	goto wdist_ret_OPEN_FAIL;
       }
-      iptr = idists;
+      iptr = g_idists;
       giptr = g_missing_dbl_excluded;
       pct = 1;
       // parallel_tot must be 1 for --distance-matrix
@@ -10633,7 +10633,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	giptr2++;
 	for (ulii = indiv_idx + 1; ulii < g_indiv_ct; ulii++) {
 	  uljj = ulii * (ulii - 1) / 2 + indiv_idx;
-	  if (fprintf(outfile, "%g ", ((double)idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj]))) < 0) {
+	  if (fprintf(outfile, "%g ", ((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj]))) < 0) {
 	    goto wdist_ret_WRITE_FAIL;
 	  }
 	}
@@ -10663,7 +10663,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       if (fopen_checked(&outfile, outname, "w")) {
 	goto wdist_ret_OPEN_FAIL;
       }
-      iptr = idists;
+      iptr = g_idists;
       giptr = g_missing_dbl_excluded;
       pct = 1;
       for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
@@ -10680,7 +10680,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	giptr2++;
 	for (ulii = indiv_idx + 1; ulii < g_indiv_ct; ulii++) {
 	  uljj = (ulii * (ulii - 1)) / 2 + indiv_idx;
-	  if (fprintf(outfile, "%g ", 1.0 - (((double)idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj])))) < 0) {
+	  if (fprintf(outfile, "%g ", 1.0 - (((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj])))) < 0) {
 	    goto wdist_ret_WRITE_FAIL;
 	  }
 	}
@@ -10704,9 +10704,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     tstc = thread_start[g_thread_ct];
     if (wt_needed) {
       giptr = missing_tot_weights;
-      dptr2 = dists;
+      dptr2 = g_dists;
       if (exp0) {
-	iptr = idists;
+	iptr = g_idists;
 	for (indiv_idx = thread_start[0]; indiv_idx < tstc; indiv_idx++) {
 	  giptr2 = indiv_missing;
 	  uii = giptr2[indiv_idx];
@@ -10725,10 +10725,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	}
       }
     } else if (distance_flat_missing) {
-      dptr2 = dists;
+      dptr2 = g_dists;
       giptr = g_missing_dbl_excluded;
       if (exp0) {
-        iptr = idists;
+        iptr = g_idists;
 	for (indiv_idx = thread_start[0]; indiv_idx < tstc; indiv_idx++) {
 	  giptr2 = indiv_missing_unwt;
 	  uii = marker_ct - giptr2[indiv_idx];
@@ -10774,15 +10774,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       dxx = 0.5 / dxx;
     }
-    retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, dists, dxx, g_indiv_ct, thread_start[0], thread_start[g_thread_ct], parallel_idx, parallel_tot, ped_geno);
+    retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, g_dists, dxx, g_indiv_ct, thread_start[0], thread_start[g_thread_ct], parallel_idx, parallel_tot, ped_geno);
     if (retval) {
       goto wdist_ret_2;
     }
     wkspace_reset(wkspace_mark);
   } else if (calculation_type & CALC_LOAD_DISTANCES) {
     dists_alloc = ((long)g_indiv_ct * (g_indiv_ct - 1)) * (sizeof(double) / 2);
-    dists = (double*)wkspace_alloc(dists_alloc);
-    if (!dists) {
+    g_dists = (double*)wkspace_alloc(dists_alloc);
+    if (!g_dists) {
       goto wdist_ret_NOMEM;
     }
     if (fopen_checked(&loaddistfile, loaddistname, "rb")) {
@@ -10796,7 +10796,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_INVALID_FORMAT;
     }
     rewind(loaddistfile);
-    if (fread(dists, 1, dists_alloc, loaddistfile) < dists_alloc) {
+    if (fread(g_dists, 1, dists_alloc, loaddistfile) < dists_alloc) {
       goto wdist_ret_READ_FAIL;
     }
     fclose(loaddistfile);
@@ -10804,13 +10804,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (calculation_type & CALC_GROUPDIST) {
     wkspace_mark = wkspace_base;
-    collapse_arr(pheno_c, 1, indiv_exclude, unfiltered_indiv_ct);
+    collapse_arr(g_pheno_c, 1, indiv_exclude, unfiltered_indiv_ct);
     low_ct = 0;
     high_ct = 0;
     for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-      if (pheno_c[indiv_idx] == 1) {
+      if (g_pheno_c[indiv_idx] == 1) {
 	high_ct++;
-      } else if (pheno_c[indiv_idx] == 0) {
+      } else if (g_pheno_c[indiv_idx] == 0) {
 	low_ct++;
       }
     }
@@ -10823,7 +10823,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     dhh_ssq = 0.0;
     dhl_ssq = 0.0;
     dll_ssq = 0.0;
-    dist_ptr = dists;
+    dist_ptr = g_dists;
     ll_pool = (double*)wkspace_alloc(ll_size * sizeof(double));
     lh_pool = (double*)wkspace_alloc(lh_size * sizeof(double));
     hh_pool = (double*)wkspace_alloc(hh_size * sizeof(double));
@@ -10832,8 +10832,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     hh_poolp = hh_pool;
     ped_geno = wkspace_alloc(g_thread_ct * CACHEALIGN(high_ct + low_ct + (jackknife_d + 1) * sizeof(int)));
     for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
-      cptr = pheno_c;
-      cptr2 = &(pheno_c[indiv_idx]);
+      cptr = g_pheno_c;
+      cptr2 = &(g_pheno_c[indiv_idx]);
       if (*cptr2 == 1) {
 	while (cptr < cptr2) {
 	  if (*cptr == 1) {
@@ -10954,7 +10954,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     wkspace_reset(wkspace_mark);
   }
   if (calculation_type & CALC_REGRESS_DISTANCE) {
-    retval = regress_distance(calculation_type, dists, pheno_d, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, g_thread_ct, regress_iters, regress_d);
+    retval = regress_distance(calculation_type, g_dists, g_pheno_d, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, g_thread_ct, regress_iters, regress_d);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -11006,8 +11006,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   free_cond(line_locs);
   free_cond(line_mids);
   free_cond(het_probs);
-  free_cond(pheno_d);
-  free_cond(pheno_c);
+  free_cond(g_pheno_d);
+  free_cond(g_pheno_c);
   free_cond(phenor_d);
   free_cond(phenor_c);
   free_cond(id_buf);
@@ -11914,7 +11914,7 @@ int main(int argc, char** argv) {
 	}
 	ld_window_incr = atoi(argv[cur_arg + ii - 1]);
 	if (ld_window_incr < 1) {
-	  printf("Error: Invalid increment '%s' for --indep-pairwise.%s", argv[cur_arg + ii + 1], errstr_append);
+	  printf("Error: Invalid increment '%s' for --indep-pairwise.%s", argv[cur_arg + ii - 1], errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (sscanf(argv[cur_arg + ii], "%lg", &ld_last_param) != 1) {
