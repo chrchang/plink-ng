@@ -1854,8 +1854,8 @@ static unsigned int* g_marker_weights_i = NULL;
 static unsigned int* g_missing_tot_weights;
 static unsigned int* g_indiv_missing;
 static unsigned int* g_indiv_missing_unwt = NULL;
-static double* jackknife_precomp = NULL;
-static unsigned int* genome_main;
+static double* g_jackknife_precomp = NULL;
+static unsigned int* g_genome_main;
 static unsigned long marker_window[GENOME_MULTIPLEX * 2];
 static double* pheno_packed;
 
@@ -3026,7 +3026,7 @@ void* calc_genome_thread(void* arg) {
   long tidx = (long)arg;
   int ii = g_thread_start[tidx];
   int jj = g_thread_start[0];
-  incr_genome(&(genome_main[((long long)g_indiv_ct * (ii - jj) - ((long long)ii * (ii + 1) - (long long)jj * (jj + 1)) / 2) * 5]), (unsigned long*)g_geno, (int)tidx);
+  incr_genome(&(g_genome_main[((long long)g_indiv_ct * (ii - jj) - ((long long)ii * (ii + 1) - (long long)jj * (jj + 1)) / 2) * 5]), (unsigned long*)g_geno, (int)tidx);
   return NULL;
 }
 
@@ -3398,7 +3398,7 @@ double regress_rel_jack(int* ibuf, double* ret2_ptr) {
   double dxx1;
   double dyy;
   while (iptr < jptr) {
-    dptr2 = &(jackknife_precomp[(*iptr++) * JACKKNIFE_VALS_REL]);
+    dptr2 = &(g_jackknife_precomp[(*iptr++) * JACKKNIFE_VALS_REL]);
     neg_tot_xy += *dptr2++;
     neg_tot_x += *dptr2++;
     neg_tot_y += *dptr2++;
@@ -3493,16 +3493,16 @@ int regress_rel_main(unsigned long* indiv_exclude, unsigned int indiv_ct, unsign
   g_reg_tot_yy = 0.0;
   rel_ptr = g_rel_dists;
   pheno_ptr = pheno_packed;
-  jackknife_precomp = (double*)wkspace_alloc(indiv_ct * JACKKNIFE_VALS_REL * sizeof(double));
-  if (!jackknife_precomp) {
+  g_jackknife_precomp = (double*)wkspace_alloc(indiv_ct * JACKKNIFE_VALS_REL * sizeof(double));
+  if (!g_jackknife_precomp) {
     return RET_NOMEM;
   }
-  fill_double_zero(jackknife_precomp, indiv_ct * JACKKNIFE_VALS_REL);
+  fill_double_zero(g_jackknife_precomp, indiv_ct * JACKKNIFE_VALS_REL);
   for (uii = 1; uii < indiv_ct; uii++) {
     half_avg_pheno = *(++pheno_ptr);
     pheno_ptr2 = pheno_packed;
-    jp_fixed_ptr = &(jackknife_precomp[uii * JACKKNIFE_VALS_REL]);
-    jp_moving_ptr = jackknife_precomp;
+    jp_fixed_ptr = &(g_jackknife_precomp[uii * JACKKNIFE_VALS_REL]);
+    jp_moving_ptr = g_jackknife_precomp;
     while (pheno_ptr2 < pheno_ptr) {
       dxx = (half_avg_pheno + (*pheno_ptr2++)) * 0.5;
       dyy = (*rel_ptr++);
@@ -7717,7 +7717,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
   if (wkspace_alloc_ui_checked(&g_indiv_missing_unwt, g_indiv_ct * sizeof(int))) {
     goto calc_genome_ret_NOMEM;
   }
-  if (wkspace_alloc_ui_checked(&genome_main, tot_cells * 5 * sizeof(int))) {
+  if (wkspace_alloc_ui_checked(&g_genome_main, tot_cells * 5 * sizeof(int))) {
     goto calc_genome_ret_NOMEM;
   }
   if (wkspace_alloc_uc_checked(&loadbuf, GENOME_MULTIPLEX * unfiltered_indiv_ct4)) {
@@ -7741,7 +7741,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
 
   fill_int_zero((int*)g_missing_dbl_excluded, tot_cells);
   fill_int_zero((int*)g_indiv_missing_unwt, g_indiv_ct);
-  fill_int_zero((int*)genome_main, tot_cells * 5);
+  fill_int_zero((int*)g_genome_main, tot_cells * 5);
   if (!is_set(marker_exclude, 0)) {
     if (fseeko(pedfile, bed_offset, SEEK_SET)) {
       retval = RET_READ_FAIL;
@@ -7942,7 +7942,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
 	goto calc_genome_ret_THREAD_CREATE_FAIL;
       }
     }
-    incr_genome(genome_main, (unsigned long*)g_geno, 0);
+    incr_genome(g_genome_main, (unsigned long*)g_geno, 0);
     for (ukk = 0; ukk < g_thread_ct - 1; ukk++) {
       pthread_join(threads[ukk], NULL);
     }
@@ -7963,7 +7963,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
     if (fopen_checked(&outfile, outname, "w")) {
       goto calc_genome_ret_OPEN_FAIL;
     }
-    giptr = genome_main;
+    giptr = g_genome_main;
     giptr2 = g_missing_dbl_excluded;
     pct = 1;
     for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
@@ -7971,7 +7971,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
       uii = marker_ct - giptr3[indiv_idx];
       uljj = (int)indiv_idx - 1; // not referenced when indiv_idx == 0
       for (ulii = 0; ulii < indiv_idx; ulii++) {
-	if (fprintf(outfile, "%g ", 1.0 - ((double)(genome_main[uljj * 5] + 2 * genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + g_missing_dbl_excluded[uljj])))) < 0) {
+	if (fprintf(outfile, "%g ", 1.0 - ((double)(g_genome_main[uljj * 5] + 2 * g_genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + g_missing_dbl_excluded[uljj])))) < 0) {
 	  goto calc_genome_ret_WRITE_FAIL;
 	}
 	uljj += g_indiv_ct - ulii - 2;
@@ -8011,7 +8011,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
     if (fopen_checked(&outfile, outname, "w")) {
       goto calc_genome_ret_OPEN_FAIL;
     }
-    giptr = genome_main;
+    giptr = g_genome_main;
     giptr2 = g_missing_dbl_excluded;
     kk = 1;
     for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
@@ -8019,7 +8019,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
       uii = marker_ct - giptr3[indiv_idx];
       uljj = indiv_idx - 1;
       for (ulii = 0; ulii < indiv_idx; ulii++) {
-	if (fprintf(outfile, "%g ", ((double)(genome_main[uljj * 5] + 2 * genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + g_missing_dbl_excluded[uljj])))) < 0) {
+	if (fprintf(outfile, "%g ", ((double)(g_genome_main[uljj * 5] + 2 * g_genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + g_missing_dbl_excluded[uljj])))) < 0) {
 	  goto calc_genome_ret_WRITE_FAIL;
 	}
 	uljj += g_indiv_ct - ulii - 2;
@@ -8168,9 +8168,9 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
 	sptr_cur += sprintf(sptr_cur, "UN    NA");
       }
       nn = marker_ct - g_indiv_missing_unwt[ii] - g_indiv_missing_unwt[ujj] + g_missing_dbl_excluded[uljj];
-      oo = nn - genome_main[ulii] - genome_main[ulii + 1];
-      dxx = (double)genome_main[ulii + 1] / (e00 * nn);
-      dyy = ((double)genome_main[ulii] - dxx * e01 * nn) / (e11 * nn);
+      oo = nn - g_genome_main[ulii] - g_genome_main[ulii + 1];
+      dxx = (double)g_genome_main[ulii + 1] / (e00 * nn);
+      dyy = ((double)g_genome_main[ulii] - dxx * e01 * nn) / (e11 * nn);
       dxx1 = ((double)oo - nn * (dxx * e02 + dyy * e12)) / ((double)nn);
       if (!genome_ibd_unbounded) {
 	if (dxx > 1) {
@@ -8218,12 +8218,12 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
 	memcpy(sptr_cur, "NA", 2);
       }
       sptr_cur += 2;
-      dxx = (double)genome_main[ulii + 4];
-      dyy = (double)genome_main[ulii + 3];
-      dxx1 = 1.0 / ((double)(genome_main[ulii + 4] + genome_main[ulii + 3]));
+      dxx = (double)g_genome_main[ulii + 4];
+      dyy = (double)g_genome_main[ulii + 3];
+      dxx1 = 1.0 / ((double)(g_genome_main[ulii + 4] + g_genome_main[ulii + 3]));
       dxx2 = normdist((dxx * dxx1 - 0.666666) / (sqrt(0.2222222 * dxx1)));
-      sptr_cur += sprintf(sptr_cur, "  %1.6f  %1.4f ", 1.0 - (genome_main[ulii] + 2 * genome_main[ulii + 1]) / ((double)(2 * nn)), dxx2);
-      if (genome_main[ulii + 3]) {
+      sptr_cur += sprintf(sptr_cur, "  %1.6f  %1.4f ", 1.0 - (g_genome_main[ulii] + 2 * g_genome_main[ulii + 1]) / ((double)(2 * nn)), dxx2);
+      if (g_genome_main[ulii + 3]) {
 	dxx1 = dxx / dyy;
         nn = sprintf(sptr_cur, "%1.4f", dxx1);
 	if (nn < 7) {
@@ -8238,7 +8238,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
 	sptr_cur += 7;
       }
       if (genome_output_full) {
-	sptr_cur += sprintf(sptr_cur, " %7d %7d %7d %s%1.4f %s%1.4f\n", genome_main[ulii + 1], genome_main[ulii], oo, (dyy < 9.5)? " " : "", dyy, (dxx < 9.5)? " " : "", dxx);
+	sptr_cur += sprintf(sptr_cur, " %7d %7d %7d %s%1.4f %s%1.4f\n", g_genome_main[ulii + 1], g_genome_main[ulii], oo, (dyy < 9.5)? " " : "", dyy, (dxx < 9.5)? " " : "", dxx);
       } else {
 	*sptr_cur++ = '\n';
       }
