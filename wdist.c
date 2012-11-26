@@ -1848,7 +1848,7 @@ static unsigned long g_jackknife_iters;
 static unsigned int g_jackknife_d;
 static double g_calc_result[9][MAX_THREADS];
 static unsigned long* g_masks;
-static unsigned long* mmasks;
+static unsigned long* g_mmasks;
 static double* marker_weights = NULL;
 static unsigned int* marker_weights_i = NULL;
 static unsigned int* missing_tot_weights;
@@ -3096,8 +3096,8 @@ void incr_wt_dist_missing(unsigned int* mtw, int tidx) {
   unsigned int uii;
   unsigned int ujj;
   for (uii = g_thread_start[tidx]; uii < g_thread_start[tidx + 1]; uii++) {
-    glptr = mmasks;
-    ulii = mmasks[uii];
+    glptr = g_mmasks;
+    ulii = g_mmasks[uii];
     if (ulii) {
       for (ujj = 0; ujj < uii; ujj++) {
 	uljj = (*glptr++) & ulii;
@@ -3177,8 +3177,8 @@ void incr_dists_rm(unsigned int* idists, int tidx, unsigned int* thread_start) {
   unsigned int uii;
   unsigned int ujj;
   for (uii = thread_start[tidx]; uii < thread_start[tidx + 1]; uii++) {
-    mlptr = mmasks;
-    ulii = mmasks[uii];
+    mlptr = g_mmasks;
+    ulii = g_mmasks[uii];
     if (ulii) {
       for (ujj = 0; ujj < uii; ujj++) {
         uljj = (*mlptr++) & ulii;
@@ -3220,9 +3220,9 @@ void incr_dists_rm_inv(unsigned int* idists, int tidx) {
   unsigned int uii;
   unsigned int ujj;
   for (uii = g_thread_start[tidx]; uii < g_thread_start[tidx + 1]; uii++) {
-    ulii = mmasks[uii];
+    ulii = g_mmasks[uii];
     if (ulii) {
-      glptr = &(mmasks[uii + 1]);
+      glptr = &(g_mmasks[uii + 1]);
       // ujj is deliberately biased down by 1
       for (ujj = uii; ujj < indiv_ct_m1; ujj++) {
         uljj = (*glptr++) & ulii;
@@ -7727,7 +7727,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
   if (wkspace_alloc_ul_checked(&g_masks, g_indiv_ct * (GENOME_MULTIPLEX / 4))) {
     goto calc_genome_ret_NOMEM;
   }
-  if (wkspace_alloc_ul_checked(&mmasks, g_indiv_ct * sizeof(long))) {
+  if (wkspace_alloc_ul_checked(&g_mmasks, g_indiv_ct * sizeof(long))) {
     goto calc_genome_ret_NOMEM;
   }
   if (wkspace_alloc_c_checked(&fam1, max_person_fid_len + 1)) {
@@ -7821,7 +7821,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
     for (jj = 0; jj < kk; jj += BITCT) {
       glptr = &(((unsigned long*)g_geno)[jj / BITCT2]);
       glptr2 = &(g_masks[jj / BITCT2]);
-      glptr3 = mmasks;
+      glptr3 = g_mmasks;
       giptr = indiv_missing_unwt;
       indiv_uidx = 0;
       fill_int_zero(missing_ct_buf, BITCT);
@@ -8571,7 +8571,7 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
   if (wkspace_alloc_ul_checked(&g_masks, ulii * indiv_ct_mld_long * sizeof(long))) {
     goto ld_prune_ret_NOMEM;
   }
-  if (wkspace_alloc_ul_checked(&mmasks, ulii * indiv_ctbit * sizeof(long))) {
+  if (wkspace_alloc_ul_checked(&g_mmasks, ulii * indiv_ctbit * sizeof(long))) {
     goto ld_prune_ret_NOMEM;
   }
   if (wkspace_alloc_ui_checked(&missing_cts, g_indiv_ct * sizeof(int))) {
@@ -8608,7 +8608,7 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
-        missing_cts[ulii] = ld_process_load(loadbuf, &(geno[ulii * indiv_ct_mld_long]), &(g_masks[ulii * indiv_ct_mld_long]), &(mmasks[ulii * indiv_ctbit]), &(marker_stdevs[ulii]), unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, indiv_ctbit, indiv_trail_ct);
+        missing_cts[ulii] = ld_process_load(loadbuf, &(geno[ulii * indiv_ct_mld_long]), &(g_masks[ulii * indiv_ct_mld_long]), &(g_mmasks[ulii * indiv_ctbit]), &(marker_stdevs[ulii]), unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, indiv_ctbit, indiv_trail_ct);
       }
     }
     pct = 1;
@@ -8654,7 +8654,7 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
 	      mask_var_vec_ptr = &(g_masks[jj * indiv_ct_mld_long]);
 #endif
 
-	      non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit);
+	      non_missing_ct = fixed_non_missing_ct - missing_cts[jj] + sparse_intersection_ct(&(g_mmasks[ii * indiv_ctbit]), &(g_mmasks[jj * indiv_ctbit]), indiv_ctbit);
 	      dp_result[0] = g_indiv_ct;
 	      // reversed from what I initially thought because I'm passing the
 	      // jj-associated buffers before the ii-associated ones.
@@ -8789,7 +8789,7 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
 	}
 	memcpy(&(geno[ii * indiv_ct_mld_long]), &(geno[jj * indiv_ct_mld_long]), indiv_ct_mld_long * sizeof(long));
 	memcpy(&(g_masks[ii * indiv_ct_mld_long]), &(g_masks[jj * indiv_ct_mld_long]), indiv_ct_mld_long * sizeof(long));
-	memcpy(&(mmasks[ii * indiv_ctbit]), &(mmasks[jj * indiv_ctbit]), indiv_ctbit * sizeof(long));
+	memcpy(&(g_mmasks[ii * indiv_ctbit]), &(g_mmasks[jj * indiv_ctbit]), indiv_ctbit * sizeof(long));
 	marker_stdevs[ii] = marker_stdevs[jj];
 	live_indices[ii] = live_indices[jj];
 	start_arr[ii] = start_arr[jj];
@@ -8828,7 +8828,7 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
 	  if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	    goto ld_prune_ret_READ_FAIL;
 	  }
-	  missing_cts[cur_window_size] = ld_process_load(loadbuf, &(geno[cur_window_size * indiv_ct_mld_long]), &(g_masks[cur_window_size * indiv_ct_mld_long]), &(mmasks[cur_window_size * indiv_ctbit]), &(marker_stdevs[cur_window_size]), unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, indiv_ctbit, indiv_trail_ct);
+	  missing_cts[cur_window_size] = ld_process_load(loadbuf, &(geno[cur_window_size * indiv_ct_mld_long]), &(g_masks[cur_window_size * indiv_ct_mld_long]), &(g_mmasks[cur_window_size * indiv_ctbit]), &(marker_stdevs[cur_window_size]), unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, indiv_ctbit, indiv_trail_ct);
 	  cur_window_size++;
 	  window_unfiltered_end++;
 	}
@@ -9607,8 +9607,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (!g_geno) {
       goto wdist_ret_NOMEM;
     }
-    mmasks = (unsigned long*)wkspace_alloc(g_indiv_ct * sizeof(long));
-    if (!mmasks) {
+    g_mmasks = (unsigned long*)wkspace_alloc(g_indiv_ct * sizeof(long));
+    if (!g_mmasks) {
       goto wdist_ret_NOMEM;
     }
     gptr = wkspace_alloc(MULTIPLEX_REL * unfiltered_indiv_ct4);
@@ -9648,7 +9648,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	memset(&(gptr[jj * unfiltered_indiv_ct4]), 0, (MULTIPLEX_REL - jj) * unfiltered_indiv_ct4);
 	fill_double_zero(&(set_allele_freq_buf[jj]), MULTIPLEX_REL - jj);
       }
-      fill_ulong_zero(mmasks, g_indiv_ct);
+      fill_ulong_zero(g_mmasks, g_indiv_ct);
 
       for (nn = 0; nn < jj; nn += MULTIPLEX_REL / 3) {
 	fill_ulong_zero(g_masks, g_indiv_ct);
@@ -9665,7 +9665,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    uljj = (gptr2[mm * unfiltered_indiv_ct4] >> kk) & 3;
 	    if (uljj == 1) {
 	      g_masks[indiv_idx] |= 7LU << (mm * 3);
-	      mmasks[indiv_idx] |= 1LU << (nn + mm);
+	      g_mmasks[indiv_idx] |= 1LU << (nn + mm);
 	      indiv_missing_unwt[indiv_idx] += 1;
 	    }
 	    ulii |= uljj << (mm * 3);
@@ -10349,8 +10349,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (!g_masks) {
       goto wdist_ret_NOMEM;
     }
-    mmasks = (unsigned long*)wkspace_alloc(g_indiv_ct * sizeof(long));
-    if (!mmasks) {
+    g_mmasks = (unsigned long*)wkspace_alloc(g_indiv_ct * sizeof(long));
+    if (!g_mmasks) {
       goto wdist_ret_NOMEM;
     }
 
@@ -10453,7 +10453,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	for (nn = 0; nn < jj; nn += BITCT) {
 	  glptr = &(((unsigned long*)g_geno)[nn / BITCT2]);
 	  glptr2 = &(g_masks[nn / BITCT2]);
-	  glptr3 = mmasks;
+	  glptr3 = g_mmasks;
 	  if (wt_needed) {
 	    giptr = indiv_missing;
 	  }
@@ -10552,11 +10552,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  pthread_join(threads[uii], NULL);
 	}
       } else {
-	fill_ulong_zero(mmasks, g_indiv_ct);
+	fill_ulong_zero(g_mmasks, g_indiv_ct);
 	for (nn = 0; nn < jj; nn += MULTIPLEX_DIST_EXP / 2) {
 	  glptr = (unsigned long*)g_geno;
 	  glptr2 = g_masks;
-	  glptr3 = mmasks;
+	  glptr3 = g_mmasks;
 	  giptr3 = indiv_missing;
 	  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
 	    if (!is_set(indiv_exclude, indiv_uidx)) {
