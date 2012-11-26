@@ -1856,8 +1856,8 @@ static unsigned int* g_indiv_missing;
 static unsigned int* g_indiv_missing_unwt = NULL;
 static double* g_jackknife_precomp = NULL;
 static unsigned int* g_genome_main;
-static unsigned long marker_window[GENOME_MULTIPLEX * 2];
-static double* pheno_packed;
+static unsigned long g_marker_window[GENOME_MULTIPLEX * 2];
+static double* g_pheno_packed;
 
 void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* set_allele_freqs, int ibc_type) {
   // first calculate weight array, then loop
@@ -2835,7 +2835,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	  // Descent", which discusses some weaknesses of PLINK --genome.
 	  do {
 	    offset = next_ppc_marker_hybrid / BITCT;
-	    marker_window_ptr = &(marker_window[offset * BITCT]);
+	    marker_window_ptr = &(g_marker_window[offset * BITCT]);
 	    next_ppc_marker_hybrid = ~0LU << (next_ppc_marker_hybrid & (BITCT - 1));
 	  incr_genome_2mask_loop:
 	    uland = glptr_back[offset] & (((unsigned long*)glptr_fixed)[offset]);
@@ -2985,7 +2985,7 @@ void incr_genome(unsigned int* genome_main, unsigned long* geno, int tidx) {
 	  ibs_incr = 0; // hethet low-order, ibs0 high-order
 	  do {
 	    offset = next_ppc_marker_hybrid / BITCT;
-	    marker_window_ptr = &(marker_window[offset * BITCT]);
+	    marker_window_ptr = &(g_marker_window[offset * BITCT]);
 	    next_ppc_marker_hybrid = ~0LU << (next_ppc_marker_hybrid & (BITCT - 1));
 	  incr_genome_1mask_loop:
 	    uland = glptr_back[offset] & (((unsigned long*)glptr_fixed)[offset]);
@@ -3408,12 +3408,12 @@ double regress_rel_jack(int* ibuf, double* ret2_ptr) {
   iptr = ibuf;
   for (uii = 1; uii < g_jackknife_d; uii++) {
     jj = *(++iptr);
-    dxx1 = pheno_packed[jj];
+    dxx1 = g_pheno_packed[jj];
     jptr = ibuf;
     dptr = &(g_rel_dists[((long)jj * (jj - 1)) / 2]);
     while (jptr < iptr) {
       kk = *jptr++;
-      dxx = (dxx1 + pheno_packed[kk]) * 0.5;
+      dxx = (dxx1 + g_pheno_packed[kk]) * 0.5;
       dyy = dptr[kk];
       neg_tot_xy -= dxx * dyy;
       neg_tot_x -= dxx;
@@ -3479,12 +3479,12 @@ int regress_rel_main(unsigned long* indiv_exclude, unsigned int indiv_ct, unsign
   double dxxyy;
   double dxxsq;
   double dyysq;
-  pheno_packed = (double*)wkspace_alloc(indiv_ct * sizeof(double));
-  if (!pheno_packed) {
+  g_pheno_packed = (double*)wkspace_alloc(indiv_ct * sizeof(double));
+  if (!g_pheno_packed) {
     return RET_NOMEM;
   }
-  collapse_copy_phenod(pheno_packed, g_pheno_d, indiv_exclude, indiv_ct);
-  print_pheno_stdev(pheno_packed, indiv_ct);
+  collapse_copy_phenod(g_pheno_packed, g_pheno_d, indiv_exclude, indiv_ct);
+  print_pheno_stdev(g_pheno_packed, indiv_ct);
   trimatrix_size = ((unsigned long)indiv_ct * (indiv_ct - 1)) / 2;
   g_reg_tot_xy = 0.0;
   g_reg_tot_x = 0.0;
@@ -3492,7 +3492,7 @@ int regress_rel_main(unsigned long* indiv_exclude, unsigned int indiv_ct, unsign
   g_reg_tot_xx = 0.0;
   g_reg_tot_yy = 0.0;
   rel_ptr = g_rel_dists;
-  pheno_ptr = pheno_packed;
+  pheno_ptr = g_pheno_packed;
   g_jackknife_precomp = (double*)wkspace_alloc(indiv_ct * JACKKNIFE_VALS_REL * sizeof(double));
   if (!g_jackknife_precomp) {
     return RET_NOMEM;
@@ -3500,7 +3500,7 @@ int regress_rel_main(unsigned long* indiv_exclude, unsigned int indiv_ct, unsign
   fill_double_zero(g_jackknife_precomp, indiv_ct * JACKKNIFE_VALS_REL);
   for (uii = 1; uii < indiv_ct; uii++) {
     half_avg_pheno = *(++pheno_ptr);
-    pheno_ptr2 = pheno_packed;
+    pheno_ptr2 = g_pheno_packed;
     jp_fixed_ptr = &(g_jackknife_precomp[uii * JACKKNIFE_VALS_REL]);
     jp_moving_ptr = g_jackknife_precomp;
     while (pheno_ptr2 < pheno_ptr) {
@@ -7755,7 +7755,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
     if (kk > GENOME_MULTIPLEX) {
       kk = GENOME_MULTIPLEX;
     }
-    glptr2 = marker_window;
+    glptr2 = g_marker_window;
     for (ujj = 0; (int)ujj < kk; ujj++) {
       if (is_set(marker_exclude, ii)) {
 	do {

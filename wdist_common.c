@@ -1236,24 +1236,24 @@ unsigned int set_default_jackknife_d(unsigned int ct) {
 }
 
 // ----- multithread globals -----
-static double* pheno_d;
-static unsigned long jackknife_iters;
-static unsigned int jackknife_d;
-static double reg_tot_xy;
-static double reg_tot_x;
-static double reg_tot_y;
-static double reg_tot_xx;
-static double reg_tot_yy;
-static double* jackknife_precomp;
-static double* dists;
-static double calc_result[4][MAX_THREADS_P1];
-static unsigned char* generic_buf;
-static unsigned int indiv_ct;
+static double* g_pheno_d;
+static unsigned long g_jackknife_iters;
+static unsigned int g_jackknife_d;
+static double g_reg_tot_xy;
+static double g_reg_tot_x;
+static double g_reg_tot_y;
+static double g_reg_tot_xx;
+static double g_reg_tot_yy;
+static double* g_jackknife_precomp;
+static double* g_dists;
+static double g_calc_result[4][MAX_THREADS_P1];
+static unsigned char* g_generic_buf;
+static unsigned int g_indiv_ct;
 
 // double regress_jack(int* ibuf) {
 double regress_jack(int* ibuf, double* ret2_ptr) {
   int* iptr = ibuf;
-  int* jptr = &(ibuf[jackknife_d]);
+  int* jptr = &(ibuf[g_jackknife_d]);
   unsigned int uii;
   int jj;
   int kk;
@@ -1268,7 +1268,7 @@ double regress_jack(int* ibuf, double* ret2_ptr) {
   double dxx1;
   double dyy;
   while (iptr < jptr) {
-    dptr2 = &(jackknife_precomp[(*iptr++) * JACKKNIFE_VALS_DIST]);
+    dptr2 = &(g_jackknife_precomp[(*iptr++) * JACKKNIFE_VALS_DIST]);
     neg_tot_xy += *dptr2++;
     neg_tot_x += *dptr2++;
     neg_tot_y += *dptr2++;
@@ -1276,14 +1276,14 @@ double regress_jack(int* ibuf, double* ret2_ptr) {
     neg_tot_yy += *dptr2++;
   }
   iptr = ibuf;
-  for (uii = 1; uii < jackknife_d; uii++) {
+  for (uii = 1; uii < g_jackknife_d; uii++) {
     jj = *(++iptr);
-    dxx1 = pheno_d[jj];
+    dxx1 = g_pheno_d[jj];
     jptr = ibuf;
-    dptr = &(dists[((long)jj * (jj - 1)) / 2]);
+    dptr = &(g_dists[((long)jj * (jj - 1)) / 2]);
     while (jptr < iptr) {
       kk = *jptr++;
-      dxx = (dxx1 + pheno_d[kk]) * 0.5;
+      dxx = (dxx1 + g_pheno_d[kk]) * 0.5;
       dyy = dptr[kk];
       neg_tot_xy -= dxx * dyy;
       neg_tot_x -= dxx;
@@ -1292,28 +1292,28 @@ double regress_jack(int* ibuf, double* ret2_ptr) {
       neg_tot_yy -= dyy * dyy;
     }
   }
-  dxx = reg_tot_y - neg_tot_y;
-  dyy = indiv_ct - jackknife_d;
+  dxx = g_reg_tot_y - neg_tot_y;
+  dyy = g_indiv_ct - g_jackknife_d;
   dyy = dyy * (dyy - 1.0) * 0.5;
-  *ret2_ptr = ((reg_tot_xy - neg_tot_xy) - dxx * (reg_tot_x - neg_tot_x) / dyy) / ((reg_tot_yy - neg_tot_yy) - dxx * dxx / dyy);
-  dxx = reg_tot_x - neg_tot_x;
-  return ((reg_tot_xy - neg_tot_xy) - dxx * (reg_tot_y - neg_tot_y) / dyy) / ((reg_tot_xx - neg_tot_xx) - dxx * dxx / dyy);
+  *ret2_ptr = ((g_reg_tot_xy - neg_tot_xy) - dxx * (g_reg_tot_x - neg_tot_x) / dyy) / ((g_reg_tot_yy - neg_tot_yy) - dxx * dxx / dyy);
+  dxx = g_reg_tot_x - neg_tot_x;
+  return ((g_reg_tot_xy - neg_tot_xy) - dxx * (g_reg_tot_y - neg_tot_y) / dyy) / ((g_reg_tot_xx - neg_tot_xx) - dxx * dxx / dyy);
 }
 
 void* regress_jack_thread(void* arg) {
   long tidx = (long)arg;
-  int* ibuf = (int*)(&(generic_buf[tidx * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int))]));
-  unsigned char* cbuf = &(generic_buf[tidx * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int)) + (jackknife_d + 1) * sizeof(int)]);
+  int* ibuf = (int*)(&(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int))]));
+  unsigned char* cbuf = &(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int)) + (g_jackknife_d + 1) * sizeof(int)]);
   unsigned long long ulii;
-  unsigned long long uljj = jackknife_iters / 100;
+  unsigned long long uljj = g_jackknife_iters / 100;
   double sum = 0.0;
   double sum_sq = 0.0;
   double sum2 = 0;
   double sum2_sq = 0.0;
   double dxx;
   double ret2;
-  for (ulii = 0; ulii < jackknife_iters; ulii++) {
-    pick_d_small(cbuf, ibuf, indiv_ct, jackknife_d);
+  for (ulii = 0; ulii < g_jackknife_iters; ulii++) {
+    pick_d_small(cbuf, ibuf, g_indiv_ct, g_jackknife_d);
     dxx = regress_jack(ibuf, &ret2);
     // dxx = regress_jack(ibuf);
     sum += dxx;
@@ -1321,16 +1321,16 @@ void* regress_jack_thread(void* arg) {
     sum2 += ret2;
     sum2_sq += ret2 * ret2;
     if ((!tidx) && (ulii >= uljj)) {
-      uljj = (ulii * 100) / jackknife_iters;
+      uljj = (ulii * 100) / g_jackknife_iters;
       printf("\r%lld%%", uljj);
       fflush(stdout);
-      uljj = ((uljj + 1) * jackknife_iters) / 100;
+      uljj = ((uljj + 1) * g_jackknife_iters) / 100;
     }
   }
-  calc_result[0][tidx] = sum;
-  calc_result[1][tidx] = sum_sq;
-  calc_result[2][tidx] = sum2;
-  calc_result[3][tidx] = sum2_sq;
+  g_calc_result[0][tidx] = sum;
+  g_calc_result[1][tidx] = sum_sq;
+  g_calc_result[2][tidx] = sum2;
+  g_calc_result[3][tidx] = sum2_sq;
   return NULL;
 }
 
@@ -1351,26 +1351,26 @@ int regress_distance(int calculation_type, double* dists_local, double* pheno_d_
   double duu;
   pthread_t threads[MAX_THREADS];
 
-  dists = dists_local;
-  pheno_d = pheno_d_local;
-  indiv_ct = indiv_ct_local;
+  g_dists = dists_local;
+  g_pheno_d = pheno_d_local;
+  g_indiv_ct = indiv_ct_local;
 
   // beta = (mean(xy) - mean(x)*mean(y)) / (mean(x^2) - mean(x)^2)
-  if (unfiltered_indiv_ct != indiv_ct) {
-    collapse_arr((char*)pheno_d, sizeof(double), indiv_exclude, unfiltered_indiv_ct);
+  if (unfiltered_indiv_ct != g_indiv_ct) {
+    collapse_arr((char*)g_pheno_d, sizeof(double), indiv_exclude, unfiltered_indiv_ct);
   }
   if (!(calculation_type & CALC_REGRESS_REL)) {
-    print_pheno_stdev(pheno_d, indiv_ct);
+    print_pheno_stdev(g_pheno_d, g_indiv_ct);
   }
-  ulii = indiv_ct;
+  ulii = g_indiv_ct;
   ulii = ulii * (ulii - 1) / 2;
-  reg_tot_xy = 0.0;
-  reg_tot_x = 0.0;
-  reg_tot_y = 0.0;
-  reg_tot_xx = 0.0;
-  reg_tot_yy = 0.0;
-  dptr4 = dists;
-  dist_ptr = pheno_d;
+  g_reg_tot_xy = 0.0;
+  g_reg_tot_x = 0.0;
+  g_reg_tot_y = 0.0;
+  g_reg_tot_xx = 0.0;
+  g_reg_tot_yy = 0.0;
+  dptr4 = g_dists;
+  dist_ptr = g_pheno_d;
   // Linear regression slope is a function of sum(xy), sum(x), sum(y),
   // sum(x^2), and n.  To speed up the jackknife calculation, we precompute
   // (i) the global xy, x, y, x^2, and
@@ -1378,39 +1378,39 @@ int regress_distance(int calculation_type, double* dists_local, double* pheno_d_
   // Then for each delete-d jackknife iteration, we take the global sums,
   // subtract the partial row sums corresponding to the deleted individuals,
   // and then add back the elements in the intersection of two deletions.
-  jackknife_precomp = (double*)wkspace_alloc(indiv_ct * JACKKNIFE_VALS_DIST * sizeof(double));
-  if (!jackknife_precomp) {
+  g_jackknife_precomp = (double*)wkspace_alloc(g_indiv_ct * JACKKNIFE_VALS_DIST * sizeof(double));
+  if (!g_jackknife_precomp) {
     return RET_NOMEM;
   }
-  fill_double_zero(jackknife_precomp, indiv_ct * JACKKNIFE_VALS_DIST);
-  for (uii = 1; uii < indiv_ct; uii++) {
+  fill_double_zero(g_jackknife_precomp, g_indiv_ct * JACKKNIFE_VALS_DIST);
+  for (uii = 1; uii < g_indiv_ct; uii++) {
     dzz = *(++dist_ptr);
-    dptr2 = pheno_d;
-    dptr3 = &(jackknife_precomp[uii * JACKKNIFE_VALS_DIST]);
-    dptr5 = jackknife_precomp;
+    dptr2 = g_pheno_d;
+    dptr3 = &(g_jackknife_precomp[uii * JACKKNIFE_VALS_DIST]);
+    dptr5 = g_jackknife_precomp;
     while (dptr2 < dist_ptr) {
       dxx = (dzz + *dptr2++) * 0.5;
       dyy = (*dptr4++);
       dww = dxx * dyy;
       dvv = dxx * dxx;
       duu = dyy * dyy;
-      reg_tot_xy += dww;
+      g_reg_tot_xy += dww;
       *dptr3 += dww;
       *dptr5 += dww;
       dptr5++;
-      reg_tot_x += dxx;
+      g_reg_tot_x += dxx;
       dptr3[1] += dxx;
       *dptr5 += dxx;
       dptr5++;
-      reg_tot_y += dyy;
+      g_reg_tot_y += dyy;
       dptr3[2] += dyy;
       *dptr5 += dyy;
       dptr5++;
-      reg_tot_xx += dvv;
+      g_reg_tot_xx += dvv;
       dptr3[3] += dvv;
       *dptr5 += dvv;
       dptr5++;
-      reg_tot_yy += duu;
+      g_reg_tot_yy += duu;
       dptr3[4] += duu;
       *dptr5 += duu;
       dptr5++;
@@ -1418,17 +1418,17 @@ int regress_distance(int calculation_type, double* dists_local, double* pheno_d_
   }
 
   dxx = ulii;
-  printf("Regression slope (y = genomic distance, x = avg phenotype): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_xx - reg_tot_x * reg_tot_x / dxx));
-  printf("Regression slope (y = avg phenotype, x = genomic distance): %g\n", (reg_tot_xy - reg_tot_x * reg_tot_y / dxx) / (reg_tot_yy - reg_tot_y * reg_tot_y / dxx));
+  printf("Regression slope (y = genomic distance, x = avg phenotype): %g\n", (g_reg_tot_xy - g_reg_tot_x * g_reg_tot_y / dxx) / (g_reg_tot_xx - g_reg_tot_x * g_reg_tot_x / dxx));
+  printf("Regression slope (y = avg phenotype, x = genomic distance): %g\n", (g_reg_tot_xy - g_reg_tot_x * g_reg_tot_y / dxx) / (g_reg_tot_yy - g_reg_tot_y * g_reg_tot_y / dxx));
 
-  jackknife_iters = (regress_iters + thread_ct - 1) / thread_ct;
+  g_jackknife_iters = (regress_iters + thread_ct - 1) / thread_ct;
   if (regress_d) {
-    jackknife_d = regress_d;
+    g_jackknife_d = regress_d;
   } else {
-    jackknife_d = set_default_jackknife_d(indiv_ct);
+    g_jackknife_d = set_default_jackknife_d(g_indiv_ct);
   }
-  generic_buf = wkspace_alloc(thread_ct * CACHEALIGN(indiv_ct + (jackknife_d + 1) * sizeof(int)));
-  if (!generic_buf) {
+  g_generic_buf = wkspace_alloc(thread_ct * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int)));
+  if (!g_generic_buf) {
     return RET_NOMEM;
   }
   for (ulii = 1; ulii < thread_ct; ulii++) {
@@ -1442,20 +1442,20 @@ int regress_distance(int calculation_type, double* dists_local, double* pheno_d_
   }
   ulii = 0;
   regress_jack_thread((void*)ulii);
-  dyy = calc_result[0][0]; // sum
-  dzz = calc_result[1][0]; // sum of squares
-  dww = calc_result[2][0]; // reverse regression sum
-  dvv = calc_result[3][0]; // reverse regression sum of squares
+  dyy = g_calc_result[0][0]; // sum
+  dzz = g_calc_result[1][0]; // sum of squares
+  dww = g_calc_result[2][0]; // reverse regression sum
+  dvv = g_calc_result[3][0]; // reverse regression sum of squares
   for (uii = 0; uii < thread_ct - 1; uii++) {
     pthread_join(threads[uii], NULL);
-    dyy += calc_result[0][uii + 1];
-    dzz += calc_result[1][uii + 1];
-    dww += calc_result[2][uii + 1];
-    dvv += calc_result[3][uii + 1];
+    dyy += g_calc_result[0][uii + 1];
+    dzz += g_calc_result[1][uii + 1];
+    dww += g_calc_result[2][uii + 1];
+    dvv += g_calc_result[3][uii + 1];
   }
-  regress_iters = jackknife_iters * thread_ct;
-  printf("\rJackknife s.e.: %g\n", sqrt((indiv_ct / ((double)jackknife_d)) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
-  printf("Jackknife s.e. (y = avg phenotype): %g\n", sqrt((indiv_ct / ((double)jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
+  regress_iters = g_jackknife_iters * thread_ct;
+  printf("\rJackknife s.e.: %g\n", sqrt((g_indiv_ct / ((double)g_jackknife_d)) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
+  printf("Jackknife s.e. (y = avg phenotype): %g\n", sqrt((g_indiv_ct / ((double)g_jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
   wkspace_reset(wkspace_mark);
   return 0;
 }

@@ -369,25 +369,27 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
 }
 
 // ----- multithread globals -----
-static double* distance_matrix;
+static double* g_distance_matrix;
 
 // If missingness is binary, this is a sum of sparse intersection weights;
 // otherwise, this is a sum of ALL weights.
-static double* distance_wt_matrix;
+static double* g_distance_wt_matrix;
 
-static unsigned int thread_start[MAX_THREADS_P1];
-static unsigned int indiv_ct;
-static double* dosage_vals; // (usually) [0..2] dosages for current SNPs
+static unsigned int g_thread_start[MAX_THREADS_P1];
+static unsigned int g_indiv_ct;
+static double* g_dosage_vals; // (usually) [0..2] dosages for current SNPs
 
 // If missingness is binary
-static unsigned long* missing_vals; // bit array marking missing values
+static unsigned long* g_missing_vals; // bit array marking missing values
 
 // If missingness is continuous
-static double* nonmissing_vals;
+static double* g_nonmissing_vals;
 
-// assumes BITCT >= MULTIPLEX_DOSAGE_NM
-static double missing_wts[BITCT]; // missingness rescale weights
-static double* missing_dmasks; // 0x7fff... if non-missing, 0x0000... otherwise
+#if BITCT < MULTIPLEX_DOSAGE_NM
+#error "Insufficient g_missing_wts[] size in wdist_dosage.c."
+#endif
+static double g_missing_wts[BITCT]; // missingness rescale weights
+static double* g_missing_dmasks; // 0x7fff... if non-missing, 0x0000... otherwise
 
 void incr_distance_dosage_2d_01(double* distance_matrix_slice, int thread_idx) {
 #if __LP64__
@@ -404,17 +406,17 @@ void incr_distance_dosage_2d_01(double* distance_matrix_slice, int thread_idx) {
 #endif
   unsigned long ulii;
   unsigned long uljj;
-  for (ulii = thread_start[thread_idx]; ulii < thread_start[thread_idx + 1]; ulii++) {
+  for (ulii = g_thread_start[thread_idx]; ulii < g_thread_start[thread_idx + 1]; ulii++) {
 #if __LP64__
-    dptr_start = (__m128d*)(&(dosage_vals[ulii * BITCT]));
+    dptr_start = (__m128d*)(&(g_dosage_vals[ulii * BITCT]));
     dptr_end = &(dptr_start[BITCT2]);
-    dptr2 = (__m128d*)dosage_vals;
-    mptr2 = (__m128d*)missing_dmasks;
+    dptr2 = (__m128d*)g_dosage_vals;
+    mptr2 = (__m128d*)g_missing_dmasks;
 #else
 #endif
-    if (missing_vals[ulii]) {
+    if (g_missing_vals[ulii]) {
 #if __LP64__
-      mptr_start = (__m128d*)(&(missing_dmasks[ulii * BITCT]));
+      mptr_start = (__m128d*)(&(g_missing_dmasks[ulii * BITCT]));
 #else
 #endif
       for (uljj = 0; uljj < ulii; uljj++) {
@@ -450,9 +452,9 @@ void incr_distance_dosage_2d_01(double* distance_matrix_slice, int thread_idx) {
 
 void* incr_distance_dosage_2d_01_thread(void* arg) {
   long tidx = (long)arg;
-  int ts = thread_start[tidx];
-  int ts0 = thread_start[0];
-  incr_distance_dosage_2d_01(&(distance_matrix[((long long)ts * (ts - 1) - (long long)ts0 * (ts0 - 1)) / 2]), (int)tidx);
+  int ts = g_thread_start[tidx];
+  int ts0 = g_thread_start[0];
+  incr_distance_dosage_2d_01(&(g_distance_matrix[((long long)ts * (ts - 1) - (long long)ts0 * (ts0 - 1)) / 2]), (int)tidx);
   return NULL;
 }
 
@@ -476,16 +478,16 @@ void incr_distance_dosage_2d_flat(double* distance_matrix_slice, double* distanc
 #endif
   unsigned long ulii;
   unsigned long uljj;
-  for (ulii = thread_start[thread_idx]; ulii < thread_start[thread_idx + 1]; ulii++) {
+  for (ulii = g_thread_start[thread_idx]; ulii < g_thread_start[thread_idx + 1]; ulii++) {
 #if __LP64__
-    dptr_start = (__m128d*)(&(dosage_vals[ulii * MULTIPLEX_DOSAGE_NM]));
+    dptr_start = (__m128d*)(&(g_dosage_vals[ulii * MULTIPLEX_DOSAGE_NM]));
     dptr_end = &(dptr_start[MULTIPLEX_DOSAGE_NM / 2]);
-    dptr2 = (__m128d*)dosage_vals;
-    mptr2 = (__m128d*)nonmissing_vals;
+    dptr2 = (__m128d*)g_dosage_vals;
+    mptr2 = (__m128d*)g_nonmissing_vals;
 #else
 #endif
 #if __LP64__
-    mptr_start = (__m128d*)(&(nonmissing_vals[ulii * MULTIPLEX_DOSAGE_NM]));
+    mptr_start = (__m128d*)(&(g_nonmissing_vals[ulii * MULTIPLEX_DOSAGE_NM]));
 #else
 #endif
     for (uljj = 0; uljj < ulii; uljj++) {
@@ -512,10 +514,10 @@ void incr_distance_dosage_2d_flat(double* distance_matrix_slice, double* distanc
 
 void* incr_distance_dosage_2d_flat_thread(void* arg) {
   long tidx = (long)arg;
-  int ts = thread_start[tidx];
-  int ts0 = thread_start[0];
+  int ts = g_thread_start[tidx];
+  int ts0 = g_thread_start[0];
   long long offset = ((long long)ts * (ts - 1) - (long long)ts0 * (ts0 - 1)) / 2;
-  incr_distance_dosage_2d_flat(&(distance_matrix[offset]), &(distance_wt_matrix[offset]), (int)tidx);
+  incr_distance_dosage_2d_flat(&(g_distance_matrix[offset]), &(g_distance_wt_matrix[offset]), (int)tidx);
   return NULL;
 }
 
@@ -540,23 +542,23 @@ void incr_distance_dosage_2d(double* distance_matrix_slice, double* distance_wt_
 #endif
   unsigned long ulii;
   unsigned long uljj;
-  for (ulii = thread_start[thread_idx]; ulii < thread_start[thread_idx + 1]; ulii++) {
+  for (ulii = g_thread_start[thread_idx]; ulii < g_thread_start[thread_idx + 1]; ulii++) {
 #if __LP64__
-    dptr_start = (__m128d*)(&(dosage_vals[ulii * MULTIPLEX_DOSAGE_NM]));
+    dptr_start = (__m128d*)(&(g_dosage_vals[ulii * MULTIPLEX_DOSAGE_NM]));
     dptr_end = &(dptr_start[MULTIPLEX_DOSAGE_NM / 2]);
-    dptr2 = (__m128d*)dosage_vals;
-    mptr2 = (__m128d*)nonmissing_vals;
+    dptr2 = (__m128d*)g_dosage_vals;
+    mptr2 = (__m128d*)g_nonmissing_vals;
 #else
 #endif
 #if __LP64__
-    mptr_start = (__m128d*)(&(nonmissing_vals[ulii * MULTIPLEX_DOSAGE_NM]));
+    mptr_start = (__m128d*)(&(g_nonmissing_vals[ulii * MULTIPLEX_DOSAGE_NM]));
 #else
 #endif
     for (uljj = 0; uljj < ulii; uljj++) {
 #if __LP64__
       dptr = dptr_start;
       mptr = mptr_start;
-      mwptr = (__m128d*)missing_wts;
+      mwptr = (__m128d*)g_missing_wts;
       acc.vd = _mm_setzero_pd();
       accm.vd = _mm_setzero_pd();
       do {
@@ -577,10 +579,10 @@ void incr_distance_dosage_2d(double* distance_matrix_slice, double* distance_wt_
 
 void* incr_distance_dosage_2d_thread(void* arg) {
   long tidx = (long)arg;
-  int ts = thread_start[tidx];
-  int ts0 = thread_start[0];
+  int ts = g_thread_start[tidx];
+  int ts0 = g_thread_start[0];
   long long offset = ((long long)ts * (ts - 1) - (long long)ts0 * (ts0 - 1)) / 2;
-  incr_distance_dosage_2d(&(distance_matrix[offset]), &(distance_wt_matrix[offset]), (int)tidx);
+  incr_distance_dosage_2d(&(g_distance_matrix[offset]), &(g_distance_wt_matrix[offset]), (int)tidx);
   return NULL;
 }
 
@@ -591,14 +593,14 @@ void incr_dosage_missing_wt_01(double* distance_wt_matrix_slice, int thread_idx)
   unsigned long uljj;
   unsigned long maskii;
   unsigned long mask;
-  for (ulii = thread_start[thread_idx]; ulii < thread_start[thread_idx + 1]; ulii++) {
-    mlptr = missing_vals;
-    maskii = missing_vals[ulii];
+  for (ulii = g_thread_start[thread_idx]; ulii < g_thread_start[thread_idx + 1]; ulii++) {
+    mlptr = g_missing_vals;
+    maskii = g_missing_vals[ulii];
     if (maskii) {
       for (uljj = 0; uljj < ulii; uljj++) {
 	mask = (*mlptr++) & maskii;
 	while (mask) {
-	  distance_wt_matrix_slice[uljj] += missing_wts[__builtin_ctzl(mask)];
+	  distance_wt_matrix_slice[uljj] += g_missing_wts[__builtin_ctzl(mask)];
 	  mask &= mask - 1;
 	}
       }
@@ -609,9 +611,9 @@ void incr_dosage_missing_wt_01(double* distance_wt_matrix_slice, int thread_idx)
 
 void* incr_dosage_missing_wt_01_thread(void* arg) {
   long tidx = (long)arg;
-  int ts = thread_start[tidx];
-  int ts0 = thread_start[0];
-  incr_dosage_missing_wt_01(&(distance_wt_matrix[((long long)ts * (ts - 1) - (long long)ts0 * (ts0 - 1)) / 2]), (int)tidx);
+  int ts = g_thread_start[tidx];
+  int ts0 = g_thread_start[0];
+  incr_dosage_missing_wt_01(&(g_distance_wt_matrix[((long long)ts * (ts - 1) - (long long)ts0 * (ts0 - 1)) / 2]), (int)tidx);
   return NULL;
 }
 
@@ -684,7 +686,7 @@ int update_distance_dosage_matrix(int is_missing_01, int distance_3d, int distan
 int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_allele_freqs, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, int is_missing_01, int distance_3d, int distance_flat_missing, double exponent, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
   int is_exponent_zero = (exponent == 0.0);
   unsigned int unfiltered_indiv_ct8m = unfiltered_indiv_ct & 0xfffffff8U;
-  unsigned int indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
+  unsigned int indiv_ctl = (g_indiv_ct + (BITCT - 1)) / BITCT;
   double marker_wt = 1.0;
   double* cur_marker_freqs = NULL;
   double* cmf_ptr = NULL;
@@ -715,9 +717,9 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
   double ptwo;
   double dxx;
   unsigned int tstc;
-  triangle_fill(thread_start, indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
-  llxx = thread_start[thread_ct];
-  llxx = ((llxx * (llxx - 1)) - (long long)thread_start[0] * (thread_start[0] - 1)) / 2;
+  triangle_fill(g_thread_start, g_indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
+  llxx = g_thread_start[thread_ct];
+  llxx = ((llxx * (llxx - 1)) - (long long)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
 #ifndef __LP64__
   printf("Error: 32-bit dosage distance calculation not yet supported.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
@@ -726,15 +728,15 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
   }
 #endif
   ulii = (unsigned long)llxx;
-  if (wkspace_alloc_d_checked(&distance_matrix, ulii * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&g_distance_matrix, ulii * sizeof(double))) {
     return RET_NOMEM;
   }
   wkspace_mark = wkspace_base;
-  if (wkspace_alloc_d_checked(&distance_wt_matrix, ulii * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&g_distance_wt_matrix, ulii * sizeof(double))) {
     return RET_NOMEM;
   }
-  fill_double_zero(distance_matrix, ulii);
-  fill_double_zero(distance_wt_matrix, ulii);
+  fill_double_zero(g_distance_matrix, ulii);
+  fill_double_zero(g_distance_wt_matrix, ulii);
   if (wkspace_alloc_c_checked(&loadbuf, gen_buf_len)) {
     return RET_NOMEM;
   }
@@ -742,25 +744,25 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
     printf("Error: 3d distance calculation not yet supported.\n");
     return RET_CALC_NOT_YET_SUPPORTED;
   } else {
-    if (wkspace_alloc_d_checked(&dosage_vals, indiv_ct * BITCT * sizeof(double))) {
+    if (wkspace_alloc_d_checked(&g_dosage_vals, g_indiv_ct * BITCT * sizeof(double))) {
       return RET_NOMEM;
     }
-    if (wkspace_alloc_d_checked(&missing_tots, indiv_ct * sizeof(double))) {
+    if (wkspace_alloc_d_checked(&missing_tots, g_indiv_ct * sizeof(double))) {
       return RET_NOMEM;
     }
-    fill_double_zero(missing_tots, indiv_ct);
+    fill_double_zero(missing_tots, g_indiv_ct);
     if (is_missing_01) {
-      if (wkspace_alloc_ul_checked(&missing_vals, indiv_ct * BITCT * sizeof(long))) {
+      if (wkspace_alloc_ul_checked(&g_missing_vals, g_indiv_ct * BITCT * sizeof(long))) {
 	return RET_NOMEM;
       }
-      fill_ulong_zero(missing_vals, indiv_ct * BITCT);
-      if (wkspace_alloc_d_checked(&missing_dmasks, indiv_ct * BITCT * sizeof(double))) {
+      fill_ulong_zero(g_missing_vals, g_indiv_ct * BITCT);
+      if (wkspace_alloc_d_checked(&g_missing_dmasks, g_indiv_ct * BITCT * sizeof(double))) {
 	return RET_NOMEM;
       }
       if (distance_flat_missing) {
 	tot_missing_wt = (double)marker_ct;
       } else {
-	if (wkspace_alloc_d_checked(&cur_marker_freqs, indiv_ct * sizeof(double))) {
+	if (wkspace_alloc_d_checked(&cur_marker_freqs, g_indiv_ct * sizeof(double))) {
 	  return RET_NOMEM;
 	}
         if (wkspace_alloc_ul_checked(&cur_missings, indiv_ctl * sizeof(long))) {
@@ -770,7 +772,7 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
     } else {
       printf("Error: Missing probabilities unequal to 0 and 1 not yet supported.\n");
       return RET_CALC_NOT_YET_SUPPORTED;
-      if (wkspace_alloc_d_checked(&cur_missings_d, indiv_ct * sizeof(double))) {
+      if (wkspace_alloc_d_checked(&cur_missings_d, g_indiv_ct * sizeof(double))) {
 	return RET_NOMEM;
       }
     }
@@ -821,22 +823,22 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
 	    pone = pbuf1[ulii];
 	    ptwo = pbuf2[ulii];
 	    dxx = (pone + 2 * ptwo) * marker_wt;
-	    dosage_vals[indiv_idx * BITCT + marker_idxl] = dxx;
+	    g_dosage_vals[indiv_idx * BITCT + marker_idxl] = dxx;
 	    if (is_missing_01) {
 	      // IEEE 754 zero is actually zero bitmask
 	      if (pzero + pone + ptwo == 0.0) {
 #if __LP64__
-		missing_dmasks[indiv_idx * BITCT + marker_idxl] = 0.0;
+		g_missing_dmasks[indiv_idx * BITCT + marker_idxl] = 0.0;
 #endif
 		if (distance_flat_missing) {
 		  missing_tots[indiv_idx] += 1.0;
 		} else {
 		  set_bit_noct(cur_missings, indiv_idx);
 		}
-		missing_vals[indiv_idx] |= 1 << marker_idxl;
+		g_missing_vals[indiv_idx] |= 1 << marker_idxl;
 	      } else {
 #if __LP64__
-		*((unsigned long*)(&missing_dmasks[indiv_idx * BITCT + marker_idxl])) = 0x7fffffffffffffffLU;
+		*((unsigned long*)(&g_missing_dmasks[indiv_idx * BITCT + marker_idxl])) = 0x7fffffffffffffffLU;
 #endif
 		if (!distance_flat_missing) {
 		  // defer missing_tots[indiv_idx] update until we know weight
@@ -865,9 +867,9 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
 	      dxx += ulii * (non_missing_ct - ulii) * (cur_marker_freqs[ulii] - cur_marker_freqs[ulii - 1]);
 	    }
 	    dxx *= 2.0 / ((double)((unsigned long long)non_missing_ct * non_missing_ct));
-	    missing_wts[marker_idxl] += dxx;
+	    g_missing_wts[marker_idxl] += dxx;
 	    tot_missing_wt += dxx;
-	    uljj = indiv_ct - non_missing_ct;
+	    uljj = g_indiv_ct - non_missing_ct;
 	    indiv_idx = 0;
 	    for (ulii = 0; ulii < uljj; ulii++) {
 	      indiv_idx = next_set_unsafe(cur_missings, indiv_idx);
@@ -895,19 +897,19 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
   marker_idxl = marker_uidx % BITCT;
   if (marker_idxl) {
     ulii = BITCT - marker_idxl;
-    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-      fill_double_zero(&(dosage_vals[indiv_idx * BITCT + marker_idxl]), ulii);
+    for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+      fill_double_zero(&(g_dosage_vals[indiv_idx * BITCT + marker_idxl]), ulii);
     }
     retval = update_distance_dosage_matrix(is_missing_01, distance_3d, distance_flat_missing, thread_ct);
     if (retval) {
       goto oxford_distance_calc_ret_1;
     }
   }
-  tstc = thread_start[thread_ct];
+  tstc = g_thread_start[thread_ct];
   if (is_missing_01) {
-    dptr = distance_matrix;
-    dptr2 = distance_wt_matrix;
-    for (indiv_idx = thread_start[0]; indiv_idx < tstc; indiv_idx++) {
+    dptr = g_distance_matrix;
+    dptr2 = g_distance_wt_matrix;
+    for (indiv_idx = g_thread_start[0]; indiv_idx < tstc; indiv_idx++) {
       dptr3 = missing_tots;
       dxx = tot_missing_wt - missing_tots[indiv_idx];
       for (uljj = 0; uljj < indiv_idx; uljj++) {
@@ -970,9 +972,9 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   double ref_freq_denom; // also 2x sum of cur_nonmissings
   double* cur_marker_freqs;
 
-  triangle_fill(thread_start, indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
-  llxx = thread_start[thread_ct];
-  llxx = ((llxx * (llxx - 1)) - (long long)thread_start[0] * (thread_start[0] - 1)) / 2;
+  triangle_fill(g_thread_start, g_indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
+  llxx = g_thread_start[thread_ct];
+  llxx = ((llxx * (llxx - 1)) - (long long)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
 #ifndef __LP64__
   printf("Error: 32-bit dosage distance calculation not yet supported.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
@@ -981,20 +983,20 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   }
 #endif
   ulii = (unsigned long)llxx;
-  if (wkspace_alloc_d_checked(&distance_matrix, ulii * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&g_distance_matrix, ulii * sizeof(double))) {
     return RET_NOMEM;
   }
   wkspace_mark = wkspace_base;
-  if (wkspace_alloc_d_checked(&distance_wt_matrix, ulii * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&g_distance_wt_matrix, ulii * sizeof(double))) {
     return RET_NOMEM;
   }
-  fill_double_zero(distance_matrix, ulii);
-  fill_double_zero(distance_wt_matrix, ulii);
+  fill_double_zero(g_distance_matrix, ulii);
+  fill_double_zero(g_distance_wt_matrix, ulii);
 
-  if (wkspace_alloc_d_checked(&cur_nonmissings, indiv_ct * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&cur_nonmissings, g_indiv_ct * sizeof(double))) {
     return RET_NOMEM;
   }
-  if (wkspace_alloc_d_checked(&nonmissing_vals, indiv_ct * MULTIPLEX_DOSAGE_NM * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&g_nonmissing_vals, g_indiv_ct * MULTIPLEX_DOSAGE_NM * sizeof(double))) {
     return RET_NOMEM;
   }
 
@@ -1002,10 +1004,10 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
     printf("Error: 3d distance calculation not yet supported.\n");
     return RET_CALC_NOT_YET_SUPPORTED;
   } else {
-    if (wkspace_alloc_d_checked(&dosage_vals, indiv_ct * MULTIPLEX_DOSAGE_NM * sizeof(double))) {
+    if (wkspace_alloc_d_checked(&g_dosage_vals, g_indiv_ct * MULTIPLEX_DOSAGE_NM * sizeof(double))) {
       return RET_NOMEM;
     }
-    if (wkspace_alloc_d_checked(&cur_marker_freqs, indiv_ct * sizeof(double))) {
+    if (wkspace_alloc_d_checked(&cur_marker_freqs, g_indiv_ct * sizeof(double))) {
       return RET_NOMEM;
     }
   }
@@ -1065,7 +1067,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
 	    ptwo = pbuf2[uii];
 	    dyy = pbuf0[uii] + pone + ptwo;
 	    cur_nonmissings[indiv_idx] = dyy;
-	    nonmissing_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl] = dyy;
+	    g_nonmissing_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl] = dyy;
 	    if (dyy == 0.0) {
 	      dxx = 1.0;
 	    } else {
@@ -1074,7 +1076,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
 	      dxx = dxx / dyy;
 	      ref_freq_denom += 2 * dyy;
 	    }
-	    dosage_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl] = dxx;
+	    g_dosage_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl] = dxx;
 	    cur_marker_freqs[indiv_idx] = dxx;
 	    indiv_idx++;
 	  }
@@ -1099,11 +1101,11 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
     }
 
     if (!distance_flat_missing) {
-      if (qsort_ext((char*)cur_marker_freqs, indiv_ct, sizeof(double), double_cmp_deref, (char*)cur_nonmissings, sizeof(double))) {
+      if (qsort_ext((char*)cur_marker_freqs, g_indiv_ct, sizeof(double), double_cmp_deref, (char*)cur_nonmissings, sizeof(double))) {
 	return RET_NOMEM;
       }
       dxx = 0.0;
-      uii = indiv_ct - 1;
+      uii = g_indiv_ct - 1;
       dyy = ref_freq_denom * 0.5;
       missing_wt = 0.0;
       for (indiv_idx = 0; indiv_idx < uii; indiv_idx++) {
@@ -1111,7 +1113,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
 	missing_wt += (cur_marker_freqs[indiv_idx + 1] - cur_marker_freqs[indiv_idx]) * dxx * (dyy - dxx);
       }
       missing_wt *= 2.0 / (dyy * dyy);
-      missing_wts[marker_idxl] = missing_wt;
+      g_missing_wts[marker_idxl] = missing_wt;
     }
     tot_missing_wt += missing_wt;
 
@@ -1141,9 +1143,9 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   }
   if (marker_idxl) {
     ulii = MULTIPLEX_DOSAGE_NM - marker_idxl;
-    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-      fill_double_zero(&(dosage_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl]), ulii);
-      fill_double_zero(&(nonmissing_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl]), ulii);
+    for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+      fill_double_zero(&(g_dosage_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl]), ulii);
+      fill_double_zero(&(g_nonmissing_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl]), ulii);
     }
     retval = update_distance_dosage_matrix(0, distance_3d, distance_flat_missing, thread_ct);
     if (retval) {
@@ -1156,10 +1158,10 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   *marker_ct_ptr = marker_ct;
   *gen_buf_len_ptr = gen_buf_len;
 
-  uljj = (((unsigned long)indiv_ct) * (indiv_ct - 1)) / 2;
+  uljj = (((unsigned long)g_indiv_ct) * (g_indiv_ct - 1)) / 2;
   dxx = tot_missing_wt;
   for (ulii = 0; ulii < uljj; ulii++) {
-    distance_matrix[ulii] *= dxx / distance_wt_matrix[ulii];
+    g_distance_matrix[ulii] *= dxx / g_distance_wt_matrix[ulii];
   }
 
   wkspace_reset(wkspace_mark);
@@ -1244,9 +1246,9 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
     }
     gen_scanned = 1;
   }
-  indiv_ct = unfiltered_indiv_ct;
-  if (parallel_tot > indiv_ct / 2) {
-    printf("Error: Too many --parallel jobs (maximum %d/2 = %d).\n", indiv_ct, indiv_ct / 2);
+  g_indiv_ct = unfiltered_indiv_ct;
+  if (parallel_tot > g_indiv_ct / 2) {
+    printf("Error: Too many --parallel jobs (maximum %d/2 = %d).\n", g_indiv_ct, g_indiv_ct / 2);
     goto wdist_dosage_ret_INVALID_CMDLINE;
   }
   if (thread_ct > 1) {
@@ -1264,7 +1266,7 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
     if (retval) {
       goto wdist_dosage_ret_1;
     }
-    if (wkspace_alloc_uc_checked(&membuf, indiv_ct * sizeof(double))) {
+    if (wkspace_alloc_uc_checked(&membuf, g_indiv_ct * sizeof(double))) {
       goto wdist_dosage_ret_NOMEM;
     }
     if (calculation_type & CALC_DISTANCE_MASK) {
@@ -1289,13 +1291,13 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
 	}
 	dxx = 0.5 / dxx;
       }
-      retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, distance_matrix, dxx, indiv_ct, thread_start[0], thread_start[thread_ct], parallel_idx, parallel_tot, membuf);
+      retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, g_distance_matrix, dxx, g_indiv_ct, g_thread_start[0], g_thread_start[thread_ct], parallel_idx, parallel_tot, membuf);
       if (retval) {
         goto wdist_dosage_ret_1;
       }
     }
     if (calculation_type & CALC_REGRESS_DISTANCE) {
-      retval = regress_distance(calculation_type, distance_matrix, pheno_d, unfiltered_indiv_ct, indiv_exclude, indiv_ct, thread_ct, regress_iters, regress_d);
+      retval = regress_distance(calculation_type, g_distance_matrix, pheno_d, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, thread_ct, regress_iters, regress_d);
       if (retval) {
 	goto wdist_dosage_ret_1;
       }
