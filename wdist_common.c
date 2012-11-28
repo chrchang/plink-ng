@@ -59,6 +59,18 @@ char* item_end(char* sptr) {
   return sptr;
 }
 
+int strlen_se(char* ss) {
+  int val = 0;
+  while (!is_space_or_eoln(*ss++)) {
+    val++;
+  }
+  return val;
+}
+
+int strcmp_se(char* s_read, char* s_const, int len) {
+  return memcmp(s_read, s_const, len) || (!is_space_or_eoln(s_read[len]));
+}
+
 char* next_item(char* sptr) {
   if (!sptr) {
     return NULL;

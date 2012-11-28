@@ -235,6 +235,14 @@ static inline char* skip_initial_spaces(char* sptr) {
 
 char* item_end(char* sptr);
 
+static inline int is_space_or_eoln(char cc) {
+  return ((cc == ' ') || (cc == '\t') || (cc == '\n') || (cc == '\0'));
+}
+
+int strlen_se(char* ss);
+
+int strcmp_se(char* s_read, char* s_const, int len);
+
 char* next_item(char* sptr);
 
 char* next_item_mult(char* sptr, unsigned int ct);

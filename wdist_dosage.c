@@ -10,7 +10,7 @@
 // assessing whether missingness should be treated as binary
 #define D_EPSILON 0.000244140625 // just want this above .0002
 
-int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, char** person_ids_ptr, unsigned int* max_person_id_len_ptr, double** phenos_ptr, unsigned long** pheno_exclude_ptr, unsigned long** indiv_exclude_ptr, char* missing_code) {
+int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, char** person_ids_ptr, unsigned int* max_person_id_len_ptr, unsigned char** sex_info_ptr, double** pheno_d_ptr, unsigned long** pheno_exclude_ptr, unsigned long** indiv_exclude_ptr, char* missing_code) {
   FILE* samplefile = NULL;
   unsigned char* wkspace_mark = NULL;
   unsigned int unfiltered_indiv_ct = 0;
@@ -19,9 +19,14 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   unsigned int indiv_uidx = 0;
   char** missing_code_ptrs = NULL;
   unsigned int* missing_code_lens = NULL;
+  int load_sex = 0;
+  int load_pheno = 0;
+  unsigned int male_ct = 0;
+  unsigned int female_ct = 0;
+  unsigned char* sex_info = NULL;
+  double* pheno_d = NULL;
   unsigned int unfiltered_indiv_ctl;
   char* person_ids;
-  double* phenos;
   char* item_begin;
   char* bufptr;
   unsigned int cur_person_id_len;
@@ -43,12 +48,36 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
       goto oxford_sample_load_ret_READ_FAIL;
     }
   }
-  if (memcmp(tbuf, "ID_1 ID_2 missing ", 18)) {
-    goto oxford_sample_load_ret_INVALID_FORMAT;
+  item_begin = skip_initial_spaces(tbuf);
+  bufptr = next_item_mult(item_begin, 2);
+  if (no_more_items(bufptr)) {
+    goto oxford_sample_load_ret_INVALID_FORMAT_3;
+  }
+  if (strcmp_se(item_begin, "ID_1", 4) || strcmp_se(next_item(item_begin), "ID_2", 4) || strcmp_se(bufptr, "missing", 7)) {
+    goto oxford_sample_load_ret_INVALID_FORMAT_3;
+  }
+  bufptr = next_item(bufptr);
+  if (!no_more_items(bufptr)) {
+    if (strcmp_se(bufptr, "sex", 3)) {
+      *sex_info_ptr = NULL;
+      load_pheno = 1;
+    } else {
+      load_sex = 1;
+      bufptr = next_item(bufptr);
+      if (!no_more_items(bufptr)) {
+	load_pheno = 1;
+      }
+    }
+    if (load_pheno) {
+      if (!no_more_items(next_item(bufptr))) {
+	load_pheno++;
+      }
+    }
   }
   if (!tbuf[MAXLINELEN - 1]) {
     goto oxford_sample_load_ret_INVALID_FORMAT_2;
   }
+
   if (!fgets(tbuf, MAXLINELEN, samplefile)) {
     if (feof(samplefile)) {
       goto oxford_sample_load_ret_INVALID_FORMAT;
@@ -56,14 +85,40 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
       goto oxford_sample_load_ret_READ_FAIL;
     }
   }
-  if (memcmp(tbuf, "0 0 0 ", 6)) {
+  item_begin = skip_initial_spaces(tbuf);
+  bufptr = next_item_mult(item_begin, 2);
+  if (no_more_items(bufptr)) {
     goto oxford_sample_load_ret_INVALID_FORMAT;
   }
+  if (strcmp_se(item_begin, "0", 1) || strcmp_se(next_item(item_begin), "0", 1) || strcmp_se(bufptr, "0", 1)) {
+    goto oxford_sample_load_ret_INVALID_FORMAT;
+  }
+  if (load_sex) {
+    bufptr = next_item(bufptr);
+    if (no_more_items(bufptr) || strcmp_se(bufptr, "D", 1)) {
+      goto oxford_sample_load_ret_INVALID_FORMAT;
+    }
+  }
+  if (load_pheno) {
+    bufptr = next_item(bufptr);
+    // todo: accept binary phenotype too
+    if (no_more_items(bufptr) || (strcmp_se(bufptr, "P", 1) && 0)) {
+      goto oxford_sample_load_ret_INVALID_FORMAT;
+    }
+    if (load_pheno > 1) {
+      if (no_more_items(next_item(bufptr))) {
+        goto oxford_sample_load_ret_INVALID_FORMAT;
+      }
+      load_pheno = 1;
+    }
+  }
+  
   if (!tbuf[MAXLINELEN - 1]) {
     goto oxford_sample_load_ret_INVALID_FORMAT_2;
   }
   first_real_line_loc = ftello(samplefile);
   unfiltered_indiv_ct = 0;
+  // first pass: count indivs, determine max ID length
   while (fgets(tbuf, MAXLINELEN, samplefile) != NULL) {
     if (*tbuf == '\n') {
       continue;
@@ -93,7 +148,7 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   }
   if (!unfiltered_indiv_ct) {
     printf("Error: No individuals in .sample file.\n");
-    goto oxford_sample_load_ret_INVALID_FORMAT_3;
+    goto oxford_sample_load_ret_INVALID_FORMAT_4;
   }
   *unfiltered_indiv_ct_ptr = unfiltered_indiv_ct;
   *max_person_id_len_ptr = max_person_id_len;
@@ -101,19 +156,32 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   if (wkspace_alloc_c_checked(person_ids_ptr, unfiltered_indiv_ct * max_person_id_len)) {
     goto oxford_sample_load_ret_NOMEM;
   }
-  if (wkspace_alloc_d_checked(phenos_ptr, unfiltered_indiv_ct * sizeof(double))) {
-    goto oxford_sample_load_ret_NOMEM;
+  if (load_sex) {
+    if (wkspace_alloc_uc_checked(sex_info_ptr, unfiltered_indiv_ct)) {
+      goto oxford_sample_load_ret_NOMEM;
+    }
+    sex_info = *sex_info_ptr;
+    memset(sex_info, 0, unfiltered_indiv_ct);
   }
   unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  if (wkspace_alloc_ul_checked(pheno_exclude_ptr, unfiltered_indiv_ctl * sizeof(long))) {
-    goto oxford_sample_load_ret_NOMEM;
+  if (load_pheno) {
+    // todo: handle binary phenotype
+    if (wkspace_alloc_d_checked(pheno_d_ptr, unfiltered_indiv_ct * sizeof(double))) {
+      goto oxford_sample_load_ret_NOMEM;
+    }
+    if (wkspace_alloc_ul_checked(pheno_exclude_ptr, unfiltered_indiv_ctl * sizeof(long))) {
+      goto oxford_sample_load_ret_NOMEM;
+    }
+    pheno_d = *pheno_d_ptr;
+    fill_ulong_zero(*pheno_exclude_ptr, unfiltered_indiv_ctl);
+  } else {
+    pheno_d_ptr = NULL;
+    pheno_exclude_ptr = NULL;
   }
   if (wkspace_alloc_ul_checked(indiv_exclude_ptr, unfiltered_indiv_ctl * sizeof(long))) {
     goto oxford_sample_load_ret_NOMEM;
   }
   person_ids = *person_ids_ptr;
-  phenos = *phenos_ptr;
-  fill_ulong_zero(*pheno_exclude_ptr, unfiltered_indiv_ctl);
   fill_ulong_zero(*indiv_exclude_ptr, unfiltered_indiv_ctl);
   wkspace_mark = wkspace_base;
   if (*missing_code) {
@@ -154,6 +222,7 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   if (fseeko(samplefile, first_real_line_loc, SEEK_SET)) {
     goto oxford_sample_load_ret_READ_FAIL;
   }
+  // second pass: actually load stuff
   while (fgets(tbuf, MAXLINELEN, samplefile)) {
     if (*tbuf == '\n') {
       continue;
@@ -168,28 +237,42 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
     ujj = (unsigned int)(bufptr - item_begin);
     memcpy(&(person_ids[indiv_uidx * max_person_id_len + uii + 1]), item_begin, ujj);
     person_ids[indiv_uidx * max_person_id_len + uii + 1 + ujj] = '\0';
-    // assume columns 3-5 are missing, sex, pheno
-    item_begin = next_item_mult(skip_initial_spaces(bufptr), 2);
-    if (no_more_items(item_begin)) {
-      goto oxford_sample_load_ret_INVALID_FORMAT;
-    }
-    bufptr = item_end(item_begin);
-    uii = (unsigned int)(bufptr - item_begin);
-    is_missing = 0;
-    for (ujj = 0; ujj < missing_code_ct; ujj++) {
-      if (uii == missing_code_lens[ujj]) {
-	if (!memcmp(item_begin, missing_code_ptrs[ujj], uii)) {
-	  set_bit_noct(*pheno_exclude_ptr, indiv_uidx);
-	  is_missing = 1;
-	  break;
-	}
+    item_begin = next_item(skip_initial_spaces(bufptr));
+    if (load_sex) {
+      if (no_more_items(item_begin)) {
+        goto oxford_sample_load_ret_INVALID_FORMAT;
       }
+      if (*item_begin == '1') {
+        sex_info[indiv_uidx] = 1;
+        male_ct++;
+      } else if (*item_begin == '2') {
+        sex_info[indiv_uidx] = 2;
+        female_ct++;
+      }
+      item_begin = next_item(item_begin);
     }
-    if (!is_missing) {
-      if (sscanf(item_begin, "%lg", &dxx) != 1) {
+    if (load_pheno) {
+      if (no_more_items(item_begin)) {
 	goto oxford_sample_load_ret_INVALID_FORMAT;
       }
-      phenos[indiv_uidx] = dxx;
+      bufptr = item_end(item_begin);
+      uii = (unsigned int)(bufptr - item_begin);
+      is_missing = 0;
+      for (ujj = 0; ujj < missing_code_ct; ujj++) {
+	if (uii == missing_code_lens[ujj]) {
+	  if (!memcmp(item_begin, missing_code_ptrs[ujj], uii)) {
+	    set_bit_noct(*pheno_exclude_ptr, indiv_uidx);
+	    is_missing = 1;
+	    break;
+	  }
+	}
+      }
+      if (!is_missing) {
+	if (sscanf(item_begin, "%lg", &dxx) != 1) {
+	  goto oxford_sample_load_ret_INVALID_FORMAT;
+	}
+	pheno_d[indiv_uidx] = dxx;
+      }
     }
     indiv_uidx++;
   }
@@ -198,6 +281,16 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   }
 
   retval = 0;
+  if (load_sex) {
+    uii = unfiltered_indiv_ct - male_ct - female_ct;
+    if (uii) {
+      printf("%d people (%d male%s, %d female%s, %d unknown) loaded.\n", unfiltered_indiv_ct, male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s", uii);
+    } else {
+      printf("%d people (%d male%s, %d female%s) loaded.\n", unfiltered_indiv_ct, male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s");
+    }
+  } else {
+    printf("%d people loaded.\n", unfiltered_indiv_ct);
+  }
   while (0) {
   oxford_sample_load_ret_NOMEM:
     retval = RET_NOMEM;
@@ -215,6 +308,8 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   oxford_sample_load_ret_INVALID_FORMAT_2:
     printf("Error: Excessively long line in .sample file (max %d chars).\n", MAXLINELEN - 3);
   oxford_sample_load_ret_INVALID_FORMAT_3:
+    printf("Unsupported .sample file format.  (First three columns are expected to be\n'ID_1', 'ID_2', and 'missing', in that order.)\n");
+  oxford_sample_load_ret_INVALID_FORMAT_4:
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -1201,6 +1296,7 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
   char* outname_end = (char*)memchr(outname, 0, FNAMESIZE);
   int gen_scanned = 0;
   int is_missing_01 = 0;
+  unsigned char* sex_info;
   unsigned char* membuf;
   unsigned int gen_buf_len;
   unsigned char* wkspace_mark;
@@ -1220,9 +1316,13 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
   unsigned int marker_idx;
   double dxx;
   double dyy;
-  retval = oxford_sample_load(samplename, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &pheno_d, &pheno_exclude, &indiv_exclude, missing_code);
+  retval = oxford_sample_load(samplename, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &sex_info, &pheno_d, &pheno_exclude, &indiv_exclude, missing_code);
   if (retval) {
     goto wdist_dosage_ret_1;
+  }
+  if ((calculation_type & CALC_REGRESS_DISTANCE) && (!pheno_d)) {
+    printf("Error: --regress-distance calculation requires scalar phenotype.\n");
+    goto wdist_dosage_ret_INVALID_CMDLINE;
   }
   if (fopen_checked(&genfile, genname, "r")) {
     return RET_OPEN_FAIL;

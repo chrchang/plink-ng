@@ -1283,18 +1283,6 @@ int indiv_major_to_snp_major(char* indiv_major_fname, char* outname, FILE** outf
   return retval;
 }
 
-inline int is_space_or_eoln(char cc) {
-  return ((cc == ' ') || (cc == '\t') || (cc == '\n') || (cc == '\0'));
-}
-
-int strlen_se(char* ss) {
-  int val = 0;
-  while (!is_space_or_eoln(*ss++)) {
-    val++;
-  }
-  return val;
-}
-
 int strcmp_casted(const void* s1, const void* s2) {
   return strcmp((char*)s1, (char*)s2);
 }
