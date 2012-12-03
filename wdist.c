@@ -127,6 +127,13 @@ extern "C" {
               __CLPK_integer* lda, __CLPK_integer* ipiv,
               __CLPK_doublereal* work, __CLPK_integer* lwork,
               __CLPK_integer* info);
+  double dlange_(char* norm, __CLPK_integer* m, __CLPK_integer* n,
+                 __CLPK_doublereal* a, __CLPK_integer* lda,
+                 __CLPK_doublereal* work);
+  int dgecon_(char* norm, __CLPK_integer* n, __CLPK_doublereal* a,
+              __CLPK_integer* lda, __CLPK_doublereal* anorm,
+              __CLPK_doublereal* rcond, __CLPK_doublereal* work,
+              __CLPK_integer* iwork, __CLPK_integer* info);
 
   void xerbla_(void) {} // fix static linking error
 #ifdef __cplusplus
@@ -257,9 +264,9 @@ static inline void debug_log(char* ss) {
 
 const char ver_str[] =
 #ifdef NOLAPACK
-  "WDIST v0.13.4NL"
+  "WDIST v0.13.5NL"
 #else
-  "WDIST v0.13.4"
+  "WDIST v0.13.5"
 #endif
 #ifdef DEBUG
   "d"
@@ -269,7 +276,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (27 Nov 2012)    https://www.cog-genomics.org/wdist\n"
+  " (3 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -680,13 +687,14 @@ int disp_help(unsigned int param_ct, char** argv) {
 "      Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
 	       );
 #endif
-    help_print("freq\tfreqx", &help_ctrl, 1,
+    help_print("freq\tfreqx\tcounts", &help_ctrl, 1,
 "  --freq\n"
 "  --freqx\n"
 "    --freq generates an allele frequency report identical to that of PLINK\n"
-"    --freq; --freqx replaces the NCHROBS column with homozygote/heterozygote\n"
-"    counts, which (when reloaded with --read-freq) allow distance matrix terms\n"
-"    to be weighted consistently through multiple filtering runs.\n\n"
+"    --freq; --freqx replaces the MAF and NCHROBS columns with\n"
+"    homozygote/heterozygote counts, which (when reloaded with --read-freq)\n"
+"    allow distance matrix terms to be weighted consistently through multiple\n"
+"    filtering runs.\n\n"
 		);
     help_print("write-snplist", &help_ctrl, 1,
 "  --write-snplist\n"
@@ -3663,7 +3671,7 @@ int svdcmp_c(int m, double* a, double* w, double* v) {
   double volatile temp;
   double* rv1;
   if (wkspace_alloc_d_checked(&rv1, m * sizeof(double))) {
-    return 0;
+    return -1;
   }
 
   g=scale=anorm=0.0;
@@ -3844,15 +3852,14 @@ int svdcmp_c(int m, double* a, double* w, double* v) {
 }
 
 int invert_matrix(int dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_1d_buf, double* dbl_2d_buf) {
-  // C port of PLINK stats.cpp's svd_inverse() function.  The return value
-  // takes the place of bool& flag.
-  // We don't actually pay attention to the return value yet since PLINK
-  // --indep ignores it.
+  // C port of PLINK stats.cpp's svd_inverse() function.
 
   // w -> dbl_1d_buf
   // v -> dbl_2d_buf
   const double eps = 1e-24;
-  int flag = svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf);
+  if (svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf) == -1) {
+    return -1;
+  }
 
   // Look for singular values
   double wmax = 0;
@@ -3870,6 +3877,76 @@ int invert_matrix(int dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_1d_buf, 
     }
   }
 
+  // [nxn].[t(v)] 
+  for (int i=0; i<dim; i++) {
+    fill_double_zero(dbl_1d_buf, dim);
+    for (int j=0; j<dim; j++) {
+      for (int k=0; k<dim; k++) {
+	dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];
+      }
+    }
+    for (int j = 0; j < dim; j++) {
+      matrix[i * dim + j] = dbl_1d_buf[j];
+    }
+  }
+  return 0;
+}
+
+int invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf, __CLPK_integer min_dim) {
+  // for no truncation, call this with min_dim == dim
+  const double eps = 1e-24;
+  int flag = svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf);
+  double* small_matrix = NULL;
+  unsigned char* wkspace_mark;
+  int cur_dim;
+  int max_dim; // known singular
+  unsigned int uii;
+  int retval;
+
+  if (!flag) {
+    wkspace_mark = wkspace_base;
+    max_dim = dim;
+    if (dim > min_dim + 1) {
+      if (wkspace_alloc_d_checked(&small_matrix, (dim - 1) * (dim - 1) * sizeof(double))) {
+        return -1;
+      }
+    }
+    while (max_dim > min_dim + 1) {
+      cur_dim = (max_dim + min_dim) / 2;
+      for (uii = 0; uii < cur_dim; uii++) {
+        memcpy(&(small_matrix[uii * cur_dim]), &(matrix[uii * dim]), cur_dim * sizeof(double));
+      }
+      flag = svdcmp_c(cur_dim, small_matrix, dbl_1d_buf, dbl_2d_buf);
+      if (flag) {
+        max_dim = cur_dim;
+      } else {
+        min_dim = cur_dim;
+      }
+    }
+    retval = min_dim + 1;
+    if (dim > retval) {
+      dim = min_dim;
+      memcpy(matrix, small_matrix, dim * dim * sizeof(double));
+      wkspace_reset(wkspace_mark);
+    }
+  } else {
+    retval = 0;
+  }
+  // Look for singular values
+  double wmax = 0;
+  for (int i=0; i<dim; i++) {
+    wmax = dbl_1d_buf[i] > wmax ? dbl_1d_buf[i] : wmax;
+  }
+  double wmin = wmax * eps;
+  for (int i=0; i<dim; i++) {
+    dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : 1/dbl_1d_buf[i];
+  }
+
+  for (int i=0; i<dim; i++) {
+    for (int j=0; j<dim; j++) {
+      matrix[i * dim + j] = matrix[i * dim + j] * dbl_1d_buf[j];
+    }
+  }
 
   // [nxn].[t(v)] 
   for (int i=0; i<dim; i++) {
@@ -3886,14 +3963,31 @@ int invert_matrix(int dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_1d_buf, 
   return flag;
 }
 #else
-void invert_matrix(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf) {
+int invert_matrix(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf) {
   // dgetrf_/dgetri_ is more efficient than dpotrf_/dpotri_ on OS X.
-  // should create a variant of this function which detects singular matrices
-  // (using dgecon_, etc.)
   __CLPK_integer lwork = dim * dim;
   __CLPK_integer info;
   dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
   dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
+  // todo: check if there are any major error conditions, return -1 on them
+  return 0;
+}
+
+int invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf, __CLPK_integer min_dim) {
+  // Variant of invert_matrix which checks if the matrix is singular.  If it
+  // is, this determines the minimum number of rows/columns which can be
+  // removed from the bottom right to make the matrix nonsingular, knowing that
+  // the upper left min_dim * min_dim matrix is nonsingular, and returns the
+  // index of the first removed row/column.
+  // __CLPK_integer lwork = dim * dim;
+  char cc = '1';
+  __CLPK_integer info;
+  double norm;
+  norm = dlange_(&cc, &dim, &dim, matrix, &dim, dbl_2d_buf);
+  dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
+  // dgecon_(); // TODO
+
+  return 0;
 }
 #endif
 
@@ -6116,8 +6210,8 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
         }
       }
     }
-  } else if (!strcmp(tbuf, "CHR\tSNP\tA1\tA2\tMAF\tC(HOM A1)\tC(HET)\tC(HOM A2)\n")) {
-    // known --freqx format
+  } else if (!strcmp(tbuf, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(MISSING)\n")) {
+    // known --freqx format, v0.13.5 or later
     while (fgets(tbuf, MAXLINELEN, *freqfile_ptr) != NULL) {
       jj = marker_code(species, tbuf);
       bufptr = next_item(tbuf); // now at beginning of SNP name
@@ -6136,7 +6230,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
 	  if (cc == cc2) {
 	    goto read_external_freqs_ret_INVALID_FORMAT;
 	  }
-	  bufptr = next_item_mult(bufptr2, 2);
+	  bufptr = next_item(bufptr2);
 	  bufptr2 = next_item(bufptr);
 	  bufptr3 = next_item(bufptr2);
 	  if (no_more_items(bufptr3)) {
@@ -6159,6 +6253,9 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
     // Also support GCTA-style frequency files:
     // [marker ID]\t[reference allele]\t[frequency of reference allele]\n
     do {
+      if (*tbuf == '\n') {
+	continue;
+      }
       bufptr = next_item(tbuf);
       if (!bufptr) {
         goto read_external_freqs_ret_INVALID_FORMAT;
@@ -6181,6 +6278,12 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
 	if (wt_needed) {
 	  marker_weights[ii] = calc_wt_mean_maf(exponent, set_allele_freqs[ii]);
 	}
+      } else {
+	// if there aren't exactly 3 columns, this isn't a GCTA .freq file
+	bufptr = next_item(bufptr);
+	if (no_more_items(bufptr) || (!no_more_items(next_item(bufptr)))) {
+	  goto read_external_freqs_ret_INVALID_FORMAT;
+	}
       }
     } while (fgets(tbuf, MAXLINELEN, *freqfile_ptr) != NULL);
   }
@@ -6198,7 +6301,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
   return RET_ALLELE_MISMATCH;
 }
 
-int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, int unfiltered_marker_ct, unsigned long* marker_exclude, double* set_allele_freqs, Chrom_info* chrom_info_ptr, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, int* ll_cts, int* lh_cts, int* hh_cts, int binary_files, int freqx, char missing_geno) {
+int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, int unfiltered_marker_ct, unsigned long* marker_exclude, double* set_allele_freqs, Chrom_info* chrom_info_ptr, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, int* ll_cts, int* lh_cts, int* hh_cts, int binary_files, int freq_counts, int freqx, char missing_geno) {
   int ii;
   int reverse;
   char minor_allele;
@@ -6208,14 +6311,27 @@ int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, in
   if (freqx) {
     // MAF is not quite redundant with the hom/het counts, since it's affected
     // by --maf-succ.
-    if (fprintf(*outfile_ptr, "CHR\tSNP\tA1\tA2\tMAF\tC(HOM A1)\tC(HET)\tC(HOM A2)\n") < 0) {
+    if (fprintf(*outfile_ptr, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(MISSING)\n") < 0) {
       return RET_WRITE_FAIL;
     }
   } else if (plink_maxsnp < 5) {
-    if (fprintf(*outfile_ptr, " CHR  SNP   A1   A2          MAF  NCHROBS\n") < 0) {
+    if (freq_counts) {
+      if (fprintf(*outfile_ptr, " CHR  SNP   A1   A2     C1     C2     G0\n") < 0) {
+	return RET_WRITE_FAIL;
+      }
+      strcpy(tbuf, "%4d %4s    %c    %c %6d %6d %6d\n");
+    } else {
+      if (fprintf(*outfile_ptr, " CHR  SNP   A1   A2          MAF  NCHROBS\n") < 0) {
+        return RET_WRITE_FAIL;
+      }
+      strcpy(tbuf, "%4d %4s    %c    %c      %7.4g  %7d\n");
+    }
+  } else if (freq_counts) {
+    sprintf(tbuf, " CHR %%%ds   A1   A2     C1     C2     G0\n", plink_maxsnp);
+    if (fprintf(*outfile_ptr, tbuf, "SNP") < 0) {
       return RET_WRITE_FAIL;
     }
-    strcpy(tbuf, "%4d %4s    %c    %c      %7.4g  %7d\n");
+    sprintf(tbuf, "%%4d %%%ds    %%c    %%c %%6d %%6d %%6d\n", plink_maxsnp);
   } else {
     sprintf(tbuf, " CHR %%%ds   A1   A2          MAF  NCHROBS\n", plink_maxsnp);
     if (fprintf(*outfile_ptr, tbuf, "SNP") < 0) {
@@ -6237,7 +6353,11 @@ int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, in
       minor_allele = missing_geno;
     }
     if (freqx) {
-      if (fprintf(*outfile_ptr, "%d\t%s\t%c\t%c\t%g\t%d\t%d\t%d\n", get_marker_chrom(chrom_info_ptr, ii), &(marker_ids[ii * max_marker_id_len]), minor_allele, marker_alleles[ii * 2 + (1 ^ reverse)], reverse? set_allele_freqs[ii] : (1.0 - set_allele_freqs[ii]), reverse? hh_cts[ii] : ll_cts[ii], lh_cts[ii], reverse? ll_cts[ii] :  hh_cts[ii]) < 0) {
+      if (fprintf(*outfile_ptr, "%d\t%s\t%c\t%c\t%d\t%d\t%d\t%d\n", get_marker_chrom(chrom_info_ptr, ii), &(marker_ids[ii * max_marker_id_len]), minor_allele, marker_alleles[ii * 2 + (1 ^ reverse)], reverse? hh_cts[ii] : ll_cts[ii], lh_cts[ii], reverse? ll_cts[ii] : hh_cts[ii], g_indiv_ct - (ll_cts[ii] + lh_cts[ii] + hh_cts[ii])) < 0) {
+	return RET_WRITE_FAIL;
+      }
+    } else if (freq_counts) {
+      if (fprintf(*outfile_ptr, tbuf, get_marker_chrom(chrom_info_ptr, ii), &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2], marker_alleles[ii * 2 + 1], 2 * ll_cts[ii] + lh_cts[ii], 2 * hh_cts[ii] + lh_cts[ii], g_indiv_ct - (ll_cts[ii] + lh_cts[ii] + hh_cts[ii])) < 0) {
 	return RET_WRITE_FAIL;
       }
     } else {
@@ -8455,6 +8575,7 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
   unsigned int window_unfiltered_start;
   unsigned int window_unfiltered_end;
   int cur_window_size;
+  int old_window_size;
   int ii;
   int jj;
   int kk;
@@ -8493,6 +8614,7 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
   double* new_cov_matrix = NULL;
   MATRIX_INVERT_BUF1_TYPE* irow = NULL;
   __CLPK_integer window_rem_li;
+  __CLPK_integer old_window_rem_li;
   double* work = NULL;
   int window_rem;
   unsigned int* idx_remap = NULL;
@@ -8590,6 +8712,7 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
   do {
     prev_end = 0;
     ld_prune_start_chrom(ld_window_kb, &cur_chrom, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, chrom_info_ptr, marker_pos);
+    old_window_size = 1;
     if (cur_window_size > 1) {
       for (ulii = 0; ulii < (unsigned long)cur_window_size; ulii++) {
 	if (fseeko(bedfile, bed_offset + (live_indices[ulii] * unfiltered_indiv_ct4), SEEK_SET)) {
@@ -8704,7 +8827,15 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
 	} while (at_least_one_prune);
 	if (!pairwise) {
 	  window_rem = 0;
-	  for (ii = 0; ii < cur_window_size; ii++) {
+	  old_window_rem_li = 0;
+	  for (ii = 0; ii < old_window_size; ii++) {
+	    if (is_set(pruned_arr, live_indices[ii])) {
+	      continue;
+	    }
+            idx_remap[window_rem++] = ii;
+	  }
+	  old_window_rem_li = window_rem;
+	  for (; ii < cur_window_size; ii++) {
 	    if (is_set(pruned_arr, live_indices[ii])) {
 	      continue;
 	    }
@@ -8722,7 +8853,14 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
 	      new_cov_matrix[ii * (window_rem + 1)] = 1.0;
 	    }
 	    window_rem_li = window_rem;
-	    invert_matrix(window_rem_li, new_cov_matrix, irow, work);
+	    jj = invert_matrix_trunc_singular(window_rem_li, new_cov_matrix, irow, work, old_window_rem_li);
+	    if (jj) {
+              set_bit(pruned_arr, live_indices[idx_remap[jj]], &cur_exclude_ct);
+	      window_rem--;
+	      for (ii = jj; ii < window_rem; ii++) {
+		idx_remap[ii] = idx_remap[ii + 1];
+	      }
+	    }
 	    dxx = new_cov_matrix[0];
 	    jj = 0;
 	    for (ii = 1; ii < window_rem; ii++) {
@@ -8734,6 +8872,9 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
 	    if (dxx > ld_last_param) {
 	      set_bit(pruned_arr, live_indices[idx_remap[jj]], &cur_exclude_ct);
 	      window_rem--;
+	      if (idx_remap[jj] < (unsigned int)old_window_size) {
+		old_window_rem_li--;
+	      }
 	      for (ii = jj; ii < window_rem; ii++) {
                 idx_remap[ii] = idx_remap[ii + 1];
 	      }
@@ -8803,6 +8944,7 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
       } else {
 	jj = ld_window_incr;
       }
+      old_window_size = cur_window_size;
       for (ii = 0; ii < jj; ii++) {
 	while ((window_unfiltered_end < chrom_end) && is_set(marker_exclude, window_unfiltered_end)) {
 	  window_unfiltered_end++;
@@ -8925,7 +9067,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, int output_missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freqx, int distance_flat_missing, int recode_modifier) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, int output_missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -9358,10 +9500,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   if (calculation_type & CALC_FREQ) {
     if (freqx) {
       strcpy(outname_end, ".frqx");
+    } else if (freq_counts) {
+      strcpy(outname_end, ".frq.count");
     } else {
       strcpy(outname_end, ".frq");
     }
-    retval = write_freqs(&outfile, outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_alleles, ll_cts, lh_cts, hh_cts, binary_files, freqx, missing_geno);
+    retval = write_freqs(&outfile, outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_alleles, ll_cts, lh_cts, hh_cts, binary_files, freq_counts, freqx, missing_geno);
     if (retval || (binary_files && (calculation_type == CALC_FREQ))) {
       goto wdist_ret_2;
     }
@@ -11190,6 +11334,7 @@ int main(int argc, char** argv) {
   int freqx = 0;
   int silent = 0;
   int recode_modifier = 0;
+  int freq_counts = 0;
   Chrom_info chrom_info;
   char* argptr2;
   int cur_arg_start;
@@ -11402,6 +11547,10 @@ int main(int argc, char** argv) {
 	cur_arg += 1 + ii;
       } else if (!memcmp(argptr2, "ompound-genotypes", 18)) {
 	printf("Note: --compound-genotypes flag unnecessary (spaces between alleles in .ped\nare optional).\n");
+	cur_arg += 1;
+      } else if (!memcmp(argptr2, "ounts", 6)) {
+	printf("Note: --counts flag deprecated.  Use --freqx instead.\n");
+        freq_counts = 1;
 	cur_arg += 1;
       }
       break;
@@ -13071,7 +13220,7 @@ int main(int argc, char** argv) {
       retval = wdist_dosage(calculation_type, genname, samplename, outname, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else {
-    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freqx, distance_flat_missing, recode_modifier);
+    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier);
   }
   free(wkspace_ua);
 #ifdef DEBUG

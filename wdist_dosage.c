@@ -10,7 +10,7 @@
 // assessing whether missingness should be treated as binary
 #define D_EPSILON 0.000244140625 // just want this above .0002
 
-int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, char** person_ids_ptr, unsigned int* max_person_id_len_ptr, unsigned char** sex_info_ptr, double** pheno_d_ptr, unsigned long** pheno_exclude_ptr, unsigned long** indiv_exclude_ptr, char* missing_code) {
+int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, char** person_ids_ptr, unsigned int* max_person_id_len_ptr, unsigned char** sex_info_ptr, char** pheno_c_ptr, double** pheno_d_ptr, unsigned long** pheno_exclude_ptr, unsigned long** indiv_exclude_ptr, char* missing_code) {
   FILE* samplefile = NULL;
   unsigned char* wkspace_mark = NULL;
   unsigned int unfiltered_indiv_ct = 0;
@@ -24,7 +24,9 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   unsigned int male_ct = 0;
   unsigned int female_ct = 0;
   unsigned char* sex_info = NULL;
+  char* pheno_c = NULL;
   double* pheno_d = NULL;
+  int pheno_is_binary = 0;
   unsigned int unfiltered_indiv_ctl;
   char* person_ids;
   char* item_begin;
@@ -101,14 +103,19 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   }
   if (load_pheno) {
     bufptr = next_item(bufptr);
-    // todo: accept binary phenotype too
-    if (no_more_items(bufptr) || (strcmp_se(bufptr, "P", 1) && 0)) {
+    if (no_more_items(bufptr)) {
+      goto oxford_sample_load_ret_INVALID_FORMAT;
+    }
+    if (!strcmp_se(bufptr, "B", 1)) {
+      pheno_is_binary = 1;
+    } else if (strcmp_se(bufptr, "P", 1)) {
       goto oxford_sample_load_ret_INVALID_FORMAT;
     }
     if (load_pheno > 1) {
       if (no_more_items(next_item(bufptr))) {
         goto oxford_sample_load_ret_INVALID_FORMAT;
       }
+      printf("Note: Multiple phenotypes/covariates detected.  Loading only the first one.\n");
       load_pheno = 1;
     }
   }
@@ -165,14 +172,21 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   }
   unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   if (load_pheno) {
-    // todo: handle binary phenotype
-    if (wkspace_alloc_d_checked(pheno_d_ptr, unfiltered_indiv_ct * sizeof(double))) {
-      goto oxford_sample_load_ret_NOMEM;
+    if (pheno_is_binary) {
+      if (wkspace_alloc_c_checked(pheno_c_ptr, unfiltered_indiv_ct)) {
+	goto oxford_sample_load_ret_NOMEM;
+      }
+      pheno_c = *pheno_c_ptr;
+      memset(pheno_c, 255, unfiltered_indiv_ct);
+    } else {
+      if (wkspace_alloc_d_checked(pheno_d_ptr, unfiltered_indiv_ct * sizeof(double))) {
+	goto oxford_sample_load_ret_NOMEM;
+      }
+      pheno_d = *pheno_d_ptr;
     }
     if (wkspace_alloc_ul_checked(pheno_exclude_ptr, unfiltered_indiv_ctl * sizeof(long))) {
       goto oxford_sample_load_ret_NOMEM;
     }
-    pheno_d = *pheno_d_ptr;
     fill_ulong_zero(*pheno_exclude_ptr, unfiltered_indiv_ctl);
   } else {
     pheno_d_ptr = NULL;
@@ -268,10 +282,20 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
 	}
       }
       if (!is_missing) {
-	if (sscanf(item_begin, "%lg", &dxx) != 1) {
-	  goto oxford_sample_load_ret_INVALID_FORMAT;
+	if (pheno_is_binary) {
+          if (*item_begin == '0') {
+	    pheno_c[indiv_uidx] = 0;
+	  } else if (*item_begin == '1') {
+	    pheno_c[indiv_uidx] = 1;
+	  } else {
+	    goto oxford_sample_load_ret_INVALID_FORMAT;
+	  }
+	} else {
+	  if (sscanf(item_begin, "%lg", &dxx) != 1) {
+	    goto oxford_sample_load_ret_INVALID_FORMAT;
+	  }
+	  pheno_d[indiv_uidx] = dxx;
 	}
-	pheno_d[indiv_uidx] = dxx;
       }
     }
     indiv_uidx++;
@@ -1300,6 +1324,7 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
   unsigned char* membuf;
   unsigned int gen_buf_len;
   unsigned char* wkspace_mark;
+  char* pheno_c;
   double* pheno_d;
   unsigned long* pheno_exclude;
   double* set_allele_freqs;
@@ -1316,7 +1341,7 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
   unsigned int marker_idx;
   double dxx;
   double dyy;
-  retval = oxford_sample_load(samplename, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &sex_info, &pheno_d, &pheno_exclude, &indiv_exclude, missing_code);
+  retval = oxford_sample_load(samplename, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &sex_info, &pheno_c, &pheno_d, &pheno_exclude, &indiv_exclude, missing_code);
   if (retval) {
     goto wdist_dosage_ret_1;
   }
