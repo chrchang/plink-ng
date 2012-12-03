@@ -3639,7 +3639,6 @@ void matrix_row_sum_ur(double* sums, double* matrix) {
   }
 }
 
-#ifdef NOLAPACK
 inline double SQR(const double a) {
   return a * a;
 }
@@ -3853,6 +3852,79 @@ int svdcmp_c(int m, double* a, double* w, double* v) {
   return 1;
 }
 
+int invert_matrix_trunc_singular_svd(__CLPK_integer dim, double* matrix, double* dbl_1d_buf, double* dbl_2d_buf, __CLPK_integer min_dim) {
+  // for no truncation, call this with min_dim == dim
+  const double eps = 1e-24;
+  unsigned char* wkspace_mark = wkspace_base;
+  double* matrix_copy;
+  double* small_matrix = NULL;
+  unsigned int min_dim_u = min_dim;
+  int flag;
+  unsigned int cur_dim;
+  unsigned int max_dim; // known singular
+  unsigned int uii;
+
+  if (wkspace_alloc_d_checked(&matrix_copy, dim * dim * sizeof(double))) {
+    return -1;
+  }
+  memcpy(matrix_copy, matrix, dim * dim * sizeof(double));
+  flag = svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf);
+
+  if (!flag) {
+    max_dim = dim;
+    if (dim > min_dim + 1) {
+      if (wkspace_alloc_d_checked(&small_matrix, (dim - 1) * (dim - 1) * sizeof(double))) {
+        return -1;
+      }
+    }
+    while (max_dim > min_dim_u + 1) {
+      cur_dim = (max_dim + min_dim_u) / 2;
+      for (uii = 0; uii < cur_dim; uii++) {
+        memcpy(&(small_matrix[uii * cur_dim]), &(matrix_copy[uii * dim]), cur_dim * sizeof(double));
+      }
+      flag = svdcmp_c(cur_dim, small_matrix, dbl_1d_buf, dbl_2d_buf);
+      if (flag) {
+        max_dim = cur_dim;
+      } else {
+        min_dim_u = cur_dim;
+      }
+    }
+    wkspace_reset(wkspace_mark);
+    return min_dim_u;
+  }
+  // Look for singular values
+  double wmax = 0;
+  for (int i=0; i<dim; i++) {
+    wmax = dbl_1d_buf[i] > wmax ? dbl_1d_buf[i] : wmax;
+  }
+  double wmin = wmax * eps;
+  for (int i=0; i<dim; i++) {
+    dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : 1/dbl_1d_buf[i];
+  }
+
+  for (int i=0; i<dim; i++) {
+    for (int j=0; j<dim; j++) {
+      matrix[i * dim + j] = matrix[i * dim + j] * dbl_1d_buf[j];
+    }
+  }
+
+  // [nxn].[t(v)] 
+  for (int i=0; i<dim; i++) {
+    fill_double_zero(dbl_1d_buf, dim);
+    for (int j=0; j<dim; j++) {
+      for (int k=0; k<dim; k++) {
+	dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];
+      }
+    }
+    for (int j = 0; j < dim; j++) {
+      matrix[i * dim + j] = dbl_1d_buf[j];
+    }
+  }
+  wkspace_reset(wkspace_mark);
+  return 0;
+}
+
+#ifdef NOLAPACK
 int invert_matrix(int dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_1d_buf, double* dbl_2d_buf) {
   // C port of PLINK stats.cpp's svd_inverse() function.
 
@@ -3894,76 +3966,8 @@ int invert_matrix(int dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_1d_buf, 
   return 0;
 }
 
-int invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_1d_buf, double* dbl_2d_buf, __CLPK_integer min_dim) {
-  // for no truncation, call this with min_dim == dim
-  const double eps = 1e-24;
-  int flag = svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf);
-  double* small_matrix = NULL;
-  unsigned int min_dim_u = min_dim;
-  unsigned char* wkspace_mark;
-  unsigned int cur_dim;
-  unsigned int max_dim; // known singular
-  unsigned int uii;
-  int retval;
-
-  if (!flag) {
-    wkspace_mark = wkspace_base;
-    max_dim = dim;
-    if (dim > min_dim + 1) {
-      if (wkspace_alloc_d_checked(&small_matrix, (dim - 1) * (dim - 1) * sizeof(double))) {
-        return -1;
-      }
-    }
-    while (max_dim > min_dim_u + 1) {
-      cur_dim = (max_dim + min_dim) / 2;
-      for (uii = 0; uii < cur_dim; uii++) {
-        memcpy(&(small_matrix[uii * cur_dim]), &(matrix[uii * dim]), cur_dim * sizeof(double));
-      }
-      flag = svdcmp_c(cur_dim, small_matrix, dbl_1d_buf, dbl_2d_buf);
-      if (flag) {
-        max_dim = cur_dim;
-      } else {
-        min_dim = cur_dim;
-      }
-    }
-    retval = min_dim + 1;
-    if (dim > retval) {
-      dim = min_dim;
-      memcpy(matrix, small_matrix, dim * dim * sizeof(double));
-      wkspace_reset(wkspace_mark);
-    }
-  } else {
-    retval = 0;
-  }
-  // Look for singular values
-  double wmax = 0;
-  for (int i=0; i<dim; i++) {
-    wmax = dbl_1d_buf[i] > wmax ? dbl_1d_buf[i] : wmax;
-  }
-  double wmin = wmax * eps;
-  for (int i=0; i<dim; i++) {
-    dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : 1/dbl_1d_buf[i];
-  }
-
-  for (int i=0; i<dim; i++) {
-    for (int j=0; j<dim; j++) {
-      matrix[i * dim + j] = matrix[i * dim + j] * dbl_1d_buf[j];
-    }
-  }
-
-  // [nxn].[t(v)] 
-  for (int i=0; i<dim; i++) {
-    fill_double_zero(dbl_1d_buf, dim);
-    for (int j=0; j<dim; j++) {
-      for (int k=0; k<dim; k++) {
-	dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];
-      }
-    }
-    for (int j = 0; j < dim; j++) {
-      matrix[i * dim + j] = dbl_1d_buf[j];
-    }
-  }
-  return retval;
+int invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf, __CLPK_integer min_dim) {
+  return invert_matrix_trunc_singular_svd(dim, matrix, int_1d_buf, dbl_2d_buf, min_dim);
 }
 #else
 int invert_matrix(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf) {
@@ -3981,23 +3985,33 @@ int invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVE
   // is, this determines the minimum number of rows/columns which can be
   // removed from the bottom right to make the matrix nonsingular, knowing that
   // the upper left min_dim * min_dim matrix is nonsingular, and returns the
-  // index of the first removed row/column.
+  // zero-based index of the first removed row/column.
   __CLPK_integer lwork = dim * dim;
   char cc = '1';
+  unsigned char* wkspace_mark = wkspace_base;
+  double* matrix_copy;
   __CLPK_integer info;
   double norm;
   double rcond;
   norm = dlange_(&cc, &dim, &dim, matrix, &dim, dbl_2d_buf);
-  // todo: check info values
+  if (wkspace_alloc_d_checked(&matrix_copy, dim * dim * sizeof(double))) {
+    return -1;
+  }
+  memcpy(matrix_copy, matrix, dim * dim * sizeof(double));
   dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
-  dgecon_(&cc, &dim, matrix, &dim, &norm, &rcond, dbl_2d_buf, int_1d_buf, &info);
+  if (info > 0) {
+    rcond = 0.0;
+  } else {
+    dgecon_(&cc, &dim, matrix, &dim, &norm, &rcond, dbl_2d_buf, &(int_1d_buf[dim]), &info);
+  }
   if (rcond < MATRIX_SINGULAR_RCOND) {
-    // todo: bsearch
-    printf("\nSingular matrix inversion attempted.\n");
-    dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
+    memcpy(matrix, matrix_copy, dim * dim * sizeof(double));
+    wkspace_reset(wkspace_mark);
+    return invert_matrix_trunc_singular_svd(dim, matrix, (double*)int_1d_buf, dbl_2d_buf, min_dim);
   } else {
     dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
   }
+  wkspace_reset(wkspace_mark);
   return 0;
 }
 #endif
@@ -8741,7 +8755,7 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
       goto ld_prune_ret_NOMEM;
     }
 
-    irow = (MATRIX_INVERT_BUF1_TYPE*)wkspace_alloc(window_max * sizeof(MATRIX_INVERT_BUF1_TYPE));
+    irow = (MATRIX_INVERT_BUF1_TYPE*)wkspace_alloc(window_max * 2 * sizeof(MATRIX_INVERT_BUF1_TYPE));
     if (!irow) {
       goto ld_prune_ret_NOMEM;
     }
@@ -8900,12 +8914,27 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
 	    }
 	    window_rem_li = window_rem;
 	    jj = invert_matrix_trunc_singular(window_rem_li, new_cov_matrix, irow, work, old_window_rem_li);
-	    if (jj) {
+	    while (jj) {
+	      if (jj == -1) {
+		goto ld_prune_ret_NOMEM;
+	      }
               set_bit(pruned_arr, live_indices[idx_remap[jj]], &cur_exclude_ct);
 	      window_rem--;
 	      for (ii = jj; ii < window_rem; ii++) {
 		idx_remap[ii] = idx_remap[ii + 1];
 	      }
+	      new_cov_matrix[0] = 1.0;
+	      for (ii = 1; ii < window_rem; ii++) {
+		kk = idx_remap[ii];
+		for (jj = 0; jj < ii; jj++) {
+		  dxx = cov_matrix[idx_remap[jj] * window_max + kk];
+		  new_cov_matrix[jj * window_rem + ii] = dxx;
+		  new_cov_matrix[ii * window_rem + jj] = dxx;
+		}
+		new_cov_matrix[ii * (window_rem + 1)] = 1.0;
+	      }
+              window_rem_li = window_rem;
+	      jj = invert_matrix_trunc_singular(window_rem_li, new_cov_matrix, irow, work, old_window_rem_li);
 	    }
 	    dxx = new_cov_matrix[0];
 	    jj = 0;
