@@ -241,7 +241,7 @@ static inline int is_space_or_eoln(char cc) {
 
 int strlen_se(char* ss);
 
-int strcmp_se(char* s_read, char* s_const, int len);
+int strcmp_se(char* s_read, const char* s_const, int len);
 
 char* next_item(char* sptr);
 

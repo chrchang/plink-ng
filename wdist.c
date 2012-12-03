@@ -127,9 +127,11 @@ extern "C" {
               __CLPK_integer* lda, __CLPK_integer* ipiv,
               __CLPK_doublereal* work, __CLPK_integer* lwork,
               __CLPK_integer* info);
+
   double dlange_(char* norm, __CLPK_integer* m, __CLPK_integer* n,
                  __CLPK_doublereal* a, __CLPK_integer* lda,
                  __CLPK_doublereal* work);
+
   int dgecon_(char* norm, __CLPK_integer* n, __CLPK_doublereal* a,
               __CLPK_integer* lda, __CLPK_doublereal* anorm,
               __CLPK_doublereal* rcond, __CLPK_doublereal* work,

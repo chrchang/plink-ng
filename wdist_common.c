@@ -67,7 +67,7 @@ int strlen_se(char* ss) {
   return val;
 }
 
-int strcmp_se(char* s_read, char* s_const, int len) {
+int strcmp_se(char* s_read, const char* s_const, int len) {
   return memcmp(s_read, s_const, len) || (!is_space_or_eoln(s_read[len]));
 }
 
