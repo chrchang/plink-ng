@@ -687,7 +687,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "      Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
 	       );
 #endif
-    help_print("freq\tfreqx\tcounts", &help_ctrl, 1,
+    help_print("freq\tfreqx\tfrqx\tcounts", &help_ctrl, 1,
 "  --freq\n"
 "  --freqx\n"
 "    --freq generates an allele frequency report identical to that of PLINK\n"
@@ -11909,7 +11909,7 @@ int main(int argc, char** argv) {
 	}
 	filter_founder_nonf = 2;
 	cur_arg += 1;
-      } else if ((!memcmp(argptr2, "req", 4)) || (!memcmp(argptr2, "reqx", 5))) {
+      } else if ((!memcmp(argptr2, "req", 4)) || (!memcmp(argptr2, "reqx", 5)) || (!memcmp(argptr2, "rqx", 4))) {
 	if (freqname[0]) {
 	  printf("Error: %s and --read-freq flags cannot coexist.%s", argptr, errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
@@ -11920,7 +11920,7 @@ int main(int argc, char** argv) {
 	}
 	cur_arg += 1;
 	calculation_type |= CALC_FREQ;
-	if (argptr[6] == 'x') {
+	if ((argptr2[2] == 'x') || (argptr2[3] == 'x')) {
 	  freqx = 1;
 	}
       }
