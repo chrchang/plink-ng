@@ -691,10 +691,9 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --freq\n"
 "  --freqx\n"
 "    --freq generates an allele frequency report identical to that of PLINK\n"
-"    --freq; --freqx replaces the MAF and NCHROBS columns with\n"
-"    homozygote/heterozygote counts, which (when reloaded with --read-freq)\n"
-"    allow distance matrix terms to be weighted consistently through multiple\n"
-"    filtering runs.\n\n"
+"    --freq; --freqx replaces the MAF and NCHROBS columns with homozygote and\n"
+"    heterozygote counts, which (when reloaded with --read-freq) allow distance\n"
+"    matrix terms to be weighted consistently through multiple filtering runs.\n\n"
 		);
     help_print("write-snplist", &help_ctrl, 1,
 "  --write-snplist\n"
@@ -6149,6 +6148,7 @@ int load_one_freq(char allele_min, char allele_maj, double maf, double* set_alle
 
 int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_exclude_ct, char* marker_ids, unsigned long max_marker_id_len, Chrom_info* chrom_info_ptr, char* marker_alleles, unsigned int* marker_allele_cts, double* set_allele_freqs, int binary_files, char missing_geno, double exponent, int wt_needed, double* marker_weights) {
   unsigned int species = chrom_info_ptr->species;
+  int freq_counts = 0;
   unsigned char* wkspace_mark;
   char* sorted_ids;
   int* id_map;
@@ -6176,6 +6176,12 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
     return ii;
   }
   if (!memcmp(tbuf, " CHR  ", 6)) {
+    ii = strlen(tbuf);
+    if (tbuf[ii - 2] == '0') { // --counts makes G0 the last column header
+      freq_counts = 1;
+    } else if (tbuf[ii - 2] != 'S') { // NCHROBS
+      goto read_external_freqs_ret_INVALID_FORMAT;
+    }
     while (fgets(tbuf, MAXLINELEN, *freqfile_ptr) != NULL) {
       bufptr = skip_initial_spaces(tbuf);
       jj = marker_code(species, bufptr);
@@ -6198,10 +6204,27 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
           if (no_more_items(bufptr)) {
             goto read_external_freqs_ret_INVALID_FORMAT;
           }
-          if (sscanf(bufptr, "%lg", &maf) != 1) {
-            goto read_external_freqs_ret_INVALID_FORMAT;
-          }
-	  if (load_one_freq(cc, *bufptr2, maf, &(set_allele_freqs[ii]), binary_files? (&(marker_alleles[ii * 2])) : (&(marker_alleles[ii * 4])), binary_files? NULL : (&(marker_allele_cts[ii * 4])), missing_geno)) {
+	  if (freq_counts) {
+	    if (no_more_items(next_item(bufptr))) {
+	      goto read_external_freqs_ret_INVALID_FORMAT;
+	    }
+	    c_hom_a1 = atoi(bufptr);
+	    c_hom_a2 = atoi(next_item(bufptr));
+	    maf = ((double)c_hom_a1) / ((double)(c_hom_a1 + c_hom_a2));
+	    if (c_hom_a1 > c_hom_a2) {
+	      cc2 = cc;
+	      cc = *bufptr2;
+	      maf = 1.0 - maf;
+	    } else {
+	      cc2 = *bufptr2;
+	    }
+	  } else {
+	    if (sscanf(bufptr, "%lg", &maf) != 1) {
+	      goto read_external_freqs_ret_INVALID_FORMAT;
+	    }
+	    cc2 = *bufptr2;
+	  }
+	  if (load_one_freq(cc, cc2, maf, &(set_allele_freqs[ii]), binary_files? (&(marker_alleles[ii * 2])) : (&(marker_alleles[ii * 4])), binary_files? NULL : (&(marker_allele_cts[ii * 4])), missing_geno)) {
 	    goto read_external_freqs_ret_ALLELE_MISMATCH;
 	  }
 	  if (wt_needed) {
@@ -6209,6 +6232,11 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
 	  }
         }
       }
+    }
+    if (freq_counts) {
+      printf(".frq.count file loaded.\n");
+    } else {
+      printf(".frq file loaded.\n");
     }
   } else if (!strcmp(tbuf, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(MISSING)\n")) {
     // known --freqx format, v0.13.5 or later
@@ -6239,7 +6267,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
 	  c_hom_a1 = atoi(bufptr);
 	  c_het = atoi(bufptr2);
 	  c_hom_a2 = atoi(bufptr3);
-	  maf = ((double)(c_hom_a1 * 2 + c_het)) / ((double)(2 * (c_hom_a1 + c_het + c_hom_a2))) ;
+	  maf = ((double)(c_hom_a1 * 2 + c_het)) / ((double)(2 * (c_hom_a1 + c_het + c_hom_a2)));
 	  if (load_one_freq(cc, cc2, maf, &(set_allele_freqs[ii]), binary_files? (&(marker_alleles[ii * 2])) : (&(marker_alleles[ii * 4])), binary_files? NULL : (&(marker_allele_cts[ii * 4])), missing_geno)) {
 	    goto read_external_freqs_ret_ALLELE_MISMATCH;
 	  }
@@ -6249,6 +6277,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
         }
       }
     }
+    printf(".frqx file loaded.\n");
   } else {
     // Also support GCTA-style frequency files:
     // [marker ID]\t[reference allele]\t[frequency of reference allele]\n
@@ -6286,6 +6315,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
 	}
       }
     } while (fgets(tbuf, MAXLINELEN, *freqfile_ptr) != NULL);
+    printf("GCTA-formatted .frq file loaded.\n");
   }
   fclose_null(freqfile_ptr);
   wkspace_reset(wkspace_mark);
