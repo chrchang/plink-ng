@@ -149,6 +149,7 @@ extern "C" {
 #define PI 3.141592653589793
 // floating point comparison-to-nonzero tolerance, currently 2^{-30}
 #define EPSILON 0.000000000931322574615478515625
+#define MATRIX_SINGULAR_RCOND 1e-14
 
 #define SPECIES_HUMAN 0
 #define SPECIES_COW 1
@@ -276,7 +277,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (3 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (4 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -688,12 +689,14 @@ int disp_help(unsigned int param_ct, char** argv) {
 	       );
 #endif
     help_print("freq\tfreqx\tfrqx\tcounts", &help_ctrl, 1,
-"  --freq\n"
+"  --freq <counts>\n"
 "  --freqx\n"
 "    --freq generates an allele frequency report identical to that of PLINK\n"
-"    --freq; --freqx replaces the MAF and NCHROBS columns with homozygote and\n"
-"    heterozygote counts, which (when reloaded with --read-freq) allow distance\n"
-"    matrix terms to be weighted consistently through multiple filtering runs.\n\n"
+"    --freq (or --freq --counts, if the 'counts' modifier is used).  Using the\n"
+"    --freqx flag instead causes the MAF and NCHROBS columns to be replaced with\n"
+"    homozygote and heterozygote counts, which (when reloaded with --read-freq)\n"
+"    allow distance matrix terms to be weighted consistently through multiple\n"
+"    filtering runs.\n\n"
 		);
     help_print("write-snplist", &help_ctrl, 1,
 "  --write-snplist\n"
@@ -3891,14 +3894,15 @@ int invert_matrix(int dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_1d_buf, 
   return 0;
 }
 
-int invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf, __CLPK_integer min_dim) {
+int invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_1d_buf, double* dbl_2d_buf, __CLPK_integer min_dim) {
   // for no truncation, call this with min_dim == dim
   const double eps = 1e-24;
   int flag = svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf);
   double* small_matrix = NULL;
+  unsigned int min_dim_u = min_dim;
   unsigned char* wkspace_mark;
-  int cur_dim;
-  int max_dim; // known singular
+  unsigned int cur_dim;
+  unsigned int max_dim; // known singular
   unsigned int uii;
   int retval;
 
@@ -3910,7 +3914,7 @@ int invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVE
         return -1;
       }
     }
-    while (max_dim > min_dim + 1) {
+    while (max_dim > min_dim_u + 1) {
       cur_dim = (max_dim + min_dim) / 2;
       for (uii = 0; uii < cur_dim; uii++) {
         memcpy(&(small_matrix[uii * cur_dim]), &(matrix[uii * dim]), cur_dim * sizeof(double));
@@ -3959,7 +3963,7 @@ int invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVE
       matrix[i * dim + j] = dbl_1d_buf[j];
     }
   }
-  return flag;
+  return retval;
 }
 #else
 int invert_matrix(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf) {
@@ -3978,14 +3982,22 @@ int invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVE
   // removed from the bottom right to make the matrix nonsingular, knowing that
   // the upper left min_dim * min_dim matrix is nonsingular, and returns the
   // index of the first removed row/column.
-  // __CLPK_integer lwork = dim * dim;
+  __CLPK_integer lwork = dim * dim;
   char cc = '1';
   __CLPK_integer info;
   double norm;
+  double rcond;
   norm = dlange_(&cc, &dim, &dim, matrix, &dim, dbl_2d_buf);
+  // todo: check info values
   dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
-  // dgecon_(); // TODO
-
+  dgecon_(&cc, &dim, matrix, &dim, &norm, &rcond, dbl_2d_buf, int_1d_buf, &info);
+  if (rcond < MATRIX_SINGULAR_RCOND) {
+    // todo: bsearch
+    printf("\nSingular matrix inversion attempted.\n");
+    dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
+  } else {
+    dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
+  }
   return 0;
 }
 #endif
@@ -6040,6 +6052,13 @@ int calc_freqs_and_binary_hwe(FILE* pedfile, unsigned int unfiltered_marker_ct, 
 
 int load_one_freq(char allele_min, char allele_maj, double maf, double* set_allele_freq_ptr, char* marker_alleles, unsigned int* marker_allele_cts, char missing_geno) {
   int ii;
+  char cc;
+  if (maf > 0.5) {
+    cc = allele_maj;
+    allele_maj = allele_min;
+    allele_min = cc;
+    maf = 1.0 - maf;
+  }
   if (!marker_allele_cts) {
     if (marker_alleles[0] == allele_min) {
       if (marker_alleles[1] == allele_maj) {
@@ -6211,20 +6230,12 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
 	    c_hom_a1 = atoi(bufptr);
 	    c_hom_a2 = atoi(next_item(bufptr));
 	    maf = ((double)c_hom_a1) / ((double)(c_hom_a1 + c_hom_a2));
-	    if (c_hom_a1 > c_hom_a2) {
-	      cc2 = cc;
-	      cc = *bufptr2;
-	      maf = 1.0 - maf;
-	    } else {
-	      cc2 = *bufptr2;
-	    }
 	  } else {
 	    if (sscanf(bufptr, "%lg", &maf) != 1) {
 	      goto read_external_freqs_ret_INVALID_FORMAT;
 	    }
-	    cc2 = *bufptr2;
 	  }
-	  if (load_one_freq(cc, cc2, maf, &(set_allele_freqs[ii]), binary_files? (&(marker_alleles[ii * 2])) : (&(marker_alleles[ii * 4])), binary_files? NULL : (&(marker_allele_cts[ii * 4])), missing_geno)) {
+	  if (load_one_freq(cc, *bufptr2, maf, &(set_allele_freqs[ii]), binary_files? (&(marker_alleles[ii * 2])) : (&(marker_alleles[ii * 4])), binary_files? NULL : (&(marker_allele_cts[ii * 4])), missing_geno)) {
 	    goto read_external_freqs_ret_ALLELE_MISMATCH;
 	  }
 	  if (wt_needed) {
@@ -6315,7 +6326,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
 	}
       }
     } while (fgets(tbuf, MAXLINELEN, *freqfile_ptr) != NULL);
-    printf("GCTA-formatted .frq file loaded.\n");
+    printf("GCTA-formatted .freq file loaded.\n");
   }
   fclose_null(freqfile_ptr);
   wkspace_reset(wkspace_mark);
@@ -8735,7 +8746,12 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
       goto ld_prune_ret_NOMEM;
     }
 
-    if (wkspace_alloc_d_checked(&work, window_max * window_max * sizeof(double))) {
+    if (window_max < 4) {
+      ulii = 4;
+    } else {
+      ulii = window_max;
+    }
+    if (wkspace_alloc_d_checked(&work, ulii * window_max * sizeof(double))) {
       goto ld_prune_ret_NOMEM;
     }
   }
@@ -11579,7 +11595,7 @@ int main(int argc, char** argv) {
 	printf("Note: --compound-genotypes flag unnecessary (spaces between alleles in .ped\nare optional).\n");
 	cur_arg += 1;
       } else if (!memcmp(argptr2, "ounts", 6)) {
-	printf("Note: --counts flag deprecated.  Use --freqx instead.\n");
+	printf("Note: --counts flag deprecated.  Use '--freq counts' or --freqx instead.\n");
         freq_counts = 1;
 	cur_arg += 1;
       }
@@ -11909,7 +11925,28 @@ int main(int argc, char** argv) {
 	}
 	filter_founder_nonf = 2;
 	cur_arg += 1;
-      } else if ((!memcmp(argptr2, "req", 4)) || (!memcmp(argptr2, "reqx", 5)) || (!memcmp(argptr2, "rqx", 4))) {
+      } else if (!memcmp(argptr2, "req", 4)) {
+	if (freqname[0]) {
+	  printf("Error: --freq and --read-freq flags cannot coexist.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (calculation_type & CALC_FREQ) {
+	  printf("Error: Duplicate --freq/--freqx flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  if (memcmp(argv[cur_arg + 1], "counts", 7)) {
+            printf("Error: Invalid --freq parameter '%s'.%s\n", argv[cur_arg + 1], errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  freq_counts = 1;
+	}
+        cur_arg += 1 + ii;
+	calculation_type |= CALC_FREQ;
+      } else if ((!memcmp(argptr2, "reqx", 5)) || (!memcmp(argptr2, "rqx", 4))) {
 	if (freqname[0]) {
 	  printf("Error: %s and --read-freq flags cannot coexist.%s", argptr, errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
@@ -11920,9 +11957,7 @@ int main(int argc, char** argv) {
 	}
 	cur_arg += 1;
 	calculation_type |= CALC_FREQ;
-	if ((argptr2[2] == 'x') || (argptr2[3] == 'x')) {
-	  freqx = 1;
-	}
+	freqx = 1;
       }
       break;
 
