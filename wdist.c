@@ -266,10 +266,9 @@ static inline void debug_log(char* ss) {
 #define MAX(aa, bb) ((bb) > (aa))? (bb) : (aa)
 
 const char ver_str[] =
+  "WDIST v0.13.6"
 #ifdef NOLAPACK
-  "WDIST v0.13.5NL"
-#else
-  "WDIST v0.13.5"
+  "NL"
 #endif
 #ifdef DEBUG
   "d"
@@ -279,7 +278,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (4 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (7 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -2158,7 +2157,7 @@ static inline unsigned int popcount_long(unsigned long val) {
 // handle Hamming distance, and masking to handle missingness.
 // Note that the size of the popcounted buffer is a hardcoded constant
 // (specifically, (MULTIPLEX_DIST / BITCT) * 16 bytes).  The current code
-// assumes (MULTIPLEX / BITCT) is a multiple of 3, and no greater than 30.
+// assumes (MULTIPLEX_DIST / BITCT) is a multiple of 3, and no greater than 30.
 static inline unsigned int popcount_xor_1mask_multiword(__m128i** xor1p, __m128i* xor2, __m128i** maskp) {
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
