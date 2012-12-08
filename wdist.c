@@ -266,7 +266,7 @@ static inline void debug_log(char* ss) {
 #define MAX(aa, bb) ((bb) > (aa))? (bb) : (aa)
 
 const char ver_str[] =
-  "WDIST v0.13.6"
+  "WDIST v0.13.7"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -278,7 +278,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (7 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (9 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";

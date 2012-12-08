@@ -5,6 +5,11 @@
 // --dosage loader will probably be added later.
 
 #define MULTIPLEX_DOSAGE_NM (BITCT / 2)
+#define MULTIPLEX_DOSAGE_NM3D MULTIPLEX_DOSAGE_NM
+#if MULTIPLEX_DOSAGE_NM < MULTIPLEX_DOSAGE_NM3D
+#error "MULTIPLEX_DOSAGE_NM should be no less than MULTIPLEX_DOSAGE_NM3D."
+#endif
+
 
 // allowed deviation from 1.0 when summing 0-1-2 reference allele counts, when
 // assessing whether missingness should be treated as binary
@@ -672,8 +677,8 @@ void incr_distance_dosage_2d_flat(double* distance_matrix_slice, double* distanc
       *distance_matrix_slice += acc;
       *distance_wt_matrix_slice += accm;
 #endif
-      *distance_matrix_slice++;
-      *distance_wt_matrix_slice++;
+      distance_matrix_slice++;
+      distance_wt_matrix_slice++;
     }
   }
 }
@@ -758,8 +763,8 @@ void incr_distance_dosage_2d(double* distance_matrix_slice, double* distance_wt_
       *distance_matrix_slice += acc;
       *distance_wt_matrix_slice += accm;
 #endif
-      *distance_matrix_slice++;
-      *distance_wt_matrix_slice++;
+      distance_matrix_slice++;
+      distance_wt_matrix_slice++;
     }
   }
 }
@@ -770,6 +775,242 @@ void* incr_distance_dosage_2d_thread(void* arg) {
   int ts0 = g_thread_start[0];
   long long offset = ((long long)ts * (ts - 1) - (long long)ts0 * (ts0 - 1)) / 2;
   incr_distance_dosage_2d(&(g_distance_matrix[offset]), &(g_distance_wt_matrix[offset]), (int)tidx);
+  return NULL;
+}
+
+void incr_distance_dosage_3d_flat(double* distance_matrix_slice, double* distance_wt_matrix_slice, int thread_idx) {
+  // 3d distance: P_1(0) * (P_2(1) + 2 * P_2(2)) + P_1(1) * (P_2(0) + P_2(2)) +
+  //              P_1(2) * (2 * P_2(0) + P_2(1))
+  // weight: (P_1(0) + P_1(1) + P_1(2)) * (P_2(0) + P_2(1) + P_2(2))
+  // 
+#if __LP64__
+  const __m128d vec_two = {2.0, 2.0};
+  __m128d dptr_buf[2 * MULTIPLEX_DOSAGE_NM3D];
+  __m128d* dptr_buf_end1 = &(dptr_buf[MULTIPLEX_DOSAGE_NM3D / 2]);
+  __m128d* dptr_buf_end2 = &(dptr_buf[MULTIPLEX_DOSAGE_NM3D]);
+  __m128d* dptr_buf_end3 = &(dptr_buf[3 * MULTIPLEX_DOSAGE_NM3D / 2]);
+  __m128d* dptr_buf_end = &(dptr_buf[2 * MULTIPLEX_DOSAGE_NM3D]);
+  __m128d* dptr;
+  __m128d* dptr_start;
+  __m128d* dptr2;
+  __m128d* dptr3;
+  __uni16 acc;
+#else
+  double dptr_buf[4 * MULTIPLEX_DOSAGE_NM3D];
+  double* dptr_buf_end1 = &(dptr_buf[MULTIPLEX_DOSAGE_NM3D]);
+  double* dptr_buf_end2 = &(dptr_buf[2 * MULTIPLEX_DOSAGE_NM3D]);
+  double* dptr_buf_end3 = &(dptr_buf[3 * MULTIPLEX_DOSAGE_NM3D]);
+  double* dptr_buf_end = &(dptr_buf[4 * MULTIPLEX_DOSAGE_NM3D]);
+  double* dptr;
+  double* dptr_start;
+  double* dptr2;
+  double* dptr3;
+  double acc;
+#endif
+  unsigned long ulii;
+  unsigned long uljj;
+  for (ulii = g_thread_start[thread_idx]; ulii < g_thread_start[thread_idx + 1]; ulii++) {
+#if __LP64__
+    dptr = dptr_buf;
+    dptr_start = (__m128d*)(&(g_dosage_vals[ulii * 4 * MULTIPLEX_DOSAGE_NM3D]));
+    dptr2 = &(dptr_start[MULTIPLEX_DOSAGE_NM3D / 2]);
+    dptr3 = &(dptr_start[MULTIPLEX_DOSAGE_NM3D]);
+    do {
+      *dptr++ = _mm_add_pd(_mm_mul_pd(vec_two, *dptr3++), *dptr2++);
+    } while (dptr != dptr_buf_end1);
+    dptr3 = dptr_start;
+    do {
+      *dptr++ = _mm_add_pd(*dptr2++, *dptr3++);
+    } while (dptr != dptr_buf_end2);
+    dptr2 = dptr_start;
+    do {
+      *dptr++ = _mm_add_pd(_mm_mul_pd(vec_two, *dptr2++), *dptr3++);
+    } while (dptr != dptr_buf_end3);
+    dptr2 = &(dptr_start[3 * MULTIPLEX_DOSAGE_NM3D / 2]);
+    do {
+      *dptr++ = *dptr2++;
+    } while (dptr != dptr_buf_end);
+    dptr2 = (__m128d*)g_dosage_vals;
+#else
+    dptr = dptr_buf;
+    dptr_start = &(g_dosage_vals[ulii * 4 * MULTIPLEX_DOSAGE_NM3D]);
+    dptr2 = &(dptr_start[MULTIPLEX_DOSAGE_NM3D]);
+    dptr3 = &(dptr_start[2 * MULTIPLEX_DOSAGE_NM3D]);
+    do {
+      *dptr++ = (*dptr2++) + 2 * (*dptr3++);
+    } while (dptr != dptr_buf_end1);
+    dptr3 = dptr_start;
+    do {
+      *dptr++ = (*dptr2++) + (*dptr3++);
+    } while (dptr != dptr_buf_end2);
+    dptr2 = dptr_start;
+    do {
+      *dptr++ = 2 * (*dptr2++) + (*dptr3++);
+    } while (dptr != dptr_buf_end3);
+    dptr2 = &(dptr_start[3 * MULTIPLEX_DOSAGE_NM3D]);
+    do {
+      *dptr++ = *dptr2++;
+    } while (dptr != dptr_buf_end);
+    dptr2 = g_dosage_vals;
+#endif
+    for (uljj = 0; uljj < ulii; uljj++) {
+      dptr = dptr_buf;
+#if __LP64__
+      acc.vd = _mm_setzero_pd();
+      do {
+	acc.vd = _mm_add_pd(acc.vd, _mm_mul_pd(*dptr++, *dptr2++));
+      } while (dptr != dptr_buf_end3);
+      *distance_matrix_slice += acc.d8[0] + acc.d8[1];
+      acc.vd = _mm_setzero_pd();
+      do {
+        acc.vd = _mm_add_pd(acc.vd, _mm_mul_pd(*dptr++, *dptr2++));
+      } while (dptr != dptr_buf_end);
+      *distance_wt_matrix_slice += acc.d8[0] + acc.d8[1];
+#else
+      acc = 0.0;
+      do {
+	acc += (*dptr++) * (*dptr2++);
+      } while (dptr != dptr_buf_end3);
+      *distance_matrix_slice += acc;
+      acc = 0.0;
+      do {
+	acc += (*dptr++) * (*dptr2++);
+      } while (dptr != dptr_buf_end);
+      *distance_wt_matrix_slice += acc;
+#endif
+      distance_matrix_slice++;
+      distance_wt_matrix_slice++;
+    }
+  }
+}
+
+void* incr_distance_dosage_3d_flat_thread(void* arg) {
+  long tidx = (long)arg;
+  int ts = g_thread_start[tidx];
+  int ts0 = g_thread_start[0];
+  long long offset = ((long long)ts * (ts - 1) - (long long)ts0 * (ts0 - 1)) / 2;
+  incr_distance_dosage_3d_flat(&(g_distance_matrix[offset]), &(g_distance_wt_matrix[offset]), (int)tidx);
+  return NULL;
+}
+
+void incr_distance_dosage_3d(double* distance_matrix_slice, double* distance_wt_matrix_slice, int thread_idx) {
+#if __LP64__
+  const __m128d vec_two = {2.0, 2.0};
+  __m128d dptr_buf[2 * MULTIPLEX_DOSAGE_NM3D];
+  __m128d* dptr_buf_end1 = &(dptr_buf[MULTIPLEX_DOSAGE_NM3D / 2]);
+  __m128d* dptr_buf_end2 = &(dptr_buf[MULTIPLEX_DOSAGE_NM3D]);
+  __m128d* dptr_buf_end3 = &(dptr_buf[3 * MULTIPLEX_DOSAGE_NM3D / 2]);
+  __m128d* dptr_buf_end = &(dptr_buf[2 * MULTIPLEX_DOSAGE_NM3D]);
+  __m128d* dptr;
+  __m128d* dptr_start;
+  __m128d* dptr2;
+  __m128d* dptr3;
+  __m128d* mwptr;
+  __uni16 acc;
+#else
+  double dptr_buf[4 * MULTIPLEX_DOSAGE_NM3D];
+  double* dptr_buf_end1 = &(dptr_buf[MULTIPLEX_DOSAGE_NM3D]);
+  double* dptr_buf_end2 = &(dptr_buf[2 * MULTIPLEX_DOSAGE_NM3D]);
+  double* dptr_buf_end3 = &(dptr_buf[3 * MULTIPLEX_DOSAGE_NM3D]);
+  double* dptr_buf_end = &(dptr_buf[4 * MULTIPLEX_DOSAGE_NM3D]);
+  double* dptr;
+  double* dptr_start;
+  double* dptr2;
+  double* dptr3;
+  double* mwptr;
+  double acc;
+#endif
+  unsigned long ulii;
+  unsigned long uljj;
+  for (ulii = g_thread_start[thread_idx]; ulii < g_thread_start[thread_idx + 1]; ulii++) {
+#if __LP64__
+    dptr = dptr_buf;
+    dptr_start = (__m128d*)(&(g_dosage_vals[ulii * 4 * MULTIPLEX_DOSAGE_NM3D]));
+    dptr2 = &(dptr_start[MULTIPLEX_DOSAGE_NM3D / 2]);
+    dptr3 = &(dptr_start[MULTIPLEX_DOSAGE_NM3D]);
+    mwptr = (__m128d*)g_missing_wts;
+    do {
+      *dptr++ = _mm_mul_pd(*mwptr++, _mm_add_pd(_mm_mul_pd(vec_two, *dptr3++), *dptr2++));
+    } while (dptr != dptr_buf_end1);
+    dptr3 = dptr_start;
+    mwptr = (__m128d*)g_missing_wts;
+    do {
+      *dptr++ = _mm_mul_pd(*mwptr++, _mm_add_pd(*dptr2++, *dptr3++));
+    } while (dptr != dptr_buf_end2);
+    dptr2 = dptr_start;
+    mwptr = (__m128d*)g_missing_wts;
+    do {
+      *dptr++ = _mm_mul_pd(*mwptr++, _mm_add_pd(_mm_mul_pd(vec_two, *dptr2++), *dptr3++));
+    } while (dptr != dptr_buf_end3);
+    dptr2 = &(dptr_start[3 * MULTIPLEX_DOSAGE_NM3D / 2]);
+    mwptr = (__m128d*)g_missing_wts;
+    do {
+      *dptr++ = _mm_mul_pd(*mwptr++, *dptr2++);
+    } while (dptr != dptr_buf_end);
+    dptr2 = (__m128d*)g_dosage_vals;
+#else
+    dptr = dptr_buf;
+    dptr_start = &(g_dosage_vals[ulii * 4 * MULTIPLEX_DOSAGE_NM3D]);
+    dptr2 = &(dptr_start[MULTIPLEX_DOSAGE_NM3D]);
+    dptr3 = &(dptr_start[2 * MULTIPLEX_DOSAGE_NM3D]);
+    mwptr = g_missing_wts;
+    do {
+      *dptr++ = (*mwptr++) * ((*dptr2++) + 2 * (*dptr3++));
+    } while (dptr != dptr_buf_end1);
+    dptr3 = dptr_start;
+    mwptr = g_missing_wts;
+    do {
+      *dptr++ = (*mwptr++) * ((*dptr2++) + (*dptr3++));
+    } while (dptr != dptr_buf_end2);
+    dptr2 = dptr_start;
+    mwptr = g_missing_wts;
+    do {
+      *dptr++ = (*mwptr++) * (2 * (*dptr2++) + (*dptr3++));
+    } while (dptr != dptr_buf_end3);
+    dptr2 = &(dptr_start[3 * MULTIPLEX_DOSAGE_NM3D]);
+    mwptr = g_missing_wts;
+    do {
+      *dptr++ = (*mwptr++) * (*dptr2++);
+    } while (dptr != dptr_buf_end);
+    dptr2 = g_dosage_vals;
+#endif
+    for (uljj = 0; uljj < ulii; uljj++) {
+      dptr = dptr_buf;
+#if __LP64__
+      acc.vd = _mm_setzero_pd();
+      do {
+	acc.vd = _mm_add_pd(acc.vd, _mm_mul_pd(*dptr++, *dptr2++));
+      } while (dptr != dptr_buf_end3);
+      *distance_matrix_slice += acc.d8[0] + acc.d8[1];
+      acc.vd = _mm_setzero_pd();
+      do {
+        acc.vd = _mm_add_pd(acc.vd, _mm_mul_pd(*dptr++, *dptr2++));
+      } while (dptr != dptr_buf_end);
+      *distance_wt_matrix_slice += acc.d8[0] + acc.d8[1];
+#else
+      acc = 0.0;
+      do {
+	acc += (*dptr++) * (*dptr2++);
+      } while (dptr != dptr_buf_end3);
+      *distance_matrix_slice += acc;
+      acc = 0.0;
+      do {
+	acc += (*dptr++) * (*dptr2++);
+      } while (dptr != dptr_buf_end);
+      *distance_wt_matrix_slice += acc;
+#endif
+      distance_matrix_slice++;
+      distance_wt_matrix_slice++;
+    }
+  }
+}
+
+void* incr_distance_dosage_3d_thread(void* arg) {
+  long tidx = (long)arg;
+  int ts = g_thread_start[tidx];
+  int ts0 = g_thread_start[0];
+  long long offset = ((long long)ts * (ts - 1) - (long long)ts0 * (ts0 - 1)) / 2;
+  incr_distance_dosage_3d(&(g_distance_matrix[offset]), &(g_distance_wt_matrix[offset]), (int)tidx);
   return NULL;
 }
 
@@ -811,11 +1052,7 @@ int update_distance_dosage_matrix(int is_missing_01, int distance_3d, int distan
     if (is_missing_01) {
       for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
 	if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_distance_dosage_2d_01_thread, (void*)thread_idx)) {
-	  printf(errstr_thread_create);
-	  while (--thread_idx) {
-	    pthread_join(threads[thread_idx - 1], NULL);
-	  }
-	  return RET_THREAD_CREATE_FAIL;
+	  goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
 	}
       }
       thread_idx = 0;
@@ -823,11 +1060,7 @@ int update_distance_dosage_matrix(int is_missing_01, int distance_3d, int distan
     } else if (distance_flat_missing) {
       for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
 	if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_distance_dosage_2d_flat_thread, (void*)thread_idx)) {
-	  printf(errstr_thread_create);
-	  while (--thread_idx) {
-	    pthread_join(threads[thread_idx - 1], NULL);
-	  }
-	  return RET_THREAD_CREATE_FAIL;
+	  goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
 	}
       }
       thread_idx = 0;
@@ -835,18 +1068,31 @@ int update_distance_dosage_matrix(int is_missing_01, int distance_3d, int distan
     } else {
       for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
 	if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_distance_dosage_2d_thread, (void*)thread_idx)) {
-	  printf(errstr_thread_create);
-	  while (--thread_idx) {
-	    pthread_join(threads[thread_idx - 1], NULL);
-	  }
-	  return RET_THREAD_CREATE_FAIL;
+	  goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
 	}
       }
       thread_idx = 0;
       incr_distance_dosage_2d_thread((void*)thread_idx);
     }
   } else {
-    // TBD
+    // assume is_missing_01 is not checked for now
+    if (distance_flat_missing) {
+      for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
+	if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_distance_dosage_3d_flat_thread, (void*)thread_idx)) {
+	  goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
+	}
+      }
+      thread_idx = 0;
+      incr_distance_dosage_3d_flat_thread((void*)thread_idx);
+    } else {
+      for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
+	if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_distance_dosage_3d_thread, (void*)thread_idx)) {
+	  goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
+	}
+      }
+      thread_idx = 0;
+      incr_distance_dosage_3d_thread((void*)thread_idx);
+    }
   }
   for (thread_idx = 0; thread_idx < thread_ct - 1; thread_idx++) {
     pthread_join(threads[thread_idx], NULL);
@@ -854,11 +1100,7 @@ int update_distance_dosage_matrix(int is_missing_01, int distance_3d, int distan
   if (is_missing_01 && (!distance_3d)) {
     for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
       if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_dosage_missing_wt_01_thread, (void*)thread_idx)) {
-	printf(errstr_thread_create);
-	while (--thread_idx) {
-	  pthread_join(threads[thread_idx - 1], NULL);
-	}
-	return RET_THREAD_CREATE_FAIL;
+	goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
       }
     }
     thread_idx = 0;
@@ -868,6 +1110,12 @@ int update_distance_dosage_matrix(int is_missing_01, int distance_3d, int distan
     }
   }
   return 0;
+ update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL:
+  printf(errstr_thread_create);
+  while (--thread_idx) {
+    pthread_join(threads[thread_idx - 1], NULL);
+  }
+  return RET_THREAD_CREATE_FAIL;
 }
 
 int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_allele_freqs, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, int is_missing_01, int distance_3d, int distance_flat_missing, double exponent, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
@@ -1189,20 +1437,21 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   if (wkspace_alloc_d_checked(&cur_nonmissings, g_indiv_ct * sizeof(double))) {
     return RET_NOMEM;
   }
-  if (wkspace_alloc_d_checked(&g_nonmissing_vals, g_indiv_ct * MULTIPLEX_DOSAGE_NM * sizeof(double))) {
-    return RET_NOMEM;
-  }
 
   if (distance_3d) {
-    printf("Error: 3d distance calculation not yet supported.\n");
-    return RET_CALC_NOT_YET_SUPPORTED;
+    if (wkspace_alloc_d_checked(&g_dosage_vals, g_indiv_ct * 4 * MULTIPLEX_DOSAGE_NM3D * sizeof(double))) {
+      return RET_NOMEM;
+    }
   } else {
+    if (wkspace_alloc_d_checked(&g_nonmissing_vals, g_indiv_ct * MULTIPLEX_DOSAGE_NM * sizeof(double))) {
+      return RET_NOMEM;
+    }
     if (wkspace_alloc_d_checked(&g_dosage_vals, g_indiv_ct * MULTIPLEX_DOSAGE_NM * sizeof(double))) {
       return RET_NOMEM;
     }
-    if (wkspace_alloc_d_checked(&cur_marker_freqs, g_indiv_ct * sizeof(double))) {
-      return RET_NOMEM;
-    }
+  }
+  if (wkspace_alloc_d_checked(&cur_marker_freqs, g_indiv_ct * sizeof(double))) {
+    return RET_NOMEM;
   }
 
   if (wkspace_left > 2147483584LU) {
@@ -1212,8 +1461,13 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   }
 
   set_allele_freqs_tmp = (double*)wkspace_base;
-  loadbuf = (char*)(&(wkspace_base[MULTIPLEX_DOSAGE_NM * sizeof(double)]));
-  max_load -= MULTIPLEX_DOSAGE_NM * sizeof(double);
+  if (distance_3d) {
+    loadbuf = (char*)(&(wkspace_base[MULTIPLEX_DOSAGE_NM3D * sizeof(double)]));
+    max_load -= MULTIPLEX_DOSAGE_NM3D * sizeof(double);
+  } else {
+    loadbuf = (char*)(&(wkspace_base[MULTIPLEX_DOSAGE_NM * sizeof(double)]));
+    max_load -= MULTIPLEX_DOSAGE_NM * sizeof(double);
+  }
   if (max_load <= 0) {
     return RET_NOMEM;
   }
@@ -1231,7 +1485,51 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
     ref_freq_numer = 0.0;
     ref_freq_denom = 0.0;
     if (distance_3d) {
-      // TBD
+      for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct;) {
+	if (no_more_items(bufptr)) {
+	  goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
+	}
+	if (indiv_uidx < unfiltered_indiv_ct8m) {
+	  bufptr = next_item(bufptr);
+	  if (sscanf(bufptr, "%lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg", &(pbuf0[0]), &(pbuf1[0]), &(pbuf2[0]), &(pbuf0[1]), &(pbuf1[1]), &(pbuf2[1]), &(pbuf0[2]), &(pbuf1[2]), &(pbuf2[2]), &(pbuf0[3]), &(pbuf1[3]), &(pbuf2[3]), &(pbuf0[4]), &(pbuf1[4]), &(pbuf2[4]), &(pbuf0[5]), &(pbuf1[5]), &(pbuf2[5]), &(pbuf0[6]), &(pbuf1[6]), &(pbuf2[6]), &(pbuf0[7]), &(pbuf1[7]), &(pbuf2[7])) != 24) {
+	    goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
+	  }
+	  bufptr = next_item_mult(bufptr, 23);
+	  subloop_end = 8;
+	} else {
+	  subloop_end = unfiltered_indiv_ct - unfiltered_indiv_ct8m;
+	  for (uii = 0; uii < subloop_end; uii++) {
+	    bufptr = next_item(bufptr);
+	    if (sscanf(bufptr, "%lg %lg %lg", &(pbuf0[uii]), &(pbuf1[uii]), &(pbuf2[uii])) != 3) {
+	      goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
+	    }
+	    bufptr = next_item_mult(bufptr, 2);
+	  }
+	}
+	for (uii = 0; uii < subloop_end; uii++) {
+	  if (!is_set(indiv_exclude, indiv_uidx + uii)) {
+	    pone = pbuf1[uii];
+	    ptwo = pbuf2[uii];
+	    dyy = pbuf0[uii] + pone + ptwo;
+	    cur_nonmissings[indiv_idx] = dyy;
+	    g_dosage_vals[indiv_idx * 4 * MULTIPLEX_DOSAGE_NM3D + marker_idxl] = pbuf0[uii];
+	    g_dosage_vals[(indiv_idx * 4 + 1) * MULTIPLEX_DOSAGE_NM3D + marker_idxl] = pone;
+	    g_dosage_vals[(indiv_idx * 4 + 2) * MULTIPLEX_DOSAGE_NM3D + marker_idxl] = ptwo;
+	    g_dosage_vals[(indiv_idx * 4 + 3) * MULTIPLEX_DOSAGE_NM3D + marker_idxl] = dyy;
+	    if (dyy == 0.0) {
+	      dxx = 1.0;
+	    } else {
+	      dxx = pone + 2 * ptwo;
+	      ref_freq_numer += dxx;
+	      dxx = dxx / dyy;
+	      ref_freq_denom += 2 * dyy;
+	    }
+	    cur_marker_freqs[indiv_idx] = dxx;
+	    indiv_idx++;
+	  }
+	}
+	indiv_uidx += subloop_end;
+      }
     } else {
       for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct;) {
 	if (no_more_items(bufptr)) {
@@ -1312,12 +1610,17 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
 
     unfiltered_marker_ct++;
     marker_idxl++;
-    if (marker_idxl == MULTIPLEX_DOSAGE_NM) {
-      max_load -= MULTIPLEX_DOSAGE_NM * sizeof(double);
+    if ((distance_3d && (marker_idxl == MULTIPLEX_DOSAGE_NM3D)) || (marker_idxl == MULTIPLEX_DOSAGE_NM)) {
+      if (distance_3d) {
+        max_load -= MULTIPLEX_DOSAGE_NM3D * sizeof(double);
+        loadbuf = (char*)(&(loadbuf[MULTIPLEX_DOSAGE_NM3D * sizeof(double)]));
+      } else {
+        max_load -= MULTIPLEX_DOSAGE_NM * sizeof(double);
+        loadbuf = (char*)(&(loadbuf[MULTIPLEX_DOSAGE_NM * sizeof(double)]));
+      }
       if (max_load <= 0) {
 	return RET_NOMEM;
       }
-      loadbuf = (char*)(&(loadbuf[MULTIPLEX_DOSAGE_NM * sizeof(double)]));
       retval = update_distance_dosage_matrix(0, distance_3d, distance_flat_missing, thread_ct);
       if (retval) {
 	return retval;
@@ -1335,10 +1638,17 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
     return RET_INVALID_FORMAT;
   }
   if (marker_idxl) {
-    ulii = MULTIPLEX_DOSAGE_NM - marker_idxl;
-    for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-      fill_double_zero(&(g_dosage_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl]), ulii);
-      fill_double_zero(&(g_nonmissing_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl]), ulii);
+    if (distance_3d) {
+      ulii = MULTIPLEX_DOSAGE_NM3D - marker_idxl;
+      for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+	fill_double_zero(&(g_dosage_vals[indiv_idx * MULTIPLEX_DOSAGE_NM3D + marker_idxl]), ulii);
+      }
+    } else {
+      ulii = MULTIPLEX_DOSAGE_NM - marker_idxl;
+      for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+	fill_double_zero(&(g_dosage_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl]), ulii);
+	fill_double_zero(&(g_nonmissing_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl]), ulii);
+      }
     }
     retval = update_distance_dosage_matrix(0, distance_3d, distance_flat_missing, thread_ct);
     if (retval) {
@@ -1353,6 +1663,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
 
   uljj = (((unsigned long)g_indiv_ct) * (g_indiv_ct - 1)) / 2;
   dxx = tot_missing_wt;
+  printf("%g %g %g\n", dxx, g_distance_matrix[0], g_distance_wt_matrix[0]);
   for (ulii = 0; ulii < uljj; ulii++) {
     g_distance_matrix[ulii] *= dxx / g_distance_wt_matrix[ulii];
   }
