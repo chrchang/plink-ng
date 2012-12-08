@@ -928,19 +928,16 @@ void incr_distance_dosage_3d(double* distance_matrix_slice, double* distance_wt_
     dptr_start = (__m128d*)(&(g_dosage_vals[ulii * 4 * MULTIPLEX_DOSAGE_NM3D]));
     dptr2 = &(dptr_start[MULTIPLEX_DOSAGE_NM3D / 2]);
     dptr3 = &(dptr_start[MULTIPLEX_DOSAGE_NM3D]);
-    mwptr = (__m128d*)g_missing_wts;
     do {
-      *dptr++ = _mm_mul_pd(*mwptr++, _mm_add_pd(_mm_mul_pd(vec_two, *dptr3++), *dptr2++));
+      *dptr++ = _mm_add_pd(_mm_mul_pd(vec_two, *dptr3++), *dptr2++);
     } while (dptr != dptr_buf_end1);
     dptr3 = dptr_start;
-    mwptr = (__m128d*)g_missing_wts;
     do {
-      *dptr++ = _mm_mul_pd(*mwptr++, _mm_add_pd(*dptr2++, *dptr3++));
+      *dptr++ = _mm_add_pd(*dptr2++, *dptr3++);
     } while (dptr != dptr_buf_end2);
     dptr2 = dptr_start;
-    mwptr = (__m128d*)g_missing_wts;
     do {
-      *dptr++ = _mm_mul_pd(*mwptr++, _mm_add_pd(_mm_mul_pd(vec_two, *dptr2++), *dptr3++));
+      *dptr++ = _mm_add_pd(_mm_mul_pd(vec_two, *dptr2++), *dptr3++);
     } while (dptr != dptr_buf_end3);
     dptr2 = &(dptr_start[3 * MULTIPLEX_DOSAGE_NM3D / 2]);
     mwptr = (__m128d*)g_missing_wts;
@@ -953,19 +950,16 @@ void incr_distance_dosage_3d(double* distance_matrix_slice, double* distance_wt_
     dptr_start = &(g_dosage_vals[ulii * 4 * MULTIPLEX_DOSAGE_NM3D]);
     dptr2 = &(dptr_start[MULTIPLEX_DOSAGE_NM3D]);
     dptr3 = &(dptr_start[2 * MULTIPLEX_DOSAGE_NM3D]);
-    mwptr = g_missing_wts;
     do {
-      *dptr++ = (*mwptr++) * ((*dptr2++) + 2 * (*dptr3++));
+      *dptr++ = (*dptr2++) + 2 * (*dptr3++);
     } while (dptr != dptr_buf_end1);
     dptr3 = dptr_start;
-    mwptr = g_missing_wts;
     do {
-      *dptr++ = (*mwptr++) * ((*dptr2++) + (*dptr3++));
+      *dptr++ = (*dptr2++) + (*dptr3++);
     } while (dptr != dptr_buf_end2);
     dptr2 = dptr_start;
-    mwptr = g_missing_wts;
     do {
-      *dptr++ = (*mwptr++) * (2 * (*dptr2++) + (*dptr3++));
+      *dptr++ = 2 * (*dptr2++) + (*dptr3++);
     } while (dptr != dptr_buf_end3);
     dptr2 = &(dptr_start[3 * MULTIPLEX_DOSAGE_NM3D]);
     mwptr = g_missing_wts;
@@ -1592,18 +1586,34 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
     }
 
     if (!distance_flat_missing) {
-      if (qsort_ext((char*)cur_marker_freqs, g_indiv_ct, sizeof(double), double_cmp_deref, (char*)cur_nonmissings, sizeof(double))) {
-	return RET_NOMEM;
+      if (distance_3d) {
+	// TBD: refine this
+	if (qsort_ext((char*)cur_marker_freqs, g_indiv_ct, sizeof(double), double_cmp_deref, (char*)cur_nonmissings, sizeof(double))) {
+	  return RET_NOMEM;
+	}
+	dxx = 0.0;
+	uii = g_indiv_ct - 1;
+	dyy = ref_freq_denom * 0.5;
+	missing_wt = 0.0;
+	for (indiv_idx = 0; indiv_idx < uii; indiv_idx++) {
+	  dxx += cur_nonmissings[indiv_idx];
+	  missing_wt += (cur_marker_freqs[indiv_idx + 1] - cur_marker_freqs[indiv_idx]) * dxx * (dyy - dxx);
+	}
+	missing_wt *= 2.0 / (dyy * dyy);
+      } else {
+	if (qsort_ext((char*)cur_marker_freqs, g_indiv_ct, sizeof(double), double_cmp_deref, (char*)cur_nonmissings, sizeof(double))) {
+	  return RET_NOMEM;
+	}
+	dxx = 0.0;
+	uii = g_indiv_ct - 1;
+	dyy = ref_freq_denom * 0.5;
+	missing_wt = 0.0;
+	for (indiv_idx = 0; indiv_idx < uii; indiv_idx++) {
+	  dxx += cur_nonmissings[indiv_idx];
+	  missing_wt += (cur_marker_freqs[indiv_idx + 1] - cur_marker_freqs[indiv_idx]) * dxx * (dyy - dxx);
+	}
+	missing_wt *= 2.0 / (dyy * dyy);
       }
-      dxx = 0.0;
-      uii = g_indiv_ct - 1;
-      dyy = ref_freq_denom * 0.5;
-      missing_wt = 0.0;
-      for (indiv_idx = 0; indiv_idx < uii; indiv_idx++) {
-	dxx += cur_nonmissings[indiv_idx];
-	missing_wt += (cur_marker_freqs[indiv_idx + 1] - cur_marker_freqs[indiv_idx]) * dxx * (dyy - dxx);
-      }
-      missing_wt *= 2.0 / (dyy * dyy);
       g_missing_wts[marker_idxl] = missing_wt;
     }
     tot_missing_wt += missing_wt;
@@ -1663,7 +1673,6 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
 
   uljj = (((unsigned long)g_indiv_ct) * (g_indiv_ct - 1)) / 2;
   dxx = tot_missing_wt;
-  printf("%g %g %g\n", dxx, g_distance_matrix[0], g_distance_wt_matrix[0]);
   for (ulii = 0; ulii < uljj; ulii++) {
     g_distance_matrix[ulii] *= dxx / g_distance_wt_matrix[ulii];
   }
