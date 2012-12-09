@@ -5,9 +5,9 @@
 // --dosage loader will probably be added later.
 
 #define MULTIPLEX_DOSAGE_NM (BITCT / 2)
-#define MULTIPLEX_DOSAGE_NM3D MULTIPLEX_DOSAGE_NM
+#define MULTIPLEX_DOSAGE_NM3D (MULTIPLEX_DOSAGE_NM / 2)
 #if MULTIPLEX_DOSAGE_NM < MULTIPLEX_DOSAGE_NM3D
-#error "MULTIPLEX_DOSAGE_NM should be no less than MULTIPLEX_DOSAGE_NM3D."
+#error "MULTIPLEX_DOSAGE_NM cannot be less than MULTIPLEX_DOSAGE_NM3D."
 #endif
 
 
@@ -1383,6 +1383,11 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   unsigned int gen_buf_len = 0;
   double tot_missing_wt = 0.0;
   double missing_wt = 1.0;
+  double* cur_marker_freqs = NULL;
+  double sum_zero_3d = 0.0;
+  double sum_one_3d = 0.0;
+  double sum_two_3d = 0.0;
+  double sum_exclude_3d = 0.0;
   double* set_allele_freqs_tmp;
   unsigned int unfiltered_marker_ctl;
   char* loadbuf;
@@ -1395,6 +1400,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   double pbuf0[8];
   double pbuf1[8];
   double pbuf2[8];
+  double pzero;
   double pone;
   double ptwo;
   unsigned long ulii;
@@ -1407,7 +1413,6 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   double marker_wt;
   double ref_freq_numer;
   double ref_freq_denom; // also 2x sum of cur_nonmissings
-  double* cur_marker_freqs;
 
   triangle_fill(g_thread_start, g_indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
   llxx = g_thread_start[thread_ct];
@@ -1443,9 +1448,9 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
     if (wkspace_alloc_d_checked(&g_dosage_vals, g_indiv_ct * MULTIPLEX_DOSAGE_NM * sizeof(double))) {
       return RET_NOMEM;
     }
-  }
-  if (wkspace_alloc_d_checked(&cur_marker_freqs, g_indiv_ct * sizeof(double))) {
-    return RET_NOMEM;
+    if (wkspace_alloc_d_checked(&cur_marker_freqs, g_indiv_ct * sizeof(double))) {
+      return RET_NOMEM;
+    }
   }
 
   if (wkspace_left > 2147483584LU) {
@@ -1479,6 +1484,10 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
     ref_freq_numer = 0.0;
     ref_freq_denom = 0.0;
     if (distance_3d) {
+      sum_zero_3d = 0.0;
+      sum_one_3d = 0.0;
+      sum_two_3d = 0.0;
+      sum_exclude_3d = 0.0;
       for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct;) {
 	if (no_more_items(bufptr)) {
 	  goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
@@ -1502,23 +1511,22 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
 	}
 	for (uii = 0; uii < subloop_end; uii++) {
 	  if (!is_set(indiv_exclude, indiv_uidx + uii)) {
+	    pzero = pbuf0[uii];
 	    pone = pbuf1[uii];
 	    ptwo = pbuf2[uii];
-	    dyy = pbuf0[uii] + pone + ptwo;
+	    dxx = pone + 2 * ptwo;
+	    dyy = pzero + pone + ptwo;
 	    cur_nonmissings[indiv_idx] = dyy;
-	    g_dosage_vals[indiv_idx * 4 * MULTIPLEX_DOSAGE_NM3D + marker_idxl] = pbuf0[uii];
+	    sum_zero_3d += pzero;
+	    g_dosage_vals[indiv_idx * 4 * MULTIPLEX_DOSAGE_NM3D + marker_idxl] = pzero;
+	    sum_one_3d += pone;
 	    g_dosage_vals[(indiv_idx * 4 + 1) * MULTIPLEX_DOSAGE_NM3D + marker_idxl] = pone;
+	    sum_two_3d += ptwo;
 	    g_dosage_vals[(indiv_idx * 4 + 2) * MULTIPLEX_DOSAGE_NM3D + marker_idxl] = ptwo;
+	    sum_exclude_3d += (pzero * dxx) + (pone * ptwo);
 	    g_dosage_vals[(indiv_idx * 4 + 3) * MULTIPLEX_DOSAGE_NM3D + marker_idxl] = dyy;
-	    if (dyy == 0.0) {
-	      dxx = 1.0;
-	    } else {
-	      dxx = pone + 2 * ptwo;
-	      ref_freq_numer += dxx;
-	      dxx = dxx / dyy;
-	      ref_freq_denom += 2 * dyy;
-	    }
-	    cur_marker_freqs[indiv_idx] = dxx;
+	    ref_freq_numer += dxx;
+	    ref_freq_denom += 2 * dyy;
 	    indiv_idx++;
 	  }
 	}
@@ -1587,19 +1595,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
 
     if (!distance_flat_missing) {
       if (distance_3d) {
-	// TBD: refine this
-	if (qsort_ext((char*)cur_marker_freqs, g_indiv_ct, sizeof(double), double_cmp_deref, (char*)cur_nonmissings, sizeof(double))) {
-	  return RET_NOMEM;
-	}
-	dxx = 0.0;
-	uii = g_indiv_ct - 1;
-	dyy = ref_freq_denom * 0.5;
-	missing_wt = 0.0;
-	for (indiv_idx = 0; indiv_idx < uii; indiv_idx++) {
-	  dxx += cur_nonmissings[indiv_idx];
-	  missing_wt += (cur_marker_freqs[indiv_idx + 1] - cur_marker_freqs[indiv_idx]) * dxx * (dyy - dxx);
-	}
-	missing_wt *= 2.0 / (dyy * dyy);
+	missing_wt = 2 * (sum_zero_3d * (sum_one_3d + 2 * sum_two_3d) + (sum_one_3d * sum_two_3d) - sum_exclude_3d) / (((unsigned long)g_indiv_ct) * (g_indiv_ct - 1));
       } else {
 	if (qsort_ext((char*)cur_marker_freqs, g_indiv_ct, sizeof(double), double_cmp_deref, (char*)cur_nonmissings, sizeof(double))) {
 	  return RET_NOMEM;
