@@ -278,7 +278,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (9 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (10 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -551,6 +551,24 @@ int disp_help(unsigned int param_ct, char** argv) {
 	   );
   }
   do {
+    help_print("freq\tfreqx\tfrqx\tcounts", &help_ctrl, 1,
+"  --freq <counts>\n"
+"  --freqx\n"
+"    --freq generates an allele frequency report identical to that of PLINK\n"
+"    --freq (or --freq --counts, if the 'counts' modifier is used).  Using the\n"
+"    --freqx flag instead causes the MAF and NCHROBS columns to be replaced with\n"
+"    homozygote and heterozygote counts, which (when reloaded with --read-freq)\n"
+"    allow distance matrix terms to be weighted consistently through multiple\n"
+"    filtering runs.\n\n"
+		);
+    help_print("ibc", &help_ctrl, 1,
+"  --ibc\n"
+"    Calculates inbreeding coefficients in three different ways.\n"
+"    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
+"      a tool for Genome-wide Complex Trait Analysis.  Am J Hum Genet. 2011 Jan\n"
+"      88(1): 76-82.  This paper also describes the relationship matrix\n"
+"      computation we implement.\n\n"
+	       );
     help_print("distance", &help_ctrl, 1,
 "  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <snps> <3d>\n"
 "             <flat-missing>\n"
@@ -609,14 +627,6 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    Note that you need to rerun WDIST using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
 		);
-    help_print("ibc", &help_ctrl, 1,
-"  --ibc\n"
-"    Calculates inbreeding coefficients in three different ways.\n"
-"    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
-"      a tool for Genome-wide Complex Trait Analysis.  Am J Hum Genet. 2011 Jan\n"
-"      88(1): 76-82.  This paper also describes the relationship matrix\n"
-"      computation we implement.\n\n"
-	       );
     help_print("make-rel", &help_ctrl, 1,
 "  --make-rel <square | square0 | triangle> <gz | bin> <cov | ibc1 | ibc2>\n"
 "    Writes a lower-triangular variance-standardized relationship (coancestry)\n"
@@ -637,16 +647,17 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    observations (where neither individual has a missing call) for each pair,\n"
 "    which is useful input for some scripts.\n\n"
 	       );
-    help_print("groupdist", &help_ctrl, 1,
-"  --groupdist {iters} {d}\n"
-"    Considers three subsets of the distance matrix: pairs of affected\n"
-"    individuals, affected-unaffected pairs, and pairs of unaffected\n"
-"    individuals.  Each of these subsets has an average pairwise genomic\n"
-"    distance; --groupdist computes the differences between those three\n"
-"    averages, and estimates standard errors via delete-d jackknife.  Binary\n"
-"    phenotype data is required.\n"
-"    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
-"      down.  With no parameters, 100k iterations are run.\n\n"
+    help_print("rel-cutoff\tgrm-cutoff", &help_ctrl, 1,
+"  --rel-cutoff {val}\n"
+"  --grm-cutoff {val}\n"
+"    Excludes one member of each pair of individuals with relatedness greater\n"
+"    than the given cutoff value (default 0.025).  If no later operation will\n"
+"    cause the list of remaining individuals to be written to disk, this will\n"
+"    save it to {output prefix}.rel.id.\n"
+"    Note that maximizing the remaining sample size is equivalent to the NP-hard\n"
+"    maximum independent set problem, so we use a greedy algorithm instead of\n"
+"    guaranteeing optimality.  (Use the --make-rel and --keep/--remove flags if\n"
+"    you want to try to do better.)\n\n"
 	       );
     help_print("regress-distance", &help_ctrl, 1,
 "  --regress-distance {iters} {d}\n"
@@ -654,11 +665,6 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    phenotypes and vice versa, using delete-d jackknife for standard errors.\n"
 "    Scalar phenotype data is required.  Defaults for iters and d are the same\n"
 "    as for --groupdist.\n\n"
-	       );
-    help_print("regress-rel", &help_ctrl, 1,
-"  --regress-rel {iters} {d}\n"
-"    Linear regression of pairwise genomic relationships on pairwise average\n"
-"    phenotypes, and vice versa.\n\n"
 	       );
     help_print("regress-pcs", &help_ctrl, 1,
 "  --regress-pcs [.evec or .eigenvec filename] <normalize-pheno> <sex-specific>\n"
@@ -675,6 +681,22 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    * By default, principal components beyond the 20th are ignored; change this\n"
 "      by setting the max PCs parameter.\n\n"
 	       );
+    help_print("regress-rel", &help_ctrl, 1,
+"  --regress-rel {iters} {d}\n"
+"    Linear regression of pairwise genomic relationships on pairwise average\n"
+"    phenotypes, and vice versa.\n\n"
+	       );
+    help_print("groupdist", &help_ctrl, 1,
+"  --groupdist {iters} {d}\n"
+"    Considers three subsets of the distance matrix: pairs of affected\n"
+"    individuals, affected-unaffected pairs, and pairs of unaffected\n"
+"    individuals.  Each of these subsets has an average pairwise genomic\n"
+"    distance; --groupdist computes the differences between those three\n"
+"    averages, and estimates standard errors via delete-d jackknife.  Binary\n"
+"    phenotype data is required.\n"
+"    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
+"      down.  With no parameters, 100k iterations are run.\n\n"
+	       );
 #ifndef NOLAPACK
     help_print("unrelated-heritability", &help_ctrl, 1,
 "  --unrelated-heritability <strict> {tol} {initial covg} {initial covr}\n"
@@ -689,21 +711,6 @@ int disp_help(unsigned int param_ct, char** argv) {
 "      Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
 	       );
 #endif
-    help_print("freq\tfreqx\tfrqx\tcounts", &help_ctrl, 1,
-"  --freq <counts>\n"
-"  --freqx\n"
-"    --freq generates an allele frequency report identical to that of PLINK\n"
-"    --freq (or --freq --counts, if the 'counts' modifier is used).  Using the\n"
-"    --freqx flag instead causes the MAF and NCHROBS columns to be replaced with\n"
-"    homozygote and heterozygote counts, which (when reloaded with --read-freq)\n"
-"    allow distance matrix terms to be weighted consistently through multiple\n"
-"    filtering runs.\n\n"
-		);
-    help_print("write-snplist", &help_ctrl, 1,
-"  --write-snplist\n"
-"    Writes a .snplist file listing the names of all SNPs that pass the filters\n"
-"    and inclusion thresholds you've specified.\n\n"
-	       );
     help_print("make-bed", &help_ctrl, 1,
 "  --make-bed\n"
 "    Creates a new binary fileset with all filters applied.\n"
@@ -714,6 +721,11 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    Creates a new text fileset with all filters applied.  --recode12 codes all\n"
 "    alleles as 1s or 2s.  With --recode, the 'allele1234' and 'alleleACGT'\n"
 "    modifiers convert A/C/G/T to 1/2/3/4 or vice versa.\n\n"
+	       );
+    help_print("write-snplist", &help_ctrl, 1,
+"  --write-snplist\n"
+"    Writes a .snplist file listing the names of all SNPs that pass the filters\n"
+"    and inclusion thresholds you've specified.\n\n"
 	       );
     help_print("help\t{flag names}", &help_ctrl, 1,
 "  --help {flag names...}\n"
@@ -859,15 +871,6 @@ int disp_help(unsigned int param_ct, char** argv) {
 	       );
     help_print("nonfounders", &help_ctrl, 0,
 "  --nonfounders    : Include all individuals in MAF/HWE calculations.\n"
-	       );
-    help_print("rel-cutoff\tgrm-cutoff", &help_ctrl, 0,
-"  --rel-cutoff {v} : Exclude individuals until no remaining pairs have\n"
-"  --grm-cutoff {v}   relatedness greater than the given cutoff value (default\n"
-"                     0.025).  Note that maximizing the remaining sample size is\n"
-"                     equivalent to the NP-hard maximum independent set problem,\n"
-"                     so we use a greedy algorithm instead of guaranteeing\n"
-"                     optimality.  (Use the --make-rel and --keep/--remove flags\n"
-"                     if you want to try to do better.)\n"
 	       );
     help_print("ppc-gap", &help_ctrl, 0,
 "  --ppc-gap [val]  : Minimum number of base pairs, in thousands, between\n"
@@ -10116,6 +10119,14 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	}
       }
       printf("%d individual%s excluded by --rel-cutoff.\n", ii, (ii == 1)? "" : "s");
+      if (!(calculation_type & (CALC_RELATIONSHIP_MASK | CALC_GDISTANCE_MASK))) {
+	strcpy(outname_end, ".rel.id");
+	retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
+	if (retval) {
+	  goto wdist_ret_2;
+	}
+        printf("Remaining individual IDs written to %s.\n", outname);
+      }
     }
 
     if (calculation_type & CALC_IBC) {
@@ -13215,7 +13226,7 @@ int main(int argc, char** argv) {
       return invalid_arg(argptr);
     }
   }
-  if ((calculation_type & ~CALC_REL_CUTOFF) == 0) {
+  if (!calculation_type) {
     printf("Note: No output requested.  Exiting.\n\n'wdist --help | more' describes all functions.  You can also look up specific\nflags with 'wdist --help [flag #1] {flag #2} ...'.\n");
     return dispmsg(RET_NULL_CALC);
   }
