@@ -278,7 +278,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (10 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (11 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -663,8 +663,9 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --regress-distance {iters} {d}\n"
 "    Linear regression of pairwise genomic distances on pairwise average\n"
 "    phenotypes and vice versa, using delete-d jackknife for standard errors.\n"
-"    Scalar phenotype data is required.  Defaults for iters and d are the same\n"
-"    as for --groupdist.\n\n"
+"    Scalar phenotype data is required.\n"
+"    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
+"      down.  With no parameters, 100k iterations are run.\n\n"
 	       );
     help_print("regress-pcs", &help_ctrl, 1,
 "  --regress-pcs [.evec or .eigenvec filename] <normalize-pheno> <sex-specific>\n"
@@ -684,7 +685,8 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_print("regress-rel", &help_ctrl, 1,
 "  --regress-rel {iters} {d}\n"
 "    Linear regression of pairwise genomic relationships on pairwise average\n"
-"    phenotypes, and vice versa.\n\n"
+"    phenotypes, and vice versa.  Defaults for iters and d are the same as for\n"
+"    --regress-distance.\n\n"
 	       );
     help_print("groupdist", &help_ctrl, 1,
 "  --groupdist {iters} {d}\n"
@@ -693,9 +695,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    individuals.  Each of these subsets has an average pairwise genomic\n"
 "    distance; --groupdist computes the differences between those three\n"
 "    averages, and estimates standard errors via delete-d jackknife.  Binary\n"
-"    phenotype data is required.\n"
-"    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
-"      down.  With no parameters, 100k iterations are run.\n\n"
+"    phenotype data is required.\n\n"
 	       );
 #ifndef NOLAPACK
     help_print("unrelated-heritability", &help_ctrl, 1,
@@ -849,20 +849,18 @@ int disp_help(unsigned int param_ct, char** argv) {
 "                     invoke --maf, no MAF inclusion threshold is applied.\n"
 "                     Other inclusion thresholds work the same way.\n"
 	       );
-    help_print("max-maf", &help_ctrl, 0,
+    help_print("max-maf\tmaf", &help_ctrl, 0,
 "  --max-maf [val]  : Minor allele frequency maximum threshold.\n"
 	       );
-    help_print("geno", &help_ctrl, 0,
+    help_print("geno\tmind", &help_ctrl, 0,
 "  --geno {val}     : Maximum per-SNP missing (default 0.1).\n"
-	       );
-    help_print("mind", &help_ctrl, 0,
 "  --mind {val}     : Maximum per-person missing (default 0.1).\n"
 	       );
     help_print("hwe", &help_ctrl, 0,
 "  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
 "                     default 0.001.\n"
 	       );
-    help_print("hwe-all", &help_ctrl, 0,
+    help_print("hwe-all\thwe", &help_ctrl, 0,
 "  --hwe-all        : Given case-control data, don't ignore cases in HWE test.\n"
 	       );
     help_print("allow-no-sex", &help_ctrl, 0,
@@ -887,16 +885,12 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_print("threads", &help_ctrl, 0,
 "  --threads [val]  : Maximum number of concurrent threads.\n"
 	       );
-    help_print("extract", &help_ctrl, 0,
+    help_print("extract\texclude", &help_ctrl, 0,
 "  --extract [file] : Exclude all SNPs not in the given list.\n"
-	       );
-    help_print("exclude", &help_ctrl, 0,
 "  --exclude [file] : Exclude all SNPs in the given list.\n"
 	       );
-    help_print("keep", &help_ctrl, 0,
+    help_print("keep\tremove", &help_ctrl, 0,
 "  --keep [fname]   : Exclude all individuals not in the given list.\n"
-	       );
-    help_print("remove", &help_ctrl, 0,
 "  --remove [fname] : Exclude all individuals in the given list.\n"
 	       );
     help_print("maf-succ", &help_ctrl, 0,
@@ -932,42 +926,32 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_print("filter", &help_ctrl, 0,
 "  --filter [filename] [val] : Filter individuals (see PLINK documentation).\n"
 	       );
-    help_print("mfilter", &help_ctrl, 0,
+    help_print("mfilter\tfilter", &help_ctrl, 0,
 "  --mfilter [col]           : Specify column number in --filter file.\n"
 	       );
-    help_print("filter-cases", &help_ctrl, 0,
+    help_print("filter-cases\tfilter-controls", &help_ctrl, 0,
 "  --filter-cases            : Include only cases.\n"
-	       );
-    help_print("filter-controls", &help_ctrl, 0,
 "  --filter-controls         : Include only controls.\n"
 	       );
-    help_print("filter-males", &help_ctrl, 0,
+    help_print("filter-males\tfilter-females", &help_ctrl, 0,
 "  --filter-males            : Include only males.\n"
-	       );
-    help_print("filter-females", &help_ctrl, 0,
 "  --filter-females          : Include only females.\n"
 	       );
-    help_print("filter-founders", &help_ctrl, 0,
+    help_print("filter-founders\tfilter-nonfounders", &help_ctrl, 0,
 "  --filter-founders         : Include only founders.\n"
-	       );
-    help_print("filter-nonfounders", &help_ctrl, 0,
 "  --filter-nonfounders      : Include only nonfounders.\n"
 	       );
-    help_print("missing-genotype", &help_ctrl, 0,
+    help_print("missing-genotype\tmissing-phenotype", &help_ctrl, 0,
 "  --missing-genotype [char] : Code for missing genotype (normally '0').\n"
-	       );
-    help_print("missing-phenotype", &help_ctrl, 0,
 "  --missing-phenotype [val] : Numeric code for missing phenotype (normally -9).\n"
 	       );
-    help_print("output-missing-genotype", &help_ctrl, 0,
+    help_print("output-missing-genotype\toutput-missing-phenotype", &help_ctrl, 0,
 "  --output-missing-genotype [ch] : Code for missing genotype when creating new\n"
 "                                   text fileset (--recode).\n"
-	       );
-    help_print("output-missing-phenotype", &help_ctrl, 0,
 "  --output-missing-phenotype [c] : Code for missing phenotype when creating new\n"
 "                                   fileset (--make-bed/--recode).\n"
 	       );
-    help_print("missing-code\tmissing_code", &help_ctrl, 0,
+    help_print("missing-code\tmissing_code\tmissing-phenotype", &help_ctrl, 0,
 "  --missing-code {vals}     : Comma-separated list of missing phenotype values,\n"
 "  --missing_code {vals}       for Oxford-formatted filesets (normally 'NA').\n"
 	       );
@@ -9585,7 +9569,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       strcpy(outname_end, ".frq");
     }
     retval = write_freqs(&outfile, outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_alleles, ll_cts, lh_cts, hh_cts, binary_files, freq_counts, freqx, missing_geno);
-    if (retval || (binary_files && (calculation_type == CALC_FREQ))) {
+    if (retval || (calculation_type == CALC_FREQ)) {
       goto wdist_ret_2;
     }
   }
@@ -9630,7 +9614,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (missing_pheno != output_missing_pheno) {
       // todo
     }
-    if (retval || (calculation_type == CALC_FREQ)) {
+    if (retval || (!(calculation_type & (~(CALC_FREQ | CALC_MAKE_BED))))) {
       goto wdist_ret_2;
     }
     // if this becomes much more of a maintenance nightmare, consider exiting
