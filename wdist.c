@@ -266,7 +266,7 @@ static inline void debug_log(char* ss) {
 #define MAX(aa, bb) ((bb) > (aa))? (bb) : (aa)
 
 const char ver_str[] =
-  "WDIST v0.13.7"
+  "WDIST v0.13.8"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -278,7 +278,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (11 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (14 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -694,8 +694,8 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    individuals, affected-unaffected pairs, and pairs of unaffected\n"
 "    individuals.  Each of these subsets has an average pairwise genomic\n"
 "    distance; --groupdist computes the differences between those three\n"
-"    averages, and estimates standard errors via delete-d jackknife.  Binary\n"
-"    phenotype data is required.\n\n"
+"    averages, and estimates standard errors via delete-d jackknife.\n"
+"    Dichotomous phenotype data is required.\n\n"
 	       );
 #ifndef NOLAPACK
     help_print("unrelated-heritability", &help_ctrl, 1,
@@ -956,8 +956,8 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --missing_code {vals}       for Oxford-formatted filesets (normally 'NA').\n"
 	       );
     help_print("make-pheno", &help_ctrl, 0,
-"  --make-pheno [file] [val] : Specify binary phenotype, where cases have the\n"
-"                              given value.  If the value is '*', all\n"
+"  --make-pheno [file] [val] : Specify dichotomous phenotype, where cases have\n"
+"                              the given value.  If the value is '*', all\n"
 "                              individuals present in the phenotype file are\n"
 "                              affected (and other individuals in the .ped/.fam\n"
 "                              are unaffected).\n"
@@ -5316,7 +5316,7 @@ int makepheno_load(FILE* phenofile, char* makepheno_str, unsigned int unfiltered
     if (!pheno_c) {
       return RET_NOMEM;
     }
-    memset(pheno_c, 0, unfiltered_indiv_ct);
+    memset(pheno_c, makepheno_all? 0 : -1, unfiltered_indiv_ct);
     *pheno_c_ptr = pheno_c;
   }
   while (fgets(tbuf, MAXLINELEN, phenofile) != NULL) {
@@ -5342,7 +5342,9 @@ int makepheno_load(FILE* phenofile, char* makepheno_str, unsigned int unfiltered
         tmp_len = strlen_se(bufptr);
 	if ((tmp_len == mp_strlen) && (!memcmp(bufptr, makepheno_str, mp_strlen))) {
 	  pheno_c[person_idx] = 1;
-	} 
+	} else {
+	  pheno_c[person_idx] = 0;
+	}
       }
     }
   }
@@ -9370,7 +9372,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if ((calculation_type & CALC_GROUPDIST) && (!g_pheno_c)) {
-    printf("Error: --groupdist calculation requires binary phenotype.\n");
+    printf("Error: --groupdist calculation requires dichotomous phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
   } else if ((calculation_type & CALC_REGRESS_DISTANCE) && (!g_pheno_d)) {
     printf("Error: --regress-distance calculation requires scalar phenotype.\n");
@@ -9444,7 +9446,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (filter_case_control) {
     if (!g_pheno_c) {
-      printf("Error: --filter-cases/--filter-controls requires binary phenotype.\n");
+      printf("Error: --filter-cases/--filter-controls requires dichotomous phenotype.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
     ii = indiv_exclude_ct;
