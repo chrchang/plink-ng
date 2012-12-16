@@ -266,7 +266,7 @@ static inline void debug_log(char* ss) {
 #define MAX(aa, bb) ((bb) > (aa))? (bb) : (aa)
 
 const char ver_str[] =
-  "WDIST v0.13.8"
+  "WDIST v0.13.9"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -278,7 +278,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (14 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (16 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -561,7 +561,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    allow distance matrix terms to be weighted consistently through multiple\n"
 "    filtering runs.\n\n"
 		);
-    help_print("ibc", &help_ctrl, 1,
+    help_print("ibc\thet", &help_ctrl, 1,
 "  --ibc\n"
 "    Calculates inbreeding coefficients in three different ways.\n"
 "    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
@@ -640,14 +640,14 @@ int disp_help(unsigned int param_ct, char** argv) {
 "      --ibc's Fhat3; use the 'ibc1' or 'ibc2' modifiers to base them on Fhat1\n"
 "      or Fhat2 instead.\n"
                );
-    help_print("make-grm", &help_ctrl, 1,
+    help_print("make-grm\tgrm", &help_ctrl, 1,
 "  --make-grm <no-gz> <cov | ibc1 | ibc2>\n"
 "    Writes the relationships in GCTA's gzipped list format, describing one pair\n"
 "    per line.  Note that this file explicitly stores the number of valid\n"
 "    observations (where neither individual has a missing call) for each pair,\n"
 "    which is useful input for some scripts.\n\n"
 	       );
-    help_print("rel-cutoff\tgrm-cutoff", &help_ctrl, 1,
+    help_print("rel-cutoff\tgrm-cutoff\tgrm", &help_ctrl, 1,
 "  --rel-cutoff {val}\n"
 "  --grm-cutoff {val}\n"
 "    Excludes one member of each pair of individuals with relatedness greater\n"
@@ -796,6 +796,10 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --groupdist\n"
 "                     or --regress-distance analysis, instead of recalculating\n"
 "                     it from scratch.\n"
+	       );
+    help_print("grm\trel-cutoff\tgrm-cutoff", &help_ctrl, 0,
+"  --grm {prefix}   : Load a GCTA relationship matrix for --rel-cutoff (default\n"
+"                     filename prefix 'wdist').\n"
 	       );
     help_print("out", &help_ctrl, 0,
 "  --out [prefix]   : Specify prefix for output files.\n"
@@ -962,7 +966,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "                              affected (and other individuals in the .ped/.fam\n"
 "                              are unaffected).\n"
 	       );
-    help_print("tail-pheno", &help_ctrl, 0,
+    help_print("tail-pheno\tgroupdist", &help_ctrl, 0,
 "  --tail-pheno [Ltop] {Hbt} : Form 'low' (<= Ltop, unaffected) and 'high'\n"
 "                              (greater than Hbt, affected) groups from scalar\n"
 "                              phenotype data.  If Hbt is unspecified, it is set\n"
@@ -9120,6 +9124,245 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
   return retval;
 }
 
+int do_rel_cutoff(int calculation_type, double rel_cutoff, double* rel_ibc, unsigned long* indiv_exclude, unsigned int* indiv_exclude_ct_ptr, char* outname, char* outname_end, unsigned int unfiltered_indiv_ct, char* person_ids, unsigned int max_person_id_len) {
+  int indivs_excluded = 0;
+  int exactly_one_rel_ct = 0;
+  unsigned char* wkspace_mark = wkspace_base;
+  double* dist_ptr = g_rel_dists;
+  double* dptr2;
+  double* dptr3;
+  double* dptr4;
+  unsigned int* giptr;
+  unsigned int* giptr2;
+  // number of too-close relations, -1 if excluded
+  int* rel_ct_arr;
+  unsigned int indiv_idx;
+  unsigned int uii;
+  unsigned long ulii;
+  int kk;
+  int mm;
+  int retval;
+  
+  // Algorithm:
+  // - Whenever there is at least one individual with exactly one
+  // remaining too-close relation, prune the other side of that
+  // relationship, because doing so is never suboptimal.
+  // - Otherwise, there's no efficient rule that is always optimal
+  // (assuming P != NP, anyway), so we use a simple heuristic: prune the
+  // first individual with the largest number of remaining too-close
+  // relationships.
+
+  if (wkspace_alloc_i_checked(&rel_ct_arr, g_indiv_ct * sizeof(int))) {
+    return RET_NOMEM;
+  }
+  fill_int_zero(rel_ct_arr, g_indiv_ct);
+  dist_ptr = g_rel_dists;
+  for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
+    for (uii = 0; uii < indiv_idx; uii++) {
+      if (*dist_ptr++ > rel_cutoff) {
+	rel_ct_arr[indiv_idx] += 1;
+	rel_ct_arr[uii] += 1;
+      }
+    }
+  }
+  for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+    if (rel_ct_arr[indiv_idx] == 1) {
+      exactly_one_rel_ct++;
+    }
+  }
+  while (1) {
+    if (exactly_one_rel_ct) {
+      // there is at least one individual with exactly one too-close
+      // relation left, find the first one
+      kk = 0;
+      while (rel_ct_arr[kk] != 1) {
+	kk++;
+      }
+      // and now find the identity of the other side
+      dist_ptr = &(g_rel_dists[((long)kk * (kk - 1)) / 2]);
+      for (mm = 0; mm < kk; mm++) {
+	if (*dist_ptr > rel_cutoff) {
+	  *dist_ptr = 0.0;
+	  break;
+	}
+	dist_ptr++;
+      }
+      if (mm == kk) {
+	do {
+	  mm++;
+	  dist_ptr = &(g_rel_dists[((long)mm * (mm - 1)) / 2 + kk]);
+	} while (*dist_ptr <= rel_cutoff);
+	*dist_ptr = 0.0;
+      }
+      rel_ct_arr[kk] = 0;
+      exactly_one_rel_ct--;
+      if (rel_ct_arr[mm] == 1) {
+	exactly_one_rel_ct--;
+	rel_ct_arr[mm] = -1;
+	indivs_excluded++;
+	continue;
+      }
+    } else {
+      // find identity of first individual with maximum number of
+      // remaining too-close relations
+      kk = 0; // highest too-close pair count
+      mm = -1; // associated individual index
+      for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+	if (rel_ct_arr[indiv_idx] > kk) {
+	  kk = rel_ct_arr[indiv_idx];
+	  mm = indiv_idx;
+	}
+      }
+      // no too-close relations left at all, we're done
+      if (mm == -1) {
+	break;
+      }
+    }
+    dist_ptr = &(g_rel_dists[((long)mm * (mm - 1)) / 2]);
+    for (kk = 0; kk < mm; kk++) {
+      if (*dist_ptr > rel_cutoff) {
+	*dist_ptr = 0.0;
+	rel_ct_arr[kk] -= 1;
+	if (rel_ct_arr[kk] < 2) {
+	  if (rel_ct_arr[kk] == 0) {
+	    exactly_one_rel_ct--;
+	  } else if (rel_ct_arr[kk] == 1) {
+	    exactly_one_rel_ct++;
+	  }
+	}
+      }
+      dist_ptr++;
+    }
+    for (ulii = mm + 1; ulii < g_indiv_ct; ulii++) {
+      dist_ptr = &(g_rel_dists[(ulii * (ulii - 1)) / 2 + mm]);
+      if (*dist_ptr > rel_cutoff) {
+	*dist_ptr = 0.0;
+	rel_ct_arr[ulii] -= 1;
+	if (rel_ct_arr[ulii] < 2) {
+	  if (rel_ct_arr[ulii] == 0) {
+	    exactly_one_rel_ct--;
+	  } else if (rel_ct_arr[ulii] == 1) {
+	    exactly_one_rel_ct++;
+	  }
+	}
+      }
+    }
+    rel_ct_arr[mm] = -1;
+    indivs_excluded++;
+  }
+  exclude_multi(indiv_exclude, rel_ct_arr, g_indiv_ct, indiv_exclude_ct_ptr);
+  if (indivs_excluded) {
+    dist_ptr = g_rel_dists; // write
+    dptr2 = g_rel_dists; // read
+    dptr3 = rel_ibc; // write
+    dptr4 = rel_ibc; // read
+    giptr = g_missing_dbl_excluded; // write
+    giptr2 = g_missing_dbl_excluded; // read
+    for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+      if (rel_ct_arr[indiv_idx] != -1) {
+	if (calculation_type & CALC_IBC) {
+	  dptr3[g_indiv_ct] = dptr4[g_indiv_ct];
+	  dptr3[g_indiv_ct * 2] = dptr4[g_indiv_ct * 2];
+	}
+	*dptr3 = *dptr4++;
+	dptr3++;
+	for (uii = 0; uii < indiv_idx; uii++) {
+	  if (rel_ct_arr[uii] != -1) {
+	    *dist_ptr = *dptr2++;
+	    dist_ptr++;
+	    *giptr = *giptr2++;
+	    giptr++;
+	  } else {
+	    dptr2++;
+	    giptr2++;
+	  }
+	}
+      } else {
+	dptr4++;
+	dptr2 = &(dptr2[indiv_idx]);
+	giptr2 = &(giptr2[indiv_idx]);
+      }
+    }
+    g_indiv_ct -= indivs_excluded;
+    if (calculation_type & CALC_IBC) {
+      for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+	*dptr3++ = *dptr4++;
+      }
+      dptr4 = &(dptr4[indivs_excluded]);
+      for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+	*dptr3++ = *dptr4++;
+      }
+    }
+    giptr = g_indiv_missing_unwt;
+    giptr2 = g_indiv_missing_unwt;
+    for (indiv_idx = 0; indiv_idx < g_indiv_ct + indivs_excluded; indiv_idx++) {
+      if (rel_ct_arr[indiv_idx] != -1) {
+	*giptr = *giptr2++;
+	giptr++;
+      } else {
+	giptr2++;
+      }
+    }
+  }
+  printf("%d individual%s excluded by --rel-cutoff.\n", indivs_excluded, (indivs_excluded == 1)? "" : "s");
+  if (!(calculation_type & (CALC_RELATIONSHIP_MASK | CALC_GDISTANCE_MASK))) {
+    strcpy(outname_end, ".rel.id");
+    retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
+    if (retval) {
+      return retval;
+    }
+    printf("Remaining individual IDs written to %s.\n", outname);
+  }
+  wkspace_reset(wkspace_mark);
+  return 0;
+}
+
+int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff) {
+  // Specialized --rel-cutoff usable on larger files.
+  char* grmname_end = (char*)memchr(grmname, 0, FNAMESIZE);
+  unsigned int indiv_ct = 0;
+  unsigned long* compact_rel_table;
+  unsigned long long ullii;
+  int* rel_ct_arr;
+  FILE* idfile;
+  FILE* outfile;
+  char* sptr;
+  memcpy(grmname_end, ".grm.id", 8);
+  if (fopen_checked(&idfile, grmname_end, "r")) {
+    return RET_OPEN_FAIL;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, idfile)) {
+    if (tbuf[0] == '\n') {
+      continue;
+    }
+    if (!tbuf[MAXLINELEN - 1]) {
+      printf("Error: Pathologically long line in .grm.id file.\n");
+      return RET_INVALID_FORMAT;
+    }
+    indiv_ct++;
+  }
+  if (!feof(idfile)) {
+    fclose(idfile);
+    return RET_READ_FAIL;
+  }
+  ullii = indiv_ct;
+  ullii = ((ullii * (ullii - 1)) / 2 + BITCT - 1) / BITCT;
+  if (wkspace_alloc_ul_checked(&compact_rel_table, ullii * sizeof(long))) {
+    return RET_NOMEM;
+  }
+  fill_ulong_zero(compact_rel_table, ullii);
+  if (wkspace_alloc_i_checked(&rel_ct_arr, indiv_ct * sizeof(int))) {
+    return RET_NOMEM;
+  }
+  fill_int_zero(rel_ct_arr, indiv_ct);
+
+  // gzopen...
+
+  printf("Batch-mode --rel-cutoff not yet complete.\n");
+  return 0;
+}
+
 inline int distance_wt_req(int calculation_type) {
   return ((calculation_type & CALC_DISTANCE_MASK) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
@@ -9942,176 +10185,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
     }
     if (calculation_type & CALC_REL_CUTOFF) {
-      // Algorithm:
-      // - Whenever there is at least one individual with exactly one
-      // remaining too-close relation, prune the other side of that
-      // relationship, because doing so is never suboptimal.
-      // - Otherwise, there's no efficient rule that is always optimal
-      // (assuming P != NP, anyway), so we use a simple heuristic: prune the
-      // first individual with the largest number of remaining too-close
-      // relationships.
-      ii = 0; // total number of individuals excluded
-      jj = 0; // number of individuals with exactly one too-close relation
-
-      // number of too-close relations, -1 if excluded
-      iptr = (int*)wkspace_alloc(g_indiv_ct * sizeof(int));
-      fill_int_zero(iptr, g_indiv_ct);
-      dist_ptr = g_rel_dists;
-      for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
-	for (uii = 0; uii < indiv_idx; uii++) {
-	  if (*dist_ptr++ > rel_cutoff) {
-	    iptr[indiv_idx] += 1;
-	    iptr[uii] += 1;
-	  }
-	}
-      }
-      for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-	if (iptr[indiv_idx] == 1) {
-	  jj++;
-	}
-      }
-      do {
-	if (jj) {
-	  // there is at least one individual with exactly one too-close
-	  // relation left, find the first one
-	  kk = 0;
-	  while (iptr[kk] != 1) {
-	    kk++;
-	  }
-	  // and now find the identity of the other side
-	  dist_ptr = &(g_rel_dists[((long)kk * (kk - 1)) / 2]);
-	  for (mm = 0; mm < kk; mm++) {
-	    if (*dist_ptr > rel_cutoff) {
-	      *dist_ptr = 0.0;
-	      break;
-	    }
-	    dist_ptr++;
-	  }
-	  if (mm == kk) {
-	    do {
-	      mm++;
-	      dist_ptr = &(g_rel_dists[((long)mm * (mm - 1)) / 2 + kk]);
-	    } while (*dist_ptr <= rel_cutoff);
-	    *dist_ptr = 0.0;
-	  }
-	  iptr[kk] = 0;
-	  jj--;
-	  if (iptr[mm] == 1) {
-	    jj--;
-	    iptr[mm] = -1;
-	    ii++;
-	    continue;
-	  }
-	} else {
-	  // find identity of first individual with maximum number of
-	  // remaining too-close relations
-	  kk = 0; // highest too-close pair count
-	  mm = -1; // associated individual index
-	  for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-	    if (iptr[indiv_idx] > kk) {
-	      kk = iptr[indiv_idx];
-	      mm = indiv_idx;
-	    }
-	  }
-	  // no too-close relations left at all, we're done
-	  if (mm == -1) {
-	    break;
-	  }
-	}
-	dist_ptr = &(g_rel_dists[((long)mm * (mm - 1)) / 2]);
-	for (kk = 0; kk < mm; kk++) {
-	  if (*dist_ptr > rel_cutoff) {
-	    *dist_ptr = 0.0;
-	    iptr[kk] -= 1;
-	    if (iptr[kk] < 2) {
-	      if (iptr[kk] == 0) {
-		jj--;
-	      } else if (iptr[kk] == 1) {
-		jj++;
-	      }
-	    }
-	  }
-	  dist_ptr++;
-	}
-	for (ulii = mm + 1; ulii < g_indiv_ct; ulii++) {
-	  dist_ptr = &(g_rel_dists[(ulii * (ulii - 1)) / 2 + mm]);
-	  if (*dist_ptr > rel_cutoff) {
-	    *dist_ptr = 0.0;
-	    iptr[ulii] -= 1;
-	    if (iptr[ulii] < 2) {
-	      if (iptr[ulii] == 0) {
-		jj--;
-	      } else if (iptr[ulii] == 1) {
-		jj++;
-	      }
-	    }
-	  }
-	}
-	iptr[mm] = -1;
-	ii++;
-      } while (1);
-      exclude_multi(indiv_exclude, iptr, g_indiv_ct, &indiv_exclude_ct);
-      if (ii) {
-	dist_ptr = g_rel_dists; // write
-	dptr2 = g_rel_dists; // read
-	dptr3 = rel_ibc; // write
-	dptr4 = rel_ibc; // read
-	giptr = g_missing_dbl_excluded; // write
-	giptr2 = g_missing_dbl_excluded; // read
-	for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-	  if (iptr[indiv_idx] != -1) {
-	    if (calculation_type & CALC_IBC) {
-	      dptr3[g_indiv_ct] = dptr4[g_indiv_ct];
-	      dptr3[g_indiv_ct * 2] = dptr4[g_indiv_ct * 2];
-	    }
-	    *dptr3 = *dptr4++;
-	    dptr3++;
-	    for (uii = 0; uii < indiv_idx; uii++) {
-	      if (iptr[uii] != -1) {
-		*dist_ptr = *dptr2++;
-		dist_ptr++;
-		*giptr = *giptr2++;
-		giptr++;
-	      } else {
-		dptr2++;
-		giptr2++;
-	      }
-	    }
-	  } else {
-	    dptr4++;
-	    dptr2 = &(dptr2[indiv_idx]);
-	    giptr2 = &(giptr2[indiv_idx]);
-	  }
-	}
-	g_indiv_ct -= ii;
-	if (calculation_type & CALC_IBC) {
-	  for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-	    *dptr3++ = *dptr4++;
-	  }
-	  dptr4 = &(dptr4[ii]);
-	  for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-	    *dptr3++ = *dptr4++;
-	  }
-	}
-	giptr = g_indiv_missing_unwt;
-	giptr2 = g_indiv_missing_unwt;
-	for (indiv_idx = 0; indiv_idx < g_indiv_ct + ii; indiv_idx++) {
-	  if (iptr[indiv_idx] != -1) {
-	    *giptr = *giptr2++;
-	    giptr++;
-	  } else {
-	    giptr2++;
-	  }
-	}
-      }
-      printf("%d individual%s excluded by --rel-cutoff.\n", ii, (ii == 1)? "" : "s");
-      if (!(calculation_type & (CALC_RELATIONSHIP_MASK | CALC_GDISTANCE_MASK))) {
-	strcpy(outname_end, ".rel.id");
-	retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
-	if (retval) {
-	  goto wdist_ret_2;
-	}
-        printf("Remaining individual IDs written to %s.\n", outname);
+      retval = do_rel_cutoff(calculation_type, rel_cutoff, rel_ibc, indiv_exclude, &indiv_exclude_ct, outname, outname_end, unfiltered_indiv_ct, person_ids, max_person_id_len);
+      if (retval) {
+	goto wdist_ret_2;
       }
     }
 
@@ -11336,6 +11412,7 @@ int main(int argc, char** argv) {
   char* sptr;
   int retval;
   int load_params = 0; // describes what file parameters have been provided
+  int load_grm = 0;
   int fam_col_1 = 1;
   int fam_col_34 = 1;
   int fam_col_5 = 1;
@@ -12076,8 +12153,27 @@ int main(int argc, char** argv) {
 	}
 	cur_arg += ii + 1;
 	calculation_type |= CALC_GROUPDIST;
+      } else if (!memcmp(argptr2, "rm", 3)) {
+	if (load_grm) {
+	  printf("Error: Duplicate --load-grm flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+        if (ii) {
+	  sptr = argv[cur_arg + 1];
+	  if (strlen(sptr) > (FNAMESIZE - 8)) {
+	    printf("Error: --grm parameter too long.\n");
+	    return dispmsg(RET_OPEN_FAIL);
+	  }
+	  strcpy(pedname, sptr);
+	} else {
+	  memcpy(pedname, "wdist", 6);
+	}
+        load_grm = 1;
+        cur_arg += ii + 1;
       }
-
       break;
 
     case 'h':
@@ -13212,6 +13308,16 @@ int main(int argc, char** argv) {
       return invalid_arg(argptr);
     }
   }
+  if (load_grm) {
+    if (load_params) {
+      printf("Error: --grm cannot coexist with --file, --bfile, or --data.\%s", errstr_append);
+      return dispmsg(RET_INVALID_CMDLINE);
+    } else if (calculation_type != CALC_REL_CUTOFF) {
+      printf("Error: --grm currently must be used with --rel-cutoff, and only --rel-cutoff.%s", errstr_append);
+      return dispmsg(RET_INVALID_CMDLINE);
+    }
+  }
+
   if (!calculation_type) {
     printf("Note: No output requested.  Exiting.\n\n'wdist --help | more' describes all functions.  You can also look up specific\nflags with 'wdist --help [flag #1] {flag #2} ...'.\n");
     return dispmsg(RET_NULL_CALC);
@@ -13221,7 +13327,7 @@ int main(int argc, char** argv) {
     return dispmsg(RET_INVALID_CMDLINE);
   }
   if ((calculation_type & CALC_LOAD_DISTANCES) && (!(calculation_type & (CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))) {
-    printf("Error: --load-distances cannot be used without either --groupdist or\n--regress-distance.\n");
+    printf("Error: --load-dists cannot be used without either --groupdist or\n--regress-distance.\n");
     return dispmsg(RET_INVALID_CMDLINE);
   }
   free_cond(subst_argv);
@@ -13295,13 +13401,16 @@ int main(int argc, char** argv) {
     chrom_info.chrom_mask = ((chrom_info.chrom_mask & ((1LLU << MAX_POSSIBLE_CHROM) - 1)) | (1LLU << species_xy_code[chrom_info.species]));
   }
 
+  if (load_grm) {
+    // --rel-cutoff batch mode special case
+    retval = rel_cutoff_batch(pedname, outname, rel_cutoff);
+  } else if (genname[0]) {
   // famname[0] indicates binary vs. text
   // extractname[0], excludename[0], keepname[0], and removename[0] indicate
   // the presence of their respective flags
   // filtername[0] indicates existence of filter
   // freqname[0] signals --read-freq
   // evecname[0] signals --regress-pcs
-  if (genname[0]) {
     if (calculation_type & (~(CALC_DISTANCE_MASK | CALC_REGRESS_DISTANCE))) {
       printf("Error: Only --distance calculations are currently supported with --data.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
