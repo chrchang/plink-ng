@@ -9462,6 +9462,12 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff) {
       fflush(stdout);
     }
   }
+  if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
+    goto rel_cutoff_batch_ret_READ_FAIL;
+  }
+  if (gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
+    goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
+  }
   gzclose(cur_gzfile);
   cur_gzfile = NULL;
   printf("\r%s read complete.  Pruning.\n", grmname);
@@ -9629,7 +9635,7 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff) {
     goto rel_cutoff_batch_ret_OPEN_FAIL;
   }
 
-  memcpy(outname_end, ".rel.id", 8);
+  memcpy(outname_end, ".grm.id", 8);
   if (fopen_checked(&id_outfile, outname, "w")) {
     goto rel_cutoff_batch_ret_OPEN_FAIL;
   }
