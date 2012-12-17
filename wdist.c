@@ -278,7 +278,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (16 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (17 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -9124,9 +9124,21 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
   return retval;
 }
 
+inline void rel_cut_arr_dec(int* rel_ct_arr_elem, unsigned int* exactly_one_rel_ct_ptr) {
+  int rcae = *rel_ct_arr_elem - 1;
+  *rel_ct_arr_elem = rcae;
+  if (rcae < 2) {
+    if (rcae) {
+      *exactly_one_rel_ct_ptr += 1;
+    } else {
+      *exactly_one_rel_ct_ptr -= 1;
+    }
+  }
+}
+
 int do_rel_cutoff(int calculation_type, double rel_cutoff, double* rel_ibc, unsigned long* indiv_exclude, unsigned int* indiv_exclude_ct_ptr, char* outname, char* outname_end, unsigned int unfiltered_indiv_ct, char* person_ids, unsigned int max_person_id_len) {
   int indivs_excluded = 0;
-  int exactly_one_rel_ct = 0;
+  unsigned int exactly_one_rel_ct = 0;
   unsigned char* wkspace_mark = wkspace_base;
   double* dist_ptr = g_rel_dists;
   double* dptr2;
@@ -9171,10 +9183,10 @@ int do_rel_cutoff(int calculation_type, double rel_cutoff, double* rel_ibc, unsi
     }
   }
   while (1) {
+    kk = 0;
     if (exactly_one_rel_ct) {
       // there is at least one individual with exactly one too-close
       // relation left, find the first one
-      kk = 0;
       while (rel_ct_arr[kk] != 1) {
 	kk++;
       }
@@ -9197,6 +9209,7 @@ int do_rel_cutoff(int calculation_type, double rel_cutoff, double* rel_ibc, unsi
       rel_ct_arr[kk] = 0;
       exactly_one_rel_ct--;
       if (rel_ct_arr[mm] == 1) {
+        // speed up the easy case
 	exactly_one_rel_ct--;
 	rel_ct_arr[mm] = -1;
 	indivs_excluded++;
@@ -9205,7 +9218,7 @@ int do_rel_cutoff(int calculation_type, double rel_cutoff, double* rel_ibc, unsi
     } else {
       // find identity of first individual with maximum number of
       // remaining too-close relations
-      kk = 0; // highest too-close pair count
+      // kk is highest too-close pair count so far
       mm = -1; // associated individual index
       for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
 	if (rel_ct_arr[indiv_idx] > kk) {
@@ -9222,14 +9235,7 @@ int do_rel_cutoff(int calculation_type, double rel_cutoff, double* rel_ibc, unsi
     for (kk = 0; kk < mm; kk++) {
       if (*dist_ptr > rel_cutoff) {
 	*dist_ptr = 0.0;
-	rel_ct_arr[kk] -= 1;
-	if (rel_ct_arr[kk] < 2) {
-	  if (rel_ct_arr[kk] == 0) {
-	    exactly_one_rel_ct--;
-	  } else if (rel_ct_arr[kk] == 1) {
-	    exactly_one_rel_ct++;
-	  }
-	}
+	rel_cut_arr_dec(&(rel_ct_arr[kk]), &exactly_one_rel_ct);
       }
       dist_ptr++;
     }
@@ -9237,14 +9243,7 @@ int do_rel_cutoff(int calculation_type, double rel_cutoff, double* rel_ibc, unsi
       dist_ptr = &(g_rel_dists[(ulii * (ulii - 1)) / 2 + mm]);
       if (*dist_ptr > rel_cutoff) {
 	*dist_ptr = 0.0;
-	rel_ct_arr[ulii] -= 1;
-	if (rel_ct_arr[ulii] < 2) {
-	  if (rel_ct_arr[ulii] == 0) {
-	    exactly_one_rel_ct--;
-	  } else if (rel_ct_arr[ulii] == 1) {
-	    exactly_one_rel_ct++;
-	  }
-	}
+	rel_cut_arr_dec(&(rel_ct_arr[ulii]), &exactly_one_rel_ct);
       }
     }
     rel_ct_arr[mm] = -1;
@@ -9320,16 +9319,42 @@ int do_rel_cutoff(int calculation_type, double rel_cutoff, double* rel_ibc, unsi
 int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff) {
   // Specialized --rel-cutoff usable on larger files.
   char* grmname_end = (char*)memchr(grmname, 0, FNAMESIZE);
+  char* outname_end = (char*)memchr(outname, 0, FNAMESIZE);
   unsigned int indiv_ct = 0;
+  FILE* idfile = NULL;
+  FILE* id_outfile = NULL;
+  gzFile cur_gzfile = NULL;
+  unsigned char* wkspace_mark = wkspace_base;
+  unsigned int indivs_excluded = 0;
+  unsigned int exactly_one_rel_ct = 0;
   unsigned long* compact_rel_table;
+  unsigned long* rtptr;
+  char* bufptr;
   unsigned long long ullii;
+  unsigned long long ulljj;
+  unsigned long tot_words;
+  unsigned long words_left;
+  unsigned long wl_floor;
+  unsigned long cur_word;
+  unsigned long ulii;
+  unsigned long uljj;
+  unsigned long ulkk;
+  unsigned int inword_idx;
+  unsigned int inword_bound;
+  unsigned int uii;
+  unsigned int row;
+  unsigned int col;
+  unsigned int indiv_idx;
   int* rel_ct_arr;
-  FILE* idfile;
-  FILE* outfile;
-  char* sptr;
+  double dxx;
+  int retval;
+  unsigned int pct;
+  int kk;
+  int mm;
+  int cur_prune;
   memcpy(grmname_end, ".grm.id", 8);
-  if (fopen_checked(&idfile, grmname_end, "r")) {
-    return RET_OPEN_FAIL;
+  if (fopen_checked(&idfile, grmname, "r")) {
+    goto rel_cutoff_batch_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, idfile)) {
@@ -9338,29 +9363,308 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff) {
     }
     if (!tbuf[MAXLINELEN - 1]) {
       printf("Error: Pathologically long line in .grm.id file.\n");
-      return RET_INVALID_FORMAT;
+      goto rel_cutoff_batch_ret_INVALID_FORMAT_1;
     }
     indiv_ct++;
   }
   if (!feof(idfile)) {
-    fclose(idfile);
-    return RET_READ_FAIL;
+    goto rel_cutoff_batch_ret_READ_FAIL;
   }
+  fclose_null(&idfile);
   ullii = indiv_ct;
   ullii = ((ullii * (ullii - 1)) / 2 + BITCT - 1) / BITCT;
-  if (wkspace_alloc_ul_checked(&compact_rel_table, ullii * sizeof(long))) {
-    return RET_NOMEM;
+#ifndef __LP64__
+  if (ullii >= 0x20000000) {
+    goto rel_cutoff_batch_ret_NOMEM;
   }
-  fill_ulong_zero(compact_rel_table, ullii);
+#endif
+  tot_words = ullii;
+  if (wkspace_alloc_ul_checked(&compact_rel_table, tot_words * sizeof(long))) {
+    goto rel_cutoff_batch_ret_NOMEM;
+  }
+  fill_ulong_zero(compact_rel_table, tot_words);
   if (wkspace_alloc_i_checked(&rel_ct_arr, indiv_ct * sizeof(int))) {
-    return RET_NOMEM;
+    goto rel_cutoff_batch_ret_NOMEM;
   }
   fill_int_zero(rel_ct_arr, indiv_ct);
 
-  // gzopen...
+  memcpy(grmname_end, ".grm.gz", 8);
+  if (gzopen_checked(&cur_gzfile, grmname, "rb")) {
+    goto rel_cutoff_batch_ret_OPEN_FAIL;
+  }
 
-  printf("Batch-mode --rel-cutoff not yet complete.\n");
-  return 0;
+  words_left = tot_words;
+  rtptr = compact_rel_table;
+  printf("Reading... 0%%");
+  fflush(stdout);
+  row = 0;
+  col = 0;
+  for (pct = 1; pct <= 100; pct++) {
+    wl_floor = (((unsigned long long)tot_words) * (100 - pct)) / 100;
+    while (words_left > wl_floor) {
+      cur_word = 0;
+      if (--words_left) {
+	inword_bound = BITCT;
+      } else {
+	// only indiv_ct mod (BITCT * 2) matters for remainder
+	uii = indiv_ct & (BITCT * 2 - 1);
+	inword_bound = ((uii * (uii - 1)) / 2) & (BITCT - 1);
+	if (!inword_bound) {
+	  inword_bound = BITCT;
+	}
+      }
+      for (inword_idx = 0; inword_idx < inword_bound; inword_idx++) {
+	if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
+	  goto rel_cutoff_batch_ret_READ_FAIL;
+	}
+	if (row == col) {
+	  row++;
+	  col = 0;
+	  if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
+	    goto rel_cutoff_batch_ret_READ_FAIL;
+	  }
+	}
+	bufptr = next_item_mult(tbuf, 3);
+	if (no_more_items(bufptr)) {
+	  goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
+	}
+	if (sscanf(bufptr, "%lg", &dxx) != 1) {
+	  goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
+	}
+	if (dxx > rel_cutoff) {
+	  rel_ct_arr[row] += 1;
+	  rel_ct_arr[col] += 1;
+	  cur_word |= (1LU << inword_idx);
+	}
+	col++;
+      }
+      *rtptr++ = cur_word;
+    }
+    if (pct <= 10) {
+      printf("\b\b%u%%", pct);
+      fflush(stdout);
+    } else if (pct < 100) {
+      printf("\b\b\b%u%%", pct);
+      fflush(stdout);
+    }
+  }
+  gzclose(cur_gzfile);
+  cur_gzfile = NULL;
+  printf("\r%s read complete.  Pruning.\n", grmname);
+
+  // would prefer to just call do_rel_cutoff(), but unfortunately that
+  // interferes with the intended "handle extra-large datasets" mission of this
+  // function, which necessitates a compact bit representation of the
+  // relationship matrix... fortunately, the algorithm is pretty simple.
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    if (rel_ct_arr[indiv_idx] == 1) {
+      exactly_one_rel_ct++;
+    }
+  }
+
+  while (1) {
+    kk = 0;
+    cur_prune = -1;
+    if (exactly_one_rel_ct) {
+      while (rel_ct_arr[kk] != 1) {
+	kk++;
+      }
+      ullii = (((long long)kk) * (kk - 1)) / 2;
+      ulii = ullii / BITCT;
+      rtptr = &(compact_rel_table[ulii]);
+      inword_idx = ullii & (BITCT - 1);
+      ulljj = ullii + kk;
+      uljj = ulljj / BITCT;
+      inword_bound = ulljj & (BITCT - 1);
+      if (uljj == ulii) {
+	uljj = (1LU << inword_bound) - (1LU << inword_idx);
+        ulkk = (*rtptr) & uljj;
+	if (ulkk) {
+	  *rtptr &= ~uljj;
+	  cur_prune = __builtin_ctzl(ulkk) - inword_idx;
+	}
+      } else {
+        ulkk = (*rtptr) & (~((1LU << inword_idx) - 1));
+	if (ulkk) {
+	  *rtptr &= (1LU << inword_idx) - 1;
+          cur_prune = __builtin_ctzl(ulkk) - inword_idx;
+	} else {
+	  col = BITCT - inword_idx;
+          row = col + (uljj - ulii - 1) * BITCT;
+          while (col < row) {
+            ulkk = *(++rtptr);
+            if (ulkk) {
+	      *rtptr = 0;
+              cur_prune = __builtin_ctzl(ulkk) + col;
+	      break;
+	    }
+	    col += BITCT;
+	  }
+	  if (cur_prune == -1) {
+            ulkk = (*(++rtptr)) & ((1LU << inword_bound) - 1);
+            if (ulkk) {
+	      *rtptr &= (~((1LU << inword_bound) - 1));
+	      cur_prune = __builtin_ctzl(ulkk) + col;
+	    }
+	  }
+	}
+      }
+      if (cur_prune == -1) {
+        mm = kk + 1;
+        while (1) {
+          ullii = ((((long long)mm) * (mm - 1)) / 2) + kk;
+	  ulii = ullii / BITCT;
+	  inword_idx = ullii & (BITCT - 1);
+	  if (compact_rel_table[ulii] & (1LU << inword_idx)) {
+	    compact_rel_table[ulii] &= ~(1LU << inword_idx);
+	    cur_prune = mm;
+	    break;
+	  }
+          mm++;
+	}
+      }
+      rel_ct_arr[kk] = 0;
+      exactly_one_rel_ct--;
+      if (rel_ct_arr[cur_prune] == 1) {
+	exactly_one_rel_ct--;
+	rel_ct_arr[cur_prune] = -1;
+	indivs_excluded++;
+	continue;
+      }
+    } else {
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	if (rel_ct_arr[indiv_idx] > kk) {
+	  kk = rel_ct_arr[indiv_idx];
+	  cur_prune = indiv_idx;
+	}
+      }
+      if (cur_prune == -1) {
+	break;
+      }
+    }
+    // zero out cur_prune row/column, update other array entries
+    ullii = (((long long)cur_prune) * (cur_prune - 1)) / 2;
+    ulii = ullii / BITCT;
+    rtptr = &(compact_rel_table[ulii]);
+    inword_idx = ullii & (BITCT - 1);
+    ulljj = ullii + cur_prune;
+    uljj = ulljj / BITCT;
+    inword_bound = ulljj & (BITCT - 1);
+    if (uljj == ulii) {
+      uljj = (1LU << inword_bound) - (1LU << inword_idx);
+      ulkk = (*rtptr) & uljj;
+      if (ulkk) {
+	do {
+	  uii = __builtin_ctzl(ulkk) - inword_idx;
+	  rel_cut_arr_dec(&(rel_ct_arr[uii]), &exactly_one_rel_ct);
+	  ulkk &= ulkk - 1;
+	} while (ulkk);
+	*rtptr &= ~uljj;
+      }
+    } else {
+      ulkk = (*rtptr) & (~((1LU << inword_idx) - 1));
+      if (ulkk) {
+	do {
+	  uii = __builtin_ctzl(ulkk) - inword_idx;
+	  rel_cut_arr_dec(&(rel_ct_arr[uii]), &exactly_one_rel_ct);
+	  ulkk &= ulkk - 1;
+	} while (ulkk);
+	*rtptr &= (1LU << inword_idx) - 1;
+      }
+      col = BITCT - inword_idx;
+      row = col + (uljj - ulii - 1) * BITCT;
+      while (col < row) {
+	ulkk = *(++rtptr);
+	if (ulkk) {
+	  do {
+	    uii = __builtin_ctzl(ulkk) + col;
+	    rel_cut_arr_dec(&(rel_ct_arr[uii]), &exactly_one_rel_ct);
+	    ulkk &= ulkk - 1;
+	  } while (ulkk);
+	  *rtptr = 0;
+	}
+	col += BITCT;
+      }
+      ulkk = (*(++rtptr)) & ((1LU << inword_bound) - 1);
+      if (ulkk) {
+	do {
+	  uii = __builtin_ctzl(ulkk) + col;
+	  rel_cut_arr_dec(&(rel_ct_arr[uii]), &exactly_one_rel_ct);
+          ulkk &= ulkk - 1;
+	} while (ulkk);
+	*rtptr &= (~((1LU << inword_bound) - 1));
+      }
+    }
+
+    for (uljj = cur_prune + 1; uljj < indiv_ct; uljj++) {
+      ullii = ((((unsigned long long)uljj) * (uljj - 1)) / 2) + cur_prune;
+      ulii = ullii / BITCT;
+      rtptr = &(compact_rel_table[ulii]);
+      inword_idx = ullii & (BITCT - 1);
+      if ((*rtptr) & (1LU << inword_idx)) {
+        rel_cut_arr_dec(&(rel_ct_arr[uljj]), &exactly_one_rel_ct);
+        *rtptr &= ~(1LU << inword_idx);
+      }
+    }
+    rel_ct_arr[cur_prune] = -1;
+    indivs_excluded++;
+  }
+
+  memcpy(grmname_end, ".grm.id", 8);
+  if (fopen_checked(&idfile, grmname, "r")) {
+    goto rel_cutoff_batch_ret_OPEN_FAIL;
+  }
+
+  memcpy(outname_end, ".rel.id", 8);
+  if (fopen_checked(&id_outfile, outname, "w")) {
+    goto rel_cutoff_batch_ret_OPEN_FAIL;
+  }
+
+  for (indiv_idx = 0; indiv_idx < indiv_ct;) {
+    if (fgets(tbuf, MAXLINELEN, idfile) == NULL) {
+      goto rel_cutoff_batch_ret_READ_FAIL;
+    }
+    if (tbuf[0] == '\n') {
+      continue;
+    }
+    if (rel_ct_arr[indiv_idx] == -1) {
+      if (fprintf(id_outfile, "%s", tbuf) < 0) {
+        goto rel_cutoff_batch_ret_WRITE_FAIL;
+      }
+    }
+    indiv_idx++;
+  }
+
+  fclose_null(&idfile);
+  fclose_null(&id_outfile);
+
+  printf("%d individual%s excluded by --rel-cutoff.\n", indivs_excluded, (indivs_excluded == 1)? "" : "s");
+  printf("Remaining individual IDs written to %s.\n", outname);
+  retval = 0;
+  while (0) {
+  rel_cutoff_batch_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  rel_cutoff_batch_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  rel_cutoff_batch_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  rel_cutoff_batch_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  rel_cutoff_batch_ret_INVALID_FORMAT_2:
+    printf("\nError: Improperly formatted .grm.gz file.\n");
+  rel_cutoff_batch_ret_INVALID_FORMAT_1:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  fclose_cond(idfile);
+  fclose_cond(id_outfile);
+  gzclose_cond(cur_gzfile);
+  wkspace_reset(wkspace_mark);
+  return retval;
 }
 
 inline int distance_wt_req(int calculation_type) {
