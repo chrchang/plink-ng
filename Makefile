@@ -7,7 +7,7 @@ UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
 BLASFLAGS=-framework Accelerate
 LINKFLAGS=
-ZLIB=zlib-1.2.7/libz.1.2.7.dylib
+ZLIB=zlib-1.2.7/libz.a
 endif
 
 SRC = wdist.c wdist_common.c wdist_dosage.c
@@ -25,10 +25,10 @@ wdistd: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o wdist_linux $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
 
 wdist64: $(SRC)
-	g++ $(CFLAGS) -arch x86_64 $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. zlib-1.2.7/libz.1.2.7-64.dylib
+	g++ $(CFLAGS) -arch x86_64 $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. zlib-1.2.7/libz-64.a
 
 wdist64c: $(SRC)
-	gcc $(CFLAGS) -arch x86_64 $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. zlib-1.2.7/libz.1.2.7-64.dylib
+	gcc $(CFLAGS) -arch x86_64 $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. zlib-1.2.7/libz-64.a
 
 wdist64nl: $(SRC)
-	g++ $(CFLAGS) -arch x86_64 $(SRC) -o wdist $(LINKFLAGS) -L. zlib-1.2.7/libz.1.2.7-64.dylib
+	g++ $(CFLAGS) -arch x86_64 $(SRC) -o wdist $(LINKFLAGS) -L. zlib-1.2.7/libz-64.a

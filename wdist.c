@@ -9409,6 +9409,9 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int calcul
   if (gzopen_checked(&cur_gzfile, grmname, "rb")) {
     goto rel_cutoff_batch_ret_OPEN_FAIL;
   }
+  if (gzbuffer(cur_gzfile, 131072)) {
+    goto rel_cutoff_batch_ret_NOMEM;
+  }
 
   words_left = tot_words;
   rtptr = compact_rel_table;
@@ -9667,6 +9670,9 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int calcul
     memcpy(grmname_end, ".grm.gz", 8);
     if (gzopen_checked(&cur_gzfile, grmname, "rb")) {
       goto rel_cutoff_batch_ret_OPEN_FAIL;
+    }
+    if (gzbuffer(cur_gzfile, 131072)) {
+      goto rel_cutoff_batch_ret_NOMEM;
     }
 
     if (calculation_type & CALC_RELATIONSHIP_GZ) {
