@@ -278,7 +278,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (17 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (18 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -9668,6 +9668,7 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int calcul
     if (gzopen_checked(&cur_gzfile, grmname, "rb")) {
       goto rel_cutoff_batch_ret_OPEN_FAIL;
     }
+
     if (calculation_type & CALC_RELATIONSHIP_GZ) {
       memcpy(outname_end, ".grm.gz", 8);
       if (gzopen_checked(&gz_outfile, outname, "wb")) {
@@ -9680,6 +9681,11 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int calcul
       }
     }
     kk = 1;
+    ullii = (((unsigned long long)indiv_ct) * (indiv_ct - 1)) / 2;
+    ulljj = 0;
+    printf("Rewriting matrix... 0%%");
+    fflush(stdout);
+    pct = 1;
     for (row = 0; row < indiv_ct; row++) {
       if (rel_ct_arr[row] == -1) {
 	for (col = 0; col <= row; col++) {
@@ -9703,8 +9709,20 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int calcul
 	  }
 	}
       }
+      ulljj += row * 100;
+      if (ulljj >= pct * ullii) {
+	if (pct <= 10) {
+	  pct = 1 + (ulljj / ullii);
+	  printf("\b\b%u%%", pct - 1);
+	  fflush(stdout);
+	} else {
+	  pct = 1 + (ulljj / ullii);
+	  printf("\b\b\b%u%%", pct - 1);
+	  fflush(stdout);
+	}
+      }
     }
-    printf("Pruned relationship matrix written to %s.\n", outname);
+    printf("\rPruned relationship matrix written to %s.\n", outname);
   }
   retval = 0;
   while (0) {
