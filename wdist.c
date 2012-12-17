@@ -9330,20 +9330,23 @@ int do_rel_cutoff(int calculation_type, double rel_cutoff, double* rel_ibc, unsi
   return 0;
 }
 
-int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff) {
+int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int calculation_type) {
   // Specialized --rel-cutoff usable on larger files.
   char* grmname_end = (char*)memchr(grmname, 0, FNAMESIZE);
   char* outname_end = (char*)memchr(outname, 0, FNAMESIZE);
   unsigned int indiv_ct = 0;
   FILE* idfile = NULL;
-  FILE* id_outfile = NULL;
+  FILE* outfile = NULL;
   gzFile cur_gzfile = NULL;
+  gzFile gz_outfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   unsigned int indivs_excluded = 0;
   unsigned int exactly_one_rel_ct = 0;
+  char wbuf[64];
   unsigned long* compact_rel_table;
   unsigned long* rtptr;
   char* bufptr;
+  char* bufptr2;
   unsigned long long ullii;
   unsigned long long ulljj;
   unsigned long tot_words;
@@ -9636,7 +9639,7 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff) {
   }
 
   memcpy(outname_end, ".grm.id", 8);
-  if (fopen_checked(&id_outfile, outname, "w")) {
+  if (fopen_checked(&outfile, outname, "w")) {
     goto rel_cutoff_batch_ret_OPEN_FAIL;
   }
 
@@ -9647,8 +9650,8 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff) {
     if (tbuf[0] == '\n') {
       continue;
     }
-    if (rel_ct_arr[indiv_idx] == -1) {
-      if (fprintf(id_outfile, "%s", tbuf) < 0) {
+    if (rel_ct_arr[indiv_idx] != -1) {
+      if (fprintf(outfile, "%s", tbuf) < 0) {
         goto rel_cutoff_batch_ret_WRITE_FAIL;
       }
     }
@@ -9656,10 +9659,53 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff) {
   }
 
   fclose_null(&idfile);
-  fclose_null(&id_outfile);
+  fclose_null(&outfile);
 
   printf("%d individual%s excluded by --rel-cutoff.\n", indivs_excluded, (indivs_excluded == 1)? "" : "s");
   printf("Remaining individual IDs written to %s.\n", outname);
+  if (calculation_type & CALC_RELATIONSHIP_GRM) {
+    memcpy(grmname_end, ".grm.gz", 8);
+    if (gzopen_checked(&cur_gzfile, grmname, "rb")) {
+      goto rel_cutoff_batch_ret_OPEN_FAIL;
+    }
+    if (calculation_type & CALC_RELATIONSHIP_GZ) {
+      memcpy(outname_end, ".grm.gz", 8);
+      if (gzopen_checked(&gz_outfile, outname, "wb")) {
+	goto rel_cutoff_batch_ret_OPEN_FAIL;
+      }
+    } else {
+      memcpy(outname_end, ".grm", 5);
+      if (fopen_checked(&outfile, outname, "wb")) {
+	goto rel_cutoff_batch_ret_OPEN_FAIL;
+      }
+    }
+    kk = 1;
+    for (row = 0; row < indiv_ct; row++) {
+      if (rel_ct_arr[row] == -1) {
+	for (col = 0; col <= row; col++) {
+	  if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
+	    goto rel_cutoff_batch_ret_READ_FAIL;
+	  }
+	}
+      } else {
+	bufptr = &(wbuf[sprintf(wbuf, "%d\t", kk++)]);
+	mm = 1;
+	for (col = 0; col <= row; col++) {
+	  if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
+	    goto rel_cutoff_batch_ret_READ_FAIL;
+	  }
+	  if (rel_ct_arr[col] != -1) {
+	    bufptr2 = next_item_mult(tbuf, 2);
+	    sprintf(bufptr, "%d\t%s", mm++, bufptr2);
+	    if (flexwrite_checked(outfile, gz_outfile, wbuf, strlen(wbuf))) {
+	      goto rel_cutoff_batch_ret_WRITE_FAIL;
+	    }
+	  }
+	}
+      }
+    }
+    printf("Pruned relationship matrix written to %s.\n", outname);
+  }
   retval = 0;
   while (0) {
   rel_cutoff_batch_ret_NOMEM:
@@ -9681,8 +9727,9 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff) {
     break;
   }
   fclose_cond(idfile);
-  fclose_cond(id_outfile);
+  fclose_cond(outfile);
   gzclose_cond(cur_gzfile);
+  gzclose_cond(gz_outfile);
   wkspace_reset(wkspace_mark);
   return retval;
 }
@@ -13651,8 +13698,8 @@ int main(int argc, char** argv) {
     if (load_params) {
       printf("Error: --grm cannot coexist with --file, --bfile, or --data.\%s", errstr_append);
       return dispmsg(RET_INVALID_CMDLINE);
-    } else if (calculation_type != CALC_REL_CUTOFF) {
-      printf("Error: --grm currently must be used with --rel-cutoff, and only --rel-cutoff.%s", errstr_append);
+    } else if ((!(calculation_type & CALC_REL_CUTOFF)) || (calculation_type & (~(CALC_REL_CUTOFF | CALC_RELATIONSHIP_GRM | CALC_RELATIONSHIP_GZ)))) {
+      printf("Error: --grm currently must be used with --rel-cutoff (possibly combined with\n--make-grm).%s", errstr_append);
       return dispmsg(RET_INVALID_CMDLINE);
     }
   }
@@ -13742,7 +13789,7 @@ int main(int argc, char** argv) {
 
   if (load_grm) {
     // --rel-cutoff batch mode special case
-    retval = rel_cutoff_batch(pedname, outname, rel_cutoff);
+    retval = rel_cutoff_batch(pedname, outname, rel_cutoff, calculation_type);
   } else if (genname[0]) {
   // famname[0] indicates binary vs. text
   // extractname[0], excludename[0], keepname[0], and removename[0] indicate
