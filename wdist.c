@@ -8326,14 +8326,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
 	      dxx = pri.rel_space[nn + ((long long)rel_space_id_fixed * (rel_space_id_fixed - 1) - llfct) / 2];
 	    }
 	  }
-          nn = sprintf(sptr_cur, "%g", dxx);
-	  if (nn < 5) {
-	    memset(sptr_cur, 32, 5 - nn);
-	    sptr_cur += 5 - nn;
-	    sptr_cur += sprintf(sptr_cur, "%g", dxx);
-	  } else {
-	    sptr_cur += nn;
-	  }
+	  sptr_cur += sprintf(sptr_cur, "%5g", dxx);
 	}
       } else {
 	sptr_cur += sprintf(sptr_cur, "UN    NA");
@@ -8375,7 +8368,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
 	  dxx1 = 0;
 	}
       }
-      sptr_cur += sprintf(sptr_cur, " % 1.4f % 1.4f % 1.4f % 1.4f  ", dxx, dyy, dxx1, dyy * 0.5 + dxx1);
+      sptr_cur += sprintf(sptr_cur, " % .4f % .4f % .4f % .4f  ", dxx, dyy, dxx1, dyy * 0.5 + dxx1);
 
       if (g_pheno_c) {
 	if ((g_pheno_c[ii] != 1) && (g_pheno_c[ujj] != 1)) {
@@ -8393,23 +8386,16 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
       dyy = (double)g_genome_main[ulii + 3];
       dxx1 = 1.0 / ((double)(g_genome_main[ulii + 4] + g_genome_main[ulii + 3]));
       dxx2 = normdist((dxx * dxx1 - 0.666666) / (sqrt(0.2222222 * dxx1)));
-      sptr_cur += sprintf(sptr_cur, "  %1.6f  %1.4f ", 1.0 - (g_genome_main[ulii] + 2 * g_genome_main[ulii + 1]) / ((double)(2 * nn)), dxx2);
+      sptr_cur += sprintf(sptr_cur, "  %.6f  %.4f ", 1.0 - (g_genome_main[ulii] + 2 * g_genome_main[ulii + 1]) / ((double)(2 * nn)), dxx2);
       if (g_genome_main[ulii + 3]) {
 	dxx1 = dxx / dyy;
-        nn = sprintf(sptr_cur, "%1.4f", dxx1);
-	if (nn < 7) {
-	  memset(sptr_cur, 32, 7 - nn);
-	  sptr_cur += 7 - nn;
-	  sptr_cur += sprintf(sptr_cur, "%1.4f", dxx1);
-	} else {
-	  sptr_cur += nn;
-	}
+	sptr_cur += sprintf(sptr_cur, "%7.4f", dxx1);
       } else {
 	memcpy(sptr_cur, "     NA", 7);
 	sptr_cur += 7;
       }
       if (genome_output_full) {
-	sptr_cur += sprintf(sptr_cur, " %7d %7d %7d %s%1.4f %s%1.4f\n", g_genome_main[ulii + 1], g_genome_main[ulii], oo, (dyy < 9.5)? " " : "", dyy, (dxx < 9.5)? " " : "", dxx);
+	sptr_cur += sprintf(sptr_cur, " %7d %7d %7d %s%.4f %s%.4f\n", g_genome_main[ulii + 1], g_genome_main[ulii], oo, (dyy < 9.5)? " " : "", dyy, (dxx < 9.5)? " " : "", dxx);
       } else {
 	*sptr_cur++ = '\n';
       }
