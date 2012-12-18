@@ -8343,9 +8343,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
       dxx = (double)g_genome_main[ulii + 1] / (e00 * nn);
       dyy = ((double)g_genome_main[ulii] - dxx * e01 * nn) / (e11 * nn);
       dxx1 = ((double)oo - nn * (dxx * e02 + dyy * e12)) / ((double)nn);
-      if (genome_ibd_unbounded) {
-	dxx2 = dyy * 0.5 + dxx1;
-      } else {
+      if (!genome_ibd_unbounded) {
 	if (dxx > 1) {
 	  dxx = 1;
 	  dyy = 0;
@@ -8376,9 +8374,8 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
 	  dyy *= dxx2;
 	  dxx1 = 0;
 	}
-	dxx2 = dyy * 0.5 + dxx1;
       }
-      sptr_cur += sprintf(sptr_cur, " % 1.4f % 1.4f % 1.4f % 1.4f  ", dxx, dyy, dxx1, dxx2);
+      sptr_cur += sprintf(sptr_cur, " % 1.4f % 1.4f % 1.4f % 1.4f  ", dxx, dyy, dxx1, dyy * 0.5 + dxx1);
 
       if (g_pheno_c) {
 	if ((g_pheno_c[ii] != 1) && (g_pheno_c[ujj] != 1)) {
