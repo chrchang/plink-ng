@@ -7820,7 +7820,6 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
   double dxx2;
   double dyy1;
   double dyy2;
-  char signs[4];
   long long cur_line = 0;
   long long tot_cells;
   long long tot_lines;
@@ -7844,10 +7843,6 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
   unsigned int pct;
   char* fam1;
   char* fam2;
-
-  if (!genome_ibd_unbounded) {
-    memset(signs, 32, 4);
-  }
 
   while ((mp_lead_unfiltered_idx < unfiltered_marker_ct) && (is_set(marker_exclude, mp_lead_unfiltered_idx) || (!get_marker_chrom(chrom_info_ptr, mp_lead_unfiltered_idx)))) {
     mp_lead_unfiltered_idx++;
@@ -8349,24 +8344,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
       dyy = ((double)g_genome_main[ulii] - dxx * e01 * nn) / (e11 * nn);
       dxx1 = ((double)oo - nn * (dxx * e02 + dyy * e12)) / ((double)nn);
       if (genome_ibd_unbounded) {
-	memset(signs, 32, 4);
 	dxx2 = dyy * 0.5 + dxx1;
-	if (dxx < 0) {
-	  dxx = -dxx;
-	  signs[0] = '-';
-	}
-	if (dyy < 0) {
-	  dyy = -dyy;
-	  signs[1] = '-';
-	}
-	if (dxx1 < 0) {
-	  dxx1 = -dxx1;
-	  signs[2] = '-';
-	}
-	if (dxx2 < 0) {
-	  dxx2 = -dxx2;
-	  signs[3] = '-';
-	}
       } else {
 	if (dxx > 1) {
 	  dxx = 1;
@@ -8400,8 +8378,8 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
 	}
 	dxx2 = dyy * 0.5 + dxx1;
       }
+      sptr_cur += sprintf(sptr_cur, " % 1.4f % 1.4f % 1.4f % 1.4f  ", dxx, dyy, dxx1, dxx2);
 
-      sptr_cur += sprintf(sptr_cur, " %c%1.4f %c%1.4f %c%1.4f %c%1.4f  ", signs[0], dxx, signs[1], dyy, signs[2], dxx1, signs[3], dxx2);
       if (g_pheno_c) {
 	if ((g_pheno_c[ii] != 1) && (g_pheno_c[ujj] != 1)) {
 	  memcpy(sptr_cur, "-1", 2);
@@ -11590,7 +11568,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     ll_med = get_dmedian(ll_pool, ll_size);
     lh_med = get_dmedian(lh_pool, lh_size);
     hh_med = get_dmedian(hh_pool, hh_size);
-    printf("Group distance analysis (%d affected, %d unaffected):\n", g_high_ct, g_low_ct);
+    printf("Case/control distance analysis (%d affected, %d unaffected):\n", g_high_ct, g_low_ct);
     if (g_high_ct < 2) {
       dxx = 0.0;
       dhh_sd = 0.0;
