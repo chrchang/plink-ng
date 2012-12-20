@@ -178,8 +178,9 @@ const char species_max_code[] = {26, 31, 41, 33, 21, 12, 28};
 const unsigned long long species_haploid_mask[] = {}; // todo
 
 #define RECODE_12 1
-#define RECODE_1234 2
-#define RECODE_ACGT 3
+#define RECODE_TAB 2
+#define RECODE_TRANSPOSE 4
+#define RECODE_LGEN 8
 
 #define PEDBUFBASE 256
 
@@ -278,7 +279,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (18 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (20 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -715,12 +716,14 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --make-bed\n"
 "    Creates a new binary fileset with all filters applied.\n"
 	       );
-    help_print("recode\trecode12", &help_ctrl, 1,
-"  --recode <allele1234 | alleleACGT>\n"
-"  --recode12\n"
-"    Creates a new text fileset with all filters applied.  --recode12 codes all\n"
-"    alleles as 1s or 2s.  With --recode, the 'allele1234' and 'alleleACGT'\n"
-"    modifiers convert A/C/G/T to 1/2/3/4 or vice versa.\n\n"
+    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen", &help_ctrl, 1,
+"  --recode <12> <tab> <transpose | lgen>\n"
+"    Creates a new text fileset with all filters applied.\n"
+"    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
+"    * The 'tab' modifier makes the output tab- instead of space-delimited.\n"
+"    * The 'transpose' modifier causes a transposed text fileset to be generated\n"
+"      instead.\n"
+"    * The 'lgen' modifier causes a long-format fileset to be generated instead.\n\n"
 	       );
     help_print("write-snplist", &help_ctrl, 1,
 "  --write-snplist\n"
@@ -902,6 +905,10 @@ int disp_help(unsigned int param_ct, char** argv) {
 "                     Given j observations of one allele and k >= j observations\n"
 "                     of the other, infer a MAF of (j+1) / (j+k+2), rather than\n"
 "                     the usual j / (j+k).\n"
+	       );
+    help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
+"  --allele1234     : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"
+"  --alleleACGT     : Interpret/recode 1/2/3/4 alleles as A/C/G/T.\n"
 	       );
     help_print("exponent\tdistance", &help_ctrl, 0,
 "  --exponent [val] : When computing genomic distances, each marker has a weight\n"
@@ -7032,6 +7039,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* bimfile, FI
   unsigned char* wkspace_mark = wkspace_base;
   int affection = (pheno_c != NULL);
   int phenos_present = (affection || (pheno_d != NULL));
+  char delimiter = (recode_modifier & RECODE_TAB)? '\t' : ' ';
   unsigned int marker_uidx;
   unsigned int marker_idx;
   unsigned int indiv_uidx;
@@ -7043,7 +7051,6 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* bimfile, FI
   char* cptr;
   unsigned char cc;
   char cc2;
-  char cc3;
   unsigned int pct;
   unsigned int loop_end;
   unsigned long ulii;
@@ -7056,7 +7063,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* bimfile, FI
   if (wkspace_alloc_c_checked(&het_reverse, marker_ct)) {
     return RET_NOMEM;
   }
-  if (recode_modifier) {
+  if (recode_modifier & RECODE_12) {
     if (wkspace_alloc_c_checked(&mk_alleles, unfiltered_marker_ct * 2)) {
       return RET_NOMEM;
     }
@@ -7071,176 +7078,138 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* bimfile, FI
     } else {
       het_reverse[marker_idx] = 0;
     }
-    if (recode_modifier == RECODE_12) {
+    if (recode_modifier & RECODE_12) {
       mk_alleles[2 * marker_uidx] = '1';
       mk_alleles[2 * marker_uidx + 1] = '2';
-    } else if (recode_modifier == RECODE_1234) {
-      cc2 = marker_alleles[2 * marker_uidx];
-      cc3 = tolower(cc2);
-      if (cc3 == 'a') {
-	cc2 = '1';
-      } else if (cc3 == 'c') {
-	cc2 = '2';
-      } else if (cc3 == 'g') {
-	cc2 = '3';
-      } else if (cc3 == 't') {
-	cc2 = '4';
-      }
-      mk_alleles[2 * marker_uidx] = cc2;
-      cc2 = marker_alleles[2 * marker_uidx + 1];
-      cc3 = tolower(cc2);
-      if (cc3 == 'a') {
-	cc2 = '1';
-      } else if (cc3 == 'c') {
-	cc2 = '2';
-      } else if (cc3 == 'g') {
-	cc2 = '3';
-      } else if (cc3 == 't') {
-	cc2 = '4';
-      }
-      mk_alleles[2 * marker_uidx + 1] = cc2;
-    } else if (recode_modifier == RECODE_1234) {
-      cc2 = marker_alleles[2 * marker_uidx];
-      if (cc2 == '1') {
-	cc2 = 'A';
-      } else if (cc2 == '2') {
-	cc2 = 'C';
-      } else if (cc2 == '3') {
-	cc2 = 'G';
-      } else if (cc2 == '4') {
-	cc2 = 'T';
-      }
-      mk_alleles[2 * marker_uidx] = cc2;
-      cc2 = marker_alleles[2 * marker_uidx + 1];
-      if (cc2 == '1') {
-	cc2 = 'A';
-      } else if (cc2 == '2') {
-	cc2 = 'C';
-      } else if (cc2 == '3') {
-	cc2 = 'G';
-      } else if (cc2 == '4') {
-	cc2 = 'T';
-      }
-      mk_alleles[2 * marker_uidx + 1] = cc2;
     }
     marker_uidx++;
   }
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
     return RET_READ_FAIL;
   }
-  strcpy(outname_end, ".ped");
-  printf("Writing new text fileset (--recode%s)...", (recode_modifier == RECODE_12)? "12" : "");
-  fflush(stdout);
-  marker_uidx = 0;
-  marker_idx = 0;
-  if ((long long)wkspace_left >= (long long)unfiltered_indiv_ct4 * marker_ct) {
-    if (fopen_checked(outfile_ptr, outname, "w")) {
-      return RET_OPEN_FAIL;
-    }
-    loadbuf = wkspace_base;
-    while (marker_idx < marker_ct) {
-      if (is_set(marker_exclude, marker_uidx)) {
-	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
-	if (fseeko(bedfile, bed_offset + (marker_uidx * unfiltered_indiv_ct4), SEEK_SET)) {
+  if (recode_modifier & RECODE_TRANSPOSE) {
+    printf("Error: --recode transpose not yet written.\n");
+    return RET_CALC_NOT_YET_SUPPORTED;
+  } else if (recode_modifier & RECODE_LGEN) {
+    printf("Error: --recode lgen not yet written.\n");
+    return RET_CALC_NOT_YET_SUPPORTED;
+  } else {
+    strcpy(outname_end, ".ped");
+    printf("Writing new text fileset (--recode)...");
+    fflush(stdout);
+    marker_uidx = 0;
+    marker_idx = 0;
+    if ((long long)wkspace_left >= (long long)unfiltered_indiv_ct4 * marker_ct) {
+      if (fopen_checked(outfile_ptr, outname, "w")) {
+	return RET_OPEN_FAIL;
+      }
+      loadbuf = wkspace_base;
+      while (marker_idx < marker_ct) {
+	if (is_set(marker_exclude, marker_uidx)) {
+	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+	  if (fseeko(bedfile, bed_offset + (marker_uidx * unfiltered_indiv_ct4), SEEK_SET)) {
+	    return RET_READ_FAIL;
+	  }
+	}
+	if (unfiltered_marker_ct - marker_uidx > marker_ct - marker_idx) {
+	  ulii = next_set_unsafe(marker_exclude, marker_uidx) - marker_uidx;
+	} else {
+	  ulii = unfiltered_marker_ct - marker_uidx;
+	}
+	marker_uidx += ulii;
+	marker_idx += ulii;
+	ulii *= unfiltered_indiv_ct4;
+	if (fread(loadbuf, 1, ulii, bedfile) < ulii) {
 	  return RET_READ_FAIL;
 	}
+	loadbuf = &(loadbuf[ulii]);
       }
-      if (unfiltered_marker_ct - marker_uidx > marker_ct - marker_idx) {
-	ulii = next_set_unsafe(marker_exclude, marker_uidx) - marker_uidx;
-      } else {
-	ulii = unfiltered_marker_ct - marker_uidx;
-      }
-      marker_uidx += ulii;
-      marker_idx += ulii;
-      ulii *= unfiltered_indiv_ct4;
-      if (fread(loadbuf, 1, ulii, bedfile) < ulii) {
-	return RET_READ_FAIL;
-      }
-      loadbuf = &(loadbuf[ulii]);
-    }
-    loadbuf = wkspace_base;
-    indiv_uidx = 0;
-    indiv_idx = 0;
-    memset(writebuf, 32, marker_ct * 4 - 1);
-    writebuf[marker_ct * 4 - 1] = '\n';
-    for (pct = 1; pct <= 100; pct++) {
-      loop_end = ((unsigned long long)pct * indiv_ct) / 100;
-      for (; indiv_idx < loop_end; indiv_idx++) {
-	indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
-	cptr = &(person_ids[indiv_uidx * max_person_id_len]);
-	ulii = strlen_se(cptr);
-	if (fwrite_checked(cptr, ulii, *outfile_ptr)) {
-	  return RET_WRITE_FAIL;
-	}
-	if (fprintf(*outfile_ptr, " %s %s %s %d ", &(cptr[ulii + 1]), paternal_ids? (&(paternal_ids[indiv_uidx * max_paternal_id_len])) : "0", maternal_ids? (&(maternal_ids[indiv_uidx * max_maternal_id_len])) : "0", sex_info? sex_info[indiv_uidx] : 0) < 0) {
-	  return RET_WRITE_FAIL;
-	}
-	if (affection) {
-	  cc2 = pheno_c[indiv_uidx];
-	  if (cc2 == -1) {
-	    if (fprintf(*outfile_ptr, "%s ", output_missing_pheno) < 0) {
-	      return RET_WRITE_FAIL;
-	    }
-	  } else {
-	    if (fprintf(*outfile_ptr, "%d ", cc2 + 1) < 0) {
-	      return RET_WRITE_FAIL;
-	    }
-	  }
-	} else if ((!phenos_present) || (pheno_d[indiv_uidx] == missing_phenod)) {
-	  if (fprintf(*outfile_ptr, "%s ", output_missing_pheno) < 0) {
+      loadbuf = wkspace_base;
+      indiv_uidx = 0;
+      indiv_idx = 0;
+      // PLINK --tab actually writes a space instead of a tab between genotypes
+      // at the same locus.  We do not replicate this.
+      memset(writebuf, delimiter, marker_ct * 4 - 1);
+      writebuf[marker_ct * 4 - 1] = '\n';
+      for (pct = 1; pct <= 100; pct++) {
+	loop_end = ((unsigned long long)pct * indiv_ct) / 100;
+	for (; indiv_idx < loop_end; indiv_idx++) {
+	  indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+	  cptr = &(person_ids[indiv_uidx * max_person_id_len]);
+	  ulii = strlen_se(cptr);
+	  if (fwrite_checked(cptr, ulii, *outfile_ptr)) {
 	    return RET_WRITE_FAIL;
 	  }
-	} else {
-	  if (fprintf(*outfile_ptr, "%g ", pheno_d[indiv_uidx]) < 0) {
+	  if (fprintf(*outfile_ptr, "%c%s%c%s%c%s%c%d%c", delimiter, &(cptr[ulii + 1]), delimiter, paternal_ids? (&(paternal_ids[indiv_uidx * max_paternal_id_len])) : "0", delimiter,  maternal_ids? (&(maternal_ids[indiv_uidx * max_maternal_id_len])) : "0", delimiter, sex_info? sex_info[indiv_uidx] : 0, delimiter) < 0) {
 	    return RET_WRITE_FAIL;
 	  }
-	}
-	bufptr = &(loadbuf[indiv_idx / 4]);
-	wbufptr = writebuf;
-	shiftval = (indiv_idx % 4) * 2;
-	marker_uidx = 0;
-	for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-	  cc = ((*bufptr) >> shiftval) & 3;
-	  if (cc) {
-	    if (cc == 2) {
-	      cc2 = het_reverse[marker_idx];
-	      *wbufptr = mk_alleles[2 * marker_uidx + cc2];
-	      wbufptr[2] = mk_alleles[2 * marker_uidx + (1 ^ cc2)];
-	    } else if (cc == 3) {
-	      *wbufptr = mk_alleles[2 * marker_uidx + 1];
-	      wbufptr[2] = mk_alleles[2 * marker_uidx + 1];
+	  if (affection) {
+	    cc2 = pheno_c[indiv_uidx];
+	    if (cc2 == -1) {
+	      if (fprintf(*outfile_ptr, "%s%c", output_missing_pheno, delimiter) < 0) {
+		return RET_WRITE_FAIL;
+	      }
 	    } else {
-	      *wbufptr = output_missing_geno;
-	      wbufptr[2] = output_missing_geno;
+	      if (fprintf(*outfile_ptr, "%d%c", cc2 + 1, delimiter) < 0) {
+		return RET_WRITE_FAIL;
+	      }
+	    }
+	  } else if ((!phenos_present) || (pheno_d[indiv_uidx] == missing_phenod)) {
+	    if (fprintf(*outfile_ptr, "%s%c", output_missing_pheno, delimiter) < 0) {
+	      return RET_WRITE_FAIL;
 	    }
 	  } else {
-	    *wbufptr = mk_alleles[2 * marker_uidx];
-	    wbufptr[2] = mk_alleles[2 * marker_uidx];
+	    if (fprintf(*outfile_ptr, "%g%c", pheno_d[indiv_uidx], delimiter) < 0) {
+	      return RET_WRITE_FAIL;
+	    }
 	  }
-	  bufptr = &(bufptr[unfiltered_indiv_ct4]);
-	  wbufptr = &(wbufptr[4]);
-	  marker_uidx++;
+	  bufptr = &(loadbuf[indiv_idx / 4]);
+	  wbufptr = writebuf;
+	  shiftval = (indiv_idx % 4) * 2;
+	  marker_uidx = 0;
+	  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+	    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+	    cc = ((*bufptr) >> shiftval) & 3;
+	    if (cc) {
+	      if (cc == 2) {
+		cc2 = het_reverse[marker_idx];
+		*wbufptr = mk_alleles[2 * marker_uidx + cc2];
+		wbufptr[2] = mk_alleles[2 * marker_uidx + (1 ^ cc2)];
+	      } else if (cc == 3) {
+		*wbufptr = mk_alleles[2 * marker_uidx + 1];
+		wbufptr[2] = mk_alleles[2 * marker_uidx + 1];
+	      } else {
+		*wbufptr = output_missing_geno;
+		wbufptr[2] = output_missing_geno;
+	      }
+	    } else {
+	      *wbufptr = mk_alleles[2 * marker_uidx];
+	      wbufptr[2] = mk_alleles[2 * marker_uidx];
+	    }
+	    bufptr = &(bufptr[unfiltered_indiv_ct4]);
+	    wbufptr = &(wbufptr[4]);
+	    marker_uidx++;
+	  }
+	  if (fwrite_checked(writebuf, marker_ct * 4, *outfile_ptr)) {
+	    return RET_WRITE_FAIL;
+	  }
+	  indiv_uidx++;
 	}
-	if (fwrite_checked(writebuf, marker_ct * 4, *outfile_ptr)) {
-	  return RET_WRITE_FAIL;
+	if (pct < 100) {
+	  if (pct > 10) {
+	    printf("\b\b\b%u%%", pct);
+	  } else if (pct == 1) {
+	    printf(" 1%%");
+	  } else {
+	    printf("\b\b%u%%", pct);
+	  }
+	  fflush(stdout);
 	}
-	indiv_uidx++;
       }
-      if (pct < 100) {
-	if (pct > 10) {
-	  printf("\b\b\b%u%%", pct);
-	} else if (pct == 1) {
-	  printf(" 1%%");
-	} else {
-	  printf("\b\b%u%%", pct);
-	}
-	fflush(stdout);
-      }
+    } else {
+      printf("Error: --recode does not yet support very large .bed files.\n");
+      return RET_CALC_NOT_YET_SUPPORTED;
     }
-  } else {
-    printf("Error: --recode does not yet support very large .bed files.\n");
-    return RET_CALC_NOT_YET_SUPPORTED;
   }
   fclose_null(outfile_ptr);
   strcpy(outname_end, ".map");
@@ -9756,7 +9725,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier, int allelexxxx) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -11863,6 +11832,7 @@ int main(int argc, char** argv) {
   int freqx = 0;
   int recode_modifier = 0;
   int freq_counts = 0;
+  int allelexxxx = 0;
   int silent = 0;
   Chrom_info chrom_info;
   char* argptr2;
@@ -11969,10 +11939,37 @@ int main(int argc, char** argv) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	autosome = 1;
-	cur_arg += 1;
+	cur_arg++;
       } else if (!memcmp(argptr2, "llow-no-sex", 12)) {
 	allow_no_sex = 1;
-	cur_arg += 1;
+	cur_arg++;
+      } else if (!memcmp(argptr2, "ll", 3)) {
+	printf("Note: --all flag has no effect.\n");
+	cur_arg++;
+      } else if (!memcmp(argptr2, "llele1234", 10)) {
+	if (allelexxxx) {
+	  if (allelexxxx == 2) {
+	    printf("Error: --allele1234 and --alleleACGT flags cannot coexist.\n");
+	  } else {
+	    printf("Error: Duplicate --allele1234 flag.\n");
+	  }
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	printf("Note: --allele1234 not yet written.\n");
+	allelexxxx = 1;
+	cur_arg++;
+      } else if ((!memcmp(argptr2, "llele", 5)) && (tolower(argptr2[5]) == 'a') && (tolower(argptr2[6]) == 'c') && (tolower(argptr2[7]) == 'g') && (tolower(argptr2[8]) == 't') && (argptr2[9] == '\0')) {
+	if (allelexxxx) {
+	  if (allelexxxx == 1) {
+	    printf("Error: --allele1234 and --alleleACGT flags cannot coexist.\n");
+	  } else {
+	    printf("Error: Duplicate --alleleACGT flag.\n");
+	  }
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	printf("Note: --alleleACGT not yet written.\n");
+	allelexxxx = 2;
+	cur_arg++;
       }
       break;
 
@@ -12085,11 +12082,14 @@ int main(int argc, char** argv) {
 	cur_arg += 1 + ii;
       } else if (!memcmp(argptr2, "ompound-genotypes", 18)) {
 	printf("Note: --compound-genotypes flag unnecessary (spaces between alleles in .ped\nare optional).\n");
-	cur_arg += 1;
+	cur_arg++;
+      } else if (!memcmp(argptr2, "ompress", 8)) {
+	printf("Error: --compress flag retired.  Use 'gzip [filename]'.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
       } else if (!memcmp(argptr2, "ounts", 6)) {
 	printf("Note: --counts flag deprecated.  Use '--freq counts' or --freqx instead.\n");
         freq_counts = 1;
-	cur_arg += 1;
+	cur_arg++;
       }
       break;
 
@@ -12148,6 +12148,9 @@ int main(int argc, char** argv) {
         printf("Error: This is not a debug build of WDIST.  Obtain one, or recompile the source\nafter uncommenting '#define DEBUG'.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
 #endif
+      } else if (!memcmp(argptr2, "ecompress", 10)) {
+	printf("Error: --decompress flag retired.  Use 'gunzip [filename]'.\n");
+	return dispmsg(RET_INVALID_CMDLINE);
       } else if (!memcmp(argptr2, "og", 3)) {
 	if (species_flag(&chrom_info, SPECIES_DOG)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
@@ -13446,31 +13449,31 @@ int main(int argc, char** argv) {
 	strcpy(freqname, argv[cur_arg + 1]);
 	cur_arg += 1 + ii;
       } else if (!memcmp(argptr2, "ecode", 6)) {
+      main_recode:
 	if (calculation_type & CALC_RECODE) {
-	  printf("Error: Duplicate --recode/--recode12 flag.\n");
+	  printf("Error: Duplicate --recode flag.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 3, &ii)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	for (jj = 1; jj <= ii; jj++) {
-	  if ((!memcmp(argv[cur_arg + jj], "allele", 6)) && (strlen(argv[cur_arg + jj]) == 10)) {
-	    if (!memcmp(&(argv[cur_arg + jj][6]), "1234", 4)) {
-	      if (recode_modifier == RECODE_ACGT) {
-		printf("Error: --recode 'allele1234' and 'alleleACGT' modifiers cannot coexist.%s", errstr_append);
-		return dispmsg(RET_INVALID_CMDLINE);
-	      }
-	      recode_modifier = RECODE_1234;
-	    } else if ((tolower(argv[cur_arg + jj][6]) == 'a') && (tolower(argv[cur_arg + jj][7]) == 'c') && (tolower(argv[cur_arg + jj][8]) == 'g') && (tolower(argv[cur_arg + jj][9]) == 't')) {
-	      if (recode_modifier == RECODE_1234) {
-		printf("Error: --recode 'allele1234' and '%s' modifiers cannot coexist.%s", argv[cur_arg + jj], errstr_append);
-		return dispmsg(RET_INVALID_CMDLINE);
-	      }
-	      recode_modifier = RECODE_ACGT;
-	    } else {
-	      printf("Error: Invalid --recode parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
+	  if (!memcmp(argv[cur_arg + jj], "12", 3)) {
+	    recode_modifier |= RECODE_12;
+	  } else if (!memcmp(argv[cur_arg + jj], "tab", 4)) {
+	    recode_modifier |= RECODE_TAB;
+	  } else if (!memcmp(argv[cur_arg + jj], "transpose", 10)) {
+	    if (recode_modifier & RECODE_LGEN) {
+	      printf("Error: --recode 'transpose' and 'lgen' modifiers cannot be used together.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
+	    recode_modifier |= RECODE_TRANSPOSE;
+	  } else if (!memcmp(argv[cur_arg + jj], "lgen", 5)) {
+	    if (recode_modifier & RECODE_TRANSPOSE) {
+	      printf("Error: --recode 'transpose' and 'lgen' modifiers cannot be used together.%s", errstr_append);
+	      return dispmsg(RET_INVALID_CMDLINE);
+	    }
+	    recode_modifier |= RECODE_LGEN;
 	  } else {
 	    printf("Error: Invalid --recode parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
 	    return dispmsg(RET_INVALID_CMDLINE);
@@ -13479,13 +13482,13 @@ int main(int argc, char** argv) {
 	calculation_type |= CALC_RECODE;
 	cur_arg += 1 + ii;
       } else if (!memcmp(argptr2, "ecode12", 8)) {
-	if (calculation_type & CALC_RECODE) {
-	  printf("Error: Duplicate --recode/--recode12 flag.\n");
-	  return dispmsg(RET_INVALID_CMDLINE);
-	}
-	recode_modifier = RECODE_12;
-	calculation_type |= CALC_RECODE;
-	cur_arg++;
+	printf("Note: --recode12 flag deprecated.  Use 'recode 12 ...'.\n");
+	recode_modifier |= RECODE_12;
+	goto main_recode;
+      } else if (!memcmp(argptr2, "ecode-lgen", 11)) {
+	printf("Note: --recode-lgen flag deprecated.  Use 'recode lgen ...'.\n");
+	recode_modifier |= RECODE_LGEN;
+	goto main_recode;
       }
       break;
 
@@ -13617,6 +13620,14 @@ int main(int argc, char** argv) {
 	}
 	g_thread_ct = ii;
 	cur_arg += 2;
+      } else if (!memcmp(argptr2, "ab", 3)) {
+	printf("Note: --tab flag deprecated.  Use '--recode tab ...'.\n");
+	recode_modifier |= RECODE_TAB;
+	cur_arg++;
+      } else if (!memcmp(argptr2, "ranspose", 9)) {
+	printf("Note: --transpose flag deprecated.  Use '--recode transpose ...'.\n");
+	recode_modifier |= RECODE_TRANSPOSE;
+	cur_arg++;
       }
       break;
 
@@ -13817,7 +13828,7 @@ int main(int argc, char** argv) {
       retval = wdist_dosage(calculation_type, genname, samplename, outname, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else {
-    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier);
+    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx);
   }
   free(wkspace_ua);
 #ifdef DEBUG
