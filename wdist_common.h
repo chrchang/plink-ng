@@ -235,6 +235,9 @@ static inline char* skip_initial_spaces(char* sptr) {
 
 char* item_end(char* sptr);
 
+// does not return NULL if item ends with null char
+char* item_endl(char* sptr);
+
 static inline int is_space_or_eoln(char cc) {
   return ((cc == ' ') || (cc == '\t') || (cc == '\n') || (cc == '\0'));
 }

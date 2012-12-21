@@ -183,6 +183,9 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 #define RECODE_TRANSPOSE 8
 #define RECODE_LGEN 16
 
+#define LOAD_RARE_GRM 1
+#define LOAD_RARE_LGEN 2
+
 #define PEDBUFBASE 256
 
 #ifdef DEBUG
@@ -280,7 +283,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (20 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (21 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -2054,6 +2057,37 @@ int sort_item_ids(char** sorted_ids_ptr, int** id_map_ptr, int unfiltered_ct, un
     ii = next_non_set_unsafe(exclude_arr, ii);
     memcpy(&(sorted_ids[jj * max_id_len]), &(item_ids[ii * max_id_len]), max_id_len);
     (*id_map_ptr)[jj] = ii++;
+  }
+  if (qsort_ext(sorted_ids, item_ct, max_id_len, strcmp_deref, (char*)(*id_map_ptr), sizeof(int))) {
+    return RET_NOMEM;
+  }
+  jj = item_ct - 1;
+  for (ii = 0; ii < jj; ii++) {
+    if (!strcmp(&(sorted_ids[ii * max_id_len]), &(sorted_ids[(ii + 1) * max_id_len]))) {
+      printf("Error: Duplicate IDs.\n");
+      return RET_INVALID_FORMAT;
+    }
+  }
+  return 0;
+}
+
+int sort_item_ids_nx(char** sorted_ids_ptr, int** id_map_ptr, int item_ct, char* item_ids, unsigned long max_id_len) {
+  // Version of sort_item_ids() with no exclusion.
+  int ii;
+  int jj;
+  char* sorted_ids;
+  sorted_ids = (char*)wkspace_alloc(item_ct * max_id_len);
+  if (!sorted_ids) {
+    return RET_NOMEM;
+  }
+  *sorted_ids_ptr = sorted_ids;
+  *id_map_ptr = (int*)wkspace_alloc(item_ct * sizeof(int));
+  if (!(*id_map_ptr)) {
+    return RET_NOMEM;
+  }
+  for (ii = 0; ii < item_ct; ii++) {
+    memcpy(&(sorted_ids[ii * max_id_len]), &(item_ids[ii * max_id_len]), max_id_len);
+    (*id_map_ptr)[ii] = ii;
   }
   if (qsort_ext(sorted_ids, item_ct, max_id_len, strcmp_deref, (char*)(*id_map_ptr), sizeof(int))) {
     return RET_NOMEM;
@@ -4800,7 +4834,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
 	  chrom_info_ptr->chrom_end[last_chrom] = marker_uidx;
 	}
         if (loaded_chrom_mask & (1LLU << jj)) {
-	  printf("Error: .map/.bim is unsorted.  Use PLINK --make-bed to remedy this.\n");
+	  printf("Error: .map/.bim is unsorted.  Use PLINK --make-bed to remedy this for now.\n");
 	  return RET_INVALID_FORMAT;
 	}
 	loaded_chrom_mask |= 1LLU << jj;
@@ -7041,6 +7075,402 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, FILE** bedoutfile_ptr
   printf("\b\b\bdone.\n");
   wkspace_reset(wkspace_mark);
   return 0;
+}
+
+inline int intlen(int num) {
+  int retval;
+  if (num < 0) {
+    num = -num;
+    retval = 2;
+  } else {
+    retval = 1;
+  }
+  while (num > 9) {
+    num /= 10;
+    retval++;
+  }
+  return retval;
+}
+
+int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affection_01, Chrom_info* chrom_info_ptr) {
+  FILE* infile = NULL;
+  FILE* outfile = NULL;
+  char* name_end = (char*)memchr(lgen_namebuf, 0, FNAMESIZE);
+  char* outname_end = (char*)memchr(outname, 0, FNAMESIZE);
+  int map_cols = 3;
+  unsigned long* marker_exclude = NULL;
+  unsigned int marker_exclude_ct = 0;
+  unsigned long max_marker_id_len = 0;
+  double* set_allele_freqs = NULL;
+  unsigned int unfiltered_marker_ct = 0;
+  unsigned int marker_ct = 0;
+  char* marker_alleles = NULL;
+  unsigned int* marker_allele_cts;
+  char* marker_ids = NULL;
+  unsigned int* marker_pos = NULL;
+  unsigned int indiv_ct = 0;
+  char* person_ids = NULL;
+  char* paternal_ids = NULL;
+  unsigned int max_paternal_id_len = 2;
+  char* maternal_ids = NULL;
+  unsigned int max_maternal_id_len = 2;
+  unsigned char* sex_info = NULL;
+  int affection = 0;
+  unsigned long* founder_info = NULL;
+  unsigned long* indiv_exclude = NULL;
+  char* sorted_marker_ids;
+  int* marker_id_map;
+  char* sorted_indiv_ids;
+  int* indiv_id_map;
+  unsigned char* writebuf;
+  unsigned int indiv_ct4;
+  unsigned int plink_maxsnp;
+  unsigned int max_person_id_len;
+  unsigned long marker_idx;
+  unsigned char ucc;
+  unsigned char* ucptr;
+  unsigned char itable_short[4];
+  unsigned char itable[256];
+  char* id_buf;
+  char* cptr;
+  char* cptr2;
+  char* cptr3;
+  char* cptr4;
+  char* cptr5;
+  char* cptr6;
+  unsigned int indiv_idx;
+  unsigned long ulii;
+  unsigned int uii;
+  unsigned int ujj;
+  unsigned int ukk;
+  unsigned int umm;
+  char cc;
+  char cc2;
+  int ii;
+  int jj;
+  int retval;
+  memcpy(name_end, ".map", 5);
+  // use CALC_WRITE_SNPLIST to force loading of marker IDs, without other
+  // unwanted side-effects
+  retval = load_map_or_bim(&infile, lgen_namebuf, 0, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, NULL, &marker_ids, chrom_info_ptr, &marker_pos, '\0', '\0', '\0', CALC_WRITE_SNPLIST, 0);
+  if (retval) {
+    goto lgen_ret_1;
+  }
+  fclose_null(&infile);
+  marker_ct = unfiltered_marker_ct - marker_exclude_ct;
+  retval = sort_item_ids_nx(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_ids, max_marker_id_len);
+  if (retval) {
+    goto lgen_ret_1;
+  }
+
+  if (marker_exclude_ct) {
+    // temporary storage of missing collapse info
+    if (wkspace_alloc_i_checked(&indiv_id_map, unfiltered_marker_ct * sizeof(int))) {
+      goto lgen_ret_NOMEM;
+    }
+    marker_idx = 0;
+    for (uii = 0; uii < marker_ct; uii++) {
+      marker_idx = next_non_set_unsafe(marker_exclude, marker_idx);
+      indiv_id_map[marker_idx] = uii;
+      marker_idx++;
+    }
+    for (uii = 0; uii < unfiltered_marker_ct; uii++) {
+      ii = marker_id_map[uii];
+      if (is_set(marker_exclude, ii)) {
+	marker_id_map[uii] = -1;
+      } else {
+	marker_id_map[uii] = indiv_id_map[ii];
+      }
+    }
+    wkspace_reset((unsigned char*)indiv_id_map);
+  }
+
+  memcpy(name_end, ".fam", 5);
+  if (fopen_checked(&infile, lgen_namebuf, "r")) {
+    goto lgen_ret_OPEN_FAIL;
+  }
+  retval = load_fam(infile, MAXLINELEN, 1, 1, 1, 1, 1, missing_pheno, intlen(missing_pheno), affection_01, &indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_info, &affection, &g_pheno_c, &g_pheno_d, &founder_info, &indiv_exclude, 1, NULL, NULL, NULL);
+  if (retval) {
+    goto lgen_ret_1;
+  }
+  fclose_null(&infile);
+  retval = sort_item_ids_nx(&sorted_indiv_ids, &indiv_id_map, indiv_ct, person_ids, max_person_id_len);
+  if (retval) {
+    goto lgen_ret_1;
+  }
+  if (wkspace_alloc_c_checked(&id_buf, MAX(max_marker_id_len, max_person_id_len))) {
+    goto lgen_ret_NOMEM;
+  }
+  if (wkspace_alloc_c_checked(&marker_alleles, 2 * unfiltered_marker_ct)) {
+    goto lgen_ret_NOMEM;
+  }
+  if (wkspace_alloc_ui_checked(&marker_allele_cts, 2 * unfiltered_marker_ct * sizeof(int))) {
+    goto lgen_ret_NOMEM;
+  }
+  memset(marker_alleles, 0, 2 * marker_ct);
+  fill_uint_zero(marker_allele_cts, 2 * marker_ct);
+  indiv_ct4 = (indiv_ct + 3) / 4;
+  if (wkspace_alloc_uc_checked(&writebuf, ((unsigned long)marker_ct) * indiv_ct4)) {
+    printf("Error: Very large .lgen -> .bed conversions are not yet supported.  Try this\nwith more memory (use --memory and/or a better machine).\n");
+    goto lgen_ret_CALC_NOT_YET_SUPPORTED;
+  }
+  if (indiv_ct % 4) {
+    ucc = 0x15 >> (6 - 2 * indiv_ct);
+    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+      memset(&(writebuf[marker_idx * indiv_ct4]), 0x55, indiv_ct4 - 1);
+      writebuf[(marker_idx + 1) * indiv_ct4 - 1] = ucc;
+    }
+  } else {
+    memset(writebuf, 0x55, marker_ct * indiv_ct4);
+  }
+  // PLINK reports an error whenever there are 3+ alleles at one locus, so
+  // backwards compatibility does not mandate that we worry about that case.
+  // Thus we just use the obvious one-pass load.
+  memcpy(outname_end, ".bed", 5);
+  if (fopen_checked(&outfile, outname, "wb")) {
+    goto lgen_ret_OPEN_FAIL;
+  }
+  if (fwrite_checked("l\x1b\x01", 3, outfile)) {
+    goto lgen_ret_WRITE_FAIL;
+  }
+  memcpy(name_end, ".lgen", 6);
+  if (fopen_checked(&infile, lgen_namebuf, "r")) {
+    goto lgen_ret_OPEN_FAIL;
+  }
+  printf("Processing .lgen file...");
+  fflush(stdout);
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (*tbuf == '\n') {
+      continue;
+    }
+    cptr = skip_initial_spaces(tbuf);
+    cptr2 = next_item(cptr);
+    cptr3 = next_item(cptr2);
+    cptr4 = item_end(cptr3);
+    cptr5 = skip_initial_spaces(cptr4);
+    if (!cptr5) {
+      goto lgen_ret_INVALID_FORMAT;
+    }
+    cptr6 = skip_initial_spaces(&(cptr5[1]));
+    if (no_more_items(cptr6)) {
+      goto lgen_ret_INVALID_FORMAT;
+    }
+    ii = bsearch_fam_indiv(id_buf, sorted_indiv_ids, max_person_id_len, indiv_ct, cptr, cptr2);
+    if (ii == -1) {
+      cptr[strlen_se(cptr)] = '\0';
+      cptr2[strlen_se(cptr2)] = '\0';
+      printf("Error: Person %s %s in .lgen file but missing from .fam.\n", cptr, cptr2);
+      goto lgen_ret_INVALID_FORMAT_2;
+    }
+    indiv_idx = indiv_id_map[ii];
+    ulii = (unsigned long)(cptr4 - cptr3);
+    memcpy(id_buf, cptr3, ulii);
+    id_buf[ulii] = '\0';
+    ii = bsearch_str(id_buf, sorted_marker_ids, max_marker_id_len, 0, unfiltered_marker_ct - 1);
+    if (ii == -1) {
+      printf("Error: Marker %s in .lgen file but missing from .map.\n", id_buf);
+      goto lgen_ret_INVALID_FORMAT_2;
+    }
+    jj = marker_id_map[ii];
+    if (jj != -1) {
+      marker_idx = jj;
+      cc = marker_alleles[2 * marker_idx + 1]; // A2
+      if (cc == '\0') {
+	cc = *cptr5;
+	marker_alleles[2 * marker_idx + 1] = cc;
+	if (*cptr6 == cc) {
+	  uii = 2;
+	} else {
+	  uii = 1;
+	  marker_alleles[2 * marker_idx] = *cptr6;
+	}
+      } else {
+	cc2 = marker_alleles[2 * marker_idx];
+	if (cc2 == '\0') {
+	  if (*cptr5 == cc) {
+	    if (*cptr6 == cc) {
+	      uii = 2;
+	    } else {
+	      uii = 1;
+	      marker_alleles[2 * marker_idx] = *cptr6;
+	    }
+	  } else {
+	    cc2 = *cptr5;
+	    marker_alleles[2 * marker_idx] = cc2;
+	    if (*cptr6 == cc) {
+	      uii = 1;
+	    } else if (*cptr6 == cc2) {
+	      uii = 0;
+	    } else {
+	      goto lgen_ret_INVALID_FORMAT_3;
+	    }
+	  }
+	} else {
+	  if (*cptr5 == cc) {
+	    uii = 1;
+	  } else if (*cptr5 == cc2) {
+	    uii = 0;
+	  } else {
+	    goto lgen_ret_INVALID_FORMAT_3;
+	  }
+	  if (*cptr6 == cc) {
+	    uii++;
+	  } else if (*cptr6 != cc2) {
+	    goto lgen_ret_INVALID_FORMAT_3;
+	  }
+	}
+      }
+      marker_allele_cts[2 * marker_idx] += 2 - uii;
+      marker_allele_cts[2 * marker_idx + 1] += uii;
+      if (uii) {
+	uii++;
+      }
+      ulii = marker_idx * indiv_ct4 + (indiv_idx / 4);
+      ujj = (indiv_idx % 4) * 2;
+      writebuf[ulii] = (writebuf[ulii] & (~(3 << ujj))) | (uii << ujj);
+    }
+  }
+  if (!feof(infile)) {
+    goto lgen_ret_READ_FAIL;
+  }
+  fclose_null(&infile);
+  printf(" done.\n");
+  itable_short[0] = 3;
+  itable_short[1] = 1;
+  itable_short[2] = 2;
+  itable_short[3] = 0;
+  ucptr = itable;
+  for (uii = 0; uii < 4; uii++) {
+    for (ujj = 0; ujj < 4; ujj++) {
+      for (ukk = 0; ukk < 4; ukk++) {
+	umm = itable_short[uii] * 64 + itable_short[ujj] * 16 + itable_short[ukk] * 4;
+	*ucptr++ = umm + 3;
+	*ucptr++ = umm + 1;
+	*ucptr++ = umm + 2;
+	*ucptr++ = umm;
+      }
+    }
+  }
+  for (uii = 0; uii < marker_ct; uii++) {
+    if (marker_allele_cts[uii * 2] > marker_allele_cts[uii * 2 + 1]) {
+      ucptr = &(writebuf[uii * indiv_ct4]);
+      for (ujj = 0; ujj < indiv_ct4; ujj++) {
+	*ucptr = itable[*ucptr];
+      }
+    }
+  }
+  if (fwrite_checked(writebuf, ((unsigned long)marker_ct) * indiv_ct4, outfile)) {
+    goto lgen_ret_WRITE_FAIL;
+  }
+  if (fclose_null(&outfile)) {
+    goto lgen_ret_WRITE_FAIL;
+  }
+  memcpy(name_end, ".map", 5);
+  if (fopen_checked(&infile, lgen_namebuf, "r")) {
+    goto lgen_ret_OPEN_FAIL;
+  }
+  memcpy(outname_end, ".bim", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto lgen_ret_OPEN_FAIL;
+  }
+  uii = 2 * marker_ct;
+  for (ujj = 0; ujj < uii; ujj++) {
+    if (!marker_alleles[ujj]) {
+      marker_alleles[ujj] = '0';
+    }
+  }
+  uii = 0;
+  marker_idx = 0;
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (*tbuf == '\n') {
+      continue;
+    }
+    if (is_set(marker_exclude, uii)) {
+      uii++;
+      continue;
+    }
+    cptr = (char*)memchr(tbuf, 0, MAXLINELEN);
+    if (cptr[-1] == '\n') {
+      cptr--;
+    }
+    sprintf(cptr, "\t%c\t%c\n", marker_alleles[marker_idx * 2], marker_alleles[marker_idx * 2 + 1]);
+    ulii = strlen(cptr) + (unsigned long)(cptr - tbuf);
+    if (fwrite_checked(tbuf, ulii, outfile)) {
+      goto lgen_ret_WRITE_FAIL;
+    }
+    uii++;
+    marker_idx++;
+  }
+  if (!feof(infile)) {
+    goto lgen_ret_READ_FAIL;
+  }
+  fclose_null(&infile);
+  if (fclose_null(&outfile)) {
+    goto lgen_ret_WRITE_FAIL;
+  }
+  memcpy(name_end, ".fam", 5);
+  memcpy(outname_end, ".fam", 5);
+  if (strcmp(lgen_namebuf, outname)) {
+    if (fopen_checked(&infile, lgen_namebuf, "r")) {
+      goto lgen_ret_OPEN_FAIL;
+    }
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto lgen_ret_OPEN_FAIL;
+    }
+    while (fgets(tbuf, MAXLINELEN, infile)) {
+      if (*tbuf == '\n') {
+	continue;
+      }
+      ulii = strlen(tbuf);
+      if (tbuf[ulii - 1] != '\n') {
+	tbuf[ulii++] = '\n';
+	tbuf[ulii] = '\0';
+      }
+      if (fwrite_checked(tbuf, ulii, outfile)) {
+	goto lgen_ret_WRITE_FAIL;
+      }
+    }
+    if (!feof(infile)) {
+      goto lgen_ret_READ_FAIL;
+    }
+  }
+  memcpy(outname_end, ".bed", 5);
+  printf("%s + .bim + .fam written.\n", outname);
+
+  while (0) {
+  lgen_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  lgen_ret_CALC_NOT_YET_SUPPORTED:
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    break;
+  lgen_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  lgen_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  lgen_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  lgen_ret_INVALID_FORMAT:
+    printf("Error: Improperly formatted .lgen file.\n");
+  lgen_ret_INVALID_FORMAT_2:
+    retval = RET_INVALID_FORMAT;
+    break;
+  lgen_ret_INVALID_FORMAT_3:
+    printf("Error: Marker %s in .lgen file has 3+ different alleles.\n", id_buf);
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ lgen_ret_1:
+  if (infile) {
+    fclose(infile);
+  }
+  if (outfile) {
+    fclose(outfile);
+  }
+  return retval;
 }
 
 int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FILE* bimfile, FILE** outfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, char* person_ids, unsigned int max_person_id_len, char* paternal_ids, unsigned int max_paternal_id_len, char* maternal_ids, unsigned int max_maternal_id_len, unsigned char* sex_info, char* pheno_c, double* pheno_d, double missing_phenod, char output_missing_geno, char* output_missing_pheno, double* set_allele_freqs, int binary_files) {
@@ -10089,7 +10519,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   double set_allele_freq_buf[MULTIPLEX_DIST];
   unsigned int wtbuf[MULTIPLEX_DIST];
   double missing_phenod = (double)missing_pheno;
-  int missing_pheno_len = 1;
+  int missing_pheno_len = intlen(missing_pheno);
   int var_std = 1;
   int* hwe_lls;
   int* hwe_lhs;
@@ -10135,15 +10565,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   unsigned int pct;
   unsigned int tstc;
 
-  ii = missing_pheno;
-  if (ii < 0) {
-    ii = -ii;
-    missing_pheno_len++;
-  }
-  while (ii > 9) {
-    ii /= 10;
-    missing_pheno_len++;
-  }
   if (calculation_type & CALC_RELATIONSHIP_COV) {
     var_std = 0;
     ibc_type = -1;
@@ -10167,8 +10588,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     outname_end++;
   }
 
-  tbuf[MAXLINELEN - 6] = ' ';
-  tbuf[MAXLINELEN - 1] = ' ';
   // load .map/.bim, count markers, filter chromosomes
   retval = load_map_or_bim(&mapfile, mapname, binary_files, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &marker_ids, chrom_info_ptr, &marker_pos, *extractname, *excludename, *freqname, calculation_type, recode_modifier);
   if (retval) {
@@ -12019,9 +12438,9 @@ int main(int argc, char** argv) {
   char* filterval = NULL;
   char* argptr;
   char* sptr;
-  int retval;
+  int retval = 0;
   int load_params = 0; // describes what file parameters have been provided
-  int load_grm = 0;
+  int load_rare = 0;
   int fam_col_1 = 1;
   int fam_col_34 = 1;
   int fam_col_5 = 1;
@@ -12806,8 +13225,8 @@ int main(int argc, char** argv) {
 	cur_arg += ii + 1;
 	calculation_type |= CALC_GROUPDIST;
       } else if (!memcmp(argptr2, "rm", 3)) {
-	if (load_grm) {
-	  printf("Error: Duplicate --load-grm flag.\n");
+	if (load_rare) {
+	  printf("Error: --grm cannot be used with another load flag.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
@@ -12823,7 +13242,7 @@ int main(int argc, char** argv) {
 	} else {
 	  memcpy(pedname, "wdist", 6);
 	}
-        load_grm = 1;
+        load_rare = LOAD_RARE_GRM;
         cur_arg += ii + 1;
       }
       break;
@@ -12991,6 +13410,24 @@ int main(int argc, char** argv) {
 	strcpy(loaddistname, argv[cur_arg + 1]);
 	cur_arg += 2;
 	calculation_type |= CALC_LOAD_DISTANCES;
+      } else if (!memcmp(argptr2, "file", 5)) {
+	if (load_rare) {
+	  printf("Error: --lfile cannot be used with another load flag.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 6) {
+	    printf("Error: --lfile filename prefix too long.\n");
+	  }
+	  strcpy(pedname, argv[cur_arg + 1]);
+	} else {
+	  memcpy(pedname, "wdist", 6);
+	}
+	cur_arg += 1 + ii;
+	load_rare = LOAD_RARE_LGEN;
       }
       break;
 
@@ -13992,13 +14429,22 @@ int main(int argc, char** argv) {
       return invalid_arg(argptr);
     }
   }
-  if (load_grm) {
+  if (load_rare) {
     if (load_params) {
-      printf("Error: --grm cannot coexist with --file, --bfile, or --data.\%s", errstr_append);
+      printf("Error: Multiple load flags.\%s", errstr_append);
       return dispmsg(RET_INVALID_CMDLINE);
-    } else if ((!(calculation_type & CALC_REL_CUTOFF)) || (calculation_type & (~(CALC_REL_CUTOFF | CALC_RELATIONSHIP_GRM | CALC_RELATIONSHIP_GZ)))) {
-      printf("Error: --grm currently must be used with --rel-cutoff (possibly combined with\n--make-grm).%s", errstr_append);
-      return dispmsg(RET_INVALID_CMDLINE);
+    }
+    if (load_rare == LOAD_RARE_GRM) {
+      if ((!(calculation_type & CALC_REL_CUTOFF)) || (calculation_type & (~(CALC_REL_CUTOFF | CALC_RELATIONSHIP_GRM | CALC_RELATIONSHIP_GZ)))) {
+	printf("Error: --grm currently must be used with --rel-cutoff (possibly combined with\n--make-grm).%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+    } else if (load_rare == LOAD_RARE_LGEN) {
+      if (calculation_type & (~CALC_MAKE_BED)) {
+	printf("Error: --lfile cannot be used with any calculation other than --make-bed.%s", errstr_append);
+	return dispmsg(RET_INVALID_CMDLINE);
+      }
+      calculation_type = CALC_MAKE_BED;
     }
   }
   if (prune && (!phenoname[0]) && (!fam_col_6)) {
@@ -14085,9 +14531,18 @@ int main(int argc, char** argv) {
     chrom_info.chrom_mask = ((chrom_info.chrom_mask & ((1LLU << MAX_POSSIBLE_CHROM) - 1)) | (1LLU << species_xy_code[chrom_info.species]));
   }
 
-  if (load_grm) {
-    // --rel-cutoff batch mode special case
-    retval = rel_cutoff_batch(pedname, outname, rel_cutoff, calculation_type);
+  tbuf[MAXLINELEN - 6] = ' ';
+  tbuf[MAXLINELEN - 1] = ' ';
+  if (load_rare) {
+    switch (load_rare) {
+    case LOAD_RARE_GRM:
+      // --rel-cutoff batch mode special case
+      retval = rel_cutoff_batch(pedname, outname, rel_cutoff, calculation_type);
+      break;
+    case LOAD_RARE_LGEN:
+      retval = lgen_to_bed(pedname, outname, missing_pheno, affection_01, &chrom_info);
+      break;
+    }
   } else if (genname[0]) {
   // famname[0] indicates binary vs. text
   // extractname[0], excludename[0], keepname[0], and removename[0] indicate

@@ -274,7 +274,7 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
       if (no_more_items(item_begin)) {
 	goto oxford_sample_load_ret_INVALID_FORMAT;
       }
-      bufptr = item_end(item_begin);
+      bufptr = item_endl(item_begin);
       uii = (unsigned int)(bufptr - item_begin);
       is_missing = 0;
       for (ujj = 0; ujj < missing_code_ct; ujj++) {

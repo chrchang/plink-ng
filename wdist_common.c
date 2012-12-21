@@ -59,6 +59,16 @@ char* item_end(char* sptr) {
   return sptr;
 }
 
+char* item_endl(char* sptr) {
+  if (!sptr) {
+    return NULL;
+  }
+  while ((*sptr != ' ') && (*sptr != '\t') && (*sptr)) {
+    sptr++;
+  }
+  return sptr;
+}
+
 int strlen_se(char* ss) {
   int val = 0;
   while (!is_space_or_eoln(*ss++)) {
