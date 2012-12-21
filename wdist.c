@@ -283,7 +283,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (21 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (22 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -729,7 +729,19 @@ int disp_help(unsigned int param_ct, char** argv) {
 "       spaces, respectively.\n"
 "    * The 'transpose' modifier causes a transposed text fileset to be generated\n"
 "      instead.\n"
-"    * The 'lgen' modifier causes a long-format fileset to be generated instead.\n\n"
+"    * The 'lgen' modifier causes a long-format fileset to be generated instead.\n"
+	       );
+    help_print("tfile\ttped\ttfam", &help_ctrl, 1,
+"  --tfile {prefix}\n"
+"  --tped [filename]\n"
+"  --tfam [filename]\n"
+"    Loads a PLINK transposed text fileset and converts it to binary.\n"
+"    --make-bed does not need to be specified, and WDIST does not support any\n"
+"    other direct operations on existing transposed text filesets.\n"
+	       );
+    help_print("lfile", &help_ctrl, 1,
+"  --lfile {prefix}\n"
+"    Loads a PLINK long-format fileset and converts it to binary.\n\n"
 	       );
     help_print("write-snplist", &help_ctrl, 1,
 "  --write-snplist\n"
@@ -746,8 +758,8 @@ int disp_help(unsigned int param_ct, char** argv) {
 		);
     if (!param_ct) {
       printf(
-"The following other flags are supported.  (Order of operations conforms to the\n"
-"PLINK specification at http://pngu.mgh.harvard.edu/~purcell/plink/flow.shtml.)\n"
+"The following other flags are supported.  (Order of operations is described at\n"
+"https://www.cog-genomics.org/wdist/order.)\n"
 	     );
     }
 #ifdef DEBUG
@@ -7131,6 +7143,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   unsigned char* ucptr;
   unsigned char itable_short[4];
   unsigned char itable[256];
+  unsigned char itable2[64];
   char* id_buf;
   char* cptr;
   char* cptr2;
@@ -7144,6 +7157,9 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   unsigned int ujj;
   unsigned int ukk;
   unsigned int umm;
+  long long lgen_size;
+  unsigned int pct;
+  long long lgen_next_thresh;
   char cc;
   char cc2;
   int ii;
@@ -7237,8 +7253,15 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   if (fopen_checked(&infile, lgen_namebuf, "r")) {
     goto lgen_ret_OPEN_FAIL;
   }
-  printf("Processing .lgen file...");
+  if (fseeko(infile, 0, SEEK_END)) {
+    goto lgen_ret_READ_FAIL;
+  }
+  lgen_size = ftello(infile);
+  rewind(infile);
+  printf("Processing .lgen file... 0%%");
   fflush(stdout);
+  lgen_next_thresh = lgen_size / 100;
+  pct = 0;
   while (fgets(tbuf, MAXLINELEN, infile)) {
     if (*tbuf == '\n') {
       continue;
@@ -7329,12 +7352,29 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
       ujj = (indiv_idx % 4) * 2;
       writebuf[ulii] = (writebuf[ulii] & (~(3 << ujj))) | (uii << ujj);
     }
+    if (ftello(infile) >= lgen_next_thresh) {
+      uii = (ftello(infile) * 100) / lgen_size;
+      if (pct < 10) {
+	printf("\b\b%u%%", uii);
+      } else {
+	printf("\b\b\b%u%%", uii);
+      }
+      fflush(stdout);
+      pct = uii;
+      lgen_next_thresh = ((pct + 1) * lgen_size) / 100;
+    }
   }
   if (!feof(infile)) {
     goto lgen_ret_READ_FAIL;
   }
   fclose_null(&infile);
-  printf(" done.\n");
+  if (pct < 10) {
+    printf("\b\bdone.\n");
+  } else if (pct < 100) {
+    printf("\b\b\bdone.\n");
+  } else {
+    printf("\b\b\b\bdone.\n");
+  }
   itable_short[0] = 3;
   itable_short[1] = 1;
   itable_short[2] = 2;
@@ -7351,12 +7391,47 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
       }
     }
   }
+  ukk = indiv_ct / 4;
+  umm = indiv_ct % 4;
+  ucptr = itable2;
+  if (umm == 3) {
+    for (uii = 0; uii < 4; uii++) {
+      for (ujj = 0; ujj < 4; ujj++) {
+	ukk = itable_short[uii] * 16 + itable_short[ujj] * 4;
+	*ucptr++ = ukk + 3;
+	*ucptr++ = ukk + 1;
+	*ucptr++ = ukk + 2;
+	*ucptr++ = ukk;
+      }
+    }
+  } else if (umm == 2) {
+    for (uii = 0; uii < 4; uii++) {
+      ujj = itable_short[uii] * 4;
+      *ucptr++ = ujj + 3;
+      *ucptr++ = ujj + 1;
+      *ucptr++ = ujj + 2;
+      *ucptr++ = ujj;
+    }
+  } else if (umm == 1) {
+    *ucptr++ = 3;
+    *ucptr++ = 1;
+    *ucptr++ = 2;
+    *ucptr++ = 0;
+  }
   for (uii = 0; uii < marker_ct; uii++) {
     if (marker_allele_cts[uii * 2] > marker_allele_cts[uii * 2 + 1]) {
       ucptr = &(writebuf[uii * indiv_ct4]);
-      for (ujj = 0; ujj < indiv_ct4; ujj++) {
+      for (ujj = 0; ujj < ukk; ujj++) {
 	*ucptr = itable[*ucptr];
+	ucptr++;
       }
+      if (umm) {
+        *ucptr = itable2[*ucptr];
+	ucptr++;
+      }
+      cc = marker_alleles[uii * 2];
+      marker_alleles[uii * 2] = marker_alleles[uii * 2 + 1];
+      marker_alleles[uii * 2 + 1] = cc;
     }
   }
   if (fwrite_checked(writebuf, ((unsigned long)marker_ct) * indiv_ct4, outfile)) {
@@ -14342,6 +14417,15 @@ int main(int argc, char** argv) {
 	printf("Note: --transpose flag deprecated.  Use '--recode transpose ...'.\n");
 	recode_modifier |= RECODE_TRANSPOSE;
 	cur_arg++;
+      } else if (!memcmp(argptr2, "file", 5)) {
+	printf("Error: --tfile not written yet.\n");
+	return dispmsg(RET_CALC_NOT_YET_SUPPORTED);
+      } else if (!memcmp(argptr2, "ped", 4)) {
+	printf("Error: --tped not written yet.\n");
+	return dispmsg(RET_CALC_NOT_YET_SUPPORTED);
+      } else if (!memcmp(argptr2, "fam", 4)) {
+	printf("Error: --tfam not written yet.\n");
+	return dispmsg(RET_CALC_NOT_YET_SUPPORTED);
       }
       break;
 
