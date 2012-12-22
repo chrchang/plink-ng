@@ -302,14 +302,10 @@ static inline void fill_int_zero(int* iarr, size_t size) {
 }
 
 static inline void fill_uint_zero(unsigned int* uiarr, size_t size) {
-#if __LP64__
-  fill_long_zero((long*)uiarr, size >> 1);
-  if (size & 1) {
-    uiarr[size - 1] = 0;
+  unsigned int* uiptr = &(uiarr[size]);
+  while (uiarr < uiptr) {
+    *uiarr++ = 0;
   }
-#else
-  fill_long_zero((long*)uiarr, size);
-#endif
 }
 
 static inline void fill_int_one(unsigned int* iarr, size_t size) {
