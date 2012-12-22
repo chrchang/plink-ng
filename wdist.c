@@ -7698,7 +7698,10 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
       continue;
     }
     memset(alleles, 0, 4);
-    fill_uint_zero(allele_cts, 4);
+    allele_cts[0] = 0;
+    allele_cts[1] = 0;
+    allele_cts[2] = 0;
+    allele_cts[3] = 0;
     cptr = skip_initial_spaces(loadbuf);
     cptr3 = next_item_mult(cptr, 4);
     if (no_more_items(cptr3)) {
