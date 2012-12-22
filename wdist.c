@@ -185,6 +185,10 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 
 #define LOAD_RARE_GRM 1
 #define LOAD_RARE_LGEN 2
+#define LOAD_RARE_TRANSPOSE 4
+#define LOAD_RARE_TPED 8
+#define LOAD_RARE_TFAM 16
+#define LOAD_RARE_TRANSPOSE_MASK (LOAD_RARE_TPED | LOAD_RARE_TFAM)
 
 #define PEDBUFBASE 256
 
@@ -6098,7 +6102,7 @@ int calc_freqs_and_binary_hwe(FILE* pedfile, unsigned int unfiltered_marker_ct, 
 	  marker_nf_allele_cts[4 * marker_uidx + ii] = ukk;
 	}
       }
-
+      // todo: log triallelic/quadallelic marker IDs?
       uii = marker_allele_cts[4 * marker_uidx] + marker_allele_cts[4 * marker_uidx + 1] + 2 * maf_succ;
       if (!uii) {
 	set_allele_freqs[marker_uidx] = 0.5;
@@ -7170,19 +7174,19 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   // unwanted side-effects
   retval = load_map_or_bim(&infile, lgen_namebuf, 0, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, NULL, &marker_ids, chrom_info_ptr, &marker_pos, '\0', '\0', '\0', CALC_WRITE_SNPLIST, 0);
   if (retval) {
-    goto lgen_ret_1;
+    goto lgen_to_bed_ret_1;
   }
   fclose_null(&infile);
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   retval = sort_item_ids_nx(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_ids, max_marker_id_len);
   if (retval) {
-    goto lgen_ret_1;
+    goto lgen_to_bed_ret_1;
   }
 
   if (marker_exclude_ct) {
     // temporary storage of missing collapse info
     if (wkspace_alloc_i_checked(&indiv_id_map, unfiltered_marker_ct * sizeof(int))) {
-      goto lgen_ret_NOMEM;
+      goto lgen_to_bed_ret_NOMEM;
     }
     marker_idx = 0;
     for (uii = 0; uii < marker_ct; uii++) {
@@ -7203,32 +7207,32 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
 
   memcpy(name_end, ".fam", 5);
   if (fopen_checked(&infile, lgen_namebuf, "r")) {
-    goto lgen_ret_OPEN_FAIL;
+    goto lgen_to_bed_ret_OPEN_FAIL;
   }
   retval = load_fam(infile, MAXLINELEN, 1, 1, 1, 1, 1, missing_pheno, intlen(missing_pheno), affection_01, &indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_info, &affection, &g_pheno_c, &g_pheno_d, &founder_info, &indiv_exclude, 1, NULL, NULL, NULL);
   if (retval) {
-    goto lgen_ret_1;
+    goto lgen_to_bed_ret_1;
   }
   fclose_null(&infile);
   retval = sort_item_ids_nx(&sorted_indiv_ids, &indiv_id_map, indiv_ct, person_ids, max_person_id_len);
   if (retval) {
-    goto lgen_ret_1;
+    goto lgen_to_bed_ret_1;
   }
   if (wkspace_alloc_c_checked(&id_buf, MAX(max_marker_id_len, max_person_id_len))) {
-    goto lgen_ret_NOMEM;
+    goto lgen_to_bed_ret_NOMEM;
   }
   if (wkspace_alloc_c_checked(&marker_alleles, 2 * unfiltered_marker_ct)) {
-    goto lgen_ret_NOMEM;
+    goto lgen_to_bed_ret_NOMEM;
   }
   if (wkspace_alloc_ui_checked(&marker_allele_cts, 2 * unfiltered_marker_ct * sizeof(int))) {
-    goto lgen_ret_NOMEM;
+    goto lgen_to_bed_ret_NOMEM;
   }
   memset(marker_alleles, 0, 2 * marker_ct);
   fill_uint_zero(marker_allele_cts, 2 * marker_ct);
   indiv_ct4 = (indiv_ct + 3) / 4;
   if (wkspace_alloc_uc_checked(&writebuf, ((unsigned long)marker_ct) * indiv_ct4)) {
     printf("Error: Very large .lgen -> .bed conversions are not yet supported.  Try this\nwith more memory (use --memory and/or a better machine).\n");
-    goto lgen_ret_CALC_NOT_YET_SUPPORTED;
+    goto lgen_to_bed_ret_CALC_NOT_YET_SUPPORTED;
   }
   if (indiv_ct % 4) {
     ucc = 0x15 >> (6 - 2 * indiv_ct);
@@ -7244,17 +7248,17 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   // Thus we just use the obvious one-pass load.
   memcpy(outname_end, ".bed", 5);
   if (fopen_checked(&outfile, outname, "wb")) {
-    goto lgen_ret_OPEN_FAIL;
+    goto lgen_to_bed_ret_OPEN_FAIL;
   }
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
-    goto lgen_ret_WRITE_FAIL;
+    goto lgen_to_bed_ret_WRITE_FAIL;
   }
   memcpy(name_end, ".lgen", 6);
   if (fopen_checked(&infile, lgen_namebuf, "r")) {
-    goto lgen_ret_OPEN_FAIL;
+    goto lgen_to_bed_ret_OPEN_FAIL;
   }
   if (fseeko(infile, 0, SEEK_END)) {
-    goto lgen_ret_READ_FAIL;
+    goto lgen_to_bed_ret_READ_FAIL;
   }
   lgen_size = ftello(infile);
   rewind(infile);
@@ -7272,18 +7276,18 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
     cptr4 = item_end(cptr3);
     cptr5 = skip_initial_spaces(cptr4);
     if (!cptr5) {
-      goto lgen_ret_INVALID_FORMAT;
+      goto lgen_to_bed_ret_INVALID_FORMAT;
     }
     cptr6 = skip_initial_spaces(&(cptr5[1]));
     if (no_more_items(cptr6)) {
-      goto lgen_ret_INVALID_FORMAT;
+      goto lgen_to_bed_ret_INVALID_FORMAT;
     }
     ii = bsearch_fam_indiv(id_buf, sorted_indiv_ids, max_person_id_len, indiv_ct, cptr, cptr2);
     if (ii == -1) {
       cptr[strlen_se(cptr)] = '\0';
       cptr2[strlen_se(cptr2)] = '\0';
       printf("Error: Person %s %s in .lgen file but missing from .fam.\n", cptr, cptr2);
-      goto lgen_ret_INVALID_FORMAT_2;
+      goto lgen_to_bed_ret_INVALID_FORMAT_2;
     }
     indiv_idx = indiv_id_map[ii];
     ulii = (unsigned long)(cptr4 - cptr3);
@@ -7292,7 +7296,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
     ii = bsearch_str(id_buf, sorted_marker_ids, max_marker_id_len, 0, unfiltered_marker_ct - 1);
     if (ii == -1) {
       printf("Error: Marker %s in .lgen file but missing from .map.\n", id_buf);
-      goto lgen_ret_INVALID_FORMAT_2;
+      goto lgen_to_bed_ret_INVALID_FORMAT_2;
     }
     jj = marker_id_map[ii];
     if (jj != -1) {
@@ -7325,7 +7329,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
 	    } else if (*cptr6 == cc2) {
 	      uii = 0;
 	    } else {
-	      goto lgen_ret_INVALID_FORMAT_3;
+	      goto lgen_to_bed_ret_INVALID_FORMAT_3;
 	    }
 	  }
 	} else {
@@ -7334,12 +7338,12 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
 	  } else if (*cptr5 == cc2) {
 	    uii = 0;
 	  } else {
-	    goto lgen_ret_INVALID_FORMAT_3;
+	    goto lgen_to_bed_ret_INVALID_FORMAT_3;
 	  }
 	  if (*cptr6 == cc) {
 	    uii++;
 	  } else if (*cptr6 != cc2) {
-	    goto lgen_ret_INVALID_FORMAT_3;
+	    goto lgen_to_bed_ret_INVALID_FORMAT_3;
 	  }
 	}
       }
@@ -7365,7 +7369,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
     }
   }
   if (!feof(infile)) {
-    goto lgen_ret_READ_FAIL;
+    goto lgen_to_bed_ret_READ_FAIL;
   }
   fclose_null(&infile);
   if (pct < 10) {
@@ -7435,18 +7439,18 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
     }
   }
   if (fwrite_checked(writebuf, ((unsigned long)marker_ct) * indiv_ct4, outfile)) {
-    goto lgen_ret_WRITE_FAIL;
+    goto lgen_to_bed_ret_WRITE_FAIL;
   }
   if (fclose_null(&outfile)) {
-    goto lgen_ret_WRITE_FAIL;
+    goto lgen_to_bed_ret_WRITE_FAIL;
   }
   memcpy(name_end, ".map", 5);
   if (fopen_checked(&infile, lgen_namebuf, "r")) {
-    goto lgen_ret_OPEN_FAIL;
+    goto lgen_to_bed_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".bim", 5);
   if (fopen_checked(&outfile, outname, "w")) {
-    goto lgen_ret_OPEN_FAIL;
+    goto lgen_to_bed_ret_OPEN_FAIL;
   }
   uii = 2 * marker_ct;
   for (ujj = 0; ujj < uii; ujj++) {
@@ -7471,26 +7475,26 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
     sprintf(cptr, "\t%c\t%c\n", marker_alleles[marker_idx * 2], marker_alleles[marker_idx * 2 + 1]);
     ulii = strlen(cptr) + (unsigned long)(cptr - tbuf);
     if (fwrite_checked(tbuf, ulii, outfile)) {
-      goto lgen_ret_WRITE_FAIL;
+      goto lgen_to_bed_ret_WRITE_FAIL;
     }
     uii++;
     marker_idx++;
   }
   if (!feof(infile)) {
-    goto lgen_ret_READ_FAIL;
+    goto lgen_to_bed_ret_READ_FAIL;
   }
   fclose_null(&infile);
   if (fclose_null(&outfile)) {
-    goto lgen_ret_WRITE_FAIL;
+    goto lgen_to_bed_ret_WRITE_FAIL;
   }
   memcpy(name_end, ".fam", 5);
   memcpy(outname_end, ".fam", 5);
   if (strcmp(lgen_namebuf, outname)) {
     if (fopen_checked(&infile, lgen_namebuf, "r")) {
-      goto lgen_ret_OPEN_FAIL;
+      goto lgen_to_bed_ret_OPEN_FAIL;
     }
     if (fopen_checked(&outfile, outname, "w")) {
-      goto lgen_ret_OPEN_FAIL;
+      goto lgen_to_bed_ret_OPEN_FAIL;
     }
     while (fgets(tbuf, MAXLINELEN, infile)) {
       if (*tbuf == '\n') {
@@ -7502,45 +7506,391 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
 	tbuf[ulii] = '\0';
       }
       if (fwrite_checked(tbuf, ulii, outfile)) {
-	goto lgen_ret_WRITE_FAIL;
+	goto lgen_to_bed_ret_WRITE_FAIL;
       }
     }
     if (!feof(infile)) {
-      goto lgen_ret_READ_FAIL;
+      goto lgen_to_bed_ret_READ_FAIL;
     }
   }
   memcpy(outname_end, ".bed", 5);
   printf("%s + .bim + .fam written.\n", outname);
 
   while (0) {
-  lgen_ret_NOMEM:
+  lgen_to_bed_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  lgen_ret_CALC_NOT_YET_SUPPORTED:
+  lgen_to_bed_ret_CALC_NOT_YET_SUPPORTED:
     retval = RET_CALC_NOT_YET_SUPPORTED;
     break;
-  lgen_ret_OPEN_FAIL:
+  lgen_to_bed_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
-  lgen_ret_READ_FAIL:
+  lgen_to_bed_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  lgen_ret_WRITE_FAIL:
+  lgen_to_bed_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
-  lgen_ret_INVALID_FORMAT:
+  lgen_to_bed_ret_INVALID_FORMAT:
     printf("Error: Improperly formatted .lgen file.\n");
-  lgen_ret_INVALID_FORMAT_2:
+  lgen_to_bed_ret_INVALID_FORMAT_2:
     retval = RET_INVALID_FORMAT;
     break;
-  lgen_ret_INVALID_FORMAT_3:
+  lgen_to_bed_ret_INVALID_FORMAT_3:
     printf("Error: Marker %s in .lgen file has 3+ different alleles.\n", id_buf);
     retval = RET_INVALID_FORMAT;
     break;
   }
- lgen_ret_1:
+ lgen_to_bed_ret_1:
   if (infile) {
     fclose(infile);
+  }
+  if (outfile) {
+    fclose(outfile);
+  }
+  return retval;
+}
+
+inline unsigned int update_alleles_and_cts(char* alleles, unsigned int* allele_cts, char cc) {
+  if (cc == alleles[0]) {
+    allele_cts[0] += 1;
+    return 0;
+  } else if (!alleles[0]) {
+    alleles[0] = cc;
+    allele_cts[0] = 1;
+    return 0;
+  } else if (cc == alleles[1]) {
+    allele_cts[1] += 1;
+    return 1;
+  } else if (!alleles[1]) {
+    alleles[1] = cc;
+    allele_cts[1] = 1;
+    return 1;
+  } else if (cc == alleles[2]) {
+    allele_cts[2] += 1;
+    return 2;
+  } else if (!alleles[2]) {
+    alleles[2] = cc;
+    allele_cts[2] = 1;
+    return 2;
+  } else if (cc == alleles[3]) {
+    allele_cts[3] += 1;
+    return 3;
+  } else if (!alleles[3]) {
+    alleles[3] = cc;
+    allele_cts[3] += 1;
+    return 3;
+  } else {
+    return 4;
+  }
+}
+
+void transposed_to_bed_print_pct(unsigned int pct) {
+  printf("Processing .tped file... %u%%", pct);
+  fflush(stdout);
+}
+
+int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missing_geno) {
+  FILE* infile = NULL;
+  FILE* bimfile = NULL;
+  FILE* outfile = NULL;
+  char* outname_end = (char*)memchr(outname, 0, FNAMESIZE);
+  unsigned int indiv_ct = 0;
+  unsigned int no_extra_cols = 1;
+  int retval = 0;
+  unsigned int pct = 0;
+  unsigned int indiv_ct4;
+  unsigned int indiv_idx;
+  unsigned long ulii;
+  unsigned int uii;
+  unsigned int ujj;
+  int ii;
+  // may as well not error out on triallelic (or quadallelic) input.  Instead,
+  // print notes when it happens.
+  char alleles[4];
+  char orig_alleles[4];
+  unsigned int allele_cts[4];
+  unsigned char* writebuf;
+  unsigned char* prewritebuf;
+  unsigned char writemap[17];
+  unsigned char ucc;
+  unsigned int max_load;
+  char* loadbuf;
+  char* cptr;
+  char* cptr2;
+  char* cptr3;
+  unsigned char* ucptr;
+  unsigned char* ucptr2;
+  char cc;
+  char cc2;
+  long long tped_size;
+  long long tped_next_thresh;
+
+  transposed_to_bed_print_pct(0);
+  fflush(stdout);
+  if (fopen_checked(&infile, tfamname, "r")) {
+    goto transposed_to_bed_ret_OPEN_FAIL;
+  }
+  memcpy(outname_end, ".fam", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto transposed_to_bed_ret_OPEN_FAIL;
+  }
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (*tbuf == '\n') {
+      continue;
+    }
+    ulii = strlen(tbuf);
+    if (tbuf[ulii - 1] != '\n') {
+      tbuf[ulii++] = '\n';
+    }
+    if (fwrite_checked(tbuf, ulii, outfile)) {
+      goto transposed_to_bed_ret_WRITE_FAIL;
+    }
+    indiv_ct++;
+  }
+  if (!feof(infile)) {
+    goto transposed_to_bed_ret_READ_FAIL;
+  }
+  if (!indiv_ct) {
+    printf("\rError: No individuals in .tfam file.\n");
+    goto transposed_to_bed_ret_INVALID_FORMAT_2;
+  }
+  indiv_ct4 = (indiv_ct + 3) / 4;
+  fclose_null(&infile);
+  fclose_null(&outfile);
+  if (fopen_checked(&infile, tpedname, "r")) {
+    goto transposed_to_bed_ret_OPEN_FAIL;
+  }
+  if (fseeko(infile, 0, SEEK_END)) {
+    goto transposed_to_bed_ret_READ_FAIL;
+  }
+  tped_size = ftello(infile);
+  rewind(infile);
+  tped_next_thresh = tped_size / 100;
+
+  memcpy(outname_end, ".bim", 5);
+  if (fopen_checked(&bimfile, outname, "w")) {
+    goto transposed_to_bed_ret_OPEN_FAIL;
+  }
+  memcpy(outname_end, ".bed", 5);
+  if (fopen_checked(&outfile, outname, "wb")) {
+    goto transposed_to_bed_ret_OPEN_FAIL;
+  }
+  if (wkspace_alloc_uc_checked(&writebuf, indiv_ct4)) {
+    goto transposed_to_bed_ret_NOMEM;
+  }
+  if (wkspace_alloc_uc_checked(&prewritebuf, indiv_ct)) {
+    goto transposed_to_bed_ret_NOMEM;
+  }
+  loadbuf = (char*)wkspace_base;
+  if (wkspace_left > 2147483584) {
+    max_load = 2147483584;
+  } else {
+    max_load = wkspace_left;
+  }
+  writemap[16] = 1;
+  if (fwrite_checked("l\x1b\x01", 3, outfile)) {
+    goto transposed_to_bed_ret_WRITE_FAIL;
+  }
+  while (fgets(loadbuf, max_load, infile)) {
+    if (*loadbuf == '\n') {
+      continue;
+    }
+    memset(alleles, 0, 4);
+    fill_uint_zero(allele_cts, 4);
+    cptr = skip_initial_spaces(loadbuf);
+    cptr3 = next_item_mult(cptr, 4);
+    if (no_more_items(cptr3)) {
+      goto transposed_to_bed_ret_INVALID_FORMAT;
+    }
+    for (uii = 0; uii < 3; uii++) {
+      cptr2 = item_end(cptr);
+      *cptr2++ = '\t';
+      if (fwrite_checked(cptr, (cptr2 - cptr), bimfile)) {
+	goto transposed_to_bed_ret_WRITE_FAIL;
+      }
+      cptr = skip_initial_spaces(cptr2);
+    }
+    if (*cptr == '-') {
+      continue;
+    }
+    cptr2 = item_end(cptr);
+    *cptr2++ = '\t';
+    if (fwrite_checked(cptr, (cptr2 - cptr), bimfile)) {
+      goto transposed_to_bed_ret_WRITE_FAIL;
+    }
+    cptr2 = cptr3;
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      cc = *cptr2++;
+      if (!cc) {
+	goto transposed_to_bed_ret_INVALID_FORMAT_3;
+      }
+      cptr2 = skip_initial_spaces(cptr2);
+      cc2 = *cptr2++;
+      if (!cc2) {
+	goto transposed_to_bed_ret_INVALID_FORMAT_3;
+      }
+      cptr2 = skip_initial_spaces(cptr2);
+      if (cc == missing_geno) {
+	if (cc2 != missing_geno) {
+	  goto transposed_to_bed_ret_INVALID_FORMAT_4;
+	}
+	prewritebuf[indiv_idx] = 16;
+      } else if (cc2 == missing_geno) {
+	goto transposed_to_bed_ret_INVALID_FORMAT_4;
+      } else {
+	uii = update_alleles_and_cts(alleles, allele_cts, cc);
+	ujj = update_alleles_and_cts(alleles, allele_cts, cc2);
+	if ((uii == 4) || (ujj == 4)) {
+	  cptr[strlen_se(cptr)] = '\0';
+	  printf("\rError: More than four alleles at marker %s.\n", cptr);
+	  goto transposed_to_bed_ret_INVALID_FORMAT_2;
+	}
+        prewritebuf[indiv_idx] = uii * 4 + ujj;
+      }
+    }
+
+    if (no_extra_cols && (*cptr2 != '\n') && (*cptr2 != '\0')) {
+      no_extra_cols = 0;
+      printf("\rNote: Extra columns in .tped file.  Ignoring.\n");
+      transposed_to_bed_print_pct(pct);
+    }
+
+    memcpy(orig_alleles, alleles, 4);
+    for (uii = 1; uii < 4; uii++) {
+      ujj = allele_cts[uii];
+      if (allele_cts[uii - 1] < ujj) {
+	cc = alleles[uii];
+	ii = uii;
+	do {
+	  ii--;
+	  alleles[ii + 1] = alleles[ii];
+	  allele_cts[ii + 1] = allele_cts[ii];
+	} while ((ii > 0) && (allele_cts[ii - 1] < ujj));
+	alleles[ii] = cc;
+	allele_cts[ii] = ujj;
+      }
+    }
+    if (allele_cts[2]) {
+      ulii = strlen_se(cptr);
+      cc = cptr[ulii];
+      cptr[ulii] = '\0';
+      if (allele_cts[3]) {
+	printf("\rNote: Marker %s is quadallelic.  Truncating.\n", cptr);
+      } else {
+	printf("\rNote: Marker %s is triallelic.  Truncating.\n", cptr);
+      }
+      transposed_to_bed_print_pct(pct);
+      cptr[ulii] = cc;
+    }
+    for (uii = 0; uii < 4; uii++) {
+      cc = orig_alleles[uii];
+      ucptr = &(writemap[4 * uii]);
+      if (cc == '\0') {
+	memset(ucptr, 1, 4);
+      } else if (cc == alleles[0]) {
+        for (ujj = 0; ujj < 4; ujj++) {
+	  cc = orig_alleles[ujj];
+	  if (cc == '\0') {
+	    *ucptr++ = 1;
+	  } else if (cc == alleles[0]) {
+	    *ucptr++ = 3;
+	  } else if (cc == alleles[1]) {
+	    *ucptr++ = 2;
+	  } else {
+	    *ucptr++ = 1;
+	  }
+	}
+      } else if (cc == alleles[1]) {
+	for (ujj = 0; ujj < 4; ujj++) {
+	  cc = orig_alleles[ujj];
+	  if (cc == '\0') {
+	    *ucptr++ = 1;
+	  } else if (cc == alleles[0]) {
+	    *ucptr++ = 2;
+	  } else if (cc == alleles[1]) {
+	    *ucptr++ = 0;
+	  } else {
+	    *ucptr++ = 1;
+	  }
+	}
+      } else {
+        memset(ucptr, 1, 4);
+      }
+    }
+    uii = indiv_ct & (~3U);
+    ucptr = writebuf;
+    for (ujj = 0; ujj < uii; ujj += 4) {
+      *ucptr++ = writemap[prewritebuf[ujj]] | (writemap[prewritebuf[ujj + 1]] << 2) | (writemap[prewritebuf[ujj + 2]] << 4) | (writemap[prewritebuf[ujj + 3]] << 6);
+    }
+    ucc = 0;
+    ucptr2 = &(prewritebuf[uii]);
+    uii = indiv_ct % 4;
+    if (uii) {
+      for (ujj = 0; ujj < uii; ujj++) {
+        ucc |= (writemap[*ucptr2++]) << (ujj * 2);
+      }
+      *ucptr = ucc;
+    }
+    if (fwrite_checked(writebuf, indiv_ct4, outfile)) {
+      goto transposed_to_bed_ret_WRITE_FAIL;
+    }
+    if (fprintf(bimfile, "%c\t%c\n", alleles[1]? alleles[1] : '0', alleles[0]? alleles[0] : '0') < 0) {
+      goto transposed_to_bed_ret_WRITE_FAIL;
+    }
+    if (ftello(infile) >= tped_next_thresh) {
+      uii = (ftello(infile) * 100) / tped_size;
+      if (pct < 10) {
+	printf("\b\b%u%%", uii);
+      } else {
+	printf("\b\b\b%u%%", uii);
+      }
+      fflush(stdout);
+      pct = uii;
+      tped_next_thresh = ((pct + 1) * tped_size) / 100;
+    }
+  }
+  if (!feof(infile)) {
+    goto transposed_to_bed_ret_READ_FAIL;
+  }
+
+  printf("\rProcessing .tped file... done.\n%s + .bim + .fam written.\n", outname);
+
+  while (0) {
+  transposed_to_bed_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  transposed_to_bed_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  transposed_to_bed_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  transposed_to_bed_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  transposed_to_bed_ret_INVALID_FORMAT:
+    printf("\rError: Improperly formatted .tped file.\n");
+  transposed_to_bed_ret_INVALID_FORMAT_2:
+    retval = RET_INVALID_FORMAT;
+    break;
+  transposed_to_bed_ret_INVALID_FORMAT_3:
+    cptr[strlen_se(cptr)] = '\0';
+    printf("\rError: Missing entries at marker %s in .tped file.\n", cptr);
+    retval = RET_INVALID_FORMAT;
+    break;
+  transposed_to_bed_ret_INVALID_FORMAT_4:
+    cptr[strlen_se(cptr)] = '\0';
+    printf("\rError: half-missing call at marker %s, indiv %u in .tped file.\n", cptr, indiv_idx);
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  if (infile) {
+    fclose(infile);
+  }
+  if (bimfile) {
+    fclose(bimfile);
   }
   if (outfile) {
     fclose(outfile);
@@ -14418,14 +14768,66 @@ int main(int argc, char** argv) {
 	recode_modifier |= RECODE_TRANSPOSE;
 	cur_arg++;
       } else if (!memcmp(argptr2, "file", 5)) {
-	printf("Error: --tfile not written yet.\n");
-	return dispmsg(RET_CALC_NOT_YET_SUPPORTED);
+	if (load_rare & (~LOAD_RARE_TRANSPOSE_MASK)) {
+	  printf("Error: --tfile cannot be used with other load flags (except --tped/--tfam).%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii) {
+	  jj = strlen(argv[cur_arg + 1]);
+	  if (jj > FNAMESIZE - 6) {
+	    printf("Error: --tfile filename prefix too long.\n");
+	  }
+	  if (!(load_rare & LOAD_RARE_TPED)) {
+	    memcpy(pedname, argv[cur_arg + 1], jj);
+	    memcpy(&(pedname[jj]), ".tped", 6);
+	  }
+	  if (!(load_rare & LOAD_RARE_TFAM)) {
+	    memcpy(famname, argv[cur_arg + 1], jj);
+	    memcpy(&(famname[jj]), ".tfam", 6);
+	  }
+	} else {
+	  if (!(load_rare & LOAD_RARE_TPED)) {
+	    memcpy(pedname, "wdist.tped", 11);
+	  }
+	  if (!(load_rare & LOAD_RARE_TFAM)) {
+	    memcpy(famname, "wdist.tfam", 11);
+	  }
+	}
+	cur_arg += 1 + ii;
+	load_rare |= LOAD_RARE_TRANSPOSE;
       } else if (!memcmp(argptr2, "ped", 4)) {
-	printf("Error: --tped not written yet.\n");
-	return dispmsg(RET_CALC_NOT_YET_SUPPORTED);
+	if (load_rare & (~(LOAD_RARE_TRANSPOSE | LOAD_RARE_TFAM))) {
+	  printf("Error: --tped cannot be used with other load flags (except --tfile/--tfam).%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	jj = strlen(argv[cur_arg + 1]);
+	if (jj > FNAMESIZE - 1) {
+	  printf("Error: --tped filename prefix too long.\n");
+	}
+	memcpy(pedname, argv[cur_arg + 1], jj + 1);
+	cur_arg += 2;
+	load_rare |= LOAD_RARE_TPED;
       } else if (!memcmp(argptr2, "fam", 4)) {
-	printf("Error: --tfam not written yet.\n");
-	return dispmsg(RET_CALC_NOT_YET_SUPPORTED);
+	if (load_rare & (~(LOAD_RARE_TRANSPOSE | LOAD_RARE_TPED))) {
+	  printf("Error: --tfam cannot be used with other load flags (except --tfile/--tped).%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	jj = strlen(argv[cur_arg + 1]);
+	if (jj > FNAMESIZE - 1) {
+	  printf("Error: --tfam filename prefix too long.\n");
+	}
+	memcpy(famname, argv[cur_arg + 1], jj + 1);
+	cur_arg += 2;
+	load_rare |= LOAD_RARE_TFAM;
       }
       break;
 
@@ -14523,9 +14925,9 @@ int main(int argc, char** argv) {
 	printf("Error: --grm currently must be used with --rel-cutoff (possibly combined with\n--make-grm).%s", errstr_append);
 	return dispmsg(RET_INVALID_CMDLINE);
       }
-    } else if (load_rare == LOAD_RARE_LGEN) {
+    } else {
       if (calculation_type & (~CALC_MAKE_BED)) {
-	printf("Error: --lfile cannot be used with any calculation other than --make-bed.%s", errstr_append);
+	printf("Error: --%cfile cannot be used with any calculation other than --make-bed.%s", (load_rare == LOAD_RARE_LGEN)? 'l' : 't', errstr_append);
 	return dispmsg(RET_INVALID_CMDLINE);
       }
       calculation_type = CALC_MAKE_BED;
@@ -14618,14 +15020,13 @@ int main(int argc, char** argv) {
   tbuf[MAXLINELEN - 6] = ' ';
   tbuf[MAXLINELEN - 1] = ' ';
   if (load_rare) {
-    switch (load_rare) {
-    case LOAD_RARE_GRM:
+    if (load_rare == LOAD_RARE_GRM) {
       // --rel-cutoff batch mode special case
       retval = rel_cutoff_batch(pedname, outname, rel_cutoff, calculation_type);
-      break;
-    case LOAD_RARE_LGEN:
+    } else if (load_rare == LOAD_RARE_LGEN) {
       retval = lgen_to_bed(pedname, outname, missing_pheno, affection_01, &chrom_info);
-      break;
+    } else {
+      retval = transposed_to_bed(pedname, famname, outname, missing_geno);
     }
   } else if (genname[0]) {
   // famname[0] indicates binary vs. text
