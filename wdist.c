@@ -183,6 +183,15 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 #define RECODE_TRANSPOSE 8
 #define RECODE_LGEN 16
 
+#define REL_CALC_COV 1
+#define REL_CALC_SQ 2
+#define REL_CALC_SQ0 4
+#define REL_CALC_TRI 6
+#define REL_CALC_SHAPEMASK 6
+#define REL_CALC_GZ 8
+#define REL_CALC_BIN 16
+#define REL_CALC_GRM 32
+
 #define LOAD_RARE_GRM 1
 #define LOAD_RARE_LGEN 2
 #define LOAD_RARE_TRANSPOSE 4
@@ -275,7 +284,7 @@ static inline void debug_log(char* ss) {
 #define MAX(aa, bb) ((bb) > (aa))? (bb) : (aa)
 
 const char ver_str[] =
-  "WDIST v0.13.9"
+  "WDIST v0.13.10"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -287,7 +296,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (22 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (23 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -747,6 +756,13 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --lfile {prefix}\n"
 "    Loads a PLINK long-format fileset and converts it to binary.\n\n"
 	       );
+    help_print("merge\tbmerge\tmerge-mode\tmerge-list", &help_ctrl, 1,
+"  --merge [.ped filename] [.map filename]\n"
+"  --merge [text fileset prefix]\n"
+"  --bmerge [.bed filename] [.bim filename] [.fam filename]\n"
+"  --bmerge [binary fileset prefix]\n"
+"    Merges two PLINK-formatted filesets.\n\n"
+	       );
     help_print("write-snplist", &help_ctrl, 1,
 "  --write-snplist\n"
 "    Writes a .snplist file listing the names of all SNPs that pass the filters\n"
@@ -831,6 +847,22 @@ int disp_help(unsigned int param_ct, char** argv) {
 	       );
     help_print("silent", &help_ctrl, 0,
 "  --silent         : Suppress output to console.\n"
+	       );
+    help_print("merge\tbmerge\tmerge-mode", &help_ctrl, 0,
+"  --merge-mode [n] : Adjust --merge/--bmerge behavior based on numeric code.\n"
+"                     1 (default) = difference -> missing\n"
+"                     2 = only overwrite originally missing calls\n"
+"                     3 = only overwrite calls which are nonmissing in new file\n"
+"                     4/5 = never overwrite and always overwrite, respectively\n"
+"                     6 = report all mismatching calls without merging\n"
+"                     7 = report mismatching nonmissing calls without merging\n"
+	       );
+    help_print("merge\tbmerge\tmerge-list", &help_ctrl, 0,
+"  --merge-list [f] : Merge all filesets named in text file.  Each row of the\n"
+"                     text file must contain one filename stem (interpreted as a\n"
+"                     prefix for a binary fileset), two filenames (interpreted\n"
+"                     as a text fileset), or three filenames (interpreted as a\n"
+"                     binary fileset).\n"
 	       );
     help_print("pheno", &help_ctrl, 0,
 "  --pheno [fname]  : Specify alternate phenotype.\n"
@@ -957,10 +989,10 @@ int disp_help(unsigned int param_ct, char** argv) {
 "                              necessary.\n"
 	       );
     help_print("filter", &help_ctrl, 0,
-"  --filter [filename] [val] : Filter individuals (see PLINK documentation).\n"
+"  --filter [filename] [val] : Filter individuals based on variable.\n"
 	       );
     help_print("mfilter\tfilter", &help_ctrl, 0,
-"  --mfilter [col]           : Specify column number in --filter file.\n"
+"  --mfilter [col]           : Specify alternate column in --filter file.\n"
 	       );
     help_print("filter-cases\tfilter-controls", &help_ctrl, 0,
 "  --filter-cases            : Include only cases.\n"
@@ -2049,12 +2081,14 @@ void exclude_multi(unsigned long* exclude_arr, int* new_excl, unsigned int indiv
   }
 }
 
-int sort_item_ids(char** sorted_ids_ptr, int** id_map_ptr, int unfiltered_ct, unsigned long* exclude_arr, unsigned int exclude_ct, char* item_ids, unsigned long max_id_len) {
+int sort_item_ids(char** sorted_ids_ptr, int** id_map_ptr, int unfiltered_ct, unsigned long* exclude_arr, unsigned int exclude_ct, char* item_ids, unsigned long max_id_len, int* duplicate_fail_ptr) {
   // Allocates space for *sorted_ids_ptr and *id_map_ptr from wkspace; then
   // stores a lexicographically sorted list of IDs in *sorted_ids_ptr and
   // the raw positions of the corresponding SNPs/indivs in *id_map_ptr.  Does
   // not include excluded SNPs/indivs in the list.
-  // Also detects duplicates (returns RET_INVALID_FORMAT).
+  // If *duplicate_fail_ptr is nonzero, this fails out if duplicate IDs are
+  // found (RET_INVALID_FORMAT is returned).  If it is zero, it is set to one
+  // if there are duplicates.
   int item_ct = unfiltered_ct - exclude_ct;
   int ii;
   int jj;
@@ -2080,8 +2114,12 @@ int sort_item_ids(char** sorted_ids_ptr, int** id_map_ptr, int unfiltered_ct, un
   jj = item_ct - 1;
   for (ii = 0; ii < jj; ii++) {
     if (!strcmp(&(sorted_ids[ii * max_id_len]), &(sorted_ids[(ii + 1) * max_id_len]))) {
-      printf("Error: Duplicate IDs.\n");
-      return RET_INVALID_FORMAT;
+      if (*duplicate_fail_ptr) {
+        printf("Error: Duplicate IDs.\n");
+        return RET_INVALID_FORMAT;
+      }
+      *duplicate_fail_ptr = 1;
+      break;
     }
   }
   return 0;
@@ -4716,7 +4754,7 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, unsigned int unfilter
   return 0;
 }
 
-int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char extractname_0, char excludename_0, char freqname_0, int calculation_type, int recode_modifier) {
+int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char extractname_0, char excludename_0, char freqname_0, int calculation_type, int recode_modifier, int* map_is_sorted_ptr) {
   int marker_ids_needed = (extractname_0 || excludename_0 || freqname_0 || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE | CALC_REGRESS_PCS)) || ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_LGEN)));
   unsigned int unfiltered_marker_ct = 0;
   unsigned long max_marker_id_len = 0;
@@ -4849,15 +4887,19 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
 	if (last_chrom != -1) {
 	  chrom_info_ptr->chrom_end[last_chrom] = marker_uidx;
 	}
-        if (loaded_chrom_mask & (1LLU << jj)) {
-	  printf("Error: .map/.bim is unsorted.  Use PLINK --make-bed to remedy this for now.\n");
-	  return RET_INVALID_FORMAT;
-	}
-	loaded_chrom_mask |= 1LLU << jj;
 	last_chrom = jj;
-	chrom_info_ptr->chrom_start[jj] = marker_uidx;
-	chrom_info_ptr->chrom_file_order[++chroms_encountered_m1] = jj;
-	chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
+        if (loaded_chrom_mask & (1LLU << jj)) {
+	  if (binary_files && (calculation_type != CALC_MAKE_BED)) {
+	    printf("Error: .bim file is unsorted.  Use --make-bed by itself to remedy this.\n");
+	    return RET_INVALID_FORMAT;
+	  }
+	  *map_is_sorted_ptr = 0;
+	} else {
+	  loaded_chrom_mask |= 1LLU << jj;
+	  chrom_info_ptr->chrom_start[jj] = marker_uidx;
+	  chrom_info_ptr->chrom_file_order[++chroms_encountered_m1] = jj;
+	  chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
+	}
       }
     }
 
@@ -5469,7 +5511,7 @@ void prune_missing_phenos(unsigned int unfiltered_indiv_ct, unsigned long* indiv
   }
 }
 
-int include_or_exclude(char* fname, char* sorted_ids, int sorted_ids_len, unsigned long max_id_len, int* id_map, int unfiltered_ct, unsigned long* exclude_arr, unsigned int* exclude_ct_ptr, int indivs, int do_exclude) {
+int include_or_exclude(char* fname, char* sorted_ids, int sorted_ids_len, unsigned long max_id_len, int* id_map, int unfiltered_ct, unsigned long* exclude_arr, unsigned int* exclude_ct_ptr, int indivs, int do_exclude, int duplicates_present) {
   FILE* infile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   unsigned long* exclude_arr_new = NULL;
@@ -5479,6 +5521,8 @@ int include_or_exclude(char* fname, char* sorted_ids, int sorted_ids_len, unsign
   char* bufptr;
   int ii;
   int jj;
+  unsigned int id_len;
+  int id_idx;
 
   if (!do_exclude) {
     if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(long))) {
@@ -5511,8 +5555,30 @@ int include_or_exclude(char* fname, char* sorted_ids, int sorted_ids_len, unsign
         jj = id_map[ii];
         if (do_exclude) {
           set_bit(exclude_arr, jj, exclude_ct_ptr);
+	  if (duplicates_present) {
+	    id_len = strlen(id_buf) + 1;
+	    id_idx = ii - 1;
+	    while ((id_idx >= 0) && (!memcmp(id_buf, &(sorted_ids[id_idx * max_id_len]), id_len))) {
+	      set_bit(exclude_arr, id_map[id_idx--], exclude_ct_ptr);
+	    }
+	    id_idx = ii + 1;
+	    while ((id_idx < sorted_ids_len) && (!memcmp(id_buf, &(sorted_ids[id_idx * max_id_len]), id_len))) {
+	      set_bit(exclude_arr, id_map[id_idx++], exclude_ct_ptr);
+	    }
+	  }
 	} else if (!is_set(exclude_arr, jj)) {
 	  clear_bit(exclude_arr_new, jj, &include_ct);
+	  if (duplicates_present) {
+	    id_len = strlen(id_buf) + 1;
+	    id_idx = ii - 1;
+	    while ((id_idx >= 0) && (!memcmp(id_buf, &(sorted_ids[id_idx * max_id_len]), id_len))) {
+	      clear_bit(exclude_arr_new, id_map[id_idx--], &include_ct);
+	    }
+	    id_idx = ii + 1;
+	    while ((id_idx < sorted_ids_len) && (!memcmp(id_buf, &(sorted_ids[id_idx * max_id_len]), id_len))) {
+	      clear_bit(exclude_arr_new, id_map[id_idx++], &include_ct);
+	    }
+	  }
 	}
       }
     }
@@ -5527,8 +5593,30 @@ int include_or_exclude(char* fname, char* sorted_ids, int sorted_ids_len, unsign
 	jj = id_map[ii];
 	if (do_exclude) {
 	  set_bit(exclude_arr, jj, exclude_ct_ptr);
+	  if (duplicates_present) {
+	    id_len = strlen(tbuf) + 1;
+	    id_idx = ii - 1;
+	    while ((id_idx >= 0) && (!memcmp(tbuf, &(sorted_ids[id_idx * max_id_len]), id_len))) {
+	      set_bit(exclude_arr, id_map[id_idx--], exclude_ct_ptr);
+	    }
+	    id_idx = ii + 1;
+	    while ((id_idx < sorted_ids_len) && (!memcmp(tbuf, &(sorted_ids[id_idx * max_id_len]), id_len))) {
+	      set_bit(exclude_arr, id_map[id_idx++], exclude_ct_ptr);
+	    }
+	  }
 	} else if (!is_set(exclude_arr, jj)) {
 	  clear_bit(exclude_arr_new, jj, &include_ct);
+	  if (duplicates_present) {
+	    id_len = strlen(tbuf) + 1;
+	    id_idx = ii - 1;
+	    while ((id_idx >= 0) && (!memcmp(tbuf, &(sorted_ids[id_idx * max_id_len]), id_len))) {
+	      clear_bit(exclude_arr_new, id_map[id_idx--], &include_ct);
+	    }
+	    id_idx = ii + 1;
+	    while ((id_idx < sorted_ids_len) && (!memcmp(tbuf, &(sorted_ids[id_idx * max_id_len]), id_len))) {
+	      clear_bit(exclude_arr_new, id_map[id_idx++], &include_ct);
+	    }
+	  }
 	}
       }
     }
@@ -6236,6 +6324,7 @@ int load_one_freq(char allele_min, char allele_maj, double maf, double* set_alle
 int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_exclude_ct, char* marker_ids, unsigned long max_marker_id_len, Chrom_info* chrom_info_ptr, char* marker_alleles, unsigned int* marker_allele_cts, double* set_allele_freqs, int binary_files, int maf_succ, char missing_geno, double exponent, int wt_needed, double* marker_weights) {
   unsigned int species = chrom_info_ptr->species;
   int freq_counts = 0;
+  int duplicate_fail = 1;
   unsigned char* wkspace_mark;
   char* sorted_ids;
   int* id_map;
@@ -6258,7 +6347,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
     return RET_INVALID_FORMAT;
   }
   wkspace_mark = wkspace_base;
-  ii = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len);
+  ii = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, &duplicate_fail);
   if (ii) {
     return ii;
   }
@@ -7134,6 +7223,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   int affection = 0;
   unsigned long* founder_info = NULL;
   unsigned long* indiv_exclude = NULL;
+  int map_is_sorted = 1;
   char* sorted_marker_ids;
   int* marker_id_map;
   char* sorted_indiv_ids;
@@ -7172,7 +7262,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   memcpy(name_end, ".map", 5);
   // use CALC_WRITE_SNPLIST to force loading of marker IDs, without other
   // unwanted side-effects
-  retval = load_map_or_bim(&infile, lgen_namebuf, 0, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, NULL, &marker_ids, chrom_info_ptr, &marker_pos, '\0', '\0', '\0', CALC_WRITE_SNPLIST, 0);
+  retval = load_map_or_bim(&infile, lgen_namebuf, 0, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, NULL, &marker_ids, chrom_info_ptr, &marker_pos, '\0', '\0', '\0', CALC_WRITE_SNPLIST, 0, &map_is_sorted);
   if (retval) {
     goto lgen_to_bed_ret_1;
   }
@@ -10392,7 +10482,7 @@ int do_rel_cutoff(int calculation_type, double rel_cutoff, double* rel_ibc, unsi
     }
   }
   printf("%d individual%s excluded by --rel-cutoff.\n", indivs_excluded, (indivs_excluded == 1)? "" : "s");
-  if (!(calculation_type & (CALC_RELATIONSHIP_MASK | CALC_GDISTANCE_MASK))) {
+  if (!(calculation_type & (CALC_RELATIONSHIP | CALC_GDISTANCE_MASK))) {
     strcpy(outname_end, ".rel.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
@@ -10404,7 +10494,7 @@ int do_rel_cutoff(int calculation_type, double rel_cutoff, double* rel_ibc, unsi
   return 0;
 }
 
-int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int calculation_type) {
+int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_calc_type) {
   // Specialized --rel-cutoff usable on larger files.
   char* grmname_end = (char*)memchr(grmname, 0, FNAMESIZE);
   char* outname_end = (char*)memchr(outname, 0, FNAMESIZE);
@@ -10740,7 +10830,7 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int calcul
 
   printf("%d individual%s excluded by --rel-cutoff.\n", indivs_excluded, (indivs_excluded == 1)? "" : "s");
   printf("Remaining individual IDs written to %s.\n", outname);
-  if (calculation_type & CALC_RELATIONSHIP_GRM) {
+  if (rel_calc_type & REL_CALC_GRM) {
     memcpy(grmname_end, ".grm.gz", 8);
     if (gzopen_checked(&cur_gzfile, grmname, "rb")) {
       goto rel_cutoff_batch_ret_OPEN_FAIL;
@@ -10749,7 +10839,7 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int calcul
       goto rel_cutoff_batch_ret_NOMEM;
     }
 
-    if (calculation_type & CALC_RELATIONSHIP_GZ) {
+    if (rel_calc_type & REL_CALC_GZ) {
       memcpy(outname_end, ".grm.gz", 8);
       if (gzopen_checked(&gz_outfile, outname, "wb")) {
 	goto rel_cutoff_batch_ret_OPEN_FAIL;
@@ -10837,14 +10927,14 @@ inline int distance_wt_req(int calculation_type) {
 }
 
 inline int relationship_req(int calculation_type) {
-  return (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF | CALC_REGRESS_REL));
+  return (calculation_type & (CALC_RELATIONSHIP | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF | CALC_REGRESS_REL));
 }
 
 inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier, int allelexxxx) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int rel_calc_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier, int allelexxxx) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -10912,6 +11002,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   unsigned int* marker_allele_cts;
   unsigned int* missing_cts;
   int retval = RET_SUCCESS;
+  int map_is_sorted = 1;
   int map_cols = 3;
   int affection = 0;
   double* phenor_d = NULL;
@@ -10992,8 +11083,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   unsigned int indiv_idx;
   unsigned int pct;
   unsigned int tstc;
+  int duplicate_fail;
 
-  if (calculation_type & CALC_RELATIONSHIP_COV) {
+  if (rel_calc_type & REL_CALC_COV) {
     var_std = 0;
     ibc_type = -1;
   }
@@ -11003,6 +11095,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
   if (famname[0]) {
     binary_files = 1;
+    if (calculation_type & CALC_MAKE_BED) {
+      memcpy(outname_end, ".bed", 5);
+      if (!memcmp(pedname, outname, 5 + (unsigned long)(outname_end - outname))) {
+        printf("Error: --make-bed can no longer be used for in-place dataset filtering; the\noutput filenames must differ from the input filenames now.  Try alternating\nbetween two names.\n");
+	goto wdist_ret_INVALID_CMDLINE;
+      }
+    }
     if (fopen_checked(&famfile, famname, "r")) {
       goto wdist_ret_OPEN_FAIL;
     }
@@ -11011,13 +11110,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   if (phenoname[0] && fopen_checked(&phenofile, phenoname, "r")) {
     goto wdist_ret_OPEN_FAIL;
   }
-  outname_end = outname;
-  while (*outname_end) {
-    outname_end++;
-  }
 
   // load .map/.bim, count markers, filter chromosomes
-  retval = load_map_or_bim(&mapfile, mapname, binary_files, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &marker_ids, chrom_info_ptr, &marker_pos, *extractname, *excludename, *freqname, calculation_type, recode_modifier);
+  retval = load_map_or_bim(&mapfile, mapname, binary_files, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &marker_ids, chrom_info_ptr, &marker_pos, *extractname, *excludename, *freqname, calculation_type, recode_modifier, &map_is_sorted);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -11047,7 +11142,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (phenofile || tail_pheno) {
     wkspace_mark = wkspace_base;
-    retval = sort_item_ids(&cptr, &iptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len);
+    duplicate_fail = 1;
+    retval = sort_item_ids(&cptr, &iptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, &duplicate_fail);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -11092,21 +11188,25 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (extractname[0] || excludename[0]) {
     wkspace_mark = wkspace_base;
-    retval = sort_item_ids(&cptr, &iptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len);
+    duplicate_fail = 0;
+    retval = sort_item_ids(&cptr, &iptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, &duplicate_fail);
     if (retval) {
       goto wdist_ret_2;
+    }
+    if (duplicate_fail) {
+      printf("Warning: Duplicate marker ID(s) in input.\n");
     }
     // length of sorted list is NOT necessarily equal to unfiltered_marker_ct -
     // marker_exclude_ct, since marker_exclude_ct may change before second call
     ii = unfiltered_marker_ct - marker_exclude_ct;
     if (extractname[0]) {
-      retval = include_or_exclude(extractname, cptr, ii, max_marker_id_len, iptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, 0);
+      retval = include_or_exclude(extractname, cptr, ii, max_marker_id_len, iptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, 0, duplicate_fail);
       if (retval) {
         goto wdist_ret_1;
       }
     }
     if (excludename[0]) {
-      retval = include_or_exclude(excludename, cptr, ii, max_marker_id_len, iptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, 1);
+      retval = include_or_exclude(excludename, cptr, ii, max_marker_id_len, iptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, 1, duplicate_fail);
       if (retval) {
         goto wdist_ret_1;
       }
@@ -11116,19 +11216,23 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (removename[0] || keepname[0] || filtername[0]) {
     wkspace_mark = wkspace_base;
-    retval = sort_item_ids(&cptr, &iptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len);
+    duplicate_fail = 0;
+    retval = sort_item_ids(&cptr, &iptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, &duplicate_fail);
     if (retval) {
       goto wdist_ret_2;
     }
+    if (duplicate_fail) {
+      printf("Warning: Duplicate individual ID(s) in input.\n");
+    }
     ii = unfiltered_indiv_ct - indiv_exclude_ct;
     if (removename[0]) {
-      retval = include_or_exclude(removename, cptr, ii, max_person_id_len, iptr, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 1, 1);
+      retval = include_or_exclude(removename, cptr, ii, max_person_id_len, iptr, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 1, 1, duplicate_fail);
       if (retval) {
 	goto wdist_ret_2;
       }
     }
     if (keepname[0]) {
-      retval = include_or_exclude(keepname, cptr, ii, max_person_id_len, iptr, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 1, 0);
+      retval = include_or_exclude(keepname, cptr, ii, max_person_id_len, iptr, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 1, 0, duplicate_fail);
       if (retval) {
 	goto wdist_ret_2;
       }
@@ -11376,7 +11480,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     goto wdist_ret_INVALID_CMDLINE;
   }
   if (g_thread_ct > 1) {
-    if (calculation_type & (CALC_RELATIONSHIP_MASK | CALC_IBC | CALC_GDISTANCE_MASK | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY)) {
+    if (calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY)) {
       printf("Using %d threads (change this with --threads).\n", g_thread_ct);
     } else {
       printf("Using 1 thread (no multithreaded calculations invoked).\n");
@@ -11668,9 +11772,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       printf("%s written.\n", outname);
     }
-    if (calculation_type & CALC_RELATIONSHIP_MASK) {
+    if (calculation_type & CALC_RELATIONSHIP) {
       mm = 1;
-      nn = calculation_type & CALC_RELATIONSHIP_SHAPEMASK;
+      nn = rel_calc_type & REL_CALC_SHAPEMASK;
       if (parallel_tot == 1) {
 	oo = g_indiv_ct;
 	// nasty rel-cutoff bug
@@ -11688,8 +11792,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       llxx = ((long long)pp * (pp - 1)) / 2;
       llyy = (((long long)oo * (oo + 1)) / 2) - llxx;
-      if (calculation_type & CALC_RELATIONSHIP_BIN) {
-	if (nn == CALC_RELATIONSHIP_SQ0) {
+      if (calculation_type & REL_CALC_BIN) {
+	if (nn == REL_CALC_SQ0) {
 	  fill_double_zero((double*)g_geno, g_indiv_ct - 1);
 	}
 	strcpy(outname_end, ".rel.bin");
@@ -11706,14 +11810,14 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  if (fwrite_checked(dptr2++, sizeof(double), outfile)) {
 	    goto wdist_ret_WRITE_FAIL;
 	  }
-	  if (nn == CALC_RELATIONSHIP_TRI) {
+	  if (nn == REL_CALC_TRI) {
 	    if ((((long long)ii + 1) * (ii + 2) / 2 - llxx) * 100 >= llyy * mm) {
 	      mm = (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100) / llyy;
 	      printf("\rWriting... %d%%", mm++);
 	      fflush(stdout);
 	    }
 	  } else {
-	    if (nn == CALC_RELATIONSHIP_SQ0) {
+	    if (nn == REL_CALC_SQ0) {
 	      if (fwrite_checked(g_geno, (g_indiv_ct - ii - 1) * sizeof(double), outfile)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
@@ -11734,9 +11838,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	if (fclose_null(&outfile)) {
 	  goto wdist_ret_WRITE_FAIL;
 	}
-      } else if (calculation_type & CALC_RELATIONSHIP_GRM) {
+      } else if (rel_calc_type & REL_CALC_GRM) {
 	giptr2 = g_missing_dbl_excluded;
-	if (calculation_type & CALC_RELATIONSHIP_GZ) {
+	if (rel_calc_type & REL_CALC_GZ) {
 	  if (parallel_tot > 1) {
 	    sprintf(outname_end, ".grm.%d.gz", parallel_idx + 1);
 	  } else {
@@ -11798,7 +11902,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
 	}
       } else {
-	if (nn == CALC_RELATIONSHIP_SQ0) {
+	if (nn == REL_CALC_SQ0) {
 	  cptr2 = (char*)(&ulii);
 	  for (uii = 0; uii < sizeof(long); uii += 2) {
 	    cptr2[uii] = '\t';
@@ -11810,7 +11914,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    *glptr2++ = ulii;
 	  }
 	}
-	if (calculation_type & CALC_RELATIONSHIP_GZ) {
+	if (rel_calc_type & REL_CALC_GZ) {
 	  if (parallel_tot > 1) {
 	    sprintf(outname_end, ".rel.%d.gz", parallel_idx + 1);
 	  } else {
@@ -11826,11 +11930,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    if (!gzprintf(gz_outfile, "%g", *dptr2++)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    if (nn == CALC_RELATIONSHIP_SQ0) {
+	    if (nn == REL_CALC_SQ0) {
 	      if (gzwrite_checked(gz_outfile, g_geno, (g_indiv_ct - 1) * 2)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
-	    } else if (nn == CALC_RELATIONSHIP_SQ) {
+	    } else if (nn == REL_CALC_SQ) {
 	      // parallel_tot must be 1 for SQ shape
 	      for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
 		if (!gzprintf(gz_outfile, "\t%g", g_rel_dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2])) {
@@ -11855,7 +11959,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    if (!gzprintf(gz_outfile, "\t%g", *dptr2++)) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    if (nn == CALC_RELATIONSHIP_SQ0) {
+	    if (nn == REL_CALC_SQ0) {
 	      if (gzwrite_checked(gz_outfile, g_geno, (g_indiv_ct - jj - 1) * 2)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
@@ -11865,7 +11969,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		fflush(stdout);
 	      }
 	    } else {
-	      if (nn == CALC_RELATIONSHIP_SQ) {
+	      if (nn == REL_CALC_SQ) {
 		for (ulii = ii + 1; ulii < g_indiv_ct; ulii++) {
 		  if (!gzprintf(gz_outfile, "\t%g", g_rel_dists[((ulii * (ulii - 1)) / 2) + ii])) {
 		    goto wdist_ret_WRITE_FAIL;
@@ -11899,11 +12003,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    if (fprintf(outfile, "%g", *dptr2++) < 0) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    if (nn == CALC_RELATIONSHIP_SQ0) {
+	    if (nn == REL_CALC_SQ0) {
 	      if (fwrite_checked(g_geno, (g_indiv_ct - 1) * 2, outfile)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
-	    } else if (nn == CALC_RELATIONSHIP_SQ) {
+	    } else if (nn == REL_CALC_SQ) {
 	      for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
 		if (fprintf(outfile, "\t%g", g_rel_dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2]) < 0) {
 		  goto wdist_ret_WRITE_FAIL;
@@ -11927,7 +12031,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	    if (fprintf(outfile, "\t%g", *dptr2++) < 0) {
 	      goto wdist_ret_WRITE_FAIL;
 	    }
-	    if (nn == CALC_RELATIONSHIP_SQ0) {
+	    if (nn == REL_CALC_SQ0) {
 	      if (fwrite_checked(g_geno, (g_indiv_ct - ii - 1) * 2, outfile)) {
 		goto wdist_ret_WRITE_FAIL;
 	      }
@@ -11937,7 +12041,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 		fflush(stdout);
 	      }
 	    } else {
-	      if (nn == CALC_RELATIONSHIP_SQ) {
+	      if (nn == REL_CALC_SQ) {
 		for (ulii = ii + 1; ulii < g_indiv_ct; ulii++) {
 		  if (fprintf(outfile, "\t%g", g_rel_dists[((ulii * (ulii - 1)) / 2) + ii]) < 0) {
 		    goto wdist_ret_WRITE_FAIL;
@@ -12886,6 +12990,7 @@ int main(int argc, char** argv) {
   double rel_cutoff = 0.025;
   int cur_arg = 1;
   int calculation_type = 0;
+  int rel_calc_type = 0;
   char* bubble;
   int mfilter_col = 0;
   int pheno_merge = 0;
@@ -13155,7 +13260,13 @@ int main(int argc, char** argv) {
 	}
 	strcpy(mapname, argv[cur_arg + 1]);
 	cur_arg += 2;
+      } else if (!memcmp(argptr2, "merge", 6)) {
+	printf("Error: --bmerge not yet written.\n");
+	return dispmsg(RET_CALC_NOT_YET_SUPPORTED);
+	calculation_type |= CALC_MERGE;
+	cur_arg += 1 + ii;
       }
+
       break;
 
     case 'c':
@@ -13711,7 +13822,7 @@ int main(int argc, char** argv) {
 
     case 'i':
       if (!memcmp(argptr2, "bc", 3)) {
-	if (calculation_type & CALC_RELATIONSHIP_COV) {
+	if (rel_calc_type & REL_CALC_COV) {
 	  printf("Error: --ibc flag cannot coexist with a covariance matrix calculation.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
@@ -14051,7 +14162,7 @@ int main(int argc, char** argv) {
 	}
 	cur_arg += ii + 1;
       } else if (!memcmp(argptr2, "ake-rel", 8)) {
-	if (calculation_type & CALC_RELATIONSHIP_MASK) {
+	if (calculation_type & CALC_RELATIONSHIP) {
 	  printf("Error: --make-rel cannot coexist with another relationship matrix file\ncreation flag.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
@@ -14072,51 +14183,51 @@ int main(int argc, char** argv) {
 	      printf("Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
-	    calculation_type |= CALC_RELATIONSHIP_COV;
+	    rel_calc_type |= REL_CALC_COV;
 	  } else if (!strcmp(argv[cur_arg + jj], "gz")) {
-	    if (calculation_type & CALC_RELATIONSHIP_BIN) {
+	    if (rel_calc_type & REL_CALC_BIN) {
 	      printf("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
-	    calculation_type |= CALC_RELATIONSHIP_GZ;
+	    rel_calc_type |= REL_CALC_GZ;
 	  } else if (!strcmp(argv[cur_arg + jj], "bin")) {
-	    if (calculation_type & CALC_RELATIONSHIP_GZ) {
+	    if (rel_calc_type & REL_CALC_GZ) {
 	      printf("Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
-	    calculation_type |= CALC_RELATIONSHIP_BIN;
+	    rel_calc_type |= REL_CALC_BIN;
 	  } else if (!strcmp(argv[cur_arg + jj], "square")) {
-	    if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ0) {
+	    if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_SQ0) {
 	      printf("Error: --make-rel 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
-	    } else if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_TRI) {
+	    } else if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_TRI) {
 	      printf("Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    } else if (parallel_tot > 1) {
 	      printf("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
-	    calculation_type |= CALC_RELATIONSHIP_SQ;
+	    rel_calc_type |= REL_CALC_SQ;
 	  } else if (!strcmp(argv[cur_arg + jj], "square0")) {
-	    if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ) {
+	    if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
 	      printf("Error: --make-rel 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
-	    } else if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_TRI) {
+	    } else if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_TRI) {
 	      printf("Error: --make-rel 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
-	    calculation_type |= CALC_RELATIONSHIP_SQ0;
+	    rel_calc_type |= REL_CALC_SQ0;
 	  } else if (!strcmp(argv[cur_arg + jj], "triangle")) {
-	    if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ) {
+	    if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
 	      printf("Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
-	    } else if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ0) {
+	    } else if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_SQ0) {
 	      printf("Error: --make-rel 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
-	    calculation_type |= CALC_RELATIONSHIP_TRI;
+	    rel_calc_type |= REL_CALC_TRI;
 	  } else if ((!strcmp(argv[cur_arg + jj], "ibc1")) || (!strcmp(argv[cur_arg + jj], "ibc2"))) {
-	    if (calculation_type & CALC_RELATIONSHIP_COV) {
+	    if (rel_calc_type & REL_CALC_COV) {
 	      printf("Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
@@ -14130,23 +14241,24 @@ int main(int argc, char** argv) {
 	    return dispmsg(RET_INVALID_CMDLINE);
 	  }
 	}
-	if (((calculation_type & CALC_RELATIONSHIP_BIN) && (!(calculation_type & CALC_RELATIONSHIP_SHAPEMASK))) && (parallel_tot > 1)) {
+	if (((rel_calc_type & REL_CALC_BIN) && (!(rel_calc_type & REL_CALC_SHAPEMASK))) && (parallel_tot > 1)) {
 	  printf("Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	cur_arg += ii + 1;
-	if (!(calculation_type & CALC_RELATIONSHIP_SHAPEMASK)) {
-	  calculation_type |= CALC_RELATIONSHIP_TRI;
+	if (!(rel_calc_type & REL_CALC_SHAPEMASK)) {
+	  rel_calc_type |= REL_CALC_TRI;
 	}
+	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "ake-grm", 8)) {
-	if (calculation_type & CALC_RELATIONSHIP_MASK) {
+	if (calculation_type & CALC_RELATIONSHIP) {
 	  printf("Error: --make-grm cannot coexist with another relationship matrix file\ncreation flag.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
 	}
-	calculation_type |= CALC_RELATIONSHIP_GZ;
+	rel_calc_type |= REL_CALC_GZ | REL_CALC_GRM;
 	for (jj = 1; jj <= ii; jj++) {
 	  if (!strcmp(argv[cur_arg + jj], "cov")) {
 	    if (calculation_type & CALC_IBC) {
@@ -14161,11 +14273,11 @@ int main(int argc, char** argv) {
 	      printf("Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
-	    calculation_type |= CALC_RELATIONSHIP_COV;
+	    rel_calc_type |= REL_CALC_COV;
 	  } else if (!strcmp(argv[cur_arg + jj], "no-gz")) {
-	    calculation_type &= ~CALC_RELATIONSHIP_GZ;
+	    rel_calc_type &= ~REL_CALC_GZ;
 	  } else if ((!strcmp(argv[cur_arg + jj], "ibc1")) || (!strcmp(argv[cur_arg + jj], "ibc2"))) {
-	    if (calculation_type & CALC_RELATIONSHIP_COV) {
+	    if (rel_calc_type & REL_CALC_COV) {
 	      printf("Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
@@ -14180,7 +14292,7 @@ int main(int argc, char** argv) {
 	  }
 	}
 	cur_arg += ii + 1;
-	calculation_type |= CALC_RELATIONSHIP_GRM;
+	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "atrix", 6)) {
 	if (plink_dist_flag(argptr, calculation_type, exponent, parallel_tot)) {
 	  return dispmsg(RET_INVALID_CMDLINE);
@@ -14200,6 +14312,17 @@ int main(int argc, char** argv) {
       } else if (!memcmp(argptr2, "ake-bed", 8)) {
 	calculation_type |= CALC_MAKE_BED;
 	cur_arg++;
+      } else if (!memcmp(argptr2, "erge", 5)) {
+	printf("Error: --merge not yet written.\n");
+	return dispmsg(RET_CALC_NOT_YET_SUPPORTED);
+	calculation_type |= CALC_MERGE;
+	cur_arg += 1 + ii;
+      } else if (!memcmp(argptr2, "erge-mode", 10)) {
+	printf("Error: --merge-mode not yet written.\n");
+	return dispmsg(RET_CALC_NOT_YET_SUPPORTED);
+      } else if (!memcmp(argptr2, "erge-list", 10)) {
+	printf("Error: --merge-list not yet written.\n");
+	return dispmsg(RET_CALC_NOT_YET_SUPPORTED);
       }
       break;
 
@@ -14339,10 +14462,10 @@ int main(int argc, char** argv) {
 	} else if ((calculation_type & CALC_DISTANCE_BIN) && (!(calculation_type & CALC_DISTANCE_SHAPEMASK))) {
 	  printf("Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
-	} else if ((calculation_type & CALC_RELATIONSHIP_SHAPEMASK) == CALC_RELATIONSHIP_SQ) {
+	} else if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
 	  printf("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
-	} else if ((calculation_type & CALC_RELATIONSHIP_BIN) && (!(calculation_type & CALC_RELATIONSHIP_SHAPEMASK))) {
+	} else if ((rel_calc_type & REL_CALC_BIN) && (!(rel_calc_type & REL_CALC_SHAPEMASK))) {
 	  printf("Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.%s", errstr_append);
 	  return dispmsg(RET_INVALID_CMDLINE);
 	} else if (calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) {
@@ -14842,7 +14965,7 @@ int main(int argc, char** argv) {
         printf("Error: --unrelated-heritability does not work without LAPACK.\n");
 	return dispmsg(RET_INVALID_CMDLINE);
 #else
-	if (calculation_type & CALC_RELATIONSHIP_COV) {
+	if (rel_calc_type & REL_CALC_COV) {
 	  printf("Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.\n");
 	  return dispmsg(RET_INVALID_CMDLINE);
 	} else if (parallel_tot > 1) {
@@ -14924,7 +15047,7 @@ int main(int argc, char** argv) {
       return dispmsg(RET_INVALID_CMDLINE);
     }
     if (load_rare == LOAD_RARE_GRM) {
-      if ((!(calculation_type & CALC_REL_CUTOFF)) || (calculation_type & (~(CALC_REL_CUTOFF | CALC_RELATIONSHIP_GRM | CALC_RELATIONSHIP_GZ)))) {
+      if ((!(calculation_type & CALC_REL_CUTOFF)) || (calculation_type & (~(CALC_REL_CUTOFF | CALC_RELATIONSHIP)))) {
 	printf("Error: --grm currently must be used with --rel-cutoff (possibly combined with\n--make-grm).%s", errstr_append);
 	return dispmsg(RET_INVALID_CMDLINE);
       }
@@ -15025,7 +15148,7 @@ int main(int argc, char** argv) {
   if (load_rare) {
     if (load_rare == LOAD_RARE_GRM) {
       // --rel-cutoff batch mode special case
-      retval = rel_cutoff_batch(pedname, outname, rel_cutoff, calculation_type);
+      retval = rel_cutoff_batch(pedname, outname, rel_cutoff, rel_calc_type);
     } else if (load_rare == LOAD_RARE_LGEN) {
       retval = lgen_to_bed(pedname, outname, missing_pheno, affection_01, &chrom_info);
     } else {
@@ -15048,7 +15171,7 @@ int main(int argc, char** argv) {
       retval = wdist_dosage(calculation_type, genname, samplename, outname, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else {
-    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx);
+    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx);
   }
   free(wkspace_ua);
 #ifdef DEBUG
