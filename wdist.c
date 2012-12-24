@@ -3752,10 +3752,17 @@ inline double SQR(const double a) {
   return a * a;
 }
 
+#ifdef __cplusplus
 inline double SIGN(const double &a, const double &b) {
   // PLINK helper.h SIGN() template specialized to doubles.
   return (b >= 0)? (a >= 0 ? a : -a) : (a >= 0 ? -a : a);
 }
+#else
+inline double SIGN(const double a, const double b) {
+  // PLINK helper.h SIGN() template specialized to doubles.
+  return (b >= 0)? (a >= 0 ? a : -a) : (a >= 0 ? -a : a);
+}
+#endif
 
 double pythag(const double a, const double b) {
   // PLINK stats.cpp pythag().
@@ -3972,6 +3979,9 @@ int invert_matrix_trunc_singular_svd(__CLPK_integer dim, double* matrix, double*
   unsigned int cur_dim;
   unsigned int max_dim; // known singular
   unsigned int uii;
+  int i;
+  int j;
+  int k;
 
   if (wkspace_alloc_d_checked(&matrix_copy, dim * dim * sizeof(double))) {
     return -1;
@@ -4003,29 +4013,29 @@ int invert_matrix_trunc_singular_svd(__CLPK_integer dim, double* matrix, double*
   }
   // Look for singular values
   double wmax = 0;
-  for (int i=0; i<dim; i++) {
+  for (i=0; i<dim; i++) {
     wmax = dbl_1d_buf[i] > wmax ? dbl_1d_buf[i] : wmax;
   }
   double wmin = wmax * eps;
-  for (int i=0; i<dim; i++) {
+  for (i=0; i<dim; i++) {
     dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : 1/dbl_1d_buf[i];
   }
 
-  for (int i=0; i<dim; i++) {
-    for (int j=0; j<dim; j++) {
+  for (i=0; i<dim; i++) {
+    for (j=0; j<dim; j++) {
       matrix[i * dim + j] = matrix[i * dim + j] * dbl_1d_buf[j];
     }
   }
 
   // [nxn].[t(v)] 
-  for (int i=0; i<dim; i++) {
+  for (i=0; i<dim; i++) {
     fill_double_zero(dbl_1d_buf, dim);
-    for (int j=0; j<dim; j++) {
-      for (int k=0; k<dim; k++) {
+    for (j=0; j<dim; j++) {
+      for (k=0; k<dim; k++) {
 	dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];
       }
     }
-    for (int j = 0; j < dim; j++) {
+    for (j = 0; j < dim; j++) {
       matrix[i * dim + j] = dbl_1d_buf[j];
     }
   }
