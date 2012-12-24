@@ -205,6 +205,14 @@ static inline int wkspace_alloc_ul_checked(unsigned long** ulp_ptr, unsigned lon
   return 0;
 }
 
+static inline int wkspace_alloc_ll_checked(long long** llp_ptr, unsigned long size) {
+  *llp_ptr = (long long*)wkspace_alloc(size);
+  if (!(*llp_ptr)) {
+    return 1;
+  }
+  return 0;
+}
+
 static inline int wkspace_alloc_ull_checked(unsigned long long** ullp_ptr, unsigned long size) {
   *ullp_ptr = (unsigned long long*)wkspace_alloc(size);
   if (!(*ullp_ptr)) {
@@ -302,17 +310,6 @@ static inline void fill_uint_zero(unsigned int* uiarr, size_t size) {
   }
 #else
   fill_long_zero((long*)uiarr, size);
-#endif
-}
-
-static inline void fill_int_one(unsigned int* iarr, size_t size) {
-#if __LP64__
-  fill_ulong_one((unsigned long*)iarr, size >> 1);
-  if (size & 1) {
-    iarr[size - 1] = -1;
-  }
-#else
-  fill_ulong_one((unsigned long*)iarr, size);
 #endif
 }
 
