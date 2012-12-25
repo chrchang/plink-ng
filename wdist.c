@@ -588,10 +588,10 @@ int disp_help(unsigned int param_ct, char** argv) {
 "      computation we implement.\n\n"
 	       );
     help_print("distance", &help_ctrl, 1,
-"  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <snps> <3d>\n"
+"  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <alct> <3d>\n"
 "             <flat-missing>\n"
 "    Writes a lower-triangular tab-delimited table of (weighted) genomic\n"
-"    distances in SNP units to {output prefix}.dist, and a list of the\n"
+"    distances in allele count units to {output prefix}.dist, and a list of the\n"
 "    corresponding family/individual IDs to {output prefix}.dist.id.  The first\n"
 "    row of the .dist file contains a single {genotype 1-genotype 2} distance,\n"
 "    the second row has the {genotype 1-genotype 3} and {genotype 2-genotype 3}\n"
@@ -608,7 +608,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    * If the 'ibs' modifier is present, an identity-by-state matrix is written\n"
 "      to {output prefix}.mibs.  '1-ibs' causes distances expressed as genomic\n"
 "      proportions (i.e. 1 - IBS) to be written to {output prefix}.mdist.\n"
-"      Combine with 'snps' if you want to generate the usual .dist file as well.\n"
+"      Combine with 'alct' if you want to generate the usual .dist file as well.\n"
 "    * With dosage data, the '3d' modifier considers 0-1-2 allele count\n"
 "      probabilities separately, instead of collapsing them into an expected\n"
 "      value and a missingness probability.\n"
@@ -1042,9 +1042,9 @@ int disp_help(unsigned int param_ct, char** argv) {
     if (!param_ct) {
       printf(
 "One final note.  If a PLINK plain text fileset (.ped/.map) is given as input,\n"
-"WDIST will convert it to binary (without deleting the original files).  The\n"
-"converted files are saved as {output prefix}.bed, .bim, and .fam, and you are\n"
-"encouraged to use them directly in future analyses.\n"
+"WDIST will usually convert it to binary (without deleting the original files).\n"
+"The converted files are saved as {output prefix}.bed, .bim, and .fam, and you\n"
+"are encouraged to use them directly in future analyses.\n"
 	     );
     }
   } while (help_ctrl.iters_left--);
@@ -4883,7 +4883,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
     }
   }
   if (binary_files) {
-    if (freqname_0 || (calculation_type & (CALC_FREQ | CALC_RECODE | CALC_REGRESS_PCS | CALC_MAKE_BED))) {
+    if (freqname_0 || (calculation_type & (CALC_FREQ | CALC_RECODE | CALC_REGRESS_PCS))) {
       *marker_alleles_ptr = (char*)wkspace_alloc(unfiltered_marker_ct * 2 * sizeof(char));
       if (!(*marker_alleles_ptr)) {
 	return RET_NOMEM;
@@ -5060,12 +5060,6 @@ int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34,
 	  if (affection) {
 	    affection = eval_affection(bufptr, missing_pheno, missing_pheno_len, affection_01);
 	  }
-	  if (!affection) {
-	    if (sscanf(bufptr, "%lg", &dxx) != 1) {
-	      printf(errstr_fam_format);
-	      return RET_INVALID_FORMAT;
-	    }
-	  }
 	}
 	if (unfiltered_indiv_ct == max_people) {
 	  return RET_NOMEM;
@@ -5235,7 +5229,9 @@ int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34,
 	  pheno_c[indiv_uidx] = *bufptr - '1';
 	}
       } else {
-	sscanf(bufptr, "%lg", &(pheno_d[indiv_uidx]));
+	if (sscanf(bufptr, "%lg", &(pheno_d[indiv_uidx])) != 1) {
+	  pheno_d[indiv_uidx] = (double)missing_pheno;
+	}
       }
     }
     if (true_fam_col_6 && (!fam_col_6)) {
@@ -5419,9 +5415,7 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
 	}
 	if (!affection) {
 	  if (sscanf(bufptr, "%lg", &(pheno_d[person_idx])) != 1) {
-	    printf(errstr_phenotype_format);
-	    printf("Failed to read number: %s", bufptr);
-	    return RET_INVALID_FORMAT;
+	    pheno_d[person_idx] = missing_phenod;
 	  }
 	}
       }
@@ -6803,6 +6797,9 @@ void calc_marker_weights(double exponent, int unfiltered_marker_ct, unsigned lon
 }
 
 int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE** bimfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned long max_marker_id_len, int species, char* marker_alleles) {
+  int tmp_map = (bimfile_ptr == NULL);
+  int load_markers = (marker_alleles == NULL) && (!tmp_map);
+  FILE* map_outfile;
   long long* ll_buf;
   char* marker_ids;
   double* gd_vals;
@@ -6839,6 +6836,11 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
       wkspace_alloc_i_checked(&pos_buf, marker_ct * sizeof(int))) {
     return RET_NOMEM;
   }
+  if (load_markers) {
+    if (wkspace_alloc_c_checked(&marker_alleles, unfiltered_marker_ct * 2)) {
+      return RET_NOMEM;
+    }
+  }
   rewind(mapfile);
   marker_idx = 0;
   for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
@@ -6863,6 +6865,11 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
       gd_vals[marker_idx] = 0.0;
     }
     pos_buf[marker_idx++] = atoi(bufptr);
+    if (load_markers) {
+      bufptr = next_item(bufptr);
+      marker_alleles[2 * marker_uidx] = *bufptr;
+      marker_alleles[2 * marker_uidx + 1] = *(next_item(bufptr));
+    }
   }
 #ifdef __cplusplus
   std::sort(ll_buf, &(ll_buf[marker_ct]));
@@ -6893,7 +6900,12 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
 #endif
   }
 
-  strcpy(outname_end, ".bim");
+  if (tmp_map) {
+    strcpy(outname_end, ".map.tmp");
+    bimfile_ptr = &map_outfile;
+  } else {
+    strcpy(outname_end, ".bim");
+  }
   if (fopen_checked(bimfile_ptr, outname, "w")) {
     return RET_OPEN_FAIL;
   }
@@ -6904,9 +6916,15 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
     ujj = chrom_start[uii + 1];
     for (; marker_idx < ujj; marker_idx++) {
       marker_uidx = (unsigned int)ll_buf[marker_idx];
-      cc = marker_alleles[2 * marker_uidx];
-      if (fprintf(*bimfile_ptr, "%u\t%s\t%g\t%u\t%c\t%c\n", cur_chrom, &(marker_ids[marker_uidx * max_marker_id_len]), gd_vals[marker_uidx], (unsigned int)(ll_buf[marker_idx] >> 32), cc? cc : '0', marker_alleles[2 * marker_uidx + 1]) < 0) {
-	return RET_WRITE_FAIL;
+      if (tmp_map) {
+        if (fprintf(*bimfile_ptr, "%u\t%s\t%g\t%u\n", cur_chrom, &(marker_ids[marker_uidx * max_marker_id_len]), gd_vals[marker_uidx], (unsigned int)(ll_buf[marker_idx] >> 32)) < 0) {
+	  return RET_WRITE_FAIL;
+        }
+      } else {
+        cc = marker_alleles[2 * marker_uidx];
+        if (fprintf(*bimfile_ptr, "%u\t%s\t%g\t%u\t%c\t%c\n", cur_chrom, &(marker_ids[marker_uidx * max_marker_id_len]), gd_vals[marker_uidx], (unsigned int)(ll_buf[marker_idx] >> 32), cc? cc : '0', marker_alleles[2 * marker_uidx + 1]) < 0) {
+	  return RET_WRITE_FAIL;
+        }
       }
       (*map_reverse_ptr)[marker_uidx] = marker_idx;
     }
@@ -7203,7 +7221,7 @@ int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_
   return 0;
 }
 
-int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** bedoutfile_ptr, FILE** famoutfile_ptr, FILE** bimoutfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* person_ids, unsigned int max_person_id_len, char* paternal_ids, unsigned int max_paternal_id_len, char* maternal_ids, unsigned int max_maternal_id_len, unsigned char* sex_info, char* pheno_c, double* pheno_d, double missing_phenod, char* output_missing_pheno, unsigned long max_marker_id_len, int map_is_unsorted, int species, char* marker_alleles) {
+int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** bedoutfile_ptr, FILE** famoutfile_ptr, FILE** bimoutfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* person_ids, unsigned int max_person_id_len, char* paternal_ids, unsigned int max_paternal_id_len, char* maternal_ids, unsigned int max_maternal_id_len, unsigned char* sex_info, char* pheno_c, double* pheno_d, double missing_phenod, char* output_missing_pheno, unsigned long max_marker_id_len, int map_is_unsorted, int species) {
   unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   unsigned long indiv_ct4 = (indiv_ct + 3) / 4;
   unsigned char* wkspace_mark = wkspace_base;
@@ -7245,7 +7263,7 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
   }
   fflush(stdout);
   if (map_is_unsorted) {
-    retval = sort_and_write_bim(&map_reverse, bimfile, map_cols, bimoutfile_ptr, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, species, marker_alleles);
+    retval = sort_and_write_bim(&map_reverse, bimfile, map_cols, bimoutfile_ptr, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, species, NULL);
     if (retval) {
       return retval;
     }
@@ -7478,6 +7496,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   char cc2;
   int ii;
   int jj;
+  int* map_reverse;
   int retval;
   memcpy(name_end, ".map", 5);
   // use CALC_WRITE_SNPLIST to force loading of marker IDs, without other
@@ -7486,14 +7505,20 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   if (retval) {
     goto lgen_to_bed_ret_1;
   }
-  fclose_null(&infile);
-  printf("Warning: .map file is not position-sorted, and the resorting logic for this\n--make-bed branch has not yet been written.\n");
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
+  if (map_is_unsorted) {
+    retval = sort_and_write_bim(&map_reverse, infile, map_cols, NULL, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, chrom_info_ptr->species, NULL);
+    if (retval) {
+      goto lgen_to_bed_ret_1;
+    }
+  }
+  fclose_null(&infile);
   retval = sort_item_ids_nx(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_ids, max_marker_id_len);
   if (retval) {
     goto lgen_to_bed_ret_1;
   }
 
+  // NOW: unify this with map_reverse
   if (marker_exclude_ct) {
     // temporary storage of missing collapse info
     if (wkspace_alloc_i_checked(&indiv_id_map, unfiltered_marker_ct * sizeof(int))) {
@@ -7663,7 +7688,11 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
       if (uii) {
 	uii++;
       }
-      ulii = marker_idx * indiv_ct4 + (indiv_idx / 4);
+      if (map_is_unsorted) {
+	ulii = map_reverse[marker_idx] * indiv_ct4 + (indiv_idx / 4);
+      } else {
+        ulii = marker_idx * indiv_ct4 + (indiv_idx / 4);
+      }
       ujj = (indiv_idx % 4) * 2;
       writebuf[ulii] = (writebuf[ulii] & (~(3 << ujj))) | (uii << ujj);
     }
@@ -7755,51 +7784,53 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   if (fclose_null(&outfile)) {
     goto lgen_to_bed_ret_WRITE_FAIL;
   }
-  memcpy(name_end, ".map", 5);
-  if (fopen_checked(&infile, lgen_namebuf, "r")) {
-    goto lgen_to_bed_ret_OPEN_FAIL;
-  }
-  memcpy(outname_end, ".bim", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto lgen_to_bed_ret_OPEN_FAIL;
-  }
-  uii = 2 * marker_ct;
-  for (ujj = 0; ujj < uii; ujj++) {
-    if (!marker_alleles[ujj]) {
-      marker_alleles[ujj] = '0';
+  if (!map_is_unsorted) {
+    memcpy(name_end, ".map", 5);
+    if (fopen_checked(&infile, lgen_namebuf, "r")) {
+      goto lgen_to_bed_ret_OPEN_FAIL;
     }
-  }
-  uii = 0;
-  marker_idx = 0;
-  while (fgets(tbuf, MAXLINELEN, infile)) {
-    if (is_eoln(*tbuf)) {
-      continue;
+    memcpy(outname_end, ".bim", 5);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto lgen_to_bed_ret_OPEN_FAIL;
     }
-    if (is_set(marker_exclude, uii)) {
-      uii++;
-      continue;
-    }
-    cptr = (char*)memchr(tbuf, 0, MAXLINELEN);
-    if (cptr[-1] == '\n') {
-      cptr--;
-      if (cptr[-1] == '\r') {
-	cptr--;
+    uii = 2 * marker_ct;
+    for (ujj = 0; ujj < uii; ujj++) {
+      if (!marker_alleles[ujj]) {
+	marker_alleles[ujj] = '0';
       }
     }
-    sprintf(cptr, "\t%c\t%c\n", marker_alleles[marker_idx * 2], marker_alleles[marker_idx * 2 + 1]);
-    ulii = strlen(cptr) + (unsigned long)(cptr - tbuf);
-    if (fwrite_checked(tbuf, ulii, outfile)) {
+    uii = 0;
+    marker_idx = 0;
+    while (fgets(tbuf, MAXLINELEN, infile)) {
+      if (is_eoln(*tbuf)) {
+	continue;
+      }
+      if (is_set(marker_exclude, uii)) {
+	uii++;
+	continue;
+      }
+      cptr = (char*)memchr(tbuf, 0, MAXLINELEN);
+      if (cptr[-1] == '\n') {
+	cptr--;
+	if (cptr[-1] == '\r') {
+	  cptr--;
+	}
+      }
+      sprintf(cptr, "\t%c\t%c\n", marker_alleles[marker_idx * 2], marker_alleles[marker_idx * 2 + 1]);
+      ulii = strlen(cptr) + (unsigned long)(cptr - tbuf);
+      if (fwrite_checked(tbuf, ulii, outfile)) {
+	goto lgen_to_bed_ret_WRITE_FAIL;
+      }
+      uii++;
+      marker_idx++;
+    }
+    if (!feof(infile)) {
+      goto lgen_to_bed_ret_READ_FAIL;
+    }
+    fclose_null(&infile);
+    if (fclose_null(&outfile)) {
       goto lgen_to_bed_ret_WRITE_FAIL;
     }
-    uii++;
-    marker_idx++;
-  }
-  if (!feof(infile)) {
-    goto lgen_to_bed_ret_READ_FAIL;
-  }
-  fclose_null(&infile);
-  if (fclose_null(&outfile)) {
-    goto lgen_to_bed_ret_WRITE_FAIL;
   }
   memcpy(name_end, ".fam", 5);
   memcpy(outname_end, ".fam", 5);
@@ -11721,7 +11752,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (binary_files && (calculation_type & CALC_MAKE_BED)) {
-    retval = make_bed(pedfile, bed_offset, mapfile, map_cols, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_pheno, max_marker_id_len, map_is_unsorted, chrom_info_ptr->species, marker_alleles);
+    retval = make_bed(pedfile, bed_offset, mapfile, map_cols, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_pheno, max_marker_id_len, map_is_unsorted, chrom_info_ptr->species);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -13673,12 +13704,12 @@ int main(int argc, char** argv) {
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
 	    calculation_type |= CALC_DISTANCE_1_MINUS_IBS;
-	  } else if (!strcmp(argv[cur_arg + jj], "snps")) {
-	    if (calculation_type & CALC_DISTANCE_SNPS) {
-	      printf("Error: Duplicate 'snps' modifier.\n");
+	  } else if (!strcmp(argv[cur_arg + jj], "alct")) {
+	    if (calculation_type & CALC_DISTANCE_ALCT) {
+	      printf("Error: Duplicate 'alct' modifier.\n");
 	      return dispmsg(RET_INVALID_CMDLINE);
 	    }
-	    calculation_type |= CALC_DISTANCE_SNPS;
+	    calculation_type |= CALC_DISTANCE_ALCT;
 	  } else if (!strcmp(argv[cur_arg + jj], "3d")) {
 	    distance_3d = 1;
 	  } else if (!strcmp(argv[cur_arg + jj], "flat-missing")) {
@@ -13694,7 +13725,7 @@ int main(int argc, char** argv) {
 	}
 	cur_arg += ii + 1;
 	if (!(calculation_type & CALC_DISTANCE_FORMATMASK)) {
-	  calculation_type |= CALC_DISTANCE_SNPS;
+	  calculation_type |= CALC_DISTANCE_ALCT;
 	}
       } else if (!memcmp(argptr2, "istance-matrix", 15)) {
 	if (plink_dist_flag(argptr, calculation_type, exponent, parallel_tot)) {

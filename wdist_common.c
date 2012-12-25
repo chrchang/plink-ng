@@ -248,7 +248,7 @@ int write_ids(char* outname, unsigned int unfiltered_indiv_ct, unsigned long* in
 
 int distance_d_write_ids(char* outname, char* outname_end, int calculation_type, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len) {
   int retval;
-  if (calculation_type & CALC_DISTANCE_SNPS) {
+  if (calculation_type & CALC_DISTANCE_ALCT) {
     strcpy(outname_end, ".dist.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
@@ -347,7 +347,7 @@ int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_
 }
 
 int distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, char* outname, char* outname_end, const char* varsuffix, const char* mode, int calculation_type, int parallel_idx, int parallel_tot) {
-  if (calculation_type & CALC_DISTANCE_SNPS) {
+  if (calculation_type & CALC_DISTANCE_ALCT) {
     if (parallel_tot > 1) {
       sprintf(outname_end, ".dist%s.%d", varsuffix, parallel_idx + 1);
     } else {
@@ -384,7 +384,7 @@ int distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, 
 }
 
 int distance_open_gz(gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, char* outname, char* outname_end, int calculation_type, int parallel_idx, int parallel_tot) {
-  if (calculation_type & CALC_DISTANCE_SNPS) {
+  if (calculation_type & CALC_DISTANCE_ALCT) {
     if (parallel_tot > 1) {
       sprintf(outname_end, ".dist.%d.gz", parallel_idx + 1);
     } else {
@@ -423,7 +423,7 @@ int distance_open_gz(gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz
 void distance_print_done(int format_code, char* outname, char* outname_end) {
   if (!format_code) {
     strcpy(outname_end, tbuf);
-    printf("\rDistances (in SNPs) written to %s.\n", outname);
+    printf("\rDistances (allele counts) written to %s.\n", outname);
   } else if (format_code == 1) {
     strcpy(outname_end, &(tbuf[MAX_POST_EXT]));
     printf("\rIBS matrix written to %s.\n", outname);
@@ -436,7 +436,7 @@ void distance_print_done(int format_code, char* outname, char* outname_end) {
 int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int calculation_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf) {
   // membuf assumed to be of at least size indiv_ct * 8.
   int shape = calculation_type & CALC_DISTANCE_SHAPEMASK;
-  int write_snp_cts = calculation_type & CALC_DISTANCE_SNPS;
+  int write_alcts = calculation_type & CALC_DISTANCE_ALCT;
   int write_ibs_matrix = calculation_type & CALC_DISTANCE_IBS;
   int write_1mibs_matrix = calculation_type & CALC_DISTANCE_1_MINUS_IBS;
   long long indiv_idx_offset = ((long long)first_indiv_idx * (first_indiv_idx - 1)) / 2;
@@ -477,7 +477,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
       ii = first_indiv_idx;
     } else {
       if (shape == CALC_DISTANCE_SQ0) {
-	if (write_snp_cts) {
+	if (write_alcts) {
 	  if (gzwrite_checked(*gz_outfile_ptr, &(membuf[1]), indiv_ct * 2 - 1)) {
 	    return RET_WRITE_FAIL;
 	  }
@@ -504,7 +504,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	  }
 	}
       } else if (shape == CALC_DISTANCE_SQ) {
-	if (write_snp_cts) {
+	if (write_alcts) {
 	  if (gzwrite_checked(*gz_outfile_ptr, "0", 1)) {
 	    return RET_WRITE_FAIL;
 	  }
@@ -546,7 +546,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
       }
       ii = 1;
     }
-    if (write_snp_cts) {
+    if (write_alcts) {
       dist_ptr = dists;
       for (; ii < end_indiv_idx; ii++) {
 	if (!gzprintf(*gz_outfile_ptr, "%g", *dist_ptr++)) {
@@ -700,7 +700,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
       return RET_OPEN_FAIL;
     }
     if (shape == CALC_DISTANCE_TRI) {
-      if (write_snp_cts) {
+      if (write_alcts) {
 	printf("Writing...");
 	fflush(stdout);
 	if (fwrite_checked(dists, indiv_idx_ct * sizeof(double), *outfile_ptr)) {
@@ -744,7 +744,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
       if (shape == CALC_DISTANCE_SQ0) {
 	fill_double_zero((double*)membuf, indiv_ct);
       }
-      if (write_snp_cts) {
+      if (write_alcts) {
 	dxx = 0.0;
 	dist_ptr = dists;
 	for (ii = first_indiv_idx; ii < end_indiv_idx; ii++) {
@@ -861,7 +861,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
     if (distance_open(outfile_ptr, outfile2_ptr, outfile3_ptr, outname, outname_end, "", "w", calculation_type, parallel_idx, parallel_tot)) {
       return RET_OPEN_FAIL;
     }
-    if (write_snp_cts) {
+    if (write_alcts) {
       if (first_indiv_idx) {
 	ii = first_indiv_idx;
       } else {
