@@ -223,8 +223,12 @@ static inline int wkspace_alloc_ull_checked(unsigned long long** ullp_ptr, unsig
 
 void wkspace_reset(void* new_base);
 
+static inline int is_eoln(char cc) {
+  return ((cc == '\n') || (cc == '\r'));
+}
+
 static inline int no_more_items(char* sptr) {
-  return ((!sptr) || (*sptr == '\n') || (*sptr == '\0'));
+  return ((!sptr) || (*sptr == '\n') || (*sptr == '\0') || (*sptr == '\r'));
 }
 
 static inline char* skip_initial_spaces(char* sptr) {
@@ -240,7 +244,7 @@ char* item_end(char* sptr);
 char* item_endl(char* sptr);
 
 static inline int is_space_or_eoln(char cc) {
-  return ((cc == ' ') || (cc == '\t') || (cc == '\n') || (cc == '\0'));
+  return ((cc == ' ') || (cc == '\t') || (cc == '\n') || (cc == '\0') || (cc == '\r'));
 }
 
 int strlen_se(char* ss);

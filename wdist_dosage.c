@@ -132,7 +132,7 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   unfiltered_indiv_ct = 0;
   // first pass: count indivs, determine max ID length
   while (fgets(tbuf, MAXLINELEN, samplefile) != NULL) {
-    if (*tbuf == '\n') {
+    if (is_eoln(*tbuf)) {
       continue;
     }
     if (!tbuf[MAXLINELEN - 1]) {
@@ -243,7 +243,7 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   }
   // second pass: actually load stuff
   while (fgets(tbuf, MAXLINELEN, samplefile)) {
-    if (*tbuf == '\n') {
+    if (is_eoln(*tbuf)) {
       continue;
     }
     item_begin = skip_initial_spaces(tbuf);
@@ -390,7 +390,7 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
     return RET_NOMEM;
   }
   while (fgets(loadbuf, max_load, genfile)) {
-    if (*loadbuf == '\n') {
+    if (is_eoln(*loadbuf)) {
       continue;
     }
     bufptr = next_item_mult(skip_initial_spaces(loadbuf), 4);
@@ -1213,7 +1213,7 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
   marker_uidx = 0;
   rewind(genfile);
   while (fgets(loadbuf, gen_buf_len, genfile)) {
-    if (*loadbuf == '\n') {
+    if (is_eoln(*loadbuf)) {
       continue;
     }
     if (is_set(marker_exclude, marker_uidx)) {
@@ -1472,7 +1472,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   }
   loadbuf[max_load - 1] = ' ';
   while (fgets(loadbuf, max_load, genfile) != NULL) {
-    if (*loadbuf == '\n') {
+    if (is_eoln(*loadbuf)) {
       continue;
     }
     if (!loadbuf[max_load - 1]) {
