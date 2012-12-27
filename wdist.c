@@ -7960,6 +7960,10 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
   unsigned int no_extra_cols = 1;
   int retval = 0;
   unsigned int pct = 0;
+  unsigned int marker_uidx = 0;
+  unsigned int marker_idx = 0;
+  long long last_mapval = 0;
+  int map_is_unsorted = 0;
   unsigned int indiv_ct4;
   unsigned int indiv_idx;
   unsigned long ulii;
@@ -7967,7 +7971,7 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
   unsigned int ujj;
   int ii;
   // may as well not error out on triallelic (or quadallelic) input.  Instead,
-  // print notes when it happens.
+  // print notes when it happens, and truncate.
   char alleles[4];
   char orig_alleles[4];
   unsigned int allele_cts[4];
@@ -7986,6 +7990,8 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
   char cc2;
   long long tped_size;
   long long tped_next_thresh;
+  long long cur_mapval;
+  long long* mapvals;
 
   transposed_to_bed_print_pct(0);
   fflush(stdout);
@@ -8029,11 +8035,11 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
   rewind(infile);
   tped_next_thresh = tped_size / 100;
 
-  memcpy(outname_end, ".bim", 5);
+  memcpy(outname_end, ".bim.tmp", 9);
   if (fopen_checked(&bimfile, outname, "w")) {
     goto transposed_to_bed_ret_OPEN_FAIL;
   }
-  memcpy(outname_end, ".bed", 5);
+  memcpy(outname_end, ".bed.tmp", 9);
   if (fopen_checked(&outfile, outname, "wb")) {
     goto transposed_to_bed_ret_OPEN_FAIL;
   }
@@ -8043,11 +8049,12 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
   if (wkspace_alloc_uc_checked(&prewritebuf, indiv_ct)) {
     goto transposed_to_bed_ret_NOMEM;
   }
-  loadbuf = (char*)wkspace_base;
-  if (wkspace_left > 2147483584) {
+  mapvals = (long long*)wkspace_base;
+  loadbuf = (char*)(&wkspace_base[sizeof(long long)]);
+  if (wkspace_left > 2147483592) {
     max_load = 2147483584;
   } else {
-    max_load = wkspace_left;
+    max_load = wkspace_left - 8;
   }
   writemap[16] = 1;
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
@@ -8063,9 +8070,22 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
     allele_cts[2] = 0;
     allele_cts[3] = 0;
     cptr = skip_initial_spaces(loadbuf);
-    cptr3 = next_item_mult(cptr, 4);
+    cptr2 = next_item_mult(cptr, 3);
+    cptr3 = next_item(cptr2);
     if (no_more_items(cptr3)) {
       goto transposed_to_bed_ret_INVALID_FORMAT;
+    }
+    ii = atoi(cptr);
+    if (*cptr2 == '-') {
+      marker_uidx++;
+      continue;
+    }
+    cur_mapval = (((long long)ii) << 32) | atoi(cptr2);
+    mapvals[marker_idx++] = cur_mapval;
+    if (last_mapval > cur_mapval) {
+      map_is_unsorted = 1;
+    } else {
+      last_mapval = cur_mapval;
     }
     for (uii = 0; uii < 3; uii++) {
       cptr2 = item_end(cptr);
@@ -8074,9 +8094,6 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
 	goto transposed_to_bed_ret_WRITE_FAIL;
       }
       cptr = skip_initial_spaces(cptr2);
-    }
-    if (*cptr == '-') {
-      continue;
     }
     cptr2 = item_end(cptr);
     *cptr2++ = '\t';
@@ -8213,12 +8230,55 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
       pct = uii;
       tped_next_thresh = ((pct + 1) * tped_size) / 100;
     }
+    loadbuf = &(loadbuf[8]);
   }
   if (!feof(infile)) {
     goto transposed_to_bed_ret_READ_FAIL;
   }
+  fclose_null(&infile);
+  if (fclose_null(&bimfile)) {
+    goto transposed_to_bed_ret_WRITE_FAIL;
+  }
+  if (fclose_null(&outfile)) {
+    goto transposed_to_bed_ret_WRITE_FAIL;
+  }
 
+  if (map_is_unsorted) {
+    // fix this later
+    uii = (outname_end - outname);
+    memcpy(outname_end, ".bim.tmp", 9);
+    memcpy(tbuf, outname, 9 + uii);
+    outname_end[4] = '\0';
+    if (rename(tbuf, outname)) {
+      goto transposed_to_bed_ret_WRITE_FAIL;
+    }
+    tbuf[uii + 2] = 'e';
+    tbuf[uii + 3] = 'd';
+    outname_end[2] = 'e';
+    outname_end[3] = 'd';
+    if (rename(tbuf, outname)) {
+      goto transposed_to_bed_ret_WRITE_FAIL;
+    }    
+  } else {
+    uii = (outname_end - outname);
+    memcpy(outname_end, ".bim.tmp", 9);
+    memcpy(tbuf, outname, 9 + uii);
+    outname_end[4] = '\0';
+    if (rename(tbuf, outname)) {
+      goto transposed_to_bed_ret_WRITE_FAIL;
+    }
+    tbuf[uii + 2] = 'e';
+    tbuf[uii + 3] = 'd';
+    outname_end[2] = 'e';
+    outname_end[3] = 'd';
+    if (rename(tbuf, outname)) {
+      goto transposed_to_bed_ret_WRITE_FAIL;
+    }
+  }
   printf("\rProcessing .tped file... done.\n%s + .bim + .fam written.\n", outname);
+  if (map_is_unsorted) {
+    printf("Note: markers and/or chromosomes are still out of order.\n");
+  }
 
   while (0) {
   transposed_to_bed_ret_NOMEM:
