@@ -199,6 +199,10 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 #define LOAD_RARE_TFAM 16
 #define LOAD_RARE_TRANSPOSE_MASK (LOAD_RARE_TPED | LOAD_RARE_TFAM)
 
+#define MERGE_MODE_MASK 7
+#define MERGE_BINARY 8
+#define MERGE_LIST 16
+
 #define PEDBUFBASE 256
 
 #ifdef DEBUG
@@ -296,7 +300,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (27 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (28 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -564,7 +568,9 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    of mutually exclusive optional modifiers).  Use the EXACT text in the\n"
 "    definition, e.g. '--distance square0'.\n"
 "  * {curly braces} denote an optional parameter, where the text between the\n"
-"    braces describes its nature.\n\n"
+"    braces describes its nature.\n"
+"  * An ellipsis (...) indicates that you can enter many parameters of the\n"
+"    specified type.\n\n"
 "Each run should invoke at least one of the following primary functions:\n\n"
 	   );
   }
@@ -756,16 +762,14 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --lfile {prefix}\n"
 "    Loads a PLINK long-format fileset and converts it to binary.\n\n"
 	       );
-    help_print("merge\tbmerge\tmerge-mode", &help_ctrl, 1,
+    help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
 "  --merge [.ped filename] [.map filename]\n"
 "  --merge [text fileset prefix]\n"
 "  --bmerge [.bed filename] [.bim filename] [.fam filename]\n"
 "  --bmerge [binary fileset prefix]\n"
-"    Merges the given fileset with the initially loaded BINARY fileset.\n\n"
-	       );
-    help_print("merge\tbmerge\tmerge-list", &help_ctrl, 1,
+"    Merges the given fileset with the initially loaded BINARY fileset.\n"
 "  --merge-list [filename]\n"
-"    Merge all filesets named in the text file with the initially loaded BINARY\n"
+"    Merge all filesets named in the text file with the initially loaded binary\n"
 "    fileset.  The text file is interpreted as follows:\n"
 "    * If a line contains only one name, it is assumed to be the prefix for a\n"
 "      binary fileset.\n"
@@ -8374,7 +8378,7 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
     }
     fclose_null(&infile);
     outname_end[4] = '.';
-    // unlink(outname);
+    unlink(outname);
     outname_end[4] = '\0';
   } else {
     uii = (outname_end - outname);
@@ -11378,7 +11382,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int rel_calc_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier, int allelexxxx) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int rel_calc_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier, int allelexxxx, int merge_type) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -11534,7 +11538,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     ibc_type = -1;
   }
 
-  if (fopen_checked(&pedfile, pedname, binary_files? "rb" : "r")) {
+  if (fopen_checked(&pedfile, pedname, famname[0]? "rb" : "r")) {
     goto wdist_ret_OPEN_FAIL;
   }
   if (famname[0]) {
@@ -11542,7 +11546,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (calculation_type & CALC_MAKE_BED) {
       memcpy(outname_end, ".bed", 5);
       if (!memcmp(pedname, outname, 5 + (unsigned long)(outname_end - outname))) {
-        printf("Error: --make-bed can no longer be used for in-place dataset filtering; the\noutput filenames must differ from the input filenames now.  Try alternating\nbetween two names.\n");
+	printf("Error: --make-bed can no longer be used for in-place dataset filtering; the\noutput filenames must differ from the input filenames now.  Try alternating\nbetween two names.\n");
 	goto wdist_ret_INVALID_CMDLINE;
       }
     }
@@ -11550,41 +11554,71 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_OPEN_FAIL;
     }
   }
+  while (1) {
+    // load .map/.bim, count markers, filter chromosomes
+    retval = load_map_or_bim(&mapfile, mapname, binary_files, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &marker_ids, chrom_info_ptr, &marker_pos, *extractname, *excludename, *freqname, calculation_type, recode_modifier, &map_is_unsorted);
+    if (retval) {
+      goto wdist_ret_2;
+    }
+
+    if (binary_files) {
+      ulii = MAXLINELEN;
+    } else {
+      ulii = unfiltered_marker_ct * 4 + PEDBUFBASE;
+    }
+    // load .fam/[first few columns of .ped], count indivs
+    ii = fam_col_6;
+    if (ii && (phenoname[0])) {
+      ii = pheno_merge && (!makepheno_str);
+    }
+    retval = load_fam(binary_files? famfile : pedfile, ulii, fam_col_1, fam_col_34, fam_col_5, ii, fam_col_6, missing_pheno, missing_pheno_len, affection_01, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_info, &affection, &g_pheno_c, &g_pheno_d, &founder_info, &indiv_exclude, binary_files, &line_locs, &line_mids, &pedbuflen);
+    if (retval) {
+      goto wdist_ret_2;
+    }
+    count_genders(sex_info, unfiltered_indiv_ct, indiv_exclude, &ii, &jj, &kk);
+    if (kk) {
+      printf("%d markers and %d people (%d male%s, %d female%s, %d unknown) loaded.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s", kk);
+    } else {
+      printf("%d markers and %d people (%d male%s, %d female%s) loaded.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s");
+    }
+
+    unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+
+    if (!(calculation_type & CALC_MERGE)) {
+      break;
+    }
+    printf("Error: Merge not yet implemented.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto wdist_ret_2;
+    calculation_type &= ~CALC_MERGE;
+    binary_files = 1;
+    ulii = (unsigned long)(outname_end - outname);
+    memcpy(pedname, outname, ulii);
+    memcpy(&(pedname[ulii]), "-merge.bed", 11);
+    if (fopen_checked(&pedfile, pedname, "rb")) {
+      goto wdist_ret_OPEN_FAIL;
+    }
+    memcpy(famname, pedname, ulii + 8);
+    memcpy(&(famname[ulii + 8]), "im", 3);
+    if (fopen_checked(&famfile, famname, "r")) {
+      goto wdist_ret_OPEN_FAIL;
+    }
+    memcpy(mapname, pedname, ulii + 7);
+    memcpy(&(mapname[ulii + 7]), "fam", 4);
+    wkspace_base = wkspace;
+    if (g_pheno_c) {
+      free(g_pheno_c);
+      g_pheno_c = NULL;
+    }
+    if (g_pheno_d) {
+      free(g_pheno_d);
+      g_pheno_d = NULL;
+    }
+  }
 
   if (phenoname[0] && fopen_checked(&phenofile, phenoname, "r")) {
     goto wdist_ret_OPEN_FAIL;
   }
-
-  // load .map/.bim, count markers, filter chromosomes
-  retval = load_map_or_bim(&mapfile, mapname, binary_files, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &marker_ids, chrom_info_ptr, &marker_pos, *extractname, *excludename, *freqname, calculation_type, recode_modifier, &map_is_unsorted);
-  if (retval) {
-    goto wdist_ret_2;
-  }
-
-  if (binary_files) {
-    ulii = MAXLINELEN;
-  } else {
-    ulii = unfiltered_marker_ct * 4 + PEDBUFBASE;
-  }
-  // load .fam/[first few columns of .ped], count indivs
-  ii = fam_col_6;
-  if (ii && phenofile) {
-    ii = pheno_merge && (!makepheno_str);
-  }
-  retval = load_fam(binary_files? famfile : pedfile, ulii, fam_col_1, fam_col_34, fam_col_5, ii, fam_col_6, missing_pheno, missing_pheno_len, affection_01, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_info, &affection, &g_pheno_c, &g_pheno_d, &founder_info, &indiv_exclude, binary_files, &line_locs, &line_mids, &pedbuflen);
-  if (retval) {
-    goto wdist_ret_2;
-  }
-  count_genders(sex_info, unfiltered_indiv_ct, indiv_exclude, &ii, &jj, &kk);
-  if (kk) {
-    printf("%d markers and %d people (%d male%s, %d female%s, %d unknown) loaded.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s", kk);
-  } else {
-    printf("%d markers and %d people (%d male%s, %d female%s) loaded.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s");
-  }
-
-  unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-
-  // merge here
 
   if (phenofile || tail_pheno) {
     wkspace_mark = wkspace_base;
@@ -13407,6 +13441,9 @@ int main(int argc, char** argv) {
   char evecname[FNAMESIZE];
   char genname[FNAMESIZE];
   char samplename[FNAMESIZE];
+  char mergename1[FNAMESIZE];
+  char mergename2[FNAMESIZE];
+  char mergename3[FNAMESIZE];
 #ifdef DEBUG
   char debugname[FNAMESIZE];
   debugname[0] = '\0';
@@ -13493,11 +13530,13 @@ int main(int argc, char** argv) {
   int freq_counts = 0;
   int allelexxxx = 0;
   int silent = 0;
+  int merge_type = 0;
   Chrom_info chrom_info;
   char* argptr2;
   int cur_arg_start;
   char* missing_code = NULL;
   double dxx;
+  char cc;
   for (ii = 1; ii < argc; ii++) {
     if ((!strcmp("-silent", argv[ii])) || (!strcmp("--silent", argv[ii]))) {
       freopen("/dev/null", "w", stdout);
@@ -13707,9 +13746,49 @@ int main(int argc, char** argv) {
 	strcpy(mapname, argv[cur_arg + 1]);
 	cur_arg += 2;
       } else if (!memcmp(argptr2, "merge", 6)) {
-	printf("Error: --bmerge not yet written.\n");
-	return dispmsg(RET_CALC_NOT_YET_SUPPORTED);
+	if (calculation_type & CALC_MERGE) {
+	  printf("Error: Duplicate --merge/--bmerge/--merge-list flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 3, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (ii == 2) {
+	  printf("Error: --bmerge must have exactly 1 or 3 parameters.%s", errstr_append);
+	}
+	jj = strlen(argv[cur_arg + 1]);
+	if (ii == 3) {
+	  if (++jj > FNAMESIZE) {
+	    printf("Error: --bmerge .bed filename too long.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  memcpy(mergename1, argv[cur_arg + 1], jj);
+	  jj = strlen(argv[cur_arg + 2]) + 1;
+	  if (jj > FNAMESIZE) {
+	    printf("Error: --bmerge .bim filename too long.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  memcpy(mergename2, argv[cur_arg + 2], jj);
+	  jj = strlen(argv[cur_arg + 3]) + 1;
+	  if (jj > FNAMESIZE) {
+	    printf("Error: --bmerge .fam filename too long.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  memcpy(mergename3, argv[cur_arg + 3], jj);
+	} else {
+	  if (jj > (FNAMESIZE - 5)) {
+	    printf("Error --bmerge filename prefix too long.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  memcpy(mergename1, argv[cur_arg + 1], jj);
+	  memcpy(mergename2, argv[cur_arg + 1], jj);
+	  memcpy(mergename3, argv[cur_arg + 1], jj);
+	  memcpy(&(mergename1[jj]), ".bed", 5);
+	  memcpy(&(mergename2[jj]), ".bim", 5);
+	  memcpy(&(mergename3[jj]), ".fam", 5);
+	}
 	calculation_type |= CALC_MERGE;
+	merge_type |= MERGE_BINARY;
 	cur_arg += 1 + ii;
       }
 
@@ -14759,16 +14838,78 @@ int main(int argc, char** argv) {
 	calculation_type |= CALC_MAKE_BED;
 	cur_arg++;
       } else if (!memcmp(argptr2, "erge", 5)) {
-	printf("Error: --merge not yet written.\n");
-	return dispmsg(RET_CALC_NOT_YET_SUPPORTED);
+	if (calculation_type & CALC_MERGE) {
+	  printf("Error: Duplicate --merge/--bmerge/--merge-list flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 2, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	jj = strlen(argv[cur_arg + 1]);
+	if (ii == 2) {
+	  if (++jj > FNAMESIZE) {
+	    printf("Error: --merge .ped filename too long.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  memcpy(mergename1, argv[cur_arg + 1], jj);
+	  jj = strlen(argv[cur_arg + 2]) + 1;
+	  if (jj > FNAMESIZE) {
+	    printf("Error: --merge .map filename too long.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  memcpy(mergename2, argv[cur_arg + 2], jj);
+	} else {
+	  if (jj > (FNAMESIZE - 5)) {
+	    printf("Error --merge filename prefix too long.%s", errstr_append);
+	    return dispmsg(RET_INVALID_CMDLINE);
+	  }
+	  memcpy(mergename1, argv[cur_arg + 1], jj);
+	  memcpy(mergename2, argv[cur_arg + 1], jj);
+	  memcpy(&(mergename1[jj]), ".ped", 5);
+	  memcpy(&(mergename2[jj]), ".map", 5);
+	}
 	calculation_type |= CALC_MERGE;
 	cur_arg += 1 + ii;
       } else if (!memcmp(argptr2, "erge-mode", 10)) {
-	printf("Error: --merge-mode not yet written.\n");
-	return dispmsg(RET_CALC_NOT_YET_SUPPORTED);
+	if (merge_type & MERGE_MODE_MASK) {
+	  printf("Error: Duplicate --merge-mode flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	cc = argv[cur_arg + 1][0];
+	if ((cc < '1') || (cc > '7') || (argv[cur_arg + 1][1] != '\0')) {
+          printf("Error: Invalid --merge-mode parameter %s.%s", argv[cur_arg + 1], errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if ((merge_type & MERGE_LIST) && (cc > '5')) {
+	  printf("Error: --merge-mode 6-7 cannot be used with --merge-list.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+        merge_type |= cc - '0';
+	cur_arg += 2;
       } else if (!memcmp(argptr2, "erge-list", 10)) {
-	printf("Error: --merge-list not yet written.\n");
-	return dispmsg(RET_CALC_NOT_YET_SUPPORTED);
+	if (calculation_type & CALC_MERGE) {
+	  printf("Error: Duplicate --merge/--bmerge/--merge-list flag.\n");
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if ((merge_type & MERGE_MODE_MASK) > 5) {
+	  printf("Error: --merge-mode 6-7 cannot be used with --merge-list.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	jj = strlen(argv[cur_arg + 1]) + 1;
+	if (jj > FNAMESIZE) {
+	  printf("Error: --merge-list filename too long.%s", errstr_append);
+	  return dispmsg(RET_INVALID_CMDLINE);
+	}
+	memcpy(mergename1, argv[cur_arg + 1], jj);
+	merge_type |= MERGE_LIST;
+	calculation_type |= CALC_MERGE;
+	cur_arg += 2;
       }
       break;
 
@@ -15617,7 +15758,7 @@ int main(int argc, char** argv) {
       retval = wdist_dosage(calculation_type, genname, samplename, outname, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else {
-    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx);
+    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type);
   }
   free(wkspace_ua);
 #ifdef DEBUG

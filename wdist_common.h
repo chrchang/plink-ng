@@ -97,7 +97,8 @@ typedef union {
 // size of generic text line load buffer.  .ped lines can of course be longer
 #define MAXLINELEN 131072
 
-#define FNAMESIZE 2048
+// matches current Linux PATH_MAX
+#define FNAMESIZE 4096
 
 // allow .mdist.bin.xxxxxxxxxx extension
 #define MAX_POST_EXT 22
