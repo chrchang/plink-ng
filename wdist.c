@@ -296,7 +296,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (26 Dec 2012)    https://www.cog-genomics.org/wdist\n"
+  " (27 Dec 2012)    https://www.cog-genomics.org/wdist\n"
   "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
@@ -4962,8 +4962,10 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
 	set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
       } else {
 	cur_pos = atoi(bufptr);
-	if (cur_pos > last_pos) {
+	if (cur_pos < last_pos) {
 	  *map_is_unsorted_ptr = 2;
+	} else {
+	  last_pos = cur_pos;
 	}
 	if ((calculation_type & marker_pos_needed) && jj) {
 	  (*marker_pos_ptr)[marker_uidx] = cur_pos;
@@ -5010,7 +5012,6 @@ int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34,
   unsigned int max_people;
   unsigned long tmp_len;
   unsigned long tmp_len2;
-  double dxx;
   unsigned int indiv_uidx;
   unsigned int unfiltered_indiv_ctl;
   int ii;
@@ -6852,7 +6853,7 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
     if (is_set(marker_exclude, marker_uidx)) {
       continue;
     }
-    ll_buf[marker_idx] = (((long long)marker_code(species, tbuf)) << 32) + marker_idx;
+    ll_buf[marker_idx] = (((long long)marker_code(species, tbuf)) << 32) + marker_uidx;
     bufptr = next_item(tbuf);
     uii = strlen_se(bufptr);
     memcpy(&(marker_ids[marker_idx * max_marker_id_len]), bufptr, uii);
@@ -6927,6 +6928,11 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
         }
       }
       (*map_reverse_ptr)[marker_uidx] = marker_idx;
+    }
+  }
+  if (tmp_map) {
+    if (fclose_null(bimfile_ptr)) {
+      return RET_WRITE_FAIL;
     }
   }
 
@@ -7464,6 +7470,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   int map_is_unsorted = 0;
   char* sorted_marker_ids;
   int* marker_id_map;
+  int* map_reverse;
   char* sorted_indiv_ids;
   int* indiv_id_map;
   unsigned char* writebuf;
@@ -7496,7 +7503,6 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   char cc2;
   int ii;
   int jj;
-  int* map_reverse;
   int retval;
   memcpy(name_end, ".map", 5);
   // use CALC_WRITE_SNPLIST to force loading of marker IDs, without other
@@ -7506,20 +7512,23 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
     goto lgen_to_bed_ret_1;
   }
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
-  if (map_is_unsorted) {
-    retval = sort_and_write_bim(&map_reverse, infile, map_cols, NULL, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, chrom_info_ptr->species, NULL);
-    if (retval) {
-      goto lgen_to_bed_ret_1;
-    }
-  }
-  fclose_null(&infile);
   retval = sort_item_ids_nx(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_ids, max_marker_id_len);
   if (retval) {
     goto lgen_to_bed_ret_1;
   }
-
-  // NOW: unify this with map_reverse
-  if (marker_exclude_ct) {
+  if (map_is_unsorted) {
+    // Writes a temporary .map which is read later, and then deleted.
+    retval = sort_and_write_bim(&map_reverse, infile, map_cols, NULL, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, chrom_info_ptr->species, NULL);
+    if (retval) {
+      goto lgen_to_bed_ret_1;
+    }
+    for (uii = 0; uii < unfiltered_marker_ct; uii++) {
+      if (marker_id_map[uii] != -1) {
+        marker_id_map[uii] = map_reverse[marker_id_map[uii]];
+      }
+    }
+    wkspace_reset((unsigned char*)map_reverse);
+  } else if (marker_exclude_ct) {
     // temporary storage of missing collapse info
     if (wkspace_alloc_i_checked(&indiv_id_map, unfiltered_marker_ct * sizeof(int))) {
       goto lgen_to_bed_ret_NOMEM;
@@ -7540,6 +7549,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
     }
     wkspace_reset((unsigned char*)indiv_id_map);
   }
+  fclose_null(&infile);
 
   memcpy(name_end, ".fam", 5);
   if (fopen_checked(&infile, lgen_namebuf, "r")) {
@@ -7688,11 +7698,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
       if (uii) {
 	uii++;
       }
-      if (map_is_unsorted) {
-	ulii = map_reverse[marker_idx] * indiv_ct4 + (indiv_idx / 4);
-      } else {
-        ulii = marker_idx * indiv_ct4 + (indiv_idx / 4);
-      }
+      ulii = marker_idx * indiv_ct4 + (indiv_idx / 4);
       ujj = (indiv_idx % 4) * 2;
       writebuf[ulii] = (writebuf[ulii] & (~(3 << ujj))) | (uii << ujj);
     }
@@ -7784,53 +7790,62 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   if (fclose_null(&outfile)) {
     goto lgen_to_bed_ret_WRITE_FAIL;
   }
-  if (!map_is_unsorted) {
+  if (map_is_unsorted) {
+    memcpy(outname_end, ".map.tmp", 9);
+    if (fopen_checked(&infile, outname, "r")) {
+      goto lgen_to_bed_ret_OPEN_FAIL;
+    }
+  } else {
     memcpy(name_end, ".map", 5);
     if (fopen_checked(&infile, lgen_namebuf, "r")) {
       goto lgen_to_bed_ret_OPEN_FAIL;
     }
-    memcpy(outname_end, ".bim", 5);
-    if (fopen_checked(&outfile, outname, "w")) {
-      goto lgen_to_bed_ret_OPEN_FAIL;
+  }
+  memcpy(outname_end, ".bim", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto lgen_to_bed_ret_OPEN_FAIL;
+  }
+  uii = 2 * marker_ct;
+  for (ujj = 0; ujj < uii; ujj++) {
+    if (!marker_alleles[ujj]) {
+      marker_alleles[ujj] = '0';
     }
-    uii = 2 * marker_ct;
-    for (ujj = 0; ujj < uii; ujj++) {
-      if (!marker_alleles[ujj]) {
-	marker_alleles[ujj] = '0';
-      }
+  }
+  uii = 0;
+  marker_idx = 0;
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (is_eoln(*tbuf)) {
+      continue;
     }
-    uii = 0;
-    marker_idx = 0;
-    while (fgets(tbuf, MAXLINELEN, infile)) {
-      if (is_eoln(*tbuf)) {
-	continue;
-      }
-      if (is_set(marker_exclude, uii)) {
-	uii++;
-	continue;
-      }
-      cptr = (char*)memchr(tbuf, 0, MAXLINELEN);
-      if (cptr[-1] == '\n') {
-	cptr--;
-	if (cptr[-1] == '\r') {
-	  cptr--;
-	}
-      }
-      sprintf(cptr, "\t%c\t%c\n", marker_alleles[marker_idx * 2], marker_alleles[marker_idx * 2 + 1]);
-      ulii = strlen(cptr) + (unsigned long)(cptr - tbuf);
-      if (fwrite_checked(tbuf, ulii, outfile)) {
-	goto lgen_to_bed_ret_WRITE_FAIL;
-      }
+    if (is_set(marker_exclude, uii)) {
       uii++;
-      marker_idx++;
+      continue;
     }
-    if (!feof(infile)) {
-      goto lgen_to_bed_ret_READ_FAIL;
+    cptr = (char*)memchr(tbuf, 0, MAXLINELEN);
+    if (cptr[-1] == '\n') {
+      cptr--;
+      if (cptr[-1] == '\r') {
+	cptr--;
+      }
     }
-    fclose_null(&infile);
-    if (fclose_null(&outfile)) {
+    sprintf(cptr, "\t%c\t%c\n", marker_alleles[marker_idx * 2], marker_alleles[marker_idx * 2 + 1]);
+    ulii = strlen(cptr) + (unsigned long)(cptr - tbuf);
+    if (fwrite_checked(tbuf, ulii, outfile)) {
       goto lgen_to_bed_ret_WRITE_FAIL;
     }
+    uii++;
+    marker_idx++;
+  }
+  if (!feof(infile)) {
+    goto lgen_to_bed_ret_READ_FAIL;
+  }
+  fclose_null(&infile);
+  if (map_is_unsorted) {
+    memcpy(outname_end, ".map.tmp", 9);
+    unlink(outname);
+  }
+  if (fclose_null(&outfile)) {
+    goto lgen_to_bed_ret_WRITE_FAIL;
   }
   memcpy(name_end, ".fam", 5);
   memcpy(outname_end, ".fam", 5);

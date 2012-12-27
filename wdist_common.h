@@ -288,6 +288,13 @@ static inline void fill_ulong_zero(unsigned long* ularr, size_t size) {
   }
 }
 
+static inline void fill_long_one(long* larr, size_t size) {
+  long* lptr = &(larr[size]);
+  while (larr < lptr) {
+    *larr++ = -1;
+  }
+}
+
 static inline void fill_ulong_one(unsigned long* ularr, size_t size) {
   unsigned long* ulptr = &(ularr[size]);
   while (ularr < ulptr) {
@@ -303,6 +310,17 @@ static inline void fill_int_zero(int* iarr, size_t size) {
   }
 #else
   fill_long_zero((long*)iarr, size);
+#endif
+}
+
+static inline void fill_int_one(int* iarr, size_t size) {
+#if __LP64__
+  fill_long_one((long*)iarr, size >> 1);
+  if (size & 1) {
+    iarr[size - 1] = -1;
+  }
+#else
+  fill_long_one((long*)iarr, size);
 #endif
 }
 
