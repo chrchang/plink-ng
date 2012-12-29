@@ -4286,6 +4286,8 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     fflush(stdout);
   } while (ll_change > tol);
   printf("\n");
+  sprintf(logbuf, "covg: %g  covr: %g\n", *covg_ref, *covr_ref);
+  logstr(logbuf);
 }
 #endif
 
@@ -4636,9 +4638,6 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, unsigned int unfilter
 	}
         remaining_indiv_idxs[jj] = kk;
       }
-      if (fidx == 999) {
-	printf("step 4\n");
-      }
       while (ii < family_size) {
 	complete_indiv_idxs[complete_indiv_idx_ct++] = fis_ptr[ii];
 	ii++;
@@ -4795,7 +4794,7 @@ int populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, unsigned int unfilter
 	  }
 	}
 	if (indiv_idx_write == remaining_indiv_ct) {
-	  printf("Error: Pedigree graph is cyclic.  Check for evidence of time travel abuse in\nyour cohort.\n");
+	  logprint("Error: Pedigree graph is cyclic.  Check for evidence of time travel abuse in\nyour cohort.\n");
 	  return RET_INVALID_FORMAT;
 	}
 	remaining_indiv_ct = indiv_idx_write;
@@ -4832,13 +4831,14 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
   // marker ID length if necessary.
   while (fgets(tbuf, MAXLINELEN - 5, *mapfile_ptr) != NULL) {
     if (!tbuf[MAXLINELEN - 6]) {
-      printf("Error: Excessively long line in .map/.bim file (max %d chars).\n", MAXLINELEN - 8);
+      sprintf(logbuf, "Error: Excessively long line in .map/.bim file (max %d chars).\n", MAXLINELEN - 8);
+      logprintb();
       return RET_INVALID_FORMAT;
     }
     if (tbuf[0] > ' ') {
       bufptr = next_item(tbuf);
       if (no_more_items(bufptr)) {
-	printf(errstr_map_format);
+	logprint(errstr_map_format);
 	return RET_INVALID_FORMAT;
       }
       ulii = strlen_se(bufptr) + 1;
@@ -4855,7 +4855,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
 	    bufptr = next_item_mult(bufptr, 2);
 	  }
 	  if (!bufptr) {
-	    printf(errstr_map_format);
+	    logprint(errstr_map_format);
 	    return RET_INVALID_FORMAT;
 	  }
 	  if (*bufptr > ' ') {
@@ -4870,7 +4870,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
     return RET_READ_FAIL;
   }
   if (!unfiltered_marker_ct) {
-    printf("Error: No markers in .map/.bim file.");
+    logprint("Error: No markers in .map/.bim file.");
     return RET_INVALID_FORMAT;
   }
   *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
@@ -4931,7 +4931,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
     } while (tbuf[0] <= ' ');
     jj = marker_code(species, tbuf);
     if (jj == -1) {
-      printf("Error: Invalid chromosome index in .map/.bim file.\n");
+      logprint("Error: Invalid chromosome index in .map/.bim file.\n");
       return RET_INVALID_FORMAT;
     }
     if (jj != last_chrom) {
@@ -4946,7 +4946,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
       last_chrom = jj;
       if (loaded_chrom_mask & (1LLU << jj)) {
 	if (calculation_type != CALC_MAKE_BED) {
-	  printf("Error: .map/.bim file is unsorted.  Use --make-bed by itself to remedy this.\n");
+	  logprint("Error: .map/.bim file is unsorted.  Use --make-bed by itself to remedy this.\n");
 	  return RET_INVALID_FORMAT;
 	}
 	*map_is_unsorted_ptr = 2;
@@ -4965,7 +4965,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
       bufptr = next_item(tbuf);
       if (*marker_ids_ptr) {
         if (no_more_items(bufptr)) {
-	  printf(errstr_map_format);
+	  logprint(errstr_map_format);
           return RET_INVALID_FORMAT;
         }
         read_next_terminate(&((*marker_ids_ptr)[marker_uidx * max_marker_id_len]), bufptr);
@@ -4975,14 +4975,11 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
 	bufptr = next_item(bufptr);
       }
       if (no_more_items(bufptr)) {
-        printf(errstr_map_format);
+        logprint(errstr_map_format);
         return RET_INVALID_FORMAT;
       }
       if (*bufptr == '-') {
-	if (binary_files) {
-	  printf("Error: Negative marker position in .bim file.\n");
-	  return RET_INVALID_FORMAT;
-	}
+	// negative marker positions now have same effect in .bim as .map
 	set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
       } else {
 	cur_pos = atoi(bufptr);
@@ -4998,7 +4995,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
 	  bufptr = next_item(bufptr);
 	  bufptr2 = next_item(bufptr);
 	  if (no_more_items(bufptr2)) {
-	    printf(errstr_map_format);
+	    logprint(errstr_map_format);
 	    return RET_INVALID_FORMAT;
 	  }
 	  (*marker_alleles_ptr)[marker_uidx * 2] = *bufptr;
@@ -5079,7 +5076,7 @@ int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34,
 	if (fam_col_6) {
 	  bufptr = next_item(bufptr);
 	  if (no_more_items(bufptr)) {
-	    printf(errstr_fam_format);
+	    logprint(errstr_fam_format);
 	    return RET_INVALID_FORMAT;
 	  }
 	  if (affection) {
@@ -5116,7 +5113,7 @@ int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34,
     return RET_READ_FAIL;
   }
   if (unfiltered_indiv_ct < 2) {
-    printf("Error: Less than two people in .fam/.ped file.\n");
+    logprint("Error: Less than two people in .fam/.ped file.\n");
     return RET_INVALID_FORMAT;
   }
   wkspace_reset(wkspace_mark);
@@ -5265,7 +5262,7 @@ int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34,
     if (!binary_files) {
       bufptr = next_item(bufptr);
       if (no_more_items(bufptr)) {
-	printf(errstr_fam_format);
+	logprint(errstr_fam_format);
 	return RET_INVALID_FORMAT;
       }
       (*line_locs_ptr)[indiv_uidx] = line_locs[indiv_uidx];
@@ -5343,15 +5340,17 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
       continue;
     }
     if (!tbuf[MAXLINELEN - 1]) {
-      printf("Error: Excessively long line in phenotype file (max %d chars).\n", MAXLINELEN - 3);
+      sprintf(logbuf, "Error: Excessively long line in phenotype file (max %d chars).\n", MAXLINELEN - 3);
+      logprintb();
       return RET_INVALID_FORMAT;
     }
     tmp_len = strlen_se(tbuf);
     bufptr = next_item(tbuf);
     if (no_more_items(bufptr)) {
-      printf(errstr_phenotype_format);
-      printf("At least two items expected in line.\n");
-      printf("Original line: %s", tbuf);
+      logprint(errstr_phenotype_format);
+      logprint("At least two items expected in line.\n");
+      sprintf(logbuf, "Original line: %s", tbuf);
+      logprintb();
       return RET_INVALID_FORMAT;
     }
     tmp_len2 = strlen_se(bufptr);
@@ -5362,7 +5361,7 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
 	  do {
 	    bufptr = next_item(bufptr);
 	    if (no_more_items(bufptr)) {
-	      printf("Error: --pheno-name column not found.\n");
+	      logprint("Error: --pheno-name column not found.\n");
 	      return RET_INVALID_FORMAT;
 	    }
 	    mpheno_col++;
@@ -5384,9 +5383,10 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
 	person_idx = id_map[person_idx];
 	bufptr = next_item_mult(bufptr, mpheno_col);
 	if (no_more_items(bufptr)) {
-	  printf(errstr_phenotype_format);
-	  printf("Less entries than expected in line.\n");
-	  printf("Original line: %s", tbuf);
+	  logprint(errstr_phenotype_format);
+	  logprint("Less entries than expected in line.\n");
+	  sprintf(logbuf, "Original line: %s", tbuf);
+	  logprintb();
 	  return RET_INVALID_FORMAT;
 	}
 	if (affection) {
@@ -5486,12 +5486,13 @@ int makepheno_load(FILE* phenofile, char* makepheno_str, unsigned int unfiltered
       continue;
     }
     if (!tbuf[MAXLINELEN - 1]) {
-      printf("Error: Excessively long line in phenotype file (max %d chars).\n", MAXLINELEN - 3);
+      sprintf(logbuf, "Error: Excessively long line in phenotype file (max %d chars).\n", MAXLINELEN - 3);
+      logprintb();
       return RET_INVALID_FORMAT;
     }
     bufptr = next_item(tbuf);
     if (no_more_items(bufptr)) {
-      printf(errstr_phenotype_format);
+      logprint(errstr_phenotype_format);
       return RET_INVALID_FORMAT;
     }
     person_idx = bsearch_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, indiv_ct, tbuf, bufptr);
@@ -5523,7 +5524,7 @@ int convert_tail_pheno(unsigned int unfiltered_indiv_ct, char** pheno_c_ptr, dou
   unsigned int uii;
   double dxx;
   if (!(*pheno_d_ptr)) {
-    printf("Error: --tail-pheno requires scalar phenotype data.\n");
+    logprint("Error: --tail-pheno requires scalar phenotype data.\n");
     return RET_INVALID_FORMAT;
   }
   if (!pheno_c) {
@@ -5620,12 +5621,13 @@ int include_or_exclude(char* fname, char* sorted_ids, int sorted_ids_len, unsign
 	continue;
       }
       if (!tbuf[MAXLINELEN - 1]) {
-	printf("Error: Excessively long line in --keep/--remove file (max %d chars).\n", MAXLINELEN - 3);
+	sprintf(logbuf, "Error: Excessively long line in --keep/--remove file (max %d chars).\n", MAXLINELEN - 3);
+	logprintb();
         return RET_INVALID_FORMAT;
       }
       bufptr = next_item(tbuf);
       if (no_more_items(bufptr)) {
-	printf("Error: Improperly formatted --keep/--remove file.\n");
+	logprint("Error: Improperly formatted --keep/--remove file.\n");
         return RET_INVALID_FORMAT;
       }
       ii = bsearch_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_len, tbuf, bufptr);
@@ -5706,13 +5708,14 @@ int filter_indivs_file(char* filtername, char* sorted_person_ids, int sorted_ids
       continue;
     }
     if (!tbuf[MAXLINELEN - 1]) {
-      printf("Error: Excessively long line in --keep/--remove file (max %d chars).\n", MAXLINELEN - 3);
+      sprintf(logbuf, "Error: Excessively long line in --keep/--remove file (max %d chars).\n", MAXLINELEN - 3);
+      logprintb();
       fclose(infile);
       return RET_INVALID_FORMAT;
     }
     bufptr = next_item(tbuf);
     if (no_more_items(bufptr)) {
-      printf("Error: Improperly formatted --filter file.\n");
+      logprint("Error: Improperly formatted --filter file.\n");
       fclose(infile);
       return RET_INVALID_FORMAT;
     }
@@ -5724,7 +5727,7 @@ int filter_indivs_file(char* filtername, char* sorted_person_ids, int sorted_ids
 	  bufptr = next_item(bufptr);
 	}
 	if (no_more_items(bufptr)) {
-	  printf("Error: Improperly formatted --filter file.\n");
+	  logprint("Error: Improperly formatted --filter file.\n");
 	  fclose(infile);
 	  return RET_INVALID_FORMAT;
 	}
@@ -5867,7 +5870,9 @@ int mind_filter(FILE* pedfile, double mind_thresh, unsigned int unfiltered_marke
       for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
 	ucc = *cptr;
 	if (!ucc) {
-	  printf("Error: Early line termination (.ped indiv %u, marker %u).\n", indiv_uidx + 1, marker_uidx + 1);
+	  sprintf(logbuf, "Error: Early line termination (.ped indiv %u, marker %u).\n", indiv_uidx + 1, marker_uidx + 1);
+	  logprintb();
+	  return RET_INVALID_FORMAT;
 	}
 	cptr++;
 	while ((*cptr == ' ') || (*cptr == '\t')) {
@@ -5876,7 +5881,8 @@ int mind_filter(FILE* pedfile, double mind_thresh, unsigned int unfiltered_marke
 	if (!is_set(marker_exclude, marker_uidx)) {
 	  if (ucc == (unsigned char)missing_geno) {
 	    if (*cptr != missing_geno) {
-	      printf("Error: 1st allele missing, 2nd isn't (.ped indiv %u, marker %u).\n", indiv_uidx + 1, marker_uidx + 1);
+	      sprintf(logbuf, "Error: 1st allele missing, 2nd isn't (.ped indiv %u, marker %u).\n", indiv_uidx + 1, marker_uidx + 1);
+	      logprintb();
 	      return RET_INVALID_FORMAT;
 	    }
 	    if (!is_set(marker_exclude, marker_uidx)) {
@@ -5885,7 +5891,8 @@ int mind_filter(FILE* pedfile, double mind_thresh, unsigned int unfiltered_marke
 	  } else {
 	    ucc = *cptr;
 	    if ((!ucc) || (ucc == (unsigned char)missing_geno)) {
-	      printf("Error: 1st allele present, 2nd isn't (.ped indiv %u, marker %u).\n", indiv_uidx + 1, marker_uidx + 1);
+	      sprintf(logbuf, "Error: 1st allele present, 2nd isn't (.ped indiv %u, marker %u).\n", indiv_uidx + 1, marker_uidx + 1);
+	      logprintb();
 	      return RET_INVALID_FORMAT;
 	    }
 	  }
@@ -5902,7 +5909,8 @@ int mind_filter(FILE* pedfile, double mind_thresh, unsigned int unfiltered_marke
     }
   }
   wkspace_reset(wkspace_mark);
-  printf("%u individual%s removed due to missing genotype data (--mind).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  sprintf(logbuf, "%u individual%s removed due to missing genotype data (--mind).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  logprintb();
   return 0;
 }
 
@@ -6178,7 +6186,9 @@ int calc_freqs_and_binary_hwe(FILE* pedfile, unsigned int unfiltered_marker_ct, 
       for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
 	ucc = *cptr;
 	if (!ucc) {
-	  printf("Error: Early line termination (.ped indiv %u, marker %u).\n", indiv_uidx + 1, marker_uidx + 1);
+	  sprintf(logbuf, "Error: Early line termination (.ped indiv %u, marker %u).\n", indiv_uidx + 1, marker_uidx + 1);
+	  logprintb();
+	  return RET_INVALID_FORMAT;
 	}
 	cptr++;
 	while ((*cptr == ' ') || (*cptr == '\t')) {
@@ -6187,22 +6197,26 @@ int calc_freqs_and_binary_hwe(FILE* pedfile, unsigned int unfiltered_marker_ct, 
 	if (!is_set(marker_exclude, marker_uidx)) {
 	  if (ucc == missing_geno) {
 	    if (*cptr != missing_geno) {
-	      printf("Error: 1st allele missing, 2nd isn't (.ped indiv %u, marker %u).\n", indiv_uidx + 1, marker_uidx + 1);
+	      sprintf(logbuf, "Error: 1st allele missing, 2nd isn't (.ped indiv %u, marker %u).\n", indiv_uidx + 1, marker_uidx + 1);
+	      logprintb();
 	      return RET_INVALID_FORMAT;
 	    }
 	    missing_cts[marker_uidx] += 1;
 	  } else {
 	    if (incr_text_allele((char)ucc, &(marker_alleles[4 * marker_uidx]), &(marker_allele_cts[4 * marker_uidx]), uii, &(marker_nf_allele_cts[4 * marker_uidx]))) {
-	      printf("Error: More than four different allele codes at marker %u.\n", marker_uidx + 1);
+	      sprintf(logbuf, "Error: More than four different allele codes at marker %u.\n", marker_uidx + 1);
+	      logprintb();
 	      return RET_INVALID_FORMAT;
 	    }
 	    ucc = *cptr;
 	    if ((!ucc) || (ucc == missing_geno)) {
-	      printf("Error: 1st allele present, 2nd isn't (.ped indiv %u, marker %u).\n", indiv_uidx + 1, marker_uidx + 1);
+	      sprintf(logbuf, "Error: 1st allele present, 2nd isn't (.ped indiv %u, marker %u).\n", indiv_uidx + 1, marker_uidx + 1);
+	      logprintb();
 	      return RET_INVALID_FORMAT;
 	    }
 	    if (incr_text_allele((char)ucc, &(marker_alleles[4 * marker_uidx]), &(marker_allele_cts[4 * marker_uidx]), uii, &(marker_nf_allele_cts[4 * marker_uidx]))) {
-	      printf("Error: More than four different allele codes at marker %u.\n", marker_uidx + 1);
+	      sprintf(logbuf, "Error: More than four different allele codes at marker %u.\n", marker_uidx + 1);
+	      logprintb();
 	      return RET_INVALID_FORMAT;
 	    }
 	  }
@@ -6389,7 +6403,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
     return RET_OPEN_FAIL;
   }
   if (fgets(tbuf, MAXLINELEN, *freqfile_ptr) == NULL) {
-    printf("Error: Empty --read-freq file.\n");
+    logprint("Error: Empty --read-freq file.\n");
     return RET_INVALID_FORMAT;
   }
   wkspace_mark = wkspace_base;
@@ -6448,9 +6462,9 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
       }
     }
     if (freq_counts) {
-      printf(".frq.count file loaded.\n");
+      fputs(".frq.count file loaded.\n", stdout);
     } else {
-      printf(".frq file loaded.\n");
+      fputs(".frq file loaded.\n", stdout);
     }
   } else if (!strcmp(tbuf, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(MISSING)\n")) {
     // known --freqx format, v0.13.5 or later
@@ -6491,7 +6505,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
         }
       }
     }
-    printf(".frqx file loaded.\n");
+    fputs(".frqx file loaded.\n", stdout);
   } else {
     // Also support GCTA-style frequency files:
     // [marker ID]\t[reference allele]\t[frequency of reference allele]\n
@@ -6529,19 +6543,21 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
 	}
       }
     } while (fgets(tbuf, MAXLINELEN, *freqfile_ptr) != NULL);
-    printf("GCTA-formatted .freq file loaded.\n");
+    fputs("GCTA-formatted .freq file loaded.\n", stdout);
   }
   fclose_null(freqfile_ptr);
   wkspace_reset(wkspace_mark);
   return 0;
  read_external_freqs_ret_INVALID_FORMAT:
-  printf(errstr_freq_format);
+  logprint(errstr_freq_format);
   return RET_INVALID_FORMAT;
  read_external_freqs_ret_ALLELE_MISMATCH:
-  printf("Error: Mismatch between .bim/.ped and --freq alleles at %s.\n", next_item_mult(tbuf, 2));
+  sprintf(logbuf, "Error: Mismatch between .bim/.ped and --freq alleles at %s.\n", next_item_mult(tbuf, 2));
+  logprintb();
   return RET_ALLELE_MISMATCH;
  read_external_freqs_ret_ALLELE_MISMATCH2:
-  printf("Error: Mismatch between .bim/.ped and --freq alleles at %s.\n", tbuf);
+  sprintf(logbuf, "Error: Mismatch between .bim/.ped and --freq alleles at %s.\n", tbuf);
+  logprintb();
   return RET_ALLELE_MISMATCH;
 }
 
@@ -6613,7 +6629,8 @@ int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, in
   if (fclose_null(outfile_ptr)) {
     return RET_WRITE_FAIL;
   }
-  printf("Allele frequencies written to %s.\n", outname);
+  sprintf(logbuf, "Allele frequencies written to %s.\n", outname);
+  logprintb();
   return 0;
 }
 
@@ -6789,7 +6806,8 @@ void enforce_hwe_threshold(double hwe_thresh, int unfiltered_marker_ct, unsigned
       }
     }
   }
-  printf("%u SNP%s removed due to Hardy-Weinberg exact test (--hwe).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  sprintf(logbuf, "%u SNP%s removed due to Hardy-Weinberg exact test (--hwe).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  logprintb();
 }
 
 void enforce_maf_threshold(double min_maf, double max_maf, int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int* marker_exclude_ct_ptr, double* set_allele_freqs) {
@@ -6806,7 +6824,8 @@ void enforce_maf_threshold(double min_maf, double max_maf, int unfiltered_marker
       removed_ct++;
     }
   }
-  printf("%u SNP%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  sprintf(logbuf, "%u SNP%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  logprintb();
 }
 
 void calc_marker_weights(double exponent, int unfiltered_marker_ct, unsigned long* marker_exclude, int* ll_cts, int* lh_cts, int* hh_cts, double* marker_weights) {
@@ -7103,7 +7122,7 @@ int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_
     return RET_NOMEM;
   } else {
     // this should be rewritten
-    printf("Converting very large .ped file to temporary individual-major .bed.\n");
+    logprint("Converting very large .ped file to temporary individual-major .bed.\n");
     strcpy(outname_end, ".fam");
     if (fopen_checked(famtmpfile_ptr, outname, "w")) {
       return RET_OPEN_FAIL;
@@ -7195,7 +7214,8 @@ int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_
       return RET_WRITE_FAIL;
     }
 
-    printf("Now transposing to SNP-major %s.\n", outname);
+    sprintf(logbuf, "Now transposing to SNP-major %s.\n", outname);
+    logprintb();
     strcpy(tbuf, outname);
     strcpy(outname_end, ".bed");
     retval = indiv_major_to_snp_major(tbuf, outname, outfile_ptr, marker_ct);
@@ -7255,7 +7275,7 @@ int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_
   if (fopen_checked(famfile_ptr, outname, "r")) {
     return RET_OPEN_FAIL;
   }
-  printf("Automatic --make-bed complete.\n");
+  logprint("Automatic --make-bed complete.\n");
   wkspace_reset(wkspace_mark);
   return 0;
 }
@@ -7296,7 +7316,8 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
 
   marker_uidx = 0;
   marker_idx = 0;
-  printf("Writing new binary fileset (--make-bed)... 0%%");
+  logprint("Writing new binary fileset (--make-bed)... ");
+  fputs("0%", stdout);
   if (fwrite_checked("l\x1b\x01", 3, *bedoutfile_ptr)) {
     return RET_WRITE_FAIL;
   }
@@ -7308,7 +7329,7 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
     }
 
     if (wkspace_alloc_uc_checked(&writebuf, marker_ct * indiv_ct4)) {
-      printf("Error: Insufficient memory for current --make-bed implementation.  Try raising\nthe --memory value for now.\n");
+      logprint("Error: Insufficient memory for current --make-bed implementation.  Try raising\nthe --memory value for now.\n");
       return RET_CALC_NOT_YET_SUPPORTED;
     } else {
       for (pct = 1; pct <= 100; pct++) {
@@ -7454,7 +7475,8 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
     fclose_null(bimoutfile_ptr);
   }
 
-  printf("\b\b\bdone.\n");
+  fputs("\b\b\b", stdout);
+  logprint("done.\n");
   wkspace_reset(wkspace_mark);
   return 0;
 }
@@ -7610,7 +7632,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   fill_uint_zero(marker_allele_cts, 2 * marker_ct);
   indiv_ct4 = (indiv_ct + 3) / 4;
   if (wkspace_alloc_uc_checked(&writebuf, ((unsigned long)marker_ct) * indiv_ct4)) {
-    printf("Error: Very large .lgen -> .bed conversions are not yet supported.  Try this\nwith more memory (use --memory and/or a better machine).\n");
+    logprint("Error: Very large .lgen -> .bed conversions are not yet supported.  Try this\nwith more memory (use --memory and/or a better machine).\n");
     goto lgen_to_bed_ret_CALC_NOT_YET_SUPPORTED;
   }
   if (indiv_ct % 4) {
@@ -7641,7 +7663,8 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   }
   lgen_size = ftello(infile);
   rewind(infile);
-  printf("Processing .lgen file... 0%%");
+  logprint("Processing .lgen file... ");
+  fputs("0%", stdout);
   fflush(stdout);
   lgen_next_thresh = lgen_size / 100;
   pct = 0;
@@ -7665,7 +7688,8 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
     if (ii == -1) {
       cptr[strlen_se(cptr)] = '\0';
       cptr2[strlen_se(cptr2)] = '\0';
-      printf("Error: Person %s %s in .lgen file but missing from .fam.\n", cptr, cptr2);
+      sprintf(logbuf, "Error: Person %s %s in .lgen file but missing from .fam.\n", cptr, cptr2);
+      logprintb();
       goto lgen_to_bed_ret_INVALID_FORMAT_2;
     }
     indiv_idx = indiv_id_map[ii];
@@ -7674,7 +7698,8 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
     id_buf[ulii] = '\0';
     ii = bsearch_str(id_buf, sorted_marker_ids, max_marker_id_len, 0, unfiltered_marker_ct - 1);
     if (ii == -1) {
-      printf("Error: Marker %s in .lgen file but missing from .map.\n", id_buf);
+      sprintf(logbuf, "Error: Marker %s in .lgen file but missing from .map.\n", id_buf);
+      logprintb();
       goto lgen_to_bed_ret_INVALID_FORMAT_2;
     }
     jj = marker_id_map[ii];
@@ -7752,12 +7777,13 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   }
   fclose_null(&infile);
   if (pct < 10) {
-    printf("\b\bdone.\n");
+    fputs("\b\b", stdout);
   } else if (pct < 100) {
-    printf("\b\b\bdone.\n");
+    fputs("\b\b\b", stdout);
   } else {
-    printf("\b\b\b\bdone.\n");
+    fputs("\b\b\b\b", stdout);
   }
+  logprint("done.\n");
   itable_short[0] = 3;
   itable_short[1] = 1;
   itable_short[2] = 2;
@@ -7907,7 +7933,8 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
     }
   }
   memcpy(outname_end, ".bed", 5);
-  printf("%s + .bim + .fam written.\n", outname);
+  sprintf(logbuf, "%s + .bim + .fam written.\n", outname);
+  logprintb();
 
   while (0) {
   lgen_to_bed_ret_NOMEM:
@@ -7926,12 +7953,13 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
     retval = RET_WRITE_FAIL;
     break;
   lgen_to_bed_ret_INVALID_FORMAT:
-    printf("Error: Improperly formatted .lgen file.\n");
+    logprint("Error: Improperly formatted .lgen file.\n");
   lgen_to_bed_ret_INVALID_FORMAT_2:
     retval = RET_INVALID_FORMAT;
     break;
   lgen_to_bed_ret_INVALID_FORMAT_3:
-    printf("Error: Marker %s in .lgen file has 3+ different alleles.\n", id_buf);
+    sprintf(logbuf, "Error: Marker %s in .lgen file has 3+ different alleles.\n", id_buf);
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -8039,6 +8067,7 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
   double* gd_vals;
   char* marker_alleles;
 
+  logstr("Processing .tped file.\n");
   transposed_to_bed_print_pct(0);
   fflush(stdout);
   if (fopen_checked(&infile, tfamname, "r")) {
@@ -8065,7 +8094,7 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
     goto transposed_to_bed_ret_READ_FAIL;
   }
   if (!indiv_ct) {
-    printf("\rError: No individuals in .tfam file.\n");
+    logprint("\rError: No individuals in .tfam file.\n");
     goto transposed_to_bed_ret_INVALID_FORMAT_2;
   }
   indiv_ct4 = (indiv_ct + 3) / 4;
@@ -8174,7 +8203,9 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
 	ujj = update_alleles_and_cts(alleles, allele_cts, cc2);
 	if ((uii == 4) || (ujj == 4)) {
 	  cptr[strlen_se(cptr)] = '\0';
-	  printf("\rError: More than four alleles at marker %s.\n", cptr);
+	  putchar('\r');
+	  sprintf(logbuf, "Error: More than four alleles at marker %s.\n", cptr);
+	  logprintb();
 	  goto transposed_to_bed_ret_INVALID_FORMAT_2;
 	}
         prewritebuf[indiv_idx] = uii * 4 + ujj;
@@ -8183,7 +8214,8 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
 
     if (no_extra_cols && (!is_eoln(*cptr2)) && (*cptr2 != '\0')) {
       no_extra_cols = 0;
-      printf("\rNote: Extra columns in .tped file.  Ignoring.\n");
+      putchar('\r');
+      logprint("Note: Extra columns in .tped file.  Ignoring.\n");
       transposed_to_bed_print_pct(pct);
     }
     if (max_load == 1 + strlen(cptr2) + (cptr2 - loadbuf)) {
@@ -8209,11 +8241,13 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
       ulii = strlen_se(cptr);
       cc = cptr[ulii];
       cptr[ulii] = '\0';
+      putchar('\r');
       if (allele_cts[3]) {
-	printf("\rNote: Marker %s is quadallelic.  Truncating.\n", cptr);
+	sprintf(logbuf, "Note: Marker %s is quadallelic.  Truncating.\n", cptr);
       } else {
-	printf("\rNote: Marker %s is triallelic.  Truncating.\n", cptr);
+	sprintf(logbuf, "Note: Marker %s is triallelic.  Truncating.\n", cptr);
       }
+      logprintb();
       transposed_to_bed_print_pct(pct);
       cptr[ulii] = cc;
     }
@@ -8416,7 +8450,9 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
       goto transposed_to_bed_ret_WRITE_FAIL;
     }
   }
-  printf("\rProcessing .tped file... done.\n%s + .bim + .fam written.\n", outname);
+  fputs("\rProcessing .tped file... done.\n", stdout);
+  sprintf(logbuf, "%s + .bim + .fam written.\n", outname);
+  logprintb();
 
   while (0) {
   transposed_to_bed_ret_NOMEM:
@@ -8432,18 +8468,23 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
     retval = RET_WRITE_FAIL;
     break;
   transposed_to_bed_ret_INVALID_FORMAT:
-    printf("\rError: Improperly formatted .tped file.\n");
+    putchar('\r');
+    logprint("Error: Improperly formatted .tped file.\n");
   transposed_to_bed_ret_INVALID_FORMAT_2:
     retval = RET_INVALID_FORMAT;
     break;
   transposed_to_bed_ret_INVALID_FORMAT_3:
     cptr[strlen_se(cptr)] = '\0';
-    printf("\rError: Missing entries at marker %s in .tped file.\n", cptr);
+    putchar('\r');
+    sprintf(logbuf, "Error: Missing entries at marker %s in .tped file.\n", cptr);
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   transposed_to_bed_ret_INVALID_FORMAT_4:
     cptr[strlen_se(cptr)] = '\0';
-    printf("\rError: half-missing call at marker %s, indiv %u in .tped file.\n", cptr, indiv_idx);
+    putchar('\r');
+    sprintf(logbuf, "Error: half-missing call at marker %s, indiv %u in .tped file.\n", cptr, indiv_idx);
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -8541,7 +8582,9 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
     if (fopen_checked(outfile_ptr, outname, "w")) {
       return RET_OPEN_FAIL;
     }
-    printf("--recode to %s + .tfam... 0%%", outname);
+    sprintf(logbuf, "--recode to %s + .tfam... ", outname);
+    logprintb();
+    fputs("0%", stdout);
     if ((recode_modifier & (RECODE_TAB | RECODE_DELIMX)) == RECODE_TAB) {
       loop_end = indiv_ct * 4;
       for (ulii = 1; ulii < loop_end; ulii += 4) {
@@ -8638,7 +8681,9 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
     if (fopen_checked(outfile_ptr, outname, "w")) {
       return RET_OPEN_FAIL;
     }
-    printf("--recode to %s + .map + .fam... 0%%", outname);
+    sprintf(logbuf, "--recode to %s + .map + .fam... ", outname);
+    logprintb();
+    fputs("0%", stdout);
     delim2 = delimiter;
     if (delimiter == ' ') {
       memcpy(writebuf, "  ", 3);
@@ -8707,7 +8752,9 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
       if (fopen_checked(outfile_ptr, outname, "w")) {
 	return RET_OPEN_FAIL;
       }
-      printf("--recode to %s + .map... 0%%", outname);
+      sprintf(logbuf, "--recode to %s + .map... ", outname);
+      logprintb();
+      fputs("0%", stdout);
       while (marker_idx < marker_ct) {
 	if (is_set(marker_exclude, marker_uidx)) {
 	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
@@ -8817,7 +8864,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
 	}
       }
     } else {
-      printf("Error: --recode does not yet support very large .bed files.\n");
+      logprint("Error: --recode does not yet support very large .bed files.\n");
       return RET_CALC_NOT_YET_SUPPORTED;
     }
   }
@@ -8914,7 +8961,8 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
     }
     fclose_null(outfile_ptr);
   }
-  printf("\b\b\bdone.\n");
+  fputs("\b\b\b", stdout);
+  logprint("done.\n");
 
   wkspace_reset(wkspace_mark);
   return 0;
@@ -8950,7 +8998,8 @@ int write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, int unfi
   if (fclose_null(outfile_ptr)) {
     return RET_WRITE_FAIL;
   }
-  printf("Final list of SNP IDs written to %s.\n", outname);
+  sprintf(logbuf, "Final list of SNP IDs written to %s.\n", outname);
+  logprintb();
   return 0;
 }
 
@@ -9060,7 +9109,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     }
   }
   if (!tbuf[MAXLINELEN - 7]) {
-    printf("Error: Excessively long line in .evec/.eigenvec file.\n");
+    logprint("Error: Excessively long line in .evec/.eigenvec file.\n");
     goto calc_regress_pcs_ret_INVALID_FORMAT2;
   }
   bufptr = skip_initial_spaces(tbuf);
@@ -9080,11 +9129,12 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     goto calc_regress_pcs_ret_INVALID_FORMAT;
   }
   if (pc_ct > max_pcs) {
-    printf("%svec format detected.  Regressing on %d PC%s (out of %d).\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", max_pcs, (max_pcs == 1)? "" : "s", pc_ct);
+    sprintf(logbuf, "%svec format detected.  Regressing on %d PC%s (out of %d).\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", max_pcs, (max_pcs == 1)? "" : "s", pc_ct);
     pc_ct = max_pcs;
   } else {
-    printf("%svec format detected.  Regressing on %d principal component%s.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", pc_ct, (pc_ct == 1)? "" : "s");
+    sprintf(logbuf, "%svec format detected.  Regressing on %d principal component%s.\n", is_eigenvec? "GCTA .eigen" : "SMARTPCA .e", pc_ct, (pc_ct == 1)? "" : "s");
   }
+  logprintb();
   pc_ct_p1 = pc_ct + 1;
   if (wkspace_alloc_d_checked(&pc_matrix, pc_ct_p1 * indiv_ct * sizeof(double))) {
     goto calc_regress_pcs_ret_NOMEM;
@@ -9132,7 +9182,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
       }
       if (!fgets(tbuf, MAXLINELEN, evecfile)) {
 	if (feof(evecfile)) {
-	  printf("Error: Fewer individuals in .eigenvec file than expected.\n");
+	  logprint("Error: Fewer individuals in .eigenvec file than expected.\n");
 	  goto calc_regress_pcs_ret_INVALID_FORMAT2;
 	} else {
 	  goto calc_regress_pcs_ret_READ_FAIL;
@@ -9143,7 +9193,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       if (!fgets(tbuf, MAXLINELEN, evecfile)) {
 	if (feof(evecfile)) {
-	  printf("Error: Fewer individuals in .evec file than expected.\n");
+	  logprint("Error: Fewer individuals in .evec file than expected.\n");
 	  goto calc_regress_pcs_ret_INVALID_FORMAT2;
 	} else {
 	  goto calc_regress_pcs_ret_READ_FAIL;
@@ -9164,7 +9214,8 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
   }
   if (fgets(tbuf, MAXLINELEN, evecfile)) {
     if (!no_more_items(skip_initial_spaces(tbuf))) {
-      printf("Error: More individuals in .e%svec file than expected.\n", is_eigenvec? "igen" : "");
+      sprintf(logbuf, "Error: More individuals in .e%svec file than expected.\n", is_eigenvec? "igen" : "");
+      logprintb();
       goto calc_regress_pcs_ret_INVALID_FORMAT2;
     }
   }
@@ -9376,7 +9427,9 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     return RET_WRITE_FAIL;
   }
   *outname_end = '\0';
-  printf("\rPrincipal component regression residuals and %sphenotype Z-scores %s%s.gen and %s.sample.\n", regress_pcs_sex_specific? "sex-specific " : "", regress_pcs_sex_specific? "\nwritten to " : "written to\n", outname, outname); 
+  putchar('\r');
+  sprintf(logbuf, "Principal component regression residuals and %sphenotype Z-scores %s%s.gen and %s.sample.\n", regress_pcs_sex_specific? "sex-specific " : "", regress_pcs_sex_specific? "\nwritten to " : "written to\n", outname, outname);
+  logprintb();
   wkspace_reset(wkspace_mark);
   while (0) {
   calc_regress_pcs_ret_NOMEM:
@@ -9386,7 +9439,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     retval = RET_READ_FAIL;
     break;
   calc_regress_pcs_ret_INVALID_FORMAT:
-    printf("Error: Improperly formatted .evec file.\n");
+    logprint("Error: Improperly formatted .evec file.\n");
   calc_regress_pcs_ret_INVALID_FORMAT2:
     retval = RET_INVALID_FORMAT;
     break;
@@ -9767,7 +9820,8 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
     printf("\r%d markers complete.", g_low_ct);
     fflush(stdout);
   } while (g_low_ct < marker_ct);
-  printf("\rIBD calculations complete.  \n");
+  fputs("\rIBD calculations complete.  \n", stdout);
+  logstr("IBD calculations complete.\n");
   dxx = 1.0 / (double)ibd_prect;
   e00 *= dxx;
   e01 *= dxx;
@@ -9815,7 +9869,9 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
     if (fclose_null(&outfile)) {
       goto calc_genome_ret_WRITE_FAIL;
     }
-    printf("\rIBS matrix written to %s.\n", outname);
+    putchar('\r');
+    sprintf(logbuf, "IBS matrix written to %s.\n", outname);
+    logprintb();
     strcpy(outname_end, ".mibs.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
@@ -9863,7 +9919,9 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
     if (fclose_null(&outfile)) {
       goto calc_genome_ret_WRITE_FAIL;
     }
-    printf("\rDistances (proportions) written to %s.\n", outname);
+    putchar('\r');
+    sprintf(logbuf, "Distances (proportions) written to %s.\n", outname);
+    logprintb();
     strcpy(outname_end, ".mdist.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
@@ -10064,7 +10122,9 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
       fflush(stdout);
     }
   }
-  printf("\rFinished writing %s.\n", outname);
+  putchar('\r');
+  sprintf(logbuf, "Finished writing %s.\n", outname);
+  logprintb();
   wkspace_reset(wkspace_mark);
   while (0) {
   calc_genome_ret_NOMEM:
@@ -10077,7 +10137,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
     retval = RET_WRITE_FAIL;
     break;
   calc_genome_ret_THREAD_CREATE_FAIL:
-    printf(errstr_thread_create);
+    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     for (uljj = 0; uljj < ulii - 1; uljj++) {
       pthread_join(threads[uljj], NULL);
@@ -10343,9 +10403,9 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
   window_unfiltered_start = ld_prune_next_valid_chrom_start(marker_exclude, 0, chrom_info_ptr, unfiltered_marker_ct);
   if (window_unfiltered_start == unfiltered_marker_ct) {
     if (pairwise) {
-      printf("Error: No valid markers for --indep-pairwise.\n");
+      logprint("Error: No valid markers for --indep-pairwise.\n");
     } else {
-      printf("Error: No valid markers for --indep.\n");
+      logprint("Error: No valid markers for --indep.\n");
     }
     return RET_INVALID_FORMAT;
   }
@@ -10685,14 +10745,17 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
       }
     }
     ii = get_marker_chrom(chrom_info_ptr, window_unfiltered_start - 1);
-    printf("\rPruned %d SNPs from chromosome %d, leaving %d.\n", cur_exclude_ct, ii, chrom_info_ptr->chrom_end[ii] - chrom_info_ptr->chrom_start[ii] - cur_exclude_ct);
+    putchar('\r');
+    sprintf(logbuf, "Pruned %d SNPs from chromosome %d, leaving %d.\n", cur_exclude_ct, ii, chrom_info_ptr->chrom_end[ii] - chrom_info_ptr->chrom_start[ii] - cur_exclude_ct);
+    logprintb();
     tot_exclude_ct += cur_exclude_ct;
 
     // advance chromosomes as necessary
     window_unfiltered_start = ld_prune_next_valid_chrom_start(pruned_arr, window_unfiltered_start, chrom_info_ptr, unfiltered_marker_ct);
   } while (window_unfiltered_start < unfiltered_marker_ct);
 
-  printf("Pruning complete.  %d of %d SNPs removed.\n", tot_exclude_ct, marker_ct);
+  sprintf(logbuf, "Pruning complete.  %d of %d SNPs removed.\n", tot_exclude_ct, marker_ct);
+  logprintb();
   strcpy(outname_end, ".prune.in");
   if (fopen_checked(&outfile_in, outname, "w")) {
     goto ld_prune_ret_OPEN_FAIL;
@@ -10748,7 +10811,9 @@ int ld_prune(FILE* bedfile, int bed_offset, unsigned int marker_ct, unsigned int
     goto ld_prune_ret_WRITE_FAIL;
   }
   *outname_end = '\0';
-  printf("\rSNP lists written to %s.prune.in and %s.prune.out.\n", outname, outname);
+  putchar('\r');
+  sprintf(logbuf, "SNP lists written to %s.prune.in and %s.prune.out.\n", outname, outname);
+  logprintb();
 
   while (0) {
   ld_prune_ret_NOMEM:
@@ -10949,14 +11014,16 @@ int do_rel_cutoff(int calculation_type, double rel_cutoff, double* rel_ibc, unsi
       }
     }
   }
-  printf("%d individual%s excluded by --rel-cutoff.\n", indivs_excluded, (indivs_excluded == 1)? "" : "s");
+  sprintf(logbuf, "%d individual%s excluded by --rel-cutoff.\n", indivs_excluded, (indivs_excluded == 1)? "" : "s");
+  logprintb();
   if (!(calculation_type & (CALC_RELATIONSHIP | CALC_GDISTANCE_MASK))) {
     strcpy(outname_end, ".rel.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
     if (retval) {
       return retval;
     }
-    printf("Remaining individual IDs written to %s.\n", outname);
+    sprintf(logbuf, "Remaining individual IDs written to %s.\n", outname);
+    logprintb();
   }
   wkspace_reset(wkspace_mark);
   return 0;
@@ -11011,7 +11078,7 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_ca
       continue;
     }
     if (!tbuf[MAXLINELEN - 1]) {
-      printf("Error: Pathologically long line in .grm.id file.\n");
+      logprint("Error: Pathologically long line in .grm.id file.\n");
       goto rel_cutoff_batch_ret_INVALID_FORMAT_1;
     }
     indiv_ct++;
@@ -11047,7 +11114,7 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_ca
 
   words_left = tot_words;
   rtptr = compact_rel_table;
-  printf("Reading... 0%%");
+  fputs("Reading... 0%", stdout);
   fflush(stdout);
   row = 0;
   col = 0;
@@ -11108,7 +11175,9 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_ca
   }
   gzclose(cur_gzfile);
   cur_gzfile = NULL;
-  printf("\r%s read complete.  Pruning.\n", grmname);
+  putchar('\r');
+  sprintf(logbuf, "%s read complete.  Pruning.\n", grmname);
+  logprintb();
 
   // would prefer to just call do_rel_cutoff(), but unfortunately that
   // interferes with the intended "handle extra-large datasets" mission of this
@@ -11296,8 +11365,10 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_ca
   fclose_null(&idfile);
   fclose_null(&outfile);
 
-  printf("%d individual%s excluded by --rel-cutoff.\n", indivs_excluded, (indivs_excluded == 1)? "" : "s");
-  printf("Remaining individual IDs written to %s.\n", outname);
+  sprintf(logbuf, "%d individual%s excluded by --rel-cutoff.\n", indivs_excluded, (indivs_excluded == 1)? "" : "s");
+  logprintb();
+  sprintf(logbuf, "Remaining individual IDs written to %s.\n", outname);
+  logprintb();
   if (rel_calc_type & REL_CALC_GRM) {
     memcpy(grmname_end, ".grm.gz", 8);
     if (gzopen_checked(&cur_gzfile, grmname, "rb")) {
@@ -11360,7 +11431,9 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_ca
 	}
       }
     }
-    printf("\rPruned relationship matrix written to %s.\n", outname);
+    putchar('\r');
+    sprintf(logbuf, "Pruned relationship matrix written to %s.\n", outname);
+    logprintb();
   }
   retval = 0;
   while (0) {
