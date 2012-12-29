@@ -1096,7 +1096,6 @@ long malloc_size_mb = MALLOC_DEFAULT_MB;
 unsigned char* wkspace;
 
 char** subst_argv = NULL;
-char** subst_argv2 = NULL;
 char* script_buf = NULL;
 char* rerun_buf = NULL;
 
@@ -1113,7 +1112,6 @@ int dispmsg(int retval) {
     break;
   }
   free_cond(subst_argv);
-  free_cond(subst_argv2);
   free_cond(script_buf);
   free_cond(rerun_buf);
   return retval;
@@ -13618,6 +13616,7 @@ int main(int argc, char** argv) {
   char* filterval = NULL;
   char* argptr;
   char* sptr;
+  char** subst_argv2;
   int retval = 0;
   int load_params = 0; // describes what file parameters have been provided
   int load_rare = 0;
@@ -13669,6 +13668,9 @@ int main(int argc, char** argv) {
   int ii;
   int jj;
   int kk;
+  int mm;
+  int nn;
+  int oo;
   int ppc_gap = DEFAULT_PPC_GAP;
   unsigned long int rseed = 0;
   int genome_output_gz = 0;
@@ -13715,6 +13717,7 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
       }
+      // logging not yet active, so don't use fopen_checked()
       scriptfile = fopen(argv[ii + 1], "rb");
       if (!scriptfile) {
 	printf(errstr_fopen, argv[ii + 1]);
@@ -13725,7 +13728,7 @@ int main(int argc, char** argv) {
       }
       llxx = ftello(scriptfile);
       if (llxx > MAXLINELEN) {
-	fputs("Error: Script file too long (max 131072 bytes).\n", stdout);
+	printf("Error: Script file too long (max %u bytes).\n", MAXLINELEN);
 	retval = RET_INVALID_FORMAT;
 	goto main_ret_1;
       }
@@ -13794,9 +13797,101 @@ int main(int argc, char** argv) {
       if (!scriptfile) {
 	goto main_ret_OPEN_FAIL;
       }
-      // ...
+      if (!fgets(tbuf, MAXLINELEN, scriptfile)) {
+	printf("Error: Empty log file for --rerun.\n");
+	goto main_ret_INVALID_FORMAT;
+      }
+      if (!fgets(tbuf, MAXLINELEN, scriptfile)) {
+	printf("Error: Only one line in --rerun log file.\n");
+	goto main_ret_INVALID_FORMAT;
+      }
       fclose_null(&scriptfile);
-      // ...
+      kk = atoi(tbuf);
+      if ((kk < 1) || (kk > MAXLINELEN)) {
+	printf("Error: Improperly formatted --rerun log file.\n");
+	goto main_ret_INVALID_FORMAT;
+      }
+      uii = strlen(tbuf) + 1;
+      if (uii == MAXLINELEN) {
+	printf("Error: Second line too long in --rerun log file.\n");
+	goto main_ret_INVALID_FORMAT;
+      }
+      rerun_buf = (char*)malloc(uii);
+      memcpy(rerun_buf, tbuf, uii);
+
+      memset(tbuf, 1, kk);
+      sptr = next_item_mult(rerun_buf, 2);
+      mm = 0;
+      oo = 0;
+      do {
+	if (no_more_items(sptr)) {
+	  printf("Error: Improperly formatted --rerun log file.\n");
+	  goto main_ret_INVALID_FORMAT;
+	}
+	if ((*sptr == '-') && ((sptr[1] < '0') || (sptr[1] > '9'))) {
+	  if (sptr[1] == '-') {
+	    sptr++;
+	  }
+	  uii = strlen_se(sptr);
+          for (nn = cur_arg; nn < argc; nn++) {
+	    if ((argv[nn][0] == '-') && ((argv[nn][1] < '0') || (argv[nn][1] > '9'))) {
+	      if (!memcmp(sptr, &(argv[nn][(argv[nn][1] == '-')? 1 : 0]), uii)) {
+		nn = -1;
+		break;
+	      }
+	    }
+	  }
+          if (nn == -1) {
+	    // matching flag, override --rerun
+            do {
+	      oo++;
+	      tbuf[mm++] = 0;
+	      if (mm == kk) {
+		break;
+	      }
+	      sptr = next_item(sptr);
+	    } while (!((*sptr == '-') && ((sptr[1] < '0') || (sptr[1] > '9'))));
+	  } else {
+	    mm++;
+	    sptr = next_item(sptr);
+	  }
+	} else {
+	  mm++;
+          sptr = next_item(sptr);
+	}
+      } while (mm < kk);
+      subst_argv2 = (char**)malloc((argc + kk - oo - jj - 1 - cur_arg) * sizeof(char*));
+      if (!subst_argv2) {
+	goto main_ret_NOMEM;
+      }
+      oo = 0;
+      for (mm = cur_arg; mm < ii; mm++) {
+	subst_argv2[oo++] = argv[mm];
+      }
+      sptr = next_item_mult(rerun_buf, 2);
+      for (mm = 0; mm < kk; mm++) {
+        if (tbuf[mm]) {
+	  uii = strlen_se(sptr);
+	  subst_argv2[oo++] = sptr;
+	  sptr[uii] = '\0';
+	  if (mm != kk - 1) {
+	    sptr = skip_initial_spaces(&(sptr[uii + 1]));
+	  }
+	} else {
+	  sptr = next_item(sptr);
+	}
+      }
+      for (mm = ii + jj + 1; mm < argc; mm++) {
+	subst_argv2[oo++] = argv[mm];
+      }
+      cur_arg = 0;
+      argc = oo;
+      if (subst_argv) {
+	free(subst_argv);
+      }
+      subst_argv = subst_argv2;
+      argv = subst_argv2;
+      subst_argv2 = NULL;
     }
   }
   for (ii = cur_arg; ii < argc; ii++) {
@@ -13849,7 +13944,8 @@ int main(int argc, char** argv) {
   outname[uii] = '\0';
 
   logstr(ver_str);
-  logstr("\nArgument(s):");
+  sprintf(logbuf, "\n%d argument%s:", argc - cur_arg, (argc - cur_arg == 1)? "" : "s");
+  logstr(logbuf);
   for (ii = cur_arg; ii < argc; ii++) {
     logstr(" ");
     logstr(argv[ii]);
@@ -15891,8 +15987,6 @@ int main(int argc, char** argv) {
   }
   free_cond(subst_argv);
   subst_argv = NULL;
-  free_cond(subst_argv2);
-  subst_argv2 = NULL;
   free_cond(script_buf);
   script_buf = NULL;
   free_cond(rerun_buf);
@@ -15978,6 +16072,9 @@ int main(int argc, char** argv) {
     break;
   main_ret_READ_FAIL:
     retval = RET_READ_FAIL;
+    break;
+  main_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
     break;
   main_ret_INVALID_CMDLINE_2:
     invalid_arg(argptr);
