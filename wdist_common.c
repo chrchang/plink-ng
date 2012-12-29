@@ -6,10 +6,43 @@ const char errstr_thread_create[] = "\nError: Failed to create thread.\n";
 
 char tbuf[MAXLINELEN * 4 + 256];
 
+FILE* logfile = NULL;
+char logbuf[MAXLINELEN]; // safe sprintf buffer, if one is needed
+int debug_on = 0;
+int log_failed = 0;
+
+void logstr(const char* ss) {
+  if (log_failed) {
+    if (debug_on) {
+      printf("%s", ss);
+    }
+  } else if (fprintf(logfile, "%s", ss) < 0) {
+    if (!log_failed) {
+      if (debug_on) {
+	printf("\nError: Debug logging failure.  Dumping to standard output:\n%s", ss);
+      } else {
+	printf("\nNote: Logging failure on:\n%s\nFurther logging will not be attempted in this run.\n", ss);
+      }
+      log_failed = 1;
+    }
+  }
+}
+
+void logprint(const char* ss) {
+  logstr(ss);
+  fputs(ss, stdout);
+}
+
+void logprintb() {
+  logstr(logbuf);
+  fputs(logbuf, stdout);
+}
+
 int fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
   *target_ptr = fopen(fname, mode);
   if (!(*target_ptr)) {
-    printf(errstr_fopen, fname);
+    sprintf(logbuf, errstr_fopen, fname);
+    logprintb();
     return -1;
   }
   return 0;
@@ -18,7 +51,8 @@ int fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
 int gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode) {
   *target_ptr = gzopen(fname, mode);
   if (!(*target_ptr)) {
-    printf(errstr_fopen, fname);
+    sprintf(logbuf, errstr_fopen, fname);
+    logprintb();
     return -1;
   }
   return 0;
@@ -421,16 +455,18 @@ int distance_open_gz(gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz
 }
 
 void distance_print_done(int format_code, char* outname, char* outname_end) {
+  putchar('\r');
   if (!format_code) {
     strcpy(outname_end, tbuf);
-    printf("\rDistances (allele counts) written to %s.\n", outname);
+    sprintf(logbuf, "Distances (allele counts) written to %s.\n", outname);
   } else if (format_code == 1) {
     strcpy(outname_end, &(tbuf[MAX_POST_EXT]));
-    printf("\rIBS matrix written to %s.\n", outname);
+    sprintf(logbuf, "IBS matrix written to %s.\n", outname);
   } else if (format_code == 2) {
     strcpy(outname_end, &(tbuf[MAX_POST_EXT * 2]));
-    printf("\rDistances (proportions) written to %s.\n", outname);
+    sprintf(logbuf, "Distances (proportions) written to %s.\n", outname);
   }
+  logprintb();
 }
 
 int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int calculation_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf) {
@@ -701,7 +737,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
     }
     if (shape == CALC_DISTANCE_TRI) {
       if (write_alcts) {
-	printf("Writing...");
+	fputs("Writing...", stdout);
 	fflush(stdout);
 	if (fwrite_checked(dists, indiv_idx_ct * sizeof(double), *outfile_ptr)) {
 	  return RET_WRITE_FAIL;
@@ -1248,12 +1284,14 @@ void print_pheno_stdev(double* pheno_d, unsigned int indiv_ct) {
     reg_tot_x += dxx;
     reg_tot_xx += dxx * dxx;
   }
-  printf("Phenotype stdev: %g\n", sqrt((reg_tot_xx - reg_tot_x * reg_tot_x / indiv_ct) / (indiv_ct - 1)));
+  sprintf(logbuf, "Phenotype stdev: %g\n", sqrt((reg_tot_xx - reg_tot_x * reg_tot_x / indiv_ct) / (indiv_ct - 1)));
+  logprintb();
 }
 
 unsigned int set_default_jackknife_d(unsigned int ct) {
   unsigned int dd = (unsigned int)pow((double)ct, 0.600000000001);
-  printf("Setting d=%u for jackknife.\n", dd);
+  sprintf(logbuf, "Setting d=%u for jackknife.\n", dd);
+  logprintb();
   return dd;
 }
 
@@ -1440,8 +1478,10 @@ int regress_distance(int calculation_type, double* dists_local, double* pheno_d_
   }
 
   dxx = ulii;
-  printf("Regression slope (y = genomic distance, x = avg phenotype): %g\n", (g_reg_tot_xy - g_reg_tot_x * g_reg_tot_y / dxx) / (g_reg_tot_xx - g_reg_tot_x * g_reg_tot_x / dxx));
-  printf("Regression slope (y = avg phenotype, x = genomic distance): %g\n", (g_reg_tot_xy - g_reg_tot_x * g_reg_tot_y / dxx) / (g_reg_tot_yy - g_reg_tot_y * g_reg_tot_y / dxx));
+  sprintf(logbuf, "Regression slope (y = genomic distance, x = avg phenotype): %g\n", (g_reg_tot_xy - g_reg_tot_x * g_reg_tot_y / dxx) / (g_reg_tot_xx - g_reg_tot_x * g_reg_tot_x / dxx));
+  logprintb();
+  sprintf(logbuf, "Regression slope (y = avg phenotype, x = genomic distance): %g\n", (g_reg_tot_xy - g_reg_tot_x * g_reg_tot_y / dxx) / (g_reg_tot_yy - g_reg_tot_y * g_reg_tot_y / dxx));
+  logprintb();
 
   g_jackknife_iters = (regress_iters + thread_ct - 1) / thread_ct;
   if (regress_d) {
@@ -1455,7 +1495,7 @@ int regress_distance(int calculation_type, double* dists_local, double* pheno_d_
   }
   for (ulii = 1; ulii < thread_ct; ulii++) {
     if (pthread_create(&(threads[ulii - 1]), NULL, &regress_jack_thread, (void*)ulii)) {
-      printf(errstr_thread_create);
+      fputs(errstr_thread_create, stdout);
       while (--ulii) {
 	pthread_join(threads[ulii - 1], NULL);
       }
@@ -1476,8 +1516,11 @@ int regress_distance(int calculation_type, double* dists_local, double* pheno_d_
     dvv += g_calc_result[3][uii + 1];
   }
   regress_iters = g_jackknife_iters * thread_ct;
-  printf("\rJackknife s.e.: %g\n", sqrt((g_indiv_ct / ((double)g_jackknife_d)) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
-  printf("Jackknife s.e. (y = avg phenotype): %g\n", sqrt((g_indiv_ct / ((double)g_jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
+  putchar('\r');
+  sprintf(logbuf, "Jackknife s.e.: %g\n", sqrt((g_indiv_ct / ((double)g_jackknife_d)) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
+  logprintb();
+  sprintf(logbuf, "Jackknife s.e. (y = avg phenotype): %g\n", sqrt((g_indiv_ct / ((double)g_jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
+  logprintb();
   wkspace_reset(wkspace_mark);
   return 0;
 }

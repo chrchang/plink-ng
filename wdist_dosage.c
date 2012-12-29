@@ -120,7 +120,7 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
       if (no_more_items(next_item(bufptr))) {
         goto oxford_sample_load_ret_INVALID_FORMAT;
       }
-      printf("Note: Multiple phenotypes/covariates detected.  Loading only the first one.\n");
+      logprint("Note: Multiple phenotypes/covariates detected.  Loading only the first one.\n");
       load_pheno = 1;
     }
   }
@@ -159,7 +159,7 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
     goto oxford_sample_load_ret_READ_FAIL;
   }
   if (!unfiltered_indiv_ct) {
-    printf("Error: No individuals in .sample file.\n");
+    logprint("Error: No individuals in .sample file.\n");
     goto oxford_sample_load_ret_INVALID_FORMAT_4;
   }
   *unfiltered_indiv_ct_ptr = unfiltered_indiv_ct;
@@ -208,7 +208,8 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
     do {
       if ((*bufptr == ',') || (*bufptr == '\0')) {
 	// blank string makes no sense
-        printf("Error: Invalid --missing-code parameter '%s'.%s", missing_code, errstr_append);
+        sprintf(logbuf, "Error: Invalid --missing-code parameter '%s'.%s", missing_code, errstr_append);
+	logprintb();
 	goto oxford_sample_load_ret_INVALID_CMDLINE;
       }
       bufptr = strchr(bufptr, ',');
@@ -313,13 +314,14 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   if (load_sex) {
     uii = unfiltered_indiv_ct - male_ct - female_ct;
     if (uii) {
-      printf("%d people (%d male%s, %d female%s, %d unknown) loaded.\n", unfiltered_indiv_ct, male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s", uii);
+      sprintf(logbuf, "%d people (%d male%s, %d female%s, %d unknown) loaded.\n", unfiltered_indiv_ct, male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s", uii);
     } else {
-      printf("%d people (%d male%s, %d female%s) loaded.\n", unfiltered_indiv_ct, male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s");
+      sprintf(logbuf, "%d people (%d male%s, %d female%s) loaded.\n", unfiltered_indiv_ct, male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s");
     }
   } else {
-    printf("%d people loaded.\n", unfiltered_indiv_ct);
+    sprintf(logbuf, "%d people loaded.\n", unfiltered_indiv_ct);
   }
+  logprintb();
   while (0) {
   oxford_sample_load_ret_NOMEM:
     retval = RET_NOMEM;
@@ -331,13 +333,16 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
     retval = RET_INVALID_CMDLINE;
     break;
   oxford_sample_load_ret_INVALID_FORMAT:
-    printf("Error: Improperly formatted .sample file.\n");
+    logprint("Error: Improperly formatted .sample file.\n");
     retval = RET_INVALID_FORMAT;
     break;
   oxford_sample_load_ret_INVALID_FORMAT_2:
-    printf("Error: Excessively long line in .sample file (max %d chars).\n", MAXLINELEN - 3);
+    sprintf(logbuf, "Error: Excessively long line in .sample file (max %d chars).\n", MAXLINELEN - 3);
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
   oxford_sample_load_ret_INVALID_FORMAT_3:
-    printf("Unsupported .sample file format.  (First three columns are expected to be\n'ID_1', 'ID_2', and 'missing', in that order.)\n");
+    logprint("Unsupported .sample file format.  (First three columns are expected to be\n'ID_1', 'ID_2', and 'missing', in that order.)\n");
   oxford_sample_load_ret_INVALID_FORMAT_4:
     retval = RET_INVALID_FORMAT;
     break;
@@ -451,7 +456,7 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
     }
     uii = strlen(bufptr) + (unsigned int)(bufptr - loadbuf);
     if (loadbuf[uii - 1] != '\n') {
-      printf("Excessively long line in .gen file.\n");
+      logprint("Excessively long line in .gen file.\n");
       return RET_NOMEM;
     }
     if (uii >= gen_buf_len) {
@@ -476,17 +481,19 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
     return RET_READ_FAIL;
   }
   if (!unfiltered_marker_ct) {
-    printf("Error: No markers in .gen file.\n");
+    logprint("Error: No markers in .gen file.\n");
     return RET_INVALID_FORMAT;
   }
-  printf("\r.gen scan complete.  %u markers and %u individuals present.\n", unfiltered_marker_ct, unfiltered_indiv_ct);
+  putchar('\r');
+  sprintf(logbuf, ".gen scan complete.  %u markers and %u individuals present.\n", unfiltered_marker_ct, unfiltered_indiv_ct);
+  logprintb();
   *set_allele_freqs_ptr = (double*)wkspace_alloc(unfiltered_marker_ct * sizeof(double));
   *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
   *gen_buf_len_ptr = gen_buf_len;
   *is_missing_01_ptr = is_missing_01;
   while (0) {
   oxford_gen_load1_ret_INVALID_FORMAT:
-    printf("Error: Improperly formatted .gen file.\n");
+    logprint("Error: Improperly formatted .gen file.\n");
     return RET_INVALID_FORMAT;
   }
   return 0;
@@ -1105,7 +1112,7 @@ int update_distance_dosage_matrix(int is_missing_01, int distance_3d, int distan
   }
   return 0;
  update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL:
-  printf(errstr_thread_create);
+  logprint(errstr_thread_create);
   while (--thread_idx) {
     pthread_join(threads[thread_idx - 1], NULL);
   }
@@ -1168,7 +1175,7 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
     return RET_NOMEM;
   }
   if (distance_3d) {
-    printf("Error: 3d distance calculation not yet supported.\n");
+    logprint("Error: 3d distance calculation not yet supported.\n");
     return RET_CALC_NOT_YET_SUPPORTED;
   } else {
     if (wkspace_alloc_d_checked(&g_dosage_vals, g_indiv_ct * BITCT * sizeof(double))) {
@@ -1203,7 +1210,7 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
         }
       }
     } else {
-      printf("Error: Missing probabilities unequal to 0 and 1 not yet supported.\n");
+      logprint("Error: Missing probabilities unequal to 0 and 1 not yet supported.\n");
       return RET_CALC_NOT_YET_SUPPORTED;
       if (wkspace_alloc_d_checked(&cur_missings_d, g_indiv_ct * sizeof(double))) {
 	return RET_NOMEM;
@@ -1355,7 +1362,8 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
       }
     }
   }
-  printf("\rDistance matrix calculation complete.\n");
+  putchar('\r');
+  logprint("Distance matrix calculation complete.\n");
   retval = 0;
   // while (0) {
     // oxford_distance_calc_ret_INVALID_FORMAT:
@@ -1476,7 +1484,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
       continue;
     }
     if (!loadbuf[max_load - 1]) {
-      printf("Extremely long line found in .gen file.\n");
+      logprint("Extremely long line found in .gen file.\n");
       return RET_NOMEM;
     }
     bufptr = next_item_mult(skip_initial_spaces(loadbuf), 4);
@@ -1640,7 +1648,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
     return RET_READ_FAIL;
   }
   if (!unfiltered_marker_ct) {
-    printf("Error: No markers in .gen file.\n");
+    logprint("Error: No markers in .gen file.\n");
     return RET_INVALID_FORMAT;
   }
   if (marker_idxl) {
@@ -1688,11 +1696,12 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
     }
   }
 
-  printf("\rDistance matrix calculation complete.\n");
+  putchar('\r');
+  logprint("Distance matrix calculation complete.\n");
   retval = 0;
   while (0) {
   oxford_distance_calc_unscanned_ret_INVALID_FORMAT:
-    printf("Error: Improperly formatted .gen file.\n");
+    logprint("Error: Improperly formatted .gen file.\n");
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -1736,7 +1745,7 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
     goto wdist_dosage_ret_1;
   }
   if ((calculation_type & CALC_REGRESS_DISTANCE) && (!pheno_d)) {
-    printf("Error: --regress-distance calculation requires scalar phenotype.\n");
+    logprint("Error: --regress-distance calculation requires scalar phenotype.\n");
     goto wdist_dosage_ret_INVALID_CMDLINE;
   }
   if (fopen_checked(&genfile, genname, "r")) {
@@ -1763,11 +1772,13 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
   }
   g_indiv_ct = unfiltered_indiv_ct;
   if (parallel_tot > g_indiv_ct / 2) {
-    printf("Error: Too many --parallel jobs (maximum %d/2 = %d).\n", g_indiv_ct, g_indiv_ct / 2);
+    sprintf(logbuf, "Error: Too many --parallel jobs (maximum %d/2 = %d).\n", g_indiv_ct, g_indiv_ct / 2);
+    logprintb();
     goto wdist_dosage_ret_INVALID_CMDLINE;
   }
   if (thread_ct > 1) {
-    printf("Using %d threads (change this with --threads).\n", thread_ct);
+    sprintf(logbuf, "Using %d threads (change this with --threads).\n", thread_ct);
+    logprintb();
   }
   if (distance_req(calculation_type)) {
     wkspace_mark = wkspace_base;

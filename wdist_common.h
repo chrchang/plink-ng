@@ -113,6 +113,17 @@ extern const char errstr_fopen[];
 extern const char errstr_append[];
 extern const char errstr_thread_create[];
 
+extern FILE* logfile;
+extern char logbuf[MAXLINELEN];
+extern int debug_on;
+extern int log_failed;
+
+void logstr(const char* ss);
+
+void logprint(const char* ss);
+
+void logprintb();
+
 int fopen_checked(FILE** target_ptr, const char* fname, const char* mode);
 
 static inline int fwrite_checked(const void* buf, size_t len, FILE* outfile) {

@@ -202,38 +202,6 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 
 #define PEDBUFBASE 256
 
-FILE* logfile = NULL;
-char logbuf[MAXLINELEN]; // safe sprintf buffer, if one is needed
-int debug_on = 0;
-int log_failed = 0;
-
-void logstr(const char* ss) {
-  if (log_failed) {
-    if (debug_on) {
-      printf("%s", ss);
-    }
-  } else if (fprintf(logfile, "%s", ss) < 0) {
-    if (!log_failed) {
-      if (debug_on) {
-	printf("\nError: Debug logging failure.  Dumping to standard output:\n%s", ss);
-      } else {
-	printf("\nNote: Logging failure on:\n%s\nFurther logging will not be attempted in this run.\n", ss);
-      }
-      log_failed = 1;
-    }
-  }
-}
-
-void logprint(const char* ss) {
-  logstr(ss);
-  fputs(ss, stdout);
-}
-
-void logprintb() {
-  logstr(logbuf);
-  fputs(logbuf, stdout);
-}
-
 // number of different types of jackknife values to precompute (x^2, x, y, xy)
 #define JACKKNIFE_VALS_REL 5
 
@@ -11701,16 +11669,37 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   if (famname[0]) {
     binary_files = 1;
     if (calculation_type & CALC_MAKE_BED) {
+      if (!realpath(pedname, tbuf)) {
+	printf("Error: Failed to calculate absolute pathname for %s.\n", pedname);
+        goto wdist_ret_OPEN_FAIL;
+      }
       memcpy(outname_end, ".bed", 5);
-      if (!memcmp(pedname, outname, 5 + (unsigned long)(outname_end - outname))) {
+      if (!realpath(outname, &(tbuf[FNAMESIZE + 64]))) {
+	printf("Error: Failed to calculate absolute pathname for %s.\n", outname);
+      }
+      if (!strcmp(tbuf, &(tbuf[FNAMESIZE + 64]))) {
 	logprint("Note: --make-bed input and output filenames match.  Appending .old to input\nfilenames.\n");
         uii = strlen(pedname);
-	memcpy(outname, pedname, uii);
-	memcpy(&(outname[uii]), ".old", 5);
-        if (rename(pedname, outname)) {
-	  goto wdist_ret_WRITE_FAIL;
+	memcpy(tbuf, pedname, uii + 1);
+	memcpy(&(pedname[uii]), ".old", 5);
+        if (rename(tbuf, pedname)) {
+	  printf("Error: Failed to append .old to input .bed filename.\n");
+	  goto wdist_ret_OPEN_FAIL;
 	}
-	// ...
+	uii = strlen(mapname);
+	memcpy(tbuf, mapname, uii + 1);
+	memcpy(&(mapname[uii]), ".old", 5);
+	if (rename(tbuf, mapname)) {
+	  printf("Error: Failed to append .old to input .bim filename.\n");
+	  goto wdist_ret_OPEN_FAIL;
+	}
+	uii = strlen(famname);
+	memcpy(tbuf, famname, uii + 1);
+	memcpy(&(famname[uii]), ".old", 5);
+	if (rename(tbuf, famname)) {
+	  printf("Error: Failed to append .old to input .fam filename.\n");
+	  goto wdist_ret_OPEN_FAIL;
+	}
       }
     }
     if (fopen_checked(&famfile, famname, "r")) {
@@ -13726,7 +13715,9 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
       }
-      if (fopen_checked(&scriptfile, argv[ii + 1], "rb")) {
+      scriptfile = fopen(argv[ii + 1], "rb");
+      if (!scriptfile) {
+	printf(errstr_fopen, argv[ii + 1]);
 	goto main_ret_OPEN_FAIL;
       }
       if (fseeko(scriptfile, 0, SEEK_END)) {
@@ -13796,19 +13787,28 @@ int main(int argc, char** argv) {
 	}
       }
       if (jj) {
-	if (fopen_checked(&scriptfile, argv[ii + 1], "r")) {
-	  goto main_ret_OPEN_FAIL;
-	}
+	scriptfile = fopen(argv[ii + 1], "r");
       } else {
-	if (fopen_checked(&scriptfile, "wdist.log", "r")) {
-	  goto main_ret_OPEN_FAIL;
-	}
+	scriptfile = fopen("wdist.log", "r");
+      }
+      if (!scriptfile) {
+	goto main_ret_OPEN_FAIL;
       }
       // ...
       fclose_null(&scriptfile);
       // ...
     }
   }
+  for (ii = cur_arg; ii < argc; ii++) {
+    if ((!memcmp("-help", argv[ii], 6)) || (!memcmp("--help", argv[ii], 7))) {
+      if ((cur_arg != 1) || subst_argv) {
+	printf("--help present, ignoring other flags.\n");
+      }
+      retval = disp_help(argc - cur_arg - 1, &(argv[cur_arg + 1]));
+      goto main_ret_1;
+    }
+  }
+
   for (ii = cur_arg; ii < argc; ii++) {
     if ((!memcmp("-silent", argv[ii], 8)) || (!memcmp("--silent", argv[ii], 9))) {
       freopen("/dev/null", "w", stdout);
@@ -13837,6 +13837,9 @@ int main(int argc, char** argv) {
   }
   fputs(ver_str, stdout);
   fputs(ver_str2, stdout);
+  if (argc == 1) {
+    goto main_ret_NULL_CALC;
+  }
   uii = strlen(outname);
   memcpy(&(outname[uii]), ".log", 5);
   if (fopen_checked(&logfile, outname, "w")) {
@@ -13846,12 +13849,15 @@ int main(int argc, char** argv) {
   outname[uii] = '\0';
 
   logstr(ver_str);
-  logstr("\nArguments:");
+  logstr("\nArgument(s):");
   for (ii = cur_arg; ii < argc; ii++) {
     logstr(" ");
     logstr(argv[ii]);
   }
-  logstr("\n\nStart time: ");
+  logstr("\nWorking directory: ");
+  getcwd(tbuf, FNAMESIZE);
+  logstr(tbuf);
+  logstr("\nStart time: ");
   time(&rawtime);
   logstr(ctime(&rawtime));
   logstr("\n");
@@ -14603,12 +14609,7 @@ int main(int argc, char** argv) {
       break;
 
     case 'h':
-      if (!memcmp(argptr2, "elp", 4)) {
-	if ((cur_arg != 1) || subst_argv) {
-	  printf("--help present, ignoring other flags.\n");
-	}
-	return disp_help(argc - cur_arg - 1, &(argv[cur_arg + 1]));
-      } else if (!memcmp(argptr2, "orse", 5)) {
+      if (!memcmp(argptr2, "orse", 5)) {
 	if (species_flag(&chrom_info, SPECIES_HORSE)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -15886,10 +15887,7 @@ int main(int argc, char** argv) {
   }
 
   if (!calculation_type) {
-    logprint("Note: No output requested.  Exiting.\n");
-    fputs("\n'wdist --help | more' describes all functions.  You can also look up specific\nflags with 'wdist --help [flag #1] {flag #2} ...'.\n", stdout);
-    retval = RET_NULL_CALC;
-    goto main_ret_1;
+    goto main_ret_NULL_CALC;
   }
   free_cond(subst_argv);
   subst_argv = NULL;
@@ -15985,6 +15983,10 @@ int main(int argc, char** argv) {
     invalid_arg(argptr);
   main_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
+    break;
+  main_ret_NULL_CALC:
+    fputs("Note: No output requested.  Exiting.\n\n'wdist --help | more' describes all functions.  You can also look up specific\nflags with 'wdist --help [flag #1] {flag #2} ...'.\n", stdout);
+    retval = RET_NULL_CALC;
   }
  main_ret_1:
   fclose_cond(scriptfile);
