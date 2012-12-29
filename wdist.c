@@ -11450,7 +11450,8 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_ca
     retval = RET_WRITE_FAIL;
     break;
   rel_cutoff_batch_ret_INVALID_FORMAT_2:
-    printf("\nError: Improperly formatted .grm.gz file.\n");
+    putchar('\n');
+    logprint("Error: Improperly formatted .grm.gz file.\n");
   rel_cutoff_batch_ret_INVALID_FORMAT_1:
     retval = RET_INVALID_FORMAT;
     break;
@@ -11709,8 +11710,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         if (rename(pedname, outname)) {
 	  goto wdist_ret_WRITE_FAIL;
 	}
-	printf("Error: --make-bed can no longer be used for in-place dataset filtering; the\noutput filenames must differ from the input filenames now.  Try alternating\nbetween two names.\n");
-	goto wdist_ret_INVALID_CMDLINE;
+	// ...
       }
     }
     if (fopen_checked(&famfile, famname, "r")) {
@@ -11762,10 +11762,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
   count_genders(sex_info, unfiltered_indiv_ct, indiv_exclude, &ii, &jj, &kk);
   if (kk) {
-    printf("%d markers and %d people (%d male%s, %d female%s, %d unknown) loaded.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s", kk);
+    sprintf(logbuf, "%d markers and %d people (%d male%s, %d female%s, %d unknown) loaded.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s", kk);
   } else {
-    printf("%d markers and %d people (%d male%s, %d female%s) loaded.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s");
+    sprintf(logbuf, "%d markers and %d people (%d male%s, %d female%s) loaded.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s");
   }
+  logprintb();
 
   unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
 
@@ -11802,16 +11803,16 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if ((calculation_type & CALC_GROUPDIST) && (!g_pheno_c)) {
-    printf("Error: --groupdist calculation requires dichotomous phenotype.\n");
+    logprint("Error: --groupdist calculation requires dichotomous phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
   } else if ((calculation_type & CALC_REGRESS_DISTANCE) && (!g_pheno_d)) {
-    printf("Error: --regress-distance calculation requires scalar phenotype.\n");
+    logprint("Error: --regress-distance calculation requires scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
   } else if ((calculation_type & CALC_UNRELATED_HERITABILITY) && (!g_pheno_d)) {
-    printf("Error: --unrelated-heritability requires scalar phenotype.\n");
+    logprint("Error: --unrelated-heritability requires scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
   } else if ((calculation_type & CALC_REGRESS_PCS) && (!g_pheno_d)) {
-    printf("Error: --regress-pcs requires scalar phenotype.\n");
+    logprint("Error: --regress-pcs requires scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
   }
 
@@ -11827,7 +11828,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_2;
     }
     if (duplicate_fail) {
-      printf("Warning: Duplicate marker ID(s) in input.\n");
+      logprint("Warning: Duplicate marker ID(s) in input.\n");
     }
     // length of sorted list is NOT necessarily equal to unfiltered_marker_ct -
     // marker_exclude_ct, since marker_exclude_ct may change before second call
@@ -11855,7 +11856,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_2;
     }
     if (duplicate_fail) {
-      printf("Warning: Duplicate individual ID(s) in input.\n");
+      logprint("Warning: Duplicate individual ID(s) in input.\n");
     }
     ii = unfiltered_indiv_ct - indiv_exclude_ct;
     if (removename[0]) {
@@ -11884,7 +11885,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (filter_case_control) {
     if (!g_pheno_c) {
-      printf("Error: --filter-cases/--filter-controls requires dichotomous phenotype.\n");
+      logprint("Error: --filter-cases/--filter-controls requires dichotomous phenotype.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
     ii = indiv_exclude_ct;
@@ -11892,7 +11893,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_NOMEM;
     }
     ii = indiv_exclude_ct - ii;
-    printf("%d individual%s removed due to case/control status (--filter-%s).\n", ii, (ii == 1)? "" : "s", (filter_case_control == 1)? "cases" : "controls");
+    sprintf(logbuf, "%d individual%s removed due to case/control status (--filter-%s).\n", ii, (ii == 1)? "" : "s", (filter_case_control == 1)? "cases" : "controls");
+    logprintb();
   }
   if (filter_sex) {
     ii = indiv_exclude_ct;
@@ -11900,7 +11902,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_NOMEM;
     }
     ii = indiv_exclude_ct - ii;
-    printf("%d individual%s removed due to gender filter (--filter-%s).\n", ii, (ii == 1)? "" : "s", (filter_sex == 1)? "males" : "females");
+    sprintf(logbuf, "%d individual%s removed due to gender filter (--filter-%s).\n", ii, (ii == 1)? "" : "s", (filter_sex == 1)? "males" : "females");
+    logprintb();
   }
   if (filter_founder_nonf) {
     ii = indiv_exclude_ct;
@@ -11908,7 +11911,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_NOMEM;
     }
     ii = indiv_exclude_ct - ii;
-    printf("%d individual%s removed due to founder status (--filter-%s).\n", ii, (ii == 1)? "" : "s", (filter_founder_nonf == 1)? "founders" : "nonfounders");
+    sprintf(logbuf, "%d individual%s removed due to founder status (--filter-%s).\n", ii, (ii == 1)? "" : "s", (filter_founder_nonf == 1)? "founders" : "nonfounders");
+    logprintb();
   }
 
   if (binary_files) {
@@ -11925,7 +11929,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       if (memcmp(tbuf, "l\x1b\x01", 3)) {
         if (memcmp(tbuf, "l\x1b", 3)) {
-	  printf("Error: Invalid header bytes in .bed file.\n");
+	  logprint("Error: Invalid header bytes in .bed file.\n");
           goto wdist_ret_INVALID_FORMAT;
 	}
 	bed_offset = 2;
@@ -11940,11 +11944,12 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       } else if (*tbuf == '\0') {
 	bed_offset = 2;
       } else {
-	printf("Error: Invalid header bytes in .bed file.\n");
+	logprint("Error: Invalid header bytes in .bed file.\n");
 	goto wdist_ret_INVALID_FORMAT;
       }
     } else if (llyy != 0LL) {
-      printf("Error: Invalid .bed file size (expected %llu bytes).\n", ((unsigned long long)unfiltered_indiv_ct4) * unfiltered_marker_ct);
+      sprintf(logbuf, "Error: Invalid .bed file size (expected %llu bytes).\n", ((unsigned long long)unfiltered_indiv_ct4) * unfiltered_marker_ct);
+      logprintb();
       goto wdist_ret_INVALID_FORMAT;
     } else {
       // pre-0.99, no magic number, indiv-major
@@ -11952,7 +11957,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     if (bed_offset == 2) {
       strcpy(outname_end, ".bed.tmp"); // not really temporary
-      printf("Individual-major .bed file detected.  Transposing to SNP-major form.\n");
+      logprint("Individual-major .bed file detected.  Transposing to SNP-major form.\n");
       fclose(pedfile);
       retval = indiv_major_to_snp_major(pedname, outname, &outfile, unfiltered_marker_ct);
       if (retval) {
@@ -11973,7 +11978,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
   g_indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
   if (g_indiv_ct < 2) {
-    printf("Error: Too many people fail QC.\n");
+    logprint("Error: Less than two individuals pass QC.\n");
     goto wdist_ret_INVALID_FORMAT;
   }
   // text HWE waits until after external freq file has had a chance to modify
@@ -12021,7 +12026,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     } else {
       uii = text_geno_filter(geno_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, g_indiv_ct, marker_allele_cts, missing_cts);
     }
-    printf("%u SNP%s removed due to missing genotype data (--geno).\n", uii, (uii == 1)? "" : "s");
+    sprintf(logbuf, "%u SNP%s removed due to missing genotype data (--geno).\n", uii, (uii == 1)? "" : "s");
+    logprintb();
   }
   wkspace_reset(marker_allele_cts);
   marker_allele_cts = NULL;
@@ -12040,7 +12046,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   if (marker_ct == 0) {
-    printf("Error: All markers fail QC.\n");
+    logprint("Error: All markers fail QC.\n");
     goto wdist_ret_INVALID_FORMAT;
   }
 
@@ -12097,26 +12103,29 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     exclude_ambiguous_sex(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, sex_info);
     ii = indiv_exclude_ct - ii;
     if (ii) {
-      printf("%d individual%s with unknown sex removed (prevent with --allow-no-sex).\n", ii, (ii == 1)? "" : "s");
+      sprintf(logbuf, "%d individual%s with unknown sex removed (prevent with --allow-no-sex).\n", ii, (ii == 1)? "" : "s");
+      logprintb();
     }
     g_indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
     if (g_indiv_ct < 2) {
-      printf("Error: Too few people remaining.\n");
+      logprint("Error: Less than two people remaining.\n");
       goto wdist_ret_INVALID_FORMAT;
     }
   }
-  printf("%d markers and %d people pass filters and QC%s.\n", marker_ct, g_indiv_ct, (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
-
+  sprintf(logbuf, "%d markers and %d people pass filters and QC%s.\n", marker_ct, g_indiv_ct, (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
+  logprintb();
 
   if (parallel_tot > g_indiv_ct / 2) {
-    printf("Error: Too many --parallel jobs (maximum %d/2 = %d).\n", g_indiv_ct, g_indiv_ct / 2);
+    sprintf(logbuf, "Error: Too many --parallel jobs (maximum %d/2 = %d).\n", g_indiv_ct, g_indiv_ct / 2);
+    logprintb();
     goto wdist_ret_INVALID_CMDLINE;
   }
   if (g_thread_ct > 1) {
     if (calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY)) {
-      printf("Using %d threads (change this with --threads).\n", g_thread_ct);
+      sprintf(logbuf, "Using %d threads (change this with --threads).\n", g_thread_ct);
+      logprintb();
     } else {
-      printf("Using 1 thread (no multithreaded calculations invoked).\n");
+      logprint("Using 1 thread (no multithreaded calculations invoked).\n");
     }
   }
 
@@ -12343,10 +12352,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       fflush(stdout);
     }
     if (relationship_req(calculation_type)) {
-      printf("\rRelationship matrix calculation complete.\n");
+      putchar('\r');
+      logprint("Relationship matrix calculation complete.\n");
       dist_ptr = g_rel_dists;
     } else {
-      printf("\n");
+      putchar('\n');
     }
     dptr2 = rel_ibc;
     if (calculation_type & CALC_IBC) {
@@ -12403,7 +12413,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       if (fclose_null(&outfile)) {
 	goto wdist_ret_WRITE_FAIL;
       }
-      printf("%s written.\n", outname);
+      sprintf(logbuf, "%s written.\n", outname);
+      logprintb();
     }
     if (calculation_type & CALC_RELATIONSHIP) {
       mm = 1;
@@ -12696,7 +12707,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	  }
 	}
       }
-      printf("\rRelationship matrix written to %s.\n", outname);
+      putchar('\r');
+      sprintf(logbuf, "Relationship matrix written to %s.\n", outname);
+      logprintb();
       if (!parallel_idx) {
 	strcpy(&(outname_end[4]), ".id");
 	retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
@@ -12756,7 +12769,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
         }
       }
       reml_em_one_trait(g_rel_dists, dptr2, &unrelated_herit_covg, &unrelated_herit_covr, unrelated_herit_tol, calculation_type & CALC_UNRELATED_HERITABILITY_STRICT);
-      printf("h^2 estimate: %g\n", unrelated_herit_covg);
+      sprintf(logbuf, "h^2 estimate: %g\n", unrelated_herit_covg);
+      logprintb();
     }
 #endif
     if ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX | CALC_GENOME)) && (!(calculation_type & CALC_REL_CUTOFF))) {
@@ -13089,7 +13103,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       printf("\r%d markers complete.", marker_idx);
       fflush(stdout);
     }
-    printf("\rDistance matrix calculation complete.\n");
+    putchar('\r');
+    logprint("Distance matrix calculation complete.\n");
     if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
       strcpy(outname_end, ".mdist");
       if (fopen_checked(&outfile, outname, "w")) {
@@ -13129,7 +13144,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       if (fclose_null(&outfile)) {
 	goto wdist_ret_WRITE_FAIL;
       }
-      printf("\rDistances (proportions) written to %s.\n", outname);
+      putchar('\r');
+      sprintf(logbuf, "Distances (proportions) written to %s.\n", outname);
+      logprintb();
       if (!parallel_idx) {
 	strcpy(outname_end, ".mdist.id");
 	retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
@@ -13174,7 +13191,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	}
       }
       fclose_null(&outfile);
-      printf("\rIBS matrix written to %s.\n", outname);
+      putchar('\r');
+      sprintf(logbuf, "IBS matrix written to %s.\n", outname);
+      logprintb();
       strcpy(outname_end, ".mibs.id");
       retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
       if (retval) {
@@ -13272,7 +13291,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_READ_FAIL;
     }
     if (ftello(loaddistfile) != (long long)dists_alloc) {
-      printf("Invalid --load-dists file.  (Triangular binary of size %lld expected.)\n", dists_alloc);
+      sprintf(logbuf, "Invalid --load-dists file.  (Triangular binary of size %lld expected.)\n", dists_alloc);
+      logprintb();
       goto wdist_ret_INVALID_FORMAT;
     }
     rewind(loaddistfile);
@@ -13365,7 +13385,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     ll_med = get_dmedian(ll_pool, ll_size);
     lh_med = get_dmedian(lh_pool, lh_size);
     hh_med = get_dmedian(hh_pool, hh_size);
-    printf("Case/control distance analysis (%d affected, %d unaffected):\n", g_high_ct, g_low_ct);
+    sprintf(logbuf, "Case/control distance analysis (%d affected, %d unaffected):\n", g_high_ct, g_low_ct);
+    logprintb();
     if (g_high_ct < 2) {
       dxx = 0.0;
       dhh_sd = 0.0;
@@ -13390,11 +13411,14 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       dzz = g_reg_tot_y / dww;
       dll_sd = sqrt((dll_ssq / dww - dzz * dzz) / (dww - 1.0));
     }
-    printf("  Mean (sd), median dists between 2x affected     : %g (%g), %g\n", dxx, dhh_sd, hh_med);
-    printf("  Mean (sd), median dists between aff. and unaff. : %g (%g), %g\n", dyy, dhl_sd, lh_med);
-    printf("  Mean (sd), median dists between 2x unaffected   : %g (%g), %g\n\n", dzz, dll_sd, ll_med);
+    sprintf(logbuf, "  Mean (sd), median dists between 2x affected     : %g (%g), %g\n", dxx, dhh_sd, hh_med);
+    logprintb();
+    sprintf(logbuf, "  Mean (sd), median dists between aff. and unaff. : %g (%g), %g\n", dyy, dhl_sd, lh_med);
+    logprintb();
+    sprintf(logbuf, "  Mean (sd), median dists between 2x unaffected   : %g (%g), %g\n\n", dzz, dll_sd, ll_med);
+    logprintb();
     if (2 * g_jackknife_d >= (g_high_ct + g_low_ct)) {
-      printf("Delete-d jackknife skipped because d is too large.\n");
+      logprint("Delete-d jackknife skipped because d is too large.\n");
     } else {
       // this can be sped up using the same method used in regress-distance,
       // if it's important
@@ -13427,9 +13451,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       for (ii = 3; ii < 9; ii++) {
         g_calc_result[ii][0] *= dxx;
       }
-      printf("\r  AA mean - AU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[1][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[3][0] + g_calc_result[4][0] - 2 * g_calc_result[6][0])));
-      printf("  AA mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[2][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[3][0] + g_calc_result[5][0] - 2 * g_calc_result[7][0])));
-      printf("  AU mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[1][0] - g_calc_result[2][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[4][0] + g_calc_result[5][0] - 2 * g_calc_result[8][0])));
+      putchar('\r');
+      sprintf(logbuf, "  AA mean - AU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[1][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[3][0] + g_calc_result[4][0] - 2 * g_calc_result[6][0])));
+      logprintb();
+      sprintf(logbuf, "  AA mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[2][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[3][0] + g_calc_result[5][0] - 2 * g_calc_result[7][0])));
+      logprintb();
+      sprintf(logbuf, "  AU mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[1][0] - g_calc_result[2][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[4][0] + g_calc_result[5][0] - 2 * g_calc_result[8][0])));
+      logprintb();
     }
     wkspace_reset(wkspace_mark);
   }
@@ -13468,7 +13496,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     retval = RET_READ_FAIL;
     break;
   wdist_ret_THREAD_CREATE_FAIL:
-    printf(errstr_thread_create);
+    logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
     for (uljj = 0; uljj < ulii - 1; uljj++) {
       pthread_join(threads[uljj], NULL);
@@ -13547,12 +13575,12 @@ int enforce_param_ct_range(int argc, char** argv, int flag_idx, int min_ct, int 
 
 int species_flag(Chrom_info* chrom_info_ptr, int species_val) {
   if (chrom_info_ptr->species) {
-    printf("Error: Duplicate species flag.\n");
+    fputs("Error: Duplicate species flag.\n", stdout);
     return -1;
   }
   chrom_info_ptr->species = species_val;
   if (chrom_info_ptr->chrom_mask & (~(species_valid_chrom_mask[species_val]))) {
-    printf("Error: Invalid --chr parameter.\n");
+    fputs("Error: Invalid --chr parameter.\n", stdout);
     return -1;
   }
   return 0;
@@ -13705,9 +13733,8 @@ int main(int argc, char** argv) {
 	goto main_ret_READ_FAIL;
       }
       llxx = ftello(scriptfile);
-      // okay, this is silly, but why not
-      if (llxx > 2147483647LL) {
-	printf("Error: Script file too long (max 2147483647 bytes).\n");
+      if (llxx > MAXLINELEN) {
+	fputs("Error: Script file too long (max 131072 bytes).\n", stdout);
 	retval = RET_INVALID_FORMAT;
 	goto main_ret_1;
       }
@@ -13764,7 +13791,7 @@ int main(int argc, char** argv) {
       }
       for (kk = ii + jj + 1; kk < argc; kk++) {
 	if ((!memcmp("-rerun", argv[kk], 7)) || (!memcmp("--rerun", argv[kk], 8))) {
-	  printf("Error: Duplicate --rerun flag.\n");
+	  fputs("Error: Duplicate --rerun flag.\n", stdout);
 	  goto main_ret_INVALID_CMDLINE;
 	}
       }
@@ -13797,19 +13824,19 @@ int main(int argc, char** argv) {
       }
       for (jj = ii + 2; jj < argc; jj++) {
         if ((!memcmp("-out", argv[jj], 5)) || (!memcmp("--out", argv[jj], 6))) {
-	  printf("Error: Duplicate --out flag.\n");
+	  fputs("Error: Duplicate --out flag.\n", stdout);
 	  goto main_ret_INVALID_CMDLINE;
 	}
       }
       if (strlen(argv[ii + 1]) > (FNAMESIZE - MAX_POST_EXT)) {
-	printf("Error: --out parameter too long.\n");
+	fputs("Error: --out parameter too long.\n", stdout);
 	goto main_ret_OPEN_FAIL;
       }
       strcpy(outname, argv[ii + 1]);
     }
   }
-  printf(ver_str);
-  printf(ver_str2);
+  fputs(ver_str, stdout);
+  fputs(ver_str2, stdout);
   uii = strlen(outname);
   memcpy(&(outname[uii]), ".log", 5);
   if (fopen_checked(&logfile, outname, "w")) {
@@ -13819,7 +13846,7 @@ int main(int argc, char** argv) {
   outname[uii] = '\0';
 
   logstr(ver_str);
-  logstr("\nParameters:");
+  logstr("\nArguments:");
   for (ii = cur_arg; ii < argc; ii++) {
     logstr(" ");
     logstr(argv[ii]);
@@ -13827,6 +13854,7 @@ int main(int argc, char** argv) {
   logstr("\n\nStart time: ");
   time(&rawtime);
   logstr(ctime(&rawtime));
+  logstr("\n");
 
   chrom_info.species = SPECIES_HUMAN;
   chrom_info.chrom_mask = 0;
@@ -13887,7 +13915,7 @@ int main(int argc, char** argv) {
       // practically harmless in the command line parser), so, why not.
       if (!memcmp(argptr2, "-genome", 8)) {
 	if (calculation_type & CALC_GENOME) {
-	  printf("Error: Duplicate --genome flag.\n");
+	  fputs("Error: Duplicate --genome flag.\n", stdout);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
@@ -15611,11 +15639,7 @@ int main(int argc, char** argv) {
 	}
 	cur_arg++;
       } else if (!memcmp(argptr2, "ilent", 6)) {
-	// --script
-	if (!silent) {
-	  silent = 2;
-	}
-	cur_arg += 1;
+	cur_arg++;
       } else if (!memcmp(argptr2, "eed", 4)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -15861,12 +15885,9 @@ int main(int argc, char** argv) {
     goto main_ret_INVALID_CMDLINE;
   }
 
-  if (silent == 2) {
-    freopen("/dev/null", "w", stdout);
-  }
-
   if (!calculation_type) {
-    printf("Note: No output requested.  Exiting.\n\n'wdist --help | more' describes all functions.  You can also look up specific\nflags with 'wdist --help [flag #1] {flag #2} ...'.\n");
+    logprint("Note: No output requested.  Exiting.\n");
+    fputs("\n'wdist --help | more' describes all functions.  You can also look up specific\nflags with 'wdist --help [flag #1] {flag #2} ...'.\n", stdout);
     retval = RET_NULL_CALC;
     goto main_ret_1;
   }
@@ -15938,7 +15959,7 @@ int main(int argc, char** argv) {
   // freqname[0] signals --read-freq
   // evecname[0] signals --regress-pcs
     if (calculation_type & (~(CALC_DISTANCE_MASK | CALC_REGRESS_DISTANCE))) {
-      printf("Error: Only --distance calculations are currently supported with --data.\n");
+      fputs("Error: Only --distance calculations are currently supported with --data.\n", stdout);
       retval = RET_CALC_NOT_YET_SUPPORTED;
     } else {
       if (!missing_code) {
@@ -15969,11 +15990,11 @@ int main(int argc, char** argv) {
   fclose_cond(scriptfile);
   if (logfile) {
     if (!log_failed) {
-      logstr("End time: ");
+      logstr("\nEnd time: ");
       time(&rawtime);
       logstr(ctime(&rawtime));
       if (fclose(logfile)) {
-	printf("Error: Failed to finish writing to log.\n");
+	fputs("Error: Failed to finish writing to log.\n", stdout);
       }
     } else {
       fclose(logfile);
