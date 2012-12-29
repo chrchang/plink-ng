@@ -6990,7 +6990,8 @@ int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_
   writebuf = wkspace_base;
   if (((long long)wkspace_left) >= (marker_ct * ((long long)indiv_ct4))) {
     strcpy(outname_end, ".bed");
-    printf("Converting .ped file to SNP-major %s.\n", outname);
+    sprintf(logbuf, "Converting .ped file to SNP-major %s.\n", outname);
+    logprintb();
     if (fopen_checked(bedtmpfile_ptr, outname, "wb")) {
       return RET_OPEN_FAIL;
     }
@@ -13932,7 +13933,7 @@ int main(int argc, char** argv) {
   }
   fputs(ver_str, stdout);
   fputs(ver_str2, stdout);
-  if (argc == 1) {
+  if (argc == cur_arg) {
     goto main_ret_NULL_CALC;
   }
   uii = strlen(outname);
