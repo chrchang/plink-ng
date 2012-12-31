@@ -248,12 +248,12 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
       continue;
     }
     item_begin = skip_initial_spaces(tbuf);
-    bufptr = item_end(item_begin);
+    bufptr = item_endnn(item_begin);
     uii = (unsigned int)(bufptr - item_begin);
     memcpy(&(person_ids[indiv_uidx * max_person_id_len]), item_begin, uii);
     person_ids[indiv_uidx * max_person_id_len + uii] = '\t';
     item_begin = skip_initial_spaces(bufptr);
-    bufptr = item_end(item_begin);
+    bufptr = item_endnn(item_begin);
     ujj = (unsigned int)(bufptr - item_begin);
     memcpy(&(person_ids[indiv_uidx * max_person_id_len + uii + 1]), item_begin, ujj);
     person_ids[indiv_uidx * max_person_id_len + uii + 1 + ujj] = '\0';

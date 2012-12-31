@@ -8704,7 +8704,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       logprint("Error: --merge/--bmerge/--merge-list cannot be used with an irregularly\nformatted reference fileset (--no-fid, --no-parents, --no-sex, --no-pheno,\n--1).  Use --make-bed first.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
-    retval = merge_datasets(pedname, mapname, famname, outname, outname_end, mergename1, mergename2, mergename3, calculation_type, merge_type);
+    retval = merge_datasets(pedname, mapname, famname, outname, outname_end, mergename1, mergename2, mergename3, calculation_type, merge_type, chrom_info_ptr->species);
     if (retval) {
       goto wdist_ret_2;
     }

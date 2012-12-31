@@ -437,8 +437,6 @@ int marker_code_raw(char* sptr);
 
 int marker_code(unsigned int species, char* sptr);
 
-void sort_marker_chrom_pos(long long* ll_buf, unsigned int marker_ct, int* pos_buf, unsigned int* chrom_start, unsigned int* chrom_id, unsigned int* chrom_ct_ptr);
-
 int strcmp_deref(const void* s1, const void* s2);
 
 int is_missing(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01);

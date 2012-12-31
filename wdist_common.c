@@ -306,42 +306,6 @@ int marker_code(unsigned int species, char* sptr) {
   return ii;
 }
 
-void sort_marker_chrom_pos(long long* ll_buf, unsigned int marker_ct, int* pos_buf, unsigned int* chrom_start, unsigned int* chrom_id, unsigned int* chrom_ct_ptr) {
-  unsigned int marker_idx;
-  unsigned int uii;
-  unsigned int cur_chrom;
-  unsigned int chrom_ct;
-#ifdef __cplusplus
-  std::sort(ll_buf, &(ll_buf[marker_ct]));
-#else
-  qsort(ll_buf, marker_ct, sizeof(long long), llcmp);
-#endif
-  cur_chrom = ll_buf[0] >> 32;
-  chrom_ct = 0;
-  chrom_start[0] = 0;
-  chrom_id[0] = cur_chrom;
-  uii = (unsigned int)ll_buf[0];
-  ll_buf[0] = ((long long)uii) | (((long long)pos_buf[uii]) << 32);
-  for (marker_idx = 1; marker_idx < marker_ct; marker_idx++) {
-    if ((ll_buf[marker_idx] >> 32) != cur_chrom) {
-      cur_chrom = ll_buf[marker_idx] >> 32;
-      chrom_start[++chrom_ct] = marker_idx;
-      chrom_id[chrom_ct] = cur_chrom;
-    }
-    uii = (unsigned int)ll_buf[marker_idx];
-    ll_buf[marker_idx] = ((long long)uii) | (((long long)pos_buf[uii]) << 32);
-  }
-  chrom_start[++chrom_ct] = marker_ct;
-  for (uii = 0; uii < chrom_ct; uii++) {
-#ifdef __cplusplus
-    std::sort(&(ll_buf[chrom_start[uii]]), &(ll_buf[chrom_start[uii + 1]]));
-#else
-    qsort(&(ll_buf[chrom_start[uii]]), chrom_start[uii + 1] - chrom_start[uii], sizeof(long long), llcmp);
-#endif
-  }
-  *chrom_ct_ptr = chrom_ct;
-}
-
 int strcmp_deref(const void* s1, const void* s2) {
   return strcmp(*(char**)s1, *(char**)s2);
 }
