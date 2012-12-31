@@ -110,6 +110,21 @@ char* item_endnn(char* sptr) {
   return sptr;
 }
 
+int intlen(int num) {
+  int retval;
+  if (num < 0) {
+    num = -num;
+    retval = 2;
+  } else {
+    retval = 1;
+  }
+  while (num > 9) {
+    num /= 10;
+    retval++;
+  }
+  return retval;
+}
+
 int strlen_se(char* ss) {
   int val = 0;
   while (!is_space_or_eoln(*ss++)) {
@@ -205,6 +220,126 @@ int next_set_unsafe(unsigned long* include_arr, unsigned int loc) {
     idx++;
   } while (*(++include_arr) == 0);
   return (idx * BITCT) + __builtin_ctzl(*include_arr);
+}
+
+// human: 22, X, Y, XY, MT
+// cow: 29, X, Y
+// dog: 38, X, Y, XY
+// horse: 31, X, Y
+// mouse: 19, X, Y
+// rice: 12 (haploid, not supported for now)
+// sheep: 26, X, Y
+const unsigned long long species_def_chrom_mask[] = {0x027fffffLLU, 0x3fffffffLLU, 0x27fffffffffLLU, 0xffffffffLLU, 0x000fffffLLU, 0LLU, 0x07ffffffLLU};
+const unsigned long long species_autosome_mask[] = {0x007ffffeLLU, 0x3ffffffeLLU, 0x7ffffffffeLLU, 0xfffffffeLLU, 0x000ffffeLLU, 0LLU, 0x07fffffeLLU};
+const unsigned long long species_valid_chrom_mask[] = {0x1000027fffffLLU, 0x3fffffffLLU, 0x127fffffffffLLU, 0xffffffffLLU, 0x000fffffLLU, 0LLU, 0x07ffffffLLU};
+const char species_x_code[] = {23, 30, 39, 32, 20, -1, 27};
+const char species_y_code[] = {24, 31, 40, 33, 21, -1, 28};
+const char species_xy_code[] = {25, -1, 41, -1, -1, -1, -1};
+const char species_mt_code[] = {26, -1, -1, -1, -1, -1, -1};
+const char species_max_code[] = {26, 31, 41, 33, 21, 12, 28};
+const unsigned long long species_haploid_mask[] = {}; // todo
+
+int marker_code_raw(char* sptr) {
+  // any character <= ' ' is considered a terminator
+  int ii;
+  if (sptr[1] > ' ') {
+    if (sptr[2] > ' ') {
+      return -1;
+    }
+    if ((sptr[0] == 'X') || (sptr[0] == 'x')) {
+      if ((sptr[1] == 'Y') || (sptr[1] == 'y')) {
+	return CHROM_XY;
+      }
+      return -1;
+    }
+    if ((sptr[0] == 'M') || (sptr[0] == 'm')) {
+      if ((sptr[1] == 'T') || (sptr[1] == 't')) {
+	return CHROM_MT;
+      }
+      return -1;
+    }
+    if ((sptr[0] >= '0') && (sptr[0] <= '9')) {
+      if ((sptr[1] >= '0') && (sptr[1] <= '9')) {
+        ii = ((sptr[0] - '0') * 10 + (sptr[1] - '0'));
+	if (ii < MAX_POSSIBLE_CHROM) {
+	  return ii;
+	} else {
+	  return -1;
+	}
+      } else {
+	return -1;
+      }
+    }
+  } else if ((sptr[0] >= '0') && (sptr[0] <= '9')) {
+    return (sptr[0] - '0');
+  } else if ((sptr[0] == 'X') || (sptr[0] == 'x')) {
+    return CHROM_X;
+  } else if ((sptr[0] == 'Y') || (sptr[0] == 'y')) {
+    return CHROM_Y;
+  } else if ((sptr[0] == 'M') || (sptr[0] == 'm')) {
+    return CHROM_MT;
+  }
+  return -1;
+}
+
+int marker_code(unsigned int species, char* sptr) {
+  // does not require string to be null-terminated, and does not perform
+  // exhaustive error-checking
+  int ii = marker_code_raw(sptr);
+  if (ii >= MAX_POSSIBLE_CHROM) {
+    switch (ii) {
+    case CHROM_X:
+      ii = species_x_code[species];
+      break;
+    case CHROM_Y:
+      ii = species_y_code[species];
+      break;
+    case CHROM_XY:
+      ii = species_xy_code[species];
+      break;
+    case CHROM_MT:
+      ii = species_mt_code[species];
+    }
+  } else if (ii > species_max_code[species]) {
+    return -1;
+  }
+  return ii;
+}
+
+void sort_marker_chrom_pos(long long* ll_buf, unsigned int marker_ct, int* pos_buf, unsigned int* chrom_start, unsigned int* chrom_id, unsigned int* chrom_ct_ptr) {
+  unsigned int marker_idx;
+  unsigned int uii;
+  unsigned int cur_chrom;
+  unsigned int chrom_ct;
+#ifdef __cplusplus
+  std::sort(ll_buf, &(ll_buf[marker_ct]));
+#else
+  qsort(ll_buf, marker_ct, sizeof(long long), llcmp);
+#endif
+  cur_chrom = ll_buf[0] >> 32;
+  chrom_ct = 0;
+  chrom_start[0] = 0;
+  chrom_id[0] = cur_chrom;
+  uii = (unsigned int)ll_buf[0];
+  ll_buf[0] = ((long long)uii) | (((long long)pos_buf[uii]) << 32);
+  for (marker_idx = 1; marker_idx < marker_ct; marker_idx++) {
+    if ((ll_buf[marker_idx] >> 32) != cur_chrom) {
+      cur_chrom = ll_buf[marker_idx] >> 32;
+      chrom_start[++chrom_ct] = marker_idx;
+      chrom_id[chrom_ct] = cur_chrom;
+    }
+    uii = (unsigned int)ll_buf[marker_idx];
+    ll_buf[marker_idx] = ((long long)uii) | (((long long)pos_buf[uii]) << 32);
+  }
+  chrom_start[++chrom_ct] = marker_ct;
+  for (uii = 0; uii < chrom_ct; uii++) {
+#ifdef __cplusplus
+    std::sort(&(ll_buf[chrom_start[uii]]), &(ll_buf[chrom_start[uii + 1]]));
+#else
+    qsort(&(ll_buf[chrom_start[uii]]), chrom_start[uii + 1] - chrom_start[uii], sizeof(long long), llcmp);
+#endif
+  }
+  *chrom_ct_ptr = chrom_ct;
 }
 
 int strcmp_deref(const void* s1, const void* s2) {
@@ -407,6 +542,46 @@ int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_
   }
   wkspace_reset(wkspace_mark);
   return 0;
+}
+
+int bsearch_str(char* id_buf, char* lptr, int max_id_len, int min_idx, int max_idx) {
+  int mid_idx;
+  int ii;
+  if (max_idx < min_idx) {
+    return -1;
+  }
+  mid_idx = (min_idx + max_idx) / 2;
+  ii = strcmp(id_buf, &(lptr[mid_idx * max_id_len]));
+  if (ii) {
+    if (ii < 0) {
+      return bsearch_str(id_buf, lptr, max_id_len, min_idx, mid_idx - 1);
+    } else {
+      return bsearch_str(id_buf, lptr, max_id_len, mid_idx + 1, max_idx);
+    }
+  } else {
+    return mid_idx;
+  }
+}
+
+int bsearch_fam_indiv(char* id_buf, char* lptr, int max_id_len, int filter_line_ct, char* fam_id, char* indiv_id) {
+  // id_buf = workspace
+  // lptr = packed, sorted list of ID strings to search over
+  // fam_id and indiv_id are considered terminated by any space/eoln character
+  int ii;
+  int jj;
+  if (!filter_line_ct) {
+    return -1;
+  }
+  ii = strlen_se(fam_id);
+  jj = strlen_se(indiv_id);
+  if (ii + jj + 2 > max_id_len) {
+    return -1;
+  }
+  memcpy(id_buf, fam_id, ii);
+  id_buf[ii] = '\t';
+  memcpy(&(id_buf[ii + 1]), indiv_id, jj);
+  id_buf[ii + jj + 1] = '\0';
+  return bsearch_str(id_buf, lptr, max_id_len, 0, filter_line_ct - 1);
 }
 
 int distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, char* outname, char* outname_end, const char* varsuffix, const char* mode, int calculation_type, int parallel_idx, int parallel_tot) {

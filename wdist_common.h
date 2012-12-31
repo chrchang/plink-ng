@@ -74,6 +74,12 @@ typedef union {
 #define CALC_RECODE 0x2000000
 #define CALC_MERGE 0x4000000
 
+#define RECODE_12 1
+#define RECODE_TAB 2
+#define RECODE_DELIMX 4
+#define RECODE_TRANSPOSE 8
+#define RECODE_LGEN 16
+
 #define MERGE_MODE_MASK 7
 #define MERGE_BINARY 8
 #define MERGE_LIST 16
@@ -85,6 +91,7 @@ typedef union {
 
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
+#define MAX(aa, bb) ((bb) > (aa))? (bb) : (aa)
 
 #define _FILE_OFFSET_BITS 64
 #define MAX_THREADS 127
@@ -270,6 +277,8 @@ static inline int is_space_or_eoln(char cc) {
   return ((cc == ' ') || (cc == '\t') || (cc == '\n') || (cc == '\0') || (cc == '\r'));
 }
 
+int intlen(int num);
+
 int strlen_se(char* ss);
 
 int strcmp_se(char* s_read, const char* s_const, int len);
@@ -277,6 +286,13 @@ int strcmp_se(char* s_read, const char* s_const, int len);
 char* next_item(char* sptr);
 
 char* next_item_mult(char* sptr, unsigned int ct);
+
+static inline void read_next_terminate(char* target, char* source) {
+  while (!is_space_or_eoln(*source)) {
+    *target++ = *source++;
+  }
+  *target = '\0';
+}
 
 static inline void set_bit_noct(unsigned long* exclude_arr, int loc) {
   exclude_arr[loc / BITCT] |= (1LU << (loc % BITCT));
@@ -371,6 +387,58 @@ static inline void free_cond(void* memptr) {
   }
 }
 
+// maximum accepted chromosome index is this minus 1.
+// currently unsafe to set this above 60 due to using a single long long
+// chrom_mask, and reserving the top 4 bits
+#define MAX_POSSIBLE_CHROM 42
+#define CHROM_X MAX_POSSIBLE_CHROM
+#define CHROM_Y (MAX_POSSIBLE_CHROM + 1)
+#define CHROM_XY (MAX_POSSIBLE_CHROM + 2)
+#define CHROM_MT (MAX_POSSIBLE_CHROM + 3)
+
+typedef struct {
+  // no point to dynamic allocation when MAX_POSSIBLE_CHROM is small
+
+  // order of chromosomes in input files
+  // currently tolerates out-of-order chromosomes, as long as markers within a
+  // chromosome are not out of order, and all markers for any given chromosome
+  // are together
+  unsigned int chrom_file_order[MAX_POSSIBLE_CHROM];
+  unsigned int chrom_ct; // length of chrom_file_order
+  unsigned int chrom_file_order_marker_idx[MAX_POSSIBLE_CHROM + 1];
+
+  // markers chrom_start[k] to (chrom_end[k] - 1) are part of chromosome k
+  unsigned int chrom_start[MAX_POSSIBLE_CHROM];
+  unsigned int chrom_end[MAX_POSSIBLE_CHROM];
+
+  unsigned int species;
+  unsigned long long chrom_mask;
+} Chrom_info;
+
+#define SPECIES_HUMAN 0
+#define SPECIES_COW 1
+#define SPECIES_DOG 2
+#define SPECIES_HORSE 3
+#define SPECIES_MOUSE 4
+#define SPECIES_RICE 5
+#define SPECIES_SHEEP 6
+
+extern const unsigned long long species_def_chrom_mask[];
+extern const unsigned long long species_autosome_mask[];
+extern const unsigned long long species_valid_chrom_mask[];
+extern const char species_x_code[];
+extern const char species_y_code[];
+extern const char species_xy_code[];
+extern const char species_mt_code[];
+extern const char species_max_code[];
+extern const unsigned long long species_haploid_mask[];
+
+int marker_code_raw(char* sptr);
+
+int marker_code(unsigned int species, char* sptr);
+
+void sort_marker_chrom_pos(long long* ll_buf, unsigned int marker_ct, int* pos_buf, unsigned int* chrom_start, unsigned int* chrom_id, unsigned int* chrom_ct_ptr);
+
 int strcmp_deref(const void* s1, const void* s2);
 
 int is_missing(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01);
@@ -390,6 +458,10 @@ int double_cmp(const void* aa, const void* bb);
 int double_cmp_deref(const void* aa, const void* bb);
 
 int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len);
+
+int bsearch_str(char* id_buf, char* lptr, int max_id_len, int min_idx, int max_idx);
+
+int bsearch_fam_indiv(char* id_buf, char* lptr, int max_id_len, int filter_line_ct, char* fam_id, char* indiv_id);
 
 int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int calculation_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf);
 
