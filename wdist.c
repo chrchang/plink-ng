@@ -1,5 +1,5 @@
 // WDIST weighted genomic distance calculator
-// Copyright (C) 2012  Christopher Chang  chrchang@alumni.caltech.edu
+// Copyright (C) 2013  Christopher Chang  chrchang@alumni.caltech.edu
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -143,6 +143,7 @@ extern "C" {
 #endif // NOLAPACK
 
 #include "wdist_common.h"
+#include "wdist_data.h"
 #include "wdist_dosage.h"
 
 #define PI 3.141592653589793
@@ -195,10 +196,6 @@ const unsigned long long species_haploid_mask[] = {}; // todo
 #define LOAD_RARE_TPED 8
 #define LOAD_RARE_TFAM 16
 #define LOAD_RARE_TRANSPOSE_MASK (LOAD_RARE_TPED | LOAD_RARE_TFAM)
-
-#define MERGE_MODE_MASK 7
-#define MERGE_BINARY 8
-#define MERGE_LIST 16
 
 #define PEDBUFBASE 256
 
@@ -272,10 +269,10 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (30 Dec 2012)";
+  " (1 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
-  "(C) 2012 Christopher Chang, GNU General Public License version 3\n";
+  "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
 // const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 const char errstr_fam_format[] = "Error: Improperly formatted .fam/.ped file.\n";
@@ -1339,10 +1336,6 @@ int strcmp_casted(const void* s1, const void* s2) {
   return strcmp((char*)s1, (char*)s2);
 }
 
-int strcmp_deref(const void* s1, const void* s2) {
-  return strcmp(*(char**)s1, *(char**)s2);
-}
-
 int llcmp(const void* aa, const void* bb) {
   long long diff = *((const long long*)aa) - *((const long long*)bb);
   if (diff > 0) {
@@ -1527,6 +1520,7 @@ int determine_max_id_len(FILE* filterfile, char* filterval, int mfilter_col, int
   int ii;
   int jj;
 
+  tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, filterfile) != NULL) {
     if (is_eoln(*tbuf)) {
       continue;
@@ -2156,24 +2150,6 @@ int sort_item_ids_nx(char** sorted_ids_ptr, int** id_map_ptr, int item_ct, char*
       logprint("Error: Duplicate IDs.\n");
       return RET_INVALID_FORMAT;
     }
-  }
-  return 0;
-}
-
-int is_missing(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01) {
-  if ((atoi(bufptr) == missing_pheno) && is_space_or_eoln(bufptr[missing_pheno_len])) {
-    return 1;
-  } else if ((!affection_01) && (*bufptr == '0') && is_space_or_eoln(bufptr[1])) {
-    return 1;
-  }
-  return 0;
-}
-
-int eval_affection(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01) {
-  if (is_missing(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
-    return 1;
-  } else if (((*bufptr == '0') || (*bufptr == '1') || ((*bufptr == '2') && (!affection_01))) && is_space_or_eoln(bufptr[1])) {
-    return 1;
   }
   return 0;
 }
@@ -4795,6 +4771,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
   }
   // first pass: count columns, determine raw marker count, determine maximum
   // marker ID length if necessary.
+  tbuf[MAXLINELEN - 6] = ' ';
   while (fgets(tbuf, MAXLINELEN - 5, *mapfile_ptr) != NULL) {
     if (!tbuf[MAXLINELEN - 6]) {
       sprintf(logbuf, "Error: Excessively long line in .map/.bim file (max %d chars).\n", MAXLINELEN - 8);
@@ -5301,6 +5278,7 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
     return RET_NOMEM;
   }
   // ----- phenotype file load -----
+  tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, phenofile) != NULL) {
     if (is_eoln(*tbuf)) {
       continue;
@@ -5447,6 +5425,7 @@ int makepheno_load(FILE* phenofile, char* makepheno_str, unsigned int unfiltered
     memset(pheno_c, makepheno_all? 0 : -1, unfiltered_indiv_ct);
     *pheno_c_ptr = pheno_c;
   }
+  tbuf[MAXLINELEN - 1] = ' ';  
   while (fgets(tbuf, MAXLINELEN, phenofile) != NULL) {
     if (is_eoln(*tbuf)) {
       continue;
@@ -5578,6 +5557,7 @@ int include_or_exclude(char* fname, char* sorted_ids, int sorted_ids_len, unsign
   if (fopen_checked(&infile, fname, "r")) {
     return RET_OPEN_FAIL;
   }
+  tbuf[MAXLINELEN - 1] = ' ';
   if (indivs) {
     if (wkspace_alloc_c_checked(&id_buf, max_id_len)) {
       return RET_NOMEM;
@@ -5669,6 +5649,7 @@ int filter_indivs_file(char* filtername, char* sorted_person_ids, int sorted_ids
   if (fopen_checked(&infile, filtername, "r")) {
     return RET_OPEN_FAIL;
   }
+  tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, infile)) {
     if (is_eoln(*tbuf)) {
       continue;
@@ -6537,7 +6518,7 @@ int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, in
   if (freqx) {
     // MAF is not quite redundant with the hom/het counts, since it's affected
     // by --maf-succ.
-    if (fprintf(*outfile_ptr, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(MISSING)\n") < 0) {
+    if (fputs("CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(MISSING)\n", *outfile_ptr) == EOF) {
       return RET_WRITE_FAIL;
     }
   } else if (plink_maxsnp < 5) {
@@ -8134,14 +8115,14 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
       last_mapval = cur_mapval;
     }
     for (uii = 0; uii < 3; uii++) {
-      cptr2 = item_end(cptr);
+      cptr2 = item_endnn(cptr);
       *cptr2++ = '\t';
       if (fwrite_checked(cptr, (cptr2 - cptr), bimfile)) {
 	goto transposed_to_bed_ret_WRITE_FAIL;
       }
       cptr = skip_initial_spaces(cptr2);
     }
-    cptr2 = item_end(cptr);
+    cptr2 = item_endnn(cptr);
     *cptr2++ = '\t';
     if (fwrite_checked(cptr, (cptr2 - cptr), bimfile)) {
       goto transposed_to_bed_ret_WRITE_FAIL;
@@ -8330,7 +8311,7 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
     marker_idx = 0;
     while (fgets(tbuf, MAXLINELEN, infile)) {
       cptr = next_item(tbuf);
-      cptr2 = item_end(cptr);
+      cptr2 = item_endl(cptr);
       cptr3 = skip_initial_spaces(cptr2);
       cptr4 = next_item_mult(cptr3, 2);
       uii = cptr2 - cptr;
@@ -8586,7 +8567,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
 
 	wbufptr = tbuf;
 	for (indiv_idx = 0; indiv_idx < 3; indiv_idx++) {
-	  cptr = item_end(wbufptr);
+	  cptr = item_endnn(wbufptr);
 	  ulii = 1 + (unsigned long)(cptr - wbufptr);
 	  *cptr = delimiter;
 	  if (fwrite_checked(wbufptr, ulii, *outfile_ptr)) {
@@ -8859,7 +8840,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
       }
       wbufptr = tbuf;
       for (loop_end = 0; loop_end < 5; loop_end++) {
-	cptr = item_end(wbufptr);
+	cptr = item_endnn(wbufptr);
 	ulii = 1 + (unsigned long)(cptr - wbufptr);
 	*cptr = delimiter;
 	if (fwrite_checked(wbufptr, ulii, *outfile_ptr)) {
@@ -8912,7 +8893,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
       }
       wbufptr = tbuf;
       for (loop_end = 0; loop_end < 3; loop_end++) {
-	cptr = item_end(wbufptr);
+	cptr = item_endnn(wbufptr);
 	ulii = 1 + (unsigned long)(cptr - wbufptr);
 	*cptr = cc;
 	if (fwrite_checked(wbufptr, ulii, *outfile_ptr)) {
@@ -11431,68 +11412,6 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_ca
   return retval;
 }
 
-int merge_datasets(FILE** bedfile_ptr, FILE** bimfile_ptr, char* bimname, FILE** famfile_ptr, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, int missing_pheno, int missing_pheno_len, int affection_01, char* outname, char* outname_end, char* mergename1, char* mergename2, char* mergename3, int calculation_type, int merge_type) {
-  FILE* bedfile = NULL;
-  FILE* bimfile = NULL;
-  FILE* famfile = NULL;
-  unsigned int max_person_id_len = 0;
-  unsigned int max_marker_id_len = 0;
-  int binary_ifile = (!(*famfile_ptr == NULL));
-  int merge_mode = (merge_type & MERGE_MODE_MASK);
-  char* person_ids;
-  char* marker_ids;
-  unsigned int tot_indiv_ct;
-  unsigned int unfiltered_indiv_ct;
-  unsigned int indiv_ct;
-  unsigned int tot_marker_ct;
-  unsigned int unfiltered_marker_ct;
-  unsigned int marker_ct;
-  unsigned int uii;
-  char* bufptr;
-  int retval;
-
-  // currently assumes *bedfile_ptr and *famfile_ptr are at file beginning
-  // first pass: just determine max_person_id_len and whether phenotype is
-  // scalar or case/control
-  while (fgets(tbuf, MAXLINELEN, *famfile_ptr)) {
-    if (*tbuf > ' ') {
-      if (*tbuf != '#') {
-	if (fam_col_1) {
-	  bufptr = next_item(tbuf);
-	}
-        uii = strlen_se(tbuf) + strlen_se(bufptr) + 2;
-	if (uii > max_person_id_len) {
-	  max_person_id_len = uii;
-	}
-      }
-    }
-  }
-  if (!feof(*famfile_ptr)) {
-    goto merge_datasets_ret_READ_FAIL;
-  }
-
-  retval = 0;
-  while (0) {
-  merge_datasets_ret_NOMEM:
-    retval = RET_NOMEM;
-    break;
-  merge_datasets_ret_READ_FAIL:
-    retval = RET_READ_FAIL;
-    break;
-  merge_datasets_ret_WRITE_FAIL:
-    retval = RET_WRITE_FAIL;
-    break;
-  }
-  fclose_null(bedfile_ptr);
-  if (*bimfile_ptr) {
-    fclose_null(bimfile_ptr);
-  }
-  fclose_null(famfile_ptr);
-  fclose_cond(bedfile);
-  fclose_cond(bimfile);
-  fclose_cond(famfile);
-  return retval;
-}
 
 inline int distance_wt_req(int calculation_type) {
   return ((calculation_type & CALC_DISTANCE_MASK) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
@@ -11662,19 +11581,19 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     ibc_type = -1;
   }
 
-  if (fopen_checked(&pedfile, pedname, famname[0]? "rb" : "r")) {
-    goto wdist_ret_OPEN_FAIL;
-  }
   if (famname[0]) {
     binary_files = 1;
     if (calculation_type & CALC_MAKE_BED) {
       if (!realpath(pedname, tbuf)) {
-	printf("Error: Failed to calculate absolute pathname for %s.\n", pedname);
+	sprintf(logbuf, "Error: Failed to calculate absolute pathname for %s.\n", pedname);
+	logprintb();
         goto wdist_ret_OPEN_FAIL;
       }
       memcpy(outname_end, ".bed", 5);
       if (!realpath(outname, &(tbuf[FNAMESIZE + 64]))) {
-	printf("Error: Failed to calculate absolute pathname for %s.\n", outname);
+	sprintf(logbuf, "Error: Failed to calculate absolute pathname for %s.\n", outname);
+	logprintb();
+	goto wdist_ret_OPEN_FAIL;
       }
       if (!strcmp(tbuf, &(tbuf[FNAMESIZE + 64]))) {
 	logprint("Note: --make-bed input and output filenames match.  Appending .old to input\nfilenames.\n");
@@ -11682,32 +11601,33 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	memcpy(tbuf, pedname, uii + 1);
 	memcpy(&(pedname[uii]), ".old", 5);
         if (rename(tbuf, pedname)) {
-	  printf("Error: Failed to append .old to input .bed filename.\n");
+	  logprint("Error: Failed to append .old to input .bed filename.\n");
 	  goto wdist_ret_OPEN_FAIL;
 	}
 	uii = strlen(mapname);
 	memcpy(tbuf, mapname, uii + 1);
 	memcpy(&(mapname[uii]), ".old", 5);
 	if (rename(tbuf, mapname)) {
-	  printf("Error: Failed to append .old to input .bim filename.\n");
+	  logprint("Error: Failed to append .old to input .bim filename.\n");
 	  goto wdist_ret_OPEN_FAIL;
 	}
 	uii = strlen(famname);
 	memcpy(tbuf, famname, uii + 1);
 	memcpy(&(famname[uii]), ".old", 5);
 	if (rename(tbuf, famname)) {
-	  printf("Error: Failed to append .old to input .fam filename.\n");
+	  logprint("Error: Failed to append .old to input .fam filename.\n");
 	  goto wdist_ret_OPEN_FAIL;
 	}
       }
     }
-    if (fopen_checked(&famfile, famname, "r")) {
-      goto wdist_ret_OPEN_FAIL;
-    }
   }
 
   if (calculation_type & CALC_MERGE) {
-    retval = merge_datasets(&pedfile, &mapfile, mapname, &famfile, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_pheno, missing_pheno_len, affection_01, outname, outname_end, mergename1, mergename2, mergename3, calculation_type, merge_type);
+    if (!(fam_col_1 && fam_col_34 && fam_col_5 && fam_col_6 && (!affection_01) && (missing_pheno == -9))) {
+      logprint("Error: --merge/--bmerge/--merge-list cannot be used with an irregularly\nformatted reference fileset (--no-fid, --no-parents, --no-sex, --no-pheno,\n--1).  Use --make-bed first.\n");
+      goto wdist_ret_INVALID_CMDLINE;
+    }
+    retval = merge_datasets(pedname, mapname, famname, outname, outname_end, mergename1, mergename2, mergename3, calculation_type, merge_type);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -11715,17 +11635,19 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     ulii = (unsigned long)(outname_end - outname);
     memcpy(pedname, outname, ulii);
     memcpy(&(pedname[ulii]), "-merge.bed", 11);
-    if (fopen_checked(&pedfile, pedname, "rb")) {
-      goto wdist_ret_OPEN_FAIL;
-    }
     memcpy(mapname, pedname, ulii + 7);
     memcpy(&(mapname[ulii + 7]), "fam", 4);
     memcpy(famname, pedname, ulii + 8);
     memcpy(&(famname[ulii + 8]), "im", 3);
+  }
+
+  if (fopen_checked(&pedfile, pedname, famname[0]? "rb" : "r")) {
+    goto wdist_ret_OPEN_FAIL;
+  }
+  if (famname[0]) {
     if (fopen_checked(&famfile, famname, "r")) {
       goto wdist_ret_OPEN_FAIL;
     }
-    wkspace_base = wkspace;
   }
 
   // load .map/.bim, count markers, filter chromosomes

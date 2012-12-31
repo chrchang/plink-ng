@@ -103,6 +103,13 @@ char* item_endl(char* sptr) {
   return sptr;
 }
 
+char* item_endnn(char* sptr) {
+  while ((*sptr != ' ') && (*sptr != '\t') && (*sptr)) {
+    sptr++;
+  }
+  return sptr;
+}
+
 int strlen_se(char* ss) {
   int val = 0;
   while (!is_space_or_eoln(*ss++)) {
@@ -198,6 +205,28 @@ int next_set_unsafe(unsigned long* include_arr, unsigned int loc) {
     idx++;
   } while (*(++include_arr) == 0);
   return (idx * BITCT) + __builtin_ctzl(*include_arr);
+}
+
+int strcmp_deref(const void* s1, const void* s2) {
+  return strcmp(*(char**)s1, *(char**)s2);
+}
+
+int is_missing(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01) {
+  if ((atoi(bufptr) == missing_pheno) && is_space_or_eoln(bufptr[missing_pheno_len])) {
+    return 1;
+  } else if ((!affection_01) && (*bufptr == '0') && is_space_or_eoln(bufptr[1])) {
+    return 1;
+  }
+  return 0;
+}
+
+int eval_affection(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01) {
+  if (is_missing(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
+    return 1;
+  } else if (((*bufptr == '0') || (*bufptr == '1') || ((*bufptr == '2') && (!affection_01))) && is_space_or_eoln(bufptr[1])) {
+    return 1;
+  }
+  return 0;
 }
 
 int triangle_divide(long long cur_prod, int modif) {
@@ -350,8 +379,9 @@ int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_
   //                 be a lookup table for the original position of each
   //                 main_arr item.)
   // secondary_item_len = byte count of each secondary_arr item
-  char* proxy_arr;
   int proxy_len = secondary_item_len + sizeof(void*);
+  unsigned char* wkspace_mark = wkspace_base;
+  char* proxy_arr;
   int ii;
   if (!arr_length) {
     return 0;
@@ -359,8 +389,7 @@ int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_
   if (proxy_len < item_length) {
     proxy_len = item_length;
   }
-  proxy_arr = (char*)malloc(arr_length * proxy_len);
-  if (!proxy_arr) {
+  if (wkspace_alloc_c_checked(&proxy_arr, arr_length * proxy_len)) {
     return -1;
   }
   for (ii = 0; ii < arr_length; ii++) {
@@ -376,7 +405,7 @@ int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_
   for (ii = 0; ii < arr_length; ii++) {
     memcpy(&(main_arr[ii * item_length]), &(proxy_arr[ii * proxy_len]), item_length);
   }
-  free(proxy_arr);
+  wkspace_reset(wkspace_mark);
   return 0;
 }
 

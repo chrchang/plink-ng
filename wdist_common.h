@@ -74,6 +74,10 @@ typedef union {
 #define CALC_RECODE 0x2000000
 #define CALC_MERGE 0x4000000
 
+#define MERGE_MODE_MASK 7
+#define MERGE_BINARY 8
+#define MERGE_LIST 16
+
 #define MALLOC_DEFAULT_MB 2176
 
 #define CACHELINE 64 // assumed number of bytes per cache line, for alignment
@@ -255,6 +259,9 @@ char* item_end(char* sptr);
 // does not return NULL if item ends with null char
 char* item_endl(char* sptr);
 
+// item_endl without checking if sptr == NULL
+char* item_endnn(char* sptr);
+
 static inline int is_space_or_eoln(char cc) {
   return ((cc == ' ') || (cc == '\t') || (cc == '\n') || (cc == '\0') || (cc == '\r'));
 }
@@ -359,6 +366,12 @@ static inline void free_cond(void* memptr) {
     free(memptr);
   }
 }
+
+int strcmp_deref(const void* s1, const void* s2);
+
+int is_missing(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01);
+
+int eval_affection(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01);
 
 void triangle_fill(unsigned int* target_arr, int ct, int pieces, int parallel_idx, int parallel_tot, int start, int align);
 
