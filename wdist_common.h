@@ -137,6 +137,10 @@ static inline int fwrite_checked(const void* buf, size_t len, FILE* outfile) {
   return -1;
 }
 
+static inline int fputs_checked(char* ss, FILE* outfile) {
+  return (fputs(ss, outfile) == EOF);
+}
+
 static inline void fclose_cond(FILE* fptr) {
   if (fptr) {
     fclose(fptr);

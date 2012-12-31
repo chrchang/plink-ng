@@ -6523,12 +6523,12 @@ int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, in
     }
   } else if (plink_maxsnp < 5) {
     if (freq_counts) {
-      if (fprintf(*outfile_ptr, " CHR  SNP   A1   A2     C1     C2     G0\n") < 0) {
+      if (fputs_checked(" CHR  SNP   A1   A2     C1     C2     G0\n", *outfile_ptr)) {
 	return RET_WRITE_FAIL;
       }
       strcpy(tbuf, "%4d %4s    %c    %c %6d %6d %6d\n");
     } else {
-      if (fprintf(*outfile_ptr, " CHR  SNP   A1   A2          MAF  NCHROBS\n") < 0) {
+      if (fputs_checked(" CHR  SNP   A1   A2          MAF  NCHROBS\n", *outfile_ptr)) {
         return RET_WRITE_FAIL;
       }
       strcpy(tbuf, "%4d %4s    %c    %c      %7.4g  %7d\n");
@@ -9310,7 +9310,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
   if (fopen_checked(outfile_ptr, outname, "w")) {
     return RET_OPEN_FAIL;
   }
-  if (fprintf(*outfile_ptr, "ID_1 ID_2 missing sex phenotype\n0 0 0 D P\n") < 0) {
+  if (fputs_checked("ID_1 ID_2 missing sex phenotype\n0 0 0 D P\n", *outfile_ptr)) {
     return RET_WRITE_FAIL;
   }
   // regress phenotype
@@ -12312,7 +12312,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       dptr2 = rel_ibc;
       dptr3 = &(rel_ibc[g_indiv_ct]);
       dptr4 = &(rel_ibc[g_indiv_ct * 2]);
-      if (fprintf(outfile, "FID\tIID\tNOMISS\tFhat1\tFhat2\tFhat3\n") < 0) {
+      if (fputs_checked("FID\tIID\tNOMISS\tFhat1\tFhat2\tFhat3\n", outfile)) {
 	goto wdist_ret_WRITE_FAIL;
       }
       for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
