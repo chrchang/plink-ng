@@ -306,8 +306,158 @@ int marker_code(unsigned int species, char* sptr) {
   return ii;
 }
 
+// WDIST's natural sort uses the following logic:
+// - All alphabetic characters act as if they are capitalized, except for
+// tiebreaking purposes (where ASCII is used).
+// - Numbers are compared by magnitude, with the exception of...
+// - Numbers with leading zero(es).  If you're putting extraneous zeroes in
+// front of IDs, we assume they're there to force particular items to be sorted
+// earlier, rather than just appearing at random.  So, unlike many natural sort
+// implementations, we sort 00200 < 021 < 20: all numbers with n leading zeroes
+// are sorted before all numbers with (n-1) leading zeroes; magnitude only
+// applies if the leading zero counts match.  This handles e.g. subbasement
+// room numbering properly.
+//
+// This won't always do what you want if your IDs have variable-length decimals
+// in them (e.g. it yields 0.99 < 0.101); if you don't want to fall back on
+// ASCII sort, enforce a fixed number of digits after the decimal point.  Also
+// note that ASCII sort is outright better for e.g. numbers represented in
+// hexadecimal or base 36.  In principle, it's possible to reliably autodetect
+// some of these cases (especially hexadecimal numbers beginning with "0x"),
+// but that'll never be perfect so we just let the user toggle the sort method.
+int strcmp_natural_scan_forward(const char* s1, const char* s2) {
+  // assumes s1 and s2 currently point to the middle of a mismatching number,
+  // where s1 < s2.
+  char c1;
+  char c2;
+  do {
+    c1 = *(++s1);
+    c2 = *(++s2);
+    if (is_not_digit(c1)) {
+      return -1;
+    }
+  } while (is_digit(c2));
+  return 1;
+}
+
+// We have the following major states:
+//   0 (initial): strings perfectly match so far, last char (if any) is
+//                nonnumeric.
+//   1: strings perfectly match so far, last char is numeric.
+//   2: strings match except for capitalization, last char is nonnumeric.
+//   3: strings match except for capitalization, last char is numeric.
+// strcmp_natural_tiebroken() expresses the logic for states 2 and 3, while
+// strcmp_natural_uncasted() handles states 0 and 1.
+int strcmp_natural_tiebroken(const char* s1, const char* s2) {
+  // assumes ties should be broken in favor of s2.
+  char c1 = *(++s1);
+  char c2 = *(++s2);
+  while (is_not_nzdigit(c1) && is_not_nzdigit(c2)) {
+    // state 2
+  strcmp_natural_tiebroken_state_2:
+    if (c1 != c2) {
+      if ((c1 >= 'a') && (c1 <= 'z')) {
+	c1 -= 32;
+      }
+      if ((c2 >= 'a') && (c2 <= 'z')) {
+	c2 -= 32;
+      }
+      if (c1 < c2) {
+	return -1;
+      } else if (c1 > c2) {
+	return 1;
+      }
+    } else if (!c1) {
+      return -1;
+    }
+    c1 = *(++s1);
+    c2 = *(++s2);
+  }
+  if (is_not_nzdigit(c1) || is_not_nzdigit(c2)) {
+    return (c1 < c2)? -1 : 1;
+  }
+  do {
+    // state 3
+    if (c1 != c2) {
+      if (is_digit(c2)) {
+	if (c1 < c2) {
+	  return strcmp_natural_scan_forward(s1, s2);
+	} else {
+	  return -strcmp_natural_scan_forward(s2, s1);
+	}
+      }
+      return 1;
+    }
+    c1 = *(++s1);
+    c2 = *(++s2);
+  } while (is_digit(c1));
+  if (is_digit(c2)) {
+    return -1;
+  }
+  // skip the while (is_not_digit...) check
+  goto strcmp_natural_tiebroken_state_2;
+}
+
+static inline int strcmp_natural_uncasted(const char* s1, const char* s2) {
+  char c1 = *s1;
+  char c2 = *s2;
+  while (is_not_nzdigit(c1) && is_not_nzdigit(c2)) {
+    // state 0
+  strcmp_natural_uncasted_state_0:
+    if (c1 != c2) {
+      if ((c1 >= 'a') && (c1 <= 'z')) {
+	if (c2 + 32 == c1) {
+	  return -strcmp_natural_tiebroken(s2, s1);
+	} else if ((c2 < 'a') || (c2 > 'z')) {
+	  c1 -= 32;
+	}
+      } else if ((c2 >= 'a') && (c2 <= 'z')) {
+	c2 -= 32;
+	if (c1 == c2) {
+	  return strcmp_natural_tiebroken(s1, s2);
+	}
+      }
+      return (c1 < c2)? -1 : 1;
+    } else if (!c1) {
+      return 0;
+    }
+    c1 = *(++s1);
+    c2 = *(++s2);
+  }
+  if (is_not_nzdigit(c1) || is_not_nzdigit(c2)) {
+    return (c1 < c2)? -1 : 1;
+  }
+  do {
+    // state 1
+    if (c1 != c2) {
+      if (is_digit(c2)) {
+	if (c1 < c2) {
+	  return strcmp_natural_scan_forward(s1, s2);
+	} else {
+	  return -strcmp_natural_scan_forward(s2, s1);
+	}
+      }
+      return 1;
+    }
+    c1 = *(++s1);
+    c2 = *(++s2);
+  } while (is_digit(c1));
+  if (is_digit(c2)) {
+    return -1;
+  }
+  goto strcmp_natural_uncasted_state_0;
+}
+
+int strcmp_natural(const void* s1, const void* s2) {
+  return strcmp_natural_uncasted((char*)s1, (char*)s2);
+}
+
 int strcmp_deref(const void* s1, const void* s2) {
   return strcmp(*(char**)s1, *(char**)s2);
+}
+
+int strcmp_natural_deref(const void* s1, const void* s2) {
+  return strcmp_natural_uncasted(*(char**)s1, *(char**)s2);
 }
 
 int is_missing(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01) {

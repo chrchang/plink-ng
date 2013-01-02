@@ -81,8 +81,9 @@ typedef union {
 #define RECODE_LGEN 16
 
 #define MERGE_MODE_MASK 7
-#define MERGE_BINARY 8
-#define MERGE_LIST 16
+#define MERGE_ASCII 8
+#define MERGE_BINARY 16
+#define MERGE_LIST 32
 
 #define MALLOC_DEFAULT_MB 2176
 
@@ -250,6 +251,22 @@ static inline int wkspace_alloc_ull_checked(unsigned long long** ullp_ptr, unsig
 
 void wkspace_reset(void* new_base);
 
+static inline int is_letter(char cc) {
+  return (((((unsigned char)cc) & 192) == 64) && (((((unsigned char)cc) - 1) & 31) < 26));
+}
+
+static inline int is_digit(char cc) {
+  return (cc <= '9') && (cc >= '0');
+}
+
+static inline int is_not_digit(char cc) {
+  return (cc > '9') || (cc < '0');
+}
+
+static inline int is_not_nzdigit(char cc) {
+  return (cc > '9') || (cc <= '0');
+}
+
 static inline int is_eoln(char cc) {
   return ((cc == '\n') || (cc == '\r'));
 }
@@ -374,6 +391,17 @@ static inline void fill_uint_zero(unsigned int* uiarr, size_t size) {
 #endif
 }
 
+static inline void fill_uint_one(unsigned int* uiarr, size_t size) {
+#if __LP64__
+  fill_ulong_one((unsigned long*)uiarr, size >> 1);
+  if (size & 1) {
+    uiarr[size - 1] = ~0U;
+  }
+#else
+  fill_ulong_one((unsigned long*)uiarr, size);
+#endif
+}
+
 static inline void fill_double_zero(double* darr, size_t size) {
   double* dptr = &(darr[size]);
   while (darr < dptr) {
@@ -437,7 +465,11 @@ int marker_code_raw(char* sptr);
 
 int marker_code(unsigned int species, char* sptr);
 
+int strcmp_natural(const void* s1, const void* s2);
+
 int strcmp_deref(const void* s1, const void* s2);
+
+int strcmp_natural_deref(const void* s1, const void* s2);
 
 int is_missing(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01);
 

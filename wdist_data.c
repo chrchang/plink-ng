@@ -2829,24 +2829,30 @@ int merge_fam_id_scan(char* bedname, char* famname, unsigned int* max_person_id_
   unsigned int cur_indiv_ct = 0;
   FILE* infile = NULL;
   unsigned int text_file = 0;
+  unsigned int len_adjust = 0;
   int retval = 0;
-  unsigned int uii;
-  unsigned int ujj;
-  unsigned int ukk;
-  unsigned int umm;
-  unsigned int unn;
-  unsigned int uoo;
+  unsigned int col1_len;
+  unsigned int col2_len;
+  unsigned int col3_len;
+  unsigned int col4_len;
+  unsigned int tot_len;
+  unsigned int letter_ct;
   unsigned long ulii;
+  unsigned int uii;
   Ll_entry** ll_pptr;
   Ll_entry* ll_ptr;
-  char* bufptr;
-  char* bufptr2;
-  char* bufptr3;
-  char* bufptr4;
-  char* bufptr5;
-  char* bufptr6;
-  char* bufptr7;
+  char* col2_start_ptr;
+  char* col3_start_ptr;
+  char* col4_start_ptr;
+  char* col5_start_ptr;
+  char* col6_start_ptr;
+  char* col1_end_ptr;
+  char* col2_end_ptr;
+  char* col1_start_ptr;
+  char* sptr;
+  char* tptr;
   double pheno;
+  char cc;
   if (!famname) {
     famname = bedname;
     text_file = 1;
@@ -2856,48 +2862,50 @@ int merge_fam_id_scan(char* bedname, char* famname, unsigned int* max_person_id_
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, infile)) {
-    if ((*tbuf > ' ') && (*tbuf != '#')) {
-      bufptr6 = item_endnn(tbuf);
-      uii = bufptr6 - tbuf;
-      bufptr = skip_initial_spaces(bufptr6);
-      bufptr7 = item_endnn(bufptr);
-      ujj = bufptr7 - bufptr;
-      bufptr2 = skip_initial_spaces(bufptr7);
-      bufptr3 = item_endnn(bufptr2);
-      unn = bufptr3 - bufptr2;
-      bufptr3 = skip_initial_spaces(bufptr3);
-      bufptr4 = item_endnn(bufptr3);
-      uoo = bufptr4 - bufptr3;
-      bufptr4 = skip_initial_spaces(bufptr4);
-      bufptr5 = item_endnn(bufptr4);
-      umm = bufptr5 - bufptr4;
-      if (umm != 1) {
-	*bufptr4 = '0';
+    col1_start_ptr = skip_initial_spaces(tbuf);
+    cc = *col1_start_ptr;
+    if ((!is_eoln(cc)) && (cc != '#')) {
+      col1_end_ptr = item_endnn(col1_start_ptr);
+      col1_len = col1_end_ptr - col1_start_ptr;
+      col2_start_ptr = skip_initial_spaces(col1_end_ptr);
+      col2_end_ptr = item_endnn(col2_start_ptr);
+      col2_len = col2_end_ptr - col2_start_ptr;
+      col3_start_ptr = skip_initial_spaces(col2_end_ptr);
+      col4_start_ptr = item_endnn(col3_start_ptr);
+      col3_len = col4_start_ptr - col3_start_ptr;
+      col4_start_ptr = skip_initial_spaces(col4_start_ptr);
+      col5_start_ptr = item_endnn(col4_start_ptr);
+      col4_len = col5_start_ptr - col4_start_ptr;
+      col5_start_ptr = skip_initial_spaces(col5_start_ptr);
+      col6_start_ptr = item_endnn(col5_start_ptr);
+      uii = col6_start_ptr - col5_start_ptr;
+      if (uii != 1) {
+	*col5_start_ptr = '0';
       }
-      bufptr5 = skip_initial_spaces(bufptr5);
-      if (no_more_items(bufptr5)) {
+      col6_start_ptr = skip_initial_spaces(col6_start_ptr);
+      if (no_more_items(col6_start_ptr)) {
 	goto merge_fam_id_scan_ret_INVALID_FORMAT;
       }
-      *bufptr6 = '\t';
-      *bufptr7 = '\t';
-      ukk = uii + ujj + 2;
-      if (ukk > max_person_id_len) {
-	max_person_id_len = ukk;
+      *col1_end_ptr = '\t';
+      *col2_end_ptr = '\t';
+      uii = col1_len + col2_len + 2;
+      if (uii > max_person_id_len) {
+	max_person_id_len = uii;
       }
-      ukk += unn + uoo + 4;
-      umm = hashval(tbuf, uii, bufptr, ujj);
-      ll_pptr = &(htable[umm]);
+      tot_len = uii + col3_len + col4_len + 4;
+      uii = hashval(col1_start_ptr, col1_len, col2_start_ptr, col2_len);
+      ll_pptr = &(htable[uii]);
       ll_ptr = *ll_pptr;
-      umm = 1;
+      uii = 1;
       if (is_dichot_pheno) {
-	is_dichot_pheno = eval_affection(bufptr5, -9, 2, 0);
+	is_dichot_pheno = eval_affection(col6_start_ptr, -9, 2, 0);
       }
-      if (sscanf(bufptr5, "%lg", &pheno) != 1) {
+      if (sscanf(col6_start_ptr, "%lg", &pheno) != 1) {
 	pheno = -9;
       }
       while (ll_ptr) {
-	if (idmatch(ll_ptr->idstr, tbuf, uii + 1, bufptr, ujj + 1)) {
-	  umm = 0;
+	if (idmatch(ll_ptr->idstr, col1_start_ptr, col1_len + 1, col2_start_ptr, col2_len + 1)) {
+	  uii = 0;
 	  /*
 	  // for future: add parental ID/sex merge (PLINK doesn't have it)
 	  if (merge_mode == 1) {
@@ -2917,26 +2925,26 @@ int merge_fam_id_scan(char* bedname, char* famname, unsigned int* max_person_id_
         ll_pptr = &(ll_ptr->next);
 	ll_ptr = *ll_pptr;
       }
-      if (umm) {
-	if (ukk > max_person_full_len) {
-	  max_person_full_len = ukk;
+      if (uii) {
+	if (tot_len > max_person_full_len) {
+	  max_person_full_len = tot_len;
 	}
-	ll_ptr = alloc_ll(&topsize, ukk);
+	ll_ptr = alloc_ll(&topsize, tot_len);
 	ll_ptr->next = NULL;
 	ll_ptr->pheno = pheno;
-	memcpy(ll_ptr->idstr, tbuf, uii);
-	ll_ptr->idstr[uii] = '\t';
-	memcpy(&(ll_ptr->idstr[uii + 1]), bufptr, ujj);
-	ukk = uii + ujj + 1;
-	ll_ptr->idstr[ukk++] = '\t';
-	memcpy(&(ll_ptr->idstr[ukk]), bufptr2, unn);
-        ll_ptr->idstr[ukk + unn] = '\t';
-	ukk += unn + 1;
-	memcpy(&(ll_ptr->idstr[ukk]), bufptr3, uoo);
-	ll_ptr->idstr[ukk + uoo] = '\t';
-	ukk += uoo + 1;
-	memcpy(&(ll_ptr->idstr[ukk]), bufptr4, 1);
-	ll_ptr->idstr[ukk + 1] = '\0';
+	memcpy(ll_ptr->idstr, col1_start_ptr, col1_len);
+	ll_ptr->idstr[col1_len] = '\t';
+	memcpy(&(ll_ptr->idstr[col1_len + 1]), col2_start_ptr, col2_len);
+	tot_len = col1_len + col2_len + 1;
+	ll_ptr->idstr[tot_len++] = '\t';
+	memcpy(&(ll_ptr->idstr[tot_len]), col3_start_ptr, col3_len);
+        ll_ptr->idstr[tot_len + col3_len] = '\t';
+	tot_len += col3_len + 1;
+	memcpy(&(ll_ptr->idstr[tot_len]), col4_start_ptr, col4_len);
+	ll_ptr->idstr[tot_len + col4_len] = '\t';
+	tot_len += col4_len + 1;
+	memcpy(&(ll_ptr->idstr[tot_len]), col5_start_ptr, 1);
+	ll_ptr->idstr[tot_len + 1] = '\0';
 	*ll_pptr = ll_ptr;
 	tot_indiv_ct++;
       }
@@ -3214,6 +3222,7 @@ int merge_bim_scan(char* bimname, unsigned int is_binary, unsigned long* max_mar
 int merge_main(char* bedname, char* bimname, unsigned int is_binary, unsigned int tot_indiv_ct, unsigned int tot_marker_ct, unsigned int true_marker_ct, unsigned int cur_indiv_ct, unsigned int cur_marker_ct, unsigned int start_marker_idx, unsigned int marker_window_size, char* marker_alleles, char* marker_ids, unsigned long max_marker_id_len, unsigned int* indiv_map, unsigned int* marker_text_map, unsigned int* chrom_start, unsigned int* chrom_id, unsigned int chrom_ct, unsigned char* readbuf, unsigned char* writebuf, unsigned int mlpos) {
   FILE* bedfile = NULL;
   FILE* bimfile = NULL;
+  int exit_normal = 1;
   int retval = 0;
   unsigned int tot_indiv_ct4 = (tot_indiv_ct + 3) / 4;
   unsigned int gd_col;
@@ -3222,6 +3231,7 @@ int merge_main(char* bedname, char* bimname, unsigned int is_binary, unsigned in
   unsigned int uii;
   unsigned int marker_idx;
   int ii;
+  int noskip;
   if (fopen_checked(&bimfile, bimname, "r")) {
     goto merge_main_ret_OPEN_FAIL;
   }
@@ -3232,6 +3242,9 @@ int merge_main(char* bedname, char* bimname, unsigned int is_binary, unsigned in
   if (fopen_checked(&bedfile, bedname, is_binary? "rb" : "r")) {
     goto merge_main_ret_OPEN_FAIL;
   }
+  if (!is_binary) {
+    fill_uint_one(marker_text_map, cur_marker_ct);
+  }
   do {
     if (is_eoln(*tbuf)) {
       continue;
@@ -3241,12 +3254,20 @@ int merge_main(char* bedname, char* bimname, unsigned int is_binary, unsigned in
     if (!bufptr2) {
       goto merge_main_ret_READ_FAIL;
     }
+    noskip = 1;
     if (*bufptr2 == '-') {
-      
+      noskip = 1;
+    }
+    if (noskip) {
+      if (is_binary) {
+      } else {
+      }
     }
   } while (fgets(tbuf, MAXLINELEN, bimfile));
-  if (!feof(bimfile)) {
+  if ((!feof(bimfile)) && exit_normal) {
     goto merge_main_ret_READ_FAIL;
+  }
+  if (!is_binary) {
   }
   // ...
   while (0) {
@@ -3275,6 +3296,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   unsigned long max_marker_id_len = 0;
   int is_dichot_pheno = 1;
   int merge_mode = (merge_type & MERGE_MODE_MASK);
+  unsigned int merge_nsort = (merge_type & MERGE_ASCII)? 0 : 1;
   Ll_entry** htable = (Ll_entry**)(&(wkspace_base[wkspace_left - HASHMEM_S]));
   Ll_entry2** htable2 = (Ll_entry2**)(&(wkspace_base[wkspace_left - HASHMEM]));
   unsigned long ped_buflen = MAXLINELEN;
@@ -3497,8 +3519,9 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     goto merge_datasets_ret_INVALID_FORMAT;
   }
 #else
-  if (ullxx > 268435455) {
-    logprint("Error: Too many individuals for 32-bit WDIST (max 268435455).\n");
+  // avoid overflow
+  if (ullxx * max_person_full_len > 2147483647) {
+    logprint("Error: Too many individuals for 32-bit WDIST.\n");
     goto merge_datasets_ret_INVALID_FORMAT;
   }
 #endif
@@ -3519,11 +3542,13 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     wkspace_alloc_d_checked(&pheno_d, tot_indiv_ct * sizeof(double));
   }
   ulii = 0;
+  bufptr = person_fids;
   for (uii = 0; uii < HASHSIZE_S; uii++) {
     if (htable[uii]) {
       ll_ptr = htable[uii];
       do {
-	strcpy(&(person_fids[ulii * max_person_full_len]), ll_ptr->idstr);
+        strcpy(bufptr, ll_ptr->idstr);
+        bufptr = &(bufptr[max_person_full_len]);
 	if (is_dichot_pheno) {
 	  if (ll_ptr->pheno == -9) {
             pheno_c[ulii] = -1;
@@ -3542,11 +3567,11 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   }
   wkspace_left -= topsize;
   if (is_dichot_pheno) {
-    if (qsort_ext(person_fids, tot_indiv_ct, max_person_full_len, strcmp_deref, pheno_c, 1)) {
+    if (qsort_ext(person_fids, tot_indiv_ct, max_person_full_len, merge_nsort? strcmp_natural_deref : strcmp_deref, pheno_c, 1)) {
       goto merge_datasets_ret_NOMEM2;
     }
   } else {
-    if (qsort_ext(person_fids, tot_indiv_ct, max_person_full_len, strcmp_deref, (char*)pheno_d, sizeof(double))) {
+    if (qsort_ext(person_fids, tot_indiv_ct, max_person_full_len, merge_nsort? strcmp_natural_deref : strcmp_deref, (char*)pheno_d, sizeof(double))) {
       goto merge_datasets_ret_NOMEM2;
     }
   }
@@ -3608,7 +3633,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   }
 #else
   if (ullxx > 268435455) {
-    logprint("Error: Too many markers for 32-bit WDIST (max 268435455).\n");
+    logprint("Error: Too many markers for 32-bit WDIST.\n");
     goto merge_datasets_ret_INVALID_FORMAT;
   }
 #endif
@@ -3667,14 +3692,17 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     ukk = 0;
     for (; ujj < uii; ujj++) {
       llxx = ll_buf[ujj];
+      umm = (unsigned int)llxx;
       jj = llxx >> 32;
       if (ii == jj) {
+	sprintf(logbuf, "Note: Markers %s and %s have the same position.\n", &(marker_ids[max_marker_id_len * umm]), &(marker_ids[max_marker_id_len * ((unsigned int)ll_buf[ujj - 1])]));
+	logprintb();
 	ukk++;
       } else {
 	pos_buf[ujj - ukk] = jj;
 	ii = jj;
       }
-      marker_map[(unsigned int)llxx] = ujj - ukk;
+      marker_map[umm] = ujj - ukk;
     }
     duplicate_pos += ukk;
     chrom_start[ulii + 1] -= duplicate_pos;

@@ -225,7 +225,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (1 Jan 2013)";
+  " (2 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -795,6 +795,10 @@ int disp_help(unsigned int param_ct, char** argv) {
 "                     4/5 = never overwrite and always overwrite, respectively\n"
 "                     6 = report all mismatching calls without merging\n"
 "                     7 = report mismatching nonmissing calls without merging\n"
+	       );
+    help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-ascii-sort", &help_ctrl, 0,
+"  --merge-ascii-sort : Use ASCII order instead of a natural sort to arrange\n"
+"                       individuals in the merged dataset.\n"
 	       );
     help_print("pheno", &help_ctrl, 0,
 "  --pheno [fname]  : Specify alternate phenotype.\n"
@@ -12298,6 +12302,9 @@ int main(int argc, char** argv) {
 	merge_type |= MERGE_LIST;
 	calculation_type |= CALC_MERGE;
 	cur_arg += 2;
+      } else if (!memcmp(argptr2, "erge-ascii-sort", 16)) {
+	merge_type |= MERGE_ASCII;
+	cur_arg++;
       }
       break;
 
