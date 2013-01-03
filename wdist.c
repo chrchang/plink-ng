@@ -225,7 +225,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (2 Jan 2013)";
+  " (3 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -494,7 +494,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    definition, e.g. '--distance square0'.\n"
 "  * {curly braces} denote an optional parameter, where the text between the\n"
 "    braces describes its nature.\n"
-"  * An ellipsis (...) indicates that you can enter many parameters of the\n"
+"  * An ellipsis (...) indicates that you may enter multiple parameters of the\n"
 "    specified type.\n\n"
 "Each run should invoke at least one of the following primary functions:\n\n"
 	   );
@@ -568,11 +568,10 @@ int disp_help(unsigned int param_ct, char** argv) {
 "indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (SNPs)] [VIF threshold]\n"
 "  --indep-pairwise [window size]<kb> [step size (SNPs)] [r^2 threshold]\n"
-"    Generates a list of SNPs in approximate linkage equilibrium; see PLINK\n"
-"    documentation for more details.  With the 'kb' modifier, the window size is\n"
-"    in kilobase units instead of SNPs.  (Space before 'kb' is optional, i.e.\n"
-"    '--indep-pairwise 500 kb 5 0.5' and '--indep-pairwise 500kb 5 0.5' have the\n"
-"    same effect.)\n"
+"    Generates a list of SNPs in approximate linkage equilibrium.  With the 'kb'\n"
+"    modifier, the window size is in kilobase units instead of SNPs.  (Space\n"
+"    before 'kb' is optional, i.e. '--indep-pairwise 500 kb 5 0.5' and\n"
+"    '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
 "    Note that you need to rerun WDIST using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
 		);
@@ -1055,7 +1054,7 @@ char* script_buf = NULL;
 char* rerun_buf = NULL;
 
 int dispmsg(int retval) {
-  switch(retval) {
+  switch (retval) {
   case RET_NOMEM:
     logprint("Error: Out of memory.  Try the --memory and/or --parallel flags.\n");
     break;
@@ -8716,10 +8715,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     ulii = (unsigned long)(outname_end - outname);
     memcpy(pedname, outname, ulii);
     memcpy(&(pedname[ulii]), "-merge.bed", 11);
-    memcpy(mapname, pedname, ulii + 7);
-    memcpy(&(mapname[ulii + 7]), "fam", 4);
-    memcpy(famname, pedname, ulii + 8);
-    memcpy(&(famname[ulii + 8]), "im", 3);
+    memcpy(famname, pedname, ulii + 7);
+    memcpy(&(famname[ulii + 7]), "fam", 4);
+    memcpy(mapname, pedname, ulii + 8);
+    memcpy(&(mapname[ulii + 8]), "im", 3);
   }
 
   if (fopen_checked(&pedfile, pedname, famname[0]? "rb" : "r")) {
@@ -10903,6 +10902,8 @@ int main(int argc, char** argv) {
       if ((cur_arg != 1) || subst_argv) {
 	printf("--help present, ignoring other flags.\n");
       }
+      fputs(ver_str, stdout);
+      fputs(ver_str2, stdout);
       retval = disp_help(argc - cur_arg - 1, &(argv[cur_arg + 1]));
       goto main_ret_1;
     }
@@ -10915,6 +10916,8 @@ int main(int argc, char** argv) {
       break;
     }
   }
+  fputs(ver_str, stdout);
+  fputs(ver_str2, stdout);
   memcpy(outname, "wdist", 6);
   for (ii = cur_arg; ii < argc; ii++) {
     if ((!memcmp("-out", argv[ii], 5)) || (!memcmp("--out", argv[ii], 6))) {
@@ -10934,8 +10937,6 @@ int main(int argc, char** argv) {
       strcpy(outname, argv[ii + 1]);
     }
   }
-  fputs(ver_str, stdout);
-  fputs(ver_str2, stdout);
   if (argc == cur_arg) {
     goto main_ret_NULL_CALC;
   }

@@ -677,6 +677,25 @@ int bsearch_str(char* id_buf, char* lptr, int max_id_len, int min_idx, int max_i
   }
 }
 
+int bsearch_str_natural(char* id_buf, char* lptr, int max_id_len, int min_idx, int max_idx) {
+  int mid_idx;
+  int ii;
+  if (max_idx < min_idx) {
+    return -1;
+  }
+  mid_idx = (min_idx + max_idx) / 2;
+  ii = strcmp_natural(id_buf, &(lptr[mid_idx * max_id_len]));
+  if (ii) {
+    if (ii < 0) {
+      return bsearch_str_natural(id_buf, lptr, max_id_len, min_idx, mid_idx - 1);
+    } else {
+      return bsearch_str_natural(id_buf, lptr, max_id_len, mid_idx + 1, max_idx);
+    }
+  } else {
+    return mid_idx;
+  }
+}
+
 int bsearch_fam_indiv(char* id_buf, char* lptr, int max_id_len, int filter_line_ct, char* fam_id, char* indiv_id) {
   // id_buf = workspace
   // lptr = packed, sorted list of ID strings to search over
