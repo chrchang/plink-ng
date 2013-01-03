@@ -3267,7 +3267,7 @@ static inline void merge_post_msort_update_maps(char* marker_ids, unsigned long 
 }
 
 static inline int merge_must_track_write(int mm) {
-  return (mm == 1) || (mm == 2) || (mm == 4);
+  return (mm == 1) || (mm == 4);
 }
 
 int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_indiv_ct, unsigned int tot_marker_ct, unsigned int dedup_marker_ct, unsigned int start_marker_idx, unsigned int marker_window_size, char* marker_alleles, char* marker_ids, unsigned long max_marker_id_len, char* person_ids, unsigned int max_person_id_len, unsigned int merge_nsort, unsigned int* indiv_map, unsigned int* marker_map, unsigned int* marker_text_map, unsigned int* chrom_start, unsigned int* chrom_id, unsigned int chrom_ct, char* idbuf, unsigned char* readbuf, unsigned char* writebuf, unsigned int merge_mode, unsigned long* markbuf) {
@@ -3282,7 +3282,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
   unsigned int marker_in_idx = 0;
   unsigned int last_marker_in_idx = 4294967294U;
   unsigned int cur_indiv_ct = 0;
-  unsigned long* mbufptr = NULL; // merge mode 1/2/4 only
+  unsigned long* mbufptr = NULL; // merge mode 1 or 4 only
   unsigned int cur_indiv_ct4;
   unsigned int cur_indiv_ctd4;
   unsigned int gd_col;
@@ -3427,41 +3427,30 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
 	  wbufptr = &(writebuf[(marker_out_idx - start_marker_idx) * tot_indiv_ct4]);
 	  if (merge_must_track_write(merge_mode)) {
 	    mbufptr = &(markbuf[(marker_out_idx - start_marker_idx) * tot_indiv_ctl]);
-	    sprintf(logbuf, "moi: %u  mbp: %lu  mb[64]: %lu\n", marker_out_idx, *mbufptr, markbuf[64]);
-	    logstr(logbuf);
 	  }
 	  switch (merge_mode) {
 	  case 1: // difference -> missing
 	    indiv_idx = 0;
 	    for (uii = 0; uii < cur_indiv_ctd4; uii++) {
 	      ucc = bmap[*rbufptr++];
-	      while (1) {
+	      do {
 		ujj = indiv_map[indiv_idx++];
 		ukk = ujj / BITCT;
 		ulii = 1LU << (ujj % BITCT);
 		wbufptr2 = &(wbufptr[ujj / 4]);
 		umm = (ujj % 4) * 2;
 		unn = 3U << umm;
-		if (ukk >= 16) {
-		  sprintf(logbuf, "wtf.  indiv_idx: %u  ujj: %u  ukk: %u\n", indiv_idx - 1, ujj, ukk);
-		  logstr(logbuf);
-		}
 		if (mbufptr[ukk] & ulii) {
 		  ucc2 = *wbufptr2;
 		  if ((ucc2 ^ ((ucc & 3) << umm)) & unn) {
-		    // sprintf(logbuf, "wtf: %u %u %u %u", ucc2, ucc, umm, unn);
-		    // logstr(logbuf);
 		    *wbufptr2 = (ucc2 & (~unn)) | (1U << umm);
 		  }
 		} else {
 		  mbufptr[ukk] |= ulii;
 		  *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
 		}
-		if (!(indiv_idx & 3)) {
-		  break;
-		}
 		ucc >>= 2;
-	      }
+	      } while (indiv_idx & 3);
 	    }
 	    ucc = bmap[*rbufptr];
 	    while (indiv_idx < cur_indiv_ct) {
@@ -3484,26 +3473,102 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
 	    }
 	    break;
 	  case 2: // only overwrite originally missing
+	    indiv_idx = 0;
+	    for (uii = 0; uii < cur_indiv_ctd4; uii++) {
+	      ucc = bmap[*rbufptr++];
+	      do {
+		ujj = indiv_map[indiv_idx++];
+		ukk = (ujj % 4) * 2;
+		wbufptr2 = &(wbufptr[ujj / 4]);
+	        ucc2 = *wbufptr2;
+		if (((ucc2 >> ukk) & 3) == 1) {
+		  *wbufptr2 = (ucc2 & (~(3U << ukk))) | ((ucc & 3) << ukk);
+		}
+		ucc >>= 2;
+	      } while (indiv_idx & 3);
+	    }
+	    ucc = bmap[*rbufptr++];
+	    while (indiv_idx < cur_indiv_ct) {
+	      ujj = indiv_map[indiv_idx++];
+	      ukk = (ujj % 4) * 2;
+	      wbufptr2 = &(wbufptr[ujj / 4]);
+	      ucc2 = *wbufptr2;
+	      if (((ucc2 >> ukk) & 3) == 1) {
+		*wbufptr2 = (ucc2 & (~(3U << ukk))) | ((ucc & 3) << ukk);
+	      }
+	      ucc >>= 2;
+	    }
 	    break;
 	  case 3: // only overwrite if nonmissing in new file
+	    indiv_idx = 0;
+	    for (uii = 0; uii < cur_indiv_ctd4; uii++) {
+	      ucc = bmap[*rbufptr++];
+	      do {
+		ucc2 = ucc & 3;
+		if (ucc2 != 1) {
+		  ujj = indiv_map[indiv_idx];
+		  ukk = (ujj % 4) * 2;
+		  wbufptr2 = &(wbufptr[ujj / 4]);
+		  *wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | (ucc2 << ukk);
+		}
+		ucc >>= 2;
+	      } while ((++indiv_idx) & 3);
+	    }
+	    ucc = bmap[*rbufptr++];
+	    while (indiv_idx < cur_indiv_ct) {
+	      ucc2 = ucc & 3;
+	      if (ucc2 != 1) {
+		ujj = indiv_map[indiv_idx];
+		ukk = (ujj % 4) * 2;
+		wbufptr2 = &(wbufptr[ujj / 4]);
+		*wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | (ucc2 << ukk);
+	      }
+	      ucc >>= 2;
+	      indiv_idx++;
+	    }
 	    break;
 	  case 4: // never overwrite
+	    indiv_idx = 0;
+	    for (uii = 0; uii < cur_indiv_ctd4; uii++) {
+	      ucc = bmap[*rbufptr++];
+	      do {
+		ujj = indiv_map[indiv_idx++];
+		ukk = ujj / BITCT;
+		ulii = 1LU << (ujj % BITCT);
+		if (!(mbufptr[ukk] & ulii)) {
+		  mbufptr[ukk] |= ulii;
+		  wbufptr2 = &(wbufptr[ujj / 4]);
+		  ukk = (ujj % 4) * 2;
+		  *wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | ((ucc & 3) << ukk);
+		}
+		ucc >>= 2;
+	      } while (indiv_idx & 3);
+	    }
+	    ucc = bmap[*rbufptr];
+	    while (indiv_idx < cur_indiv_ct) {
+	      ujj = indiv_map[indiv_idx++];
+	      ukk = ujj / BITCT;
+	      ulii = 1LU << (ujj % BITCT);
+	      if (!(mbufptr[ukk] & ulii)) {
+		mbufptr[ukk] |= ulii;
+		wbufptr2 = &(wbufptr[ujj / 4]);
+		ukk = (ujj % 4) * 2;
+		*wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | ((ucc & 3) << ukk);
+	      }
+	      ucc >>= 2;
+	    }
 	    break;
 	  case 5: // always overwrite
 	    indiv_idx = 0;
 	    for (uii = 0; uii < cur_indiv_ctd4; uii++) {
 	      ucc = bmap[*rbufptr++];
-	      while (1) {
-	        ujj = indiv_map[indiv_idx];
+	      do {
+	        ujj = indiv_map[indiv_idx++];
 		ukk = (ujj % 4) * 2;
 		wbufptr2 = &(wbufptr[ujj / 4]);
 		*wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | ((ucc & 3) << ukk);
-		indiv_idx++;
-		if (!(indiv_idx & 3)) {
-		  break;
-		}
 		ucc >>= 2;
-	      }
+	      } while (indiv_idx & 3);
 	    }
 	    ucc = bmap[*rbufptr];
 	    while (indiv_idx < cur_indiv_ct) {
@@ -3545,10 +3610,10 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
   merge_main_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  merge_main_ret_INVALID_FORMAT:
-    logprintb();
-    retval = RET_INVALID_FORMAT;
-    break;
+    // merge_main_ret_INVALID_FORMAT:
+    // logprintb();
+    // retval = RET_INVALID_FORMAT;
+    // break;
   }
  merge_main_ret_1:
   fclose_cond(bedfile);
@@ -3574,7 +3639,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   unsigned int max_cur_indiv_ct = 0;
   unsigned int max_cur_marker_text_ct = 0;
   unsigned int* marker_text_map = NULL;
-  unsigned long* markbuf = NULL; // needed for merge mode 1/2/4
+  unsigned long* markbuf = NULL; // needed for merge mode 1 or 4
   unsigned long markers_per_pass;
   unsigned int pass_ct;
   unsigned long topsize;
