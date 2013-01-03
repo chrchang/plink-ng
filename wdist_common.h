@@ -146,7 +146,7 @@ static inline int fwrite_checked(const void* buf, size_t len, FILE* outfile) {
   return -1;
 }
 
-static inline int fputs_checked(char* ss, FILE* outfile) {
+static inline int fputs_checked(const char* ss, FILE* outfile) {
   return (fputs(ss, outfile) == EOF);
 }
 
