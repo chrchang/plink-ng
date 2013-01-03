@@ -1407,7 +1407,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   if (retval) {
     goto lgen_to_bed_ret_1;
   }
-  if (wkspace_alloc_c_checked(&id_buf, MAX(max_marker_id_len, max_person_id_len))) {
+  if (wkspace_alloc_c_checked(&id_buf, MAXV(max_marker_id_len, max_person_id_len))) {
     goto lgen_to_bed_ret_NOMEM;
   }
   if (wkspace_alloc_c_checked(&marker_alleles, 2 * unfiltered_marker_ct)) {
@@ -4112,7 +4112,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     goto merge_datasets_ret_INVALID_FORMAT;
   }
 #else
-  if (ullxx * MAX(max_marker_id_len, 8) > 2147483647) {
+  if (ullxx * MAXV(max_marker_id_len, 8) > 2147483647) {
     logprint("Error: Too many markers for 32-bit WDIST.\n");
     goto merge_datasets_ret_INVALID_FORMAT;
   }
@@ -4172,7 +4172,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   tot_indiv_ct4 = (tot_indiv_ct + 3) / 4;
 
   if (wkspace_alloc_ui_checked(&indiv_map, max_cur_indiv_ct * sizeof(int)) ||
-      wkspace_alloc_c_checked(&idbuf, MAX(max_marker_id_len, max_person_id_len))) {
+      wkspace_alloc_c_checked(&idbuf, MAXV(max_marker_id_len, max_person_id_len))) {
     goto merge_datasets_ret_NOMEM;
   }
   if (max_cur_marker_text_ct) {

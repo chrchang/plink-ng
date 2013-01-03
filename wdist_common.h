@@ -86,14 +86,14 @@ typedef union {
 #define MERGE_BINARY 32
 #define MERGE_LIST 64
 
-#define MALLOC_DEFAULT_MB 2176
+#define MALLOC_DEFAULT_BASE_MB 1152
 
 #define CACHELINE 64 // assumed number of bytes per cache line, for alignment
 #define CACHELINE_DBL (CACHELINE / sizeof(double))
 
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
-#define MAX(aa, bb) ((bb) > (aa))? (bb) : (aa)
+#define MAXV(aa, bb) ((bb) > (aa))? (bb) : (aa)
 
 #define _FILE_OFFSET_BITS 64
 #define MAX_THREADS 127

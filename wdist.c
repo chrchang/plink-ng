@@ -100,6 +100,8 @@
 #else
 #ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
+#include <sys/types.h>
+#include <sys/sysctl.h>
 #else
 // allow the same code to work for OS X and Linux
 #ifdef __cplusplus
@@ -213,7 +215,7 @@ extern "C" {
 #define MULTIPLEX_REL 30
 #endif
 
-#define MIN(aa, bb) ((aa) > (bb))? (bb) : (aa)
+#define MINV(aa, bb) ((aa) > (bb))? (bb) : (aa)
 
 const char ver_str[] =
   "WDIST v0.14.0"
@@ -1054,7 +1056,7 @@ inline void gzclose_cond(gzFile gz_outfile) {
   }
 }
 
-long malloc_size_mb = MALLOC_DEFAULT_MB;
+long malloc_size_mb = 0;
 
 unsigned char* wkspace;
 
@@ -3494,7 +3496,7 @@ int svdcmp_c(int m, double* a, double* w, double* v) {
 	for (k=l-1;k<n;k++) a[i * m + k] *= scale;
       }
     }
-    anorm=MAX(anorm,(fabs(w[i])+fabs(rv1[i])));
+    anorm=MAXV(anorm,(fabs(w[i])+fabs(rv1[i])));
   }
   for (i=n-1;i>=0;i--) {
     if (i < n-1) {
@@ -3512,7 +3514,7 @@ int svdcmp_c(int m, double* a, double* w, double* v) {
     g=rv1[i];
     l=i;
   }
-  for (i=MIN(m,n)-1;i>=0;i--) {
+  for (i=MINV(m,n)-1;i>=0;i--) {
     l=i+1;
     g=w[i];
     for (j=l;j<n;j++) a[i * m + j]=0.0;
@@ -10717,7 +10719,12 @@ int main(int argc, char** argv) {
   double dxx;
   char cc;
   unsigned int uii;
+  long default_alloc_mb;
   long long llxx;
+#ifdef __APPLE__
+  int mib[2];
+  size_t sztmp;
+#endif
   for (ii = 1; ii < argc; ii++) {
     if ((!memcmp("-script", argv[ii], 8)) || (!memcmp("--script", argv[ii], 9))) {
       if (enforce_param_ct_range(argc, argv, ii, 1, 1, &jj)) {
@@ -13017,10 +13024,29 @@ int main(int argc, char** argv) {
     goto main_ret_NOMEM;
   }
 
+#ifdef __APPLE__
+  mib[0] = CTL_HW;
+  mib[1] = HW_MEMSIZE;
+  llxx = 0;
+  sztmp = sizeof(long long);
+  sysctl(mib, 2, &llxx, &sztmp, NULL, 0);
+  llxx /= 1048576;
+#else
+  llxx = sysconf(_SC_PHYS_PAGES) * sysconf(_SC_PAGE_SIZE) / 1048576;
+#endif
+  if (llxx < (MALLOC_DEFAULT_BASE_MB * 4 / 3)) {
+    default_alloc_mb = llxx * 3 / 4;
+  } else {
+    default_alloc_mb = (llxx / 4) + MALLOC_DEFAULT_BASE_MB;
+  }
+  if (!malloc_size_mb) {
+    malloc_size_mb = default_alloc_mb;
+  }
+  sprintf(logbuf, "%lld MB RAM detected; reserving %ld MB for main workspace.\n", llxx, malloc_size_mb);
+  logprintb();
   wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
-  if ((malloc_size_mb > MALLOC_DEFAULT_MB) && !wkspace_ua) {
-    printf("%ld MB memory allocation failed.  Using default allocation behavior.\n", malloc_size_mb);
-    malloc_size_mb = MALLOC_DEFAULT_MB;
+  if ((malloc_size_mb > default_alloc_mb) && !wkspace_ua) {
+    malloc_size_mb = default_alloc_mb;
   }
   while (!wkspace_ua) {
     if (malloc_size_mb > 128) {
@@ -13030,7 +13056,10 @@ int main(int argc, char** argv) {
     }
     wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
     if (wkspace_ua) {
-      printf("Allocated %ld MB successfully.\n", malloc_size_mb);
+      sprintf(logbuf, "Allocated %ld MB successfully, after larger attempt(s) failed.\n", malloc_size_mb);
+      logprintb();
+    } else if (malloc_size_mb == 64) {
+      goto main_ret_NOMEM;
     }
   }
   // force 64-byte align on OS X to make cache line sensitivity work
