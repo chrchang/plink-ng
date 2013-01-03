@@ -3001,7 +3001,7 @@ int merge_fam_id_scan(char* bedname, char* famname, unsigned int* max_person_id_
 }
 
 // side effect: initializes tbuf to first nonempty line of .map/.bim
-int check_gd_col(FILE* bimfile, char* tbuf, unsigned int is_binary, unsigned int* gd_col) {
+int check_gd_col(FILE* bimfile, char* tbuf, unsigned int is_binary, unsigned int* gd_col_ptr) {
   char* bufptr;
   while (fgets(tbuf, MAXLINELEN, bimfile)) {
     if (is_eoln(*tbuf)) {
@@ -3012,8 +3012,9 @@ int check_gd_col(FILE* bimfile, char* tbuf, unsigned int is_binary, unsigned int
       return -1;
     }
     if (no_more_items(next_item(bufptr))) {
-      gd_col = 0;
+      *gd_col_ptr = 0;
     }
+    *gd_col_ptr = 1;
     return 0;
   }
   return -1;
@@ -3408,7 +3409,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
 	  }
 	  bufptr2 = next_item(bufptr2);
 	  bufptr3 = next_item(bufptr2);
-	  if (!bufptr3) {
+	  if (no_more_items(bufptr3)) {
 	    goto merge_main_ret_READ_FAIL;
 	  }
 	  ucc = *bufptr2;
