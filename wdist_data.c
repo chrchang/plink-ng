@@ -3220,7 +3220,7 @@ int merge_bim_scan(char* bimname, unsigned int is_binary, unsigned long* max_mar
   return retval;
 }
 
-static inline void merge_post_msort_update_maps(char* marker_ids, unsigned long max_marker_id_len, unsigned int* marker_map, unsigned int* pos_buf, long long* ll_buf, unsigned int* chrom_start, unsigned int chrom_ct, unsigned int* dedup_marker_ct_ptr) {
+static inline void merge_post_msort_update_maps(char* marker_ids, unsigned long max_marker_id_len, unsigned int* marker_map, unsigned int* pos_buf, long long* ll_buf, unsigned int* chrom_start, unsigned int chrom_ct, unsigned int* dedup_marker_ct_ptr, unsigned int merge_disallow_equal_pos) {
   // Input: ll_buf is a effectively sequence of sorted arrays (one per
   // chromosome) with base-pair positions in high 32 bits, and pre-sort indices
   // in low 32 bits.  Chromosome boundaries are stored in chrom_start[].
@@ -3252,14 +3252,17 @@ static inline void merge_post_msort_update_maps(char* marker_ids, unsigned long 
       presort_idx = (unsigned int)llxx;
       cur_bp = (unsigned int)(llxx >> 32);
       if (prev_bp == cur_bp) {
-        marker_map[presort_idx] = write_pos - 1;
 	sprintf(logbuf, "Note: Markers %s and %s have the same position.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((unsigned int)ll_buf[read_pos - 1])]));
 	logprintb();
+	if (merge_disallow_equal_pos) {
+          marker_map[presort_idx] = write_pos - 1;
+	  continue;
+	}
       } else {
-        marker_map[presort_idx] = write_pos;
-	pos_buf[write_pos++] = cur_bp;
 	prev_bp = cur_bp;
       }
+      marker_map[presort_idx] = write_pos;
+      pos_buf[write_pos++] = cur_bp;
     }
     read_pos = chrom_start[chrom_idx + 1];
     chrom_start[chrom_idx + 1] = write_pos;
@@ -3273,8 +3276,12 @@ static inline int merge_must_track_write(int mm) {
   return (mm == 1) || (mm > 5) || (mm == 4);
 }
 
-static inline int merge_first_mode(int mm) {
-  return merge_must_track_write(mm)? 4 : 5;
+static inline int merge_first_mode(int mm, unsigned int merge_disallow_equal_pos) {
+  if (merge_disallow_equal_pos) {
+    return (mm > 5)? 4 : mm;
+  } else {
+    return merge_must_track_write(mm)? 4 : 5;
+  }
 }
 
 int merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* person_id, unsigned char newval, unsigned char oldval, char* marker_alleles) {
@@ -3302,7 +3309,7 @@ int merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* person_i
   return (fprintf(outfile, " %20s %20s      %c/%c      %c/%c \n", idbuf, bufptr, ma1[newval], ma2[newval], ma1[oldval], ma2[oldval]) < 0);
 }
 
-int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_indiv_ct, unsigned int tot_marker_ct, unsigned int dedup_marker_ct, unsigned int start_marker_idx, unsigned int marker_window_size, char* marker_alleles, char* marker_ids, unsigned long max_marker_id_len, char* person_ids, unsigned int max_person_id_len, unsigned int merge_nsort, unsigned int* indiv_map, unsigned int* marker_map, unsigned int* marker_text_map, unsigned int* chrom_start, unsigned int* chrom_id, unsigned int chrom_ct, char* idbuf, unsigned char* readbuf, unsigned char* writebuf, unsigned int merge_mode, unsigned long* markbuf, FILE* outfile) {
+int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_indiv_ct, unsigned int tot_marker_ct, unsigned int dedup_marker_ct, unsigned int start_marker_idx, unsigned int marker_window_size, char* marker_alleles, char* marker_ids, unsigned long max_marker_id_len, char* person_ids, unsigned int max_person_id_len, unsigned int merge_nsort, unsigned int* indiv_map, unsigned int* marker_map, unsigned int* marker_text_map, unsigned int* chrom_start, unsigned int* chrom_id, unsigned int chrom_ct, char* idbuf, unsigned char* readbuf, unsigned char* writebuf, unsigned int merge_mode, unsigned long* markbuf, FILE* outfile, unsigned long long* diff_total_overlap_ptr, unsigned long long* diff_not_both_genotyped_ptr, unsigned long long* diff_discordant_ptr) {
   unsigned int is_binary = famname? 1 : 0;
   FILE* bedfile = NULL;
   FILE* infile2 = NULL;
@@ -3314,7 +3321,10 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
   unsigned int marker_in_idx = 0;
   unsigned int last_marker_in_idx = 4294967294U;
   unsigned int cur_indiv_ct = 0;
-  unsigned long* mbufptr = NULL; // merge mode 1 or 4 only
+  unsigned long* mbufptr = NULL; // merge mode 1, 4, 6, 7
+  unsigned long long diff_total_overlap = 0;
+  unsigned long long diff_not_both_genotyped = 0;
+  unsigned long long diff_discordant = 0;
   unsigned int cur_indiv_ct4;
   unsigned int cur_indiv_ctd4;
   unsigned int gd_col;
@@ -3619,9 +3629,19 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
 	      do {
 		ujj = indiv_map[indiv_idx++];
 		if (mbufptr[ujj / BITCT] & (1LU << (ujj % BITCT))) {
+		  // would prefer to do this by multiplying indiv overlap with
+		  // marker overlap, but the same-position automerge screws
+                  // with that
+		  diff_total_overlap++;
 		  ukk = (ujj % 4) * 2;
-		  if ((ucc ^ (wbufptr[ujj / 4] >> ukk)) & 3) {
-		    if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), (ucc & 3), ((wbufptr[ujj / 4] >> ukk) & 3), &(marker_alleles[ii * 2]))) {
+		  ucc2 = ucc & 3;
+		  ucc3 = (wbufptr[ujj / 4] >> ukk) & 3;
+		  if ((ucc2 == 1) || (ucc3 == 1)) {
+		    diff_not_both_genotyped++;
+		  }
+		  if (ucc2 ^ ucc3) {
+		    diff_discordant++;
+		    if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_alleles[ii * 2]))) {
 		      goto merge_main_ret_WRITE_FAIL;
 		    }
 		  }
@@ -3633,9 +3653,19 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
 	    while (indiv_idx < cur_indiv_ct) {
 	      ujj = indiv_map[indiv_idx++];
 	      if (mbufptr[ujj / BITCT] & (1LU << (ujj % BITCT))) {
+		diff_total_overlap++;
 		ukk = (ujj % 4) * 2;
-		if ((ucc ^ (wbufptr[ujj / 4] >> ukk)) & 3) {
-		  if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), (ucc & 3), ((wbufptr[ujj / 4] >> ukk) & 3), &(marker_alleles[ii * 2]))) {
+		ucc2 = ucc & 3;
+		ucc3 = (wbufptr[ujj / 4] >> ukk) & 3;
+		umm = ((ucc2 == 1) || (ucc3 == 1));
+		if (umm) {
+		  diff_not_both_genotyped++;
+		}
+		if (ucc2 != ucc3) {
+		  if (!umm) {
+		    diff_discordant++;
+		  }
+		  if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_alleles[ii * 2]))) {
 		    goto merge_main_ret_WRITE_FAIL;
 		  }
 		}
@@ -3648,39 +3678,42 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
 	    for (uii = 0; uii < cur_indiv_ctd4; uii++) {
 	      ucc = bmap[*rbufptr++];
 	      do {
-		ucc2 = ucc & 3;
-		if (ucc2 != 1) {
-		  ujj = indiv_map[indiv_idx];
-		  if (mbufptr[ujj / BITCT] & (1LU << (ujj % BITCT))) {
-		    ukk = (ujj % 4) * 2;
-		    ucc3 = (wbufptr[ujj / 4] >> ukk) & 3;
-		    if ((ucc2 ^ ucc3) && (ucc3 != 1)) {
-		      if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_alleles[ii * 2]))) {
-			goto merge_main_ret_WRITE_FAIL;
-		      }
-		    }
-		  }
-		}
-		ucc >>= 2;
-	      } while ((++indiv_idx) & 3);
-	    }
-	    ucc = bmap[*rbufptr];
-	    while (indiv_idx < cur_indiv_ct) {
-	      ucc2 = ucc & 3;
-	      if (ucc2 != 1) {
-		ujj = indiv_map[indiv_idx];
+		ujj = indiv_map[indiv_idx++];
 		if (mbufptr[ujj / BITCT] & (1LU << (ujj % BITCT))) {
+		  diff_total_overlap++;
 		  ukk = (ujj % 4) * 2;
+		  ucc2 = ucc & 3;
 		  ucc3 = (wbufptr[ujj / 4] >> ukk) & 3;
-		  if ((ucc2 ^ ucc3) && (ucc3 != 1)) {
+		  if ((ucc2 == 1) || (ucc3 == 1)) {
+		    diff_not_both_genotyped++;
+		  } else if (ucc2 ^ ucc3) {
+		    diff_discordant++;
 		    if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_alleles[ii * 2]))) {
 		      goto merge_main_ret_WRITE_FAIL;
 		    }
 		  }
 		}
+		ucc >>= 2;
+	      } while (indiv_idx & 3);
+	    }
+	    ucc = bmap[*rbufptr];
+	    while (indiv_idx < cur_indiv_ct) {
+	      ujj = indiv_map[indiv_idx++];
+	      if (mbufptr[ujj / BITCT] & (1LU << (ujj % BITCT))) {
+		diff_total_overlap++;
+		ukk = (ujj % 4) * 2;
+		ucc2 = ucc & 3;
+		ucc3 = (wbufptr[ujj / 4] >> ukk) & 3;
+		if ((ucc2 == 1) || (ucc3 == 1)) {
+		  diff_not_both_genotyped++;
+		} else if (ucc2 != ucc3) {
+		  diff_discordant++;
+		  if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_alleles[ii * 2]))) {
+		    goto merge_main_ret_WRITE_FAIL;
+		  }
+		}
 	      }
 	      ucc >>= 2;
-	      indiv_idx++;
 	    }
 	    break;
 	  }
@@ -3696,7 +3729,11 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
   }
   if (!is_binary) {
   }
-  // ...
+  if (merge_mode > 5) {
+    *diff_total_overlap_ptr += diff_total_overlap;
+    *diff_not_both_genotyped_ptr += diff_not_both_genotyped;
+    *diff_discordant_ptr += diff_discordant;
+  }
   while (0) {
   merge_main_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
@@ -3728,6 +3765,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   int is_dichot_pheno = 1;
   int merge_mode = (merge_type & MERGE_MODE_MASK);
   unsigned int merge_nsort = (merge_type & MERGE_ASCII)? 0 : 1;
+  unsigned int merge_disallow_equal_pos = (merge_type & MERGE_ALLOW_EQUAL_POS)? 0 : 1;
   Ll_entry** htable = (Ll_entry**)(&(wkspace_base[wkspace_left - HASHMEM_S]));
   Ll_entry2** htable2 = (Ll_entry2**)(&(wkspace_base[wkspace_left - HASHMEM]));
   unsigned long ped_buflen = MAXLINELEN;
@@ -3736,7 +3774,10 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   unsigned int max_cur_indiv_ct = 0;
   unsigned int max_cur_marker_text_ct = 0;
   unsigned int* marker_text_map = NULL;
-  unsigned long* markbuf = NULL; // needed for merge mode 1 or 4
+  unsigned long* markbuf = NULL; // needed for merge modes 1, 4, 6, 7
+  unsigned long long diff_total_overlap = 0;
+  unsigned long long diff_not_both_genotyped = 0;
+  unsigned long long diff_discordant = 0;
   unsigned long markers_per_pass;
   unsigned int pass_ct;
   unsigned long topsize;
@@ -4004,9 +4045,11 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     }
   }
   wkspace_left += topsize;
-  memcpy(outname_end, "-merge.fam", 11);
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto merge_datasets_ret_OPEN_FAIL;
+  if (merge_mode < 6) {
+    memcpy(outname_end, "-merge.fam", 11);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto merge_datasets_ret_OPEN_FAIL;
+    }
   }
   bufptr = person_fids;
   bufptr3 = person_ids;
@@ -4016,24 +4059,30 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     memcpy(bufptr3, bufptr, uii);
     bufptr3[uii] = '\0';
     bufptr3 = &(bufptr3[max_person_id_len]);
-    uii += strlen(bufptr2) + 1;
-    if (fwrite_checked(bufptr, uii, outfile)) {
-      goto merge_datasets_ret_WRITE_FAIL;
-    }
-    bufptr = &(bufptr[max_person_full_len]);
-    if (is_dichot_pheno) {
-      cc = pheno_c[ulii];
-      if (fprintf(outfile, "\t%s\n", cc? ((cc == 1)? "2" : "-9") : "1") < 0) {
+    if (merge_mode < 6) {
+      uii += strlen(bufptr2) + 1;
+      if (fwrite_checked(bufptr, uii, outfile)) {
 	goto merge_datasets_ret_WRITE_FAIL;
       }
-    } else {
-      if (fprintf(outfile, "\t%g\n", pheno_d[ulii]) < 0) {
-	goto merge_datasets_ret_WRITE_FAIL;
+    }
+    bufptr = &(bufptr[max_person_full_len]);
+    if (merge_mode < 6) {
+      if (is_dichot_pheno) {
+	cc = pheno_c[ulii];
+	if (fprintf(outfile, "\t%s\n", cc? ((cc == 1)? "2" : "-9") : "1") < 0) {
+	  goto merge_datasets_ret_WRITE_FAIL;
+	}
+      } else {
+	if (fprintf(outfile, "\t%g\n", pheno_d[ulii]) < 0) {
+	  goto merge_datasets_ret_WRITE_FAIL;
+	}
       }
     }
   }
-  if (fclose_null(&outfile)) {
-    goto merge_datasets_ret_WRITE_FAIL;
+  if (merge_mode < 6) {
+    if (fclose_null(&outfile)) {
+      goto merge_datasets_ret_WRITE_FAIL;
+    }
   }
   wkspace_reset((unsigned char*)person_fids);
   for (uii = 0; uii < HASHSIZE; uii++) {
@@ -4114,7 +4163,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     }
   }
   sort_marker_chrom_pos(ll_buf, tot_marker_ct, (int*)pos_buf, chrom_start, chrom_id, &chrom_ct);
-  merge_post_msort_update_maps(marker_ids, max_marker_id_len, marker_map, pos_buf, ll_buf, chrom_start, chrom_ct, &dedup_marker_ct);
+  merge_post_msort_update_maps(marker_ids, max_marker_id_len, marker_map, pos_buf, ll_buf, chrom_start, chrom_ct, &dedup_marker_ct, merge_disallow_equal_pos);
   wkspace_reset((unsigned char*)ll_buf);
 
   tot_indiv_ct4 = (tot_indiv_ct + 3) / 4;
@@ -4168,7 +4217,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     if (fputs("                 SNP                  FID                  IID      NEW      OLD \n", outfile) == EOF) {
       goto merge_datasets_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "Performing %u-pass diff.\n", pass_ct);
+    sprintf(logbuf, "Performing %u-pass diff (mode %u), writing results to %s.\n", pass_ct, merge_mode, outname);
   }
   logprintb();
   for (uii = 0; uii < pass_ct; uii++) {
@@ -4190,7 +4239,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
       memset(writebuf, 0x55, ((unsigned long)ujj) * tot_indiv_ct4);
     }
     for (mlpos = 0; mlpos < merge_ct; mlpos++) {
-      retval = merge_main(mergelist_bed[mlpos], mergelist_bim[mlpos], mergelist_fam[mlpos], tot_indiv_ct, tot_marker_ct, dedup_marker_ct, uii * markers_per_pass, ujj, marker_alleles, marker_ids, max_marker_id_len, person_ids, max_person_id_len, merge_nsort, indiv_map, marker_map, marker_text_map, chrom_start, chrom_id, chrom_ct, idbuf, readbuf, writebuf, mlpos? merge_mode : merge_first_mode(merge_mode), markbuf, outfile);
+      retval = merge_main(mergelist_bed[mlpos], mergelist_bim[mlpos], mergelist_fam[mlpos], tot_indiv_ct, tot_marker_ct, dedup_marker_ct, uii * markers_per_pass, ujj, marker_alleles, marker_ids, max_marker_id_len, person_ids, max_person_id_len, merge_nsort, indiv_map, marker_map, marker_text_map, chrom_start, chrom_id, chrom_ct, idbuf, readbuf, writebuf, mlpos? merge_mode : merge_first_mode(merge_mode, merge_disallow_equal_pos), markbuf, outfile, &diff_total_overlap, &diff_not_both_genotyped, &diff_discordant);
       if (retval) {
 	goto merge_datasets_ret_1;
       }
@@ -4215,27 +4264,34 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   if (wkspace_alloc_ui_checked(&map_reverse, dedup_marker_ct * sizeof(int))) {
     goto merge_datasets_ret_NOMEM;
   }
-  memcpy(outname_end, "-merge.bim", 11);
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto merge_datasets_ret_OPEN_FAIL;
-  }
-  uii = tot_marker_ct;
-  while (uii--) {
-    map_reverse[marker_map[uii]] = uii;
-  }
-  for (ulii = 0; ulii < chrom_ct; ulii++) {
-    uii = chrom_start[ulii + 1];
-    ujj = chrom_start[ulii];
-    ukk = chrom_id[ulii];
-    for (; ujj < uii; ujj++) {
-      umm = map_reverse[ujj];
-      if (fprintf(outfile, "%u\t%s\t%g\t%u\t%c\t%c\n", ukk, &(marker_ids[map_reverse[ujj] * max_marker_id_len]), gd_vals[ujj], pos_buf[ujj], marker_alleles[2 * umm], marker_alleles[2 * umm + 1]) < 0) {
-	goto merge_datasets_ret_WRITE_FAIL;
+  if (merge_mode < 6) {
+    memcpy(outname_end, "-merge.bim", 11);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto merge_datasets_ret_OPEN_FAIL;
+    }
+    uii = tot_marker_ct;
+    while (uii--) {
+      map_reverse[marker_map[uii]] = uii;
+    }
+    for (ulii = 0; ulii < chrom_ct; ulii++) {
+      uii = chrom_start[ulii + 1];
+      ujj = chrom_start[ulii];
+      ukk = chrom_id[ulii];
+      for (; ujj < uii; ujj++) {
+	umm = map_reverse[ujj];
+	if (fprintf(outfile, "%u\t%s\t%g\t%u\t%c\t%c\n", ukk, &(marker_ids[map_reverse[ujj] * max_marker_id_len]), gd_vals[ujj], pos_buf[ujj], marker_alleles[2 * umm], marker_alleles[2 * umm + 1]) < 0) {
+	  goto merge_datasets_ret_WRITE_FAIL;
+	}
       }
     }
-  }
-  if (fclose_null(&outfile)) {
-    goto merge_datasets_ret_WRITE_FAIL;
+    if (fclose_null(&outfile)) {
+      goto merge_datasets_ret_WRITE_FAIL;
+    }
+  } else {
+    // undo the "not"
+    diff_not_both_genotyped = diff_total_overlap - diff_not_both_genotyped;
+    sprintf(logbuf, "%llu overlapping SNPs, %llu genotyped in both filesets.\n%llu concordant, for a concordance rate of %g.\n", diff_total_overlap, diff_not_both_genotyped, diff_not_both_genotyped - diff_discordant, 1.0 - (((double)diff_discordant) / ((double)diff_not_both_genotyped)));
+    logprintb();
   }
 
   while (0) {

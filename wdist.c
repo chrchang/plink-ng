@@ -797,8 +797,14 @@ int disp_help(unsigned int param_ct, char** argv) {
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-ascii-sort", &help_ctrl, 0,
 "  --merge-ascii-sort : Use ASCII order instead of a natural sort to arrange\n"
-"                       individuals in the merged dataset.\n"
+"                       individuals in the merged dataset.  For example, WDIST\n"
+"                       normally sorts 'id2' < 'ID3' < 'id10'; ASCII order is\n"
+"                       'ID3' < 'id10' < 'id2'.\n"
 	       );
+    help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-allow-equal-pos", &help_ctrl, 0,
+"  --merge-allow-equal-pos : Do not merge markers with identical positions.\n"
+	       );
+
     help_print("pheno", &help_ctrl, 0,
 "  --pheno [fname]  : Specify alternate phenotype.\n"
 	       );
@@ -12305,6 +12311,9 @@ int main(int argc, char** argv) {
 	cur_arg += 2;
       } else if (!memcmp(argptr2, "erge-ascii-sort", 16)) {
 	merge_type |= MERGE_ASCII;
+	cur_arg++;
+      } else if (!memcmp(argptr2, "erge-allow-equal-pos", 21)) {
+	merge_type |= MERGE_ALLOW_EQUAL_POS;
 	cur_arg++;
       }
       break;
