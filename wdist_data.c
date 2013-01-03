@@ -4210,7 +4210,11 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     if (fwrite_checked("l\x1b\x01", 3, outfile)) {
       goto merge_datasets_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "Performing %u-pass merge (%lu markers/pass).\n", pass_ct, markers_per_pass);
+    if (pass_ct == 1) {
+      sprintf(logbuf, "Performing single-pass merge (%u individuals, %u markers).\n", tot_indiv_ct, dedup_marker_ct);
+    } else {
+      sprintf(logbuf, "Performing %u-pass merge (%u indivs, %lu/%u markers per pass).\n", pass_ct, tot_indiv_ct, markers_per_pass, dedup_marker_ct);
+    }
   } else {
     memcpy(outname_end, ".diff", 6);
     if (fopen_checked(&outfile, outname, "w")) {
