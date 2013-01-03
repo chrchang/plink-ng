@@ -3427,6 +3427,8 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
 	  wbufptr = &(writebuf[(marker_out_idx - start_marker_idx) * tot_indiv_ct4]);
 	  if (merge_must_track_write(merge_mode)) {
 	    mbufptr = &(markbuf[(marker_out_idx - start_marker_idx) * tot_indiv_ctl]);
+	    sprintf(logbuf, "moi: %u  mbp: %lu  mb[64]: %lu\n", marker_out_idx, *mbufptr, markbuf[64]);
+	    logstr(logbuf);
 	  }
 	  switch (merge_mode) {
 	  case 1: // difference -> missing
@@ -3434,46 +3436,51 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
 	    for (uii = 0; uii < cur_indiv_ctd4; uii++) {
 	      ucc = bmap[*rbufptr++];
 	      while (1) {
-		ujj = indiv_map[indiv_idx];
-		ukk = ujj / BITCT;
-		ulii = 1LU << (ujj % BITCT);
-		wbufptr2 = &(wbufptr[ujj / 4]);
-		umm = (ujj % 4) * 2;
-		unn = 3U << umm;
-		if (mbufptr[ukk] & ulii) {
-		  ucc2 = *wbufptr2;
-		  if ((ucc2 ^ ((ucc & 3) << umm)) & unn) {
-		    *wbufptr2 = (ucc2 & (~unn)) | (1U << umm);
-		  }
-		} else {
-		  mbufptr[ukk] |= ulii;
-		  *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
-		}
-		indiv_idx++;
-		if (!(indiv_idx & 3)) {
-		  break;
-		}
-		ucc >>= 2;
-	      }
-	      ucc = bmap[*rbufptr];
-	      while (indiv_idx < cur_indiv_ct) {
 		ujj = indiv_map[indiv_idx++];
 		ukk = ujj / BITCT;
 		ulii = 1LU << (ujj % BITCT);
 		wbufptr2 = &(wbufptr[ujj / 4]);
 		umm = (ujj % 4) * 2;
 		unn = 3U << umm;
+		if (ukk >= 16) {
+		  sprintf(logbuf, "wtf.  indiv_idx: %u  ujj: %u  ukk: %u\n", indiv_idx - 1, ujj, ukk);
+		  logstr(logbuf);
+		}
 		if (mbufptr[ukk] & ulii) {
 		  ucc2 = *wbufptr2;
 		  if ((ucc2 ^ ((ucc & 3) << umm)) & unn) {
+		    // sprintf(logbuf, "wtf: %u %u %u %u", ucc2, ucc, umm, unn);
+		    // logstr(logbuf);
 		    *wbufptr2 = (ucc2 & (~unn)) | (1U << umm);
 		  }
 		} else {
 		  mbufptr[ukk] |= ulii;
 		  *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
 		}
+		if (!(indiv_idx & 3)) {
+		  break;
+		}
 		ucc >>= 2;
 	      }
+	    }
+	    ucc = bmap[*rbufptr];
+	    while (indiv_idx < cur_indiv_ct) {
+	      ujj = indiv_map[indiv_idx++];
+	      ukk = ujj / BITCT;
+	      ulii = 1LU << (ujj % BITCT);
+	      wbufptr2 = &(wbufptr[ujj / 4]);
+	      umm = (ujj % 4) * 2;
+	      unn = 3U << umm;
+	      if (mbufptr[ukk] & ulii) {
+		ucc2 = *wbufptr2;
+		if ((ucc2 ^ ((ucc & 3) << umm)) & unn) {
+		  *wbufptr2 = (ucc2 & (~unn)) | (1U << umm);
+		}
+	      } else {
+		mbufptr[ukk] |= ulii;
+		*wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
+	      }
+	      ucc >>= 2;
 	    }
 	    break;
 	  case 2: // only overwrite originally missing
@@ -3567,7 +3574,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   unsigned int max_cur_indiv_ct = 0;
   unsigned int max_cur_marker_text_ct = 0;
   unsigned int* marker_text_map = NULL;
-  unsigned long* markbuf = NULL; // needed for merge mode 4
+  unsigned long* markbuf = NULL; // needed for merge mode 1/2/4
   unsigned long markers_per_pass;
   unsigned int pass_ct;
   unsigned long topsize;
@@ -3618,6 +3625,9 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   unsigned char ucc;
   int retval;
 
+  if (!merge_mode) {
+    merge_mode = 1;
+  }
   if (merge_type & MERGE_LIST) {
     if (fopen_checked(&mergelistfile, mergename1, "r")) {
       goto merge_datasets_ret_READ_FAIL;
@@ -3966,9 +3976,14 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   }
   if (merge_must_track_write(merge_mode)) {
     ulii = (tot_indiv_ct + (BITCT - 1)) / BITCT;
-    markers_per_pass = wkspace_left / (6 * sizeof(long) * ulii);
-    markbuf = (unsigned long*)wkspace_alloc(markers_per_pass * ulii * sizeof(long));
-    fill_ulong_zero(markbuf, markers_per_pass * ulii);
+    markers_per_pass = wkspace_left / (3 * sizeof(long) * ulii);
+    if (markers_per_pass > dedup_marker_ct) {
+      uii = dedup_marker_ct;
+    } else {
+      uii = markers_per_pass;
+    }
+    markbuf = (unsigned long*)wkspace_alloc(uii * ulii * sizeof(long));
+    fill_ulong_zero(markbuf, uii * ulii);
   } else {
     markers_per_pass = wkspace_left / tot_indiv_ct4;
   }
