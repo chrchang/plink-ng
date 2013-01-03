@@ -3266,6 +3266,10 @@ static inline void merge_post_msort_update_maps(char* marker_ids, unsigned long 
   *dedup_marker_ct_ptr = write_pos;
 }
 
+static inline int merge_must_track_write(int mm) {
+  return (mm == 1) || (mm == 2) || (mm == 4);
+}
+
 int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_indiv_ct, unsigned int tot_marker_ct, unsigned int dedup_marker_ct, unsigned int start_marker_idx, unsigned int marker_window_size, char* marker_alleles, char* marker_ids, unsigned long max_marker_id_len, char* person_ids, unsigned int max_person_id_len, unsigned int merge_nsort, unsigned int* indiv_map, unsigned int* marker_map, unsigned int* marker_text_map, unsigned int* chrom_start, unsigned int* chrom_id, unsigned int chrom_ct, char* idbuf, unsigned char* readbuf, unsigned char* writebuf, unsigned int merge_mode, unsigned long* markbuf) {
   unsigned int is_binary = famname? 1 : 0;
   FILE* bedfile = NULL;
@@ -3278,6 +3282,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
   unsigned int marker_in_idx = 0;
   unsigned int last_marker_in_idx = 4294967294U;
   unsigned int cur_indiv_ct = 0;
+  unsigned long* mbufptr = NULL; // merge mode 1/2/4 only
   unsigned int cur_indiv_ct4;
   unsigned int cur_indiv_ctd4;
   unsigned int gd_col;
@@ -3288,7 +3293,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
   unsigned char* rbufptr;
   unsigned char* wbufptr;
   unsigned char* wbufptr2;
-  unsigned long* mbufptr; // merge mode 4 only
+  unsigned long ulii;
   unsigned int uii;
   unsigned int ujj;
   unsigned int ukk;
@@ -3358,7 +3363,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
       }
     }
   } else {
-    printf("Error: Text merge currently under development.\n");
+    logprint("Error: Text merge currently under development.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto merge_main_ret_1;
   }
@@ -3420,8 +3425,56 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
 	  }
 	  rbufptr = readbuf;
 	  wbufptr = &(writebuf[(marker_out_idx - start_marker_idx) * tot_indiv_ct4]);
+	  if (merge_must_track_write(merge_mode)) {
+	    mbufptr = &(markbuf[(marker_out_idx - start_marker_idx) * tot_indiv_ctl]);
+	  }
 	  switch (merge_mode) {
 	  case 1: // difference -> missing
+	    indiv_idx = 0;
+	    for (uii = 0; uii < cur_indiv_ctd4; uii++) {
+	      ucc = bmap[*rbufptr++];
+	      while (1) {
+		ujj = indiv_map[indiv_idx];
+		ukk = ujj / BITCT;
+		ulii = 1LU << (ujj % BITCT);
+		wbufptr2 = &(wbufptr[ujj / 4]);
+		umm = (ujj % 4) * 2;
+		unn = 3U << umm;
+		if (mbufptr[ukk] & ulii) {
+		  ucc2 = *wbufptr2;
+		  if ((ucc2 ^ ((ucc & 3) << umm)) & unn) {
+		    *wbufptr2 = (ucc2 & (~unn)) | (1U << umm);
+		  }
+		} else {
+		  mbufptr[ukk] |= ulii;
+		  *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
+		}
+		indiv_idx++;
+		if (!(indiv_idx & 3)) {
+		  break;
+		}
+		ucc >>= 2;
+	      }
+	      ucc = bmap[*rbufptr];
+	      while (indiv_idx < cur_indiv_ct) {
+		ujj = indiv_map[indiv_idx++];
+		ukk = ujj / BITCT;
+		ulii = 1LU << (ujj % BITCT);
+		wbufptr2 = &(wbufptr[ujj / 4]);
+		umm = (ujj % 4) * 2;
+		unn = 3U << umm;
+		if (mbufptr[ukk] & ulii) {
+		  ucc2 = *wbufptr2;
+		  if ((ucc2 ^ ((ucc & 3) << umm)) & unn) {
+		    *wbufptr2 = (ucc2 & (~unn)) | (1U << umm);
+		  }
+		} else {
+		  mbufptr[ukk] |= ulii;
+		  *wbufptr2 = ((*wbufptr2) & (~unn)) | ((ucc & 3) << umm);
+		}
+		ucc >>= 2;
+	      }
+	    }
 	    break;
 	  case 2: // only overwrite originally missing
 	    break;
@@ -3433,26 +3486,36 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
 	    indiv_idx = 0;
 	    for (uii = 0; uii < cur_indiv_ctd4; uii++) {
 	      ucc = bmap[*rbufptr++];
-	      for (ujj = 0; ujj < 8; ujj += 2) {
-	        ukk = indiv_map[indiv_idx];
-		umm = (ukk % 4) * 2;
-		wbufptr2 = &(wbufptr[ukk / 4]);
-		*wbufptr2 = ((*wbufptr2) & (~(3 << umm))) | (((ucc >> ujj) & 3) << umm);
+	      while (1) {
+	        ujj = indiv_map[indiv_idx];
+		ukk = (ujj % 4) * 2;
+		wbufptr2 = &(wbufptr[ujj / 4]);
+		*wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | ((ucc & 3) << ukk);
 		indiv_idx++;
+		if (!(indiv_idx & 3)) {
+		  break;
+		}
+		ucc >>= 2;
 	      }
 	    }
 	    ucc = bmap[*rbufptr];
-	    for (ujj = 0; indiv_idx < cur_indiv_ct; ujj += 2) {
-	      ukk = indiv_map[indiv_idx];
-	      umm = (ukk % 4) * 2;
-	      wbufptr2 = &(wbufptr[ukk / 4]);
-	      *wbufptr2 = ((*wbufptr2) & (~(3 << umm))) | (((ucc >> ujj) & 3) << umm);
-	      indiv_idx++;
+	    while (indiv_idx < cur_indiv_ct) {
+	      ujj = indiv_map[indiv_idx++];
+	      ukk = (ujj % 4) * 2;
+	      wbufptr2 = &(wbufptr[ujj / 4]);
+	      *wbufptr2 = ((*wbufptr2) & (~(3U << ukk))) | ((ucc & 3) << ukk);
+	      ucc >>= 2;
 	    }
 	    break;
 	  case 6: // report all mismatches
+	    logprint("Error: --merge modes 6-7 under development.\n");
+	    retval = RET_CALC_NOT_YET_SUPPORTED;
+	    goto merge_main_ret_1;
 	    break;
 	  case 7: // report nonmissing mismatches
+	    logprint("Error: --merge modes 6-7 under development.\n");
+	    retval = RET_CALC_NOT_YET_SUPPORTED;
+	    goto merge_main_ret_1;
 	    break;
 	  }
 	  // ...
@@ -3901,7 +3964,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   if (wkspace_alloc_uc_checked(&readbuf, ulii)) {
     goto merge_datasets_ret_NOMEM;
   }
-  if (merge_mode == 4) {
+  if (merge_must_track_write(merge_mode)) {
     ulii = (tot_indiv_ct + (BITCT - 1)) / BITCT;
     markers_per_pass = wkspace_left / (6 * sizeof(long) * ulii);
     markbuf = (unsigned long*)wkspace_alloc(markers_per_pass * ulii * sizeof(long));
@@ -3947,7 +4010,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
       memset(writebuf, 0x55, ((unsigned long)ujj) * tot_indiv_ct4);
     }
     for (mlpos = 0; mlpos < merge_ct; mlpos++) {
-      retval = merge_main(mergelist_bed[mlpos], mergelist_bim[mlpos], mergelist_fam[mlpos], tot_indiv_ct, tot_marker_ct, dedup_marker_ct, uii * markers_per_pass, ujj, marker_alleles, marker_ids, max_marker_id_len, person_ids, max_person_id_len, merge_nsort, indiv_map, marker_map, marker_text_map, chrom_start, chrom_id, chrom_ct, idbuf, readbuf, writebuf, mlpos? merge_mode : (merge_mode == 4)? 4 : 5, markbuf);
+      retval = merge_main(mergelist_bed[mlpos], mergelist_bim[mlpos], mergelist_fam[mlpos], tot_indiv_ct, tot_marker_ct, dedup_marker_ct, uii * markers_per_pass, ujj, marker_alleles, marker_ids, max_marker_id_len, person_ids, max_person_id_len, merge_nsort, indiv_map, marker_map, marker_text_map, chrom_start, chrom_id, chrom_ct, idbuf, readbuf, writebuf, merge_mode, markbuf);
       if (retval) {
 	goto merge_datasets_ret_1;
       }

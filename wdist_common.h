@@ -321,7 +321,7 @@ void set_bit_sub(unsigned long* bit_arr, int loc, unsigned int* bit_unset_ct_ptr
 
 void clear_bit(unsigned long* exclude_arr, int loc, unsigned int* include_ct_ptr);
 
-static inline int is_set(unsigned long* exclude_arr, int loc) {
+static inline int is_set(unsigned long* exclude_arr, unsigned int loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 

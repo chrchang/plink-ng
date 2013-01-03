@@ -8708,7 +8708,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       goto wdist_ret_INVALID_CMDLINE;
     }
     retval = merge_datasets(pedname, mapname, famname, outname, outname_end, mergename1, mergename2, mergename3, calculation_type, merge_type, chrom_info_ptr->species);
-    if (retval) {
+    if (retval || (!(calculation_type & (~CALC_MERGE)))) {
       goto wdist_ret_2;
     }
     binary_files = 1;
