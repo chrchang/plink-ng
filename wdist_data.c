@@ -3636,11 +3636,14 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
 		  ukk = (ujj % 4) * 2;
 		  ucc2 = ucc & 3;
 		  ucc3 = (wbufptr[ujj / 4] >> ukk) & 3;
-		  if ((ucc2 == 1) || (ucc3 == 1)) {
+		  umm = ((ucc2 == 1) || (ucc3 == 1));
+		  if (umm) {
 		    diff_not_both_genotyped++;
 		  }
-		  if (ucc2 ^ ucc3) {
-		    diff_discordant++;
+		  if (ucc2 != ucc3) {
+		    if (!umm) {
+                      diff_discordant++;
+		    }
 		    if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_alleles[ii * 2]))) {
 		      goto merge_main_ret_WRITE_FAIL;
 		    }
