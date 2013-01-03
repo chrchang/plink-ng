@@ -4197,7 +4197,6 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
       uii = markers_per_pass;
     }
     markbuf = (unsigned long*)wkspace_alloc(uii * ulii * sizeof(long));
-    fill_ulong_zero(markbuf, uii * ulii);
   } else {
     markers_per_pass = wkspace_left / tot_indiv_ct4;
   }
@@ -4211,7 +4210,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     if (fwrite_checked("l\x1b\x01", 3, outfile)) {
       goto merge_datasets_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "Performing %u-pass merge.\n", pass_ct);
+    sprintf(logbuf, "Performing %u-pass merge (%lu markers/pass).\n", pass_ct, markers_per_pass);
   } else {
     memcpy(outname_end, ".diff", 6);
     if (fopen_checked(&outfile, outname, "w")) {
@@ -4240,6 +4239,9 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
       }
     } else {
       memset(writebuf, 0x55, ((unsigned long)ujj) * tot_indiv_ct4);
+    }
+    if (merge_must_track_write(merge_mode)) {
+      fill_ulong_zero(markbuf, ujj * ulii);
     }
     for (mlpos = 0; mlpos < merge_ct; mlpos++) {
       retval = merge_main(mergelist_bed[mlpos], mergelist_bim[mlpos], mergelist_fam[mlpos], tot_indiv_ct, tot_marker_ct, dedup_marker_ct, uii * markers_per_pass, ujj, marker_alleles, marker_ids, max_marker_id_len, person_ids, max_person_id_len, merge_nsort, indiv_map, marker_map, marker_text_map, chrom_start, chrom_id, chrom_ct, idbuf, readbuf, writebuf, mlpos? merge_mode : merge_first_mode(merge_mode, merge_disallow_equal_pos), markbuf, outfile, &diff_total_overlap, &diff_not_both_genotyped, &diff_discordant);
