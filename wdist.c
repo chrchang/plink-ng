@@ -282,7 +282,7 @@ int edit1_match(int len1, char* s1, int len2, char* s2) {
   return 1;
 }
 
-#define MAX_EQUAL_HELP_PARAMS 5
+#define MAX_EQUAL_HELP_PARAMS 6
 
 typedef struct {
   int iters_left;
@@ -723,7 +723,7 @@ int disp_help(unsigned int param_ct, char** argv) {
     if (!param_ct) {
       printf(
 "The following other flags are supported.  (Order of operations is described at\n"
-"https://www.cog-genomics.org/wdist/order.)\n"
+"https://www.cog-genomics.org/wdist/order .)\n"
 	     );
     }
     help_print("script", &help_ctrl, 0,
@@ -800,14 +800,17 @@ int disp_help(unsigned int param_ct, char** argv) {
 "                     6 = report all mismatching calls without merging\n"
 "                     7 = report mismatching nonmissing calls without merging\n"
 	       );
-    help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-ascii-sort", &help_ctrl, 0,
+    help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-ascii-sort\tmerge-no-sort", &help_ctrl, 0,
 "  --merge-ascii-sort : Use ASCII order instead of a natural sort to arrange\n"
 "                       individuals in the merged dataset.  For example, WDIST\n"
 "                       normally sorts 'id2' < 'ID3' < 'id10'; ASCII order is\n"
 "                       'ID3' < 'id10' < 'id2'.\n"
+"  --merge-no-sort    : Do not sort individuals by ID; instead append them in\n"
+"                       the order they originally appear (like PLINK does).\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-allow-equal-pos", &help_ctrl, 0,
-"  --merge-allow-equal-pos : Do not merge markers with identical positions.\n"
+"  --merge-allow-equal-pos : Do not merge markers with different names but\n"
+"                            identical positions.\n"
 	       );
 
     help_print("pheno", &help_ctrl, 0,
@@ -8676,17 +8679,15 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     binary_files = 1;
     if (calculation_type & CALC_MAKE_BED) {
       if (!realpath(pedname, tbuf)) {
-	sprintf(logbuf, "Error: Failed to calculate absolute pathname for %s.\n", pedname);
+	sprintf(logbuf, "Error: Failed to open %s.\n", pedname);
 	logprintb();
         goto wdist_ret_OPEN_FAIL;
       }
       memcpy(outname_end, ".bed", 5);
-      if (!realpath(outname, &(tbuf[FNAMESIZE + 64]))) {
-	sprintf(logbuf, "Error: Failed to calculate absolute pathname for %s.\n", outname);
-	logprintb();
-	goto wdist_ret_OPEN_FAIL;
-      }
-      if (!strcmp(tbuf, &(tbuf[FNAMESIZE + 64]))) {
+      // if file doesn't exist, realpath returns NULL on Linux instead of what
+      // the path would be.
+      cptr = realpath(outname, &(tbuf[FNAMESIZE + 64]));
+      if (cptr && (!strcmp(tbuf, &(tbuf[FNAMESIZE + 64])))) {
 	logprint("Note: --make-bed input and output filenames match.  Appending .old to input\nfilenames.\n");
         uii = strlen(pedname);
 	memcpy(tbuf, pedname, uii + 1);
@@ -12320,7 +12321,18 @@ int main(int argc, char** argv) {
 	calculation_type |= CALC_MERGE;
 	cur_arg += 2;
       } else if (!memcmp(argptr2, "erge-ascii-sort", 16)) {
+	if (merge_type & MERGE_NOSORT) {
+	  printf("Error: --merge-ascii-sort cannot be used with --merge-no-sort.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE;
+	}
 	merge_type |= MERGE_ASCII;
+	cur_arg++;
+      } else if (!memcmp(argptr2, "erge-no-sort", 13)) {
+	if (merge_type & MERGE_ASCII) {
+	  printf("Error: --merge-ascii-sort cannot be used with --merge-no-sort.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	merge_type |= MERGE_NOSORT;
 	cur_arg++;
       } else if (!memcmp(argptr2, "erge-allow-equal-pos", 21)) {
 	merge_type |= MERGE_ALLOW_EQUAL_POS;
@@ -13024,6 +13036,7 @@ int main(int argc, char** argv) {
     goto main_ret_NOMEM;
   }
 
+  // see e.g. http://nadeausoftware.com/articles/2012/09/c_c_tip_how_get_physical_memory_size_system .
 #ifdef __APPLE__
   mib[0] = CTL_HW;
   mib[1] = HW_MEMSIZE;
@@ -13032,17 +13045,23 @@ int main(int argc, char** argv) {
   sysctl(mib, 2, &llxx, &sztmp, NULL, 0);
   llxx /= 1048576;
 #else
-  llxx = sysconf(_SC_PHYS_PAGES) * sysconf(_SC_PAGE_SIZE) / 1048576;
+  llxx = ((size_t)sysconf(_SC_PHYS_PAGES)) * ((size_t)sysconf(_SC_PAGESIZE)) / 1048576;
 #endif
-  if (llxx < (MALLOC_DEFAULT_BASE_MB * 4 / 3)) {
-    default_alloc_mb = llxx * 3 / 4;
+  if (!llxx) {
+    default_alloc_mb = 3 * MALLOC_DEFAULT_BASE_MB / 2;
+  } else if (llxx < (MALLOC_DEFAULT_BASE_MB * 2)) {
+    default_alloc_mb = MINV(llxx * 3 / 4, 64);
   } else {
     default_alloc_mb = (llxx / 4) + MALLOC_DEFAULT_BASE_MB;
   }
   if (!malloc_size_mb) {
     malloc_size_mb = default_alloc_mb;
   }
-  sprintf(logbuf, "%lld MB RAM detected; reserving %ld MB for main workspace.\n", llxx, malloc_size_mb);
+  if (llxx) {
+    sprintf(logbuf, "%lld MB RAM detected; reserving %ld MB for main workspace.\n", llxx, malloc_size_mb);
+  } else {
+    sprintf(logbuf, "Failed to calculate system memory.  Attempting to reserve %ld MB.\n", malloc_size_mb);
+  }
   logprintb();
   wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
   if ((malloc_size_mb > default_alloc_mb) && !wkspace_ua) {
@@ -13136,6 +13155,7 @@ int main(int argc, char** argv) {
   }
  main_ret_1:
   fclose_cond(scriptfile);
+  dispmsg(retval);
   if (logfile) {
     if (!log_failed) {
       logstr("\nEnd time: ");
@@ -13148,5 +13168,5 @@ int main(int argc, char** argv) {
       fclose(logfile);
     }
   }
-  return dispmsg(retval);
+  return retval;
 }

@@ -82,9 +82,10 @@ typedef union {
 
 #define MERGE_MODE_MASK 7
 #define MERGE_ASCII 8
-#define MERGE_ALLOW_EQUAL_POS 16
-#define MERGE_BINARY 32
-#define MERGE_LIST 64
+#define MERGE_NOSORT 16
+#define MERGE_ALLOW_EQUAL_POS 32
+#define MERGE_BINARY 64
+#define MERGE_LIST 128
 
 #define MALLOC_DEFAULT_BASE_MB 1152
 
