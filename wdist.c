@@ -218,7 +218,7 @@ extern "C" {
 #define MINV(aa, bb) ((aa) > (bb))? (bb) : (aa)
 
 const char ver_str[] =
-  "WDIST v0.14.0"
+  "WDIST v0.14.1"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -227,7 +227,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (4 Jan 2013)";
+  " (5 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -8719,8 +8719,14 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       logprint("Error: --merge/--bmerge/--merge-list cannot be used with an irregularly\nformatted reference fileset (--no-fid, --no-parents, --no-sex, --no-pheno,\n--1).  Use --make-bed first.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
-    retval = merge_datasets(pedname, mapname, famname, outname, outname_end, mergename1, mergename2, mergename3, calculation_type, merge_type, chrom_info_ptr->species);
-    if (retval || (!(calculation_type & (~CALC_MERGE)))) {
+    // is merge the only operation?  then do NOT append -merge to the filename
+    // stem, and quit immediately after merge completes.
+    ulii = (calculation_type & (~CALC_MERGE));
+    if (ulii) {
+      memcpy(outname_end, "-merge", 7);
+    }
+    retval = merge_datasets(pedname, mapname, famname, outname, ulii? &(outname_end[6]) : outname_end, mergename1, mergename2, mergename3, calculation_type, merge_type, chrom_info_ptr->species);
+    if (retval || (!ulii)) {
       goto wdist_ret_2;
     }
     binary_files = 1;

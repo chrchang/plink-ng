@@ -3449,7 +3449,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
       goto merge_main_ret_READ_FAIL;
     }
     marker_out_idx = marker_map[ii];
-    if ((marker_out_idx >= start_marker_idx) && (marker_out_idx < end_marker_idx)) {
+    if ((marker_out_idx < start_marker_idx) || (marker_out_idx >= end_marker_idx)) {
       if (!is_binary) {
 	marker_text_map[marker_in_idx] = 4294967295U;
       }
@@ -4013,9 +4013,6 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
 #endif
   tot_indiv_ct = ullxx;
   if (merge_type & MERGE_NOSORT) {
-    logprint("Error: --merge-no-sort implementation not finished yet.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto merge_datasets_ret_1;
     if (wkspace_alloc_ui_checked(&indiv_nsmap, tot_indiv_ct * sizeof(int))) {
       goto merge_datasets_ret_NOMEM;
     }
@@ -4103,7 +4100,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     wkspace_left += topsize;
   }
   if (merge_mode < 6) {
-    memcpy(outname_end, "-merge.fam", 11);
+    memcpy(outname_end, ".fam", 5);
     if (fopen_checked(&outfile, outname, "w")) {
       goto merge_datasets_ret_OPEN_FAIL;
     }
@@ -4286,7 +4283,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   pass_ct = 1 + ((dedup_marker_ct - 1) / markers_per_pass);
   writebuf = wkspace_base;
   if (merge_mode < 6) {
-    memcpy(outname_end, "-merge.bed", 11);
+    memcpy(outname_end, ".bed", 5);
     if (fopen_checked(&outfile, outname, "wb")) {
       goto merge_datasets_ret_OPEN_FAIL;
     }
@@ -4359,7 +4356,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     goto merge_datasets_ret_NOMEM;
   }
   if (merge_mode < 6) {
-    memcpy(outname_end, "-merge.bim", 11);
+    memcpy(outname_end, ".bim", 5);
     if (fopen_checked(&outfile, outname, "w")) {
       goto merge_datasets_ret_OPEN_FAIL;
     }
