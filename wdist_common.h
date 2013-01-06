@@ -16,6 +16,7 @@
 
 #if __LP64__
 #include <emmintrin.h>
+#define FIVEMASK 0x5555555555555555LU
 
 typedef union {
   __m128i vi;
@@ -24,6 +25,8 @@ typedef union {
   double d8[2];
   unsigned int u4[4];
 } __uni16;
+#else
+#define FIVEMASK 0x55555555
 #endif
 
 #include "zlib-1.2.7/zlib.h"
@@ -501,6 +504,21 @@ int bsearch_str_natural(char* id_buf, char* lptr, int max_id_len, int min_idx, i
 void fill_idbuf_fam_indiv(char* id_buf, char* fam_indiv, char fillchar);
 
 int bsearch_fam_indiv(char* id_buf, char* lptr, int max_id_len, int filter_line_ct, char* fam_id, char* indiv_id);
+
+static inline unsigned int popcount2_long(unsigned long val) {
+#if __LP64__
+  val = (val & 0x3333333333333333LU) + ((val >> 2) & 0x3333333333333333LU);
+  return (((val + (val >> 4)) & 0x0f0f0f0f0f0f0f0fLU) * 0x0101010101010101LU) >> 56;
+#else
+  val = (val & 0x33333333) + ((val >> 2) & 0x33333333);
+  return (((val + (val >> 4)) & 0x0f0f0f0f) * 0x01010101) >> 24;
+#endif
+}
+
+static inline unsigned int popcount_long(unsigned long val) {
+  // the simple version, good enough for all non-time-critical stuff
+  return popcount2_long(val - ((val >> 1) & FIVEMASK));
+}
 
 int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int calculation_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf);
 

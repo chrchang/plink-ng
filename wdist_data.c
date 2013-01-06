@@ -3322,7 +3322,7 @@ int merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* person_i
   return (fprintf(outfile, " %20s %20s      %c/%c      %c/%c \n", idbuf, bufptr, ma1[newval], ma2[newval], ma1[oldval], ma2[oldval]) < 0);
 }
 
-int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_indiv_ct, unsigned int tot_marker_ct, unsigned int dedup_marker_ct, unsigned int start_marker_idx, unsigned int marker_window_size, char* marker_alleles, char* marker_ids, unsigned long max_marker_id_len, char* person_ids, unsigned int max_person_id_len, unsigned int merge_nsort, unsigned int* indiv_nsmap, unsigned int* flex_map, unsigned int* marker_map, unsigned int* chrom_start, unsigned int* chrom_id, unsigned int chrom_ct, char* idbuf, unsigned char* readbuf, unsigned char* writebuf, unsigned int merge_mode, unsigned long* markbuf, FILE* outfile, unsigned long long* diff_total_overlap_ptr, unsigned long long* diff_not_both_genotyped_ptr, unsigned long long* diff_discordant_ptr, unsigned long ped_buflen) {
+int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_indiv_ct, unsigned int tot_marker_ct, unsigned int dedup_marker_ct, unsigned int start_marker_idx, unsigned int marker_window_size, char* marker_alleles, char* marker_ids, unsigned long max_marker_id_len, char* person_ids, unsigned int max_person_id_len, unsigned int merge_nsort, unsigned int* indiv_nsmap, unsigned int* flex_map, unsigned int* marker_map, unsigned int* chrom_start, unsigned int* chrom_id, unsigned int chrom_ct, char* idbuf, unsigned char* readbuf, unsigned char* writebuf, unsigned int merge_mode, unsigned long* markbuf, FILE* outfile, unsigned long long* diff_total_overlap_ptr, unsigned long long* diff_not_both_genotyped_ptr, unsigned long long* diff_discordant_ptr, unsigned long ped_buflen, unsigned char* bmap_raw) {
   // flex_map maps individuals for binary filesets, and markers for text
   // filesets.
   unsigned int is_binary = famname? 1 : 0;
@@ -3343,6 +3343,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
   unsigned int cur_indiv_ctd4 = 0;
   unsigned long uljj = 0;
   unsigned long* mbufptr2;
+  unsigned char* bmap;
   unsigned int gd_col;
   char* bufptr;
   char* bufptr2;
@@ -3357,7 +3358,6 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
   unsigned int ukk;
   unsigned int umm;
   unsigned int unn;
-  unsigned int uoo;
   unsigned int indiv_idx;
   unsigned int marker_out_idx;
   unsigned char ucc;
@@ -3368,12 +3368,6 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
   char cc2;
   char cc3;
   char cc4;
-  // possibilities:
-  // 0. A1 -> A1, A2 -> A2 [0..255]
-  // 1. A1 -> A2, A2 -> A1 [256..511]
-  unsigned char imap[4] = {3, 1, 2, 0};
-  unsigned char bmap_raw[512];
-  unsigned char* bmap;
   int ii;
   if (is_binary) {
     if (fopen_checked(&infile2, famname, "r")) {
@@ -3414,24 +3408,6 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
     fclose_null(&infile2);
     cur_indiv_ct4 = (cur_indiv_ct + 3) / 4;
     cur_indiv_ctd4 = cur_indiv_ct / 4;
-    for (uii = 0; uii < 256; uii++) {
-      bmap_raw[uii] = uii;
-    }
-    bmap = &(bmap_raw[256]);
-    for (uii = 0; uii < 4; uii++) {
-      umm = imap[uii] * 64;
-      for (ujj = 0; ujj < 4; ujj++) {
-	unn = umm + imap[ujj] * 16;
-	for (ukk = 0; ukk < 4; ukk++) {
-	  uoo = unn + imap[ukk] * 4;
-	  bmap[0] = uoo + 3;
-	  bmap[1] = uoo + 1;
-	  bmap[2] = uoo + 2;
-	  bmap[3] = uoo;
-	  bmap = &(bmap[4]);
-	}
-      }
-    }
   }
   if (fopen_checked(&infile2, bimname, "r")) {
     goto merge_main_ret_OPEN_FAIL;
@@ -3971,7 +3947,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
   return retval;
 }
 
-int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, char* outname_end, char* mergename1, char* mergename2, char* mergename3, int calculation_type, int merge_type, int species) {
+int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, char* outname_end, char* mergename1, char* mergename2, char* mergename3, int calculation_type, int merge_type, int keep_allele_order, int species) {
   FILE* mergelistfile = NULL;
   FILE* outfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
@@ -3996,6 +3972,19 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   unsigned long long diff_discordant = 0;
   unsigned int orig_idx = 0;
   unsigned int* map_reverse = NULL;
+  unsigned long* reversed = NULL;
+  // possibilities:
+  // 0. A1 -> A1, A2 -> A2 [0..255]
+  // 1. A1 -> A2, A2 -> A1 [256..511]
+  unsigned char imap[4] = {3, 1, 2, 0};
+  unsigned char bmap_raw[576];
+  unsigned char* bmap;
+  unsigned char* bmap2;
+  unsigned char* ucptr;
+  unsigned char* ucptr_end;
+  unsigned long* pcptr;
+  unsigned long* pcptr2;
+  unsigned long* pcptr_end;
   unsigned long markers_per_pass;
   unsigned int pass_ct;
   unsigned long topsize;
@@ -4025,10 +4014,14 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   unsigned long long ullxx;
   long long llxx;
   unsigned long ulii;
+  unsigned long uljj;
+  unsigned long ulkk;
   unsigned int uii;
   unsigned int ujj;
   unsigned int ukk;
   unsigned int umm;
+  unsigned int unn;
+  unsigned int extra_ct;
   char* bufptr;
   char* bufptr2;
   char* bufptr3;
@@ -4042,6 +4035,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   unsigned char* writebuf;
   unsigned char* ubufptr;
   char cc;
+  char cc2;
   unsigned char ucc;
   int retval;
 
@@ -4212,6 +4206,58 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   }
 #endif
   tot_indiv_ct = ullxx;
+  for (uii = 0; uii < 256; uii++) {
+    bmap_raw[uii] = uii;
+  }
+  bmap = &(bmap_raw[256]);
+  bmap2 = bmap;
+  for (uii = 0; uii < 4; uii++) {
+    umm = imap[uii] * 64;
+    for (ujj = 0; ujj < 4; ujj++) {
+      unn = umm + imap[ujj] * 16;
+      for (ukk = 0; ukk < 4; ukk++) {
+	extra_ct = unn + imap[ukk] * 4;
+	*bmap2++ = extra_ct + 3;
+	*bmap2++ = extra_ct + 1;
+	*bmap2++ = extra_ct + 2;
+	*bmap2++ = extra_ct;
+      }
+    }
+  }
+  unn = tot_indiv_ct % 4;
+  if (unn) {
+    switch (unn) {
+    case 1:
+      bmap2[0] = 3;
+      bmap2[1] = 1;
+      bmap2[2] = 2;
+      bmap2[3] = 0;
+      break;
+    case 2:
+      ucptr = bmap2;
+      for (uii = 0; uii < 4; uii++) {
+	ukk = imap[uii] * 4;
+	*ucptr++ = ukk + 3;
+	*ucptr++ = ukk + 1;
+	*ucptr++ = ukk + 2;
+	*ucptr++ = ukk;
+      }
+      break;
+    case 3:
+      ucptr = bmap2;
+      for (uii = 0; uii < 4; uii++) {
+	ukk = imap[uii] * 16;
+	for (ujj = 0; ujj < 4; ujj++) {
+	  umm = ukk + imap[ujj] * 4;
+	  *ucptr++ = umm + 3;
+	  *ucptr++ = umm + 1;
+	  *ucptr++ = umm + 2;
+	  *ucptr++ = umm;
+	}
+      }
+      break;
+    }
+  }
   if (merge_type & MERGE_NOSORT) {
     if (wkspace_alloc_ui_checked(&indiv_nsmap, tot_indiv_ct * sizeof(int))) {
       goto merge_datasets_ret_NOMEM;
@@ -4451,6 +4497,13 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
 
   tot_indiv_ct4 = (tot_indiv_ct + 3) / 4;
 
+  if (!keep_allele_order) {
+    ulii = (tot_marker_ct + (BITCT - 1)) / BITCT;
+    if (wkspace_alloc_ul_checked(&reversed, ulii * sizeof(long))) {
+      goto merge_datasets_ret_NOMEM;
+    }
+    fill_ulong_zero(reversed, ulii);
+  }
   if (wkspace_alloc_ui_checked(&flex_map, MAXV(max_cur_indiv_ct, max_cur_marker_text_ct) * sizeof(int)) ||
       wkspace_alloc_c_checked(&idbuf, MAXV(max_marker_id_len, max_person_id_len))) {
     goto merge_datasets_ret_NOMEM;
@@ -4479,6 +4532,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   pass_ct = 1 + ((dedup_marker_ct - 1) / markers_per_pass);
 
   writebuf = wkspace_base;
+  pcptr = (unsigned long*)wkspace_base;
   if (merge_mode < 6) {
     memcpy(outname_end, ".bed", 5);
     if (fopen_checked(&outfile, outname, "wb")) {
@@ -4525,7 +4579,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
       fill_ulong_zero(markbuf, ujj * ulii);
     }
     for (mlpos = 0; mlpos < merge_ct; mlpos++) {
-      retval = merge_main(mergelist_bed[mlpos], mergelist_bim[mlpos], mergelist_fam[mlpos], tot_indiv_ct, tot_marker_ct, dedup_marker_ct, uii * markers_per_pass, ujj, marker_alleles, marker_ids, max_marker_id_len, person_ids, max_person_id_len, merge_nsort, indiv_nsmap, flex_map, marker_map, chrom_start, chrom_id, chrom_ct, idbuf, readbuf, writebuf, mlpos? merge_mode : merge_first_mode(merge_mode, merge_disallow_equal_pos), markbuf, outfile, &diff_total_overlap, &diff_not_both_genotyped, &diff_discordant, ped_buflen);
+      retval = merge_main(mergelist_bed[mlpos], mergelist_bim[mlpos], mergelist_fam[mlpos], tot_indiv_ct, tot_marker_ct, dedup_marker_ct, uii * markers_per_pass, ujj, marker_alleles, marker_ids, max_marker_id_len, person_ids, max_person_id_len, merge_nsort, indiv_nsmap, flex_map, marker_map, chrom_start, chrom_id, chrom_ct, idbuf, readbuf, writebuf, mlpos? merge_mode : merge_first_mode(merge_mode, merge_disallow_equal_pos), markbuf, outfile, &diff_total_overlap, &diff_not_both_genotyped, &diff_discordant, ped_buflen, bmap_raw);
       if (retval) {
 	goto merge_datasets_ret_1;
       }
@@ -4535,6 +4589,43 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
       }
     }
     if (merge_mode < 6) {
+      if (!keep_allele_order) {
+	for (ukk = 0; ukk < ujj; ukk++) {
+	  uljj = ((unsigned long)ukk) * tot_indiv_ct4;
+	  extra_ct = uljj % (BITCT / 8);
+	  pcptr2 = &(pcptr[uljj / (BITCT / 8)]);
+	  ulkk = uljj + tot_indiv_ct4;
+	  pcptr_end = &(pcptr[ulkk / (BITCT / 8)]);
+	  if (pcptr2 == pcptr_end) {
+	    umm = popcount_long((*pcptr2) & (1LU << ((ulkk % (BITCT / 8)) * 8)) - (1LU << (extra_ct * 8)));
+	  } else {
+	    umm = 0;
+            if (extra_ct) {
+	      umm = popcount_long((*pcptr2++) >> (extra_ct * 8));
+	    }
+	    while (pcptr2 < pcptr_end) {
+	      umm += popcount_long(*pcptr2++);
+	    }
+	    extra_ct = ulkk % (BITCT / 8);
+	    if (extra_ct) {
+	      umm += popcount_long((*pcptr2) & ((1LU << (extra_ct * 8)) - 1LU));
+	    }
+	  }
+	  if (umm < tot_indiv_ct) {
+	    ulkk = (uii * markers_per_pass) + ukk;
+	    reversed[ulkk / BITCT] |= (1LU << (ulkk % BITCT));
+	    ucptr = &(writebuf[uljj]);
+	    ucptr_end = &(writebuf[uljj + tot_indiv_ct / 4]);
+	    while (ucptr < ucptr_end) {
+	      *ucptr = bmap[*ucptr];
+	      ucptr++;
+	    }
+	    if (tot_indiv_ct % 4) {
+	      *ucptr = bmap2[*ucptr];
+	    }
+	  }
+	}
+      }
       if (fwrite_checked(writebuf, ((unsigned long)ujj) * tot_indiv_ct4, outfile)) {
         goto merge_datasets_ret_WRITE_FAIL;
       }
@@ -4567,7 +4658,14 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
       ukk = chrom_id[ulii];
       for (; ujj < uii; ujj++) {
 	umm = map_reverse[ujj];
-	if (fprintf(outfile, "%u\t%s\t%g\t%u\t%c\t%c\n", ukk, &(marker_ids[map_reverse[ujj] * max_marker_id_len]), gd_vals[ujj], pos_buf[ujj], marker_alleles[2 * umm], marker_alleles[2 * umm + 1]) < 0) {
+	if (keep_allele_order || (!is_set(reversed, ujj))) {
+	  cc = marker_alleles[2 * umm];
+	  cc2 = marker_alleles[2 * umm + 1];
+	} else {
+	  cc = marker_alleles[2 * umm + 1];
+	  cc2 = marker_alleles[2 * umm];
+	}
+	if (fprintf(outfile, "%u\t%s\t%g\t%u\t%c\t%c\n", ukk, &(marker_ids[map_reverse[ujj] * max_marker_id_len]), gd_vals[ujj], pos_buf[ujj], cc, cc2) < 0) {
 	  goto merge_datasets_ret_WRITE_FAIL;
 	}
       }
