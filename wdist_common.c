@@ -99,14 +99,14 @@ char* item_endl(char* sptr) {
   if (!sptr) {
     return NULL;
   }
-  while (!is_eoln(*sptr)) {
+  while (!is_space_or_eoln(*sptr)) {
     sptr++;
   }
   return sptr;
 }
 
 char* item_endnn(char* sptr) {
-  while (!is_eoln(*sptr)) {
+  while (!is_space_or_eoln(*sptr)) {
     sptr++;
   }
   return sptr;
