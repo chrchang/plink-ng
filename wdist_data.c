@@ -1955,14 +1955,14 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
       last_mapval = cur_mapval;
     }
     for (uii = 0; uii < 3; uii++) {
-      cptr2 = item_endnn(cptr);
+      cptr2 = item_endnn2(cptr);
       *cptr2++ = '\t';
       if (fwrite_checked(cptr, (cptr2 - cptr), bimfile)) {
 	goto transposed_to_bed_ret_WRITE_FAIL;
       }
       cptr = skip_initial_spaces(cptr2);
     }
-    cptr2 = item_endnn(cptr);
+    cptr2 = item_endnn2(cptr);
     *cptr2++ = '\t';
     if (fwrite_checked(cptr, (cptr2 - cptr), bimfile)) {
       goto transposed_to_bed_ret_WRITE_FAIL;
@@ -2410,7 +2410,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
 
 	wbufptr = tbuf;
 	for (indiv_idx = 0; indiv_idx < 3; indiv_idx++) {
-	  cptr = item_endnn(wbufptr);
+	  cptr = item_endnn2(wbufptr);
 	  ulii = 1 + (unsigned long)(cptr - wbufptr);
 	  *cptr = delimiter;
 	  if (fwrite_checked(wbufptr, ulii, *outfile_ptr)) {
@@ -2683,7 +2683,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
       }
       wbufptr = tbuf;
       for (loop_end = 0; loop_end < 5; loop_end++) {
-	cptr = item_endnn(wbufptr);
+	cptr = item_endnn2(wbufptr);
 	ulii = 1 + (unsigned long)(cptr - wbufptr);
 	*cptr = delimiter;
 	if (fwrite_checked(wbufptr, ulii, *outfile_ptr)) {
@@ -2736,7 +2736,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
       }
       wbufptr = tbuf;
       for (loop_end = 0; loop_end < 3; loop_end++) {
-	cptr = item_endnn(wbufptr);
+	cptr = item_endnn2(wbufptr);
 	ulii = 1 + (unsigned long)(cptr - wbufptr);
 	*cptr = cc;
 	if (fwrite_checked(wbufptr, ulii, *outfile_ptr)) {
@@ -2866,19 +2866,19 @@ int merge_fam_id_scan(char* bedname, char* famname, unsigned int* max_person_id_
     col1_start_ptr = skip_initial_spaces(tbuf);
     cc = *col1_start_ptr;
     if ((!is_eoln(cc)) && (cc != '#')) {
-      col1_end_ptr = item_endnn(col1_start_ptr);
+      col1_end_ptr = item_endnn2(col1_start_ptr);
       col1_len = col1_end_ptr - col1_start_ptr;
       col2_start_ptr = skip_initial_spaces(col1_end_ptr);
-      col2_end_ptr = item_endnn(col2_start_ptr);
+      col2_end_ptr = item_endnn2(col2_start_ptr);
       col2_len = col2_end_ptr - col2_start_ptr;
       col3_start_ptr = skip_initial_spaces(col2_end_ptr);
-      col4_start_ptr = item_endnn(col3_start_ptr);
+      col4_start_ptr = item_endnn2(col3_start_ptr);
       col3_len = col4_start_ptr - col3_start_ptr;
       col4_start_ptr = skip_initial_spaces(col4_start_ptr);
-      col5_start_ptr = item_endnn(col4_start_ptr);
+      col5_start_ptr = item_endnn2(col4_start_ptr);
       col4_len = col5_start_ptr - col4_start_ptr;
       col5_start_ptr = skip_initial_spaces(col5_start_ptr);
-      col6_start_ptr = item_endnn(col5_start_ptr);
+      col6_start_ptr = item_endnn2(col5_start_ptr);
       uii = col6_start_ptr - col5_start_ptr;
       if (uii != 1) {
 	*col5_start_ptr = '0';
@@ -3298,7 +3298,7 @@ static inline int merge_first_mode(int mm, unsigned int merge_disallow_equal_pos
 }
 
 int merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* person_id, unsigned char newval, unsigned char oldval, char* marker_alleles) {
-  char* bufptr = item_endnn(marker_id);
+  char* bufptr = item_endnn2(marker_id);
   unsigned int slen = bufptr - marker_id;
   char ma1[4];
   char ma2[4];
@@ -3315,7 +3315,7 @@ int merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* person_i
   ma2[1] = '0';
   ma2[2] = marker_alleles[1];
   ma2[3] = marker_alleles[1];
-  bufptr = item_endnn(person_id);
+  bufptr = item_endnn2(person_id);
   slen = (bufptr++) - person_id;
   memcpy(idbuf, person_id, slen);
   idbuf[slen] = '\0';
@@ -3384,9 +3384,9 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
       if (is_eoln(*bufptr)) {
 	continue;
       }
-      bufptr2 = item_endnn(bufptr);
+      bufptr2 = item_endnn2(bufptr);
       bufptr3 = skip_initial_spaces(bufptr2);
-      bufptr4 = item_endnn(bufptr3);
+      bufptr4 = item_endnn2(bufptr3);
       uii = (bufptr2 - bufptr);
       ujj = (bufptr4 - bufptr3);
       memcpy(idbuf, bufptr, uii);
@@ -3458,7 +3458,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
       }
       continue;
     }
-    bufptr3 = item_endnn(bufptr);
+    bufptr3 = item_endnn2(bufptr);
     uii = (bufptr3 - bufptr);
     memcpy(idbuf, bufptr, uii);
     idbuf[uii] = '\0';
@@ -3765,12 +3765,12 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
       if ((is_eoln(cc)) || (cc == '#')) {
 	continue;
       }
-      bufptr2 = item_endnn(bufptr);
+      bufptr2 = item_endnn2(bufptr);
       uii = (bufptr2 - bufptr);
       memcpy(idbuf, bufptr, uii);
       idbuf[uii] = '\t';
       bufptr3 = skip_initial_spaces(bufptr2);
-      bufptr2 = item_endnn(bufptr3);
+      bufptr2 = item_endnn2(bufptr3);
       ujj = (bufptr2 - bufptr3);
       memcpy(&(idbuf[uii + 1]), bufptr3, ujj);
       idbuf[uii + ujj + 1] = '\0';

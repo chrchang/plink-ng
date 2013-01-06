@@ -81,14 +81,16 @@ void wkspace_reset(void* new_base) {
 }
 
 char* item_end(char* sptr) {
+  char cc;
   if (!sptr) {
     return NULL;
   }
-  while ((*sptr != ' ') && (*sptr != '\t')) {
-    if (!(*sptr)) {
+  cc = *sptr;
+  while ((cc != ' ') && (cc != '\t') && (cc != '\n') && (cc != '\r')) {
+    if (!cc) {
       return NULL;
     }
-    sptr++;
+    cc = *(++sptr);
   }
   return sptr;
 }
@@ -97,15 +99,23 @@ char* item_endl(char* sptr) {
   if (!sptr) {
     return NULL;
   }
-  while ((*sptr != ' ') && (*sptr != '\t') && (*sptr)) {
+  while (!is_eoln(*sptr)) {
     sptr++;
   }
   return sptr;
 }
 
 char* item_endnn(char* sptr) {
-  while ((*sptr != ' ') && (*sptr != '\t') && (*sptr)) {
+  while (!is_eoln(*sptr)) {
     sptr++;
+  }
+  return sptr;
+}
+
+char* item_endnn2(char* sptr) {
+  char cc = *sptr;
+  while ((cc != ' ') && (cc != '\t') && cc) {
+    cc = *(++sptr);
   }
   return sptr;
 }

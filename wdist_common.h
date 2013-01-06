@@ -284,6 +284,10 @@ static inline char* skip_initial_spaces(char* sptr) {
   return sptr;
 }
 
+static inline int is_space_or_eoln(char cc) {
+  return ((cc == ' ') || (cc == '\t') || (cc == '\n') || (cc == '\0') || (cc == '\r'));
+}
+
 char* item_end(char* sptr);
 
 // does not return NULL if item ends with null char
@@ -292,9 +296,8 @@ char* item_endl(char* sptr);
 // item_endl without checking if sptr == NULL
 char* item_endnn(char* sptr);
 
-static inline int is_space_or_eoln(char cc) {
-  return ((cc == ' ') || (cc == '\t') || (cc == '\n') || (cc == '\0') || (cc == '\r'));
-}
+// item_endnn without checking \n or \r
+char* item_endnn2(char* sptr);
 
 int intlen(int num);
 
