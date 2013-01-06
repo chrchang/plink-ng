@@ -495,6 +495,8 @@ int bsearch_str(char* id_buf, char* lptr, int max_id_len, int min_idx, int max_i
 
 int bsearch_str_natural(char* id_buf, char* lptr, int max_id_len, int min_idx, int max_idx);
 
+void fill_idbuf_fam_indiv(char* id_buf, char* fam_indiv, char fillchar);
+
 int bsearch_fam_indiv(char* id_buf, char* lptr, int max_id_len, int filter_line_ct, char* fam_id, char* indiv_id);
 
 int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int calculation_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf);

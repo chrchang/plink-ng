@@ -227,7 +227,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (5 Jan 2013)";
+  " (6 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -693,10 +693,12 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --merge [text fileset prefix]\n"
 "  --bmerge [.bed filename] [.bim filename] [.fam filename]\n"
 "  --bmerge [binary fileset prefix]\n"
-"    Merges the given fileset with the initially loaded fileset.  The result is\n"
-"    automatically written to {output prefix}-merge.bed/.bim/.fam, so it's\n"
-"    unnecessary to combine this with --make-bed unless you are simultaneously\n"
-"    performing some filtering.\n"
+"    Merges the given fileset with the initially loaded fileset.  If you specify\n"
+"    --make-bed, the initial merge result is written to\n"
+"    {output prefix}-merge.bed + .bim + .fam, filtering is performed, and then\n"
+"    the post-filtering data is written to {output prefix}.bed + .bim + .fam.\n"
+"    Otherwise, the merged data is written directly to\n"
+"    {output prefix}.bed + .bim + .fam.\n"
 "  --merge-list [filename]\n"
 "    Merge all filesets named in the text file with the initially loaded\n"
 "    fileset.  The text file is interpreted as follows:\n"
@@ -8719,14 +8721,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       logprint("Error: --merge/--bmerge/--merge-list cannot be used with an irregularly\nformatted reference fileset (--no-fid, --no-parents, --no-sex, --no-pheno,\n--1).  Use --make-bed first.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
-    // is merge the only operation?  then do NOT append -merge to the filename
-    // stem, and quit immediately after merge completes.
-    ulii = (calculation_type & (~CALC_MERGE));
+    // Only append -merge to the filename stem if --make-bed is specified.
+    ulii = (calculation_type & CALC_MAKE_BED);
     if (ulii) {
       memcpy(outname_end, "-merge", 7);
     }
     retval = merge_datasets(pedname, mapname, famname, outname, ulii? &(outname_end[6]) : outname_end, mergename1, mergename2, mergename3, calculation_type, merge_type, chrom_info_ptr->species);
-    if (retval || (!ulii)) {
+    if (retval || (!(calculation_type & (~CALC_MERGE)))) {
       goto wdist_ret_2;
     }
     binary_files = 1;

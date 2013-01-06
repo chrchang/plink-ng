@@ -696,6 +696,19 @@ int bsearch_str_natural(char* id_buf, char* lptr, int max_id_len, int min_idx, i
   }
 }
 
+void fill_idbuf_fam_indiv(char* idbuf, char* fam_indiv, char fillchar) {
+  char* iend_ptr = item_endnn(fam_indiv);
+  unsigned int slen = (iend_ptr - fam_indiv);
+  unsigned int slen2;
+  memcpy(idbuf, fam_indiv, slen);
+  idbuf[slen] = fillchar;
+  fam_indiv = skip_initial_spaces(iend_ptr);
+  iend_ptr = item_endnn(fam_indiv);
+  slen2 = (iend_ptr - fam_indiv);
+  memcpy(&(idbuf[slen + 1]), fam_indiv, slen2);
+  idbuf[slen + slen2 + 1] = '\0';
+}
+
 int bsearch_fam_indiv(char* id_buf, char* lptr, int max_id_len, int filter_line_ct, char* fam_id, char* indiv_id) {
   // id_buf = workspace
   // lptr = packed, sorted list of ID strings to search over
