@@ -846,7 +846,7 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
 
   marker_uidx = 0;
   marker_idx = 0;
-  sprintf("--make-bed to %s + .bim + .fam... ", outname);
+  sprintf(logbuf, "--make-bed to %s + .bim + .fam... ", outname);
   logprintb();
   fputs("0%", stdout);
   if (fwrite_checked("l\x1b\x01", 3, *bedoutfile_ptr)) {
