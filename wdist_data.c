@@ -4111,7 +4111,6 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     mlpos = 1;
     while (fgets(tbuf, MAXLINELEN, mergelistfile)) {
       bufptr = skip_initial_spaces(tbuf);
-      printf("%s\n", bufptr);
       if (no_more_items(bufptr)) {
 	continue;
       }
