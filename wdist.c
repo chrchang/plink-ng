@@ -1907,8 +1907,8 @@ void collapse_copy_phenod(double *target, double* pheno_d, unsigned long* indiv_
 }
 
 #if __LP64__
-// SSE2 implementations of Lauradoux/Walisch popcount, combined with xor to
-// handle Hamming distance, and masking to handle missingness.
+// XOR + mask variants of vectorized Lauradoux/Walisch popcount.  (See
+// popcount_vecs() in wdist_common.c for basic documentation.)
 // Note that the size of the popcounted buffer is a hardcoded constant
 // (specifically, (MULTIPLEX_DIST / BITCT) * 16 bytes).  The current code
 // assumes (MULTIPLEX_DIST / BITCT) is a multiple of 3, and no greater than 30.
@@ -1929,18 +1929,12 @@ static inline unsigned int popcount_xor_1mask_multiword(__m128i** xor1p, __m128i
     half1 = _mm_and_si128(_mm_xor_si128(*((*xor1p)++), *xor2++), *((*maskp)++));
     half2 = _mm_and_si128(_mm_srli_epi64(half1, 1), m1);
     half1 = _mm_and_si128(half1, m1);
-    // Two bits can represent values from 0-3, so make each pair in count1 and
-    // count2 store a partial bitcount covering themselves AND another bit from
-    // elsewhere.
     count1 = _mm_sub_epi64(count1, _mm_and_si128(_mm_srli_epi64(count1, 1), m1));
     count2 = _mm_sub_epi64(count2, _mm_and_si128(_mm_srli_epi64(count2, 1), m1));
     count1 = _mm_add_epi64(count1, half1);
     count2 = _mm_add_epi64(count2, half2);
-    // Four bits represent 0-15, so we can safely add four 0-3 partial
-    // bitcounts together.
     count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
     count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
-    // Accumulator stores sixteen 0-255 counts in parallel.
     acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
   } while (xor2 < xor2_end);
 #if MULTIPLEX_DIST > 960
@@ -2136,11 +2130,6 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m
 }
 #else
 static inline unsigned int popcount_xor_1mask_multiword(unsigned long** xor1p, unsigned long* xor2, unsigned long** maskp) {
-  // The humble 16-bit lookup table actually beats
-  // http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
-  // on my development machine by a hair.
-  // However, if we take the hint from Walisch-Lauradoux and postpone the
-  // multiply and right shift, this is no longer true.  Ah well.
   unsigned long* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
   unsigned int bit_count = 0;
   unsigned long tmp_stor;
@@ -2170,9 +2159,6 @@ static inline unsigned int popcount_xor_1mask_multiword(unsigned long** xor1p, u
     ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
     tmp_stor += (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
 
-    // Each 8 bit slot stores a number in 0..48.  Multiplying by 0x01010101 is
-    // equivalent to the left-shifts and adds we need to sum those four 8-bit
-    // numbers in the high-order slot.
     bit_count += (tmp_stor * 0x01010101) >> 24;
   } while (xor2 < xor2_end);
   return bit_count;
@@ -9132,7 +9118,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (binary_files && (calculation_type & CALC_MAKE_BED)) {
-    retval = make_bed(pedfile, bed_offset, mapfile, map_cols, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_pheno, max_marker_id_len, map_is_unsorted, chrom_info_ptr->species);
+    retval = make_bed(pedfile, bed_offset, mapfile, map_cols, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_pheno, max_marker_id_len, map_is_unsorted, keep_allele_order, chrom_info_ptr->species);
     if (retval) {
       goto wdist_ret_2;
     }

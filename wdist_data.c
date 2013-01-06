@@ -810,7 +810,7 @@ int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_
   return 0;
 }
 
-int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** bedoutfile_ptr, FILE** famoutfile_ptr, FILE** bimoutfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* person_ids, unsigned int max_person_id_len, char* paternal_ids, unsigned int max_paternal_id_len, char* maternal_ids, unsigned int max_maternal_id_len, unsigned char* sex_info, char* pheno_c, double* pheno_d, double missing_phenod, char* output_missing_pheno, unsigned long max_marker_id_len, int map_is_unsorted, int species) {
+int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** bedoutfile_ptr, FILE** famoutfile_ptr, FILE** bimoutfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* person_ids, unsigned int max_person_id_len, char* paternal_ids, unsigned int max_paternal_id_len, char* maternal_ids, unsigned int max_maternal_id_len, unsigned char* sex_info, char* pheno_c, double* pheno_d, double missing_phenod, char* output_missing_pheno, unsigned long max_marker_id_len, int map_is_unsorted, int keep_allele_order, int species) {
   unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   unsigned long indiv_ct4 = (indiv_ct + 3) / 4;
   unsigned char* wkspace_mark = wkspace_base;
@@ -846,7 +846,8 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
 
   marker_uidx = 0;
   marker_idx = 0;
-  logprint("Writing new binary fileset (--make-bed)... ");
+  sprintf("--make-bed to %s + .bim + .fam... ", outname);
+  logprintb();
   fputs("0%", stdout);
   if (fwrite_checked("l\x1b\x01", 3, *bedoutfile_ptr)) {
     return RET_WRITE_FAIL;
@@ -859,7 +860,7 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
     }
 
     if (wkspace_alloc_uc_checked(&writebuf, marker_ct * indiv_ct4)) {
-      logprint("Error: Insufficient memory for current --make-bed implementation.  Try raising\nthe --memory value for now.\n");
+      logprint("\nError: Insufficient memory for current --make-bed implementation.  Try raising\nthe --memory value for now.\n");
       return RET_CALC_NOT_YET_SUPPORTED;
     } else {
       for (pct = 1; pct <= 100; pct++) {
@@ -3983,8 +3984,6 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   unsigned char* ucptr;
   unsigned char* ucptr_end;
   unsigned long* pcptr;
-  unsigned long* pcptr2;
-  unsigned long* pcptr_end;
   unsigned long markers_per_pass;
   unsigned int pass_ct;
   unsigned long topsize;
@@ -4592,25 +4591,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
       if (!keep_allele_order) {
 	for (ukk = 0; ukk < ujj; ukk++) {
 	  uljj = ((unsigned long)ukk) * tot_indiv_ct4;
-	  extra_ct = uljj % (BITCT / 8);
-	  pcptr2 = &(pcptr[uljj / (BITCT / 8)]);
-	  ulkk = uljj + tot_indiv_ct4;
-	  pcptr_end = &(pcptr[ulkk / (BITCT / 8)]);
-	  if (pcptr2 == pcptr_end) {
-	    umm = popcount_long((*pcptr2) & (1LU << ((ulkk % (BITCT / 8)) * 8)) - (1LU << (extra_ct * 8)));
-	  } else {
-	    umm = 0;
-            if (extra_ct) {
-	      umm = popcount_long((*pcptr2++) >> (extra_ct * 8));
-	    }
-	    while (pcptr2 < pcptr_end) {
-	      umm += popcount_long(*pcptr2++);
-	    }
-	    extra_ct = ulkk % (BITCT / 8);
-	    if (extra_ct) {
-	      umm += popcount_long((*pcptr2) & ((1LU << (extra_ct * 8)) - 1LU));
-	    }
-	  }
+	  umm = popcount_chars(pcptr, uljj, uljj + tot_indiv_ct4);
 	  if (umm < tot_indiv_ct) {
 	    ulkk = (uii * markers_per_pass) + ukk;
 	    reversed[ulkk / BITCT] |= (1LU << (ulkk % BITCT));

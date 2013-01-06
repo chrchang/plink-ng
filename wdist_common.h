@@ -520,6 +520,14 @@ static inline unsigned int popcount_long(unsigned long val) {
   return popcount2_long(val - ((val >> 1) & FIVEMASK));
 }
 
+#ifdef __LP64__
+unsigned long popcount_vecs(__m128i* vptr, unsigned long ct);
+#endif
+
+unsigned long popcount_longs(unsigned long* lptr, unsigned long start_idx, unsigned long end_idx);
+
+unsigned long popcount_chars(unsigned long* lptr, unsigned long start_idx, unsigned long end_idx);
+
 int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int calculation_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf);
 
 void collapse_arr(char* item_arr, int fixed_item_len, unsigned long* exclude_arr, int exclude_arr_size);
