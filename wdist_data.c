@@ -161,8 +161,8 @@ int indiv_major_to_snp_major(char* indiv_major_fname, char* outname, FILE** outf
 
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 
-int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char extractname_0, char excludename_0, char freqname_0, int calculation_type, int recode_modifier, int* map_is_unsorted_ptr) {
-  int marker_ids_needed = (extractname_0 || excludename_0 || freqname_0 || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE | CALC_REGRESS_PCS)) || ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_LGEN)));
+int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char* extractname, char* excludename, char* freqname, int calculation_type, int recode_modifier, int* map_is_unsorted_ptr) {
+  int marker_ids_needed = (extractname || excludename || freqname || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE | CALC_REGRESS_PCS)) || ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_LGEN)));
   unsigned int unfiltered_marker_ct = 0;
   unsigned long max_marker_id_len = 0;
   unsigned int plink_maxsnp = 4;
@@ -263,7 +263,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
     }
   }
   if (binary_files) {
-    if (freqname_0 || (calculation_type & (CALC_FREQ | CALC_RECODE | CALC_REGRESS_PCS))) {
+    if (freqname || (calculation_type & (CALC_FREQ | CALC_RECODE | CALC_REGRESS_PCS))) {
       *marker_alleles_ptr = (char*)wkspace_alloc(unfiltered_marker_ct * 2 * sizeof(char));
       if (!(*marker_alleles_ptr)) {
 	return RET_NOMEM;

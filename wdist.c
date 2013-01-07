@@ -8717,7 +8717,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   // load .map/.bim, count markers, filter chromosomes
-  retval = load_map_or_bim(&mapfile, mapname, binary_files, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &marker_ids, chrom_info_ptr, &marker_pos, *extractname, *excludename, *freqname, calculation_type, recode_modifier, &map_is_unsorted);
+  retval = load_map_or_bim(&mapfile, mapname, binary_files, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &marker_ids, chrom_info_ptr, &marker_pos, extractname, excludename, freqname, calculation_type, recode_modifier, &map_is_unsorted);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -8729,7 +8729,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
   // load .fam/[first few columns of .ped], count indivs
   ii = fam_col_6;
-  if (ii && (phenoname[0])) {
+  if (ii && phenoname) {
     ii = pheno_merge && (!makepheno_str);
   }
   retval = load_fam(binary_files? famfile : pedfile, ulii, fam_col_1, fam_col_34, fam_col_5, ii, fam_col_6, missing_pheno, missing_pheno_len, affection_01, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_info, &affection, &g_pheno_c, &g_pheno_d, &founder_info, &indiv_exclude, binary_files, &line_locs, &line_mids, &pedbuflen);
@@ -8746,7 +8746,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
 
-  if (phenoname[0] && fopen_checked(&phenofile, phenoname, "r")) {
+  if (phenoname && fopen_checked(&phenofile, phenoname, "r")) {
     goto wdist_ret_OPEN_FAIL;
   }
 
@@ -8796,7 +8796,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     prune_missing_phenos(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, g_pheno_c, g_pheno_d, missing_phenod);
   }
 
-  if (extractname[0] || excludename[0]) {
+  if (extractname || excludename) {
     wkspace_mark = wkspace_base;
     duplicate_fail = 0;
     retval = sort_item_ids(&cptr, &iptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, &duplicate_fail);
@@ -8809,13 +8809,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     // length of sorted list is NOT necessarily equal to unfiltered_marker_ct -
     // marker_exclude_ct, since marker_exclude_ct may change before second call
     ii = unfiltered_marker_ct - marker_exclude_ct;
-    if (extractname[0]) {
+    if (extractname) {
       retval = include_or_exclude(extractname, cptr, ii, max_marker_id_len, iptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, 0, duplicate_fail);
       if (retval) {
         goto wdist_ret_1;
       }
     }
-    if (excludename[0]) {
+    if (excludename) {
       retval = include_or_exclude(excludename, cptr, ii, max_marker_id_len, iptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, 1, duplicate_fail);
       if (retval) {
         goto wdist_ret_1;
@@ -8824,7 +8824,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     wkspace_reset(wkspace_mark);
   }
 
-  if (removename[0] || keepname[0] || filtername) {
+  if (removename || keepname || filtername) {
     wkspace_mark = wkspace_base;
     duplicate_fail = 0;
     retval = sort_item_ids(&cptr, &iptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, &duplicate_fail);
@@ -8835,13 +8835,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       logprint("Warning: Duplicate individual ID(s) in input.\n");
     }
     ii = unfiltered_indiv_ct - indiv_exclude_ct;
-    if (removename[0]) {
+    if (removename) {
       retval = include_or_exclude(removename, cptr, ii, max_person_id_len, iptr, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 1, 1, duplicate_fail);
       if (retval) {
 	goto wdist_ret_2;
       }
     }
-    if (keepname[0]) {
+    if (keepname) {
       retval = include_or_exclude(keepname, cptr, ii, max_person_id_len, iptr, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 1, 0, duplicate_fail);
       if (retval) {
 	goto wdist_ret_2;
@@ -8965,7 +8965,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   if (retval) {
     goto wdist_ret_2;
   }
-  if (freqname[0]) {
+  if (freqname) {
     retval = read_external_freqs(freqname, &freqfile, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, chrom_info_ptr, marker_alleles, marker_allele_cts, set_allele_freqs, binary_files, maf_succ, missing_geno, exponent, wt_needed, g_marker_weights);
     if (retval) {
       goto wdist_ret_2;
@@ -10599,18 +10599,36 @@ void print_ver() {
   fputs(ver_str2, stdout);
 }
 
+int alloc_string(char** sbuf, char* source) {
+  unsigned int slen = strlen(source) + 1;
+  *sbuf = (char*)malloc(slen * sizeof(char));
+  if (!(*sbuf)) {
+    return -1;
+  }
+  memcpy(*sbuf, source, slen);
+  return 0;
+}
+
+int alloc_fname(char** fnbuf, char* source, char* argptr, unsigned int max_size) {
+  unsigned int slen = strlen(source) + 1;
+  if (slen > max_size) {
+    printf("Error: --%s filename too long.\n", argptr);
+    return RET_OPEN_FAIL;
+  }
+  *fnbuf = (char*)malloc(slen * sizeof(char));
+  if (!(*fnbuf)) {
+    return RET_NOMEM;
+  }
+  memcpy(*fnbuf, source, slen);
+  return 0;
+}
+
 int main(int argc, char** argv) {
   unsigned char* wkspace_ua;
   char outname[FNAMESIZE];
   char mapname[FNAMESIZE];
   char pedname[FNAMESIZE];
   char famname[FNAMESIZE];
-  char phenoname[FNAMESIZE];
-  char extractname[FNAMESIZE];
-  char excludename[FNAMESIZE];
-  char keepname[FNAMESIZE];
-  char removename[FNAMESIZE];
-  char freqname[FNAMESIZE];
   char genname[FNAMESIZE];
   char samplename[FNAMESIZE];
   char mergename1[FNAMESIZE];
@@ -10631,6 +10649,12 @@ int main(int argc, char** argv) {
   char* evecname = NULL;
   char* filtername = NULL;
   char* loaddistname = NULL;
+  char* freqname = NULL;
+  char* extractname = NULL;
+  char* excludename = NULL;
+  char* keepname = NULL;
+  char* removename = NULL;
+  char* phenoname = NULL;
   char** subst_argv2;
   int retval = 0;
   int load_params = 0; // describes what file parameters have been provided
@@ -11117,12 +11141,6 @@ int main(int argc, char** argv) {
   strcpy(mapname, "wdist.map");
   strcpy(pedname, "wdist.ped");
   famname[0] = '\0';
-  phenoname[0] = '\0';
-  extractname[0] = '\0';
-  excludename[0] = '\0';
-  keepname[0] = '\0';
-  removename[0] = '\0';
-  freqname[0] = '\0';
   genname[0] = '\0';
   samplename[0] = '\0';
   memcpy(output_missing_pheno, "-9", 3);
@@ -11425,20 +11443,18 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-	  printf("--extract filename too long.\n");
-	  goto main_ret_OPEN_FAIL;
+	retval = alloc_fname(&extractname, argv[cur_arg + 1], argptr, FNAMESIZE);
+	if (retval) {
+	  goto main_ret_1;
 	}
-	strcpy(extractname, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "xclude", 7)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-	  printf("--exclude filename too long.\n");
-	  goto main_ret_OPEN_FAIL;
+	retval = alloc_fname(&excludename, argv[cur_arg + 1], argptr, FNAMESIZE);
+	if (retval) {
+	  goto main_ret_1;
 	}
-	strcpy(excludename, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "xponent", 8)) {
 	if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
 	  printf("Error: --exponent flag cannot be used with --distance-matrix.\n");
@@ -11496,22 +11512,13 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	jj = strlen(argv[cur_arg + 1]) + 1;
-	if (jj > FNAMESIZE) {
-	  printf("Error: --filter filename too long.\n");
-	  goto main_ret_OPEN_FAIL;
+	retval = alloc_fname(&filtername, argv[cur_arg + 1], argptr, FNAMESIZE);
+	if (retval) {
+	  goto main_ret_1;
 	}
-	filtername = (char*)malloc(jj * sizeof(char));
-	if (!filtername) {
+	if (alloc_string(&filterval, argv[cur_arg + 2])) {
 	  goto main_ret_NOMEM;
 	}
-	memcpy(filtername, argv[cur_arg + 1], jj);
-	jj = strlen(argv[cur_arg + 2]) + 1;
-	filterval = (char*)malloc(jj * sizeof(char));
-	if (!filterval) {
-	  goto main_ret_NOMEM;
-	}
-	memcpy(filterval, argv[cur_arg + 2], jj);
       } else if (!memcmp(argptr2, "ilter-cases", 12)) {
 	filter_case_control = 1;
       } else if (!memcmp(argptr2, "ilter-controls", 15)) {
@@ -11772,11 +11779,10 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-	  printf("--keep filename too long.\n");
-	  goto main_ret_OPEN_FAIL;
+	retval = alloc_fname(&keepname, argv[cur_arg + 1], argptr, FNAMESIZE);
+	if (retval) {
+	  goto main_ret_1;
 	}
-	strcpy(keepname, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "eep-allele-order", 17)) {
 	keep_allele_order = 1;
       } else {
@@ -11793,16 +11799,10 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	jj = strlen(argv[cur_arg + 1]) + 1;
-	if (jj > FNAMESIZE) {
-	  printf("Error: --load-dists filename too long.\n");
-	  goto main_ret_OPEN_FAIL;
+	retval = alloc_fname(&loaddistname, argv[cur_arg + 1], argptr, FNAMESIZE);
+	if (retval) {
+	  goto main_ret_1;
 	}
-	loaddistname = (char*)malloc(jj * sizeof(char));
-	if (!loaddistname) {
-	  goto main_ret_NOMEM;
-	}
-        memcpy(loaddistname, argv[cur_arg + 1], jj);
 	calculation_type |= CALC_LOAD_DISTANCES;
       } else if (!memcmp(argptr2, "file", 5)) {
 	if (load_rare || load_params) {
@@ -11872,17 +11872,13 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
-	  printf("Error: --make-pheno parameter too long.\n");
-	  goto main_ret_OPEN_FAIL;
+	retval = alloc_fname(&phenoname, argv[cur_arg + 1], argptr, FNAMESIZE);
+	if (retval) {
+	  goto main_ret_1;
 	}
-	strcpy(phenoname, argv[cur_arg + 1]);
-	jj = strlen(argv[cur_arg + 2]) + 1;
-	makepheno_str = (char*)malloc(jj * sizeof(char));
-	if (!makepheno_str) {
+	if (alloc_string(&makepheno_str, argv[cur_arg + 2])) {
 	  goto main_ret_NOMEM;
 	}
-	memcpy(makepheno_str, argv[cur_arg + 2], jj);
       } else if (!memcmp(argptr2, "pheno", 6)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -12247,17 +12243,14 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (phenoname[0]) {
-	  if (makepheno_str) {
-	    fputs("Error: --pheno and --make-pheno flags cannot coexist.\n", stdout);
-	  }
+	if (makepheno_str) {
+	  fputs("Error: --pheno and --make-pheno flags cannot coexist.\n", stdout);
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
-	  fputs("Error: --pheno parameter too long.\n", stdout);
-	  goto main_ret_OPEN_FAIL;
+	retval = alloc_fname(&phenoname, argv[cur_arg + 1], argptr, FNAMESIZE);
+	if (retval) {
+	  goto main_ret_1;
 	}
-	strcpy(phenoname, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "heno-name", 10)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -12266,12 +12259,9 @@ int main(int argc, char** argv) {
 	  printf("Error: --mpheno and --pheno-name flags cannot coexist.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	jj = strlen(argv[cur_arg + 1]);
-	phenoname_str = (char*)malloc(jj * sizeof(char));
-	if (!phenoname_str) {
+	if (alloc_string(&phenoname_str, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-	memcpy(phenoname_str, argv[cur_arg + 1], jj);
       } else if (!memcmp(argptr2, "heno-merge", 11)) {
 	pheno_merge = 1;
       } else if (!memcmp(argptr2, "rune", 5)) {
@@ -12334,11 +12324,10 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-	  printf("--remove filename too long.\n");
-	  goto main_ret_OPEN_FAIL;
+	retval = alloc_fname(&removename, argv[cur_arg + 1], argptr, FNAMESIZE);
+	if (retval) {
+	  goto main_ret_1;
 	}
-	strcpy(removename, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "ice", 4)) {
 	printf("Error: --rice not yet supported.\n");
 	goto main_ret_INVALID_CMDLINE;
@@ -12414,16 +12403,10 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 5, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	jj = strlen(argv[cur_arg + 1]) + 1;
-	if (jj > FNAMESIZE - 9) {
-	  printf("Error: --regress-pcs .evec/.eigenvec filename too long.\n");
-	  goto main_ret_OPEN_FAIL;
+	retval = alloc_fname(&evecname, argv[cur_arg + 1], argptr, FNAMESIZE - 9);
+	if (retval) {
+	  goto main_ret_1;
 	}
-	evecname = (char*)malloc(jj * sizeof(char));
-	if (!evecname) {
-	  goto main_ret_NOMEM;
-	}
-	memcpy(evecname, argv[cur_arg + 1], jj);
 	for (jj = 2; jj <= ii; jj++) {
 	  if (!strcmp(argv[cur_arg + jj], "normalize-pheno") && (!regress_pcs_normalize_pheno)) {
 	    regress_pcs_normalize_pheno = 1;
@@ -12451,11 +12434,10 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
-	  printf("Error: %s filename too long.\n", argptr);
-	  goto main_ret_OPEN_FAIL;
+	retval = alloc_fname(&freqname, argv[cur_arg + 1], argptr, FNAMESIZE);
+	if (retval) {
+	  goto main_ret_1;
 	}
-	strcpy(freqname, argv[cur_arg + 1]);
       } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode lgen", 11))) {
 	if (argptr2[5] == ' ') {
 	  if (argptr2[6] == '1') {
@@ -12513,15 +12495,10 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-        jj = strlen(argv[cur_arg + 1]) + 1;
-	if (jj > FNAMESIZE) {
-	  fputs("Error: --reference-allele filename too long.\n", stdout);
+	retval = alloc_fname(&refalleles, argv[cur_arg + 1], argptr, FNAMESIZE);
+	if (retval) {
+	  goto main_ret_1;
 	}
-	refalleles = (char*)malloc(jj * sizeof(char));
-	if (!refalleles) {
-	  goto main_ret_NOMEM;
-	}
-        memcpy(refalleles, argv[cur_arg + 1], jj);
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -12766,7 +12743,7 @@ int main(int argc, char** argv) {
       calculation_type = CALC_MAKE_BED;
     }
   }
-  if (prune && (!phenoname[0]) && (!fam_col_6)) {
+  if (prune && (!phenoname) && (!fam_col_6)) {
     printf("Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.\n");
     goto main_ret_INVALID_CMDLINE;
   }
@@ -12869,10 +12846,10 @@ int main(int argc, char** argv) {
     }
   } else if (genname[0]) {
   // famname[0] indicates binary vs. text
-  // extractname[0], excludename[0], keepname[0], and removename[0] indicate
-  // the presence of their respective flags
+  // extractname, excludename, keepname, and removename indicate the presence
+  // of their respective flags
   // filtername indicates existence of filter
-  // freqname[0] signals --read-freq
+  // freqname signals --read-freq
     if (calculation_type & (~(CALC_DISTANCE_MASK | CALC_REGRESS_DISTANCE))) {
       fputs("Error: Only --distance calculations are currently supported with --data.\n", stdout);
       retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -12923,6 +12900,12 @@ int main(int argc, char** argv) {
   free_cond(evecname);
   free_cond(filtername);
   free_cond(loaddistname);
+  free_cond(freqname);
+  free_cond(extractname);
+  free_cond(excludename);
+  free_cond(keepname);
+  free_cond(removename);
+  free_cond(phenoname);
   if (logfile) {
     if (!log_failed) {
       logstr("\nEnd time: ");
