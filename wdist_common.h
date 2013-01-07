@@ -520,10 +520,6 @@ static inline unsigned int popcount_long(unsigned long val) {
   return popcount2_long(val - ((val >> 1) & FIVEMASK));
 }
 
-#ifdef __LP64__
-unsigned long popcount_vecs(__m128i* vptr, unsigned long ct);
-#endif
-
 unsigned long popcount_longs(unsigned long* lptr, unsigned long start_idx, unsigned long end_idx);
 
 unsigned long popcount_chars(unsigned long* lptr, unsigned long start_idx, unsigned long end_idx);

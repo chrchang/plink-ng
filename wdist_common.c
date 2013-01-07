@@ -831,7 +831,7 @@ void distance_print_done(int format_code, char* outname, char* outname_end) {
 
 #ifdef __LP64__
 // Basic SSE2 implementation of Lauradoux/Walisch popcount.
-unsigned long popcount_vecs(__m128i* vptr, unsigned long ct) {
+static inline unsigned long popcount_vecs(__m128i* vptr, unsigned long ct) {
   // popcounts vptr[0..(ct-1)].  Assumes ct is a multiple of 3.
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};

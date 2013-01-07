@@ -216,7 +216,7 @@ extern "C" {
 #define MINV(aa, bb) ((aa) > (bb))? (bb) : (aa)
 
 const char ver_str[] =
-  "WDIST v0.14.1"
+  "WDIST v0.14.2"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -225,7 +225,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (6 Jan 2013)";
+  " (7 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -1069,6 +1069,8 @@ unsigned char* wkspace;
 char** subst_argv = NULL;
 char* script_buf = NULL;
 char* rerun_buf = NULL;
+char* flag_buf = NULL;
+unsigned int* flag_map = NULL;
 
 int dispmsg(int retval) {
   switch (retval) {
@@ -1085,6 +1087,8 @@ int dispmsg(int retval) {
   free_cond(subst_argv);
   free_cond(script_buf);
   free_cond(rerun_buf);
+  free_cond(flag_buf);
+  free_cond(flag_map);
   return retval;
 }
 
@@ -10516,16 +10520,30 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   return retval;
 }
 
+// output-missing-phenotype + terminating null
+#define MAX_FLAG_LEN 25
+
+static inline int is_flag(char* param) {
+  char cc = param[1];
+  return ((*param == '-') && ((cc > '9') || (cc < '0'))); 
+}
+
+static inline char* is_flag_start(char* param) {
+  char cc = param[1];
+  if ((*param == '-') && ((cc > '9') || (cc < '0'))) {
+    return (cc == '-')? (&(param[2])) : (&(param[1]));
+  }
+  return NULL;
+}
+
 int param_count(int argc, char** argv, int flag_idx) {
   // Counts the number of optional parameters given to the flag at position
   // flag_idx, treating any parameter not beginning with "--" as optional.
   int opt_params = 0;
   int cur_idx = flag_idx + 1;
   while (cur_idx < argc) {
-    if (argv[cur_idx][0] == '-') {
-      if ((argv[cur_idx][1] < '0') || (argv[cur_idx][1] > '9')) {
-        break;
-      }
+    if (is_flag(argv[cur_idx])) {
+      break;
     }
     opt_params++;
     cur_idx++;
@@ -10583,6 +10601,11 @@ int plink_dist_flag(char* argptr, int calculation_type, double exponent, int par
 
 void invalid_arg(char* argv) {
   printf("Error: Invalid flag ('%s').%s%s", argv, (argv[0] == '-')? "" : "  All flags must be preceded by 1-2 dashes.", errstr_append);
+}
+
+void print_ver() {
+  fputs(ver_str, stdout);
+  fputs(ver_str2, stdout);
 }
 
 int main(int argc, char** argv) {
@@ -10693,8 +10716,10 @@ int main(int argc, char** argv) {
   int silent = 0;
   int merge_type = 0;
   int keep_allele_order = 0;
+  unsigned int flag_ct = 0;
   Chrom_info chrom_info;
   char* argptr2;
+  char* flagptr;
   int cur_arg_start;
   char* missing_code = NULL;
   double dxx;
@@ -10709,10 +10734,12 @@ int main(int argc, char** argv) {
   for (ii = 1; ii < argc; ii++) {
     if ((!memcmp("-script", argv[ii], 8)) || (!memcmp("--script", argv[ii], 9))) {
       if (enforce_param_ct_range(argc, argv, ii, 1, 1, &jj)) {
+	print_ver();
 	goto main_ret_INVALID_CMDLINE;
       }
       for (jj = ii + 2; jj < argc; jj++) {
 	if ((!memcmp("-script", argv[jj], 8)) || (!memcmp("--script", argv[jj], 9))) {
+	  print_ver();
 	  printf("Error: Multiple --script flags.  Merge the files into one.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -10720,14 +10747,17 @@ int main(int argc, char** argv) {
       // logging not yet active, so don't use fopen_checked()
       scriptfile = fopen(argv[ii + 1], "rb");
       if (!scriptfile) {
+	print_ver();
 	printf(errstr_fopen, argv[ii + 1]);
 	goto main_ret_OPEN_FAIL;
       }
       if (fseeko(scriptfile, 0, SEEK_END)) {
+	print_ver();
 	goto main_ret_READ_FAIL;
       }
       llxx = ftello(scriptfile);
       if (llxx > MAXLINELEN) {
+	print_ver();
 	printf("Error: Script file too long (max %u bytes).\n", MAXLINELEN);
 	retval = RET_INVALID_FORMAT;
 	goto main_ret_1;
@@ -10736,10 +10766,12 @@ int main(int argc, char** argv) {
       rewind(scriptfile);
       script_buf = (char*)malloc(jj);
       if (!script_buf) {
+	print_ver();
 	goto main_ret_NOMEM;
       }
       kk = fread(script_buf, 1, jj, scriptfile);
       if (kk < jj) {
+	print_ver();
 	goto main_ret_READ_FAIL;
       }
       fclose_null(&scriptfile);
@@ -10781,10 +10813,12 @@ int main(int argc, char** argv) {
   for (ii = cur_arg; ii < argc; ii++) {
     if ((!memcmp("-rerun", argv[ii], 7)) || (!memcmp("--rerun", argv[ii], 8))) {
       if (enforce_param_ct_range(argc, argv, ii, 0, 1, &jj)) {
+	print_ver();
 	goto main_ret_INVALID_CMDLINE;
       }
       for (kk = ii + jj + 1; kk < argc; kk++) {
 	if ((!memcmp("-rerun", argv[kk], 7)) || (!memcmp("--rerun", argv[kk], 8))) {
+	  print_ver();
 	  fputs("Error: Duplicate --rerun flag.\n", stdout);
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -10795,25 +10829,30 @@ int main(int argc, char** argv) {
 	scriptfile = fopen("wdist.log", "r");
       }
       if (!scriptfile) {
+	print_ver();
 	goto main_ret_OPEN_FAIL;
       }
       if (!fgets(tbuf, MAXLINELEN, scriptfile)) {
-	printf("Error: Empty log file for --rerun.\n");
+	print_ver();
+	fputs("Error: Empty log file for --rerun.\n", stdout);
 	goto main_ret_INVALID_FORMAT;
       }
       if (!fgets(tbuf, MAXLINELEN, scriptfile)) {
-	printf("Error: Only one line in --rerun log file.\n");
+	print_ver();
+	fputs("Error: Only one line in --rerun log file.\n", stdout);
 	goto main_ret_INVALID_FORMAT;
       }
       fclose_null(&scriptfile);
       kk = atoi(tbuf);
       if ((kk < 1) || (kk > MAXLINELEN)) {
-	printf("Error: Improperly formatted --rerun log file.\n");
+	print_ver();
+	fputs("Error: Improperly formatted --rerun log file.\n", stdout);
 	goto main_ret_INVALID_FORMAT;
       }
       uii = strlen(tbuf) + 1;
       if (uii == MAXLINELEN) {
-	printf("Error: Second line too long in --rerun log file.\n");
+	print_ver();
+	fputs("Error: Second line too long in --rerun log file.\n", stdout);
 	goto main_ret_INVALID_FORMAT;
       }
       rerun_buf = (char*)malloc(uii);
@@ -10825,17 +10864,17 @@ int main(int argc, char** argv) {
       oo = 0;
       do {
 	if (no_more_items(sptr)) {
-	  printf("Error: Improperly formatted --rerun log file.\n");
+	  print_ver();
+	  fputs("Error: Improperly formatted --rerun log file.\n", stdout);
 	  goto main_ret_INVALID_FORMAT;
 	}
-	if ((*sptr == '-') && ((sptr[1] < '0') || (sptr[1] > '9'))) {
-	  if (sptr[1] == '-') {
-	    sptr++;
-	  }
-	  uii = strlen_se(sptr);
+	argptr = is_flag_start(sptr);
+	if (argptr) {
+	  uii = strlen_se(argptr);
           for (nn = cur_arg; nn < argc; nn++) {
-	    if ((argv[nn][0] == '-') && ((argv[nn][1] < '0') || (argv[nn][1] > '9'))) {
-	      if (!memcmp(sptr, &(argv[nn][(argv[nn][1] == '-')? 1 : 0]), uii)) {
+	    argptr2 = is_flag_start(argv[nn]);
+	    if (argptr2) {
+	      if (!memcmp(argptr, argptr2, uii)) {
 		nn = -1;
 		break;
 	      }
@@ -10850,7 +10889,7 @@ int main(int argc, char** argv) {
 		break;
 	      }
 	      sptr = next_item(sptr);
-	    } while (!((*sptr == '-') && ((sptr[1] < '0') || (sptr[1] > '9'))));
+	    } while (!is_flag(sptr));
 	  } else {
 	    mm++;
 	    sptr = next_item(sptr);
@@ -10862,6 +10901,7 @@ int main(int argc, char** argv) {
       } while (mm < kk);
       subst_argv2 = (char**)malloc((argc + kk - oo - jj - 1 - cur_arg) * sizeof(char*));
       if (!subst_argv2) {
+	print_ver();
 	goto main_ret_NOMEM;
       }
       oo = 0;
@@ -10894,38 +10934,132 @@ int main(int argc, char** argv) {
       subst_argv2 = NULL;
     }
   }
+  if ((cur_arg < argc) && (!is_flag(argv[cur_arg]))) {
+    print_ver();
+    printf("Error: Flag expected instead of '%s'.%s", argv[cur_arg], errstr_append);
+    goto main_ret_INVALID_CMDLINE;
+  }
+  flag_ct = 0;
   for (ii = cur_arg; ii < argc; ii++) {
-    if ((!memcmp("-help", argv[ii], 6)) || (!memcmp("--help", argv[ii], 7))) {
-      if ((cur_arg != 1) || subst_argv) {
-	printf("--help present, ignoring other flags.\n");
+    argptr = is_flag_start(argv[ii]);
+    if (argptr) {
+      if (!memcmp("help", argptr, 5)) {
+	if ((cur_arg != 1) || (ii != 1) || subst_argv) {
+	  fputs("--help present, ignoring other flags.\n", stdout);
+	}
+	print_ver();
+	retval = disp_help(argc - cur_arg - 1, &(argv[cur_arg + 1]));
+	goto main_ret_1;
       }
-      fputs(ver_str, stdout);
-      fputs(ver_str2, stdout);
-      retval = disp_help(argc - cur_arg - 1, &(argv[cur_arg + 1]));
-      goto main_ret_1;
+      if (strlen(argptr) >= MAX_FLAG_LEN) {
+	print_ver();
+	invalid_arg(argv[ii]);
+        goto main_ret_INVALID_CMDLINE;
+      }
+      flag_ct++;
     }
   }
-
+  if (!flag_ct) {
+    print_ver();
+    goto main_ret_NULL_CALC;
+  }
+  flag_buf = (char*)malloc(flag_ct * MAX_FLAG_LEN * sizeof(char));
+  flag_map = (unsigned int*)malloc(flag_ct * sizeof(int));
+  if ((!flag_buf) || (!flag_map)) {
+    print_ver();
+    goto main_ret_NOMEM;
+  }
+  flagptr = flag_buf;
+  uii = 0;
+  mm = 0; // parameter count increase due to aliases
   for (ii = cur_arg; ii < argc; ii++) {
-    if ((!memcmp("-silent", argv[ii], 8)) || (!memcmp("--silent", argv[ii], 9))) {
+    argptr = is_flag_start(argv[ii]);
+    if (argptr) {
+      kk = strlen(argptr) + 1;
+      // handle aliases now, so sorting will have the desired effects
+      switch (*argptr) {
+      case 'Z':
+	if (!memcmp(argptr, "Z-genome", 9)) {
+	  memcpy(flagptr, "genome gz", 10);
+	  mm++;
+	  break;
+	}
+	goto main_flag_copy;
+      case 'a':
+	if ((kk == 10) && (!memcmp(argptr, "allele", 6))) {
+	  if ((tolower(argptr[6]) == 'a') && (tolower(argptr[7]) == 'c') && (tolower(argptr[8]) == 'g') && (tolower(argptr[9]) == 't')) {
+	    memcpy(flagptr, "alleleACGT", 11);
+	    break;
+	  }
+	}
+	goto main_flag_copy;
+      case 'f':
+	if (!memcmp(argptr, "frqx", 5)) {
+	  memcpy(flagptr, "freqx", 6);
+	  break;
+	}
+	goto main_flag_copy;
+      case 'g':
+	if (!memcmp(argptr, "grm-cutoff", 11)) {
+          memcpy(flagptr, "rel-cutoff", 11);
+	  break;
+	}
+	goto main_flag_copy;
+      case 'r':
+	if (!memcmp(argptr, "recode", 6)) {
+	  if ((!memcmp(&(argptr[6]), "12", 3)) || (!memcmp(&(argptr[6]), "-lgen", 6))) {
+	    if (kk == 8) {
+	      memcpy(flagptr, "recode 12", 10);
+	    } else {
+	      memcpy(flagptr, "recode lgen", 12);
+	    }
+	    printf("Note: %s flag deprecated.  Use '%s ...'.\n", argptr, flagptr);
+	    mm++;
+            break;
+	  }
+	}
+	goto main_flag_copy;
+      case 'u':
+	if (!memcmp(argptr, "update-freq", 12)) {
+	  memcpy(flagptr, "read-freq", 10);
+	  break;
+	}
+	// fall through
+      default:
+      main_flag_copy:
+	memcpy(flagptr, argptr, kk);
+      }
+      flagptr = &(flagptr[MAX_FLAG_LEN]);
+      flag_map[uii++] = ii;
+    }
+  }
+  qsort_ext(flag_buf, flag_ct, MAX_FLAG_LEN, strcmp_deref, (char*)flag_map, sizeof(int));
+  jj = strlen_se(flag_buf);
+  for (uii = 1; uii < flag_ct; uii++) {
+    kk = strlen_se(&(flag_buf[uii * MAX_FLAG_LEN]));
+    if ((jj == kk) && (!memcmp(&(flag_buf[(uii - 1) * MAX_FLAG_LEN]), &(flag_buf[uii * MAX_FLAG_LEN]), kk))) {
+      flag_buf[uii * MAX_FLAG_LEN + kk] = '\0'; // just in case of aliases
+      print_ver();
+      printf("Error: Duplicate --%s flag.\n", &(flag_buf[uii * MAX_FLAG_LEN]));
+      goto main_ret_INVALID_CMDLINE;
+    }
+    jj = kk;
+  }
+
+  for (uii = 0; uii < flag_ct; uii++) {
+    if (!memcmp("silent", &(flag_buf[uii * MAX_FLAG_LEN]), 7)) {
       freopen("/dev/null", "w", stdout);
       silent = 1;
       break;
     }
   }
-  fputs(ver_str, stdout);
-  fputs(ver_str2, stdout);
+  print_ver();
   memcpy(outname, "wdist", 6);
-  for (ii = cur_arg; ii < argc; ii++) {
-    if ((!memcmp("-out", argv[ii], 5)) || (!memcmp("--out", argv[ii], 6))) {
+  for (uii = 0; uii < flag_ct; uii++) {
+    if (!memcmp("out", &(flag_buf[uii * MAX_FLAG_LEN]), 4)) {
+      ii = flag_map[uii];
       if (enforce_param_ct_range(argc, argv, ii, 1, 1, &jj)) {
 	goto main_ret_INVALID_CMDLINE;
-      }
-      for (jj = ii + 2; jj < argc; jj++) {
-        if ((!memcmp("-out", argv[jj], 5)) || (!memcmp("--out", argv[jj], 6))) {
-	  fputs("Error: Duplicate --out flag.\n", stdout);
-	  goto main_ret_INVALID_CMDLINE;
-	}
       }
       if (strlen(argv[ii + 1]) > (FNAMESIZE - MAX_POST_EXT)) {
 	fputs("Error: --out parameter too long.\n", stdout);
@@ -10933,9 +11067,6 @@ int main(int argc, char** argv) {
       }
       strcpy(outname, argv[ii + 1]);
     }
-  }
-  if (argc == cur_arg) {
-    goto main_ret_NULL_CALC;
   }
   uii = strlen(outname);
   memcpy(&(outname[uii]), ".log", 5);
@@ -10946,12 +11077,19 @@ int main(int argc, char** argv) {
   outname[uii] = '\0';
 
   logstr(ver_str);
-  sprintf(logbuf, "\n%d argument%s:", argc - cur_arg, (argc - cur_arg == 1)? "" : "s");
+  sprintf(logbuf, "\n%d argument%s:", argc + mm - cur_arg, (argc + mm - cur_arg == 1)? "" : "s");
   logstr(logbuf);
-  for (ii = cur_arg; ii < argc; ii++) {
+  for (uii = 0; uii < flag_ct; uii++) {
     logstr(" ");
-    logstr(argv[ii]);
+    logstr(&(flag_buf[uii * MAX_FLAG_LEN]));
+    ii = flag_map[uii] + 1;
+    while ((ii < argc) && (!is_flag(argv[ii]))) {
+      logstr(" ");
+      logstr(argv[ii++]);
+    }
   }
+  // logstr("\nHostname: ");
+  // logstr();
   logstr("\nWorking directory: ");
   getcwd(tbuf, FNAMESIZE);
   logstr(tbuf);
@@ -13013,6 +13151,10 @@ int main(int argc, char** argv) {
   script_buf = NULL;
   free_cond(rerun_buf);
   rerun_buf = NULL;
+  free_cond(flag_buf);
+  flag_buf = NULL;
+  free_cond(flag_map);
+  flag_map = NULL;
 
   bubble = (char*)malloc(67108864 * sizeof(char));
   if (!bubble) {
