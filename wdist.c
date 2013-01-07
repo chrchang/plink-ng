@@ -5076,7 +5076,7 @@ int incr_text_allele(char cc, char* marker_alleles, unsigned int* marker_allele_
   return -1;
 }
 
-int calc_freqs_and_binary_hwe(FILE* pedfile, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned long* founder_info, int nonfounders, int maf_succ, double* set_allele_freqs, char** marker_alleles_ptr, unsigned int** marker_allele_cts_ptr, unsigned int** missing_cts_ptr, int bed_offset, unsigned long long* line_mids, int pedbuflen, unsigned char missing_geno, int hwe_all, char* pheno_c, int** hwe_lls_ptr, int** hwe_lhs_ptr, int** hwe_hhs_ptr, int** hwe_ll_allfs_ptr, int** hwe_lh_allfs_ptr, int** hwe_hh_allfs_ptr, int** ll_cts_ptr, int** lh_cts_ptr, int** hh_cts_ptr, int wt_needed, unsigned char** marker_weights_base_ptr, double** marker_weights_ptr) {
+int calc_freqs_and_binary_hwe(FILE* pedfile, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned long* founder_info, int nonfounders, int maf_succ, double* set_allele_freqs, char** marker_alleles_ptr, unsigned long** marker_reverse_ptr, unsigned int** marker_allele_cts_ptr, unsigned int** missing_cts_ptr, int bed_offset, unsigned long long* line_mids, int pedbuflen, unsigned char missing_geno, int hwe_all, char* pheno_c, int** hwe_lls_ptr, int** hwe_lhs_ptr, int** hwe_hhs_ptr, int** hwe_ll_allfs_ptr, int** hwe_lh_allfs_ptr, int** hwe_hh_allfs_ptr, int** ll_cts_ptr, int** lh_cts_ptr, int** hh_cts_ptr, int wt_needed, unsigned char** marker_weights_base_ptr, double** marker_weights_ptr) {
   int binary_files = (line_mids == NULL);
   unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   unsigned char* wkspace_mark;
@@ -5091,6 +5091,7 @@ int calc_freqs_and_binary_hwe(FILE* pedfile, unsigned int unfiltered_marker_ct, 
   unsigned int set_allele_ct;
   unsigned int missing_ct;
   unsigned int clear_allele_ct;
+  unsigned long* marker_reverse;
   unsigned int* marker_allele_cts;
   unsigned int* marker_nf_allele_cts;
   char* marker_alleles = NULL;
@@ -5136,6 +5137,12 @@ int calc_freqs_and_binary_hwe(FILE* pedfile, unsigned int unfiltered_marker_ct, 
     }
     *marker_alleles_ptr = marker_alleles;
   }
+  uii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  if (wkspace_alloc_ul_checked(&marker_reverse, uii * sizeof(long))) {
+    return RET_NOMEM;
+  }
+  fill_ulong_zero(marker_reverse, uii);
+
   if (wkspace_alloc_i_checked(&hwe_lls, unfiltered_marker_ct * sizeof(int))) {
     return RET_NOMEM;
   }
@@ -5700,9 +5707,9 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
   return RET_ALLELE_MISMATCH;
 }
 
-int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, int unfiltered_marker_ct, unsigned long* marker_exclude, double* set_allele_freqs, Chrom_info* chrom_info_ptr, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, int* ll_cts, int* lh_cts, int* hh_cts, int binary_files, int freq_counts, int freqx, char missing_geno) {
+int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, int unfiltered_marker_ct, unsigned long* marker_exclude, double* set_allele_freqs, Chrom_info* chrom_info_ptr, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, int* ll_cts, int* lh_cts, int* hh_cts, int binary_files, int freq_counts, int freqx, char missing_geno, int keep_allele_order) {
+  int reverse = 0;
   unsigned int uii;
-  int reverse;
   char minor_allele;
   unsigned int chrom_idx;
   unsigned int chrom_end_marker;
@@ -5749,10 +5756,12 @@ int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, in
       if (is_set(marker_exclude, uii)) {
 	continue;
       }
-      if (binary_files) {
-	reverse = (set_allele_freqs[uii] < 0.5) ? 1 : 0;
-      } else { // compatibility quirk
-	reverse = (set_allele_freqs[uii] <= 0.5) ? 1 : 0;
+      if (!keep_allele_order) {
+	if (binary_files) {
+	  reverse = (set_allele_freqs[uii] < 0.5) ? 1 : 0;
+	} else { // compatibility quirk
+	  reverse = (set_allele_freqs[uii] <= 0.5) ? 1 : 0;
+	}
       }
       minor_allele = marker_alleles[uii * 2 + 1 - (1 ^ reverse)];
       if (!minor_allele) {
@@ -5932,6 +5941,9 @@ int text_load_hwe(FILE* pedfile, int unfiltered_marker_ct, unsigned long* marker
   }
   wkspace_reset(wkspace_mark);
   return 0;
+}
+
+void calc_marker_reverse(unsigned long* marker_reverse, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_exclude_ct, double* set_allele_freqs) {
 }
 
 void enforce_hwe_threshold(double hwe_thresh, int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int* marker_exclude_ct_ptr, int* hwe_lls, int* hwe_lhs, int* hwe_hhs, int hwe_all, int* hwe_ll_allfs, int* hwe_lh_allfs, int* hwe_hh_allfs) {
@@ -8561,6 +8573,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   //   marker_alleles[4 * ii] is identity of major allele at SNP ii
   //   marker_alleles[4 * ii + 1] is identity of 2nd most frequent allele, etc.
   char* marker_alleles = NULL;
+  unsigned long* marker_reverse = NULL;
   unsigned int* marker_allele_cts;
   unsigned int* missing_cts;
   int retval = RET_SUCCESS;
@@ -8969,7 +8982,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   // major/minor allele
   nonfounders = (nonfounders || (!fam_col_34));
   wt_needed = distance_wt_req(calculation_type) && (!distance_flat_missing);
-  retval = calc_freqs_and_binary_hwe(pedfile, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_alleles, &marker_allele_cts, &missing_cts, bed_offset, line_mids, pedbuflen, (unsigned char)missing_geno, hwe_all, g_pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &ll_cts, &lh_cts, &hh_cts, wt_needed, &marker_weights_base, &g_marker_weights);
+  retval = calc_freqs_and_binary_hwe(pedfile, unfiltered_marker_ct, marker_exclude, unfiltered_indiv_ct, indiv_exclude, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_alleles, &marker_reverse, &marker_allele_cts, &missing_cts, bed_offset, line_mids, pedbuflen, (unsigned char)missing_geno, hwe_all, g_pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &ll_cts, &lh_cts, &hh_cts, wt_needed, &marker_weights_base, &g_marker_weights);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -8997,8 +9010,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     } else {
       strcpy(outname_end, ".frq");
     }
-    retval = write_freqs(&outfile, outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_alleles, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, binary_files, freq_counts, freqx, missing_geno);
-    if (retval || (calculation_type == CALC_FREQ)) {
+    retval = write_freqs(&outfile, outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_alleles, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, binary_files, freq_counts, freqx, missing_geno, keep_allele_order);
+    if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_FREQ))))) {
       goto wdist_ret_2;
     }
   }
@@ -9013,7 +9026,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     sprintf(logbuf, "%u SNP%s removed due to missing genotype data (--geno).\n", uii, (uii == 1)? "" : "s");
     logprintb();
   }
-  // calc_marker_reverse(marker_reverse, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_allele_cts);
+  if (!keep_allele_order) {
+    calc_marker_reverse(marker_reverse, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, set_allele_freqs);
+  }
   wkspace_reset(marker_allele_cts);
   marker_allele_cts = NULL;
   // missing_cts = NULL;
@@ -11128,6 +11143,10 @@ int main(int argc, char** argv) {
       logstr(" ");
       logstr(argv[ii++]);
     }
+  }
+  if (gethostname(tbuf, 4 * MAXLINELEN + 256) != -1) {
+    logstr("\nHostname: ");
+    logstr(tbuf);
   }
   logstr("\nWorking directory: ");
   getcwd(tbuf, FNAMESIZE);

@@ -115,7 +115,10 @@ typedef union {
 // size of generic text line load buffer.  .ped lines can of course be longer
 #define MAXLINELEN 131072
 
-// matches current Linux PATH_MAX
+// note that this is NOT foolproof: see e.g.
+// http://insanecoding.blogspot.com/2007/11/pathmax-simply-isnt.html .  (This
+// is why I haven't bothered with OS-based #ifdefs here.)  But it should be
+// good enough in practice.
 #define FNAMESIZE 4096
 
 // allow .mdist.bin.xxxxxxxxxx extension
