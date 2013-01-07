@@ -225,7 +225,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (7 Jan 2013)";
+  " (8 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -924,6 +924,9 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --merge-allow-equal-pos   : Do not merge markers with different names but\n"
 "                              identical positions.\n"
 	       );
+    help_print("reference-allele", &help_ctrl, 0,
+"  --reference-allele [file] : Force alleles named in the file to A1.\n"
+	       );
     help_print("read-freq\tupdate-freq", &help_ctrl, 0,
 "  --read-freq [filename]    : Loads MAFs from the given PLINK-style or --freqx\n"
 "  --update-freq [filename]    frequency file, instead of just setting them to\n"
@@ -1066,13 +1069,7 @@ long malloc_size_mb = 0;
 
 unsigned char* wkspace;
 
-char** subst_argv = NULL;
-char* script_buf = NULL;
-char* rerun_buf = NULL;
-char* flag_buf = NULL;
-unsigned int* flag_map = NULL;
-
-int dispmsg(int retval) {
+void dispmsg(int retval) {
   switch (retval) {
   case RET_NOMEM:
     logprint("Error: Out of memory.  Try the --memory and/or --parallel flags.\n");
@@ -1084,12 +1081,6 @@ int dispmsg(int retval) {
     logprint("\nError: File read failure.\n");
     break;
   }
-  free_cond(subst_argv);
-  free_cond(script_buf);
-  free_cond(rerun_buf);
-  free_cond(flag_buf);
-  free_cond(flag_map);
-  return retval;
 }
 
 // (copied from PLINK helper.cpp, modified to directly perform threshold test
@@ -8497,7 +8488,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, char* phenoname_str, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int rel_calc_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier, int allelexxxx, int merge_type, int keep_allele_order) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int rel_calc_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier, int allelexxxx, int merge_type, int keep_allele_order) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -8833,7 +8824,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     wkspace_reset(wkspace_mark);
   }
 
-  if (removename[0] || keepname[0] || filtername[0]) {
+  if (removename[0] || keepname[0] || filtername) {
     wkspace_mark = wkspace_base;
     duplicate_fail = 0;
     retval = sort_item_ids(&cptr, &iptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, &duplicate_fail);
@@ -8856,7 +8847,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 	goto wdist_ret_2;
       }
     }
-    if (filtername[0]) {
+    if (filtername) {
       if (!mfilter_col) {
 	mfilter_col = 1;
       }
@@ -10619,20 +10610,27 @@ int main(int argc, char** argv) {
   char excludename[FNAMESIZE];
   char keepname[FNAMESIZE];
   char removename[FNAMESIZE];
-  char filtername[FNAMESIZE];
   char freqname[FNAMESIZE];
-  char loaddistname[FNAMESIZE];
-  char evecname[FNAMESIZE];
   char genname[FNAMESIZE];
   char samplename[FNAMESIZE];
   char mergename1[FNAMESIZE];
   char mergename2[FNAMESIZE];
   char mergename3[FNAMESIZE];
   time_t rawtime;
-  char* makepheno_str = NULL;
-  char* filterval = NULL;
   char* argptr;
   char* sptr;
+  char** subst_argv = NULL;
+  char* script_buf = NULL;
+  char* rerun_buf = NULL;
+  char* flag_buf = NULL;
+  unsigned int* flag_map = NULL;
+  char* makepheno_str = NULL;
+  char* phenoname_str = NULL;
+  char* refalleles = NULL;
+  char* filterval = NULL;
+  char* evecname = NULL;
+  char* filtername = NULL;
+  char* loaddistname = NULL;
   char** subst_argv2;
   int retval = 0;
   int load_params = 0; // describes what file parameters have been provided
@@ -10642,7 +10640,6 @@ int main(int argc, char** argv) {
   int fam_col_5 = 1;
   int fam_col_6 = 1;
   int mpheno_col = 0;
-  char* phenoname_str = NULL;
   int affection_01 = 0;
   double exponent = 0.0;
   double min_maf = 0.0;
@@ -11125,9 +11122,7 @@ int main(int argc, char** argv) {
   excludename[0] = '\0';
   keepname[0] = '\0';
   removename[0] = '\0';
-  filtername[0] = '\0';
   freqname[0] = '\0';
-  evecname[0] = '\0';
   genname[0] = '\0';
   samplename[0] = '\0';
   memcpy(output_missing_pheno, "-9", 3);
@@ -11501,12 +11496,22 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
+	jj = strlen(argv[cur_arg + 1]) + 1;
+	if (jj > FNAMESIZE) {
 	  printf("Error: --filter filename too long.\n");
 	  goto main_ret_OPEN_FAIL;
 	}
-	strcpy(filtername, argv[cur_arg + 1]);
-	filterval = argv[cur_arg + 2];
+	filtername = (char*)malloc(jj * sizeof(char));
+	if (!filtername) {
+	  goto main_ret_NOMEM;
+	}
+	memcpy(filtername, argv[cur_arg + 1], jj);
+	jj = strlen(argv[cur_arg + 2]) + 1;
+	filterval = (char*)malloc(jj * sizeof(char));
+	if (!filterval) {
+	  goto main_ret_NOMEM;
+	}
+	memcpy(filterval, argv[cur_arg + 2], jj);
       } else if (!memcmp(argptr2, "ilter-cases", 12)) {
 	filter_case_control = 1;
       } else if (!memcmp(argptr2, "ilter-controls", 15)) {
@@ -11788,11 +11793,16 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (strlen(argv[cur_arg + 1]) > FNAMESIZE - 1) {
+	jj = strlen(argv[cur_arg + 1]) + 1;
+	if (jj > FNAMESIZE) {
 	  printf("Error: --load-dists filename too long.\n");
 	  goto main_ret_OPEN_FAIL;
 	}
-	strcpy(loaddistname, argv[cur_arg + 1]);
+	loaddistname = (char*)malloc(jj * sizeof(char));
+	if (!loaddistname) {
+	  goto main_ret_NOMEM;
+	}
+        memcpy(loaddistname, argv[cur_arg + 1], jj);
 	calculation_type |= CALC_LOAD_DISTANCES;
       } else if (!memcmp(argptr2, "file", 5)) {
 	if (load_rare || load_params) {
@@ -11867,7 +11877,12 @@ int main(int argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(phenoname, argv[cur_arg + 1]);
-	makepheno_str = argv[cur_arg + 2];
+	jj = strlen(argv[cur_arg + 2]) + 1;
+	makepheno_str = (char*)malloc(jj * sizeof(char));
+	if (!makepheno_str) {
+	  goto main_ret_NOMEM;
+	}
+	memcpy(makepheno_str, argv[cur_arg + 2], jj);
       } else if (!memcmp(argptr2, "pheno", 6)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -12251,7 +12266,12 @@ int main(int argc, char** argv) {
 	  printf("Error: --mpheno and --pheno-name flags cannot coexist.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	phenoname_str = argv[cur_arg + 1];
+	jj = strlen(argv[cur_arg + 1]);
+	phenoname_str = (char*)malloc(jj * sizeof(char));
+	if (!phenoname_str) {
+	  goto main_ret_NOMEM;
+	}
+	memcpy(phenoname_str, argv[cur_arg + 1], jj);
       } else if (!memcmp(argptr2, "heno-merge", 11)) {
 	pheno_merge = 1;
       } else if (!memcmp(argptr2, "rune", 5)) {
@@ -12394,12 +12414,16 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 5, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	jj = strlen(argv[cur_arg + 1]);
-	if (jj > FNAMESIZE - 10) {
+	jj = strlen(argv[cur_arg + 1]) + 1;
+	if (jj > FNAMESIZE - 9) {
 	  printf("Error: --regress-pcs .evec/.eigenvec filename too long.\n");
 	  goto main_ret_OPEN_FAIL;
 	}
-	strcpy(evecname, argv[cur_arg + 1]);
+	evecname = (char*)malloc(jj * sizeof(char));
+	if (!evecname) {
+	  goto main_ret_NOMEM;
+	}
+	memcpy(evecname, argv[cur_arg + 1], jj);
 	for (jj = 2; jj <= ii; jj++) {
 	  if (!strcmp(argv[cur_arg + jj], "normalize-pheno") && (!regress_pcs_normalize_pheno)) {
 	    regress_pcs_normalize_pheno = 1;
@@ -12485,6 +12509,19 @@ int main(int argc, char** argv) {
 	  }
 	}
 	calculation_type |= CALC_RECODE;
+      } else if (!memcmp(argptr2, "eference-allele", 16)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        jj = strlen(argv[cur_arg + 1]) + 1;
+	if (jj > FNAMESIZE) {
+	  fputs("Error: --reference-allele filename too long.\n", stdout);
+	}
+	refalleles = (char*)malloc(jj * sizeof(char));
+	if (!refalleles) {
+	  goto main_ret_NOMEM;
+	}
+        memcpy(refalleles, argv[cur_arg + 1], jj);
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -12787,9 +12824,6 @@ int main(int argc, char** argv) {
   }
   logprintb();
   wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
-  if ((malloc_size_mb > default_alloc_mb) && !wkspace_ua) {
-    malloc_size_mb = default_alloc_mb;
-  }
   while (!wkspace_ua) {
     malloc_size_mb = (malloc_size_mb * 3) / 4;
     if (malloc_size_mb < WKSPACE_MIN_MB) {
@@ -12837,9 +12871,8 @@ int main(int argc, char** argv) {
   // famname[0] indicates binary vs. text
   // extractname[0], excludename[0], keepname[0], and removename[0] indicate
   // the presence of their respective flags
-  // filtername[0] indicates existence of filter
+  // filtername indicates existence of filter
   // freqname[0] signals --read-freq
-  // evecname[0] signals --regress-pcs
     if (calculation_type & (~(CALC_DISTANCE_MASK | CALC_REGRESS_DISTANCE))) {
       fputs("Error: Only --distance calculations are currently supported with --data.\n", stdout);
       retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -12850,7 +12883,7 @@ int main(int argc, char** argv) {
       retval = wdist_dosage(calculation_type, genname, samplename, outname, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else {
-    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, phenoname_str, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, keep_allele_order);
+    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, keep_allele_order);
   }
   free(wkspace_ua);
   while (0) {
@@ -12878,6 +12911,18 @@ int main(int argc, char** argv) {
  main_ret_1:
   fclose_cond(scriptfile);
   dispmsg(retval);
+  free_cond(subst_argv);
+  free_cond(script_buf);
+  free_cond(rerun_buf);
+  free_cond(flag_buf);
+  free_cond(flag_map);
+  free_cond(makepheno_str);
+  free_cond(phenoname_str);
+  free_cond(refalleles);
+  free_cond(filterval);
+  free_cond(evecname);
+  free_cond(filtername);
+  free_cond(loaddistname);
   if (logfile) {
     if (!log_failed) {
       logstr("\nEnd time: ");
