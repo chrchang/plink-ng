@@ -10716,11 +10716,11 @@ int main(int argc, char** argv) {
   int silent = 0;
   int merge_type = 0;
   int keep_allele_order = 0;
+  unsigned int cur_flag = 0;
   unsigned int flag_ct = 0;
   Chrom_info chrom_info;
   char* argptr2;
   char* flagptr;
-  int cur_arg_start;
   char* missing_code = NULL;
   double dxx;
   char cc;
@@ -10970,7 +10970,6 @@ int main(int argc, char** argv) {
     goto main_ret_NOMEM;
   }
   flagptr = flag_buf;
-  uii = 0;
   mm = 0; // parameter count increase due to aliases
   for (ii = cur_arg; ii < argc; ii++) {
     argptr = is_flag_start(argv[ii]);
@@ -11005,6 +11004,12 @@ int main(int argc, char** argv) {
 	  break;
 	}
 	goto main_flag_copy;
+      case 'm':
+	if (!memcmp(argptr, "missing_code", 13)) {
+	  memcpy(flagptr, "missing-code", 13);
+	  break;
+	}
+	goto main_flag_copy;
       case 'r':
 	if (!memcmp(argptr, "recode", 6)) {
 	  if ((!memcmp(&(argptr[6]), "12", 3)) || (!memcmp(&(argptr[6]), "-lgen", 6))) {
@@ -11030,7 +11035,7 @@ int main(int argc, char** argv) {
 	memcpy(flagptr, argptr, kk);
       }
       flagptr = &(flagptr[MAX_FLAG_LEN]);
-      flag_map[uii++] = ii;
+      flag_map[cur_flag++] = ii;
     }
   }
   sptr = (char*)malloc(flag_ct * MAX_FLAG_LEN);
@@ -11041,19 +11046,19 @@ int main(int argc, char** argv) {
   qsort_ext2(flag_buf, flag_ct, MAX_FLAG_LEN, strcmp_deref, (char*)flag_map, sizeof(int), sptr, MAX_FLAG_LEN);
   free(sptr);
   jj = strlen_se(flag_buf);
-  for (uii = 1; uii < flag_ct; uii++) {
-    kk = strlen_se(&(flag_buf[uii * MAX_FLAG_LEN]));
-    if ((jj == kk) && (!memcmp(&(flag_buf[(uii - 1) * MAX_FLAG_LEN]), &(flag_buf[uii * MAX_FLAG_LEN]), kk))) {
-      flag_buf[uii * MAX_FLAG_LEN + kk] = '\0'; // just in case of aliases
+  for (cur_flag = 1; cur_flag < flag_ct; cur_flag++) {
+    kk = strlen_se(&(flag_buf[cur_flag * MAX_FLAG_LEN]));
+    if ((jj == kk) && (!memcmp(&(flag_buf[(cur_flag - 1) * MAX_FLAG_LEN]), &(flag_buf[cur_flag * MAX_FLAG_LEN]), kk))) {
+      flag_buf[cur_flag * MAX_FLAG_LEN + kk] = '\0'; // just in case of aliases
       print_ver();
-      printf("Error: Duplicate --%s flag.\n", &(flag_buf[uii * MAX_FLAG_LEN]));
+      printf("Error: Duplicate --%s flag.\n", &(flag_buf[cur_flag * MAX_FLAG_LEN]));
       goto main_ret_INVALID_CMDLINE;
     }
     jj = kk;
   }
 
-  for (uii = 0; uii < flag_ct; uii++) {
-    if (!memcmp("silent", &(flag_buf[uii * MAX_FLAG_LEN]), 7)) {
+  for (cur_flag = 0; cur_flag < flag_ct; cur_flag++) {
+    if (!memcmp("silent", &(flag_buf[cur_flag * MAX_FLAG_LEN]), 7)) {
       freopen("/dev/null", "w", stdout);
       silent = 1;
       break;
@@ -11061,9 +11066,9 @@ int main(int argc, char** argv) {
   }
   print_ver();
   memcpy(outname, "wdist", 6);
-  for (uii = 0; uii < flag_ct; uii++) {
-    if (!memcmp("out", &(flag_buf[uii * MAX_FLAG_LEN]), 4)) {
-      ii = flag_map[uii];
+  for (cur_flag = 0; cur_flag < flag_ct; cur_flag++) {
+    if (!memcmp("out", &(flag_buf[cur_flag * MAX_FLAG_LEN]), 4)) {
+      ii = flag_map[cur_flag];
       if (enforce_param_ct_range(argc, argv, ii, 1, 1, &jj)) {
 	goto main_ret_INVALID_CMDLINE;
       }
@@ -11085,10 +11090,10 @@ int main(int argc, char** argv) {
   logstr(ver_str);
   sprintf(logbuf, "\n%d argument%s:", argc + mm - cur_arg, (argc + mm - cur_arg == 1)? "" : "s");
   logstr(logbuf);
-  for (uii = 0; uii < flag_ct; uii++) {
+  for (cur_flag = 0; cur_flag < flag_ct; cur_flag++) {
     logstr(" --");
-    logstr(&(flag_buf[uii * MAX_FLAG_LEN]));
-    ii = flag_map[uii] + 1;
+    logstr(&(flag_buf[cur_flag * MAX_FLAG_LEN]));
+    ii = flag_map[cur_flag] + 1;
     while ((ii < argc) && (!is_flag(argv[ii]))) {
       logstr(" ");
       logstr(argv[ii++]);
@@ -11126,118 +11131,46 @@ int main(int argc, char** argv) {
   genname[0] = '\0';
   samplename[0] = '\0';
   memcpy(output_missing_pheno, "-9", 3);
-  while (cur_arg < argc) {
-    argptr = argv[cur_arg];
-    if (argptr[0] != '-') {
-      invalid_arg(argptr);
-      goto main_ret_INVALID_CMDLINE;
-    }
-    if (argptr[1] == '-') {
-      argptr2 = &(argptr[3]);
-    } else {
-      argptr2 = &(argptr[2]);
-    }
-    cur_arg_start = cur_arg;
-    switch (argptr2[-1]) {
+  cur_flag = 0;
+  do {
+    argptr = flag_buf[cur_flag * MAX_FLAG_LEN];
+    argptr2 = (&argptr[1]);
+    cur_arg = flag_map[cur_flag];
+    switch (*argptr) {
     case '1':
       if (*argptr2 == '\0') {
-	// --1
-	if (argptr[1] == '1') {
-	  // special case: don't accept -1 as an alias for --1.  This
-          // restriction allows param_count() to determine argument counts for
-	  // each flag using local information.
-	  printf("Error: Invalid flag ('-1').  To avoid confusion with the number -1, WDIST\nrequires the --1 flag to be preceded by two dashes.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	affection_01 = 1;
-	cur_arg += 1;
-      }
-      break;
-
-    case 'Z':
-      // Yeah, difference between memcmp and strcmp is utterly negligible, but
-      // it's also essentially painless to use memcmp (the maintenance danger
-      // is miscounted string length, but that's both easy to test and
-      // practically harmless in the command line parser), so, why not.
-      if (!memcmp(argptr2, "-genome", 8)) {
-	if (calculation_type & CALC_GENOME) {
-	  fputs("Error: Duplicate --genome flag.\n", stdout);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	for (jj = 1; jj <= ii; jj++) {
-	  if (!strcmp(argv[cur_arg + jj], "full")) {
-	    genome_output_full = 1;
-	  } else if (!strcmp(argv[cur_arg + jj], "unbounded")) {
-	    genome_ibd_unbounded = 1;
-	  } else {
-	    printf("Error: Invalid --Z-genome parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
-	    goto main_ret_INVALID_CMDLINE;
-	  }
-	}
-	cur_arg += ii + 1;
-	calculation_type |= CALC_GENOME;
-	genome_output_gz = 1;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'a':
       if (!memcmp(argptr2, "utosome", 8)) {
-	if (chrom_info.chrom_mask) {
-	  printf("Error: --chr and --autosome flags cannot coexist.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (autosome) {
-	  printf("Error: Duplicate --autosome flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	autosome = 1;
-	cur_arg++;
       } else if (!memcmp(argptr2, "llow-no-sex", 12)) {
 	allow_no_sex = 1;
-	cur_arg++;
       } else if (!memcmp(argptr2, "ll", 3)) {
 	printf("Note: --all flag has no effect.\n");
-	cur_arg++;
       } else if (!memcmp(argptr2, "llele1234", 10)) {
-	if (allelexxxx) {
-	  if (allelexxxx == 2) {
-	    printf("Error: --allele1234 and --alleleACGT flags cannot coexist.\n");
-	  } else {
-	    printf("Error: Duplicate --allele1234 flag.\n");
-	  }
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	printf("Note: --allele1234 not yet written.\n");
 	allelexxxx = 1;
-	cur_arg++;
-      } else if ((!memcmp(argptr2, "llele", 5)) && (tolower(argptr2[5]) == 'a') && (tolower(argptr2[6]) == 'c') && (tolower(argptr2[7]) == 'g') && (tolower(argptr2[8]) == 't') && (argptr2[9] == '\0')) {
+      } else if (!memcmp(argptr2, "lleleACGT", 9)) {
 	if (allelexxxx) {
 	  if (allelexxxx == 1) {
 	    printf("Error: --allele1234 and --alleleACGT flags cannot coexist.\n");
-	  } else {
-	    printf("Error: Duplicate --alleleACGT flag.\n");
 	  }
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	printf("Note: --alleleACGT not yet written.\n");
 	allelexxxx = 2;
-	cur_arg++;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'b':
       if (!memcmp(argptr2, "file", 5)) {
-	if (load_params & 0x38f) {
-	  if (load_params & 8) {
-	    printf("Error: Duplicate --bfile flag.\n");
-	  } else {
-	    printf("Error: --bfile flag cannot coexist with text input file flags.\n");
-	  }
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	load_params |= 8;
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -11263,16 +11196,7 @@ int main(int argc, char** argv) {
 	  strcpy(famname, sptr);
 	  strcat(famname, ".fam");
 	}
-	cur_arg += ii + 1;
       } else if (!memcmp(argptr2, "ed", 3)) {
-	if (load_params & 0x397) {
-	  if (load_params & 16) {
-	    printf("Error: Duplicate --bed flag.\n");
-	  } else {
-	    printf("Error: --bed flag cannot coexist with text input file flags.\n");
-	  }
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	load_params |= 16;
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -11282,16 +11206,7 @@ int main(int argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(pedname, argv[cur_arg + 1]);
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "im", 3)) {
-	if (load_params & 0x3a7) {
-	  if (load_params & 32) {
-	    printf("Error: Duplicate --bim flag.\n");
-	  } else {
-	    printf("Error: --bim flag cannot coexist with text input file flags.\n");
-	  }
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	load_params |= 32;
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -11301,12 +11216,7 @@ int main(int argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(mapname, argv[cur_arg + 1]);
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "merge", 6)) {
-	if (calculation_type & CALC_MERGE) {
-	  printf("Error: Duplicate --merge/--bmerge/--merge-list flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 3, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -11346,9 +11256,9 @@ int main(int argc, char** argv) {
 	}
 	calculation_type |= CALC_MERGE;
 	merge_type |= MERGE_BINARY;
-	cur_arg += 1 + ii;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
-
       break;
 
     case 'c':
@@ -11356,17 +11266,12 @@ int main(int argc, char** argv) {
 	if (species_flag(&chrom_info, SPECIES_COW)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg++;
       } else if (!memcmp(argptr2, "hr", 3)) {
-	ii = param_count(argc, argv, cur_arg);
 	if (autosome) {
 	  printf("Error: --chr and --autosome flags cannot coexist.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (chrom_info.chrom_mask) {
-	  printf("Error: Duplicate --chr flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
+	ii = param_count(argc, argv, cur_arg);
 	if (!ii) {
 	  printf("Error: Missing --chr parameter.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
@@ -11380,28 +11285,23 @@ int main(int argc, char** argv) {
 	  }
 	  chrom_info.chrom_mask |= 1LLU << kk;
 	}
-	cur_arg += 1 + ii;
       } else if (!memcmp(argptr2, "ompound-genotypes", 18)) {
 	printf("Note: --compound-genotypes flag unnecessary (spaces between alleles in .ped\nare optional).\n");
-	cur_arg++;
       } else if (!memcmp(argptr2, "ompress", 8)) {
 	printf("Error: --compress flag retired.  Use 'gzip [filename]'.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "ounts", 6)) {
 	printf("Note: --counts flag deprecated.  Use '--freq counts' or --freqx instead.\n");
         freq_counts = 1;
-	cur_arg++;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'd':
       if (!memcmp(argptr2, "ata", 4)) {
 	if (load_params & 0xff) {
-	  if (load_params & 0x80) {
-	    printf("Error: Duplicate --data flag.\n");
-	  } else {
-	    printf("Error: --data flag cannot coexist with PLINK input file flags.\n");
-	  }
+	  printf("Error: --data conflicts with another input flag.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	load_params |= 0x80;
@@ -11425,10 +11325,8 @@ int main(int argc, char** argv) {
 	  strcpy(samplename, sptr);
 	  strcat(samplename, ".sample");
 	}
-	cur_arg += ii + 1;
       } else if (!memcmp(argptr2, "ebug", 5)) {
 	debug_on = 1;
-	cur_arg++;
       } else if (!memcmp(argptr2, "ecompress", 10)) {
 	printf("Error: --decompress flag retired.  Use 'gunzip [filename]'.\n");
 	goto main_ret_INVALID_CMDLINE;
@@ -11436,15 +11334,7 @@ int main(int argc, char** argv) {
 	if (species_flag(&chrom_info, SPECIES_DOG)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg++;
       } else if (!memcmp(argptr2, "istance", 8)) {
-	if (calculation_type & CALC_LOAD_DISTANCES) {
-	  printf("Error: --load-dists cannot coexist with a distance matrix calculation flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	} else if (calculation_type & CALC_DISTANCE_MASK) {
-	  printf("Error: Duplicate --distance flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 7, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -11492,19 +11382,13 @@ int main(int argc, char** argv) {
 	    }
 	    calculation_type |= CALC_DISTANCE_BIN;
 	  } else if (!strcmp(argv[cur_arg + jj], "ibs")) {
-	    if (calculation_type & CALC_PLINK_IBS_MATRIX) {
-	      printf("Error: --matrix flag cannot be used with '--distance ibs'.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
-	    } else if (calculation_type & CALC_DISTANCE_IBS) {
+	    if (calculation_type & CALC_DISTANCE_IBS) {
 	      printf("Error: Duplicate 'ibs' modifier.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    calculation_type |= CALC_DISTANCE_IBS;
 	  } else if (!strcmp(argv[cur_arg + jj], "1-ibs")) {
-	    if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
-	      printf("Error: --matrix flag cannot be used with '--distance 1-ibs'.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
-	    } else if (calculation_type & CALC_DISTANCE_1_MINUS_IBS) {
+	    if (calculation_type & CALC_DISTANCE_1_MINUS_IBS) {
 	      printf("Error: Duplicate '1-ibs' modifier.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
@@ -11524,11 +11408,6 @@ int main(int argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE;
 	  }
 	}
-	if (((calculation_type & CALC_DISTANCE_BIN) && (!(calculation_type & CALC_DISTANCE_SHAPEMASK))) && (parallel_tot > 1)) {
-	  printf("Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	cur_arg += ii + 1;
 	if (!(calculation_type & CALC_DISTANCE_FORMATMASK)) {
 	  calculation_type |= CALC_DISTANCE_ALCT;
 	}
@@ -11541,16 +11420,13 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	calculation_type |= CALC_PLINK_DISTANCE_MATRIX;
-	cur_arg++;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'e':
       if (!memcmp(argptr2, "xtract", 7)) {
-	if (extractname[0]) {
-	  printf("Error: Duplicate --extract flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -11559,12 +11435,7 @@ int main(int argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(extractname, argv[cur_arg + 1]);
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "xclude", 7)) {
-	if (excludename[0]) {
-	  printf("Error: Duplicate --exclude flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -11573,10 +11444,9 @@ int main(int argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(excludename, argv[cur_arg + 1]);
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "xponent", 8)) {
-	if (calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) {
-	  printf("Error: --exponent flag cannot be used with --distance-matrix or --matrix.\n");
+	if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
+	  printf("Error: --exponent flag cannot be used with --distance-matrix.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -11586,18 +11456,15 @@ int main(int argc, char** argv) {
 	  printf("Error: Invalid --exponent parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg += 2;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'f':
       if (!memcmp(argptr2, "ile", 4)) {
 	if (load_params & 0x3f9) {
-	  if (load_params & 1) {
-	    printf("Error: Duplicate --file flag.\n");
-	  } else {
-	    printf("Error: --file flag cannot coexist with binary or Oxford file flags.\n");
-	  }
+	  printf("Error: --file conflicts with another input flag.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	load_params |= 1;
@@ -11616,14 +11483,9 @@ int main(int argc, char** argv) {
 	  strcpy(mapname, argv[cur_arg + 1]);
 	  strcat(mapname, ".map");
 	}
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "am", 3)) {
 	if (load_params & 0x3c7) {
-	  if (load_params & 64) {
-	    printf("Error: Duplicate --fam flag.\n");
-	  } else {
-	    printf("Error: --fam flag cannot coexist with text input file flags.\n");
-	  }
+	  printf("Error: --fam flag cannot coexist with text input file flags.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	load_params |= 64;
@@ -11635,12 +11497,7 @@ int main(int argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(famname, argv[cur_arg + 1]);
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "ilter", 6)) {
-	if (filtername[0]) {
-	  printf("Error: Duplicate --filter flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -11650,66 +11507,31 @@ int main(int argc, char** argv) {
 	}
 	strcpy(filtername, argv[cur_arg + 1]);
 	filterval = argv[cur_arg + 2];
-	cur_arg += 3;
       } else if (!memcmp(argptr2, "ilter-cases", 12)) {
-	if (filter_case_control == 2) {
-	  printf("Error: --filter-cases and --filter-controls cannot be used together.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	filter_case_control = 1;
-	cur_arg += 1;
       } else if (!memcmp(argptr2, "ilter-controls", 15)) {
 	if (filter_case_control == 1) {
 	  printf("Error: --filter-cases and --filter-controls cannot be used together.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	filter_case_control = 2;
-	cur_arg += 1;
+      } else if (!memcmp(argptr2, "ilter-females", 14)) {
+	filter_sex = 2;
       } else if (!memcmp(argptr2, "ilter-males", 12)) {
-	if (!fam_col_5) {
-	  printf("Error: --filter-males/--filter-females cannot be used with --no-sex.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (filter_sex == 2) {
 	  printf("Error: --filter-males and --filter-females cannot be used together.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	filter_sex = 1;
-	cur_arg += 1;
-      } else if (!memcmp(argptr2, "ilter-females", 14)) {
-	if (!fam_col_5) {
-	  printf("Error: --filter-males/--filter-females cannot be used with --no-sex.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (filter_sex == 1) {
-	  printf("Error: --filter-males and --filter-females cannot be used together.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	filter_sex = 2;
-	cur_arg += 1;
       } else if (!memcmp(argptr2, "ilter-founders", 15)) {
-	if (filter_founder_nonf == 2) {
-	  printf("Error: --filter-founders and --filter-nonfounders cannot be used together.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	filter_founder_nonf = 1;
-	cur_arg += 1;
       } else if (!memcmp(argptr2, "ilter-nonfounders", 18)) {
 	if (filter_founder_nonf == 1) {
 	  printf("Error: --filter-founders and --filter-nonfounders cannot be used together.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	filter_founder_nonf = 2;
-	cur_arg += 1;
       } else if (!memcmp(argptr2, "req", 4)) {
-	if (freqname[0]) {
-	  printf("Error: --freq and --read-freq flags cannot coexist.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (calculation_type & CALC_FREQ) {
-	  printf("Error: Duplicate --freq/--freqx flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -11720,31 +11542,23 @@ int main(int argc, char** argv) {
 	  }
 	  freq_counts = 1;
 	}
-        cur_arg += 1 + ii;
 	calculation_type |= CALC_FREQ;
-      } else if ((!memcmp(argptr2, "reqx", 5)) || (!memcmp(argptr2, "rqx", 4))) {
-	if (freqname[0]) {
-	  printf("Error: %s and --read-freq flags cannot coexist.%s", argptr, errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	}
+      } else if (!memcmp(argptr2, "reqx", 5)) {
 	if (calculation_type & CALC_FREQ) {
-	  printf("Error: Duplicate --freq/--freqx flag.\n");
+	  printf("Error: --freqx cannot be used with --freq.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg += 1;
 	calculation_type |= CALC_FREQ;
 	freqx = 1;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'g':
       if (!memcmp(argptr2, "en", 3)) {
 	if (load_params & 0x17f) {
-	  if (load_params & 0x100) {
-	    printf("Error: Duplicate --gen flag.\n");
-	  } else {
-	    printf("Error: --gen flag cannot coexist with PLINK input file flags.\n");
-	  }
+	  printf("Error: --gen conflicts with another input flag.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	load_params |= 0x100;
@@ -11756,7 +11570,6 @@ int main(int argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(genname, argv[cur_arg + 1]);
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "eno", 4)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -11773,15 +11586,14 @@ int main(int argc, char** argv) {
 	} else {
 	  geno_thresh = 0.1;
 	}
-	cur_arg += ii + 1;
-      } else if (!memcmp(argptr2, "rm-cutoff", 10)) {
-	goto main_rel_cutoff;
-      } else if (!memcmp(argptr2, "enome", 6)) {
-	if (calculation_type & CALC_GENOME) {
-	  printf("Error: Duplicate --genome flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
+      } else if ((!memcmp(argptr2, "enome", 6)) || (!memcmp(argptr2, "enome gz", 9))) {
+	if (argptr2[5] == ' ') {
+	  kk = 1;
+	  genome_output_gz = 1;
+	} else {
+	  kk = 0;
 	}
-	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 3, &ii)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 3 - kk, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	for (jj = 1; jj <= ii; jj++) {
@@ -11796,16 +11608,8 @@ int main(int argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE;
 	  }
 	}
-	cur_arg += ii + 1;
 	calculation_type |= CALC_GENOME;
       } else if (!memcmp(argptr2, "roupdist", 9)) {
-	if (parallel_tot > 1) {
-	  printf("Error: --parallel and --groupdist cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	} else if (calculation_type & CALC_GROUPDIST) {
-	  printf("Error: Duplicate --groupdist flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -11823,11 +11627,10 @@ int main(int argc, char** argv) {
 	    }
 	  }
 	}
-	cur_arg += ii + 1;
 	calculation_type |= CALC_GROUPDIST;
       } else if (!memcmp(argptr2, "rm", 3)) {
-	if (load_rare) {
-	  printf("Error: --grm cannot be used with another load flag.%s", errstr_append);
+	if (load_params) {
+	  printf("Error: --grm conflicts with another input flag.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
@@ -11844,7 +11647,8 @@ int main(int argc, char** argv) {
 	  memcpy(pedname, "wdist", 6);
 	}
         load_rare = LOAD_RARE_GRM;
-        cur_arg += ii + 1;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
@@ -11853,7 +11657,6 @@ int main(int argc, char** argv) {
 	if (species_flag(&chrom_info, SPECIES_HORSE)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg++;
       } else if (!memcmp(argptr2, "we", 3)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -11870,24 +11673,19 @@ int main(int argc, char** argv) {
 	} else {
 	  hwe_thresh = 0.001;
 	}
-	cur_arg += ii + 1;
       } else if (!memcmp(argptr2, "we-all", 7)) {
 	hwe_all = 1;
-	cur_arg += 1;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'i':
       if (!memcmp(argptr2, "bc", 3)) {
-	if (rel_calc_type & REL_CALC_COV) {
-	  printf("Error: --ibc flag cannot coexist with a covariance matrix calculation.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	cur_arg += 1;
 	calculation_type |= CALC_IBC;
       } else if (!memcmp(argptr2, "ndep-pairwise", 14)) {
 	if (calculation_type & CALC_LD_PRUNE) {
-	  printf("Error: Multiple LD pruning flags.\n");
+	  printf("Error: --indep-pairwise cannot be used with --indep.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 3, 4, &ii)) {
@@ -11923,13 +11721,8 @@ int main(int argc, char** argv) {
 	  printf("Error: Invalid --indep-pairwise r^2 threshold '%s'.%s", argv[cur_arg + ii], errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg += 1 + ii;
 	calculation_type |= (CALC_LD_PRUNE | CALC_LD_PRUNE_PAIRWISE);
       } else if (!memcmp(argptr2, "ndep", 5)) {
-	if (calculation_type & CALC_LD_PRUNE) {
-	  printf("Error: Multiple LD pruning flags.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 3, 4, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -11963,18 +11756,14 @@ int main(int argc, char** argv) {
 	  printf("Error: --indep VIF threshold '%s' too small (must be >= 1).%s", argv[cur_arg + ii], errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg += 1 + ii;
 	calculation_type |= CALC_LD_PRUNE;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
-
       break;
 
     case 'k':
       if (!memcmp(argptr2, "eep", 4)) {
-	if (keepname[0]) {
-	  printf("Error: Duplicate --keep flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -11983,10 +11772,10 @@ int main(int argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(keepname, argv[cur_arg + 1]);
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "eep-allele-order", 17)) {
 	keep_allele_order = 1;
-	cur_arg++;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
@@ -11994,9 +11783,6 @@ int main(int argc, char** argv) {
       if (!memcmp(argptr2, "oad-dists", 10)) {
 	if (calculation_type & CALC_GDISTANCE_MASK) {
 	  printf("Error: --load-dists cannot coexist with a distance matrix calculation flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	} else if (calculation_type & CALC_LOAD_DISTANCES) {
-	  printf("Error: Duplicate --load-dists flag.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -12007,11 +11793,10 @@ int main(int argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(loaddistname, argv[cur_arg + 1]);
-	cur_arg += 2;
 	calculation_type |= CALC_LOAD_DISTANCES;
       } else if (!memcmp(argptr2, "file", 5)) {
-	if (load_rare) {
-	  printf("Error: --lfile cannot be used with another load flag.%s", errstr_append);
+	if (load_rare || load_params) {
+	  printf("Error: --lfile conflicts with another input flag.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
@@ -12025,19 +11810,16 @@ int main(int argc, char** argv) {
 	} else {
 	  memcpy(pedname, "wdist", 6);
 	}
-	cur_arg += 1 + ii;
 	load_rare = LOAD_RARE_LGEN;
+      } else {
+        goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'm':
       if (!memcmp(argptr2, "ap", 3)) {
-	if (load_params & 0x3fc) {
-	  if (load_params & 4) {
-	    printf("Error: Duplicate --map flag.\n");
-	  } else {
-	    printf("Error: --map flag cannot coexist with binary or Oxford file flags.\n");
-	  }
+	if ((load_params & 0x3fc) || load_rare) {
+	  printf("Error: --map conflicts with another input flag.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	load_params |= 4;
@@ -12049,13 +11831,8 @@ int main(int argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(mapname, argv[cur_arg + 1]);
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "issing-genotype", 16)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (missing_geno != '0') {
-	  printf("Error: Duplicate --missing-genotype flag.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	missing_geno = argv[cur_arg + 1][0];
@@ -12063,13 +11840,8 @@ int main(int argc, char** argv) {
 	  printf("Error: Invalid --missing-genotype parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "issing-phenotype", 17)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (missing_pheno != -9) {
-	  printf("Error: Duplicate --missing-phenotype flag.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	missing_pheno = atoi(argv[cur_arg + 1]);
@@ -12077,13 +11849,8 @@ int main(int argc, char** argv) {
 	  printf("Error: Invalid --missing-phenotype parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg += 2;
-      } else if ((!memcmp(argptr2, "issing-code", 12)) || (!memcmp(argptr2, "issing_code", 12))) {
+      } else if ((!memcmp(argptr2, "issing-code", 12))) {
         if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (missing_code) {
-	  printf("Error: Duplicate --missing-code flag.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (ii) {
@@ -12091,21 +11858,8 @@ int main(int argc, char** argv) {
 	} else {
 	  missing_code = (char*)"";
 	}
-	cur_arg += 1 + ii;
       } else if (!memcmp(argptr2, "ake-pheno", 10)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (phenoname[0]) {
-	  if (makepheno_str) {
-	    printf("Error: Duplicate --make-pheno flag.\n");
-	  } else {
-	    printf("Error: --pheno and --make-pheno flags cannot coexist.\n");
-	  }
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (tail_pheno) {
-	  printf("Error: --make-pheno and --tail-pheno flags cannot coexist.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
@@ -12114,17 +11868,8 @@ int main(int argc, char** argv) {
 	}
 	strcpy(phenoname, argv[cur_arg + 1]);
 	makepheno_str = argv[cur_arg + 2];
-	cur_arg += 3;
       } else if (!memcmp(argptr2, "pheno", 6)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (mpheno_col != 0) {
-	  printf("Error: Duplicate --mpheno flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (phenoname_str) {
-	  printf("Error: --mpheno and --pheno-name flags cannot coexist.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	mpheno_col = atoi(argv[cur_arg + 1]);
@@ -12132,13 +11877,8 @@ int main(int argc, char** argv) {
 	  printf("Error: Invalid --mpheno parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "filter", 7)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (mfilter_col) {
-	  printf("Error: Duplicate --mfilter flag.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	mfilter_col = atoi(argv[cur_arg + 1]);
@@ -12146,28 +11886,29 @@ int main(int argc, char** argv) {
 	  printf("Error: Invalid --mfilter parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "emory", 6)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	malloc_size_mb = atoi(argv[cur_arg + 1]);
-	if (malloc_size_mb < 64) {
-	  printf("Error: Invalid --memory parameter '%s' %s.%s", argv[cur_arg + 1], (malloc_size_mb > 0)? "(minimum 64)" : "", errstr_append);
+	if (malloc_size_mb < WKSPACE_MIN_MB) {
+	  if (malloc_size_mb > 0) {
+	    printf("Error: Invalid --memory parameter '%s' (minimum %u).%s", argv[cur_arg + 1], WKSPACE_MIN_MB, errstr_append);
+	  } else {
+	    printf("Error: Invalid --memory parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  }
 	  goto main_ret_INVALID_CMDLINE;
 	}
 #ifndef __LP64__
 	if (malloc_size_mb > 2944) {
-	  printf("Error: --memory parameter too large for 32-bit version.\n");
+	  printf("Error: --memory parameter too large for 32-bit version (max 2944).\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 #endif
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "ouse", 5)) {
 	if (species_flag(&chrom_info, SPECIES_MOUSE)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg++;
       } else if (!memcmp(argptr2, "af", 3)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -12187,7 +11928,6 @@ int main(int argc, char** argv) {
 	} else {
 	  min_maf = 0.01;
 	}
-	cur_arg += ii + 1;
       } else if (!memcmp(argptr2, "ax-maf", 7)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -12203,7 +11943,6 @@ int main(int argc, char** argv) {
 	  printf("Error: --max-maf parameter '%s' too large (must be < 0.5).%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "ind", 4)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -12220,10 +11959,43 @@ int main(int argc, char** argv) {
 	} else {
 	  mind_thresh = 0.1;
 	}
-	cur_arg += ii + 1;
+      } else if (!memcmp(argptr2, "ake-grm", 8)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	rel_calc_type |= REL_CALC_GZ | REL_CALC_GRM;
+	for (jj = 1; jj <= ii; jj++) {
+	  if (!strcmp(argv[cur_arg + jj], "cov")) {
+	    if (calculation_type & CALC_IBC) {
+	      printf("Error: --make-grm 'cov' modifier cannot coexist with --ibc flag.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    if (ibc_type) {
+	      printf("Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    rel_calc_type |= REL_CALC_COV;
+	  } else if (!strcmp(argv[cur_arg + jj], "no-gz")) {
+	    rel_calc_type &= ~REL_CALC_GZ;
+	  } else if ((!strcmp(argv[cur_arg + jj], "ibc1")) || (!strcmp(argv[cur_arg + jj], "ibc2"))) {
+	    if (rel_calc_type & REL_CALC_COV) {
+	      printf("Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    if (ibc_type) {
+	      printf("Error: --make-grm '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + jj], errstr_append);
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    ibc_type = argv[cur_arg + jj][3] - '0';
+	  } else {
+	    printf("Error: Invalid --make-grm parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
+	    goto main_ret_INVALID_CMDLINE;
+	  }
+	}
+	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "ake-rel", 8)) {
 	if (calculation_type & CALC_RELATIONSHIP) {
-	  printf("Error: --make-rel cannot coexist with another relationship matrix file\ncreation flag.%s", errstr_append);
+	  printf("Error: --make-rel cannot be used with --make-grm.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 3, &ii)) {
@@ -12233,10 +12005,6 @@ int main(int argc, char** argv) {
 	  if (!strcmp(argv[cur_arg + jj], "cov")) {
 	    if (calculation_type & CALC_IBC) {
 	      printf("Error: --make-rel 'cov' modifier cannot coexist with --ibc flag.\n");
-	      goto main_ret_INVALID_CMDLINE;
-	    }
-	    if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-	      printf("Error: --make-rel 'cov' modifier cannot coexist with\n--unrelated-heritability flag.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    if (ibc_type) {
@@ -12262,9 +12030,6 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE;
 	    } else if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_TRI) {
 	      printf("Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
-	    } else if (parallel_tot > 1) {
-	      printf("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    rel_calc_type |= REL_CALC_SQ;
@@ -12301,57 +12066,9 @@ int main(int argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE;
 	  }
 	}
-	if (((rel_calc_type & REL_CALC_BIN) && (!(rel_calc_type & REL_CALC_SHAPEMASK))) && (parallel_tot > 1)) {
-	  printf("Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	cur_arg += ii + 1;
 	if (!(rel_calc_type & REL_CALC_SHAPEMASK)) {
 	  rel_calc_type |= REL_CALC_TRI;
 	}
-	calculation_type |= CALC_RELATIONSHIP;
-      } else if (!memcmp(argptr2, "ake-grm", 8)) {
-	if (calculation_type & CALC_RELATIONSHIP) {
-	  printf("Error: --make-grm cannot coexist with another relationship matrix file\ncreation flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	rel_calc_type |= REL_CALC_GZ | REL_CALC_GRM;
-	for (jj = 1; jj <= ii; jj++) {
-	  if (!strcmp(argv[cur_arg + jj], "cov")) {
-	    if (calculation_type & CALC_IBC) {
-	      printf("Error: --make-grm 'cov' modifier cannot coexist with --ibc flag.\n");
-	      goto main_ret_INVALID_CMDLINE;
-	    }
-	    if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-	      printf("Error: --make-grm 'cov' modifier cannot coexist with --unrelated-heritability\nflag.\n");
-	      goto main_ret_INVALID_CMDLINE;
-	    }
-	    if (ibc_type) {
-	      printf("Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
-	    }
-	    rel_calc_type |= REL_CALC_COV;
-	  } else if (!strcmp(argv[cur_arg + jj], "no-gz")) {
-	    rel_calc_type &= ~REL_CALC_GZ;
-	  } else if ((!strcmp(argv[cur_arg + jj], "ibc1")) || (!strcmp(argv[cur_arg + jj], "ibc2"))) {
-	    if (rel_calc_type & REL_CALC_COV) {
-	      printf("Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
-	    }
-	    if (ibc_type) {
-	      printf("Error: --make-grm '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + jj], errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
-	    }
-	    ibc_type = argv[cur_arg + jj][3] - '0';
-	  } else {
-	    printf("Error: Invalid --make-grm parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
-	    goto main_ret_INVALID_CMDLINE;
-	  }
-	}
-	cur_arg += ii + 1;
 	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "atrix", 6)) {
 	if (plink_dist_flag(argptr, calculation_type, exponent, parallel_tot)) {
@@ -12362,19 +12079,15 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	calculation_type |= CALC_PLINK_IBS_MATRIX;
-	cur_arg++;
       } else if (!memcmp(argptr2, "af-succ", 8)) {
 	maf_succ = 1;
-	cur_arg += 1;
       } else if (!memcmp(argptr2, "ap3", 4)) {
 	printf("Note: --map3 flag unnecessary (.map file format is autodetected).\n");
-	cur_arg += 1;
       } else if (!memcmp(argptr2, "ake-bed", 8)) {
 	calculation_type |= CALC_MAKE_BED;
-	cur_arg++;
       } else if (!memcmp(argptr2, "erge", 5)) {
 	if (calculation_type & CALC_MERGE) {
-	  printf("Error: Duplicate --merge/--bmerge/--merge-list flag.\n");
+	  printf("Error: --merge cannot be used with --bmerge.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 2, &ii)) {
@@ -12404,33 +12117,9 @@ int main(int argc, char** argv) {
 	  memcpy(&(mergename2[jj]), ".map", 5);
 	}
 	calculation_type |= CALC_MERGE;
-	cur_arg += 1 + ii;
-      } else if (!memcmp(argptr2, "erge-mode", 10)) {
-	if (merge_type & MERGE_MODE_MASK) {
-	  printf("Error: Duplicate --merge-mode flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	cc = argv[cur_arg + 1][0];
-	if ((cc < '1') || (cc > '7') || (argv[cur_arg + 1][1] != '\0')) {
-          printf("Error: Invalid --merge-mode parameter %s.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if ((merge_type & MERGE_LIST) && (cc > '5')) {
-	  printf("Error: --merge-mode 6-7 cannot be used with --merge-list.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-        merge_type |= cc - '0';
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "erge-list", 10)) {
 	if (calculation_type & CALC_MERGE) {
-	  printf("Error: Duplicate --merge/--bmerge/--merge-list flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if ((merge_type & MERGE_MODE_MASK) > 5) {
-	  printf("Error: --merge-mode 6-7 cannot be used with --merge-list.%s", errstr_append);
+	  printf("Error: --merge-list cannot be used with --merge or --bmerge.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -12444,34 +12133,40 @@ int main(int argc, char** argv) {
 	memcpy(mergename1, argv[cur_arg + 1], jj);
 	merge_type |= MERGE_LIST;
 	calculation_type |= CALC_MERGE;
-	cur_arg += 2;
-      } else if (!memcmp(argptr2, "erge-ascii-sort", 16)) {
-	if (merge_type & MERGE_NOSORT) {
-	  printf("Error: --merge-ascii-sort cannot be used with --merge-no-sort.%s", errstr_append);
+      } else if (!memcmp(argptr2, "erge-mode", 10)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
+	cc = argv[cur_arg + 1][0];
+	if ((cc < '1') || (cc > '7') || (argv[cur_arg + 1][1] != '\0')) {
+          printf("Error: Invalid --merge-mode parameter %s.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if ((merge_type & MERGE_LIST) && (cc > '5')) {
+	  printf("Error: --merge-mode 6-7 cannot be used with --merge-list.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        merge_type |= cc - '0';
+      } else if (!memcmp(argptr2, "erge-ascii-sort", 16)) {
 	merge_type |= MERGE_ASCII;
-	cur_arg++;
       } else if (!memcmp(argptr2, "erge-no-sort", 13)) {
 	if (merge_type & MERGE_ASCII) {
 	  printf("Error: --merge-ascii-sort cannot be used with --merge-no-sort.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	merge_type |= MERGE_NOSORT;
-	cur_arg++;
       } else if (!memcmp(argptr2, "erge-allow-equal-pos", 21)) {
 	merge_type |= MERGE_ALLOW_EQUAL_POS;
-	cur_arg++;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'n':
       if (!memcmp(argptr2, "o-fid", 6)) {
 	fam_col_1 = 0;
-	cur_arg += 1;
       } else if (!memcmp(argptr2, "o-parents", 10)) {
 	fam_col_34 = 0;
-	cur_arg += 1;
       } else if (!memcmp(argptr2, "o-sex", 6)) {
 	if (filter_sex) {
 	  printf("Error: --filter-males/--filter-females cannot be used with --no-sex.\n");
@@ -12479,25 +12174,18 @@ int main(int argc, char** argv) {
 	}
 	fam_col_5 = 0;
 	allow_no_sex = 1;
-	cur_arg += 1;
       } else if (!memcmp(argptr2, "o-pheno", 8)) {
 	fam_col_6 = 0;
-	cur_arg += 1;
       } else if (!memcmp(argptr2, "onfounders", 11)) {
 	nonfounders = 1;
-	cur_arg += 1;
+      } else {
+        goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'o':
-      if (!memcmp(argptr2, "ut", 3)) {
-	cur_arg += 2;
-      } else if (!memcmp(argptr2, "utput-missing-genotype", 23)) {
+      if (!memcmp(argptr2, "utput-missing-genotype", 23)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (output_missing_geno != '0') {
-	  printf("Error: Duplicate --output-missing-genotype flag.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	output_missing_geno = argv[cur_arg + 1][0];
@@ -12505,13 +12193,8 @@ int main(int argc, char** argv) {
 	  printf("Error: Invalid --output-missing-genotype parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "utput-missing-phenotype", 24)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (memcmp(output_missing_pheno, (char*)"-9", 3)) {
-	  printf("Error: Duplicate --output-missing-phenotype flag.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	jj = strlen(argv[cur_arg + 1]);
@@ -12524,18 +12207,16 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	memcpy(output_missing_pheno, argv[cur_arg + 1], jj + 1);
-	cur_arg += 2;
+      } else if (memcmp(argptr2, "ut", 3)) {
+	// --out is a special case due to logging
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'p':
       if (!memcmp(argptr2, "ed", 3)) {
-	if (load_params & 0x3fa) {
-	  if (load_params & 2) {
-	    printf("Error: Duplicate --ped flag.\n");
-	  } else {
-	    printf("Error: --ped flag cannot coexist with binary or Oxford file flags.\n");
-	  }
+	if ((load_params & 0x3fa) || load_rare) {
+	  printf("Error: --ped conflicts with another input flag.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	load_params |= 2;
@@ -12543,29 +12224,25 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
-	  printf("Error: --ped parameter too long.\n");
+	  fputs("Error: --ped parameter too long.\n", stdout);
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(pedname, argv[cur_arg + 1]);
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "heno", 5)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (phenoname[0]) {
 	  if (makepheno_str) {
-	    printf("Error: --pheno and --make-pheno flags cannot coexist.\n");
-	  } else {
-	    printf("Error: Duplicate --pheno flag.\n");
+	    fputs("Error: --pheno and --make-pheno flags cannot coexist.\n", stdout);
 	  }
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
-	  printf("Error: --pheno parameter too long.\n");
+	  fputs("Error: --pheno parameter too long.\n", stdout);
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(phenoname, argv[cur_arg + 1]);
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "heno-name", 10)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -12574,18 +12251,11 @@ int main(int argc, char** argv) {
 	  printf("Error: --mpheno and --pheno-name flags cannot coexist.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (phenoname_str) {
-	  printf("Error: Duplicate --pheno-name flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	phenoname_str = argv[cur_arg + 1];
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "heno-merge", 11)) {
 	pheno_merge = 1;
-	cur_arg += 1;
       } else if (!memcmp(argptr2, "rune", 5)) {
 	prune = 1;
-	cur_arg += 1;
       } else if (!memcmp(argptr2, "arallel", 8)) {
 	if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
 	  printf("Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.%s", errstr_append);
@@ -12605,21 +12275,6 @@ int main(int argc, char** argv) {
 	} else if (calculation_type & CALC_GROUPDIST) {
 	  printf("Error: --parallel and --groupdist cannot be used together.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
-	} else if (calculation_type & CALC_REGRESS_DISTANCE) {
-	  printf("Error: --parallel and --regress-distance cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	} else if (calculation_type & CALC_REGRESS_REL) {
-	  printf("Error: --parallel and --regress-rel cannot be used together.%s", errstr_append);
-	} else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-	  printf("Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	} else if (calculation_type & CALC_REL_CUTOFF) {
-	  printf("Error: --parallel cannot be used with --rel-cutoff.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (parallel_tot > 1) {
-	  printf("Error: Duplicate --parallel flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -12635,12 +12290,7 @@ int main(int argc, char** argv) {
 	  printf("Error: Invalid --parallel total job count '%s'.%s", argv[cur_arg + 2], errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg += 3;
       } else if (!memcmp(argptr2, "pc-gap", 7)) {
-	if (ppc_gap != DEFAULT_PPC_GAP) {
-	  printf("Error: Duplicate --ppc-gap flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -12654,16 +12304,13 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	ppc_gap *= 1000;
-	cur_arg += 2;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'r':
       if (!memcmp(argptr2, "emove", 6)) {
-	if (removename[0]) {
-	  printf("Error: Duplicate --remove flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -12672,7 +12319,6 @@ int main(int argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(removename, argv[cur_arg + 1]);
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "ice", 4)) {
 	printf("Error: --rice not yet supported.\n");
 	goto main_ret_INVALID_CMDLINE;
@@ -13113,12 +12759,12 @@ int main(int argc, char** argv) {
 	cur_arg += 1;
       }
       break;
-    }
 
-    if (cur_arg_start == cur_arg) {
+    default:
       goto main_ret_INVALID_CMDLINE_2;
     }
-  }
+
+  } while ((++cur_flag) < flag_ct);
   if (load_rare) {
     if (load_params) {
       printf("Error: Multiple load flags.\%s", errstr_append);
@@ -13275,7 +12921,7 @@ int main(int argc, char** argv) {
     retval = RET_INVALID_FORMAT;
     break;
   main_ret_INVALID_CMDLINE_2:
-    invalid_arg(argptr);
+    invalid_arg(argv[cur_arg]);
   main_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
