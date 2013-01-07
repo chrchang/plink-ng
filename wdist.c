@@ -10936,7 +10936,7 @@ int main(int argc, char** argv) {
   }
   if ((cur_arg < argc) && (!is_flag(argv[cur_arg]))) {
     print_ver();
-    printf("Error: Flag expected instead of '%s'.%s", argv[cur_arg], errstr_append);
+    printf("Error: First parameter must be a flag.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE;
   }
   flag_ct = 0;
@@ -11133,8 +11133,8 @@ int main(int argc, char** argv) {
   memcpy(output_missing_pheno, "-9", 3);
   cur_flag = 0;
   do {
-    argptr = flag_buf[cur_flag * MAX_FLAG_LEN];
-    argptr2 = (&argptr[1]);
+    argptr = &(flag_buf[cur_flag * MAX_FLAG_LEN]);
+    argptr2 = &(argptr[1]);
     cur_arg = flag_map[cur_flag];
     switch (*argptr) {
     case '1':
@@ -12325,19 +12325,12 @@ int main(int argc, char** argv) {
 	// if (species_flag(&chrom_info, SPECIES_RICE)) {
 	//   goto main_ret_INVALID_CMDLINE;
 	// }
-	// cur_arg++;
       } else if (!memcmp(argptr2, "el-cutoff", 10)) {
-      main_rel_cutoff:
-	// can use --grm-cutoff too
 	if (parallel_tot > 1) {
 	  printf("Error: --parallel cannot be used with %s.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", argptr, errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (calculation_type & CALC_REL_CUTOFF) {
-	  printf("Error: Duplicate %s flag.\n", argptr);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (ii) {
@@ -12351,13 +12344,9 @@ int main(int argc, char** argv) {
 	  }
 	}
 	calculation_type |= CALC_REL_CUTOFF;
-	cur_arg += ii + 1;
       } else if (!memcmp(argptr2, "egress-distance", 16)) {
 	if (parallel_tot > 1) {
 	  printf("Error: --parallel and --regress-distance cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	} else if (calculation_type & CALC_REGRESS_DISTANCE) {
-	  printf("Error: Duplicate --regress-distance flag.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
@@ -12377,14 +12366,10 @@ int main(int argc, char** argv) {
 	    }
 	  }
 	}
-	cur_arg += ii + 1;
 	calculation_type |= CALC_REGRESS_DISTANCE;
       } else if (!memcmp(argptr2, "egress-rel", 11)) {
 	if (parallel_tot > 1) {
 	  printf("Error: --parallel and --regress-rel flags cannot coexist.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	} else if (calculation_type & CALC_REGRESS_REL) {
-	  printf("Error: Duplicate --regress-rel flag.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
@@ -12404,13 +12389,8 @@ int main(int argc, char** argv) {
 	    }
 	  }
 	}
-	cur_arg += ii + 1;
 	calculation_type |= CALC_REGRESS_REL;
       } else if (!memcmp(argptr2, "egress-pcs", 11)) {
-	if (calculation_type & CALC_REGRESS_PCS) {
-	  printf("Error: Duplicate --regress-pcs flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 5, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -12439,16 +12419,9 @@ int main(int argc, char** argv) {
 	  }
 	}
 	calculation_type |= CALC_REGRESS_PCS;
-	cur_arg += ii + 1;
       } else if (!memcmp(argptr2, "ead-freq", 9)) {
-      main_read_freq:
-	// allow --update-freq synonym
 	if (calculation_type & CALC_FREQ) {
-	  printf("Error: --freq and %s flags cannot coexist.%s", argptr, errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (freqname[0]) {
-	  printf("Error: Duplicate %s flag.\n", argptr);
+	  printf("Error: --freq and --read-freq flags cannot coexist.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -12459,14 +12432,18 @@ int main(int argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(freqname, argv[cur_arg + 1]);
-	cur_arg += 1 + ii;
-      } else if (!memcmp(argptr2, "ecode", 6)) {
-      main_recode:
-	if (calculation_type & CALC_RECODE) {
-	  printf("Error: Duplicate --recode flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
+      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode lgen", 11))) {
+	if (argptr2[5] == ' ') {
+	  if (argptr2[6] == '1') {
+	    recode_modifier |= RECODE_12;
+	  } else {
+	    recode_modifier |= RECODE_LGEN;
+	  }
+	  kk = 1;
+	} else {
+	  kk = 0;
 	}
-	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 3, &ii)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 3 - kk, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	for (jj = 1; jj <= ii; jj++) {
@@ -12508,26 +12485,15 @@ int main(int argc, char** argv) {
 	  }
 	}
 	calculation_type |= CALC_RECODE;
-	cur_arg += 1 + ii;
-      } else if (!memcmp(argptr2, "ecode12", 8)) {
-	printf("Note: --recode12 flag deprecated.  Use 'recode 12 ...'.\n");
-	recode_modifier |= RECODE_12;
-	goto main_recode;
-      } else if (!memcmp(argptr2, "ecode-lgen", 11)) {
-	printf("Note: --recode-lgen flag deprecated.  Use 'recode lgen ...'.\n");
-	recode_modifier |= RECODE_LGEN;
-	goto main_recode;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 's':
       if (!memcmp(argptr2, "ample", 6)) {
-	if (load_params & 0x27f) {
-	  if (load_params & 0x200) {
-	    printf("Error: Duplicate --sample flag.\n");
-	  } else {
-	    printf("Error: --sample flag cannot coexist with PLINK input file flags.\n");
-	  }
+	if ((load_params & 0x27f) || load_rare) {
+	  printf("Error: --sample conflicts with another input flag.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	load_params |= 0x200;
@@ -12539,20 +12505,12 @@ int main(int argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(samplename, argv[cur_arg + 1]);
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "heep", 5)) {
 	if (species_flag(&chrom_info, SPECIES_SHEEP)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg++;
-      } else if (!memcmp(argptr2, "ilent", 6)) {
-	cur_arg++;
       } else if (!memcmp(argptr2, "eed", 4)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (rseed != 0) {
-	  printf("Error: Duplicate --seed flag.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	rseed = (unsigned long int)atol(argv[cur_arg + 1]);
@@ -12560,7 +12518,8 @@ int main(int argc, char** argv) {
 	  printf("Error: Invalid --seed parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cur_arg += 2;
+      } else if (memcmp(argptr2, "ilent", 6)) {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
@@ -12569,12 +12528,8 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 2, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (tail_pheno) {
-	  printf("Error: Duplicate --tail-pheno flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (makepheno_str) {
-	  printf("Error: --make-pheno and --tail-pheno flags cannot coexist.\n");
+	  printf("Error: --tail-pheno cannot be used with --make-pheno.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (sscanf(argv[cur_arg + 1], "%lg", &tail_bottom) != 1) {
@@ -12594,7 +12549,6 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	tail_pheno = 1;
-	cur_arg += ii + 1;
       } else if (!memcmp(argptr2, "hreads", 7)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE;
@@ -12608,18 +12562,37 @@ int main(int argc, char** argv) {
 	  ii = MAX_THREADS;
 	}
 	g_thread_ct = ii;
-	cur_arg += 2;
       } else if (!memcmp(argptr2, "ab", 3)) {
 	printf("Note: --tab flag deprecated.  Use '--recode tab ...'.\n");
+	if (recode_modifier & RECODE_DELIMX) {
+	  printf("Error: Multiple --recode delimiter modifiers.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE;
+	}
 	recode_modifier |= RECODE_TAB;
-	cur_arg++;
       } else if (!memcmp(argptr2, "ranspose", 9)) {
 	printf("Note: --transpose flag deprecated.  Use '--recode transpose ...'.\n");
+	if (recode_modifier & RECODE_LGEN) {
+	  printf("Error: --recode 'transpose' and 'lgen' modifiers cannot be used together.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE;
+	}
 	recode_modifier |= RECODE_TRANSPOSE;
-	cur_arg++;
+      } else if (!memcmp(argptr2, "fam", 4)) {
+	if (load_params || load_rare) {
+	  printf("Error: --tfam conflicts with another input flag.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	jj = strlen(argv[cur_arg + 1]);
+	if (jj > FNAMESIZE - 1) {
+	  printf("Error: --tfam filename prefix too long.\n");
+	}
+	memcpy(famname, argv[cur_arg + 1], jj + 1);
+	load_rare |= LOAD_RARE_TFAM;
       } else if (!memcmp(argptr2, "file", 5)) {
-	if (load_rare & (~LOAD_RARE_TRANSPOSE_MASK)) {
-	  printf("Error: --tfile cannot be used with other load flags (except --tped/--tfam).%s", errstr_append);
+	if (load_params || (load_rare & (~LOAD_RARE_TRANSPOSE_MASK))) {
+	  printf("Error: --tfile conflicts with another input flag.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
@@ -12646,11 +12619,10 @@ int main(int argc, char** argv) {
 	    memcpy(famname, "wdist.tfam", 11);
 	  }
 	}
-	cur_arg += 1 + ii;
 	load_rare |= LOAD_RARE_TRANSPOSE;
       } else if (!memcmp(argptr2, "ped", 4)) {
-	if (load_rare & (~(LOAD_RARE_TRANSPOSE | LOAD_RARE_TFAM))) {
-	  printf("Error: --tped cannot be used with other load flags (except --tfile/--tfam).%s", errstr_append);
+	if (load_params || (load_rare & (~(LOAD_RARE_TRANSPOSE | LOAD_RARE_TFAM)))) {
+	  printf("Error: --tped conflicts with another input flag.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -12661,32 +12633,16 @@ int main(int argc, char** argv) {
 	  printf("Error: --tped filename prefix too long.\n");
 	}
 	memcpy(pedname, argv[cur_arg + 1], jj + 1);
-	cur_arg += 2;
 	load_rare |= LOAD_RARE_TPED;
-      } else if (!memcmp(argptr2, "fam", 4)) {
-	if (load_rare & (~(LOAD_RARE_TRANSPOSE | LOAD_RARE_TPED))) {
-	  printf("Error: --tfam cannot be used with other load flags (except --tfile/--tped).%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	jj = strlen(argv[cur_arg + 1]);
-	if (jj > FNAMESIZE - 1) {
-	  printf("Error: --tfam filename prefix too long.\n");
-	}
-	memcpy(famname, argv[cur_arg + 1], jj + 1);
-	cur_arg += 2;
-	load_rare |= LOAD_RARE_TFAM;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'u':
-      if (!memcmp(argptr2, "pdate-freq", 11)) {
-	goto main_read_freq;
-      } else if (!memcmp(argptr2, "nrelated-heritability", 22)) {
+      if (!memcmp(argptr2, "nrelated-heritability", 22)) {
 #ifdef NOLAPACK
-        printf("Error: --unrelated-heritability does not work without LAPACK.\n");
+        printf("Error: --unrelated-heritability requires WDIST to be built with LAPACK.\n");
 	goto main_ret_INVALID_CMDLINE;
 #else
 	if (rel_calc_type & REL_CALC_COV) {
@@ -12694,10 +12650,6 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	} else if (parallel_tot > 1) {
 	  printf("Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-	  printf("Error: Duplicate --unrelated-heritability flag.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 4, &ii)) {
@@ -12743,20 +12695,18 @@ int main(int argc, char** argv) {
 	    }
 	  }
 	}
-	cur_arg += ii + 1;
 	calculation_type |= CALC_UNRELATED_HERITABILITY;
 #endif
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'w':
       if (!memcmp(argptr2, "rite-snplist", 13)) {
-	if (calculation_type & CALC_WRITE_SNPLIST) {
-	  printf("Error: Duplicate --write-snplist flag.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	calculation_type |= CALC_WRITE_SNPLIST;
-	cur_arg += 1;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
@@ -12766,10 +12716,6 @@ int main(int argc, char** argv) {
 
   } while ((++cur_flag) < flag_ct);
   if (load_rare) {
-    if (load_params) {
-      printf("Error: Multiple load flags.\%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE;
-    }
     if (load_rare == LOAD_RARE_GRM) {
       if ((!(calculation_type & CALC_REL_CUTOFF)) || (calculation_type & (~(CALC_REL_CUTOFF | CALC_RELATIONSHIP)))) {
 	printf("Error: --grm currently must be used with --rel-cutoff (possibly combined with\n--make-grm).%s", errstr_append);
