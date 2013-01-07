@@ -8997,7 +8997,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     } else {
       strcpy(outname_end, ".frq");
     }
-    retval = write_freqs(&outfile, outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_alleles, ll_cts, lh_cts, hh_cts, binary_files, freq_counts, freqx, missing_geno);
+    retval = write_freqs(&outfile, outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_alleles, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, binary_files, freq_counts, freqx, missing_geno);
     if (retval || (calculation_type == CALC_FREQ)) {
       goto wdist_ret_2;
     }
