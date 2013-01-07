@@ -5701,9 +5701,11 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
 }
 
 int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, int unfiltered_marker_ct, unsigned long* marker_exclude, double* set_allele_freqs, Chrom_info* chrom_info_ptr, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, int* ll_cts, int* lh_cts, int* hh_cts, int binary_files, int freq_counts, int freqx, char missing_geno) {
-  int ii;
+  unsigned int uii;
   int reverse;
   char minor_allele;
+  unsigned int chrom_idx;
+  unsigned int chrom_end_marker;
   if (fopen_checked(outfile_ptr, outname, "w")) {
     return RET_OPEN_FAIL;
   }
@@ -5738,30 +5740,36 @@ int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, in
     }
     sprintf(tbuf, "%%4d %%%ds    %%c    %%c      %%7.4g  %%7d\n", plink_maxsnp);
   }
-  for (ii = 0; ii < unfiltered_marker_ct; ii++) {
-    if (is_set(marker_exclude, ii)) {
+  for (chrom_idx = 0; chrom_idx < MAX_POSSIBLE_CHROM; chrom_idx++) {
+    if (!chrom_exists(chrom_info_ptr, chrom_idx)) {
       continue;
     }
-    if (binary_files) {
-      reverse = (set_allele_freqs[ii] < 0.5) ? 1 : 0;
-    } else { // compatibility quirk
-      reverse = (set_allele_freqs[ii] <= 0.5) ? 1 : 0;
-    }
-    minor_allele = marker_alleles[ii * 2 + 1 - (1 ^ reverse)];
-    if (!minor_allele) {
-      minor_allele = missing_geno;
-    }
-    if (freqx) {
-      if (fprintf(*outfile_ptr, "%d\t%s\t%c\t%c\t%d\t%d\t%d\t%d\n", get_marker_chrom(chrom_info_ptr, ii), &(marker_ids[ii * max_marker_id_len]), minor_allele, marker_alleles[ii * 2 + (1 ^ reverse)], reverse? hh_cts[ii] : ll_cts[ii], lh_cts[ii], reverse? ll_cts[ii] : hh_cts[ii], g_indiv_ct - (ll_cts[ii] + lh_cts[ii] + hh_cts[ii])) < 0) {
-	return RET_WRITE_FAIL;
+    chrom_end_marker = chrom_info_ptr->chrom_end[chrom_idx];
+    for (uii = chrom_info_ptr->chrom_start[chrom_idx]; uii < chrom_end_marker; uii++) {
+      if (is_set(marker_exclude, uii)) {
+	continue;
       }
-    } else if (freq_counts) {
-      if (fprintf(*outfile_ptr, tbuf, get_marker_chrom(chrom_info_ptr, ii), &(marker_ids[ii * max_marker_id_len]), marker_alleles[ii * 2], marker_alleles[ii * 2 + 1], 2 * ll_cts[ii] + lh_cts[ii], 2 * hh_cts[ii] + lh_cts[ii], g_indiv_ct - (ll_cts[ii] + lh_cts[ii] + hh_cts[ii])) < 0) {
-	return RET_WRITE_FAIL;
+      if (binary_files) {
+	reverse = (set_allele_freqs[uii] < 0.5) ? 1 : 0;
+      } else { // compatibility quirk
+	reverse = (set_allele_freqs[uii] <= 0.5) ? 1 : 0;
       }
-    } else {
-      if (fprintf(*outfile_ptr, tbuf, get_marker_chrom(chrom_info_ptr, ii), &(marker_ids[ii * max_marker_id_len]), minor_allele, marker_alleles[ii * 2 + (1 ^ reverse)], reverse? set_allele_freqs[ii] : (1.0 - set_allele_freqs[ii]), 2 * (ll_cts[ii] + lh_cts[ii] + hh_cts[ii])) < 0) {
-	return RET_WRITE_FAIL;
+      minor_allele = marker_alleles[uii * 2 + 1 - (1 ^ reverse)];
+      if (!minor_allele) {
+	minor_allele = missing_geno;
+      }
+      if (freqx) {
+	if (fprintf(*outfile_ptr, "%d\t%s\t%c\t%c\t%d\t%d\t%d\t%d\n", get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), minor_allele, marker_alleles[uii * 2 + (1 ^ reverse)], reverse? hh_cts[uii] : ll_cts[uii], lh_cts[uii], reverse? ll_cts[uii] : hh_cts[uii], g_indiv_ct - (ll_cts[uii] + lh_cts[uii] + hh_cts[uii])) < 0) {
+	  return RET_WRITE_FAIL;
+	}
+      } else if (freq_counts) {
+	if (fprintf(*outfile_ptr, tbuf, get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), marker_alleles[uii * 2], marker_alleles[uii * 2 + 1], 2 * ll_cts[uii] + lh_cts[uii], 2 * hh_cts[uii] + lh_cts[uii], g_indiv_ct - (ll_cts[uii] + lh_cts[uii] + hh_cts[uii])) < 0) {
+	  return RET_WRITE_FAIL;
+	}
+      } else {
+	if (fprintf(*outfile_ptr, tbuf, get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), minor_allele, marker_alleles[uii * 2 + (1 ^ reverse)], reverse? set_allele_freqs[uii] : (1.0 - set_allele_freqs[uii]), 2 * (ll_cts[uii] + lh_cts[uii] + hh_cts[uii])) < 0) {
+	  return RET_WRITE_FAIL;
+	}
       }
     }
   }
@@ -9005,6 +9013,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     sprintf(logbuf, "%u SNP%s removed due to missing genotype data (--geno).\n", uii, (uii == 1)? "" : "s");
     logprintb();
   }
+  // calc_marker_reverse(marker_reverse, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_allele_cts);
   wkspace_reset(marker_allele_cts);
   marker_allele_cts = NULL;
   // missing_cts = NULL;
