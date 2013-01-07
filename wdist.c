@@ -11033,7 +11033,13 @@ int main(int argc, char** argv) {
       flag_map[uii++] = ii;
     }
   }
-  qsort_ext(flag_buf, flag_ct, MAX_FLAG_LEN, strcmp_deref, (char*)flag_map, sizeof(int));
+  sptr = (char*)malloc(flag_ct * MAX_FLAG_LEN);
+  if (!sptr) {
+    print_ver();
+    goto main_ret_NOMEM;
+  }
+  qsort_ext2(flag_buf, flag_ct, MAX_FLAG_LEN, strcmp_deref, (char*)flag_map, sizeof(int), sptr, MAX_FLAG_LEN);
+  free(sptr);
   jj = strlen_se(flag_buf);
   for (uii = 1; uii < flag_ct; uii++) {
     kk = strlen_se(&(flag_buf[uii * MAX_FLAG_LEN]));
@@ -11080,7 +11086,7 @@ int main(int argc, char** argv) {
   sprintf(logbuf, "\n%d argument%s:", argc + mm - cur_arg, (argc + mm - cur_arg == 1)? "" : "s");
   logstr(logbuf);
   for (uii = 0; uii < flag_ct; uii++) {
-    logstr(" ");
+    logstr(" --");
     logstr(&(flag_buf[uii * MAX_FLAG_LEN]));
     ii = flag_map[uii] + 1;
     while ((ii < argc) && (!is_flag(argv[ii]))) {
@@ -11088,8 +11094,6 @@ int main(int argc, char** argv) {
       logstr(argv[ii++]);
     }
   }
-  // logstr("\nHostname: ");
-  // logstr();
   logstr("\nWorking directory: ");
   getcwd(tbuf, FNAMESIZE);
   logstr(tbuf);
@@ -13173,14 +13177,16 @@ int main(int argc, char** argv) {
   llxx = ((size_t)sysconf(_SC_PHYS_PAGES)) * ((size_t)sysconf(_SC_PAGESIZE)) / 1048576;
 #endif
   if (!llxx) {
-    default_alloc_mb = 3 * MALLOC_DEFAULT_BASE_MB / 2;
-  } else if (llxx < (MALLOC_DEFAULT_BASE_MB * 2)) {
-    default_alloc_mb = MINV(llxx * 3 / 4, 64);
+    default_alloc_mb = WKSPACE_DEFAULT_MB;
+  } else if (llxx < (WKSPACE_MIN_MB * 2)) {
+    default_alloc_mb = WKSPACE_MIN_MB;
   } else {
-    default_alloc_mb = (llxx / 4) + MALLOC_DEFAULT_BASE_MB;
+    default_alloc_mb = llxx / 2;
   }
   if (!malloc_size_mb) {
     malloc_size_mb = default_alloc_mb;
+  } else if (malloc_size_mb < WKSPACE_MIN_MB) {
+    malloc_size_mb = WKSPACE_MIN_MB;
   }
   if (llxx) {
     sprintf(logbuf, "%lld MB RAM detected; reserving %ld MB for main workspace.\n", llxx, malloc_size_mb);
@@ -13193,16 +13199,15 @@ int main(int argc, char** argv) {
     malloc_size_mb = default_alloc_mb;
   }
   while (!wkspace_ua) {
-    if (malloc_size_mb > 128) {
-      malloc_size_mb -= 64;
-    } else {
-      malloc_size_mb = 64;
+    malloc_size_mb = (malloc_size_mb * 3) / 4;
+    if (malloc_size_mb < WKSPACE_MIN_MB) {
+      malloc_size_mb = WKSPACE_MIN_MB;
     }
     wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
     if (wkspace_ua) {
       sprintf(logbuf, "Allocated %ld MB successfully, after larger attempt(s) failed.\n", malloc_size_mb);
       logprintb();
-    } else if (malloc_size_mb == 64) {
+    } else if (malloc_size_mb == WKSPACE_MIN_MB) {
       goto main_ret_NOMEM;
     }
   }

@@ -622,6 +622,24 @@ int double_cmp_deref(const void* aa, const void* bb) {
 
 // alas, qsort_r not available on some Linux distributions
 
+// Normally use qsort_ext(), but this version is necessary before wkspace has
+// been allocated.
+void qsort_ext2(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len, char* proxy_arr, int proxy_len) {
+  int ii;
+  for (ii = 0; ii < arr_length; ii++) {
+    *(char**)(&(proxy_arr[ii * proxy_len])) = &(main_arr[ii * item_length]);
+    memcpy(&(proxy_arr[ii * proxy_len + sizeof(void*)]), &(secondary_arr[ii * secondary_item_len]), secondary_item_len);
+  }
+  qsort(proxy_arr, arr_length, proxy_len, comparator_deref);
+  for (ii = 0; ii < arr_length; ii++) {
+    memcpy(&(secondary_arr[ii * secondary_item_len]), &(proxy_arr[ii * proxy_len + sizeof(void*)]), secondary_item_len);
+    memcpy(&(proxy_arr[ii * proxy_len]), *(char**)(&(proxy_arr[ii * proxy_len])), item_length);
+  }
+  for (ii = 0; ii < arr_length; ii++) {
+    memcpy(&(main_arr[ii * item_length]), &(proxy_arr[ii * proxy_len]), item_length);
+  }
+}
+
 // This actually tends to be faster than just sorting an array of indices,
 // because of memory locality issues.
 int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len) {
@@ -641,7 +659,6 @@ int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_
   int proxy_len = secondary_item_len + sizeof(void*);
   unsigned char* wkspace_mark = wkspace_base;
   char* proxy_arr;
-  int ii;
   if (!arr_length) {
     return 0;
   }
@@ -651,19 +668,7 @@ int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_
   if (wkspace_alloc_c_checked(&proxy_arr, arr_length * proxy_len)) {
     return -1;
   }
-  for (ii = 0; ii < arr_length; ii++) {
-    *(char**)(&(proxy_arr[ii * proxy_len])) = &(main_arr[ii * item_length]);
-    memcpy(&(proxy_arr[ii * proxy_len + sizeof(void*)]), &(secondary_arr[ii * secondary_item_len]), secondary_item_len);
-  }
-
-  qsort(proxy_arr, arr_length, proxy_len, comparator_deref);
-  for (ii = 0; ii < arr_length; ii++) {
-    memcpy(&(secondary_arr[ii * secondary_item_len]), &(proxy_arr[ii * proxy_len + sizeof(void*)]), secondary_item_len);
-    memcpy(&(proxy_arr[ii * proxy_len]), *(char**)(&(proxy_arr[ii * proxy_len])), item_length);
-  }
-  for (ii = 0; ii < arr_length; ii++) {
-    memcpy(&(main_arr[ii * item_length]), &(proxy_arr[ii * proxy_len]), item_length);
-  }
+  qsort_ext2(main_arr, arr_length, item_length, comparator_deref, secondary_arr, secondary_item_len, proxy_arr, proxy_len);
   wkspace_reset(wkspace_mark);
   return 0;
 }

@@ -90,7 +90,8 @@ typedef union {
 #define MERGE_BINARY 64
 #define MERGE_LIST 128
 
-#define MALLOC_DEFAULT_BASE_MB 1152
+#define WKSPACE_MIN_MB 64
+#define WKSPACE_DEFAULT_MB 2048
 
 #define CACHELINE 64 // assumed number of bytes per cache line, for alignment
 #define CACHELINE_DBL (CACHELINE / sizeof(double))
@@ -494,6 +495,8 @@ int distance_req(int calculation_type);
 int double_cmp(const void* aa, const void* bb);
 
 int double_cmp_deref(const void* aa, const void* bb);
+
+void qsort_ext2(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len, char* proxy_arr, int proxy_len);
 
 int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len);
 
