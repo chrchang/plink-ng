@@ -3948,7 +3948,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
   return retval;
 }
 
-int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, char* outname_end, char* mergename1, char* mergename2, char* mergename3, int calculation_type, int merge_type, int keep_allele_order, int species) {
+int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, char* outname_end, char* mergename1, char* mergename2, char* mergename3, int calculation_type, int merge_type, int indiv_sort, int keep_allele_order, int species) {
   FILE* mergelistfile = NULL;
   FILE* outfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
@@ -3957,7 +3957,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   unsigned long max_marker_id_len = 0;
   int is_dichot_pheno = 1;
   int merge_mode = (merge_type & MERGE_MODE_MASK);
-  unsigned int merge_nsort = (merge_type & (MERGE_ASCII | MERGE_NOSORT))? 0 : 1;
+  unsigned int merge_nsort = ((!indiv_sort) || (indiv_sort == INDIV_SORT_NATURAL))? 1 : 0;
   unsigned int merge_disallow_equal_pos = (merge_type & MERGE_ALLOW_EQUAL_POS)? 0 : 1;
   Ll_entry** htable = (Ll_entry**)(&(wkspace_base[wkspace_left - HASHMEM_S]));
   Ll_entry2** htable2 = (Ll_entry2**)(&(wkspace_base[wkspace_left - HASHMEM]));
@@ -4257,7 +4257,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
       break;
     }
   }
-  if (merge_type & MERGE_NOSORT) {
+  if (indiv_sort == INDIV_SORT_NONE) {
     if (wkspace_alloc_ui_checked(&indiv_nsmap, tot_indiv_ct * sizeof(int))) {
       goto merge_datasets_ret_NOMEM;
     }
@@ -4277,7 +4277,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     }
     wkspace_alloc_d_checked(&pheno_d, tot_indiv_ct * sizeof(double));
   }
-  if (merge_type & MERGE_NOSORT) {
+  if (indiv_sort == INDIV_SORT_NONE) {
     if (wkspace_alloc_ui_checked(&map_reverse, tot_indiv_ct * sizeof(int))) {
       goto merge_datasets_ret_NOMEM;
     }
@@ -4350,7 +4350,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
       goto merge_datasets_ret_OPEN_FAIL;
     }
   }
-  if (merge_type & MERGE_NOSORT) {
+  if (indiv_sort == INDIV_SORT_NONE) {
     for (ulii = 0; ulii < tot_indiv_ct; ulii++) {
       map_reverse[indiv_nsmap[ulii]] = ulii;
     }

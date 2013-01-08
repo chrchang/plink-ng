@@ -800,6 +800,18 @@ int disp_help(unsigned int param_ct, char** argv) {
 "                     6 = report all mismatching calls without merging\n"
 "                     7 = report mismatching nonmissing calls without merging\n"
 	       );
+    help_print("indiv-sort\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
+"  --indiv-sort [m] : Specify family/individual ID sort order.  The following\n"
+"                     three modes are currently supported:\n"
+"                     'none'    = Keep individuals in the order they were loaded\n"
+"                                 in.  This is the default for non-merge\n"
+"                                 operations.\n"
+"                     'natural' = \"Natural sort\", e.g. 'id2' < 'ID3' < 'ID10'.\n"
+"                                 This is the default when merging.\n"
+"                     'ascii'   = ASCII order, e.g. 'ID3' < 'id10' < 'id2'.\n"
+"                     For now, only --merge/--bmerge/--merge-list respect this\n"
+"                     flag, but support will be expanded in the future.\n"
+	       );
     help_print("pheno", &help_ctrl, 0,
 "  --pheno [fname]  : Specify alternate phenotype.\n"
 	       );
@@ -911,14 +923,6 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_print("keep-allele-order\tmake-bed\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
 "  --keep-allele-order : Keep the original allele order when creating a new\n"
 "                        fileset, instead of forcing A2 to be the major allele.\n"
-	       );
-    help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-ascii-sort\tmerge-no-sort", &help_ctrl, 0,
-"  --merge-ascii-sort  : Use ASCII order instead of a natural sort to arrange\n"
-"                        individuals in the merged dataset.  For example, WDIST\n"
-"                        normally sorts 'id2' < 'ID3' < 'id10'; ASCII order is\n"
-"                        'ID3' < 'id10' < 'id2'.\n"
-"  --merge-no-sort     : Do not sort individuals by ID; instead append them in\n"
-"                        the order they originally appear (like PLINK does).\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-allow-equal-pos", &help_ctrl, 0,
 "  --merge-allow-equal-pos   : Do not merge markers with different names but\n"
@@ -8508,7 +8512,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int rel_calc_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier, int allelexxxx, int merge_type, int keep_allele_order) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int rel_calc_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier, int allelexxxx, int merge_type, int indiv_sort, int keep_allele_order) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -8714,7 +8718,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (ulii) {
       memcpy(outname_end, "-merge", 7);
     }
-    retval = merge_datasets(pedname, mapname, famname, outname, ulii? &(outname_end[6]) : outname_end, mergename1, mergename2, mergename3, calculation_type, merge_type, keep_allele_order, chrom_info_ptr->species);
+    retval = merge_datasets(pedname, mapname, famname, outname, ulii? &(outname_end[6]) : outname_end, mergename1, mergename2, mergename3, calculation_type, merge_type, indiv_sort, keep_allele_order, chrom_info_ptr->species);
     if (retval || (!(calculation_type & (~CALC_MERGE)))) {
       goto wdist_ret_2;
     }
@@ -10760,6 +10764,7 @@ int main(int argc, char** argv) {
   int allelexxxx = 0;
   int silent = 0;
   int merge_type = 0;
+  int indiv_sort = 0;
   int keep_allele_order = 0;
   unsigned int cur_flag = 0;
   unsigned int flag_ct = 0;
@@ -11797,6 +11802,20 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	calculation_type |= CALC_LD_PRUNE;
+      } else if (!memcmp(argptr2, "ndiv-sort", 10)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        if (!memcmp(argv[cur_arg + 1], "none", 5)) {
+	  indiv_sort = INDIV_SORT_NONE;
+	} else if (!memcmp(argv[cur_arg + 1], "natural", 8)) {
+	  indiv_sort = INDIV_SORT_NATURAL;
+	} else if (!memcmp(argv[cur_arg + 1], "ascii", 6)) {
+	  indiv_sort = INDIV_SORT_ASCII;
+	} else {
+	  printf("Error: '%s' is not a valid mode for --indiv-sort.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE;
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -12186,14 +12205,6 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
         merge_type |= cc - '0';
-      } else if (!memcmp(argptr2, "erge-ascii-sort", 16)) {
-	merge_type |= MERGE_ASCII;
-      } else if (!memcmp(argptr2, "erge-no-sort", 13)) {
-	if (merge_type & MERGE_ASCII) {
-	  printf("Error: --merge-ascii-sort cannot be used with --merge-no-sort.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	merge_type |= MERGE_NOSORT;
       } else if (!memcmp(argptr2, "erge-allow-equal-pos", 21)) {
 	merge_type |= MERGE_ALLOW_EQUAL_POS;
       } else {
@@ -12888,7 +12899,7 @@ int main(int argc, char** argv) {
       retval = wdist_dosage(calculation_type, genname, samplename, outname, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else {
-    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, keep_allele_order);
+    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order);
   }
   free(wkspace_ua);
   while (0) {
