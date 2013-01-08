@@ -519,7 +519,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "      88(1): 76-82.  This paper also describes the relationship matrix\n"
 "      computation we implement.\n\n"
 	       );
-    help_print("distance", &help_ctrl, 1,
+    help_print("distance\tregress-pcs-distance", &help_ctrl, 1,
 "  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <alct> <3d>\n"
 "             <flat-missing>\n"
 "    Writes a lower-triangular tab-delimited table of (weighted) genomic\n"
@@ -608,7 +608,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    guaranteeing optimality.  (Use the --make-rel and --keep/--remove flags if\n"
 "    you want to try to do better.)\n\n"
 	       );
-    help_print("regress-distance\tregress-pcs-regress-distance", &help_ctrl, 1,
+    help_print("regress-distance", &help_ctrl, 1,
 "  --regress-distance {iters} {d}\n"
 "    Linear regression of pairwise genomic distances on pairwise average\n"
 "    phenotypes and vice versa, using delete-d jackknife for standard errors.\n"
@@ -616,7 +616,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
 "      down.  With no parameters, 100k iterations are run.\n\n"
 	       );
-    help_print("regress-pcs\tregress-pcs-regress-distance", &help_ctrl, 1,
+    help_print("regress-pcs\tdistance\tregress-pcs-distance", &help_ctrl, 1,
 "  --regress-pcs [.evec or .eigenvec filename] <normalize-pheno> <sex-specific>\n"
 "                <clip> {max PCs}\n"
 "    Linear regression of phenotypes and genotypes on the given list of\n"
@@ -630,9 +630,10 @@ int disp_help(unsigned int param_ct, char** argv) {
 "      are invalid input for some programs.\n"
 "    * By default, principal components beyond the 20th are ignored; change this\n"
 "      by setting the max PCs parameter.\n"
-"  --regress-pcs-regress-distance [.evec/.eigenvec file] <normalize-pheno>\n"
-"                                 <sex-specific> {max PCs} {iters} {d}\n"
-"    High-speed combination of --regress-pcs and --regress-distance (no large\n"
+"  --regress-pcs-distance [.evec/.eigenvec file] <normalize-pheno>\n"
+"                         <sex-specific> {max PCs} <square | square0 | triangle>\n"
+"                         <gz | bin> <ibs> <1-ibs> <alct> <3d> <flat-missing>\n"
+"    High-speed combination of --regress-pcs and --distance (no large\n"
 "    intermediate text file is written to disk).\n\n"
 	       );
     help_print("regress-rel", &help_ctrl, 1,
@@ -10657,8 +10658,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   return retval;
 }
 
-// regress-pcs-regress-distance + terminating null
-#define MAX_FLAG_LEN 29
+// output-missing-phenotype + terminating null
+#define MAX_FLAG_LEN 25
 
 static inline int is_flag(char* param) {
   char cc = param[1];
@@ -10758,14 +10759,14 @@ int alloc_string(char** sbuf, char* source) {
   return 0;
 }
 
-int alloc_fname(char** fnbuf, char* source, char* argptr, unsigned int max_size) {
+int alloc_fname(char** fnbuf, char* source, char* argptr, unsigned int extra_size) {
   unsigned int slen = strlen(source) + 1;
-  if (slen > max_size) {
+  if (slen > (FNAMESIZE - extra_size)) {
     sprintf(logbuf, "Error: --%s filename too long.\n", argptr);
     logprintb();
     return RET_OPEN_FAIL;
   }
-  *fnbuf = (char*)malloc(slen * sizeof(char));
+  *fnbuf = (char*)malloc((slen + extra_size) * sizeof(char));
   if (!(*fnbuf)) {
     return RET_NOMEM;
   }
@@ -11605,7 +11606,7 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&extractname, argv[cur_arg + 1], argptr, FNAMESIZE);
+	retval = alloc_fname(&extractname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -11613,7 +11614,7 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&excludename, argv[cur_arg + 1], argptr, FNAMESIZE);
+	retval = alloc_fname(&excludename, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -11674,7 +11675,7 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&filtername, argv[cur_arg + 1], argptr, FNAMESIZE);
+	retval = alloc_fname(&filtername, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -11955,7 +11956,7 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&keepname, argv[cur_arg + 1], argptr, FNAMESIZE);
+	retval = alloc_fname(&keepname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -11975,7 +11976,7 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&loaddistname, argv[cur_arg + 1], argptr, FNAMESIZE);
+	retval = alloc_fname(&loaddistname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -12049,7 +12050,7 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&phenoname, argv[cur_arg + 1], argptr, FNAMESIZE);
+	retval = alloc_fname(&phenoname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -12416,7 +12417,7 @@ int main(int argc, char** argv) {
 	  logprint("Error: --pheno and --make-pheno flags cannot coexist.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	retval = alloc_fname(&phenoname, argv[cur_arg + 1], argptr, FNAMESIZE);
+	retval = alloc_fname(&phenoname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -12493,7 +12494,7 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&removename, argv[cur_arg + 1], argptr, FNAMESIZE);
+	retval = alloc_fname(&removename, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -12569,14 +12570,10 @@ int main(int argc, char** argv) {
 	}
 	calculation_type |= CALC_REGRESS_REL;
       } else if (!memcmp(argptr2, "egress-pcs", 11)) {
-	if (calculation_type & CALC_REGRESS_DISTANCE) {
-	  sprintf(logbuf, "Error: --regress-pcs cannot be used with --regress-distance.  Use the\nspecialized --regress-pcs-regress-distance flag to perform this calculation\nefficiently.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 5, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&evecname, argv[cur_arg + 1], argptr, FNAMESIZE - 9);
+	retval = alloc_fname(&evecname, argv[cur_arg + 1], argptr, 9);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -12599,18 +12596,18 @@ int main(int argc, char** argv) {
 	  }
 	}
 	calculation_type |= CALC_REGRESS_PCS;
-      } else if (!memcmp(argptr2, "egress-pcs-regress-distance", 28)) {
+      } else if (!memcmp(argptr2, "egress-pcs-distance", 20)) {
 	if (calculation_type & CALC_REGRESS_PCS) {
-	  sprintf(logbuf, "Error: --regress-pcs-regress-distance cannot be used with --regress-pcs.%s", errstr_append);
+	  sprintf(logbuf, "Error: --regress-pcs-distance cannot be used with --regress-pcs.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (calculation_type & CALC_REGRESS_DISTANCE) {
-	  sprintf(logbuf, "Error: --regress-pcs-regress-distance cannot be used with --regress-distance.%s", errstr_append);
+	} else if (calculation_type & CALC_DISTANCE_MASK) {
+	  sprintf(logbuf, "Error: --regress-pcs-distance cannot be used with --distance.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        logprint("Error: --regress-pcs-regress-distance is currently under development.\n");
+        logprint("Error: --regress-pcs-distance is currently under development.\n");
 	retval = RET_CALC_NOT_YET_SUPPORTED;
 	goto main_ret_1;
-	calculation_type |= CALC_REGRESS_PCS | CALC_REGRESS_DISTANCE;
+	calculation_type |= CALC_REGRESS_PCS_DISTANCE;
       } else if (!memcmp(argptr2, "ead-freq", 9)) {
 	if (calculation_type & CALC_FREQ) {
 	  sprintf(logbuf, "Error: --freq and --read-freq flags cannot coexist.%s", errstr_append);
@@ -12619,7 +12616,7 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&freqname, argv[cur_arg + 1], argptr, FNAMESIZE);
+	retval = alloc_fname(&freqname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -12680,7 +12677,7 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&refalleles, argv[cur_arg + 1], argptr, FNAMESIZE);
+	retval = alloc_fname(&refalleles, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
