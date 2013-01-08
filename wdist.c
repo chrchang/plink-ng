@@ -889,7 +889,9 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --seed [val]     : Set random number seed.\n"
 	       );
     help_print("memory", &help_ctrl, 0,
-"  --memory [val]   : Size, in MB, of initial malloc attempt.\n"
+"  --memory [val]   : Size, in MB, of initial malloc attempt.  (64-bit operating\n"
+"                     systems typically allow this value to exceed your\n"
+"                     computer's total physical memory.)\n"
 	       );
     help_print("threads", &help_ctrl, 0,
 "  --threads [val]  : Maximum number of concurrent threads.\n"
@@ -12262,11 +12264,11 @@ int main(int argc, char** argv) {
 	}
 	jj = strlen(argv[cur_arg + 1]);
 	if (jj > 31) {
-	  printf("Error: --output-missing-phenotype string too long (max 31 chars).\n");
+	  logprint("Error: --output-missing-phenotype string too long (max 31 chars).\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
         if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
-	  printf("Error: --output-missing-phenotype parameter currently must be numeric.\n");
+	  logprint("Error: --output-missing-phenotype parameter currently must be numeric.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	memcpy(output_missing_pheno, argv[cur_arg + 1], jj + 1);
@@ -12279,8 +12281,8 @@ int main(int argc, char** argv) {
     case 'p':
       if (!memcmp(argptr2, "ed", 3)) {
 	if ((load_params & 0x3fa) || load_rare) {
-	  printf("Error: --ped conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --ped conflicts with another input flag.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	load_params |= 2;
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -12308,7 +12310,7 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (mpheno_col != 0) {
-	  printf("Error: --mpheno and --pheno-name flags cannot coexist.\n");
+	  logprint("Error: --mpheno and --pheno-name flags cannot coexist.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (alloc_string(&phenoname_str, argv[cur_arg + 1])) {
@@ -12320,50 +12322,50 @@ int main(int argc, char** argv) {
 	prune = 1;
       } else if (!memcmp(argptr2, "arallel", 8)) {
 	if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
-	  printf("Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	} else if ((calculation_type & CALC_DISTANCE_BIN) && (!(calculation_type & CALC_DISTANCE_SHAPEMASK))) {
-	  printf("Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	} else if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
-	  printf("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain '--make-rel' instead.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	} else if ((rel_calc_type & REL_CALC_BIN) && (!(rel_calc_type & REL_CALC_SHAPEMASK))) {
-	  printf("Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --parallel cannot be used with plain '--make-rel bin'.  Use '--make-rel\nbin square0' or '--make-rel bin triangle' instead.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) {
-	  printf("Error: --parallel and --distance-matrix/--matrix cannot be used together.  Use\n--distance instead.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --parallel and --distance-matrix/--matrix cannot be used together.  Use\n--distance instead.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (calculation_type & CALC_GROUPDIST) {
-	  printf("Error: --parallel and --groupdist cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --parallel and --groupdist cannot be used together.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 2, 2, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	parallel_idx = atoi(argv[cur_arg + 1]);
 	if ((parallel_idx < 1) || (parallel_idx > PARALLEL_MAX)) {
-	  printf("Error: Invalid --parallel job index '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: Invalid --parallel job index '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	parallel_idx -= 1; // internal 0..(n-1) indexing
 	parallel_tot = atoi(argv[cur_arg + 2]);
 	if ((parallel_tot < 2) || (parallel_tot > PARALLEL_MAX) || (parallel_tot < parallel_idx)) {
-	  printf("Error: Invalid --parallel total job count '%s'.%s", argv[cur_arg + 2], errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: Invalid --parallel total job count '%s'.%s", argv[cur_arg + 2], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
       } else if (!memcmp(argptr2, "pc-gap", 7)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if ((argv[cur_arg + 1][0] < '0') || (argv[cur_arg + 1][0] > '9')) {
-	  printf("Error: Invalid --ppc-gap parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: Invalid --ppc-gap parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	ppc_gap = atoi(argv[cur_arg + 1]);
 	if (ppc_gap > 2147483) {
-	  printf("Error: --ppc-gap parameter '%s' too large.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --ppc-gap parameter '%s' too large.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	ppc_gap *= 1000;
       } else {
@@ -12381,34 +12383,34 @@ int main(int argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "ice", 4)) {
-	printf("Error: --rice not yet supported.\n");
+	logprint("Error: --rice not yet supported.\n");
 	goto main_ret_INVALID_CMDLINE;
 	// if (species_flag(&chrom_info, SPECIES_RICE)) {
 	//   goto main_ret_INVALID_CMDLINE;
 	// }
       } else if (!memcmp(argptr2, "el-cutoff", 10)) {
 	if (parallel_tot > 1) {
-	  printf("Error: --parallel cannot be used with %s.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", argptr, errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --parallel cannot be used with %s.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", argptr, errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (ii) {
 	  if (sscanf(argv[cur_arg + 1], "%lg", &rel_cutoff) != 1) {
-	    printf("Error: Invalid %s parameter '%s'.%s", argptr, argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE;
+	    sprintf(logbuf, "Error: Invalid %s parameter '%s'.%s", argptr, argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	  if ((rel_cutoff <= 0.0) || (rel_cutoff >= 1.0)) {
-	    printf("Error: Invalid %s parameter '%s'.%s", argptr, argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE;
+	    sprintf(logbuf, "Error: Invalid %s parameter '%s'.%s", argptr, argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
 	calculation_type |= CALC_REL_CUTOFF;
       } else if (!memcmp(argptr2, "egress-distance", 16)) {
 	if (parallel_tot > 1) {
-	  printf("Error: --parallel and --regress-distance cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --parallel and --regress-distance cannot be used together.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -12416,22 +12418,22 @@ int main(int argc, char** argv) {
 	if (ii) {
 	  regress_iters = strtoul(argv[cur_arg + 1], NULL, 10);
 	  if ((regress_iters < 2) || (regress_iters == ULONG_MAX)) {
-	    printf("Error: Invalid --regress-distance jackknife iteration count '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE;
+	    sprintf(logbuf, "Error: Invalid --regress-distance jackknife iteration count '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	  if (ii == 2) {
 	    regress_d = atoi(argv[cur_arg + 2]);
 	    if (regress_d <= 0) {
-	      printf("Error: Invalid --regress-distance jackknife delete parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
+	      sprintf(logbuf, "Error: Invalid --regress-distance jackknife delete parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	  }
 	}
 	calculation_type |= CALC_REGRESS_DISTANCE;
       } else if (!memcmp(argptr2, "egress-rel", 11)) {
 	if (parallel_tot > 1) {
-	  printf("Error: --parallel and --regress-rel flags cannot coexist.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --parallel and --regress-rel flags cannot coexist.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 2, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -12439,14 +12441,14 @@ int main(int argc, char** argv) {
 	if (ii) {
 	  regress_rel_iters = strtoul(argv[cur_arg + 1], NULL, 10);
 	  if ((regress_rel_iters < 2) || (regress_rel_iters == ULONG_MAX)) {
-	    printf("Error: Invalid --regress-rel jackknife iteration count '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE;
+	    sprintf(logbuf, "Error: Invalid --regress-rel jackknife iteration count '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	  if (ii == 2) {
 	    regress_rel_d = atoi(argv[cur_arg + 2]);
 	    if (regress_rel_d <= 0) {
-	      printf("Error: Invalid --regress-rel jackknife delete parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
+	      sprintf(logbuf, "Error: Invalid --regress-rel jackknife delete parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	  }
 	}
@@ -12467,21 +12469,21 @@ int main(int argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + jj], "clip") && (!regress_pcs_clip)) {
 	    regress_pcs_clip = 1;
 	  } else if ((max_pcs != MAX_PCS_DEFAULT) || (argv[cur_arg + jj][0] < '0') || (argv[cur_arg + jj][0] > '9')) {
-	    printf("Error: Invalid --regress-pcs parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
-	    goto main_ret_INVALID_CMDLINE;
+	    sprintf(logbuf, "Error: Invalid --regress-pcs parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
 	  } else {
 	    max_pcs = atoi(argv[cur_arg + jj]);
 	    if (max_pcs < 1) {
-	      printf("Error: Invalid --regress-pcs maximum principal component count '%s'.%s", argv[cur_arg + jj], errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
+	      sprintf(logbuf, "Error: Invalid --regress-pcs maximum principal component count '%s'.%s", argv[cur_arg + jj], errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	  }
 	}
 	calculation_type |= CALC_REGRESS_PCS;
       } else if (!memcmp(argptr2, "ead-freq", 9)) {
 	if (calculation_type & CALC_FREQ) {
-	  printf("Error: --freq and --read-freq flags cannot coexist.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --freq and --read-freq flags cannot coexist.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -12509,37 +12511,37 @@ int main(int argc, char** argv) {
 	    recode_modifier |= RECODE_12;
 	  } else if (!memcmp(argv[cur_arg + jj], "tab", 4)) {
 	    if (recode_modifier & (RECODE_TAB | RECODE_DELIMX)) {
-	      printf("Error: Multiple --recode delimiter modifiers.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
+	      sprintf(logbuf, "Error: Multiple --recode delimiter modifiers.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_TAB;
 	  } else if (!memcmp(argv[cur_arg + jj], "tabx", 5)) {
 	    if (recode_modifier & (RECODE_TAB | RECODE_DELIMX)) {
-	      printf("Error: Multiple --recode delimiter modifiers.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
+	      sprintf(logbuf, "Error: Multiple --recode delimiter modifiers.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_TAB | RECODE_DELIMX;
 	  } else if (!memcmp(argv[cur_arg + jj], "spacex", 7)) {
 	    if (recode_modifier & (RECODE_TAB | RECODE_DELIMX)) {
-	      printf("Error: Multiple --recode delimiter modifiers.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
+	      sprintf(logbuf, "Error: Multiple --recode delimiter modifiers.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_DELIMX;
 	  } else if (!memcmp(argv[cur_arg + jj], "transpose", 10)) {
 	    if (recode_modifier & RECODE_LGEN) {
-	      printf("Error: --recode 'transpose' and 'lgen' modifiers cannot be used together.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
+	      sprintf(logbuf, "Error: --recode 'transpose' and 'lgen' modifiers cannot be used together.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_TRANSPOSE;
 	  } else if (!memcmp(argv[cur_arg + jj], "lgen", 5)) {
 	    if (recode_modifier & RECODE_TRANSPOSE) {
-	      printf("Error: --recode 'transpose' and 'lgen' modifiers cannot be used together.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
+	      sprintf(logbuf, "Error: --recode 'transpose' and 'lgen' modifiers cannot be used together.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_LGEN;
 	  } else {
-	    printf("Error: Invalid --recode parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
-	    goto main_ret_INVALID_CMDLINE;
+	    sprintf(logbuf, "Error: Invalid --recode parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
 	calculation_type |= CALC_RECODE;
@@ -12559,15 +12561,15 @@ int main(int argc, char** argv) {
     case 's':
       if (!memcmp(argptr2, "ample", 6)) {
 	if ((load_params & 0x27f) || load_rare) {
-	  printf("Error: --sample conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --sample conflicts with another input flag.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	load_params |= 0x200;
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 1)) {
-	  printf("Error: --sample parameter too long.\n");
+	  logprint("Error: --sample parameter too long.\n");
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(samplename, argv[cur_arg + 1]);
@@ -12581,8 +12583,8 @@ int main(int argc, char** argv) {
 	}
 	rseed = (unsigned long int)atol(argv[cur_arg + 1]);
 	if (rseed == 0) {
-	  printf("Error: Invalid --seed parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: Invalid --seed parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
       } else if (memcmp(argptr2, "ilent", 6)) {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -12595,24 +12597,24 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (makepheno_str) {
-	  printf("Error: --tail-pheno cannot be used with --make-pheno.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --tail-pheno cannot be used with --make-pheno.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (sscanf(argv[cur_arg + 1], "%lg", &tail_bottom) != 1) {
-	  printf("Error: Invalid --tail-pheno parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: Invalid --tail-pheno parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (ii == 1) {
 	  tail_top = tail_bottom;
 	} else {
 	  if (sscanf(argv[cur_arg + 2], "%lg", &tail_top) != 1) {
-	    printf("Error: Invalid --tail-pheno parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
-	    goto main_ret_INVALID_CMDLINE;
+	    sprintf(logbuf, "Error: Invalid --tail-pheno parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
 	if (tail_bottom > tail_top) {
-	  printf("Error: Ltop cannot be larger than Hbottom for --tail-pheno.\n");
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: Ltop cannot be larger than Hbottom for --tail-pheno.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	tail_pheno = 1;
       } else if (!memcmp(argptr2, "hreads", 7)) {
@@ -12621,45 +12623,47 @@ int main(int argc, char** argv) {
 	}
 	ii = atoi(argv[cur_arg + 1]);
 	if (ii < 1) {
-	  printf("Error: Invalid --threads parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: Invalid --threads parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (ii > MAX_THREADS) {
-	  printf("Note: Reducing --threads parameter to %d.  (If this is not large enough,\nrecompile with a larger MAX_THREADS setting.)\n", MAX_THREADS);
+	  sprintf(logbuf, "Note: Reducing --threads parameter to %d.  (If this is not large enough,\nrecompile with a larger MAX_THREADS setting.)\n", MAX_THREADS);
+	  logprintb();
 	  ii = MAX_THREADS;
 	}
 	g_thread_ct = ii;
       } else if (!memcmp(argptr2, "ab", 3)) {
-	printf("Note: --tab flag deprecated.  Use '--recode tab ...'.\n");
+	logprint("Note: --tab flag deprecated.  Use '--recode tab ...'.\n");
 	if (recode_modifier & RECODE_DELIMX) {
-	  printf("Error: Multiple --recode delimiter modifiers.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: Multiple --recode delimiter modifiers.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	recode_modifier |= RECODE_TAB;
       } else if (!memcmp(argptr2, "ranspose", 9)) {
-	printf("Note: --transpose flag deprecated.  Use '--recode transpose ...'.\n");
+	logprint("Note: --transpose flag deprecated.  Use '--recode transpose ...'.\n");
 	if (recode_modifier & RECODE_LGEN) {
-	  printf("Error: --recode 'transpose' and 'lgen' modifiers cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --recode 'transpose' and 'lgen' modifiers cannot be used together.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	recode_modifier |= RECODE_TRANSPOSE;
       } else if (!memcmp(argptr2, "fam", 4)) {
 	if (load_params || load_rare) {
-	  printf("Error: --tfam conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --tfam conflicts with another input flag.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	jj = strlen(argv[cur_arg + 1]);
 	if (jj > FNAMESIZE - 1) {
-	  printf("Error: --tfam filename prefix too long.\n");
+	  logprint("Error: --tfam filename prefix too long.\n");
+	  goto main_ret_OPEN_FAIL;
 	}
 	memcpy(famname, argv[cur_arg + 1], jj + 1);
 	load_rare |= LOAD_RARE_TFAM;
       } else if (!memcmp(argptr2, "file", 5)) {
 	if (load_params || (load_rare & (~LOAD_RARE_TRANSPOSE_MASK))) {
-	  printf("Error: --tfile conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --tfile conflicts with another input flag.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -12667,7 +12671,8 @@ int main(int argc, char** argv) {
 	if (ii) {
 	  jj = strlen(argv[cur_arg + 1]);
 	  if (jj > FNAMESIZE - 6) {
-	    printf("Error: --tfile filename prefix too long.\n");
+	    logprint("Error: --tfile filename prefix too long.\n");
+	    goto main_ret_OPEN_FAIL;
 	  }
 	  if (!(load_rare & LOAD_RARE_TPED)) {
 	    memcpy(pedname, argv[cur_arg + 1], jj);
@@ -12688,15 +12693,16 @@ int main(int argc, char** argv) {
 	load_rare |= LOAD_RARE_TRANSPOSE;
       } else if (!memcmp(argptr2, "ped", 4)) {
 	if (load_params || (load_rare & (~(LOAD_RARE_TRANSPOSE | LOAD_RARE_TFAM)))) {
-	  printf("Error: --tped conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --tped conflicts with another input flag.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	jj = strlen(argv[cur_arg + 1]);
 	if (jj > FNAMESIZE - 1) {
-	  printf("Error: --tped filename prefix too long.\n");
+	  logprint("Error: --tped filename prefix too long.\n");
+	  goto main_ret_OPEN_FAIL;
 	}
 	memcpy(pedname, argv[cur_arg + 1], jj + 1);
 	load_rare |= LOAD_RARE_TPED;
@@ -12708,15 +12714,15 @@ int main(int argc, char** argv) {
     case 'u':
       if (!memcmp(argptr2, "nrelated-heritability", 22)) {
 #ifdef NOLAPACK
-        printf("Error: --unrelated-heritability requires WDIST to be built with LAPACK.\n");
-	goto main_ret_INVALID_CMDLINE;
+        sprintf(logbuf, "Error: --unrelated-heritability requires WDIST to be built with LAPACK.\n");
+	goto main_ret_INVALID_CMDLINE_3;
 #else
 	if (rel_calc_type & REL_CALC_COV) {
-	  printf("Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.\n");
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (parallel_tot > 1) {
-	  printf("Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE;
+	  sprintf(logbuf, "Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 4, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -12730,30 +12736,30 @@ int main(int argc, char** argv) {
 	  }
 	  if (ii >= jj) {
 	    if (sscanf(argv[cur_arg + jj], "%lg", &unrelated_herit_tol) != 1) {
-	      printf("Error: Invalid --unrelated-heritability EM tolerance parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
+	      sprintf(logbuf, "Error: Invalid --unrelated-heritability EM tolerance parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    if (unrelated_herit_tol <= 0.0) {
-	      printf("Error: Invalid --unrelated-heritability EM tolerance parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
-	      goto main_ret_INVALID_CMDLINE;
+	      sprintf(logbuf, "Error: Invalid --unrelated-heritability EM tolerance parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    if (ii > jj) {
 	      if (sscanf(argv[cur_arg + jj + 1], "%lg", &unrelated_herit_covg) != 1) {
-		printf("Error: Invalid --unrelated-heritability genomic covariance prior '%s'.%s", argv[cur_arg + jj + 1], errstr_append);
-		goto main_ret_INVALID_CMDLINE;
+		sprintf(logbuf, "Error: Invalid --unrelated-heritability genomic covariance prior '%s'.%s", argv[cur_arg + jj + 1], errstr_append);
+		goto main_ret_INVALID_CMDLINE_3;
 	      }
 	      if ((unrelated_herit_covg <= 0.0) || (unrelated_herit_covg > 1.0)) {
-		printf("Error: Invalid --unrelated-heritability genomic covariance prior '%s'.%s", argv[cur_arg + jj + 1], errstr_append);
-		goto main_ret_INVALID_CMDLINE;
+		sprintf(logbuf, "Error: Invalid --unrelated-heritability genomic covariance prior '%s'.%s", argv[cur_arg + jj + 1], errstr_append);
+		goto main_ret_INVALID_CMDLINE_3;
 	      }
 	      if (ii == jj + 2) {
 		if (sscanf(argv[cur_arg + jj + 2], "%lg", &unrelated_herit_covr) != 1) {
-		  printf("Error: Invalid --unrelated-heritability residual covariance prior '%s'.%s", argv[cur_arg + jj + 2], errstr_append);
-		  goto main_ret_INVALID_CMDLINE;
+		  sprintf(logbuf, "Error: Invalid --unrelated-heritability residual covariance prior '%s'.%s", argv[cur_arg + jj + 2], errstr_append);
+		  goto main_ret_INVALID_CMDLINE_3;
 		}
 		if ((unrelated_herit_covr <= 0.0) || (unrelated_herit_covr > 1.0)) {
-		  printf("Error: Invalid --unrelated-heritability residual covariance prior '%s'.%s", argv[cur_arg + jj + 2], errstr_append);
-		  goto main_ret_INVALID_CMDLINE;
+		  sprintf(logbuf, "Error: Invalid --unrelated-heritability residual covariance prior '%s'.%s", argv[cur_arg + jj + 2], errstr_append);
+		  goto main_ret_INVALID_CMDLINE_3;
 		}
 	      } else {
 		unrelated_herit_covr = 1.0 - unrelated_herit_covg;
@@ -12784,18 +12790,18 @@ int main(int argc, char** argv) {
   if (load_rare) {
     if (load_rare == LOAD_RARE_GRM) {
       if ((!(calculation_type & CALC_REL_CUTOFF)) || (calculation_type & (~(CALC_REL_CUTOFF | CALC_RELATIONSHIP)))) {
-	printf("Error: --grm currently must be used with --rel-cutoff (possibly combined with\n--make-grm).%s", errstr_append);
-	goto main_ret_INVALID_CMDLINE;
+	sprintf(logbuf, "Error: --grm currently must be used with --rel-cutoff (possibly combined with\n--make-grm).%s", errstr_append);
+	goto main_ret_INVALID_CMDLINE_3;
       }
     }
   }
   if (prune && (!phenoname) && (!fam_col_6)) {
-    printf("Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.\n");
-    goto main_ret_INVALID_CMDLINE;
+    sprintf(logbuf, "Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.%s", errstr_append);
+    goto main_ret_INVALID_CMDLINE_3;
   }
   if ((calculation_type & CALC_LOAD_DISTANCES) && (!(calculation_type & (CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))) {
-    printf("Error: --load-dists cannot be used without either --groupdist or\n--regress-distance.\n");
-    goto main_ret_INVALID_CMDLINE;
+    sprintf(logbuf, "Error: --load-dists cannot be used without either --groupdist or\n--regress-distance.%s", errstr_append);
+    goto main_ret_INVALID_CMDLINE_3;
   }
 
   if ((!calculation_type) && (load_rare != LOAD_RARE_LGEN) && (load_rare != LOAD_RARE_TPED)) {
