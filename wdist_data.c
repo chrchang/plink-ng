@@ -810,7 +810,68 @@ int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_
   return 0;
 }
 
-int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** bedoutfile_ptr, FILE** famoutfile_ptr, FILE** bimoutfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* person_ids, unsigned int max_person_id_len, char* paternal_ids, unsigned int max_paternal_id_len, char* maternal_ids, unsigned int max_maternal_id_len, unsigned char* sex_info, char* pheno_c, double* pheno_d, double missing_phenod, char* output_missing_pheno, unsigned long max_marker_id_len, int map_is_unsorted, int keep_allele_order, int species) {
+void fill_bmap_raw(unsigned char* bmap_raw, unsigned int ct_mod4) {
+  // possibilities:
+  // 0. A1 -> A1, A2 -> A2 [0..255]
+  // 1. A1 -> A2, A2 -> A1 [256..511]
+  // 1 last char. [512..575]
+  unsigned char imap[4] = {3, 1, 2, 0};
+  unsigned char* bmap = bmap_raw;
+  unsigned int uii = 0;
+  unsigned int ujj;
+  unsigned int ukk;
+  unsigned int umm;
+  unsigned int unn;
+  unsigned int extra_ct;
+  do {
+    *bmap++ = uii++;
+  } while (uii < 256);
+  for (uii = 0; uii < 4; uii++) {
+    umm = imap[uii] * 64;
+    for (ujj = 0; ujj < 4; ujj++) {
+      unn = umm + imap[ujj] * 16;
+      for (ukk = 0; ukk < 4; ukk++) {
+	extra_ct = unn + imap[ukk] * 4;
+	*bmap++ = extra_ct + 3;
+	*bmap++ = extra_ct + 1;
+	*bmap++ = extra_ct + 2;
+	*bmap++ = extra_ct;
+      }
+    }
+  }
+  if (ct_mod4) {
+    switch (ct_mod4) {
+    case 1:
+      bmap[0] = 3;
+      bmap[1] = 1;
+      bmap[2] = 2;
+      bmap[3] = 0;
+      return;
+    case 2:
+      for (uii = 0; uii < 4; uii++) {
+	ukk = imap[uii] * 4;
+	*bmap++ = ukk + 3;
+	*bmap++ = ukk + 1;
+	*bmap++ = ukk + 2;
+	*bmap++ = ukk;
+      }
+      return;
+    case 3:
+      for (uii = 0; uii < 4; uii++) {
+	ukk = imap[uii] * 16;
+	for (ujj = 0; ujj < 4; ujj++) {
+	  umm = ukk + imap[ujj] * 4;
+	  *bmap++ = umm + 3;
+	  *bmap++ = umm + 1;
+	  *bmap++ = umm + 2;
+	  *bmap++ = umm;
+	}
+      }
+    }
+  }
+}
+
+int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** bedoutfile_ptr, FILE** famoutfile_ptr, FILE** bimoutfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned long* marker_reverse, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* person_ids, unsigned int max_person_id_len, char* paternal_ids, unsigned int max_paternal_id_len, char* maternal_ids, unsigned int max_maternal_id_len, unsigned char* sex_info, char* pheno_c, double* pheno_d, double missing_phenod, char* output_missing_pheno, unsigned long max_marker_id_len, int map_is_unsorted, unsigned int* indiv_sort_map, int species) {
   unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   unsigned long indiv_ct4 = (indiv_ct + 3) / 4;
   unsigned char* wkspace_mark = wkspace_base;
@@ -819,6 +880,7 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
   unsigned int marker_uidx;
   unsigned int marker_idx;
   unsigned int indiv_uidx;
+  unsigned int indiv_uidx2;
   unsigned int indiv_idx;
   unsigned int ii_mod4;
   unsigned char* loadbuf;
@@ -831,10 +893,14 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
   unsigned int loop_end;
   int* map_reverse;
   unsigned char* writeptr;
+  unsigned char bmap_raw[576];
+  unsigned char* bmap;
+  unsigned char* bmap2;
   int retval;
   if (wkspace_alloc_uc_checked(&loadbuf, unfiltered_indiv_ct4)) {
     return RET_NOMEM;
   }
+  fill_bmap_raw(bmap_raw, indiv_ct & 3);
 
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
     return RET_READ_FAIL;
@@ -872,24 +938,45 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
 	      return RET_READ_FAIL;
 	    }
 	  }
+	  if (is_set(marker_reverse, marker_uidx)) {
+	    bmap = &(bmap_raw[256]);
+	    bmap2 = &(bmap_raw[512]);
+	  } else {
+	    bmap = bmap_raw;
+	    bmap2 = bmap_raw;
+	  }
 	  if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	    return RET_READ_FAIL;
 	  }
 	  writeptr = &(writebuf[indiv_ct4 * map_reverse[marker_idx]]);
 	  indiv_uidx = 0;
 	  cc = 0;
-	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-	    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
-	    ii_mod4 = indiv_idx & 3;
-	    cc |= (((loadbuf[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3) << (ii_mod4 * 2));
-	    if (ii_mod4 == 3) {
-	      writeptr[indiv_idx / 4] = cc;
-	      cc = 0;
+	  if (indiv_sort_map) {
+	    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	      do {
+		indiv_uidx2 = indiv_sort_map[indiv_uidx++];
+	      } while (is_set(indiv_exclude, indiv_uidx2));
+	      ii_mod4 = indiv_idx & 3;
+	      cc |= (((loadbuf[indiv_uidx2 / 4] >> ((indiv_uidx2 & 3) * 2)) & 3) << (ii_mod4 * 2));
+	      if (ii_mod4 == 3) {
+		writeptr[indiv_idx / 4] = bmap[cc];
+		cc = 0;
+	      }
 	    }
-	    indiv_uidx++;
+	  } else {
+	    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	      indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+	      ii_mod4 = indiv_idx & 3;
+	      cc |= (((loadbuf[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3) << (ii_mod4 * 2));
+	      if (ii_mod4 == 3) {
+		writeptr[indiv_idx / 4] = bmap[cc];
+		cc = 0;
+	      }
+	      indiv_uidx++;
+	    }
 	  }
 	  if (indiv_ct & 3) {
-	    writeptr[indiv_ct4 - 1] = cc;
+	    writeptr[indiv_ct4 - 1] = bmap2[cc];
 	  }
 	  marker_uidx++;
 	}
@@ -919,23 +1006,44 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
 	    return RET_READ_FAIL;
 	  }
 	}
+	if (is_set(marker_reverse, marker_uidx)) {
+	  bmap = &(bmap_raw[256]);
+	  bmap2 = &(bmap_raw[512]);
+	} else {
+	  bmap = bmap_raw;
+	  bmap2 = bmap_raw;
+	}
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  return RET_READ_FAIL;
 	}
 	indiv_uidx = 0;
 	cc = 0;
-	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-	  indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
-	  ii_mod4 = indiv_idx & 3;
-	  cc |= (((loadbuf[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3) << (ii_mod4 * 2));
-	  if (ii_mod4 == 3) {
-	    writebuf[indiv_idx / 4] = cc;
-	    cc = 0;
+	if (indiv_sort_map) {
+	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	    do {
+	      indiv_uidx2 = indiv_sort_map[indiv_uidx++];
+	    } while (is_set(indiv_exclude, indiv_uidx2));
+	    ii_mod4 = indiv_idx & 3;
+	    cc |= (((loadbuf[indiv_uidx2 / 4] >> ((indiv_uidx2 & 3) * 2)) & 3) << (ii_mod4 * 2));
+	    if (ii_mod4 == 3) {
+	      writebuf[indiv_idx / 4] = bmap[cc];
+	      cc = 0;
+	    }
 	  }
-	  indiv_uidx++;
+	} else {
+	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+	    ii_mod4 = indiv_idx & 3;
+	    cc |= (((loadbuf[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3) << (ii_mod4 * 2));
+	    if (ii_mod4 == 3) {
+	      writebuf[indiv_idx / 4] = bmap[cc];
+	      cc = 0;
+	    }
+	    indiv_uidx++;
+	  }
 	}
 	if (indiv_ct & 3) {
-	  writebuf[indiv_ct4 - 1] = cc;
+	  writebuf[indiv_ct4 - 1] = bmap2[cc];
 	}
 	if (fwrite_checked(writebuf, indiv_ct4, *bedoutfile_ptr)) {
 	  return RET_WRITE_FAIL;
@@ -959,8 +1067,15 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
     return RET_OPEN_FAIL;
   }
   indiv_uidx = 0;
+  indiv_uidx2 = 0;
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+    if (indiv_sort_map) {
+      do {
+	indiv_uidx = indiv_sort_map[indiv_uidx2++];
+      } while (is_set(indiv_exclude, indiv_uidx));
+    } else {
+      indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+    }
     bufptr = tbuf;
     cptr = &(person_ids[indiv_uidx * max_person_id_len]);
     bufptr += sprintf(tbuf, "%s %s %s %d ", cptr, paternal_ids? (&(paternal_ids[indiv_uidx * max_paternal_id_len])) : "0", maternal_ids? (&(maternal_ids[indiv_uidx * max_maternal_id_len])) : "0", sex_info? sex_info[indiv_uidx] : 0);
@@ -980,7 +1095,9 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
     if (fputs(tbuf, *famoutfile_ptr) == EOF) {
       return RET_WRITE_FAIL;
     }
-    indiv_uidx++;
+    if (!indiv_sort_map) {
+      indiv_uidx++;
+    }
   }
   fclose_null(famoutfile_ptr);
 
@@ -1116,8 +1233,8 @@ int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34,
   if (ferror(famfile)) {
     return RET_READ_FAIL;
   }
-  if (unfiltered_indiv_ct < 2) {
-    logprint("Error: Less than two people in .fam/.ped file.\n");
+  if (!unfiltered_indiv_ct) {
+    logprint("Error: Nobody in .fam/.ped file.\n");
     return RET_INVALID_FORMAT;
   }
   wkspace_reset(wkspace_mark);
@@ -3974,10 +4091,6 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   unsigned int orig_idx = 0;
   unsigned int* map_reverse = NULL;
   unsigned long* reversed = NULL;
-  // possibilities:
-  // 0. A1 -> A1, A2 -> A2 [0..255]
-  // 1. A1 -> A2, A2 -> A1 [256..511]
-  unsigned char imap[4] = {3, 1, 2, 0};
   unsigned char bmap_raw[576];
   unsigned char* bmap;
   unsigned char* bmap2;
@@ -4019,8 +4132,6 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   unsigned int ujj;
   unsigned int ukk;
   unsigned int umm;
-  unsigned int unn;
-  unsigned int extra_ct;
   char* bufptr;
   char* bufptr2;
   char* bufptr3;
@@ -4205,58 +4316,9 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   }
 #endif
   tot_indiv_ct = ullxx;
-  for (uii = 0; uii < 256; uii++) {
-    bmap_raw[uii] = uii;
-  }
+  fill_bmap_raw(bmap_raw, tot_indiv_ct % 4);
   bmap = &(bmap_raw[256]);
-  bmap2 = bmap;
-  for (uii = 0; uii < 4; uii++) {
-    umm = imap[uii] * 64;
-    for (ujj = 0; ujj < 4; ujj++) {
-      unn = umm + imap[ujj] * 16;
-      for (ukk = 0; ukk < 4; ukk++) {
-	extra_ct = unn + imap[ukk] * 4;
-	*bmap2++ = extra_ct + 3;
-	*bmap2++ = extra_ct + 1;
-	*bmap2++ = extra_ct + 2;
-	*bmap2++ = extra_ct;
-      }
-    }
-  }
-  unn = tot_indiv_ct % 4;
-  if (unn) {
-    switch (unn) {
-    case 1:
-      bmap2[0] = 3;
-      bmap2[1] = 1;
-      bmap2[2] = 2;
-      bmap2[3] = 0;
-      break;
-    case 2:
-      ucptr = bmap2;
-      for (uii = 0; uii < 4; uii++) {
-	ukk = imap[uii] * 4;
-	*ucptr++ = ukk + 3;
-	*ucptr++ = ukk + 1;
-	*ucptr++ = ukk + 2;
-	*ucptr++ = ukk;
-      }
-      break;
-    case 3:
-      ucptr = bmap2;
-      for (uii = 0; uii < 4; uii++) {
-	ukk = imap[uii] * 16;
-	for (ujj = 0; ujj < 4; ujj++) {
-	  umm = ukk + imap[ujj] * 4;
-	  *ucptr++ = umm + 3;
-	  *ucptr++ = umm + 1;
-	  *ucptr++ = umm + 2;
-	  *ucptr++ = umm;
-	}
-      }
-      break;
-    }
-  }
+  bmap2 = &(bmap_raw[512]);
   if (indiv_sort == INDIV_SORT_NONE) {
     if (wkspace_alloc_ui_checked(&indiv_nsmap, tot_indiv_ct * sizeof(int))) {
       goto merge_datasets_ret_NOMEM;
@@ -4654,7 +4716,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     if (fclose_null(&outfile)) {
       goto merge_datasets_ret_WRITE_FAIL;
     }
-    memcpy(&(outname_end[8]), "ed", 3);
+    memcpy(outname_end, ".bed", 5);
     sprintf(logbuf, "Merged fileset written to %s + .bim + .fam.\n", outname);
     logprintb();
   } else {
