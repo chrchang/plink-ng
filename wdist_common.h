@@ -333,6 +333,10 @@ void set_bit(unsigned long* bit_arr, int loc, unsigned int* bit_set_ct_ptr);
 
 void set_bit_sub(unsigned long* bit_arr, int loc, unsigned int* bit_unset_ct_ptr);
 
+static inline void clear_bit_noct(unsigned long* exclude_arr, int loc) {
+  exclude_arr[loc / BITCT] &= ~(1LU << (loc % BITCT));
+}
+
 void clear_bit(unsigned long* exclude_arr, int loc, unsigned int* include_ct_ptr);
 
 static inline int is_set(unsigned long* exclude_arr, unsigned int loc) {

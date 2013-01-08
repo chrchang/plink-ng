@@ -811,8 +811,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "                     * 'ascii' sorts in ASCII order, e.g. 'ID3' < 'id10' <\n"
 "                       'id2'.\n"
 "                     For now, only --merge/--bmerge/--merge-list and explicit\n"
-"                     --make-bed respect this flag, but support will be expanded\n"
-"                     in the future.\n"
+"                     --make-bed respect this flag.\n"
 	       );
     help_print("pheno", &help_ctrl, 0,
 "  --pheno [fname]  : Specify alternate phenotype.\n"
@@ -6033,6 +6032,71 @@ void exclude_ambiguous_sex(unsigned int unfiltered_indiv_ct, unsigned long* indi
   }
 }
 
+int load_ref_alleles(char* infilename, unsigned int unfiltered_marker_ct, char* marker_alleles, unsigned long* marker_reverse, char* marker_ids, unsigned long max_marker_id_len) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile = NULL;
+  char* sorted_ids;
+  char* bufptr;
+  char* bufptr2;
+  char* bufptr3;
+  int* id_map;
+  int retval;
+  int sorted_idx;
+  char cc;
+  if (fopen_checked(&infile, infilename, "r")) {
+    goto load_ref_alleles_ret_OPEN_FAIL;
+  }
+  retval = sort_item_ids_nx(&sorted_ids, &id_map, unfiltered_marker_ct, marker_ids, max_marker_id_len);
+  if (retval) {
+    goto load_ref_alleles_ret_1;
+  }
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln(*bufptr)) {
+      continue;
+    }
+    bufptr2 = item_endnn2(bufptr);
+    bufptr3 = skip_initial_spaces(bufptr2);
+    if (is_eoln(*bufptr3)) {
+      logprint("Error: Improperly formatted --reference-allele file.\n");
+      goto load_ref_alleles_ret_INVALID_FORMAT;
+    }
+    *bufptr2 = '\0';
+    sorted_idx = bsearch_str(bufptr, sorted_ids, max_marker_id_len, 0, unfiltered_marker_ct - 1);
+    if (sorted_idx == -1) {
+      continue;
+    } else {
+      sorted_idx = id_map[sorted_idx];
+      cc = *bufptr3;
+      if (cc == marker_alleles[sorted_idx * 2]) {
+	clear_bit_noct(marker_reverse, sorted_idx);
+      } else if (cc == marker_alleles[sorted_idx * 2 + 1]) {
+	set_bit_noct(marker_reverse, sorted_idx);
+      } else {
+        sprintf(logbuf, "Warning: Impossible reference allele assignment for marker %s.\n", bufptr);
+	logprintb();
+      }
+    }
+  }
+  if (!feof(infile)) {
+    goto load_ref_alleles_ret_READ_FAIL;
+  }
+  while (0) {
+  load_ref_alleles_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  load_ref_alleles_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  load_ref_alleles_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ load_ref_alleles_ret_1:
+  fclose_cond(infile);
+  wkspace_reset(wkspace_mark);
+  return 0;
+}
 
 int write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, int unfiltered_marker_ct, unsigned long* marker_exclude, char* marker_ids, unsigned long max_marker_id_len) {
   int marker_uidx;
@@ -8590,8 +8654,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   char* marker_ids = NULL;
   unsigned char* marker_weights_base = NULL;
   // Binary files:
-  //   marker_alleles[2 * ii] is identity of minor allele at SNP ii
-  //   marker_alleles[2 * ii + 1] is identity of major allele at SNP ii
+  //   marker_alleles[2 * ii] is id of A1 (usually minor) allele at SNP ii
+  //   marker_alleles[2 * ii + 1] is identity of A2 allele at SNP ii
   // Text file mid-loading:
   //   marker_alleles[4 * ii] is identity of major allele at SNP ii
   //   marker_alleles[4 * ii + 1] is identity of 2nd most frequent allele, etc.
@@ -8761,7 +8825,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   // load .map/.bim, count markers, filter chromosomes
-  retval = load_map_or_bim(&mapfile, mapname, binary_files, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &marker_ids, chrom_info_ptr, &marker_pos, extractname, excludename, freqname, calculation_type, recode_modifier, &map_is_unsorted);
+  retval = load_map_or_bim(&mapfile, mapname, binary_files, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &marker_ids, chrom_info_ptr, &marker_pos, extractname, excludename, freqname, refalleles, calculation_type, recode_modifier, &map_is_unsorted);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -9105,6 +9169,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     if (retval || (!(calculation_type & (~(CALC_FREQ | CALC_MAKE_BED))))) {
       goto wdist_ret_2;
     }
+    collapse_arr(marker_alleles, 2, marker_exclude, unfiltered_marker_ct);
     sscanf(output_missing_pheno, "%lg", &missing_phenod);
     // if this becomes much more of a maintenance nightmare, consider exiting
     // function and reloading from .bed from scratch
@@ -9172,6 +9237,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       logprintb();
     } else {
       logprint("Using 1 thread (no multithreaded calculations invoked).\n");
+    }
+  }
+
+  if (refalleles) {
+    retval = load_ref_alleles(refalleles, unfiltered_marker_ct, marker_alleles, marker_reverse, marker_ids, max_marker_id_len);
+    if (retval) {
+      goto wdist_ret_2;
     }
   }
 
