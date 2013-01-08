@@ -608,7 +608,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    guaranteeing optimality.  (Use the --make-rel and --keep/--remove flags if\n"
 "    you want to try to do better.)\n\n"
 	       );
-    help_print("regress-distance", &help_ctrl, 1,
+    help_print("regress-distance\tregress-pcs-regress-distance", &help_ctrl, 1,
 "  --regress-distance {iters} {d}\n"
 "    Linear regression of pairwise genomic distances on pairwise average\n"
 "    phenotypes and vice versa, using delete-d jackknife for standard errors.\n"
@@ -616,7 +616,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
 "      down.  With no parameters, 100k iterations are run.\n\n"
 	       );
-    help_print("regress-pcs", &help_ctrl, 1,
+    help_print("regress-pcs\tregress-pcs-regress-distance", &help_ctrl, 1,
 "  --regress-pcs [.evec or .eigenvec filename] <normalize-pheno> <sex-specific>\n"
 "                <clip> {max PCs}\n"
 "    Linear regression of phenotypes and genotypes on the given list of\n"
@@ -629,7 +629,11 @@ int disp_help(unsigned int param_ct, char** argv) {
 "      they are represented as negative probabilities in the .gen file, which\n"
 "      are invalid input for some programs.\n"
 "    * By default, principal components beyond the 20th are ignored; change this\n"
-"      by setting the max PCs parameter.\n\n"
+"      by setting the max PCs parameter.\n"
+"  --regress-pcs-regress-distance [.evec/.eigenvec file] <normalize-pheno>\n"
+"                                 <sex-specific> {max PCs} {iters} {d}\n"
+"    High-speed combination of --regress-pcs and --regress-distance (no large\n"
+"    intermediate text file is written to disk).\n\n"
 	       );
     help_print("regress-rel", &help_ctrl, 1,
 "  --regress-rel {iters} {d}\n"
@@ -10653,8 +10657,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   return retval;
 }
 
-// output-missing-phenotype + terminating null
-#define MAX_FLAG_LEN 25
+// regress-pcs-regress-distance + terminating null
+#define MAX_FLAG_LEN 29
 
 static inline int is_flag(char* param) {
   char cc = param[1];
@@ -12565,6 +12569,10 @@ int main(int argc, char** argv) {
 	}
 	calculation_type |= CALC_REGRESS_REL;
       } else if (!memcmp(argptr2, "egress-pcs", 11)) {
+	if (calculation_type & CALC_REGRESS_DISTANCE) {
+	  sprintf(logbuf, "Error: --regress-pcs cannot be used with --regress-distance.  Use the\nspecialized --regress-pcs-regress-distance flag to perform this calculation\nefficiently.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 5, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -12591,6 +12599,18 @@ int main(int argc, char** argv) {
 	  }
 	}
 	calculation_type |= CALC_REGRESS_PCS;
+      } else if (!memcmp(argptr2, "egress-pcs-regress-distance", 28)) {
+	if (calculation_type & CALC_REGRESS_PCS) {
+	  sprintf(logbuf, "Error: --regress-pcs-regress-distance cannot be used with --regress-pcs.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (calculation_type & CALC_REGRESS_DISTANCE) {
+	  sprintf(logbuf, "Error: --regress-pcs-regress-distance cannot be used with --regress-distance.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        logprint("Error: --regress-pcs-regress-distance is currently under development.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto main_ret_1;
+	calculation_type |= CALC_REGRESS_PCS | CALC_REGRESS_DISTANCE;
       } else if (!memcmp(argptr2, "ead-freq", 9)) {
 	if (calculation_type & CALC_FREQ) {
 	  sprintf(logbuf, "Error: --freq and --read-freq flags cannot coexist.%s", errstr_append);
