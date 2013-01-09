@@ -1015,7 +1015,7 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
 	  if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	    return RET_READ_FAIL;
 	  }
-	  writeptr = &(writebuf[indiv_ct4 * map_reverse[marker_idx]]);
+	  writeptr = &(writebuf[indiv_ct4 * map_reverse[marker_uidx]]);
 	  indiv_uidx = 0;
 	  cc = 0;
 	  if (indiv_sort_map) {
