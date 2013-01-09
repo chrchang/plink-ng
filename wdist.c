@@ -678,19 +678,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "       spaces, respectively.\n"
 "    * The 'transpose' modifier causes a transposed text fileset to be generated\n"
 "      instead.\n"
-"    * The 'lgen' modifier causes a long-format fileset to be generated instead.\n"
-	       );
-    help_print("tfile\ttped\ttfam", &help_ctrl, 1,
-"  --tfile {prefix}\n"
-"  --tped [filename]\n"
-"  --tfam [filename]\n"
-"    Loads a PLINK transposed text fileset and converts it to binary.\n"
-"    --make-bed does not need to be specified, and WDIST does not support any\n"
-"    other direct operations on existing transposed text filesets.\n"
-	       );
-    help_print("lfile", &help_ctrl, 1,
-"  --lfile {prefix}\n"
-"    Loads a PLINK long-format fileset and converts it to binary.\n\n"
+"    * The 'lgen' modifier causes a long-format fileset to be generated instead.\n\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
 "  --merge [.ped filename] [.map filename]\n"
@@ -698,7 +686,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --bmerge [.bed filename] [.bim filename] [.fam filename]\n"
 "  --bmerge [binary fileset prefix]\n"
 "    Merges the given fileset with the initially loaded fileset.  If you specify\n"
-"    --make-bed, the initial merge result is written to\n"
+"    --make-bed or '--recode lgen', the initial merge result is written to\n"
 "    {output prefix}-merge.bed + .bim + .fam, filtering is performed, and then\n"
 "    the post-filtering data is written to {output prefix}.bed + .bim + .fam.\n"
 "    Otherwise, the merged data is written directly to\n"
@@ -738,14 +726,10 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_print("rerun", &help_ctrl, 0,
 "  --rerun {log}    : Rerun commands in log (default 'wdist.log').\n"
 	       );
-    help_print("file", &help_ctrl, 0,
+    help_print("file\tped\tmap", &help_ctrl, 0,
 "  --file [prefix]  : Specify prefix for .ped and .map files.  (When this flag\n"
 "                     isn't present, the prefix is assumed to be 'wdist'.)\n"
-	       );
-    help_print("ped", &help_ctrl, 0,
 "  --ped [filename] : Specify full name of .ped file.\n"
-	       );
-    help_print("map", &help_ctrl, 0,
 "  --map [filename] : Specify full name of .map file.\n"
 	       );
     help_print("no-fid", &help_ctrl, 0,
@@ -760,25 +744,23 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_print("no-pheno", &help_ctrl, 0,
 "  --no-pheno       : .fam/.ped file does not contain column 6 (phenotype).\n"
 	       );
-    help_print("bfile", &help_ctrl, 0,
+    help_print("bfile\tbed\tbim\tfam", &help_ctrl, 0,
 "  --bfile {prefix} : Specify .bed/.bim/.fam prefix (default 'wdist').\n"
-	       );
-    help_print("bed", &help_ctrl, 0,
 "  --bed [filename] : Specify full name of .bed file.\n"
-	       );
-    help_print("bim", &help_ctrl, 0,
 "  --bim [filename] : Specify full name of .bim file.\n"
-	       );
-    help_print("fam", &help_ctrl, 0,
 "  --fam [filename] : Specify full name of .fam file.\n"
 	       );
-    help_print("data", &help_ctrl, 0,
+    help_print("tfile\ttped\ttfam", &help_ctrl, 0,
+"  --tfile {prefix} : Specify .tped/.tfam prefix (default 'wdist').\n"
+"  --tped [fname]   : Specify full name of .tped file.\n"
+"  --tfam [fname]   : Specify full name of .tfam file.\n"
+	       );
+    help_print("lfile", &help_ctrl, 0,
+"  --lfile {prefix} : Specify .lgen/.map/.fam (long-format fileset) prefix.\n"
+	       );
+    help_print("data\tgen\tsample", &help_ctrl, 0,
 "  --data {prefix}  : Specify Oxford .gen/.sample prefix (default 'wdist').\n"
-	       );
-    help_print("gen", &help_ctrl, 0,
 "  --gen [filename] : Specify full name of .gen file.\n"
-	       );
-    help_print("sample", &help_ctrl, 0,
 "  --sample [fname] : Specify full name of .sample file.\n"
 	       );
     help_print("load-dists\tgroupdist\tregress-distance", &help_ctrl, 0,
