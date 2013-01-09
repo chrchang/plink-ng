@@ -14,6 +14,8 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
 
 int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, int true_fam_col_6, int missing_pheno, int missing_pheno_len, int affection_01, unsigned int* unfiltered_indiv_ct_ptr, char** person_ids_ptr, unsigned int* max_person_id_len_ptr, char** paternal_ids_ptr, unsigned int* max_paternal_id_len_ptr, char** maternal_ids_ptr, unsigned int* max_maternal_id_len_ptr, unsigned char** sex_info_ptr, int* affection_ptr, char** pheno_c_ptr, double** pheno_d_ptr, unsigned long** founder_info_ptr, unsigned long** indiv_exclude_ptr, int binary_files, unsigned long long** line_locs_ptr, unsigned long long** line_mids_ptr, int* pedbuflen_ptr);
 
+int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, int affection_01, int missing_pheno, Chrom_info* chrom_info_ptr);
+
 int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affection_01, Chrom_info* chrom_info_ptr);
 
 int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missing_geno, Chrom_info* chrom_info_ptr);

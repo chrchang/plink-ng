@@ -235,36 +235,38 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
       logprintb();
       return RET_INVALID_FORMAT;
     }
-    if (tbuf[0] > ' ') {
-      bufptr = next_item(tbuf);
-      if (no_more_items(bufptr)) {
-	logprint(errstr_map_format);
-	return RET_INVALID_FORMAT;
-      }
-      ulii = strlen_se(bufptr) + 1;
-      if (ulii > max_marker_id_len) {
-	max_marker_id_len = ulii;
-      }
-      if (marker_ids_needed || (!unfiltered_marker_ct)) {
-	if (ulii > (plink_maxsnp + 1)) {
-	  plink_maxsnp = ulii + 1;
-	}
-	if (!unfiltered_marker_ct) {
-	  bufptr = next_item_mult(bufptr, 2);
-	  if (binary_files) {
-	    bufptr = next_item_mult(bufptr, 2);
-	  }
-	  if (!bufptr) {
-	    logprint(errstr_map_format);
-	    return RET_INVALID_FORMAT;
-	  }
-	  if (*bufptr > ' ') {
-	    *map_cols_ptr = 4;
-	  }
-	}
-      }
-      unfiltered_marker_ct++;
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln(*bufptr)) {
+      continue;
     }
+    bufptr = next_item(bufptr);
+    if (no_more_items(bufptr)) {
+      logprint(errstr_map_format);
+      return RET_INVALID_FORMAT;
+    }
+    ulii = strlen_se(bufptr) + 1;
+    if (ulii > max_marker_id_len) {
+      max_marker_id_len = ulii;
+    }
+    if (marker_ids_needed || (!unfiltered_marker_ct)) {
+      if (ulii > (plink_maxsnp + 1)) {
+	plink_maxsnp = ulii + 1;
+      }
+      if (!unfiltered_marker_ct) {
+	bufptr = next_item_mult(bufptr, 2);
+	if (binary_files) {
+	  bufptr = next_item_mult(bufptr, 2);
+	}
+	if (!bufptr) {
+	  logprint(errstr_map_format);
+	  return RET_INVALID_FORMAT;
+	}
+	if (*bufptr > ' ') {
+	  *map_cols_ptr = 4;
+	}
+      }
+    }
+    unfiltered_marker_ct++;
   }
   if (!feof(*mapfile_ptr)) {
     return RET_READ_FAIL;
@@ -328,8 +330,9 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
       if (fgets(tbuf, MAXLINELEN, *mapfile_ptr) == NULL) {
         return RET_READ_FAIL;
       }
-    } while (tbuf[0] <= ' ');
-    jj = marker_code(species, tbuf);
+      bufptr = skip_initial_spaces(tbuf);
+    } while (is_eoln(*bufptr));
+    jj = marker_code(species, bufptr);
     if (jj == -1) {
       logprint("Error: Invalid chromosome index in .map/.bim file.\n");
       return RET_INVALID_FORMAT;
@@ -362,7 +365,7 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
     if (!(chrom_info_ptr->chrom_mask & (1LLU << jj))) {
       set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
     } else {
-      bufptr = next_item(tbuf);
+      bufptr = next_item(bufptr);
       if (*marker_ids_ptr) {
         if (no_more_items(bufptr)) {
 	  logprint(errstr_map_format);
@@ -501,12 +504,13 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
       if (fgets(tbuf, MAXLINELEN, mapfile) == NULL) {
 	return RET_READ_FAIL;
       }
-    } while (tbuf[0] <= ' ');
+      bufptr = skip_initial_spaces(tbuf);
+    } while (is_eoln(*bufptr));
     if (is_set(marker_exclude, marker_uidx)) {
       continue;
     }
-    ll_buf[marker_idx] = (((long long)marker_code(species, tbuf)) << 32) + marker_uidx;
-    bufptr = next_item(tbuf);
+    ll_buf[marker_idx] = (((long long)marker_code(species, bufptr)) << 32) + marker_uidx;
+    bufptr = next_item(bufptr);
     uii = strlen_se(bufptr);
     memcpy(&(marker_ids[marker_idx * max_marker_id_len]), bufptr, uii);
     marker_ids[marker_idx * max_marker_id_len + uii] = '\0';
@@ -812,15 +816,12 @@ int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_
 	if (fgets(tbuf, MAXLINELEN, mapfile) == NULL) {
 	  return RET_READ_FAIL;
 	}
-      } while (tbuf[0] <= ' ');
+	bufptr2 = skip_initial_spaces(tbuf);
+      } while (is_eoln(*bufptr2));
       if (is_set(marker_exclude, marker_uidx)) {
 	continue;
       }
-      bufptr = next_item(tbuf);
-      bufptr = next_item(bufptr);
-      if (map_cols == 4) {
-	bufptr = next_item(bufptr);
-      }
+      bufptr = next_item_mult(bufptr2, map_cols - 1);
       while (!is_space_or_eoln(*bufptr)) {
 	bufptr++;
       }
@@ -833,7 +834,7 @@ int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_
       *bufptr++ = '\t';
       *bufptr++ = marker_alleles[2 * marker_uidx + 1];
       *bufptr++ = '\n';
-      if (fwrite_checked(tbuf, (int)(bufptr - tbuf), *bimtmpfile_ptr)) {
+      if (fwrite_checked(bufptr2, (int)(bufptr - bufptr2), *bimtmpfile_ptr)) {
 	return RET_WRITE_FAIL;
       }
     }
@@ -1161,11 +1162,12 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
 	if (fgets(tbuf, MAXLINELEN, bimfile) == NULL) {
 	  return RET_READ_FAIL;
 	}
-      } while (tbuf[0] <= ' ');
+	bufptr = skip_initial_spaces(tbuf);
+      } while (is_eoln(*bufptr));
       if (is_set(marker_exclude, marker_uidx)) {
 	continue;
       }
-      if (fputs(tbuf, *bimoutfile_ptr) == EOF) {
+      if (fputs(bufptr, *bimoutfile_ptr) == EOF) {
 	return RET_WRITE_FAIL;
       }
     }
@@ -1449,6 +1451,50 @@ int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34,
   return 0;
 }
 
+int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, int affection_01, int missing_pheno, Chrom_info* chrom_info_ptr) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile = NULL;
+  /*
+  FILE* outfile = NULL;
+  int map_cols = 3;
+  unsigned int unfiltered_marker_ct = 0;
+  unsigned long* marker_exclude;
+  unsigned int marker_exclude_ct = 0;
+  unsigned int* marker_pos = NULL;
+  unsigned long max_marker_id_len;
+  unsigned int marker_ct;
+  unsigned int indiv_ct;
+  unsigned int marker_uidx;
+  unsigned int marker_idx;
+  unsigned int indiv_idx;
+  char* loadbuf;
+  char* bufptr;
+  unsigned char* writebuf;
+  */
+  int retval;
+  if (fopen_checked(&infile, mapname, "r")) {
+    goto ped_to_bed_ret_OPEN_FAIL;
+  }
+  tbuf[MAXLINELEN - 6] = ' ';
+  while (fgets(tbuf, MAXLINELEN - 5, infile)) {
+    
+  }
+  if (!feof(infile)) {
+    goto ped_to_bed_ret_READ_FAIL;
+  }
+  retval = 0;
+  while (0) {
+  ped_to_bed_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  ped_to_bed_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  return retval;
+}
+
 int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affection_01, Chrom_info* chrom_info_ptr) {
   FILE* infile = NULL;
   FILE* outfile = NULL;
@@ -1527,7 +1573,6 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
     goto lgen_to_bed_ret_1;
   }
   if (map_is_unsorted) {
-    // FIX for --chr
     // Writes a temporary .map which is read later, and then deleted.
     retval = sort_and_write_bim(&map_reverse, infile, map_cols, NULL, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, chrom_info_ptr->species, NULL);
     if (retval) {
@@ -1617,10 +1662,10 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   lgen_next_thresh = lgen_size / 100;
   pct = 0;
   while (fgets(tbuf, MAXLINELEN, infile)) {
-    if (is_eoln(*tbuf)) {
+    cptr = skip_initial_spaces(tbuf);
+    if (is_eoln(*cptr)) {
       continue;
     }
-    cptr = skip_initial_spaces(tbuf);
     cptr2 = next_item(cptr);
     cptr3 = next_item(cptr2);
     cptr4 = item_end(cptr3);
@@ -1776,7 +1821,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   uii = 0;
   marker_idx = 0;
   while (fgets(tbuf, MAXLINELEN, infile)) {
-    if (is_eoln(*tbuf)) {
+    if (is_eoln(*(skip_initial_spaces(tbuf)))) {
       continue;
     }
     if (is_set(marker_exclude, uii)) {
@@ -1819,15 +1864,15 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
       goto lgen_to_bed_ret_OPEN_FAIL;
     }
     while (fgets(tbuf, MAXLINELEN, infile)) {
-      if (is_eoln(*tbuf)) {
+      cptr = skip_initial_spaces(tbuf);
+      if (is_eoln(*cptr)) {
 	continue;
       }
-      ulii = strlen(tbuf);
-      if (tbuf[ulii - 1] != '\n') {
-	tbuf[ulii++] = '\n';
-	tbuf[ulii] = '\0';
+      ulii = strlen(cptr);
+      if (cptr[ulii - 1] != '\n') {
+	cptr[ulii++] = '\n';
       }
-      if (fwrite_checked(tbuf, ulii, outfile)) {
+      if (fwrite_checked(cptr, ulii, outfile)) {
 	goto lgen_to_bed_ret_WRITE_FAIL;
       }
     }
@@ -1981,14 +2026,15 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
     goto transposed_to_bed_ret_OPEN_FAIL;
   }
   while (fgets(tbuf, MAXLINELEN, infile)) {
-    if (is_eoln(*tbuf)) {
+    cptr = skip_initial_spaces(tbuf);
+    if (is_eoln(*cptr)) {
       continue;
     }
-    ulii = strlen(tbuf);
-    if (tbuf[ulii - 1] != '\n') {
-      tbuf[ulii++] = '\n';
+    ulii = strlen(cptr);
+    if (cptr[ulii - 1] != '\n') {
+      cptr[ulii++] = '\n';
     }
-    if (fwrite_checked(tbuf, ulii, outfile)) {
+    if (fwrite_checked(cptr, ulii, outfile)) {
       goto transposed_to_bed_ret_WRITE_FAIL;
     }
     indiv_ct++;
@@ -2039,10 +2085,10 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
     goto transposed_to_bed_ret_WRITE_FAIL;
   }
   while (fgets(loadbuf, max_load, infile)) {
-    if (is_eoln(*loadbuf)) {
+    cptr = skip_initial_spaces(loadbuf);
+    if (is_eoln(*cptr)) {
       continue;
     }
-    cptr = skip_initial_spaces(loadbuf);
     cptr2 = next_item(cptr);
     cptr3 = next_item_mult(cptr2, 2);
     cptr4 = next_item(cptr3);
@@ -2268,6 +2314,7 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
     }
     marker_idx = 0;
     while (fgets(tbuf, MAXLINELEN, infile)) {
+      // .tmp file, guaranteed to be no spaces in front
       cptr = next_item(tbuf);
       cptr2 = item_endl(cptr);
       if (!cptr2) {
@@ -2512,21 +2559,21 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
 	  if (fgets(tbuf, MAXLINELEN, bimfile) == NULL) {
 	    return RET_READ_FAIL;
 	  }
-	} while (tbuf[0] <= ' ');
+	} while (is_eoln(*(skip_initial_spaces(tbuf))));
 	if (is_set(marker_exclude, marker_uidx)) {
 	  do {
 	    do {
 	      if (fgets(tbuf, MAXLINELEN, bimfile) == NULL) {
 		return RET_READ_FAIL;
 	      }
-	    } while (tbuf[0] <= ' ');
+	    } while (is_eoln(*(skip_initial_spaces(tbuf))));
 	  } while (is_set(marker_exclude, ++marker_uidx));
 	  if (fseeko(bedfile, bed_offset + (marker_uidx * unfiltered_indiv_ct4), SEEK_SET)) {
 	    return RET_READ_FAIL;
 	  }
 	}
 
-	wbufptr = tbuf;
+	wbufptr = skip_initial_spaces(tbuf);
 	for (indiv_idx = 0; indiv_idx < 3; indiv_idx++) {
 	  cptr = item_endnn2(wbufptr);
 	  ulii = 1 + (unsigned long)(cptr - wbufptr);
@@ -2848,7 +2895,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
     for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
       do {
 	fgets(tbuf, MAXLINELEN, bimfile);
-      } while (tbuf[0] <= ' ');
+      } while (is_eoln(*(skip_initial_spaces(tbuf))));
       if (is_set(marker_exclude, marker_uidx)) {
 	continue;
       }
@@ -3131,10 +3178,11 @@ int merge_fam_id_scan(char* bedname, char* famname, unsigned int* max_person_id_
 int check_gd_col(FILE* bimfile, char* tbuf, unsigned int is_binary, unsigned int* gd_col_ptr) {
   char* bufptr;
   while (fgets(tbuf, MAXLINELEN, bimfile)) {
-    if (is_eoln(*tbuf)) {
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln(*bufptr)) {
       continue;
     }
-    bufptr = next_item_mult(skip_initial_spaces(tbuf), 2 + 2 * is_binary);
+    bufptr = next_item_mult(bufptr, 2 + 2 * is_binary);
     if (no_more_items(bufptr)) {
       return -1;
     }
@@ -3178,10 +3226,10 @@ int merge_bim_scan(char* bimname, unsigned int is_binary, unsigned long* max_mar
     goto merge_bim_scan_ret_INVALID_FORMAT_2;
   }
   do {
-    if (is_eoln(*tbuf)) {
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln(*bufptr)) {
       continue;
     }
-    bufptr = skip_initial_spaces(tbuf);
     ii = marker_code(species, bufptr);
     if (ii == -1) {
       sprintf(logbuf, "Error: Invalid chromosome index in %s.\n", bimname);
@@ -3544,11 +3592,12 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
     goto merge_main_ret_OPEN_FAIL;
   }
   do {
-    if (is_eoln(*tbuf)) {
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln(*bufptr)) {
       continue;
     }
     ++marker_in_idx;
-    bufptr = next_item(skip_initial_spaces(tbuf));
+    bufptr = next_item(bufptr);
     bufptr2 = next_item_mult(bufptr, 1 + gd_col);
     if (!bufptr2) {
       goto merge_main_ret_READ_FAIL;

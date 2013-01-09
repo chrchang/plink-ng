@@ -1278,12 +1278,17 @@ int determine_max_id_len(FILE* filterfile, char* filterval, int mfilter_col, int
 
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, filterfile) != NULL) {
-    if (is_eoln(*tbuf)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      sprintf(logbuf, "Error: Excessively long line in filter file (max %d chars).\n", MAXLINELEN - 3);
+      logprintb();
+      return -1;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln(*bufptr)) {
       continue;
     }
-    bufptr = tbuf;
-    ii = 2 + strlen_se(tbuf);
-    bufptr = next_item(tbuf);
+    ii = 2 + strlen_se(bufptr);
+    bufptr = next_item(bufptr);
     if (no_more_items(bufptr)) {
       logprint(errstr_filter_format);
       return -1;
@@ -1305,11 +1310,6 @@ int determine_max_id_len(FILE* filterfile, char* filterval, int mfilter_col, int
       }
     } else {
       *filter_line_ct_ptr += 1;
-    }
-    if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Excessively long line in filter file (max %d chars).\n", MAXLINELEN - 3);
-      logprintb();
-      return -1;
     }
   }
   return cur_max;
@@ -4415,6 +4415,7 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
   unsigned int indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
   int person_idx;
   char* id_buf;
+  char* bufptr0;
   char* bufptr;
   unsigned int tmp_len;
   unsigned int tmp_len2;
@@ -4439,26 +4440,27 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
   // ----- phenotype file load -----
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, phenofile) != NULL) {
-    if (is_eoln(*tbuf)) {
-      continue;
-    }
     if (!tbuf[MAXLINELEN - 1]) {
       sprintf(logbuf, "Error: Excessively long line in phenotype file (max %d chars).\n", MAXLINELEN - 3);
       logprintb();
       return RET_INVALID_FORMAT;
     }
-    tmp_len = strlen_se(tbuf);
-    bufptr = next_item(tbuf);
+    bufptr0 = skip_initial_spaces(tbuf);
+    if (is_eoln(*bufptr0)) {
+      continue;
+    }
+    tmp_len = strlen_se(bufptr0);
+    bufptr = next_item(bufptr0);
     if (no_more_items(bufptr)) {
       logprint(errstr_phenotype_format);
       logprint("At least two items expected in line.\n");
-      sprintf(logbuf, "Original line: %s", tbuf);
+      sprintf(logbuf, "Original line: %s", bufptr0);
       logprintb();
       return RET_INVALID_FORMAT;
     }
     tmp_len2 = strlen_se(bufptr);
     if (!header_processed) {
-      if (phenoname_str || ((tmp_len == 3) && (tmp_len2 == 3) && (!memcmp("FID", tbuf, 3)) && (!memcmp("IID", bufptr, 3)))) {
+      if (phenoname_str || ((tmp_len == 3) && (tmp_len2 == 3) && (!memcmp("FID", bufptr0, 3)) && (!memcmp("IID", bufptr, 3)))) {
 	if (phenoname_str) {
 	  tmp_len = strlen(phenoname_str);
 	  do {
@@ -4481,14 +4483,14 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
     if (!header_processed) {
       header_processed = 1;
     } else {
-      person_idx = bsearch_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, indiv_ct, tbuf, bufptr);
+      person_idx = bsearch_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr0, bufptr);
       if (person_idx != -1) {
 	person_idx = id_map[person_idx];
 	bufptr = next_item_mult(bufptr, mpheno_col);
 	if (no_more_items(bufptr)) {
 	  logprint(errstr_phenotype_format);
-	  logprint("Less entries than expected in line.\n");
-	  sprintf(logbuf, "Original line: %s", tbuf);
+	  logprint("Fewer entries than expected in line.\n");
+	  sprintf(logbuf, "Original line: %s", bufptr0);
 	  logprintb();
 	  return RET_INVALID_FORMAT;
 	}
@@ -4570,6 +4572,7 @@ int makepheno_load(FILE* phenofile, char* makepheno_str, unsigned int unfiltered
   unsigned char* wkspace_mark = wkspace_base;
   char* pheno_c = *pheno_c_ptr;
   char* id_buf;
+  char* bufptr0;
   char* bufptr;
   int person_idx;
   unsigned int tmp_len;
@@ -4586,26 +4589,27 @@ int makepheno_load(FILE* phenofile, char* makepheno_str, unsigned int unfiltered
   }
   tbuf[MAXLINELEN - 1] = ' ';  
   while (fgets(tbuf, MAXLINELEN, phenofile) != NULL) {
-    if (is_eoln(*tbuf)) {
-      continue;
-    }
     if (!tbuf[MAXLINELEN - 1]) {
       sprintf(logbuf, "Error: Excessively long line in phenotype file (max %d chars).\n", MAXLINELEN - 3);
       logprintb();
       return RET_INVALID_FORMAT;
     }
-    bufptr = next_item(tbuf);
+    bufptr0 = skip_initial_spaces(tbuf);
+    if (is_eoln(*bufptr0)) {
+      continue;
+    }
+    bufptr = next_item(bufptr0);
     if (no_more_items(bufptr)) {
       logprint(errstr_phenotype_format);
       return RET_INVALID_FORMAT;
     }
-    person_idx = bsearch_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, indiv_ct, tbuf, bufptr);
+    person_idx = bsearch_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr0, bufptr);
     if (person_idx != -1) {
       person_idx = id_map[person_idx];
       if (makepheno_all) {
         pheno_c[person_idx] = 1;
       } else {
-        bufptr = next_item(tbuf);
+	bufptr = next_item(bufptr);
         tmp_len = strlen_se(bufptr);
 	if ((tmp_len == mp_strlen) && (!memcmp(bufptr, makepheno_str, mp_strlen))) {
 	  pheno_c[person_idx] = 1;
@@ -4703,6 +4707,7 @@ int include_or_exclude(char* fname, char* sorted_ids, int sorted_ids_len, unsign
   unsigned int include_ct = 0;
   int unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
   char* id_buf;
+  char* bufptr0;
   char* bufptr;
   int ii;
   int jj;
@@ -4722,13 +4727,14 @@ int include_or_exclude(char* fname, char* sorted_ids, int sorted_ids_len, unsign
       return RET_NOMEM;
     }
     while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
-      if (is_eoln(*tbuf)) {
-	continue;
-      }
       if (!tbuf[MAXLINELEN - 1]) {
 	sprintf(logbuf, "Error: Excessively long line in --keep/--remove file (max %d chars).\n", MAXLINELEN - 3);
 	logprintb();
         return RET_INVALID_FORMAT;
+      }
+      bufptr0 = skip_initial_spaces(tbuf);
+      if (is_eoln(*bufptr0)) {
+	continue;
       }
       bufptr = next_item(tbuf);
       if (no_more_items(bufptr)) {
@@ -5094,6 +5100,11 @@ int calc_freqs_and_binary_hwe(FILE* pedfile, unsigned int unfiltered_marker_ct, 
       marker_weights[marker_uidx] = -1.0;
     }
   }
+  uii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  if (wkspace_alloc_ul_checked(marker_reverse_ptr, uii * sizeof(long))) {
+    return RET_NOMEM;
+  }
+  fill_ulong_zero(*marker_reverse_ptr, uii);
   if (!binary_files) {
     // N.B. marker_alleles initially needs (4 * unfiltered_marker_ct) bytes,
     // but is then collapsed down to (2 * unfiltered_marker_ct) before the HWE
@@ -5103,11 +5114,6 @@ int calc_freqs_and_binary_hwe(FILE* pedfile, unsigned int unfiltered_marker_ct, 
     }
     *marker_alleles_ptr = marker_alleles;
   }
-  uii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
-  if (wkspace_alloc_ul_checked(marker_reverse_ptr, uii * sizeof(long))) {
-    return RET_NOMEM;
-  }
-  fill_ulong_zero(*marker_reverse_ptr, uii);
 
   if (wkspace_alloc_i_checked(&hwe_lls, unfiltered_marker_ct * sizeof(int))) {
     return RET_NOMEM;
@@ -5919,6 +5925,7 @@ void calc_marker_reverse_text(unsigned long* marker_reverse, unsigned int unfilt
   unsigned int marker_uidx = 0;
   for (; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
     if (is_set(marker_exclude, marker_uidx)) {
+      printf("wtf\n");
       continue;
     }
     if (set_allele_freqs[marker_uidx] <= 0.5) {
@@ -13060,7 +13067,13 @@ int main(int argc, char** argv) {
       } else if (load_rare & LOAD_RARE_TRANSPOSE_MASK) {
         retval = transposed_to_bed(pedname, famname, outname, missing_geno, &chrom_info);
       } else {
-        // retval = ped_to_bed(pedname, mapname, &chrom_info);
+        retval = ped_to_bed(pedname, mapname, outname, fam_col_1, fam_col_34, fam_col_5, fam_col_6, affection_01, missing_pheno, &chrom_info);
+	fam_col_1 = 1;
+	fam_col_34 = 1;
+	fam_col_5 = 1;
+        fam_col_6 = 1;
+	affection_01 = 0;
+	missing_pheno = -9;
       }
       if (!calculation_type) {
 	goto main_ret_2;
