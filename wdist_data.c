@@ -1500,7 +1500,8 @@ int check_gd_col(FILE* bimfile, char* tbuf, unsigned int is_binary, unsigned int
 
 int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, int affection_01, int missing_pheno, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
-  FILE* infile = NULL;
+  FILE* mapfile = NULL;
+  FILE* pedfile = NULL;
   FILE* outfile = NULL;
   char* outname_end = (char*)memchr(outname, 0, FNAMESIZE);
   unsigned int unfiltered_marker_ct = 0;
@@ -1512,29 +1513,35 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
   unsigned int map_is_unsorted = 0;
   int last_chrom = 0;
   unsigned int last_mpos = 0;
+  unsigned int indiv_ct = 0;
+  unsigned long max_pedline_len = 0;
   char* marker_alleles;
   unsigned int* marker_allele_cts;
   unsigned int* map_reverse;
   unsigned int gd_col;
-  unsigned int indiv_ct;
   unsigned int marker_uidx;
   unsigned int marker_idx;
   unsigned int indiv_idx;
+  unsigned long ulii;
   unsigned int uii;
+  unsigned int ujj;
   int ii;
   char* loadbuf;
+  unsigned long loadbuf_size;
   char* col1_ptr;
   char* col2_ptr;
   char* bufptr;
+  char* bufptr2;
+  char* bufptr3;
   unsigned char* writebuf;
   int retval;
   marker_exclude = (unsigned long*)wkspace_base;
   marker_exclude[0] = 0;
-  if (fopen_checked(&infile, mapname, "r")) {
+  if (fopen_checked(&mapfile, mapname, "r")) {
     goto ped_to_bed_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 6] = ' ';
-  if (check_gd_col(infile, tbuf, 0, &gd_col)) {
+  if (check_gd_col(mapfile, tbuf, 0, &gd_col)) {
     sprintf(logbuf, "Error: Missing columns in .map line: %s", skip_initial_spaces(tbuf));
     goto ped_to_bed_ret_INVALID_FORMAT_2;
   }
@@ -1589,8 +1596,8 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
       }
       marker_exclude[unfiltered_marker_ct / BITCT] = 0;
     }
-  } while (fgets(tbuf, MAXLINELEN - 5, infile));
-  if (!feof(infile)) {
+  } while (fgets(tbuf, MAXLINELEN - 5, mapfile));
+  if (!feof(mapfile)) {
     goto ped_to_bed_ret_READ_FAIL;
   }
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
@@ -1606,12 +1613,85 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
   memset(marker_alleles, 0, marker_ct * 4);
   fill_uint_zero(marker_allele_cts, marker_ct);
   if (map_is_unsorted) {
-    retval = sort_and_write_bim((int**)(&map_reverse), infile, 3 + gd_col, NULL, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, chrom_info_ptr->species, NULL, NULL, 1);
+    retval = sort_and_write_bim((int**)(&map_reverse), mapfile, 3 + gd_col, NULL, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, chrom_info_ptr->species, NULL, NULL, 1);
     if (retval) {
       goto ped_to_bed_ret_1;
     }
   }
   // first .ped scan: count indivs, write .fam, note alleles at each locus
+  if (fopen_checked(&pedfile, pedname, "r")) {
+    goto ped_to_bed_ret_OPEN_FAIL;
+  }
+  memcpy(outname_end, ".fam", 5);
+  if (fopen_checked(&outfile, outname_end, "w")) {
+    goto ped_to_bed_ret_OPEN_FAIL;
+  }
+  loadbuf = (char*)wkspace_base;
+  loadbuf_size = wkspace_left;
+  loadbuf[loadbuf_size - 1] = ' ';
+  while (fgets(loadbuf, loadbuf_size, pedfile)) {
+    if (!loadbuf[loadbuf_size - 1]) {
+      goto ped_to_bed_ret_NOMEM;
+    }
+    col1_ptr = skip_initial_spaces(loadbuf);
+    if (is_eoln(*col1_ptr) || (*col1_ptr == '#')) {
+      ulii = strlen(loadbuf) + 1;
+      if (ulii > max_pedline_len) {
+	max_pedline_len = ulii;
+      }
+      continue;
+    }
+    if (fam_col_1) {
+      col2_ptr = next_item(col1_ptr);
+    } else {
+      col2_ptr = col1_ptr;
+    }
+    bufptr = next_item_mult(col2_ptr, fam_col_34 * 2 + fam_col_5 + fam_col_6 + 1);
+    if (no_more_items(bufptr)) {
+      sprintf(logbuf, "Error: Missing columns in .ped line: %s\n", col1_ptr);
+      goto ped_to_bed_ret_INVALID_FORMAT_2;
+    }
+    if ((bufptr - col1_ptr) > (MAXLINELEN / 2) - 4) {
+      logprint("Error: Pathologically long header items in .ped file.\n");
+      goto ped_to_bed_ret_INVALID_FORMAT;
+    }
+    uii = strlen_se(col1_ptr);
+    memcpy(tbuf, col1_ptr, uii);
+    tbuf[uii++] = '\t';
+    ujj = strlen_se(col2_ptr);
+    memcpy(&(tbuf[uii]), col2_ptr, ujj);
+    uii += ujj;
+    tbuf[uii++] = '\t';
+    bufptr2 = item_endnn2(col2_ptr);
+    if (fam_col_34) {
+      copy_item(tbuf, &uii, &bufptr2);
+      copy_item(tbuf, &uii, &bufptr2);
+    } else {
+      memcpy(&(tbuf[uii]), "0\t0\t", 4);
+      uii += 4;
+    }
+    if (fam_col_5) {
+      copy_item(tbuf, &uii, &bufptr2);
+    } else {
+      memcpy(&(tbuf[uii]), "0\t", 2);
+      uii += 2;
+    }
+    if (fam_col_6) {
+      copy_item(tbuf, &uii, &bufptr2);
+      tbuf[uii - 1] = '\n';
+    } else {
+      memcpy(&(tbuf[uii]), "-9\n", 3);
+      uii += 3;
+    }
+    if (fwrite_checked(tbuf, uii, outfile)) {
+      goto ped_to_bed_ret_WRITE_FAIL;
+    }
+    ;
+    indiv_ct++;
+  }
+  if (!feof(pedfile)) {
+    goto ped_to_bed_ret_READ_FAIL;
+  }
 
   // (todo)
 
@@ -1629,6 +1709,9 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
     break;
   ped_to_bed_ret_READ_FAIL:
     retval = RET_READ_FAIL;
+    break;
+  ped_to_bed_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
     break;
   ped_to_bed_ret_INVALID_FORMAT_2:
     logprintb();

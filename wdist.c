@@ -216,7 +216,7 @@ extern "C" {
 #define MINV(aa, bb) ((aa) > (bb))? (bb) : (aa)
 
 const char ver_str[] =
-  "WDIST v0.14.2"
+  "WDIST v0.15.0"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -225,7 +225,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (9 Jan 2013)";
+  " (10 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";

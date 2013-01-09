@@ -324,6 +324,8 @@ char* next_item(char* sptr);
 
 char* next_item_mult(char* sptr, unsigned int ct);
 
+void copy_item(char* writebuf, unsigned int* offset, char** prev_item_ptr);
+
 static inline void read_next_terminate(char* target, char* source) {
   while (!is_space_or_eoln(*source)) {
     *target++ = *source++;

@@ -176,6 +176,18 @@ char* next_item_mult(char* sptr, unsigned int ct) {
   return sptr;
 }
 
+void copy_item(char* writebuf, unsigned int* offset_ptr, char** prev_item_end_ptr) {
+  char* item_start = skip_initial_spaces(*prev_item_end_ptr);
+  char* item_end = item_endnn2(item_start);
+  unsigned int slen = (item_end - item_start);
+  unsigned int offset = *offset_ptr;
+  memcpy(&(writebuf[offset]), item_start, slen);
+  offset += slen;
+  writebuf[offset++] = '\t';
+  *offset_ptr = offset;
+  *prev_item_end_ptr = item_end;
+}
+
 void set_bit(unsigned long* bit_arr, int loc, unsigned int* bit_set_ct_ptr) {
   int maj = loc / BITCT;
   unsigned long min = 1LU << (loc % BITCT);
