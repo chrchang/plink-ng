@@ -192,6 +192,10 @@ static inline int flexwrite_checked(FILE* outfile, gzFile gz_outfile, char* cont
   }
 }
 
+static inline int bed_suffix_conflict(int calculation_type, int recode_modifier) {
+  return (calculation_type & CALC_MAKE_BED) || ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_LGEN));
+}
+
 // manually managed, very large stack
 extern unsigned char* wkspace_base;
 extern unsigned long wkspace_left;

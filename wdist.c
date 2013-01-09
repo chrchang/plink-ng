@@ -216,7 +216,7 @@ extern "C" {
 #define MINV(aa, bb) ((aa) > (bb))? (bb) : (aa)
 
 const char ver_str[] =
-  "WDIST v0.14.3"
+  "WDIST v0.14.2"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -633,8 +633,8 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --regress-pcs-distance [.evec/.eigenvec file] <normalize-pheno>\n"
 "                         <sex-specific> {max PCs} <square | square0 | triangle>\n"
 "                         <gz | bin> <ibs> <1-ibs> <alct> <3d> <flat-missing>\n"
-"    High-speed combination of --regress-pcs and --distance (no large\n"
-"    intermediate text file is written to disk).\n\n"
+"    High-speed combination of --regress-pcs and --distance (no .gen + .sample\n"
+"    fileset is written to disk).\n\n"
 	       );
     help_print("regress-rel", &help_ctrl, 1,
 "  --regress-rel {iters} {d}\n"
@@ -1004,10 +1004,10 @@ int disp_help(unsigned int param_ct, char** argv) {
 	       );
     if (!param_ct) {
       printf(
-"One final note.  If a PLINK plain text fileset (.ped/.map) is given as input,\n"
-"WDIST will usually convert it to binary (without deleting the original files).\n"
-"The converted files are saved as {output prefix}.bed, .bim, and .fam, and you\n"
-"are encouraged to use them directly in future analyses.\n"
+"One final note.  If a PLINK text fileset (.ped + .fam, .tped + .tfam,\n"
+".lgen + .map + .fam) is given as input, WDIST automatically converts to binary.\n"
+"The new fileset is normally saved to {output prefix}.bed + .bim + .fam, and you\n"
+"are encouraged to use it directly in further analyses.\n"
 	     );
     }
   } while (help_ctrl.iters_left--);
@@ -1814,50 +1814,6 @@ void exclude_multi(unsigned long* exclude_arr, int* new_excl, unsigned int indiv
     }
     true_loc++;
   }
-}
-
-int sort_item_ids(char** sorted_ids_ptr, int** id_map_ptr, int unfiltered_ct, unsigned long* exclude_arr, unsigned int exclude_ct, char* item_ids, unsigned long max_id_len, int(* comparator_deref)(const void*, const void*), int* duplicate_fail_ptr) {
-  // Allocates space for *id_map_ptr and *sorted_ids_ptr from wkspace; then
-  // stores a lexicographically sorted list of IDs in *sorted_ids_ptr and
-  // the raw positions of the corresponding SNPs/indivs in *id_map_ptr.  Does
-  // not include excluded SNPs/indivs in the list.
-  // If *duplicate_fail_ptr is nonzero, this fails out if duplicate IDs are
-  // found (RET_INVALID_FORMAT is returned).  If it is zero, it is set to one
-  // if there are duplicates.
-  int item_ct = unfiltered_ct - exclude_ct;
-  int ii;
-  int jj;
-  char* sorted_ids;
-  *id_map_ptr = (int*)wkspace_alloc(item_ct * sizeof(int));
-  if (!(*id_map_ptr)) {
-    return RET_NOMEM;
-  }
-  sorted_ids = (char*)wkspace_alloc(item_ct * max_id_len);
-  if (!sorted_ids) {
-    return RET_NOMEM;
-  }
-  *sorted_ids_ptr = sorted_ids;
-  ii = 0;
-  for (jj = 0; jj < item_ct; jj++) {
-    ii = next_non_set_unsafe(exclude_arr, ii);
-    memcpy(&(sorted_ids[jj * max_id_len]), &(item_ids[ii * max_id_len]), max_id_len);
-    (*id_map_ptr)[jj] = ii++;
-  }
-  if (qsort_ext(sorted_ids, item_ct, max_id_len, comparator_deref, (char*)(*id_map_ptr), sizeof(int))) {
-    return RET_NOMEM;
-  }
-  jj = item_ct - 1;
-  for (ii = 0; ii < jj; ii++) {
-    if (!strcmp(&(sorted_ids[ii * max_id_len]), &(sorted_ids[(ii + 1) * max_id_len]))) {
-      if (*duplicate_fail_ptr) {
-        logprint("Error: Duplicate IDs.\n");
-        return RET_INVALID_FORMAT;
-      }
-      *duplicate_fail_ptr = 1;
-      break;
-    }
-  }
-  return 0;
 }
 
 void collapse_bitarr(unsigned long* bitarr, unsigned long* exclude_arr, int orig_ct) {
@@ -8800,23 +8756,24 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       logprint("Error: --merge/--bmerge/--merge-list cannot be used with an irregularly\nformatted reference fileset (--no-fid, --no-parents, --no-sex, --no-pheno,\n--1).  Use --make-bed first.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
-    // Only append -merge to the filename stem if --make-bed is specified.
-    ulii = (calculation_type & CALC_MAKE_BED);
+    // Only append -merge to the filename stem if --make-bed or --recode lgen
+    // is specified.
+    ulii = bed_suffix_conflict(calculation_type, recode_modifier);
     if (ulii) {
       memcpy(outname_end, "-merge", 7);
     }
-    retval = merge_datasets(pedname, mapname, famname, outname, ulii? &(outname_end[6]) : outname_end, mergename1, mergename2, mergename3, calculation_type, merge_type, indiv_sort, keep_allele_order, chrom_info_ptr->species);
+    retval = merge_datasets(pedname, mapname, famname, outname, ulii? &(outname_end[6]) : outname_end, mergename1, mergename2, mergename3, calculation_type, merge_type, indiv_sort, keep_allele_order, chrom_info_ptr);
     if (retval || (!(calculation_type & (~CALC_MERGE)))) {
       goto wdist_ret_2;
     }
     binary_files = 1;
-    ulii = (unsigned long)(outname_end - outname);
-    memcpy(pedname, outname, ulii);
-    memcpy(&(pedname[ulii]), "-merge.bed", 11);
-    memcpy(famname, pedname, ulii + 7);
-    memcpy(&(famname[ulii + 7]), "fam", 4);
-    memcpy(mapname, pedname, ulii + 8);
-    memcpy(&(mapname[ulii + 8]), "im", 3);
+    uljj = (unsigned long)(outname_end - outname) + (ulii? 6 : 0);
+    memcpy(pedname, outname, uljj);
+    memcpy(&(pedname[uljj]), ".bed", 5);
+    memcpy(famname, pedname, uljj);
+    memcpy(&(famname[uljj]), ".fam", 5);
+    memcpy(mapname, pedname, uljj);
+    memcpy(&(mapname[uljj]), ".bim", 5);
   }
 
   if (fopen_checked(&pedfile, pedname, famname[0]? "rb" : "r")) {
@@ -8899,9 +8856,9 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   } else if ((calculation_type & CALC_UNRELATED_HERITABILITY) && (!g_pheno_d)) {
     logprint("Error: --unrelated-heritability requires scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
-  } else if ((calculation_type & CALC_REGRESS_PCS) && (!g_pheno_d)) {
-    logprint("Error: --regress-pcs requires scalar phenotype.\n");
-    goto wdist_ret_INVALID_CMDLINE;
+  } else if ((calculation_type & (CALC_REGRESS_PCS | CALC_REGRESS_PCS_DISTANCE)) && (!g_pheno_d)) {
+    sprintf(logbuf, "Error: --regress-pcs%s requires scalar phenotype.\n", (calculation_type & CALC_REGRESS_PCS_DISTANCE)? "-distance" : "");
+    goto wdist_ret_INVALID_CMDLINE_2;
   }
 
   if (prune) {
@@ -9232,8 +9189,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (parallel_tot > g_indiv_ct / 2) {
     sprintf(logbuf, "Error: Too many --parallel jobs (maximum %d/2 = %d).\n", g_indiv_ct, g_indiv_ct / 2);
-    logprintb();
-    goto wdist_ret_INVALID_CMDLINE;
+    goto wdist_ret_INVALID_CMDLINE_2;
   }
   if (g_thread_ct > 1) {
     if (calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY)) {
@@ -9904,7 +9860,11 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
   }
 
-  if (distance_req(calculation_type)) {
+  if (calculation_type & CALC_REGRESS_PCS_DISTANCE) {
+    logprint("Error: --regress-pcs-distance is currently under development.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto wdist_ret_1;
+  } else if (distance_req(calculation_type)) {
     triangle_fill(g_thread_start, g_indiv_ct, g_thread_ct, parallel_idx, parallel_tot, 1, 1);
     llxx = g_thread_start[g_thread_ct];
     llxx = ((llxx * (llxx - 1)) - (long long)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
@@ -10608,6 +10568,8 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   wdist_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
+  wdist_ret_INVALID_CMDLINE_2:
+    logprintb();
   wdist_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
@@ -10717,23 +10679,6 @@ int species_flag(Chrom_info* chrom_info_ptr, int species_val) {
   chrom_info_ptr->species = species_val;
   if (chrom_info_ptr->chrom_mask & (~(species_valid_chrom_mask[species_val]))) {
     logprint("Error: Invalid --chr parameter.\n");
-    return -1;
-  }
-  return 0;
-}
-
-int plink_dist_flag(char* argptr, int calculation_type, double exponent, int parallel_tot) {
-  if (calculation_type & CALC_LOAD_DISTANCES) {
-    sprintf(logbuf, "Error: --load-dists cannot coexist with a distance matrix calculation flag.%s", errstr_append);
-    logprintb();
-    return -1;
-  } else if (exponent != 0.0) {
-    sprintf(logbuf, "Error: --exponent flag cannot be used with %s.\n", argptr);
-    logprintb();
-    return -1;
-  } else if (parallel_tot > 1) {
-    sprintf(logbuf, "Error: --parallel and --distance-matrix/--matrix cannot be used together.  Use\n--distance instead.%s", errstr_append);
-    logprintb();
     return -1;
   }
   return 0;
@@ -11477,8 +11422,7 @@ int main(int argc, char** argv) {
     case 'd':
       if (!memcmp(argptr2, "ata", 4)) {
 	if (load_params & 0xff) {
-	  sprintf(logbuf, "Error: --data conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	load_params |= 0x80;
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
@@ -11515,19 +11459,16 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (jj = 1; jj <= ii; jj++) {
-	  if (!strcmp(argv[cur_arg + jj], "square")) {
+	  if (!memcmp(argv[cur_arg + jj], "square", 7)) {
 	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ0) {
 	      sprintf(logbuf, "Error: --distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    } else if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_TRI) {
 	      sprintf(logbuf, "Error: --distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
-	    } else if (parallel_tot > 1) {
-	      sprintf(logbuf, "Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_SQ;
-	  } else if (!strcmp(argv[cur_arg + jj], "square0")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "square0", 8)) {
 	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
 	      sprintf(logbuf, "Error: --distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -11536,7 +11477,7 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_SQ0;
-	  } else if (!strcmp(argv[cur_arg + jj], "triangle")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "triangle", 9)) {
 	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
 	      sprintf(logbuf, "Error: --distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -11545,39 +11486,39 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_TRI;
-	  } else if (!strcmp(argv[cur_arg + jj], "gz")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "gz", 3)) {
 	    if (dist_calc_type & DISTANCE_BIN) {
 	      sprintf(logbuf, "Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_GZ;
-	  } else if (!strcmp(argv[cur_arg + jj], "bin")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "bin", 4)) {
 	    if (dist_calc_type & DISTANCE_GZ) {
 	      sprintf(logbuf, "Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_BIN;
-	  } else if (!strcmp(argv[cur_arg + jj], "ibs")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "ibs", 4)) {
 	    if (dist_calc_type & DISTANCE_IBS) {
-	      logprint("Error: Duplicate 'ibs' modifier.\n");
+	      logprint("Error: Duplicate --distance 'ibs' modifier.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    dist_calc_type |= DISTANCE_IBS;
-	  } else if (!strcmp(argv[cur_arg + jj], "1-ibs")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "1-ibs", 6)) {
 	    if (dist_calc_type & DISTANCE_1_MINUS_IBS) {
-	      logprint("Error: Duplicate '1-ibs' modifier.\n");
+	      logprint("Error: Duplicate --distance '1-ibs' modifier.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    dist_calc_type |= DISTANCE_1_MINUS_IBS;
-	  } else if (!strcmp(argv[cur_arg + jj], "alct")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "alct", 5)) {
 	    if (dist_calc_type & DISTANCE_ALCT) {
-	      logprint("Error: Duplicate 'alct' modifier.\n");
+	      logprint("Error: Duplicate --distance 'alct' modifier.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    dist_calc_type |= DISTANCE_ALCT;
-	  } else if (!strcmp(argv[cur_arg + jj], "3d")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "3d", 3)) {
 	    distance_3d = 1;
-	  } else if (!strcmp(argv[cur_arg + jj], "flat-missing")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "flat-missing", 13)) {
 	    distance_flat_missing = 1;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --distance parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
@@ -11589,9 +11530,6 @@ int main(int argc, char** argv) {
 	}
 	calculation_type |= CALC_DISTANCE;
       } else if (!memcmp(argptr2, "istance-matrix", 15)) {
-	if (plink_dist_flag(argptr, calculation_type, exponent, parallel_tot)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
 	if (dist_calc_type & DISTANCE_1_MINUS_IBS) {
 	  sprintf(logbuf, "Error: --distance-matrix flag cannot be used with '--distance 1-ibs'.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11621,7 +11559,7 @@ int main(int argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "xponent", 8)) {
 	if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
-	  logprint("Error: --exponent flag cannot be used with --distance-matrix.\n");
+	  logprint("Error: --exponent cannot be used with --distance-matrix.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -11639,8 +11577,7 @@ int main(int argc, char** argv) {
     case 'f':
       if (!memcmp(argptr2, "ile", 4)) {
 	if (load_params & 0x3f9) {
-	  sprintf(logbuf, "Error: --file conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	load_params |= 1;
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -11660,8 +11597,7 @@ int main(int argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "am", 3)) {
 	if (load_params & 0x3c7) {
-	  logprint("Error: --fam flag cannot coexist with text input file flags.\n");
-	  goto main_ret_INVALID_CMDLINE;
+	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	load_params |= 64;
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -11734,8 +11670,7 @@ int main(int argc, char** argv) {
     case 'g':
       if (!memcmp(argptr2, "en", 3)) {
 	if (load_params & 0x17f) {
-	  sprintf(logbuf, "Error: --gen conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	load_params |= 0x100;
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -11806,8 +11741,7 @@ int main(int argc, char** argv) {
 	calculation_type |= CALC_GROUPDIST;
       } else if (!memcmp(argptr2, "rm", 3)) {
 	if (load_params) {
-	  sprintf(logbuf, "Error: --grm conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11970,8 +11904,8 @@ int main(int argc, char** argv) {
 
     case 'l':
       if (!memcmp(argptr2, "oad-dists", 10)) {
-	if (calculation_type & CALC_GDISTANCE_MASK) {
-	  sprintf(logbuf, "Error: --load-dists cannot coexist with a distance matrix calculation flag.%s", errstr_append);
+	if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
+	  sprintf(logbuf, "Error: --load-dists cannot be used with --distance-matrix.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -11984,8 +11918,7 @@ int main(int argc, char** argv) {
 	calculation_type |= CALC_LOAD_DISTANCES;
       } else if (!memcmp(argptr2, "file", 5)) {
 	if (load_rare || load_params) {
-	  sprintf(logbuf, "Error: --lfile conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -12008,8 +11941,7 @@ int main(int argc, char** argv) {
     case 'm':
       if (!memcmp(argptr2, "ap", 3)) {
 	if ((load_params & 0x3fc) || load_rare) {
-	  sprintf(logbuf, "Error: --map conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	load_params |= 4;
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -12261,11 +12193,15 @@ int main(int argc, char** argv) {
 	}
 	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "atrix", 6)) {
-	if (plink_dist_flag(argptr, calculation_type, exponent, parallel_tot)) {
-	  goto main_ret_INVALID_CMDLINE;
+	if (calculation_type & CALC_LOAD_DISTANCES) {
+	  sprintf(logbuf, "Error: --matrix cannot be used with --load-dists.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (exponent != 0.0) {
+	  sprintf(logbuf, "Error: --matrix cannot be used with --exponent.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (dist_calc_type & DISTANCE_IBS) {
-	  sprintf(logbuf, "Error: --matrix flag cannot be used with '--distance ibs'.%s", errstr_append);
+	  sprintf(logbuf, "Error: --matrix cannot be used with '--distance ibs'.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	calculation_type |= CALC_PLINK_IBS_MATRIX;
@@ -12398,8 +12334,7 @@ int main(int argc, char** argv) {
     case 'p':
       if (!memcmp(argptr2, "ed", 3)) {
 	if ((load_params & 0x3fa) || load_rare) {
-	  sprintf(logbuf, "Error: --ped conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	load_params |= 2;
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -12605,9 +12540,6 @@ int main(int argc, char** argv) {
 	  sprintf(logbuf, "Error: --regress-pcs-distance cannot be used with --distance.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        logprint("Error: --regress-pcs-distance is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
         if (enforce_param_ct_range(argc, argv, cur_arg, 1, 11, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -12615,26 +12547,86 @@ int main(int argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-	/*
 	for (jj = 2; jj <= ii; jj++) {
-	  if (!strcmp(argv[cur_arg + jj], "normalize-pheno") && (!regress_pcs_normalize_pheno)) {
+	  if (!memcmp(argv[cur_arg + jj], "normalize-pheno", 16) && (!regress_pcs_normalize_pheno)) {
 	    regress_pcs_normalize_pheno = 1;
-	  } else if (!strcmp(argv[cur_arg + jj], "sex-specific") && (!regress_pcs_sex_specific)) {
+	  } else if (!memcmp(argv[cur_arg + jj], "sex-specific", 13) && (!regress_pcs_sex_specific)) {
 	    regress_pcs_sex_specific = 1;
-	  } else if (!strcmp(argv[cur_arg + jj], "clip") && (!regress_pcs_clip)) {
-	    regress_pcs_clip = 1;
+	  } else if (!memcmp(argv[cur_arg + jj], "square", 7)) {
+	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ0) {
+	      sprintf(logbuf, "Error: --regress-pcs-distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    } else if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_TRI) {
+	      sprintf(logbuf, "Error: --regress-pcs-distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    } else if (parallel_tot > 1) {
+	      sprintf(logbuf, "Error: --parallel cannot be used with '--regress-pcs-distance square'.  Use\nthe square0 or triangle shape instead.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    dist_calc_type |= DISTANCE_SQ;
+	  } else if (!memcmp(argv[cur_arg + jj], "square0", 8)) {
+	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
+	      sprintf(logbuf, "Error: --regress-pcs-distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    } else if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_TRI) {
+	      sprintf(logbuf, "Error: --regress-pcs-distance 'square0' and 'triangle' modifiers can't coexist.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    dist_calc_type |= DISTANCE_SQ0;
+	  } else if (!memcmp(argv[cur_arg + jj], "triangle", 9)) {
+	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
+	      sprintf(logbuf, "Error: --regress-pcs-distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    } else if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ0) {
+	      sprintf(logbuf, "Error: --regress-pcs-distance 'square0' and 'triangle' modifiers can't coexist.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    dist_calc_type |= DISTANCE_TRI;
+	  } else if (!memcmp(argv[cur_arg + jj], "gz", 3)) {
+	    if (dist_calc_type & DISTANCE_BIN) {
+	      sprintf(logbuf, "Error: --regress-pcs-distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    dist_calc_type |= DISTANCE_GZ;
+	  } else if (!memcmp(argv[cur_arg + jj], "bin", 4)) {
+	    if (dist_calc_type & DISTANCE_GZ) {
+	      sprintf(logbuf, "Error: --regress-pcs-distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    dist_calc_type |= DISTANCE_BIN;
+	  } else if (!memcmp(argv[cur_arg + jj], "ibs", 4)) {
+	    if (dist_calc_type & DISTANCE_IBS) {
+	      logprint("Error: Duplicate --regress-pcs-distance 'ibs' modifier.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    dist_calc_type |= DISTANCE_IBS;
+	  } else if (!memcmp(argv[cur_arg + jj], "1-ibs", 6)) {
+	    if (dist_calc_type & DISTANCE_1_MINUS_IBS) {
+	      logprint("Error: Duplicate --regress-pcs-distance '1-ibs' modifier.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    dist_calc_type |= DISTANCE_1_MINUS_IBS;
+	  } else if (!memcmp(argv[cur_arg + jj], "alct", 5)) {
+	    if (dist_calc_type & DISTANCE_ALCT) {
+	      logprint("Error: Duplicate --regress-pcs-distance 'alct' modifier.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    dist_calc_type |= DISTANCE_ALCT;
+	  } else if (!memcmp(argv[cur_arg + jj], "3d", 3)) {
+	    distance_3d = 1;
+	  } else if (!memcmp(argv[cur_arg + jj], "flat-missing", 13)) {
+	    distance_flat_missing = 1;
 	  } else if ((max_pcs != MAX_PCS_DEFAULT) || (argv[cur_arg + jj][0] < '0') || (argv[cur_arg + jj][0] > '9')) {
-	    sprintf(logbuf, "Error: Invalid --regress-pcs parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
+	    sprintf(logbuf, "Error: Invalid --regress-pcs-distance parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  } else {
 	    max_pcs = atoi(argv[cur_arg + jj]);
 	    if (max_pcs < 1) {
-	      sprintf(logbuf, "Error: Invalid --regress-pcs maximum principal component count '%s'.%s", argv[cur_arg + jj], errstr_append);
+	      sprintf(logbuf, "Error: Invalid --regress-pcs-distance maximum PC count '%s'.%s", argv[cur_arg + jj], errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	  }
 	}
-	*/
 	calculation_type |= CALC_REGRESS_PCS_DISTANCE;
       } else if (!memcmp(argptr2, "ead-freq", 9)) {
 	if (calculation_type & CALC_FREQ) {
@@ -12717,8 +12709,7 @@ int main(int argc, char** argv) {
     case 's':
       if (!memcmp(argptr2, "ample", 6)) {
 	if ((load_params & 0x27f) || load_rare) {
-	  sprintf(logbuf, "Error: --sample conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	load_params |= 0x200;
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -12803,8 +12794,7 @@ int main(int argc, char** argv) {
 	recode_modifier |= RECODE_TRANSPOSE;
       } else if (!memcmp(argptr2, "fam", 4)) {
 	if (load_params || load_rare) {
-	  sprintf(logbuf, "Error: --tfam conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -12818,8 +12808,7 @@ int main(int argc, char** argv) {
 	load_rare |= LOAD_RARE_TFAM;
       } else if (!memcmp(argptr2, "file", 5)) {
 	if (load_params || (load_rare & (~LOAD_RARE_TRANSPOSE_MASK))) {
-	  sprintf(logbuf, "Error: --tfile conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -12849,8 +12838,7 @@ int main(int argc, char** argv) {
 	load_rare |= LOAD_RARE_TRANSPOSE;
       } else if (!memcmp(argptr2, "ped", 4)) {
 	if (load_params || (load_rare & (~(LOAD_RARE_TRANSPOSE | LOAD_RARE_TFAM)))) {
-	  sprintf(logbuf, "Error: --tped conflicts with another input flag.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -12960,18 +12948,18 @@ int main(int argc, char** argv) {
     goto main_ret_INVALID_CMDLINE_3;
   }
 
-  if ((!calculation_type) && (load_rare != LOAD_RARE_LGEN) && (load_rare != LOAD_RARE_TPED)) {
+  if ((!calculation_type) && (load_rare != LOAD_RARE_LGEN) && (load_rare != LOAD_RARE_TPED) && (famname[0] || load_rare)) {
     goto main_ret_NULL_CALC;
   }
   free_cond(subst_argv);
-  subst_argv = NULL;
   free_cond(script_buf);
-  script_buf = NULL;
   free_cond(rerun_buf);
-  rerun_buf = NULL;
   free_cond(flag_buf);
-  flag_buf = NULL;
   free_cond(flag_map);
+  subst_argv = NULL;
+  script_buf = NULL;
+  rerun_buf = NULL;
+  flag_buf = NULL;
   flag_map = NULL;
 
   bubble = (char*)malloc(67108864 * sizeof(char));
@@ -13047,11 +13035,6 @@ int main(int argc, char** argv) {
     // --rel-cutoff batch mode special case
     retval = rel_cutoff_batch(pedname, outname, rel_cutoff, rel_calc_type);
   } else if (genname[0]) {
-  // famname[0] indicates binary vs. text
-  // extractname, excludename, keepname, and removename indicate the presence
-  // of their respective flags
-  // filtername indicates existence of filter
-  // freqname signals --read-freq
     if (calculation_type & (~(CALC_DISTANCE | CALC_REGRESS_DISTANCE))) {
       logprint("Error: Only --distance calculations are currently supported with --data.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -13062,27 +13045,37 @@ int main(int argc, char** argv) {
       retval = wdist_dosage(calculation_type, dist_calc_type, genname, samplename, outname, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else {
+  // famname[0] indicates binary vs. text
+  // extractname, excludename, keepname, and removename indicate the presence
+  // of their respective flags
+  // filtername indicates existence of filter
+  // freqname signals --read-freq
     if (load_rare) {
-      if (calculation_type) {
-	sptr = (char*)memchr(outname, 0, FNAMESIZE);
+    // if (load_rare || (!famname[0])) {
+      ii = 0;
+      sptr = (char*)memchr(outname, 0, FNAMESIZE);
+      if (bed_suffix_conflict(calculation_type, recode_modifier)) {
+	ii = 8;
         memcpy(sptr, "-working", 9);
       }
+      uii = (sptr - outname) + ii;
       if (load_rare == LOAD_RARE_LGEN) {
         retval = lgen_to_bed(pedname, outname, missing_pheno, affection_01, &chrom_info);
+      } else if (load_rare == LOAD_RARE_TPED) {
+        retval = transposed_to_bed(pedname, famname, outname, missing_geno, &chrom_info);
       } else {
-        retval = transposed_to_bed(pedname, famname, outname, missing_geno, chrom_info.species);
+        // retval = ped_to_bed(pedname, mapname, &chrom_info);
       }
       if (!calculation_type) {
 	goto main_ret_2;
       }
-      uii = (sptr - outname) + 8;
       memcpy(pedname, outname, uii);
       memcpy(&(pedname[uii]), ".bed", 5);
       memcpy(mapname, outname, uii);
       memcpy(&(mapname[uii]), ".bim", 5);
       memcpy(famname, outname, uii);
       memcpy(&(famname[uii]), ".fam", 5);
-      outname[uii - 8] = '\0';
+      outname[uii - ii] = '\0';
     }
     retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order);
   }
@@ -13103,6 +13096,11 @@ int main(int argc, char** argv) {
     break;
   main_ret_INVALID_CMDLINE_2:
     invalid_arg(argv[cur_arg]);
+    logprintb();
+    retval = RET_INVALID_CMDLINE;
+    break;
+  main_ret_INVALID_CMDLINE_4:
+    sprintf(logbuf, "Error: --%s conflicts with another input flag.%s", argptr, errstr_append);
   main_ret_INVALID_CMDLINE_3:
     logprintb();
   main_ret_INVALID_CMDLINE:
