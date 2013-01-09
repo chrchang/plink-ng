@@ -460,8 +460,10 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
   char* marker_ids;
   double* gd_vals;
   int* pos_buf;
+  unsigned int* unpack_map;
   unsigned int marker_uidx;
   unsigned int marker_idx;
+  unsigned int marker_idx2;
   char* bufptr;
   unsigned int uii;
   unsigned int ujj;
@@ -490,7 +492,8 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
   if (wkspace_alloc_ll_checked(&ll_buf, marker_ct * sizeof(long long)) ||
       wkspace_alloc_c_checked(&marker_ids, marker_ct * max_marker_id_len) ||
       wkspace_alloc_d_checked(&gd_vals, marker_ct * sizeof(double)) ||
-      wkspace_alloc_i_checked(&pos_buf, marker_ct * sizeof(int))) {
+      wkspace_alloc_i_checked(&pos_buf, marker_ct * sizeof(int)) ||
+      wkspace_alloc_ui_checked(&unpack_map, marker_ct * sizeof(int))) {
     return RET_NOMEM;
   }
   if (load_markers) {
@@ -522,6 +525,7 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
     } else {
       gd_vals[marker_idx] = 0.0;
     }
+    unpack_map[marker_idx] = marker_uidx;
     pos_buf[marker_idx++] = atoi(bufptr);
     if (load_markers) {
       bufptr = next_item(bufptr);
@@ -546,12 +550,10 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
     cur_chrom = chrom_id[uii];
     ujj = chrom_start[uii + 1];
     for (; marker_idx < ujj; marker_idx++) {
-      marker_uidx = (unsigned int)ll_buf[marker_idx];
-      // if (compact_map_reverse) {
-      //   marker_uidx = collapsed[marker_uidx];
-      // }
+      marker_idx2 = (unsigned int)ll_buf[marker_idx];
+      marker_uidx = unpack_map[marker_idx2];
       if (tmp_map) {
-        if (fprintf(*bimfile_ptr, "%u\t%s\t%g\t%u\n", cur_chrom, &(marker_ids[marker_uidx * max_marker_id_len]), gd_vals[marker_uidx], (unsigned int)(ll_buf[marker_idx] >> 32)) < 0) {
+        if (fprintf(*bimfile_ptr, "%u\t%s\t%g\t%u\n", cur_chrom, &(marker_ids[marker_idx2 * max_marker_id_len]), gd_vals[marker_idx2], (unsigned int)(ll_buf[marker_idx] >> 32)) < 0) {
 	  return RET_WRITE_FAIL;
         }
       } else {
@@ -568,11 +570,11 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
 	if (!cc2) {
 	  cc2 = '0';
 	}
-        if (fprintf(*bimfile_ptr, "%u\t%s\t%g\t%u\t%c\t%c\n", cur_chrom, &(marker_ids[marker_uidx * max_marker_id_len]), gd_vals[marker_uidx], (unsigned int)(ll_buf[marker_idx] >> 32), cc, cc2) < 0) {
+        if (fprintf(*bimfile_ptr, "%u\t%s\t%g\t%u\t%c\t%c\n", cur_chrom, &(marker_ids[marker_idx2 * max_marker_id_len]), gd_vals[marker_idx2], (unsigned int)(ll_buf[marker_idx] >> 32), cc, cc2) < 0) {
 	  return RET_WRITE_FAIL;
         }
       }
-      (*map_reverse_ptr)[marker_uidx] = marker_idx;
+      (*map_reverse_ptr)[compact_map_reverse? marker_idx2 : marker_uidx] = marker_idx;
     }
   }
   if (tmp_map) {
