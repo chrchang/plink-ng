@@ -452,9 +452,9 @@ void sort_marker_chrom_pos(long long* ll_buf, unsigned int marker_ct, int* pos_b
   *chrom_ct_ptr = chrom_ct;
 }
 
-int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE** bimfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned long max_marker_id_len, int species, char* marker_alleles) {
+int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE** bimfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned long max_marker_id_len, int species, char* marker_alleles, unsigned long* marker_reverse, int compact_map_reverse) {
   int tmp_map = (bimfile_ptr == NULL);
-  int load_markers = (marker_alleles == NULL) && (!tmp_map);
+  unsigned int load_markers = (!marker_alleles) && (!tmp_map);
   FILE* map_outfile;
   long long* ll_buf;
   char* marker_ids;
@@ -470,7 +470,8 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
   unsigned int cur_chrom;
   unsigned int chrom_ct;
   char cc;
-  if (wkspace_alloc_i_checked(map_reverse_ptr, unfiltered_marker_ct * sizeof(int))) {
+  char cc2;
+  if (wkspace_alloc_i_checked(map_reverse_ptr, (compact_map_reverse? marker_ct : unfiltered_marker_ct) * sizeof(int))) {
     return RET_NOMEM;
   }
   // There can be a LOT of markers (one existing collaborator has a file with
@@ -493,7 +494,7 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
     return RET_NOMEM;
   }
   if (load_markers) {
-    if (wkspace_alloc_c_checked(&marker_alleles, unfiltered_marker_ct * 2)) {
+    if (wkspace_alloc_c_checked(&marker_alleles, 2 * unfiltered_marker_ct)) {
       return RET_NOMEM;
     }
   }
@@ -509,7 +510,7 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
     if (is_set(marker_exclude, marker_uidx)) {
       continue;
     }
-    ll_buf[marker_idx] = (((long long)marker_code(species, bufptr)) << 32) + marker_uidx;
+    ll_buf[marker_idx] = (((long long)marker_code(species, bufptr)) << 32) + marker_idx;
     bufptr = next_item(bufptr);
     uii = strlen_se(bufptr);
     memcpy(&(marker_ids[marker_idx * max_marker_id_len]), bufptr, uii);
@@ -546,13 +547,28 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
     ujj = chrom_start[uii + 1];
     for (; marker_idx < ujj; marker_idx++) {
       marker_uidx = (unsigned int)ll_buf[marker_idx];
+      // if (compact_map_reverse) {
+      //   marker_uidx = collapsed[marker_uidx];
+      // }
       if (tmp_map) {
         if (fprintf(*bimfile_ptr, "%u\t%s\t%g\t%u\n", cur_chrom, &(marker_ids[marker_uidx * max_marker_id_len]), gd_vals[marker_uidx], (unsigned int)(ll_buf[marker_idx] >> 32)) < 0) {
 	  return RET_WRITE_FAIL;
         }
       } else {
-        cc = marker_alleles[2 * marker_uidx];
-        if (fprintf(*bimfile_ptr, "%u\t%s\t%g\t%u\t%c\t%c\n", cur_chrom, &(marker_ids[marker_uidx * max_marker_id_len]), gd_vals[marker_uidx], (unsigned int)(ll_buf[marker_idx] >> 32), cc? cc : '0', marker_alleles[2 * marker_uidx + 1]) < 0) {
+	if ((!marker_reverse) || (!is_set(marker_reverse, marker_uidx))) {
+	  cc = marker_alleles[2 * marker_uidx];
+	  cc2 = marker_alleles[2 * marker_uidx + 1];
+	} else {
+          cc = marker_alleles[2 * marker_uidx + 1];
+	  cc2 = marker_alleles[2 * marker_uidx];
+	}
+	if (!cc) {
+	  cc = '0';
+	}
+	if (!cc2) {
+	  cc2 = '0';
+	}
+        if (fprintf(*bimfile_ptr, "%u\t%s\t%g\t%u\t%c\t%c\n", cur_chrom, &(marker_ids[marker_uidx * max_marker_id_len]), gd_vals[marker_uidx], (unsigned int)(ll_buf[marker_idx] >> 32), cc, cc2) < 0) {
 	  return RET_WRITE_FAIL;
         }
       }
@@ -593,7 +609,7 @@ int text_to_bed(FILE** bedtmpfile_ptr, FILE** famtmpfile_ptr, FILE** bimtmpfile_
     return RET_NOMEM;
   }
   if (map_is_unsorted) {
-    retval = sort_and_write_bim(&map_reverse, mapfile, map_cols, bimtmpfile_ptr, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, species, marker_alleles);
+    retval = sort_and_write_bim(&map_reverse, mapfile, map_cols, bimtmpfile_ptr, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, species, marker_alleles, NULL, 0);
     if (retval) {
       return retval;
     }
@@ -937,6 +953,7 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
   unsigned char* writebuf;
   char* bufptr;
   char* cptr;
+  char* cptr2;
   unsigned char cc;
   char cc2;
   unsigned int pct;
@@ -970,7 +987,7 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
   }
   fflush(stdout);
   if (map_is_unsorted) {
-    retval = sort_and_write_bim(&map_reverse, bimfile, map_cols, bimoutfile_ptr, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, species, NULL);
+    retval = sort_and_write_bim(&map_reverse, bimfile, map_cols, bimoutfile_ptr, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, species, NULL, marker_reverse, 0);
     if (retval) {
       return retval;
     }
@@ -1166,6 +1183,13 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
       } while (is_eoln(*bufptr));
       if (is_set(marker_exclude, marker_uidx)) {
 	continue;
+      }
+      if (is_set(marker_reverse, marker_uidx)) {
+        cptr = next_item_mult(bufptr, map_cols);
+	cc2 = *cptr;
+	cptr2 = next_item(cptr);
+	*cptr = *cptr2;
+	*cptr2 = cc2;
       }
       if (fputs(bufptr, *bimoutfile_ptr) == EOF) {
 	return RET_WRITE_FAIL;
@@ -1486,11 +1510,9 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
   unsigned int map_is_unsorted = 0;
   int last_chrom = 0;
   unsigned int last_mpos = 0;
-  unsigned int* map_compact_reverse = NULL;
   char* marker_alleles;
   unsigned int* marker_allele_cts;
   unsigned int* map_reverse;
-  unsigned int* uiptr;
   unsigned int gd_col;
   unsigned int indiv_ct;
   unsigned int marker_uidx;
@@ -1582,34 +1604,9 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
   memset(marker_alleles, 0, marker_ct * 4);
   fill_uint_zero(marker_allele_cts, marker_ct);
   if (map_is_unsorted) {
-    if (marker_exclude_ct) {
-      if (wkspace_alloc_ui_checked(&map_compact_reverse, marker_ct * sizeof(int))) {
-	goto ped_to_bed_ret_NOMEM;
-      }
-    }
-    retval = sort_and_write_bim((int**)(&map_reverse), infile, 3 + gd_col, NULL, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, chrom_info_ptr->species, NULL);
+    retval = sort_and_write_bim((int**)(&map_reverse), infile, 3 + gd_col, NULL, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, chrom_info_ptr->species, NULL, NULL, 1);
     if (retval) {
       goto ped_to_bed_ret_1;
-    }
-    if (marker_exclude_ct) {
-      if (wkspace_alloc_ui_checked(&uiptr, unfiltered_marker_ct * sizeof(int))) {
-	goto ped_to_bed_ret_NOMEM;
-      }
-      marker_uidx = 0;
-      for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-        uiptr[marker_uidx] = marker_idx;
-	marker_uidx++;
-      }
-      marker_uidx = 0;
-      for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-	map_compact_reverse[marker_idx] = uiptr[map_reverse[marker_uidx]];
-	marker_uidx++;
-      }
-      wkspace_reset((unsigned char*)map_reverse);
-    } else {
-      map_compact_reverse = map_reverse;
     }
   }
   // first .ped scan: count indivs, write .fam, note alleles at each locus
@@ -1721,7 +1718,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   }
   if (map_is_unsorted) {
     // Writes a temporary .map which is read later, and then deleted.
-    retval = sort_and_write_bim(&map_reverse, infile, map_cols, NULL, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, chrom_info_ptr->species, NULL);
+    retval = sort_and_write_bim(&map_reverse, infile, map_cols, NULL, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, max_marker_id_len, chrom_info_ptr->species, NULL, NULL, 0);
     if (retval) {
       goto lgen_to_bed_ret_1;
     }

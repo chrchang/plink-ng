@@ -5907,7 +5907,6 @@ void calc_marker_reverse_text(unsigned long* marker_reverse, unsigned int unfilt
   unsigned int marker_uidx = 0;
   for (; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
     if (is_set(marker_exclude, marker_uidx)) {
-      printf("wtf\n");
       continue;
     }
     if (set_allele_freqs[marker_uidx] <= 0.5) {
