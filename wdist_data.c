@@ -1579,7 +1579,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   fill_uint_zero(marker_allele_cts, 2 * marker_ct);
   indiv_ct4 = (indiv_ct + 3) / 4;
   if (wkspace_alloc_uc_checked(&writebuf, ((unsigned long)marker_ct) * indiv_ct4)) {
-    logprint("Error: Very large .lgen -> .bed conversions are not yet supported.  Try this\nwith more memory (use --memory and/or a better machine).\n");
+    logprint("Error: Very large .lgen -> .bed autoconversions are not yet supported.  Try\nthis with more memory (use --memory and/or a better machine).\n");
     goto lgen_to_bed_ret_CALC_NOT_YET_SUPPORTED;
   }
   if (indiv_ct % 4) {
@@ -2042,11 +2042,6 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
     if (is_eoln(*loadbuf)) {
       continue;
     }
-    memset(alleles, 0, 4);
-    allele_cts[0] = 0;
-    allele_cts[1] = 0;
-    allele_cts[2] = 0;
-    allele_cts[3] = 0;
     cptr = skip_initial_spaces(loadbuf);
     cptr2 = next_item(cptr);
     cptr3 = next_item_mult(cptr2, 2);
@@ -2054,7 +2049,21 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
     if (no_more_items(cptr4)) {
       goto transposed_to_bed_ret_INVALID_FORMAT;
     }
-    ii = atoi(cptr);
+    if (ftello(infile) >= tped_next_thresh) {
+      uii = (ftello(infile) * 100) / tped_size;
+      if (pct < 10) {
+	printf("\b\b%u%%", uii);
+      } else {
+	printf("\b\b\b%u%%", uii);
+      }
+      fflush(stdout);
+      pct = uii;
+      tped_next_thresh = ((pct + 1) * tped_size) / 100;
+    }
+    ii = marker_code(chrom_info_ptr->species, cptr);
+    if ((ii == -1) || (!(chrom_info_ptr->chrom_mask & (1LLU << ii)))) {
+      continue;
+    }
     uii = strlen_se(cptr2) + 1;
     if (uii > max_marker_id_len) {
       max_marker_id_len = uii;
@@ -2062,6 +2071,11 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
     if (*cptr3 == '-') {
       continue;
     }
+    memset(alleles, 0, 4);
+    allele_cts[0] = 0;
+    allele_cts[1] = 0;
+    allele_cts[2] = 0;
+    allele_cts[3] = 0;
     cur_mapval = (((long long)ii) << 32) | atoi(cptr3);
     mapvals[marker_idx++] = cur_mapval;
     if (last_mapval > cur_mapval) {
@@ -2208,17 +2222,6 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
     }
     if (fprintf(bimfile, "%c\t%c\n", alleles[1]? alleles[1] : '0', alleles[0]? alleles[0] : '0') < 0) {
       goto transposed_to_bed_ret_WRITE_FAIL;
-    }
-    if (ftello(infile) >= tped_next_thresh) {
-      uii = (ftello(infile) * 100) / tped_size;
-      if (pct < 10) {
-	printf("\b\b%u%%", uii);
-      } else {
-	printf("\b\b\b%u%%", uii);
-      }
-      fflush(stdout);
-      pct = uii;
-      tped_next_thresh = ((pct + 1) * tped_size) / 100;
     }
     loadbuf = &(loadbuf[8]);
     max_load -= 8;

@@ -163,7 +163,7 @@ extern "C" {
 #define LOAD_RARE_TRANSPOSE 4
 #define LOAD_RARE_TPED 8
 #define LOAD_RARE_TFAM 16
-#define LOAD_RARE_TRANSPOSE_MASK (LOAD_RARE_TPED | LOAD_RARE_TFAM)
+#define LOAD_RARE_TRANSPOSE_MASK (LOAD_RARE_TRANSPOSE | LOAD_RARE_TPED | LOAD_RARE_TFAM)
 
 #define PEDBUFBASE 256
 
@@ -12807,7 +12807,7 @@ int main(int argc, char** argv) {
 	memcpy(famname, argv[cur_arg + 1], jj + 1);
 	load_rare |= LOAD_RARE_TFAM;
       } else if (!memcmp(argptr2, "file", 5)) {
-	if (load_params || (load_rare & (~LOAD_RARE_TRANSPOSE_MASK))) {
+	if (load_params || (load_rare & (~LOAD_RARE_TFAM))) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
@@ -12819,18 +12819,14 @@ int main(int argc, char** argv) {
 	    logprint("Error: --tfile filename prefix too long.\n");
 	    goto main_ret_OPEN_FAIL;
 	  }
-	  if (!(load_rare & LOAD_RARE_TPED)) {
-	    memcpy(pedname, argv[cur_arg + 1], jj);
-	    memcpy(&(pedname[jj]), ".tped", 6);
-	  }
+	  memcpy(pedname, argv[cur_arg + 1], jj);
+	  memcpy(&(pedname[jj]), ".tped", 6);
 	  if (!(load_rare & LOAD_RARE_TFAM)) {
 	    memcpy(famname, argv[cur_arg + 1], jj);
 	    memcpy(&(famname[jj]), ".tfam", 6);
 	  }
 	} else {
-	  if (!(load_rare & LOAD_RARE_TPED)) {
-	    memcpy(pedname, "wdist.tped", 11);
-	  }
+	  memcpy(pedname, "wdist.tped", 11);
 	  if (!(load_rare & LOAD_RARE_TFAM)) {
 	    memcpy(famname, "wdist.tfam", 11);
 	  }
@@ -12948,7 +12944,7 @@ int main(int argc, char** argv) {
     goto main_ret_INVALID_CMDLINE_3;
   }
 
-  if ((!calculation_type) && (load_rare != LOAD_RARE_LGEN) && (load_rare != LOAD_RARE_TPED) && (famname[0] || load_rare)) {
+  if ((!calculation_type) && (load_rare != LOAD_RARE_LGEN) && (!(load_rare & LOAD_RARE_TRANSPOSE_MASK)) && (famname[0] || load_rare)) {
     goto main_ret_NULL_CALC;
   }
   free_cond(subst_argv);
@@ -13061,7 +13057,7 @@ int main(int argc, char** argv) {
       uii = (sptr - outname) + ii;
       if (load_rare == LOAD_RARE_LGEN) {
         retval = lgen_to_bed(pedname, outname, missing_pheno, affection_01, &chrom_info);
-      } else if (load_rare == LOAD_RARE_TPED) {
+      } else if (load_rare & LOAD_RARE_TRANSPOSE_MASK) {
         retval = transposed_to_bed(pedname, famname, outname, missing_geno, &chrom_info);
       } else {
         // retval = ped_to_bed(pedname, mapname, &chrom_info);
