@@ -1708,7 +1708,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   return retval;
 }
 
-int wdist_dosage(int calculation_type, char* genname, char* samplename, char* outname, char* missing_code, int distance_3d, int distance_flat_missing, double exponent, int maf_succ, unsigned long regress_iters, unsigned int regress_d, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
+int wdist_dosage(int calculation_type, int dist_calc_type, char* genname, char* samplename, char* outname, char* missing_code, int distance_3d, int distance_flat_missing, double exponent, int maf_succ, unsigned long regress_iters, unsigned int regress_d, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
   FILE* genfile = NULL;
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
@@ -1795,12 +1795,12 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
     if (wkspace_alloc_uc_checked(&membuf, g_indiv_ct * sizeof(double))) {
       goto wdist_dosage_ret_NOMEM;
     }
-    if (calculation_type & CALC_DISTANCE_MASK) {
-      retval = distance_d_write_ids(outname, outname_end, calculation_type, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
+    if (calculation_type & CALC_DISTANCE) {
+      retval = distance_d_write_ids(outname, outname_end, dist_calc_type, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
       if (retval) {
 	goto wdist_dosage_ret_1;
       }
-      if ((exponent == 0.0) || (!(calculation_type & (CALC_DISTANCE_IBS | CALC_DISTANCE_1_MINUS_IBS)))) {
+      if ((exponent == 0.0) || (!(dist_calc_type & (DISTANCE_IBS | DISTANCE_1_MINUS_IBS)))) {
         dxx = 0.5 / (double)marker_ct;
       } else {
 	dxx = 0.0;
@@ -1817,7 +1817,7 @@ int wdist_dosage(int calculation_type, char* genname, char* samplename, char* ou
 	}
 	dxx = 0.5 / dxx;
       }
-      retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, g_distance_matrix, dxx, g_indiv_ct, g_thread_start[0], g_thread_start[thread_ct], parallel_idx, parallel_tot, membuf);
+      retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, dist_calc_type, outname, outname_end, g_distance_matrix, dxx, g_indiv_ct, g_thread_start[0], g_thread_start[thread_ct], parallel_idx, parallel_tot, membuf);
       if (retval) {
         goto wdist_dosage_ret_1;
       }

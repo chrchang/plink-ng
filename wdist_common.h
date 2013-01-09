@@ -46,37 +46,38 @@ typedef union {
 
 #define CALC_RELATIONSHIP 1
 #define CALC_IBC 2
-#define CALC_DISTANCE_SQ 4
-#define CALC_DISTANCE_SQ0 8
-#define CALC_DISTANCE_TRI 12
-#define CALC_DISTANCE_SHAPEMASK 12
-#define CALC_DISTANCE_GZ 0x10
-#define CALC_DISTANCE_BIN 0x20
-#define CALC_DISTANCE_IBS 0x40
-#define CALC_DISTANCE_1_MINUS_IBS 0x80
-#define CALC_DISTANCE_ALCT 0x100
-#define CALC_DISTANCE_FORMATMASK 0x1f0
-#define CALC_DISTANCE_MASK 0x1f4
-#define CALC_PLINK_DISTANCE_MATRIX 0x200
-#define CALC_PLINK_IBS_MATRIX 0x400
-#define CALC_GDISTANCE_MASK 0x7f4
-#define CALC_LOAD_DISTANCES 0x800
-#define CALC_GROUPDIST 0x1000
-#define CALC_REGRESS_DISTANCE 0x2000
-#define CALC_UNRELATED_HERITABILITY 0x4000
-#define CALC_UNRELATED_HERITABILITY_STRICT 0x8000
-#define CALC_FREQ 0x10000
-#define CALC_REL_CUTOFF 0x20000
-#define CALC_WRITE_SNPLIST 0x40000
-#define CALC_GENOME 0x80000
-#define CALC_REGRESS_REL 0x100000
-#define CALC_LD_PRUNE 0x200000
-#define CALC_LD_PRUNE_PAIRWISE 0x400000
-#define CALC_REGRESS_PCS 0x800000
-#define CALC_REGRESS_PCS_DISTANCE 0x1000000
-#define CALC_MAKE_BED 0x2000000
-#define CALC_RECODE 0x4000000
-#define CALC_MERGE 0x8000000
+#define CALC_DISTANCE 4
+#define CALC_PLINK_DISTANCE_MATRIX 8
+#define CALC_PLINK_IBS_MATRIX 0x10
+#define CALC_GDISTANCE_MASK 0x1c
+#define CALC_LOAD_DISTANCES 0x20
+#define CALC_GROUPDIST 0x40
+#define CALC_REGRESS_DISTANCE 0x80
+#define CALC_UNRELATED_HERITABILITY 0x100
+#define CALC_UNRELATED_HERITABILITY_STRICT 0x200
+#define CALC_FREQ 0x400
+#define CALC_REL_CUTOFF 0x800
+#define CALC_WRITE_SNPLIST 0x1000
+#define CALC_GENOME 0x2000
+#define CALC_REGRESS_REL 0x4000
+#define CALC_LD_PRUNE 0x8000
+#define CALC_LD_PRUNE_PAIRWISE 0x10000
+#define CALC_REGRESS_PCS 0x20000
+#define CALC_REGRESS_PCS_DISTANCE 0x40000
+#define CALC_MAKE_BED 0x80000
+#define CALC_RECODE 0x100000
+#define CALC_MERGE 0x200000
+
+#define DISTANCE_SQ 1
+#define DISTANCE_SQ0 2
+#define DISTANCE_TRI 3
+#define DISTANCE_SHAPEMASK 3
+#define DISTANCE_GZ 4
+#define DISTANCE_BIN 8
+#define DISTANCE_IBS 0x10
+#define DISTANCE_1_MINUS_IBS 0x20
+#define DISTANCE_ALCT 0x40
+#define DISTANCE_FORMATMASK 0x74
 
 #define RECODE_12 1
 #define RECODE_TAB 2
@@ -498,7 +499,7 @@ void triangle_fill(unsigned int* target_arr, int ct, int pieces, int parallel_id
 
 int write_ids(char* outname, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len);
 
-int distance_d_write_ids(char* outname, char* outname_end, int calculation_type, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len);
+int distance_d_write_ids(char* outname, char* outname_end, int dist_calc_type, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len);
 
 int distance_req(int calculation_type);
 
@@ -537,7 +538,7 @@ unsigned long popcount_longs(unsigned long* lptr, unsigned long start_idx, unsig
 
 unsigned long popcount_chars(unsigned long* lptr, unsigned long start_idx, unsigned long end_idx);
 
-int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int calculation_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf);
+int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf);
 
 void collapse_arr(char* item_arr, int fixed_item_len, unsigned long* exclude_arr, int exclude_arr_size);
 

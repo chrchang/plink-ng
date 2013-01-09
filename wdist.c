@@ -216,7 +216,7 @@ extern "C" {
 #define MINV(aa, bb) ((aa) > (bb))? (bb) : (aa)
 
 const char ver_str[] =
-  "WDIST v0.14.2"
+  "WDIST v0.14.3"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -225,7 +225,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (8 Jan 2013)";
+  " (9 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -894,9 +894,8 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --seed [val]     : Set random number seed.\n"
 	       );
     help_print("memory", &help_ctrl, 0,
-"  --memory [val]   : Size, in MB, of initial malloc attempt.  (64-bit operating\n"
-"                     systems typically allow this value to exceed your\n"
-"                     computer's total physical memory.)\n"
+"  --memory [val]   : Size, in MB, of initial malloc attempt.  (Some operating\n"
+"                     systems allow this number to exceed total physical RAM.)\n"
 	       );
     help_print("threads", &help_ctrl, 0,
 "  --threads [val]  : Maximum number of concurrent threads.\n"
@@ -8588,7 +8587,7 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_ca
 
 
 inline int distance_wt_req(int calculation_type) {
-  return ((calculation_type & CALC_DISTANCE_MASK) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
+  return ((calculation_type & CALC_DISTANCE) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
 
 inline int relationship_req(int calculation_type) {
@@ -8599,7 +8598,7 @@ inline int relationship_or_ibc_req(int calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int rel_calc_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier, int allelexxxx, int merge_type, int indiv_sort, int keep_allele_order) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int rel_calc_type, int dist_calc_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier, int allelexxxx, int merge_type, int indiv_sort, int keep_allele_order) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -10372,14 +10371,14 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
   }
 
-  if (calculation_type & CALC_DISTANCE_MASK) {
+  if (calculation_type & CALC_DISTANCE) {
     if (!parallel_idx) {
-      retval = distance_d_write_ids(outname, outname_end, calculation_type, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
+      retval = distance_d_write_ids(outname, outname_end, dist_calc_type, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
       if (retval) {
 	goto wdist_ret_2;
       }
     }
-    if ((exponent == 0.0) || (!(calculation_type & (CALC_DISTANCE_IBS | CALC_DISTANCE_1_MINUS_IBS)))) {
+    if ((exponent == 0.0) || (!(dist_calc_type & (DISTANCE_IBS | DISTANCE_1_MINUS_IBS)))) {
       dxx = 0.5 / (double)marker_ct;
     } else {
       dxx = 0.0;
@@ -10396,7 +10395,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
       }
       dxx = 0.5 / dxx;
     }
-    retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, calculation_type, outname, outname_end, g_dists, dxx, g_indiv_ct, g_thread_start[0], g_thread_start[g_thread_ct], parallel_idx, parallel_tot, g_geno);
+    retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, dist_calc_type, outname, outname_end, g_dists, dxx, g_indiv_ct, g_thread_start[0], g_thread_start[g_thread_ct], parallel_idx, parallel_tot, g_geno);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -10827,6 +10826,7 @@ int main(int argc, char** argv) {
   int cur_arg = 1;
   int calculation_type = 0;
   int rel_calc_type = 0;
+  int dist_calc_type = 0;
   char* bubble;
   int mfilter_col = 0;
   int pheno_merge = 0;
@@ -11516,65 +11516,65 @@ int main(int argc, char** argv) {
 	}
 	for (jj = 1; jj <= ii; jj++) {
 	  if (!strcmp(argv[cur_arg + jj], "square")) {
-	    if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ0) {
+	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ0) {
 	      sprintf(logbuf, "Error: --distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
-	    } else if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_TRI) {
+	    } else if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_TRI) {
 	      sprintf(logbuf, "Error: --distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    } else if (parallel_tot > 1) {
 	      sprintf(logbuf, "Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	    calculation_type |= CALC_DISTANCE_SQ;
+	    dist_calc_type |= DISTANCE_SQ;
 	  } else if (!strcmp(argv[cur_arg + jj], "square0")) {
-	    if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
+	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
 	      sprintf(logbuf, "Error: --distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
-	    } else if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_TRI) {
+	    } else if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_TRI) {
 	      sprintf(logbuf, "Error: --distance 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	    calculation_type |= CALC_DISTANCE_SQ0;
+	    dist_calc_type |= DISTANCE_SQ0;
 	  } else if (!strcmp(argv[cur_arg + jj], "triangle")) {
-	    if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
+	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
 	      sprintf(logbuf, "Error: --distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
-	    } else if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ0) {
+	    } else if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ0) {
 	      sprintf(logbuf, "Error: --distance 'square0' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	    calculation_type |= CALC_DISTANCE_TRI;
+	    dist_calc_type |= DISTANCE_TRI;
 	  } else if (!strcmp(argv[cur_arg + jj], "gz")) {
-	    if (calculation_type & CALC_DISTANCE_BIN) {
+	    if (dist_calc_type & DISTANCE_BIN) {
 	      sprintf(logbuf, "Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	    calculation_type |= CALC_DISTANCE_GZ;
+	    dist_calc_type |= DISTANCE_GZ;
 	  } else if (!strcmp(argv[cur_arg + jj], "bin")) {
-	    if (calculation_type & CALC_DISTANCE_GZ) {
+	    if (dist_calc_type & DISTANCE_GZ) {
 	      sprintf(logbuf, "Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	    calculation_type |= CALC_DISTANCE_BIN;
+	    dist_calc_type |= DISTANCE_BIN;
 	  } else if (!strcmp(argv[cur_arg + jj], "ibs")) {
-	    if (calculation_type & CALC_DISTANCE_IBS) {
+	    if (dist_calc_type & DISTANCE_IBS) {
 	      logprint("Error: Duplicate 'ibs' modifier.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
-	    calculation_type |= CALC_DISTANCE_IBS;
+	    dist_calc_type |= DISTANCE_IBS;
 	  } else if (!strcmp(argv[cur_arg + jj], "1-ibs")) {
-	    if (calculation_type & CALC_DISTANCE_1_MINUS_IBS) {
+	    if (dist_calc_type & DISTANCE_1_MINUS_IBS) {
 	      logprint("Error: Duplicate '1-ibs' modifier.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
-	    calculation_type |= CALC_DISTANCE_1_MINUS_IBS;
+	    dist_calc_type |= DISTANCE_1_MINUS_IBS;
 	  } else if (!strcmp(argv[cur_arg + jj], "alct")) {
-	    if (calculation_type & CALC_DISTANCE_ALCT) {
+	    if (dist_calc_type & DISTANCE_ALCT) {
 	      logprint("Error: Duplicate 'alct' modifier.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
-	    calculation_type |= CALC_DISTANCE_ALCT;
+	    dist_calc_type |= DISTANCE_ALCT;
 	  } else if (!strcmp(argv[cur_arg + jj], "3d")) {
 	    distance_3d = 1;
 	  } else if (!strcmp(argv[cur_arg + jj], "flat-missing")) {
@@ -11584,14 +11584,15 @@ int main(int argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
-	if (!(calculation_type & CALC_DISTANCE_FORMATMASK)) {
-	  calculation_type |= CALC_DISTANCE_ALCT;
+	if (!(dist_calc_type & DISTANCE_FORMATMASK)) {
+	  dist_calc_type |= DISTANCE_ALCT;
 	}
+	calculation_type |= CALC_DISTANCE;
       } else if (!memcmp(argptr2, "istance-matrix", 15)) {
 	if (plink_dist_flag(argptr, calculation_type, exponent, parallel_tot)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (calculation_type & CALC_DISTANCE_1_MINUS_IBS) {
+	if (dist_calc_type & DISTANCE_1_MINUS_IBS) {
 	  sprintf(logbuf, "Error: --distance-matrix flag cannot be used with '--distance 1-ibs'.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -12263,7 +12264,7 @@ int main(int argc, char** argv) {
 	if (plink_dist_flag(argptr, calculation_type, exponent, parallel_tot)) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (calculation_type & CALC_DISTANCE_IBS) {
+	if (dist_calc_type & DISTANCE_IBS) {
 	  sprintf(logbuf, "Error: --matrix flag cannot be used with '--distance ibs'.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -12437,10 +12438,10 @@ int main(int argc, char** argv) {
       } else if (!memcmp(argptr2, "rune", 5)) {
 	prune = 1;
       } else if (!memcmp(argptr2, "arallel", 8)) {
-	if ((calculation_type & CALC_DISTANCE_SHAPEMASK) == CALC_DISTANCE_SQ) {
+	if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
 	  sprintf(logbuf, "Error: --parallel cannot be used with '--distance square'.  Use '--distance\nsquare0' or plain --distance instead.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if ((calculation_type & CALC_DISTANCE_BIN) && (!(calculation_type & CALC_DISTANCE_SHAPEMASK))) {
+	} else if ((dist_calc_type & DISTANCE_BIN) && (!(dist_calc_type & DISTANCE_SHAPEMASK))) {
 	  sprintf(logbuf, "Error: --parallel cannot be used with plain '--distance bin'.  Use '--distance\nbin square0' or '--distance bin triangle' instead.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
@@ -12600,13 +12601,40 @@ int main(int argc, char** argv) {
 	if (calculation_type & CALC_REGRESS_PCS) {
 	  sprintf(logbuf, "Error: --regress-pcs-distance cannot be used with --regress-pcs.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (calculation_type & CALC_DISTANCE_MASK) {
+	} else if (calculation_type & CALC_DISTANCE) {
 	  sprintf(logbuf, "Error: --regress-pcs-distance cannot be used with --distance.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         logprint("Error: --regress-pcs-distance is currently under development.\n");
 	retval = RET_CALC_NOT_YET_SUPPORTED;
 	goto main_ret_1;
+        if (enforce_param_ct_range(argc, argv, cur_arg, 1, 11, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&evecname, argv[cur_arg + 1], argptr, 9);
+	if (retval) {
+	  goto main_ret_1;
+	}
+	/*
+	for (jj = 2; jj <= ii; jj++) {
+	  if (!strcmp(argv[cur_arg + jj], "normalize-pheno") && (!regress_pcs_normalize_pheno)) {
+	    regress_pcs_normalize_pheno = 1;
+	  } else if (!strcmp(argv[cur_arg + jj], "sex-specific") && (!regress_pcs_sex_specific)) {
+	    regress_pcs_sex_specific = 1;
+	  } else if (!strcmp(argv[cur_arg + jj], "clip") && (!regress_pcs_clip)) {
+	    regress_pcs_clip = 1;
+	  } else if ((max_pcs != MAX_PCS_DEFAULT) || (argv[cur_arg + jj][0] < '0') || (argv[cur_arg + jj][0] > '9')) {
+	    sprintf(logbuf, "Error: Invalid --regress-pcs parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  } else {
+	    max_pcs = atoi(argv[cur_arg + jj]);
+	    if (max_pcs < 1) {
+	      sprintf(logbuf, "Error: Invalid --regress-pcs maximum principal component count '%s'.%s", argv[cur_arg + jj], errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	  }
+	}
+	*/
 	calculation_type |= CALC_REGRESS_PCS_DISTANCE;
       } else if (!memcmp(argptr2, "ead-freq", 9)) {
 	if (calculation_type & CALC_FREQ) {
@@ -13024,14 +13052,14 @@ int main(int argc, char** argv) {
   // of their respective flags
   // filtername indicates existence of filter
   // freqname signals --read-freq
-    if (calculation_type & (~(CALC_DISTANCE_MASK | CALC_REGRESS_DISTANCE))) {
+    if (calculation_type & (~(CALC_DISTANCE | CALC_REGRESS_DISTANCE))) {
       logprint("Error: Only --distance calculations are currently supported with --data.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
     } else {
       if (!missing_code) {
 	missing_code = (char*)"NA";
       }
-      retval = wdist_dosage(calculation_type, genname, samplename, outname, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
+      retval = wdist_dosage(calculation_type, dist_calc_type, genname, samplename, outname, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else {
     if (load_rare) {
@@ -13056,7 +13084,7 @@ int main(int argc, char** argv) {
       memcpy(&(famname[uii]), ".fam", 5);
       outname[uii - 8] = '\0';
     }
-    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order);
+    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order);
   }
  main_ret_2:
   free(wkspace_ua);
