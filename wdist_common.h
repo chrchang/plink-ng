@@ -562,7 +562,7 @@ void init_genrand(unsigned long s);
 
 unsigned long genrand_int32(void);
 
-double rand_unif(void);
+// double rand_unif(void);
 
 double rand_normal(void);
 

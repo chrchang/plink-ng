@@ -229,13 +229,12 @@ const char ver_str[] =
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
-// const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
+// const char errstr_append[] = "\nFor more information, try 'wdist --help [flag names]' or 'wdist --help | more'.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
-const char cmdline_format_str[] = "\nwdist --help {flags...}\n"
-  "wdist [input flags...] [commands...] {other flags...}\n\n";
+const char cmdline_format_str[] = "\n  wdist [input flags...] [command flags...] {other flags...}\n  wdist --help {flag names...}\n\n";
 const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
 const char notestr_null_calc2[] = "Commands include --freqx, --ibc, --distance, --genome, --make-rel, --make-grm,\n--rel-cutoff, --regress-distance, --regress-pcs-distance, --make-bed, --recode,\n--merge-list, and --write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).  You can look up\nspecific flags with 'wdist --help [flag #1] {flag #2} ...'.\n";
 
@@ -530,17 +529,17 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --sample [fname] : Specify full name of .sample file.\n\n"
 	       );
     help_print("grm\trel-cutoff\tgrm-cutoff", &help_ctrl, 1,
-"  --grm {prefix}   : Load a GCTA relationship matrix for --rel-cutoff (default\n"
-"                     filename prefix 'wdist').\n\n"
+"  --grm {prefix}   : Load a GCTA relationship matrix (.grm.gz + .grm.id) for\n"
+"                     --rel-cutoff.\n\n"
 	       );
     help_print("dummy", &help_ctrl, 1,
 "  --dummy [marker ct] [indiv ct] {missing geno freq} {missing pheno freq}\n"
 "          <acgt | 1234 | 12> <scalar-pheno>\n"
-"    Create a new dataset with the specified number of markers and individuals.\n"
-"    By default, the missing genotype and phenotype frequencies are zero, and\n"
-"    genotypes are As and Bs (change the latter with 'acgt'/'1234'/'12').  The\n"
-"    'scalar-pheno' modifier causes a normally distributed scalar phenotype to\n"
-"    be generated instead of a binary one.\n\n"
+"    This generates a fake input dataset with the specified number of markers\n"
+"    and individuals.  By default, the missing genotype and phenotype\n"
+"    frequencies are zero, and genotypes are As and Bs (change the latter with\n"
+"    'acgt'/'1234'/'12').  The 'scalar-pheno' modifier causes a normally\n"
+"    distributed scalar phenotype to be generated instead of a binary one.\n\n"
 	       );
     if (!param_ct) {
       fputs(
@@ -769,14 +768,6 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    Writes a .snplist file listing the names of all SNPs that pass the filters\n"
 "    and inclusion thresholds you've specified.\n\n"
 	       );
-    help_print("help\t{flag names}", &help_ctrl, 1,
-"  --help {flag names...}\n"
-"    Describes WDIST functionality.  {flag names...} is a list of flag names or\n"
-"    prefixes, e.g. 'wdist --help filter- missing-' will display information\n"
-"    about all flags with names starting with 'filter-' or 'missing-', while\n"
-"    'wdist --help filter' will just describe --filter since that's an exact\n"
-"    match.  If no parameters are given, all commands are listed.\n\n"
-		);
     if (!param_ct) {
       fputs(
 "The following other flags are supported.  (Order of operations is described at\n"
@@ -8254,11 +8245,11 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_ca
       }
       *rtptr++ = cur_word;
     }
-    if (pct <= 10) {
+    if (pct < 100) {
+      if (pct > 10) {
+	putchar('\b');
+      }
       printf("\b\b%u%%", pct);
-      fflush(stdout);
-    } else if (pct < 100) {
-      printf("\b\b\b%u%%", pct);
       fflush(stdout);
     }
   }
@@ -8515,15 +8506,12 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_ca
       }
       ulljj += row * 100;
       if (ulljj >= pct * ullii) {
-	if (pct <= 10) {
-	  pct = 1 + (ulljj / ullii);
-	  printf("\b\b%u%%", pct - 1);
-	  fflush(stdout);
-	} else {
-	  pct = 1 + (ulljj / ullii);
-	  printf("\b\b\b%u%%", pct - 1);
-	  fflush(stdout);
+	if (pct > 10) {
+	  putchar('\b');
 	}
+	pct = 1 + (ulljj / ullii);
+	printf("\b\b%u%%", pct - 1);
+	fflush(stdout);
       }
     }
     putchar('\r');

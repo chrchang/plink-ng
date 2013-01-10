@@ -1,7 +1,7 @@
 #include "wdist_common.h"
 
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
-const char errstr_append[] = "\nFor more information, try 'wdist --help {flag names}' or 'wdist --help | more'.\n";
+const char errstr_append[] = "\nFor more information, try 'wdist --help [flag names]' or 'wdist --help | more'.\n";
 const char errstr_thread_create[] = "\nError: Failed to create thread.\n";
 
 char tbuf[MAXLINELEN * 4 + 256];
