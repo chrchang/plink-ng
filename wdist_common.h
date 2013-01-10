@@ -31,6 +31,9 @@ typedef union {
 
 #include "zlib-1.2.7/zlib.h"
 
+#define PI 3.141592653589793
+#define RECIP_2_32 0.00000000023283064365386962890625
+
 #define RET_SUCCESS 0
 #define RET_NOMEM 1
 #define RET_OPEN_FAIL 2
@@ -93,6 +96,13 @@ typedef union {
 #define INDIV_SORT_NONE 1
 #define INDIV_SORT_NATURAL 2
 #define INDIV_SORT_ASCII 3
+
+#define DUMMY_MISSING_GENO 1
+#define DUMMY_MISSING_PHENO 2
+#define DUMMY_SCALAR_PHENO 4
+#define DUMMY_ACGT 8
+#define DUMMY_1234 16
+#define DUMMY_12 32
 
 #define WKSPACE_MIN_MB 64
 #define WKSPACE_DEFAULT_MB 2048
@@ -550,7 +560,11 @@ void collapse_arr(char* item_arr, int fixed_item_len, unsigned long* exclude_arr
 
 void init_genrand(unsigned long s);
 
-// unsigned long genrand_int32(void);
+unsigned long genrand_int32(void);
+
+double rand_unif(void);
+
+double rand_normal(void);
 
 // void pick_d(unsigned char* cbuf, unsigned int ct, unsigned int dd);
 

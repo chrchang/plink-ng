@@ -2871,6 +2871,178 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
   return retval;
 }
 
+int generate_dummy(char* outname, unsigned int flags, unsigned int marker_ct, unsigned int indiv_ct, double geno_mrate, double pheno_mrate) {
+  FILE* outfile = NULL;
+  unsigned char* wkspace_mark = wkspace_base;
+  char* outname_end = (char*)memchr(outname, 0, FNAMESIZE);
+  int retval = 0;
+  unsigned int indiv_ct4 = (indiv_ct + 3) / 4;
+  unsigned int dbl_indiv_mod4 = 2 * (indiv_ct % 4);
+  unsigned int four_alleles = 0;
+  unsigned int geno_m_check = (geno_mrate > 0.0);
+  unsigned int pheno_m_check = (pheno_mrate > 0.0);
+  unsigned long urand = 0;
+  char alleles[13];
+  unsigned char* writebuf;
+  unsigned char* ucptr;
+  unsigned char* ucptr2;
+  unsigned int uii;
+  unsigned int ujj;
+  unsigned int ukk;
+  unsigned char ucc;
+  unsigned char ucc2;
+  unsigned char bmap[320];
+  unsigned char* bmap2;
+  double dxx;
+  fill_bmap_short(bmap, indiv_ct % 4);
+  bmap2 = &(bmap[256]);
+  if (flags & DUMMY_ACGT) {
+    memcpy(alleles, "ACAGATCGCTGTA", 13);
+    four_alleles = 1;
+  } else if (flags & DUMMY_1234) {
+    memcpy(alleles, "1213142324341", 13);
+    four_alleles = 1;
+  } else if (flags & DUMMY_12) {
+    memcpy(alleles, "121", 3);
+  } else {
+    memcpy(alleles, "ABA", 3);
+  }
+  if (wkspace_alloc_uc_checked(&writebuf, indiv_ct4)) {
+    goto generate_dummy_ret_NOMEM;
+  }
+  memcpy(outname_end, ".bim", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto generate_dummy_ret_OPEN_FAIL;
+  }
+  if (four_alleles) {
+    for (uii = 0; uii < marker_ct; uii++) {
+      if (!(uii % 8)) {
+	do {
+	  urand = genrand_int32();
+	} while (urand < 425132032LU); // 2^32 - 12^8.  heck, why not
+      }
+      ukk = urand / 12U;
+      ujj = urand - (ukk * 12U);
+      urand = ukk;
+      if (fprintf(outfile, "1\tsnp%u\t0\t%u\t%c\t%c\n", uii, uii, alleles[ujj], alleles[ujj + 1]) < 0) {
+	goto generate_dummy_ret_WRITE_FAIL;
+      }
+    }
+  } else {
+    for (uii = 0; uii < marker_ct; uii++) {
+      if (!(uii % 32)) {
+	urand = genrand_int32();
+      }
+      ujj = urand & 1;
+      urand >>= 1;
+      if (fprintf(outfile, "1\tsnp%u\t0\t%u\t%c\t%c\n", uii, uii, alleles[ujj], alleles[ujj + 1]) < 0) {
+	goto generate_dummy_ret_WRITE_FAIL;
+      }
+    }
+  }
+  if (fclose_null(&outfile)) {
+    goto generate_dummy_ret_WRITE_FAIL;
+  }
+  memcpy(outname_end, ".fam", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto generate_dummy_ret_OPEN_FAIL;
+  }
+  if (flags & DUMMY_SCALAR_PHENO) {
+    for (uii = 0; uii < indiv_ct; uii++) {
+      if (pheno_m_check && (rand_unif() < pheno_mrate)) {
+	dxx = -9;
+      } else {
+	dxx = rand_normal();
+      }
+      if (fprintf(outfile, "per%u per%u 0 0 2 %g\n", uii, uii, dxx) < 0) {
+	goto generate_dummy_ret_OPEN_FAIL;
+      }
+    }
+  } else {
+    for (uii = 0; uii < indiv_ct; uii++) {
+      if (!(uii % 32)) {
+	urand = genrand_int32();
+      }
+      if (pheno_m_check && (rand_unif() < pheno_mrate)) {
+	if (fprintf(outfile, "per%u per%u 0 0 2 -9\n", uii, uii) < 0) {
+	  goto generate_dummy_ret_OPEN_FAIL;
+	}
+      } else {
+	if (fprintf(outfile, "per%u per%u 0 0 2 %c\n", uii, uii, (char)((urand & 1) + '1')) < 0) {
+	  goto generate_dummy_ret_OPEN_FAIL;
+	}
+      }
+      urand >>= 1;
+    }
+  }
+  if (fclose_null(&outfile)) {
+    goto generate_dummy_ret_WRITE_FAIL;
+  }
+  memcpy(outname_end, ".bed", 5);
+  if (fopen_checked(&outfile, outname, "wb")) {
+    goto generate_dummy_ret_OPEN_FAIL;
+  }
+  if (fwrite_checked("l\x1b\x01", 3, outfile)) {
+    goto generate_dummy_ret_WRITE_FAIL;
+  }
+  for (uii = 0; uii < marker_ct; uii++) {
+    ucptr = writebuf;
+    for (ujj = 0; ujj < indiv_ct4; ujj++) {
+      if (!(ujj % 4)) {
+	urand = genrand_int32();
+      }
+      ucc = 0;
+      for (ukk = 0; ukk < 8; ukk += 2) {
+	if (geno_m_check && (rand_unif() < geno_mrate)) {
+	  ucc2 = 1;
+	} else {
+          ucc2 = urand & 3;
+	  if (ucc2 == 1) {
+	    ucc2 = 2;
+	  }
+	}
+	ucc |= ucc2 << ukk;
+	urand >>= 2;
+      }
+      *ucptr++ = ucc;
+    }
+    if (dbl_indiv_mod4) {
+      ucc = *(--ucptr);
+      *ucptr = ucc >> dbl_indiv_mod4;
+    }
+    ujj = popcount_chars((unsigned long*)writebuf, 0, indiv_ct4);
+    if (ujj < indiv_ct) {
+      ucptr = writebuf;
+      ucptr2 = &(writebuf[indiv_ct / 4]);
+      while (ucptr < ucptr2) {
+	*ucptr = bmap[*ucptr];
+	ucptr++;
+      }
+      if (dbl_indiv_mod4) {
+	*ucptr = bmap2[*ucptr];
+      }
+    }
+    if (fwrite_checked(writebuf, indiv_ct4, outfile)) {
+      goto generate_dummy_ret_WRITE_FAIL;
+    }
+  }
+  sprintf(logbuf, "Dummy data generated (%u markers, %u individuals).\n", marker_ct, indiv_ct);
+  logprintb();
+  while (0) {
+  generate_dummy_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  generate_dummy_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  generate_dummy_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+  }
+  fclose_cond(outfile);
+  wkspace_reset(wkspace_mark);
+  return retval;
+}
+
 int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FILE* bimfile, FILE** outfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, char* person_ids, unsigned int max_person_id_len, char* paternal_ids, unsigned int max_paternal_id_len, char* maternal_ids, unsigned int max_maternal_id_len, unsigned char* sex_info, char* pheno_c, double* pheno_d, double missing_phenod, char output_missing_geno, char* output_missing_pheno, double* set_allele_freqs, int binary_files) {
   unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   unsigned char* wkspace_mark = wkspace_base;

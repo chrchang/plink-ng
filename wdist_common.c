@@ -1777,6 +1777,15 @@ unsigned long genrand_int32(void)
     return y;
 }
 
+double rand_unif(void) {
+  return (genrand_int32() + 0.5) * RECIP_2_32;
+}
+
+double rand_normal(void) {
+  // N(0, 1)
+  return sqrt(-2 * log(rand_unif())) * cos(2 * PI * rand_unif());
+}
+
 void pick_d(unsigned char* cbuf, unsigned int ct, unsigned int dd) {
   unsigned int ii;
   unsigned int jj;

@@ -144,7 +144,6 @@ extern "C" {
 #include "wdist_data.h"
 #include "wdist_dosage.h"
 
-#define PI 3.141592653589793
 // floating point comparison-to-nonzero tolerance, currently 2^{-30}
 #define EPSILON 0.000000000931322574615478515625
 #define MATRIX_SINGULAR_RCOND 1e-14
@@ -164,6 +163,7 @@ extern "C" {
 #define LOAD_RARE_TPED 8
 #define LOAD_RARE_TFAM 16
 #define LOAD_RARE_TRANSPOSE_MASK (LOAD_RARE_TRANSPOSE | LOAD_RARE_TPED | LOAD_RARE_TFAM)
+#define LOAD_RARE_DUMMY 32
 
 #define PEDBUFBASE 256
 
@@ -234,7 +234,10 @@ const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
-const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n\n'wdist --help | more' describes all functions.  You can also look up specific\nflags with 'wdist --help [flag #1] {flag #2} ...'.\n";
+const char cmdline_format_str[] = "\nwdist --help {flags...}\n"
+  "wdist [input flags...] [commands...] {other flags...}\n\n";
+const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
+const char notestr_null_calc2[] = "Commands include --freqx, --ibc, --distance, --genome, --make-rel, --make-grm,\n--rel-cutoff, --regress-distance, --regress-pcs-distance, --make-bed, --recode,\n--merge-list, and --write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).  You can look up\nspecific flags with 'wdist --help [flag #1] {flag #2} ...'.\n";
 
 int edit1_match(int len1, char* s1, int len2, char* s2) {
   // permit one difference of the following forms:
@@ -485,8 +488,8 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_ctrl.preprint_newline = 1;
   } else {
     help_ctrl.argv = NULL;
+    fputs(cmdline_format_str, stdout);
     fputs(
-"\nwdist [flags...]\n\n"
 "In the command line flag definitions that follow,\n"
 "  * [square brackets] denote a required parameter, where the text between the\n"
 "    brackets describes its nature.\n"
@@ -529,6 +532,15 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_print("grm\trel-cutoff\tgrm-cutoff", &help_ctrl, 1,
 "  --grm {prefix}   : Load a GCTA relationship matrix for --rel-cutoff (default\n"
 "                     filename prefix 'wdist').\n\n"
+	       );
+    help_print("dummy", &help_ctrl, 1,
+"  --dummy [marker ct] [indiv ct] {missing geno freq} {missing pheno freq}\n"
+"          <acgt | 1234 | 12> <scalar-pheno>\n"
+"    Create a new dataset with the specified number of markers and individuals.\n"
+"    By default, the missing genotype and phenotype frequencies are zero, and\n"
+"    genotypes are As and Bs (change the latter with 'acgt'/'1234'/'12').  The\n"
+"    'scalar-pheno' modifier causes a normally distributed scalar phenotype to\n"
+"    be generated instead of a binary one.\n\n"
 	       );
     if (!param_ct) {
       fputs(
@@ -810,11 +822,11 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_print("indiv-sort\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
 "  --indiv-sort [m] : Specify family/individual ID sort order.  The following\n"
 "                     three modes are currently supported:\n"
-"                     * 'none' keeps individuals in the order they were loaded.\n"
-"                       This is the default for non-merge operations.\n"
-"                     * 'natural' invokes \"natural sort\", e.g. 'id2' < 'ID3' <\n"
-"                       'ID10'.  This is the default when merging.\n"
-"                     * 'ascii' sorts in ASCII order, e.g. 'ID3' < 'id10' <\n"
+"                     * 'none'/'0' keeps individuals in the order they were\n"
+"                       loaded.  This is the default for non-merge operations.\n"
+"                     * 'natural'/'n' invokes \"natural sort\", e.g. 'id2' <\n"
+"                       'ID3' < 'ID10'.  This is the default when merging.\n"
+"                     * 'ascii'/'a' sorts in ASCII order, e.g. 'ID3' < 'id10' <\n"
 "                       'id2'.\n"
 "                     For now, only --merge/--bmerge/--merge-list and explicit\n"
 "                     --make-bed respect this flag.\n"
@@ -10842,6 +10854,11 @@ int main(int argc, char** argv) {
   int keep_allele_order = 0;
   unsigned int cur_flag = 0;
   unsigned int flag_ct = 0;
+  int dummy_marker_ct = 0;
+  int dummy_indiv_ct = 0;
+  unsigned int dummy_flags = 0;
+  double dummy_missing_geno = 0.0;
+  double dummy_missing_pheno = 0.0;
   Chrom_info chrom_info;
   char* argptr2;
   char* flagptr;
@@ -11089,6 +11106,8 @@ int main(int argc, char** argv) {
   if (!flag_ct) {
     print_ver();
     fputs(notestr_null_calc, stdout);
+    fputs(cmdline_format_str, stdout);
+    fputs(notestr_null_calc2, stdout);
     retval = RET_NULL_CALC;
     goto main_ret_1;
   }
@@ -11541,6 +11560,58 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	calculation_type |= CALC_PLINK_DISTANCE_MATRIX;
+      } else if (!memcmp(argptr2, "ummy", 5)) {
+	if (load_params) {
+	  goto main_ret_INVALID_CMDLINE_4;
+	}
+        if (enforce_param_ct_range(argc, argv, cur_arg, 2, 6, &ii)) {
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+	dummy_marker_ct = atoi(argv[cur_arg + 1]);
+	if (dummy_marker_ct < 1) {
+	  sprintf(logbuf, "Error: Invalid --dummy marker count.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	dummy_indiv_ct = atoi(argv[cur_arg + 2]);
+	if (dummy_indiv_ct < 1) {
+	  sprintf(logbuf, "Error: Invalid --dummy individual count.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        for (jj = 3; jj <= ii; jj++) {
+	  if ((argv[cur_arg + jj][4] == '\0') && (tolower(argv[cur_arg + jj][0]) == 'a') && (tolower(argv[cur_arg + jj][1]) == 'c') && (tolower(argv[cur_arg + jj][2]) == 'g') && (tolower(argv[cur_arg + jj][3]) == 't')) {
+	    if (dummy_flags & (DUMMY_1234 | DUMMY_12)) {
+	      sprintf(logbuf, "Error: --dummy 'acgt' modifier cannot be used with '1234' or '12'.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+            dummy_flags |= DUMMY_ACGT;
+	  } else if (!memcmp(argv[cur_arg + jj], "1234", 5)) {
+	    if (dummy_flags & (DUMMY_ACGT | DUMMY_12)) {
+	      sprintf(logbuf, "Error: --dummy '1234' modifier cannot be used with 'acgt' or '12'.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+            dummy_flags |= DUMMY_1234;
+	  } else if (!memcmp(argv[cur_arg + jj], "12", 3)) {
+	    if (dummy_flags & (DUMMY_ACGT | DUMMY_1234)) {
+	      sprintf(logbuf, "Error: --dummy '12' modifier cannot be used with 'acgt' or '1234'.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+            dummy_flags |= DUMMY_12;
+	  } else if (!memcmp(argv[cur_arg + jj], "scalar-pheno", 13)) {
+	    dummy_flags |= DUMMY_SCALAR_PHENO;
+	  } else {
+	    if ((dummy_flags & DUMMY_MISSING_PHENO) || (sscanf(argv[cur_arg + jj], "%lg", &dxx) != 1) || (dxx < 0.0) || (dxx > 1.0)) {
+	      sprintf(logbuf, "Error: Invalid --dummy parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    } else if (dummy_flags & DUMMY_MISSING_GENO) {
+	      dummy_missing_pheno = dxx;
+	      dummy_flags |= DUMMY_MISSING_PHENO;
+	    } else {
+	      dummy_missing_geno = dxx;
+	      dummy_flags |= DUMMY_MISSING_GENO;
+	    }
+	  }
+	}
+	load_rare = LOAD_RARE_DUMMY;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -11586,20 +11657,22 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	load_params |= 1;
-	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 5)) {
-	  logprint("Error: --file parameter too long.\n");
-	  goto main_ret_OPEN_FAIL;
-	}
-	if (!(load_params & 2)) {
-	  strcpy(pedname, argv[cur_arg + 1]);
-	  strcat(pedname, ".ped");
-	}
-	if (!(load_params & 4)) {
-	  strcpy(mapname, argv[cur_arg + 1]);
-	  strcat(mapname, ".map");
+	if (ii) {
+	  if (strlen(argv[cur_arg + 1]) > (FNAMESIZE - 5)) {
+	    logprint("Error: --file parameter too long.\n");
+	    goto main_ret_OPEN_FAIL;
+	  }
+	  if (!(load_params & 2)) {
+	    strcpy(pedname, argv[cur_arg + 1]);
+	    strcat(pedname, ".ped");
+	  }
+	  if (!(load_params & 4)) {
+	    strcpy(mapname, argv[cur_arg + 1]);
+	    strcat(mapname, ".map");
+	  }
 	}
       } else if (!memcmp(argptr2, "am", 3)) {
 	if (load_params & 0x3c7) {
@@ -11746,7 +11819,7 @@ int main(int argc, char** argv) {
 	}
 	calculation_type |= CALC_GROUPDIST;
       } else if (!memcmp(argptr2, "rm", 3)) {
-	if (load_params) {
+	if (load_params || load_rare) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
@@ -11877,11 +11950,12 @@ int main(int argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (!memcmp(argv[cur_arg + 1], "none", 5)) {
+	jj = (argv[cur_arg + 1][1] == '\0');
+        if (!memcmp(argv[cur_arg + 1], "none", 5) || ((argv[cur_arg + 1][0] == '0') && jj)) {
 	  indiv_sort = INDIV_SORT_NONE;
-	} else if (!memcmp(argv[cur_arg + 1], "natural", 8)) {
+	} else if (!memcmp(argv[cur_arg + 1], "natural", 8) || ((tolower(argv[cur_arg + 1][0]) == 'n') && jj)) {
 	  indiv_sort = INDIV_SORT_NATURAL;
-	} else if (!memcmp(argv[cur_arg + 1], "ascii", 6)) {
+	} else if ((!memcmp(argv[cur_arg + 1], "ascii", 6)) || ((tolower(argv[cur_arg + 1][0]) == 'a') && jj)) {
 	  indiv_sort = INDIV_SORT_ASCII;
 	} else {
 	  sprintf(logbuf, "Error: '%s' is not a valid mode for --indiv-sort.%s", argv[cur_arg + 1], errstr_append);
@@ -12950,8 +13024,12 @@ int main(int argc, char** argv) {
     goto main_ret_INVALID_CMDLINE_3;
   }
 
-  if ((!calculation_type) && (load_rare != LOAD_RARE_LGEN) && (!(load_rare & LOAD_RARE_TRANSPOSE_MASK)) && (famname[0] || load_rare)) {
+  if ((!calculation_type) && (load_rare != LOAD_RARE_LGEN) && (load_rare != LOAD_RARE_DUMMY) && (!(load_rare & LOAD_RARE_TRANSPOSE_MASK)) && (famname[0] || load_rare)) {
     goto main_ret_NULL_CALC;
+  }
+  if (!(load_params || load_rare)) {
+    sprintf(logbuf, "Error: No input dataset.%s", errstr_append);
+    goto main_ret_INVALID_CMDLINE_3;
   }
   free_cond(subst_argv);
   free_cond(script_buf);
@@ -13065,6 +13143,8 @@ int main(int argc, char** argv) {
         retval = lgen_to_bed(pedname, outname, missing_pheno, affection_01, &chrom_info);
       } else if (load_rare & LOAD_RARE_TRANSPOSE_MASK) {
         retval = transposed_to_bed(pedname, famname, outname, missing_geno, &chrom_info);
+      } else if (load_rare & LOAD_RARE_DUMMY) {
+	retval = generate_dummy(outname, dummy_flags, (unsigned int)dummy_marker_ct, (unsigned int)dummy_indiv_ct, dummy_missing_geno, dummy_missing_pheno);
       } else {
         retval = ped_to_bed(pedname, mapname, outname, fam_col_1, fam_col_34, fam_col_5, fam_col_6, affection_01, missing_pheno, &chrom_info);
 	fam_col_1 = 1;
@@ -13074,7 +13154,7 @@ int main(int argc, char** argv) {
 	affection_01 = 0;
 	missing_pheno = -9;
       }
-      if (!calculation_type) {
+      if (retval || (!calculation_type)) {
 	goto main_ret_2;
       }
       memcpy(pedname, outname, uii);
@@ -13116,6 +13196,8 @@ int main(int argc, char** argv) {
     break;
   main_ret_NULL_CALC:
     logprint(notestr_null_calc);
+    fputs(cmdline_format_str, stdout);
+    fputs(notestr_null_calc2, stdout);
     retval = RET_NULL_CALC;
   }
  main_ret_1:

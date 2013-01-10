@@ -20,6 +20,8 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
 
 int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missing_geno, Chrom_info* chrom_info_ptr);
 
+int generate_dummy(char* outname, unsigned int dummy_flags, unsigned int dummy_marker_ct, unsigned int dummy_indiv_ct, double dummy_missing_geno, double dummy_missing_pheno);
+
 int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FILE* bimfile, FILE** outfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, char* person_ids, unsigned int max_person_id_len, char* paternal_ids, unsigned int max_paternal_id_len, char* maternal_ids, unsigned int max_maternal_id_len, unsigned char* sex_info, char* pheno_c, double* pheno_d, double missing_phenod, char output_missing_geno, char* output_missing_pheno, double* set_allele_freqs, int binary_files);
 
 int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, char* outname_end, char* mergename1, char* mergename2, char* mergename3, int calculation_type, int merge_type, int indiv_sort, int keep_allele_order, Chrom_info* chrom_info_ptr);
