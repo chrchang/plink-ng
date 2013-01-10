@@ -3010,6 +3010,7 @@ int generate_dummy(char* outname, unsigned int flags, unsigned int marker_ct, un
       ucc = *(--ucptr);
       *ucptr = ucc >> dbl_indiv_mod4;
     }
+
     ujj = popcount_chars((unsigned long*)writebuf, 0, indiv_ct4);
     if (ujj < indiv_ct) {
       ucptr = writebuf;
