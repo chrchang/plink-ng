@@ -225,7 +225,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (10 Jan 2013)";
+  " (11 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -485,7 +485,7 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_ctrl.preprint_newline = 1;
   } else {
     help_ctrl.argv = NULL;
-    printf(
+    fputs(
 "\nwdist [flags...]\n\n"
 "In the command line flag definitions that follow,\n"
 "  * [square brackets] denote a required parameter, where the text between the\n"
@@ -497,10 +497,59 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    braces describes its nature.\n"
 "  * An ellipsis (...) indicates that you may enter multiple parameters of the\n"
 "    specified type.\n\n"
-"Each run should invoke at least one of the following primary functions:\n\n"
-	   );
+"Each WDIST run requires exactly one main input fileset.  The following flags\n"
+"are available for defining its form and location:\n\n"
+, stdout);
   }
   do {
+    help_print("bfile\tbed\tbim\tfam", &help_ctrl, 1,
+"  --bfile {prefix} : Specify .bed/.bim/.fam prefix (default 'wdist').\n"
+"  --bed [filename] : Specify full name of .bed file.\n"
+"  --bim [filename] : Specify full name of .bim file.\n"
+"  --fam [filename] : Specify full name of .fam file.\n\n"
+	       );
+    help_print("file\tped\tmap", &help_ctrl, 1,
+"  --file {prefix}  : Specify prefix for .ped and .map files (default 'wdist').\n"
+"  --ped [filename] : Specify full name of .ped file.\n"
+"  --map [filename] : Specify full name of .map file.\n\n"
+	       );
+    help_print("tfile\ttped\ttfam", &help_ctrl, 1,
+"  --tfile {prefix} : Specify .tped/.tfam prefix (default 'wdist').\n"
+"  --tped [fname]   : Specify full name of .tped file.\n"
+"  --tfam [fname]   : Specify full name of .tfam file.\n\n"
+	       );
+    help_print("lfile", &help_ctrl, 1,
+"  --lfile {prefix} : Specify .lgen/.map/.fam (long-format fileset) prefix.\n\n"
+	       );
+    help_print("data\tgen\tsample", &help_ctrl, 1,
+"  --data {prefix}  : Specify Oxford .gen/.sample prefix (default 'wdist').\n"
+"  --gen [filename] : Specify full name of .gen file.\n"
+"  --sample [fname] : Specify full name of .sample file.\n\n"
+	       );
+    help_print("grm\trel-cutoff\tgrm-cutoff", &help_ctrl, 1,
+"  --grm {prefix}   : Load a GCTA relationship matrix for --rel-cutoff (default\n"
+"                     filename prefix 'wdist').\n\n"
+	       );
+    if (!param_ct) {
+      fputs(
+"Output files have names of the form 'wdist.{extension}' by default.  You can\n"
+"change the 'wdist' prefix with\n\n"
+, stdout);
+    }
+    help_print("out", &help_ctrl, 1,
+"  --out [prefix]   : Specify prefix for output files.\n\n"
+	       );
+    if (!param_ct) {
+      fputs(
+"WDIST automatically converts PLINK text filesets to binary during the loading\n"
+"process (the new fileset is saved to {output prefix}.bed + .bim + .fam, unless\n"
+"that would conflict with the output of another command like --make-bed).  You\n"
+"are encouraged to directly use the new binary fileset in future runs.\n\n"
+"Every run also requires at least one of the following commands (unless you just\n"
+"want automatic text-to-binary conversion):\n\n"
+, stdout);
+    }
+
     help_print("freq\tfreqx\tfrqx\tcounts", &help_ctrl, 1,
 "  --freq <counts>\n"
 "  --freqx\n"
@@ -667,7 +716,9 @@ int disp_help(unsigned int param_ct, char** argv) {
 #endif
     help_print("make-bed", &help_ctrl, 1,
 "  --make-bed\n"
-"    Creates a new binary fileset with all filters applied.\n"
+"    Creates a new binary fileset.  Unlike the automatic text-to-binary\n"
+"    converter (which only respects --autosome and --chr), this supports all of\n"
+"    WDIST's filtering flags.\n"
 	       );
     help_print("recode\trecode12\ttab\ttranspose\trecode-lgen", &help_ctrl, 1,
 "  --recode <12> <tab | tabx | spacex> <transpose | lgen>\n"
@@ -715,22 +766,16 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    match.  If no parameters are given, all commands are listed.\n\n"
 		);
     if (!param_ct) {
-      printf(
+      fputs(
 "The following other flags are supported.  (Order of operations is described at\n"
 "https://www.cog-genomics.org/wdist/order .)\n"
-	     );
+, stdout);
     }
     help_print("script", &help_ctrl, 0,
 "  --script [fname] : Include command-line options from file.\n"
 	       );
     help_print("rerun", &help_ctrl, 0,
 "  --rerun {log}    : Rerun commands in log (default 'wdist.log').\n"
-	       );
-    help_print("file\tped\tmap", &help_ctrl, 0,
-"  --file [prefix]  : Specify prefix for .ped and .map files.  (When this flag\n"
-"                     isn't present, the prefix is assumed to be 'wdist'.)\n"
-"  --ped [filename] : Specify full name of .ped file.\n"
-"  --map [filename] : Specify full name of .map file.\n"
 	       );
     help_print("no-fid", &help_ctrl, 0,
 "  --no-fid         : .fam/.ped file does not contain column 1 (family ID).\n"
@@ -744,36 +789,10 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_print("no-pheno", &help_ctrl, 0,
 "  --no-pheno       : .fam/.ped file does not contain column 6 (phenotype).\n"
 	       );
-    help_print("bfile\tbed\tbim\tfam", &help_ctrl, 0,
-"  --bfile {prefix} : Specify .bed/.bim/.fam prefix (default 'wdist').\n"
-"  --bed [filename] : Specify full name of .bed file.\n"
-"  --bim [filename] : Specify full name of .bim file.\n"
-"  --fam [filename] : Specify full name of .fam file.\n"
-	       );
-    help_print("tfile\ttped\ttfam", &help_ctrl, 0,
-"  --tfile {prefix} : Specify .tped/.tfam prefix (default 'wdist').\n"
-"  --tped [fname]   : Specify full name of .tped file.\n"
-"  --tfam [fname]   : Specify full name of .tfam file.\n"
-	       );
-    help_print("lfile", &help_ctrl, 0,
-"  --lfile {prefix} : Specify .lgen/.map/.fam (long-format fileset) prefix.\n"
-	       );
-    help_print("data\tgen\tsample", &help_ctrl, 0,
-"  --data {prefix}  : Specify Oxford .gen/.sample prefix (default 'wdist').\n"
-"  --gen [filename] : Specify full name of .gen file.\n"
-"  --sample [fname] : Specify full name of .sample file.\n"
-	       );
     help_print("load-dists\tgroupdist\tregress-distance", &help_ctrl, 0,
 "  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --groupdist\n"
 "                     or --regress-distance analysis, instead of recalculating\n"
 "                     it from scratch.\n"
-	       );
-    help_print("grm\trel-cutoff\tgrm-cutoff", &help_ctrl, 0,
-"  --grm {prefix}   : Load a GCTA relationship matrix for --rel-cutoff (default\n"
-"                     filename prefix 'wdist').\n"
-	       );
-    help_print("out", &help_ctrl, 0,
-"  --out [prefix]   : Specify prefix for output files.\n"
 	       );
     help_print("silent", &help_ctrl, 0,
 "  --silent         : Suppress output to console.\n"
@@ -985,12 +1004,11 @@ int disp_help(unsigned int param_ct, char** argv) {
 "                              treated as missing.\n\n"
 	       );
     if (!param_ct) {
-      printf(
-"One final note.  If a PLINK text fileset (.ped + .fam, .tped + .tfam,\n"
-".lgen + .map + .fam) is given as input, WDIST automatically converts to binary.\n"
-"The new fileset is normally saved to {output prefix}.bed + .bim + .fam, and you\n"
-"are encouraged to use it directly in further analyses.\n"
-	     );
+      fputs(
+"Further documentation and support is available at the main webpage\n"
+"(https://www.cog-genomics.org/wdist ) and the wdist-users mailing list\n"
+"(https://groups.google.com/d/forum/wdist-users ).\n"
+, stdout);
     }
   } while (help_ctrl.iters_left--);
   if (help_ctrl.unmatched_ct) {
@@ -1021,10 +1039,10 @@ int disp_help(unsigned int param_ct, char** argv) {
 	}
 	if (help_ctrl.unmatched_ct == 1) {
 	  if (col_num > 76) {
-	    printf("\nor");
+	    fputs("\nor", stdout);
 	    col_num = 2;
 	  } else {
-	    printf(" or");
+	    fputs(" or", stdout);
 	    col_num += 3;
 	  }
 	}
