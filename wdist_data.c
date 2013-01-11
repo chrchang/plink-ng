@@ -1541,8 +1541,8 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
   unsigned int gd_col;
   unsigned int markers_per_pass;
   unsigned int marker_start;
-  unsigned int marker_end;
   unsigned int marker_istart;
+  unsigned int marker_iend;
   unsigned int marker_uidx;
   unsigned int marker_idx;
   unsigned int indiv_idx;
@@ -1660,7 +1660,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
     goto ped_to_bed_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".fam", 5);
-  if (fopen_checked(&outfile, outname_end, "w")) {
+  if (fopen_checked(&outfile, outname, "w")) {
     goto ped_to_bed_ret_OPEN_FAIL;
   }
   loadbuf = (char*)wkspace_base;
@@ -1784,6 +1784,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
       }
       printf("\b\b%u%%", uii);
       fflush(stdout);
+      pct = uii;
     }
   }
   if (!feof(pedfile)) {
@@ -1797,7 +1798,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
     goto ped_to_bed_ret_WRITE_FAIL;
   }
   memcpy(outname_end, ".bim", 5);
-  if (fopen_checked(&outfile, outname, "r")) {
+  if (fopen_checked(&outfile, outname, "w")) {
     goto ped_to_bed_ret_OPEN_FAIL;
   }
   if (map_is_unsorted) {
@@ -1886,8 +1887,10 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
 	memcpy(&(tbuf[uii]), "0\t", 2);
 	uii += 2;
       }
-      copy_item(tbuf, &uii, &bufptr);
-      bufptr2 = &(tbuf[uii - 1]);
+      bufptr = skip_initial_spaces(bufptr);
+      ujj = strlen_se(bufptr);
+      memcpy(&(tbuf[uii]), bufptr, ujj);
+      bufptr2 = &(tbuf[uii + ujj]);
     }
     *bufptr2++ = '\t';
     *bufptr2++ = cc;
@@ -1937,13 +1940,6 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
   }
   rewind(pedfile);
   marker_idx = 0;
-  if (indiv_ct % 4) {
-    wbufptr = &(writebuf[indiv_ct / 4]);
-    for (uii = 0; uii < markers_per_pass; uii++) {
-      *wbufptr = 0;
-      wbufptr = &(wbufptr[indiv_ct4]);
-    }
-  }
   for (uii = 0; uii < pass_ct; uii++) {
     marker_start = uii * markers_per_pass;
     marker_istart = marker_idx;
@@ -1953,7 +1949,8 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
     } else {
       ujj = markers_per_pass;
     }
-    marker_end = marker_start + ujj;
+    memset(writebuf, 0, ujj * indiv_ct4);
+    marker_iend = marker_istart + ujj;
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       if (!uii) {
         do {
@@ -1980,7 +1977,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
       ii_shift = (indiv_idx % 4) * 2;
       wbufptr = &(writebuf[indiv_idx / 4]);
       if (map_is_unsorted) {
-	for (marker_uidx = marker_start; marker_uidx < marker_end; marker_uidx++) {
+	for (marker_uidx = marker_start; marker_idx < marker_iend; marker_uidx++) {
 	  cc = *bufptr++;
 	  bufptr = skip_initial_spaces(bufptr);
 	  cc2 = *bufptr++;
@@ -1992,7 +1989,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
 	  marker_idx++;
 	}
       } else {
-	for (marker_uidx = marker_start; marker_uidx < marker_end; marker_uidx++) {
+	for (marker_uidx = marker_start; marker_idx < marker_iend; marker_uidx++) {
 	  cc = *bufptr++;
 	  bufptr = skip_initial_spaces(bufptr);
 	  cc2 = *bufptr++;
@@ -2004,13 +2001,13 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
 	  if (cc == marker_alleles_f[2 * marker_idx + 1]) {
 	    if (cc2 == cc) {
 	      ucc = 3;
-	    } else if (cc2 == marker_alleles[2 * marker_idx]) {
+	    } else if (cc2 == marker_alleles_f[2 * marker_idx]) {
 	      ucc = 2;
 	    }
 	  } else if (cc == marker_alleles_f[2 * marker_idx]) {
 	    if (cc2 == cc) {
 	      ucc = 0;
-	    } else if (cc2 == marker_alleles[2 * marker_idx + 1]) {
+	    } else if (cc2 == marker_alleles_f[2 * marker_idx + 1]) {
 	      ucc = 2;
 	    }
 	  }
@@ -2030,6 +2027,9 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
       fputs("\rPass %u complete.", stdout);
       fflush(stdout);
     }
+  }
+  if (fclose_null(&outfile)) {
+    goto ped_to_bed_ret_WRITE_FAIL;
   }
   if (pass_ct > 1) {
     putchar('\r');
@@ -2064,6 +2064,9 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
     break;
   }
  ped_to_bed_ret_1:
+  fclose_cond(pedfile);
+  fclose_cond(mapfile);
+  fclose_cond(outfile);
   wkspace_reset(wkspace_mark);
   return retval;
 }

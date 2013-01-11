@@ -13118,8 +13118,8 @@ int main(int argc, char** argv) {
   // of their respective flags
   // filtername indicates existence of filter
   // freqname signals --read-freq
-    if (load_rare) {
-    // if (load_rare || (!famname[0])) {
+    // if (load_rare) {
+    if (load_rare || (!famname[0])) {
       ii = 0;
       sptr = (char*)memchr(outname, 0, FNAMESIZE);
       if (bed_suffix_conflict(calculation_type, recode_modifier)) {
