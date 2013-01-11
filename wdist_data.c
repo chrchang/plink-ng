@@ -5115,7 +5115,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   }
   mergelist_bed[0] = bedname;
   mergelist_bim[0] = bimname;
-  mergelist_fam[0] = (famname[0])? famname : NULL;
+  mergelist_fam[0] = famname;
 
   // ID counting/duplicate detection strategy:
   // - We do NOT want to scan through .ped files any more times than absolutely
