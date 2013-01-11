@@ -214,66 +214,47 @@ unsigned char* wkspace_alloc(unsigned long size);
 
 static inline int wkspace_alloc_c_checked(char** dc_ptr, unsigned long size) {
   *dc_ptr = (char*)wkspace_alloc(size);
-  if (!(*dc_ptr)) {
-    return 1;
-  }
-  return 0;
+  return (*dc_ptr)? 0 : 1;
 }
 
 static inline int wkspace_alloc_d_checked(double** dp_ptr, unsigned long size) {
   *dp_ptr = (double*)wkspace_alloc(size);
-  if (!(*dp_ptr)) {
-    return 1;
-  }
-  return 0;
+  return (*dp_ptr)? 0 : 1;
+}
+
+static inline int wkspace_alloc_f_checked(float** fp_ptr, unsigned long size) {
+  *fp_ptr = (float*)wkspace_alloc(size);
+  return (*fp_ptr)? 0 : 1;
 }
 
 static inline int wkspace_alloc_i_checked(int** ip_ptr, unsigned long size) {
   *ip_ptr = (int*)wkspace_alloc(size);
-  if (!(*ip_ptr)) {
-    return 1;
-  }
-  return 0;
+  return (*ip_ptr)? 0 : 1;
 }
 
 static inline int wkspace_alloc_uc_checked(unsigned char** ucp_ptr, unsigned long size) {
   *ucp_ptr = wkspace_alloc(size);
-  if (!(*ucp_ptr)) {
-    return 1;
-  }
-  return 0;
+  return (*ucp_ptr)? 0 : 1;
 }
 
 static inline int wkspace_alloc_ui_checked(unsigned int** uip_ptr, unsigned long size) {
   *uip_ptr = (unsigned int*)wkspace_alloc(size);
-  if (!(*uip_ptr)) {
-    return 1;
-  }
-  return 0;
+  return (*uip_ptr)? 0 : 1;
 }
 
 static inline int wkspace_alloc_ul_checked(unsigned long** ulp_ptr, unsigned long size) {
   *ulp_ptr = (unsigned long*)wkspace_alloc(size);
-  if (!(*ulp_ptr)) {
-    return 1;
-  }
-  return 0;
+  return (*ulp_ptr)? 0 : 1;
 }
 
 static inline int wkspace_alloc_ll_checked(long long** llp_ptr, unsigned long size) {
   *llp_ptr = (long long*)wkspace_alloc(size);
-  if (!(*llp_ptr)) {
-    return 1;
-  }
-  return 0;
+  return (*llp_ptr)? 0 : 1;
 }
 
 static inline int wkspace_alloc_ull_checked(unsigned long long** ullp_ptr, unsigned long size) {
   *ullp_ptr = (unsigned long long*)wkspace_alloc(size);
-  if (!(*ullp_ptr)) {
-    return 1;
-  }
-  return 0;
+  return (*ullp_ptr)? 0 : 1;
 }
 
 void wkspace_reset(void* new_base);
@@ -436,6 +417,13 @@ static inline void fill_uint_one(unsigned int* uiarr, size_t size) {
 #else
   fill_ulong_one((unsigned long*)uiarr, size);
 #endif
+}
+
+static inline void fill_float_zero(float* farr, size_t size) {
+  float* fptr = &(farr[size]);
+  while (farr < fptr) {
+    *farr++ = 0.0;
+  }
 }
 
 static inline void fill_double_zero(double* darr, size_t size) {

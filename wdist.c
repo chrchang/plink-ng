@@ -156,6 +156,7 @@ extern "C" {
 #define REL_CALC_GZ 8
 #define REL_CALC_BIN 16
 #define REL_CALC_GRM 32
+#define REL_CALC_SINGLE_PREC 64
 
 #define LOAD_RARE_GRM 1
 #define LOAD_RARE_LGEN 2
@@ -216,7 +217,7 @@ extern "C" {
 #define MINV(aa, bb) ((aa) > (bb))? (bb) : (aa)
 
 const char ver_str[] =
-  "WDIST v0.15.0"
+  "WDIST v0.15.1"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -225,7 +226,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (11 Jan 2013)";
+  " (12 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -639,6 +640,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 		);
     help_print("make-rel", &help_ctrl, 1,
 "  --make-rel <square | square0 | triangle> <gz | bin> <cov | ibc1 | ibc2>\n"
+"             <single-prec>\n"
 "    Writes a lower-triangular variance-standardized relationship (coancestry)\n"
 "    matrix to {output prefix}.rel, and corresponding IDs to\n"
 "    {output prefix}.rel.id.\n"
@@ -649,9 +651,13 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    * By default, the diagonal elements in the relationship matrix are based on\n"
 "      --ibc's Fhat3; use the 'ibc1' or 'ibc2' modifiers to base them on Fhat1\n"
 "      or Fhat2 instead.\n"
+"    * WDIST normally performs this calculation with double-precision floating\n"
+"      point numbers.  The 'single-prec' modifier switches to single-precision\n"
+"      arithmetic, which is generally good enough; this decreases memory usage\n"
+"      and speeds up computation.\n"
                );
     help_print("make-grm\tgrm", &help_ctrl, 1,
-"  --make-grm <no-gz> <cov | ibc1 | ibc2>\n"
+"  --make-grm <no-gz> <cov | ibc1 | ibc2> <single-prec>\n"
 "    Writes the relationships in GCTA's gzipped list format, describing one pair\n"
 "    per line.  Note that this file explicitly stores the number of valid\n"
 "    observations (where neither individual has a missing call) for each pair,\n"
@@ -1607,6 +1613,126 @@ void fill_weights_r(double* weights, double* set_allele_freqs, int var_std) {
   }
 }
 
+void fill_weights_rf(float* weights_f, float* set_allele_freqs_f, int var_std) {
+  int ii;
+  int jj;
+  int kk;
+  int mm;
+  int nn;
+  // 20 markers to process in quintuplets, for 64-bit; 10, for 32-bit.
+  // Each quintuplet of markers requires 40 wtarr entries, and induces
+  // 2^15 writes to weights_f[].
+  float wtarr_raw[BITCT2 * 5 + 3];
+  float* wtarr = wtarr_raw;
+  float twt;
+  float twt2;
+  float twt3;
+  float twt4;
+  float* wtptr;
+  float mean;
+  float mean_m1;
+  float mean_m2;
+  float mult = 1.0;
+  float aux;
+#if __LP64__
+  __m128* wquads = (__m128*)weights_f;
+  __m128 vpen;
+  __m128 vfinal1;
+  __m128 vfinal2;
+#else
+  int oo;
+#endif
+  ii = (((unsigned long)wtarr) & 15);
+  if (ii) {
+    // force 16-byte alignment; can't do this at compile-time since stack
+    // pointer has no 16-byte align guarantee.
+    // yes, this assumes floats are 4 bytes.
+    wtarr = &(wtarr[4 - (ii / 4)]);
+  }
+  for (ii = 0; ii < MULTIPLEX_REL / 3; ii += 1) {
+    if (((set_allele_freqs_f[ii] != 0.0) && (set_allele_freqs_f[ii] < (1.0 - EPSILON))) || (!var_std)) {
+      if (set_allele_freqs_f[ii] < 0.5) {
+	mean = 2 * set_allele_freqs_f[ii];
+	mean_m1 = mean - 1.0;
+	mean_m2 = mean - 2.0;
+        if (var_std) {
+	  mult = 1 / (mean * (1.0 - set_allele_freqs_f[ii]));
+        }
+        aux = mean * mult;
+	wtarr[ii * 8] = mean * aux;
+        wtarr[ii * 8 + 1] = 0;
+	wtarr[ii * 8 + 2] = mean_m1 * aux;
+	wtarr[ii * 8 + 3] = mean_m2 * aux;
+	wtarr[ii * 8 + 4] = mean_m1 * mean_m1 * mult;
+	wtarr[ii * 8 + 5] = mean_m2 * mean_m1 * mult;
+	wtarr[ii * 8 + 6] = mean_m2 * mean_m2 * mult;
+      } else {
+	mean = 2 * (1.0 - set_allele_freqs_f[ii]);
+	mean_m1 = mean - 1.0;
+	mean_m2 = mean - 2.0;
+        if (var_std) {
+	  mult = 1 / (mean * set_allele_freqs_f[ii]);
+        }
+        aux = mean_m2 * mult;
+	wtarr[ii * 8] = mean_m2 * aux;
+        wtarr[ii * 8 + 1] = 0;
+	wtarr[ii * 8 + 2] = mean_m1 * aux;
+	wtarr[ii * 8 + 3] = mean * aux;
+	wtarr[ii * 8 + 4] = mean_m1 * mean_m1 * mult;
+	wtarr[ii * 8 + 5] = mean_m1 * mean * mult;
+	wtarr[ii * 8 + 6] = mean * mean * mult;
+      }
+    } else {
+      if (set_allele_freqs_f[ii] == 0.0) {
+        wtarr[ii * 8] = 0;
+        wtarr[ii * 8 + 1] = 0;
+        wtarr[ii * 8 + 2] = -1;
+        wtarr[ii * 8 + 3] = -2;
+        wtarr[ii * 8 + 4] = INFINITY;
+        wtarr[ii * 8 + 5] = INFINITY;
+        wtarr[ii * 8 + 6] = INFINITY;
+      } else {
+        wtarr[ii * 8] = INFINITY;
+        wtarr[ii * 8 + 1] = 0;
+        wtarr[ii * 8 + 2] = INFINITY;
+        wtarr[ii * 8 + 3] = -2;
+        wtarr[ii * 8 + 4] = INFINITY;
+        wtarr[ii * 8 + 5] = -1;
+        wtarr[ii * 8 + 6] = 0;
+      }
+    }
+    wtarr[ii * 8 + 7] = 0;
+  }
+  for (nn = 0; nn < BITCT / 16; nn++) {
+    wtptr = &(wtarr[40 * nn]);
+#if __LP64__
+    vfinal1 = _mm_load_ps(wtptr);
+    vfinal2 = _mm_load_ps(&(wtptr[4]));
+#endif
+    for (ii = 0; ii < 8; ii++) {
+      twt = wtptr[ii + 32];
+      for (jj = 0; jj < 8; jj++) {
+        twt2 = twt + wtptr[jj + 24];
+        for (kk = 0; kk < 8; kk++) {
+          twt3 = twt2 + wtptr[kk + 16];
+          for (mm = 0; mm < 8; mm++) {
+            twt4 = twt3 + wtptr[mm + 8];
+#if __LP64__
+            vpen = _mm_set1_ps(twt4);
+            *wquads++ = _mm_add_ps(vpen, vfinal1);
+            *wquads++ = _mm_add_ps(vpen, vfinal2);
+#else
+            for (oo = 0; oo < 8; oo++) {
+              *weights_f++ = twt4 + wtptr[oo];
+            }
+#endif
+          }
+        }
+      }
+    }
+  }
+}
+
 double calc_wt_mean(double exponent, int lhi, int lli, int hhi) {
   double lcount = (double)lli + ((double)lhi * 0.5);
   long long tot = lhi + lli + hhi;
@@ -1640,6 +1766,7 @@ double calc_wt_mean_maf(double exponent, double maf) {
 static unsigned int g_indiv_ct;
 static unsigned int g_thread_ct;
 static double* g_rel_dists = NULL;
+static float* g_relf_dists = NULL;
 static unsigned int* g_missing_dbl_excluded = NULL;
 static int* g_idists;
 static double* g_dists = NULL;
@@ -1651,6 +1778,7 @@ static unsigned char* g_geno = NULL;
 #error "Insufficient initial size for g_weights[]."
 #endif
 static double g_weights[2048 * BITCT];
+static float* g_weights_f = (float*)g_weights;
 static unsigned int* g_weights_i = (unsigned int*)g_weights;
 static unsigned int g_thread_start[MAX_THREADS_P1];
 static double g_reg_tot_xy;
@@ -2882,6 +3010,56 @@ void* calc_rel_thread(void* arg) {
   int ii = g_thread_start[tidx];
   int jj = g_thread_start[0];
   incr_dists_r(&(g_rel_dists[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (unsigned long*)g_geno, g_masks, (int)tidx, g_weights);
+  return NULL;
+}
+
+void incr_dists_rf(float* dists_f, unsigned long* geno, unsigned long* masks, int tidx, float* weights_f) {
+  unsigned long* glptr;
+  unsigned long* maskptr;
+  unsigned long ulii;
+  unsigned long uljj;
+  unsigned long basemask;
+  float* weights1 = &(weights_f[32768]);
+#if __LP64__
+  float* weights2 = &(weights_f[65536]);
+  float* weights3 = &(weights_f[98304]);
+#endif
+  unsigned int uii;
+  unsigned int ujj;
+  for (uii = g_thread_start[tidx]; uii < g_thread_start[tidx + 1]; uii++) {
+    glptr = geno;
+    ulii = geno[uii];
+    maskptr = masks;
+    basemask = masks[uii];
+    if (!basemask) {
+      for (ujj = 0; ujj < uii; ujj++) {
+	uljj = ((*glptr++) + ulii) | (*maskptr++);
+#if __LP64__
+	*dists_f += weights3[uljj >> 45] + weights2[(uljj >> 30) & 32767] + weights1[(uljj >> 15) & 32767] + weights_f[uljj & 32767];
+#else
+	*dists_f += weights1[uljj >> 15] + weights_f[uljj & 32767];
+#endif
+	dists_f++;
+      }
+    } else {
+      for (ujj = 0; ujj < uii; ujj++) {
+        uljj = ((*glptr++) + ulii) | ((*maskptr++) | basemask);
+#if __LP64__
+	*dists_f += weights3[uljj >> 45] + weights2[(uljj >> 30) & 32767] + weights1[(uljj >> 15) & 32767] + weights_f[uljj & 32767];
+#else
+	*dists_f += weights1[uljj >> 15] + weights_f[uljj & 32767];
+#endif
+	dists_f++;
+      }
+    }
+  }
+}
+
+void* calc_relf_thread(void* arg) {
+  long tidx = (long)arg;
+  int ii = g_thread_start[tidx];
+  int jj = g_thread_start[0];
+  incr_dists_rf(&(g_relf_dists[((long long)ii * (ii - 1) - (long long)jj * (jj - 1)) / 2]), (unsigned long*)g_geno, g_masks, (int)tidx, g_weights_f);
   return NULL;
 }
 
@@ -7806,6 +7984,597 @@ int do_rel_cutoff(int calculation_type, double rel_cutoff, double* rel_ibc, unsi
   return 0;
 }
 
+inline int relationship_req(int calculation_type) {
+  return (calculation_type & (CALC_RELATIONSHIP | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF | CALC_REGRESS_REL));
+}
+
+inline int relationship_or_ibc_req(int calculation_type) {
+  return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
+}
+
+int calc_rel(pthread_t* threads, int parallel_idx, int parallel_tot, int calculation_type, int rel_calc_type, FILE* bedfile, int bed_offset, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int* indiv_exclude_ct_ptr, char* person_ids, unsigned int max_person_id_len, int var_std, int ibc_type, double rel_cutoff, double* set_allele_freqs, double** rel_ibc_ptr) {
+  unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  unsigned int marker_uidx = 0;
+  unsigned int marker_idx = 0;
+  FILE* outfile = NULL;
+  gzFile gz_outfile = NULL;
+  int retval = 0;
+  long long llxx = 0;
+  double* dist_ptr = NULL;
+  double* dptr3 = NULL;
+  double* dptr4 = NULL;
+  double* dptr2;
+  double set_allele_freq_buf[MULTIPLEX_DIST];
+  unsigned int cur_markers_loaded;
+  unsigned int win_marker_idx;
+  unsigned int indiv_uidx;
+  unsigned int indiv_idx;
+  unsigned int indiv_idx2;
+  double* rel_ibc;
+  unsigned long long dists_alloc;
+  unsigned long ulii;
+  unsigned long uljj;
+  unsigned int uii;
+  unsigned int ujj;
+  unsigned int rel_shape;
+  unsigned int min_indiv;
+  unsigned int max_parallel_indiv;
+  long long llyy;
+  unsigned char* wkspace_mark;
+  unsigned char* gptr;
+  unsigned char* gptr2;
+  unsigned int* giptr;
+  unsigned int* giptr2;
+  unsigned long* glptr2;
+  unsigned int pct;
+  if (wkspace_alloc_ui_checked(&g_indiv_missing_unwt, g_indiv_ct * sizeof(int))) {
+    goto calc_rel_ret_NOMEM;
+  }
+  fill_int_zero((int*)g_indiv_missing_unwt, g_indiv_ct);
+;
+  triangle_fill(g_thread_start, g_indiv_ct, g_thread_ct, parallel_idx, parallel_tot, 1, 1);
+  if (relationship_req(calculation_type)) {
+    llxx = g_thread_start[g_thread_ct];
+    llxx = ((llxx * (llxx - 1)) - (long long)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
+    dists_alloc = llxx * sizeof(double);
+    if (!(calculation_type & CALC_UNRELATED_HERITABILITY)) {
+      // if the memory isn't needed for CALC_UNRELATED_HERITABILITY,
+      // positioning the missingness matrix here will let us avoid
+      // recalculating it if --distance-matrix or --matrix is requested
+      if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, llxx * sizeof(int))) {
+	goto calc_rel_ret_NOMEM;
+      }
+      fill_int_zero((int*)g_missing_dbl_excluded, llxx);
+    }
+    if (wkspace_alloc_d_checked(&g_rel_dists, dists_alloc)) {
+      goto calc_rel_ret_NOMEM;
+    }
+    fill_double_zero(g_rel_dists, llxx);
+  }
+  if (calculation_type & CALC_IBC) {
+    uii = g_indiv_ct * 3;
+  } else {
+    uii = g_indiv_ct;
+  }
+  if (wkspace_alloc_d_checked(rel_ibc_ptr, uii * sizeof(double))) {
+    goto calc_rel_ret_NOMEM;
+  }
+  rel_ibc = *rel_ibc_ptr;
+  fill_double_zero(rel_ibc, uii);
+  wkspace_mark = wkspace_base;
+  if (relationship_req(calculation_type) && (!g_missing_dbl_excluded)) {
+    if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, llxx * sizeof(int))) {
+      goto calc_rel_ret_NOMEM;
+    }
+    fill_int_zero((int*)g_missing_dbl_excluded, llxx);
+  }
+  if (fseeko(bedfile, bed_offset, SEEK_SET)) {
+    goto calc_rel_ret_READ_FAIL;
+  }
+  if (wkspace_alloc_uc_checked(&g_geno, g_indiv_ct * sizeof(long)) ||
+      wkspace_alloc_ul_checked(&g_mmasks, g_indiv_ct * sizeof(long)) ||
+      wkspace_alloc_uc_checked(&gptr, MULTIPLEX_REL * unfiltered_indiv_ct4) ||
+      wkspace_alloc_ul_checked(&g_masks, g_indiv_ct * sizeof(long))) {
+    goto calc_rel_ret_NOMEM;
+  }
+
+  // See comments at the beginning of this file, and those in the main
+  // CALC_DISTANCE loop.  The main difference between this calculation and
+  // the (nonzero exponent) distance calculation is that we have to pad
+  // each marker to 3 bits and use + instead of XOR to distinguish the
+  // cases.
+  do {
+    cur_markers_loaded = 0;
+    uii = marker_ct - marker_idx;
+    if (uii > MULTIPLEX_REL) {
+      uii = MULTIPLEX_REL;
+    }
+    do {
+      ulii = 0;
+      if (is_set(marker_exclude, marker_uidx)) {
+	ulii = marker_uidx;
+	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+	ulii = marker_uidx - ulii;
+      }
+      if (ulii) {
+	fseeko(bedfile, ulii * unfiltered_indiv_ct4, SEEK_CUR);
+      }
+      if (fread(&(gptr[cur_markers_loaded * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	goto calc_rel_ret_READ_FAIL;
+      }
+      set_allele_freq_buf[cur_markers_loaded++] = set_allele_freqs[marker_uidx++];
+      marker_idx++;
+    } while (cur_markers_loaded < uii);
+    if (cur_markers_loaded < MULTIPLEX_REL) {
+      memset(&(gptr[cur_markers_loaded * unfiltered_indiv_ct4]), 0, (MULTIPLEX_REL - cur_markers_loaded) * unfiltered_indiv_ct4);
+      fill_double_zero(&(set_allele_freq_buf[cur_markers_loaded]), MULTIPLEX_REL - cur_markers_loaded);
+    }
+    fill_ulong_zero(g_mmasks, g_indiv_ct);
+
+    for (win_marker_idx = 0; win_marker_idx < cur_markers_loaded; win_marker_idx += MULTIPLEX_REL / 3) {
+      fill_ulong_zero(g_masks, g_indiv_ct);
+      indiv_idx = 0;
+      glptr2 = (unsigned long*)g_geno;
+      for (indiv_uidx = 0; indiv_idx < g_indiv_ct; indiv_uidx++) {
+	indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+	ulii = 0;
+	gptr2 = &(gptr[indiv_uidx / 4 + win_marker_idx * unfiltered_indiv_ct4]);
+	uii = (indiv_uidx % 4) * 2;
+	for (ujj = 0; ujj < (MULTIPLEX_REL / 3); ujj++) {
+	  uljj = (gptr2[ujj * unfiltered_indiv_ct4] >> uii) & 3;
+	  if (uljj == 1) {
+	    g_masks[indiv_idx] |= 7LU << (ujj * 3);
+	    g_mmasks[indiv_idx] |= 1LU << (win_marker_idx + ujj);
+	    g_indiv_missing_unwt[indiv_idx] += 1;
+	  }
+	  ulii |= uljj << (ujj * 3);
+	}
+	*glptr2++ = ulii;
+	indiv_idx++;
+      }
+      if (calculation_type & CALC_IBC) {
+	for (uii = 0; uii < 3; uii++) {
+	  update_rel_ibc(&(rel_ibc[uii * g_indiv_ct]), (unsigned long*)g_geno, &(set_allele_freq_buf[win_marker_idx]), uii);
+	}
+      } else {
+	update_rel_ibc(rel_ibc, (unsigned long*)g_geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type);
+      }
+      if (relationship_req(calculation_type)) {
+	fill_weights_r(g_weights, &(set_allele_freq_buf[win_marker_idx]), var_std);
+	for (ulii = 1; ulii < g_thread_ct; ulii++) {
+	  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_rel_thread, (void*)ulii)) {
+	    goto calc_rel_ret_THREAD_CREATE_FAIL;
+	  }
+	}
+	incr_dists_r(g_rel_dists, (unsigned long*)g_geno, g_masks, 0, g_weights);
+	for (uii = 0; uii < g_thread_ct - 1; uii++) {
+	  pthread_join(threads[uii], NULL);
+	}
+      }
+    }
+    if (relationship_req(calculation_type)) {
+      for (ulii = 1; ulii < g_thread_ct; ulii++) {
+	if (pthread_create(&(threads[ulii - 1]), NULL, &calc_missing_thread, (void*)ulii)) {
+	  goto calc_rel_ret_THREAD_CREATE_FAIL;
+	}
+      }
+      incr_dists_rm(g_missing_dbl_excluded, 0, g_thread_start);
+      for (uii = 0; uii < g_thread_ct - 1; uii++) {
+	pthread_join(threads[uii], NULL);
+      }
+    }
+    printf("\r%d markers complete.", marker_idx);
+    fflush(stdout);
+  } while (marker_idx < marker_ct);
+  if (relationship_req(calculation_type)) {
+    putchar('\r');
+    logprint("Relationship matrix calculation complete.\n");
+    dist_ptr = g_rel_dists;
+  } else {
+    putchar('\n');
+  }
+  dptr2 = rel_ibc;
+  if (calculation_type & CALC_IBC) {
+    dptr3 = &(rel_ibc[g_indiv_ct]);
+    dptr4 = &(rel_ibc[g_indiv_ct * 2]);
+  }
+  giptr2 = g_missing_dbl_excluded;
+  for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+    uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
+    if ((indiv_idx >= g_thread_start[0]) && (indiv_idx < g_thread_start[g_thread_ct])) {
+      if (relationship_req(calculation_type)) {
+	giptr = g_indiv_missing_unwt;
+	for (ujj = 0; ujj < indiv_idx; ujj++) {
+	  *dist_ptr /= uii - (*giptr++) + (*giptr2++);
+	  dist_ptr++;
+	}
+      }
+    }
+    if (calculation_type & CALC_IBC) {
+      *dptr2 /= uii;
+      dptr2++;
+      *dptr3 /= uii;
+      dptr3++;
+      *dptr4 /= uii;
+      dptr4++;
+    } else {
+      *dptr2 /= uii;
+      dptr2++;
+    }
+  }
+  if (calculation_type & CALC_REL_CUTOFF) {
+    retval = do_rel_cutoff(calculation_type, rel_cutoff, rel_ibc, indiv_exclude, indiv_exclude_ct_ptr, outname, outname_end, unfiltered_indiv_ct, person_ids, max_person_id_len);
+    if (retval) {
+      goto calc_rel_ret_1;
+    }
+  }
+
+  if (calculation_type & CALC_IBC) {
+    strcpy(outname_end, ".ibc");
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto calc_rel_ret_OPEN_FAIL;
+    }
+    dptr2 = rel_ibc;
+    dptr3 = &(rel_ibc[g_indiv_ct]);
+    dptr4 = &(rel_ibc[g_indiv_ct * 2]);
+    if (fputs_checked("FID\tIID\tNOMISS\tFhat1\tFhat2\tFhat3\n", outfile)) {
+      goto calc_rel_ret_WRITE_FAIL;
+    }
+    for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+      if (fprintf(outfile, "%d\t%d\t%d\t%g\t%g\t%g\n", indiv_idx + 1, indiv_idx + 1, marker_ct - g_indiv_missing_unwt[indiv_idx], *dptr3++ - 1.0, *dptr4++ - 1.0, *dptr2++ - 1.0) < 0) {
+	goto calc_rel_ret_WRITE_FAIL;
+      }
+    }
+    if (fclose_null(&outfile)) {
+      goto calc_rel_ret_WRITE_FAIL;
+    }
+    sprintf(logbuf, "%s written.\n", outname);
+    logprintb();
+  }
+  if (calculation_type & CALC_RELATIONSHIP) {
+    pct = 1;
+    rel_shape = rel_calc_type & REL_CALC_SHAPEMASK;
+    if (parallel_tot == 1) {
+      // nasty --rel-cutoff bug
+      max_parallel_indiv = g_indiv_ct;
+    } else {
+      // can't run --rel-cutoff with --parallel, so this is safe
+      max_parallel_indiv = g_thread_start[g_thread_ct];
+    }
+    min_indiv = g_thread_start[0];
+    if (min_indiv == 1) {
+      min_indiv = 0;
+    }
+    if (calculation_type & CALC_IBC) {
+      dptr2 = &(rel_ibc[ibc_type * g_indiv_ct + min_indiv]);
+    } else {
+      dptr2 = &(rel_ibc[min_indiv]);
+    }
+    llxx = ((long long)min_indiv * (min_indiv - 1)) / 2;
+    llyy = (((long long)max_parallel_indiv * (max_parallel_indiv + 1)) / 2) - llxx;
+    if (calculation_type & REL_CALC_BIN) {
+      if (rel_shape == REL_CALC_SQ0) {
+	fill_double_zero((double*)g_geno, g_indiv_ct - 1);
+      }
+      strcpy(outname_end, ".rel.bin");
+      if (parallel_tot > 1) {
+	sprintf(&(outname_end[8]), ".%d", parallel_idx + 1);
+      }
+      if (fopen_checked(&outfile, outname, "wb")) {
+	goto calc_rel_ret_OPEN_FAIL;
+      }
+      for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
+	if (fwrite_checked(&(g_rel_dists[((long long)indiv_idx * (indiv_idx - 1)) / 2 - llxx]), indiv_idx * sizeof(double), outfile)) {
+	  goto calc_rel_ret_WRITE_FAIL;
+	}
+	if (fwrite_checked(dptr2++, sizeof(double), outfile)) {
+	  goto calc_rel_ret_WRITE_FAIL;
+	}
+	if (rel_shape == REL_CALC_TRI) {
+	  if ((((long long)indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100 >= llyy * pct) {
+	    pct = (((long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100) / llyy;
+	    printf("\rWriting... %d%%", pct++);
+	    fflush(stdout);
+	  }
+	} else {
+	  if (rel_shape == REL_CALC_SQ0) {
+	    if (fwrite_checked(g_geno, (g_indiv_ct - indiv_idx - 1) * sizeof(double), outfile)) {
+	      goto calc_rel_ret_WRITE_FAIL;
+	    }
+	  } else {
+	    for (uii = indiv_idx + 1; uii < g_indiv_ct; uii++) {
+	      if (fwrite_checked(&(g_rel_dists[((unsigned long)uii * (uii - 1) / 2) + indiv_idx - llxx]), sizeof(double), outfile)) {
+		goto calc_rel_ret_WRITE_FAIL;
+	      }
+	    }
+	  }
+	  if ((indiv_idx + 1 - min_indiv) * 100 >= pct * (max_parallel_indiv - min_indiv)) {
+	    pct = ((indiv_idx + 1 - min_indiv) * 100) / (max_parallel_indiv - min_indiv);
+	    printf("\rWriting... %d%%", pct++);
+	    fflush(stdout);
+	  }
+	}
+      }
+      if (fclose_null(&outfile)) {
+	goto calc_rel_ret_WRITE_FAIL;
+      }
+    } else if (rel_calc_type & REL_CALC_GRM) {
+      giptr2 = g_missing_dbl_excluded;
+      if (rel_calc_type & REL_CALC_GZ) {
+	if (parallel_tot > 1) {
+	  sprintf(outname_end, ".grm.%d.gz", parallel_idx + 1);
+	} else {
+	  strcpy(outname_end, ".grm.gz");
+	}
+	if (gzopen_checked(&gz_outfile, outname, "wb")) {
+	  goto calc_rel_ret_OPEN_FAIL;
+	}
+	dist_ptr = g_rel_dists;
+	for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
+	  if (((long long)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100 >= llyy * pct) {
+	    pct = (((long long)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100) / llyy;
+	    printf("\rWriting... %d%%", pct++);
+	    fflush(stdout);
+	  }
+	  uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
+	  giptr = g_indiv_missing_unwt;
+	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx; indiv_idx2++) {
+	    ujj = uii - (*giptr++) + (*giptr2++);
+	    if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%e\n", indiv_idx + 1, indiv_idx2 + 1, ujj, *dist_ptr++)) {
+	      goto calc_rel_ret_WRITE_FAIL;
+	    }
+	  }
+	  if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%e\n", indiv_idx + 1, indiv_idx2 + 1, uii, *dptr2++)) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	}
+	gzclose(gz_outfile);
+	gz_outfile = NULL;
+      } else {
+	strcpy(outname_end, ".grm");
+	if (parallel_tot > 1) {
+	  sprintf(&(outname_end[4]), ".%d", parallel_idx + 1);
+	}
+	if (fopen_checked(&outfile, outname, "w")) {
+	  goto calc_rel_ret_OPEN_FAIL;
+	}
+	dist_ptr = g_rel_dists;
+	for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
+	  if (((long long)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100 >= llyy * pct) {
+	    pct = (((long long)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100) / llyy;
+	    printf("\rWriting... %d%%", pct++);
+	    fflush(stdout);
+	  }
+	  uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
+	  giptr = g_indiv_missing_unwt;
+	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx; indiv_idx2++) {
+	    ujj = uii - (*giptr++) + (*giptr2++);
+	    if (fprintf(outfile, "%d\t%d\t%d\t%e\n", indiv_idx + 1, indiv_idx2 + 1, ujj, *dist_ptr++) < 0) {
+	      goto calc_rel_ret_WRITE_FAIL;
+	    }
+	  }
+	  if (fprintf(outfile, "%d\t%d\t%d\t%e\n", indiv_idx + 1, indiv_idx2 + 1, uii, *dptr2++) < 0) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	}
+	if (fclose_null(&outfile)) {
+	  goto calc_rel_ret_WRITE_FAIL;
+	}
+      }
+    } else {
+      if (rel_shape == REL_CALC_SQ0) {
+	// if we wanted to port to big-endian...
+	// cptr2 = (char*)(&ulii);
+	// for (uii = 0; uii < sizeof(long); uii += 2) {
+	//   cptr2[uii] = '\t';
+	//   cptr2[uii + 1] = '0';
+	// }
+#ifdef __LP64__
+	ulii = 0x9000900090009LU;
+#else
+	ulii = 0x90009LU;
+#endif
+	uii = (g_indiv_ct * 2 + sizeof(long) - 4) / sizeof(long);
+	glptr2 = (unsigned long*)g_geno;
+	for (ujj = 0; ujj < uii; ujj++) {
+	  *glptr2++ = ulii;
+	}
+      }
+      if (rel_calc_type & REL_CALC_GZ) {
+	if (parallel_tot > 1) {
+	  sprintf(outname_end, ".rel.%d.gz", parallel_idx + 1);
+	} else {
+	  strcpy(outname_end, ".rel.gz");
+	}
+	if (gzopen_checked(&gz_outfile, outname, "wb")) {
+	  goto calc_rel_ret_OPEN_FAIL;
+	}
+	dist_ptr = g_rel_dists;
+	if (min_indiv) {
+	  indiv_idx = min_indiv;
+	} else {
+	  if (!gzprintf(gz_outfile, "%g", *dptr2++)) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	  if (rel_shape == REL_CALC_SQ0) {
+	    if (gzwrite_checked(gz_outfile, g_geno, (g_indiv_ct - 1) * 2)) {
+	      goto calc_rel_ret_WRITE_FAIL;
+	    }
+	  } else if (rel_shape == REL_CALC_SQ) {
+	    // parallel_tot must be 1 for SQ shape
+	    for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
+	      if (!gzprintf(gz_outfile, "\t%g", g_rel_dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2])) {
+		goto calc_rel_ret_WRITE_FAIL;
+	      }
+	    }
+	  }
+	  if (gzwrite_checked(gz_outfile, "\n", 1)) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	  indiv_idx = 1;
+	}
+	for (; indiv_idx < max_parallel_indiv; indiv_idx++) {
+	  if (!gzprintf(gz_outfile, "%g", *dist_ptr++)) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	  for (indiv_idx2 = 1; indiv_idx2 < indiv_idx; indiv_idx2++) {
+	    if (!gzprintf(gz_outfile, "\t%g", *dist_ptr++)) {
+	      goto calc_rel_ret_WRITE_FAIL;
+	    }
+	  }
+	  if (!gzprintf(gz_outfile, "\t%g", *dptr2++)) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	  if (rel_shape == REL_CALC_SQ0) {
+	    if (gzwrite_checked(gz_outfile, g_geno, (g_indiv_ct - indiv_idx2 - 1) * 2)) {
+	      goto calc_rel_ret_WRITE_FAIL;
+	    }
+	    if ((indiv_idx + 1 - min_indiv) * 100 >= pct * max_parallel_indiv) {
+	      pct = ((indiv_idx + 1 - min_indiv) * 100) / max_parallel_indiv;
+	      printf("\rWriting... %d%%", pct++);
+	      fflush(stdout);
+	    }
+	  } else {
+	    if (rel_shape == REL_CALC_SQ) {
+	      for (ulii = indiv_idx + 1; ulii < g_indiv_ct; ulii++) {
+		if (!gzprintf(gz_outfile, "\t%g", g_rel_dists[((ulii * (ulii - 1)) / 2) + indiv_idx])) {
+		  goto calc_rel_ret_WRITE_FAIL;
+		}
+	      }
+	    }
+	    if (((long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100 >= llyy * pct) {
+	      pct = (((long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100) / llyy;
+	      printf("\rWriting... %d%%", pct++);
+	      fflush(stdout);
+	    }
+	  }
+	  if (gzwrite_checked(gz_outfile, "\n", 1)) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	}
+	gzclose(gz_outfile);
+	gz_outfile = NULL;
+      } else {
+	strcpy(outname_end, ".rel");
+	if (parallel_tot > 1) {
+	  sprintf(&(outname_end[4]), ".%d", parallel_idx + 1);
+	}
+	if (fopen_checked(&outfile, outname, "w")) {
+	  goto calc_rel_ret_OPEN_FAIL;
+	}
+	dist_ptr = g_rel_dists;
+	if (min_indiv) {
+	  indiv_idx = min_indiv;
+	} else {
+	  if (fprintf(outfile, "%g", *dptr2++) < 0) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	  if (rel_shape == REL_CALC_SQ0) {
+	    if (fwrite_checked(g_geno, (g_indiv_ct - 1) * 2, outfile)) {
+	      goto calc_rel_ret_WRITE_FAIL;
+	    }
+	  } else if (rel_shape == REL_CALC_SQ) {
+	    for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
+	      if (fprintf(outfile, "\t%g", g_rel_dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2]) < 0) {
+		goto calc_rel_ret_WRITE_FAIL;
+	      }
+	    }
+	  }
+	  if (fwrite_checked("\n", 1, outfile)) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	  indiv_idx = 1;
+	}
+	for (; indiv_idx < max_parallel_indiv; indiv_idx++) {
+	  if (fprintf(outfile, "%g", *dist_ptr++) < 0) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	  for (indiv_idx2 = 1; indiv_idx2 < indiv_idx; indiv_idx2++) {
+	    if (fprintf(outfile, "\t%g", *dist_ptr++) < 0) {
+	      goto calc_rel_ret_WRITE_FAIL;
+	    }
+	  }
+	  if (fprintf(outfile, "\t%g", *dptr2++) < 0) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	  if (rel_shape == REL_CALC_SQ0) {
+	    if (fwrite_checked(g_geno, (g_indiv_ct - indiv_idx - 1) * 2, outfile)) {
+	      goto calc_rel_ret_WRITE_FAIL;
+	    }
+	    if ((indiv_idx + 1 - min_indiv) * 100LL >= (long long)pct * (max_parallel_indiv - min_indiv)) {
+	      pct = ((indiv_idx + 1 - min_indiv) * 100LL) / (max_parallel_indiv - min_indiv);
+	      printf("\rWriting... %d%%", pct++);
+	      fflush(stdout);
+	    }
+	  } else {
+	    if (rel_shape == REL_CALC_SQ) {
+	      for (ulii = indiv_idx + 1; ulii < g_indiv_ct; ulii++) {
+		if (fprintf(outfile, "\t%g", g_rel_dists[((ulii * (ulii - 1)) / 2) + indiv_idx]) < 0) {
+		  goto calc_rel_ret_WRITE_FAIL;
+		}
+	      }
+	    }
+	    if (((long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100 >= llyy * pct) {
+	      pct = (((long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100) / llyy;
+	      printf("\rWriting... %d%%", pct++);
+	      fflush(stdout);
+	    }
+	  }
+	  if (fwrite_checked("\n", 1, outfile)) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	}
+	if (fclose_null(&outfile)) {
+	  goto calc_rel_ret_WRITE_FAIL;
+	}
+      }
+    }
+    putchar('\r');
+    sprintf(logbuf, "Relationship matrix written to %s.\n", outname);
+    logprintb();
+    if (!parallel_idx) {
+      strcpy(&(outname_end[4]), ".id");
+      retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
+      if (retval) {
+	goto calc_rel_ret_1;
+      }
+    }
+  }
+  wkspace_reset(wkspace_mark);
+  while (0) {
+  calc_rel_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  calc_rel_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  calc_rel_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  calc_rel_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  calc_rel_ret_THREAD_CREATE_FAIL:
+    logprint(errstr_thread_create);
+    retval = RET_THREAD_CREATE_FAIL;
+    for (uljj = 0; uljj < ulii - 1; uljj++) {
+      pthread_join(threads[uljj], NULL);
+    }
+    break;
+  }
+ calc_rel_ret_1:
+  fclose_cond(outfile);
+  gzclose_cond(gz_outfile);
+  return retval;
+}
+
+/*
+int calc_rel_f() {
+  float* relf_ibc;
+  unsigned long long dists_alloc;
+}
+*/
+
 int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_calc_type) {
   // Specialized --rel-cutoff usable on larger files.
   char* grmname_end = (char*)memchr(grmname, 0, FNAMESIZE);
@@ -8243,14 +9012,6 @@ inline int distance_wt_req(int calculation_type) {
   return ((calculation_type & CALC_DISTANCE) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
 
-inline int relationship_req(int calculation_type) {
-  return (calculation_type & (CALC_RELATIONSHIP | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF | CALC_REGRESS_REL));
-}
-
-inline int relationship_or_ibc_req(int calculation_type) {
-  return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
-}
-
 int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int rel_calc_type, int dist_calc_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier, int allelexxxx, int merge_type, int indiv_sort, int keep_allele_order, int marker_pos_start, int marker_pos_end, unsigned int snp_window_size, char* markername_from, char* markername_to, char* markername_snp) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
@@ -8294,9 +9055,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   int kk = 0;
   int mm;
   int nn = 0;
-  int oo = 0;
-  int pp;
-  int qq;
   unsigned int uii = 0;
   unsigned int ujj;
   unsigned long ulii;
@@ -8335,7 +9093,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   char* cptr = NULL;
   char* cptr2;
   unsigned char* gptr;
-  unsigned char* gptr2;
   unsigned long* glptr;
   unsigned long* glptr2;
   unsigned long* glptr3;
@@ -8939,526 +9696,13 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (relationship_or_ibc_req(calculation_type)) {
-    g_indiv_missing_unwt = (unsigned int*)wkspace_alloc(g_indiv_ct * sizeof(int));
-    if (!g_indiv_missing_unwt) {
-      goto wdist_ret_NOMEM;
-    }
-    fill_int_zero((int*)g_indiv_missing_unwt, g_indiv_ct);
-;
-    triangle_fill(g_thread_start, g_indiv_ct, g_thread_ct, parallel_idx, parallel_tot, 1, 1);
-    if (relationship_req(calculation_type)) {
-      llxx = g_thread_start[g_thread_ct];
-      llxx = ((llxx * (llxx - 1)) - (long long)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
-      dists_alloc = llxx * sizeof(double);
-      if (!(calculation_type & CALC_UNRELATED_HERITABILITY)) {
-        // if the memory isn't needed for CALC_UNRELATED_HERITABILITY,
-	// positioning the missingness matrix here will let us avoid
-	// recalculating it if --distance-matrix or --matrix is requested
-        g_missing_dbl_excluded = (unsigned int*)wkspace_alloc(llxx * sizeof(int));
-        if (!g_missing_dbl_excluded) {
-          goto wdist_ret_NOMEM;
-        }
-        fill_int_zero((int*)g_missing_dbl_excluded, llxx);
-      }
-      g_rel_dists = (double*)wkspace_alloc(dists_alloc);
-      if (!g_rel_dists) {
-	goto wdist_ret_NOMEM;
-      }
-      fill_double_zero(g_rel_dists, llxx);
-    }
-    if (calculation_type & CALC_IBC) {
-      ii = g_indiv_ct * 3;
+    if (rel_calc_type & REL_CALC_SINGLE_PREC) {
     } else {
-      ii = g_indiv_ct;
+      retval = calc_rel(threads, parallel_idx, parallel_tot, calculation_type, rel_calc_type, pedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, var_std, ibc_type, rel_cutoff, set_allele_freqs, &rel_ibc);
     }
-    rel_ibc = (double*)wkspace_alloc(ii * sizeof(double));
-    if (!rel_ibc) {
-      goto wdist_ret_NOMEM;
+    if (retval) {
+      goto wdist_ret_2;
     }
-    fill_double_zero(rel_ibc, ii);
-    wkspace_mark = wkspace_base;
-    if (relationship_req(calculation_type) && (!g_missing_dbl_excluded)) {
-      g_missing_dbl_excluded = (unsigned int*)wkspace_alloc(llxx * sizeof(int));
-      if (!g_missing_dbl_excluded) {
-	goto wdist_ret_NOMEM;
-      }
-      fill_int_zero((int*)g_missing_dbl_excluded, llxx);
-    }
-    fseeko(pedfile, bed_offset, SEEK_SET);
-    ii = 0;
-    marker_idx = 0;
-    g_geno = wkspace_alloc(g_indiv_ct * sizeof(long));
-    if (!g_geno) {
-      goto wdist_ret_NOMEM;
-    }
-    g_mmasks = (unsigned long*)wkspace_alloc(g_indiv_ct * sizeof(long));
-    if (!g_mmasks) {
-      goto wdist_ret_NOMEM;
-    }
-    gptr = wkspace_alloc(MULTIPLEX_REL * unfiltered_indiv_ct4);
-    if (!gptr) {
-      goto wdist_ret_NOMEM;
-    }
-    g_masks = (unsigned long*)wkspace_alloc(g_indiv_ct * sizeof(long));
-    if (!g_masks) {
-      goto wdist_ret_NOMEM;
-    }
-
-    // See comments at the beginning of this file, and those in the main
-    // CALC_DISTANCE loop.  The main difference between this calculation and
-    // the (nonzero exponent) distance calculation is that we have to pad
-    // each marker to 3 bits and use + instead of XOR to distinguish the
-    // cases.
-    while (marker_idx < marker_ct) {
-      jj = 0;
-      while ((jj < MULTIPLEX_REL) && (marker_idx < marker_ct)) {
-	ulii = 0;
-	while (is_set(marker_exclude, ii)) {
-	  ii++;
-	  ulii++;
-	}
-	if (ulii) {
-	  fseeko(pedfile, ulii * unfiltered_indiv_ct4, SEEK_CUR);
-	}
-	if (fread(&(gptr[jj * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, pedfile) < unfiltered_indiv_ct4) {
-	  goto wdist_ret_READ_FAIL;
-	}
-	set_allele_freq_buf[jj] = set_allele_freqs[ii];
-	ii++;
-	jj++;
-	marker_idx++;
-      }
-      if (jj < MULTIPLEX_REL) {
-	memset(&(gptr[jj * unfiltered_indiv_ct4]), 0, (MULTIPLEX_REL - jj) * unfiltered_indiv_ct4);
-	fill_double_zero(&(set_allele_freq_buf[jj]), MULTIPLEX_REL - jj);
-      }
-      fill_ulong_zero(g_mmasks, g_indiv_ct);
-
-      for (nn = 0; nn < jj; nn += MULTIPLEX_REL / 3) {
-	fill_ulong_zero(g_masks, g_indiv_ct);
-	indiv_idx = 0;
-	glptr2 = (unsigned long*)g_geno;
-	for (qq = 0; indiv_idx < g_indiv_ct; qq++) {
-	  while (is_set(indiv_exclude, qq)) {
-	    qq++;
-	  }
-	  ulii = 0;
-	  gptr2 = &(gptr[qq / 4 + nn * unfiltered_indiv_ct4]);
-	  kk = (qq % 4) * 2;
-	  for (mm = 0; mm < (MULTIPLEX_REL / 3); mm++) {
-	    uljj = (gptr2[mm * unfiltered_indiv_ct4] >> kk) & 3;
-	    if (uljj == 1) {
-	      g_masks[indiv_idx] |= 7LU << (mm * 3);
-	      g_mmasks[indiv_idx] |= 1LU << (nn + mm);
-	      g_indiv_missing_unwt[indiv_idx] += 1;
-	    }
-	    ulii |= uljj << (mm * 3);
-	  }
-	  *glptr2++ = ulii;
-	  indiv_idx++;
-	}
-	if (calculation_type & CALC_IBC) {
-	  for (oo = 0; oo < 3; oo++) {
-	    update_rel_ibc(&(rel_ibc[oo * g_indiv_ct]), (unsigned long*)g_geno, &(set_allele_freq_buf[nn]), oo);
-	  }
-	} else {
-	  update_rel_ibc(rel_ibc, (unsigned long*)g_geno, &(set_allele_freq_buf[nn]), ibc_type);
-	}
-	if (relationship_req(calculation_type)) {
-	  fill_weights_r(g_weights, &(set_allele_freq_buf[nn]), var_std);
-	  for (ulii = 1; ulii < g_thread_ct; ulii++) {
-	    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_rel_thread, (void*)ulii)) {
-	      goto wdist_ret_THREAD_CREATE_FAIL;
-	    }
-	  }
-	  incr_dists_r(g_rel_dists, (unsigned long*)g_geno, g_masks, 0, g_weights);
-	  for (uii = 0; uii < g_thread_ct - 1; uii++) {
-	    pthread_join(threads[uii], NULL);
-	  }
-	}
-      }
-      if (relationship_req(calculation_type)) {
-	for (ulii = 1; ulii < g_thread_ct; ulii++) {
-	  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_missing_thread, (void*)ulii)) {
-	    goto wdist_ret_THREAD_CREATE_FAIL;
-	  }
-	}
-	incr_dists_rm(g_missing_dbl_excluded, 0, g_thread_start);
-	for (uii = 0; uii < g_thread_ct - 1; uii++) {
-	  pthread_join(threads[uii], NULL);
-	}
-      }
-      printf("\r%d markers complete.", marker_idx);
-      fflush(stdout);
-    }
-    if (relationship_req(calculation_type)) {
-      putchar('\r');
-      logprint("Relationship matrix calculation complete.\n");
-      dist_ptr = g_rel_dists;
-    } else {
-      putchar('\n');
-    }
-    dptr2 = rel_ibc;
-    if (calculation_type & CALC_IBC) {
-      dptr3 = &(rel_ibc[g_indiv_ct]);
-      dptr4 = &(rel_ibc[g_indiv_ct * 2]);
-    }
-    giptr2 = g_missing_dbl_excluded;
-    for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-      uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
-      if ((indiv_idx >= g_thread_start[0]) && (indiv_idx < g_thread_start[g_thread_ct])) {
-	if (relationship_req(calculation_type)) {
-	  giptr = g_indiv_missing_unwt;
-	  for (ujj = 0; ujj < indiv_idx; ujj++) {
-	    *dist_ptr /= uii - (*giptr++) + (*giptr2++);
-	    dist_ptr++;
-	  }
-	}
-      }
-      if (calculation_type & CALC_IBC) {
-	*dptr2 /= uii;
-	dptr2++;
-	*dptr3 /= uii;
-	dptr3++;
-	*dptr4 /= uii;
-	dptr4++;
-      } else {
-	*dptr2 /= uii;
-	dptr2++;
-      }
-    }
-    if (calculation_type & CALC_REL_CUTOFF) {
-      retval = do_rel_cutoff(calculation_type, rel_cutoff, rel_ibc, indiv_exclude, &indiv_exclude_ct, outname, outname_end, unfiltered_indiv_ct, person_ids, max_person_id_len);
-      if (retval) {
-	goto wdist_ret_2;
-      }
-    }
-
-    if (calculation_type & CALC_IBC) {
-      strcpy(outname_end, ".ibc");
-      if (fopen_checked(&outfile, outname, "w")) {
-	goto wdist_ret_OPEN_FAIL;
-      }
-      dptr2 = rel_ibc;
-      dptr3 = &(rel_ibc[g_indiv_ct]);
-      dptr4 = &(rel_ibc[g_indiv_ct * 2]);
-      if (fputs_checked("FID\tIID\tNOMISS\tFhat1\tFhat2\tFhat3\n", outfile)) {
-	goto wdist_ret_WRITE_FAIL;
-      }
-      for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-	if (fprintf(outfile, "%d\t%d\t%d\t%g\t%g\t%g\n", indiv_idx + 1, indiv_idx + 1, marker_ct - g_indiv_missing_unwt[indiv_idx], *dptr3++ - 1.0, *dptr4++ - 1.0, *dptr2++ - 1.0) < 0) {
-	  goto wdist_ret_WRITE_FAIL;
-	}
-      }
-      if (fclose_null(&outfile)) {
-	goto wdist_ret_WRITE_FAIL;
-      }
-      sprintf(logbuf, "%s written.\n", outname);
-      logprintb();
-    }
-    if (calculation_type & CALC_RELATIONSHIP) {
-      mm = 1;
-      nn = rel_calc_type & REL_CALC_SHAPEMASK;
-      if (parallel_tot == 1) {
-	oo = g_indiv_ct;
-	// nasty rel-cutoff bug
-      } else {
-	oo = g_thread_start[g_thread_ct];
-      }
-      pp = g_thread_start[0];
-      if (pp == 1) {
-	pp = 0;
-      }
-      if (calculation_type & CALC_IBC) {
-	dptr2 = &(rel_ibc[ibc_type * g_indiv_ct + pp]);
-      } else {
-	dptr2 = &(rel_ibc[pp]);
-      }
-      llxx = ((long long)pp * (pp - 1)) / 2;
-      llyy = (((long long)oo * (oo + 1)) / 2) - llxx;
-      if (calculation_type & REL_CALC_BIN) {
-	if (nn == REL_CALC_SQ0) {
-	  fill_double_zero((double*)g_geno, g_indiv_ct - 1);
-	}
-	strcpy(outname_end, ".rel.bin");
-	if (parallel_tot > 1) {
-	  sprintf(&(outname_end[8]), ".%d", parallel_idx + 1);
-	}
-	if (fopen_checked(&outfile, outname, "wb")) {
-	  goto wdist_ret_OPEN_FAIL;
-	}
-	for (ii = pp; ii < oo; ii++) {
-	  if (fwrite_checked(&(g_rel_dists[((long long)ii * (ii - 1)) / 2 - llxx]), ii * sizeof(double), outfile)) {
-	    goto wdist_ret_WRITE_FAIL;
-	  }
-	  if (fwrite_checked(dptr2++, sizeof(double), outfile)) {
-	    goto wdist_ret_WRITE_FAIL;
-	  }
-	  if (nn == REL_CALC_TRI) {
-	    if ((((long long)ii + 1) * (ii + 2) / 2 - llxx) * 100 >= llyy * mm) {
-	      mm = (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100) / llyy;
-	      printf("\rWriting... %d%%", mm++);
-	      fflush(stdout);
-	    }
-	  } else {
-	    if (nn == REL_CALC_SQ0) {
-	      if (fwrite_checked(g_geno, (g_indiv_ct - ii - 1) * sizeof(double), outfile)) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	    } else {
-	      for (uii = ii + 1; uii < g_indiv_ct; uii++) {
-		if (fwrite_checked(&(g_rel_dists[((unsigned long)uii * (uii - 1) / 2) + ii - llxx]), sizeof(double), outfile)) {
-		  goto wdist_ret_WRITE_FAIL;
-		}
-	      }
-	    }
-	    if ((ii + 1 - pp) * 100 >= mm * (oo - pp)) {
-	      mm = ((ii + 1 - pp) * 100) / (oo - pp);
-	      printf("\rWriting... %d%%", mm++);
-	      fflush(stdout);
-	    }
-	  }
-	}
-	if (fclose_null(&outfile)) {
-	  goto wdist_ret_WRITE_FAIL;
-	}
-      } else if (rel_calc_type & REL_CALC_GRM) {
-	giptr2 = g_missing_dbl_excluded;
-	if (rel_calc_type & REL_CALC_GZ) {
-	  if (parallel_tot > 1) {
-	    sprintf(outname_end, ".grm.%d.gz", parallel_idx + 1);
-	  } else {
-	    strcpy(outname_end, ".grm.gz");
-	  }
-	  if (gzopen_checked(&gz_outfile, outname, "wb")) {
-	    goto wdist_ret_OPEN_FAIL;
-	  }
-	  dist_ptr = g_rel_dists;
-	  for (ii = pp; ii < oo; ii++) {
-	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * mm) {
-	      mm = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
-	      printf("\rWriting... %d%%", mm++);
-	      fflush(stdout);
-	    }
-	    qq = marker_ct - g_indiv_missing_unwt[ii];
-	    giptr = g_indiv_missing_unwt;
-	    for (jj = 0; jj < ii; jj += 1) {
-	      kk = qq - (*giptr++) + (*giptr2++);
-	      if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%e\n", ii + 1, jj + 1, kk, *dist_ptr++)) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	    }
-	    if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%e\n", ii + 1, jj + 1, qq, *dptr2++)) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-	  }
-	  gzclose(gz_outfile);
-	  gz_outfile = NULL;
-	} else {
-	  strcpy(outname_end, ".grm");
-	  if (parallel_tot > 1) {
-	    sprintf(&(outname_end[4]), ".%d", parallel_idx + 1);
-	  }
-	  if (fopen_checked(&outfile, outname, "w")) {
-	    goto wdist_ret_OPEN_FAIL;
-	  }
-	  dist_ptr = g_rel_dists;
-	  for (ii = pp; ii < oo; ii++) {
-	    if (((long long)ii * (ii + 1) / 2 - llxx) * 100 >= llyy * mm) {
-	      mm = (((long long)ii * (ii + 1) / 2 - llxx) * 100) / llyy;
-	      printf("\rWriting... %d%%", mm++);
-	      fflush(stdout);
-	    }
-	    qq = marker_ct - g_indiv_missing_unwt[ii];
-	    giptr = g_indiv_missing_unwt;
-	    for (jj = 0; jj < ii; jj++) {
-	      kk = qq - (*giptr++) + (*giptr2++);
-	      if (fprintf(outfile, "%d\t%d\t%d\t%e\n", ii + 1, jj + 1, kk, *dist_ptr++) < 0) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	    }
-	    if (fprintf(outfile, "%d\t%d\t%d\t%e\n", ii + 1, jj + 1, qq, *dptr2++) < 0) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-	  }
-	  if (fclose_null(&outfile)) {
-	    goto wdist_ret_WRITE_FAIL;
-	  }
-	}
-      } else {
-	if (nn == REL_CALC_SQ0) {
-	  cptr2 = (char*)(&ulii);
-	  for (uii = 0; uii < sizeof(long); uii += 2) {
-	    cptr2[uii] = '\t';
-	    cptr2[uii + 1] = '0';
-	  }
-	  ii = (g_indiv_ct * 2 + sizeof(long) - 4) / sizeof(long);
-	  glptr2 = (unsigned long*)g_geno;
-	  for (jj = 0; jj < ii; jj++) {
-	    *glptr2++ = ulii;
-	  }
-	}
-	if (rel_calc_type & REL_CALC_GZ) {
-	  if (parallel_tot > 1) {
-	    sprintf(outname_end, ".rel.%d.gz", parallel_idx + 1);
-	  } else {
-	    strcpy(outname_end, ".rel.gz");
-	  }
-	  if (gzopen_checked(&gz_outfile, outname, "wb")) {
-	    goto wdist_ret_OPEN_FAIL;
-	  }
-	  dist_ptr = g_rel_dists;
-	  if (pp) {
-	    ii = pp;
-	  } else {
-	    if (!gzprintf(gz_outfile, "%g", *dptr2++)) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-	    if (nn == REL_CALC_SQ0) {
-	      if (gzwrite_checked(gz_outfile, g_geno, (g_indiv_ct - 1) * 2)) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	    } else if (nn == REL_CALC_SQ) {
-	      // parallel_tot must be 1 for SQ shape
-	      for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
-		if (!gzprintf(gz_outfile, "\t%g", g_rel_dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2])) {
-		  goto wdist_ret_WRITE_FAIL;
-		}
-	      }
-	    }
-	    if (gzwrite_checked(gz_outfile, "\n", 1)) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-	    ii = 1;
-	  }
-	  for (; ii < oo; ii++) {
-	    if (!gzprintf(gz_outfile, "%g", *dist_ptr++)) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-	    for (jj = 1; jj < ii; jj++) {
-	      if (!gzprintf(gz_outfile, "\t%g", *dist_ptr++)) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	    }
-	    if (!gzprintf(gz_outfile, "\t%g", *dptr2++)) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-	    if (nn == REL_CALC_SQ0) {
-	      if (gzwrite_checked(gz_outfile, g_geno, (g_indiv_ct - jj - 1) * 2)) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	      if ((ii + 1 - pp) * 100 >= mm * oo) {
-		mm = ((ii + 1 - pp) * 100) / oo;
-		printf("\rWriting... %d%%", mm++);
-		fflush(stdout);
-	      }
-	    } else {
-	      if (nn == REL_CALC_SQ) {
-		for (ulii = ii + 1; ulii < g_indiv_ct; ulii++) {
-		  if (!gzprintf(gz_outfile, "\t%g", g_rel_dists[((ulii * (ulii - 1)) / 2) + ii])) {
-		    goto wdist_ret_WRITE_FAIL;
-		  }
-		}
-	      }
-	      if (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100 >= llyy * mm) {
-		mm = (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100) / llyy;
-		printf("\rWriting... %d%%", mm++);
-		fflush(stdout);
-	      }
-	    }
-	    if (gzwrite_checked(gz_outfile, "\n", 1)) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-	  }
-	  gzclose(gz_outfile);
-	  gz_outfile = NULL;
-	} else {
-	  strcpy(outname_end, ".rel");
-	  if (parallel_tot > 1) {
-	    sprintf(&(outname_end[4]), ".%d", parallel_idx + 1);
-	  }
-	  if (fopen_checked(&outfile, outname, "w")) {
-	    goto wdist_ret_OPEN_FAIL;
-	  }
-	  dist_ptr = g_rel_dists;
-	  if (pp) {
-	    ii = pp;
-	  } else {
-	    if (fprintf(outfile, "%g", *dptr2++) < 0) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-	    if (nn == REL_CALC_SQ0) {
-	      if (fwrite_checked(g_geno, (g_indiv_ct - 1) * 2, outfile)) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	    } else if (nn == REL_CALC_SQ) {
-	      for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
-		if (fprintf(outfile, "\t%g", g_rel_dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2]) < 0) {
-		  goto wdist_ret_WRITE_FAIL;
-		}
-	      }
-	    }
-	    if (fwrite_checked("\n", 1, outfile)) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-	    ii = 1;
-	  }
-	  for (; ii < oo; ii++) {
-	    if (fprintf(outfile, "%g", *dist_ptr++) < 0) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-	    for (jj = 1; jj < ii; jj++) {
-	      if (fprintf(outfile, "\t%g", *dist_ptr++) < 0) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	    }
-	    if (fprintf(outfile, "\t%g", *dptr2++) < 0) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-	    if (nn == REL_CALC_SQ0) {
-	      if (fwrite_checked(g_geno, (g_indiv_ct - ii - 1) * 2, outfile)) {
-		goto wdist_ret_WRITE_FAIL;
-	      }
-	      if ((ii + 1 - pp) * 100LL >= (long long)mm * (oo - pp)) {
-		mm = ((ii + 1 - pp) * 100LL) / (oo - pp);
-		printf("\rWriting... %d%%", mm++);
-		fflush(stdout);
-	      }
-	    } else {
-	      if (nn == REL_CALC_SQ) {
-		for (ulii = ii + 1; ulii < g_indiv_ct; ulii++) {
-		  if (fprintf(outfile, "\t%g", g_rel_dists[((ulii * (ulii - 1)) / 2) + ii]) < 0) {
-		    goto wdist_ret_WRITE_FAIL;
-		  }
-		}
-	      }
-	      if (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100 >= llyy * mm) {
-		mm = (((long long)(ii + 1) * (ii + 2) / 2 - llxx) * 100) / llyy;
-		printf("\rWriting... %d%%", mm++);
-		fflush(stdout);
-	      }
-	    }
-	    if (fwrite_checked("\n", 1, outfile)) {
-	      goto wdist_ret_WRITE_FAIL;
-	    }
-	  }
-	  if (fclose_null(&outfile)) {
-	    goto wdist_ret_WRITE_FAIL;
-	  }
-	}
-      }
-      putchar('\r');
-      sprintf(logbuf, "Relationship matrix written to %s.\n", outname);
-      logprintb();
-      if (!parallel_idx) {
-	strcpy(&(outname_end[4]), ".id");
-	retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
-	if (retval) {
-	  goto wdist_ret_2;
-	}
-      }
-    }
-    wkspace_reset(wkspace_mark);
 
     if (calculation_type & CALC_REGRESS_REL) {
       retval = regress_rel_main(indiv_exclude, g_indiv_ct, regress_rel_iters, regress_rel_d, threads);
@@ -11861,7 +12105,7 @@ int main(int argc, char** argv) {
 	}
 	rel_calc_type |= REL_CALC_GZ | REL_CALC_GRM;
 	for (jj = 1; jj <= ii; jj++) {
-	  if (!strcmp(argv[cur_arg + jj], "cov")) {
+	  if (!memcmp(argv[cur_arg + jj], "cov", 4)) {
 	    if (calculation_type & CALC_IBC) {
 	      sprintf(logbuf, "Error: --make-grm 'cov' modifier cannot coexist with --ibc flag.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -11871,9 +12115,9 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_COV;
-	  } else if (!strcmp(argv[cur_arg + jj], "no-gz")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "no-gz", 6)) {
 	    rel_calc_type &= ~REL_CALC_GZ;
-	  } else if ((!strcmp(argv[cur_arg + jj], "ibc1")) || (!strcmp(argv[cur_arg + jj], "ibc2"))) {
+	  } else if ((!memcmp(argv[cur_arg + jj], "ibc1", 5)) || (!memcmp(argv[cur_arg + jj], "ibc2", 5))) {
 	    if (rel_calc_type & REL_CALC_COV) {
 	      sprintf(logbuf, "Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -11883,6 +12127,8 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    ibc_type = argv[cur_arg + jj][3] - '0';
+	  } else if (!memcmp(argv[cur_arg + jj], "single-prec", 12)) {
+	    rel_calc_type |= REL_CALC_SINGLE_PREC;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --make-grm parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
@@ -11898,7 +12144,7 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (jj = 1; jj <= ii; jj++) {
-	  if (!strcmp(argv[cur_arg + jj], "cov")) {
+	  if (!memcmp(argv[cur_arg + jj], "cov", 4)) {
 	    if (calculation_type & CALC_IBC) {
 	      sprintf(logbuf, "Error: --make-rel 'cov' modifier cannot coexist with --ibc flag.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -11908,19 +12154,19 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_COV;
-	  } else if (!strcmp(argv[cur_arg + jj], "gz")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "gz", 3)) {
 	    if (rel_calc_type & REL_CALC_BIN) {
 	      sprintf(logbuf, "Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_GZ;
-	  } else if (!strcmp(argv[cur_arg + jj], "bin")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "bin", 4)) {
 	    if (rel_calc_type & REL_CALC_GZ) {
 	      sprintf(logbuf, "Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_BIN;
-	  } else if (!strcmp(argv[cur_arg + jj], "square")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "square", 7)) {
 	    if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_SQ0) {
 	      sprintf(logbuf, "Error: --make-rel 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -11929,7 +12175,7 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_SQ;
-	  } else if (!strcmp(argv[cur_arg + jj], "square0")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "square0", 8)) {
 	    if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
 	      sprintf(logbuf, "Error: --make-rel 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -11938,7 +12184,7 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_SQ0;
-	  } else if (!strcmp(argv[cur_arg + jj], "triangle")) {
+	  } else if (!memcmp(argv[cur_arg + jj], "triangle", 9)) {
 	    if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
 	      sprintf(logbuf, "Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -11947,7 +12193,7 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_TRI;
-	  } else if ((!strcmp(argv[cur_arg + jj], "ibc1")) || (!strcmp(argv[cur_arg + jj], "ibc2"))) {
+	  } else if ((!memcmp(argv[cur_arg + jj], "ibc1", 5)) || (!memcmp(argv[cur_arg + jj], "ibc2", 5))) {
 	    if (rel_calc_type & REL_CALC_COV) {
 	      sprintf(logbuf, "Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -11957,6 +12203,8 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    ibc_type = argv[cur_arg + jj][3] - '0';
+	  } else if (!memcmp(argv[cur_arg + jj], "single-prec", 12)) {
+	    rel_calc_type |= REL_CALC_SINGLE_PREC;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --make-rel parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
@@ -12721,6 +12969,9 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (parallel_tot > 1) {
 	  sprintf(logbuf, "Error: --parallel and --unrelated-heritability cannot be used together.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (rel_calc_type & REL_CALC_SINGLE_PREC) {
+	  sprintf(logbuf, "Error: --unrelated-heritability flag cannot be used with a single-precision\nrelationship matrix calculation.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 4, &ii)) {
