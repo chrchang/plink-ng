@@ -9004,7 +9004,7 @@ int calc_rel_f(pthread_t* threads, int parallel_idx, int parallel_tot, int calcu
   } while (marker_idx < marker_ct);
   if (relationship_req(calculation_type)) {
     putchar('\r');
-    logprint("Relationship matrix calculation complete.\n");
+    logprint("Single-precision relationship matrix calculation complete.\n");
     dist_ptr = g_rel_f_dists;
   } else {
     putchar('\n');
@@ -9921,8 +9921,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   unsigned long long dists_alloc = 0;
   double* dist_ptr = NULL;
   double* dptr2;
+#ifndef NOLAPACK
   double* dptr3 = NULL;
   double* dptr4 = NULL;
+#endif
   double* rel_ibc;
   unsigned int marker_exclude_ct = 0;
   char* pid_list = NULL;
