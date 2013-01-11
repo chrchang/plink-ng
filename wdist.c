@@ -234,7 +234,7 @@ const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
-const char cmdline_format_str[] = "\n  wdist [input flags...] [command flags...] {other flags...}\n  wdist --help {flag names...}\n\n";
+const char cmdline_format_str[] = "\n  wdist [input flag(s)...] [command flag(s)...] {other flag(s)...}\n  wdist --help {flag names...}\n\n";
 const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
 const char notestr_null_calc2[] = "Commands include --freqx, --ibc, --distance, --genome, --make-rel, --make-grm,\n--rel-cutoff, --regress-distance, --regress-pcs-distance, --make-bed, --recode,\n--merge-list, and --write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).  You can look up\nspecific flags with 'wdist --help [flag #1] {flag #2} ...'.\n";
 
@@ -12756,7 +12756,7 @@ int main(int argc, char** argv) {
 	    }
 	    recode_modifier |= RECODE_LGEN;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --recode parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
+	    sprintf(logbuf, "Error: Invalid --recode parameter '%s'.%s%s", argv[cur_arg + jj], (ii == 1)? "  (Did you want '--out'?)" : "", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
