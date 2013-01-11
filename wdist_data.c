@@ -203,7 +203,7 @@ int indiv_major_to_snp_major(char* indiv_major_fname, char* outname, FILE** outf
   return retval;
 }
 
-const char errstr_map_format[] = "Error: Improperly formatted .map/.bim file.\n";
+const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 
 int load_map(FILE** mapfile_ptr, char* mapname, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char* extractname, char* excludename, char* freqname, char* refalleles, int calculation_type, int recode_modifier, int allelexxxx, int* map_is_unsorted_ptr) {
   // todo: clean up
@@ -401,16 +401,25 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
   int last_pos = 0;
   int marker_pos_needed = calculation_type & (CALC_GENOME | CALC_LD_PRUNE | CALC_REGRESS_PCS);
   unsigned int species = chrom_info_ptr->species;
+  unsigned int from_slen = markername_from? strlen(markername_from) : 0;
+  unsigned int to_slen = markername_to? strlen(markername_to) : 0;
+  unsigned int snp_slen = markername_snp? strlen(markername_snp) : 0;
+  unsigned int from_chrom = MAX_POSSIBLE_CHROM;
+  unsigned int to_chrom = MAX_POSSIBLE_CHROM;
+  unsigned int snp_chrom = MAX_POSSIBLE_CHROM;
+  int chroms_encountered_m1 = -1;
+  unsigned int snp_pos = 0;
+  unsigned int mcm2 = 1;
   char* bufptr;
   char* bufptr2;
   unsigned long ulii;
   int ii;
   int jj;
   int cur_pos;
-  int chroms_encountered_m1 = -1;
   unsigned int marker_uidx;
+  int retval;
   if (fopen_checked(bimfile_ptr, mapname, "r")) {
-    return RET_OPEN_FAIL;
+    goto load_bim_ret_OPEN_FAIL;
   }
   // first pass: count columns, determine raw marker count, determine maximum
   // marker ID length if necessary.
@@ -418,17 +427,23 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
   while (fgets(tbuf, MAXLINELEN - 5, *bimfile_ptr) != NULL) {
     if (!tbuf[MAXLINELEN - 6]) {
       sprintf(logbuf, "Error: Excessively long line in .bim file (max %d chars).\n", MAXLINELEN - 8);
-      logprintb();
-      return RET_INVALID_FORMAT;
+      goto load_bim_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
     if (is_eoln(*bufptr)) {
       continue;
     }
+    ii = marker_code(species, bufptr);
+    if (ii == -1) {
+      jj = strlen_se(bufptr);
+      bufptr[jj] = '\0';
+      sprintf(logbuf, "Error: Invalid chromosome index '%s' in .bim file.\n", bufptr);
+      goto load_bim_ret_INVALID_FORMAT_2;
+    }
+
     bufptr = next_item(bufptr);
     if (no_more_items(bufptr)) {
-      logprint(errstr_map_format);
-      return RET_INVALID_FORMAT;
+      goto load_bim_ret_INVALID_FORMAT_5;
     }
     ulii = strlen_se(bufptr) + 1;
     if (ulii > max_marker_id_len) {
@@ -439,25 +454,120 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
 	plink_maxsnp = ulii + 1;
       }
       if (!unfiltered_marker_ct) {
-	bufptr = next_item_mult(bufptr, 2);
-	if (!bufptr) {
-	  logprint(errstr_map_format);
-	  return RET_INVALID_FORMAT;
+	bufptr2 = next_item_mult(bufptr, 3);
+	if (no_more_items(bufptr2)) {
+	  goto load_bim_ret_INVALID_FORMAT_5;
 	}
-	if (*bufptr > ' ') {
+	if (*(skip_initial_spaces(item_endnn2(bufptr2))) > ' ') {
 	  *map_cols_ptr = 4;
+	  mcm2 = 2;
 	}
       }
+    }
+    ulii--;
+    if ((ulii == from_slen) && (!memcmp(bufptr, markername_from, ulii))) {
+      if (from_chrom != MAX_POSSIBLE_CHROM) {
+	goto load_bim_ret_INVALID_FORMAT_3;
+      }
+      bufptr2 = next_item_mult(bufptr, mcm2);
+      if (no_more_items(bufptr2)) {
+	goto load_bim_ret_INVALID_FORMAT;
+      }
+      jj = atoi(bufptr2); // position
+      if ((jj < 1) && ((bufptr2[0] != '0') || ((bufptr2[1] != ' ') && (bufptr2[1] != '\t')))) {
+	goto load_bim_ret_INVALID_FORMAT;
+      }
+      from_chrom = ii;
+      marker_pos_start = jj;
+      if (to_chrom != MAX_POSSIBLE_CHROM) {
+	if (from_chrom != to_chrom) {
+	  goto load_bim_ret_INVALID_FORMAT_4;
+	}
+	if (marker_pos_end < marker_pos_start) {
+	  marker_pos_start = marker_pos_end;
+	  marker_pos_end = jj;
+	}
+      }
+      chrom_info_ptr->chrom_mask = 1LLU << from_chrom;
+    }
+    if ((ulii == to_slen) && (!memcmp(bufptr, markername_to, ulii))) {
+      if (to_chrom != MAX_POSSIBLE_CHROM) {
+	goto load_bim_ret_INVALID_FORMAT_3;
+      }
+      bufptr2 = next_item_mult(bufptr, *map_cols_ptr - 2);
+      if (no_more_items(bufptr2)) {
+	goto load_bim_ret_INVALID_FORMAT;
+      }
+      jj = atoi(bufptr2);
+      if ((jj < 1) && ((bufptr2[0] != '0') || ((bufptr2[1] != ' ') && (bufptr2[1] != '\t')))) {
+	goto load_bim_ret_INVALID_FORMAT;
+      }
+      to_chrom = ii;
+      marker_pos_end = jj;
+      if (from_chrom != MAX_POSSIBLE_CHROM) {
+	if (to_chrom != from_chrom) {
+	  goto load_bim_ret_INVALID_FORMAT_4;
+	}
+      }
+      chrom_info_ptr->chrom_mask = 1LLU << to_chrom;
+    }
+    if ((ulii == snp_slen) && (!memcmp(bufptr, markername_snp, ulii))) {
+      if (snp_chrom != MAX_POSSIBLE_CHROM) {
+	goto load_bim_ret_INVALID_FORMAT_3;
+      }
+      bufptr2 = next_item_mult(bufptr, *map_cols_ptr - 2);
+      if (no_more_items(bufptr2)) {
+	goto load_bim_ret_INVALID_FORMAT;
+      }
+      jj = atoi(bufptr2);
+      if ((jj < 1) && ((bufptr2[0] != '0') || ((bufptr2[1] != ' ') && (bufptr2[1] != '\t')))) {
+	goto load_bim_ret_INVALID_FORMAT;
+      }
+      snp_chrom = ii;
+      snp_pos = jj;
+      chrom_info_ptr->chrom_mask = 1LLU << snp_chrom;
     }
     unfiltered_marker_ct++;
   }
   if (!feof(*bimfile_ptr)) {
-    return RET_READ_FAIL;
+    goto load_bim_ret_READ_FAIL;
   }
   if (!unfiltered_marker_ct) {
     logprint("Error: No markers in .bim file.");
-    return RET_INVALID_FORMAT;
+    goto load_bim_ret_INVALID_FORMAT;
   }
+  if (from_slen || to_slen) {
+    if (from_slen && (from_chrom == MAX_POSSIBLE_CHROM)) {
+      sprintf(logbuf, "Error: --from marker '%s' not found.\n", markername_from);
+      goto load_bim_ret_INVALID_FORMAT_2;
+    }
+    if (to_slen && (to_chrom == MAX_POSSIBLE_CHROM)) {
+      sprintf(logbuf, "Error: --to marker '%s' not found.\n", markername_to);
+      goto load_bim_ret_INVALID_FORMAT_2;
+    }
+    if (marker_pos_start > marker_pos_end) {
+      ii = marker_pos_start;
+      marker_pos_start = marker_pos_end;
+      marker_pos_end = ii;
+    }
+  }
+  if (snp_slen) {
+    if (snp_chrom == MAX_POSSIBLE_CHROM) {
+      sprintf(logbuf, "Error: --snp marker '%s' not found.\n", markername_snp);
+      goto load_bim_ret_INVALID_FORMAT_2;
+    }
+    if (snp_window_size > snp_pos) {
+      marker_pos_start = 0;
+    } else {
+      marker_pos_start = snp_pos - snp_window_size;
+    }
+    if (snp_window_size > (2147483647 - snp_pos)) {
+      marker_pos_end = 2147483647;
+    } else {
+      marker_pos_end = snp_pos + snp_window_size;
+    }
+  }
+
   *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
   *max_marker_id_len_ptr = max_marker_id_len;
   *plink_maxsnp_ptr = plink_maxsnp;
@@ -468,15 +578,12 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
   // that are a multiple of it
 
   // permanent stack allocation #1: marker_exclude
-  if (wkspace_alloc_ul_checked(marker_exclude_ptr, ii * sizeof(long))) {
-    return RET_NOMEM;
+  // permanent stack allocation #2: set_allele_freqs
+  if (wkspace_alloc_ul_checked(marker_exclude_ptr, ii * sizeof(long)) ||
+      wkspace_alloc_d_checked(set_allele_freqs_ptr, unfiltered_marker_ct * sizeof(double))) {
+    goto load_bim_ret_NOMEM;
   }
   fill_ulong_zero(*marker_exclude_ptr, ii);
-  // permanent stack allocation #2: set_allele_freqs
-  *set_allele_freqs_ptr = (double*)wkspace_alloc(unfiltered_marker_ct * sizeof(double));
-  if (!(*set_allele_freqs_ptr)) {
-    return RET_NOMEM;
-  }
   for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
     (*set_allele_freqs_ptr)[marker_uidx] = -1.0;
   }
@@ -486,22 +593,19 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
   fill_uint_zero(chrom_info_ptr->chrom_end, MAX_POSSIBLE_CHROM);
   // permanent stack allocation #3, if needed: marker_pos
   if (marker_pos_needed) {
-    *marker_pos_ptr = (unsigned int*)wkspace_alloc(unfiltered_marker_ct * sizeof(int));
-    if (!(*marker_pos_ptr)) {
-      return RET_NOMEM;
+    if (wkspace_alloc_ui_checked(marker_pos_ptr, unfiltered_marker_ct * sizeof(int))) {
+      goto load_bim_ret_NOMEM;
     }
   }
   if (freqname || (calculation_type & (CALC_FREQ | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS)) || allelexxxx) {
-    *marker_alleles_ptr = (char*)wkspace_alloc(unfiltered_marker_ct * 2 * sizeof(char));
-    if (!(*marker_alleles_ptr)) {
-      return RET_NOMEM;
+    if (wkspace_alloc_c_checked(marker_alleles_ptr, unfiltered_marker_ct * 2 * sizeof(char))) {
+      goto load_bim_ret_NOMEM;
     }
     memset(*marker_alleles_ptr, 0, unfiltered_marker_ct * 2);
   }
   if (marker_ids_needed) {
-    *marker_ids_ptr = (char*)wkspace_alloc(unfiltered_marker_ct * max_marker_id_len);
-    if (!(*marker_ids_ptr)) {
-      return RET_NOMEM;
+    if (wkspace_alloc_c_checked(marker_ids_ptr, unfiltered_marker_ct * max_marker_id_len)) {
+      goto load_bim_ret_NOMEM;
     }
   }
 
@@ -509,15 +613,11 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
   for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
     do {
       if (fgets(tbuf, MAXLINELEN, *bimfile_ptr) == NULL) {
-        return RET_READ_FAIL;
+	goto load_bim_ret_READ_FAIL;
       }
       bufptr = skip_initial_spaces(tbuf);
     } while (is_eoln(*bufptr));
     jj = marker_code(species, bufptr);
-    if (jj == -1) {
-      logprint("Error: Invalid chromosome index in .map/.bim file.\n");
-      return RET_INVALID_FORMAT;
-    }
     if (jj != last_chrom) {
       if (last_chrom != -1) {
 	chrom_info_ptr->chrom_end[last_chrom] = marker_uidx;
@@ -530,8 +630,8 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
       last_chrom = jj;
       if (loaded_chrom_mask & (1LLU << jj)) {
 	if (calculation_type != CALC_MAKE_BED) {
-	  logprint("Error: .map/.bim file is unsorted.  Use --make-bed by itself to remedy this.\n");
-	  return RET_INVALID_FORMAT;
+	  logprint("Error: .bim file is unsorted.  Use --make-bed by itself to remedy this.\n");
+	  goto load_bim_ret_INVALID_FORMAT;
 	}
 	*map_is_unsorted_ptr = 2;
       } else {
@@ -549,18 +649,14 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
       bufptr = next_item(bufptr);
       if (*marker_ids_ptr) {
         if (no_more_items(bufptr)) {
-	  logprint(errstr_map_format);
+	  goto load_bim_ret_INVALID_FORMAT_5;
           return RET_INVALID_FORMAT;
         }
         read_next_terminate(&((*marker_ids_ptr)[marker_uidx * max_marker_id_len]), bufptr);
       }
-      bufptr = next_item(bufptr);
-      if (*map_cols_ptr == 4) {
-	bufptr = next_item(bufptr);
-      }
+      bufptr = next_item_mult(bufptr, mcm2);
       if (no_more_items(bufptr)) {
-        logprint(errstr_map_format);
-        return RET_INVALID_FORMAT;
+	goto load_bim_ret_INVALID_FORMAT_5;
       }
       if (*bufptr == '-') {
 	// negative marker positions now have same effect in .bim as .map
@@ -572,18 +668,21 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
 	} else {
 	  last_pos = cur_pos;
 	}
-	if ((calculation_type & marker_pos_needed) && jj) {
-	  (*marker_pos_ptr)[marker_uidx] = cur_pos;
-	}
-        if (*marker_alleles_ptr) {
-	  bufptr = next_item(bufptr);
-	  bufptr2 = next_item(bufptr);
-	  if (no_more_items(bufptr2)) {
-	    logprint(errstr_map_format);
-	    return RET_INVALID_FORMAT;
+	if ((marker_pos_start != -1) && ((cur_pos < marker_pos_start) || (cur_pos > marker_pos_end))) {
+	  set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
+	} else {
+	  if ((calculation_type & marker_pos_needed) && jj) {
+	    (*marker_pos_ptr)[marker_uidx] = cur_pos;
 	  }
-	  (*marker_alleles_ptr)[marker_uidx * 2] = *bufptr;
-	  (*marker_alleles_ptr)[marker_uidx * 2 + 1] = *bufptr2;
+	  if (*marker_alleles_ptr) {
+	    bufptr = next_item(bufptr);
+	    bufptr2 = next_item(bufptr);
+	    if (no_more_items(bufptr2)) {
+	      goto load_bim_ret_INVALID_FORMAT_5;
+	    }
+	    (*marker_alleles_ptr)[marker_uidx * 2] = *bufptr;
+	    (*marker_alleles_ptr)[marker_uidx * 2 + 1] = *bufptr2;
+	  }
 	}
       }
     }
@@ -591,7 +690,35 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
   chrom_info_ptr->chrom_end[last_chrom] = marker_uidx;
   chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
   chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
-  return 0;
+  retval = 0;
+  while (0) {
+  load_bim_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  load_bim_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  load_bim_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  load_bim_ret_INVALID_FORMAT_5:
+    logprint("Error: Improperly formatted .bim file.\n");
+    retval = RET_INVALID_FORMAT;
+    break;
+  load_bim_ret_INVALID_FORMAT_4:
+    logprint("Error: --from and --to markers are not on the same chromosome.\n");
+    retval = RET_INVALID_FORMAT;
+    break;
+  load_bim_ret_INVALID_FORMAT_3:
+    jj = strlen_se(bufptr);
+    bufptr[jj] = '\0';
+    sprintf(logbuf, "Error: Duplicate marker ID '%s' in .bim file.\n", bufptr);
+  load_bim_ret_INVALID_FORMAT_2:
+    logprintb();
+  load_bim_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+  }
+  return retval;
 }
 
 void sort_marker_chrom_pos(long long* ll_buf, unsigned int marker_ct, int* pos_buf, unsigned int* chrom_start, unsigned int* chrom_id, unsigned int* chrom_ct_ptr) {

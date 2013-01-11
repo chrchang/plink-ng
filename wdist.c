@@ -12663,7 +12663,7 @@ int main(int argc, char** argv) {
 	}
 	if (!markername_from) {
 	  ullii = chrom_info.chrom_mask;
-	  if ((!ullii) || (!(ullii & (ullii - 1LLU)))) {
+	  if ((!ullii) || (ullii & (ullii - 1LLU))) {
 	    sprintf(logbuf, "Error: --to-bp/-kb/-mb requires a specified chromosome (--chr/--from).%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -12825,7 +12825,7 @@ int main(int argc, char** argv) {
   if (marker_pos_start != -1) {
     if (!markername_to) {
       ullii = chrom_info.chrom_mask;
-      if ((!ullii) || (!(ullii & (ullii - 1LLU)))) {
+      if ((!ullii) || (ullii & (ullii - 1LLU))) {
 	sprintf(logbuf, "Error: --from-bp/-kb/-mb requires a specified chromosome (--chr/--to).%s", errstr_append);
 	goto main_ret_INVALID_CMDLINE_3;
       }
