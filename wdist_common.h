@@ -451,6 +451,32 @@ static inline void free_cond(void* memptr) {
   }
 }
 
+static inline char convert_to_1234(char cc) {
+  if (cc == 'A') {
+    return '1';
+  } else if (cc == 'C') {
+    return '2';
+  } else if (cc == 'G') {
+    return '3';
+  } else if (cc == 'T') {
+    return '4';
+  }
+  return cc;
+}
+
+static inline char convert_to_acgt(char cc) {
+  if (cc == '1') {
+    return 'A';
+  } else if (cc == '2') {
+    return 'C';
+  } else if (cc == '3') {
+    return 'G';
+  } else if (cc == '4') {
+    return 'T';
+  }
+  return cc;
+}
+
 // maximum accepted chromosome index is this minus 1.
 // currently unsafe to set this above 60 due to using a single long long
 // chrom_mask, and reserving the top 4 bits

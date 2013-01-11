@@ -229,14 +229,13 @@ const char ver_str[] =
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
-// const char errstr_append[] = "\nFor more information, try 'wdist --help [flag names]' or 'wdist --help | more'.\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
-const char cmdline_format_str[] = "\n  wdist [input flag(s)...] [command flag(s)...] {other flag(s)...}\n  wdist --help {flag names...}\n\n";
+const char cmdline_format_str[] = "\n  wdist [input flag(s)...] [command flag(s)...] {other flag(s)...}\n  wdist --help {flag name(s)...}\n\n";
 const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
-const char notestr_null_calc2[] = "Commands include --freqx, --ibc, --distance, --genome, --make-rel, --make-grm,\n--rel-cutoff, --regress-distance, --regress-pcs-distance, --make-bed, --recode,\n--merge-list, and --write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).  You can look up\nspecific flags with 'wdist --help [flag #1] {flag #2} ...'.\n";
+const char notestr_null_calc2[] = "Commands include --freqx, --ibc, --distance, --genome, --make-rel, --make-grm,\n--rel-cutoff, --regress-distance, --regress-pcs-distance, --make-bed, --recode,\n--merge-list, and --write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).\n";
 
 int edit1_match(int len1, char* s1, int len2, char* s2) {
   // permit one difference of the following forms:
@@ -487,9 +486,8 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_ctrl.preprint_newline = 1;
   } else {
     help_ctrl.argv = NULL;
-    fputs(cmdline_format_str, stdout);
     fputs(
-"In the command line flag definitions that follow,\n"
+"\nIn the command line flag definitions that follow,\n"
 "  * [square brackets] denote a required parameter, where the text between the\n"
 "    brackets describes its nature.\n"
 "  * <angle brackets> denote an optional modifier (or if '|' is present, a set\n"
@@ -498,7 +496,10 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  * {curly braces} denote an optional parameter, where the text between the\n"
 "    braces describes its nature.\n"
 "  * An ellipsis (...) indicates that you may enter multiple parameters of the\n"
-"    specified type.\n\n"
+"    specified type.\n"
+, stdout);
+    fputs(cmdline_format_str, stdout);
+    fputs(
 "Each WDIST run requires exactly one main input fileset.  The following flags\n"
 "are available for defining its form and location:\n\n"
 , stdout);
@@ -1008,8 +1009,8 @@ int disp_help(unsigned int param_ct, char** argv) {
 	       );
     if (!param_ct) {
       fputs(
-"Further documentation and support is available at the main webpage\n"
-"(https://www.cog-genomics.org/wdist ) and the wdist-users mailing list\n"
+"For further documentation and support, consult the main webpage\n"
+"(https://www.cog-genomics.org/wdist ) and/or the wdist-users mailing list\n"
 "(https://groups.google.com/d/forum/wdist-users ).\n"
 , stdout);
     }
@@ -4679,6 +4680,26 @@ void prune_missing_phenos(unsigned int unfiltered_indiv_ct, unsigned long* indiv
   }
 }
 
+void allelexxxx_recode(int allelexxxx, char* marker_alleles, unsigned long* marker_exclude, unsigned int marker_ct) {
+  unsigned int marker_uidx = 0;
+  char* cptr;
+  char cc;
+  unsigned int marker_idx;
+  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+    cptr = &(marker_alleles[marker_uidx * 2]);
+    cc = *cptr;
+    if (allelexxxx == 1) {
+      *cptr++ = convert_to_1234(cc);
+      *cptr = convert_to_1234(*cptr);
+    } else {
+      *cptr++ = convert_to_acgt(cc);
+      *cptr = convert_to_acgt(*cptr);
+    }
+    marker_uidx++;
+  }
+}
+
 inline void set_surrounding_bits(char* id_buf, int id_idx, unsigned long* exclude_arr, char* sorted_ids, unsigned long max_id_len, int* id_map, int sorted_ids_len, unsigned int* exclude_ct_ptr) {
   unsigned int id_len = strlen(id_buf) + 1;
   int id_idx2 = id_idx - 1;
@@ -8278,7 +8299,6 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   long long llyy;
   char* marker_ids = NULL;
   unsigned char* marker_weights_base = NULL;
-  // Binary files:
   //   marker_alleles[2 * ii] is id of A1 (usually minor) allele at SNP ii
   //   marker_alleles[2 * ii + 1] is identity of A2 allele at SNP ii
   char* marker_alleles = NULL;
@@ -8441,7 +8461,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   // load .bim, count markers, filter chromosomes
-  retval = load_map_or_bim(&mapfile, mapname, 1, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &marker_ids, chrom_info_ptr, &marker_pos, extractname, excludename, freqname, refalleles, calculation_type, recode_modifier, &map_is_unsorted);
+  retval = load_map_or_bim(&mapfile, mapname, 1, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &marker_ids, chrom_info_ptr, &marker_pos, extractname, excludename, freqname, refalleles, calculation_type, recode_modifier, allelexxxx, &map_is_unsorted);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -8514,6 +8534,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
 
   if (prune) {
     prune_missing_phenos(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, g_pheno_c, g_pheno_d, missing_phenod);
+  }
+
+  if (allelexxxx) {
+    allelexxxx_recode(allelexxxx, marker_alleles, marker_exclude, unfiltered_marker_ct - marker_exclude_ct);
   }
 
   if (extractname || excludename) {
@@ -8756,11 +8780,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
   wkspace_reset(hwe_lls);
 
-  if (0) {
-    retval = text_to_bed(&bedtmpfile, &famtmpfile, &bimtmpfile, &outfile, outname, outname_end, &pedfile, line_locs, line_mids, pedbuflen, &famfile, mapfile, map_cols, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_alleles, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_pheno, max_marker_id_len, map_is_unsorted, chrom_info_ptr->species);
-    if (retval || (!(calculation_type & (~(CALC_FREQ | CALC_MAKE_BED))))) {
-      goto wdist_ret_2;
-    }
+  /*
     collapse_arr(marker_alleles, 2, marker_exclude, unfiltered_marker_ct);
     sscanf(output_missing_pheno, "%lg", &missing_phenod);
     // if this becomes much more of a maintenance nightmare, consider exiting
@@ -8811,10 +8831,10 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
     }
     g_indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
     if (!g_indiv_ct) {
-      logprint("Error: Nobody remaining.\n");
+      logprint("Error: No people remaining.\n");
       goto wdist_ret_INVALID_FORMAT;
     }
-  }
+  */
   sprintf(logbuf, "%d markers and %d people pass filters and QC%s.\n", marker_ct, g_indiv_ct, (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
   logprintb();
 
@@ -8846,7 +8866,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (calculation_type & CALC_MAKE_BED) {
-    retval = make_bed(pedfile, bed_offset, mapfile, map_cols, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_reverse, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_pheno, max_marker_id_len, map_is_unsorted, indiv_sort_map, chrom_info_ptr->species);
+    retval = make_bed(pedfile, bed_offset, mapfile, map_cols, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_alleles, marker_reverse, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_pheno, max_marker_id_len, map_is_unsorted, indiv_sort_map, chrom_info_ptr->species);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -10911,7 +10931,6 @@ int main(int argc, char** argv) {
       } else if (!memcmp(argptr2, "ll", 3)) {
 	logprint("Note: --all flag has no effect.\n");
       } else if (!memcmp(argptr2, "llele1234", 10)) {
-	logprint("Note: --allele1234 not yet written.\n");
 	allelexxxx = 1;
       } else if (!memcmp(argptr2, "lleleACGT", 9)) {
 	if (allelexxxx) {
@@ -10920,7 +10939,6 @@ int main(int argc, char** argv) {
 	  }
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	logprint("Note: --alleleACGT not yet written.\n");
 	allelexxxx = 2;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
