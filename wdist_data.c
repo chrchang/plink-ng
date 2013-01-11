@@ -205,7 +205,8 @@ int indiv_major_to_snp_major(char* indiv_major_fname, char* outname, FILE** outf
 
 const char errstr_map_format[] = "Error: Improperly formatted .map/.bim file.\n";
 
-int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char* extractname, char* excludename, char* freqname, char* refalleles, int calculation_type, int recode_modifier, int allelexxxx, int* map_is_unsorted_ptr) {
+int load_map(FILE** mapfile_ptr, char* mapname, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char* extractname, char* excludename, char* freqname, char* refalleles, int calculation_type, int recode_modifier, int allelexxxx, int* map_is_unsorted_ptr) {
+  // todo: clean up
   int marker_ids_needed = (extractname || excludename || freqname || refalleles || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE | CALC_REGRESS_PCS)) || ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_LGEN)));
   unsigned int unfiltered_marker_ct = 0;
   unsigned long max_marker_id_len = 0;
@@ -216,7 +217,6 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
   int marker_pos_needed = calculation_type & (CALC_GENOME | CALC_LD_PRUNE | CALC_REGRESS_PCS);
   unsigned int species = chrom_info_ptr->species;
   char* bufptr;
-  char* bufptr2;
   unsigned long ulii;
   int ii;
   int jj;
@@ -254,9 +254,6 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
       }
       if (!unfiltered_marker_ct) {
 	bufptr = next_item_mult(bufptr, 2);
-	if (binary_files) {
-	  bufptr = next_item_mult(bufptr, 2);
-	}
 	if (!bufptr) {
 	  logprint(errstr_map_format);
 	  return RET_INVALID_FORMAT;
@@ -306,15 +303,6 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
     *marker_pos_ptr = (unsigned int*)wkspace_alloc(unfiltered_marker_ct * sizeof(int));
     if (!(*marker_pos_ptr)) {
       return RET_NOMEM;
-    }
-  }
-  if (binary_files) {
-    if (freqname || (calculation_type & (CALC_FREQ | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS)) || allelexxxx) {
-      *marker_alleles_ptr = (char*)wkspace_alloc(unfiltered_marker_ct * 2 * sizeof(char));
-      if (!(*marker_alleles_ptr)) {
-	return RET_NOMEM;
-      }
-      memset(*marker_alleles_ptr, 0, unfiltered_marker_ct * 2);
     }
   }
   if (marker_ids_needed) {
@@ -394,7 +382,200 @@ int load_map_or_bim(FILE** mapfile_ptr, char* mapname, int binary_files, int* ma
 	if ((calculation_type & marker_pos_needed) && jj) {
 	  (*marker_pos_ptr)[marker_uidx] = cur_pos;
 	}
-        if (binary_files && (*marker_alleles_ptr)) {
+      }
+    }
+  }
+  chrom_info_ptr->chrom_end[last_chrom] = marker_uidx;
+  chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
+  chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
+  return 0;
+}
+
+int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char* extractname, char* excludename, char* freqname, char* refalleles, int calculation_type, int recode_modifier, int allelexxxx, int marker_pos_start, int marker_pos_end, unsigned int snp_window_size, char* markername_from, char* markername_to, char* markername_snp, int* map_is_unsorted_ptr) {
+  int marker_ids_needed = (extractname || excludename || freqname || refalleles || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE | CALC_REGRESS_PCS)) || ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_LGEN)));
+  unsigned int unfiltered_marker_ct = 0;
+  unsigned long max_marker_id_len = 0;
+  unsigned int plink_maxsnp = 4;
+  unsigned long long loaded_chrom_mask = 0;
+  int last_chrom = -1;
+  int last_pos = 0;
+  int marker_pos_needed = calculation_type & (CALC_GENOME | CALC_LD_PRUNE | CALC_REGRESS_PCS);
+  unsigned int species = chrom_info_ptr->species;
+  char* bufptr;
+  char* bufptr2;
+  unsigned long ulii;
+  int ii;
+  int jj;
+  int cur_pos;
+  int chroms_encountered_m1 = -1;
+  unsigned int marker_uidx;
+  if (fopen_checked(bimfile_ptr, mapname, "r")) {
+    return RET_OPEN_FAIL;
+  }
+  // first pass: count columns, determine raw marker count, determine maximum
+  // marker ID length if necessary.
+  tbuf[MAXLINELEN - 6] = ' ';
+  while (fgets(tbuf, MAXLINELEN - 5, *bimfile_ptr) != NULL) {
+    if (!tbuf[MAXLINELEN - 6]) {
+      sprintf(logbuf, "Error: Excessively long line in .bim file (max %d chars).\n", MAXLINELEN - 8);
+      logprintb();
+      return RET_INVALID_FORMAT;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln(*bufptr)) {
+      continue;
+    }
+    bufptr = next_item(bufptr);
+    if (no_more_items(bufptr)) {
+      logprint(errstr_map_format);
+      return RET_INVALID_FORMAT;
+    }
+    ulii = strlen_se(bufptr) + 1;
+    if (ulii > max_marker_id_len) {
+      max_marker_id_len = ulii;
+    }
+    if (marker_ids_needed || (!unfiltered_marker_ct)) {
+      if (ulii > (plink_maxsnp + 1)) {
+	plink_maxsnp = ulii + 1;
+      }
+      if (!unfiltered_marker_ct) {
+	bufptr = next_item_mult(bufptr, 2);
+	if (!bufptr) {
+	  logprint(errstr_map_format);
+	  return RET_INVALID_FORMAT;
+	}
+	if (*bufptr > ' ') {
+	  *map_cols_ptr = 4;
+	}
+      }
+    }
+    unfiltered_marker_ct++;
+  }
+  if (!feof(*bimfile_ptr)) {
+    return RET_READ_FAIL;
+  }
+  if (!unfiltered_marker_ct) {
+    logprint("Error: No markers in .bim file.");
+    return RET_INVALID_FORMAT;
+  }
+  *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
+  *max_marker_id_len_ptr = max_marker_id_len;
+  *plink_maxsnp_ptr = plink_maxsnp;
+  rewind(*bimfile_ptr);
+  ii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+
+  // unfiltered_marker_ct can be very large, so use wkspace for all allocations
+  // that are a multiple of it
+
+  // permanent stack allocation #1: marker_exclude
+  if (wkspace_alloc_ul_checked(marker_exclude_ptr, ii * sizeof(long))) {
+    return RET_NOMEM;
+  }
+  fill_ulong_zero(*marker_exclude_ptr, ii);
+  // permanent stack allocation #2: set_allele_freqs
+  *set_allele_freqs_ptr = (double*)wkspace_alloc(unfiltered_marker_ct * sizeof(double));
+  if (!(*set_allele_freqs_ptr)) {
+    return RET_NOMEM;
+  }
+  for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+    (*set_allele_freqs_ptr)[marker_uidx] = -1.0;
+  }
+  fill_uint_zero(chrom_info_ptr->chrom_file_order, MAX_POSSIBLE_CHROM);
+  fill_uint_zero(chrom_info_ptr->chrom_file_order_marker_idx, MAX_POSSIBLE_CHROM + 1);
+  fill_uint_zero(chrom_info_ptr->chrom_start, MAX_POSSIBLE_CHROM);
+  fill_uint_zero(chrom_info_ptr->chrom_end, MAX_POSSIBLE_CHROM);
+  // permanent stack allocation #3, if needed: marker_pos
+  if (marker_pos_needed) {
+    *marker_pos_ptr = (unsigned int*)wkspace_alloc(unfiltered_marker_ct * sizeof(int));
+    if (!(*marker_pos_ptr)) {
+      return RET_NOMEM;
+    }
+  }
+  if (freqname || (calculation_type & (CALC_FREQ | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS)) || allelexxxx) {
+    *marker_alleles_ptr = (char*)wkspace_alloc(unfiltered_marker_ct * 2 * sizeof(char));
+    if (!(*marker_alleles_ptr)) {
+      return RET_NOMEM;
+    }
+    memset(*marker_alleles_ptr, 0, unfiltered_marker_ct * 2);
+  }
+  if (marker_ids_needed) {
+    *marker_ids_ptr = (char*)wkspace_alloc(unfiltered_marker_ct * max_marker_id_len);
+    if (!(*marker_ids_ptr)) {
+      return RET_NOMEM;
+    }
+  }
+
+  // second pass: actually load stuff
+  for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+    do {
+      if (fgets(tbuf, MAXLINELEN, *bimfile_ptr) == NULL) {
+        return RET_READ_FAIL;
+      }
+      bufptr = skip_initial_spaces(tbuf);
+    } while (is_eoln(*bufptr));
+    jj = marker_code(species, bufptr);
+    if (jj == -1) {
+      logprint("Error: Invalid chromosome index in .map/.bim file.\n");
+      return RET_INVALID_FORMAT;
+    }
+    if (jj != last_chrom) {
+      if (last_chrom != -1) {
+	chrom_info_ptr->chrom_end[last_chrom] = marker_uidx;
+      }
+      if (jj < last_chrom) {
+	if (!(*map_is_unsorted_ptr)) {
+	  *map_is_unsorted_ptr = 1;
+	}
+      }
+      last_chrom = jj;
+      if (loaded_chrom_mask & (1LLU << jj)) {
+	if (calculation_type != CALC_MAKE_BED) {
+	  logprint("Error: .map/.bim file is unsorted.  Use --make-bed by itself to remedy this.\n");
+	  return RET_INVALID_FORMAT;
+	}
+	*map_is_unsorted_ptr = 2;
+      } else {
+	loaded_chrom_mask |= 1LLU << jj;
+	chrom_info_ptr->chrom_start[jj] = marker_uidx;
+	chrom_info_ptr->chrom_file_order[++chroms_encountered_m1] = jj;
+	chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
+      }
+      last_pos = 0;
+    }
+
+    if (!(chrom_info_ptr->chrom_mask & (1LLU << jj))) {
+      set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
+    } else {
+      bufptr = next_item(bufptr);
+      if (*marker_ids_ptr) {
+        if (no_more_items(bufptr)) {
+	  logprint(errstr_map_format);
+          return RET_INVALID_FORMAT;
+        }
+        read_next_terminate(&((*marker_ids_ptr)[marker_uidx * max_marker_id_len]), bufptr);
+      }
+      bufptr = next_item(bufptr);
+      if (*map_cols_ptr == 4) {
+	bufptr = next_item(bufptr);
+      }
+      if (no_more_items(bufptr)) {
+        logprint(errstr_map_format);
+        return RET_INVALID_FORMAT;
+      }
+      if (*bufptr == '-') {
+	// negative marker positions now have same effect in .bim as .map
+	set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
+      } else {
+	cur_pos = atoi(bufptr);
+	if (cur_pos < last_pos) {
+	  *map_is_unsorted_ptr = 2;
+	} else {
+	  last_pos = cur_pos;
+	}
+	if ((calculation_type & marker_pos_needed) && jj) {
+	  (*marker_pos_ptr)[marker_uidx] = cur_pos;
+	}
+        if (*marker_alleles_ptr) {
 	  bufptr = next_item(bufptr);
 	  bufptr2 = next_item(bufptr);
 	  if (no_more_items(bufptr2)) {
@@ -1884,7 +2065,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   memcpy(name_end, ".map", 5);
   // use CALC_WRITE_SNPLIST to force loading of marker IDs, without other
   // unwanted side-effects
-  retval = load_map_or_bim(&infile, lgen_namebuf, 0, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, NULL, &marker_ids, chrom_info_ptr, &marker_pos, NULL, NULL, NULL, NULL, CALC_WRITE_SNPLIST, 0, 0, &map_is_unsorted);
+  retval = load_map(&infile, lgen_namebuf, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, NULL, &marker_ids, chrom_info_ptr, &marker_pos, NULL, NULL, NULL, NULL, CALC_WRITE_SNPLIST, 0, 0, &map_is_unsorted);
   if (retval) {
     goto lgen_to_bed_ret_1;
   }
