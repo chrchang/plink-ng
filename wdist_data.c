@@ -1541,10 +1541,10 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
   unsigned int gd_col;
   unsigned int markers_per_pass;
   unsigned int marker_start;
-  unsigned int marker_istart;
-  unsigned int marker_iend;
+  unsigned int marker_end;
   unsigned int marker_uidx;
   unsigned int marker_idx;
+  unsigned int loop_end;
   unsigned int indiv_idx;
   unsigned long ulii;
   unsigned int uii;
@@ -1769,7 +1769,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
       marker_idx++;
     }
     if (!is_eoln(*bufptr)) {
-      sprintf(logbuf, "\nError: Too many markers in .ped file for indiv %u.\n", indiv_ct + 1);
+      sprintf(logbuf, "\nError: Too many markers in .ped file for person %u.\n", indiv_ct + 1);
       goto ped_to_bed_ret_INVALID_FORMAT_2;
     }
     ulii = strlen(bufptr) + (unsigned long)(bufptr - loadbuf) + 1;
@@ -1791,7 +1791,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
     goto ped_to_bed_ret_READ_FAIL;
   }
   if (!indiv_ct) {
-    logprint("\nError: No individuals in .ped file.\n");
+    logprint("\nError: No people in .ped file.\n");
     goto ped_to_bed_ret_INVALID_FORMAT;
   }
   if (fclose_null(&outfile)) {
@@ -1916,7 +1916,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
   }
   if (wkspace_left >= marker_ct * indiv_ct4) {
     markers_per_pass = marker_ct;
-    sprintf(logbuf, "Performing single-pass .bed write (%u markers, %u individuals).\n", marker_ct, indiv_ct);
+    sprintf(logbuf, "Performing single-pass .bed write (%u marker%s, %u pe%s).\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, (indiv_ct == 1)? "rson" : "ople");
     pass_ct = 1;
   } else {
     if (!map_is_unsorted) {
@@ -1929,7 +1929,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
       goto ped_to_bed_ret_NOMEM;
     }
     pass_ct = (marker_ct + markers_per_pass - 1) / markers_per_pass;
-    sprintf(logbuf, "Performing %u-pass .bed write (%u/%u markers, %u indivs).\n", pass_ct, markers_per_pass, marker_ct, indiv_ct);
+    sprintf(logbuf, "Performing %u-pass .bed write (%u/%u marker%s/pass, %u pe%s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", indiv_ct, (indiv_ct == 1)? "rson" : "ople");
   }
   logprintb();
   writebuf = wkspace_base;
@@ -1941,24 +1941,23 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
     goto ped_to_bed_ret_WRITE_FAIL;
   }
   rewind(pedfile);
-  marker_idx = 0;
+  marker_uidx = 0;
   for (uii = 0; uii < pass_ct; uii++) {
     marker_start = uii * markers_per_pass;
-    marker_istart = marker_idx;
     if (uii + 1 == pass_ct) {
-      ujj = marker_ct - markers_per_pass * uii;
+      ujj = marker_ct - marker_start;
       last_pass = 1;
     } else {
       ujj = markers_per_pass;
     }
     memset(writebuf, 0, ujj * indiv_ct4);
-    marker_iend = marker_istart + ujj;
+    marker_end = marker_start + ujj;
     fputs("0%", stdout);
     indiv_idx = 0;
     for (pct = 1; pct <= 100; pct++) {
-      umm = (((unsigned long long)pct) * indiv_ct) / 100LLU;
-      for (; indiv_idx < umm; indiv_idx++) {
-	if (!uii) {
+      loop_end = (((unsigned long long)pct) * indiv_ct) / 100LLU;
+      for (; indiv_idx < loop_end; indiv_idx++) {
+	if ((!uii) || map_is_unsorted) {
 	  do {
 	    if (!last_pass) {
 	      ped_next_thresh = ftello(pedfile);
@@ -1979,13 +1978,14 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
 	  }
 	  bufptr = loadbuf;
 	}
-	marker_idx = marker_istart;
+        marker_idx = uii * markers_per_pass;
 	ii_shift = (indiv_idx % 4) * 2;
 	wbufptr = &(writebuf[indiv_idx / 4]);
 	if (map_is_unsorted) {
 	  // multipass optimizations are possible, but we won't bother,
-	  // especially since the .map should practically never be unsorted in
-	  // the first place...
+	  // especially since the .map should rarely be unsorted in the first
+          // place...
+	  umm = 0;
 	  for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
 	    cc = *bufptr++;
 	    bufptr = skip_initial_spaces(bufptr);
@@ -1994,8 +1994,8 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
 	    if (is_set(marker_exclude, marker_uidx)) {
 	      continue;
 	    }
-	    ukk = map_reverse[marker_idx];
-	    if ((ukk >= marker_istart) && (ukk < marker_iend)) {
+	    ukk = map_reverse[umm++];
+	    if ((ukk >= marker_start) && (ukk < marker_end)) {
 	      ucc = 1;
 	      if (cc == marker_alleles_f[2 * ukk + 1]) {
 		if (cc2 == cc) {
@@ -2010,12 +2010,13 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
 		  ucc = 2;
 		}
 	      }
-	      wbufptr[(ukk - marker_istart) * indiv_ct4] |= ucc << ii_shift;
+	      wbufptr[(ukk - marker_start) * indiv_ct4] |= ucc << ii_shift;
+	      marker_idx++;
 	    }
-	    marker_idx++;
 	  }
 	} else {
-	  for (marker_uidx = marker_start; marker_idx < marker_iend; marker_uidx++) {
+          umm = marker_uidx;
+	  for (marker_uidx = umm; marker_idx < marker_end; marker_uidx++) {
 	    cc = *bufptr++;
 	    bufptr = skip_initial_spaces(bufptr);
 	    cc2 = *bufptr++;
@@ -2060,6 +2061,9 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
     if (!last_pass) {
       printf("\rPass %u:    \b\b\b", uii + 2);
       fflush(stdout);
+      if (map_is_unsorted) {
+	rewind(pedfile);
+      }
     }
   }
   if (fclose_null(&outfile)) {
@@ -2654,7 +2658,7 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
     goto transposed_to_bed_ret_READ_FAIL;
   }
   if (!indiv_ct) {
-    logprint("\rError: No individuals in .tfam file.\n");
+    logprint("\rError: No people in .tfam file.\n");
     goto transposed_to_bed_ret_INVALID_FORMAT_2;
   }
   indiv_ct4 = (indiv_ct + 3) / 4;
@@ -3241,7 +3245,7 @@ int generate_dummy(char* outname, unsigned int flags, unsigned int marker_ct, un
     }
   }
   putchar('\r');
-  sprintf(logbuf, "Dummy data generated (%u markers, %u individuals).\n", marker_ct, indiv_ct);
+  sprintf(logbuf, "Dummy data generated (%u markers, %u pe%s).\n", marker_ct, indiv_ct, (indiv_ct == 1)? "rson" : "ople");
   logprintb();
   while (0) {
   generate_dummy_ret_NOMEM:
@@ -3948,7 +3952,7 @@ int merge_fam_id_scan(char* bedname, char* famname, unsigned int* max_person_id_
     goto merge_fam_id_scan_ret_READ_FAIL;
   }
   if (!cur_indiv_ct) {
-    sprintf(logbuf, "Error: No individuals in %s.\n", famname);
+    sprintf(logbuf, "Error: No people in %s.\n", famname);
     goto merge_fam_id_scan_ret_INVALID_FORMAT;
   }
   *max_person_id_len_ptr = max_person_id_len;
@@ -5139,13 +5143,13 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   } while (++mlpos < merge_ct);
 #ifdef __LP64__
   if (ullxx > 2147483647) {
-    logprint("Error: Too many individuals (max 2147483647).\n");
+    logprint("Error: Too many people (max 2147483647).\n");
     goto merge_datasets_ret_INVALID_FORMAT;
   }
 #else
   // avoid integer overflow in wkspace_alloc calls
   if (ullxx * max_person_full_len > 2147483647) {
-    logprint("Error: Too many individuals for 32-bit WDIST.\n");
+    logprint("Error: Too many people for 32-bit WDIST.\n");
     goto merge_datasets_ret_INVALID_FORMAT;
   }
 #endif
@@ -5428,6 +5432,9 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
   } else {
     markers_per_pass = wkspace_left / tot_indiv_ct4;
   }
+  if (!markers_per_pass) {
+    goto merge_datasets_ret_NOMEM;
+  }
   pass_ct = 1 + ((dedup_marker_ct - 1) / markers_per_pass);
 
   writebuf = wkspace_base;
@@ -5441,9 +5448,9 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
       goto merge_datasets_ret_WRITE_FAIL;
     }
     if (pass_ct == 1) {
-      sprintf(logbuf, "Performing single-pass merge (%u individuals, %u markers).\n", tot_indiv_ct, dedup_marker_ct);
+      sprintf(logbuf, "Performing single-pass merge (%u pe%s, %u marker%s).\n", tot_indiv_ct, (tot_indiv_ct == 1)? "rson" : "ople", dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
     } else {
-      sprintf(logbuf, "Performing %u-pass merge (%u indivs, %lu/%u markers per pass).\n", pass_ct, tot_indiv_ct, markers_per_pass, dedup_marker_ct);
+      sprintf(logbuf, "Performing %u-pass merge (%u pe%s, %lu/%u marker%s per pass).\n", pass_ct, tot_indiv_ct, (tot_indiv_ct == 1)? "rson" : "ople", markers_per_pass, dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
     }
   } else {
     memcpy(outname_end, ".diff", 6);
