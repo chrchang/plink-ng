@@ -1941,7 +1941,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
     goto ped_to_bed_ret_WRITE_FAIL;
   }
   rewind(pedfile);
-  marker_uidx = 0;
+  umm = 0;
   for (uii = 0; uii < pass_ct; uii++) {
     marker_start = uii * markers_per_pass;
     if (uii + 1 == pass_ct) {
@@ -2015,7 +2015,6 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
 	    }
 	  }
 	} else {
-          umm = marker_uidx;
 	  for (marker_uidx = umm; marker_idx < marker_end; marker_uidx++) {
 	    cc = *bufptr++;
 	    bufptr = skip_initial_spaces(bufptr);
@@ -2063,6 +2062,8 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
       fflush(stdout);
       if (map_is_unsorted) {
 	rewind(pedfile);
+      } else {
+        umm = marker_uidx;
       }
     }
   }
