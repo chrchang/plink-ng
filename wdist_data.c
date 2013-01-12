@@ -1967,8 +1967,9 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
     marker_end = marker_start + ujj;
     fputs("0%", stdout);
     indiv_idx = 0;
-    for (pct = 1; pct <= 100; pct++) {
-      loop_end = (((unsigned long long)pct) * indiv_ct) / 100LLU;
+    // 94 instead of 100 due to big fwrite at the end
+    for (pct = 1; pct <= 94; pct++) {
+      loop_end = (((unsigned long long)pct) * indiv_ct) / 94LLU;
       for (; indiv_idx < loop_end; indiv_idx++) {
 	if ((!uii) || map_is_unsorted) {
 	  do {
@@ -2059,13 +2060,11 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
 	  }
 	}
       }
-      if (pct < 100) {
-	if (pct > 10) {
-	  putchar('\b');
-	}
-	printf("\b\b%u%%", pct);
-	fflush(stdout);
+      if (pct > 10) {
+	putchar('\b');
       }
+      printf("\b\b%u%%", pct);
+      fflush(stdout);
     }
     if (fwrite_checked(writebuf, ujj * indiv_ct4, outfile)) {
       goto ped_to_bed_ret_WRITE_FAIL_2;
