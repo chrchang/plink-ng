@@ -526,7 +526,8 @@ typedef struct {
 // extern const unsigned long long species_def_chrom_mask[];
 extern const unsigned long long species_autosome_mask[];
 extern const unsigned long long species_valid_chrom_mask[];
-extern const char species_autosome_ct_p1[];
+extern const unsigned long long species_haploid_mask[];
+// extern const char species_regchrom_ct_p1[];
 extern const char species_x_code[];
 extern const char species_y_code[];
 extern const char species_xy_code[];

@@ -391,7 +391,114 @@ int load_map(FILE** mapfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
   return 0;
 }
 
-int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char* extractname, char* excludename, char* freqname, char* refalleles, int calculation_type, int recode_modifier, int allelexxxx, int marker_pos_start, int marker_pos_end, unsigned int snp_window_size, char* markername_from, char* markername_to, char* markername_snp, int* map_is_unsorted_ptr) {
+unsigned int load_bim_scan_position(unsigned int* pos_ptr, char* bufptr, unsigned int mcm2) {
+  int ii;
+  bufptr = next_item_mult(bufptr, mcm2);
+  if (no_more_items(bufptr)) {
+    return -1;
+  }
+  ii = atoi(bufptr);
+  if ((ii < 1) && ((bufptr[0] != '0') || ((bufptr[1] != ' ') && (bufptr[1] != '\t')))) {
+    return -1;
+  }
+  *pos_ptr = ii;
+  return 0;
+}
+
+void load_bim_sf_insert(unsigned int chrom_idx, unsigned int pos_start, unsigned int pos_end, unsigned int* start_idxs, unsigned int* llbuf, unsigned int* lltop_ptr, unsigned int* entry_ct_ptr) {
+  unsigned int lltop = *lltop_ptr;
+  unsigned int entry_ct = *entry_ct_ptr;
+  unsigned int llidx;
+  unsigned int new_start;
+  unsigned int new_end;
+  unsigned int new_llidx;
+  unsigned int old_llidx;
+  if (start_idxs[chrom_idx] == 1) {
+    start_idxs[chrom_idx] = lltop;
+    llbuf[lltop++] = pos_start;
+    llbuf[lltop++] = pos_end;
+    llbuf[lltop++] = 1;
+    entry_ct++;
+  } else {
+    llidx = start_idxs[chrom_idx];
+    while (1) {
+      if (llbuf[llidx] > pos_end) {
+	if (llbuf[llidx] == pos_end + 1) {
+	  llbuf[llidx] = pos_start;
+	} else {
+	  new_llidx = llidx;
+	  do {
+	    llidx = new_llidx;
+	    new_start = llbuf[llidx];
+	    llbuf[llidx] = pos_start;
+	    pos_start = new_start;
+	    new_end = llbuf[llidx + 1];
+	    llbuf[llidx + 1] = pos_end;
+	    pos_end = new_end;
+	    new_llidx = llbuf[llidx + 2];
+	  } while (new_llidx != 1);
+	  llbuf[llidx + 2] = lltop;
+	  llbuf[lltop++] = pos_start;
+	  llbuf[lltop++] = pos_end;
+	  llbuf[lltop++] = 1;
+	  entry_ct++;
+	}
+	break;
+      } else if (llbuf[llidx + 1] + 1 >= pos_start) {
+	// mergeable
+	if (llbuf[llidx] > pos_start) {
+	  llbuf[llidx] = pos_start;
+	}
+	if (llbuf[llidx + 1] < pos_end) {
+	  // scan forward, attempt to collapse entries
+	  old_llidx = llidx;
+          new_llidx = llbuf[llidx + 2];
+	  while (new_llidx != 1) {
+	    llidx = new_llidx;
+	    if (llbuf[llidx] > pos_end + 1) {
+	      break;
+	    }
+	    entry_ct--;
+	    new_llidx = llbuf[llidx + 2];
+	    llbuf[old_llidx + 2] = new_llidx;
+	    if (llbuf[llidx + 1] >= pos_end) {
+	      llbuf[old_llidx + 1] = llbuf[llidx + 1];
+	      break;
+	    }
+	  }
+	}
+	break;
+      }
+      new_llidx = llbuf[llidx + 2];
+      if (new_llidx == 1) {
+	llbuf[llidx + 2] = lltop;
+	llbuf[lltop++] = pos_start;
+	llbuf[lltop++] = pos_end;
+	llbuf[lltop++] = 1;
+	entry_ct++;
+	break;
+      }
+      llidx = new_llidx;
+    }
+  }
+  *lltop_ptr = lltop;
+  *entry_ct_ptr = entry_ct;
+}
+
+static inline unsigned int sf_out_of_range(unsigned int cur_pos, unsigned int chrom_idx, unsigned int* sf_start_idxs, unsigned int* sf_pos) {
+  unsigned int cur_idx = sf_start_idxs[chrom_idx];
+  unsigned int end_idx = sf_start_idxs[chrom_idx + 1];
+  do {
+    if ((cur_pos >= sf_pos[cur_idx]) && (cur_pos <= sf_pos[cur_idx + 1])) {
+      return 0;
+    }
+    cur_idx += 2;
+  } while (cur_idx < end_idx);
+  return 1;
+}
+
+int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char* extractname, char* excludename, char* freqname, char* refalleles, int calculation_type, int recode_modifier, int allelexxxx, int marker_pos_start, int marker_pos_end, unsigned int snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* sf_markers, unsigned char* sf_starts_range, unsigned int sf_ct, unsigned int sf_max_len, int* map_is_unsorted_ptr) {
+  unsigned char* wkspace_mark = wkspace_base;
   int marker_ids_needed = (extractname || excludename || freqname || refalleles || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE | CALC_REGRESS_PCS)) || ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_LGEN)));
   unsigned int unfiltered_marker_ct = 0;
   unsigned long max_marker_id_len = 0;
@@ -404,20 +511,48 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
   unsigned int from_slen = markername_from? strlen(markername_from) : 0;
   unsigned int to_slen = markername_to? strlen(markername_to) : 0;
   unsigned int snp_slen = markername_snp? strlen(markername_snp) : 0;
+  unsigned int slen_check = from_slen || to_slen || snp_slen || sf_ct;
   unsigned int from_chrom = MAX_POSSIBLE_CHROM;
   unsigned int to_chrom = MAX_POSSIBLE_CHROM;
   unsigned int snp_chrom = MAX_POSSIBLE_CHROM;
   int chroms_encountered_m1 = -1;
   unsigned int snp_pos = 0;
   unsigned int mcm2 = 1;
+  unsigned int* sf_pos = NULL;
+  unsigned int sf_entry_ct;
+  unsigned int* sf_str_chroms = NULL;
+  unsigned int* sf_str_pos = NULL;
+  unsigned int* sf_str_lens = NULL;
+  unsigned int* sf_llbuf = NULL;
+  unsigned long long sf_mask;
+  unsigned int sf_lltop;
+  unsigned int sf_start_idxs[MAX_POSSIBLE_CHROM + 1];
   char* bufptr;
   char* bufptr2;
   unsigned long ulii;
+  unsigned int uii;
+  unsigned int ujj;
+  unsigned int ukk;
+  unsigned int umm;
+  unsigned int unn;
+  unsigned int uoo;
   int ii;
   int jj;
   int cur_pos;
   unsigned int marker_uidx;
   int retval;
+  if (sf_ct) {
+    if (wkspace_alloc_ui_checked(&sf_str_chroms, sf_ct * sizeof(int)) ||
+	wkspace_alloc_ui_checked(&sf_str_pos, sf_ct * sizeof(int)) ||
+        wkspace_alloc_ui_checked(&sf_str_lens, sf_ct * sizeof(int)) ||
+        wkspace_alloc_ui_checked(&sf_llbuf, 3 * (species_max_code[species] + sf_ct) * sizeof(int))) {
+      goto load_bim_ret_NOMEM;
+    }
+    for (uii = 0; uii < sf_ct; uii++) {
+      sf_str_chroms[uii] = MAX_POSSIBLE_CHROM;
+      sf_str_lens[uii] = strlen(&(sf_markers[uii * sf_max_len]));
+    }
+  }
   if (fopen_checked(bimfile_ptr, mapname, "r")) {
     goto load_bim_ret_OPEN_FAIL;
   }
@@ -464,70 +599,153 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
 	}
       }
     }
-    ulii--;
-    if ((ulii == from_slen) && (!memcmp(bufptr, markername_from, ulii))) {
-      if (from_chrom != MAX_POSSIBLE_CHROM) {
-	goto load_bim_ret_INVALID_FORMAT_3;
-      }
-      bufptr2 = next_item_mult(bufptr, mcm2);
-      if (no_more_items(bufptr2)) {
-	goto load_bim_ret_INVALID_FORMAT;
-      }
-      jj = atoi(bufptr2); // position
-      if ((jj < 1) && ((bufptr2[0] != '0') || ((bufptr2[1] != ' ') && (bufptr2[1] != '\t')))) {
-	goto load_bim_ret_INVALID_FORMAT;
-      }
-      from_chrom = ii;
-      marker_pos_start = jj;
-      if (to_chrom != MAX_POSSIBLE_CHROM) {
-	if (from_chrom != to_chrom) {
-	  goto load_bim_ret_INVALID_FORMAT_4;
+    if (slen_check) {
+      ulii--;
+      if (sf_ct) {
+	uii = 0;
+	do {
+	  if ((ulii == sf_str_lens[uii]) && (!memcmp(bufptr, &(sf_markers[uii * sf_max_len]), ulii))) {
+	    if (sf_str_chroms[uii] != MAX_POSSIBLE_CHROM) {
+	      goto load_bim_ret_INVALID_FORMAT_3;
+	    }
+	    sf_str_chroms[uii] = ii;
+	    if (load_bim_scan_position(&(sf_str_pos[uii]), bufptr, mcm2)) {
+	      goto load_bim_ret_INVALID_FORMAT;
+	    }
+	    break;
+	  }
+	} while (++uii < sf_ct);
+      } else {
+	if ((ulii == from_slen) && (!memcmp(bufptr, markername_from, ulii))) {
+	  if (from_chrom != MAX_POSSIBLE_CHROM) {
+	    goto load_bim_ret_INVALID_FORMAT_3;
+	  }
+	  if (load_bim_scan_position(&uii, bufptr, mcm2)) {
+	    goto load_bim_ret_INVALID_FORMAT;
+	  }
+	  marker_pos_start = uii;
+	  from_chrom = ii;
+	  if (to_chrom != MAX_POSSIBLE_CHROM) {
+	    if (from_chrom != to_chrom) {
+	      goto load_bim_ret_INVALID_FORMAT_4;
+	    }
+	  }
+	  chrom_info_ptr->chrom_mask = 1LLU << from_chrom;
 	}
-	if (marker_pos_end < marker_pos_start) {
-	  marker_pos_start = marker_pos_end;
-	  marker_pos_end = jj;
+	if ((ulii == to_slen) && (!memcmp(bufptr, markername_to, ulii))) {
+	  if (to_chrom != MAX_POSSIBLE_CHROM) {
+	    goto load_bim_ret_INVALID_FORMAT_3;
+	  }
+	  if (load_bim_scan_position(&uii, bufptr, mcm2)) {
+	    goto load_bim_ret_INVALID_FORMAT;
+	  }
+	  marker_pos_end = uii;
+	  to_chrom = ii;
+	  if (from_chrom != MAX_POSSIBLE_CHROM) {
+	    if (to_chrom != from_chrom) {
+	      goto load_bim_ret_INVALID_FORMAT_4;
+	    }
+	  }
+	  chrom_info_ptr->chrom_mask = 1LLU << to_chrom;
+	}
+	if ((ulii == snp_slen) && (!memcmp(bufptr, markername_snp, ulii))) {
+	  if (snp_chrom != MAX_POSSIBLE_CHROM) {
+	    goto load_bim_ret_INVALID_FORMAT_3;
+	  }
+	  if (load_bim_scan_position(&snp_pos, bufptr, mcm2)) {
+	    goto load_bim_ret_INVALID_FORMAT;
+	  }
+	  snp_chrom = ii;
+	  chrom_info_ptr->chrom_mask = 1LLU << snp_chrom;
 	}
       }
-      chrom_info_ptr->chrom_mask = 1LLU << from_chrom;
-    }
-    if ((ulii == to_slen) && (!memcmp(bufptr, markername_to, ulii))) {
-      if (to_chrom != MAX_POSSIBLE_CHROM) {
-	goto load_bim_ret_INVALID_FORMAT_3;
-      }
-      bufptr2 = next_item_mult(bufptr, *map_cols_ptr - 2);
-      if (no_more_items(bufptr2)) {
-	goto load_bim_ret_INVALID_FORMAT;
-      }
-      jj = atoi(bufptr2);
-      if ((jj < 1) && ((bufptr2[0] != '0') || ((bufptr2[1] != ' ') && (bufptr2[1] != '\t')))) {
-	goto load_bim_ret_INVALID_FORMAT;
-      }
-      to_chrom = ii;
-      marker_pos_end = jj;
-      if (from_chrom != MAX_POSSIBLE_CHROM) {
-	if (to_chrom != from_chrom) {
-	  goto load_bim_ret_INVALID_FORMAT_4;
-	}
-      }
-      chrom_info_ptr->chrom_mask = 1LLU << to_chrom;
-    }
-    if ((ulii == snp_slen) && (!memcmp(bufptr, markername_snp, ulii))) {
-      if (snp_chrom != MAX_POSSIBLE_CHROM) {
-	goto load_bim_ret_INVALID_FORMAT_3;
-      }
-      bufptr2 = next_item_mult(bufptr, *map_cols_ptr - 2);
-      if (no_more_items(bufptr2)) {
-	goto load_bim_ret_INVALID_FORMAT;
-      }
-      jj = atoi(bufptr2);
-      if ((jj < 1) && ((bufptr2[0] != '0') || ((bufptr2[1] != ' ') && (bufptr2[1] != '\t')))) {
-	goto load_bim_ret_INVALID_FORMAT;
-      }
-      snp_chrom = ii;
-      snp_pos = jj;
-      chrom_info_ptr->chrom_mask = 1LLU << snp_chrom;
     }
     unfiltered_marker_ct++;
+  }
+  if (sf_ct) {
+    for (uii = 0; uii < sf_ct; uii++) {
+      if (sf_str_chroms[uii] == MAX_POSSIBLE_CHROM) {
+	sprintf(logbuf, "Error: Marker '%s' not found in .bim file.\n", &(sf_markers[uii * sf_max_len]));
+	goto load_bim_ret_INVALID_FORMAT_2;
+      }
+    }
+    // effectively build out one linked list per chromosome
+    sf_mask = chrom_info_ptr->chrom_mask;
+    sf_entry_ct = 0;
+    sf_lltop = 0;
+    ujj = species_max_code[species];
+    for (uii = 0; uii <= ujj; uii++) {
+      sf_start_idxs[uii] = 1; // impossible (multiples of 3)
+    }
+    uii = 0;
+    do {
+      ujj = sf_str_chroms[uii];
+      ukk = sf_str_pos[uii];
+      if (sf_starts_range[uii]) {
+	umm = sf_str_chroms[uii + 1];
+	unn = sf_str_pos[uii + 1];
+	if (ujj != umm) {
+	  if (ujj > umm) {
+	    uoo = ujj;
+	    ujj = umm;
+	    umm = uoo;
+	    uoo = ukk;
+	    ukk = unn;
+	    unn = uoo;
+	  }
+	  if (sf_mask & (1LLU << ujj)) {
+	    load_bim_sf_insert(ujj, ukk, 2147483647, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
+	  }
+	  for (uoo = ujj + 1; uoo < umm; uoo++) {
+	    if (sf_mask & (1LLU << uoo)) {
+	      load_bim_sf_insert(uoo, 0, 2147483647, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
+	    }
+	  }
+	  if (sf_mask & (1LLU << umm)) {
+	    load_bim_sf_insert(umm, 0, unn, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
+	  }
+	} else {
+	  if (ukk > unn) {
+            umm = ukk;
+	    ukk = unn;
+	    unn = umm;
+	  }
+	  if (sf_mask & (1LLU << ujj)) {
+	    load_bim_sf_insert(ujj, ukk, unn, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
+	  }
+	}
+	uii += 2;
+      } else {
+	if (sf_mask & (1LLU << ujj)) {
+	  load_bim_sf_insert(ujj, ukk, ukk, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
+	}
+	uii++;
+      }
+    } while (uii < sf_ct);
+    // now compactify
+    sf_pos = (unsigned int*)malloc(sf_entry_ct * 2 * sizeof(int));
+    if (!sf_pos) {
+      goto load_bim_ret_NOMEM;
+    }
+    ujj = species_max_code[species];
+    ukk = 0;
+    for (uii = 0; uii <= ujj; uii++) {
+      if (sf_start_idxs[uii] == 1) {
+	sf_mask &= ~(1LLU << uii);
+	sf_start_idxs[uii] = ukk;
+	continue;
+      }
+      umm = sf_start_idxs[uii];
+      sf_start_idxs[uii] = ukk;
+      do {
+	sf_pos[ukk++] = sf_llbuf[umm];
+	sf_pos[ukk++] = sf_llbuf[umm + 1];
+	umm = sf_llbuf[umm + 2];
+      } while (umm != 1);
+    }
+    sf_start_idxs[ujj + 1] = ukk;
+    chrom_info_ptr->chrom_mask = sf_mask;
+    wkspace_reset(wkspace_mark);
   }
   if (!feof(*bimfile_ptr)) {
     goto load_bim_ret_READ_FAIL;
@@ -668,7 +886,7 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
 	} else {
 	  last_pos = cur_pos;
 	}
-	if ((marker_pos_start != -1) && ((cur_pos < marker_pos_start) || (cur_pos > marker_pos_end))) {
+	if ((sf_ct && sf_out_of_range((unsigned int)cur_pos, (unsigned int)jj, sf_start_idxs, sf_pos)) || ((marker_pos_start != -1) && ((cur_pos < marker_pos_start) || (cur_pos > marker_pos_end)))) {
 	  set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
 	} else {
 	  if ((calculation_type & marker_pos_needed) && jj) {
@@ -686,6 +904,10 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
 	}
       }
     }
+  }
+  if (unfiltered_marker_ct == *marker_exclude_ct_ptr) {
+    logprint("Error: All markers excluded.\n");
+    goto load_bim_ret_INVALID_FORMAT;
   }
   chrom_info_ptr->chrom_end[last_chrom] = marker_uidx;
   chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
@@ -718,6 +940,7 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
   load_bim_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
   }
+  free_cond(sf_pos);
   return retval;
 }
 

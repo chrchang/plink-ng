@@ -316,3 +316,62 @@ void collapse_chrom_marker_idxs(Chrom_info* chrom_info_ptr, unsigned long* marke
   chrom_fo_midxs[chrom_fo_idx] = new_midx;
 }
 */
+
+  /*
+// (using this as a dumping ground for old code that is likely enough to be
+// useful later that I don't want to be forced to dredge it from git)
+
+    collapse_arr(marker_alleles, 2, marker_exclude, unfiltered_marker_ct);
+    sscanf(output_missing_pheno, "%lg", &missing_phenod);
+    // if this becomes much more of a maintenance nightmare, consider exiting
+    // function and reloading from .bed from scratch
+    if (g_pheno_c) {
+      collapse_arr(g_pheno_c, sizeof(char), indiv_exclude, unfiltered_indiv_ct);
+    } else if (g_pheno_d) {
+      collapse_arr((char*)g_pheno_d, sizeof(double), indiv_exclude, unfiltered_indiv_ct);
+    }
+    if (sex_info) {
+      collapse_arr((char*)sex_info, sizeof(char), indiv_exclude, unfiltered_indiv_ct);
+    }
+    collapse_bitarr(marker_reverse, marker_exclude, unfiltered_marker_ct);
+    if ((calculation_type & CALC_WRITE_SNPLIST) || ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_LGEN))) {
+      collapse_arr(marker_ids, max_marker_id_len, marker_exclude, unfiltered_marker_ct);
+    }
+    if (calculation_type & (CALC_WRITE_SNPLIST | CALC_GENOME | CALC_LD_PRUNE)) {
+      collapse_chrom_marker_idxs(chrom_info_ptr, marker_exclude, unfiltered_marker_ct);
+      if (calculation_type & (CALC_GENOME | CALC_LD_PRUNE)) {
+	collapse_arr((char*)marker_pos, sizeof(int), marker_exclude, unfiltered_marker_ct);
+      }
+    }
+    collapse_arr(person_ids, max_person_id_len, indiv_exclude, unfiltered_indiv_ct);
+    if (fam_col_34) {
+      collapse_arr(paternal_ids, max_paternal_id_len, indiv_exclude, unfiltered_indiv_ct);
+      collapse_arr(maternal_ids, max_maternal_id_len, indiv_exclude, unfiltered_indiv_ct);
+      collapse_bitarr(founder_info, indiv_exclude, unfiltered_indiv_ct);
+    }
+    if (wt_needed) {
+      collapse_arr((char*)g_marker_weights, sizeof(double), marker_exclude, unfiltered_marker_ct);
+    }
+    collapse_arr((char*)set_allele_freqs, sizeof(double), marker_exclude, unfiltered_marker_ct);
+    unfiltered_marker_ct -= marker_exclude_ct;
+    marker_exclude_ct = 0;
+    fill_ulong_zero(marker_exclude, (unfiltered_marker_ct + (BITCT - 1)) / BITCT);
+    unfiltered_indiv_ct -= indiv_exclude_ct;
+    unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+    indiv_exclude_ct = 0;
+    fill_ulong_zero(indiv_exclude, (unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
+  }
+  if (!allow_no_sex) {
+    ii = indiv_exclude_ct;
+    exclude_ambiguous_sex(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, sex_info);
+    ii = indiv_exclude_ct - ii;
+    if (ii) {
+      sprintf(logbuf, "%d individual%s with unknown sex removed (prevent with --allow-no-sex).\n", ii, (ii == 1)? "" : "s");
+      logprintb();
+    }
+    g_indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
+    if (!g_indiv_ct) {
+      logprint("Error: No people remaining.\n");
+      goto wdist_ret_INVALID_FORMAT;
+    }
+  */
