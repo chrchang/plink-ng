@@ -106,20 +106,13 @@ char* item_endl(char* sptr) {
   return sptr;
 }
 
-char* item_endnn(char* sptr) {
-  while (!is_space_or_eoln(*sptr)) {
-    sptr++;
-  }
-  return sptr;
-}
-
-char* item_endnn2(char* sptr) {
-  char cc = *sptr;
-  while ((cc != ' ') && (cc != '\t') && cc) {
-    cc = *(++sptr);
-  }
-  return sptr;
-}
+// char* item_endnn2(char* sptr) {
+//   char cc = *sptr;
+//   while ((cc != ' ') && (cc != '\t') && cc) {
+//     cc = *(++sptr);
+//   }
+//   return sptr;
+// }
 
 int intlen(int num) {
   int retval;
@@ -179,7 +172,7 @@ char* next_item_mult(char* sptr, unsigned int ct) {
 
 void copy_item(char* writebuf, unsigned int* offset_ptr, char** prev_item_end_ptr) {
   char* item_start = skip_initial_spaces(*prev_item_end_ptr);
-  char* item_end = item_endnn2(item_start);
+  char* item_end = item_endnn(item_start);
   unsigned int slen = (item_end - item_start);
   unsigned int offset = *offset_ptr;
   memcpy(&(writebuf[offset]), item_start, slen);

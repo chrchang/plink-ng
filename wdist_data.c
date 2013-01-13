@@ -236,11 +236,11 @@ int load_map(FILE** mapfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
       return RET_INVALID_FORMAT;
     }
     bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln(*bufptr)) {
+    if (is_eoln_kns(*bufptr)) {
       continue;
     }
     bufptr = next_item(bufptr);
-    if (no_more_items(bufptr)) {
+    if (no_more_items_kns(bufptr)) {
       logprint(errstr_map_format);
       return RET_INVALID_FORMAT;
     }
@@ -319,7 +319,7 @@ int load_map(FILE** mapfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
         return RET_READ_FAIL;
       }
       bufptr = skip_initial_spaces(tbuf);
-    } while (is_eoln(*bufptr));
+    } while (is_eoln_kns(*bufptr));
     jj = marker_code(species, bufptr);
     if (jj == -1) {
       logprint("Error: Invalid chromosome index in .map/.bim file.\n");
@@ -355,17 +355,14 @@ int load_map(FILE** mapfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
     } else {
       bufptr = next_item(bufptr);
       if (*marker_ids_ptr) {
-        if (no_more_items(bufptr)) {
+        if (no_more_items_kns(bufptr)) {
 	  logprint(errstr_map_format);
           return RET_INVALID_FORMAT;
         }
         read_next_terminate(&((*marker_ids_ptr)[marker_uidx * max_marker_id_len]), bufptr);
       }
-      bufptr = next_item(bufptr);
-      if (*map_cols_ptr == 4) {
-	bufptr = next_item(bufptr);
-      }
-      if (no_more_items(bufptr)) {
+      bufptr = next_item_mult(bufptr, *map_cols_ptr - 2);
+      if (no_more_items_kns(bufptr)) {
         logprint(errstr_map_format);
         return RET_INVALID_FORMAT;
       }
@@ -394,7 +391,7 @@ int load_map(FILE** mapfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
 unsigned int load_bim_scan_position(unsigned int* pos_ptr, char* bufptr, unsigned int mcm2) {
   int ii;
   bufptr = next_item_mult(bufptr, mcm2);
-  if (no_more_items(bufptr)) {
+  if (no_more_items_kns(bufptr)) {
     return -1;
   }
   ii = atoi(bufptr);
@@ -565,7 +562,7 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
       goto load_bim_ret_INVALID_FORMAT_2;
     }
     bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln(*bufptr)) {
+    if (is_eoln_kns(*bufptr)) {
       continue;
     }
     ii = marker_code(species, bufptr);
@@ -577,7 +574,7 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
     }
 
     bufptr = next_item(bufptr);
-    if (no_more_items(bufptr)) {
+    if (no_more_items_kns(bufptr)) {
       goto load_bim_ret_INVALID_FORMAT_5;
     }
     ulii = strlen_se(bufptr) + 1;
@@ -590,10 +587,10 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
       }
       if (!unfiltered_marker_ct) {
 	bufptr2 = next_item_mult(bufptr, 3);
-	if (no_more_items(bufptr2)) {
+	if (no_more_items_kns(bufptr2)) {
 	  goto load_bim_ret_INVALID_FORMAT_5;
 	}
-	if (*(skip_initial_spaces(item_endnn2(bufptr2))) > ' ') {
+	if (*(skip_initial_spaces(item_endnn(bufptr2))) > ' ') {
 	  *map_cols_ptr = 4;
 	  mcm2 = 2;
 	}
@@ -834,7 +831,7 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
 	goto load_bim_ret_READ_FAIL;
       }
       bufptr = skip_initial_spaces(tbuf);
-    } while (is_eoln(*bufptr));
+    } while (is_eoln_kns(*bufptr));
     jj = marker_code(species, bufptr);
     if (jj != last_chrom) {
       if (last_chrom != -1) {
@@ -866,14 +863,14 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
     } else {
       bufptr = next_item(bufptr);
       if (*marker_ids_ptr) {
-        if (no_more_items(bufptr)) {
+        if (no_more_items_kns(bufptr)) {
 	  goto load_bim_ret_INVALID_FORMAT_5;
           return RET_INVALID_FORMAT;
         }
         read_next_terminate(&((*marker_ids_ptr)[marker_uidx * max_marker_id_len]), bufptr);
       }
       bufptr = next_item_mult(bufptr, mcm2);
-      if (no_more_items(bufptr)) {
+      if (no_more_items_kns(bufptr)) {
 	goto load_bim_ret_INVALID_FORMAT_5;
       }
       if (*bufptr == '-') {
@@ -895,7 +892,7 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
 	  if (*marker_alleles_ptr) {
 	    bufptr = next_item(bufptr);
 	    bufptr2 = next_item(bufptr);
-	    if (no_more_items(bufptr2)) {
+	    if (no_more_items_kns(bufptr2)) {
 	      goto load_bim_ret_INVALID_FORMAT_5;
 	    }
 	    (*marker_alleles_ptr)[marker_uidx * 2] = *bufptr;
@@ -909,6 +906,7 @@ int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int*
     logprint("Error: All markers excluded.\n");
     goto load_bim_ret_INVALID_FORMAT;
   }
+  chrom_info_ptr->chrom_mask &= loaded_chrom_mask;
   chrom_info_ptr->chrom_end[last_chrom] = marker_uidx;
   chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
   chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
@@ -1034,7 +1032,7 @@ int sort_and_write_bim(int** map_reverse_ptr, FILE* mapfile, int map_cols, FILE*
 	return RET_READ_FAIL;
       }
       bufptr = skip_initial_spaces(tbuf);
-    } while (is_eoln(*bufptr));
+    } while (is_eoln_kns(*bufptr));
     if (is_set(marker_exclude, marker_uidx)) {
       continue;
     }
@@ -1413,7 +1411,7 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
 	  return RET_READ_FAIL;
 	}
 	bufptr = skip_initial_spaces(tbuf);
-      } while (is_eoln(*bufptr));
+      } while (is_eoln_kns(*bufptr));
       if (is_set(marker_exclude, marker_uidx)) {
 	continue;
       }
@@ -1507,7 +1505,7 @@ int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34,
 	}
 	if (fam_col_6) {
 	  bufptr = next_item(bufptr);
-	  if (no_more_items(bufptr)) {
+	  if (no_more_items_kns(bufptr)) {
 	    logprint(errstr_fam_format);
 	    return RET_INVALID_FORMAT;
 	  }
@@ -1693,7 +1691,7 @@ int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34,
     }
     if (!binary_files) {
       bufptr = next_item(bufptr);
-      if (no_more_items(bufptr)) {
+      if (no_more_items_kns(bufptr)) {
 	logprint(errstr_fam_format);
 	return RET_INVALID_FORMAT;
       }
@@ -1716,14 +1714,14 @@ int check_gd_col(FILE* bimfile, char* tbuf, unsigned int is_binary, unsigned int
   char* bufptr;
   while (fgets(tbuf, MAXLINELEN - 5, bimfile)) {
     bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln(*bufptr)) {
+    if (is_eoln_kns(*bufptr)) {
       continue;
     }
     bufptr = next_item_mult(bufptr, 2 + 2 * is_binary);
-    if (no_more_items(bufptr)) {
+    if (no_more_items_kns(bufptr)) {
       return -1;
     }
-    if (no_more_items(next_item(bufptr))) {
+    if (no_more_items_kns(next_item(bufptr))) {
       *gd_col_ptr = 0;
     }
     *gd_col_ptr = 1;
@@ -1819,12 +1817,12 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
       goto ped_to_bed_ret_INVALID_FORMAT_2;
     }
     col1_ptr = skip_initial_spaces(tbuf);
-    if (is_eoln(*col1_ptr)) {
+    if (is_eoln_kns(*col1_ptr)) {
       continue;
     }
     col2_ptr = next_item(col1_ptr);
     bufptr = next_item_mult(col2_ptr, 1 + gd_col);
-    if (no_more_items(bufptr)) {
+    if (no_more_items_kns(bufptr)) {
       sprintf(logbuf, "Error: Missing columns in .map line: %s", col1_ptr);
       goto ped_to_bed_ret_INVALID_FORMAT_2;
     }
@@ -1920,7 +1918,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
       goto ped_to_bed_ret_NOMEM;
     }
     col1_ptr = skip_initial_spaces(loadbuf);
-    if (is_eoln(*col1_ptr) || (*col1_ptr == '#')) {
+    if (is_eoln_kns(*col1_ptr) || (*col1_ptr == '#')) {
       ulii = strlen(loadbuf) + 1;
       if (ulii > ped_buflen) {
 	ped_buflen = ulii;
@@ -1933,7 +1931,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
       col2_ptr = col1_ptr;
     }
     bufptr = next_item_mult(col2_ptr, ped_col_skip - 1);
-    if (no_more_items(bufptr)) {
+    if (no_more_items_kns(bufptr)) {
       sprintf(logbuf, "\nError: Missing columns in .ped line: %s\n", col1_ptr);
       goto ped_to_bed_ret_INVALID_FORMAT_2;
     }
@@ -1948,7 +1946,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
     memcpy(&(tbuf[uii]), col2_ptr, ujj);
     uii += ujj;
     tbuf[uii++] = '\t';
-    bufptr2 = item_endnn2(col2_ptr);
+    bufptr2 = item_endnn(col2_ptr);
     if (fam_col_34) {
       copy_item(tbuf, &uii, &bufptr2);
       copy_item(tbuf, &uii, &bufptr2);
@@ -2004,7 +2002,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
       }
       marker_idx++;
     }
-    if (!is_eoln(*bufptr)) {
+    if (!is_eoln_kns(*bufptr)) {
       sprintf(logbuf, "\nError: Too many markers in .ped file for person %u.\n", indiv_ct + 1);
       goto ped_to_bed_ret_INVALID_FORMAT_2;
     }
@@ -2060,7 +2058,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
 	  if (!fgets(loadbuf, MAXLINELEN, mapfile)) {
 	    goto ped_to_bed_ret_READ_FAIL;
 	  }
-	} while (is_eoln(*(skip_initial_spaces(tbuf))));
+	} while (is_eoln_kns(*(skip_initial_spaces(tbuf))));
 	marker_uidx++;
       }
       do {
@@ -2068,7 +2066,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
 	  goto ped_to_bed_ret_READ_FAIL;
 	}
 	bufptr = skip_initial_spaces(tbuf);
-      } while (is_eoln(*bufptr));
+      } while (is_eoln_kns(*bufptr));
       bufptr3 = bufptr;
     }
     if (marker_alleles[marker_idx * 4 + 2]) {
@@ -2203,7 +2201,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, int fam_col_1, int f
 	      goto ped_to_bed_ret_READ_FAIL_2;
 	    }
 	    col1_ptr = skip_initial_spaces(loadbuf);
-	  } while (is_eoln(*col1_ptr));
+	  } while (is_eoln_kns(*col1_ptr));
 	  bufptr = next_item_mult(col1_ptr, ped_col_skip);
 	} else {
 	  ped_next_thresh = line_starts[indiv_idx];
@@ -2515,7 +2513,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   pct = 0;
   while (fgets(tbuf, MAXLINELEN, infile)) {
     cptr = skip_initial_spaces(tbuf);
-    if (is_eoln(*cptr)) {
+    if (is_eoln_kns(*cptr)) {
       continue;
     }
     cptr2 = next_item(cptr);
@@ -2526,7 +2524,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
     }
     cptr5 = skip_initial_spaces(cptr4);
     cptr6 = skip_initial_spaces(&(cptr5[1]));
-    if (no_more_items(cptr6)) {
+    if (no_more_items_kns(cptr6)) {
       goto lgen_to_bed_ret_INVALID_FORMAT;
     }
     ii = bsearch_fam_indiv(id_buf, sorted_indiv_ids, max_person_id_len, indiv_ct, cptr, cptr2);
@@ -2672,7 +2670,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
   uii = 0;
   marker_idx = 0;
   while (fgets(tbuf, MAXLINELEN, infile)) {
-    if (is_eoln(*(skip_initial_spaces(tbuf)))) {
+    if (is_eoln_kns(*(skip_initial_spaces(tbuf)))) {
       continue;
     }
     if (is_set(marker_exclude, uii)) {
@@ -2716,7 +2714,7 @@ int lgen_to_bed(char* lgen_namebuf, char* outname, int missing_pheno, int affect
     }
     while (fgets(tbuf, MAXLINELEN, infile)) {
       cptr = skip_initial_spaces(tbuf);
-      if (is_eoln(*cptr)) {
+      if (is_eoln_kns(*cptr)) {
 	continue;
       }
       ulii = strlen(cptr);
@@ -2878,7 +2876,7 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
   }
   while (fgets(tbuf, MAXLINELEN, infile)) {
     cptr = skip_initial_spaces(tbuf);
-    if (is_eoln(*cptr)) {
+    if (is_eoln_kns(*cptr)) {
       continue;
     }
     ulii = strlen(cptr);
@@ -2937,13 +2935,13 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
   }
   while (fgets(loadbuf, max_load, infile)) {
     cptr = skip_initial_spaces(loadbuf);
-    if (is_eoln(*cptr)) {
+    if (is_eoln_kns(*cptr)) {
       continue;
     }
     cptr2 = next_item(cptr);
     cptr3 = next_item_mult(cptr2, 2);
     cptr4 = next_item(cptr3);
-    if (no_more_items(cptr4)) {
+    if (no_more_items_kns(cptr4)) {
       goto transposed_to_bed_ret_INVALID_FORMAT;
     }
     if (ftello(infile) >= tped_next_thresh) {
@@ -2980,14 +2978,14 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
       last_mapval = cur_mapval;
     }
     for (uii = 0; uii < 3; uii++) {
-      cptr2 = item_endnn2(cptr);
+      cptr2 = item_endnn(cptr);
       *cptr2++ = '\t';
       if (fwrite_checked(cptr, (cptr2 - cptr), bimfile)) {
 	goto transposed_to_bed_ret_WRITE_FAIL;
       }
       cptr = skip_initial_spaces(cptr2);
     }
-    cptr2 = item_endnn2(cptr);
+    cptr2 = item_endnn(cptr);
     *cptr2++ = '\t';
     if (fwrite_checked(cptr, (cptr2 - cptr), bimfile)) {
       goto transposed_to_bed_ret_WRITE_FAIL;
@@ -3025,7 +3023,7 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
       }
     }
 
-    if (no_extra_cols && (!is_eoln(*cptr2)) && (*cptr2 != '\0')) {
+    if (no_extra_cols && (!is_eoln_kns(*cptr2))) {
       no_extra_cols = 0;
       putchar('\r');
       logprint("Note: Extra columns in .tped file.  Ignoring.\n");
@@ -3597,14 +3595,14 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
 	  if (fgets(tbuf, MAXLINELEN, bimfile) == NULL) {
 	    return RET_READ_FAIL;
 	  }
-	} while (is_eoln(*(skip_initial_spaces(tbuf))));
+	} while (is_eoln_kns(*(skip_initial_spaces(tbuf))));
 	if (is_set(marker_exclude, marker_uidx)) {
 	  do {
 	    do {
 	      if (fgets(tbuf, MAXLINELEN, bimfile) == NULL) {
 		return RET_READ_FAIL;
 	      }
-	    } while (is_eoln(*(skip_initial_spaces(tbuf))));
+	    } while (is_eoln_kns(*(skip_initial_spaces(tbuf))));
 	  } while (is_set(marker_exclude, ++marker_uidx));
 	  if (fseeko(bedfile, bed_offset + (marker_uidx * unfiltered_indiv_ct4), SEEK_SET)) {
 	    return RET_READ_FAIL;
@@ -3613,7 +3611,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
 
 	wbufptr = skip_initial_spaces(tbuf);
 	for (indiv_idx = 0; indiv_idx < 3; indiv_idx++) {
-	  cptr = item_endnn2(wbufptr);
+	  cptr = item_endnn(wbufptr);
 	  ulii = 1 + (unsigned long)(cptr - wbufptr);
 	  *cptr = delimiter;
 	  if (fwrite_checked(wbufptr, ulii, *outfile_ptr)) {
@@ -3883,7 +3881,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
       }
       wbufptr = tbuf;
       for (loop_end = 0; loop_end < 5; loop_end++) {
-	cptr = item_endnn2(wbufptr);
+	cptr = item_endnn(wbufptr);
 	ulii = 1 + (unsigned long)(cptr - wbufptr);
 	*cptr = delimiter;
 	if (fwrite_checked(wbufptr, ulii, *outfile_ptr)) {
@@ -3930,13 +3928,13 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
     for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
       do {
 	fgets(tbuf, MAXLINELEN, bimfile);
-      } while (is_eoln(*(skip_initial_spaces(tbuf))));
+      } while (is_eoln_kns(*(skip_initial_spaces(tbuf))));
       if (is_set(marker_exclude, marker_uidx)) {
 	continue;
       }
       wbufptr = tbuf;
       for (loop_end = 0; loop_end < 3; loop_end++) {
-	cptr = item_endnn2(wbufptr);
+	cptr = item_endnn(wbufptr);
 	ulii = 1 + (unsigned long)(cptr - wbufptr);
 	*cptr = cc;
 	if (fwrite_checked(wbufptr, ulii, *outfile_ptr)) {
@@ -4065,26 +4063,26 @@ int merge_fam_id_scan(char* bedname, char* famname, unsigned int* max_person_id_
   while (fgets(tbuf, MAXLINELEN, infile)) {
     col1_start_ptr = skip_initial_spaces(tbuf);
     cc = *col1_start_ptr;
-    if ((!is_eoln(cc)) && (cc != '#')) {
-      col1_end_ptr = item_endnn2(col1_start_ptr);
+    if ((!is_eoln_kns(cc)) && (cc != '#')) {
+      col1_end_ptr = item_endnn(col1_start_ptr);
       col1_len = col1_end_ptr - col1_start_ptr;
       col2_start_ptr = skip_initial_spaces(col1_end_ptr);
-      col2_end_ptr = item_endnn2(col2_start_ptr);
+      col2_end_ptr = item_endnn(col2_start_ptr);
       col2_len = col2_end_ptr - col2_start_ptr;
       col3_start_ptr = skip_initial_spaces(col2_end_ptr);
-      col4_start_ptr = item_endnn2(col3_start_ptr);
+      col4_start_ptr = item_endnn(col3_start_ptr);
       col3_len = col4_start_ptr - col3_start_ptr;
       col4_start_ptr = skip_initial_spaces(col4_start_ptr);
-      col5_start_ptr = item_endnn2(col4_start_ptr);
+      col5_start_ptr = item_endnn(col4_start_ptr);
       col4_len = col5_start_ptr - col4_start_ptr;
       col5_start_ptr = skip_initial_spaces(col5_start_ptr);
-      col6_start_ptr = item_endnn2(col5_start_ptr);
+      col6_start_ptr = item_endnn(col5_start_ptr);
       uii = col6_start_ptr - col5_start_ptr;
       if (uii != 1) {
 	*col5_start_ptr = '0';
       }
       col6_start_ptr = skip_initial_spaces(col6_start_ptr);
-      if (no_more_items(col6_start_ptr)) {
+      if (no_more_items_kns(col6_start_ptr)) {
 	goto merge_fam_id_scan_ret_INVALID_FORMAT;
       }
       *col1_end_ptr = '\t';
@@ -4241,7 +4239,7 @@ int merge_bim_scan(char* bimname, unsigned int is_binary, unsigned long* max_mar
   }
   do {
     bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln(*bufptr)) {
+    if (is_eoln_kns(*bufptr)) {
       continue;
     }
     ii = marker_code(species, bufptr);
@@ -4253,7 +4251,7 @@ int merge_bim_scan(char* bimname, unsigned int is_binary, unsigned long* max_mar
     bufptr2 = item_endl(bufptr);
     uii = bufptr2 - bufptr;
     bufptr2 = skip_initial_spaces(bufptr2);
-    if (no_more_items(bufptr2)) {
+    if (no_more_items_kns(bufptr2)) {
       goto merge_bim_scan_ret_INVALID_FORMAT_2;
     }
     if (gd_col) {
@@ -4261,7 +4259,7 @@ int merge_bim_scan(char* bimname, unsigned int is_binary, unsigned long* max_mar
 	gd_val = 0;
       }
       bufptr2 = next_item(bufptr2);
-      if (no_more_items(bufptr2)) {
+      if (no_more_items_kns(bufptr2)) {
 	goto merge_bim_scan_ret_INVALID_FORMAT_2;
       }
     }
@@ -4270,7 +4268,7 @@ int merge_bim_scan(char* bimname, unsigned int is_binary, unsigned long* max_mar
       if (is_binary) {
 	bufptr2 = next_item(bufptr2);
 	bufptr3 = next_item(bufptr2);
-	if (no_more_items(bufptr3)) {
+	if (no_more_items_kns(bufptr3)) {
 	  goto merge_bim_scan_ret_INVALID_FORMAT_2;
 	}
 	cc = *bufptr2;
@@ -4485,7 +4483,7 @@ static inline int merge_first_mode(int mm, unsigned int merge_disallow_equal_pos
 }
 
 int merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* person_id, unsigned char newval, unsigned char oldval, char* marker_alleles) {
-  char* bufptr = item_endnn2(marker_id);
+  char* bufptr = item_endnn(marker_id);
   unsigned int slen = bufptr - marker_id;
   char ma1[4];
   char ma2[4];
@@ -4502,7 +4500,7 @@ int merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* person_i
   ma2[1] = '0';
   ma2[2] = marker_alleles[1];
   ma2[3] = marker_alleles[1];
-  bufptr = item_endnn2(person_id);
+  bufptr = item_endnn(person_id);
   slen = (bufptr++) - person_id;
   memcpy(idbuf, person_id, slen);
   idbuf[slen] = '\0';
@@ -4562,12 +4560,12 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
     }
     while (fgets(tbuf, MAXLINELEN, infile2)) {
       bufptr = skip_initial_spaces(tbuf);
-      if (is_eoln(*bufptr)) {
+      if (is_eoln_kns(*bufptr)) {
 	continue;
       }
-      bufptr2 = item_endnn2(bufptr);
+      bufptr2 = item_endnn(bufptr);
       bufptr3 = skip_initial_spaces(bufptr2);
-      bufptr4 = item_endnn2(bufptr3);
+      bufptr4 = item_endnn(bufptr3);
       uii = (bufptr2 - bufptr);
       ujj = (bufptr4 - bufptr3);
       memcpy(idbuf, bufptr, uii);
@@ -4607,7 +4605,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
   }
   do {
     bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln(*bufptr)) {
+    if (is_eoln_kns(*bufptr)) {
       continue;
     }
     ++marker_in_idx;
@@ -4622,7 +4620,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
       }
       continue;
     }
-    bufptr3 = item_endnn2(bufptr);
+    bufptr3 = item_endnn(bufptr);
     uii = (bufptr3 - bufptr);
     memcpy(idbuf, bufptr, uii);
     idbuf[uii] = '\0';
@@ -4645,7 +4643,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
       }
       bufptr2 = next_item(bufptr2);
       bufptr3 = next_item(bufptr2);
-      if (no_more_items(bufptr3)) {
+      if (no_more_items_kns(bufptr3)) {
 	goto merge_main_ret_READ_FAIL;
       }
       ucc = *bufptr2;
@@ -4926,15 +4924,15 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
     while (fgets((char*)readbuf, ped_buflen, bedfile)) {
       bufptr = skip_initial_spaces((char*)readbuf);
       cc = *bufptr;
-      if ((is_eoln(cc)) || (cc == '#')) {
+      if ((is_eoln_kns(cc)) || (cc == '#')) {
 	continue;
       }
-      bufptr2 = item_endnn2(bufptr);
+      bufptr2 = item_endnn(bufptr);
       uii = (bufptr2 - bufptr);
       memcpy(idbuf, bufptr, uii);
       idbuf[uii] = '\t';
       bufptr3 = skip_initial_spaces(bufptr2);
-      bufptr2 = item_endnn2(bufptr3);
+      bufptr2 = item_endnn(bufptr3);
       ujj = (bufptr2 - bufptr3);
       memcpy(&(idbuf[uii + 1]), bufptr3, ujj);
       idbuf[uii + ujj + 1] = '\0';
@@ -4963,12 +4961,12 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
       }
       for (marker_in_idx = 0; marker_in_idx < last_marker_in_idx; marker_in_idx++) {
 	cc = *bufptr3;
-	if (is_eoln(cc)) {
+	if (is_eoln_kns(cc)) {
 	  goto merge_main_ret_INVALID_FORMAT_2;
 	}
 	bufptr3 = skip_initial_spaces(&(bufptr3[1]));
 	cc2 = *bufptr3;
-	if (is_eoln(cc2)) {
+	if (is_eoln_kns(cc2)) {
 	  goto merge_main_ret_INVALID_FORMAT_2;
 	}
 	bufptr3 = skip_initial_spaces(&(bufptr3[1]));
@@ -5232,15 +5230,15 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     // > 3 entries
     while (fgets(tbuf, MAXLINELEN, mergelistfile)) {
       bufptr = skip_initial_spaces(tbuf);
-      if (no_more_items(bufptr)) {
+      if (no_more_items_kns(bufptr)) {
 	continue;
       }
       bufptr2 = next_item_mult(bufptr, 3);
-      if (!no_more_items(bufptr2)) {
+      if (!no_more_items_kns(bufptr2)) {
 	logprint("Error: More than three items on --merge-list line.\n");
         goto merge_datasets_ret_INVALID_FORMAT;
       }
-      if (no_more_items(next_item(bufptr))) {
+      if (no_more_items_kns(next_item(bufptr))) {
 	bufptr2 = item_endnn(bufptr);
 	ulii = bufptr2 - bufptr;
 	if (ulii > FNAMESIZE - 5) {
@@ -5258,7 +5256,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
 	  }
 	  ullxx += ulii + 1;
 	  bufptr = skip_initial_spaces(bufptr2);
-	} while (!no_more_items(bufptr));
+	} while (!no_more_items_kns(bufptr));
       }
       merge_ct++;
     }
@@ -5285,13 +5283,13 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
     mlpos = 1;
     while (fgets(tbuf, MAXLINELEN, mergelistfile)) {
       bufptr = skip_initial_spaces(tbuf);
-      if (no_more_items(bufptr)) {
+      if (no_more_items_kns(bufptr)) {
 	continue;
       }
       bufptr2 = item_endnn(bufptr);
       ulii = (bufptr2 - bufptr);
       bufptr3 = skip_initial_spaces(bufptr2);
-      if (no_more_items(bufptr3)) {
+      if (no_more_items_kns(bufptr3)) {
         memcpy(bufptr4, bufptr, ulii);
 	memcpy(&(bufptr4[ulii]), ".bed", 5);
 	mergelist_bed[mlpos] = bufptr4;
@@ -5316,7 +5314,7 @@ int merge_datasets(char* bedname, char* bimname, char* famname, char* outname, c
 	bufptr4[ulii] = '\0';
 	mergelist_bim[mlpos] = bufptr4;
 	bufptr4 = &(bufptr4[ulii + 1]);
-	if (no_more_items(bufptr)) {
+	if (no_more_items_kns(bufptr)) {
 	  mergelist_fam[mlpos] = NULL;
 	} else {
 	  bufptr2 = item_endnn(bufptr);

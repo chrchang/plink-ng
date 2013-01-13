@@ -877,7 +877,7 @@ int disp_help(unsigned int param_ct, char** argv) {
 "  --merge-allow-equal-pos   : Do not merge markers with different names but\n"
 "                              identical positions.\n"
 	       );
-    help_print("reference-allele", &help_ctrl, 0,
+    help_print("reference-allele\tupdate-ref-allele", &help_ctrl, 0,
 "  --reference-allele [file] : Force alleles named in the file to A1.\n"
 	       );
     help_print("read-freq\tupdate-freq", &help_ctrl, 0,
@@ -1225,12 +1225,12 @@ int determine_max_id_len(FILE* filterfile, char* filterval, int mfilter_col, int
       return -1;
     }
     bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln(*bufptr)) {
+    if (is_eoln_kns(*bufptr)) {
       continue;
     }
     ii = 2 + strlen_se(bufptr);
     bufptr = next_item(bufptr);
-    if (no_more_items(bufptr)) {
+    if (no_more_items_kns(bufptr)) {
       logprint(errstr_filter_format);
       return -1;
     }
@@ -1242,7 +1242,7 @@ int determine_max_id_len(FILE* filterfile, char* filterval, int mfilter_col, int
       for (jj = 0; jj < mfilter_col; jj++) {
 	bufptr = next_item(bufptr);
       }
-      if (no_more_items(bufptr)) {
+      if (no_more_items_kns(bufptr)) {
         logprint(errstr_filter_format);
 	return -1;
       }
@@ -4416,12 +4416,12 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
       return RET_INVALID_FORMAT;
     }
     bufptr0 = skip_initial_spaces(tbuf);
-    if (is_eoln(*bufptr0)) {
+    if (is_eoln_kns(*bufptr0)) {
       continue;
     }
     tmp_len = strlen_se(bufptr0);
     bufptr = next_item(bufptr0);
-    if (no_more_items(bufptr)) {
+    if (no_more_items_kns(bufptr)) {
       logprint(errstr_phenotype_format);
       logprint("At least two items expected in line.\n");
       sprintf(logbuf, "Original line: %s", bufptr0);
@@ -4435,7 +4435,7 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
 	  tmp_len = strlen(phenoname_str);
 	  do {
 	    bufptr = next_item(bufptr);
-	    if (no_more_items(bufptr)) {
+	    if (no_more_items_kns(bufptr)) {
 	      logprint("Error: --pheno-name column not found.\n");
 	      return RET_INVALID_FORMAT;
 	    }
@@ -4457,7 +4457,7 @@ int load_pheno(FILE* phenofile, unsigned int unfiltered_indiv_ct, unsigned int i
       if (person_idx != -1) {
 	person_idx = id_map[person_idx];
 	bufptr = next_item_mult(bufptr, mpheno_col);
-	if (no_more_items(bufptr)) {
+	if (no_more_items_kns(bufptr)) {
 	  logprint(errstr_phenotype_format);
 	  logprint("Fewer entries than expected in line.\n");
 	  sprintf(logbuf, "Original line: %s", bufptr0);
@@ -4565,11 +4565,11 @@ int makepheno_load(FILE* phenofile, char* makepheno_str, unsigned int unfiltered
       return RET_INVALID_FORMAT;
     }
     bufptr0 = skip_initial_spaces(tbuf);
-    if (is_eoln(*bufptr0)) {
+    if (is_eoln_kns(*bufptr0)) {
       continue;
     }
     bufptr = next_item(bufptr0);
-    if (no_more_items(bufptr)) {
+    if (no_more_items_kns(bufptr)) {
       logprint(errstr_phenotype_format);
       return RET_INVALID_FORMAT;
     }
@@ -4723,11 +4723,11 @@ int include_or_exclude(char* fname, char* sorted_ids, int sorted_ids_len, unsign
         return RET_INVALID_FORMAT;
       }
       bufptr0 = skip_initial_spaces(tbuf);
-      if (is_eoln(*bufptr0)) {
+      if (is_eoln_kns(*bufptr0)) {
 	continue;
       }
       bufptr = next_item(tbuf);
-      if (no_more_items(bufptr)) {
+      if (no_more_items_kns(bufptr)) {
 	logprint("Error: Improperly formatted --keep/--remove file.\n");
         return RET_INVALID_FORMAT;
       }
@@ -4806,17 +4806,18 @@ int filter_indivs_file(char* filtername, char* sorted_person_ids, int sorted_ids
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, infile)) {
-    if (is_eoln(*tbuf)) {
-      continue;
-    }
     if (!tbuf[MAXLINELEN - 1]) {
       sprintf(logbuf, "Error: Excessively long line in --keep/--remove file (max %d chars).\n", MAXLINELEN - 3);
       logprintb();
       fclose(infile);
       return RET_INVALID_FORMAT;
     }
-    bufptr = next_item(tbuf);
-    if (no_more_items(bufptr)) {
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    bufptr = next_item(bufptr);
+    if (no_more_items_kns(bufptr)) {
       logprint("Error: Improperly formatted --filter file.\n");
       fclose(infile);
       return RET_INVALID_FORMAT;
@@ -4828,7 +4829,7 @@ int filter_indivs_file(char* filtername, char* sorted_person_ids, int sorted_ids
 	for (ii = 0; ii < mfilter_col; ii++) {
 	  bufptr = next_item(bufptr);
 	}
-	if (no_more_items(bufptr)) {
+	if (no_more_items_kns(bufptr)) {
 	  logprint("Error: Improperly formatted --filter file.\n");
 	  fclose(infile);
 	  return RET_INVALID_FORMAT;
@@ -5354,11 +5355,11 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
 	    goto read_external_freqs_ret_INVALID_FORMAT;
 	  }
           bufptr = next_item(bufptr2);
-          if (no_more_items(bufptr)) {
+          if (no_more_items_kns(bufptr)) {
             goto read_external_freqs_ret_INVALID_FORMAT;
           }
 	  if (freq_counts) {
-	    if (no_more_items(next_item(bufptr))) {
+	    if (no_more_items_kns(next_item(bufptr))) {
 	      goto read_external_freqs_ret_INVALID_FORMAT;
 	    }
 	    c_hom_a1 = atoi(bufptr);
@@ -5406,7 +5407,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
 	  bufptr = next_item(bufptr2);
 	  bufptr2 = next_item(bufptr);
 	  bufptr3 = next_item(bufptr2);
-	  if (no_more_items(bufptr3)) {
+	  if (no_more_items_kns(bufptr3)) {
 	    goto read_external_freqs_ret_INVALID_FORMAT;
 	  }
 	  c_hom_a1 = atoi(bufptr);
@@ -5427,10 +5428,11 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
     // Also support GCTA-style frequency files:
     // [marker ID]\t[reference allele]\t[frequency of reference allele]\n
     do {
-      if (is_eoln(*tbuf)) {
+      bufptr = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*bufptr)) {
 	continue;
       }
-      bufptr = next_item(tbuf);
+      bufptr = next_item(bufptr);
       if (!bufptr) {
         goto read_external_freqs_ret_INVALID_FORMAT;
       }
@@ -5440,7 +5442,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
         ii = id_map[ii];
         cc = *bufptr;
         bufptr = next_item(bufptr);
-	if (no_more_items(bufptr)) {
+	if (no_more_items_kns(bufptr)) {
           goto read_external_freqs_ret_INVALID_FORMAT;
 	}
         if (sscanf(bufptr, "%lg", &maf) != 1) {
@@ -5455,7 +5457,7 @@ int read_external_freqs(char* freqname, FILE** freqfile_ptr, int unfiltered_mark
       } else {
 	// if there aren't exactly 3 columns, this isn't a GCTA .freq file
 	bufptr = next_item(bufptr);
-	if (no_more_items(bufptr) || (!no_more_items(next_item(bufptr)))) {
+	if (no_more_items_kns(bufptr) || (!no_more_items_kns(next_item(bufptr)))) {
 	  goto read_external_freqs_ret_INVALID_FORMAT;
 	}
       }
@@ -5667,12 +5669,12 @@ int load_ref_alleles(char* infilename, unsigned int unfiltered_marker_ct, char* 
   }
   while (fgets(tbuf, MAXLINELEN, infile)) {
     bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln(*bufptr)) {
+    if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    bufptr2 = item_endnn2(bufptr);
+    bufptr2 = item_endnn(bufptr);
     bufptr3 = skip_initial_spaces(bufptr2);
-    if (is_eoln(*bufptr3)) {
+    if (is_eoln_kns(*bufptr3)) {
       logprint("Error: Improperly formatted --reference-allele file.\n");
       goto load_ref_alleles_ret_INVALID_FORMAT;
     }
@@ -5845,7 +5847,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     goto calc_regress_pcs_ret_INVALID_FORMAT2;
   }
   bufptr = skip_initial_spaces(tbuf);
-  if (no_more_items(bufptr)) {
+  if (no_more_items_kns(bufptr)) {
     goto calc_regress_pcs_ret_INVALID_FORMAT;
   }
   if (memcmp(bufptr, "#eigvals:", 9)) {
@@ -5853,7 +5855,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     bufptr = next_item(bufptr);
   }
   bufptr = next_item(bufptr);
-  while ((!no_more_items(bufptr)) && ((*bufptr == '-') || ((*bufptr >= '0') && (*bufptr <= '9')))) {
+  while ((!no_more_items_kns(bufptr)) && ((*bufptr == '-') || ((*bufptr >= '0') && (*bufptr <= '9')))) {
     pc_ct++;
     bufptr = next_item(bufptr);
   }
@@ -5900,7 +5902,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
       // todo: validate, and perhaps permute, family/indiv IDs
       bufptr = next_item_mult(skip_initial_spaces(tbuf), 2);
       for (ii = 0; ii < pc_ct; ii++) {
-	if (no_more_items(bufptr)) {
+	if (no_more_items_kns(bufptr)) {
 	  goto calc_regress_pcs_ret_INVALID_FORMAT;
 	}
 	if (sscanf(bufptr, "%lg", &(pc_matrix[ii * indiv_ct + indiv_idx])) != 1) {
@@ -5933,7 +5935,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
       }
       bufptr = next_item(skip_initial_spaces(tbuf));
       for (ii = 0; ii < pc_ct; ii++) {
-	if (no_more_items(bufptr)) {
+	if (no_more_items_kns(bufptr)) {
 	  goto calc_regress_pcs_ret_INVALID_FORMAT;
 	}
 	if (sscanf(bufptr, "%lg", &(pc_matrix[ii * indiv_ct + indiv_idx])) != 1) {
@@ -5945,7 +5947,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     }
   }
   if (fgets(tbuf, MAXLINELEN, evecfile)) {
-    if (!no_more_items(skip_initial_spaces(tbuf))) {
+    if (!no_more_items_kns(skip_initial_spaces(tbuf))) {
       sprintf(logbuf, "Error: More individuals in .e%svec file than expected.\n", is_eigenvec? "igen" : "");
       logprintb();
       goto calc_regress_pcs_ret_INVALID_FORMAT2;
@@ -9118,7 +9120,7 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_ca
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, idfile)) {
-    if (is_eoln(*tbuf)) {
+    if (is_eoln_kns(*(skip_initial_spaces(tbuf)))) {
       continue;
     }
     if (!tbuf[MAXLINELEN - 1]) {
@@ -9188,7 +9190,7 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_ca
 	  }
 	}
 	bufptr = next_item_mult(tbuf, 3);
-	if (no_more_items(bufptr)) {
+	if (no_more_items_kns(bufptr)) {
 	  goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
 	}
 	if (sscanf(bufptr, "%lg", &dxx) != 1) {
@@ -9395,7 +9397,7 @@ int rel_cutoff_batch(char* grmname, char* outname, double rel_cutoff, int rel_ca
     if (fgets(tbuf, MAXLINELEN, idfile) == NULL) {
       goto rel_cutoff_batch_ret_READ_FAIL;
     }
-    if (is_eoln(*tbuf)) {
+    if (is_eoln_kns(*(skip_initial_spaces(tbuf)))) {
       continue;
     }
     if (rel_ct_arr[indiv_idx] != -1) {
@@ -11576,7 +11578,7 @@ int main(int argc, char** argv) {
       mm = 0;
       oo = 0;
       do {
-	if (no_more_items(sptr)) {
+	if (no_more_items_kns(sptr)) {
 	  print_ver();
 	  fputs("Error: Improperly formatted --rerun log file.\n", stdout);
 	  goto main_ret_INVALID_FORMAT;
@@ -11745,6 +11747,10 @@ int main(int argc, char** argv) {
       case 'u':
 	if (!memcmp(argptr, "update-freq", 12)) {
 	  memcpy(flagptr, "read-freq", 10);
+	  break;
+	} else if (!memcmp(argptr, "update-ref-allele", 18)) {
+	  // GCTA alias
+	  memcpy(flagptr, "reference-allele", 17);
 	  break;
 	}
 	// fall through

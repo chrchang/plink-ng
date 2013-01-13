@@ -57,26 +57,26 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   }
   item_begin = skip_initial_spaces(tbuf);
   bufptr = next_item_mult(item_begin, 2);
-  if (no_more_items(bufptr)) {
+  if (no_more_items_kns(bufptr)) {
     goto oxford_sample_load_ret_INVALID_FORMAT_3;
   }
   if (strcmp_se(item_begin, "ID_1", 4) || strcmp_se(next_item(item_begin), "ID_2", 4) || strcmp_se(bufptr, "missing", 7)) {
     goto oxford_sample_load_ret_INVALID_FORMAT_3;
   }
   bufptr = next_item(bufptr);
-  if (!no_more_items(bufptr)) {
+  if (!no_more_items_kns(bufptr)) {
     if (strcmp_se(bufptr, "sex", 3)) {
       *sex_info_ptr = NULL;
       load_pheno = 1;
     } else {
       load_sex = 1;
       bufptr = next_item(bufptr);
-      if (!no_more_items(bufptr)) {
+      if (!no_more_items_kns(bufptr)) {
 	load_pheno = 1;
       }
     }
     if (load_pheno) {
-      if (!no_more_items(next_item(bufptr))) {
+      if (!no_more_items_kns(next_item(bufptr))) {
 	load_pheno++;
       }
     }
@@ -94,7 +94,7 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   }
   item_begin = skip_initial_spaces(tbuf);
   bufptr = next_item_mult(item_begin, 2);
-  if (no_more_items(bufptr)) {
+  if (no_more_items_kns(bufptr)) {
     goto oxford_sample_load_ret_INVALID_FORMAT;
   }
   if (strcmp_se(item_begin, "0", 1) || strcmp_se(next_item(item_begin), "0", 1) || strcmp_se(bufptr, "0", 1)) {
@@ -102,13 +102,13 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   }
   if (load_sex) {
     bufptr = next_item(bufptr);
-    if (no_more_items(bufptr) || strcmp_se(bufptr, "D", 1)) {
+    if (no_more_items_kns(bufptr) || strcmp_se(bufptr, "D", 1)) {
       goto oxford_sample_load_ret_INVALID_FORMAT;
     }
   }
   if (load_pheno) {
     bufptr = next_item(bufptr);
-    if (no_more_items(bufptr)) {
+    if (no_more_items_kns(bufptr)) {
       goto oxford_sample_load_ret_INVALID_FORMAT;
     }
     if (!strcmp_se(bufptr, "B", 1)) {
@@ -117,7 +117,7 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
       goto oxford_sample_load_ret_INVALID_FORMAT;
     }
     if (load_pheno > 1) {
-      if (no_more_items(next_item(bufptr))) {
+      if (no_more_items_kns(next_item(bufptr))) {
         goto oxford_sample_load_ret_INVALID_FORMAT;
       }
       logprint("Note: Multiple phenotypes/covariates detected.  Loading only the first one.\n");
@@ -132,21 +132,21 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   unfiltered_indiv_ct = 0;
   // first pass: count indivs, determine max ID length
   while (fgets(tbuf, MAXLINELEN, samplefile) != NULL) {
-    if (is_eoln(*tbuf)) {
-      continue;
-    }
     if (!tbuf[MAXLINELEN - 1]) {
       goto oxford_sample_load_ret_INVALID_FORMAT_2;
     }
     item_begin = skip_initial_spaces(tbuf);
-    bufptr = item_end(item_begin);
-    if (!bufptr) {
+    if (is_eoln_kns(*item_begin)) {
+      continue;
+    }
+    bufptr = item_endnn(item_begin);
+    if (is_eoln(*bufptr)) {
       goto oxford_sample_load_ret_INVALID_FORMAT;
     }
     cur_person_id_len = 2 + (unsigned int)(bufptr - item_begin);
     item_begin = skip_initial_spaces(bufptr);
-    bufptr = item_end(item_begin);
-    if (!bufptr) {
+    bufptr = item_endnn(item_begin);
+    if (is_eoln(*bufptr)) {
       goto oxford_sample_load_ret_INVALID_FORMAT;
     }
     cur_person_id_len += (unsigned int)(bufptr - item_begin);
@@ -244,10 +244,10 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   }
   // second pass: actually load stuff
   while (fgets(tbuf, MAXLINELEN, samplefile)) {
-    if (is_eoln(*tbuf)) {
+    item_begin = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*item_begin)) {
       continue;
     }
-    item_begin = skip_initial_spaces(tbuf);
     bufptr = item_endnn(item_begin);
     uii = (unsigned int)(bufptr - item_begin);
     memcpy(&(person_ids[indiv_uidx * max_person_id_len]), item_begin, uii);
@@ -259,7 +259,7 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
     person_ids[indiv_uidx * max_person_id_len + uii + 1 + ujj] = '\0';
     item_begin = next_item(skip_initial_spaces(bufptr));
     if (load_sex) {
-      if (no_more_items(item_begin)) {
+      if (no_more_items_kns(item_begin)) {
         goto oxford_sample_load_ret_INVALID_FORMAT;
       }
       if (*item_begin == '1') {
@@ -272,7 +272,7 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
       item_begin = next_item(item_begin);
     }
     if (load_pheno) {
-      if (no_more_items(item_begin)) {
+      if (no_more_items_kns(item_begin)) {
 	goto oxford_sample_load_ret_INVALID_FORMAT;
       }
       bufptr = item_endnn(item_begin);
@@ -395,10 +395,11 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
     return RET_NOMEM;
   }
   while (fgets(loadbuf, max_load, genfile)) {
-    if (is_eoln(*loadbuf)) {
+    bufptr = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    bufptr = next_item_mult(skip_initial_spaces(loadbuf), 4);
+    bufptr = next_item_mult(bufptr, 4);
     if (maf_succ) {
       total_ref_allele_ct = 1.0;
       total_allele_wt = 1.0;
@@ -408,7 +409,7 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
     }
     for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct;) {
       bufptr = next_item(bufptr);
-      if (no_more_items(bufptr)) {
+      if (no_more_items_kns(bufptr)) {
 	goto oxford_gen_load1_ret_INVALID_FORMAT;
       }
       if (indiv_uidx >= unfiltered_indiv_ct8m) {
@@ -1220,14 +1221,15 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
   marker_uidx = 0;
   rewind(genfile);
   while (fgets(loadbuf, gen_buf_len, genfile)) {
-    if (is_eoln(*loadbuf)) {
+    bufptr = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr)) {
       continue;
     }
     if (is_set(marker_exclude, marker_uidx)) {
       marker_uidx++;
       continue;
     }
-    bufptr = next_item_mult(skip_initial_spaces(loadbuf), 5);
+    bufptr = next_item_mult(bufptr, 5);
     marker_idxl = marker_uidx % BITCT;
     indiv_idx = 0;
     if (distance_3d) {
@@ -1480,14 +1482,15 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   }
   loadbuf[max_load - 1] = ' ';
   while (fgets(loadbuf, max_load, genfile) != NULL) {
-    if (is_eoln(*loadbuf)) {
-      continue;
-    }
     if (!loadbuf[max_load - 1]) {
       logprint("Extremely long line found in .gen file.\n");
       return RET_NOMEM;
     }
-    bufptr = next_item_mult(skip_initial_spaces(loadbuf), 4);
+    bufptr = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    bufptr = next_item_mult(bufptr, 4);
     indiv_idx = 0;
     ref_freq_numer = 0.0;
     ref_freq_denom = 0.0;
@@ -1497,7 +1500,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
       sum_two_3d = 0.0;
       sum_exclude_3d = 0.0;
       for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct;) {
-	if (no_more_items(bufptr)) {
+	if (no_more_items_kns(bufptr)) {
 	  goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
 	}
 	if (indiv_uidx < unfiltered_indiv_ct8m) {
@@ -1542,7 +1545,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
       }
     } else {
       for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct;) {
-	if (no_more_items(bufptr)) {
+	if (no_more_items_kns(bufptr)) {
 	  goto oxford_distance_calc_unscanned_ret_INVALID_FORMAT;
 	}
 	if (indiv_uidx < unfiltered_indiv_ct8m) {

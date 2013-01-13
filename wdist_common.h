@@ -292,12 +292,22 @@ static inline int is_not_nzdigit(char cc) {
   return (cc > '9') || (cc <= '0');
 }
 
+// may as well treat all chars < 32, except tab, as eoln...
 static inline int is_eoln(char cc) {
-  return ((cc == '\n') || (cc == '\r'));
+  return (((unsigned char)cc) < 32) && (cc != '\t');
+}
+
+// kns = "known non-space" (where tab counts as a space)
+static inline int is_eoln_kns(char cc) {
+  return ((unsigned char)cc) < 32;
 }
 
 static inline int no_more_items(char* sptr) {
-  return ((!sptr) || (*sptr == '\n') || (*sptr == '\0') || (*sptr == '\r'));
+  return ((!sptr) || is_eoln(*sptr));
+}
+
+static inline int no_more_items_kns(char* sptr) {
+  return ((!sptr) || is_eoln_kns(*sptr));
 }
 
 static inline char* skip_initial_spaces(char* sptr) {
@@ -307,6 +317,7 @@ static inline char* skip_initial_spaces(char* sptr) {
   return sptr;
 }
 
+/*
 static inline int is_space_or_eoln(char cc) {
   // ' ', \t, \n, \0, \r
 #if __LP64__
@@ -315,6 +326,11 @@ static inline int is_space_or_eoln(char cc) {
   return ((((unsigned char)cc) <= 32) && ((cc == ' ') || (0x2601LU & (1LU << cc))));
 #endif
 }
+*/
+static inline int is_space_or_eoln(char cc) {
+  // pull head out of ass
+  return ((unsigned char)cc) <= 32;
+}
 
 char* item_end(char* sptr);
 
@@ -322,10 +338,15 @@ char* item_end(char* sptr);
 char* item_endl(char* sptr);
 
 // item_endl without checking if sptr == NULL
-char* item_endnn(char* sptr);
+// also assumes we are currently in an item
+static inline char* item_endnn(char* sptr) {
+  while (!is_space_or_eoln(*(++sptr)));
+  return sptr;
+}
 
 // item_endnn without checking \n or \r
-char* item_endnn2(char* sptr);
+// retired, due to pulling of head out of ass
+// char* item_endnn2(char* sptr);
 
 int intlen(int num);
 
