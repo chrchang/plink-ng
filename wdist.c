@@ -11124,7 +11124,7 @@ int parse_chrom_ranges(unsigned int param_ct, char range_delim, char** argv, uns
         if (marker_code_end <= marker_code_start) {
 	  range_start[rs_len] = '\0';
 	  range_end[re_len] = '\0';
-	  sprintf("Error: --%s chromosome code '%s' is not greater than '%s'.%s", cur_flag_str, range_end, range_start, errstr_append);
+	  sprintf(logbuf, "Error: --%s chromosome code '%s' is not greater than '%s'.%s", cur_flag_str, range_end, range_start, errstr_append);
 	  return -1;
 	}
 	chrom_mask |= (1LLU << (marker_code_end + 1)) - (1LLU << (marker_code_start));
@@ -11208,7 +11208,7 @@ int parse_marker_ranges(unsigned int param_ct, char range_delim, char** argv, ch
     dup_check = *snps_flag_markers_ptr;
     while (dup_check < cur_snps_flag_marker_str) {
       if (!memcmp(dup_check, cur_snps_flag_marker_str, rs_len + 1)) {
-	sprintf("Error: Duplicate --snps marker ID '%s'.%s", cur_snps_flag_marker_str, errstr_append);
+	sprintf(logbuf, "Error: Duplicate --snps marker ID '%s'.%s", cur_snps_flag_marker_str, errstr_append);
 	logprintb();
 	return RET_INVALID_CMDLINE;
       }
@@ -11222,7 +11222,7 @@ int parse_marker_ranges(unsigned int param_ct, char range_delim, char** argv, ch
       dup_check = *snps_flag_markers_ptr;
       while (dup_check < cur_snps_flag_marker_str) {
 	if (!memcmp(dup_check, cur_snps_flag_marker_str, rs_len + 1)) {
-	  sprintf("Error: Duplicate --snps marker ID '%s'.%s", cur_snps_flag_marker_str, errstr_append);
+	  sprintf(logbuf, "Error: Duplicate --snps marker ID '%s'.%s", cur_snps_flag_marker_str, errstr_append);
 	  logprintb();
 	  return RET_INVALID_CMDLINE;
 	}
@@ -11920,7 +11920,7 @@ int main(int argc, char** argv) {
 	}
 	ii = species_xy_code[chrom_info.species];
 	if (ii == -1) {
-	  sprintf("Error: --autosome-xy used with a species lacking an XY region.%s", errstr_append);
+	  sprintf(logbuf, "Error: --autosome-xy used with a species lacking an XY region.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	chrom_info.chrom_mask = species_autosome_mask[chrom_info.species] | (1LLU << ii);
