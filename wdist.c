@@ -12960,7 +12960,7 @@ int main(int argc, char** argv) {
       } else if (!memcmp(argptr2, "ake-bed", 8)) {
 	ii = param_count(argc, argv, cur_arg);
 	if (ii) {
-	  sprintf(logbuf, "Error: --make-bed doesn't accept parameters.%s%s", (ii == 1)? "  (Did you forget '--out'?)" : "", errstr_append);
+	  sprintf(logbuf, "Error: --make-bed doesn't accept parameters.%s%s", ((ii == 1) && (!memcmp(outname, "wdist", 6)))? "  (Did you forget '--out'?)" : "", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	calculation_type |= CALC_MAKE_BED;
