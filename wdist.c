@@ -12183,7 +12183,7 @@ int main(int argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
-	if (!(dist_calc_type & DISTANCE_FORMATMASK)) {
+	if (!(dist_calc_type & DISTANCE_TYPEMASK)) {
 	  dist_calc_type |= DISTANCE_ALCT;
 	}
 	calculation_type |= CALC_DISTANCE;

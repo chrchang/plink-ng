@@ -82,7 +82,7 @@ typedef union {
 #define DISTANCE_IBS 0x10
 #define DISTANCE_1_MINUS_IBS 0x20
 #define DISTANCE_ALCT 0x40
-#define DISTANCE_FORMATMASK 0x74
+#define DISTANCE_TYPEMASK 0x70
 
 #define RECODE_12 1
 #define RECODE_TAB 2
