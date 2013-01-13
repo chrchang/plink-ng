@@ -11208,7 +11208,7 @@ int parse_marker_ranges(unsigned int param_ct, char range_delim, char** argv, ch
     dup_check = *snps_flag_markers_ptr;
     while (dup_check < cur_snps_flag_marker_str) {
       if (!memcmp(dup_check, cur_snps_flag_marker_str, rs_len + 1)) {
-	sprintf(logbuf, "Error: Duplicate --snps marker ID '%s'.%s", cur_snps_flag_marker_str, errstr_append);
+	sprintf(logbuf, "Error: Duplicate --snps marker ID '%s'.\n", cur_snps_flag_marker_str);
 	logprintb();
 	return RET_INVALID_CMDLINE;
       }
@@ -11222,7 +11222,7 @@ int parse_marker_ranges(unsigned int param_ct, char range_delim, char** argv, ch
       dup_check = *snps_flag_markers_ptr;
       while (dup_check < cur_snps_flag_marker_str) {
 	if (!memcmp(dup_check, cur_snps_flag_marker_str, rs_len + 1)) {
-	  sprintf(logbuf, "Error: Duplicate --snps marker ID '%s'.%s", cur_snps_flag_marker_str, errstr_append);
+	  sprintf(logbuf, "Error: Duplicate --snps marker ID '%s'.\n", cur_snps_flag_marker_str);
 	  logprintb();
 	  return RET_INVALID_CMDLINE;
 	}
