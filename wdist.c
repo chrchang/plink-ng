@@ -18,78 +18,6 @@
 // Uncomment this to build without CBLAS/CLAPACK:
 // #define NOLAPACK
 
-// The key ideas behind this calculator's design are:
-//
-// 1. Incremental processing of SNPs.  Each element A_{jk} of a distance or
-// relationship matrix is a sum of M terms, one for each SNP, multiplied by a
-// missingness correction at the end.  We can walk through the SNPs
-// sequentially without keeping much in memory beyond partial sums;
-// conveniently, this plays well with the decision made by the PLINK team a few
-// years ago to switch to SNP-major binary files.
-//
-// 2. Multiplexing of markers using bitwise operations.  For instance, there
-// are only seven possible ways SNP i can affect the relationship matrix entry
-// between individuals j and k:
-//    a. j and k are both homozygous for the rare allele
-//    b. one is homozygous rare, one is heterozygous
-//    c. one is homozygous rare, one is homozygous common
-//    d. both are heterozygous
-//    e. one is heterozygous, one is homozygous common
-//    f. both are homozygous common
-//    g. one or both has missing genotype data
-// Seven cases can be distinguished by three bits, so one can compose a
-// sequence of bitwise operations that maps a pair of padded 2-bit PLINK
-// genotypes to seven different 3-bit values according to this breakdown.
-// On 64-bit machines, this allows integer operations to act on 20 markers
-// simultaneously.  (There's space for a 21st, but we currently choose not to
-// use it.)
-//
-// 3. Lookup tables describing the effect of 5-7 markers at a time on a
-// distance or relationship, rather than just one.  For relationship matrices,
-// idea #2 allows computation of a single 64-bit integer where bits 0-2
-// describe the relationship on marker #0, bits 3-5 describe the relationship
-// on marker #1, ..., all the way up to bits 57-59 describing the relationship
-// on marker #19.  We then want to perform the update
-//    A_{jk} := A_{jk} + f_0(x_0) + f_1(x_1) + ... + f_19(x_19)
-// where the x_i's are bit trios, and the f_i's map them to floating point
-// terms.  We could do this with 20 table lookups and floating point additions.
-// Or, we could structure this as
-//    A_{jk} := A_{jk} + f_{0-4}(x_{0-4}) + ... + f_{15-19}(x_{15-19})
-// where x_{0-4} denotes the lowest order *15* bits, and f_{0-4} maps them
-// directly to f_0(x_0) + f_1(x_1) + f_2(x_2) + f_3(x_3) + f_4(x_4); similarly
-// for f_{5-9}, f_{10-14}, and f_{15-19}.  This requires precomputation of four
-// lookup tables of size 2^15, total size 1 MB (which fits comfortably in a
-// typical L2 cache these days), and licenses the use of four table lookups and
-// adds instead of twenty.
-//
-// 4. Bitslicing algorithms for especially fast calculation of unweighted
-// distances and SNP covariances.  Zero-exponent distance matrices and IBS
-// matrices are special cases, reducing to Hamming weight computations plus a
-// bit of dressing to handle missing markers.  Hamming weight computation on
-// x86 CPUs has been studied extensively by others; a good reference as of this
-// writing is
-//    http://www.dalkescientific.com/writings/diary/archive/2011/11/02/faster_popcount_update.html .
-// We use a variant of the Kim Walisch/Cedric Lauradoux bitslicing algorithm
-// discussed there (with most 64-bit integer operations replaced by SSE2
-// instructions), which runs several times faster than our corresponding
-// nonzero exponent distance matrix computation.
-//
-// We also reduce SNP covariance calculation (used in LD-based pruning) to a
-// few Hamming weights.  (This can also be done for covariances between
-// individuals, but only when there are no missing markers, so WDIST does not
-// include an implementation of that.)
-//
-// 5. Splitting the distance/relationship matrix into pieces of roughly equal
-// size and assigning one thread to each piece.  This is an "embarrassingly
-// parallel" problem with no need for careful synchronization.  Cluster
-// computing is supported in essentially the same manner.
-//
-//
-//
-// In the end, we can't get around the O(MN^2) nature of these calculations,
-// but we believe we have beaten down the leading constant by a large enough
-// factor to meaningfully help researchers.
-
 #include <ctype.h>
 #include <time.h>
 #include <unistd.h>
@@ -140,12 +68,11 @@ extern "C" {
 #define MATRIX_INVERT_BUF1_TYPE __CLPK_integer
 #endif // NOLAPACK
 
+#include "wdist_calc.h"
 #include "wdist_common.h"
 #include "wdist_data.h"
 #include "wdist_dosage.h"
 
-// floating point comparison-to-nonzero tolerance, currently 2^{-30}
-#define EPSILON 0.000000000931322574615478515625
 #define MATRIX_SINGULAR_RCOND 1e-14
 
 #define REL_CALC_COV 1
@@ -199,21 +126,6 @@ extern "C" {
 #define GENOME_MULTIPLEX 1152
 #define GENOME_MULTIPLEX2 (GENOME_MULTIPLEX * 2)
 
-#if __LP64__
-#define AAAAMASK 0xaaaaaaaaaaaaaaaaLU
-// number of snp-major .bed lines to read at once for distance calc if exponent
-// is nonzero.
-#define MULTIPLEX_DIST_EXP 64
-// number of snp-major .bed lines to read at once for relationship calc
-#define MULTIPLEX_REL 60
-#else
-// N.B. 32-bit version not as carefully tested or optimized, but I'll try to
-// make sure it works properly
-#define AAAAMASK 0xaaaaaaaa
-#define MULTIPLEX_DIST_EXP 28
-#define MULTIPLEX_REL 30
-#endif
-
 #define MINV(aa, bb) ((aa) > (bb))? (bb) : (aa)
 
 const char ver_str[] =
@@ -226,7 +138,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (12 Jan 2013)";
+  " (13 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -857,26 +769,35 @@ int disp_help(unsigned int param_ct, char** argv) {
     help_print("cow\tdog\thorse\tmouse\tsheep", &help_ctrl, 0,
 "  --cow/--dog/--horse/--mouse/--sheep : Specify nonhuman species.\n"
 	       );
-    help_print("autosome", &help_ctrl, 0,
-"  --autosome       : Include markers on all autosomes, and no others.\n"
+    help_print("autosome\tautosome-xy\tchr\tchr-excl", &help_ctrl, 0,
+"  --autosome       : Exclude all non-autosomal markers.\n"
+"  --autosome-xy    : Exclude all non-autosomal markers, except those with\n"
+"                     chromosome code XY (pseudo-autosomal region of X).\n"
 	       );
-    help_print("chr\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
-"  --chr [num...]   : Only consider markers on the given chromosome(s).  Valid\n"
-"                     choices for humans are 0 (unplaced), 1-22, and XY\n"
-"                     (pseudo-autosomal region of X).  Separate multiple\n"
-"                     chromosomes with spaces, e.g. '--chr 1 3 xy'.  The X, Y,\n"
-"                     and MT chromosome values are currently unsupported, but\n"
-"                     this will change in the future.\n"
+    help_print("chr\tchr-excl\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
+"  --chr [chrs...]  : Exclude all markers not on the given chromosome(s).  Valid\n"
+"                     choices for humans are 0 (unplaced), 1-22, X, Y, XY, and\n"
+"                     MT.  Separate multiple chromosomes with spaces and/or\n"
+"                     commas, and use a dash (no adjacent spaces permitted) to\n"
+"                     denote a range, e.g. '--chr 1-4, 22, xy'.\n"
+"  --chr-excl [...] : Reverse of --chr (excludes markers on listed chromosomes).\n"
+	       );
+    help_print("d\tchr\tchr-excl\tsnps", &help_ctrl, 0,
+"  --d [char]       : Change nonspace delimiter separating ranges (usually ',').\n"
 	       );
     help_print("from\tto\tsnp\twindow\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
 "  --from [mkr ID]  : Use ID(s) to specify a marker range to load.  When used\n"
-"  --to [mkr ID]      together, both markers must be on the same chromosome.\n"
-"  --snp [mkr ID]   : Specify a single marker to load.\n"
-"  --window [kbs]   : With --snp, loads all markers within half the specified kb\n"
+"  --to   [mkr ID]    together, both markers must be on the same chromosome.\n"
+"  --snp  [mkr ID]  : Specify a single marker to load.\n"
+"  --window  [kbs]  : With --snp, loads all markers within half the specified kb\n"
 "                     distance of the named marker.\n"
 "  --from-bp [pos]  : Use physical position(s) to define a marker range to load.\n"
-"  --to-bp [pos]      --from-kb/--to-kb/--from-mb/--to-mb allow decimal values.\n"
-"  --from-kb...       You're required to specify a single chromosome with these.\n"
+"  --to-bp   [pos]    --from-kb/--to-kb/--from-mb/--to-mb allow decimal values.\n"
+"    ...              You're required to specify a single chromosome with these.\n"
+	       );
+    help_print("snps", &help_ctrl, 0,
+"  --snps [IDs...]  : Use IDs to specify multiple marker ranges to load.  E.g.\n"
+"                     '--snps rs1111-rs2222, rs3333, rs4444'.\n"
 	       );
     help_print("maf", &help_ctrl, 0,
 "  --maf {val}      : Minor allele frequency minimum threshold (default 0.01).\n"
@@ -1803,206 +1724,6 @@ static unsigned int* g_genome_main;
 static unsigned long g_marker_window[GENOME_MULTIPLEX * 2];
 static double* g_pheno_packed;
 
-void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* set_allele_freqs, int ibc_type) {
-  // first calculate weight array, then loop
-  int ii;
-  int jj;
-  int kk;
-  unsigned int uii;
-  double twt;
-  double* wtptr;
-  double mult = 1.0;
-  unsigned long ulii;
-  double weights[BITCT * 10];
-  double* weights1 = &(weights[64]);
-  double* weights2 = &(weights[128]);
-  double* weights3 = &(weights[192]);
-  double* weights4 = &(weights[256]);
-#if __LP64__
-  double* weights5 = &(weights[320]);
-  double* weights6 = &(weights[384]);
-  double* weights7 = &(weights[448]);
-  double* weights8 = &(weights[512]);
-  double* weights9 = &(weights[576]);
-#endif
-  double wtarr[BITCT2 * 5];
-  double *wptr = weights;
-  fill_double_zero(wtarr, BITCT2 * 5);
-  for (ii = 0; ii < MULTIPLEX_REL / 3; ii += 1) {
-    if ((set_allele_freqs[ii] != 0.0) && (set_allele_freqs[ii] < (1.0 - EPSILON))) {
-      if (ibc_type) {
-        if (ibc_type == 2) {
-          wtarr[ii * 8] = 2;
-          wtarr[ii * 8 + 2] = 2.0 - 1.0 / (2 * set_allele_freqs[ii] * (1.0 - set_allele_freqs[ii]));
-          wtarr[ii * 8 + 3] = 2;
-        } else {
-          twt = 2 * set_allele_freqs[ii];
-          if (ibc_type == 1) {
-            mult = 1 / (twt * (1.0 - set_allele_freqs[ii]));
-          }
-          wtarr[ii * 8] = twt * twt * mult;
-          wtarr[ii * 8 + 2] = (1.0 - twt) * (1.0 - twt) * mult;
-          wtarr[ii * 8 + 3] = (2.0 - twt) * (2.0 - twt) * mult;
-        }
-      } else {
-        twt = 1.0 - set_allele_freqs[ii];
-        mult = 1 / (set_allele_freqs[ii] * twt);
-        wtarr[ii * 8] = 1.0 + set_allele_freqs[ii] * set_allele_freqs[ii] * mult;
-        wtarr[ii * 8 + 3] = 1.0 + twt * twt * mult;
-      }
-    } else {
-      if (ibc_type) {
-        if (ibc_type == -1) {
-          twt = 2 * set_allele_freqs[ii];
-          wtarr[ii * 8] = twt * twt;
-          wtarr[ii * 8 + 2] = (1.0 - twt) * (1.0 - twt);
-          wtarr[ii * 8 + 3] = (2.0 - twt) * (2.0 - twt);
-        } else if (ibc_type == 1) {
-	  wtarr[ii * 8 + 2] = INFINITY;
-          if (set_allele_freqs[ii] == 0.0) {
-            wtarr[ii * 8] = 0;
-            wtarr[ii * 8 + 3] = INFINITY;
-          } else {
-            wtarr[ii * 8] = INFINITY;
-            wtarr[ii * 8 + 3] = 0;
-          }
-        } else {
-          // need to set to 1 instead of 2 for agreement with GCTA
-          wtarr[ii * 8] = 1;
-          wtarr[ii * 8 + 2] = -INFINITY;
-          wtarr[ii * 8 + 3] = 1;
-        }
-      } else {
-        if (set_allele_freqs[ii] == 0.0) {
-          wtarr[ii * 8] = 1;
-          wtarr[ii * 8 + 3] = INFINITY;
-        } else {
-          wtarr[ii * 8] = INFINITY;
-          wtarr[ii * 8 + 3] = 1;
-        }
-      }
-    }
-  }
-  for (kk = 0; kk < (BITCT * 5) / 32; kk++) {
-    wtptr = &(wtarr[16 * kk]);
-    for (ii = 0; ii < 8; ii++) {
-      twt = wtptr[ii + 8];
-      for (jj = 0; jj < 8; jj++) {
-        *wptr++ = twt + wtptr[jj];
-      }
-    }
-  }
-  for (uii = 0; uii < g_indiv_ct; uii++) {
-    ulii = *geno++;
-#if __LP64__
-    *rel_ibc += weights9[ulii >> 54] + weights8[(ulii >> 48) & 63] + weights7[(ulii >> 42) & 63] + weights6[(ulii >> 36) & 63] + weights5[(ulii >> 30) & 63] + weights4[(ulii >> 24) & 63] + weights3[(ulii >> 18) & 63] + weights2[(ulii >> 12) & 63] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
-#else
-    *rel_ibc += weights4[ulii >> 24] + weights3[(ulii >> 18) & 63] + weights2[(ulii >> 12) & 63] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
-#endif
-    rel_ibc++;
-  }
-}
-
-void update_rel_f_ibc(float* rel_ibc, unsigned long* geno, float* set_allele_freqs, int ibc_type) {
-  // first calculate weight array, then loop
-  int ii;
-  int jj;
-  int kk;
-  unsigned int uii;
-  float twt;
-  float* wtptr;
-  float mult = 1.0;
-  unsigned long ulii;
-  float weights[BITCT * 10];
-  float* weights1 = &(weights[64]);
-  float* weights2 = &(weights[128]);
-  float* weights3 = &(weights[192]);
-  float* weights4 = &(weights[256]);
-#if __LP64__
-  float* weights5 = &(weights[320]);
-  float* weights6 = &(weights[384]);
-  float* weights7 = &(weights[448]);
-  float* weights8 = &(weights[512]);
-  float* weights9 = &(weights[576]);
-#endif
-  float wtarr[BITCT2 * 5];
-  float *wptr = weights;
-  fill_float_zero(wtarr, BITCT2 * 5);
-  for (ii = 0; ii < MULTIPLEX_REL / 3; ii += 1) {
-    if ((set_allele_freqs[ii] != 0.0) && (set_allele_freqs[ii] < (1.0 - EPSILON))) {
-      if (ibc_type) {
-        if (ibc_type == 2) {
-          wtarr[ii * 8] = 2;
-          wtarr[ii * 8 + 2] = 2.0 - 1.0 / (2 * set_allele_freqs[ii] * (1.0 - set_allele_freqs[ii]));
-          wtarr[ii * 8 + 3] = 2;
-        } else {
-          twt = 2 * set_allele_freqs[ii];
-          if (ibc_type == 1) {
-            mult = 1 / (twt * (1.0 - set_allele_freqs[ii]));
-          }
-          wtarr[ii * 8] = twt * twt * mult;
-          wtarr[ii * 8 + 2] = (1.0 - twt) * (1.0 - twt) * mult;
-          wtarr[ii * 8 + 3] = (2.0 - twt) * (2.0 - twt) * mult;
-        }
-      } else {
-        twt = 1.0 - set_allele_freqs[ii];
-        mult = 1 / (set_allele_freqs[ii] * twt);
-        wtarr[ii * 8] = 1.0 + set_allele_freqs[ii] * set_allele_freqs[ii] * mult;
-        wtarr[ii * 8 + 3] = 1.0 + twt * twt * mult;
-      }
-    } else {
-      if (ibc_type) {
-        if (ibc_type == -1) {
-          twt = 2 * set_allele_freqs[ii];
-          wtarr[ii * 8] = twt * twt;
-          wtarr[ii * 8 + 2] = (1.0 - twt) * (1.0 - twt);
-          wtarr[ii * 8 + 3] = (2.0 - twt) * (2.0 - twt);
-        } else if (ibc_type == 1) {
-	  wtarr[ii * 8 + 2] = INFINITY;
-          if (set_allele_freqs[ii] == 0.0) {
-            wtarr[ii * 8] = 0;
-            wtarr[ii * 8 + 3] = INFINITY;
-          } else {
-            wtarr[ii * 8] = INFINITY;
-            wtarr[ii * 8 + 3] = 0;
-          }
-        } else {
-          // need to set to 1 instead of 2 for agreement with GCTA
-          wtarr[ii * 8] = 1;
-          wtarr[ii * 8 + 2] = -INFINITY;
-          wtarr[ii * 8 + 3] = 1;
-        }
-      } else {
-        if (set_allele_freqs[ii] == 0.0) {
-          wtarr[ii * 8] = 1;
-          wtarr[ii * 8 + 3] = INFINITY;
-        } else {
-          wtarr[ii * 8] = INFINITY;
-          wtarr[ii * 8 + 3] = 1;
-        }
-      }
-    }
-  }
-  for (kk = 0; kk < (BITCT * 5) / 32; kk++) {
-    wtptr = &(wtarr[16 * kk]);
-    for (ii = 0; ii < 8; ii++) {
-      twt = wtptr[ii + 8];
-      for (jj = 0; jj < 8; jj++) {
-        *wptr++ = twt + wtptr[jj];
-      }
-    }
-  }
-  for (uii = 0; uii < g_indiv_ct; uii++) {
-    ulii = *geno++;
-#if __LP64__
-    *rel_ibc += weights9[ulii >> 54] + weights8[(ulii >> 48) & 63] + weights7[(ulii >> 42) & 63] + weights6[(ulii >> 36) & 63] + weights5[(ulii >> 30) & 63] + weights4[(ulii >> 24) & 63] + weights3[(ulii >> 18) & 63] + weights2[(ulii >> 12) & 63] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
-#else
-    *rel_ibc += weights4[ulii >> 24] + weights3[(ulii >> 18) & 63] + weights2[(ulii >> 12) & 63] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
-#endif
-    rel_ibc++;
-  }
-}
-
 // The following functions may come in handy if we need to store large array(s)
 // of auxiliary ternary data in memory.
 //
@@ -2058,50 +1779,6 @@ void exclude_multi(unsigned long* exclude_arr, int* new_excl, unsigned int indiv
   }
 }
 
-/*
-void collapse_bitarr(unsigned long* bitarr, unsigned long* exclude_arr, int orig_ct) {
-  int ii = 0;
-  int jj;
-  while ((ii < orig_ct) && (!is_set(exclude_arr, ii))) {
-    ii++;
-  }
-  jj = ii;
-  while (++ii < orig_ct) {
-    if (!is_set(exclude_arr, ii)) {
-      if (is_set(bitarr, ii)) {
-        // set bit jj
-        bitarr[jj / BITCT] |= (1LU << (jj % BITCT));
-      } else {
-	bitarr[jj / BITCT] &= (~(1LU << (jj % BITCT)));
-      }
-      jj++;
-    }
-  }
-}
-
-void collapse_chrom_marker_idxs(Chrom_info* chrom_info_ptr, unsigned long* marker_exclude, int unfiltered_marker_ct) {
-  unsigned int* chrom_fo = chrom_info_ptr->chrom_file_order;
-  unsigned int* chrom_fo_midxs = chrom_info_ptr->chrom_file_order_marker_idx;
-  unsigned int chrom_ct = chrom_info_ptr->chrom_ct;
-  int midx = 0;
-  int new_midx = 0;
-  int chrom_end_midx;
-  unsigned int chrom_fo_idx;
-  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
-    chrom_fo_midxs[chrom_fo_idx] = new_midx;
-    chrom_info_ptr->chrom_start[chrom_fo[chrom_fo_idx]] = new_midx;
-    chrom_end_midx = chrom_fo_midxs[chrom_fo_idx + 1];
-    for (; midx < chrom_end_midx; midx++) {
-      if (!is_set(marker_exclude, midx)) {
-	new_midx++;
-      }
-    }
-    // todo: collapse when chromosome completely eliminated
-    chrom_info_ptr->chrom_end[chrom_fo[chrom_fo_idx]] = new_midx;
-  }
-  chrom_fo_midxs[chrom_fo_idx] = new_midx;
-}
-*/
 void collapse_copy_phenod(double *target, double* pheno_d, unsigned long* indiv_exclude, unsigned int indiv_ct) {
   int ii = 0;
   double* target_end = &(target[indiv_ct]);
@@ -8403,10 +8080,10 @@ int calc_rel(pthread_t* threads, int parallel_idx, int parallel_tot, int calcula
       }
       if (calculation_type & CALC_IBC) {
 	for (uii = 0; uii < 3; uii++) {
-	  update_rel_ibc(&(rel_ibc[uii * g_indiv_ct]), (unsigned long*)g_geno, &(set_allele_freq_buf[win_marker_idx]), uii);
+	  update_rel_ibc(&(rel_ibc[uii * g_indiv_ct]), (unsigned long*)g_geno, &(set_allele_freq_buf[win_marker_idx]), uii, g_indiv_ct);
 	}
       } else {
-	update_rel_ibc(rel_ibc, (unsigned long*)g_geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type);
+	update_rel_ibc(rel_ibc, (unsigned long*)g_geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type, g_indiv_ct);
       }
       if (relationship_req(calculation_type)) {
 	fill_weights_r(g_weights, &(set_allele_freq_buf[win_marker_idx]), var_std);
@@ -8521,7 +8198,7 @@ int calc_rel(pthread_t* threads, int parallel_idx, int parallel_tot, int calcula
     }
     llxx = ((long long)min_indiv * (min_indiv - 1)) / 2;
     llyy = (((long long)max_parallel_indiv * (max_parallel_indiv + 1)) / 2) - llxx;
-    if (calculation_type & REL_CALC_BIN) {
+    if (rel_calc_type & REL_CALC_BIN) {
       if (rel_shape == REL_CALC_SQ0) {
 	fill_double_zero((double*)g_geno, g_indiv_ct - 1);
       }
@@ -8970,10 +8647,10 @@ int calc_rel_f(pthread_t* threads, int parallel_idx, int parallel_tot, int calcu
       }
       if (calculation_type & CALC_IBC) {
 	for (uii = 0; uii < 3; uii++) {
-	  update_rel_f_ibc(&(rel_ibc[uii * g_indiv_ct]), (unsigned long*)g_geno, &(set_allele_freq_buf[win_marker_idx]), uii);
+	  update_rel_f_ibc(&(rel_ibc[uii * g_indiv_ct]), (unsigned long*)g_geno, &(set_allele_freq_buf[win_marker_idx]), uii, g_indiv_ct);
 	}
       } else {
-	update_rel_f_ibc(rel_ibc, (unsigned long*)g_geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type);
+	update_rel_f_ibc(rel_ibc, (unsigned long*)g_geno, &(set_allele_freq_buf[win_marker_idx]), ibc_type, g_indiv_ct);
       }
       if (relationship_req(calculation_type)) {
 	fill_weights_r_f(g_weights_f, &(set_allele_freq_buf[win_marker_idx]), var_std);
@@ -9086,7 +8763,7 @@ int calc_rel_f(pthread_t* threads, int parallel_idx, int parallel_tot, int calcu
     }
     llxx = ((long long)min_indiv * (min_indiv - 1)) / 2;
     llyy = (((long long)max_parallel_indiv * (max_parallel_indiv + 1)) / 2) - llxx;
-    if (calculation_type & REL_CALC_BIN) {
+    if (rel_calc_type & REL_CALC_BIN) {
       if (rel_shape == REL_CALC_SQ0) {
 	fill_float_zero((float*)g_geno, g_indiv_ct - 1);
       }
@@ -11401,16 +11078,130 @@ int enforce_param_ct_range(int argc, char** argv, int flag_idx, int min_ct, int 
   return 0;
 }
 
+int parse_next_range(unsigned int param_ct, char range_delim, char** argv, unsigned int* cur_param_idx_ptr, char** cur_arg_pptr, char** range_start_ptr, unsigned int* rs_len_ptr, char** range_end_ptr, unsigned int* re_len_ptr) {
+  // Starts reading from argv[cur_param_idx][cur_pos].  If a valid range is
+  // next, range_start + rs_len + range_end + re_len are updated.  If only a
+  // single item is next, range_end is set to NULL and range_start + rs_len are
+  // updated.  If there are no items left, range_start is set to NULL.  If
+  // the input is not well-formed, -1 is returned instead of 0.
+  unsigned int cur_param_idx = *cur_param_idx_ptr;
+  char* cur_arg_ptr = *cur_arg_pptr;
+  char cc;
+  if (cur_param_idx > param_ct) {
+    *cur_arg_pptr = NULL;
+    return 0;
+  }
+  while (1) {
+    cc = *cur_arg_ptr;
+    if (!cc) {
+      *cur_param_idx_ptr = ++cur_param_idx;
+      if (cur_param_idx > param_ct) {
+	*range_start_ptr = NULL;
+	return 0;
+      }
+      cur_arg_ptr = argv[cur_param_idx];
+      cc = *cur_arg_ptr;
+    }
+    if (cc == '-') {
+      return -1;
+    }
+    if (cc != range_delim) {
+      break;
+    }
+    cur_arg_ptr++;
+  }
+  *range_start_ptr = cur_arg_ptr;
+  do {
+    cc = *(++cur_arg_ptr);
+    if ((!cc) || (cc == range_delim)) {
+      *rs_len_ptr = (unsigned long)(cur_arg_ptr - (*range_start_ptr));
+      *cur_arg_pptr = cur_arg_ptr;
+      *range_end_ptr = NULL;
+      return 0;
+    }
+  } while (cc != '-');
+  *rs_len_ptr = (unsigned long)(cur_arg_ptr - (*range_start_ptr));
+  cc = *(++cur_arg_ptr);
+  if ((!cc) || (cc == '-') || (cc == range_delim)) {
+    return -1;
+  }
+  *range_end_ptr = cur_arg_ptr;
+  do {
+    cc = *(++cur_arg_ptr);
+    if (cc == '-') {
+      return -1;
+    }
+  } while (cc && (cc != range_delim));
+  *re_len_ptr = (unsigned long)(cur_arg_ptr - (*range_end_ptr));
+  *cur_arg_pptr = cur_arg_ptr;
+  return 0;
+}
+
+int parse_chrom_ranges(unsigned int param_ct, char range_delim, char** argv, unsigned long long* chrom_mask_ptr, unsigned int species, char* cur_flag_str) {
+  unsigned int argct = 0;
+  unsigned int cur_param_idx = 1;
+  unsigned long long chrom_mask = *chrom_mask_ptr;
+  char* cur_arg_ptr;
+  char* range_start;
+  unsigned int rs_len;
+  char* range_end;
+  unsigned int re_len;
+  int marker_code_start;
+  int marker_code_end;
+  if (param_ct) {
+    cur_arg_ptr = argv[1];
+    while (1) {
+      if (parse_next_range(param_ct, range_delim, argv, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
+	sprintf(logbuf, "Error: Invalid --%s parameter '%s'.%s", cur_flag_str, argv[cur_param_idx], errstr_append);
+	return -1;
+      }
+      if (!range_start) {
+	break;
+      }
+      marker_code_start = marker_code2(species, range_start, rs_len);
+      if (marker_code_start == -1) {
+	range_start[rs_len] = '\0';
+	sprintf(logbuf, "Error: Invalid --%s chromosome code '%s'.%s", cur_flag_str, range_start, errstr_append);
+	return -1;
+      }
+      if (range_end) {
+        marker_code_end = marker_code2(species, range_end, re_len);
+	if (marker_code_end == -1) {
+	  range_end[re_len] = '\0';
+	  sprintf(logbuf, "Error: Invalid --%s chromosome code '%s'.%s", cur_flag_str, range_end, errstr_append);
+	  return -1;
+	}
+        if (marker_code_end <= marker_code_start) {
+	  range_start[rs_len] = '\0';
+	  range_end[re_len] = '\0';
+	  sprintf("Error: --%s chromosome code '%s' is not greater than '%s'.%s", cur_flag_str, range_end, range_start, errstr_append);
+	  return -1;
+	}
+	chrom_mask |= (1LLU << (marker_code_end + 1)) - (1LLU << (marker_code_start));
+      } else {
+	chrom_mask |= 1LLU << marker_code_start;
+      }
+      argct++;
+    }
+  }
+  if (!argct) {
+    sprintf(logbuf, "Error: --%s requires at least one value.%s", cur_flag_str, errstr_append);
+    return -1;
+  }
+  *chrom_mask_ptr = chrom_mask;
+  return 0;
+}
+
+int parse_marker_ranges() {
+  return 0;
+}
+
 int species_flag(Chrom_info* chrom_info_ptr, int species_val) {
   if (chrom_info_ptr->species) {
-    logprint("Error: Duplicate species flag.\n");
+    logprint("Error: Multiple species flags.\n");
     return -1;
   }
   chrom_info_ptr->species = species_val;
-  if (chrom_info_ptr->chrom_mask & (~(species_valid_chrom_mask[species_val]))) {
-    logprint("Error: Invalid --chr parameter.\n");
-    return -1;
-  }
   return 0;
 }
 
@@ -11445,6 +11236,22 @@ int alloc_fname(char** fnbuf, char* source, char* argptr, unsigned int extra_siz
     return RET_NOMEM;
   }
   memcpy(*fnbuf, source, slen);
+  return 0;
+}
+
+int flag_match(const char* to_match, unsigned int* cur_flag_ptr, unsigned int flag_ct, char* flag_buf) {
+  int ii;
+  while (*cur_flag_ptr < flag_ct) {
+    ii = strcmp(to_match, &(flag_buf[(*cur_flag_ptr) * MAX_FLAG_LEN]));
+    if (ii == -1) {
+      return 0;
+    }
+    *cur_flag_ptr += 1;
+    if (!ii) {
+      flag_buf[((*cur_flag_ptr) - 1) * MAX_FLAG_LEN] = '\0';
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -11548,7 +11355,6 @@ int main(int argc, char** argv) {
   double ld_last_param = 0.0;
   int ld_window_kb = 0;
   int maf_succ = 0;
-  int autosome = 0;
   int filter_case_control = 0;
   int filter_sex = 0;
   int filter_founder_nonf = 0;
@@ -11581,11 +11387,13 @@ int main(int argc, char** argv) {
   char* argptr2;
   char* flagptr;
   char* missing_code = NULL;
+  char range_delim = ',';
+  unsigned long long chrom_exclude = 0;
+  char* snps_flag_markers = NULL;
   double dxx;
   char cc;
   unsigned int uii;
   long default_alloc_mb;
-  unsigned long long ullii;
   long long llxx;
 #ifdef __APPLE__
   int mib[2];
@@ -11995,9 +11803,58 @@ int main(int argc, char** argv) {
   genname[0] = '\0';
   samplename[0] = '\0';
   memcpy(output_missing_pheno, "-9", 3);
+  // stuff that must be processed before regular alphabetical loop
+  cur_flag = 0;
+  if (flag_match("cow", &cur_flag, flag_ct, flag_buf)) {
+    if (species_flag(&chrom_info, SPECIES_COW)) {
+      goto main_ret_INVALID_CMDLINE;
+    }
+  }
+  if (flag_match("d", &cur_flag, flag_ct, flag_buf)) {
+    if (enforce_param_ct_range(argc, argv, ii, 1, 1, &jj)) {
+      goto main_ret_INVALID_CMDLINE_3;
+    }
+    if (argv[ii + 1][1] != '\0') {
+      sprintf(logbuf, "Error: --d parameter too long (must be a single character).%s", errstr_append);
+      goto main_ret_INVALID_CMDLINE_3;
+    }
+    range_delim = argv[ii + 1][0];
+    if ((range_delim == '-') || (range_delim == ',')) {
+      sprintf(logbuf, "Error: --d parameter cannot be '-' or ','.%s", errstr_append);
+      goto main_ret_INVALID_CMDLINE_3;
+    }
+  }
+  if (flag_match("dog", &cur_flag, flag_ct, flag_buf)) {
+    if (species_flag(&chrom_info, SPECIES_DOG)) {
+      goto main_ret_INVALID_CMDLINE;
+    }
+  }
+  if (flag_match("horse", &cur_flag, flag_ct, flag_buf)) {
+    if (species_flag(&chrom_info, SPECIES_HORSE)) {
+      goto main_ret_INVALID_CMDLINE;
+    }
+  }
+  if (flag_match("mouse", &cur_flag, flag_ct, flag_buf)) {
+    if (species_flag(&chrom_info, SPECIES_MOUSE)) {
+      goto main_ret_INVALID_CMDLINE;
+    }
+  }
+  if (flag_match("rice", &cur_flag, flag_ct, flag_buf)) {
+    logprint("Error: --rice not yet supported.\n");
+    goto main_ret_INVALID_CMDLINE;
+  }
+  if (flag_match("sheep", &cur_flag, flag_ct, flag_buf)) {
+    if (species_flag(&chrom_info, SPECIES_SHEEP)) {
+      goto main_ret_INVALID_CMDLINE;
+    }
+  }
   cur_flag = 0;
   do {
     argptr = &(flag_buf[cur_flag * MAX_FLAG_LEN]);
+    if (!(*argptr)) {
+      // preprocessed
+      continue;
+    }
     argptr2 = &(argptr[1]);
     cur_arg = flag_map[cur_flag];
     switch (*argptr) {
@@ -12011,7 +11868,18 @@ int main(int argc, char** argv) {
 
     case 'a':
       if (!memcmp(argptr2, "utosome", 8)) {
-	autosome = 1;
+	chrom_info.chrom_mask = species_autosome_mask[chrom_info.species];
+      } else if (!memcmp(argptr2, "utosome-xy", 11)) {
+	if (chrom_info.chrom_mask) {
+	  logprint("Error: --autosome-xy and --autosome cannot be used together.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	ii = species_xy_code[chrom_info.species];
+	if (ii == -1) {
+	  sprintf("Error: --autosome-xy used with a species lacking an XY region.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	chrom_info.chrom_mask = species_autosome_mask[chrom_info.species] | (1LLU << ii);
       } else if (!memcmp(argptr2, "llow-no-sex", 12)) {
 	allow_no_sex = 1;
       } else if (!memcmp(argptr2, "ll", 3)) {
@@ -12021,7 +11889,7 @@ int main(int argc, char** argv) {
       } else if (!memcmp(argptr2, "lleleACGT", 9)) {
 	if (allelexxxx) {
 	  if (allelexxxx == 1) {
-	    logprint("Error: --allele1234 and --alleleACGT flags cannot coexist.\n");
+	    logprint("Error: --allele1234 and --alleleACGT cannot be used together.\n");
 	  }
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -12125,28 +11993,30 @@ int main(int argc, char** argv) {
       break;
 
     case 'c':
-      if (!memcmp(argptr2, "ow", 3)) {
-	if (species_flag(&chrom_info, SPECIES_COW)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-      } else if (!memcmp(argptr2, "hr", 3)) {
-	if (autosome) {
-	  logprint("Error: --chr and --autosome flags cannot coexist.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	ii = param_count(argc, argv, cur_arg);
-	if (!ii) {
-	  sprintf(logbuf, "Error: Missing --chr parameter.%s", errstr_append);
+      if (!memcmp(argptr2, "hr", 3)) {
+	if (chrom_info.chrom_mask) {
+	  sprintf(logbuf, "Error: --chr cannot be used with --autosome(-xy).%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	for (jj = 0; jj < ii; jj++) {
-	  kk = marker_code_raw(argv[cur_arg + 1 + jj]);
-	  // will allow some non-autosomal in future
-	  if ((kk == -1) || (kk == CHROM_X) || (kk == CHROM_Y) || (kk == CHROM_MT) || ((kk == CHROM_XY) && (species_xy_code[chrom_info.species] == -1))) {
-	    sprintf(logbuf, "Error: Invalid --chr parameter '%s'.\n", argv[cur_arg + 1 + jj]);
-	    goto main_ret_INVALID_CMDLINE_3;
-	  }
-	  chrom_info.chrom_mask |= 1LLU << kk;
+	if (parse_chrom_ranges(param_count(argc, argv, cur_arg), range_delim, &(argv[cur_arg]), &(chrom_info.chrom_mask), chrom_info.species, argptr)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (!chrom_info.chrom_mask) {
+	  sprintf(logbuf, "Error: All chromosomes excluded.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+      } else if (!memcmp(argptr2, "hr-excl", 8)) {
+	if (parse_chrom_ranges(param_count(argc, argv, cur_arg), range_delim, &(argv[cur_arg]), &chrom_exclude, chrom_info.species, argptr)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (!chrom_info.chrom_mask) {
+	  chrom_info.chrom_mask = species_valid_chrom_mask[chrom_info.species] & (~chrom_exclude);
+	} else {
+	  chrom_info.chrom_mask &= ~chrom_exclude;
+	}
+	if (!chrom_info.chrom_mask) {
+	  sprintf(logbuf, "Error: All chromosomes excluded.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
       } else if (!memcmp(argptr2, "ompound-genotypes", 18)) {
 	logprint("Note: --compound-genotypes flag unnecessary (spaces between alleles in .ped\nare optional).\n");
@@ -12192,10 +12062,6 @@ int main(int argc, char** argv) {
       } else if (!memcmp(argptr2, "ecompress", 10)) {
 	logprint("Error: --decompress flag retired.  Use 'gunzip [filename]'.\n");
 	goto main_ret_INVALID_CMDLINE;
-      } else if (!memcmp(argptr2, "og", 3)) {
-	if (species_flag(&chrom_info, SPECIES_DOG)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
       } else if (!memcmp(argptr2, "istance", 8)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 7, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -12459,8 +12325,8 @@ int main(int argc, char** argv) {
 	calculation_type |= CALC_FREQ;
 	freqx = 1;
       } else if (!memcmp(argptr2, "rom", 4)) {
-	if (autosome || chrom_info.chrom_mask) {
-	  sprintf(logbuf, "Error: --from cannot be used with --autosome or --chr.%s", errstr_append);
+	if (chrom_info.chrom_mask) {
+	  sprintf(logbuf, "Error: --from cannot be used with --autosome(-xy) or --chr%s.%s", chrom_exclude? "-excl" : "", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -12604,11 +12470,7 @@ int main(int argc, char** argv) {
       break;
 
     case 'h':
-      if (!memcmp(argptr2, "orse", 5)) {
-	if (species_flag(&chrom_info, SPECIES_HORSE)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
-      } else if (!memcmp(argptr2, "we", 3)) {
+      if (!memcmp(argptr2, "we", 3)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -12869,10 +12731,6 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 #endif
-      } else if (!memcmp(argptr2, "ouse", 5)) {
-	if (species_flag(&chrom_info, SPECIES_MOUSE)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
       } else if (!memcmp(argptr2, "af", 3)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -13035,7 +12893,7 @@ int main(int argc, char** argv) {
 	  }
 	}
 	if (!(rel_calc_type & REL_CALC_SHAPEMASK)) {
-	  rel_calc_type |= REL_CALC_TRI;
+	  rel_calc_type |= (rel_calc_type & REL_CALC_BIN)? REL_CALC_SQ : REL_CALC_TRI;
 	}
 	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "atrix", 6)) {
@@ -13282,12 +13140,6 @@ int main(int argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-      } else if (!memcmp(argptr2, "ice", 4)) {
-	logprint("Error: --rice not yet supported.\n");
-	goto main_ret_INVALID_CMDLINE;
-	// if (species_flag(&chrom_info, SPECIES_RICE)) {
-	//   goto main_ret_INVALID_CMDLINE;
-	// }
       } else if (!memcmp(argptr2, "el-cutoff", 10)) {
 	if (parallel_tot > 1) {
 	  sprintf(logbuf, "Error: --parallel cannot be used with %s.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", argptr, errstr_append);
@@ -13571,10 +13423,6 @@ int main(int argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	strcpy(samplename, argv[cur_arg + 1]);
-      } else if (!memcmp(argptr2, "heep", 5)) {
-	if (species_flag(&chrom_info, SPECIES_SHEEP)) {
-	  goto main_ret_INVALID_CMDLINE;
-	}
       } else if (!memcmp(argptr2, "eed", 4)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -13591,8 +13439,8 @@ int main(int argc, char** argv) {
 	} else if (marker_pos_start != -1) {
 	  sprintf(logbuf, "Error: --snp cannot be used with --from-bp/-kb/-mb.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (autosome || chrom_info.chrom_mask) {
-	  sprintf(logbuf, "Error: --snp cannot be used with --autosome or --chr.%s", errstr_append);
+	} else if (chrom_info.chrom_mask) {
+	  sprintf(logbuf, "Error: --snp cannot be used with --autosome(-xy) or --chr%s.%s", chrom_exclude? "-excl" : "", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -13601,6 +13449,19 @@ int main(int argc, char** argv) {
         if (alloc_string(&markername_snp, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
+      } else if (!memcmp(argptr2, "nps", 3)) {
+	if (markername_from) {
+	  sprintf(logbuf, "Error: --snps cannot be used with --from.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (marker_pos_start != -1) {
+	  sprintf(logbuf, "Error: --snps cannot be used with --from-bp/-kb/-mb.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (markername_snp) {
+	  sprintf(logbuf, "Error: --snps cannot be used with --snp.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	// mise well allow --snps + --autosome/--autosome-xy/--chr/--chr-excl
+	// TODO
       } else if (memcmp(argptr2, "ilent", 6)) {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -13715,11 +13576,14 @@ int main(int argc, char** argv) {
 	memcpy(pedname, argv[cur_arg + 1], jj + 1);
 	load_rare |= LOAD_RARE_TPED;
       } else if (!memcmp(argptr2, "o", 2)) {
-	if (autosome || chrom_info.chrom_mask) {
-	  sprintf(logbuf, "Error: --to cannot be used with --autosome or --chr.%s", errstr_append);
+	if (chrom_info.chrom_mask) {
+	  sprintf(logbuf, "Error: --to cannot be used with --autosome(-xy) or --chr%s.%s", chrom_exclude? "-excl" : "", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (markername_snp) {
 	  sprintf(logbuf, "Error: --to cannot be used with --snp.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (snps_flag_markers) {
+	  sprintf(logbuf, "Error: --to cannot be used with --snps.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -13732,19 +13596,15 @@ int main(int argc, char** argv) {
 	if (markername_snp) {
 	  sprintf(logbuf, "Error: --to-bp/-kb/-mb cannot be used with --snp.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (snps_flag_markers) {
+	  sprintf(logbuf, "Error: --to-bp/-kb/-mb cannot be used with --snps.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (markername_to) {
 	  sprintf(logbuf, "Error: --to-bp/-kb/-mb cannot be used with --to.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (!markername_from) {
-	  ullii = chrom_info.chrom_mask;
-	  if ((!ullii) || (ullii & (ullii - 1LLU))) {
-	    sprintf(logbuf, "Error: --to-bp/-kb/-mb requires a specified chromosome (--chr/--from).%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
-	  }
-	  if (marker_pos_start == -1) {
-	    marker_pos_start = 0;
-	  }
+	if ((!markername_from) && (marker_pos_start == -1)) {
+	  marker_pos_start = 0;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -13856,7 +13716,7 @@ int main(int argc, char** argv) {
 	calculation_type |= CALC_WRITE_SNPLIST;
       } else if (!memcmp(argptr2, "indow", 6)) {
         if (!markername_snp) {
-	  sprintf(logbuf, "Error: --window must be used with --chr.%s", errstr_append);
+	  sprintf(logbuf, "Error: --window must be used with --snp.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -13900,16 +13760,21 @@ int main(int argc, char** argv) {
     sprintf(logbuf, "Error: --load-dists cannot be used without either --groupdist or\n--regress-distance.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
-  if (marker_pos_start != -1) {
-    if (!markername_to) {
-      ullii = chrom_info.chrom_mask;
-      if ((!ullii) || (ullii & (ullii - 1LLU))) {
-	sprintf(logbuf, "Error: --from-bp/-kb/-mb requires a specified chromosome (--chr/--to).%s", errstr_append);
-	goto main_ret_INVALID_CMDLINE_3;
-      }
-      if (marker_pos_end == -1) {
-	marker_pos_end = 2147483647;
-      }
+
+  // --from-bp/-kb/-mb without any --to/--to-bp/...: include to end of
+  // chromosome
+  if ((marker_pos_start != -1) && (!markername_to) && (marker_pos_end == -1)) {
+    marker_pos_end = 2147483647;
+  }
+  if (!chrom_info.chrom_mask) {
+    chrom_info.chrom_mask = species_valid_chrom_mask[chrom_info.species];
+  }
+  if (((marker_pos_start != -1) && (!markername_to)) || ((marker_pos_end != -1) && (!markername_from))) {
+    // require exactly one chromosome to be defined given --from-bp/--to-bp
+    // without --from/--to
+    if (chrom_info.chrom_mask & (chrom_info.chrom_mask - 1LLU)) {
+      sprintf(logbuf, "Error: --from-bp/-kb/-mb and --to-bp/-kb/-mb require a single chromosome to be\nidentified (either explicitly with --chr, or implicitly with --from/--to).%s", errstr_append);
+      goto main_ret_INVALID_CMDLINE_3;
     }
   }
 
@@ -13989,17 +13854,6 @@ int main(int argc, char** argv) {
     rseed = (unsigned long int)time(NULL);
   }
   init_genrand(rseed);
-
-  if (autosome) {
-    chrom_info.chrom_mask = species_autosome_mask[chrom_info.species];
-  } else if (!chrom_info.chrom_mask) {
-    chrom_info.chrom_mask = species_def_chrom_mask[chrom_info.species];
-  } else {
-    // need to revise this to handle CHROM_X, CHROM_Y, CHROM_MT later
-    if (chrom_info.chrom_mask & (1LLU << CHROM_XY)) {
-      chrom_info.chrom_mask = ((chrom_info.chrom_mask & ((1LLU << MAX_POSSIBLE_CHROM) - 1)) | (1LLU << species_xy_code[chrom_info.species]));
-    }
-  }
 
   tbuf[MAXLINELEN - 6] = ' ';
   tbuf[MAXLINELEN - 1] = ' ';

@@ -33,6 +33,8 @@ typedef union {
 
 #define PI 3.141592653589793
 #define RECIP_2_32 0.00000000023283064365386962890625
+// floating point comparison-to-nonzero tolerance, currently 2^{-30}
+#define EPSILON 0.000000000931322574615478515625
 
 #define RET_SUCCESS 0
 #define RET_NOMEM 1
@@ -140,6 +142,21 @@ typedef union {
 
 // number of different types of jackknife values to precompute (x^2, x, y, xy)
 #define JACKKNIFE_VALS_DIST 5
+
+#if __LP64__
+#define AAAAMASK 0xaaaaaaaaaaaaaaaaLU
+// number of snp-major .bed lines to read at once for distance calc if exponent
+// is nonzero.
+#define MULTIPLEX_DIST_EXP 64
+// number of snp-major .bed lines to read at once for relationship calc
+#define MULTIPLEX_REL 60
+#else
+// N.B. 32-bit version not as carefully tested or optimized, but I'll try to
+// make sure it works properly
+#define AAAAMASK 0xaaaaaaaa
+#define MULTIPLEX_DIST_EXP 28
+#define MULTIPLEX_REL 30
+#endif
 
 // fit 4 pathologically long IDs plus a bit extra
 extern char tbuf[];
@@ -291,7 +308,12 @@ static inline char* skip_initial_spaces(char* sptr) {
 }
 
 static inline int is_space_or_eoln(char cc) {
-  return ((cc == ' ') || (cc == '\t') || (cc == '\n') || (cc == '\0') || (cc == '\r'));
+  // ' ', \t, \n, \0, \r
+#if __LP64__
+  return ((((unsigned char)cc) <= 32) && (0x100002601LLU & (1LLU << cc)));
+#else
+  return ((((unsigned char)cc) <= 32) && ((cc == ' ') || (0x2601LU & (1LU << cc))));
+#endif
 }
 
 char* item_end(char* sptr);
@@ -501,9 +523,10 @@ typedef struct {
 #define SPECIES_RICE 5
 #define SPECIES_SHEEP 6
 
-extern const unsigned long long species_def_chrom_mask[];
+// extern const unsigned long long species_def_chrom_mask[];
 extern const unsigned long long species_autosome_mask[];
 extern const unsigned long long species_valid_chrom_mask[];
+extern const char species_autosome_ct_p1[];
 extern const char species_x_code[];
 extern const char species_y_code[];
 extern const char species_xy_code[];
@@ -514,6 +537,8 @@ extern const unsigned long long species_haploid_mask[];
 int marker_code_raw(char* sptr);
 
 int marker_code(unsigned int species, char* sptr);
+
+int marker_code2(unsigned int species, char* sptr, unsigned int slen);
 
 int strcmp_natural(const void* s1, const void* s2);
 

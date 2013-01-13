@@ -12,18 +12,22 @@ int debug_on = 0;
 int log_failed = 0;
 
 void logstr(const char* ss) {
-  if (log_failed) {
-    if (debug_on) {
-      printf("%s", ss);
-    }
-  } else if (fprintf(logfile, "%s", ss) < 0) {
-    if (!log_failed) {
-      if (debug_on) {
-	printf("\nError: Debug logging failure.  Dumping to standard output:\n%s", ss);
-      } else {
-	printf("\nNote: Logging failure on:\n%s\nFurther logging will not be attempted in this run.\n", ss);
-      }
+  if (!debug_on) {
+    if (fprintf(logfile, "%s", ss) < 0) {
+      printf("\nWarning: Logging failure on:\n%s\nFurther logging will not be attempted in this run.\n", ss);
       log_failed = 1;
+    }
+  } else {
+    if (log_failed) {
+      printf("%s", ss);
+      fflush(stdout);
+    } else {
+      if (fprintf(logfile, "%s", ss) < 0) {
+        printf("\nError: Debug logging failure.  Dumping to standard output:\n%s", ss);
+	log_failed = 1;
+      } else {
+	fflush(logfile);
+      }
     }
   }
 }
@@ -86,13 +90,10 @@ char* item_end(char* sptr) {
     return NULL;
   }
   cc = *sptr;
-  while ((cc != ' ') && (cc != '\t') && (cc != '\n') && (cc != '\r')) {
-    if (!cc) {
-      return NULL;
-    }
+  while (!is_space_or_eoln(cc)) {
     cc = *(++sptr);
   }
-  return sptr;
+  return cc? sptr : NULL;
 }
 
 char* item_endl(char* sptr) {
@@ -251,9 +252,13 @@ int next_set_unsafe(unsigned long* include_arr, unsigned int loc) {
 // mouse: 19, X, Y
 // rice: 12 (haploid, not supported for now)
 // sheep: 26, X, Y
-const unsigned long long species_def_chrom_mask[] = {0x027fffffLLU, 0x3fffffffLLU, 0x27fffffffffLLU, 0xffffffffLLU, 0x000fffffLLU, 0LLU, 0x07ffffffLLU};
+// const unsigned long long species_def_chrom_mask[] = {0x027fffffLLU, 0x3fffffffLLU, 0x27fffffffffLLU, 0xffffffffLLU, 0x000fffffLLU, 0LLU, 0x07ffffffLLU};
+const unsigned long long species_def_chrom_mask[] = {0x07ffffffLLU, 0xffffffffLLU, 0x3ffffffffffLLU, 0x3ffffffffLLU, 0x003fffffLLU, 0LLU, 0x1fffffffLLU};
 const unsigned long long species_autosome_mask[] = {0x007ffffeLLU, 0x3ffffffeLLU, 0x7ffffffffeLLU, 0xfffffffeLLU, 0x000ffffeLLU, 0LLU, 0x07fffffeLLU};
-const unsigned long long species_valid_chrom_mask[] = {0x1000027fffffLLU, 0x3fffffffLLU, 0x127fffffffffLLU, 0xffffffffLLU, 0x000fffffLLU, 0LLU, 0x07ffffffLLU};
+// const unsigned long long species_valid_chrom_mask[] = {0x3c0007ffffffLLU, 0xc00ffffffffLLU, 0x1fffffffffffLLU, 0xc00ffffffffLLU, 0xc00000fffffLLU, 0LLU, 0xc001fffffffLLU};
+const unsigned long long species_valid_chrom_mask[] = {0x07ffffffLLU, 0xffffffffLLU, 0x3ffffffffffLLU, 0x3ffffffffLLU, 0x003fffffLLU, 0LLU, 0x1fffffffLLU};
+// const unsigned long long species_valid_chrom_mask[] = {0x3c0007ffffffLLU, 0xc00ffffffffLLU, 0x1fffffffffffLLU, 0xc00ffffffffLLU, 0xc00000fffffLLU, 0LLU, 0xc001fffffffLLU}
+const char species_autosome_ct_p1[] = {23, 30, 39, 40, 20, 13, 27};
 const char species_x_code[] = {23, 30, 39, 32, 20, -1, 27};
 const char species_y_code[] = {24, 31, 40, 33, 21, -1, 28};
 const char species_xy_code[] = {25, -1, 41, -1, -1, -1, -1};
@@ -322,10 +327,20 @@ int marker_code(unsigned int species, char* sptr) {
     case CHROM_MT:
       ii = species_mt_code[species];
     }
-  } else if (ii > species_max_code[species]) {
+  } else if ((ii == -1) || (!(species_valid_chrom_mask[species] & (1LLU << ii)))) {
     return -1;
   }
   return ii;
+}
+
+int marker_code2(unsigned int species, char* sptr, unsigned int slen) {
+  char* s_end = &(sptr[slen]);
+  char tmpc = *s_end;
+  int retval;
+  *s_end = ' ';
+  retval = marker_code(species, sptr);
+  *s_end = tmpc;
+  return retval;
 }
 
 // WDIST's natural sort uses the following logic:
