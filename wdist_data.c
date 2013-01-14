@@ -205,7 +205,7 @@ int indiv_major_to_snp_major(char* indiv_major_fname, char* outname, FILE** outf
 
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 
-int load_map(FILE** mapfile_ptr, char* mapname, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char* extractname, char* excludename, char* freqname, char* refalleles, int calculation_type, int recode_modifier, int allelexxxx, int* map_is_unsorted_ptr) {
+int load_map(FILE** mapfile_ptr, char* mapname, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char* extractname, char* excludename, char* freqname, char* refalleles, int calculation_type, unsigned int recode_modifier, int allelexxxx, int* map_is_unsorted_ptr) {
   // todo: clean up
   int marker_ids_needed = (extractname || excludename || freqname || refalleles || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE | CALC_REGRESS_PCS)) || ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_LGEN)));
   unsigned int unfiltered_marker_ct = 0;
@@ -494,7 +494,7 @@ static inline unsigned int sf_out_of_range(unsigned int cur_pos, unsigned int ch
   return 1;
 }
 
-int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char* extractname, char* excludename, char* freqname, char* refalleles, int calculation_type, int recode_modifier, int allelexxxx, int marker_pos_start, int marker_pos_end, unsigned int snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* sf_markers, unsigned char* sf_starts_range, unsigned int sf_ct, unsigned int sf_max_len, int* map_is_unsorted_ptr) {
+int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char* extractname, char* excludename, char* freqname, char* refalleles, int calculation_type, unsigned int recode_modifier, int allelexxxx, int marker_pos_start, int marker_pos_end, unsigned int snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* sf_markers, unsigned char* sf_starts_range, unsigned int sf_ct, unsigned int sf_max_len, int* map_is_unsorted_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   int marker_ids_needed = (extractname || excludename || freqname || refalleles || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE | CALC_REGRESS_PCS)) || ((calculation_type & CALC_RECODE) && (recode_modifier & (RECODE_LGEN | RECODE_A | RECODE_AD))));
   unsigned int unfiltered_marker_ct = 0;
@@ -3500,6 +3500,90 @@ int generate_dummy(char* outname, unsigned int flags, unsigned int marker_ct, un
   return retval;
 }
 
+//      retval = recode_allele_load(recode_allele_name, &allele_missing, unfiltered_marker_ct, marker_exclude, marker_alleles, marker_reverse, recode_allele_reverse);
+int recode_allele_load(char* recode_allele_name, unsigned long** allele_missing_ptr, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, unsigned long* recode_allele_reverse) {
+  FILE* rafile = NULL;
+  unsigned int missing_allele = 0;
+  unsigned char* wkspace_mark = wkspace_base;
+  int duplicate_fail = 1;
+  char* sorted_ids;
+  int* id_map;
+  char* bufptr;
+  char* bufptr2;
+  int retval;
+  unsigned int slen;
+  int ii;
+  unsigned int marker_uidx;
+  char cc;
+  if (fopen_checked(&rafile, recode_allele_name, "r")) {
+    goto recode_allele_load_ret_OPEN_FAIL;
+  }
+  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, strcmp_deref, &duplicate_fail);
+  if (retval) {
+    goto recode_allele_load_ret_1;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, rafile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      logprint("Error: Pathologically long line in --recode-allele file.\n");
+      goto recode_allele_load_ret_INVALID_FORMAT;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    slen = strlen_se(bufptr);
+    bufptr2 = skip_initial_spaces(&(bufptr[slen]));
+    if (is_eoln_kns(*bufptr2)) {
+      logprint("Error: --recode-allele line has only one entry.\n");
+      goto recode_allele_load_ret_INVALID_FORMAT;
+    }
+    if (!is_eoln(bufptr2[1])) {
+      bufptr2[strlen_se(bufptr2)] = '\0';
+      sprintf(logbuf, "Error: --recode-allele allele '%s' too long (must be one character for now).\n", bufptr2);
+      logprintb();
+      goto recode_allele_load_ret_INVALID_FORMAT;
+    }
+    bufptr[slen] = '\0';
+    ii = bsearch_str(bufptr, sorted_ids, max_marker_id_len, 0, marker_ct - 1);
+    if (ii != -1) {
+      marker_uidx = id_map[ii];
+      cc = *bufptr2;
+      if (cc == marker_alleles[2 * marker_uidx]) {
+	clear_bit_noct(recode_allele_reverse, marker_uidx);
+      } else if (cc == marker_alleles[2 * marker_uidx + 1]) {
+	set_bit_noct(recode_allele_reverse, marker_uidx);
+      } else {
+	missing_allele = 1;
+	set_bit_noct(*allele_missing_ptr, marker_uidx);
+      }
+    }
+  }
+  if (!feof(rafile)) {
+    goto recode_allele_load_ret_READ_FAIL;
+  }
+  retval;
+  while (0) {
+  recode_allele_load_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  recode_allele_load_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  recode_allele_load_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+  }
+ recode_allele_load_ret_1:
+  fclose_cond(rafile);
+  if (missing_allele) {
+    wkspace_reset(wkspace_mark);
+  } else {
+    wkspace_reset((unsigned char*)(*allele_missing_ptr));
+    *allele_missing_ptr = NULL;
+  }
+  return retval;
+}
+
 int recode_load_to(unsigned char* loadbuf, FILE* bedfile, int bed_offset, unsigned int unfiltered_marker_ct, unsigned int marker_idx, unsigned int marker_idx_end, unsigned long* marker_exclude, unsigned int* marker_uidx_ptr, unsigned int unfiltered_indiv_ct4) {
   unsigned int marker_uidx = *marker_uidx_ptr;
   unsigned long ulii;
@@ -3560,12 +3644,14 @@ static inline int recode_write_first_cols(FILE* outfile, unsigned int indiv_uidx
   return 0;
 }
 
-int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FILE* bimfile, FILE** outfile_ptr, char* outname, char* outname_end, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, unsigned long* marker_reverse, char* person_ids, unsigned long max_person_id_len, char* paternal_ids, unsigned long max_paternal_id_len, char* maternal_ids, unsigned long max_maternal_id_len, unsigned char* sex_info, char* pheno_c, double* pheno_d, double missing_phenod, char output_missing_geno, char* output_missing_pheno) {
+int recode(unsigned int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FILE* bimfile, FILE** outfile_ptr, char* outname, char* outname_end, char* recode_allele_name, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, unsigned long* marker_reverse, char* person_ids, unsigned long max_person_id_len, char* paternal_ids, unsigned long max_paternal_id_len, char* maternal_ids, unsigned long max_maternal_id_len, unsigned char* sex_info, char* pheno_c, double* pheno_d, double missing_phenod, char output_missing_geno, char* output_missing_pheno) {
   unsigned int unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   unsigned char* wkspace_mark = wkspace_base;
   int affection = (pheno_c != NULL);
   int phenos_present = (affection || (pheno_d != NULL));
   char delimiter = (recode_modifier & RECODE_TAB)? '\t' : ' ';
+  unsigned long* recode_allele_reverse = NULL;
+  unsigned long* allele_missing = NULL;
   char delim2;
   unsigned int marker_uidx;
   unsigned int marker_idx;
@@ -3587,6 +3673,11 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
   unsigned int shiftval;
   char* mk_alleles;
   int retval = 0;
+  if (recode_modifier & RECODE_RLIST) {
+    logprint("Error: --recode rlist not yet implemented.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto recode_ret_1;
+  }
   if (recode_modifier & RECODE_TRANSPOSE) {
     if (wkspace_alloc_c_checked(&writebuf, indiv_ct * 4)) {
       goto recode_ret_NOMEM;
@@ -3599,6 +3690,22 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
     // need more space for AD coding thanks to 'NA'
     if (wkspace_alloc_c_checked(&writebuf, marker_ct * ((recode_modifier & RECODE_AD)? 6 : ((recode_modifier & RECODE_A)? 3 : 4)))) {
       goto recode_ret_NOMEM;
+    }
+    if (recode_allele_name) {
+      ulii = ((unfiltered_marker_ct + (BITCT - 1)) / BITCT) * sizeof(long);
+      if (wkspace_alloc_ul_checked(&recode_allele_reverse, ulii * sizeof(long))) {
+	goto recode_ret_NOMEM;
+      }
+      memcpy(recode_allele_reverse, marker_reverse, ulii);
+      marker_reverse = recode_allele_reverse;
+      if (wkspace_alloc_ul_checked(&allele_missing, ulii * sizeof(long))) {
+	goto recode_ret_NOMEM;
+      }
+      fill_ulong_zero(allele_missing, ulii);
+      retval = recode_allele_load(recode_allele_name, &allele_missing, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_alleles, recode_allele_reverse);
+      if (retval) {
+	goto recode_ret_1;
+      }
     }
   }
   if (recode_modifier & RECODE_12) {

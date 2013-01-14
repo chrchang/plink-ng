@@ -195,7 +195,7 @@ int edit1_match(int len1, char* s1, int len2, char* s2) {
   return 1;
 }
 
-#define MAX_EQUAL_HELP_PARAMS 10
+#define MAX_EQUAL_HELP_PARAMS 11
 
 typedef struct {
   int iters_left;
@@ -650,19 +650,21 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    converter (which only respects --autosome and --chr), this supports all of\n"
 "    WDIST's filtering flags.\n"
 	       );
-    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea", &help_ctrl, 1,
-"  --recode <12> <tab | tabx | spacex> <transpose | lgen | A | AD>\n"
+    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele", &help_ctrl, 1,
+"  --recode <12> <tab | tabx | spacex> <A | AD | lgen | rlist | transpose>\n"
 "    Creates a new text fileset with all filters applied.\n"
 "    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
 "    * The 'tab' modifier makes the output mostly tab-delimited instead of\n"
 "       mostly space-delimited.  'tabx' and 'spacex' force all tabs and all\n"
 "       spaces, respectively.\n"
-"    * The 'transpose' modifier causes a transposed text fileset to be generated\n"
-"      instead.\n"
-"    * The 'lgen' modifier causes a long-format fileset to be generated instead.\n"
 "    * The 'AD' modifier causes an additive + dominant component file, suitable\n"
 "      for loading from R, to be generated instead.  If you don't want the\n"
-"      dominant component, use 'A' instead.\n\n"
+"      dominant component, use 'A' instead.\n"
+"    * The 'lgen' modifier causes a long-format fileset to be generated instead.\n"
+"    * The 'rlist' modifier causes a rare-genotype fileset to be generated\n"
+"      instead.\n"
+"    * The 'transpose' modifier causes a transposed text fileset to be generated\n"
+"      instead.\n\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
 "  --merge [.ped filename] [.map filename]\n"
@@ -871,6 +873,10 @@ int disp_help(unsigned int param_ct, char** argv) {
 "                     of (2q(1-q))^{-val}, where q is the inferred MAF.  (Use\n"
 "                     --read-freq if you want to explicitly specify some or all\n"
 "                     of the MAFs.)\n"
+	       );
+    help_print("recode\trecode-allele", &help_ctrl, 0,
+"  --recode-allele [f] : Allows you to specify which allele to count with\n"
+"                        --recode A or --recode AD.\n"
 	       );
     help_print("keep-allele-order\tmake-bed\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
 "  --keep-allele-order : Keep the original allele order when creating a new\n"
@@ -9514,7 +9520,7 @@ inline int distance_wt_req(int calculation_type) {
   return ((calculation_type & CALC_DISTANCE) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
 
-int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int rel_calc_type, int dist_calc_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, int recode_modifier, int allelexxxx, int merge_type, int indiv_sort, int keep_allele_order, int marker_pos_start, int marker_pos_end, unsigned int snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, unsigned int snps_flag_ct, unsigned int snps_flag_max_len) {
+int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* recode_allele_name, char* filterval, int mfilter_col, int filter_case_control, int filter_sex, int filter_founder_nonf, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, char missing_geno, int missing_pheno, char output_missing_geno, char* output_missing_pheno, int mpheno_col, int pheno_merge, int prune, int affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int hwe_all, double rel_cutoff, int tail_pheno, double tail_bottom, double tail_top, int calculation_type, int rel_calc_type, int dist_calc_type, unsigned long groupdist_iters, int groupdist_d, unsigned long regress_iters, int regress_d, unsigned long regress_rel_iters, int regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int ibc_type, int parallel_idx, unsigned int parallel_tot, int ppc_gap, int allow_no_sex, int nonfounders, int genome_output_gz, int genome_output_full, int genome_ibd_unbounded, int ld_window_size, int ld_window_kb, int ld_window_incr, double ld_last_param, int maf_succ, int regress_pcs_normalize_pheno, int regress_pcs_sex_specific, int regress_pcs_clip, int max_pcs, int freq_counts, int freqx, int distance_flat_missing, unsigned int recode_modifier, int allelexxxx, int merge_type, int indiv_sort, int keep_allele_order, int marker_pos_start, int marker_pos_end, unsigned int snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, unsigned int snps_flag_ct, unsigned int snps_flag_max_len) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -10095,7 +10101,7 @@ int wdist(char* outname, char* pedname, char* mapname, char* famname, char* phen
   }
 
   if (calculation_type & CALC_RECODE) {
-    retval = recode(recode_modifier, pedfile, bed_offset, famfile, mapfile, &outfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_alleles, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_geno, output_missing_pheno);
+    retval = recode(recode_modifier, pedfile, bed_offset, famfile, mapfile, &outfile, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_alleles, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_geno, output_missing_pheno);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -11299,6 +11305,15 @@ int flag_match(const char* to_match, unsigned int* cur_flag_ptr, unsigned int fl
   return 0;
 }
 
+int recode_type_set(unsigned int* recode_modifier_ptr, unsigned int cur_code) {
+  if (*recode_modifier_ptr & (RECODE_TYPEMASK - cur_code)) {
+    sprintf(logbuf, "Error: Conflicting --recode modifiers.%s", errstr_append);
+    return -1;
+  }
+  *recode_modifier_ptr |= cur_code;
+  return 0;
+}
+
 int main(int argc, char** argv) {
   unsigned char* wkspace_ua;
   char outname[FNAMESIZE];
@@ -11331,6 +11346,7 @@ int main(int argc, char** argv) {
   char* keepname = NULL;
   char* removename = NULL;
   char* phenoname = NULL;
+  char* recode_allele_name = NULL;
   char** subst_argv2;
   int retval = 0;
   int load_params = 0; // describes what file parameters have been provided
@@ -11407,7 +11423,7 @@ int main(int argc, char** argv) {
   int regress_pcs_clip = 0;
   int max_pcs = MAX_PCS_DEFAULT;
   int freqx = 0;
-  int recode_modifier = 0;
+  unsigned int recode_modifier = 0;
   int freq_counts = 0;
   int allelexxxx = 0;
   int silent = 0;
@@ -11734,8 +11750,10 @@ int main(int argc, char** argv) {
 	goto main_flag_copy;
       case 'r':
 	if (!memcmp(argptr, "recode", 6)) {
-	  if (((kk == 9) && ((!memcmp(&(argptr[6]), "12", 2)) || ((tolower(argptr[6]) == 'a') && (tolower(argptr[7]) == 'd')))) || (!memcmp(&(argptr[6]), "-lgen", 6)) || ((tolower(argptr[6]) == 'a') && (kk == 8))) {
-	    if (kk == 12) {
+	  if (((kk == 9) && ((!memcmp(&(argptr[6]), "12", 2)) || ((tolower(argptr[6]) == 'a') && (tolower(argptr[7]) == 'd')))) || (!memcmp(&(argptr[6]), "-lgen", 6)) || (!memcmp(&(argptr[6]), "-rlist", 7)) || ((tolower(argptr[6]) == 'a') && (kk == 8))) {
+	    if (kk == 13) {
+	      memcpy(flagptr, "recode rlist", 13);
+	    } else if (kk == 12) {
 	      memcpy(flagptr, "recode lgen", 12);
 	    } else if (argptr[6] == '1') {
 	      memcpy(flagptr, "recode 12", 10);
@@ -13403,12 +13421,14 @@ int main(int argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode lgen", 11)) || (!memcmp(argptr2, "ecode AD", 9)) || (!memcmp(argptr2, "ecode A", 8))) {
+      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode lgen", 11)) || (!memcmp(argptr2, "ecode AD", 9)) || (!memcmp(argptr2, "ecode A", 8)) || (!memcmp(argptr2, "ecode rlist", 12))) {
 	if (argptr2[5] == ' ') {
 	  if (argptr2[6] == '1') {
 	    recode_modifier |= RECODE_12;
 	  } else if (argptr2[6] == 'l') {
 	    recode_modifier |= RECODE_LGEN;
+	  } else if (argptr2[6] == 'r') {
+	    recode_modifier |= RECODE_RLIST;
 	  } else if (argptr2[7] == 'D') {
 	    recode_modifier |= RECODE_AD;
 	  } else {
@@ -13423,18 +13443,27 @@ int main(int argc, char** argv) {
 	}
 	for (jj = 1; jj <= ii; jj++) {
 	  if (!memcmp(argv[cur_arg + jj], "12", 3)) {
+	    if (recode_modifier & (RECODE_A | RECODE_AD)) {
+	      sprintf(logbuf, "Error: --recode '12' modifier cannot be used with 'A' or 'AD'.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	    recode_modifier |= RECODE_12;
           } else if ((!argv[cur_arg + jj][1]) && (tolower(argv[cur_arg + jj][0]) == 'a')) {
-	    if (recode_modifier & (RECODE_AD | RECODE_LGEN | RECODE_TRANSPOSE)) {
-	      sprintf(logbuf, "Error: --recode 'A' and '%s' modifiers cannot be used together.%s", (recode_modifier & RECODE_AD)? "AD" : ((recode_modifier & RECODE_LGEN)? "lgen" : "transpose"), errstr_append);
+	    if (recode_modifier & RECODE_12) {
+	      sprintf(logbuf, "Error: --recode 'A' modifier cannot be used with '12'.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    if (recode_type_set(&recode_modifier, RECODE_A)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	  } else if ((!argv[cur_arg + jj][2]) && (tolower(argv[cur_arg + jj][0]) == 'a') && (tolower(argv[cur_arg + jj][1]) == 'd')) {
-	    if (recode_modifier & (RECODE_A | RECODE_LGEN | RECODE_TRANSPOSE)) {
-	      sprintf(logbuf, "Error: --recode 'AD' and '%s' modifiers cannot be used together.%s", (recode_modifier & RECODE_A)? "A" : ((recode_modifier & RECODE_LGEN)? "lgen" : "transpose"), errstr_append);
+	    if (recode_modifier & RECODE_12) {
+	      sprintf(logbuf, "Error: --recode 'AD' modifier cannot be used with '12'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	    recode_modifier |= RECODE_AD;
+	    if (recode_type_set(&recode_modifier, RECODE_AD)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	  } else if (!memcmp(argv[cur_arg + jj], "tab", 4)) {
 	    if (recode_modifier & (RECODE_TAB | RECODE_DELIMX)) {
 	      sprintf(logbuf, "Error: Multiple --recode delimiter modifiers.%s", errstr_append);
@@ -13453,24 +13482,36 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_DELIMX;
-	  } else if (!memcmp(argv[cur_arg + jj], "transpose", 10)) {
-	    if (recode_modifier & (RECODE_A | RECODE_AD | RECODE_LGEN)) {
-	      sprintf(logbuf, "Error: --recode 'transpose' and '%s' modifiers cannot be used together.%s", (recode_modifier & RECODE_A)? "A" : ((recode_modifier & RECODE_AD)? "AD" : "lgen"), errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
-	    }
-	    recode_modifier |= RECODE_TRANSPOSE;
 	  } else if (!memcmp(argv[cur_arg + jj], "lgen", 5)) {
-	    if (recode_modifier & (RECODE_A | RECODE_AD | RECODE_TRANSPOSE)) {
-	      sprintf(logbuf, "Error: --recode 'lgen' and '%s' modifiers cannot be used together.%s", (recode_modifier & RECODE_A)? "A" : ((recode_modifier & RECODE_AD)? "AD" : "transpose"), errstr_append);
+	    if (recode_type_set(&recode_modifier, RECODE_LGEN)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	    recode_modifier |= RECODE_LGEN;
+	  } else if (!memcmp(argv[cur_arg + jj], "rlist", 6)) {
+	    if (recode_type_set(&recode_modifier, RECODE_RLIST)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	  } else if (!memcmp(argv[cur_arg + jj], "transpose", 10)) {
+	    if (recode_type_set(&recode_modifier, RECODE_TRANSPOSE)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --recode parameter '%s'.%s%s", argv[cur_arg + jj], ((jj == ii) && (!memcmp(outname, "wdist", 6)))? "  (Did you forget '--out'?)" : "", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
 	calculation_type |= CALC_RECODE;
+      } else if (!memcmp(argptr2, "ecode-allele", 13)) {
+	if (!(recode_modifier & (RECODE_A | RECODE_AD))) {
+	  sprintf(logbuf, "Error: --recode-allele must be used with --recode A or --recode AD.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&recode_allele_name, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else if (!memcmp(argptr2, "eference-allele", 16)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -13990,7 +14031,7 @@ int main(int argc, char** argv) {
       memcpy(&(famname[uii]), ".fam", 5);
       outname[uii - ii] = '\0';
     }
-    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len);
+    retval = wdist(outname, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, recode_allele_name, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_merge, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (unsigned int)parallel_tot, ppc_gap, allow_no_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len);
   }
  main_ret_2:
   free(wkspace_ua);
@@ -14046,6 +14087,7 @@ int main(int argc, char** argv) {
   free_cond(keepname);
   free_cond(removename);
   free_cond(phenoname);
+  free_cond(recode_allele_name);
   free_cond(markername_from);
   free_cond(markername_to);
   free_cond(markername_snp);

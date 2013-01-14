@@ -87,10 +87,12 @@ typedef union {
 #define RECODE_12 1
 #define RECODE_TAB 2
 #define RECODE_DELIMX 4
-#define RECODE_TRANSPOSE 8
-#define RECODE_LGEN 16
-#define RECODE_A 32
-#define RECODE_AD 64
+#define RECODE_A 8
+#define RECODE_AD 16
+#define RECODE_LGEN 32
+#define RECODE_RLIST 64
+#define RECODE_TRANSPOSE 128
+#define RECODE_TYPEMASK 248
 
 #define MERGE_MODE_MASK 7
 #define MERGE_ALLOW_EQUAL_POS 8
@@ -221,7 +223,7 @@ static inline int flexwrite_checked(FILE* outfile, gzFile gz_outfile, char* cont
   }
 }
 
-static inline int bed_suffix_conflict(int calculation_type, int recode_modifier) {
+static inline int bed_suffix_conflict(int calculation_type, unsigned int recode_modifier) {
   return (calculation_type & CALC_MAKE_BED) || ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_LGEN));
 }
 
@@ -620,10 +622,6 @@ unsigned long popcount_chars(unsigned long* lptr, unsigned long start_idx, unsig
 int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf);
 
 void collapse_arr(char* item_arr, int fixed_item_len, unsigned long* exclude_arr, int exclude_arr_size);
-
-void init_genrand(unsigned long s);
-
-unsigned long genrand_int32(void);
 
 // double rand_unif(void);
 

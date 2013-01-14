@@ -10,7 +10,7 @@ LINKFLAGS=
 ZLIB=zlib-1.2.7/libz.a
 endif
 
-SRC = wdist.c wdist_calc.c wdist_common.c wdist_data.c wdist_dosage.c
+SRC = wdist.c wdist_calc.c wdist_common.c wdist_data.c wdist_dosage.c SFMT.c
 
 wdist: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
