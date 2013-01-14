@@ -3053,7 +3053,7 @@ int transposed_to_bed(char* tpedname, char* tfamname, char* outname, char missin
       cc = cptr[ulii];
       cptr[ulii] = '\0';
       putchar('\r');
-      sprintf(logbuf, "Note: Marker %s is %sallelic.  Truncating.\n", cptr, allele_cts[3]? "quad" : "tri");
+      sprintf(logbuf, "Note: Marker %s is %sallelic.  Setting rarest alleles to missing.\n", cptr, allele_cts[3]? "quad" : "tri");
       logprintb();
       transposed_to_bed_print_pct(pct);
       cptr[ulii] = cc;
@@ -3313,6 +3313,8 @@ int generate_dummy(char* outname, unsigned int flags, unsigned int marker_ct, un
   unsigned int pheno_m_check = (pheno_mrate > 0.0);
   unsigned int pheno_m32 = (unsigned int)(geno_mrate * 4294967296.0);
   unsigned long urand = 0;
+  unsigned int saved_rnormal = 0;
+  double saved_rnormal_val;
   char alleles[13];
   unsigned char* writebuf;
   unsigned char* ucptr;
@@ -3385,7 +3387,13 @@ int generate_dummy(char* outname, unsigned int flags, unsigned int marker_ct, un
       if (pheno_m_check && (genrand_int32() <= pheno_m32)) {
 	dxx = -9;
       } else {
-	dxx = rand_normal();
+	if (saved_rnormal) {
+	  dxx = saved_rnormal_val;
+	  saved_rnormal = 0;
+	} else {
+	  dxx = rand_normal(&saved_rnormal_val);
+	  saved_rnormal = 1;
+	}
       }
       if (fprintf(outfile, "per%u per%u 0 0 2 %g\n", uii, uii, dxx) < 0) {
 	goto generate_dummy_ret_OPEN_FAIL;

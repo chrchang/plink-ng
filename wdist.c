@@ -138,7 +138,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (13 Jan 2013)";
+  " (14 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -650,8 +650,8 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    converter (which only respects --autosome and --chr), this supports all of\n"
 "    WDIST's filtering flags.\n"
 	       );
-    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen", &help_ctrl, 1,
-"  --recode <12> <tab | tabx | spacex> <transpose | lgen>\n"
+    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead", &help_ctrl, 1,
+"  --recode <12> <tab | tabx | spacex> <transpose | lgen | AD>\n"
 "    Creates a new text fileset with all filters applied.\n"
 "    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
 "    * The 'tab' modifier makes the output mostly tab-delimited instead of\n"
@@ -659,7 +659,9 @@ int disp_help(unsigned int param_ct, char** argv) {
 "       spaces, respectively.\n"
 "    * The 'transpose' modifier causes a transposed text fileset to be generated\n"
 "      instead.\n"
-"    * The 'lgen' modifier causes a long-format fileset to be generated instead.\n\n"
+"    * The 'lgen' modifier causes a long-format fileset to be generated instead.\n"
+"    * The 'AD' modifier causes an additive + dominant component file, suitable\n"
+"      for loading from R, to be generated instead.\n\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
 "  --merge [.ped filename] [.map filename]\n"
@@ -782,8 +784,8 @@ int disp_help(unsigned int param_ct, char** argv) {
 "                     denote a range, e.g. '--chr 1-4, 22, xy'.\n"
 "  --chr-excl [...] : Reverse of --chr (excludes markers on listed chromosomes).\n"
 	       );
-    help_print("d\tchr\tchr-excl\tsnps", &help_ctrl, 0,
-"  --d [char]       : Change nonspace delimiter separating ranges (usually ',').\n"
+    help_print("d\tsnps", &help_ctrl, 0,
+"  --d [char]       : Change marker range delimiter (usually '-').\n"
 	       );
     help_print("from\tto\tsnp\twindow\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
 "  --from [mkr ID]  : Use ID(s) to specify a marker range to load.  When used\n"
@@ -11054,10 +11056,10 @@ int parse_next_range(unsigned int param_ct, char range_delim, char** argv, unsig
       cur_arg_ptr = argv[cur_param_idx];
       cc = *cur_arg_ptr;
     }
-    if (cc == '-') {
+    if (cc == range_delim) {
       return -1;
     }
-    if (cc != range_delim) {
+    if (cc != ',') {
       break;
     }
     cur_arg_ptr++;
@@ -11065,25 +11067,25 @@ int parse_next_range(unsigned int param_ct, char range_delim, char** argv, unsig
   *range_start_ptr = cur_arg_ptr;
   do {
     cc = *(++cur_arg_ptr);
-    if ((!cc) || (cc == range_delim)) {
+    if ((!cc) || (cc == ',')) {
       *rs_len_ptr = (unsigned long)(cur_arg_ptr - (*range_start_ptr));
       *cur_arg_pptr = cur_arg_ptr;
       *range_end_ptr = NULL;
       return 0;
     }
-  } while (cc != '-');
+  } while (cc != range_delim);
   *rs_len_ptr = (unsigned long)(cur_arg_ptr - (*range_start_ptr));
   cc = *(++cur_arg_ptr);
-  if ((!cc) || (cc == '-') || (cc == range_delim)) {
+  if ((!cc) || (cc == ',') || (cc == range_delim)) {
     return -1;
   }
   *range_end_ptr = cur_arg_ptr;
   do {
     cc = *(++cur_arg_ptr);
-    if (cc == '-') {
+    if (cc == range_delim) {
       return -1;
     }
-  } while (cc && (cc != range_delim));
+  } while (cc && (cc != ','));
   *re_len_ptr = (unsigned long)(cur_arg_ptr - (*range_end_ptr));
   *cur_arg_pptr = cur_arg_ptr;
   return 0;
@@ -11429,7 +11431,7 @@ int main(int argc, char** argv) {
   char* argptr2;
   char* flagptr;
   char* missing_code = NULL;
-  char range_delim = ',';
+  char range_delim = '-';
   unsigned long long chrom_exclude = 0;
   char* snps_flag_markers = NULL;
   unsigned char* snps_flag_starts_range = NULL;
@@ -11732,11 +11734,13 @@ int main(int argc, char** argv) {
 	goto main_flag_copy;
       case 'r':
 	if (!memcmp(argptr, "recode", 6)) {
-	  if ((!memcmp(&(argptr[6]), "12", 3)) || (!memcmp(&(argptr[6]), "-lgen", 6))) {
-	    if (kk == 8) {
+	  if (((kk == 9) && ((!memcmp(&(argptr[6]), "12", 2)) || ((tolower(argptr[6]) == 'a') && (tolower(argptr[7]) == 'd')))) || (!memcmp(&(argptr[6]), "-lgen", 6))) {
+	    if (kk == 12) {
+	      memcpy(flagptr, "recode lgen", 12);
+	    } else if (argptr[6] == '1') {
 	      memcpy(flagptr, "recode 12", 10);
 	    } else {
-	      memcpy(flagptr, "recode lgen", 12);
+	      memcpy(flagptr, "recode AD", 10);
 	    }
 	    printf("Note: %s flag deprecated.  Use '%s ...'.\n", argptr, flagptr);
 	    mm++;
@@ -11857,20 +11861,6 @@ int main(int argc, char** argv) {
   if (flag_match("cow", &cur_flag, flag_ct, flag_buf)) {
     if (species_flag(&chrom_info, SPECIES_COW)) {
       goto main_ret_INVALID_CMDLINE;
-    }
-  }
-  if (flag_match("d", &cur_flag, flag_ct, flag_buf)) {
-    if (enforce_param_ct_range(argc, argv, ii, 1, 1, &jj)) {
-      goto main_ret_INVALID_CMDLINE_3;
-    }
-    if (argv[ii + 1][1] != '\0') {
-      sprintf(logbuf, "Error: --d parameter too long (must be a single character).%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
-    }
-    range_delim = argv[ii + 1][0];
-    if ((range_delim == '-') || (range_delim == ',')) {
-      sprintf(logbuf, "Error: --d parameter cannot be '-' or ','.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
     }
   }
   if (flag_match("dog", &cur_flag, flag_ct, flag_buf)) {
@@ -12048,7 +12038,7 @@ int main(int argc, char** argv) {
 	  sprintf(logbuf, "Error: --chr cannot be used with --autosome(-xy).%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (parse_chrom_ranges(param_count(argc, argv, cur_arg), range_delim, &(argv[cur_arg]), &(chrom_info.chrom_mask), chrom_info.species, argptr)) {
+	if (parse_chrom_ranges(param_count(argc, argv, cur_arg), '-', &(argv[cur_arg]), &(chrom_info.chrom_mask), chrom_info.species, argptr)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (!chrom_info.chrom_mask) {
@@ -12056,7 +12046,7 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
       } else if (!memcmp(argptr2, "hr-excl", 8)) {
-	if (parse_chrom_ranges(param_count(argc, argv, cur_arg), range_delim, &(argv[cur_arg]), &chrom_exclude, chrom_info.species, argptr)) {
+	if (parse_chrom_ranges(param_count(argc, argv, cur_arg), '-', &(argv[cur_arg]), &chrom_exclude, chrom_info.species, argptr)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (!chrom_info.chrom_mask) {
@@ -12082,7 +12072,20 @@ int main(int argc, char** argv) {
       break;
 
     case 'd':
-      if (!memcmp(argptr2, "ata", 4)) {
+      if (!(*argptr2)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (argv[cur_arg + 1][1]) {
+	  sprintf(logbuf, "Error: --d parameter too long (must be a single character).%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	range_delim = argv[cur_arg + 1][0];
+	if ((range_delim == '-') || (range_delim == ',')) {
+	  sprintf(logbuf, "Error: --d parameter cannot be '-' or ','.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+      } else if (!memcmp(argptr2, "ata", 4)) {
 	if (load_params & 0xff) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
@@ -13398,12 +13401,14 @@ int main(int argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode lgen", 11))) {
+      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode lgen", 11)) || (!memcmp(argptr2, "ecode AD", 9))) {
 	if (argptr2[5] == ' ') {
 	  if (argptr2[6] == '1') {
 	    recode_modifier |= RECODE_12;
-	  } else {
+	  } else if (argptr2[6] == 'l') {
 	    recode_modifier |= RECODE_LGEN;
+	  } else {
+	    recode_modifier |= RECODE_AD;
 	  }
 	  kk = 1;
 	} else {
@@ -13415,6 +13420,12 @@ int main(int argc, char** argv) {
 	for (jj = 1; jj <= ii; jj++) {
 	  if (!memcmp(argv[cur_arg + jj], "12", 3)) {
 	    recode_modifier |= RECODE_12;
+	  } else if ((!argv[cur_arg + jj][2]) && (tolower(argv[cur_arg + jj][0]) == 'a') && (tolower(argv[cur_arg + jj][1]) == 'd')) {
+	    if (recode_modifier & (RECODE_LGEN | RECODE_TRANSPOSE)) {
+	      sprintf(logbuf, "Error: --recode 'AD' and '%s' modifiers cannot be used together.%s", (recode_modifier & RECODE_LGEN)? "lgen" : "transpose", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    recode_modifier |= RECODE_AD;
 	  } else if (!memcmp(argv[cur_arg + jj], "tab", 4)) {
 	    if (recode_modifier & (RECODE_TAB | RECODE_DELIMX)) {
 	      sprintf(logbuf, "Error: Multiple --recode delimiter modifiers.%s", errstr_append);
@@ -13434,19 +13445,19 @@ int main(int argc, char** argv) {
 	    }
 	    recode_modifier |= RECODE_DELIMX;
 	  } else if (!memcmp(argv[cur_arg + jj], "transpose", 10)) {
-	    if (recode_modifier & RECODE_LGEN) {
-	      sprintf(logbuf, "Error: --recode 'transpose' and 'lgen' modifiers cannot be used together.%s", errstr_append);
+	    if (recode_modifier & (RECODE_AD | RECODE_LGEN)) {
+	      sprintf(logbuf, "Error: --recode 'transpose' and '%s' modifiers cannot be used together.%s", (recode_modifier & RECODE_AD)? "AD" : "lgen", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_TRANSPOSE;
 	  } else if (!memcmp(argv[cur_arg + jj], "lgen", 5)) {
-	    if (recode_modifier & RECODE_TRANSPOSE) {
-	      sprintf(logbuf, "Error: --recode 'transpose' and 'lgen' modifiers cannot be used together.%s", errstr_append);
+	    if (recode_modifier & (RECODE_AD | RECODE_TRANSPOSE)) {
+	      sprintf(logbuf, "Error: --recode 'lgen' and '%s' modifiers cannot be used together.%s", (recode_modifier & RECODE_AD)? "AD" : "transpose", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_LGEN;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --recode parameter '%s'.%s%s", argv[cur_arg + jj], (ii == 1)? "  (Did you want '--out'?)" : "", errstr_append);
+	    sprintf(logbuf, "Error: Invalid --recode parameter '%s'.%s%s", argv[cur_arg + jj], ((jj == ii) && (!memcmp(outname, "wdist", 6)))? "  (Did you forget '--out'?)" : "", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}

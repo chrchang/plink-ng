@@ -89,6 +89,7 @@ typedef union {
 #define RECODE_DELIMX 4
 #define RECODE_TRANSPOSE 8
 #define RECODE_LGEN 16
+#define RECODE_AD 32
 
 #define MERGE_MODE_MASK 7
 #define MERGE_ALLOW_EQUAL_POS 8
@@ -625,7 +626,7 @@ unsigned long genrand_int32(void);
 
 // double rand_unif(void);
 
-double rand_normal(void);
+double rand_normal(double* secondval_ptr);
 
 // void pick_d(unsigned char* cbuf, unsigned int ct, unsigned int dd);
 

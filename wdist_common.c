@@ -1791,9 +1791,12 @@ double rand_unif(void) {
   return (genrand_int32() + 0.5) * RECIP_2_32;
 }
 
-double rand_normal(void) {
+double rand_normal(double* secondval_ptr) {
   // N(0, 1)
-  return sqrt(-2 * log(rand_unif())) * cos(2 * PI * rand_unif());
+  double dxx = sqrt(-2 * log(rand_unif()));
+  double dyy = 2 * PI * rand_unif();
+  *secondval_ptr = dxx * cos(dyy);
+  return dxx * sin(dyy);
 }
 
 void pick_d(unsigned char* cbuf, unsigned int ct, unsigned int dd) {
