@@ -575,9 +575,9 @@ int eval_affection(char* bufptr, int missing_pheno, int missing_pheno_len, int a
 
 void triangle_fill(unsigned int* target_arr, int ct, int pieces, int parallel_idx, int parallel_tot, int start, int align);
 
-int write_ids(char* outname, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len);
+int write_ids(char* outname, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned long max_person_id_len);
 
-int distance_d_write_ids(char* outname, char* outname_end, int dist_calc_type, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len);
+int distance_d_write_ids(char* outname, char* outname_end, int dist_calc_type, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned long max_person_id_len);
 
 int distance_req(int calculation_type);
 
@@ -589,13 +589,13 @@ void qsort_ext2(char* main_arr, int arr_length, int item_length, int(* comparato
 
 int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len);
 
-int bsearch_str(char* id_buf, char* lptr, int max_id_len, int min_idx, int max_idx);
+int bsearch_str(char* id_buf, char* lptr, long max_id_len, int min_idx, int max_idx);
 
-int bsearch_str_natural(char* id_buf, char* lptr, int max_id_len, int min_idx, int max_idx);
+int bsearch_str_natural(char* id_buf, char* lptr, long max_id_len, int min_idx, int max_idx);
 
 void fill_idbuf_fam_indiv(char* id_buf, char* fam_indiv, char fillchar);
 
-int bsearch_fam_indiv(char* id_buf, char* lptr, int max_id_len, int filter_line_ct, char* fam_id, char* indiv_id);
+int bsearch_fam_indiv(char* id_buf, char* lptr, long max_id_len, int filter_line_ct, char* fam_id, char* indiv_id);
 
 static inline unsigned int popcount2_long(unsigned long val) {
 #if __LP64__

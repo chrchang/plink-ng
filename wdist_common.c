@@ -571,7 +571,7 @@ void triangle_fill(unsigned int* target_arr, int ct, int pieces, int parallel_id
   }
 }
 
-int write_ids(char* outname, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len) {
+int write_ids(char* outname, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned long max_person_id_len) {
   FILE* outfile;
   unsigned int uii;
   if (fopen_checked(&outfile, outname, "w")) {
@@ -588,7 +588,7 @@ int write_ids(char* outname, unsigned int unfiltered_indiv_ct, unsigned long* in
   return 0;
 }
 
-int distance_d_write_ids(char* outname, char* outname_end, int dist_calc_type, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned int max_person_id_len) {
+int distance_d_write_ids(char* outname, char* outname_end, int dist_calc_type, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned long max_person_id_len) {
   int retval;
   if (dist_calc_type & DISTANCE_ALCT) {
     strcpy(outname_end, ".dist.id");
@@ -693,7 +693,7 @@ int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_
   return 0;
 }
 
-int bsearch_str(char* id_buf, char* lptr, int max_id_len, int min_idx, int max_idx) {
+int bsearch_str(char* id_buf, char* lptr, long max_id_len, int min_idx, int max_idx) {
   int mid_idx;
   int ii;
   if (max_idx < min_idx) {
@@ -712,7 +712,7 @@ int bsearch_str(char* id_buf, char* lptr, int max_id_len, int min_idx, int max_i
   }
 }
 
-int bsearch_str_natural(char* id_buf, char* lptr, int max_id_len, int min_idx, int max_idx) {
+int bsearch_str_natural(char* id_buf, char* lptr, long max_id_len, int min_idx, int max_idx) {
   int mid_idx;
   int ii;
   if (max_idx < min_idx) {
@@ -744,7 +744,7 @@ void fill_idbuf_fam_indiv(char* idbuf, char* fam_indiv, char fillchar) {
   idbuf[slen + slen2 + 1] = '\0';
 }
 
-int bsearch_fam_indiv(char* id_buf, char* lptr, int max_id_len, int filter_line_ct, char* fam_id, char* indiv_id) {
+int bsearch_fam_indiv(char* id_buf, char* lptr, long max_id_len, int filter_line_ct, char* fam_id, char* indiv_id) {
   // id_buf = workspace
   // lptr = packed, sorted list of ID strings to search over
   // fam_id and indiv_id are considered terminated by any space/eoln character
