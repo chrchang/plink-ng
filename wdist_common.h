@@ -89,7 +89,8 @@ typedef union {
 #define RECODE_DELIMX 4
 #define RECODE_TRANSPOSE 8
 #define RECODE_LGEN 16
-#define RECODE_AD 32
+#define RECODE_A 32
+#define RECODE_AD 64
 
 #define MERGE_MODE_MASK 7
 #define MERGE_ALLOW_EQUAL_POS 8

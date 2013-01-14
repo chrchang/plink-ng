@@ -650,8 +650,8 @@ int disp_help(unsigned int param_ct, char** argv) {
 "    converter (which only respects --autosome and --chr), this supports all of\n"
 "    WDIST's filtering flags.\n"
 	       );
-    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead", &help_ctrl, 1,
-"  --recode <12> <tab | tabx | spacex> <transpose | lgen | AD>\n"
+    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea", &help_ctrl, 1,
+"  --recode <12> <tab | tabx | spacex> <transpose | lgen | A | AD>\n"
 "    Creates a new text fileset with all filters applied.\n"
 "    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
 "    * The 'tab' modifier makes the output mostly tab-delimited instead of\n"
@@ -661,7 +661,8 @@ int disp_help(unsigned int param_ct, char** argv) {
 "      instead.\n"
 "    * The 'lgen' modifier causes a long-format fileset to be generated instead.\n"
 "    * The 'AD' modifier causes an additive + dominant component file, suitable\n"
-"      for loading from R, to be generated instead.\n\n"
+"      for loading from R, to be generated instead.  If you don't want the\n"
+"      dominant component, use 'A' instead.\n\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
 "  --merge [.ped filename] [.map filename]\n"
@@ -11733,13 +11734,15 @@ int main(int argc, char** argv) {
 	goto main_flag_copy;
       case 'r':
 	if (!memcmp(argptr, "recode", 6)) {
-	  if (((kk == 9) && ((!memcmp(&(argptr[6]), "12", 2)) || ((tolower(argptr[6]) == 'a') && (tolower(argptr[7]) == 'd')))) || (!memcmp(&(argptr[6]), "-lgen", 6))) {
+	  if (((kk == 9) && ((!memcmp(&(argptr[6]), "12", 2)) || ((tolower(argptr[6]) == 'a') && (tolower(argptr[7]) == 'd')))) || (!memcmp(&(argptr[6]), "-lgen", 6)) || ((tolower(argptr[6]) == 'a') && (kk == 8))) {
 	    if (kk == 12) {
 	      memcpy(flagptr, "recode lgen", 12);
 	    } else if (argptr[6] == '1') {
 	      memcpy(flagptr, "recode 12", 10);
-	    } else {
+	    } else if (kk == 9) {
 	      memcpy(flagptr, "recode AD", 10);
+	    } else {
+	      memcpy(flagptr, "recode A", 9);
 	    }
 	    printf("Note: %s flag deprecated.  Use '%s ...'.\n", argptr, flagptr);
 	    mm++;
@@ -13400,14 +13403,16 @@ int main(int argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode lgen", 11)) || (!memcmp(argptr2, "ecode AD", 9))) {
+      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode lgen", 11)) || (!memcmp(argptr2, "ecode AD", 9)) || (!memcmp(argptr2, "ecode A", 8))) {
 	if (argptr2[5] == ' ') {
 	  if (argptr2[6] == '1') {
 	    recode_modifier |= RECODE_12;
 	  } else if (argptr2[6] == 'l') {
 	    recode_modifier |= RECODE_LGEN;
-	  } else {
+	  } else if (argptr2[7] == 'D') {
 	    recode_modifier |= RECODE_AD;
+	  } else {
+	    recode_modifier |= RECODE_A;
 	  }
 	  kk = 1;
 	} else {
@@ -13419,9 +13424,14 @@ int main(int argc, char** argv) {
 	for (jj = 1; jj <= ii; jj++) {
 	  if (!memcmp(argv[cur_arg + jj], "12", 3)) {
 	    recode_modifier |= RECODE_12;
+          } else if ((!argv[cur_arg + jj][1]) && (tolower(argv[cur_arg + jj][0]) == 'a')) {
+	    if (recode_modifier & (RECODE_AD | RECODE_LGEN | RECODE_TRANSPOSE)) {
+	      sprintf(logbuf, "Error: --recode 'A' and '%s' modifiers cannot be used together.%s", (recode_modifier & RECODE_AD)? "AD" : ((recode_modifier & RECODE_LGEN)? "lgen" : "transpose"), errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	  } else if ((!argv[cur_arg + jj][2]) && (tolower(argv[cur_arg + jj][0]) == 'a') && (tolower(argv[cur_arg + jj][1]) == 'd')) {
-	    if (recode_modifier & (RECODE_LGEN | RECODE_TRANSPOSE)) {
-	      sprintf(logbuf, "Error: --recode 'AD' and '%s' modifiers cannot be used together.%s", (recode_modifier & RECODE_LGEN)? "lgen" : "transpose", errstr_append);
+	    if (recode_modifier & (RECODE_A | RECODE_LGEN | RECODE_TRANSPOSE)) {
+	      sprintf(logbuf, "Error: --recode 'AD' and '%s' modifiers cannot be used together.%s", (recode_modifier & RECODE_A)? "A" : ((recode_modifier & RECODE_LGEN)? "lgen" : "transpose"), errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_AD;
@@ -13444,14 +13454,14 @@ int main(int argc, char** argv) {
 	    }
 	    recode_modifier |= RECODE_DELIMX;
 	  } else if (!memcmp(argv[cur_arg + jj], "transpose", 10)) {
-	    if (recode_modifier & (RECODE_AD | RECODE_LGEN)) {
-	      sprintf(logbuf, "Error: --recode 'transpose' and '%s' modifiers cannot be used together.%s", (recode_modifier & RECODE_AD)? "AD" : "lgen", errstr_append);
+	    if (recode_modifier & (RECODE_A | RECODE_AD | RECODE_LGEN)) {
+	      sprintf(logbuf, "Error: --recode 'transpose' and '%s' modifiers cannot be used together.%s", (recode_modifier & RECODE_A)? "A" : ((recode_modifier & RECODE_AD)? "AD" : "lgen"), errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_TRANSPOSE;
 	  } else if (!memcmp(argv[cur_arg + jj], "lgen", 5)) {
-	    if (recode_modifier & (RECODE_AD | RECODE_TRANSPOSE)) {
-	      sprintf(logbuf, "Error: --recode 'lgen' and '%s' modifiers cannot be used together.%s", (recode_modifier & RECODE_AD)? "AD" : "transpose", errstr_append);
+	    if (recode_modifier & (RECODE_A | RECODE_AD | RECODE_TRANSPOSE)) {
+	      sprintf(logbuf, "Error: --recode 'lgen' and '%s' modifiers cannot be used together.%s", (recode_modifier & RECODE_A)? "A" : ((recode_modifier & RECODE_AD)? "AD" : "transpose"), errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_LGEN;

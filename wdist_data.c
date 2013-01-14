@@ -496,7 +496,7 @@ static inline unsigned int sf_out_of_range(unsigned int cur_pos, unsigned int ch
 
 int load_bim(FILE** bimfile_ptr, char* mapname, int* map_cols_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned int* marker_exclude_ct_ptr, unsigned long* max_marker_id_len_ptr, unsigned int* plink_maxsnp_ptr, unsigned long** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, unsigned int** marker_pos_ptr, char* extractname, char* excludename, char* freqname, char* refalleles, int calculation_type, int recode_modifier, int allelexxxx, int marker_pos_start, int marker_pos_end, unsigned int snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* sf_markers, unsigned char* sf_starts_range, unsigned int sf_ct, unsigned int sf_max_len, int* map_is_unsorted_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
-  int marker_ids_needed = (extractname || excludename || freqname || refalleles || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE | CALC_REGRESS_PCS)) || ((calculation_type & CALC_RECODE) && (recode_modifier & (RECODE_LGEN | RECODE_AD))));
+  int marker_ids_needed = (extractname || excludename || freqname || refalleles || (calculation_type & (CALC_FREQ | CALC_WRITE_SNPLIST | CALC_LD_PRUNE | CALC_REGRESS_PCS)) || ((calculation_type & CALC_RECODE) && (recode_modifier & (RECODE_LGEN | RECODE_A | RECODE_AD))));
   unsigned int unfiltered_marker_ct = 0;
   unsigned long max_marker_id_len = 0;
   unsigned int plink_maxsnp = 4;
@@ -3597,7 +3597,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
     }
   } else {
     // need more space for AD coding thanks to 'NA'
-    if (wkspace_alloc_c_checked(&writebuf, marker_ct * ((recode_modifier & RECODE_AD)? 6 : 4))) {
+    if (wkspace_alloc_c_checked(&writebuf, marker_ct * ((recode_modifier & RECODE_AD)? 6 : ((recode_modifier & RECODE_A)? 3 : 4)))) {
       goto recode_ret_NOMEM;
     }
   }
@@ -3803,7 +3803,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
 	fflush(stdout);
       }
     }
-  } else if (recode_modifier & RECODE_AD) {
+  } else if (recode_modifier & (RECODE_A | RECODE_AD)) {
     strcpy(outname_end, ".raw");
     if ((long long)wkspace_left >= (long long)unfiltered_indiv_ct4 * marker_ct) {
       if (fopen_checked(outfile_ptr, outname, "w")) {
@@ -3815,8 +3815,14 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
       for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
 	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
 	cptr = &(marker_ids[marker_uidx * max_marker_id_len]);
-        if (fprintf(*outfile_ptr, " %s_%c %s_HET", cptr, mk_alleles[2 * marker_uidx + is_set(marker_reverse, marker_uidx)], cptr) < 0) {
-	  goto recode_ret_WRITE_FAIL;
+	if (recode_modifier & RECODE_A) {
+	  if (fprintf(*outfile_ptr, " %s_%c", cptr, mk_alleles[2 * marker_uidx + is_set(marker_reverse, marker_uidx)]) < 0) {
+	    goto recode_ret_WRITE_FAIL;
+	  }
+	} else {
+	  if (fprintf(*outfile_ptr, " %s_%c %s_HET", cptr, mk_alleles[2 * marker_uidx + is_set(marker_reverse, marker_uidx)], cptr) < 0) {
+	    goto recode_ret_WRITE_FAIL;
+	  }
 	}
 	marker_uidx++;
       }
@@ -3845,33 +3851,55 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
 	  wbufptr = writebuf;
 	  shiftval = (indiv_idx % 4) * 2;
 	  marker_uidx = 0;
-	  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-	    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-	    ucc = ((*bufptr) >> shiftval) & 3;
-	    if (ucc) {
-	      if (ucc == 2) {
-		*wbufptr++ = '1';
-		*wbufptr++ = delimiter;
-		*wbufptr++ = '1';
-	      } else if (ucc == 3) {
-		*wbufptr++ = is_set(marker_exclude, marker_uidx)? '2' : '0';
+	  if (recode_modifier & RECODE_A) {
+	    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+	      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+	      ucc = ((*bufptr) >> shiftval) & 3;
+	      if (ucc) {
+		if (ucc == 2) {
+		  *wbufptr++ = '1';
+		} else if (ucc == 3) {
+		  *wbufptr++ = is_set(marker_reverse, marker_uidx)? '2' : '0';
+		} else {
+		  *wbufptr++ = 'N';
+		  *wbufptr++ = 'A';
+		}
+	      } else {
+		*wbufptr++ = is_set(marker_reverse, marker_uidx)? '0' : '2';
+	      }
+	      *wbufptr++ = delimiter;
+	      bufptr = &(bufptr[unfiltered_indiv_ct4]);
+	      marker_uidx++;
+	    }
+	  } else {
+	    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+	      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+	      ucc = ((*bufptr) >> shiftval) & 3;
+	      if (ucc) {
+		if (ucc == 2) {
+		  *wbufptr++ = '1';
+		  *wbufptr++ = delimiter;
+		  *wbufptr++ = '1';
+		} else if (ucc == 3) {
+		  *wbufptr++ = is_set(marker_reverse, marker_uidx)? '2' : '0';
+		  *wbufptr++ = delimiter;
+		  *wbufptr++ = '0';
+		} else {
+		  *wbufptr++ = 'N';
+		  *wbufptr++ = 'A';
+		  *wbufptr++ = delimiter;
+		  *wbufptr++ = 'N';
+		  *wbufptr++ = 'A';
+		}
+	      } else {
+		*wbufptr++ = is_set(marker_reverse, marker_uidx)? '0' : '2';
 		*wbufptr++ = delimiter;
 		*wbufptr++ = '0';
-	      } else {
-		*wbufptr++ = 'N';
-		*wbufptr++ = 'A';
-		*wbufptr++ = delimiter;
-		*wbufptr++ = 'N';
-		*wbufptr++ = 'A';
 	      }
-	    } else {
-	      *wbufptr++ = is_set(marker_exclude, marker_uidx)? '0' : '2';
 	      *wbufptr++ = delimiter;
-	      *wbufptr++ = '0';
+	      bufptr = &(bufptr[unfiltered_indiv_ct4]);
+	      marker_uidx++;
 	    }
-	    *wbufptr++ = delimiter;
-	    bufptr = &(bufptr[unfiltered_indiv_ct4]);
-	    marker_uidx++;
 	  }
 	  wbufptr[-1] = '\n';
 	  ulii = (unsigned long)(wbufptr - writebuf);
@@ -3889,7 +3917,8 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
 	}
       }
     } else {
-      logprint("Error: --recode AD does not yet support multipass recoding of very large .bed\nfiles; contact the WDIST developers if you need this.\n");
+      sprintf(logbuf, "Error: --recode A%s does not yet support multipass recoding of very large .bed\nfiles; contact the WDIST developers if you need this.\n", (recode_modifier & RECODE_AD)? "D" : "");
+      logprintb();
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto recode_ret_1;
     }
@@ -4026,7 +4055,7 @@ int recode(int recode_modifier, FILE* bedfile, int bed_offset, FILE* famfile, FI
     fclose_null(outfile_ptr);
   }
 
-  if (!(recode_modifier & (RECODE_TRANSPOSE | RECODE_AD))) {
+  if (!(recode_modifier & (RECODE_TRANSPOSE | RECODE_A | RECODE_AD))) {
     strcpy(outname_end, ".map");
     if (fopen_checked(outfile_ptr, outname, "w")) {
       goto recode_ret_OPEN_FAIL;
