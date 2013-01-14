@@ -30,6 +30,7 @@ typedef union {
 #endif
 
 #include "zlib-1.2.7/zlib.h"
+#include "SFMT.h"
 
 #define PI 3.141592653589793
 #define RECIP_2_32 0.00000000023283064365386962890625
@@ -164,6 +165,8 @@ typedef union {
 
 // fit 4 pathologically long IDs plus a bit extra
 extern char tbuf[];
+
+extern sfmt_t sfmt;
 
 extern const char errstr_fopen[];
 extern const char errstr_append[];

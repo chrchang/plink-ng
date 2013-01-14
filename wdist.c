@@ -13972,7 +13972,7 @@ int main(int argc, char** argv) {
   if (!rseed) {
     rseed = (unsigned long int)time(NULL);
   }
-  init_genrand(rseed);
+  sfmt_init_gen_rand(&sfmt, rseed);
 
   tbuf[MAXLINELEN - 6] = ' ';
   tbuf[MAXLINELEN - 1] = ' ';

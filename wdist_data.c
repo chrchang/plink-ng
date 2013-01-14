@@ -3353,7 +3353,7 @@ int generate_dummy(char* outname, unsigned int flags, unsigned int marker_ct, un
     for (uii = 0; uii < marker_ct; uii++) {
       if (!(uii % 8)) {
 	do {
-	  urand = genrand_int32();
+	  urand = sfmt_genrand_uint32(&sfmt);
 	} while (urand < 425132032LU); // 2^32 - 12^8.  heck, why not
       }
       ukk = urand / 12U;
@@ -3366,7 +3366,7 @@ int generate_dummy(char* outname, unsigned int flags, unsigned int marker_ct, un
   } else {
     for (uii = 0; uii < marker_ct; uii++) {
       if (!(uii % 32)) {
-	urand = genrand_int32();
+	urand = sfmt_genrand_uint32(&sfmt);
       }
       ujj = urand & 1;
       urand >>= 1;
@@ -3384,7 +3384,7 @@ int generate_dummy(char* outname, unsigned int flags, unsigned int marker_ct, un
   }
   if (flags & DUMMY_SCALAR_PHENO) {
     for (uii = 0; uii < indiv_ct; uii++) {
-      if (pheno_m_check && (genrand_int32() <= pheno_m32)) {
+      if (pheno_m_check && (sfmt_genrand_uint32(&sfmt) <= pheno_m32)) {
 	dxx = -9;
       } else {
 	if (saved_rnormal) {
@@ -3402,9 +3402,9 @@ int generate_dummy(char* outname, unsigned int flags, unsigned int marker_ct, un
   } else {
     for (uii = 0; uii < indiv_ct; uii++) {
       if (!(uii % 32)) {
-	urand = genrand_int32();
+	urand = sfmt_genrand_uint32(&sfmt);
       }
-      if (pheno_m_check && (genrand_int32() <= pheno_m32)) {
+      if (pheno_m_check && (sfmt_genrand_uint32(&sfmt) <= pheno_m32)) {
 	if (fprintf(outfile, "per%u per%u 0 0 2 -9\n", uii, uii) < 0) {
 	  goto generate_dummy_ret_OPEN_FAIL;
 	}
@@ -3435,11 +3435,11 @@ int generate_dummy(char* outname, unsigned int flags, unsigned int marker_ct, un
       ucptr = writebuf;
       for (ujj = 0; ujj < indiv_ct4; ujj++) {
 	if (!(ujj % 4)) {
-	  urand = genrand_int32();
+	  urand = sfmt_genrand_uint32(&sfmt);
 	}
 	ucc = 0;
 	for (ukk = 0; ukk < 8; ukk += 2) {
-	  if (geno_m_check && (genrand_int32() < geno_m32)) {
+	  if (geno_m_check && (sfmt_genrand_uint32(&sfmt) < geno_m32)) {
 	    ucc2 = 1;
 	  } else {
 	    ucc2 = urand & 3;
@@ -3501,7 +3501,7 @@ int generate_dummy(char* outname, unsigned int flags, unsigned int marker_ct, un
 }
 
 //      retval = recode_allele_load(recode_allele_name, &allele_missing, unfiltered_marker_ct, marker_exclude, marker_alleles, marker_reverse, recode_allele_reverse);
-int recode_allele_load(char* recode_allele_name, unsigned long** allele_missing_ptr, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, unsigned long* recode_allele_reverse) {
+int recode_allele_load(char* recode_allele_name, unsigned long** allele_missing_ptr, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, char* marker_ids, unsigned long max_marker_id_len, char* marker_alleles, unsigned long* recode_allele_reverse, char* recode_allele_extra) {
   FILE* rafile = NULL;
   unsigned int missing_allele = 0;
   unsigned char* wkspace_mark = wkspace_base;
@@ -3556,13 +3556,13 @@ int recode_allele_load(char* recode_allele_name, unsigned long** allele_missing_
       } else {
 	missing_allele = 1;
 	set_bit_noct(*allele_missing_ptr, marker_uidx);
+	recode_allele_extra[marker_uidx] = cc;
       }
     }
   }
   if (!feof(rafile)) {
     goto recode_allele_load_ret_READ_FAIL;
   }
-  retval;
   while (0) {
   recode_allele_load_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
@@ -3652,6 +3652,7 @@ int recode(unsigned int recode_modifier, FILE* bedfile, int bed_offset, FILE* fa
   char delimiter = (recode_modifier & RECODE_TAB)? '\t' : ' ';
   unsigned long* recode_allele_reverse = NULL;
   unsigned long* allele_missing = NULL;
+  char* recode_allele_extra = NULL;
   char delim2;
   unsigned int marker_uidx;
   unsigned int marker_idx;
@@ -3698,11 +3699,12 @@ int recode(unsigned int recode_modifier, FILE* bedfile, int bed_offset, FILE* fa
       }
       memcpy(recode_allele_reverse, marker_reverse, ulii);
       marker_reverse = recode_allele_reverse;
-      if (wkspace_alloc_ul_checked(&allele_missing, ulii * sizeof(long))) {
+      if (wkspace_alloc_ul_checked(&allele_missing, ulii * sizeof(long)) ||
+          wkspace_alloc_c_checked(&recode_allele_extra, unfiltered_marker_ct * sizeof(char))) {
 	goto recode_ret_NOMEM;
       }
       fill_ulong_zero(allele_missing, ulii);
-      retval = recode_allele_load(recode_allele_name, &allele_missing, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_alleles, recode_allele_reverse);
+      retval = recode_allele_load(recode_allele_name, &allele_missing, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_alleles, recode_allele_reverse, recode_allele_extra);
       if (retval) {
 	goto recode_ret_1;
       }
@@ -3922,12 +3924,17 @@ int recode(unsigned int recode_modifier, FILE* bedfile, int bed_offset, FILE* fa
       for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
 	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
 	cptr = &(marker_ids[marker_uidx * max_marker_id_len]);
+	if (allele_missing && is_set(allele_missing, marker_uidx)) {
+	  cc = recode_allele_extra[marker_uidx];
+	} else {
+          cc = mk_alleles[2 * marker_uidx + is_set(marker_reverse, marker_uidx)];
+	}
 	if (recode_modifier & RECODE_A) {
-	  if (fprintf(*outfile_ptr, " %s_%c", cptr, mk_alleles[2 * marker_uidx + is_set(marker_reverse, marker_uidx)]) < 0) {
+	  if (fprintf(*outfile_ptr, " %s_%c", cptr, cc) < 0) {
 	    goto recode_ret_WRITE_FAIL;
 	  }
 	} else {
-	  if (fprintf(*outfile_ptr, " %s_%c %s_HET", cptr, mk_alleles[2 * marker_uidx + is_set(marker_reverse, marker_uidx)], cptr) < 0) {
+	  if (fprintf(*outfile_ptr, " %s_%c %s_HET", cptr, cc, cptr) < 0) {
 	    goto recode_ret_WRITE_FAIL;
 	  }
 	}
@@ -3962,17 +3969,26 @@ int recode(unsigned int recode_modifier, FILE* bedfile, int bed_offset, FILE* fa
 	    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
 	      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
 	      ucc = ((*bufptr) >> shiftval) & 3;
-	      if (ucc) {
-		if (ucc == 2) {
-		  *wbufptr++ = '1';
-		} else if (ucc == 3) {
-		  *wbufptr++ = is_set(marker_reverse, marker_uidx)? '2' : '0';
+	      if (allele_missing && is_set(allele_missing, marker_uidx)) {
+		if (ucc != 1) {
+		  *wbufptr++ = '0';
 		} else {
 		  *wbufptr++ = 'N';
 		  *wbufptr++ = 'A';
 		}
 	      } else {
-		*wbufptr++ = is_set(marker_reverse, marker_uidx)? '0' : '2';
+		if (ucc) {
+		  if (ucc == 2) {
+		    *wbufptr++ = '1';
+		  } else if (ucc == 3) {
+		    *wbufptr++ = is_set(marker_reverse, marker_uidx)? '2' : '0';
+		  } else {
+		    *wbufptr++ = 'N';
+		    *wbufptr++ = 'A';
+		  }
+		} else {
+		  *wbufptr++ = is_set(marker_reverse, marker_uidx)? '0' : '2';
+		}
 	      }
 	      *wbufptr++ = delimiter;
 	      bufptr = &(bufptr[unfiltered_indiv_ct4]);
@@ -3982,13 +3998,9 @@ int recode(unsigned int recode_modifier, FILE* bedfile, int bed_offset, FILE* fa
 	    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
 	      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
 	      ucc = ((*bufptr) >> shiftval) & 3;
-	      if (ucc) {
-		if (ucc == 2) {
-		  *wbufptr++ = '1';
-		  *wbufptr++ = delimiter;
-		  *wbufptr++ = '1';
-		} else if (ucc == 3) {
-		  *wbufptr++ = is_set(marker_reverse, marker_uidx)? '2' : '0';
+	      if (allele_missing && is_set(allele_missing, marker_uidx)) {
+		if (ucc != 1) {
+		  *wbufptr++ = '0';
 		  *wbufptr++ = delimiter;
 		  *wbufptr++ = '0';
 		} else {
@@ -3999,9 +4011,27 @@ int recode(unsigned int recode_modifier, FILE* bedfile, int bed_offset, FILE* fa
 		  *wbufptr++ = 'A';
 		}
 	      } else {
-		*wbufptr++ = is_set(marker_reverse, marker_uidx)? '0' : '2';
-		*wbufptr++ = delimiter;
-		*wbufptr++ = '0';
+		if (ucc) {
+		  if (ucc == 2) {
+		    *wbufptr++ = '1';
+		    *wbufptr++ = delimiter;
+		    *wbufptr++ = '1';
+		  } else if (ucc == 3) {
+		    *wbufptr++ = is_set(marker_reverse, marker_uidx)? '2' : '0';
+		    *wbufptr++ = delimiter;
+		    *wbufptr++ = '0';
+		  } else {
+		    *wbufptr++ = 'N';
+		    *wbufptr++ = 'A';
+		    *wbufptr++ = delimiter;
+		    *wbufptr++ = 'N';
+		    *wbufptr++ = 'A';
+		  }
+		} else {
+		  *wbufptr++ = is_set(marker_reverse, marker_uidx)? '0' : '2';
+		  *wbufptr++ = delimiter;
+		  *wbufptr++ = '0';
+		}
 	      }
 	      *wbufptr++ = delimiter;
 	      bufptr = &(bufptr[unfiltered_indiv_ct4]);
