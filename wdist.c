@@ -875,8 +875,8 @@ int disp_help(unsigned int param_ct, char** argv) {
 "                     of the MAFs.)\n"
 	       );
     help_print("recode\trecode-allele", &help_ctrl, 0,
-"  --recode-allele [f] : Allows you to specify which allele to count with\n"
-"                        --recode A or --recode AD.\n"
+"  --recode-allele [f] : With --recode A or --recode AD, count alleles named in\n"
+"                        the file (instead of the minor allele).\n"
 	       );
     help_print("keep-allele-order\tmake-bed\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
 "  --keep-allele-order : Keep the original allele order when creating a new\n"
