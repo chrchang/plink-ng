@@ -64,7 +64,41 @@ extern "C" {
   #endif
 #endif
 
-#include "SFMT-params.h"
+
+  // fold in SFMT-params.h, etc. to reduce compilation time a bit
+#if !defined(SFMT_MEXP)
+  #define SFMT_MEXP 19937
+#endif
+/*-----------------
+  BASIC DEFINITIONS
+  -----------------*/
+/** Mersenne Exponent. The period of the sequence
+ *  is a multiple of 2^MEXP-1.
+ * #define SFMT_MEXP 19937 */
+/** SFMT generator has an internal state array of 128-bit integers,
+ * and N is its size. */
+#define SFMT_N (SFMT_MEXP / 128 + 1)
+/** N32 is the size of internal state array when regarded as an array
+ * of 32-bit integers.*/
+#define SFMT_N32 (SFMT_N * 4)
+/** N64 is the size of internal state array when regarded as an array
+ * of 64-bit integers.*/
+#define SFMT_N64 (SFMT_N * 2)
+#define SFMT_POS1	122
+#define SFMT_SL1	18
+#define SFMT_SL2	1
+#define SFMT_SR1	11
+#define SFMT_SR2	1
+#define SFMT_MSK1	0xdfffffefU
+#define SFMT_MSK2	0xddfecb7fU
+#define SFMT_MSK3	0xbffaffffU
+#define SFMT_MSK4	0xbffffff6U
+#define SFMT_PARITY1	0x00000001U
+#define SFMT_PARITY2	0x00000000U
+#define SFMT_PARITY3	0x00000000U
+#define SFMT_PARITY4	0x13c9e684U
+#define SFMT_IDSTR	"SFMT-19937:122-18-1-11-1:dfffffef-ddfecb7f-bffaffff-bffffff6"
+
 
 /*------------------------------------------
   128-bit SIMD like data type for standard C
