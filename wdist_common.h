@@ -88,12 +88,13 @@ typedef union {
 #define RECODE_12 1
 #define RECODE_TAB 2
 #define RECODE_DELIMX 4
-#define RECODE_A 8
-#define RECODE_AD 16
-#define RECODE_LGEN 32
-#define RECODE_RLIST 64
-#define RECODE_TRANSPOSE 128
-#define RECODE_TYPEMASK 248
+#define RECODE_COMPOUND 8
+#define RECODE_A 16
+#define RECODE_AD 32
+#define RECODE_LGEN 64
+#define RECODE_RLIST 128
+#define RECODE_TRANSPOSE 256
+#define RECODE_TYPEMASK 504
 
 #define MERGE_MODE_MASK 7
 #define MERGE_ALLOW_EQUAL_POS 8
@@ -374,19 +375,19 @@ static inline void read_next_terminate(char* target, char* source) {
   *target = '\0';
 }
 
-static inline void set_bit_noct(unsigned long* exclude_arr, int loc) {
+static inline void set_bit_noct(unsigned long* exclude_arr, unsigned int loc) {
   exclude_arr[loc / BITCT] |= (1LU << (loc % BITCT));
 }
 
-void set_bit(unsigned long* bit_arr, int loc, unsigned int* bit_set_ct_ptr);
+void set_bit(unsigned long* bit_arr, unsigned int loc, unsigned long* bit_set_ct_ptr);
 
-void set_bit_sub(unsigned long* bit_arr, int loc, unsigned int* bit_unset_ct_ptr);
+void set_bit_sub(unsigned long* bit_arr, unsigned int loc, unsigned long* bit_unset_ct_ptr);
 
-static inline void clear_bit_noct(unsigned long* exclude_arr, int loc) {
+static inline void clear_bit_noct(unsigned long* exclude_arr, unsigned int loc) {
   exclude_arr[loc / BITCT] &= ~(1LU << (loc % BITCT));
 }
 
-void clear_bit(unsigned long* exclude_arr, int loc, unsigned int* include_ct_ptr);
+void clear_bit(unsigned long* exclude_arr, unsigned int loc, unsigned long* include_ct_ptr);
 
 static inline int is_set(unsigned long* exclude_arr, unsigned int loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;

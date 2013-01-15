@@ -15,10 +15,10 @@
 // assessing whether missingness should be treated as binary
 #define D_EPSILON 0.000244140625 // just want this above .0002
 
-int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, char** person_ids_ptr, unsigned int* max_person_id_len_ptr, unsigned char** sex_info_ptr, char** pheno_c_ptr, double** pheno_d_ptr, unsigned long** pheno_exclude_ptr, unsigned long** indiv_exclude_ptr, char* missing_code) {
+int oxford_sample_load(char* samplename, unsigned long* unfiltered_indiv_ct_ptr, char** person_ids_ptr, unsigned int* max_person_id_len_ptr, unsigned char** sex_info_ptr, char** pheno_c_ptr, double** pheno_d_ptr, unsigned long** pheno_exclude_ptr, unsigned long** indiv_exclude_ptr, char* missing_code) {
   FILE* samplefile = NULL;
   unsigned char* wkspace_mark = NULL;
-  unsigned int unfiltered_indiv_ct = 0;
+  unsigned long unfiltered_indiv_ct = 0;
   unsigned int max_person_id_len = 4;
   unsigned int missing_code_ct = 0;
   unsigned int indiv_uidx = 0;
@@ -32,7 +32,7 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   char* pheno_c = NULL;
   double* pheno_d = NULL;
   int pheno_is_binary = 0;
-  unsigned int unfiltered_indiv_ctl;
+  unsigned long unfiltered_indiv_ctl;
   char* person_ids;
   char* item_begin;
   char* bufptr;
@@ -314,12 +314,12 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   if (load_sex) {
     uii = unfiltered_indiv_ct - male_ct - female_ct;
     if (uii) {
-      sprintf(logbuf, "%d people (%d male%s, %d female%s, %d unknown) loaded.\n", unfiltered_indiv_ct, male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s", uii);
+      sprintf(logbuf, "%lu pe%s (%d male%s, %d female%s, %d unknown) loaded.\n", unfiltered_indiv_ct, (unfiltered_indiv_ct == 1)? "rson" : "ople", male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s", uii);
     } else {
-      sprintf(logbuf, "%d people (%d male%s, %d female%s) loaded.\n", unfiltered_indiv_ct, male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s");
+      sprintf(logbuf, "%lu pe%s (%d male%s, %d female%s) loaded.\n", unfiltered_indiv_ct, (unfiltered_indiv_ct == 1)? "rson" : "ople", male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s");
     }
   } else {
-    sprintf(logbuf, "%d people loaded.\n", unfiltered_indiv_ct);
+    sprintf(logbuf, "%lu pe%s loaded.\n", unfiltered_indiv_ct, (unfiltered_indiv_ct == 1)? "rson" : "ople");
   }
   logprintb();
   while (0) {
@@ -354,11 +354,11 @@ int oxford_sample_load(char* samplename, unsigned int* unfiltered_indiv_ct_ptr, 
   return retval;
 }
 
-int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int* unfiltered_marker_ct_ptr, double** set_allele_freqs_ptr, int* is_missing_01_ptr, unsigned int unfiltered_indiv_ct, int maf_succ) {
+int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned long* unfiltered_marker_ct_ptr, double** set_allele_freqs_ptr, int* is_missing_01_ptr, unsigned long unfiltered_indiv_ct, int maf_succ) {
   // Determine maximum line length, calculate reference allele frequencies,
   // and check if all missingness probabilities are 0 or ~1.
-  unsigned int unfiltered_marker_ct = 0;
-  unsigned int unfiltered_indiv_ct8m = unfiltered_indiv_ct & 0xfffffff8U;
+  unsigned long unfiltered_marker_ct = 0;
+  unsigned long unfiltered_indiv_ct8m = unfiltered_indiv_ct & 0xfffffff8U;
   unsigned int gen_buf_len = 0;
   char* stack_base = (char*)wkspace_base;
   char* loadbuf = (&(stack_base[sizeof(double)]));
@@ -486,7 +486,7 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned int*
     return RET_INVALID_FORMAT;
   }
   putchar('\r');
-  sprintf(logbuf, ".gen scan complete.  %u markers and %u individuals present.\n", unfiltered_marker_ct, unfiltered_indiv_ct);
+  sprintf(logbuf, ".gen scan complete.  %lu marker%s and %lu pe%s present.\n", unfiltered_marker_ct, (unfiltered_marker_ct == 1)? "" : "s", unfiltered_indiv_ct, (unfiltered_indiv_ct == 1)? "rson" : "ople");
   logprintb();
   *set_allele_freqs_ptr = (double*)wkspace_alloc(unfiltered_marker_ct * sizeof(double));
   *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
@@ -1120,10 +1120,10 @@ int update_distance_dosage_matrix(int is_missing_01, int distance_3d, int distan
   return RET_THREAD_CREATE_FAIL;
 }
 
-int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_allele_freqs, unsigned int unfiltered_marker_ct, unsigned long* marker_exclude, unsigned int marker_ct, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, int is_missing_01, int distance_3d, int distance_flat_missing, double exponent, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
+int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_allele_freqs, unsigned long unfiltered_marker_ct, unsigned long* marker_exclude, unsigned long marker_ct, unsigned long unfiltered_indiv_ct, unsigned long* indiv_exclude, int is_missing_01, int distance_3d, int distance_flat_missing, double exponent, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
   int is_exponent_zero = (exponent == 0.0);
-  unsigned int unfiltered_indiv_ct8m = unfiltered_indiv_ct & 0xfffffff8U;
-  unsigned int indiv_ctl = (g_indiv_ct + (BITCT - 1)) / BITCT;
+  unsigned long unfiltered_indiv_ct8m = unfiltered_indiv_ct & 0xfffffff8U;
+  unsigned long indiv_ctl = (g_indiv_ct + (BITCT - 1)) / BITCT;
   double marker_wt = 1.0;
   double* cur_marker_freqs = NULL;
   double* cmf_ptr = NULL;
@@ -1378,7 +1378,7 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
   return retval;
 }
 
-int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr, double** set_allele_freqs_ptr, unsigned int* unfiltered_marker_ct_ptr, unsigned long** marker_exclude_ptr, unsigned int* marker_ct_ptr, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, int distance_3d, int distance_flat_missing, double exponent, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
+int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr, double** set_allele_freqs_ptr, unsigned long* unfiltered_marker_ct_ptr, unsigned long** marker_exclude_ptr, unsigned long* marker_ct_ptr, unsigned long unfiltered_indiv_ct, unsigned long* indiv_exclude, int distance_3d, int distance_flat_missing, double exponent, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
   // Easily usable when no filters are applied, or no .freq/.freqx file is
   // loaded and there are no filters on individuals that depend on genotype
   // information.
@@ -1386,10 +1386,10 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   // complicated.
   unsigned char* wkspace_mark = NULL;
   int is_exponent_zero = (exponent == 0.0);
-  unsigned int unfiltered_marker_ct = 0;
-  unsigned int unfiltered_indiv_ct8m = unfiltered_indiv_ct & 0xfffffff8U;
+  unsigned long unfiltered_marker_ct = 0;
+  unsigned long unfiltered_indiv_ct8m = unfiltered_indiv_ct & 0xfffffff8U;
   unsigned int marker_idxl = 0;
-  unsigned int marker_ct = 0;
+  unsigned long marker_ct = 0;
   unsigned int gen_buf_len = 0;
   double tot_missing_wt = 0.0;
   double missing_wt = 1.0;
@@ -1399,7 +1399,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   double sum_two_3d = 0.0;
   double sum_exclude_3d = 0.0;
   double* set_allele_freqs_tmp;
-  unsigned int unfiltered_marker_ctl;
+  unsigned long unfiltered_marker_ctl;
   char* loadbuf;
   int max_load;
   char* bufptr;
@@ -1642,7 +1642,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
       if (retval) {
 	return retval;
       }
-      printf("\r%u markers complete.", unfiltered_marker_ct);
+      printf("\r%lu markers complete.", unfiltered_marker_ct);
       fflush(stdout);
       marker_idxl = 0;
     }
@@ -1711,7 +1711,7 @@ int oxford_distance_calc_unscanned(FILE* genfile, unsigned int* gen_buf_len_ptr,
   return retval;
 }
 
-int wdist_dosage(int calculation_type, int dist_calc_type, char* genname, char* samplename, char* outname, char* missing_code, int distance_3d, int distance_flat_missing, double exponent, int maf_succ, unsigned long regress_iters, unsigned int regress_d, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
+int wdist_dosage(int calculation_type, int dist_calc_type, char* genname, char* samplename, char* outname, char* outname_end, char* missing_code, int distance_3d, int distance_flat_missing, double exponent, int maf_succ, unsigned long regress_iters, unsigned int regress_d, unsigned int thread_ct, int parallel_idx, unsigned int parallel_tot) {
   FILE* genfile = NULL;
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
@@ -1719,7 +1719,6 @@ int wdist_dosage(int calculation_type, int dist_calc_type, char* genname, char* 
   gzFile gz_outfile = NULL;
   gzFile gz_outfile2 = NULL;
   gzFile gz_outfile3 = NULL;
-  char* outname_end = (char*)memchr(outname, 0, FNAMESIZE);
   int gen_scanned = 0;
   int is_missing_01 = 0;
   unsigned char* sex_info;
@@ -1730,11 +1729,11 @@ int wdist_dosage(int calculation_type, int dist_calc_type, char* genname, char* 
   double* pheno_d;
   unsigned long* pheno_exclude;
   double* set_allele_freqs;
-  unsigned int unfiltered_marker_ct;
-  unsigned int unfiltered_marker_ctl;
+  unsigned long unfiltered_marker_ct;
+  unsigned long unfiltered_marker_ctl;
   unsigned long* marker_exclude;
-  unsigned int marker_ct;
-  unsigned int unfiltered_indiv_ct;
+  unsigned long marker_ct;
+  unsigned long unfiltered_indiv_ct;
   unsigned long* indiv_exclude;
   char* person_ids;
   unsigned int max_person_id_len;

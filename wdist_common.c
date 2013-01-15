@@ -184,8 +184,8 @@ void copy_item(char* writebuf, unsigned int* offset_ptr, char** prev_item_end_pt
   *prev_item_end_ptr = item_end;
 }
 
-void set_bit(unsigned long* bit_arr, int loc, unsigned int* bit_set_ct_ptr) {
-  int maj = loc / BITCT;
+void set_bit(unsigned long* bit_arr, unsigned int loc, unsigned long* bit_set_ct_ptr) {
+  unsigned int maj = loc / BITCT;
   unsigned long min = 1LU << (loc % BITCT);
   if (!(bit_arr[maj] & min)) {
     bit_arr[maj] |= min;
@@ -193,8 +193,8 @@ void set_bit(unsigned long* bit_arr, int loc, unsigned int* bit_set_ct_ptr) {
   }
 }
 
-void set_bit_sub(unsigned long* bit_arr, int loc, unsigned int* bit_unset_ct_ptr) {
-  int maj = loc / BITCT;
+void set_bit_sub(unsigned long* bit_arr, unsigned int loc, unsigned long* bit_unset_ct_ptr) {
+  unsigned int maj = loc / BITCT;
   unsigned long min = 1LU << (loc % BITCT);
   if (!(bit_arr[maj] & min)) {
     bit_arr[maj] |= min;
@@ -202,8 +202,8 @@ void set_bit_sub(unsigned long* bit_arr, int loc, unsigned int* bit_unset_ct_ptr
   }
 }
 
-void clear_bit(unsigned long* exclude_arr, int loc, unsigned int* include_ct_ptr) {
-  int maj = loc / BITCT;
+void clear_bit(unsigned long* exclude_arr, unsigned int loc, unsigned long* include_ct_ptr) {
+  unsigned int maj = loc / BITCT;
   unsigned long min = 1LU << (loc % BITCT);
   if (exclude_arr[maj] & min) {
     exclude_arr[maj] -= min;
