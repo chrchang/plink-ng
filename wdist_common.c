@@ -859,7 +859,7 @@ void distance_print_done(int format_code, char* outname, char* outname_end) {
 #ifdef __LP64__
 // Basic SSE2 implementation of Lauradoux/Walisch popcount.
 static inline unsigned long popcount_vecs(__m128i* vptr, unsigned long ct) {
-  // popcounts vptr[0..(ct-1)].  Assumes ct is a NONZERO multiple of 3.
+  // popcounts vptr[0..(ct-1)].  Assumes ct is a multiple of 3 (0 ok).
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
@@ -871,8 +871,10 @@ static inline unsigned long popcount_vecs(__m128i* vptr, unsigned long ct) {
   __uni16 acc;
 
   while (ct >= 30) {
+    ct -= 30;
     acc.vi = _mm_setzero_si128();
     vend = &(vptr[30]);
+  popcount_vecs_main_loop:
     do {
       count1 = *vptr++;
       count2 = *vptr++;
@@ -897,28 +899,59 @@ static inline unsigned long popcount_vecs(__m128i* vptr, unsigned long ct) {
     acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
     acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
     tot += (unsigned int)(acc.u8[0] + acc.u8[1]);
-    ct -= 30;
   }
-  acc.vi = _mm_setzero_si128();
-  vend = &(vptr[ct]);
-  do {
-    count1 = *vptr++;
-    count2 = *vptr++;
-    half1 = *vptr++;
-    half2 = _mm_and_si128(_mm_srli_epi64(half1, 1), m1);
-    half1 = _mm_and_si128(half1, m1);
-    count1 = _mm_sub_epi64(count1, _mm_and_si128(_mm_srli_epi64(count1, 1), m1));
-    count2 = _mm_sub_epi64(count2, _mm_and_si128(_mm_srli_epi64(count2, 1), m1));
-    count1 = _mm_add_epi64(count1, half1);
-    count2 = _mm_add_epi64(count2, half2);
-    count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
-    count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
-    acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
-  } while (vptr < vend);
-  acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
-  acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
-  acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
-  tot += (unsigned int)(acc.u8[0] + acc.u8[1]);
+  if (ct) {
+    acc.vi = _mm_setzero_si128();
+    vend = &(vptr[ct]);
+    ct = 0;
+    goto popcount_vecs_main_loop;
+  }
+  return tot;
+}
+
+static inline unsigned long popcount_vecs_exclude(__m128i* vptr, __m128i* exclude_ptr, unsigned long ct) {
+  // popcounts vptr ANDNOT exclude_ptr[0..(ct-1)].  ct is a multiple of 3.
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
+  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
+  unsigned long tot = 0;
+  __m128i* vend;
+  __m128i count1, count2, half1, half2;
+  __uni16 acc;
+
+  while (ct >= 30) {
+    ct -= 30;
+    acc.vi = _mm_setzero_si128();
+    vend = &(vptr[30]);
+  popcount_vecs_exclude_main_loop:
+    do {
+      // nots the FIRST value
+      count1 = _mm_andnot_si128(*exclude_ptr++, *vptr++);
+      count2 = _mm_andnot_si128(*exclude_ptr++, *vptr++);
+      half1 = _mm_andnot_si128(*exclude_ptr++, *vptr++);
+      half2 = _mm_and_si128(_mm_srli_epi64(half1, 1), m1);
+      half1 = _mm_and_si128(half1, m1);
+      count1 = _mm_sub_epi64(count1, _mm_and_si128(_mm_srli_epi64(count1, 1), m1));
+      count2 = _mm_sub_epi64(count2, _mm_and_si128(_mm_srli_epi64(count2, 1), m1));
+      count1 = _mm_add_epi64(count1, half1);
+      count2 = _mm_add_epi64(count2, half2);
+      count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
+      count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
+      acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
+    } while (vptr < vend);
+    acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
+    acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
+    acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
+    tot += (unsigned int)(acc.u8[0] + acc.u8[1]);
+  }
+  if (ct) {
+    acc.vi = _mm_setzero_si128();
+    vend = &(vptr[ct]);
+    ct = 0;
+    goto popcount_vecs_exclude_main_loop;
+  }
   return tot;
 }
 #endif
@@ -939,9 +972,7 @@ unsigned long popcount_longs(unsigned long* lptr, unsigned long start_idx, unsig
   }
   vptr = (__m128i*)(&(lptr[start_idx]));
   six_ct = (end_idx - start_idx) / 6;
-  if (six_ct) {
-    tot += popcount_vecs(vptr, six_ct * 3);
-  }
+  tot += popcount_vecs(vptr, six_ct * 3);
   lptr = &(lptr[start_idx + six_ct * 6]);
 #else
   // The humble 16-bit lookup table actually beats
@@ -1011,6 +1042,57 @@ unsigned long popcount_chars(unsigned long* lptr, unsigned long start_idx, unsig
     }
     return tot;
   }
+}
+
+unsigned long popcount_longs_exclude(unsigned long* lptr, unsigned long* exclude_arr, unsigned long end_idx) {
+  // popcounts lptr ANDNOT exclude_arr[0..(end_idx-1)].
+  // N.B. assumes lptr and exclude_arr are 16-byte aligned on 64-bit systems.
+  unsigned long tot = 0;
+  unsigned long* lptr_end = &(lptr[end_idx]);
+#ifdef __LP64__
+  unsigned long six_ct = end_idx / 6;
+  tot += popcount_vecs_exclude((__m128i*)lptr, (__m128i*)exclude_arr, six_ct * 3);
+  lptr = &(lptr[six_ct * 6]);
+#else
+  unsigned long* lptr_six_end;
+  unsigned long tmp_stor;
+  unsigned long loader;
+  unsigned long ulii;
+  unsigned long uljj;
+  lptr_six_end = &(lptr[end_idx - (end_idx % 6)]);
+  while (lptr < lptr_six_end) {
+    loader = (*lptr++) & (~(*exclude_arr++));
+    ulii = loader - ((loader >> 1) & FIVEMASK);
+    loader = (*lptr++) & (~(*exclude_arr++));
+    uljj = loader - ((loader >> 1) & FIVEMASK);
+    loader = (*lptr++) & (~(*exclude_arr++));
+    ulii += (loader >> 1) & FIVEMASK;
+    uljj += loader & FIVEMASK;
+    ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
+    ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
+    tmp_stor = (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
+
+    loader = (*lptr++) & (~(*exclude_arr++));
+    ulii = loader - ((loader >> 1) & FIVEMASK);
+    loader = (*lptr++) & (~(*exclude_arr++));
+    uljj = loader - ((loader >> 1) & FIVEMASK);
+    loader = (*lptr++) & (~(*exclude_arr++));
+    ulii += (loader >> 1) & FIVEMASK;
+    uljj += loader & FIVEMASK;
+    ulii = (ulii & 0x33333333) + ((ulii >> 2) & 0x33333333);
+    ulii += (uljj & 0x33333333) + ((uljj >> 2) & 0x33333333);
+    tmp_stor += (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
+
+    // Each 8-bit slot stores a number in 0..48.  Multiplying by 0x01010101 is
+    // equivalent to the left-shifts and adds we need to sum those four 8-bit
+    // numbers in the high-order slot.
+    tot += (tmp_stor * 0x01010101) >> 24;
+  }
+#endif
+  while (lptr < lptr_end) {
+    tot += popcount_long((*lptr++) & (~(*exclude_arr++)));
+  }
+  return tot;
 }
 
 int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf) {

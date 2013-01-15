@@ -1236,7 +1236,7 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
       return RET_CALC_NOT_YET_SUPPORTED;
     } else {
       for (pct = 1; pct <= 100; pct++) {
-	loop_end = ((unsigned long long)pct * marker_ct) / 100;
+	loop_end = ((unsigned long long)pct * marker_ct) / 100LU;
 	for (; marker_idx < loop_end; marker_idx++) {
 	  if (is_set(marker_exclude, marker_uidx)) {
 	    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
@@ -3330,6 +3330,7 @@ int generate_dummy(char* outname, char* outname_end, unsigned int flags, unsigne
   unsigned char ucc2;
   unsigned char bmap[320];
   unsigned char* bmap2;
+  unsigned long long ullii;
   double dxx;
   fill_bmap_short(bmap, indiv_ct % 4);
   bmap2 = &(bmap[256]);
@@ -3429,7 +3430,12 @@ int generate_dummy(char* outname, char* outname_end, unsigned int flags, unsigne
     goto generate_dummy_ret_WRITE_FAIL;
   }
   uii = 0;
-  fputs("Writing dummy .bed... 0%", stdout);
+  ullii = 3LU + ((unsigned long long)marker_ct) * indiv_ct4;
+  if (ullii >= 10485760) {
+    printf("Writing dummy .bed (%llu MB)... 0%%", ullii >> 20);
+  } else {
+    fputs("Writing dummy .bed... 0%", stdout);
+  }
   fflush(stdout);
   for (pct = 1; pct <= 100; pct++) {
     loop_end = ((unsigned long long)(pct * marker_ct)) / 100LLU;
