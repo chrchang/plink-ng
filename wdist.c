@@ -4916,8 +4916,12 @@ void exclude_to_vec_include(unsigned long unfiltered_indiv_ct, unsigned long* in
     ulmm = FIVEMASK;
     if (ulii) {
       incl_ptr = &(include_arr[cur_word_idx * 2]);
-      uljj = ulii >> 32;
+      uljj = ulii >> BITCT2;
+#if __LP64__
       ulii &= 0xffffffffLU;
+#else
+      ulii &= 0xffffLU;
+#endif
       if (ulii) {
 	do {
 	  bit_idx = __builtin_ctzl(ulii);
@@ -5028,15 +5032,237 @@ int incr_text_allele(char cc, char* marker_alleles, unsigned int* marker_allele_
   return -1;
 }
 
-static inline void single_marker_freqs_and_hwe(unsigned long unfiltered_indiv_ct, unsigned long unfiltered_indiv_ctl2, unsigned long* lptr, unsigned long* indiv_include2, unsigned long* founder_include2, unsigned long* founder_control_include2, unsigned long indiv_ct, unsigned int* ll_ctp, unsigned int* lh_ctp, unsigned int* hh_ctp, unsigned int indiv_f_ct, unsigned int* ll_ctfp, unsigned int* lh_ctfp, unsigned int* hh_ctfp, int hwe_needed, unsigned long indiv_f_ctl_ct, unsigned int* ll_hwep, unsigned int* lh_hwep, unsigned int* hh_hwep) {
-  // let A := 01 masked
-  //     B := 10 masked
-  //     C := A & (B >> 1)
-  // popct(C) = hh_ct
-  // popct(B) = lh_ct + hh_ct, so lh_ct = popct(B) - popct(C)
-  // popct(A) = missing_ct + hh_ct
-  // indiv_ct - popct(A) = ll_ct + lh_ct, so
-  //   ll_ct = indiv_ct - popct(A) - lh_ct
+#if __LP64__
+static inline void freq_hwe_count_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, unsigned int* ctap, unsigned int* ctbp, unsigned int* ctcp) {
+  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
+  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
+  __m128i loader;
+  __m128i loader2;
+  __m128i loader3;
+  __m128i to_ct_a1;
+  __m128i to_ct_b1;
+  __m128i to_ct_c1;
+  __m128i to_ct_a2;
+  __m128i to_ct_b2;
+  __m128i to_ct_c2;
+  __uni16 acc_a;
+  __uni16 acc_b;
+  __uni16 acc_c;
+
+  acc_a.vi = _mm_setzero_si128();
+  acc_b.vi = _mm_setzero_si128();
+  acc_c.vi = _mm_setzero_si128();
+  do {
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    to_ct_b1 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a1 = _mm_and_si128(loader2, loader);
+    to_ct_c1 = _mm_and_si128(to_ct_b1, loader);
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a1 = _mm_add_epi64(to_ct_a1, _mm_and_si128(loader2, loader));
+    to_ct_b1 = _mm_add_epi64(to_ct_b1, loader3);
+    to_ct_c1 = _mm_add_epi64(to_ct_c1, _mm_and_si128(loader3, loader));
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a1 = _mm_add_epi64(to_ct_a1, _mm_and_si128(loader2, loader));
+    to_ct_b1 = _mm_add_epi64(to_ct_b1, loader3);
+    to_ct_c1 = _mm_add_epi64(to_ct_c1, _mm_and_si128(loader3, loader));
+
+    to_ct_a1 = _mm_add_epi64(_mm_and_si128(to_ct_a1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_a1, 2), m2));
+    to_ct_b1 = _mm_add_epi64(_mm_and_si128(to_ct_b1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_b1, 2), m2));
+    to_ct_c1 = _mm_add_epi64(_mm_and_si128(to_ct_c1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_c1, 2), m2));
+
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    to_ct_b2 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a2 = _mm_and_si128(loader2, loader);
+    to_ct_c2 = _mm_and_si128(to_ct_b2, loader);
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a2 = _mm_add_epi64(to_ct_a2, _mm_and_si128(loader2, loader));
+    to_ct_b2 = _mm_add_epi64(to_ct_b2, loader3);
+    to_ct_c2 = _mm_add_epi64(to_ct_c2, _mm_and_si128(loader3, loader));
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a2 = _mm_add_epi64(to_ct_a2, _mm_and_si128(loader2, loader));
+    to_ct_b2 = _mm_add_epi64(to_ct_b2, loader3);
+    to_ct_c2 = _mm_add_epi64(to_ct_c2, _mm_and_si128(loader3, loader));
+
+    to_ct_a1 = _mm_add_epi64(to_ct_a1, _mm_add_epi64(_mm_and_si128(to_ct_a2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_a2, 2), m2)));
+    to_ct_b1 = _mm_add_epi64(to_ct_b1, _mm_add_epi64(_mm_and_si128(to_ct_b2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_b2, 2), m2)));
+    to_ct_c1 = _mm_add_epi64(to_ct_c1, _mm_add_epi64(_mm_and_si128(to_ct_c2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_c2, 2), m2)));
+
+    acc_a.vi = _mm_add_epi64(acc_a.vi, _mm_add_epi64(_mm_and_si128(to_ct_a1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_a1, 4), m4)));
+    acc_b.vi = _mm_add_epi64(acc_b.vi, _mm_add_epi64(_mm_and_si128(to_ct_b1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_b1, 4), m4)));
+    acc_c.vi = _mm_add_epi64(acc_c.vi, _mm_add_epi64(_mm_and_si128(to_ct_c1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_c1, 4), m4)));
+  } while (vptr < vend);
+  acc_a.vi = _mm_add_epi64(_mm_and_si128(acc_a.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_a.vi, 8), m8));
+  acc_b.vi = _mm_add_epi64(_mm_and_si128(acc_b.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_b.vi, 8), m8));
+  acc_c.vi = _mm_add_epi64(_mm_and_si128(acc_c.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_c.vi, 8), m8));
+  acc_a.vi = _mm_and_si128(_mm_add_epi64(acc_a.vi, _mm_srli_epi64(acc_a.vi, 16)), m16);
+  acc_b.vi = _mm_and_si128(_mm_add_epi64(acc_b.vi, _mm_srli_epi64(acc_b.vi, 16)), m16);
+  acc_c.vi = _mm_and_si128(_mm_add_epi64(acc_c.vi, _mm_srli_epi64(acc_c.vi, 16)), m16);
+  acc_a.vi = _mm_add_epi64(acc_a.vi, _mm_srli_epi64(acc_a.vi, 32));
+  acc_b.vi = _mm_add_epi64(acc_b.vi, _mm_srli_epi64(acc_b.vi, 32));
+  acc_c.vi = _mm_add_epi64(acc_c.vi, _mm_srli_epi64(acc_c.vi, 32));
+  *ctap += (unsigned int)(acc_a.u8[0] + acc_a.u8[1]);
+  *ctbp += (unsigned int)(acc_b.u8[0] + acc_b.u8[1]);
+  *ctcp += (unsigned int)(acc_c.u8[0] + acc_c.u8[1]);
+}
+#else
+static inline void freq_hwe_count_12(unsigned long* lptr, unsigned long* maskp, unsigned int* ctap, unsigned int* ctbp, unsigned int* ctcp) {
+  unsigned long loader = *lptr++;
+  unsigned long loader2 = *maskp++;
+  unsigned int to_ct_a1 = loader & loader2;
+  unsigned int to_ct_b1 = (loader >> 1) & loader2;
+  unsigned int to_ct_c1 = loader & to_ct_b1;
+  unsigned long loader3;
+  unsigned int to_ct_a2;
+  unsigned int to_ct_b2;
+  unsigned int to_ct_c2;
+  unsigned long partial_a;
+  unsigned long partial_b;
+  unsigned long partial_c;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a1 += loader & loader2;
+  to_ct_b1 += loader3;
+  to_ct_c1 += loader & loader3;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a1 += loader & loader2;
+  to_ct_b1 += loader3;
+  to_ct_c1 += loader & loader3;
+
+  loader = *lptr++;
+  loader2 = *maskp++;
+  to_ct_a2 = loader & loader2;
+  to_ct_b2 = (loader >> 1) & loader2;
+  to_ct_c2 = loader & to_ct_b2;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a2 += loader & loader2;
+  to_ct_b2 += loader3;
+  to_ct_c2 += loader & loader3;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a2 += loader & loader2;
+  to_ct_b2 += loader3;
+  to_ct_c2 += loader & loader3;
+
+  to_ct_a1 = (to_ct_a1 & 0x33333333) + ((to_ct_a1 >> 2) & 0x33333333);
+  to_ct_a1 += (to_ct_a2 & 0x33333333) + ((to_ct_a2 >> 2) & 0x33333333);
+  partial_a = (to_ct_a1 & 0x0f0f0f0f) + ((to_ct_a1 >> 4) & 0x0f0f0f0f);
+  to_ct_b1 = (to_ct_b1 & 0x33333333) + ((to_ct_b1 >> 2) & 0x33333333);
+  to_ct_b1 += (to_ct_b2 & 0x33333333) + ((to_ct_b2 >> 2) & 0x33333333);
+  partial_b = (to_ct_b1 & 0x0f0f0f0f) + ((to_ct_b1 >> 4) & 0x0f0f0f0f);
+  to_ct_c1 = (to_ct_c1 & 0x33333333) + ((to_ct_c1 >> 2) & 0x33333333);
+  to_ct_c1 += (to_ct_c2 & 0x33333333) + ((to_ct_c2 >> 2) & 0x33333333);
+  partial_c = (to_ct_c1 & 0x0f0f0f0f) + ((to_ct_c1 >> 4) & 0x0f0f0f0f);
+
+  loader = *lptr++;
+  loader2 = *maskp++;
+  to_ct_a1 = loader & loader2;
+  to_ct_b1 = (loader >> 1) & loader2;
+  to_ct_c1 = loader & to_ct_b1;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a1 += loader & loader2;
+  to_ct_b1 += loader3;
+  to_ct_c1 += loader & loader3;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a1 += loader & loader2;
+  to_ct_b1 += loader3;
+  to_ct_c1 += loader & loader3;
+
+  loader = *lptr++;
+  loader2 = *maskp++;
+  to_ct_a2 = loader & loader2;
+  to_ct_b2 = (loader >> 1) & loader2;
+  to_ct_c2 = loader & to_ct_b2;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a2 += loader & loader2;
+  to_ct_b2 += loader3;
+  to_ct_c2 += loader & loader3;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a2 += loader & loader2;
+  to_ct_b2 += loader3;
+  to_ct_c2 += loader & loader3;
+
+  to_ct_a1 = (to_ct_a1 & 0x33333333) + ((to_ct_a1 >> 2) & 0x33333333);
+  to_ct_a1 += (to_ct_a2 & 0x33333333) + ((to_ct_a2 >> 2) & 0x33333333);
+  partial_a += (to_ct_a1 & 0x0f0f0f0f) + ((to_ct_a1 >> 4) & 0x0f0f0f0f);
+  to_ct_b1 = (to_ct_b1 & 0x33333333) + ((to_ct_b1 >> 2) & 0x33333333);
+  to_ct_b1 += (to_ct_b2 & 0x33333333) + ((to_ct_b2 >> 2) & 0x33333333);
+  partial_b += (to_ct_b1 & 0x0f0f0f0f) + ((to_ct_b1 >> 4) & 0x0f0f0f0f);
+  to_ct_c1 = (to_ct_c1 & 0x33333333) + ((to_ct_c1 >> 2) & 0x33333333);
+  to_ct_c1 += (to_ct_c2 & 0x33333333) + ((to_ct_c2 >> 2) & 0x33333333);
+  partial_c += (to_ct_c1 & 0x0f0f0f0f) + ((to_ct_c1 >> 4) & 0x0f0f0f0f);
+
+  *ctap += (partial_a * 0x01010101) >> 24;
+  *ctbp += (partial_b * 0x01010101) >> 24;
+  *ctcp += (partial_c * 0x01010101) >> 24;
+}
+#endif
+
+static inline void single_marker_freqs_and_hwe(unsigned long unfiltered_indiv_ct, unsigned long unfiltered_indiv_ctl2, unsigned long* lptr, unsigned long* indiv_include2, unsigned long* founder_include2, unsigned long* founder_ctrl_include2, unsigned long indiv_ct, unsigned int* ll_ctp, unsigned int* lh_ctp, unsigned int* hh_ctp, unsigned int indiv_f_ct, unsigned int* ll_ctfp, unsigned int* lh_ctfp, unsigned int* hh_ctfp, int hwe_needed, unsigned long indiv_f_ctl_ct, unsigned int* ll_hwep, unsigned int* lh_hwep, unsigned int* hh_hwep) {
+  // This is best understood from the bottom third up (which is the order it
+  // was written).  It's way overkill for just determining genotype
+  // frequencies, but a ruthlessly optimized version is needed for e.g.
+  // permutation testing so we may as well get it working here.
+  //
+  // The idea, which underlies the IBS and LD pruners as well, is to obtain
+  // multiple popcounts at once.  In the case of PLINK frequency/HWE
+  // evaluation, we need 6-9 numbers:
+  // homozyg minor, het, homozyg major counts for all individuals
+  // homozyg minor, het, homozyg major counts for all founders
+  // sometimes, homozyg minor, het, homozyg major counts for all ctrl founders
+  //
+  // Given a buffer with PLINK binary genotypes for a single marker, let
+  //   A := genotype & 0x5555...
+  //   B := (genotype >> 1) & 0x5555...
+  //   C := A & B
+  // Then,
+  //   popcount(C) = homozyg major ct
+  //   popcount(B) = het ct + homozyg major ct
+  //   popcount(A) = missing_ct + homozyg major ct
+  //               = indiv_ct - homozyg minor ct - het ct
+  //
+  // Thus, with the appropriate indiv_ct and these three popcounts, we can
+  // calculate a set of genotype counts.  We perform the
+  // not-that-exploitative version of these calculations in the bottom third of
+  // this function, to deal with the remainder that doesn't fit into the
+  // 12-word block size of the main loops.
+  //
+  // The middle third is a 12-word block popcount for 32-bit platforms (see
+  // popcount_longs() in wdist_common.c; this is 12 words instead of 6 since
+  // odd bits of the popcount targets are guaranteed to be zero, delaying
+  // overflow).  It could be improved a bit, but we care more about reliability
+  // than blistering speed for the 32-bit build (since it's used to check the
+  // results of the actually blistering 64-bit code...).  Sure, hardware
+  // popcount is significantly faster, but what x86-32 machine has hardware
+  // popcount??...
+  //
+  // The top third is the Lauradoux/Walisch loop that lets WDIST fabricate
+  // hardware popcount on 64-bit machines that don't have it.
   unsigned int tot_a = 0;
   unsigned int tot_b = 0;
   unsigned int tot_c = 0;
@@ -5047,44 +5273,69 @@ static inline void single_marker_freqs_and_hwe(unsigned long unfiltered_indiv_ct
   unsigned int tot_b_hwe = 0;
   unsigned int tot_c_hwe = 0;
   unsigned long* lptr_end = &(lptr[unfiltered_indiv_ctl2]);
-  unsigned long to_count_b;
   unsigned long loader;
   unsigned long loader2;
-#ifdef __LP64__
-  // TODO
-#else
-  /*
-  unsigned long* lptr_six_end = &(lptr[6 * (unfiltered_indiv_ctl2 / 6)]);
-  while (lptr < lptr_six_end) {
-    loader = *lptr++;
-    loader2 = *indiv_include2++;
-    to_count_b = loader & (loader2 << 1);
-    loader2 &= loader;
-    // NOW
+  unsigned long loader3;
+#ifdef __LP64__;
+  unsigned long cur_decr;
+  unsigned long* lptr_12x_end;
+  unfiltered_indiv_ctl2 -= unfiltered_indiv_ctl2 % 12;
+  while (unfiltered_indiv_ctl2 >= 120) {
+    cur_decr = 120;
+  single_marker_freqs_and_hwe_loop:
+    lptr_12x_end = &(lptr[cur_decr]);
+    freq_hwe_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)indiv_include2, &tot_a, &tot_b, &tot_c);
+    freq_hwe_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_include2, &tot_a_f, &tot_b_f, &tot_c_f);
+    if (hwe_needed) {
+      freq_hwe_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_ctrl_include2, &tot_a_hwe, &tot_b_hwe, &tot_c_hwe);
+      founder_ctrl_include2 = &(founder_ctrl_include2[cur_decr]);
+    }
+    lptr = lptr_12x_end;
+    indiv_include2 = &(indiv_include2[cur_decr]);
+    founder_include2 = &(founder_include2[cur_decr]);
+    unfiltered_indiv_ctl2 -= cur_decr;
   }
-  */
+  if (unfiltered_indiv_ctl2) {
+    cur_decr = unfiltered_indiv_ctl2;
+    goto single_marker_freqs_and_hwe_loop;
+  }
+#else
+  unsigned long* lptr_twelve_end = &(lptr[unfiltered_indiv_ctl2 - unfiltered_indiv_ctl2 % 12]);
+  while (lptr < lptr_twelve_end) {
+    freq_hwe_count_12(lptr, indiv_include2, &tot_a, &tot_b, &tot_c);
+    freq_hwe_count_12(lptr, founder_include2, &tot_a_f, &tot_b_f, &tot_c_f);
+    if (hwe_needed) {
+      freq_hwe_count_12(lptr, founder_ctrl_include2, &tot_a_hwe, &tot_b_hwe, &tot_c_hwe);
+      founder_ctrl_include2 = &(founder_ctrl_include2[12]);
+    }
+    lptr = &(lptr[12]);
+    indiv_include2 = &(indiv_include2[12]);
+    founder_include2 = &(founder_include2[12]);
+  }
 #endif
   while (lptr < lptr_end) {
     loader = *lptr++;
     loader2 = *indiv_include2++;
-    to_count_b = loader & (loader2 << 1);
+    loader3 = (loader >> 1) & loader2;
     loader2 &= loader;
-    tot_a += popcount_long(loader2);
-    tot_b += popcount_long(to_count_b);
-    tot_c += popcount_long(loader & (to_count_b >> 1));
+    // N.B. because of the construction of indiv_include2, only even-numbered
+    // bits can be present here.  So popcount2_long is safe.
+    tot_a += popcount2_long(loader2);
+    tot_b += popcount2_long(loader3);
+    tot_c += popcount2_long(loader & loader3);
     loader2 = *founder_include2++;
-    to_count_b = loader & (loader2 << 1);
+    loader3 = (loader >> 1) & loader2;
     loader2 &= loader;
-    tot_a_f += popcount_long(loader2);
-    tot_b_f += popcount_long(to_count_b);
-    tot_c_f += popcount_long(loader & (to_count_b >> 1));
+    tot_a_f += popcount2_long(loader2);
+    tot_b_f += popcount2_long(loader3);
+    tot_c_f += popcount2_long(loader & loader3);
     if (hwe_needed) {
-      loader2 = *founder_control_include2++;
-      to_count_b = loader & (loader2 << 1);
+      loader2 = *founder_ctrl_include2++;
+      loader3 = (loader >> 1) & loader2;
       loader2 &= loader;
-      tot_a_hwe += popcount_long(loader2);
-      tot_b_hwe += popcount_long(to_count_b);
-      tot_c_hwe += popcount_long(loader & (to_count_b >> 1));
+      tot_a_hwe += popcount2_long(loader2);
+      tot_b_hwe += popcount2_long(loader3);
+      tot_c_hwe += popcount2_long(loader & loader3);
     }
   }
   *hh_ctp = tot_c;
@@ -5115,7 +5366,7 @@ int calc_freqs_and_hwe(FILE* bedfile, unsigned long unfiltered_marker_ct, unsign
   unsigned long* loadbuf;
   unsigned long* indiv_include2;
   unsigned long* founder_include2;
-  unsigned long* founder_control_include2;
+  unsigned long* founder_ctrl_include2;
   unsigned long* tmp_indiv_mask;
   unsigned long loop_end;
   unsigned long marker_uidx;
@@ -5213,12 +5464,12 @@ int calc_freqs_and_hwe(FILE* bedfile, unsigned long unfiltered_marker_ct, unsign
       tmp_indiv_mask[unfiltered_indiv_ctl - 1] &= (1LU << uii) - 1LU;
     }
     exclude_to_vec_include(unfiltered_indiv_ct, founder_include2, tmp_indiv_mask);
-    founder_control_include2 = founder_include2;
+    founder_ctrl_include2 = founder_include2;
     uii = popcount_longs_exclude(founder_info, indiv_exclude, unfiltered_indiv_ctl);
     indiv_f_ct = uii;
     indiv_f_ctl_ct = indiv_f_ct;
     if (!hwe_all) {
-      if (wkspace_alloc_ul_checked(&founder_control_include2, unfiltered_indiv_ctl * 2 *  sizeof(long))) {
+      if (wkspace_alloc_ul_checked(&founder_ctrl_include2, unfiltered_indiv_ctl * 2 *  sizeof(long))) {
 	goto calc_freqs_and_hwe_ret_NOMEM;
       }
       indiv_uidx = 0;
@@ -5227,10 +5478,10 @@ int calc_freqs_and_hwe(FILE* bedfile, unsigned long unfiltered_marker_ct, unsign
 	  set_bit_sub(tmp_indiv_mask, indiv_uidx, &indiv_f_ctl_ct);
 	}
       }
-      exclude_to_vec_include(unfiltered_indiv_ct, founder_control_include2, tmp_indiv_mask);
+      exclude_to_vec_include(unfiltered_indiv_ct, founder_ctrl_include2, tmp_indiv_mask);
     }
   } else {
-    founder_control_include2 = founder_include2;
+    founder_ctrl_include2 = founder_include2;
   }
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
     goto calc_freqs_and_hwe_ret_READ_FAIL;
@@ -5252,7 +5503,7 @@ int calc_freqs_and_hwe(FILE* bedfile, unsigned long unfiltered_marker_ct, unsign
       if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	goto calc_freqs_and_hwe_ret_READ_FAIL;
       }
-      single_marker_freqs_and_hwe(unfiltered_indiv_ct, unfiltered_indiv_ctl * 2, loadbuf, indiv_include2, founder_include2, founder_control_include2, indiv_ct, &ll_ct, &lh_ct, &hh_ct, indiv_f_ct, &ll_ctf, &lh_ctf, &hh_ctf, hwe_needed, indiv_f_ctl_ct, &ll_hwe, &lh_hwe, &hh_hwe);
+      single_marker_freqs_and_hwe(unfiltered_indiv_ct, unfiltered_indiv_ctl * 2, loadbuf, indiv_include2, founder_include2, founder_ctrl_include2, indiv_ct, &ll_ct, &lh_ct, &hh_ct, indiv_f_ct, &ll_ctf, &lh_ctf, &hh_ctf, hwe_needed, indiv_f_ctl_ct, &ll_hwe, &lh_hwe, &hh_hwe);
       ll_cts[marker_uidx] = ll_ct;
       lh_cts[marker_uidx] = lh_ct;
       hh_cts[marker_uidx] = hh_ct;

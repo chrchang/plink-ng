@@ -978,7 +978,7 @@ unsigned long popcount_longs(unsigned long* lptr, unsigned long start_idx, unsig
   // The humble 16-bit lookup table actually beats
   // http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
   // on my development machine by a hair.
-  // However, if we take the hint from Walisch-Lauradoux and postpone the
+  // However, if we take the hint from Lauradoux/Walisch and postpone the
   // multiply and right shift, this is no longer true.  Ah well.
   unsigned long* lptr_six_end;
   unsigned long tmp_stor;
