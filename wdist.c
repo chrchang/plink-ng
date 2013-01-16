@@ -12194,7 +12194,7 @@ int main(int argc, char** argv) {
       }
       uii = strlen(argv[ii + 1]);
       memcpy(outname, argv[ii + 1], uii + 1);
-      outname_end = &(outname_end[uii]);
+      outname_end = &(outname[uii]);
     }
     if (ii <= 0) {
       break;
