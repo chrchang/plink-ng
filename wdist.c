@@ -5428,7 +5428,7 @@ static inline void single_marker_freqs_and_hwe(unsigned long unfiltered_indiv_ct
   unsigned long loader;
   unsigned long loader2;
   unsigned long loader3;
-#ifdef __LP64__;
+#ifdef __LP64__
   unsigned long cur_decr;
   unsigned long* lptr_12x_end;
   unfiltered_indiv_ctl2 -= unfiltered_indiv_ctl2 % 12;
