@@ -10252,7 +10252,7 @@ int wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* 
   }
   if ((calculation_type & CALC_FREQ) || relationship_or_ibc_req(calculation_type) || distance_req(calculation_type)) {
     if (chrom_info_ptr->chrom_mask & species_haploid_mask[chrom_info_ptr->species]) {
-      logprint("Warning: Haploid markers present.  WDIST doesn't handle them differently from\ndiploid markers yet,\nso you may want to rerun with --autosome.\n");
+      logprint("Warning: Haploid markers present.  WDIST doesn't handle them differently from\ndiploid markers yet, so you may want to rerun with --autosome.\n");
     }
   }
 

@@ -2060,11 +2060,11 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_end, i
     } else {
       while (is_set(marker_exclude, marker_uidx)) {
         do {
-	  if (!fgets(loadbuf, MAXLINELEN, mapfile)) {
+	  if (!fgets(tbuf, MAXLINELEN, mapfile)) {
 	    goto ped_to_bed_ret_READ_FAIL;
 	  }
 	} while (is_eoln_kns(*(skip_initial_spaces(tbuf))));
-	marker_uidx++;
+        marker_uidx++;
       }
       do {
 	if (!fgets(tbuf, MAXLINELEN, mapfile)) {
@@ -2141,6 +2141,7 @@ int ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_end, i
     if (fwrite_checked(bufptr3, bufptr2 - bufptr3, outfile)) {
       goto ped_to_bed_ret_WRITE_FAIL;
     }
+    marker_uidx++;
   }
   indiv_ct4 = (indiv_ct + 3) / 4;
 
