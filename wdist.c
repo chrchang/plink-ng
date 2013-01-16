@@ -1047,56 +1047,195 @@ void dispmsg(int retval) {
   }
 }
 
-// (copied from PLINK helper.cpp, modified to directly perform threshold test
-// and avoid repeated allocation of the same memory.  Substantial further
-// optimization should be possible, but it's unimportant for now.)
-//
-//
 // This function implements an exact SNP test of Hardy-Weinberg
 // Equilibrium as described in Wigginton, JE, Cutler, DJ, and
 // Abecasis, GR (2005) A Note on Exact Tests of Hardy-Weinberg
 // Equilibrium. American Journal of Human Genetics. 76: 000 - 000
 //
-// Written by Jan Wigginton
-
-double* het_probs = NULL;
+// Originally written by Jan Wigginton
+// Threshold speedup by Christopher Chang
 
 int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
-  if (!(obs_hom1 + obs_hom2 + obs_hets)) {
+  // Returns 0 if these counts are close enough to Hardy-Weinberg eq.
+  //
+  // Since we are just performing a threshold test, we do NOT need to actually
+  // calculate the whole array.  (In fact, we do not need an array at all.)
+  // Instead, suppose the number of observed hets exceeds expectation.  We
+  // proceed as follows:
+  // - Sum the *relative* likelihoods of more likely smaller het counts.
+  // - Determine the minimum tail mass to pass the threshold.
+  // - The majority of the time, the tail boundary elements are enough to pass
+  // the threshold; we never need to sum the remainder of the tails.
+  // - And in the case of disequilibrium, we will often be able to immediately
+  // determine that the tail sum cannot possibly pass the threshold, just by
+  // looking at the tail boundary elements and using a geometric series to
+  // upper-bound the tail sums.
+  // - Only when neither of these conditions hold do we start traveling down
+  // the tails.
+  unsigned long obs_homc = obs_hom1 < obs_hom2 ? obs_hom2 : obs_hom1;
+  unsigned long obs_homr = obs_hom1 < obs_hom2 ? obs_hom1 : obs_hom2;
+  unsigned long rare_copies = 2 * obs_homr + obs_hets;
+  unsigned int genotypes = obs_hets + obs_homc + obs_homr;
+  unsigned long genotypes2 = genotypes * 2;
+  unsigned long curr_hets_t2 = obs_hets;
+  unsigned long curr_homr_t2 = obs_homr;
+  unsigned long curr_homc_t2 = obs_homc;
+  double tailp1 = 1.0;
+  double centerp = 0.0;
+  double lastp2 = 1.0;
+  double tailp2 = 0.0;
+  double tail1_ceil;
+  double tail2_ceil;
+  double lastp1;
+  unsigned long curr_hets_t1;
+  unsigned long curr_homr_t1;
+  unsigned long curr_homc_t1;
+  double tail_thresh; // as soon as tail sum reaches this, we've passed
+  double tail_threshx;
+  unsigned int het_exp_floor;
+  double ratio;
+  if (!genotypes) {
     return 0;
   }
-  
-  // if (obs_hom1 < 0 || obs_hom2 < 0 || obs_hets < 0) 
-  //   {
-  //     error("Internal error: negative count in HWE test: "
-  //           +int2str(obs_hets)+" "
-  //           +int2str(obs_hom1)+" "
-  //           +int2str(obs_hom2));
-  //   }
 
-  int obs_homc = obs_hom1 < obs_hom2 ? obs_hom2 : obs_hom1;
-  int obs_homr = obs_hom1 < obs_hom2 ? obs_hom1 : obs_hom2;
-
-  int rare_copies = 2 * obs_homr + obs_hets;
-  int rare_copies2 = rare_copies / 2;
-  int genotypes   = obs_hets + obs_homc + obs_homr;
-  // avoid integer overflow when calculating mid
-  long long rare_copies_ll = rare_copies;
-  long long genotypes_ll = genotypes;
-
-  int i;
-  for (i = 0; i <= rare_copies2; i++) {
-    het_probs[i] = 0.0;
+  // Expected het count:
+  //   2 * rarefreq * (1 - rarefreq) * genotypes
+  // = 2 * (rare_copies / (2 * genotypes)) * (1 - rarefreq) * genotypes
+  // = rare_copies * (1 - (rare_copies / (2 * genotypes)))
+  // = (rare_copies * (2 * genotypes - rare_copies)) / (2 * genotypes)
+  // 
+  // The computational identity is
+  //   P(nhets == n) := P(nhets == n+2) * (n+2) * (n+1) /
+  //                    (4 * homr(n) * homc(n))
+  // where homr() and homc() are the number of homozygous rares/commons needed
+  // to maintain the same allele frequencies.
+  // This probability is always decreasing when proceeding away from the
+  // expected het count.
+  het_exp_floor = (((unsigned long long)rare_copies) * (genotypes2 - rare_copies)) / genotypes2;
+  if (curr_hets_t2 > het_exp_floor) {
+    // tail 1 = upper
+    if (curr_hets_t2 < 2) {
+      return 0;
+    }
+    do {
+      lastp2 *= ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
+      curr_hets_t2 -= 2;
+      if (lastp2 <= 1) {
+	tailp2 = lastp2;
+	break;
+      }
+      centerp += lastp2;
+    } while (curr_hets_t2 > 1);
+    tail_thresh = centerp * thresh / (1 - thresh);
+    if (1 + tailp2 >= tail_thresh) {
+      return 0;
+    }
+    // c + cr + cr^2 + ... = c/(1-r), which is an upper bound for the tail sum
+    ratio = ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (curr_homr_t2 + 1)) * (curr_homc_t2 + 1)));
+    tail2_ceil = tailp2 / (1.0 - ratio);
+    if (obs_homr) {
+      curr_hets_t1 = obs_hets + 2;
+      curr_homr_t1 = obs_homr;
+      curr_homc_t1 = obs_homc;
+      lastp1 = ((double)((4LLU * (curr_homr_t1--)) * (curr_homc_t1--))) / ((double)(((unsigned long long)curr_hets_t1) * (curr_hets_t1 - 1)));
+      tail1_ceil = 1 / (1 - lastp1);
+      if (tail1_ceil + tail2_ceil < tail_thresh) {
+	return 1;
+      }
+      tail_threshx = tail_thresh - tailp2;
+      while (1) {
+        tailp1 += lastp1;
+	if (tailp1 >= tail_threshx) {
+	  return 0;
+	}
+	if (!curr_homr_t1) {
+	  break;
+	}
+	curr_hets_t1 += 2;
+	lastp1 *= ((double)((4LLU * (curr_homr_t1--)) * (curr_homc_t1--))) / ((double)(((unsigned long long)curr_hets_t1) * (curr_hets_t1 - 1)));
+      }
+    }
+    if (tailp1 + tail2_ceil < tail_thresh) {
+      return 1;
+    }
+    tail_threshx = tail_thresh - tailp1;
+    while (curr_hets_t2 > 1) {
+      lastp2 *= ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
+      curr_hets_t2 -= 2;
+      tailp2 += lastp2;
+      if (tailp2 >= tail_threshx) {
+	return 0;
+      }
+    }
+    return 1;
+  } else {
+    // tail 1 = lower
+    if (!curr_homr_t2) {
+      return 0;
+    }
+    do {
+      curr_hets_t2 += 2;
+      lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1)));
+      if (lastp2 <= 1) {
+	tailp2 = lastp2;
+	break;
+      }
+      centerp += lastp2;
+    } while (curr_homr_t2);
+    tail_thresh = centerp * thresh / (1 - thresh);
+    if (1 + tailp2 >= tail_thresh) {
+      return 0;
+    }
+    ratio = ((double)((4LLU * curr_homr_t2) * curr_homc_t2)) / ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1)));
+    tail2_ceil = tailp2 / (1.0 - ratio);
+    if (curr_hets_t2 < 2) {
+      curr_hets_t1 = obs_hets;
+      curr_homr_t1 = obs_homr;
+      curr_homc_t1 = obs_homc;
+      lastp1 = ((double)(((unsigned long long)curr_hets_t1) * (curr_hets_t1 - 1))) / ((double)((4LLU * (++curr_homr_t1)) * (++curr_homc_t1)));
+      curr_hets_t1 -= 2;
+      tail1_ceil = tailp1 / (1 - lastp1);
+      if (tail1_ceil + tail2_ceil < tail_thresh) {
+	return 1;
+      }
+      tail_threshx = tail_thresh - tailp2;
+      while (1) {
+        tailp1 += lastp1;
+        if (tailp1 >= tail_threshx) {
+	  return 0;
+        }
+	if (curr_hets_t2 < 2) {
+	  break;
+	}
+	lastp1 *= ((double)(((unsigned long long)curr_hets_t1) * (curr_hets_t1 - 1))) / ((double)((4LLU * (++curr_homr_t1)) * (++curr_homc_t1)));
+	curr_hets_t1 -= 2;
+      }
+    }
+    if (tailp1 + tail2_ceil < tail_thresh) {
+      return 1;
+    }
+    tail_threshx = tail_thresh - tailp1;
+    while (curr_homr_t2) {
+      curr_hets_t2 += 2;
+      lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1)));
+      tailp2 += lastp2;
+      if (tailp2 >= tail_threshx) {
+	return 0;
+      }
+    }
+    return 1;
   }
+}
+
+  /*
+  // modified version of this will be needed for --hardy.  We'll want to start
+  // next to expected value and work down, instead of starting from the
+  // midpoint, to avoid floating point overflow when there are lots and lots of
+  // people; and of course we'll want to preallocate the memory buffer.  But
+  // we'll stick with Wigginton's basic approach.
 
   // start at midpoint
   int mid = (int)((rare_copies_ll * (2 * genotypes_ll - rare_copies_ll)) / (2 * genotypes_ll));
-  
-  // check to ensure that midpoint and rare alleles have same parity
-  if ((rare_copies ^ mid) & 1) {
-    mid++;
-  }
-  int mid2 = mid / 2;
   
   long long curr_hets = mid;
 
@@ -1143,7 +1282,8 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
     p_hwe += *hptr++;
   }
   return (!(p_hwe > thresh));
-}
+  */
+
 
 // back to our regular program
 
@@ -5931,52 +6071,54 @@ int write_freqs(FILE** outfile_ptr, char* outname, unsigned int plink_maxsnp, un
 
 unsigned int binary_geno_filter(double geno_thresh, unsigned long unfiltered_marker_ct, unsigned long* marker_exclude, unsigned long* marker_exclude_ct_ptr, unsigned long indiv_ct, unsigned int* marker_allele_cts) {
   unsigned int orig_exclude_ct = *marker_exclude_ct_ptr;
+  unsigned long marker_ct = unfiltered_marker_ct - orig_exclude_ct;
   unsigned int geno_int_thresh = 2 * indiv_ct - (int)(geno_thresh * 2 * indiv_ct);
-  unsigned long marker_uidx;
-  for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-    if (is_set(marker_exclude, marker_uidx)) {
-      continue;
-    }
+  unsigned long marker_uidx = 0;
+  unsigned long marker_idx = 0;
+  for (; marker_idx < marker_ct; marker_idx++) {
+    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
     if ((marker_allele_cts[2 * marker_uidx] + marker_allele_cts[2 * marker_uidx + 1]) < geno_int_thresh) {
       set_bit(marker_exclude, marker_uidx, marker_exclude_ct_ptr);
     }
+    marker_uidx++;
   }
   return (*marker_exclude_ct_ptr - orig_exclude_ct);
 }
 
-void calc_marker_reverse_bin(unsigned long* marker_reverse, unsigned long unfiltered_marker_ct, unsigned long* marker_exclude, unsigned long marker_exclude_ct, double* set_allele_freqs) {
+void calc_marker_reverse_bin(unsigned long* marker_reverse, unsigned long unfiltered_marker_ct, unsigned long* marker_exclude, unsigned long marker_ct, double* set_allele_freqs) {
   unsigned long marker_uidx = 0;
-  for (; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-    if (is_set(marker_exclude, marker_uidx)) {
-      continue;
-    }
+  unsigned long marker_idx = 0;
+  for (; marker_idx < marker_ct; marker_idx++) {
+    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
     if (set_allele_freqs[marker_uidx] < 0.5) {
       set_bit_noct(marker_reverse, marker_uidx);
     }
+    marker_uidx++;
   }
 }
 
 void enforce_hwe_threshold(double hwe_thresh, unsigned long unfiltered_marker_ct, unsigned long* marker_exclude, unsigned long* marker_exclude_ct_ptr, int* hwe_lls, int* hwe_lhs, int* hwe_hhs, int hwe_all, int* hwe_ll_allfs, int* hwe_lh_allfs, int* hwe_hh_allfs) {
-  // N.B. requires het_probs to be allocated
   unsigned int removed_ct = 0;
+  unsigned long marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   unsigned long marker_uidx = 0;
+  unsigned long marker_idx = 0;
   hwe_thresh += EPSILON;
-  for (; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-    if (is_set(marker_exclude, marker_uidx)) {
-      continue;
-    }
+  for (; marker_idx < marker_ct; marker_idx++) {
+    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
     if (SNPHWE_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh)) {
-      set_bit(marker_exclude, marker_uidx, marker_exclude_ct_ptr);
+      set_bit_noct(marker_exclude, marker_uidx);
       removed_ct++;
     } else if (!hwe_all) {
       if (SNPHWE_t(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], hwe_thresh)) {
-	set_bit(marker_exclude, marker_uidx, marker_exclude_ct_ptr);
+	set_bit_noct(marker_exclude, marker_uidx);
 	removed_ct++;
       }
     }
+    marker_uidx++;
   }
   sprintf(logbuf, "%u SNP%s removed due to Hardy-Weinberg exact test (--hwe).\n", removed_ct, (removed_ct == 1)? "" : "s");
   logprintb();
+  *marker_exclude_ct_ptr += removed_ct;
 }
 
 void enforce_maf_threshold(double min_maf, double max_maf, unsigned long unfiltered_marker_ct, unsigned long* marker_exclude, unsigned long* marker_exclude_ct_ptr, double* set_allele_freqs) {
@@ -10374,7 +10516,7 @@ int wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* 
   }
 
   if (!keep_allele_order) {
-    calc_marker_reverse_bin(marker_reverse, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, set_allele_freqs);
+    calc_marker_reverse_bin(marker_reverse, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, set_allele_freqs);
   }
 
   // contrary to the PLINK flowchart, --freq effectively resolves before
@@ -10403,13 +10545,7 @@ int wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* 
   marker_allele_cts = NULL;
   // missing_cts = NULL;
   if (hwe_thresh > 0.0) {
-    het_probs = (double*)malloc((g_indiv_ct / 2 + 1) * sizeof(double));
-    if (!het_probs) {
-      goto wdist_ret_NOMEM;
-    }
     enforce_hwe_threshold(hwe_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, hwe_lls, hwe_lhs, hwe_hhs, hwe_all || (!g_pheno_c), hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs);
-    free(het_probs);
-    het_probs = NULL;
   }
   if ((min_maf != 0.0) || (max_maf != 0.5)) {
     enforce_maf_threshold(min_maf, max_maf, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, set_allele_freqs);
@@ -11326,7 +11462,6 @@ int wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* 
  wdist_ret_1:
   free_cond(line_locs);
   free_cond(line_mids);
-  free_cond(het_probs);
   free_cond(g_pheno_d);
   free_cond(g_pheno_c);
   free_cond(phenor_d);
