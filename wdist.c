@@ -4942,56 +4942,56 @@ void exclude_to_vec_include(unsigned long unfiltered_indiv_ct, unsigned long* in
   } while (++cur_word_idx < unfiltered_indiv_ctl);
 }
 
-int mind_filter(FILE* pedfile, double mind_thresh, unsigned long unfiltered_marker_ct, unsigned long* marker_exclude, unsigned long marker_exclude_ct, unsigned long unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned long* indiv_exclude_ct_ptr, int bed_offset, unsigned long long* line_mids, int pedbuflen, char missing_geno) {
+int mind_filter(FILE* bedfile, double mind_thresh, unsigned long unfiltered_marker_ct, unsigned long* marker_exclude, unsigned long marker_exclude_ct, unsigned long unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned long* indiv_exclude_ct_ptr, int bed_offset, unsigned long long* line_mids, int pedbuflen, char missing_geno) {
   unsigned int mind_int_thresh = (int)(mind_thresh * (unfiltered_marker_ct - marker_exclude_ct) + EPSILON);
   unsigned int marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   unsigned long unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  unsigned long unfiltered_indiv_ct2l = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   unsigned char* wkspace_mark = wkspace_base;
   unsigned int removed_ct = 0;
-  unsigned char* loadbuf;
-  unsigned char* cptr;
+  unsigned long* loadbuf;
+  unsigned long* lptr;
   unsigned int* missing_cts;
   unsigned long indiv_uidx;
   unsigned long marker_uidx;
   unsigned long marker_idx;
   unsigned int uii;
   unsigned int ujj;
-  unsigned char ucc;
+  unsigned long ulii;
+  int retval = 0;
 
-  if (wkspace_alloc_ui_checked(&missing_cts, unfiltered_indiv_ct * sizeof(int))) {
-    return RET_NOMEM;
+  if (wkspace_alloc_ui_checked(&missing_cts, unfiltered_indiv_ct * sizeof(int)) ||
+      wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ct2l * sizeof(long))) {
+    goto mind_filter_ret_NOMEM;
   }
-  if (wkspace_alloc_uc_checked(&loadbuf, unfiltered_indiv_ct4)) {
-    return RET_NOMEM;
-  }
+  loadbuf[unfiltered_indiv_ct2l - 1] = 0;
   fill_uint_zero(missing_cts, unfiltered_indiv_ct);
-  if (fseeko(pedfile, bed_offset, SEEK_SET)) {
-    return RET_READ_FAIL;
+  if (fseeko(bedfile, bed_offset, SEEK_SET)) {
+    goto mind_filter_ret_READ_FAIL;
   }
   marker_idx = 0;
   for (marker_uidx = 0; marker_idx < marker_ct; marker_uidx++) {
     if (is_set(marker_exclude, marker_uidx)) {
       marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
-      if (fseeko(pedfile, bed_offset + ((unsigned long long)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
-	return RET_READ_FAIL;
+      if (fseeko(bedfile, bed_offset + ((unsigned long long)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	goto mind_filter_ret_READ_FAIL;
       }
     }
     marker_idx++;
-    if (fread(loadbuf, 1, unfiltered_indiv_ct4, pedfile) < unfiltered_indiv_ct4) {
-      return RET_READ_FAIL;
+    if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      goto mind_filter_ret_READ_FAIL;
     }
-    cptr = loadbuf;
+    lptr = loadbuf;
     indiv_uidx = 0;
-    ujj = 0;
-    for (uii = 0; uii < unfiltered_indiv_ct4; uii++) {
-      ucc = *cptr++;
-      ujj += 4; // may overshoot on last byte
-      do {
-	if ((ucc & 3) == 1) {
-	  missing_cts[indiv_uidx] += 1;
-	}
-	ucc >>= 2;
-      } while (++indiv_uidx < ujj);
+    ujj = unfiltered_indiv_ct2l * BITCT2;
+    for (uii = 0; uii < ujj; uii += BITCT2) {
+      ulii = *lptr++;
+      ulii = (ulii & FIVEMASK) & ((~ulii) >> 1);
+      // now ulii has single bit set only at missing positions
+      while (ulii) {
+	missing_cts[uii + __builtin_ctzl(ulii) / 2] += 1;
+	ulii &= ulii - 1;
+      }
     }
   }
   for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
@@ -4999,14 +4999,23 @@ int mind_filter(FILE* pedfile, double mind_thresh, unsigned long unfiltered_mark
       continue;
     }
     if (missing_cts[indiv_uidx] > mind_int_thresh) {
-      set_bit(indiv_exclude, indiv_uidx, indiv_exclude_ct_ptr);
+      set_bit_noct(indiv_exclude, indiv_uidx);
       removed_ct++;
     }
   }
-  wkspace_reset(wkspace_mark);
+  *indiv_exclude_ct_ptr += removed_ct;
   sprintf(logbuf, "%u individual%s removed due to missing genotype data (--mind).\n", removed_ct, (removed_ct == 1)? "" : "s");
   logprintb();
-  return 0;
+  while (0) {
+  mind_filter_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  mind_filter_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  return retval;
 }
 
 int incr_text_allele(char cc, char* marker_alleles, unsigned int* marker_allele_cts, int is_founder, unsigned int* marker_nf_allele_cts) {
