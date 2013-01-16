@@ -310,6 +310,10 @@ static inline int is_eoln_kns(char cc) {
   return ((unsigned char)cc) < 32;
 }
 
+static inline int is_eoln_or_comment(char cc) {
+  return (((unsigned char)cc) < 32) || (cc == '#');
+}
+
 static inline int no_more_items(char* sptr) {
   return ((!sptr) || is_eoln(*sptr));
 }

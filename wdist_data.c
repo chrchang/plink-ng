@@ -242,7 +242,7 @@ int load_map(FILE** mapfile_ptr, char* mapname, int* map_cols_ptr, unsigned long
       return RET_INVALID_FORMAT;
     }
     bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln_kns(*bufptr)) {
+    if (is_eoln_or_comment(*bufptr)) {
       continue;
     }
     bufptr = next_item(bufptr);
@@ -325,7 +325,7 @@ int load_map(FILE** mapfile_ptr, char* mapname, int* map_cols_ptr, unsigned long
         return RET_READ_FAIL;
       }
       bufptr = skip_initial_spaces(tbuf);
-    } while (is_eoln_kns(*bufptr));
+    } while (is_eoln_or_comment(*bufptr));
     jj = marker_code(species, bufptr);
     if (jj == -1) {
       logprint("Error: Invalid chromosome index in .map/.bim file.\n");
@@ -1447,6 +1447,7 @@ int make_bed(FILE* bedfile, int bed_offset, FILE* bimfile, int map_cols, FILE** 
 const char errstr_fam_format[] = "Error: Improperly formatted .fam/.ped file.\n";
 
 int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34, int fam_col_5, int fam_col_6, int true_fam_col_6, int missing_pheno, int missing_pheno_len, int affection_01, unsigned long* unfiltered_indiv_ct_ptr, char** person_ids_ptr, unsigned long* max_person_id_len_ptr, char** paternal_ids_ptr, unsigned long* max_paternal_id_len_ptr, char** maternal_ids_ptr, unsigned long* max_maternal_id_len_ptr, unsigned char** sex_info_ptr, int* affection_ptr, char** pheno_c_ptr, double** pheno_d_ptr, unsigned long** founder_info_ptr, unsigned long** indiv_exclude_ptr, int binary_files, unsigned long long** line_locs_ptr, unsigned long long** line_mids_ptr, int* pedbuflen_ptr) {
+  char* bufptr0;
   char* bufptr;
   unsigned long unfiltered_indiv_ct = 0;
   unsigned long max_person_id_len = 4;
@@ -1483,47 +1484,46 @@ int load_fam(FILE* famfile, unsigned long buflen, int fam_col_1, int fam_col_34,
   // count number of people, determine maximum person/father/mother ID lengths,
   // affection status, verify all floating point phenotype values are valid
   while (fgets(linebuf, buflen, famfile) != NULL) {
-    if (linebuf[0] > ' ') {
-      if (linebuf[0] != '#') {
-	if (fam_col_1) {
-	  bufptr = next_item(linebuf);
-	} else {
-	  bufptr = linebuf;
-	}
-	tmp_len = strlen_se(linebuf) + strlen_se(bufptr) + 2;
-        if (tmp_len > max_person_id_len) {
-	  max_person_id_len = tmp_len;
-	}
-	if (fam_col_34) {
-	  bufptr = next_item(bufptr);
-          tmp_len = strlen_se(bufptr) + 1;
-	  if (tmp_len > max_paternal_id_len) {
-	    max_paternal_id_len = tmp_len;
-	  }
-	  bufptr = next_item(bufptr);
-	  tmp_len = strlen_se(bufptr) + 1;
-	  if (tmp_len > max_maternal_id_len) {
-	    max_maternal_id_len = tmp_len;
-	  }
-	}
-        if (fam_col_5) {
-	  bufptr = next_item(bufptr);
-	}
-	if (fam_col_6) {
-	  bufptr = next_item(bufptr);
-	  if (no_more_items_kns(bufptr)) {
-	    logprint(errstr_fam_format);
-	    return RET_INVALID_FORMAT;
-	  }
-	  if (affection) {
-	    affection = eval_affection(bufptr, missing_pheno, missing_pheno_len, affection_01);
-	  }
-	}
-	if (unfiltered_indiv_ct == max_people) {
-	  return RET_NOMEM;
-	}
-	line_locs[unfiltered_indiv_ct++] = last_tell;
+    bufptr0 = skip_initial_spaces(linebuf);
+    if (!is_eoln_kns(*bufptr0)) {
+      if (fam_col_1) {
+	bufptr = next_item(bufptr0);
+      } else {
+	bufptr = bufptr0;
       }
+      tmp_len = strlen_se(bufptr0) + strlen_se(bufptr) + 2;
+      if (tmp_len > max_person_id_len) {
+	max_person_id_len = tmp_len;
+      }
+      if (fam_col_34) {
+	bufptr = next_item(bufptr);
+	tmp_len = strlen_se(bufptr) + 1;
+	if (tmp_len > max_paternal_id_len) {
+	  max_paternal_id_len = tmp_len;
+	}
+	bufptr = next_item(bufptr);
+	tmp_len = strlen_se(bufptr) + 1;
+	if (tmp_len > max_maternal_id_len) {
+	  max_maternal_id_len = tmp_len;
+	}
+      }
+      if (fam_col_5) {
+	bufptr = next_item(bufptr);
+      }
+      if (fam_col_6) {
+	bufptr = next_item(bufptr);
+	if (no_more_items_kns(bufptr)) {
+	  logprint(errstr_fam_format);
+	  return RET_INVALID_FORMAT;
+	}
+	if (affection) {
+	  affection = eval_affection(bufptr, missing_pheno, missing_pheno_len, affection_01);
+	}
+      }
+      if (unfiltered_indiv_ct == max_people) {
+	return RET_NOMEM;
+      }
+      line_locs[unfiltered_indiv_ct++] = last_tell;
     }
     if (!linebuf[buflen - 1]) {
       // determine extended read buffer length needed to handle unexpectedly
@@ -1720,7 +1720,7 @@ int check_gd_col(FILE* bimfile, char* tbuf, unsigned int is_binary, unsigned int
   char* bufptr;
   while (fgets(tbuf, MAXLINELEN - 5, bimfile)) {
     bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln_kns(*bufptr)) {
+    if (is_eoln_kns(*bufptr) || (*bufptr == '#')) {
       continue;
     }
     bufptr = next_item_mult(bufptr, 2 + 2 * is_binary);
@@ -4257,7 +4257,7 @@ int recode(unsigned int recode_modifier, FILE* bedfile, int bed_offset, FILE* fa
     for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
       do {
 	fgets(tbuf, MAXLINELEN, bimfile);
-      } while (is_eoln_kns(*(skip_initial_spaces(tbuf))));
+      } while (is_eoln_or_comment(*(skip_initial_spaces(tbuf))));
       if (is_set(marker_exclude, marker_uidx)) {
 	continue;
       }
@@ -4406,7 +4406,7 @@ int merge_fam_id_scan(char* bedname, char* famname, unsigned long* max_person_id
   while (fgets(tbuf, MAXLINELEN, infile)) {
     col1_start_ptr = skip_initial_spaces(tbuf);
     cc = *col1_start_ptr;
-    if ((!is_eoln_kns(cc)) && (cc != '#')) {
+    if (!is_eoln_or_comment(cc)) {
       col1_end_ptr = item_endnn(col1_start_ptr);
       col1_len = col1_end_ptr - col1_start_ptr;
       col2_start_ptr = skip_initial_spaces(col1_end_ptr);
@@ -4582,7 +4582,7 @@ int merge_bim_scan(char* bimname, unsigned int is_binary, unsigned long* max_mar
   }
   do {
     bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln_kns(*bufptr)) {
+    if (is_eoln_or_comment(*bufptr)) {
       continue;
     }
     ii = marker_code(species, bufptr);
@@ -4948,7 +4948,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
   }
   do {
     bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln_kns(*bufptr)) {
+    if (is_eoln_or_comment(*bufptr)) {
       continue;
     }
     ++marker_in_idx;
@@ -5267,7 +5267,7 @@ int merge_main(char* bedname, char* bimname, char* famname, unsigned int tot_ind
     while (fgets((char*)readbuf, ped_buflen, bedfile)) {
       bufptr = skip_initial_spaces((char*)readbuf);
       cc = *bufptr;
-      if ((is_eoln_kns(cc)) || (cc == '#')) {
+      if (is_eoln_or_comment(cc)) {
 	continue;
       }
       bufptr2 = item_endnn(bufptr);
