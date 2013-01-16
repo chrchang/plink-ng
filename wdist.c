@@ -5047,41 +5047,44 @@ static inline void single_marker_freqs_and_hwe(unsigned long unfiltered_indiv_ct
   unsigned int tot_b_hwe = 0;
   unsigned int tot_c_hwe = 0;
   unsigned long* lptr_end = &(lptr[unfiltered_indiv_ctl2]);
-  unsigned long tmp_stor;
+  unsigned long to_count_b;
   unsigned long loader;
   unsigned long loader2;
 #ifdef __LP64__
   // TODO
 #else
-  // unsigned long* lptr_six_end = &(lptr[6 * (unfiltered_indiv_ctl2 / 6)]);
-
-  // unsigned long ulii;
-  // unsigned long uljj;
-
-  // while (lptr < lptr_six_end) {
-  // }
+  /*
+  unsigned long* lptr_six_end = &(lptr[6 * (unfiltered_indiv_ctl2 / 6)]);
+  while (lptr < lptr_six_end) {
+    loader = *lptr++;
+    loader2 = *indiv_include2++;
+    to_count_b = loader & (loader2 << 1);
+    loader2 &= loader;
+    // NOW
+  }
+  */
 #endif
   while (lptr < lptr_end) {
     loader = *lptr++;
     loader2 = *indiv_include2++;
-    tmp_stor = loader & (loader2 << 1);
+    to_count_b = loader & (loader2 << 1);
     loader2 &= loader;
     tot_a += popcount_long(loader2);
-    tot_b += popcount_long(tmp_stor);
-    tot_c += popcount_long(loader & (tmp_stor >> 1));
+    tot_b += popcount_long(to_count_b);
+    tot_c += popcount_long(loader & (to_count_b >> 1));
     loader2 = *founder_include2++;
-    tmp_stor = loader & (loader2 << 1);
+    to_count_b = loader & (loader2 << 1);
     loader2 &= loader;
     tot_a_f += popcount_long(loader2);
-    tot_b_f += popcount_long(tmp_stor);
-    tot_c_f += popcount_long(loader & (tmp_stor >> 1));
+    tot_b_f += popcount_long(to_count_b);
+    tot_c_f += popcount_long(loader & (to_count_b >> 1));
     if (hwe_needed) {
       loader2 = *founder_control_include2++;
-      tmp_stor = loader & (loader2 << 1);
+      to_count_b = loader & (loader2 << 1);
       loader2 &= loader;
       tot_a_hwe += popcount_long(loader2);
-      tot_b_hwe += popcount_long(tmp_stor);
-      tot_c_hwe += popcount_long(loader & (tmp_stor >> 1));
+      tot_b_hwe += popcount_long(to_count_b);
+      tot_c_hwe += popcount_long(loader & (to_count_b >> 1));
     }
   }
   *hh_ctp = tot_c;
@@ -5234,7 +5237,8 @@ int calc_freqs_and_hwe(FILE* bedfile, unsigned long unfiltered_marker_ct, unsign
   }
   marker_uidx = 0;
   marker_idx = 0;
-  fputs("Calculating allele frequencies... 0%", stdout);
+  logprint("Calculating allele frequencies... ");
+  fputs("0%", stdout);
   fflush(stdout);
   for (; pct <= 100; pct++) {
     loop_end = ((unsigned long long)pct * marker_ct) / 100LU;
@@ -5279,7 +5283,8 @@ int calc_freqs_and_hwe(FILE* bedfile, unsigned long unfiltered_marker_ct, unsign
       fflush(stdout);
     }
   }
-  fputs("\b\b\bdone.\n", stdout);
+  fputs("\b\b\b", stdout);
+  logprint("done.\n");
   while (0) {
   calc_freqs_and_hwe_ret_NOMEM:
     retval = RET_NOMEM;

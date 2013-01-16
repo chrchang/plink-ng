@@ -4115,6 +4115,32 @@ int recode(unsigned int recode_modifier, FILE* bedfile, int bed_offset, FILE* fa
 	  shiftval = (indiv_idx % 4) * 2;
 	  marker_uidx = 0;
 	  if (recode_modifier & RECODE_COMPOUND) {
+	    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+	      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+	      ucc = ((*bufptr) >> shiftval) & 3;
+	      if (ucc) {
+		if (ucc == 2) {
+		  ucc2 = is_set(marker_exclude, marker_uidx);
+		  *wbufptr++ = mk_alleles[2 * marker_uidx + ucc2];
+		  *wbufptr = mk_alleles[2 * marker_uidx + (1 ^ ucc2)];
+		} else if (ucc == 3) {
+		  *wbufptr++ = mk_alleles[2 * marker_uidx + 1];
+		  *wbufptr = mk_alleles[2 * marker_uidx + 1];
+		} else {
+		  *wbufptr++ = output_missing_geno;
+		  *wbufptr = output_missing_geno;
+		}
+	      } else {
+		*wbufptr++ = mk_alleles[2 * marker_uidx];
+		*wbufptr = mk_alleles[2 * marker_uidx];
+	      }
+	      bufptr = &(bufptr[unfiltered_indiv_ct4]);
+	      wbufptr = &(wbufptr[2]);
+	      marker_uidx++;
+	    }
+	    if (fwrite_checked(writebuf, marker_ct * 3, *outfile_ptr)) {
+	      goto recode_ret_WRITE_FAIL;
+	    }
 	  } else {
 	    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
 	      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
@@ -4139,9 +4165,9 @@ int recode(unsigned int recode_modifier, FILE* bedfile, int bed_offset, FILE* fa
 	      wbufptr = &(wbufptr[4]);
 	      marker_uidx++;
 	    }
-	  }
-	  if (fwrite_checked(writebuf, marker_ct * 4, *outfile_ptr)) {
-	    goto recode_ret_WRITE_FAIL;
+	    if (fwrite_checked(writebuf, marker_ct * 4, *outfile_ptr)) {
+	      goto recode_ret_WRITE_FAIL;
+	    }
 	  }
 	  indiv_uidx++;
 	}
