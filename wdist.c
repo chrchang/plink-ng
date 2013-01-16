@@ -1080,10 +1080,10 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
   unsigned long curr_hets_t2 = obs_hets;
   unsigned long curr_homr_t2 = obs_homr;
   unsigned long curr_homc_t2 = obs_homc;
-  double tailp1 = 1.0;
-  double centerp = 0.0;
-  double lastp2 = 1.0;
-  double tailp2 = 0.0;
+  double tailp1 = 1;
+  double centerp = 0;
+  double lastp2 = 1;
+  double tailp2 = 0;
   double tail1_ceil;
   double tail2_ceil;
   double lastp1;
@@ -1117,10 +1117,12 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
     if (curr_hets_t2 < 2) {
       return 0;
     }
+    // het_probs[curr_hets] = 1
+    // het_probs[curr_hets - 2] = het_probs[curr_hets] * curr_hets * (curr_hets - 1) / (4 * (curr_homr + 1) * (curr_homc + 1))
     do {
       lastp2 *= ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
       curr_hets_t2 -= 2;
-      if (lastp2 <= 1) {
+      if (lastp2 < 1 + EPSILON) {
 	tailp2 = lastp2;
 	break;
       }
@@ -1132,8 +1134,9 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
     }
     // c + cr + cr^2 + ... = c/(1-r), which is an upper bound for the tail sum
     ratio = ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (curr_homr_t2 + 1)) * (curr_homc_t2 + 1)));
-    tail2_ceil = tailp2 / (1.0 - ratio);
+    tail2_ceil = tailp2 / (1 - ratio);
     if (obs_homr) {
+      // het_probs[curr_hets + 2] = het_probs[curr_hets] * 4 * curr_homr * curr_homc / ((curr_hets + 2) * (curr_hets + 1))
       curr_hets_t1 = obs_hets + 2;
       curr_homr_t1 = obs_homr;
       curr_homc_t1 = obs_homc;
@@ -1176,7 +1179,7 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
     do {
       curr_hets_t2 += 2;
       lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1)));
-      if (lastp2 <= 1) {
+      if (lastp2 < 1 + EPSILON) {
 	tailp2 = lastp2;
 	break;
       }
@@ -1186,9 +1189,9 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
     if (1 + tailp2 >= tail_thresh) {
       return 0;
     }
-    ratio = ((double)((4LLU * curr_homr_t2) * curr_homc_t2)) / ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1)));
-    tail2_ceil = tailp2 / (1.0 - ratio);
-    if (curr_hets_t2 < 2) {
+    ratio = ((double)((4LLU * curr_homr_t2) * curr_homc_t2)) / ((double)(((unsigned long long)(curr_hets_t2 + 2)) * (curr_hets_t2 + 1)));
+    tail2_ceil = tailp2 / (1 - ratio);
+    if (obs_hets >= 2) {
       curr_hets_t1 = obs_hets;
       curr_homr_t1 = obs_homr;
       curr_homc_t1 = obs_homc;
@@ -1204,7 +1207,7 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
         if (tailp1 >= tail_threshx) {
 	  return 0;
         }
-	if (curr_hets_t2 < 2) {
+	if (curr_hets_t1 < 2) {
 	  break;
 	}
 	lastp1 *= ((double)(((unsigned long long)curr_hets_t1) * (curr_hets_t1 - 1))) / ((double)((4LLU * (++curr_homr_t1)) * (++curr_homc_t1)));
