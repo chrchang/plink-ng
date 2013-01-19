@@ -541,12 +541,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 		);
     help_print(
 "indep\tindep-pairwise", &help_ctrl, 1,
-"  --indep [window size]<kb> [step size (SNPs)] [VIF threshold]\n"
-"  --indep-pairwise [window size]<kb> [step size (SNPs)] [r^2 threshold]\n"
-"    Generates a list of SNPs in approximate linkage equilibrium.  With the 'kb'\n"
-"    modifier, the window size is in kilobase units instead of SNPs.  (Space\n"
-"    before 'kb' is optional, i.e. '--indep-pairwise 500 kb 5 0.5' and\n"
-"    '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
+"  --indep [window size]<kb> [step size (markers)] [VIF threshold]\n"
+"  --indep-pairwise [window size]<kb> [step size (markers)] [r^2 threshold]\n"
+"    Generates a list of markers in approximate linkage equilibrium.  With the\n"
+"    'kb' modifier, the window size is in kilobase units instead of marker\n"
+"    count.  (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5'\n"
+"    and '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
 "    Note that you need to rerun WDIST using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
 		);
@@ -692,8 +692,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("write-snplist", &help_ctrl, 1,
 "  --write-snplist\n"
-"    Writes a .snplist file listing the names of all SNPs that pass the filters\n"
-"    and inclusion thresholds you've specified.\n\n"
+"    Writes a .snplist file listing the names of all markers that pass the\n"
+"    filters and inclusion thresholds you've specified.\n\n"
 	       );
     if (!param_ct) {
       fputs(
@@ -818,7 +818,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --max-maf [val]  : Minor allele frequency maximum threshold.\n"
 	       );
     help_print("geno\tmind", &help_ctrl, 0,
-"  --geno {val}     : Maximum per-SNP missing (default 0.1).\n"
+"  --geno {val}     : Maximum per-marker missing (default 0.1).\n"
 "  --mind {val}     : Maximum per-person missing (default 0.1).\n"
 	       );
     help_print("hwe", &help_ctrl, 0,
@@ -837,8 +837,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("ppc-gap", &help_ctrl, 0,
 "  --ppc-gap [val]  : Minimum number of base pairs, in thousands, between\n"
-"                     informative pairs of SNPs used in --genome PPC test.  500\n"
-"                     if unspecified.\n"
+"                     informative pairs of markers used in --genome PPC test.\n"
+"                     500 if unspecified.\n"
 	       );
     help_print("seed", &help_ctrl, 0,
 "  --seed [val]     : Set random number seed.\n"
@@ -854,8 +854,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --debug          : Enable debug logging.\n"
 	       );
     help_print("extract\texclude", &help_ctrl, 0,
-"  --extract [file] : Exclude all SNPs not in the given list.\n"
-"  --exclude [file] : Exclude all SNPs in the given list.\n"
+"  --extract [file] : Exclude all markers not in the given list.\n"
+"  --exclude [file] : Exclude all markers in the given list.\n"
 	       );
     help_print("keep\tremove", &help_ctrl, 0,
 "  --keep [fname]   : Exclude all individuals not in the given list.\n"
@@ -1231,11 +1231,13 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
 }
 
   /*
-  // modified version of this will be needed for --hardy.  We'll want to start
-  // next to expected value and work down, instead of starting from the
-  // midpoint, to avoid floating point overflow when there are lots and lots of
-  // people; and of course we'll want to preallocate the memory buffer.  But
-  // we'll stick with Wigginton's basic approach.
+  // Modified version of this will be needed for --hardy.  We'll want to
+  // identify the peak and sum from both edges going in, instead of starting
+  // from the midpoint: this avoids floating point overflow and improves
+  // numerical stability.  Strictly speaking, we don't need a memory buffer,
+  // but it would be best to have a preallocated one to avoid either
+  // recalculation or unnecessarily loss of precision.
+  // But the underlying approach is still Wigginton's.
 
   // start at midpoint
   int32_t mid = (int)((rare_copies_ll * (2 * genotypes_ll - rare_copies_ll)) / (2 * genotypes_ll));
@@ -5871,7 +5873,7 @@ int32_t read_external_freqs(char* freqname, FILE** freqfile_ptr, uintptr_t unfil
     while (fgets(tbuf, MAXLINELEN, *freqfile_ptr) != NULL) {
       bufptr = skip_initial_spaces(tbuf);
       jj = marker_code(species, bufptr);
-      bufptr = next_item(bufptr); // now at beginning of SNP name
+      bufptr = next_item(bufptr); // now at beginning of marker name
       bufptr2 = next_item(bufptr);
       if (!bufptr2) {
         goto read_external_freqs_ret_INVALID_FORMAT;
@@ -5920,7 +5922,7 @@ int32_t read_external_freqs(char* freqname, FILE** freqfile_ptr, uintptr_t unfil
     // known --freqx format, v0.13.5 or later
     while (fgets(tbuf, MAXLINELEN, *freqfile_ptr) != NULL) {
       jj = marker_code(species, tbuf);
-      bufptr = next_item(tbuf); // now at beginning of SNP name
+      bufptr = next_item(tbuf); // now at beginning of marker name
       bufptr2 = next_item(bufptr);
       if (!bufptr2) {
         goto read_external_freqs_ret_INVALID_FORMAT;
@@ -6136,7 +6138,7 @@ void enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, ui
     }
     marker_uidx++;
   }
-  sprintf(logbuf, "%u SNP%s removed due to Hardy-Weinberg exact test (--hwe).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  sprintf(logbuf, "%u marker%s removed due to Hardy-Weinberg exact test (--hwe).\n", removed_ct, (removed_ct == 1)? "" : "s");
   logprintb();
   *marker_exclude_ct_ptr += removed_ct;
 }
@@ -6155,7 +6157,7 @@ void enforce_maf_threshold(double min_maf, double max_maf, uintptr_t unfiltered_
       removed_ct++;
     }
   }
-  sprintf(logbuf, "%u SNP%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  sprintf(logbuf, "%u marker%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
   logprintb();
 }
 
@@ -6266,7 +6268,7 @@ int32_t write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, uint
   if (fclose_null(outfile_ptr)) {
     return RET_WRITE_FAIL;
   }
-  sprintf(logbuf, "Final list of SNP IDs written to %s.\n", outname);
+  sprintf(logbuf, "Final list of marker IDs written to %s.\n", outname);
   logprintb();
   return 0;
 }
@@ -6915,11 +6917,11 @@ int32_t calc_genome(pthread_t* threads, FILE* pedfile, int32_t bed_offset, uint3
       // we do a bit of unusual precomputation here to speed it up.
       //
       // Objective: Fill glptr[0] and glptr[1] with either
-      // * a bitmask that excludes the correct number of SNPs, if the next
-      //   eligible marker for the PPC test is within the same (BITCT / 2) SNP
-      //   window, or
-      // * twice the offset of the next SNP eligible for the PPC test, relative
-      //   to the bottom of the currently loaded window,
+      // * a bitmask that excludes the correct number of markers, if the next
+      //   eligible marker for the PPC test is within the same (BITCT / 2)
+      //   marker window, or
+      // * twice the offset of the next marker eligible for the PPC test,
+      //   relative to the bottom of the currently loaded window,
       // because distinguishing between these two cases is effectively free.
       //
       // Then advance glptr two spaces.  The double storage eliminates a
@@ -7831,7 +7833,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
 	      }
 	      if (fabs(dxx) > prune_ld_r2) {
 		at_least_one_prune = 1;
-		// remove SNP with lower MAF
+		// remove marker with lower MAF
 		if (get_maf(set_allele_freqs[live_indices[ii]]) < get_maf(set_allele_freqs[live_indices[jj]])) {
 		  set_bit(pruned_arr, live_indices[ii], &cur_exclude_ct);
 		} else {
@@ -8016,7 +8018,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
     }
     ii = get_marker_chrom(chrom_info_ptr, window_unfiltered_start - 1);
     putchar('\r');
-    sprintf(logbuf, "Pruned %lu SNPs from chromosome %d, leaving %lu.\n", cur_exclude_ct, ii, chrom_info_ptr->chrom_end[ii] - chrom_info_ptr->chrom_start[ii] - cur_exclude_ct);
+    sprintf(logbuf, "Pruned %lu markers from chromosome %d, leaving %lu.\n", cur_exclude_ct, ii, chrom_info_ptr->chrom_end[ii] - chrom_info_ptr->chrom_start[ii] - cur_exclude_ct);
     logprintb();
     tot_exclude_ct += cur_exclude_ct;
 
@@ -8024,7 +8026,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
     window_unfiltered_start = ld_prune_next_valid_chrom_start(pruned_arr, window_unfiltered_start, chrom_info_ptr, unfiltered_marker_ct);
   } while (window_unfiltered_start < unfiltered_marker_ct);
 
-  sprintf(logbuf, "Pruning complete.  %d of %d SNPs removed.\n", tot_exclude_ct, marker_ct);
+  sprintf(logbuf, "Pruning complete.  %d of %d markers removed.\n", tot_exclude_ct, marker_ct);
   logprintb();
   strcpy(outname_end, ".prune.in");
   if (fopen_checked(&outfile_in, outname, "w")) {
@@ -8082,7 +8084,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
   }
   *outname_end = '\0';
   putchar('\r');
-  sprintf(logbuf, "SNP lists written to %s.prune.in and %s.prune.out.\n", outname, outname);
+  sprintf(logbuf, "Marker lists written to %s.prune.in and %s.prune.out.\n", outname, outname);
   logprintb();
 
   while (0) {
@@ -10103,8 +10105,8 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   char* marker_ids = NULL;
   unsigned char* marker_weights_base = NULL;
   // if max_marker_allele_len == 1:
-  //   marker_alleles[2 * ii] is id of A1 (usually minor) allele at SNP ii
-  //   marker_alleles[2 * ii + 1] is identity of A2 allele at SNP ii
+  //   marker_alleles[2 * ii] is id of A1 (usually minor) allele at marker ii
+  //   marker_alleles[2 * ii + 1] is identity of A2 allele at marker ii
   // otherwise:
   //   max_marker_allele_len INCLUDES TRAILING NULL, so at least 3
   //   marker_alleles[2 * ii * max_marker_allele_len] is id of A1
@@ -10567,7 +10569,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     // would prefer to use missing_cts as last parameter, but that doesn't
     // play well with --freq
     uii = binary_geno_filter(geno_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, g_indiv_ct, marker_allele_cts);
-    sprintf(logbuf, "%u SNP%s removed due to missing genotype data (--geno).\n", uii, (uii == 1)? "" : "s");
+    sprintf(logbuf, "%u marker%s removed due to missing genotype data (--geno).\n", uii, (uii == 1)? "" : "s");
     logprintb();
   }
   wkspace_reset(marker_allele_cts);
@@ -10836,14 +10838,14 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_NOMEM;
     }
     fseeko(pedfile, bed_offset, SEEK_SET);
-    ii = 0; // current SNP index
+    ii = 0; // current marker index
     marker_idx = 0; // after subtracting out excluded
     while (marker_idx < marker_ct) {
       for (jj = 0; jj < multiplex; jj++) {
 	set_allele_freq_buf[jj] = 0.5;
       }
       fill_int_zero((int32_t*)wtbuf, multiplex);
-      jj = 0; // actual SNPs read
+      jj = 0; // actual markers read
 
       // For each pair (g_j, g_k) of 2-bit PLINK genotypes, we perform the
       // following operations:

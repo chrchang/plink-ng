@@ -509,7 +509,7 @@ static double* g_distance_wt_matrix;
 
 static uint32_t g_thread_start[MAX_THREADS_P1];
 static uint32_t g_indiv_ct;
-static double* g_dosage_vals; // (usually) [0..2] dosages for current SNPs
+static double* g_dosage_vals; // (usually) [0..2] dosages for current markers
 
 // If missingness is binary
 static uintptr_t* g_missing_vals; // bit array marking missing values

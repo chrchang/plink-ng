@@ -55,8 +55,8 @@ int32_t sort_item_ids_nx(char** sorted_ids_ptr, int32_t** id_map_ptr, uintptr_t 
 int32_t sort_item_ids(char** sorted_ids_ptr, int32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, int(* comparator_deref)(const void*, const void*), int32_t* duplicate_fail_ptr) {
   // Allocates space for *id_map_ptr and *sorted_ids_ptr from wkspace; then
   // stores a lexicographically sorted list of IDs in *sorted_ids_ptr and
-  // the raw positions of the corresponding SNPs/indivs in *id_map_ptr.  Does
-  // not include excluded SNPs/indivs in the list.
+  // the raw positions of the corresponding markers/indivs in *id_map_ptr.
+  // Does not include excluded markers/indivs in the list.
   // If *duplicate_fail_ptr is nonzero, this fails out if duplicate IDs are
   // found (RET_INVALID_FORMAT is returned).  If it is zero, it is set to one
   // if there are duplicates.
@@ -5225,7 +5225,7 @@ static inline void merge_post_msort_update_maps(char* marker_ids, uintptr_t max_
 
 static inline int32_t merge_must_track_write(int32_t mm) {
   // modes 6 and 7 can be sped up with early pruning of nonoverlapping
-  // markers/SNPs, but not worth complicating code for this.
+  // markers, but not worth complicating code for this.
   return (mm == 1) || (mm > 5) || (mm == 4);
 }
 
@@ -6552,7 +6552,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   } else {
     // undo the "not"
     diff_not_both_genotyped = diff_total_overlap - diff_not_both_genotyped;
-    sprintf(logbuf, "%llu overlapping SNPs, %llu genotyped in both filesets.\n%llu concordant, for a concordance rate of %g.\n", diff_total_overlap, diff_not_both_genotyped, diff_not_both_genotyped - diff_discordant, 1.0 - (((double)diff_discordant) / ((double)diff_not_both_genotyped)));
+    sprintf(logbuf, "%llu overlapping markers, %llu genotyped in both filesets.\n%llu concordant, for a concordance rate of %g.\n", diff_total_overlap, diff_not_both_genotyped, diff_not_both_genotyped - diff_discordant, 1.0 - (((double)diff_discordant) / ((double)diff_not_both_genotyped)));
     logprintb();
   }
 
