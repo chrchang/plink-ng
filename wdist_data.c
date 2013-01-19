@@ -1542,7 +1542,7 @@ int32_t make_bed(FILE* bedfile, int32_t bed_offset, FILE* bimfile, int32_t map_c
 
 const char errstr_fam_format[] = "Error: Improperly formatted .fam/.ped file.\n";
 
-int32_t load_fam(FILE* famfile, uintptr_t buflen, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, int32_t true_fam_col_6, int32_t missing_pheno, int32_t missing_pheno_len, int32_t affection_01, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uintptr_t* max_person_id_len_ptr, char** paternal_ids_ptr, uintptr_t* max_paternal_id_len_ptr, char** maternal_ids_ptr, uintptr_t* max_maternal_id_len_ptr, unsigned char** sex_info_ptr, int32_t* affection_ptr, char** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** founder_info_ptr, uintptr_t** indiv_exclude_ptr, int32_t binary_files, uint64_t** line_locs_ptr, uint64_t** line_mids_ptr, int32_t* pedbuflen_ptr) {
+int32_t load_fam(FILE* famfile, uintptr_t buflen, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, int32_t true_fam_col_6, int32_t missing_pheno, int32_t missing_pheno_len, int32_t affection_01, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uintptr_t* max_person_id_len_ptr, char** paternal_ids_ptr, uintptr_t* max_paternal_id_len_ptr, char** maternal_ids_ptr, uintptr_t* max_maternal_id_len_ptr, unsigned char** sex_info_ptr, int32_t* affection_ptr, char** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** founder_info_ptr, uintptr_t** indiv_exclude_ptr) {
   char* bufptr0;
   char* bufptr;
   uintptr_t unfiltered_indiv_ct = 0;
@@ -1576,7 +1576,7 @@ int32_t load_fam(FILE* famfile, uintptr_t buflen, int32_t fam_col_1, int32_t fam
   linebuf[buflen - 1] = ' ';
   line_locs = (uint64_t*)wkspace_base;
   max_people = wkspace_left / sizeof(int64_t);
-  // ----- .fam/[.ped first columns] read, first pass -----
+  // ----- .fam read, first pass -----
   // count number of people, determine maximum person/father/mother ID lengths,
   // affection status, verify all floating point phenotype values are valid
   while (fgets(linebuf, buflen, famfile) != NULL) {
@@ -1708,17 +1708,6 @@ int32_t load_fam(FILE* famfile, uintptr_t buflen, int32_t fam_col_1, int32_t fam
     tmp_ullp[ii] = line_locs[ii];
   }
   line_locs = tmp_ullp;
-  if (!binary_files) {
-    *line_locs_ptr = (uint64_t*)malloc(unfiltered_indiv_ct * sizeof(int64_t));
-    if (!(*line_locs_ptr)) {
-      return RET_NOMEM;
-    }
-    *line_mids_ptr = (uint64_t*)malloc(unfiltered_indiv_ct * sizeof(int64_t));
-    if (!(*line_mids_ptr)) {
-      return RET_NOMEM;
-    }
-    *pedbuflen_ptr = buflen;
-  }
   if (fam_col_34) {
     fill_ulong_zero(*founder_info_ptr, unfiltered_indiv_ctl);
   } else {
@@ -1729,7 +1718,7 @@ int32_t load_fam(FILE* famfile, uintptr_t buflen, int32_t fam_col_1, int32_t fam
   }
   fill_ulong_zero(*indiv_exclude_ptr, unfiltered_indiv_ctl);
 
-  // ----- .fam/[.ped first columns] read, second pass -----
+  // ----- .fam read, second pass -----
   for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
     if (fseeko(famfile, line_locs[indiv_uidx], SEEK_SET)) {
       return RET_READ_FAIL;
@@ -1790,15 +1779,6 @@ int32_t load_fam(FILE* famfile, uintptr_t buflen, int32_t fam_col_1, int32_t fam
     }
     if (true_fam_col_6 && (!fam_col_6)) {
       bufptr = next_item(bufptr);
-    }
-    if (!binary_files) {
-      bufptr = next_item(bufptr);
-      if (no_more_items_kns(bufptr)) {
-	logprint(errstr_fam_format);
-	return RET_INVALID_FORMAT;
-      }
-      (*line_locs_ptr)[indiv_uidx] = line_locs[indiv_uidx];
-      (*line_mids_ptr)[indiv_uidx] = line_locs[indiv_uidx] + (uintptr_t)(bufptr - linebuf);
     }
   }
 
@@ -2869,7 +2849,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   if (fopen_checked(&infile, lgen_namebuf, "r")) {
     goto lgen_to_bed_ret_OPEN_FAIL;
   }
-  retval = load_fam(infile, MAXLINELEN, 1, 1, 1, 1, 1, missing_pheno, intlen(missing_pheno), affection_01, &indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_info, &affection, &pheno_c, &pheno_d, &founder_info, &indiv_exclude, 1, NULL, NULL, NULL);
+  retval = load_fam(infile, MAXLINELEN, 1, 1, 1, 1, 1, missing_pheno, intlen(missing_pheno), affection_01, &indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_info, &affection, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
   if (retval) {
     goto lgen_to_bed_ret_1;
   }
