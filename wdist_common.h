@@ -21,9 +21,9 @@
 typedef union {
   __m128i vi;
   __m128d vd;
-  unsigned long u8[2];
+  uintptr_t u8[2];
   double d8[2];
-  unsigned int u4[4];
+  uint32_t u4[4];
 } __uni16;
 #else
 #define FIVEMASK 0x55555555
@@ -177,8 +177,8 @@ extern const char errstr_thread_create[];
 
 extern FILE* logfile;
 extern char logbuf[MAXLINELEN];
-extern int debug_on;
-extern int log_failed;
+extern int32_t debug_on;
+extern int32_t log_failed;
 
 void logstr(const char* ss);
 
@@ -186,16 +186,16 @@ void logprint(const char* ss);
 
 void logprintb();
 
-int fopen_checked(FILE** target_ptr, const char* fname, const char* mode);
+int32_t fopen_checked(FILE** target_ptr, const char* fname, const char* mode);
 
-static inline int fwrite_checked(const void* buf, size_t len, FILE* outfile) {
+static inline int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile) {
   if ((!len) || fwrite(buf, len, 1, outfile)) {
     return 0;
   }
   return -1;
 }
 
-static inline int fputs_checked(const char* ss, FILE* outfile) {
+static inline int32_t fputs_checked(const char* ss, FILE* outfile) {
   return (fputs(ss, outfile) == EOF);
 }
 
@@ -205,23 +205,23 @@ static inline void fclose_cond(FILE* fptr) {
   }
 }
 
-static inline int fclose_null(FILE** fptr_ptr) {
-  int ii;
+static inline int32_t fclose_null(FILE** fptr_ptr) {
+  int32_t ii;
   ii = fclose(*fptr_ptr);
   *fptr_ptr = NULL;
   return ii;
 }
 
-int gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode);
+int32_t gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode);
 
-static inline int gzwrite_checked(gzFile gz_outfile, const void* buf, size_t len) {
+static inline int32_t gzwrite_checked(gzFile gz_outfile, const void* buf, size_t len) {
   if ((!len) || gzwrite(gz_outfile, buf, len)) {
     return 0;
   }
   return -1;
 }
 
-static inline int flexwrite_checked(FILE* outfile, gzFile gz_outfile, char* contents, unsigned long len) {
+static inline int32_t flexwrite_checked(FILE* outfile, gzFile gz_outfile, char* contents, uintptr_t len) {
   if (outfile) {
     return fwrite_checked(contents, len, outfile);
   } else {
@@ -229,98 +229,98 @@ static inline int flexwrite_checked(FILE* outfile, gzFile gz_outfile, char* cont
   }
 }
 
-static inline int bed_suffix_conflict(int calculation_type, unsigned int recode_modifier) {
+static inline int32_t bed_suffix_conflict(int32_t calculation_type, uint32_t recode_modifier) {
   return (calculation_type & CALC_MAKE_BED) || ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_LGEN));
 }
 
 // manually managed, very large stack
 extern unsigned char* wkspace_base;
-extern unsigned long wkspace_left;
+extern uintptr_t wkspace_left;
 
-unsigned char* wkspace_alloc(unsigned long size);
+unsigned char* wkspace_alloc(uintptr_t size);
 
-static inline int wkspace_alloc_c_checked(char** dc_ptr, unsigned long size) {
+static inline int32_t wkspace_alloc_c_checked(char** dc_ptr, uintptr_t size) {
   *dc_ptr = (char*)wkspace_alloc(size);
   return (*dc_ptr)? 0 : 1;
 }
 
-static inline int wkspace_alloc_d_checked(double** dp_ptr, unsigned long size) {
+static inline int32_t wkspace_alloc_d_checked(double** dp_ptr, uintptr_t size) {
   *dp_ptr = (double*)wkspace_alloc(size);
   return (*dp_ptr)? 0 : 1;
 }
 
-static inline int wkspace_alloc_f_checked(float** fp_ptr, unsigned long size) {
+static inline int32_t wkspace_alloc_f_checked(float** fp_ptr, uintptr_t size) {
   *fp_ptr = (float*)wkspace_alloc(size);
   return (*fp_ptr)? 0 : 1;
 }
 
-static inline int wkspace_alloc_i_checked(int** ip_ptr, unsigned long size) {
-  *ip_ptr = (int*)wkspace_alloc(size);
+static inline int32_t wkspace_alloc_i_checked(int32_t** ip_ptr, uintptr_t size) {
+  *ip_ptr = (int32_t*)wkspace_alloc(size);
   return (*ip_ptr)? 0 : 1;
 }
 
-static inline int wkspace_alloc_uc_checked(unsigned char** ucp_ptr, unsigned long size) {
+static inline int32_t wkspace_alloc_uc_checked(unsigned char** ucp_ptr, uintptr_t size) {
   *ucp_ptr = wkspace_alloc(size);
   return (*ucp_ptr)? 0 : 1;
 }
 
-static inline int wkspace_alloc_ui_checked(unsigned int** uip_ptr, unsigned long size) {
-  *uip_ptr = (unsigned int*)wkspace_alloc(size);
+static inline int32_t wkspace_alloc_ui_checked(uint32_t** uip_ptr, uintptr_t size) {
+  *uip_ptr = (uint32_t*)wkspace_alloc(size);
   return (*uip_ptr)? 0 : 1;
 }
 
-static inline int wkspace_alloc_ul_checked(unsigned long** ulp_ptr, unsigned long size) {
-  *ulp_ptr = (unsigned long*)wkspace_alloc(size);
+static inline int32_t wkspace_alloc_ul_checked(uintptr_t** ulp_ptr, uintptr_t size) {
+  *ulp_ptr = (uintptr_t*)wkspace_alloc(size);
   return (*ulp_ptr)? 0 : 1;
 }
 
-static inline int wkspace_alloc_ll_checked(long long** llp_ptr, unsigned long size) {
-  *llp_ptr = (long long*)wkspace_alloc(size);
+static inline int32_t wkspace_alloc_ll_checked(int64_t** llp_ptr, uintptr_t size) {
+  *llp_ptr = (int64_t*)wkspace_alloc(size);
   return (*llp_ptr)? 0 : 1;
 }
 
-static inline int wkspace_alloc_ull_checked(uint64_t** ullp_ptr, unsigned long size) {
+static inline int32_t wkspace_alloc_ull_checked(uint64_t** ullp_ptr, uintptr_t size) {
   *ullp_ptr = (uint64_t*)wkspace_alloc(size);
   return (*ullp_ptr)? 0 : 1;
 }
 
 void wkspace_reset(void* new_base);
 
-static inline int is_letter(char cc) {
+static inline int32_t is_letter(char cc) {
   return (((((unsigned char)cc) & 192) == 64) && (((((unsigned char)cc) - 1) & 31) < 26));
 }
 
-static inline int is_digit(char cc) {
+static inline int32_t is_digit(char cc) {
   return (cc <= '9') && (cc >= '0');
 }
 
-static inline int is_not_digit(char cc) {
+static inline int32_t is_not_digit(char cc) {
   return (cc > '9') || (cc < '0');
 }
 
-static inline int is_not_nzdigit(char cc) {
+static inline int32_t is_not_nzdigit(char cc) {
   return (cc > '9') || (cc <= '0');
 }
 
 // may as well treat all chars < 32, except tab, as eoln...
-static inline int is_eoln(char cc) {
+static inline int32_t is_eoln(char cc) {
   return (((unsigned char)cc) < 32) && (cc != '\t');
 }
 
 // kns = "known non-space" (where tab counts as a space)
-static inline int is_eoln_kns(char cc) {
+static inline int32_t is_eoln_kns(char cc) {
   return ((unsigned char)cc) < 32;
 }
 
-static inline int is_eoln_or_comment(char cc) {
+static inline int32_t is_eoln_or_comment(char cc) {
   return (((unsigned char)cc) < 32) || (cc == '#');
 }
 
-static inline int no_more_items(char* sptr) {
+static inline int32_t no_more_items(char* sptr) {
   return ((!sptr) || is_eoln(*sptr));
 }
 
-static inline int no_more_items_kns(char* sptr) {
+static inline int32_t no_more_items_kns(char* sptr) {
   return ((!sptr) || is_eoln_kns(*sptr));
 }
 
@@ -332,7 +332,7 @@ static inline char* skip_initial_spaces(char* sptr) {
 }
 
 /*
-static inline int is_space_or_eoln(char cc) {
+static inline int32_t is_space_or_eoln(char cc) {
   // ' ', \t, \n, \0, \r
 #if __LP64__
   return ((((unsigned char)cc) <= 32) && (0x100002601LLU & (1LLU << cc)));
@@ -341,7 +341,7 @@ static inline int is_space_or_eoln(char cc) {
 #endif
 }
 */
-static inline int is_space_or_eoln(char cc) {
+static inline int32_t is_space_or_eoln(char cc) {
   // pull head out of ass
   return ((unsigned char)cc) <= 32;
 }
@@ -362,17 +362,17 @@ static inline char* item_endnn(char* sptr) {
 // retired, due to pulling of head out of ass
 // char* item_endnn2(char* sptr);
 
-int intlen(int num);
+int32_t intlen(int32_t num);
 
-int strlen_se(char* ss);
+int32_t strlen_se(char* ss);
 
-int strcmp_se(char* s_read, const char* s_const, int len);
+int32_t strcmp_se(char* s_read, const char* s_const, int32_t len);
 
 char* next_item(char* sptr);
 
-char* next_item_mult(char* sptr, unsigned int ct);
+char* next_item_mult(char* sptr, uint32_t ct);
 
-void copy_item(char* writebuf, unsigned int* offset, char** prev_item_ptr);
+void copy_item(char* writebuf, uint32_t* offset, char** prev_item_ptr);
 
 static inline void read_next_terminate(char* target, char* source) {
   while (!is_space_or_eoln(*source)) {
@@ -381,98 +381,98 @@ static inline void read_next_terminate(char* target, char* source) {
   *target = '\0';
 }
 
-static inline void set_bit_noct(unsigned long* exclude_arr, unsigned int loc) {
+static inline void set_bit_noct(uintptr_t* exclude_arr, uint32_t loc) {
   exclude_arr[loc / BITCT] |= (1LU << (loc % BITCT));
 }
 
-void set_bit(unsigned long* bit_arr, unsigned int loc, unsigned long* bit_set_ct_ptr);
+void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr);
 
-void set_bit_sub(unsigned long* bit_arr, unsigned int loc, unsigned long* bit_unset_ct_ptr);
+void set_bit_sub(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_unset_ct_ptr);
 
-static inline void clear_bit_noct(unsigned long* exclude_arr, unsigned int loc) {
+static inline void clear_bit_noct(uintptr_t* exclude_arr, uint32_t loc) {
   exclude_arr[loc / BITCT] &= ~(1LU << (loc % BITCT));
 }
 
-void clear_bit(unsigned long* exclude_arr, unsigned int loc, unsigned long* include_ct_ptr);
+void clear_bit(uintptr_t* exclude_arr, uint32_t loc, uintptr_t* include_ct_ptr);
 
-static inline int is_set(unsigned long* exclude_arr, unsigned int loc) {
+static inline int32_t is_set(uintptr_t* exclude_arr, uint32_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
-int next_non_set_unsafe(unsigned long* exclude_arr, unsigned int loc);
+int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc);
 
-int next_set_unsafe(unsigned long* include_arr, unsigned int loc);
+int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc);
 
 // These functions seem to optimize better than memset(arr, 0, x) under gcc.
-static inline void fill_long_zero(long* larr, size_t size) {
-  long* lptr = &(larr[size]);
+static inline void fill_long_zero(intptr_t* larr, size_t size) {
+  intptr_t* lptr = &(larr[size]);
   while (larr < lptr) {
     *larr++ = 0;
   }
 }
 
-static inline void fill_ulong_zero(unsigned long* ularr, size_t size) {
-  unsigned long* ulptr = &(ularr[size]);
+static inline void fill_ulong_zero(uintptr_t* ularr, size_t size) {
+  uintptr_t* ulptr = &(ularr[size]);
   while (ularr < ulptr) {
     *ularr++ = 0;
   }
 }
 
-static inline void fill_long_one(long* larr, size_t size) {
-  long* lptr = &(larr[size]);
+static inline void fill_long_one(intptr_t* larr, size_t size) {
+  intptr_t* lptr = &(larr[size]);
   while (larr < lptr) {
     *larr++ = -1;
   }
 }
 
-static inline void fill_ulong_one(unsigned long* ularr, size_t size) {
-  unsigned long* ulptr = &(ularr[size]);
+static inline void fill_ulong_one(uintptr_t* ularr, size_t size) {
+  uintptr_t* ulptr = &(ularr[size]);
   while (ularr < ulptr) {
     *ularr++ = ~0LU;
   }
 }
 
-static inline void fill_int_zero(int* iarr, size_t size) {
+static inline void fill_int_zero(int32_t* iarr, size_t size) {
 #if __LP64__
-  fill_long_zero((long*)iarr, size >> 1);
+  fill_long_zero((intptr_t*)iarr, size >> 1);
   if (size & 1) {
     iarr[size - 1] = 0;
   }
 #else
-  fill_long_zero((long*)iarr, size);
+  fill_long_zero((intptr_t*)iarr, size);
 #endif
 }
 
-static inline void fill_int_one(int* iarr, size_t size) {
+static inline void fill_int_one(int32_t* iarr, size_t size) {
 #if __LP64__
-  fill_long_one((long*)iarr, size >> 1);
+  fill_long_one((intptr_t*)iarr, size >> 1);
   if (size & 1) {
     iarr[size - 1] = -1;
   }
 #else
-  fill_long_one((long*)iarr, size);
+  fill_long_one((intptr_t*)iarr, size);
 #endif
 }
 
-static inline void fill_uint_zero(unsigned int* uiarr, size_t size) {
+static inline void fill_uint_zero(uint32_t* uiarr, size_t size) {
 #if __LP64__
-  fill_long_zero((long*)uiarr, size >> 1);
+  fill_long_zero((intptr_t*)uiarr, size >> 1);
   if (size & 1) {
     uiarr[size - 1] = 0;
   }
 #else
-  fill_long_zero((long*)uiarr, size);
+  fill_long_zero((intptr_t*)uiarr, size);
 #endif
 }
 
-static inline void fill_uint_one(unsigned int* uiarr, size_t size) {
+static inline void fill_uint_one(uint32_t* uiarr, size_t size) {
 #if __LP64__
-  fill_ulong_one((unsigned long*)uiarr, size >> 1);
+  fill_ulong_one((uintptr_t*)uiarr, size >> 1);
   if (size & 1) {
     uiarr[size - 1] = ~0U;
   }
 #else
-  fill_ulong_one((unsigned long*)uiarr, size);
+  fill_ulong_one((uintptr_t*)uiarr, size);
 #endif
 }
 
@@ -555,7 +555,7 @@ static inline void convert_to_acgt_str_in_place(char* cptr) {
 }
 
 // maximum accepted chromosome index is this minus 1.
-// currently unsafe to set this above 60 due to using a single long long
+// currently unsafe to set this above 60 due to using a single uint64_t
 // chrom_mask, and reserving the top 4 bits
 #define MAX_POSSIBLE_CHROM 42
 #define CHROM_X MAX_POSSIBLE_CHROM
@@ -570,15 +570,15 @@ typedef struct {
   // currently tolerates out-of-order chromosomes, as long as markers within a
   // chromosome are not out of order, and all markers for any given chromosome
   // are together
-  unsigned int chrom_file_order[MAX_POSSIBLE_CHROM];
-  unsigned int chrom_ct; // length of chrom_file_order
-  unsigned int chrom_file_order_marker_idx[MAX_POSSIBLE_CHROM + 1];
+  uint32_t chrom_file_order[MAX_POSSIBLE_CHROM];
+  uint32_t chrom_ct; // length of chrom_file_order
+  uint32_t chrom_file_order_marker_idx[MAX_POSSIBLE_CHROM + 1];
 
   // markers chrom_start[k] to (chrom_end[k] - 1) are part of chromosome k
-  unsigned int chrom_start[MAX_POSSIBLE_CHROM];
-  unsigned int chrom_end[MAX_POSSIBLE_CHROM];
+  uint32_t chrom_start[MAX_POSSIBLE_CHROM];
+  uint32_t chrom_end[MAX_POSSIBLE_CHROM];
 
-  unsigned int species;
+  uint32_t species;
   uint64_t chrom_mask;
 } Chrom_info;
 
@@ -602,47 +602,47 @@ extern const char species_mt_code[];
 extern const char species_max_code[];
 extern const uint64_t species_haploid_mask[];
 
-int marker_code_raw(char* sptr);
+int32_t marker_code_raw(char* sptr);
 
-int marker_code(unsigned int species, char* sptr);
+int32_t marker_code(uint32_t species, char* sptr);
 
-int marker_code2(unsigned int species, char* sptr, unsigned int slen);
+int32_t marker_code2(uint32_t species, char* sptr, uint32_t slen);
 
-int strcmp_natural(const void* s1, const void* s2);
+int32_t strcmp_natural(const void* s1, const void* s2);
 
-int strcmp_deref(const void* s1, const void* s2);
+int32_t strcmp_deref(const void* s1, const void* s2);
 
-int strcmp_natural_deref(const void* s1, const void* s2);
+int32_t strcmp_natural_deref(const void* s1, const void* s2);
 
-int is_missing(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01);
+int32_t is_missing(char* bufptr, int32_t missing_pheno, int32_t missing_pheno_len, int32_t affection_01);
 
-int eval_affection(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01);
+int32_t eval_affection(char* bufptr, int32_t missing_pheno, int32_t missing_pheno_len, int32_t affection_01);
 
-void triangle_fill(unsigned int* target_arr, int ct, int pieces, int parallel_idx, int parallel_tot, int start, int align);
+void triangle_fill(uint32_t* target_arr, int32_t ct, int32_t pieces, int32_t parallel_idx, int32_t parallel_tot, int32_t start, int32_t align);
 
-int write_ids(char* outname, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned long max_person_id_len);
+int32_t write_ids(char* outname, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
 
-int distance_d_write_ids(char* outname, char* outname_end, int dist_calc_type, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned long max_person_id_len);
+int32_t distance_d_write_ids(char* outname, char* outname_end, int32_t dist_calc_type, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
 
-int distance_req(int calculation_type);
+int32_t distance_req(int32_t calculation_type);
 
-int double_cmp(const void* aa, const void* bb);
+int32_t double_cmp(const void* aa, const void* bb);
 
-int double_cmp_deref(const void* aa, const void* bb);
+int32_t double_cmp_deref(const void* aa, const void* bb);
 
-void qsort_ext2(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len, char* proxy_arr, int proxy_len);
+void qsort_ext2(char* main_arr, int32_t arr_length, int32_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int32_t secondary_item_len, char* proxy_arr, int32_t proxy_len);
 
-int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len);
+int32_t qsort_ext(char* main_arr, int32_t arr_length, int32_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int32_t secondary_item_len);
 
-int bsearch_str(char* id_buf, char* lptr, long max_id_len, int min_idx, int max_idx);
+int32_t bsearch_str(char* id_buf, char* lptr, intptr_t max_id_len, int32_t min_idx, int32_t max_idx);
 
-int bsearch_str_natural(char* id_buf, char* lptr, long max_id_len, int min_idx, int max_idx);
+int32_t bsearch_str_natural(char* id_buf, char* lptr, intptr_t max_id_len, int32_t min_idx, int32_t max_idx);
 
 void fill_idbuf_fam_indiv(char* id_buf, char* fam_indiv, char fillchar);
 
-int bsearch_fam_indiv(char* id_buf, char* lptr, long max_id_len, int filter_line_ct, char* fam_id, char* indiv_id);
+int32_t bsearch_fam_indiv(char* id_buf, char* lptr, intptr_t max_id_len, int32_t filter_line_ct, char* fam_id, char* indiv_id);
 
-static inline unsigned int popcount2_long(unsigned long val) {
+static inline uint32_t popcount2_long(uintptr_t val) {
 #if __LP64__
   val = (val & 0x3333333333333333LU) + ((val >> 2) & 0x3333333333333333LU);
   return (((val + (val >> 4)) & 0x0f0f0f0f0f0f0f0fLU) * 0x0101010101010101LU) >> 56;
@@ -652,33 +652,33 @@ static inline unsigned int popcount2_long(unsigned long val) {
 #endif
 }
 
-static inline unsigned int popcount_long(unsigned long val) {
+static inline uint32_t popcount_long(uintptr_t val) {
   // the simple version, good enough for all non-time-critical stuff
   return popcount2_long(val - ((val >> 1) & FIVEMASK));
 }
 
-unsigned long popcount_longs(unsigned long* lptr, unsigned long start_idx, unsigned long end_idx);
+uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
 
-unsigned long popcount_chars(unsigned long* lptr, unsigned long start_idx, unsigned long end_idx);
+uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
 
-unsigned long popcount_longs_exclude(unsigned long* lptr, unsigned long* exclude_arr, unsigned long end_idx);
+uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx);
 
-int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf);
+int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf);
 
-void collapse_arr(char* item_arr, int fixed_item_len, unsigned long* exclude_arr, int exclude_arr_size);
+void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr, int32_t exclude_arr_size);
 
 // double rand_unif(void);
 
 double rand_normal(double* secondval_ptr);
 
-// void pick_d(unsigned char* cbuf, unsigned int ct, unsigned int dd);
+// void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd);
 
-void pick_d_small(unsigned char* tmp_cbuf, int* ibuf, unsigned int ct, unsigned int dd);
+void pick_d_small(unsigned char* tmp_cbuf, int32_t* ibuf, uint32_t ct, uint32_t dd);
 
-void print_pheno_stdev(double* pheno_d, unsigned int indiv_ct);
+void print_pheno_stdev(double* pheno_d, uint32_t indiv_ct);
 
-unsigned int set_default_jackknife_d(unsigned int ct);
+uint32_t set_default_jackknife_d(uint32_t ct);
 
-int regress_distance(int calculation_type, double* dists_local, double* pheno_d_local, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct_local, unsigned int thread_ct, unsigned long regress_iters, unsigned int regress_d);
+int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct_local, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d);
 
 #endif // __WDIST_COMMON_H__

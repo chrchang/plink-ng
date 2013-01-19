@@ -10,8 +10,8 @@ sfmt_t sfmt;
 
 FILE* logfile = NULL;
 char logbuf[MAXLINELEN]; // safe sprintf buffer, if one is needed
-int debug_on = 0;
-int log_failed = 0;
+int32_t debug_on = 0;
+int32_t log_failed = 0;
 
 void logstr(const char* ss) {
   if (!debug_on) {
@@ -44,7 +44,7 @@ void logprintb() {
   fputs(logbuf, stdout);
 }
 
-int fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
+int32_t fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
   *target_ptr = fopen(fname, mode);
   if (!(*target_ptr)) {
     sprintf(logbuf, errstr_fopen, fname);
@@ -54,7 +54,7 @@ int fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
   return 0;
 }
 
-int gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode) {
+int32_t gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode) {
   *target_ptr = gzopen(fname, mode);
   if (!(*target_ptr)) {
     sprintf(logbuf, errstr_fopen, fname);
@@ -66,9 +66,9 @@ int gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode) {
 
 // manually managed, very large stack
 unsigned char* wkspace_base;
-unsigned long wkspace_left;
+uintptr_t wkspace_left;
 
-unsigned char* wkspace_alloc(unsigned long size) {
+unsigned char* wkspace_alloc(uintptr_t size) {
   unsigned char* retval;
   if (wkspace_left < size) {
     return NULL;
@@ -81,7 +81,7 @@ unsigned char* wkspace_alloc(unsigned long size) {
 }
 
 void wkspace_reset(void* new_base) {
-  unsigned long freed_bytes = wkspace_base - (unsigned char*)new_base;
+  uintptr_t freed_bytes = wkspace_base - (unsigned char*)new_base;
   wkspace_base = (unsigned char*)new_base;
   wkspace_left += freed_bytes;
 }
@@ -116,8 +116,8 @@ char* item_endl(char* sptr) {
 //   return sptr;
 // }
 
-int intlen(int num) {
-  int retval;
+int32_t intlen(int32_t num) {
+  int32_t retval;
   if (num < 0) {
     num = -num;
     retval = 2;
@@ -131,15 +131,15 @@ int intlen(int num) {
   return retval;
 }
 
-int strlen_se(char* ss) {
-  int val = 0;
+int32_t strlen_se(char* ss) {
+  int32_t val = 0;
   while (!is_space_or_eoln(*ss++)) {
     val++;
   }
   return val;
 }
 
-int strcmp_se(char* s_read, const char* s_const, int len) {
+int32_t strcmp_se(char* s_read, const char* s_const, int32_t len) {
   return memcmp(s_read, s_const, len) || (!is_space_or_eoln(s_read[len]));
 }
 
@@ -156,7 +156,7 @@ char* next_item(char* sptr) {
   return skip_initial_spaces(sptr);
 }
 
-char* next_item_mult(char* sptr, unsigned int ct) {
+char* next_item_mult(char* sptr, uint32_t ct) {
   if (!sptr) {
     return NULL;
   }
@@ -172,11 +172,11 @@ char* next_item_mult(char* sptr, unsigned int ct) {
   return sptr;
 }
 
-void copy_item(char* writebuf, unsigned int* offset_ptr, char** prev_item_end_ptr) {
+void copy_item(char* writebuf, uint32_t* offset_ptr, char** prev_item_end_ptr) {
   char* item_start = skip_initial_spaces(*prev_item_end_ptr);
   char* item_end = item_endnn(item_start);
-  unsigned int slen = (item_end - item_start);
-  unsigned int offset = *offset_ptr;
+  uint32_t slen = (item_end - item_start);
+  uint32_t offset = *offset_ptr;
   memcpy(&(writebuf[offset]), item_start, slen);
   offset += slen;
   writebuf[offset++] = '\t';
@@ -184,27 +184,27 @@ void copy_item(char* writebuf, unsigned int* offset_ptr, char** prev_item_end_pt
   *prev_item_end_ptr = item_end;
 }
 
-void set_bit(unsigned long* bit_arr, unsigned int loc, unsigned long* bit_set_ct_ptr) {
-  unsigned int maj = loc / BITCT;
-  unsigned long min = 1LU << (loc % BITCT);
+void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr) {
+  uint32_t maj = loc / BITCT;
+  uintptr_t min = 1LU << (loc % BITCT);
   if (!(bit_arr[maj] & min)) {
     bit_arr[maj] |= min;
     *bit_set_ct_ptr += 1;
   }
 }
 
-void set_bit_sub(unsigned long* bit_arr, unsigned int loc, unsigned long* bit_unset_ct_ptr) {
-  unsigned int maj = loc / BITCT;
-  unsigned long min = 1LU << (loc % BITCT);
+void set_bit_sub(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_unset_ct_ptr) {
+  uint32_t maj = loc / BITCT;
+  uintptr_t min = 1LU << (loc % BITCT);
   if (!(bit_arr[maj] & min)) {
     bit_arr[maj] |= min;
     *bit_unset_ct_ptr -= 1;
   }
 }
 
-void clear_bit(unsigned long* exclude_arr, unsigned int loc, unsigned long* include_ct_ptr) {
-  unsigned int maj = loc / BITCT;
-  unsigned long min = 1LU << (loc % BITCT);
+void clear_bit(uintptr_t* exclude_arr, uint32_t loc, uintptr_t* include_ct_ptr) {
+  uint32_t maj = loc / BITCT;
+  uintptr_t min = 1LU << (loc % BITCT);
   if (exclude_arr[maj] & min) {
     exclude_arr[maj] -= min;
     *include_ct_ptr += 1;
@@ -212,9 +212,9 @@ void clear_bit(unsigned long* exclude_arr, unsigned int loc, unsigned long* incl
 }
 
 // unsafe if you don't know there's another included marker or person remaining
-int next_non_set_unsafe(unsigned long* exclude_arr, unsigned int loc) {
-  unsigned int idx = loc / BITCT;
-  unsigned long ulii;
+int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc) {
+  uint32_t idx = loc / BITCT;
+  uintptr_t ulii;
   exclude_arr = &(exclude_arr[idx]);
   ulii = (~(*exclude_arr)) >> (loc % BITCT);
   if (ulii) {
@@ -226,9 +226,9 @@ int next_non_set_unsafe(unsigned long* exclude_arr, unsigned int loc) {
   return (idx * BITCT) + __builtin_ctzl(~(*exclude_arr));
 }
 
-int next_set_unsafe(unsigned long* include_arr, unsigned int loc) {
-  unsigned int idx = loc / BITCT;
-  unsigned long ulii;
+int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc) {
+  uint32_t idx = loc / BITCT;
+  uintptr_t ulii;
   include_arr = &(include_arr[idx]);
   ulii = (*include_arr) >> (loc % BITCT);
   if (ulii) {
@@ -261,9 +261,9 @@ const char species_mt_code[] = {26, -1, -1, -1, -1, -1, -1};
 const char species_max_code[] = {26, 31, 41, 33, 21, 12, 28};
 const uint64_t species_haploid_mask[] = {0x05800000LLU, 0xc0000000LLU, 0x18000000000LLU, 0x300000000LLU, 0x00300000LLU, 0x00001fffLLU, 0x18000000LLU};
 
-int marker_code_raw(char* sptr) {
+int32_t marker_code_raw(char* sptr) {
   // any character <= ' ' is considered a terminator
-  int ii;
+  int32_t ii;
   if (sptr[1] > ' ') {
     if (sptr[2] > ' ') {
       return -1;
@@ -304,10 +304,10 @@ int marker_code_raw(char* sptr) {
   return -1;
 }
 
-int marker_code(unsigned int species, char* sptr) {
+int32_t marker_code(uint32_t species, char* sptr) {
   // does not require string to be null-terminated, and does not perform
   // exhaustive error-checking
-  int ii = marker_code_raw(sptr);
+  int32_t ii = marker_code_raw(sptr);
   if (ii >= MAX_POSSIBLE_CHROM) {
     switch (ii) {
     case CHROM_X:
@@ -328,10 +328,10 @@ int marker_code(unsigned int species, char* sptr) {
   return ii;
 }
 
-int marker_code2(unsigned int species, char* sptr, unsigned int slen) {
+int32_t marker_code2(uint32_t species, char* sptr, uint32_t slen) {
   char* s_end = &(sptr[slen]);
   char tmpc = *s_end;
-  int retval;
+  int32_t retval;
   *s_end = ' ';
   retval = marker_code(species, sptr);
   *s_end = tmpc;
@@ -357,7 +357,7 @@ int marker_code2(unsigned int species, char* sptr, unsigned int slen) {
 // hexadecimal or base 36.  In principle, it's possible to reliably autodetect
 // some of these cases (especially hexadecimal numbers beginning with "0x"),
 // but that'll never be perfect so we just let the user toggle the sort method.
-int strcmp_natural_scan_forward(const char* s1, const char* s2) {
+int32_t strcmp_natural_scan_forward(const char* s1, const char* s2) {
   // assumes s1 and s2 currently point to the middle of a mismatching number,
   // where s1 < s2.
   char c1;
@@ -380,7 +380,7 @@ int strcmp_natural_scan_forward(const char* s1, const char* s2) {
 //   3: strings match except for capitalization, last char is numeric.
 // strcmp_natural_tiebroken() expresses the logic for states 2 and 3, while
 // strcmp_natural_uncasted() handles states 0 and 1.
-int strcmp_natural_tiebroken(const char* s1, const char* s2) {
+int32_t strcmp_natural_tiebroken(const char* s1, const char* s2) {
   // assumes ties should be broken in favor of s2.
   char c1 = *(++s1);
   char c2 = *(++s2);
@@ -430,7 +430,7 @@ int strcmp_natural_tiebroken(const char* s1, const char* s2) {
   goto strcmp_natural_tiebroken_state_2;
 }
 
-static inline int strcmp_natural_uncasted(const char* s1, const char* s2) {
+static inline int32_t strcmp_natural_uncasted(const char* s1, const char* s2) {
   char c1 = *s1;
   char c2 = *s2;
   while (is_not_nzdigit(c1) && is_not_nzdigit(c2)) {
@@ -480,19 +480,19 @@ static inline int strcmp_natural_uncasted(const char* s1, const char* s2) {
   goto strcmp_natural_uncasted_state_0;
 }
 
-int strcmp_natural(const void* s1, const void* s2) {
+int32_t strcmp_natural(const void* s1, const void* s2) {
   return strcmp_natural_uncasted((char*)s1, (char*)s2);
 }
 
-int strcmp_deref(const void* s1, const void* s2) {
+int32_t strcmp_deref(const void* s1, const void* s2) {
   return strcmp(*(char**)s1, *(char**)s2);
 }
 
-int strcmp_natural_deref(const void* s1, const void* s2) {
+int32_t strcmp_natural_deref(const void* s1, const void* s2) {
   return strcmp_natural_uncasted(*(char**)s1, *(char**)s2);
 }
 
-int is_missing(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01) {
+int32_t is_missing(char* bufptr, int32_t missing_pheno, int32_t missing_pheno_len, int32_t affection_01) {
   if ((atoi(bufptr) == missing_pheno) && is_space_or_eoln(bufptr[missing_pheno_len])) {
     return 1;
   } else if ((!affection_01) && (*bufptr == '0') && is_space_or_eoln(bufptr[1])) {
@@ -501,7 +501,7 @@ int is_missing(char* bufptr, int missing_pheno, int missing_pheno_len, int affec
   return 0;
 }
 
-int eval_affection(char* bufptr, int missing_pheno, int missing_pheno_len, int affection_01) {
+int32_t eval_affection(char* bufptr, int32_t missing_pheno, int32_t missing_pheno_len, int32_t affection_01) {
   if (is_missing(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
     return 1;
   } else if (((*bufptr == '0') || (*bufptr == '1') || ((*bufptr == '2') && (!affection_01))) && is_space_or_eoln(bufptr[1])) {
@@ -510,12 +510,12 @@ int eval_affection(char* bufptr, int missing_pheno, int missing_pheno_len, int a
   return 0;
 }
 
-int triangle_divide(long long cur_prod, int modif) {
+int32_t triangle_divide(int64_t cur_prod, int32_t modif) {
   // return smallest integer vv for which (vv * (vv + modif)) is no smaller
   // than cur_prod, and neither term in the product is negative.  (Note the
   // lack of a divide by two; cur_prod should also be double its "true" value
   // as a result.)
-  long long vv;
+  int64_t vv;
   if (cur_prod == 0) {
     if (modif < 0) {
       return -modif;
@@ -523,7 +523,7 @@ int triangle_divide(long long cur_prod, int modif) {
       return 0;
     }
   }
-  vv = (long long)sqrt((double)cur_prod);
+  vv = (int64_t)sqrt((double)cur_prod);
   while ((vv - 1) * (vv + modif - 1) >= cur_prod) {
     vv--;
   }
@@ -533,31 +533,31 @@ int triangle_divide(long long cur_prod, int modif) {
   return vv;
 }
 
-void parallel_bounds(int ct, int start, int parallel_idx, int parallel_tot, int* bound_start_ptr, int* bound_end_ptr) {
-  int modif = 1 - start * 2;
-  long long ct_tot = (long long)ct * (ct + modif);
+void parallel_bounds(int32_t ct, int32_t start, int32_t parallel_idx, int32_t parallel_tot, int32_t* bound_start_ptr, int32_t* bound_end_ptr) {
+  int32_t modif = 1 - start * 2;
+  int64_t ct_tot = (int64_t)ct * (ct + modif);
   *bound_start_ptr = triangle_divide((ct_tot * parallel_idx) / parallel_tot, modif);
   *bound_end_ptr = triangle_divide((ct_tot * (parallel_idx + 1)) / parallel_tot, modif);
 }
 
 // set align to 1 for no alignment
-void triangle_fill(unsigned int* target_arr, int ct, int pieces, int parallel_idx, int parallel_tot, int start, int align) {
-  long long ct_tr;
-  long long cur_prod;
-  int modif = 1 - start * 2;
-  int cur_piece = 1;
-  int lbound;
-  int ubound;
-  int ii;
-  int align_m1;
+void triangle_fill(uint32_t* target_arr, int32_t ct, int32_t pieces, int32_t parallel_idx, int32_t parallel_tot, int32_t start, int32_t align) {
+  int64_t ct_tr;
+  int64_t cur_prod;
+  int32_t modif = 1 - start * 2;
+  int32_t cur_piece = 1;
+  int32_t lbound;
+  int32_t ubound;
+  int32_t ii;
+  int32_t align_m1;
   parallel_bounds(ct, start, parallel_idx, parallel_tot, &lbound, &ubound);
   // x(x+1)/2 is divisible by y iff (x % (2y)) is 0 or (2y - 1).
   align *= 2;
   align_m1 = align - 1;
   target_arr[0] = lbound;
   target_arr[pieces] = ubound;
-  cur_prod = (long long)lbound * (lbound + modif);
-  ct_tr = ((long long)ubound * (ubound + modif) - cur_prod) / pieces;
+  cur_prod = (int64_t)lbound * (lbound + modif);
+  ct_tr = ((int64_t)ubound * (ubound + modif) - cur_prod) / pieces;
   while (cur_piece < pieces) {
     cur_prod += ct_tr;
     lbound = triangle_divide(cur_prod, modif);
@@ -573,9 +573,9 @@ void triangle_fill(unsigned int* target_arr, int ct, int pieces, int parallel_id
   }
 }
 
-int write_ids(char* outname, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned long max_person_id_len) {
+int32_t write_ids(char* outname, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len) {
   FILE* outfile;
-  unsigned int uii;
+  uint32_t uii;
   if (fopen_checked(&outfile, outname, "w")) {
     return RET_OPEN_FAIL;
   }
@@ -590,8 +590,8 @@ int write_ids(char* outname, unsigned int unfiltered_indiv_ct, unsigned long* in
   return 0;
 }
 
-int distance_d_write_ids(char* outname, char* outname_end, int dist_calc_type, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, char* person_ids, unsigned long max_person_id_len) {
-  int retval;
+int32_t distance_d_write_ids(char* outname, char* outname_end, int32_t dist_calc_type, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len) {
+  int32_t retval;
   if (dist_calc_type & DISTANCE_ALCT) {
     strcpy(outname_end, ".dist.id");
     retval = write_ids(outname, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
@@ -616,11 +616,11 @@ int distance_d_write_ids(char* outname, char* outname_end, int dist_calc_type, u
   return 0;
 }
 
-int distance_req(int calculation_type) {
+int32_t distance_req(int32_t calculation_type) {
   return ((calculation_type & CALC_DISTANCE) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
 
-int double_cmp(const void* aa, const void* bb) {
+int32_t double_cmp(const void* aa, const void* bb) {
   double cc = *((const double*)aa) - *((const double*)bb);
   if (cc > 0.0) {
     return 1;
@@ -631,7 +631,7 @@ int double_cmp(const void* aa, const void* bb) {
   }
 }
 
-int double_cmp_deref(const void* aa, const void* bb) {
+int32_t double_cmp_deref(const void* aa, const void* bb) {
   double cc = **((const double**)aa) - **((const double**)bb);
   if (cc > 0.0) {
     return 1;
@@ -646,8 +646,8 @@ int double_cmp_deref(const void* aa, const void* bb) {
 
 // Normally use qsort_ext(), but this version is necessary before wkspace has
 // been allocated.
-void qsort_ext2(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len, char* proxy_arr, int proxy_len) {
-  int ii;
+void qsort_ext2(char* main_arr, int32_t arr_length, int32_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int32_t secondary_item_len, char* proxy_arr, int32_t proxy_len) {
+  int32_t ii;
   for (ii = 0; ii < arr_length; ii++) {
     *(char**)(&(proxy_arr[ii * proxy_len])) = &(main_arr[ii * item_length]);
     memcpy(&(proxy_arr[ii * proxy_len + sizeof(void*)]), &(secondary_arr[ii * secondary_item_len]), secondary_item_len);
@@ -664,7 +664,7 @@ void qsort_ext2(char* main_arr, int arr_length, int item_length, int(* comparato
 
 // This actually tends to be faster than just sorting an array of indices,
 // because of memory locality issues.
-int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int secondary_item_len) {
+int32_t qsort_ext(char* main_arr, int32_t arr_length, int32_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int32_t secondary_item_len) {
   // main_arr = packed array of equal-length items to sort
   // arr_length = number of items
   // item_length = byte count of each main_arr item
@@ -678,7 +678,7 @@ int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_
   //                 be a lookup table for the original position of each
   //                 main_arr item.)
   // secondary_item_len = byte count of each secondary_arr item
-  int proxy_len = secondary_item_len + sizeof(void*);
+  int32_t proxy_len = secondary_item_len + sizeof(void*);
   unsigned char* wkspace_mark = wkspace_base;
   char* proxy_arr;
   if (!arr_length) {
@@ -695,9 +695,9 @@ int qsort_ext(char* main_arr, int arr_length, int item_length, int(* comparator_
   return 0;
 }
 
-int bsearch_str(char* id_buf, char* lptr, long max_id_len, int min_idx, int max_idx) {
-  int mid_idx;
-  int ii;
+int32_t bsearch_str(char* id_buf, char* lptr, intptr_t max_id_len, int32_t min_idx, int32_t max_idx) {
+  int32_t mid_idx;
+  int32_t ii;
   if (max_idx < min_idx) {
     return -1;
   }
@@ -714,9 +714,9 @@ int bsearch_str(char* id_buf, char* lptr, long max_id_len, int min_idx, int max_
   }
 }
 
-int bsearch_str_natural(char* id_buf, char* lptr, long max_id_len, int min_idx, int max_idx) {
-  int mid_idx;
-  int ii;
+int32_t bsearch_str_natural(char* id_buf, char* lptr, intptr_t max_id_len, int32_t min_idx, int32_t max_idx) {
+  int32_t mid_idx;
+  int32_t ii;
   if (max_idx < min_idx) {
     return -1;
   }
@@ -735,8 +735,8 @@ int bsearch_str_natural(char* id_buf, char* lptr, long max_id_len, int min_idx, 
 
 void fill_idbuf_fam_indiv(char* idbuf, char* fam_indiv, char fillchar) {
   char* iend_ptr = item_endnn(fam_indiv);
-  unsigned int slen = (iend_ptr - fam_indiv);
-  unsigned int slen2;
+  uint32_t slen = (iend_ptr - fam_indiv);
+  uint32_t slen2;
   memcpy(idbuf, fam_indiv, slen);
   idbuf[slen] = fillchar;
   fam_indiv = skip_initial_spaces(iend_ptr);
@@ -746,12 +746,12 @@ void fill_idbuf_fam_indiv(char* idbuf, char* fam_indiv, char fillchar) {
   idbuf[slen + slen2 + 1] = '\0';
 }
 
-int bsearch_fam_indiv(char* id_buf, char* lptr, long max_id_len, int filter_line_ct, char* fam_id, char* indiv_id) {
+int32_t bsearch_fam_indiv(char* id_buf, char* lptr, intptr_t max_id_len, int32_t filter_line_ct, char* fam_id, char* indiv_id) {
   // id_buf = workspace
   // lptr = packed, sorted list of ID strings to search over
   // fam_id and indiv_id are considered terminated by any space/eoln character
-  int ii;
-  int jj;
+  int32_t ii;
+  int32_t jj;
   if (!filter_line_ct) {
     return -1;
   }
@@ -767,7 +767,7 @@ int bsearch_fam_indiv(char* id_buf, char* lptr, long max_id_len, int filter_line
   return bsearch_str(id_buf, lptr, max_id_len, 0, filter_line_ct - 1);
 }
 
-int distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, char* outname, char* outname_end, const char* varsuffix, const char* mode, int dist_calc_type, int parallel_idx, int parallel_tot) {
+int32_t distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, char* outname, char* outname_end, const char* varsuffix, const char* mode, int32_t dist_calc_type, int32_t parallel_idx, int32_t parallel_tot) {
   if (dist_calc_type & DISTANCE_ALCT) {
     if (parallel_tot > 1) {
       sprintf(outname_end, ".dist%s.%d", varsuffix, parallel_idx + 1);
@@ -804,7 +804,7 @@ int distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, 
   return 0;
 }
 
-int distance_open_gz(gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, char* outname, char* outname_end, int dist_calc_type, int parallel_idx, int parallel_tot) {
+int32_t distance_open_gz(gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, char* outname, char* outname_end, int32_t dist_calc_type, int32_t parallel_idx, int32_t parallel_tot) {
   if (dist_calc_type & DISTANCE_ALCT) {
     if (parallel_tot > 1) {
       sprintf(outname_end, ".dist.%d.gz", parallel_idx + 1);
@@ -841,7 +841,7 @@ int distance_open_gz(gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz
   return 0;
 }
 
-void distance_print_done(int format_code, char* outname, char* outname_end) {
+void distance_print_done(int32_t format_code, char* outname, char* outname_end) {
   putchar('\r');
   if (!format_code) {
     strcpy(outname_end, tbuf);
@@ -858,14 +858,14 @@ void distance_print_done(int format_code, char* outname, char* outname_end) {
 
 #ifdef __LP64__
 // Basic SSE2 implementation of Lauradoux/Walisch popcount.
-static inline unsigned long popcount_vecs(__m128i* vptr, unsigned long ct) {
+static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
   // popcounts vptr[0..(ct-1)].  Assumes ct is a multiple of 3 (0 ok).
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
   const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
-  unsigned long tot = 0;
+  uintptr_t tot = 0;
   __m128i* vend;
   __m128i count1, count2, half1, half2;
   __uni16 acc;
@@ -898,7 +898,7 @@ static inline unsigned long popcount_vecs(__m128i* vptr, unsigned long ct) {
     acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
     acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
     acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
-    tot += (unsigned int)(acc.u8[0] + acc.u8[1]);
+    tot += (uint32_t)(acc.u8[0] + acc.u8[1]);
   }
   if (ct) {
     acc.vi = _mm_setzero_si128();
@@ -909,14 +909,14 @@ static inline unsigned long popcount_vecs(__m128i* vptr, unsigned long ct) {
   return tot;
 }
 
-static inline unsigned long popcount_vecs_exclude(__m128i* vptr, __m128i* exclude_ptr, unsigned long ct) {
+static inline uintptr_t popcount_vecs_exclude(__m128i* vptr, __m128i* exclude_ptr, uintptr_t ct) {
   // popcounts vptr ANDNOT exclude_ptr[0..(ct-1)].  ct is a multiple of 3.
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
   const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
-  unsigned long tot = 0;
+  uintptr_t tot = 0;
   __m128i* vend;
   __m128i count1, count2, half1, half2;
   __uni16 acc;
@@ -944,7 +944,7 @@ static inline unsigned long popcount_vecs_exclude(__m128i* vptr, __m128i* exclud
     acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
     acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
     acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
-    tot += (unsigned int)(acc.u8[0] + acc.u8[1]);
+    tot += (uint32_t)(acc.u8[0] + acc.u8[1]);
   }
   if (ct) {
     acc.vi = _mm_setzero_si128();
@@ -956,13 +956,13 @@ static inline unsigned long popcount_vecs_exclude(__m128i* vptr, __m128i* exclud
 }
 #endif
 
-unsigned long popcount_longs(unsigned long* lptr, unsigned long start_idx, unsigned long end_idx) {
+uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
   // given an aligned long array lptr[], this efficiently popcounts
   // lptr[start_idx..(end_idx - 1)].
-  unsigned long tot = 0;
-  unsigned long* lptr_end = &(lptr[end_idx]);
+  uintptr_t tot = 0;
+  uintptr_t* lptr_end = &(lptr[end_idx]);
 #ifdef __LP64__
-  unsigned long six_ct;
+  uintptr_t six_ct;
   __m128i* vptr;
   if (start_idx == end_idx) {
     return 0;
@@ -980,11 +980,11 @@ unsigned long popcount_longs(unsigned long* lptr, unsigned long start_idx, unsig
   // on my development machine by a hair.
   // However, if we take the hint from Lauradoux/Walisch and postpone the
   // multiply and right shift, this is no longer true.  Ah well.
-  unsigned long* lptr_six_end;
-  unsigned long tmp_stor;
-  unsigned long loader;
-  unsigned long ulii;
-  unsigned long uljj;
+  uintptr_t* lptr_six_end;
+  uintptr_t tmp_stor;
+  uintptr_t loader;
+  uintptr_t ulii;
+  uintptr_t uljj;
   lptr = &(lptr[start_idx]);
   lptr_six_end = &(lptr[6 * ((end_idx - start_idx) / 6)]);
   while (lptr < lptr_six_end) {
@@ -1022,13 +1022,13 @@ unsigned long popcount_longs(unsigned long* lptr, unsigned long start_idx, unsig
   return tot;
 }
 
-unsigned long popcount_chars(unsigned long* lptr, unsigned long start_idx, unsigned long end_idx) {
+uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
   // given a CHAR array c[] starting at the aligned address of lptr, this
   // efficiently popcounts c[start_idx..(end_idx - 1)].
-  unsigned int extra_ct = (start_idx % (BITCT / 8));
-  unsigned long si8l = start_idx / (BITCT / 8);
-  unsigned long ei8l = end_idx / (BITCT / 8);
-  unsigned long tot = 0;
+  uint32_t extra_ct = (start_idx % (BITCT / 8));
+  uintptr_t si8l = start_idx / (BITCT / 8);
+  uintptr_t ei8l = end_idx / (BITCT / 8);
+  uintptr_t tot = 0;
   if (si8l == ei8l) {
     return popcount_long(lptr[si8l] & ((1LU << ((end_idx % (BITCT / 8)) * 8)) - (1LU << (extra_ct * 8))));
   } else {
@@ -1044,21 +1044,21 @@ unsigned long popcount_chars(unsigned long* lptr, unsigned long start_idx, unsig
   }
 }
 
-unsigned long popcount_longs_exclude(unsigned long* lptr, unsigned long* exclude_arr, unsigned long end_idx) {
+uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx) {
   // popcounts lptr ANDNOT exclude_arr[0..(end_idx-1)].
   // N.B. assumes lptr and exclude_arr are 16-byte aligned on 64-bit systems.
-  unsigned long tot = 0;
-  unsigned long* lptr_end = &(lptr[end_idx]);
+  uintptr_t tot = 0;
+  uintptr_t* lptr_end = &(lptr[end_idx]);
 #ifdef __LP64__
-  unsigned long six_ct = end_idx / 6;
+  uintptr_t six_ct = end_idx / 6;
   tot += popcount_vecs_exclude((__m128i*)lptr, (__m128i*)exclude_arr, six_ct * 3);
   lptr = &(lptr[six_ct * 6]);
 #else
-  unsigned long* lptr_six_end;
-  unsigned long tmp_stor;
-  unsigned long loader;
-  unsigned long ulii;
-  unsigned long uljj;
+  uintptr_t* lptr_six_end;
+  uintptr_t tmp_stor;
+  uintptr_t loader;
+  uintptr_t ulii;
+  uintptr_t uljj;
   lptr_six_end = &(lptr[end_idx - (end_idx % 6)]);
   while (lptr < lptr_six_end) {
     loader = (*lptr++) & (~(*exclude_arr++));
@@ -1095,37 +1095,37 @@ unsigned long popcount_longs_exclude(unsigned long* lptr, unsigned long* exclude
   return tot;
 }
 
-int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, unsigned int indiv_ct, int first_indiv_idx, int end_indiv_idx, int parallel_idx, int parallel_tot, unsigned char* membuf) {
+int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf) {
   // membuf assumed to be of at least size indiv_ct * 8.
-  int shape = dist_calc_type & DISTANCE_SHAPEMASK;
-  int write_alcts = dist_calc_type & DISTANCE_ALCT;
-  int write_ibs_matrix = dist_calc_type & DISTANCE_IBS;
-  int write_1mibs_matrix = dist_calc_type & DISTANCE_1_MINUS_IBS;
-  long long indiv_idx_offset = ((long long)first_indiv_idx * (first_indiv_idx - 1)) / 2;
-  long long indiv_idx_ct = ((long long)end_indiv_idx * (end_indiv_idx - 1)) / 2 - indiv_idx_offset;
+  int32_t shape = dist_calc_type & DISTANCE_SHAPEMASK;
+  int32_t write_alcts = dist_calc_type & DISTANCE_ALCT;
+  int32_t write_ibs_matrix = dist_calc_type & DISTANCE_IBS;
+  int32_t write_1mibs_matrix = dist_calc_type & DISTANCE_1_MINUS_IBS;
+  int64_t indiv_idx_offset = ((int64_t)first_indiv_idx * (first_indiv_idx - 1)) / 2;
+  int64_t indiv_idx_ct = ((int64_t)end_indiv_idx * (end_indiv_idx - 1)) / 2 - indiv_idx_offset;
   double dxx;
   double dyy;
   double* dist_ptr;
-  unsigned long ulii;
-  unsigned long uljj;
-  unsigned long* glptr;
-  unsigned int uii;
-  unsigned int pct;
-  unsigned int indiv_idx;
-  int ii;
-  int jj;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uintptr_t* glptr;
+  uint32_t uii;
+  uint32_t pct;
+  uint32_t indiv_idx;
+  int32_t ii;
+  int32_t jj;
   char* cptr;
   if (first_indiv_idx == 1) {
     first_indiv_idx = 0;
   }
   if (shape == DISTANCE_SQ0) {
     cptr = (char*)(&ulii);
-    for (uii = 0; uii < sizeof(long); uii += 2) {
+    for (uii = 0; uii < sizeof(intptr_t); uii += 2) {
       cptr[uii] = '\t';
       cptr[uii + 1] = '0';
     }
-    ii = (indiv_ct * 2 + sizeof(long) - 2) / sizeof(long);
-    glptr = (unsigned long*)membuf;
+    ii = (indiv_ct * 2 + sizeof(intptr_t) - 2) / sizeof(intptr_t);
+    glptr = (uintptr_t*)membuf;
     for (jj = 0; jj < ii; jj++) {
       *glptr++ = ulii;
     }
@@ -1171,7 +1171,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	    return RET_WRITE_FAIL;
 	  }
 	  for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
-	    if (!gzprintf(*gz_outfile_ptr, "\t%g", dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2])) {
+	    if (!gzprintf(*gz_outfile_ptr, "\t%g", dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2])) {
 	      return RET_WRITE_FAIL;
 	    }
 	  }
@@ -1184,7 +1184,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	    return RET_WRITE_FAIL;
 	  }
 	  for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
-	    if (!gzprintf(*gz_outfile2_ptr, "\t%g", 1.0 - dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2] * half_marker_ct_recip)) {
+	    if (!gzprintf(*gz_outfile2_ptr, "\t%g", 1.0 - dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2] * half_marker_ct_recip)) {
 	      return RET_WRITE_FAIL;
 	    }
 	  }
@@ -1197,7 +1197,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	    return RET_WRITE_FAIL;
 	  }
 	  for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
-	    if (!gzprintf(*gz_outfile3_ptr, "\t%g", dists[((unsigned long)indiv_idx * (indiv_idx - 1)) / 2] * half_marker_ct_recip)) {
+	    if (!gzprintf(*gz_outfile3_ptr, "\t%g", dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2] * half_marker_ct_recip)) {
 	      return RET_WRITE_FAIL;
 	    }
 	  }
@@ -1223,7 +1223,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	  if (gzwrite_checked(*gz_outfile_ptr, membuf, (indiv_ct - ii) * 2)) {
 	    return RET_WRITE_FAIL;
 	  }
-	  if ((ii - first_indiv_idx) * 100LL >= (long long)pct * (end_indiv_idx - first_indiv_idx)) {
+	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)pct * (end_indiv_idx - first_indiv_idx)) {
 	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
@@ -1239,8 +1239,8 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	      }
 	    }
 	  }
-	  if (((long long)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
-	    pct = (((long long)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
+	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
+	    pct = (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
 	  }
@@ -1275,7 +1275,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	  if (gzwrite_checked(*gz_outfile2_ptr, membuf, (indiv_ct - ii) * 2)) {
 	    return RET_WRITE_FAIL;
 	  }
-	  if ((ii - first_indiv_idx) * 100LL >= (long long)pct * (end_indiv_idx - first_indiv_idx)) {
+	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)pct * (end_indiv_idx - first_indiv_idx)) {
 	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
@@ -1291,8 +1291,8 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	      }
 	    }
 	  }
-	  if (((long long)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
-	    pct = (((long long)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
+	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
+	    pct = (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
 	  }
@@ -1327,7 +1327,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	  if (gzwrite_checked(*gz_outfile3_ptr, membuf, (indiv_ct - ii) * 2)) {
 	    return RET_WRITE_FAIL;
 	  }
-	  if ((ii - first_indiv_idx) * 100LL >= (long long)pct * (end_indiv_idx - first_indiv_idx)) {
+	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)pct * (end_indiv_idx - first_indiv_idx)) {
 	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
@@ -1343,8 +1343,8 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	      }
 	    }
 	  }
-	  if (((long long)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
-	    pct = (((long long)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
+	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
+	    pct = (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
 	  }
@@ -1429,7 +1429,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	      }
 	    }
 	  }
-	  if ((ii - first_indiv_idx) * 100LL >= (long long)pct * (end_indiv_idx - first_indiv_idx)) {
+	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)pct * (end_indiv_idx - first_indiv_idx)) {
 	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
@@ -1468,7 +1468,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	      }
 	    }
 	  }
-	  if ((ii - first_indiv_idx) * 100LL >= (long long)pct * (end_indiv_idx - first_indiv_idx)) {
+	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)pct * (end_indiv_idx - first_indiv_idx)) {
 	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
@@ -1507,7 +1507,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	      }
 	    }
 	  }
-	  if ((ii - first_indiv_idx) * 100LL >= (long long)pct * (end_indiv_idx - first_indiv_idx)) {
+	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)pct * (end_indiv_idx - first_indiv_idx)) {
 	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
@@ -1563,7 +1563,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	  if (fwrite_checked(membuf, (indiv_ct - ii) * 2, *outfile_ptr)) {
 	    return RET_WRITE_FAIL;
 	  }
-	  if ((ii - first_indiv_idx) * 100LL >= ((long long)pct * (end_indiv_idx - first_indiv_idx))) {
+	  if ((ii - first_indiv_idx) * 100LL >= ((int64_t)pct * (end_indiv_idx - first_indiv_idx))) {
 	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
@@ -1579,8 +1579,8 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	      }
 	    }
 	  }
-	  if (((long long)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
-	    pct = (((long long)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
+	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
+	    pct = (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
 	  }
@@ -1640,7 +1640,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	  if (fwrite_checked(membuf, (indiv_ct - ii) * 2, *outfile2_ptr)) {
 	    return RET_WRITE_FAIL;
 	  }
-	  if ((ii - first_indiv_idx) * 100LL >= ((long long)pct * (end_indiv_idx - first_indiv_idx))) {
+	  if ((ii - first_indiv_idx) * 100LL >= ((int64_t)pct * (end_indiv_idx - first_indiv_idx))) {
 	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
@@ -1656,8 +1656,8 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	      }
 	    }
 	  }
-	  if (((long long)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
-	    pct = (((long long)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
+	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
+	    pct = (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
 	  }
@@ -1713,7 +1713,7 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	  if (fwrite_checked(membuf, (indiv_ct - ii) * 2, *outfile3_ptr)) {
 	    return RET_WRITE_FAIL;
 	  }
-	  if ((ii - first_indiv_idx) * 100LL >= ((long long)pct * (end_indiv_idx - first_indiv_idx))) {
+	  if ((ii - first_indiv_idx) * 100LL >= ((int64_t)pct * (end_indiv_idx - first_indiv_idx))) {
 	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
@@ -1729,8 +1729,8 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
 	      }
 	    }
 	  }
-	  if (((long long)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
-	    pct = (((long long)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
+	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
+	    pct = (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
 	  }
@@ -1748,10 +1748,10 @@ int distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_pt
   return 0;
 }
 
-void collapse_arr(char* item_arr, int fixed_item_len, unsigned long* exclude_arr, int exclude_arr_size) {
+void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr, int32_t exclude_arr_size) {
   // collapses array of fixed-length items
-  int ii = 0;
-  int jj;
+  int32_t ii = 0;
+  int32_t jj;
   while ((ii < exclude_arr_size) && (!is_set(exclude_arr, ii))) {
     ii++;
   }
@@ -1775,10 +1775,10 @@ double rand_normal(double* secondval_ptr) {
   return dxx * sin(dyy);
 }
 
-void pick_d(unsigned char* cbuf, unsigned int ct, unsigned int dd) {
-  unsigned int ii;
-  unsigned int jj;
-  unsigned int kk;
+void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd) {
+  uint32_t ii;
+  uint32_t jj;
+  uint32_t kk;
   memset(cbuf, 0, ct);
   kk = 1073741824 % ct;
   kk = (kk * 4) % ct;
@@ -1793,8 +1793,8 @@ void pick_d(unsigned char* cbuf, unsigned int ct, unsigned int dd) {
   }
 }
 
-void pick_d_small(unsigned char* tmp_cbuf, int* ibuf, unsigned int ct, unsigned int dd) {
-  unsigned int uii;
+void pick_d_small(unsigned char* tmp_cbuf, int32_t* ibuf, uint32_t ct, uint32_t dd) {
+  uint32_t uii;
   pick_d(tmp_cbuf, ct, dd);
   for (uii = 0; uii < ct; uii++) {
     if (tmp_cbuf[uii]) {
@@ -1804,11 +1804,11 @@ void pick_d_small(unsigned char* tmp_cbuf, int* ibuf, unsigned int ct, unsigned 
   *ibuf = ct;
 }
 
-void print_pheno_stdev(double* pheno_d, unsigned int indiv_ct) {
+void print_pheno_stdev(double* pheno_d, uint32_t indiv_ct) {
   double reg_tot_x = 0.0;
   double reg_tot_xx = 0.0;
   double dxx;
-  unsigned int uii;
+  uint32_t uii;
   for (uii = 0; uii < indiv_ct; uii++) {
     dxx = pheno_d[uii];
     reg_tot_x += dxx;
@@ -1818,8 +1818,8 @@ void print_pheno_stdev(double* pheno_d, unsigned int indiv_ct) {
   logprintb();
 }
 
-unsigned int set_default_jackknife_d(unsigned int ct) {
-  unsigned int dd = (unsigned int)pow((double)ct, 0.600000000001);
+uint32_t set_default_jackknife_d(uint32_t ct) {
+  uint32_t dd = (uint32_t)pow((double)ct, 0.600000000001);
   sprintf(logbuf, "Setting d=%u for jackknife.\n", dd);
   logprintb();
   return dd;
@@ -1827,8 +1827,8 @@ unsigned int set_default_jackknife_d(unsigned int ct) {
 
 // ----- multithread globals -----
 static double* g_pheno_d;
-static unsigned long g_jackknife_iters;
-static unsigned int g_jackknife_d;
+static uintptr_t g_jackknife_iters;
+static uint32_t g_jackknife_d;
 static double g_reg_tot_xy;
 static double g_reg_tot_x;
 static double g_reg_tot_y;
@@ -1838,15 +1838,15 @@ static double* g_jackknife_precomp;
 static double* g_dists;
 static double g_calc_result[4][MAX_THREADS_P1];
 static unsigned char* g_generic_buf;
-static unsigned int g_indiv_ct;
+static uint32_t g_indiv_ct;
 
-// double regress_jack(int* ibuf) {
-double regress_jack(int* ibuf, double* ret2_ptr) {
-  int* iptr = ibuf;
-  int* jptr = &(ibuf[g_jackknife_d]);
-  unsigned int uii;
-  int jj;
-  int kk;
+// double regress_jack(int32_t* ibuf) {
+double regress_jack(int32_t* ibuf, double* ret2_ptr) {
+  int32_t* iptr = ibuf;
+  int32_t* jptr = &(ibuf[g_jackknife_d]);
+  uint32_t uii;
+  int32_t jj;
+  int32_t kk;
   double* dptr;
   double* dptr2;
   double neg_tot_xy = 0.0;
@@ -1870,7 +1870,7 @@ double regress_jack(int* ibuf, double* ret2_ptr) {
     jj = *(++iptr);
     dxx1 = g_pheno_d[jj];
     jptr = ibuf;
-    dptr = &(g_dists[((long)jj * (jj - 1)) / 2]);
+    dptr = &(g_dists[((intptr_t)jj * (jj - 1)) / 2]);
     while (jptr < iptr) {
       kk = *jptr++;
       dxx = (dxx1 + g_pheno_d[kk]) * 0.5;
@@ -1891,9 +1891,9 @@ double regress_jack(int* ibuf, double* ret2_ptr) {
 }
 
 void* regress_jack_thread(void* arg) {
-  long tidx = (long)arg;
-  int* ibuf = (int*)(&(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int))]));
-  unsigned char* cbuf = &(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int)) + (g_jackknife_d + 1) * sizeof(int)]);
+  intptr_t tidx = (intptr_t)arg;
+  int32_t* ibuf = (int32_t*)(&(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t))]));
+  unsigned char* cbuf = &(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t)) + (g_jackknife_d + 1) * sizeof(int32_t)]);
   uint64_t ulii;
   uint64_t uljj = g_jackknife_iters / 100;
   double sum = 0.0;
@@ -1924,10 +1924,10 @@ void* regress_jack_thread(void* arg) {
   return NULL;
 }
 
-int regress_distance(int calculation_type, double* dists_local, double* pheno_d_local, unsigned int unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned int indiv_ct_local, unsigned int thread_ct, unsigned long regress_iters, unsigned int regress_d) {
+int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct_local, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d) {
   unsigned char* wkspace_mark = wkspace_base;
-  unsigned long ulii;
-  unsigned int uii;
+  uintptr_t ulii;
+  uint32_t uii;
   double* dist_ptr;
   double* dptr2;
   double* dptr3;
@@ -2019,7 +2019,7 @@ int regress_distance(int calculation_type, double* dists_local, double* pheno_d_
   } else {
     g_jackknife_d = set_default_jackknife_d(g_indiv_ct);
   }
-  g_generic_buf = wkspace_alloc(thread_ct * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int)));
+  g_generic_buf = wkspace_alloc(thread_ct * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t)));
   if (!g_generic_buf) {
     return RET_NOMEM;
   }
