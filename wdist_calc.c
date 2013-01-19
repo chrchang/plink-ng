@@ -72,16 +72,16 @@
 // but we believe we have beaten down the leading constant by a large enough
 // factor to meaningfully help researchers.
 
-void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* set_allele_freqs, int ibc_type, unsigned int indiv_ct) {
+void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, int32_t ibc_type, uint32_t indiv_ct) {
   // first calculate weight array, then loop
-  int ii;
-  int jj;
-  int kk;
-  unsigned int uii;
+  int32_t ii;
+  int32_t jj;
+  int32_t kk;
+  uint32_t uii;
   double twt;
   double* wtptr;
   double mult = 1.0;
-  unsigned long ulii;
+  uintptr_t ulii;
   double weights[BITCT * 10];
   double* weights1 = &(weights[64]);
   double* weights2 = &(weights[128]);
@@ -172,16 +172,16 @@ void update_rel_ibc(double* rel_ibc, unsigned long* geno, double* set_allele_fre
   }
 }
 
-void update_rel_f_ibc(float* rel_ibc, unsigned long* geno, float* set_allele_freqs, int ibc_type, unsigned int indiv_ct) {
+void update_rel_f_ibc(float* rel_ibc, uintptr_t* geno, float* set_allele_freqs, int32_t ibc_type, uint32_t indiv_ct) {
   // first calculate weight array, then loop
-  int ii;
-  int jj;
-  int kk;
-  unsigned int uii;
+  int32_t ii;
+  int32_t jj;
+  int32_t kk;
+  uint32_t uii;
   float twt;
   float* wtptr;
   float mult = 1.0;
-  unsigned long ulii;
+  uintptr_t ulii;
   float weights[BITCT * 10];
   float* weights1 = &(weights[64]);
   float* weights2 = &(weights[128]);
@@ -273,9 +273,9 @@ void update_rel_f_ibc(float* rel_ibc, unsigned long* geno, float* set_allele_fre
 }
 
 /*
-void collapse_bitarr(unsigned long* bitarr, unsigned long* exclude_arr, int orig_ct) {
-  int ii = 0;
-  int jj;
+void collapse_bitarr(uintptr_t* bitarr, uintptr_t* exclude_arr, int32_t orig_ct) {
+  int32_t ii = 0;
+  int32_t jj;
   while ((ii < orig_ct) && (!is_set(exclude_arr, ii))) {
     ii++;
   }
@@ -293,14 +293,14 @@ void collapse_bitarr(unsigned long* bitarr, unsigned long* exclude_arr, int orig
   }
 }
 
-void collapse_chrom_marker_idxs(Chrom_info* chrom_info_ptr, unsigned long* marker_exclude, int unfiltered_marker_ct) {
-  unsigned int* chrom_fo = chrom_info_ptr->chrom_file_order;
-  unsigned int* chrom_fo_midxs = chrom_info_ptr->chrom_file_order_marker_idx;
-  unsigned int chrom_ct = chrom_info_ptr->chrom_ct;
-  int midx = 0;
-  int new_midx = 0;
-  int chrom_end_midx;
-  unsigned int chrom_fo_idx;
+void collapse_chrom_marker_idxs(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, int32_t unfiltered_marker_ct) {
+  uint32_t* chrom_fo = chrom_info_ptr->chrom_file_order;
+  uint32_t* chrom_fo_midxs = chrom_info_ptr->chrom_file_order_marker_idx;
+  uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
+  int32_t midx = 0;
+  int32_t new_midx = 0;
+  int32_t chrom_end_midx;
+  uint32_t chrom_fo_idx;
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
     chrom_fo_midxs[chrom_fo_idx] = new_midx;
     chrom_info_ptr->chrom_start[chrom_fo[chrom_fo_idx]] = new_midx;
@@ -340,7 +340,7 @@ void collapse_chrom_marker_idxs(Chrom_info* chrom_info_ptr, unsigned long* marke
     if (calculation_type & (CALC_WRITE_SNPLIST | CALC_GENOME | CALC_LD_PRUNE)) {
       collapse_chrom_marker_idxs(chrom_info_ptr, marker_exclude, unfiltered_marker_ct);
       if (calculation_type & (CALC_GENOME | CALC_LD_PRUNE)) {
-	collapse_arr((char*)marker_pos, sizeof(int), marker_exclude, unfiltered_marker_ct);
+	collapse_arr((char*)marker_pos, sizeof(int32_t), marker_exclude, unfiltered_marker_ct);
       }
     }
     collapse_arr(person_ids, max_person_id_len, indiv_exclude, unfiltered_indiv_ct);
