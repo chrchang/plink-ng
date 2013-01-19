@@ -10270,7 +10270,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (fopen_checked(&famfile, famname, "r")) {
     goto wdist_ret_OPEN_FAIL;
   }
-
   // load .bim, count markers, filter chromosomes
   retval = load_bim(&mapfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_pos, extractname, excludename, freqname, refalleles, calculation_type, recode_modifier, allelexxxx, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &map_is_unsorted);
   if (retval) {
@@ -11990,7 +11989,7 @@ int32_t main(int32_t argc, char** argv) {
   uint64_t chrom_exclude = 0;
   char* snps_flag_markers = NULL;
   unsigned char* snps_flag_starts_range = NULL;
-  uint32_t snps_flag_ct;
+  uint32_t snps_flag_ct = 0;
   uint32_t snps_flag_max_len;
   double dxx;
   char cc;
