@@ -129,7 +129,7 @@ extern "C" {
 #define MINV(aa, bb) ((aa) > (bb))? (bb) : (aa)
 
 const char ver_str[] =
-  "WDIST v0.15.2"
+  "WDIST v0.15.3"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -138,7 +138,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (17 Jan 2013)";
+  " (19 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -1111,7 +1111,7 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
   // to maintain the same allele frequencies.
   // This probability is always decreasing when proceeding away from the
   // expected het count.
-  het_exp_floor = (((unsigned long long)rare_copies) * (genotypes2 - rare_copies)) / genotypes2;
+  het_exp_floor = (((uint64_t)rare_copies) * (genotypes2 - rare_copies)) / genotypes2;
   if (curr_hets_t2 > het_exp_floor) {
     // tail 1 = upper
     if (curr_hets_t2 < 2) {
@@ -1120,9 +1120,9 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
     // het_probs[curr_hets] = 1
     // het_probs[curr_hets - 2] = het_probs[curr_hets] * curr_hets * (curr_hets - 1) / (4 * (curr_homr + 1) * (curr_homc + 1))
     do {
-      lastp2 *= ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
+      lastp2 *= ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
       curr_hets_t2 -= 2;
-      if (lastp2 < 1 + EPSILON) {
+      if (lastp2 < 1 + SMALL_EPSILON) {
 	tailp2 = lastp2;
 	break;
       }
@@ -1133,14 +1133,14 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
       return 0;
     }
     // c + cr + cr^2 + ... = c/(1-r), which is an upper bound for the tail sum
-    ratio = ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (curr_homr_t2 + 1)) * (curr_homc_t2 + 1)));
+    ratio = ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (curr_homr_t2 + 1)) * (curr_homc_t2 + 1)));
     tail2_ceil = tailp2 / (1 - ratio);
     if (obs_homr) {
       // het_probs[curr_hets + 2] = het_probs[curr_hets] * 4 * curr_homr * curr_homc / ((curr_hets + 2) * (curr_hets + 1))
       curr_hets_t1 = obs_hets + 2;
       curr_homr_t1 = obs_homr;
       curr_homc_t1 = obs_homc;
-      lastp1 = ((double)((4LLU * (curr_homr_t1--)) * (curr_homc_t1--))) / ((double)(((unsigned long long)curr_hets_t1) * (curr_hets_t1 - 1)));
+      lastp1 = ((double)((4LLU * (curr_homr_t1--)) * (curr_homc_t1--))) / ((double)(((uint64_t)curr_hets_t1) * (curr_hets_t1 - 1)));
       tail1_ceil = 1 / (1 - lastp1);
       if (tail1_ceil + tail2_ceil < tail_thresh) {
 	return 1;
@@ -1155,7 +1155,7 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
 	  break;
 	}
 	curr_hets_t1 += 2;
-	lastp1 *= ((double)((4LLU * (curr_homr_t1--)) * (curr_homc_t1--))) / ((double)(((unsigned long long)curr_hets_t1) * (curr_hets_t1 - 1)));
+	lastp1 *= ((double)((4LLU * (curr_homr_t1--)) * (curr_homc_t1--))) / ((double)(((uint64_t)curr_hets_t1) * (curr_hets_t1 - 1)));
       }
     }
     if (tailp1 + tail2_ceil < tail_thresh) {
@@ -1163,7 +1163,7 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
     }
     tail_threshx = tail_thresh - tailp1;
     while (curr_hets_t2 > 1) {
-      lastp2 *= ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
+      lastp2 *= ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
       curr_hets_t2 -= 2;
       tailp2 += lastp2;
       if (tailp2 >= tail_threshx) {
@@ -1178,8 +1178,8 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
     }
     do {
       curr_hets_t2 += 2;
-      lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1)));
-      if (lastp2 < 1 + EPSILON) {
+      lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1)));
+      if (lastp2 < 1 + SMALL_EPSILON) {
 	tailp2 = lastp2;
 	break;
       }
@@ -1189,13 +1189,13 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
     if (1 + tailp2 >= tail_thresh) {
       return 0;
     }
-    ratio = ((double)((4LLU * curr_homr_t2) * curr_homc_t2)) / ((double)(((unsigned long long)(curr_hets_t2 + 2)) * (curr_hets_t2 + 1)));
+    ratio = ((double)((4LLU * curr_homr_t2) * curr_homc_t2)) / ((double)(((uint64_t)(curr_hets_t2 + 2)) * (curr_hets_t2 + 1)));
     tail2_ceil = tailp2 / (1 - ratio);
     if (obs_hets >= 2) {
       curr_hets_t1 = obs_hets;
       curr_homr_t1 = obs_homr;
       curr_homc_t1 = obs_homc;
-      lastp1 = ((double)(((unsigned long long)curr_hets_t1) * (curr_hets_t1 - 1))) / ((double)((4LLU * (++curr_homr_t1)) * (++curr_homc_t1)));
+      lastp1 = ((double)(((uint64_t)curr_hets_t1) * (curr_hets_t1 - 1))) / ((double)((4LLU * (++curr_homr_t1)) * (++curr_homc_t1)));
       curr_hets_t1 -= 2;
       tail1_ceil = tailp1 / (1 - lastp1);
       if (tail1_ceil + tail2_ceil < tail_thresh) {
@@ -1210,7 +1210,7 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
 	if (curr_hets_t1 < 2) {
 	  break;
 	}
-	lastp1 *= ((double)(((unsigned long long)curr_hets_t1) * (curr_hets_t1 - 1))) / ((double)((4LLU * (++curr_homr_t1)) * (++curr_homc_t1)));
+	lastp1 *= ((double)(((uint64_t)curr_hets_t1) * (curr_hets_t1 - 1))) / ((double)((4LLU * (++curr_homr_t1)) * (++curr_homc_t1)));
 	curr_hets_t1 -= 2;
       }
     }
@@ -1220,7 +1220,7 @@ int SNPHWE_t(int obs_hets, int obs_hom1, int obs_hom2, double thresh) {
     tail_threshx = tail_thresh - tailp1;
     while (curr_homr_t2) {
       curr_hets_t2 += 2;
-      lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((unsigned long long)curr_hets_t2) * (curr_hets_t2 - 1)));
+      lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1)));
       tailp2 += lastp2;
       if (tailp2 >= tail_threshx) {
 	return 0;
@@ -3163,8 +3163,8 @@ void* groupdist_jack_thread(void* arg) {
   long tidx = (long)arg;
   int* ibuf = (int*)(&(g_geno[tidx * CACHEALIGN(g_high_ct + g_low_ct + (g_jackknife_d + 1) * sizeof(int))]));
   unsigned char* cbuf = &(g_geno[tidx * CACHEALIGN(g_high_ct + g_low_ct + (g_jackknife_d + 1) * sizeof(int)) + (g_jackknife_d + 1) * sizeof(int)]);
-  unsigned long long ulii;
-  unsigned long long uljj = g_jackknife_iters / 100;
+  uint64_t ulii;
+  uint64_t uljj = g_jackknife_iters / 100;
   double returns[3];
   double results[9];
   double new_old_diff[3];
@@ -3260,8 +3260,8 @@ void* regress_rel_jack_thread(void* arg) {
   long tidx = (long)arg;
   int* ibuf = (int*)(&(g_geno[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int))]));
   unsigned char* cbuf = &(g_geno[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int)) + (g_jackknife_d + 1) * sizeof(int)]);
-  unsigned long long ulii;
-  unsigned long long uljj = g_jackknife_iters / 100;
+  uint64_t ulii;
+  uint64_t uljj = g_jackknife_iters / 100;
   double sum = 0.0;
   double sum_sq = 0.0;
   double sum2 = 0;
@@ -4801,23 +4801,40 @@ void prune_missing_phenos(unsigned long unfiltered_indiv_ct, unsigned long* indi
   }
 }
 
-void allelexxxx_recode(int allelexxxx, char* marker_alleles, unsigned long* marker_exclude, unsigned int marker_ct) {
+void allelexxxx_recode(int allelexxxx, char* marker_alleles, unsigned int max_marker_allele_len, unsigned long* marker_exclude, unsigned int marker_ct) {
   unsigned long marker_uidx = 0;
   char* cptr;
   char cc;
   unsigned long marker_idx;
-  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-    cptr = &(marker_alleles[marker_uidx * 2]);
-    cc = *cptr;
-    if (allelexxxx == 1) {
-      *cptr++ = convert_to_1234(cc);
-      *cptr = convert_to_1234(*cptr);
-    } else {
-      *cptr++ = convert_to_acgt(cc);
-      *cptr = convert_to_acgt(*cptr);
+  if (max_marker_allele_len == 1) {
+    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+      cptr = &(marker_alleles[marker_uidx * 2]);
+      cc = *cptr;
+      if (allelexxxx == 1) {
+	*cptr++ = convert_to_1234(cc);
+	*cptr = convert_to_1234(*cptr);
+      } else {
+	*cptr++ = convert_to_acgt(cc);
+	*cptr = convert_to_acgt(*cptr);
+      }
+      marker_uidx++;
     }
-    marker_uidx++;
+  } else {
+    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+      cptr = &(marker_alleles[marker_uidx * 2 * max_marker_allele_len]);
+      if (allelexxxx == 1) {
+	convert_to_1234_str_in_place(cptr);
+	cptr = &(cptr[max_marker_allele_len]);
+	convert_to_1234_str_in_place(cptr);
+      } else {
+        convert_to_acgt_str_in_place(cptr);
+	cptr = &(cptr[max_marker_allele_len]);
+	convert_to_acgt_str_in_place(cptr);
+      }
+      marker_uidx++;
+    }
   }
 }
 
@@ -5085,7 +5102,7 @@ void exclude_to_vec_include(unsigned long unfiltered_indiv_ct, unsigned long* in
   } while (++cur_word_idx < unfiltered_indiv_ctl);
 }
 
-int mind_filter(FILE* bedfile, double mind_thresh, unsigned long unfiltered_marker_ct, unsigned long* marker_exclude, unsigned long marker_exclude_ct, unsigned long unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned long* indiv_exclude_ct_ptr, int bed_offset, unsigned long long* line_mids, int pedbuflen, char missing_geno) {
+int mind_filter(FILE* bedfile, double mind_thresh, unsigned long unfiltered_marker_ct, unsigned long* marker_exclude, unsigned long marker_exclude_ct, unsigned long unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned long* indiv_exclude_ct_ptr, int bed_offset, uint64_t* line_mids, int pedbuflen, char missing_geno) {
   unsigned int mind_int_thresh = (int)(mind_thresh * (unfiltered_marker_ct - marker_exclude_ct) + EPSILON);
   unsigned int marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   unsigned long unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -5116,7 +5133,7 @@ int mind_filter(FILE* bedfile, double mind_thresh, unsigned long unfiltered_mark
   for (marker_uidx = 0; marker_idx < marker_ct; marker_uidx++) {
     if (is_set(marker_exclude, marker_uidx)) {
       marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
-      if (fseeko(bedfile, bed_offset + ((unsigned long long)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	goto mind_filter_ret_READ_FAIL;
       }
     }
@@ -5503,7 +5520,7 @@ static inline void single_marker_freqs_and_hwe(unsigned long unfiltered_indiv_ct
   }
 }
 
-int calc_freqs_and_hwe(FILE* bedfile, unsigned long unfiltered_marker_ct, unsigned long* marker_exclude, unsigned long marker_ct, unsigned long unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned long indiv_exclude_ct, unsigned long* founder_info, int nonfounders, int maf_succ, double* set_allele_freqs, char** marker_alleles_ptr, unsigned long** marker_reverse_ptr, unsigned int** marker_allele_cts_ptr, unsigned int** missing_cts_ptr, int bed_offset, unsigned long long* line_mids, int pedbuflen, unsigned char missing_geno, int hwe_needed, int hwe_all, char* pheno_c, int** hwe_lls_ptr, int** hwe_lhs_ptr, int** hwe_hhs_ptr, int** hwe_ll_allfs_ptr, int** hwe_lh_allfs_ptr, int** hwe_hh_allfs_ptr, int** ll_cts_ptr, int** lh_cts_ptr, int** hh_cts_ptr, int wt_needed, unsigned char** marker_weights_base_ptr, double** marker_weights_ptr) {
+int calc_freqs_and_hwe(FILE* bedfile, unsigned long unfiltered_marker_ct, unsigned long* marker_exclude, unsigned long marker_ct, unsigned long unfiltered_indiv_ct, unsigned long* indiv_exclude, unsigned long indiv_exclude_ct, unsigned long* founder_info, int nonfounders, int maf_succ, double* set_allele_freqs, char** marker_alleles_ptr, unsigned long** marker_reverse_ptr, unsigned int** marker_allele_cts_ptr, unsigned int** missing_cts_ptr, int bed_offset, uint64_t* line_mids, int pedbuflen, unsigned char missing_geno, int hwe_needed, int hwe_all, char* pheno_c, int** hwe_lls_ptr, int** hwe_lhs_ptr, int** hwe_hhs_ptr, int** hwe_ll_allfs_ptr, int** hwe_lh_allfs_ptr, int** hwe_hh_allfs_ptr, int** ll_cts_ptr, int** lh_cts_ptr, int** hh_cts_ptr, int wt_needed, unsigned char** marker_weights_base_ptr, double** marker_weights_ptr) {
   unsigned long unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   unsigned long unfiltered_indiv_ctl = (unfiltered_indiv_ct + BITCT - 1) / BITCT;
   int retval = 0;
@@ -5644,11 +5661,11 @@ int calc_freqs_and_hwe(FILE* bedfile, unsigned long unfiltered_marker_ct, unsign
   fputs("0%", stdout);
   fflush(stdout);
   for (; pct <= 100; pct++) {
-    loop_end = ((unsigned long long)pct * marker_ct) / 100LU;
+    loop_end = ((uint64_t)pct * marker_ct) / 100LU;
     for (; marker_idx < loop_end; marker_idx++) {
       if (is_set(marker_exclude, marker_uidx)) {
 	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-	if (fseeko(bedfile, bed_offset + ((unsigned long long)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	  goto calc_freqs_and_hwe_ret_READ_FAIL;
 	}
       }
@@ -6497,7 +6514,7 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
   for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
     if (is_set(marker_exclude, marker_uidx)) {
       marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
-      if (fseeko(pedfile, bed_offset + (unsigned long long)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
+      if (fseeko(pedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
 	return RET_READ_FAIL;
       }
     }
@@ -6599,8 +6616,8 @@ int calc_regress_pcs(char* evecname, int regress_pcs_normalize_pheno, int regres
     if (fwrite_checked("\n", 1, *outfile_ptr)) {
       return RET_WRITE_FAIL;
     }
-    if (marker_idx * 100LLU >= ((unsigned long long)pct * marker_ct)) {
-      pct = ((unsigned long long)marker_idx * 100) / marker_ct;
+    if (marker_idx * 100LLU >= ((uint64_t)pct * marker_ct)) {
+      pct = ((uint64_t)marker_idx * 100) / marker_ct;
       printf("\r%d%%", pct++);
       fflush(stdout);
     }
@@ -6881,7 +6898,7 @@ int calc_genome(pthread_t* threads, FILE* pedfile, int bed_offset, unsigned int 
     for (ujj = 0; (int)ujj < kk; ujj++) {
       if (is_set(marker_exclude, marker_uidx)) {
 	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-	if (fseeko(pedfile, bed_offset + ((unsigned long long)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	if (fseeko(pedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	  retval = RET_READ_FAIL;
 	  goto calc_genome_ret_1;
 	}
@@ -8484,7 +8501,7 @@ int calc_rel(pthread_t* threads, int parallel_idx, int parallel_tot, int calcula
   unsigned int rel_shape;
   unsigned int min_indiv;
   unsigned int max_parallel_indiv;
-  unsigned long long ullyy;
+  uint64_t ullyy;
   unsigned char* wkspace_mark;
   unsigned char* gptr;
   unsigned char* gptr2;
@@ -8735,8 +8752,8 @@ int calc_rel(pthread_t* threads, int parallel_idx, int parallel_tot, int calcula
 	  goto calc_rel_ret_WRITE_FAIL;
 	}
 	if (rel_shape == REL_CALC_TRI) {
-	  if ((((unsigned long long)indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100 >= ullyy * pct) {
-	    pct = (((unsigned long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100) / ullyy;
+	  if ((((uint64_t)indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100 >= ullyy * pct) {
+	    pct = (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100) / ullyy;
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
 	  }
@@ -8775,8 +8792,8 @@ int calc_rel(pthread_t* threads, int parallel_idx, int parallel_tot, int calcula
 	}
 	dist_ptr = g_rel_dists;
 	for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
-	  if (((unsigned long long)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100 >= ullyy * pct) {
-	    pct = (((unsigned long long)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100) / ullyy;
+	  if (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100 >= ullyy * pct) {
+	    pct = (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100) / ullyy;
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
 	  }
@@ -8804,7 +8821,7 @@ int calc_rel(pthread_t* threads, int parallel_idx, int parallel_tot, int calcula
 	}
 	dist_ptr = g_rel_dists;
 	for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
-	  if (((unsigned long long)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100 >= ullyy * pct) {
+	  if (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100 >= ullyy * pct) {
 	    pct = (((long long)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100) / ullyy;
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
@@ -8906,8 +8923,8 @@ int calc_rel(pthread_t* threads, int parallel_idx, int parallel_tot, int calcula
 		}
 	      }
 	    }
-	    if (((unsigned long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100 >= ullyy * pct) {
-	      pct = (((unsigned long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100) / ullyy;
+	    if (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100 >= ullyy * pct) {
+	      pct = (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100) / ullyy;
 	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
@@ -8965,7 +8982,7 @@ int calc_rel(pthread_t* threads, int parallel_idx, int parallel_tot, int calcula
 	    if (fwrite_checked(g_geno, (g_indiv_ct - indiv_idx - 1) * 2, outfile)) {
 	      goto calc_rel_ret_WRITE_FAIL;
 	    }
-	    if ((indiv_idx + 1 - min_indiv) * 100LLU >= (unsigned long long)pct * (max_parallel_indiv - min_indiv)) {
+	    if ((indiv_idx + 1 - min_indiv) * 100LLU >= (uint64_t)pct * (max_parallel_indiv - min_indiv)) {
 	      pct = ((indiv_idx + 1 - min_indiv) * 100LLU) / (max_parallel_indiv - min_indiv);
 	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
@@ -8978,7 +8995,7 @@ int calc_rel(pthread_t* threads, int parallel_idx, int parallel_tot, int calcula
 		}
 	      }
 	    }
-	    if (((unsigned long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100LU >= ullyy * pct) {
+	    if (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100LU >= ullyy * pct) {
 	      pct = (((long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100) / ullyy;
 	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
@@ -9039,7 +9056,7 @@ int calc_rel_f(pthread_t* threads, int parallel_idx, int parallel_tot, int calcu
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
   int retval = 0;
-  unsigned long long ullxx = 0;
+  uint64_t ullxx = 0;
   float* dist_ptr = NULL;
   float* dptr3 = NULL;
   float* dptr4 = NULL;
@@ -9058,7 +9075,7 @@ int calc_rel_f(pthread_t* threads, int parallel_idx, int parallel_tot, int calcu
   unsigned int rel_shape;
   unsigned int min_indiv;
   unsigned int max_parallel_indiv;
-  unsigned long long ullyy;
+  uint64_t ullyy;
   unsigned char* wkspace_mark;
   unsigned char* gptr;
   unsigned char* gptr2;
@@ -9279,8 +9296,8 @@ int calc_rel_f(pthread_t* threads, int parallel_idx, int parallel_tot, int calcu
     } else {
       dptr2 = &(rel_ibc[min_indiv]);
     }
-    ullxx = ((unsigned long long)min_indiv * (min_indiv - 1)) / 2;
-    ullyy = (((unsigned long long)max_parallel_indiv * (max_parallel_indiv + 1)) / 2) - ullxx;
+    ullxx = ((uint64_t)min_indiv * (min_indiv - 1)) / 2;
+    ullyy = (((uint64_t)max_parallel_indiv * (max_parallel_indiv + 1)) / 2) - ullxx;
     if (rel_calc_type & REL_CALC_BIN) {
       if (rel_shape == REL_CALC_SQ0) {
 	fill_float_zero((float*)g_geno, g_indiv_ct - 1);
@@ -9300,8 +9317,8 @@ int calc_rel_f(pthread_t* threads, int parallel_idx, int parallel_tot, int calcu
 	  goto calc_rel_f_ret_WRITE_FAIL;
 	}
 	if (rel_shape == REL_CALC_TRI) {
-	  if ((((unsigned long long)indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU >= ullyy * pct) {
-	    pct = (((unsigned long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU) / ullyy;
+	  if ((((uint64_t)indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU >= ullyy * pct) {
+	    pct = (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU) / ullyy;
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
 	  }
@@ -9340,8 +9357,8 @@ int calc_rel_f(pthread_t* threads, int parallel_idx, int parallel_tot, int calcu
 	}
 	dist_ptr = g_rel_f_dists;
 	for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
-	  if (((unsigned long long)indiv_idx * (indiv_idx + 1) / 2 - ullxx) * 100LU >= ullyy * pct) {
-	    pct = (((unsigned long long)indiv_idx * (indiv_idx + 1) / 2 - ullxx) * 100LU) / ullyy;
+	  if (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - ullxx) * 100LU >= ullyy * pct) {
+	    pct = (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - ullxx) * 100LU) / ullyy;
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
 	  }
@@ -9369,8 +9386,8 @@ int calc_rel_f(pthread_t* threads, int parallel_idx, int parallel_tot, int calcu
 	}
 	dist_ptr = g_rel_f_dists;
 	for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
-	  if (((unsigned long long)indiv_idx * (indiv_idx + 1) / 2 - ullxx) * 100LU >= ullyy * pct) {
-	    pct = (((unsigned long long)indiv_idx * (indiv_idx + 1) / 2 - ullxx) * 100LU) / ullyy;
+	  if (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - ullxx) * 100LU >= ullyy * pct) {
+	    pct = (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - ullxx) * 100LU) / ullyy;
 	    printf("\rWriting... %d%%", pct++);
 	    fflush(stdout);
 	  }
@@ -9465,8 +9482,8 @@ int calc_rel_f(pthread_t* threads, int parallel_idx, int parallel_tot, int calcu
 		}
 	      }
 	    }
-	    if (((unsigned long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU >= ullyy * pct) {
-	      pct = (((unsigned long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU) / ullyy;
+	    if (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU >= ullyy * pct) {
+	      pct = (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU) / ullyy;
 	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
@@ -9524,7 +9541,7 @@ int calc_rel_f(pthread_t* threads, int parallel_idx, int parallel_tot, int calcu
 	    if (fwrite_checked(g_geno, (g_indiv_ct - indiv_idx - 1) * 2, outfile)) {
 	      goto calc_rel_f_ret_WRITE_FAIL;
 	    }
-	    if ((indiv_idx + 1 - min_indiv) * 100LLU >= (unsigned long long)pct * (max_parallel_indiv - min_indiv)) {
+	    if ((indiv_idx + 1 - min_indiv) * 100LLU >= (uint64_t)pct * (max_parallel_indiv - min_indiv)) {
 	      pct = ((indiv_idx + 1 - min_indiv) * 100LLU) / (max_parallel_indiv - min_indiv);
 	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
@@ -9537,8 +9554,8 @@ int calc_rel_f(pthread_t* threads, int parallel_idx, int parallel_tot, int calcu
 		}
 	      }
 	    }
-	    if ((((unsigned long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU) >= ullyy * pct) {
-	      pct = (((unsigned long long)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU) / ullyy;
+	    if ((((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU) >= ullyy * pct) {
+	      pct = (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU) / ullyy;
 	      printf("\rWriting... %d%%", pct++);
 	      fflush(stdout);
 	    }
@@ -9607,8 +9624,8 @@ int rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double rel
   unsigned long* rtptr;
   char* bufptr;
   char* bufptr2;
-  unsigned long long ullii;
-  unsigned long long ulljj;
+  uint64_t ullii;
+  uint64_t ulljj;
   unsigned long tot_words;
   unsigned long words_left;
   unsigned long wl_floor;
@@ -9680,7 +9697,7 @@ int rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double rel
   row = 0;
   col = 0;
   for (pct = 1; pct <= 100; pct++) {
-    wl_floor = (((unsigned long long)tot_words) * (100 - pct)) / 100;
+    wl_floor = (((uint64_t)tot_words) * (100 - pct)) / 100;
     while (words_left > wl_floor) {
       cur_word = 0;
       if (--words_left) {
@@ -9885,7 +9902,7 @@ int rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double rel
     }
 
     for (uljj = cur_prune + 1; uljj < indiv_ct; uljj++) {
-      ullii = ((((unsigned long long)uljj) * (uljj - 1)) / 2) + cur_prune;
+      ullii = ((((uint64_t)uljj) * (uljj - 1)) / 2) + cur_prune;
       ulii = ullii / BITCT;
       rtptr = &(compact_rel_table[ulii]);
       inword_idx = ullii & (BITCT - 1);
@@ -9951,7 +9968,7 @@ int rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double rel
       }
     }
     kk = 1;
-    ullii = (((unsigned long long)indiv_ct) * (indiv_ct - 1)) / 2;
+    ullii = (((uint64_t)indiv_ct) * (indiv_ct - 1)) / 2;
     ulljj = 0;
     printf("Rewriting matrix... 0%%");
     fflush(stdout);
@@ -10049,8 +10066,8 @@ int wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* 
   unsigned long marker_ct;
   unsigned char* pedbuf = NULL;
   unsigned long* marker_exclude = NULL;
-  unsigned long long* line_locs = NULL;
-  unsigned long long* line_mids = NULL;
+  uint64_t* line_locs = NULL;
+  uint64_t* line_mids = NULL;
   int pedbuflen;
   unsigned long max_marker_id_len = 0;
   unsigned int plink_maxsnp;
@@ -10082,9 +10099,15 @@ int wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* 
   long long llyy;
   char* marker_ids = NULL;
   unsigned char* marker_weights_base = NULL;
+  // if max_marker_allele_len == 1:
   //   marker_alleles[2 * ii] is id of A1 (usually minor) allele at SNP ii
   //   marker_alleles[2 * ii + 1] is identity of A2 allele at SNP ii
+  // otherwise:
+  //   max_marker_allele_len INCLUDES TRAILING NULL, so at least 3
+  //   marker_alleles[2 * ii * max_marker_allele_len] is id of A1
+  //   marker_alleles[(2 * ii + 1) + max_marker_allele_len] is id of A2
   char* marker_alleles = NULL;
+  unsigned long max_marker_allele_len = 1;
   unsigned long* marker_reverse = NULL;
   unsigned int* marker_allele_cts;
   unsigned int* missing_cts;
@@ -10111,7 +10134,7 @@ int wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* 
   unsigned long* glptr2;
   unsigned long* glptr3;
   int* iptr;
-  unsigned long long dists_alloc = 0;
+  uint64_t dists_alloc = 0;
   double* dist_ptr = NULL;
   double* dptr2;
 #ifndef NOLAPACK
@@ -10246,7 +10269,7 @@ int wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* 
   }
 
   // load .bim, count markers, filter chromosomes
-  retval = load_bim(&mapfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &marker_ids, chrom_info_ptr, &marker_pos, extractname, excludename, freqname, refalleles, calculation_type, recode_modifier, allelexxxx, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &map_is_unsorted);
+  retval = load_bim(&mapfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_pos, extractname, excludename, freqname, refalleles, calculation_type, recode_modifier, allelexxxx, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &map_is_unsorted);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -10328,7 +10351,7 @@ int wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* 
   }
 
   if (allelexxxx) {
-    allelexxxx_recode(allelexxxx, marker_alleles, marker_exclude, unfiltered_marker_ct - marker_exclude_ct);
+    allelexxxx_recode(allelexxxx, marker_alleles, max_marker_allele_len, marker_exclude, unfiltered_marker_ct - marker_exclude_ct);
   }
 
   if (extractname || excludename) {
@@ -10444,7 +10467,7 @@ int wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* 
     goto wdist_ret_READ_FAIL;
   }
   llxx = ftello(pedfile);
-  llyy = llxx - ((unsigned long long)unfiltered_indiv_ct4) * unfiltered_marker_ct;
+  llyy = llxx - ((uint64_t)unfiltered_indiv_ct4) * unfiltered_marker_ct;
   rewind(pedfile);
   if (llyy == 3LL) {
     // v1.00 or later
@@ -10472,7 +10495,7 @@ int wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* 
       goto wdist_ret_INVALID_FORMAT;
     }
   } else if (llyy != 0LL) {
-    sprintf(logbuf, "Error: Invalid .bed file size (expected %llu bytes).\n", ((unsigned long long)unfiltered_indiv_ct4) * unfiltered_marker_ct);
+    sprintf(logbuf, "Error: Invalid .bed file size (expected %llu bytes).\n", ((uint64_t)unfiltered_indiv_ct4) * unfiltered_marker_ct);
     logprintb();
     goto wdist_ret_INVALID_FORMAT;
   } else {
@@ -10507,6 +10530,7 @@ int wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* 
   nonfounders = (nonfounders || (!fam_col_34));
   wt_needed = distance_wt_req(calculation_type) && (!distance_flat_missing);
   hwe_needed = (hwe_thresh > 0.0);
+  // TODO: START FIXING MARKER_ALLELES/MAX_MARKER_ALLELE_LEN HERE
   retval = calc_freqs_and_hwe(pedfile, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_alleles, &marker_reverse, &marker_allele_cts, &missing_cts, bed_offset, line_mids, pedbuflen, (unsigned char)missing_geno, hwe_needed, hwe_all, g_pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &ll_cts, &lh_cts, &hh_cts, wt_needed, &marker_weights_base, &g_marker_weights);
   if (retval) {
     goto wdist_ret_2;
@@ -10595,7 +10619,7 @@ int wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* 
   }
 
   if (calculation_type & CALC_MAKE_BED) {
-    retval = make_bed(pedfile, bed_offset, mapfile, map_cols, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_alleles, marker_reverse, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_pheno, max_marker_id_len, map_is_unsorted, indiv_sort_map, chrom_info_ptr->species);
+    retval = make_bed(pedfile, bed_offset, mapfile, map_cols, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_alleles, max_marker_allele_len, marker_reverse, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_pheno, max_marker_id_len, map_is_unsorted, indiv_sort_map, chrom_info_ptr->species);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -11085,7 +11109,7 @@ int wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* 
 	if (fwrite_checked("\n", 1, outfile)) {
 	  goto wdist_ret_WRITE_FAIL;
 	}
-	if (indiv_idx * 100LLU >= ((unsigned long long)pct * g_indiv_ct)) {
+	if (indiv_idx * 100LLU >= ((uint64_t)pct * g_indiv_ct)) {
 	  pct = (indiv_idx * 100LLU) / g_indiv_ct;
 	  printf("\rWriting... %d%%", pct++);
 	  fflush(stdout);
@@ -11597,10 +11621,10 @@ int parse_next_range(unsigned int param_ct, char range_delim, char** argv, unsig
   return 0;
 }
 
-int parse_chrom_ranges(unsigned int param_ct, char range_delim, char** argv, unsigned long long* chrom_mask_ptr, unsigned int species, char* cur_flag_str) {
+int parse_chrom_ranges(unsigned int param_ct, char range_delim, char** argv, uint64_t* chrom_mask_ptr, unsigned int species, char* cur_flag_str) {
   unsigned int argct = 0;
   unsigned int cur_param_idx = 1;
-  unsigned long long chrom_mask = *chrom_mask_ptr;
+  uint64_t chrom_mask = *chrom_mask_ptr;
   char* cur_arg_ptr;
   char* range_start;
   unsigned int rs_len;
@@ -11960,7 +11984,7 @@ int main(int argc, char** argv) {
   char* flagptr;
   char* missing_code = NULL;
   char range_delim = '-';
-  unsigned long long chrom_exclude = 0;
+  uint64_t chrom_exclude = 0;
   char* snps_flag_markers = NULL;
   unsigned char* snps_flag_starts_range = NULL;
   unsigned int snps_flag_ct;

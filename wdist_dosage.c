@@ -39,7 +39,7 @@ int oxford_sample_load(char* samplename, unsigned long* unfiltered_indiv_ct_ptr,
   unsigned int cur_person_id_len;
   unsigned int uii;
   unsigned int ujj;
-  unsigned long long first_real_line_loc;
+  uint64_t first_real_line_loc;
   int retval;
   int is_missing;
   double dxx;
@@ -364,8 +364,8 @@ int oxford_gen_load1(FILE* genfile, unsigned int* gen_buf_len_ptr, unsigned long
   char* loadbuf = (&(stack_base[sizeof(double)]));
   int is_missing_01 = 1;
   unsigned int pct = 1;
-  unsigned long long file_length;
-  unsigned long long file_pos_100;
+  uint64_t file_length;
+  uint64_t file_pos_100;
   char* bufptr;
   int max_load;
   unsigned int uii;
@@ -1312,7 +1312,7 @@ int oxford_distance_calc(FILE* genfile, unsigned int gen_buf_len, double* set_al
 	    for (ulii = 1; ulii < non_missing_ct; ulii++) {
 	      dxx += ulii * (non_missing_ct - ulii) * (cur_marker_freqs[ulii] - cur_marker_freqs[ulii - 1]);
 	    }
-	    dxx *= 2.0 / ((double)((unsigned long long)non_missing_ct * non_missing_ct));
+	    dxx *= 2.0 / ((double)((uint64_t)non_missing_ct * non_missing_ct));
 	    g_missing_wts[marker_idxl] += dxx;
 	    tot_missing_wt += dxx;
 	    uljj = g_indiv_ct - non_missing_ct;

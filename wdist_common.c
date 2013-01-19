@@ -247,19 +247,19 @@ int next_set_unsafe(unsigned long* include_arr, unsigned int loc) {
 // mouse: 19, X, Y
 // rice: 12 (haploid, not supported for now)
 // sheep: 26, X, Y
-// const unsigned long long species_def_chrom_mask[] = {0x027fffffLLU, 0x3fffffffLLU, 0x27fffffffffLLU, 0xffffffffLLU, 0x000fffffLLU, 0LLU, 0x07ffffffLLU};
-// const unsigned long long species_def_chrom_mask[] = {0x07ffffffLLU, 0xffffffffLLU, 0x3ffffffffffLLU, 0x3ffffffffLLU, 0x003fffffLLU, 0LLU, 0x1fffffffLLU};
-const unsigned long long species_autosome_mask[] = {0x007ffffeLLU, 0x3ffffffeLLU, 0x7ffffffffeLLU, 0xfffffffeLLU, 0x000ffffeLLU, 0LLU, 0x07fffffeLLU};
-// const unsigned long long species_valid_chrom_mask[] = {0x3c0007ffffffLLU, 0xc00ffffffffLLU, 0x1fffffffffffLLU, 0xc00ffffffffLLU, 0xc00000fffffLLU, 0LLU, 0xc001fffffffLLU};
-const unsigned long long species_valid_chrom_mask[] = {0x07ffffffLLU, 0xffffffffLLU, 0x3ffffffffffLLU, 0x3ffffffffLLU, 0x003fffffLLU, 0LLU, 0x1fffffffLLU};
-// const unsigned long long species_valid_chrom_mask[] = {0x3c0007ffffffLLU, 0xc00ffffffffLLU, 0x1fffffffffffLLU, 0xc00ffffffffLLU, 0xc00000fffffLLU, 0x00001fffLLU, 0xc001fffffffLLU}
+// const uint64_t species_def_chrom_mask[] = {0x027fffffLLU, 0x3fffffffLLU, 0x27fffffffffLLU, 0xffffffffLLU, 0x000fffffLLU, 0LLU, 0x07ffffffLLU};
+// const uint64_t species_def_chrom_mask[] = {0x07ffffffLLU, 0xffffffffLLU, 0x3ffffffffffLLU, 0x3ffffffffLLU, 0x003fffffLLU, 0LLU, 0x1fffffffLLU};
+const uint64_t species_autosome_mask[] = {0x007ffffeLLU, 0x3ffffffeLLU, 0x7ffffffffeLLU, 0xfffffffeLLU, 0x000ffffeLLU, 0LLU, 0x07fffffeLLU};
+// const uint64_t species_valid_chrom_mask[] = {0x3c0007ffffffLLU, 0xc00ffffffffLLU, 0x1fffffffffffLLU, 0xc00ffffffffLLU, 0xc00000fffffLLU, 0LLU, 0xc001fffffffLLU};
+const uint64_t species_valid_chrom_mask[] = {0x07ffffffLLU, 0xffffffffLLU, 0x3ffffffffffLLU, 0x3ffffffffLLU, 0x003fffffLLU, 0LLU, 0x1fffffffLLU};
+// const uint64_t species_valid_chrom_mask[] = {0x3c0007ffffffLLU, 0xc00ffffffffLLU, 0x1fffffffffffLLU, 0xc00ffffffffLLU, 0xc00000fffffLLU, 0x00001fffLLU, 0xc001fffffffLLU}
 // const char species_regchrom_ct_p1[] = {23, 30, 39, 40, 20, 13, 27};
 const char species_x_code[] = {23, 30, 39, 32, 20, -1, 27};
 const char species_y_code[] = {24, 31, 40, 33, 21, -1, 28};
 const char species_xy_code[] = {25, -1, 41, -1, -1, -1, -1};
 const char species_mt_code[] = {26, -1, -1, -1, -1, -1, -1};
 const char species_max_code[] = {26, 31, 41, 33, 21, 12, 28};
-const unsigned long long species_haploid_mask[] = {0x05800000LLU, 0xc0000000LLU, 0x18000000000LLU, 0x300000000LLU, 0x00300000LLU, 0x00001fffLLU, 0x18000000LLU};
+const uint64_t species_haploid_mask[] = {0x05800000LLU, 0xc0000000LLU, 0x18000000000LLU, 0x300000000LLU, 0x00300000LLU, 0x00001fffLLU, 0x18000000LLU};
 
 int marker_code_raw(char* sptr) {
   // any character <= ' ' is considered a terminator
@@ -1894,8 +1894,8 @@ void* regress_jack_thread(void* arg) {
   long tidx = (long)arg;
   int* ibuf = (int*)(&(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int))]));
   unsigned char* cbuf = &(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int)) + (g_jackknife_d + 1) * sizeof(int)]);
-  unsigned long long ulii;
-  unsigned long long uljj = g_jackknife_iters / 100;
+  uint64_t ulii;
+  uint64_t uljj = g_jackknife_iters / 100;
   double sum = 0.0;
   double sum_sq = 0.0;
   double sum2 = 0;

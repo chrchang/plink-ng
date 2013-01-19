@@ -36,6 +36,8 @@ typedef union {
 #define RECIP_2_32 0.00000000023283064365386962890625
 // floating point comparison-to-nonzero tolerance, currently 2^{-30}
 #define EPSILON 0.000000000931322574615478515625
+// less tolerant version (2^{-44}) for some exact calculations
+#define SMALL_EPSILON 0.00000000000005684341886080801486968994140625
 
 #define RET_SUCCESS 0
 #define RET_NOMEM 1
@@ -277,8 +279,8 @@ static inline int wkspace_alloc_ll_checked(long long** llp_ptr, unsigned long si
   return (*llp_ptr)? 0 : 1;
 }
 
-static inline int wkspace_alloc_ull_checked(unsigned long long** ullp_ptr, unsigned long size) {
-  *ullp_ptr = (unsigned long long*)wkspace_alloc(size);
+static inline int wkspace_alloc_ull_checked(uint64_t** ullp_ptr, unsigned long size) {
+  *ullp_ptr = (uint64_t*)wkspace_alloc(size);
   return (*ullp_ptr)? 0 : 1;
 }
 
@@ -507,6 +509,22 @@ static inline char convert_to_1234(char cc) {
   return cc;
 }
 
+static inline void convert_to_1234_str_in_place(char* cptr) {
+  char cc = *cptr;
+  do {
+    if (cc == 'A') {
+      *cptr = '1';
+    } else if (cc == 'C') {
+      *cptr = '2';
+    } else if (cc == 'G') {
+      *cptr = '3';
+    } else if (cc == 'T') {
+      *cptr = '4';
+    }
+    cc = *(++cptr);
+  } while (cc);
+}
+
 static inline char convert_to_acgt(char cc) {
   if (cc == '1') {
     return 'A';
@@ -518,6 +536,22 @@ static inline char convert_to_acgt(char cc) {
     return 'T';
   }
   return cc;
+}
+
+static inline void convert_to_acgt_str_in_place(char* cptr) {
+  char cc = *cptr;
+  do {
+    if (cc == '1') {
+      *cptr = 'A';
+    } else if (cc == '2') {
+      *cptr = 'C';
+    } else if (cc == '3') {
+      *cptr = 'G';
+    } else if (cc == '4') {
+      *cptr = 'T';
+    }
+    cc = *(++cptr);
+  } while (cc);
 }
 
 // maximum accepted chromosome index is this minus 1.
@@ -545,7 +579,7 @@ typedef struct {
   unsigned int chrom_end[MAX_POSSIBLE_CHROM];
 
   unsigned int species;
-  unsigned long long chrom_mask;
+  uint64_t chrom_mask;
 } Chrom_info;
 
 #define SPECIES_HUMAN 0
@@ -556,17 +590,17 @@ typedef struct {
 #define SPECIES_RICE 5
 #define SPECIES_SHEEP 6
 
-// extern const unsigned long long species_def_chrom_mask[];
-extern const unsigned long long species_autosome_mask[];
-extern const unsigned long long species_valid_chrom_mask[];
-extern const unsigned long long species_haploid_mask[];
+// extern const uint64_t species_def_chrom_mask[];
+extern const uint64_t species_autosome_mask[];
+extern const uint64_t species_valid_chrom_mask[];
+extern const uint64_t species_haploid_mask[];
 // extern const char species_regchrom_ct_p1[];
 extern const char species_x_code[];
 extern const char species_y_code[];
 extern const char species_xy_code[];
 extern const char species_mt_code[];
 extern const char species_max_code[];
-extern const unsigned long long species_haploid_mask[];
+extern const uint64_t species_haploid_mask[];
 
 int marker_code_raw(char* sptr);
 
