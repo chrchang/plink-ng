@@ -2561,7 +2561,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     }
     if (wkspace_left >= marker_ct * indiv_ct4) {
       markers_per_pass = marker_ct;
-      sprintf(logbuf, "Performing single-pass .bed write (%lu marker%s, %lu pe%s).\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, (indiv_ct == 1)? "rson" : "ople");
+      sprintf(logbuf, "Performing single-pass .bed write (%lu marker%s, %lu %s).\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
       pass_ct = 1;
     } else {
       if (!map_is_unsorted) {
@@ -2574,7 +2574,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	goto ped_to_bed_ret_NOMEM;
       }
       pass_ct = (marker_ct + markers_per_pass - 1) / markers_per_pass;
-      sprintf(logbuf, "Performing %u-pass .bed write (%u/%lu marker%s/pass, %lu pe%s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", indiv_ct, (indiv_ct == 1)? "rson" : "ople");
+      sprintf(logbuf, "Performing %u-pass .bed write (%u/%lu marker%s/pass, %lu %s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
     }
     logprintb();
     writebuf = wkspace_base;
@@ -3904,7 +3904,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
     }
   }
   putchar('\r');
-  sprintf(logbuf, "Dummy data generated (%lu markers, %lu pe%s).\n", marker_ct, indiv_ct, (indiv_ct == 1)? "rson" : "ople");
+  sprintf(logbuf, "Dummy data generated (%lu markers, %lu %s).\n", marker_ct, indiv_ct, species_str(indiv_ct));
   logprintb();
   while (0) {
   generate_dummy_ret_NOMEM:
@@ -6433,9 +6433,9 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       goto merge_datasets_ret_WRITE_FAIL;
     }
     if (pass_ct == 1) {
-      sprintf(logbuf, "Performing single-pass merge (%u pe%s, %u marker%s).\n", tot_indiv_ct, (tot_indiv_ct == 1)? "rson" : "ople", dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
+      sprintf(logbuf, "Performing single-pass merge (%u %s, %u marker%s).\n", tot_indiv_ct, species_str(tot_indiv_ct), dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
     } else {
-      sprintf(logbuf, "Performing %u-pass merge (%u pe%s, %lu/%u marker%s per pass).\n", pass_ct, tot_indiv_ct, (tot_indiv_ct == 1)? "rson" : "ople", markers_per_pass, dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
+      sprintf(logbuf, "Performing %u-pass merge (%u %s, %lu/%u marker%s per pass).\n", pass_ct, tot_indiv_ct, species_str(tot_indiv_ct), markers_per_pass, dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
     }
   } else {
     memcpy(outname_end, ".diff", 6);

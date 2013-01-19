@@ -159,7 +159,7 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
     goto oxford_sample_load_ret_READ_FAIL;
   }
   if (!unfiltered_indiv_ct) {
-    logprint("Error: No individuals in .sample file.\n");
+    sprintf("Error: No %s in .sample file.\n", species_plural);
     goto oxford_sample_load_ret_INVALID_FORMAT_4;
   }
   *unfiltered_indiv_ct_ptr = unfiltered_indiv_ct;
@@ -314,12 +314,12 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
   if (load_sex) {
     uii = unfiltered_indiv_ct - male_ct - female_ct;
     if (uii) {
-      sprintf(logbuf, "%lu pe%s (%d male%s, %d female%s, %d unknown) loaded.\n", unfiltered_indiv_ct, (unfiltered_indiv_ct == 1)? "rson" : "ople", male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s", uii);
+      sprintf(logbuf, "%lu %s (%d male%s, %d female%s, %d unknown) loaded.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s", uii);
     } else {
-      sprintf(logbuf, "%lu pe%s (%d male%s, %d female%s) loaded.\n", unfiltered_indiv_ct, (unfiltered_indiv_ct == 1)? "rson" : "ople", male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s");
+      sprintf(logbuf, "%lu %s (%d male%s, %d female%s) loaded.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s");
     }
   } else {
-    sprintf(logbuf, "%lu pe%s loaded.\n", unfiltered_indiv_ct, (unfiltered_indiv_ct == 1)? "rson" : "ople");
+    sprintf(logbuf, "%lu %s loaded.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct));
   }
   logprintb();
   while (0) {

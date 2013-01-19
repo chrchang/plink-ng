@@ -5164,7 +5164,7 @@ int32_t mind_filter(FILE* bedfile, double mind_thresh, uintptr_t unfiltered_mark
     }
   }
   *indiv_exclude_ct_ptr += removed_ct;
-  sprintf(logbuf, "%u individual%s removed due to missing genotype data (--mind).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  sprintf(logbuf, "%u %s removed due to missing genotype data (--mind).\n", removed_ct, species_str(removed_ct));
   logprintb();
   while (0) {
   mind_filter_ret_NOMEM:
@@ -6450,8 +6450,8 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
       }
       if (!fgets(tbuf, MAXLINELEN, evecfile)) {
 	if (feof(evecfile)) {
-	  logprint("Error: Fewer individuals in .eigenvec file than expected.\n");
-	  goto calc_regress_pcs_ret_INVALID_FORMAT2;
+	  sprintf(logbuf, "Error: Fewer %s in .eigenvec file than expected.\n", species_plural);
+	  goto calc_regress_pcs_ret_INVALID_FORMAT_3;
 	} else {
 	  goto calc_regress_pcs_ret_READ_FAIL;
 	}
@@ -6461,8 +6461,8 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       if (!fgets(tbuf, MAXLINELEN, evecfile)) {
 	if (feof(evecfile)) {
-	  logprint("Error: Fewer individuals in .evec file than expected.\n");
-	  goto calc_regress_pcs_ret_INVALID_FORMAT2;
+	  sprintf(logbuf, "Error: Fewer %s in .evec file than expected.\n", species_plural);
+	  goto calc_regress_pcs_ret_INVALID_FORMAT_3;
 	} else {
 	  goto calc_regress_pcs_ret_READ_FAIL;
 	}
@@ -6482,9 +6482,8 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
   }
   if (fgets(tbuf, MAXLINELEN, evecfile)) {
     if (!no_more_items_kns(skip_initial_spaces(tbuf))) {
-      sprintf(logbuf, "Error: More individuals in .e%svec file than expected.\n", is_eigenvec? "igen" : "");
-      logprintb();
-      goto calc_regress_pcs_ret_INVALID_FORMAT2;
+      sprintf(logbuf, "Error: More %s in .e%svec file than expected.\n", species_plural, is_eigenvec? "igen" : "");
+      goto calc_regress_pcs_ret_INVALID_FORMAT_3;
     }
   }
   fclose_null(&evecfile);
@@ -6705,6 +6704,10 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
     break;
   calc_regress_pcs_ret_READ_FAIL:
     retval = RET_READ_FAIL;
+    break;
+  calc_regress_pcs_ret_INVALID_FORMAT_3:
+    logprintb();
+    retval = RET_INVALID_FORMAT;
     break;
   calc_regress_pcs_ret_INVALID_FORMAT:
     logprint("Error: Improperly formatted .evec file.\n");
@@ -8280,7 +8283,7 @@ int32_t do_rel_cutoff(int32_t calculation_type, double rel_cutoff, double* rel_i
       }
     }
   }
-  sprintf(logbuf, "%d individual%s excluded by --rel-cutoff.\n", indivs_excluded, (indivs_excluded == 1)? "" : "s");
+  sprintf(logbuf, "%d %s excluded by --rel-cutoff.\n", indivs_excluded, species_str(indivs_excluded));
   logprintb();
   if (!(calculation_type & (CALC_RELATIONSHIP | CALC_GDISTANCE_MASK))) {
     strcpy(outname_end, ".rel.id");
@@ -8452,7 +8455,7 @@ int32_t do_rel_cutoff_f(int32_t calculation_type, float rel_cutoff, float* rel_i
       }
     }
   }
-  sprintf(logbuf, "%d individual%s excluded by --rel-cutoff.\n", indivs_excluded, (indivs_excluded == 1)? "" : "s");
+  sprintf(logbuf, "%d %s excluded by --rel-cutoff.\n", indivs_excluded, species_str(indivs_excluded));
   logprintb();
   if (!(calculation_type & (CALC_RELATIONSHIP | CALC_GDISTANCE_MASK))) {
     strcpy(outname_end, ".rel.id");
@@ -9943,7 +9946,7 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
   fclose_null(&idfile);
   fclose_null(&outfile);
 
-  sprintf(logbuf, "%d individual%s excluded by --rel-cutoff.\n", indivs_excluded, (indivs_excluded == 1)? "" : "s");
+  sprintf(logbuf, "%d %s excluded by --rel-cutoff.\n", indivs_excluded, species_str(indivs_excluded));
   logprintb();
   sprintf(logbuf, "Remaining individual IDs written to %s.\n", outname);
   logprintb();
@@ -10292,9 +10295,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   count_genders(sex_info, unfiltered_indiv_ct, indiv_exclude, &ii, &jj, &kk);
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   if (kk) {
-    sprintf(logbuf, "%lu marker%s and %lu pe%s (%d male%s, %d female%s, %d unknown) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, (unfiltered_indiv_ct == 1)? "rson" : "ople", ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s", kk);
+    sprintf(logbuf, "%lu marker%s and %lu %s (%d male%s, %d female%s, %d unknown) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s", kk);
   } else {
-    sprintf(logbuf, "%lu marker%s and %lu pe%s (%d male%s, %d female%s) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, (unfiltered_indiv_ct == 1)? "rson" : "ople", ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s");
+    sprintf(logbuf, "%lu marker%s and %lu %s (%d male%s, %d female%s) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s");
   }
   logprintb();
 
@@ -10441,7 +10444,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_NOMEM;
     }
     ii = indiv_exclude_ct - ii;
-    sprintf(logbuf, "%d individual%s removed due to case/control status (--filter-%s).\n", ii, (ii == 1)? "" : "s", (filter_case_control == 1)? "cases" : "controls");
+    sprintf(logbuf, "%d %s removed due to case/control status (--filter-%s).\n", ii, species_str(ii), (filter_case_control == 1)? "cases" : "controls");
     logprintb();
   }
   if (filter_sex) {
@@ -10450,7 +10453,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_NOMEM;
     }
     ii = indiv_exclude_ct - ii;
-    sprintf(logbuf, "%d individual%s removed due to gender filter (--filter-%s).\n", ii, (ii == 1)? "" : "s", (filter_sex == 1)? "males" : "females");
+    sprintf(logbuf, "%d %s removed due to gender filter (--filter-%s).\n", ii, species_str(ii), (filter_sex == 1)? "males" : "females");
     logprintb();
   }
   if (filter_founder_nonf) {
@@ -10459,7 +10462,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_NOMEM;
     }
     ii = indiv_exclude_ct - ii;
-    sprintf(logbuf, "%d individual%s removed due to founder status (--filter-%s).\n", ii, (ii == 1)? "" : "s", (filter_founder_nonf == 1)? "founders" : "nonfounders");
+    sprintf(logbuf, "%d %s removed due to founder status (--filter-%s).\n", ii, species_str(ii), (filter_founder_nonf == 1)? "founders" : "nonfounders");
     logprintb();
   }
 
@@ -10588,7 +10591,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   wkspace_reset(hwe_lls);
 
-  sprintf(logbuf, "%lu marker%s and %lu pe%s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", g_indiv_ct, (g_indiv_ct == 1)? "rson" : "ople", (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
+  sprintf(logbuf, "%lu marker%s and %lu %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", g_indiv_ct, species_str(g_indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
   logprintb();
 
   if (parallel_tot > g_indiv_ct / 2) {
@@ -12450,6 +12453,8 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE;
     }
   }
+  species_singular = species_singulars[chrom_info.species];
+  species_plural = species_plurals[chrom_info.species];
   cur_flag = 0;
   do {
     argptr = &(flag_buf[cur_flag * MAX_FLAG_LEN]);

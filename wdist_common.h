@@ -601,6 +601,15 @@ extern const char species_xy_code[];
 extern const char species_mt_code[];
 extern const char species_max_code[];
 extern const uint64_t species_haploid_mask[];
+extern char species_singulars[][7];
+extern char species_plurals[][8];
+
+extern char* species_singular;
+extern char* species_plural;
+
+static inline char* species_str(uintptr_t ct) {
+  return (ct == 1LU)? species_singular : species_plural;
+}
 
 int32_t marker_code_raw(char* sptr);
 

@@ -260,6 +260,11 @@ const char species_xy_code[] = {25, -1, 41, -1, -1, -1, -1};
 const char species_mt_code[] = {26, -1, -1, -1, -1, -1, -1};
 const char species_max_code[] = {26, 31, 41, 33, 21, 12, 28};
 const uint64_t species_haploid_mask[] = {0x05800000LLU, 0xc0000000LLU, 0x18000000000LLU, 0x300000000LLU, 0x00300000LLU, 0x00001fffLLU, 0x18000000LLU};
+char species_singulars[][7] = {"person", "animal", "animal", "animal", "animal", "plant", "animal"};
+char species_plurals[][8] = {"people", "animals", "animals", "animals", "animals", "plants", "animals"};
+
+char* species_singular = NULL;
+char* species_plural = NULL;
 
 int32_t marker_code_raw(char* sptr) {
   // any character <= ' ' is considered a terminator
