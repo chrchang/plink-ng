@@ -138,7 +138,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (19 Jan 2013)";
+  " (20 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -6270,9 +6270,10 @@ void exclude_ambiguous_sex(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclu
   }
 }
 
-int32_t load_ref_alleles(char* infilename, uintptr_t unfiltered_marker_ct, char* marker_alleles, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len) {
+int32_t load_ref_alleles(char* infilename, uintptr_t unfiltered_marker_ct, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
+  uint32_t slen;
   char* sorted_ids;
   char* bufptr;
   char* bufptr2;
@@ -6305,14 +6306,32 @@ int32_t load_ref_alleles(char* infilename, uintptr_t unfiltered_marker_ct, char*
       continue;
     } else {
       sorted_idx = id_map[sorted_idx];
-      cc = *bufptr3;
-      if (cc == marker_alleles[sorted_idx * 2]) {
-	clear_bit_noct(marker_reverse, sorted_idx);
-      } else if (cc == marker_alleles[sorted_idx * 2 + 1]) {
-	set_bit_noct(marker_reverse, sorted_idx);
+      if (max_marker_allele_len == 1) {
+	cc = *bufptr3;
+	if (cc == marker_alleles[sorted_idx * 2]) {
+	  clear_bit_noct(marker_reverse, sorted_idx);
+	} else if (cc == marker_alleles[sorted_idx * 2 + 1]) {
+	  set_bit_noct(marker_reverse, sorted_idx);
+	} else {
+	  sprintf(logbuf, "Warning: Impossible reference allele assignment for marker %s.\n", bufptr);
+	  logprintb();
+	}
       } else {
-        sprintf(logbuf, "Warning: Impossible reference allele assignment for marker %s.\n", bufptr);
-	logprintb();
+	slen = strlen_se(bufptr3);
+	if (slen >= max_marker_allele_len) {
+	  sprintf(logbuf, "Warning: Impossible reference allele assignment for marker %s.\n", bufptr);
+	  logprintb();
+	} else {
+	  bufptr3[slen++] = '\0';
+	  if (!memcmp(bufptr3, &(marker_alleles[sorted_idx * 2 * max_marker_allele_len]), slen)) {
+	    clear_bit_noct(marker_reverse, sorted_idx);
+	  } else if (!memcmp(bufptr3, &(marker_alleles[(sorted_idx * 2 + 1) * max_marker_allele_len]), slen)) {
+	    set_bit_noct(marker_reverse, sorted_idx);
+	  } else {
+	    sprintf(logbuf, "Warning: Impossible reference allele assignment for marker %s.\n", bufptr);
+	    logprintb();
+	  }
+	}
       }
     }
   }
@@ -6394,7 +6413,7 @@ void normalize_phenos(double* new_phenos, uintptr_t indiv_ct, uintptr_t unfilter
   }
 }
 
-int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, FILE* pedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, unsigned char* sex_info, double* pheno_d, double missing_phenod, FILE** outfile_ptr, char* outname, char* outname_end) {
+int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, FILE* pedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, unsigned char* sex_info, double* pheno_d, double missing_phenod, FILE** outfile_ptr, char* outname, char* outname_end) {
   FILE* evecfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -6607,8 +6626,14 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
     if (fread(loadbuf, 1, unfiltered_indiv_ct4, pedfile) < unfiltered_indiv_ct4) {
       return RET_READ_FAIL;
     }
-    if (fprintf(*outfile_ptr, "%d %s %u %c %c", get_marker_chrom(chrom_info_ptr, marker_uidx), &(marker_ids[marker_uidx * max_marker_id_len]), marker_pos[marker_uidx], marker_alleles[2 * marker_uidx], marker_alleles[2 * marker_uidx + 1]) < 0) {
-      return RET_WRITE_FAIL;
+    if (max_marker_allele_len == 1) {
+      if (fprintf(*outfile_ptr, "%d %s %u %c %c", get_marker_chrom(chrom_info_ptr, marker_uidx), &(marker_ids[marker_uidx * max_marker_id_len]), marker_pos[marker_uidx], marker_alleles[2 * marker_uidx], marker_alleles[2 * marker_uidx + 1]) < 0) {
+        return RET_WRITE_FAIL;
+      }
+    } else {
+      if (fprintf(*outfile_ptr, "%d %s %u %s %s", get_marker_chrom(chrom_info_ptr, marker_uidx), &(marker_ids[marker_uidx * max_marker_id_len]), marker_pos[marker_uidx], &(marker_alleles[2 * marker_uidx * max_marker_allele_len]), &(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len])) < 0) {
+        return RET_WRITE_FAIL;
+      }
     }
     memcpy(pc_prod_sums, pc_orig_prod_sums, pc_ct_p1 * pc_ct_p1 * sizeof(double));
     fill_double_zero(x_prime_y, pc_ct_p1);
@@ -10640,7 +10665,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     } else {
       strcpy(outname_end, ".frq");
     }
-    // TODO: START FIXING MARKER_ALLELES/MAX_MARKER_ALLELE_LEN HERE
     retval = write_freqs(&outfile, outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, freq_counts, freqx, missing_geno, marker_reverse);
     if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_FREQ))))) {
       goto wdist_ret_2;
@@ -10690,7 +10714,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (refalleles) {
-    retval = load_ref_alleles(refalleles, unfiltered_marker_ct, marker_alleles, marker_reverse, marker_ids, max_marker_id_len);
+    retval = load_ref_alleles(refalleles, unfiltered_marker_ct, marker_alleles, max_marker_allele_len, marker_reverse, marker_ids, max_marker_id_len);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -10711,7 +10735,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_RECODE) {
-    retval = recode(recode_modifier, bedfile, bed_offset, famfile, bimfile, &outfile, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_alleles, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_geno, output_missing_pheno);
+    retval = recode(recode_modifier, bedfile, bed_offset, famfile, bimfile, &outfile, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_c, g_pheno_d, missing_phenod, output_missing_geno, output_missing_pheno);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -10726,7 +10750,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (calculation_type & CALC_REGRESS_PCS) {
     // do this before marker_alleles is overwritten in memory...
-    retval = calc_regress_pcs(evecname, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, chrom_info_ptr, marker_pos, g_indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, sex_info, g_pheno_d, missing_phenod, &outfile, outname, outname_end);
+    retval = calc_regress_pcs(evecname, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, chrom_info_ptr, marker_pos, g_indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, sex_info, g_pheno_d, missing_phenod, &outfile, outname, outname_end);
     if (retval) {
       goto wdist_ret_2;
     }
