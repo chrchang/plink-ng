@@ -1959,8 +1959,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   memset(marker_alleles_tmp, 0, marker_ct * (4LU * sizeof(int32_t) + 16));
 
   rewind(*pedfile_ptr);
-  logprint("Rescanning .ped file...");
-  fputs(" 0%", stdout);
+  fputs("Rescanning .ped file... 0%", stdout);
   fflush(stdout);
   while (1) {
     loadbuf_size = wkspace_left - topsize;
@@ -2089,6 +2088,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   if (!feof(*pedfile_ptr)) {
     goto ped_to_bed_multichar_allele_ret_READ_FAIL;
   }
+  // TODO
 
   while (0) {
   ped_to_bed_multichar_allele_ret_NOMEM:
@@ -2391,7 +2391,9 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     }
     if (!is_eoln_kns(*bufptr)) {
       // either multi-character alleles, or invalid format.  Restart scan.
-      sprintf(logbuf, "\n.ped line longer than expected.  Restarting scan, assuming multi-character\nalleles are present this time.\n");
+      putchar('\r');
+      logstr("\n");
+      sprintf(logbuf, ".ped line longer than expected.  Restarting scan, assuming multichar alleles.\n");
       logprintb();
       max_marker_allele_len = 2;
       break;

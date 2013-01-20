@@ -867,10 +867,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     of the other, infer a MAF of (j+1) / (j+k+2), rather than\n"
 "                     the usual j / (j+k).\n"
 	       );
-    help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
-"  --allele1234     : Interpret/recode A/C/G/Ts in alleles as 1/2/3/4.\n"
-"  --alleleACGT     : Interpret/recode 1/2/3/4s in alleles as A/C/G/T.\n"
-	       );
     help_print("exponent\tdistance", &help_ctrl, 0,
 "  --exponent [val] : When computing genomic distances, each marker has a weight\n"
 "                     of (2q(1-q))^{-val}, where q is the inferred MAF.  (Use\n"
@@ -888,6 +884,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-allow-equal-pos", &help_ctrl, 0,
 "  --merge-allow-equal-pos   : Do not merge markers with different names but\n"
 "                              identical positions.\n"
+	       );
+    help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
+"  --allele1234 <multichar>  : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"
+"                              With 'multichar', converts all A/C/G/Ts in\n"
+"                              allele names to 1/2/3/4s.\n"
+"  --alleleACGT <multichar>  : Reverse of --allele1234.\n"
 	       );
     help_print("reference-allele\tupdate-ref-allele", &help_ctrl, 0,
 "  --reference-allele [file] : Force alleles named in the file to A1.\n"
@@ -4803,6 +4805,36 @@ void prune_missing_phenos(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclud
   }
 }
 
+const char acgtstr[] = "ACGT";
+
+void convert_multichar_allele(char* cptr, int32_t allelexxxx) {
+  char cc = *cptr;
+  if ((allelexxxx & 1) && (cptr[1] != '\0')) {
+    return;
+  }
+  if (allelexxxx < 3) {
+    while (cc) {
+      if (cc == 'A') {
+	*cptr = '1';
+      } else if (cc == 'C') {
+	*cptr = '2';
+      } else if (cc == 'G') {
+	*cptr = '3';
+      } else if (cc == 'T') {
+	*cptr = '4';
+      }
+      cc = *(++cptr);
+    }
+    return;
+  }
+  while (cc) {
+    if ((cc >= '1') && (cc <= '4')) {
+      *cptr = acgtstr[cc - '1'];
+    }
+    cc = *(++cptr);
+  }
+}
+
 void allelexxxx_recode(int32_t allelexxxx, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_exclude, uint32_t marker_ct) {
   uintptr_t marker_uidx = 0;
   char* cptr;
@@ -4813,7 +4845,7 @@ void allelexxxx_recode(int32_t allelexxxx, char* marker_alleles, uintptr_t max_m
       marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
       cptr = &(marker_alleles[marker_uidx * 2]);
       cc = *cptr;
-      if (allelexxxx == 1) {
+      if (allelexxxx < 3) {
 	*cptr++ = convert_to_1234(cc);
 	*cptr = convert_to_1234(*cptr);
       } else {
@@ -4826,15 +4858,9 @@ void allelexxxx_recode(int32_t allelexxxx, char* marker_alleles, uintptr_t max_m
     for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
       marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
       cptr = &(marker_alleles[marker_uidx * 2 * max_marker_allele_len]);
-      if (allelexxxx == 1) {
-	convert_to_1234_str_in_place(cptr);
-	cptr = &(cptr[max_marker_allele_len]);
-	convert_to_1234_str_in_place(cptr);
-      } else {
-        convert_to_acgt_str_in_place(cptr);
-	cptr = &(cptr[max_marker_allele_len]);
-	convert_to_acgt_str_in_place(cptr);
-      }
+      convert_multichar_allele(cptr, allelexxxx);
+      cptr = &(cptr[max_marker_allele_len]);
+      convert_multichar_allele(cptr, allelexxxx);
       marker_uidx++;
     }
   }
@@ -12597,15 +12623,35 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "ll", 3)) {
 	logprint("Note: --all flag has no effect.\n");
       } else if (!memcmp(argptr2, "llele1234", 10)) {
-	allelexxxx = 1;
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (ii == 1) {
+	  if (memcmp("multichar", argv[cur_arg + 1], 10)) {
+	    sprintf(logbuf, "Error: Invalid --allele1234 parameter '%s'.%s\n", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  allelexxxx = 2;
+	} else {
+	  allelexxxx = 1;
+	}
       } else if (!memcmp(argptr2, "lleleACGT", 9)) {
 	if (allelexxxx) {
-	  if (allelexxxx == 1) {
-	    logprint("Error: --allele1234 and --alleleACGT cannot be used together.\n");
-	  }
+	  logprint("Error: --allele1234 and --alleleACGT cannot be used together.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	allelexxxx = 2;
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (ii == 1) {
+	  if (memcmp("multichar", argv[cur_arg + 1], 10)) {
+	    sprintf(logbuf, "Error: Invalid --alleleACGT parameter '%s'.%s\n", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  allelexxxx = 4;
+	} else {
+	  allelexxxx = 3;
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }

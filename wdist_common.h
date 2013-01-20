@@ -509,22 +509,6 @@ static inline char convert_to_1234(char cc) {
   return cc;
 }
 
-static inline void convert_to_1234_str_in_place(char* cptr) {
-  char cc = *cptr;
-  do {
-    if (cc == 'A') {
-      *cptr = '1';
-    } else if (cc == 'C') {
-      *cptr = '2';
-    } else if (cc == 'G') {
-      *cptr = '3';
-    } else if (cc == 'T') {
-      *cptr = '4';
-    }
-    cc = *(++cptr);
-  } while (cc);
-}
-
 static inline char convert_to_acgt(char cc) {
   if (cc == '1') {
     return 'A';
@@ -536,22 +520,6 @@ static inline char convert_to_acgt(char cc) {
     return 'T';
   }
   return cc;
-}
-
-static inline void convert_to_acgt_str_in_place(char* cptr) {
-  char cc = *cptr;
-  do {
-    if (cc == '1') {
-      *cptr = 'A';
-    } else if (cc == '2') {
-      *cptr = 'C';
-    } else if (cc == '3') {
-      *cptr = 'G';
-    } else if (cc == '4') {
-      *cptr = 'T';
-    }
-    cc = *(++cptr);
-  } while (cc);
 }
 
 // maximum accepted chromosome index is this minus 1.
