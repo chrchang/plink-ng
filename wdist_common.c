@@ -86,7 +86,7 @@ void wkspace_reset(void* new_base) {
   wkspace_left += freed_bytes;
 }
 
-int get_next_noncomment(FILE* fptr, char** lptr_ptr) {
+int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr) {
   char* lptr;
   do {
     if (!fgets(tbuf, MAXLINELEN, fptr)) {
@@ -98,7 +98,7 @@ int get_next_noncomment(FILE* fptr, char** lptr_ptr) {
   return 0;
 }
 
-int get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr) {
+int32_t get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr) {
   while (!get_next_noncomment(fptr, lptr_ptr)) {
     if (!is_set(marker_exclude, *marker_uidx_ptr)) {
       return 0;
@@ -130,13 +130,38 @@ char* item_endl(char* sptr) {
   return sptr;
 }
 
-// char* item_endnn2(char* sptr) {
-//   char cc = *sptr;
-//   while ((cc != ' ') && (cc != '\t') && cc) {
-//     cc = *(++sptr);
-//   }
-//   return sptr;
-// }
+void get_top_two(uint32_t* uint_arr, uint32_t uia_size, uint32_t* top_idx_ptr, uint32_t* second_idx_ptr) {
+  uint32_t cur_idx = 2;
+  uint32_t top_idx;
+  uint32_t top_val;
+  uint32_t second_idx;
+  uint32_t second_val;
+  uint32_t cur_val;
+  if (uint_arr[1] > uint_arr[0]) {
+    top_idx = 1;
+  } else {
+    top_idx = 0;
+  }
+  second_idx = 1 ^ top_idx;
+  top_val = uint_arr[top_idx];
+  second_val = uint_arr[second_idx];
+  do {
+    cur_val = uint_arr[cur_idx];
+    if (cur_val > second_val) {
+      if (cur_val > top_val) {
+	second_val = top_val;
+	second_idx = top_idx;
+	top_val = cur_val;
+	top_idx = cur_idx;
+      } else {
+	second_val = cur_val;
+	second_idx = cur_idx;
+      }
+    }
+  } while (++cur_idx < uia_size);
+  *top_idx_ptr = top_idx;
+  *second_idx_ptr = second_idx;
+}
 
 int32_t intlen(int32_t num) {
   int32_t retval;

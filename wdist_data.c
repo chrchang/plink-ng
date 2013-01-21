@@ -1909,7 +1909,32 @@ int32_t incr_text_allele_str(uintptr_t* topsize_ptr, char* allele_name, uint32_t
   return RET_INVALID_FORMAT;
 }
 
-int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** mapfile_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_alleles_f, uint32_t map_is_unsorted, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, uint32_t ped_col_skip, uint32_t* map_reverse, int64_t ped_size) {
+char* get_llstr(Ll_str* llptr, uint32_t allele_idx) {
+  char* cptr = llptr->ss;
+  if (*cptr == '\0') {
+    llptr = llptr->next;
+    if (!llptr) {
+      return NULL;
+    }
+    cptr = llptr->ss;
+  }
+  while (allele_idx) {
+    cptr = item_endnn(cptr);
+    allele_idx--;
+    if (*cptr) {
+      cptr++;
+    } else {
+      llptr = llptr->next;
+      if (!llptr) {
+	return NULL;
+      }
+      cptr = llptr->ss;
+    }
+  }
+  return cptr;
+}
+
+int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** mapfile_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_alleles_f, uint32_t map_is_unsorted, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, uint32_t ped_col_skip, uint32_t gd_col, uint32_t* map_reverse, int64_t ped_size) {
   // maintain allele counts and linked lists of observed alleles at FAR end of
   // wkspace.
   int32_t retval = 0;
@@ -1932,8 +1957,10 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
   uintptr_t ulii;
+  uint64_t ullii;
   uint32_t uii;
   uint32_t ujj;
+  uint32_t ukk;
   uint32_t alen1;
   uint32_t alen2;
   char* aptr1;
@@ -2088,7 +2115,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   if (!feof(*pedfile_ptr)) {
     goto ped_to_bed_multichar_allele_ret_READ_FAIL;
   }
-  fputs("\b\b\bdone.\n", stdout);
+  fputs("\r.ped scan complete (for binary autoconversion).\n", stdout);
   if (!indiv_ct) {
     sprintf(logbuf, "Error: No %s in .ped file.\n", species_plural);
     goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2;
@@ -2096,6 +2123,11 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   if (fclose_null(outfile_ptr)) {
     goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
   }
+  ullii = marker_ct * ((uint64_t)max_marker_allele_len) * 2 * sizeof(char);
+  if (topsize + ullii > ((uint64_t)wkspace_left)) {
+    goto ped_to_bed_multichar_allele_ret_NOMEM;
+  }
+  marker_alleles_f = (char*)wkspace_alloc(ullii);
   memcpy(outname_end, ".bim", 5);
   if (fopen_checked(outfile_ptr, outname, "w")) {
     goto ped_to_bed_multichar_allele_ret_OPEN_FAIL;
@@ -2113,15 +2145,78 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       if (!fgets(tbuf, MAXLINELEN, *mapfile_ptr)) {
 	goto ped_to_bed_multichar_allele_ret_READ_FAIL;
       }
-      bufptr3 = tbuf;
     } else {
-      if (get_next_noncomment_excl(*mapfile_ptr, &bufptr3, marker_exclude, &marker_uidx)) {
+      if (get_next_noncomment_excl(*mapfile_ptr, &bufptr, marker_exclude, &marker_uidx)) {
 	goto ped_to_bed_multichar_allele_ret_READ_FAIL;
       }
-      bufptr = bufptr3;
     }
-    // TODO
+    if (marker_allele_cts[4 * marker_idx + 2]) {
+      ukk = marker_allele_cts[4 * marker_idx + 3];
+      if (map_is_unsorted) {
+        sprintf(logbuf, "Warning: Marker %u (post-sort/filter) %sallelic; setting rarest missing.\n", map_reverse[marker_idx] + 1, (ukk? "quad" : "tri"));
+      } else {
+        sprintf(logbuf, "Warning: Marker %lu %sallelic; setting rarest alleles missing.\n", marker_idx + 1, (ukk? "quad" : "tri"));
+      }
+      get_top_two(&(marker_allele_cts[4 * marker_idx]), ukk? 4 : 3, &uii, &ujj);
+      ukk = map_reverse[marker_idx];
+    } else {
+      if (marker_allele_cts[4 * marker_idx] >= marker_allele_cts[4 * marker_idx + 1]) {
+        uii = 0;
+        ujj = 1;
+      } else {
+        uii = 1;
+        ujj = 0;
+      }
+      ukk = marker_idx;
+    }
+    aptr1 = &(marker_alleles_f[2 * marker_idx * max_marker_allele_len]);
+    aptr2 = &(aptr1[max_marker_allele_len]);
+    copy_nse(aptr1, get_llstr((Ll_str*)(&(marker_alleles_tmp[ukk])), uii));
+    copy_nse(aptr2, get_llstr((Ll_str*)(&(marker_alleles_tmp[ukk])), ujj));
+    bufptr3 = &(tbuf[MAXLINELEN]);
+    if (map_is_unsorted) {
+      bufptr = (char*)memchr(tbuf, '\n', MAXLINELEN);
+      ulii = (uintptr_t)(bufptr - tbuf);
+      memcpy(bufptr3, tbuf, ulii);
+      bufptr2 = &(bufptr3[ulii]);
+    } else {
+      uii = 0;
+      copy_item(bufptr3, &uii, &bufptr);
+      copy_item(bufptr3, &uii, &bufptr);
+      if (gd_col) {
+	copy_item(bufptr3, &uii, &bufptr);
+      } else {
+	memcpy(&(bufptr3[uii]), "0\t", 2);
+	uii += 2;
+      }
+      bufptr = skip_initial_spaces(bufptr);
+      ujj = strlen_se(bufptr);
+      memcpy(&(bufptr3[uii]), bufptr, ujj);
+      bufptr2 = &(bufptr3[uii + ujj]);
+    }
+    *bufptr2++ = '\t';
+    alen1 = strlen_se(aptr1);
+    if (alen1) {
+      memcpy(bufptr2, aptr1, alen1);
+      bufptr2 = &(bufptr2[alen1]);
+    } else {
+      *bufptr2++ = '0';
+    }
+    *bufptr2++ = '\t';
+    alen2 = strlen_se(aptr2);
+    if (alen2) {
+      memcpy(bufptr2, aptr2, alen2);
+      bufptr2 = &(bufptr2[alen2]);
+    } else {
+      *bufptr2++ = '0';
+    }
+    *bufptr2++ = '\n';
+    if (fwrite_checked(bufptr3, bufptr2 - bufptr3, *outfile_ptr)) {
+      goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
+    }
+    marker_uidx++;
   }
+  printf("Incomplete.\n");
 
   while (0) {
   ped_to_bed_multichar_allele_ret_NOMEM:
@@ -2482,20 +2577,19 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	if (!fgets(tbuf, MAXLINELEN, mapfile)) {
 	  goto ped_to_bed_ret_READ_FAIL;
 	}
-	bufptr3 = tbuf;
       } else {
-	if (get_next_noncomment_excl(mapfile, &bufptr3, marker_exclude, &marker_uidx)) {
+	if (get_next_noncomment_excl(mapfile, &bufptr, marker_exclude, &marker_uidx)) {
 	  goto ped_to_bed_ret_READ_FAIL;
 	}
-	bufptr = bufptr3;
       }
       if (marker_alleles[marker_idx * 4 + 2]) {
 	cc = marker_alleles[marker_idx * 4 + 3];
 	if (map_is_unsorted) {
-	  sprintf(logbuf, "Warning: Marker %u (post-sort/filter) %sallelic; setting rares missing.\n", map_reverse[marker_idx] + 1, (cc? "quad" : "tri"));
+	  sprintf(logbuf, "Warning: Marker %u (post-sort/filter) %sallelic; setting rarest missing.\n", map_reverse[marker_idx] + 1, (cc? "quad" : "tri"));
 	} else {
-	  sprintf(logbuf, "Warning: Marker %lu %sallelic; setting rare alleles missing.\n", marker_idx + 1, (cc? "quad" : "tri"));
+	  sprintf(logbuf, "Warning: Marker %lu %sallelic; setting rarest alleles missing.\n", marker_idx + 1, (cc? "quad" : "tri"));
 	}
+	logprintb();
 	ujj = (cc? 4 : 3);
 	// insertion sort
 	for (uii = 1; uii < ujj; uii++) {
@@ -2531,22 +2625,26 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       if (!cc2) {
 	cc2 = '0';
       }
+      bufptr3 = &(tbuf[MAXLINELEN]);
       if (map_is_unsorted) {
-	bufptr2 = (char*)memchr(tbuf, '\n', MAXLINELEN);
+	bufptr = (char*)memchr(tbuf, '\n', MAXLINELEN);
+	ulii = (uintptr_t)(bufptr - tbuf);
+	memcpy(bufptr3, tbuf, ulii);
+	bufptr2 = &(bufptr3[ulii]);
       } else {
 	uii = 0;
-	copy_item(tbuf, &uii, &bufptr);
-	copy_item(tbuf, &uii, &bufptr);
+	copy_item(bufptr3, &uii, &bufptr);
+	copy_item(bufptr3, &uii, &bufptr);
 	if (gd_col) {
-	  copy_item(tbuf, &uii, &bufptr);
+	  copy_item(bufptr3, &uii, &bufptr);
 	} else {
-	  memcpy(&(tbuf[uii]), "0\t", 2);
+	  memcpy(&(bufptr3[uii]), "0\t", 2);
 	  uii += 2;
 	}
 	bufptr = skip_initial_spaces(bufptr);
 	ujj = strlen_se(bufptr);
-	memcpy(&(tbuf[uii]), bufptr, ujj);
-	bufptr2 = &(tbuf[uii + ujj]);
+	memcpy(&(bufptr3[uii]), bufptr, ujj);
+	bufptr2 = &(bufptr3[uii + ujj]);
       }
       *bufptr2++ = '\t';
       *bufptr2++ = cc;
@@ -2721,7 +2819,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       }
     }
   } else {
-    retval = ped_to_bed_multichar_allele(max_marker_allele_len, &pedfile, &outfile, outname, outname_end, &mapfile, unfiltered_marker_ct, marker_exclude, marker_ct, marker_alleles_f, map_is_unsorted, fam_col_1, fam_col_34, fam_col_5, fam_col_6, ped_col_skip, map_reverse, ped_size);
+    retval = ped_to_bed_multichar_allele(max_marker_allele_len, &pedfile, &outfile, outname, outname_end, &mapfile, unfiltered_marker_ct, marker_exclude, marker_ct, marker_alleles_f, map_is_unsorted, fam_col_1, fam_col_34, fam_col_5, fam_col_6, ped_col_skip, gd_col, map_reverse, ped_size);
     if (retval) {
       goto ped_to_bed_ret_1;
     }

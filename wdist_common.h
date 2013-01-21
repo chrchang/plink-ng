@@ -342,13 +342,12 @@ static inline int32_t is_space_or_eoln(char cc) {
 }
 */
 static inline int32_t is_space_or_eoln(char cc) {
-  // pull head out of ass
   return ((unsigned char)cc) <= 32;
 }
 
-int get_next_noncomment(FILE* fptr, char** lptr_ptr);
+int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr);
 
-int get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr);
+int32_t get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr);
 
 char* item_end(char* sptr);
 
@@ -362,9 +361,7 @@ static inline char* item_endnn(char* sptr) {
   return sptr;
 }
 
-// item_endnn without checking \n or \r
-// retired, due to pulling of head out of ass
-// char* item_endnn2(char* sptr);
+void get_top_two(uint32_t* uint_arr, uint32_t uia_size, uint32_t* top_idx_ptr, uint32_t* second_idx_ptr);
 
 int32_t intlen(int32_t num);
 
@@ -375,6 +372,17 @@ int32_t strcmp_se(char* s_read, const char* s_const, int32_t len);
 char* next_item(char* sptr);
 
 char* next_item_mult(char* sptr, uint32_t ct);
+
+static inline void copy_nse(char* target, char* source) {
+  uint32_t uii;
+  if (source) {
+    uii = strlen_se(source);
+    memcpy(target, source, uii);
+    target[uii] = '\0';
+  } else {
+    *target = '\0';
+  }
+}
 
 void copy_item(char* writebuf, uint32_t* offset, char** prev_item_ptr);
 
