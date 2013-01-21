@@ -286,6 +286,16 @@ static inline int32_t wkspace_alloc_ull_checked(uint64_t** ullp_ptr, uintptr_t s
 
 void wkspace_reset(void* new_base);
 
+static inline unsigned char* top_alloc(uintptr_t* topsize_ptr, uint32_t size) {
+  uintptr_t ts = *topsize_ptr + ((size + 15) & (~15LU));
+  if (ts > wkspace_left) {
+    return NULL;
+  } else {
+    *topsize_ptr = ts;
+    return &(wkspace_base[wkspace_left - ts]);
+  }
+}
+
 static inline int32_t is_letter(char cc) {
   return (((((unsigned char)cc) & 192) == 64) && (((((unsigned char)cc) - 1) & 31) < 26));
 }
