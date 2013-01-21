@@ -2137,6 +2137,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   if (fclose_null(outfile_ptr)) {
     goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
   }
+  max_marker_allele_len++;
   ullii = marker_ct * ((uint64_t)max_marker_allele_len) * 2 * sizeof(char);
   if (topsize + ullii > ((uint64_t)wkspace_left)) {
     goto ped_to_bed_multichar_allele_ret_NOMEM;
@@ -2154,6 +2155,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   } else {
     rewind(*mapfile_ptr);
   }
+  marker_uidx = 0;
   for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
     if (map_is_unsorted) {
       if (!fgets(tbuf, MAXLINELEN, *mapfile_ptr)) {
