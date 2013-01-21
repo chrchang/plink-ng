@@ -320,12 +320,9 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
 
   // second pass: actually load stuff
   for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-    do {
-      if (fgets(tbuf, MAXLINELEN, *mapfile_ptr) == NULL) {
-        return RET_READ_FAIL;
-      }
-      bufptr = skip_initial_spaces(tbuf);
-    } while (is_eoln_or_comment(*bufptr));
+    if (get_next_noncomment(*mapfile_ptr, &bufptr)) {
+      return RET_READ_FAIL;
+    }
     jj = marker_code(species, bufptr);
     if (jj == -1) {
       logprint("Error: Invalid chromosome index in .map/.bim file.\n");
@@ -861,12 +858,9 @@ int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
 
   // second pass: actually load stuff
   for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-    do {
-      if (fgets(tbuf, MAXLINELEN, *bimfile_ptr) == NULL) {
-	goto load_bim_ret_READ_FAIL;
-      }
-      bufptr = skip_initial_spaces(tbuf);
-    } while (is_eoln_or_comment(*bufptr));
+    if (get_next_noncomment(*bimfile_ptr, &bufptr)) {
+      goto load_bim_ret_READ_FAIL;
+    }
     jj = marker_code(species, bufptr);
     if (jj != last_chrom) {
       if (last_chrom != -1) {
@@ -1072,12 +1066,9 @@ int32_t sort_and_write_bim(int32_t** map_reverse_ptr, FILE* mapfile, int32_t map
   rewind(mapfile);
   marker_idx = 0;
   for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-    do {
-      if (fgets(tbuf, MAXLINELEN, mapfile) == NULL) {
-	goto sort_and_write_bim_ret_READ_FAIL;
-      }
-      bufptr = skip_initial_spaces(tbuf);
-    } while (is_eoln_or_comment(*bufptr));
+    if (get_next_noncomment(mapfile, &bufptr)) {
+      goto sort_and_write_bim_ret_READ_FAIL;
+    }
     if (is_set(marker_exclude, marker_uidx)) {
       continue;
     }
@@ -1490,12 +1481,9 @@ int32_t make_bed(FILE* bedfile, int32_t bed_offset, FILE* bimfile, int32_t map_c
     }
     rewind(bimfile);
     for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-      do {
-	if (fgets(tbuf, MAXLINELEN, bimfile) == NULL) {
-	  return RET_READ_FAIL;
-	}
-	bufptr = skip_initial_spaces(tbuf);
-      } while (is_eoln_or_comment(*bufptr));
+      if (get_next_noncomment(bimfile, &bufptr)) {
+	return RET_READ_FAIL;
+      }
       if (is_set(marker_exclude, marker_uidx)) {
 	continue;
       }
@@ -1935,6 +1923,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   char* col2_ptr;
   char* bufptr;
   char* bufptr2;
+  char* bufptr3;
   uintptr_t loadbuf_size;
   uintptr_t cur_slen;
   uintptr_t cur_slen_rdup;
@@ -1958,6 +1947,13 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   marker_alleles_tmp = (Ll_str_fixed*)(&(wkspace_base[wkspace_left - marker_ct * (4LU * sizeof(int32_t) + 16)]));
   memset(marker_alleles_tmp, 0, marker_ct * (4LU * sizeof(int32_t) + 16));
 
+  if (fclose_null(outfile_ptr)) {
+    goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
+  }
+  memcpy(outname_end, ".fam", 5);
+  if (fopen_checked(outfile_ptr, outname, "w")) {
+    goto ped_to_bed_multichar_allele_ret_OPEN_FAIL;
+  }
   rewind(*pedfile_ptr);
   fputs("Rescanning .ped file... 0%", stdout);
   fflush(stdout);
@@ -1969,6 +1965,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       break;
     }
     if (!loadbuf[loadbuf_size - 1]) {
+      putchar('\n');
       goto ped_to_bed_multichar_allele_ret_NOMEM;
     }
     cur_slen = strlen(loadbuf);
@@ -1989,11 +1986,13 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
     }
     bufptr = next_item_mult(col2_ptr, ped_col_skip - 1);
     if (no_more_items_kns(bufptr)) {
-      sprintf(logbuf, "\nError: Missing columns in .ped line: %s\n", col1_ptr);
+      putchar('\n');
+      sprintf(logbuf, "Error: Missing columns in .ped line: %s\n", col1_ptr);
       goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2;
     }
     if ((bufptr - col1_ptr) > (MAXLINELEN / 2) - 4) {
-      logprint("\nError: Pathologically long header item(s) in .ped file.\n");
+      putchar('\n');
+      logprint("Error: Pathologically long header item(s) in .ped file.\n");
       goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT;
     }
     uii = strlen_se(col1_ptr);
@@ -2071,7 +2070,8 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
     }
     wkspace_left += cur_slen_rdup;
     if (!is_eoln_kns(*bufptr)) {
-      sprintf(logbuf, "\nError: .ped line too long for indiv %lu.\n", indiv_ct);
+      putchar('\n');
+      sprintf(logbuf, "Error: Too many entries in .ped line for indiv %lu.\n", indiv_ct);
       goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2;
     }
     indiv_ct++;
@@ -2088,11 +2088,47 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   if (!feof(*pedfile_ptr)) {
     goto ped_to_bed_multichar_allele_ret_READ_FAIL;
   }
-  // TODO
+  fputs("\b\b\bdone.\n", stdout);
+  if (!indiv_ct) {
+    sprintf(logbuf, "Error: No %s in .ped file.\n", species_plural);
+    goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2;
+  }
+  if (fclose_null(outfile_ptr)) {
+    goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
+  }
+  memcpy(outname_end, ".bim", 5);
+  if (fopen_checked(outfile_ptr, outname, "w")) {
+    goto ped_to_bed_multichar_allele_ret_OPEN_FAIL;
+  }
+  if (map_is_unsorted) {
+    memcpy(outname_end, ".map.tmp", 9);
+    if (fopen_checked(mapfile_ptr, outname, "r")) {
+      goto ped_to_bed_multichar_allele_ret_OPEN_FAIL;
+    }
+  } else {
+    rewind(*mapfile_ptr);
+  }
+  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+    if (map_is_unsorted) {
+      if (!fgets(tbuf, MAXLINELEN, *mapfile_ptr)) {
+	goto ped_to_bed_multichar_allele_ret_READ_FAIL;
+      }
+      bufptr3 = tbuf;
+    } else {
+      if (get_next_noncomment_excl(*mapfile_ptr, &bufptr3, marker_exclude, &marker_uidx)) {
+	goto ped_to_bed_multichar_allele_ret_READ_FAIL;
+      }
+      bufptr = bufptr3;
+    }
+    // TODO
+  }
 
   while (0) {
   ped_to_bed_multichar_allele_ret_NOMEM:
     retval = RET_NOMEM;
+    break;
+  ped_to_bed_multichar_allele_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
     break;
   ped_to_bed_multichar_allele_ret_READ_FAIL:
     retval = RET_READ_FAIL;
@@ -2102,18 +2138,21 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
     break;
   ped_to_bed_multichar_allele_ret_INVALID_FORMAT_6:
     wkspace_left += cur_slen_rdup;
+    putchar('\n');
     if (retval != RET_NOMEM) {
-      sprintf(logbuf, "\nError: More than 4 different alleles at marker %u%s.\n", uii + 1, map_is_unsorted? " (post-sort/filter)" : "");
+      sprintf(logbuf, "Error: More than 4 different alleles at marker %u%s.\n", uii + 1, map_is_unsorted? " (post-sort/filter)" : "");
       logprintb();
     }
     break;
   ped_to_bed_multichar_allele_ret_INVALID_FORMAT_4:
     wkspace_left += cur_slen_rdup;
+    putchar('\n');
     sprintf(logbuf, "Error: Half-missing call in .ped file at marker %lu, indiv %lu.\n", marker_uidx + 1, indiv_ct + 1);
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   ped_to_bed_multichar_allele_ret_INVALID_FORMAT_3:
+    putchar('\n');
     sprintf(logbuf, "Error: Not enough markers in .ped line %lu.\n", indiv_ct + 1);
   ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2:
     logprintb();
@@ -2121,7 +2160,6 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
     retval = RET_INVALID_FORMAT;
     break;
   }
- ped_to_bed_multichar_allele_ret_1:
   return retval;
 }
 
@@ -2418,8 +2456,8 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       goto ped_to_bed_ret_READ_FAIL;
     }
     if (!indiv_ct) {
-      logprint("\nError: No people in .ped file.\n");
-      goto ped_to_bed_ret_INVALID_FORMAT;
+      sprintf(logbuf, "\nError: No %s in .ped file.\n", species_plural);
+      goto ped_to_bed_ret_INVALID_FORMAT_2;
     }
     if (fclose_null(&outfile)) {
       goto ped_to_bed_ret_WRITE_FAIL;
@@ -2446,21 +2484,10 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	}
 	bufptr3 = tbuf;
       } else {
-	while (is_set(marker_exclude, marker_uidx)) {
-	  do {
-	    if (!fgets(tbuf, MAXLINELEN, mapfile)) {
-	      goto ped_to_bed_ret_READ_FAIL;
-	    }
-	  } while (is_eoln_or_comment(*(skip_initial_spaces(tbuf))));
-	  marker_uidx++;
+	if (get_next_noncomment_excl(mapfile, &bufptr3, marker_exclude, &marker_uidx)) {
+	  goto ped_to_bed_ret_READ_FAIL;
 	}
-	do {
-	  if (!fgets(tbuf, MAXLINELEN, mapfile)) {
-	    goto ped_to_bed_ret_READ_FAIL;
-	  }
-	  bufptr = skip_initial_spaces(tbuf);
-	} while (is_eoln_or_comment(*bufptr));
-	bufptr3 = bufptr;
+	bufptr = bufptr3;
       }
       if (marker_alleles[marker_idx * 4 + 2]) {
 	cc = marker_alleles[marker_idx * 4 + 3];
@@ -3290,8 +3317,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     goto transposed_to_bed_ret_READ_FAIL;
   }
   if (!indiv_ct) {
-    logprint("\rError: No people in .tfam file.\n");
-    goto transposed_to_bed_ret_INVALID_FORMAT_2;
+    sprintf(logbuf, "Error: No %s in .tfam file.\n", species_plural);
+    goto transposed_to_bed_ret_INVALID_FORMAT_5;
   }
   indiv_ct4 = (indiv_ct + 3) / 4;
   fclose_null(&infile);
@@ -3673,8 +3700,9 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     break;
   transposed_to_bed_ret_INVALID_FORMAT_3:
     cptr[strlen_se(cptr)] = '\0';
-    putchar('\r');
     sprintf(logbuf, "Error: Missing entries at marker %s in .tped file.\n", cptr);
+  transposed_to_bed_ret_INVALID_FORMAT_5:
+    putchar('\r');
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
@@ -4267,25 +4295,19 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
     for (pct = 1; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * marker_ct) / 100;
       for (; marker_idx < loop_end; marker_idx++) {
-	do {
-	  if (fgets(tbuf, MAXLINELEN, bimfile) == NULL) {
+	if (is_set(marker_exclude, marker_uidx)) {
+	  if (get_next_noncomment_excl(bimfile, &wbufptr, marker_exclude, &marker_uidx)) {
 	    goto recode_ret_READ_FAIL;
 	  }
-	} while (is_eoln_or_comment(*(skip_initial_spaces(tbuf))));
-	if (is_set(marker_exclude, marker_uidx)) {
-	  do {
-	    do {
-	      if (fgets(tbuf, MAXLINELEN, bimfile) == NULL) {
-		goto recode_ret_READ_FAIL;
-	      }
-	    } while (is_eoln_or_comment(*(skip_initial_spaces(tbuf))));
-	  } while (is_set(marker_exclude, ++marker_uidx));
 	  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	    goto recode_ret_READ_FAIL;
+	  }
+	} else {
+	  if (get_next_noncomment(bimfile, &wbufptr)) {
 	    goto recode_ret_READ_FAIL;
 	  }
 	}
 
-	wbufptr = skip_initial_spaces(tbuf);
 	for (indiv_idx = 0; indiv_idx < 3; indiv_idx++) {
 	  cptr = item_endnn(wbufptr);
 	  ulii = 1 + (uintptr_t)(cptr - wbufptr);
@@ -4880,9 +4902,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
       cc = '\t';
     }
     for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-      do {
-	fgets(tbuf, MAXLINELEN, bimfile);
-      } while (is_eoln_or_comment(*(skip_initial_spaces(tbuf))));
+      if (get_next_noncomment(bimfile, &wbufptr)) {
+	goto recode_ret_READ_FAIL;
+      }
       if (is_set(marker_exclude, marker_uidx)) {
 	continue;
       }
@@ -5153,7 +5175,7 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
     goto merge_fam_id_scan_ret_READ_FAIL;
   }
   if (!cur_indiv_ct) {
-    sprintf(logbuf, "Error: No people in %s.\n", famname);
+    sprintf(logbuf, "Error: No %s in %s.\n", species_plural, famname);
     goto merge_fam_id_scan_ret_INVALID_FORMAT;
   }
   *max_person_id_len_ptr = max_person_id_len;
@@ -6344,14 +6366,14 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   } while (++mlpos < merge_ct);
 #ifdef __LP64__
   if (ullxx > 2147483647) {
-    logprint("Error: Too many people (max 2147483647).\n");
-    goto merge_datasets_ret_INVALID_FORMAT;
+    sprintf(logbuf, "Error: Too many %s (max 2147483647).\n", species_plural);
+    goto merge_datasets_ret_INVALID_FORMAT_2;
   }
 #else
   // avoid integer overflow in wkspace_alloc calls
   if (ullxx * max_person_full_len > 2147483647) {
-    logprint("Error: Too many people for 32-bit WDIST.\n");
-    goto merge_datasets_ret_INVALID_FORMAT;
+    sprintf(logbuf, "Error: Too many %s for 32-bit WDIST.\n", species_plural);
+    goto merge_datasets_ret_INVALID_FORMAT_2;
   }
 #endif
   tot_indiv_ct = ullxx;
@@ -6787,6 +6809,8 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   merge_datasets_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
+  merge_datasets_ret_INVALID_FORMAT_2:
+    logprintb();
   merge_datasets_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;

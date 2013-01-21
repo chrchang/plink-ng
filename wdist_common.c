@@ -86,6 +86,28 @@ void wkspace_reset(void* new_base) {
   wkspace_left += freed_bytes;
 }
 
+int get_next_noncomment(FILE* fptr, char** lptr_ptr) {
+  char* lptr;
+  do {
+    if (!fgets(tbuf, MAXLINELEN, fptr)) {
+      return -1;
+    }
+    lptr = skip_initial_spaces(tbuf);
+  } while (is_eoln_or_comment(*lptr));
+  *lptr_ptr = lptr;
+  return 0;
+}
+
+int get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr) {
+  while (!get_next_noncomment(fptr, lptr_ptr)) {
+    if (!is_set(marker_exclude, *marker_uidx_ptr)) {
+      return 0;
+    }
+    *marker_uidx_ptr += 1;
+  }
+  return -1;
+}
+
 char* item_end(char* sptr) {
   char cc;
   if (!sptr) {

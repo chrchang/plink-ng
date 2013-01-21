@@ -346,6 +346,10 @@ static inline int32_t is_space_or_eoln(char cc) {
   return ((unsigned char)cc) <= 32;
 }
 
+int get_next_noncomment(FILE* fptr, char** lptr_ptr);
+
+int get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr);
+
 char* item_end(char* sptr);
 
 // does not return NULL if item ends with null char
