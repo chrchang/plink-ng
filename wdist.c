@@ -5113,6 +5113,16 @@ void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_ar
     *include_arr++ = ulkk;
     *include_arr++ = ulmm;
   } while (--unfiltered_indiv_ctl);
+  ulii = unfiltered_indiv_ct & (BITCT - 1);
+  if (ulii) {
+    include_arr--;
+    if (ulii < BITCT2) {
+      *include_arr-- = 0;
+    } else {
+      ulii -= BITCT2;
+    }
+    *include_arr &= (1LU << (ulii * 2)) - 1LU;
+  }
 }
 
 void vec_include_mask_in(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr) {
@@ -5162,6 +5172,44 @@ void vec_include_mask_out(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr,
   uint32_t bit_idx;
   do {
     ulii = *mask_arr++;
+    ulkk = *include_arr;
+    ulmm = include_arr[1];
+    if (ulii) {
+      uljj = ulii >> BITCT2;
+#if __LP64__
+      ulii &= 0xffffffffLU;
+#else
+      ulii &= 0xffffLU;
+#endif
+      if (ulii) {
+	do {
+	  bit_idx = __builtin_ctzl(ulii);
+	  ulkk &= ~(1LU << (bit_idx * 2));
+	  ulii &= ulii - 1;
+	} while (ulii);
+      }
+      if (uljj) {
+	do {
+	  bit_idx = __builtin_ctzl(uljj);
+	  ulmm &= ~(1LU << (bit_idx * 2));
+	  uljj &= uljj - 1;
+	} while (uljj);
+      }
+    }
+    *include_arr++ = ulkk;
+    *include_arr++ = ulmm;
+  } while (--unfiltered_indiv_ctl);
+}
+
+void vec_include_mask_out_intersect(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr, uintptr_t* mask2_arr) {
+  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uintptr_t ulkk;
+  uintptr_t ulmm;
+  uint32_t bit_idx;
+  do {
+    ulii = (*mask_arr++) & (*mask2_arr++);
     ulkk = *include_arr;
     ulmm = include_arr[1];
     if (ulii) {
@@ -5701,12 +5749,12 @@ static inline void haploid_single_marker_freqs_and_hwe(uintptr_t unfiltered_indi
 int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_exclude_ct, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t** marker_reverse_ptr, uint32_t** marker_allele_cts_ptr, uint32_t** missing_cts_ptr, int32_t bed_offset, unsigned char missing_geno, int32_t hwe_needed, int32_t hwe_all, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** ll_cts_ptr, int32_t** lh_cts_ptr, int32_t** hh_cts_ptr, int32_t wt_needed, unsigned char** marker_weights_base_ptr, double** marker_weights_ptr, Chrom_info* chrom_info_ptr, uintptr_t* sex_nm, uintptr_t* sex_male) {
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + BITCT - 1) / BITCT;
+  uintptr_t unfiltered_indiv_ctl2 = 2 * unfiltered_indiv_ctl;
   int32_t retval = 0;
   uint32_t pct = 1;
   uint32_t indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
   uint32_t indiv_f_ct = indiv_ct;
   uintptr_t indiv_f_ctl_ct = indiv_ct;
-  uint32_t indiv_nonmale_ct;
   unsigned char* wkspace_mark = wkspace_base;
   uint32_t ll_hwe = 0;
   uint32_t lh_hwe = 0;
@@ -5733,6 +5781,9 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
   uintptr_t* indiv_male_include2 = NULL;
   uintptr_t* founder_nonmale_include2 = NULL;
   uintptr_t* founder_ctrl_nonmale_include2 = NULL;
+  uint32_t indiv_nonmale_ct = 0;
+  uint32_t indiv_f_nonmale_ct = 0;
+  uint32_t indiv_f_ctl_nonmale_ct = 0;
   uintptr_t* loadbuf;
   uintptr_t* indiv_include2;
   uintptr_t* founder_include2;
@@ -5746,11 +5797,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
   uintptr_t indiv_uidx;
-  uintptr_t ulii;
-  uintptr_t* uiptr;
-  uintptr_t* uiptr2;
   uint32_t uii;
-  uint32_t ujj;
   uint32_t* marker_allele_cts;
   double* marker_weights;
   int32_t* ll_cts;
@@ -5809,73 +5856,40 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
   fill_uint_zero(marker_allele_cts, 2 * unfiltered_marker_ct);
   *marker_allele_cts_ptr = marker_allele_cts;
   wkspace_mark = wkspace_base;
-  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl * 2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&indiv_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&indiv_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
     goto calc_freqs_and_hwe_ret_NOMEM;
   }
-  loadbuf[unfiltered_indiv_ctl * 2 - 2] = 0;
-  loadbuf[unfiltered_indiv_ctl * 2 - 1] = 0;
+  loadbuf[unfiltered_indiv_ctl2 - 2] = 0;
+  loadbuf[unfiltered_indiv_ctl2 - 1] = 0;
   exclude_to_vec_include(unfiltered_indiv_ct, indiv_include2, indiv_exclude);
   ii = species_x_code[chrom_info_ptr->species];
   nonmales_needed = (ii != -1) && ((chrom_info_ptr->chrom_mask >> ii) & 1);
   if (nonmales_needed) {
-    if (wkspace_alloc_ul_checked(&indiv_nonmale_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(&indiv_nonmale_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
       goto calc_freqs_and_hwe_ret_NOMEM;
     }
-    indiv_uidx = 0;
-    ujj = 0;
-    uiptr = indiv_nonmale_include2;
-    uiptr2 = indiv_include2;
-    indiv_nonmale_include2[2 * unfiltered_indiv_ctl - 1] = 0;
-    for (uii = 0; uii < unfiltered_indiv_ct; uii += BITCT2) {
-      if ((uii + BITCT2) > unfiltered_indiv_ct) {
-	ujj = unfiltered_indiv_ct;
-      } else {
-	ujj += BITCT2;
-      }
-      ulii = *uiptr2++;
-      for (; indiv_uidx < ujj; indiv_uidx++) {
-	// this can be sped up
-	if (is_set(sex_nm, indiv_uidx) && is_set(sex_male, indiv_uidx)) {
-	  ulii &= ~(1LU << ((indiv_uidx & (BITCT2 - 1)) * 2));
-	}
-      }
-      *uiptr++ = ulii;
-    }
+    memcpy(indiv_nonmale_include2, indiv_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t));
+    vec_include_mask_out_intersect(unfiltered_indiv_ct, indiv_nonmale_include2, sex_nm, sex_male);
+    indiv_nonmale_ct = popcount_longs(indiv_nonmale_include2, 0, unfiltered_indiv_ctl2);
     founder_nonmale_include2 = indiv_nonmale_include2;
     founder_ctrl_nonmale_include2 = indiv_nonmale_include2;
   }
   ii = species_y_code[chrom_info_ptr->species];
   males_needed = (ii != -1) && ((chrom_info_ptr->chrom_mask >> ii) & 1);
   if (males_needed) {
-    if (wkspace_alloc_ul_checked(&indiv_male_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(&indiv_male_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
       goto calc_freqs_and_hwe_ret_NOMEM;
     }
-    indiv_uidx = 0;
-    ujj = 0;
-    uiptr = indiv_male_include2;
-    uiptr2 = indiv_include2;
-    indiv_male_include2[2 * unfiltered_indiv_ctl - 1] = 0;
-    for (uii = 0; uii < unfiltered_indiv_ct; uii += BITCT2) {
-      if ((uii + BITCT2) > unfiltered_indiv_ct) {
-	ujj = unfiltered_indiv_ct;
-      } else {
-	ujj += BITCT2;
-      }
-      ulii = *uiptr2++;
-      for (; indiv_uidx < ujj; indiv_uidx++) {
-	if ((!is_set(sex_nm, indiv_uidx)) || (!is_set(sex_male, indiv_uidx))) {
-	  ulii &= ~(1LU << ((indiv_uidx & (BITCT2 - 1)) * 2));
-	}
-      }
-      *uiptr++ = ulii;
-    }
+    memcpy(indiv_male_include2, indiv_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t));
+    vec_include_mask_in(unfiltered_indiv_ct, indiv_male_include2, sex_nm);
+    vec_include_mask_in(unfiltered_indiv_ct, indiv_male_include2, sex_male);
     founder_male_include2 = indiv_male_include2;
     founder_ctrl_male_include2 = indiv_male_include2;
   }
   founder_include2 = indiv_include2;
   if (!nonfounders) {
-    if (wkspace_alloc_ul_checked(&founder_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t)) ||
+    if (wkspace_alloc_ul_checked(&founder_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
         wkspace_alloc_ul_checked(&tmp_indiv_mask, unfiltered_indiv_ctl * sizeof(intptr_t))) {
       goto calc_freqs_and_hwe_ret_NOMEM;
     }
@@ -5885,14 +5899,15 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
     zero_trailing_bits(tmp_indiv_mask, unfiltered_indiv_ct);
     exclude_to_vec_include(unfiltered_indiv_ct, founder_include2, tmp_indiv_mask);
     if (nonmales_needed) {
-      if (wkspace_alloc_ul_checked(&founder_nonmale_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
+      if (wkspace_alloc_ul_checked(&founder_nonmale_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
 	goto calc_freqs_and_hwe_ret_NOMEM;
       }
-      memcpy(founder_nonmale_include2, indiv_nonmale_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t));
+      memcpy(founder_nonmale_include2, indiv_nonmale_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t));
       vec_include_mask_in(unfiltered_indiv_ct, founder_nonmale_include2, founder_info);
+      indiv_f_nonmale_ct = popcount_longs(founder_nonmale_include2, 0, unfiltered_indiv_ctl2);
     }
     if (males_needed) {
-      if (wkspace_alloc_ul_checked(&founder_male_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
+      if (wkspace_alloc_ul_checked(&founder_male_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
 	goto calc_freqs_and_hwe_ret_NOMEM;
       }
       memcpy(founder_male_include2, indiv_male_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t));
@@ -5903,7 +5918,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
     indiv_f_ct = uii;
     indiv_f_ctl_ct = indiv_f_ct;
     if (!hwe_all) {
-      if (wkspace_alloc_ul_checked(&founder_ctrl_include2, unfiltered_indiv_ctl * 2 *  sizeof(intptr_t))) {
+      if (wkspace_alloc_ul_checked(&founder_ctrl_include2, unfiltered_indiv_ctl2 *  sizeof(intptr_t))) {
 	goto calc_freqs_and_hwe_ret_NOMEM;
       }
       indiv_uidx = 0;
@@ -5917,17 +5932,18 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
       exclude_to_vec_include(unfiltered_indiv_ct, founder_ctrl_include2, tmp_indiv_mask);
       if (nonmales_needed || males_needed) {
 	if (nonmales_needed) {
-	  if (wkspace_alloc_ul_checked(&founder_ctrl_nonmale_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
+	  if (wkspace_alloc_ul_checked(&founder_ctrl_nonmale_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
 	    goto calc_freqs_and_hwe_ret_NOMEM;
 	  }
-	  memcpy(founder_ctrl_nonmale_include2, indiv_nonmale_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t));
+	  memcpy(founder_ctrl_nonmale_include2, indiv_nonmale_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t));
 	  vec_include_mask_out(unfiltered_indiv_ct, founder_ctrl_nonmale_include2, tmp_indiv_mask);
+	  indiv_f_ctl_nonmale_ct = popcount_longs(founder_ctrl_nonmale_include2, 0, unfiltered_indiv_ctl2);
 	}
 	if (males_needed) {
-	  if (wkspace_alloc_ul_checked(&founder_ctrl_male_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
+	  if (wkspace_alloc_ul_checked(&founder_ctrl_male_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
 	    goto calc_freqs_and_hwe_ret_NOMEM;
 	  }
-	  memcpy(founder_ctrl_male_include2, indiv_male_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t));
+	  memcpy(founder_ctrl_male_include2, indiv_male_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t));
 	  vec_include_mask_out(unfiltered_indiv_ct, founder_ctrl_male_include2, tmp_indiv_mask);
 	}
       }
@@ -5966,7 +5982,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
 	is_y = (ii == species_y_code[chrom_info_ptr->species]);
       }
       if (is_x) {
-	single_marker_freqs_and_hwe(unfiltered_indiv_ct, unfiltered_indiv_ctl * 2, loadbuf, indiv_nonmale_include2, founder_nonmale_include2, founder_ctrl_nonmale_include2, indiv_ct, &ll_ct, &lh_ct, &hh_ct, indiv_f_ct, &ll_ctf, &lh_ctf, &hh_ctf, hwe_needed, indiv_f_ctl_ct, &ll_hwe, &lh_hwe, &hh_hwe);
+	single_marker_freqs_and_hwe(unfiltered_indiv_ct, unfiltered_indiv_ctl2, loadbuf, indiv_nonmale_include2, founder_nonmale_include2, founder_ctrl_nonmale_include2, indiv_nonmale_ct, &ll_ct, &lh_ct, &hh_ct, indiv_f_nonmale_ct, &ll_ctf, &lh_ctf, &hh_ctf, hwe_needed, indiv_f_ctl_nonmale_ct, &ll_hwe, &lh_hwe, &hh_hwe);
 	ll_cts[marker_uidx] = ll_ct;
 	lh_cts[marker_uidx] = lh_ct;
 	hh_cts[marker_uidx] = hh_ct;
@@ -5976,7 +5992,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
 	marker_allele_cts[2 * marker_uidx] += 2 * ll_ct + lh_ct;
 	marker_allele_cts[2 * marker_uidx + 1] += 2 * hh_ct + lh_ct;
 	uii = 2 * (ll_ctf + lh_ctf + hh_ctf + maf_succ);
-	haploid_single_marker_freqs_and_hwe(unfiltered_indiv_ct, unfiltered_indiv_ctl * 2, loadbuf, indiv_include2, founder_include2, founder_ctrl_include2, indiv_ct, &ll_ct, &lh_ct, &hh_ct, indiv_f_ct, &ll_ctf, &lh_ctf, &hh_ctf, hwe_needed, indiv_f_ctl_ct, &ll_hwe, &lh_hwe, &hh_hwe);
+	haploid_single_marker_freqs_and_hwe(unfiltered_indiv_ct, unfiltered_indiv_ctl2, loadbuf, indiv_include2, founder_include2, founder_ctrl_include2, indiv_ct, &ll_ct, &lh_ct, &hh_ct, indiv_f_ct, &ll_ctf, &lh_ctf, &hh_ctf, hwe_needed, indiv_f_ctl_ct, &ll_hwe, &lh_hwe, &hh_hwe);
 	ll_cts[marker_uidx] += ll_ct;
 	lh_cts[marker_uidx] += lh_ct;
 	hh_cts[marker_uidx] += hh_ct;
@@ -5986,7 +6002,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
 	uii += 2 * (ll_ctf + lh_ctf + hh_ctf);
       } else {
 	if (!is_haploid) {
-	  single_marker_freqs_and_hwe(unfiltered_indiv_ct, unfiltered_indiv_ctl * 2, loadbuf, indiv_include2, founder_include2, founder_ctrl_include2, indiv_ct, &ll_ct, &lh_ct, &hh_ct, indiv_f_ct, &ll_ctf, &lh_ctf, &hh_ctf, hwe_needed, indiv_f_ctl_ct, &ll_hwe, &lh_hwe, &hh_hwe);
+	  single_marker_freqs_and_hwe(unfiltered_indiv_ct, unfiltered_indiv_ctl2, loadbuf, indiv_include2, founder_include2, founder_ctrl_include2, indiv_ct, &ll_ct, &lh_ct, &hh_ct, indiv_f_ct, &ll_ctf, &lh_ctf, &hh_ctf, hwe_needed, indiv_f_ctl_ct, &ll_hwe, &lh_hwe, &hh_hwe);
 	} else if (is_y) {
 	} else {
 	}
@@ -7207,10 +7223,7 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   collapse_bitarr(g_pheno_c, indiv_exclude, unfiltered_indiv_ct);
   g_low_ct = 0;
   g_high_ct = 0;
-  uii = g_indiv_ct & (BITCT - 1);
-  if (uii) {
-    g_pheno_nm[indiv_ctl - 1] &= (1LU << uii) - 1LU;
-  }
+  zero_trailing_bits(g_pheno_nm, g_indiv_ct);
   uiptr = g_pheno_nm;
   uiptr2 = g_pheno_c;
   for (uii = 0; uii < indiv_ctl; uii++) {
