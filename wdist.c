@@ -3085,75 +3085,49 @@ void* calc_genomem_thread(void* arg) {
 
 void groupdist_jack(int32_t* ibuf, double* returns) {
   int32_t* iptr = ibuf;
-  int32_t* jptr;
-  uintptr_t indiv_idx;
-  double* dptr = g_dists;
-  uint32_t ii2;
-  uint32_t cs;
-  double neg_tot_aa = 0.0;
-  double neg_tot_au = 0.0;
+  int32_t* jptr = &(ibuf[g_jackknife_d]);
   double neg_tot_uu = 0.0;
-  int32_t neg_a = 0;
-  int32_t neg_u = 0;
-  double dxx;
-  for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-    if (!is_set(g_pheno_nm, indiv_idx)) {
-      continue;
-    }
-    cs = is_set(g_pheno_c, indiv_idx);
-    dptr = &(g_dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2]);
-    if (indiv_idx == (uint32_t)(*iptr)) {
-      if (cs) {
-        neg_a++;
-	for (ii2 = 0; ii2 < indiv_idx; ii2++) {
-	  // several ways to speed this up if it's important (first is to use
-	  // same transformation as regress_jack)
-	  if (is_set(g_pheno_nm, ii2)) {
-	    if (is_set(g_pheno_c, ii2)) {
-	      neg_tot_aa += *dptr;
-	    } else {
-	      neg_tot_au += *dptr;
-	    }
-	  }
-	  dptr++;
-        }
-      } else {
-        neg_u++;
-	for (ii2 = 0; ii2 < indiv_idx; ii2++) {
-	  if (is_set(g_pheno_nm, ii2)) {
-	    if (is_set(g_pheno_c, ii2)) {
-	      neg_tot_au += *dptr;
-	    } else {
-	      neg_tot_uu += *dptr;
-	    }
-	  }
-	  dptr++;
-        }
-      }
-      iptr++;
-    } else if (cs) {
-      jptr = ibuf;
-      while (jptr < iptr) {
-        dxx = dptr[*jptr];
-	if (is_set(g_pheno_c, *jptr)) {
-	  neg_tot_aa += dxx;
+  double neg_tot_au = 0.0;
+  double neg_tot_aa = 0.0;
+  uint32_t neg_a = 0;
+  uint32_t neg_u = 0;
+  double* dptr;
+  int32_t* iptr2;
+  uintptr_t indiv_idx;
+  uint32_t ii2;
+  while (iptr < jptr) {
+    dptr = &(g_jackknife_precomp[(*iptr++) * JACKKNIFE_VALS_GROUPDIST]);
+    neg_tot_uu += *dptr++;
+    neg_tot_au += *dptr++;
+    neg_tot_aa += *dptr++;
+  }
+  iptr = ibuf;
+  while (iptr < jptr) {
+    indiv_idx = *iptr;
+    iptr2 = ibuf;
+    dptr = &(g_dists[(indiv_idx * (indiv_idx - 1)) / 2]);
+    if (is_set(g_pheno_c, indiv_idx)) {
+      neg_a++;
+      while (iptr2 < iptr) {
+	ii2 = *iptr2++;
+	if (is_set(g_pheno_c, ii2)) {
+	  neg_tot_aa -= dptr[ii2];
 	} else {
-	  neg_tot_au += dxx;
+	  neg_tot_au -= dptr[ii2];
 	}
-        jptr++;
       }
     } else {
-      jptr = ibuf;
-      while (jptr < iptr) {
-        dxx = dptr[*jptr];
-	if (is_set(g_pheno_c, *jptr)) {
-	  neg_tot_au += dxx;
+      neg_u++;
+      while (iptr2 < iptr) {
+	ii2 = *iptr2++;
+	if (is_set(g_pheno_c, ii2)) {
+	  neg_tot_au -= dptr[ii2];
 	} else {
-	  neg_tot_uu += dxx;
+	  neg_tot_uu -= dptr[ii2];
 	}
-        jptr++;
       }
     }
+    iptr++;
   }
   returns[0] = (g_reg_tot_x - neg_tot_aa) / (double)(((intptr_t)(g_high_ct - neg_a) * (g_high_ct - neg_a - 1)) / 2);
   returns[1] = (g_reg_tot_xy - neg_tot_au) / (double)((intptr_t)(g_high_ct - neg_a) * (g_low_ct - neg_u));
@@ -7247,6 +7221,7 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   double dyy;
   double dzz;
   double dww;
+  uint32_t is_case;
   if (wkspace_alloc_ul_checked(&pheno_nm_copy, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&pheno_c_copy, unfiltered_indiv_ctl * sizeof(intptr_t))) {
     goto groupdist_calc_ret_NOMEM;
@@ -7275,6 +7250,11 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   g_reg_tot_y = 0.0;
   g_reg_tot_xy = 0.0;
   g_reg_tot_x = 0.0;
+  if (groupdist_d) {
+    g_jackknife_d = groupdist_d;
+  } else {
+    g_jackknife_d = set_default_jackknife_d(g_high_ct + g_low_ct);
+  }
   if (wkspace_alloc_d_checked(&ll_pool, ll_size * sizeof(double)) ||
       wkspace_alloc_d_checked(&lh_pool, lh_size * sizeof(double)) ||
       wkspace_alloc_d_checked(&hh_pool, hh_size * sizeof(double)) ||
@@ -7373,22 +7353,38 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   if (2 * g_jackknife_d >= (g_high_ct + g_low_ct)) {
     logprint("Delete-d jackknife skipped because d is too large.\n");
   } else {
-    // if (wkspace_alloc_d_checked(&g_jackknife_precomp, g_indiv_ct * JACKKNIFE_VALS_GROUPDIST)) {
-    //   goto groupdist_calc_ret_NOMEM;
-    // }
-    // fill_double_zero(g_jackknife_precomp, g_indiv_ct * JACKKNIFE_VALS_GROUPDIST);
-    // for (uii = 1; uii < g_indiv_ct; uii++) {
-    // }
-
-    // this can be sped up using the same method used in regress-distance,
-    // if it's important
-    g_jackknife_iters = (groupdist_iters + g_thread_ct - 1) / g_thread_ct;
-
-    if (groupdist_d) {
-      g_jackknife_d = groupdist_d;
-    } else {
-      g_jackknife_d = set_default_jackknife_d(g_high_ct + g_low_ct);
+    if (wkspace_alloc_d_checked(&g_jackknife_precomp, g_indiv_ct * JACKKNIFE_VALS_GROUPDIST)) {
+      goto groupdist_calc_ret_NOMEM;
     }
+    fill_double_zero(g_jackknife_precomp, g_indiv_ct * JACKKNIFE_VALS_GROUPDIST);
+    // to precompute:
+    // tot_uu, tot_au, tot_aa
+    dist_ptr = g_dists;
+    for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
+      if (is_set(g_pheno_nm, indiv_idx)) {
+	uii = 0;
+	is_case = is_set(g_pheno_c, indiv_idx);
+	dyy = 0;
+	dzz = 0;
+	do {
+	  if (is_set(g_pheno_nm, uii)) {
+	    dxx = dist_ptr[uii];
+	    if (is_set(g_pheno_c, uii)) {
+	      g_jackknife_precomp[(uii * JACKKNIFE_VALS_GROUPDIST) + is_case + 1] += dxx;
+	      dzz += dxx;
+	    } else {
+	      g_jackknife_precomp[(uii * JACKKNIFE_VALS_GROUPDIST) + is_case] += dxx;
+	      dyy += dxx;
+	    }
+	  }
+	} while ((++uii) < indiv_idx);
+	g_jackknife_precomp[(indiv_idx * JACKKNIFE_VALS_GROUPDIST) + is_case] += dyy;
+	g_jackknife_precomp[(indiv_idx * JACKKNIFE_VALS_GROUPDIST) + is_case + 1] += dzz;
+      }
+      dist_ptr = &(dist_ptr[indiv_idx]);
+    }
+
+    g_jackknife_iters = (groupdist_iters + g_thread_ct - 1) / g_thread_ct;
 
     for (ulii = 1; ulii < g_thread_ct; ulii++) {
       if (pthread_create(&(threads[ulii - 1]), NULL, &groupdist_jack_thread, (void*)ulii)) {

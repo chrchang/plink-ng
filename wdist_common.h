@@ -148,8 +148,9 @@ typedef union {
 // allow .mdist.bin.xxxxxxxxxx extension
 #define MAX_POST_EXT 22
 
-// number of different types of jackknife values to precompute (x^2, x, y, xy)
+// number of types of jackknife values to precompute (x^2, y^2, x, y, xy)
 #define JACKKNIFE_VALS_DIST 5
+#define JACKKNIFE_VALS_GROUPDIST 3
 
 #if __LP64__
 #define AAAAMASK 0xaaaaaaaaaaaaaaaaLU

@@ -2051,7 +2051,7 @@ int32_t regress_distance(int32_t calculation_type, double* dists_local, double* 
     dptr2 = g_pheno_d;
     dptr3 = &(g_jackknife_precomp[uii * JACKKNIFE_VALS_DIST]);
     dptr5 = g_jackknife_precomp;
-    while (dptr2 < dist_ptr) {
+    do {
       dxx = (dzz + *dptr2++) * 0.5;
       dyy = (*dptr4++);
       dww = dxx * dyy;
@@ -2077,7 +2077,7 @@ int32_t regress_distance(int32_t calculation_type, double* dists_local, double* 
       dptr3[4] += duu;
       *dptr5 += duu;
       dptr5++;
-    }
+    } while (dptr2 < dist_ptr);
   }
 
   dxx = ulii;
