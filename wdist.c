@@ -3109,7 +3109,7 @@ void groupdist_jack(int32_t* ibuf, double* returns) {
 	for (ii2 = 0; ii2 < indiv_idx; ii2++) {
           dxx = *dptr++;
 	  // several ways to speed this up if it's important
-	  if (!is_set(g_pheno_nm, ii2)) {
+	  if (is_set(g_pheno_nm, ii2)) {
 	    if (is_set(g_pheno_c, ii2)) {
 	      neg_tot_aa += dxx;
 	    } else {
@@ -3121,7 +3121,7 @@ void groupdist_jack(int32_t* ibuf, double* returns) {
         neg_u++;
 	for (ii2 = 0; ii2 < indiv_idx; ii2++) {
           dxx = *dptr++;
-	  if (!is_set(g_pheno_nm, ii2)) {
+	  if (is_set(g_pheno_nm, ii2)) {
 	    if (is_set(g_pheno_c, ii2)) {
 	      neg_tot_au += dxx;
 	    } else {
@@ -3157,7 +3157,7 @@ void small_remap(int32_t* ibuf, uint32_t ct, uint32_t dd) {
   int32_t missings = 0;
   int32_t curpos = 0;
   do {
-    if (is_set(g_pheno_nm, curpos)) {
+    if (!is_set(g_pheno_nm, curpos)) {
       missings++;
     } else if (*ibuf == curpos - missings) {
       *ibuf++ = curpos;
