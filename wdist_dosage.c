@@ -15,7 +15,7 @@
 // assessing whether missingness should be treated as binary
 #define D_EPSILON 0.000244140625 // just want this above .0002
 
-int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uint32_t* max_person_id_len_ptr, unsigned char** sex_info_ptr, char** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** pheno_exclude_ptr, uintptr_t** indiv_exclude_ptr, char* missing_code) {
+int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uint32_t* max_person_id_len_ptr, unsigned char** sex_info_ptr, uintptr_t** pheno_nm_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** indiv_exclude_ptr, char* missing_code) {
   FILE* samplefile = NULL;
   unsigned char* wkspace_mark = NULL;
   uintptr_t unfiltered_indiv_ct = 0;
@@ -29,7 +29,8 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
   uint32_t male_ct = 0;
   uint32_t female_ct = 0;
   unsigned char* sex_info = NULL;
-  char* pheno_c = NULL;
+  uintptr_t* pheno_nm = NULL;
+  uintptr_t* pheno_c = NULL;
   double* pheno_d = NULL;
   int32_t pheno_is_binary = 0;
   uintptr_t unfiltered_indiv_ctl;
@@ -178,30 +179,28 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
   unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   if (load_pheno) {
     if (pheno_is_binary) {
-      if (wkspace_alloc_c_checked(pheno_c_ptr, unfiltered_indiv_ct)) {
+      if (wkspace_alloc_ul_checked(pheno_c_ptr, unfiltered_indiv_ctl)) {
 	goto oxford_sample_load_ret_NOMEM;
       }
       pheno_c = *pheno_c_ptr;
-      memset(pheno_c, 255, unfiltered_indiv_ct);
+      fill_ulong_zero(pheno_c, unfiltered_indiv_ctl);
     } else {
       if (wkspace_alloc_d_checked(pheno_d_ptr, unfiltered_indiv_ct * sizeof(double))) {
 	goto oxford_sample_load_ret_NOMEM;
       }
       pheno_d = *pheno_d_ptr;
     }
-    if (wkspace_alloc_ul_checked(pheno_exclude_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
-      goto oxford_sample_load_ret_NOMEM;
-    }
-    fill_ulong_zero(*pheno_exclude_ptr, unfiltered_indiv_ctl);
   } else {
     pheno_d_ptr = NULL;
-    pheno_exclude_ptr = NULL;
   }
-  if (wkspace_alloc_ul_checked(indiv_exclude_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(indiv_exclude_ptr, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(pheno_nm_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
     goto oxford_sample_load_ret_NOMEM;
   }
   person_ids = *person_ids_ptr;
   fill_ulong_zero(*indiv_exclude_ptr, unfiltered_indiv_ctl);
+  fill_ulong_zero(*pheno_nm_ptr, unfiltered_indiv_ctl);
+  pheno_nm = *pheno_nm_ptr;
   wkspace_mark = wkspace_base;
   if (*missing_code) {
     bufptr = missing_code;
@@ -281,19 +280,17 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
       for (ujj = 0; ujj < missing_code_ct; ujj++) {
 	if (uii == missing_code_lens[ujj]) {
 	  if (!memcmp(item_begin, missing_code_ptrs[ujj], uii)) {
-	    set_bit_noct(*pheno_exclude_ptr, indiv_uidx);
 	    is_missing = 1;
 	    break;
 	  }
 	}
       }
       if (!is_missing) {
+	set_bit_noct(pheno_nm, indiv_uidx);
 	if (pheno_is_binary) {
-          if (*item_begin == '0') {
-	    pheno_c[indiv_uidx] = 0;
-	  } else if (*item_begin == '1') {
-	    pheno_c[indiv_uidx] = 1;
-	  } else {
+	  if (*item_begin == '1') {
+	    set_bit_noct(pheno_c, indiv_uidx);
+	  } else if (*item_begin != '0') {
 	    goto oxford_sample_load_ret_INVALID_FORMAT;
 	  }
 	} else {
@@ -1725,9 +1722,9 @@ int32_t wdist_dosage(int32_t calculation_type, int32_t dist_calc_type, char* gen
   unsigned char* membuf;
   uint32_t gen_buf_len;
   unsigned char* wkspace_mark;
-  char* pheno_c;
+  uintptr_t* pheno_nm;
+  uintptr_t* pheno_c;
   double* pheno_d;
-  uintptr_t* pheno_exclude;
   double* set_allele_freqs;
   uintptr_t unfiltered_marker_ct;
   uintptr_t unfiltered_marker_ctl;
@@ -1742,7 +1739,7 @@ int32_t wdist_dosage(int32_t calculation_type, int32_t dist_calc_type, char* gen
   uint32_t marker_idx;
   double dxx;
   double dyy;
-  retval = oxford_sample_load(samplename, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &sex_info, &pheno_c, &pheno_d, &pheno_exclude, &indiv_exclude, missing_code);
+  retval = oxford_sample_load(samplename, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &sex_info, &pheno_nm, &pheno_c, &pheno_d, &indiv_exclude, missing_code);
   if (retval) {
     goto wdist_dosage_ret_1;
   }

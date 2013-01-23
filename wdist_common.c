@@ -1815,6 +1815,26 @@ void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr
   }
 }
 
+void collapse_bitarr(uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t orig_ct) {
+  uint32_t uii = 0;
+  uint32_t ujj;
+  while ((uii < orig_ct) && (!is_set(exclude_arr, uii))) {
+    uii++;
+  }
+  ujj = uii;
+  while (++uii < orig_ct) {
+    if (!is_set(exclude_arr, uii)) {
+      if (is_set(bitarr, uii)) {
+        // set bit jj
+        bitarr[ujj / BITCT] |= (1LU << (ujj % BITCT));
+      } else {
+	bitarr[ujj / BITCT] &= (~(1LU << (ujj % BITCT)));
+      }
+      ujj++;
+    }
+  }
+}
+
 double rand_unif(void) {
   return (sfmt_genrand_uint32(&sfmt) + 0.5) * RECIP_2_32;
 }

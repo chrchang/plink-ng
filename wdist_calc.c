@@ -273,26 +273,6 @@ void update_rel_f_ibc(float* rel_ibc, uintptr_t* geno, float* set_allele_freqs, 
 }
 
 /*
-void collapse_bitarr(uintptr_t* bitarr, uintptr_t* exclude_arr, int32_t orig_ct) {
-  int32_t ii = 0;
-  int32_t jj;
-  while ((ii < orig_ct) && (!is_set(exclude_arr, ii))) {
-    ii++;
-  }
-  jj = ii;
-  while (++ii < orig_ct) {
-    if (!is_set(exclude_arr, ii)) {
-      if (is_set(bitarr, ii)) {
-        // set bit jj
-        bitarr[jj / BITCT] |= (1LU << (jj % BITCT));
-      } else {
-	bitarr[jj / BITCT] &= (~(1LU << (jj % BITCT)));
-      }
-      jj++;
-    }
-  }
-}
-
 void collapse_chrom_marker_idxs(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, int32_t unfiltered_marker_ct) {
   uint32_t* chrom_fo = chrom_info_ptr->chrom_file_order;
   uint32_t* chrom_fo_midxs = chrom_info_ptr->chrom_file_order_marker_idx;
