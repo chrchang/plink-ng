@@ -663,6 +663,13 @@ uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx
 
 uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx);
 
+static inline void zero_trailing_bits(uintptr_t* bitfield, uintptr_t unfiltered_ct) {
+  uintptr_t trail_ct = unfiltered_ct & (BITCT - 1);
+  if (trail_ct) {
+    bitfield[unfiltered_ct / BITCT] &= (1LU << trail_ct) - 1LU;
+  }
+}
+
 int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf);
 
 void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr, int32_t exclude_arr_size);

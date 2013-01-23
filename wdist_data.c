@@ -1451,8 +1451,7 @@ int32_t make_bed(FILE* bedfile, int32_t bed_offset, FILE* bimfile, int32_t map_c
     cptr = &(person_ids[indiv_uidx * max_person_id_len]);
     bufptr += sprintf(tbuf, "%s %s %s %d ", cptr, paternal_ids? (&(paternal_ids[indiv_uidx * max_paternal_id_len])) : "0", maternal_ids? (&(maternal_ids[indiv_uidx * max_maternal_id_len])) : "0", sex_info? sex_info[indiv_uidx] : 0);
     tbuf[strlen_se(cptr)] = ' ';
-    // can eliminate second clause later
-    if ((!is_set(pheno_nm, indiv_uidx)) || ((!affection) && (pheno_d[indiv_uidx] == missing_phenod))) {
+    if (!is_set(pheno_nm, indiv_uidx)) {
       sprintf("%s\n", output_missing_pheno);
     } else if (affection) {
       bufptr[0] = is_set(pheno_c, indiv_uidx)? 2 : 1;
@@ -1757,9 +1756,7 @@ int32_t load_fam(FILE* famfile, uintptr_t buflen, int32_t fam_col_1, int32_t fam
 	  }
 	}
       } else {
-	if (sscanf(bufptr, "%lg", &(pheno_d[indiv_uidx])) != 1) {
-	  pheno_d[indiv_uidx] = (double)missing_pheno;
-	} else {
+	if (sscanf(bufptr, "%lg", &(pheno_d[indiv_uidx])) == 1) {
 	  set_bit_noct(*pheno_nm_ptr, indiv_uidx);
 	}
       }
@@ -4344,7 +4341,7 @@ static inline int32_t recode_write_first_cols(FILE* outfile, uintptr_t indiv_uid
   if (fprintf(outfile, "%c%s%c%s%c%s%c%d%c", delimiter, &(cptr[ulii + 1]), delimiter, paternal_ids? (&(paternal_ids[indiv_uidx * max_paternal_id_len])) : "0", delimiter, maternal_ids? (&(maternal_ids[indiv_uidx * max_maternal_id_len])) : "0", delimiter, sex_info? sex_info[indiv_uidx] : 0, delimiter) < 0) {
     return -1;
   }
-  if ((!is_set(pheno_nm, indiv_uidx)) || ((!pheno_c) && (pheno_d[indiv_uidx] == missing_phenod))) {
+  if (!is_set(pheno_nm, indiv_uidx)) {
     if (fprintf(outfile, "%s%c", output_missing_pheno, delimiter) < 0) {
       return -1;
     }
@@ -5133,8 +5130,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	}
 	wbufptr = skip_initial_spaces(cptr);
       }
-      // eliminate second clause later
-      if ((!is_set(pheno_nm, indiv_uidx)) || ((!affection) && (pheno_d[indiv_uidx] == missing_phenod))) {
+      if (!is_set(pheno_nm, indiv_uidx)) {
 	if (fprintf(*outfile_ptr, "%s\n", output_missing_pheno) < 0) {
 	  goto recode_ret_WRITE_FAIL;
 	}
