@@ -15,7 +15,7 @@
 // assessing whether missingness should be treated as binary
 #define D_EPSILON 0.000244140625 // just want this above .0002
 
-int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uint32_t* max_person_id_len_ptr, unsigned char** sex_info_ptr, uintptr_t** pheno_nm_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** indiv_exclude_ptr, char* missing_code) {
+int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uint32_t* max_person_id_len_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, uintptr_t** pheno_nm_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** indiv_exclude_ptr, char* missing_code) {
   FILE* samplefile = NULL;
   unsigned char* wkspace_mark = NULL;
   uintptr_t unfiltered_indiv_ct = 0;
@@ -28,7 +28,6 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
   int32_t load_pheno = 0;
   uint32_t male_ct = 0;
   uint32_t female_ct = 0;
-  unsigned char* sex_info = NULL;
   uintptr_t* pheno_nm = NULL;
   uintptr_t* pheno_c = NULL;
   double* pheno_d = NULL;
@@ -67,7 +66,6 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
   bufptr = next_item(bufptr);
   if (!no_more_items_kns(bufptr)) {
     if (strcmp_se(bufptr, "sex", 3)) {
-      *sex_info_ptr = NULL;
       load_pheno = 1;
     } else {
       load_sex = 1;
@@ -166,20 +164,18 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
   *unfiltered_indiv_ct_ptr = unfiltered_indiv_ct;
   *max_person_id_len_ptr = max_person_id_len;
 
-  if (wkspace_alloc_c_checked(person_ids_ptr, unfiltered_indiv_ct * max_person_id_len)) {
+  unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  if (wkspace_alloc_c_checked(person_ids_ptr, unfiltered_indiv_ct * max_person_id_len) ||
+      wkspace_alloc_ul_checked(sex_nm_ptr, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(sex_male_ptr, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(pheno_nm_ptr, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(indiv_exclude_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
     goto oxford_sample_load_ret_NOMEM;
   }
-  if (load_sex) {
-    if (wkspace_alloc_uc_checked(sex_info_ptr, unfiltered_indiv_ct)) {
-      goto oxford_sample_load_ret_NOMEM;
-    }
-    sex_info = *sex_info_ptr;
-    memset(sex_info, 0, unfiltered_indiv_ct);
-  }
-  unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+
   if (load_pheno) {
     if (pheno_is_binary) {
-      if (wkspace_alloc_ul_checked(pheno_c_ptr, unfiltered_indiv_ctl)) {
+      if (wkspace_alloc_ul_checked(pheno_c_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
 	goto oxford_sample_load_ret_NOMEM;
       }
       pheno_c = *pheno_c_ptr;
@@ -193,11 +189,10 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
   } else {
     pheno_d_ptr = NULL;
   }
-  if (wkspace_alloc_ul_checked(indiv_exclude_ptr, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(pheno_nm_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
-    goto oxford_sample_load_ret_NOMEM;
-  }
+
   person_ids = *person_ids_ptr;
+  fill_ulong_zero(*sex_nm_ptr, unfiltered_indiv_ctl);
+  fill_ulong_zero(*sex_male_ptr, unfiltered_indiv_ctl);
   fill_ulong_zero(*indiv_exclude_ptr, unfiltered_indiv_ctl);
   fill_ulong_zero(*pheno_nm_ptr, unfiltered_indiv_ctl);
   pheno_nm = *pheno_nm_ptr;
@@ -262,10 +257,11 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
         goto oxford_sample_load_ret_INVALID_FORMAT;
       }
       if (*item_begin == '1') {
-        sex_info[indiv_uidx] = 1;
+	set_bit_noct(*sex_nm_ptr, indiv_uidx);
+	set_bit_noct(*sex_male_ptr, indiv_uidx);
         male_ct++;
       } else if (*item_begin == '2') {
-        sex_info[indiv_uidx] = 2;
+	set_bit_noct(*sex_nm_ptr, indiv_uidx);
         female_ct++;
       }
       item_begin = next_item(item_begin);
@@ -1718,7 +1714,8 @@ int32_t wdist_dosage(int32_t calculation_type, int32_t dist_calc_type, char* gen
   gzFile gz_outfile3 = NULL;
   int32_t gen_scanned = 0;
   int32_t is_missing_01 = 0;
-  unsigned char* sex_info;
+  uintptr_t* sex_nm;
+  uintptr_t* sex_male;
   unsigned char* membuf;
   uint32_t gen_buf_len;
   unsigned char* wkspace_mark;
@@ -1739,7 +1736,7 @@ int32_t wdist_dosage(int32_t calculation_type, int32_t dist_calc_type, char* gen
   uint32_t marker_idx;
   double dxx;
   double dyy;
-  retval = oxford_sample_load(samplename, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &sex_info, &pheno_nm, &pheno_c, &pheno_d, &indiv_exclude, missing_code);
+  retval = oxford_sample_load(samplename, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &sex_nm, &sex_male, &pheno_nm, &pheno_c, &pheno_d, &indiv_exclude, missing_code);
   if (retval) {
     goto wdist_dosage_ret_1;
   }

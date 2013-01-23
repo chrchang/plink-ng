@@ -4495,24 +4495,29 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   return 0;
 }
 
-void count_genders(unsigned char* sex_info, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, int32_t* male_ct_ptr, int32_t* female_ct_ptr, int32_t* unk_ct_ptr) {
+void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, int32_t* male_ct_ptr, int32_t* female_ct_ptr, int32_t* unk_ct_ptr) {
   int32_t male_ct = 0;
   int32_t female_ct = 0;
   int32_t unk_ct = 0;
-  char cc;
-  uintptr_t indiv_uidx;
-  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-    if (is_set(indiv_exclude, indiv_uidx)) {
-      continue;
-    }
-    cc = sex_info[indiv_uidx];
-    if (cc == 1) {
-      male_ct++;
-    } else if (cc == 2) {
-      female_ct++;
-    } else {
-      unk_ct++;
-    }
+  uint32_t unfiltered_indiv_ctld = unfiltered_indiv_ct / BITCT;
+  uint32_t unfiltered_indiv_ct_rem = unfiltered_indiv_ct & (BITCT - 1);
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uintptr_t indiv_bidx;
+  for (indiv_bidx = 0; indiv_bidx < unfiltered_indiv_ctld; indiv_bidx++) {
+    ulii = ~(*indiv_exclude++);
+  count_genders_last_loop:
+    uljj = *sex_nm++;
+    unk_ct += popcount_long(ulii & (~uljj));
+    ulii &= uljj;
+    uljj = *sex_male++;
+    male_ct += popcount_long(ulii & uljj);
+    female_ct += popcount_long(ulii & (~uljj));
+  }
+  if (unfiltered_indiv_ct_rem) {
+    ulii = (~(*indiv_exclude)) & ((1LU << unfiltered_indiv_ct_rem) - 1LU);
+    unfiltered_indiv_ct_rem = 0;
+    goto count_genders_last_loop;
   }
   *male_ct_ptr = male_ct;
   *female_ct_ptr = female_ct;
@@ -5070,32 +5075,6 @@ void filter_indivs_bitfields(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exc
   }
   zero_trailing_bits(indiv_exclude, unfiltered_indiv_ct);
   *indiv_exclude_ct_ptr = popcount_longs(indiv_exclude, 0, unfiltered_indiv_ctl);
-}
-
-// will be obsolete after char sex_info[] is replaced with two bitfields
-int32_t filter_indivs_sex(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* sex_info, int32_t filter_setting) {
-  unsigned char* wkspace_mark = wkspace_base;
-  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t include_ct = 0;
-  char cc_match = (char)filter_setting;
-  uintptr_t* indiv_exclude_new;
-  uintptr_t indiv_uidx;
-  if (wkspace_alloc_ul_checked(&indiv_exclude_new, unfiltered_indiv_ctl * sizeof(intptr_t))) {
-    return RET_NOMEM;
-  }
-  fill_ulong_one(indiv_exclude_new, unfiltered_indiv_ctl);
-
-  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-    if (!is_set(indiv_exclude, indiv_uidx)) {
-      if (sex_info[indiv_uidx] == cc_match) {
-	clear_bit(indiv_exclude_new, indiv_uidx, &include_ct);
-      }
-    }
-  }
-  memcpy(indiv_exclude, indiv_exclude_new, unfiltered_indiv_ctl * sizeof(intptr_t));
-  *indiv_exclude_ct_ptr = unfiltered_indiv_ct - include_ct;
-  wkspace_reset(wkspace_mark);
-  return 0;
 }
 
 void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* exclude_arr) {
@@ -5719,7 +5698,7 @@ static inline void haploid_single_marker_freqs_and_hwe(uintptr_t unfiltered_indi
   }
 }
 
-int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_exclude_ct, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t** marker_reverse_ptr, uint32_t** marker_allele_cts_ptr, uint32_t** missing_cts_ptr, int32_t bed_offset, unsigned char missing_geno, int32_t hwe_needed, int32_t hwe_all, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** ll_cts_ptr, int32_t** lh_cts_ptr, int32_t** hh_cts_ptr, int32_t wt_needed, unsigned char** marker_weights_base_ptr, double** marker_weights_ptr, Chrom_info* chrom_info_ptr, unsigned char* sex_info) {
+int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_exclude_ct, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t** marker_reverse_ptr, uint32_t** marker_allele_cts_ptr, uint32_t** missing_cts_ptr, int32_t bed_offset, unsigned char missing_geno, int32_t hwe_needed, int32_t hwe_all, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** ll_cts_ptr, int32_t** lh_cts_ptr, int32_t** hh_cts_ptr, int32_t wt_needed, unsigned char** marker_weights_base_ptr, double** marker_weights_ptr, Chrom_info* chrom_info_ptr, uintptr_t* sex_nm, uintptr_t* sex_male) {
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + BITCT - 1) / BITCT;
   int32_t retval = 0;
@@ -5838,7 +5817,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
   loadbuf[unfiltered_indiv_ctl * 2 - 1] = 0;
   exclude_to_vec_include(unfiltered_indiv_ct, indiv_include2, indiv_exclude);
   ii = species_x_code[chrom_info_ptr->species];
-  nonmales_needed = (ii != -1) && sex_info && ((chrom_info_ptr->chrom_mask >> ii) & 1);
+  nonmales_needed = (ii != -1) && ((chrom_info_ptr->chrom_mask >> ii) & 1);
   if (nonmales_needed) {
     if (wkspace_alloc_ul_checked(&indiv_nonmale_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
       goto calc_freqs_and_hwe_ret_NOMEM;
@@ -5856,7 +5835,8 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
       }
       ulii = *uiptr2++;
       for (; indiv_uidx < ujj; indiv_uidx++) {
-	if (sex_info[indiv_uidx] == 1) {
+	// this can be sped up
+	if (is_set(sex_nm, indiv_uidx) && is_set(sex_male, indiv_uidx)) {
 	  ulii &= ~(1LU << ((indiv_uidx & (BITCT2 - 1)) * 2));
 	}
       }
@@ -5871,29 +5851,24 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
     if (wkspace_alloc_ul_checked(&indiv_male_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
       goto calc_freqs_and_hwe_ret_NOMEM;
     }
-    if (!sex_info) {
-      fill_ulong_zero(indiv_male_include2, unfiltered_indiv_ctl * 2);
-      males_needed = 0;
-    } else {
-      indiv_uidx = 0;
-      ujj = 0;
-      uiptr = indiv_male_include2;
-      uiptr2 = indiv_include2;
-      indiv_male_include2[2 * unfiltered_indiv_ctl - 1] = 0;
-      for (uii = 0; uii < unfiltered_indiv_ct; uii += BITCT2) {
-	if ((uii + BITCT2) > unfiltered_indiv_ct) {
-	  ujj = unfiltered_indiv_ct;
-	} else {
-	  ujj += BITCT2;
-	}
-	ulii = *uiptr2++;
-	for (; indiv_uidx < ujj; indiv_uidx++) {
-	  if (sex_info[indiv_uidx] != 1) {
-	    ulii &= ~(1LU << ((indiv_uidx & (BITCT2 - 1)) * 2));
-	  }
-	}
-	*uiptr++ = ulii;
+    indiv_uidx = 0;
+    ujj = 0;
+    uiptr = indiv_male_include2;
+    uiptr2 = indiv_include2;
+    indiv_male_include2[2 * unfiltered_indiv_ctl - 1] = 0;
+    for (uii = 0; uii < unfiltered_indiv_ct; uii += BITCT2) {
+      if ((uii + BITCT2) > unfiltered_indiv_ct) {
+	ujj = unfiltered_indiv_ct;
+      } else {
+	ujj += BITCT2;
       }
+      ulii = *uiptr2++;
+      for (; indiv_uidx < ujj; indiv_uidx++) {
+	if ((!is_set(sex_nm, indiv_uidx)) || (!is_set(sex_male, indiv_uidx))) {
+	  ulii &= ~(1LU << ((indiv_uidx & (BITCT2 - 1)) * 2));
+	}
+      }
+      *uiptr++ = ulii;
     }
     founder_male_include2 = indiv_male_include2;
     founder_ctrl_male_include2 = indiv_male_include2;
@@ -5990,7 +5965,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
 	is_x = (ii == species_x_code[chrom_info_ptr->species]);
 	is_y = (ii == species_y_code[chrom_info_ptr->species]);
       }
-      if (is_x && sex_info) {
+      if (is_x) {
 	single_marker_freqs_and_hwe(unfiltered_indiv_ct, unfiltered_indiv_ctl * 2, loadbuf, indiv_nonmale_include2, founder_nonmale_include2, founder_ctrl_nonmale_include2, indiv_ct, &ll_ct, &lh_ct, &hh_ct, indiv_f_ct, &ll_ctf, &lh_ctf, &hh_ctf, hwe_needed, indiv_f_ctl_ct, &ll_hwe, &lh_hwe, &hh_hwe);
 	ll_cts[marker_uidx] = ll_ct;
 	lh_cts[marker_uidx] = lh_ct;
@@ -6010,7 +5985,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
 	hwe_hh_allfs[marker_uidx] += hh_ctf;
 	uii += 2 * (ll_ctf + lh_ctf + hh_ctf);
       } else {
-	if ((!is_haploid) || is_x) {
+	if (!is_haploid) {
 	  single_marker_freqs_and_hwe(unfiltered_indiv_ct, unfiltered_indiv_ctl * 2, loadbuf, indiv_include2, founder_include2, founder_ctrl_include2, indiv_ct, &ll_ct, &lh_ct, &hh_ct, indiv_f_ct, &ll_ctf, &lh_ctf, &hh_ctf, hwe_needed, indiv_f_ctl_ct, &ll_hwe, &lh_hwe, &hh_hwe);
 	} else if (is_y) {
 	} else {
@@ -6599,18 +6574,6 @@ void calc_marker_weights(double exponent, uintptr_t unfiltered_marker_ct, uintpt
   }
 }
 
-void exclude_ambiguous_sex(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, unsigned char* sex_info) {
-  uintptr_t indiv_uidx;
-  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-    if (is_set(indiv_exclude, indiv_uidx)) {
-      continue;
-    }
-    if (sex_info[indiv_uidx] == '\0') {
-      set_bit(indiv_exclude, indiv_uidx, indiv_exclude_ct_ptr);
-    }
-  }
-}
-
 int32_t load_ref_alleles(char* infilename, uintptr_t unfiltered_marker_ct, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
@@ -6718,43 +6681,66 @@ int32_t write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, uint
   return 0;
 }
 
-void normalize_phenos(double* new_phenos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, unsigned char* sex_info, uint32_t sex_exclude) {
-  // Assumes sex information is available for everyone.
-  uintptr_t indiv_uidx = 0;
+void normalize_phenos(double* new_phenos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t sex_exclude) {
+  uint32_t incl_males = sex_exclude & 1;
+  uint32_t incl_females = sex_exclude & 2;
+  uint32_t incl_unknown = sex_exclude & 4;
+  uintptr_t indiv_uidx = ~0LU;
   double pheno_tot = 0.0;
   double pheno_sq_tot = 0.0;
   uint32_t pheno_ct = 0;
-  uintptr_t indiv_idx;
+  uintptr_t indiv_idx = ~0LU;
   double dxx;
   double mean;
   double stdev_recip;
 
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
-    if (sex_info[indiv_uidx] != sex_exclude) {
-      dxx = new_phenos[indiv_idx];
-      pheno_tot += dxx;
-      pheno_sq_tot += dxx * dxx;
-      pheno_ct++;
+  while ((++indiv_idx) < indiv_ct) {
+    indiv_uidx = next_non_set_unsafe(indiv_exclude, ++indiv_uidx);
+    if (is_set(sex_nm, indiv_uidx)) {
+      if (is_set(sex_male, indiv_uidx)) {
+	if (!incl_males) {
+	  continue;
+	}
+      } else if (!incl_females) {
+	continue;
+      }
+    } else if (!incl_unknown) {
+      continue;
     }
-    indiv_uidx++;
+    dxx = new_phenos[indiv_idx];
+    pheno_tot += dxx;
+    pheno_sq_tot += dxx * dxx;
+    pheno_ct++;
   }
   if (!pheno_ct) {
     return;
   }
   mean = pheno_tot / pheno_ct;
-  stdev_recip = sqrt((double)(pheno_ct - 1) / (pheno_sq_tot - pheno_tot * mean));
-  indiv_uidx = 0;
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
-    if (sex_info[indiv_uidx] != sex_exclude) {
-      new_phenos[indiv_idx] = (new_phenos[indiv_idx] - mean) * stdev_recip;
+  if (pheno_ct == 1) {
+    stdev_recip = 0;
+  } else {
+    stdev_recip = sqrt((double)(pheno_ct - 1) / (pheno_sq_tot - pheno_tot * mean));
+  }
+  indiv_uidx = ~0LU;
+  indiv_idx = ~0LU;
+  while ((++indiv_idx) < indiv_ct) {
+    indiv_uidx = next_non_set_unsafe(indiv_exclude, ++indiv_uidx);
+    if (is_set(sex_nm, indiv_uidx)) {
+      if (is_set(sex_male, indiv_uidx)) {
+	if (!incl_males) {
+	  continue;
+	}
+      } else if (!incl_females) {
+	continue;
+      }
+    } else if (!incl_unknown) {
+      continue;
     }
-    indiv_uidx++;
+    new_phenos[indiv_idx] = (new_phenos[indiv_idx] - mean) * stdev_recip;
   }
 }
 
-int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, FILE* pedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, unsigned char* sex_info, double* pheno_d, double missing_phenod, FILE** outfile_ptr, char* outname, char* outname_end) {
+int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, FILE* pedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, double* pheno_d, double missing_phenod, FILE** outfile_ptr, char* outname, char* outname_end) {
   FILE* evecfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -7123,10 +7109,11 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
 
   if (regress_pcs_normalize_pheno) {
     if (regress_pcs_sex_specific) {
-      normalize_phenos(residual_vec, indiv_ct, unfiltered_indiv_ct, indiv_exclude, sex_info, 1);
-      normalize_phenos(residual_vec, indiv_ct, unfiltered_indiv_ct, indiv_exclude, sex_info, 2);
+      normalize_phenos(residual_vec, indiv_ct, unfiltered_indiv_ct, indiv_exclude, sex_nm, sex_male, 1);
+      normalize_phenos(residual_vec, indiv_ct, unfiltered_indiv_ct, indiv_exclude, sex_nm, sex_male, 2);
+      normalize_phenos(residual_vec, indiv_ct, unfiltered_indiv_ct, indiv_exclude, sex_nm, sex_male, 4);
     } else {
-      normalize_phenos(residual_vec, indiv_ct, unfiltered_indiv_ct, indiv_exclude, sex_info, 3);
+      normalize_phenos(residual_vec, indiv_ct, unfiltered_indiv_ct, indiv_exclude, sex_nm, sex_male, 7);
     }
   }
 
@@ -7137,8 +7124,8 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
     uii = strlen_se(person_id_ptr);
     memcpy(id_buf, person_id_ptr, uii);
     id_buf[uii] = '\0';
-    // todo: adjust pheno_d
-    if (fprintf(*outfile_ptr, "%s %s %g %u %g\n", id_buf, next_item(person_id_ptr), (double)missing_cts[indiv_uidx] / (double)marker_ct, sex_info[indiv_uidx], residual_vec[indiv_idx]) < 0) {
+    // todo: adjust pheno_d, double-check missing gender behavior
+    if (fprintf(*outfile_ptr, "%s %s %g %c %g\n", id_buf, next_item(person_id_ptr), (double)missing_cts[indiv_uidx] / (double)marker_ct, sexchar(sex_nm, sex_male, indiv_uidx), residual_vec[indiv_idx]) < 0) {
       return RET_WRITE_FAIL;
     }
     indiv_uidx++;
@@ -10788,7 +10775,8 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t indiv_exclude_ct = 0;
   uint32_t* indiv_sort_map = NULL;
   uintptr_t* founder_info = NULL;
-  unsigned char* sex_info = NULL;
+  uintptr_t* sex_nm = NULL;
+  uintptr_t* sex_male = NULL;
   int32_t ii;
   int32_t jj = 0;
   int32_t kk = 0;
@@ -10972,11 +10960,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (ii && phenoname) {
     ii = pheno_merge && (!makepheno_str);
   }
-  retval = load_fam(famfile, ulii, fam_col_1, fam_col_34, fam_col_5, ii, fam_col_6, missing_pheno, missing_pheno_len, affection_01, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_info, &affection, &g_pheno_nm, &g_pheno_c, &g_pheno_d, &founder_info, &indiv_exclude);
+  retval = load_fam(famfile, ulii, fam_col_1, fam_col_34, fam_col_5, ii, fam_col_6, missing_pheno, missing_pheno_len, affection_01, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &g_pheno_nm, &g_pheno_c, &g_pheno_d, &founder_info, &indiv_exclude);
   if (retval) {
     goto wdist_ret_2;
   }
-  count_genders(sex_info, unfiltered_indiv_ct, indiv_exclude, &ii, &jj, &kk);
+  count_genders(sex_nm, sex_male, unfiltered_indiv_ct, indiv_exclude, &ii, &jj, &kk);
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   if (kk) {
     sprintf(logbuf, "%lu marker%s and %lu %s (%d male%s, %d female%s, %d unknown) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s", kk);
@@ -11134,9 +11122,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   if (filter_sex) {
     ii = indiv_exclude_ct;
-    if (filter_indivs_sex(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, (char*)sex_info, filter_sex)) {
-      goto wdist_ret_NOMEM;
-    }
+    filter_indivs_bitfields(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, sex_male, 2 - filter_sex, sex_nm);
     ii = indiv_exclude_ct - ii;
     sprintf(logbuf, "%d %s removed due to gender filter (--filter-%s).\n", ii, species_str(ii), (filter_sex == 1)? "males" : "females");
     logprintb();
@@ -11215,7 +11201,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   nonfounders = (nonfounders || (!fam_col_34));
   wt_needed = distance_wt_req(calculation_type) && (!distance_flat_missing);
   hwe_needed = (hwe_thresh > 0.0);
-  retval = calc_freqs_and_hwe(bedfile, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_reverse, &marker_allele_cts, &missing_cts, bed_offset, (unsigned char)missing_geno, hwe_needed, hwe_all, g_pheno_nm, g_pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &ll_cts, &lh_cts, &hh_cts, wt_needed, &marker_weights_base, &g_marker_weights, chrom_info_ptr, sex_info);
+  retval = calc_freqs_and_hwe(bedfile, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_reverse, &marker_allele_cts, &missing_cts, bed_offset, (unsigned char)missing_geno, hwe_needed, hwe_all, g_pheno_nm, g_pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &ll_cts, &lh_cts, &hh_cts, wt_needed, &marker_weights_base, &g_marker_weights, chrom_info_ptr, sex_nm, sex_male);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -11303,14 +11289,14 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_MAKE_BED) {
-    retval = make_bed(bedfile, bed_offset, bimfile, map_cols, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_alleles, max_marker_allele_len, marker_reverse, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_nm, g_pheno_c, g_pheno_d, missing_phenod, output_missing_pheno, max_marker_id_len, map_is_unsorted, indiv_sort_map, chrom_info_ptr->species);
+    retval = make_bed(bedfile, bed_offset, bimfile, map_cols, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_alleles, max_marker_allele_len, marker_reverse, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, g_pheno_nm, g_pheno_c, g_pheno_d, missing_phenod, output_missing_pheno, max_marker_id_len, map_is_unsorted, indiv_sort_map, chrom_info_ptr->species);
     if (retval) {
       goto wdist_ret_2;
     }
   }
 
   if (calculation_type & CALC_RECODE) {
-    retval = recode(recode_modifier, bedfile, bed_offset, famfile, bimfile, &outfile, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_info, g_pheno_nm, g_pheno_c, g_pheno_d, missing_phenod, output_missing_geno, output_missing_pheno);
+    retval = recode(recode_modifier, bedfile, bed_offset, famfile, bimfile, &outfile, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, g_pheno_nm, g_pheno_c, g_pheno_d, missing_phenod, output_missing_geno, output_missing_pheno);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -11325,7 +11311,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (calculation_type & CALC_REGRESS_PCS) {
     // do this before marker_alleles is overwritten in memory...
-    retval = calc_regress_pcs(evecname, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, chrom_info_ptr, marker_pos, g_indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, sex_info, g_pheno_d, missing_phenod, &outfile, outname, outname_end);
+    retval = calc_regress_pcs(evecname, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, chrom_info_ptr, marker_pos, g_indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, sex_nm, sex_male, g_pheno_d, missing_phenod, &outfile, outname, outname_end);
     if (retval) {
       goto wdist_ret_2;
     }
