@@ -3090,7 +3090,6 @@ void groupdist_jack(int32_t* ibuf, double* returns) {
   double* dptr = g_dists;
   uint32_t ii2;
   uint32_t cs;
-  uint32_t cs2;
   double neg_tot_aa = 0.0;
   double neg_tot_au = 0.0;
   double neg_tot_uu = 0.0;
@@ -3107,41 +3106,50 @@ void groupdist_jack(int32_t* ibuf, double* returns) {
       if (cs) {
         neg_a++;
 	for (ii2 = 0; ii2 < indiv_idx; ii2++) {
-          dxx = *dptr++;
-	  // several ways to speed this up if it's important
+	  // several ways to speed this up if it's important (first is to use
+	  // same transformation as regress_jack)
 	  if (is_set(g_pheno_nm, ii2)) {
 	    if (is_set(g_pheno_c, ii2)) {
-	      neg_tot_aa += dxx;
+	      neg_tot_aa += *dptr;
 	    } else {
-	      neg_tot_au += dxx;
+	      neg_tot_au += *dptr;
 	    }
 	  }
+	  dptr++;
         }
       } else {
         neg_u++;
 	for (ii2 = 0; ii2 < indiv_idx; ii2++) {
-          dxx = *dptr++;
 	  if (is_set(g_pheno_nm, ii2)) {
 	    if (is_set(g_pheno_c, ii2)) {
-	      neg_tot_au += dxx;
+	      neg_tot_au += *dptr;
 	    } else {
-	      neg_tot_uu += dxx;
+	      neg_tot_uu += *dptr;
 	    }
 	  }
+	  dptr++;
         }
       }
       iptr++;
+    } else if (cs) {
+      jptr = ibuf;
+      while (jptr < iptr) {
+        dxx = dptr[*jptr];
+	if (is_set(g_pheno_c, *jptr)) {
+	  neg_tot_aa += dxx;
+	} else {
+	  neg_tot_au += dxx;
+	}
+        jptr++;
+      }
     } else {
       jptr = ibuf;
       while (jptr < iptr) {
-        cs2 = is_set(g_pheno_c, *jptr);
         dxx = dptr[*jptr];
-	if (cs && cs2) {
-	  neg_tot_aa += dxx;
-	} else if ((!cs) && (!cs2)) {
-	  neg_tot_uu += dxx;
-	} else {
+	if (is_set(g_pheno_c, *jptr)) {
 	  neg_tot_au += dxx;
+	} else {
+	  neg_tot_uu += dxx;
 	}
         jptr++;
       }
