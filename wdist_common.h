@@ -680,6 +680,6 @@ void print_pheno_stdev(double* pheno_d, uint32_t indiv_ct);
 
 uint32_t set_default_jackknife_d(uint32_t ct);
 
-int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct_local, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d);
+int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct_local, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d);
 
 #endif // __WDIST_COMMON_H__

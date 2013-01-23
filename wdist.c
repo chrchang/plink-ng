@@ -7210,6 +7210,233 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
   return retval;
 }
 
+int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t groupdist_iters, uint32_t groupdist_d) {
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t indiv_ctl = (g_indiv_ct + (BITCT - 1)) / BITCT;
+  double* dist_ptr = g_dists;
+  double dhh_ssq = 0.0;
+  double dhl_ssq = 0.0;
+  double dll_ssq = 0.0;
+  int32_t retval = 0;
+  uintptr_t* pheno_c_copy = NULL;
+  int32_t ll_size;
+  int32_t lh_size;
+  int32_t hh_size;
+  double* ll_pool;
+  double* lh_pool;
+  double* hh_pool;
+  double* ll_poolp;
+  double* lh_poolp;
+  double* hh_poolp;
+  uintptr_t* pheno_nm_copy;
+  uintptr_t* uiptr;
+  uintptr_t* uiptr2;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t indiv_idx;
+  double ll_med;
+  double lh_med;
+  double hh_med;
+  double dll_sd;
+  double dhl_sd;
+  double dhh_sd;
+  double dxx;
+  double dyy;
+  double dzz;
+  double dww;
+  if (wkspace_alloc_ul_checked(&pheno_nm_copy, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&pheno_c_copy, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+    goto groupdist_calc_ret_NOMEM;
+  }
+  memcpy(pheno_nm_copy, g_pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
+  memcpy(pheno_c_copy, g_pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
+  collapse_bitarr(g_pheno_nm, indiv_exclude, unfiltered_indiv_ct);
+  collapse_bitarr(g_pheno_c, indiv_exclude, unfiltered_indiv_ct);
+  g_low_ct = 0;
+  g_high_ct = 0;
+  uii = g_indiv_ct & (BITCT - 1);
+  if (uii) {
+    g_pheno_nm[indiv_ctl - 1] &= (1LU << uii) - 1LU;
+  }
+  uiptr = g_pheno_nm;
+  uiptr2 = g_pheno_c;
+  for (uii = 0; uii < indiv_ctl; uii++) {
+    ulii = *uiptr++;
+    uljj = *uiptr2++;
+    g_high_ct += popcount_long(ulii & uljj);
+    g_low_ct += popcount_long(ulii & (~uljj));
+  }
+  ll_size = ((uintptr_t)g_low_ct * (g_low_ct - 1)) / 2;
+  lh_size = g_low_ct * g_high_ct;
+  hh_size = ((uintptr_t)g_high_ct * (g_high_ct - 1)) / 2;
+  g_reg_tot_y = 0.0;
+  g_reg_tot_xy = 0.0;
+  g_reg_tot_x = 0.0;
+  if (wkspace_alloc_d_checked(&ll_pool, ll_size * sizeof(double)) ||
+      wkspace_alloc_d_checked(&lh_pool, lh_size * sizeof(double)) ||
+      wkspace_alloc_d_checked(&hh_pool, hh_size * sizeof(double)) ||
+      wkspace_alloc_uc_checked(&g_geno, g_thread_ct * CACHEALIGN(g_high_ct + g_low_ct + (g_jackknife_d + 1) * sizeof(int32_t)))) {
+    goto groupdist_calc_ret_NOMEM;
+  }
+  ll_poolp = ll_pool;
+  lh_poolp = lh_pool;
+  hh_poolp = hh_pool;
+  for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
+    if (is_set(g_pheno_nm, indiv_idx)) {
+      if (is_set(g_pheno_c, indiv_idx)) {
+	for (uii = 0; uii < indiv_idx; uii++) {
+	  if (is_set(g_pheno_nm, uii)) {
+	    dxx = *dist_ptr;
+	    if (is_set(g_pheno_c, uii)) {
+	      *hh_poolp++ = dxx;
+	      g_reg_tot_x += dxx;
+	      dhh_ssq += dxx * dxx;
+	    } else {
+	      *lh_poolp++ = dxx;
+	      g_reg_tot_xy += dxx;
+	      dhl_ssq += dxx * dxx;
+	    }
+	  }
+	  dist_ptr++;
+	}
+      } else {
+	for (uii = 0; uii < indiv_idx; uii++) {
+	  if (is_set(g_pheno_nm, uii)) {
+	    dxx = *dist_ptr;
+	    if (is_set(g_pheno_c, uii)) {
+	      *lh_poolp++ = dxx;
+	      g_reg_tot_xy += dxx;
+	      dhl_ssq += dxx * dxx;
+	    } else {
+	      *ll_poolp++ = dxx;
+	      g_reg_tot_y += dxx;
+	      dll_ssq += dxx * dxx;
+	    }
+	  }
+	  dist_ptr++;
+	}
+      }
+    } else {
+      dist_ptr += indiv_idx;
+    }
+  }
+#ifdef __cplusplus
+  // std::sort is faster than qsort for basic types.  See e.g. Anders
+  // Kaseorg's answer to
+  // http://www.quora.com/Software-Engineering/Generally-how-much-faster-is-C-compared-to-C++
+  std::sort(ll_pool, &(ll_pool[ll_size]));
+  std::sort(lh_pool, &(lh_pool[lh_size]));
+  std::sort(hh_pool, &(hh_pool[hh_size]));
+#else
+  qsort(ll_pool, ll_size, sizeof(double), double_cmp);
+  qsort(lh_pool, lh_size, sizeof(double), double_cmp);
+  qsort(hh_pool, hh_size, sizeof(double), double_cmp);
+#endif
+  ll_med = get_dmedian(ll_pool, ll_size);
+  lh_med = get_dmedian(lh_pool, lh_size);
+  hh_med = get_dmedian(hh_pool, hh_size);
+  sprintf(logbuf, "Case/control distance analysis (%d affected, %d unaffected):\n", g_high_ct, g_low_ct);
+  logprintb();
+  if (g_high_ct < 2) {
+    dxx = 0.0;
+    dhh_sd = 0.0;
+  } else {
+    dww = (double)(((uintptr_t)g_high_ct * (g_high_ct - 1)) / 2);
+    dxx = g_reg_tot_x / dww;
+    dhh_sd = sqrt((dhh_ssq / dww - dxx * dxx) / (dww - 1.0));
+  }
+  if (!(g_high_ct * g_low_ct)) {
+    dyy = 0.0;
+    dhl_sd = 0.0;
+  } else {
+    dww = (double)((uintptr_t)g_high_ct * g_low_ct);
+    dyy = g_reg_tot_xy / dww;
+    dhl_sd = sqrt((dhl_ssq / dww - dyy * dyy) / (dww - 1.0));
+  }
+  if (g_low_ct < 2) {
+    dzz = 0.0;
+    dll_sd = 0.0;
+  } else {
+    dww = (double)(((uintptr_t)g_low_ct * (g_low_ct - 1)) / 2);
+    dzz = g_reg_tot_y / dww;
+    dll_sd = sqrt((dll_ssq / dww - dzz * dzz) / (dww - 1.0));
+  }
+  sprintf(logbuf, "  Mean (sd), median dists between 2x affected     : %g (%g), %g\n", dxx, dhh_sd, hh_med);
+  logprintb();
+  sprintf(logbuf, "  Mean (sd), median dists between aff. and unaff. : %g (%g), %g\n", dyy, dhl_sd, lh_med);
+  logprintb();
+  sprintf(logbuf, "  Mean (sd), median dists between 2x unaffected   : %g (%g), %g\n\n", dzz, dll_sd, ll_med);
+  logprintb();
+  if (2 * g_jackknife_d >= (g_high_ct + g_low_ct)) {
+    logprint("Delete-d jackknife skipped because d is too large.\n");
+  } else {
+    // if (wkspace_alloc_d_checked(&g_jackknife_precomp, g_indiv_ct * JACKKNIFE_VALS_GROUPDIST)) {
+    //   goto groupdist_calc_ret_NOMEM;
+    // }
+    // fill_double_zero(g_jackknife_precomp, g_indiv_ct * JACKKNIFE_VALS_GROUPDIST);
+    // for (uii = 1; uii < g_indiv_ct; uii++) {
+    // }
+
+    // this can be sped up using the same method used in regress-distance,
+    // if it's important
+    g_jackknife_iters = (groupdist_iters + g_thread_ct - 1) / g_thread_ct;
+
+    if (groupdist_d) {
+      g_jackknife_d = groupdist_d;
+    } else {
+      g_jackknife_d = set_default_jackknife_d(g_high_ct + g_low_ct);
+    }
+
+    for (ulii = 1; ulii < g_thread_ct; ulii++) {
+      if (pthread_create(&(threads[ulii - 1]), NULL, &groupdist_jack_thread, (void*)ulii)) {
+	goto groupdist_calc_ret_THREAD_CREATE_FAIL;
+      }
+    }
+    ulii = 0;
+    groupdist_jack_thread((void*)ulii);
+    for (uii = 1; uii < g_thread_ct; uii++) {
+      pthread_join(threads[uii - 1], NULL);
+      for (ujj = 0; ujj < 9; ujj++) {
+	g_calc_result[ujj][0] += g_calc_result[ujj][uii];
+      }
+    }
+    dxx = 1.0 / g_thread_ct;
+    g_calc_result[0][0] *= dxx;
+    g_calc_result[1][0] *= dxx;
+    g_calc_result[2][0] *= dxx;
+    dxx /= (g_jackknife_iters - 1) * g_thread_ct;
+    for (uii = 3; uii < 9; uii++) {
+      g_calc_result[uii][0] *= dxx;
+    }
+    putchar('\r');
+    sprintf(logbuf, "  AA mean - AU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[1][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[3][0] + g_calc_result[4][0] - 2 * g_calc_result[6][0])));
+    logprintb();
+    sprintf(logbuf, "  AA mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[2][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[3][0] + g_calc_result[5][0] - 2 * g_calc_result[7][0])));
+    logprintb();
+    sprintf(logbuf, "  AU mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[1][0] - g_calc_result[2][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[4][0] + g_calc_result[5][0] - 2 * g_calc_result[8][0])));
+    logprintb();
+  }
+  while (0) {
+  groupdist_calc_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  groupdist_calc_ret_THREAD_CREATE_FAIL:
+    logprint(errstr_thread_create);
+    retval = RET_THREAD_CREATE_FAIL;
+    for (uljj = 0; uljj < ulii - 1; uljj++) {
+      pthread_join(threads[uljj], NULL);
+    }
+    break;
+  }
+  memcpy(g_pheno_nm, pheno_nm_copy, unfiltered_indiv_ctl * sizeof(intptr_t));
+  memcpy(g_pheno_c, pheno_c_copy, unfiltered_indiv_ctl * sizeof(intptr_t));
+  wkspace_reset(wkspace_mark);
+  return retval;
+}
+
 // implementation used in PLINK stats.cpp
 double normdist(double zz) {
   double sqrt2pi = 2.50662827463;
@@ -10591,7 +10818,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   double dxx;
   double dyy;
   double dzz;
-  double dww;
   int64_t llxx = 0;
   int64_t llyy;
   char* marker_ids = NULL;
@@ -10656,24 +10882,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   int32_t* lh_cts;
   int32_t* hh_cts;
   int32_t multiplex = 0;
-  double* ll_pool;
-  double* lh_pool;
-  double* hh_pool;
-  double* ll_poolp;
-  double* lh_poolp;
-  double* hh_poolp;
-  double dhh_ssq;
-  double dhl_ssq;
-  double dll_ssq;
-  double dhh_sd;
-  double dhl_sd;
-  double dll_sd;
-  int32_t ll_size;
-  int32_t lh_size;
-  int32_t hh_size;
-  double ll_med;
-  double lh_med;
-  double hh_med;
   pthread_t threads[MAX_THREADS];
   int32_t exp0 = (exponent == 0.0);
   int32_t wt_needed = 0;
@@ -11768,166 +11976,10 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_GROUPDIST) {
-    wkspace_mark = wkspace_base;
-    collapse_bitarr(g_pheno_nm, indiv_exclude, unfiltered_indiv_ct);
-    collapse_bitarr(g_pheno_c, indiv_exclude, unfiltered_indiv_ct);
-    g_low_ct = 0;
-    g_high_ct = 0;
-    for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-      if (is_set(g_pheno_nm, indiv_idx)) {
-	if (is_set(g_pheno_c, indiv_idx)) {
-	  g_high_ct++;
-	} else {
-	  g_low_ct++;
-	}
-      }
+    retval = groupdist_calc(threads, unfiltered_indiv_ct, indiv_exclude, groupdist_iters, groupdist_d);
+    if (retval) {
+      goto wdist_ret_2;
     }
-    ll_size = ((uintptr_t)g_low_ct * (g_low_ct - 1)) / 2;
-    lh_size = g_low_ct * g_high_ct;
-    hh_size = ((uintptr_t)g_high_ct * (g_high_ct - 1)) / 2;
-    g_reg_tot_y = 0.0;
-    g_reg_tot_xy = 0.0;
-    g_reg_tot_x = 0.0;
-    dhh_ssq = 0.0;
-    dhl_ssq = 0.0;
-    dll_ssq = 0.0;
-    dist_ptr = g_dists;
-    ll_pool = (double*)wkspace_alloc(ll_size * sizeof(double));
-    lh_pool = (double*)wkspace_alloc(lh_size * sizeof(double));
-    hh_pool = (double*)wkspace_alloc(hh_size * sizeof(double));
-    ll_poolp = ll_pool;
-    lh_poolp = lh_pool;
-    hh_poolp = hh_pool;
-    g_geno = wkspace_alloc(g_thread_ct * CACHEALIGN(g_high_ct + g_low_ct + (g_jackknife_d + 1) * sizeof(int32_t)));
-    for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
-      if (is_set(g_pheno_nm, indiv_idx)) {
-        if (is_set(g_pheno_c, indiv_idx)) {
-	  for (uii = 0; uii < indiv_idx; uii++) {
-	    if (is_set(g_pheno_nm, uii)) {
-	      dxx = *dist_ptr;
-	      if (is_set(g_pheno_c, uii)) {
-		*hh_poolp++ = dxx;
-		g_reg_tot_x += dxx;
-		dhh_ssq += dxx * dxx;
-	      } else {
-		*lh_poolp++ = dxx;
-		g_reg_tot_xy += dxx;
-		dhl_ssq += dxx * dxx;
-	      }
-	    }
-	    dist_ptr++;
-	  }
-	} else {
-	  for (uii = 0; uii < indiv_idx; uii++) {
-	    if (is_set(g_pheno_nm, uii)) {
-	      dxx = *dist_ptr;
-	      if (is_set(g_pheno_c, uii)) {
-		*lh_poolp++ = dxx;
-		g_reg_tot_xy += dxx;
-		dhl_ssq += dxx * dxx;
-	      } else {
-		*ll_poolp++ = dxx;
-		g_reg_tot_y += dxx;
-		dll_ssq += dxx * dxx;
-	      }
-	    }
-	    dist_ptr++;
-	  }
-	}
-      } else {
-	dist_ptr += indiv_idx;
-      }
-    }
-#ifdef __cplusplus
-    // std::sort is faster than qsort for basic types.  See e.g. Anders
-    // Kaseorg's answer to
-    // http://www.quora.com/Software-Engineering/Generally-how-much-faster-is-C-compared-to-C++
-    std::sort(ll_pool, &(ll_pool[ll_size]));
-    std::sort(lh_pool, &(lh_pool[lh_size]));
-    std::sort(hh_pool, &(hh_pool[hh_size]));
-#else
-    qsort(ll_pool, ll_size, sizeof(double), double_cmp);
-    qsort(lh_pool, lh_size, sizeof(double), double_cmp);
-    qsort(hh_pool, hh_size, sizeof(double), double_cmp);
-#endif
-    ll_med = get_dmedian(ll_pool, ll_size);
-    lh_med = get_dmedian(lh_pool, lh_size);
-    hh_med = get_dmedian(hh_pool, hh_size);
-    sprintf(logbuf, "Case/control distance analysis (%d affected, %d unaffected):\n", g_high_ct, g_low_ct);
-    logprintb();
-    if (g_high_ct < 2) {
-      dxx = 0.0;
-      dhh_sd = 0.0;
-    } else {
-      dww = (double)(((uintptr_t)g_high_ct * (g_high_ct - 1)) / 2);
-      dxx = g_reg_tot_x / dww;
-      dhh_sd = sqrt((dhh_ssq / dww - dxx * dxx) / (dww - 1.0));
-    }
-    if (!(g_high_ct * g_low_ct)) {
-      dyy = 0.0;
-      dhl_sd = 0.0;
-    } else {
-      dww = (double)((uintptr_t)g_high_ct * g_low_ct);
-      dyy = g_reg_tot_xy / dww;
-      dhl_sd = sqrt((dhl_ssq / dww - dyy * dyy) / (dww - 1.0));
-    }
-    if (g_low_ct < 2) {
-      dzz = 0.0;
-      dll_sd = 0.0;
-    } else {
-      dww = (double)(((uintptr_t)g_low_ct * (g_low_ct - 1)) / 2);
-      dzz = g_reg_tot_y / dww;
-      dll_sd = sqrt((dll_ssq / dww - dzz * dzz) / (dww - 1.0));
-    }
-    sprintf(logbuf, "  Mean (sd), median dists between 2x affected     : %g (%g), %g\n", dxx, dhh_sd, hh_med);
-    logprintb();
-    sprintf(logbuf, "  Mean (sd), median dists between aff. and unaff. : %g (%g), %g\n", dyy, dhl_sd, lh_med);
-    logprintb();
-    sprintf(logbuf, "  Mean (sd), median dists between 2x unaffected   : %g (%g), %g\n\n", dzz, dll_sd, ll_med);
-    logprintb();
-    if (2 * g_jackknife_d >= (g_high_ct + g_low_ct)) {
-      logprint("Delete-d jackknife skipped because d is too large.\n");
-    } else {
-      // this can be sped up using the same method used in regress-distance,
-      // if it's important
-      g_jackknife_iters = (groupdist_iters + g_thread_ct - 1) / g_thread_ct;
-
-      if (groupdist_d) {
-	g_jackknife_d = groupdist_d;
-      } else {
-	g_jackknife_d = set_default_jackknife_d(g_high_ct + g_low_ct);
-      }
-
-      for (ulii = 1; ulii < g_thread_ct; ulii++) {
-	if (pthread_create(&(threads[ulii - 1]), NULL, &groupdist_jack_thread, (void*)ulii)) {
-	  goto wdist_ret_THREAD_CREATE_FAIL;
-	}
-      }
-      ulii = 0;
-      groupdist_jack_thread((void*)ulii);
-      for (uii = 1; uii < g_thread_ct; uii++) {
-        pthread_join(threads[uii - 1], NULL);
-        for (jj = 0; jj < 9; jj++) {
-	  g_calc_result[jj][0] += g_calc_result[jj][uii];
-        }
-      }
-      dxx = 1.0 / g_thread_ct;
-      g_calc_result[0][0] *= dxx;
-      g_calc_result[1][0] *= dxx;
-      g_calc_result[2][0] *= dxx;
-      dxx /= (g_jackknife_iters - 1) * g_thread_ct;
-      for (ii = 3; ii < 9; ii++) {
-        g_calc_result[ii][0] *= dxx;
-      }
-      putchar('\r');
-      sprintf(logbuf, "  AA mean - AU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[1][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[3][0] + g_calc_result[4][0] - 2 * g_calc_result[6][0])));
-      logprintb();
-      sprintf(logbuf, "  AA mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[2][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[3][0] + g_calc_result[5][0] - 2 * g_calc_result[7][0])));
-      logprintb();
-      sprintf(logbuf, "  AU mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[1][0] - g_calc_result[2][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[4][0] + g_calc_result[5][0] - 2 * g_calc_result[8][0])));
-      logprintb();
-    }
-    wkspace_reset(wkspace_mark);
   }
   if (calculation_type & CALC_REGRESS_DISTANCE) {
     retval = regress_distance(calculation_type, g_dists, g_pheno_d, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, g_thread_ct, regress_iters, regress_d);

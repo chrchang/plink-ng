@@ -1910,7 +1910,7 @@ static double* g_jackknife_precomp;
 static double* g_dists;
 static double g_calc_result[4][MAX_THREADS_P1];
 static unsigned char* g_generic_buf;
-static uint32_t g_indiv_ct;
+static uintptr_t g_indiv_ct;
 
 // double regress_jack(int32_t* ibuf) {
 double regress_jack(int32_t* ibuf, double* ret2_ptr) {
@@ -1996,7 +1996,7 @@ void* regress_jack_thread(void* arg) {
   return NULL;
 }
 
-int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct_local, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d) {
+int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct_local, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t ulii;
   uint32_t uii;
@@ -2019,6 +2019,7 @@ int32_t regress_distance(int32_t calculation_type, double* dists_local, double* 
 
   // beta = (mean(xy) - mean(x)*mean(y)) / (mean(x^2) - mean(x)^2)
   if (unfiltered_indiv_ct != g_indiv_ct) {
+    // destructive!  make copy in the future
     collapse_arr((char*)g_pheno_d, sizeof(double), indiv_exclude, unfiltered_indiv_ct);
   }
   if (!(calculation_type & CALC_REGRESS_REL)) {
