@@ -6428,7 +6428,8 @@ int32_t read_external_freqs(char* freqname, FILE** freqfile_ptr, uintptr_t unfil
     } else {
       fputs(".frq file loaded.\n", stdout);
     }
-  } else if (!strcmp(tbuf, "CHR\tSNP\tA1\tA2\tHOM A1\tHET\tHOM A2\tHAP A1\tHAP A2\tMISSING\n")) {
+  } else if (!memcmp(tbuf, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)", 71)) {
+    // changed from strcmp to avoid eoln problems
     // known --freqx format, v0.15.3 or later
     while (fgets(tbuf, MAXLINELEN, *freqfile_ptr) != NULL) {
       jj = marker_code(species, tbuf);
@@ -6583,7 +6584,7 @@ int32_t write_freqs(FILE** outfile_ptr, char* outname, uint32_t plink_maxsnp, ui
     return RET_OPEN_FAIL;
   }
   if (freqx) {
-    if (fputs("CHR\tSNP\tA1\tA2\tHOM A1\tHET\tHOM A2\tHAP A1\tHAP A2\tMISSING\n", *outfile_ptr) == EOF) {
+    if (fputs("CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)\n", *outfile_ptr) == EOF) {
       return RET_WRITE_FAIL;
     }
   } else if (plink_maxsnp < 5) {
