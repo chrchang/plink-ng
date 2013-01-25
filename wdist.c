@@ -5422,6 +5422,91 @@ void freq_hwe_count_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t
   *ctbp += (uint32_t)(acc_b.u8[0] + acc_b.u8[1]);
   *ctcp += (uint32_t)(acc_c.u8[0] + acc_c.u8[1]);
 }
+
+void freq_hwe_haploid_count_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ct_nmp, uint32_t* ct_hmajp) {
+  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
+  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
+  __m128i loader;
+  __m128i loader2;
+  __m128i loader3;
+  __m128i to_ct_nm1;
+  __m128i to_ct_hmaj1;
+  __m128i to_ct_nm2;
+  __m128i to_ct_hmaj2;
+  __uni16 acc_nm;
+  __uni16 acc_hmaj;
+
+  acc_nm.vi = _mm_setzero_si128();
+  acc_hmaj.vi = _mm_setzero_si128();
+  do {
+    loader = *vptr++;
+    loader3 = _mm_srli_epi64(loader, 1);
+    loader2 = _mm_xor_si128(loader, loader3); // inverted
+    loader = _mm_and_si128(loader, loader3);
+    loader3 = *maskvp++;
+    to_ct_nm1 = _mm_andnot_si128(loader2, loader3);
+    to_ct_hmaj1 = _mm_and_si128(loader, loader3);
+
+    loader = *vptr++;
+    loader3 = _mm_srli_epi64(loader, 1);
+    loader2 = _mm_xor_si128(loader, loader3); // inverted
+    loader = _mm_and_si128(loader, loader3);
+    loader3 = *maskvp++;
+    to_ct_nm1 = _mm_add_epi64(to_ct_nm1, _mm_andnot_si128(loader2, loader3));
+    to_ct_hmaj1 = _mm_add_epi64(to_ct_hmaj1, _mm_and_si128(loader, loader3));
+
+    loader = *vptr++;
+    loader3 = _mm_srli_epi64(loader, 1);
+    loader2 = _mm_xor_si128(loader, loader3); // inverted
+    loader = _mm_and_si128(loader, loader3);
+    loader3 = *maskvp++;
+    to_ct_nm1 = _mm_add_epi64(to_ct_nm1, _mm_andnot_si128(loader2, loader3));
+    to_ct_hmaj1 = _mm_add_epi64(to_ct_hmaj1, _mm_and_si128(loader, loader3));
+
+    to_ct_nm1 = _mm_add_epi64(_mm_and_si128(to_ct_nm1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_nm1, 2), m2));
+    to_ct_hmaj1 = _mm_add_epi64(_mm_and_si128(to_ct_hmaj1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_hmaj1, 2), m2));
+
+    loader = *vptr++;
+    loader3 = _mm_srli_epi64(loader, 1);
+    loader2 = _mm_xor_si128(loader, loader3); // inverted
+    loader = _mm_and_si128(loader, loader3);
+    loader3 = *maskvp++;
+    to_ct_nm2 = _mm_andnot_si128(loader2, loader3);
+    to_ct_hmaj2 = _mm_and_si128(loader, loader3);
+
+    loader = *vptr++;
+    loader3 = _mm_srli_epi64(loader, 1);
+    loader2 = _mm_xor_si128(loader, loader3); // inverted
+    loader = _mm_and_si128(loader, loader3);
+    loader3 = *maskvp++;
+    to_ct_nm2 = _mm_add_epi64(to_ct_nm2, _mm_andnot_si128(loader2, loader3));
+    to_ct_hmaj2 = _mm_add_epi64(to_ct_hmaj2, _mm_and_si128(loader, loader3));
+
+    loader = *vptr++;
+    loader3 = _mm_srli_epi64(loader, 1);
+    loader2 = _mm_xor_si128(loader, loader3); // inverted
+    loader = _mm_and_si128(loader, loader3);
+    loader3 = *maskvp++;
+    to_ct_nm2 = _mm_add_epi64(to_ct_nm2, _mm_andnot_si128(loader2, loader3));
+    to_ct_hmaj2 = _mm_add_epi64(to_ct_hmaj2, _mm_and_si128(loader, loader3));
+
+    to_ct_nm1 = _mm_add_epi64(to_ct_nm1, _mm_add_epi64(_mm_and_si128(to_ct_nm2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_nm2, 2), m2)));
+    to_ct_hmaj1 = _mm_add_epi64(to_ct_hmaj1, _mm_add_epi64(_mm_and_si128(to_ct_hmaj2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_hmaj2, 2), m2)));
+
+    acc_nm.vi = _mm_add_epi64(acc_nm.vi, _mm_add_epi64(_mm_and_si128(to_ct_nm1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_nm1, 4), m4)));
+    acc_hmaj.vi = _mm_add_epi64(acc_hmaj.vi, _mm_add_epi64(_mm_and_si128(to_ct_hmaj1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_hmaj1, 4), m4)));
+  } while (vptr < vend);
+  acc_nm.vi = _mm_add_epi64(_mm_and_si128(acc_nm.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_nm.vi, 8), m8));
+  acc_hmaj.vi = _mm_add_epi64(_mm_and_si128(acc_hmaj.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_hmaj.vi, 8), m8));
+  acc_nm.vi = _mm_and_si128(_mm_add_epi64(acc_nm.vi, _mm_srli_epi64(acc_nm.vi, 16)), m16);
+  acc_hmaj.vi = _mm_and_si128(_mm_add_epi64(acc_hmaj.vi, _mm_srli_epi64(acc_hmaj.vi, 16)), m16);
+  acc_nm.vi = _mm_add_epi64(acc_nm.vi, _mm_srli_epi64(acc_nm.vi, 32));
+  acc_hmaj.vi = _mm_add_epi64(acc_hmaj.vi, _mm_srli_epi64(acc_hmaj.vi, 32));
+  *ct_nmp += (uint32_t)(acc_nm.u8[0] + acc_nm.u8[1]);
+  *ct_hmajp += (uint32_t)(acc_hmaj.u8[0] + acc_hmaj.u8[1]);
+}
 #else
 void freq_hwe_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp) {
   uintptr_t loader = *lptr++;
@@ -5506,8 +5591,8 @@ void freq_hwe_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32
   to_ct_a2 += loader & loader2;
   to_ct_b2 += loader3;
   to_ct_c2 += loader & loader3;
-  loader = *lptr++;
-  loader2 = *maskp++;
+  loader = *lptr;
+  loader2 = *maskp;
   loader3 = (loader >> 1) & loader2;
   to_ct_a2 += loader & loader2;
   to_ct_b2 += loader3;
@@ -5526,6 +5611,127 @@ void freq_hwe_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32
   *ctap += (partial_a * 0x01010101) >> 24;
   *ctbp += (partial_b * 0x01010101) >> 24;
   *ctcp += (partial_c * 0x01010101) >> 24;
+}
+
+void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_nmp, uint32_t* ct_hmajp) {
+  uintptr_t loader = *lptr++;
+  uintptr_t loader3 = loader >> 1;
+  uintptr_t loader2 = loader ^ (~loader3);
+  uint32_t to_ct_nm1;
+  uint32_t to_ct_hmaj1;
+  uint32_t to_ct_nm2;
+  uint32_t to_ct_hmaj2;
+  uintptr_t partial_nm;
+  uintptr_t partial_hmaj;
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm1 = loader2 & loader3;
+  to_ct_hmaj1 = loader1 & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm1 += loader2 & loader3;
+  to_ct_hmaj1 += loader1 & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm1 += loader2 & loader3;
+  to_ct_hmaj1 += loader1 & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm2 = loader2 & loader3;
+  to_ct_hmaj2 = loader1 & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm2 += loader2 & loader3;
+  to_ct_hmaj2 += loader1 & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm2 += loader2 & loader3;
+  to_ct_hmaj2 += loader1 & loader3;
+
+  to_ct_nm1 = (to_ct_nm1 & 0x33333333) + ((to_ct_nm1 >> 2) & 0x33333333);
+  to_ct_nm1 += (to_ct_nm2 & 0x33333333) + ((to_ct_nm2 >> 2) & 0x33333333);
+  partial_nm = (to_ct_nm1 & 0x0f0f0f0f) + ((to_ct_nm1 >> 4) & 0x0f0f0f0f);
+  to_ct_hmaj1 = (to_ct_hmaj1 & 0x33333333) + ((to_ct_hmaj1 >> 2) & 0x33333333);
+  to_ct_hmaj1 += (to_ct_hmaj2 & 0x33333333) + ((to_ct_hmaj2 >> 2) & 0x33333333);
+  partial_hmaj = (to_ct_hmaj1 & 0x0f0f0f0f) + ((to_ct_hmaj1 >> 4) & 0x0f0f0f0f);
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm1 = loader2 & loader3;
+  to_ct_hmaj1 = loader1 & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm1 += loader2 & loader3;
+  to_ct_hmaj1 += loader1 & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm1 += loader2 & loader3;
+  to_ct_hmaj1 += loader1 & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm2 = loader2 & loader3;
+  to_ct_hmaj2 = loader1 & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm2 += loader2 & loader3;
+  to_ct_hmaj2 += loader1 & loader3;
+
+  loader = *lptr;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp;
+  to_ct_nm2 += loader2 & loader3;
+  to_ct_hmaj2 += loader1 & loader3;
+
+  to_ct_nm1 = (to_ct_nm1 & 0x33333333) + ((to_ct_nm1 >> 2) & 0x33333333);
+  to_ct_nm1 += (to_ct_nm2 & 0x33333333) + ((to_ct_nm2 >> 2) & 0x33333333);
+  partial_nm += (to_ct_nm1 & 0x0f0f0f0f) + ((to_ct_nm1 >> 4) & 0x0f0f0f0f);
+  to_ct_hmaj1 = (to_ct_hmaj1 & 0x33333333) + ((to_ct_hmaj1 >> 2) & 0x33333333);
+  to_ct_hmaj1 += (to_ct_hmaj2 & 0x33333333) + ((to_ct_hmaj2 >> 2) & 0x33333333);
+  partial_hmaj += (to_ct_hmaj1 & 0x0f0f0f0f) + ((to_ct_hmaj1 >> 4) & 0x0f0f0f0f);
+
+  *ct_nmp += (partial_nm * 0x01010101) >> 24;
+  *ct_hmajp += (partial_hmaj * 0x01010101) >> 24;
 }
 #endif
 
@@ -5669,7 +5875,6 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, ui
   uintptr_t loader;
   uintptr_t loader2;
   uintptr_t loader3;
-  /*
 #ifdef __LP64__
   uintptr_t cur_decr;
   uintptr_t* lptr_12x_end;
@@ -5699,7 +5904,6 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, ui
     founder_include2 = &(founder_include2[12]);
   }
 #endif
-  */
   while (lptr < lptr_end) {
     loader = *lptr++;
     loader3 = loader >> 1;
@@ -6224,7 +6428,7 @@ int32_t read_external_freqs(char* freqname, FILE** freqfile_ptr, uintptr_t unfil
     } else {
       fputs(".frq file loaded.\n", stdout);
     }
-  } else if (!strcmp(tbuf, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)\n")) {
+  } else if (!strcmp(tbuf, "CHR\tSNP\tA1\tA2\tHOM A1\tHET\tHOM A2\tHAP A1\tHAP A2\tMISSING\n")) {
     // known --freqx format, v0.15.3 or later
     while (fgets(tbuf, MAXLINELEN, *freqfile_ptr) != NULL) {
       jj = marker_code(species, tbuf);
@@ -6379,7 +6583,7 @@ int32_t write_freqs(FILE** outfile_ptr, char* outname, uint32_t plink_maxsnp, ui
     return RET_OPEN_FAIL;
   }
   if (freqx) {
-    if (fputs("CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)\n", *outfile_ptr) == EOF) {
+    if (fputs("CHR\tSNP\tA1\tA2\tHOM A1\tHET\tHOM A2\tHAP A1\tHAP A2\tMISSING\n", *outfile_ptr) == EOF) {
       return RET_WRITE_FAIL;
     }
   } else if (plink_maxsnp < 5) {
@@ -6397,9 +6601,9 @@ int32_t write_freqs(FILE** outfile_ptr, char* outname, uint32_t plink_maxsnp, ui
         return RET_WRITE_FAIL;
       }
       if (max_marker_allele_len == 1) {
-        strcpy(tbuf, "%4d %4s    %c    %c      %7.4g  %7d\n");
+        strcpy(tbuf, "%4d %4s    %c    %c %12.4g %8d\n");
       } else {
-        strcpy(tbuf, "%4d %4s %4s %4s      %7.4g  %7d\n");
+        strcpy(tbuf, "%4d %4s %4s %4s %12.4g %8d\n");
       }
     }
   } else if (freq_counts) {
@@ -6418,9 +6622,9 @@ int32_t write_freqs(FILE** outfile_ptr, char* outname, uint32_t plink_maxsnp, ui
       return RET_WRITE_FAIL;
     }
     if (max_marker_allele_len == 1) {
-      sprintf(tbuf, "%%4d %%%ds    %%c    %%c      %%7.4g  %%7d\n", plink_maxsnp);
+      sprintf(tbuf, "%%4d %%%ds    %%c    %%c %%12.4g %%8d\n", plink_maxsnp);
     } else {
-      sprintf(tbuf, "%%4d %%%ds %%4s %%4s      %%7.4g  %%7d\n", plink_maxsnp);
+      sprintf(tbuf, "%%4d %%%ds %%4s %%4s %%12.4g %%8d\n", plink_maxsnp);
     }
   }
   missing_geno_buf[0] = missing_geno;
@@ -11010,9 +11214,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (retval) {
     goto wdist_ret_2;
   }
-  if ((calculation_type & CALC_FREQ) || relationship_or_ibc_req(calculation_type) || distance_req(calculation_type)) {
+  if (relationship_or_ibc_req(calculation_type) || distance_req(calculation_type)) {
     if (chrom_info_ptr->chrom_mask & species_haploid_mask[chrom_info_ptr->species]) {
-      logprint("Warning: Haploid markers present.  WDIST doesn't handle them differently from\ndiploid markers yet, so you may want to rerun with --autosome.\n");
+      logprint("Warning: Haploid markers present.  WDIST's distance and relationship matrix\ncalculators don't handle them differently from diploid markers yet, so you may\nwant to rerun with --autosome.\n");
     }
   }
 
