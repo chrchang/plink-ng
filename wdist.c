@@ -6450,7 +6450,7 @@ int32_t write_freqs(FILE** outfile_ptr, char* outname, uint32_t plink_maxsnp, ui
 	    missing_ct = indiv_f_ct - (ll_cts[uii] + lh_cts[uii] + hh_cts[uii] + hapl_cts[uii] + haph_cts[uii]);
 	  } else if (is_haploid) {
 	    if (is_y) {
-	      missing_ct = indiv_f_male_ct - (haph_cts[uii] + haph_cts[uii]);
+	      missing_ct = indiv_f_male_ct - (hapl_cts[uii] + haph_cts[uii]);
 	    } else {
 	      missing_ct = indiv_f_ct - (hapl_cts[uii] + haph_cts[uii]);
 	    }
@@ -6503,7 +6503,7 @@ int32_t write_freqs(FILE** outfile_ptr, char* outname, uint32_t plink_maxsnp, ui
 	    missing_ct = indiv_f_ct - (ll_cts[uii] + lh_cts[uii] + hh_cts[uii] + hapl_cts[uii] + haph_cts[uii]);
 	  } else if (is_haploid) {
 	    if (is_y) {
-	      missing_ct = indiv_f_male_ct - (haph_cts[uii] + haph_cts[uii]);
+	      missing_ct = indiv_f_male_ct - (hapl_cts[uii] + haph_cts[uii]);
 	    } else {
 	      missing_ct = indiv_f_ct - (hapl_cts[uii] + haph_cts[uii]);
 	    }
