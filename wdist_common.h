@@ -123,6 +123,7 @@ typedef union {
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
 #define MAXV(aa, bb) ((bb) > (aa))? (bb) : (aa)
+#define MINV(aa, bb) ((aa) > (bb))? (bb) : (aa)
 
 #define _FILE_OFFSET_BITS 64
 #define MAX_THREADS 127
@@ -423,6 +424,8 @@ static inline int32_t is_set(uintptr_t* exclude_arr, uint32_t loc) {
 }
 
 int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc);
+
+int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil);
 
 int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc);
 

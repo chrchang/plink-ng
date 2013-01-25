@@ -273,6 +273,25 @@ int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc) {
   return (idx * BITCT) + __builtin_ctzl(~(*exclude_arr));
 }
 
+int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil) {
+  // safe version.  ceil >= 1.
+  uint32_t idx = loc / BITCT;
+  uint32_t max_idx;
+  uintptr_t ulii;
+  exclude_arr = &(exclude_arr[idx]);
+  ulii = (~(*exclude_arr)) >> (loc % BITCT);
+  if (ulii) {
+    return MINV(loc + __builtin_ctzl(ulii), ceil);
+  }
+  max_idx = (ceil - 1) / BITCT;
+  do {
+    if ((++idx) > max_idx) {
+      return ceil;
+    }
+  } while (*(++exclude_arr) == ~0LU);
+  return MINV((idx * BITCT) + __builtin_ctzl(~(*exclude_arr)), ceil);
+}
+
 int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc) {
   uint32_t idx = loc / BITCT;
   uintptr_t ulii;
