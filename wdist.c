@@ -11213,9 +11213,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (retval) {
     goto wdist_ret_2;
   }
-  if (relationship_or_ibc_req(calculation_type) || distance_req(calculation_type)) {
+  if (relationship_or_ibc_req(calculation_type) || distance_req(calculation_type) || (calculation_type & (CALC_LD_PRUNE | CALC_GENOME))) {
     if (chrom_info_ptr->chrom_mask & species_haploid_mask[chrom_info_ptr->species]) {
-      logprint("Warning: Haploid markers present.  WDIST's distance and relationship matrix\ncalculators don't handle them differently from diploid markers yet, so you may\nwant to rerun with --autosome.\n");
+      logprint("Warning: Haploid markers present.  WDIST's distance/relationship matrix, SNP\npruner, and --genome calculators don't include special haploid handling yet,\nso you may want to rerun with --autosome.\n");
     }
   }
 
