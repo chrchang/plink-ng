@@ -1199,17 +1199,17 @@ uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uin
   max_idxl = max_idx / BITCT;
   max_idxlr = max_idx & (BITCT - 1);
   if (min_idxl == max_idxl) {
-    return max_idx - min_idx - popcount_long(marker_exclude[min_idx] & ((1LU << max_idxlr) - (1LU << min_idxlr)));
+    return max_idx - min_idx - popcount_long(marker_exclude[min_idxl] & ((1LU << max_idxlr) - (1LU << min_idxlr)));
   } else {
     ct = 0;
     if (min_idxlr) {
-      ct = popcount_long(marker_exclude[min_idx++] >> min_idxlr);
+      ct = popcount_long(marker_exclude[min_idxl++] >> min_idxlr);
     }
-    if (max_idx > min_idx) {
-      ct += popcount_longs(marker_exclude, min_idx, max_idx);
+    if (max_idxl > min_idxl) {
+      ct += popcount_longs(marker_exclude, min_idxl, max_idxl);
     }
     if (max_idxlr) {
-      ct += popcount_long(marker_exclude[max_idx] & ((1LU << max_idxlr) - 1LU));
+      ct += popcount_long(marker_exclude[max_idxl] & ((1LU << max_idxlr) - 1LU));
     }
     return max_idx - min_idx - ct;
   }

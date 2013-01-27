@@ -127,7 +127,7 @@ extern "C" {
 #define GENOME_MULTIPLEX2 (GENOME_MULTIPLEX * 2)
 
 const char ver_str[] =
-  "WDIST v0.15.3"
+  "WDIST v0.16.0"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -136,7 +136,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (27 Jan 2013)";
+  " (28 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -7840,10 +7840,16 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
   // subtract X/haploid markers from marker_ct
   ullii = species_haploid_mask[chrom_info_ptr->species];
   ujj = species_max_code[chrom_info_ptr->species];
+  ukk = 0;
   for (uii = 0; uii <= ujj; uii++) {
     if ((ullii >> uii) & 1LLU) {
-      marker_ct -= count_chrom_markers(chrom_info_ptr, uii, marker_exclude);
+      ukk += count_chrom_markers(chrom_info_ptr, uii, marker_exclude);
     }
+  }
+  if (ukk) {
+    sprintf(logbuf, "Excluding %u marker%s on non-autosomes from IBD calculation.\n", ukk, (ukk == 1)? "" : "s");
+    logprintb();
+    marker_ct -= ukk;
   }
   do {
     kk = marker_ct - g_low_ct;
@@ -7851,6 +7857,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
       kk = GENOME_MULTIPLEX;
     }
     glptr2 = g_marker_window;
+    printf("kk: %d\n", kk);
     for (ujj = 0; (int)ujj < kk; ujj++) {
       if (is_set(marker_exclude, marker_uidx)) {
 	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
@@ -11269,11 +11276,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   retval = load_bim(&bimfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_pos, extractname, excludename, freqname, refalleles, calculation_type, recode_modifier, allelexxxx, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &map_is_unsorted);
   if (retval) {
     goto wdist_ret_2;
-  }
-  if (relationship_or_ibc_req(calculation_type) || distance_req(calculation_type)) {
-    if (chrom_info_ptr->chrom_mask & species_haploid_mask[chrom_info_ptr->species]) {
-      logprint("Warning: Haploid markers present.  WDIST's distance/relationship matrix, SNP\npruner, and --genome calculators don't include special haploid handling yet,\nso you may want to rerun with --autosome.\n");
-    }
   }
 
   ulii = MAXLINELEN;
