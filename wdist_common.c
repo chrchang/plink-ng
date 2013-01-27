@@ -409,6 +409,21 @@ int32_t marker_code2(uint32_t species, char* sptr, uint32_t slen) {
   return retval;
 }
 
+void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t set_hh_missing, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_haploid_ptr) {
+  uint32_t species = chrom_info_ptr->species;
+  int32_t chrom_idx;
+  *chrom_end_ptr = chrom_info_ptr->chrom_file_order_marker_idx[(*chrom_fo_idx_ptr) + 1];
+  while (marker_uidx >= (*chrom_end_ptr)) {
+    *chrom_end_ptr = chrom_info_ptr->chrom_file_order_marker_idx[(++(*chrom_fo_idx_ptr)) + 1];
+  }
+  chrom_idx = chrom_info_ptr->chrom_file_order[*chrom_fo_idx_ptr];
+  *is_x_ptr = set_hh_missing && (chrom_idx == species_x_code[species]);
+  *is_haploid_ptr = set_hh_missing && ((species_haploid_mask[species] >> chrom_idx) & 1LLU);
+  if (is_all_nonmale) {
+    *is_haploid_ptr = (*is_haploid_ptr) && (!(*is_x_ptr));
+  }
+}
+
 // WDIST's natural sort uses the following logic:
 // - All alphabetic characters act as if they are capitalized, except for
 // tiebreaking purposes (where ASCII is used).
@@ -1164,6 +1179,40 @@ uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintpt
     tot += popcount_long((*lptr++) & (~(*exclude_arr++)));
   }
   return tot;
+}
+
+uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude) {
+  uint32_t min_idx;
+  uint32_t max_idx;
+  uint32_t min_idxl;
+  uint32_t min_idxlr;
+  uint32_t max_idxl;
+  uint32_t max_idxlr;
+  uint32_t ct;
+  if (!((chrom_info_ptr->chrom_mask >> chrom_idx) & 1LLU)) {
+    return 0;
+  }
+  min_idx = chrom_info_ptr->chrom_start[chrom_idx];
+  max_idx = chrom_info_ptr->chrom_end[chrom_idx];
+  min_idxl = min_idx / BITCT;
+  min_idxlr = min_idx & (BITCT - 1);
+  max_idxl = max_idx / BITCT;
+  max_idxlr = max_idx & (BITCT - 1);
+  if (min_idxl == max_idxl) {
+    return max_idx - min_idx - popcount_long(marker_exclude[min_idx] & ((1LU << max_idxlr) - (1LU << min_idxlr)));
+  } else {
+    ct = 0;
+    if (min_idxlr) {
+      ct = popcount_long(marker_exclude[min_idx++] >> min_idxlr);
+    }
+    if (max_idx > min_idx) {
+      ct += popcount_longs(marker_exclude, min_idx, max_idx);
+    }
+    if (max_idxlr) {
+      ct += popcount_long(marker_exclude[max_idx] & ((1LU << max_idxlr) - 1LU));
+    }
+    return max_idx - min_idx - ct;
+  }
 }
 
 int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf) {

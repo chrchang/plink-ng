@@ -136,7 +136,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (26 Jan 2013)";
+  " (27 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -7684,7 +7684,7 @@ double normdist(double zz) {
  return zz >= 0 ? 1 - p0 : p0;
 }
 
-int32_t calc_genome(pthread_t* threads, FILE* pedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, int32_t parallel_idx, int32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, int32_t calculation_type, int32_t genome_output_gz, int32_t genome_output_full, int32_t genome_ibd_unbounded, int32_t ppc_gap, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri) {
+int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, int32_t parallel_idx, int32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, int32_t calculation_type, int32_t genome_output_gz, int32_t genome_output_full, int32_t genome_ibd_unbounded, int32_t ppc_gap, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri) {
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
   int32_t retval = 0;
@@ -7724,6 +7724,7 @@ int32_t calc_genome(pthread_t* threads, FILE* pedfile, int32_t bed_offset, uint3
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
+  uint64_t ullii;
   int32_t missing_ct_buf[BITCT];
   int32_t missing_ct_all;
   double set_allele_freq_buf[GENOME_MULTIPLEX];
@@ -7763,6 +7764,10 @@ int32_t calc_genome(pthread_t* threads, FILE* pedfile, int32_t bed_offset, uint3
   uint32_t family_id_fixed;
   uint32_t founder_ct = 0;
   int64_t llfct = 0;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_end;
+  uint32_t is_x;
+  uint32_t is_haploid;
   uintptr_t marker_uidx;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
@@ -7808,31 +7813,15 @@ int32_t calc_genome(pthread_t* threads, FILE* pedfile, int32_t bed_offset, uint3
       }
     }
   }
-  if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, tot_cells * sizeof(int32_t))) {
-    goto calc_genome_ret_NOMEM;
-  }
-  if (wkspace_alloc_ui_checked(&g_indiv_missing_unwt, g_indiv_ct * sizeof(int32_t))) {
-    goto calc_genome_ret_NOMEM;
-  }
-  if (wkspace_alloc_ui_checked(&g_genome_main, tot_cells * 5 * sizeof(int32_t))) {
-    goto calc_genome_ret_NOMEM;
-  }
-  if (wkspace_alloc_uc_checked(&loadbuf, GENOME_MULTIPLEX * unfiltered_indiv_ct4)) {
-    goto calc_genome_ret_NOMEM;
-  }
-  if (wkspace_alloc_uc_checked(&g_geno, g_indiv_ct * (GENOME_MULTIPLEX / 4))) {
-    goto calc_genome_ret_NOMEM;
-  }
-  if (wkspace_alloc_ul_checked(&g_masks, g_indiv_ct * (GENOME_MULTIPLEX / 4))) {
-    goto calc_genome_ret_NOMEM;
-  }
-  if (wkspace_alloc_ul_checked(&g_mmasks, g_indiv_ct * sizeof(intptr_t))) {
-    goto calc_genome_ret_NOMEM;
-  }
-  if (wkspace_alloc_c_checked(&fam1, max_person_fid_len + 1)) {
-    goto calc_genome_ret_NOMEM;
-  }
-  if (wkspace_alloc_c_checked(&fam2, max_person_fid_len + 1)) {
+  if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, tot_cells * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&g_indiv_missing_unwt, g_indiv_ct * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&g_genome_main, tot_cells * 5 * sizeof(int32_t)) ||
+      wkspace_alloc_uc_checked(&loadbuf, GENOME_MULTIPLEX * unfiltered_indiv_ct4) ||
+      wkspace_alloc_uc_checked(&g_geno, g_indiv_ct * (GENOME_MULTIPLEX / 4)) ||
+      wkspace_alloc_ul_checked(&g_masks, g_indiv_ct * (GENOME_MULTIPLEX / 4)) ||
+      wkspace_alloc_ul_checked(&g_mmasks, g_indiv_ct * sizeof(intptr_t)) ||
+      wkspace_alloc_c_checked(&fam1, max_person_fid_len + 1) ||
+      wkspace_alloc_c_checked(&fam2, max_person_fid_len + 1)) {
     goto calc_genome_ret_NOMEM;
   }
 
@@ -7840,13 +7829,22 @@ int32_t calc_genome(pthread_t* threads, FILE* pedfile, int32_t bed_offset, uint3
   fill_int_zero((int32_t*)g_indiv_missing_unwt, g_indiv_ct);
   fill_int_zero((int32_t*)g_genome_main, tot_cells * 5);
   if (!is_set(marker_exclude, 0)) {
-    if (fseeko(pedfile, bed_offset, SEEK_SET)) {
+    if (fseeko(bedfile, bed_offset, SEEK_SET)) {
       retval = RET_READ_FAIL;
       goto calc_genome_ret_1;
     }
   }
   marker_uidx = 0; // raw marker index
   g_low_ct = 0; // after excluding missing
+  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+  // subtract X/haploid markers from marker_ct
+  ullii = species_haploid_mask[chrom_info_ptr->species];
+  ujj = species_max_code[chrom_info_ptr->species];
+  for (uii = 0; uii <= ujj; uii++) {
+    if ((ullii >> uii) & 1LLU) {
+      marker_ct -= count_chrom_markers(chrom_info_ptr, uii, marker_exclude);
+    }
+  }
   do {
     kk = marker_ct - g_low_ct;
     if (kk > GENOME_MULTIPLEX) {
@@ -7856,12 +7854,26 @@ int32_t calc_genome(pthread_t* threads, FILE* pedfile, int32_t bed_offset, uint3
     for (ujj = 0; (int)ujj < kk; ujj++) {
       if (is_set(marker_exclude, marker_uidx)) {
 	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-	if (fseeko(pedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	  retval = RET_READ_FAIL;
 	  goto calc_genome_ret_1;
 	}
       }
-      if (fread(&(loadbuf[ujj * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, pedfile) < unfiltered_indiv_ct4) {
+      if (marker_uidx >= chrom_end) {
+	while (1) {
+	  chrom_fo_idx++;
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  if (!is_haploid) {
+	    break;
+	  }
+          marker_uidx = next_non_set_unsafe(marker_exclude, chrom_end);
+	  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	    retval = RET_READ_FAIL;
+	    goto calc_genome_ret_1;
+	  }
+	}
+      }
+      if (fread(&(loadbuf[ujj * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	retval = RET_READ_FAIL;
 	goto calc_genome_ret_1;
       }
@@ -8379,7 +8391,7 @@ int32_t calc_genome(pthread_t* threads, FILE* pedfile, int32_t bed_offset, uint3
   return retval;
 }
 
-int32_t ld_process_load(unsigned char* loadbuf, uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* missing_buf, double* marker_stdev_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t indiv_ctl, int32_t indiv_trail_ct) {
+int32_t ld_process_load(unsigned char* loadbuf, uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* missing_buf, double* marker_stdev_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t indiv_ctl, int32_t indiv_trail_ct, uint32_t is_haploid, uint32_t is_x, uintptr_t* is_nm_male) {
   uintptr_t unfiltered_idx = 0;
   uint32_t write_offset;
   int32_t sloop_max;
@@ -8401,30 +8413,64 @@ int32_t ld_process_load(unsigned char* loadbuf, uintptr_t* geno_buf, uintptr_t* 
     new_geno = 0;
     new_mask = 0;
     new_missing = 0;
-    for (write_idx = 0; write_idx < sloop_max; write_idx++) {
-      unfiltered_idx = next_non_set_unsafe(indiv_exclude, unfiltered_idx);
-      ulii = (loadbuf[unfiltered_idx / 4] >> ((unfiltered_idx % 4) * 2)) & 3;
+    // Nothing time-critical here, but may as well do it branchlessly.
+    // Desired encodings:
+    // new_geno: nonset homozygote -> 00
+    //           het/missing       -> 01
+    //           set homozygote    -> 10
+    // Given PLINK encoding xx, this is (xx - (xx >> 1)).
+    //
+    // new_missing: autosomes: missing   -> 1
+    //                         otherwise -> 0
+    //              xx & ((xx >> 1) ^ 1) is one way to do this.
+    //
+    //              non-X haploid: het/missing -> 1
+    //                             otherwise   -> 0
+    //              (xx ^ (xx >> 1)) & 01 works.
+    //
+    //              X: [het + male]/missing -> 1
+    //                 otherwise            -> 0
+    //              screw it, just branch
+    //
+    // new_mask: missing   -> 00
+    //           otherwise -> 11
+    // (new_missing ^ 1) * 3 works.
+    if (!is_haploid) {
+      for (write_idx = 0; write_idx < sloop_max; write_idx++) {
+	unfiltered_idx = next_non_set_unsafe(indiv_exclude, unfiltered_idx);
+	ulii = (loadbuf[unfiltered_idx / 4] >> ((unfiltered_idx % 4) * 2)) & 3;
 
-      // Nothing time-critical here, but may as well do it branchlessly.
-      // Desired encodings:
-      // new_geno: nonset homozygote -> 00
-      //           het/missing       -> 01
-      //           set homozygote    -> 10
-      // Given PLINK encoding xx, this is (xx - (xx >> 1)).
-      //
-      // new_missing: missing   -> 1
-      //              otherwise -> 0
-      // xx & ((xx ^ 2) >> 1) is one way to do this.
-      //
-      // new_mask: missing   -> 00
-      //           otherwise -> 11
-      // (new_missing ^ 1) * 3 works.
-      uljj = ulii >> 1;
-      new_geno |= (ulii - uljj) << (write_idx * 2);
-      uljj = ulii & (uljj ^ 1);
-      new_missing |= uljj << write_idx;
-      new_mask |= ((uljj ^ 1) * 3) << (write_idx * 2);
-      unfiltered_idx++;
+	uljj = ulii >> 1;
+	new_geno |= (ulii - uljj) << (write_idx * 2);
+	uljj = ulii & (uljj ^ 1);
+	new_missing |= uljj << write_idx;
+	new_mask |= ((uljj ^ 1) * 3) << (write_idx * 2);
+	unfiltered_idx++;
+      }
+    } else if (!is_x) {
+      for (write_idx = 0; write_idx < sloop_max; write_idx++) {
+	unfiltered_idx = next_non_set_unsafe(indiv_exclude, unfiltered_idx);
+	ulii = (loadbuf[unfiltered_idx / 4] >> ((unfiltered_idx % 4) * 2)) & 3;
+
+	uljj = ulii >> 1;
+	new_geno |= (ulii - uljj) << (write_idx * 2);
+	uljj = (ulii ^ uljj) & 1;
+	new_missing |= uljj << write_idx;
+	new_mask |= ((uljj ^ 1) * 3) << (write_idx * 2);
+	unfiltered_idx++;
+      }
+    } else {
+      for (write_idx = 0; write_idx < sloop_max; write_idx++) {
+	unfiltered_idx = next_non_set_unsafe(indiv_exclude, unfiltered_idx);
+	ulii = (loadbuf[unfiltered_idx / 4] >> ((unfiltered_idx % 4) * 2)) & 3;
+
+	uljj = ulii >> 1;
+	new_geno |= (ulii - uljj) << (write_idx * 2);
+	uljj = ((ulii == 1) || ((ulii == 2) && is_set(is_nm_male, unfiltered_idx)))? 1 : 0;
+	new_missing |= uljj << write_idx;
+	new_mask |= ((uljj ^ 1) * 3) << (write_idx * 2);
+	unfiltered_idx++;
+      }
     }
     *geno_buf++ = new_geno;
     *mask_buf++ = new_mask;
@@ -8492,11 +8538,12 @@ uint32_t ld_prune_next_valid_chrom_start(uintptr_t* marker_exclude, uintptr_t cu
   return cur_idx;
 }
 
-void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32_t* chrom_end_ptr, uint32_t window_unfiltered_start, uint32_t* live_indices, uint32_t* start_arr, uint32_t* window_unfiltered_end_ptr, uint32_t ld_window_size, int32_t* cur_window_size_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos) {
+void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32_t* chrom_end_ptr, uint32_t window_unfiltered_start, uint32_t* live_indices, uint32_t* start_arr, uint32_t* window_unfiltered_end_ptr, uint32_t ld_window_size, int32_t* cur_window_size_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uint32_t* is_haploid_ptr, uint32_t* is_x_ptr) {
   uint32_t cur_chrom = get_marker_chrom(chrom_info_ptr, window_unfiltered_start);
   uint32_t window_unfiltered_end = window_unfiltered_start + 1;
   uint32_t chrom_end = chrom_info_ptr->chrom_end[cur_chrom];
   uint32_t uii = 0;
+  uint32_t species = chrom_info_ptr->species;
   uint32_t window_size;
   live_indices[0] = window_unfiltered_start;
   if (ld_window_kb) {
@@ -8526,15 +8573,18 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
   *cur_chrom_ptr = cur_chrom;
   *chrom_end_ptr = chrom_end;
   *window_unfiltered_end_ptr = window_unfiltered_end;
+  *is_haploid_ptr = (species_haploid_mask[species] >> cur_chrom) & 1LLU;
+  *is_x_ptr = (species_x_code[species] == ((int32_t)cur_chrom))? 1 : 0;
 }
 
-int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, char* outname, char* outname_end, int32_t calculation_type) {
+int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* sex_nm, uintptr_t* sex_male, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, char* outname, char* outname_end, int32_t calculation_type) {
   // todo: replace is_set with founder-sensitive check
   // for future consideration: chromosome-based multithread/parallel?
   FILE* outfile_in = NULL;
   FILE* outfile_out = NULL;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t indiv_ctl = (g_indiv_ct + BITCT - 1) / BITCT;
   uintptr_t indiv_ct_mld = (g_indiv_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
   int32_t indiv_ct_mld_m1 = (int)indiv_ct_mld - 1;
@@ -8567,6 +8617,9 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
   uint32_t ujj;
   uint32_t cur_chrom;
   uint32_t chrom_end;
+  uint32_t is_haploid;
+  uint32_t is_x;
+  uintptr_t* is_nm_male;
   double* marker_stdevs;
   unsigned char* loadbuf;
   uint32_t* missing_cts;
@@ -8639,11 +8692,15 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
     return RET_INVALID_FORMAT;
   }
 
-  if (wkspace_alloc_ul_checked(&pruned_arr, unfiltered_marker_ctl * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(&pruned_arr, unfiltered_marker_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&is_nm_male, unfiltered_indiv_ctl * sizeof(intptr_t))) {
     goto ld_prune_ret_NOMEM;
   }
 
   memcpy(pruned_arr, marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t));
+  for (uii = 0; uii < unfiltered_indiv_ctl; uii++) {
+    is_nm_male[uii] = sex_nm[uii] & sex_male[uii];
+  }
 
   if (!ld_window_kb) {
     window_max = ld_window_size;
@@ -8700,7 +8757,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
   }
   do {
     prev_end = 0;
-    ld_prune_start_chrom(ld_window_kb, &cur_chrom, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, chrom_info_ptr, marker_pos);
+    ld_prune_start_chrom(ld_window_kb, &cur_chrom, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, chrom_info_ptr, marker_pos, &is_haploid, &is_x);
     old_window_size = 1;
     if (cur_window_size > 1) {
       for (ulii = 0; ulii < (uintptr_t)cur_window_size; ulii++) {
@@ -8710,7 +8767,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
-        missing_cts[ulii] = ld_process_load(loadbuf, &(geno[ulii * indiv_ct_mld_long]), &(g_masks[ulii * indiv_ct_mld_long]), &(g_mmasks[ulii * indiv_ctl]), &(marker_stdevs[ulii]), unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, indiv_ctl, indiv_trail_ct);
+        missing_cts[ulii] = ld_process_load(loadbuf, &(geno[ulii * indiv_ct_mld_long]), &(g_masks[ulii * indiv_ct_mld_long]), &(g_mmasks[ulii * indiv_ctl]), &(marker_stdevs[ulii]), unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, indiv_ctl, indiv_trail_ct, is_haploid, is_x, is_nm_male);
       }
     }
     pct = 1;
@@ -8964,7 +9021,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
 	  if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	    goto ld_prune_ret_READ_FAIL;
 	  }
-	  missing_cts[cur_window_size] = ld_process_load(loadbuf, &(geno[cur_window_size * indiv_ct_mld_long]), &(g_masks[cur_window_size * indiv_ct_mld_long]), &(g_mmasks[cur_window_size * indiv_ctl]), &(marker_stdevs[cur_window_size]), unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, indiv_ctl, indiv_trail_ct);
+	  missing_cts[cur_window_size] = ld_process_load(loadbuf, &(geno[cur_window_size * indiv_ct_mld_long]), &(g_masks[cur_window_size * indiv_ct_mld_long]), &(g_mmasks[cur_window_size * indiv_ctl]), &(marker_stdevs[cur_window_size]), unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, indiv_ctl, indiv_trail_ct, is_haploid, is_x, is_nm_male);
 	  cur_window_size++;
 	  window_unfiltered_end++;
 	}
@@ -11213,7 +11270,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (retval) {
     goto wdist_ret_2;
   }
-  if (relationship_or_ibc_req(calculation_type) || distance_req(calculation_type) || (calculation_type & (CALC_LD_PRUNE | CALC_GENOME))) {
+  if (relationship_or_ibc_req(calculation_type) || distance_req(calculation_type)) {
     if (chrom_info_ptr->chrom_mask & species_haploid_mask[chrom_info_ptr->species]) {
       logprint("Warning: Haploid markers present.  WDIST's distance/relationship matrix, SNP\npruner, and --genome calculators don't include special haploid handling yet,\nso you may want to rerun with --autosome.\n");
     }
@@ -11565,7 +11622,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_LD_PRUNE) {
-    retval = ld_prune(bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, indiv_exclude, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type);
+    retval = ld_prune(bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, indiv_exclude, sex_nm, sex_male, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type);
     if (retval) {
       goto wdist_ret_2;
     }

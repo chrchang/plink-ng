@@ -611,6 +611,8 @@ int32_t marker_code(uint32_t species, char* sptr);
 
 int32_t marker_code2(uint32_t species, char* sptr, uint32_t slen);
 
+void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t set_hh_missing, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_haploid_ptr);
+
 int32_t strcmp_natural(const void* s1, const void* s2);
 
 int32_t strcmp_deref(const void* s1, const void* s2);
@@ -672,6 +674,8 @@ static inline void zero_trailing_bits(uintptr_t* bitfield, uintptr_t unfiltered_
     bitfield[unfiltered_ct / BITCT] &= (1LU << trail_ct) - 1LU;
   }
 }
+
+uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude);
 
 static inline char sexchar(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t indiv_uidx) {
   return is_set(sex_nm, indiv_uidx)? (is_set(sex_male, indiv_uidx)? '1' : '2') : '0';
