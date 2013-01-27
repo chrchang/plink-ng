@@ -7724,7 +7724,6 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
-  uint64_t ullii;
   int32_t missing_ct_buf[BITCT];
   int32_t missing_ct_all;
   double set_allele_freq_buf[GENOME_MULTIPLEX];
@@ -7764,7 +7763,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
   uint32_t family_id_fixed;
   uint32_t founder_ct = 0;
   int64_t llfct = 0;
-  uint32_t chrom_fo_idx;
+  uint32_t chrom_fo_idx = 0;
   uint32_t chrom_end;
   uint32_t is_x;
   uint32_t is_haploid;
@@ -7838,14 +7837,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
   g_low_ct = 0; // after excluding missing
   refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
   // subtract X/haploid markers from marker_ct
-  ullii = species_haploid_mask[chrom_info_ptr->species];
-  ujj = species_max_code[chrom_info_ptr->species];
-  ukk = 0;
-  for (uii = 0; uii <= ujj; uii++) {
-    if ((ullii >> uii) & 1LLU) {
-      ukk += count_chrom_markers(chrom_info_ptr, uii, marker_exclude);
-    }
-  }
+  ukk = count_non_autosomal_markers(chrom_info_ptr, marker_exclude);
   if (ukk) {
     sprintf(logbuf, "Excluding %u marker%s on non-autosomes from IBD calculation.\n", ukk, (ukk == 1)? "" : "s");
     logprintb();
@@ -7857,7 +7849,6 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
       kk = GENOME_MULTIPLEX;
     }
     glptr2 = g_marker_window;
-    printf("kk: %d\n", kk);
     for (ujj = 0; (int)ujj < kk; ujj++) {
       if (is_set(marker_exclude, marker_uidx)) {
 	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
@@ -9501,7 +9492,7 @@ inline int32_t relationship_or_ibc_req(int32_t calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot, int32_t calculation_type, int32_t rel_calc_type, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t var_std, int32_t ibc_type, double rel_cutoff, double* set_allele_freqs, double** rel_ibc_ptr) {
+int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot, int32_t calculation_type, int32_t rel_calc_type, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t var_std, int32_t ibc_type, double rel_cutoff, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr) {
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
@@ -9512,6 +9503,10 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
   double* dist_ptr = NULL;
   double* dptr3 = NULL;
   double* dptr4 = NULL;
+  uint32_t chrom_fo_idx = 0;
+  uint32_t chrom_end;
+  uint32_t is_x;
+  uint32_t is_haploid;
   double* dptr2;
   double set_allele_freq_buf[MULTIPLEX_DIST];
   uint32_t cur_markers_loaded;
@@ -9585,6 +9580,15 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
     goto calc_rel_ret_NOMEM;
   }
 
+  // Exclude markers on non-autosomal chromosomes for now.
+  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude);
+  if (uii) {
+    sprintf(logbuf, "Excluding %u marker%s on non-autosomes from relationship matrix calc.\n", uii, (uii == 1)? "" : "s");
+    logprintb();
+    marker_ct -= uii;
+  }
+  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+
   // See comments at the beginning of this file, and those in the main
   // CALC_DISTANCE loop.  The main difference between this calculation and
   // the (nonzero exponent) distance calculation is that we have to pad
@@ -9604,7 +9608,22 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	ulii = marker_uidx - ulii;
       }
       if (ulii) {
-	fseeko(bedfile, ulii * unfiltered_indiv_ct4, SEEK_CUR);
+	if (fseeko(bedfile, ulii * unfiltered_indiv_ct4, SEEK_CUR)) {
+	  goto calc_rel_ret_READ_FAIL;
+	}
+      }
+      if (marker_uidx >= chrom_end) {
+	while (1) {
+	  chrom_fo_idx++;
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  if (!is_haploid) {
+	    break;
+	  }
+	  marker_uidx = next_non_set_unsafe(marker_exclude, chrom_end);
+	  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	    goto calc_rel_ret_READ_FAIL;
+	  }
+	}
       }
       if (fread(&(gptr[cur_markers_loaded * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	goto calc_rel_ret_READ_FAIL;
@@ -10075,7 +10094,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
   return retval;
 }
 
-int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot, int32_t calculation_type, int32_t rel_calc_type, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t var_std, int32_t ibc_type, float rel_cutoff, double* set_allele_freqs) {
+int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot, int32_t calculation_type, int32_t rel_calc_type, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t var_std, int32_t ibc_type, float rel_cutoff, double* set_allele_freqs, Chrom_info* chrom_info_ptr) {
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
@@ -10086,6 +10105,10 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
   float* dist_ptr = NULL;
   float* dptr3 = NULL;
   float* dptr4 = NULL;
+  uint32_t chrom_fo_idx = 0;
+  uint32_t chrom_end;
+  uint32_t is_x;
+  uint32_t is_haploid;
   float* dptr2;
   float set_allele_freq_buf[MULTIPLEX_DIST];
   uint32_t cur_markers_loaded;
@@ -10152,11 +10175,14 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
     goto calc_rel_f_ret_NOMEM;
   }
 
-  // See comments at the beginning of this file, and those in the main
-  // CALC_DISTANCE loop.  The main difference between this calculation and
-  // the (nonzero exponent) distance calculation is that we have to pad
-  // each marker to 3 bits and use + instead of XOR to distinguish the
-  // cases.
+  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude);
+  if (uii) {
+    sprintf(logbuf, "Excluding %u marker%s on non-autosomes from relationship matrix calc.\n", uii, (uii == 1)? "" : "s");
+    logprintb();
+    marker_ct -= uii;
+  }
+  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+
   do {
     cur_markers_loaded = 0;
     uii = marker_ct - marker_idx;
@@ -10171,7 +10197,22 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	ulii = marker_uidx - ulii;
       }
       if (ulii) {
-	fseeko(bedfile, ulii * unfiltered_indiv_ct4, SEEK_CUR);
+	if (fseeko(bedfile, ulii * unfiltered_indiv_ct4, SEEK_CUR)) {
+	  goto calc_rel_f_ret_READ_FAIL;
+	}
+      }
+      if (marker_uidx >= chrom_end) {
+	while (1) {
+	  chrom_fo_idx++;
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  if (!is_haploid) {
+	    break;
+	  }
+	  marker_uidx = next_non_set_unsafe(marker_exclude, chrom_end);
+	  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	    goto calc_rel_f_ret_READ_FAIL;
+	  }
+	}
       }
       if (fread(&(gptr[cur_markers_loaded * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	goto calc_rel_f_ret_READ_FAIL;
@@ -11089,11 +11130,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   FILE* loaddistfile = NULL;
   char* id_buf = NULL;
   uintptr_t unfiltered_marker_ct = 0;
-  uintptr_t marker_ct;
   unsigned char* pedbuf = NULL;
   uintptr_t* marker_exclude = NULL;
   uintptr_t max_marker_id_len = 0;
-  uint32_t plink_maxsnp;
   // set_allele_freqs = frequency of allele corresponding to set bits in .bed
   //   (i.e. A2), or frequency of MAJOR allele in middle of text loading.
   double* set_allele_freqs = NULL;
@@ -11105,6 +11144,13 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t* founder_info = NULL;
   uintptr_t* sex_nm = NULL;
   uintptr_t* sex_male = NULL;
+  uint32_t marker_ct_autosomal = 0;
+  uintptr_t marker_ct;
+  uint32_t plink_maxsnp;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_end;
+  uint32_t is_x;
+  uint32_t is_haploid;
   int32_t ii;
   int32_t jj = 0;
   int32_t kk = 0;
@@ -11672,9 +11718,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (relationship_or_ibc_req(calculation_type)) {
     if (rel_calc_type & REL_CALC_SINGLE_PREC) {
-      retval = calc_rel_f(threads, parallel_idx, parallel_tot, calculation_type, rel_calc_type, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, var_std, ibc_type, (float)rel_cutoff, set_allele_freqs);
+      retval = calc_rel_f(threads, parallel_idx, parallel_tot, calculation_type, rel_calc_type, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, var_std, ibc_type, (float)rel_cutoff, set_allele_freqs, chrom_info_ptr);
     } else {
-      retval = calc_rel(threads, parallel_idx, parallel_tot, calculation_type, rel_calc_type, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, var_std, ibc_type, rel_cutoff, set_allele_freqs, &rel_ibc);
+      retval = calc_rel(threads, parallel_idx, parallel_tot, calculation_type, rel_calc_type, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, var_std, ibc_type, rel_cutoff, set_allele_freqs, &rel_ibc, chrom_info_ptr);
     }
     if (retval) {
       goto wdist_ret_2;
@@ -11743,7 +11789,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_REGRESS_PCS_DISTANCE) {
-    logprint("Error: --regress-pcs-distance is currently under development.\n");
+    logprint("Error: --regress-pcs-distance has not yet been written.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto wdist_ret_1;
   } else if (distance_req(calculation_type)) {
@@ -11824,9 +11870,17 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_NOMEM;
     }
     fseeko(bedfile, bed_offset, SEEK_SET);
-    ii = 0; // current marker index
-    marker_idx = 0; // after subtracting out excluded
-    while (marker_idx < marker_ct) {
+    marker_uidx = 0;
+    marker_idx = 0;
+    chrom_fo_idx = 0;
+    uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude);
+    marker_ct_autosomal = marker_ct - uii;
+    if (uii) {
+      sprintf(logbuf, "Excluding %u marker%s on non-autosomes from distance matrix calc.\n", uii, (uii == 1)? "" : "s");
+      logprintb();
+    }
+    refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+    while (marker_idx < marker_ct_autosomal) {
       for (jj = 0; jj < multiplex; jj++) {
 	set_allele_freq_buf[jj] = 0.5;
       }
@@ -11876,22 +11930,37 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       // See the comments at the beginning of this file for discussion of
       // the zero exponent special case.
 
-      while ((jj < multiplex) && (marker_idx < marker_ct)) {
-	while (is_set(marker_exclude, ii)) {
-	  ii++;
-	  fseeko(bedfile, (off_t)unfiltered_indiv_ct4, SEEK_CUR);
+      while ((jj < multiplex) && (marker_idx < marker_ct_autosomal)) {
+	if (is_set(marker_exclude, marker_uidx)) {
+	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+	  if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	    goto wdist_ret_READ_FAIL;
+	  }
+	}
+	if (marker_uidx >= chrom_end) {
+          while (1) {
+	    chrom_fo_idx++;
+	    refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	    if (!is_haploid) {
+	      break;
+	    }
+	    marker_uidx = next_non_set_unsafe(marker_exclude, chrom_end);
+	    if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	      goto wdist_ret_READ_FAIL;
+	    }
+	  }
 	}
 	if (fread(&(pedbuf[jj * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto wdist_ret_READ_FAIL;
 	}
-	set_allele_freq_buf[jj] = set_allele_freqs[ii];
+	set_allele_freq_buf[jj] = set_allele_freqs[marker_uidx];
 	if (wt_needed) {
 	  wtbuf[jj++] = g_marker_weights_i[marker_idx++];
 	} else {
 	  jj++;
 	  marker_idx++;
 	}
-	ii++;
+	marker_uidx++;
       }
       if (jj < multiplex) {
 	memset(&(pedbuf[jj * unfiltered_indiv_ct4]), 0, (multiplex - jj) * unfiltered_indiv_ct4);
@@ -12080,7 +12149,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       // parallel_tot must be 1 for --distance-matrix
       for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
 	giptr2 = g_indiv_missing_unwt;
-	uii = marker_ct - giptr2[indiv_idx];
+	uii = marker_ct_autosomal - giptr2[indiv_idx];
 	for (ujj = 0; ujj < indiv_idx; ujj++) {
 	  if (fprintf(outfile, "%g ", ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)))) < 0) {
 	    goto wdist_ret_WRITE_FAIL;
@@ -12129,7 +12198,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       pct = 1;
       for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
 	giptr2 = g_indiv_missing_unwt;
-	uii = marker_ct - giptr2[indiv_idx];
+	uii = marker_ct_autosomal - giptr2[indiv_idx];
 	for (ujj = 0; ujj < indiv_idx; ujj++) {
 	  if (fprintf(outfile, "%g ", 1.0 - (((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++))))) < 0) {
 	    goto wdist_ret_WRITE_FAIL;
@@ -12194,18 +12263,18 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
         iptr = g_idists;
 	for (indiv_idx = g_thread_start[0]; indiv_idx < tstc; indiv_idx++) {
 	  giptr2 = g_indiv_missing_unwt;
-	  uii = marker_ct - giptr2[indiv_idx];
+	  uii = marker_ct_autosomal - giptr2[indiv_idx];
 	  for (ujj = 0; ujj < indiv_idx; ujj++) {
-	    *dptr2++ = (((double)marker_ct) / (uii - (*giptr2++) + (*giptr++))) * (*iptr++);
+	    *dptr2++ = (((double)marker_ct_autosomal) / (uii - (*giptr2++) + (*giptr++))) * (*iptr++);
 	  }
 	}
 
       } else {
 	for (indiv_idx = g_thread_start[0]; indiv_idx < tstc; indiv_idx++) {
 	  giptr2 = g_indiv_missing_unwt;
-	  uii = marker_ct - giptr2[indiv_idx];
+	  uii = marker_ct_autosomal - giptr2[indiv_idx];
 	  for (ujj = 0; ujj < indiv_idx; ujj++) {
-	    *dptr2 *= ((double)marker_ct) / (uii - (*giptr2++) + (*giptr++));
+	    *dptr2 *= ((double)marker_ct_autosomal) / (uii - (*giptr2++) + (*giptr++));
 	    dptr2++;
 	  }
 	}
@@ -12221,12 +12290,24 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     }
     if ((exponent == 0.0) || (!(dist_calc_type & (DISTANCE_IBS | DISTANCE_1_MINUS_IBS)))) {
-      dxx = 0.5 / (double)marker_ct;
+      dxx = 0.5 / (double)marker_ct_autosomal;
     } else {
       dxx = 0.0;
       marker_uidx = 0;
-      for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+      chrom_fo_idx = 0;
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+      for (marker_idx = 0; marker_idx < marker_ct_autosomal; marker_idx++) {
 	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+	if (marker_uidx >= chrom_end) {
+          while (1) {
+	    chrom_fo_idx++;
+	    refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	    if (!is_haploid) {
+	      break;
+	    }
+	    marker_uidx = next_non_set_unsafe(marker_exclude, chrom_end);
+	  }
+	}
 	dyy = set_allele_freqs[marker_uidx];
 	if ((dyy > 0.0) && (dyy < 1.0)) {
 	  dxx += pow(2 * dyy * (1.0 - dyy), -exponent);

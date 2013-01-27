@@ -1215,6 +1215,20 @@ uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uin
   }
 }
 
+uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude) {
+  uint32_t species = chrom_info_ptr->species;
+  uint64_t hapmask = species_haploid_mask[species];
+  uint32_t max_chrom = species_max_code[species];
+  uint32_t ct = 0;
+  uint32_t cur_chrom = 0;
+  for (; cur_chrom <= max_chrom; cur_chrom++) {
+    if ((hapmask >> cur_chrom) & 1LLU) {
+      ct += count_chrom_markers(chrom_info_ptr, cur_chrom, marker_exclude);
+    }
+  }
+  return ct;
+}
+
 int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf) {
   // membuf assumed to be of at least size indiv_ct * 8.
   int32_t shape = dist_calc_type & DISTANCE_SHAPEMASK;

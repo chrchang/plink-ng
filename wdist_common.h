@@ -677,6 +677,8 @@ static inline void zero_trailing_bits(uintptr_t* bitfield, uintptr_t unfiltered_
 
 uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude);
 
+uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude);
+
 static inline char sexchar(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t indiv_uidx) {
   return is_set(sex_nm, indiv_uidx)? (is_set(sex_male, indiv_uidx)? '1' : '2') : '0';
 }
