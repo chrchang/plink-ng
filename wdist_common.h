@@ -9,6 +9,18 @@
 #include <math.h>
 #include <pthread.h>
 #include <limits.h>
+#include <stdint.h>
+#include <inttypes.h>
+
+#define PRId64 "lld"
+
+#define uint64_t unsigned long long
+#define int64_t long long
+
+#ifndef __LP64__
+#define uintptr_t unsigned long
+#define intptr_t long
+#endif
 
 #ifdef __cplusplus
 #include <algorithm>

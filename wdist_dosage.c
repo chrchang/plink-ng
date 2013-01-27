@@ -158,7 +158,7 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
     goto oxford_sample_load_ret_READ_FAIL;
   }
   if (!unfiltered_indiv_ct) {
-    sprintf("Error: No %s in .sample file.\n", species_plural);
+    sprintf(logbuf, "Error: No %s in .sample file.\n", species_plural);
     goto oxford_sample_load_ret_INVALID_FORMAT_4;
   }
   *unfiltered_indiv_ct_ptr = unfiltered_indiv_ct;
@@ -331,12 +331,12 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
     break;
   oxford_sample_load_ret_INVALID_FORMAT_2:
     sprintf(logbuf, "Error: Excessively long line in .sample file (max %d chars).\n", MAXLINELEN - 3);
+  oxford_sample_load_ret_INVALID_FORMAT_4:
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   oxford_sample_load_ret_INVALID_FORMAT_3:
     logprint("Unsupported .sample file format.  (First three columns are expected to be\n'ID_1', 'ID_2', and 'missing', in that order.)\n");
-  oxford_sample_load_ret_INVALID_FORMAT_4:
     retval = RET_INVALID_FORMAT;
     break;
   }

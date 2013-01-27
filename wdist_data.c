@@ -1720,7 +1720,7 @@ int32_t make_bed(FILE* bedfile, int32_t bed_offset, FILE* bimfile, int32_t map_c
     bufptr += sprintf(tbuf, "%s %s %s %c ", cptr, paternal_ids? (&(paternal_ids[indiv_uidx * max_paternal_id_len])) : "0", maternal_ids? (&(maternal_ids[indiv_uidx * max_maternal_id_len])) : "0", sexchar(sex_nm, sex_male, indiv_uidx));
     tbuf[strlen_se(cptr)] = ' ';
     if (!is_set(pheno_nm, indiv_uidx)) {
-      sprintf("%s\n", output_missing_pheno);
+      sprintf(bufptr, "%s\n", output_missing_pheno);
     } else if (affection) {
       bufptr[0] = is_set(pheno_c, indiv_uidx)? 2 : 1;
       bufptr[1] = '\n';
@@ -4392,7 +4392,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
   uii = 0;
   ullii = 3LU + ((uint64_t)marker_ct) * indiv_ct4;
   if (ullii >= 10485760) {
-    printf("Writing dummy .bed (%llu MB)... 0%%", ullii >> 20);
+    printf("Writing dummy .bed (%" PRIu64 " MB)... 0%%", ullii >> 20);
   } else {
     fputs("Writing dummy .bed... 0%", stdout);
   }
@@ -7831,7 +7831,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   } else {
     // undo the "not"
     diff_not_both_genotyped = diff_total_overlap - diff_not_both_genotyped;
-    sprintf(logbuf, "%llu overlapping markers, %llu genotyped in both filesets.\n%llu concordant, for a concordance rate of %g.\n", diff_total_overlap, diff_not_both_genotyped, diff_not_both_genotyped - diff_discordant, 1.0 - (((double)diff_discordant) / ((double)diff_not_both_genotyped)));
+    sprintf(logbuf, "%" PRIu64 " overlapping markers, %" PRIu64 " genotyped in both filesets.\n%" PRIu64 " concordant, for a concordance rate of %g.\n", diff_total_overlap, diff_not_both_genotyped, diff_not_both_genotyped - diff_discordant, 1.0 - (((double)diff_discordant) / ((double)diff_not_both_genotyped)));
     logprintb();
   }
 

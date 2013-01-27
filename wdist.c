@@ -21,6 +21,7 @@
 #include <ctype.h>
 #include <time.h>
 #include <unistd.h>
+#include "wdist_common.h"
 
 #ifdef NOLAPACK
 #define MATRIX_INVERT_BUF1_TYPE double
@@ -69,7 +70,6 @@ extern "C" {
 #endif // NOLAPACK
 
 #include "wdist_calc.h"
-#include "wdist_common.h"
 #include "wdist_data.h"
 #include "wdist_dosage.h"
 
@@ -136,7 +136,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (28 Jan 2013)";
+  " (27 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -3154,25 +3154,25 @@ void* groupdist_jack_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t* ibuf = (int32_t*)(&(g_geno[tidx * CACHEALIGN(g_high_ct + g_low_ct + (g_jackknife_d + 1) * sizeof(int32_t))]));
   unsigned char* cbuf = &(g_geno[tidx * CACHEALIGN(g_high_ct + g_low_ct + (g_jackknife_d + 1) * sizeof(int32_t)) + (g_jackknife_d + 1) * sizeof(int32_t)]);
-  uint64_t ulii;
-  uint64_t uljj = g_jackknife_iters / 100;
+  uint64_t ullii;
+  uint64_t ulljj = g_jackknife_iters / 100;
   double returns[3];
   double results[9];
   double new_old_diff[3];
   fill_double_zero(results, 9);
-  for (ulii = 0; ulii < g_jackknife_iters; ulii++) {
+  for (ullii = 0; ullii < g_jackknife_iters; ullii++) {
     pick_d_small(cbuf, ibuf, g_high_ct + g_low_ct, g_jackknife_d);
     if (g_high_ct + g_low_ct < g_indiv_ct) {
       small_remap(ibuf, g_high_ct + g_low_ct, g_jackknife_d);
     }
     groupdist_jack(ibuf, returns);
-    if (ulii > 0) {
+    if (ullii > 0) {
       new_old_diff[0] = returns[0] - results[0];
       new_old_diff[1] = returns[1] - results[1];
       new_old_diff[2] = returns[2] - results[2];
-      results[0] += new_old_diff[0] / (ulii + 1); // AA mean
-      results[1] += new_old_diff[1] / (ulii + 1); // AU mean
-      results[2] += new_old_diff[2] / (ulii + 1); // UU mean
+      results[0] += new_old_diff[0] / (ullii + 1); // AA mean
+      results[1] += new_old_diff[1] / (ullii + 1); // AU mean
+      results[2] += new_old_diff[2] / (ullii + 1); // UU mean
       results[3] += (returns[0] - results[0]) * new_old_diff[0]; // AA var
       results[4] += (returns[1] - results[1]) * new_old_diff[1]; // AU var
       results[5] += (returns[2] - results[2]) * new_old_diff[2]; // UU var
@@ -3184,16 +3184,16 @@ void* groupdist_jack_thread(void* arg) {
       results[1] += returns[1];
       results[2] += returns[2];
     }
-    if ((!tidx) && (ulii >= uljj)) {
-      uljj = (ulii * 100) / g_jackknife_iters;
-      printf("\r%lld%%", uljj);
+    if ((!tidx) && (ullii >= ulljj)) {
+      ulljj = (ullii * 100) / g_jackknife_iters;
+      printf("\r%" PRIu64 "%%", ulljj);
       fflush(stdout);
-      uljj = ((uljj + 1) * g_jackknife_iters) / 100;
+      ulljj = ((ulljj + 1) * g_jackknife_iters) / 100;
     }
   }
   // don't write until end, to avoid false sharing
-  for (ulii = 0; ulii < 9; ulii++) {
-    g_calc_result[ulii][tidx] = results[ulii];
+  for (ullii = 0; ullii < 9; ullii++) {
+    g_calc_result[ullii][tidx] = results[ullii];
   }
   return NULL;
 }
@@ -3251,26 +3251,26 @@ void* regress_rel_jack_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t* ibuf = (int32_t*)(&(g_geno[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t))]));
   unsigned char* cbuf = &(g_geno[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t)) + (g_jackknife_d + 1) * sizeof(int32_t)]);
-  uint64_t ulii;
-  uint64_t uljj = g_jackknife_iters / 100;
+  uint64_t ullii;
+  uint64_t ulljj = g_jackknife_iters / 100;
   double sum = 0.0;
   double sum_sq = 0.0;
   double sum2 = 0;
   double sum2_sq = 0.0;
   double dxx;
   double ret2;
-  for (ulii = 0; ulii < g_jackknife_iters; ulii++) {
+  for (ullii = 0; ullii < g_jackknife_iters; ullii++) {
     pick_d_small(cbuf, ibuf, g_indiv_ct, g_jackknife_d);
     dxx = regress_rel_jack(ibuf, &ret2);
     sum += dxx;
     sum_sq += dxx * dxx;
     sum2 += ret2;
     sum2_sq += ret2 * ret2;
-    if ((!tidx) && (ulii >= uljj)) {
-      uljj = (ulii * 100) / g_jackknife_iters;
-      printf("\r%lld%%", uljj);
+    if ((!tidx) && (ullii >= ulljj)) {
+      ulljj = (ullii * 100) / g_jackknife_iters;
+      printf("\r%" PRIu64 "%%", ulljj);
       fflush(stdout);
-      uljj = ((uljj + 1) * g_jackknife_iters) / 100;
+      ulljj = ((ulljj + 1) * g_jackknife_iters) / 100;
     }
   }
   g_calc_result[0][tidx] = sum;
@@ -5627,7 +5627,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm1 = loader2 & loader3;
-  to_ct_hmaj1 = loader1 & loader3;
+  to_ct_hmaj1 = loader & loader3;
 
   loader = *lptr++;
   loader3 = loader >> 1;
@@ -5635,7 +5635,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm1 += loader2 & loader3;
-  to_ct_hmaj1 += loader1 & loader3;
+  to_ct_hmaj1 += loader & loader3;
 
   loader = *lptr++;
   loader3 = loader >> 1;
@@ -5643,7 +5643,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm1 += loader2 & loader3;
-  to_ct_hmaj1 += loader1 & loader3;
+  to_ct_hmaj1 += loader & loader3;
 
   loader = *lptr++;
   loader3 = loader >> 1;
@@ -5651,7 +5651,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm2 = loader2 & loader3;
-  to_ct_hmaj2 = loader1 & loader3;
+  to_ct_hmaj2 = loader & loader3;
 
   loader = *lptr++;
   loader3 = loader >> 1;
@@ -5659,7 +5659,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm2 += loader2 & loader3;
-  to_ct_hmaj2 += loader1 & loader3;
+  to_ct_hmaj2 += loader & loader3;
 
   loader = *lptr++;
   loader3 = loader >> 1;
@@ -5667,7 +5667,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm2 += loader2 & loader3;
-  to_ct_hmaj2 += loader1 & loader3;
+  to_ct_hmaj2 += loader & loader3;
 
   to_ct_nm1 = (to_ct_nm1 & 0x33333333) + ((to_ct_nm1 >> 2) & 0x33333333);
   to_ct_nm1 += (to_ct_nm2 & 0x33333333) + ((to_ct_nm2 >> 2) & 0x33333333);
@@ -5682,7 +5682,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm1 = loader2 & loader3;
-  to_ct_hmaj1 = loader1 & loader3;
+  to_ct_hmaj1 = loader & loader3;
 
   loader = *lptr++;
   loader3 = loader >> 1;
@@ -5690,7 +5690,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm1 += loader2 & loader3;
-  to_ct_hmaj1 += loader1 & loader3;
+  to_ct_hmaj1 += loader & loader3;
 
   loader = *lptr++;
   loader3 = loader >> 1;
@@ -5698,7 +5698,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm1 += loader2 & loader3;
-  to_ct_hmaj1 += loader1 & loader3;
+  to_ct_hmaj1 += loader & loader3;
 
   loader = *lptr++;
   loader3 = loader >> 1;
@@ -5706,7 +5706,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm2 = loader2 & loader3;
-  to_ct_hmaj2 = loader1 & loader3;
+  to_ct_hmaj2 = loader & loader3;
 
   loader = *lptr++;
   loader3 = loader >> 1;
@@ -5714,7 +5714,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
   loader &= loader3;
   loader3 = *maskp++;
   to_ct_nm2 += loader2 & loader3;
-  to_ct_hmaj2 += loader1 & loader3;
+  to_ct_hmaj2 += loader & loader3;
 
   loader = *lptr;
   loader3 = loader >> 1;
@@ -5722,7 +5722,7 @@ void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_n
   loader &= loader3;
   loader3 = *maskp;
   to_ct_nm2 += loader2 & loader3;
-  to_ct_hmaj2 += loader1 & loader3;
+  to_ct_hmaj2 += loader & loader3;
 
   to_ct_nm1 = (to_ct_nm1 & 0x33333333) + ((to_ct_nm1 >> 2) & 0x33333333);
   to_ct_nm1 += (to_ct_nm2 & 0x33333333) + ((to_ct_nm2 >> 2) & 0x33333333);
@@ -11163,7 +11163,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t ulkk;
   double dxx;
   double dyy;
-  double dzz;
   int64_t llxx = 0;
   int64_t llyy;
   char* marker_ids = NULL;
@@ -11202,9 +11201,10 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t* glptr3;
   int32_t* iptr;
   uint64_t dists_alloc = 0;
-  double* dist_ptr = NULL;
   double* dptr2;
 #ifndef NOLAPACK
+  double dzz;
+  double* dist_ptr = NULL;
   double* dptr3 = NULL;
   double* dptr4 = NULL;
 #endif
@@ -11537,7 +11537,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_INVALID_FORMAT;
     }
   } else if (llyy != 0LL) {
-    sprintf(logbuf, "Error: Invalid .bed file size (expected %llu bytes).\n", ((uint64_t)unfiltered_indiv_ct4) * unfiltered_marker_ct);
+    sprintf(logbuf, "Error: Invalid .bed file size (expected %" PRIu64 " bytes).\n", ((uint64_t)unfiltered_indiv_ct4) * unfiltered_marker_ct);
     goto wdist_ret_INVALID_FORMAT_2;
   } else {
     // pre-0.99, no magic number, indiv-major
@@ -12336,7 +12336,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_READ_FAIL;
     }
     if (ftello(loaddistfile) != (int64_t)dists_alloc) {
-      sprintf(logbuf, "Invalid --load-dists file.  (Triangular binary of size %lld expected.)\n", dists_alloc);
+      sprintf(logbuf, "Invalid --load-dists file.  (Triangular binary of size %" PRIu64 " expected.)\n", dists_alloc);
       goto wdist_ret_INVALID_FORMAT_2;
     }
     rewind(loaddistfile);
@@ -15437,7 +15437,7 @@ int32_t main(int32_t argc, char** argv) {
     malloc_size_mb = WKSPACE_MIN_MB;
   }
   if (llxx) {
-    sprintf(logbuf, "%lld MB RAM detected; reserving %ld MB for main workspace.\n", llxx, malloc_size_mb);
+    sprintf(logbuf, "%" PRId64 " MB RAM detected; reserving %ld MB for main workspace.\n", llxx, malloc_size_mb);
   } else {
     sprintf(logbuf, "Failed to calculate system memory.  Attempting to reserve %ld MB.\n", malloc_size_mb);
   }
