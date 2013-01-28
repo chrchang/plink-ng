@@ -16,7 +16,7 @@
 
 
 // Uncomment this to build without CBLAS/CLAPACK:
-#define NOLAPACK
+// #define NOLAPACK
 
 #include <ctype.h>
 #include <time.h>
