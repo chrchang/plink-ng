@@ -623,6 +623,23 @@ int32_t marker_code(uint32_t species, char* sptr);
 
 int32_t marker_code2(uint32_t species, char* sptr, uint32_t slen);
 
+static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr_t marker_uidx, Chrom_info* chrom_info_ptr, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr) {
+  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+  if (marker_uidx >= (*chrom_end_ptr)) {
+    while (1) {
+      do {
+	*chrom_fo_idx_ptr += 1;
+	*chrom_end_ptr = chrom_info_ptr->chrom_file_order_marker_idx[(*chrom_fo_idx_ptr) + 1];
+      } while (marker_uidx >= (*chrom_end_ptr));
+      if (!((species_haploid_mask[chrom_info_ptr->species] >> chrom_info_ptr->chrom_file_order[*chrom_fo_idx_ptr]) & 1LLU)) {
+	return marker_uidx;
+      }
+      marker_uidx = next_non_set_unsafe(marker_exclude, *chrom_end_ptr);
+    }
+  }
+  return marker_uidx;
+}
+
 void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t set_hh_missing, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_haploid_ptr);
 
 int32_t strcmp_natural(const void* s1, const void* s2);
@@ -690,6 +707,8 @@ static inline void zero_trailing_bits(uintptr_t* bitfield, uintptr_t unfiltered_
 uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude);
 
 uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude);
+
+uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_indiv_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf);
 
 static inline char sexchar(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t indiv_uidx) {
   return is_set(sex_nm, indiv_uidx)? (is_set(sex_male, indiv_uidx)? '1' : '2') : '0';

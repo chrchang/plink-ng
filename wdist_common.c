@@ -1229,6 +1229,61 @@ uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* mark
   return ct;
 }
 
+uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_indiv_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf) {
+  uintptr_t marker_uidx = *marker_uidx_ptr;
+  uintptr_t marker_idx = *marker_idx_ptr;
+  uint32_t chrom_fo_idx = *chrom_fo_idx_ptr;
+  uint32_t chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+  uint32_t markers_read = 0;
+  uint32_t is_x;
+  uint32_t is_haploid;
+
+  if (block_max_size > marker_ct_autosomal - marker_idx) {
+    block_max_size = marker_ct_autosomal - marker_idx;
+  }
+  while (markers_read < block_max_size) {
+    if (is_set(marker_exclude, marker_uidx)) {
+      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	return RET_READ_FAIL;
+      }
+    }
+    if (marker_uidx >= chrom_end) {
+      while (1) {
+	chrom_fo_idx++;
+	refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	if (!is_haploid) {
+	  break;
+	}
+	marker_uidx = next_non_set_unsafe(marker_exclude, chrom_end);
+	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	  return RET_READ_FAIL;
+	}
+      }
+    }
+    if (fread(&(readbuf[markers_read * unfiltered_indiv_ct4]), 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      return RET_READ_FAIL;
+    }
+    if (set_allele_freq_buf) {
+      set_allele_freq_buf[markers_read] = set_allele_freqs[marker_uidx];
+    } else if (set_allele_freq_buf_fl) {
+      set_allele_freq_buf_fl[markers_read] = (float)set_allele_freqs[marker_uidx];
+    }
+    if (wtbuf) {
+      wtbuf[markers_read] = marker_weights[marker_idx];
+    }
+    markers_read++;
+    marker_idx++;
+    marker_uidx++;
+  }
+
+  *chrom_fo_idx_ptr = chrom_fo_idx;
+  *marker_uidx_ptr = marker_uidx;
+  *marker_idx_ptr = marker_idx;
+  *block_size_ptr = markers_read;
+  return 0;
+}
+
 int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf) {
   // membuf assumed to be of at least size indiv_ct * 8.
   int32_t shape = dist_calc_type & DISTANCE_SHAPEMASK;
