@@ -16,7 +16,7 @@
 
 
 // Uncomment this to build without CBLAS/CLAPACK:
-// #define NOLAPACK
+#define NOLAPACK
 
 #include <ctype.h>
 #include <time.h>
@@ -13228,7 +13228,7 @@ int32_t main(int32_t argc, char** argv) {
   }
 #ifdef _WIN32
   windows_dw = 4 * MAXLINELEN + 256;
-  if (!GetComputerName(tbuf, &windows_dw))
+  if (GetComputerName(tbuf, &windows_dw))
 #else
   if (gethostname(tbuf, 4 * MAXLINELEN + 256) != -1)
 #endif
