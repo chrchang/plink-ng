@@ -16,11 +16,15 @@
 
 
 // Uncomment this to build without CBLAS/CLAPACK:
-// #define NOLAPACK
+#define NOLAPACK
 
 #include <ctype.h>
 #include <time.h>
 #include <unistd.h>
+#ifdef _WIN32
+// needed for MEMORYSTATUSEX
+#define WINVER 0x0500
+#endif
 #include "wdist_common.h"
 
 #ifdef NOLAPACK
@@ -11189,7 +11193,13 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_MAKE_BED) {
-    if (!realpath(pedname, tbuf)) {
+#ifdef _WIN32
+    uii = GetFullPathName(pedname, FNAMESIZE, tbuf, NULL);
+    if ((!uii) || (uii > FNAMESIZE))
+#else
+    if (!realpath(pedname, tbuf))
+#endif
+    {
       sprintf(logbuf, "Error: Failed to open %s.\n", pedname);
       logprintb();
       goto wdist_ret_OPEN_FAIL;
@@ -11197,8 +11207,14 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     memcpy(outname_end, ".bed", 5);
     // if file doesn't exist, realpath returns NULL on Linux instead of what
     // the path would be.
+#ifdef _WIN32
+    uii = GetFullPathName(outname, FNAMESIZE, &(tbuf[FNAMESIZE + 64]), NULL);
+    if (uii && (uii <= FNAMESIZE) && (!strcmp(tbuf, &(tbuf[FNAMESIZE + 64]))))
+#else
     cptr = realpath(outname, &(tbuf[FNAMESIZE + 64]));
-    if (cptr && (!strcmp(tbuf, &(tbuf[FNAMESIZE + 64])))) {
+    if (cptr && (!strcmp(tbuf, &(tbuf[FNAMESIZE + 64]))))
+#endif
+    {
       logprint("Note: --make-bed input and output filenames match.  Appending .old to input\nfilenames.\n");
       uii = strlen(pedname);
       memcpy(tbuf, pedname, uii + 1);
@@ -11251,7 +11267,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (fopen_checked(&bedfile, pedname, "rb")) {
     goto wdist_ret_OPEN_FAIL;
   }
-  if (fopen_checked(&famfile, famname, "r")) {
+  if (fopen_checked(&famfile, famname, "rb")) {
     goto wdist_ret_OPEN_FAIL;
   }
   // load .bim, count markers, filter chromosomes
@@ -12813,6 +12829,11 @@ int32_t main(int32_t argc, char** argv) {
   int32_t mib[2];
   size_t sztmp;
 #endif
+#ifdef _WIN32
+  SYSTEM_INFO sysinfo;
+  MEMORYSTATUSEX memstatus;
+  DWORD windows_dw; // no idea why the f*** a uint32_t doesn't work
+#endif
   for (ii = 1; ii < argc; ii++) {
     if ((!memcmp("-script", argv[ii], 8)) || (!memcmp("--script", argv[ii], 9))) {
       if (enforce_param_ct_range(argc, argv, ii, 1, 1, &jj)) {
@@ -13205,7 +13226,13 @@ int32_t main(int32_t argc, char** argv) {
       logstr(argv[ii++]);
     }
   }
-  if (gethostname(tbuf, 4 * MAXLINELEN + 256) != -1) {
+#ifdef _WIN32
+  windows_dw = 4 * MAXLINELEN + 256;
+  if (!GetComputerName(tbuf, &windows_dw))
+#else
+  if (gethostname(tbuf, 4 * MAXLINELEN + 256) != -1)
+#endif
+  {
     logstr("\nHostname: ");
     logstr(tbuf);
   }
@@ -13219,6 +13246,10 @@ int32_t main(int32_t argc, char** argv) {
 
   chrom_info.species = SPECIES_HUMAN;
   chrom_info.chrom_mask = 0;
+#ifdef _WIN32
+  GetSystemInfo(&sysinfo);
+  g_thread_ct = sysinfo.dwNumberOfProcessors;
+#else
   ii = sysconf(_SC_NPROCESSORS_ONLN);
   if (ii == -1) {
     g_thread_ct = 1;
@@ -13227,6 +13258,7 @@ int32_t main(int32_t argc, char** argv) {
   } else {
     g_thread_ct = ii;
   }
+#endif
   strcpy(mapname, "wdist.map");
   strcpy(pedname, "wdist.ped");
   famname[0] = '\0';
@@ -15318,7 +15350,13 @@ int32_t main(int32_t argc, char** argv) {
   sysctl(mib, 2, &llxx, &sztmp, NULL, 0);
   llxx /= 1048576;
 #else
+#ifdef _WIN32
+  memstatus.dwLength = sizeof(memstatus);
+  GlobalMemoryStatusEx(&memstatus);
+  llxx = memstatus.ullTotalPhys / 1048576;
+#else
   llxx = ((size_t)sysconf(_SC_PHYS_PAGES)) * ((size_t)sysconf(_SC_PAGESIZE)) / 1048576;
+#endif
 #endif
   if (!llxx) {
     default_alloc_mb = WKSPACE_DEFAULT_MB;

@@ -43,7 +43,7 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
   int32_t retval;
   int32_t is_missing;
   double dxx;
-  if (fopen_checked(&samplefile, samplename, "r")) {
+  if (fopen_checked(&samplefile, samplename, "rb")) {
     return RET_OPEN_FAIL;
   }
   // pass #1: just count number of samples

@@ -8,6 +8,10 @@ ifeq ($(UNAME), Darwin)
 BLASFLAGS=-framework Accelerate
 LINKFLAGS=
 ZLIB=zlib-1.2.7/libz.a
+else
+ifeq ($(UNAME), MINGW32_NT-6.0)
+ZLIB=zlib-1.2.7/libz.a
+endif
 endif
 
 SRC = wdist.c wdist_calc.c wdist_common.c wdist_data.c wdist_dosage.c SFMT.c
@@ -23,6 +27,9 @@ wdists: $(SRC)
 
 wdistd: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o wdist_linux $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
+
+wdistnl: $(SRC)
+	g++ $(CFLAGS) $(SRC) -o wdist $(LINKFLAGS) -Wl,-Bstatic -L. $(ZLIB)
 
 wdist64: $(SRC)
 	g++ $(CFLAGS) -arch x86_64 $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. zlib-1.2.7/libz-64.a

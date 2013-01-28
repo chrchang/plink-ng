@@ -1,5 +1,9 @@
 #include <fcntl.h>
+
+#ifndef _WIN32
 #include <sys/mman.h>
+#endif
+
 #include <sys/stat.h>
 #include <sys/types.h>
 #include "wdist_common.h"
@@ -99,6 +103,12 @@ int32_t sort_item_ids(char** sorted_ids_ptr, int32_t** id_map_ptr, uintptr_t unf
   return 0;
 }
 
+#ifdef _WIN32
+int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, FILE** outfile_ptr, uintptr_t unfiltered_marker_ct) {
+  logprint("Error: Win32 WDIST does not yet support transposition of individual-major .bed\nfiles.  Contact the developers if you need this.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+}
+#else
 int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, FILE** outfile_ptr, uintptr_t unfiltered_marker_ct) {
   // This implementation only handles large files on 64-bit Unix systems; a
   // more portable version needs to be written for Windows and 32-bit Unix.
@@ -208,6 +218,7 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, FILE** 
   close(in_fd);
   return retval;
 }
+#endif
 
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 
@@ -2842,7 +2853,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   memset(marker_alleles, 0, marker_ct * 4);
 
   // first .ped scan: count indivs, write .fam, note alleles at each locus
-  if (fopen_checked(&pedfile, pedname, "r")) {
+  if (fopen_checked(&pedfile, pedname, "rb")) {
     goto ped_to_bed_ret_OPEN_FAIL;
   }
   memcpy(outname_end, ".fam", 5);

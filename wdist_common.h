@@ -12,7 +12,14 @@
 #include <stdint.h>
 #include <inttypes.h>
 
+#ifdef _WIN32
+#define PRId64 "I64d"
+#define PRIu64 "I64u"
+#define fseeko fseeko64
+#define ftello ftello64
+#else
 #define PRId64 "lld"
+#endif
 
 #define uint64_t unsigned long long
 #define int64_t long long

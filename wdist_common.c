@@ -2121,7 +2121,7 @@ void* regress_jack_thread(void* arg) {
     sum2_sq += ret2 * ret2;
     if ((!tidx) && (ulii >= uljj)) {
       uljj = (ulii * 100) / g_jackknife_iters;
-      printf("\r%lld%%", uljj);
+      printf("\r%" PRIu64 "%%", uljj);
       fflush(stdout);
       uljj = ((uljj + 1) * g_jackknife_iters) / 100;
     }
