@@ -18,7 +18,9 @@
 #define fseeko fseeko64
 #define ftello ftello64
 #else
+#ifdef __cplusplus
 #define PRId64 "lld"
+#endif
 #endif
 
 #define uint64_t unsigned long long
@@ -97,6 +99,9 @@ typedef union {
 
 #define LGEN_REFERENCE 1
 #define LGEN_ALLELE_COUNT 2
+
+#define PHENO_ALL 1
+#define PHENO_MERGE 2
 
 #define DISTANCE_SQ 1
 #define DISTANCE_SQ0 2
@@ -673,6 +678,10 @@ int32_t distance_req(int32_t calculation_type);
 int32_t double_cmp(const void* aa, const void* bb);
 
 int32_t double_cmp_deref(const void* aa, const void* bb);
+
+#ifndef __cplusplus
+int32_t llcmp(const void* aa, const void* bb);
+#endif
 
 void qsort_ext2(char* main_arr, int32_t arr_length, int32_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int32_t secondary_item_len, char* proxy_arr, int32_t proxy_len);
 

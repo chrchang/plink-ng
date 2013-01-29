@@ -728,6 +728,19 @@ int32_t double_cmp_deref(const void* aa, const void* bb) {
   }
 }
 
+#ifndef __cplusplus
+int32_t llcmp(const void* aa, const void* bb) {
+  int64_t diff = *((const int64_t*)aa) - *((const int64_t*)bb);
+  if (diff > 0) {
+    return 1;
+  } else if (diff < 0) {
+    return -1;
+  } else {
+    return 0;
+  }
+}
+#endif
+
 // alas, qsort_r not available on some Linux distributions
 
 // Normally use qsort_ext(), but this version is necessary before wkspace has
