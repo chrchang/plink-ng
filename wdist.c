@@ -140,7 +140,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (28 Jan 2013)";
+  " (29 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -839,6 +839,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("set-hh-missing", &help_ctrl, 0,
 "  --set-hh-missing : Cause --make-bed and --recode to set heterozygous haploid\n"
 "                     genotypes to missing.\n"
+	       );
+    help_print("reference\tallele-count\tlfile", &help_ctrl, 0,
+"  --reference [fn] : Specify default allele file for .lgen input.\n"
+"  --allele-count   : When used with --reference, specifies that the .lgen file\n"
+"                     contains reference allele counts.\n"
 	       );
     help_print("nonfounders", &help_ctrl, 0,
 "  --nonfounders    : Include nonfounders in allele frequency/HWE calculations.\n"
@@ -5927,7 +5932,7 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, ui
   *ll_ctfp = tot_nm_f - tot_hmaj_f;
 }
 
-int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_exclude_ct, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t** marker_reverse_ptr, uint32_t** marker_allele_cts_ptr, int32_t bed_offset, unsigned char missing_geno, int32_t hwe_needed, int32_t hwe_all, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** hwe_hapl_allfs_ptr, int32_t** hwe_haph_allfs_ptr, uint32_t* indiv_male_ct_ptr, uint32_t* indiv_f_ct_ptr, uint32_t* indiv_f_male_ct_ptr, int32_t wt_needed, unsigned char** marker_weights_base_ptr, double** marker_weights_ptr, double exponent, Chrom_info* chrom_info_ptr, uintptr_t* sex_nm, uintptr_t* sex_male) {
+int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_exclude_ct, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t** marker_reverse_ptr, uint32_t** marker_allele_cts_ptr, int32_t bed_offset, unsigned char missing_geno, int32_t hwe_needed, int32_t hwe_all, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** hwe_hapl_allfs_ptr, int32_t** hwe_haph_allfs_ptr, uint32_t* indiv_male_ct_ptr, uint32_t* indiv_f_ct_ptr, uint32_t* indiv_f_male_ct_ptr, int32_t wt_needed, unsigned char** marker_weights_base_ptr, double** marker_weights_ptr, double exponent, Chrom_info* chrom_info_ptr, uintptr_t* sex_nm, uintptr_t* sex_male, int32_t map_is_unsorted) {
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + BITCT - 1) / BITCT;
   uintptr_t unfiltered_indiv_ctl2 = 2 * unfiltered_indiv_ctl;
@@ -6029,7 +6034,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
   *hwe_hapl_allfs_ptr = hwe_hapl_allfs;
   *hwe_haph_allfs_ptr = hwe_haph_allfs;
 
-  if (!pheno_c) {
+  if ((!pheno_c) || map_is_unsorted) {
     hwe_all = 1;
   }
 
@@ -6049,9 +6054,9 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
   loadbuf[unfiltered_indiv_ctl2 - 1] = 0;
   exclude_to_vec_include(unfiltered_indiv_ct, indiv_include2, indiv_exclude);
   ii = species_x_code[chrom_info_ptr->species];
-  nonmales_needed = (ii != -1) && ((chrom_info_ptr->chrom_mask >> ii) & 1);
+  nonmales_needed = (!map_is_unsorted) && (ii != -1) && ((chrom_info_ptr->chrom_mask >> ii) & 1);
   ii = species_y_code[chrom_info_ptr->species];
-  males_needed = nonmales_needed || ((ii != -1) && ((chrom_info_ptr->chrom_mask >> ii) & 1));
+  males_needed = nonmales_needed || ((!map_is_unsorted) && (ii != -1) && ((chrom_info_ptr->chrom_mask >> ii) & 1));
   if (wkspace_alloc_ul_checked(&indiv_male_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
     goto calc_freqs_and_hwe_ret_NOMEM;
   }
@@ -6140,6 +6145,12 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
   logprint("Calculating allele frequencies... ");
   fputs("0%", stdout);
   fflush(stdout);
+  if (map_is_unsorted) {
+    is_haploid = species_haploid_mask[chrom_info_ptr->species] & 1;
+    is_x = 0;
+    is_y = 0;
+    next_chrom_start = unfiltered_marker_ct;
+  }
   for (; pct <= 100; pct++) {
     loop_end = ((uint64_t)pct * marker_ct) / 100LU;
     for (; marker_idx < loop_end; marker_idx++) {
@@ -11523,7 +11534,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   nonfounders = (nonfounders || (!fam_col_34));
   wt_needed = distance_wt_req(calculation_type) && (!distance_flat_missing);
   hwe_needed = (hwe_thresh > 0.0);
-  retval = calc_freqs_and_hwe(bedfile, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (unsigned char)missing_geno, hwe_needed, hwe_all, g_pheno_nm, g_pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &marker_weights_base, &g_marker_weights, exponent, chrom_info_ptr, sex_nm, sex_male);
+  retval = calc_freqs_and_hwe(bedfile, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (unsigned char)missing_geno, hwe_needed, hwe_all, g_pheno_nm, g_pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &marker_weights_base, &g_marker_weights, exponent, chrom_info_ptr, sex_nm, sex_male, map_is_unsorted);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -12712,6 +12723,7 @@ int32_t main(int32_t argc, char** argv) {
   char* removename = NULL;
   char* phenoname = NULL;
   char* recode_allele_name = NULL;
+  char* lgen_reference_name = NULL;
   char** subst_argv2;
   int32_t retval = 0;
   int32_t load_params = 0; // describes what file parameters have been provided
@@ -12809,6 +12821,7 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t snp_window_size = 0;
   int32_t marker_pos_start = -1;
   int32_t marker_pos_end = -1;
+  uint32_t lgen_modifier = 0;
   Chrom_info chrom_info;
   char* argptr2;
   char* flagptr;
@@ -14936,6 +14949,15 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
+      } else if (!memcmp(argptr2, "eference", 9)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        retval = alloc_fname(&lgen_reference_name, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+	lgen_modifier |= LGEN_REFERENCE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -15431,7 +15453,7 @@ int32_t main(int32_t argc, char** argv) {
       }
       uii = (sptr - outname);
       if (load_rare == LOAD_RARE_LGEN) {
-        retval = lgen_to_bed(pedname, outname, sptr, missing_pheno, affection_01, &chrom_info);
+        retval = lgen_to_bed(pedname, outname, sptr, missing_pheno, affection_01, lgen_modifier, &chrom_info);
       } else if (load_rare & LOAD_RARE_TRANSPOSE_MASK) {
         retval = transposed_to_bed(pedname, famname, outname, sptr, missing_geno, &chrom_info);
       } else if (load_rare & LOAD_RARE_DUMMY) {
@@ -15519,6 +15541,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(markername_snp);
   free_cond(snps_flag_markers);
   free_cond(snps_flag_starts_range);
+  free_cond(lgen_reference_name);
   if (logfile) {
     if (!log_failed) {
       logstr("\nEnd time: ");

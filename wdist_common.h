@@ -95,6 +95,9 @@ typedef union {
 #define CALC_RECODE 0x100000
 #define CALC_MERGE 0x200000
 
+#define LGEN_REFERENCE 1
+#define LGEN_ALLELE_COUNT 2
+
 #define DISTANCE_SQ 1
 #define DISTANCE_SQ0 2
 #define DISTANCE_TRI 3
