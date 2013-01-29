@@ -12723,7 +12723,7 @@ int32_t main(int32_t argc, char** argv) {
   char* removename = NULL;
   char* phenoname = NULL;
   char* recode_allele_name = NULL;
-  char* lgen_reference_name = NULL;
+  char* lgen_reference_fname = NULL;
   char** subst_argv2;
   int32_t retval = 0;
   int32_t load_params = 0; // describes what file parameters have been provided
@@ -13379,6 +13379,8 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  allelexxxx = 3;
 	}
+      } else if (!memcmp(argptr2, "llele-count", 12)) {
+	lgen_modifier |= LGEN_ALLELE_COUNT;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -14953,7 +14955,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        retval = alloc_fname(&lgen_reference_name, argv[cur_arg + 1], argptr, 0);
+        retval = alloc_fname(&lgen_reference_fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -15453,7 +15455,7 @@ int32_t main(int32_t argc, char** argv) {
       }
       uii = (sptr - outname);
       if (load_rare == LOAD_RARE_LGEN) {
-        retval = lgen_to_bed(pedname, outname, sptr, missing_pheno, affection_01, lgen_modifier, &chrom_info);
+        retval = lgen_to_bed(pedname, outname, sptr, missing_pheno, affection_01, lgen_modifier, lgen_reference_fname, &chrom_info);
       } else if (load_rare & LOAD_RARE_TRANSPOSE_MASK) {
         retval = transposed_to_bed(pedname, famname, outname, sptr, missing_geno, &chrom_info);
       } else if (load_rare & LOAD_RARE_DUMMY) {
@@ -15541,7 +15543,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(markername_snp);
   free_cond(snps_flag_markers);
   free_cond(snps_flag_starts_range);
-  free_cond(lgen_reference_name);
+  free_cond(lgen_reference_fname);
   if (logfile) {
     if (!log_failed) {
       logstr("\nEnd time: ");

@@ -14,7 +14,7 @@ int32_t load_fam(FILE* famfile, uintptr_t buflen, int32_t fam_col_1, int32_t fam
 
 int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_end, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, int32_t affection_01, int32_t missing_pheno, Chrom_info* chrom_info_ptr);
 
-int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_t missing_pheno, int32_t affection_01, uint32_t lgen_modifier, Chrom_info* chrom_info_ptr);
+int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_t missing_pheno, int32_t affection_01, uint32_t lgen_modifier, char* lgen_reference_fname, Chrom_info* chrom_info_ptr);
 
 int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* outname_end, char missing_geno, Chrom_info* chrom_info_ptr);
 

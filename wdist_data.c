@@ -3313,11 +3313,12 @@ int32_t heapstr_alloc(char** new_sptr, char* new_str, uint32_t slen) {
   }
 }
 
-int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_t missing_pheno, int32_t affection_01, uint32_t lgen_modifier, Chrom_info* chrom_info_ptr) {
+int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_t missing_pheno, int32_t affection_01, uint32_t lgen_modifier, char* lgen_reference_fname, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   FILE* outfile = NULL;
   char* name_end = (char*)memchr(lgen_namebuf, 0, FNAMESIZE);
+  uint32_t lgen_allele_count = lgen_modifier & LGEN_ALLELE_COUNT;
   int32_t map_cols = 3;
   uintptr_t* marker_exclude = NULL;
   uintptr_t marker_exclude_ct = 0;
@@ -3325,7 +3326,6 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   uintptr_t unfiltered_marker_ct = 0;
   uintptr_t marker_ct = 0;
   char** marker_alleles = NULL;
-  uint32_t* marker_allele_cts;
   char* marker_ids = NULL;
   uint32_t* marker_pos = NULL;
   uintptr_t indiv_ct = 0;
@@ -3440,8 +3440,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   if (retval) {
     goto lgen_to_bed_ret_1;
   }
-  if (wkspace_alloc_c_checked(&id_buf, MAXV(max_marker_id_len, max_person_id_len)) ||
-      wkspace_alloc_ui_checked(&marker_allele_cts, 2 * marker_ct * sizeof(int32_t))) {
+  if (wkspace_alloc_c_checked(&id_buf, MAXV(max_marker_id_len, max_person_id_len))) {
     goto lgen_to_bed_ret_NOMEM;
   }
   marker_alleles = (char**)wkspace_alloc(2 * marker_ct * sizeof(char*));
@@ -3449,7 +3448,6 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
     goto lgen_to_bed_ret_NOMEM;
   }
   memset(marker_alleles, 0, 2 * marker_ct * sizeof(char*));
-  fill_uint_zero(marker_allele_cts, 2 * marker_ct);
   indiv_ct4 = (indiv_ct + 3) / 4;
   if (wkspace_alloc_uc_checked(&writebuf, ((uintptr_t)marker_ct) * indiv_ct4)) {
     logprint("Error: Multipass .lgen -> .bed autoconversions are not yet supported.  Try\nusing --chr and/or --memory (perhaps with a better machine).\n");
@@ -3463,6 +3461,64 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
     }
   } else {
     memset(writebuf, 0x55, marker_ct * indiv_ct4);
+  }
+  if (lgen_modifier & LGEN_REFERENCE) {
+    if (fopen_checked(&infile, lgen_reference_fname, "r")) {
+      goto lgen_to_bed_ret_OPEN_FAIL;
+    }
+    while (fgets(tbuf, MAXLINELEN, infile)) {
+      cptr = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*cptr)) {
+	continue;
+      }
+      cptr2 = item_end(cptr);
+      a1ptr = skip_initial_spaces(cptr2);
+      if (no_more_items_kns(a1ptr)) {
+	goto lgen_to_bed_ret_INVALID_FORMAT_4;
+      }
+      a1len = strlen_se(cptr);
+      if (a1len < max_marker_id_len) {
+	memcpy(id_buf, cptr, a1len);
+	id_buf[a1len] = '\0';
+	ii = bsearch_str(id_buf, marker_ids, max_marker_id_len, 0, marker_ct - 1);
+	if (ii != -1) {
+	  marker_idx = marker_id_map[ii];
+	  if (marker_alleles[2 * marker_idx + 1]) {
+	    goto lgen_to_bed_ret_INVALID_FORMAT_4;
+	  }
+	  sptr = item_end(a1ptr);
+	  a2ptr = skip_initial_spaces(sptr);
+	  a1len = (uintptr_t)(sptr - a1ptr);
+	  a1ptr[a1len] = '\0';
+	  if (heapstr_alloc(&(marker_alleles[2 * marker_idx + 1]), a1ptr, a1len)) {
+	    goto lgen_to_bed_ret_NOMEM;
+	  }
+	  if (no_more_items_kns(a2ptr)) {
+	    if (lgen_allele_count) {
+	      a1ptr[a1len++] = 'v';
+	      a1ptr[a1len] = '\0';
+	      if (heapstr_alloc(&(marker_alleles[2 * marker_idx]), a1ptr, a1len)) {
+		goto lgen_to_bed_ret_NOMEM;
+	      }
+	    }
+	  } else {
+	    a2len = strlen_se(a2ptr);
+	    a2ptr[a2len] = '\0';
+	    if (heapstr_alloc(&(marker_alleles[2 * marker_idx]), a2ptr, a2len)) {
+	      goto lgen_to_bed_ret_NOMEM;
+	    }
+	  }
+	  memset(&(writebuf[marker_idx * indiv_ct4]), 0xff, indiv_ct / 4);
+	  if (indiv_ct % 4) {
+	    writebuf[(marker_idx + 1) * indiv_ct4 - 1] = 0x3f >> (6 - 2 * (indiv_ct % 4));
+	  }
+	}
+      }
+    }
+    if (!feof(infile)) {
+      goto lgen_to_bed_ret_READ_FAIL;
+    }
+    fclose_null(&infile);
   }
   // PLINK reports an error whenever there are 3+ alleles at one locus, so
   // backwards compatibility does not mandate that we worry about that case.
@@ -3489,7 +3545,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   fflush(stdout);
   lgen_next_thresh = lgen_size / 100;
   pct = 0;
-  if (!lgen_modifier) {
+  if (!lgen_allele_count) {
     while (fgets(tbuf, MAXLINELEN, infile)) {
       cptr = skip_initial_spaces(tbuf);
       if (is_eoln_kns(*cptr)) {
@@ -3511,10 +3567,6 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       a2len = strlen_se(a2ptr);
       ii = bsearch_fam_indiv(id_buf, sorted_indiv_ids, max_person_id_len, indiv_ct, cptr, cptr2);
       if (ii == -1) {
-	cptr[strlen_se(cptr)] = '\0';
-	cptr2[strlen_se(cptr2)] = '\0';
-	sprintf(logbuf, "Error: Person %s %s in .lgen file but missing from .fam.\n", cptr, cptr2);
-	logprintb();
 	goto lgen_to_bed_ret_INVALID_FORMAT_2;
       }
       indiv_idx = indiv_id_map[ii];
@@ -3527,61 +3579,69 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
 	sptr = marker_alleles[2 * marker_idx + 1]; // existing A2
 	a1ptr[a1len] = '\0';
 	a2ptr[a2len] = '\0';
-	if (!sptr) {
-	  if (heapstr_alloc(&(marker_alleles[2 * marker_idx + 1]), a1ptr, a1len)) {
-	    goto lgen_to_bed_ret_NOMEM;
-	  }
-	  if (!strcmp(a1ptr, a2ptr)) {
-	    uii = 2;
-	  } else {
+	if ((*a1ptr == '0') && (a1len == 1)) {
+	  if ((*a2ptr == '0') && (a2len == 1)) {
 	    uii = 1;
-	    if (heapstr_alloc(&(marker_alleles[2 * marker_idx]), a2ptr, a2len)) {
+	  } else {
+	    goto lgen_to_bed_ret_INVALID_FORMAT_5;
+	  }
+	} else if ((*a2ptr == '0') && (a2len == 1)) {
+	  goto lgen_to_bed_ret_INVALID_FORMAT_5;
+        } else {
+          if (!sptr) {
+	    if (heapstr_alloc(&(marker_alleles[2 * marker_idx + 1]), a1ptr, a1len)) {
 	      goto lgen_to_bed_ret_NOMEM;
 	    }
-	  }
-	} else {
-	  sptr2 = marker_alleles[2 * marker_idx];
-	  if (!sptr2) {
-	    if (!strcmp(a1ptr, sptr)) {
-	      if (!strcmp(a2ptr, sptr)) {
-		uii = 2;
+	    if (!strcmp(a1ptr, a2ptr)) {
+	      uii = 2;
+	    } else {
+	      uii = 1;
+	      if (heapstr_alloc(&(marker_alleles[2 * marker_idx]), a2ptr, a2len)) {
+		goto lgen_to_bed_ret_NOMEM;
+	      }
+	    }
+	  } else {
+	    sptr2 = marker_alleles[2 * marker_idx];
+	    if (!sptr2) {
+	      if (!strcmp(a1ptr, sptr)) {
+		if (!strcmp(a2ptr, sptr)) {
+		  uii = 2;
+		} else {
+		  uii = 1;
+		  if (heapstr_alloc(&(marker_alleles[2 * marker_idx]), a2ptr, a2len)) {
+		    goto lgen_to_bed_ret_NOMEM;
+		  }
+		}
 	      } else {
-		uii = 1;
-		if (heapstr_alloc(&(marker_alleles[2 * marker_idx]), a2ptr, a2len)) {
+		if (heapstr_alloc(&(marker_alleles[2 * marker_idx]), a1ptr, a1len)) {
 		  goto lgen_to_bed_ret_NOMEM;
+		}
+		if (!strcmp(a2ptr, sptr)) {
+		  uii = 1;
+		} else if (!strcmp(a2ptr, a1ptr)) {
+		  uii = 0;
+		} else {
+		  goto lgen_to_bed_ret_INVALID_FORMAT_3;
 		}
 	      }
 	    } else {
-	      if (heapstr_alloc(&(marker_alleles[2 * marker_idx]), a1ptr, a1len)) {
-		goto lgen_to_bed_ret_NOMEM;
-	      }
-	      if (!strcmp(a2ptr, sptr)) {
+	      if (!strcmp(a1ptr, sptr)) {
 		uii = 1;
-	      } else if (!strcmp(a2ptr, a1ptr)) {
+	      } else if (!strcmp(a1ptr, sptr2)) {
 		uii = 0;
 	      } else {
 		goto lgen_to_bed_ret_INVALID_FORMAT_3;
 	      }
-	    }
-	  } else {
-	    if (!strcmp(a1ptr, sptr)) {
-	      uii = 1;
-	    } else if (!strcmp(a1ptr, sptr2)) {
-	      uii = 0;
-	    } else {
-	      goto lgen_to_bed_ret_INVALID_FORMAT_3;
-	    }
-	    if (!strcmp(a2ptr, sptr)) {
-	      uii++;
-	    } else if (strcmp(a2ptr, sptr2)) {
-	      goto lgen_to_bed_ret_INVALID_FORMAT_3;
+	      if (!strcmp(a2ptr, sptr)) {
+		uii++;
+	      } else if (strcmp(a2ptr, sptr2)) {
+		goto lgen_to_bed_ret_INVALID_FORMAT_3;
+	      }
 	    }
 	  }
-	}
-	marker_allele_cts[2 * marker_idx] += 2 - uii;
-	marker_allele_cts[2 * marker_idx + 1] += uii;
-	if (uii) {
-	  uii++;
+	  if (uii) {
+	    uii++;
+	  }
 	}
 	ulii = marker_idx * indiv_ct4 + (indiv_idx / 4);
 	ujj = (indiv_idx % 4) * 2;
@@ -3599,9 +3659,57 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       }
     }
   } else {
-    logprint("Error: --reference and --allele-count not yet supported.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto lgen_to_bed_ret_1;
+    while (fgets(tbuf, MAXLINELEN, infile)) {
+      cptr = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*cptr)) {
+	continue;
+      }
+      cptr2 = next_item(cptr);
+      cptr3 = next_item(cptr2);
+      cptr4 = item_end(cptr3);
+      if (!cptr4) {
+	goto lgen_to_bed_ret_INVALID_FORMAT;
+      }
+      a1ptr = skip_initial_spaces(cptr4);
+      if (no_more_items_kns(a1ptr)) {
+	goto lgen_to_bed_ret_INVALID_FORMAT;
+      }
+      ii = bsearch_fam_indiv(id_buf, sorted_indiv_ids, max_person_id_len, indiv_ct, cptr, cptr2);
+      if (ii == -1) {
+	goto lgen_to_bed_ret_INVALID_FORMAT_2;
+      }
+      indiv_idx = indiv_id_map[ii];
+      ulii = (uintptr_t)(cptr4 - cptr3);
+      memcpy(id_buf, cptr3, ulii);
+      id_buf[ulii] = '\0';
+      ii = bsearch_str(id_buf, marker_ids, max_marker_id_len, 0, marker_ct - 1);
+      if (ii != -1) {
+	marker_idx = marker_id_map[ii];
+	a1len = strlen_se(a1ptr);
+	ucc = (unsigned char)(*a1ptr);
+	if ((a1len != 1) || (ucc < 48) || (ucc > 50)) {
+	  uii = 1;
+	} else {
+	  uii = ucc - 48;
+	  if (uii) {
+	    uii++;
+	  }
+	}
+	ulii = marker_idx * indiv_ct4 + (indiv_idx / 4);
+	ujj = (indiv_idx % 4) * 2;
+	writebuf[ulii] = (writebuf[ulii] & (~(3 << ujj))) | (uii << ujj);
+      }
+      if (ftello(infile) >= lgen_next_thresh) {
+	uii = (ftello(infile) * 100) / lgen_size;
+	if (pct >= 10) {
+	  putchar('\b');
+	}
+	printf("\b\b%u%%", uii);
+	fflush(stdout);
+	pct = uii;
+	lgen_next_thresh = ((pct + 1) * lgen_size) / 100;
+      }
+    }
   }
   if (!feof(infile)) {
     goto lgen_to_bed_ret_READ_FAIL;
@@ -3620,7 +3728,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   fill_bmap_short(bmap_short, umm);
   bmap2 = &(bmap_short[256]);
   for (uii = 0; uii < marker_ct; uii++) {
-    if (marker_allele_cts[uii * 2] > marker_allele_cts[uii * 2 + 1]) {
+    if (popcount_chars((uintptr_t*)writebuf, uii * indiv_ct4, (uii + 1) * indiv_ct4) < indiv_ct) {
       ucptr = &(writebuf[uii * indiv_ct4]);
       for (ujj = 0; ujj < ukk; ujj++) {
 	*ucptr = bmap_short[*ucptr];
@@ -3744,9 +3852,23 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   lgen_to_bed_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
+  lgen_to_bed_ret_INVALID_FORMAT_2:
+    cptr[strlen_se(cptr)] = '\0';
+    cptr2[strlen_se(cptr2)] = '\0';
+    sprintf(logbuf, "Error: Person %s %s in .lgen file but missing from .fam.\n", cptr, cptr2);
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  lgen_to_bed_ret_INVALID_FORMAT_5:
+    logprint("Error: Half-missing call in .lgen file.\n");
+    retval = RET_INVALID_FORMAT;
+    break;
+  lgen_to_bed_ret_INVALID_FORMAT_4:
+    logprint("Error: Improperly formatted --reference file.\n");
+    retval = RET_INVALID_FORMAT;
+    break;
   lgen_to_bed_ret_INVALID_FORMAT:
     logprint("Error: Improperly formatted .lgen file.\n");
-  lgen_to_bed_ret_INVALID_FORMAT_2:
     retval = RET_INVALID_FORMAT;
     break;
   lgen_to_bed_ret_INVALID_FORMAT_3:
