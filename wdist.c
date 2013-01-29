@@ -15407,7 +15407,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "ith-reference", 14)) {
-	if (recode_modifier & RECODE_TYPEMASK != RECODE_LGEN) {
+	if ((recode_modifier & RECODE_TYPEMASK) != RECODE_LGEN) {
 	  logprint("Error: --with-reference must be used with --recode lgen.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
