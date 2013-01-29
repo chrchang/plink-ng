@@ -103,6 +103,10 @@ typedef union {
 #define PHENO_ALL 1
 #define PHENO_MERGE 2
 
+#define COVAR_NAME 1
+#define COVAR_NUMBER 2
+#define COVAR_GXE 4
+
 #define DISTANCE_SQ 1
 #define DISTANCE_SQ0 2
 #define DISTANCE_TRI 3
@@ -121,9 +125,11 @@ typedef union {
 #define RECODE_A 16
 #define RECODE_AD 32
 #define RECODE_LGEN 64
-#define RECODE_RLIST 128
-#define RECODE_TRANSPOSE 256
-#define RECODE_TYPEMASK 504
+#define RECODE_LGEN_REF 128
+#define RECODE_LIST 256
+#define RECODE_RLIST 512
+#define RECODE_TRANSPOSE 1024
+#define RECODE_TYPEMASK 2040
 
 #define MERGE_MODE_MASK 7
 #define MERGE_ALLOW_EQUAL_POS 8

@@ -4875,7 +4875,15 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
   uint32_t shiftval;
   char* mk_alleles;
   int32_t retval = 0;
-  if (recode_modifier & RECODE_RLIST) {
+  if (recode_modifier & RECODE_LGEN_REF) {
+    logprint("Error: --recode lgen-ref not yet implemented.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto recode_ret_1;
+  } else if (recode_modifier & RECODE_LIST) {
+    logprint("Error: --recode list not yet implemented.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto recode_ret_1;
+  } else if (recode_modifier & RECODE_RLIST) {
     logprint("Error: --recode rlist not yet implemented.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto recode_ret_1;

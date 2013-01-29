@@ -140,7 +140,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (29 Jan 2013)";
+  " (30 Jan 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -197,7 +197,7 @@ int32_t edit1_match(int32_t len1, char* s1, int32_t len2, char* s2) {
   return 1;
 }
 
-#define MAX_EQUAL_HELP_PARAMS 11
+#define MAX_EQUAL_HELP_PARAMS 13
 
 typedef struct {
   int32_t iters_left;
@@ -652,9 +652,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    converter (which only respects --autosome and --chr), this supports all of\n"
 "    WDIST's filtering flags.\n"
 	       );
-    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele", &help_ctrl, 1,
-"  --recode <12> <compound-genotypes | A | AD | lgen | rlist | transpose>\n"
-"           <tab | tabx | spacex>\n"
+    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference", &help_ctrl, 1,
+"  --recode <12> <compound-genotypes | A | AD | lgen | lgen-ref | list | rlist |\n"
+"           transpose> <tab | tabx | spacex>\n"
 "    Creates a new text fileset with all filters applied.\n"
 "    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
 "    * The 'compound-genotypes' modifier removes the space between pairs of\n"
@@ -663,10 +663,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      for loading from R, to be generated instead.  If you don't want the\n"
 "      dominant component, use 'A' instead.\n"
 "    * The 'lgen' modifier causes a long-format fileset to be generated instead,\n"
-"      (loadable with --lfile), while 'transpose' creates a transposed text\n"
-"      fileset (loadable with --tfile).\n"
-"    * The 'rlist' modifier creates a rare-genotype fileset.  (Contact the\n"
-"      development team if you need WDIST to load this format.)\n"
+"      (loadable with --lfile), while 'lgen-ref' generates a smaller long-format\n"
+"      fileset loadable with --lfile + --reference.\n"
+"    * The 'list' modifier creates a genotype-based fileset, while 'rlist'\n"
+"      creates a rare-genotype fileset.  (These formats are not directly\n"
+"      loadable by WDIST or PLINK.)\n"
+"    * 'transpose' creates a transposed text fileset (loadable with --tfile).\n"
 "    * The 'tab' modifier makes the output mostly tab-delimited instead of\n"
 "      mostly space-delimited.  'tabx' and 'spacex' force all tabs and all\n"
 "      spaces, respectively.\n\n"
@@ -767,6 +769,20 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --pheno-merge    : If a phenotype is present in the original but not the\n"
 "                     alternate file, use the original value instead of setting\n"
 "                     the phenotype to missing.\n"
+	       );
+    help_print("covar\tcovar-name\tcovar-number", &help_ctrl, 0,
+"  --covar [filename]    : Specify covariate file.\n"
+"  --covar-name [names]  : Specifies covariate(s) in --covar file by name.\n"
+"                          Separate multiple names with commas (spaces are not\n"
+"                          permitted).  Use dashes to designate ranges.\n"
+"  --covar-number [nums] : Specifies covariate(s) in --covar file by number.\n"
+	       );
+    help_print("within", &help_ctrl, 0,
+"  --within [fname] : Specify clusters.\n"
+	       );
+    help_print("set\tsubset", &help_ctrl, 0,
+"  --set [filename] : Specify sets.\n"
+"  --subset [fname] : Specify list of subsets to extract from --set file.\n"
 	       );
     help_print("prune", &help_ctrl, 0,
 "  --prune          : Remove individuals with missing phenotypes.\n"
@@ -11055,7 +11071,7 @@ inline int32_t distance_wt_req(int32_t calculation_type) {
   return ((calculation_type & CALC_DISTANCE) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
 
-int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* recode_allele_name, char* filterval, int32_t mfilter_col, int32_t filter_case_control, int32_t filter_sex, int32_t filter_founder_nonf, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, int32_t mpheno_col, uint32_t pheno_modifier, int32_t prune, int32_t affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int32_t hwe_all, double rel_cutoff, int32_t tail_pheno, double tail_bottom, double tail_top, int32_t calculation_type, int32_t rel_calc_type, int32_t dist_calc_type, uintptr_t groupdist_iters, int32_t groupdist_d, uintptr_t regress_iters, int32_t regress_d, uintptr_t regress_rel_iters, int32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, int32_t parallel_idx, uint32_t parallel_tot, int32_t ppc_gap, int32_t allow_no_sex, int32_t must_have_sex, int32_t nonfounders, int32_t genome_output_gz, int32_t genome_output_full, int32_t genome_ibd_unbounded, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, int32_t maf_succ, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, int32_t freq_counts, int32_t freqx, int32_t distance_flat_missing, uint32_t recode_modifier, int32_t allelexxxx, int32_t merge_type, int32_t indiv_sort, int32_t keep_allele_order, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t set_hh_missing) {
+int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* filterval, int32_t mfilter_col, int32_t filter_case_control, int32_t filter_sex, int32_t filter_founder_nonf, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, int32_t mpheno_col, uint32_t pheno_modifier, int32_t prune, int32_t affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int32_t hwe_all, double rel_cutoff, int32_t tail_pheno, double tail_bottom, double tail_top, int32_t calculation_type, int32_t rel_calc_type, int32_t dist_calc_type, uintptr_t groupdist_iters, int32_t groupdist_d, uintptr_t regress_iters, int32_t regress_d, uintptr_t regress_rel_iters, int32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, int32_t parallel_idx, uint32_t parallel_tot, int32_t ppc_gap, int32_t allow_no_sex, int32_t must_have_sex, int32_t nonfounders, int32_t genome_output_gz, int32_t genome_output_full, int32_t genome_ibd_unbounded, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, int32_t maf_succ, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, int32_t freq_counts, int32_t freqx, int32_t distance_flat_missing, uint32_t recode_modifier, int32_t allelexxxx, int32_t merge_type, int32_t indiv_sort, int32_t keep_allele_order, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t set_hh_missing, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -12715,6 +12731,11 @@ int32_t main(int32_t argc, char** argv) {
   char* phenoname = NULL;
   char* recode_allele_name = NULL;
   char* lgen_reference_fname = NULL;
+  char* covar_fname = NULL;
+  char* covar_str = NULL;
+  char* cluster_fname = NULL;
+  char* set_fname = NULL;
+  char* subset_fname = NULL;
   char** subst_argv2;
   int32_t retval = 0;
   int32_t load_params = 0; // describes what file parameters have been provided
@@ -12724,6 +12745,7 @@ int32_t main(int32_t argc, char** argv) {
   int32_t fam_col_5 = 1;
   int32_t fam_col_6 = 1;
   int32_t mpheno_col = 0;
+  int32_t mcovar_col = 0;
   int32_t affection_01 = 0;
   double exponent = 0.0;
   double min_maf = 0.0;
@@ -12813,6 +12835,7 @@ int32_t main(int32_t argc, char** argv) {
   int32_t marker_pos_start = -1;
   int32_t marker_pos_end = -1;
   uint32_t lgen_modifier = 0;
+  uint32_t covar_modifier = 0;
   Chrom_info chrom_info;
   char* argptr2;
   char* flagptr;
@@ -13506,6 +13529,42 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "ounts", 6)) {
 	logprint("Note: --counts flag deprecated.  Use '--freq counts' or --freqx instead.\n");
         freq_counts = 1;
+      } else if (!memcmp(argptr2, "ovar", 5)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&covar_fname, argv[cur_arg + 1], argptr, 0);
+	if (!retval) {
+	  goto main_ret_1;
+	}
+      } else if (!memcmp(argptr2, "ovar-name", 10)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (!covar_fname) {
+	  logprint("Error: --covar-name must be used with --covar.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (alloc_string(&covar_str, argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
+	}
+	covar_modifier = COVAR_NAME;
+      } else if (!memcmp(argptr2, "ovar-number", 12)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (covar_modifier) {
+	  logprint("Error: --covar-number cannot be used with --covar-name.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (!covar_fname) {
+	  logprint("Error: --covar-number must be used with --covar.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (alloc_string(&covar_str, argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
+	}
+	covar_modifier = COVAR_NUMBER;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -13957,6 +14016,12 @@ int32_t main(int32_t argc, char** argv) {
 	  memcpy(pedname, "wdist", 6);
 	}
         load_rare = LOAD_RARE_GRM;
+      } else if (!memcmp(argptr2, "xe", 3)) {
+	if (!covar_fname) {
+	  logprint("Error: --gxe must be used with --covar.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	covar_modifier |= COVAR_GXE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -14133,6 +14198,9 @@ int32_t main(int32_t argc, char** argv) {
 	  memcpy(pedname, "wdist", 6);
 	}
 	load_rare = LOAD_RARE_LGEN;
+      } else if (!memcmp(argptr2, "ist", 4)) {
+	logprint("Note: --list flag deprecated.  Use '--recode list' instead.\n");
+	recode_modifier |= RECODE_LIST;
       } else {
         goto main_ret_INVALID_CMDLINE_2;
       }
@@ -14481,6 +14549,19 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "ust-have-sex", 13)) {
 	logprint("Warning: --must-have-sex currently has no effect.\n");
 	must_have_sex = 1;
+      } else if (!memcmp(argptr2, "covar", 6)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (!(covar_modifier & COVAR_GXE)) {
+	  logprint("Error: --mcovar must be used with --covar and --gxe.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	mcovar_col = atoi(argv[cur_arg + 1]);
+	if (mcovar_col < 1) {
+	  sprintf(logbuf, "Error: Invalid --mcovar parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -14906,6 +14987,14 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_LGEN)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
+	  } else if (!memcmp(argv[cur_arg + jj], "lgen-ref", 9)) {
+	    if (recode_type_set(&recode_modifier, RECODE_LGEN_REF)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	  } else if (!memcmp(argv[cur_arg + jj], "list", 5)) {
+	    if (recode_type_set(&recode_modifier, RECODE_LIST)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	  } else if (!memcmp(argv[cur_arg + jj], "rlist", 6)) {
 	    if (recode_type_set(&recode_modifier, RECODE_RLIST)) {
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -15016,6 +15105,26 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "et-hh-missing", 14)) {
 	set_hh_missing = 1;
+      } else if (!memcmp(argptr2, "et", 3)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&set_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+      } else if (!memcmp(argptr2, "ubset", 6)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (!set_fname) {
+	  logprint("Error: --subset must be used with --set.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	retval = alloc_fname(&subset_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else if (memcmp(argptr2, "ilent", 6)) {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -15289,6 +15398,21 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  snp_window_size = (int)dxx;
 	}
+      } else if (!memcmp(argptr2, "ithin", 6)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&cluster_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+      } else if (!memcmp(argptr2, "ith-reference", 14)) {
+	if (recode_modifier & RECODE_TYPEMASK != RECODE_LGEN) {
+	  logprint("Error: --with-reference must be used with --recode lgen.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	logprint("Note: --with-reference flag deprecated.  Use '--recode lgen-ref' instead.\n");
+	recode_modifier += RECODE_LGEN_REF - RECODE_LGEN;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -15474,7 +15598,7 @@ int32_t main(int32_t argc, char** argv) {
       memcpy(&(famname[uii]), ".fam", 5);
       *outname_end = '\0';
     }
-    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, recode_allele_name, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (uint32_t)parallel_tot, ppc_gap, allow_no_sex, must_have_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, set_hh_missing);
+    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (uint32_t)parallel_tot, ppc_gap, allow_no_sex, must_have_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, set_hh_missing, covar_modifier, covar_str, mcovar_col);
   }
  main_ret_2:
   free(wkspace_ua);
@@ -15537,6 +15661,11 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(snps_flag_markers);
   free_cond(snps_flag_starts_range);
   free_cond(lgen_reference_fname);
+  free_cond(covar_fname);
+  free_cond(covar_str);
+  free_cond(cluster_fname);
+  free_cond(set_fname);
+  free_cond(subset_fname);
   if (logfile) {
     if (!log_failed) {
       logstr("\nEnd time: ");
