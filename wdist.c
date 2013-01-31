@@ -16,14 +16,16 @@
 
 
 // Uncomment this to build without CBLAS/CLAPACK:
-// #define NOLAPACK
+#define NOLAPACK
 
 #include <ctype.h>
 #include <time.h>
 #include <unistd.h>
-#ifdef _WIN32
+#if _WIN32
 // needed for MEMORYSTATUSEX
+#ifndef _WIN64
 #define WINVER 0x0500
+#endif
 #endif
 #include "wdist_common.h"
 
@@ -41,7 +43,7 @@
 extern "C" {
 #endif
 #include <cblas.h>
-#if __LP64__
+#ifdef __LP64__
   typedef int32_t __CLPK_integer;
 #else
   typedef long int __CLPK_integer;
@@ -135,7 +137,7 @@ const char ver_str[] =
 #ifdef NOLAPACK
   "NL"
 #endif
-#if __LP64__
+#ifdef __LP64__
   " 64-bit"
 #else
   " 32-bit"
@@ -1455,7 +1457,7 @@ void fill_weights(double* weights, double* set_allele_freqs, double exponent) {
   int32_t oo;
   double wtarr[MULTIPLEX_DIST_EXP / 2];
   double* wt;
-#if __LP64__
+#ifdef __LP64__
   double twt[5];
   double twtf;
   __m128d* wpairs = (__m128d*)weights;
@@ -1472,7 +1474,7 @@ void fill_weights(double* weights, double* set_allele_freqs, double exponent) {
   }
   for (oo = 0; oo < 2; oo++) {
     wt = &(wtarr[7 * oo]);
-#if __LP64__
+#ifdef __LP64__
     vfinal1 = _mm_set_pd(wt[0], 0.0);
     vfinal2 = _mm_set_pd(wt[0] * 2, wt[0]);
 #endif
@@ -1503,7 +1505,7 @@ void fill_weights(double* weights, double* set_allele_freqs, double exponent) {
 	      if (nn & 1) {
 		twt[4] += wt[2];
 	      }
-#if __LP64__
+#ifdef __LP64__
 	      twtf = twt[4];
 	      vpen = _mm_set1_pd(twtf);
 	      *wpairs++ = _mm_add_pd(vpen, vfinal1);
@@ -1540,7 +1542,7 @@ void fill_weights(double* weights, double* set_allele_freqs, double exponent) {
       }
     }
   }
-#if __LP64__
+#ifdef __LP64__
   for (oo = 0; oo < 3; oo++) {
     wt = &(wtarr[14 + 6 * oo]);
     vfinal1 = _mm_set_pd(wt[0], 0.0);
@@ -1609,7 +1611,7 @@ void fill_weights_r(double* weights, double* set_allele_freqs, int32_t var_std) 
   double mean_m2;
   double mult = 1.0;
   double aux;
-#if __LP64__
+#ifdef __LP64__
   __m128d* wpairs = (__m128d*)weights;
   __m128d vpen;
   __m128d vfinal1;
@@ -1681,7 +1683,7 @@ void fill_weights_r(double* weights, double* set_allele_freqs, int32_t var_std) 
   }
   for (nn = 0; nn < BITCT / 16; nn++) {
     wtptr = &(wtarr[40 * nn]);
-#if __LP64__
+#ifdef __LP64__
     vfinal1 = _mm_load_pd(wtptr);
     vfinal2 = _mm_load_pd(&(wtptr[2]));
     vfinal3 = _mm_load_pd(&(wtptr[4]));
@@ -1695,7 +1697,7 @@ void fill_weights_r(double* weights, double* set_allele_freqs, int32_t var_std) 
           twt3 = twt2 + wtptr[kk + 16];
           for (mm = 0; mm < 8; mm++) {
             twt4 = twt3 + wtptr[mm + 8];
-#if __LP64__
+#ifdef __LP64__
             vpen = _mm_set1_pd(twt4);
             *wpairs++ = _mm_add_pd(vpen, vfinal1);
             *wpairs++ = _mm_add_pd(vpen, vfinal2);
@@ -1734,7 +1736,7 @@ void fill_weights_r_f(float* weights_f, float* set_allele_freqs_f, int32_t var_s
   float mean_m2;
   float mult = 1.0;
   float aux;
-#if __LP64__
+#ifdef __LP64__
   __m128* wquads = (__m128*)weights_f;
   __m128 vpen;
   __m128 vfinal1;
@@ -1805,7 +1807,7 @@ void fill_weights_r_f(float* weights_f, float* set_allele_freqs_f, int32_t var_s
   }
   for (nn = 0; nn < BITCT / 16; nn++) {
     wtptr = &(wtarr[40 * nn]);
-#if __LP64__
+#ifdef __LP64__
     vfinal1 = _mm_load_ps(wtptr);
     vfinal2 = _mm_load_ps(&(wtptr[4]));
 #endif
@@ -1817,7 +1819,7 @@ void fill_weights_r_f(float* weights_f, float* set_allele_freqs_f, int32_t var_s
           twt3 = twt2 + wtptr[kk + 16];
           for (mm = 0; mm < 8; mm++) {
             twt4 = twt3 + wtptr[mm + 8];
-#if __LP64__
+#ifdef __LP64__
             vpen = _mm_set1_ps(twt4);
             *wquads++ = _mm_add_ps(vpen, vfinal1);
             *wquads++ = _mm_add_ps(vpen, vfinal2);
@@ -1968,7 +1970,7 @@ void collapse_copy_phenod(double *target, double* pheno_d, uintptr_t* indiv_excl
   }
 }
 
-#if __LP64__
+#ifdef __LP64__
 // XOR + mask variants of vectorized Lauradoux/Walisch popcount.  (See
 // popcount_vecs() in wdist_common.c for basic documentation.)
 // Note that the size of the popcounted buffer is a hardcoded constant
@@ -2368,7 +2370,7 @@ static inline void ld_dot_prod(uintptr_t* vec1, uintptr_t* vec2, uintptr_t* mask
 #endif
 
 void incr_dists_i(int32_t* idists, uintptr_t* geno, int32_t tidx) {
-#if __LP64__
+#ifdef __LP64__
   __m128i* glptr;
   __m128i* glptr2;
   __m128i* mptr;
@@ -2385,7 +2387,7 @@ void incr_dists_i(int32_t* idists, uintptr_t* geno, int32_t tidx) {
   uintptr_t mask_fixed;
   for (uii = g_thread_start[tidx]; uii < g_thread_start[tidx + 1]; uii++) {
     jj = uii * (MULTIPLEX_2DIST / BITCT);
-#if __LP64__
+#ifdef __LP64__
     glptr = (__m128i*)geno;
     glptr2 = (__m128i*)(&(geno[jj]));
     lptr = &(g_masks[jj]);
@@ -2429,7 +2431,7 @@ void* calc_idist_thread(void* arg) {
 }
 
 void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
-#if __LP64__
+#ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
@@ -2487,14 +2489,14 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
   uintptr_t* marker_window_ptr;
   int32_t lowct2 = g_low_ct * 2;
   int32_t highct2 = g_high_ct * 2;
-#if __LP64__
+#ifdef __LP64__
   glptr_end = (__m128i*)(&(geno[g_indiv_ct * (GENOME_MULTIPLEX2 / BITCT)]));
 #else
   glptr_end = &(geno[g_indiv_ct * (GENOME_MULTIPLEX2 / BITCT)]);
 #endif
   for (uii = g_thread_start[tidx]; uii < g_thread_start[tidx + 1]; uii++) {
     ujj = uii * (GENOME_MULTIPLEX2 / BITCT);
-#if __LP64__
+#ifdef __LP64__
     glptr_fixed = (__m128i*)(&(geno[ujj]));
     glptr = (__m128i*)(&(geno[ujj + (GENOME_MULTIPLEX2 / BITCT)]));
     lptr = &(g_masks[ujj]);
@@ -2520,7 +2522,7 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
 	glptr_back = (uintptr_t*)glptr;
 	glptr_fixed_tmp = glptr_fixed;
 	maskptr_fixed_tmp = maskptr_fixed;
-#if __LP64__
+#ifdef __LP64__
 	acc_ibs1.vi = _mm_setzero_si128();
 	acc_ibs0.vi = _mm_setzero_si128();
 	do {
@@ -2686,7 +2688,7 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
 	xor_ptr = xor_buf;
 	glptr_back = (uintptr_t*)glptr;
 	glptr_fixed_tmp = glptr_fixed;
-#if __LP64__
+#ifdef __LP64__
 	acc_ibs1.vi = _mm_setzero_si128();
 	acc_ibs0.vi = _mm_setzero_si128();
 	do {
@@ -2838,7 +2840,7 @@ void incr_dists(double* dists, uintptr_t* geno, int32_t tidx) {
   uintptr_t uljj;
   uintptr_t* mptr;
   double* weights1 = &(g_weights[16384]);
-#if __LP64__
+#ifdef __LP64__
   double* weights2 = &(g_weights[32768]);
   double* weights3 = &(g_weights[36864]);
   double* weights4 = &(g_weights[40960]);
@@ -2850,7 +2852,7 @@ void incr_dists(double* dists, uintptr_t* geno, int32_t tidx) {
     ulii = geno[uii];
     mptr = g_masks;
     mask_fixed = g_masks[uii];
-#if __LP64__
+#ifdef __LP64__
     if (mask_fixed == ~0LU) {
       for (ujj = 0; ujj < uii; ujj++) {
 	uljj = (*glptr++ ^ ulii) & (*mptr++);
@@ -2927,7 +2929,7 @@ void incr_dists_r(double* dists, uintptr_t* geno, uintptr_t* masks, int32_t tidx
   uintptr_t uljj;
   uintptr_t basemask;
   double* weights1 = &(weights[32768]);
-#if __LP64__
+#ifdef __LP64__
   double* weights2 = &(weights[65536]);
   double* weights3 = &(weights[98304]);
 #endif
@@ -2941,7 +2943,7 @@ void incr_dists_r(double* dists, uintptr_t* geno, uintptr_t* masks, int32_t tidx
     if (!basemask) {
       for (ujj = 0; ujj < uii; ujj++) {
 	uljj = ((*glptr++) + ulii) | (*maskptr++);
-#if __LP64__
+#ifdef __LP64__
 	*dists += weights3[uljj >> 45] + weights2[(uljj >> 30) & 32767] + weights1[(uljj >> 15) & 32767] + weights[uljj & 32767];
 #else
 	*dists += weights1[uljj >> 15] + weights[uljj & 32767];
@@ -2951,7 +2953,7 @@ void incr_dists_r(double* dists, uintptr_t* geno, uintptr_t* masks, int32_t tidx
     } else {
       for (ujj = 0; ujj < uii; ujj++) {
         uljj = ((*glptr++) + ulii) | ((*maskptr++) | basemask);
-#if __LP64__
+#ifdef __LP64__
 	*dists += weights3[uljj >> 45] + weights2[(uljj >> 30) & 32767] + weights1[(uljj >> 15) & 32767] + weights[uljj & 32767];
 #else
 	*dists += weights1[uljj >> 15] + weights[uljj & 32767];
@@ -2977,7 +2979,7 @@ void incr_dists_r_f(float* dists_f, uintptr_t* geno, uintptr_t* masks, int32_t t
   uintptr_t uljj;
   uintptr_t basemask;
   float* weights1 = &(weights_f[32768]);
-#if __LP64__
+#ifdef __LP64__
   float* weights2 = &(weights_f[65536]);
   float* weights3 = &(weights_f[98304]);
 #endif
@@ -2991,7 +2993,7 @@ void incr_dists_r_f(float* dists_f, uintptr_t* geno, uintptr_t* masks, int32_t t
     if (!basemask) {
       for (ujj = 0; ujj < uii; ujj++) {
 	uljj = ((*glptr++) + ulii) | (*maskptr++);
-#if __LP64__
+#ifdef __LP64__
 	*dists_f += weights3[uljj >> 45] + weights2[(uljj >> 30) & 32767] + weights1[(uljj >> 15) & 32767] + weights_f[uljj & 32767];
 #else
 	*dists_f += weights1[uljj >> 15] + weights_f[uljj & 32767];
@@ -3001,7 +3003,7 @@ void incr_dists_r_f(float* dists_f, uintptr_t* geno, uintptr_t* masks, int32_t t
     } else {
       for (ujj = 0; ujj < uii; ujj++) {
         uljj = ((*glptr++) + ulii) | ((*maskptr++) | basemask);
-#if __LP64__
+#ifdef __LP64__
 	*dists_f += weights3[uljj >> 45] + weights2[(uljj >> 30) & 32767] + weights1[(uljj >> 15) & 32767] + weights_f[uljj & 32767];
 #else
 	*dists_f += weights1[uljj >> 15] + weights_f[uljj & 32767];
@@ -3419,14 +3421,14 @@ void matrix_const_mult_add(double* matrix, double mult_val, double add_val) {
   uint32_t loop_end = g_indiv_ct - 1;
   uint32_t ujj;
   double* dptr = matrix;
-#if __LP64__
+#ifdef __LP64__
   __m128d* vptr;
   __m128d v_mult_val = _mm_set1_pd(mult_val);
 #endif
   for (uii = 0; uii < loop_end; uii++) {
     *dptr = (*dptr) * mult_val + add_val;
     dptr++;
-#if __LP64__
+#ifdef __LP64__
     if ((uintptr_t)dptr & 8) {
       *dptr *= mult_val;
       dptr++;
@@ -5108,7 +5110,7 @@ void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_ar
     ulmm = FIVEMASK;
     if (ulii) {
       uljj = ulii >> BITCT2;
-#if __LP64__
+#ifdef __LP64__
       ulii &= 0xffffffffLU;
 #else
       ulii &= 0xffffLU;
@@ -5156,7 +5158,7 @@ void vec_include_mask_in(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, 
     ulmm = include_arr[1];
     if (ulii) {
       uljj = ulii >> BITCT2;
-#if __LP64__
+#ifdef __LP64__
       ulii &= 0xffffffffLU;
 #else
       ulii &= 0xffffLU;
@@ -5194,7 +5196,7 @@ void vec_include_mask_out(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr,
     ulmm = include_arr[1];
     if (ulii) {
       uljj = ulii >> BITCT2;
-#if __LP64__
+#ifdef __LP64__
       ulii &= 0xffffffffLU;
 #else
       ulii &= 0xffffLU;
@@ -5232,7 +5234,7 @@ void vec_include_mask_out_intersect(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     ulmm = include_arr[1];
     if (ulii) {
       uljj = ulii >> BITCT2;
-#if __LP64__
+#ifdef __LP64__
       ulii &= 0xffffffffLU;
 #else
       ulii &= 0xffffLU;
@@ -5355,7 +5357,7 @@ int32_t incr_text_allele(char cc, char* marker_alleles, uint32_t* marker_allele_
   return -1;
 }
 
-#if __LP64__
+#ifdef __LP64__
 void freq_hwe_count_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp) {
   const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
@@ -8608,7 +8610,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
   uintptr_t indiv_ctl = (g_indiv_ct + BITCT - 1) / BITCT;
   uintptr_t indiv_ct_mld = (g_indiv_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
   int32_t indiv_ct_mld_m1 = (int)indiv_ct_mld - 1;
-#if __LP64__
+#ifdef __LP64__
   int32_t indiv_ct_mld_rem = (MULTIPLEX_LD / 192) - (indiv_ct_mld * MULTIPLEX_LD - g_indiv_ct) / 192;
 #else
   int32_t indiv_ct_mld_rem = (MULTIPLEX_LD / 48) - (indiv_ct_mld * MULTIPLEX_LD - g_indiv_ct) / 48;
@@ -8651,7 +8653,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
   uint32_t non_missing_ct;
   int32_t dp_result[3];
   double non_missing_recip;
-#if __LP64__
+#ifdef __LP64__
   __m128i* geno_fixed_vec_ptr;
   __m128i* geno_var_vec_ptr;
   __m128i* mask_fixed_vec_ptr;
@@ -8807,7 +8809,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
 	      continue;
 	    }
 	    fixed_non_missing_ct = g_indiv_ct - missing_cts[ii];
-#if __LP64__
+#ifdef __LP64__
 	    geno_fixed_vec_ptr = (__m128i*)(&(geno[ii * indiv_ct_mld_long]));
 	    mask_fixed_vec_ptr = (__m128i*)(&(g_masks[ii * indiv_ct_mld_long]));
 #else
@@ -8825,7 +8827,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
 	      if (is_set(pruned_arr, live_indices[jj])) {
 		continue;
 	      }
-#if __LP64__
+#ifdef __LP64__
 	      geno_var_vec_ptr = (__m128i*)(&(geno[jj * indiv_ct_mld_long]));
 	      mask_var_vec_ptr = (__m128i*)(&(g_masks[jj * indiv_ct_mld_long]));
 #else
@@ -8839,7 +8841,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
 	      // jj-associated buffers before the ii-associated ones.
 	      dp_result[1] = -fixed_non_missing_ct;
 	      dp_result[2] = missing_cts[jj] - g_indiv_ct;
-#if __LP64__
+#ifdef __LP64__
 	      for (kk = 0; kk < indiv_ct_mld_m1; kk++) {
 		ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[kk * (MULTIPLEX_LD / BITCT)]), dp_result, MULTIPLEX_LD / 192);
 		geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT]);
@@ -11211,7 +11213,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_MAKE_BED) {
-#ifdef _WIN32
+#if _WIN32
     uii = GetFullPathName(pedname, FNAMESIZE, tbuf, NULL);
     if ((!uii) || (uii > FNAMESIZE))
 #else
@@ -11225,7 +11227,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     memcpy(outname_end, ".bed", 5);
     // if file doesn't exist, realpath returns NULL on Linux instead of what
     // the path would be.
-#ifdef _WIN32
+#if _WIN32
     uii = GetFullPathName(outname, FNAMESIZE, &(tbuf[FNAMESIZE + 64]), NULL);
     if (uii && (uii <= FNAMESIZE) && (!strcmp(tbuf, &(tbuf[FNAMESIZE + 64]))))
 #else
@@ -12035,7 +12037,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 		  *giptr3 += wtbuf[mm + ukk];
 		}
 	      }
-#if __LP64__
+#ifdef __LP64__
 	      ulii ^= FIVEMASK;
 	      *glptr++ = ulii;
 	      ulii = (ulii | (ulii >> 1)) & FIVEMASK;
@@ -12856,7 +12858,7 @@ int32_t main(int32_t argc, char** argv) {
   int32_t mib[2];
   size_t sztmp;
 #endif
-#ifdef _WIN32
+#if _WIN32
   SYSTEM_INFO sysinfo;
   MEMORYSTATUSEX memstatus;
   DWORD windows_dw; // no idea why the f*** a uint32_t doesn't work
@@ -13253,7 +13255,7 @@ int32_t main(int32_t argc, char** argv) {
       logstr(argv[ii++]);
     }
   }
-#ifdef _WIN32
+#if _WIN32
   windows_dw = 4 * MAXLINELEN + 256;
   if (GetComputerName(tbuf, &windows_dw))
 #else
@@ -13273,7 +13275,7 @@ int32_t main(int32_t argc, char** argv) {
 
   chrom_info.species = SPECIES_HUMAN;
   chrom_info.chrom_mask = 0;
-#ifdef _WIN32
+#if _WIN32
   GetSystemInfo(&sysinfo);
   g_thread_ct = sysinfo.dwNumberOfProcessors;
 #else
@@ -15491,7 +15493,7 @@ int32_t main(int32_t argc, char** argv) {
   sysctl(mib, 2, &llxx, &sztmp, NULL, 0);
   llxx /= 1048576;
 #else
-#ifdef _WIN32
+#if _WIN32
   memstatus.dwLength = sizeof(memstatus);
   GlobalMemoryStatusEx(&memstatus);
   llxx = memstatus.ullTotalPhys / 1048576;

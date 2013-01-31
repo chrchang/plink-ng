@@ -2,6 +2,7 @@ CFLAGS=-Wall -O2
 BLASFLAGS=-L/usr/lib64/atlas -llapack -lcblas -latlas
 LINKFLAGS=-lm -lpthread
 ZLIB=zlib-1.2.7/libz.so.1.2.7
+ARCH64=-arch x86_64
 
 UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
@@ -10,7 +11,9 @@ LINKFLAGS=
 ZLIB=zlib-1.2.7/libz.a
 else
 ifeq ($(UNAME), MINGW32_NT-6.0)
+ARCH64=
 ZLIB=zlib-1.2.7/libz.a
+ZLIB64=zlib-1.2.7/libz-64.a
 endif
 endif
 
@@ -32,10 +35,10 @@ wdistnl: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o wdist $(LINKFLAGS) -Wl,-Bstatic -L. $(ZLIB)
 
 wdist64: $(SRC)
-	g++ $(CFLAGS) -arch x86_64 $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. zlib-1.2.7/libz-64.a
+	g++ $(CFLAGS) $(ARCH64) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB64)
 
 wdist64c: $(SRC)
-	gcc $(CFLAGS) -arch x86_64 $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. zlib-1.2.7/libz-64.a
+	gcc $(CFLAGS) $(ARCH64) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB64)
 
 wdist64nl: $(SRC)
-	g++ $(CFLAGS) -arch x86_64 $(SRC) -o wdist $(LINKFLAGS) -L. zlib-1.2.7/libz-64.a
+	g++ $(CFLAGS) $(ARCH64) $(SRC) -o wdist $(LINKFLAGS) -L. $(ZLIB64)

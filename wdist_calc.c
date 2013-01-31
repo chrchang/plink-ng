@@ -87,7 +87,7 @@ void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, 
   double* weights2 = &(weights[128]);
   double* weights3 = &(weights[192]);
   double* weights4 = &(weights[256]);
-#if __LP64__
+#ifdef __LP64__
   double* weights5 = &(weights[320]);
   double* weights6 = &(weights[384]);
   double* weights7 = &(weights[448]);
@@ -163,7 +163,7 @@ void update_rel_ibc(double* rel_ibc, uintptr_t* geno, double* set_allele_freqs, 
   }
   for (uii = 0; uii < indiv_ct; uii++) {
     ulii = *geno++;
-#if __LP64__
+#ifdef __LP64__
     *rel_ibc += weights9[ulii >> 54] + weights8[(ulii >> 48) & 63] + weights7[(ulii >> 42) & 63] + weights6[(ulii >> 36) & 63] + weights5[(ulii >> 30) & 63] + weights4[(ulii >> 24) & 63] + weights3[(ulii >> 18) & 63] + weights2[(ulii >> 12) & 63] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
 #else
     *rel_ibc += weights4[ulii >> 24] + weights3[(ulii >> 18) & 63] + weights2[(ulii >> 12) & 63] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
@@ -187,7 +187,7 @@ void update_rel_f_ibc(float* rel_ibc, uintptr_t* geno, float* set_allele_freqs, 
   float* weights2 = &(weights[128]);
   float* weights3 = &(weights[192]);
   float* weights4 = &(weights[256]);
-#if __LP64__
+#ifdef __LP64__
   float* weights5 = &(weights[320]);
   float* weights6 = &(weights[384]);
   float* weights7 = &(weights[448]);
@@ -263,7 +263,7 @@ void update_rel_f_ibc(float* rel_ibc, uintptr_t* geno, float* set_allele_freqs, 
   }
   for (uii = 0; uii < indiv_ct; uii++) {
     ulii = *geno++;
-#if __LP64__
+#ifdef __LP64__
     *rel_ibc += weights9[ulii >> 54] + weights8[(ulii >> 48) & 63] + weights7[(ulii >> 42) & 63] + weights6[(ulii >> 36) & 63] + weights5[(ulii >> 30) & 63] + weights4[(ulii >> 24) & 63] + weights3[(ulii >> 18) & 63] + weights2[(ulii >> 12) & 63] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];
 #else
     *rel_ibc += weights4[ulii >> 24] + weights3[(ulii >> 18) & 63] + weights2[(ulii >> 12) & 63] + weights1[(ulii >> 6) & 63] + weights[ulii & 63];

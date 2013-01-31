@@ -514,7 +514,7 @@ static double* g_nonmissing_vals;
 #error "Insufficient g_missing_wts[] size in wdist_dosage.c."
 #endif
 static double g_missing_wts[BITCT]; // missingness rescale weights
-#if __LP64__
+#ifdef __LP64__
 static double* g_missing_dmasks; // 0x7fff... if non-missing, 0x0000... otherwise
 #else
 // double times signed int32_t tends to be faster than double times uint32_t
@@ -522,7 +522,7 @@ static int32_t* g_missing_dmasks; // 1 or 0, multiply instead of mask
 #endif
 
 void incr_distance_dosage_2d_01(double* distance_matrix_slice, int32_t thread_idx) {
-#if __LP64__
+#ifdef __LP64__
   // take absolute value = force sign bit to zero
   __m128d* dptr_start;
   __m128d* dptr_end;
@@ -545,7 +545,7 @@ void incr_distance_dosage_2d_01(double* distance_matrix_slice, int32_t thread_id
   uintptr_t ulii;
   uintptr_t uljj;
   for (ulii = g_thread_start[thread_idx]; ulii < g_thread_start[thread_idx + 1]; ulii++) {
-#if __LP64__
+#ifdef __LP64__
     dptr_start = (__m128d*)(&(g_dosage_vals[ulii * BITCT]));
     dptr_end = &(dptr_start[BITCT2]);
     dptr2 = (__m128d*)g_dosage_vals;
@@ -557,7 +557,7 @@ void incr_distance_dosage_2d_01(double* distance_matrix_slice, int32_t thread_id
     mptr2 = g_missing_dmasks;
 #endif
     if (g_missing_vals[ulii]) {
-#if __LP64__
+#ifdef __LP64__
       mptr_start = (__m128d*)(&(g_missing_dmasks[ulii * BITCT]));
 #else
       mptr_start = &(g_missing_dmasks[ulii * BITCT]);
@@ -565,7 +565,7 @@ void incr_distance_dosage_2d_01(double* distance_matrix_slice, int32_t thread_id
       for (uljj = 0; uljj < ulii; uljj++) {
 	dptr = dptr_start;
 	mptr = mptr_start;
-#if __LP64__
+#ifdef __LP64__
 	acc.vd = _mm_setzero_pd();
 	do {
 	  acc.vd = _mm_add_pd(acc.vd, _mm_and_pd(_mm_and_pd(*mptr++, *mptr2++), _mm_sub_pd(*dptr++, *dptr2++)));
@@ -583,7 +583,7 @@ void incr_distance_dosage_2d_01(double* distance_matrix_slice, int32_t thread_id
     } else {
       for (uljj = 0; uljj < ulii; uljj++) {
         dptr = dptr_start;
-#if __LP64__
+#ifdef __LP64__
 	acc.vd = _mm_setzero_pd();
 	do {
 	  acc.vd = _mm_add_pd(acc.vd, _mm_and_pd(*mptr2++, _mm_sub_pd(*dptr++, *dptr2++)));
@@ -611,7 +611,7 @@ void* incr_distance_dosage_2d_01_thread(void* arg) {
 }
 
 void incr_distance_dosage_2d_flat(double* distance_matrix_slice, double* distance_wt_matrix_slice, int32_t thread_idx) {
-#if __LP64__
+#ifdef __LP64__
   // take absolute value = force sign bit to zero
   const __m128i absmask_raw = {0x7fffffffffffffffLU, 0x7fffffffffffffffLU};
   __m128d* absmask_ptr = (__m128d*)(&absmask_raw);
@@ -641,7 +641,7 @@ void incr_distance_dosage_2d_flat(double* distance_matrix_slice, double* distanc
   uintptr_t ulii;
   uintptr_t uljj;
   for (ulii = g_thread_start[thread_idx]; ulii < g_thread_start[thread_idx + 1]; ulii++) {
-#if __LP64__
+#ifdef __LP64__
     dptr_start = (__m128d*)(&(g_dosage_vals[ulii * MULTIPLEX_DOSAGE_NM]));
     dptr_end = &(dptr_start[MULTIPLEX_DOSAGE_NM / 2]);
     dptr2 = (__m128d*)g_dosage_vals;
@@ -657,7 +657,7 @@ void incr_distance_dosage_2d_flat(double* distance_matrix_slice, double* distanc
     for (uljj = 0; uljj < ulii; uljj++) {
       dptr = dptr_start;
       mptr = mptr_start;
-#if __LP64__
+#ifdef __LP64__
       acc.vd = _mm_setzero_pd();
       accm.vd = _mm_setzero_pd();
       do {
@@ -694,7 +694,7 @@ void* incr_distance_dosage_2d_flat_thread(void* arg) {
 }
 
 void incr_distance_dosage_2d(double* distance_matrix_slice, double* distance_wt_matrix_slice, int32_t thread_idx) {
-#if __LP64__
+#ifdef __LP64__
   const __m128i absmask_raw = {0x7fffffffffffffffLU, 0x7fffffffffffffffLU};
   __m128d* absmask_ptr = (__m128d*)(&absmask_raw);
   __m128d absmask = *absmask_ptr;
@@ -725,7 +725,7 @@ void incr_distance_dosage_2d(double* distance_matrix_slice, double* distance_wt_
   uintptr_t ulii;
   uintptr_t uljj;
   for (ulii = g_thread_start[thread_idx]; ulii < g_thread_start[thread_idx + 1]; ulii++) {
-#if __LP64__
+#ifdef __LP64__
     dptr_start = (__m128d*)(&(g_dosage_vals[ulii * MULTIPLEX_DOSAGE_NM]));
     dptr_end = &(dptr_start[MULTIPLEX_DOSAGE_NM / 2]);
     dptr2 = (__m128d*)g_dosage_vals;
@@ -741,7 +741,7 @@ void incr_distance_dosage_2d(double* distance_matrix_slice, double* distance_wt_
     for (uljj = 0; uljj < ulii; uljj++) {
       dptr = dptr_start;
       mptr = mptr_start;
-#if __LP64__
+#ifdef __LP64__
       mwptr = (__m128d*)g_missing_wts;
       acc.vd = _mm_setzero_pd();
       accm.vd = _mm_setzero_pd();
@@ -784,7 +784,7 @@ void incr_distance_dosage_3d_flat(double* distance_matrix_slice, double* distanc
   //              P_1(2) * (2 * P_2(0) + P_2(1))
   // weight: (P_1(0) + P_1(1) + P_1(2)) * (P_2(0) + P_2(1) + P_2(2))
   // 
-#if __LP64__
+#ifdef __LP64__
   const __m128d vec_two = {2.0, 2.0};
   __m128d dptr_buf[2 * MULTIPLEX_DOSAGE_NM3D];
   __m128d* dptr_buf_end1 = &(dptr_buf[MULTIPLEX_DOSAGE_NM3D / 2]);
@@ -811,7 +811,7 @@ void incr_distance_dosage_3d_flat(double* distance_matrix_slice, double* distanc
   uintptr_t ulii;
   uintptr_t uljj;
   for (ulii = g_thread_start[thread_idx]; ulii < g_thread_start[thread_idx + 1]; ulii++) {
-#if __LP64__
+#ifdef __LP64__
     dptr = dptr_buf;
     dptr_start = (__m128d*)(&(g_dosage_vals[ulii * 4 * MULTIPLEX_DOSAGE_NM3D]));
     dptr2 = &(dptr_start[MULTIPLEX_DOSAGE_NM3D / 2]);
@@ -856,7 +856,7 @@ void incr_distance_dosage_3d_flat(double* distance_matrix_slice, double* distanc
 #endif
     for (uljj = 0; uljj < ulii; uljj++) {
       dptr = dptr_buf;
-#if __LP64__
+#ifdef __LP64__
       acc.vd = _mm_setzero_pd();
       do {
 	acc.vd = _mm_add_pd(acc.vd, _mm_mul_pd(*dptr++, *dptr2++));
@@ -895,7 +895,7 @@ void* incr_distance_dosage_3d_flat_thread(void* arg) {
 }
 
 void incr_distance_dosage_3d(double* distance_matrix_slice, double* distance_wt_matrix_slice, int32_t thread_idx) {
-#if __LP64__
+#ifdef __LP64__
   const __m128d vec_two = {2.0, 2.0};
   __m128d dptr_buf[2 * MULTIPLEX_DOSAGE_NM3D];
   __m128d* dptr_buf_end1 = &(dptr_buf[MULTIPLEX_DOSAGE_NM3D / 2]);
@@ -924,7 +924,7 @@ void incr_distance_dosage_3d(double* distance_matrix_slice, double* distance_wt_
   uintptr_t ulii;
   uintptr_t uljj;
   for (ulii = g_thread_start[thread_idx]; ulii < g_thread_start[thread_idx + 1]; ulii++) {
-#if __LP64__
+#ifdef __LP64__
     dptr = dptr_buf;
     dptr_start = (__m128d*)(&(g_dosage_vals[ulii * 4 * MULTIPLEX_DOSAGE_NM3D]));
     dptr2 = &(dptr_start[MULTIPLEX_DOSAGE_NM3D / 2]);
@@ -971,7 +971,7 @@ void incr_distance_dosage_3d(double* distance_matrix_slice, double* distance_wt_
 #endif
     for (uljj = 0; uljj < ulii; uljj++) {
       dptr = dptr_buf;
-#if __LP64__
+#ifdef __LP64__
       acc.vd = _mm_setzero_pd();
       do {
 	acc.vd = _mm_add_pd(acc.vd, _mm_mul_pd(*dptr++, *dptr2++));
@@ -1184,7 +1184,7 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
 	return RET_NOMEM;
       }
       fill_ulong_zero(g_missing_vals, g_indiv_ct * BITCT);
-#if __LP64__
+#ifdef __LP64__
       if (wkspace_alloc_d_checked(&g_missing_dmasks, g_indiv_ct * BITCT * sizeof(double))) {
 	return RET_NOMEM;
       }
@@ -1262,7 +1262,7 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
 	    if (is_missing_01) {
 	      // IEEE 754 zero is actually zero bitmask
 	      if (pzero + pone + ptwo == 0.0) {
-#if __LP64__
+#ifdef __LP64__
 		g_missing_dmasks[indiv_idx * BITCT + marker_idxl] = 0.0;
 #else
                 g_missing_dmasks[indiv_idx * BITCT + marker_idxl] = 0;
@@ -1274,7 +1274,7 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
 		}
 		g_missing_vals[indiv_idx] |= 1 << marker_idxl;
 	      } else {
-#if __LP64__
+#ifdef __LP64__
 		*((uintptr_t*)(&g_missing_dmasks[indiv_idx * BITCT + marker_idxl])) = 0x7fffffffffffffffLU;
 #else
                 g_missing_dmasks[indiv_idx * BITCT + marker_idxl] = 1;

@@ -12,7 +12,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 
-#ifdef _WIN32
+#if _WIN32
 #define PRId64 "I64d"
 #define PRIu64 "I64u"
 #define fseeko fseeko64
@@ -26,16 +26,20 @@
 #define uint64_t unsigned long long
 #define int64_t long long
 
+#ifdef _WIN64
+#define __LP64__
+#else
 #ifndef __LP64__
 #define uintptr_t unsigned long
 #define intptr_t long
+#endif
 #endif
 
 #ifdef __cplusplus
 #include <algorithm>
 #endif
 
-#if __LP64__
+#ifdef __LP64__
 #include <emmintrin.h>
 #define FIVEMASK 0x5555555555555555LU
 
@@ -186,7 +190,7 @@ typedef union {
 #define JACKKNIFE_VALS_DIST 5
 #define JACKKNIFE_VALS_GROUPDIST 3
 
-#if __LP64__
+#ifdef __LP64__
 #define AAAAMASK 0xaaaaaaaaaaaaaaaaLU
 // number of snp-major .bed lines to read at once for distance calc if exponent
 // is nonzero.
@@ -379,7 +383,7 @@ static inline char* skip_initial_spaces(char* sptr) {
 /*
 static inline int32_t is_space_or_eoln(char cc) {
   // ' ', \t, \n, \0, \r
-#if __LP64__
+#ifdef __LP64__
   return ((((unsigned char)cc) <= 32) && (0x100002601LLU & (1LLU << cc)));
 #else
   return ((((unsigned char)cc) <= 32) && ((cc == ' ') || (0x2601LU & (1LU << cc))));
@@ -492,7 +496,7 @@ static inline void fill_ulong_one(uintptr_t* ularr, size_t size) {
 }
 
 static inline void fill_int_zero(int32_t* iarr, size_t size) {
-#if __LP64__
+#ifdef __LP64__
   fill_long_zero((intptr_t*)iarr, size >> 1);
   if (size & 1) {
     iarr[size - 1] = 0;
@@ -503,7 +507,7 @@ static inline void fill_int_zero(int32_t* iarr, size_t size) {
 }
 
 static inline void fill_int_one(int32_t* iarr, size_t size) {
-#if __LP64__
+#ifdef __LP64__
   fill_long_one((intptr_t*)iarr, size >> 1);
   if (size & 1) {
     iarr[size - 1] = -1;
@@ -514,7 +518,7 @@ static inline void fill_int_one(int32_t* iarr, size_t size) {
 }
 
 static inline void fill_uint_zero(uint32_t* uiarr, size_t size) {
-#if __LP64__
+#ifdef __LP64__
   fill_long_zero((intptr_t*)uiarr, size >> 1);
   if (size & 1) {
     uiarr[size - 1] = 0;
@@ -525,7 +529,7 @@ static inline void fill_uint_zero(uint32_t* uiarr, size_t size) {
 }
 
 static inline void fill_uint_one(uint32_t* uiarr, size_t size) {
-#if __LP64__
+#ifdef __LP64__
   fill_ulong_one((uintptr_t*)uiarr, size >> 1);
   if (size & 1) {
     uiarr[size - 1] = ~0U;
@@ -702,7 +706,7 @@ void fill_idbuf_fam_indiv(char* id_buf, char* fam_indiv, char fillchar);
 int32_t bsearch_fam_indiv(char* id_buf, char* lptr, intptr_t max_id_len, int32_t filter_line_ct, char* fam_id, char* indiv_id);
 
 static inline uint32_t popcount2_long(uintptr_t val) {
-#if __LP64__
+#ifdef __LP64__
   val = (val & 0x3333333333333333LU) + ((val >> 2) & 0x3333333333333333LU);
   return (((val + (val >> 4)) & 0x0f0f0f0f0f0f0f0fLU) * 0x0101010101010101LU) >> 56;
 #else
