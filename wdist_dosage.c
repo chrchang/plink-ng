@@ -613,7 +613,7 @@ void* incr_distance_dosage_2d_01_thread(void* arg) {
 void incr_distance_dosage_2d_flat(double* distance_matrix_slice, double* distance_wt_matrix_slice, int32_t thread_idx) {
 #ifdef __LP64__
   // take absolute value = force sign bit to zero
-  const __m128i absmask_raw = {0x7fffffffffffffffLU, 0x7fffffffffffffffLU};
+  const __m128i absmask_raw = {0x7fffffffffffffffLLU, 0x7fffffffffffffffLLU};
   __m128d* absmask_ptr = (__m128d*)(&absmask_raw);
   __m128d absmask = *absmask_ptr;
   __m128d* dptr_start;
@@ -695,7 +695,7 @@ void* incr_distance_dosage_2d_flat_thread(void* arg) {
 
 void incr_distance_dosage_2d(double* distance_matrix_slice, double* distance_wt_matrix_slice, int32_t thread_idx) {
 #ifdef __LP64__
-  const __m128i absmask_raw = {0x7fffffffffffffffLU, 0x7fffffffffffffffLU};
+  const __m128i absmask_raw = {0x7fffffffffffffffLLU, 0x7fffffffffffffffLLU};
   __m128d* absmask_ptr = (__m128d*)(&absmask_raw);
   __m128d absmask = *absmask_ptr;
   __m128d* dptr_start;
@@ -1275,7 +1275,7 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
 		g_missing_vals[indiv_idx] |= 1 << marker_idxl;
 	      } else {
 #ifdef __LP64__
-		*((uintptr_t*)(&g_missing_dmasks[indiv_idx * BITCT + marker_idxl])) = 0x7fffffffffffffffLU;
+		*((uintptr_t*)(&g_missing_dmasks[indiv_idx * BITCT + marker_idxl])) = 0x7fffffffffffffffLLU;
 #else
                 g_missing_dmasks[indiv_idx * BITCT + marker_idxl] = 1;
 #endif

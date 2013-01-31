@@ -4558,7 +4558,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
     goto generate_dummy_ret_WRITE_FAIL;
   }
   uii = 0;
-  ullii = 3LU + ((uint64_t)marker_ct) * indiv_ct4;
+  ullii = (3 * ONELU) + ((uint64_t)marker_ct) * indiv_ct4;
   if (ullii >= 10485760) {
     printf("Writing dummy .bed (%" PRIu64 " MB)... 0%%", ullii >> 20);
   } else {
@@ -6794,7 +6794,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 	  do {
 	    ujj = flex_map[indiv_idx++];
 	    ukk = ujj / BITCT;
-	    ulii = 1LU << (ujj % BITCT);
+	    ulii = ONELU << (ujj % BITCT);
 	    wbufptr2 = &(wbufptr[ujj / 4]);
 	    umm = (ujj % 4) * 2;
 	    unn = 3U << umm;
@@ -6814,7 +6814,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 	while (indiv_idx < cur_indiv_ct) {
 	  ujj = flex_map[indiv_idx++];
 	  ukk = ujj / BITCT;
-	  ulii = 1LU << (ujj % BITCT);
+	  ulii = ONELU << (ujj % BITCT);
 	  wbufptr2 = &(wbufptr[ujj / 4]);
 	  umm = (ujj % 4) * 2;
 	  unn = 3U << umm;
@@ -6892,7 +6892,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 	  do {
 	    ujj = flex_map[indiv_idx++];
 	    ukk = ujj / BITCT;
-	    ulii = 1LU << (ujj % BITCT);
+	    ulii = ONELU << (ujj % BITCT);
 	    if (!(mbufptr[ukk] & ulii)) {
 	      mbufptr[ukk] |= ulii;
 	      wbufptr2 = &(wbufptr[ujj / 4]);
@@ -6906,7 +6906,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 	while (indiv_idx < cur_indiv_ct) {
 	  ujj = flex_map[indiv_idx++];
 	  ukk = ujj / BITCT;
-	  ulii = 1LU << (ujj % BITCT);
+	  ulii = ONELU << (ujj % BITCT);
 	  if (!(mbufptr[ukk] & ulii)) {
 	    mbufptr[ukk] |= ulii;
 	    wbufptr2 = &(wbufptr[ujj / 4]);
@@ -6943,7 +6943,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 	  ucc = bmap[*rbufptr++];
 	  do {
 	    ujj = flex_map[indiv_idx++];
-	    if (mbufptr[ujj / BITCT] & (1LU << (ujj % BITCT))) {
+	    if (mbufptr[ujj / BITCT] & (ONELU << (ujj % BITCT))) {
 	      // would prefer to do this by multiplying indiv overlap with
 	      // marker overlap, but the same-position automerge screws
 	      // with that
@@ -6970,7 +6970,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 	ucc = bmap[*rbufptr];
 	while (indiv_idx < cur_indiv_ct) {
 	  ujj = flex_map[indiv_idx++];
-	  if (mbufptr[ujj / BITCT] & (1LU << (ujj % BITCT))) {
+	  if (mbufptr[ujj / BITCT] & (ONELU << (ujj % BITCT))) {
 	    diff_total_overlap++;
 	    ukk = (ujj % 4) * 2;
 	    ucc2 = ucc & 3;
@@ -6997,7 +6997,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 	  ucc = bmap[*rbufptr++];
 	  do {
 	    ujj = flex_map[indiv_idx++];
-	    if (mbufptr[ujj / BITCT] & (1LU << (ujj % BITCT))) {
+	    if (mbufptr[ujj / BITCT] & (ONELU << (ujj % BITCT))) {
 	      diff_total_overlap++;
 	      ukk = (ujj % 4) * 2;
 	      ucc2 = ucc & 3;
@@ -7017,7 +7017,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 	ucc = bmap[*rbufptr];
 	while (indiv_idx < cur_indiv_ct) {
 	  ujj = flex_map[indiv_idx++];
-	  if (mbufptr[ujj / BITCT] & (1LU << (ujj % BITCT))) {
+	  if (mbufptr[ujj / BITCT] & (ONELU << (ujj % BITCT))) {
 	    diff_total_overlap++;
 	    ukk = (ujj % 4) * 2;
 	    ucc2 = ucc & 3;
@@ -7080,7 +7080,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
       ucc4 = (1U << ujj);
       if (merge_must_track_write(merge_mode)) {
 	mbufptr = &(markbuf[ii / BITCT]);
-	uljj = 1LU << (ii % BITCT);
+	uljj = ONELU << (ii % BITCT);
       }
       for (marker_in_idx = 0; marker_in_idx < last_marker_in_idx; marker_in_idx++) {
 	cc = *bufptr3;
@@ -7917,7 +7917,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	  umm = popcount_chars(pcptr, uljj, uljj + tot_indiv_ct4);
 	  if (umm < tot_indiv_ct) {
 	    ulkk = (uii * markers_per_pass) + ukk;
-	    reversed[ulkk / BITCT] |= (1LU << (ulkk % BITCT));
+	    reversed[ulkk / BITCT] |= (ONELU << (ulkk % BITCT));
 	    ucptr = &(writebuf[uljj]);
 	    ucptr_end = &(writebuf[uljj + tot_indiv_ct / 4]);
 	    while (ucptr < ucptr_end) {

@@ -233,7 +233,7 @@ void copy_item(char* writebuf, uint32_t* offset_ptr, char** prev_item_end_ptr) {
 
 void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr) {
   uint32_t maj = loc / BITCT;
-  uintptr_t min = 1LU << (loc % BITCT);
+  uintptr_t min = ONELU << (loc % BITCT);
   if (!(bit_arr[maj] & min)) {
     bit_arr[maj] |= min;
     *bit_set_ct_ptr += 1;
@@ -242,7 +242,7 @@ void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr) {
 
 void set_bit_sub(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_unset_ct_ptr) {
   uint32_t maj = loc / BITCT;
-  uintptr_t min = 1LU << (loc % BITCT);
+  uintptr_t min = ONELU << (loc % BITCT);
   if (!(bit_arr[maj] & min)) {
     bit_arr[maj] |= min;
     *bit_unset_ct_ptr -= 1;
@@ -251,7 +251,7 @@ void set_bit_sub(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_unset_ct_ptr) 
 
 void clear_bit(uintptr_t* exclude_arr, uint32_t loc, uintptr_t* include_ct_ptr) {
   uint32_t maj = loc / BITCT;
-  uintptr_t min = 1LU << (loc % BITCT);
+  uintptr_t min = ONELU << (loc % BITCT);
   if (exclude_arr[maj] & min) {
     exclude_arr[maj] -= min;
     *include_ct_ptr += 1;
@@ -269,7 +269,7 @@ int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc) {
   }
   do {
     idx++;
-  } while (*(++exclude_arr) == ~0LU);
+  } while (*(++exclude_arr) == ~ZEROLU);
   return (idx * BITCT) + __builtin_ctzl(~(*exclude_arr));
 }
 
@@ -288,7 +288,7 @@ int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil) {
     if ((++idx) > max_idx) {
       return ceil;
     }
-  } while (*(++exclude_arr) == ~0LU);
+  } while (*(++exclude_arr) == ~ZEROLU);
   return MINV((idx * BITCT) + __builtin_ctzl(~(*exclude_arr)), ceil);
 }
 
@@ -960,10 +960,10 @@ void distance_print_done(int32_t format_code, char* outname, char* outname_end) 
 static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
   // popcounts vptr[0..(ct-1)].  Assumes ct is a multiple of 3 (0 ok).
   const __m128i m1 = {FIVEMASK, FIVEMASK};
-  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
-  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
-  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   uintptr_t tot = 0;
   __m128i* vend;
   __m128i count1, count2, half1, half2;
@@ -1011,10 +1011,10 @@ static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
 static inline uintptr_t popcount_vecs_exclude(__m128i* vptr, __m128i* exclude_ptr, uintptr_t ct) {
   // popcounts vptr ANDNOT exclude_ptr[0..(ct-1)].  ct is a multiple of 3.
   const __m128i m1 = {FIVEMASK, FIVEMASK};
-  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
-  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
-  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   uintptr_t tot = 0;
   __m128i* vend;
   __m128i count1, count2, half1, half2;
@@ -1129,7 +1129,7 @@ uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx
   uintptr_t ei8l = end_idx / (BITCT / 8);
   uintptr_t tot = 0;
   if (si8l == ei8l) {
-    return popcount_long(lptr[si8l] & ((1LU << ((end_idx % (BITCT / 8)) * 8)) - (1LU << (extra_ct * 8))));
+    return popcount_long(lptr[si8l] & ((ONELU << ((end_idx % (BITCT / 8)) * 8)) - (ONELU << (extra_ct * 8))));
   } else {
     if (extra_ct) {
       tot = popcount_long(lptr[si8l++] >> (extra_ct * 8));
@@ -1137,7 +1137,7 @@ uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx
     tot += popcount_longs(lptr, si8l, ei8l);
     extra_ct = end_idx % (BITCT / 8);
     if (extra_ct) {
-      tot += popcount_long(lptr[ei8l] & ((1LU << (extra_ct * 8)) - 1LU));
+      tot += popcount_long(lptr[ei8l] & ((ONELU << (extra_ct * 8)) - ONELU));
     }
     return tot;
   }
@@ -1212,7 +1212,7 @@ uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uin
   max_idxl = max_idx / BITCT;
   max_idxlr = max_idx & (BITCT - 1);
   if (min_idxl == max_idxl) {
-    return max_idx - min_idx - popcount_long(marker_exclude[min_idxl] & ((1LU << max_idxlr) - (1LU << min_idxlr)));
+    return max_idx - min_idx - popcount_long(marker_exclude[min_idxl] & ((ONELU << max_idxlr) - (ONELU << min_idxlr)));
   } else {
     ct = 0;
     if (min_idxlr) {
@@ -1222,7 +1222,7 @@ uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uin
       ct += popcount_longs(marker_exclude, min_idxl, max_idxl);
     }
     if (max_idxlr) {
-      ct += popcount_long(marker_exclude[max_idxl] & ((1LU << max_idxlr) - 1LU));
+      ct += popcount_long(marker_exclude[max_idxl] & ((ONELU << max_idxlr) - ONELU));
     }
     return max_idx - min_idx - ct;
   }
@@ -1976,9 +1976,9 @@ void collapse_bitarr(uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t orig_ct
     if (!is_set(exclude_arr, uii)) {
       if (is_set(bitarr, uii)) {
         // set bit jj
-        bitarr[ujj / BITCT] |= (1LU << (ujj % BITCT));
+        bitarr[ujj / BITCT] |= (ONELU << (ujj % BITCT));
       } else {
-	bitarr[ujj / BITCT] &= (~(1LU << (ujj % BITCT)));
+	bitarr[ujj / BITCT] &= (~(ONELU << (ujj % BITCT)));
       }
       ujj++;
     }

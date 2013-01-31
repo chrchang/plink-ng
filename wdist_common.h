@@ -17,6 +17,9 @@
 #define PRIu64 "I64u"
 #define fseeko fseeko64
 #define ftello ftello64
+#ifdef _WIN64
+#include <windows.h>
+#endif
 #else
 #ifdef __cplusplus
 #define PRId64 "lld"
@@ -50,8 +53,13 @@ typedef union {
   double d8[2];
   uint32_t u4[4];
 } __uni16;
+
+#define ZEROLU 0LLU
+#define ONELU 1LLU
 #else
 #define FIVEMASK 0x55555555
+#define ZEROLU 0LU
+#define ONELU 1LU
 #endif
 
 #include "zlib-1.2.7/zlib.h"
@@ -386,7 +394,7 @@ static inline int32_t is_space_or_eoln(char cc) {
 #ifdef __LP64__
   return ((((unsigned char)cc) <= 32) && (0x100002601LLU & (1LLU << cc)));
 #else
-  return ((((unsigned char)cc) <= 32) && ((cc == ' ') || (0x2601LU & (1LU << cc))));
+  return ((((unsigned char)cc) <= 32) && ((cc == ' ') || (0x2601LU & (ONELU << cc))));
 #endif
 }
 */
@@ -443,7 +451,7 @@ static inline void read_next_terminate(char* target, char* source) {
 }
 
 static inline void set_bit_noct(uintptr_t* exclude_arr, uint32_t loc) {
-  exclude_arr[loc / BITCT] |= (1LU << (loc % BITCT));
+  exclude_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
 void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr);
@@ -451,7 +459,7 @@ void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr);
 void set_bit_sub(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_unset_ct_ptr);
 
 static inline void clear_bit_noct(uintptr_t* exclude_arr, uint32_t loc) {
-  exclude_arr[loc / BITCT] &= ~(1LU << (loc % BITCT));
+  exclude_arr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }
 
 void clear_bit(uintptr_t* exclude_arr, uint32_t loc, uintptr_t* include_ct_ptr);
@@ -491,7 +499,7 @@ static inline void fill_long_one(intptr_t* larr, size_t size) {
 static inline void fill_ulong_one(uintptr_t* ularr, size_t size) {
   uintptr_t* ulptr = &(ularr[size]);
   while (ularr < ulptr) {
-    *ularr++ = ~0LU;
+    *ularr++ = ~ZEROLU;
   }
 }
 
@@ -639,7 +647,7 @@ extern char* species_singular;
 extern char* species_plural;
 
 static inline char* species_str(uintptr_t ct) {
-  return (ct == 1LU)? species_singular : species_plural;
+  return (ct == ONELU)? species_singular : species_plural;
 }
 
 int32_t marker_code_raw(char* sptr);
@@ -729,7 +737,7 @@ uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintpt
 static inline void zero_trailing_bits(uintptr_t* bitfield, uintptr_t unfiltered_ct) {
   uintptr_t trail_ct = unfiltered_ct & (BITCT - 1);
   if (trail_ct) {
-    bitfield[unfiltered_ct / BITCT] &= (1LU << trail_ct) - 1LU;
+    bitfield[unfiltered_ct / BITCT] &= (ONELU << trail_ct) - ONELU;
   }
 }
 

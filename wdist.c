@@ -16,7 +16,7 @@
 
 
 // Uncomment this to build without CBLAS/CLAPACK:
-#define NOLAPACK
+// #define NOLAPACK
 
 #include <ctype.h>
 #include <time.h>
@@ -133,7 +133,7 @@ extern "C" {
 #define GENOME_MULTIPLEX2 (GENOME_MULTIPLEX * 2)
 
 const char ver_str[] =
-  "WDIST v0.16.1"
+  "WDIST v0.16.2"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -142,7 +142,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (30 Jan 2013)";
+  " (1 Feb 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -1911,14 +1911,14 @@ static double* g_pheno_packed;
 //
 // inline void set_base4(uintptr_t* base4_arr, int32_t loc, int32_t val) {
 //   int32_t shift_num = (loc % BITCT2) * 2;
-//   uintptr_t ulii = 3LU << shift_num;
+//   uintptr_t ulii = (3 * ONELU) << shift_num;
 //   uintptr_t* base4_ptr = &(base4_arr[loc / BITCT2]);
 //   *base4_ptr = (*base4_ptr & (~ulii)) | (val << shift_num);
 // }
 //
 // inline int32_t get_base4(uintptr_t* base4_arr, int32_t loc) {
 //   int32_t shift_num = (loc % BITCT2) * 2;
-//   return ((base4_arr[loc / BITCT2] >> shift_num) & 3LU);
+//   return ((base4_arr[loc / BITCT2] >> shift_num) & (3 * ONELU));
 // }
 
 int32_t chrom_exists(Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
@@ -1978,10 +1978,10 @@ void collapse_copy_phenod(double *target, double* pheno_d, uintptr_t* indiv_excl
 // assumes (MULTIPLEX_DIST / BITCT) is a multiple of 3, and no greater than 30.
 static inline uint32_t popcount_xor_1mask_multiword(__m128i** xor1p, __m128i* xor2, __m128i** maskp) {
   const __m128i m1 = {FIVEMASK, FIVEMASK};
-  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
-  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
-  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   __m128i count1, count2, half1, half2;
   __uni16 acc;
   __m128i* xor2_end = &(xor2[MULTIPLEX_2DIST / 128]);
@@ -2016,10 +2016,10 @@ static inline uint32_t popcount_xor_1mask_multiword(__m128i** xor1p, __m128i* xo
 
 static inline uint32_t popcount_xor_2mask_multiword(__m128i** xor1p, __m128i* xor2, __m128i** mask1p, __m128i* mask2) {
   const __m128i m1 = {FIVEMASK, FIVEMASK};
-  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
-  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
-  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   __m128i count1, count2, half1, half2;
   __uni16 acc;
   __m128i* xor2_end = &(xor2[MULTIPLEX_2DIST / 128]);
@@ -2104,8 +2104,8 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m
   // input vectors.
 
   const __m128i m1 = {FIVEMASK, FIVEMASK};
-  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   __m128i loader1;
   __m128i loader2;
   __m128i sum1;
@@ -2171,8 +2171,8 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m
     acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(sum12, m4), _mm_and_si128(_mm_srli_epi64(sum12, 4), m4)));
   } while (--iters);
   // moved down since we're out of xmm registers
-  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
-  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
 #if MULTIPLEX_LD > 960
   acc1.vi = _mm_add_epi64(_mm_and_si128(acc1.vi, m8), _mm_and_si128(_mm_srli_epi64(acc1.vi, 8), m8));
   acc2.vi = _mm_add_epi64(_mm_and_si128(acc2.vi, m8), _mm_and_si128(_mm_srli_epi64(acc2.vi, 8), m8));
@@ -2433,10 +2433,10 @@ void* calc_idist_thread(void* arg) {
 void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
-  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
-  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
-  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   __m128i xor_buf[GENOME_MULTIPLEX / BITCT];
   __m128i* xor_buf_end = &(xor_buf[GENOME_MULTIPLEX / BITCT]);
   __m128i* maskptr;
@@ -2639,7 +2639,7 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
 	  do {
 	    offset = next_ppc_marker_hybrid / BITCT;
 	    marker_window_ptr = &(g_marker_window[offset * BITCT]);
-	    next_ppc_marker_hybrid = ~0LU << (next_ppc_marker_hybrid & (BITCT - 1));
+	    next_ppc_marker_hybrid = ~ZEROLU << (next_ppc_marker_hybrid & (BITCT - 1));
 	  incr_genome_2mask_loop:
 	    uland = glptr_back[offset] & (((uintptr_t*)glptr_fixed)[offset]);
 	    // het is represented as 11, so
@@ -2653,29 +2653,29 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
 	    // corresponding even bit.  (het-missing pairs also set that bit,
 	    // but the masking filters that out.)
 	    //
-	    // ~0LU << xx masks out the bottom xx bits.
+	    // ~ZEROLU << xx masks out the bottom xx bits.
 	    ulval = (((uland & (uland << 1)) & AAAAMASK) | (((uintptr_t*)xor_buf)[offset]));
 	    do {
 	      ulval &= next_ppc_marker_hybrid;
 	      if (ulval) {
 		ujj = __builtin_ctzl(ulval);
 		next_ppc_marker_hybrid = marker_window_ptr[ujj];
-		ibs_incr += (1LU << ((ujj & 1) * BITCT2));
+		ibs_incr += (ONELU << ((ujj & 1) * BITCT2));
 	      } else if (offset < ((GENOME_MULTIPLEX2 - BITCT) / BITCT)) {
 		offset++;
-		next_ppc_marker_hybrid = ~0LU;
+		next_ppc_marker_hybrid = ~ZEROLU;
 		marker_window_ptr = &(marker_window_ptr[BITCT]);
 		goto incr_genome_2mask_loop;
 	      } else {
 		*genome_main = highct2;
 		goto incr_genome_2mask_exit;
 	      }
-	    } while (next_ppc_marker_hybrid & (1LU << (BITCT - 1)));
+	    } while (next_ppc_marker_hybrid & (ONELU << (BITCT - 1)));
 	  } while (next_ppc_marker_hybrid < GENOME_MULTIPLEX2);
 	  *genome_main = next_ppc_marker_hybrid + lowct2;
         incr_genome_2mask_exit:
 	  genome_main++;
-          *genome_main += ibs_incr & ((~0LU) >> BITCT2);
+          *genome_main += ibs_incr & ((~ZEROLU) >> BITCT2);
 	  genome_main++;
 	  *genome_main += ibs_incr >> BITCT2;
 	  genome_main++;
@@ -2789,7 +2789,7 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
 	  do {
 	    offset = next_ppc_marker_hybrid / BITCT;
 	    marker_window_ptr = &(g_marker_window[offset * BITCT]);
-	    next_ppc_marker_hybrid = ~0LU << (next_ppc_marker_hybrid & (BITCT - 1));
+	    next_ppc_marker_hybrid = ~ZEROLU << (next_ppc_marker_hybrid & (BITCT - 1));
 	  incr_genome_1mask_loop:
 	    uland = glptr_back[offset] & (((uintptr_t*)glptr_fixed)[offset]);
 	    ulval = ((uland & (uland << 1)) & AAAAMASK) | (((uintptr_t*)xor_buf)[offset]);
@@ -2798,22 +2798,22 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
 	      if (ulval) {
 		ujj = __builtin_ctzl(ulval);
 		next_ppc_marker_hybrid = marker_window_ptr[ujj];
-		ibs_incr += (1LU << ((ujj & 1) * BITCT2));
+		ibs_incr += (ONELU << ((ujj & 1) * BITCT2));
 	      } else if (offset < ((GENOME_MULTIPLEX2 - BITCT) / BITCT)) {
 		offset++;
-		next_ppc_marker_hybrid = ~0LU;
+		next_ppc_marker_hybrid = ~ZEROLU;
 		marker_window_ptr = &(marker_window_ptr[BITCT]);
 		goto incr_genome_1mask_loop;
 	      } else {
 		*genome_main = highct2;
 		goto incr_genome_1mask_exit;
 	      }
-	    } while (next_ppc_marker_hybrid & (1LU << (BITCT - 1)));
+	    } while (next_ppc_marker_hybrid & (ONELU << (BITCT - 1)));
 	  } while (next_ppc_marker_hybrid < GENOME_MULTIPLEX2);
 	  *genome_main = next_ppc_marker_hybrid + lowct2;
 	incr_genome_1mask_exit:
 	  genome_main++;
-	  *genome_main += ibs_incr & ((~0LU) >> BITCT2);
+	  *genome_main += ibs_incr & ((~ZEROLU) >> BITCT2);
 	  genome_main++;
 	  *genome_main += ibs_incr >> BITCT2;
 	  genome_main++;
@@ -2853,7 +2853,7 @@ void incr_dists(double* dists, uintptr_t* geno, int32_t tidx) {
     mptr = g_masks;
     mask_fixed = g_masks[uii];
 #ifdef __LP64__
-    if (mask_fixed == ~0LU) {
+    if (mask_fixed == ~ZEROLU) {
       for (ujj = 0; ujj < uii; ujj++) {
 	uljj = (*glptr++ ^ ulii) & (*mptr++);
         *dists += weights4[uljj >> 52] + weights3[(uljj >> 40) & 4095] + weights2[(uljj >> 28) & 4095] + weights1[(uljj >> 14) & 16383] + g_weights[uljj & 16383];
@@ -4001,7 +4001,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
 #endif
 
 inline int32_t is_founder(uintptr_t* founder_info, int32_t ii) {
-  return ((!founder_info) || ((founder_info[ii / BITCT]) & (1LU << (ii % BITCT))));
+  return ((!founder_info) || ((founder_info[ii / BITCT]) & (ONELU << (ii % BITCT))));
 }
 
 typedef struct {
@@ -4535,7 +4535,7 @@ void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_
     female_ct += popcount_long(ulii & (~uljj));
   }
   if (unfiltered_indiv_ct_rem) {
-    ulii = (~(*indiv_exclude)) & ((1LU << unfiltered_indiv_ct_rem) - 1LU);
+    ulii = (~(*indiv_exclude)) & ((ONELU << unfiltered_indiv_ct_rem) - ONELU);
     unfiltered_indiv_ct_rem = 0;
     goto count_genders_last_loop;
   }
@@ -5111,21 +5111,21 @@ void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_ar
     if (ulii) {
       uljj = ulii >> BITCT2;
 #ifdef __LP64__
-      ulii &= 0xffffffffLU;
+      ulii &= 0xffffffffLLU;
 #else
       ulii &= 0xffffLU;
 #endif
       if (ulii) {
 	do {
 	  bit_idx = __builtin_ctzl(ulii);
-	  ulkk &= ~(1LU << (bit_idx * 2));
+	  ulkk &= ~(ONELU << (bit_idx * 2));
 	  ulii &= ulii - 1;
 	} while (ulii);
       }
       if (uljj) {
 	do {
 	  bit_idx = __builtin_ctzl(uljj);
-	  ulmm &= ~(1LU << (bit_idx * 2));
+	  ulmm &= ~(ONELU << (bit_idx * 2));
 	  uljj &= uljj - 1;
 	} while (uljj);
       }
@@ -5141,7 +5141,7 @@ void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_ar
     } else {
       ulii -= BITCT2;
     }
-    *include_arr &= (1LU << (ulii * 2)) - 1LU;
+    *include_arr &= (ONELU << (ulii * 2)) - ONELU;
   }
 }
 
@@ -5159,21 +5159,21 @@ void vec_include_mask_in(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, 
     if (ulii) {
       uljj = ulii >> BITCT2;
 #ifdef __LP64__
-      ulii &= 0xffffffffLU;
+      ulii &= 0xffffffffLLU;
 #else
       ulii &= 0xffffLU;
 #endif
       if (ulii) {
 	do {
 	  bit_idx = __builtin_ctzl(ulii);
-	  ulkk &= ~(1LU << (bit_idx * 2));
+	  ulkk &= ~(ONELU << (bit_idx * 2));
 	  ulii &= ulii - 1;
 	} while (ulii);
       }
       if (uljj) {
 	do {
 	  bit_idx = __builtin_ctzl(uljj);
-	  ulmm &= ~(1LU << (bit_idx * 2));
+	  ulmm &= ~(ONELU << (bit_idx * 2));
 	  uljj &= uljj - 1;
 	} while (uljj);
       }
@@ -5197,21 +5197,21 @@ void vec_include_mask_out(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr,
     if (ulii) {
       uljj = ulii >> BITCT2;
 #ifdef __LP64__
-      ulii &= 0xffffffffLU;
+      ulii &= 0xffffffffLLU;
 #else
       ulii &= 0xffffLU;
 #endif
       if (ulii) {
 	do {
 	  bit_idx = __builtin_ctzl(ulii);
-	  ulkk &= ~(1LU << (bit_idx * 2));
+	  ulkk &= ~(ONELU << (bit_idx * 2));
 	  ulii &= ulii - 1;
 	} while (ulii);
       }
       if (uljj) {
 	do {
 	  bit_idx = __builtin_ctzl(uljj);
-	  ulmm &= ~(1LU << (bit_idx * 2));
+	  ulmm &= ~(ONELU << (bit_idx * 2));
 	  uljj &= uljj - 1;
 	} while (uljj);
       }
@@ -5235,21 +5235,21 @@ void vec_include_mask_out_intersect(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     if (ulii) {
       uljj = ulii >> BITCT2;
 #ifdef __LP64__
-      ulii &= 0xffffffffLU;
+      ulii &= 0xffffffffLLU;
 #else
       ulii &= 0xffffLU;
 #endif
       if (ulii) {
 	do {
 	  bit_idx = __builtin_ctzl(ulii);
-	  ulkk &= ~(1LU << (bit_idx * 2));
+	  ulkk &= ~(ONELU << (bit_idx * 2));
 	  ulii &= ulii - 1;
 	} while (ulii);
       }
       if (uljj) {
 	do {
 	  bit_idx = __builtin_ctzl(uljj);
-	  ulmm &= ~(1LU << (bit_idx * 2));
+	  ulmm &= ~(ONELU << (bit_idx * 2));
 	  uljj &= uljj - 1;
 	} while (uljj);
       }
@@ -5359,10 +5359,10 @@ int32_t incr_text_allele(char cc, char* marker_alleles, uint32_t* marker_allele_
 
 #ifdef __LP64__
 void freq_hwe_count_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp) {
-  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
-  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
-  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   __m128i loader;
   __m128i loader2;
   __m128i loader3;
@@ -5443,10 +5443,10 @@ void freq_hwe_count_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t
 }
 
 void freq_hwe_haploid_count_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ct_nmp, uint32_t* ct_hmajp) {
-  const __m128i m2 = {0x3333333333333333LU, 0x3333333333333333LU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLU, 0x0f0f0f0f0f0f0f0fLU};
-  const __m128i m8 = {0x00ff00ff00ff00ffLU, 0x00ff00ff00ff00ffLU};
-  const __m128i m16 = {0x0000ffff0000ffffLU, 0x0000ffff0000ffffLU};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   __m128i loader;
   __m128i loader2;
   __m128i loader3;
@@ -6976,11 +6976,11 @@ void normalize_phenos(double* new_phenos, uintptr_t indiv_ct, uintptr_t unfilter
   uint32_t incl_males = sex_exclude & 1;
   uint32_t incl_females = sex_exclude & 2;
   uint32_t incl_unknown = sex_exclude & 4;
-  uintptr_t indiv_uidx = ~0LU;
+  uintptr_t indiv_uidx = ~ZEROLU;
   double pheno_tot = 0.0;
   double pheno_sq_tot = 0.0;
   uint32_t pheno_ct = 0;
-  uintptr_t indiv_idx = ~0LU;
+  uintptr_t indiv_idx = ~ZEROLU;
   double dxx;
   double mean;
   double stdev_recip;
@@ -7012,8 +7012,8 @@ void normalize_phenos(double* new_phenos, uintptr_t indiv_ct, uintptr_t unfilter
   } else {
     stdev_recip = sqrt((double)(pheno_ct - 1) / (pheno_sq_tot - pheno_tot * mean));
   }
-  indiv_uidx = ~0LU;
-  indiv_idx = ~0LU;
+  indiv_uidx = ~ZEROLU;
+  indiv_idx = ~ZEROLU;
   while ((++indiv_idx) < indiv_ct) {
     indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx + 1);
     if (is_set(sex_nm, indiv_uidx)) {
@@ -7930,7 +7930,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
       if (mp_lead_unfiltered_idx < unfiltered_marker_ct) {
 	ulii = 2 * (mp_lead_unfiltered_idx - g_low_ct);
 	if (ulii < BITCT + (2 * (ujj & (~(BITCT2 - 1))))) {
-	  ulii = ~0LU << (ulii & (BITCT - 1));
+	  ulii = ~ZEROLU << (ulii & (BITCT - 1));
 	}
       } else {
 	ulii = 2 * (unfiltered_marker_ct + GENOME_MULTIPLEX);
@@ -7970,7 +7970,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	    ulii |= uljj << (pp * 2);
 	    if (uljj == 1) {
 	      missing_ct_buf[pp] += 1;
-	      ulkk |= 1LU << pp;
+	      ulkk |= ONELU << pp;
 	      *giptr += 1;
 	    }
 	  }
@@ -7980,7 +7980,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	    uljj = (gptr[pp * unfiltered_indiv_ct4] >> oo) & 3;
 	    ulii |= uljj << (pp * 2);
 	    if (uljj == 1) {
-	      ulkk |= 1LU << pp;
+	      ulkk |= ONELU << pp;
 	      *giptr += 1;
 	    }
 	  }
@@ -8000,7 +8000,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	    ulii |= uljj << (pp * 2);
 	    if (uljj == 1) {
 	      missing_ct_buf[pp + BITCT2] += 1;
-	      ulkk |= 1LU << pp;
+	      ulkk |= ONELU << pp;
 	      *giptr += 1;
 	    }
 	  }
@@ -8009,7 +8009,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	    uljj = (gptr[pp * unfiltered_indiv_ct4] >> oo) & 3;
 	    ulii |= uljj << (pp * 2);
 	    if (uljj == 1) {
-	      ulkk |= 1LU << pp;
+	      ulkk |= ONELU << pp;
 	      *giptr += 1;
 	    }
 	  }
@@ -9642,8 +9642,8 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	for (ujj = 0; ujj < (MULTIPLEX_REL / 3); ujj++) {
 	  uljj = (gptr2[ujj * unfiltered_indiv_ct4] >> uii) & 3;
 	  if (uljj == 1) {
-	    g_masks[indiv_idx] |= 7LU << (ujj * 3);
-	    g_mmasks[indiv_idx] |= 1LU << (win_marker_idx + ujj);
+	    g_masks[indiv_idx] |= (7 * ONELU) << (ujj * 3);
+	    g_mmasks[indiv_idx] |= ONELU << (win_marker_idx + ujj);
 	    g_indiv_missing_unwt[indiv_idx] += 1;
 	  }
 	  ulii |= uljj << (ujj * 3);
@@ -9889,7 +9889,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	//   cptr2[uii + 1] = '0';
 	// }
 #ifdef __LP64__
-	ulii = 0x9000900090009LU;
+	ulii = 0x9000900090009LLU;
 #else
 	ulii = 0x90009LU;
 #endif
@@ -10200,8 +10200,8 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	for (ujj = 0; ujj < (MULTIPLEX_REL / 3); ujj++) {
 	  uljj = (gptr2[ujj * unfiltered_indiv_ct4] >> uii) & 3;
 	  if (uljj == 1) {
-	    g_masks[indiv_idx] |= 7LU << (ujj * 3);
-	    g_mmasks[indiv_idx] |= 1LU << (win_marker_idx + ujj);
+	    g_masks[indiv_idx] |= (7 * ONELU) << (ujj * 3);
+	    g_mmasks[indiv_idx] |= ONELU << (win_marker_idx + ujj);
 	    g_indiv_missing_unwt[indiv_idx] += 1;
 	  }
 	  ulii |= uljj << (ujj * 3);
@@ -10439,7 +10439,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
     } else {
       if (rel_shape == REL_CALC_SQ0) {
 #ifdef __LP64__
-	ulii = 0x9000900090009LU;
+	ulii = 0x9000900090009LLU;
 #else
 	ulii = 0x90009LU;
 #endif
@@ -10760,7 +10760,7 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
 	if (dxx > rel_cutoff) {
 	  rel_ct_arr[row] += 1;
 	  rel_ct_arr[col] += 1;
-	  cur_word |= (1LU << inword_idx);
+	  cur_word |= (ONELU << inword_idx);
 	}
 	col++;
       }
@@ -10811,16 +10811,16 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
       uljj = ulljj / BITCT;
       inword_bound = ulljj & (BITCT - 1);
       if (uljj == ulii) {
-	uljj = (1LU << inword_bound) - (1LU << inword_idx);
+	uljj = (ONELU << inword_bound) - (ONELU << inword_idx);
         ulkk = (*rtptr) & uljj;
 	if (ulkk) {
 	  *rtptr &= ~uljj;
 	  cur_prune = __builtin_ctzl(ulkk) - inword_idx;
 	}
       } else {
-        ulkk = (*rtptr) & (~((1LU << inword_idx) - 1));
+        ulkk = (*rtptr) & (~((ONELU << inword_idx) - ONELU));
 	if (ulkk) {
-	  *rtptr &= (1LU << inword_idx) - 1;
+	  *rtptr &= (ONELU << inword_idx) - ONELU;
           cur_prune = __builtin_ctzl(ulkk) - inword_idx;
 	} else {
 	  col = BITCT - inword_idx;
@@ -10835,9 +10835,9 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
 	    col += BITCT;
 	  }
 	  if (cur_prune == -1) {
-            ulkk = (*(++rtptr)) & ((1LU << inword_bound) - 1);
+            ulkk = (*(++rtptr)) & ((ONELU << inword_bound) - ONELU);
             if (ulkk) {
-	      *rtptr &= (~((1LU << inword_bound) - 1));
+	      *rtptr &= (~((ONELU << inword_bound) - ONELU));
 	      cur_prune = __builtin_ctzl(ulkk) + col;
 	    }
 	  }
@@ -10849,8 +10849,8 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
           ullii = ((((int64_t)mm) * (mm - 1)) / 2) + kk;
 	  ulii = ullii / BITCT;
 	  inword_idx = ullii & (BITCT - 1);
-	  if (compact_rel_table[ulii] & (1LU << inword_idx)) {
-	    compact_rel_table[ulii] &= ~(1LU << inword_idx);
+	  if (compact_rel_table[ulii] & (ONELU << inword_idx)) {
+	    compact_rel_table[ulii] &= ~(ONELU << inword_idx);
 	    cur_prune = mm;
 	    break;
 	  }
@@ -10885,7 +10885,7 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
     uljj = ulljj / BITCT;
     inword_bound = ulljj & (BITCT - 1);
     if (uljj == ulii) {
-      uljj = (1LU << inword_bound) - (1LU << inword_idx);
+      uljj = (ONELU << inword_bound) - (ONELU << inword_idx);
       ulkk = (*rtptr) & uljj;
       if (ulkk) {
 	do {
@@ -10896,14 +10896,14 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
 	*rtptr &= ~uljj;
       }
     } else {
-      ulkk = (*rtptr) & (~((1LU << inword_idx) - 1));
+      ulkk = (*rtptr) & (~((ONELU << inword_idx) - ONELU));
       if (ulkk) {
 	do {
 	  uii = __builtin_ctzl(ulkk) - inword_idx;
 	  rel_cut_arr_dec(&(rel_ct_arr[uii]), &exactly_one_rel_ct);
 	  ulkk &= ulkk - 1;
 	} while (ulkk);
-	*rtptr &= (1LU << inword_idx) - 1;
+	*rtptr &= (ONELU << inword_idx) - ONELU;
       }
       col = BITCT - inword_idx;
       row = col + (uljj - ulii - 1) * BITCT;
@@ -10919,14 +10919,14 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
 	}
 	col += BITCT;
       }
-      ulkk = (*(++rtptr)) & ((1LU << inword_bound) - 1);
+      ulkk = (*(++rtptr)) & ((ONELU << inword_bound) - ONELU);
       if (ulkk) {
 	do {
 	  uii = __builtin_ctzl(ulkk) + col;
 	  rel_cut_arr_dec(&(rel_ct_arr[uii]), &exactly_one_rel_ct);
           ulkk &= ulkk - 1;
 	} while (ulkk);
-	*rtptr &= (~((1LU << inword_bound) - 1));
+	*rtptr &= (~((ONELU << inword_bound) - ONELU));
       }
     }
 
@@ -10935,9 +10935,9 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
       ulii = ullii / BITCT;
       rtptr = &(compact_rel_table[ulii]);
       inword_idx = ullii & (BITCT - 1);
-      if ((*rtptr) & (1LU << inword_idx)) {
+      if ((*rtptr) & (ONELU << inword_idx)) {
         rel_cut_arr_dec(&(rel_ct_arr[uljj]), &exactly_one_rel_ct);
-        *rtptr &= ~(1LU << inword_idx);
+        *rtptr &= ~(ONELU << inword_idx);
       }
     }
     rel_ct_arr[cur_prune] = -1;
@@ -11935,7 +11935,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 		uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
 		ulii |= uljj << (mm * 2);
 		if (uljj == 1) {
-		  ulkk |= 1LU << mm;
+		  ulkk |= ONELU << mm;
 		  if (wt_needed) {
 		    *giptr += wtbuf[mm + ukk];
 		  }
@@ -11958,7 +11958,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 		uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
 		ulii |= uljj << (mm * 2);
 		if (uljj == 1) {
-		  ulkk |= 1LU << mm;
+		  ulkk |= ONELU << mm;
 		  if (wt_needed) {
 		    *giptr += wtbuf[mm + ukk + BITCT2];
 		  }
@@ -12033,7 +12033,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 		uljj = (gptr[mm * unfiltered_indiv_ct4] >> kk) & 3;
 		ulii |= uljj << (mm * 2);
 		if (uljj == 1) {
-		  ulkk |= 1LU << mm;
+		  ulkk |= ONELU << mm;
 		  *giptr3 += wtbuf[mm + ukk];
 		}
 	      }
