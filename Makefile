@@ -9,6 +9,7 @@ ifeq ($(UNAME), Darwin)
 BLASFLAGS=-framework Accelerate
 LINKFLAGS=
 ZLIB=zlib-1.2.7/libz.a
+ZLIB64=zlib-1.2.7/libz-64.a
 else
 ifeq ($(UNAME), MINGW32_NT-6.0)
 ARCH64=
