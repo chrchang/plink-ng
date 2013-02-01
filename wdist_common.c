@@ -265,12 +265,12 @@ int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc) {
   exclude_arr = &(exclude_arr[idx]);
   ulii = (~(*exclude_arr)) >> (loc % BITCT);
   if (ulii) {
-    return loc + __builtin_ctzl(ulii);
+    return loc + CTZLU(ulii);
   }
   do {
     idx++;
   } while (*(++exclude_arr) == ~ZEROLU);
-  return (idx * BITCT) + __builtin_ctzl(~(*exclude_arr));
+  return (idx * BITCT) + CTZLU(~(*exclude_arr));
 }
 
 int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil) {
@@ -281,7 +281,7 @@ int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil) {
   exclude_arr = &(exclude_arr[idx]);
   ulii = (~(*exclude_arr)) >> (loc % BITCT);
   if (ulii) {
-    return MINV(loc + __builtin_ctzl(ulii), ceil);
+    return MINV(loc + CTZLU(ulii), ceil);
   }
   max_idx = (ceil - 1) / BITCT;
   do {
@@ -289,7 +289,7 @@ int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil) {
       return ceil;
     }
   } while (*(++exclude_arr) == ~ZEROLU);
-  return MINV((idx * BITCT) + __builtin_ctzl(~(*exclude_arr)), ceil);
+  return MINV((idx * BITCT) + CTZLU(~(*exclude_arr)), ceil);
 }
 
 int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc) {
@@ -298,12 +298,12 @@ int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc) {
   include_arr = &(include_arr[idx]);
   ulii = (*include_arr) >> (loc % BITCT);
   if (ulii) {
-    return loc + __builtin_ctzl(ulii);
+    return loc + CTZLU(ulii);
   }
   do {
     idx++;
   } while (*(++include_arr) == 0);
-  return (idx * BITCT) + __builtin_ctzl(*include_arr);
+  return (idx * BITCT) + CTZLU(*include_arr);
 }
 
 // human: 22, X, Y, XY, MT
@@ -2047,6 +2047,46 @@ uint32_t set_default_jackknife_d(uint32_t ct) {
   return dd;
 }
 
+void join_threads(pthread_t* threads, uint32_t ctp1) {
+  if (--ctp1) {
+    return;
+  }
+#if _WIN32
+  WaitForMultipleObjects(ctp1, threads, 1, INFINITE);
+#else
+  for (uii = 0; uii < ctp1; uii++) {
+    pthread_join(threads[uii], NULL);
+  }
+#endif
+}
+
+#if _WIN32
+int32_t spawn_threads(pthread_t* threads, void (*start_routine)(void*), uintptr_t ct)
+#else
+int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr_t ct)
+#endif
+{
+  uintptr_t ulii;
+  if (ct == 1) {
+    return 0;
+  }
+  for (ulii = 1; ulii < ct; ulii++) {
+#if _WIN32
+    threads[ulii - 1] = (HANDLE)_beginthreadex(NULL, 4096, start_routine, (void*)ulii, 0, NULL);
+    if (!threads[ulii - 1]) {
+      join_threads(threads, ulii);
+      return -1;
+    }
+#else
+    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_genome_thread, (void*)ulii)) {
+      join_threads(threads, ulii);
+      return -1;
+    }
+#endif
+  }
+  return 0;
+}
+
 // ----- multithread globals -----
 static double* g_pheno_d;
 static uintptr_t g_jackknife_iters;
@@ -2161,7 +2201,11 @@ int32_t regress_distance(int32_t calculation_type, double* dists_local, double* 
   double dww;
   double dvv;
   double duu;
+#if _WIN32
+  // todo
+#else
   pthread_t threads[MAX_THREADS];
+#endif
 
   g_dists = dists_local;
   g_pheno_d = pheno_d_local;

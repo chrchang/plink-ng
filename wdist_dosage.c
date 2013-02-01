@@ -307,12 +307,12 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
   if (load_sex) {
     uii = unfiltered_indiv_ct - male_ct - female_ct;
     if (uii) {
-      sprintf(logbuf, "%lu %s (%d male%s, %d female%s, %d unknown) loaded.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s", uii);
+      sprintf(logbuf, "%" PRIuPTR " %s (%d male%s, %d female%s, %d unknown) loaded.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s", uii);
     } else {
-      sprintf(logbuf, "%lu %s (%d male%s, %d female%s) loaded.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s");
+      sprintf(logbuf, "%" PRIuPTR " %s (%d male%s, %d female%s) loaded.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), male_ct, (male_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s");
     }
   } else {
-    sprintf(logbuf, "%lu %s loaded.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct));
+    sprintf(logbuf, "%" PRIuPTR " %s loaded.\n", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct));
   }
   logprintb();
   while (0) {
@@ -479,7 +479,7 @@ int32_t oxford_gen_load1(FILE* genfile, uint32_t* gen_buf_len_ptr, uintptr_t* un
     return RET_INVALID_FORMAT;
   }
   putchar('\r');
-  sprintf(logbuf, ".gen scan complete.  %lu marker%s and %lu pe%s present.\n", unfiltered_marker_ct, (unfiltered_marker_ct == 1)? "" : "s", unfiltered_indiv_ct, (unfiltered_indiv_ct == 1)? "rson" : "ople");
+  sprintf(logbuf, ".gen scan complete.  %" PRIuPTR " marker%s and %" PRIuPTR " pe%s present.\n", unfiltered_marker_ct, (unfiltered_marker_ct == 1)? "" : "s", unfiltered_indiv_ct, (unfiltered_indiv_ct == 1)? "rson" : "ople");
   logprintb();
   *set_allele_freqs_ptr = (double*)wkspace_alloc(unfiltered_marker_ct * sizeof(double));
   *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
@@ -513,6 +513,7 @@ static double* g_nonmissing_vals;
 #if BITCT < MULTIPLEX_DOSAGE_NM
 #error "Insufficient g_missing_wts[] size in wdist_dosage.c."
 #endif
+// static double g_marker_wts[BITCT]; // --exponent marker weights
 static double g_missing_wts[BITCT]; // missingness rescale weights
 #ifdef __LP64__
 static double* g_missing_dmasks; // 0x7fff... if non-missing, 0x0000... otherwise
@@ -578,7 +579,7 @@ void incr_distance_dosage_2d_01(double* distance_matrix_slice, int32_t thread_id
 	} while (dptr != dptr_end);
 	*distance_matrix_slice += acc;
 #endif
-        *distance_matrix_slice++;
+        distance_matrix_slice++;
       }
     } else {
       for (uljj = 0; uljj < ulii; uljj++) {
@@ -596,7 +597,7 @@ void incr_distance_dosage_2d_01(double* distance_matrix_slice, int32_t thread_id
 	} while (dptr != dptr_end);
 	*distance_matrix_slice += acc;
 #endif
-        *distance_matrix_slice++;
+        distance_matrix_slice++;
       }
     }
   }
@@ -1023,7 +1024,7 @@ void incr_dosage_missing_wt_01(double* distance_wt_matrix_slice, int32_t thread_
       for (uljj = 0; uljj < ulii; uljj++) {
 	mask = (*mlptr++) & maskii;
 	while (mask) {
-	  distance_wt_matrix_slice[uljj] += g_missing_wts[__builtin_ctzl(mask)];
+	  distance_wt_matrix_slice[uljj] += g_missing_wts[CTZLU(mask)];
 	  mask &= mask - 1;
 	}
       }
@@ -1413,7 +1414,7 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
   uint32_t uii;
   uint32_t subloop_end;
   double* cur_nonmissings;
-  double marker_wt;
+  // double marker_wt;
   double ref_freq_numer;
   double ref_freq_denom; // also 2x sum of cur_nonmissings
 
@@ -1588,12 +1589,12 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
 
     if (!is_exponent_zero) {
       if ((ref_freq_numer == 0.0) || (ref_freq_numer == ref_freq_denom)) {
-	marker_wt = 1.0;
+	// marker_wt = 1.0;
 	set_allele_freqs_tmp[unfiltered_marker_ct] = 0.5;
       } else {
         dxx = ref_freq_numer / ref_freq_denom;
 	set_allele_freqs_tmp[unfiltered_marker_ct] = dxx;
-        marker_wt = pow(2 * dxx * (1.0 - dxx), -exponent);
+        // marker_wt = pow(2 * dxx * (1.0 - dxx), -exponent);
       }
     }
 
@@ -1635,7 +1636,7 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
       if (retval) {
 	return retval;
       }
-      printf("\r%lu markers complete.", unfiltered_marker_ct);
+      printf("\r%" PRIuPTR " markers complete.", unfiltered_marker_ct);
       fflush(stdout);
       marker_idxl = 0;
     }
@@ -1736,6 +1737,11 @@ int32_t wdist_dosage(int32_t calculation_type, int32_t dist_calc_type, char* gen
   uint32_t marker_idx;
   double dxx;
   double dyy;
+  if (exponent != 0.0) {
+    logprint("Error: --exponent not yet supported with dosage data.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto wdist_dosage_ret_1;
+  }
   retval = oxford_sample_load(samplename, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &sex_nm, &sex_male, &pheno_nm, &pheno_c, &pheno_d, &indiv_exclude, missing_code);
   if (retval) {
     goto wdist_dosage_ret_1;

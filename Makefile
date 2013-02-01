@@ -42,4 +42,4 @@ wdist64c: $(SRC)
 	gcc $(CFLAGS) $(ARCH64) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB64)
 
 wdist64nl: $(SRC)
-	g++ $(CFLAGS) $(ARCH64) $(SRC) -o wdist $(LINKFLAGS) -L. $(ZLIB64)
+	gcc $(CFLAGS) $(ARCH64) $(SRC) -o wdist $(LINKFLAGS) -L. $(ZLIB64)

@@ -16,7 +16,7 @@
 
 
 // Uncomment this to build without CBLAS/CLAPACK:
-// #define NOLAPACK
+#define NOLAPACK
 
 #include <ctype.h>
 #include <time.h>
@@ -2658,7 +2658,7 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
 	    do {
 	      ulval &= next_ppc_marker_hybrid;
 	      if (ulval) {
-		ujj = __builtin_ctzl(ulval);
+		ujj = CTZLU(ulval);
 		next_ppc_marker_hybrid = marker_window_ptr[ujj];
 		ibs_incr += (ONELU << ((ujj & 1) * BITCT2));
 	      } else if (offset < ((GENOME_MULTIPLEX2 - BITCT) / BITCT)) {
@@ -2796,7 +2796,7 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
 	    do {
 	      ulval &= next_ppc_marker_hybrid;
 	      if (ulval) {
-		ujj = __builtin_ctzl(ulval);
+		ujj = CTZLU(ulval);
 		next_ppc_marker_hybrid = marker_window_ptr[ujj];
 		ibs_incr += (ONELU << ((ujj & 1) * BITCT2));
 	      } else if (offset < ((GENOME_MULTIPLEX2 - BITCT) / BITCT)) {
@@ -2825,12 +2825,21 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
   }
 }
 
-void* calc_genome_thread(void* arg) {
+#if _WIN32
+void __stdcall calc_genome_thread(void* arg)
+#else
+void* calc_genome_thread(void* arg)
+#endif
+{
   intptr_t tidx = (intptr_t)arg;
   int32_t ii = g_thread_start[tidx];
   int32_t jj = g_thread_start[0];
+  printf("cgt: %" PRIdPTR "\n", tidx);
   incr_genome(&(g_genome_main[((int64_t)g_indiv_ct * (ii - jj) - ((int64_t)ii * (ii + 1) - (int64_t)jj * (jj + 1)) / 2) * 5]), (uintptr_t*)g_geno, (int)tidx);
+  printf("cgt end: %" PRIdPTR "\n", tidx);
+#ifndef _WIN32
   return NULL;
+#endif
 }
 
 void incr_dists(double* dists, uintptr_t* geno, int32_t tidx) {
@@ -2905,7 +2914,7 @@ void incr_wt_dist_missing(uint32_t* mtw, int32_t tidx) {
       for (ujj = 0; ujj < uii; ujj++) {
 	uljj = (*glptr++) & ulii;
         while (uljj) {
-          mtw[ujj] += g_weights_i[__builtin_ctzl(uljj)];
+          mtw[ujj] += g_weights_i[CTZLU(uljj)];
           uljj &= uljj - 1;
         }
       }
@@ -3783,35 +3792,38 @@ int32_t invert_matrix(int32_t dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_
   // w -> dbl_1d_buf
   // v -> dbl_2d_buf
   const double eps = 1e-24;
+  int32_t i;
+  int32_t j;
+  int32_t k;
   if (svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf) == -1) {
     return -1;
   }
 
   // Look for singular values
   double wmax = 0;
-  for (int32_t i=0; i<dim; i++) {
+  for (i=0; i<dim; i++) {
     wmax = dbl_1d_buf[i] > wmax ? dbl_1d_buf[i] : wmax;
   }
   double wmin = wmax * eps;
-  for (int32_t i=0; i<dim; i++) {
+  for (i=0; i<dim; i++) {
     dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : 1/dbl_1d_buf[i];
   }
   
-  for (int32_t i=0; i<dim; i++) {
-    for (int32_t j=0; j<dim; j++) {
+  for (i=0; i<dim; i++) {
+    for (j=0; j<dim; j++) {
       matrix[i * dim + j] = matrix[i * dim + j] * dbl_1d_buf[j];
     }
   }
 
   // [nxn].[t(v)] 
-  for (int32_t i=0; i<dim; i++) {
+  for (i=0; i<dim; i++) {
     fill_double_zero(dbl_1d_buf, dim);
-    for (int32_t j=0; j<dim; j++) {
-      for (int32_t k=0; k<dim; k++) {
+    for (j=0; j<dim; j++) {
+      for (k=0; k<dim; k++) {
 	dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];
       }
     }
-    for (int32_t j = 0; j < dim; j++) {
+    for (j = 0; j < dim; j++) {
       matrix[i * dim + j] = dbl_1d_buf[j];
     }
   }
@@ -5117,14 +5129,14 @@ void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_ar
 #endif
       if (ulii) {
 	do {
-	  bit_idx = __builtin_ctzl(ulii);
+	  bit_idx = CTZLU(ulii);
 	  ulkk &= ~(ONELU << (bit_idx * 2));
 	  ulii &= ulii - 1;
 	} while (ulii);
       }
       if (uljj) {
 	do {
-	  bit_idx = __builtin_ctzl(uljj);
+	  bit_idx = CTZLU(uljj);
 	  ulmm &= ~(ONELU << (bit_idx * 2));
 	  uljj &= uljj - 1;
 	} while (uljj);
@@ -5165,14 +5177,14 @@ void vec_include_mask_in(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, 
 #endif
       if (ulii) {
 	do {
-	  bit_idx = __builtin_ctzl(ulii);
+	  bit_idx = CTZLU(ulii);
 	  ulkk &= ~(ONELU << (bit_idx * 2));
 	  ulii &= ulii - 1;
 	} while (ulii);
       }
       if (uljj) {
 	do {
-	  bit_idx = __builtin_ctzl(uljj);
+	  bit_idx = CTZLU(uljj);
 	  ulmm &= ~(ONELU << (bit_idx * 2));
 	  uljj &= uljj - 1;
 	} while (uljj);
@@ -5203,14 +5215,14 @@ void vec_include_mask_out(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr,
 #endif
       if (ulii) {
 	do {
-	  bit_idx = __builtin_ctzl(ulii);
+	  bit_idx = CTZLU(ulii);
 	  ulkk &= ~(ONELU << (bit_idx * 2));
 	  ulii &= ulii - 1;
 	} while (ulii);
       }
       if (uljj) {
 	do {
-	  bit_idx = __builtin_ctzl(uljj);
+	  bit_idx = CTZLU(uljj);
 	  ulmm &= ~(ONELU << (bit_idx * 2));
 	  uljj &= uljj - 1;
 	} while (uljj);
@@ -5241,14 +5253,14 @@ void vec_include_mask_out_intersect(uintptr_t unfiltered_indiv_ct, uintptr_t* in
 #endif
       if (ulii) {
 	do {
-	  bit_idx = __builtin_ctzl(ulii);
+	  bit_idx = CTZLU(ulii);
 	  ulkk &= ~(ONELU << (bit_idx * 2));
 	  ulii &= ulii - 1;
 	} while (ulii);
       }
       if (uljj) {
 	do {
-	  bit_idx = __builtin_ctzl(uljj);
+	  bit_idx = CTZLU(uljj);
 	  ulmm &= ~(ONELU << (bit_idx * 2));
 	  uljj &= uljj - 1;
 	} while (uljj);
@@ -5306,7 +5318,7 @@ int32_t mind_filter(FILE* bedfile, double mind_thresh, uintptr_t unfiltered_mark
       ulii = (ulii & FIVEMASK) & ((~ulii) >> 1);
       // now ulii has single bit set only at missing positions
       while (ulii) {
-	missing_cts[uii + __builtin_ctzl(ulii) / 2] += 1;
+	missing_cts[uii + CTZLU(ulii) / 2] += 1;
 	ulii &= ulii - 1;
       }
     }
@@ -8066,15 +8078,11 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
       }
     }
 
-    for (ulii = 1; ulii < g_thread_ct; ulii++) {
-      if (pthread_create(&(threads[ulii - 1]), NULL, &calc_genome_thread, (void*)ulii)) {
-	goto calc_genome_ret_THREAD_CREATE_FAIL;
-      }
+    if (spawn_threads(threads, &calc_genome_thread, g_thread_ct)) {
+      goto calc_genome_ret_THREAD_CREATE_FAIL;
     }
     incr_genome(g_genome_main, (uintptr_t*)g_geno, 0);
-    for (ukk = 0; ukk < g_thread_ct - 1; ukk++) {
-      pthread_join(threads[ukk], NULL);
-    }
+    join_threads(threads, g_thread_ct);
     g_low_ct = g_high_ct;
     printf("\r%d markers complete.", g_low_ct);
     fflush(stdout);
@@ -8402,9 +8410,6 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
   calc_genome_ret_THREAD_CREATE_FAIL:
     logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
-    for (uljj = 0; uljj < ulii - 1; uljj++) {
-      pthread_join(threads[uljj], NULL);
-    }
     break;
   }
  calc_genome_ret_1:
@@ -9054,7 +9059,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
     }
     ii = get_marker_chrom(chrom_info_ptr, window_unfiltered_start - 1);
     putchar('\r');
-    sprintf(logbuf, "Pruned %lu markers from chromosome %d, leaving %lu.\n", cur_exclude_ct, ii, chrom_info_ptr->chrom_end[ii] - chrom_info_ptr->chrom_start[ii] - cur_exclude_ct);
+    sprintf(logbuf, "Pruned %" PRIuPTR " markers from chromosome %d, leaving %" PRIuPTR ".\n", cur_exclude_ct, ii, chrom_info_ptr->chrom_end[ii] - chrom_info_ptr->chrom_start[ii] - cur_exclude_ct);
     logprintb();
     tot_exclude_ct += cur_exclude_ct;
 
@@ -9682,7 +9687,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	pthread_join(threads[uii], NULL);
       }
     }
-    printf("\r%lu markers complete.", marker_idx);
+    printf("\r%" PRIuPTR " markers complete.", marker_idx);
     fflush(stdout);
   } while (marker_idx < marker_ct);
   if (relationship_req(calculation_type)) {
@@ -9740,7 +9745,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
       goto calc_rel_ret_WRITE_FAIL;
     }
     for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-      if (fprintf(outfile, "%lu\t%lu\t%u\t%g\t%g\t%g\n", indiv_idx + 1, indiv_idx + 1, marker_ct - g_indiv_missing_unwt[indiv_idx], *dptr3++ - 1.0, *dptr4++ - 1.0, *dptr2++ - 1.0) < 0) {
+      if (fprintf(outfile, "%" PRIuPTR "\t%" PRIuPTR "\t%u\t%g\t%g\t%g\n", indiv_idx + 1, indiv_idx + 1, marker_ct - g_indiv_missing_unwt[indiv_idx], *dptr3++ - 1.0, *dptr4++ - 1.0, *dptr2++ - 1.0) < 0) {
 	goto calc_rel_ret_WRITE_FAIL;
       }
     }
@@ -9868,11 +9873,11 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	  giptr = g_indiv_missing_unwt;
 	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx; indiv_idx2++) {
 	    ujj = uii - (*giptr++) + (*giptr2++);
-	    if (fprintf(outfile, "%lu\t%lu\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, ujj, *dist_ptr++) < 0) {
+	    if (fprintf(outfile, "%" PRIuPTR "\t%" PRIuPTR "\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, ujj, *dist_ptr++) < 0) {
 	      goto calc_rel_ret_WRITE_FAIL;
 	    }
 	  }
-	  if (fprintf(outfile, "%lu\t%lu\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, uii, *dptr2++) < 0) {
+	  if (fprintf(outfile, "%" PRIuPTR "\t%" PRIuPTR "\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, uii, *dptr2++) < 0) {
 	    goto calc_rel_ret_WRITE_FAIL;
 	  }
 	}
@@ -10240,7 +10245,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	pthread_join(threads[uii], NULL);
       }
     }
-    printf("\r%lu markers complete.", marker_idx);
+    printf("\r%" PRIuPTR " markers complete.", marker_idx);
     fflush(stdout);
   } while (marker_idx < marker_ct);
   if (relationship_req(calculation_type)) {
@@ -10298,7 +10303,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
       goto calc_rel_f_ret_WRITE_FAIL;
     }
     for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-      if (fprintf(outfile, "%lu\t%lu\t%u\t%g\t%g\t%g\n", indiv_idx + 1, indiv_idx + 1, marker_ct - g_indiv_missing_unwt[indiv_idx], *dptr3++ - 1.0, *dptr4++ - 1.0, *dptr2++ - 1.0) < 0) {
+      if (fprintf(outfile, "%" PRIuPTR "\t%" PRIuPTR "\t%u\t%g\t%g\t%g\n", indiv_idx + 1, indiv_idx + 1, marker_ct - g_indiv_missing_unwt[indiv_idx], *dptr3++ - 1.0, *dptr4++ - 1.0, *dptr2++ - 1.0) < 0) {
 	goto calc_rel_f_ret_WRITE_FAIL;
       }
     }
@@ -10424,11 +10429,11 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	  giptr = g_indiv_missing_unwt;
 	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx; indiv_idx2++) {
 	    ujj = uii - (*giptr++) + (*giptr2++);
-	    if (fprintf(outfile, "%lu\t%lu\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, ujj, *dist_ptr++) < 0) {
+	    if (fprintf(outfile, "%" PRIuPTR "\t%" PRIuPTR "\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, ujj, *dist_ptr++) < 0) {
 	      goto calc_rel_f_ret_WRITE_FAIL;
 	    }
 	  }
-	  if (fprintf(outfile, "%lu\t%lu\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, uii, *dptr2++) < 0) {
+	  if (fprintf(outfile, "%" PRIuPTR "\t%" PRIuPTR "\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, uii, *dptr2++) < 0) {
 	    goto calc_rel_f_ret_WRITE_FAIL;
 	  }
 	}
@@ -10815,13 +10820,13 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
         ulkk = (*rtptr) & uljj;
 	if (ulkk) {
 	  *rtptr &= ~uljj;
-	  cur_prune = __builtin_ctzl(ulkk) - inword_idx;
+	  cur_prune = CTZLU(ulkk) - inword_idx;
 	}
       } else {
         ulkk = (*rtptr) & (~((ONELU << inword_idx) - ONELU));
 	if (ulkk) {
 	  *rtptr &= (ONELU << inword_idx) - ONELU;
-          cur_prune = __builtin_ctzl(ulkk) - inword_idx;
+          cur_prune = CTZLU(ulkk) - inword_idx;
 	} else {
 	  col = BITCT - inword_idx;
           row = col + (uljj - ulii - 1) * BITCT;
@@ -10829,7 +10834,7 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
             ulkk = *(++rtptr);
             if (ulkk) {
 	      *rtptr = 0;
-              cur_prune = __builtin_ctzl(ulkk) + col;
+              cur_prune = CTZLU(ulkk) + col;
 	      break;
 	    }
 	    col += BITCT;
@@ -10838,7 +10843,7 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
             ulkk = (*(++rtptr)) & ((ONELU << inword_bound) - ONELU);
             if (ulkk) {
 	      *rtptr &= (~((ONELU << inword_bound) - ONELU));
-	      cur_prune = __builtin_ctzl(ulkk) + col;
+	      cur_prune = CTZLU(ulkk) + col;
 	    }
 	  }
 	}
@@ -10889,7 +10894,7 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
       ulkk = (*rtptr) & uljj;
       if (ulkk) {
 	do {
-	  uii = __builtin_ctzl(ulkk) - inword_idx;
+	  uii = CTZLU(ulkk) - inword_idx;
 	  rel_cut_arr_dec(&(rel_ct_arr[uii]), &exactly_one_rel_ct);
 	  ulkk &= ulkk - 1;
 	} while (ulkk);
@@ -10899,7 +10904,7 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
       ulkk = (*rtptr) & (~((ONELU << inword_idx) - ONELU));
       if (ulkk) {
 	do {
-	  uii = __builtin_ctzl(ulkk) - inword_idx;
+	  uii = CTZLU(ulkk) - inword_idx;
 	  rel_cut_arr_dec(&(rel_ct_arr[uii]), &exactly_one_rel_ct);
 	  ulkk &= ulkk - 1;
 	} while (ulkk);
@@ -10911,7 +10916,7 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
 	ulkk = *(++rtptr);
 	if (ulkk) {
 	  do {
-	    uii = __builtin_ctzl(ulkk) + col;
+	    uii = CTZLU(ulkk) + col;
 	    rel_cut_arr_dec(&(rel_ct_arr[uii]), &exactly_one_rel_ct);
 	    ulkk &= ulkk - 1;
 	  } while (ulkk);
@@ -10922,7 +10927,7 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
       ulkk = (*(++rtptr)) & ((ONELU << inword_bound) - ONELU);
       if (ulkk) {
 	do {
-	  uii = __builtin_ctzl(ulkk) + col;
+	  uii = CTZLU(ulkk) + col;
 	  rel_cut_arr_dec(&(rel_ct_arr[uii]), &exactly_one_rel_ct);
           ulkk &= ulkk - 1;
 	} while (ulkk);
@@ -11309,9 +11314,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   count_genders(sex_nm, sex_male, unfiltered_indiv_ct, indiv_exclude, &ii, &jj, &kk);
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   if (kk) {
-    sprintf(logbuf, "%lu marker%s and %lu %s (%d male%s, %d female%s, %d unknown) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s", kk);
+    sprintf(logbuf, "%" PRIuPTR " marker%s and %" PRIuPTR " %s (%d male%s, %d female%s, %d unknown) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s", kk);
   } else {
-    sprintf(logbuf, "%lu marker%s and %lu %s (%d male%s, %d female%s) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s");
+    sprintf(logbuf, "%" PRIuPTR " marker%s and %" PRIuPTR " %s (%d male%s, %d female%s) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), ii, (ii == 1)? "" : "s", jj, (jj == 1)? "" : "s");
   }
   logprintb();
 
@@ -11597,11 +11602,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   wkspace_reset(hwe_lls);
 
-  sprintf(logbuf, "%lu marker%s and %lu %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", g_indiv_ct, species_str(g_indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
+  sprintf(logbuf, "%" PRIuPTR " marker%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", g_indiv_ct, species_str(g_indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
   logprintb();
 
   if (parallel_tot > g_indiv_ct / 2) {
-    sprintf(logbuf, "Error: Too many --parallel jobs (maximum %lu/2 = %lu).\n", g_indiv_ct, g_indiv_ct / 2);
+    sprintf(logbuf, "Error: Too many --parallel jobs (maximum %" PRIuPTR "/2 = %" PRIuPTR ").\n", g_indiv_ct, g_indiv_ct / 2);
     goto wdist_ret_INVALID_CMDLINE_2;
   }
   if (g_thread_ct > 1) {
@@ -12075,7 +12080,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	  pthread_join(threads[uii], NULL);
 	}
       }
-      printf("\r%lu markers complete.", marker_idx);
+      printf("\r%" PRIuPTR " markers complete.", marker_idx);
       fflush(stdout);
     }
     putchar('\r');
@@ -12819,7 +12824,6 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t recode_modifier = 0;
   int32_t freq_counts = 0;
   int32_t allelexxxx = 0;
-  int32_t silent = 0;
   int32_t merge_type = 0;
   int32_t indiv_sort = 0;
   int32_t keep_allele_order = 0;
@@ -13209,7 +13213,6 @@ int32_t main(int32_t argc, char** argv) {
   for (cur_flag = 0; cur_flag < flag_ct; cur_flag++) {
     if (!memcmp("silent", &(flag_buf[cur_flag * MAX_FLAG_LEN]), 7)) {
       freopen("/dev/null", "w", stdout);
-      silent = 1;
       break;
     }
   }
@@ -15514,9 +15517,9 @@ int32_t main(int32_t argc, char** argv) {
     malloc_size_mb = WKSPACE_MIN_MB;
   }
   if (llxx) {
-    sprintf(logbuf, "%" PRId64 " MB RAM detected; reserving %ld MB for main workspace.\n", llxx, malloc_size_mb);
+    sprintf(logbuf, "%" PRId64 " MB RAM detected; reserving %" PRIdPTR " MB for main workspace.\n", llxx, malloc_size_mb);
   } else {
-    sprintf(logbuf, "Failed to calculate system memory.  Attempting to reserve %ld MB.\n", malloc_size_mb);
+    sprintf(logbuf, "Failed to calculate system memory.  Attempting to reserve %" PRIdPTR " MB.\n", malloc_size_mb);
   }
   logprintb();
   wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
@@ -15527,7 +15530,7 @@ int32_t main(int32_t argc, char** argv) {
     }
     wkspace_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
     if (wkspace_ua) {
-      sprintf(logbuf, "Allocated %ld MB successfully, after larger attempt(s) failed.\n", malloc_size_mb);
+      sprintf(logbuf, "Allocated %" PRIdPTR " MB successfully, after larger attempt(s) failed.\n", malloc_size_mb);
       logprintb();
     } else if (malloc_size_mb == WKSPACE_MIN_MB) {
       goto main_ret_NOMEM;

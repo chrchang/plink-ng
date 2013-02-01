@@ -7,7 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <pthread.h>
 #include <limits.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -17,10 +16,11 @@
 #define PRIu64 "I64u"
 #define fseeko fseeko64
 #define ftello ftello64
-#ifdef _WIN64
 #include <windows.h>
-#endif
+#include <process.h>
+#define pthread_t HANDLE
 #else
+#include <pthread.h>
 #ifdef __cplusplus
 #define PRId64 "lld"
 #endif
@@ -31,7 +31,9 @@
 
 #ifdef _WIN64
 #define __LP64__
+#define CTZLU __builtin_ctzll
 #else
+#define CTZLU __builtin_ctzl
 #ifndef __LP64__
 #define uintptr_t unsigned long
 #define intptr_t long
@@ -44,7 +46,7 @@
 
 #ifdef __LP64__
 #include <emmintrin.h>
-#define FIVEMASK 0x5555555555555555LU
+#define FIVEMASK 0x5555555555555555LLU
 
 typedef union {
   __m128i vi;
@@ -56,10 +58,22 @@ typedef union {
 
 #define ZEROLU 0LLU
 #define ONELU 1LLU
+#ifndef PRIuPTR
+#define PRIuPTR PRIu64
+#endif
+#ifndef PRIdPTR
+#define PRIdPTR PRId64
+#endif
 #else
 #define FIVEMASK 0x55555555
 #define ZEROLU 0LU
 #define ONELU 1LU
+#ifndef PRIuPTR
+#define PRIuPTR "lu"
+#endif
+#ifndef PRIdPTR
+#define PRIdPTR "ld"
+#endif
 #endif
 
 #include "zlib-1.2.7/zlib.h"
@@ -171,8 +185,13 @@ typedef union {
 #define MINV(aa, bb) ((aa) > (bb))? (bb) : (aa)
 
 #define _FILE_OFFSET_BITS 64
+#if _WIN32
+#define MAX_THREADS 63
+#define MAX_THREADS_P1 64
+#else
 #define MAX_THREADS 127
 #define MAX_THREADS_P1 128
+#endif
 
 #ifdef __LP64__
 #define BITCT 64
@@ -199,7 +218,7 @@ typedef union {
 #define JACKKNIFE_VALS_GROUPDIST 3
 
 #ifdef __LP64__
-#define AAAAMASK 0xaaaaaaaaaaaaaaaaLU
+#define AAAAMASK 0xaaaaaaaaaaaaaaaaLLU
 // number of snp-major .bed lines to read at once for distance calc if exponent
 // is nonzero.
 #define MULTIPLEX_DIST_EXP 64
@@ -334,7 +353,7 @@ static inline int32_t wkspace_alloc_ull_checked(uint64_t** ullp_ptr, uintptr_t s
 void wkspace_reset(void* new_base);
 
 static inline unsigned char* top_alloc(uintptr_t* topsize_ptr, uint32_t size) {
-  uintptr_t ts = *topsize_ptr + ((size + 15) & (~15LU));
+  uintptr_t ts = *topsize_ptr + ((size + 15) & (~(15 * ONELU)));
   if (ts > wkspace_left) {
     return NULL;
   } else {
@@ -768,6 +787,14 @@ void pick_d_small(unsigned char* tmp_cbuf, int32_t* ibuf, uint32_t ct, uint32_t 
 void print_pheno_stdev(double* pheno_d, uint32_t indiv_ct);
 
 uint32_t set_default_jackknife_d(uint32_t ct);
+
+void join_threads(pthread_t* threads, uint32_t ctp1);
+
+#if _WIN32
+int32_t spawn_threads(pthread_t* threads, void (*start_routine)(void*), uint32_t ct);
+#else
+int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uint32_t ct);
+#endif
 
 int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct_local, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d);
 

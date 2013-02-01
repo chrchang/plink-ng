@@ -2352,7 +2352,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
     wkspace_left += cur_slen_rdup;
     if (!is_eoln_kns(*bufptr)) {
       putchar('\n');
-      sprintf(logbuf, "Error: Too many entries in .ped line for indiv %lu.\n", indiv_ct);
+      sprintf(logbuf, "Error: Too many entries in .ped line for indiv %" PRIuPTR ".\n", indiv_ct);
       goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2;
     }
     indiv_ct++;
@@ -2411,7 +2411,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       if (map_is_unsorted) {
         sprintf(logbuf, "Warning: Marker %u (post-sort/filter) %sallelic; setting rarest missing.\n", map_reverse[marker_idx] + 1, (ukk? "quad" : "tri"));
       } else {
-        sprintf(logbuf, "Warning: Marker %lu %sallelic; setting rarest alleles missing.\n", marker_idx + 1, (ukk? "quad" : "tri"));
+        sprintf(logbuf, "Warning: Marker %" PRIuPTR " %sallelic; setting rarest alleles missing.\n", marker_idx + 1, (ukk? "quad" : "tri"));
       }
       get_top_two(&(marker_allele_cts[4 * marker_idx]), ukk? 4 : 3, &uii, &ujj);
       ukk = map_reverse[marker_idx];
@@ -2478,7 +2478,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   }
   if (wkspace_left >= marker_ct * indiv_ct4) {
     markers_per_pass = marker_ct;
-    sprintf(logbuf, "Performing single-pass .bed write (%lu marker%s, %lu %s).\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
+    sprintf(logbuf, "Performing single-pass .bed write (%" PRIuPTR " marker%s, %" PRIuPTR " %s).\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
     pass_ct = 1;
   } else {
     if (!map_is_unsorted) {
@@ -2491,7 +2491,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       goto ped_to_bed_multichar_allele_ret_NOMEM;
     }
     pass_ct = (marker_ct + markers_per_pass - 1) / markers_per_pass;
-    sprintf(logbuf, "Performing %u-pass .bed write (%u/%lu marker%s/pass, %lu %s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
+    sprintf(logbuf, "Performing %u-pass .bed write (%u/%" PRIuPTR " marker%s/pass, %" PRIuPTR " %s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
   }
   logprintb();
   writebuf = wkspace_base;
@@ -2666,13 +2666,13 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   ped_to_bed_multichar_allele_ret_INVALID_FORMAT_4:
     wkspace_left += cur_slen_rdup;
     putchar('\n');
-    sprintf(logbuf, "Error: Half-missing call in .ped file at marker %lu, indiv %lu.\n", marker_uidx + 1, indiv_ct + 1);
+    sprintf(logbuf, "Error: Half-missing call in .ped file at marker %" PRIuPTR ", indiv %" PRIuPTR ".\n", marker_uidx + 1, indiv_ct + 1);
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   ped_to_bed_multichar_allele_ret_INVALID_FORMAT_3:
     putchar('\n');
-    sprintf(logbuf, "Error: Not enough markers in .ped line %lu.\n", indiv_ct + 1);
+    sprintf(logbuf, "Error: Not enough markers in .ped line %" PRIuPTR ".\n", indiv_ct + 1);
   ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2:
     logprintb();
   ped_to_bed_multichar_allele_ret_INVALID_FORMAT:
@@ -3011,7 +3011,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	if (map_is_unsorted) {
 	  sprintf(logbuf, "Warning: Marker %u (post-sort/filter) %sallelic; setting rarest missing.\n", map_reverse[marker_idx] + 1, (cc? "quad" : "tri"));
 	} else {
-	  sprintf(logbuf, "Warning: Marker %lu %sallelic; setting rarest alleles missing.\n", marker_idx + 1, (cc? "quad" : "tri"));
+	  sprintf(logbuf, "Warning: Marker %" PRIuPTR " %sallelic; setting rarest alleles missing.\n", marker_idx + 1, (cc? "quad" : "tri"));
 	}
 	logprintb();
 	ujj = (cc? 4 : 3);
@@ -3092,7 +3092,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     }
     if (wkspace_left >= marker_ct * indiv_ct4) {
       markers_per_pass = marker_ct;
-      sprintf(logbuf, "Performing single-pass .bed write (%lu marker%s, %lu %s).\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
+      sprintf(logbuf, "Performing single-pass .bed write (%" PRIuPTR " marker%s, %" PRIuPTR " %s).\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
       pass_ct = 1;
     } else {
       if (!map_is_unsorted) {
@@ -3105,7 +3105,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	goto ped_to_bed_ret_NOMEM;
       }
       pass_ct = (marker_ct + markers_per_pass - 1) / markers_per_pass;
-      sprintf(logbuf, "Performing %u-pass .bed write (%u/%lu marker%s/pass, %lu %s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
+      sprintf(logbuf, "Performing %u-pass .bed write (%u/%" PRIuPTR " marker%s/pass, %" PRIuPTR " %s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
     }
     logprintb();
     writebuf = wkspace_base;
@@ -3274,12 +3274,12 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     retval = RET_WRITE_FAIL;
     break;
   ped_to_bed_ret_INVALID_FORMAT_4:
-    sprintf(logbuf, "Error: Half-missing call in .ped file at marker %lu, indiv %lu.\n", marker_uidx + 1, indiv_ct + 1);
+    sprintf(logbuf, "Error: Half-missing call in .ped file at marker %" PRIuPTR ", indiv %" PRIuPTR ".\n", marker_uidx + 1, indiv_ct + 1);
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   ped_to_bed_ret_INVALID_FORMAT_3:
-    sprintf(logbuf, "Error: Not enough markers in .ped line %lu.\n", indiv_ct + 1);
+    sprintf(logbuf, "Error: Not enough markers in .ped line %" PRIuPTR ".\n", indiv_ct + 1);
   ped_to_bed_ret_INVALID_FORMAT_2:
     logprintb();
   ped_to_bed_ret_INVALID_FORMAT:
@@ -4414,7 +4414,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   transposed_to_bed_ret_INVALID_FORMAT_4:
     cptr[strlen_se(cptr)] = '\0';
     putchar('\r');
-    sprintf(logbuf, "Error: half-missing call at marker %s, indiv %lu in .tped file.\n", cptr, indiv_idx);
+    sprintf(logbuf, "Error: half-missing call at marker %s, indiv %" PRIuPTR " in .tped file.\n", cptr, indiv_idx);
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
@@ -4619,7 +4619,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
     }
   }
   putchar('\r');
-  sprintf(logbuf, "Dummy data generated (%lu markers, %lu %s).\n", marker_ct, indiv_ct, species_str(indiv_ct));
+  sprintf(logbuf, "Dummy data generated (%" PRIuPTR " markers, %" PRIuPTR " %s).\n", marker_ct, indiv_ct, species_str(indiv_ct));
   logprintb();
   while (0) {
   generate_dummy_ret_NOMEM:
@@ -6258,8 +6258,6 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
-  uint32_t umm;
-  uint32_t unn;
   Ll_entry2** ll_pptr;
   Ll_entry2* ll_ptr;
   double gd_val;
@@ -6342,13 +6340,11 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	    bufptr2 = ll_ptr->allele[0];
 	    allele_ct = 0;
 	    if (bufptr2) {
-	      umm = strlen(bufptr2);
 	      cur_alleles[0] = bufptr2;
-	      allele_ct++;
+	      allele_ct = 1;
 	    }
 	    bufptr3 = ll_ptr->allele[1];
 	    if (bufptr3) {
-	      unn = strlen(bufptr3);
 	      cur_alleles[allele_ct++] = bufptr3;
 	    }
 	    if (aptr2) {
@@ -7866,7 +7862,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     if (pass_ct == 1) {
       sprintf(logbuf, "Performing single-pass merge (%u %s, %u marker%s).\n", tot_indiv_ct, species_str(tot_indiv_ct), dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
     } else {
-      sprintf(logbuf, "Performing %u-pass merge (%u %s, %lu/%u marker%s per pass).\n", pass_ct, tot_indiv_ct, species_str(tot_indiv_ct), markers_per_pass, dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
+      sprintf(logbuf, "Performing %u-pass merge (%u %s, %" PRIuPTR "/%u marker%s per pass).\n", pass_ct, tot_indiv_ct, species_str(tot_indiv_ct), markers_per_pass, dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
     }
   } else {
     memcpy(outname_end, ".diff", 6);
@@ -7906,7 +7902,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	goto merge_datasets_ret_1;
       }
       if (mlpos != merge_ct - 1) {
-        printf("\rPass %u: fileset #%lu complete.", uii + 1, mlpos + 1);
+        printf("\rPass %u: fileset #%" PRIuPTR " complete.", uii + 1, mlpos + 1);
 	fflush(stdout);
       }
     }
