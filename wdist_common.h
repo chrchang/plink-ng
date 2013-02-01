@@ -19,8 +19,12 @@
 #include <windows.h>
 #include <process.h>
 #define pthread_t HANDLE
+#define THREAD_RET_TYPE unsigned __stdcall
+#define THREAD_RETURN return 0
 #else
 #include <pthread.h>
+#define THREAD_RET_TYPE void*
+#define THREAD_RETURN return NULL
 #ifdef __cplusplus
 #define PRId64 "lld"
 #endif
@@ -797,7 +801,7 @@ uint32_t set_default_jackknife_d(uint32_t ct);
 void join_threads(pthread_t* threads, uint32_t ctp1);
 
 #if _WIN32
-int32_t spawn_threads(pthread_t* threads, void (*start_routine)(void*), uintptr_t ct);
+int32_t spawn_threads(pthread_t* threads, unsigned (__stdcall *start_routine)(void*), uintptr_t ct);
 #else
 int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr_t ct);
 #endif

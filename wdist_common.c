@@ -2048,13 +2048,13 @@ uint32_t set_default_jackknife_d(uint32_t ct) {
 }
 
 void join_threads(pthread_t* threads, uint32_t ctp1) {
-  uint32_t uii;
   if (!(--ctp1)) {
     return;
   }
 #if _WIN32
   WaitForMultipleObjects(ctp1, threads, 1, INFINITE);
 #else
+  uint32_t uii;
   for (uii = 0; uii < ctp1; uii++) {
     pthread_join(threads[uii], NULL);
   }
@@ -2062,7 +2062,7 @@ void join_threads(pthread_t* threads, uint32_t ctp1) {
 }
 
 #if _WIN32
-int32_t spawn_threads(pthread_t* threads, void (*start_routine)(void*), uintptr_t ct)
+int32_t spawn_threads(pthread_t* threads, unsigned (__stdcall *start_routine)(void*), uintptr_t ct)
 #else
 int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr_t ct)
 #endif
@@ -2153,7 +2153,7 @@ double regress_jack(int32_t* ibuf, double* ret2_ptr) {
   return ((g_reg_tot_xy - neg_tot_xy) - dxx * (g_reg_tot_y - neg_tot_y) / dyy) / ((g_reg_tot_xx - neg_tot_xx) - dxx * dxx / dyy);
 }
 
-void* regress_jack_thread(void* arg) {
+THREAD_RET_TYPE regress_jack_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t* ibuf = (int32_t*)(&(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t))]));
   unsigned char* cbuf = &(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t)) + (g_jackknife_d + 1) * sizeof(int32_t)]);
@@ -2184,7 +2184,7 @@ void* regress_jack_thread(void* arg) {
   g_calc_result[1][tidx] = sum_sq;
   g_calc_result[2][tidx] = sum2;
   g_calc_result[3][tidx] = sum2_sq;
-  return NULL;
+  THREAD_RETURN;
 }
 
 int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct_local, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d) {
@@ -2202,11 +2202,7 @@ int32_t regress_distance(int32_t calculation_type, double* dists_local, double* 
   double dww;
   double dvv;
   double duu;
-#if _WIN32
-  // todo
-#else
   pthread_t threads[MAX_THREADS];
-#endif
 
   g_dists = dists_local;
   g_pheno_d = pheno_d_local;
@@ -2291,14 +2287,9 @@ int32_t regress_distance(int32_t calculation_type, double* dists_local, double* 
   if (!g_generic_buf) {
     return RET_NOMEM;
   }
-  for (ulii = 1; ulii < thread_ct; ulii++) {
-    if (pthread_create(&(threads[ulii - 1]), NULL, &regress_jack_thread, (void*)ulii)) {
-      fputs(errstr_thread_create, stdout);
-      while (--ulii) {
-	pthread_join(threads[ulii - 1], NULL);
-      }
-      return RET_THREAD_CREATE_FAIL;
-    }
+  if (spawn_threads(threads, &regress_jack_thread, thread_ct)) {
+    logprint(errstr_thread_create);
+    return RET_THREAD_CREATE_FAIL;
   }
   ulii = 0;
   regress_jack_thread((void*)ulii);
@@ -2306,8 +2297,8 @@ int32_t regress_distance(int32_t calculation_type, double* dists_local, double* 
   dzz = g_calc_result[1][0]; // sum of squares
   dww = g_calc_result[2][0]; // reverse regression sum
   dvv = g_calc_result[3][0]; // reverse regression sum of squares
+  join_threads(threads, thread_ct);
   for (uii = 0; uii < thread_ct - 1; uii++) {
-    pthread_join(threads[uii], NULL);
     dyy += g_calc_result[0][uii + 1];
     dzz += g_calc_result[1][uii + 1];
     dww += g_calc_result[2][uii + 1];

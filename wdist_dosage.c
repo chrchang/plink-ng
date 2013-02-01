@@ -603,12 +603,12 @@ void incr_distance_dosage_2d_01(double* distance_matrix_slice, int32_t thread_id
   }
 }
 
-void* incr_distance_dosage_2d_01_thread(void* arg) {
+THREAD_RET_TYPE incr_distance_dosage_2d_01_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ts = g_thread_start[tidx];
   int32_t ts0 = g_thread_start[0];
   incr_distance_dosage_2d_01(&(g_distance_matrix[((int64_t)ts * (ts - 1) - (int64_t)ts0 * (ts0 - 1)) / 2]), (int)tidx);
-  return NULL;
+  THREAD_RETURN;
 }
 
 void incr_distance_dosage_2d_flat(double* distance_matrix_slice, double* distance_wt_matrix_slice, int32_t thread_idx) {
@@ -685,13 +685,13 @@ void incr_distance_dosage_2d_flat(double* distance_matrix_slice, double* distanc
   }
 }
 
-void* incr_distance_dosage_2d_flat_thread(void* arg) {
+THREAD_RET_TYPE incr_distance_dosage_2d_flat_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ts = g_thread_start[tidx];
   int32_t ts0 = g_thread_start[0];
   int64_t offset = ((int64_t)ts * (ts - 1) - (int64_t)ts0 * (ts0 - 1)) / 2;
   incr_distance_dosage_2d_flat(&(g_distance_matrix[offset]), &(g_distance_wt_matrix[offset]), (int)tidx);
-  return NULL;
+  THREAD_RETURN;
 }
 
 void incr_distance_dosage_2d(double* distance_matrix_slice, double* distance_wt_matrix_slice, int32_t thread_idx) {
@@ -771,13 +771,13 @@ void incr_distance_dosage_2d(double* distance_matrix_slice, double* distance_wt_
   }
 }
 
-void* incr_distance_dosage_2d_thread(void* arg) {
+THREAD_RET_TYPE incr_distance_dosage_2d_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ts = g_thread_start[tidx];
   int32_t ts0 = g_thread_start[0];
   int64_t offset = ((int64_t)ts * (ts - 1) - (int64_t)ts0 * (ts0 - 1)) / 2;
   incr_distance_dosage_2d(&(g_distance_matrix[offset]), &(g_distance_wt_matrix[offset]), (int)tidx);
-  return NULL;
+  THREAD_RETURN;
 }
 
 void incr_distance_dosage_3d_flat(double* distance_matrix_slice, double* distance_wt_matrix_slice, int32_t thread_idx) {
@@ -886,13 +886,13 @@ void incr_distance_dosage_3d_flat(double* distance_matrix_slice, double* distanc
   }
 }
 
-void* incr_distance_dosage_3d_flat_thread(void* arg) {
+THREAD_RET_TYPE incr_distance_dosage_3d_flat_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ts = g_thread_start[tidx];
   int32_t ts0 = g_thread_start[0];
   int64_t offset = ((int64_t)ts * (ts - 1) - (int64_t)ts0 * (ts0 - 1)) / 2;
   incr_distance_dosage_3d_flat(&(g_distance_matrix[offset]), &(g_distance_wt_matrix[offset]), (int)tidx);
-  return NULL;
+  THREAD_RETURN;
 }
 
 void incr_distance_dosage_3d(double* distance_matrix_slice, double* distance_wt_matrix_slice, int32_t thread_idx) {
@@ -1001,13 +1001,13 @@ void incr_distance_dosage_3d(double* distance_matrix_slice, double* distance_wt_
   }
 }
 
-void* incr_distance_dosage_3d_thread(void* arg) {
+THREAD_RET_TYPE incr_distance_dosage_3d_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ts = g_thread_start[tidx];
   int32_t ts0 = g_thread_start[0];
   int64_t offset = ((int64_t)ts * (ts - 1) - (int64_t)ts0 * (ts0 - 1)) / 2;
   incr_distance_dosage_3d(&(g_distance_matrix[offset]), &(g_distance_wt_matrix[offset]), (int)tidx);
-  return NULL;
+  THREAD_RETURN;
 }
 
 void incr_dosage_missing_wt_01(double* distance_wt_matrix_slice, int32_t thread_idx) {
@@ -1033,12 +1033,12 @@ void incr_dosage_missing_wt_01(double* distance_wt_matrix_slice, int32_t thread_
   }
 }
 
-void* incr_dosage_missing_wt_01_thread(void* arg) {
+THREAD_RET_TYPE incr_dosage_missing_wt_01_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ts = g_thread_start[tidx];
   int32_t ts0 = g_thread_start[0];
   incr_dosage_missing_wt_01(&(g_distance_wt_matrix[((int64_t)ts * (ts - 1) - (int64_t)ts0 * (ts0 - 1)) / 2]), (int)tidx);
-  return NULL;
+  THREAD_RETURN;
 }
 
 int32_t update_distance_dosage_matrix(int32_t is_missing_01, int32_t distance_3d, int32_t distance_flat_missing, uint32_t thread_ct) {

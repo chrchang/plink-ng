@@ -2424,12 +2424,12 @@ void incr_dists_i(int32_t* idists, uintptr_t* geno, int32_t tidx) {
   }
 }
 
-void* calc_idist_thread(void* arg) {
+THREAD_RET_TYPE calc_idist_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ii = g_thread_start[tidx];
   int32_t jj = g_thread_start[0];
   incr_dists_i(&(g_idists[((int64_t)ii * (ii - 1) - (int64_t)jj * (jj - 1)) / 2]), (uintptr_t*)g_geno, (int)tidx);
-  return NULL;
+  THREAD_RETURN;
 }
 
 void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
@@ -2827,19 +2827,12 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
   }
 }
 
-#if _WIN32
-void __stdcall calc_genome_thread(void* arg)
-#else
-void* calc_genome_thread(void* arg)
-#endif
-{
+THREAD_RET_TYPE calc_genome_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ii = g_thread_start[tidx];
   int32_t jj = g_thread_start[0];
   incr_genome(&(g_genome_main[((int64_t)g_indiv_ct * (ii - jj) - ((int64_t)ii * (ii + 1) - (int64_t)jj * (jj + 1)) / 2) * 5]), (uintptr_t*)g_geno, (int)tidx);
-#ifndef _WIN32
-  return NULL;
-#endif
+  THREAD_RETURN;
 }
 
 void incr_dists(double* dists, uintptr_t* geno, int32_t tidx) {
@@ -2893,12 +2886,12 @@ void incr_dists(double* dists, uintptr_t* geno, int32_t tidx) {
   }
 }
 
-void* calc_dist_thread(void* arg) {
+THREAD_RET_TYPE calc_dist_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ii = g_thread_start[tidx];
   int32_t jj = g_thread_start[0];
   incr_dists(&(g_dists[((int64_t)ii * (ii - 1) - (int64_t)jj * (jj - 1)) / 2]), (uintptr_t*)g_geno, (int)tidx);
-  return NULL;
+  THREAD_RETURN;
 }
 
 void incr_wt_dist_missing(uint32_t* mtw, int32_t tidx) {
@@ -2923,12 +2916,12 @@ void incr_wt_dist_missing(uint32_t* mtw, int32_t tidx) {
   }
 }
 
-void* calc_distm_thread(void* arg) {
+THREAD_RET_TYPE calc_distm_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ii = g_thread_start[tidx];
   int32_t jj = g_thread_start[0];
   incr_wt_dist_missing(&(g_missing_tot_weights[((int64_t)ii * (ii - 1) - (int64_t)jj * (jj - 1)) / 2]), (int)tidx);
-  return NULL;
+  THREAD_RETURN;
 }
 
 void incr_dists_r(double* dists, uintptr_t* geno, uintptr_t* masks, int32_t tidx, double* weights) {
@@ -2973,12 +2966,12 @@ void incr_dists_r(double* dists, uintptr_t* geno, uintptr_t* masks, int32_t tidx
   }
 }
 
-void* calc_rel_thread(void* arg) {
+THREAD_RET_TYPE calc_rel_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ii = g_thread_start[tidx];
   int32_t jj = g_thread_start[0];
   incr_dists_r(&(g_rel_dists[((int64_t)ii * (ii - 1) - (int64_t)jj * (jj - 1)) / 2]), (uintptr_t*)g_geno, g_masks, (int)tidx, g_weights);
-  return NULL;
+  THREAD_RETURN;
 }
 
 void incr_dists_r_f(float* dists_f, uintptr_t* geno, uintptr_t* masks, int32_t tidx, float* weights_f) {
@@ -3023,12 +3016,12 @@ void incr_dists_r_f(float* dists_f, uintptr_t* geno, uintptr_t* masks, int32_t t
   }
 }
 
-void* calc_rel_f_thread(void* arg) {
+THREAD_RET_TYPE calc_rel_f_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ii = g_thread_start[tidx];
   int32_t jj = g_thread_start[0];
   incr_dists_r_f(&(g_rel_f_dists[((int64_t)ii * (ii - 1) - (int64_t)jj * (jj - 1)) / 2]), (uintptr_t*)g_geno, g_masks, (int)tidx, g_weights_f);
-  return NULL;
+  THREAD_RETURN;
 }
 
 void incr_dists_rm(uint32_t* idists, int32_t tidx, uint32_t* thread_start) {
@@ -3054,12 +3047,12 @@ void incr_dists_rm(uint32_t* idists, int32_t tidx, uint32_t* thread_start) {
   }
 }
 
-void* calc_missing_thread(void* arg) {
+THREAD_RET_TYPE calc_missing_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ii = g_thread_start[tidx];
   int32_t jj = g_thread_start[0];
   incr_dists_rm(&(g_missing_dbl_excluded[((int64_t)ii * (ii - 1) - (int64_t)jj * (jj - 1)) / 2]), (int)tidx, g_thread_start);
-  return NULL;
+  THREAD_RETURN;
 }
 
 inline int32_t flexclose_null(FILE** outfile_ptr, gzFile* gz_outfile_ptr) {
@@ -3098,7 +3091,7 @@ void incr_dists_rm_inv(uint32_t* idists, int32_t tidx) {
   }
 }
 
-void* calc_genomem_thread(void* arg) {
+THREAD_RET_TYPE calc_genomem_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ii = g_thread_start[tidx];
   int32_t jj = g_thread_start[0];
@@ -3109,7 +3102,7 @@ void* calc_genomem_thread(void* arg) {
   // ...
   // f(n) = nic - (n+1)(n+2)/2 + 1
   incr_dists_rm_inv(&(g_missing_dbl_excluded[(int64_t)g_indiv_ct * (ii - jj) - ((int64_t)(ii + 1) * (ii + 2) - (int64_t)(jj + 1) * (jj + 2)) / 2]), (int)tidx);
-  return NULL;
+  THREAD_RETURN;
 }
 
 void groupdist_jack(int32_t* ibuf, double* returns) {
@@ -3177,7 +3170,7 @@ void small_remap(int32_t* ibuf, uint32_t ct, uint32_t dd) {
   } while (ibuf < ibuf_end);
 }
 
-void* groupdist_jack_thread(void* arg) {
+THREAD_RET_TYPE groupdist_jack_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t* ibuf = (int32_t*)(&(g_geno[tidx * CACHEALIGN(g_high_ct + g_low_ct + (g_jackknife_d + 1) * sizeof(int32_t))]));
   unsigned char* cbuf = &(g_geno[tidx * CACHEALIGN(g_high_ct + g_low_ct + (g_jackknife_d + 1) * sizeof(int32_t)) + (g_jackknife_d + 1) * sizeof(int32_t)]);
@@ -3222,7 +3215,7 @@ void* groupdist_jack_thread(void* arg) {
   for (ullii = 0; ullii < 9; ullii++) {
     g_calc_result[ullii][tidx] = results[ullii];
   }
-  return NULL;
+  THREAD_RETURN;
 }
 
 double regress_rel_jack(int32_t* ibuf, double* ret2_ptr) {
@@ -3274,7 +3267,7 @@ double regress_rel_jack(int32_t* ibuf, double* ret2_ptr) {
   return ((g_reg_tot_xy - neg_tot_xy) - dxx * (g_reg_tot_y - neg_tot_y) / dyy) / ((g_reg_tot_xx - neg_tot_xx) - dxx * dxx / dyy);
 }
 
-void* regress_rel_jack_thread(void* arg) {
+THREAD_RET_TYPE regress_rel_jack_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t* ibuf = (int32_t*)(&(g_geno[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t))]));
   unsigned char* cbuf = &(g_geno[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t)) + (g_jackknife_d + 1) * sizeof(int32_t)]);
@@ -3304,7 +3297,7 @@ void* regress_rel_jack_thread(void* arg) {
   g_calc_result[1][tidx] = sum_sq;
   g_calc_result[2][tidx] = sum2;
   g_calc_result[3][tidx] = sum2_sq;
-  return NULL;
+  THREAD_RETURN;
 }
 
 int32_t regress_rel_main(uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t regress_rel_iters, int32_t regress_rel_d, pthread_t* threads) {
