@@ -2048,7 +2048,8 @@ uint32_t set_default_jackknife_d(uint32_t ct) {
 }
 
 void join_threads(pthread_t* threads, uint32_t ctp1) {
-  if (--ctp1) {
+  uint32_t uii;
+  if (!(--ctp1)) {
     return;
   }
 #if _WIN32
@@ -2078,7 +2079,7 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
       return -1;
     }
 #else
-    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_genome_thread, (void*)ulii)) {
+    if (pthread_create(&(threads[ulii - 1]), NULL, start_routine, (void*)ulii)) {
       join_threads(threads, ulii);
       return -1;
     }

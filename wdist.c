@@ -16,7 +16,7 @@
 
 
 // Uncomment this to build without CBLAS/CLAPACK:
-#define NOLAPACK
+// #define NOLAPACK
 
 #include <ctype.h>
 #include <time.h>
@@ -29,15 +29,17 @@
 #endif
 #include "wdist_common.h"
 
-#ifdef NOLAPACK
-#define MATRIX_INVERT_BUF1_TYPE double
-#define __CLPK_integer int
-#else
 #ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
 #include <sys/types.h>
 #include <sys/sysctl.h>
+#endif
+
+#ifdef NOLAPACK
+#define MATRIX_INVERT_BUF1_TYPE double
+#define __CLPK_integer int
 #else
+#ifndef __APPLE__
 // allow the same code to work for OS X and Linux
 #ifdef __cplusplus
 extern "C" {
@@ -2834,9 +2836,7 @@ void* calc_genome_thread(void* arg)
   intptr_t tidx = (intptr_t)arg;
   int32_t ii = g_thread_start[tidx];
   int32_t jj = g_thread_start[0];
-  printf("cgt: %" PRIdPTR "\n", tidx);
   incr_genome(&(g_genome_main[((int64_t)g_indiv_ct * (ii - jj) - ((int64_t)ii * (ii + 1) - (int64_t)jj * (jj + 1)) / 2) * 5]), (uintptr_t*)g_geno, (int)tidx);
-  printf("cgt end: %" PRIdPTR "\n", tidx);
 #ifndef _WIN32
   return NULL;
 #endif
@@ -3390,14 +3390,9 @@ int32_t regress_rel_main(uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t
   if (!g_geno) {
     return RET_NOMEM;
   }
-  for (ulii = 1; ulii < g_thread_ct; ulii++) {
-    if (pthread_create(&(threads[ulii - 1]), NULL, &regress_rel_jack_thread, (void*)ulii)) {
-      logprint(errstr_thread_create);
-      while (--ulii) {
-	pthread_join(threads[ulii - 1], NULL);
-      }
-      return RET_THREAD_CREATE_FAIL;
-    }
+  if (spawn_threads(threads, &regress_rel_jack_thread, g_thread_ct)) {
+    logprint(errstr_thread_create);
+    return RET_THREAD_CREATE_FAIL;
   }
   ulii = 0;
   regress_rel_jack_thread((void*)ulii);
@@ -3407,8 +3402,8 @@ int32_t regress_rel_main(uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t
   dyy = g_calc_result[2][0]; // pheno on relationship
   dyysq = g_calc_result[3][0];
 
+  join_threads(threads, g_thread_ct);
   for (uii = 0; uii < g_thread_ct - 1; uii++) {
-    pthread_join(threads[uii], NULL);
     dxx += g_calc_result[0][uii + 1];
     dxxsq += g_calc_result[1][uii + 1];
     dyy += g_calc_result[2][uii + 1];
@@ -7661,15 +7656,13 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
 
     g_jackknife_iters = (groupdist_iters + g_thread_ct - 1) / g_thread_ct;
 
-    for (ulii = 1; ulii < g_thread_ct; ulii++) {
-      if (pthread_create(&(threads[ulii - 1]), NULL, &groupdist_jack_thread, (void*)ulii)) {
-	goto groupdist_calc_ret_THREAD_CREATE_FAIL;
-      }
+    if (spawn_threads(threads, &groupdist_jack_thread, g_thread_ct)) {
+      goto groupdist_calc_ret_THREAD_CREATE_FAIL;
     }
     ulii = 0;
     groupdist_jack_thread((void*)ulii);
+    join_threads(threads, g_thread_ct);
     for (uii = 1; uii < g_thread_ct; uii++) {
-      pthread_join(threads[uii - 1], NULL);
       for (ujj = 0; ujj < 9; ujj++) {
 	g_calc_result[ujj][0] += g_calc_result[ujj][uii];
       }
@@ -7697,9 +7690,6 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   groupdist_calc_ret_THREAD_CREATE_FAIL:
     logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
-    for (uljj = 0; uljj < ulii - 1; uljj++) {
-      pthread_join(threads[uljj], NULL);
-    }
     break;
   }
   memcpy(g_pheno_nm, pheno_nm_copy, unfiltered_indiv_ctl * sizeof(intptr_t));
@@ -8067,15 +8057,11 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	  ibd_prect++;
 	}
       }
-      for (ulii = 1; ulii < g_thread_ct; ulii++) {
-	if (pthread_create(&(threads[ulii - 1]), NULL, &calc_genomem_thread, (void*)ulii)) {
-	  goto calc_genome_ret_THREAD_CREATE_FAIL;
-	}
+      if (spawn_threads(threads, &calc_genomem_thread, g_thread_ct)) {
+	goto calc_genome_ret_THREAD_CREATE_FAIL;
       }
       incr_dists_rm_inv(g_missing_dbl_excluded, 0);
-      for (ukk = 0; ukk < g_thread_ct - 1; ukk++) {
-	pthread_join(threads[ukk], NULL);
-      }
+      join_threads(threads, g_thread_ct);
     }
 
     if (spawn_threads(threads, &calc_genome_thread, g_thread_ct)) {
@@ -9665,27 +9651,19 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
       }
       if (relationship_req(calculation_type)) {
 	fill_weights_r(g_weights, &(set_allele_freq_buf[win_marker_idx]), var_std);
-	for (ulii = 1; ulii < g_thread_ct; ulii++) {
-	  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_rel_thread, (void*)ulii)) {
-	    goto calc_rel_ret_THREAD_CREATE_FAIL;
-	  }
+	if (spawn_threads(threads, &calc_rel_thread, g_thread_ct)) {
+	  goto calc_rel_ret_THREAD_CREATE_FAIL;
 	}
 	incr_dists_r(g_rel_dists, (uintptr_t*)g_geno, g_masks, 0, g_weights);
-	for (uii = 0; uii < g_thread_ct - 1; uii++) {
-	  pthread_join(threads[uii], NULL);
-	}
+	join_threads(threads, g_thread_ct);
       }
     }
     if (relationship_req(calculation_type)) {
-      for (ulii = 1; ulii < g_thread_ct; ulii++) {
-	if (pthread_create(&(threads[ulii - 1]), NULL, &calc_missing_thread, (void*)ulii)) {
-	  goto calc_rel_ret_THREAD_CREATE_FAIL;
-	}
+      if (spawn_threads(threads, &calc_missing_thread, g_thread_ct)) {
+	goto calc_rel_ret_THREAD_CREATE_FAIL;
       }
       incr_dists_rm(g_missing_dbl_excluded, 0, g_thread_start);
-      for (uii = 0; uii < g_thread_ct - 1; uii++) {
-	pthread_join(threads[uii], NULL);
-      }
+      join_threads(threads, g_thread_ct);
     }
     printf("\r%" PRIuPTR " markers complete.", marker_idx);
     fflush(stdout);
@@ -10081,9 +10059,6 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
   calc_rel_ret_THREAD_CREATE_FAIL:
     logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
-    for (uljj = 0; uljj < ulii - 1; uljj++) {
-      pthread_join(threads[uljj], NULL);
-    }
     break;
   }
  calc_rel_ret_1:
@@ -10223,27 +10198,19 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
       }
       if (relationship_req(calculation_type)) {
 	fill_weights_r_f(g_weights_f, &(set_allele_freq_buf[win_marker_idx]), var_std);
-	for (ulii = 1; ulii < g_thread_ct; ulii++) {
-	  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_rel_f_thread, (void*)ulii)) {
-	    goto calc_rel_f_ret_THREAD_CREATE_FAIL;
-	  }
+	if (spawn_threads(threads, &calc_rel_f_thread, g_thread_ct)) {
+	  goto calc_rel_f_ret_THREAD_CREATE_FAIL;
 	}
 	incr_dists_r_f(g_rel_f_dists, (uintptr_t*)g_geno, g_masks, 0, g_weights_f);
-	for (uii = 0; uii < g_thread_ct - 1; uii++) {
-	  pthread_join(threads[uii], NULL);
-	}
+	join_threads(threads, g_thread_ct);
       }
     }
     if (relationship_req(calculation_type)) {
-      for (ulii = 1; ulii < g_thread_ct; ulii++) {
-	if (pthread_create(&(threads[ulii - 1]), NULL, &calc_missing_thread, (void*)ulii)) {
-	  goto calc_rel_f_ret_THREAD_CREATE_FAIL;
-	}
+      if (spawn_threads(threads, &calc_missing_thread, g_thread_ct)) {
+	goto calc_rel_f_ret_THREAD_CREATE_FAIL;
       }
       incr_dists_rm(g_missing_dbl_excluded, 0, g_thread_start);
-      for (uii = 0; uii < g_thread_ct - 1; uii++) {
-	pthread_join(threads[uii], NULL);
-      }
+      join_threads(threads, g_thread_ct);
     }
     printf("\r%" PRIuPTR " markers complete.", marker_idx);
     fflush(stdout);
@@ -10631,9 +10598,6 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
   calc_rel_f_ret_THREAD_CREATE_FAIL:
     logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
-    for (uljj = 0; uljj < ulii - 1; uljj++) {
-      pthread_join(threads[uljj], NULL);
-    }
     break;
   }
  calc_rel_f_ret_1:
@@ -11990,37 +11954,25 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
 	  if (wt_needed) {
 	    g_weights_i = &(wtbuf[ukk]);
-	    for (ulii = 1; ulii < g_thread_ct; ulii++) {
-	      if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_thread, (void*)ulii)) {
-		goto wdist_ret_THREAD_CREATE_FAIL;
-	      }
+	    if (spawn_threads(threads, &calc_distm_thread, g_thread_ct)) {
+	      goto wdist_ret_THREAD_CREATE_FAIL;
 	    }
 	    incr_wt_dist_missing(g_missing_tot_weights, 0);
-	    for (uii = 0; uii < g_thread_ct - 1; uii++) {
-	      pthread_join(threads[uii], NULL);
-	    }
+	    join_threads(threads, g_thread_ct);
 	  }
 	  if (unwt_needed) {
-	    for (ulii = 1; ulii < g_thread_ct; ulii++) {
-	      if (pthread_create(&(threads[ulii - 1]), NULL, &calc_missing_thread, (void*)ulii)) {
-		goto wdist_ret_THREAD_CREATE_FAIL;
-	      }
+	    if (spawn_threads(threads, &calc_missing_thread, g_thread_ct)) {
+	      goto wdist_ret_THREAD_CREATE_FAIL;
 	    }
 	    incr_dists_rm(g_missing_dbl_excluded, 0, g_thread_start);
-	    for (uii = 0; uii < g_thread_ct - 1; uii++) {
-	      pthread_join(threads[uii], NULL);
-	    }
+	    join_threads(threads, g_thread_ct);
 	  }
 	}
-	for (ulii = 1; ulii < g_thread_ct; ulii++) {
-	  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_idist_thread, (void*)ulii)) {
-	    goto wdist_ret_THREAD_CREATE_FAIL;
-	  }
+	if (spawn_threads(threads, &calc_idist_thread, g_thread_ct)) {
+	  goto wdist_ret_THREAD_CREATE_FAIL;
 	}
 	incr_dists_i(g_idists, (uintptr_t*)g_geno, 0);
-	for (uii = 0; uii < g_thread_ct - 1; uii++) {
-	  pthread_join(threads[uii], NULL);
-	}
+	join_threads(threads, g_thread_ct);
       } else {
 	fill_ulong_zero(g_mmasks, g_indiv_ct);
 	for (ukk = 0; ukk < ujj; ukk += MULTIPLEX_DIST_EXP / 2) {
@@ -12059,26 +12011,18 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	    }
 	  }
 	  fill_weights(g_weights, &(set_allele_freq_buf[ukk]), exponent);
-	  for (ulii = 1; ulii < g_thread_ct; ulii++) {
-	    if (pthread_create(&(threads[ulii - 1]), NULL, &calc_dist_thread, (void*)ulii)) {
-	      goto wdist_ret_THREAD_CREATE_FAIL;
-	    }
-	  }
-	  incr_dists(g_dists, (uintptr_t*)g_geno, 0);
-	  for (uii = 0; uii < g_thread_ct - 1; uii++) {
-	    pthread_join(threads[uii], NULL);
-	  }
-	}
-	g_weights_i = wtbuf;
-	for (ulii = 1; ulii < g_thread_ct; ulii++) {
-	  if (pthread_create(&(threads[ulii - 1]), NULL, &calc_distm_thread, (void*)ulii)) {
+	  if (spawn_threads(threads, &calc_dist_thread, g_thread_ct)) {
 	    goto wdist_ret_THREAD_CREATE_FAIL;
 	  }
+	  incr_dists(g_dists, (uintptr_t*)g_geno, 0);
+	  join_threads(threads, g_thread_ct);
+	}
+	g_weights_i = wtbuf;
+	if (spawn_threads(threads, &calc_distm_thread, g_thread_ct)) {
+	  goto wdist_ret_THREAD_CREATE_FAIL;
 	}
 	incr_wt_dist_missing(g_missing_tot_weights, 0);
-	for (uii = 0; uii < g_thread_ct - 1; uii++) {
-	  pthread_join(threads[uii], NULL);
-	}
+	join_threads(threads, g_thread_ct);
       }
       printf("\r%" PRIuPTR " markers complete.", marker_idx);
       fflush(stdout);
@@ -12330,9 +12274,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   wdist_ret_THREAD_CREATE_FAIL:
     logprint(errstr_thread_create);
     retval = RET_THREAD_CREATE_FAIL;
-    for (uljj = 0; uljj < ulii - 1; uljj++) {
-      pthread_join(threads[uljj], NULL);
-    }
     break;
   }
  wdist_ret_2:

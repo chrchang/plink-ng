@@ -58,6 +58,8 @@ typedef union {
 
 #define ZEROLU 0LLU
 #define ONELU 1LLU
+
+#if _WIN32
 #ifndef PRIuPTR
 #define PRIuPTR PRIu64
 #endif
@@ -65,6 +67,10 @@ typedef union {
 #define PRIdPTR PRId64
 #endif
 #else
+#define PRIuPTR "ld"
+#define PRIdPTR "lu"
+#endif
+#else // __LP64__
 #define FIVEMASK 0x55555555
 #define ZEROLU 0LU
 #define ONELU 1LU
@@ -74,7 +80,7 @@ typedef union {
 #ifndef PRIdPTR
 #define PRIdPTR "ld"
 #endif
-#endif
+#endif // __LP64__
 
 #include "zlib-1.2.7/zlib.h"
 #include "SFMT.h"
@@ -791,9 +797,9 @@ uint32_t set_default_jackknife_d(uint32_t ct);
 void join_threads(pthread_t* threads, uint32_t ctp1);
 
 #if _WIN32
-int32_t spawn_threads(pthread_t* threads, void (*start_routine)(void*), uint32_t ct);
+int32_t spawn_threads(pthread_t* threads, void (*start_routine)(void*), uintptr_t ct);
 #else
-int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uint32_t ct);
+int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr_t ct);
 #endif
 
 int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct_local, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d);

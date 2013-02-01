@@ -1046,26 +1046,20 @@ int32_t update_distance_dosage_matrix(int32_t is_missing_01, int32_t distance_3d
   uintptr_t thread_idx;
   if (!distance_3d) {
     if (is_missing_01) {
-      for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
-	if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_distance_dosage_2d_01_thread, (void*)thread_idx)) {
-	  goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
-	}
+      if (spawn_threads(threads, &incr_distance_dosage_2d_01_thread, thread_ct)) {
+	goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
       }
       thread_idx = 0;
       incr_distance_dosage_2d_01_thread((void*)thread_idx);
     } else if (distance_flat_missing) {
-      for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
-	if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_distance_dosage_2d_flat_thread, (void*)thread_idx)) {
-	  goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
-	}
+      if (spawn_threads(threads, &incr_distance_dosage_2d_flat_thread, thread_ct)) {
+	goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
       }
       thread_idx = 0;
       incr_distance_dosage_2d_flat_thread((void*)thread_idx);
     } else {
-      for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
-	if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_distance_dosage_2d_thread, (void*)thread_idx)) {
-	  goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
-	}
+      if (spawn_threads(threads, &incr_distance_dosage_2d_thread, thread_ct)) {
+	goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
       }
       thread_idx = 0;
       incr_distance_dosage_2d_thread((void*)thread_idx);
@@ -1073,44 +1067,31 @@ int32_t update_distance_dosage_matrix(int32_t is_missing_01, int32_t distance_3d
   } else {
     // assume is_missing_01 is not checked for now
     if (distance_flat_missing) {
-      for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
-	if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_distance_dosage_3d_flat_thread, (void*)thread_idx)) {
-	  goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
-	}
+      if (spawn_threads(threads, &incr_distance_dosage_3d_flat_thread, thread_ct)) {
+	goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
       }
       thread_idx = 0;
       incr_distance_dosage_3d_flat_thread((void*)thread_idx);
     } else {
-      for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
-	if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_distance_dosage_3d_thread, (void*)thread_idx)) {
-	  goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
-	}
+      if (spawn_threads(threads, &incr_distance_dosage_3d_thread, thread_ct)) {
+	goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
       }
       thread_idx = 0;
       incr_distance_dosage_3d_thread((void*)thread_idx);
     }
   }
-  for (thread_idx = 0; thread_idx < thread_ct - 1; thread_idx++) {
-    pthread_join(threads[thread_idx], NULL);
-  }
+  join_threads(threads, thread_ct);
   if (is_missing_01 && (!distance_3d)) {
-    for (thread_idx = 1; thread_idx < thread_ct; thread_idx++) {
-      if (pthread_create(&(threads[thread_idx - 1]), NULL, &incr_dosage_missing_wt_01_thread, (void*)thread_idx)) {
-	goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
-      }
+    if (spawn_threads(threads, &incr_dosage_missing_wt_01_thread, thread_ct)) {
+      goto update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL;
     }
     thread_idx = 0;
     incr_dosage_missing_wt_01_thread((void*)thread_idx);
-    for (thread_idx = 0; thread_idx < thread_ct - 1; thread_idx++) {
-      pthread_join(threads[thread_idx], NULL);
-    }
+    join_threads(threads, thread_ct);
   }
   return 0;
  update_distance_dosage_matrix_ret_THREAD_CREATE_FAIL:
   logprint(errstr_thread_create);
-  while (--thread_idx) {
-    pthread_join(threads[thread_idx - 1], NULL);
-  }
   return RET_THREAD_CREATE_FAIL;
 }
 
