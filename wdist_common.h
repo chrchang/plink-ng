@@ -609,18 +609,16 @@ static inline char convert_to_1234(char cc) {
   return cc;
 }
 
+extern const char acgtarr[];
+
 static inline char convert_to_acgt(char cc) {
-  if (cc == '1') {
-    return 'A';
-  } else if (cc == '2') {
-    return 'C';
-  } else if (cc == '3') {
-    return 'G';
-  } else if (cc == '4') {
-    return 'T';
+  if ((cc > '0') && (cc <= '4')) {
+    return acgtarr[cc - '1'];
   }
   return cc;
 }
+
+void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc);
 
 // maximum accepted chromosome index is this minus 1.
 // currently unsafe to set this above 60 due to using a single uint64_t

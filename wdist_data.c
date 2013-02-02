@@ -5012,7 +5012,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
   loadbuf = wkspace_base;
   chrom_fo_idx = 0;
   refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
-  chrom_idx = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
+  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
   if (recode_modifier & RECODE_TRANSPOSE) {
     strcpy(outname_end, ".tped");
     if (fopen_checked(outfile_ptr, outname, "w")) {
@@ -5057,7 +5057,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
-	  chrom_idx = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
+	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	}
 
 	for (indiv_idx = 0; indiv_idx < 3; indiv_idx++) {
@@ -5499,6 +5499,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
     if (fopen_checked(outfile_ptr, outname, "w")) {
       goto recode_ret_OPEN_FAIL;
     }
+    if (delimiter != '\t') {
+      indiv_delim_convert(unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, '\t', ' ');
+    }
     sprintf(logbuf, "--recode list to %s... ", outname);
     logprintb();
     fputs("0%", stdout);
@@ -5514,9 +5517,19 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	}
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto recode_ret_READ_FAIL;
+	}
+	if (is_haploid) {
+	  if (is_x) {
+	    if (xmhh_exists) {
+	      hh_reset(loadbuf, indiv_male_include2, unfiltered_indiv_ct);
+	    }
+	  } else if (nxmhh_exists) {
+	    hh_reset(loadbuf, indiv_include2, unfiltered_indiv_ct);
+	  }
 	}
 	if (max_marker_allele_len == 1) {
 	  cur_mk_alleles[0] = mk_alleles[2 * marker_uidx];
@@ -5577,7 +5590,31 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	  indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
 	  ucc = (loadbuf[indiv_uidx / 4] >> ((indiv_uidx % 4) * 2)) & 3;
 	  writebuflp[ucc] += sprintf(writebuflp[ucc], "%c%s", delimiter, &(person_ids[indiv_uidx * max_person_id_len]));
+	  indiv_uidx++;
 	}
+	*(writebuflp[0]) = '\n';
+	writebuflp[0] += 1;
+	*(writebuflp[1]) = '\n';
+	writebuflp[1] += 1;
+	*(writebuflp[2]) = '\n';
+	writebuflp[2] += 1;
+	*(writebuflp[3]) = '\n';
+	writebuflp[3] += 1;
+	ulii = is_set(marker_reverse, marker_uidx)? 3 : 0;
+	if (fwrite_checked(writebufl[ulii], (uintptr_t)(writebuflp[ulii] - writebufl[ulii]), *outfile_ptr)) {
+	  goto recode_ret_WRITE_FAIL;
+	}
+	if (fwrite_checked(writebufl[2], (uintptr_t)(writebuflp[2] - writebufl[2]), *outfile_ptr)) {
+	  goto recode_ret_WRITE_FAIL;
+	}
+	ulii = 3 - ulii;
+	if (fwrite_checked(writebufl[ulii], (uintptr_t)(writebuflp[ulii] - writebufl[ulii]), *outfile_ptr)) {
+	  goto recode_ret_WRITE_FAIL;
+	}
+	if (fwrite_checked(writebufl[1], (uintptr_t)(writebuflp[1] - writebufl[1]), *outfile_ptr)) {
+	  goto recode_ret_WRITE_FAIL;
+	}
+	marker_uidx++;
       }
       if (pct < 100) {
 	if (pct > 10) {
@@ -5586,6 +5623,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	printf("\b\b%u%%", pct);
 	fflush(stdout);
       }
+    }
+    if (delimiter != '\t') {
+      indiv_delim_convert(unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, ' ', '\t');
     }
   } else {
     strcpy(outname_end, ".ped");

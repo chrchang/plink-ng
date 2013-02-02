@@ -306,6 +306,21 @@ int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc) {
   return (idx * BITCT) + CTZLU(*include_arr);
 }
 
+const char acgtarr[] = "ACGT";
+
+void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc) {
+  // assumes there is exactly one delimiter to convert per name
+  uintptr_t indiv_uidx = 0;
+  uintptr_t indiv_idx = 0;
+  char* nptr;
+  for (; indiv_idx < indiv_ct; indiv_idx++) {
+    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+    nptr = (char*)memchr(&(person_ids[indiv_uidx * max_person_id_len]), (unsigned char)oldc, max_person_id_len);
+    *nptr = newc;
+    indiv_uidx++;
+  }
+}
+
 // human: 22, X, Y, XY, MT
 // cow: 29, X, Y
 // dog: 38, X, Y, XY
