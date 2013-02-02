@@ -5884,6 +5884,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uintptr_t* founder_nonmale_include2 = NULL;
   uintptr_t* founder_ctrl_nonmale_include2 = NULL;
   uintptr_t* founder_male_include2 = NULL;
+  uintptr_t* founder_ctrl_male_include2 = NULL;
   double* marker_weights = NULL;
   uint32_t indiv_nonmale_ct = 0;
   uint32_t indiv_f_nonmale_ct = 0;
@@ -5898,7 +5899,6 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uintptr_t* indiv_include2;
   uintptr_t* founder_include2;
   uintptr_t* founder_ctrl_include2;
-  uintptr_t* founder_ctrl_male_include2;
   uint32_t nonmales_needed;
   uint32_t males_needed;
   uintptr_t* tmp_indiv_mask;
