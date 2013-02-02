@@ -38,19 +38,41 @@
 #ifdef NOLAPACK
 #define MATRIX_INVERT_BUF1_TYPE double
 #define __CLPK_integer int
-#else
+#else // NOLAPACK
 #ifndef __APPLE__
-// allow the same code to work for OS X and Linux
 #ifdef __cplusplus
 extern "C" {
 #endif
+  typedef double __CLPK_doublereal;
+#ifdef _WIN32
+#define HAVE_LAPACK_CONFIG_H
+#define LAPACK_COMPLEX_STRUCTURE
+#include "lapack/lapacke/include/lapacke.h"
+  typedef int32_t __CLPK_integer;
+
+  void dger_(int* m, int* n, double* alpha, double* x, int* incx, double* y,
+             int* incy, double* a, int* lda);
+
+  void dgemm_(char* transa, char* transb, int* m, int* n, int* k,
+              double* alpha, double* a, int* lda, double* b, int* ldb,
+              double* beta, double* c, int* ldc);
+
+  void dsymv_(char* uplo, int* n, double* alpha, double* a, int* lda,
+              double* x, int* incx, double* beta, double* y, int* incy);
+
+  double ddot_(int* n, double* dx, int* incx, double* dy, int* incy);
+
+  void dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
+               __CLPK_doublereal* a, __CLPK_integer* lda,
+               __CLPK_integer* ipiv, __CLPK_integer* info);
+
+#else // _WIN32
 #include <cblas.h>
 #ifdef __LP64__
   typedef int32_t __CLPK_integer;
 #else
   typedef long int __CLPK_integer;
 #endif
-  typedef double __CLPK_doublereal;
   int dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
               __CLPK_doublereal* a, __CLPK_integer* lda,
               __CLPK_integer* ipiv, __CLPK_integer* info);
@@ -68,6 +90,7 @@ extern "C" {
               __CLPK_integer* lda, __CLPK_doublereal* anorm,
               __CLPK_doublereal* rcond, __CLPK_doublereal* work,
               __CLPK_integer* iwork, __CLPK_integer* info);
+#endif
 
   void xerbla_(void) {} // fix static linking error
 #ifdef __cplusplus
@@ -144,7 +167,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (1 Feb 2013)";
+  " (2 Feb 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -3900,6 +3923,10 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   double indiv_ct_d = 1 / (double)g_indiv_ct;
   uintptr_t indiv_idx;
   int32_t jj;
+#if _WIN32
+  char blas_char;
+  int32_t indiv_ct_i32 = g_indiv_ct;
+#endif
   mat_offset = CACHEALIGN_DBL(mat_offset * mat_offset);
   rel_dists = &(wkbase[mat_offset]);
   row = &(wkbase[mat_offset * 3]);
@@ -3925,6 +3952,29 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
       dxx += *dptr++;
     }
     dxx = -1 / dxx;
+#if _WIN32
+    jj = 1;
+    dger_(&indiv_ct_i32, &indiv_ct_i32, &dxx, row, &jj, row, &jj, wkbase, &indiv_ct_i32);
+    // todo: test dsymm
+    dyy = 1.0;
+    dzz = 0.0;
+    blas_char = 'N';
+    dgemm_(&blas_char, &blas_char, &indiv_ct_i32, &indiv_ct_i32, &indiv_ct_i32, &dyy, wkbase, &indiv_ct_i32, rel_dists, &indiv_ct_i32, &dzz, matrix_pvg, &indiv_ct_i32);
+    dlg = 0.0;
+    dle = 0.0;
+    jj = g_indiv_ct + 1;
+    for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+      dlg -= matrix_pvg[indiv_idx * jj];
+      dle -= wkbase[indiv_idx * jj];
+    }
+    blas_char = 'U';
+    jj = 1;
+    dsymv_(&blas_char, &indiv_ct_i32, &dyy, wkbase, &indiv_ct_i32, pheno, &jj, &dzz, row2, &jj);
+    dsymv_(&blas_char, &indiv_ct_i32, &dyy, matrix_pvg, &indiv_ct_i32, row2, &jj, &dzz, row, &jj);
+    dlg += ddot_(&indiv_ct_i32, pheno, &jj, row, &jj);
+    dsymv_(&blas_char, &indiv_ct_i32, &dyy, wkbase, &indiv_ct_i32, row2, &jj, &dzz, row, &jj);
+    dle += ddot_(&indiv_ct_i32, pheno, &jj, row, &jj);
+#else
     cblas_dger(CblasColMajor, g_indiv_ct, g_indiv_ct, dxx, row, 1, row, 1, wkbase, g_indiv_ct);
     // unfortunately, cblas_dsymm is much worse than cblas_dgemm on OS X
     cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, g_indiv_ct, g_indiv_ct, g_indiv_ct, 1.0, wkbase, g_indiv_ct, rel_dists, g_indiv_ct, 0.0, matrix_pvg, g_indiv_ct);
@@ -3940,6 +3990,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     dlg += cblas_ddot(g_indiv_ct, pheno, 1, row, 1);
     cblas_dsymv(CblasColMajor, CblasUpper, g_indiv_ct, 1.0, wkbase, g_indiv_ct, row2, 1, 0.0, row, 1);
     dle += cblas_ddot(g_indiv_ct, pheno, 1, row, 1);
+#endif
     covg_last_change = covg_cur_change;
     covr_last_change = covr_cur_change;
     covg_cur_change = (*covg_ref) * (*covg_ref) * dlg * indiv_ct_d;
@@ -8512,7 +8563,7 @@ int32_t ld_process_load(unsigned char* loadbuf, uintptr_t* geno_buf, uintptr_t* 
   fill_ulong_zero(geno_buf, indiv_trail_ct);
   fill_ulong_zero(mask_buf, indiv_trail_ct);
   non_missing_recip = 1.0 / (indiv_ct - missing_ct);
-  *marker_stdev_ptr = sqrt((sq_sum - (non_missing_recip * sum) * sum) * non_missing_recip);
+  *marker_stdev_ptr = non_missing_recip * sqrt(((int64_t)sq_sum) * (indiv_ct - missing_ct) - ((int64_t)sum) * sum);
   return missing_ct;
 }
 
@@ -8712,38 +8763,20 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
     window_max = ld_window_size;
   }
   ulii = window_max;
-  if (wkspace_alloc_ui_checked(&live_indices, ulii * sizeof(int32_t))) {
-    goto ld_prune_ret_NOMEM;
-  }
-  if (wkspace_alloc_ui_checked(&start_arr, ulii * sizeof(int32_t))) {
-    goto ld_prune_ret_NOMEM;
-  }
-  if (wkspace_alloc_d_checked(&marker_stdevs, ulii * sizeof(double))) {
-    goto ld_prune_ret_NOMEM;
-  }
-  if (wkspace_alloc_uc_checked(&loadbuf, unfiltered_indiv_ct4)) {
-    goto ld_prune_ret_NOMEM;
-  }
-  if (wkspace_alloc_ul_checked(&geno, ulii * indiv_ct_mld_long * sizeof(intptr_t))) {
-    goto ld_prune_ret_NOMEM;
-  }
-  if (wkspace_alloc_ul_checked(&g_masks, ulii * indiv_ct_mld_long * sizeof(intptr_t))) {
-    goto ld_prune_ret_NOMEM;
-  }
-  if (wkspace_alloc_ul_checked(&g_mmasks, ulii * indiv_ctl * sizeof(intptr_t))) {
-    goto ld_prune_ret_NOMEM;
-  }
-  if (wkspace_alloc_ui_checked(&missing_cts, g_indiv_ct * sizeof(int32_t))) {
+  if (wkspace_alloc_ui_checked(&live_indices, ulii * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&start_arr, ulii * sizeof(int32_t)) ||
+      wkspace_alloc_d_checked(&marker_stdevs, ulii * sizeof(double)) ||
+      wkspace_alloc_uc_checked(&loadbuf, unfiltered_indiv_ct4) ||
+      wkspace_alloc_ul_checked(&geno, ulii * indiv_ct_mld_long * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&g_masks, ulii * indiv_ct_mld_long * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&g_mmasks, ulii * indiv_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&missing_cts, g_indiv_ct * sizeof(int32_t))) {
     goto ld_prune_ret_NOMEM;
   }
   if (!pairwise) {
-    if (wkspace_alloc_d_checked(&cov_matrix, window_max * window_max * sizeof(double))) {
-      goto ld_prune_ret_NOMEM;
-    }
-    if (wkspace_alloc_d_checked(&new_cov_matrix, window_max * window_max * sizeof(double))) {
-      goto ld_prune_ret_NOMEM;
-    }
-    if (wkspace_alloc_ui_checked(&idx_remap, window_max * sizeof(int32_t))) {
+    if (wkspace_alloc_d_checked(&cov_matrix, window_max * window_max * sizeof(double)) ||
+        wkspace_alloc_d_checked(&new_cov_matrix, window_max * window_max * sizeof(double)) ||
+        wkspace_alloc_ui_checked(&idx_remap, window_max * sizeof(int32_t))) {
       goto ld_prune_ret_NOMEM;
     }
 
