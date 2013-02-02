@@ -692,7 +692,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * The 'lgen' modifier causes a long-format fileset to be generated instead,\n"
 "      (loadable with --lfile), while 'lgen-ref' generates a (usually) smaller\n"
 "      long-format fileset loadable with --lfile + --reference.\n"
-"    * The 'list' modifier creates a genotype-based fileset, while 'rlist'\n"
+"    * The 'list' modifier creates a genotype-based list, while 'rlist'\n"
 "      creates a rare-genotype fileset.  (These formats are not directly\n"
 "      loadable by WDIST or PLINK.)\n"
 "    * 'transpose' creates a transposed text fileset (loadable with --tfile).\n"
@@ -5148,168 +5148,6 @@ void filter_indivs_bitfields(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exc
   *indiv_exclude_ct_ptr = popcount_longs(indiv_exclude, 0, unfiltered_indiv_ctl);
 }
 
-void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* exclude_arr) {
-  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t ulii;
-  uintptr_t uljj;
-  uintptr_t ulkk;
-  uintptr_t ulmm;
-  uint32_t bit_idx;
-  do {
-    ulii = *exclude_arr++;
-    ulkk = FIVEMASK;
-    ulmm = FIVEMASK;
-    if (ulii) {
-      uljj = ulii >> BITCT2;
-#ifdef __LP64__
-      ulii &= 0xffffffffLLU;
-#else
-      ulii &= 0xffffLU;
-#endif
-      if (ulii) {
-	do {
-	  bit_idx = CTZLU(ulii);
-	  ulkk &= ~(ONELU << (bit_idx * 2));
-	  ulii &= ulii - 1;
-	} while (ulii);
-      }
-      if (uljj) {
-	do {
-	  bit_idx = CTZLU(uljj);
-	  ulmm &= ~(ONELU << (bit_idx * 2));
-	  uljj &= uljj - 1;
-	} while (uljj);
-      }
-    }
-    *include_arr++ = ulkk;
-    *include_arr++ = ulmm;
-  } while (--unfiltered_indiv_ctl);
-  ulii = unfiltered_indiv_ct & (BITCT - 1);
-  if (ulii) {
-    include_arr--;
-    if (ulii < BITCT2) {
-      *include_arr-- = 0;
-    } else {
-      ulii -= BITCT2;
-    }
-    *include_arr &= (ONELU << (ulii * 2)) - ONELU;
-  }
-}
-
-void vec_include_mask_in(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr) {
-  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t ulii;
-  uintptr_t uljj;
-  uintptr_t ulkk;
-  uintptr_t ulmm;
-  uint32_t bit_idx;
-  do {
-    ulii = ~(*mask_arr++);
-    ulkk = *include_arr;
-    ulmm = include_arr[1];
-    if (ulii) {
-      uljj = ulii >> BITCT2;
-#ifdef __LP64__
-      ulii &= 0xffffffffLLU;
-#else
-      ulii &= 0xffffLU;
-#endif
-      if (ulii) {
-	do {
-	  bit_idx = CTZLU(ulii);
-	  ulkk &= ~(ONELU << (bit_idx * 2));
-	  ulii &= ulii - 1;
-	} while (ulii);
-      }
-      if (uljj) {
-	do {
-	  bit_idx = CTZLU(uljj);
-	  ulmm &= ~(ONELU << (bit_idx * 2));
-	  uljj &= uljj - 1;
-	} while (uljj);
-      }
-    }
-    *include_arr++ = ulkk;
-    *include_arr++ = ulmm;
-  } while (--unfiltered_indiv_ctl);
-}
-
-void vec_include_mask_out(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr) {
-  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t ulii;
-  uintptr_t uljj;
-  uintptr_t ulkk;
-  uintptr_t ulmm;
-  uint32_t bit_idx;
-  do {
-    ulii = *mask_arr++;
-    ulkk = *include_arr;
-    ulmm = include_arr[1];
-    if (ulii) {
-      uljj = ulii >> BITCT2;
-#ifdef __LP64__
-      ulii &= 0xffffffffLLU;
-#else
-      ulii &= 0xffffLU;
-#endif
-      if (ulii) {
-	do {
-	  bit_idx = CTZLU(ulii);
-	  ulkk &= ~(ONELU << (bit_idx * 2));
-	  ulii &= ulii - 1;
-	} while (ulii);
-      }
-      if (uljj) {
-	do {
-	  bit_idx = CTZLU(uljj);
-	  ulmm &= ~(ONELU << (bit_idx * 2));
-	  uljj &= uljj - 1;
-	} while (uljj);
-      }
-    }
-    *include_arr++ = ulkk;
-    *include_arr++ = ulmm;
-  } while (--unfiltered_indiv_ctl);
-}
-
-void vec_include_mask_out_intersect(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr, uintptr_t* mask2_arr) {
-  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t ulii;
-  uintptr_t uljj;
-  uintptr_t ulkk;
-  uintptr_t ulmm;
-  uint32_t bit_idx;
-  do {
-    ulii = (*mask_arr++) & (*mask2_arr++);
-    ulkk = *include_arr;
-    ulmm = include_arr[1];
-    if (ulii) {
-      uljj = ulii >> BITCT2;
-#ifdef __LP64__
-      ulii &= 0xffffffffLLU;
-#else
-      ulii &= 0xffffLU;
-#endif
-      if (ulii) {
-	do {
-	  bit_idx = CTZLU(ulii);
-	  ulkk &= ~(ONELU << (bit_idx * 2));
-	  ulii &= ulii - 1;
-	} while (ulii);
-      }
-      if (uljj) {
-	do {
-	  bit_idx = CTZLU(uljj);
-	  ulmm &= ~(ONELU << (bit_idx * 2));
-	  uljj &= uljj - 1;
-	} while (uljj);
-      }
-    }
-    *include_arr++ = ulkk;
-    *include_arr++ = ulmm;
-  } while (--unfiltered_indiv_ctl);
-}
-
 int32_t mind_filter(FILE* bedfile, double mind_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, int32_t bed_offset, char missing_geno) {
   uint32_t mind_int_thresh = (int)(mind_thresh * (unfiltered_marker_ct - marker_exclude_ct) + EPSILON);
   uint32_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
@@ -5843,8 +5681,7 @@ static inline void single_marker_freqs_and_hwe(uintptr_t unfiltered_indiv_ct, ui
   // popcount is significantly faster, but what x86-32 machine has hardware
   // popcount??...
   //
-  // The top third is the Lauradoux/Walisch loop that lets WDIST fabricate
-  // hardware popcount on 64-bit machines that don't have it.
+  // The top third is the portable Lauradoux/Walisch loop.
   uint32_t tot_a = 0;
   uint32_t tot_b = 0;
   uint32_t tot_c = 0;
@@ -5933,18 +5770,22 @@ static inline void single_marker_freqs_and_hwe(uintptr_t unfiltered_indiv_ct, ui
   }
 }
 
-static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ctl2, uintptr_t* lptr, uintptr_t* indiv_include2, uintptr_t* founder_include2, uintptr_t* founder_ctrl_include2, uintptr_t indiv_ct, uint32_t* ll_ctp, uint32_t* hh_ctp, uint32_t indiv_f_ct, uint32_t* ll_ctfp, uint32_t* hh_ctfp) {
+static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ctl2, uintptr_t* lptr, uintptr_t* indiv_include2, uintptr_t* founder_include2, uintptr_t* founder_ctrl_include2, uintptr_t indiv_ct, uint32_t* ll_ctp, uint32_t* hh_ctp, uint32_t indiv_f_ct, uint32_t* ll_ctfp, uint32_t* hh_ctfp, uint32_t* hethap_incr_ptr) {
   // Here, we interpret heterozygotes as missing.
   // Nonmissing: (genotype ^ (~(genotype >> 1))) & 0x5555...
   // Homozygote major: (genotype & (genotype >> 1)) & 0x5555...
-  uint32_t tot_nm = 0;
+  uint32_t tot_a = 0;
+  uint32_t tot_b = 0;
   uint32_t tot_hmaj = 0;
   uint32_t tot_nm_f = 0;
   uint32_t tot_hmaj_f = 0;
   uintptr_t* lptr_end = &(lptr[unfiltered_indiv_ctl2]);
+  uint32_t tot_nm;
+  uint32_t hethap_incr;
   uintptr_t loader;
   uintptr_t loader2;
   uintptr_t loader3;
+  uintptr_t loader4;
 #ifdef __LP64__
   uintptr_t cur_decr;
   uintptr_t* lptr_12x_end;
@@ -5953,7 +5794,17 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, ui
     cur_decr = 120;
   single_marker_freqs_and_hwe_loop:
     lptr_12x_end = &(lptr[cur_decr]);
-    freq_hwe_haploid_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)indiv_include2, &tot_nm, &tot_hmaj);
+  // Given a buffer with PLINK binary genotypes for a single marker, let
+  //   A := genotype & 0x5555...
+  //   B := (genotype >> 1) & 0x5555...
+  //   C := A & B
+  // Then,
+  //   popcount(C) = homozyg major ct
+  //   popcount(B) = het ct + homozyg major ct
+  //   popcount(A) = missing_ct + homozyg major ct
+  //               = indiv_ct - homozyg minor ct - het ct
+
+    freq_hwe_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)indiv_include2, &tot_a, &tot_b, &tot_hmaj);
     freq_hwe_haploid_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_include2, &tot_nm_f, &tot_hmaj_f);
     lptr = lptr_12x_end;
     indiv_include2 = &(indiv_include2[cur_decr]);
@@ -5965,23 +5816,28 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, ui
     goto single_marker_freqs_and_hwe_loop;
   }
 #else
+  uint32_t tot_nm = 0;
+  uint32_t hethap_incr = 0;
   uintptr_t* lptr_twelve_end = &(lptr[unfiltered_indiv_ctl2 - unfiltered_indiv_ctl2 % 12]);
   while (lptr < lptr_twelve_end) {
-    freq_hwe_haploid_count_12(lptr, indiv_include2, &tot_nm, &tot_hmaj);
+    freq_hwe_count_12(lptr, indiv_include2, &tot_a, &tot_b, &tot_hmaj);
     freq_hwe_haploid_count_12(lptr, founder_include2, &tot_nm_f, &tot_hmaj_f);
     lptr = &(lptr[12]);
     indiv_include2 = &(indiv_include2[12]);
     founder_include2 = &(founder_include2[12]);
   }
 #endif
+  tot_nm = 2 * tot_hmaj + (indiv_ct & (~(63 * ONELU))) - tot_a - tot_b;
+  hethap_incr = tot_b - tot_hmaj;
   while (lptr < lptr_end) {
     loader = *lptr++;
     loader3 = loader >> 1;
+    loader4 = *indiv_include2++;
+    hethap_incr += popcount2_long(loader3 & (~loader) & loader4);
     loader2 = loader ^ (~loader3);
     loader &= loader3;
-    loader3 = *indiv_include2++;
-    tot_nm += popcount2_long(loader2 & loader3);
-    tot_hmaj += popcount2_long(loader & loader3);
+    tot_nm += popcount2_long(loader2 & loader4);
+    tot_hmaj += popcount2_long(loader & loader4);
     loader3 = *founder_include2++;
     tot_nm_f += popcount2_long(loader2 & loader3);
     tot_hmaj_f += popcount2_long(loader & loader3);
@@ -5990,9 +5846,11 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, ui
   *ll_ctp = tot_nm - tot_hmaj;
   *hh_ctfp = tot_hmaj_f;
   *ll_ctfp = tot_nm_f - tot_hmaj_f;
+  *hethap_incr_ptr = hethap_incr;
 }
 
-int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_exclude_ct, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t** marker_reverse_ptr, uint32_t** marker_allele_cts_ptr, int32_t bed_offset, unsigned char missing_geno, int32_t hwe_needed, int32_t hwe_all, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** hwe_hapl_allfs_ptr, int32_t** hwe_haph_allfs_ptr, uint32_t* indiv_male_ct_ptr, uint32_t* indiv_f_ct_ptr, uint32_t* indiv_f_male_ct_ptr, int32_t wt_needed, unsigned char** marker_weights_base_ptr, double** marker_weights_ptr, double exponent, Chrom_info* chrom_info_ptr, uintptr_t* sex_nm, uintptr_t* sex_male, int32_t map_is_unsorted) {
+int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_exclude_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t** marker_reverse_ptr, uint32_t** marker_allele_cts_ptr, int32_t bed_offset, unsigned char missing_geno, int32_t hwe_needed, int32_t hwe_all, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** hwe_hapl_allfs_ptr, int32_t** hwe_haph_allfs_ptr, uint32_t* indiv_male_ct_ptr, uint32_t* indiv_f_ct_ptr, uint32_t* indiv_f_male_ct_ptr, int32_t wt_needed, unsigned char** marker_weights_base_ptr, double** marker_weights_ptr, double exponent, Chrom_info* chrom_info_ptr, uintptr_t* sex_nm, uintptr_t* sex_male, int32_t map_is_unsorted, int32_t* xmhh_exists_ptr, int32_t* nxmhh_exists_ptr) {
+  FILE* hhfile = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + BITCT - 1) / BITCT;
   uintptr_t unfiltered_indiv_ctl2 = 2 * unfiltered_indiv_ctl;
@@ -6023,8 +5881,6 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
   int32_t* hwe_ll_allfs = NULL;
   int32_t* hwe_lh_allfs = NULL;
   int32_t* hwe_hh_allfs = NULL;
-  int32_t* hwe_hapl_allfs;
-  int32_t* hwe_haph_allfs;
   uintptr_t* indiv_nonmale_include2 = NULL;
   uintptr_t* indiv_male_include2 = NULL;
   uintptr_t* founder_nonmale_include2 = NULL;
@@ -6036,6 +5892,10 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
   uint32_t indiv_f_ctl_nonmale_ct = 0;
   uint32_t indiv_male_ct = 0;
   uint32_t indiv_f_male_ct = 0;
+  uint64_t hethap_ct = 0;
+  uint32_t hethap_incr;
+  int32_t* hwe_hapl_allfs;
+  int32_t* hwe_haph_allfs;
   uintptr_t* loadbuf;
   uintptr_t* indiv_include2;
   uintptr_t* founder_include2;
@@ -6048,8 +5908,10 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
   uintptr_t indiv_uidx;
+  uintptr_t ulii;
   uint32_t uii;
   uint32_t ujj;
+  uint32_t ukk;
   uint32_t* marker_allele_cts;
   double maf;
   if (wt_needed) {
@@ -6271,9 +6133,48 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
 	      hwe_hhs[marker_uidx] = hh_hwe;
 	    }
 	  }
-	  haploid_single_marker_freqs(unfiltered_indiv_ct, unfiltered_indiv_ctl2, loadbuf, indiv_male_include2, founder_male_include2, founder_ctrl_male_include2, indiv_male_ct, &ll_ct, &hh_ct, indiv_f_male_ct, &ll_ctf, &hh_ctf);
+	  haploid_single_marker_freqs(unfiltered_indiv_ct, unfiltered_indiv_ctl2, loadbuf, indiv_male_include2, founder_male_include2, founder_ctrl_male_include2, indiv_male_ct, &ll_ct, &hh_ct, indiv_f_male_ct, &ll_ctf, &hh_ctf, &hethap_incr);
 	} else {
-	  haploid_single_marker_freqs(unfiltered_indiv_ct, unfiltered_indiv_ctl2, loadbuf, indiv_include2, founder_include2, founder_ctrl_include2, indiv_ct, &ll_ct, &hh_ct, indiv_f_ct, &ll_ctf, &hh_ctf);
+	  haploid_single_marker_freqs(unfiltered_indiv_ct, unfiltered_indiv_ctl2, loadbuf, indiv_include2, founder_include2, founder_ctrl_include2, indiv_ct, &ll_ct, &hh_ct, indiv_f_ct, &ll_ctf, &hh_ctf, &hethap_incr);
+	}
+	if (hethap_incr) {
+	  if (!hhfile) {
+	    memcpy(outname_end, ".hh", 4);
+	    if (fopen_checked(&hhfile, outname, "w")) {
+	      goto calc_freqs_and_hwe_ret_OPEN_FAIL;
+	    }
+	  }
+	  if (is_x) {
+	    *xmhh_exists_ptr = 1;
+	  } else {
+	    *nxmhh_exists_ptr = 1;
+	  }
+	  if (is_x || is_y) {
+	    for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ctl2; indiv_uidx++) {
+	      ulii = loadbuf[indiv_uidx];
+	      ulii = (ulii >> 1) & (~ulii) & indiv_male_include2[indiv_uidx];
+	      while (ulii) {
+		ukk = indiv_uidx * BITCT2 + CTZLU(ulii) / 2;
+		if (fprintf(hhfile, "%s\t%s\n", &(person_ids[ukk * max_person_id_len]), &(marker_ids[marker_uidx * max_marker_id_len])) < 0) {
+		  goto calc_freqs_and_hwe_ret_WRITE_FAIL;
+		}
+		ulii &= ulii - ONELU;
+	      }
+	    }
+	  } else {
+	    for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ctl2; indiv_uidx++) {
+	      ulii = loadbuf[indiv_uidx];
+	      ulii = (ulii >> 1) & (~ulii) & indiv_include2[indiv_uidx];
+	      while (ulii) {
+		ukk = indiv_uidx * BITCT2 + CTZLU(ulii) / 2;
+		if (fprintf(hhfile, "%s\t%s\n", &(person_ids[ukk * max_person_id_len]), &(marker_ids[marker_uidx * max_marker_id_len])) < 0) {
+		  goto calc_freqs_and_hwe_ret_WRITE_FAIL;
+		}
+		ulii &= ulii - ONELU;
+	      }
+	    }
+	  }
+	  hethap_ct += hethap_incr;
 	}
 	hwe_hapl_allfs[marker_uidx] = ll_ctf;
 	hwe_haph_allfs[marker_uidx] = hh_ctf;
@@ -6303,14 +6204,27 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, uintptr_t unfiltered_marker_ct, uintpt
   }
   fputs("\b\b\b", stdout);
   logprint("done.\n");
+  if (hethap_ct) {
+    *outname_end = '\0';
+    sprintf(logbuf, "%" PRIu64 " heterozygous haploid genotype%s set to missing (see %s.hh).\n", hethap_ct, (hethap_ct == 1LLU)? "" : "s", outname);
+    logprintb();
+  }
   while (0) {
   calc_freqs_and_hwe_ret_NOMEM:
     retval = RET_NOMEM;
     break;
+  calc_freqs_and_hwe_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
   calc_freqs_and_hwe_ret_READ_FAIL:
     retval = RET_READ_FAIL;
+    break;
+  calc_freqs_and_hwe_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
   }
   wkspace_reset(wkspace_mark);
+  fclose_cond(hhfile);
   return retval;
 }
 
@@ -11192,6 +11106,8 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   int32_t unwt_needed_full = 0;
   int32_t bed_offset = 3;
   uint32_t* marker_pos = NULL;
+  int32_t xmhh_exists = 0;
+  int32_t nxmhh_exists = 0;
   Pedigree_rel_info pri;
   unsigned char* wkspace_mark2 = NULL;
   uintptr_t marker_uidx;
@@ -11538,7 +11454,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   nonfounders = (nonfounders || (!fam_col_34));
   wt_needed = distance_wt_req(calculation_type) && (!distance_flat_missing);
   hwe_needed = (hwe_thresh > 0.0);
-  retval = calc_freqs_and_hwe(bedfile, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (unsigned char)missing_geno, hwe_needed, hwe_all, g_pheno_nm, g_pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &marker_weights_base, &g_marker_weights, exponent, chrom_info_ptr, sex_nm, sex_male, map_is_unsorted);
+  retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (unsigned char)missing_geno, hwe_needed, hwe_all, g_pheno_nm, g_pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &marker_weights_base, &g_marker_weights, exponent, chrom_info_ptr, sex_nm, sex_male, map_is_unsorted, &xmhh_exists, &nxmhh_exists);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -11630,7 +11546,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_RECODE) {
-    retval = recode(recode_modifier, bedfile, bed_offset, famfile, bimfile, &outfile, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, g_pheno_nm, g_pheno_c, g_pheno_d, missing_phenod, output_missing_geno, output_missing_pheno, set_hh_missing, chrom_info_ptr);
+    retval = recode(recode_modifier, bedfile, bed_offset, famfile, bimfile, &outfile, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, g_pheno_nm, g_pheno_c, g_pheno_d, missing_phenod, output_missing_geno, output_missing_pheno, set_hh_missing, xmhh_exists, nxmhh_exists, chrom_info_ptr);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -11650,6 +11566,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_2;
     }
   }
+
+  // no more need for marker_ids/marker_alleles, unload?  (probably want to
+  // initially load at far end of stack to make this workable...)
 
   if (wt_needed) {
     // N.B. marker_weights is currently on top of the stack
@@ -13114,6 +13033,12 @@ int32_t main(int32_t argc, char** argv) {
 	  break;
 	}
 	goto main_flag_copy;
+      case 'l':
+	if (!memcmp(argptr, "list", 5)) {
+	  memcpy(flagptr, "recode list", 12);
+	  printf("Note: --list flag deprecated.  Use '--recode list' instead.\n");
+	  break;
+	}
       case 'm':
 	if (!memcmp(argptr, "missing_code", 13)) {
 	  memcpy(flagptr, "missing-code", 13);
@@ -13134,7 +13059,7 @@ int32_t main(int32_t argc, char** argv) {
 	    } else {
 	      memcpy(flagptr, "recode A", 9);
 	    }
-	    printf("Note: %s flag deprecated.  Use '%s ...'.\n", argptr, flagptr);
+	    printf("Note: --%s flag deprecated.  Use '%s ...'.\n", argptr, flagptr);
 	    mm++;
             break;
 	  }
@@ -14170,9 +14095,6 @@ int32_t main(int32_t argc, char** argv) {
 	  memcpy(pedname, "wdist", 6);
 	}
 	load_rare = LOAD_RARE_LGEN;
-      } else if (!memcmp(argptr2, "ist", 4)) {
-	logprint("Note: --list flag deprecated.  Use '--recode list' instead.\n");
-	recode_modifier |= RECODE_LIST;
       } else {
         goto main_ret_INVALID_CMDLINE_2;
       }
@@ -14898,12 +14820,16 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode lgen", 11)) || (!memcmp(argptr2, "ecode AD", 9)) || (!memcmp(argptr2, "ecode A", 8)) || (!memcmp(argptr2, "ecode rlist", 12))) {
+      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode lgen", 11)) || (!memcmp(argptr2, "ecode AD", 9)) || (!memcmp(argptr2, "ecode A", 8)) || (!memcmp(argptr2, "ecode list", 11)) || (!memcmp(argptr2, "ecode rlist", 12))) {
 	if (argptr2[5] == ' ') {
 	  if (argptr2[6] == '1') {
 	    recode_modifier |= RECODE_12;
 	  } else if (argptr2[6] == 'l') {
-	    recode_modifier |= RECODE_LGEN;
+	    if (argptr2[7] == 'g') {
+	      recode_modifier |= RECODE_LGEN;
+	    } else {
+	      recode_modifier |= RECODE_LIST;
+	    }
 	  } else if (argptr2[6] == 'r') {
 	    recode_modifier |= RECODE_RLIST;
 	  } else if (argptr2[7] == 'D') {

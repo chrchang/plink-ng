@@ -1297,6 +1297,218 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
   return 0;
 }
 
+void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* exclude_arr) {
+  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uintptr_t ulkk;
+  uintptr_t ulmm;
+  uint32_t bit_idx;
+  do {
+    ulii = *exclude_arr++;
+    ulkk = FIVEMASK;
+    ulmm = FIVEMASK;
+    if (ulii) {
+      uljj = ulii >> BITCT2;
+#ifdef __LP64__
+      ulii &= 0xffffffffLLU;
+#else
+      ulii &= 0xffffLU;
+#endif
+      if (ulii) {
+	do {
+	  bit_idx = CTZLU(ulii);
+	  ulkk &= ~(ONELU << (bit_idx * 2));
+	  ulii &= ulii - 1;
+	} while (ulii);
+      }
+      if (uljj) {
+	do {
+	  bit_idx = CTZLU(uljj);
+	  ulmm &= ~(ONELU << (bit_idx * 2));
+	  uljj &= uljj - 1;
+	} while (uljj);
+      }
+    }
+    *include_arr++ = ulkk;
+    *include_arr++ = ulmm;
+  } while (--unfiltered_indiv_ctl);
+  ulii = unfiltered_indiv_ct & (BITCT - 1);
+  if (ulii) {
+    include_arr--;
+    if (ulii < BITCT2) {
+      *include_arr-- = 0;
+    } else {
+      ulii -= BITCT2;
+    }
+    *include_arr &= (ONELU << (ulii * 2)) - ONELU;
+  }
+}
+
+void vec_include_mask_in(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr) {
+  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uintptr_t ulkk;
+  uintptr_t ulmm;
+  uint32_t bit_idx;
+  do {
+    ulii = ~(*mask_arr++);
+    ulkk = *include_arr;
+    ulmm = include_arr[1];
+    if (ulii) {
+      uljj = ulii >> BITCT2;
+#ifdef __LP64__
+      ulii &= 0xffffffffLLU;
+#else
+      ulii &= 0xffffLU;
+#endif
+      if (ulii) {
+	do {
+	  bit_idx = CTZLU(ulii);
+	  ulkk &= ~(ONELU << (bit_idx * 2));
+	  ulii &= ulii - 1;
+	} while (ulii);
+      }
+      if (uljj) {
+	do {
+	  bit_idx = CTZLU(uljj);
+	  ulmm &= ~(ONELU << (bit_idx * 2));
+	  uljj &= uljj - 1;
+	} while (uljj);
+      }
+    }
+    *include_arr++ = ulkk;
+    *include_arr++ = ulmm;
+  } while (--unfiltered_indiv_ctl);
+}
+
+void vec_include_mask_out(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr) {
+  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uintptr_t ulkk;
+  uintptr_t ulmm;
+  uint32_t bit_idx;
+  do {
+    ulii = *mask_arr++;
+    ulkk = *include_arr;
+    ulmm = include_arr[1];
+    if (ulii) {
+      uljj = ulii >> BITCT2;
+#ifdef __LP64__
+      ulii &= 0xffffffffLLU;
+#else
+      ulii &= 0xffffLU;
+#endif
+      if (ulii) {
+	do {
+	  bit_idx = CTZLU(ulii);
+	  ulkk &= ~(ONELU << (bit_idx * 2));
+	  ulii &= ulii - 1;
+	} while (ulii);
+      }
+      if (uljj) {
+	do {
+	  bit_idx = CTZLU(uljj);
+	  ulmm &= ~(ONELU << (bit_idx * 2));
+	  uljj &= uljj - 1;
+	} while (uljj);
+      }
+    }
+    *include_arr++ = ulkk;
+    *include_arr++ = ulmm;
+  } while (--unfiltered_indiv_ctl);
+}
+
+void vec_include_mask_out_intersect(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr, uintptr_t* mask2_arr) {
+  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uintptr_t ulkk;
+  uintptr_t ulmm;
+  uint32_t bit_idx;
+  do {
+    ulii = (*mask_arr++) & (*mask2_arr++);
+    ulkk = *include_arr;
+    ulmm = include_arr[1];
+    if (ulii) {
+      uljj = ulii >> BITCT2;
+#ifdef __LP64__
+      ulii &= 0xffffffffLLU;
+#else
+      ulii &= 0xffffLU;
+#endif
+      if (ulii) {
+	do {
+	  bit_idx = CTZLU(ulii);
+	  ulkk &= ~(ONELU << (bit_idx * 2));
+	  ulii &= ulii - 1;
+	} while (ulii);
+      }
+      if (uljj) {
+	do {
+	  bit_idx = CTZLU(uljj);
+	  ulmm &= ~(ONELU << (bit_idx * 2));
+	  uljj &= uljj - 1;
+	} while (uljj);
+      }
+    }
+    *include_arr++ = ulkk;
+    *include_arr++ = ulmm;
+  } while (--unfiltered_indiv_ctl);
+}
+
+void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfiltered_indiv_ct) {
+  uintptr_t indiv_bidx = 0;
+  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + 3) / 4]);
+  unsigned char* iicp;
+  unsigned char ucc;
+  unsigned char ucc2;
+#ifdef __LP64__
+  __m128i* loadbuf_alias;
+  __m128i* iivp;
+  uintptr_t unfiltered_indiv_ctvd;
+  __m128i vii;
+  __m128i vjj;
+  if (!(((uintptr_t)loadbuf) & 15)) {
+    loadbuf_alias = (__m128i*)loadbuf;
+    iivp = (__m128i*)indiv_include2;
+    unfiltered_indiv_ctvd = unfiltered_indiv_ct / 64;
+    for (; indiv_bidx < unfiltered_indiv_ctvd; indiv_bidx++) {
+      vii = *loadbuf_alias;
+      vjj = _mm_and_si128(_mm_andnot_si128(vii, _mm_srli_epi64(vii, 1)), *iivp++);
+      *loadbuf_alias++ = _mm_sub_epi64(vii, vjj);
+    }
+    loadbuf = (unsigned char*)loadbuf_alias;
+    iicp = (unsigned char*)iivp;
+  } else {
+    iicp = (unsigned char*)indiv_include2;
+  }
+#else
+  uintptr_t* loadbuf_alias;
+  uintptr_t unfiltered_indiv_ctld;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  if (!(((uintptr_t)loadbuf) & 3)) {
+    loadbuf_alias = (uintptr_t*)loadbuf;
+    unfiltered_indiv_ctld = unfiltered_indiv_ct / BITCT2;
+    for (; indiv_bidx < unfiltered_indiv_ctld; indiv_bidx++) {
+      ulii = *loadbuf_alias;
+      uljj = ((ulii >> 1) & (~ulii)) & (*indiv_include2++);
+      *loadbuf_alias++ = ulii - uljj;
+    }
+    loadbuf = (unsigned char*)loadbuf_alias;
+  }
+  iicp = (unsigned char*)indiv_include2;
+#endif
+  for (; loadbuf < loadbuf_end;) {
+    ucc = *loadbuf;
+    ucc2 = ((ucc >> 1) & (~ucc)) & (*iicp++);
+    *loadbuf++ = ucc - ucc2;
+  }
+}
+
 int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf) {
   // membuf assumed to be of at least size indiv_ct * 8.
   int32_t shape = dist_calc_type & DISTANCE_SHAPEMASK;
