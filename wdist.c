@@ -5816,8 +5816,6 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, ui
     goto single_marker_freqs_and_hwe_loop;
   }
 #else
-  uint32_t tot_nm = 0;
-  uint32_t hethap_incr = 0;
   uintptr_t* lptr_twelve_end = &(lptr[unfiltered_indiv_ctl2 - unfiltered_indiv_ctl2 % 12]);
   while (lptr < lptr_twelve_end) {
     freq_hwe_count_12(lptr, indiv_include2, &tot_a, &tot_b, &tot_hmaj);
