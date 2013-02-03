@@ -264,11 +264,13 @@ void logprintb();
 
 int32_t fopen_checked(FILE** target_ptr, const char* fname, const char* mode);
 
+static inline int32_t fwrite_checkedz(const void* buf, size_t len, FILE* outfile) {
+  return ((!len) || fwrite(buf, len, 1, outfile))? 0 : -1;
+}
+
+
 static inline int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile) {
-  if ((!len) || fwrite(buf, len, 1, outfile)) {
-    return 0;
-  }
-  return -1;
+  return fwrite(buf, len, 1, outfile)? 0 : -1;
 }
 
 static inline int32_t fputs_checked(const char* ss, FILE* outfile) {

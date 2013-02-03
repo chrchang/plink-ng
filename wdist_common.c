@@ -1543,6 +1543,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
   int32_t write_1mibs_matrix = dist_calc_type & DISTANCE_1_MINUS_IBS;
   int64_t indiv_idx_offset = ((int64_t)first_indiv_idx * (first_indiv_idx - 1)) / 2;
   int64_t indiv_idx_ct = ((int64_t)end_indiv_idx * (end_indiv_idx - 1)) / 2 - indiv_idx_offset;
+  FILE* outfile;
   double dxx;
   double dyy;
   double* dist_ptr;
@@ -1805,7 +1806,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
       if (write_alcts) {
 	fputs("Writing...", stdout);
 	fflush(stdout);
-	if (fwrite_checked(dists, indiv_idx_ct * sizeof(double), *outfile_ptr)) {
+	if (fwrite_checkedz(dists, indiv_idx_ct * sizeof(double), *outfile_ptr)) {
 	  return RET_WRITE_FAIL;
 	}
 	distance_print_done(0, outname, outname_end);
@@ -1850,12 +1851,12 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	dxx = 0.0;
 	dist_ptr = dists;
 	for (ii = first_indiv_idx; ii < end_indiv_idx; ii++) {
-	  if (fwrite_checked(dist_ptr, ii * sizeof(double), *outfile_ptr)) {
+	  if (fwrite_checkedz(dist_ptr, ii * sizeof(double), *outfile_ptr)) {
 	    return RET_WRITE_FAIL;
 	  }
 	  dist_ptr = &(dist_ptr[ii]);
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checked(membuf, (indiv_ct - ii) * sizeof(double), *outfile_ptr)) {
+	    if (fwrite_checkedz(membuf, (indiv_ct - ii) * sizeof(double), *outfile_ptr)) {
 	      return RET_WRITE_FAIL;
 	    }
 	  } else {
@@ -1893,7 +1894,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    }
 	  }
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checked(membuf, (indiv_ct - ii) * sizeof(double), *outfile2_ptr)) {
+	    if (fwrite_checkedz(membuf, (indiv_ct - ii) * sizeof(double), *outfile2_ptr)) {
 	      return RET_WRITE_FAIL;
 	    }
 	  } else {
@@ -1932,7 +1933,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    }
 	  }
 	  if (shape == DISTANCE_SQ0) {
-	    if (fwrite_checked(membuf, (indiv_ct - ii) * sizeof(double), *outfile3_ptr)) {
+	    if (fwrite_checkedz(membuf, (indiv_ct - ii) * sizeof(double), *outfile3_ptr)) {
 	      return RET_WRITE_FAIL;
 	    }
 	  } else {
@@ -1963,27 +1964,26 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
     if (distance_open(outfile_ptr, outfile2_ptr, outfile3_ptr, outname, outname_end, "", "w", dist_calc_type, parallel_idx, parallel_tot)) {
       return RET_OPEN_FAIL;
     }
+    outfile = *outfile_ptr;
     if (write_alcts) {
       if (first_indiv_idx) {
 	ii = first_indiv_idx;
       } else {
 	if (shape == DISTANCE_SQ0) {
-	  if (fwrite_checked(&(membuf[1]), indiv_ct * 2 - 1, *outfile_ptr)) {
+	  if (fwrite_checked(&(membuf[1]), indiv_ct * 2 - 1, outfile)) {
 	    return RET_WRITE_FAIL;
 	  }
-	  if (fwrite_checked("\n", 1, *outfile_ptr)) {
+	  if (putc('\n', outfile) == EOF) {
 	    return RET_WRITE_FAIL;
 	  }
 	} else if (shape == DISTANCE_SQ) {
-	  if (fwrite_checked("0", 1, *outfile_ptr)) {
-	    return RET_WRITE_FAIL;
-	  }
+	  putc('0', outfile);
 	  for (ulii = 1; ulii < indiv_ct; ulii++) {
-	    if (fprintf(*outfile_ptr, "\t%g", dists[(ulii * (ulii - 1)) / 2]) < 0) {
+	    if (fprintf(outfile, "\t%g", dists[(ulii * (ulii - 1)) / 2]) < 0) {
 	      return RET_WRITE_FAIL;
 	    }
 	  }
-	  if (fwrite_checked("\n", 1, *outfile_ptr)) {
+	  if (putc('\n', outfile) == EOF) {
 	    return RET_WRITE_FAIL;
 	  }
 	}
@@ -1991,16 +1991,12 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
       }
       dist_ptr = dists;
       for (; ii < end_indiv_idx; ii++) {
-	if (fprintf(*outfile_ptr, "%g", *dist_ptr++) < 0) {
-	  return RET_WRITE_FAIL;
-	}
+	fprintf(outfile, "%g", *dist_ptr++);
 	for (jj = 1; jj < ii; jj++) {
-	  if (fprintf(*outfile_ptr, "\t%g", *dist_ptr++) < 0) {
-	    return RET_WRITE_FAIL;
-	  }
+	  fprintf(outfile, "\t%g", *dist_ptr++);
 	}
 	if (shape == DISTANCE_SQ0) {
-	  if (fwrite_checked(membuf, (indiv_ct - ii) * 2, *outfile_ptr)) {
+	  if (fwrite_checkedz(membuf, (indiv_ct - ii) * 2, outfile)) {
 	    return RET_WRITE_FAIL;
 	  }
 	  if ((ii - first_indiv_idx) * 100LL >= ((int64_t)pct * (end_indiv_idx - first_indiv_idx))) {
@@ -2010,13 +2006,10 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  }
 	} else {
 	  if (shape == DISTANCE_SQ) {
-	    if (fwrite_checked("\t0", 2, *outfile_ptr)) {
-	      return RET_WRITE_FAIL;
-	    }
+	    putc('\t', outfile);
+	    putc('0', outfile);
 	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      if (fprintf(*outfile_ptr, "\t%g", dists[((ulii * (ulii - 1)) / 2) + ii]) < 0) {
-		return RET_WRITE_FAIL;
-	      }
+	      fprintf(outfile, "\t%g", dists[((ulii * (ulii - 1)) / 2) + ii]);
 	    }
 	  }
 	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
@@ -2025,7 +2018,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    fflush(stdout);
 	  }
 	}
-	if (fwrite_checked("\n", 1, *outfile_ptr)) {
+	if (putc('\n', outfile) == EOF) {
 	  return RET_WRITE_FAIL;
 	}
       }
@@ -2036,48 +2029,36 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
       pct = 1;
     }
     if (write_ibs_matrix) {
+      outfile = *outfile2_ptr;
       membuf[1] = '1';
       if (first_indiv_idx) {
 	ii = first_indiv_idx;
       } else {
 	if (shape == DISTANCE_SQ0) {
-	  if (fwrite_checked(&(membuf[1]), indiv_ct * 2 - 1, *outfile2_ptr)) {
-	    return RET_WRITE_FAIL;
-	  }
-	  if (fwrite_checked("\n", 1, *outfile2_ptr)) {
+	  if (fwrite_checked(&(membuf[1]), indiv_ct * 2 - 1, outfile)) {
 	    return RET_WRITE_FAIL;
 	  }
 	} else if (shape == DISTANCE_SQ) {
-	  if (fwrite_checked("1", 1, *outfile2_ptr)) {
-	    return RET_WRITE_FAIL;
-	  }
+	  putc('1', outfile);
 	  for (ulii = 1; ulii < indiv_ct; ulii++) {
-	    if (fprintf(*outfile2_ptr, "\t%g", 1.0 - dists[(ulii * (ulii - 1)) / 2] * half_marker_ct_recip) < 0) {
-	      return RET_WRITE_FAIL;
-	    }
-	  }
-	  if (fwrite_checked("\n", 1, *outfile2_ptr)) {
-	    return RET_WRITE_FAIL;
+	    fprintf(outfile, "\t%g", 1.0 - dists[(ulii * (ulii - 1)) / 2] * half_marker_ct_recip);
 	  }
 	} else {
-	  if (fwrite_checked("1\n", 2, *outfile2_ptr)) {
-	    return RET_WRITE_FAIL;
-	  }
+	  putc('1', outfile);
+	}
+	if (putc('\n', outfile) == EOF) {
+	  return RET_WRITE_FAIL;
 	}
 	ii = 1;
       }
       dist_ptr = dists;
       for (; ii < end_indiv_idx; ii++) {
-	if (fprintf(*outfile2_ptr, "%g", 1.0 - (*dist_ptr++) * half_marker_ct_recip) < 0) {
-	  return RET_WRITE_FAIL;
-	}
+	fprintf(outfile, "%g", 1.0 - (*dist_ptr++) * half_marker_ct_recip);
 	for (jj = 1; jj < ii; jj++) {
-	  if (fprintf(*outfile2_ptr, "\t%g", 1.0 - (*dist_ptr++) * half_marker_ct_recip) < 0) {
-	    return RET_WRITE_FAIL;
-	  }
+	  fprintf(outfile, "\t%g", 1.0 - (*dist_ptr++) * half_marker_ct_recip);
 	}
 	if (shape == DISTANCE_SQ0) {
-	  if (fwrite_checked(membuf, (indiv_ct - ii) * 2, *outfile2_ptr)) {
+	  if (fwrite_checkedz(membuf, (indiv_ct - ii) * 2, outfile)) {
 	    return RET_WRITE_FAIL;
 	  }
 	  if ((ii - first_indiv_idx) * 100LL >= ((int64_t)pct * (end_indiv_idx - first_indiv_idx))) {
@@ -2086,14 +2067,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    fflush(stdout);
 	  }
 	} else {
-	  if (fwrite_checked("\t1", 2, *outfile2_ptr)) {
-	    return RET_WRITE_FAIL;
-	  }
+	  putc('\t', outfile);
+	  putc('1', outfile);
 	  if (shape == DISTANCE_SQ) {
 	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      if (fprintf(*outfile2_ptr, "\t%g", 1.0 - dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip) < 0) {
-		return RET_WRITE_FAIL;
-	      }
+	      fprintf(outfile, "\t%g", 1.0 - dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip);
 	    }
 	  }
 	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
@@ -2102,7 +2080,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    fflush(stdout);
 	  }
 	}
-	if (fwrite_checked("\n", 1, *outfile2_ptr)) {
+	if (putc('\n', outfile) == EOF) {
 	  return RET_WRITE_FAIL;
 	}
       }
@@ -2114,26 +2092,23 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
       pct = 1;
     }
     if (write_1mibs_matrix) {
+      outfile = *outfile3_ptr;
       if (first_indiv_idx) {
 	ii = first_indiv_idx;
       } else {
 	if (shape == DISTANCE_SQ0) {
-	  if (fwrite_checked(&(membuf[1]), indiv_ct * 2 - 1, *outfile3_ptr)) {
+	  if (fwrite_checked(&(membuf[1]), indiv_ct * 2 - 1, outfile)) {
 	    return RET_WRITE_FAIL;
 	  }
-	  if (fwrite_checked("\n", 1, *outfile3_ptr)) {
+	  if (putc('\n', outfile) == EOF) {
 	    return RET_WRITE_FAIL;
 	  }
 	} else if (shape == DISTANCE_SQ) {
-	  if (fwrite_checked("0", 1, *outfile3_ptr)) {
-	    return RET_WRITE_FAIL;
-	  }
+	  putc('0', outfile);
 	  for (ulii = 1; ulii < indiv_ct; ulii++) {
-	    if (fprintf(*outfile3_ptr, "\t%g", dists[(ulii * (ulii - 1)) / 2] * half_marker_ct_recip) < 0) {
-	      return RET_WRITE_FAIL;
-	    }
+	    fprintf(outfile, "\t%g", dists[(ulii * (ulii - 1)) / 2] * half_marker_ct_recip);
 	  }
-	  if (fwrite_checked("\n", 1, *outfile3_ptr)) {
+	  if (putc('\n', outfile) == EOF) {
 	    return RET_WRITE_FAIL;
 	  }
 	}
@@ -2141,16 +2116,12 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
       }
       dist_ptr = dists;
       for (; ii < end_indiv_idx; ii++) {
-	if (fprintf(*outfile3_ptr, "%g", (*dist_ptr++) * half_marker_ct_recip) < 0) {
-	  return RET_WRITE_FAIL;
-	}
+	fprintf(outfile, "%g", (*dist_ptr++) * half_marker_ct_recip);
 	for (jj = 1; jj < ii; jj++) {
-	  if (fprintf(*outfile3_ptr, "\t%g", (*dist_ptr++) * half_marker_ct_recip) < 0) {
-	    return RET_WRITE_FAIL;
-	  }
+	  fprintf(outfile, "\t%g", (*dist_ptr++) * half_marker_ct_recip);
 	}
 	if (shape == DISTANCE_SQ0) {
-	  if (fwrite_checked(membuf, (indiv_ct - ii) * 2, *outfile3_ptr)) {
+	  if (fwrite_checkedz(membuf, (indiv_ct - ii) * 2, outfile)) {
 	    return RET_WRITE_FAIL;
 	  }
 	  if ((ii - first_indiv_idx) * 100LL >= ((int64_t)pct * (end_indiv_idx - first_indiv_idx))) {
@@ -2160,13 +2131,10 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  }
 	} else {
 	  if (shape == DISTANCE_SQ) {
-	    if (fwrite_checked("\t0", 2, *outfile3_ptr)) {
-	      return RET_WRITE_FAIL;
-	    }
+	    putc('\t', outfile);
+	    putc('0', outfile);
 	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      if (fprintf(*outfile3_ptr, "\t%g", dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip) < 0) {
-		return RET_WRITE_FAIL;
-	      }
+	      fprintf(outfile, "\t%g", dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip);
 	    }
 	  }
 	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
@@ -2175,7 +2143,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    fflush(stdout);
 	  }
 	}
-	if (fwrite_checked("\n", 1, *outfile3_ptr)) {
+	if (putc('\n', outfile) == EOF) {
 	  return RET_WRITE_FAIL;
 	}
       }
