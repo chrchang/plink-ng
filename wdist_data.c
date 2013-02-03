@@ -4605,7 +4605,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
     }
   }
   putchar('\r');
-  sprintf(logbuf, "Dummy data generated (%" PRIuPTR " markers, %" PRIuPTR " %s).\n", marker_ct, indiv_ct, species_str(indiv_ct));
+  sprintf(logbuf, "Dummy data generated (%" PRIuPTR " %s, %" PRIuPTR " markers).\n", indiv_ct, species_str(indiv_ct), marker_ct);
   logprintb();
   while (0) {
   generate_dummy_ret_NOMEM:

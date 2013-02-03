@@ -476,10 +476,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     --rel-cutoff.\n\n"
 	       );
     help_print("dummy", &help_ctrl, 1,
-"  --dummy [marker ct] [indiv ct] {missing geno freq} {missing pheno freq}\n"
+"  --dummy [indiv ct] [marker ct] {missing geno freq} {missing pheno freq}\n"
 "          <acgt | 1234 | 12> <scalar-pheno>\n"
-"    This generates a fake input dataset with the specified number of markers\n"
-"    and individuals.  By default, the missing genotype and phenotype\n"
+"    This generates a fake input dataset with the specified number of\n"
+"    individuals and markers.  By default, the missing genotype and phenotype\n"
 "    frequencies are zero, and genotypes are As and Bs (change the latter with\n"
 "    'acgt'/'1234'/'12').  The 'scalar-pheno' modifier causes a normally\n"
 "    distributed scalar phenotype to be generated instead of a binary one.\n\n"
@@ -13597,14 +13597,14 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(argc, argv, cur_arg, 2, 6, &ii)) {
           goto main_ret_INVALID_CMDLINE_3;
 	}
-	dummy_marker_ct = atoi(argv[cur_arg + 1]);
-	if (dummy_marker_ct < 1) {
-	  sprintf(logbuf, "Error: Invalid --dummy marker count.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	dummy_indiv_ct = atoi(argv[cur_arg + 2]);
+	dummy_indiv_ct = atoi(argv[cur_arg + 1]);
 	if (dummy_indiv_ct < 1) {
 	  sprintf(logbuf, "Error: Invalid --dummy individual count.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	dummy_marker_ct = atoi(argv[cur_arg + 2]);
+	if (dummy_marker_ct < 1) {
+	  sprintf(logbuf, "Error: Invalid --dummy marker count.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         for (jj = 3; jj <= ii; jj++) {

@@ -1480,40 +1480,51 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfil
   unsigned char* iicp;
   unsigned char ucc;
   unsigned char ucc2;
+  uintptr_t unfiltered_indiv_ctd;
+  uint32_t* loadbuf_alias32;
+  uint32_t uii;
+  uint32_t ujj;
 #ifdef __LP64__
+  uint32_t* indiv_include2_alias32;
   __m128i* loadbuf_alias;
   __m128i* iivp;
-  uintptr_t unfiltered_indiv_ctvd;
   __m128i vii;
   __m128i vjj;
   if (!(((uintptr_t)loadbuf) & 15)) {
     loadbuf_alias = (__m128i*)loadbuf;
     iivp = (__m128i*)indiv_include2;
-    unfiltered_indiv_ctvd = unfiltered_indiv_ct / 64;
-    for (; indiv_bidx < unfiltered_indiv_ctvd; indiv_bidx++) {
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / 64;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
       vii = *loadbuf_alias;
       vjj = _mm_and_si128(_mm_andnot_si128(vii, _mm_srli_epi64(vii, 1)), *iivp++);
       *loadbuf_alias++ = _mm_sub_epi64(vii, vjj);
     }
     loadbuf = (unsigned char*)loadbuf_alias;
     iicp = (unsigned char*)iivp;
+  } else if (!(((uintptr_t)loadbuf) & 3)) {
+    loadbuf_alias32 = (uint32_t*)loadbuf;
+    indiv_include2_alias32 = (uint32_t*)indiv_include2;
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+      uii = *loadbuf_alias32;
+      ujj = ((uii >> 1) & (~uii)) & (*indiv_include2_alias32++);
+      *loadbuf_alias32++ = uii - ujj;
+    }
+    loadbuf = (unsigned char*)loadbuf_alias32;
+    iicp = (unsigned char*)indiv_include2_alias32;
   } else {
     iicp = (unsigned char*)indiv_include2;
   }
 #else
-  uintptr_t* loadbuf_alias;
-  uintptr_t unfiltered_indiv_ctld;
-  uintptr_t ulii;
-  uintptr_t uljj;
   if (!(((uintptr_t)loadbuf) & 3)) {
-    loadbuf_alias = (uintptr_t*)loadbuf;
-    unfiltered_indiv_ctld = unfiltered_indiv_ct / BITCT2;
-    for (; indiv_bidx < unfiltered_indiv_ctld; indiv_bidx++) {
-      ulii = *loadbuf_alias;
-      uljj = ((ulii >> 1) & (~ulii)) & (*indiv_include2++);
-      *loadbuf_alias++ = ulii - uljj;
+    loadbuf_alias32 = (uintptr_t*)loadbuf;
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+      uii = *loadbuf_alias32;
+      ujj = ((ulii >> 1) & (~ulii)) & (*indiv_include2++);
+      *loadbuf_alias32++ = uii - ujj;
     }
-    loadbuf = (unsigned char*)loadbuf_alias;
+    loadbuf = (unsigned char*)loadbuf_alias32;
   }
   iicp = (unsigned char*)indiv_include2;
 #endif
