@@ -132,6 +132,8 @@ typedef union {
 #define CALC_MAKE_BED 0x80000
 #define CALC_RECODE 0x100000
 #define CALC_MERGE 0x200000
+#define CALC_WRITE_COVAR 0x400000
+#define CALC_MODEL 0x800000
 
 #define LGEN_REFERENCE 1
 #define LGEN_ALLELE_COUNT 2
@@ -167,6 +169,9 @@ typedef union {
 #define RECODE_TRANSPOSE 1024
 #define RECODE_TYPEMASK 2040
 
+#define WRITE_COVAR_PHENO 1
+#define WRITE_COVAR_DUMMY 2
+
 #define UPDATE_MAP_CHR 1
 #define UPDATE_MAP_CM 2
 #define UPDATE_MAP_NAME 4
@@ -186,6 +191,19 @@ typedef union {
 #define DUMMY_ACGT 8
 #define DUMMY_1234 16
 #define DUMMY_12 32
+
+#define MODEL_ASSOC 1
+#define MODEL_FISHER 2
+#define MODEL_PERM 4
+#define MODEL_PERM_COUNT 8
+#define MODEL_ASSOC_COUNTS 16
+#define MODEL_ASSOC_P2 32
+#define MODEL_ASSOC_FDEPR 64
+#define MODEL_PDOM 128
+#define MODEL_PREC 256
+#define MODEL_PGEN 512
+#define MODEL_PTREND 1024
+#define MODEL_PMASK 1920
 
 #define WKSPACE_MIN_MB 64
 #define WKSPACE_DEFAULT_MB 2048
