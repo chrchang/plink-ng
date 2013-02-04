@@ -167,6 +167,10 @@ typedef union {
 #define RECODE_TRANSPOSE 1024
 #define RECODE_TYPEMASK 2040
 
+#define UPDATE_MAP_CHR 1
+#define UPDATE_MAP_CM 2
+#define UPDATE_MAP_NAME 4
+
 #define MERGE_MODE_MASK 7
 #define MERGE_ALLOW_EQUAL_POS 8
 #define MERGE_BINARY 16

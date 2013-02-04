@@ -939,6 +939,17 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --keep-allele-order : Keep the original allele order when creating a new\n"
 "                        fileset, instead of forcing A2 to be the major allele.\n"
 	       );
+    help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,
+"  --update-map <chr | cm | name> [f] : Update marker information.\n"
+	       );
+    help_print("update-alleles", &help_ctrl, 0,
+"  --update-alleles [fname]  : Update marker allele codes.\n"
+	       );
+    help_print("update-ids\tupdate-parents\tupdate-sex", &help_ctrl, 0,
+"  --update-ids [fname]      : Update individual IDs, parental IDs, or sexes\n"
+"  --update-parents [fname]    using the information in the provided file.  See\n"
+"  --update-sex [fname]        the PLINK documentation for file format details.\n"
+	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-allow-equal-pos", &help_ctrl, 0,
 "  --merge-allow-equal-pos   : Do not merge markers with different names but\n"
 "                              identical positions.\n"
@@ -10950,7 +10961,7 @@ inline int32_t distance_wt_req(int32_t calculation_type) {
   return ((calculation_type & CALC_DISTANCE) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
 
-int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* filterval, int32_t mfilter_col, int32_t filter_case_control, int32_t filter_sex, int32_t filter_founder_nonf, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, int32_t mpheno_col, uint32_t pheno_modifier, int32_t prune, int32_t affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int32_t hwe_all, double rel_cutoff, int32_t tail_pheno, double tail_bottom, double tail_top, int32_t calculation_type, int32_t rel_calc_type, int32_t dist_calc_type, uintptr_t groupdist_iters, int32_t groupdist_d, uintptr_t regress_iters, int32_t regress_d, uintptr_t regress_rel_iters, int32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, int32_t parallel_idx, uint32_t parallel_tot, int32_t ppc_gap, int32_t allow_no_sex, int32_t must_have_sex, int32_t nonfounders, int32_t genome_output_gz, int32_t genome_output_full, int32_t genome_ibd_unbounded, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, int32_t maf_succ, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, int32_t freq_counts, int32_t freqx, int32_t distance_flat_missing, uint32_t recode_modifier, int32_t allelexxxx, int32_t merge_type, int32_t indiv_sort, int32_t keep_allele_order, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t set_hh_missing, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col) {
+int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, char* update_map_fname, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* filterval, int32_t mfilter_col, int32_t filter_case_control, int32_t filter_sex, int32_t filter_founder_nonf, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, int32_t mpheno_col, uint32_t pheno_modifier, int32_t prune, int32_t affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int32_t hwe_all, double rel_cutoff, int32_t tail_pheno, double tail_bottom, double tail_top, int32_t calculation_type, int32_t rel_calc_type, int32_t dist_calc_type, uintptr_t groupdist_iters, int32_t groupdist_d, uintptr_t regress_iters, int32_t regress_d, uintptr_t regress_rel_iters, int32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, int32_t parallel_idx, uint32_t parallel_tot, int32_t ppc_gap, int32_t allow_no_sex, int32_t must_have_sex, int32_t nonfounders, int32_t genome_output_gz, int32_t genome_output_full, int32_t genome_ibd_unbounded, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, int32_t maf_succ, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, int32_t freq_counts, int32_t freqx, int32_t distance_flat_missing, uint32_t recode_modifier, int32_t allelexxxx, int32_t merge_type, int32_t indiv_sort, int32_t keep_allele_order, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t set_hh_missing, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t update_map_modifier) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -12589,6 +12600,11 @@ int32_t main(int32_t argc, char** argv) {
   char* cluster_fname = NULL;
   char* set_fname = NULL;
   char* subset_fname = NULL;
+  char* update_alleles_fname = NULL;
+  char* update_map_fname = NULL;
+  char* update_ids_fname = NULL;
+  char* update_parents_fname = NULL;
+  char* update_sex_fname = NULL;
   char** subst_argv2;
   int32_t retval = 0;
   int32_t load_params = 0; // describes what file parameters have been provided
@@ -12688,6 +12704,7 @@ int32_t main(int32_t argc, char** argv) {
   int32_t marker_pos_end = -1;
   uint32_t lgen_modifier = 0;
   uint32_t covar_modifier = 0;
+  uint32_t update_map_modifier = 0;
   Chrom_info chrom_info;
   char* argptr2;
   char* flagptr;
@@ -13381,7 +13398,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "ompound-genotypes", 18)) {
 	logprint("Note: --compound-genotypes flag unnecessary (spaces between alleles in .ped\nare optional).\n");
       } else if (!memcmp(argptr2, "ompress", 8)) {
-	logprint("Error: --compress flag retired.  Use 'gzip [filename]'.\n");
+	logprint("Error: --compress flag retired.  Use e.g. 'gzip [filename]'.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "ounts", 6)) {
 	logprint("Note: --counts flag deprecated.  Use '--freq counts' or --freqx instead.\n");
@@ -13469,7 +13486,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "ebug", 5)) {
 	debug_on = 1;
       } else if (!memcmp(argptr2, "ecompress", 10)) {
-	logprint("Error: --decompress flag retired.  Use 'gunzip [filename]'.\n");
+	logprint("Error: --decompress flag retired.  Use e.g. 'gunzip [filename]'.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "istance", 8)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 7, &ii)) {
@@ -15227,6 +15244,66 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_UNRELATED_HERITABILITY;
 #endif
+      } else if (!memcmp(argptr2, "pdate-alleles", 14)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Error: --update-alleles is not implemented yet.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+      } else if (!memcmp(argptr2, "pdate-chr", 10)) {
+	logprint("Note: --update-chr flag deprecated.  Use '--update-map chr'.\n");
+	update_map_modifier = UPDATE_MAP_CHR;
+      } else if (!memcmp(argptr, "pdate-cm", 9)) {
+	if (update_map_modifier) {
+	  logprint("Error: --update-map 'cm' modifier cannot be used with 'chr'.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	logprint("Note: --update-cm flag deprecated.  Use '--update-map cm'.\n");
+	update_map_modifier = UPDATE_MAP_CM;
+      } else if (!memcmp(argptr2, "pdate-ids", 10)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Error: --update-ids is not implemented yet.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+      } else if (!memcmp(argptr2, "pdate-map", 10)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 2, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Error: --update-map is not implemented yet.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto main_ret_1;
+      } else if (!memcmp(argptr2, "pdate-name", 11)) {
+	if (update_map_fname) {
+	  sprintf(logbuf, "Error: --update-name cannot be used without --update-map.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (update_map_modifier & (UPDATE_MAP_CHR | UPDATE_MAP_CM)) {
+	  sprintf(logbuf, "Error: --update-map 'name' modifier cannot be used with '%s'.%s", (update_map_modifier == UPDATE_MAP_CHR)? "chr" : "cm", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --update-name flag deprecated.  Use '--update-map name'.\n");
+	update_map_modifier = UPDATE_MAP_NAME;
+      } else if (!memcmp(argptr2, "pdate-parents", 14)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (update_ids_fname) {
+	  logprint("Error: --update-parents cannot be used with --update-ids.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	logprint("Error: --update-parents is not implemented yet.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+      } else if (!memcmp(argptr2, "pdate-sex", 10)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (update_ids_fname) {
+	  logprint("Error: --update-sex cannot be used with --update-ids.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	logprint("Error: --update-sex is not implemented yet.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -15297,6 +15374,10 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_INVALID_CMDLINE_3;
   } else if ((calculation_type & CALC_LOAD_DISTANCES) && (!(calculation_type & (CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))) {
     sprintf(logbuf, "Error: --load-dists cannot be used without either --groupdist or\n--regress-distance.%s", errstr_append);
+    goto main_ret_INVALID_CMDLINE_3;
+  }
+  if (update_map_modifier && (!update_map_fname)) {
+    sprintf(logbuf, "Error: --update-%s cannot be used without --update-map.%s", (update_map_modifier == UPDATE_MAP_CHR)? "chr" : "cm", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
 
@@ -15456,7 +15537,7 @@ int32_t main(int32_t argc, char** argv) {
       memcpy(&(famname[uii]), ".fam", 5);
       *outname_end = '\0';
     }
-    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (uint32_t)parallel_tot, ppc_gap, allow_no_sex, must_have_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, set_hh_missing, covar_modifier, covar_str, mcovar_col);
+    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, update_alleles_fname, update_map_fname, update_ids_fname, update_parents_fname, update_sex_fname, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (uint32_t)parallel_tot, ppc_gap, allow_no_sex, must_have_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, set_hh_missing, covar_modifier, covar_str, mcovar_col, update_map_modifier);
   }
  main_ret_2:
   free(wkspace_ua);
@@ -15524,6 +15605,12 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(cluster_fname);
   free_cond(set_fname);
   free_cond(subset_fname);
+  free_cond(update_alleles_fname);
+  free_cond(update_map_fname);
+  free_cond(update_ids_fname);
+  free_cond(update_parents_fname);
+  free_cond(update_sex_fname);
+
   if (logfile) {
     if (!log_failed) {
       logstr("\nEnd time: ");
