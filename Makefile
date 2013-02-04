@@ -17,7 +17,7 @@ ifeq ($(UNAME), MINGW32_NT-6.0)
 ARCH64=
 BLASFLAGS=-Wl,-Bstatic -L. lapack/liblapack.a -L. lapack/librefblas.a
 BLASFLAGS64=-Wl,-Bstatic -L. lapack/liblapack-64.a -L. lapack/librefblas-64.a
-LINKFLAGS=-lm
+LINKFLAGS=-lm -static-libgcc
 ZLIB=zlib-1.2.7/libz.a
 ZLIB64=zlib-1.2.7/libz-64.a
 endif

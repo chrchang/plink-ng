@@ -1517,11 +1517,11 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfil
   }
 #else
   if (!(((uintptr_t)loadbuf) & 3)) {
-    loadbuf_alias32 = (uintptr_t*)loadbuf;
+    loadbuf_alias32 = (uint32_t*)loadbuf;
     unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
     for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
       uii = *loadbuf_alias32;
-      ujj = ((ulii >> 1) & (~ulii)) & (*indiv_include2++);
+      ujj = ((uii >> 1) & (~uii)) & (*indiv_include2++);
       *loadbuf_alias32++ = uii - ujj;
     }
     loadbuf = (unsigned char*)loadbuf_alias32;
