@@ -4861,6 +4861,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
   uintptr_t* indiv_include2 = NULL;
   uintptr_t* indiv_male_include2 = NULL;
   uint32_t lgen_ref = (recode_modifier & RECODE_LGEN_REF);
+  uint32_t rlist = (recode_modifier & RECODE_RLIST);
   FILE* outfile;
   uint32_t is_x;
   uint32_t is_haploid;
@@ -4875,6 +4876,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
   char* writebuf;
   char* writebufl[4];
   char* writebuflp[4];
+  char* writebuflps[4];
   unsigned char* bufptr;
   char* wbufptr;
   char* cptr;
@@ -4899,14 +4901,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
   cur_mk_alleles[1] = '\0';
   cur_mk_alleles[2] = '\0';
   cur_mk_alleles[3] = '\0';
-  if (recode_modifier & RECODE_RLIST) {
-    logprint("Error: --recode rlist not yet implemented.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto recode_ret_1;
-  }
-  if (recode_modifier & RECODE_LIST) {
-    set_hh_missing = 1;
-  }
   if ((!xmhh_exists) && (!nxmhh_exists)) {
     set_hh_missing = 0;
   } else if (!set_hh_missing) {
@@ -4947,12 +4941,22 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
       goto recode_ret_NOMEM;
     }
   } else if (recode_modifier & (RECODE_LIST | RECODE_RLIST)) {
+    // --list:
     // 3 for chromosome and delim
     // + max_marker_id_len
     // + 3, or (2 * max_marker_allele_len - 1)
     // + indiv_ct * max_person_id_len + 1
+    //
+    // --rlist:
+    // max_marker_id_len
+    // + 4 for "HOM"/"HET"/"NIL" and delim
+    // + 4, or (2 * max_marker_allele_len)
+    // + indiv_ct * max_person_id_len + 1
     ulii = 3 + max_marker_id_len + 2 * max_marker_allele_len + indiv_ct * max_person_id_len;
     if (max_marker_allele_len == 1) {
+      ulii += 2;
+    }
+    if (rlist) {
       ulii += 2;
     }
     if (wkspace_alloc_c_checked(&writebuf, ulii * 4)) {
@@ -5277,27 +5281,26 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	    }
 	    ucc2 = is_set(marker_reverse, marker_uidx)? 0 : 3;
 	  }
-	  alen = 5 + (uintptr_t)(cptr - tbuf);
+	  alen = 4 + (uintptr_t)(cptr - tbuf);
 	  *cptr++ = *cur_mk_alleles;
 	  *cptr++ = delim2;
 	  *cptr++ = *cur_mk_alleles;
 	  *cptr++ = '\n';
-	  *cptr++ = '\0';
 	  memcpy(cptr, tbuf, alen);
 	  memcpy(&(cptr[alen]), tbuf, alen);
 	  memcpy(&(cptr[alen * 2]), tbuf, alen);
-	  cptr[alen - 5] = '0';
-	  cptr[alen - 3] = '0';
-	  cptr[2 * alen - 5] = cur_mk_alleles[2];
-	  cptr[2 * alen - 3] = cur_mk_alleles[3];
-	  cptr[3 * alen - 5] = cur_mk_alleles[1];
-	  cptr[3 * alen - 3] = cur_mk_alleles[1];
+	  cptr[alen - 4] = '0';
+	  cptr[alen - 2] = '0';
+	  cptr[2 * alen - 4] = cur_mk_alleles[2];
+	  cptr[2 * alen - 2] = cur_mk_alleles[3];
+	  cptr[3 * alen - 4] = cur_mk_alleles[1];
+	  cptr[3 * alen - 2] = cur_mk_alleles[1];
 	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
 	    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
 	    ucc = (loadbuf[indiv_uidx / 4] >> ((indiv_uidx % 4) * 2)) & 3;
 	    if (ucc != ucc2) {
 	      fputs(&(person_ids[indiv_uidx * max_person_id_len]), outfile);
-	      if (fputs(&(tbuf[ucc * alen]), outfile) == EOF) {
+	      if (fwrite_checked(&(tbuf[ucc * alen]), alen, outfile)) {
 		goto recode_ret_WRITE_FAIL;
 	      }
 	    }
@@ -5541,15 +5544,19 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto recode_ret_1;
     }
-  } else if (recode_modifier & RECODE_LIST) {
-    strcpy(outname_end, ".list");
+  } else if (recode_modifier & (RECODE_LIST | RECODE_RLIST)) {
+    strcpy(outname_end, rlist? ".rlist" : ".list");
     if (fopen_checked(outfile_ptr, outname, "w")) {
       goto recode_ret_OPEN_FAIL;
     }
     if (delimiter != '\t') {
       indiv_delim_convert(unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, '\t', ' ');
     }
-    sprintf(logbuf, "--recode list to %s... ", outname);
+    if (rlist) {
+      sprintf(logbuf, "--recode rlist to %s + .map + .fam... ", outname);
+    } else {
+      sprintf(logbuf, "--recode list to %s... ", outname);
+    }
     logprintb();
     fputs("0%", stdout);
     for (pct = 1; pct <= 100; pct++) {
@@ -5595,27 +5602,62 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	alen = strlen(aptr);
 	for (ulii = 0; ulii < 4; ulii++) {
 	  wbufptr = writebufl[ulii];
-	  wbufptr += sprintf(wbufptr, "%u", chrom_idx);
-	  *wbufptr++ = delimiter;
+	  if (!rlist) {
+	    wbufptr += sprintf(wbufptr, "%u", chrom_idx);
+	    *wbufptr++ = delimiter;
+	  }
 	  memcpy(wbufptr, aptr, alen);
 	  wbufptr += alen;
 	  *wbufptr++ = delimiter;
+	  if (rlist) {
+	    switch (ulii) {
+	    case 0:
+	    case 3:
+	      *wbufptr++ = 'H';
+	      *wbufptr++ = 'O';
+	      *wbufptr++ = 'M';
+	      break;
+	    case 1:
+	      *wbufptr++ = 'N';
+	      *wbufptr++ = 'I';
+	      *wbufptr++ = 'L';
+	      break;
+	    case 2:
+	      *wbufptr++ = 'H';
+	      *wbufptr++ = 'E';
+	      *wbufptr++ = 'T';
+	      break;
+	    }
+	    *wbufptr++ = delimiter;
+	  }
 	  if (max_marker_allele_len == 1) {
 	    switch (ulii) {
 	    case 0:
 	      *wbufptr++ = *cur_mk_alleles;
+	      if (rlist) {
+		*wbufptr++ = delimiter;
+	      }
 	      *wbufptr++ = *cur_mk_alleles;
 	      break;
 	    case 1:
 	      *wbufptr++ = '0';
+	      if (rlist) {
+		*wbufptr++ = delimiter;
+	      }
 	      *wbufptr++ = '0';
 	      break;
 	    case 2:
 	      *wbufptr++ = cur_mk_alleles[2];
+	      if (rlist) {
+		*wbufptr++ = delimiter;
+	      }
 	      *wbufptr++ = cur_mk_alleles[3];
 	      break;
 	    case 3:
 	      *wbufptr++ = cur_mk_alleles[1];
+	      if (rlist) {
+		*wbufptr++ = delimiter;
+	      }
 	      *wbufptr++ = cur_mk_alleles[1];
 	      break;
 	    }
@@ -5623,55 +5665,108 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	    switch (ulii) {
 	    case 0:
 	      memcpy(wbufptr, cur_mk_allelesx[0], cmalen[0]);
-	      memcpy(&(wbufptr[cmalen[0]]), cur_mk_allelesx[0], cmalen[0]);
-	      wbufptr += 2 * cmalen[0];
+	      wbufptr += cmalen[0];
+	      if (rlist) {
+		*wbufptr++ = delimiter;
+	      }
+	      memcpy(wbufptr, cur_mk_allelesx[0], cmalen[0]);
+	      wbufptr += cmalen[0];
 	      break;
 	    case 1:
 	      *wbufptr++ = '0';
+	      if (rlist) {
+		*wbufptr++ = delimiter;
+	      }
 	      *wbufptr++ = '0';
 	      break;
 	    case 2:
 	      memcpy(wbufptr, cur_mk_allelesx[4], cmalen[2]);
-	      memcpy(&(wbufptr[cmalen[2]]), cur_mk_allelesx[5], cmalen[3]);
-	      wbufptr += cmalen[2] + cmalen[3];
+	      wbufptr += cmalen[2];
+	      if (rlist) {
+	        *wbufptr++ = delimiter;
+	      }
+	      memcpy(wbufptr, cur_mk_allelesx[5], cmalen[3]);
+	      wbufptr += cmalen[3];
 	      break;
 	    case 3:
 	      memcpy(wbufptr, cur_mk_allelesx[1], cmalen[1]);
-	      memcpy(&(wbufptr[cmalen[1]]), cur_mk_allelesx[1], cmalen[1]);
-	      wbufptr += 2 * cmalen[1];
+	      wbufptr += cmalen[1];
+	      if (rlist) {
+		*wbufptr++ = delimiter;
+	      }
+	      memcpy(wbufptr, cur_mk_allelesx[1], cmalen[1]);
+	      wbufptr += cmalen[1];
 	      break;
 	    }
 	  }
 	  writebuflp[ulii] = wbufptr;
 	}
 	indiv_uidx = 0;
-	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-	  indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
-	  ucc = (loadbuf[indiv_uidx / 4] >> ((indiv_uidx % 4) * 2)) & 3;
-	  *(writebuflp[ucc]++) = delimiter;
-	  aptr2 = &(person_ids[indiv_uidx * max_person_id_len]);
-	  alen2 = strlen(aptr2);
-	  memcpy(writebuflp[ucc], &(person_ids[indiv_uidx * max_person_id_len]), alen2);
-	  writebuflp[ucc] += alen2;
-	  indiv_uidx++;
-	}
-	*(writebuflp[0]++) = '\n';
-	*(writebuflp[1]++) = '\n';
-	*(writebuflp[2]++) = '\n';
-	*(writebuflp[3]++) = '\n';
-	ulii = is_set(marker_reverse, marker_uidx)? 3 : 0;
-	if (fwrite_checked(writebufl[ulii], (uintptr_t)(writebuflp[ulii] - writebufl[ulii]), *outfile_ptr)) {
-	  goto recode_ret_WRITE_FAIL;
-	}
-	if (fwrite_checked(writebufl[2], (uintptr_t)(writebuflp[2] - writebufl[2]), *outfile_ptr)) {
-	  goto recode_ret_WRITE_FAIL;
-	}
-	ulii = 3 - ulii;
-	if (fwrite_checked(writebufl[ulii], (uintptr_t)(writebuflp[ulii] - writebufl[ulii]), *outfile_ptr)) {
-	  goto recode_ret_WRITE_FAIL;
-	}
-	if (fwrite_checked(writebufl[1], (uintptr_t)(writebuflp[1] - writebufl[1]), *outfile_ptr)) {
-	  goto recode_ret_WRITE_FAIL;
+	if (rlist) {
+	  for (ulii = 0; ulii < 4; ulii++) {
+	    writebuflps[ulii] = writebuflp[ulii];
+	  }
+	  ucc2 = is_set(marker_reverse, marker_uidx)? 0 : 3;
+	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+	    ucc = (loadbuf[indiv_uidx / 4] >> ((indiv_uidx % 4) * 2)) & 3;
+	    if (ucc != ucc2) {
+	      *(writebuflp[ucc]++) = delimiter;
+	      aptr2 = &(person_ids[indiv_uidx * max_person_id_len]);
+	      alen2 = strlen(aptr2);
+	      memcpy(writebuflp[ucc], &(person_ids[indiv_uidx * max_person_id_len]), alen2);
+	      writebuflp[ucc] += alen2;
+	    }
+	    indiv_uidx++;
+	  }
+	  if (writebuflp[2] != writebuflps[2]) {
+	    *(writebuflp[2]++) = '\n';
+	    if (fwrite_checked(writebufl[2], (uintptr_t)(writebuflp[2] - writebufl[2]), *outfile_ptr)) {
+	      goto recode_ret_WRITE_FAIL;
+	    }
+	  }
+	  ucc2 = 3 - ucc2;
+	  if (writebuflp[ucc2] != writebuflps[ucc2]) {
+	    *(writebuflp[ucc2]++) = '\n';
+	    if (fwrite_checked(writebufl[ucc2], (uintptr_t)(writebuflp[ucc2] - writebufl[ucc2]), *outfile_ptr)) {
+	      goto recode_ret_WRITE_FAIL;
+	    }
+	  }
+	  if (writebuflp[1] != writebuflps[1]) {
+	    *(writebuflp[1]++) = '\n';
+	    if (fwrite_checked(writebufl[1], (uintptr_t)(writebuflp[1] - writebufl[1]), *outfile_ptr)) {
+	      goto recode_ret_WRITE_FAIL;
+	    }
+	  }
+	} else {
+	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+	    ucc = (loadbuf[indiv_uidx / 4] >> ((indiv_uidx % 4) * 2)) & 3;
+	    *(writebuflp[ucc]++) = delimiter;
+	    aptr2 = &(person_ids[indiv_uidx * max_person_id_len]);
+	    alen2 = strlen(aptr2);
+	    memcpy(writebuflp[ucc], &(person_ids[indiv_uidx * max_person_id_len]), alen2);
+	    writebuflp[ucc] += alen2;
+	    indiv_uidx++;
+	  }
+	  *(writebuflp[0]++) = '\n';
+	  *(writebuflp[1]++) = '\n';
+	  *(writebuflp[2]++) = '\n';
+	  *(writebuflp[3]++) = '\n';
+	  ulii = is_set(marker_reverse, marker_uidx)? 3 : 0;
+	  if (fwrite_checked(writebufl[ulii], (uintptr_t)(writebuflp[ulii] - writebufl[ulii]), *outfile_ptr)) {
+	    goto recode_ret_WRITE_FAIL;
+	  }
+	  if (fwrite_checked(writebufl[2], (uintptr_t)(writebuflp[2] - writebufl[2]), *outfile_ptr)) {
+	    goto recode_ret_WRITE_FAIL;
+	  }
+	  ulii = 3 - ulii;
+	  if (fwrite_checked(writebufl[ulii], (uintptr_t)(writebuflp[ulii] - writebufl[ulii]), *outfile_ptr)) {
+	    goto recode_ret_WRITE_FAIL;
+	  }
+	  if (fwrite_checked(writebufl[1], (uintptr_t)(writebuflp[1] - writebufl[1]), *outfile_ptr)) {
+	    goto recode_ret_WRITE_FAIL;
+	  }
 	}
 	marker_uidx++;
       }
@@ -5874,7 +5969,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
   }
   fclose_null(outfile_ptr);
 
-  if (recode_modifier & (RECODE_TRANSPOSE | RECODE_LGEN | RECODE_LGEN_REF)) {
+  if (recode_modifier & (RECODE_TRANSPOSE | RECODE_LGEN | RECODE_LGEN_REF | RECODE_RLIST)) {
     if (recode_modifier & RECODE_TRANSPOSE) {
       strcpy(outname_end, ".tfam");
     } else {

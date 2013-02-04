@@ -308,7 +308,7 @@ static inline int32_t flexwrite_checked(FILE* outfile, gzFile gz_outfile, char* 
 }
 
 static inline int32_t bed_suffix_conflict(int32_t calculation_type, uint32_t recode_modifier) {
-  return (calculation_type & CALC_MAKE_BED) || ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_LGEN));
+  return (calculation_type & CALC_MAKE_BED) || ((calculation_type & CALC_RECODE) && (recode_modifier & (RECODE_LGEN | RECODE_LGEN_REF | RECODE_RLIST)));
 }
 
 // manually managed, very large stack
