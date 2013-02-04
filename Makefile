@@ -50,7 +50,7 @@ wdist64: $(SRC)
 
 wdist64w: $(SRC)
 	g++ $(CFLAGS) $(ARCH64) $(SRC) -c
-	gfortran $(OBJ) -o wdist $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+	gfortran $(OBJ) -o wdist64 $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
 wdist64c: $(SRC)
 	gcc $(CFLAGS) $(ARCH64) $(SRC) -o wdist $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
