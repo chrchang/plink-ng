@@ -195,15 +195,16 @@ typedef union {
 #define MODEL_ASSOC 1
 #define MODEL_FISHER 2
 #define MODEL_PERM 4
-#define MODEL_PERM_COUNT 8
-#define MODEL_ASSOC_COUNTS 16
-#define MODEL_ASSOC_P2 32
-#define MODEL_ASSOC_FDEPR 64
-#define MODEL_PDOM 128
-#define MODEL_PREC 256
-#define MODEL_PGEN 512
-#define MODEL_PTREND 1024
-#define MODEL_PMASK 1920
+#define MODEL_MPERM 8
+#define MODEL_PERM_COUNT 16
+#define MODEL_ASSOC_COUNTS 32
+#define MODEL_ASSOC_P2 64
+#define MODEL_ASSOC_FDEPR 128
+#define MODEL_PDOM 256
+#define MODEL_PREC 512
+#define MODEL_PGEN 1024
+#define MODEL_PTREND 2048
+#define MODEL_PMASK 3840
 
 #define WKSPACE_MIN_MB 64
 #define WKSPACE_DEFAULT_MB 2048
@@ -454,6 +455,8 @@ static inline int32_t is_space_or_eoln(char cc) {
 static inline int32_t is_space_or_eoln(char cc) {
   return ((unsigned char)cc) <= 32;
 }
+
+int32_t atoiz(char* ss, int32_t* sval);
 
 int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr);
 

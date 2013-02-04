@@ -86,6 +86,16 @@ void wkspace_reset(void* new_base) {
   wkspace_left += freed_bytes;
 }
 
+int32_t atoiz(char* ss, int32_t* sval) {
+  int32_t ii = atoi(ss);
+  ii = atoi(ss);
+  if ((ii < 1) && ((*ss != '0') || (ss[1] != '\0'))) {
+    return -1;
+  }
+  *sval = ii;
+  return 0;
+}
+
 int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr) {
   char* lptr;
   do {

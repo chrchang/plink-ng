@@ -435,6 +435,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  * <angle brackets> denote an optional modifier (or if '|' is present, a set\n"
 "    of mutually exclusive optional modifiers).  Use the EXACT text in the\n"
 "    definition, e.g. '--distance square0'.\n"
+"  * There's one exception to the angle brackets/exact text rule: when an angle\n"
+"    bracket term ends with '=[value]', '[value]' designates a variable\n"
+"    parameter.\n"
 "  * {curly braces} denote an optional parameter, where the text between the\n"
 "    braces describes its nature.\n"
 "  * An ellipsis (...) indicates that you may enter multiple parameters of the\n"
@@ -568,10 +571,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    --genome or --Z-genome, and the 'full' and 'unbounded' modifiers have the\n"
 "    same effect as PLINK's --genome-full and --unbounded flags.\n\n"
 		);
-    help_print("assoc\tmodel\tcounts\tfisher\tperm\tperm-count\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend", &help_ctrl, 1,
-"  --assoc <counts> <fisher> <perm> <perm-count> <p2>\n"
-"  --model <fisher> <perm> <perm-count> <perm-dom | perm-rec | perm-gen |\n"
-"          perm-trend>\n"
+    help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend", &help_ctrl, 1,
+"  --assoc <fisher> <perm | mperm=[value]> <perm-count> <counts> <p2>\n"
+"  --model <fisher> <perm | mperm=[value]> <perm-count> <perm-dom | perm-rec |\n"
+"          perm-gen | perm-trend>\n"
 "    Case-control association analysis.  --assoc performs a basic 1df chi-square\n"
 "    allelic test, while --model performs 4 other tests as well (1df dominant\n"
 "    gene action, 1df recessive gene action, 2df genotypic, Cochran-Armitage\n"
@@ -579,7 +582,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * The 'counts' modifier causes --assoc to report allele counts instead of\n"
 "      frequencies.\n"
 "    * With 'fisher', Fisher's exact test is used to generate p-values.\n"
-"    * With 'perm', a permutation test is performed.\n"
+"    * 'perm' causes an adaptive permutation test to be performed.\n"
+"    * 'mperm=[value]' causes a max(T) permutation test with the specified\n"
+"      number of replications to be performed.\n"
 "    * 'perm-count' causes the permutation test report to include counts instead\n"
 "      of frequencies.\n"
 "    * 'p2' changes the --assoc permutation test used (see PLINK documentation).\n"
@@ -587,8 +592,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      corresponding test to be used as the basis for --model permutation.  (By\n"
 "      default, the most significant result among the allelic, dominant, and\n"
 "      recessive tests is used.)\n"
-"    Several other flags (most notably --aperm and --mperm) can be used to\n"
-"    customize the permutation test.\n\n"
+"    Several other flags (most notably, --aperm) can be used to customize the\n"
+"    permutation test.\n\n"
 	       );
     help_print(
 "indep\tindep-pairwise", &help_ctrl, 1,
@@ -12754,6 +12759,8 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t lgen_modifier = 0;
   uint32_t covar_modifier = 0;
   uint32_t update_map_modifier = 0;
+  uint32_t model_mperm_val = 0;
+  uint32_t mperm_val = 0;
   Chrom_info chrom_info;
   char* argptr2;
   char* flagptr;
@@ -13335,6 +13342,20 @@ int32_t main(int32_t argc, char** argv) {
 	    model_modifier |= MODEL_PERM_COUNT;
 	  } else if (!strcmp(argv[cur_arg + jj], "p2")) {
 	    model_modifier |= MODEL_ASSOC_P2;
+	  } else if ((!memcmp(argv[cur_arg + jj], "mperm=", 6)) && (argv[cur_arg + jj][6] != '\0')) {
+	    if (model_modifier & MODEL_PERM) {
+	      sprintf(logbuf, "Error: --assoc 'mperm' and 'perm' cannot be used together.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    } else if (model_modifier & MODEL_MPERM) {
+	      sprintf(logbuf, "Error: Duplicate --assoc 'mperm' modifier.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    kk = atoi(&(argv[cur_arg + jj][6]));
+	    if (kk < 1) {
+	      sprintf(logbuf, "Error: Invalid --assoc mperm parameter '%s'.%s", &(argv[cur_arg + jj][6]), errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    model_mperm_val = (uint32_t)kk;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --assoc parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
@@ -13521,12 +13542,10 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	ii = atoi(argv[cur_arg + 1]);
-	if ((ii < 1) && ((argv[cur_arg + 1][0] != '0') || (argv[cur_arg + 1][1] != '\0'))) {
+	if (atoiz(argv[cur_arg + 1], &model_cell_ct)) {
 	  sprintf(logbuf, "Error: Invalid --cell parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	model_cell_ct = ii;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -13865,12 +13884,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cc = argptr2[4];
 	if (cc == 'b') {
-	  ii = atoi(argv[cur_arg + 1]);
-	  if ((ii < 1) && ((argv[cur_arg + 1][0] != '0') || (argv[cur_arg + 1][1] != '\0'))) {
+	  if (atoiz(argv[cur_arg + 1], &marker_pos_start)) {
 	    sprintf(logbuf, "Error: Invalid --from-bp parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
-	  marker_pos_start = ii;
 	} else {
 	  if (marker_pos_start != -1) {
 	    logprint("Error: Multiple --from-bp/-kb/-mb values.\n");
@@ -14584,6 +14601,20 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    model_modifier |= MODEL_PTREND;
+	  } else if ((!memcmp(argv[cur_arg + jj], "mperm=", 6)) && (argv[cur_arg + jj][6] != '\0')) {
+	    if (model_modifier & MODEL_PERM) {
+	      sprintf(logbuf, "Error: --model 'mperm' and 'perm' cannot be used together.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    } else if (model_modifier & MODEL_MPERM) {
+	      sprintf(logbuf, "Error: Duplicate --model 'mperm' modifier.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    kk = atoi(&(argv[cur_arg + jj][6]));
+	    if (kk < 1) {
+	      sprintf(logbuf, "Error: Invalid --model mperm parameter '%s'.%s", &(argv[cur_arg + jj][6]), errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    model_mperm_val = (uint32_t)kk;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --model parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
@@ -14630,6 +14661,22 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	model_modifier |= MODEL_PTREND;
+      } else if (!memcmp(argptr2, "perm", 5)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 1) {
+	  sprintf("Error: Invalid --mperm parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (model_modifier & (MODEL_PERM | MODEL_MPERM)) {
+	  sprintf(logbuf, "Error: --mperm cannot be used with --%s %sperm.%s", (model_modifier & MODEL_ASSOC)? "assoc" : "model", (model_modifier & MODEL_PERM)? "" : "m", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --mperm flag deprecated.  Use e.g. '--model mperm=[value]'.");
+	mperm_val = (uint32_t)ii;
+	model_mperm_val = mperm_val;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -15359,8 +15406,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cc = argptr2[2];
 	if (cc == 'b') {
-	  ii = atoi(argv[cur_arg + 1]);
-	  if ((ii < 1) && ((argv[cur_arg + 1][0] != '0') || (argv[cur_arg + 1][1] != '\0'))) {
+	  if (atoiz(argv[cur_arg + 1], &ii)) {
 	    sprintf(logbuf, "Error: Invalid --to-bp parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
