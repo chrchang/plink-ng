@@ -1170,7 +1170,7 @@ uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx
 
 uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx) {
   // popcounts lptr ANDNOT exclude_arr[0..(end_idx-1)].
-  // N.B. assumes lptr and exclude_arr are 16-byte aligned on 64-bit systems.
+  // N.B. on 64-bit systems, assumes lptr and exclude_arr are 16-byte aligned.
   uintptr_t tot = 0;
   uintptr_t* lptr_end = &(lptr[end_idx]);
 #ifdef __LP64__

@@ -95,6 +95,9 @@ typedef union {
 #define EPSILON 0.000000000931322574615478515625
 // less tolerant version (2^{-44}) for some exact calculations
 #define SMALL_EPSILON 0.00000000000005684341886080801486968994140625
+// 53-bit double precision limit
+#define DOUBLE_PREC_LIMIT 0.00000000000000011102230246251565404236316680908203125
+#define TWO_70 1180591620717411303424.0
 
 #define RET_SUCCESS 0
 #define RET_NOMEM 1
@@ -134,6 +137,7 @@ typedef union {
 #define CALC_MERGE 0x200000
 #define CALC_WRITE_COVAR 0x400000
 #define CALC_MODEL 0x800000
+#define CALC_HARDY 0x1000000
 
 #define LGEN_REFERENCE 1
 #define LGEN_ALLELE_COUNT 2
@@ -504,6 +508,18 @@ static inline void read_next_terminate(char* target, char* source) {
     *target++ = *source++;
   }
   *target = '\0';
+}
+
+static inline void intprint2(char* buf, uint32_t num) {
+  uint32_t quotient;
+  if (num < 10) {
+    *buf++ = ' ';
+    *buf = '0' + num;
+    return;
+  }
+  quotient = num / 10;
+  *buf++ = '1' + quotient;
+  *buf = '0' + num - (quotient * 10);
 }
 
 static inline void set_bit_noct(uintptr_t* exclude_arr, uint32_t loc) {

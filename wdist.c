@@ -167,7 +167,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (4 Feb 2013)";
+  " (6 Feb 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -177,7 +177,7 @@ const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n"
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
 const char cmdline_format_str[] = "\n  wdist [input flag(s)...] [command flag(s)...] {other flag(s)...}\n  wdist --help {flag name(s)...}\n\n";
 const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
-const char notestr_null_calc2[] = "Commands include --freqx, --ibc, --distance, --genome, --model, --make-rel,\n--make-grm, --rel-cutoff, --regress-distance, --regress-pcs-distance,\n--make-bed, --recode, --merge-list, and --write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --freqx, --hardy, --ibc, --distance, --genome, --model,\n--make-rel, --make-grm, --rel-cutoff, --regress-distance,\n--regress-pcs-distance, --make-bed, --recode, --merge-list, and --write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).\n";
 
 int32_t edit1_match(int32_t len1, char* s1, int32_t len2, char* s2) {
   // permit one difference of the following forms:
@@ -517,6 +517,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    allow distance matrix terms to be weighted consistently through multiple\n"
 "    filtering runs.\n\n"
 		);
+    help_print("hardy", &help_ctrl, 1,
+"  --hardy\n"
+"    Generates a Hardy-Weinberg exact test p-value report.  (This does NOT\n"
+"    filter on the p-value; use --hwe for that.)\n\n"
+	       );
     help_print("ibc\thet", &help_ctrl, 1,
 "  --ibc\n"
 "    Calculates inbreeding coefficients in three different ways.\n"
@@ -1168,21 +1173,142 @@ void dispmsg(int32_t retval) {
   }
 }
 
-// This function implements an exact SNP test of Hardy-Weinberg
-// Equilibrium as described in Wigginton, JE, Cutler, DJ, and
-// Abecasis, GR (2005) A Note on Exact Tests of Hardy-Weinberg
-// Equilibrium. American Journal of Human Genetics. 76: 000 - 000
-//
-// Originally written by Jan Wigginton
-// Threshold speedup by Christopher Chang
+double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
+  // This function implements an exact SNP test of Hardy-Weinberg
+  // Equilibrium as described in Wigginton, JE, Cutler, DJ, and
+  // Abecasis, GR (2005) A Note on Exact Tests of Hardy-Weinberg
+  // Equilibrium. American Journal of Human Genetics. 76: 000 - 000.
+  //
+  // The original version was written by Jan Wigginton.
+  //
+  // This version was written by Christopher Chang.  It contains the following
+  // improvements over the original SNPHWE():
+  // - Proper handling of >64k genotypes.  Previously, there was a potential
+  // integer overflow.
+  // - Detection and efficient handling of floating point overflow and
+  // underflow.  E.g. instead of summing a tail all the way down, the loop
+  // stops once the latest increment underflows the partial sum's 53-bit
+  // precision; this results in a large speedup when max heterozygote count
+  // >1k.
+  // - No malloc() call.  It's only necessary to keep track of a few partial
+  // sums.
+  //
+  // Note that the SNPHWE_t() function below is a lot more efficient for
+  // testing against a p-value inclusion threshold.  SNPHWE2() should only be
+  // used if you need the actual p-value.
+  uintptr_t obs_homc = obs_hom1 < obs_hom2 ? obs_hom2 : obs_hom1;
+  uintptr_t obs_homr = obs_hom1 < obs_hom2 ? obs_hom1 : obs_hom2;
+  uintptr_t rare_copies = 2 * obs_homr + obs_hets;
+  uint32_t genotypes = obs_hets + obs_homc + obs_homr;
+  uintptr_t genotypes2 = genotypes * 2;
+  uintptr_t curr_hets_t2 = obs_hets;
+  uintptr_t curr_homr_t2 = obs_homr;
+  uintptr_t curr_homc_t2 = obs_homc;
+  double tailp = 1;
+  double centerp = 0;
+  double lastp2 = 1;
+  double lastp1 = 1;
+  uintptr_t curr_hets_t1;
+  uintptr_t curr_homr_t1;
+  uintptr_t curr_homc_t1;
+  uint32_t het_exp_floor;
+  double tail_stop;
+  if (!genotypes) {
+    return 1;
+  }
+
+  het_exp_floor = (((uint64_t)rare_copies) * (genotypes2 - rare_copies)) / genotypes2;
+  if (curr_hets_t2 > het_exp_floor) {
+    // tail 1 = upper
+    while (curr_hets_t2 > 1) {
+      // het_probs[curr_hets] = 1
+      // het_probs[curr_hets - 2] = het_probs[curr_hets] * curr_hets * (curr_hets
+      lastp2 *= ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
+      curr_hets_t2 -= 2;
+      if (lastp2 < 1 + SMALL_EPSILON) {
+	tailp += lastp2;
+	break;
+      }
+      centerp += lastp2;
+      if (centerp == INFINITY) {
+	return 0;
+      }
+    }
+    if (centerp == 0) {
+      return 1;
+    }
+    tail_stop = tailp * DOUBLE_PREC_LIMIT;
+    while (curr_hets_t2 > 1) {
+      lastp2 *= ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
+      curr_hets_t2 -= 2;
+      if (lastp2 < tail_stop) {
+	break;
+      }
+      tailp += lastp2;
+    }
+    tail_stop = tailp * DOUBLE_PREC_LIMIT;
+    curr_hets_t1 = obs_hets + 2;
+    curr_homr_t1 = obs_homr;
+    curr_homc_t1 = obs_homc;
+    while (curr_homr_t1) {
+      // het_probs[curr_hets + 2] = het_probs[curr_hets] * 4 * curr_homr * curr_homc / ((curr_hets + 2) * (curr_hets + 1))
+      lastp1 *= ((double)((4LLU * (curr_homr_t1--)) * (curr_homc_t1--))) / ((double)(((uint64_t)curr_hets_t1) * (curr_hets_t1 - 1)));
+      if (lastp1 < tail_stop) {
+	break;
+      }
+      tailp += lastp1;
+      curr_hets_t1 += 2;
+    }
+  } else {
+    // tail 1 = lower
+    while (curr_homr_t2) {
+      curr_hets_t2 += 2;
+      lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1)));
+      if (lastp2 < 1 + SMALL_EPSILON) {
+	tailp += lastp2;
+	break;
+      }
+      centerp += lastp2;
+      if (centerp == INFINITY) {
+	return 1;
+      }
+    }
+    if (centerp == 0) {
+      return 1;
+    }
+    tail_stop = tailp * DOUBLE_PREC_LIMIT;
+    while (curr_homr_t2) {
+      curr_hets_t2 += 2;
+      lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1)));
+      if (lastp2 < tail_stop) {
+	break;
+      }
+      tailp += lastp2;
+    }
+    tail_stop = tailp * DOUBLE_PREC_LIMIT;
+    curr_hets_t1 = obs_hets;
+    curr_homr_t1 = obs_homr;
+    curr_homc_t1 = obs_homc;
+    while (curr_hets_t1 > 1) {
+      lastp1 *= ((double)(((uint64_t)curr_hets_t1) * (curr_hets_t1 - 1))) / ((double)((4LLU * (++curr_homr_t1)) * (++curr_homc_t1)));
+      if (lastp1 < tail_stop) {
+	break;
+      }
+      tailp += lastp1;
+      curr_hets_t1 -= 2;
+    }
+  }
+  return tailp / (tailp + centerp);
+}
 
 int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh) {
-  // Returns 0 if these counts are close enough to Hardy-Weinberg eq.
+  // Threshold-test-only version of SNPHWE2() which is usually able to exit
+  // from the calculation earlier.  Returns 0 if these counts are close enough
+  // to Hardy-Weinberg equilibrium, 1 otherwise.
   //
-  // Since we are just performing a threshold test, we do NOT need to actually
-  // calculate the whole array.  (In fact, we do not need an array at all.)
-  // Instead, suppose the number of observed hets exceeds expectation.  We
-  // proceed as follows:
+  // Suppose, for definiteness, that the number of observed hets is no less
+  // than expectation.  (Same ideas apply for the other case.)  We proceed as
+  // follows:
   // - Sum the *relative* likelihoods of more likely smaller het counts.
   // - Determine the minimum tail mass to pass the threshold.
   // - The majority of the time, the tail boundary elements are enough to pass
@@ -1198,7 +1324,7 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
   uintptr_t rare_copies = 2 * obs_homr + obs_hets;
   uint32_t genotypes = obs_hets + obs_homc + obs_homr;
   uintptr_t genotypes2 = genotypes * 2;
-  uintptr_t curr_hets_t2 = obs_hets;
+  uintptr_t curr_hets_t2 = obs_hets; // tail 2
   uintptr_t curr_homr_t2 = obs_homr;
   uintptr_t curr_homc_t2 = obs_homc;
   double tailp1 = 1;
@@ -1213,6 +1339,7 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
   uintptr_t curr_homc_t1;
   double tail_thresh; // as soon as tail sum reaches this, we've passed
   double tail_threshx;
+  double tail_stop;
   uint32_t het_exp_floor;
   double ratio;
   if (!genotypes) {
@@ -1248,6 +1375,9 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
 	break;
       }
       centerp += lastp2;
+      if (centerp == INFINITY) {
+	return 1;
+      }
     } while (curr_hets_t2 > 1);
     tail_thresh = centerp * thresh / (1 - thresh);
     if (1 + tailp2 >= tail_thresh) {
@@ -1267,6 +1397,7 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
 	return 1;
       }
       tail_threshx = tail_thresh - tailp2;
+      tail_stop = (1 + tailp2) * DOUBLE_PREC_LIMIT;
       while (1) {
         tailp1 += lastp1;
 	if (tailp1 >= tail_threshx) {
@@ -1277,19 +1408,26 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
 	}
 	curr_hets_t1 += 2;
 	lastp1 *= ((double)((4LLU * (curr_homr_t1--)) * (curr_homc_t1--))) / ((double)(((uint64_t)curr_hets_t1) * (curr_hets_t1 - 1)));
+	if (lastp1 < tail_stop) {
+	  break;
+	}
       }
     }
     if (tailp1 + tail2_ceil < tail_thresh) {
       return 1;
     }
     tail_threshx = tail_thresh - tailp1;
+    tail_stop = (tailp1 + tailp2) * DOUBLE_PREC_LIMIT;
     while (curr_hets_t2 > 1) {
       lastp2 *= ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
-      curr_hets_t2 -= 2;
+      if (lastp2 < tail_stop) {
+	return 1;
+      }
       tailp2 += lastp2;
       if (tailp2 >= tail_threshx) {
 	return 0;
       }
+      curr_hets_t2 -= 2;
     }
     return 1;
   } else {
@@ -1305,6 +1443,9 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
 	break;
       }
       centerp += lastp2;
+      if (centerp == INFINITY) {
+	return 1;
+      }
     } while (curr_homr_t2);
     tail_thresh = centerp * thresh / (1 - thresh);
     if (1 + tailp2 >= tail_thresh) {
@@ -1323,6 +1464,7 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
 	return 1;
       }
       tail_threshx = tail_thresh - tailp2;
+      tail_stop = (1 + tailp2) * DOUBLE_PREC_LIMIT;
       while (1) {
         tailp1 += lastp1;
         if (tailp1 >= tail_threshx) {
@@ -1332,6 +1474,9 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
 	  break;
 	}
 	lastp1 *= ((double)(((uint64_t)curr_hets_t1) * (curr_hets_t1 - 1))) / ((double)((4LLU * (++curr_homr_t1)) * (++curr_homc_t1)));
+	if (lastp1 < tail_stop) {
+	  break;
+	}
 	curr_hets_t1 -= 2;
       }
     }
@@ -1339,9 +1484,13 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
       return 1;
     }
     tail_threshx = tail_thresh - tailp1;
+    tail_stop = (tailp1 + tailp2) * DOUBLE_PREC_LIMIT;
     while (curr_homr_t2) {
       curr_hets_t2 += 2;
       lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1)));
+      if (lastp2 < tail_stop) {
+	return 1;
+      }
       tailp2 += lastp2;
       if (tailp2 >= tail_threshx) {
 	return 0;
@@ -1350,66 +1499,6 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
     return 1;
   }
 }
-
-  /*
-  // Modified version of this will be needed for --hardy.  We'll want to
-  // identify the peak and sum from both edges going in, instead of starting
-  // from the midpoint: this avoids floating point overflow and improves
-  // numerical stability.  Strictly speaking, we don't need a memory buffer,
-  // but it would be best to have a preallocated one to avoid either
-  // recalculation or unnecessarily loss of precision.
-  // But the underlying approach is still Wigginton's.
-
-  // start at midpoint
-  int32_t mid = (int)((rare_copies_ll * (2 * genotypes_ll - rare_copies_ll)) / (2 * genotypes_ll));
-  
-  int64_t curr_hets = mid;
-
-  het_probs[mid2] = 1.0;
-  double sum = 1.0;
-  int64_t curr_homr = rare_copies2 - mid2;
-  int32_t curr_homc = genotypes - mid - curr_homr;
-  double* hptr = &(het_probs[mid2 - 1]);
-  double dv = 1.0;
-  while (curr_hets > 1) {
-    // 2 fewer heterozygotes for next iteration -> add one rare, one common homozygote
-    *hptr = dv * (double)(curr_hets * (curr_hets - 1)) / (double)(4 * (++curr_homr) * (++curr_homc));
-    curr_hets -= 2;
-    dv = *hptr--;
-    sum += dv;
-  }
-
-  curr_hets = mid;
-  curr_homr = rare_copies2 - mid2;
-  curr_homc = genotypes - mid - curr_homr;
-  hptr = &(het_probs[mid2 + 1]);
-  dv = 1.0;
-  while (curr_hets <= rare_copies - 2) {
-    curr_hets += 2;
-    *hptr = dv * (double)(4 * (curr_homr--) * (curr_homc--)) / (double)(curr_hets * (curr_hets - 1));
-    dv = *hptr++;
-    sum += dv;
-  }
-
-  thresh *= sum;
-
-  double p_hwe = 0.0;
-  hptr = &(het_probs[rare_copies2]);
-  sum = het_probs[obs_hets / 2];
-  // p-value calculation for p_hwe
-  while (*hptr <= sum) {
-    p_hwe += *hptr--;
-    if (p_hwe > thresh) {
-      return 0;
-    }
-  }
-  hptr = het_probs;
-  while (*hptr <= sum) {
-    p_hwe += *hptr++;
-  }
-  return (!(p_hwe > thresh));
-  */
-
 
 // back to our regular program
 
@@ -6834,6 +6923,168 @@ void calc_marker_reverse_bin(uintptr_t* marker_reverse, uintptr_t unfiltered_mar
   }
 }
 
+int32_t hardy_report(pthread_t* threads, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs, uint32_t pheno_nm_ct, uintptr_t* pheno_c, Chrom_info* chrom_info_ptr) {
+  FILE* outfile = NULL;
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
+  int32_t retval = 0;
+  uintptr_t marker_uidx = 0;
+  uintptr_t marker_idx;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
+  uint32_t unn;
+  uint32_t uoo;
+  uint32_t report_type;
+  uint32_t is_x;
+  uint32_t is_haploid;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_end;
+  uint32_t denom;
+  uint32_t reverse;
+  double drecip;
+  double minor_freq;
+  double* p_values;
+  char* cptr;
+  char* cptr2;
+  char* cptr3;
+  char* cptr4;
+
+  if (pheno_nm_ct) {
+    report_type = pheno_c? 0 : 1;
+  } else {
+    report_type = 2;
+  }
+  uii = report_type? 1 : 3;
+  if (wkspace_alloc_d_checked(&p_values, uii * marker_ct * sizeof(double))) {
+    goto hardy_report_ret_NOMEM;
+  }
+
+  // todo: multithread
+  if (report_type) {
+    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+      p_values[marker_uidx] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx]);
+    }
+    marker_uidx = 0;
+  } else {
+    // TODO
+  }
+
+  memcpy(outname_end, ".hwe", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto hardy_report_ret_OPEN_FAIL;
+  }
+  sprintf(tbuf, " CHR %%%us     TEST   A1   A2                 GENO   O(HET)   E(HET)            P \n", plink_maxsnp);
+  if (fprintf(outfile, tbuf, "SNP") < 0) {
+    goto hardy_report_ret_WRITE_FAIL;
+  }
+ 
+  cptr = &(tbuf[15 + plink_maxsnp]);
+  tbuf[0] = ' ';
+  tbuf[1] = ' ';
+  if (report_type) {
+    if (report_type == 1) {
+      memcpy(&(tbuf[5 + plink_maxsnp]), "  ALL(QT)           ", 20);
+    } else {
+      memcpy(&(tbuf[5 + plink_maxsnp]), "  ALL(NP)           ", 20);
+    }
+    chrom_fo_idx = 0;
+    refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+    intprint2(&(tbuf[2]), chrom_info_ptr->chrom_file_order[chrom_fo_idx]);
+    if (max_marker_allele_len == 1) {
+      ujj = 25 + plink_maxsnp;
+      cptr2 = &(tbuf[ujj + 40]);
+      for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+	if (marker_uidx >= chrom_end) {
+	  chrom_fo_idx++;
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  intprint2(&(tbuf[2]), chrom_info_ptr->chrom_file_order[chrom_fo_idx]);
+	}
+	cptr3 = &(marker_ids[marker_uidx * max_marker_id_len]);
+	uii = strlen(cptr3);
+	memset(&(tbuf[5]), 32, plink_maxsnp - uii);
+	memcpy(&(tbuf[5 + plink_maxsnp - uii]), cptr3, uii);
+	reverse = is_set(marker_reverse, marker_uidx);
+	if (reverse) {
+	  cptr[3] = marker_alleles[2 * marker_uidx + 1];
+	  cptr[8] = marker_alleles[2 * marker_uidx];
+	} else {
+	  cptr[3] = marker_alleles[2 * marker_uidx];
+	  cptr[8] = marker_alleles[2 * marker_uidx + 1];
+	}
+	fwrite(tbuf, ujj, 1, outfile);
+	umm = hwe_ll_allfs[marker_uidx];
+	unn = hwe_lh_allfs[marker_uidx];
+	uoo = hwe_hh_allfs[marker_uidx];
+	if (reverse) {
+	  uii = sprintf(cptr2, "%u/%u/%u ", uoo, unn, umm);
+	} else {
+	  uii = sprintf(cptr2, "%u/%u/%u ", umm, unn, uoo);
+	}
+	if (uii < 21) {
+	  ukk = 21 - uii;
+	  cptr3 = cptr2 - ukk;
+	  memset(cptr3, 32, ukk);
+	} else {
+	  cptr3 = cptr2;
+	}
+	cptr4 = &(cptr2[uii]);
+	denom = umm + unn + uoo;
+	denom *= 2;
+	if (denom) {
+	  drecip = 1.0 / ((double)denom);
+	  minor_freq = (2 * umm + unn) * drecip;
+	  cptr4 += sprintf(cptr4, "%8.4g %8.4g %12.4g\n", (unn * 2) * drecip, minor_freq * (2 * uoo + unn) * drecip * 2, p_values[marker_uidx]);
+	} else {
+	  cptr += sprintf(cptr4, "     nan      nan           NA\n");
+	}
+	if (fwrite_checked(cptr3, (cptr4 - cptr3), outfile)) {
+	  goto hardy_report_ret_WRITE_FAIL;
+	}
+	marker_uidx++;
+      }
+    } else {
+      // TODO
+    }
+  } else {
+    // TODO
+    /*
+    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+      cptr = tbuf;
+      fwrite();
+      cptr = tbuf;
+      fwrite();
+      cptr = tbuf;
+      if (fwrite_checked(tbuf, (cptr - tbuf), outfile)) {
+      }
+      marker_uidx++;
+    }
+    */
+  }
+  sprintf(logbuf, "Hardy-Weinberg report written to %s.", outname);
+  logprintb();
+
+  while (0) {
+  hardy_report_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  hardy_report_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  hardy_report_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  fclose_cond(outfile);
+  wkspace_reset(wkspace_mark);
+  return retval;
+}
+
+
 void enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, int32_t hwe_all, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs) {
   uint32_t removed_ct = 0;
   uintptr_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
@@ -11137,6 +11388,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uint32_t* marker_pos = NULL;
   int32_t xmhh_exists = 0;
   int32_t nxmhh_exists = 0;
+  uint32_t pheno_nm_ct;
   Pedigree_rel_info pri;
   unsigned char* wkspace_mark2 = NULL;
   uintptr_t marker_uidx;
@@ -11480,10 +11732,31 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     sprintf(logbuf, "Error: No %s pass QC.\n", species_plural);
     goto wdist_ret_INVALID_FORMAT_2;
   }
+  pheno_nm_ct = popcount_longs_exclude(g_pheno_nm, indiv_exclude, (unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
+  if (!pheno_nm_ct) {
+    logprint("Note: No phenotypes present.\n");
+  } else {
+    sprintf(logbuf, "%u %s phenotype%s present.\n", pheno_nm_ct, g_pheno_c? "case/control" : "quantitative", (pheno_nm_ct == 1)? "" : "s");
+    logprintb();
+  }
+
+  if (parallel_tot > g_indiv_ct / 2) {
+    sprintf(logbuf, "Error: Too many --parallel jobs (maximum %" PRIuPTR "/2 = %" PRIuPTR ").\n", g_indiv_ct, g_indiv_ct / 2);
+    goto wdist_ret_INVALID_CMDLINE_2;
+  }
+  if (g_thread_ct > 1) {
+    if (calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_HARDY)) {
+      sprintf(logbuf, "Using %d threads (change this with --threads).\n", g_thread_ct);
+      logprintb();
+    } else {
+      logprint("Using 1 thread (no multithreaded calculations invoked).\n");
+    }
+  }
+
   nonfounders = (nonfounders || (!fam_col_34));
   wt_needed = distance_wt_req(calculation_type) && (!distance_flat_missing);
-  hwe_needed = (hwe_thresh > 0.0);
-  retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (unsigned char)missing_geno, hwe_needed, hwe_all, g_pheno_nm, g_pheno_c, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &marker_weights_base, &g_marker_weights, exponent, chrom_info_ptr, sex_nm, sex_male, map_is_unsorted, &xmhh_exists, &nxmhh_exists);
+  hwe_needed = (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY);
+  retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (unsigned char)missing_geno, hwe_needed, hwe_all, g_pheno_nm, pheno_nm_ct? g_pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &marker_weights_base, &g_marker_weights, exponent, chrom_info_ptr, sex_nm, sex_male, map_is_unsorted, &xmhh_exists, &nxmhh_exists);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -11520,6 +11793,12 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   wkspace_reset(marker_allele_cts);
   marker_allele_cts = NULL;
+  if (calculation_type & CALC_HARDY) {
+    retval = hardy_report(threads, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_alleles, max_marker_allele_len, marker_reverse, hwe_lls, hwe_lhs, hwe_hhs, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, pheno_nm_ct, g_pheno_c, chrom_info_ptr);
+    if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_FREQ | CALC_HARDY))))) {
+      goto wdist_ret_2;
+    }
+  }
   if (hwe_thresh > 0.0) {
     enforce_hwe_threshold(hwe_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, hwe_lls, hwe_lhs, hwe_hhs, hwe_all || (!g_pheno_c), hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs);
   }
@@ -11540,23 +11819,14 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   sprintf(logbuf, "%" PRIuPTR " marker%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", g_indiv_ct, species_str(g_indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
   logprintb();
 
-  if (parallel_tot > g_indiv_ct / 2) {
-    sprintf(logbuf, "Error: Too many --parallel jobs (maximum %" PRIuPTR "/2 = %" PRIuPTR ").\n", g_indiv_ct, g_indiv_ct / 2);
-    goto wdist_ret_INVALID_CMDLINE_2;
-  }
-  if (g_thread_ct > 1) {
-    if (calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY)) {
-      sprintf(logbuf, "Using %d threads (change this with --threads).\n", g_thread_ct);
-      logprintb();
-    } else {
-      logprint("Using 1 thread (no multithreaded calculations invoked).\n");
-    }
-  }
-
   if (refalleles) {
-    retval = load_ref_alleles(refalleles, unfiltered_marker_ct, marker_alleles, max_marker_allele_len, marker_reverse, marker_ids, max_marker_id_len);
-    if (retval) {
-      goto wdist_ret_2;
+    if (marker_alleles) {
+      retval = load_ref_alleles(refalleles, unfiltered_marker_ct, marker_alleles, max_marker_allele_len, marker_reverse, marker_ids, max_marker_id_len);
+      if (retval) {
+	goto wdist_ret_2;
+      }
+    } else {
+      logprint("Note: Ignoring --reference-allele, since allele IDs are not used in this run.\n");
     }
   }
 
@@ -14041,6 +14311,14 @@ int32_t main(int32_t argc, char** argv) {
 	hwe_all = 1;
       } else if (!memcmp(argptr2, "et", 3)) {
 	sprintf(logbuf, "Error: --het retired.  Use --ibc.%s", errstr_append);
+	goto main_ret_INVALID_CMDLINE_3;
+      } else if (!memcmp(argptr2, "ardy", 5)) {
+	calculation_type |= CALC_HARDY;
+      } else if (!memcmp(argptr2, "we2", 4)) {
+	sprintf(logbuf, "Error: --hwe2 retired.  Use the --hwe exact test.%s", errstr_append);
+	goto main_ret_INVALID_CMDLINE_3;
+      } else if (!memcmp(argptr2, "ardy2", 6)) {
+	sprintf(logbuf, "Error: --hardy2 retired.  Use the exact test-based --hardy report.%s", errstr_append);
 	goto main_ret_INVALID_CMDLINE_3;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
