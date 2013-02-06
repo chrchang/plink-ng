@@ -7045,6 +7045,7 @@ int32_t hardy_report(pthread_t* threads, char* outname, char* outname_end, uintp
   uint32_t pct = 0;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
+  uint32_t ukk = 9;
   uint32_t loop_end;
   uint32_t uii;
   uint32_t ujj;
@@ -7058,6 +7059,7 @@ int32_t hardy_report(pthread_t* threads, char* outname, char* outname_end, uintp
   char* cptr;
   char* cptr2;
   char* cptr3;
+  char* cptr4;
 
   if (pheno_nm_ct) {
     report_type = pheno_c? 0 : 1;
@@ -7112,115 +7114,145 @@ int32_t hardy_report(pthread_t* threads, char* outname, char* outname_end, uintp
     } else {
       memcpy(&(tbuf[5 + plink_maxsnp]), "  ALL(NP)           ", 20);
     }
-    if (max_marker_allele_len == 1) {
-      ujj = 25 + plink_maxsnp;
-      cptr2 = &(tbuf[ujj + 40]);
-      for (; pct <= 100; pct++) {
-	loop_end = (((uint64_t)pct) * marker_ct) / 100LLU;
-	for (; marker_idx < loop_end; marker_idx++) {
-	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-	  if (marker_uidx >= chrom_end) {
-	    chrom_fo_idx++;
-	    refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
-	    intprint2(&(tbuf[2]), chrom_info_ptr->chrom_file_order[chrom_fo_idx]);
-	  }
-	  cptr3 = &(marker_ids[marker_uidx * max_marker_id_len]);
+    ujj = 16 + plink_maxsnp;
+    cptr2 = &(tbuf[ujj + 9 + 2 * max_marker_allele_len]);
+    for (; pct <= 100; pct++) {
+      loop_end = (((uint64_t)pct) * marker_ct) / 100LLU;
+      for (; marker_idx < loop_end; marker_idx++) {
+	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+	if (marker_uidx >= chrom_end) {
+	  chrom_fo_idx++;
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  intprint2(&(tbuf[2]), chrom_info_ptr->chrom_file_order[chrom_fo_idx]);
+	}
+	cptr3 = &(marker_ids[marker_uidx * max_marker_id_len]);
+	uii = strlen(cptr3);
+	memset(&(tbuf[5]), 32, plink_maxsnp - uii);
+	memcpy(&(tbuf[5 + plink_maxsnp - uii]), cptr3, uii);
+	reverse = is_set(marker_reverse, marker_uidx);
+	if (reverse) {
+	  cptr3 = &(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]);
+	  cptr4 = &(marker_alleles[2 * marker_uidx * max_marker_allele_len]);
+	} else {
+	  cptr3 = &(marker_alleles[2 * marker_uidx * max_marker_allele_len]);
+	  cptr4 = &(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]);
+	}
+	if (max_marker_allele_len == 1) {
+	  cptr[3] = *cptr3;
+	  cptr[8] = *cptr4;
+	} else {
 	  uii = strlen(cptr3);
-	  memset(&(tbuf[5]), 32, plink_maxsnp - uii);
-	  memcpy(&(tbuf[5 + plink_maxsnp - uii]), cptr3, uii);
-	  reverse = is_set(marker_reverse, marker_uidx);
-	  if (reverse) {
-	    cptr[3] = marker_alleles[2 * marker_uidx + 1];
-	    cptr[8] = marker_alleles[2 * marker_uidx];
+	  if (uii < 5) {
+	    memset(cptr, 32, 4 - uii);
+	    memcpy(&(cptr[4 - uii]), cptr3, uii);
+	    ukk = 4;
 	  } else {
-	    cptr[3] = marker_alleles[2 * marker_uidx];
-	    cptr[8] = marker_alleles[2 * marker_uidx + 1];
+	    memcpy(cptr, cptr3, uii);
+	    ukk = uii;
 	  }
-	  if (hardy_report_write_line(outfile, tbuf, ujj, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[marker_uidx])) {
-	    goto hardy_report_ret_WRITE_FAIL;
+	  uii = strlen(cptr4);
+	  if (uii < 5) {
+	    memset(&(cptr[ukk]), 32, 5 - uii);
+	    memcpy(&(cptr[ukk + 5 - uii]), cptr4, uii);
+	    ukk += 5;
+	  } else {
+	    cptr[ukk] = ' ';
+	    memcpy(&(cptr[ukk + 1]), cptr4, uii);
+	    ukk += uii + 1;
 	  }
-	  marker_uidx++;
 	}
-	if (pct < 100) {
-	  if (pct > 10) {
-	    putchar('\b');
-	  }
-	  printf("\b\b%u%%", pct);
-	  fflush(stdout);
+	if (hardy_report_write_line(outfile, tbuf, ujj + ukk, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[marker_uidx])) {
+	  goto hardy_report_ret_WRITE_FAIL;
 	}
+	if (ukk > 9) {
+	  memset(&(cptr[9]), 32, ukk - 9);
+	}
+	marker_uidx++;
       }
-    } else {
-      // TODO
+      if (pct < 100) {
+	if (pct > 10) {
+	  putchar('\b');
+	}
+	printf("\b\b%u%%", pct);
+	fflush(stdout);
+      }
     }
   } else {
     memcpy(&(tbuf[5 + plink_maxsnp]), "                    ", 20);
-    if (max_marker_allele_len == 1) {
-      ujj = 25 + plink_maxsnp;
-      cptr2 = &(tbuf[ujj + 40]);
-      for (; pct <= 100; pct++) {
-	loop_end = (((uint64_t)pct) * marker_ct) / 100LLU;
-	for (; marker_idx < loop_end; marker_idx++) {
-	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-	  if (marker_uidx >= chrom_end) {
-	    chrom_fo_idx++;
-	    refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
-	    intprint2(&(tbuf[2]), chrom_info_ptr->chrom_file_order[chrom_fo_idx]);
-	  }
-	  cptr3 = &(marker_ids[marker_uidx * max_marker_id_len]);
+    ujj = 16 + plink_maxsnp;
+    cptr2 = &(tbuf[ujj + 9 + 2 * max_marker_allele_len]);
+    for (; pct <= 100; pct++) {
+      loop_end = (((uint64_t)pct) * marker_ct) / 100LLU;
+      for (; marker_idx < loop_end; marker_idx++) {
+	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+	if (marker_uidx >= chrom_end) {
+	  chrom_fo_idx++;
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  intprint2(&(tbuf[2]), chrom_info_ptr->chrom_file_order[chrom_fo_idx]);
+	}
+	cptr3 = &(marker_ids[marker_uidx * max_marker_id_len]);
+	uii = strlen(cptr3);
+	memset(&(tbuf[5]), 32, plink_maxsnp - uii);
+	memcpy(&(tbuf[5 + plink_maxsnp - uii]), cptr3, uii);
+	memcpy(&(tbuf[9 + plink_maxsnp]), "  ALL", 5);
+	reverse = is_set(marker_reverse, marker_uidx);
+	if (reverse) {
+	  cptr3 = &(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]);
+	  cptr4 = &(marker_alleles[2 * marker_uidx * max_marker_allele_len]);
+	} else {
+	  cptr3 = &(marker_alleles[2 * marker_uidx * max_marker_allele_len]);
+	  cptr4 = &(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]);
+	}
+	if (max_marker_allele_len == 1) {
+	  cptr[3] = *cptr3;
+	  cptr[8] = *cptr4;
+	} else {
 	  uii = strlen(cptr3);
-	  memset(&(tbuf[5]), 32, plink_maxsnp - uii);
-	  memcpy(&(tbuf[5 + plink_maxsnp - uii]), cptr3, uii);
-	  memcpy(&(tbuf[9 + plink_maxsnp]), "  ALL", 5);
-	  reverse = is_set(marker_reverse, marker_uidx);
-	  if (reverse) {
-	    cptr[3] = marker_alleles[2 * marker_uidx + 1];
-	    cptr[8] = marker_alleles[2 * marker_uidx];
+	  if (uii < 5) {
+	    memset(cptr, 32, 4 - uii);
+	    memcpy(&(cptr[4 - uii]), cptr3, uii);
+	    ukk = 4;
 	  } else {
-	    cptr[3] = marker_alleles[2 * marker_uidx];
-	    cptr[8] = marker_alleles[2 * marker_uidx + 1];
+	    memcpy(cptr, cptr3, uii);
+	    ukk = uii;
 	  }
-	  if (hardy_report_write_line(outfile, tbuf, ujj, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[3 * marker_uidx])) {
-	    goto hardy_report_ret_WRITE_FAIL;
+	  uii = strlen(cptr4);
+	  if (uii < 5) {
+	    memset(&(cptr[ukk]), 32, 5 - uii);
+	    memcpy(&(cptr[ukk + 5 - uii]), cptr4, uii);
+	    ukk += 5;
+	  } else {
+	    cptr[ukk] = ' ';
+	    memcpy(&(cptr[ukk + 1]), cptr4, uii);
+	    ukk += uii + 1;
 	  }
-
-	  memcpy(&(tbuf[11 + plink_maxsnp]), "AFF", 3);
-	  if (hardy_report_write_line(outfile, tbuf, ujj, reverse, hwe_ll_cases[marker_uidx], hwe_lh_cases[marker_uidx], hwe_hh_cases[marker_uidx], cptr2, p_values[3 * marker_uidx + 1])) {
-	    goto hardy_report_ret_WRITE_FAIL;
-	  }
-
-	  memcpy(&(tbuf[9 + plink_maxsnp]), "UN", 2);
-	  if (hardy_report_write_line(outfile, tbuf, ujj, reverse, hwe_lls[marker_uidx], hwe_lhs[marker_uidx], hwe_hhs[marker_uidx], cptr2, p_values[3 * marker_uidx + 2])) {
-	    goto hardy_report_ret_WRITE_FAIL;
-	  }
-	  marker_uidx++;
 	}
-	if (pct < 100) {
-	  if (pct > 10) {
-	    putchar('\b');
-	  }
-	  printf("\b\b%u%%", pct);
-	  fflush(stdout);
+	if (hardy_report_write_line(outfile, tbuf, ujj + ukk, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[3 * marker_uidx])) {
+	  goto hardy_report_ret_WRITE_FAIL;
 	}
-      }
-    } else {
-      // TODO
-    }
 
+	memcpy(&(tbuf[11 + plink_maxsnp]), "AFF", 3);
+	if (hardy_report_write_line(outfile, tbuf, ujj + ukk, reverse, hwe_ll_cases[marker_uidx], hwe_lh_cases[marker_uidx], hwe_hh_cases[marker_uidx], cptr2, p_values[3 * marker_uidx + 1])) {
+	  goto hardy_report_ret_WRITE_FAIL;
+	}
 
-    // TODO
-    /*
-    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-      cptr = tbuf;
-      fwrite();
-      cptr = tbuf;
-      fwrite();
-      cptr = tbuf;
-      if (fwrite_checked(tbuf, (cptr - tbuf), outfile)) {
+	memcpy(&(tbuf[9 + plink_maxsnp]), "UN", 2);
+	if (hardy_report_write_line(outfile, tbuf, ujj + ukk, reverse, hwe_lls[marker_uidx], hwe_lhs[marker_uidx], hwe_hhs[marker_uidx], cptr2, p_values[3 * marker_uidx + 2])) {
+	  goto hardy_report_ret_WRITE_FAIL;
+	}
+	if (ukk > 9) {
+	  memset(&(cptr[9]), 32, ukk - 9);
+	}
+	marker_uidx++;
       }
-      marker_uidx++;
+      if (pct < 100) {
+	if (pct > 10) {
+	  putchar('\b');
+	}
+	printf("\b\b%u%%", pct);
+	fflush(stdout);
+      }
     }
-    */
   }
   fputs("\b\b\b\b", stdout);
   logprint(" done.\n");
