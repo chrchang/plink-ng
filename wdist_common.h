@@ -97,7 +97,6 @@ typedef union {
 #define SMALL_EPSILON 0.00000000000005684341886080801486968994140625
 // 53-bit double precision limit
 #define DOUBLE_PREC_LIMIT 0.00000000000000011102230246251565404236316680908203125
-#define TWO_70 1180591620717411303424.0
 
 #define RET_SUCCESS 0
 #define RET_NOMEM 1
@@ -518,7 +517,7 @@ static inline void intprint2(char* buf, uint32_t num) {
     return;
   }
   quotient = num / 10;
-  *buf++ = '1' + quotient;
+  *buf++ = '0' + quotient;
   *buf = '0' + num - (quotient * 10);
 }
 
@@ -782,6 +781,8 @@ int32_t bsearch_str_natural(char* id_buf, char* lptr, intptr_t max_id_len, int32
 void fill_idbuf_fam_indiv(char* id_buf, char* fam_indiv, char fillchar);
 
 int32_t bsearch_fam_indiv(char* id_buf, char* lptr, intptr_t max_id_len, int32_t filter_line_ct, char* fam_id, char* indiv_id);
+
+void bitfield_andnot(uintptr_t* vv, uintptr_t* exclude_vec, uintptr_t ct);
 
 static inline uint32_t popcount2_long(uintptr_t val) {
 #ifdef __LP64__

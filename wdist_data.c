@@ -1723,7 +1723,7 @@ int32_t make_bed(FILE* bedfile, int32_t bed_offset, FILE* bimfile, int32_t map_c
     if (!is_set(pheno_nm, indiv_uidx)) {
       sprintf(bufptr, "%s\n", output_missing_pheno);
     } else if (affection) {
-      bufptr[0] = is_set(pheno_c, indiv_uidx)? 2 : 1;
+      bufptr[0] = is_set(pheno_c, indiv_uidx)? '2' : '1';
       bufptr[1] = '\n';
       bufptr[2] = '\0';
     } else {
@@ -1805,6 +1805,7 @@ int32_t load_fam(FILE* famfile, uintptr_t buflen, int32_t fam_col_1, int32_t fam
   uint64_t last_tell = 0;
   uintptr_t new_buflen = 0;
   unsigned char* wkspace_mark = wkspace_base;
+  double missing_phenod = (double)missing_pheno;
   char* linebuf;
   char* person_ids;
   char* paternal_ids = NULL;
@@ -2021,7 +2022,9 @@ int32_t load_fam(FILE* famfile, uintptr_t buflen, int32_t fam_col_1, int32_t fam
 	}
       } else {
 	if (sscanf(bufptr, "%lg", &(pheno_d[indiv_uidx])) == 1) {
-	  set_bit_noct(*pheno_nm_ptr, indiv_uidx);
+	  if (pheno_d[indiv_uidx] != missing_phenod) {
+	    set_bit_noct(*pheno_nm_ptr, indiv_uidx);
+	  }
 	}
       }
     }

@@ -980,6 +980,29 @@ void distance_print_done(int32_t format_code, char* outname, char* outname_end) 
   logprintb();
 }
 
+void bitfield_andnot(uintptr_t* vv, uintptr_t* exclude_vec, uintptr_t ct) {
+  // vv := vv ANDNOT exclude_vec
+  // on 64-bit systems, assumes vv and exclude_vec are 16-byte aligned
+#ifdef __LP64__
+  __m128i* vv128 = (__m128i*)vv;
+  __m128i* ev128 = (__m128i*)exclude_vec;
+  __m128i* vv128_end = &(vv128[ct / 2]);
+  while (vv128 < vv128_end) {
+    *vv128 = _mm_andnot_si128(*ev128++, *vv128);
+    vv128++;
+  }
+  if (ct & 1) {
+    ct--;
+    vv[ct] &= ~(exclude_vec[ct]);
+  }
+#else
+  uintptr_t* vec_end = &(vv[ct]);
+  do {
+    *vv++ &= ~(*exclude_vec++);
+  } while (vv < vec_end);
+#endif
+}
+
 #ifdef __LP64__
 // Basic SSE2 implementation of Lauradoux/Walisch popcount.
 static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
@@ -1177,6 +1200,7 @@ uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintpt
   uintptr_t six_ct = end_idx / 6;
   tot += popcount_vecs_exclude((__m128i*)lptr, (__m128i*)exclude_arr, six_ct * 3);
   lptr = &(lptr[six_ct * 6]);
+  exclude_arr = &(exclude_arr[six_ct * 6]);
 #else
   uintptr_t* lptr_six_end;
   uintptr_t tmp_stor;
