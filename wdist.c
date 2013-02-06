@@ -7115,7 +7115,7 @@ int32_t hardy_report(pthread_t* threads, char* outname, char* outname_end, uintp
       memcpy(&(tbuf[5 + plink_maxsnp]), "  ALL(NP)           ", 20);
     }
     ujj = 16 + plink_maxsnp;
-    cptr2 = &(tbuf[ujj + 9 + 2 * max_marker_allele_len]);
+    cptr2 = &(tbuf[ujj + 22 + 2 * max_marker_allele_len]);
     for (; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * marker_ct) / 100LLU;
       for (; marker_idx < loop_end; marker_idx++) {
@@ -7180,7 +7180,7 @@ int32_t hardy_report(pthread_t* threads, char* outname, char* outname_end, uintp
   } else {
     memcpy(&(tbuf[5 + plink_maxsnp]), "                    ", 20);
     ujj = 16 + plink_maxsnp;
-    cptr2 = &(tbuf[ujj + 9 + 2 * max_marker_allele_len]);
+    cptr2 = &(tbuf[ujj + 22 + 2 * max_marker_allele_len]);
     for (; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * marker_ct) / 100LLU;
       for (; marker_idx < loop_end; marker_idx++) {
