@@ -23,8 +23,8 @@ ZLIB64=zlib-1.2.7/libz-64.a
 endif
 endif
 
-SRC = wdist.c wdist_calc.c wdist_common.c wdist_data.c wdist_dosage.c SFMT.c
-OBJ = wdist.o wdist_calc.o wdist_common.o wdist_data.o wdist_dosage.o SFMT.o
+SRC = wdist.c wdist_assoc.c wdist_calc.c wdist_common.c wdist_data.c wdist_dosage.c SFMT.c
+OBJ = wdist.o wdist_assoc.o wdist_calc.o wdist_common.o wdist_data.o wdist_dosage.o SFMT.o
 
 wdist: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
