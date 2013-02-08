@@ -501,7 +501,6 @@ static double* g_distance_matrix;
 static double* g_distance_wt_matrix;
 
 static uint32_t g_thread_start[MAX_THREADS_P1];
-static uint32_t g_indiv_ct;
 static double* g_dosage_vals; // (usually) [0..2] dosages for current markers
 
 // If missingness is binary
@@ -1755,7 +1754,7 @@ int32_t wdist_dosage(int32_t calculation_type, int32_t dist_calc_type, char* gen
   }
   g_indiv_ct = unfiltered_indiv_ct;
   if (parallel_tot > g_indiv_ct / 2) {
-    sprintf(logbuf, "Error: Too many --parallel jobs (maximum %d/2 = %d).\n", g_indiv_ct, g_indiv_ct / 2);
+    sprintf(logbuf, "Error: Too many --parallel jobs (maximum %" PRIuPTR "/2 = %" PRIuPTR ").\n", g_indiv_ct, g_indiv_ct / 2);
     logprintb();
     goto wdist_dosage_ret_INVALID_CMDLINE;
   }
@@ -1806,7 +1805,7 @@ int32_t wdist_dosage(int32_t calculation_type, int32_t dist_calc_type, char* gen
       }
     }
     if (calculation_type & CALC_REGRESS_DISTANCE) {
-      retval = regress_distance(calculation_type, g_distance_matrix, pheno_d, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, thread_ct, regress_iters, regress_d);
+      retval = regress_distance(calculation_type, g_distance_matrix, pheno_d, unfiltered_indiv_ct, indiv_exclude, thread_ct, regress_iters, regress_d);
       if (retval) {
 	goto wdist_dosage_ret_1;
       }

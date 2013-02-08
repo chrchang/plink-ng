@@ -11,6 +11,9 @@
 #include <stdint.h>
 #include <inttypes.h>
 
+// Uncomment this to build this without CBLAS/CLAPACK.
+// #define NOLAPACK
+
 #if _WIN32
 #define PRId64 "I64d"
 #define PRIu64 "I64u"
@@ -148,6 +151,16 @@ typedef union {
 #define COVAR_NUMBER 2
 #define COVAR_GXE 4
 
+#define REL_CALC_COV 1
+#define REL_CALC_SQ 2
+#define REL_CALC_SQ0 4
+#define REL_CALC_TRI 6
+#define REL_CALC_SHAPEMASK 6
+#define REL_CALC_GZ 8
+#define REL_CALC_BIN 16
+#define REL_CALC_GRM 32
+#define REL_CALC_SINGLE_PREC 64
+
 #define DISTANCE_SQ 1
 #define DISTANCE_SQ0 2
 #define DISTANCE_TRI 3
@@ -282,6 +295,9 @@ extern char logbuf[MAXLINELEN];
 extern int32_t debug_on;
 extern int32_t log_failed;
 
+extern uintptr_t g_indiv_ct;
+extern uint32_t g_thread_ct;
+
 void logstr(const char* ss);
 
 void logprint(const char* ss);
@@ -323,6 +339,12 @@ static inline int32_t gzwrite_checked(gzFile gz_outfile, const void* buf, size_t
     return 0;
   }
   return -1;
+}
+
+static inline void gzclose_cond(gzFile gz_outfile) {
+  if (gz_outfile) {
+    gzclose(gz_outfile);
+  }
 }
 
 static inline int32_t flexwrite_checked(FILE* outfile, gzFile gz_outfile, char* contents, uintptr_t len) {
@@ -539,6 +561,10 @@ static inline int32_t is_set(uintptr_t* exclude_arr, uint32_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
+static inline int32_t is_founder(uintptr_t* founder_info, int32_t ii) {
+  return ((!founder_info) || ((founder_info[ii / BITCT]) & (ONELU << (ii % BITCT))));
+}
+
 int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc);
 
 int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil);
@@ -638,6 +664,14 @@ static inline void free_cond(void* memptr) {
   }
 }
 
+static inline double get_maf(double allele_freq) {
+  if (allele_freq < 0.5) {
+    return allele_freq;
+  } else {
+    return (1.0 - allele_freq);
+  }
+}
+
 static inline char convert_to_1234(char cc) {
   if (cc == 'A') {
     return '1';
@@ -725,6 +759,12 @@ int32_t marker_code(uint32_t species, char* sptr);
 
 int32_t marker_code2(uint32_t species, char* sptr, uint32_t slen);
 
+int32_t get_marker_chrom(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx);
+
+static inline int32_t chrom_exists(Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
+  return (chrom_info_ptr->chrom_mask & (1LLU << chrom_idx));
+}
+
 static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr_t marker_uidx, Chrom_info* chrom_info_ptr, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr) {
   marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
   if (marker_uidx >= (*chrom_end_ptr)) {
@@ -759,6 +799,8 @@ void triangle_fill(uint32_t* target_arr, int32_t ct, int32_t pieces, int32_t par
 int32_t write_ids(char* outname, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
 
 int32_t distance_d_write_ids(char* outname, char* outname_end, int32_t dist_calc_type, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
+
+int32_t relationship_req(int32_t calculation_type);
 
 int32_t distance_req(int32_t calculation_type);
 
@@ -840,6 +882,8 @@ void collapse_bitarr(uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t orig_ct
 
 // double rand_unif(void);
 
+double normdist(double zz);
+
 double rand_normal(double* secondval_ptr);
 
 // void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd);
@@ -858,6 +902,31 @@ int32_t spawn_threads(pthread_t* threads, unsigned (__stdcall *start_routine)(vo
 int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr_t ct);
 #endif
 
-int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct_local, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d);
+int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d);
+
+typedef struct {
+  char* family_ids;
+  uintptr_t max_family_id_len; // includes trailing null
+  uint32_t* family_sizes;
+
+  uint32_t* family_rel_space_offsets; // offset for rel_space lookup
+  uint32_t* family_founder_cts;
+  // direct indiv idx -> family idx lookup, to reduce number of bsearches
+  uint32_t* family_idxs;
+
+  // truncated triangular arrays of pedigree coefficient of relationship
+  double* rel_space;
+
+  // direct indiv idx -> rel_space idx lookup
+  uint32_t* family_rel_nf_idxs;
+
+  // following three variables are technically unnecessary for --genome, but we
+  // get them for "free" in the process of calculating everything else, and
+  // they'll be nice to use if we ever need to iterate by family in the future.
+  uint32_t family_id_ct;
+  // list of idxs of all individuals in first family, then second family, etc.
+  uint32_t* family_info_space;
+  uint32_t* family_info_offsets; // offset in family_info_space
+} Pedigree_rel_info;
 
 #endif // __WDIST_COMMON_H__

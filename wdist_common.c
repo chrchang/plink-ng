@@ -12,6 +12,8 @@ FILE* logfile = NULL;
 char logbuf[MAXLINELEN]; // safe sprintf buffer, if one is needed
 int32_t debug_on = 0;
 int32_t log_failed = 0;
+uintptr_t g_indiv_ct;
+uint32_t g_thread_ct;
 
 void logstr(const char* ss) {
   if (!debug_on) {
@@ -434,6 +436,22 @@ int32_t marker_code2(uint32_t species, char* sptr, uint32_t slen) {
   return retval;
 }
 
+int32_t get_marker_chrom(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx) {
+  uint32_t* marker_binsearch = chrom_info_ptr->chrom_file_order_marker_idx;
+  int32_t chrom_min = 0;
+  int32_t chrom_ct = chrom_info_ptr->chrom_ct;
+  int32_t chrom_cur;
+  while (chrom_ct - chrom_min > 1) {
+    chrom_cur = (chrom_ct + chrom_min) / 2;
+    if (marker_binsearch[chrom_cur] > marker_uidx) {
+      chrom_ct = chrom_cur;
+    } else {
+      chrom_min = chrom_cur;
+    }
+  }
+  return chrom_info_ptr->chrom_file_order[chrom_min];
+}
+
 void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t set_hh_missing, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_haploid_ptr) {
   uint32_t species = chrom_info_ptr->species;
   int32_t chrom_idx;
@@ -725,6 +743,10 @@ int32_t distance_d_write_ids(char* outname, char* outname_end, int32_t dist_calc
     }
   }
   return 0;
+}
+
+int32_t relationship_req(int32_t calculation_type) {
+  return (calculation_type & (CALC_RELATIONSHIP | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF | CALC_REGRESS_REL));
 }
 
 int32_t distance_req(int32_t calculation_type) {
@@ -2229,6 +2251,18 @@ double rand_unif(void) {
   return (sfmt_genrand_uint32(&sfmt) + 0.5) * RECIP_2_32;
 }
 
+// implementation used in PLINK stats.cpp
+double normdist(double zz) {
+  double sqrt2pi = 2.50662827463;
+  double t0;
+  double z1;
+  double p0;
+  t0 = 1 / (1 + 0.2316419 * fabs(zz));
+  z1 = exp(-0.5 * zz * zz) / sqrt2pi;
+  p0 = z1 * t0 * (0.31938153 + t0 * (-0.356563782 + t0 * (1.781477937 + t0 * (-1.821255978 + 1.330274429 * t0))));
+ return zz >= 0 ? 1 - p0 : p0;
+}
+
 double rand_normal(double* secondval_ptr) {
   // N(0, 1)
   double dxx = sqrt(-2 * log(rand_unif()));
@@ -2341,7 +2375,6 @@ static double* g_jackknife_precomp;
 static double* g_dists;
 static double g_calc_result[4][MAX_THREADS_P1];
 static unsigned char* g_generic_buf;
-static uintptr_t g_indiv_ct;
 
 // double regress_jack(int32_t* ibuf) {
 double regress_jack(int32_t* ibuf, double* ret2_ptr) {
@@ -2427,7 +2460,7 @@ THREAD_RET_TYPE regress_jack_thread(void* arg) {
   THREAD_RETURN;
 }
 
-int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct_local, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d) {
+int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t ulii;
   uint32_t uii;
@@ -2446,7 +2479,6 @@ int32_t regress_distance(int32_t calculation_type, double* dists_local, double* 
 
   g_dists = dists_local;
   g_pheno_d = pheno_d_local;
-  g_indiv_ct = indiv_ct_local;
 
   // beta = (mean(xy) - mean(x)*mean(y)) / (mean(x^2) - mean(x)^2)
   if (unfiltered_indiv_ct != g_indiv_ct) {
