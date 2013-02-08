@@ -1,11 +1,16 @@
+// Uncomment this if you want to compile a standalone program.
+// #define TEST_BUILD
+
 #include <stdint.h>
 #include <inttypes.h>
 
 // for INFINITY
 #include <math.h>
 
+#ifdef TEST_BUILD
 // just for printf() in sample program
 #include <stdio.h>
+#endif
 
 #define EPSILON 0.0000000000001
 
@@ -339,6 +344,7 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
   }
 }
 
+#ifdef TEST_BUILD
 int main(int argc, char** argv) {
   FILE* test_file;
   int32_t hets;
@@ -366,3 +372,4 @@ int main(int argc, char** argv) {
   }
   return 0;
 }
+#endif
