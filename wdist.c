@@ -74,7 +74,7 @@ const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n"
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
 const char cmdline_format_str[] = "\n  wdist [input flag(s)...] [command flag(s)...] {other flag(s)...}\n  wdist --help {flag name(s)...}\n\n";
 const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
-const char notestr_null_calc2[] = "Commands include --freqx, --hardy, --ibc, --distance, --genome, --model,\n--make-rel, --make-grm, --rel-cutoff, --regress-distance,\n--regress-pcs-distance, --make-bed, --recode, --merge-list, and\n--write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --freqx, --hardy, --ibc, --distance, --genome, --model, --gxe,\n--make-rel, --make-grm, --rel-cutoff, --regress-distance,\n--regress-pcs-distance, --make-bed, --recode, --merge-list, and\n--write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).\n";
 
 int32_t edit1_match(int32_t len1, char* s1, int32_t len2, char* s2) {
   // permit one difference of the following forms:
@@ -121,7 +121,7 @@ int32_t edit1_match(int32_t len1, char* s1, int32_t len2, char* s2) {
   return 1;
 }
 
-#define MAX_EQUAL_HELP_PARAMS 13
+#define MAX_EQUAL_HELP_PARAMS 14
 
 typedef struct {
   int32_t iters_left;
@@ -469,18 +469,19 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 		);
     help_print("genome\tZ-genome", &help_ctrl, 1,
 "  --genome <gz> <full> <unbounded>\n"
-"    Identity-by-descent analysis.  This yields the same output as PLINK's\n"
-"    --genome or --Z-genome, and the 'full' and 'unbounded' modifiers have the\n"
-"    same effect as PLINK's --genome-full and --unbounded flags.\n\n"
+"    Identity-by-descent analysis.  This yields the same output as PLINK\n"
+"    --genome/--Z-genome, and the 'full' and 'unbounded' modifiers have the same\n"
+"    effect as PLINK's --genome-full and --unbounded flags.\n\n"
 		);
-    help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend", &help_ctrl, 1,
+    help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means", &help_ctrl, 1,
 "  --assoc <fisher> <perm | mperm=[value]> <genedrop> <perm-count> <counts> <p2>\n"
+"  --assoc <perm | mperm=[value]> <perm-count> <qt-means>\n"
 "  --model <fisher> <perm | mperm=[value]> <genedrop> <perm-count>\n"
 "          <perm-dom | perm-rec | perm-gen | perm-trend>\n"
-"    Case-control association analysis.  --assoc performs a basic 1df chi-square\n"
-"    allelic test, while --model performs 4 other tests as well (1df dominant\n"
-"    gene action, 1df recessive gene action, 2df genotypic, Cochran-Armitage\n"
-"    trend).\n"
+"    Basic association analysis report.\n"
+"    Given a case/control phenotype, --assoc performs a 1df chi-square allelic\n"
+"    test, while --model performs 4 other tests as well (1df dominant gene\n"
+"    action, 1df recessive gene action, 2df genotypic, Cochran-Armitage trend).\n"
 "    * With 'fisher', Fisher's exact test is used to generate p-values.\n"
 "    * 'perm' causes an adaptive permutation test to be performed.\n"
 "    * 'mperm=[value]' causes a max(T) permutation test with the specified\n"
@@ -495,8 +496,20 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      corresponding test to be used as the basis for --model permutation.  (By\n"
 "      default, the most significant result among the allelic, dominant, and\n"
 "      recessive tests is used.)\n"
+"    Given a quantitative phenotype, --assoc performs a Wald test.  In this\n"
+"    case, the 'qt-means' modifier causes trait means and standard deviations\n"
+"    stratified by genotype to be reported as well.\n"
 "    Several other flags (most notably, --aperm) can be used to customize the\n"
 "    permutation test.\n\n"
+	       );
+    help_print("gxe\tmcovar", &help_ctrl, 1,
+"  --gxe {covariate index}\n"
+"    Given both a quantitative phenotype and a dichotomous covariate loaded with\n"
+"    --covar defining two groups, --gxe compares the regression coefficient\n"
+"    derived from considering only members of one group to the regression\n"
+"    coefficient derived from considering only members of the other.  By\n"
+"    default, the first covariate in the --covar file defines the groups; use\n"
+"    e.g. '--gxe 3' to base them on the third covariate instead.\n\n"
 	       );
     help_print(
 "indep\tindep-pairwise", &help_ctrl, 1,
@@ -837,7 +850,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("nonfounders", &help_ctrl, 0,
 "  --nonfounders    : Include nonfounders in allele frequency/HWE calculations.\n"
 	       );
-    help_print("ppc-gap", &help_ctrl, 0,
+    help_print("ppc-gap\tgenome\tZ-genome", &help_ctrl, 0,
 "  --ppc-gap [val]  : Minimum number of base pairs, in thousands, between\n"
 "                     informative pairs of markers used in --genome PPC test.\n"
 "                     500 if unspecified.\n"
@@ -1105,10 +1118,10 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
   uintptr_t curr_hets_t2 = obs_hets;
   uintptr_t curr_homr_t2 = obs_homr;
   uintptr_t curr_homc_t2 = obs_homc;
-  double tailp = 1;
+  double tailp = 1 - SMALL_EPSILON;
   double centerp = 0;
-  double lastp2 = 1;
-  double lastp1 = 1;
+  double lastp2 = 1 - SMALL_EPSILON;
+  double lastp1 = 1 - SMALL_EPSILON;
   uintptr_t curr_hets_t1;
   uintptr_t curr_homr_t1;
   uintptr_t curr_homc_t1;
@@ -1126,7 +1139,7 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
       // het_probs[curr_hets - 2] = het_probs[curr_hets] * curr_hets * (curr_hets
       lastp2 *= ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
       curr_hets_t2 -= 2;
-      if (lastp2 < 1 + SMALL_EPSILON) {
+      if (lastp2 < 1) {
 	tailp += lastp2;
 	break;
       }
@@ -1228,9 +1241,9 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
   uintptr_t curr_hets_t2 = obs_hets; // tail 2
   uintptr_t curr_homr_t2 = obs_homr;
   uintptr_t curr_homc_t2 = obs_homc;
-  double tailp1 = 1;
+  double tailp1 = 1 - SMALL_EPSILON;
   double centerp = 0;
-  double lastp2 = 1;
+  double lastp2 = 1 - SMALL_EPSILON;
   double tailp2 = 0;
   double tail1_ceil;
   double tail2_ceil;
@@ -1271,7 +1284,7 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
     do {
       lastp2 *= ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
       curr_hets_t2 -= 2;
-      if (lastp2 < 1 + SMALL_EPSILON) {
+      if (lastp2 < 1) {
 	tailp2 = lastp2;
 	break;
       }
@@ -1339,7 +1352,7 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
     do {
       curr_hets_t2 += 2;
       lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1)));
-      if (lastp2 < 1 + SMALL_EPSILON) {
+      if (lastp2 < 1) {
 	tailp2 = lastp2;
 	break;
       }
@@ -4750,15 +4763,15 @@ int32_t write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, uint
   return 0;
 }
 
-inline int32_t relationship_or_ibc_req(int32_t calculation_type) {
+inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-inline int32_t distance_wt_req(int32_t calculation_type) {
+inline int32_t distance_wt_req(uint64_t calculation_type) {
   return ((calculation_type & CALC_DISTANCE) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
 
-int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, char* update_map_fname, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* filterval, int32_t mfilter_col, int32_t filter_case_control, int32_t filter_sex, int32_t filter_founder_nonf, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, int32_t mpheno_col, uint32_t pheno_modifier, int32_t prune, int32_t affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int32_t hwe_all, double rel_cutoff, int32_t tail_pheno, double tail_bottom, double tail_top, int32_t calculation_type, int32_t rel_calc_type, int32_t dist_calc_type, uintptr_t groupdist_iters, int32_t groupdist_d, uintptr_t regress_iters, int32_t regress_d, uintptr_t regress_rel_iters, int32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, int32_t parallel_idx, uint32_t parallel_tot, int32_t ppc_gap, int32_t allow_no_sex, int32_t must_have_sex, int32_t nonfounders, int32_t genome_output_gz, int32_t genome_output_full, int32_t genome_ibd_unbounded, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, int32_t maf_succ, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, int32_t freq_counts, int32_t freqx, int32_t distance_flat_missing, uint32_t recode_modifier, int32_t allelexxxx, int32_t merge_type, int32_t indiv_sort, int32_t keep_allele_order, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t set_hh_missing, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t update_map_modifier, uint32_t write_covar_modifier, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust) {
+int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, char* update_map_fname, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* filterval, int32_t mfilter_col, int32_t filter_case_control, int32_t filter_sex, int32_t filter_founder_nonf, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, int32_t mpheno_col, uint32_t pheno_modifier, int32_t prune, int32_t affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int32_t hwe_all, double rel_cutoff, int32_t tail_pheno, double tail_bottom, double tail_top, uint64_t calculation_type, int32_t rel_calc_type, int32_t dist_calc_type, uintptr_t groupdist_iters, int32_t groupdist_d, uintptr_t regress_iters, int32_t regress_d, uintptr_t regress_rel_iters, int32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, int32_t parallel_idx, uint32_t parallel_tot, int32_t ppc_gap, int32_t allow_no_sex, int32_t must_have_sex, int32_t nonfounders, int32_t genome_output_gz, int32_t genome_output_full, int32_t genome_ibd_unbounded, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, int32_t maf_succ, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, int32_t freq_counts, int32_t freqx, int32_t distance_flat_missing, uint32_t recode_modifier, int32_t allelexxxx, int32_t merge_type, int32_t indiv_sort, int32_t keep_allele_order, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t set_hh_missing, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t update_map_modifier, uint32_t write_covar_modifier, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, uint32_t gxe_mcovar) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -5937,7 +5950,7 @@ int32_t main(int32_t argc, char** argv) {
   int32_t hwe_all = 0;
   double rel_cutoff = 0.025;
   int32_t cur_arg = 1;
-  int32_t calculation_type = 0;
+  uint64_t calculation_type = 0;
   int32_t rel_calc_type = 0;
   int32_t dist_calc_type = 0;
   char* bubble;
@@ -5971,6 +5984,7 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t write_covar_modifier = 0;
   uint32_t model_modifier = 0;
   int32_t model_cell_ct = -1;
+  uint32_t gxe_mcovar = 0;
   int32_t ii;
   int32_t jj;
   int32_t kk;
@@ -6597,11 +6611,25 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	for (jj = 1; jj <= ii; jj++) {
 	  if (!strcmp(argv[cur_arg + jj], "counts")) {
+	    if (model_modifier & MODEL_QMASK) {
+	      sprintf(logbuf, "Error: --assoc 'qt-means' modifier does not make sense with 'counts'.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	    model_modifier |= MODEL_ASSOC_COUNTS;
 	  } else if (!strcmp(argv[cur_arg + jj], "fisher")) {
+	    if (model_modifier & MODEL_QMASK) {
+	      sprintf(logbuf, "Error: --assoc 'qt-means' modifier does not make sense with 'fisher'.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	    model_modifier |= MODEL_FISHER;
 	  } else if (!strcmp(argv[cur_arg + jj], "perm")) {
 	    model_modifier |= MODEL_PERM;
+	  } else if (!strcmp(argv[cur_arg + jj], "genedrop")) {
+	    if (model_modifier & MODEL_QMASK) {
+	      sprintf(logbuf, "Error: --assoc 'qt-means' modifier does not make sense with 'genedrop'.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    model_modifier |= MODEL_GENEDROP;
 	  } else if (!strcmp(argv[cur_arg + jj], "perm-count")) {
 	    model_modifier |= MODEL_PERM_COUNT;
 	  } else if (!strcmp(argv[cur_arg + jj], "p2")) {
@@ -6620,6 +6648,12 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_mperm_val = (uint32_t)kk;
+	  } else if (!strcmp(argv[cur_arg + jj], "qt-means")) {
+	    if (model_modifier & MODEL_DMASK) {
+	      sprintf(logbuf, "Error: --assoc 'qt-means' does not make sense with a case/control-specific\nmodifier.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    model_modifier |= MODEL_QT_MEANS;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --assoc parameter '%s'.%s", argv[cur_arg + jj], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
@@ -6760,6 +6794,10 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "ounts", 6)) {
 	if (model_modifier & MODEL_ASSOC) {
+	  if (model_modifier & MODEL_QMASK) {
+	    sprintf(logbuf, "Error: --assoc 'qt-means' modifier does not make sense with --counts.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
 	  logprint("Note: --counts flag deprecated.  Use '--assoc counts' instead.\n");
           model_modifier |= MODEL_ASSOC_COUNTS;
 	} else {
@@ -7288,11 +7326,31 @@ int32_t main(int32_t argc, char** argv) {
 	}
         load_rare = LOAD_RARE_GRM;
       } else if (!memcmp(argptr2, "xe", 3)) {
+	if (enforce_param_ct_range(argc, argv, cur_arg, 0, 1, &ii)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
 	if (!covar_fname) {
 	  logprint("Error: --gxe must be used with --covar.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	covar_modifier |= COVAR_GXE;
+	if (ii) {
+	  ii = atoi(argv[cur_arg + 1]);
+	  if (ii < 1) {
+	    sprintf(logbuf, "Error: Invalid --gxe parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  gxe_mcovar = ii;
+	} else {
+	  gxe_mcovar = 1;
+	}
+	calculation_type |= CALC_GXE;
+      } else if (!memcmp(argptr2, "enedrop", 8)) {
+	if (model_modifier & MODEL_QMASK) {
+	  sprintf(logbuf, "Error: --assoc 'qt-means' modifier does not make sense with --genedrop.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --genedrop flag deprecated.  Use e.g. '--model genedrop'.\n");
+	model_modifier |= MODEL_GENEDROP;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -7837,7 +7895,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (!(covar_modifier & COVAR_GXE)) {
+        if (!(calculation_type & CALC_GXE)) {
 	  logprint("Error: --mcovar must be used with --covar and --gxe.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -7861,6 +7919,8 @@ int32_t main(int32_t argc, char** argv) {
 	    model_modifier |= MODEL_FISHER;
 	  } else if (!strcmp(argv[cur_arg + jj], "perm")) {
 	    model_modifier |= MODEL_PERM;
+	  } else if (!strcmp(argv[cur_arg + jj], "genedrop")) {
+	    model_modifier |= MODEL_GENEDROP;
 	  } else if (!strcmp(argv[cur_arg + jj], "perm-count")) {
 	    model_modifier |= MODEL_PERM_COUNT;
 	  } else if (!strcmp(argv[cur_arg + jj], "perm-dom")) {
@@ -8121,6 +8181,10 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --p2 must be used with --assoc.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
+	if (model_modifier & MODEL_QMASK) {
+	  sprintf(logbuf, "Error: --assoc 'qt-means' modifier does not make sense with --p2.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
 	logprint("Note: --p2 flag deprecated.  Use '--assoc p2 ...'.\n");
 	model_modifier |= MODEL_ASSOC_P2;
       } else if (!memcmp(argptr2, "filter", 7)) {
@@ -8135,6 +8199,19 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --pfilter threshold must be between 0 and 1 exclusive.%s", errstr_append);
 	}
 	pfilter = dxx;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
+      }
+      break;
+
+    case 'q':
+      if (!memcmp(argptr2, "t-means", 8)) {
+	if ((!(calculation_type & CALC_MODEL)) || (!(model_modifier & MODEL_ASSOC))) {
+	  sprintf(logbuf, "Error: --qt-means must be used with --assoc.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --qt-means flag deprecated.  Use '--assoc qt-means ...'.\n");
+	model_modifier |= MODEL_QT_MEANS;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -9115,7 +9192,7 @@ int32_t main(int32_t argc, char** argv) {
       memcpy(&(famname[uii]), ".fam", 5);
       *outname_end = '\0';
     }
-    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, update_alleles_fname, update_map_fname, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (uint32_t)parallel_tot, ppc_gap, allow_no_sex, must_have_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, set_hh_missing, covar_modifier, covar_str, mcovar_col, update_map_modifier, write_covar_modifier, model_modifier, (uint32_t)model_cell_ct, (uint32_t)model_mperm_val, ci_size, pfilter, mtest_adjust);
+    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, update_alleles_fname, update_map_fname, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (uint32_t)parallel_tot, ppc_gap, allow_no_sex, must_have_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, set_hh_missing, covar_modifier, covar_str, mcovar_col, update_map_modifier, write_covar_modifier, model_modifier, (uint32_t)model_cell_ct, (uint32_t)model_mperm_val, ci_size, pfilter, mtest_adjust, gxe_mcovar);
   }
  main_ret_2:
   free(wkspace_ua);

@@ -2955,7 +2955,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   logstr(logbuf);
 }
 
-int32_t calc_unrelated_herit(int32_t calculation_type, int32_t ibc_type, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, double* pheno_d, double* rel_ibc, double unrelated_herit_covg, double unrelated_herit_covr, double unrelated_herit_tol) {
+int32_t calc_unrelated_herit(uint64_t calculation_type, int32_t ibc_type, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, double* pheno_d, double* rel_ibc, double unrelated_herit_covg, double unrelated_herit_covr, double unrelated_herit_tol) {
   double dxx = 0.0;
   double dyy = 0.0;
   double dzz;
@@ -3931,7 +3931,7 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
   return retval;
 }
 
-int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, int32_t parallel_idx, int32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, int32_t calculation_type, int32_t genome_output_gz, int32_t genome_output_full, int32_t genome_ibd_unbounded, int32_t ppc_gap, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri) {
+int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, int32_t parallel_idx, int32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, uint64_t calculation_type, int32_t genome_output_gz, int32_t genome_output_full, int32_t genome_ibd_unbounded, int32_t ppc_gap, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri) {
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
   int32_t retval = 0;
@@ -4621,7 +4621,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
   return retval;
 }
 
-int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* sex_nm, uintptr_t* sex_male, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, char* outname, char* outname_end, int32_t calculation_type) {
+int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* sex_nm, uintptr_t* sex_male, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, char* outname, char* outname_end, uint64_t calculation_type) {
   // todo: replace is_set with founder-sensitive check
   // for future consideration: chromosome-based multithread/parallel?
   FILE* outfile_in = NULL;
@@ -4649,7 +4649,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
   uintptr_t marker_idx;
   int32_t pct;
   uint32_t pct_thresh;
-  int32_t pairwise = calculation_type & CALC_LD_PRUNE_PAIRWISE;
+  int32_t pairwise = ((calculation_type & CALC_LD_PRUNE_PAIRWISE) != 0);
   uint32_t window_unfiltered_start;
   uint32_t window_unfiltered_end;
   int32_t cur_window_size;
@@ -5159,7 +5159,7 @@ inline void rel_cut_arr_dec(int32_t* rel_ct_arr_elem, uint32_t* exactly_one_rel_
   }
 }
 
-int32_t do_rel_cutoff(int32_t calculation_type, double rel_cutoff, double* rel_ibc, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* outname, char* outname_end, uintptr_t unfiltered_indiv_ct, char* person_ids, uintptr_t max_person_id_len) {
+int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_ibc, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* outname, char* outname_end, uintptr_t unfiltered_indiv_ct, char* person_ids, uintptr_t max_person_id_len) {
   int32_t indivs_excluded = 0;
   uint32_t exactly_one_rel_ct = 0;
   unsigned char* wkspace_mark = wkspace_base;
@@ -5771,7 +5771,7 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
   return retval;
 }
 
-int32_t do_rel_cutoff_f(int32_t calculation_type, float rel_cutoff, float* rel_ibc, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* outname, char* outname_end, uintptr_t unfiltered_indiv_ct, char* person_ids, uintptr_t max_person_id_len) {
+int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_ibc, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* outname, char* outname_end, uintptr_t unfiltered_indiv_ct, char* person_ids, uintptr_t max_person_id_len) {
   int32_t indivs_excluded = 0;
   uint32_t exactly_one_rel_ct = 0;
   unsigned char* wkspace_mark = wkspace_base;
@@ -5943,7 +5943,7 @@ int32_t do_rel_cutoff_f(int32_t calculation_type, float rel_cutoff, float* rel_i
   return 0;
 }
 
-int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot, int32_t calculation_type, int32_t rel_calc_type, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t var_std, int32_t ibc_type, double rel_cutoff, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr) {
+int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot, uint64_t calculation_type, int32_t rel_calc_type, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t var_std, int32_t ibc_type, double rel_cutoff, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr) {
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
@@ -6503,7 +6503,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
   return retval;
 }
 
-int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot, int32_t calculation_type, int32_t rel_calc_type, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t var_std, int32_t ibc_type, float rel_cutoff, double* set_allele_freqs, Chrom_info* chrom_info_ptr) {
+int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot, uint64_t calculation_type, int32_t rel_calc_type, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t var_std, int32_t ibc_type, float rel_cutoff, double* set_allele_freqs, Chrom_info* chrom_info_ptr) {
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
@@ -7028,7 +7028,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
   return retval;
 }
 
-int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot, FILE* bedfile, int32_t bed_offset, FILE** outfile_ptr, char* outname, char* outname_end, int32_t calculation_type, int32_t dist_calc_type, int32_t distance_flat_missing, uintptr_t* marker_exclude, uint32_t marker_ct, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, Chrom_info* chrom_info_ptr, int32_t wt_needed, uint32_t* marker_weights_i, int32_t exp0, double exponent) {
+int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot, FILE* bedfile, int32_t bed_offset, FILE** outfile_ptr, char* outname, char* outname_end, uint64_t calculation_type, int32_t dist_calc_type, int32_t distance_flat_missing, uintptr_t* marker_exclude, uint32_t marker_ct, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, Chrom_info* chrom_info_ptr, int32_t wt_needed, uint32_t* marker_weights_i, int32_t exp0, double exponent) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;

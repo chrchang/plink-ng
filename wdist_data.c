@@ -484,7 +484,7 @@ static inline uint32_t sf_out_of_range(uint32_t cur_pos, uint32_t chrom_idx, uin
   return 1;
 }
 
-int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uint32_t* plink_maxsnp_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, uint32_t** marker_pos_ptr, char* extractname, char* excludename, char* freqname, char* refalleles, int32_t calculation_type, uint32_t recode_modifier, int32_t allelexxxx, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* sf_markers, unsigned char* sf_starts_range, uint32_t sf_ct, uint32_t sf_max_len, int32_t* map_is_unsorted_ptr) {
+int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uint32_t* plink_maxsnp_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, uint32_t** marker_pos_ptr, char* extractname, char* excludename, char* freqname, char* refalleles, uint64_t calculation_type, uint32_t recode_modifier, int32_t allelexxxx, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* sf_markers, unsigned char* sf_starts_range, uint32_t sf_ct, uint32_t sf_max_len, int32_t* map_is_unsorted_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   // may want to just always load
   uint32_t marker_alleles_needed = (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL)) || allelexxxx);
@@ -495,7 +495,7 @@ int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
   uint64_t loaded_chrom_mask = 0;
   int32_t last_chrom = -1;
   int32_t last_pos = 0;
-  int32_t marker_pos_needed = calculation_type & (CALC_GENOME | CALC_LD_PRUNE | CALC_REGRESS_PCS);
+  int32_t marker_pos_needed = ((calculation_type & (CALC_GENOME | CALC_LD_PRUNE | CALC_REGRESS_PCS)) != 0);
   uint32_t species = chrom_info_ptr->species;
   uint32_t from_slen = markername_from? strlen(markername_from) : 0;
   uint32_t to_slen = markername_to? strlen(markername_to) : 0;
@@ -7374,7 +7374,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
   return retval;
 }
 
-int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outname, char* outname_end, char* mergename1, char* mergename2, char* mergename3, int32_t calculation_type, int32_t merge_type, int32_t indiv_sort, int32_t keep_allele_order, Chrom_info* chrom_info_ptr) {
+int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outname, char* outname_end, char* mergename1, char* mergename2, char* mergename3, uint64_t calculation_type, int32_t merge_type, int32_t indiv_sort, int32_t keep_allele_order, Chrom_info* chrom_info_ptr) {
   FILE* mergelistfile = NULL;
   FILE* outfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;

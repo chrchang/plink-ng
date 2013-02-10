@@ -745,11 +745,11 @@ int32_t distance_d_write_ids(char* outname, char* outname_end, int32_t dist_calc
   return 0;
 }
 
-int32_t relationship_req(int32_t calculation_type) {
+int32_t relationship_req(uint64_t calculation_type) {
   return (calculation_type & (CALC_RELATIONSHIP | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF | CALC_REGRESS_REL));
 }
 
-int32_t distance_req(int32_t calculation_type) {
+int32_t distance_req(uint64_t calculation_type) {
   return ((calculation_type & CALC_DISTANCE) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
 }
 
@@ -2460,7 +2460,7 @@ THREAD_RET_TYPE regress_jack_thread(void* arg) {
   THREAD_RETURN;
 }
 
-int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d) {
+int32_t regress_distance(uint64_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t ulii;
   uint32_t uii;

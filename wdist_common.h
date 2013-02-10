@@ -96,7 +96,8 @@ typedef union {
 #define RECIP_2_32 0.00000000023283064365386962890625
 // floating point comparison-to-nonzero tolerance, currently 2^{-30}
 #define EPSILON 0.000000000931322574615478515625
-// less tolerant version (2^{-44}) for some exact calculations
+// less tolerant versions (2^{-35}, 2^{-44}) for some exact calculations
+#define SMALLISH_EPSILON 0.00000000002910383045673370361328125
 #define SMALL_EPSILON 0.00000000000005684341886080801486968994140625
 // 53-bit double precision limit
 #define DOUBLE_PREC_LIMIT 0.00000000000000011102230246251565404236316680908203125
@@ -114,32 +115,33 @@ typedef union {
 #define RET_ALLELE_MISMATCH 10
 #define RET_NULL_CALC 11
 
-#define CALC_RELATIONSHIP 1
-#define CALC_IBC 2
-#define CALC_DISTANCE 4
-#define CALC_PLINK_DISTANCE_MATRIX 8
-#define CALC_PLINK_IBS_MATRIX 0x10
-#define CALC_GDISTANCE_MASK 0x1c
-#define CALC_LOAD_DISTANCES 0x20
-#define CALC_GROUPDIST 0x40
-#define CALC_REGRESS_DISTANCE 0x80
-#define CALC_UNRELATED_HERITABILITY 0x100
-#define CALC_UNRELATED_HERITABILITY_STRICT 0x200
-#define CALC_FREQ 0x400
-#define CALC_REL_CUTOFF 0x800
-#define CALC_WRITE_SNPLIST 0x1000
-#define CALC_GENOME 0x2000
-#define CALC_REGRESS_REL 0x4000
-#define CALC_LD_PRUNE 0x8000
-#define CALC_LD_PRUNE_PAIRWISE 0x10000
-#define CALC_REGRESS_PCS 0x20000
-#define CALC_REGRESS_PCS_DISTANCE 0x40000
-#define CALC_MAKE_BED 0x80000
-#define CALC_RECODE 0x100000
-#define CALC_MERGE 0x200000
-#define CALC_WRITE_COVAR 0x400000
-#define CALC_MODEL 0x800000
-#define CALC_HARDY 0x1000000
+#define CALC_RELATIONSHIP 1LLU
+#define CALC_IBC 2LLU
+#define CALC_DISTANCE 4LLU
+#define CALC_PLINK_DISTANCE_MATRIX 8LLU
+#define CALC_PLINK_IBS_MATRIX 0x10LLU
+#define CALC_GDISTANCE_MASK 0x1cLLU
+#define CALC_LOAD_DISTANCES 0x20LLU
+#define CALC_GROUPDIST 0x40LLU
+#define CALC_REGRESS_DISTANCE 0x80LLU
+#define CALC_UNRELATED_HERITABILITY 0x100LLU
+#define CALC_UNRELATED_HERITABILITY_STRICT 0x200LLU
+#define CALC_FREQ 0x400LLU
+#define CALC_REL_CUTOFF 0x800LLU
+#define CALC_WRITE_SNPLIST 0x1000LLU
+#define CALC_GENOME 0x2000LLU
+#define CALC_REGRESS_REL 0x4000LLU
+#define CALC_LD_PRUNE 0x8000LLU
+#define CALC_LD_PRUNE_PAIRWISE 0x10000LLU
+#define CALC_REGRESS_PCS 0x20000LLU
+#define CALC_REGRESS_PCS_DISTANCE 0x40000LLU
+#define CALC_MAKE_BED 0x80000LLU
+#define CALC_RECODE 0x100000LLU
+#define CALC_MERGE 0x200000LLU
+#define CALC_WRITE_COVAR 0x400000LLU
+#define CALC_MODEL 0x800000LLU
+#define CALC_HARDY 0x1000000LLU
+#define CALC_GXE 0x2000000LLU
 
 #define LGEN_REFERENCE 1
 #define LGEN_ALLELE_COUNT 2
@@ -149,7 +151,6 @@ typedef union {
 
 #define COVAR_NAME 1
 #define COVAR_NUMBER 2
-#define COVAR_GXE 4
 
 #define REL_CALC_COV 1
 #define REL_CALC_SQ 2
@@ -212,15 +213,19 @@ typedef union {
 #define MODEL_FISHER 2
 #define MODEL_PERM 4
 #define MODEL_MPERM 8
-#define MODEL_PERM_COUNT 16
-#define MODEL_ASSOC_COUNTS 32
-#define MODEL_ASSOC_P2 64
-#define MODEL_ASSOC_FDEPR 128
-#define MODEL_PDOM 256
-#define MODEL_PREC 512
-#define MODEL_PGEN 1024
-#define MODEL_PTREND 2048
-#define MODEL_PMASK 3840
+#define MODEL_GENEDROP 16
+#define MODEL_PERM_COUNT 32
+#define MODEL_ASSOC_COUNTS 64
+#define MODEL_ASSOC_P2 128
+#define MODEL_ASSOC_FDEPR 256
+#define MODEL_DMASK 466
+#define MODEL_QT_MEANS 512
+#define MODEL_QMASK 512
+#define MODEL_PDOM 1024
+#define MODEL_PREC 2048
+#define MODEL_PGEN 4096
+#define MODEL_PTREND 8192
+#define MODEL_PMASK 15360
 
 #define WKSPACE_MIN_MB 64
 #define WKSPACE_DEFAULT_MB 2048
@@ -355,7 +360,7 @@ static inline int32_t flexwrite_checked(FILE* outfile, gzFile gz_outfile, char* 
   }
 }
 
-static inline int32_t bed_suffix_conflict(int32_t calculation_type, uint32_t recode_modifier) {
+static inline int32_t bed_suffix_conflict(uint64_t calculation_type, uint32_t recode_modifier) {
   return (calculation_type & CALC_MAKE_BED) || ((calculation_type & CALC_RECODE) && (recode_modifier & (RECODE_LGEN | RECODE_LGEN_REF | RECODE_RLIST)));
 }
 
@@ -800,9 +805,9 @@ int32_t write_ids(char* outname, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_
 
 int32_t distance_d_write_ids(char* outname, char* outname_end, int32_t dist_calc_type, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
 
-int32_t relationship_req(int32_t calculation_type);
+int32_t relationship_req(uint64_t calculation_type);
 
-int32_t distance_req(int32_t calculation_type);
+int32_t distance_req(uint64_t calculation_type);
 
 int32_t double_cmp(const void* aa, const void* bb);
 
@@ -902,7 +907,7 @@ int32_t spawn_threads(pthread_t* threads, unsigned (__stdcall *start_routine)(vo
 int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr_t ct);
 #endif
 
-int32_t regress_distance(int32_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d);
+int32_t regress_distance(uint64_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d);
 
 typedef struct {
   char* family_ids;
