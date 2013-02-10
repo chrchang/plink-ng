@@ -350,6 +350,9 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
 	  break;
 	}
 	cprob += cur_prob;
+	if (cprob == INFINITY) {
+	  return 0;
+	}
       }
     }
     savedl12 = tmp12;
@@ -402,6 +405,9 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
 	  break;
 	}
 	cprob += cur_prob;
+	if (cprob == INFINITY) {
+	  return 0;
+	}
       }
     }
     savedr12 = tmp12;
@@ -433,9 +439,6 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
       tmp23 -= 1;
       tprob += cur_prob;
     } while (cur_prob > tail_stop);
-  }
-  if (cprob == INFINITY) {
-    return 0;
   }
   row_prob = tprob + cprob;
   orig_base_probl = base_probl;
