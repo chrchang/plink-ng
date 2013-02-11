@@ -1110,34 +1110,34 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
   // Note that the SNPHWE_t() function below is a lot more efficient for
   // testing against a p-value inclusion threshold.  SNPHWE2() should only be
   // used if you need the actual p-value.
-  uintptr_t obs_homc = obs_hom1 < obs_hom2 ? obs_hom2 : obs_hom1;
-  uintptr_t obs_homr = obs_hom1 < obs_hom2 ? obs_hom1 : obs_hom2;
-  uintptr_t rare_copies = 2 * obs_homr + obs_hets;
-  uint32_t genotypes = obs_hets + obs_homc + obs_homr;
-  uintptr_t genotypes2 = genotypes * 2;
-  uintptr_t curr_hets_t2 = obs_hets;
-  uintptr_t curr_homr_t2 = obs_homr;
-  uintptr_t curr_homc_t2 = obs_homc;
+  intptr_t obs_homc = obs_hom1 < obs_hom2 ? obs_hom2 : obs_hom1;
+  intptr_t obs_homr = obs_hom1 < obs_hom2 ? obs_hom1 : obs_hom2;
+  int64_t rare_copies = 2LL * obs_homr + obs_hets;
+  int64_t genotypes2 = (obs_hets + obs_homc + obs_homr) * 2LL;
+  int64_t het_exp_floor = (rare_copies * (genotypes2 - rare_copies)) / genotypes2;;
+  double curr_hets_t2 = obs_hets;
+  double curr_homr_t2 = obs_homr;
+  double curr_homc_t2 = obs_homc;
   double tailp = 1 - SMALL_EPSILON;
   double centerp = 0;
   double lastp2 = 1 - SMALL_EPSILON;
   double lastp1 = 1 - SMALL_EPSILON;
-  uintptr_t curr_hets_t1;
-  uintptr_t curr_homr_t1;
-  uintptr_t curr_homc_t1;
-  uint32_t het_exp_floor;
+  double curr_hets_t1;
+  double curr_homr_t1;
+  double curr_homc_t1;
   double tail_stop;
-  if (!genotypes) {
+  if (!genotypes2) {
     return 1;
   }
 
-  het_exp_floor = (((uint64_t)rare_copies) * (genotypes2 - rare_copies)) / genotypes2;
   if (curr_hets_t2 > het_exp_floor) {
     // tail 1 = upper
-    while (curr_hets_t2 > 1) {
+    while (curr_hets_t2 > 1.5) {
       // het_probs[curr_hets] = 1
       // het_probs[curr_hets - 2] = het_probs[curr_hets] * curr_hets * (curr_hets
-      lastp2 *= ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
+      curr_homr_t2 += 1;
+      curr_homc_t2 += 1;
+      lastp2 *= (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t2 * curr_homc_t2);
       curr_hets_t2 -= 2;
       if (lastp2 < 1) {
 	tailp += lastp2;
@@ -1152,8 +1152,10 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
       return 1;
     }
     tail_stop = tailp * DOUBLE_PREC_LIMIT;
-    while (curr_hets_t2 > 1) {
-      lastp2 *= ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
+    while (curr_hets_t2 > 1.5) {
+      curr_homr_t2 += 1;
+      curr_homc_t2 += 1;
+      lastp2 *= (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t2 * curr_homc_t2);
       curr_hets_t2 -= 2;
       if (lastp2 < tail_stop) {
 	break;
@@ -1164,36 +1166,42 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
     curr_hets_t1 = obs_hets + 2;
     curr_homr_t1 = obs_homr;
     curr_homc_t1 = obs_homc;
-    while (curr_homr_t1) {
+    while (curr_homr_t1 > 0.5) {
       // het_probs[curr_hets + 2] = het_probs[curr_hets] * 4 * curr_homr * curr_homc / ((curr_hets + 2) * (curr_hets + 1))
-      lastp1 *= ((double)((4LLU * (curr_homr_t1--)) * (curr_homc_t1--))) / ((double)(((uint64_t)curr_hets_t1) * (curr_hets_t1 - 1)));
+      lastp1 *= (4 * curr_homr_t1 * curr_homc_t1) / (curr_hets_t1 * (curr_hets_t1 - 1));
       if (lastp1 < tail_stop) {
 	break;
       }
       tailp += lastp1;
       curr_hets_t1 += 2;
+      curr_homr_t1 -= 1;
+      curr_homc_t1 -= 1;
     }
   } else {
     // tail 1 = lower
-    while (curr_homr_t2) {
+    while (curr_homr_t2 > 0.5) {
       curr_hets_t2 += 2;
-      lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1)));
-      if (lastp2 < 1 + SMALL_EPSILON) {
+      lastp2 *= (4 * curr_homr_t2 * curr_homc_t2) / (curr_hets_t2 * (curr_hets_t2 - 1));
+      curr_homr_t2 -= 1;
+      curr_homc_t2 -= 1;
+      if (lastp2 < 1) {
 	tailp += lastp2;
 	break;
       }
       centerp += lastp2;
       if (centerp == INFINITY) {
-	return 1;
+	return 0;
       }
     }
     if (centerp == 0) {
       return 1;
     }
     tail_stop = tailp * DOUBLE_PREC_LIMIT;
-    while (curr_homr_t2) {
+    while (curr_homr_t2 > 0.5) {
       curr_hets_t2 += 2;
-      lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1)));
+      lastp2 *= (4 * curr_homr_t2 * curr_homc_t2) / (curr_hets_t2 * (curr_hets_t2 - 1));
+      curr_homr_t2 -= 1;
+      curr_homc_t2 -= 1;
       if (lastp2 < tail_stop) {
 	break;
       }
@@ -1203,8 +1211,10 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
     curr_hets_t1 = obs_hets;
     curr_homr_t1 = obs_homr;
     curr_homc_t1 = obs_homc;
-    while (curr_hets_t1 > 1) {
-      lastp1 *= ((double)(((uint64_t)curr_hets_t1) * (curr_hets_t1 - 1))) / ((double)((4LLU * (++curr_homr_t1)) * (++curr_homc_t1)));
+    while (curr_hets_t1 > 1.5) {
+      curr_homr_t1 += 1;
+      curr_homc_t1 += 1;
+      lastp1 *= (curr_hets_t1 * (curr_hets_t1 - 1)) / (4 * curr_homr_t1 * curr_homc_t1);
       if (lastp1 < tail_stop) {
 	break;
       }
@@ -1233,14 +1243,18 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
   // upper-bound the tail sums.
   // - Only when neither of these conditions hold do we start traveling down
   // the tails.
-  uintptr_t obs_homc = obs_hom1 < obs_hom2 ? obs_hom2 : obs_hom1;
-  uintptr_t obs_homr = obs_hom1 < obs_hom2 ? obs_hom1 : obs_hom2;
-  uintptr_t rare_copies = 2 * obs_homr + obs_hets;
-  uint32_t genotypes = obs_hets + obs_homc + obs_homr;
-  uintptr_t genotypes2 = genotypes * 2;
-  uintptr_t curr_hets_t2 = obs_hets; // tail 2
-  uintptr_t curr_homr_t2 = obs_homr;
-  uintptr_t curr_homc_t2 = obs_homc;
+  intptr_t obs_homc = obs_hom1 < obs_hom2 ? obs_hom2 : obs_hom1;
+  intptr_t obs_homr = obs_hom1 < obs_hom2 ? obs_hom1 : obs_hom2;
+  int64_t rare_copies = 2LL * obs_homr + obs_hets;
+  int64_t genotypes2 = (obs_hets + obs_homc + obs_homr) * 2LL;
+  int64_t het_exp_floor = (rare_copies * (genotypes2 - rare_copies)) / genotypes2;
+  double curr_hets_t2 = obs_hets; // tail 2
+  double curr_homr_t2 = obs_homr;
+  double curr_homc_t2 = obs_homc;
+
+  // Subtract epsilon from initial probability mass, so that we can compare to
+  // 1 when determining tail vs. center membership without floating point error
+  // biting us in the ass
   double tailp1 = 1 - SMALL_EPSILON;
   double centerp = 0;
   double lastp2 = 1 - SMALL_EPSILON;
@@ -1248,15 +1262,18 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
   double tail1_ceil;
   double tail2_ceil;
   double lastp1;
-  uintptr_t curr_hets_t1;
-  uintptr_t curr_homr_t1;
-  uintptr_t curr_homc_t1;
-  double tail_thresh; // as soon as tail sum reaches this, we've passed
-  double tail_threshx;
+  double curr_hets_t1;
+  double curr_homr_t1;
+  double curr_homc_t1;
+
+  // Initially, if center sum reaches this, the test can immediately fail.
+  // Once center is summed, this is recalculated, and when tail sum has reached
+  // this, we've passed.
+  double exit_thresh;
+  double exit_threshx;
   double tail_stop;
-  uint32_t het_exp_floor;
   double ratio;
-  if (!genotypes) {
+  if (!genotypes2) {
     return 0;
   }
 
@@ -1273,72 +1290,90 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
   // to maintain the same allele frequencies.
   // This probability is always decreasing when proceeding away from the
   // expected het count.
-  het_exp_floor = (((uint64_t)rare_copies) * (genotypes2 - rare_copies)) / genotypes2;
   if (curr_hets_t2 > het_exp_floor) {
     // tail 1 = upper
-    if (curr_hets_t2 < 2) {
+    if (obs_hets < 2) {
       return 0;
     }
+
+    // An initial upper bound on the tail sum is useful, since it lets us
+    // report test failure before summing the entire center.
+    // The immediate tail is easy: if the next element out on the tail is r,
+    // then 1 + r + r^2 + ... = 1 / (1-r) works.
+    // For the far tail, we currently use the trivial bound of
+    //   1 + floor[het_exp_floor / 2]
+    // (each far tail element must be no greater than 1 and there are at
+    // most that many of them).  This bound could be improved, but it might not
+    // be worth the precomputational effort.
+    curr_hets_t1 = curr_hets_t2 + 2;
+    lastp1 = (4 * curr_homr_t2 * curr_homc_t2) / (curr_hets_t1 * (curr_hets_t1 - 1));
+    tail1_ceil = tailp1 / (1 - lastp1);
+    lastp1 *= tailp1;
+    tailp1 += lastp1;
+    exit_thresh = tail1_ceil;
+    exit_thresh += 1 + (het_exp_floor / 2);
+    exit_thresh *= (1 - thresh) / thresh;
+
     // het_probs[curr_hets] = 1
     // het_probs[curr_hets - 2] = het_probs[curr_hets] * curr_hets * (curr_hets - 1) / (4 * (curr_homr + 1) * (curr_homc + 1))
     do {
-      lastp2 *= ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
+      curr_homr_t2 += 1;
+      curr_homc_t2 += 1;
+      lastp2 *= (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t2 * curr_homc_t2);
       curr_hets_t2 -= 2;
       if (lastp2 < 1) {
 	tailp2 = lastp2;
 	break;
       }
       centerp += lastp2;
-      if (centerp == INFINITY) {
+      if (centerp > exit_thresh) {
 	return 1;
       }
-    } while (curr_hets_t2 > 1);
-    tail_thresh = centerp * thresh / (1 - thresh);
-    if (1 + tailp2 >= tail_thresh) {
+    } while (curr_hets_t2 > 1.5);
+    exit_thresh = centerp * thresh / (1 - thresh);
+    if (tailp1 + tailp2 >= exit_thresh) {
       return 0;
     }
     // c + cr + cr^2 + ... = c/(1-r), which is an upper bound for the tail sum
-    ratio = ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (curr_homr_t2 + 1)) * (curr_homc_t2 + 1)));
+    ratio = (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * (curr_homr_t2 + 1) * (curr_homc_t2 + 1));
     tail2_ceil = tailp2 / (1 - ratio);
-    if (obs_homr) {
+    if (tail1_ceil + tail2_ceil < exit_thresh) {
+      return 1;
+    }
+    if (obs_homr > 1) {
       // het_probs[curr_hets + 2] = het_probs[curr_hets] * 4 * curr_homr * curr_homc / ((curr_hets + 2) * (curr_hets + 1))
-      curr_hets_t1 = obs_hets + 2;
       curr_homr_t1 = obs_homr;
       curr_homc_t1 = obs_homc;
-      lastp1 = ((double)((4LLU * (curr_homr_t1--)) * (curr_homc_t1--))) / ((double)(((uint64_t)curr_hets_t1) * (curr_hets_t1 - 1)));
-      tail1_ceil = 1 / (1 - lastp1);
-      if (tail1_ceil + tail2_ceil < tail_thresh) {
-	return 1;
-      }
-      tail_threshx = tail_thresh - tailp2;
-      tail_stop = (1 + tailp2) * DOUBLE_PREC_LIMIT;
-      while (1) {
-        tailp1 += lastp1;
-	if (tailp1 >= tail_threshx) {
-	  return 0;
-	}
-	if (!curr_homr_t1) {
-	  break;
-	}
+      exit_threshx = exit_thresh - tailp2;
+      tail_stop = (tailp1 + lastp1 + tailp2) * DOUBLE_PREC_LIMIT;
+      do {
 	curr_hets_t1 += 2;
-	lastp1 *= ((double)((4LLU * (curr_homr_t1--)) * (curr_homc_t1--))) / ((double)(((uint64_t)curr_hets_t1) * (curr_hets_t1 - 1)));
+	curr_homr_t1 -= 1;
+	curr_homc_t1 -= 1;
+	lastp1 *= (4 * curr_homr_t1 * curr_homc_t1) / (curr_hets_t1 * (curr_hets_t1 - 1));
 	if (lastp1 < tail_stop) {
 	  break;
 	}
-      }
+	tailp1 += lastp1;
+	if (tailp1 > exit_threshx) {
+	  return 0;
+	}
+      } while (curr_homr_t1 > 1.5);
     }
-    if (tailp1 + tail2_ceil < tail_thresh) {
+    if (tailp1 + tail2_ceil < exit_thresh) {
       return 1;
     }
-    tail_threshx = tail_thresh - tailp1;
+    exit_threshx = exit_thresh - tailp1;
     tail_stop = (tailp1 + tailp2) * DOUBLE_PREC_LIMIT;
     while (curr_hets_t2 > 1) {
-      lastp2 *= ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1))) / ((double)((4LLU * (++curr_homr_t2)) * (++curr_homc_t2)));
+      curr_homr_t2 += 1;
+      curr_homc_t2 += 1;
+      lastp2 *= (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t2 * curr_homc_t2);
       if (lastp2 < tail_stop) {
 	return 1;
       }
       tailp2 += lastp2;
-      if (tailp2 >= tail_threshx) {
+      if (tailp2 >= exit_threshx) {
 	return 0;
       }
       curr_hets_t2 -= 2;
@@ -1346,67 +1381,74 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
     return 1;
   } else {
     // tail 1 = lower
-    if (!curr_homr_t2) {
+    if (!obs_homr) {
       return 0;
     }
+    curr_homr_t1 = curr_homr_t2 + 1;
+    curr_homc_t1 = curr_homc_t2 + 1;
+    lastp1 = (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t1 * curr_homc_t1);
+    tail1_ceil = tailp1 / (1 - lastp1);
+    lastp1 *= tailp1;
+    tailp1 += lastp1;
+    exit_thresh = tail1_ceil;
+    exit_thresh += 1 + ((rare_copies - het_exp_floor) / 2);
+    exit_thresh *= (1 - thresh) / thresh;
     do {
       curr_hets_t2 += 2;
-      lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1)));
+      lastp2 *= (4 * curr_homr_t2 * curr_homc_t2) / (curr_hets_t2 * (curr_hets_t2 - 1));
+      curr_homr_t2 -= 1;
+      curr_homc_t2 -= 1;
       if (lastp2 < 1) {
 	tailp2 = lastp2;
 	break;
       }
       centerp += lastp2;
-      if (centerp == INFINITY) {
+      if (centerp > exit_thresh) {
 	return 1;
       }
-    } while (curr_homr_t2);
-    tail_thresh = centerp * thresh / (1 - thresh);
-    if (1 + tailp2 >= tail_thresh) {
+    } while (curr_homr_t2 > 0.5);
+    exit_thresh = centerp * thresh / (1 - thresh);
+    if (tailp1 + tailp2 >= exit_thresh) {
       return 0;
     }
-    ratio = ((double)((4LLU * curr_homr_t2) * curr_homc_t2)) / ((double)(((uint64_t)(curr_hets_t2 + 2)) * (curr_hets_t2 + 1)));
+    ratio = (4 * curr_homr_t2 * curr_homc_t2) / ((curr_hets_t2 + 2) * (curr_hets_t2 + 1));
     tail2_ceil = tailp2 / (1 - ratio);
-    if (obs_hets >= 2) {
+    if (tail1_ceil + tail2_ceil < exit_thresh) {
+      return 1;
+    }
+    if (obs_hets >= 4) {
       curr_hets_t1 = obs_hets;
-      curr_homr_t1 = obs_homr;
-      curr_homc_t1 = obs_homc;
-      lastp1 = ((double)(((uint64_t)curr_hets_t1) * (curr_hets_t1 - 1))) / ((double)((4LLU * (++curr_homr_t1)) * (++curr_homc_t1)));
-      curr_hets_t1 -= 2;
-      tail1_ceil = tailp1 / (1 - lastp1);
-      if (tail1_ceil + tail2_ceil < tail_thresh) {
-	return 1;
-      }
-      tail_threshx = tail_thresh - tailp2;
+      exit_threshx = exit_thresh - tailp2;
       tail_stop = (1 + tailp2) * DOUBLE_PREC_LIMIT;
-      while (1) {
-        tailp1 += lastp1;
-        if (tailp1 >= tail_threshx) {
-	  return 0;
-        }
-	if (curr_hets_t1 < 2) {
-	  break;
-	}
-	lastp1 *= ((double)(((uint64_t)curr_hets_t1) * (curr_hets_t1 - 1))) / ((double)((4LLU * (++curr_homr_t1)) * (++curr_homc_t1)));
+      do {
+	curr_hets_t1 -= 2;
+	curr_homr_t1 += 1;
+	curr_homc_t1 += 1;
+	lastp1 *= (curr_hets_t1 * (curr_hets_t1 - 1)) / (4 * curr_homr_t1 * curr_homc_t1);
 	if (lastp1 < tail_stop) {
 	  break;
 	}
-	curr_hets_t1 -= 2;
-      }
+        tailp1 += lastp1;
+	if (tailp1 > exit_threshx) {
+	  return 0;
+	}
+      } while (curr_hets_t1 > 3.5);
     }
-    if (tailp1 + tail2_ceil < tail_thresh) {
+    if (tailp1 + tail2_ceil < exit_thresh) {
       return 1;
     }
-    tail_threshx = tail_thresh - tailp1;
+    exit_threshx = exit_thresh - tailp1;
     tail_stop = (tailp1 + tailp2) * DOUBLE_PREC_LIMIT;
-    while (curr_homr_t2) {
+    while (curr_homr_t2 > 0.5) {
       curr_hets_t2 += 2;
-      lastp2 *= ((double)((4LLU * (curr_homr_t2--)) * (curr_homc_t2--))) / ((double)(((uint64_t)curr_hets_t2) * (curr_hets_t2 - 1)));
+      lastp2 *= (4 * curr_homr_t2 * curr_homc_t2) / (curr_hets_t2 * (curr_hets_t2 - 1));
       if (lastp2 < tail_stop) {
 	return 1;
       }
+      curr_homr_t2 -= 1;
+      curr_homc_t2 -= 1;
       tailp2 += lastp2;
-      if (tailp2 >= tail_threshx) {
+      if (tailp2 >= exit_threshx) {
 	return 0;
       }
     }

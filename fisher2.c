@@ -128,17 +128,18 @@ int32_t fisher23_tailsum(double tail_stop, double* base_probp, double* saved12p,
   // identify beginning of tail
   if (right_side) {
     if (cur_prob > 1) {
-      if ((tmp13 < 0.5) || (tmp22 < 0.5)) {
-	*totalp = 0;
-	return 0;
-      }
-      do {
+      prev_prob = tmp13 * tmp22;
+      while (prev_prob > 0.5) {
 	tmp12 += 1;
 	tmp23 += 1;
-	cur_prob *= (tmp13 * tmp22) / (tmp12 * tmp23);
+	cur_prob *= prev_prob / (tmp12 * tmp23);
 	tmp13 -= 1;
 	tmp22 -= 1;
-      } while (cur_prob > 1);
+	if (cur_prob <= 1) {
+	  break;
+	}
+	prev_prob = tmp13 * tmp22;
+      }
       *base_probp = cur_prob;
       tmps12 = tmp12;
       tmps13 = tmp13;
@@ -170,17 +171,18 @@ int32_t fisher23_tailsum(double tail_stop, double* base_probp, double* saved12p,
     }
   } else {
     if (cur_prob > 1) {
-      if ((tmp12 < 0.5) || (tmp23 < 0.5)) {
-	*totalp = 0;
-	return 0;
-      }
-      do {
+      prev_prob = tmp12 * tmp23;
+      while (prev_prob > 0.5) {
 	tmp13 += 1;
 	tmp22 += 1;
-	cur_prob *= (tmp12 * tmp23) / (tmp13 * tmp22);
+	cur_prob *= prev_prob / (tmp13 * tmp22);
 	tmp12 -= 1;
 	tmp23 -= 1;
-      } while (cur_prob > 1);
+	if (cur_prob <= 1) {
+	  break;
+	}
+	prev_prob = tmp12 * tmp23;
+      }
       *base_probp = cur_prob;
       tmps12 = tmp12;
       tmps13 = tmp13;
@@ -215,6 +217,10 @@ int32_t fisher23_tailsum(double tail_stop, double* base_probp, double* saved12p,
   *saved13p = tmp13;
   *saved22p = tmp22;
   *saved23p = tmp23;
+  if (cur_prob > 1) {
+    *totalp = 0;
+    return 0;
+  }
   // sum tail to floating point precision limit
   if (right_side) {
     while (cur_prob > tail_stop) {
