@@ -102,6 +102,11 @@ typedef union {
 // 53-bit double precision limit
 #define DOUBLE_PREC_LIMIT 0.00000000000000011102230246251565404236316680908203125
 
+// 2^{-83} bias to give exact tests maximum ability to determine tiny p-values.
+// (~2^{-53} is necessary to take advantage of denormalized small numbers, then
+// allow tail sum to be up to 2^30.)
+#define EXACT_TEST_BIAS 0.00000000000000000000000010339757656912845935892608650874535669572651386260986328125
+
 #define RET_SUCCESS 0
 #define RET_NOMEM 1
 #define RET_OPEN_FAIL 2

@@ -17,6 +17,7 @@
 
 // 53-bit double precision limit
 #define DOUBLE_PREC_LIMIT 0.00000000000000011102230246251565404236316680908203125
+#define EXACT_TEST_BIAS 0.00000000000000000000000010339757656912845935892608650874535669572651386260986328125
 
 double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
   // This function implements an exact SNP test of Hardy-Weinberg
@@ -41,27 +42,33 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
   // Note that the SNPHWE_t() function below is a lot more efficient for
   // testing against a p-value inclusion threshold.  SNPHWE2() should only be
   // used if you need the actual p-value.
-  intptr_t obs_homc = obs_hom1 < obs_hom2 ? obs_hom2 : obs_hom1;
-  intptr_t obs_homr = obs_hom1 < obs_hom2 ? obs_hom1 : obs_hom2;
+  intptr_t obs_homc;
+  intptr_t obs_homr;
+  if (obs_hom1 < obs_hom2) {
+    obs_homc = obs_hom2;
+    obs_homr = obs_hom1;
+  } else {
+    obs_homc = obs_hom1;
+    obs_homr = obs_hom2;
+  }
   int64_t rare_copies = 2LL * obs_homr + obs_hets;
   int64_t genotypes2 = (obs_hets + obs_homc + obs_homr) * 2LL;
-  int64_t het_exp_floor = (rare_copies * (genotypes2 - rare_copies)) / genotypes2;;
   double curr_hets_t2 = obs_hets;
   double curr_homr_t2 = obs_homr;
   double curr_homc_t2 = obs_homc;
-  double tailp = 1 - EPSILON;
+  double tailp = (1 - EPSILON) * EXACT_TEST_BIAS;
   double centerp = 0;
-  double lastp2 = 1 - EPSILON;
-  double lastp1 = 1 - EPSILON;
+  double lastp2 = tailp;
+  double lastp1 = tailp;
   double curr_hets_t1;
   double curr_homr_t1;
   double curr_homc_t1;
-  double tail_stop;
+  double preaddp;
   if (!genotypes2) {
     return 1;
   }
 
-  if (curr_hets_t2 > het_exp_floor) {
+  if (obs_hets * genotypes2 > rare_copies * (genotypes2 - rare_copies)) {
     // tail 1 = upper
     while (curr_hets_t2 > 1.5) {
       // het_probs[curr_hets] = 1
@@ -70,7 +77,7 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
       curr_homc_t2 += 1;
       lastp2 *= (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t2 * curr_homc_t2);
       curr_hets_t2 -= 2;
-      if (lastp2 < 1) {
+      if (lastp2 < EXACT_TEST_BIAS) {
 	tailp += lastp2;
 	break;
       }
@@ -82,28 +89,28 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
     if (centerp == 0) {
       return 1;
     }
-    tail_stop = tailp * DOUBLE_PREC_LIMIT;
     while (curr_hets_t2 > 1.5) {
       curr_homr_t2 += 1;
       curr_homc_t2 += 1;
       lastp2 *= (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t2 * curr_homc_t2);
       curr_hets_t2 -= 2;
-      if (lastp2 < tail_stop) {
+      preaddp = tailp;
+      tailp += lastp2;
+      if (tailp <= preaddp) {
 	break;
       }
-      tailp += lastp2;
     }
-    tail_stop = tailp * DOUBLE_PREC_LIMIT;
     curr_hets_t1 = obs_hets + 2;
     curr_homr_t1 = obs_homr;
     curr_homc_t1 = obs_homc;
     while (curr_homr_t1 > 0.5) {
       // het_probs[curr_hets + 2] = het_probs[curr_hets] * 4 * curr_homr * curr_homc / ((curr_hets + 2) * (curr_hets + 1))
       lastp1 *= (4 * curr_homr_t1 * curr_homc_t1) / (curr_hets_t1 * (curr_hets_t1 - 1));
-      if (lastp1 < tail_stop) {
+      preaddp = tailp;
+      tailp += lastp1;
+      if (tailp <= preaddp) {
 	break;
       }
-      tailp += lastp1;
       curr_hets_t1 += 2;
       curr_homr_t1 -= 1;
       curr_homc_t1 -= 1;
@@ -115,7 +122,7 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
       lastp2 *= (4 * curr_homr_t2 * curr_homc_t2) / (curr_hets_t2 * (curr_hets_t2 - 1));
       curr_homr_t2 -= 1;
       curr_homc_t2 -= 1;
-      if (lastp2 < 1) {
+      if (lastp2 < EXACT_TEST_BIAS) {
 	tailp += lastp2;
 	break;
       }
@@ -127,18 +134,17 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
     if (centerp == 0) {
       return 1;
     }
-    tail_stop = tailp * DOUBLE_PREC_LIMIT;
     while (curr_homr_t2 > 0.5) {
       curr_hets_t2 += 2;
       lastp2 *= (4 * curr_homr_t2 * curr_homc_t2) / (curr_hets_t2 * (curr_hets_t2 - 1));
       curr_homr_t2 -= 1;
       curr_homc_t2 -= 1;
-      if (lastp2 < tail_stop) {
+      preaddp = tailp;
+      tailp += lastp2;
+      if (tailp <= preaddp) {
 	break;
       }
-      tailp += lastp2;
     }
-    tail_stop = tailp * DOUBLE_PREC_LIMIT;
     curr_hets_t1 = obs_hets;
     curr_homr_t1 = obs_homr;
     curr_homc_t1 = obs_homc;
@@ -146,10 +152,11 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
       curr_homr_t1 += 1;
       curr_homc_t1 += 1;
       lastp1 *= (curr_hets_t1 * (curr_hets_t1 - 1)) / (4 * curr_homr_t1 * curr_homc_t1);
-      if (lastp1 < tail_stop) {
+      preaddp = tailp;
+      tailp += lastp1;
+      if (tailp <= preaddp) {
 	break;
       }
-      tailp += lastp1;
       curr_hets_t1 -= 2;
     }
   }
@@ -174,11 +181,17 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
   // upper-bound the tail sums.
   // - Only when neither of these conditions hold do we start traveling down
   // the tails.
-  intptr_t obs_homc = obs_hom1 < obs_hom2 ? obs_hom2 : obs_hom1;
-  intptr_t obs_homr = obs_hom1 < obs_hom2 ? obs_hom1 : obs_hom2;
+  intptr_t obs_homc;
+  intptr_t obs_homr;
+  if (obs_hom1 < obs_hom2) {
+    obs_homc = obs_hom2;
+    obs_homr = obs_hom1;
+  } else {
+    obs_homc = obs_hom1;
+    obs_homr = obs_hom2;
+  }
   int64_t rare_copies = 2LL * obs_homr + obs_hets;
   int64_t genotypes2 = (obs_hets + obs_homc + obs_homr) * 2LL;
-  int64_t het_exp_floor = (rare_copies * (genotypes2 - rare_copies)) / genotypes2;
   double curr_hets_t2 = obs_hets; // tail 2
   double curr_homr_t2 = obs_homr;
   double curr_homc_t2 = obs_homc;
@@ -186,9 +199,9 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
   // Subtract epsilon from initial probability mass, so that we can compare to
   // 1 when determining tail vs. center membership without floating point error
   // biting us in the ass
-  double tailp1 = 1 - EPSILON;
+  double tailp1 = (1 - EPSILON) * EXACT_TEST_BIAS;
   double centerp = 0;
-  double lastp2 = 1 - EPSILON;
+  double lastp2 = tailp1;
   double tailp2 = 0;
   double tail1_ceil;
   double tail2_ceil;
@@ -202,11 +215,14 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
   // this, we've passed.
   double exit_thresh;
   double exit_threshx;
-  double tail_stop;
   double ratio;
+  double preaddp;
   if (!genotypes2) {
     return 0;
   }
+
+  // Convert thresh into reverse odds ratio.
+  thresh = (1 - thresh) / thresh;
 
   // Expected het count:
   //   2 * rarefreq * (1 - rarefreq) * genotypes
@@ -221,7 +237,8 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
   // to maintain the same allele frequencies.
   // This probability is always decreasing when proceeding away from the
   // expected het count.
-  if (curr_hets_t2 > het_exp_floor) {
+
+  if (obs_hets * genotypes2 > rare_copies * (genotypes2 - rare_copies)) {
     // tail 1 = upper
     if (obs_hets < 2) {
       return 0;
@@ -236,14 +253,10 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
     // (each far tail element must be no greater than 1 and there are at
     // most that many of them).  This bound could be improved, but it might not
     // be worth the precomputational effort.
-    curr_hets_t1 = curr_hets_t2 + 2;
-    lastp1 = (4 * curr_homr_t2 * curr_homc_t2) / (curr_hets_t1 * (curr_hets_t1 - 1));
-    tail1_ceil = tailp1 / (1 - lastp1);
-    lastp1 *= tailp1;
-    tailp1 += lastp1;
-    exit_thresh = tail1_ceil;
-    exit_thresh += 1 + (het_exp_floor / 2);
-    exit_thresh *= (1 - thresh) / thresh;
+    // ...and as long as we're using such a weak bound for the far tail,
+    // there's no point to carefully calculating the near tail since we're very
+    // unlikely to use the partial result before exiting from the function.
+    exit_thresh = rare_copies * thresh * EXACT_TEST_BIAS;
 
     // het_probs[curr_hets] = 1
     // het_probs[curr_hets - 2] = het_probs[curr_hets] * curr_hets * (curr_hets - 1) / (4 * (curr_homr + 1) * (curr_homc + 1))
@@ -252,7 +265,7 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
       curr_homc_t2 += 1;
       lastp2 *= (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t2 * curr_homc_t2);
       curr_hets_t2 -= 2;
-      if (lastp2 < 1) {
+      if (lastp2 < EXACT_TEST_BIAS) {
 	tailp2 = lastp2;
 	break;
       }
@@ -261,33 +274,39 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
 	return 1;
       }
     } while (curr_hets_t2 > 1.5);
-    exit_thresh = centerp * thresh / (1 - thresh);
+    exit_thresh = centerp / thresh;
     if (tailp1 + tailp2 >= exit_thresh) {
       return 0;
     }
     // c + cr + cr^2 + ... = c/(1-r), which is an upper bound for the tail sum
     ratio = (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * (curr_homr_t2 + 1) * (curr_homc_t2 + 1));
     tail2_ceil = tailp2 / (1 - ratio);
+    curr_hets_t1 = obs_hets + 2;
+    curr_homr_t1 = obs_homr;
+    curr_homc_t1 = obs_homc;
+    lastp1 = (4 * curr_homr_t1 * curr_homc_t1) / (curr_hets_t1 * (curr_hets_t1 - 1));
+    tail1_ceil = tailp1 / (1 - lastp1);
     if (tail1_ceil + tail2_ceil < exit_thresh) {
       return 1;
     }
+    lastp1 *= tailp1;
+    tailp1 += lastp1;
+
     if (obs_homr > 1) {
       // het_probs[curr_hets + 2] = het_probs[curr_hets] * 4 * curr_homr * curr_homc / ((curr_hets + 2) * (curr_hets + 1))
-      curr_homr_t1 = obs_homr;
-      curr_homc_t1 = obs_homc;
       exit_threshx = exit_thresh - tailp2;
-      tail_stop = (tailp1 + lastp1 + tailp2) * DOUBLE_PREC_LIMIT;
       do {
 	curr_hets_t1 += 2;
 	curr_homr_t1 -= 1;
 	curr_homc_t1 -= 1;
 	lastp1 *= (4 * curr_homr_t1 * curr_homc_t1) / (curr_hets_t1 * (curr_hets_t1 - 1));
-	if (lastp1 < tail_stop) {
-	  break;
-	}
+	preaddp = tailp1;
 	tailp1 += lastp1;
 	if (tailp1 > exit_threshx) {
 	  return 0;
+	}
+	if (tailp1 <= preaddp) {
+	  break;
 	}
       } while (curr_homr_t1 > 1.5);
     }
@@ -295,17 +314,17 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
       return 1;
     }
     exit_threshx = exit_thresh - tailp1;
-    tail_stop = (tailp1 + tailp2) * DOUBLE_PREC_LIMIT;
     while (curr_hets_t2 > 1) {
       curr_homr_t2 += 1;
       curr_homc_t2 += 1;
       lastp2 *= (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t2 * curr_homc_t2);
-      if (lastp2 < tail_stop) {
-	return 1;
-      }
+      preaddp = tailp2;
       tailp2 += lastp2;
       if (tailp2 >= exit_threshx) {
 	return 0;
+      }
+      if (tailp2 <= preaddp) {
+	return 1;
       }
       curr_hets_t2 -= 2;
     }
@@ -315,21 +334,13 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
     if (!obs_homr) {
       return 0;
     }
-    curr_homr_t1 = curr_homr_t2 + 1;
-    curr_homc_t1 = curr_homc_t2 + 1;
-    lastp1 = (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t1 * curr_homc_t1);
-    tail1_ceil = tailp1 / (1 - lastp1);
-    lastp1 *= tailp1;
-    tailp1 += lastp1;
-    exit_thresh = tail1_ceil;
-    exit_thresh += 1 + ((rare_copies - het_exp_floor) / 2);
-    exit_thresh *= (1 - thresh) / thresh;
+    exit_thresh = rare_copies * thresh * EXACT_TEST_BIAS;
     do {
       curr_hets_t2 += 2;
       lastp2 *= (4 * curr_homr_t2 * curr_homc_t2) / (curr_hets_t2 * (curr_hets_t2 - 1));
       curr_homr_t2 -= 1;
       curr_homc_t2 -= 1;
-      if (lastp2 < 1) {
+      if (lastp2 < EXACT_TEST_BIAS) {
 	tailp2 = lastp2;
 	break;
       }
@@ -338,30 +349,37 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
 	return 1;
       }
     } while (curr_homr_t2 > 0.5);
-    exit_thresh = centerp * thresh / (1 - thresh);
+    exit_thresh = centerp / thresh;
     if (tailp1 + tailp2 >= exit_thresh) {
       return 0;
     }
     ratio = (4 * curr_homr_t2 * curr_homc_t2) / ((curr_hets_t2 + 2) * (curr_hets_t2 + 1));
     tail2_ceil = tailp2 / (1 - ratio);
+    curr_hets_t1 = obs_hets;
+    curr_homr_t1 = obs_homr + 1;
+    curr_homc_t1 = obs_homc + 1;
+    lastp1 = (curr_hets_t1 * (curr_hets_t1 - 1)) / (4 * curr_homr_t1 * curr_homc_t1);
+    tail1_ceil = tailp1 / (1 - lastp1);
+    lastp1 *= tailp1;
+    tailp1 += lastp1;
+
     if (tail1_ceil + tail2_ceil < exit_thresh) {
       return 1;
     }
     if (obs_hets >= 4) {
-      curr_hets_t1 = obs_hets;
       exit_threshx = exit_thresh - tailp2;
-      tail_stop = (1 + tailp2) * DOUBLE_PREC_LIMIT;
       do {
 	curr_hets_t1 -= 2;
 	curr_homr_t1 += 1;
 	curr_homc_t1 += 1;
 	lastp1 *= (curr_hets_t1 * (curr_hets_t1 - 1)) / (4 * curr_homr_t1 * curr_homc_t1);
-	if (lastp1 < tail_stop) {
-	  break;
-	}
+	preaddp = tailp1;
         tailp1 += lastp1;
 	if (tailp1 > exit_threshx) {
 	  return 0;
+	}
+	if (tailp1 <= preaddp) {
+	  break;
 	}
       } while (curr_hets_t1 > 3.5);
     }
@@ -369,18 +387,18 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
       return 1;
     }
     exit_threshx = exit_thresh - tailp1;
-    tail_stop = (tailp1 + tailp2) * DOUBLE_PREC_LIMIT;
     while (curr_homr_t2 > 0.5) {
       curr_hets_t2 += 2;
       lastp2 *= (4 * curr_homr_t2 * curr_homc_t2) / (curr_hets_t2 * (curr_hets_t2 - 1));
-      if (lastp2 < tail_stop) {
-	return 1;
-      }
       curr_homr_t2 -= 1;
       curr_homc_t2 -= 1;
+      preaddp = tailp2;
       tailp2 += lastp2;
       if (tailp2 >= exit_threshx) {
 	return 0;
+      }
+      if (tailp2 <= preaddp) {
+	return 1;
       }
     }
     return 1;
@@ -404,7 +422,6 @@ int main(int argc, char** argv) {
       return 3;
     }
     if (argc == 4) {
-      printf("%d %d %d\n", hets, homs1, homs2);
       p_value = SNPHWE2(hets, homs1, homs2);
       printf("P-value: %lg\n", p_value);
     } else {
