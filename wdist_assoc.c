@@ -1,608 +1,1094 @@
 #include "wdist_common.h"
+#include "wdist_stats.h"
 
-double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22) {
-  // Basic 2x2 Fisher exact test p-value calculation.
-  double tprob = (1 - SMALL_EPSILON) * EXACT_TEST_BIAS;
-  double cur_prob = tprob;
-  double cprob = 0;
-  uint32_t uii;
-  double cur11; // signed integers convert to doubles more easily
-  double cur12;
-  double cur21;
-  double cur22;
-  double preaddp;
-  // Ensure we are left of the distribution center, m11 <= m22, and m12 <= m21.
-  if (m12 > m21) {
-    uii = m12;
-    m12 = m21;
-    m21 = uii;
-  }
-  if (m11 > m22) {
-    uii = m11;
-    m11 = m22;
-    m22 = uii;
-  }
-  if ((((int64_t)m11) * m22) > (((int64_t)m12) * m21)) {
-    uii = m11;
-    m11 = m12;
-    m12 = uii;
-    uii = m21;
-    m21 = m22;
-    m22 = uii;
-  }
-  cur11 = m11;
-  cur12 = m12;
-  cur21 = m21;
-  cur22 = m22;
-  while (cur12 > 0.5) {
-    cur11 += 1;
-    cur22 += 1;
-    cur_prob *= (cur12 * cur21) / (cur11 * cur22);
-    cur12 -= 1;
-    cur21 -= 1;
-    if (cur_prob == INFINITY) {
-      return 0;
-    }
-    if (cur_prob < EXACT_TEST_BIAS) {
-      tprob += cur_prob;
-      break;
-    }
-    cprob += cur_prob;
-  }
-  if (cprob == 0) {
-    return 1;
-  }
-  if (cur12 > 0.5) {
-    do {
-      cur11 += 1;
-      cur22 += 1;
-      cur_prob *= (cur12 * cur21) / (cur11 * cur22);
-      cur12 -= 1;
-      cur21 -= 1;
-      preaddp = tprob;
-      tprob += cur_prob;
-      if (tprob <= preaddp) {
-	break;
-      }
-    } while (cur12 > 0.5);
-  }
-  if (m11) {
-    cur11 = m11;
-    cur12 = m12;
-    cur21 = m21;
-    cur22 = m22;
-    cur_prob = (1 - SMALL_EPSILON) * EXACT_TEST_BIAS;
-    do {
-      cur12 += 1;
-      cur21 += 1;
-      cur_prob *= (cur11 * cur22) / (cur12 * cur21);
-      cur11 -= 1;
-      cur22 -= 1;
-      preaddp = tprob;
-      tprob += cur_prob;
-      if (tprob <= preaddp) {
-	return preaddp / (cprob + preaddp);
-      }
-    } while (cur11 > 0.5);
-  }
-  return tprob / (cprob + tprob);
-}
+// load markers in blocks to enable PERMORY-style LD exploitation
+#define MODEL_BLOCKSIZE 256
+#define MODEL_HALFBLOCK 128
 
 /*
-void fisher22_precomp(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, double* m11_precomp, uint32_t* m11_offsetp, uint32_t* m11_ceilp) {
-  // Assumes m11_precomp is a preallocated buffer of adequate size to store all
-  // nonzero p-values.
-  // Returns:
-  //   m11_precomp[0] = p-value when m11 is *m11_offsetp
-  //   ...
-  //   m11_precomp[*m11ceilp - *m11_offsetp - 1] = p-value when m11 is
-  //     *m11_ceilp - 1
-  //   All other p-values underflow.
-  //
-  // Algorithm:
-  // 1. Locate the center.
-  // ...
+#ifdef __LP64__
+void freq_cc_count_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp) {
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
+  __m128i loader;
+  __m128i loader2;
+  __m128i loader3;
+  __m128i to_ct_a1;
+  __m128i to_ct_b1;
+  __m128i to_ct_c1;
+  __m128i to_ct_a2;
+  __m128i to_ct_b2;
+  __m128i to_ct_c2;
+  __uni16 acc_a;
+  __uni16 acc_b;
+  __uni16 acc_c;
+
+  acc_a.vi = _mm_setzero_si128();
+  acc_b.vi = _mm_setzero_si128();
+  acc_c.vi = _mm_setzero_si128();
+  do {
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    to_ct_b1 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a1 = _mm_and_si128(loader2, loader);
+    to_ct_c1 = _mm_and_si128(to_ct_b1, loader);
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a1 = _mm_add_epi64(to_ct_a1, _mm_and_si128(loader2, loader));
+    to_ct_b1 = _mm_add_epi64(to_ct_b1, loader3);
+    to_ct_c1 = _mm_add_epi64(to_ct_c1, _mm_and_si128(loader3, loader));
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a1 = _mm_add_epi64(to_ct_a1, _mm_and_si128(loader2, loader));
+    to_ct_b1 = _mm_add_epi64(to_ct_b1, loader3);
+    to_ct_c1 = _mm_add_epi64(to_ct_c1, _mm_and_si128(loader3, loader));
+
+    to_ct_a1 = _mm_add_epi64(_mm_and_si128(to_ct_a1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_a1, 2), m2));
+    to_ct_b1 = _mm_add_epi64(_mm_and_si128(to_ct_b1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_b1, 2), m2));
+    to_ct_c1 = _mm_add_epi64(_mm_and_si128(to_ct_c1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_c1, 2), m2));
+
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    to_ct_b2 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a2 = _mm_and_si128(loader2, loader);
+    to_ct_c2 = _mm_and_si128(to_ct_b2, loader);
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a2 = _mm_add_epi64(to_ct_a2, _mm_and_si128(loader2, loader));
+    to_ct_b2 = _mm_add_epi64(to_ct_b2, loader3);
+    to_ct_c2 = _mm_add_epi64(to_ct_c2, _mm_and_si128(loader3, loader));
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a2 = _mm_add_epi64(to_ct_a2, _mm_and_si128(loader2, loader));
+    to_ct_b2 = _mm_add_epi64(to_ct_b2, loader3);
+    to_ct_c2 = _mm_add_epi64(to_ct_c2, _mm_and_si128(loader3, loader));
+
+    to_ct_a1 = _mm_add_epi64(to_ct_a1, _mm_add_epi64(_mm_and_si128(to_ct_a2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_a2, 2), m2)));
+    to_ct_b1 = _mm_add_epi64(to_ct_b1, _mm_add_epi64(_mm_and_si128(to_ct_b2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_b2, 2), m2)));
+    to_ct_c1 = _mm_add_epi64(to_ct_c1, _mm_add_epi64(_mm_and_si128(to_ct_c2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_c2, 2), m2)));
+
+    acc_a.vi = _mm_add_epi64(acc_a.vi, _mm_add_epi64(_mm_and_si128(to_ct_a1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_a1, 4), m4)));
+    acc_b.vi = _mm_add_epi64(acc_b.vi, _mm_add_epi64(_mm_and_si128(to_ct_b1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_b1, 4), m4)));
+    acc_c.vi = _mm_add_epi64(acc_c.vi, _mm_add_epi64(_mm_and_si128(to_ct_c1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_c1, 4), m4)));
+  } while (vptr < vend);
+  acc_a.vi = _mm_add_epi64(_mm_and_si128(acc_a.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_a.vi, 8), m8));
+  acc_b.vi = _mm_add_epi64(_mm_and_si128(acc_b.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_b.vi, 8), m8));
+  acc_c.vi = _mm_add_epi64(_mm_and_si128(acc_c.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_c.vi, 8), m8));
+  acc_a.vi = _mm_and_si128(_mm_add_epi64(acc_a.vi, _mm_srli_epi64(acc_a.vi, 16)), m16);
+  acc_b.vi = _mm_and_si128(_mm_add_epi64(acc_b.vi, _mm_srli_epi64(acc_b.vi, 16)), m16);
+  acc_c.vi = _mm_and_si128(_mm_add_epi64(acc_c.vi, _mm_srli_epi64(acc_c.vi, 16)), m16);
+  acc_a.vi = _mm_add_epi64(acc_a.vi, _mm_srli_epi64(acc_a.vi, 32));
+  acc_b.vi = _mm_add_epi64(acc_b.vi, _mm_srli_epi64(acc_b.vi, 32));
+  acc_c.vi = _mm_add_epi64(acc_c.vi, _mm_srli_epi64(acc_c.vi, 32));
+  *ctap += (uint32_t)(acc_a.u8[0] + acc_a.u8[1]);
+  *ctbp += (uint32_t)(acc_b.u8[0] + acc_b.u8[1]);
+  *ctcp += (uint32_t)(acc_c.u8[0] + acc_c.u8[1]);
 }
+
+void freq_hwe_haploid_count_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ct_nmp, uint32_t* ct_hmajp) {
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
+  __m128i loader;
+  __m128i loader2;
+  __m128i loader3;
+  __m128i to_ct_nm1;
+  __m128i to_ct_hmaj1;
+  __m128i to_ct_nm2;
+  __m128i to_ct_hmaj2;
+  __uni16 acc_nm;
+  __uni16 acc_hmaj;
+
+  acc_nm.vi = _mm_setzero_si128();
+  acc_hmaj.vi = _mm_setzero_si128();
+  do {
+    loader = *vptr++;
+    loader3 = _mm_srli_epi64(loader, 1);
+    loader2 = _mm_xor_si128(loader, loader3); // inverted
+    loader = _mm_and_si128(loader, loader3);
+    loader3 = *maskvp++;
+    to_ct_nm1 = _mm_andnot_si128(loader2, loader3);
+    to_ct_hmaj1 = _mm_and_si128(loader, loader3);
+
+    loader = *vptr++;
+    loader3 = _mm_srli_epi64(loader, 1);
+    loader2 = _mm_xor_si128(loader, loader3); // inverted
+    loader = _mm_and_si128(loader, loader3);
+    loader3 = *maskvp++;
+    to_ct_nm1 = _mm_add_epi64(to_ct_nm1, _mm_andnot_si128(loader2, loader3));
+    to_ct_hmaj1 = _mm_add_epi64(to_ct_hmaj1, _mm_and_si128(loader, loader3));
+
+    loader = *vptr++;
+    loader3 = _mm_srli_epi64(loader, 1);
+    loader2 = _mm_xor_si128(loader, loader3); // inverted
+    loader = _mm_and_si128(loader, loader3);
+    loader3 = *maskvp++;
+    to_ct_nm1 = _mm_add_epi64(to_ct_nm1, _mm_andnot_si128(loader2, loader3));
+    to_ct_hmaj1 = _mm_add_epi64(to_ct_hmaj1, _mm_and_si128(loader, loader3));
+
+    to_ct_nm1 = _mm_add_epi64(_mm_and_si128(to_ct_nm1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_nm1, 2), m2));
+    to_ct_hmaj1 = _mm_add_epi64(_mm_and_si128(to_ct_hmaj1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_hmaj1, 2), m2));
+
+    loader = *vptr++;
+    loader3 = _mm_srli_epi64(loader, 1);
+    loader2 = _mm_xor_si128(loader, loader3); // inverted
+    loader = _mm_and_si128(loader, loader3);
+    loader3 = *maskvp++;
+    to_ct_nm2 = _mm_andnot_si128(loader2, loader3);
+    to_ct_hmaj2 = _mm_and_si128(loader, loader3);
+
+    loader = *vptr++;
+    loader3 = _mm_srli_epi64(loader, 1);
+    loader2 = _mm_xor_si128(loader, loader3); // inverted
+    loader = _mm_and_si128(loader, loader3);
+    loader3 = *maskvp++;
+    to_ct_nm2 = _mm_add_epi64(to_ct_nm2, _mm_andnot_si128(loader2, loader3));
+    to_ct_hmaj2 = _mm_add_epi64(to_ct_hmaj2, _mm_and_si128(loader, loader3));
+
+    loader = *vptr++;
+    loader3 = _mm_srli_epi64(loader, 1);
+    loader2 = _mm_xor_si128(loader, loader3); // inverted
+    loader = _mm_and_si128(loader, loader3);
+    loader3 = *maskvp++;
+    to_ct_nm2 = _mm_add_epi64(to_ct_nm2, _mm_andnot_si128(loader2, loader3));
+    to_ct_hmaj2 = _mm_add_epi64(to_ct_hmaj2, _mm_and_si128(loader, loader3));
+
+    to_ct_nm1 = _mm_add_epi64(to_ct_nm1, _mm_add_epi64(_mm_and_si128(to_ct_nm2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_nm2, 2), m2)));
+    to_ct_hmaj1 = _mm_add_epi64(to_ct_hmaj1, _mm_add_epi64(_mm_and_si128(to_ct_hmaj2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_hmaj2, 2), m2)));
+
+    acc_nm.vi = _mm_add_epi64(acc_nm.vi, _mm_add_epi64(_mm_and_si128(to_ct_nm1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_nm1, 4), m4)));
+    acc_hmaj.vi = _mm_add_epi64(acc_hmaj.vi, _mm_add_epi64(_mm_and_si128(to_ct_hmaj1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_hmaj1, 4), m4)));
+  } while (vptr < vend);
+  acc_nm.vi = _mm_add_epi64(_mm_and_si128(acc_nm.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_nm.vi, 8), m8));
+  acc_hmaj.vi = _mm_add_epi64(_mm_and_si128(acc_hmaj.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_hmaj.vi, 8), m8));
+  acc_nm.vi = _mm_and_si128(_mm_add_epi64(acc_nm.vi, _mm_srli_epi64(acc_nm.vi, 16)), m16);
+  acc_hmaj.vi = _mm_and_si128(_mm_add_epi64(acc_hmaj.vi, _mm_srli_epi64(acc_hmaj.vi, 16)), m16);
+  acc_nm.vi = _mm_add_epi64(acc_nm.vi, _mm_srli_epi64(acc_nm.vi, 32));
+  acc_hmaj.vi = _mm_add_epi64(acc_hmaj.vi, _mm_srli_epi64(acc_hmaj.vi, 32));
+  *ct_nmp += (uint32_t)(acc_nm.u8[0] + acc_nm.u8[1]);
+  *ct_hmajp += (uint32_t)(acc_hmaj.u8[0] + acc_hmaj.u8[1]);
+}
+#else
+void freq_hwe_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp) {
+  uintptr_t loader = *lptr++;
+  uintptr_t loader2 = *maskp++;
+  uint32_t to_ct_a1 = loader & loader2;
+  uint32_t to_ct_b1 = (loader >> 1) & loader2;
+  uint32_t to_ct_c1 = loader & to_ct_b1;
+  uintptr_t loader3;
+  uint32_t to_ct_a2;
+  uint32_t to_ct_b2;
+  uint32_t to_ct_c2;
+  uintptr_t partial_a;
+  uintptr_t partial_b;
+  uintptr_t partial_c;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a1 += loader & loader2;
+  to_ct_b1 += loader3;
+  to_ct_c1 += loader & loader3;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a1 += loader & loader2;
+  to_ct_b1 += loader3;
+  to_ct_c1 += loader & loader3;
+
+  loader = *lptr++;
+  loader2 = *maskp++;
+  to_ct_a2 = loader & loader2;
+  to_ct_b2 = (loader >> 1) & loader2;
+  to_ct_c2 = loader & to_ct_b2;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a2 += loader & loader2;
+  to_ct_b2 += loader3;
+  to_ct_c2 += loader & loader3;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a2 += loader & loader2;
+  to_ct_b2 += loader3;
+  to_ct_c2 += loader & loader3;
+
+  to_ct_a1 = (to_ct_a1 & 0x33333333) + ((to_ct_a1 >> 2) & 0x33333333);
+  to_ct_a1 += (to_ct_a2 & 0x33333333) + ((to_ct_a2 >> 2) & 0x33333333);
+  partial_a = (to_ct_a1 & 0x0f0f0f0f) + ((to_ct_a1 >> 4) & 0x0f0f0f0f);
+  to_ct_b1 = (to_ct_b1 & 0x33333333) + ((to_ct_b1 >> 2) & 0x33333333);
+  to_ct_b1 += (to_ct_b2 & 0x33333333) + ((to_ct_b2 >> 2) & 0x33333333);
+  partial_b = (to_ct_b1 & 0x0f0f0f0f) + ((to_ct_b1 >> 4) & 0x0f0f0f0f);
+  to_ct_c1 = (to_ct_c1 & 0x33333333) + ((to_ct_c1 >> 2) & 0x33333333);
+  to_ct_c1 += (to_ct_c2 & 0x33333333) + ((to_ct_c2 >> 2) & 0x33333333);
+  partial_c = (to_ct_c1 & 0x0f0f0f0f) + ((to_ct_c1 >> 4) & 0x0f0f0f0f);
+
+  loader = *lptr++;
+  loader2 = *maskp++;
+  to_ct_a1 = loader & loader2;
+  to_ct_b1 = (loader >> 1) & loader2;
+  to_ct_c1 = loader & to_ct_b1;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a1 += loader & loader2;
+  to_ct_b1 += loader3;
+  to_ct_c1 += loader & loader3;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a1 += loader & loader2;
+  to_ct_b1 += loader3;
+  to_ct_c1 += loader & loader3;
+
+  loader = *lptr++;
+  loader2 = *maskp++;
+  to_ct_a2 = loader & loader2;
+  to_ct_b2 = (loader >> 1) & loader2;
+  to_ct_c2 = loader & to_ct_b2;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a2 += loader & loader2;
+  to_ct_b2 += loader3;
+  to_ct_c2 += loader & loader3;
+  loader = *lptr;
+  loader2 = *maskp;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a2 += loader & loader2;
+  to_ct_b2 += loader3;
+  to_ct_c2 += loader & loader3;
+
+  to_ct_a1 = (to_ct_a1 & 0x33333333) + ((to_ct_a1 >> 2) & 0x33333333);
+  to_ct_a1 += (to_ct_a2 & 0x33333333) + ((to_ct_a2 >> 2) & 0x33333333);
+  partial_a += (to_ct_a1 & 0x0f0f0f0f) + ((to_ct_a1 >> 4) & 0x0f0f0f0f);
+  to_ct_b1 = (to_ct_b1 & 0x33333333) + ((to_ct_b1 >> 2) & 0x33333333);
+  to_ct_b1 += (to_ct_b2 & 0x33333333) + ((to_ct_b2 >> 2) & 0x33333333);
+  partial_b += (to_ct_b1 & 0x0f0f0f0f) + ((to_ct_b1 >> 4) & 0x0f0f0f0f);
+  to_ct_c1 = (to_ct_c1 & 0x33333333) + ((to_ct_c1 >> 2) & 0x33333333);
+  to_ct_c1 += (to_ct_c2 & 0x33333333) + ((to_ct_c2 >> 2) & 0x33333333);
+  partial_c += (to_ct_c1 & 0x0f0f0f0f) + ((to_ct_c1 >> 4) & 0x0f0f0f0f);
+
+  *ctap += (partial_a * 0x01010101) >> 24;
+  *ctbp += (partial_b * 0x01010101) >> 24;
+  *ctcp += (partial_c * 0x01010101) >> 24;
+}
+
+void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_nmp, uint32_t* ct_hmajp) {
+  uintptr_t loader = *lptr++;
+  uintptr_t loader3 = loader >> 1;
+  uintptr_t loader2 = loader ^ (~loader3);
+  uint32_t to_ct_nm1;
+  uint32_t to_ct_hmaj1;
+  uint32_t to_ct_nm2;
+  uint32_t to_ct_hmaj2;
+  uintptr_t partial_nm;
+  uintptr_t partial_hmaj;
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm1 = loader2 & loader3;
+  to_ct_hmaj1 = loader & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm1 += loader2 & loader3;
+  to_ct_hmaj1 += loader & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm1 += loader2 & loader3;
+  to_ct_hmaj1 += loader & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm2 = loader2 & loader3;
+  to_ct_hmaj2 = loader & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm2 += loader2 & loader3;
+  to_ct_hmaj2 += loader & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm2 += loader2 & loader3;
+  to_ct_hmaj2 += loader & loader3;
+
+  to_ct_nm1 = (to_ct_nm1 & 0x33333333) + ((to_ct_nm1 >> 2) & 0x33333333);
+  to_ct_nm1 += (to_ct_nm2 & 0x33333333) + ((to_ct_nm2 >> 2) & 0x33333333);
+  partial_nm = (to_ct_nm1 & 0x0f0f0f0f) + ((to_ct_nm1 >> 4) & 0x0f0f0f0f);
+  to_ct_hmaj1 = (to_ct_hmaj1 & 0x33333333) + ((to_ct_hmaj1 >> 2) & 0x33333333);
+  to_ct_hmaj1 += (to_ct_hmaj2 & 0x33333333) + ((to_ct_hmaj2 >> 2) & 0x33333333);
+  partial_hmaj = (to_ct_hmaj1 & 0x0f0f0f0f) + ((to_ct_hmaj1 >> 4) & 0x0f0f0f0f);
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm1 = loader2 & loader3;
+  to_ct_hmaj1 = loader & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm1 += loader2 & loader3;
+  to_ct_hmaj1 += loader & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm1 += loader2 & loader3;
+  to_ct_hmaj1 += loader & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm2 = loader2 & loader3;
+  to_ct_hmaj2 = loader & loader3;
+
+  loader = *lptr++;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp++;
+  to_ct_nm2 += loader2 & loader3;
+  to_ct_hmaj2 += loader & loader3;
+
+  loader = *lptr;
+  loader3 = loader >> 1;
+  loader2 = loader & (~loader3);
+  loader &= loader3;
+  loader3 = *maskp;
+  to_ct_nm2 += loader2 & loader3;
+  to_ct_hmaj2 += loader & loader3;
+
+  to_ct_nm1 = (to_ct_nm1 & 0x33333333) + ((to_ct_nm1 >> 2) & 0x33333333);
+  to_ct_nm1 += (to_ct_nm2 & 0x33333333) + ((to_ct_nm2 >> 2) & 0x33333333);
+  partial_nm += (to_ct_nm1 & 0x0f0f0f0f) + ((to_ct_nm1 >> 4) & 0x0f0f0f0f);
+  to_ct_hmaj1 = (to_ct_hmaj1 & 0x33333333) + ((to_ct_hmaj1 >> 2) & 0x33333333);
+  to_ct_hmaj1 += (to_ct_hmaj2 & 0x33333333) + ((to_ct_hmaj2 >> 2) & 0x33333333);
+  partial_hmaj += (to_ct_hmaj1 & 0x0f0f0f0f) + ((to_ct_hmaj1 >> 4) & 0x0f0f0f0f);
+
+  *ct_nmp += (partial_nm * 0x01010101) >> 24;
+  *ct_hmajp += (partial_hmaj * 0x01010101) >> 24;
+}
+#endif
 */
 
-int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p, double* saved22p, double* saved23p, double *totalp, uint32_t right_side) {
-  double total = 0;
-  double cur_prob = *base_probp;
-  double tmp12 = *saved12p;
-  double tmp13 = *saved13p;
-  double tmp22 = *saved22p;
-  double tmp23 = *saved23p;
-  double tmps12;
-  double tmps13;
-  double tmps22;
-  double tmps23;
-  double prev_prob;
-  // identify beginning of tail
-  if (right_side) {
-    if (cur_prob > EXACT_TEST_BIAS) {
-      prev_prob = tmp13 * tmp22;
-      while (prev_prob > 0.5) {
-	tmp12 += 1;
-	tmp23 += 1;
-	cur_prob *= prev_prob / (tmp12 * tmp23);
-	tmp13 -= 1;
-	tmp22 -= 1;
-	if (cur_prob <= EXACT_TEST_BIAS) {
-	  break;
-	}
-	prev_prob = tmp13 * tmp22;
+void single_marker_cc_freqs(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ctrl_include2, uintptr_t* case_include2, uint32_t* ctrl_setp, uint32_t* ctrl_missingp, uint32_t* case_setp, uint32_t* case_missingp) {
+  // Counts the number of A2 alleles and missing calls for both cases and
+  // controls, for an autosomal marker.  (The caller is expected to calculate
+  // the A1 allele count.)
+  // See single_marker_freqs_and_hwe() for discussion.
+  //   A := genotype & 0x5555...
+  //   B := (genotype >> 1) & 0x5555...
+  //   C := A & (~B)
+  // missing: popcount(C)
+  // A2: [popcount(A) + popcount(B)] - popcount(C)
+  uint32_t tot_ctrl_ab = 0;
+  uint32_t tot_ctrl_c = 0;
+  uint32_t tot_case_ab = 0;
+  uint32_t tot_case_c = 0;
+  uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
+  uintptr_t loader;
+  uintptr_t loader2;
+  uintptr_t loader3;
+  /*
+#ifdef __LP64__
+  uintptr_t cur_decr;
+  uintptr_t* lptr_12x_end;
+  unfiltered_indiv_ctl2 -= unfiltered_indiv_ctl2 % 12;
+  while (unfiltered_indiv_ctl2 >= 120) {
+    cur_decr = 120;
+  single_marker_freqs_and_hwe_loop:
+    lptr_12x_end = &(lptr[cur_decr]);
+    freq_hwe_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)indiv_include2, &tot_a, &tot_b, &tot_c);
+    freq_hwe_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_include2, &tot_a_f, &tot_b_f, &tot_c_f);
+    if (hwe_needed) {
+      freq_hwe_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_ctrl_include2, &tot_a_hwe, &tot_b_hwe, &tot_c_hwe);
+      founder_ctrl_include2 = &(founder_ctrl_include2[cur_decr]);
+      if (hardy_needed) {
+	freq_hwe_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_case_include2, &tot_a_chwe, &tot_b_chwe, &tot_c_chwe);
+	founder_case_include2 = &(founder_case_include2[cur_decr]);
       }
-      *base_probp = cur_prob;
-      tmps12 = tmp12;
-      tmps13 = tmp13;
-      tmps22 = tmp22;
-      tmps23 = tmp23;
-    } else {
-      tmps12 = tmp12;
-      tmps13 = tmp13;
-      tmps22 = tmp22;
-      tmps23 = tmp23;
-      while (1) {
-	prev_prob = cur_prob;
-	tmp13 += 1;
-	tmp22 += 1;
-	cur_prob *= (tmp12 * tmp23) / (tmp13 * tmp22);
-	if (cur_prob < prev_prob) {
-	  return 1;
-	}
-	tmp12 -= 1;
-	tmp23 -= 1;
-	// throw in extra (1 - SMALL_EPSILON) multiplier to prevent rounding
-	// errors from causing this to keep going when the left-side test
-	// stopped
-	if (cur_prob > (1 - SMALL_EPSILON) * EXACT_TEST_BIAS) {
-	  break;
-	}
-	total += cur_prob;
-      }
-      prev_prob = cur_prob;
-      cur_prob = *base_probp;
-      *base_probp = prev_prob;
     }
-  } else {
-    if (cur_prob > EXACT_TEST_BIAS) {
-      prev_prob = tmp12 * tmp23;
-      while (prev_prob > 0.5) {
-	tmp13 += 1;
-	tmp22 += 1;
-	cur_prob *= prev_prob / (tmp13 * tmp22);
-	tmp12 -= 1;
-	tmp23 -= 1;
-	if (cur_prob <= EXACT_TEST_BIAS) {
-	  break;
-	}
-	prev_prob = tmp12 * tmp23;
-      }
-      *base_probp = cur_prob;
-      tmps12 = tmp12;
-      tmps13 = tmp13;
-      tmps22 = tmp22;
-      tmps23 = tmp23;
-    } else {
-      tmps12 = tmp12;
-      tmps13 = tmp13;
-      tmps22 = tmp22;
-      tmps23 = tmp23;
-      while (1) {
-	prev_prob = cur_prob;
-	tmp12 += 1;
-	tmp23 += 1;
-	cur_prob *= (tmp13 * tmp22) / (tmp12 * tmp23);
-	if (cur_prob < prev_prob) {
-	  return 1;
-	}
-	tmp13 -= 1;
-	tmp22 -= 1;
-	if (cur_prob > EXACT_TEST_BIAS) {
-	  break;
-	}
-	total += cur_prob;
-      }
-      prev_prob = cur_prob;
-      cur_prob = *base_probp;
-      *base_probp = prev_prob;
-    }
+    lptr = lptr_12x_end;
+    indiv_include2 = &(indiv_include2[cur_decr]);
+    founder_include2 = &(founder_include2[cur_decr]);
+    unfiltered_indiv_ctl2 -= cur_decr;
   }
-  *saved12p = tmp12;
-  *saved13p = tmp13;
-  *saved22p = tmp22;
-  *saved23p = tmp23;
-  if (cur_prob > EXACT_TEST_BIAS) {
-    *totalp = 0;
-    return 0;
+  if (unfiltered_indiv_ctl2) {
+    cur_decr = unfiltered_indiv_ctl2;
+    goto single_marker_freqs_and_hwe_loop;
   }
-  // sum tail to floating point precision limit
-  if (right_side) {
-    prev_prob = total;
-    total += cur_prob;
-    while (total > prev_prob) {
-      tmps12 += 1;
-      tmps23 += 1;
-      cur_prob *= (tmps13 * tmps22) / (tmps12 * tmps23);
-      tmps13 -= 1;
-      tmps22 -= 1;
-      prev_prob = total;
-      total += cur_prob;
+#else
+  uintptr_t* lptr_twelve_end = &(lptr[unfiltered_indiv_ctl2 - unfiltered_indiv_ctl2 % 12]);
+  while (lptr < lptr_twelve_end) {
+    freq_hwe_count_12(lptr, indiv_include2, &tot_a, &tot_b, &tot_c);
+    freq_hwe_count_12(lptr, founder_include2, &tot_a_f, &tot_b_f, &tot_c_f);
+    if (hwe_needed) {
+      freq_hwe_count_12(lptr, founder_ctrl_include2, &tot_a_hwe, &tot_b_hwe, &tot_c_hwe);
+      founder_ctrl_include2 = &(founder_ctrl_include2[12]);
+      if (hardy_needed) {
+	freq_hwe_count_12(lptr, founder_case_include2, &tot_a_chwe, &tot_b_chwe, &tot_c_chwe);
+	founder_case_include2 = &(founder_case_include2[12]);
+      }
     }
-  } else {
-    prev_prob = total;
-    total += cur_prob;
-    while (total > prev_prob) {
-      tmps13 += 1;
-      tmps22 += 1;
-      cur_prob *= (tmps12 * tmps23) / (tmps13 * tmps22);
-      tmps12 -= 1;
-      tmps23 -= 1;
-      prev_prob = total;
-      total += cur_prob;
-    }
+    lptr = &(lptr[12]);
+    indiv_include2 = &(indiv_include2[12]);
+    founder_include2 = &(founder_include2[12]);
   }
-  *totalp = total;
-  return 0;
+#endif
+  */
+  while (lptr < lptr_end) {
+    loader = *lptr++;
+    loader2 = *ctrl_include2++;
+    loader3 = (loader >> 1) & loader2;
+    loader2 &= loader;
+    tot_ctrl_ab += popcount2_long(loader2 + loader3);
+    tot_ctrl_c += popcount2_long(loader2 & (~loader3));
+    loader2 = *case_include2++;
+    loader3 = (loader >> 1) & loader2;
+    loader2 &= loader;
+    tot_case_ab += popcount2_long(loader2 + loader3);
+    tot_case_c += popcount2_long(loader2 & (~loader3));
+  }
+  *ctrl_missingp = tot_ctrl_c;
+  *ctrl_setp = tot_ctrl_ab - tot_ctrl_c;
+  *case_missingp = tot_case_c;
+  *case_setp = tot_case_ab - tot_case_c;
 }
 
-double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t m22, uint32_t m23) {
-  // 2x3 Fisher-Freeman-Halton exact test p-value calculation.
-  // The number of tables involved here is still small enough that the network
-  // algorithm (and the improved variants thereof that I've seen) are
-  // suboptimal; a 2-dimensional version of the SNPHWE2 strategy has higher
-  // performance.
-  // 2x4, 2x5, and 3x3 should also be practical with this method, but beyond
-  // that I doubt it's worth the trouble.
-  double cur_prob = (1 - SMALLISH_EPSILON) * EXACT_TEST_BIAS;
-  double tprob = cur_prob;
-  double cprob = 0;
-  uint32_t dir = 0; // 0 = forwards, 1 = backwards
-  double dyy = 0;
-  double base_probl;
-  double base_probr;
-  double orig_base_probl;
-  double orig_base_probr;
-  double orig_row_prob;
-  double row_prob;
+void haploid_single_marker_cc_freqs(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ctrl_include2, uintptr_t* case_include2, uint32_t* ctrl_setp, uint32_t* ctrl_missingp, uint32_t* case_setp, uint32_t* case_missingp) {
+  // Counts the number of A1 and A2 alleles for both cases and controls, for a
+  // haploid marker.
+  //   A := genotype & 0x5555...
+  //   B := ((genotype >> 1) & 0x5555...) ^ A
+  // missing: popcount(B)
+  // A2: popcount(A) - popcount(B)
+  uint32_t tot_ctrl_a = 0;
+  uint32_t tot_ctrl_b = 0;
+  uint32_t tot_case_a = 0;
+  uint32_t tot_case_b = 0;
+  uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
+  uintptr_t loader;
+  uintptr_t loader2;
+  uintptr_t loader3;
+  /*
+#ifdef __LP64__
+  uintptr_t cur_decr;
+  uintptr_t* lptr_12x_end;
+  unfiltered_indiv_ctl2 -= unfiltered_indiv_ctl2 % 12;
+  while (unfiltered_indiv_ctl2 >= 120) {
+    cur_decr = 120;
+  single_marker_freqs_and_hwe_loop:
+    lptr_12x_end = &(lptr[cur_decr]);
+  // Given a buffer with PLINK binary genotypes for a single marker, let
+  //   A := genotype & 0x5555...
+  //   B := (genotype >> 1) & 0x5555...
+  //   C := A & B
+  // Then,
+  //   popcount(C) = homozyg major ct
+  //   popcount(B) = het ct + homozyg major ct
+  //   popcount(A) = missing_ct + homozyg major ct
+  //               = indiv_ct - homozyg minor ct - het ct
+
+    freq_hwe_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)indiv_include2, &tot_a, &tot_b, &tot_hmaj);
+    freq_hwe_haploid_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_include2, &tot_nm_f, &tot_hmaj_f);
+    lptr = lptr_12x_end;
+    indiv_include2 = &(indiv_include2[cur_decr]);
+    founder_include2 = &(founder_include2[cur_decr]);
+    unfiltered_indiv_ctl2 -= cur_decr;
+  }
+  if (unfiltered_indiv_ctl2) {
+    cur_decr = unfiltered_indiv_ctl2;
+    goto single_marker_freqs_and_hwe_loop;
+  }
+#else
+  uintptr_t* lptr_twelve_end = &(lptr[unfiltered_indiv_ctl2 - unfiltered_indiv_ctl2 % 12]);
+  while (lptr < lptr_twelve_end) {
+    freq_hwe_count_12(lptr, indiv_include2, &tot_a, &tot_b, &tot_hmaj);
+    freq_hwe_haploid_count_12(lptr, founder_include2, &tot_nm_f, &tot_hmaj_f);
+    lptr = &(lptr[12]);
+    indiv_include2 = &(indiv_include2[12]);
+    founder_include2 = &(founder_include2[12]);
+  }
+#endif
+  */
+  while (lptr < lptr_end) {
+    loader = *lptr++;
+    loader2 = *ctrl_include2++;
+    loader3 = (loader >> 1) ^ loader;
+    tot_ctrl_a += popcount2_long(loader & loader2);
+    tot_ctrl_b += popcount2_long(loader3 & loader2);
+    loader2 = *case_include2++;
+    tot_case_a += popcount2_long(loader & loader2);
+    tot_case_b += popcount2_long(loader3 & loader2);
+  }
+  *ctrl_missingp = tot_ctrl_b;
+  *ctrl_setp = tot_ctrl_a - tot_ctrl_b;
+  *case_missingp = tot_case_b;
+  *case_setp = tot_case_a - tot_case_b;
+}
+
+int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t* sex_nm, uintptr_t* sex_male) {
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
+  int32_t retval = 0;
+  FILE* outfile = NULL;
+  uint32_t model_assoc = model_modifier & MODEL_ASSOC;
+  uint32_t model_adapt = model_modifier & MODEL_PERM;
+  uint32_t model_maxt = model_modifier & MODEL_MPERM;
+  uint32_t model_fisher = model_modifier & MODEL_FISHER;
+  uint32_t assoc_counts = model_modifier & MODEL_ASSOC_COUNTS;
+  uint32_t assoc_p2 = model_modifier & MODEL_ASSOC_P2;
+  uint32_t display_ci = (ci_size > 0);
+  // uint32_t perms_done = 0;
+  uint32_t perms_left = 0;
+  uint32_t perm_pass_ct = 1;
+  int32_t x_code = -1;
+  int32_t y_code = -1;
+  uint32_t case_ct = 0;
+  uint32_t male_ct = 0;
+  uint32_t ctrl_male_ct = 0;
+  uint32_t case_male_ct = 0;
+  uint32_t is_y = 0;
+  double dxx = 0.0;
+  uint32_t mu_table[MODEL_BLOCKSIZE];
+  char wformat[64];
+  uintptr_t marker_ctl;
+  uint32_t ctrl_ct;
+  uint32_t nonmale_ct;
+  uint32_t ctrl_nonmale_ct;
+  uint32_t case_nonmale_ct;
+  uint32_t perm_pass_idx;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_end;
+  uint32_t block_start;
+  uint32_t block_size;
+  uint32_t block_end;
+  uint32_t marker_bidx;
+  // uint32_t ld_check_idx;
+  uintptr_t marker_uidx;
+  uintptr_t marker_idx;
+  uintptr_t indiv_uidx;
+  uintptr_t indiv_idx;
+  double* orig_stats;
+  double* orig_odds;
+  double* osptr;
+  double* ooptr;
+  unsigned char* loadbuf_raw;
+  uintptr_t* loadbuf;
+  uintptr_t* loadbuf_ptr;
+  // uintptr_t* perm_exclude;
+  uintptr_t* indiv_ctrl_include2;
+  uintptr_t* indiv_case_include2;
+  uintptr_t* indiv_nonmale_include2;
+  uintptr_t* indiv_male_include2;
+  uintptr_t* indiv_nonmale_ctrl_include2;
+  uintptr_t* indiv_nonmale_case_include2;
+  uintptr_t* indiv_male_ctrl_include2;
+  uintptr_t* indiv_male_case_include2;
+  uintptr_t* cur_ctrl_include2;
+  uintptr_t* cur_case_include2;
+  uint32_t load_indiv_ct;
+  uint32_t load_case_ct;
+  uint32_t is_x;
+  uint32_t is_haploid;
+  uint32_t is_reverse;
+  uint64_t ullii;
+  uintptr_t ulii;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
-  double cur11;
-  double cur21;
-  double savedl12;
-  double savedl13;
-  double savedl22;
-  double savedl23;
-  double savedr12;
-  double savedr13;
-  double savedr22;
-  double savedr23;
-  double orig_savedl12;
-  double orig_savedl13;
-  double orig_savedl22;
-  double orig_savedl23;
-  double orig_savedr12;
-  double orig_savedr13;
-  double orig_savedr22;
-  double orig_savedr23;
-  double tmp12;
-  double tmp13;
-  double tmp22;
-  double tmp23;
-  double dxx;
-  double preaddp;
-  // Ensure m11 + m21 <= m12 + m22 <= m13 + m23.
-  uii = m11 + m21;
-  ujj = m12 + m22;
-  if (uii > ujj) {
-    ukk = m11;
-    m11 = m12;
-    m12 = ukk;
-    ukk = m21;
-    m21 = m22;
-    m22 = ukk;
-    ukk = uii;
-    uii = ujj;
-    ujj = ukk;
+  uint32_t umm;
+  uint32_t unn;
+  double pval;
+  double dyy;
+  double dzz;
+  double dww;
+  double dvv;
+  double da1;
+  double da2;
+  double du1;
+  double du2;
+  char* a1ptr;
+  char* a2ptr;
+
+  if (assoc_p2) {
+    logprint("Error: --assoc p2 not yet supported.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto model_assoc_ret_1;
   }
-  ukk = m13 + m23;
-  if (ujj > ukk) {
-    ujj = ukk;
-    ukk = m12;
-    m12 = m13;
-    m13 = ukk;
-    ukk = m22;
-    m22 = m23;
-    m23 = ukk;
+  if (!pheno_c) {
+    logprint("Error: --assoc does not yet support quantitative phenotypes.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto model_assoc_ret_1;
   }
-  if (uii > ujj) {
-    ukk = m11;
-    m11 = m12;
-    m12 = ukk;
-    ukk = m21;
-    m21 = m22;
-    m22 = ukk;
+  if (model_maxt) {
+    logprint("Error: max(T) permutation is not yet implemented.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto model_assoc_ret_1;
+  } else if (model_adapt) {
+    logprint("Error: adaptive permutation is not yet implemented.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto model_assoc_ret_1;
+    perms_left = aperm_max;
   }
-  // Ensure majority of probability mass is in front of m11.
-  if ((((uint64_t)m11) * (m22 + m23)) > (((uint64_t)m21) * (m12 + m13))) {
-    ukk = m11;
-    m11 = m21;
-    m21 = ukk;
-    ukk = m12;
-    m12 = m22;
-    m22 = ukk;
-    ukk = m13;
-    m13 = m23;
-    m23 = ukk;
+  if (wkspace_alloc_uc_checked(&loadbuf_raw, unfiltered_indiv_ct4)) {
+    goto model_assoc_ret_NOMEM;
   }
-  if ((((uint64_t)m12) * m23) > (((uint64_t)m13) * m22)) {
-    base_probr = cur_prob;
-    savedr12 = m12;
-    savedr13 = m13;
-    savedr22 = m22;
-    savedr23 = m23;
-    tmp12 = savedr12;
-    tmp13 = savedr13;
-    tmp22 = savedr22;
-    tmp23 = savedr23;
-    // m12 and m23 must be nonzero
-    dxx = tmp12 * tmp23;
-    do {
-      tmp13 += 1;
-      tmp22 += 1;
-      cur_prob *= dxx / (tmp13 * tmp22);
-      tmp12 -= 1;
-      tmp23 -= 1;
-      if (cur_prob <= EXACT_TEST_BIAS) {
-	tprob += cur_prob;
-	break;
+  if (model_assoc) {
+    if (model_fisher) {
+      memcpy(outname_end, ".assoc.fisher", 14);
+    } else {
+      memcpy(outname_end, ".assoc", 7);
+    }
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto model_assoc_ret_OPEN_FAIL;
+    }
+    sprintf(tbuf, " CHR %%%us         BP   A1 ", plink_maxsnp);
+    if (fprintf(outfile, tbuf, "SNP") < 0) {
+      goto model_assoc_ret_WRITE_FAIL;
+    }
+    if (assoc_counts) {
+      if (fputs("     C_A      C_U   A2 ", outfile) == EOF) {
+	goto model_assoc_ret_WRITE_FAIL;
       }
-      cprob += cur_prob;
-      if (cprob == INFINITY) {
-	return 0;
+    } else {
+      if (fputs("     F_A      F_U   A2 ", outfile) == EOF) {
+	goto model_assoc_ret_WRITE_FAIL;
       }
-      dxx = tmp12 * tmp23;
-      // must enforce tmp12 >= 0 and tmp23 >= 0 since we're saving these
-    } while (dxx > 0.5);
-    savedl12 = tmp12;
-    savedl13 = tmp13;
-    savedl22 = tmp22;
-    savedl23 = tmp23;
-    base_probl = cur_prob;
-    do {
-      tmp13 += 1;
-      tmp22 += 1;
-      cur_prob *= (tmp12 * tmp23) / (tmp13 * tmp22);
-      tmp12 -= 1;
-      tmp23 -= 1;
-      preaddp = tprob;
-      tprob += cur_prob;
-    } while (tprob > preaddp);
-    tmp12 = savedr12;
-    tmp13 = savedr13;
-    tmp22 = savedr22;
-    tmp23 = savedr23;
-    cur_prob = base_probr;
-    do {
-      tmp12 += 1;
-      tmp23 += 1;
-      cur_prob *= (tmp13 * tmp22) / (tmp12 * tmp23);
-      tmp13 -= 1;
-      tmp22 -= 1;
-      preaddp = tprob;
-      tprob += cur_prob;
-    } while (tprob > preaddp);
+    }
+    if (!model_fisher) {
+      if (fputs("       CHISQ ", outfile) == EOF) {
+	goto model_assoc_ret_WRITE_FAIL;
+      }
+    }
+    if (fputs("           P           OR ", outfile) == EOF) {
+      goto model_assoc_ret_WRITE_FAIL;
+    }
+    if (display_ci) {
+      uii = (uint32_t)(ci_size * 100);
+      if (uii >= 10) {
+	if (fprintf(outfile, "          SE          L%u          U%u ", uii, uii) < 0) {
+	  goto model_assoc_ret_WRITE_FAIL;
+	}
+      } else {
+	if (fprintf(outfile, "          SE           L%u           U%u ", uii, uii) < 0) {
+	  goto model_assoc_ret_WRITE_FAIL;
+	}
+      }
+    }
+    if (putc('\n', outfile) == EOF) {
+      goto model_assoc_ret_WRITE_FAIL;
+    }
+    // initialize wformat
+    if (max_marker_allele_len == 1) {
+      sprintf(wformat, "     %%%us %%10u    %%c ", plink_maxsnp);
+    } else {
+      sprintf(wformat, "     %%%us %%10u %%4s ", plink_maxsnp);
+    }
   } else {
-    base_probl = cur_prob;
-    savedl12 = m12;
-    savedl13 = m13;
-    savedl22 = m22;
-    savedl23 = m23;
-    if (!((((uint64_t)m12) * m23) + (((uint64_t)m13) * m22))) {
-      base_probr = cur_prob;
-      savedr12 = savedl12;
-      savedr13 = savedl13;
-      savedr22 = savedl22;
-      savedr23 = savedl23;
-    } else {
-      tmp12 = savedl12;
-      tmp13 = savedl13;
-      tmp22 = savedl22;
-      tmp23 = savedl23;
-      dxx = tmp13 * tmp22;
-      do {
-	tmp12 += 1;
-	tmp23 += 1;
-	cur_prob *= dxx / (tmp12 * tmp23);
-	tmp13 -= 1;
-	tmp22 -= 1;
-	if (cur_prob <= EXACT_TEST_BIAS) {
-	  tprob += cur_prob;
-	  break;
+    uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0);
+    if (uii) {
+      sprintf(logbuf, "Excluding %u haploid marker%s from --model analysis.\n", uii, (uii == 1)? "" : "s");
+      logprintb();
+    }
+    marker_ct -= uii;
+    if (!marker_ct) {
+      logprint("Error: No markers remaining for --model analysis.\n");
+      retval = RET_INVALID_CMDLINE;
+      goto model_assoc_ret_1;
+    }
+    // initialize wformat
+  }
+  if (wkspace_alloc_d_checked(&orig_stats, marker_ct * sizeof(double)) ||
+      wkspace_alloc_d_checked(&orig_odds, marker_ct * sizeof(double))) {
+    goto model_assoc_ret_NOMEM;
+  }
+  if (model_adapt || model_maxt) {
+    // indiv_ctrl_include2, etc. point to first permutation slot instead of
+    // getting their own memory
+  } else {
+    if (pheno_c) {
+      if (wkspace_alloc_ul_checked(&indiv_ctrl_include2, pheno_nm_ctl2 * sizeof(intptr_t)) ||
+	  wkspace_alloc_ul_checked(&indiv_case_include2, pheno_nm_ctl2 * sizeof(intptr_t))) {
+	goto model_assoc_ret_NOMEM;
+      }
+      fill_ulong_zero(indiv_case_include2, pheno_nm_ctl2);
+      indiv_uidx = 0;
+      for (indiv_idx = 0; indiv_idx < pheno_nm_ct; indiv_idx++) {
+	indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
+	if (is_set(pheno_c, indiv_uidx)) {
+	  set_bit_noct(indiv_case_include2, indiv_idx * 2);
+	  case_ct++;
 	}
-	cprob += cur_prob;
-	if (cprob == INFINITY) {
-	  return 0;
+	indiv_uidx++;
+      }
+      vec_init_invert(pheno_nm_ct, indiv_ctrl_include2, indiv_case_include2);
+      ctrl_ct = pheno_nm_ct - case_ct;
+    }
+    x_code = species_x_code[chrom_info_ptr->species];
+    y_code = species_y_code[chrom_info_ptr->species];
+    ullii = chrom_info_ptr->chrom_mask;
+    if (((x_code != -1) && (ullii & (1LLU << x_code))) || (model_assoc && (((y_code != -1) && (ullii & (1LLU << y_code)))))) {
+      if (wkspace_alloc_ul_checked(&indiv_nonmale_include2, pheno_nm_ctl2 * sizeof(intptr_t)) ||
+	  wkspace_alloc_ul_checked(&indiv_male_include2, pheno_nm_ctl2 * sizeof(intptr_t))) {
+	goto model_assoc_ret_NOMEM;
+      }
+      fill_ulong_zero(indiv_male_include2, pheno_nm_ctl2);
+      if (pheno_c) {
+	// argh
+	if (wkspace_alloc_ul_checked(&indiv_nonmale_ctrl_include2, pheno_nm_ctl2 * sizeof(intptr_t)) ||
+	    wkspace_alloc_ul_checked(&indiv_nonmale_case_include2, pheno_nm_ctl2 * sizeof(intptr_t)) ||
+	    wkspace_alloc_ul_checked(&indiv_male_ctrl_include2, pheno_nm_ctl2 * sizeof(intptr_t)) ||
+	    wkspace_alloc_ul_checked(&indiv_male_case_include2, pheno_nm_ctl2 * sizeof(intptr_t))) {
+	  goto model_assoc_ret_NOMEM;
 	}
-	dxx = tmp13 * tmp22;
-      } while (dxx > 0.5);
-      savedr12 = tmp12;
-      savedr13 = tmp13;
-      savedr22 = tmp22;
-      savedr23 = tmp23;
-      base_probr = cur_prob;
-      do {
-	tmp12 += 1;
-	tmp23 += 1;
-	cur_prob *= (tmp13 * tmp22) / (tmp12 * tmp23);
-	tmp13 -= 1;
-	tmp22 -= 1;
-	preaddp = tprob;
-	tprob += cur_prob;
-      } while (tprob > preaddp);
-      tmp12 = savedl12;
-      tmp13 = savedl13;
-      tmp22 = savedl22;
-      tmp23 = savedl23;
-      cur_prob = base_probl;
-      do {
-	tmp13 += 1;
-	tmp22 += 1;
-	cur_prob *= (tmp12 * tmp23) / (tmp13 * tmp22);
-	tmp12 -= 1;
-	tmp23 -= 1;
-	preaddp = tprob;
-	tprob += cur_prob;
-      } while (tprob > preaddp);
+	fill_ulong_zero(indiv_male_case_include2, pheno_nm_ctl2);
+	indiv_uidx = 0;
+	for (indiv_idx = 0; indiv_idx < pheno_nm_ct; indiv_idx++) {
+	  if (is_set(sex_nm, indiv_uidx) && is_set(sex_male, indiv_uidx)) {
+	    set_bit_noct(indiv_male_include2, indiv_idx * 2);
+	    male_ct++;
+	    if (is_set(pheno_c, indiv_uidx)) {
+	      set_bit_noct(indiv_male_case_include2, indiv_idx * 2);
+	      case_male_ct++;
+	    }
+	  }
+	  indiv_uidx++;
+	}
+	vec_init_andnot(pheno_nm_ctl2, indiv_male_ctrl_include2, indiv_male_include2, indiv_male_case_include2);
+	vec_init_invert(pheno_nm_ct, indiv_nonmale_include2, indiv_male_include2);
+	vec_init_andnot(pheno_nm_ctl2, indiv_nonmale_case_include2, indiv_case_include2, indiv_male_case_include2);
+	vec_init_andnot(pheno_nm_ctl2, indiv_nonmale_ctrl_include2, indiv_ctrl_include2, indiv_male_ctrl_include2);
+	ctrl_male_ct = male_ct - case_male_ct;
+	case_nonmale_ct = ctrl_ct - case_male_ct;
+	ctrl_nonmale_ct = ctrl_ct - ctrl_male_ct;
+      } else {
+	indiv_uidx = 0;
+	for (indiv_idx = 0; indiv_idx < pheno_nm_ct; indiv_idx++) {
+	  indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
+	  if (is_set(sex_nm, indiv_uidx) && is_set(sex_male, indiv_uidx)) {
+	    set_bit_noct(indiv_male_include2, indiv_idx * 2);
+	    male_ct++;
+	  }
+	  indiv_uidx++;
+	}
+	vec_init_invert(pheno_nm_ct, indiv_nonmale_include2, indiv_male_include2);
+      }
+      nonmale_ct = pheno_nm_ct - male_ct;
     }
   }
-  row_prob = tprob + cprob;
-  orig_base_probl = base_probl;
-  orig_base_probr = base_probr;
-  orig_row_prob = row_prob;
-  orig_savedl12 = savedl12;
-  orig_savedl13 = savedl13;
-  orig_savedl22 = savedl22;
-  orig_savedl23 = savedl23;
-  orig_savedr12 = savedr12;
-  orig_savedr13 = savedr13;
-  orig_savedr22 = savedr22;
-  orig_savedr23 = savedr23;
-  for (; dir < 2; dir++) {
-    cur11 = m11;
-    cur21 = m21;
-    if (dir) {
-      base_probl = orig_base_probl;
-      base_probr = orig_base_probr;
-      row_prob = orig_row_prob;
-      savedl12 = orig_savedl12;
-      savedl13 = orig_savedl13;
-      savedl22 = orig_savedl22;
-      savedl23 = orig_savedl23;
-      savedr12 = orig_savedr12;
-      savedr13 = orig_savedr13;
-      savedr22 = orig_savedr22;
-      savedr23 = orig_savedr23;
-      ukk = m11;
-      if (ukk > m22 + m23) {
-	ukk = m22 + m23;
-      }
-    } else {
-      ukk = m21;
-      if (ukk > m12 + m13) {
-	ukk = m12 + m13;
-      }
-    }
-    ukk++;
-    while (--ukk) {
-      if (dir) {
-	cur21 += 1;
-	if (savedl23) {
-	  savedl13 += 1;
-	  row_prob *= (cur11 * (savedl22 + savedl23)) / (cur21 * (savedl12 + savedl13));
-	  base_probl *= (cur11 * savedl23) / (cur21 * savedl13);
-	  savedl23 -= 1;
-	} else {
-	  savedl12 += 1;
-	  row_prob *= (cur11 * (savedl22 + savedl23)) / (cur21 * (savedl12 + savedl13));
-	  base_probl *= (cur11 * savedl22) / (cur21 * savedl12);
-	  savedl22 -= 1;
-	}
-	cur11 -= 1;
-      } else {
-	cur11 += 1;
-	if (savedl12) {
-	  savedl22 += 1;
-	  row_prob *= (cur21 * (savedl12 + savedl13)) / (cur11 * (savedl22 + savedl23));
-	  base_probl *= (cur21 * savedl12) / (cur11 * savedl22);
-	  savedl12 -= 1;
-	} else {
-	  savedl23 += 1;
-	  row_prob *= (cur21 * (savedl12 + savedl13)) / (cur11 * (savedl22 + savedl23));
-	  base_probl *= (cur21 * savedl13) / (cur11 * savedl23);
-	  savedl13 -= 1;
-	}
-	cur21 -= 1;
-      }
-      if (fisher23_tailsum(&base_probl, &savedl12, &savedl13, &savedl22, &savedl23, &dxx, 0)) {
-	break;
-      }
-      tprob += dxx;
-      if (dir) {
-	if (savedr22) {
-	  savedr12 += 1;
-	  base_probr *= ((cur11 + 1) * savedr22) / (cur21 * savedr12);
-	  savedr22 -= 1;
-	} else {
-	  savedr13 += 1;
-	  base_probr *= ((cur11 + 1) * savedr23) / (cur21 * savedr13);
-	  savedr23 -= 1;
-	}
-      } else {
-	if (savedr13) {
-	  savedr23 += 1;
-	  base_probr *= ((cur21 + 1) * savedr13) / (cur11 * savedr23);
-	  savedr13 -= 1;
-	} else {
-	  savedr22 += 1;
-	  base_probr *= ((cur21 + 1) * savedr12) / (cur11 * savedr22);
-	  savedr12 -= 1;
-	}
-      }
-      fisher23_tailsum(&base_probr, &savedr12, &savedr13, &savedr22, &savedr23, &dyy, 1);
-      tprob += dyy;
-      cprob += row_prob - dxx - dyy;
-      if (cprob == INFINITY) {
-	return 0;
-      }
-    }
-    if (!ukk) {
-      continue;
-    }
-    savedl12 += savedl13;
-    savedl22 += savedl23;
-    if (dir) {
-      while (1) {
-	preaddp = tprob;
-	tprob += row_prob;
-	if (tprob <= preaddp) {
-	  break;
-	}
-	cur21 += 1;
-	savedl12 += 1;
-	row_prob *= (cur11 * savedl22) / (cur21 * savedl12);
-	cur11 -= 1;
-	savedl22 -= 1;
-      }
-    } else {
-      while (1) {
-	preaddp = tprob;
-	tprob += row_prob;
-	if (tprob <= preaddp) {
-	  break;
-	}
-	cur11 += 1;
-	savedl22 += 1;
-	row_prob *= (cur21 * savedl12) / (cur11 * savedl22);
-	cur21 -= 1;
-	savedl12 -= 1;
-      }
-    }
+
+  if (wkspace_alloc_ul_checked(&loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctl2 * sizeof(intptr_t))) {
+    goto model_assoc_ret_NOMEM;
   }
-  return tprob / (tprob + cprob);
-}
+  marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  if (model_maxt || model_adapt) {
+    // check if enough memory to process all permutations in one pass
+    // if yes, marker-specific information arrays only need to be of size
+    // MODEL_BLOCKSIZE
+    // if no, they have to be of size marker_ct...
+  }
+  for (uii = 0; uii < MODEL_BLOCKSIZE; uii++) {
+    loadbuf[(uii + 1) * pheno_nm_ctl2 - 2] = 0;
+    loadbuf[(uii + 1) * pheno_nm_ctl2 - 1] = 0;
+  }
+  marker_uidx = next_non_set_unsafe(marker_exclude, 0);
+  if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
+    goto model_assoc_ret_READ_FAIL;
+  }
+  for (perm_pass_idx = 0; perm_pass_idx < perm_pass_ct; perm_pass_idx++) {
+    chrom_fo_idx = 0xffffffffU;
+    marker_uidx = 0;
+    marker_idx = 0;
+    chrom_end = 0;
+    do {
+      if (marker_uidx >= chrom_end) {
+	block_start = 0;
+	if (model_assoc) {
+	  // exploit overflow
+	  chrom_fo_idx++;
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+	  is_y = (uii == (uint32_t)y_code);
+	  if (is_haploid && (!is_x)) {
+	    if (is_y) {
+	      cur_ctrl_include2 = indiv_male_ctrl_include2;
+	      cur_case_include2 = indiv_male_case_include2;
+	      load_indiv_ct = male_ct;
+	      load_case_ct = case_male_ct;
+	    } else {
+	      cur_ctrl_include2 = indiv_ctrl_include2;
+	      cur_case_include2 = indiv_case_include2;
+	      load_indiv_ct = pheno_nm_ct;
+	      load_case_ct = case_ct;
+	    }
+	  }
+	} else {
+	  while (1) {
+	    do {
+	      chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
+	    } while (marker_uidx >= chrom_end);
+	    uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+	    is_x = (uii == (uint32_t)x_code);
+	    if ((!((species_haploid_mask[chrom_info_ptr->species] >> uii) & 1LLU)) || is_x) {
+	      break;
+	    }
+	    marker_uidx = next_non_set_unsafe(marker_exclude, chrom_end);
+	  }
+	  if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
+	    goto model_assoc_ret_READ_FAIL;
+	  }
+	  if (!is_x) {
+	    cur_ctrl_include2 = indiv_ctrl_include2;
+	    cur_case_include2 = indiv_case_include2;
+	    load_indiv_ct = pheno_nm_ct;
+	    load_case_ct = case_ct;
+	  } else {
+	    cur_ctrl_include2 = indiv_nonmale_ctrl_include2;
+	    cur_case_include2 = indiv_nonmale_case_include2;
+	    load_indiv_ct = nonmale_ct;
+	    load_case_ct = case_nonmale_ct;
+	  }
+	}
+	intprint2(&(wformat[2]), uii);
+      } else if (model_maxt) {
+	// todo: copy LD table, etc.
+	// could conditionally do this for adaptive permutation, but I doubt
+	// it's worth the trouble
+      } else {
+	block_start = 0;
+      }
+      block_size = block_start;
+      block_end = marker_ct + block_start - marker_idx;
+      if (block_end > MODEL_BLOCKSIZE) {
+	block_end = MODEL_BLOCKSIZE;
+      }
+      do {
+	if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	  goto model_assoc_ret_READ_FAIL;
+	}
+	indiv_uidx = 0;
+	ukk = pheno_nm_ct / BITCT2;
+	loadbuf_ptr = &(loadbuf[block_size * pheno_nm_ctl2]);
+	for (uii = 0; uii < ukk; uii++) {
+	  ulii = 0;
+	  for (ujj = 0; ujj < BITCT; ujj += 2) {
+	    indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
 
-int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, int32_t calculation_type, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude) {
-  unsigned char* wkspace_mark = wkspace_base;
-  int32_t retval = 0;
-  FILE* outfile = NULL;
-
-  logprint("Error: --assoc and --model are currently under development.\n");
-  retval = RET_CALC_NOT_YET_SUPPORTED;
-  goto model_assoc_ret_1;
+	    ulii |= ((uintptr_t)(((loadbuf_raw[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3))) << ujj;
+	    indiv_uidx++;
+	  }
+	  *loadbuf_ptr++ = ulii;
+	}
+	ujj = 2 * (pheno_nm_ct & (BITCT2 - 1));
+	if (ujj) {
+	  ulii = 0;
+	  for (uii = 0; uii < ujj; uii += 2) {
+	    indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
+	    ulii |= ((uintptr_t)(((loadbuf_raw[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3))) << uii;
+	    indiv_uidx++;
+	  }
+	  *loadbuf_ptr = ulii;
+	}
+	mu_table[block_size] = marker_uidx;
+	if (is_set(marker_exclude, ++marker_uidx)) {
+	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+	  if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
+	    goto model_assoc_ret_READ_FAIL;
+	  }
+	}
+      } while ((++block_size < block_end) && (marker_uidx < chrom_end));
+      if (!perm_pass_idx) {
+	// basic --assoc/--model
+	osptr = &(orig_stats[marker_idx + block_start]);
+	ooptr = &(orig_odds[marker_idx + block_start]);
+	if (model_assoc) {
+	  for (marker_bidx = block_start; marker_bidx < block_size; marker_bidx++) {
+	    unn = mu_table[marker_bidx];
+	    is_reverse = is_set(marker_reverse, unn);
+	    if (is_x) {
+	      // todo
+	    } else if (is_haploid) {
+	      // todo
+	    } else {
+	      if (is_reverse) {
+		single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &ujj, &uii, &umm, &ukk);
+		uii = 2 * (ctrl_ct - uii) - ujj;
+		ukk = 2 * (case_ct - ukk) - umm;
+	      } else {
+		single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &uii, &ujj, &ukk, &umm);
+		ujj = 2 * (ctrl_ct - ujj) - uii;
+		umm = 2 * (case_ct - umm) - ukk;
+	      }
+	    }
+	    da1 = umm;
+	    da2 = ukk;
+	    du1 = ujj;
+	    du2 = uii;
+	    if (model_fisher) {
+	      pval = fisher22(uii, ujj, ukk, umm);
+	      *osptr = 1 - pval;
+	    } else if (!assoc_p2) {
+	      if ((((uint64_t)umm) * (ujj + uii)) == (((uint64_t)ujj) * (umm + ukk))) {
+		*osptr = 0;
+		if ((!umm) && (!ujj)) {
+		  pval = -1;
+		} else {
+		  pval = chiprob_p(*osptr, 1);
+		}
+	      } else {
+		dxx = 1.0 / ((double)(da1 + da2 + du1 + du2));
+		dzz = (da1 + du1) * dxx;
+		dvv = (da2 + du2) * dxx;
+		dyy = (da1 + da2) * dzz;
+		dzz *= du1 + du2;
+		dww = (da1 + da2) * dvv;
+		dvv *= du1 + du2;
+		*osptr = (da1 - dyy) * (da1 - dyy) / dyy + (du1 - dzz) * (du1 - dzz) / dzz + (da2 - dww) * (da2 - dww) / dww + (du2 - dvv) * (du2 - dvv) / dvv;
+	        pval = chiprob_p(*osptr, 1);
+	      }
+	    } else {
+	    }
+	    *ooptr = (da1 * du2) / (du1 * da2);
+	    if ((pval <= pfilter) || (pfilter == 1.0)) {
+	      if (is_set(marker_reverse, unn)) {
+		a1ptr = &(marker_alleles[(2 * unn + 1) * max_marker_allele_len]);
+		a2ptr = &(marker_alleles[2 * unn * max_marker_allele_len]);
+	      } else {
+		a1ptr = &(marker_alleles[2 * unn * max_marker_allele_len]);
+		a2ptr = &(marker_alleles[(2 * unn + 1) * max_marker_allele_len]);
+	      }
+	      if (max_marker_allele_len == 1) {
+		if (fprintf(outfile, wformat, &(marker_ids[unn * max_marker_id_len]), marker_pos[unn], *a1ptr) < 0) {
+		  goto model_assoc_ret_WRITE_FAIL;
+		}
+		if (umm + ukk) {
+		  if (assoc_counts) {
+		    fprintf(outfile, "%8u ", umm);
+		  } else {
+		    fprintf(outfile, "%8.4g ", da1 / (da1 + da2));
+		  }
+		} else {
+		  fputs("      NA ", outfile);
+		}
+		if (ujj + uii) {
+		  if (assoc_counts) {
+		    fprintf(outfile, "%8u    ", ujj);
+		  } else {
+		    fprintf(outfile, "%8.4g    ", du1 / (du1 + du2));
+		  }
+		} else {
+		  fputs("      NA    ", outfile);
+		}
+		putc(*a2ptr, outfile);
+	      } else {
+		if (fprintf(outfile, wformat, &(marker_ids[unn * max_marker_id_len]), marker_pos[unn], a1ptr) < 0) {
+		  goto model_assoc_ret_WRITE_FAIL;
+		}
+		if (umm + ukk) {
+		  if (assoc_counts) {
+		    fprintf(outfile, "%8u ", umm);
+		  } else {
+		    fprintf(outfile, "%8.4g ", da1 / (da1 + da2));
+		  }
+		} else {
+		  fputs("      NA ", outfile);
+		}
+		if (ujj + uii) {
+		  if (assoc_counts) {
+		    fprintf(outfile, "%8u", ujj);
+		  } else {
+		    fprintf(outfile, "%8.4g", du1 / (du1 + du2));
+		  }
+		} else {
+		  fputs("      NA", outfile);
+		}
+		fprintf(outfile, " %4s", a2ptr);
+	      }
+	      if (model_fisher) {
+		fprintf(outfile, " %12.4g ", pval);
+	      } else {
+		if (pval > -1) {
+		  fprintf(outfile, " %12.4g %12.4g ", *osptr, pval);
+		} else {
+		  fputs("           NA           NA ", outfile);
+		}
+	      }
+	      if (du1 * da2 == 0.0) {
+		fputs("          NA ", outfile);
+		if (display_ci) {
+		  fputs("          NA           NA           NA ", outfile);
+		}
+	      } else {
+		fprintf(outfile, "%12.4g ", *ooptr);
+		if (display_ci) {
+		  // todo
+		  fprintf(outfile, "%12.4g %12.4g %12.4g ", 0.0, 0.0, 0.0);
+		}
+	      }
+	      if (putc('\n', outfile) == EOF) {
+		goto model_assoc_ret_WRITE_FAIL;
+	      }
+	    }
+	    osptr++;
+	    ooptr++;
+	  }
+	} else {
+	  for (marker_bidx = block_start; marker_bidx < block_size; marker_bidx++) {
+	  }
+	}
+      }
+      marker_idx += block_size - block_start;
+    } while (marker_idx < marker_ct);
+  }
 
   while (0) {
+  model_assoc_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  model_assoc_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  model_assoc_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  model_assoc_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
   }
  model_assoc_ret_1:
   wkspace_reset(wkspace_mark);

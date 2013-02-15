@@ -495,7 +495,7 @@ int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
   uint64_t loaded_chrom_mask = 0;
   int32_t last_chrom = -1;
   int32_t last_pos = 0;
-  int32_t marker_pos_needed = ((calculation_type & (CALC_GENOME | CALC_LD_PRUNE | CALC_REGRESS_PCS)) != 0);
+  int32_t marker_pos_needed = ((calculation_type & (CALC_GENOME | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL)) != 0);
   uint32_t species = chrom_info_ptr->species;
   uint32_t from_slen = markername_from? strlen(markername_from) : 0;
   uint32_t to_slen = markername_to? strlen(markername_to) : 0;
@@ -894,7 +894,7 @@ int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
 	if ((sf_ct && sf_out_of_range((uint32_t)cur_pos, (uint32_t)jj, sf_start_idxs, sf_pos)) || ((marker_pos_start != -1) && ((cur_pos < marker_pos_start) || (cur_pos > marker_pos_end)))) {
 	  set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
 	} else {
-	  if ((calculation_type & marker_pos_needed) && jj) {
+	  if (marker_pos_needed && jj) {
 	    (*marker_pos_ptr)[marker_uidx] = cur_pos;
 	  }
 	  if (marker_alleles_needed) {

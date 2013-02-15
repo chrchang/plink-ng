@@ -73,11 +73,15 @@ typedef union {
 #ifndef PRIdPTR
 #define PRIdPTR PRId64
 #endif
-#else
+#else // not _WIN32
+#ifndef PRIuPTR
 #define PRIuPTR "ld"
+#endif
+#ifndef PRIdPTR
 #define PRIdPTR "lu"
 #endif
-#else // __LP64__
+#endif
+#else // not __LP64__
 #define FIVEMASK 0x55555555
 #define ZEROLU 0LU
 #define ONELU 1LU
@@ -866,11 +870,15 @@ static inline void zero_trailing_bits(uintptr_t* bitfield, uintptr_t unfiltered_
 
 uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude);
 
-uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude);
+uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x);
 
 uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_indiv_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf);
 
 void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* exclude_arr);
+
+void vec_init_invert(uintptr_t vec_entry_ct, uintptr_t* target_arr, uintptr_t* source_arr);
+
+void vec_init_andnot(uintptr_t vec_entry_ct, uintptr_t* target_arr, uintptr_t* source_arr, uintptr_t* exclude_arr);
 
 void vec_include_mask_in(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr);
 

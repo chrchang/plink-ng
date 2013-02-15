@@ -1299,15 +1299,18 @@ uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uin
   }
 }
 
-uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude) {
+uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x) {
   uint32_t species = chrom_info_ptr->species;
   uint64_t hapmask = species_haploid_mask[species];
   uint32_t max_chrom = species_max_code[species];
   uint32_t ct = 0;
   uint32_t cur_chrom = 0;
+  int32_t x_code = species_x_code[species];
   for (; cur_chrom <= max_chrom; cur_chrom++) {
     if ((hapmask >> cur_chrom) & 1LLU) {
-      ct += count_chrom_markers(chrom_info_ptr, cur_chrom, marker_exclude);
+      if (count_x || (cur_chrom != (uint32_t)x_code)) {
+	ct += count_chrom_markers(chrom_info_ptr, cur_chrom, marker_exclude);
+      }
     }
   }
   return ct;
@@ -1414,6 +1417,53 @@ void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_ar
     }
     *include_arr &= (ONELU << (ulii * 2)) - ONELU;
   }
+}
+
+void vec_init_invert(uintptr_t entry_ct, uintptr_t* target_arr, uintptr_t* source_arr) {
+  // initializes a half-bitfield as the inverse of another
+  // assumes target_arr and source_arr are 16-byte aligned, and vec_entry_ct is
+  // even and positive.
+  uint32_t vec_wsize = 2 * ((entry_ct + (BITCT - 1)) / BITCT);
+  uintptr_t* second_to_last = &(target_arr[vec_wsize - 2]);
+  uint32_t rem = entry_ct & (BITCT - 1);
+#ifdef __LP64__
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  __m128i* tptr = (__m128i*)target_arr;
+  __m128i* sptr = (__m128i*)source_arr;
+  __m128i* tptr_end = (__m128i*)(&(target_arr[vec_wsize]));
+  do {
+    *tptr++ = _mm_andnot_si128(*sptr++, m1);
+  } while (tptr < tptr_end);
+#else
+  uintptr_t* tptr_end = &(target_arr[vec_wsize]);
+  do {
+    *target_arr++ = FIVEMASK & (~(*source_arr++));
+  } while (target_arr < tptr_end);
+#endif
+  if (rem > BITCT2) {
+    second_to_last[1] &= (~ZEROLU) >> ((BITCT - rem) * 2);
+  } else if (rem) {
+    second_to_last[1] = 0;
+    *second_to_last &= (~ZEROLU) >> ((BITCT2 - rem) * 2);
+  }
+}
+
+void vec_init_andnot(uintptr_t vec_wsize, uintptr_t* target_arr, uintptr_t* source_arr, uintptr_t* exclude_arr) {
+  // initializes a half-bitfield as source_arr ANDNOT exclude_arr
+#ifdef __LP64__
+  __m128i* tptr = (__m128i*)target_arr;
+  __m128i* sptr = (__m128i*)source_arr;
+  __m128i* xptr = (__m128i*)exclude_arr;
+  __m128i* tptr_end = (__m128i*)(&(target_arr[vec_wsize]));
+  do {
+    *tptr++ = _mm_andnot_si128(*xptr++, *sptr++);
+  } while (tptr < tptr_end);
+#else
+  uintptr_t* tptr_end = &(target_arr[vec_wsize]);
+  do {
+    *target_arr++ = (*source_arr++) & (~(*exclude_arr++));
+  } while (target_arr < tptr_end);
+#endif
 }
 
 void vec_include_mask_in(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* mask_arr) {

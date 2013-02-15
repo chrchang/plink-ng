@@ -79,7 +79,7 @@
 #ifdef NOLAPACK
 #define MATRIX_INVERT_BUF1_TYPE double
 #define __CLPK_integer int
-#else // NOLAPACK
+#else // not NOLAPACK
 #ifndef __APPLE__
 #ifdef __cplusplus
 extern "C" {
@@ -107,7 +107,7 @@ extern "C" {
                __CLPK_doublereal* a, __CLPK_integer* lda,
                __CLPK_integer* ipiv, __CLPK_integer* info);
 
-#else // _WIN32
+#else // not _WIN32
 #include <cblas.h>
 #ifdef __LP64__
   typedef int32_t __CLPK_integer;
@@ -4084,7 +4084,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
   g_low_ct = 0; // after excluding missing
   refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
   // subtract X/haploid markers from marker_ct
-  ukk = count_non_autosomal_markers(chrom_info_ptr, marker_exclude);
+  ukk = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
   if (ukk) {
     sprintf(logbuf, "Excluding %u marker%s on non-autosomes from IBD calculation.\n", ukk, (ukk == 1)? "" : "s");
     logprintb();
@@ -6029,7 +6029,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
   }
 
   // Exclude markers on non-autosomal chromosomes for now.
-  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude);
+  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
   if (uii) {
     if (uii == marker_ct) {
       logprint("Error: No autosomal markers for relationship matrix calculation.\n");
@@ -6581,7 +6581,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
     goto calc_rel_f_ret_NOMEM;
   }
 
-  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude);
+  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
   if (uii) {
     if (uii == marker_ct) {
       logprint("Error: No autosomal markers for relationship matrix calculation.\n");
@@ -7154,7 +7154,7 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
     goto calc_distance_ret_NOMEM;
   }
   fseeko(bedfile, bed_offset, SEEK_SET);
-  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude);
+  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
   marker_ct_autosomal = marker_ct - uii;
   if (uii) {
     sprintf(logbuf, "Excluding %u marker%s on non-autosomes from distance matrix calc.\n", uii, (uii == 1)? "" : "s");
