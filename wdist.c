@@ -36,6 +36,7 @@
 #include "wdist_calc.h"
 #include "wdist_data.h"
 #include "wdist_dosage.h"
+#include "wdist_stats.h"
 
 // default jackknife iterations
 #define ITERS_DEFAULT 100000
@@ -4914,6 +4915,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   char* pid_list = NULL;
   char* id_list = NULL;
   double missing_phenod = (double)missing_pheno;
+  double ci_zt = 0.0;
   int32_t missing_pheno_len = intlen(missing_pheno);
   int32_t var_std = 1;
   int32_t* hwe_lls;
@@ -4946,6 +4948,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t marker_idx;
   int32_t duplicate_fail;
 
+  if (ci_size != 0.0) {
+    ci_zt = ltqnorm(1 - (1 - ci_size) / 2);
+  }
   if (rel_calc_type & REL_CALC_COV) {
     var_std = 0;
     ibc_type = -1;
@@ -5559,7 +5564,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_MODEL) {
-    retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end, calculation_type, model_modifier, model_cell_ct, model_mperm_val, ci_size, pfilter, mtest_adjust, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, sex_nm, sex_male);
+    retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end, calculation_type, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, sex_nm, sex_male);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -6966,7 +6971,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (sscanf(argv[cur_arg + jj], "%lg", &dxx) != 1) {
+        if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
 	  sprintf(logbuf, "Error: Invalid --ci parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8303,7 +8308,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (sscanf(argv[cur_arg + jj], "%lg", &dxx) != 1) {
+        if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
 	  sprintf(logbuf, "Error: Invalid --pfilter parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
