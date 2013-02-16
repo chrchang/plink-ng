@@ -680,14 +680,18 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   double obs_u1;
   double obs_u2;
   double exp_a1;
-  double exp_a12;
   double exp_a2;
+  double exp_a11;
+  double exp_a12;
+  double exp_a22;
   double exp_u1;
-  double exp_u12;
   double exp_u2;
+  double exp_u11;
+  double exp_u12;
+  double exp_u22;
   double mult_p;
-  // double dom_p;
-  // double rec_p;
+  double dom_p;
+  double rec_p;
   // double best_p;
   char* a1ptr;
   char* a2ptr;
@@ -1199,6 +1203,14 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      obs_22 = da2 + du2;
 	      obs_1 = 2 * obs_11 + obs_12;
 	      obs_2 = 2 * obs_22 + obs_12;
+	      dvv = dzz * dxx;
+	      exp_a11 = dvv * obs_11;
+	      exp_a12 = dvv * obs_12;
+	      exp_a22 = dvv * obs_22;
+	      dvv = dzz * dyy;
+	      exp_u11 = dvv * obs_11;
+	      exp_u12 = dvv * obs_12;
+	      exp_u22 = dvv * obs_22;
 
 	      a1ptr = &(marker_alleles[(2 * marker_uidx2 + is_reverse) * max_marker_allele_len]);
 	      a2ptr = &(marker_alleles[(2 * marker_uidx2 + 1 - is_reverse) * max_marker_allele_len]);
@@ -1232,20 +1244,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		  if (model_fisher) {
 		    dww = fisher23(uii, ujj, ukk, umm, unn, uoo);
 		  } else {
-		    dvv = dzz * dxx;
-		    exp_a1 = dvv * obs_11;
-		    exp_a12 = dvv * obs_12;
-		    exp_a2 = dvv * obs_22;
-		    dvv = dzz * dyy;
-		    exp_u1 = dvv * obs_11;
-		    exp_u12 = dvv * obs_12;
-		    exp_u2 = dvv * obs_22;
-		    dvv = ((da1 - exp_a1) * (da1 - exp_a1)) / exp_a1 +
+		    dvv = ((da1 - exp_a11) * (da1 - exp_a11)) / exp_a11 +
 		      ((da12 - exp_a12) * (da12 - exp_a12)) / exp_a12 +
-		      ((da2 - exp_a2) * (da2 - exp_a2)) / exp_a2 +
-		      ((du1 - exp_u1) * (du1 - exp_u1)) / exp_u1 +
+		      ((da2 - exp_a22) * (da2 - exp_a22)) / exp_a22 +
+		      ((du1 - exp_u11) * (du1 - exp_u11)) / exp_u11 +
 		      ((du12 - exp_u12) * (du12 - exp_u12)) / exp_u12 +
-		      ((du2 - exp_u2) * (du2 - exp_u2)) / exp_u2;
+		      ((du2 - exp_u22) * (du2 - exp_u22)) / exp_u22;
 		    dww = chiprob_p(dvv, 2);
 		  }
 		}
@@ -1328,12 +1332,21 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		if (model_fisher) {
 		  mult_p = fisher22(2 * uoo + unn, 2 * umm + unn, 2 * ukk + ujj, 2 * uii + ujj);
 		} else {
-		  exp_a1 = dxx * obs_1 * dzz;
-		  exp_a2 = dxx * obs_2 * dzz;
-		  exp_u1 = dyy * obs_1 * dzz;
-		  exp_u2 = dyy * obs_2 * dzz;
-		  dww = ((obs_a1 - exp_a1) * (obs_a1 - exp_a1)) / exp_a1 + ((obs_a2 - exp_a2) * (obs_a2 - exp_a2)) / exp_a2 + ((obs_u1 - exp_u1) * (obs_u1 - exp_u1)) / exp_u1 + ((obs_u2 - exp_u2) * (obs_u2 - exp_u2)) / exp_u2;
-		  mult_p = chiprob_p(dww, 1);
+		  if ((((uint64_t)(uoo * 2 + unn)) * (uii * 2 + ujj)) == (((uint64_t)(umm * 2 + unn)) * (ukk * 2 + ujj))) {
+		    if (uoo * 2 + unn) {
+		      dww = 0;
+		      mult_p = 1;
+		    } else {
+		      mult_p = -9;
+		    }
+		  } else {
+		    exp_a1 = dxx * obs_1 * dzz;
+		    exp_a2 = dxx * obs_2 * dzz;
+		    exp_u1 = dyy * obs_1 * dzz;
+		    exp_u2 = dyy * obs_2 * dzz;
+		    dww = ((obs_a1 - exp_a1) * (obs_a1 - exp_a1)) / exp_a1 + ((obs_a2 - exp_a2) * (obs_a2 - exp_a2)) / exp_a2 + ((obs_u1 - exp_u1) * (obs_u1 - exp_u1)) / exp_u1 + ((obs_u2 - exp_u2) * (obs_u2 - exp_u2)) / exp_u2;
+		    mult_p = chiprob_p(dww, 1);
+		  }
 		}
 		if (mult_p > -1) {
 		  if (model_fisher) {
@@ -1347,6 +1360,105 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		    uqq += 18;
 		  }
 		  memcpy(&(tbuf[uqq]), "          NA\n", 14);
+		}
+		if (fputs(tbuf, outfile) == EOF) {
+		  goto model_assoc_ret_WRITE_FAIL;
+		}
+		memcpy(&(tbuf[uss]), "    DOM            ", 19);
+		uqq = uss + 8;
+		urr = sprintf(&(tbuf[uqq + 34]), "%u/%u            ", uoo + unn, umm);
+		if (urr < 26) {
+		  memcpy(&(tbuf[uqq + 26 - urr]), &(tbuf[uqq + 34]), urr);
+		  uqq += 15;
+		} else {
+		  memcpy(&(tbuf[uqq]), &(tbuf[uqq + 34]), urr);
+		  uqq += urr - 11;
+		}
+		urr = sprintf(&(tbuf[uqq + 24]), "%u/%u ", ukk + ujj, uii);
+		if (urr < 15) {
+		  memcpy(&(tbuf[uqq + 15 - urr]), &(tbuf[uqq + 24]), urr);
+		  uqq += 15;
+		} else {
+		  memcpy(&(tbuf[uqq]), &(tbuf[uqq + 24]), urr);
+		  uqq += urr;
+		}
+		if (upp) {
+		  dom_p = -9;
+		} else {
+		  if (model_fisher) {
+		    dom_p = fisher22(uoo + unn, umm, ukk + ujj, uii);
+		  } else if (((uint64_t)umm) * (ukk + ujj) == ((uint64_t)uii) * (uoo + unn)) {
+		    dww = 0;
+		    dom_p = 1;
+		  } else {
+		    dww = exp_a11 + exp_a12;
+		    dvv = exp_u11 + exp_u12;
+		    dww = (((da1 + da12) - dww) * ((da1 + da12) - dww)) / dww + ((da2 - exp_a22) * (da2 - exp_a22)) / exp_a22 + (((du1 + du12) - dvv) * ((du1 + du12) - dvv)) / dvv + ((du2 - exp_u22) * (du2 - exp_u22)) / exp_u22;
+		    dom_p = chiprob_p(dww, 1);
+		  }
+		}
+		if (dom_p < -1) {
+		  if (model_fisher) {
+		    memcpy(&(tbuf[uqq]), "          NA\n", 14);
+		  } else {
+		    memcpy(&(tbuf[uqq]), "          NA   NA           NA\n", 32);
+		  }
+		} else {
+		  if (model_fisher) {
+		    sprintf(&(tbuf[uqq]), "%12.4g\n", dom_p);
+		  } else {
+		    sprintf(&(tbuf[uqq]), "%12.4g    1 %12.4g\n", dww, dom_p);
+		  }
+		}
+		if (fputs(tbuf, outfile) == EOF) {
+		  goto model_assoc_ret_WRITE_FAIL;
+		}
+		memcpy(&(tbuf[uss]), "    REC            ", 19);
+		uqq = uss + 8;
+		urr = sprintf(&(tbuf[uqq + 34]), "%u/%u            ", uoo, unn + umm);
+		if (urr < 26) {
+		  memcpy(&(tbuf[uqq + 26 - urr]), &(tbuf[uqq + 34]), urr);
+		  uqq += 15;
+		} else {
+		  memcpy(&(tbuf[uqq]), &(tbuf[uqq + 34]), urr);
+		  uqq += urr - 11;
+		}
+		urr = sprintf(&(tbuf[uqq + 24]), "%u/%u ", ukk, ujj + uii);
+		if (urr < 15) {
+		  memcpy(&(tbuf[uqq + 15 - urr]), &(tbuf[uqq + 24]), urr);
+		  uqq += 15;
+		} else {
+		  memcpy(&(tbuf[uqq]), &(tbuf[uqq + 24]), urr);
+		  uqq += urr;
+		}
+		if (upp) {
+		  rec_p = -9;
+		} else {
+		  if (model_fisher) {
+		    rec_p = fisher22(uoo, unn + umm, ukk, ujj + uii);
+		  } else if (((uint64_t)uoo) * (ujj + uii) == ((uint64_t)ukk) * (unn + umm)) {
+		    dww = 0;
+		    rec_p = 1;
+		  } else {
+		    dww = exp_a22 + exp_a12;
+		    dvv = exp_u22 + exp_u12;
+		    dww = (((da2 + da12) - dww) * ((da2 + da12) - dww)) / dww + ((da1 - exp_a11) * (da1 - exp_a11)) / exp_a11 + (((du2 + du12) - dvv) * ((du2 + du12) - dvv)) / dvv + ((du1 - exp_u11) * (du1 - exp_u11)) / exp_u11;
+		    rec_p = chiprob_p(dww, 1);
+		  }
+		}
+
+		if (rec_p < -1) {
+		  if (model_fisher) {
+		    memcpy(&(tbuf[uqq]), "          NA\n", 14);
+		  } else {
+		    memcpy(&(tbuf[uqq]), "          NA   NA           NA\n", 32);
+		  }
+		} else {
+		  if (model_fisher) {
+		    sprintf(&(tbuf[uqq]), "%12.4g\n", rec_p);
+		  } else {
+		    sprintf(&(tbuf[uqq]), "%12.4g    1 %12.4g\n", dww, rec_p);
+		  }
 		}
 		if (fputs(tbuf, outfile) == EOF) {
 		  goto model_assoc_ret_WRITE_FAIL;
