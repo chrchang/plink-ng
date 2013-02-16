@@ -585,6 +585,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uint32_t model_adapt = model_modifier & MODEL_PERM;
   uint32_t model_maxt = model_modifier & MODEL_MPERM;
   uint32_t model_fisher = model_modifier & MODEL_FISHER;
+  uint32_t model_trendonly = model_modifier & MODEL_TRENDONLY;
   uint32_t assoc_counts = model_modifier & MODEL_ASSOC_COUNTS;
   uint32_t assoc_p2 = model_modifier & MODEL_ASSOC_P2;
   uint32_t display_ci = (ci_size > 0);
@@ -610,6 +611,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uintptr_t* cur_ctrl_include2 = NULL;
   uintptr_t* cur_case_include2 = NULL;
   double dxx = 0.0;
+  double dww = 0.0;
   double dvv = 0.0;
   uint32_t mu_table[MODEL_BLOCKSIZE];
   char wformat[64];
@@ -659,7 +661,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   double pval;
   double dyy;
   double dzz;
-  double dww;
   double duu;
   double dtt;
   double da1;
@@ -674,12 +675,20 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   double obs_11;
   double obs_12;
   double obs_22;
+  double obs_a1;
+  double obs_a2;
+  double obs_u1;
+  double obs_u2;
   double exp_a1;
   double exp_a12;
   double exp_a2;
   double exp_u1;
   double exp_u12;
   double exp_u2;
+  double mult_p;
+  // double dom_p;
+  // double rec_p;
+  // double best_p;
   char* a1ptr;
   char* a2ptr;
 
@@ -782,7 +791,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     if (fprintf(outfile, tbuf, "SNP") < 0) {
       goto model_assoc_ret_WRITE_FAIL;
     }
-    if (model_fisher) {
+    if (!model_fisher) {
       if (fputs("       CHISQ   DF ", outfile) == EOF) {
 	goto model_assoc_ret_WRITE_FAIL;
       }
@@ -1198,7 +1207,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      } else {
 		uss = sprintf(tbuf, wformat, &(marker_ids[marker_uidx2 * max_marker_id_len]), a1ptr, a2ptr);
 	      }
-	      if (!upp) {
+	      if (!model_trendonly) {
 		memcpy(&(tbuf[uss]), "   GENO          ", 17);
 		uqq = uss + 8;
 		urr = sprintf(&(tbuf[uqq + 43]), "%u/%u/%u          ", uoo, unn, umm);
@@ -1217,28 +1226,35 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		  memcpy(&(tbuf[uqq]), &(tbuf[uqq + 34]), urr);
 		  uqq += urr;
 		}
-		if (model_fisher) {
-		  dww = fisher23(uii, ujj, ukk, umm, unn, uoo);
+		if (upp) {
+		  dww = -9;
 		} else {
-		  dvv = dzz * dxx;
-		  exp_a1 = dvv * obs_11;
-		  exp_a12 = dvv * obs_12;
-		  exp_a2 = dvv * obs_22;
-		  dvv = dzz * dyy;
-		  exp_u1 = dvv * obs_11;
-		  exp_u12 = dvv * obs_12;
-		  exp_u2 = dvv * obs_22;
-		  dvv = ((da1 - exp_a1) * (da1 - exp_a1)) / exp_a1 +
-		    ((da12 - exp_a12) * (da12 - exp_a12)) / exp_a12 +
-		    ((da2 - exp_a2) * (da2 - exp_a2)) / exp_a2 +
-		    ((du1 - exp_u1) * (du1 - exp_u1)) / exp_u1 +
-		    ((du12 - exp_u12) * (du12 - exp_u12)) / exp_u12 +
-		    ((du2 - exp_u2) * (du2 - exp_u2)) / exp_u2;
-		  dww = chiprob_p(dvv, 2);
+		  if (model_fisher) {
+		    dww = fisher23(uii, ujj, ukk, umm, unn, uoo);
+		  } else {
+		    dvv = dzz * dxx;
+		    exp_a1 = dvv * obs_11;
+		    exp_a12 = dvv * obs_12;
+		    exp_a2 = dvv * obs_22;
+		    dvv = dzz * dyy;
+		    exp_u1 = dvv * obs_11;
+		    exp_u12 = dvv * obs_12;
+		    exp_u2 = dvv * obs_22;
+		    dvv = ((da1 - exp_a1) * (da1 - exp_a1)) / exp_a1 +
+		      ((da12 - exp_a12) * (da12 - exp_a12)) / exp_a12 +
+		      ((da2 - exp_a2) * (da2 - exp_a2)) / exp_a2 +
+		      ((du1 - exp_u1) * (du1 - exp_u1)) / exp_u1 +
+		      ((du12 - exp_u12) * (du12 - exp_u12)) / exp_u12 +
+		      ((du2 - exp_u2) * (du2 - exp_u2)) / exp_u2;
+		    dww = chiprob_p(dvv, 2);
+		  }
 		}
 		if (dww < -1) {
-		  // shouldn't be possible with fisher23()
-		  memcpy(&(tbuf[uqq]), "          NA   NA           NA ", 32);
+		  if (model_fisher) {
+		    memcpy(&(tbuf[uqq]), "          NA\n", 14);
+		  } else {
+		    memcpy(&(tbuf[uqq]), "          NA   NA           NA\n", 32);
+		  }
 		} else {
 		  if (model_fisher) {
 		    sprintf(&(tbuf[uqq]), "%12.4g\n", dww);
@@ -1268,145 +1284,74 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		memcpy(&(tbuf[uqq]), &(tbuf[uqq + 24]), urr);
 		uqq += urr;
 	      }
-	      // CA
-	      dww = (dyy * dzz * da12 - dxx * dzz * du12) + 2 * (dyy * dzz * da2 - dxx * dzz * du2);
-	      // varCA
-	      dvv = dxx * dyy * (obs_t * (obs_12 + 4 * obs_22) - (obs_12 + 2 * obs_22) * (obs_12 + 2 * obs_22)) * dzz * dzz * dzz;
-	      // CA_chisq
-	      duu = (dww * dww) / dvv;
-	      // CA_p
-	      dtt = chiprob_p(duu, 1);
-	      if (dtt < -1) {
-		if (!model_fisher) {
-		  memcpy(&(tbuf[uqq]), "          NA   NA ", 18);
-		  uqq += 18;
+	      urr = uqq; // save this for next line
+	      if ((((uint64_t)(uoo * 2 + unn)) * (uii * 2 + ujj)) == (((uint64_t)(umm * 2 + unn)) * (ukk * 2 + ujj))) {
+		if (uoo * 2 + unn) {
+		  duu = 0;
+		  dtt = 1;
+		} else {
+		  dtt = -9;
 		}
-		memcpy(&(tbuf[uqq]), "          NA\n", 14);
 	      } else {
+		// CA
+		dww = (dyy * dzz * da12 - dxx * dzz * du12) + 2 * (dyy * dzz * da2 - dxx * dzz * du2);
+		// varCA
+		dvv = dxx * dyy * (obs_t * (obs_12 + 4 * obs_22) - (obs_12 + 2 * obs_22) * (obs_12 + 2 * obs_22)) * dzz * dzz * dzz;
+		// CA_chisq
+		duu = (dww * dww) / dvv;
+		// CA_p
+		dtt = chiprob_p(duu, 1);
+	      }
+	      if (dtt > -1) {
 		if (model_fisher) {
 		  sprintf(&(tbuf[uqq]), "%12.4g\n", dtt);
 		} else {
 		  sprintf(&(tbuf[uqq]), "%12.4g    1 %12.4g\n", duu, dtt);
 		}
+	      } else {
+		if (!model_fisher) {
+		  memcpy(&(tbuf[uqq]), "          NA   NA ", 18);
+		  uqq += 18;
+		}
+		memcpy(&(tbuf[uqq]), "          NA\n", 14);
 	      }
 	      if (fputs(tbuf, outfile) == EOF) {
 		goto model_assoc_ret_WRITE_FAIL;
 	      }
-
-	      /*
-	      if (model_fisher) {
-		pval = fisher22(uii, ujj, ukk, umm);
-		*osptr = 1 - pval;
-	      } else if (!assoc_p2) {
-		if ((((uint64_t)umm) * (ujj + uii)) == (((uint64_t)ujj) * (umm + ukk))) {
-		  *osptr = 0;
-		  if ((!umm) && (!ujj)) {
-		    pval = -1;
-		  } else {
-		    pval = chiprob_p(*osptr, 1);
-		  }
-		} else {
-		  dxx = 1.0 / ((double)(da1 + da2 + du1 + du2));
-		  dzz = (da1 + du1) * dxx;
-		  dvv = (da2 + du2) * dxx;
-		  dyy = (da1 + da2) * dzz;
-		  dzz *= du1 + du2;
-		  dww = (da1 + da2) * dvv;
-		  dvv *= du1 + du2;
-		  *osptr = (da1 - dyy) * (da1 - dyy) / dyy + (du1 - dzz) * (du1 - dzz) / dzz + (da2 - dww) * (da2 - dww) / dww + (du2 - dvv) * (du2 - dvv) / dvv;
-		  pval = chiprob_p(*osptr, 1);
-		}
-	      } else {
-		// todo
-	      }
-	      *ooptr = (da1 * du2) / (du1 * da2);
-	      if ((pval <= pfilter) || (pfilter == 1.0)) {
-		if (is_set(marker_reverse, marker_uidx2)) {
-		  a1ptr = &(marker_alleles[(2 * marker_uidx2 + 1) * max_marker_allele_len]);
-		  a2ptr = &(marker_alleles[2 * marker_uidx2 * max_marker_allele_len]);
-		} else {
-		  a1ptr = &(marker_alleles[2 * marker_uidx2 * max_marker_allele_len]);
-		  a2ptr = &(marker_alleles[(2 * marker_uidx2 + 1) * max_marker_allele_len]);
-		}
-		if (max_marker_allele_len == 1) {
-		  if (fprintf(outfile, wformat, &(marker_ids[marker_uidx2 * max_marker_id_len]), marker_pos[marker_uidx2], *a1ptr) < 0) {
-		    goto model_assoc_ret_WRITE_FAIL;
-		  }
-		  if (umm + ukk) {
-		    if (assoc_counts) {
-		      fprintf(outfile, "%8u ", umm);
-		    } else {
-		      fprintf(outfile, "%8.4g ", da1 / (da1 + da2));
-		    }
-		  } else {
-		    fputs("      NA ", outfile);
-		  }
-		  if (ujj + uii) {
-		    if (assoc_counts) {
-		      fprintf(outfile, "%8u    ", ujj);
-		    } else {
-		      fprintf(outfile, "%8.4g    ", du1 / (du1 + du2));
-		    }
-		  } else {
-		    fputs("      NA    ", outfile);
-		  }
-		  putc(*a2ptr, outfile);
-		} else {
-		  if (fprintf(outfile, wformat, &(marker_ids[marker_uidx2 * max_marker_id_len]), marker_pos[marker_uidx2], a1ptr) < 0) {
-		    goto model_assoc_ret_WRITE_FAIL;
-		  }
-		  if (umm + ukk) {
-		    if (assoc_counts) {
-		      fprintf(outfile, "%8u ", umm);
-		    } else {
-		      fprintf(outfile, "%8.4g ", da1 / (da1 + da2));
-		    }
-		  } else {
-		    fputs("      NA ", outfile);
-		  }
-		  if (ujj + uii) {
-		    if (assoc_counts) {
-		      fprintf(outfile, "%8u", ujj);
-		    } else {
-		      fprintf(outfile, "%8.4g", du1 / (du1 + du2));
-		    }
-		  } else {
-		    fputs("      NA", outfile);
-		  }
-		  fprintf(outfile, " %4s", a2ptr);
-		}
+	      if (!model_trendonly) {
+		memcpy(&(tbuf[uss]), "ALLELIC", 7);
+		uqq = urr;
+		obs_a1 = 2 * da1 + da12;
+		obs_a2 = 2 * da2 + da12;
+		obs_u1 = 2 * du1 + du12;
+		obs_u2 = 2 * du2 + du12;
 		if (model_fisher) {
-		  fprintf(outfile, " %12.4g ", pval);
+		  mult_p = fisher22(2 * uoo + unn, 2 * umm + unn, 2 * ukk + ujj, 2 * uii + ujj);
 		} else {
-		  if (pval > -1) {
-		    fprintf(outfile, " %12.4g %12.4g ", *osptr, pval);
+		  exp_a1 = dxx * obs_1 * dzz;
+		  exp_a2 = dxx * obs_2 * dzz;
+		  exp_u1 = dyy * obs_1 * dzz;
+		  exp_u2 = dyy * obs_2 * dzz;
+		  dww = ((obs_a1 - exp_a1) * (obs_a1 - exp_a1)) / exp_a1 + ((obs_a2 - exp_a2) * (obs_a2 - exp_a2)) / exp_a2 + ((obs_u1 - exp_u1) * (obs_u1 - exp_u1)) / exp_u1 + ((obs_u2 - exp_u2) * (obs_u2 - exp_u2)) / exp_u2;
+		  mult_p = chiprob_p(dww, 1);
+		}
+		if (mult_p > -1) {
+		  if (model_fisher) {
+		    sprintf(&(tbuf[uqq]), "%12.4g\n", mult_p);
 		  } else {
-		    fputs("           NA           NA ", outfile);
-		  }
-		}
-		if (du1 * da2 == 0.0) {
-		  fputs("          NA ", outfile);
-		  if (display_ci) {
-		    fputs("          NA           NA           NA ", outfile);
+		    sprintf(&(tbuf[uqq]), "%12.4g    1 %12.4g\n", dww, mult_p);
 		  }
 		} else {
-		  fprintf(outfile, "%12.4g ", *ooptr);
-		  if (display_ci) {
-		    dxx = log(*ooptr);
-		    dyy = sqrt(1 / da1 + 1 / da2 + 1 / du1 + 1 / du2);
-		    dzz = ci_zt * dyy;
-		    dww = exp(dxx - dzz);
-		    dvv = exp(dxx + dzz);
-		    fprintf(outfile, "%12.4g %12.4g %12.4g ", dyy, dww, dvv);
+		  if (!model_fisher) {
+		    memcpy(&(tbuf[uqq]), "          NA   NA ", 18);
+		    uqq += 18;
 		  }
+		  memcpy(&(tbuf[uqq]), "          NA\n", 14);
 		}
-		if (putc('\n', outfile) == EOF) {
+		if (fputs(tbuf, outfile) == EOF) {
 		  goto model_assoc_ret_WRITE_FAIL;
 		}
-              }
-	      osptr++;
-	      ooptr++;
-	      */
+	      }
 	    }
 	  }
 	}

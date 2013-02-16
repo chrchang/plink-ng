@@ -122,7 +122,7 @@ int32_t edit1_match(int32_t len1, char* s1, int32_t len2, char* s2) {
   return 1;
 }
 
-#define MAX_EQUAL_HELP_PARAMS 14
+#define MAX_EQUAL_HELP_PARAMS 15
 
 typedef struct {
   int32_t iters_left;
@@ -474,10 +474,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    --genome/--Z-genome, and the 'full' and 'unbounded' modifiers have the same\n"
 "    effect as PLINK's --genome-full and --unbounded flags.\n\n"
 		);
-    help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means", &help_ctrl, 1,
-"  --assoc <fisher> <perm | mperm=[value]> <genedrop> <perm-count> <counts> <p2>\n"
+    help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means\ttrend", &help_ctrl, 1,
+"  --assoc <perm | mperm=[value]> <genedrop> <perm-count> <fisher> <counts> <p2>\n"
 "  --assoc <perm | mperm=[value]> <perm-count> <qt-means>\n"
-"  --model <fisher> <perm | mperm=[value]> <genedrop> <perm-count>\n"
+"  --model <perm | mperm=[value]> <genedrop> <perm-count> <fisher | trend-only>\n"
 "          <perm-dom | perm-rec | perm-gen | perm-trend>\n"
 "    Basic association analysis report.\n"
 "    Given a case/control phenotype, --assoc performs a 1df chi-square allelic\n"
@@ -497,6 +497,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      corresponding test to be used as the basis for --model permutation.  (By\n"
 "      default, the most significant result among the allelic, dominant, and\n"
 "      recessive tests is used.)\n"
+"    * 'trend-only' causes only the trend test to be performed.\n"
 "    Given a quantitative phenotype, --assoc performs a Wald test.  In this\n"
 "    case, the 'qt-means' modifier causes trait means and standard deviations\n"
 "    stratified by genotype to be reported as well.\n"
@@ -8033,6 +8034,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	for (jj = 1; jj <= ii; jj++) {
 	  if (!strcmp(argv[cur_arg + jj], "fisher")) {
+	    if (model_modifier & MODEL_TRENDONLY) {
+	      sprintf(logbuf, "Error: --model 'fisher' and 'trend-only' cannot be used together.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	    model_modifier |= MODEL_FISHER;
 	  } else if (!strcmp(argv[cur_arg + jj], "perm")) {
 	    model_modifier |= MODEL_PERM;
@@ -8041,19 +8046,19 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + jj], "perm-count")) {
 	    model_modifier |= MODEL_PERM_COUNT;
 	  } else if (!strcmp(argv[cur_arg + jj], "perm-dom")) {
-	    if (model_modifier & (MODEL_PREC | MODEL_PGEN | MODEL_PTREND)) {
+	    if (model_modifier & (MODEL_PREC | MODEL_PGEN | MODEL_PTREND | MODEL_TRENDONLY)) {
 	      logprint("Error: Conflicting --model parameters.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    model_modifier |= MODEL_PDOM;
 	  } else if (!strcmp(argv[cur_arg + jj], "perm-rec")) {
-	    if (model_modifier & (MODEL_PDOM | MODEL_PGEN | MODEL_PTREND)) {
+	    if (model_modifier & (MODEL_PDOM | MODEL_PGEN | MODEL_PTREND | MODEL_TRENDONLY)) {
 	      logprint("Error: Conflicting --model parameters.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    model_modifier |= MODEL_PREC;
 	  } else if (!strcmp(argv[cur_arg + jj], "perm-gen")) {
-	    if (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PTREND)) {
+	    if (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PTREND | MODEL_TRENDONLY)) {
 	      logprint("Error: Conflicting --model parameters.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
@@ -8064,6 +8069,12 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    model_modifier |= MODEL_PTREND;
+	  } else if (!strcmp(argv[cur_arg + jj], "trend-only")) {
+	    if (model_modifier & (MODEL_FISHER | MODEL_PDOM | MODEL_PREC | MODEL_PGEN)) {
+	      logprint("Error: Conflicting --model parameters.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    model_modifier |= MODEL_PTREND | MODEL_TRENDONLY;
 	  } else if ((!memcmp(argv[cur_arg + jj], "mperm=", 6)) && (argv[cur_arg + jj][6] != '\0')) {
 	    if (model_modifier & MODEL_PERM) {
 	      sprintf(logbuf, "Error: --model 'mperm' and 'perm' cannot be used together.%s", errstr_append);
@@ -8926,6 +8937,20 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  marker_pos_end = ii;
 	}
+      } else if (!memcmp(argptr2, "rend", 5)) {
+	if ((!(calculation_type & CALC_MODEL)) || (model_modifier & MODEL_ASSOC)) {
+	  sprintf(logbuf, "Error: --trend must be used with --model.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (model_modifier & MODEL_FISHER) {
+	  sprintf(logbuf, "Error: --trend cannot be used with --model fisher.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PGEN)) {
+	  sprintf(logbuf, "Error: --trend cannot be used with --model perm-dom/perm-rec/perm-gen.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --trend flag deprecated.  Use '--model trend-only ...'.\n");
+	model_modifier |= MODEL_PTREND | MODEL_TRENDONLY;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }

@@ -109,7 +109,7 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22) {
   double cur_prob = tprob;
   double cprob = 0;
   uint32_t uii;
-  double cur11; // signed integers convert to doubles more easily
+  double cur11;
   double cur12;
   double cur21;
   double cur22;
@@ -125,7 +125,7 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22) {
     m11 = m22;
     m22 = uii;
   }
-  if ((((int64_t)m11) * m22) > (((int64_t)m12) * m21)) {
+  if ((((uint64_t)m11) * m22) > (((uint64_t)m12) * m21)) {
     uii = m11;
     m11 = m12;
     m12 = uii;
@@ -357,6 +357,7 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
   // performance.
   // 2x4, 2x5, and 3x3 should also be practical with this method, but beyond
   // that I doubt it's worth the trouble.
+  // Complexity of approach is O(n^{df/2}), where n is number of observations.
   double cur_prob = (1 - SMALLISH_EPSILON) * EXACT_TEST_BIAS;
   double tprob = cur_prob;
   double cprob = 0;
