@@ -82,8 +82,6 @@ double ltqnorm(double p) {
   // assumes 0 < p < 1
   double q, r;
 
-  errno = 0;
-
   if (p < IVN_LOW) {
     // Rational approximation for lower region
     q = sqrt(-2*log(p));
