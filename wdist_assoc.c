@@ -590,7 +590,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uint32_t assoc_p2 = model_modifier & MODEL_ASSOC_P2;
   uint32_t display_ci = (ci_size > 0);
   // uint32_t perms_done = 0;
-  uint32_t perms_left = 0;
+  // uint32_t perms_left = 0;
   uint32_t perm_pass_ct = 1;
   int32_t x_code = -1;
   int32_t y_code = -1;
@@ -615,7 +615,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   double dvv = 0.0;
   uint32_t mu_table[MODEL_BLOCKSIZE];
   char wformat[64];
-  uintptr_t marker_ctl;
+  // uintptr_t marker_ctl;
   uint32_t ctrl_ct;
   uint32_t perm_pass_idx;
   uint32_t chrom_fo_idx;
@@ -714,7 +714,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     logprint("Error: adaptive permutation is not yet implemented.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto model_assoc_ret_1;
-    perms_left = aperm_max;
+    // perms_left = aperm_max;
   }
   if (wkspace_alloc_uc_checked(&loadbuf_raw, unfiltered_indiv_ct4)) {
     goto model_assoc_ret_NOMEM;
@@ -892,7 +892,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   if (wkspace_alloc_ul_checked(&loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctl2 * sizeof(intptr_t))) {
     goto model_assoc_ret_NOMEM;
   }
-  marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  // marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
   if (model_maxt || model_adapt) {
     // check if enough memory to process all permutations in one pass
     // if yes, marker-specific information arrays only need to be of size

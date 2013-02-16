@@ -6017,7 +6017,7 @@ static void E0000(int IENTRY,int *status,double *x,double *fx,
 static double absstp,abstol,big,fbig,fsmall,relstp,reltol,small,step,stpmul,xhi,
     xlb,xlo,xsave,xub,yy;
 static int i99999;
-static unsigned long qbdd,qcond,qdum1,qdum2,qincr,qlim,qok,qup;
+static unsigned long qbdd,qcond,qdum1,qdum2,qincr,qlim,qup;
     switch(IENTRY){case 0: goto DINVR; case 1: goto DSTINV;}
 DINVR:
     if(*status > 0) goto S310;
@@ -6082,7 +6082,6 @@ S90:
     yy = *fx;
     if(!(yy == 0.0e0)) goto S100;
     *status = 0;
-    qok = 1;
     return;
 S100:
     qup = (qincr && yy < 0.0e0) || (!qincr && yy > 0.0e0);
