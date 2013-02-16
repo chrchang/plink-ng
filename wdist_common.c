@@ -1266,6 +1266,97 @@ uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintpt
 }
 
 #ifdef __LP64__
+void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp) {
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  __m128i loader;
+  __m128i loader2;
+  __m128i loader3;
+  __m128i to_ct1_ab;
+  __m128i to_ct_abtmp;
+  __m128i to_ct1_c;
+  __m128i to_ct2_ab;
+  __m128i to_ct2_c;
+  __uni16 acc1_ab;
+  __uni16 acc1_c;
+  __uni16 acc2_ab;
+  __uni16 acc2_c;
+
+  acc1_ab.vi = _mm_setzero_si128();
+  acc1_c.vi = _mm_setzero_si128();
+  acc2_ab.vi = _mm_setzero_si128();
+  acc2_c.vi = _mm_setzero_si128();
+  do {
+    loader = *vptr++;
+    loader2 = *mask1vp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    loader2 = _mm_and_si128(loader2, loader);
+    to_ct1_ab = _mm_add_epi64(loader3, loader2);
+    to_ct1_c = _mm_andnot_si128(loader3, loader2);
+    loader2 = *mask2vp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    loader2 = _mm_and_si128(loader2, loader);
+    to_ct2_ab = _mm_add_epi64(loader3, loader2);
+    to_ct2_c = _mm_andnot_si128(loader3, loader2);
+    to_ct1_ab = _mm_add_epi64(_mm_and_si128(to_ct1_ab, m2), _mm_and_si128(_mm_srli_epi64(to_ct1_ab, 2), m2));
+    to_ct2_ab = _mm_add_epi64(_mm_and_si128(to_ct2_ab, m2), _mm_and_si128(_mm_srli_epi64(to_ct2_ab, 2), m2));
+
+    loader = *vptr++;
+    loader2 = *mask1vp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    loader2 = _mm_and_si128(loader2, loader);
+    to_ct_abtmp = _mm_add_epi64(loader3, loader2);
+    to_ct1_c = _mm_add_epi64(to_ct1_c, _mm_andnot_si128(loader3, loader2));
+    to_ct1_ab = _mm_add_epi64(to_ct1_ab, _mm_add_epi64(_mm_and_si128(to_ct_abtmp, m2), _mm_and_si128(_mm_srli_epi64(to_ct_abtmp, 2), m2)));
+    loader2 = *mask2vp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    loader2 = _mm_and_si128(loader2, loader);
+    to_ct_abtmp = _mm_add_epi64(loader3, loader2);
+    to_ct2_c = _mm_add_epi64(to_ct1_c, _mm_andnot_si128(loader3, loader2));
+    to_ct2_ab = _mm_add_epi64(to_ct2_ab, _mm_add_epi64(_mm_and_si128(to_ct_abtmp, m2), _mm_and_si128(_mm_srli_epi64(to_ct_abtmp, 2), m2)));
+
+    loader = *vptr++;
+    loader2 = *mask1vp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    loader2 = _mm_and_si128(loader2, loader);
+    to_ct_abtmp = _mm_add_epi64(loader3, loader2);
+    to_ct1_c = _mm_add_epi64(to_ct1_c, _mm_andnot_si128(loader3, loader2));
+    to_ct1_ab = _mm_add_epi64(to_ct1_ab, _mm_add_epi64(_mm_and_si128(to_ct_abtmp, m2), _mm_and_si128(_mm_srli_epi64(to_ct_abtmp, 2), m2)));
+    loader2 = *mask2vp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    loader2 = _mm_and_si128(loader2, loader);
+    to_ct_abtmp = _mm_add_epi64(loader3, loader2);
+    to_ct2_c = _mm_add_epi64(to_ct1_c, _mm_andnot_si128(loader3, loader2));
+    to_ct2_ab = _mm_add_epi64(to_ct2_ab, _mm_add_epi64(_mm_and_si128(to_ct_abtmp, m2), _mm_and_si128(_mm_srli_epi64(to_ct_abtmp, 2), m2)));
+
+    to_ct1_c = _mm_add_epi64(_mm_and_si128(to_ct1_c, m2), _mm_and_si128(_mm_srli_epi64(to_ct1_c, 2), m2));
+    to_ct2_c = _mm_add_epi64(_mm_and_si128(to_ct2_c, m2), _mm_and_si128(_mm_srli_epi64(to_ct2_c, 2), m2));
+
+    acc1_ab.vi = _mm_add_epi64(acc1_ab.vi, _mm_add_epi64(_mm_and_si128(to_ct1_ab, m4), _mm_and_si128(_mm_srli_epi64(to_ct1_ab, 4), m4)));
+    acc1_c.vi = _mm_add_epi64(acc1_c.vi, _mm_add_epi64(_mm_and_si128(to_ct1_c, m4), _mm_and_si128(_mm_srli_epi64(to_ct1_c, 4), m4)));
+    acc2_ab.vi = _mm_add_epi64(acc2_ab.vi, _mm_add_epi64(_mm_and_si128(to_ct2_ab, m4), _mm_and_si128(_mm_srli_epi64(to_ct2_ab, 4), m4)));
+    acc2_c.vi = _mm_add_epi64(acc2_c.vi, _mm_add_epi64(_mm_and_si128(to_ct2_c, m4), _mm_and_si128(_mm_srli_epi64(to_ct2_c, 4), m4)));
+  } while (vptr < vend);
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
+  acc1_ab.vi = _mm_add_epi64(_mm_and_si128(acc1_ab.vi, m8), _mm_and_si128(_mm_srli_epi64(acc1_ab.vi, 8), m8));
+  acc1_c.vi = _mm_and_si128(_mm_add_epi64(acc1_c.vi, _mm_srli_epi64(acc1_c.vi, 8)), m8);
+  acc2_ab.vi = _mm_add_epi64(_mm_and_si128(acc2_ab.vi, m8), _mm_and_si128(_mm_srli_epi64(acc2_ab.vi, 8), m8));
+  acc2_c.vi = _mm_and_si128(_mm_add_epi64(acc2_c.vi, _mm_srli_epi64(acc2_c.vi, 8)), m8);
+  acc1_ab.vi = _mm_and_si128(_mm_add_epi64(acc1_ab.vi, _mm_srli_epi64(acc1_ab.vi, 16)), m16);
+  acc1_c.vi = _mm_and_si128(_mm_add_epi64(acc1_c.vi, _mm_srli_epi64(acc1_c.vi, 16)), m16);
+  acc2_ab.vi = _mm_and_si128(_mm_add_epi64(acc2_ab.vi, _mm_srli_epi64(acc2_ab.vi, 16)), m16);
+  acc2_c.vi = _mm_and_si128(_mm_add_epi64(acc2_c.vi, _mm_srli_epi64(acc2_c.vi, 16)), m16);
+  acc1_ab.vi = _mm_add_epi64(acc1_ab.vi, _mm_srli_epi64(acc1_ab.vi, 32));
+  acc1_c.vi = _mm_add_epi64(acc1_c.vi, _mm_srli_epi64(acc1_c.vi, 32));
+  acc2_ab.vi = _mm_add_epi64(acc2_ab.vi, _mm_srli_epi64(acc2_ab.vi, 32));
+  acc2_c.vi = _mm_add_epi64(acc2_c.vi, _mm_srli_epi64(acc2_c.vi, 32));
+  *ct1abp += (uint32_t)(acc1_ab.u8[0] + acc1_ab.u8[1]);
+  *ct1cp += (uint32_t)(acc1_c.u8[0] + acc1_c.u8[1]);
+  *ct2abp += (uint32_t)(acc2_ab.u8[0] + acc2_ab.u8[1]);
+  *ct2cp += (uint32_t)(acc2_c.u8[0] + acc2_c.u8[1]);
+}
+
 void count_3freq_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
@@ -1350,6 +1441,121 @@ void count_3freq_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* c
   *ctcp += (uint32_t)(acc_c.u8[0] + acc_c.u8[1]);
 }
 #else
+void count_2freq_dbl_6(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp) {
+  uintptr_t loader = *lptr++;
+  uintptr_t loader2 = *mask1p++;
+  uintptr_t loader3 = (loader >> 1) & loader2;
+  uintptr_t to_ct1_ab;
+  uintptr_t to_ct1_c;
+  uintptr_t to_ct2_ab;
+  uintptr_t to_ct2_c;
+  uintptr_t to_ct_abtmp;
+  uintptr_t partial1_ab;
+  uintptr_t partial1_c;
+  uintptr_t partial2_ab;
+  uintptr_t partial2_c;
+  loader2 &= loader;
+  to_ct1_ab = loader2 + loader3;
+  to_ct1_c = loader2 & (~loader3);
+  loader2 = *mask2p++;
+  loader3 = (loader >> 1) & loader2;
+  loader2 &= loader;
+  to_ct2_ab = loader2 + loader3;
+  to_ct2_c = loader2 & (~loader3);
+
+  to_ct1_ab = (to_ct1_ab & 0x33333333) + ((to_ct1_ab >> 2) & 0x33333333);
+  to_ct2_ab = (to_ct2_ab & 0x33333333) + ((to_ct2_ab >> 2) & 0x33333333);
+
+  loader = *lptr++;
+  loader2 = *mask1p++;
+  loader3 = (loader >> 1) & loader2;
+  loader2 &= loader;
+  to_ct_abtmp = loader2 + loader3;
+  to_ct1_c += loader2 & (~loader3);
+  to_ct1_ab += (to_ct_abtmp & 0x33333333) + ((to_ct_abtmp >> 2) & 0x33333333);
+  loader2 = *mask2p++;
+  loader3 = (loader >> 1) & loader2;
+  loader2 &= loader;
+  to_ct_abtmp = loader2 + loader3;
+  to_ct2_c += loader2 & (~loader3);
+  to_ct2_ab += (to_ct_abtmp & 0x33333333) + ((to_ct_abtmp >> 2) & 0x33333333);
+
+  loader = *lptr++;
+  loader2 = *mask1p++;
+  loader3 = (loader >> 1) & loader2;
+  loader2 &= loader;
+  to_ct_abtmp = loader2 + loader3;
+  to_ct1_c += loader2 & (~loader3);
+  to_ct1_ab += (to_ct_abtmp & 0x33333333) + ((to_ct_abtmp >> 2) & 0x33333333);
+  loader2 = *mask2p++;
+  loader3 = (loader >> 1) & loader2;
+  loader2 &= loader;
+  to_ct_abtmp = loader2 + loader3;
+  to_ct2_c += loader2 & (~loader3);
+  to_ct2_ab += (to_ct_abtmp & 0x33333333) + ((to_ct_abtmp >> 2) & 0x33333333);
+
+  partial1_ab = (to_ct1_ab & 0x0f0f0f0f) + ((to_ct1_ab >> 4) & 0x0f0f0f0f);
+  partial1_c = (to_ct1_c & 0x33333333) + ((to_ct1_c >> 2) & 0x33333333);
+  partial2_ab = (to_ct2_ab & 0x0f0f0f0f) + ((to_ct2_ab >> 4) & 0x0f0f0f0f);
+  partial2_c = (to_ct2_c & 0x33333333) + ((to_ct2_c >> 2) & 0x33333333);
+
+  loader = *lptr++;
+  loader2 = *mask1p++;
+  loader3 = (loader >> 1) & loader2;
+  loader2 &= loader;
+  to_ct1_ab = loader2 + loader3;
+  to_ct1_c = loader2 & (~loader3);
+  loader2 = *mask2p++;
+  loader3 = (loader >> 1) & loader2;
+  loader2 &= loader;
+  to_ct2_ab = loader2 + loader3;
+  to_ct2_c = loader2 & (~loader3);
+
+  to_ct1_ab = (to_ct1_ab & 0x33333333) + ((to_ct1_ab >> 2) & 0x33333333);
+  to_ct2_ab = (to_ct2_ab & 0x33333333) + ((to_ct2_ab >> 2) & 0x33333333);
+
+  loader = *lptr++;
+  loader2 = *mask1p++;
+  loader3 = (loader >> 1) & loader2;
+  loader2 &= loader;
+  to_ct_abtmp = loader2 + loader3;
+  to_ct1_c += loader2 & (~loader3);
+  to_ct1_ab += (to_ct_abtmp & 0x33333333) + ((to_ct_abtmp >> 2) & 0x33333333);
+  loader2 = *mask2p++;
+  loader3 = (loader >> 1) & loader2;
+  loader2 &= loader;
+  to_ct_abtmp = loader2 + loader3;
+  to_ct2_c += loader2 & (~loader3);
+  to_ct2_ab += (to_ct_abtmp & 0x33333333) + ((to_ct_abtmp >> 2) & 0x33333333);
+
+  loader = *lptr++;
+  loader2 = *mask1p++;
+  loader3 = (loader >> 1) & loader2;
+  loader2 &= loader;
+  to_ct_abtmp = loader2 + loader3;
+  to_ct1_c += loader2 & (~loader3);
+  to_ct1_ab += (to_ct_abtmp & 0x33333333) + ((to_ct_abtmp >> 2) & 0x33333333);
+  loader2 = *mask2p++;
+  loader3 = (loader >> 1) & loader2;
+  loader2 &= loader;
+  to_ct_abtmp = loader2 + loader3;
+  to_ct2_c += loader2 & (~loader3);
+  to_ct2_ab += (to_ct_abtmp & 0x33333333) + ((to_ct_abtmp >> 2) & 0x33333333);
+
+  partial1_ab += (to_ct1_ab & 0x0f0f0f0f) + ((to_ct1_ab >> 4) & 0x0f0f0f0f);
+  partial1_c += (to_ct1_c & 0x33333333) + ((to_ct1_c >> 2) & 0x33333333);
+  partial2_ab += (to_ct2_ab & 0x0f0f0f0f) + ((to_ct2_ab >> 4) & 0x0f0f0f0f);
+  partial2_c += (to_ct2_c & 0x33333333) + ((to_ct2_c >> 2) & 0x33333333);
+
+  partial1_c = (partial1_c & 0x0f0f0f0f) + ((partial1_c >> 4) & 0x0f0f0f0f);
+  partial2_c = (partial2_c & 0x0f0f0f0f) + ((partial2_c >> 4) & 0x0f0f0f0f);
+
+  *ct1abp += (partial1_ab * 0x01010101) >> 24;
+  *ct1cp += (partial1_c * 0x01010101) >> 24;
+  *ct2abp += (partial2_ab * 0x01010101) >> 24;
+  *ct2cp += (partial2_c * 0x01010101) >> 24;
+}
+
 void count_3freq_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp) {
   uintptr_t loader = *lptr++;
   uintptr_t loader2 = *maskp++;
