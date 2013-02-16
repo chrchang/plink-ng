@@ -862,6 +862,12 @@ uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx
 
 uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx);
 
+#ifdef __LP64__
+void count_3freq_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp);
+#else
+void count_3freq_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp);
+#endif
+
 static inline void zero_trailing_bits(uintptr_t* bitfield, uintptr_t unfiltered_ct) {
   uintptr_t trail_ct = unfiltered_ct & (BITCT - 1);
   if (trail_ct) {

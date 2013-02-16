@@ -1265,6 +1265,197 @@ uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintpt
   return tot;
 }
 
+#ifdef __LP64__
+void count_3freq_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp) {
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
+  __m128i loader;
+  __m128i loader2;
+  __m128i loader3;
+  __m128i to_ct_a1;
+  __m128i to_ct_b1;
+  __m128i to_ct_c1;
+  __m128i to_ct_a2;
+  __m128i to_ct_b2;
+  __m128i to_ct_c2;
+  __uni16 acc_a;
+  __uni16 acc_b;
+  __uni16 acc_c;
+
+  acc_a.vi = _mm_setzero_si128();
+  acc_b.vi = _mm_setzero_si128();
+  acc_c.vi = _mm_setzero_si128();
+  do {
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    to_ct_b1 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a1 = _mm_and_si128(loader2, loader);
+    to_ct_c1 = _mm_and_si128(to_ct_b1, loader);
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a1 = _mm_add_epi64(to_ct_a1, _mm_and_si128(loader2, loader));
+    to_ct_b1 = _mm_add_epi64(to_ct_b1, loader3);
+    to_ct_c1 = _mm_add_epi64(to_ct_c1, _mm_and_si128(loader3, loader));
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a1 = _mm_add_epi64(to_ct_a1, _mm_and_si128(loader2, loader));
+    to_ct_b1 = _mm_add_epi64(to_ct_b1, loader3);
+    to_ct_c1 = _mm_add_epi64(to_ct_c1, _mm_and_si128(loader3, loader));
+
+    to_ct_a1 = _mm_add_epi64(_mm_and_si128(to_ct_a1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_a1, 2), m2));
+    to_ct_b1 = _mm_add_epi64(_mm_and_si128(to_ct_b1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_b1, 2), m2));
+    to_ct_c1 = _mm_add_epi64(_mm_and_si128(to_ct_c1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_c1, 2), m2));
+
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    to_ct_b2 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a2 = _mm_and_si128(loader2, loader);
+    to_ct_c2 = _mm_and_si128(to_ct_b2, loader);
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a2 = _mm_add_epi64(to_ct_a2, _mm_and_si128(loader2, loader));
+    to_ct_b2 = _mm_add_epi64(to_ct_b2, loader3);
+    to_ct_c2 = _mm_add_epi64(to_ct_c2, _mm_and_si128(loader3, loader));
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    to_ct_a2 = _mm_add_epi64(to_ct_a2, _mm_and_si128(loader2, loader));
+    to_ct_b2 = _mm_add_epi64(to_ct_b2, loader3);
+    to_ct_c2 = _mm_add_epi64(to_ct_c2, _mm_and_si128(loader3, loader));
+
+    to_ct_a1 = _mm_add_epi64(to_ct_a1, _mm_add_epi64(_mm_and_si128(to_ct_a2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_a2, 2), m2)));
+    to_ct_b1 = _mm_add_epi64(to_ct_b1, _mm_add_epi64(_mm_and_si128(to_ct_b2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_b2, 2), m2)));
+    to_ct_c1 = _mm_add_epi64(to_ct_c1, _mm_add_epi64(_mm_and_si128(to_ct_c2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_c2, 2), m2)));
+
+    acc_a.vi = _mm_add_epi64(acc_a.vi, _mm_add_epi64(_mm_and_si128(to_ct_a1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_a1, 4), m4)));
+    acc_b.vi = _mm_add_epi64(acc_b.vi, _mm_add_epi64(_mm_and_si128(to_ct_b1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_b1, 4), m4)));
+    acc_c.vi = _mm_add_epi64(acc_c.vi, _mm_add_epi64(_mm_and_si128(to_ct_c1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_c1, 4), m4)));
+  } while (vptr < vend);
+  acc_a.vi = _mm_add_epi64(_mm_and_si128(acc_a.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_a.vi, 8), m8));
+  acc_b.vi = _mm_add_epi64(_mm_and_si128(acc_b.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_b.vi, 8), m8));
+  acc_c.vi = _mm_add_epi64(_mm_and_si128(acc_c.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_c.vi, 8), m8));
+  acc_a.vi = _mm_and_si128(_mm_add_epi64(acc_a.vi, _mm_srli_epi64(acc_a.vi, 16)), m16);
+  acc_b.vi = _mm_and_si128(_mm_add_epi64(acc_b.vi, _mm_srli_epi64(acc_b.vi, 16)), m16);
+  acc_c.vi = _mm_and_si128(_mm_add_epi64(acc_c.vi, _mm_srli_epi64(acc_c.vi, 16)), m16);
+  acc_a.vi = _mm_add_epi64(acc_a.vi, _mm_srli_epi64(acc_a.vi, 32));
+  acc_b.vi = _mm_add_epi64(acc_b.vi, _mm_srli_epi64(acc_b.vi, 32));
+  acc_c.vi = _mm_add_epi64(acc_c.vi, _mm_srli_epi64(acc_c.vi, 32));
+  *ctap += (uint32_t)(acc_a.u8[0] + acc_a.u8[1]);
+  *ctbp += (uint32_t)(acc_b.u8[0] + acc_b.u8[1]);
+  *ctcp += (uint32_t)(acc_c.u8[0] + acc_c.u8[1]);
+}
+#else
+void count_3freq_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp) {
+  uintptr_t loader = *lptr++;
+  uintptr_t loader2 = *maskp++;
+  uint32_t to_ct_a1 = loader & loader2;
+  uint32_t to_ct_b1 = (loader >> 1) & loader2;
+  uint32_t to_ct_c1 = loader & to_ct_b1;
+  uintptr_t loader3;
+  uint32_t to_ct_a2;
+  uint32_t to_ct_b2;
+  uint32_t to_ct_c2;
+  uintptr_t partial_a;
+  uintptr_t partial_b;
+  uintptr_t partial_c;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a1 += loader & loader2;
+  to_ct_b1 += loader3;
+  to_ct_c1 += loader & loader3;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a1 += loader & loader2;
+  to_ct_b1 += loader3;
+  to_ct_c1 += loader & loader3;
+
+  loader = *lptr++;
+  loader2 = *maskp++;
+  to_ct_a2 = loader & loader2;
+  to_ct_b2 = (loader >> 1) & loader2;
+  to_ct_c2 = loader & to_ct_b2;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a2 += loader & loader2;
+  to_ct_b2 += loader3;
+  to_ct_c2 += loader & loader3;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a2 += loader & loader2;
+  to_ct_b2 += loader3;
+  to_ct_c2 += loader & loader3;
+
+  to_ct_a1 = (to_ct_a1 & 0x33333333) + ((to_ct_a1 >> 2) & 0x33333333);
+  to_ct_a1 += (to_ct_a2 & 0x33333333) + ((to_ct_a2 >> 2) & 0x33333333);
+  partial_a = (to_ct_a1 & 0x0f0f0f0f) + ((to_ct_a1 >> 4) & 0x0f0f0f0f);
+  to_ct_b1 = (to_ct_b1 & 0x33333333) + ((to_ct_b1 >> 2) & 0x33333333);
+  to_ct_b1 += (to_ct_b2 & 0x33333333) + ((to_ct_b2 >> 2) & 0x33333333);
+  partial_b = (to_ct_b1 & 0x0f0f0f0f) + ((to_ct_b1 >> 4) & 0x0f0f0f0f);
+  to_ct_c1 = (to_ct_c1 & 0x33333333) + ((to_ct_c1 >> 2) & 0x33333333);
+  to_ct_c1 += (to_ct_c2 & 0x33333333) + ((to_ct_c2 >> 2) & 0x33333333);
+  partial_c = (to_ct_c1 & 0x0f0f0f0f) + ((to_ct_c1 >> 4) & 0x0f0f0f0f);
+
+  loader = *lptr++;
+  loader2 = *maskp++;
+  to_ct_a1 = loader & loader2;
+  to_ct_b1 = (loader >> 1) & loader2;
+  to_ct_c1 = loader & to_ct_b1;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a1 += loader & loader2;
+  to_ct_b1 += loader3;
+  to_ct_c1 += loader & loader3;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a1 += loader & loader2;
+  to_ct_b1 += loader3;
+  to_ct_c1 += loader & loader3;
+
+  loader = *lptr++;
+  loader2 = *maskp++;
+  to_ct_a2 = loader & loader2;
+  to_ct_b2 = (loader >> 1) & loader2;
+  to_ct_c2 = loader & to_ct_b2;
+  loader = *lptr++;
+  loader2 = *maskp++;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a2 += loader & loader2;
+  to_ct_b2 += loader3;
+  to_ct_c2 += loader & loader3;
+  loader = *lptr;
+  loader2 = *maskp;
+  loader3 = (loader >> 1) & loader2;
+  to_ct_a2 += loader & loader2;
+  to_ct_b2 += loader3;
+  to_ct_c2 += loader & loader3;
+
+  to_ct_a1 = (to_ct_a1 & 0x33333333) + ((to_ct_a1 >> 2) & 0x33333333);
+  to_ct_a1 += (to_ct_a2 & 0x33333333) + ((to_ct_a2 >> 2) & 0x33333333);
+  partial_a += (to_ct_a1 & 0x0f0f0f0f) + ((to_ct_a1 >> 4) & 0x0f0f0f0f);
+  to_ct_b1 = (to_ct_b1 & 0x33333333) + ((to_ct_b1 >> 2) & 0x33333333);
+  to_ct_b1 += (to_ct_b2 & 0x33333333) + ((to_ct_b2 >> 2) & 0x33333333);
+  partial_b += (to_ct_b1 & 0x0f0f0f0f) + ((to_ct_b1 >> 4) & 0x0f0f0f0f);
+  to_ct_c1 = (to_ct_c1 & 0x33333333) + ((to_ct_c1 >> 2) & 0x33333333);
+  to_ct_c1 += (to_ct_c2 & 0x33333333) + ((to_ct_c2 >> 2) & 0x33333333);
+  partial_c += (to_ct_c1 & 0x0f0f0f0f) + ((to_ct_c1 >> 4) & 0x0f0f0f0f);
+
+  *ctap += (partial_a * 0x01010101) >> 24;
+  *ctbp += (partial_b * 0x01010101) >> 24;
+  *ctcp += (partial_c * 0x01010101) >> 24;
+}
+#endif
+
 uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude) {
   uint32_t min_idx;
   uint32_t max_idx;

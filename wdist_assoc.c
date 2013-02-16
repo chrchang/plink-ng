@@ -499,53 +499,35 @@ void single_marker_cc_3freqs(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t
   uintptr_t loader;
   uintptr_t loader2;
   uintptr_t loader3;
-  /*
 #ifdef __LP64__
   uintptr_t cur_decr;
   uintptr_t* lptr_12x_end;
-  unfiltered_indiv_ctl2 -= unfiltered_indiv_ctl2 % 12;
-  while (unfiltered_indiv_ctl2 >= 120) {
+  indiv_ctl2 -= indiv_ctl2 % 12;
+  while (indiv_ctl2 >= 120) {
     cur_decr = 120;
-  single_marker_freqs_and_hwe_loop:
+  single_marker_cc_3freqs_loop:
     lptr_12x_end = &(lptr[cur_decr]);
-    freq_hwe_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)indiv_include2, &tot_a, &tot_b, &tot_c);
-    freq_hwe_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_include2, &tot_a_f, &tot_b_f, &tot_c_f);
-    if (hwe_needed) {
-      freq_hwe_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_ctrl_include2, &tot_a_hwe, &tot_b_hwe, &tot_c_hwe);
-      founder_ctrl_include2 = &(founder_ctrl_include2[cur_decr]);
-      if (hardy_needed) {
-	freq_hwe_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_case_include2, &tot_a_chwe, &tot_b_chwe, &tot_c_chwe);
-	founder_case_include2 = &(founder_case_include2[cur_decr]);
-      }
-    }
+    count_3freq_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)ctrl_include2, &tot_ctrl_a, &tot_ctrl_b, &tot_ctrl_c);
+    count_3freq_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)case_include2, &tot_case_a, &tot_case_b, &tot_case_c);
     lptr = lptr_12x_end;
-    indiv_include2 = &(indiv_include2[cur_decr]);
-    founder_include2 = &(founder_include2[cur_decr]);
-    unfiltered_indiv_ctl2 -= cur_decr;
+    ctrl_include2 = &(ctrl_include2[cur_decr]);
+    case_include2 = &(case_include2[cur_decr]);
+    indiv_ctl2 -= cur_decr;
   }
-  if (unfiltered_indiv_ctl2) {
-    cur_decr = unfiltered_indiv_ctl2;
-    goto single_marker_freqs_and_hwe_loop;
+  if (indiv_ctl2) {
+    cur_decr = indiv_ctl2;
+    goto single_marker_cc_3freqs_loop;
   }
 #else
-  uintptr_t* lptr_twelve_end = &(lptr[unfiltered_indiv_ctl2 - unfiltered_indiv_ctl2 % 12]);
+  uintptr_t* lptr_twelve_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 12)]);
   while (lptr < lptr_twelve_end) {
-    freq_hwe_count_12(lptr, indiv_include2, &tot_a, &tot_b, &tot_c);
-    freq_hwe_count_12(lptr, founder_include2, &tot_a_f, &tot_b_f, &tot_c_f);
-    if (hwe_needed) {
-      freq_hwe_count_12(lptr, founder_ctrl_include2, &tot_a_hwe, &tot_b_hwe, &tot_c_hwe);
-      founder_ctrl_include2 = &(founder_ctrl_include2[12]);
-      if (hardy_needed) {
-	freq_hwe_count_12(lptr, founder_case_include2, &tot_a_chwe, &tot_b_chwe, &tot_c_chwe);
-	founder_case_include2 = &(founder_case_include2[12]);
-      }
-    }
+    count_3freq_12(lptr, ctrl_include2, &tot_ctrl_a, &tot_ctrl_b, &tot_ctrl_c);
+    count_3freq_12(lptr, case_include2, &tot_case_a, &tot_case_b, &tot_case_c);
     lptr = &(lptr[12]);
-    indiv_include2 = &(indiv_include2[12]);
-    founder_include2 = &(founder_include2[12]);
+    ctrl_include2 = &(ctrl_include2[12]);
+    case_include2 = &(case_include2[12]);
   }
 #endif
-  */
   while (lptr < lptr_end) {
     //   A := genotype & 0x5555...
     //   B := (genotype >> 1) & 0x5555...
@@ -613,6 +595,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   double dxx = 0.0;
   double dww = 0.0;
   double dvv = 0.0;
+  uint32_t pct = 0;
   uint32_t mu_table[MODEL_BLOCKSIZE];
   char wformat[64];
   // uintptr_t marker_ctl;
@@ -695,6 +678,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   // double best_p;
   char* a1ptr;
   char* a2ptr;
+  uint32_t loop_end;
 
   if (assoc_p2) {
     logprint("Error: --assoc p2 not yet supported.\n");
@@ -813,6 +797,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       wkspace_alloc_d_checked(&orig_odds, marker_ct * sizeof(double))) {
     goto model_assoc_ret_NOMEM;
   }
+  fputs(" 0%", stdout);
   if (model_adapt || model_maxt) {
     // indiv_ctrl_include2, etc. point to first permutation slot instead of
     // getting their own memory
@@ -912,6 +897,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     marker_uidx = 0;
     marker_idx = 0;
     chrom_end = 0;
+    loop_end = marker_idx / 100LLU;
     do {
       if (marker_uidx >= chrom_end) {
 	block_start = 0;
@@ -1469,8 +1455,23 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	}
       }
       marker_idx += block_size - block_start;
+      if ((!perm_pass_idx) && (marker_idx >= loop_end)) {
+	if (marker_idx < marker_ct) {
+	  if (pct >= 10) {
+	    putchar('\b');
+	  }
+	  pct = (marker_idx * 100LLU) / marker_ct;
+	  printf("\b\b%u%%", pct);
+	  fflush(stdout);
+	  loop_end = ((uint64_t)(pct + 1LLU) * marker_ct) / 100;
+	}
+      }
     } while (marker_idx < marker_ct);
     if (!perm_pass_idx) {
+      if (pct >= 10) {
+	putchar('\b');
+      }
+      fputs("\b\b\b", stdout);
       logprint(" done.\n");
     }
   }
