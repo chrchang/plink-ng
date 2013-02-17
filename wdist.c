@@ -7872,6 +7872,10 @@ int32_t main(int32_t argc, char** argv) {
 	      logprint("Error: Conflicting --model parameters.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
+	    if (mtest_adjust) {
+	      sprintf(logbuf, "Error: --model perm-gen cannot be used with --adjust.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	    model_modifier |= MODEL_PGEN;
 	  } else if (!strcmp(argv[cur_arg + jj], "perm-trend")) {
 	    if (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PGEN)) {
@@ -8998,6 +9002,12 @@ int32_t main(int32_t argc, char** argv) {
   }
 
   if (calculation_type & CALC_MODEL) {
+    if (!(model_modifier & (MODEL_ASSOC | MODEL_PDOM | MODEL_PREC | MODEL_PTREND))) {
+      if (mtest_adjust) {
+	sprintf(logbuf, "Error: In order to use --model with --adjust, you must include the 'perm-dom',\n'perm-rec', 'perm-trend', or 'trend-only' modifier.%s", errstr_append);
+	goto main_ret_INVALID_CMDLINE_3;
+      }
+    }
     if (model_cell_ct == -1) {
       model_cell_ct = (model_modifier & MODEL_FISHER)? 0 : 5;
     }

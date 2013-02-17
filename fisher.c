@@ -23,7 +23,6 @@
 
 #define SMALLISH_EPSILON 0.00000000003
 #define SMALL_EPSILON 0.0000000000001
-#define DOUBLE_PREC_LIMIT 0.0000000000000001
 #define EXACT_TEST_BIAS 0.00000000000000000000000010339757656912845935892608650874535669572651386260986328125
 
 double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22) {
@@ -31,12 +30,12 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22) {
   double tprob = (1 - SMALL_EPSILON) * EXACT_TEST_BIAS;
   double cur_prob = tprob;
   double cprob = 0;
-  double tail_stop;
   uint32_t uii;
-  double cur11; // signed integers convert to doubles more easily
+  double cur11;
   double cur12;
   double cur21;
   double cur22;
+  double preaddp;
   // Ensure we are left of the distribution center, m11 <= m22, and m12 <= m21.
   if (m12 > m21) {
     uii = m12;
@@ -48,7 +47,7 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22) {
     m11 = m22;
     m22 = uii;
   }
-  if ((((int64_t)m11) * m22) > (((int64_t)m12) * m21)) {
+  if ((((uint64_t)m11) * m22) > (((uint64_t)m12) * m21)) {
     uii = m11;
     m11 = m12;
     m12 = uii;
@@ -79,17 +78,17 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22) {
     return 1;
   }
   if (cur12 > 0.5) {
-    tail_stop = tprob * DOUBLE_PREC_LIMIT;
     do {
       cur11 += 1;
       cur22 += 1;
       cur_prob *= (cur12 * cur21) / (cur11 * cur22);
       cur12 -= 1;
       cur21 -= 1;
-      if (cur_prob < tail_stop) {
+      preaddp = tprob;
+      tprob += cur_prob;
+      if (tprob <= preaddp) {
 	break;
       }
-      tprob += cur_prob;
     } while (cur12 > 0.5);
   }
   if (m11) {
@@ -98,21 +97,38 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22) {
     cur21 = m21;
     cur22 = m22;
     cur_prob = (1 - SMALL_EPSILON) * EXACT_TEST_BIAS;
-    tail_stop = tprob * DOUBLE_PREC_LIMIT;
     do {
       cur12 += 1;
       cur21 += 1;
       cur_prob *= (cur11 * cur22) / (cur12 * cur21);
       cur11 -= 1;
       cur22 -= 1;
-      if (cur_prob < tail_stop) {
-        return tprob / (cprob + tprob);
-      }
+      preaddp = tprob;
       tprob += cur_prob;
+      if (tprob <= preaddp) {
+	return preaddp / (cprob + preaddp);
+      }
     } while (cur11 > 0.5);
   }
   return tprob / (cprob + tprob);
 }
+
+/*
+void fisher22_precomp(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, double* m11_precomp, uint32_t* m11_offsetp, uint32_t* m11_ceilp) {
+  // Assumes m11_precomp is a preallocated buffer of adequate size to store all
+  // nonzero p-values.
+  // Returns:
+  //   m11_precomp[0] = p-value when m11 is *m11_offsetp
+  //   ...
+  //   m11_precomp[*m11ceilp - *m11_offsetp - 1] = p-value when m11 is
+  //     *m11_ceilp - 1
+  //   All other p-values underflow.
+  //
+  // Algorithm:
+  // 1. Locate the center.
+  // ...
+}
+*/
 
 int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p, double* saved22p, double* saved23p, double *totalp, uint32_t right_side) {
   double total = 0;
@@ -229,8 +245,6 @@ int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p,
   if (right_side) {
     prev_prob = total;
     total += cur_prob;
-    // tail_stop = (total + cur_prob) * DOUBLE_PREC_LIMIT;
-    // while (cur_prob > tail_stop) {
     while (total > prev_prob) {
       tmps12 += 1;
       tmps23 += 1;
@@ -265,11 +279,11 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
   // performance.
   // 2x4, 2x5, and 3x3 should also be practical with this method, but beyond
   // that I doubt it's worth the trouble.
+  // Complexity of approach is O(n^{df/2}), where n is number of observations.
   double cur_prob = (1 - SMALLISH_EPSILON) * EXACT_TEST_BIAS;
   double tprob = cur_prob;
   double cprob = 0;
   uint32_t dir = 0; // 0 = forwards, 1 = backwards
-  double tail_stop = 0;
   double dyy = 0;
   double base_probl;
   double base_probr;
@@ -303,6 +317,7 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
   double tmp22;
   double tmp23;
   double dxx;
+  double preaddp;
   // Ensure m11 + m21 <= m12 + m22 <= m13 + m23.
   uii = m11 + m21;
   ujj = m12 + m22;
@@ -381,20 +396,19 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
     savedl22 = tmp22;
     savedl23 = tmp23;
     base_probl = cur_prob;
-    tail_stop = tprob * DOUBLE_PREC_LIMIT;
     do {
       tmp13 += 1;
       tmp22 += 1;
       cur_prob *= (tmp12 * tmp23) / (tmp13 * tmp22);
       tmp12 -= 1;
       tmp23 -= 1;
+      preaddp = tprob;
       tprob += cur_prob;
-    } while (cur_prob > tail_stop);
+    } while (tprob > preaddp);
     tmp12 = savedr12;
     tmp13 = savedr13;
     tmp22 = savedr22;
     tmp23 = savedr23;
-    tail_stop = tprob * DOUBLE_PREC_LIMIT;
     cur_prob = base_probr;
     do {
       tmp12 += 1;
@@ -402,8 +416,9 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
       cur_prob *= (tmp13 * tmp22) / (tmp12 * tmp23);
       tmp13 -= 1;
       tmp22 -= 1;
+      preaddp = tprob;
       tprob += cur_prob;
-    } while (cur_prob > tail_stop);
+    } while (tprob > preaddp);
   } else {
     base_probl = cur_prob;
     savedl12 = m12;
@@ -443,20 +458,19 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
       savedr22 = tmp22;
       savedr23 = tmp23;
       base_probr = cur_prob;
-      tail_stop = tprob * DOUBLE_PREC_LIMIT;
       do {
 	tmp12 += 1;
 	tmp23 += 1;
 	cur_prob *= (tmp13 * tmp22) / (tmp12 * tmp23);
 	tmp13 -= 1;
 	tmp22 -= 1;
+	preaddp = tprob;
 	tprob += cur_prob;
-      } while (cur_prob > tail_stop);
+      } while (tprob > preaddp);
       tmp12 = savedl12;
       tmp13 = savedl13;
       tmp22 = savedl22;
       tmp23 = savedl23;
-      tail_stop = tprob * DOUBLE_PREC_LIMIT;
       cur_prob = base_probl;
       do {
 	tmp13 += 1;
@@ -464,8 +478,9 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
 	cur_prob *= (tmp12 * tmp23) / (tmp13 * tmp22);
 	tmp12 -= 1;
 	tmp23 -= 1;
+	preaddp = tprob;
 	tprob += cur_prob;
-      } while (cur_prob > tail_stop);
+      } while (tprob > preaddp);
     }
   }
   row_prob = tprob + cprob;
@@ -573,10 +588,13 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
     }
     savedl12 += savedl13;
     savedl22 += savedl23;
-    tail_stop = tprob * DOUBLE_PREC_LIMIT;
     if (dir) {
-      while (row_prob > tail_stop) {
+      while (1) {
+	preaddp = tprob;
 	tprob += row_prob;
+	if (tprob <= preaddp) {
+	  break;
+	}
 	cur21 += 1;
 	savedl12 += 1;
 	row_prob *= (cur11 * savedl22) / (cur21 * savedl12);
@@ -584,8 +602,12 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
 	savedl22 -= 1;
       }
     } else {
-      while (row_prob > tail_stop) {
+      while (1) {
+	preaddp = tprob;
 	tprob += row_prob;
+	if (tprob <= preaddp) {
+	  break;
+	}
 	cur11 += 1;
 	savedl22 += 1;
 	row_prob *= (cur21 * savedl12) / (cur11 * savedl22);
@@ -604,7 +626,7 @@ int main(int argc, char** argv) {
     printf("p-value: %g\n", fisher23(atoi(argv[1]), atoi(argv[3]), atoi(argv[5]), atoi(argv[2]), atoi(argv[4]), atoi(argv[6])));
   } else {
     printf(
-"Fisher 2x2 and 2x3 exact test    https://www.cog-genomics.org/wdist\n"
+"Fisher 2x2 and 2x3 exact test    https://www.cog-genomics.org/software/stats\n"
 "(C) 2013 Christopher Chang, GNU General Public License version 3\n\n"
 "Usage: fisher [m11] [m12] [m21] [m22]\n"
 "       fisher [m11] [m12] [m21] [m22] [m31] [m32]\n"

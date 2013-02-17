@@ -15,8 +15,8 @@
 
 #define EPSILON 0.0000000000001
 
-// 53-bit double precision limit
-#define DOUBLE_PREC_LIMIT 0.00000000000000011102230246251565404236316680908203125
+// A bias of this sort is needed to enable calculation of p-values down to the
+// minimum representable positive number.
 #define EXACT_TEST_BIAS 0.00000000000000000000000010339757656912845935892608650874535669572651386260986328125
 
 double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2) {
