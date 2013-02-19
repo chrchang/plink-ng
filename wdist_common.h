@@ -678,6 +678,8 @@ static inline void fill_double_zero(double* darr, size_t size) {
   }
 }
 
+void fill_vec_55(uintptr_t* vec, uint32_t ct);
+
 static inline void free_cond(void* memptr) {
   if (memptr) {
     free(memptr);

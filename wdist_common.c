@@ -318,6 +318,31 @@ int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc) {
   return (idx * BITCT) + CTZLU(*include_arr);
 }
 
+void fill_vec_55(uintptr_t* vec, uint32_t ct) {
+  uint32_t ctl = 2 * ((ct + (BITCT - 1)) / BITCT);
+  uint32_t rem = ct & (BITCT - 1);
+  uintptr_t* second_to_last = &(vec[ctl - 2]);
+#ifdef __LP64__
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  __m128i* vecp = (__m128i*)vec;
+  __m128i* vec_end = (__m128i*)(&(vec[ctl]));
+  do {
+    *vecp++ = m1;
+  } while (vecp < vec_end);
+#else
+  uintptr_t* vec_end = &(vec[ctl]);
+  do {
+    *vec++ = FIVEMASK;
+  } while (vec < vec_end);
+#endif
+  if (rem > BITCT2) {
+    second_to_last[1] &= (~ZEROLU) >> ((BITCT - rem) * 2);
+  } else if (rem) {
+    *second_to_last &= (~ZEROLU) >> ((BITCT2 - rem) * 2);
+    second_to_last[1] = 0;
+  }
+}
+
 const char acgtarr[] = "ACGT";
 
 void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc) {
@@ -1840,8 +1865,8 @@ void vec_init_invert(uintptr_t entry_ct, uintptr_t* target_arr, uintptr_t* sourc
   if (rem > BITCT2) {
     second_to_last[1] &= (~ZEROLU) >> ((BITCT - rem) * 2);
   } else if (rem) {
-    second_to_last[1] = 0;
     *second_to_last &= (~ZEROLU) >> ((BITCT2 - rem) * 2);
+    second_to_last[1] = 0;
   }
 }
 

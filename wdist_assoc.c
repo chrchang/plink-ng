@@ -3,7 +3,7 @@
 
 // load markers in blocks to enable PERMORY-style LD exploitation
 #define MODEL_BLOCKSIZE 256
-#define MODEL_HALFBLOCK 128
+#define MODEL_BLOCKKEEP 64
 
 void single_marker_cc_freqs(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ctrl_include2, uintptr_t* case_include2, uint32_t* ctrl_setp, uint32_t* ctrl_missingp, uint32_t* case_setp, uint32_t* case_missingp) {
   // Counts the number of A2 alleles and missing calls for both cases and
@@ -454,10 +454,61 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uint3
   return retval;
 }
 
+void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t lower_bound, uintptr_t* perm_vec) {
+  // assumes perm_vec is initially zeroed out, and lower_bound is set to
+  // 4294967296 % tot_ct
+  uint32_t num_set = 0;
+  uint32_t urand;
+  uint32_t uii;
+  if (set_ct * 2 < tot_ct) {
+    fill_ulong_zero(perm_vec, 2 * (tot_ct + (BITCT - 1) / BITCT));
+    while (num_set < set_ct) {
+      do {
+	do {
+	  urand = sfmt_genrand_uint32(&sfmt);
+	} while (urand < lower_bound);
+	uii = 2 * (urand % tot_ct);
+      } while (is_set(perm_vec, uii));
+      set_bit_noct(perm_vec, uii);
+      num_set++;
+    }
+  } else {
+    fill_vec_55(perm_vec, tot_ct);
+    set_ct = tot_ct - set_ct;
+    while (num_set < set_ct) {
+      do {
+	do {
+	  urand = sfmt_genrand_uint32(&sfmt);
+	} while (urand < lower_bound);
+	uii = 2 * (urand % tot_ct);
+      } while (!is_set(perm_vec, uii));
+      clear_bit_noct(perm_vec, uii);
+      num_set++;
+    }
+  }
+}
+
+// multithread globals
+// static uint32_t g_thread_start[MAX_THREADS_P1];
+static double* g_orig_stats;
+static uintptr_t* g_loadbuf;
+static uintptr_t* g_perm_vecs;
+static uint32_t* g_perm_success_ct;
+static uint32_t* g_perm_attempt_ct;
+static uintptr_t* g_perm_adapt_stop;
+// static uintptr_t* g_perm_adapt_stop_update;
+static uint32_t* g_adapt_m_table;
+static uintptr_t* g_indiv_nonmale_include2;
+static uintptr_t* g_indiv_male_include2 = NULL;
+// static uint32_t g_assoc_thread_ct;
+static uint32_t g_perm_vec_ct;
+static uint32_t g_thread_block_ctl;
+
 int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uint32_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
+  // uint32_t rand_lbound = (uint32_t)(4294967296LLU % ((uint64_t)pheno_nm_ct));
   int32_t retval = 0;
   FILE* outfile = NULL;
   uint32_t model_assoc = model_modifier & MODEL_ASSOC;
@@ -469,9 +520,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uint32_t assoc_counts = model_modifier & MODEL_ASSOC_COUNTS;
   uint32_t assoc_p2 = model_modifier & MODEL_ASSOC_P2;
   uint32_t display_ci = (ci_size > 0);
-  // uint32_t perms_done = 0;
+  uint32_t perms_done = 0;
   uint32_t perms_total = 0;
-  uint32_t perm_pass_ct = 1;
   int32_t x_code = -1;
   int32_t y_code = -1;
   uint32_t case_ct = 0;
@@ -484,7 +534,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uint32_t case_nonmale_ct = 0;
   uint32_t load_ctrl_ct = 0;
   uint32_t load_case_ct = 0;
-  uintptr_t* indiv_male_include2 = NULL;
   uintptr_t* indiv_nonmale_ctrl_include2 = NULL;
   uintptr_t* indiv_nonmale_case_include2 = NULL;
   uintptr_t* indiv_male_ctrl_include2 = NULL;
@@ -501,15 +550,15 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   double rec_p = 0.0;
   double ca_chisq = 0.0;
   uint32_t pct = 0;
+  uint32_t perm_pass_idx = 0;
   uint32_t mu_table[MODEL_BLOCKSIZE];
   char wformat[64];
-  // uintptr_t marker_ctl;
+  uintptr_t marker_ctl;
   unsigned char* wkspace_mark2;
   char* outname_end2;
   uint32_t* marker_uidxs;
   uint32_t gender_req;
   uint32_t ctrl_ct;
-  uint32_t perm_pass_idx;
   uint32_t chrom_fo_idx;
   uint32_t chrom_end;
   uint32_t block_start;
@@ -520,18 +569,16 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uintptr_t marker_uidx;
   uintptr_t marker_uidx2;
   uintptr_t marker_idx;
+  uintptr_t marker_idx2;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
-  double* orig_stats;
   double* osptr;
   double* ooptr;
   unsigned char* loadbuf_raw;
-  uintptr_t* loadbuf;
   uintptr_t* loadbuf_ptr;
   // uintptr_t* perm_exclude;
   uintptr_t* indiv_ctrl_include2;
   uintptr_t* indiv_case_include2;
-  uintptr_t* indiv_nonmale_include2;
   uint32_t load_indiv_ct;
   uint32_t is_x;
   uint32_t is_haploid;
@@ -598,6 +645,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     goto model_assoc_ret_1;
     perms_total = model_mperm_val;
   } else if (model_adapt) {
+    logprint("Error: adaptive permutation is currently under development.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto model_assoc_ret_1;
     perms_total = aperm_max;
   }
   if (wkspace_alloc_uc_checked(&loadbuf_raw, unfiltered_indiv_ct4)) {
@@ -713,8 +763,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       sprintf(wformat, "     %%%us %%4s %%4s  ", plink_maxsnp);
     }
   }
-  if (wkspace_alloc_ul_checked(&loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_d_checked(&orig_stats, marker_ct * sizeof(double))) {
+  marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  if (wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_d_checked(&g_orig_stats, marker_ct * sizeof(double))) {
     goto model_assoc_ret_NOMEM;
   }
   if (model_assoc) {
@@ -727,22 +778,37 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   ullii = chrom_info_ptr->chrom_mask;
   gender_req = ((x_code != -1) && (ullii & (1LLU << x_code))) || (model_assoc && (((y_code != -1) && (ullii & (1LLU << y_code)))));
   if (gender_req) {
-    if (wkspace_alloc_ul_checked(&indiv_nonmale_include2, pheno_nm_ctl2 * sizeof(intptr_t)) ||
-	wkspace_alloc_ul_checked(&indiv_male_include2, pheno_nm_ctl2 * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(&g_indiv_nonmale_include2, pheno_nm_ctl2 * sizeof(intptr_t)) ||
+	wkspace_alloc_ul_checked(&g_indiv_male_include2, pheno_nm_ctl2 * sizeof(intptr_t))) {
       goto model_assoc_ret_NOMEM;
     }
-    fill_ulong_zero(indiv_male_include2, pheno_nm_ctl2);
+    fill_ulong_zero(g_indiv_male_include2, pheno_nm_ctl2);
     indiv_uidx = 0;
     for (indiv_idx = 0; indiv_idx < pheno_nm_ct; indiv_idx++) {
       indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
       if (is_set(sex_nm, indiv_uidx) && is_set(sex_male, indiv_uidx)) {
-	set_bit_noct(indiv_male_include2, indiv_idx * 2);
+	set_bit_noct(g_indiv_male_include2, indiv_idx * 2);
 	male_ct++;
       }
       indiv_uidx++;
     }
-    vec_init_invert(pheno_nm_ct, indiv_nonmale_include2, indiv_male_include2);
+    vec_init_invert(pheno_nm_ct, g_indiv_nonmale_include2, g_indiv_male_include2);
     nonmale_ct = pheno_nm_ct - male_ct;
+  }
+  if (model_adapt || model_maxt) {
+    if (wkspace_alloc_ui_checked(&g_perm_success_ct, marker_ct * sizeof(uint32_t))) {
+      goto model_assoc_ret_NOMEM;
+    }
+    fill_uint_zero(g_perm_success_ct, marker_ct);
+    g_thread_block_ctl = (MODEL_BLOCKSIZE + (g_thread_ct - 1)) / g_thread_ct;
+    if (model_adapt) {
+      if (wkspace_alloc_ui_checked(&g_perm_attempt_ct, marker_ct * sizeof(uint32_t)) ||
+          wkspace_alloc_ul_checked(&g_perm_adapt_stop, marker_ctl * sizeof(uintptr_t))) {
+	goto model_assoc_ret_NOMEM;
+      }
+      fill_uint_zero(g_perm_attempt_ct, marker_ct);
+      fill_ulong_zero(g_perm_adapt_stop, marker_ctl);
+    }
   }
   wkspace_mark2 = wkspace_base;
   if (wkspace_alloc_ui_checked(&marker_uidxs, marker_ct * sizeof(uint32_t))) {
@@ -768,7 +834,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     ctrl_ct = pheno_nm_ct - case_ct;
   }
   if (gender_req && pheno_c) {
-    // argh
+    // replace this with use of special X/Y/generic haploid functions soon
+    // since they need to be written for permutation testing anyway, argh
     if (wkspace_alloc_ul_checked(&indiv_nonmale_ctrl_include2, pheno_nm_ctl2 * sizeof(intptr_t)) ||
 	wkspace_alloc_ul_checked(&indiv_nonmale_case_include2, pheno_nm_ctl2 * sizeof(intptr_t)) ||
 	wkspace_alloc_ul_checked(&indiv_male_ctrl_include2, pheno_nm_ctl2 * sizeof(intptr_t)) ||
@@ -785,7 +852,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       }
       indiv_uidx++;
     }
-    vec_init_andnot(pheno_nm_ctl2, indiv_male_ctrl_include2, indiv_male_include2, indiv_male_case_include2);
+    vec_init_andnot(pheno_nm_ctl2, indiv_male_ctrl_include2, g_indiv_male_include2, indiv_male_case_include2);
     vec_init_andnot(pheno_nm_ctl2, indiv_nonmale_case_include2, indiv_case_include2, indiv_male_case_include2);
     vec_init_andnot(pheno_nm_ctl2, indiv_nonmale_ctrl_include2, indiv_ctrl_include2, indiv_male_ctrl_include2);
     ctrl_male_ct = male_ct - case_male_ct;
@@ -793,25 +860,32 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     ctrl_nonmale_ct = ctrl_ct - ctrl_male_ct;
   }
 
-  // marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
-  if (model_maxt || model_adapt) {
-    // check if enough memory to process all permutations in one pass
-    // if yes, marker-specific information arrays only need to be of size
-    // MODEL_BLOCKSIZE
-    // if no, they have to be of size marker_ct...
-  }
   for (uii = 0; uii < MODEL_BLOCKSIZE; uii++) {
-    loadbuf[(uii + 1) * pheno_nm_ctl2 - 2] = 0;
-    loadbuf[(uii + 1) * pheno_nm_ctl2 - 1] = 0;
+    g_loadbuf[(uii + 1) * pheno_nm_ctl2 - 2] = 0;
+    g_loadbuf[(uii + 1) * pheno_nm_ctl2 - 1] = 0;
+  }
+  if (model_assoc || model_maxt) {
+    if (pheno_c && (wkspace_left < pheno_nm_ctl2 * sizeof(intptr_t))) {
+      goto model_assoc_ret_NOMEM;
+    }
   }
   marker_uidx = next_non_set_unsafe(marker_exclude, 0);
   if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
     goto model_assoc_ret_READ_FAIL;
   }
-  for (perm_pass_idx = 0; perm_pass_idx < perm_pass_ct; perm_pass_idx++) {
+  do {
+    if (pheno_c && (model_assoc || model_maxt)) {
+      g_perm_vec_ct = wkspace_left / (pheno_nm_ctl2 * sizeof(intptr_t));
+      if (g_perm_vec_ct > perms_total - perms_done) {
+	g_perm_vec_ct = perms_total - perms_done;
+      }
+      perms_done += g_perm_vec_ct;
+      g_perm_vecs = (uintptr_t*)wkspace_alloc(g_perm_vec_ct * pheno_nm_ctl2 * sizeof(intptr_t));
+    }
     chrom_fo_idx = 0xffffffffU;
     marker_uidx = 0;
     marker_idx = 0;
+    marker_idx2 = 0;
     chrom_end = 0;
     loop_end = marker_idx / 100LLU;
     do {
@@ -879,42 +953,54 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	block_end = MODEL_BLOCKSIZE;
       }
       do {
-	if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
-	  goto model_assoc_ret_READ_FAIL;
-	}
-	indiv_uidx = 0;
-	ukk = pheno_nm_ct / BITCT2;
-	loadbuf_ptr = &(loadbuf[block_size * pheno_nm_ctl2]);
-	for (uii = 0; uii < ukk; uii++) {
-	  ulii = 0;
-	  for (ujj = 0; ujj < BITCT; ujj += 2) {
-	    indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
-	    ulii |= ((uintptr_t)(((loadbuf_raw[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3))) << ujj;
-	    indiv_uidx++;
+	if ((!model_adapt) || (!is_set(g_perm_adapt_stop, marker_idx2))) {
+	  if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	    goto model_assoc_ret_READ_FAIL;
 	  }
-	  *loadbuf_ptr++ = ulii;
-	}
-	ujj = 2 * (pheno_nm_ct & (BITCT2 - 1));
-	if (ujj) {
-	  ulii = 0;
-	  for (uii = 0; uii < ujj; uii += 2) {
-	    indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
-	    ulii |= ((uintptr_t)(((loadbuf_raw[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3))) << uii;
-	    indiv_uidx++;
+	  indiv_uidx = 0;
+	  ukk = pheno_nm_ct / BITCT2;
+	  loadbuf_ptr = &(g_loadbuf[block_size * pheno_nm_ctl2]);
+	  for (uii = 0; uii < ukk; uii++) {
+	    ulii = 0;
+	    for (ujj = 0; ujj < BITCT; ujj += 2) {
+	      indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
+	      ulii |= ((uintptr_t)(((loadbuf_raw[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3))) << ujj;
+	      indiv_uidx++;
+	    }
+	    *loadbuf_ptr++ = ulii;
 	  }
-	  *loadbuf_ptr = ulii;
-	}
-	mu_table[block_size] = marker_uidx;
-	if (is_set(marker_exclude, ++marker_uidx)) {
-	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+	  ujj = 2 * (pheno_nm_ct & (BITCT2 - 1));
+	  if (ujj) {
+	    ulii = 0;
+	    for (uii = 0; uii < ujj; uii += 2) {
+	      indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
+	      ulii |= ((uintptr_t)(((loadbuf_raw[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3))) << uii;
+	      indiv_uidx++;
+	    }
+	    *loadbuf_ptr = ulii;
+	  }
+	  if (model_adapt) {
+	    g_adapt_m_table[block_size] = marker_idx2++;
+	  }
+	  mu_table[block_size++] = marker_uidx;
+	  if (is_set(marker_exclude, ++marker_uidx)) {
+	    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+	    if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
+	      goto model_assoc_ret_READ_FAIL;
+	    }
+	  }
+	} else {
+	  do {
+	    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+	  } while (is_set(g_perm_adapt_stop, ++marker_idx2) && (marker_uidx < chrom_end));
 	  if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
 	    goto model_assoc_ret_READ_FAIL;
 	  }
 	}
-      } while ((++block_size < block_end) && (marker_uidx < chrom_end));
+      } while ((block_size < block_end) && (marker_uidx < chrom_end));
       if (!perm_pass_idx) {
 	// basic --assoc/--model
-	osptr = &(orig_stats[marker_idx + block_start]);
+	osptr = &(g_orig_stats[marker_idx + block_start]);
 	if (pheno_c) {
 	  if (model_assoc) {
 	    ooptr = &(orig_odds[marker_idx + block_start]);
@@ -924,17 +1010,17 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      is_reverse = is_set(marker_reverse, marker_uidx2);
 	      if (is_x) {
 		if (is_reverse) {
-		  single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_nonmale_ctrl_include2, indiv_nonmale_case_include2, &ujj, &uii, &umm, &ukk);
+		  single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_nonmale_ctrl_include2, indiv_nonmale_case_include2, &ujj, &uii, &umm, &ukk);
 		  uii = 2 * (ctrl_nonmale_ct - uii) - ujj;
 		  ukk = 2 * (case_nonmale_ct - ukk) - umm;
-		  haploid_single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_male_ctrl_include2, indiv_male_case_include2, &uoo, &unn, &uqq, &upp);
+		  haploid_single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_male_ctrl_include2, indiv_male_case_include2, &uoo, &unn, &uqq, &upp);
 		  unn = ctrl_male_ct - unn - uoo;
 		  upp = case_male_ct - upp - uqq;
 		} else {
-		  single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_nonmale_ctrl_include2, indiv_nonmale_case_include2, &uii, &ujj, &ukk, &umm);
+		  single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_nonmale_ctrl_include2, indiv_nonmale_case_include2, &uii, &ujj, &ukk, &umm);
 		  ujj = 2 * (ctrl_nonmale_ct - ujj) - uii;
 		  umm = 2 * (case_nonmale_ct - umm) - ukk;
-		  haploid_single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_male_ctrl_include2, indiv_male_case_include2, &unn, &uoo, &upp, &uqq);
+		  haploid_single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_male_ctrl_include2, indiv_male_case_include2, &unn, &uoo, &upp, &uqq);
 		  uoo = ctrl_male_ct - uoo - unn;
 		  uqq = case_male_ct - uqq - upp;
 		}
@@ -944,21 +1030,21 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		umm += uqq;
 	      } else if (is_haploid) {
 		if (is_reverse) {
-		  haploid_single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &ujj, &uii, &umm, &ukk);
+		  haploid_single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &ujj, &uii, &umm, &ukk);
 		  uii = load_ctrl_ct - uii - ujj;
 		  ukk = load_case_ct - ukk - umm;
 		} else {
-		  haploid_single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm);
+		  haploid_single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm);
 		  ujj = load_ctrl_ct - ujj - uii;
 		  umm = load_case_ct - umm - ukk;
 		}
 	      } else {
 		if (is_reverse) {
-		  single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &ujj, &uii, &umm, &ukk);
+		  single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &ujj, &uii, &umm, &ukk);
 		  uii = 2 * (ctrl_ct - uii) - ujj;
 		  ukk = 2 * (case_ct - ukk) - umm;
 		} else {
-		  single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &uii, &ujj, &ukk, &umm);
+		  single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &uii, &ujj, &ukk, &umm);
 		  ujj = 2 * (ctrl_ct - ujj) - uii;
 		  umm = 2 * (case_ct - umm) - ukk;
 		}
@@ -1082,11 +1168,11 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      marker_uidxs[marker_idx + marker_bidx] = marker_uidx2;
 	      is_reverse = is_set(marker_reverse, marker_uidx2);
 	      if (is_reverse) {
-		single_marker_cc_3freqs(pheno_nm_ct, pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &ukk, &ujj, &uii, &uoo, &unn, &umm);
+		single_marker_cc_3freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &ukk, &ujj, &uii, &uoo, &unn, &umm);
 		uii = load_ctrl_ct - uii - ujj - ukk;
 		umm = load_case_ct - umm - unn - uoo;
 	      } else {
-		single_marker_cc_3freqs(pheno_nm_ct, pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm, &unn, &uoo);
+		single_marker_cc_3freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm, &unn, &uoo);
 		ukk = load_ctrl_ct - uii - ujj - ukk;
 		uoo = load_case_ct - umm - unn - uoo;
 	      }
@@ -1392,6 +1478,13 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  }
 	}
       }
+      if (perms_total) {
+	if (model_assoc) {
+	  // TODO
+	} else {
+	  // TODO
+	}
+      }
       marker_idx += block_size - block_start;
       if ((!perm_pass_idx) && (marker_idx >= loop_end)) {
 	if (marker_idx < marker_ct) {
@@ -1411,14 +1504,26 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       }
       fputs("\b\b\b", stdout);
       logprint(" done.\n");
+      if (model_adapt || model_maxt) {
+        wkspace_reset((unsigned char*)g_perm_vecs);
+      }
       if (mtest_adjust) {
-	retval = multcomp(outname, outname_end, marker_uidxs, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, orig_stats, pfilter, mtest_adjust, adjust_lambda, model_fisher);
+	retval = multcomp(outname, outname_end, marker_uidxs, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_stats, pfilter, mtest_adjust, adjust_lambda, model_fisher);
 	if (retval) {
 	  goto model_assoc_ret_1;
 	}
       }
-
     }
+    if (model_adapt || model_maxt) {
+      printf("\r%u permutations complete.", perms_done);
+      fflush(stdout);
+      wkspace_reset(wkspace_mark2);
+    }
+  } while (perms_done < perms_total);
+  if (model_adapt || model_maxt) {
+    putchar('\r');
+    sprintf(logbuf, "%u permutations complete.\n", perms_done);
+    logprintb();
   }
 
   while (0) {
