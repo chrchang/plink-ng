@@ -245,9 +245,9 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uint3
   if (non_chi) {
     uii = 0;
     for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
-      dxx = chi[cur_idx];
-      if (dxx > 0) {
-	dyy = inverse_chiprob(1 - dxx, 1);
+      dxx = 1 - chi[cur_idx];
+      if (dxx < 1) {
+	dyy = inverse_chiprob(dxx, 1);
 	if (dyy >= 0) {
           sp[uii] = dxx;
 	  new_order[uii] = marker_uidxs[cur_idx];
@@ -287,9 +287,9 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uint3
     lambda = adjust_lambda;
   } else {
     if (chi_ct & 1) {
-      lambda = (schi[chi_ct / 2 - 1] + schi[chi_ct / 2]) / 2.0;
-    } else {
       lambda = schi[(chi_ct - 1) / 2];
+    } else {
+      lambda = (schi[chi_ct / 2 - 1] + schi[chi_ct / 2]) / 2.0;
     }
     lambda = lambda / 0.456;
     if (lambda < 1) {
@@ -490,6 +490,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uintptr_t* indiv_male_case_include2 = NULL;
   uintptr_t* cur_ctrl_include2 = NULL;
   uintptr_t* cur_case_include2 = NULL;
+  double* orig_odds = NULL;
   double dxx = 0.0;
   double dww = 0.0;
   double dvv = 0.0;
@@ -519,7 +520,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
   double* orig_stats;
-  double* orig_odds;
   double* osptr;
   double* ooptr;
   unsigned char* loadbuf_raw;
@@ -715,9 +715,13 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     }
   }
   if (wkspace_alloc_ui_checked(&marker_uidxs, marker_ct * sizeof(uint32_t)) ||
-      wkspace_alloc_d_checked(&orig_stats, marker_ct * sizeof(double)) ||
-      wkspace_alloc_d_checked(&orig_odds, marker_ct * sizeof(double))) {
+      wkspace_alloc_d_checked(&orig_stats, marker_ct * sizeof(double))) {
     goto model_assoc_ret_NOMEM;
+  }
+  if (model_assoc) {
+    if (wkspace_alloc_d_checked(&orig_odds, marker_ct * sizeof(double))) {
+      goto model_assoc_ret_NOMEM;
+    }
   }
   fputs(" 0%", stdout);
   if (model_adapt || model_maxt) {
@@ -921,9 +925,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       if (!perm_pass_idx) {
 	// basic --assoc/--model
 	osptr = &(orig_stats[marker_idx + block_start]);
-	ooptr = &(orig_odds[marker_idx + block_start]);
 	if (pheno_c) {
 	  if (model_assoc) {
+	    ooptr = &(orig_odds[marker_idx + block_start]);
 	    for (marker_bidx = block_start; marker_bidx < block_size; marker_bidx++) {
 	      marker_uidx2 = mu_table[marker_bidx];
 	      marker_uidxs[marker_idx + marker_bidx] = marker_uidx2;
