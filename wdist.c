@@ -478,7 +478,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --assoc <perm | mperm=[value]> <genedrop> <perm-count> <fisher> <counts> <p2>\n"
 "  --assoc <perm | mperm=[value]> <perm-count> <qt-means>\n"
 "  --model <perm | mperm=[value]> <genedrop> <perm-count> <fisher | trend-only>\n"
-"          <perm-dom | perm-rec | perm-gen | perm-trend>\n"
+"          <dom | rec | gen | trend>\n"
 "    Basic association analysis report.\n"
 "    Given a case/control phenotype, --assoc performs a 1df chi-square allelic\n"
 "    test, while --model performs 4 other tests as well (1df dominant gene\n"
@@ -493,10 +493,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      of frequencies.\n"
 "    * 'counts' causes --assoc to report allele counts instead of frequencies.\n"
 "    * 'p2' changes the --assoc permutation test used (see PLINK documentation).\n"
-"    * 'perm-dom', 'perm-rec', 'perm-gen', and 'perm-trend' force the\n"
-"      corresponding test to be used as the basis for --model permutation.  (By\n"
-"      default, the most significant result among the allelic, dominant, and\n"
-"      recessive tests is used.)\n"
+"    * 'dom', 'rec', 'gen', and 'trend' force the corresponding test to be used\n"
+"      as the basis for --model permutation.  (By default, the most significant\n"
+"      result among the allelic, dominant, and recessive tests is used.)\n"
 "    * 'trend-only' causes only the trend test to be performed.\n"
 "    Given a quantitative phenotype, --assoc performs a Wald test.  In this\n"
 "    case, the 'qt-means' modifier causes trait means and standard deviations\n"
@@ -7906,19 +7905,19 @@ int32_t main(int32_t argc, char** argv) {
 	    model_modifier |= MODEL_GENEDROP;
 	  } else if (!strcmp(argv[cur_arg + jj], "perm-count")) {
 	    model_modifier |= MODEL_PERM_COUNT;
-	  } else if (!strcmp(argv[cur_arg + jj], "perm-dom")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "dom")) {
 	    if (model_modifier & (MODEL_PREC | MODEL_PGEN | MODEL_PTREND | MODEL_TRENDONLY)) {
 	      logprint("Error: Conflicting --model parameters.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    model_modifier |= MODEL_PDOM;
-	  } else if (!strcmp(argv[cur_arg + jj], "perm-rec")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "rec")) {
 	    if (model_modifier & (MODEL_PDOM | MODEL_PGEN | MODEL_PTREND | MODEL_TRENDONLY)) {
 	      logprint("Error: Conflicting --model parameters.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    model_modifier |= MODEL_PREC;
-	  } else if (!strcmp(argv[cur_arg + jj], "perm-gen")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "gen")) {
 	    if (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PTREND | MODEL_TRENDONLY)) {
 	      logprint("Error: Conflicting --model parameters.\n");
 	      goto main_ret_INVALID_CMDLINE;
@@ -7928,7 +7927,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_PGEN;
-	  } else if (!strcmp(argv[cur_arg + jj], "perm-trend")) {
+	  } else if (!strcmp(argv[cur_arg + jj], "trend")) {
 	    if (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PGEN)) {
 	      logprint("Error: Conflicting --model parameters.\n");
 	      goto main_ret_INVALID_CMDLINE;
@@ -7969,6 +7968,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: Conflicting --model parameters.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
+	logprint("Note: --model-dom flag deprecated.  Use '--model dom'.\n");
 	model_modifier |= MODEL_PDOM;
       } else if (!memcmp(argptr2, "odel-gen", 9)) {
 	if ((!(calculation_type & CALC_MODEL)) || (model_modifier & MODEL_ASSOC)) {
@@ -7979,6 +7979,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: Conflicting --model parameters.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
+	logprint("Note: --model-gen flag deprecated.  Use '--model gen'.\n");
 	model_modifier |= MODEL_PGEN;
       } else if (!memcmp(argptr2, "odel-rec", 9)) {
 	if ((!(calculation_type & CALC_MODEL)) || (model_modifier & MODEL_ASSOC)) {
@@ -7989,6 +7990,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: Conflicting --model parameters.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
+	logprint("Note: --model-rec flag deprecated.  Use '--model rec'.\n");
 	model_modifier |= MODEL_PREC;
       } else if (!memcmp(argptr2, "odel-trend", 11)) {
 	if ((!(calculation_type & CALC_MODEL)) || (model_modifier & MODEL_ASSOC)) {
@@ -7999,6 +8001,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: Conflicting --model parameters.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
+	logprint("Note: --model-trend flag deprecated.  Use '--model trend'.\n");
 	model_modifier |= MODEL_PTREND;
       } else if (!memcmp(argptr2, "perm", 5)) {
 	if (enforce_param_ct_range(argc, argv, cur_arg, 1, 1, &ii)) {
@@ -8818,7 +8821,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --trend cannot be used with --model fisher.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PGEN)) {
-	  sprintf(logbuf, "Error: --trend cannot be used with --model perm-dom/perm-rec/perm-gen.%s", errstr_append);
+	  sprintf(logbuf, "Error: --trend cannot be used with --model dom/rec/gen.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	logprint("Note: --trend flag deprecated.  Use '--model trend-only ...'.\n");
@@ -9062,7 +9065,7 @@ int32_t main(int32_t argc, char** argv) {
   if (calculation_type & CALC_MODEL) {
     if (!(model_modifier & (MODEL_ASSOC | MODEL_PDOM | MODEL_PREC | MODEL_PTREND))) {
       if (mtest_adjust) {
-	sprintf(logbuf, "Error: In order to use --model with --adjust, you must include the 'perm-dom',\n'perm-rec', 'perm-trend', or 'trend-only' modifier.%s", errstr_append);
+	sprintf(logbuf, "Error: In order to use --model with --adjust, you must include the 'trend',\n'trend-only', 'dom', or 'rec' modifier.%s", errstr_append);
 	goto main_ret_INVALID_CMDLINE_3;
       }
     }

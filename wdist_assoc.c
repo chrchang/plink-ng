@@ -200,7 +200,7 @@ static inline void adjust_print_log10(FILE* outfile, double pval) {
     fputs("       INF ", outfile);
   } else if (pval < 0) {
     fputs("        NA ", outfile);
-  } else if (pval <= 1) {
+  } else if (pval < 1) {
     fprintf(outfile, "%10.4g ", -log10(pval));
   } else {
     fputs("         0 ", outfile);
@@ -216,6 +216,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uint3
   double pv_holm = 0.0;
   double pv_sidak_sd = 0;
   int32_t retval = 0;
+  uint32_t pct;
   double* sp;
   double* schi;
   double* pv_bh;
@@ -234,6 +235,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uint3
   double lambda;
   double bonf;
   double pv_sidak_ss;
+  uint32_t loop_end;
 
   if (wkspace_alloc_d_checked(&sp, chi_ct * sizeof(double)) ||
       wkspace_alloc_d_checked(&schi, chi_ct * sizeof(double)) ||
@@ -361,64 +363,78 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uint3
   if (fputs("      BONF       HOLM   SIDAK_SS   SIDAK_SD     FDR_BH     FDR_BY\n", outfile) == EOF) {
     goto multcomp_ret_WRITE_FAIL;
   }
-  for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
-    pval = sp[cur_idx];
-    if (pval > pfilter) {
-      continue;
-    }
-    marker_uidx = new_order[cur_idx];
-    intprint2(&(tbuf[2]), (uint32_t)get_marker_chrom(chrom_info_ptr, marker_uidx));
-    if (fprintf(outfile, tbuf, &(marker_ids[marker_uidx * max_marker_id_len])) < 0) {
-      goto multcomp_ret_WRITE_FAIL;
-    }
-    bonf = pval * dct;
-    if (bonf > 1) {
-      bonf = 1;
-    }
-    if (pv_holm < 1) {
-      dyy = (chi_ct - cur_idx) * pval;
-      if (dyy > 1) {
-	pv_holm = 1;
-      } else if (pv_holm < dyy) {
-	pv_holm = dyy;
+  fputs("0%", stdout);
+  fflush(stdout);
+  cur_idx = 0;
+  for (pct = 1; pct <= 100; pct++) {
+    loop_end = (((uint64_t)pct) * chi_ct) / 100LLU;
+    for (; cur_idx < loop_end; cur_idx++) {
+      pval = sp[cur_idx];
+      if (pval > pfilter) {
+	continue;
       }
-    }
-    pv_sidak_ss = 1 - pow(1 - pval, dct);
-    dyy = 1 - pow(1 - pval, dct - ((double)cur_idx));
-    if (pv_sidak_sd < dyy) {
-      pv_sidak_sd = dyy;
-    }
+      marker_uidx = new_order[cur_idx];
+      intprint2(&(tbuf[2]), (uint32_t)get_marker_chrom(chrom_info_ptr, marker_uidx));
+      if (fprintf(outfile, tbuf, &(marker_ids[marker_uidx * max_marker_id_len])) < 0) {
+	goto multcomp_ret_WRITE_FAIL;
+      }
+      bonf = pval * dct;
+      if (bonf > 1) {
+	bonf = 1;
+      }
+      if (pv_holm < 1) {
+	dyy = (chi_ct - cur_idx) * pval;
+	if (dyy > 1) {
+	  pv_holm = 1;
+	} else if (pv_holm < dyy) {
+	  pv_holm = dyy;
+	}
+      }
+      pv_sidak_ss = 1 - pow(1 - pval, dct);
+      dyy = 1 - pow(1 - pval, dct - ((double)cur_idx));
+      if (pv_sidak_sd < dyy) {
+	pv_sidak_sd = dyy;
+      }
 
-    if (!is_log10) {
-      adjust_print(outfile, pval);
-      adjust_print(outfile, pv_gc[cur_idx]);
-      if (qq_plot) {
-        adjust_print(outfile, (((double)cur_idx) + 0.5) * dzz);
+      if (!is_log10) {
+	adjust_print(outfile, pval);
+	adjust_print(outfile, pv_gc[cur_idx]);
+	if (qq_plot) {
+	  adjust_print(outfile, (((double)cur_idx) + 0.5) * dzz);
+	}
+	adjust_print(outfile, bonf);
+	adjust_print(outfile, pv_holm);
+	adjust_print(outfile, pv_sidak_ss);
+	adjust_print(outfile, pv_sidak_sd);
+	adjust_print(outfile, pv_bh[cur_idx]);
+	adjust_print(outfile, pv_by[cur_idx]);
+      } else {
+	adjust_print_log10(outfile, pval);
+	adjust_print_log10(outfile, pv_gc[cur_idx]);
+	if (qq_plot) {
+	  adjust_print_log10(outfile, (((double)cur_idx) + 0.5) * dzz);
+	}
+	adjust_print_log10(outfile, bonf);
+	adjust_print_log10(outfile, pv_holm);
+	adjust_print_log10(outfile, pv_sidak_ss);
+	adjust_print_log10(outfile, pv_sidak_sd);
+	adjust_print_log10(outfile, pv_bh[cur_idx]);
+	adjust_print_log10(outfile, pv_by[cur_idx]);
       }
-      adjust_print(outfile, bonf);
-      adjust_print(outfile, pv_holm);
-      adjust_print(outfile, pv_sidak_ss);
-      adjust_print(outfile, pv_sidak_sd);
-      adjust_print(outfile, pv_bh[cur_idx]);
-      adjust_print(outfile, pv_by[cur_idx]);
-    } else {
-      adjust_print_log10(outfile, pval);
-      adjust_print_log10(outfile, pv_gc[cur_idx]);
-      if (qq_plot) {
-        adjust_print_log10(outfile, (((double)cur_idx) + 0.5) * dzz);
+      if (putc('\n', outfile) == EOF) {
+	goto multcomp_ret_WRITE_FAIL;
       }
-      adjust_print_log10(outfile, bonf);
-      adjust_print_log10(outfile, pv_holm);
-      adjust_print_log10(outfile, pv_sidak_ss);
-      adjust_print_log10(outfile, pv_sidak_sd);
-      adjust_print_log10(outfile, pv_bh[cur_idx]);
-      adjust_print_log10(outfile, pv_by[cur_idx]);
     }
-    if (putc('\n', outfile) == EOF) {
-      goto multcomp_ret_WRITE_FAIL;
+    if (pct < 100) {
+      if (pct > 10) {
+	putchar('\b');
+      }
+      printf("\b\b%u%%", pct);
+      fflush(stdout);
     }
   }
-  sprintf(logbuf, "Multiple-test corrected significance values written to %s.\n", outname);
+  fputs("\b\b\b", stdout);
+  sprintf(logbuf, "--adjust values (%u marker%s) written to %s.\n", chi_ct, (chi_ct == 1)? "" : "s", outname);
   logprintb();
 
   while (0) {
@@ -449,11 +465,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uint32_t model_maxt = model_modifier & MODEL_MPERM;
   uint32_t model_fisher = model_modifier & MODEL_FISHER;
   uint32_t model_trendonly = model_modifier & MODEL_TRENDONLY;
+  uint32_t model_perm_best = !(model_modifier & MODEL_PMASK);
   uint32_t assoc_counts = model_modifier & MODEL_ASSOC_COUNTS;
   uint32_t assoc_p2 = model_modifier & MODEL_ASSOC_P2;
   uint32_t display_ci = (ci_size > 0);
   // uint32_t perms_done = 0;
-  // uint32_t perms_left = 0;
+  uint32_t perms_total = 0;
   uint32_t perm_pass_ct = 1;
   int32_t x_code = -1;
   int32_t y_code = -1;
@@ -476,10 +493,16 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   double dxx = 0.0;
   double dww = 0.0;
   double dvv = 0.0;
+  double mult_p = 0.0;
+  double gen_p = 0.0;
+  double dom_p = 0.0;
+  double rec_p = 0.0;
+  double ca_chisq = 0.0;
   uint32_t pct = 0;
   uint32_t mu_table[MODEL_BLOCKSIZE];
   char wformat[64];
   // uintptr_t marker_ctl;
+  char* outname_end2;
   uint32_t* marker_uidxs;
   uint32_t ctrl_ct;
   uint32_t perm_pass_idx;
@@ -526,8 +549,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   double pval;
   double dyy;
   double dzz;
-  double duu;
-  double dtt;
   double da1;
   double da12;
   double da2;
@@ -554,10 +575,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   double exp_u11;
   double exp_u12;
   double exp_u22;
-  double mult_p;
-  double dom_p;
-  double rec_p;
-  // double best_p;
+  double ca_p;
   char* a1ptr;
   char* a2ptr;
   uint32_t loop_end;
@@ -576,11 +594,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     logprint("Error: max(T) permutation is not yet implemented.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto model_assoc_ret_1;
+    perms_total = model_mperm_val;
   } else if (model_adapt) {
     logprint("Error: adaptive permutation is not yet implemented.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto model_assoc_ret_1;
-    // perms_left = aperm_max;
+    perms_total = aperm_max;
   }
   if (wkspace_alloc_uc_checked(&loadbuf_raw, unfiltered_indiv_ct4)) {
     goto model_assoc_ret_NOMEM;
@@ -657,6 +676,23 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     sprintf(logbuf, "Writing --model report to %s...", outname);
     logprintb();
     fflush(stdout);
+    outname_end2 = &(outname_end[6]);
+    if (model_perm_best && perms_total) {
+      memcpy(outname_end2, ".best", 6);
+      outname_end2 = &(outname_end2[5]);
+    } else if ((model_modifier & MODEL_PGEN) && perms_total) {
+      memcpy(outname_end2, ".gen", 5);
+      outname_end2 = &(outname_end2[4]);
+    } else if (model_modifier & MODEL_PDOM) {
+      memcpy(outname_end2, ".dom", 5);
+      outname_end2 = &(outname_end2[4]);
+    } else if (model_modifier & MODEL_PREC) {
+      memcpy(outname_end2, ".rec", 5);
+      outname_end2 = &(outname_end2[4]);
+    } else if (model_modifier & MODEL_PTREND) {
+      memcpy(outname_end2, ".trend", 7);
+      outname_end2 = &(outname_end2[6]);
+    }
     sprintf(tbuf, " CHR %%%us   A1   A2     TEST            AFF          UNAFF ", plink_maxsnp);
     if (fprintf(outfile, tbuf, "SNP") < 0) {
       goto model_assoc_ret_WRITE_FAIL;
@@ -665,6 +701,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       if (fputs("       CHISQ   DF ", outfile) == EOF) {
 	goto model_assoc_ret_WRITE_FAIL;
       }
+    } else {
+      memcpy(outname_end2, ".fisher", 8);
+      outname_end2 = &(outname_end2[7]);
     }
     if (fputs("           P\n", outfile) == EOF) {
       goto model_assoc_ret_WRITE_FAIL;
@@ -1111,10 +1150,10 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		  uqq += urr;
 		}
 		if (upp) {
-		  dww = -9;
+		  gen_p = -9;
 		} else {
 		  if (model_fisher) {
-		    dww = fisher23(uii, ujj, ukk, umm, unn, uoo);
+		    gen_p = fisher23(uii, ujj, ukk, umm, unn, uoo);
 		  } else {
 		    dvv = ((da1 - exp_a11) * (da1 - exp_a11)) / exp_a11 +
 		      ((da12 - exp_a12) * (da12 - exp_a12)) / exp_a12 +
@@ -1122,10 +1161,10 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		      ((du1 - exp_u11) * (du1 - exp_u11)) / exp_u11 +
 		      ((du12 - exp_u12) * (du12 - exp_u12)) / exp_u12 +
 		      ((du2 - exp_u22) * (du2 - exp_u22)) / exp_u22;
-		    dww = chiprob_p(dvv, 2);
+		    gen_p = chiprob_p(dvv, 2);
 		  }
 		}
-		if (dww < -1) {
+		if (gen_p < -1) {
 		  if (model_fisher) {
 		    memcpy(&(tbuf[uqq]), "          NA\n", 14);
 		  } else {
@@ -1133,9 +1172,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		  }
 		} else {
 		  if (model_fisher) {
-		    sprintf(&(tbuf[uqq]), "%12.4g\n", dww);
+		    sprintf(&(tbuf[uqq]), "%12.4g\n", gen_p);
 		  } else {
-		    sprintf(&(tbuf[uqq]), "%12.4g    2 %12.4g\n", dvv, dww);
+		    sprintf(&(tbuf[uqq]), "%12.4g    2 %12.4g\n", dvv, gen_p);
 		  }
 		}
 		if (fputs(tbuf, outfile) == EOF) {
@@ -1163,26 +1202,24 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      urr = uqq; // save this for next line
 	      if ((((uint64_t)(uoo * 2 + unn)) * (uii * 2 + ujj)) == (((uint64_t)(umm * 2 + unn)) * (ukk * 2 + ujj))) {
 		if (uoo * 2 + unn) {
-		  duu = 0;
-		  dtt = 1;
+		  ca_chisq = 0;
+		  ca_p = 1;
 		} else {
-		  dtt = -9;
+		  ca_p = -9;
 		}
 	      } else {
 		// CA
 		dww = (dyy * dzz * da12 - dxx * dzz * du12) + 2 * (dyy * dzz * da2 - dxx * dzz * du2);
 		// varCA
 		dvv = dxx * dyy * (obs_t * (obs_12 + 4 * obs_22) - (obs_12 + 2 * obs_22) * (obs_12 + 2 * obs_22)) * dzz * dzz * dzz;
-		// CA_chisq
-		duu = (dww * dww) / dvv;
-		// CA_p
-		dtt = chiprob_p(duu, 1);
+		ca_chisq = (dww * dww) / dvv;
+		ca_p = chiprob_p(ca_chisq, 1);
 	      }
-	      if (dtt > -1) {
+	      if (ca_p > -1) {
 		if (model_fisher) {
-		  sprintf(&(tbuf[uqq]), "%12.4g\n", dtt);
+		  sprintf(&(tbuf[uqq]), "%12.4g\n", ca_p);
 		} else {
-		  sprintf(&(tbuf[uqq]), "%12.4g    1 %12.4g\n", duu, dtt);
+		  sprintf(&(tbuf[uqq]), "%12.4g    1 %12.4g\n", ca_chisq, ca_p);
 		}
 	      } else {
 		if (!model_fisher) {
@@ -1336,6 +1373,27 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		  goto model_assoc_ret_WRITE_FAIL;
 		}
 	      }
+	      if (model_perm_best) {
+		dxx = mult_p;
+		if (!upp) {
+		  if ((dom_p < dxx) && (dom_p >= 0)) {
+		    dxx = dom_p;
+		  }
+		  if ((rec_p < dxx) && (rec_p >= 0)) {
+		    dxx = rec_p;
+		  }
+		}
+		dxx = 1 - dxx;
+	      } else if (model_modifier & MODEL_PGEN) {
+		dxx = (gen_p >= 0)? (1 - gen_p) : -9;
+	      } else if (model_modifier & MODEL_PDOM) {
+		dxx = (dom_p >= 0)? (1 - dom_p) : -9;
+	      } else if (model_modifier & MODEL_PREC) {
+		dxx = (rec_p >= 0)? (1 - rec_p) : -9;
+	      } else if (model_modifier & MODEL_PTREND) {
+		dxx = (ca_p >= 0)? ca_chisq : -9;
+	      }
+	      *osptr++ = dxx;
 	    }
 	  }
 	}

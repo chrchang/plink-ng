@@ -279,8 +279,8 @@ typedef union {
 // good enough in practice.
 #define FNAMESIZE 4096
 
-// allow .mdist.bin.xxxxxxxxxx extension
-#define MAX_POST_EXT 22
+// allow extensions like .model.trend.fisher.set.score.adjusted
+#define MAX_POST_EXT 39
 
 // number of types of jackknife values to precompute (x^2, y^2, x, y, xy)
 #define JACKKNIFE_VALS_DIST 5
