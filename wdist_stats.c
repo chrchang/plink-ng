@@ -15,6 +15,23 @@ double chiprob_p(double xx, double df) {
   return qq;
 }
 
+double inverse_chiprob(double qq, double df) {
+  double pp = 1 - qq;
+  int32_t st = 0;
+  int32_t ww = 2;
+  double bnd = 1;
+  double xx;
+
+  if (qq >= 1.0) {
+    return 0;
+  }
+  cdfchi(&ww, &pp, &qq, &xx, &df, &st, &bnd);
+  if (st != 0) {
+    return -9;
+  }
+  return xx;
+}
+
 // Inverse normal distribution
 
 //

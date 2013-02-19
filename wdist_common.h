@@ -237,6 +237,11 @@ typedef union {
 #define MODEL_TRENDONLY 16384
 #define MODEL_PMASK 31744
 
+#define ADJUST_GC 2
+#define ADJUST_LOG10 4
+#define ADJUST_QQ 8
+#define ADJUST_LAMBDA 16
+
 #define WKSPACE_MIN_MB 64
 #define WKSPACE_DEFAULT_MB 2048
 

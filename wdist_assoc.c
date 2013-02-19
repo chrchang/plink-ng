@@ -185,7 +185,260 @@ void single_marker_cc_3freqs(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t
   *case_missingp = tot_case_a - tot_case_c;
 }
 
-int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t* sex_nm, uintptr_t* sex_male) {
+static inline void adjust_print(FILE* outfile, double pval) {
+  if (pval == 0) {
+    fputs("       INF ", outfile);
+  } else if (pval < 0) {
+    fputs("        NA ", outfile);
+  } else {
+    fprintf(outfile, "%10.4g ", pval);
+  }
+}
+
+static inline void adjust_print_log10(FILE* outfile, double pval) {
+  if (pval == 0) {
+    fputs("       INF ", outfile);
+  } else if (pval < 0) {
+    fputs("        NA ", outfile);
+  } else if (pval <= 1) {
+    fprintf(outfile, "%10.4g ", -log10(pval));
+  } else {
+    fputs("         0 ", outfile);
+  }
+}
+
+int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uint32_t chi_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, double* chi, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t non_chi) {
+  unsigned char* wkspace_mark = wkspace_base;
+  uint32_t adjust_gc = mtest_adjust & ADJUST_GC;
+  uint32_t is_log10 = mtest_adjust & ADJUST_LOG10;
+  uint32_t qq_plot = mtest_adjust & ADJUST_QQ;
+  FILE* outfile = NULL;
+  double pv_holm = 0.0;
+  double pv_sidak_sd = 0;
+  int32_t retval = 0;
+  double* sp;
+  double* schi;
+  double* pv_bh;
+  double* pv_by;
+  uint32_t* new_order;
+  uint32_t cur_idx;
+  uint32_t uii;
+  uintptr_t marker_uidx;
+  double dxx;
+  double dyy;
+  double dzz;
+  double harmonic_sum;
+  double dct;
+  double pval;
+  double* pv_gc;
+  double lambda;
+  double bonf;
+  double pv_sidak_ss;
+
+  if (wkspace_alloc_d_checked(&sp, chi_ct * sizeof(double)) ||
+      wkspace_alloc_d_checked(&schi, chi_ct * sizeof(double)) ||
+      wkspace_alloc_ui_checked(&new_order, chi_ct * sizeof(uint32_t))) {
+    goto multcomp_ret_NOMEM;
+  }
+  if (non_chi) {
+    uii = 0;
+    for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
+      dxx = chi[cur_idx];
+      if (dxx > 0) {
+	dyy = inverse_chiprob(1 - dxx, 1);
+	if (dyy >= 0) {
+          sp[uii] = dxx;
+	  new_order[uii] = marker_uidxs[cur_idx];
+	  schi[uii] = dyy;
+	  uii++;
+	}
+      }
+    }
+  } else {
+    uii = 0;
+    for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
+      dxx = chi[cur_idx];
+      if (dxx >= 0) {
+        dyy = chiprob_p(dxx, 1);
+	if (dyy > -1) {
+	  sp[uii] = dyy;
+	  new_order[uii] = marker_uidxs[cur_idx];
+	  schi[uii] = dxx;
+	  uii++;
+	}
+      }
+    }
+  }
+  chi_ct = uii;
+  if (!chi_ct) {
+    goto multcomp_ret_1;
+  }
+  qsort_ext((char*)sp, chi_ct, sizeof(double), double_cmp_deref, (char*)new_order, sizeof(uint32_t));
+#ifdef __cplusplus
+  std::sort(schi, &(schi[chi_ct]));
+#else
+  qsort(schi, chi_ct, sizeof(double), double_cmp);
+#endif
+  dct = chi_ct;
+
+  if (mtest_adjust & ADJUST_LAMBDA) {
+    lambda = adjust_lambda;
+  } else {
+    if (chi_ct & 1) {
+      lambda = (schi[chi_ct / 2 - 1] + schi[chi_ct / 2]) / 2.0;
+    } else {
+      lambda = schi[(chi_ct - 1) / 2];
+    }
+    lambda = lambda / 0.456;
+    if (lambda < 1) {
+      lambda = 1.0;
+    } else {
+      lambda = 1.0 / lambda;
+    }
+  }
+
+  // handle reverse-order calculations
+  if (wkspace_alloc_d_checked(&pv_bh, chi_ct * sizeof(double)) ||
+      wkspace_alloc_d_checked(&pv_by, chi_ct * sizeof(double))) {
+    goto multcomp_ret_NOMEM;
+  }
+  if (adjust_gc) {
+    pv_gc = sp;
+  } else {
+    if (wkspace_alloc_d_checked(&pv_gc, chi_ct * sizeof(double))) {
+      goto multcomp_ret_NOMEM;
+    }
+  }
+  uii = chi_ct;
+  for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
+    pv_gc[cur_idx] = chiprob_p(schi[--uii] * lambda, 1);
+  }
+
+  dyy = sp[chi_ct - 1];
+  pv_bh[chi_ct - 1] = dyy;
+  harmonic_sum = 1.0;
+  for (cur_idx = chi_ct - 1; cur_idx > 0; cur_idx--) {
+    dzz = dct / ((double)cur_idx);
+    harmonic_sum += dzz;
+    dxx = dzz * sp[cur_idx - 1];
+    if (dyy > dxx) {
+      dyy = dxx;
+    }
+    pv_bh[cur_idx - 1] = dyy;
+  }
+
+  dzz = 1.0 / dct;
+  harmonic_sum *= dzz;
+
+  dyy = harmonic_sum * sp[chi_ct - 1];
+  if (dyy >= 1) {
+    dyy = 1;
+  }
+  pv_by[chi_ct - 1] = dyy;
+  harmonic_sum *= dct;
+  for (cur_idx = chi_ct - 1; cur_idx > 0; cur_idx--) {
+    dxx = (harmonic_sum / ((double)cur_idx)) * sp[cur_idx - 1];
+    if (dyy > dxx) {
+      dyy = dxx;
+    }
+    pv_by[cur_idx - 1] = dyy;
+  }
+
+  uii = strlen(outname_end);
+  memcpy(&(outname_end[uii]), ".adjusted", 10);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto multcomp_ret_OPEN_FAIL;
+  }
+  uii = sprintf(tbuf, " CHR %%%us      UNADJ         GC ", plink_maxsnp);
+  if (fprintf(outfile, tbuf, "SNP") < 0) {
+    goto multcomp_ret_WRITE_FAIL;
+  }
+  if (qq_plot) {
+    fputs("        QQ ", outfile);
+  }
+  tbuf[1] = ' ';
+  tbuf[uii - 22] = '\0';
+  if (fputs("      BONF       HOLM   SIDAK_SS   SIDAK_SD     FDR_BH     FDR_BY\n", outfile) == EOF) {
+    goto multcomp_ret_WRITE_FAIL;
+  }
+  for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
+    pval = sp[cur_idx];
+    if (pval > pfilter) {
+      continue;
+    }
+    marker_uidx = new_order[cur_idx];
+    intprint2(&(tbuf[2]), (uint32_t)get_marker_chrom(chrom_info_ptr, marker_uidx));
+    if (fprintf(outfile, tbuf, &(marker_ids[marker_uidx * max_marker_id_len])) < 0) {
+      goto multcomp_ret_WRITE_FAIL;
+    }
+    bonf = pval * dct;
+    if (bonf > 1) {
+      bonf = 1;
+    }
+    if (pv_holm < 1) {
+      dyy = (chi_ct - cur_idx) * pval;
+      if (dyy > 1) {
+	pv_holm = 1;
+      } else if (pv_holm < dyy) {
+	pv_holm = dyy;
+      }
+    }
+    pv_sidak_ss = 1 - pow(1 - pval, dct);
+    dyy = 1 - pow(1 - pval, dct - ((double)cur_idx));
+    if (pv_sidak_sd < dyy) {
+      pv_sidak_sd = dyy;
+    }
+
+    if (!is_log10) {
+      adjust_print(outfile, pval);
+      adjust_print(outfile, pv_gc[cur_idx]);
+      if (qq_plot) {
+        adjust_print(outfile, (((double)cur_idx) + 0.5) * dzz);
+      }
+      adjust_print(outfile, bonf);
+      adjust_print(outfile, pv_holm);
+      adjust_print(outfile, pv_sidak_ss);
+      adjust_print(outfile, pv_sidak_sd);
+      adjust_print(outfile, pv_bh[cur_idx]);
+      adjust_print(outfile, pv_by[cur_idx]);
+    } else {
+      adjust_print_log10(outfile, pval);
+      adjust_print_log10(outfile, pv_gc[cur_idx]);
+      if (qq_plot) {
+        adjust_print_log10(outfile, (((double)cur_idx) + 0.5) * dzz);
+      }
+      adjust_print_log10(outfile, bonf);
+      adjust_print_log10(outfile, pv_holm);
+      adjust_print_log10(outfile, pv_sidak_ss);
+      adjust_print_log10(outfile, pv_sidak_sd);
+      adjust_print_log10(outfile, pv_bh[cur_idx]);
+      adjust_print_log10(outfile, pv_by[cur_idx]);
+    }
+    if (putc('\n', outfile) == EOF) {
+      goto multcomp_ret_WRITE_FAIL;
+    }
+  }
+  sprintf(logbuf, "Multiple-test corrected significance values written to %s.\n", outname);
+  logprintb();
+
+  while (0) {
+  multcomp_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  multcomp_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  multcomp_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+ multcomp_ret_1:
+  fclose_cond(outfile);
+  wkspace_reset(wkspace_mark);
+  return retval;
+}
+
+int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
@@ -227,6 +480,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uint32_t mu_table[MODEL_BLOCKSIZE];
   char wformat[64];
   // uintptr_t marker_ctl;
+  uint32_t* marker_uidxs;
   uint32_t ctrl_ct;
   uint32_t perm_pass_idx;
   uint32_t chrom_fo_idx;
@@ -421,7 +675,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       sprintf(wformat, "     %%%us %%4s %%4s  ", plink_maxsnp);
     }
   }
-  if (wkspace_alloc_d_checked(&orig_stats, marker_ct * sizeof(double)) ||
+  if (wkspace_alloc_ui_checked(&marker_uidxs, marker_ct * sizeof(uint32_t)) ||
+      wkspace_alloc_d_checked(&orig_stats, marker_ct * sizeof(double)) ||
       wkspace_alloc_d_checked(&orig_odds, marker_ct * sizeof(double))) {
     goto model_assoc_ret_NOMEM;
   }
@@ -632,6 +887,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  if (model_assoc) {
 	    for (marker_bidx = block_start; marker_bidx < block_size; marker_bidx++) {
 	      marker_uidx2 = mu_table[marker_bidx];
+	      marker_uidxs[marker_idx + marker_bidx] = marker_uidx2;
 	      is_reverse = is_set(marker_reverse, marker_uidx2);
 	      if (is_x) {
 		if (is_reverse) {
@@ -683,11 +939,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		*osptr = 1 - pval;
 	      } else if (!assoc_p2) {
 		if ((((uint64_t)umm) * (ujj + uii)) == (((uint64_t)ujj) * (umm + ukk))) {
-		  *osptr = 0;
 		  if ((!umm) && (!ujj)) {
+		    *osptr = -9;
 		    pval = -1;
 		  } else {
-		    pval = chiprob_p(*osptr, 1);
+		    *osptr = 0;
+		    pval = 1;
 		  }
 		} else {
 		  dxx = 1.0 / ((double)(da1 + da2 + du1 + du2));
@@ -789,6 +1046,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  } else {
 	    for (marker_bidx = block_start; marker_bidx < block_size; marker_bidx++) {
 	      marker_uidx2 = mu_table[marker_bidx];
+	      marker_uidxs[marker_idx + marker_bidx] = marker_uidx2;
 	      is_reverse = is_set(marker_reverse, marker_uidx2);
 	      if (is_reverse) {
 		single_marker_cc_3freqs(pheno_nm_ct, pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &ukk, &ujj, &uii, &uoo, &unn, &umm);
@@ -1101,6 +1359,13 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       }
       fputs("\b\b\b", stdout);
       logprint(" done.\n");
+      if (mtest_adjust) {
+	retval = multcomp(outname, outname_end, marker_uidxs, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, orig_stats, pfilter, mtest_adjust, adjust_lambda, model_fisher);
+	if (retval) {
+	  goto model_assoc_ret_1;
+	}
+      }
+
     }
   }
 

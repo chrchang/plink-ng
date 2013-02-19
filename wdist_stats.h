@@ -5,6 +5,8 @@
 
 double chiprob_p(double xx, double df);
 
+double inverse_chiprob(double qq, double df);
+
 double ltqnorm(double p);
 
 double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22);
