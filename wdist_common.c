@@ -2793,6 +2793,51 @@ uint32_t set_default_jackknife_d(uint32_t ct) {
   return dd;
 }
 
+void generate_perm1(uint32_t tot_ct, uint32_t set_ct, uintptr_t iters, uintptr_t* perm_buf) {
+  uintptr_t tot_ctl = (tot_ct + (BITCT - 1)) / BITCT;
+  uintptr_t tot_rem = tot_ct & (BITCT - 1);
+  uint32_t lower_bound = (uint32_t)(4294967296LLU % ((uint64_t)tot_ct));
+  uintptr_t* pbptr;
+  uintptr_t perm_idx;
+  uintptr_t last_patch;
+  uint32_t num_set;
+  uint32_t urand;
+  uint32_t uii;
+  if (set_ct * 2 < tot_ct) {
+    fill_ulong_zero(perm_buf, tot_ctl * iters);
+    for (perm_idx = 0; perm_idx < iters; perm_idx++) {
+      pbptr = &(perm_buf[perm_idx * tot_ctl]);
+      for (num_set = 0; num_set < set_ct; num_set++) {
+	do {
+	  do {
+	    urand = sfmt_genrand_uint32(&sfmt);
+	  } while (urand < lower_bound);
+	  uii = urand % tot_ct;
+	} while (is_set(pbptr, uii));
+	set_bit_noct(pbptr, uii);
+      }
+    }
+  } else {
+    fill_ulong_one(perm_buf, tot_ctl * iters);
+    last_patch = (~ZEROLU) >> (BITCT - tot_rem);
+    // "set" has reversed meaning here
+    set_ct = tot_ct - set_ct;
+    for (perm_idx = 0; perm_idx < iters; perm_idx++) {
+      pbptr = &(perm_buf[perm_idx * tot_ctl]);
+      for (num_set = 0; num_set < set_ct; num_set++) {
+	do {
+	  do {
+	    urand = sfmt_genrand_uint32(&sfmt);
+	  } while (urand < lower_bound);
+	  uii = urand % tot_ct;
+	} while (!is_set(pbptr, uii));
+	clear_bit_noct(pbptr, uii);
+      }
+      pbptr[tot_ctl - 1] &= last_patch;
+    }
+  }
+}
+
 void join_threads(pthread_t* threads, uint32_t ctp1) {
   if (!(--ctp1)) {
     return;
@@ -2819,7 +2864,7 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
   }
   for (ulii = 1; ulii < ct; ulii++) {
 #if _WIN32
-    threads[ulii - 1] = (HANDLE)_beginthreadex(NULL, 4096, start_routine, (void*)ulii, 0, NULL);
+    threads[ulii - 1] = (HANDLE)_beginthreadex(NULL, 20480, start_routine, (void*)ulii, 0, NULL);
     if (!threads[ulii - 1]) {
       join_threads(threads, ulii);
       return -1;

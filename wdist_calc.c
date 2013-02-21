@@ -1686,8 +1686,8 @@ static double g_reg_tot_x;
 static double g_reg_tot_y;
 static double g_reg_tot_xx;
 static double g_reg_tot_yy;
-static uint32_t g_low_ct;
-static uint32_t g_high_ct;
+static uint32_t g_ctrl_ct;
+static uint32_t g_case_ct;
 static uintptr_t g_jackknife_iters;
 static uint32_t g_jackknife_d;
 static double g_calc_result[9][MAX_THREADS];
@@ -1699,6 +1699,9 @@ static double* g_jackknife_precomp = NULL;
 static uint32_t* g_genome_main;
 static uintptr_t g_marker_window[GENOME_MULTIPLEX * 2];
 static double* g_pheno_packed;
+static uintptr_t* g_perm_rows; // one row = one permutation
+static uintptr_t* g_perm_col_buf;
+static double* g_perm_results;
 
 void incr_dists_i(int32_t* idists, uintptr_t* geno, int32_t tidx) {
 #ifdef __LP64__
@@ -1818,8 +1821,8 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
   uintptr_t next_ppc_marker_hybrid;
   uintptr_t mask_fixed_test;
   uintptr_t* marker_window_ptr;
-  int32_t lowct2 = g_low_ct * 2;
-  int32_t highct2 = g_high_ct * 2;
+  int32_t lowct2 = g_ctrl_ct * 2;
+  int32_t highct2 = g_case_ct * 2;
 #ifdef __LP64__
   glptr_end = (__m128i*)(&(geno[g_indiv_ct * (GENOME_MULTIPLEX2 / BITCT)]));
 #else
@@ -2469,9 +2472,9 @@ void groupdist_jack(int32_t* ibuf, double* returns) {
     }
     iptr++;
   }
-  returns[0] = (g_reg_tot_x - neg_tot_aa) / (double)(((intptr_t)(g_high_ct - neg_a) * (g_high_ct - neg_a - 1)) / 2);
-  returns[1] = (g_reg_tot_xy - neg_tot_au) / (double)((intptr_t)(g_high_ct - neg_a) * (g_low_ct - neg_u));
-  returns[2] = (g_reg_tot_y - neg_tot_uu) / (double)(((intptr_t)(g_low_ct - neg_u) * (g_low_ct - neg_u - 1)) / 2);
+  returns[0] = (g_reg_tot_x - neg_tot_aa) / (double)(((intptr_t)(g_case_ct - neg_a) * (g_case_ct - neg_a - 1)) / 2);
+  returns[1] = (g_reg_tot_xy - neg_tot_au) / (double)((intptr_t)(g_case_ct - neg_a) * (g_ctrl_ct - neg_u));
+  returns[2] = (g_reg_tot_y - neg_tot_uu) / (double)(((intptr_t)(g_ctrl_ct - neg_u) * (g_ctrl_ct - neg_u - 1)) / 2);
 }
 
 void small_remap(int32_t* ibuf, uint32_t ct, uint32_t dd) {
@@ -2490,8 +2493,8 @@ void small_remap(int32_t* ibuf, uint32_t ct, uint32_t dd) {
 
 THREAD_RET_TYPE groupdist_jack_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
-  int32_t* ibuf = (int32_t*)(&(g_geno[tidx * CACHEALIGN(g_high_ct + g_low_ct + (g_jackknife_d + 1) * sizeof(int32_t))]));
-  unsigned char* cbuf = &(g_geno[tidx * CACHEALIGN(g_high_ct + g_low_ct + (g_jackknife_d + 1) * sizeof(int32_t)) + (g_jackknife_d + 1) * sizeof(int32_t)]);
+  int32_t* ibuf = (int32_t*)(&(g_geno[tidx * CACHEALIGN(g_case_ct + g_ctrl_ct + (g_jackknife_d + 1) * sizeof(int32_t))]));
+  unsigned char* cbuf = &(g_geno[tidx * CACHEALIGN(g_case_ct + g_ctrl_ct + (g_jackknife_d + 1) * sizeof(int32_t)) + (g_jackknife_d + 1) * sizeof(int32_t)]);
   uint64_t ullii;
   uint64_t ulljj = g_jackknife_iters / 100;
   double returns[3];
@@ -2499,9 +2502,9 @@ THREAD_RET_TYPE groupdist_jack_thread(void* arg) {
   double new_old_diff[3];
   fill_double_zero(results, 9);
   for (ullii = 0; ullii < g_jackknife_iters; ullii++) {
-    pick_d_small(cbuf, ibuf, g_high_ct + g_low_ct, g_jackknife_d);
-    if (g_high_ct + g_low_ct < g_indiv_ct) {
-      small_remap(ibuf, g_high_ct + g_low_ct, g_jackknife_d);
+    pick_d_small(cbuf, ibuf, g_case_ct + g_ctrl_ct, g_jackknife_d);
+    if (g_case_ct + g_ctrl_ct < g_indiv_ct) {
+      small_remap(ibuf, g_case_ct + g_ctrl_ct, g_jackknife_d);
     }
     groupdist_jack(ibuf, returns);
     if (ullii > 0) {
@@ -3036,7 +3039,52 @@ double get_dmedian(double* sorted_arr, int32_t len) {
   }
 }
 
-int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+int32_t ibs_test_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t perm_ct, uint32_t pheno_nm_ct, uint32_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
+  uintptr_t perm_ctcl = (perm_ct + (CACHELINE * 8 - 1)) / (CACHELINE * 8);
+  uintptr_t perm_ctcld = (perm_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
+  double* dist_ptr = g_dists;
+  uint32_t case_ct = pheno_nm_ct - pheno_ctrl_ct;
+  int32_t retval = 0;
+  if (pheno_ctrl_ct < 2) {
+    logprint("Skipping --ibs-test: Too few controls (minimum 2).\n");
+    goto ibs_test_calc_ret_1;
+  } else if (case_ct < 2) {
+    logprint("Skipping --ibs-test: Too few cases (minimum 2).\n");
+    goto ibs_test_calc_ret_1;
+  }
+  // g_pheno_nm and g_pheno_c should be NULL
+  if (wkspace_alloc_ul_checked(&g_pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&g_pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+    goto ibs_test_calc_ret_NOMEM;
+  }
+  memcpy(g_pheno_nm, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
+  memcpy(g_pheno_c, pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
+  collapse_bitarr(g_pheno_nm, indiv_exclude, unfiltered_indiv_ct);
+  collapse_bitarr(g_pheno_c, indiv_exclude, unfiltered_indiv_ct);
+  if (wkspace_alloc_ul_checked(&g_perm_rows, pheno_nm_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&g_perm_col_buf, perm_ctcl * CACHELINE * g_thread_ct) ||
+      wkspace_alloc_d_checked(&g_perm_results, perm_ctcld * g_thread_ct)) {
+    goto ibs_test_calc_ret_NOMEM;
+  }
+  fill_double_zero(g_perm_results, perm_ctcld * g_thread_ct);
+  generate_perm1(pheno_nm_ct, case_ct, perm_ct, g_perm_rows);
+  // TODO
+  while (0) {
+  ibs_test_calc_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  }
+ ibs_test_calc_ret_1:
+  wkspace_reset(wkspace_mark);
+  g_pheno_nm = NULL;
+  g_pheno_c = NULL;
+  return retval;
+}
+
+int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t groupdist_iters, uint32_t groupdist_d, uint32_t pheno_nm_ct, uint32_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t indiv_ctl = (g_indiv_ct + (BITCT - 1)) / BITCT;
@@ -3072,6 +3120,16 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   double dzz;
   double dww;
   uint32_t is_case;
+  if (pheno_ctrl_ct < 2) {
+    logprint("Skipping --groupdist: Too few controls (minimum 2).\n");
+    goto groupdist_calc_ret_1;
+  }
+  g_case_ct = pheno_nm_ct - pheno_ctrl_ct;
+  if (g_case_ct < 2) {
+    logprint("Skipping --groupdist: Too few cases (minimum 2).\n");
+    goto groupdist_calc_ret_1;
+  }
+  g_ctrl_ct = pheno_ctrl_ct;
   // g_pheno_nm and g_pheno_c should be NULL
   if (wkspace_alloc_ul_checked(&g_pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&g_pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
@@ -3081,32 +3139,22 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   memcpy(g_pheno_c, pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
   collapse_bitarr(g_pheno_nm, indiv_exclude, unfiltered_indiv_ct);
   collapse_bitarr(g_pheno_c, indiv_exclude, unfiltered_indiv_ct);
-  g_low_ct = 0;
-  g_high_ct = 0;
   zero_trailing_bits(g_pheno_nm, g_indiv_ct);
-  uiptr = g_pheno_nm;
-  uiptr2 = g_pheno_c;
-  for (uii = 0; uii < indiv_ctl; uii++) {
-    ulii = *uiptr++;
-    uljj = *uiptr2++;
-    g_high_ct += popcount_long(ulii & uljj);
-    g_low_ct += popcount_long(ulii & (~uljj));
-  }
-  ll_size = ((uintptr_t)g_low_ct * (g_low_ct - 1)) / 2;
-  lh_size = g_low_ct * g_high_ct;
-  hh_size = ((uintptr_t)g_high_ct * (g_high_ct - 1)) / 2;
+  ll_size = ((uintptr_t)g_ctrl_ct * (g_ctrl_ct - 1)) / 2;
+  lh_size = g_ctrl_ct * g_case_ct;
+  hh_size = ((uintptr_t)g_case_ct * (g_case_ct - 1)) / 2;
   g_reg_tot_y = 0.0;
   g_reg_tot_xy = 0.0;
   g_reg_tot_x = 0.0;
   if (groupdist_d) {
     g_jackknife_d = groupdist_d;
   } else {
-    g_jackknife_d = set_default_jackknife_d(g_high_ct + g_low_ct);
+    g_jackknife_d = set_default_jackknife_d(g_case_ct + g_ctrl_ct);
   }
   if (wkspace_alloc_d_checked(&ll_pool, ll_size * sizeof(double)) ||
       wkspace_alloc_d_checked(&lh_pool, lh_size * sizeof(double)) ||
       wkspace_alloc_d_checked(&hh_pool, hh_size * sizeof(double)) ||
-      wkspace_alloc_uc_checked(&g_geno, g_thread_ct * CACHEALIGN(g_high_ct + g_low_ct + (g_jackknife_d + 1) * sizeof(int32_t)))) {
+      wkspace_alloc_uc_checked(&g_geno, g_thread_ct * CACHEALIGN(g_case_ct + g_ctrl_ct + (g_jackknife_d + 1) * sizeof(int32_t)))) {
     goto groupdist_calc_ret_NOMEM;
   }
   ll_poolp = ll_pool;
@@ -3167,27 +3215,27 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   lh_med = get_dmedian(lh_pool, lh_size);
   hh_med = get_dmedian(hh_pool, hh_size);
   logprint("Case/control distance analysis:\n");
-  if (g_high_ct < 2) {
+  if (g_case_ct < 2) {
     dxx = 0.0;
     dhh_sd = 0.0;
   } else {
-    dww = (double)(((uintptr_t)g_high_ct * (g_high_ct - 1)) / 2);
+    dww = (double)(((uintptr_t)g_case_ct * (g_case_ct - 1)) / 2);
     dxx = g_reg_tot_x / dww;
     dhh_sd = sqrt((dhh_ssq / dww - dxx * dxx) / (dww - 1.0));
   }
-  if (!(g_high_ct * g_low_ct)) {
+  if (!(g_case_ct * g_ctrl_ct)) {
     dyy = 0.0;
     dhl_sd = 0.0;
   } else {
-    dww = (double)((uintptr_t)g_high_ct * g_low_ct);
+    dww = (double)((uintptr_t)g_case_ct * g_ctrl_ct);
     dyy = g_reg_tot_xy / dww;
     dhl_sd = sqrt((dhl_ssq / dww - dyy * dyy) / (dww - 1.0));
   }
-  if (g_low_ct < 2) {
+  if (g_ctrl_ct < 2) {
     dzz = 0.0;
     dll_sd = 0.0;
   } else {
-    dww = (double)(((uintptr_t)g_low_ct * (g_low_ct - 1)) / 2);
+    dww = (double)(((uintptr_t)g_ctrl_ct * (g_ctrl_ct - 1)) / 2);
     dzz = g_reg_tot_y / dww;
     dll_sd = sqrt((dll_ssq / dww - dzz * dzz) / (dww - 1.0));
   }
@@ -3197,7 +3245,7 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   logprintb();
   sprintf(logbuf, "  Mean (sd), median dists between 2x unaffected   : %g (%g), %g\n\n", dzz, dll_sd, ll_med);
   logprintb();
-  if (2 * g_jackknife_d >= (g_high_ct + g_low_ct)) {
+  if (2 * g_jackknife_d >= (g_case_ct + g_ctrl_ct)) {
     logprint("Delete-d jackknife skipped because d is too large.\n");
   } else {
     if (wkspace_alloc_d_checked(&g_jackknife_precomp, g_indiv_ct * JACKKNIFE_VALS_GROUPDIST)) {
@@ -3253,11 +3301,11 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
       g_calc_result[uii][0] *= dxx;
     }
     putchar('\r');
-    sprintf(logbuf, "  AA mean - AU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[1][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[3][0] + g_calc_result[4][0] - 2 * g_calc_result[6][0])));
+    sprintf(logbuf, "  AA mean - AU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[1][0], sqrt(((g_case_ct + g_ctrl_ct) / ((double)g_jackknife_d)) * (g_calc_result[3][0] + g_calc_result[4][0] - 2 * g_calc_result[6][0])));
     logprintb();
-    sprintf(logbuf, "  AA mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[2][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[3][0] + g_calc_result[5][0] - 2 * g_calc_result[7][0])));
+    sprintf(logbuf, "  AA mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[2][0], sqrt(((g_case_ct + g_ctrl_ct) / ((double)g_jackknife_d)) * (g_calc_result[3][0] + g_calc_result[5][0] - 2 * g_calc_result[7][0])));
     logprintb();
-    sprintf(logbuf, "  AU mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[1][0] - g_calc_result[2][0], sqrt(((g_high_ct + g_low_ct) / ((double)g_jackknife_d)) * (g_calc_result[4][0] + g_calc_result[5][0] - 2 * g_calc_result[8][0])));
+    sprintf(logbuf, "  AU mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[1][0] - g_calc_result[2][0], sqrt(((g_case_ct + g_ctrl_ct) / ((double)g_jackknife_d)) * (g_calc_result[4][0] + g_calc_result[5][0] - 2 * g_calc_result[8][0])));
     logprintb();
   }
   while (0) {
@@ -3269,6 +3317,7 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
     retval = RET_THREAD_CREATE_FAIL;
     break;
   }
+ groupdist_calc_ret_1:
   wkspace_reset(wkspace_mark);
   g_pheno_nm = NULL;
   g_pheno_c = NULL;
@@ -4081,7 +4130,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
     }
   }
   marker_uidx = 0; // raw marker index
-  g_low_ct = 0; // after excluding missing
+  g_ctrl_ct = 0; // after excluding missing (abuse of variable name, should fix this later)
   refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
   // subtract X/haploid markers from marker_ct
   ukk = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
@@ -4091,7 +4140,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
     marker_ct -= ukk;
   }
   do {
-    kk = marker_ct - g_low_ct;
+    kk = marker_ct - g_ctrl_ct;
     if (kk > GENOME_MULTIPLEX) {
       kk = GENOME_MULTIPLEX;
     }
@@ -4137,8 +4186,8 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
       // Then advance glptr two spaces.  The double storage eliminates a
       // divide-by-two in the inner loop at a low cost in cache space.
       if (mp_lead_unfiltered_idx < unfiltered_marker_ct) {
-	if (get_marker_chrom(chrom_info_ptr, mp_lead_unfiltered_idx) == get_marker_chrom(chrom_info_ptr, g_low_ct + ujj)) {
-	  uii = ppc_gap + marker_pos[g_low_ct + ujj];
+	if (get_marker_chrom(chrom_info_ptr, mp_lead_unfiltered_idx) == get_marker_chrom(chrom_info_ptr, g_ctrl_ct + ujj)) {
+	  uii = ppc_gap + marker_pos[g_ctrl_ct + ujj];
 	  if (marker_pos[mp_lead_unfiltered_idx] <= uii) {
 	    ukk = get_chrom_end(chrom_info_ptr, mp_lead_unfiltered_idx);
 	    do {
@@ -4151,7 +4200,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	}
       }
       if (mp_lead_unfiltered_idx < unfiltered_marker_ct) {
-	ulii = 2 * (mp_lead_unfiltered_idx - g_low_ct);
+	ulii = 2 * (mp_lead_unfiltered_idx - g_ctrl_ct);
 	if (ulii < BITCT + (2 * (ujj & (~(BITCT2 - 1))))) {
 	  ulii = ~ZEROLU << (ulii & (BITCT - 1));
 	}
@@ -4171,7 +4220,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	*glptr2++ = GENOME_MULTIPLEX2;
       }
     }
-    g_high_ct = g_low_ct + kk;
+    g_case_ct = g_ctrl_ct + kk;
     for (jj = 0; jj < kk; jj += BITCT) {
       glptr = &(((uintptr_t*)g_geno)[jj / BITCT2]);
       glptr2 = &(g_masks[jj / BITCT2]);
@@ -4290,10 +4339,10 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
     }
     incr_genome(g_genome_main, (uintptr_t*)g_geno, 0);
     join_threads(threads, g_thread_ct);
-    g_low_ct = g_high_ct;
-    printf("\r%d markers complete.", g_low_ct);
+    g_ctrl_ct = g_case_ct;
+    printf("\r%d markers complete.", g_ctrl_ct);
     fflush(stdout);
-  } while (g_low_ct < marker_ct);
+  } while (g_ctrl_ct < marker_ct);
   fputs("\rIBD calculations complete.  \n", stdout);
   logstr("IBD calculations complete.\n");
   dxx = 1.0 / (double)ibd_prect;

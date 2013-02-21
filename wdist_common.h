@@ -151,6 +151,7 @@ typedef union {
 #define CALC_MODEL 0x800000LLU
 #define CALC_HARDY 0x1000000LLU
 #define CALC_GXE 0x2000000LLU
+#define CALC_IBS_TEST 0x4000000LLU
 
 #define LGEN_REFERENCE 1
 #define LGEN_ALLELE_COUNT 2
@@ -929,6 +930,8 @@ void pick_d_small(unsigned char* tmp_cbuf, int32_t* ibuf, uint32_t ct, uint32_t 
 void print_pheno_stdev(double* pheno_d, uint32_t indiv_ct);
 
 uint32_t set_default_jackknife_d(uint32_t ct);
+
+void generate_perm1(uint32_t tot_ct, uint32_t set_ct, uintptr_t iters, uintptr_t* perm_buf);
 
 void join_threads(pthread_t* threads, uint32_t ctp1);
 

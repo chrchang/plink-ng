@@ -462,7 +462,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t lower_bound
   uint32_t uii;
   if (set_ct * 2 < tot_ct) {
     fill_ulong_zero(perm_vec, 2 * (tot_ct + (BITCT - 1) / BITCT));
-    while (num_set < set_ct) {
+    for (; num_set < set_ct; num_set++) {
       do {
 	do {
 	  urand = sfmt_genrand_uint32(&sfmt);
@@ -470,12 +470,11 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t lower_bound
 	uii = 2 * (urand % tot_ct);
       } while (is_set(perm_vec, uii));
       set_bit_noct(perm_vec, uii);
-      num_set++;
     }
   } else {
     fill_vec_55(perm_vec, tot_ct);
     set_ct = tot_ct - set_ct;
-    while (num_set < set_ct) {
+    for (; num_set < set_ct; num_set++) {
       do {
 	do {
 	  urand = sfmt_genrand_uint32(&sfmt);
@@ -483,7 +482,6 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t lower_bound
 	uii = 2 * (urand % tot_ct);
       } while (!is_set(perm_vec, uii));
       clear_bit_noct(perm_vec, uii);
-      num_set++;
     }
   }
 }
