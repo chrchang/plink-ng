@@ -917,6 +917,8 @@ void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr
 
 void collapse_bitarr(uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t orig_ct);
 
+void collapse_bitarr_incl(uintptr_t* bitarr, uintptr_t* include_arr, uint32_t orig_ct);
+
 // double rand_unif(void);
 
 double normdist(double zz);

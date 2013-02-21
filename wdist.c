@@ -67,7 +67,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (21 Feb 2013)";
+  " (22 Feb 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -5361,7 +5361,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_IBS_TEST) {
-    retval = ibs_test_calc(threads, unfiltered_indiv_ct, indiv_exclude, ibs_test_perms, pheno_nm_ct, pheno_ctrl_ct, pheno_nm, pheno_c);
+    retval = ibs_test_calc(threads, calculation_type, unfiltered_indiv_ct, indiv_exclude, ibs_test_perms, pheno_nm_ct, pheno_ctrl_ct, pheno_nm, pheno_c);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -7476,8 +7476,8 @@ int32_t main(int32_t argc, char** argv) {
 	  if (ii < 1) {
 	    sprintf(logbuf, "Error: Invalid --ibs-test permutation count '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
-	  } else if (ii < MAX_THREADS) {
-	    sprintf(logbuf, "Error: --ibs test permutation count '%s' too small (min %u).%s", argv[cur_arg + 1], MAX_THREADS, errstr_append);
+	  } else if (ii < MAX_THREADS * 2) {
+	    sprintf(logbuf, "Error: --ibs test permutation count '%s' too small (min %u).%s", argv[cur_arg + 1], MAX_THREADS * 2, errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	  ibs_test_perms = ii;

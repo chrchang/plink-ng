@@ -18,7 +18,7 @@ int32_t regress_rel_main(uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t
 int32_t calc_unrelated_herit(uint64_t calculation_type, int32_t ibc_type, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, double* pheno_d, double* rel_ibc, double unrelated_herit_covg, double unrelated_herit_covr, double unrelated_herit_tol);
 #endif
 
-int32_t ibs_test_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t perm_ct, uint32_t pheno_nm_ct, uint32_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c);
+int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t perm_ct, uintptr_t pheno_nm_ct, uintptr_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c);
 
 int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t groupdist_iters, uint32_t groupdist_d, uint32_t pheno_nm_ct, uint32_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c);
 

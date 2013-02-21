@@ -775,7 +775,7 @@ int32_t relationship_req(uint64_t calculation_type) {
 }
 
 int32_t distance_req(uint64_t calculation_type) {
-  return ((calculation_type & CALC_DISTANCE) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & CALC_GROUPDIST) || (calculation_type & CALC_REGRESS_DISTANCE))));
+  return ((calculation_type & CALC_DISTANCE) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))));
 }
 
 int32_t double_cmp(const void* aa, const void* bb) {
@@ -2719,6 +2719,26 @@ void collapse_bitarr(uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t orig_ct
   }
 }
 
+void collapse_bitarr_incl(uintptr_t* bitarr, uintptr_t* include_arr, uint32_t orig_ct) {
+  uint32_t uii = 0;
+  uint32_t ujj;
+  while ((uii < orig_ct) && is_set(include_arr, uii)) {
+    uii++;
+  }
+  ujj = uii;
+  while (++uii < orig_ct) {
+    if (is_set(include_arr, uii)) {
+      if (is_set(bitarr, uii)) {
+        // set bit jj
+        bitarr[ujj / BITCT] |= (ONELU << (ujj % BITCT));
+      } else {
+	bitarr[ujj / BITCT] &= (~(ONELU << (ujj % BITCT)));
+      }
+      ujj++;
+    }
+  }
+}
+
 double rand_unif(void) {
   return (sfmt_genrand_uint32(&sfmt) + 0.5) * RECIP_2_32;
 }
@@ -2864,7 +2884,8 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
   }
   for (ulii = 1; ulii < ct; ulii++) {
 #if _WIN32
-    threads[ulii - 1] = (HANDLE)_beginthreadex(NULL, 20480, start_routine, (void*)ulii, 0, NULL);
+    // 64k plus epsilon needed for ibs_test_thread
+    threads[ulii - 1] = (HANDLE)_beginthreadex(NULL, 69632, start_routine, (void*)ulii, 0, NULL);
     if (!threads[ulii - 1]) {
       join_threads(threads, ulii);
       return -1;

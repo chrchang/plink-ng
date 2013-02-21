@@ -1690,7 +1690,7 @@ static uint32_t g_ctrl_ct;
 static uint32_t g_case_ct;
 static uintptr_t g_jackknife_iters;
 static uint32_t g_jackknife_d;
-static double g_calc_result[9][MAX_THREADS];
+static double g_calc_result[MAX_THREADS][9];
 static uintptr_t* g_masks;
 static uintptr_t* g_mmasks;
 static uint32_t* g_missing_tot_weights;
@@ -1702,6 +1702,150 @@ static double* g_pheno_packed;
 static uintptr_t* g_perm_rows; // one row = one permutation
 static uintptr_t* g_perm_col_buf;
 static double* g_perm_results;
+static uintptr_t g_perm_ct;
+static double g_half_marker_ct_recip;
+static uint32_t g_load_dists;
+
+double fill_psbuf(uintptr_t block_size, double* dists, uintptr_t* col_uidxp, double* psbuf, double* ssq0p) {
+  // also updates total sum and sums of squares
+  double tot = 0.0;
+  uintptr_t col_idx = 0;
+  uintptr_t col_uidx = *col_uidxp;
+  double ssq[2];
+  double dxx;
+  ssq[0] = 0.0;
+  ssq[1] = 0.0;
+  do {
+    col_uidx = next_set_unsafe(g_pheno_nm, col_uidx);
+    if (g_load_dists) {
+      dxx = dists[col_uidx];
+    } else {
+      dxx = 1.0 - dists[col_uidx] * g_half_marker_ct_recip;
+    }
+    tot += dxx;
+    ssq[is_set(g_pheno_c, col_uidx)] += dxx * dxx;
+    col_uidx++;
+  } while (++col_idx < block_size);
+  *col_uidxp = col_uidx;
+  ssq0p[0] += ssq[0];
+  ssq0p[1] += ssq[1];
+  return tot;
+}
+
+void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results) {
+  // (This might work better with 11- or 13-bit chunks; test them if it's
+  // important.)
+
+  // 256 possible bytes *
+  // (BITCT / 8) bytes per word *
+  // 2 degrees of freedom (case-case dist, case-ctrl dist, ctrl-ctrl dist) *
+  // 2 possible statuses for the indiv being held constant
+  double partial_sum_buf[128 * BITCT];
+  double dist_tot = 0.0;
+  uintptr_t row_uidx = 0;
+  double ssq[3];
+  double *dptr;
+  double* psptr;
+  uintptr_t row_idx;
+  uintptr_t col_idx;
+  uintptr_t col_uidx;
+  uintptr_t block_size;
+  uint32_t row_set;
+  ssq[0] = 0.0;
+  ssq[1] = 0.0;
+  ssq[2] = 0.0;
+#ifdef __LP64__
+  for (row_idx = 0; row_idx < g_thread_start[tidx]; row_idx++) {
+    row_uidx = next_set_unsafe(g_pheno_nm, row_uidx);
+    row_uidx++;
+  }
+  for (; row_idx < g_thread_start[tidx + 1]; row_idx++) {
+    row_uidx = next_set_unsafe(g_pheno_nm, row_uidx);
+    dptr = &(g_dists[(row_uidx * (row_uidx - 1)) / 2]);
+    col_idx = 0;
+    col_uidx = 0;
+    row_set = is_set(g_pheno_c, row_uidx);
+    do {
+      if (col_idx + BITCT > row_idx) {
+	block_size = row_idx - col_idx;
+      } else {
+	block_size = BITCT;
+      }
+      dist_tot += fill_psbuf(block_size, dptr, &col_uidx, partial_sum_buf, &(ssq[row_set]));
+      // TODO
+      col_idx += block_size;
+    } while (col_idx < row_idx);
+    row_uidx++;
+  }
+#else
+#endif
+  g_calc_result[tidx][0] = dist_tot;
+  g_calc_result[tidx][1] = ssq[0];
+  g_calc_result[tidx][2] = ssq[1];
+  g_calc_result[tidx][3] = ssq[2];
+}
+
+/*
+void incr_dists(double* dists, uintptr_t* geno, int32_t tidx) {
+  uintptr_t* glptr;
+  uintptr_t ulii;
+  uintptr_t mask_fixed;
+  uintptr_t uljj;
+  uintptr_t* mptr;
+  double* weights1 = &(g_weights[16384]);
+#ifdef __LP64__
+  double* weights2 = &(g_weights[32768]);
+  double* weights3 = &(g_weights[36864]);
+  double* weights4 = &(g_weights[40960]);
+#endif
+  uint32_t uii;
+  uint32_t ujj;
+  for (uii = g_thread_start[tidx]; uii < g_thread_start[tidx + 1]; uii++) {
+    glptr = geno;
+    ulii = geno[uii];
+    mptr = g_masks;
+    mask_fixed = g_masks[uii];
+#ifdef __LP64__
+    if (mask_fixed == ~ZEROLU) {
+      for (ujj = 0; ujj < uii; ujj++) {
+	uljj = (*glptr++ ^ ulii) & (*mptr++);
+        *dists += weights4[uljj >> 52] + weights3[(uljj >> 40) & 4095] + weights2[(uljj >> 28) & 4095] + weights1[(uljj >> 14) & 16383] + g_weights[uljj & 16383];
+	dists++;
+      }
+    } else {
+      for (ujj = 0; ujj < uii; ujj++) {
+	uljj = (*glptr++ ^ ulii) & (mask_fixed & (*mptr++));
+        *dists += weights4[uljj >> 52] + weights3[(uljj >> 40) & 4095] + weights2[(uljj >> 28) & 4095] + weights1[(uljj >> 14) & 16383] + g_weights[uljj & 16383];
+	dists++;
+      }
+    }
+#else
+    if (mask_fixed == 0x0fffffff) {
+      for (ujj = 0; ujj < uii; ujj++) {
+	uljj = (*glptr++ ^ ulii) & (*mptr++);
+	*dists += weights1[uljj >> 14] + g_weights[uljj & 16383];
+	dists++;
+      }
+    } else {
+      for (ujj = 0; ujj < uii; ujj++) {
+	uljj = (*glptr++ ^ ulii) & (mask_fixed & (*mptr++));
+	*dists += weights1[uljj >> 14] + g_weights[uljj & 16383];
+	dists++;
+      }
+    }
+#endif
+  }
+}
+
+*/
+
+THREAD_RET_TYPE ibs_test_thread(void* arg) {
+  uintptr_t tidx = (uintptr_t)arg;
+  uintptr_t perm_ctcl = (g_perm_ct + (CACHELINE * 8 - 1)) / (CACHELINE * 8);
+  uintptr_t perm_ctcld = (g_perm_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
+  ibs_test_range((uint32_t)tidx, &(g_perm_col_buf[tidx * perm_ctcl * (CACHELINE / sizeof(intptr_t))]), &(g_perm_results[tidx * perm_ctcld * (CACHELINE / sizeof(double))]));
+  THREAD_RETURN;
+}
 
 void incr_dists_i(int32_t* idists, uintptr_t* geno, int32_t tidx) {
 #ifdef __LP64__
@@ -2534,7 +2678,7 @@ THREAD_RET_TYPE groupdist_jack_thread(void* arg) {
   }
   // don't write until end, to avoid false sharing
   for (ullii = 0; ullii < 9; ullii++) {
-    g_calc_result[ullii][tidx] = results[ullii];
+    g_calc_result[tidx][ullii] = results[ullii];
   }
   THREAD_RETURN;
 }
@@ -2614,10 +2758,10 @@ THREAD_RET_TYPE regress_rel_jack_thread(void* arg) {
       ulljj = ((ulljj + 1) * g_jackknife_iters) / 100;
     }
   }
-  g_calc_result[0][tidx] = sum;
-  g_calc_result[1][tidx] = sum_sq;
-  g_calc_result[2][tidx] = sum2;
-  g_calc_result[3][tidx] = sum2_sq;
+  g_calc_result[tidx][0] = sum;
+  g_calc_result[tidx][1] = sum_sq;
+  g_calc_result[tidx][2] = sum2;
+  g_calc_result[tidx][3] = sum2_sq;
   THREAD_RETURN;
 }
 
@@ -2711,17 +2855,17 @@ int32_t regress_rel_main(uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t
   ulii = 0;
   regress_rel_jack_thread((void*)ulii);
   dxx = g_calc_result[0][0]; // relationship on pheno
-  dxxsq = g_calc_result[1][0];
+  dxxsq = g_calc_result[0][1];
 
-  dyy = g_calc_result[2][0]; // pheno on relationship
-  dyysq = g_calc_result[3][0];
+  dyy = g_calc_result[0][2]; // pheno on relationship
+  dyysq = g_calc_result[0][3];
 
   join_threads(threads, g_thread_ct);
   for (uii = 0; uii < g_thread_ct - 1; uii++) {
-    dxx += g_calc_result[0][uii + 1];
-    dxxsq += g_calc_result[1][uii + 1];
-    dyy += g_calc_result[2][uii + 1];
-    dyysq += g_calc_result[3][uii + 1];
+    dxx += g_calc_result[uii + 1][0];
+    dxxsq += g_calc_result[uii + 1][1];
+    dyy += g_calc_result[uii + 1][2];
+    dyysq += g_calc_result[uii + 1][3];
   }
   ulii = g_jackknife_iters * g_thread_ct;
   putchar('\r');
@@ -3039,15 +3183,42 @@ double get_dmedian(double* sorted_arr, int32_t len) {
   }
 }
 
-int32_t ibs_test_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t perm_ct, uint32_t pheno_nm_ct, uint32_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t perm_ct, uintptr_t pheno_nm_ct, uintptr_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t indiv_ctl  = (g_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
-  uintptr_t perm_ctcl = (perm_ct + (CACHELINE * 8 - 1)) / (CACHELINE * 8);
-  uintptr_t perm_ctcld = (perm_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
-  double* dist_ptr = g_dists;
-  uint32_t case_ct = pheno_nm_ct - pheno_ctrl_ct;
+  uintptr_t perm_ctcl = (perm_ct + (CACHELINE * 8)) / (CACHELINE * 8);
+  uintptr_t perm_ctclm = perm_ctcl * (CACHELINE / sizeof(intptr_t));
+  uintptr_t perm_ctcld = (perm_ct + (CACHELINE_DBL)) / CACHELINE_DBL;
+  uintptr_t perm_ctcldm = perm_ctcld * (CACHELINE / sizeof(double));
+  uintptr_t case_ct = pheno_nm_ct - pheno_ctrl_ct;
+  uint32_t tidx = 1;
   int32_t retval = 0;
+  double ctrl_ctrl_ct;
+  double ctrl_case_ct;
+  double case_case_ct;
+  double tot_sum;
+  double ctrl_ctrl_tot;
+  double ctrl_case_tot;
+  double case_case_tot;
+  double ctrl_ctrl_ssq;
+  double ctrl_case_ssq;
+  double case_case_ssq;
+  double between_ssq;
+  double total_ssq;
+  uintptr_t ulii;
+#ifdef __LP64__
+  uintptr_t perm_ct2 = (perm_ct + 2) / 2;
+  __m128d* rvptr1;
+  __m128d* rvptr2;
+#else
+  double* rptr1;
+  double* rptr2;
+#endif
+  uintptr_t perm_idx;
+  g_load_dists = (calculation_type & CALC_LOAD_DISTANCES)? 1 : 0;
+  perm_ct += 1; // first permutation = original config
   if (pheno_ctrl_ct < 2) {
     logprint("Skipping --ibs-test: Too few controls (minimum 2).\n");
     goto ibs_test_calc_ret_1;
@@ -3055,6 +3226,10 @@ int32_t ibs_test_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr_
     logprint("Skipping --ibs-test: Too few cases (minimum 2).\n");
     goto ibs_test_calc_ret_1;
   }
+  ctrl_ctrl_ct = (pheno_ctrl_ct * (pheno_ctrl_ct - 1)) / 2;
+  ctrl_case_ct = pheno_ctrl_ct * case_ct;
+  case_case_ct = (case_ct * (case_ct - 1)) / 2;
+  g_perm_ct = perm_ct;
   // g_pheno_nm and g_pheno_c should be NULL
   if (wkspace_alloc_ul_checked(&g_pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&g_pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
@@ -3064,17 +3239,76 @@ int32_t ibs_test_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr_
   memcpy(g_pheno_c, pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
   collapse_bitarr(g_pheno_nm, indiv_exclude, unfiltered_indiv_ct);
   collapse_bitarr(g_pheno_c, indiv_exclude, unfiltered_indiv_ct);
-  if (wkspace_alloc_ul_checked(&g_perm_rows, pheno_nm_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&g_perm_col_buf, perm_ctcl * CACHELINE * g_thread_ct) ||
-      wkspace_alloc_d_checked(&g_perm_results, perm_ctcld * g_thread_ct)) {
+  if (wkspace_alloc_ul_checked(&g_perm_rows, perm_ct * pheno_nm_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&g_perm_col_buf, perm_ctclm * sizeof(intptr_t) * g_thread_ct) ||
+      wkspace_alloc_d_checked(&g_perm_results, perm_ctcldm * sizeof(double) * g_thread_ct)) {
     goto ibs_test_calc_ret_NOMEM;
   }
-  fill_double_zero(g_perm_results, perm_ctcld * g_thread_ct);
-  generate_perm1(pheno_nm_ct, case_ct, perm_ct, g_perm_rows);
-  // TODO
+  fill_double_zero(g_perm_results, perm_ctcldm * g_thread_ct);
+
+  // first permutation = original
+  memcpy(g_perm_rows, g_pheno_c, indiv_ctl * sizeof(intptr_t));
+  collapse_bitarr_incl(g_perm_rows, g_pheno_nm, g_indiv_ct);
+
+  generate_perm1(pheno_nm_ct, case_ct, perm_ct - 1, &(g_perm_rows[pheno_nm_ctl]));
+  triangle_fill(g_thread_start, pheno_nm_ct, g_thread_ct, 0, 1, 1, 1);
+  if (spawn_threads(threads, &ibs_test_thread, g_thread_ct)) {
+    goto ibs_test_calc_ret_THREAD_CREATE_FAIL;
+  }
+  ulii = 0;
+  ibs_test_thread((void*)ulii);
+  join_threads(threads, g_thread_ct);
+
+  tot_sum = g_calc_result[0][0];
+  ctrl_ctrl_ssq = g_calc_result[0][1];
+  ctrl_case_ssq = g_calc_result[0][2];
+  case_case_ssq = g_calc_result[0][3];
+  ctrl_ctrl_tot = g_perm_results[0];
+  ctrl_case_tot = g_perm_results[1];
+  case_case_tot = tot_sum - ctrl_ctrl_tot - ctrl_case_tot;
+
+  for (; tidx < g_thread_ct; tidx++) {
+    tot_sum += g_calc_result[tidx][0];
+    ctrl_ctrl_ssq += g_calc_result[tidx][1];
+    ctrl_case_ssq += g_calc_result[tidx][2];
+    case_case_ssq += g_calc_result[tidx][3];
+#ifdef __LP64__
+    rvptr1 = (__m128d*)g_perm_results;
+    rvptr2 = (__m128d*)(&(g_perm_results[perm_ctcldm * tidx]));
+    for (perm_idx = 0; perm_idx < perm_ct2; perm_idx++) {
+      *rvptr1 = _mm_add_pd(*rvptr1, *rvptr2++);
+      rvptr1++;
+    }
+#else
+    rptr1 = g_perm_results;
+    rptr2 = &(g_perm_results[perm_ctcld * tidx]);
+    for (perm_idx = 0; perm_idx < perm_ct; perm_idx++) {
+      *rptr1++ += *rptr2++;
+    }
+#endif
+  }
+
+  printf("%g %g %g %g\n", tot_sum, ctrl_ctrl_ssq, ctrl_case_ssq, case_case_ssq);
+
+  total_ssq = ctrl_ctrl_ssq + ctrl_case_ssq + case_case_ssq;
+  // between_ssq = ;
+
+  sprintf(logbuf, "Between-group IBS (mean, SD)   = %g, %g\n", ctrl_case_tot / ctrl_case_ct, sqrt(ctrl_case_ssq / (ctrl_case_ct - 1)));
+  logprintb();
+  sprintf(logbuf, "In-group (case) IBS (mean, SD) = %g, %g\n", case_case_tot / case_case_ct, sqrt(case_case_ssq / (case_case_ct - 1)));
+  logprintb();
+  sprintf(logbuf, "In-group (ctrl) IBS (mean, SD) = %g, %g\n", ctrl_ctrl_tot / ctrl_ctrl_ct, sqrt(ctrl_ctrl_ssq / (ctrl_ctrl_ct - 1)));
+  logprintb();
+  // sprintf(logbuf, "Approximate proportion of variance between group = %g\n", between_ssq / total_ssq);
+  // logprintb();
+
   while (0) {
   ibs_test_calc_ret_NOMEM:
     retval = RET_NOMEM;
+    break;
+  ibs_test_calc_ret_THREAD_CREATE_FAIL:
+    logprint(errstr_thread_create);
+    retval = RET_THREAD_CREATE_FAIL;
     break;
   }
  ibs_test_calc_ret_1:
@@ -3087,7 +3321,6 @@ int32_t ibs_test_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr_
 int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t groupdist_iters, uint32_t groupdist_d, uint32_t pheno_nm_ct, uint32_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t indiv_ctl = (g_indiv_ct + (BITCT - 1)) / BITCT;
   double* dist_ptr = g_dists;
   double dhh_ssq = 0.0;
   double dhl_ssq = 0.0;
@@ -3102,10 +3335,7 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   double* ll_poolp;
   double* lh_poolp;
   double* hh_poolp;
-  uintptr_t* uiptr;
-  uintptr_t* uiptr2;
   uintptr_t ulii;
-  uintptr_t uljj;
   uint32_t uii;
   uint32_t ujj;
   uint32_t indiv_idx;
@@ -3289,23 +3519,23 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
     join_threads(threads, g_thread_ct);
     for (uii = 1; uii < g_thread_ct; uii++) {
       for (ujj = 0; ujj < 9; ujj++) {
-	g_calc_result[ujj][0] += g_calc_result[ujj][uii];
+	g_calc_result[0][ujj] += g_calc_result[uii][ujj];
       }
     }
     dxx = 1.0 / g_thread_ct;
     g_calc_result[0][0] *= dxx;
-    g_calc_result[1][0] *= dxx;
-    g_calc_result[2][0] *= dxx;
+    g_calc_result[0][1] *= dxx;
+    g_calc_result[0][2] *= dxx;
     dxx /= (g_jackknife_iters - 1) * g_thread_ct;
     for (uii = 3; uii < 9; uii++) {
-      g_calc_result[uii][0] *= dxx;
+      g_calc_result[0][uii] *= dxx;
     }
     putchar('\r');
-    sprintf(logbuf, "  AA mean - AU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[1][0], sqrt(((g_case_ct + g_ctrl_ct) / ((double)g_jackknife_d)) * (g_calc_result[3][0] + g_calc_result[4][0] - 2 * g_calc_result[6][0])));
+    sprintf(logbuf, "  AA mean - AU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[0][1], sqrt(((g_case_ct + g_ctrl_ct) / ((double)g_jackknife_d)) * (g_calc_result[0][3] + g_calc_result[0][4] - 2 * g_calc_result[0][6])));
     logprintb();
-    sprintf(logbuf, "  AA mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[2][0], sqrt(((g_case_ct + g_ctrl_ct) / ((double)g_jackknife_d)) * (g_calc_result[3][0] + g_calc_result[5][0] - 2 * g_calc_result[7][0])));
+    sprintf(logbuf, "  AA mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][0] - g_calc_result[0][2], sqrt(((g_case_ct + g_ctrl_ct) / ((double)g_jackknife_d)) * (g_calc_result[0][3] + g_calc_result[0][5] - 2 * g_calc_result[0][7])));
     logprintb();
-    sprintf(logbuf, "  AU mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[1][0] - g_calc_result[2][0], sqrt(((g_case_ct + g_ctrl_ct) / ((double)g_jackknife_d)) * (g_calc_result[4][0] + g_calc_result[5][0] - 2 * g_calc_result[8][0])));
+    sprintf(logbuf, "  AU mean - UU mean avg difference (s.e.): %g (%g)\n", g_calc_result[0][1] - g_calc_result[0][2], sqrt(((g_case_ct + g_ctrl_ct) / ((double)g_jackknife_d)) * (g_calc_result[0][4] + g_calc_result[0][5] - 2 * g_calc_result[0][8])));
     logprintb();
   }
   while (0) {
@@ -7117,7 +7347,6 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
   uintptr_t* glptr3;
   double* dptr2;
   double dxx;
-  double dyy;
   uint32_t marker_ct_autosomal;
   uint32_t multiplex;
   uint32_t chrom_end;
@@ -7546,7 +7775,6 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
 	  *dptr2++ = (((double)marker_ct_autosomal) / (uii - (*giptr2++) + (*giptr++))) * (*iptr++);
 	}
       }
-
     } else {
       for (indiv_idx = g_thread_start[0]; indiv_idx < tstc; indiv_idx++) {
 	giptr2 = g_indiv_missing_unwt;
@@ -7559,35 +7787,37 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
     }
   }
 
-  if (calculation_type & CALC_DISTANCE) {
-    if (!parallel_idx) {
-      retval = distance_d_write_ids(outname, outname_end, dist_calc_type, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
-      if (retval) {
-	goto calc_distance_ret_1;
-      }
-    }
+  if (calculation_type & (CALC_DISTANCE | CALC_IBS_TEST)) {
     if ((exponent == 0.0) || (!(dist_calc_type & (DISTANCE_IBS | DISTANCE_1_MINUS_IBS)))) {
-      dxx = 0.5 / (double)marker_ct_autosomal;
+      g_half_marker_ct_recip = 0.5 / (double)marker_ct_autosomal;
     } else {
-      dxx = 0.0;
+      g_half_marker_ct_recip = 0.0;
       marker_uidx = 0;
       chrom_fo_idx = 0;
       chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[1];
       for (marker_idx = 0; marker_idx < marker_ct_autosomal; marker_idx++) {
 	marker_uidx = next_autosomal_unsafe(marker_exclude, marker_uidx, chrom_info_ptr, &chrom_end, &chrom_fo_idx);
-	dyy = set_allele_freqs[marker_uidx];
-	if ((dyy > 0.0) && (dyy < 1.0)) {
-	  dxx += pow(2 * dyy * (1.0 - dyy), -exponent);
+	dxx = set_allele_freqs[marker_uidx];
+	if ((dxx > 0.0) && (dxx < 1.0)) {
+	  g_half_marker_ct_recip += pow(2 * dxx * (1.0 - dxx), -exponent);
 	} else {
-	  dxx += 1.0;
+	  g_half_marker_ct_recip += 1.0;
 	}
 	marker_uidx++;
       }
-      dxx = 0.5 / dxx;
+      g_half_marker_ct_recip = 0.5 / g_half_marker_ct_recip;
     }
-    retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, dist_calc_type, outname, outname_end, g_dists, dxx, g_indiv_ct, g_thread_start[0], g_thread_start[g_thread_ct], parallel_idx, parallel_tot, g_geno);
-    if (retval) {
-      goto calc_distance_ret_1;
+    if (calculation_type & CALC_DISTANCE) {
+      if (!parallel_idx) {
+	retval = distance_d_write_ids(outname, outname_end, dist_calc_type, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
+	if (retval) {
+	  goto calc_distance_ret_1;
+	}
+      }
+      retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, dist_calc_type, outname, outname_end, g_dists, g_half_marker_ct_recip, g_indiv_ct, g_thread_start[0], g_thread_start[g_thread_ct], parallel_idx, parallel_tot, g_geno);
+      if (retval) {
+	goto calc_distance_ret_1;
+      }
     }
   }
   wkspace_reset(wkspace_mark);
