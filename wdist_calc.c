@@ -1997,7 +1997,7 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
 	  putchar('\b');
 	}
 	pct = ulii / pct_div;
-	printf("\b\b%lu%%", pct);
+	printf("\b\b%" PRIuPTR "%%", pct);
 	fflush(stdout);
 	pct_next = pct_div * (pct + 1);
       }
@@ -3361,11 +3361,12 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
   uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
   uintptr_t perm_ctcl = (perm_ct + (CACHELINE * 8)) / (CACHELINE * 8);
   uintptr_t perm_ctclm = perm_ctcl * (CACHELINE / sizeof(intptr_t));
-  uintptr_t perm_ctcld = (perm_ct + (CACHELINE_DBL)) / CACHELINE_DBL;
+  uintptr_t perm_ctcld = (perm_ct + CACHELINE_DBL) / CACHELINE_DBL;
   uintptr_t perm_ctcldm = perm_ctcld * CACHELINE_DBL;
   uintptr_t case_ct = pheno_nm_ct - pheno_ctrl_ct;
   uint32_t tidx = 1;
   int32_t retval = 0;
+  int32_t perm_test[6];
   double ctrl_ctrl_ct;
   double ctrl_case_ct;
   double case_case_ct;
@@ -3376,11 +3377,25 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
   double ctrl_ctrl_ssq;
   double ctrl_case_ssq;
   double case_case_ssq;
+  double tot_mean;
+  double ingroups_mean;
+  double ctrl_ctrl_mean;
+  double ctrl_case_mean;
+  double case_case_mean;
+  double ctrl_ctrl_var;
+  double ctrl_case_var;
+  double case_case_var;
+  double ctrl_ctrl_tot1;
+  double ctrl_case_tot1;
+  double case_case_tot1;
+  double case_case_minus_ctrl_ctrl;
+  double case_case_minus_ctrl_case;
+  double ctrl_ctrl_minus_ctrl_case;
   double between_ssq;
   double total_ssq;
+  double perm_ct_recip;
   uintptr_t ulii;
 #ifdef __LP64__
-  uintptr_t perm_ct2 = (perm_ct + 2) / 2;
   __m128d* rvptr1;
   __m128d* rvptr2;
 #else
@@ -3396,6 +3411,9 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
   } else if (case_ct < 2) {
     logprint("Skipping --ibs-test: Too few cases (minimum 2).\n");
     goto ibs_test_calc_ret_1;
+  }
+  for (ulii = 0; ulii < 6; ulii++) {
+    perm_test[ulii] = 0;
   }
   ctrl_ctrl_ct = (pheno_ctrl_ct * (pheno_ctrl_ct - 1)) / 2;
   ctrl_case_ct = pheno_ctrl_ct * case_ct;
@@ -3427,7 +3445,7 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
     goto ibs_test_calc_ret_THREAD_CREATE_FAIL;
   }
   ulii = 0;
-  fputs("--ibs-test: 0%", stdout);
+  printf("--ibs-test (%" PRIuPTR " permutations): 0%%", perm_ct - 1);
   fflush(stdout);
   ibs_test_thread((void*)ulii);
   join_threads(threads, g_thread_ct);
@@ -3444,7 +3462,7 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
 #ifdef __LP64__
     rvptr1 = (__m128d*)g_perm_results;
     rvptr2 = (__m128d*)(&(g_perm_results[2 * perm_ctcldm * tidx]));
-    for (perm_idx = 0; perm_idx < perm_ct2; perm_idx++) {
+    for (perm_idx = 0; perm_idx < perm_ct; perm_idx++) {
       *rvptr1 = _mm_add_pd(*rvptr1, *rvptr2++);
       rvptr1++;
     }
@@ -3453,6 +3471,7 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
     rptr2 = &(g_perm_results[2 * perm_ctcldm * tidx]);
     for (perm_idx = 0; perm_idx < perm_ct; perm_idx++) {
       *rptr1++ += *rptr2++;
+      *rptr1++ += *rptr2++;
     }
 #endif
   }
@@ -3460,19 +3479,84 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
   ctrl_case_tot = g_perm_results[1];
   case_case_tot = tot_sum - ctrl_ctrl_tot - ctrl_case_tot;
 
-  fputs("\r                \r", stdout);
+  tot_mean = tot_sum / (ctrl_ctrl_ct + ctrl_case_ct + case_case_ct);
+  ingroups_mean = (ctrl_ctrl_tot + case_case_tot) / (ctrl_ctrl_ct + case_case_ct);
+  ctrl_ctrl_mean = ctrl_ctrl_tot / ctrl_ctrl_ct;
+  ctrl_case_mean = ctrl_case_tot / ctrl_case_ct;
+  case_case_mean = case_case_tot / case_case_ct;
 
-  total_ssq = ctrl_ctrl_ssq + ctrl_case_ssq + case_case_ssq;
-  // between_ssq = ;
+  ctrl_ctrl_var = ctrl_ctrl_ssq - ctrl_ctrl_tot * ctrl_ctrl_mean;
+  ctrl_case_var = ctrl_case_ssq - ctrl_case_tot * ctrl_case_mean;
+  case_case_var = case_case_ssq - case_case_tot * case_case_mean;
 
-  sprintf(logbuf, "Between-group IBS (mean, SD)   = %g, %g\n", ctrl_case_tot / ctrl_case_ct, sqrt((ctrl_case_ssq - ctrl_case_tot * ctrl_case_tot / ctrl_case_ct) / (ctrl_case_ct - 1)));
+  total_ssq = ctrl_ctrl_var + ctrl_case_var + case_case_var;
+  between_ssq = ctrl_case_ct * (ctrl_case_mean - tot_mean) * (ctrl_case_mean - tot_mean) + (ctrl_ctrl_ct + case_case_ct) * (ingroups_mean - tot_mean) * (ingroups_mean - tot_mean);
+
+  case_case_minus_ctrl_ctrl = case_case_tot - ctrl_ctrl_tot;
+  case_case_minus_ctrl_case = case_case_tot - ctrl_case_tot;
+  ctrl_ctrl_minus_ctrl_case = ctrl_ctrl_tot - ctrl_case_tot;
+
+  for (ulii = 1; ulii < perm_ct; ulii++) {
+    ctrl_ctrl_tot1 = g_perm_results[ulii * 2];
+    ctrl_case_tot1 = g_perm_results[ulii * 2 + 1];
+    case_case_tot1 = tot_sum - ctrl_ctrl_tot1 - ctrl_case_tot1;
+    if (ctrl_case_tot1 < ctrl_case_tot) {
+      perm_test[0] += 1;
+    }
+    if (case_case_tot1 - ctrl_ctrl_tot1 < case_case_minus_ctrl_ctrl) {
+      perm_test[1] += 1;
+    }
+    if (case_case_tot1 < case_case_tot) {
+      perm_test[2] += 1;
+    }
+    if (ctrl_ctrl_tot1 < ctrl_ctrl_tot) {
+      perm_test[3] += 1;
+    }
+    if (case_case_tot1 - ctrl_case_tot1 < case_case_minus_ctrl_case) {
+      perm_test[4] += 1;
+    }
+    if (ctrl_ctrl_tot1 - ctrl_case_tot1 < ctrl_ctrl_minus_ctrl_case) {
+      perm_test[5] += 1;
+    }
+  }
+
+  fputs("\r                                         \r", stdout);
+  logprint("--ibs-test results:\n\n");
+  sprintf(logbuf, "  Between-group IBS (mean, SD)   = %g, %g\n", ctrl_case_mean, sqrt(ctrl_case_var / (ctrl_case_ct - 1)));
   logprintb();
-  sprintf(logbuf, "In-group (case) IBS (mean, SD) = %g, %g\n", case_case_tot / case_case_ct, sqrt((case_case_ssq - case_case_tot * case_case_tot / case_case_ct) / (case_case_ct - 1)));
+  sprintf(logbuf, "  In-group (case) IBS (mean, SD) = %g, %g\n", case_case_mean, sqrt(case_case_var / (case_case_ct - 1)));
   logprintb();
-  sprintf(logbuf, "In-group (ctrl) IBS (mean, SD) = %g, %g\n", ctrl_ctrl_tot / ctrl_ctrl_ct, sqrt((ctrl_ctrl_ssq - ctrl_ctrl_tot * ctrl_ctrl_tot / ctrl_ctrl_ct) / (ctrl_ctrl_ct - 1)));
+  sprintf(logbuf, "  In-group (ctrl) IBS (mean, SD) = %g, %g\n", ctrl_ctrl_mean, sqrt(ctrl_ctrl_var / (ctrl_ctrl_ct - 1)));
   logprintb();
-  // sprintf(logbuf, "Approximate proportion of variance between group = %g\n", between_ssq / total_ssq);
-  // logprintb();
+  sprintf(logbuf, "  Approximate proportion of variance between group = %g\n\n", between_ssq / total_ssq);
+  logprintb();
+  perm_ct_recip = 1.0 / ((double)perm_ct);
+  fputs("IBS group-difference empirical p-values:\n\n", stdout);
+  sprintf(logbuf, "   T1: Case/control less similar                p = %g\n", (perm_test[0]) * perm_ct_recip);
+  logprintb();
+  sprintf(logbuf, "   T2: Case/control more similar                p = %g\n\n", (perm_ct - perm_test[0]) * perm_ct_recip);
+  logprintb();
+  sprintf(logbuf, "   T3: Case/case less similar than ctrl/ctrl    p = %g\n", (perm_test[1]) * perm_ct_recip);
+  logprintb();
+  sprintf(logbuf, "   T4: Case/case more similar than ctrl/ctrl    p = %g\n\n", (perm_ct - perm_test[1]) * perm_ct_recip);
+  logprintb();
+  sprintf(logbuf, "   T5: Case/case less similar                   p = %g\n", (perm_test[2]) * perm_ct_recip);
+  logprintb();
+  sprintf(logbuf, "   T6: Case/case more similar                   p = %g\n\n", (perm_ct - perm_test[2]) * perm_ct_recip);
+  logprintb();
+  sprintf(logbuf, "   T7: Control/control less similar             p = %g\n", (perm_test[3]) * perm_ct_recip);
+  logprintb();
+  sprintf(logbuf, "   T8: Control/control more similar             p = %g\n\n", (perm_ct - perm_test[3]) * perm_ct_recip);
+  logprintb();
+  sprintf(logbuf, "   T9: Case/case less similar than case/ctrl    p = %g\n", (perm_test[4]) * perm_ct_recip);
+  logprintb();
+  sprintf(logbuf, "  T10: Case/case more similar than case/ctrl    p = %g\n\n", (perm_ct - perm_test[4]) * perm_ct_recip);
+  logprintb();
+  sprintf(logbuf, "  T11: Ctrl/ctrl less similar than case/ctrl    p = %g\n", (perm_test[5]) * perm_ct_recip);
+  logprintb();
+  sprintf(logbuf, "  T12: Ctrl/ctrl more similar than case/ctrl    p = %g\n", (perm_ct - perm_test[5]) * perm_ct_recip);
+  logprintb();
+
 
   while (0) {
   ibs_test_calc_ret_NOMEM:
