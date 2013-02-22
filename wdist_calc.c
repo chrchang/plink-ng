@@ -1944,8 +1944,7 @@ void ibs_test_process_perms(uintptr_t row_ctl, uintptr_t* perm_row_start, uint32
 }
 
 void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results) {
-  // (This might work better with 11- or 13-bit chunks; test them if it's
-  // important.)
+  // (11-bit chunks were tested and found wanting.)
 
   // 256 possible bytes *
   // (BITCT / 8) bytes per word *
