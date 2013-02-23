@@ -57,3 +57,6 @@ wdist64c: $(SRC)
 
 wdist64nl: $(SRC)
 	gcc $(CFLAGS) $(ARCH64) $(SRC) -o wdist $(LINKFLAGS64) -L. $(ZLIB64)
+
+deadapter: deadapter.c
+	gcc -Wall -arch x86_64 -O2 deadapter.c -o deadapter -L. $(ZLIB64)

@@ -77,7 +77,7 @@ const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n"
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
 const char cmdline_format_str[] = "\n  wdist [input flag(s)...] [command flag(s)...] {other flag(s)...}\n  wdist --help {flag name(s)...}\n\n";
 const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
-const char notestr_null_calc2[] = "Commands include --freqx, --hardy, --ibc, --distance, --genome, --model, --gxe,\n--make-rel, --make-grm, --rel-cutoff, --ibs-test, --regress-distance,\n--make-bed, --recode, --merge-list, and --write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --freqx, --hardy, --ibc, --distance, --genome, --model, --gxe,\n--make-rel, --make-grm, --rel-cutoff, --regress-distance, --ibs-test,\n--make-bed, --recode, --merge-list, and --write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).\n";
 
 int32_t edit1_match(int32_t len1, char* s1, int32_t len2, char* s2) {
   // permit one difference of the following forms:
@@ -5105,6 +5105,10 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   g_indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
   if (!g_indiv_ct) {
     sprintf(logbuf, "Error: No %s pass QC.\n", species_plural);
+    goto wdist_ret_INVALID_FORMAT_2;
+  }
+  if ((g_indiv_ct == 1) && (relationship_or_ibc_req(calculation_type) || distance_req(calculation_type) || (calculation_type & CALC_GENOME))) {
+    sprintf(logbuf, "Error: More than 1 %s required for pairwise analysis.\n", species_singular);
     goto wdist_ret_INVALID_FORMAT_2;
   }
   unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
