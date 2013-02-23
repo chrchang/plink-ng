@@ -2813,47 +2813,60 @@ uint32_t set_default_jackknife_d(uint32_t ct) {
   return dd;
 }
 
-void generate_perm1(uint32_t tot_ct, uint32_t set_ct, uintptr_t iters, uintptr_t* perm_buf) {
+void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm_idx, uintptr_t perm_ct, uintptr_t* perm_buf) {
   uintptr_t tot_ctl = (tot_ct + (BITCT - 1)) / BITCT;
   uintptr_t tot_rem = tot_ct & (BITCT - 1);
   uint32_t lower_bound = (uint32_t)(4294967296LLU % ((uint64_t)tot_ct));
+  uintptr_t uljj = perm_ct - perm_idx;
   uintptr_t* pbptr;
-  uintptr_t perm_idx;
-  uintptr_t last_patch;
   uint32_t num_set;
   uint32_t urand;
-  uint32_t uii;
+  uintptr_t ulii;
   if (set_ct * 2 < tot_ct) {
-    fill_ulong_zero(perm_buf, tot_ctl * iters);
-    for (perm_idx = 0; perm_idx < iters; perm_idx++) {
-      pbptr = &(perm_buf[perm_idx * tot_ctl]);
+    for (ulii = 0; ulii < tot_ctl; ulii++) {
+      fill_ulong_zero(&(perm_buf[perm_idx + (ulii * perm_ct)]), uljj);
+    }
+    for (; perm_idx < perm_ct; perm_idx++) {
+      pbptr = &(perm_buf[perm_idx]);
       for (num_set = 0; num_set < set_ct; num_set++) {
 	do {
 	  do {
 	    urand = sfmt_genrand_uint32(&sfmt);
 	  } while (urand < lower_bound);
-	  uii = urand % tot_ct;
-	} while (is_set(pbptr, uii));
-	set_bit_noct(pbptr, uii);
+	  ulii = urand % tot_ct;
+	  uljj = ulii / BITCT;
+	  ulii &= (BITCT - 1);
+	} while ((pbptr[uljj * perm_ct] >> ulii) & 1);
+	pbptr[uljj * perm_ct] |= (ONELU << ulii);
       }
     }
   } else {
-    fill_ulong_one(perm_buf, tot_ctl * iters);
-    last_patch = (~ZEROLU) >> (BITCT - tot_rem);
+    for (ulii = 0; ulii < tot_ctl; ulii++) {
+      fill_ulong_one(&(perm_buf[perm_idx + (ulii * perm_ct)]), uljj);
+    }
     // "set" has reversed meaning here
     set_ct = tot_ct - set_ct;
-    for (perm_idx = 0; perm_idx < iters; perm_idx++) {
-      pbptr = &(perm_buf[perm_idx * tot_ctl]);
+    for (; perm_idx < perm_ct; perm_idx++) {
+      pbptr = &(perm_buf[perm_idx]);
       for (num_set = 0; num_set < set_ct; num_set++) {
 	do {
 	  do {
 	    urand = sfmt_genrand_uint32(&sfmt);
 	  } while (urand < lower_bound);
-	  uii = urand % tot_ct;
-	} while (!is_set(pbptr, uii));
-	clear_bit_noct(pbptr, uii);
+	  ulii = urand % tot_ct;
+	  uljj = ulii / BITCT;
+	  ulii &= (BITCT - 1);
+	} while (!((pbptr[uljj * perm_ct] >> ulii) & 1));
+	pbptr[uljj * perm_ct] &= ~(ONELU << ulii);
       }
-      pbptr[tot_ctl - 1] &= last_patch;
+    }
+    if (tot_rem) {
+      uljj = (~ZEROLU) >> (BITCT - tot_rem);
+      pbptr = &(perm_buf[(tot_ctl - 1) * perm_ct + perm_idx]);
+      for (ulii = perm_idx; ulii < perm_ct; ulii++) {
+	*pbptr &= uljj;
+	pbptr++;
+      }
     }
   }
 }

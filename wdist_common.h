@@ -933,7 +933,7 @@ void print_pheno_stdev(double* pheno_d, uint32_t indiv_ct);
 
 uint32_t set_default_jackknife_d(uint32_t ct);
 
-void generate_perm1(uint32_t tot_ct, uint32_t set_ct, uintptr_t iters, uintptr_t* perm_buf);
+void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm_idx, uintptr_t perm_ct, uintptr_t* perm_buf);
 
 void join_threads(pthread_t* threads, uint32_t ctp1);
 

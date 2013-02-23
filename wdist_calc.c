@@ -1699,21 +1699,24 @@ static double* g_jackknife_precomp = NULL;
 static uint32_t* g_genome_main;
 static uintptr_t g_marker_window[GENOME_MULTIPLEX * 2];
 static double* g_pheno_packed;
-static uintptr_t* g_perm_rows; // one row = one permutation
+
+// interleaved: first word of *every* permutation, then second word, etc.
+static uintptr_t* g_perm_rows;
+
 static uintptr_t* g_perm_col_buf;
 static double* g_perm_results;
 static uintptr_t g_perm_ct;
 static double g_half_marker_ct_recip;
 static uint32_t g_load_dists;
 
-void ibs_test_init_col_buf(uintptr_t row_ctl, uintptr_t row_idx, uintptr_t* perm_col_buf) {
+void ibs_test_init_col_buf(uintptr_t row_idx, uintptr_t* perm_col_buf) {
   uintptr_t perm_idx = 0;
   uintptr_t block_size = BITCT;
   uintptr_t rshift_ct = row_idx & (BITCT - 1);
   uintptr_t* gpr_ptr;
   uintptr_t ulii;
   uintptr_t block_pos;
-  gpr_ptr = &(g_perm_rows[row_idx / BITCT]);
+  gpr_ptr = &(g_perm_rows[(row_idx / BITCT) * g_perm_ct]);
   do {
     if (perm_idx + BITCT > g_perm_ct) {
       block_size = g_perm_ct - perm_idx;
@@ -1721,8 +1724,7 @@ void ibs_test_init_col_buf(uintptr_t row_ctl, uintptr_t row_idx, uintptr_t* perm
     ulii = 0;
     block_pos = 0;
     do {
-      ulii |= (((*gpr_ptr) >> rshift_ct) & ONELU) << block_pos;
-      gpr_ptr = &(gpr_ptr[row_ctl]);
+      ulii |= (((*gpr_ptr++) >> rshift_ct) & ONELU) << block_pos;
     } while (++block_pos < block_size);
     perm_idx += block_size;
     *perm_col_buf++ = ulii;
@@ -1849,7 +1851,7 @@ double fill_psbuf(uintptr_t block_size, double* dists, uintptr_t* col_uidxp, dou
   return tot;
 }
 
-void ibs_test_process_perms(uintptr_t row_ctl, uintptr_t* perm_row_start, uint32_t sub_block_ct, double* psbuf, uintptr_t* perm_col_buf, double* perm_results) {
+void ibs_test_process_perms(uintptr_t* perm_row_start, uint32_t sub_block_ct, double* psbuf, uintptr_t* perm_col_buf, double* perm_results) {
   uintptr_t perm_idx = 0;
   uintptr_t block_size = BITCT;
 #ifdef __LP64__
@@ -1878,7 +1880,7 @@ void ibs_test_process_perms(uintptr_t row_ctl, uintptr_t* perm_row_start, uint32
       */
       do {
 	sub_block_idx = 0;
-	ulii = *perm_row_start;
+	ulii = *perm_row_start++;
 	if (col_bits & 1) {
 #ifdef __LP64__
 	  perm_results[2 * block_pos + 1] += psbuf[2 * (ulii & 255)] + psbuf[512 + 2 * ((ulii >> 8) & 255)] + psbuf[1024 + 2 * ((ulii >> 16) & 255)] + psbuf[1536 + 2 * ((ulii >> 24) & 255)] + psbuf[2048 + 2 * ((ulii >> 32) & 255)] + psbuf[2560 + 2 * ((ulii >> 40) & 255)] + psbuf[3072 + 2 * ((ulii >> 48) & 255)] + psbuf[3584 + 2 * (ulii >> 56)];
@@ -1902,12 +1904,11 @@ void ibs_test_process_perms(uintptr_t row_ctl, uintptr_t* perm_row_start, uint32
 #endif
 	}
 	col_bits >>= 1;
-	perm_row_start = &(perm_row_start[row_ctl]);
       } while (++block_pos < block_size);
     } else {
       do {
 	sub_block_idx = 0;
-	ulii = *perm_row_start;
+	ulii = *perm_row_start++;
 	if (col_bits & 1) {
 	  dxx = psbuf[2 * (ulii & 255)];
 	  while (++sub_block_idx < sub_block_ct) {
@@ -1935,7 +1936,6 @@ void ibs_test_process_perms(uintptr_t row_ctl, uintptr_t* perm_row_start, uint32
 #endif
 	}
 	col_bits >>= 1;
-	perm_row_start = &(perm_row_start[row_ctl]);
       } while (++block_pos < block_size);
     }
     perm_idx += block_size;
@@ -1951,7 +1951,7 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
   // 2 degrees of freedom (ctrl-ctrl, ctrl-case, case-case)
   double partial_sum_buf[64 * BITCT];
   double dist_tot = 0.0;
-  uintptr_t row_ctl = (g_thread_start[g_thread_ct] + (BITCT - 1)) / BITCT;
+  // uintptr_t row_ctl = (g_thread_start[g_thread_ct] + (BITCT - 1)) / BITCT;
   uintptr_t row_uidx = 0;
   uintptr_t pct = 0;
   uintptr_t pct_div = 1 + ((g_thread_start[1] * (g_thread_start[1] - 1)) / 100);
@@ -1977,7 +1977,7 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
     col_idx = 0;
     col_uidx = 0;
     row_set = is_set(g_pheno_c, row_uidx);
-    ibs_test_init_col_buf(row_ctl, row_idx, perm_col_buf);
+    ibs_test_init_col_buf(row_idx, perm_col_buf);
     do {
       if (col_idx + BITCT > row_idx) {
 	block_size = row_idx - col_idx;
@@ -1985,7 +1985,7 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
 	block_size = BITCT;
       }
       dist_tot += fill_psbuf(block_size, dptr, &col_uidx, partial_sum_buf, &(ssq[row_set]));
-      ibs_test_process_perms(row_ctl, &(g_perm_rows[col_idx / BITCT]), (block_size + 7) / 8, partial_sum_buf, perm_col_buf, perm_results);
+      ibs_test_process_perms(&(g_perm_rows[(col_idx / BITCT) * g_perm_ct]), (block_size + 7) / 8, partial_sum_buf, perm_col_buf, perm_results);
       col_idx += block_size;
     } while (col_idx < row_idx);
     if (!tidx) {
@@ -3395,6 +3395,7 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
   double total_ssq;
   double perm_ct_recip;
   uintptr_t ulii;
+  uintptr_t uljj = 0;
 #ifdef __LP64__
   __m128d* rvptr1;
   __m128d* rvptr2;
@@ -3438,8 +3439,14 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
   // first permutation = original
   memcpy(g_perm_rows, g_pheno_c, indiv_ctl * sizeof(intptr_t));
   collapse_bitarr_incl(g_perm_rows, g_pheno_nm, g_indiv_ct);
+  for (ulii = pheno_nm_ctl - 1; ulii; ulii--) {
+    g_perm_rows[ulii * perm_ct] = g_perm_rows[ulii];
+  }
 
-  generate_perm1(pheno_nm_ct, case_ct, perm_ct - 1, &(g_perm_rows[pheno_nm_ctl]));
+  generate_perm1_interleaved(pheno_nm_ct, case_ct, 1, perm_ct, g_perm_rows);
+  for (ulii = 0; ulii < pheno_nm_ct; ulii++) {
+    uljj += ((g_perm_rows[((ulii / BITCT) * perm_ct)] >> (ulii & (BITCT - 1))) & 1);
+  }
   triangle_fill(g_thread_start, pheno_nm_ct, g_thread_ct, 0, 1, 1, 1);
   if (spawn_threads(threads, &ibs_test_thread, g_thread_ct)) {
     goto ibs_test_calc_ret_THREAD_CREATE_FAIL;
@@ -3521,7 +3528,7 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
   }
 
   fputs("\r                                         \r", stdout);
-  logprint("--ibs-test results:\n\n");
+  logprint("--ibs-test results:\n");
   sprintf(logbuf, "  Between-group IBS (mean, SD)   = %g, %g\n", ctrl_case_mean, sqrt(ctrl_case_var / (ctrl_case_ct - 1)));
   logprintb();
   sprintf(logbuf, "  In-group (case) IBS (mean, SD) = %g, %g\n", case_case_mean, sqrt(case_case_var / (case_case_ct - 1)));
@@ -3531,7 +3538,7 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
   sprintf(logbuf, "  Approximate proportion of variance between group = %g\n\n", between_ssq / total_ssq);
   logprintb();
   perm_ct_recip = 1.0 / ((double)perm_ct);
-  fputs("IBS group-difference empirical p-values:\n\n", stdout);
+  fputs("IBS group-difference empirical p-values:\n", stdout);
   sprintf(logbuf, "   T1: Case/control less similar                p = %g\n", (perm_test[0]) * perm_ct_recip);
   logprintb();
   sprintf(logbuf, "   T2: Case/control more similar                p = %g\n\n", (perm_ct - perm_test[0]) * perm_ct_recip);
@@ -3554,7 +3561,7 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
   logprintb();
   sprintf(logbuf, "  T11: Ctrl/ctrl less similar than case/ctrl    p = %g\n", (perm_test[5]) * perm_ct_recip);
   logprintb();
-  sprintf(logbuf, "  T12: Ctrl/ctrl more similar than case/ctrl    p = %g\n", (perm_ct - perm_test[5]) * perm_ct_recip);
+  sprintf(logbuf, "  T12: Ctrl/ctrl more similar than case/ctrl    p = %g\n\n", (perm_ct - perm_test[5]) * perm_ct_recip);
   logprintb();
 
 
