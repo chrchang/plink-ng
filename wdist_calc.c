@@ -1843,7 +1843,6 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
   // 256 possible bytes * (BITCT / 8) bytes per word
   double partial_sum_buf[32 * BITCT];
   double dist_tot = 0.0;
-  // uintptr_t row_ctl = (g_thread_start[g_thread_ct] + (BITCT - 1)) / BITCT;
   uintptr_t row_uidx = 0;
   uintptr_t pct = 0;
   uintptr_t pct_div = 1 + ((g_thread_start[1] * (g_thread_start[1] - 1)) / 100);

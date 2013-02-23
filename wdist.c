@@ -67,7 +67,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (25 Feb 2013)";
+  " (23 Feb 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -77,7 +77,7 @@ const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n"
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
 const char cmdline_format_str[] = "\n  wdist [input flag(s)...] [command flag(s)...] {other flag(s)...}\n  wdist --help {flag name(s)...}\n\n";
 const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
-const char notestr_null_calc2[] = "Commands include --freqx, --hardy, --ibc, --distance, --genome, --model, --gxe,\n--make-rel, --make-grm, --rel-cutoff, --ibs-test, --regress-distance,\n--regress-pcs-distance, --make-bed, --recode, --merge-list, and\n--write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --freqx, --hardy, --ibc, --distance, --genome, --model, --gxe,\n--make-rel, --make-grm, --rel-cutoff, --ibs-test, --regress-distance,\n--make-bed, --recode, --merge-list, and --write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).\n";
 
 int32_t edit1_match(int32_t len1, char* s1, int32_t len2, char* s2) {
   // permit one difference of the following forms:
@@ -628,12 +628,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    WDIST's filtering flags.\n"
 	       );
     help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference", &help_ctrl, 1,
-"  --recode <12> <compound-genotypes | A | AD | lgen | lgen-ref | list | rlist |\n"
-"           transpose> <tab | tabx | spacex>\n"
+"  --recode <12> <compound-genotypes | 23 | A | AD | lgen | lgen-ref | list |\n"
+"           rlist | transpose> <tab | tabx | spacex>\n"
 "    Creates a new text fileset with all filters applied.\n"
 "    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
 "    * The 'compound-genotypes' modifier removes the space between pairs of\n"
 "      genotype codes for the same marker.\n"
+"    * The '23' modifier causes a 23andMe-formatted file to be generated.  This\n"
+"      can only be used on a single individual's data (--keep may be handy).\n"
 "    * The 'AD' modifier causes an additive + dominant component file, suitable\n"
 "      for loading from R, to be generated instead.  If you don't want the\n"
 "      dominant component, use 'A' instead.\n"
@@ -5132,7 +5134,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     hwe_all = 1;
   }
 
-  if (parallel_tot > g_indiv_ct / 2) {
+  if ((parallel_tot > 1) && (parallel_tot > g_indiv_ct / 2)) {
     sprintf(logbuf, "Error: Too many --parallel jobs (maximum %" PRIuPTR "/2 = %" PRIuPTR ").\n", g_indiv_ct, g_indiv_ct / 2);
     goto wdist_ret_INVALID_CMDLINE_2;
   }
@@ -5237,7 +5239,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_RECODE) {
-    retval = recode(recode_modifier, bedfile, bed_offset, famfile, bimfile, &outfile, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, pheno_d, missing_phenod, output_missing_geno, output_missing_pheno, set_hh_missing, xmhh_exists, nxmhh_exists, chrom_info_ptr);
+    retval = recode(recode_modifier, bedfile, bed_offset, famfile, bimfile, &outfile, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, marker_pos, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, pheno_d, missing_phenod, output_missing_geno, output_missing_pheno, set_hh_missing, xmhh_exists, nxmhh_exists, chrom_info_ptr);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -8537,6 +8539,10 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_COMPOUND)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
+	  } else if (!memcmp(argv[cur_arg + uii], "23", 3)) {
+	    if (recode_type_set(&recode_modifier, RECODE_23)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
           } else if ((!argv[cur_arg + uii][1]) && (tolower(argv[cur_arg + uii][0]) == 'a')) {
 	    if (recode_type_set(&recode_modifier, RECODE_A)) {
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -9129,6 +9135,10 @@ int32_t main(int32_t argc, char** argv) {
   if (update_map_modifier && (!update_map_fname)) {
     sprintf(logbuf, "Error: --update-%s cannot be used without --update-map.%s", (update_map_modifier == UPDATE_MAP_CHR)? "chr" : "cm", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
+  }
+  if ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_23) && (chrom_info.species != SPECIES_HUMAN)) {
+    logprint("Error: --recode 23 can only be used on human data.\n");
+    goto main_ret_INVALID_CMDLINE;
   }
 
   // --from-bp/-kb/-mb without any --to/--to-bp/...: include to end of

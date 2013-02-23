@@ -187,14 +187,15 @@ typedef union {
 #define RECODE_TAB 2
 #define RECODE_DELIMX 4
 #define RECODE_COMPOUND 8
-#define RECODE_A 16
-#define RECODE_AD 32
-#define RECODE_LGEN 64
-#define RECODE_LGEN_REF 128
-#define RECODE_LIST 256
-#define RECODE_RLIST 512
-#define RECODE_TRANSPOSE 1024
-#define RECODE_TYPEMASK 2040
+#define RECODE_23 16
+#define RECODE_A 32
+#define RECODE_AD 64
+#define RECODE_LGEN 128
+#define RECODE_LGEN_REF 256
+#define RECODE_LIST 512
+#define RECODE_RLIST 1024
+#define RECODE_TRANSPOSE 2048
+#define RECODE_TYPEMASK 4088
 
 #define WRITE_COVAR_PHENO 1
 #define WRITE_COVAR_DUMMY 2
@@ -563,6 +564,8 @@ static inline void intprint2(char* buf, uint32_t num) {
   *buf++ = '0' + quotient;
   *buf = '0' + num - (quotient * 10);
 }
+
+void chrom_print_human(char* buf, uint32_t num);
 
 static inline void set_bit_noct(uintptr_t* exclude_arr, uint32_t loc) {
   exclude_arr[loc / BITCT] |= (ONELU << (loc % BITCT));

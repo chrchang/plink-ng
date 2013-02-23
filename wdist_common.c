@@ -243,6 +243,31 @@ void copy_item(char* writebuf, uint32_t* offset_ptr, char** prev_item_end_ptr) {
   *prev_item_end_ptr = item_end;
 }
 
+void chrom_print_human(char* buf, uint32_t num) {
+  if (num < 10) {
+    *buf = '0' + num;
+    buf[1] = '\0';
+  } else if (num < 23) {
+    *buf = '0' + (num / 10);
+    buf[1] = '0' + (num % 10);
+    buf[2] = '\0';
+  } else if (num == 23) {
+    *buf = 'X';
+    buf[1] = '\0';
+  } else if (num == 24) {
+    *buf = 'Y';
+    buf[1] = '\0';
+  } else if (num == 25) {
+    *buf = 'X';
+    buf[1] = 'Y';
+    buf[2] = '\0';
+  } else {
+    *buf = 'M';
+    buf[1] = 'T';
+    buf[2] = '\0';
+  }
+}
+
 void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr) {
   uint32_t maj = loc / BITCT;
   uintptr_t min = ONELU << (loc % BITCT);
