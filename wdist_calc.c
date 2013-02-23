@@ -1739,15 +1739,8 @@ double fill_psbuf(uintptr_t block_size, double* dists, uintptr_t* col_uidxp, dou
   uint32_t sub_block_size = 8;
   uint32_t sub_block_idx;
   double subtot;
-  uint32_t uii;
-  uint32_t ujj;
-  uint32_t ukk;
-  uint32_t umm;
-  uint32_t unn;
-  uint32_t uoo;
-  uint32_t upp;
-  double sub_block[8];
-  double partial[7];
+  uintptr_t ulii;
+  double increment[8];
   double ssq[2];
   double dxx;
   ssq[0] = 0.0;
@@ -1755,9 +1748,6 @@ double fill_psbuf(uintptr_t block_size, double* dists, uintptr_t* col_uidxp, dou
   do {
     if (col_idx + 8 > block_size) {
       sub_block_size = block_size - col_idx;
-      for (uii = sub_block_size; uii < 8; uii++) {
-	sub_block[uii] = 0.0;
-      }
     }
     sub_block_idx = 0;
     subtot = 0.0;
@@ -1768,81 +1758,25 @@ double fill_psbuf(uintptr_t block_size, double* dists, uintptr_t* col_uidxp, dou
       } else {
 	dxx = 1.0 - dists[col_uidx] * g_half_marker_ct_recip;
       }
+      increment[sub_block_idx] = dxx - subtot;
       subtot += dxx;
-      sub_block[sub_block_idx] = dxx;
       ssq[is_set(g_pheno_c, col_uidx)] += dxx * dxx;
       col_uidx++;
     } while (++sub_block_idx < sub_block_size);
     tot += subtot;
-    partial[0] = 0;
-    uii = 0;
-    while (1) {
-      partial[1] = partial[0];
-      ujj = 0;
-      while (1) {
-	partial[2] = partial[1];
-	ukk = 0;
-	while (1) {
-          partial[3] = partial[2];
-	  umm = 0;
-	  while (1) {
-	    partial[4] = partial[3];
-	    unn = 0;
-	    while (1) {
-	      partial[5] = partial[4];
-	      uoo = 0;
-	      while (1) {
-		partial[6] = partial[5];
-		upp = 0;
-		while (1) {
-		  dxx = partial[6];
-		  *psbuf++ = subtot - dxx;
-		  *psbuf++ = dxx;
-		  dxx += sub_block[0];
-		  *psbuf++ = subtot - dxx;
-		  *psbuf++ = dxx;
-		  if (upp) {
-		    break;
-		  }
-		  upp = 1;
-		  partial[6] += sub_block[1];
-		}
-		if (uoo) {
-		  break;
-		}
-		uoo = 1;
-		partial[5] += sub_block[2];
-	      }
-	      if (unn) {
-		break;
-	      }
-	      unn = 1;
-	      partial[4] += sub_block[3];
-	    }
-	    if (umm) {
-	      break;
-	    }
-	    umm = 1;
-	    partial[3] += sub_block[4];
-	  }
-	  if (ukk) {
-	    break;
-	  }
-	  ukk = 1;
-	  partial[2] += sub_block[5];
-	}
-        if (ujj) {
-	  break;
-	}
-	ujj = 1;
-	partial[1] += sub_block[6];
-      }
-      if (uii) {
-	break;
-      }
-      uii = 1;
-      partial[0] += sub_block[7];
+    while (sub_block_idx < 8) {
+      increment[sub_block_idx++] = -subtot;
     }
+    ulii = 0;
+    dxx = 0;
+    goto fill_psbuf_loop_start;
+
+    do {
+      dxx += increment[CTZLU(++ulii)];
+    fill_psbuf_loop_start:
+      *psbuf++ = subtot - dxx;
+      *psbuf++ = dxx;
+    } while (ulii < 255);
     col_idx += sub_block_size;
   } while (col_idx < block_size);
   *col_uidxp = col_uidx;
@@ -1873,11 +1807,6 @@ void ibs_test_process_perms(uintptr_t* perm_row_start, uint32_t sub_block_ct, do
     }
     block_pos = 0;
     if (sub_block_ct == BITCT / 8) {
-      /*
-#ifdef __LP64__
-#else
-#endif
-      */
       do {
 	sub_block_idx = 0;
 	ulii = *perm_row_start++;
