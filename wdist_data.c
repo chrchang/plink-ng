@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <time.h>
 
 #ifndef _WIN32
 #include <sys/mman.h>
