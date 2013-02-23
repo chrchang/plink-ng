@@ -1758,23 +1758,22 @@ double fill_psbuf(uintptr_t block_size, double* dists, uintptr_t* col_uidxp, dou
       } else {
 	dxx = 1.0 - dists[col_uidx] * g_half_marker_ct_recip;
       }
-      increment[sub_block_idx] = dxx - subtot;
+      increment[sub_block_idx] = subtot - dxx;
       subtot += dxx;
       ssq[is_set(g_pheno_c, col_uidx)] += dxx * dxx;
       col_uidx++;
     } while (++sub_block_idx < sub_block_size);
     tot += subtot;
     while (sub_block_idx < 8) {
-      increment[sub_block_idx++] = -subtot;
+      increment[sub_block_idx++] = subtot;
     }
     ulii = 0;
-    dxx = 0;
+    dxx = subtot;
     goto fill_psbuf_loop_start;
 
     do {
       dxx += increment[CTZLU(++ulii)];
     fill_psbuf_loop_start:
-      *psbuf++ = subtot - dxx;
       *psbuf++ = dxx;
     } while (ulii < 255);
     col_idx += sub_block_size;
@@ -1785,16 +1784,9 @@ double fill_psbuf(uintptr_t block_size, double* dists, uintptr_t* col_uidxp, dou
   return tot;
 }
 
-void ibs_test_process_perms(uintptr_t* perm_row_start, uint32_t sub_block_ct, double* psbuf, uintptr_t* perm_col_buf, double* perm_results) {
+void ibs_test_process_perms(uintptr_t* perm_row_start, uint32_t sub_block_ct, double block_tot, double* psbuf, uintptr_t* perm_col_buf, double* perm_results) {
   uintptr_t perm_idx = 0;
   uintptr_t block_size = BITCT;
-#ifdef __LP64__
-  __m128d* psvec = (__m128d*)psbuf;
-  __m128d acc;
-#else
-  double* tptr;
-  double dyy;
-#endif
   double dxx;
   uintptr_t block_pos;
   uintptr_t col_bits;
@@ -1810,27 +1802,16 @@ void ibs_test_process_perms(uintptr_t* perm_row_start, uint32_t sub_block_ct, do
       do {
 	sub_block_idx = 0;
 	ulii = *perm_row_start++;
+#ifdef __LP64__
+	dxx = psbuf[ulii & 255] + psbuf[256 + ((ulii >> 8) & 255)] + psbuf[512 + ((ulii >> 16) & 255)] + psbuf[768 + ((ulii >> 24) & 255)] + psbuf[1024 + ((ulii >> 32) & 255)] + psbuf[1280 + ((ulii >> 40) & 255)] + psbuf[1536 + ((ulii >> 48) & 255)] + psbuf[1792 + (ulii >> 56)];
+#else
+        dxx = psbuf[ulii & 255] + psbuf[256 + ((ulii >> 8) & 255)] + psbuf[512 + ((ulii >> 16) & 255)] + psbuf[768 + (ulii >> 24)];
+#endif
 	if (col_bits & 1) {
-#ifdef __LP64__
-	  perm_results[2 * block_pos + 1] += psbuf[2 * (ulii & 255)] + psbuf[512 + 2 * ((ulii >> 8) & 255)] + psbuf[1024 + 2 * ((ulii >> 16) & 255)] + psbuf[1536 + 2 * ((ulii >> 24) & 255)] + psbuf[2048 + 2 * ((ulii >> 32) & 255)] + psbuf[2560 + 2 * ((ulii >> 40) & 255)] + psbuf[3072 + 2 * ((ulii >> 48) & 255)] + psbuf[3584 + 2 * (ulii >> 56)];
-#else
-	  perm_results[2 * block_pos + 1] += psbuf[2 * (ulii & 255)] + psbuf[512 + 2 * ((ulii >> 8) & 255)] + psbuf[1024 + 2 * ((ulii >> 16) & 255)] + psbuf[1536 + 2 * (ulii >> 24)];
-#endif
+	  perm_results[2 * block_pos + 1] += dxx;
 	} else {
-#ifdef __LP64__
-	  ((__m128d*)perm_results)[block_pos] = _mm_add_pd(((__m128d*)perm_results)[block_pos], _mm_add_pd(_mm_add_pd(_mm_add_pd(psvec[ulii & 255], psvec[256 + ((ulii >> 8) & 255)]), _mm_add_pd(psvec[512 + ((ulii >> 16) & 255)], psvec[768 + ((ulii >> 24) & 255)])), _mm_add_pd(_mm_add_pd(psvec[1024 + ((ulii >> 32) & 255)], psvec[1280 + ((ulii >> 40) & 255)]), _mm_add_pd(psvec[1536 + ((ulii >> 48) & 255)], psvec[1792 + (ulii >> 56)]))));
-#else
-	  tptr = &(psbuf[2 * (ulii & 255)]);
-	  dxx = *tptr;
-	  dyy = tptr[1];
-	  while (++sub_block_idx < sub_block_ct) {
-	    tptr = &(psbuf[2 * (256 * sub_block_idx + ((ulii >> (8 * sub_block_idx)) & 255))]);
-	    dxx += *tptr;
-	    dyy += tptr[1];
-	  }
 	  perm_results[2 * block_pos] += dxx;
-	  perm_results[2 * block_pos + 1] += dyy;
-#endif
+	  perm_results[2 * block_pos + 1] += (block_tot - dxx);
 	}
 	col_bits >>= 1;
       } while (++block_pos < block_size);
@@ -1838,31 +1819,15 @@ void ibs_test_process_perms(uintptr_t* perm_row_start, uint32_t sub_block_ct, do
       do {
 	sub_block_idx = 0;
 	ulii = *perm_row_start++;
+	dxx = psbuf[ulii & 255];
+	while (++sub_block_idx < sub_block_ct) {
+	  dxx += psbuf[256 * sub_block_idx + ((ulii >> (8 * sub_block_idx)) & 255)];
+	}
 	if (col_bits & 1) {
-	  dxx = psbuf[2 * (ulii & 255)];
-	  while (++sub_block_idx < sub_block_ct) {
-	    dxx += psbuf[2 * (256 * sub_block_idx + ((ulii >> (8 * sub_block_idx)) & 255))];
-	  }
 	  perm_results[2 * block_pos + 1] += dxx;
 	} else {
-#ifdef __LP64__
-	  acc = psvec[ulii & 255];
-	  while (++sub_block_idx < sub_block_ct) {
-	    acc = _mm_add_pd(acc, psvec[256 * sub_block_idx + ((ulii >> (8 * sub_block_idx)) & 255)]);
-	  }
-	  ((__m128d*)perm_results)[block_pos] = _mm_add_pd(((__m128d*)perm_results)[block_pos], acc);
-#else
-	  tptr = &(psbuf[2 * (ulii & 255)]);
-	  dxx = *tptr;
-	  dyy = tptr[1];
-	  while (++sub_block_idx < sub_block_ct) {
-	    tptr = &(psbuf[2 * (256 * sub_block_idx + ((ulii >> (8 * sub_block_idx)) & 255))]);
-	    dxx += *tptr;
-	    dyy += tptr[1];
-	  }
 	  perm_results[2 * block_pos] += dxx;
-	  perm_results[2 * block_pos + 1] += dyy;
-#endif
+	  perm_results[2 * block_pos + 1] += (block_tot - dxx);
 	}
 	col_bits >>= 1;
       } while (++block_pos < block_size);
@@ -1875,10 +1840,8 @@ void ibs_test_process_perms(uintptr_t* perm_row_start, uint32_t sub_block_ct, do
 void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results) {
   // (11-bit chunks were tested and found wanting.)
 
-  // 256 possible bytes *
-  // (BITCT / 8) bytes per word *
-  // 2 degrees of freedom (ctrl-ctrl, ctrl-case, case-case)
-  double partial_sum_buf[64 * BITCT];
+  // 256 possible bytes * (BITCT / 8) bytes per word
+  double partial_sum_buf[32 * BITCT];
   double dist_tot = 0.0;
   // uintptr_t row_ctl = (g_thread_start[g_thread_ct] + (BITCT - 1)) / BITCT;
   uintptr_t row_uidx = 0;
@@ -1887,6 +1850,7 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
   uintptr_t pct_next = pct_div;
   double ssq[3];
   double* dptr;
+  double block_tot;
   uintptr_t row_idx;
   uintptr_t col_idx;
   uintptr_t col_uidx;
@@ -1913,8 +1877,9 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
       } else {
 	block_size = BITCT;
       }
-      dist_tot += fill_psbuf(block_size, dptr, &col_uidx, partial_sum_buf, &(ssq[row_set]));
-      ibs_test_process_perms(&(g_perm_rows[(col_idx / BITCT) * g_perm_ct]), (block_size + 7) / 8, partial_sum_buf, perm_col_buf, perm_results);
+      block_tot = fill_psbuf(block_size, dptr, &col_uidx, partial_sum_buf, &(ssq[row_set]));
+      dist_tot += block_tot;
+      ibs_test_process_perms(&(g_perm_rows[(col_idx / BITCT) * g_perm_ct]), (block_size + 7) / 8, block_tot, partial_sum_buf, perm_col_buf, perm_results);
       col_idx += block_size;
     } while (col_idx < row_idx);
     if (!tidx) {
