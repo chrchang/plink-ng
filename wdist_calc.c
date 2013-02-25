@@ -4560,7 +4560,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	  } while ((mp_lead_unfiltered_idx < chrom_end) && (is_set(marker_exclude, mp_lead_unfiltered_idx) || (marker_pos[mp_lead_unfiltered_idx] <= uii)));
 	}
       }
-      if (mp_lead_unfiltered_idx < chrom_end) {
+      if (mp_lead_unfiltered_idx < unfiltered_marker_ct) {
 	ulii = 2 * (mp_lead_idx - g_ctrl_ct);
 	if (ulii < BITCT + (2 * (ujj & (~(BITCT2 - 1))))) {
 	  ulii = ~ZEROLU << (ulii & (BITCT - 1));
