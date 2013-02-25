@@ -5234,7 +5234,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 "# Each line corresponds to a single SNP.  For each SNP, we provide its\n"
 "# identifier, its location on a reference human genome, and the genotype call.\n"
 "# Consult the original provider of your data for additional information (e.g.\n"
-"# which reference build was used, etc.).\n"
+"# which reference build was used).\n"
 "#\n"
 "# rsid\tchromosome\tposition\tgenotype\n"
 , *outfile_ptr) == EOF) {
