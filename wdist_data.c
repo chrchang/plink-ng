@@ -5055,7 +5055,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
     goto recode_ret_READ_FAIL;
   }
-  fflush(stdout);
   marker_uidx = 0;
   marker_idx = 0;
   loadbuf = wkspace_base;
@@ -5466,7 +5465,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	goto recode_ret_OPEN_FAIL;
       }
       outfile = *outfile_ptr;
-      if (fputs("FID IID PAT MAT SEX PHENOTYPE", outfile)) {
+      if (fputs("FID IID PAT MAT SEX PHENOTYPE", outfile) == EOF) {
 	goto recode_ret_WRITE_FAIL;
       }
       for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
@@ -5494,11 +5493,11 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	    aptr = &(mk_alleles[(2 * marker_uidx + is_set(marker_reverse, marker_uidx)) * max_marker_allele_len]);
 	  }
 	  if (recode_modifier & RECODE_A) {
-	    if (fprintf(*outfile_ptr, " %s_%s", cptr, aptr) < 0) {
+	    if (fprintf(outfile, " %s_%s", cptr, aptr) < 0) {
 	      goto recode_ret_WRITE_FAIL;
 	    }
 	  } else {
-	    if (fprintf(*outfile_ptr, " %s_%s %s_HET", cptr, aptr, cptr) < 0) {
+	    if (fprintf(outfile, " %s_%s %s_HET", cptr, aptr, cptr) < 0) {
 	      goto recode_ret_WRITE_FAIL;
 	    }
 	  }
@@ -5543,7 +5542,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	loop_end = ((uint64_t)pct * indiv_ct) / 100;
 	for (; indiv_idx < loop_end; indiv_idx++) {
 	  indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
-	  if (recode_write_first_cols(*outfile_ptr, indiv_uidx, delimiter, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, output_missing_pheno, phenos_present, pheno_d, missing_phenod)) {
+	  if (recode_write_first_cols(outfile, indiv_uidx, delimiter, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, output_missing_pheno, phenos_present, pheno_d, missing_phenod)) {
 	    goto recode_ret_WRITE_FAIL;
 	  }
 	  bufptr = &(loadbuf[indiv_idx / 4]);
@@ -5625,7 +5624,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	  }
 	  wbufptr[-1] = '\n';
 	  ulii = (uintptr_t)(wbufptr - writebuf);
-	  if (fwrite_checked(writebuf, ulii, *outfile_ptr)) {
+	  if (fwrite_checked(writebuf, ulii, outfile)) {
 	    goto recode_ret_WRITE_FAIL;
 	  }
 	  indiv_uidx++;
@@ -5638,6 +5637,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	  fflush(stdout);
 	}
       }
+      *outfile_ptr = outfile;
     } else {
       sprintf(logbuf, "Error: --recode A%s does not yet support multipass recoding of very large .bed\nfiles; contact the WDIST developers if you need this.\n", (recode_modifier & RECODE_AD)? "D" : "");
       logprintb();
@@ -6113,6 +6113,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	goto recode_ret_WRITE_FAIL;
       }
     }
+    *outfile_ptr = outfile;
     fclose_null(outfile_ptr);
   }
 

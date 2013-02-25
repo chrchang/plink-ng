@@ -67,7 +67,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (25 Feb 2013)";
+  " (26 Feb 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -602,7 +602,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Given dichotomous phenotype data, these commands consider three subsets of\n"
 "    the distance matrix: pairs of affected individuals, affected-unaffected\n"
 "    pairs, and pairs of unaffected individuals.  Each of these subsets has a\n"
-"    distribution of pairwise genomic distance; --ibs-test uses permutation to\n"
+"    distribution of pairwise genomic distances; --ibs-test uses permutation to\n"
 "    estimate p-values re: which types of pairs are most similar, while\n"
 "    --groupdist focuses on the differences between the centers of these\n"
 "    distributions and estimates standard errors via delete-d jackknife.\n\n"
