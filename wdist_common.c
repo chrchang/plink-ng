@@ -1083,7 +1083,6 @@ static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   uintptr_t tot = 0;
   __m128i* vend;
   __m128i count1, count2, half1, half2;
@@ -1115,9 +1114,7 @@ static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
       acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
     } while (vptr < vend);
     acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
-    acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
-    acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
-    tot += (uint32_t)(acc.u8[0] + acc.u8[1]);
+    tot += ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
   }
   if (ct) {
     acc.vi = _mm_setzero_si128();
@@ -1134,7 +1131,6 @@ static inline uintptr_t popcount_vecs_exclude(__m128i* vptr, __m128i* exclude_pt
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   uintptr_t tot = 0;
   __m128i* vend;
   __m128i count1, count2, half1, half2;
@@ -1161,9 +1157,7 @@ static inline uintptr_t popcount_vecs_exclude(__m128i* vptr, __m128i* exclude_pt
       acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
     } while (vptr < vend);
     acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
-    acc.vi = _mm_and_si128(_mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 16)), m16);
-    acc.vi = _mm_add_epi64(acc.vi, _mm_srli_epi64(acc.vi, 32));
-    tot += (uint32_t)(acc.u8[0] + acc.u8[1]);
+    tot += ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
   }
   if (ct) {
     acc.vi = _mm_setzero_si128();
@@ -1388,30 +1382,20 @@ void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i
     acc2_c.vi = _mm_add_epi64(acc2_c.vi, _mm_add_epi64(_mm_and_si128(to_ct2_c, m4), _mm_and_si128(_mm_srli_epi64(to_ct2_c, 4), m4)));
   } while (vptr < vend);
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   acc1_ab.vi = _mm_add_epi64(_mm_and_si128(acc1_ab.vi, m8), _mm_and_si128(_mm_srli_epi64(acc1_ab.vi, 8), m8));
   acc1_c.vi = _mm_and_si128(_mm_add_epi64(acc1_c.vi, _mm_srli_epi64(acc1_c.vi, 8)), m8);
   acc2_ab.vi = _mm_add_epi64(_mm_and_si128(acc2_ab.vi, m8), _mm_and_si128(_mm_srli_epi64(acc2_ab.vi, 8), m8));
   acc2_c.vi = _mm_and_si128(_mm_add_epi64(acc2_c.vi, _mm_srli_epi64(acc2_c.vi, 8)), m8);
-  acc1_ab.vi = _mm_and_si128(_mm_add_epi64(acc1_ab.vi, _mm_srli_epi64(acc1_ab.vi, 16)), m16);
-  acc1_c.vi = _mm_and_si128(_mm_add_epi64(acc1_c.vi, _mm_srli_epi64(acc1_c.vi, 16)), m16);
-  acc2_ab.vi = _mm_and_si128(_mm_add_epi64(acc2_ab.vi, _mm_srli_epi64(acc2_ab.vi, 16)), m16);
-  acc2_c.vi = _mm_and_si128(_mm_add_epi64(acc2_c.vi, _mm_srli_epi64(acc2_c.vi, 16)), m16);
-  acc1_ab.vi = _mm_add_epi64(acc1_ab.vi, _mm_srli_epi64(acc1_ab.vi, 32));
-  acc1_c.vi = _mm_add_epi64(acc1_c.vi, _mm_srli_epi64(acc1_c.vi, 32));
-  acc2_ab.vi = _mm_add_epi64(acc2_ab.vi, _mm_srli_epi64(acc2_ab.vi, 32));
-  acc2_c.vi = _mm_add_epi64(acc2_c.vi, _mm_srli_epi64(acc2_c.vi, 32));
-  *ct1abp += (uint32_t)(acc1_ab.u8[0] + acc1_ab.u8[1]);
-  *ct1cp += (uint32_t)(acc1_c.u8[0] + acc1_c.u8[1]);
-  *ct2abp += (uint32_t)(acc2_ab.u8[0] + acc2_ab.u8[1]);
-  *ct2cp += (uint32_t)(acc2_c.u8[0] + acc2_c.u8[1]);
+  *ct1abp += ((acc1_ab.u8[0] + acc1_ab.u8[1]) * 0x1000100010001LLU) >> 48;
+  *ct1cp += ((acc1_c.u8[0] + acc1_c.u8[1]) * 0x1000100010001LLU) >> 48;
+  *ct2abp += ((acc2_ab.u8[0] + acc2_ab.u8[1]) * 0x1000100010001LLU) >> 48;
+  *ct2cp += ((acc2_c.u8[0] + acc2_c.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 
 void count_3freq_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   __m128i loader;
   __m128i loader2;
   __m128i loader3;
@@ -1480,15 +1464,9 @@ void count_3freq_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* c
   acc_a.vi = _mm_add_epi64(_mm_and_si128(acc_a.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_a.vi, 8), m8));
   acc_b.vi = _mm_add_epi64(_mm_and_si128(acc_b.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_b.vi, 8), m8));
   acc_c.vi = _mm_add_epi64(_mm_and_si128(acc_c.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_c.vi, 8), m8));
-  acc_a.vi = _mm_and_si128(_mm_add_epi64(acc_a.vi, _mm_srli_epi64(acc_a.vi, 16)), m16);
-  acc_b.vi = _mm_and_si128(_mm_add_epi64(acc_b.vi, _mm_srli_epi64(acc_b.vi, 16)), m16);
-  acc_c.vi = _mm_and_si128(_mm_add_epi64(acc_c.vi, _mm_srli_epi64(acc_c.vi, 16)), m16);
-  acc_a.vi = _mm_add_epi64(acc_a.vi, _mm_srli_epi64(acc_a.vi, 32));
-  acc_b.vi = _mm_add_epi64(acc_b.vi, _mm_srli_epi64(acc_b.vi, 32));
-  acc_c.vi = _mm_add_epi64(acc_c.vi, _mm_srli_epi64(acc_c.vi, 32));
-  *ctap += (uint32_t)(acc_a.u8[0] + acc_a.u8[1]);
-  *ctbp += (uint32_t)(acc_b.u8[0] + acc_b.u8[1]);
-  *ctcp += (uint32_t)(acc_c.u8[0] + acc_c.u8[1]);
+  *ctap += ((acc_a.u8[0] + acc_a.u8[1]) * 0x1000100010001LLU) >> 48;
+  *ctbp += ((acc_b.u8[0] + acc_b.u8[1]) * 0x1000100010001LLU) >> 48;
+  *ctcp += ((acc_c.u8[0] + acc_c.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 #else
 void count_2freq_dbl_6(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp) {

@@ -2796,7 +2796,6 @@ void freq_hwe_haploid_count_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, 
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   __m128i loader;
   __m128i loader2;
   __m128i loader3;
@@ -2869,12 +2868,8 @@ void freq_hwe_haploid_count_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, 
   } while (vptr < vend);
   acc_nm.vi = _mm_add_epi64(_mm_and_si128(acc_nm.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_nm.vi, 8), m8));
   acc_hmaj.vi = _mm_add_epi64(_mm_and_si128(acc_hmaj.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_hmaj.vi, 8), m8));
-  acc_nm.vi = _mm_and_si128(_mm_add_epi64(acc_nm.vi, _mm_srli_epi64(acc_nm.vi, 16)), m16);
-  acc_hmaj.vi = _mm_and_si128(_mm_add_epi64(acc_hmaj.vi, _mm_srli_epi64(acc_hmaj.vi, 16)), m16);
-  acc_nm.vi = _mm_add_epi64(acc_nm.vi, _mm_srli_epi64(acc_nm.vi, 32));
-  acc_hmaj.vi = _mm_add_epi64(acc_hmaj.vi, _mm_srli_epi64(acc_hmaj.vi, 32));
-  *ct_nmp += (uint32_t)(acc_nm.u8[0] + acc_nm.u8[1]);
-  *ct_hmajp += (uint32_t)(acc_hmaj.u8[0] + acc_hmaj.u8[1]);
+  *ct_nmp += ((acc_nm.u8[0] + acc_nm.u8[1]) * 0x1000100010001LLU) >> 48;
+  *ct_hmajp += ((acc_hmaj.u8[0] + acc_hmaj.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 #else
 void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_nmp, uint32_t* ct_hmajp) {
