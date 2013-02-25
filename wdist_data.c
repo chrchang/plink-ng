@@ -5026,6 +5026,20 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
     if (wkspace_alloc_c_checked(&mk_alleles, unfiltered_marker_ct * max_marker_allele_len * 2)) {
       goto recode_ret_NOMEM;
     }
+    marker_uidx = 0;
+    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+      if (max_marker_allele_len == 1) {
+	mk_alleles[2 * marker_uidx] = '1';
+	mk_alleles[2 * marker_uidx + 1] = '2';
+      } else {
+	mk_alleles[2 * marker_uidx * max_marker_allele_len] = '1';
+	mk_alleles[2 * marker_uidx * max_marker_allele_len + 1] = '\0';
+	mk_alleles[(2 * marker_uidx + 1) * max_marker_allele_len] = '2';
+	mk_alleles[(2 * marker_uidx + 1) * max_marker_allele_len + 1] = '\0';
+      }
+      marker_uidx++;
+    }
   } else {
     mk_alleles = marker_alleles;
   }
@@ -5037,22 +5051,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
     cur_mk_allelesx[1] = &(cur_mk_allelesx_buf[max_marker_allele_len]);
     cur_mk_allelesx[2] = &(cur_mk_allelesx_buf[max_marker_allele_len * 2]);
     cur_mk_allelesx[3] = &(cur_mk_allelesx_buf[max_marker_allele_len * 3]);
-  }
-  marker_uidx = 0;
-  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-    if (recode_modifier & RECODE_12) {
-      if (max_marker_allele_len == 1) {
-	mk_alleles[2 * marker_uidx] = '1';
-	mk_alleles[2 * marker_uidx + 1] = '2';
-      } else {
-	mk_alleles[2 * marker_uidx * max_marker_allele_len] = '1';
-	mk_alleles[2 * marker_uidx * max_marker_allele_len + 1] = '\0';
-	mk_alleles[(2 * marker_uidx + 1) * max_marker_allele_len] = '2';
-	mk_alleles[(2 * marker_uidx + 1) * max_marker_allele_len + 1] = '\0';
-      }
-    }
-    marker_uidx++;
   }
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
     goto recode_ret_READ_FAIL;
@@ -5209,6 +5207,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	    goto recode_ret_WRITE_FAIL;
 	  }
 	}
+	marker_uidx++;
       }
       if (pct < 100) {
 	if (pct > 10) {
