@@ -4434,10 +4434,6 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
   char* fam1;
   char* fam2;
 
-  while ((mp_lead_unfiltered_idx < unfiltered_marker_ct) && (is_set(marker_exclude, mp_lead_unfiltered_idx) || (!get_marker_chrom(chrom_info_ptr, mp_lead_unfiltered_idx)))) {
-    mp_lead_unfiltered_idx++;
-  }
-
   triangle_fill(g_thread_start, g_indiv_ct, g_thread_ct, parallel_tot - parallel_idx - 1, parallel_tot, 1, 1);
   // invert order, for --genome --parallel to naturally work
   for (uii = 0; uii <= g_thread_ct / 2; uii++) {
@@ -4549,22 +4545,23 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
       //
       // Then advance glptr two spaces.  The double storage eliminates a
       // divide-by-two in the inner loop at a low cost in cache space.
-      if (mp_lead_unfiltered_idx < unfiltered_marker_ct) {
-	if (get_marker_chrom(chrom_info_ptr, mp_lead_unfiltered_idx) == get_marker_chrom(chrom_info_ptr, g_ctrl_ct + ujj)) {
-	  uii = ppc_gap + marker_pos[g_ctrl_ct + ujj];
-	  if (marker_pos[mp_lead_unfiltered_idx] <= uii) {
-	    ukk = get_chrom_end(chrom_info_ptr, mp_lead_unfiltered_idx);
-	    do {
-	      if (!is_set(marker_exclude, mp_lead_unfiltered_idx)) {
-		mp_lead_idx++;
-	      }
-	      mp_lead_unfiltered_idx++;
-	    } while ((mp_lead_unfiltered_idx < unfiltered_marker_ct) && (is_set(marker_exclude, mp_lead_unfiltered_idx) || ((mp_lead_unfiltered_idx < ukk) && (marker_pos[mp_lead_unfiltered_idx] <= uii))));
-	  }
+      if (mp_lead_unfiltered_idx < marker_uidx) {
+	mp_lead_unfiltered_idx = marker_uidx;
+	mp_lead_idx = g_ctrl_ct + ujj;
+      }
+      if (mp_lead_unfiltered_idx < chrom_end) {
+	uii = ppc_gap + marker_pos[marker_uidx];
+	if (marker_pos[mp_lead_unfiltered_idx] <= uii) {
+	  do {
+	    if (!is_set(marker_exclude, mp_lead_unfiltered_idx)) {
+	      mp_lead_idx++;
+	    }
+	    mp_lead_unfiltered_idx++;
+	  } while ((mp_lead_unfiltered_idx < chrom_end) && (is_set(marker_exclude, mp_lead_unfiltered_idx) || (marker_pos[mp_lead_unfiltered_idx] <= uii)));
 	}
       }
-      if (mp_lead_unfiltered_idx < unfiltered_marker_ct) {
-	ulii = 2 * (mp_lead_unfiltered_idx - g_ctrl_ct);
+      if (mp_lead_unfiltered_idx < chrom_end) {
+	ulii = 2 * (mp_lead_idx - g_ctrl_ct);
 	if (ulii < BITCT + (2 * (ujj & (~(BITCT2 - 1))))) {
 	  ulii = ~ZEROLU << (ulii & (BITCT - 1));
 	}
@@ -4986,7 +4983,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	sptr_cur += 7;
       }
       if (genome_output_full) {
-	sptr_cur += sprintf(sptr_cur, " %7d %7d %7d %s%.4f %s%.4f\n", g_genome_main[ulii + 1], g_genome_main[ulii], oo, (dyy < 9.5)? " " : "", dyy, (dxx < 9.5)? " " : "", dxx);
+	sptr_cur += sprintf(sptr_cur, " %7d %7d %7d %7.4f %7.4f\n", g_genome_main[ulii + 1], g_genome_main[ulii], oo, dyy, dxx);
       } else {
 	*sptr_cur++ = '\n';
       }
