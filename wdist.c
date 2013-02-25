@@ -6737,7 +6737,6 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: All chromosomes excluded.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	goto main_param_zero;
       } else if (!memcmp(argptr2, "hr-excl", 8)) {
 	if (parse_chrom_ranges(param_ct, '-', &(argv[cur_arg]), &chrom_exclude, chrom_info.species, argptr)) {
 	  goto main_ret_INVALID_CMDLINE_3;

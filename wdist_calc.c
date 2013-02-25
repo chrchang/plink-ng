@@ -1965,7 +1965,6 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  const __m128i m16 = {0x0000ffff0000ffffLLU, 0x0000ffff0000ffffLLU};
   __m128i xor_buf[GENOME_MULTIPLEX / BITCT];
   __m128i* xor_buf_end = &(xor_buf[GENOME_MULTIPLEX / BITCT]);
   __m128i* maskptr;
@@ -2109,13 +2108,9 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
 	acc_ibs1.vi = _mm_and_si128(_mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 8)), m8);
 	acc_ibs0.vi = _mm_and_si128(_mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 8)), m8);
 #endif
-	acc_ibs1.vi = _mm_and_si128(_mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 16)), m16);
-	acc_ibs0.vi = _mm_and_si128(_mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 16)), m16);
-	acc_ibs1.vi = _mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 32));
-	acc_ibs0.vi = _mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 32));
-	*genome_main += (uint32_t)(acc_ibs1.u8[0] + acc_ibs1.u8[1]);
+	*genome_main += ((acc_ibs1.u8[0] + acc_ibs1.u8[1]) * 0x1000100010001LLU) >> 48;
 	genome_main++;
-        *genome_main += (uint32_t)(acc_ibs0.u8[0] + acc_ibs0.u8[1]);
+	*genome_main += ((acc_ibs0.u8[0] + acc_ibs0.u8[1]) * 0x1000100010001LLU) >> 48;
 #else
         bit_count_ibs1 = 0;
 	bit_count_ibs0 = 0;
@@ -2271,13 +2266,9 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, int32_t tidx) {
 	acc_ibs1.vi = _mm_and_si128(_mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 8)), m8);
 	acc_ibs0.vi = _mm_and_si128(_mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 8)), m8);
 #endif
-	acc_ibs1.vi = _mm_and_si128(_mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 16)), m16);
-	acc_ibs0.vi = _mm_and_si128(_mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 16)), m16);
-	acc_ibs1.vi = _mm_add_epi64(acc_ibs1.vi, _mm_srli_epi64(acc_ibs1.vi, 32));
-	acc_ibs0.vi = _mm_add_epi64(acc_ibs0.vi, _mm_srli_epi64(acc_ibs0.vi, 32));
-	*genome_main += (uint32_t)(acc_ibs1.u8[0] + acc_ibs1.u8[1]);
+        *genome_main += ((acc_ibs1.u8[0] + acc_ibs1.u8[1]) * 0x1000100010001LLU) >> 48;
 	genome_main++;
-        *genome_main += (uint32_t)(acc_ibs0.u8[0] + acc_ibs0.u8[1]);
+        *genome_main += ((acc_ibs0.u8[0] + acc_ibs0.u8[1]) * 0x1000100010001LLU) >> 48;
 #else
         bit_count_ibs1 = 0;
 	bit_count_ibs0 = 0;
