@@ -1795,7 +1795,7 @@ int32_t make_bed(FILE* bedfile, int32_t bed_offset, FILE* bimfile, int32_t map_c
 
 const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
 
-int32_t load_fam(FILE* famfile, uintptr_t buflen, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, int32_t true_fam_col_6, int32_t missing_pheno, int32_t missing_pheno_len, int32_t affection_01, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uintptr_t* max_person_id_len_ptr, char** paternal_ids_ptr, uintptr_t* max_paternal_id_len_ptr, char** maternal_ids_ptr, uintptr_t* max_maternal_id_len_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, int32_t* affection_ptr, uintptr_t** pheno_nm_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** founder_info_ptr, uintptr_t** indiv_exclude_ptr) {
+int32_t load_fam(FILE* famfile, uint32_t buflen, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, int32_t true_fam_col_6, int32_t missing_pheno, int32_t missing_pheno_len, int32_t affection_01, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uintptr_t* max_person_id_len_ptr, char** paternal_ids_ptr, uintptr_t* max_paternal_id_len_ptr, char** maternal_ids_ptr, uintptr_t* max_maternal_id_len_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, int32_t* affection_ptr, uintptr_t** pheno_nm_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** founder_info_ptr, uintptr_t** indiv_exclude_ptr) {
   char* bufptr0;
   char* bufptr;
   uintptr_t unfiltered_indiv_ct = 0;
@@ -1804,7 +1804,7 @@ int32_t load_fam(FILE* famfile, uintptr_t buflen, int32_t fam_col_1, int32_t fam
   uintptr_t max_maternal_id_len = 2;
   int32_t affection = 1;
   uint64_t last_tell = 0;
-  uintptr_t new_buflen = 0;
+  uint32_t new_buflen = 0;
   unsigned char* wkspace_mark = wkspace_base;
   double missing_phenod = (double)missing_pheno;
   char* linebuf;
@@ -2197,7 +2197,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   // wkspace.
   int32_t retval = 0;
   uintptr_t topsize = marker_ct * (4LU * sizeof(int32_t) + 16);
-  uintptr_t ped_buflen = 0;
+  uint32_t ped_buflen = 0;
   uintptr_t indiv_ct = 0;
   uint32_t pct = 1;
   int64_t ped_next_thresh = ped_size / 100;
@@ -2258,6 +2258,9 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   fflush(stdout);
   while (1) {
     loadbuf_size = wkspace_left - topsize;
+    if (loadbuf_size > 2147483584) {
+      loadbuf_size = 2147483584;
+    }
     loadbuf[loadbuf_size - 1] = ' ';
   ped_to_bed_multichar_allele_loop_1_start:
     if (!fgets(loadbuf, loadbuf_size, *pedfile_ptr)) {
@@ -2714,7 +2717,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   int32_t last_chrom = 0;
   uint32_t last_mpos = 0;
   uintptr_t indiv_ct = 0;
-  uintptr_t ped_buflen = 1;
+  uint32_t ped_buflen = 1;
   int32_t retval = 0;
   uint32_t ped_col_skip = 1 + fam_col_1 + 2 * fam_col_34 + fam_col_5 + fam_col_6;
   uint32_t last_pass = 0;
@@ -2856,11 +2859,9 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   }
   loadbuf = (char*)wkspace_base;
   loadbuf_size = wkspace_left;
-#ifndef __LP64__
   if (loadbuf_size > 2147483584) {
     loadbuf_size = 2147483584;
   }
-#endif
   if (loadbuf_size < MAXLINELEN) {
     goto ped_to_bed_ret_NOMEM;
   }
@@ -6252,7 +6253,7 @@ static inline Ll_entry2* top_alloc_ll2(uintptr_t* topsize_ptr, uint32_t size) {
   return (Ll_entry2*)top_alloc(topsize_ptr, size + sizeof(Ll_entry2));
 }
 
-int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id_len_ptr, uint32_t* max_person_full_len_ptr, int32_t* is_dichot_pheno_ptr, Ll_entry** htable, uintptr_t* topsize_ptr, uint64_t* tot_indiv_ct_ptr, uintptr_t* ped_buflen_ptr, uint32_t* cur_indiv_ct_ptr, uint32_t* orig_idx_ptr) {
+int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id_len_ptr, uint32_t* max_person_full_len_ptr, int32_t* is_dichot_pheno_ptr, Ll_entry** htable, uintptr_t* topsize_ptr, uint64_t* tot_indiv_ct_ptr, uint32_t* ped_buflen_ptr, uint32_t* cur_indiv_ct_ptr, uint32_t* orig_idx_ptr) {
   uintptr_t max_person_id_len = *max_person_id_len_ptr;
   uint32_t max_person_full_len = *max_person_full_len_ptr;
   int32_t is_dichot_pheno = *is_dichot_pheno_ptr;
@@ -6812,7 +6813,7 @@ int32_t merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* pers
   }
 }
 
-int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_indiv_ct, uint32_t tot_marker_ct, uint32_t dedup_marker_ct, uint32_t start_marker_idx, uint32_t marker_window_size, char* marker_alleles, uintptr_t max_marker_allele_len, char* marker_ids, uintptr_t max_marker_id_len, char* person_ids, uintptr_t max_person_id_len, uint32_t merge_nsort, uint32_t* indiv_nsmap, uint32_t* flex_map, uint32_t* marker_map, uint32_t* chrom_start, uint32_t* chrom_id, uint32_t chrom_ct, char* idbuf, unsigned char* readbuf, unsigned char* writebuf, uint32_t merge_mode, uintptr_t* markbuf, FILE* outfile, uint64_t* diff_total_overlap_ptr, uint64_t* diff_not_both_genotyped_ptr, uint64_t* diff_discordant_ptr, uintptr_t ped_buflen, unsigned char* bmap_raw) {
+int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_indiv_ct, uint32_t tot_marker_ct, uint32_t dedup_marker_ct, uint32_t start_marker_idx, uint32_t marker_window_size, char* marker_alleles, uintptr_t max_marker_allele_len, char* marker_ids, uintptr_t max_marker_id_len, char* person_ids, uintptr_t max_person_id_len, uint32_t merge_nsort, uint32_t* indiv_nsmap, uint32_t* flex_map, uint32_t* marker_map, uint32_t* chrom_start, uint32_t* chrom_id, uint32_t chrom_ct, char* idbuf, unsigned char* readbuf, unsigned char* writebuf, uint32_t merge_mode, uintptr_t* markbuf, FILE* outfile, uint64_t* diff_total_overlap_ptr, uint64_t* diff_not_both_genotyped_ptr, uint64_t* diff_discordant_ptr, uint32_t ped_buflen, unsigned char* bmap_raw) {
   // flex_map maps individuals for binary filesets, and markers for text
   // filesets.
   uint32_t is_binary = famname? 1 : 0;
@@ -7487,7 +7488,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   uint32_t merge_disallow_equal_pos = (merge_type & MERGE_ALLOW_EQUAL_POS)? 0 : 1;
   Ll_entry** htable = (Ll_entry**)(&(wkspace_base[wkspace_left - HASHMEM_S]));
   Ll_entry2** htable2 = (Ll_entry2**)(&(wkspace_base[wkspace_left - HASHMEM]));
-  uintptr_t ped_buflen = MAXLINELEN;
+  uint32_t ped_buflen = MAXLINELEN;
   char* pheno_c_char = NULL;
   double* pheno_d = NULL;
   uint32_t* indiv_nsmap = NULL;
