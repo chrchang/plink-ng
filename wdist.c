@@ -58,7 +58,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.17.4"
+  "WDIST v0.17.5"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -67,7 +67,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (26 Feb 2013)";
+  " (28 Feb 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";

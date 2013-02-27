@@ -546,13 +546,6 @@ static inline void copy_nse(char* target, char* source) {
 
 void copy_item(char* writebuf, uint32_t* offset, char** prev_item_ptr);
 
-static inline void read_next_terminate(char* target, char* source) {
-  while (!is_space_or_eoln(*source)) {
-    *target++ = *source++;
-  }
-  *target = '\0';
-}
-
 static inline void intprint2(char* buf, uint32_t num) {
   uint32_t quotient;
   if (num < 10) {
@@ -563,6 +556,15 @@ static inline void intprint2(char* buf, uint32_t num) {
   quotient = num / 10;
   *buf++ = '0' + quotient;
   *buf = '0' + num - (quotient * 10);
+}
+
+char* uint32_write(uint32_t uii, char* start);
+
+static inline void read_next_terminate(char* target, char* source) {
+  while (!is_space_or_eoln(*source)) {
+    *target++ = *source++;
+  }
+  *target = '\0';
 }
 
 void chrom_print_human(char* buf, uint32_t num);

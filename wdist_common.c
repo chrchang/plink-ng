@@ -243,13 +243,283 @@ void copy_item(char* writebuf, uint32_t* offset_ptr, char** prev_item_end_ptr) {
   *prev_item_end_ptr = item_end;
 }
 
+/*
+char* uint32_write(uint32_t uii, char* start) {
+  // Improved version of Kayan Tao's ufast_itoa10(), using __builtin_clz to
+  // avoid having to reverse the string at the end, and a smaller lookup
+  // table.  Currently commented out because the lookup table is still kinda
+  // large for how little this does.
+#define IJOIN(N) N "0", N "1", N "2", N "3", N "4", N "5", N "6", N "7", N "8", N "9"
+#define IJOIN2(N) IJOIN(N "0"), IJOIN(N "1"), IJOIN(N "2"), IJOIN(N "3"), IJOIN(N "4"), IJOIN(N "5"), IJOIN(N "6"), IJOIN(N "7"), IJOIN(N "8"), IJOIN(N "9")
+#define IJOIN3(N) IJOIN2(N "0"), IJOIN2(N "1"), IJOIN2(N "2"), IJOIN2(N "3"), IJOIN2(N "4"), IJOIN2(N "5"), IJOIN2(N "6"), IJOIN2(N "7"), IJOIN2(N "8"), IJOIN2(N "9")
+
+#define I2JOIN(N) N "0" N "1" N "2" N "3" N "4" N "5" N "6" N "7" N "8" N "9"
+#define I2JOIN2(N) I2JOIN(N "0") I2JOIN(N "1") I2JOIN(N "2") I2JOIN(N "3") I2JOIN(N "4") I2JOIN(N "5") I2JOIN(N "6") I2JOIN(N "7") I2JOIN(N "8") I2JOIN(N "9")
+#define I2JOIN3(N) I2JOIN2(N "0") I2JOIN2(N "1") I2JOIN2(N "2") I2JOIN2(N "3") I2JOIN2(N "4") I2JOIN2(N "5") I2JOIN2(N "6") I2JOIN2(N "7") I2JOIN2(N "8") I2JOIN2(N "9")
+#define I2JOIN4(N) I2JOIN3(N "0") I2JOIN3(N "1") I2JOIN3(N "2") I2JOIN3(N "3") I2JOIN3(N "4") I2JOIN3(N "5") I2JOIN3(N "6") I2JOIN3(N "7") I2JOIN3(N "8") I2JOIN3(N "9")
+  static const char table2[][4] = { IJOIN2("") };
+  static const char table3[][4] = { IJOIN3("") };
+  static const char table4[] = I2JOIN4("");
+  uint32_t quotient;
+  // or-1 since this is undefined on zero
+  switch (__builtin_clz(uii | 1)) {
+  case 8:
+    if (uii < 10000000) {
+      goto uint32_write_7;
+    }
+    goto uint32_write_8;
+
+  case 22:
+    if (uii < 1000) {
+      goto uint32_write_3;
+    }
+    goto uint32_write_4;
+
+  case 2:
+    if (uii < 1000000000) {
+      goto uint32_write_9;
+    }
+  case 0:
+  case 1:
+    quotient = uii / 100000000;
+    *((uint32_t*)start) = *((uint32_t*)table2[quotient]);
+    start = &(start[2]);
+    goto uint32_write_8b;
+
+  case 5:
+    if (uii < 100000000) {
+      goto uint32_write_8;
+    }
+  case 3:
+  case 4:
+  uint32_write_9:
+    quotient = uii / 100000000;
+    *start++ = '0' + quotient;
+  uint32_write_8b:
+    uii -= quotient * 100000000;
+
+  case 6:
+  case 7:
+  uint32_write_8:
+    quotient = uii / 10000;
+    *((uint32_t*)start) = *((uint32_t*)(&(table4[quotient * 4])));
+    start = &(start[4]);
+    goto uint32_write_4b;
+
+  case 12:
+    if (uii < 1000000) {
+      goto uint32_write_6;
+    }
+  case 9:
+  case 10:
+  case 11:
+  uint32_write_7:
+    quotient = uii / 10000;
+    *((uint32_t*)start) = *((uint32_t*)table3[quotient]);
+    start = &(start[3]);
+    goto uint32_write_4b;
+
+  case 15:
+    if (uii < 100000) {
+      goto uint32_write_5;
+    }
+  case 13:
+  case 14:
+  uint32_write_6:
+    quotient = uii / 10000;
+    *((uint32_t*)start) = *((uint32_t*)table2[quotient]);
+    start = &(start[2]);
+    goto uint32_write_4b;
+
+  case 18:
+    if (uii < 10000) {
+      goto uint32_write_4;
+    }
+  case 16:
+  case 17:
+  uint32_write_5:
+    quotient = uii / 10000;
+    *start++ = '0' + quotient;
+  uint32_write_4b:
+    uii -= quotient * 10000;
+
+  case 19:
+  case 20:
+  case 21:
+  uint32_write_4:
+    *((uint32_t*)start) = *((uint32_t*)(&(table4[uii * 4])));
+    return &(start[4]);
+
+  case 25:
+    if (uii < 100) {
+      goto uint32_write_2;
+    }
+  case 23:
+  case 24:
+  uint32_write_3:
+    *((uint32_t*)start) = *((uint32_t*)table3[uii]);
+    return &(start[3]);
+
+  case 28:
+    if (uii < 10) {
+      *start = '0' + uii;
+      return &(start[1]);
+    }
+  case 26:
+  case 27:
+  uint32_write_2:
+    *((uint32_t*)start) = *((uint32_t*)table2[uii]);
+    return &(start[2]);
+  case 29:
+  case 30:
+  case 31:
+    *start = '0' + uii;
+  }
+  return &(start[1]);
+}
+*/
+
+char* uint32_write(uint32_t uii, char* start) {
+  // Memory-efficient fast integer writer.  (See commented-out code above for a
+  // faster version that eats more cache space.)
+  uint32_t quotient;
+  // or-1 since __builtin_clz is undefined on zero
+  switch (__builtin_clz(uii | 1)) {
+  case 28:
+    if (uii >= 10) {
+      *start++ = '1';
+      uii -= 10;
+    }
+    goto uint32_write_1;
+
+  case 25:
+    if (uii >= 100) {
+      *start++ = '1';
+      uii -= 100;
+    }
+    goto uint32_write_2;
+
+  case 22:
+    if (uii >= 1000) {
+      *start++ = '1';
+      uii -= 1000;
+    }
+    goto uint32_write_3;
+
+  case 18:
+    if (uii >= 10000) {
+      *start++ = '1';
+      uii -= 10000;
+    }
+    goto uint32_write_4;
+
+  case 15:
+    if (uii >= 100000) {
+      *start++ = '1';
+      uii -= 100000;
+    }
+    goto uint32_write_5;
+
+  case 12:
+    if (uii >= 1000000) {
+      *start++ = '1';
+      uii -= 1000000;
+    }
+    goto uint32_write_6;
+
+  case 8:
+    if (uii >= 10000000) {
+      *start++ = '1';
+      uii -= 10000000;
+    }
+    goto uint32_write_7;
+
+  case 5:
+    if (uii >= 100000000) {
+      *start++ = '1';
+      uii -= 100000000;
+    }
+    goto uint32_write_8;
+
+  case 2:
+    if (uii >= 1000000000) {
+      *start++ = '1';
+    }
+    goto uint32_write_9;
+
+  case 0:
+  case 1:
+    quotient = uii / 1000000000;
+    *start++ = '0' + quotient;
+    uii -= quotient * 1000000000;
+  case 3:
+  case 4:
+  uint32_write_9:
+    quotient = uii / 100000000;
+    *start++ = '0' + quotient;
+    uii -= quotient * 100000000;
+  case 6:
+  case 7:
+  uint32_write_8:
+    quotient = uii / 10000000;
+    *start++ = '0' + quotient;
+    uii -= quotient * 10000000;
+  case 9:
+  case 10:
+  case 11:
+  uint32_write_7:
+    quotient = uii / 1000000;
+    *start++ = '0' + quotient;
+    uii -= quotient * 1000000;
+  case 13:
+  case 14:
+  uint32_write_6:
+    quotient = uii / 100000;
+    *start++ = '0' + quotient;
+    uii -= quotient * 100000;
+  case 16:
+  case 17:
+  uint32_write_5:
+    quotient = uii / 10000;
+    *start++ = '0' + quotient;
+    uii -= quotient * 10000;
+  case 19:
+  case 20:
+  case 21:
+  uint32_write_4:
+    quotient = uii / 1000;
+    *start++ = '0' + quotient;
+    uii -= quotient * 1000;
+  case 23:
+  case 24:
+  uint32_write_3:
+    quotient = uii / 100;
+    *start++ = '0' + quotient;
+    uii -= quotient * 100;
+  case 26:
+  case 27:
+  uint32_write_2:
+    quotient = uii / 10;
+    *start++ = '0' + quotient;
+    uii -= quotient * 10;
+  case 29:
+  case 30:
+  case 31:
+  uint32_write_1:
+    *start = '0' + uii;
+  }
+  return &(start[1]);
+}
+
 void chrom_print_human(char* buf, uint32_t num) {
+  uint32_t n10;
   if (num < 10) {
     *buf = '0' + num;
     buf[1] = '\0';
   } else if (num < 23) {
-    *buf = '0' + (num / 10);
-    buf[1] = '0' + (num % 10);
+    n10 = num / 10;
+    *buf = '0' + n10;
+    buf[1] = '0' + (num - 10 * n10);
     buf[2] = '\0';
   } else if (num == 23) {
     *buf = 'X';
@@ -2767,20 +3037,19 @@ double rand_normal(double* secondval_ptr) {
 }
 
 void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd) {
-  uint32_t ii;
-  uint32_t jj;
-  uint32_t kk;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
   memset(cbuf, 0, ct);
-  kk = 1073741824 % ct;
-  kk = (kk * 4) % ct;
-  for (ii = 0; ii < dd; ii++) {
+  ukk = (uint32_t)(4294967296LLU % ct);
+  for (uii = 0; uii < dd; uii++) {
     do {
       do {
-        jj = sfmt_genrand_uint32(&sfmt);
-      } while (jj < kk);
-      jj %= ct;
-    } while (cbuf[jj]);
-    cbuf[jj] = 1;
+        ujj = sfmt_genrand_uint32(&sfmt);
+      } while (ujj < ukk);
+      ujj %= ct;
+    } while (cbuf[ujj]);
+    cbuf[ujj] = 1;
   }
 }
 

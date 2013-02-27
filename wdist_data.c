@@ -247,7 +247,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
   tbuf[MAXLINELEN - 6] = ' ';
   while (fgets(tbuf, MAXLINELEN - 5, *mapfile_ptr) != NULL) {
     if (!tbuf[MAXLINELEN - 6]) {
-      sprintf(logbuf, "Error: Excessively long line in .map/.bim file (max %d chars).\n", MAXLINELEN - 8);
+      sprintf(logbuf, "Error: Excessively long line in .map/.bim file (max %u chars).\n", MAXLINELEN - 8);
       logprintb();
       return RET_INVALID_FORMAT;
     }
@@ -553,7 +553,7 @@ int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
   tbuf[MAXLINELEN - 6] = ' ';
   while (fgets(tbuf, MAXLINELEN - 5, *bimfile_ptr) != NULL) {
     if (!tbuf[MAXLINELEN - 6]) {
-      sprintf(logbuf, "Error: Excessively long line in .bim file (max %d chars).\n", MAXLINELEN - 8);
+      sprintf(logbuf, "Error: Excessively long line in .bim file (max %u chars).\n", MAXLINELEN - 8);
       goto load_bim_ret_INVALID_FORMAT_2;
     }
     // bufptr = col 1 start
@@ -2771,7 +2771,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   }
   do {
     if (!tbuf[MAXLINELEN - 6]) {
-      sprintf(logbuf, "Error: Excessively long line in .map file (max %d chars).\n", MAXLINELEN - 8);
+      sprintf(logbuf, "Error: Excessively long line in .map file (max %u chars).\n", MAXLINELEN - 8);
       goto ped_to_bed_ret_INVALID_FORMAT_2;
     }
     col1_ptr = skip_initial_spaces(tbuf);
@@ -5704,7 +5704,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	for (ulii = 0; ulii < 4; ulii++) {
 	  wbufptr = writebufl[ulii];
 	  if (!rlist) {
-	    wbufptr += sprintf(wbufptr, "%u", chrom_idx);
+	    wbufptr = uint32_write(chrom_idx, wbufptr);
 	    *wbufptr++ = delimiter;
 	  }
 	  memcpy(wbufptr, aptr, alen);

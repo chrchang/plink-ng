@@ -4934,22 +4934,24 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	  if (paternal_ids) {
 	    if (!(is_founder_fixed || is_set(founder_info, ujj))) {
 	      if ((!strcmp(cptr5, cptr7)) && (!strcmp(cptr6, cptr8))) {
-		memcpy(sptr_cur, "FS ", 3);
+		// gcc does not seem to optimize 3-character copies properly
+		// other memcpy sizes are fine, though
+		*((uint32_t*)sptr_cur) = *((uint32_t*)"FS ");
 		sptr_cur += 3;
 		break;
 	      } else if ((!strcmp(cptr5, cptr7)) || (!strcmp(cptr6, cptr8))) {
-		memcpy(sptr_cur, "HS ", 3);
+		*((uint32_t*)sptr_cur) = *((uint32_t*)"HS ");
 		sptr_cur += 3;
 		break;
 	      }
 	    }
 	    if ((!strcmp(cptr5, cptr4)) || (!strcmp(cptr6, cptr4)) || (!strcmp(cptr7, cptr2)) || (!strcmp(cptr8, cptr2))) {
-	      memcpy(sptr_cur, "PO ", 3);
+	      *((uint32_t*)sptr_cur) = *((uint32_t*)"PO ");
 	      sptr_cur += 3;
 	      break;
 	    }
 	  }
-	  memcpy(sptr_cur, "OT ", 3);
+	  *((uint32_t*)sptr_cur) = *((uint32_t*)"OT ");
 	  sptr_cur += 3;
 	  break;
 	}
@@ -6451,6 +6453,8 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
   uint32_t* giptr2;
   uintptr_t* glptr2;
   uint32_t pct;
+  char* bufptr;
+  char* bufptr2;
   if (wkspace_alloc_ui_checked(&g_indiv_missing_unwt, g_indiv_ct * sizeof(int32_t))) {
     goto calc_rel_ret_NOMEM;
   }
@@ -6737,10 +6741,24 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	  uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
 	  giptr = g_indiv_missing_unwt;
 	  ukk = indiv_idx + 1;
+          bufptr = uint32_write(ukk, tbuf);
+	  *bufptr++ = '\t';
 	  for (indiv_idx2 = 1; indiv_idx2 < ukk; indiv_idx2++) {
-	    gzprintf(gz_outfile, "%u\t%u\t%u\t%e\n", ukk, indiv_idx2, uii - (*giptr++) + (*giptr2++), *dist_ptr++);
+	    bufptr2 = uint32_write(indiv_idx2, bufptr);
+	    *bufptr2++ = '\t';
+	    bufptr2 = uint32_write(uii - (*giptr++) + (*giptr2++), bufptr2);
+	    *bufptr2++ = '\t';
+	    bufptr2 += sprintf(bufptr2, "%e", *dist_ptr++);
+	    *bufptr2++ = '\n';
+	    gzwrite(gz_outfile, tbuf, (bufptr2 - tbuf));
 	  }
-	  if (!gzprintf(gz_outfile, "%u\t%u\t%u\t%e\n", ukk, ukk, uii, *dptr2++)) {
+	  bufptr2 = uint32_write(ukk, bufptr);
+	  *bufptr2++ = '\t';
+	  bufptr2 = uint32_write(uii, bufptr2);
+	  *bufptr2++ = '\t';
+	  bufptr2 += sprintf(bufptr2, "%e", *dptr2++);
+	  *bufptr2++ = '\n';
+	  if (!gzwrite(gz_outfile, tbuf, (bufptr2 - tbuf))) {
 	    goto calc_rel_ret_WRITE_FAIL;
 	  }
 	}
@@ -6763,13 +6781,25 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	  }
 	  uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
 	  giptr = g_indiv_missing_unwt;
-	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx; indiv_idx2++) {
-	    ujj = uii - (*giptr++) + (*giptr2++);
-	    if (fprintf(outfile, "%" PRIuPTR "\t%" PRIuPTR "\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, ujj, *dist_ptr++) < 0) {
-	      goto calc_rel_ret_WRITE_FAIL;
-	    }
+	  ukk = indiv_idx + 1;
+	  bufptr = uint32_write(ukk, tbuf);
+	  *bufptr++ = '\t';
+	  for (indiv_idx2 = 1; indiv_idx2 < ukk; indiv_idx2++) {
+	    bufptr2 = uint32_write(indiv_idx2, bufptr);
+	    *bufptr2++ = '\t';
+	    bufptr2 = uint32_write(uii - (*giptr++) + (*giptr2++), bufptr2);
+	    *bufptr2++ = '\t';
+	    bufptr2 += sprintf(bufptr2, "%e", *dist_ptr++);
+	    *bufptr2++ = '\n';
+	    fwrite(tbuf, 1, (bufptr2 - tbuf), outfile);
 	  }
-	  if (fprintf(outfile, "%" PRIuPTR "\t%" PRIuPTR "\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, uii, *dptr2++) < 0) {
+	  bufptr2 = uint32_write(ukk, bufptr);
+	  *bufptr2++ = '\t';
+	  bufptr2 = uint32_write(uii, bufptr2);
+	  *bufptr2++ = '\t';
+	  bufptr2 += sprintf(bufptr2, "%e", *dptr2++);
+	  *bufptr2++ = '\n';
+	  if (fwrite_checked(tbuf, (bufptr2 - tbuf), outfile)) {
 	    goto calc_rel_ret_WRITE_FAIL;
 	  }
 	}
@@ -7318,6 +7348,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	  }
 	  uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
 	  giptr = g_indiv_missing_unwt;
+          // TODO
 	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx; indiv_idx2++) {
 	    ujj = uii - (*giptr++) + (*giptr2++);
 	    fprintf(outfile, "%" PRIuPTR "\t%" PRIuPTR "\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, ujj, *dist_ptr++);
