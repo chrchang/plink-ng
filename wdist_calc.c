@@ -1749,6 +1749,7 @@ static double* g_pheno_packed;
 static uintptr_t* g_perm_rows;
 
 static uintptr_t* g_perm_col_buf;
+static double* g_ibs_test_partial_sums;
 static double* g_perm_results;
 static uintptr_t g_perm_ct;
 static double g_half_marker_ct_recip;
@@ -1886,7 +1887,7 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
   // (11-bit chunks were tested and found wanting.)
 
   // 256 possible bytes * (BITCT / 8) bytes per word
-  double partial_sum_buf[32 * BITCT];
+  double* psptr = &(g_ibs_test_partial_sums[tidx * (32 * BITCT)]);
   double dist_tot = 0.0;
   uintptr_t row_uidx = 0;
   uintptr_t pct = 0;
@@ -1921,9 +1922,9 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
       } else {
 	block_size = BITCT;
       }
-      block_tot = fill_psbuf(block_size, dptr, &col_uidx, partial_sum_buf, &(ssq[row_set]));
+      block_tot = fill_psbuf(block_size, dptr, &col_uidx, psptr, &(ssq[row_set]));
       dist_tot += block_tot;
-      ibs_test_process_perms(&(g_perm_rows[(col_idx / BITCT) * g_perm_ct]), (block_size + 7) / 8, block_tot, partial_sum_buf, perm_col_buf, perm_results);
+      ibs_test_process_perms(&(g_perm_rows[(col_idx / BITCT) * g_perm_ct]), (block_size + 7) / 8, block_tot, psptr, perm_col_buf, perm_results);
       col_idx += block_size;
     } while (col_idx < row_idx);
     if (!tidx) {
@@ -3358,7 +3359,8 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
   memcpy(g_pheno_c, pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
   collapse_bitarr(g_pheno_nm, indiv_exclude, unfiltered_indiv_ct);
   collapse_bitarr(g_pheno_c, indiv_exclude, unfiltered_indiv_ct);
-  if (wkspace_alloc_ul_checked(&g_perm_rows, perm_ct * pheno_nm_ctl * sizeof(intptr_t)) ||
+  if (wkspace_alloc_d_checked(&g_ibs_test_partial_sums, g_thread_ct * 32 * BITCT * sizeof(double)) ||
+      wkspace_alloc_ul_checked(&g_perm_rows, perm_ct * pheno_nm_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&g_perm_col_buf, perm_ctclm * sizeof(intptr_t) * g_thread_ct) ||
       wkspace_alloc_d_checked(&g_perm_results, 2 * perm_ctcldm * sizeof(double) * g_thread_ct)) {
     goto ibs_test_calc_ret_NOMEM;
@@ -6674,7 +6676,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
       }
       strcpy(outname_end, ".rel.bin");
       if (parallel_tot > 1) {
-	sprintf(&(outname_end[8]), ".%d", parallel_idx + 1);
+	sprintf(&(outname_end[8]), ".%u", parallel_idx + 1);
       }
       if (fopen_checked(&outfile, outname, "wb")) {
 	goto calc_rel_ret_OPEN_FAIL;
@@ -6689,7 +6691,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	if (rel_shape == REL_CALC_TRI) {
 	  if ((((uint64_t)indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100 >= ullyy * pct) {
 	    pct = (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100) / ullyy;
-	    printf("\rWriting... %d%%", pct++);
+	    printf("\rWriting... %u%%", pct++);
 	    fflush(stdout);
 	  }
 	} else {
@@ -6706,7 +6708,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	  }
 	  if ((indiv_idx + 1 - min_indiv) * 100 >= pct * (max_parallel_indiv - min_indiv)) {
 	    pct = ((indiv_idx + 1 - min_indiv) * 100) / (max_parallel_indiv - min_indiv);
-	    printf("\rWriting... %d%%", pct++);
+	    printf("\rWriting... %u%%", pct++);
 	    fflush(stdout);
 	  }
 	}
@@ -6718,7 +6720,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
       giptr2 = g_missing_dbl_excluded;
       if (rel_calc_type & REL_CALC_GZ) {
 	if (parallel_tot > 1) {
-	  sprintf(outname_end, ".grm.%d.gz", parallel_idx + 1);
+	  sprintf(outname_end, ".grm.%u.gz", parallel_idx + 1);
 	} else {
 	  strcpy(outname_end, ".grm.gz");
 	}
@@ -6729,18 +6731,16 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
 	  if (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100 >= ullyy * pct) {
 	    pct = (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100) / ullyy;
-	    printf("\rWriting... %d%%", pct++);
+	    printf("\rWriting... %u%%", pct++);
 	    fflush(stdout);
 	  }
 	  uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
 	  giptr = g_indiv_missing_unwt;
-	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx; indiv_idx2++) {
-	    ujj = uii - (*giptr++) + (*giptr2++);
-	    if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%e\n", indiv_idx + 1, indiv_idx2 + 1, ujj, *dist_ptr++)) {
-	      goto calc_rel_ret_WRITE_FAIL;
-	    }
+	  ukk = indiv_idx + 1;
+	  for (indiv_idx2 = 1; indiv_idx2 < ukk; indiv_idx2++) {
+	    gzprintf(gz_outfile, "%u\t%u\t%u\t%e\n", ukk, indiv_idx2, uii - (*giptr++) + (*giptr2++), *dist_ptr++);
 	  }
-	  if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%e\n", indiv_idx + 1, indiv_idx2 + 1, uii, *dptr2++)) {
+	  if (!gzprintf(gz_outfile, "%u\t%u\t%u\t%e\n", ukk, ukk, uii, *dptr2++)) {
 	    goto calc_rel_ret_WRITE_FAIL;
 	  }
 	}
@@ -6749,7 +6749,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
       } else {
 	strcpy(outname_end, ".grm");
 	if (parallel_tot > 1) {
-	  sprintf(&(outname_end[4]), ".%d", parallel_idx + 1);
+	  sprintf(&(outname_end[4]), ".%u", parallel_idx + 1);
 	}
 	if (fopen_checked(&outfile, outname, "w")) {
 	  goto calc_rel_ret_OPEN_FAIL;
@@ -6758,7 +6758,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
 	  if (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100 >= ullyy * pct) {
 	    pct = (((int64_t)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100) / ullyy;
-	    printf("\rWriting... %d%%", pct++);
+	    printf("\rWriting... %u%%", pct++);
 	    fflush(stdout);
 	  }
 	  uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
@@ -6798,7 +6798,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
       }
       if (rel_calc_type & REL_CALC_GZ) {
 	if (parallel_tot > 1) {
-	  sprintf(outname_end, ".rel.%d.gz", parallel_idx + 1);
+	  sprintf(outname_end, ".rel.%u.gz", parallel_idx + 1);
 	} else {
 	  strcpy(outname_end, ".rel.gz");
 	}
@@ -6847,7 +6847,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	    }
 	    if ((indiv_idx + 1 - min_indiv) * 100 >= pct * max_parallel_indiv) {
 	      pct = ((indiv_idx + 1 - min_indiv) * 100) / max_parallel_indiv;
-	      printf("\rWriting... %d%%", pct++);
+	      printf("\rWriting... %u%%", pct++);
 	      fflush(stdout);
 	    }
 	  } else {
@@ -6860,7 +6860,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	    }
 	    if (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100 >= ullyy * pct) {
 	      pct = (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100) / ullyy;
-	      printf("\rWriting... %d%%", pct++);
+	      printf("\rWriting... %u%%", pct++);
 	      fflush(stdout);
 	    }
 	  }
@@ -6873,7 +6873,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
       } else {
 	strcpy(outname_end, ".rel");
 	if (parallel_tot > 1) {
-	  sprintf(&(outname_end[4]), ".%d", parallel_idx + 1);
+	  sprintf(&(outname_end[4]), ".%u", parallel_idx + 1);
 	}
 	if (fopen_checked(&outfile, outname, "w")) {
 	  goto calc_rel_ret_OPEN_FAIL;
@@ -6919,7 +6919,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	    }
 	    if ((indiv_idx + 1 - min_indiv) * 100LLU >= (uint64_t)pct * (max_parallel_indiv - min_indiv)) {
 	      pct = ((indiv_idx + 1 - min_indiv) * 100LLU) / (max_parallel_indiv - min_indiv);
-	      printf("\rWriting... %d%%", pct++);
+	      printf("\rWriting... %u%%", pct++);
 	      fflush(stdout);
 	    }
 	  } else {
@@ -6932,7 +6932,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	    }
 	    if (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100LU >= ullyy * pct) {
 	      pct = (((int64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100) / ullyy;
-	      printf("\rWriting... %d%%", pct++);
+	      printf("\rWriting... %u%%", pct++);
 	      fflush(stdout);
 	    }
 	  }
@@ -7229,7 +7229,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
       }
       strcpy(outname_end, ".rel.bin");
       if (parallel_tot > 1) {
-	sprintf(&(outname_end[8]), ".%d", parallel_idx + 1);
+	sprintf(&(outname_end[8]), ".%u", parallel_idx + 1);
       }
       if (fopen_checked(&outfile, outname, "wb")) {
 	goto calc_rel_f_ret_OPEN_FAIL;
@@ -7244,7 +7244,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	if (rel_shape == REL_CALC_TRI) {
 	  if ((((uint64_t)indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU >= ullyy * pct) {
 	    pct = (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU) / ullyy;
-	    printf("\rWriting... %d%%", pct++);
+	    printf("\rWriting... %u%%", pct++);
 	    fflush(stdout);
 	  }
 	} else {
@@ -7261,7 +7261,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	  }
 	  if ((indiv_idx + 1 - min_indiv) * 100 >= pct * (max_parallel_indiv - min_indiv)) {
 	    pct = ((indiv_idx + 1 - min_indiv) * 100) / (max_parallel_indiv - min_indiv);
-	    printf("\rWriting... %d%%", pct++);
+	    printf("\rWriting... %u%%", pct++);
 	    fflush(stdout);
 	  }
 	}
@@ -7273,7 +7273,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
       giptr2 = g_missing_dbl_excluded;
       if (rel_calc_type & REL_CALC_GZ) {
 	if (parallel_tot > 1) {
-	  sprintf(outname_end, ".grm.%d.gz", parallel_idx + 1);
+	  sprintf(outname_end, ".grm.%u.gz", parallel_idx + 1);
 	} else {
 	  strcpy(outname_end, ".grm.gz");
 	}
@@ -7284,18 +7284,18 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
 	  if (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - ullxx) * 100LU >= ullyy * pct) {
 	    pct = (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - ullxx) * 100LU) / ullyy;
-	    printf("\rWriting... %d%%", pct++);
+	    printf("\rWriting... %u%%", pct++);
 	    fflush(stdout);
 	  }
 	  uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
 	  giptr = g_indiv_missing_unwt;
 	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx; indiv_idx2++) {
 	    ujj = uii - (*giptr++) + (*giptr2++);
-	    if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%e\n", indiv_idx + 1, indiv_idx2 + 1, ujj, *dist_ptr++)) {
+	    if (!gzprintf(gz_outfile, "%u\t%u\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, ujj, *dist_ptr++)) {
 	      goto calc_rel_f_ret_WRITE_FAIL;
 	    }
 	  }
-	  if (!gzprintf(gz_outfile, "%d\t%d\t%d\t%e\n", indiv_idx + 1, indiv_idx2 + 1, uii, *dptr2++)) {
+	  if (!gzprintf(gz_outfile, "%u\t%u\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, uii, *dptr2++)) {
 	    goto calc_rel_f_ret_WRITE_FAIL;
 	  }
 	}
@@ -7304,7 +7304,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
       } else {
 	strcpy(outname_end, ".grm");
 	if (parallel_tot > 1) {
-	  sprintf(&(outname_end[4]), ".%d", parallel_idx + 1);
+	  sprintf(&(outname_end[4]), ".%u", parallel_idx + 1);
 	}
 	if (fopen_checked(&outfile, outname, "w")) {
 	  goto calc_rel_f_ret_OPEN_FAIL;
@@ -7313,7 +7313,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
 	  if (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - ullxx) * 100LU >= ullyy * pct) {
 	    pct = (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - ullxx) * 100LU) / ullyy;
-	    printf("\rWriting... %d%%", pct++);
+	    printf("\rWriting... %u%%", pct++);
 	    fflush(stdout);
 	  }
 	  uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
@@ -7345,7 +7345,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
       }
       if (rel_calc_type & REL_CALC_GZ) {
 	if (parallel_tot > 1) {
-	  sprintf(outname_end, ".rel.%d.gz", parallel_idx + 1);
+	  sprintf(outname_end, ".rel.%u.gz", parallel_idx + 1);
 	} else {
 	  strcpy(outname_end, ".rel.gz");
 	}
@@ -7394,7 +7394,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	    }
 	    if ((indiv_idx + 1 - min_indiv) * 100 >= pct * max_parallel_indiv) {
 	      pct = ((indiv_idx + 1 - min_indiv) * 100) / max_parallel_indiv;
-	      printf("\rWriting... %d%%", pct++);
+	      printf("\rWriting... %u%%", pct++);
 	      fflush(stdout);
 	    }
 	  } else {
@@ -7407,7 +7407,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	    }
 	    if (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU >= ullyy * pct) {
 	      pct = (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU) / ullyy;
-	      printf("\rWriting... %d%%", pct++);
+	      printf("\rWriting... %u%%", pct++);
 	      fflush(stdout);
 	    }
 	  }
@@ -7420,7 +7420,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
       } else {
 	strcpy(outname_end, ".rel");
 	if (parallel_tot > 1) {
-	  sprintf(&(outname_end[4]), ".%d", parallel_idx + 1);
+	  sprintf(&(outname_end[4]), ".%u", parallel_idx + 1);
 	}
 	if (fopen_checked(&outfile, outname, "w")) {
 	  goto calc_rel_f_ret_OPEN_FAIL;
@@ -7456,7 +7456,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	    }
 	    if ((indiv_idx + 1 - min_indiv) * 100LLU >= (uint64_t)pct * (max_parallel_indiv - min_indiv)) {
 	      pct = ((indiv_idx + 1 - min_indiv) * 100LLU) / (max_parallel_indiv - min_indiv);
-	      printf("\rWriting... %d%%", pct++);
+	      printf("\rWriting... %u%%", pct++);
 	      fflush(stdout);
 	    }
 	  } else {
@@ -7467,7 +7467,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	    }
 	    if ((((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU) >= ullyy * pct) {
 	      pct = (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU) / ullyy;
-	      printf("\rWriting... %d%%", pct++);
+	      printf("\rWriting... %u%%", pct++);
 	      fflush(stdout);
 	    }
 	  }
@@ -7884,7 +7884,7 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
       }
       if (indiv_idx * 100LLU >= ((uint64_t)pct * g_indiv_ct)) {
 	pct = (indiv_idx * 100LLU) / g_indiv_ct;
-	printf("\rWriting... %d%%", pct++);
+	printf("\rWriting... %u%%", pct++);
 	fflush(stdout);
       }
     }
@@ -7932,7 +7932,7 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
       }
       if (indiv_idx * 100 >= (pct * g_indiv_ct)) {
 	pct = (indiv_idx * 100) / g_indiv_ct;
-	printf("\rWriting... %d%%", pct++);
+	printf("\rWriting... %u%%", pct++);
 	fflush(stdout);
       }
     }

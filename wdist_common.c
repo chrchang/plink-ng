@@ -2900,8 +2900,7 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
   }
   for (ulii = 1; ulii < ct; ulii++) {
 #if _WIN32
-    // 16k plus epsilon needed for ibs_test_thread
-    threads[ulii - 1] = (HANDLE)_beginthreadex(NULL, 20480, start_routine, (void*)ulii, 0, NULL);
+    threads[ulii - 1] = (HANDLE)_beginthreadex(NULL, 4096, start_routine, (void*)ulii, 0, NULL);
     if (!threads[ulii - 1]) {
       join_threads(threads, ulii);
       return -1;
