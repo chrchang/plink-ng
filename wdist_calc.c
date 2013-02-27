@@ -1848,9 +1848,9 @@ void ibs_test_process_perms(uintptr_t* perm_row_start, uint32_t sub_block_ct, do
 	sub_block_idx = 0;
 	ulii = *perm_row_start++;
 #ifdef __LP64__
-	dxx = psbuf[ulii & 255] + psbuf[256 + ((ulii >> 8) & 255)] + psbuf[512 + ((ulii >> 16) & 255)] + psbuf[768 + ((ulii >> 24) & 255)] + psbuf[1024 + ((ulii >> 32) & 255)] + psbuf[1280 + ((ulii >> 40) & 255)] + psbuf[1536 + ((ulii >> 48) & 255)] + psbuf[1792 + (ulii >> 56)];
+	dxx = psbuf[(uint8_t)ulii] + psbuf[256 + ((uint8_t)(ulii >> 8))] + psbuf[512 + ((uint8_t)(ulii >> 16))] + psbuf[768 + ((uint8_t)(ulii >> 24))] + psbuf[1024 + ((uint8_t)(ulii >> 32))] + psbuf[1280 + ((uint8_t)(ulii >> 40))] + psbuf[1536 + ((uint8_t)(ulii >> 48))] + psbuf[1792 + (ulii >> 56)];
 #else
-        dxx = psbuf[ulii & 255] + psbuf[256 + ((ulii >> 8) & 255)] + psbuf[512 + ((ulii >> 16) & 255)] + psbuf[768 + (ulii >> 24)];
+        dxx = psbuf[(uint8_t)ulii] + psbuf[256 + ((uint8_t)(ulii >> 8))] + psbuf[512 + ((uint8_t)(ulii >> 16))] + psbuf[768 + (ulii >> 24)];
 #endif
 	if (col_bits & 1) {
 	  perm_results[2 * block_pos + 1] += dxx;
@@ -1864,9 +1864,9 @@ void ibs_test_process_perms(uintptr_t* perm_row_start, uint32_t sub_block_ct, do
       do {
 	sub_block_idx = 0;
 	ulii = *perm_row_start++;
-	dxx = psbuf[ulii & 255];
+	dxx = psbuf[(uint8_t)ulii];
 	while (++sub_block_idx < sub_block_ct) {
-	  dxx += psbuf[256 * sub_block_idx + ((ulii >> (8 * sub_block_idx)) & 255)];
+	  dxx += psbuf[256 * sub_block_idx + ((uint8_t)(ulii >> (8 * sub_block_idx)))];
 	}
 	if (col_bits & 1) {
 	  perm_results[2 * block_pos + 1] += dxx;
