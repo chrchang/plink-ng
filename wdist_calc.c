@@ -4786,14 +4786,18 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
       uii = marker_ct - giptr3[indiv_idx];
       uljj = (int)indiv_idx - 1; // not referenced when indiv_idx == 0
       for (ulii = 0; ulii < indiv_idx; ulii++) {
-	fprintf(outfile, "%g ", 1.0 - ((double)(g_genome_main[uljj * 5] + 2 * g_genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + g_missing_dbl_excluded[uljj]))));
+        cptr = double_g_write(1.0 - ((double)(g_genome_main[uljj * 5] + 2 * g_genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + g_missing_dbl_excluded[uljj]))), tbuf);
+	*cptr = ' ';
+        fwrite(tbuf, 1, 1 + (cptr - tbuf), outfile);
 	uljj += g_indiv_ct - ulii - 2;
       }
       putc('1', outfile);
       putc(' ', outfile);
       giptr3++;
       for (ujj = indiv_idx + 1; ujj < g_indiv_ct; ujj++) {
-	fprintf(outfile, "%g ", 1.0 - ((double)((*giptr) + 2 * giptr[1])) / ((double)(2 * (uii - (*giptr3++) + (*giptr2++)))));
+	cptr = double_g_write(1.0 - ((double)((*giptr) + 2 * giptr[1])) / ((double)(2 * (uii - (*giptr3++) + (*giptr2++)))), tbuf);
+	*cptr = ' ';
+	fwrite(tbuf, 1, 1 + (cptr - tbuf), outfile);
 	giptr = &(giptr[5]);
       }
       if (putc('\n', outfile) == EOF) {
@@ -6748,7 +6752,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	    *bufptr2++ = '\t';
 	    bufptr2 = uint32_write(uii - (*giptr++) + (*giptr2++), bufptr2);
 	    *bufptr2++ = '\t';
-	    bufptr2 += sprintf(bufptr2, "%e", *dist_ptr++);
+	    bufptr2 = small_double_e_write(*dist_ptr++, bufptr2);
 	    *bufptr2++ = '\n';
 	    gzwrite(gz_outfile, tbuf, (bufptr2 - tbuf));
 	  }
@@ -6756,7 +6760,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	  *bufptr2++ = '\t';
 	  bufptr2 = uint32_write(uii, bufptr2);
 	  *bufptr2++ = '\t';
-	  bufptr2 += sprintf(bufptr2, "%e", *dptr2++);
+	  bufptr2 = small_double_e_write(*dptr2++, bufptr2);
 	  *bufptr2++ = '\n';
 	  if (!gzwrite(gz_outfile, tbuf, (bufptr2 - tbuf))) {
 	    goto calc_rel_ret_WRITE_FAIL;
@@ -6789,7 +6793,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	    *bufptr2++ = '\t';
 	    bufptr2 = uint32_write(uii - (*giptr++) + (*giptr2++), bufptr2);
 	    *bufptr2++ = '\t';
-	    bufptr2 += sprintf(bufptr2, "%e", *dist_ptr++);
+	    bufptr2 = small_double_e_write(*dist_ptr++, bufptr2);
 	    *bufptr2++ = '\n';
 	    fwrite(tbuf, 1, (bufptr2 - tbuf), outfile);
 	  }
@@ -6797,7 +6801,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	  *bufptr2++ = '\t';
 	  bufptr2 = uint32_write(uii, bufptr2);
 	  *bufptr2++ = '\t';
-	  bufptr2 += sprintf(bufptr2, "%e", *dptr2++);
+	  bufptr2 = small_double_e_write(*dptr2++, bufptr2);
 	  *bufptr2++ = '\n';
 	  if (fwrite_checked(tbuf, (bufptr2 - tbuf), outfile)) {
 	    goto calc_rel_ret_WRITE_FAIL;

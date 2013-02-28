@@ -356,6 +356,7 @@ static inline int32_t fclose_null(FILE** fptr_ptr) {
 
 int32_t gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode);
 
+// handle len == 0.  If that's unnecessary, just use !gzwrite instead
 static inline int32_t gzwrite_checked(gzFile gz_outfile, const void* buf, size_t len) {
   if ((!len) || gzwrite(gz_outfile, buf, len)) {
     return 0;
@@ -560,6 +561,10 @@ static inline void intprint2(char* buf, uint32_t num) {
 
 char* uint32_write(uint32_t uii, char* start);
 
+char* small_double_e_write(double dxx, char* start);
+
+char* double_g_write(double dxx, char* start);
+
 static inline void read_next_terminate(char* target, char* source) {
   while (!is_space_or_eoln(*source)) {
     *target++ = *source++;
@@ -567,7 +572,7 @@ static inline void read_next_terminate(char* target, char* source) {
   *target = '\0';
 }
 
-void chrom_print_human(char* buf, uint32_t num);
+void chrom_print_human_terminate(char* buf, uint32_t num);
 
 static inline void set_bit_noct(uintptr_t* exclude_arr, uint32_t loc) {
   exclude_arr[loc / BITCT] |= (ONELU << (loc % BITCT));

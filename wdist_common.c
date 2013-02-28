@@ -243,15 +243,16 @@ void copy_item(char* writebuf, uint32_t* offset_ptr, char** prev_item_end_ptr) {
   *prev_item_end_ptr = item_end;
 }
 
+static const char uint32_write_table2[] = {
+  "0001020304050607080910111213141516171819"
+  "2021222324252627282930313233343536373839"
+  "4041424344454647484950515253545556575859"
+  "6061626364656667686970717273747576777879"
+  "8081828384858687888990919293949596979899"};
+
 char* uint32_write(uint32_t uii, char* start) {
   // Memory-efficient fast integer writer.  (You can do a bit better sometimes
   // by using a larger lookup table, but on average I doubt that pays off.)
-  static const char table2[] = {
-    "0001020304050607080910111213141516171819"
-    "2021222324252627282930313233343536373839"
-    "4041424344454647484950515253545556575859"
-    "6061626364656667686970717273747576777879"
-    "8081828384858687888990919293949596979899"};
   uint32_t quotient;
   if (uii < 1000) {
     if (uii < 10) {
@@ -262,14 +263,26 @@ char* uint32_write(uint32_t uii, char* start) {
       *start++ = '0' + quotient;
       uii -= quotient * 100;
     }
-    memcpy(start, &(table2[uii * 2]), 2);
+    memcpy(start, &(uint32_write_table2[uii * 2]), 2);
     return &(start[2]);
-  }
-  if (uii >= 10000000) {
+  } else if (uii < 10000000) {
+    if (uii >= 100000) {
+      if (uii < 1000000) {
+	goto uint32_write_6;
+      }
+      quotient = uii / 1000000;
+      *start++ = '0' + quotient;
+      goto uint32_write_6b;
+    } else if (uii < 10000) {
+      goto uint32_write_4;
+    }
+    quotient = uii / 10000;
+    *start++ = '0' + quotient;
+  } else {
     if (uii >= 100000000) {
       quotient = uii / 100000000;
       if (uii >= 1000000000) {
-	memcpy(start, &(table2[quotient * 2]), 2);
+	memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
 	start += 2;
       } else {
 	*start++ = '0' + quotient;
@@ -277,63 +290,433 @@ char* uint32_write(uint32_t uii, char* start) {
       uii -= 100000000 * quotient;
     }
     quotient = uii / 1000000;
-    memcpy(start, &(table2[quotient * 2]), 2);
+    memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
     start += 2;
   uint32_write_6b:
     uii -= 1000000 * quotient;
   uint32_write_6:
     quotient = uii / 10000;
-    memcpy(start, &(table2[quotient * 2]), 2);
+    memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
     start += 2;
-  uint32_write_4b:
-    uii -= 10000 * quotient;
-  uint32_write_4:
-    quotient = uii / 100;
-    memcpy(start, &(table2[quotient * 2]), 2);
-    start += 2;
-    uii -= 100 * quotient;
-    memcpy(start, &(table2[uii * 2]), 2);
-    return &(start[2]);
-  } else if (uii >= 100000) {
-    if (uii < 1000000) {
-      goto uint32_write_6;
-    }
-    quotient = uii / 1000000;
-    *start++ = '0' + quotient;
-    goto uint32_write_6b;
-  } else if (uii < 10000) {
-    goto uint32_write_4;
   }
-  quotient = uii / 10000;
-  *start++ = '0' + quotient;
-  goto uint32_write_4b;
+  uii -= 10000 * quotient;
+ uint32_write_4:
+  quotient = uii / 100;
+  memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
+  start += 2;
+  uii -= 100 * quotient;
+  memcpy(start, &(uint32_write_table2[uii * 2]), 2);
+  return &(start[2]);
 }
 
-void chrom_print_human(char* buf, uint32_t num) {
+static inline void uint32_write6(uint32_t uii, char* start) {
+  // Write exactly six digits (padding with zeroes if necessary); useful for
+  // e.g. floating point encoders.
+  uint32_t quotient = uii / 10000;
+  memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
+  start += 2;
+  uii -= 10000 * quotient;
+  quotient = uii / 100;
+  memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
+  start += 2;
+  uii -= 100 * quotient;
+  memcpy(start, &(uint32_write_table2[uii * 2]), 2);
+}
+
+static inline char* uint32_write6trunc(uint32_t uii, char* start) {
+  // Given uii < 1000000, writes uii without *trailing* zeroes.  (I.e. this is
+  // for floating-point encoder use.)
+  uint32_t quotient = uii / 10000;
+  memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
+  start += 2;
+  uii -= 10000 * quotient;
+  if (uii) {
+    quotient = uii / 100;
+    memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
+    start += 2;
+    uii -= 100 * quotient;
+    if (uii) {
+      memcpy(start, &(uint32_write_table2[uii * 2]), 2);
+      start += 2;
+    }
+  }
+  if (start[-1] != '0') {
+    return start;
+  }
+  return &(start[-1]);
+}
+
+static inline char* uint32_write1p5(double dxx, char* start) {
+  // Given 1 <= dxx < 10, writes 6 sig figs while truncating trailing zeroes.
+  uint32_t uii = (int32_t)dxx;
+  uint32_t quotient;
+  *start++ = '0' + uii;
+  uii = ((int32_t)(dxx * 100000)) - (uii * 100000);
+  if (!uii) {
+    return start;
+  }
+  *start++ = '.';
+  quotient = uii / 1000;
+  memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
+  start += 2;
+  uii -= 1000 * quotient;
+  if (uii) {
+    quotient = uii / 10;
+    memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
+    start += 2;
+    uii -= 10 * quotient;
+    if (uii) {
+      *start = '0' + uii;
+      return &(start[1]);
+    }
+  }
+  if (start[-1] != '0') {
+    return start;
+  }
+  return &(start[-1]);
+}
+
+char* double_write6(double dxx, char* start) {
+  // 6 sig fig number, 0.999995 <= dxx < 999999.5
+  // Just hardcoding all six cases, in the absence of a better approach...
+  uint32_t uii;
+  uint32_t quotient;
+  uint32_t remainder;
+  if (dxx < 99.9995) {
+    if (dxx < 9.99995) {
+      return uint32_write1p5(dxx + 0.000005, start);
+    }
+    dxx += 0.00005;
+    uii = (int32_t)dxx;
+    memcpy(start, &(uint32_write_table2[uii * 2]), 2);
+    start += 2;
+    uii = ((int32_t)(dxx * 10000)) - (uii * 10000);
+    if (!uii) {
+      return start;
+    }
+    *start++ = '.';
+    quotient = uii / 100;
+    memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
+    start += 2;
+    uii -= 100 * quotient;
+    if (uii) {
+      memcpy(start, &(uint32_write_table2[uii * 2]), 2);
+      start += 2;
+    }
+  double_write6_tail:
+    if (start[-1] != '0') {
+      return start;
+    }
+    return &(start[-1]);
+  } else if (dxx < 9999.95) {
+    if (dxx < 999.995) {
+      dxx += 0.0005;
+      uii = (int32_t)dxx;
+      quotient = uii / 100;
+      *start++ = '0' + quotient;
+      quotient = uii - 100 * quotient;
+      memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
+      start += 2;
+      uii = ((int32_t)(dxx * 1000)) - (uii * 1000);
+      if (!uii) {
+	return start;
+      }
+      *start++ = '.';
+      quotient = uii / 10;
+      memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
+      start += 2;
+      uii -= quotient * 10;
+      if (!uii) {
+        goto double_write6_tail;
+      }
+      *start = '0' + uii;
+      return &(start[1]);
+    }
+    dxx += 0.005;
+    uii = (int32_t)dxx;
+    quotient = uii / 100;
+    memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
+    start += 2;
+    quotient = uii - (100 * quotient);
+    memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
+    start += 2;
+    uii = ((int32_t)(dxx * 100)) - (uii * 100);
+    if (!uii) {
+      return start;
+    }
+    *start++ = '.';
+    memcpy(start, &(uint32_write_table2[uii * 2]), 2);
+    if (start[1] != '0') {
+      return &(start[2]);
+    }
+    return &(start[1]);
+  } else if (dxx < 99999.5) {
+    dxx += 0.05;
+    uii = (int32_t)dxx;
+    quotient = uii / 10000;
+    *start++ = '0' + quotient;
+    remainder = uii - 10000 * quotient;
+    quotient = remainder / 100;
+    memcpy(start, &(uint32_write_table2[quotient * 2]), 2);
+    start += 2;
+    remainder = remainder - 100 * quotient;
+    memcpy(start, &(uint32_write_table2[remainder * 2]), 2);
+    start += 2;
+    uii = ((int32_t)(dxx * 10)) - (uii * 10);
+    if (!uii) {
+      return start;
+    }
+    *start++ = '.';
+    *start = '0' + uii;
+    return &(start[1]);
+  } else {
+    uint32_write6((int32_t)(dxx + 0.5), start);
+    return &(start[6]);
+  }
+}
+
+char* small_double_e_write(double dxx, char* start) {
+  // Assumes -10.0 < dxx < 10.0, or dxx is nan.
+  uint32_t xp10 = 0;
+  uint32_t uii;
+  if (dxx < 0) {
+    *start++ = '-';
+    dxx = -dxx;
+  }
+  // shortcuts
+  if (dxx >= 9.999995e-4) {
+    goto small_double_e_write_3left;
+  }
+  if (dxx == 0.0) {
+    memcpy(start, "0.000000e+00", 12);
+    return &(start[12]);
+  } else if (dxx >= 9.999995e-16) {
+    goto small_double_e_write_15left;
+  }
+  // nan causes all previous comparisons to return false
+  if (dxx != dxx) {
+    *((uint32_t*)start) = *((uint32_t*)"nan");
+    return &(start[3]);
+  }
+  // general case
+  if (dxx < 9.999995e-256) {
+    dxx *= 1.0e256;
+    xp10 |= 256;
+  }
+  if (dxx < 9.999995e-128) {
+    dxx *= 1.0e128;
+    xp10 |= 128;
+  }
+  if (dxx < 9.999995e-64) {
+    dxx *= 1.0e64;
+    xp10 |= 64;
+  }
+  if (dxx < 9.999995e-32) {
+    dxx *= 1.0e32;
+    xp10 |= 32;
+  }
+  if (dxx < 9.999995e-16) {
+    dxx *= 1.0e16;
+    xp10 |= 16;
+  }
+ small_double_e_write_15left:
+  if (dxx < 9.999995e-8) {
+    dxx *= 100000000;
+    xp10 |= 8;
+  }
+  if (dxx < 9.999995e-4) {
+    dxx *= 10000;
+    xp10 |= 4;
+  }
+ small_double_e_write_3left:
+  if (dxx < 9.999995e-2) {
+    dxx *= 100;
+    xp10 |= 2;
+  }
+  if (dxx < 9.999995e-1) {
+    dxx *= 10;
+    xp10++;
+  }
+  dxx += 0.0000005;
+  uii = (int32_t)dxx;
+  *start++ = '0' + uii;
+  *start++ = '.';
+  uii = ((int32_t)(dxx * 1000000)) - (uii * 1000000);
+  uint32_write6(uii, start);
+  start += 6;
+  if (!xp10) {
+    memcpy(start, "e+00", 4);
+    return &(start[4]);
+  }
+  memcpy(start, "e-", 2);
+  start += 2;
+  if (xp10 >= 100) {
+    uii = xp10 / 100;
+    *start++ = '0' + uii;
+    xp10 -= uii * 100;
+  }
+  memcpy(start, &(uint32_write_table2[xp10 * 2]), 2);
+  return &(start[2]);
+}
+
+char* double_g_write(double dxx, char* start) {
+  uint32_t xp10 = 0;
+  uint32_t uii;
+  if (dxx < 0) {
+    *start++ = '-';
+    dxx = -dxx;
+  }
+  if (dxx < 9.999995e-5) {
+    // 6 sig fig exponential notation, small
+    if (dxx == 0.0) {
+      *start = '0';
+      return &(start[1]);
+    } else if (dxx < 9.999995e-16) {
+      if (dxx < 9.999995e-256) {
+	dxx *= 1.0e256;
+	xp10 |= 256;
+      }
+      if (dxx < 9.999995e-128) {
+	dxx *= 1.0e128;
+	xp10 |= 128;
+      }
+      if (dxx < 9.999995e-64) {
+	dxx *= 1.0e64;
+	xp10 |= 64;
+      }
+      if (dxx < 9.999995e-32) {
+	dxx *= 1.0e32;
+	xp10 |= 32;
+      }
+      if (dxx < 9.999995e-16) {
+	dxx *= 1.0e16;
+	xp10 |= 16;
+      }
+    }
+    if (dxx < 9.999995e-8) {
+      dxx *= 100000000;
+      xp10 |= 8;
+    }
+    if (dxx < 9.999995e-4) {
+      dxx *= 10000;
+      xp10 |= 4;
+    }
+    if (dxx < 9.999995e-2) {
+      dxx *= 100;
+      xp10 |= 2;
+    }
+    if (dxx < 9.999995e-1) {
+      dxx *= 10;
+      xp10++;
+    }
+    start = uint32_write1p5(dxx + 0.000005, start);
+    memcpy(start, "e-", 2);
+    start += 2;
+    if (xp10 >= 100) {
+      uii = xp10 / 100;
+      *start++ = '0' + uii;
+      xp10 -= 100 * uii;
+    }
+    memcpy(start, &(uint32_write_table2[xp10 * 2]), 2);
+    return &(start[2]);
+  } else if (dxx >= 999999.5) {
+    // 6 sig fig exponential notation, large
+    if (dxx >= 9.999995e15) {
+      if (dxx >= 9.999995e255) {
+	dxx *= 1.0e-256;
+	xp10 |= 256;
+      }
+      if (dxx >= 9.999995e127) {
+	dxx *= 1.0e-128;
+	xp10 |= 128;
+      }
+      if (dxx >= 9.999995e63) {
+	dxx *= 1.0e-64;
+	xp10 |= 64;
+      }
+      if (dxx >= 9.999995e31) {
+	dxx *= 1.0e-32;
+	xp10 |= 32;
+      }
+      if (dxx >= 9.999995e15) {
+	dxx *= 1.0e-16;
+	xp10 |= 16;
+      }
+    }
+    if (dxx >= 9.999995e7) {
+      dxx *= 1.0e-8;
+      xp10 |= 8;
+    }
+    if (dxx >= 9.999995e3) {
+      dxx *= 1.0e-4;
+      xp10 |= 4;
+    }
+    if (dxx >= 9.999995e1) {
+      dxx *= 1.0e-2;
+      xp10 |= 2;
+    }
+    if (dxx >= 9.999995e0) {
+      dxx *= 1.0e-1;
+      xp10++;
+    }
+    start = uint32_write1p5(dxx + 0.000005, start);
+    memcpy(start, "e+", 2);
+    start += 2;
+    if (xp10 >= 100) {
+      uii = xp10 / 100;
+      *start++ = '0' + uii;
+      xp10 -= 100 * uii;
+    }
+    memcpy(start, &(uint32_write_table2[xp10 * 2]), 2);
+    return &(start[2]);
+  } else if (dxx >= 1) {
+    return double_write6(dxx, start);
+  } else if (dxx != dxx) {
+    *((uint32_t*)start) = *((uint32_t*)"nan");
+    return &(start[3]);
+  } else {
+    // 6 sig fig decimal, no less than ~0.0001
+    memcpy(start, "0.", 2);
+    start += 2;
+    if (dxx < 9.999995e-3) {
+      dxx *= 100;
+      memcpy(start, "00", 2);
+      start += 2;
+    }
+    if (dxx < 9.999995e-2) {
+      dxx *= 10;
+      *start++ = '0';
+    }
+    return uint32_write6trunc((int32_t)((dxx * 1000000) + 0.5), start);
+  }
+}
+
+char* chrom_print_human(char* buf, uint32_t num) {
   uint32_t n10;
   if (num < 10) {
     *buf = '0' + num;
-    buf[1] = '\0';
+    return &(buf[1]);
   } else if (num < 23) {
     n10 = num / 10;
     *buf = '0' + n10;
     buf[1] = '0' + (num - 10 * n10);
-    buf[2] = '\0';
-  } else if (num == 23) {
-    *buf = 'X';
-    buf[1] = '\0';
-  } else if (num == 24) {
-    *buf = 'Y';
-    buf[1] = '\0';
+    return &(buf[2]);
+  } else if (num < 25) {
+    // X is 24th letter of alphabet, and 23rd chromosome
+    *buf = 'A' + num;
+    return &(buf[1]);
   } else if (num == 25) {
-    *buf = 'X';
-    buf[1] = 'Y';
-    buf[2] = '\0';
+    memcpy(buf, "XY", 2);
+    return &(buf[2]);
   } else {
-    *buf = 'M';
-    buf[1] = 'T';
-    buf[2] = '\0';
+    memcpy(buf, "MT", 2);
+    return &(buf[2]);
   }
+}
+
+void chrom_print_human_terminate(char* buf, uint32_t num) {
+  char* ss = chrom_print_human(buf, num);
+  *ss = '\0';
 }
 
 void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr) {
@@ -1087,7 +1470,7 @@ int32_t distance_open_gz(gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile
       strcpy(outname_end, ".mibs.gz");
     }
     strcpy(&(tbuf[MAX_POST_EXT]), outname_end);
-    if (gzopen_checked(gz_outfile_ptr, outname, "wb")) {
+    if (gzopen_checked(gz_outfile2_ptr, outname, "wb")) {
       return 1;
     }
   }
@@ -1098,7 +1481,7 @@ int32_t distance_open_gz(gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile
       strcpy(outname_end, ".mdist.gz");
     }
     strcpy(&(tbuf[MAX_POST_EXT * 2]), outname_end);
-    if (gzopen_checked(gz_outfile_ptr, outname, "wb")) {
+    if (gzopen_checked(gz_outfile3_ptr, outname, "wb")) {
       return 1;
     }
   }
@@ -2142,6 +2525,8 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
   int32_t write_1mibs_matrix = dist_calc_type & DISTANCE_1_MINUS_IBS;
   int64_t indiv_idx_offset = ((int64_t)first_indiv_idx * (first_indiv_idx - 1)) / 2;
   int64_t indiv_idx_ct = ((int64_t)end_indiv_idx * (end_indiv_idx - 1)) / 2 - indiv_idx_offset;
+  char wbuf[16]; // %g is max 13 chars (and writer needs space for one more),
+                 // and there may be a preceding char -> 15 is sufficient
   FILE* outfile;
   double dxx;
   double dyy;
@@ -2180,70 +2565,74 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
     } else {
       if (shape == DISTANCE_SQ0) {
 	if (write_alcts) {
-	  if (gzwrite_checked(*gz_outfile_ptr, &(membuf[1]), indiv_ct * 2 - 1)) {
+	  if (!gzwrite(*gz_outfile_ptr, &(membuf[1]), indiv_ct * 2 - 1)) {
 	    return RET_WRITE_FAIL;
 	  }
-	  if (gzwrite_checked(*gz_outfile_ptr, "\n", 1)) {
+	  if (gzputc(*gz_outfile_ptr, '\n') == -1) {
 	    return RET_WRITE_FAIL;
 	  }
 	}
 	if (write_ibs_matrix) {
 	  membuf[1] = '1';
-	  if (gzwrite_checked(*gz_outfile2_ptr, &(membuf[1]), indiv_ct * 2 - 1)) {
+	  if (!gzwrite(*gz_outfile2_ptr, &(membuf[1]), indiv_ct * 2 - 1)) {
 	    return RET_WRITE_FAIL;
 	  }
-	  if (gzwrite_checked(*gz_outfile2_ptr, "\n", 1)) {
+	  if (gzputc(*gz_outfile2_ptr, '\n') == -1) {
 	    return RET_WRITE_FAIL;
 	  }
 	  membuf[1] = '0';
 	}
 	if (write_1mibs_matrix) {
-	  if (gzwrite_checked(*gz_outfile3_ptr, &(membuf[1]), indiv_ct * 2 - 1)) {
+	  if (!gzwrite(*gz_outfile3_ptr, &(membuf[1]), indiv_ct * 2 - 1)) {
 	    return RET_WRITE_FAIL;
 	  }
-	  if (gzwrite_checked(*gz_outfile3_ptr, "\n", 1)) {
+	  if (gzputc(*gz_outfile3_ptr, '\n') == -1) {
 	    return RET_WRITE_FAIL;
 	  }
 	}
       } else if (shape == DISTANCE_SQ) {
 	if (write_alcts) {
-	  if (gzwrite_checked(*gz_outfile_ptr, "0", 1)) {
+	  if (gzputc(*gz_outfile_ptr, '0') == -1) {
 	    return RET_WRITE_FAIL;
 	  }
+	  wbuf[0] = '\t';
 	  for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
-	    if (!gzprintf(*gz_outfile_ptr, "\t%g", dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2])) {
-	      return RET_WRITE_FAIL;
-	    }
+            cptr = double_g_write(dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2], &(wbuf[1]));
+	    gzwrite(*gz_outfile_ptr, wbuf, cptr - wbuf);
 	  }
-	  if (gzwrite_checked(*gz_outfile_ptr, "\n", 1)) {
+	  if (gzputc(*gz_outfile_ptr, '\n') == -1) {
 	    return RET_WRITE_FAIL;
 	  }
 	}
 	if (write_ibs_matrix) {
-	  if (gzwrite_checked(*gz_outfile2_ptr, "1", 1)) {
+	  if (gzputc(*gz_outfile2_ptr, '1') == -1) {
 	    return RET_WRITE_FAIL;
 	  }
+	  wbuf[0] = '\t';
 	  for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
-	    if (!gzprintf(*gz_outfile2_ptr, "\t%g", 1.0 - dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2] * half_marker_ct_recip)) {
-	      return RET_WRITE_FAIL;
-	    }
+	    cptr = double_g_write(1.0 - dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2] * half_marker_ct_recip, &(wbuf[1]));
+            gzwrite(*gz_outfile2_ptr, wbuf, cptr - wbuf);
 	  }
-	  if (gzwrite_checked(*gz_outfile2_ptr, "\n", 1)) {
+	  if (gzputc(*gz_outfile2_ptr, '\n') == -1) {
 	    return RET_WRITE_FAIL;
 	  }
 	}
 	if (write_1mibs_matrix) {
-	  if (gzwrite_checked(*gz_outfile3_ptr, "0", 1)) {
+	  if (gzputc(*gz_outfile3_ptr, '0') == -1) {
 	    return RET_WRITE_FAIL;
 	  }
+          wbuf[0] = '\t';
 	  for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
-	    if (!gzprintf(*gz_outfile3_ptr, "\t%g", dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2] * half_marker_ct_recip)) {
-	      return RET_WRITE_FAIL;
-	    }
+	    cptr = double_g_write(dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2] * half_marker_ct_recip, &(wbuf[1]));
+            gzwrite(*gz_outfile3_ptr, wbuf, cptr - wbuf);
 	  }
-	  if (gzwrite_checked(*gz_outfile3_ptr, "\n", 1)) {
+	  if (gzputc(*gz_outfile3_ptr, '\n') == -1) {
 	    return RET_WRITE_FAIL;
 	  }
+	}
+      } else if (write_ibs_matrix) {
+        if (!gzwrite(*gz_outfile2_ptr, "1\n", 2)) {
+	  return RET_WRITE_FAIL;
 	}
       }
       ii = 1;
@@ -2251,13 +2640,14 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
     if (write_alcts) {
       dist_ptr = dists;
       for (; ii < end_indiv_idx; ii++) {
-	if (!gzprintf(*gz_outfile_ptr, "%g", *dist_ptr++)) {
+	cptr = double_g_write(*dist_ptr++, wbuf);
+	if (!gzwrite(*gz_outfile_ptr, wbuf, cptr - wbuf)) {
 	  return RET_WRITE_FAIL;
 	}
+	wbuf[0] = '\t';
 	for (jj = 1; jj < ii; jj++) {
-	  if (!gzprintf(*gz_outfile_ptr, "\t%g", *dist_ptr++)) {
-	    return RET_WRITE_FAIL;
-	  }
+	  cptr = double_g_write(*dist_ptr++, &(wbuf[1]));
+	  gzwrite(*gz_outfile_ptr, wbuf, cptr - wbuf);
 	}
 	if (shape == DISTANCE_SQ0) {
 	  if (gzwrite_checked(*gz_outfile_ptr, membuf, (indiv_ct - ii) * 2)) {
@@ -2270,13 +2660,13 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  }
 	} else {
 	  if (shape == DISTANCE_SQ) {
-	    if (gzwrite_checked(*gz_outfile_ptr, "\t0", 2)) {
+	    if (!gzwrite(*gz_outfile_ptr, "\t0", 2)) {
 	      return RET_WRITE_FAIL;
 	    }
+	    wbuf[0] = '\t';
 	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      if (!gzprintf(*gz_outfile_ptr, "\t%g", dists[((ulii * (ulii - 1)) / 2) + ii])) {
-		return RET_WRITE_FAIL;
-	      }
+	      cptr = double_g_write(dists[((ulii * (ulii - 1)) / 2) + ii], &(wbuf[1]));
+              gzwrite(*gz_outfile_ptr, wbuf, cptr - wbuf);
 	    }
 	  }
 	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
@@ -2285,7 +2675,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    fflush(stdout);
 	  }
 	}
-	if (gzwrite_checked(*gz_outfile_ptr, "\n", 1)) {
+	if (gzputc(*gz_outfile_ptr, '\n') == -1) {
 	  return RET_WRITE_FAIL;
 	}
       }
@@ -2303,13 +2693,14 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
       dist_ptr = dists;
       membuf[1] = '1';
       for (; ii < end_indiv_idx; ii++) {
-	if (!gzprintf(*gz_outfile2_ptr, "%g", 1.0 - (*dist_ptr++) * half_marker_ct_recip)) {
+	cptr = double_g_write(1.0 - (*dist_ptr++) * half_marker_ct_recip, wbuf);
+	if (!gzwrite(*gz_outfile2_ptr, wbuf, cptr - wbuf)) {
 	  return RET_WRITE_FAIL;
 	}
+	wbuf[0] = '\t';
 	for (jj = 1; jj < ii; jj++) {
-	  if (!gzprintf(*gz_outfile2_ptr, "\t%g", 1.0 - (*dist_ptr++) * half_marker_ct_recip)) {
-	    return RET_WRITE_FAIL;
-	  }
+	  cptr = double_g_write(1.0 - (*dist_ptr++) * half_marker_ct_recip, &(wbuf[1]));
+	  gzwrite(*gz_outfile2_ptr, wbuf, cptr - wbuf);
 	}
 	if (shape == DISTANCE_SQ0) {
 	  if (gzwrite_checked(*gz_outfile2_ptr, membuf, (indiv_ct - ii) * 2)) {
@@ -2321,14 +2712,14 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    fflush(stdout);
 	  }
 	} else {
+	  if (!gzwrite(*gz_outfile2_ptr, "\t1", 2)) {
+	    return RET_WRITE_FAIL;
+	  }
 	  if (shape == DISTANCE_SQ) {
-	    if (gzwrite_checked(*gz_outfile2_ptr, "\t1", 2)) {
-	      return RET_WRITE_FAIL;
-	    }
+	    wbuf[0] = '\t';
 	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      if (!gzprintf(*gz_outfile2_ptr, "\t%g", 1.0 - dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip)) {
-		return RET_WRITE_FAIL;
-	      }
+	      cptr = double_g_write(1.0 - dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip, &(wbuf[1]));
+	      gzwrite(*gz_outfile2_ptr, wbuf, cptr - wbuf);
 	    }
 	  }
 	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
@@ -2337,7 +2728,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    fflush(stdout);
 	  }
 	}
-	if (gzwrite_checked(*gz_outfile2_ptr, "\n", 1)) {
+	if (gzputc(*gz_outfile2_ptr, '\n') == -1) {
 	  return RET_WRITE_FAIL;
 	}
       }
@@ -2355,13 +2746,14 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
     if (write_1mibs_matrix) {
       dist_ptr = dists;
       for (; ii < end_indiv_idx; ii++) {
-	if (!gzprintf(*gz_outfile3_ptr, "%g", (*dist_ptr++) * half_marker_ct_recip)) {
+	cptr = double_g_write((*dist_ptr++) * half_marker_ct_recip, wbuf);
+	if (!gzwrite(*gz_outfile3_ptr, wbuf, cptr - wbuf)) {
 	  return RET_WRITE_FAIL;
 	}
+	wbuf[0] = '\t';
 	for (jj = 1; jj < ii; jj++) {
-	  if (!gzprintf(*gz_outfile3_ptr, "\t%g", (*dist_ptr++) * half_marker_ct_recip)) {
-	    return RET_WRITE_FAIL;
-	  }
+	  cptr = double_g_write((*dist_ptr++) * half_marker_ct_recip, &(wbuf[1]));
+	  gzwrite(*gz_outfile3_ptr, wbuf, cptr - wbuf);
 	}
 	if (shape == DISTANCE_SQ0) {
 	  if (gzwrite_checked(*gz_outfile3_ptr, membuf, (indiv_ct - ii) * 2)) {
@@ -2374,13 +2766,13 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  }
 	} else {
 	  if (shape == DISTANCE_SQ) {
-	    if (gzwrite_checked(*gz_outfile3_ptr, "\t0", 2)) {
+	    if (!gzwrite(*gz_outfile3_ptr, "\t0", 2)) {
 	      return RET_WRITE_FAIL;
 	    }
+	    wbuf[0] = '\t';
 	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      if (!gzprintf(*gz_outfile3_ptr, "\t%g", dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip)) {
-		return RET_WRITE_FAIL;
-	      }
+	      cptr = double_g_write(dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip, &(wbuf[1]));
+	      gzwrite(*gz_outfile3_ptr, wbuf, cptr - wbuf);
 	    }
 	  }
 	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
@@ -2389,7 +2781,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    fflush(stdout);
 	  }
 	}
-	if (gzwrite_checked(*gz_outfile3_ptr, "\n", 1)) {
+	if (gzputc(*gz_outfile3_ptr, '\n') == -1) {
 	  return RET_WRITE_FAIL;
 	}
       }
@@ -2577,10 +2969,10 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  }
 	} else if (shape == DISTANCE_SQ) {
 	  putc('0', outfile);
+	  wbuf[0] = '\t';
 	  for (ulii = 1; ulii < indiv_ct; ulii++) {
-	    if (fprintf(outfile, "\t%g", dists[(ulii * (ulii - 1)) / 2]) < 0) {
-	      return RET_WRITE_FAIL;
-	    }
+	    cptr = double_g_write(dists[(ulii * (ulii - 1)) / 2], &(wbuf[1]));
+	    fwrite(wbuf, 1, cptr - wbuf, outfile);
 	  }
 	  if (putc('\n', outfile) == EOF) {
 	    return RET_WRITE_FAIL;
@@ -2590,9 +2982,12 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
       }
       dist_ptr = dists;
       for (; ii < end_indiv_idx; ii++) {
-	fprintf(outfile, "%g", *dist_ptr++);
+	cptr = double_g_write(*dist_ptr++, wbuf);
+	fwrite(wbuf, 1, cptr - wbuf, outfile);
+	wbuf[0] = '\t';
 	for (jj = 1; jj < ii; jj++) {
-	  fprintf(outfile, "\t%g", *dist_ptr++);
+	  cptr = double_g_write(*dist_ptr++, &(wbuf[1]));
+	  fwrite(wbuf, 1, cptr - wbuf, outfile);
 	}
 	if (shape == DISTANCE_SQ0) {
 	  if (fwrite_checkedz(membuf, (indiv_ct - ii) * 2, outfile)) {
@@ -2607,8 +3002,10 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  if (shape == DISTANCE_SQ) {
 	    putc('\t', outfile);
 	    putc('0', outfile);
+	    wbuf[0] = '\t';
 	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      fprintf(outfile, "\t%g", dists[((ulii * (ulii - 1)) / 2) + ii]);
+	      cptr = double_g_write(dists[((ulii * (ulii - 1)) / 2) + ii], &(wbuf[1]));
+	      fwrite(wbuf, 1, cptr - wbuf, outfile);
 	    }
 	  }
 	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
@@ -2639,8 +3036,10 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  }
 	} else if (shape == DISTANCE_SQ) {
 	  putc('1', outfile);
+	  wbuf[0] = '\t';
 	  for (ulii = 1; ulii < indiv_ct; ulii++) {
-	    fprintf(outfile, "\t%g", 1.0 - dists[(ulii * (ulii - 1)) / 2] * half_marker_ct_recip);
+	    cptr = double_g_write(1.0 - dists[(ulii * (ulii - 1)) / 2] * half_marker_ct_recip, &(wbuf[1]));
+	    fwrite(wbuf, 1, cptr - wbuf, outfile);
 	  }
 	} else {
 	  putc('1', outfile);
@@ -2652,9 +3051,14 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
       }
       dist_ptr = dists;
       for (; ii < end_indiv_idx; ii++) {
-	fprintf(outfile, "%g", 1.0 - (*dist_ptr++) * half_marker_ct_recip);
+	cptr = double_g_write(1.0 - (*dist_ptr++) * half_marker_ct_recip, wbuf);
+	if (fwrite_checked(wbuf, cptr - wbuf, outfile)) {
+	  return RET_WRITE_FAIL;
+	}
+	wbuf[0] = '\t';
 	for (jj = 1; jj < ii; jj++) {
-	  fprintf(outfile, "\t%g", 1.0 - (*dist_ptr++) * half_marker_ct_recip);
+	  cptr = double_g_write(1.0 - (*dist_ptr++) * half_marker_ct_recip, &(wbuf[1]));
+	  fwrite(wbuf, 1, cptr - wbuf, outfile);
 	}
 	if (shape == DISTANCE_SQ0) {
 	  if (fwrite_checkedz(membuf, (indiv_ct - ii) * 2, outfile)) {
@@ -2669,8 +3073,10 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  putc('\t', outfile);
 	  putc('1', outfile);
 	  if (shape == DISTANCE_SQ) {
+	    wbuf[0] = '\t';
 	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      fprintf(outfile, "\t%g", 1.0 - dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip);
+	      cptr = double_g_write(1.0 - dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip, &(wbuf[1]));
+	      fwrite(wbuf, 1, cptr - wbuf, outfile);
 	    }
 	  }
 	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
@@ -2703,9 +3109,13 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	    return RET_WRITE_FAIL;
 	  }
 	} else if (shape == DISTANCE_SQ) {
-	  putc('0', outfile);
+	  if (putc('0', outfile) == EOF) {
+	    return RET_WRITE_FAIL;
+	  }
+	  wbuf[0] = '\t';
 	  for (ulii = 1; ulii < indiv_ct; ulii++) {
-	    fprintf(outfile, "\t%g", dists[(ulii * (ulii - 1)) / 2] * half_marker_ct_recip);
+	    cptr = double_g_write(dists[(ulii * (ulii - 1)) / 2] * half_marker_ct_recip, &(wbuf[1]));
+	    fwrite(wbuf, 1, cptr - wbuf, outfile);
 	  }
 	  if (putc('\n', outfile) == EOF) {
 	    return RET_WRITE_FAIL;
@@ -2715,9 +3125,12 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
       }
       dist_ptr = dists;
       for (; ii < end_indiv_idx; ii++) {
-	fprintf(outfile, "%g", (*dist_ptr++) * half_marker_ct_recip);
+	cptr = double_g_write((*dist_ptr++) * half_marker_ct_recip, wbuf);
+	fwrite(wbuf, 1, (cptr - wbuf), outfile);
+	wbuf[0] = '\t';
 	for (jj = 1; jj < ii; jj++) {
-	  fprintf(outfile, "\t%g", (*dist_ptr++) * half_marker_ct_recip);
+          cptr = double_g_write((*dist_ptr++) * half_marker_ct_recip, &(wbuf[1]));
+	  fwrite(wbuf, 1, cptr - wbuf, outfile);
 	}
 	if (shape == DISTANCE_SQ0) {
 	  if (fwrite_checkedz(membuf, (indiv_ct - ii) * 2, outfile)) {
@@ -2732,8 +3145,10 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  if (shape == DISTANCE_SQ) {
 	    putc('\t', outfile);
 	    putc('0', outfile);
+	    wbuf[0] = '\t';
 	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      fprintf(outfile, "\t%g", dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip);
+	      cptr = double_g_write(dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip, &(wbuf[1]));
+	      fwrite(wbuf, 1, (cptr - wbuf), outfile);
 	    }
 	  }
 	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
