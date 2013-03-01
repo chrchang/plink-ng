@@ -4438,7 +4438,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
   char* cptr6 = NULL;
   char* cptr7 = NULL;
   char* cptr8 = NULL;
-  char* tbuf_mid = &(tbuf[64]);
+  char* sptr_start;
   char* sptr_cur;
   int32_t ii;
   int32_t jj;
@@ -4889,12 +4889,12 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
     }
   }
 
-  sprintf(tbuf, " %%%ds %%%ds %%%ds %%%ds ", max_person_fid_len - 1, max_person_iid_len - 1, max_person_fid_len - 1, max_person_iid_len - 1);
+  // sprintf(tbuf, " %%%us %%%us %%%us %%%us ", max_person_fid_len - 1, max_person_iid_len - 1, max_person_fid_len - 1, max_person_iid_len - 1);
   if (!parallel_idx) {
     if (genome_output_full) {
-      sprintf(tbuf_mid, "%%%ds%%%ds%%%ds%%%ds RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO    IBS0    IBS1    IBS2  HOMHOM  HETHET\n", max_person_fid_len, max_person_iid_len, max_person_fid_len, max_person_iid_len);
+      sprintf(tbuf, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO    IBS0    IBS1    IBS2  HOMHOM  HETHET\n", max_person_fid_len, max_person_iid_len, max_person_fid_len, max_person_iid_len);
     } else {
-      sprintf(tbuf_mid, "%%%ds%%%ds%%%ds%%%ds RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO\n", max_person_fid_len, max_person_iid_len, max_person_fid_len, max_person_iid_len);
+      sprintf(tbuf, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO\n", max_person_fid_len, max_person_iid_len, max_person_fid_len, max_person_iid_len);
     }
   }
   mm = 1;
@@ -4910,7 +4910,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
       goto calc_genome_ret_1;
     }
     if (!parallel_idx) {
-      if (!gzprintf(gz_outfile, tbuf_mid, " FID1", " IID1", " FID2", " IID2")) {
+      if (!gzprintf(gz_outfile, tbuf, " FID1", " IID1", " FID2", " IID2")) {
 	goto calc_genome_ret_WRITE_FAIL;
       }
     }
@@ -4924,11 +4924,12 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
       goto calc_genome_ret_OPEN_FAIL;
     }
     if (!parallel_idx) {
-      if (fprintf(outfile, tbuf_mid, " FID1", " IID1", " FID2", " IID2") < 0) {
+      if (fprintf(outfile, tbuf, " FID1", " IID1", " FID2", " IID2") < 0) {
 	goto calc_genome_ret_WRITE_FAIL;
       }
     }
   }
+  tbuf[0] = ' ';
   for (ii = g_thread_start[0]; ii < tstc; ii++) {
     cptr = &(person_ids[ii * max_person_id_len]);
     jj = strlen_se(cptr);
@@ -4944,6 +4945,26 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
       founder_ct = pri.family_founder_cts[family_id_fixed];
       llfct = (int64_t)founder_ct * (founder_ct - 1);
     }
+    if (jj < max_person_fid_len - 1) {
+      memset(&(tbuf[1]), 32, max_person_fid_len - jj - 1);
+      memcpy(&(tbuf[max_person_fid_len - jj]), fam1, jj);
+      sptr_start = &(tbuf[max_person_fid_len]);
+    } else {
+      memcpy(&(tbuf[1]), fam1, jj);
+      sptr_start = &(tbuf[jj + 1]);
+    }
+    *sptr_start++ = ' ';
+    jj = strlen(cptr2);
+    if (jj < max_person_iid_len - 1) {
+      ukk = max_person_iid_len - 1 - jj;
+      memset(sptr_start, 32, ukk);
+      memcpy(&(sptr_start[ukk]), cptr2, jj);
+      sptr_start = &(sptr_start[max_person_iid_len - 1]);
+    } else {
+      memcpy(sptr_start, cptr2, jj);
+      sptr_start += jj;
+    }
+    *sptr_start++ = ' ';
     for (ujj = ii + 1; ujj < g_indiv_ct; ujj++) {
       cptr3 = &(person_ids[ujj * max_person_id_len]);
       jj = strlen_se(cptr3);
@@ -4954,7 +4975,27 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	cptr7 = &(paternal_ids[ujj * max_paternal_id_len]);
 	cptr8 = &(maternal_ids[ujj * max_maternal_id_len]);
       }
-      sptr_cur = &(tbuf_mid[sprintf(tbuf_mid, tbuf, fam1, cptr2, fam2, cptr4)]);
+      if (jj < max_person_fid_len - 1) {
+	ukk = max_person_fid_len - 1 - jj;
+        memset(sptr_start, 32, ukk);
+        memcpy(&(sptr_start[ukk]), fam2, jj);
+	sptr_cur = &(sptr_start[max_person_fid_len - 1]);
+      } else {
+        memcpy(sptr_start, fam2, jj);
+	sptr_cur = &(sptr_start[jj]);
+      }
+      *sptr_cur++ = ' ';
+      jj = strlen(cptr4);
+      if (jj < max_person_iid_len - 1) {
+        ukk = max_person_iid_len - 1 - jj;
+        memset(sptr_cur, 32, ukk);
+        memcpy(&(sptr_cur[ukk]), cptr4, jj);
+        sptr_cur += max_person_iid_len - 1;
+      } else {
+	memcpy(sptr_cur, cptr4, jj);
+        sptr_cur += jj;
+      }
+      *sptr_cur++ = ' ';
       if (!strcmp(fam1, fam2)) {
 	while (1) {
 	  if (paternal_ids) {
@@ -5040,7 +5081,14 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	  dxx1 = 0;
 	}
       }
-      sptr_cur += sprintf(sptr_cur, " % .4f % .4f % .4f % .4f  ", dxx, dyy, dxx1, dyy * 0.5 + dxx1);
+      *sptr_cur++ = ' ';
+      sptr_cur = double_f_writew74(dxx, sptr_cur);
+      *sptr_cur++ = ' ';
+      sptr_cur = double_f_writew74(dyy, sptr_cur);
+      *sptr_cur++ = ' ';
+      sptr_cur = double_f_writew74(dxx1, sptr_cur);
+      *sptr_cur++ = ' ';
+      sptr_cur = double_f_writew74(dyy * 0.5 + dxx1, sptr_cur);
 
       if (pheno_c) {
 	uii = is_set(pheno_nm, ii);
@@ -5048,39 +5096,48 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	umm = is_set(pheno_c, ii);
 	unn = is_set(pheno_c, ujj);
 	if (((!uii) || (!umm)) && ((!ukk) || (!unn))) {
-	  memcpy(sptr_cur, "-1", 2);
+	  memcpy(sptr_cur, "  -1", 4);
 	} else if (uii && ukk && umm && unn) {
-	  memcpy(sptr_cur, " 1", 2);
+	  memcpy(sptr_cur, "   1", 4);
 	} else {
-	  memcpy(sptr_cur, " 0", 2);
+	  memcpy(sptr_cur, "   0", 4);
 	}
       } else {
-	memcpy(sptr_cur, "NA", 2);
+	memcpy(sptr_cur, "  NA", 4);
       }
-      sptr_cur += 2;
+      sptr_cur += 4;
       dxx = (double)g_genome_main[ulii + 4];
       dyy = (double)g_genome_main[ulii + 3];
       dxx1 = 1.0 / ((double)(g_genome_main[ulii + 4] + g_genome_main[ulii + 3]));
       dxx2 = normdist((dxx * dxx1 - 0.666666) / (sqrt(0.2222222 * dxx1)));
-      sptr_cur += sprintf(sptr_cur, "  %.6f  %.4f ", 1.0 - (g_genome_main[ulii] + 2 * g_genome_main[ulii + 1]) / ((double)(2 * nn)), dxx2);
+      sptr_cur += sprintf(sptr_cur, "  %.6f ", 1.0 - (g_genome_main[ulii] + 2 * g_genome_main[ulii + 1]) / ((double)(2 * nn)));
+      sptr_cur = double_f_writew74(dxx2, sptr_cur);
+      *sptr_cur++ = ' ';
       if (g_genome_main[ulii + 3]) {
-	dxx1 = dxx / dyy;
-	sptr_cur += sprintf(sptr_cur, "%7.4f", dxx1);
+	sptr_cur = double_f_writew74(dxx / dyy, sptr_cur);
       } else {
 	memcpy(sptr_cur, "     NA", 7);
 	sptr_cur += 7;
       }
       if (genome_output_full) {
-	sptr_cur += sprintf(sptr_cur, " %7d %7d %7d %7.4f %7.4f\n", g_genome_main[ulii + 1], g_genome_main[ulii], oo, dyy, dxx);
-      } else {
-	*sptr_cur++ = '\n';
+	*sptr_cur = ' ';
+	sptr_cur = uint32_writew7(g_genome_main[uii + 1], &(sptr_cur[1]));
+	*sptr_cur = ' ';
+	sptr_cur = uint32_writew7(g_genome_main[ulii], &(sptr_cur[1]));
+	*sptr_cur = ' ';
+	sptr_cur = uint32_writew7(oo, &(sptr_cur[1]));
+	*sptr_cur = ' ';
+	sptr_cur = double_f_writew74(dyy, &(sptr_cur[1]));
+	*sptr_cur = ' ';
+	sptr_cur = double_f_writew74(dxx, &(sptr_cur[1]));
       }
+      *sptr_cur++ = '\n';
       if (genome_output_gz) {
-	if (gzwrite_checked(gz_outfile, tbuf_mid, (uintptr_t)(sptr_cur - tbuf_mid))) {
+	if (gzwrite_checked(gz_outfile, tbuf, (uintptr_t)(sptr_cur - tbuf))) {
 	  goto calc_genome_ret_WRITE_FAIL;
 	}
       } else {
-	if (fwrite_checked(tbuf_mid, (uintptr_t)(sptr_cur - tbuf_mid), outfile)) {
+	if (fwrite_checked(tbuf, (uintptr_t)(sptr_cur - tbuf), outfile)) {
 	  goto calc_genome_ret_WRITE_FAIL;
 	}
       }
@@ -6775,7 +6832,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	    *bufptr2++ = '\t';
 	    bufptr2 = uint32_write(uii - (*giptr++) + (*giptr2++), bufptr2);
 	    *bufptr2++ = '\t';
-	    bufptr2 = small_double_e_write(*dist_ptr++, bufptr2);
+	    bufptr2 = double_e_write(*dist_ptr++, bufptr2);
 	    *bufptr2++ = '\n';
 	    gzwrite(gz_outfile, wbuf, (bufptr2 - wbuf));
 	  }
@@ -6783,7 +6840,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	  *bufptr2++ = '\t';
 	  bufptr2 = uint32_write(uii, bufptr2);
 	  *bufptr2++ = '\t';
-	  bufptr2 = small_double_e_write(*dptr2++, bufptr2);
+	  bufptr2 = double_e_write(*dptr2++, bufptr2);
 	  *bufptr2++ = '\n';
 	  if (!gzwrite(gz_outfile, wbuf, (bufptr2 - wbuf))) {
 	    goto calc_rel_ret_WRITE_FAIL;
@@ -6816,7 +6873,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	    *bufptr2++ = '\t';
 	    bufptr2 = uint32_write(uii - (*giptr++) + (*giptr2++), bufptr2);
 	    *bufptr2++ = '\t';
-	    bufptr2 = small_double_e_write(*dist_ptr++, bufptr2);
+	    bufptr2 = double_e_write(*dist_ptr++, bufptr2);
 	    *bufptr2++ = '\n';
 	    fwrite(wbuf, 1, (bufptr2 - wbuf), outfile);
 	  }
@@ -6824,7 +6881,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	  *bufptr2++ = '\t';
 	  bufptr2 = uint32_write(uii, bufptr2);
 	  *bufptr2++ = '\t';
-	  bufptr2 = small_double_e_write(*dptr2++, bufptr2);
+	  bufptr2 = double_e_write(*dptr2++, bufptr2);
 	  *bufptr2++ = '\n';
 	  if (fwrite_checked(wbuf, (bufptr2 - wbuf), outfile)) {
 	    goto calc_rel_ret_WRITE_FAIL;

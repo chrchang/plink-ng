@@ -561,7 +561,11 @@ static inline void intprint2(char* buf, uint32_t num) {
 
 char* uint32_write(uint32_t uii, char* start);
 
-char* small_double_e_write(double dxx, char* start);
+char* uint32_writew7(uint32_t uii, char* start);
+
+char* double_e_write(double dxx, char* start);
+
+char* double_f_writew74(double dxx, char* start);
 
 char* double_g_write(double dxx, char* start);
 
