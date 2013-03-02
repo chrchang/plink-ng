@@ -6389,10 +6389,9 @@ int32_t main(int32_t argc, char** argv) {
     g_thread_ct = ii;
   }
 #endif
-  if (g_thread_ct > 8) {
-    // in practice, more than 8 threads doesn't seem to help.  This may change
-    // later if the multithreaded code is carefully optimized.
-    g_thread_ct = 8;
+  if (g_thread_ct > 7) {
+    // leave 1/8 spare, if at least 8 cores
+    g_thread_ct -= g_thread_ct >> 3;
   }
   strcpy(mapname, "wdist.map");
   strcpy(pedname, "wdist.ped");
