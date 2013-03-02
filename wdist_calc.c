@@ -4440,6 +4440,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
   char* cptr8 = NULL;
   char* sptr_start;
   char* sptr_cur;
+  char* sptr_tmp;
   int32_t ii;
   int32_t jj;
   int32_t kk;
@@ -5038,7 +5039,8 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	      dxx = pri.rel_space[nn + ((int64_t)rel_space_id_fixed * (rel_space_id_fixed - 1) - llfct) / 2];
 	    }
 	  }
-	  sptr_cur += sprintf(sptr_cur, "%5g", dxx);
+	  sptr_tmp = double_g_write(dxx, sptr_cur);
+	  sptr_cur = width_force(5, sptr_cur, sptr_tmp);
 	}
       } else {
 	memcpy(sptr_cur, "UN    NA", 8);
@@ -5096,21 +5098,22 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
 	umm = is_set(pheno_c, ii);
 	unn = is_set(pheno_c, ujj);
 	if (((!uii) || (!umm)) && ((!ukk) || (!unn))) {
-	  memcpy(sptr_cur, "  -1", 4);
+	  memcpy(sptr_cur, "  -1 ", 5);
 	} else if (uii && ukk && umm && unn) {
-	  memcpy(sptr_cur, "   1", 4);
+	  memcpy(sptr_cur, "   1 ", 5);
 	} else {
-	  memcpy(sptr_cur, "   0", 4);
+	  memcpy(sptr_cur, "   0 ", 5);
 	}
       } else {
-	memcpy(sptr_cur, "  NA", 4);
+	memcpy(sptr_cur, "  NA ", 5);
       }
-      sptr_cur += 4;
+      sptr_cur += 5;
       dxx = (double)g_genome_main[ulii + 4];
       dyy = (double)g_genome_main[ulii + 3];
       dxx1 = 1.0 / ((double)(g_genome_main[ulii + 4] + g_genome_main[ulii + 3]));
       dxx2 = normdist((dxx * dxx1 - 0.666666) / (sqrt(0.2222222 * dxx1)));
-      sptr_cur += sprintf(sptr_cur, "  %.6f ", 1.0 - (g_genome_main[ulii] + 2 * g_genome_main[ulii + 1]) / ((double)(2 * nn)));
+      sptr_cur = double_f_writew6(1.0 - (g_genome_main[ulii] + 2 * g_genome_main[ulii + 1]) / ((double)(2 * nn)), sptr_cur);
+      *sptr_cur++ = ' ';
       sptr_cur = double_f_writew74(dxx2, sptr_cur);
       *sptr_cur++ = ' ';
       if (g_genome_main[ulii + 3]) {
@@ -7102,6 +7105,11 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 }
 
 int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot, uint64_t calculation_type, int32_t rel_calc_type, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t var_std, int32_t ibc_type, float rel_cutoff, double* set_allele_freqs, Chrom_info* chrom_info_ptr) {
+  // N.B. ACTA currently outperforms this when compiled with ICC and run on a
+  // heavily multicore 64-bit Linux system.  If ACTA ever gets to the point
+  // where it wins when compiled with gcc, on both 32- and 64-bit systems with
+  // as few as a single core, and on OS X/Windows as well as Linux, then it's
+  // time to replace this with the ACTA implementation.
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
@@ -7113,6 +7121,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
   float* dptr3 = NULL;
   float* dptr4 = NULL;
   uint32_t chrom_fo_idx = 0;
+  char wbuf[64];
   float* dptr2;
   float set_allele_freq_buf[MULTIPLEX_DIST];
   uint32_t cur_markers_loaded;
@@ -7139,6 +7148,8 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
   uint32_t* giptr2;
   uintptr_t* glptr2;
   uint32_t pct;
+  char* bufptr;
+  char* bufptr2;
   if (wkspace_alloc_ui_checked(&g_indiv_missing_unwt, g_indiv_ct * sizeof(int32_t))) {
     goto calc_rel_f_ret_NOMEM;
   }
@@ -7409,13 +7420,26 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	  }
 	  uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
 	  giptr = g_indiv_missing_unwt;
-	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx; indiv_idx2++) {
+	  ukk = indiv_idx + 1;
+	  bufptr = uint32_write(ukk, wbuf);
+	  *bufptr++ = '\t';
+	  for (indiv_idx2 = 1; indiv_idx2 < ukk; indiv_idx2++) {
 	    ujj = uii - (*giptr++) + (*giptr2++);
-	    if (!gzprintf(gz_outfile, "%u\t%u\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, ujj, *dist_ptr++)) {
-	      goto calc_rel_f_ret_WRITE_FAIL;
-	    }
+	    bufptr2 = uint32_write(indiv_idx2, bufptr);
+	    *bufptr2++ = '\t';
+	    bufptr2 = uint32_write(ujj, bufptr2);
+	    *bufptr2++ = '\t';
+	    bufptr2 = float_e_write(*dist_ptr++, bufptr2);
+	    *bufptr2++ = '\n';
+	    gzwrite(gz_outfile, wbuf, bufptr2 - wbuf);
 	  }
-	  if (!gzprintf(gz_outfile, "%u\t%u\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, uii, *dptr2++)) {
+	  bufptr2 = uint32_write(ukk, bufptr);
+	  *bufptr2++ = '\t';
+	  bufptr2 = uint32_write(uii, bufptr2);
+	  *bufptr2++ = '\t';
+	  bufptr2 = float_e_write(*dptr2++, bufptr2);
+	  *bufptr2++ = '\n';
+	  if (!gzwrite(gz_outfile, wbuf, bufptr2 - wbuf)) {
 	    goto calc_rel_f_ret_WRITE_FAIL;
 	  }
 	}
@@ -7438,12 +7462,26 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	  }
 	  uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
 	  giptr = g_indiv_missing_unwt;
-          // TODO
-	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx; indiv_idx2++) {
+	  ukk = indiv_idx + 1;
+          bufptr = uint32_write(ukk, wbuf);
+	  *bufptr++ = '\t';
+	  for (indiv_idx2 = 1; indiv_idx2 < ukk; indiv_idx2++) {
 	    ujj = uii - (*giptr++) + (*giptr2++);
-	    fprintf(outfile, "%" PRIuPTR "\t%" PRIuPTR "\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, ujj, *dist_ptr++);
+	    bufptr2 = uint32_write(indiv_idx2, bufptr);
+	    *bufptr2++ = '\t';
+	    bufptr2 = uint32_write(ujj, bufptr2);
+	    *bufptr2++ = '\t';
+            bufptr2 = float_e_write(*dist_ptr++, bufptr2);
+	    *bufptr2++ = '\n';
+	    fwrite(wbuf, 1, bufptr2 - wbuf, outfile);
 	  }
-	  if (fprintf(outfile, "%" PRIuPTR "\t%" PRIuPTR "\t%u\t%e\n", indiv_idx + 1, indiv_idx2 + 1, uii, *dptr2++) < 0) {
+	  bufptr2 = uint32_write(ukk, bufptr);
+	  *bufptr2++ = '\t';
+	  bufptr2 = uint32_write(uii, bufptr2);
+	  *bufptr2++ = '\t';
+	  bufptr2 = float_e_write(*dptr2++, bufptr2);
+	  *bufptr2++ = '\n';
+	  if (fwrite_checked(wbuf, bufptr2 - wbuf, outfile)) {
 	    goto calc_rel_f_ret_WRITE_FAIL;
 	  }
 	}
@@ -7477,7 +7515,8 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	if (min_indiv) {
 	  indiv_idx = min_indiv;
 	} else {
-	  if (!gzprintf(gz_outfile, "%g", *dptr2++)) {
+	  bufptr = float_g_write(*dptr2++, wbuf);
+	  if (!gzwrite(gz_outfile, wbuf, bufptr - wbuf)) {
 	    goto calc_rel_f_ret_WRITE_FAIL;
 	  }
 	  if (rel_shape == REL_CALC_SQ0) {
@@ -7486,27 +7525,29 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	    }
 	  } else if (rel_shape == REL_CALC_SQ) {
 	    // parallel_tot must be 1 for SQ shape
+	    wbuf[0] = '\t';
 	    for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
-	      if (!gzprintf(gz_outfile, "\t%g", g_rel_f_dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2])) {
-		goto calc_rel_f_ret_WRITE_FAIL;
-	      }
+	      bufptr = float_g_write(g_rel_f_dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2], &(wbuf[1]));
+	      gzwrite(gz_outfile, wbuf, bufptr - wbuf);
 	    }
 	  }
-	  if (gzwrite_checked(gz_outfile, "\n", 1)) {
+	  if (gzputc(gz_outfile, '\n') == -1) {
 	    goto calc_rel_f_ret_WRITE_FAIL;
 	  }
 	  indiv_idx = 1;
 	}
 	for (; indiv_idx < max_parallel_indiv; indiv_idx++) {
-	  if (!gzprintf(gz_outfile, "%g", *dist_ptr++)) {
+	  bufptr = float_g_write(*dist_ptr++, wbuf);
+	  if (!gzwrite(gz_outfile, wbuf, bufptr - wbuf)) {
 	    goto calc_rel_f_ret_WRITE_FAIL;
 	  }
+	  wbuf[0] = '\t';
 	  for (indiv_idx2 = 1; indiv_idx2 < indiv_idx; indiv_idx2++) {
-	    if (!gzprintf(gz_outfile, "\t%g", *dist_ptr++)) {
-	      goto calc_rel_f_ret_WRITE_FAIL;
-	    }
+	    bufptr = float_g_write(*dist_ptr++, &(wbuf[1]));
+	    gzwrite(gz_outfile, wbuf, bufptr - wbuf);
 	  }
-	  if (!gzprintf(gz_outfile, "\t%g", *dptr2++)) {
+	  bufptr = float_g_write(*dptr2++, &(wbuf[1]));
+	  if (!gzwrite(gz_outfile, wbuf, bufptr - wbuf)) {
 	    goto calc_rel_f_ret_WRITE_FAIL;
 	  }
 	  if (rel_shape == REL_CALC_SQ0) {
@@ -7520,10 +7561,10 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	    }
 	  } else {
 	    if (rel_shape == REL_CALC_SQ) {
+	      wbuf[0] = '\t';
 	      for (ulii = indiv_idx + 1; ulii < g_indiv_ct; ulii++) {
-		if (!gzprintf(gz_outfile, "\t%g", g_rel_f_dists[((ulii * (ulii - 1)) / 2) + indiv_idx])) {
-		  goto calc_rel_f_ret_WRITE_FAIL;
-		}
+		bufptr = float_g_write(g_rel_f_dists[((ulii * (ulii - 1)) / 2) + indiv_idx], &(wbuf[1]));
+		gzwrite(gz_outfile, wbuf, bufptr - wbuf);
 	      }
 	    }
 	    if (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU >= ullyy * pct) {
@@ -7532,7 +7573,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	      fflush(stdout);
 	    }
 	  }
-	  if (gzwrite_checked(gz_outfile, "\n", 1)) {
+	  if (gzputc(gz_outfile, '\n') == -1) {
 	    goto calc_rel_f_ret_WRITE_FAIL;
 	  }
 	}
@@ -7550,14 +7591,19 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	if (min_indiv) {
 	  indiv_idx = min_indiv;
 	} else {
-	  fprintf(outfile, "%g", *dptr2++);
+	  bufptr = float_g_write(*dptr2++, wbuf);
+	  if (fwrite_checked(wbuf, bufptr - wbuf, outfile)) {
+	    goto calc_rel_f_ret_WRITE_FAIL;
+	  }
 	  if (rel_shape == REL_CALC_SQ0) {
 	    if (fwrite_checkedz(g_geno, (g_indiv_ct - 1) * 2, outfile)) {
 	      goto calc_rel_f_ret_WRITE_FAIL;
 	    }
 	  } else if (rel_shape == REL_CALC_SQ) {
+	    wbuf[0] = '\t';
 	    for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
-	      fprintf(outfile, "\t%g", g_rel_f_dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2]);
+	      bufptr = float_g_write(g_rel_f_dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2], &(wbuf[1]));
+	      fwrite(wbuf, 1, bufptr - wbuf, outfile);
 	    }
 	  }
 	  if (putc('\n', outfile) == EOF) {
@@ -7566,11 +7612,19 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	  indiv_idx = 1;
 	}
 	for (; indiv_idx < max_parallel_indiv; indiv_idx++) {
-	  fprintf(outfile, "%g", *dist_ptr++);
-	  for (indiv_idx2 = 1; indiv_idx2 < indiv_idx; indiv_idx2++) {
-	    fprintf(outfile, "\t%g", *dist_ptr++);
+	  bufptr = float_g_write(*dist_ptr++, wbuf);
+	  if (fwrite_checked(wbuf, bufptr - wbuf, outfile)) {
+	    goto calc_rel_f_ret_WRITE_FAIL;
 	  }
-	  fprintf(outfile, "\t%g", *dptr2++);
+	  wbuf[0] = '\t';
+	  for (indiv_idx2 = 1; indiv_idx2 < indiv_idx; indiv_idx2++) {
+	    bufptr = float_g_write(*dist_ptr++, &(wbuf[1]));
+	    fwrite(wbuf, 1, bufptr - wbuf, outfile);
+	  }
+	  bufptr = float_g_write(*dptr2++, &(wbuf[1]));
+	  if (fwrite_checked(wbuf, bufptr - wbuf, outfile)) {
+	    goto calc_rel_f_ret_WRITE_FAIL;
+	  }
 	  if (rel_shape == REL_CALC_SQ0) {
 	    if (fwrite_checkedz(g_geno, (g_indiv_ct - indiv_idx - 1) * 2, outfile)) {
 	      goto calc_rel_f_ret_WRITE_FAIL;
@@ -7582,8 +7636,10 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
 	    }
 	  } else {
 	    if (rel_shape == REL_CALC_SQ) {
+	      wbuf[0] = '\t';
 	      for (ulii = indiv_idx + 1; ulii < g_indiv_ct; ulii++) {
-		fprintf(outfile, "\t%g", g_rel_f_dists[((ulii * (ulii - 1)) / 2) + indiv_idx]);
+		bufptr = float_g_write(g_rel_f_dists[((ulii * (ulii - 1)) / 2) + indiv_idx], &(wbuf[1]));
+		fwrite(wbuf, 1, bufptr - wbuf, outfile);
 	      }
 	    }
 	    if ((((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - ullxx) * 100LU) >= ullyy * pct) {

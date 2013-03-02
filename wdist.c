@@ -67,7 +67,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (1 Mar 2013)";
+  " (2 Mar 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -6389,6 +6389,11 @@ int32_t main(int32_t argc, char** argv) {
     g_thread_ct = ii;
   }
 #endif
+  if (g_thread_ct > 8) {
+    // in practice, more than 8 threads doesn't seem to help.  This may change
+    // later if the multithreaded code is carefully optimized.
+    g_thread_ct = 8;
+  }
   strcpy(mapname, "wdist.map");
   strcpy(pedname, "wdist.ped");
   famname[0] = '\0';

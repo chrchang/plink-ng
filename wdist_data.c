@@ -4582,7 +4582,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
   }
   fflush(stdout);
   for (pct = 1; pct <= 100; pct++) {
-    loop_end = ((uint64_t)(pct * marker_ct)) / 100LLU;
+    loop_end = ((uint64_t)(pct * marker_ct)) / 100U;
     for (; uii < loop_end; uii++) {
       ucptr = writebuf;
       for (ujj = 0; ujj < indiv_ct4; ujj++) {

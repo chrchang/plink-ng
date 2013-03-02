@@ -565,9 +565,30 @@ char* uint32_writew7(uint32_t uii, char* start);
 
 char* double_e_write(double dxx, char* start);
 
+char* float_e_write(float dxx, char* start);
+
+char* double_f_writew6(double dxx, char* start);
+
 char* double_f_writew74(double dxx, char* start);
 
 char* double_g_write(double dxx, char* start);
+
+char* float_g_write(float dxx, char* start);
+
+static inline char* width_force(uint32_t min_width, char* startp, char* endp) {
+  uintptr_t diff = (endp - startp);
+  if (diff >= min_width) {
+    return endp;
+  } else {
+    diff = min_width - diff;
+    do {
+      --endp;
+      endp[diff] = *endp;
+    } while (endp > startp);
+    memset(startp, 32, diff);
+    return &(startp[min_width]);
+  }
+}
 
 static inline void read_next_terminate(char* target, char* source) {
   while (!is_space_or_eoln(*source)) {
