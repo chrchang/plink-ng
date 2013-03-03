@@ -24,6 +24,8 @@
 #ifndef _WIN64
 #define WINVER 0x0500
 #endif
+#else // Unix
+#include <sys/stat.h>
 #endif
 #include "wdist_common.h"
 
@@ -67,7 +69,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (2 Mar 2013)";
+  " (3 Mar 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -5767,6 +5769,19 @@ int32_t recode_type_set(uint32_t* recode_modifier_ptr, uint32_t cur_code) {
   return 0;
 }
 
+int32_t filename_exists(char* fname, char* fname_end, char* fname_append) {
+#if _WIN32
+  DWORD file_attr;
+  strcpy(fname_end, fname_append);
+  file_attr = GetFileAttributes(fname);
+  return (file_attr != 0xffffffffU);
+#else
+  struct stat st;
+  strcpy(fname_end, fname_append);
+  return (stat(fname, &st) == 0);
+#endif
+}
+
 int32_t main(int32_t argc, char** argv) {
   unsigned char* wkspace_ua;
   char outname[FNAMESIZE];
@@ -6383,15 +6398,16 @@ int32_t main(int32_t argc, char** argv) {
   ii = sysconf(_SC_NPROCESSORS_ONLN);
   if (ii == -1) {
     g_thread_ct = 1;
-  } else if (ii > MAX_THREADS) {
-    g_thread_ct = MAX_THREADS;
   } else {
     g_thread_ct = ii;
   }
 #endif
-  if (g_thread_ct > 7) {
-    // leave 1/8 spare, if at least 8 cores
-    g_thread_ct -= g_thread_ct >> 3;
+  if (g_thread_ct > 8) {
+    if (g_thread_ct > MAX_THREADS) {
+      g_thread_ct = MAX_THREADS;
+    } else {
+      g_thread_ct--;
+    }
   }
   strcpy(mapname, "wdist.map");
   strcpy(pedname, "wdist.ped");
@@ -9282,7 +9298,7 @@ int32_t main(int32_t argc, char** argv) {
     // if (load_rare) {
     if (load_rare || (!famname[0])) {
       sptr = outname_end;
-      if (bed_suffix_conflict(calculation_type, recode_modifier)) {
+      if (bed_suffix_conflict(calculation_type, recode_modifier) || filename_exists(outname, outname_end, ".bed")) {
         memcpy(sptr, "-working", 9);
 	sptr = &(sptr[8]);
       }
