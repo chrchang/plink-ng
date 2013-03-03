@@ -5769,7 +5769,7 @@ int32_t recode_type_set(uint32_t* recode_modifier_ptr, uint32_t cur_code) {
   return 0;
 }
 
-int32_t filename_exists(char* fname, char* fname_end, char* fname_append) {
+int32_t filename_exists(char* fname, char* fname_end, const char* fname_append) {
 #if _WIN32
   DWORD file_attr;
   strcpy(fname_end, fname_append);
