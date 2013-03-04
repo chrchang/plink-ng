@@ -4,6 +4,8 @@
  * For conditions of distribution and use, see copyright notice in yarn.h
  */
 
+#ifndef _WIN32
+
 /* Basic thread operations implemented using the POSIX pthread library.  All
    pthread references are isolated within this module to allow alternate
    implementations with other thread libraries.  See yarn.h for the description
@@ -373,3 +375,5 @@ void destruct(thread *off_course)
         fail(ret);
     join(off_course);
 }
+
+#endif // not _WIN32

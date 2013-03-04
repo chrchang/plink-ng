@@ -22,7 +22,7 @@ void pigz_defaults(int setprocs) {
 
 // not so parallel for now
 void parallel_compress(char* out_fname, size_t(* readn)(unsigned char*)) {
-  unsigned char buf[131072];
+  unsigned char buf[131072 + SUPERSIZE];
   unsigned int last_size;
   gzFile gz_outfile = gzopen(out_fname, "wb");
   if (!gz_outfile) {
