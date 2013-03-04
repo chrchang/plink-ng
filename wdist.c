@@ -60,7 +60,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.17.5"
+  "WDIST v0.17.6"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -69,7 +69,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (3 Mar 2013)";
+  " (5 Mar 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -5073,7 +5073,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_INVALID_FORMAT;
     }
   } else if (llyy != 0LL) {
-    sprintf(logbuf, "Error: Invalid .bed file size (expected %" PRIu64 " bytes).\n", ((uint64_t)unfiltered_indiv_ct4) * unfiltered_marker_ct);
+    sprintf(logbuf, "Error: Invalid .bed file size (expected %" PRIu64 " bytes).\n", 3LLU + ((uint64_t)unfiltered_indiv_ct4) * unfiltered_marker_ct);
     goto wdist_ret_INVALID_FORMAT_2;
   } else {
     // pre-0.99, no magic number, indiv-major

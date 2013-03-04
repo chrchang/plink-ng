@@ -57,3 +57,6 @@ wdist64c: $(SRC)
 
 wdist64nl: $(SRC)
 	gcc $(CFLAGS) $(ARCH64) $(SRC) -o wdist $(LINKFLAGS64) -L. $(ZLIB64)
+
+pigz_test: pigz_test.c pigz.c yarn.c
+	g++ -Wall -arch x86_64 -O2 pigz_test.c pigz.c yarn.c -o pigz_test -L. $(ZLIB64)
