@@ -2,16 +2,13 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include <unistd.h>
+#include "pigz.h"
 
 FILE* g_inf;
 
-size_t readn(unsigned char* readbuf) {
+uint32_t emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   return fread(readbuf, 1, 131072, g_inf);
 }
-
-void parallel_compress(char* out_fname, size_t(* readn)(unsigned char*));
-
-void pigz_defaults(int setprocs);
 
 int main(int argc, char** argv) {
   int32_t ii;
@@ -26,13 +23,13 @@ int main(int argc, char** argv) {
   } else if (ii > 8) {
     ii--;
   }
-  pigz_defaults(ii);
+  pigz_init(ii);
   g_inf = fopen(argv[1], "rb");
   if (!g_inf) {
     printf("Error: Failed to open %s.\n", argv[1]);
     return 2;
   }
   out_fname = argv[2];
-  parallel_compress(out_fname, readn);
+  parallel_compress(out_fname, emitn);
   return 0;
 }

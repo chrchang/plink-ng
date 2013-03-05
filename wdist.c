@@ -39,6 +39,7 @@
 #include "wdist_data.h"
 #include "wdist_dosage.h"
 #include "wdist_stats.h"
+#include "pigz.h"
 
 // default jackknife iterations
 #define ITERS_DEFAULT 100000
@@ -9276,6 +9277,7 @@ int32_t main(int32_t argc, char** argv) {
 
   tbuf[MAXLINELEN - 6] = ' ';
   tbuf[MAXLINELEN - 1] = ' ';
+  pigz_init(g_thread_ct);
   if (load_rare == LOAD_RARE_GRM) {
     // --rel-cutoff batch mode special case
     retval = rel_cutoff_batch(pedname, outname, outname_end, rel_cutoff, rel_calc_type);
