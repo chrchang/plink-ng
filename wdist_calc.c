@@ -6560,13 +6560,194 @@ int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_
 static uint32_t g_cr_marker_ct;
 static uintptr_t g_cr_indiv1idx;
 static uintptr_t g_cr_indiv2idx;
+static uintptr_t g_cr_min_indiv;
 static uintptr_t g_cr_max_indiv1idx;
 static uint64_t g_cr_start_offset;
 static uint64_t g_cr_hundredth;
 static uint32_t g_cr_pct;
 static uint32_t* g_cr_mdeptr;
 static double* g_cr_dist_ptr;
-static double* g_cr_ibcptr;
+static double* g_cr_ibc_ptr;
+
+uint32_t calc_rel_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  while (g_cr_indiv1idx < g_cr_max_indiv1idx) {
+    while (g_cr_indiv2idx < g_cr_indiv1idx) {
+      sptr_cur = double_g_write(*g_cr_dist_ptr++, sptr_cur);
+      *sptr_cur++ = '\t';
+      g_cr_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+      }
+    }
+    sptr_cur = double_g_write(*g_cr_ibc_ptr++, sptr_cur);
+    *sptr_cur++ = '\n';
+    g_cr_indiv1idx++;
+    if ((((uint64_t)g_cr_indiv1idx) * (g_cr_indiv1idx + 1) / 2 - g_cr_start_offset) >= g_cr_hundredth * g_cr_pct) {
+      g_cr_pct = (((uint64_t)g_cr_indiv1idx) * (g_cr_indiv1idx + 1) / 2 - g_cr_start_offset) / g_cr_hundredth;
+      printf("\rWriting... %u%%", g_cr_pct++);
+      fflush(stdout);
+    }
+    g_cr_indiv2idx = 0;
+  }
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
+uint32_t calc_rel_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  uintptr_t ulii;
+  while (g_cr_indiv1idx < g_cr_max_indiv1idx) {
+    while (g_cr_indiv2idx < g_cr_indiv1idx) {
+      sptr_cur = double_g_write(*g_cr_dist_ptr++, sptr_cur);
+      *sptr_cur++ = '\t';
+      g_cr_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto calc_rel_sq0_emitn_ret;
+      }
+    }
+    if (g_cr_indiv2idx == g_cr_indiv1idx) {
+      sptr_cur = double_g_write(*g_cr_ibc_ptr++, sptr_cur);
+      g_cr_indiv2idx++;
+    }
+    if (sptr_cur >= readbuf_end) {
+      goto calc_rel_sq0_emitn_ret;
+    } else {
+      ulii = (1 + (uintptr_t)(readbuf_end - sptr_cur)) / 2;
+      if (ulii < (g_indiv_ct - g_cr_indiv2idx)) {
+	memcpy(sptr_cur, g_geno, 2 * ulii);
+	sptr_cur += 2 * ulii;
+	g_cr_indiv2idx += ulii;
+	goto calc_rel_sq0_emitn_ret;
+      }
+      ulii = 2 * (g_indiv_ct - g_cr_indiv2idx);
+      memcpy(sptr_cur, g_geno, ulii);
+      sptr_cur += ulii;
+    }
+    *sptr_cur++ = '\n';
+    g_cr_indiv1idx++;
+    if ((g_cr_indiv1idx - g_cr_min_indiv) * 100LLU >= ((uint64_t)g_cr_pct) * (g_cr_max_indiv1idx - g_cr_min_indiv)) {
+      g_cr_pct = ((g_cr_indiv1idx - g_cr_min_indiv) * 100LLU) / (g_cr_max_indiv1idx - g_cr_min_indiv);
+      printf("\rWriting... %u%%", g_cr_pct++);
+      fflush(stdout);
+    }
+    g_cr_indiv2idx = 0;
+  }
+ calc_rel_sq0_emitn_ret:
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
+uint32_t calc_rel_sq_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  uintptr_t ulii;
+  while (g_cr_indiv1idx < g_cr_max_indiv1idx) {
+    while (g_cr_indiv2idx < g_cr_indiv1idx) {
+      sptr_cur = double_g_write(*g_cr_dist_ptr++, sptr_cur);
+      *sptr_cur++ = '\t';
+      g_cr_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto calc_rel_sq_emitn_ret;
+      }
+    }
+    if (g_cr_indiv2idx == g_cr_indiv1idx) {
+      sptr_cur = double_g_write(*g_cr_ibc_ptr++, sptr_cur);
+      g_cr_indiv2idx++;
+    }
+    if (sptr_cur >= readbuf_end) {
+      goto calc_rel_sq_emitn_ret;
+    } else {
+      ulii = (1 + (uintptr_t)(readbuf_end - sptr_cur)) / 2;
+      if (ulii < (g_indiv_ct - g_cr_indiv2idx)) {
+	memcpy(sptr_cur, g_geno, 2 * ulii);
+	sptr_cur += 2 * ulii;
+	g_cr_indiv2idx += ulii;
+	goto calc_rel_sq_emitn_ret;
+      }
+      ulii = 2 * (g_indiv_ct - g_cr_indiv2idx);
+      memcpy(sptr_cur, g_geno, ulii);
+      sptr_cur += ulii;
+    }
+    *sptr_cur++ = '\n';
+    g_cr_indiv1idx++;
+    if ((g_cr_indiv1idx - g_cr_min_indiv) * 100LLU >= ((uint64_t)g_cr_pct) * (g_cr_max_indiv1idx - g_cr_min_indiv)) {
+      g_cr_pct = ((g_cr_indiv1idx - g_cr_min_indiv) * 100LLU) / (g_cr_max_indiv1idx - g_cr_min_indiv);
+      printf("\rWriting... %u%%", g_cr_pct++);
+      fflush(stdout);
+    }
+    g_cr_indiv2idx = 0;
+  }
+ calc_rel_sq_emitn_ret:
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+  /*
+	dist_ptr = g_rel_dists;
+	if (min_indiv) {
+	  indiv_idx = min_indiv;
+	} else {
+	  bufptr = double_g_write(*dptr2++, wbuf);
+	  if (fwrite_checked(wbuf, bufptr - wbuf, outfile)) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	  if (rel_shape == REL_CALC_SQ0) {
+	    if (fwrite_checkedz(g_geno, (g_indiv_ct - 1) * 2, outfile)) {
+	      goto calc_rel_ret_WRITE_FAIL;
+	    }
+	  } else if (rel_shape == REL_CALC_SQ) {
+	    wbuf[0] = '\t';
+	    for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
+	      bufptr = double_g_write(g_rel_dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2], &(wbuf[1]));
+	      fwrite(wbuf, 1, bufptr - wbuf, outfile);
+	    }
+	  }
+	  if (putc('\n', outfile) == EOF) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	  indiv_idx = 1;
+	}
+	for (; indiv_idx < max_parallel_indiv; indiv_idx++) {
+	  bufptr = double_g_write(*dist_ptr++, wbuf);
+	  if (fwrite_checked(wbuf, bufptr - wbuf, outfile)) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	  wbuf[0] = '\t';
+	  for (indiv_idx2 = 1; indiv_idx2 < indiv_idx; indiv_idx2++) {
+            bufptr = double_g_write(*dist_ptr++, &(wbuf[1]));
+	    fwrite(wbuf, 1, bufptr - wbuf, outfile);
+	  }
+	  bufptr = double_g_write(*dptr2++, &(wbuf[1]));
+	  if (fwrite_checked(wbuf, bufptr - wbuf, outfile)) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	  if (rel_shape == REL_CALC_SQ0) {
+	    if (fwrite_checkedz(g_geno, (g_indiv_ct - indiv_idx - 1) * 2, outfile)) {
+	      goto calc_rel_ret_WRITE_FAIL;
+	    }
+	    if ((indiv_idx + 1 - min_indiv) * 100LLU >= (uint64_t)pct * (max_parallel_indiv - min_indiv)) {
+	      pct = ((indiv_idx + 1 - min_indiv) * 100LLU) / (max_parallel_indiv - min_indiv);
+	      printf("\rWriting... %u%%", pct++);
+	      fflush(stdout);
+	    }
+	  } else {
+	    if (rel_shape == REL_CALC_SQ) {
+	      wbuf[0] = '\t';
+	      for (ulii = indiv_idx + 1; ulii < g_indiv_ct; ulii++) {
+		bufptr = double_g_write(g_rel_dists[((ulii * (ulii - 1)) / 2) + indiv_idx], &(wbuf[1]));
+		fwrite(wbuf, 1, bufptr - wbuf, outfile);
+	      }
+	    }
+	    if (((uint64_t)indiv_idx + 1) * (indiv_idx + 2) / 2 - g_cr_start_offset >= g_cr_hundredth * pct) {
+	      pct = (((uint64_t)indiv_idx + 1) * (indiv_idx + 2) / 2 - g_cr_start_offset) / g_cr_hundredth;
+	      printf("\rWriting... %u%%", pct++);
+	      fflush(stdout);
+	    }
+	  }
+	  if (putc('\n', outfile) == EOF) {
+	    goto calc_rel_ret_WRITE_FAIL;
+	  }
+	}
+	*/
+}
 
 uint32_t calc_rel_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
@@ -6600,7 +6781,7 @@ uint32_t calc_rel_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     *sptr_cur++ = '\t';
     sptr_cur = uint32_write(uii, sptr_cur);
     *sptr_cur++ = '\t';
-    sptr_cur = double_e_write(*g_cr_ibcptr++, sptr_cur);
+    sptr_cur = double_e_write(*g_cr_ibc_ptr++, sptr_cur);
     *sptr_cur++ = '\n';
     if ((((uint64_t)g_cr_indiv1idx) * (g_cr_indiv1idx + 1) / 2 - g_cr_start_offset) >= g_cr_hundredth * g_cr_pct) {
       g_cr_pct = (((uint64_t)g_cr_indiv1idx) * (g_cr_indiv1idx + 1) / 2 - g_cr_start_offset) / g_cr_hundredth;
@@ -6624,14 +6805,12 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
   double* dptr3 = NULL;
   double* dptr4 = NULL;
   uint32_t chrom_fo_idx = 0;
-  char wbuf[64];
   double* dptr2;
   double set_allele_freq_buf[MULTIPLEX_DIST];
   uint32_t cur_markers_loaded;
   uint32_t win_marker_idx;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
-  uintptr_t indiv_idx2;
   double* rel_ibc;
   uintptr_t ulii;
   uintptr_t uljj;
@@ -6643,7 +6822,6 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
   uint32_t rel_shape;
   uint32_t min_indiv;
   uint32_t max_parallel_indiv;
-  uint64_t ullyy;
   unsigned char* wkspace_mark;
   unsigned char* gptr;
   unsigned char* gptr2;
@@ -6651,7 +6829,6 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
   uint32_t* giptr2;
   uintptr_t* glptr2;
   uint32_t pct;
-  char* bufptr;
   if (wkspace_alloc_ui_checked(&g_indiv_missing_unwt, g_indiv_ct * sizeof(int32_t))) {
     goto calc_rel_ret_NOMEM;
   }
@@ -6873,9 +7050,6 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
     g_cr_pct = 1;
     g_cr_start_offset = ((uint64_t)min_indiv * (min_indiv - 1)) / 2;
     g_cr_hundredth = 1 + (((((uint64_t)max_parallel_indiv * (max_parallel_indiv + 1)) / 2) - g_cr_start_offset) / 100);
-    // todo: get rid of llxx, ullyy
-    llxx = g_cr_start_offset;
-    ullyy = ((((uint64_t)max_parallel_indiv * (max_parallel_indiv + 1)) / 2) - g_cr_start_offset);
     if (rel_calc_type & REL_CALC_BIN) {
       if (rel_shape == REL_CALC_SQ0) {
 	fill_double_zero((double*)g_geno, g_indiv_ct - 1);
@@ -6888,15 +7062,15 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	goto calc_rel_ret_OPEN_FAIL;
       }
       for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
-	if (fwrite_checkedz(&(g_rel_dists[((int64_t)indiv_idx * (indiv_idx - 1)) / 2 - llxx]), indiv_idx * sizeof(double), outfile)) {
+	if (fwrite_checkedz(&(g_rel_dists[((int64_t)indiv_idx * (indiv_idx - 1)) / 2 - g_cr_start_offset]), indiv_idx * sizeof(double), outfile)) {
 	  goto calc_rel_ret_WRITE_FAIL;
 	}
 	if (fwrite_checked(dptr2++, sizeof(double), outfile)) {
 	  goto calc_rel_ret_WRITE_FAIL;
 	}
 	if (rel_shape == REL_CALC_TRI) {
-	  if ((((uint64_t)indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100 >= ullyy * pct) {
-	    pct = (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100) / ullyy;
+	  if ((((uint64_t)indiv_idx + 1) * (indiv_idx + 2) / 2 - g_cr_start_offset) >= g_cr_hundredth * pct) {
+	    pct = (((uint64_t)indiv_idx + 1) * (indiv_idx + 2) / 2 - g_cr_start_offset) / g_cr_hundredth;
 	    printf("\rWriting... %u%%", pct++);
 	    fflush(stdout);
 	  }
@@ -6907,7 +7081,7 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	    }
 	  } else {
 	    for (uii = indiv_idx + 1; uii < g_indiv_ct; uii++) {
-	      if (fwrite_checked(&(g_rel_dists[((uintptr_t)uii * (uii - 1) / 2) + indiv_idx - llxx]), sizeof(double), outfile)) {
+	      if (fwrite_checked(&(g_rel_dists[((uintptr_t)uii * (uii - 1) / 2) + indiv_idx - g_cr_start_offset]), sizeof(double), outfile)) {
 		goto calc_rel_ret_WRITE_FAIL;
 	      }
 	    }
@@ -6922,201 +7096,89 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
       if (fclose_null(&outfile)) {
 	goto calc_rel_ret_WRITE_FAIL;
       }
-    } else if (rel_calc_type & REL_CALC_GRM) {
+    } else {
       g_cr_indiv1idx = min_indiv;
       g_cr_indiv2idx = 0;
       g_cr_max_indiv1idx = max_parallel_indiv;
       g_cr_mdeptr = g_missing_dbl_excluded;
       g_cr_dist_ptr = g_rel_dists;
-      g_cr_ibcptr = dptr2;
-      if (rel_calc_type & REL_CALC_GZ) {
-	if (parallel_tot > 1) {
-	  sprintf(outname_end, ".grm.%u.gz", parallel_idx + 1);
+      g_cr_ibc_ptr = dptr2;
+      if (rel_calc_type & REL_CALC_GRM) {
+	if (rel_calc_type & REL_CALC_GZ) {
+	  if (parallel_tot > 1) {
+	    sprintf(outname_end, ".grm.%u.gz", parallel_idx + 1);
+	  } else {
+	    strcpy(outname_end, ".grm.gz");
+	  }
+	  parallel_compress(outname, calc_rel_grm_emitn);
 	} else {
-	  strcpy(outname_end, ".grm.gz");
+	  strcpy(outname_end, ".grm");
+	  if (parallel_tot > 1) {
+	    sprintf(&(outname_end[4]), ".%u", parallel_idx + 1);
+	  }
+	  retval = write_uncompressed(outname, calc_rel_grm_emitn);
+	  if (retval) {
+	    goto calc_rel_ret_1;
+	  }
 	}
-	parallel_compress(outname, calc_rel_grm_emitn);
       } else {
-	strcpy(outname_end, ".grm");
-	if (parallel_tot > 1) {
-	  sprintf(&(outname_end[4]), ".%u", parallel_idx + 1);
+	if (rel_calc_type & REL_CALC_GZ) {
+	  if (parallel_tot > 1) {
+	    sprintf(outname_end, ".rel.%u.gz", parallel_idx + 1);
+	  } else {
+	    strcpy(outname_end, ".rel.gz");
+	  }
+	} else {
+	  strcpy(outname_end, ".rel");
+	  if (parallel_tot > 1) {
+	    sprintf(&(outname_end[4]), ".%u", parallel_idx + 1);
+	  }
 	}
-	retval = write_uncompressed(outname, calc_rel_grm_emitn);
-	if (retval) {
-	  goto calc_rel_ret_1;
-	}
-      }
-    } else {
-      if (rel_shape == REL_CALC_SQ0) {
-	// if we wanted to port to big-endian...
-	// cptr2 = (char*)(&ulii);
-	// for (uii = 0; uii < sizeof(intptr_t); uii += 2) {
-	//   cptr2[uii] = '\t';
-	//   cptr2[uii + 1] = '0';
-	// }
+	if (rel_shape == REL_CALC_TRI) {
+	  if (rel_calc_type & REL_CALC_GZ) {
+	    parallel_compress(outname, calc_rel_tri_emitn);
+	  } else {
+	    retval = write_uncompressed(outname, calc_rel_tri_emitn);
+	    if (retval) {
+	      goto calc_rel_ret_1;
+	    }
+	  }
+	} else if (rel_shape == REL_CALC_SQ0) {
+	  // if we wanted to port to big-endian...
+	  // cptr2 = (char*)(&ulii);
+	  // for (uii = 0; uii < sizeof(intptr_t); uii += 2) {
+	  //   cptr2[uii] = '\t';
+	  //   cptr2[uii + 1] = '0';
+	  // }
 #ifdef __LP64__
-	ulii = 0x9000900090009LLU;
+	  ulii = 0x3009300930093009LLU;
 #else
-	ulii = 0x90009LU;
+	  ulii = 0x30093009LU;
 #endif
-	uii = (g_indiv_ct * 2 + sizeof(intptr_t) - 4) / sizeof(intptr_t);
-	glptr2 = (uintptr_t*)g_geno;
-	for (ujj = 0; ujj < uii; ujj++) {
-	  *glptr2++ = ulii;
-	}
-      }
-      if (rel_calc_type & REL_CALC_GZ) {
-	if (parallel_tot > 1) {
-	  sprintf(outname_end, ".rel.%u.gz", parallel_idx + 1);
-	} else {
-	  strcpy(outname_end, ".rel.gz");
-	}
-	if (gzopen_checked(&gz_outfile, outname, "wb")) {
-	  goto calc_rel_ret_OPEN_FAIL;
-	}
-	dist_ptr = g_rel_dists;
-	if (min_indiv) {
-	  indiv_idx = min_indiv;
-	} else {
-	  bufptr = double_g_write(*dptr2++, wbuf);
-	  if (!gzwrite(gz_outfile, wbuf, bufptr - wbuf)) {
-	    goto calc_rel_ret_WRITE_FAIL;
+	  uii = (g_indiv_ct * 2 + sizeof(intptr_t) - 4) / sizeof(intptr_t);
+	  glptr2 = (uintptr_t*)g_geno;
+	  for (ujj = 0; ujj < uii; ujj++) {
+	    *glptr2++ = ulii;
 	  }
-	  wbuf[0] = '\t';
-	  if (rel_shape == REL_CALC_SQ0) {
-	    if (gzwrite_checked(gz_outfile, g_geno, (g_indiv_ct - 1) * 2)) {
-	      goto calc_rel_ret_WRITE_FAIL;
-	    }
-	  } else if (rel_shape == REL_CALC_SQ) {
-	    // parallel_tot must be 1 for SQ shape
-	    for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
-	      bufptr = double_g_write(g_rel_dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2], &(wbuf[1]));
-	      gzwrite(gz_outfile, wbuf, bufptr - wbuf);
-	    }
-	  }
-	  if (gzputc(gz_outfile, '\n') == -1) {
-	    goto calc_rel_ret_WRITE_FAIL;
-	  }
-	  indiv_idx = 1;
-	}
-	for (; indiv_idx < max_parallel_indiv; indiv_idx++) {
-	  bufptr = double_g_write(*dist_ptr++, wbuf);
-	  if (!gzwrite(gz_outfile, wbuf, bufptr - wbuf)) {
-	    goto calc_rel_ret_WRITE_FAIL;
-	  }
-	  wbuf[0] = '\t';
-	  for (indiv_idx2 = 1; indiv_idx2 < indiv_idx; indiv_idx2++) {
-	    bufptr = double_g_write(*dist_ptr++, &(wbuf[1]));
-	    gzwrite(gz_outfile, wbuf, bufptr - wbuf);
-	  }
-	  bufptr = double_g_write(*dptr2++, &(wbuf[1]));
-	  if (!gzwrite(gz_outfile, wbuf, bufptr - wbuf)) {
-	    goto calc_rel_ret_WRITE_FAIL;
-	  }
-	  if (rel_shape == REL_CALC_SQ0) {
-	    if (gzwrite_checked(gz_outfile, g_geno, (g_indiv_ct - indiv_idx2 - 1) * 2)) {
-	      goto calc_rel_ret_WRITE_FAIL;
-	    }
-	    if ((indiv_idx + 1 - min_indiv) * 100 >= pct * max_parallel_indiv) {
-	      pct = ((indiv_idx + 1 - min_indiv) * 100) / max_parallel_indiv;
-	      printf("\rWriting... %u%%", pct++);
-	      fflush(stdout);
-	    }
+	  g_cr_min_indiv = min_indiv;
+	  if (rel_calc_type & REL_CALC_GZ) {
+	    parallel_compress(outname, calc_rel_sq0_emitn);
 	  } else {
-	    wbuf[0] = '\t';
-	    if (rel_shape == REL_CALC_SQ) {
-	      for (ulii = indiv_idx + 1; ulii < g_indiv_ct; ulii++) {
-		bufptr = double_g_write(g_rel_dists[((ulii * (ulii - 1)) / 2) + indiv_idx], &(wbuf[1]));
-		gzwrite(gz_outfile, wbuf, bufptr - wbuf);
-	      }
-	    }
-	    if (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100 >= ullyy * pct) {
-	      pct = (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100) / ullyy;
-	      printf("\rWriting... %u%%", pct++);
-	      fflush(stdout);
+	    retval = write_uncompressed(outname, calc_rel_sq0_emitn);
+	    if (retval) {
+	      goto calc_rel_ret_1;
 	    }
 	  }
-	  if (gzputc(gz_outfile, '\n') == -1) {
-	    goto calc_rel_ret_WRITE_FAIL;
-	  }
-	}
-	gzclose(gz_outfile);
-	gz_outfile = NULL;
-      } else {
-	strcpy(outname_end, ".rel");
-	if (parallel_tot > 1) {
-	  sprintf(&(outname_end[4]), ".%u", parallel_idx + 1);
-	}
-	if (fopen_checked(&outfile, outname, "w")) {
-	  goto calc_rel_ret_OPEN_FAIL;
-	}
-	dist_ptr = g_rel_dists;
-	if (min_indiv) {
-	  indiv_idx = min_indiv;
 	} else {
-	  bufptr = double_g_write(*dptr2++, wbuf);
-	  if (fwrite_checked(wbuf, bufptr - wbuf, outfile)) {
-	    goto calc_rel_ret_WRITE_FAIL;
-	  }
-	  if (rel_shape == REL_CALC_SQ0) {
-	    if (fwrite_checkedz(g_geno, (g_indiv_ct - 1) * 2, outfile)) {
-	      goto calc_rel_ret_WRITE_FAIL;
-	    }
-	  } else if (rel_shape == REL_CALC_SQ) {
-	    wbuf[0] = '\t';
-	    for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
-	      bufptr = double_g_write(g_rel_dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2], &(wbuf[1]));
-	      fwrite(wbuf, 1, bufptr - wbuf, outfile);
-	    }
-	  }
-	  if (putc('\n', outfile) == EOF) {
-	    goto calc_rel_ret_WRITE_FAIL;
-	  }
-	  indiv_idx = 1;
-	}
-	for (; indiv_idx < max_parallel_indiv; indiv_idx++) {
-	  bufptr = double_g_write(*dist_ptr++, wbuf);
-	  if (fwrite_checked(wbuf, bufptr - wbuf, outfile)) {
-	    goto calc_rel_ret_WRITE_FAIL;
-	  }
-	  wbuf[0] = '\t';
-	  for (indiv_idx2 = 1; indiv_idx2 < indiv_idx; indiv_idx2++) {
-            bufptr = double_g_write(*dist_ptr++, &(wbuf[1]));
-	    fwrite(wbuf, 1, bufptr - wbuf, outfile);
-	  }
-	  bufptr = double_g_write(*dptr2++, &(wbuf[1]));
-	  if (fwrite_checked(wbuf, bufptr - wbuf, outfile)) {
-	    goto calc_rel_ret_WRITE_FAIL;
-	  }
-	  if (rel_shape == REL_CALC_SQ0) {
-	    if (fwrite_checkedz(g_geno, (g_indiv_ct - indiv_idx - 1) * 2, outfile)) {
-	      goto calc_rel_ret_WRITE_FAIL;
-	    }
-	    if ((indiv_idx + 1 - min_indiv) * 100LLU >= (uint64_t)pct * (max_parallel_indiv - min_indiv)) {
-	      pct = ((indiv_idx + 1 - min_indiv) * 100LLU) / (max_parallel_indiv - min_indiv);
-	      printf("\rWriting... %u%%", pct++);
-	      fflush(stdout);
-	    }
+	  g_cr_min_indiv = min_indiv;
+	  if (rel_calc_type & REL_CALC_GZ) {
+	    parallel_compress(outname, calc_rel_sq_emitn);
 	  } else {
-	    if (rel_shape == REL_CALC_SQ) {
-	      wbuf[0] = '\t';
-	      for (ulii = indiv_idx + 1; ulii < g_indiv_ct; ulii++) {
-		bufptr = double_g_write(g_rel_dists[((ulii * (ulii - 1)) / 2) + indiv_idx], &(wbuf[1]));
-		fwrite(wbuf, 1, bufptr - wbuf, outfile);
-	      }
-	    }
-	    if (((uint64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100LU >= ullyy * pct) {
-	      pct = (((int64_t)(indiv_idx + 1) * (indiv_idx + 2) / 2 - llxx) * 100) / ullyy;
-	      printf("\rWriting... %u%%", pct++);
-	      fflush(stdout);
+	    retval = write_uncompressed(outname, calc_rel_sq_emitn);
+	    if (retval) {
+	      goto calc_rel_ret_1;
 	    }
 	  }
-	  if (putc('\n', outfile) == EOF) {
-	    goto calc_rel_ret_WRITE_FAIL;
-	  }
-	}
-	if (fclose_null(&outfile)) {
-	  goto calc_rel_ret_WRITE_FAIL;
 	}
       }
     }
