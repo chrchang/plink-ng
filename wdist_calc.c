@@ -4463,7 +4463,7 @@ static double g_cg_e12;
 
 uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
-  unsigned char* readbuf_end = &(readbuf[PIGZ_BLOCK_SIZE]);
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
   char* cptr;
   char* indiv2;
   char* pat2 = NULL;
@@ -4698,7 +4698,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       g_cg_gmcell += 5;
       g_cg_mdecell++;
       g_cg_indiv2idx++;
-      if (((unsigned char*)sptr_cur) >= readbuf_end) {
+      if (sptr_cur >= readbuf_end) {
 	return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
       }
     }
@@ -6557,6 +6557,61 @@ int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_
   return 0;
 }
 
+static uint32_t g_cr_marker_ct;
+static uintptr_t g_cr_indiv1idx;
+static uintptr_t g_cr_indiv2idx;
+static uintptr_t g_cr_max_indiv1idx;
+static uint64_t g_cr_start_offset;
+static uint64_t g_cr_hundredth;
+static uint32_t g_cr_pct;
+static uint32_t* g_cr_mdeptr;
+static double* g_cr_dist_ptr;
+static double* g_cr_ibcptr;
+
+uint32_t calc_rel_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  char wbuf[16];
+  char* wbuf_end;
+  uint32_t wbuf_len;
+  uint32_t uii;
+  while (g_cr_indiv1idx < g_cr_max_indiv1idx) {
+    uii = g_cr_marker_ct - g_indiv_missing_unwt[g_cr_indiv1idx];
+    wbuf_end = uint32_write(g_cr_indiv1idx + 1, wbuf);
+    *wbuf_end++ = '\t';
+    wbuf_len = (uintptr_t)(wbuf_end - wbuf);
+    while (g_cr_indiv2idx < g_cr_indiv1idx) {
+      memcpy(sptr_cur, wbuf, wbuf_len);
+      sptr_cur += wbuf_len;
+      sptr_cur = uint32_write(g_cr_indiv2idx + 1, sptr_cur);
+      *sptr_cur++ = '\t';
+      sptr_cur = uint32_write((uii - g_indiv_missing_unwt[g_cr_indiv2idx]) + (*g_cr_mdeptr++), sptr_cur);
+      *sptr_cur++ = '\t';
+      sptr_cur = double_e_write(*g_cr_dist_ptr++, sptr_cur);
+      *sptr_cur++ = '\n';
+      g_cr_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+      }
+    }
+    memcpy(sptr_cur, wbuf, wbuf_len);
+    sptr_cur += wbuf_len;
+    sptr_cur = uint32_write(++g_cr_indiv1idx, sptr_cur);
+    *sptr_cur++ = '\t';
+    sptr_cur = uint32_write(uii, sptr_cur);
+    *sptr_cur++ = '\t';
+    sptr_cur = double_e_write(*g_cr_ibcptr++, sptr_cur);
+    *sptr_cur++ = '\n';
+    if ((((uint64_t)g_cr_indiv1idx) * (g_cr_indiv1idx + 1) / 2 - g_cr_start_offset) >= g_cr_hundredth * g_cr_pct) {
+      g_cr_pct = (((uint64_t)g_cr_indiv1idx) * (g_cr_indiv1idx + 1) / 2 - g_cr_start_offset) / g_cr_hundredth;
+      printf("\rWriting... %u%%", g_cr_pct++);
+      fflush(stdout);
+    }
+    g_cr_indiv2idx = 0;
+  }
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
 int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot, uint64_t calculation_type, int32_t rel_calc_type, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, int32_t var_std, int32_t ibc_type, double rel_cutoff, double* set_allele_freqs, double** rel_ibc_ptr, Chrom_info* chrom_info_ptr) {
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t marker_uidx = 0;
@@ -6597,7 +6652,6 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
   uintptr_t* glptr2;
   uint32_t pct;
   char* bufptr;
-  char* bufptr2;
   if (wkspace_alloc_ui_checked(&g_indiv_missing_unwt, g_indiv_ct * sizeof(int32_t))) {
     goto calc_rel_ret_NOMEM;
   }
@@ -6815,8 +6869,13 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
     } else {
       dptr2 = &(rel_ibc[min_indiv]);
     }
-    llxx = ((int64_t)min_indiv * (min_indiv - 1)) / 2;
-    ullyy = (((int64_t)max_parallel_indiv * (max_parallel_indiv + 1)) / 2) - llxx;
+    g_cr_marker_ct = marker_ct;
+    g_cr_pct = 1;
+    g_cr_start_offset = ((uint64_t)min_indiv * (min_indiv - 1)) / 2;
+    g_cr_hundredth = 1 + (((((uint64_t)max_parallel_indiv * (max_parallel_indiv + 1)) / 2) - g_cr_start_offset) / 100);
+    // todo: get rid of llxx, ullyy
+    llxx = g_cr_start_offset;
+    ullyy = ((((uint64_t)max_parallel_indiv * (max_parallel_indiv + 1)) / 2) - g_cr_start_offset);
     if (rel_calc_type & REL_CALC_BIN) {
       if (rel_shape == REL_CALC_SQ0) {
 	fill_double_zero((double*)g_geno, g_indiv_ct - 1);
@@ -6864,90 +6923,27 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
 	goto calc_rel_ret_WRITE_FAIL;
       }
     } else if (rel_calc_type & REL_CALC_GRM) {
-      giptr2 = g_missing_dbl_excluded;
+      g_cr_indiv1idx = min_indiv;
+      g_cr_indiv2idx = 0;
+      g_cr_max_indiv1idx = max_parallel_indiv;
+      g_cr_mdeptr = g_missing_dbl_excluded;
+      g_cr_dist_ptr = g_rel_dists;
+      g_cr_ibcptr = dptr2;
       if (rel_calc_type & REL_CALC_GZ) {
 	if (parallel_tot > 1) {
 	  sprintf(outname_end, ".grm.%u.gz", parallel_idx + 1);
 	} else {
 	  strcpy(outname_end, ".grm.gz");
 	}
-	if (gzopen_checked(&gz_outfile, outname, "wb")) {
-	  goto calc_rel_ret_OPEN_FAIL;
-	}
-	dist_ptr = g_rel_dists;
-	for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
-	  if (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100 >= ullyy * pct) {
-	    pct = (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100) / ullyy;
-	    printf("\rWriting... %u%%", pct++);
-	    fflush(stdout);
-	  }
-	  uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
-	  giptr = g_indiv_missing_unwt;
-	  ukk = indiv_idx + 1;
-          bufptr = uint32_write(ukk, wbuf);
-	  *bufptr++ = '\t';
-	  for (indiv_idx2 = 1; indiv_idx2 < ukk; indiv_idx2++) {
-	    bufptr2 = uint32_write(indiv_idx2, bufptr);
-	    *bufptr2++ = '\t';
-	    bufptr2 = uint32_write(uii - (*giptr++) + (*giptr2++), bufptr2);
-	    *bufptr2++ = '\t';
-	    bufptr2 = double_e_write(*dist_ptr++, bufptr2);
-	    *bufptr2++ = '\n';
-	    gzwrite(gz_outfile, wbuf, (bufptr2 - wbuf));
-	  }
-	  bufptr2 = uint32_write(ukk, bufptr);
-	  *bufptr2++ = '\t';
-	  bufptr2 = uint32_write(uii, bufptr2);
-	  *bufptr2++ = '\t';
-	  bufptr2 = double_e_write(*dptr2++, bufptr2);
-	  *bufptr2++ = '\n';
-	  if (!gzwrite(gz_outfile, wbuf, (bufptr2 - wbuf))) {
-	    goto calc_rel_ret_WRITE_FAIL;
-	  }
-	}
-	gzclose(gz_outfile);
-	gz_outfile = NULL;
+	parallel_compress(outname, calc_rel_grm_emitn);
       } else {
 	strcpy(outname_end, ".grm");
 	if (parallel_tot > 1) {
 	  sprintf(&(outname_end[4]), ".%u", parallel_idx + 1);
 	}
-	if (fopen_checked(&outfile, outname, "w")) {
-	  goto calc_rel_ret_OPEN_FAIL;
-	}
-	dist_ptr = g_rel_dists;
-	for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
-	  if (((uint64_t)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100 >= ullyy * pct) {
-	    pct = (((int64_t)indiv_idx * (indiv_idx + 1) / 2 - llxx) * 100) / ullyy;
-	    printf("\rWriting... %u%%", pct++);
-	    fflush(stdout);
-	  }
-	  uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
-	  giptr = g_indiv_missing_unwt;
-	  ukk = indiv_idx + 1;
-	  bufptr = uint32_write(ukk, wbuf);
-	  *bufptr++ = '\t';
-	  for (indiv_idx2 = 1; indiv_idx2 < ukk; indiv_idx2++) {
-	    bufptr2 = uint32_write(indiv_idx2, bufptr);
-	    *bufptr2++ = '\t';
-	    bufptr2 = uint32_write(uii - (*giptr++) + (*giptr2++), bufptr2);
-	    *bufptr2++ = '\t';
-	    bufptr2 = double_e_write(*dist_ptr++, bufptr2);
-	    *bufptr2++ = '\n';
-	    fwrite(wbuf, 1, (bufptr2 - wbuf), outfile);
-	  }
-	  bufptr2 = uint32_write(ukk, bufptr);
-	  *bufptr2++ = '\t';
-	  bufptr2 = uint32_write(uii, bufptr2);
-	  *bufptr2++ = '\t';
-	  bufptr2 = double_e_write(*dptr2++, bufptr2);
-	  *bufptr2++ = '\n';
-	  if (fwrite_checked(wbuf, (bufptr2 - wbuf), outfile)) {
-	    goto calc_rel_ret_WRITE_FAIL;
-	  }
-	}
-	if (fclose_null(&outfile)) {
-	  goto calc_rel_ret_WRITE_FAIL;
+	retval = write_uncompressed(outname, calc_rel_grm_emitn);
+	if (retval) {
+	  goto calc_rel_ret_1;
 	}
       }
     } else {
