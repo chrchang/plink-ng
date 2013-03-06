@@ -1690,9 +1690,6 @@ int32_t wdist_dosage(uint64_t calculation_type, int32_t dist_calc_type, char* ge
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
-  gzFile gz_outfile = NULL;
-  gzFile gz_outfile2 = NULL;
-  gzFile gz_outfile3 = NULL;
   int32_t gen_scanned = 0;
   int32_t is_missing_01 = 0;
   uintptr_t* sex_nm;
@@ -1799,7 +1796,7 @@ int32_t wdist_dosage(uint64_t calculation_type, int32_t dist_calc_type, char* ge
 	}
 	dxx = 0.5 / dxx;
       }
-      retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, dist_calc_type, outname, outname_end, g_distance_matrix, dxx, g_indiv_ct, g_thread_start[0], g_thread_start[thread_ct], parallel_idx, parallel_tot, membuf);
+      retval = distance_d_write(&outfile, &outfile2, &outfile3, dist_calc_type, outname, outname_end, g_distance_matrix, dxx, g_indiv_ct, g_thread_start[0], g_thread_start[thread_ct], parallel_idx, parallel_tot, membuf);
       if (retval) {
         goto wdist_dosage_ret_1;
       }

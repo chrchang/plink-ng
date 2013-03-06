@@ -1,4 +1,5 @@
 #include "wdist_common.h"
+#include "pigz.h"
 
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
 const char errstr_append[] = "\nFor more information, try 'wdist --help [flag name]' or 'wdist --help | more'.\n";
@@ -2007,43 +2008,6 @@ int32_t distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_p
   return 0;
 }
 
-int32_t distance_open_gz(gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, char* outname, char* outname_end, int32_t dist_calc_type, int32_t parallel_idx, int32_t parallel_tot) {
-  if (dist_calc_type & DISTANCE_ALCT) {
-    if (parallel_tot > 1) {
-      sprintf(outname_end, ".dist.%d.gz", parallel_idx + 1);
-    } else {
-      strcpy(outname_end, ".dist.gz");
-    }
-    strcpy(tbuf, outname_end);
-    if (gzopen_checked(gz_outfile_ptr, outname, "wb")) {
-      return 1;
-    }
-  }
-  if (dist_calc_type & DISTANCE_IBS) {
-    if (parallel_tot > 1) {
-      sprintf(outname_end, ".mibs.%d.gz", parallel_idx + 1);
-    } else {
-      strcpy(outname_end, ".mibs.gz");
-    }
-    strcpy(&(tbuf[MAX_POST_EXT]), outname_end);
-    if (gzopen_checked(gz_outfile2_ptr, outname, "wb")) {
-      return 1;
-    }
-  }
-  if (dist_calc_type & DISTANCE_1_MINUS_IBS) {
-    if (parallel_tot > 1) {
-      sprintf(outname_end, ".mdist.%d.gz", parallel_idx + 1);
-    } else {
-      strcpy(outname_end, ".mdist.gz");
-    }
-    strcpy(&(tbuf[MAX_POST_EXT * 2]), outname_end);
-    if (gzopen_checked(gz_outfile3_ptr, outname, "wb")) {
-      return 1;
-    }
-  }
-  return 0;
-}
-
 void distance_print_done(int32_t format_code, char* outname, char* outname_end) {
   putchar('\r');
   if (!format_code) {
@@ -3073,17 +3037,335 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfil
   }
 }
 
-int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, gzFile* gz_outfile_ptr, gzFile* gz_outfile2_ptr, gzFile* gz_outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf) {
+static uint32_t g_pct;
+static uintptr_t g_dw_indiv1idx;
+static uintptr_t g_dw_indiv2idx;
+static uintptr_t g_dw_min_indiv;
+static uintptr_t g_dw_max_indiv1idx;
+static uint64_t g_dw_start_offset;
+static uint64_t g_dw_hundredth;
+static double* g_dw_dists;
+static double* g_dw_dist_ptr;
+static unsigned char* g_dw_membuf;
+static double g_dw_half_marker_ct_recip;
+
+uint32_t distance_d_write_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
+    while (g_dw_indiv2idx + 1 < g_dw_indiv1idx) {
+      sptr_cur = double_g_write(*g_dw_dist_ptr++, sptr_cur);
+      *sptr_cur++ = '\t';
+      g_dw_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto distance_d_write_tri_emitn_ret;
+      }
+    }
+    if (g_dw_indiv2idx + 1 == g_dw_indiv1idx) {
+      sptr_cur = double_g_write(*g_dw_dist_ptr++, sptr_cur);
+      *sptr_cur++ = '\n';
+    }
+    if ((((uint64_t)g_dw_indiv1idx) * (g_dw_indiv1idx + 1) / 2 - g_dw_start_offset) >= g_dw_hundredth * g_pct) {
+      g_pct = (((uint64_t)g_dw_indiv1idx) * (g_dw_indiv1idx + 1) / 2 - g_dw_start_offset) / g_dw_hundredth;
+      printf("\rWriting... %u%%", g_pct++);
+      fflush(stdout);
+    }
+    g_dw_indiv1idx++;
+    g_dw_indiv2idx = 0;
+  }
+ distance_d_write_tri_emitn_ret:
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
+uint32_t distance_d_write_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  uintptr_t ulii;
+  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
+    while (g_dw_indiv2idx < g_dw_indiv1idx) {
+      sptr_cur = double_g_write(*g_dw_dist_ptr++, sptr_cur);
+      *sptr_cur++ = '\t';
+      g_dw_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto distance_d_write_sq0_emitn_ret;
+      }
+    }
+    ulii = 1 + (((uintptr_t)(readbuf_end - sptr_cur)) / 2);
+    if (ulii < (g_indiv_ct - g_dw_indiv2idx)) {
+      memcpy(sptr_cur, &(g_dw_membuf[1]), 2 * ulii);
+      sptr_cur += 2 * ulii;
+      g_dw_indiv2idx += ulii;
+      goto distance_d_write_sq0_emitn_ret;
+    }
+    ulii = g_indiv_ct - g_dw_indiv2idx;
+    memcpy(sptr_cur, &(g_dw_membuf[1]), 2 * ulii - 1);
+    sptr_cur += 2 * ulii - 1;
+    *sptr_cur++ = '\n';
+    g_dw_indiv1idx++;
+    if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
+      g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);
+      printf("\rWriting... %u%%", g_pct++);
+      fflush(stdout);
+    }
+    g_dw_indiv2idx = 0;
+  }
+ distance_d_write_sq0_emitn_ret:
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
+uint32_t distance_d_write_sq_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
+    while (g_dw_indiv2idx < g_dw_indiv1idx) {
+      sptr_cur = double_g_write(*g_dw_dist_ptr++, sptr_cur);
+      *sptr_cur++ = '\t';
+      g_dw_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto distance_d_write_sq_emitn_ret;
+      }
+    }
+    if (g_dw_indiv2idx == g_dw_indiv1idx) {
+      *sptr_cur++ = '0';
+      g_dw_indiv2idx++;
+    }
+    while (g_dw_indiv2idx < g_indiv_ct) {
+      *sptr_cur = '\t';
+      sptr_cur = double_g_write(g_dw_dists[((g_dw_indiv2idx * (g_dw_indiv2idx - 1)) / 2) + g_dw_indiv1idx], &(sptr_cur[1]));
+      g_dw_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto distance_d_write_sq_emitn_ret;
+      }
+    }
+    *sptr_cur++ = '\n';
+    g_dw_indiv1idx++;
+    if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
+      g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);
+      printf("\rWriting... %u%%", g_pct++);
+      fflush(stdout);
+    }
+    g_dw_indiv2idx = 0;
+  }
+ distance_d_write_sq_emitn_ret:
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
+uint32_t distance_d_write_ibs_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
+    while (g_dw_indiv2idx < g_dw_indiv1idx) {
+      sptr_cur = double_g_write(1.0 - (*g_dw_dist_ptr++) * g_dw_half_marker_ct_recip, sptr_cur);
+      *sptr_cur++ = '\t';
+      g_dw_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto distance_d_write_ibs_tri_emitn_ret;
+      }
+    }
+    if (g_dw_indiv2idx == g_dw_indiv1idx) {
+      *sptr_cur++ = '1';
+      *sptr_cur++ = '\n';
+    }
+    g_dw_indiv1idx++;
+    if ((((uint64_t)g_dw_indiv1idx) * (g_dw_indiv1idx + 1) / 2 - g_dw_start_offset) >= g_dw_hundredth * g_pct) {
+      g_pct = (((uint64_t)g_dw_indiv1idx) * (g_dw_indiv1idx + 1) / 2 - g_dw_start_offset) / g_dw_hundredth;
+      printf("\rWriting... %u%%", g_pct++);
+      fflush(stdout);
+    }
+    g_dw_indiv2idx = 0;
+  }
+ distance_d_write_ibs_tri_emitn_ret:
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
+uint32_t distance_d_write_ibs_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  uintptr_t ulii;
+  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
+    while (g_dw_indiv2idx < g_dw_indiv1idx) {
+      sptr_cur = double_g_write(1.0 - (*g_dw_dist_ptr++) * g_dw_half_marker_ct_recip, sptr_cur);
+      *sptr_cur++ = '\t';
+      g_dw_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto distance_d_write_ibs_sq0_emitn_ret;
+      }
+    }
+    if (g_dw_indiv2idx == g_dw_indiv1idx) {
+      *sptr_cur++ = '1';
+      g_dw_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto distance_d_write_ibs_sq0_emitn_ret;
+      }
+    }
+    ulii = (1 + ((uintptr_t)(readbuf_end - sptr_cur))) / 2;
+    if (ulii < (g_indiv_ct - g_dw_indiv2idx)) {
+      memcpy(sptr_cur, g_dw_membuf, 2 * ulii);
+      sptr_cur += 2 * ulii;
+      g_dw_indiv2idx += ulii;
+      goto distance_d_write_ibs_sq0_emitn_ret;
+    }
+    ulii = g_indiv_ct - g_dw_indiv2idx;
+    memcpy(sptr_cur, g_dw_membuf, 2 * ulii);
+    sptr_cur += 2 * ulii;
+    *sptr_cur++ = '\n';
+    g_dw_indiv1idx++;
+    if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
+      g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);
+      printf("\rWriting... %u%%", g_pct++);
+      fflush(stdout);
+    }
+    g_dw_indiv2idx = 0;
+  }
+ distance_d_write_ibs_sq0_emitn_ret:
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
+uint32_t distance_d_write_ibs_sq_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
+    while (g_dw_indiv2idx < g_dw_indiv1idx) {
+      sptr_cur = double_g_write(1.0 - (*g_dw_dist_ptr++) * g_dw_half_marker_ct_recip, sptr_cur);
+      *sptr_cur++ = '\t';
+      g_dw_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto distance_d_write_ibs_sq_emitn_ret;
+      }
+    }
+    if (g_dw_indiv2idx == g_dw_indiv1idx) {
+      *sptr_cur++ = '1';
+      g_dw_indiv2idx++;
+    }
+    while (g_dw_indiv2idx < g_indiv_ct) {
+      *sptr_cur = '\t';
+      sptr_cur = double_g_write(1.0 - (g_dw_dists[((g_dw_indiv2idx * (g_dw_indiv2idx - 1)) / 2) + g_dw_indiv1idx]) * g_dw_half_marker_ct_recip, &(sptr_cur[1]));
+      g_dw_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto distance_d_write_ibs_sq_emitn_ret;
+      }
+    }
+    *sptr_cur++ = '\n';
+    g_dw_indiv1idx++;
+    if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
+      g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);
+      printf("\rWriting... %u%%", g_pct++);
+      fflush(stdout);
+    }
+    g_dw_indiv2idx = 0;
+  }
+ distance_d_write_ibs_sq_emitn_ret:
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
+uint32_t distance_d_write_1mibs_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
+    while (g_dw_indiv2idx + 1 < g_dw_indiv1idx) {
+      sptr_cur = double_g_write((*g_dw_dist_ptr++) * g_dw_half_marker_ct_recip, sptr_cur);
+      *sptr_cur++ = '\t';
+      g_dw_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto distance_d_write_1mibs_tri_emitn_ret;
+      }
+    }
+    if (g_dw_indiv2idx + 1 == g_dw_indiv1idx) {
+      sptr_cur = double_g_write((*g_dw_dist_ptr++) * g_dw_half_marker_ct_recip, sptr_cur);
+      *sptr_cur++ = '\n';
+    }
+    if ((((uint64_t)g_dw_indiv1idx) * (g_dw_indiv1idx + 1) / 2 - g_dw_start_offset) >= g_dw_hundredth * g_pct) {
+      g_pct = (((uint64_t)g_dw_indiv1idx) * (g_dw_indiv1idx + 1) / 2 - g_dw_start_offset) / g_dw_hundredth;
+      printf("\rWriting... %u%%", g_pct++);
+      fflush(stdout);
+    }
+    g_dw_indiv1idx++;
+    g_dw_indiv2idx = 0;
+  }
+ distance_d_write_1mibs_tri_emitn_ret:
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
+uint32_t distance_d_write_1mibs_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  uintptr_t ulii;
+  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
+    while (g_dw_indiv2idx < g_dw_indiv1idx) {
+      sptr_cur = double_g_write((*g_dw_dist_ptr++) * g_dw_half_marker_ct_recip, sptr_cur);
+      *sptr_cur++ = '\t';
+      g_dw_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto distance_d_write_1mibs_sq0_emitn_ret;
+      }
+    }
+    ulii = 1 + (((uintptr_t)(readbuf_end - sptr_cur)) / 2);
+    if (ulii < (g_indiv_ct - g_dw_indiv2idx)) {
+      memcpy(sptr_cur, &(g_dw_membuf[1]), 2 * ulii);
+      sptr_cur += 2 * ulii;
+      g_dw_indiv2idx += ulii;
+      goto distance_d_write_1mibs_sq0_emitn_ret;
+    }
+    ulii = g_indiv_ct - g_dw_indiv2idx;
+    memcpy(sptr_cur, &(g_dw_membuf[1]), 2 * ulii - 1);
+    sptr_cur += 2 * ulii - 1;
+    *sptr_cur++ = '\n';
+    g_dw_indiv1idx++;
+    if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
+      g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);
+      printf("\rWriting... %u%%", g_pct++);
+      fflush(stdout);
+    }
+    g_dw_indiv2idx = 0;
+  }
+ distance_d_write_1mibs_sq0_emitn_ret:
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
+uint32_t distance_d_write_1mibs_sq_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  while (g_dw_indiv1idx < g_dw_max_indiv1idx) {
+    while (g_dw_indiv2idx < g_dw_indiv1idx) {
+      sptr_cur = double_g_write((*g_dw_dist_ptr++) * g_dw_half_marker_ct_recip, sptr_cur);
+      *sptr_cur++ = '\t';
+      g_dw_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto distance_d_write_1mibs_sq_emitn_ret;
+      }
+    }
+    if (g_dw_indiv2idx == g_dw_indiv1idx) {
+      *sptr_cur++ = '0';
+      g_dw_indiv2idx++;
+    }
+    while (g_dw_indiv2idx < g_indiv_ct) {
+      *sptr_cur = '\t';
+      sptr_cur = double_g_write((g_dw_dists[((g_dw_indiv2idx * (g_dw_indiv2idx - 1)) / 2) + g_dw_indiv1idx]) * g_dw_half_marker_ct_recip, &(sptr_cur[1]));
+      g_dw_indiv2idx++;
+      if (sptr_cur >= readbuf_end) {
+	goto distance_d_write_1mibs_sq_emitn_ret;
+      }
+    }
+    *sptr_cur++ = '\n';
+    g_dw_indiv1idx++;
+    if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
+      g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);
+      printf("\rWriting... %u%%", g_pct++);
+      fflush(stdout);
+    }
+    g_dw_indiv2idx = 0;
+  }
+ distance_d_write_1mibs_sq_emitn_ret:
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
+int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf) {
   // membuf assumed to be of at least size indiv_ct * 8.
   int32_t shape = dist_calc_type & DISTANCE_SHAPEMASK;
   int32_t write_alcts = dist_calc_type & DISTANCE_ALCT;
   int32_t write_ibs_matrix = dist_calc_type & DISTANCE_IBS;
   int32_t write_1mibs_matrix = dist_calc_type & DISTANCE_1_MINUS_IBS;
-  int64_t indiv_idx_offset = ((int64_t)first_indiv_idx * (first_indiv_idx - 1)) / 2;
-  int64_t indiv_idx_ct = ((int64_t)end_indiv_idx * (end_indiv_idx - 1)) / 2 - indiv_idx_offset;
-  char wbuf[16]; // %g is max 13 chars (and writer needs space for one more),
-                 // and there may be a preceding char -> 15 is sufficient
-  FILE* outfile;
+  int32_t retval = 0;
   double dxx;
   double dyy;
   double* dist_ptr;
@@ -3091,11 +3373,13 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
   uintptr_t uljj;
   uintptr_t* glptr;
   uint32_t uii;
-  uint32_t pct;
-  uint32_t indiv_idx;
+  uintptr_t indiv_idx_ct;
   int32_t ii;
   int32_t jj;
   char* cptr;
+  g_dw_start_offset = ((int64_t)first_indiv_idx * (first_indiv_idx - 1)) / 2;
+  indiv_idx_ct = (uintptr_t)(((int64_t)end_indiv_idx * (end_indiv_idx - 1)) / 2 - g_dw_start_offset);
+  g_dw_hundredth = 1 + (indiv_idx_ct / 100);
   if (first_indiv_idx == 1) {
     first_indiv_idx = 0;
   }
@@ -3110,251 +3394,19 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
     for (jj = 0; jj < ii; jj++) {
       *glptr++ = ulii;
     }
+    g_dw_membuf = membuf;
   }
-  pct = 1;
-  if (dist_calc_type & DISTANCE_GZ) {
-    if (distance_open_gz(gz_outfile_ptr, gz_outfile2_ptr, gz_outfile3_ptr, outname, outname_end, dist_calc_type, parallel_idx, parallel_tot)) {
-      return RET_OPEN_FAIL;
-    }
-    if (first_indiv_idx) {
-      ii = first_indiv_idx;
-    } else {
-      if (shape == DISTANCE_SQ0) {
-	if (write_alcts) {
-	  if (!gzwrite(*gz_outfile_ptr, &(membuf[1]), indiv_ct * 2 - 1)) {
-	    return RET_WRITE_FAIL;
-	  }
-	  if (gzputc(*gz_outfile_ptr, '\n') == -1) {
-	    return RET_WRITE_FAIL;
-	  }
-	}
-	if (write_ibs_matrix) {
-	  membuf[1] = '1';
-	  if (!gzwrite(*gz_outfile2_ptr, &(membuf[1]), indiv_ct * 2 - 1)) {
-	    return RET_WRITE_FAIL;
-	  }
-	  if (gzputc(*gz_outfile2_ptr, '\n') == -1) {
-	    return RET_WRITE_FAIL;
-	  }
-	  membuf[1] = '0';
-	}
-	if (write_1mibs_matrix) {
-	  if (!gzwrite(*gz_outfile3_ptr, &(membuf[1]), indiv_ct * 2 - 1)) {
-	    return RET_WRITE_FAIL;
-	  }
-	  if (gzputc(*gz_outfile3_ptr, '\n') == -1) {
-	    return RET_WRITE_FAIL;
-	  }
-	}
-      } else if (shape == DISTANCE_SQ) {
-	if (write_alcts) {
-	  if (gzputc(*gz_outfile_ptr, '0') == -1) {
-	    return RET_WRITE_FAIL;
-	  }
-	  wbuf[0] = '\t';
-	  for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
-            cptr = double_g_write(dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2], &(wbuf[1]));
-	    gzwrite(*gz_outfile_ptr, wbuf, cptr - wbuf);
-	  }
-	  if (gzputc(*gz_outfile_ptr, '\n') == -1) {
-	    return RET_WRITE_FAIL;
-	  }
-	}
-	if (write_ibs_matrix) {
-	  if (gzputc(*gz_outfile2_ptr, '1') == -1) {
-	    return RET_WRITE_FAIL;
-	  }
-	  wbuf[0] = '\t';
-	  for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
-	    cptr = double_g_write(1.0 - dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2] * half_marker_ct_recip, &(wbuf[1]));
-            gzwrite(*gz_outfile2_ptr, wbuf, cptr - wbuf);
-	  }
-	  if (gzputc(*gz_outfile2_ptr, '\n') == -1) {
-	    return RET_WRITE_FAIL;
-	  }
-	}
-	if (write_1mibs_matrix) {
-	  if (gzputc(*gz_outfile3_ptr, '0') == -1) {
-	    return RET_WRITE_FAIL;
-	  }
-          wbuf[0] = '\t';
-	  for (indiv_idx = 1; indiv_idx < indiv_ct; indiv_idx++) {
-	    cptr = double_g_write(dists[((uintptr_t)indiv_idx * (indiv_idx - 1)) / 2] * half_marker_ct_recip, &(wbuf[1]));
-            gzwrite(*gz_outfile3_ptr, wbuf, cptr - wbuf);
-	  }
-	  if (gzputc(*gz_outfile3_ptr, '\n') == -1) {
-	    return RET_WRITE_FAIL;
-	  }
-	}
-      } else if (write_ibs_matrix) {
-        if (!gzwrite(*gz_outfile2_ptr, "1\n", 2)) {
-	  return RET_WRITE_FAIL;
-	}
-      }
-      ii = 1;
-    }
-    if (write_alcts) {
-      dist_ptr = dists;
-      for (; ii < end_indiv_idx; ii++) {
-	cptr = double_g_write(*dist_ptr++, wbuf);
-	if (!gzwrite(*gz_outfile_ptr, wbuf, cptr - wbuf)) {
-	  return RET_WRITE_FAIL;
-	}
-	wbuf[0] = '\t';
-	for (jj = 1; jj < ii; jj++) {
-	  cptr = double_g_write(*dist_ptr++, &(wbuf[1]));
-	  gzwrite(*gz_outfile_ptr, wbuf, cptr - wbuf);
-	}
-	if (shape == DISTANCE_SQ0) {
-	  if (gzwrite_checked(*gz_outfile_ptr, membuf, (indiv_ct - ii) * 2)) {
-	    return RET_WRITE_FAIL;
-	  }
-	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)pct * (end_indiv_idx - first_indiv_idx)) {
-	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
-	    printf("\rWriting... %d%%", pct++);
-	    fflush(stdout);
-	  }
-	} else {
-	  if (shape == DISTANCE_SQ) {
-	    if (!gzwrite(*gz_outfile_ptr, "\t0", 2)) {
-	      return RET_WRITE_FAIL;
-	    }
-	    wbuf[0] = '\t';
-	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      cptr = double_g_write(dists[((ulii * (ulii - 1)) / 2) + ii], &(wbuf[1]));
-              gzwrite(*gz_outfile_ptr, wbuf, cptr - wbuf);
-	    }
-	  }
-	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
-	    pct = (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
-	    printf("\rWriting... %d%%", pct++);
-	    fflush(stdout);
-	  }
-	}
-	if (gzputc(*gz_outfile_ptr, '\n') == -1) {
-	  return RET_WRITE_FAIL;
-	}
-      }
-      gzclose(*gz_outfile_ptr);
-      distance_print_done(0, outname, outname_end);
-      pct = 1;
-      *gz_outfile_ptr = NULL;
-    }
-    if (first_indiv_idx) {
-      ii = first_indiv_idx;
-    } else {
-      ii = 1;
-    }
-    if (write_ibs_matrix) {
-      dist_ptr = dists;
-      membuf[1] = '1';
-      for (; ii < end_indiv_idx; ii++) {
-	cptr = double_g_write(1.0 - (*dist_ptr++) * half_marker_ct_recip, wbuf);
-	if (!gzwrite(*gz_outfile2_ptr, wbuf, cptr - wbuf)) {
-	  return RET_WRITE_FAIL;
-	}
-	wbuf[0] = '\t';
-	for (jj = 1; jj < ii; jj++) {
-	  cptr = double_g_write(1.0 - (*dist_ptr++) * half_marker_ct_recip, &(wbuf[1]));
-	  gzwrite(*gz_outfile2_ptr, wbuf, cptr - wbuf);
-	}
-	if (shape == DISTANCE_SQ0) {
-	  if (gzwrite_checked(*gz_outfile2_ptr, membuf, (indiv_ct - ii) * 2)) {
-	    return RET_WRITE_FAIL;
-	  }
-	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)pct * (end_indiv_idx - first_indiv_idx)) {
-	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
-	    printf("\rWriting... %d%%", pct++);
-	    fflush(stdout);
-	  }
-	} else {
-	  if (!gzwrite(*gz_outfile2_ptr, "\t1", 2)) {
-	    return RET_WRITE_FAIL;
-	  }
-	  if (shape == DISTANCE_SQ) {
-	    wbuf[0] = '\t';
-	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      cptr = double_g_write(1.0 - dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip, &(wbuf[1]));
-	      gzwrite(*gz_outfile2_ptr, wbuf, cptr - wbuf);
-	    }
-	  }
-	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
-	    pct = (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
-	    printf("\rWriting... %d%%", pct++);
-	    fflush(stdout);
-	  }
-	}
-	if (gzputc(*gz_outfile2_ptr, '\n') == -1) {
-	  return RET_WRITE_FAIL;
-	}
-      }
-      membuf[1] = '0';
-      gzclose(*gz_outfile2_ptr);
-      distance_print_done(1, outname, outname_end);
-      pct = 1;
-      *gz_outfile2_ptr = NULL;
-    }
-    if (first_indiv_idx) {
-      ii = first_indiv_idx;
-    } else {
-      ii = 1;
-    }
-    if (write_1mibs_matrix) {
-      dist_ptr = dists;
-      for (; ii < end_indiv_idx; ii++) {
-	cptr = double_g_write((*dist_ptr++) * half_marker_ct_recip, wbuf);
-	if (!gzwrite(*gz_outfile3_ptr, wbuf, cptr - wbuf)) {
-	  return RET_WRITE_FAIL;
-	}
-	wbuf[0] = '\t';
-	for (jj = 1; jj < ii; jj++) {
-	  cptr = double_g_write((*dist_ptr++) * half_marker_ct_recip, &(wbuf[1]));
-	  gzwrite(*gz_outfile3_ptr, wbuf, cptr - wbuf);
-	}
-	if (shape == DISTANCE_SQ0) {
-	  if (gzwrite_checked(*gz_outfile3_ptr, membuf, (indiv_ct - ii) * 2)) {
-	    return RET_WRITE_FAIL;
-	  }
-	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)pct * (end_indiv_idx - first_indiv_idx)) {
-	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
-	    printf("\rWriting... %d%%", pct++);
-	    fflush(stdout);
-	  }
-	} else {
-	  if (shape == DISTANCE_SQ) {
-	    if (!gzwrite(*gz_outfile3_ptr, "\t0", 2)) {
-	      return RET_WRITE_FAIL;
-	    }
-	    wbuf[0] = '\t';
-	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      cptr = double_g_write(dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip, &(wbuf[1]));
-	      gzwrite(*gz_outfile3_ptr, wbuf, cptr - wbuf);
-	    }
-	  }
-	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
-	    pct = (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
-	    printf("\rWriting... %d%%", pct++);
-	    fflush(stdout);
-	  }
-	}
-	if (gzputc(*gz_outfile3_ptr, '\n') == -1) {
-	  return RET_WRITE_FAIL;
-	}
-      }
-      gzclose(*gz_outfile3_ptr);
-      distance_print_done(2, outname, outname_end);
-      *gz_outfile3_ptr = NULL;
-    }
-  } else if (dist_calc_type & DISTANCE_BIN) {
+  g_pct = 1;
+  if (dist_calc_type & DISTANCE_BIN) {
     if (distance_open(outfile_ptr, outfile2_ptr, outfile3_ptr, outname, outname_end, ".bin", "wb", dist_calc_type, parallel_idx, parallel_tot)) {
-      return RET_OPEN_FAIL;
+      goto distance_d_write_ret_OPEN_FAIL;
     }
     if (shape == DISTANCE_TRI) {
       if (write_alcts) {
 	fputs("Writing...", stdout);
 	fflush(stdout);
 	if (fwrite_checkedz(dists, indiv_idx_ct * sizeof(double), *outfile_ptr)) {
-	  return RET_WRITE_FAIL;
+	  goto distance_d_write_ret_WRITE_FAIL;
 	}
 	distance_print_done(0, outname, outname_end);
       }
@@ -3362,32 +3414,32 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	dist_ptr = dists;
 	ulii = 0;
 	do {
-	  uljj = (indiv_idx_ct * pct) / 100L;
+	  uljj = (indiv_idx_ct * g_pct) / 100L;
 	  for (; ulii < uljj; ulii++) {
 	    dxx = 1.0 - (*dist_ptr++) * half_marker_ct_recip;
 	    if (fwrite_checked(&dxx, sizeof(double), *outfile2_ptr)) {
-	      return RET_WRITE_FAIL;
+	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  }
-	  printf("\rWriting... %d%%", pct++);
+	  printf("\rWriting... %d%%", g_pct++);
 	  fflush(stdout);
-	} while (pct <= 100);
+	} while (g_pct <= 100);
 	distance_print_done(1, outname, outname_end);
       }
       if (write_1mibs_matrix) {
 	dist_ptr = dists;
 	ulii = 0;
 	do {
-	  uljj = (indiv_idx_ct * pct) / 100L;
+	  uljj = (indiv_idx_ct * g_pct) / 100L;
 	  for (; ulii < uljj; ulii++) {
 	    dxx = (*dist_ptr++) * half_marker_ct_recip;
 	    if (fwrite_checked(&dxx, sizeof(double), *outfile3_ptr)) {
-	      return RET_WRITE_FAIL;
+	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  }
-	  printf("\rWriting... %d%%", pct++);
+	  printf("\rWriting... %d%%", g_pct++);
 	  fflush(stdout);
-	} while (pct <= 100);
+	} while (g_pct <= 100);
 	distance_print_done(2, outname, outname_end);
       }
     } else {
@@ -3399,35 +3451,35 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	dist_ptr = dists;
 	for (ii = first_indiv_idx; ii < end_indiv_idx; ii++) {
 	  if (fwrite_checkedz(dist_ptr, ii * sizeof(double), *outfile_ptr)) {
-	    return RET_WRITE_FAIL;
+	    goto distance_d_write_ret_WRITE_FAIL;
 	  }
 	  dist_ptr = &(dist_ptr[ii]);
 	  if (shape == DISTANCE_SQ0) {
 	    if (fwrite_checkedz(membuf, (indiv_ct - ii) * sizeof(double), *outfile_ptr)) {
-	      return RET_WRITE_FAIL;
+	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
 	    // square matrix, no need to handle parallel case
 	    if (fwrite_checked(&dxx, sizeof(double), *outfile_ptr)) {
-	      return RET_WRITE_FAIL;
+	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
 	      if (fwrite_checked(&(dists[(ulii * (ulii - 1)) / 2 + ii]), sizeof(double), *outfile_ptr)) {
-		return RET_WRITE_FAIL;
+		goto distance_d_write_ret_WRITE_FAIL;
 	      }
 	    }
 	  }
-	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)pct * (end_indiv_idx - first_indiv_idx)) {
-	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
-	    printf("\rWriting... %d%%", pct++);
+	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)g_pct * (end_indiv_idx - first_indiv_idx)) {
+	    g_pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
+	    printf("\rWriting... %d%%", g_pct++);
 	    fflush(stdout);
 	  }
 	}
 	if (fclose_null(outfile_ptr)) {
-	  return RET_WRITE_FAIL;
+	  goto distance_d_write_ret_WRITE_FAIL;
 	}
 	distance_print_done(0, outname, outname_end);
-	pct = 1;
+	g_pct = 1;
       }
       if (write_ibs_matrix) {
 	dist_ptr = dists;
@@ -3437,37 +3489,37 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  for (jj = 0; jj < ii; jj++) {
 	    dxx = 1.0 - (*dist_ptr++) * half_marker_ct_recip;
 	    if (fwrite_checked(&dxx, sizeof(double), *outfile2_ptr)) {
-	      return RET_WRITE_FAIL;
+	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  }
 	  if (shape == DISTANCE_SQ0) {
 	    if (fwrite_checkedz(membuf, (indiv_ct - ii) * sizeof(double), *outfile2_ptr)) {
-	      return RET_WRITE_FAIL;
+	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
 	    // square matrix
 	    if (fwrite_checked(&dyy, sizeof(double), *outfile2_ptr)) {
-	      return RET_WRITE_FAIL;
+	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
 	      dxx = 1.0 - dists[(ulii * (ulii - 1)) / 2 + ii] * half_marker_ct_recip;
 	      if (fwrite_checked(&dxx, sizeof(double), *outfile2_ptr)) {
-		return RET_WRITE_FAIL;
+		goto distance_d_write_ret_WRITE_FAIL;
 	      }
 	    }
 	  }
-	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)pct * (end_indiv_idx - first_indiv_idx)) {
-	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
-	    printf("\rWriting... %d%%", pct++);
+	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)g_pct * (end_indiv_idx - first_indiv_idx)) {
+	    g_pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
+	    printf("\rWriting... %d%%", g_pct++);
 	    fflush(stdout);
 	  }
 	}
 	membuf[1] = '0';
 	if (fclose_null(outfile2_ptr)) {
-	  return RET_WRITE_FAIL;
+	  goto distance_d_write_ret_WRITE_FAIL;
 	}
 	distance_print_done(1, outname, outname_end);
-	pct = 1;
+	g_pct = 1;
       }
       if (write_1mibs_matrix) {
 	dist_ptr = dists;
@@ -3476,254 +3528,168 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  for (jj = 0; jj < ii; jj++) {
 	    dxx = (*dist_ptr++) * half_marker_ct_recip;
 	    if (fwrite_checked(&dxx, sizeof(double), *outfile3_ptr)) {
-	      return RET_WRITE_FAIL;
+	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  }
 	  if (shape == DISTANCE_SQ0) {
 	    if (fwrite_checkedz(membuf, (indiv_ct - ii) * sizeof(double), *outfile3_ptr)) {
-	      return RET_WRITE_FAIL;
+	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	  } else {
 	    // square matrix
 	    if (fwrite_checked(&dyy, sizeof(double), *outfile3_ptr)) {
-	      return RET_WRITE_FAIL;
+	      goto distance_d_write_ret_WRITE_FAIL;
 	    }
 	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
 	      dxx = dists[(ulii * (ulii - 1)) / 2 + ii] * half_marker_ct_recip;
 	      if (fwrite_checked(&dxx, sizeof(double), *outfile3_ptr)) {
-		return RET_WRITE_FAIL;
+		goto distance_d_write_ret_WRITE_FAIL;
 	      }
 	    }
 	  }
-	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)pct * (end_indiv_idx - first_indiv_idx)) {
-	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
-	    printf("\rWriting... %d%%", pct++);
+	  if ((ii - first_indiv_idx) * 100LL >= (int64_t)g_pct * (end_indiv_idx - first_indiv_idx)) {
+	    g_pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
+	    printf("\rWriting... %d%%", g_pct++);
 	    fflush(stdout);
 	  }
 	}
 	if (fclose_null(outfile3_ptr)) {
-	  return RET_WRITE_FAIL;
+	  goto distance_d_write_ret_WRITE_FAIL;
 	}
 	distance_print_done(2, outname, outname_end);
       }
     }
   } else {
-    if (distance_open(outfile_ptr, outfile2_ptr, outfile3_ptr, outname, outname_end, "", "w", dist_calc_type, parallel_idx, parallel_tot)) {
-      return RET_OPEN_FAIL;
-    }
-    outfile = *outfile_ptr;
+    g_dw_min_indiv = first_indiv_idx;
+    g_dw_max_indiv1idx = end_indiv_idx;
+    g_dw_dists = dists;
+    g_dw_half_marker_ct_recip = half_marker_ct_recip;
     if (write_alcts) {
-      if (first_indiv_idx) {
-	ii = first_indiv_idx;
+      g_dw_indiv1idx = first_indiv_idx;
+      g_dw_indiv2idx = 0;
+      g_dw_dist_ptr = dists;
+      if (dist_calc_type & DISTANCE_GZ) {
+	if (parallel_tot > 1) {
+	  sprintf(outname_end, ".dist.%u.gz", parallel_idx + 1);
+	} else {
+	  sprintf(outname_end, ".dist.gz");
+	}
+	if (shape == DISTANCE_SQ) {
+	  parallel_compress(outname, distance_d_write_sq_emitn);
+	} else if (shape == DISTANCE_SQ0) {
+	  parallel_compress(outname, distance_d_write_sq0_emitn);
+	} else {
+	  parallel_compress(outname, distance_d_write_tri_emitn);
+	}
       } else {
-	if (shape == DISTANCE_SQ0) {
-	  if (fwrite_checked(&(membuf[1]), indiv_ct * 2 - 1, outfile)) {
-	    return RET_WRITE_FAIL;
-	  }
-	  if (putc('\n', outfile) == EOF) {
-	    return RET_WRITE_FAIL;
-	  }
-	} else if (shape == DISTANCE_SQ) {
-	  putc('0', outfile);
-	  wbuf[0] = '\t';
-	  for (ulii = 1; ulii < indiv_ct; ulii++) {
-	    cptr = double_g_write(dists[(ulii * (ulii - 1)) / 2], &(wbuf[1]));
-	    fwrite(wbuf, 1, cptr - wbuf, outfile);
-	  }
-	  if (putc('\n', outfile) == EOF) {
-	    return RET_WRITE_FAIL;
-	  }
-	}
-	ii = 1;
-      }
-      dist_ptr = dists;
-      for (; ii < end_indiv_idx; ii++) {
-	cptr = double_g_write(*dist_ptr++, wbuf);
-	fwrite(wbuf, 1, cptr - wbuf, outfile);
-	wbuf[0] = '\t';
-	for (jj = 1; jj < ii; jj++) {
-	  cptr = double_g_write(*dist_ptr++, &(wbuf[1]));
-	  fwrite(wbuf, 1, cptr - wbuf, outfile);
-	}
-	if (shape == DISTANCE_SQ0) {
-	  if (fwrite_checkedz(membuf, (indiv_ct - ii) * 2, outfile)) {
-	    return RET_WRITE_FAIL;
-	  }
-	  if ((ii - first_indiv_idx) * 100LL >= ((int64_t)pct * (end_indiv_idx - first_indiv_idx))) {
-	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
-	    printf("\rWriting... %d%%", pct++);
-	    fflush(stdout);
-	  }
+	if (parallel_tot > 1) {
+	  sprintf(outname_end, ".dist.%u", parallel_idx + 1);
 	} else {
-	  if (shape == DISTANCE_SQ) {
-	    putc('\t', outfile);
-	    putc('0', outfile);
-	    wbuf[0] = '\t';
-	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      cptr = double_g_write(dists[((ulii * (ulii - 1)) / 2) + ii], &(wbuf[1]));
-	      fwrite(wbuf, 1, cptr - wbuf, outfile);
-	    }
-	  }
-	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
-	    pct = (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
-	    printf("\rWriting... %d%%", pct++);
-	    fflush(stdout);
-	  }
+	  sprintf(outname_end, ".dist");
 	}
-	if (putc('\n', outfile) == EOF) {
-	  return RET_WRITE_FAIL;
-	}
-      }
-      if (fclose_null(outfile_ptr)) {
-	return RET_WRITE_FAIL;
-      }
-      distance_print_done(0, outname, outname_end);
-      pct = 1;
-    }
-    if (write_ibs_matrix) {
-      outfile = *outfile2_ptr;
-      membuf[1] = '1';
-      if (first_indiv_idx) {
-	ii = first_indiv_idx;
-      } else {
-	if (shape == DISTANCE_SQ0) {
-	  if (fwrite_checked(&(membuf[1]), indiv_ct * 2 - 1, outfile)) {
-	    return RET_WRITE_FAIL;
-	  }
-	} else if (shape == DISTANCE_SQ) {
-	  putc('1', outfile);
-	  wbuf[0] = '\t';
-	  for (ulii = 1; ulii < indiv_ct; ulii++) {
-	    cptr = double_g_write(1.0 - dists[(ulii * (ulii - 1)) / 2] * half_marker_ct_recip, &(wbuf[1]));
-	    fwrite(wbuf, 1, cptr - wbuf, outfile);
-	  }
+	if (shape == DISTANCE_SQ) {
+	  retval = write_uncompressed(outname, distance_d_write_sq_emitn);
+	} else if (shape == DISTANCE_SQ0) {
+	  retval = write_uncompressed(outname, distance_d_write_sq0_emitn);
 	} else {
-	  putc('1', outfile);
+	  retval = write_uncompressed(outname, distance_d_write_tri_emitn);
 	}
-	if (putc('\n', outfile) == EOF) {
-	  return RET_WRITE_FAIL;
-	}
-	ii = 1;
-      }
-      dist_ptr = dists;
-      for (; ii < end_indiv_idx; ii++) {
-	cptr = double_g_write(1.0 - (*dist_ptr++) * half_marker_ct_recip, wbuf);
-	if (fwrite_checked(wbuf, cptr - wbuf, outfile)) {
-	  return RET_WRITE_FAIL;
-	}
-	wbuf[0] = '\t';
-	for (jj = 1; jj < ii; jj++) {
-	  cptr = double_g_write(1.0 - (*dist_ptr++) * half_marker_ct_recip, &(wbuf[1]));
-	  fwrite(wbuf, 1, cptr - wbuf, outfile);
-	}
-	if (shape == DISTANCE_SQ0) {
-	  if (fwrite_checkedz(membuf, (indiv_ct - ii) * 2, outfile)) {
-	    return RET_WRITE_FAIL;
-	  }
-	  if ((ii - first_indiv_idx) * 100LL >= ((int64_t)pct * (end_indiv_idx - first_indiv_idx))) {
-	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
-	    printf("\rWriting... %d%%", pct++);
-	    fflush(stdout);
-	  }
-	} else {
-	  putc('\t', outfile);
-	  putc('1', outfile);
-	  if (shape == DISTANCE_SQ) {
-	    wbuf[0] = '\t';
-	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      cptr = double_g_write(1.0 - dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip, &(wbuf[1]));
-	      fwrite(wbuf, 1, cptr - wbuf, outfile);
-	    }
-	  }
-	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
-	    pct = (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
-	    printf("\rWriting... %d%%", pct++);
-	    fflush(stdout);
-	  }
-	}
-	if (putc('\n', outfile) == EOF) {
-	  return RET_WRITE_FAIL;
+	if (retval) {
+	  goto distance_d_write_ret_1;
 	}
       }
-      membuf[1] = '0';
-      if (fclose_null(outfile2_ptr)) {
-	return RET_WRITE_FAIL;
-      }
-      distance_print_done(1, outname, outname_end);
-      pct = 1;
+      sprintf(logbuf, "\rDistances (allele counts) written to %s.\n", outname);
+      logprintb();
+      g_pct = 1;
     }
     if (write_1mibs_matrix) {
-      outfile = *outfile3_ptr;
-      if (first_indiv_idx) {
-	ii = first_indiv_idx;
-      } else {
-	if (shape == DISTANCE_SQ0) {
-	  if (fwrite_checked(&(membuf[1]), indiv_ct * 2 - 1, outfile)) {
-	    return RET_WRITE_FAIL;
-	  }
-	  if (putc('\n', outfile) == EOF) {
-	    return RET_WRITE_FAIL;
-	  }
-	} else if (shape == DISTANCE_SQ) {
-	  if (putc('0', outfile) == EOF) {
-	    return RET_WRITE_FAIL;
-	  }
-	  wbuf[0] = '\t';
-	  for (ulii = 1; ulii < indiv_ct; ulii++) {
-	    cptr = double_g_write(dists[(ulii * (ulii - 1)) / 2] * half_marker_ct_recip, &(wbuf[1]));
-	    fwrite(wbuf, 1, cptr - wbuf, outfile);
-	  }
-	  if (putc('\n', outfile) == EOF) {
-	    return RET_WRITE_FAIL;
-	  }
-	}
-	ii = 1;
-      }
-      dist_ptr = dists;
-      for (; ii < end_indiv_idx; ii++) {
-	cptr = double_g_write((*dist_ptr++) * half_marker_ct_recip, wbuf);
-	fwrite(wbuf, 1, (cptr - wbuf), outfile);
-	wbuf[0] = '\t';
-	for (jj = 1; jj < ii; jj++) {
-          cptr = double_g_write((*dist_ptr++) * half_marker_ct_recip, &(wbuf[1]));
-	  fwrite(wbuf, 1, cptr - wbuf, outfile);
-	}
-	if (shape == DISTANCE_SQ0) {
-	  if (fwrite_checkedz(membuf, (indiv_ct - ii) * 2, outfile)) {
-	    return RET_WRITE_FAIL;
-	  }
-	  if ((ii - first_indiv_idx) * 100LL >= ((int64_t)pct * (end_indiv_idx - first_indiv_idx))) {
-	    pct = ((ii - first_indiv_idx) * 100LL) / (end_indiv_idx - first_indiv_idx);
-	    printf("\rWriting... %d%%", pct++);
-	    fflush(stdout);
-	  }
+      g_dw_indiv1idx = first_indiv_idx;
+      g_dw_indiv2idx = 0;
+      g_dw_dist_ptr = dists;
+      if (dist_calc_type & DISTANCE_GZ) {
+	if (parallel_tot > 1) {
+	  sprintf(outname_end, ".mdist.%u.gz", parallel_idx + 1);
 	} else {
-	  if (shape == DISTANCE_SQ) {
-	    putc('\t', outfile);
-	    putc('0', outfile);
-	    wbuf[0] = '\t';
-	    for (ulii = ii + 1; ulii < indiv_ct; ulii++) {
-	      cptr = double_g_write(dists[((ulii * (ulii - 1)) / 2) + ii] * half_marker_ct_recip, &(wbuf[1]));
-	      fwrite(wbuf, 1, (cptr - wbuf), outfile);
-	    }
-	  }
-	  if (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100 >= indiv_idx_ct * pct) {
-	    pct = (((int64_t)ii * (ii + 1) / 2 - indiv_idx_offset) * 100) / indiv_idx_ct;
-	    printf("\rWriting... %d%%", pct++);
-	    fflush(stdout);
-	  }
+	  sprintf(outname_end, ".mdist.gz");
 	}
-	if (putc('\n', outfile) == EOF) {
-	  return RET_WRITE_FAIL;
+	if (shape == DISTANCE_SQ) {
+	  parallel_compress(outname, distance_d_write_1mibs_sq_emitn);
+	} else if (shape == DISTANCE_SQ0) {
+	  parallel_compress(outname, distance_d_write_1mibs_sq0_emitn);
+	} else {
+	  parallel_compress(outname, distance_d_write_1mibs_tri_emitn);
+	}
+      } else {
+	if (parallel_tot > 1) {
+	  sprintf(outname_end, ".mdist.%u", parallel_idx + 1);
+	} else {
+	  sprintf(outname_end, ".mdist");
+	}
+	if (shape == DISTANCE_SQ) {
+	  retval = write_uncompressed(outname, distance_d_write_1mibs_sq_emitn);
+	} else if (shape == DISTANCE_SQ0) {
+	  retval = write_uncompressed(outname, distance_d_write_1mibs_sq0_emitn);
+	} else {
+	  retval = write_uncompressed(outname, distance_d_write_1mibs_tri_emitn);
+	}
+	if (retval) {
+	  goto distance_d_write_ret_1;
 	}
       }
-      if (fclose_null(outfile3_ptr)) {
-	return RET_WRITE_FAIL;
+      sprintf(logbuf, "\rDistances (proportions) written to %s.\n", outname);
+      logprintb();
+      g_pct = 1;
+    }
+    if (write_ibs_matrix) {
+      g_dw_indiv1idx = first_indiv_idx;
+      g_dw_indiv2idx = 0;
+      g_dw_dist_ptr = dists;
+      g_dw_start_offset = ((int64_t)first_indiv_idx * (first_indiv_idx + 1)) / 2;
+      g_dw_hundredth = 1 + ((((int64_t)end_indiv_idx * (end_indiv_idx + 1)) / 2 - g_dw_start_offset) / 100);
+      if (dist_calc_type & DISTANCE_GZ) {
+	if (parallel_tot > 1) {
+	  sprintf(outname_end, ".mibs.%u.gz", parallel_idx + 1);
+	} else {
+	  sprintf(outname_end, ".mibs.gz");
+	}
+	if (shape == DISTANCE_SQ) {
+	  parallel_compress(outname, distance_d_write_ibs_sq_emitn);
+	} else if (shape == DISTANCE_SQ0) {
+	  parallel_compress(outname, distance_d_write_ibs_sq0_emitn);
+	} else {
+	  parallel_compress(outname, distance_d_write_ibs_tri_emitn);
+	}
+      } else {
+	if (parallel_tot > 1) {
+	  sprintf(outname_end, ".mibs.%u", parallel_idx + 1);
+	} else {
+	  sprintf(outname_end, ".mibs");
+	}
+	if (shape == DISTANCE_SQ) {
+	  retval = write_uncompressed(outname, distance_d_write_ibs_sq_emitn);
+	} else if (shape == DISTANCE_SQ0) {
+	  retval = write_uncompressed(outname, distance_d_write_ibs_sq0_emitn);
+	} else {
+	  retval = write_uncompressed(outname, distance_d_write_ibs_tri_emitn);
+	}
+	if (retval) {
+	  goto distance_d_write_ret_1;
+	}
       }
-      distance_print_done(2, outname, outname_end);
+      sprintf(logbuf, "\rIBS matrix written to %s.\n", outname);
+      logprintb();
     }
   }
-  return 0;
+  while (0) {
+  distance_d_write_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  distance_d_write_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+ distance_d_write_ret_1:
+  return retval;
 }
 
 void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr, int32_t exclude_arr_size) {

@@ -928,6 +928,8 @@ local void finish_jobs(void)
     free_lock(write_first);
     free_lock(compress_have);
     compress_have = NULL;
+    close(g.outd);
+    g.outd = -1;
 }
 
 /* compress all strm->avail_in bytes at strm->next_in to out->buf, updating
@@ -1201,7 +1203,7 @@ void parallel_compress(char* out_fname, uint32_t(* emitn)(uint32_t, unsigned cha
     size_t len;                     /* for various length computations */
 
     g.outf = out_fname;
-    g.outd = open(g.outf, O_CREAT | O_TRUNC | O_WRONLY, 0600);
+    g.outd = open(g.outf, O_CREAT | O_TRUNC | O_WRONLY, 0644);
 
     /* if first time or after an option change, setup the job lists */
     setup_jobs();

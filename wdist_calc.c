@@ -4699,18 +4699,19 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       g_cg_mdecell++;
       g_cg_indiv2idx++;
       if (sptr_cur >= readbuf_end) {
-	return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+	goto calc_genome_emitn_ret;
       }
     }
     g_cg_cur_line += g_indiv_ct - g_cg_indiv1idx - 1;
-    if (g_cg_cur_line * 100 >= g_cg_tot_lines * g_pct) {
-      g_pct = (g_cg_cur_line * 100) / g_cg_tot_lines;
-      printf("\rWriting... %u%%", g_pct++);
-      fflush(stdout);
-    }
     g_cg_indiv1idx++;
     g_cg_indiv2idx = g_cg_indiv1idx + 1;
   } while (g_cg_indiv1idx < g_cg_tstc);
+ calc_genome_emitn_ret:
+  if (g_cg_cur_line * 100 >= g_cg_tot_lines * g_pct) {
+    g_pct = (g_cg_cur_line * 100) / g_cg_tot_lines;
+    printf("\rWriting... %u%%", g_pct++);
+    fflush(stdout);
+  }
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
@@ -6579,7 +6580,7 @@ uint32_t calc_rel_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       *sptr_cur++ = '\t';
       g_cr_indiv2idx++;
       if (sptr_cur >= readbuf_end) {
-	return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+	goto calc_rel_tri_emitn_ret;
       }
     }
     sptr_cur = double_g_write(*g_cr_ibc_ptr++, sptr_cur);
@@ -6592,6 +6593,7 @@ uint32_t calc_rel_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     }
     g_cr_indiv2idx = 0;
   }
+ calc_rel_tri_emitn_ret:
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
@@ -6699,7 +6701,7 @@ uint32_t calc_rel_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       *sptr_cur++ = '\n';
       g_cr_indiv2idx++;
       if (sptr_cur >= readbuf_end) {
-	return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+	goto calc_rel_grm_emitn_ret;
       }
     }
     memcpy(sptr_cur, wbuf, wbuf_len);
@@ -6717,6 +6719,7 @@ uint32_t calc_rel_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     }
     g_cr_indiv2idx = 0;
   }
+ calc_rel_grm_emitn_ret:
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
@@ -7152,7 +7155,7 @@ uint32_t calc_rel_f_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       *sptr_cur++ = '\t';
       g_cr_indiv2idx++;
       if (sptr_cur >= readbuf_end) {
-	return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+	goto calc_rel_f_tri_emitn_ret;
       }
     }
     sptr_cur = float_g_write(*g_crf_ibc_ptr++, sptr_cur);
@@ -7165,6 +7168,7 @@ uint32_t calc_rel_f_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     }
     g_cr_indiv2idx = 0;
   }
+ calc_rel_f_tri_emitn_ret:
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
@@ -7705,9 +7709,6 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
-  gzFile gz_outfile = NULL;
-  gzFile gz_outfile2 = NULL;
-  gzFile gz_outfile3 = NULL;
   uint64_t dists_alloc = 0;
   uint32_t unwt_needed = 0;
   uint32_t unwt_needed_full = 0;
@@ -8208,7 +8209,7 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
 	  goto calc_distance_ret_1;
 	}
       }
-      retval = distance_d_write(&outfile, &outfile2, &outfile3, &gz_outfile, &gz_outfile2, &gz_outfile3, dist_calc_type, outname, outname_end, g_dists, g_half_marker_ct_recip, g_indiv_ct, g_thread_start[0], g_thread_start[g_thread_ct], parallel_idx, parallel_tot, g_geno);
+      retval = distance_d_write(&outfile, &outfile2, &outfile3, dist_calc_type, outname, outname_end, g_dists, g_half_marker_ct_recip, g_indiv_ct, g_thread_start[0], g_thread_start[g_thread_ct], parallel_idx, parallel_tot, g_geno);
       if (retval) {
 	goto calc_distance_ret_1;
       }
@@ -8232,9 +8233,6 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
     break;
   }
  calc_distance_ret_1:
-  gzclose_cond(gz_outfile);
-  gzclose_cond(gz_outfile2);
-  gzclose_cond(gz_outfile3);
   fclose_cond(outfile);
   fclose_cond(outfile2);
   fclose_cond(outfile3);
