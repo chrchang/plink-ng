@@ -454,20 +454,23 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uint3
   return retval;
 }
 
-void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t lower_bound, uintptr_t* perm_vec) {
-  // assumes perm_vec is initially zeroed out, and lower_bound is set to
-  // 4294967296 % tot_ct
+void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotient, uint64_t totq_magic, uint32_t totq_preshift, uint32_t totq_postshift, uint32_t totq_incr, uintptr_t* perm_vec) {
+  // assumes perm_vec is initially zeroed out, tot_quotient is
+  // 4294967296 / tot_ct, and totq_inv/totq_shift are such that
+  //   xx / tot_quotient == (xx * totq_inv) >> totq_shift.
   uint32_t num_set = 0;
+  uint32_t upper_bound = tot_ct * tot_quotient;
   uint32_t urand;
   uint32_t uii;
+  totq_postshift--; // because we always need to multiply by 2 after the divide
   if (set_ct * 2 < tot_ct) {
     fill_ulong_zero(perm_vec, 2 * (tot_ct + (BITCT - 1) / BITCT));
     for (; num_set < set_ct; num_set++) {
       do {
 	do {
 	  urand = sfmt_genrand_uint32(&sfmt);
-	} while (urand < lower_bound);
-	uii = 2 * (urand % tot_ct);
+	} while (urand >= upper_bound);
+	uii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
       } while (is_set(perm_vec, uii));
       set_bit_noct(perm_vec, uii);
     }
@@ -478,8 +481,8 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t lower_bound
       do {
 	do {
 	  urand = sfmt_genrand_uint32(&sfmt);
-	} while (urand < lower_bound);
-	uii = 2 * (urand % tot_ct);
+	} while (urand >= upper_bound);
+	uii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
       } while (!is_set(perm_vec, uii));
       clear_bit_noct(perm_vec, uii);
     }

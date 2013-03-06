@@ -1276,6 +1276,65 @@ void chrom_print_human_terminate(char* buf, uint32_t num) {
   *ss = '\0';
 }
 
+void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* pre_shiftp, uint32_t* post_shiftp, uint32_t* incrp) {
+  // Enables fast integer division by a constant not known until runtime.  See
+  // http://ridiculousfish.com/blog/posts/labor-of-division-episode-iii.html .
+  // Assumes divisor is not zero, of course.
+  uint32_t down_multiplier = 0;
+  uint32_t down_exponent = 0;
+  uint32_t has_magic_down = 0;
+  uint32_t quotient;
+  uint32_t remainder;
+  uint32_t ceil_log_2_d;
+  uint32_t exponent;
+  uint32_t uii;
+  if (divisor & (divisor - 1)) {
+    quotient = 2147483648U / divisor;
+    remainder = 2147483648U - (quotient * divisor);
+    ceil_log_2_d = 32 - __builtin_clz(divisor);
+    for (exponent = 0; ; exponent++) {
+      if (remainder >= divisor - remainder) {
+        quotient = quotient * 2 + 1;
+	remainder = remainder * 2 - divisor;
+      } else {
+	quotient = quotient * 2;
+	remainder = remainder * 2;
+      }
+      if ((exponent >= ceil_log_2_d) || (divisor - remainder) <= (1U << exponent)) {
+	break;
+      }
+      if ((!has_magic_down) && (remainder <= (1U << exponent))) {
+	has_magic_down = 1;
+	down_multiplier = quotient;
+	down_exponent = exponent;
+      }
+    }
+    if (exponent < ceil_log_2_d) {
+      *multp = quotient + 1;
+      *pre_shiftp = 0;
+      *post_shiftp = 32 + exponent;
+      *incrp = 0;
+      return;
+    } else if (divisor & 1) {
+      *multp = down_multiplier;
+      *pre_shiftp = 0;
+      *post_shiftp = 32 + down_exponent;
+      *incrp = 1;
+      return;
+    } else {
+      *pre_shiftp = __builtin_ctz(divisor);
+      magic_num(divisor >> (*pre_shiftp), multp, &uii, post_shiftp, incrp);
+      return;
+    }
+  } else {
+    // power of 2
+    *multp = 1;
+    *pre_shiftp = 0;
+    *post_shiftp = __builtin_ctz(divisor);
+    *incrp = 0;
+  }
+}
+
 void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr) {
   uint32_t maj = loc / BITCT;
   uintptr_t min = ONELU << (loc % BITCT);
@@ -3823,12 +3882,20 @@ uint32_t set_default_jackknife_d(uint32_t ct) {
 void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm_idx, uintptr_t perm_ct, uintptr_t* perm_buf) {
   uintptr_t tot_ctl = (tot_ct + (BITCT - 1)) / BITCT;
   uintptr_t tot_rem = tot_ct & (BITCT - 1);
-  uint32_t lower_bound = (uint32_t)(4294967296LLU % ((uint64_t)tot_ct));
+  uint32_t tot_quotient = (uint32_t)(4294967296LLU / tot_ct);
+  uint32_t upper_bound = tot_ct * tot_quotient;
   uintptr_t uljj = perm_ct - perm_idx;
+  uint32_t totq_preshift;
+  uint64_t totq_magic;
+  uint32_t totq_postshift;
+  uint32_t totq_incr;
   uintptr_t* pbptr;
   uint32_t num_set;
   uint32_t urand;
   uintptr_t ulii;
+  // seeing as how we're gonna divide by the same number a billion times or so,
+  // it just might be worth optimizing that division...
+  magic_num(tot_quotient, &totq_magic, &totq_preshift, &totq_postshift, &totq_incr);
   if (set_ct * 2 < tot_ct) {
     for (ulii = 0; ulii < tot_ctl; ulii++) {
       fill_ulong_zero(&(perm_buf[perm_idx + (ulii * perm_ct)]), uljj);
@@ -3839,8 +3906,9 @@ void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm
 	do {
 	  do {
 	    urand = sfmt_genrand_uint32(&sfmt);
-	  } while (urand < lower_bound);
-	  ulii = urand % tot_ct;
+	  } while (urand >= upper_bound);
+	  // this is identical to ulii = urand / tot_quotient
+	  ulii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
 	  uljj = ulii / BITCT;
 	  ulii &= (BITCT - 1);
 	} while ((pbptr[uljj * perm_ct] >> ulii) & 1);
@@ -3859,8 +3927,8 @@ void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm
 	do {
 	  do {
 	    urand = sfmt_genrand_uint32(&sfmt);
-	  } while (urand < lower_bound);
-	  ulii = urand % tot_ct;
+	  } while (urand >= upper_bound);
+	  ulii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
 	  uljj = ulii / BITCT;
 	  ulii &= (BITCT - 1);
 	} while (!((pbptr[uljj * perm_ct] >> ulii) & 1));

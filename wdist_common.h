@@ -599,6 +599,8 @@ static inline void read_next_terminate(char* target, char* source) {
 
 void chrom_print_human_terminate(char* buf, uint32_t num);
 
+void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* pre_shiftp, uint32_t* post_shiftp, uint32_t* incrp);
+
 static inline void set_bit_noct(uintptr_t* exclude_arr, uint32_t loc) {
   exclude_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
