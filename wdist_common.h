@@ -547,6 +547,8 @@ static inline void copy_nse(char* target, char* source) {
 
 void copy_item(char* writebuf, uint32_t* offset, char** prev_item_ptr);
 
+char* fw_strcpy(uint32_t min_width, char* source, char* dest);
+
 static inline void intprint2(char* buf, uint32_t num) {
   uint32_t quotient;
   if (num < 10) {
@@ -562,6 +564,10 @@ static inline void intprint2(char* buf, uint32_t num) {
 char* uint32_write(uint32_t uii, char* start);
 
 char* uint32_writew7(uint32_t uii, char* start);
+
+char* uint32_writew8(uint32_t uii, char* start);
+
+char* uint32_writew10(uint32_t uii, char* start);
 
 char* double_e_write(double dxx, char* start);
 
@@ -589,6 +595,8 @@ static inline char* width_force(uint32_t min_width, char* startp, char* endp) {
     return &(startp[min_width]);
   }
 }
+
+char* double_g_writewx4(double dxx, uint32_t min_width, char* start);
 
 static inline void read_next_terminate(char* target, char* source) {
   while (!is_space_or_eoln(*source)) {

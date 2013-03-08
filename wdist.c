@@ -4215,7 +4215,7 @@ int32_t hardy_report_write_line(FILE* outfile, char* prefix_buf, uint32_t prefix
   uint32_t denom;
   double drecip;
   double minor_freq;
-  fwrite(prefix_buf, prefix_len, 1, outfile);
+  fwrite(prefix_buf, 1, prefix_len, outfile);
   if (reverse) {
     uii = sprintf(midbuf_ptr, "%u/%u/%u ", hh_ct, lh_ct, ll_ct);
   } else {

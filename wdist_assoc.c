@@ -186,22 +186,30 @@ void single_marker_cc_3freqs(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t
 }
 
 static inline void adjust_print(FILE* outfile, double pval) {
+  char wbuf[16];
+  char* wpos;
   if (pval == 0) {
     fputs("       INF ", outfile);
   } else if (pval < 0) {
     fputs("        NA ", outfile);
   } else {
-    fprintf(outfile, "%10.4g ", pval);
+    wpos = double_g_writewx4(pval, 10, wbuf);
+    *wpos = ' ';
+    fwrite(wbuf, 1, 1 + (wpos - wbuf), outfile);
   }
 }
 
 static inline void adjust_print_log10(FILE* outfile, double pval) {
+  char wbuf[16];
+  char* wpos;
   if (pval == 0) {
     fputs("       INF ", outfile);
   } else if (pval < 0) {
     fputs("        NA ", outfile);
   } else if (pval < 1) {
-    fprintf(outfile, "%10.4g ", -log10(pval));
+    wpos = double_g_writewx4(-log10(pval), 10, wbuf);
+    *wpos = ' ';
+    fwrite(wbuf, 1, 1 + (wpos - wbuf), outfile);
   } else {
     fputs("         0 ", outfile);
   }
@@ -553,7 +561,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uint32_t pct = 0;
   uint32_t perm_pass_idx = 0;
   uint32_t mu_table[MODEL_BLOCKSIZE];
-  char wformat[64];
+  char wprefix[5];
+  char* wptr;
   uintptr_t marker_ctl;
   unsigned char* wkspace_mark2;
   char* outname_end2;
@@ -702,11 +711,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     if (putc('\n', outfile) == EOF) {
       goto model_assoc_ret_WRITE_FAIL;
     }
-    if (max_marker_allele_len == 1) {
-      sprintf(wformat, "     %%%us %%10u    %%c ", plink_maxsnp);
-    } else {
-      sprintf(wformat, "     %%%us %%10u %%4s ", plink_maxsnp);
-    }
+    memset(wprefix, 32, 5);
   } else {
     uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0);
     if (uii) {
@@ -757,11 +762,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     }
     if (fputs("           P\n", outfile) == EOF) {
       goto model_assoc_ret_WRITE_FAIL;
-    }
-    if (max_marker_allele_len == 1) {
-      sprintf(wformat, "     %%%us    %%c    %%c  ", plink_maxsnp);
-    } else {
-      sprintf(wformat, "     %%%us %%4s %%4s  ", plink_maxsnp);
     }
   }
   marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
@@ -940,7 +940,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  }
 	  load_ctrl_ct = load_indiv_ct - load_case_ct;
 	}
-	intprint2(&(wformat[2]), uii);
+	intprint2(&(wprefix[2]), uii);
       } else if (model_maxt) {
 	// todo: copy LD table, etc.
 	// could conditionally do this for adaptive permutation, but I doubt
@@ -1084,79 +1084,87 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      if ((pval <= pfilter) || (pfilter == 1.0)) {
 		a1ptr = &(marker_alleles[(2 * marker_uidx2 + is_reverse) * max_marker_allele_len]);
 		a2ptr = &(marker_alleles[(2 * marker_uidx2 + 1 - is_reverse) * max_marker_allele_len]);
+		memcpy(tbuf, wprefix, 5);
+		wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), &(tbuf[5]));
+		*wptr++ = ' ';
+		wptr = uint32_writew10(marker_pos[marker_uidx2], wptr);
 		if (max_marker_allele_len == 1) {
-		  if (fprintf(outfile, wformat, &(marker_ids[marker_uidx2 * max_marker_id_len]), marker_pos[marker_uidx2], *a1ptr) < 0) {
-		    goto model_assoc_ret_WRITE_FAIL;
-		  }
-		  if (umm + ukk) {
-		    if (assoc_counts) {
-		      fprintf(outfile, "%8u ", umm);
-		    } else {
-		      fprintf(outfile, "%8.4g ", da1 / (da1 + da2));
-		    }
-		  } else {
-		    fputs("      NA ", outfile);
-		  }
-		  if (ujj + uii) {
-		    if (assoc_counts) {
-		      fprintf(outfile, "%8u    ", ujj);
-		    } else {
-		      fprintf(outfile, "%8.4g    ", du1 / (du1 + du2));
-		    }
-		  } else {
-		    fputs("      NA    ", outfile);
-		  }
-		  putc(*a2ptr, outfile);
+		  memset(wptr, 32, 4);
+		  wptr[4] = *a1ptr;
+		  wptr = &(wptr[5]);
 		} else {
-		  if (fprintf(outfile, wformat, &(marker_ids[marker_uidx2 * max_marker_id_len]), marker_pos[marker_uidx2], a1ptr) < 0) {
-		    goto model_assoc_ret_WRITE_FAIL;
-		  }
-		  if (umm + ukk) {
-		    if (assoc_counts) {
-		      fprintf(outfile, "%8u ", umm);
-		    } else {
-		      fprintf(outfile, "%8.4g ", da1 / (da1 + da2));
-		    }
-		  } else {
-		    fputs("      NA ", outfile);
-		  }
-		  if (ujj + uii) {
-		    if (assoc_counts) {
-		      fprintf(outfile, "%8u", ujj);
-		    } else {
-		      fprintf(outfile, "%8.4g", du1 / (du1 + du2));
-		    }
-		  } else {
-		    fputs("      NA", outfile);
-		  }
-		  fprintf(outfile, " %4s", a2ptr);
+		  *wptr = ' ';
+		  wptr = fw_strcpy(4, a1ptr, &(wptr[1]));
 		}
+		*wptr++ = ' ';
+		if (umm + ukk) {
+		  if (assoc_counts) {
+		    wptr = uint32_writew8(umm, wptr);
+		  } else {
+		    wptr = double_g_writewx4(da1 / (da1 + da2), 8, wptr);
+		  }
+		  *wptr++ = ' ';
+		} else {
+		  memcpy(wptr, "      NA ", 9);
+		  wptr = &(wptr[9]);
+		}
+		if (ujj + uii) {
+		  if (assoc_counts) {
+		    wptr = uint32_writew8(ujj, wptr);
+		  } else {
+		    wptr = double_g_writewx4(du1 / (du1 + du2), 8, wptr);
+		  }
+		} else {
+		  memcpy(wptr, "      NA", 8);
+		  wptr = &(wptr[8]);
+		}
+		if (max_marker_allele_len == 1) {
+		  memset(wptr, 32, 4);
+		  wptr[4] = *a2ptr;
+		  wptr = &(wptr[5]);
+		} else {
+		  *wptr = ' ';
+		  wptr = fw_strcpy(4, a2ptr, &(wptr[1]));
+		}
+		*wptr++ = ' ';
 		if (model_fisher) {
-		  fprintf(outfile, " %12.4g ", pval);
+		  wptr = double_g_writewx4(pval, 12, wptr);
 		} else {
 		  if (pval > -1) {
-		    fprintf(outfile, " %12.4g %12.4g ", *osptr, pval);
+		    wptr = double_g_writewx4(*osptr, 12, wptr);
+		    *wptr++ = ' ';
+		    wptr = double_g_writewx4(pval, 12, wptr);
 		  } else {
-		    fputs("           NA           NA ", outfile);
+		    memcpy(wptr, "          NA           NA", 25);
+		    wptr = &(wptr[25]);
 		  }
 		}
+		*wptr++ = ' ';
 		if (du1 * da2 == 0.0) {
-		  fputs("          NA ", outfile);
+		  memcpy(wptr, "          NA", 12);
+		  wptr = &(wptr[12]);
 		  if (display_ci) {
-		    fputs("          NA           NA           NA ", outfile);
+		    memcpy(wptr, "           NA           NA           NA", 39);
+		    wptr = &(wptr[39]);
 		  }
 		} else {
-		  fprintf(outfile, "%12.4g ", *ooptr);
+		  wptr = double_g_writewx4(*ooptr, 12, wptr);
 		  if (display_ci) {
 		    dxx = log(*ooptr);
 		    dyy = sqrt(1 / da1 + 1 / da2 + 1 / du1 + 1 / du2);
 		    dzz = ci_zt * dyy;
 		    dww = exp(dxx - dzz);
 		    dvv = exp(dxx + dzz);
-		    fprintf(outfile, "%12.4g %12.4g %12.4g ", dyy, dww, dvv);
+		    *wptr++ = ' ';
+		    wptr = double_g_writewx4(dyy, 12, wptr);
+		    *wptr++ = ' ';
+		    wptr = double_g_writewx4(dww, 12, wptr);
+		    *wptr++ = ' ';
+		    wptr = double_g_writewx4(dvv, 12, wptr);
 		  }
 		}
-		if (putc('\n', outfile) == EOF) {
+		memcpy(wptr, " \n", 2);
+		if (fwrite_checked(tbuf, 2 + (wptr - tbuf), outfile)) {
 		  goto model_assoc_ret_WRITE_FAIL;
 		}
 	      }
@@ -1183,7 +1191,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      du1 = ukk;
 	      du12 = ujj;
 	      du2 = uii;
-	      // invalid?
+	      // upp = [is invalid?]
 	      upp = (uoo < model_cell_ct) || (unn < model_cell_ct) || (umm < model_cell_ct) || (ukk < model_cell_ct) || (ujj < model_cell_ct) || (uii < model_cell_ct);
 
 	      dxx = da1 + da12 + da2; // obs_A
@@ -1206,11 +1214,23 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 
 	      a1ptr = &(marker_alleles[(2 * marker_uidx2 + is_reverse) * max_marker_allele_len]);
 	      a2ptr = &(marker_alleles[(2 * marker_uidx2 + 1 - is_reverse) * max_marker_allele_len]);
+	      memcpy(tbuf, wprefix, 5);
+	      wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), &(tbuf[5]));
 	      if (max_marker_allele_len == 1) {
-		uss = sprintf(tbuf, wformat, &(marker_ids[marker_uidx2 * max_marker_id_len]), *a1ptr, *a2ptr);
+		memset(wptr, 32, 4);
+		wptr[4] = *a1ptr;
+		memset(&(wptr[5]), 32, 4);
+		wptr[9] = *a2ptr;
+		wptr = &(wptr[10]);
 	      } else {
-		uss = sprintf(tbuf, wformat, &(marker_ids[marker_uidx2 * max_marker_id_len]), a1ptr, a2ptr);
+		*wptr++ = ' ';
+		wptr = fw_strcpy(4, a1ptr, wptr);
+		*wptr++ = ' ';
+		wptr = fw_strcpy(4, a2ptr, wptr);
 	      }
+	      memset(wptr, 32, 2);
+	      wptr = &(wptr[2]);
+	      uss = (wptr - tbuf); // stopgap
 	      if (!model_trendonly) {
 		memcpy(&(tbuf[uss]), "   GENO          ", 17);
 		uqq = uss + 8;
