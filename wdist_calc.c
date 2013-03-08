@@ -5955,6 +5955,67 @@ int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_
   return 0;
 }
 
+uint32_t g_rcb_row;
+uint32_t g_rcb_col;
+uint32_t g_rcb_new_row;
+uint32_t g_rcb_new_col;
+uint32_t g_rcb_indiv_ct;
+uint64_t g_rcb_progress;
+uint64_t g_rcb_hundredth;
+gzFile g_rcb_cur_gzfile;
+int32_t* g_rcb_rel_ct_arr;
+
+uint32_t rel_cutoff_batch_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  char wbuf[16];
+  char* cptr;
+  uint32_t wbuf_ct;
+  uint32_t uii;
+  while (g_rcb_row < g_rcb_indiv_ct) {
+    if (g_rcb_rel_ct_arr[g_rcb_row] == -1) {
+      for (uii = 0; uii <= g_rcb_row; uii++) {
+	gzgets(g_rcb_cur_gzfile, tbuf, MAXLINELEN);
+      }
+    } else {
+      cptr = uint32_write(g_rcb_new_row, wbuf);
+      *cptr = '\t';
+      wbuf_ct = 1 + ((uintptr_t)(cptr - wbuf));
+      while (g_rcb_col <= g_rcb_row) {
+        gzgets(g_rcb_cur_gzfile, tbuf, MAXLINELEN);
+	if (g_rcb_rel_ct_arr[g_rcb_col++] != -1) {
+	  memcpy(sptr_cur, wbuf, wbuf_ct);
+	  sptr_cur += wbuf_ct;
+	  sptr_cur = uint32_write(++g_rcb_new_col, sptr_cur);
+	  *sptr_cur++ = '\t';
+	  cptr = next_item_mult(tbuf, 2);
+          uii = strlen(cptr);
+          memcpy(sptr_cur, cptr, uii);
+	  sptr_cur += uii;
+	  if (sptr_cur >= readbuf_end) {
+	    goto rel_cutoff_batch_emitn_ret;
+	  }
+	}
+      }
+      g_rcb_new_row++;
+      g_rcb_new_col = 0;
+    }
+    g_rcb_row++;
+    g_rcb_progress += g_rcb_row;
+    if (g_rcb_progress >= g_pct * g_rcb_hundredth) {
+      if (g_pct > 10) {
+	putchar('\b');
+      }
+      g_pct = 1 + (g_rcb_progress / g_rcb_hundredth);
+      printf("\b\b%u%%", g_pct - 1);
+      fflush(stdout);
+    }
+    g_rcb_col = 0;
+  }  
+ rel_cutoff_batch_emitn_ret:
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
 int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double rel_cutoff, int32_t rel_calc_type) {
   // Specialized --rel-cutoff usable on larger files.
   char* grmname_end = (char*)memchr(grmname, 0, FNAMESIZE);
@@ -5966,11 +6027,9 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
   unsigned char* wkspace_mark = wkspace_base;
   uint32_t indivs_excluded = 0;
   uint32_t exactly_one_rel_ct = 0;
-  char wbuf[64];
   uintptr_t* compact_rel_table;
   uintptr_t* rtptr;
   char* bufptr;
-  char* bufptr2;
   uint64_t ullii;
   uint64_t ulljj;
   uintptr_t tot_words;
@@ -5989,10 +6048,10 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
   int32_t* rel_ct_arr;
   double dxx;
   int32_t retval;
-  uint32_t pct;
   int32_t kk;
   int32_t mm;
   int32_t cur_prune;
+  g_rcb_cur_gzfile = NULL;
   memcpy(grmname_end, ".grm.id", 8);
   if (fopen_checked(&idfile, grmname, "r")) {
     goto rel_cutoff_batch_ret_OPEN_FAIL;
@@ -6043,8 +6102,8 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
   fflush(stdout);
   row = 0;
   col = 0;
-  for (pct = 1; pct <= 100; pct++) {
-    wl_floor = (((uint64_t)tot_words) * (100 - pct)) / 100;
+  for (g_pct = 1; g_pct <= 100; g_pct++) {
+    wl_floor = (((uint64_t)tot_words) * (100 - g_pct)) / 100;
     while (words_left > wl_floor) {
       cur_word = 0;
       if (--words_left) {
@@ -6084,11 +6143,11 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
       }
       *rtptr++ = cur_word;
     }
-    if (pct < 100) {
-      if (pct > 10) {
+    if (g_pct < 100) {
+      if (g_pct > 10) {
 	putchar('\b');
       }
-      printf("\b\b%u%%", pct);
+      printf("\b\b%u%%", g_pct);
       fflush(stdout);
     }
   }
@@ -6296,61 +6355,31 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
   logprintb();
   if (rel_calc_type & REL_CALC_GRM) {
     memcpy(grmname_end, ".grm.gz", 8);
-    if (gzopen_checked(&cur_gzfile, grmname, "rb")) {
+    if (gzopen_checked(&g_rcb_cur_gzfile, grmname, "rb")) {
       goto rel_cutoff_batch_ret_OPEN_FAIL;
     }
-    if (gzbuffer(cur_gzfile, 131072)) {
+    if (gzbuffer(g_rcb_cur_gzfile, 131072)) {
       goto rel_cutoff_batch_ret_NOMEM;
     }
-
+    g_pct = 1;
+    g_rcb_row = 0;
+    g_rcb_col = 0;
+    g_rcb_new_row = 1;
+    g_rcb_new_col = 0;
+    g_rcb_indiv_ct = indiv_ct;
+    g_rcb_progress = 0;
+    g_rcb_hundredth = 1 + ((((uint64_t)indiv_ct) * (indiv_ct - 1)) / 100);
+    g_rcb_rel_ct_arr = rel_ct_arr;
+    fputs("Rewriting matrix... 0%", stdout);
+    fflush(stdout);
     if (rel_calc_type & REL_CALC_GZ) {
       memcpy(outname_end, ".grm.gz", 8);
-      if (gzopen_checked(&gz_outfile, outname, "wb")) {
-	goto rel_cutoff_batch_ret_OPEN_FAIL;
-      }
+      parallel_compress(outname, rel_cutoff_batch_emitn);
     } else {
       memcpy(outname_end, ".grm", 5);
-      if (fopen_checked(&outfile, outname, "w")) {
-	goto rel_cutoff_batch_ret_OPEN_FAIL;
-      }
-    }
-    kk = 1;
-    ullii = (((uint64_t)indiv_ct) * (indiv_ct - 1)) / 2;
-    ulljj = 0;
-    printf("Rewriting matrix... 0%%");
-    fflush(stdout);
-    pct = 1;
-    for (row = 0; row < indiv_ct; row++) {
-      if (rel_ct_arr[row] == -1) {
-	for (col = 0; col <= row; col++) {
-	  if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
-	    goto rel_cutoff_batch_ret_READ_FAIL;
-	  }
-	}
-      } else {
-	bufptr = &(wbuf[sprintf(wbuf, "%d\t", kk++)]);
-	mm = 1;
-	for (col = 0; col <= row; col++) {
-	  if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
-	    goto rel_cutoff_batch_ret_READ_FAIL;
-	  }
-	  if (rel_ct_arr[col] != -1) {
-	    bufptr2 = next_item_mult(tbuf, 2);
-	    sprintf(bufptr, "%d\t%s", mm++, bufptr2);
-	    if (flexwrite_checked(outfile, gz_outfile, wbuf, strlen(wbuf))) {
-	      goto rel_cutoff_batch_ret_WRITE_FAIL;
-	    }
-	  }
-	}
-      }
-      ulljj += row * 100;
-      if (ulljj >= pct * ullii) {
-	if (pct > 10) {
-	  putchar('\b');
-	}
-	pct = 1 + (ulljj / ullii);
-	printf("\b\b%u%%", pct - 1);
-	fflush(stdout);
+      retval = write_uncompressed(outname, rel_cutoff_batch_emitn);
+      if (retval) {
+	goto rel_cutoff_batch_ret_1;
       }
     }
     putchar('\r');
@@ -6378,9 +6407,11 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
     retval = RET_INVALID_FORMAT;
     break;
   }
+ rel_cutoff_batch_ret_1:
   fclose_cond(idfile);
   fclose_cond(outfile);
   gzclose_cond(cur_gzfile);
+  gzclose_cond(g_rcb_cur_gzfile);
   gzclose_cond(gz_outfile);
   wkspace_reset(wkspace_mark);
   return retval;

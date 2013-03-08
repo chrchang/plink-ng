@@ -590,8 +590,6 @@ char* double_write6(double dxx, char* start) {
 }
 
 char* float_write6(float dxx, char* start) {
-  // 6 sig fig number, 0.999995 <= dxx < 999999.5
-  // Just hardcoding all six cases, in the absence of a better approach...
   uint32_t uii;
   uint32_t quotient;
   uint32_t remainder;
@@ -700,17 +698,17 @@ char* double_e_write(double dxx, char* start) {
   }
   if (dxx >= 9.9999995e-1) {
     if (dxx >= 9.9999995e7) {
-      if (dxx == INFINITY) {
-	*((uint32_t*)start) = *((uint32_t*)"inf");
-	return &(start[3]);
-      }
-      if (dxx >= 9.9999995e255) {
-	dxx *= 1.0e-256;
-	xp10 |= 256;
-      }
       if (dxx >= 9.9999995e127) {
-	dxx *= 1.0e-128;
-	xp10 |= 128;
+	if (dxx == INFINITY) {
+	  *((uint32_t*)start) = *((uint32_t*)"inf");
+	  return &(start[3]);
+	} else if (dxx >= 9.9999995e255) {
+	  dxx *= 1.0e-256;
+	  xp10 |= 256;
+	} else {
+	  dxx *= 1.0e-128;
+	  xp10 |= 128;
+	}
       }
       if (dxx >= 9.9999995e63) {
 	dxx *= 1.0e-64;
@@ -744,18 +742,19 @@ char* double_e_write(double dxx, char* start) {
     sign = '+';
   } else {
     if (dxx < 9.9999995e-8) {
-      if (dxx == 0.0) {
-	memcpy(start, "0.000000e+00", 12);
-	return &(start[12]);
-      }
       // general case
-      if (dxx < 9.9999995e-256) {
-	dxx *= 1.0e256;
-	xp10 |= 256;
-      }
       if (dxx < 9.9999995e-128) {
-	dxx *= 1.0e128;
-	xp10 |= 128;
+	if (dxx == 0.0) {
+	  memcpy(start, "0.000000e+00", 12);
+	  return &(start[12]);
+	}
+	if (dxx < 9.9999995e-256) {
+	  dxx *= 1.0e256;
+	  xp10 |= 256;
+	} else {
+	  dxx *= 1.0e128;
+	  xp10 |= 128;
+	}
       }
       if (dxx < 9.9999995e-64) {
 	dxx *= 1.0e64;
@@ -819,23 +818,21 @@ char* float_e_write(float dxx, char* start) {
     dxx = -dxx;
   }
   if (dxx >= 9.9999995e-1) {
-    if (dxx >= 9.9999995e7) {
+    if (dxx >= 9.9999995e15) {
       if (dxx == INFINITY) {
 	*((uint32_t*)start) = *((uint32_t*)"inf");
 	return &(start[3]);
-      }
-      if (dxx >= 9.9999995e31) {
+      } else if (dxx >= 9.9999995e31) {
 	dxx *= 1.0e-32;
 	xp10 |= 32;
-      }
-      if (dxx >= 9.9999995e15) {
+      } else {
 	dxx *= 1.0e-16;
 	xp10 |= 16;
       }
-      if (dxx >= 9.9999995e7) {
-	dxx *= 1.0e-8;
-	xp10 |= 8;
-      }
+    }
+    if (dxx >= 9.9999995e7) {
+      dxx *= 1.0e-8;
+      xp10 |= 8;
     }
     if (dxx >= 9.9999995e3) {
       dxx *= 1.0e-4;
@@ -851,24 +848,21 @@ char* float_e_write(float dxx, char* start) {
     }
     sign = '+';
   } else {
-    if (dxx < 9.9999995e-8) {
+    if (dxx < 9.9999995e-16) {
       if (dxx == 0.0) {
 	memcpy(start, "0.000000e+00", 12);
 	return &(start[12]);
-      }
-      // general case
-      if (dxx < 9.9999995e-32) {
+      } else if (dxx < 9.9999995e-32) {
 	dxx *= 1.0e32;
 	xp10 |= 32;
-      }
-      if (dxx < 9.9999995e-16) {
+      } else {
 	dxx *= 1.0e16;
 	xp10 |= 16;
       }
-      if (dxx < 9.9999995e-8) {
-	dxx *= 100000000;
-	xp10 |= 8;
-      }
+    }
+    if (dxx < 9.9999995e-8) {
+      dxx *= 100000000;
+      xp10 |= 8;
     }
     if (dxx < 9.999995e-4) {
       dxx *= 10000;
@@ -1025,17 +1019,18 @@ char* double_g_write(double dxx, char* start) {
   }
   if (dxx < 9.999995e-5) {
     // 6 sig fig exponential notation, small
-    if (dxx == 0.0) {
-      *start = '0';
-      return &(start[1]);
-    } else if (dxx < 9.999995e-16) {
-      if (dxx < 9.999995e-256) {
-	dxx *= 1.0e256;
-	xp10 |= 256;
-      }
+    if (dxx < 9.999995e-16) {
       if (dxx < 9.999995e-128) {
-	dxx *= 1.0e128;
-	xp10 |= 128;
+	if (dxx == 0.0) {
+	  *start = '0';
+	  return &(start[1]);
+	} else if (dxx < 9.999995e-256) {
+	  dxx *= 1.0e256;
+	  xp10 |= 256;
+	} else {
+	  dxx *= 1.0e128;
+	  xp10 |= 128;
+	}
       }
       if (dxx < 9.999995e-64) {
 	dxx *= 1.0e64;
@@ -1079,17 +1074,17 @@ char* double_g_write(double dxx, char* start) {
   } else if (dxx >= 999999.5) {
     // 6 sig fig exponential notation, large
     if (dxx >= 9.999995e15) {
-      if (dxx == INFINITY) {
-	*((uint32_t*)start) = *((uint32_t*)"inf");
-	return &(start[3]);
-      }
-      if (dxx >= 9.999995e255) {
-	dxx *= 1.0e-256;
-	xp10 |= 256;
-      }
       if (dxx >= 9.999995e127) {
-	dxx *= 1.0e-128;
-	xp10 |= 128;
+	if (dxx == INFINITY) {
+	  *((uint32_t*)start) = *((uint32_t*)"inf");
+	  return &(start[3]);
+	} else if (dxx >= 9.999995e255) {
+	  dxx *= 1.0e-256;
+	  xp10 |= 256;
+	} else {
+	  dxx *= 1.0e-128;
+	  xp10 |= 128;
+	}
       }
       if (dxx >= 9.999995e63) {
 	dxx *= 1.0e-64;
@@ -1159,15 +1154,14 @@ char* float_g_write(float dxx, char* start) {
     dxx = -dxx;
   }
   if (dxx < 9.999995e-5) {
-    if (dxx == 0.0) {
-      *start = '0';
-      return &(start[1]);
-    } else if (dxx < 9.999995e-16) {
-      if (dxx < 9.999995e-32) {
+    if (dxx < 9.999995e-16) {
+      if (dxx == 0.0) {
+	*start = '0';
+	return &(start[1]);
+      } else if (dxx < 9.999995e-32) {
 	dxx *= 1.0e32;
 	xp10 |= 32;
-      }
-      if (dxx < 9.999995e-16) {
+      } else {
 	dxx *= 1.0e16;
 	xp10 |= 16;
       }
@@ -1198,12 +1192,10 @@ char* float_g_write(float dxx, char* start) {
       if (dxx == INFINITY) {
 	*((uint32_t*)start) = *((uint32_t*)"inf");
 	return &(start[3]);
-      }
-      if (dxx >= 9.999995e31) {
+      } else if (dxx >= 9.999995e31) {
 	dxx *= 1.0e-32;
 	xp10 |= 32;
-      }
-      if (dxx >= 9.999995e15) {
+      } else {
 	dxx *= 1.0e-16;
 	xp10 |= 16;
       }
@@ -1247,6 +1239,145 @@ char* float_g_write(float dxx, char* start) {
     return uint32_write6trunc((int32_t)((dxx * 1000000) + 0.5), start);
   }
 }
+
+/*
+char* double_g_writew4(double dxx, char* start) {
+  uint32_t xp10 = 0;
+  uint32_t uii;
+  if (dxx != dxx) {
+    *((uint32_t*)start) = *((uint32_t*)"nan");
+    return &(start[3]);
+  } else if (dxx < 0) {
+    *start++ = '-';
+    dxx = -dxx;
+  }
+  if (dxx < 9.9995e-5) {
+    // 4 sig fig exponential notation, small
+    if (dxx < 9.9995e-16) {
+      if (dxx < 9.9995e-128) {
+	if (dxx == 0.0) {
+	  *start = '0';
+	  return &(start[1]);
+        } else if (dxx < 9.9995e-256) {
+	  dxx *= 1.0e256;
+	  xp10 |= 256;
+	} else {
+	  dxx *= 1.0e128;
+	  xp10 |= 128;
+	}
+      }
+      if (dxx < 9.9995e-64) {
+	dxx *= 1.0e64;
+	xp10 |= 64;
+      }
+      if (dxx < 9.9995e-32) {
+	dxx *= 1.0e32;
+	xp10 |= 32;
+      }
+      if (dxx < 9.9995e-16) {
+	dxx *= 1.0e16;
+	xp10 |= 16;
+      }
+    }
+    if (dxx < 9.9995e-8) {
+      dxx *= 100000000;
+      xp10 |= 8;
+    }
+    if (dxx < 9.9995e-4) {
+      dxx *= 10000;
+      xp10 |= 4;
+    }
+    if (dxx < 9.9995e-2) {
+      dxx *= 100;
+      xp10 |= 2;
+    }
+    if (dxx < 9.9995e-1) {
+      dxx *= 10;
+      xp10++;
+    }
+    start = uint32_write1p3(dxx + 0.0005, start);
+    memcpy(start, "e-", 2);
+    start += 2;
+    if (xp10 >= 100) {
+      uii = xp10 / 100;
+      *start++ = '0' + uii;
+      xp10 -= 100 * uii;
+    }
+    memcpy(start, &(digit2_table[xp10 * 2]), 2);
+    return &(start[2]);
+  } else if (dxx >= 9999.5) {
+    // 4 sig fig exponential notation, large
+    if (dxx >= 9.9995e15) {
+      if (dxx >= 9.9995e127) {
+	if (dxx == INFINITY) {
+	  *((uint32_t*)start) = *((uint32_t*)"inf");
+	  return &(start[3]);
+	} else if (dxx >= 9.9995e255) {
+	  dxx *= 1.0e-256;
+	  xp10 |= 256;
+	} else {
+	  dxx *= 1.0e-128;
+	  xp10 |= 128;
+	}
+      }
+      if (dxx >= 9.9995e63) {
+	dxx *= 1.0e-64;
+	xp10 |= 64;
+      }
+      if (dxx >= 9.9995e31) {
+	dxx *= 1.0e-32;
+	xp10 |= 32;
+      }
+      if (dxx >= 9.9995e15) {
+	dxx *= 1.0e-16;
+	xp10 |= 16;
+      }
+    }
+    if (dxx >= 9.9995e7) {
+      dxx *= 1.0e-8;
+      xp10 |= 8;
+    }
+    if (dxx >= 9.9995e3) {
+      dxx *= 1.0e-4;
+      xp10 |= 4;
+    }
+    if (dxx >= 9.9995e1) {
+      dxx *= 1.0e-2;
+      xp10 |= 2;
+    }
+    if (dxx >= 9.9995e0) {
+      dxx *= 1.0e-1;
+      xp10++;
+    }
+    start = uint32_write1p3(dxx + 0.0005, start);
+    memcpy(start, "e+", 2);
+    start += 2;
+    if (xp10 >= 100) {
+      uii = xp10 / 100;
+      *start++ = '0' + uii;
+      xp10 -= 100 * uii;
+    }
+    memcpy(start, &(digit2_table[xp10 * 2]), 2);
+    return &(start[2]);
+  } else if (dxx >= 0.99995) {
+    return double_write4(dxx, start);
+  } else {
+    // 4 sig fig decimal, no less than ~0.0001
+    memcpy(start, "0.", 2);
+    start += 2;
+    if (dxx < 9.9995e-3) {
+      dxx *= 100;
+      memcpy(start, "00", 2);
+      start += 2;
+    }
+    if (dxx < 9.9995e-2) {
+      dxx *= 10;
+      *start++ = '0';
+    }
+    return uint32_write4trunc((int32_t)((dxx * 10000) + 0.5), start);
+  }
+}
+*/
 
 char* chrom_print_human(char* buf, uint32_t num) {
   uint32_t n10;
