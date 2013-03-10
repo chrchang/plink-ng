@@ -506,6 +506,18 @@ static inline int32_t is_space_or_eoln(char cc) {
 
 int32_t atoiz(char* ss, int32_t* sval);
 
+static inline char* memcpya(char* target, char* source, uint32_t ct) {
+  memcpy(target, source, ct);
+  return &(target[ct]);
+}
+
+static inline char* memcpya0(char* target, char* source, uint32_t ct) {
+  // when source is a null-terminated string and we want to copy the null, but
+  // we want to position the write pointer at rather than after the null
+  memcpy(target, source, ct);
+  return &(target[ct - 1]);
+}
+
 int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr);
 
 int32_t get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr);
@@ -547,7 +559,11 @@ static inline void copy_nse(char* target, char* source) {
 
 void copy_item(char* writebuf, uint32_t* offset, char** prev_item_ptr);
 
-char* fw_strcpy(uint32_t min_width, char* source, char* dest);
+char* fw_strcpyn(uint32_t min_width, uint32_t source_len, char* source, char* dest);
+
+static inline char* fw_strcpy(uint32_t min_width, char* source, char* dest) {
+  return fw_strcpyn(min_width, strlen(source), source, dest);
+}
 
 static inline void intprint2(char* buf, uint32_t num) {
   uint32_t quotient;

@@ -70,7 +70,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (8 Mar 2013)";
+  " (10 Mar 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -4208,36 +4208,42 @@ void calc_marker_reverse_bin(uintptr_t* marker_reverse, uintptr_t unfiltered_mar
 }
 
 int32_t hardy_report_write_line(FILE* outfile, char* prefix_buf, uint32_t prefix_len, uint32_t reverse, uint32_t ll_ct, uint32_t lh_ct, uint32_t hh_ct, char* midbuf_ptr, double pvalue) {
-  uint32_t uii;
-  uint32_t ujj;
-  char* midline;
+  char wbuf[48];
   char* cptr;
   uint32_t denom;
   double drecip;
   double minor_freq;
   fwrite(prefix_buf, 1, prefix_len, outfile);
   if (reverse) {
-    uii = sprintf(midbuf_ptr, "%u/%u/%u ", hh_ct, lh_ct, ll_ct);
+    cptr = uint32_write(hh_ct, wbuf);
+    *cptr++ = '/';
+    cptr = uint32_write(lh_ct, cptr);
+    *cptr++ = '/';
+    cptr = uint32_write(ll_ct, cptr);
   } else {
-    uii = sprintf(midbuf_ptr, "%u/%u/%u ", ll_ct, lh_ct, hh_ct);
+    cptr = uint32_write(ll_ct, wbuf);
+    *cptr++ = '/';
+    cptr = uint32_write(lh_ct, cptr);
+    *cptr++ = '/';
+    cptr = uint32_write(hh_ct, cptr);
   }
-  if (uii < 21) {
-    ujj = 21 - uii;
-    midline = midbuf_ptr - ujj;
-    memset(midline, 32, ujj);
-  } else {
-    midline = midbuf_ptr;
-  }
-  cptr = &(midbuf_ptr[uii]);
+  cptr = fw_strcpyn(20, cptr - wbuf, wbuf, midbuf_ptr);
+  *cptr++ = ' ';
   denom = (ll_ct + lh_ct + hh_ct) * 2;
   if (denom) {
     drecip = 1.0 / ((double)denom);
     minor_freq = (2 * ll_ct + lh_ct) * drecip;
-    cptr += sprintf(cptr, "%8.4g %8.4g %12.4g\n", (lh_ct * 2) * drecip, minor_freq * (2 * hh_ct + lh_ct) * drecip * 2, pvalue);
+    cptr = double_g_writewx4((lh_ct * 2) * drecip, 8, cptr);
+    *cptr++ = ' ';
+    cptr = double_g_writewx4(minor_freq * (2 * hh_ct + lh_ct) * drecip * 2, 8, cptr);
+    *cptr++ = ' ';
+    cptr = double_g_writewx4(pvalue, 12, cptr);
+    *cptr++ = '\n';
   } else {
-    cptr += sprintf(cptr, "     nan      nan           NA\n");
+    memcpy(cptr, "     nan      nan           NA\n", 31);
+    cptr = &(cptr[31]);
   }
-  return fwrite_checked(midline, (cptr - midline), outfile);
+  return fwrite_checked(midbuf_ptr, (cptr - midbuf_ptr), outfile);
 }
 
 int32_t hardy_report(pthread_t* threads, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, int32_t* hwe_ll_cases, int32_t* hwe_lh_cases, int32_t* hwe_hh_cases, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs, uint32_t pheno_nm_ct, uintptr_t* pheno_c, Chrom_info* chrom_info_ptr) {
@@ -4248,7 +4254,7 @@ int32_t hardy_report(pthread_t* threads, char* outname, char* outname_end, uintp
   uint32_t pct = 0;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
-  uint32_t ukk = 9;
+  uint32_t prefix_len;
   uint32_t loop_end;
   uint32_t uii;
   uint32_t ujj;
@@ -4263,7 +4269,7 @@ int32_t hardy_report(pthread_t* threads, char* outname, char* outname_end, uintp
   char* cptr2;
   char* cptr3;
   char* cptr4;
-
+  char* cptr5;
   if (pheno_nm_ct) {
     report_type = pheno_c? 0 : 1;
   } else {
@@ -4311,6 +4317,7 @@ int32_t hardy_report(pthread_t* threads, char* outname, char* outname_end, uintp
   chrom_fo_idx = 0;
   refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
   intprint2(&(tbuf[2]), chrom_info_ptr->chrom_file_order[chrom_fo_idx]);
+  prefix_len = plink_maxsnp + 25;
   if (report_type) {
     if (report_type == 1) {
       memcpy(&(tbuf[5 + plink_maxsnp]), "  ALL(QT)           ", 20);
@@ -4328,10 +4335,7 @@ int32_t hardy_report(pthread_t* threads, char* outname, char* outname_end, uintp
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
 	  intprint2(&(tbuf[2]), chrom_info_ptr->chrom_file_order[chrom_fo_idx]);
 	}
-	cptr3 = &(marker_ids[marker_uidx * max_marker_id_len]);
-	uii = strlen(cptr3);
-	memset(&(tbuf[5]), 32, plink_maxsnp - uii);
-	memcpy(&(tbuf[5 + plink_maxsnp - uii]), cptr3, uii);
+	fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), &(tbuf[5]));
 	reverse = is_set(marker_reverse, marker_uidx);
 	if (reverse) {
 	  cptr3 = &(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]);
@@ -4344,31 +4348,14 @@ int32_t hardy_report(pthread_t* threads, char* outname, char* outname_end, uintp
 	  cptr[3] = *cptr3;
 	  cptr[8] = *cptr4;
 	} else {
-	  uii = strlen(cptr3);
-	  if (uii < 5) {
-	    memset(cptr, 32, 4 - uii);
-	    memcpy(&(cptr[4 - uii]), cptr3, uii);
-	    ukk = 4;
-	  } else {
-	    memcpy(cptr, cptr3, uii);
-	    ukk = uii;
-	  }
-	  uii = strlen(cptr4);
-	  if (uii < 5) {
-	    memset(&(cptr[ukk]), 32, 5 - uii);
-	    memcpy(&(cptr[ukk + 5 - uii]), cptr4, uii);
-	    ukk += 5;
-	  } else {
-	    cptr[ukk] = ' ';
-	    memcpy(&(cptr[ukk + 1]), cptr4, uii);
-	    ukk += uii + 1;
-	  }
+	  cptr5 = fw_strcpy(4, cptr3, cptr);
+	  *cptr5 = ' ';
+	  cptr5 = fw_strcpy(4, cptr4, &(cptr5[1]));
+	  *cptr5 = ' ';
+	  prefix_len = 1 + (cptr5 - tbuf);
 	}
-	if (hardy_report_write_line(outfile, tbuf, ujj + ukk, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[marker_uidx])) {
+	if (hardy_report_write_line(outfile, tbuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[marker_uidx])) {
 	  goto hardy_report_ret_WRITE_FAIL;
-	}
-	if (ukk > 9) {
-	  memset(&(cptr[9]), 32, ukk - 9);
 	}
 	marker_uidx++;
       }
@@ -4393,10 +4380,7 @@ int32_t hardy_report(pthread_t* threads, char* outname, char* outname_end, uintp
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
 	  intprint2(&(tbuf[2]), chrom_info_ptr->chrom_file_order[chrom_fo_idx]);
 	}
-	cptr3 = &(marker_ids[marker_uidx * max_marker_id_len]);
-	uii = strlen(cptr3);
-	memset(&(tbuf[5]), 32, plink_maxsnp - uii);
-	memcpy(&(tbuf[5 + plink_maxsnp - uii]), cptr3, uii);
+	fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), &(tbuf[5]));
 	memcpy(&(tbuf[9 + plink_maxsnp]), "  ALL", 5);
 	reverse = is_set(marker_reverse, marker_uidx);
 	if (reverse) {
@@ -4410,41 +4394,24 @@ int32_t hardy_report(pthread_t* threads, char* outname, char* outname_end, uintp
 	  cptr[3] = *cptr3;
 	  cptr[8] = *cptr4;
 	} else {
-	  uii = strlen(cptr3);
-	  if (uii < 5) {
-	    memset(cptr, 32, 4 - uii);
-	    memcpy(&(cptr[4 - uii]), cptr3, uii);
-	    ukk = 4;
-	  } else {
-	    memcpy(cptr, cptr3, uii);
-	    ukk = uii;
-	  }
-	  uii = strlen(cptr4);
-	  if (uii < 5) {
-	    memset(&(cptr[ukk]), 32, 5 - uii);
-	    memcpy(&(cptr[ukk + 5 - uii]), cptr4, uii);
-	    ukk += 5;
-	  } else {
-	    cptr[ukk] = ' ';
-	    memcpy(&(cptr[ukk + 1]), cptr4, uii);
-	    ukk += uii + 1;
-	  }
+	  cptr5 = fw_strcpy(4, cptr3, cptr);
+	  *cptr5 = ' ';
+	  cptr5 = fw_strcpy(4, cptr4, &(cptr5[1]));
+	  *cptr5 = ' ';
+	  prefix_len = 1 + (cptr5 - tbuf);
 	}
-	if (hardy_report_write_line(outfile, tbuf, ujj + ukk, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[3 * marker_uidx])) {
+	if (hardy_report_write_line(outfile, tbuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], cptr2, p_values[3 * marker_uidx])) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
 
-	memcpy(&(tbuf[11 + plink_maxsnp]), "AFF", 3);
-	if (hardy_report_write_line(outfile, tbuf, ujj + ukk, reverse, hwe_ll_cases[marker_uidx], hwe_lh_cases[marker_uidx], hwe_hh_cases[marker_uidx], cptr2, p_values[3 * marker_uidx + 1])) {
+	memcpy(&(tbuf[12 + plink_maxsnp]), "FF", 2);
+	if (hardy_report_write_line(outfile, tbuf, prefix_len, reverse, hwe_ll_cases[marker_uidx], hwe_lh_cases[marker_uidx], hwe_hh_cases[marker_uidx], cptr2, p_values[3 * marker_uidx + 1])) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
 
 	memcpy(&(tbuf[9 + plink_maxsnp]), "UN", 2);
-	if (hardy_report_write_line(outfile, tbuf, ujj + ukk, reverse, hwe_lls[marker_uidx], hwe_lhs[marker_uidx], hwe_hhs[marker_uidx], cptr2, p_values[3 * marker_uidx + 2])) {
+	if (hardy_report_write_line(outfile, tbuf, prefix_len, reverse, hwe_lls[marker_uidx], hwe_lhs[marker_uidx], hwe_hhs[marker_uidx], cptr2, p_values[3 * marker_uidx + 2])) {
 	  goto hardy_report_ret_WRITE_FAIL;
-	}
-	if (ukk > 9) {
-	  memset(&(cptr[9]), 32, ukk - 9);
 	}
 	marker_uidx++;
       }

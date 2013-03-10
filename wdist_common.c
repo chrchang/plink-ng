@@ -244,8 +244,7 @@ void copy_item(char* writebuf, uint32_t* offset_ptr, char** prev_item_end_ptr) {
   *prev_item_end_ptr = item_end;
 }
 
-char* fw_strcpy(uint32_t min_width, char* source, char* dest) {
-  uint32_t source_len = strlen(source);
+char* fw_strcpyn(uint32_t min_width, uint32_t source_len, char* source, char* dest) {
   if (source_len < min_width) {
     memset(dest, 32, min_width - source_len);
     memcpy(&(dest[min_width - source_len]), source, source_len);

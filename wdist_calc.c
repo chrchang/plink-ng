@@ -4505,25 +4505,9 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	founder_ct = g_cg_pri.family_founder_cts[g_cg_family_id_fixed];
 	g_cg_llfct = (int64_t)founder_ct * (founder_ct - 1);
       }
-      if (uii < g_cg_max_person_fid_len - 1) {
-	memset(&(tbuf[1]), 32, g_cg_max_person_fid_len - uii - 1);
-	memcpy(&(tbuf[g_cg_max_person_fid_len - uii]), g_cg_fam1, uii);
-	g_cg_sptr_start = &(tbuf[g_cg_max_person_fid_len]);
-      } else {
-	memcpy(&(tbuf[1]), g_cg_fam1, uii);
-	g_cg_sptr_start = &(tbuf[uii + 1]);
-      }
+      g_cg_sptr_start = fw_strcpyn(g_cg_max_person_fid_len - 1, uii, g_cg_fam1, &(tbuf[1]));
       *g_cg_sptr_start++ = ' ';
-      uii = strlen(g_cg_indiv1);
-      if (uii < g_cg_max_person_iid_len - 1) {
-	ujj = g_cg_max_person_iid_len - 1 - uii;
-	memset(g_cg_sptr_start, 32, ujj);
-	memcpy(&(g_cg_sptr_start[ujj]), g_cg_indiv1, uii);
-	g_cg_sptr_start = &(g_cg_sptr_start[g_cg_max_person_iid_len - 1]);
-      } else {
-	memcpy(g_cg_sptr_start, g_cg_indiv1, uii);
-	g_cg_sptr_start += uii;
-      }
+      g_cg_sptr_start = fw_strcpy(g_cg_max_person_iid_len - 1, g_cg_indiv1, g_cg_sptr_start);
       *g_cg_sptr_start++ = ' ';
     }
     while (g_cg_indiv2idx < g_indiv_ct) {
@@ -4538,26 +4522,9 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	pat2 = &(g_cg_paternal_ids[g_cg_indiv2idx * g_cg_max_paternal_id_len]);
 	mat2 = &(g_cg_maternal_ids[g_cg_indiv2idx * g_cg_max_maternal_id_len]);
       }
-      if (uii < g_cg_max_person_fid_len - 1) {
-	ujj = g_cg_max_person_fid_len - 1 - uii;
-	memset(sptr_cur, 32, ujj);
-	memcpy(&(sptr_cur[ujj]), g_cg_fam2, uii);
-	sptr_cur = &(sptr_cur[g_cg_max_person_fid_len - 1]);
-      } else {
-	memcpy(sptr_cur, g_cg_fam2, uii);
-	sptr_cur = &(sptr_cur[uii]);
-      }
+      sptr_cur = fw_strcpyn(g_cg_max_person_fid_len - 1, uii, g_cg_fam2, sptr_cur);
       *sptr_cur++ = ' ';
-      uii = strlen(indiv2);
-      if (uii < g_cg_max_person_iid_len - 1) {
-	ujj = g_cg_max_person_iid_len - 1 - uii;
-	memset(sptr_cur, 32, ujj);
-	memcpy(&(sptr_cur[ujj]), indiv2, uii);
-	sptr_cur += g_cg_max_person_iid_len - 1;
-      } else {
-	memcpy(sptr_cur, indiv2, uii);
-	sptr_cur += uii;
-      }
+      sptr_cur = fw_strcpy(g_cg_max_person_iid_len - 1, indiv2, sptr_cur);
       *sptr_cur++ = ' ';
       if (!strcmp(g_cg_fam1, g_cg_fam2)) {
 	while (1) {

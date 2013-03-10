@@ -464,8 +464,8 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uint3
 
 void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotient, uint64_t totq_magic, uint32_t totq_preshift, uint32_t totq_postshift, uint32_t totq_incr, uintptr_t* perm_vec) {
   // assumes perm_vec is initially zeroed out, tot_quotient is
-  // 4294967296 / tot_ct, and totq_inv/totq_shift are such that
-  //   xx / tot_quotient == (xx * totq_inv) >> totq_shift.
+  // 4294967296 / tot_ct, and totq_magic/totq_preshift/totq_postshift/totq_incr
+  // have been precomputed from ;
   uint32_t num_set = 0;
   uint32_t upper_bound = tot_ct * tot_quotient;
   uint32_t urand;
@@ -512,6 +512,15 @@ static uintptr_t* g_indiv_male_include2 = NULL;
 // static uint32_t g_assoc_thread_ct;
 static uint32_t g_perm_vec_ct;
 static uint32_t g_thread_block_ctl;
+
+char* model_assoc_tna(uint32_t model_fisher, char* wptr) {
+  // write terminal NAs to buffer
+  if (model_fisher) {
+    return memcpya(wptr, "          NA\n", 13);
+  } else {
+    return memcpya(wptr, "          NA   NA           NA\n", 31);
+  }
+}
 
 int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uint32_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* wkspace_mark = wkspace_base;
@@ -562,7 +571,11 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uint32_t perm_pass_idx = 0;
   uint32_t mu_table[MODEL_BLOCKSIZE];
   char wprefix[5];
+  char wbuf[48];
   char* wptr;
+  char* wptr2;
+  char* wptr_mid;
+  char* wptr_mid2;
   uintptr_t marker_ctl;
   unsigned char* wkspace_mark2;
   char* outname_end2;
@@ -603,8 +616,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uint32_t uoo;
   uint32_t upp;
   uint32_t uqq;
-  uint32_t urr;
-  uint32_t uss;
   double pval;
   double dyy;
   double dzz;
@@ -663,6 +674,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   if (wkspace_alloc_uc_checked(&loadbuf_raw, unfiltered_indiv_ct4)) {
     goto model_assoc_ret_NOMEM;
   }
+  memset(wprefix, 32, 5);
   if (model_assoc) {
     if (model_fisher) {
       memcpy(outname_end, ".assoc.fisher", 14);
@@ -711,7 +723,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     if (putc('\n', outfile) == EOF) {
       goto model_assoc_ret_WRITE_FAIL;
     }
-    memset(wprefix, 32, 5);
   } else {
     uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0);
     if (uii) {
@@ -724,29 +735,23 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       retval = RET_INVALID_CMDLINE;
       goto model_assoc_ret_1;
     }
-    memcpy(outname_end, ".model", 7);
+    outname_end2 = memcpya0(outname_end, ".model", 7);
     if (fopen_checked(&outfile, outname, "w")) {
       goto model_assoc_ret_OPEN_FAIL;
     }
     sprintf(logbuf, "Writing --model report to %s...", outname);
     logprintb();
     fflush(stdout);
-    outname_end2 = &(outname_end[6]);
     if (model_perm_best && perms_total) {
-      memcpy(outname_end2, ".best", 6);
-      outname_end2 = &(outname_end2[5]);
+      outname_end2 = memcpya0(outname_end2, ".best", 6);
     } else if ((model_modifier & MODEL_PGEN) && perms_total) {
-      memcpy(outname_end2, ".gen", 5);
-      outname_end2 = &(outname_end2[4]);
+      outname_end2 = memcpya0(outname_end2, ".gen", 5);
     } else if (model_modifier & MODEL_PDOM) {
-      memcpy(outname_end2, ".dom", 5);
-      outname_end2 = &(outname_end2[4]);
+      outname_end2 = memcpya0(outname_end2, ".dom", 5);
     } else if (model_modifier & MODEL_PREC) {
-      memcpy(outname_end2, ".rec", 5);
-      outname_end2 = &(outname_end2[4]);
+      outname_end2 = memcpya0(outname_end2, ".rec", 5);
     } else if (model_modifier & MODEL_PTREND) {
-      memcpy(outname_end2, ".trend", 7);
-      outname_end2 = &(outname_end2[6]);
+      outname_end2 = memcpya0(outname_end2, ".trend", 7);
     }
     sprintf(tbuf, " CHR %%%us   A1   A2     TEST            AFF          UNAFF ", plink_maxsnp);
     if (fprintf(outfile, tbuf, "SNP") < 0) {
@@ -757,8 +762,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	goto model_assoc_ret_WRITE_FAIL;
       }
     } else {
-      memcpy(outname_end2, ".fisher", 8);
-      outname_end2 = &(outname_end2[7]);
+      outname_end2 = memcpya0(outname_end2, ".fisher", 8);
     }
     if (fputs("           P\n", outfile) == EOF) {
       goto model_assoc_ret_WRITE_FAIL;
@@ -1105,8 +1109,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		  }
 		  *wptr++ = ' ';
 		} else {
-		  memcpy(wptr, "      NA ", 9);
-		  wptr = &(wptr[9]);
+		  wptr = memcpya(wptr, "      NA ", 9);
 		}
 		if (ujj + uii) {
 		  if (assoc_counts) {
@@ -1115,8 +1118,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		    wptr = double_g_writewx4(du1 / (du1 + du2), 8, wptr);
 		  }
 		} else {
-		  memcpy(wptr, "      NA", 8);
-		  wptr = &(wptr[8]);
+		  wptr = memcpya(wptr, "      NA", 8);
 		}
 		if (max_marker_allele_len == 1) {
 		  memset(wptr, 32, 4);
@@ -1135,17 +1137,14 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		    *wptr++ = ' ';
 		    wptr = double_g_writewx4(pval, 12, wptr);
 		  } else {
-		    memcpy(wptr, "          NA           NA", 25);
-		    wptr = &(wptr[25]);
+		    wptr = memcpya(wptr, "          NA           NA", 25);
 		  }
 		}
 		*wptr++ = ' ';
 		if (du1 * da2 == 0.0) {
-		  memcpy(wptr, "          NA", 12);
-		  wptr = &(wptr[12]);
+		  wptr = memcpya(wptr, "          NA", 12);
 		  if (display_ci) {
-		    memcpy(wptr, "           NA           NA           NA", 39);
-		    wptr = &(wptr[39]);
+		    wptr = memcpya(wptr, "           NA           NA           NA", 39);
 		  }
 		} else {
 		  wptr = double_g_writewx4(*ooptr, 12, wptr);
@@ -1230,26 +1229,23 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      }
 	      memset(wptr, 32, 2);
 	      wptr = &(wptr[2]);
-	      uss = (wptr - tbuf); // stopgap
+	      wptr_mid = wptr;
 	      if (!model_trendonly) {
-		memcpy(&(tbuf[uss]), "   GENO          ", 17);
-		uqq = uss + 8;
-		urr = sprintf(&(tbuf[uqq + 43]), "%u/%u/%u          ", uoo, unn, umm);
-		if (urr < 24) {
-		  memcpy(&(tbuf[uqq + 24 - urr]), &(tbuf[uqq + 43]), urr);
-		  uqq += 15;
-		} else {
-		  memcpy(&(tbuf[uqq]), &(tbuf[uqq + 43]), urr);
-		  uqq += urr - 9;
-		}
-		urr = sprintf(&(tbuf[uqq + 34]), "%u/%u/%u ", ukk, ujj, uii);
-		if (urr < 15) {
-		  memcpy(&(tbuf[uqq + 15 - urr]), &(tbuf[uqq + 34]), urr);
-		  uqq += 15;
-		} else {
-		  memcpy(&(tbuf[uqq]), &(tbuf[uqq + 34]), urr);
-		  uqq += urr;
-		}
+		memcpy(wptr, "   GENO ", 8);
+		wptr2 = uint32_write(uoo, wbuf);
+		*wptr2++ = '/';
+		wptr2 = uint32_write(unn, wptr2);
+		*wptr2++ = '/';
+		wptr2 = uint32_write(umm, wptr2);
+		wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr[8]));
+		*wptr++ = ' ';
+		wptr2 = uint32_write(ukk, wbuf);
+		*wptr2++ = '/';
+		wptr2 = uint32_write(ujj, wptr2);
+		*wptr2++ = '/';
+		wptr2 = uint32_write(uii, wptr2);
+		wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
+		*wptr++ = ' ';
 		if (upp) {
 		  gen_p = -9;
 		} else {
@@ -1266,41 +1262,30 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		  }
 		}
 		if (gen_p < -1) {
-		  if (model_fisher) {
-		    memcpy(&(tbuf[uqq]), "          NA\n", 14);
-		  } else {
-		    memcpy(&(tbuf[uqq]), "          NA   NA           NA\n", 32);
-		  }
+		  wptr = model_assoc_tna(model_fisher, wptr);
 		} else {
-		  if (model_fisher) {
-		    sprintf(&(tbuf[uqq]), "%12.4g\n", gen_p);
-		  } else {
-		    sprintf(&(tbuf[uqq]), "%12.4g    2 %12.4g\n", dvv, gen_p);
+		  if (!model_fisher) {
+		    wptr = memcpya(double_g_writewx4(dvv, 12, wptr), "    2 ", 6);
 		  }
+		  wptr = double_g_writewx4(gen_p, 12, wptr);
+		  *wptr++ = '\n';
 		}
-		if (fputs(tbuf, outfile) == EOF) {
+		if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 		  goto model_assoc_ret_WRITE_FAIL;
 		}
 	      }
-	      memcpy(&(tbuf[uss]), "  TREND            ", 19);
-	      uqq = uss + 8;
-	      urr = sprintf(&(tbuf[uqq + 34]), "%u/%u            ", uoo * 2 + unn, umm * 2 + unn);
-	      if (urr < 26) {
-		memcpy(&(tbuf[uqq + 26 - urr]), &(tbuf[uqq + 34]), urr);
-		uqq += 15;
-	      } else {
-		memcpy(&(tbuf[uqq]), &(tbuf[uqq + 34]), urr);
-		uqq += urr - 11;
-	      }
-	      urr = sprintf(&(tbuf[uqq + 24]), "%u/%u ", ukk * 2 + ujj, uii * 2 + ujj);
-	      if (urr < 15) {
-		memcpy(&(tbuf[uqq + 15 - urr]), &(tbuf[uqq + 24]), urr);
-		uqq += 15;
-	      } else {
-		memcpy(&(tbuf[uqq]), &(tbuf[uqq + 24]), urr);
-		uqq += urr;
-	      }
-	      urr = uqq; // save this for next line
+	      memcpy(wptr_mid, "  TREND ", 8);
+	      wptr2 = uint32_write(uoo * 2 + unn, wbuf);
+	      *wptr2++ = '/';
+	      wptr2 = uint32_write(umm * 2 + unn, wptr2);
+	      wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr_mid[8]));
+	      *wptr++ = ' ';
+	      wptr2 = uint32_write(ukk * 2 + ujj, wbuf);
+	      *wptr2++ = '/';
+	      wptr2 = uint32_write(uii * 2 + ujj, wptr2);
+	      wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
+	      *wptr++ = ' ';
+	      wptr_mid2 = wptr; // save this for next line
 	      if ((((uint64_t)(uoo * 2 + unn)) * (uii * 2 + ujj)) == (((uint64_t)(umm * 2 + unn)) * (ukk * 2 + ujj))) {
 		if (uoo * 2 + unn) {
 		  ca_chisq = 0;
@@ -1317,24 +1302,20 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		ca_p = chiprob_p(ca_chisq, 1);
 	      }
 	      if (ca_p > -1) {
-		if (model_fisher) {
-		  sprintf(&(tbuf[uqq]), "%12.4g\n", ca_p);
-		} else {
-		  sprintf(&(tbuf[uqq]), "%12.4g    1 %12.4g\n", ca_chisq, ca_p);
-		}
-	      } else {
 		if (!model_fisher) {
-		  memcpy(&(tbuf[uqq]), "          NA   NA ", 18);
-		  uqq += 18;
+		  wptr = memcpya(double_g_writewx4(ca_chisq, 12, wptr), "    1 ", 6);
 		}
-		memcpy(&(tbuf[uqq]), "          NA\n", 14);
+		wptr = double_g_writewx4(ca_p, 12, wptr);
+		*wptr++ = '\n';
+	      } else {
+		wptr = model_assoc_tna(model_fisher, wptr);
 	      }
-	      if (fputs(tbuf, outfile) == EOF) {
+	      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 		goto model_assoc_ret_WRITE_FAIL;
 	      }
 	      if (!model_trendonly) {
-		memcpy(&(tbuf[uss]), "ALLELIC", 7);
-		uqq = urr;
+		memcpy(wptr_mid, "ALLELIC", 7);
+		wptr = wptr_mid2;
 		obs_a1 = 2 * da1 + da12;
 		obs_a2 = 2 * da2 + da12;
 		obs_u1 = 2 * du1 + du12;
@@ -1359,39 +1340,28 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		  }
 		}
 		if (mult_p > -1) {
-		  if (model_fisher) {
-		    sprintf(&(tbuf[uqq]), "%12.4g\n", mult_p);
-		  } else {
-		    sprintf(&(tbuf[uqq]), "%12.4g    1 %12.4g\n", dww, mult_p);
-		  }
-		} else {
 		  if (!model_fisher) {
-		    memcpy(&(tbuf[uqq]), "          NA   NA ", 18);
-		    uqq += 18;
+		    wptr = memcpya(double_g_writewx4(dww, 12, wptr), "    1 ", 6);
 		  }
-		  memcpy(&(tbuf[uqq]), "          NA\n", 14);
+		  wptr = double_g_writewx4(mult_p, 12, wptr);
+		  *wptr++ = '\n';
+		} else {
+		  wptr = model_assoc_tna(model_fisher, wptr);
 		}
-		if (fputs(tbuf, outfile) == EOF) {
+		if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 		  goto model_assoc_ret_WRITE_FAIL;
 		}
-		memcpy(&(tbuf[uss]), "    DOM            ", 19);
-		uqq = uss + 8;
-		urr = sprintf(&(tbuf[uqq + 34]), "%u/%u            ", uoo + unn, umm);
-		if (urr < 26) {
-		  memcpy(&(tbuf[uqq + 26 - urr]), &(tbuf[uqq + 34]), urr);
-		  uqq += 15;
-		} else {
-		  memcpy(&(tbuf[uqq]), &(tbuf[uqq + 34]), urr);
-		  uqq += urr - 11;
-		}
-		urr = sprintf(&(tbuf[uqq + 24]), "%u/%u ", ukk + ujj, uii);
-		if (urr < 15) {
-		  memcpy(&(tbuf[uqq + 15 - urr]), &(tbuf[uqq + 24]), urr);
-		  uqq += 15;
-		} else {
-		  memcpy(&(tbuf[uqq]), &(tbuf[uqq + 24]), urr);
-		  uqq += urr;
-		}
+		memcpy(wptr_mid, "    DOM", 7);
+		wptr2 = uint32_write(uoo + unn, wbuf);
+		*wptr2++ = '/';
+		wptr2 = uint32_write(umm, wptr2);
+		wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr_mid[8]));
+		*wptr++ = ' ';
+		wptr2 = uint32_write(ukk + ujj, wbuf);
+		*wptr2++ = '/';
+		wptr2 = uint32_write(uii, wptr2);
+		wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
+		*wptr++ = ' ';
 		if (upp) {
 		  dom_p = -9;
 		} else {
@@ -1408,39 +1378,28 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		  }
 		}
 		if (dom_p < -1) {
-		  if (model_fisher) {
-		    memcpy(&(tbuf[uqq]), "          NA\n", 14);
-		  } else {
-		    memcpy(&(tbuf[uqq]), "          NA   NA           NA\n", 32);
-		  }
+		  wptr = model_assoc_tna(model_fisher, wptr);
 		} else {
-		  if (model_fisher) {
-		    sprintf(&(tbuf[uqq]), "%12.4g\n", dom_p);
-		  } else {
-		    sprintf(&(tbuf[uqq]), "%12.4g    1 %12.4g\n", dww, dom_p);
+		  if (!model_fisher) {
+		    wptr = memcpya(double_g_writewx4(dww, 12, wptr), "    1 ", 6);
 		  }
+		  wptr = double_g_writewx4(dom_p, 12, wptr);
+		  *wptr++ = '\n';
 		}
-		if (fputs(tbuf, outfile) == EOF) {
+		if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 		  goto model_assoc_ret_WRITE_FAIL;
 		}
-		memcpy(&(tbuf[uss]), "    REC            ", 19);
-		uqq = uss + 8;
-		urr = sprintf(&(tbuf[uqq + 34]), "%u/%u            ", uoo, unn + umm);
-		if (urr < 26) {
-		  memcpy(&(tbuf[uqq + 26 - urr]), &(tbuf[uqq + 34]), urr);
-		  uqq += 15;
-		} else {
-		  memcpy(&(tbuf[uqq]), &(tbuf[uqq + 34]), urr);
-		  uqq += urr - 11;
-		}
-		urr = sprintf(&(tbuf[uqq + 24]), "%u/%u ", ukk, ujj + uii);
-		if (urr < 15) {
-		  memcpy(&(tbuf[uqq + 15 - urr]), &(tbuf[uqq + 24]), urr);
-		  uqq += 15;
-		} else {
-		  memcpy(&(tbuf[uqq]), &(tbuf[uqq + 24]), urr);
-		  uqq += urr;
-		}
+		memcpy(&(wptr_mid[4]), "REC", 3);
+		wptr2 = uint32_write(uoo, wbuf);
+		*wptr2++ = '/';
+		wptr2 = uint32_write(unn + umm, wptr2);
+		wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr_mid[8]));
+		*wptr++ = ' ';
+		wptr2 = uint32_write(ukk, wbuf);
+		*wptr2++ = '/';
+		wptr2 = uint32_write(ujj + uii, wptr2);
+		wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
+		*wptr++ = ' ';
 		if (upp) {
 		  rec_p = -9;
 		} else {
@@ -1456,21 +1415,16 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		    rec_p = chiprob_p(dww, 1);
 		  }
 		}
-
 		if (rec_p < -1) {
-		  if (model_fisher) {
-		    memcpy(&(tbuf[uqq]), "          NA\n", 14);
-		  } else {
-		    memcpy(&(tbuf[uqq]), "          NA   NA           NA\n", 32);
-		  }
+		  wptr = model_assoc_tna(model_fisher, wptr);
 		} else {
-		  if (model_fisher) {
-		    sprintf(&(tbuf[uqq]), "%12.4g\n", rec_p);
-		  } else {
-		    sprintf(&(tbuf[uqq]), "%12.4g    1 %12.4g\n", dww, rec_p);
+		  if (!model_fisher) {
+		    wptr = memcpya(double_g_writewx4(dww, 12, wptr), "    1 ", 6);
 		  }
+		  wptr = double_g_writewx4(rec_p, 12, wptr);
+		  *wptr++ = '\n';
 		}
-		if (fputs(tbuf, outfile) == EOF) {
+		if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 		  goto model_assoc_ret_WRITE_FAIL;
 		}
 	      }
