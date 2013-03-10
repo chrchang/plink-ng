@@ -4280,17 +4280,11 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
 	    if (regress_pcs_clip) {
 	      fputs(" 1 0 0", outfile);
 	    } else {
-	      bufptr = double_g_write(1.0 - dxx * 0.5, &(wbuf[1]));
-              *((uint32_t*)bufptr) = *((uint32_t*)" 0 ");
-	      bufptr = double_g_write(dxx * 0.5, &(bufptr[3]));
+	      bufptr = double_g_write(memcpyl3a(double_g_write(&(wbuf[1]), 1.0 - dxx * 0.5), " 0 "), dxx * 0.5);
 	      fwrite(wbuf, 1, bufptr - wbuf, outfile);
 	    }
 	  } else {
-	    bufptr = double_g_write(1.0 - dxx, &(wbuf[1]));
-	    *bufptr = ' ';
-	    bufptr = double_g_write(dxx, &(bufptr[1]));
-	    memcpy(bufptr, " 0", 2);
-	    bufptr += 2;
+	    bufptr = memcpya(double_g_write(double_g_writex(&(wbuf[1]), 1.0 - dxx, ' '), dxx), " 0", 2);
 	    fwrite(wbuf, 1, bufptr - wbuf, outfile);
 	  }
 	} else {
@@ -4298,16 +4292,11 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
 	    if (regress_pcs_clip) {
 	      fputs(" 0 0 1", outfile);
 	    } else {
-	      bufptr = double_g_write(1.0 - dxx * 0.5, &(wbuf[1]));
-              *((uint32_t*)bufptr) = *((uint32_t*)" 0 ");
-	      bufptr = double_g_write(dxx * 0.5, &(bufptr[3]));
+	      bufptr = double_g_write(memcpyl3a(double_g_write(&(wbuf[1]), 1.0 - dxx * 0.5), " 0 "), dxx * 0.5);
 	      fwrite(wbuf, 1, bufptr - wbuf, outfile);
 	    }
 	  } else {
-	    memcpy(&(wbuf[1]), "0 ", 2);
-            bufptr = double_g_write(2.0 - dxx, &(wbuf[3]));
-	    *bufptr = ' ';
-            bufptr = double_g_write(dxx - 1.0, &(bufptr[1]));
+            bufptr = double_g_write(double_g_writex(memcpya(&(wbuf[1]), "0 ", 2), 2.0 - dxx, ' '), dxx - 1.0);
 	    fwrite(wbuf, 1, bufptr - wbuf, outfile);
 	  }
 	}
@@ -4385,8 +4374,7 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
     indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
     person_id_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
     uii = strlen_se(person_id_ptr);
-    memcpy(id_buf, person_id_ptr, uii);
-    id_buf[uii] = '\0';
+    memcpy0(id_buf, person_id_ptr, uii);
     // todo: adjust pheno_d, double-check missing gender behavior
     if (fprintf(*outfile_ptr, "%s %s %g %c %g\n", id_buf, next_item(person_id_ptr), (double)missing_cts[indiv_uidx] / (double)marker_ct, sexchar(sex_nm, sex_male, indiv_uidx), residual_vec[indiv_idx]) < 0) {
       return RET_WRITE_FAIL;
@@ -4468,7 +4456,6 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* indiv2;
   char* pat2 = NULL;
   char* mat2 = NULL;
-  char* sptr_tmp;
   uint32_t founder_ct;
   uint32_t uii;
   uint32_t ujj;
@@ -4493,8 +4480,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     if (g_cg_indiv2idx == g_cg_indiv1idx + 1) {
       cptr = &(g_cg_person_ids[g_cg_indiv1idx * g_cg_max_person_id_len]);
       uii = strlen_se(cptr);
-      memcpy(g_cg_fam1, cptr, uii);
-      g_cg_fam1[uii] = '\0';
+      memcpy0(g_cg_fam1, cptr, uii);
       g_cg_indiv1 = next_item(cptr);
       if (g_cg_paternal_ids) {
 	g_cg_pat1 = &(g_cg_paternal_ids[g_cg_indiv1idx * g_cg_max_paternal_id_len]);
@@ -4511,13 +4497,11 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       *g_cg_sptr_start++ = ' ';
     }
     while (g_cg_indiv2idx < g_indiv_ct) {
-      memcpy(sptr_cur, tbuf, g_cg_sptr_start - tbuf);
-      sptr_cur += (uintptr_t)(g_cg_sptr_start - tbuf);
+      sptr_cur = memcpya(sptr_cur, tbuf, g_cg_sptr_start - tbuf);
       cptr = &(g_cg_person_ids[g_cg_indiv2idx * g_cg_max_person_id_len]);
       uii = strlen_se(cptr);
-      memcpy(g_cg_fam2, cptr, uii);
-      g_cg_fam2[uii] = '\0';
-      indiv2 = next_item(cptr);
+      memcpy0(g_cg_fam2, cptr, uii);
+      indiv2 = skip_initial_spaces(&(cptr[uii + 1]));
       if (g_cg_paternal_ids) {
 	pat2 = &(g_cg_paternal_ids[g_cg_indiv2idx * g_cg_max_paternal_id_len]);
 	mat2 = &(g_cg_maternal_ids[g_cg_indiv2idx * g_cg_max_maternal_id_len]);
@@ -4531,29 +4515,24 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	  if (g_cg_paternal_ids) {
 	    if (!(g_cg_is_founder_fixed || is_set(g_cg_founder_info, g_cg_indiv2idx))) {
 	      if ((!strcmp(g_cg_pat1, pat2)) && (!strcmp(g_cg_mat1, mat2))) {
-		*((uint32_t*)sptr_cur) = *((uint32_t*)"FS ");
-		sptr_cur += 3;
+		sptr_cur = memcpyl3a(sptr_cur, "FS ");
 		break;
 	      } else if ((!strcmp(g_cg_pat1, pat2)) || (!strcmp(g_cg_mat1, mat2))) {
-		*((uint32_t*)sptr_cur) = *((uint32_t*)"HS ");
-		sptr_cur += 3;
+		sptr_cur = memcpyl3a(sptr_cur, "HS ");
 		break;
 	      }
 	    }
 	    if ((!strcmp(g_cg_pat1, indiv2)) || (!strcmp(g_cg_mat1, indiv2)) || (!strcmp(pat2, g_cg_indiv1)) || (!strcmp(mat2, g_cg_indiv1))) {
-	      *((uint32_t*)sptr_cur) = *((uint32_t*)"PO ");
-	      sptr_cur += 3;
+	      sptr_cur = memcpyl3a(sptr_cur, "PO ");
 	      break;
 	    }
 	  }
-	  *((uint32_t*)sptr_cur) = *((uint32_t*)"OT ");
-	  sptr_cur += 3;
+	  sptr_cur = memcpyl3a(sptr_cur, "OT ");
 	  break;
 	}
 	// insert relationship
 	if (!g_cg_paternal_ids) {
-	  memcpy(sptr_cur, "    0", 5);
-	  sptr_cur += 5;
+	  sptr_cur = memcpya(sptr_cur, "    0", 5);
 	} else {
 	  oo = is_set(g_cg_founder_info, g_cg_indiv2idx);
 	  if (g_cg_is_founder_fixed && oo) {
@@ -4566,12 +4545,10 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	      dxx = g_cg_pri.rel_space[nn + ((int64_t)g_cg_rel_space_id_fixed * (g_cg_rel_space_id_fixed - 1) - g_cg_llfct) / 2];
 	    }
 	  }
-	  sptr_tmp = double_g_write(dxx, sptr_cur);
-	  sptr_cur = width_force(5, sptr_cur, sptr_tmp);
+	  sptr_cur = width_force(5, sptr_cur, double_g_write(sptr_cur, dxx));
 	}
       } else {
-	memcpy(sptr_cur, "UN    NA", 8);
-	sptr_cur += 8;
+	sptr_cur = memcpya(sptr_cur, "UN    NA", 8);
       }
       nn = g_cg_marker_ct - g_indiv_missing_unwt[g_cg_indiv1idx] - g_indiv_missing_unwt[g_cg_indiv2idx] + g_missing_dbl_excluded[g_cg_mdecell];
       oo = nn - g_genome_main[g_cg_gmcell] - g_genome_main[g_cg_gmcell + 1];
@@ -4611,13 +4588,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	}
       }
       *sptr_cur++ = ' ';
-      sptr_cur = double_f_writew74(dxx, sptr_cur);
-      *sptr_cur++ = ' ';
-      sptr_cur = double_f_writew74(dyy, sptr_cur);
-      *sptr_cur++ = ' ';
-      sptr_cur = double_f_writew74(dxx1, sptr_cur);
-      *sptr_cur++ = ' ';
-      sptr_cur = double_f_writew74(dyy * 0.5 + dxx1, sptr_cur);
+      sptr_cur = double_f_writew74(double_f_writew74x(double_f_writew74x(double_f_writew74x(sptr_cur, dxx, ' '), dyy, ' '), dxx1, ' '), dyy * 0.5 + dxx1);
 
       if (g_cg_pheno_c) {
 	uii = is_set(g_cg_pheno_nm, g_cg_indiv1idx);
@@ -4639,27 +4610,15 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       dyy = (double)g_genome_main[g_cg_gmcell + 3];
       dxx1 = 1.0 / ((double)(g_genome_main[g_cg_gmcell + 4] + g_genome_main[g_cg_gmcell + 3]));
       dxx2 = normdist((dxx * dxx1 - 0.666666) / (sqrt(0.2222222 * dxx1)));
-      sptr_cur = double_f_writew6(1.0 - (g_genome_main[g_cg_gmcell] + 2 * g_genome_main[g_cg_gmcell + 1]) / ((double)(2 * nn)), sptr_cur);
-      *sptr_cur++ = ' ';
-      sptr_cur = double_f_writew74(dxx2, sptr_cur);
-      *sptr_cur++ = ' ';
+      sptr_cur = double_f_writew74x(double_f_writew6x(sptr_cur, 1.0 - (g_genome_main[g_cg_gmcell] + 2 * g_genome_main[g_cg_gmcell + 1]) / ((double)(2 * nn)), ' '), dxx2, ' ');
       if (g_genome_main[g_cg_gmcell + 3]) {
-	sptr_cur = double_f_writew74(dxx / dyy, sptr_cur);
+	sptr_cur = double_f_writew74(sptr_cur, dxx / dyy);
       } else {
-	memcpy(sptr_cur, "     NA", 7);
-	sptr_cur += 7;
+	sptr_cur = memcpya(sptr_cur, "     NA", 7);
       }
       if (g_cg_genome_output_full) {
 	*sptr_cur = ' ';
-	sptr_cur = uint32_writew7(g_genome_main[uii + 1], &(sptr_cur[1]));
-	*sptr_cur = ' ';
-	sptr_cur = uint32_writew7(g_genome_main[g_cg_gmcell], &(sptr_cur[1]));
-	*sptr_cur = ' ';
-	sptr_cur = uint32_writew7(oo, &(sptr_cur[1]));
-	*sptr_cur = ' ';
-	sptr_cur = double_f_writew74(dyy, &(sptr_cur[1]));
-	*sptr_cur = ' ';
-	sptr_cur = double_f_writew74(dxx, &(sptr_cur[1]));
+	sptr_cur = double_f_writew74(double_f_writew74x(uint32_writew7x(uint32_writew7x(uint32_writew7x(&(sptr_cur[1]), g_genome_main[uii + 1], ' '), g_genome_main[g_cg_gmcell], ' '), oo, ' '), dyy, ' '), dxx);
       }
       *sptr_cur++ = '\n';
       g_cg_gmcell += 5;
@@ -5046,18 +5005,16 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
       uii = marker_ct - giptr3[indiv_idx];
       uljj = (int)indiv_idx - 1; // not referenced when indiv_idx == 0
       for (ulii = 0; ulii < indiv_idx; ulii++) {
-        cptr = double_g_write(1.0 - ((double)(g_genome_main[uljj * 5] + 2 * g_genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + g_missing_dbl_excluded[uljj]))), wbuf);
-	*cptr = ' ';
-        fwrite(wbuf, 1, 1 + (cptr - wbuf), outfile);
+        cptr = double_g_writex(wbuf, 1.0 - ((double)(g_genome_main[uljj * 5] + 2 * g_genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + g_missing_dbl_excluded[uljj]))), ' ');
+        fwrite(wbuf, 1, cptr - wbuf, outfile);
 	uljj += g_indiv_ct - ulii - 2;
       }
       putc('1', outfile);
       putc(' ', outfile);
       giptr3++;
       for (ujj = indiv_idx + 1; ujj < g_indiv_ct; ujj++) {
-	cptr = double_g_write(1.0 - ((double)((*giptr) + 2 * giptr[1])) / ((double)(2 * (uii - (*giptr3++) + (*giptr2++)))), wbuf);
-	*cptr = ' ';
-	fwrite(wbuf, 1, 1 + (cptr - wbuf), outfile);
+	cptr = double_g_writex(wbuf, 1.0 - ((double)((*giptr) + 2 * giptr[1])) / ((double)(2 * (uii - (*giptr3++) + (*giptr2++)))), ' ');
+	fwrite(wbuf, 1, cptr - wbuf, outfile);
 	giptr = &(giptr[5]);
       }
       if (putc('\n', outfile) == EOF) {
@@ -5095,8 +5052,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
       uii = marker_ct - giptr3[indiv_idx];
       uljj = indiv_idx - 1;
       for (ulii = 0; ulii < indiv_idx; ulii++) {
-	cptr = double_g_write(((double)(g_genome_main[uljj * 5] + 2 * g_genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + g_missing_dbl_excluded[uljj]))), wbuf);
-	*cptr++ = ' ';
+	cptr = double_g_writex(wbuf, ((double)(g_genome_main[uljj * 5] + 2 * g_genome_main[uljj * 5 + 1])) / ((double)(2 * (uii - (*giptr3++) + g_missing_dbl_excluded[uljj]))), ' ');
 	fwrite(wbuf, 1, cptr - wbuf, outfile);
 	uljj += g_indiv_ct - ulii - 2;
       }
@@ -5104,8 +5060,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
       putc(' ', outfile);
       giptr3++;
       for (ujj = indiv_idx + 1; ujj < g_indiv_ct; ujj++) {
-	cptr = double_g_write(((double)((*giptr) + 2 * giptr[1])) / ((double)(2 * (uii - (*giptr3++) + (*giptr2++)))), wbuf);
-        *cptr++ = ' ';
+	cptr = double_g_writex(wbuf, ((double)((*giptr) + 2 * giptr[1])) / ((double)(2 * (uii - (*giptr3++) + (*giptr2++)))), ' ');
         fwrite(wbuf, 1, cptr - wbuf, outfile);
 	giptr = &(giptr[5]);
       }
@@ -5945,20 +5900,14 @@ uint32_t rel_cutoff_batch_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	gzgets(g_rcb_cur_gzfile, tbuf, MAXLINELEN);
       }
     } else {
-      cptr = uint32_write(g_rcb_new_row, wbuf);
-      *cptr = '\t';
-      wbuf_ct = 1 + ((uintptr_t)(cptr - wbuf));
+      cptr = uint32_writex(wbuf, g_rcb_new_row, '\t');
+      wbuf_ct = (uintptr_t)(cptr - wbuf);
       while (g_rcb_col <= g_rcb_row) {
         gzgets(g_rcb_cur_gzfile, tbuf, MAXLINELEN);
 	if (g_rcb_rel_ct_arr[g_rcb_col++] != -1) {
-	  memcpy(sptr_cur, wbuf, wbuf_ct);
-	  sptr_cur += wbuf_ct;
-	  sptr_cur = uint32_write(++g_rcb_new_col, sptr_cur);
-	  *sptr_cur++ = '\t';
 	  cptr = next_item_mult(tbuf, 2);
           uii = strlen(cptr);
-          memcpy(sptr_cur, cptr, uii);
-	  sptr_cur += uii;
+          sptr_cur = memcpya(uint32_writex(memcpya(sptr_cur, wbuf, wbuf_ct), ++g_rcb_new_col, '\t'), cptr, uii);
 	  if (sptr_cur >= readbuf_end) {
 	    goto rel_cutoff_batch_emitn_ret;
 	  }
@@ -6574,15 +6523,13 @@ uint32_t calc_rel_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
   while (g_cr_indiv1idx < g_cr_max_indiv1idx) {
     while (g_cr_indiv2idx < g_cr_indiv1idx) {
-      sptr_cur = double_g_write(*g_cr_dist_ptr++, sptr_cur);
-      *sptr_cur++ = '\t';
+      sptr_cur = double_g_writex(sptr_cur, *g_cr_dist_ptr++, '\t');
       g_cr_indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_rel_tri_emitn_ret;
       }
     }
-    sptr_cur = double_g_write(*g_cr_ibc_ptr++, sptr_cur);
-    *sptr_cur++ = '\n';
+    sptr_cur = double_g_writex(sptr_cur, *g_cr_ibc_ptr++, '\n');
     g_cr_indiv1idx++;
     if ((((uint64_t)g_cr_indiv1idx) * (g_cr_indiv1idx + 1) / 2 - g_cr_start_offset) >= g_cr_hundredth * g_pct) {
       g_pct = (((uint64_t)g_cr_indiv1idx) * (g_cr_indiv1idx + 1) / 2 - g_cr_start_offset) / g_cr_hundredth;
@@ -6601,15 +6548,14 @@ uint32_t calc_rel_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uintptr_t ulii;
   while (g_cr_indiv1idx < g_cr_max_indiv1idx) {
     while (g_cr_indiv2idx < g_cr_indiv1idx) {
-      sptr_cur = double_g_write(*g_cr_dist_ptr++, sptr_cur);
-      *sptr_cur++ = '\t';
+      sptr_cur = double_g_writex(sptr_cur, *g_cr_dist_ptr++, '\t');
       g_cr_indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_rel_sq0_emitn_ret;
       }
     }
     if (g_cr_indiv2idx == g_cr_indiv1idx) {
-      sptr_cur = double_g_write(*g_cr_ibc_ptr++, sptr_cur);
+      sptr_cur = double_g_write(sptr_cur, *g_cr_ibc_ptr++);
       g_cr_indiv2idx++;
     }
     if (sptr_cur >= readbuf_end) {
@@ -6617,14 +6563,12 @@ uint32_t calc_rel_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     } else {
       ulii = (1 + (uintptr_t)(readbuf_end - sptr_cur)) / 2;
       if (ulii < (g_indiv_ct - g_cr_indiv2idx)) {
-	memcpy(sptr_cur, g_geno, 2 * ulii);
-	sptr_cur += 2 * ulii;
+	sptr_cur = memcpya(sptr_cur, g_geno, 2 * ulii);
 	g_cr_indiv2idx += ulii;
 	goto calc_rel_sq0_emitn_ret;
       }
       ulii = 2 * (g_indiv_ct - g_cr_indiv2idx);
-      memcpy(sptr_cur, g_geno, ulii);
-      sptr_cur += ulii;
+      sptr_cur = memcpya(sptr_cur, g_geno, ulii);
     }
     *sptr_cur++ = '\n';
     g_cr_indiv1idx++;
@@ -6644,20 +6588,19 @@ uint32_t calc_rel_sq_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
   while (g_cr_indiv1idx < g_cr_max_indiv1idx) {
     while (g_cr_indiv2idx < g_cr_indiv1idx) {
-      sptr_cur = double_g_write(*g_cr_dist_ptr++, sptr_cur);
-      *sptr_cur++ = '\t';
+      sptr_cur = double_g_writex(sptr_cur, *g_cr_dist_ptr++, '\t');
       g_cr_indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_rel_sq_emitn_ret;
       }
     }
     if (g_cr_indiv2idx == g_cr_indiv1idx) {
-      sptr_cur = double_g_write(*g_cr_ibc_ptr++, sptr_cur);
+      sptr_cur = double_g_write(sptr_cur, *g_cr_ibc_ptr++);
       g_cr_indiv2idx++;
     }
     while (g_cr_indiv2idx < g_indiv_ct) {
-      *sptr_cur++ = '\t';
-      sptr_cur = double_g_write(g_rel_dists[((g_cr_indiv2idx * (g_cr_indiv2idx - 1)) / 2) + g_cr_indiv1idx], sptr_cur);
+      *sptr_cur = '\t';
+      sptr_cur = double_g_write(&(sptr_cur[1]), g_rel_dists[((g_cr_indiv2idx * (g_cr_indiv2idx - 1)) / 2) + g_cr_indiv1idx]);
       g_cr_indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_rel_sq_emitn_ret;
@@ -6685,31 +6628,16 @@ uint32_t calc_rel_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uint32_t uii;
   while (g_cr_indiv1idx < g_cr_max_indiv1idx) {
     uii = g_cr_marker_ct - g_indiv_missing_unwt[g_cr_indiv1idx];
-    wbuf_end = uint32_write(g_cr_indiv1idx + 1, wbuf);
-    *wbuf_end++ = '\t';
+    wbuf_end = uint32_writex(wbuf, g_cr_indiv1idx + 1, '\t');
     wbuf_len = (uintptr_t)(wbuf_end - wbuf);
     while (g_cr_indiv2idx < g_cr_indiv1idx) {
-      memcpy(sptr_cur, wbuf, wbuf_len);
-      sptr_cur += wbuf_len;
-      sptr_cur = uint32_write(g_cr_indiv2idx + 1, sptr_cur);
-      *sptr_cur++ = '\t';
-      sptr_cur = uint32_write((uii - g_indiv_missing_unwt[g_cr_indiv2idx]) + (*g_cr_mdeptr++), sptr_cur);
-      *sptr_cur++ = '\t';
-      sptr_cur = double_e_write(*g_cr_dist_ptr++, sptr_cur);
-      *sptr_cur++ = '\n';
+      sptr_cur = double_e_writex(uint32_writex(uint32_writex(memcpya(sptr_cur, wbuf, wbuf_len), g_cr_indiv2idx + 1, '\t'), (uii - g_indiv_missing_unwt[g_cr_indiv2idx]) + (*g_cr_mdeptr++), '\t'), *g_cr_dist_ptr++, '\n');
       g_cr_indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_rel_grm_emitn_ret;
       }
     }
-    memcpy(sptr_cur, wbuf, wbuf_len);
-    sptr_cur += wbuf_len;
-    sptr_cur = uint32_write(++g_cr_indiv1idx, sptr_cur);
-    *sptr_cur++ = '\t';
-    sptr_cur = uint32_write(uii, sptr_cur);
-    *sptr_cur++ = '\t';
-    sptr_cur = double_e_write(*g_cr_ibc_ptr++, sptr_cur);
-    *sptr_cur++ = '\n';
+    sptr_cur = double_e_writex(uint32_writex(uint32_writex(memcpya(sptr_cur, wbuf, wbuf_len), ++g_cr_indiv1idx, '\t'), uii, '\t'), *g_cr_ibc_ptr++, '\n');
     if ((((uint64_t)g_cr_indiv1idx) * (g_cr_indiv1idx + 1) / 2 - g_cr_start_offset) >= g_cr_hundredth * g_pct) {
       g_pct = (((uint64_t)g_cr_indiv1idx) * (g_cr_indiv1idx + 1) / 2 - g_cr_start_offset) / g_cr_hundredth;
       printf("\rWriting... %u%%", g_pct++);
@@ -7149,15 +7077,13 @@ uint32_t calc_rel_f_tri_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
   while (g_cr_indiv1idx < g_cr_max_indiv1idx) {
     while (g_cr_indiv2idx < g_cr_indiv1idx) {
-      sptr_cur = float_g_write(*g_crf_dist_ptr++, sptr_cur);
-      *sptr_cur++ = '\t';
+      sptr_cur = float_g_writex(sptr_cur, *g_crf_dist_ptr++, '\t');
       g_cr_indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_rel_f_tri_emitn_ret;
       }
     }
-    sptr_cur = float_g_write(*g_crf_ibc_ptr++, sptr_cur);
-    *sptr_cur++ = '\n';
+    sptr_cur = float_g_writex(sptr_cur, *g_crf_ibc_ptr++, '\n');
     g_cr_indiv1idx++;
     if ((((uint64_t)g_cr_indiv1idx) * (g_cr_indiv1idx + 1) / 2 - g_cr_start_offset) >= g_cr_hundredth * g_pct) {
       g_pct = (((uint64_t)g_cr_indiv1idx) * (g_cr_indiv1idx + 1) / 2 - g_cr_start_offset) / g_cr_hundredth;
@@ -7176,15 +7102,14 @@ uint32_t calc_rel_f_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uintptr_t ulii;
   while (g_cr_indiv1idx < g_cr_max_indiv1idx) {
     while (g_cr_indiv2idx < g_cr_indiv1idx) {
-      sptr_cur = float_g_write(*g_crf_dist_ptr++, sptr_cur);
-      *sptr_cur++ = '\t';
+      sptr_cur = float_g_writex(sptr_cur, *g_crf_dist_ptr++, '\t');
       g_cr_indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_rel_sq0_emitn_ret;
       }
     }
     if (g_cr_indiv2idx == g_cr_indiv1idx) {
-      sptr_cur = float_g_write(*g_crf_ibc_ptr++, sptr_cur);
+      sptr_cur = float_g_write(sptr_cur, *g_crf_ibc_ptr++);
       g_cr_indiv2idx++;
     }
     if (sptr_cur >= readbuf_end) {
@@ -7192,14 +7117,12 @@ uint32_t calc_rel_f_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     } else {
       ulii = (1 + (uintptr_t)(readbuf_end - sptr_cur)) / 2;
       if (ulii < (g_indiv_ct - g_cr_indiv2idx)) {
-	memcpy(sptr_cur, g_geno, 2 * ulii);
-	sptr_cur += 2 * ulii;
+	sptr_cur = memcpya(sptr_cur, g_geno, 2 * ulii);
 	g_cr_indiv2idx += ulii;
 	goto calc_rel_sq0_emitn_ret;
       }
       ulii = 2 * (g_indiv_ct - g_cr_indiv2idx);
-      memcpy(sptr_cur, g_geno, ulii);
-      sptr_cur += ulii;
+      sptr_cur = memcpya(sptr_cur, g_geno, ulii);
     }
     *sptr_cur++ = '\n';
     g_cr_indiv1idx++;
@@ -7219,20 +7142,19 @@ uint32_t calc_rel_f_sq_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
   while (g_cr_indiv1idx < g_cr_max_indiv1idx) {
     while (g_cr_indiv2idx < g_cr_indiv1idx) {
-      sptr_cur = float_g_write(*g_crf_dist_ptr++, sptr_cur);
-      *sptr_cur++ = '\t';
+      sptr_cur = float_g_writex(sptr_cur, *g_crf_dist_ptr++, '\t');
       g_cr_indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_rel_sq_emitn_ret;
       }
     }
     if (g_cr_indiv2idx == g_cr_indiv1idx) {
-      sptr_cur = float_g_write(*g_crf_ibc_ptr++, sptr_cur);
+      sptr_cur = float_g_write(sptr_cur, *g_crf_ibc_ptr++);
       g_cr_indiv2idx++;
     }
     while (g_cr_indiv2idx < g_indiv_ct) {
       *sptr_cur++ = '\t';
-      sptr_cur = float_g_write(g_rel_f_dists[((g_cr_indiv2idx * (g_cr_indiv2idx - 1)) / 2) + g_cr_indiv1idx], sptr_cur);
+      sptr_cur = float_g_write(sptr_cur, g_rel_f_dists[((g_cr_indiv2idx * (g_cr_indiv2idx - 1)) / 2) + g_cr_indiv1idx]);
       g_cr_indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	goto calc_rel_sq_emitn_ret;
@@ -7260,31 +7182,16 @@ uint32_t calc_rel_f_grm_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uint32_t uii;
   while (g_cr_indiv1idx < g_cr_max_indiv1idx) {
     uii = g_cr_marker_ct - g_indiv_missing_unwt[g_cr_indiv1idx];
-    wbuf_end = uint32_write(g_cr_indiv1idx + 1, wbuf);
-    *wbuf_end++ = '\t';
+    wbuf_end = uint32_writex(wbuf, g_cr_indiv1idx + 1, '\t');
     wbuf_len = (uintptr_t)(wbuf_end - wbuf);
     while (g_cr_indiv2idx < g_cr_indiv1idx) {
-      memcpy(sptr_cur, wbuf, wbuf_len);
-      sptr_cur += wbuf_len;
-      sptr_cur = uint32_write(g_cr_indiv2idx + 1, sptr_cur);
-      *sptr_cur++ = '\t';
-      sptr_cur = uint32_write((uii - g_indiv_missing_unwt[g_cr_indiv2idx]) + (*g_cr_mdeptr++), sptr_cur);
-      *sptr_cur++ = '\t';
-      sptr_cur = float_e_write(*g_crf_dist_ptr++, sptr_cur);
-      *sptr_cur++ = '\n';
+      sptr_cur = float_e_writex(uint32_writex(uint32_writex(memcpya(sptr_cur, wbuf, wbuf_len), g_cr_indiv2idx + 1, '\t'), (uii - g_indiv_missing_unwt[g_cr_indiv2idx]) + (*g_cr_mdeptr++), '\t'), *g_crf_dist_ptr++, '\n');
       g_cr_indiv2idx++;
       if (sptr_cur >= readbuf_end) {
 	return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
       }
     }
-    memcpy(sptr_cur, wbuf, wbuf_len);
-    sptr_cur += wbuf_len;
-    sptr_cur = uint32_write(++g_cr_indiv1idx, sptr_cur);
-    *sptr_cur++ = '\t';
-    sptr_cur = uint32_write(uii, sptr_cur);
-    *sptr_cur++ = '\t';
-    sptr_cur = float_e_write(*g_crf_ibc_ptr++, sptr_cur);
-    *sptr_cur++ = '\n';
+    sptr_cur = float_e_writex(uint32_writex(uint32_writex(memcpya(sptr_cur, wbuf, wbuf_len), ++g_cr_indiv1idx, '\t'), uii, '\t'), *g_crf_ibc_ptr++, '\n');
     if ((((uint64_t)g_cr_indiv1idx) * (g_cr_indiv1idx + 1) / 2 - g_cr_start_offset) >= g_cr_hundredth * g_pct) {
       g_pct = (((uint64_t)g_cr_indiv1idx) * (g_cr_indiv1idx + 1) / 2 - g_cr_start_offset) / g_cr_hundredth;
       printf("\rWriting... %u%%", g_pct++);

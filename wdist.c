@@ -70,7 +70,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (10 Mar 2013)";
+  " (11 Mar 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -257,8 +257,7 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, int32_t postpr
 	    payload_ptr = &(payload_ptr[2]);
 	    uii -= 2;
 	  }
-	  memcpy(tbuf, payload_ptr, uii);
-	  tbuf[uii] = '\0';
+	  memcpy0(tbuf, payload_ptr, uii);
 	  fputs(tbuf, stdout);
 	  payload_ptr = line_end;
 	} while (payload_ptr < payload_end);
@@ -1713,15 +1712,13 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   uiptr = family_sizes;
   *uiptr = 1;
   jj = strlen_se(cur_person_id);
-  memcpy(cur_family_id, cur_person_id, jj);
-  cur_family_id[jj] = '\0';
+  memcpy0(cur_family_id, cur_person_id, jj);
   for (indiv_uidx = 1; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
     cur_person_id = &(cur_person_id[max_person_id_len]);
     mm = strlen_se(cur_person_id);
     if ((jj != mm) || memcmp(cur_family_id, cur_person_id, mm)) {
       cur_family_id = &(cur_family_id[max_family_id_len]);
-      memcpy(cur_family_id, cur_person_id, mm);
-      cur_family_id[mm] = '\0';
+      memcpy0(cur_family_id, cur_person_id, mm);
       jj = mm;
       *(++uiptr) = 1;
     } else {
@@ -1817,8 +1814,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   cur_person_id = person_ids;
   for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
     jj = strlen_se(cur_person_id);
-    memcpy(id_buf, cur_person_id, jj);
-    id_buf[jj] = '\0';
+    memcpy0(id_buf, cur_person_id, jj);
     kk = bsearch_str(id_buf, family_ids, max_family_id_len, 0, family_id_ct - 1);
     pri_ptr->family_idxs[indiv_uidx] = kk;
     if (is_founder(founder_info, indiv_uidx)) {
@@ -4215,17 +4211,9 @@ int32_t hardy_report_write_line(FILE* outfile, char* prefix_buf, uint32_t prefix
   double minor_freq;
   fwrite(prefix_buf, 1, prefix_len, outfile);
   if (reverse) {
-    cptr = uint32_write(hh_ct, wbuf);
-    *cptr++ = '/';
-    cptr = uint32_write(lh_ct, cptr);
-    *cptr++ = '/';
-    cptr = uint32_write(ll_ct, cptr);
+    cptr = uint32_write(uint32_writex(uint32_writex(wbuf, hh_ct, '/'), lh_ct, '/'), ll_ct);
   } else {
-    cptr = uint32_write(ll_ct, wbuf);
-    *cptr++ = '/';
-    cptr = uint32_write(lh_ct, cptr);
-    *cptr++ = '/';
-    cptr = uint32_write(hh_ct, cptr);
+    cptr = uint32_write(uint32_writex(uint32_writex(wbuf, ll_ct, '/'), lh_ct, '/'), hh_ct);
   }
   cptr = fw_strcpyn(20, cptr - wbuf, wbuf, midbuf_ptr);
   *cptr++ = ' ';
@@ -4233,15 +4221,9 @@ int32_t hardy_report_write_line(FILE* outfile, char* prefix_buf, uint32_t prefix
   if (denom) {
     drecip = 1.0 / ((double)denom);
     minor_freq = (2 * ll_ct + lh_ct) * drecip;
-    cptr = double_g_writewx4((lh_ct * 2) * drecip, 8, cptr);
-    *cptr++ = ' ';
-    cptr = double_g_writewx4(minor_freq * (2 * hh_ct + lh_ct) * drecip * 2, 8, cptr);
-    *cptr++ = ' ';
-    cptr = double_g_writewx4(pvalue, 12, cptr);
-    *cptr++ = '\n';
+    cptr = double_g_writewx4x(double_g_writewx4x(double_g_writewx4x(cptr, (lh_ct * 2) * drecip, 8, ' '), minor_freq * (2 * hh_ct + lh_ct) * drecip * 2, 8, ' '), pvalue, 12, '\n');
   } else {
-    memcpy(cptr, "     nan      nan           NA\n", 31);
-    cptr = &(cptr[31]);
+    cptr = memcpya(cptr, "     nan      nan           NA\n", 31);
   }
   return fwrite_checked(midbuf_ptr, (cptr - midbuf_ptr), outfile);
 }
@@ -4805,12 +4787,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_2;
     }
     uljj = (uintptr_t)(outname_end - outname) + (ulii? 6 : 0);
-    memcpy(pedname, outname, uljj);
-    memcpy(&(pedname[uljj]), ".bed", 5);
-    memcpy(famname, pedname, uljj);
-    memcpy(&(famname[uljj]), ".fam", 5);
-    memcpy(mapname, pedname, uljj);
-    memcpy(&(mapname[uljj]), ".bim", 5);
+    memcpy(memcpya(pedname, outname, uljj), ".bed", 5);
+    memcpy(memcpya(famname, pedname, uljj), ".fam", 5);
+    memcpy(memcpya(mapname, pedname, uljj), ".bim", 5);
   }
 
   if (fopen_checked(&bedfile, pedname, "rb")) {
@@ -5636,8 +5615,7 @@ int32_t parse_marker_ranges(uint32_t param_ct, char range_delim, char** argv, ch
     if (!range_start) {
       return 0;
     }
-    memcpy(cur_snps_flag_marker_str, range_start, rs_len);
-    cur_snps_flag_marker_str[rs_len] = '\0';
+    memcpy0(cur_snps_flag_marker_str, range_start, rs_len);
     dup_check = *snps_flag_markers_ptr;
     while (dup_check < cur_snps_flag_marker_str) {
       if (!memcmp(dup_check, cur_snps_flag_marker_str, rs_len + 1)) {
@@ -5650,8 +5628,7 @@ int32_t parse_marker_ranges(uint32_t param_ct, char range_delim, char** argv, ch
     cur_snps_flag_marker_str = &(cur_snps_flag_marker_str[snps_flag_max_len]);
     if (range_end) {
       *cur_snps_flag_starts_range++ = 1;
-      memcpy(cur_snps_flag_marker_str, range_end, re_len);
-      cur_snps_flag_marker_str[re_len] = '\0';
+      memcpy0(cur_snps_flag_marker_str, range_end, re_len);
       dup_check = *snps_flag_markers_ptr;
       while (dup_check < cur_snps_flag_marker_str) {
 	if (!memcmp(dup_check, cur_snps_flag_marker_str, rs_len + 1)) {
@@ -6382,7 +6359,7 @@ int32_t main(int32_t argc, char** argv) {
   famname[0] = '\0';
   genname[0] = '\0';
   samplename[0] = '\0';
-  memcpy(output_missing_pheno, "-9", 3);
+  memcpyl3(output_missing_pheno, "-9");
   // stuff that must be processed before regular alphabetical loop
   cur_flag = 0;
   if (flag_match("cow", &cur_flag, flag_ct, flag_buf)) {
@@ -6693,12 +6670,9 @@ int32_t main(int32_t argc, char** argv) {
 	    logprint("Error: --bmerge filename prefix too long.\n");
 	    goto main_ret_OPEN_FAIL;
 	  }
-	  memcpy(mergename1, argv[cur_arg + 1], jj);
-	  memcpy(mergename2, argv[cur_arg + 1], jj);
-	  memcpy(mergename3, argv[cur_arg + 1], jj);
-	  memcpy(&(mergename1[jj]), ".bed", 5);
-	  memcpy(&(mergename2[jj]), ".bim", 5);
-	  memcpy(&(mergename3[jj]), ".fam", 5);
+	  memcpy(memcpya(mergename1, argv[cur_arg + 1], jj), ".bed", 5);
+	  memcpy(memcpya(mergename2, argv[cur_arg + 1], jj), ".bim", 5);
+	  memcpy(memcpya(mergename3, argv[cur_arg + 1], jj), ".fam", 5);
 	}
 	calculation_type |= CALC_MERGE;
 	merge_type |= MERGE_BINARY;
@@ -7868,10 +7842,8 @@ int32_t main(int32_t argc, char** argv) {
 	    logprint("Error: --merge filename prefix too long.\n");
 	    goto main_ret_OPEN_FAIL;
 	  }
-	  memcpy(mergename1, argv[cur_arg + 1], jj);
-	  memcpy(mergename2, argv[cur_arg + 1], jj);
-	  memcpy(&(mergename1[jj]), ".ped", 5);
-	  memcpy(&(mergename2[jj]), ".map", 5);
+	  memcpy(memcpya(mergename1, argv[cur_arg + 1], jj), ".ped", 5);
+	  memcpy(memcpya(mergename2, argv[cur_arg + 1], jj), ".map", 5);
 	}
 	calculation_type |= CALC_MERGE;
       } else if (!memcmp(argptr2, "erge-list", 10)) {
@@ -8786,11 +8758,9 @@ int32_t main(int32_t argc, char** argv) {
 	    logprint("Error: --tfile filename prefix too long.\n");
 	    goto main_ret_OPEN_FAIL;
 	  }
-	  memcpy(pedname, argv[cur_arg + 1], jj);
-	  memcpy(&(pedname[jj]), ".tped", 6);
+	  memcpy(memcpya(pedname, argv[cur_arg + 1], jj), ".tped", 6);
 	  if (!(load_rare & LOAD_RARE_TFAM)) {
-	    memcpy(famname, argv[cur_arg + 1], jj);
-	    memcpy(&(famname[jj]), ".tfam", 6);
+	    memcpy(memcpya(famname, argv[cur_arg + 1], jj), ".tfam", 6);
 	  }
 	} else {
 	  memcpy(pedname, "wdist.tped", 11);
@@ -9268,8 +9238,7 @@ int32_t main(int32_t argc, char** argv) {
     if (load_rare || (!famname[0])) {
       sptr = outname_end;
       if (bed_suffix_conflict(calculation_type, recode_modifier) || filename_exists(outname, outname_end, ".bed")) {
-        memcpy(sptr, "-working", 9);
-	sptr = &(sptr[8]);
+        sptr = memcpya0(sptr, "-working", 9);
       }
       uii = (sptr - outname);
       if (load_rare == LOAD_RARE_LGEN) {
@@ -9291,12 +9260,9 @@ int32_t main(int32_t argc, char** argv) {
       if (retval || (!calculation_type)) {
 	goto main_ret_2;
       }
-      memcpy(pedname, outname, uii);
-      memcpy(&(pedname[uii]), ".bed", 5);
-      memcpy(mapname, outname, uii);
-      memcpy(&(mapname[uii]), ".bim", 5);
-      memcpy(famname, outname, uii);
-      memcpy(&(famname[uii]), ".fam", 5);
+      memcpy(memcpya(pedname, outname, uii), ".bed", 5);
+      memcpy(memcpya(mapname, outname, uii), ".bim", 5);
+      memcpy(memcpya(famname, outname, uii), ".fam", 5);
       *outname_end = '\0';
     }
     retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, update_alleles_fname, update_map_fname, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, filterval, mfilter_col, filter_case_control, filter_sex, filter_founder_nonf, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (uint32_t)parallel_tot, ppc_gap, allow_no_sex, must_have_sex, nonfounders, genome_output_gz, genome_output_full, genome_ibd_unbounded, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, set_hh_missing, covar_modifier, covar_str, mcovar_col, update_map_modifier, write_covar_modifier, model_modifier, (uint32_t)model_cell_ct, (uint32_t)model_mperm_val, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, ibs_test_perms);

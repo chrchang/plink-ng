@@ -506,16 +506,55 @@ static inline int32_t is_space_or_eoln(char cc) {
 
 int32_t atoiz(char* ss, int32_t* sval);
 
-static inline char* memcpya(char* target, char* source, uint32_t ct) {
+static inline char* memseta(char* target, const unsigned char val, uint32_t ct) {
+  memset(target, val, ct);
+  return &(target[ct]);
+}
+
+static inline char* memcpya(char* target, const void* source, uint32_t ct) {
   memcpy(target, source, ct);
   return &(target[ct]);
 }
 
-static inline char* memcpya0(char* target, char* source, uint32_t ct) {
+static inline char* memcpya0(char* target, const void* source, uint32_t ct) {
   // when source is a null-terminated string and we want to copy the null, but
   // we want to position the write pointer at rather than after the null
   memcpy(target, source, ct);
   return &(target[ct - 1]);
+}
+
+static inline void memcpy0(char* target, const void* source, uint32_t ct) {
+  // source is not null-terminated, but we want to null-terminate the copy
+  memcpy(target, source, ct);
+  target[ct] = '\0';
+}
+
+static inline void memcpy9(char* target, const void* source, uint32_t ct) {
+  memcpy(target, source, ct);
+  target[ct] = '\t';
+}
+
+static inline void memcpyl3(char* target, const void* source) {
+  // when it's safe to clobber the fourth character, this is faster
+  *((uint32_t*)target) = *((uint32_t*)source);
+}
+
+static inline char* memcpyl3a(char* target, const void* source) {
+  memcpyl3(target, source);
+  return &(target[3]);
+}
+
+static inline char* strcpya(char* target, const void* source) {
+  uint32_t slen = strlen((char*)source);
+  memcpy(target, source, slen);
+  return &(target[slen]);
+}
+
+static inline char* strcpyax(char* target, const void* source, const char extra_char) {
+  uint32_t slen = strlen((char*)source);
+  memcpy(target, source, slen);
+  target[slen] = extra_char;
+  return &(target[slen + 1]);
 }
 
 int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr);
@@ -577,25 +616,25 @@ static inline void intprint2(char* buf, uint32_t num) {
   *buf = '0' + num - (quotient * 10);
 }
 
-char* uint32_write(uint32_t uii, char* start);
+char* uint32_write(char* start, uint32_t uii);
 
-char* uint32_writew7(uint32_t uii, char* start);
+char* uint32_writew7(char* start, uint32_t uii);
 
-char* uint32_writew8(uint32_t uii, char* start);
+char* uint32_writew8(char* start, uint32_t uii);
 
-char* uint32_writew10(uint32_t uii, char* start);
+char* uint32_writew10(char* start, uint32_t uii);
 
-char* double_e_write(double dxx, char* start);
+char* double_e_write(char* start, double dxx);
 
-char* float_e_write(float dxx, char* start);
+char* float_e_write(char* start, float dxx);
 
-char* double_f_writew6(double dxx, char* start);
+char* double_f_writew6(char* start, double dxx);
 
-char* double_f_writew74(double dxx, char* start);
+char* double_f_writew74(char* start, double dxx);
 
-char* double_g_write(double dxx, char* start);
+char* double_g_write(char* start, double dxx);
 
-char* float_g_write(float dxx, char* start);
+char* float_g_write(char* start, float dxx);
 
 static inline char* width_force(uint32_t min_width, char* startp, char* endp) {
   uintptr_t diff = (endp - startp);
@@ -612,7 +651,61 @@ static inline char* width_force(uint32_t min_width, char* startp, char* endp) {
   }
 }
 
-char* double_g_writewx4(double dxx, uint32_t min_width, char* start);
+char* double_g_writewx4(char* start, double dxx, uint32_t min_width);
+
+static inline char* uint32_writex(char* start, uint32_t uii, const char extra_char) {
+  char* penult = uint32_write(start, uii);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
+static inline char* uint32_writew7x(char* start, uint32_t uii, const char extra_char) {
+  char* penult = uint32_writew7(start, uii);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
+static inline char* double_e_writex(char* start, double dxx, const char extra_char) {
+  char* penult = double_e_write(start, dxx);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
+static inline char* float_e_writex(char* start, float dxx, const char extra_char) {
+  char* penult = float_e_write(start, dxx);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
+static inline char* double_f_writew6x(char* start, double dxx, const char extra_char) {
+  char* penult = double_f_writew6(start, dxx);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
+static inline char* double_f_writew74x(char* start, double dxx, const char extra_char) {
+  char* penult = double_f_writew74(start, dxx);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
+static inline char* double_g_writex(char* start, double dxx, const char extra_char) {
+  char* penult = double_g_write(start, dxx);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
+static inline char* float_g_writex(char* start, float dxx, const char extra_char) {
+  char* penult = float_g_write(start, dxx);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
+static inline char* double_g_writewx4x(char* start, double dxx, uint32_t min_width, const char extra_char) {
+  char* penult = double_g_writewx4(start, dxx, min_width);
+  *penult = extra_char;
+  return &(penult[1]);
+}
 
 static inline void read_next_terminate(char* target, char* source) {
   while (!is_space_or_eoln(*source)) {
