@@ -6607,16 +6607,13 @@ int32_t main(int32_t argc, char** argv) {
 	  sptr = (char*)"wdist";
 	}
 	if (!(load_params & 16)) {
-	  strcpy(pedname, sptr);
-	  strcat(pedname, ".bed");
+	  memcpy(strcpya(pedname, sptr), ".bed", 5);
 	}
 	if (!(load_params & 32)) {
-	  strcpy(mapname, sptr);
-	  strcat(mapname, ".bim");
+	  memcpy(strcpya(mapname, sptr), ".bim", 5);
 	}
 	if (!(load_params & 64)) {
-	  strcpy(famname, sptr);
-	  strcat(famname, ".fam");
+	  memcpy(strcpya(mapname, sptr), ".fam", 5);
 	}
       } else if (!memcmp(argptr2, "ed", 3)) {
 	load_params |= 16;
@@ -6822,12 +6819,10 @@ int32_t main(int32_t argc, char** argv) {
 	  sptr = (char*)"wdist";
 	}
 	if (!(load_params & 0x100)) {
-	  strcpy(genname, sptr);
-	  strcat(genname, ".gen");
+	  memcpy(strcpya(genname, sptr), ".gen", 5);
 	}
 	if (!(load_params & 0x200)) {
-	  strcpy(samplename, sptr);
-	  strcat(samplename, ".sample");
+	  memcpy(strcpya(samplename, sptr), ".sample", 8);
 	}
       } else if (!memcmp(argptr2, "ebug", 5)) {
 	debug_on = 1;
@@ -7030,12 +7025,10 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_OPEN_FAIL;
 	  }
 	  if (!(load_params & 2)) {
-	    strcpy(pedname, argv[cur_arg + 1]);
-	    strcat(pedname, ".ped");
+	    memcpy(strcpya(pedname, argv[cur_arg + 1]), ".ped", 5);
 	  }
 	  if (!(load_params & 4)) {
-	    strcpy(mapname, argv[cur_arg + 1]);
-	    strcat(mapname, ".map");
+	    memcpy(strcpya(mapname, argv[cur_arg + 1]), ".map", 5);
 	  }
 	}
       } else if (!memcmp(argptr2, "am", 3)) {

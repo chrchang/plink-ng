@@ -3199,7 +3199,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     printf("\b\b\b\b\b\b      \rcovg: %g  covr: %g  EM step log likelihood change: %g", *covg_ref, *covr_ref, ll_change);
     fflush(stdout);
   } while (ll_change > tol);
-  printf("\n");
+  putchar('\n');
   sprintf(logbuf, "covg: %g  covr: %g\n", *covg_ref, *covr_ref);
   logstr(logbuf);
 }
@@ -4214,12 +4214,23 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
     if (fread(loadbuf, 1, unfiltered_indiv_ct4, pedfile) < unfiltered_indiv_ct4) {
       return RET_READ_FAIL;
     }
+    bufptr = uint32_writex(tbuf, get_marker_chrom(chrom_info_ptr, marker_uidx), ' ');
+    fwrite(tbuf, 1, bufptr - tbuf, outfile);
+    fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
+    tbuf[0] = ' ';
+    bufptr = uint32_writex(&(tbuf[1]), marker_pos[marker_uidx], ' ');
     if (max_marker_allele_len == 1) {
-      if (fprintf(outfile, "%d %s %u %c %c", get_marker_chrom(chrom_info_ptr, marker_uidx), &(marker_ids[marker_uidx * max_marker_id_len]), marker_pos[marker_uidx], marker_alleles[2 * marker_uidx], marker_alleles[2 * marker_uidx + 1]) < 0) {
+      bufptr[0] = marker_alleles[2 * marker_uidx];
+      bufptr[1] = ' ';
+      bufptr[2] = marker_alleles[2 * marker_uidx + 1];
+      if (fwrite_checked(tbuf, 3 + (uintptr_t)(bufptr - tbuf), outfile)) {
         return RET_WRITE_FAIL;
       }
     } else {
-      if (fprintf(outfile, "%d %s %u %s %s", get_marker_chrom(chrom_info_ptr, marker_uidx), &(marker_ids[marker_uidx * max_marker_id_len]), marker_pos[marker_uidx], &(marker_alleles[2 * marker_uidx * max_marker_allele_len]), &(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len])) < 0) {
+      fwrite(tbuf, 1, bufptr - tbuf, outfile);
+      fputs(&(marker_alleles[2 * marker_uidx * max_marker_allele_len]), outfile);
+      putc(' ', outfile);
+      if (fputs(&(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), outfile) == EOF) {
         return RET_WRITE_FAIL;
       }
     }
@@ -4320,7 +4331,8 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
   if (fopen_checked(outfile_ptr, outname, "w")) {
     return RET_OPEN_FAIL;
   }
-  if (fputs_checked("ID_1 ID_2 missing sex phenotype\n0 0 0 D P\n", *outfile_ptr)) {
+  outfile = *outfile_ptr;
+  if (fputs_checked("ID_1 ID_2 missing sex phenotype\n0 0 0 D P\n", outfile)) {
     return RET_WRITE_FAIL;
   }
   // regress phenotype
@@ -4376,7 +4388,15 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
     uii = strlen_se(person_id_ptr);
     memcpy0(id_buf, person_id_ptr, uii);
     // todo: adjust pheno_d, double-check missing gender behavior
-    if (fprintf(*outfile_ptr, "%s %s %g %c %g\n", id_buf, next_item(person_id_ptr), (double)missing_cts[indiv_uidx] / (double)marker_ct, sexchar(sex_nm, sex_male, indiv_uidx), residual_vec[indiv_idx]) < 0) {
+    fputs(id_buf, outfile);
+    putc(' ', outfile);
+    fputs(skip_initial_spaces(&(person_id_ptr[uii + 1])), outfile);
+    tbuf[0] = ' ';
+    bufptr = double_g_writex(&(tbuf[1]), (double)missing_cts[indiv_uidx] / (double)marker_ct, ' ');
+    *bufptr = sexchar(sex_nm, sex_male, indiv_uidx);
+    bufptr[1] = ' ';
+    bufptr = double_g_writex(&(bufptr[2]), residual_vec[indiv_idx], '\n');
+    if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
       return RET_WRITE_FAIL;
     }
     indiv_uidx++;
@@ -5227,7 +5247,8 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
   int32_t tot_exclude_ct = 0;
   int32_t prev_end;
   int32_t at_least_one_prune = 0;
-
+  char* sptr;
+  FILE* fptr;
   double* cov_matrix = NULL;
   double* new_cov_matrix = NULL;
   MATRIX_INVERT_BUF1_TYPE* irow = NULL;
@@ -5634,14 +5655,11 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
     marker_unfiltered_idx = chrom_info_ptr->chrom_start[cur_chrom];
     for (; marker_unfiltered_idx < chrom_end; marker_unfiltered_idx++) {
       if (!is_set(marker_exclude, marker_unfiltered_idx)) {
-	if (is_set(pruned_arr, marker_unfiltered_idx)) {
-	  if (fprintf(outfile_out, "%s\n", &(marker_ids[marker_unfiltered_idx * max_marker_id_len])) < 0) {
-	    goto ld_prune_ret_WRITE_FAIL;
-	  }
-	} else {
-	  if (fprintf(outfile_in, "%s\n", &(marker_ids[marker_unfiltered_idx * max_marker_id_len])) < 0) {
-	    goto ld_prune_ret_WRITE_FAIL;
-	  }
+	sptr = &(marker_ids[marker_unfiltered_idx * max_marker_id_len]);
+	fptr = is_set(pruned_arr, marker_unfiltered_idx)? outfile_out : outfile_in;
+	fwrite(sptr, 1, strlen(sptr), fptr);
+	if (putc('\n', fptr) == EOF) {
+	  goto ld_prune_ret_WRITE_FAIL;
 	}
       }
       marker_idx++;
@@ -6663,6 +6681,8 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
   uint32_t chrom_fo_idx = 0;
   double* dptr2;
   double set_allele_freq_buf[MULTIPLEX_DIST];
+  char wbuf[96];
+  char* wptr;
   uint32_t cur_markers_loaded;
   uint32_t win_marker_idx;
   uintptr_t indiv_uidx;
@@ -6872,7 +6892,8 @@ int32_t calc_rel(pthread_t* threads, int32_t parallel_idx, int32_t parallel_tot,
       goto calc_rel_ret_WRITE_FAIL;
     }
     for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-      if (fprintf(outfile, "%" PRIuPTR "\t%" PRIuPTR "\t%u\t%g\t%g\t%g\n", indiv_idx + 1, indiv_idx + 1, marker_ct - g_indiv_missing_unwt[indiv_idx], *dptr3++ - 1.0, *dptr4++ - 1.0, *dptr2++ - 1.0) < 0) {
+      wptr = double_g_writex(double_g_writex(double_g_writex(uint32_writex(uint32_writex(uint32_writex(wbuf, indiv_idx + 1, '\t'), indiv_idx + 1, '\t'), marker_ct - g_indiv_missing_unwt[indiv_idx], '\t'), *dptr3++ - 1.0, '\t'), *dptr4++ - 1.0, '\t'), *dptr2++ - 1.0, '\n');
+      if (fwrite_checked(wbuf, wptr - wbuf, outfile)) {
 	goto calc_rel_ret_WRITE_FAIL;
       }
     }
@@ -7221,6 +7242,8 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
   uint32_t chrom_fo_idx = 0;
   float* dptr2;
   float set_allele_freq_buf[MULTIPLEX_DIST];
+  char wbuf[96];
+  char* wptr;
   uint32_t cur_markers_loaded;
   uint32_t win_marker_idx;
   uintptr_t indiv_uidx;
@@ -7417,7 +7440,8 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
       goto calc_rel_f_ret_WRITE_FAIL;
     }
     for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-      if (fprintf(outfile, "%" PRIuPTR "\t%" PRIuPTR "\t%u\t%g\t%g\t%g\n", indiv_idx + 1, indiv_idx + 1, marker_ct - g_indiv_missing_unwt[indiv_idx], *dptr3++ - 1.0, *dptr4++ - 1.0, *dptr2++ - 1.0) < 0) {
+      wptr = float_g_writex(float_g_writex(float_g_writex(uint32_writex(uint32_writex(uint32_writex(wbuf, indiv_idx + 1, '\t'), indiv_idx + 1, '\t'), marker_ct - g_indiv_missing_unwt[indiv_idx], '\t'), *dptr3++ - 1.0, '\t'), *dptr4++ - 1.0, '\t'), *dptr2++ - 1.0, '\n');
+      if (fwrite_checked(wbuf, wptr - wbuf, outfile)) {
 	goto calc_rel_f_ret_WRITE_FAIL;
       }
     }
@@ -7625,6 +7649,8 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
   uint32_t* giptr2 = NULL;
   double set_allele_freq_buf[MULTIPLEX_DIST];
   uint32_t wtbuf[MULTIPLEX_DIST];
+  char wbuf[16];
+  char* wptr;
   unsigned char* wkspace_mark;
   unsigned char* bedbuf;
   unsigned char* gptr;
@@ -7961,14 +7987,16 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
       giptr2 = g_indiv_missing_unwt;
       uii = marker_ct_autosomal - giptr2[indiv_idx];
       for (ujj = 0; ujj < indiv_idx; ujj++) {
-	fprintf(outfile, "%g ", ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++))));
+	wptr = double_g_writex(wbuf, ((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++))), ' ');
+	fwrite(wbuf, 1, wptr - wbuf, outfile);
       }
       putc('0', outfile);
       putc(' ', outfile);
       giptr2++;
       for (ulii = indiv_idx + 1; ulii < g_indiv_ct; ulii++) {
 	uljj = ulii * (ulii - 1) / 2 + indiv_idx;
-	fprintf(outfile, "%g ", ((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj])));
+	wptr = double_g_writex(wbuf, ((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj])), ' ');
+	fwrite(wbuf, 1, wptr - wbuf, outfile);
       }
       if (putc('\n', outfile) == EOF) {
 	goto calc_distance_ret_WRITE_FAIL;
@@ -8007,16 +8035,16 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
       giptr2 = g_indiv_missing_unwt;
       uii = marker_ct_autosomal - giptr2[indiv_idx];
       for (ujj = 0; ujj < indiv_idx; ujj++) {
-	if (fprintf(outfile, "%g ", 1.0 - (((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++))))) < 0) {
-	  goto calc_distance_ret_WRITE_FAIL;
-	}
+	wptr = double_g_writex(wbuf, 1.0 - (((double)(*iptr++)) / (2 * (uii - (*giptr2++) + (*giptr++)))), ' ');
+	fwrite(wbuf, 1, wptr - wbuf, outfile);
       }
       putc('1', outfile);
       putc(' ', outfile);
       giptr2++;
       for (ulii = indiv_idx + 1; ulii < g_indiv_ct; ulii++) {
 	uljj = (ulii * (ulii - 1)) / 2 + indiv_idx;
-	fprintf(outfile, "%g ", 1.0 - (((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj]))));
+	wptr = double_g_writex(wbuf, 1.0 - (((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj]))), ' ');
+	fwrite(wbuf, 1, wptr - wbuf, outfile);
       }
       if (putc('\n', outfile) == EOF) {
 	goto calc_distance_ret_WRITE_FAIL;

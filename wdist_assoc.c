@@ -524,7 +524,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
-  // uint32_t rand_lbound = (uint32_t)(4294967296LLU % ((uint64_t)pheno_nm_ct));
   int32_t retval = 0;
   FILE* outfile = NULL;
   uint32_t model_assoc = model_modifier & MODEL_ASSOC;
@@ -570,6 +569,11 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uint32_t mu_table[MODEL_BLOCKSIZE];
   char wprefix[5];
   char wbuf[48];
+  uint32_t tot_quotient;
+  uint64_t totq_magic;
+  uint32_t totq_preshift;
+  uint32_t totq_postshift;
+  uint32_t totq_incr;
   char* wptr;
   char* wptr2;
   char* wptr_mid;
@@ -812,6 +816,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       fill_uint_zero(g_perm_attempt_ct, marker_ct);
       fill_ulong_zero(g_perm_adapt_stop, marker_ctl);
     }
+    tot_quotient = 4294967296LLU / pheno_nm_ct;
+    magic_num(tot_quotient, &totq_magic, &totq_preshift, &totq_postshift, &totq_incr);
   }
   wkspace_mark2 = wkspace_base;
   if (wkspace_alloc_ui_checked(&marker_uidxs, marker_ct * sizeof(uint32_t))) {
