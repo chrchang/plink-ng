@@ -4386,11 +4386,10 @@ int32_t calc_regress_pcs(char* evecname, int32_t regress_pcs_normalize_pheno, in
     indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
     person_id_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
     uii = strlen_se(person_id_ptr);
-    memcpy0(id_buf, person_id_ptr, uii);
     // todo: adjust pheno_d, double-check missing gender behavior
-    fputs(id_buf, outfile);
+    fwrite(person_id_ptr, 1, uii, outfile);
     putc(' ', outfile);
-    fputs(skip_initial_spaces(&(person_id_ptr[uii + 1])), outfile);
+    fputs(&(person_id_ptr[uii + 1]), outfile);
     tbuf[0] = ' ';
     bufptr = double_g_writex(&(tbuf[1]), (double)missing_cts[indiv_uidx] / (double)marker_ct, ' ');
     *bufptr = sexchar(sex_nm, sex_male, indiv_uidx);
@@ -4500,7 +4499,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     if (g_cg_indiv2idx == g_cg_indiv1idx + 1) {
       cptr = &(g_cg_person_ids[g_cg_indiv1idx * g_cg_max_person_id_len]);
       uii = strlen_se(cptr);
-      memcpy0(g_cg_fam1, cptr, uii);
+      memcpyx(g_cg_fam1, cptr, uii, '\0');
       g_cg_indiv1 = next_item(cptr);
       if (g_cg_paternal_ids) {
 	g_cg_pat1 = &(g_cg_paternal_ids[g_cg_indiv1idx * g_cg_max_paternal_id_len]);
@@ -4520,7 +4519,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       sptr_cur = memcpya(sptr_cur, tbuf, g_cg_sptr_start - tbuf);
       cptr = &(g_cg_person_ids[g_cg_indiv2idx * g_cg_max_person_id_len]);
       uii = strlen_se(cptr);
-      memcpy0(g_cg_fam2, cptr, uii);
+      memcpyx(g_cg_fam2, cptr, uii, '\0');
       indiv2 = skip_initial_spaces(&(cptr[uii + 1]));
       if (g_cg_paternal_ids) {
 	pat2 = &(g_cg_paternal_ids[g_cg_indiv2idx * g_cg_max_paternal_id_len]);

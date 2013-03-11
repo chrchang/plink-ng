@@ -232,27 +232,6 @@ char* next_item_mult(char* sptr, uint32_t ct) {
   return sptr;
 }
 
-void copy_item(char* writebuf, uint32_t* offset_ptr, char** prev_item_end_ptr) {
-  char* item_start = skip_initial_spaces(*prev_item_end_ptr);
-  char* item_end = item_endnn(item_start);
-  uint32_t slen = (item_end - item_start);
-  uint32_t offset = *offset_ptr;
-  memcpy(&(writebuf[offset]), item_start, slen);
-  offset += slen;
-  writebuf[offset++] = '\t';
-  *offset_ptr = offset;
-  *prev_item_end_ptr = item_end;
-}
-
-char* fw_strcpyn(uint32_t min_width, uint32_t source_len, char* source, char* dest) {
-  if (source_len < min_width) {
-    memcpy(memseta(dest, 32, min_width - source_len), source, source_len);
-    return &(dest[min_width]);
-  } else {
-    return memcpya(dest, source, source_len);
-  }
-}
-
 // number-to-string encoders
 
 static const char digit2_table[] = {
@@ -1137,9 +1116,8 @@ char* double_f_writew74(char* start, double dxx) {
   double_f_writew74_dec:
     *start++ = '.';
     quotient = uii / 100;
-    memcpy(start, &(digit2_table[quotient * 2]), 2);
     uii -= 100 * quotient;
-    return memcpya(&(start[2]), &(digit2_table[uii * 2]), 2);
+    return memcpya(memcpya(start, &(digit2_table[quotient * 2]), 2), &(digit2_table[uii * 2]), 2);
   }
  double_f_writew74_10:
   dxx += 0.00005;
@@ -1464,9 +1442,8 @@ char* double_g_writewx4(char* start, double dxx, uint32_t min_width) {
       } else {
 	start = memcpya(start, wbuf, uii);
       }
-      start = memcpya(start, "e-", 2);
       uii = xp10 / 100;
-      *start++ = '0' + uii;
+      start = memcpyax(start, "e-", 2, '0' + uii);
       xp10 -= 100 * uii;
     } else {
       if (uii < min_width - 4) {
@@ -1537,9 +1514,8 @@ char* double_g_writewx4(char* start, double dxx, uint32_t min_width) {
       } else {
 	start = memcpya(start, wbuf, uii);
       }
-      start = memcpya(start, "e+", 2);
       uii = xp10 / 100;
-      *start++ = '0' + uii;
+      start = memcpyax(start, "e+", 2, '0' + uii);
       xp10 -= 100 * uii;
     } else {
       if (uii < min_width - 4) {
@@ -2334,7 +2310,7 @@ void fill_idbuf_fam_indiv(char* idbuf, char* fam_indiv, char fillchar) {
   fam_indiv = skip_initial_spaces(iend_ptr);
   iend_ptr = item_endnn(fam_indiv);
   slen2 = (iend_ptr - fam_indiv);
-  memcpy0(&(idbuf[slen + 1]), fam_indiv, slen2);
+  memcpyx(&(idbuf[slen + 1]), fam_indiv, slen2, '\0');
 }
 
 int32_t bsearch_fam_indiv(char* id_buf, char* lptr, intptr_t max_id_len, int32_t filter_line_ct, char* fam_id, char* indiv_id) {
@@ -2351,8 +2327,7 @@ int32_t bsearch_fam_indiv(char* id_buf, char* lptr, intptr_t max_id_len, int32_t
   if (ii + jj + 2 > max_id_len) {
     return -1;
   }
-  memcpy9(id_buf, fam_id, ii);
-  memcpy0(&(id_buf[ii + 1]), indiv_id, jj);
+  memcpyx(memcpyax(id_buf, fam_id, ii, '\t'), indiv_id, jj, '\0');
   return bsearch_str(id_buf, lptr, max_id_len, 0, filter_line_ct - 1);
 }
 
@@ -3479,8 +3454,7 @@ uint32_t distance_d_write_sq0_emitn(uint32_t overflow_ct, unsigned char* readbuf
       goto distance_d_write_sq0_emitn_ret;
     }
     ulii = g_indiv_ct - g_dw_indiv2idx;
-    sptr_cur = memcpya(sptr_cur, &(g_dw_membuf[1]), 2 * ulii - 1);
-    *sptr_cur++ = '\n';
+    sptr_cur = memcpyax(sptr_cur, &(g_dw_membuf[1]), 2 * ulii - 1, '\n');
     g_dw_indiv1idx++;
     if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
       g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);
@@ -3581,8 +3555,7 @@ uint32_t distance_d_write_ibs_sq0_emitn(uint32_t overflow_ct, unsigned char* rea
       goto distance_d_write_ibs_sq0_emitn_ret;
     }
     ulii = g_indiv_ct - g_dw_indiv2idx;
-    sptr_cur = memcpya(sptr_cur, g_dw_membuf, 2 * ulii);
-    *sptr_cur++ = '\n';
+    sptr_cur = memcpyax(sptr_cur, g_dw_membuf, 2 * ulii, '\n');
     g_dw_indiv1idx++;
     if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
       g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);
@@ -3676,8 +3649,7 @@ uint32_t distance_d_write_1mibs_sq0_emitn(uint32_t overflow_ct, unsigned char* r
       goto distance_d_write_1mibs_sq0_emitn_ret;
     }
     ulii = g_indiv_ct - g_dw_indiv2idx;
-    sptr_cur = memcpya(sptr_cur, &(g_dw_membuf[1]), 2 * ulii - 1);
-    *sptr_cur++ = '\n';
+    sptr_cur = memcpyax(sptr_cur, &(g_dw_membuf[1]), 2 * ulii - 1, '\n');
     g_dw_indiv1idx++;
     if ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU >= ((uint64_t)g_pct) * (g_dw_max_indiv1idx - g_dw_min_indiv)) {
       g_pct = ((g_dw_indiv1idx - g_dw_min_indiv) * 100LLU) / (g_dw_max_indiv1idx - g_dw_min_indiv);

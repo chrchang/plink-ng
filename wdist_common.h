@@ -516,22 +516,23 @@ static inline char* memcpya(char* target, const void* source, uint32_t ct) {
   return &(target[ct]);
 }
 
-static inline char* memcpya0(char* target, const void* source, uint32_t ct) {
-  // when source is a null-terminated string and we want to copy the null, but
-  // we want to position the write pointer at rather than after the null
+static inline char* memcpyb(char* target, const void* source, uint32_t ct) {
+  // Same as memcpya, except the return value is one byte earlier.  Generally
+  // used when source is a null-terminated string of known length and we want
+  // to copy the null, but sometimes we need to append later.
   memcpy(target, source, ct);
   return &(target[ct - 1]);
 }
 
-static inline void memcpy0(char* target, const void* source, uint32_t ct) {
-  // source is not null-terminated, but we want to null-terminate the copy
+static inline char* memcpyax(char* target, const void* source, uint32_t ct, const char extra_char) {
   memcpy(target, source, ct);
-  target[ct] = '\0';
+  target[ct] = extra_char;
+  return &(target[ct + 1]);
 }
 
-static inline void memcpy9(char* target, const void* source, uint32_t ct) {
+static inline void memcpyx(char* target, const void* source, uint32_t ct, const char extra_char) {
   memcpy(target, source, ct);
-  target[ct] = '\t';
+  target[ct] = extra_char;
 }
 
 static inline void memcpyl3(char* target, const void* source) {
@@ -596,9 +597,28 @@ static inline void copy_nse(char* target, char* source) {
   }
 }
 
-void copy_item(char* writebuf, uint32_t* offset, char** prev_item_ptr);
+static inline char* write_item_nt(char* read_ptr, FILE* outfile) {
+  // assumes read_ptr is at the beginning of an item to write
+  uint32_t slen = strlen_se(read_ptr);
+  fwrite(read_ptr, 1, slen, outfile);
+  return skip_initial_spaces(&(read_ptr[slen + 1]));
+}
 
-char* fw_strcpyn(uint32_t min_width, uint32_t source_len, char* source, char* dest);
+static inline char* write_item(char* read_ptr, FILE* outfile) {
+  uint32_t slen = strlen_se(read_ptr);
+  fwrite(read_ptr, 1, slen, outfile);
+  putc('\t', outfile);
+  return skip_initial_spaces(&(read_ptr[slen + 1]));
+}
+
+static inline char* fw_strcpyn(uint32_t min_width, uint32_t source_len, char* source, char* dest) {
+  if (source_len < min_width) {
+    memcpy(memseta(dest, 32, min_width - source_len), source, source_len);
+    return &(dest[min_width]);
+  } else {
+    return memcpya(dest, source, source_len);
+  }
+}
 
 static inline char* fw_strcpy(uint32_t min_width, char* source, char* dest) {
   return fw_strcpyn(min_width, strlen(source), source, dest);

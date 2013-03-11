@@ -737,7 +737,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       retval = RET_INVALID_CMDLINE;
       goto model_assoc_ret_1;
     }
-    outname_end2 = memcpya0(outname_end, ".model", 7);
+    outname_end2 = memcpyb(outname_end, ".model", 7);
     if (fopen_checked(&outfile, outname, "w")) {
       goto model_assoc_ret_OPEN_FAIL;
     }
@@ -745,15 +745,15 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     logprintb();
     fflush(stdout);
     if (model_perm_best && perms_total) {
-      outname_end2 = memcpya0(outname_end2, ".best", 6);
+      outname_end2 = memcpyb(outname_end2, ".best", 6);
     } else if ((model_modifier & MODEL_PGEN) && perms_total) {
-      outname_end2 = memcpya0(outname_end2, ".gen", 5);
+      outname_end2 = memcpyb(outname_end2, ".gen", 5);
     } else if (model_modifier & MODEL_PDOM) {
-      outname_end2 = memcpya0(outname_end2, ".dom", 5);
+      outname_end2 = memcpyb(outname_end2, ".dom", 5);
     } else if (model_modifier & MODEL_PREC) {
-      outname_end2 = memcpya0(outname_end2, ".rec", 5);
+      outname_end2 = memcpyb(outname_end2, ".rec", 5);
     } else if (model_modifier & MODEL_PTREND) {
-      outname_end2 = memcpya0(outname_end2, ".trend", 7);
+      outname_end2 = memcpyb(outname_end2, ".trend", 7);
     }
     sprintf(tbuf, " CHR %%%us   A1   A2     TEST            AFF          UNAFF ", plink_maxsnp);
     if (fprintf(outfile, tbuf, "SNP") < 0) {
@@ -764,7 +764,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	goto model_assoc_ret_WRITE_FAIL;
       }
     } else {
-      outname_end2 = memcpya0(outname_end2, ".fisher", 8);
+      outname_end2 = memcpyb(outname_end2, ".fisher", 8);
     }
     if (fputs("           P\n", outfile) == EOF) {
       goto model_assoc_ret_WRITE_FAIL;

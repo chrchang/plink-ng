@@ -257,7 +257,7 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, int32_t postpr
 	    payload_ptr = &(payload_ptr[2]);
 	    uii -= 2;
 	  }
-	  memcpy0(tbuf, payload_ptr, uii);
+	  memcpyx(tbuf, payload_ptr, uii, 0);
 	  fputs(tbuf, stdout);
 	  payload_ptr = line_end;
 	} while (payload_ptr < payload_end);
@@ -1712,13 +1712,13 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   uiptr = family_sizes;
   *uiptr = 1;
   jj = strlen_se(cur_person_id);
-  memcpy0(cur_family_id, cur_person_id, jj);
+  memcpyx(cur_family_id, cur_person_id, jj, 0);
   for (indiv_uidx = 1; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
     cur_person_id = &(cur_person_id[max_person_id_len]);
     mm = strlen_se(cur_person_id);
     if ((jj != mm) || memcmp(cur_family_id, cur_person_id, mm)) {
       cur_family_id = &(cur_family_id[max_family_id_len]);
-      memcpy0(cur_family_id, cur_person_id, mm);
+      memcpyx(cur_family_id, cur_person_id, mm, 0);
       jj = mm;
       *(++uiptr) = 1;
     } else {
@@ -1814,7 +1814,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   cur_person_id = person_ids;
   for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
     jj = strlen_se(cur_person_id);
-    memcpy0(id_buf, cur_person_id, jj);
+    memcpyx(id_buf, cur_person_id, jj, 0);
     kk = bsearch_str(id_buf, family_ids, max_family_id_len, 0, family_id_ct - 1);
     pri_ptr->family_idxs[indiv_uidx] = kk;
     if (is_founder(founder_info, indiv_uidx)) {
@@ -5615,7 +5615,7 @@ int32_t parse_marker_ranges(uint32_t param_ct, char range_delim, char** argv, ch
     if (!range_start) {
       return 0;
     }
-    memcpy0(cur_snps_flag_marker_str, range_start, rs_len);
+    memcpyx(cur_snps_flag_marker_str, range_start, rs_len, 0);
     dup_check = *snps_flag_markers_ptr;
     while (dup_check < cur_snps_flag_marker_str) {
       if (!memcmp(dup_check, cur_snps_flag_marker_str, rs_len + 1)) {
@@ -5628,7 +5628,7 @@ int32_t parse_marker_ranges(uint32_t param_ct, char range_delim, char** argv, ch
     cur_snps_flag_marker_str = &(cur_snps_flag_marker_str[snps_flag_max_len]);
     if (range_end) {
       *cur_snps_flag_starts_range++ = 1;
-      memcpy0(cur_snps_flag_marker_str, range_end, re_len);
+      memcpyx(cur_snps_flag_marker_str, range_end, re_len, 0);
       dup_check = *snps_flag_markers_ptr;
       while (dup_check < cur_snps_flag_marker_str) {
 	if (!memcmp(dup_check, cur_snps_flag_marker_str, rs_len + 1)) {
@@ -6613,7 +6613,7 @@ int32_t main(int32_t argc, char** argv) {
 	  memcpy(strcpya(mapname, sptr), ".bim", 5);
 	}
 	if (!(load_params & 64)) {
-	  memcpy(strcpya(mapname, sptr), ".fam", 5);
+	  memcpy(strcpya(famname, sptr), ".fam", 5);
 	}
       } else if (!memcmp(argptr2, "ed", 3)) {
 	load_params |= 16;
@@ -9231,7 +9231,7 @@ int32_t main(int32_t argc, char** argv) {
     if (load_rare || (!famname[0])) {
       sptr = outname_end;
       if (bed_suffix_conflict(calculation_type, recode_modifier) || filename_exists(outname, outname_end, ".bed")) {
-        sptr = memcpya0(sptr, "-working", 9);
+        sptr = memcpyb(sptr, "-working", 9);
       }
       uii = (sptr - outname);
       if (load_rare == LOAD_RARE_LGEN) {

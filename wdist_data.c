@@ -1055,7 +1055,7 @@ int32_t sort_and_write_bim(int32_t** map_reverse_ptr, FILE* mapfile, int32_t map
     ll_buf[marker_idx] = (((int64_t)marker_code(species, bufptr)) << 32) + marker_idx;
     bufptr = next_item(bufptr);
     uii = strlen_se(bufptr);
-    memcpy0(&(marker_ids[marker_idx * max_marker_id_len]), bufptr, uii);
+    memcpyx(&(marker_ids[marker_idx * max_marker_id_len]), bufptr, uii, 0);
     bufptr = next_item(bufptr);
     if (map_cols == 4) {
       gd_vals[marker_idx] = atof(bufptr);
@@ -1782,11 +1782,9 @@ int32_t make_bed(FILE* bedfile, int32_t bed_offset, FILE* bimfile, int32_t map_c
 	slen = strlen_se(sptr);
 	slen2 = strlen_se(sptr2);
 	if (is_set(marker_reverse, marker_uidx)) {
-	  memcpy9(cptr, sptr2, slen2);
-	  memcpy(&(cptr[slen2 + 1]), sptr, slen);
+	  memcpy(memcpyax(cptr, sptr2, slen2, '\t'), sptr, slen);
 	} else {
-	  memcpy9(cptr, sptr, slen);
-	  memcpy(&(cptr[slen + 1]), sptr2, slen2);
+	  memcpy(memcpyax(cptr, sptr, slen, '\t'), sptr2, slen2);
 	}
 	memcpy(&(cptr[slen + slen2 + 1]), "\n", 2);
       }
@@ -1990,16 +1988,15 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, int32_t fam_col_1, int32_t fam_
       bufptr = linebuf;
     }
     tmp_len = strlen_se(linebuf);
-    memcpy9(&(person_ids[indiv_uidx * max_person_id_len]), linebuf, tmp_len);
-    memcpy0(&(person_ids[indiv_uidx * max_person_id_len + tmp_len + 1]), bufptr, strlen_se(bufptr));
+    memcpyx(memcpyax(&(person_ids[indiv_uidx * max_person_id_len]), linebuf, tmp_len, '\t'), bufptr, strlen_se(bufptr), '\0');
     if (fam_col_34) {
       bufptr = next_item(bufptr);
       cc = *bufptr;
       tmp_len = strlen_se(bufptr);
-      memcpy0(&(paternal_ids[indiv_uidx * max_paternal_id_len]), bufptr, tmp_len);
+      memcpyx(&(paternal_ids[indiv_uidx * max_paternal_id_len]), bufptr, tmp_len, '\0');
       bufptr = next_item(bufptr);
       tmp_len2 = strlen_se(bufptr);
-      memcpy0(&(maternal_ids[indiv_uidx * max_maternal_id_len]), bufptr, tmp_len2);
+      memcpyx(&(maternal_ids[indiv_uidx * max_maternal_id_len]), bufptr, tmp_len2, '\0');
       if ((tmp_len == 1) && (tmp_len2 == 1) && (cc == '0') && (*bufptr == '0')) {
 	set_bit_noct(*founder_info_ptr, indiv_uidx);
       }
@@ -2128,7 +2125,7 @@ int32_t incr_text_allele_str(uintptr_t* topsize_ptr, char* allele_name, uint32_t
         allele_list_start->next = llptr;
 	cur_allele_name_start = llptr->ss;
       }
-      memcpy0(cur_allele_name_start, allele_name, an_len);
+      memcpyx(cur_allele_name_start, allele_name, an_len, '\0');
       marker_allele_cts[0] = 1;
       return 0;
     }
@@ -2151,7 +2148,7 @@ int32_t incr_text_allele_str(uintptr_t* topsize_ptr, char* allele_name, uint32_t
 	chars_left = ((2147483632 - sizeof(intptr_t)) - ((uintptr_t)(&(cur_allele_name_start[slen + 1]) - allele_list_start->ss))) & 15;
 	if (chars_left > an_len) {
 	  cur_allele_name_start[slen] = '\t';
-	  memcpy0(&(cur_allele_name_start[slen + 1]), allele_name, an_len);
+	  memcpyx(&(cur_allele_name_start[slen + 1]), allele_name, an_len, '\0');
 	} else {
 	  llptr = top_alloc_llstr(topsize_ptr, an_len + 1);
 	  if (!llptr) {
@@ -2159,7 +2156,7 @@ int32_t incr_text_allele_str(uintptr_t* topsize_ptr, char* allele_name, uint32_t
 	  }
 	  allele_list_start->next = llptr;
 	  cur_allele_name_start = llptr->ss;
-	  memcpy0(cur_allele_name_start, allele_name, an_len);
+	  memcpyx(cur_allele_name_start, allele_name, an_len, '\0');
 	}
 	marker_allele_cts[allele_num] = 1;
 	return 0;
@@ -2205,6 +2202,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   int64_t ped_next_thresh = ped_size / 100;
   uint32_t last_pass = 0;
   int64_t* line_starts = NULL;
+  FILE* outfile;
   uint32_t pass_ct;
   uintptr_t indiv_ct4;
   char* loadbuf;
@@ -2212,7 +2210,6 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   char* col2_ptr;
   char* bufptr;
   char* bufptr2;
-  char* bufptr3;
   uintptr_t loadbuf_size;
   uintptr_t cur_slen;
   uintptr_t cur_slen_rdup;
@@ -2255,6 +2252,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   if (fopen_checked(outfile_ptr, outname, "w")) {
     goto ped_to_bed_multichar_allele_ret_OPEN_FAIL;
   }
+  outfile = *outfile_ptr;
   rewind(*pedfile_ptr);
   fputs("Rescanning .ped file... 0%", stdout);
   fflush(stdout);
@@ -2299,36 +2297,33 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       logprint("Error: Pathologically long header item(s) in .ped file.\n");
       goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT;
     }
-    uii = strlen_se(col1_ptr);
-    memcpy(tbuf, col1_ptr, uii);
-    tbuf[uii++] = '\t';
-    ujj = strlen_se(col2_ptr);
-    memcpy(&(tbuf[uii]), col2_ptr, ujj);
-    uii += ujj;
-    tbuf[uii++] = '\t';
-    bufptr2 = item_endnn(col2_ptr);
+    if (fwrite_checked(col1_ptr, strlen_se(col1_ptr), outfile)) {
+      goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
+    }
+    putc('\t', outfile);
+    bufptr2 = write_item(col2_ptr, outfile);
     if (fam_col_34) {
-      copy_item(tbuf, &uii, &bufptr2);
-      copy_item(tbuf, &uii, &bufptr2);
+      bufptr2 = write_item(bufptr2, outfile);
+      bufptr2 = write_item(bufptr2, outfile);
     } else {
-      memcpy(&(tbuf[uii]), "0\t0\t", 4);
-      uii += 4;
+      fwrite("0\t0\t", 1, 4, outfile);
     }
     if (fam_col_5) {
-      copy_item(tbuf, &uii, &bufptr2);
+      bufptr2 = write_item_nt(bufptr2, outfile);
     } else {
-      memcpy(&(tbuf[uii]), "0\t", 2);
-      uii += 2;
+      putc('0', outfile);
     }
+    putc('\t', outfile);
     if (fam_col_6) {
-      copy_item(tbuf, &uii, &bufptr2);
-      tbuf[uii - 1] = '\n';
+      uii = strlen_se(bufptr2);
+      fwrite(bufptr2, 1, uii, outfile);
+      if (putc('\n', outfile) == EOF) {
+        goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
+      }
     } else {
-      memcpy(&(tbuf[uii]), "-9\n", 3);
-      uii += 3;
-    }
-    if (fwrite_checked(tbuf, uii, *outfile_ptr)) {
-      goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
+      if (fwrite_checked("-9\n", 3, outfile)) {
+        goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
+      }
     }
     wkspace_left -= cur_slen_rdup;
     marker_idx = 0;
@@ -2410,6 +2405,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   if (fopen_checked(outfile_ptr, outname, "w")) {
     goto ped_to_bed_multichar_allele_ret_OPEN_FAIL;
   }
+  outfile = *outfile_ptr;
   if (map_is_unsorted) {
     memcpy(outname_end, ".map.tmp", 9);
     if (fopen_checked(mapfile_ptr, outname, "r")) {
@@ -2447,41 +2443,43 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
     aptr2 = &(aptr1[max_marker_allele_len]);
     copy_nse(aptr1, get_llstr((Ll_str*)(&(marker_alleles_tmp[ukk])), uii));
     copy_nse(aptr2, get_llstr((Ll_str*)(&(marker_alleles_tmp[ukk])), ujj));
-    bufptr3 = &(tbuf[MAXLINELEN]);
     if (map_is_unsorted) {
       bufptr = (char*)memchr(tbuf, '\n', MAXLINELEN);
-      ulii = (uintptr_t)(bufptr - tbuf);
-      bufptr2 = memcpya(bufptr3, tbuf, ulii);
-    } else {
-      uii = 0;
-      copy_item(bufptr3, &uii, &bufptr);
-      copy_item(bufptr3, &uii, &bufptr);
-      if (gd_col) {
-	copy_item(bufptr3, &uii, &bufptr);
-      } else {
-	memcpy(&(bufptr3[uii]), "0\t", 2);
-	uii += 2;
+      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+        goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
       }
-      bufptr = skip_initial_spaces(bufptr);
-      ujj = strlen_se(bufptr);
-      bufptr2 = memcpya(&(bufptr3[uii]), bufptr, ujj);
+    } else {
+      uii = strlen_se(bufptr);
+      if (fwrite_checked(bufptr, uii, outfile)) {
+        goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
+      }
+      putc('\t', outfile);
+      bufptr = skip_initial_spaces(&(bufptr[uii + 1]));
+      bufptr = write_item(bufptr, outfile);
+      if (gd_col) {
+	bufptr = write_item_nt(bufptr, outfile);
+      } else {
+	putc('0', outfile);
+      }
+      putc('\t', outfile);
+      uii = strlen_se(bufptr);
+      fwrite(bufptr, 1, uii, outfile);
     }
-    *bufptr2++ = '\t';
+    putc('\t', outfile);
     alen1 = strlen_se(aptr1);
     if (alen1) {
-      bufptr2 = memcpya(bufptr2, aptr1, alen1);
+      fwrite(aptr1, 1, alen1, outfile);
     } else {
-      *bufptr2++ = '0';
+      putc('0', outfile);
     }
-    *bufptr2++ = '\t';
+    putc('\t', outfile);
     alen2 = strlen_se(aptr2);
     if (alen2) {
-      bufptr2 = memcpya(bufptr2, aptr2, alen2);
+      fwrite(aptr2, 1, alen2, outfile);
     } else {
-      *bufptr2++ = '0';
+      putc('0', outfile);
     }
-    *bufptr2++ = '\n';
-    if (fwrite_checked(bufptr3, bufptr2 - bufptr3, *outfile_ptr)) {
+    if (putc('\n', outfile) == EOF) {
       goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
     }
     marker_uidx++;
@@ -2900,35 +2898,30 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       logprint("\nError: Pathologically long header item(s) in .ped file.\n");
       goto ped_to_bed_ret_INVALID_FORMAT;
     }
-    uii = strlen_se(col1_ptr);
-    memcpy(tbuf, col1_ptr, uii);
-    tbuf[uii++] = '\t';
-    ujj = strlen_se(col2_ptr);
-    memcpy(&(tbuf[uii]), col2_ptr, ujj);
-    uii += ujj;
-    tbuf[uii++] = '\t';
-    bufptr2 = item_endnn(col2_ptr);
+    if (fwrite_checked(col1_ptr, strlen_se(col1_ptr), outfile)) {
+      goto ped_to_bed_ret_WRITE_FAIL;
+    }
+    putc('\t', outfile);
+    bufptr2 = write_item(col2_ptr, outfile);
     if (fam_col_34) {
-      copy_item(tbuf, &uii, &bufptr2);
-      copy_item(tbuf, &uii, &bufptr2);
+      bufptr2 = write_item(bufptr2, outfile);
+      bufptr2 = write_item(bufptr2, outfile);
     } else {
-      memcpy(&(tbuf[uii]), "0\t0\t", 4);
-      uii += 4;
+      fwrite("0\t0\t", 1, 4, outfile);
     }
     if (fam_col_5) {
-      copy_item(tbuf, &uii, &bufptr2);
+      bufptr2 = write_item_nt(bufptr2, outfile);
     } else {
-      memcpy(&(tbuf[uii]), "0\t", 2);
-      uii += 2;
+      putc('0', outfile);
     }
+    putc('\t', outfile);
     if (fam_col_6) {
-      copy_item(tbuf, &uii, &bufptr2);
-      tbuf[uii - 1] = '\n';
+      fwrite(bufptr2, 1, strlen_se(bufptr2), outfile);
     } else {
-      memcpyl3(&(tbuf[uii]), "-9\n");
-      uii += 3;
+      putc('-', outfile);
+      putc('9', outfile);
     }
-    if (fwrite_checked(tbuf, uii, outfile)) {
+    if (putc('\n', outfile) == EOF) {
       goto ped_to_bed_ret_WRITE_FAIL;
     }
     marker_idx = 0;
@@ -3071,28 +3064,25 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       bufptr3 = &(tbuf[MAXLINELEN]);
       if (map_is_unsorted) {
 	bufptr = (char*)memchr(tbuf, '\n', MAXLINELEN);
-	ulii = (uintptr_t)(bufptr - tbuf);
-	bufptr2 = memcpya(bufptr3, tbuf, ulii);
-      } else {
-	uii = 0;
-	copy_item(bufptr3, &uii, &bufptr);
-	copy_item(bufptr3, &uii, &bufptr);
-	if (gd_col) {
-	  copy_item(bufptr3, &uii, &bufptr);
-	} else {
-	  memcpy(&(bufptr3[uii]), "0\t", 2);
-	  uii += 2;
+	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
+	  goto ped_to_bed_ret_WRITE_FAIL;
 	}
-	bufptr = skip_initial_spaces(bufptr);
-	ujj = strlen_se(bufptr);
-	bufptr2 = memcpya(&(bufptr3[uii]), bufptr, ujj);
+      } else {
+	bufptr = write_item(bufptr, outfile);
+	bufptr = write_item(bufptr, outfile);
+	if (gd_col) {
+	  bufptr = write_item_nt(bufptr, outfile);
+	} else {
+	  putc('0', outfile);
+	}
+	putc('\t', outfile);
+	fwrite(bufptr, 1, strlen_se(bufptr), outfile);
       }
-      *bufptr2++ = '\t';
-      *bufptr2++ = cc;
-      *bufptr2++ = '\t';
-      *bufptr2++ = cc2;
-      *bufptr2++ = '\n';
-      if (fwrite_checked(bufptr3, bufptr2 - bufptr3, outfile)) {
+      putc('\t', outfile);
+      putc(cc, outfile);
+      putc('\t', outfile);
+      putc(cc2, outfile);
+      if (putc('\n', outfile) == EOF) {
 	goto ped_to_bed_ret_WRITE_FAIL;
       }
       marker_uidx++;
@@ -3490,7 +3480,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       }
       a1len = strlen_se(cptr);
       if (a1len < max_marker_id_len) {
-	memcpy0(id_buf, cptr, a1len);
+	memcpyx(id_buf, cptr, a1len, '\0');
 	ii = bsearch_str(id_buf, marker_ids, max_marker_id_len, 0, marker_ct - 1);
 	if (ii != -1) {
 	  marker_idx = marker_id_map[ii];
@@ -3582,7 +3572,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       }
       indiv_idx = indiv_id_map[ii];
       ulii = (uintptr_t)(cptr4 - cptr3);
-      memcpy0(id_buf, cptr3, ulii);
+      memcpyx(id_buf, cptr3, ulii, '\0');
       ii = bsearch_str(id_buf, marker_ids, max_marker_id_len, 0, marker_ct - 1);
       if (ii != -1) {
 	marker_idx = marker_id_map[ii];
@@ -3690,7 +3680,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       }
       indiv_idx = indiv_id_map[ii];
       ulii = (uintptr_t)(cptr4 - cptr3);
-      memcpy0(id_buf, cptr3, ulii);
+      memcpyx(id_buf, cptr3, ulii, '\0');
       ii = bsearch_str(id_buf, marker_ids, max_marker_id_len, 0, marker_ct - 1);
       if (ii != -1) {
 	marker_idx = marker_id_map[ii];
@@ -4314,7 +4304,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       cptr3 = skip_initial_spaces(cptr2);
       cptr4 = next_item_mult(cptr3, 2);
       uii = cptr2 - cptr;
-      memcpy0(&(marker_ids[marker_idx * max_marker_id_len]), cptr, uii);
+      memcpyx(&(marker_ids[marker_idx * max_marker_id_len]), cptr, uii, '\0');
       if (sscanf(cptr3, "%lg", &(gd_vals[marker_idx])) != 1) {
 	goto transposed_to_bed_ret_INVALID_FORMAT;
       }
@@ -5721,11 +5711,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	for (ulii = 0; ulii < 4; ulii++) {
 	  wbufptr = writebufl[ulii];
 	  if (!rlist) {
-	    wbufptr = uint32_write(wbufptr, chrom_idx);
-	    *wbufptr++ = delimiter;
+	    wbufptr = uint32_writex(wbufptr, chrom_idx, delimiter);
 	  }
-	  wbufptr = memcpya(wbufptr, aptr, alen);
-	  *wbufptr++ = delimiter;
+	  wbufptr = memcpyax(wbufptr, aptr, alen, delimiter);
 	  if (rlist) {
 	    switch (ulii) {
 	    case 0:
@@ -6237,7 +6225,7 @@ int top_alloc_str(uintptr_t* topsize_ptr, char* ss, uint32_t slen, char** new_al
     if (!(*new_alloc_ptr)) {
       return -1;
     }
-    memcpy0(*new_alloc_ptr, ss, slen);
+    memcpyx(*new_alloc_ptr, ss, slen, '\0');
     return 0;
   }
 }
@@ -6278,6 +6266,7 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
   char* col1_end_ptr;
   char* col2_end_ptr;
   char* col1_start_ptr;
+  char* wptr;
   double pheno;
   char cc;
   if (!famname) {
@@ -6360,15 +6349,9 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
 	ll_ptr->next = NULL;
 	ll_ptr->pheno = pheno;
 	ll_ptr->orig_order = orig_idx++;
-	memcpy9(ll_ptr->idstr, col1_start_ptr, col1_len);
-	memcpy9(&(ll_ptr->idstr[col1_len + 1]), col2_start_ptr, col2_len);
-	tot_len = col1_len + col2_len + 2;
-	memcpy9(&(ll_ptr->idstr[tot_len]), col3_start_ptr, col3_len);
-	tot_len += col3_len + 1;
-	memcpy9(&(ll_ptr->idstr[tot_len]), col4_start_ptr, col4_len);
-	tot_len += col4_len + 1;
-	ll_ptr->idstr[tot_len] = *col5_start_ptr;
-	ll_ptr->idstr[tot_len + 1] = '\0';
+	wptr = memcpyax(memcpyax(memcpyax(memcpyax(ll_ptr->idstr, col1_start_ptr, col1_len, '\t'), col2_start_ptr, col2_len, '\t'), col3_start_ptr, col3_len, '\t'), col4_start_ptr, col4_len, '\t');
+	*wptr = *col5_start_ptr;
+	wptr[1] = '\0';
 	*ll_pptr = ll_ptr;
 	tot_indiv_ct++;
       }
@@ -6750,12 +6733,12 @@ int32_t merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* pers
   char* ma2p[4];
   char wbuf[8];
   uint32_t slen2;
-  memcpy0(idbuf, marker_id, slen);
+  memcpyx(idbuf, marker_id, slen, 0);
   if (fprintf(outfile, "%20s", idbuf) < 0) {
     return -1;
   }
   slen = (bufptr++) - person_id;
-  memcpy0(idbuf, person_id, slen);
+  memcpyx(idbuf, person_id, slen, 0);
   if (fprintf(outfile, " %20s %20s", idbuf, bufptr) < 0) {
     return -1;
   }
@@ -6867,8 +6850,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
       bufptr4 = item_endnn(bufptr3);
       uii = (bufptr2 - bufptr);
       ujj = (bufptr4 - bufptr3);
-      memcpy9(idbuf, bufptr, uii);
-      memcpy0(&(idbuf[uii + 1]), bufptr3, ujj);
+      memcpyx(memcpyax(idbuf, bufptr, uii, '\t'), bufptr3, ujj, 0);
       if (merge_nsort) {
         ii = bsearch_str_natural(idbuf, person_ids, max_person_id_len, 0, tot_indiv_ct - 1);
       } else {
@@ -6919,7 +6901,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
     }
     bufptr3 = item_endnn(bufptr);
     uii = (bufptr3 - bufptr);
-    memcpy0(idbuf, bufptr, uii);
+    memcpyx(idbuf, bufptr, uii, 0);
     ii = bsearch_str(idbuf, marker_ids, max_marker_id_len, 0, tot_marker_ct - 1);
     if (ii == -1) {
       goto merge_main_ret_READ_FAIL;
@@ -7236,11 +7218,10 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
       }
       bufptr2 = item_endnn(bufptr);
       uii = (bufptr2 - bufptr);
-      memcpy9(idbuf, bufptr, uii);
       bufptr3 = skip_initial_spaces(bufptr2);
       bufptr2 = item_endnn(bufptr3);
       ujj = (bufptr2 - bufptr3);
-      memcpy0(&(idbuf[uii + 1]), bufptr3, ujj);
+      memcpyx(memcpyax(idbuf, bufptr, uii, '\t'), bufptr3, ujj, 0);
       if (merge_nsort) {
         ii = bsearch_str_natural(idbuf, person_ids, max_person_id_len, 0, tot_indiv_ct - 1);
       } else {
@@ -7632,22 +7613,19 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	bufptr4 = memcpya(memcpya(bufptr4, bufptr, ulii), ".fam", 5);
       } else {
 	mergelist_bed[mlpos] = bufptr4;
-	memcpy0(bufptr4, bufptr, ulii);
-	bufptr4 = &(bufptr4[ulii + 1]);
+	bufptr4 = memcpyax(bufptr4, bufptr, ulii, 0);
 	bufptr2 = item_endnn(bufptr3);
 	ulii = bufptr2 - bufptr3;
 	bufptr = skip_initial_spaces(bufptr2);
 	mergelist_bim[mlpos] = bufptr4;
-	memcpy0(bufptr4, bufptr3, ulii);
-	bufptr4 = &(bufptr4[ulii + 1]);
+	bufptr4 = memcpyax(bufptr4, bufptr3, ulii, 0);
 	if (no_more_items_kns(bufptr)) {
 	  mergelist_fam[mlpos] = NULL;
 	} else {
 	  bufptr2 = item_endnn(bufptr);
 	  ulii = bufptr2 - bufptr;
 	  mergelist_fam[mlpos] = bufptr4;
-	  memcpy0(bufptr4, bufptr, ulii);
-	  bufptr4 = &(bufptr4[ulii + 1]);
+	  bufptr4 = memcpyax(bufptr4, bufptr, ulii, 0);
 	}
       }
       if (++mlpos == merge_ct) {
@@ -7813,7 +7791,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       bufptr3 = &(person_ids[ujj * max_person_id_len]);
       bufptr2 = next_item_mult(bufptr, 2);
       uii = (bufptr2 - bufptr) - 1;
-      memcpy0(bufptr3, bufptr, uii);
+      memcpyx(bufptr3, bufptr, uii, 0);
       if (merge_mode < 6) {
 	uii += strlen(bufptr2) + 1;
 	if (fwrite_checked(bufptr, uii, outfile)) {
@@ -7837,7 +7815,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     for (ulii = 0; ulii < tot_indiv_ct; ulii++) {
       bufptr2 = next_item_mult(bufptr, 2);
       uii = (bufptr2 - bufptr) - 1;
-      memcpy0(bufptr3, bufptr, uii);
+      memcpyx(bufptr3, bufptr, uii, 0);
       bufptr3 = &(bufptr3[max_person_id_len]);
       if (merge_mode < 6) {
 	uii += strlen(bufptr2) + 1;
