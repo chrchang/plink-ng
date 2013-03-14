@@ -2746,7 +2746,6 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   char* col2_ptr;
   char* bufptr;
   char* bufptr2;
-  char* bufptr3;
   char cc;
   char cc2;
   unsigned char ucc;
@@ -3061,7 +3060,6 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       if (!cc2) {
 	cc2 = '0';
       }
-      bufptr3 = &(tbuf[MAXLINELEN]);
       if (map_is_unsorted) {
 	bufptr = (char*)memchr(tbuf, '\n', MAXLINELEN);
 	if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {

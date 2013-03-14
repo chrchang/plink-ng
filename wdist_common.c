@@ -2263,6 +2263,31 @@ int32_t qsort_ext(char* main_arr, int32_t arr_length, int32_t item_length, int(*
   return 0;
 }
 
+uint32_t doublearr_greater_than(double* sorted_dbl_arr, uint32_t arr_length, double dxx) {
+  // assumes arr_length is nonzero.
+  // dxx guaranteed to be larger than sorted_dbl_arr[min_idx - 1] if it exists,
+  // but NOT necessarily sorted_dbl_arr[min_idx].
+  int32_t min_idx = 0;
+  // similarly, dxx guaranteed to be no greater than sorted_dbl_arr[max_idx +
+  // 1] if it exists, but not necessarily sorted_dbl_arr[max_idx].
+  // Signed integer since it could become -1.
+  int32_t max_idx = arr_length - 1;
+  uint32_t mid_idx;
+  while (min_idx < max_idx) {
+    mid_idx = (((uint32_t)min_idx) + ((uint32_t)max_idx)) / 2;
+    if (dxx > sorted_dbl_arr[mid_idx]) {
+      min_idx = mid_idx + 1;
+    } else {
+      max_idx = mid_idx - 1;
+    }
+  }
+  if (dxx > sorted_dbl_arr[((uint32_t)min_idx)]) {
+    return (min_idx + 1);
+  } else {
+    return min_idx;
+  }
+}
+
 int32_t bsearch_str(char* id_buf, char* lptr, intptr_t max_id_len, int32_t min_idx, int32_t max_idx) {
   int32_t mid_idx;
   int32_t ii;
@@ -2638,6 +2663,224 @@ uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintpt
     tot += popcount_long((*lptr++) & (~(*exclude_arr++)));
   }
   return tot;
+}
+
+#ifdef __LP64__
+uint32_t count_set_freq_60v(__m128i* vptr, __m128i* vend, __m128i* include_vec) {
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  __uni16 acc;
+  __m128i loader;
+  __m128i loader2;
+  __m128i odds;
+  __m128i evens;
+  acc.vi = _mm_setzero_si128();
+  do {
+    loader = *vptr++;
+    odds = _mm_and_si128(*include_vec++, _mm_srli_epi64(loader, 1));
+    evens = _mm_and_si128(odds, loader);
+    loader = *vptr++;
+    loader2 = _mm_and_si128(*include_vec++, _mm_srli_epi64(loader, 1));
+    odds = _mm_add_epi64(odds, loader2);
+    evens = _mm_add_epi64(evens, _mm_and_si128(loader2, loader));
+    loader = *vptr++;
+    loader2 = _mm_and_si128(*include_vec++, _mm_srli_epi64(loader, 1));
+    odds = _mm_add_epi64(odds, loader2);
+    evens = _mm_add_epi64(evens, _mm_and_si128(loader2, loader));
+
+    odds = _mm_add_epi64(_mm_and_si128(odds, m2), _mm_and_si128(_mm_srli_epi64(odds, 2), m2));
+    odds = _mm_add_epi64(odds, _mm_add_epi64(_mm_and_si128(evens, m2), _mm_and_si128(_mm_srli_epi64(evens, 2), m2)));
+    acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(odds, m4), _mm_and_si128(_mm_srli_epi64(odds, 4), m4)));
+  } while (vptr < vend);
+  acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
+  return ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
+}
+
+uint32_t count_set_freq_hap_120v(__m128i* vptr, __m128i* vend, __m128i* include_vec) {
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  __uni16 acc;
+  __m128i loader;
+  __m128i partial;
+  __m128i partial2;
+  acc.vi = _mm_setzero_si128();
+  do {
+    loader = *vptr++;
+    partial = _mm_and_si128(*include_vec++, _mm_and_si128(loader, _mm_srli_epi64(loader, 1)));
+    loader = *vptr++;
+    partial = _mm_add_epi64(partial, _mm_and_si128(*include_vec++, _mm_and_si128(loader, _mm_srli_epi64(loader, 1))));
+    loader = *vptr++;
+    partial = _mm_add_epi64(partial, _mm_and_si128(*include_vec++, _mm_and_si128(loader, _mm_srli_epi64(loader, 1))));
+    partial2 = _mm_add_epi64(_mm_and_si128(partial, m2), _mm_and_si128(_mm_srli_epi64(partial, 2), m2));
+
+    loader = *vptr++;
+    partial = _mm_and_si128(*include_vec++, _mm_and_si128(loader, _mm_srli_epi64(loader, 1)));
+    loader = *vptr++;
+    partial = _mm_add_epi64(partial, _mm_and_si128(*include_vec++, _mm_and_si128(loader, _mm_srli_epi64(loader, 1))));
+    loader = *vptr++;
+    partial = _mm_add_epi64(partial, _mm_and_si128(*include_vec++, _mm_and_si128(loader, _mm_srli_epi64(loader, 1))));
+    partial2 = _mm_add_epi64(partial2, _mm_add_epi64(_mm_and_si128(partial, m2), _mm_and_si128(_mm_srli_epi64(partial, 2), m2)));
+    acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(partial2, m4), _mm_and_si128(_mm_srli_epi64(partial2, 4), m4)));
+  } while (vptr < vend);
+  acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
+  return ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
+}
+#else
+uint32_t count_set_freq_6(uintptr_t* lptr, uintptr_t* include_vec) {
+  uintptr_t loader = *lptr++;
+  uintptr_t odds = (*include_vec++) & (loader >> 1);
+  uintptr_t evens = odds & loader;
+  uintptr_t loader2;
+  uintptr_t acc;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & (loader >> 1);
+  odds += loader2;
+  evens += loader2 & loader;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & (loader >> 1);
+  odds += loader2;
+  evens += loader2 & loader;
+
+  odds = (odds & 0x33333333) + ((odds >> 2) & 0x33333333);
+  odds += (evens & 0x33333333) + ((evens >> 2) & 0x33333333);
+  acc = (odds & 0x0f0f0f0f) + ((odds >> 4) & 0x0f0f0f0f);
+
+  loader = *lptr++;
+  odds = (*include_vec++) & (loader >> 1);
+  evens = odds & loader;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & (loader >> 1);
+  odds += loader2;
+  evens += loader2 & loader;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & (loader >> 1);
+  odds += loader2;
+  evens += loader2 & loader;
+
+  odds = (odds & 0x33333333) + ((odds >> 2) & 0x33333333);
+  odds += (evens & 0x33333333) + ((evens >> 2) & 0x33333333);
+  acc += (odds & 0x0f0f0f0f) + ((odds >> 4) & 0x0f0f0f0f);
+  return (acc * 0x01010101) >> 24;
+}
+
+uint32_t count_set_freq_hap_12(uintptr_t* lptr, uintptr_t* include_vec) {
+  uintptr_t loader = *lptr++;
+  uintptr_t partial = (*include_vec++) & loader & (loader >> 1);
+  uintptr_t partial2;
+  uintptr_t acc;
+  loader = *lptr++;
+  partial += (*include_vec++) & loader & (loader >> 1);
+  loader = *lptr++;
+  partial += (*include_vec++) & loader & (loader >> 1);
+  partial2 = (partial & 0x33333333) + ((partial >> 2) & 0x33333333);
+
+  loader = *lptr++;
+  partial = (*include_vec++) & loader & (loader >> 1);
+  loader = *lptr++;
+  partial += (*include_vec++) & loader & (loader >> 1);
+  loader = *lptr++;
+  partial += (*include_vec++) & loader & (loader >> 1);
+  partial2 += (partial & 0x33333333) + ((partial >> 2) & 0x33333333);
+  acc = (partial2 & 0x0f0f0f0f) + ((partial2 >> 4) & 0x0f0f0f0f);
+
+  loader = *lptr++;
+  partial = (*include_vec++) & loader & (loader >> 1);
+  loader = *lptr++;
+  partial += (*include_vec++) & loader & (loader >> 1);
+  loader = *lptr++;
+  partial += (*include_vec++) & loader & (loader >> 1);
+  partial2 = (partial & 0x33333333) + ((partial >> 2) & 0x33333333);
+
+  loader = *lptr++;
+  partial = (*include_vec++) & loader & (loader >> 1);
+  loader = *lptr++;
+  partial += (*include_vec++) & loader & (loader >> 1);
+  loader = *lptr++;
+  partial += (*include_vec++) & loader & (loader >> 1);
+  partial2 += (partial & 0x33333333) + ((partial >> 2) & 0x33333333);
+  acc += (partial2 & 0x0f0f0f0f) + ((partial2 >> 4) & 0x0f0f0f0f);
+  return (acc * 0x01010101) >> 24;
+}
+#endif
+
+uint32_t vec_set_freq(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec) {
+  // Assuming include_vec describes e.g. cases, and an autosomal marker, this
+  // returns the number of case set alleles loaded in lptr[].
+  // See single_marker_freqs_and_hwe() for discussion.
+  //   A := (genotype >> 1) | 0xaaaa...
+  // set allele count: popcount(genotype & A)
+  uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
+  uintptr_t loader;
+  uint32_t acc = 0;
+#ifdef __LP64__
+  uintptr_t cur_decr;
+  uintptr_t* lptr_6x_end;
+  indiv_ctl2 -= indiv_ctl2 % 6;
+  while (indiv_ctl2 >= 60) {
+    cur_decr = 60;
+  vec_set_freq_loop:
+    lptr_6x_end = &(lptr[cur_decr]);
+    acc += count_set_freq_60v((__m128i*)lptr, (__m128i*)lptr_6x_end, (__m128i*)include_vec);
+    lptr = lptr_6x_end;
+    include_vec = &(include_vec[cur_decr]);
+    indiv_ctl2 -= cur_decr;
+  }
+  if (indiv_ctl2) {
+    cur_decr = indiv_ctl2;
+    goto vec_set_freq_loop;
+  }
+#else
+  uintptr_t* lptr_six_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 6)]);
+  while (lptr < lptr_six_end) {
+    acc += count_set_freq_6(lptr, include_vec);
+    lptr = &(lptr[6]);
+    include_vec = &(include_vec[6]);
+  }
+#endif
+  while (lptr < lptr_end) {
+    loader = (*lptr++) & ((*include_vec++) * 3);
+    acc += popcount_long(loader & ((loader >> 1) | AAAAMASK));
+  }
+  return acc;
+}
+
+uint32_t vec_set_freq_haploid(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec) {
+  // set allele count: popcount(genotype & (genotype >> 1) & include_vec)
+  uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
+  uintptr_t loader;
+  uint32_t acc = 0;
+#ifdef __LP64__
+  uintptr_t cur_decr;
+  uintptr_t* lptr_12x_end;
+  indiv_ctl2 -= indiv_ctl2 % 12;
+  while (indiv_ctl2 >= 120) {
+    cur_decr = 120;
+  vec_set_freq_haploid_loop:
+    lptr_12x_end = &(lptr[cur_decr]);
+    acc += count_set_freq_hap_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec);
+    lptr = lptr_12x_end;
+    include_vec = &(include_vec[cur_decr]);
+    indiv_ctl2 -= cur_decr;    
+  }
+  if (indiv_ctl2) {
+    cur_decr = indiv_ctl2;
+    goto vec_set_freq_haploid_loop;
+  }
+#else
+  uintptr_t* lptr_twelve_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 12)]);
+  while (lptr < lptr_twelve_end) {
+    acc += count_set_freq_hap_12(lptr, include_vec);
+    lptr = &(lptr[12]);
+    include_vec = &(include_vec[12]);
+  }
+#endif
+  while (lptr < lptr_end) {
+    loader = *lptr++;
+    acc += popcount2_long(loader & (loader >> 1) & (*include_vec++));
+  }
+  return acc;
 }
 
 #ifdef __LP64__

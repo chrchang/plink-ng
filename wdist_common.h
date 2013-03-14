@@ -237,7 +237,10 @@ typedef union {
 #define MODEL_PGEN 4096
 #define MODEL_PTREND 8192
 #define MODEL_TRENDONLY 16384
-#define MODEL_PMASK 31744
+#define MODEL_PMASK (MODEL_PDOM | MODEL_PREC | MODEL_PGEN | MODEL_PTREND | MODEL_TRENDONLY)
+
+// (2^31 - 1000001) / 2
+#define APERM_MAX 1073241823
 
 #define ADJUST_GC 2
 #define ADJUST_LOG10 4
@@ -298,7 +301,7 @@ typedef union {
 #else
 // N.B. 32-bit version not as carefully tested or optimized, but I'll try to
 // make sure it works properly
-#define AAAAMASK 0xaaaaaaaa
+#define AAAAMASK 0xaaaaaaaaU
 #define MULTIPLEX_DIST_EXP 28
 #define MULTIPLEX_REL 30
 #endif
@@ -1013,6 +1016,8 @@ void qsort_ext2(char* main_arr, int32_t arr_length, int32_t item_length, int(* c
 
 int32_t qsort_ext(char* main_arr, int32_t arr_length, int32_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int32_t secondary_item_len);
 
+uint32_t doublearr_greater_than(double* sorted_dbl_arr, uint32_t arr_length, double dxx);
+
 int32_t bsearch_str(char* id_buf, char* lptr, intptr_t max_id_len, int32_t min_idx, int32_t max_idx);
 
 int32_t bsearch_str_natural(char* id_buf, char* lptr, intptr_t max_id_len, int32_t min_idx, int32_t max_idx);
@@ -1043,6 +1048,10 @@ uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx
 uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
 
 uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx);
+
+uint32_t vec_set_freq(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec);
+
+uint32_t vec_set_freq_haploid(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec);
 
 #ifdef __LP64__
 void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp);

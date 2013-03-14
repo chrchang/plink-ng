@@ -61,7 +61,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.17.7"
+  "WDIST v0.18.0"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -70,7 +70,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (11 Mar 2013)";
+  " (15 Mar 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -1016,7 +1016,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 
     help_print("aperm", &help_ctrl, 0,
-"  --aperm [min perms] [max perms] [alpha] [beta] [init interval] [slope]\n"
+"  --aperm [min perms - 1] [max perms] [alpha] [beta] [init interval] [slope]\n"
 "    This sets six parameters controlling adaptive permutation tests.\n\n"
 	       );
     if (!param_ct) {
@@ -5087,7 +5087,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto wdist_ret_INVALID_CMDLINE_2;
   }
   if (g_thread_ct > 1) {
-    if (calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_HARDY)) {
+    if ((calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_HARDY)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM)))) {
       sprintf(logbuf, "Using %d threads (change this with --threads).\n", g_thread_ct);
       logprintb();
     } else {
@@ -5880,7 +5880,7 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t update_map_modifier = 0;
   uint32_t model_mperm_val = 0;
   uint32_t mperm_val = 0;
-  uint32_t aperm_min = 5;
+  uint32_t aperm_min = 6;
   uint32_t aperm_max = 1000000;
   double aperm_alpha = 0;
   double aperm_beta = 0.0001;
@@ -6552,12 +6552,12 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	ii = atoi(argv[cur_arg + 1]);
 	if (ii < 1) {
-	  sprintf(logbuf, "Error: Invalid --aperm min permutation count '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  sprintf(logbuf, "Error: Invalid --aperm (min - 1) permutation count '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	aperm_min = ii;
+	aperm_min = ii + 1;
 	ii = atoi(argv[cur_arg + 2]);
-	if (ii < ((int32_t)aperm_min)) {
+	if ((ii < ((int32_t)aperm_min)) || (ii > APERM_MAX)) {
 	  sprintf(logbuf, "Error: Invalid --aperm max permutation count '%s'.%s", argv[cur_arg + 2], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -6574,7 +6574,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --aperm initial pruning interval '%s'.%s", argv[cur_arg + 5], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (aperm_init_interval < 1) {
+	if ((aperm_init_interval < 1) || (aperm_init_interval > 1000000)) {
 	  sprintf(logbuf, "Error: Invalid --aperm initial pruning interval '%s'.%s", argv[cur_arg + 5], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -6582,7 +6582,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --aperm pruning interval slope '%s'.%s", argv[cur_arg + 6], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (aperm_interval_slope < 0) {
+	if ((aperm_interval_slope < 0) || (aperm_interval_slope > 1)) {
 	  sprintf(logbuf, "Error: Invalid --aperm pruning interval slope '%s'.%s", argv[cur_arg + 6], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}

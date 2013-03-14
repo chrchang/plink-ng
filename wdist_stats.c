@@ -206,22 +206,74 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22) {
   return tprob / (cprob + tprob);
 }
 
-/*
-void fisher22_precomp(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, double* m11_precomp, uint32_t* m11_offsetp, uint32_t* m11_ceilp) {
-  // Assumes m11_precomp is a preallocated buffer of adequate size to store all
-  // nonzero p-values.
-  // Returns:
-  //   m11_precomp[0] = p-value when m11 is *m11_offsetp
-  //   ...
-  //   m11_precomp[*m11ceilp - *m11_offsetp - 1] = p-value when m11 is
-  //     *m11_ceilp - 1
-  //   All other p-values underflow.
-  //
-  // Algorithm:
-  // 1. Locate the center.
-  // ...
+void fisher22_precomp_thresh(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t* m11_minp, uint32_t* m11_maxp, uint32_t* tiel, uint32_t* tieh) {
+  // Treating m11 as the only variable, this returns the minimum and (maximum -
+  // 1) values of m11 which are less extreme than the observed result.  If the
+  // observed result is maximally common, the return values will both be zero.
+  // Also reports which value(s) result in an identical p-value.
+  double cur_prob = (1 - SMALL_EPSILON) * EXACT_TEST_BIAS;
+  double cur11 = ((int32_t)m11);
+  double cur12 = ((int32_t)m12);
+  double cur21 = ((int32_t)m21);
+  double cur22 = ((int32_t)m22);
+  double ratio = (cur11 * cur22) / ((cur12 + 1) * (cur21 + 1));
+
+  // Is m11 greater than the p-maximizing value?
+  if (ratio > (1 + SMALL_EPSILON)) {
+    *tieh = m11;
+    *tiel = m11;
+    *m11_maxp = m11;
+    cur12 += 1;
+    cur21 += 1;
+    cur_prob *= ratio;
+    do {
+      cur11 -= 1;
+      cur22 -= 1;
+      m11--;
+      cur12 += 1;
+      cur21 += 1;
+      cur_prob *= (cur11 * cur22) / (cur12 * cur21);
+    } while (cur_prob > EXACT_TEST_BIAS);
+    *m11_minp = m11;
+    if (cur_prob > (1 - 2 * SMALL_EPSILON) * EXACT_TEST_BIAS) {
+      *tiel = m11 - 1;
+    }
+  } else if (ratio > (1 - SMALL_EPSILON)) {
+    *m11_minp = 0;
+    *m11_maxp = 0;
+    *tiel = m11 - 1;
+    *tieh = m11;
+  } else {
+    // Is it less?
+    *tiel = m11;
+    cur11 += 1;
+    cur22 += 1;
+    ratio = (cur12 * cur21) / (cur11 * cur22);
+    if (ratio > (1 + SMALL_EPSILON)) {
+      *tieh = m11;
+      cur_prob *= ratio;
+      *m11_minp = ++m11;
+      do {
+	cur12 -= 1;
+	cur21 -= 1;
+	m11++;
+	cur11 += 1;
+	cur22 += 1;
+	cur_prob *= (cur12 * cur21) / (cur11 * cur22);
+      } while (cur_prob > EXACT_TEST_BIAS);
+      *m11_maxp = m11;
+      if (cur_prob > (1 - 2 * SMALL_EPSILON) * EXACT_TEST_BIAS) {
+	*tieh = m11;
+      }
+    } else {
+      *m11_minp = 0;
+      *m11_maxp = 0;
+      if (ratio > (1 - SMALL_EPSILON)) {
+	*tieh = m11 + 1;
+      }
+    }
+  }
 }
-*/
 
 int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p, double* saved22p, double* saved23p, double *totalp, uint32_t right_side) {
   double total = 0;
@@ -710,4 +762,84 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
     }
   }
   return tprob / (tprob + cprob);
+}
+
+void chi22_precomp_thresh(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t* m11_minp, uint32_t* m11_maxp, uint32_t* tiel, uint32_t* tieh) {
+  if (((!m11) || (!m22)) && ((!m12) || (!m21))) {
+    // sum-0 row or column, no freedom at all
+    *m11_minp = 0;
+    *m11_maxp = 0;
+    *tiel = m11;
+    *tieh = m11;
+    return;
+  }
+  double cur11 = ((int32_t)m11);
+  double cur12 = ((int32_t)m12);
+  double cur21 = ((int32_t)m21);
+  double cur22 = ((int32_t)m22);
+  double row1_sum = cur11 + cur12;
+  double row2_sum = cur21 + cur22;
+  double col1_sum = cur11 + cur21;
+  double col2_sum = cur12 + cur22;
+  double tot_recip = 1.0 / (row1_sum + row2_sum);
+  double exp11 = row1_sum * col1_sum * tot_recip;
+  double exp12 = row1_sum * col2_sum * tot_recip;
+  double exp21 = row2_sum * col1_sum * tot_recip;
+  double exp22 = row2_sum * col2_sum * tot_recip;
+  double recipx11 = 1.0 / exp11;
+  double recipx12 = 1.0 / exp12;
+  double recipx21 = 1.0 / exp21;
+  double recipx22 = 1.0 / exp22;
+  // double cur_stat = (cur11 - exp11) * (cur11 - exp11) * recipx11 + (cur12 - exp12) * (cur12 - exp12) * recipx12 + (cur21 - exp21) * (cur21 - exp21) * recipx21 + (cur22 - exp22) * (cur22 - exp22) * recipx22;
+  //
+  // chisq statistic is just a quadratic function of cur11.  Expressing it as
+  // ax^2 + bx + c (where x = cur11), we can determine that the minimizing
+  // value is -b/(2a), and it follows that (-b/a) - [initial m11] is the equal
+  // p-value cur11 on the other side.
+  //
+  // cur12 = row1_sum - cur11
+  // cur21 = col1_sum - cur11
+  // cur22 = (m22 - m11) + cur11
+  //
+  // (row1_sum - cur11 - exp12) * (row1_sum - cur11 - exp12)
+  //   = (cur11 + exp12 - row1_sum) * (cur11 + exp12 - row1_sum)
+  //   = cur11^2 - cur11 * (2(row1_sum - exp12)) + [constant]
+  //
+  // cur_stat = cur11^2 * (recipx11 + recipx12 + recipx21 + recipx22)
+  //          - cur11 * (2recipx11 * exp11 + 2recipx12 * (row1_sum - exp12)
+  //                   + 2recipx21 * (col1_sum - exp21)
+  //                   + 2recipx22 * (exp22 + m11 - m22))
+  //          + [constant]
+  double coeff_a = recipx11 + recipx12 + recipx21 + recipx22;
+  double half_coeff_nb = recipx11 * exp11 + recipx12 * (row1_sum - exp12) + recipx21 * (col1_sum - exp21) + recipx22 * (exp22 + cur11 - cur22);
+  double cval = half_coeff_nb / coeff_a;
+  int32_t ii;
+  if (cur11 > cval + EPSILON) {
+    *m11_maxp = m11;
+    *tieh = m11;
+    cval = EPSILON + (2 * cval - cur11);
+    ii = (int32_t)cval;
+    *m11_minp = ii + 1;
+    if ((cval - ii) > (2 * EPSILON)) {
+      *tiel = m11;
+    } else {
+      *tiel = ii;
+    }
+  } else if (cur11 < cval - EPSILON) {
+    *tiel = m11;
+    *m11_minp = m11 + 1;
+    cval = EPSILON + (2 * cval - cur11);
+    ii = (int32_t)cval;
+    *m11_maxp = ii;
+    if ((cval - ii) > (2 * EPSILON)) {
+      *tieh = m11;
+    } else {
+      *tieh = ii;
+    }
+  } else {
+    *m11_minp = 0;
+    *m11_maxp = 0;
+    *tiel = m11;
+    *tieh = m11;
+  }
 }
