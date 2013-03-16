@@ -96,7 +96,7 @@ typedef union {
 #include "zlib-1.2.7/zlib.h"
 #include "SFMT.h"
 
-#define PI 3.141592653589793
+#define PI 3.1415926535897932
 #define RECIP_2_32 0.00000000023283064365386962890625
 // floating point comparison-to-nonzero tolerance, currently 2^{-30}
 #define EPSILON 0.000000000931322574615478515625
@@ -305,6 +305,10 @@ typedef union {
 #define MULTIPLEX_DIST_EXP 28
 #define MULTIPLEX_REL 30
 #endif
+
+// best if PRECOMP_PVALS + 1 is a power of 2.
+#define PRECOMP_PVALS 63
+#define PRECOMP_PVALSP1 64
 
 // fit 4 pathologically long IDs plus a bit extra
 extern char tbuf[];

@@ -275,6 +275,397 @@ void fisher22_precomp_thresh(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t 
   }
 }
 
+double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t right_offset, double tot_prob, double right_prob, double tail_sum, uint32_t new_m11) {
+  // Given that the left (w.r.t. m11) reference contingency table has
+  // likelihood 1/tot_prob, the contingency table with m11 increased by
+  // right_offset has likelihood right_prob/tot_prob, and the tails (up to but
+  // not including the two references) sum to tail_sum/tot_prob, this
+  // calculates the p-value of the given m11 (which must be on one tail).
+  double left_prob = 1.0;
+  double dxx = (int32_t)new_m11;
+  double left11 = (int32_t)m11;
+  double left12 = (int32_t)m12;
+  double left21 = (int32_t)m21;
+  double left22 = (int32_t)m22;
+  double right11 = (int32_t)(m11 + right_offset);
+  double right12 = (int32_t)(m12 - right_offset);
+  double right21 = (int32_t)(m21 - right_offset);
+  double right22 = (int32_t)(m22 + right_offset);
+  double psum;
+  if (new_m11 < m11) {
+    dxx += 0.5; // unnecessary (53 vs. 31-32 bits precision), but whatever
+    do {
+      left12 += 1;
+      left21 += 1;
+      left_prob *= left11 * left22 / (left12 * left21);
+      if (left_prob == 0) {
+	return 0;
+      }
+      left11 -= 1;
+      left22 -= 1;
+    } while (left11 > dxx);
+    psum = left_prob;
+    dxx = left_prob * (1 + EPSILON);
+    while (right_prob > dxx) {
+      right11 += 1;
+      right22 += 1;
+      right_prob *= right12 * right21 / (right11 * right22);
+      right12 -= 1;
+      right21 -= 1;
+    }
+    psum += right_prob;
+  } else {
+    dxx -= 0.5;
+    do {
+      right11 += 1;
+      right22 += 1;
+      right_prob *= right12 * right21 / (right11 * right22);
+      if (right_prob == 0) {
+	return 0;
+      }
+      right12 -= 1;
+      right21 -= 1;
+    } while (right11 < dxx);
+    psum = right_prob;
+    dxx = right_prob * (1 + EPSILON);
+    while (left_prob > dxx) {
+      left12 += 1;
+      left21 += 1;
+      left_prob *= left11 * left22 / (left12 * left21);
+      left11 -= 1;
+      left22 -= 1;
+    }
+    psum += left_prob;
+  }
+  if (left11 * left22 > 0.5) {
+    do {
+      left12 += 1;
+      left21 += 1;
+      left_prob *= left11 * left22 / (left12 * left21);
+      left11 -= 1;
+      left22 -= 1;
+      dxx = psum;
+      psum += left_prob;
+    } while (psum > dxx);
+  }
+  if (right12 * right21 > 0.5) {
+    do {
+      right11 += 1;
+      right22 += 1;
+      right_prob *= right12 * right21 / (right11 * right22);
+      right12 -= 1;
+      right21 -= 1;
+      dxx = psum;
+      psum += right_prob;
+    } while (psum > dxx);
+  }
+  return psum / tot_prob;
+}
+
+void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_sum, uint32_t total, uint32_t* m11_minp, uint32_t* m11_maxp, double* low_pvals, double* high_pvals, double* tot_probp, double* right_probp, double* tail_sump, uint32_t* m11p, uint32_t* right_offsetp) {
+  // Returns the minimum and (maximum - 1) values of m11 which have p-values at
+  // least as large as the given one.  Also saves up to the next PRECOMP_PVALS
+  // p-values on each side in low_pvals[]/high_pvals[], and returns the values
+  // necessary for invoking fisher22_tail_pval().  low_pvals[PRECOMP_PVALS - 1]
+  // and high_pvals[0] are the largest left and right tail p-values,
+  // respectively.
+  //
+  // Algorithm:
+  // 1. Determine center.
+  // 2. Sum unscaled probabilities in both directions to precision limit.
+  // 3. Proceed further outwards to (pval * unscaled_psum) precision limit.
+  // 4. Sum probabilities from the outside in until the threshold is crossed.
+  //    Save intermediate partial sums in circular buffers.
+  // 5. Fill in the remaining return values using the data in the circular
+  //    buffers.
+  double tot_prob = 1.0 / EXACT_TEST_BIAS;
+  double left_prob = tot_prob;
+  double right_prob = tot_prob;
+  int64_t m11_offset = 0;
+  double left_cbuf[PRECOMP_PVALSP1];
+  double right_cbuf[PRECOMP_PVALSP1];
+  uint32_t lcbuf_idx = 0;
+  uint32_t rcbuf_idx = 0;
+  double tail_prob = 0;
+  double final_left_prob_recip;
+  double dxx;
+  double left11;
+  double left12;
+  double left21;
+  double left22;
+  double right11;
+  double right12;
+  double right21;
+  double right22;
+  double threshold;
+  int64_t llii;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  if (!total) {
+    // hardcode this to avoid divide-by-zero
+    *m11_minp = 0;
+    *m11_maxp = 1;
+    // no need to initialize the other return values, they should never be used
+    return;
+  } else if (pval == 0) {
+    if (total >= row1_sum + col1_sum) {
+      *m11_minp = 0;
+      *m11_maxp = MINV(row1_sum, col1_sum) + 1;
+    } else {
+      *m11_minp = row1_sum + col1_sum - total;
+      *m11_maxp = total - MAXV(row1_sum, col1_sum) + 1;
+    }
+    return;
+  }
+  // Center must be adjacent to the x which satisfies
+  //   (m11 + x)(m22 + x) = (m12 - x)(m21 - x), so
+  //   x = (m12 * m21 - m11 * m22) / (m11 + m12 + m21 + m22)
+  if (total >= row1_sum + col1_sum) {
+    // m11 = 0;
+    // m12 = row1_sum;
+    // m21 = col1_sum;
+    // m22 = total - row1_sum - col1_sum;
+    llii = (((uint64_t)row1_sum) * col1_sum) / total;
+    left11 = llii;
+    left12 = row1_sum - llii;
+    left21 = col1_sum - llii;
+    left22 = (total - row1_sum - col1_sum) + llii;
+  } else {
+    // m11 = row1_sum + col1_sum - total;
+    // m12 = row1_sum - m11;
+    // m21 = col1_sum - m11;
+    // m22 = 0;
+    llii = (((uint64_t)(total - row1_sum)) * (total - col1_sum)) / total;
+    // Force m11 <= m22 for internal calculation, then adjust at end.
+    m11_offset = row1_sum + col1_sum - total;
+    left11 = llii;
+    left12 = total - col1_sum - llii;
+    left21 = total - row1_sum - llii;
+    left22 = m11_offset + llii;
+  }
+  // We rounded x down.  Should we have rounded up instead?
+  if ((left11 + 1) * (left22 + 1) < left12 * left21) {
+    left11 += 1;
+    left12 -= 1;
+    left21 -= 1;
+    left22 += 1;
+  }
+  // Safe to force m12 <= m21.
+  if (left12 > left21) {
+    dxx = left12;
+    left12 = left21;
+    left21 = dxx;
+  }
+  // Sum right side to limit, then left.
+  right11 = left11;
+  right12 = left12;
+  right21 = left21;
+  right22 = left22;
+  do {
+    if (right12 < 0.5) {
+      break;
+    }
+    right11 += 1;
+    right22 += 1;
+    right_prob *= (right12 * right21) / (right11 * right22);
+    right12 -= 1;
+    right21 -= 1;
+    dxx = tot_prob;
+    tot_prob += right_prob;
+  } while (tot_prob > dxx);
+  do {
+    if (left11 < 0.5) {
+      break;
+    }
+    left12 += 1;
+    left21 += 1;
+    left_prob *= (left11 * left22) / (left12 * left21);
+    left11 -= 1;
+    left22 -= 1;
+    dxx = tot_prob;
+    tot_prob += left_prob;
+  } while (tot_prob > dxx);
+  // Now determine how far we need to traverse the left tail to assemble an
+  // accurate lookup table.
+  threshold = pval * tot_prob;
+  while (left_prob > threshold) {
+    if (left11 < 0.5) {
+      break;
+    }
+    left12 += 1;
+    left21 += 1;
+    left_prob *= (left11 * left22) / (left12 * left21);
+    left11 -= 1;
+    left22 -= 1;
+  }
+  threshold = tot_prob * 2.2251e-308;
+  dxx = left11 - (PRECOMP_PVALSP1 + 0.5);
+  if (dxx < 0) {
+    dxx = 0.5;
+  }
+  while (left_prob > threshold) {
+    if (left11 < dxx) {
+      if (left11 < 0.5) {
+	break;
+      } else if (left_prob * DOUBLE_PREC_LIMIT > threshold) {
+	threshold = left_prob * DOUBLE_PREC_LIMIT;
+	do {
+	  left12 += 1;
+	  left21 += 1;
+	  left_prob *= (left11 * left22) / (left12 * left21);
+	  left11 -= 1;
+	  left22 -= 1;
+	  if (left11 < 0.5) {
+	    break;
+	  }
+	} while (left_prob > threshold);
+	break;
+      }
+      dxx = 0.5;
+    }
+    left12 += 1;
+    left21 += 1;
+    left_prob *= (left11 * left22) / (left12 * left21);
+    left11 -= 1;
+    left22 -= 1;
+  }
+  // Left tail done, now handle the right.
+  threshold = pval * tot_prob;
+  while (right_prob > threshold) {
+    if (right12 < 0.5) {
+      break;
+    }
+    right11 += 1;
+    right22 += 1;
+    right_prob *= (right12 * right21) / (right11 * right22);
+    right12 -= 1;
+    right21 -= 1;
+  }
+  threshold = tot_prob * 2.2251e-308;
+  dxx = right12 - (PRECOMP_PVALSP1 + 0.5);
+  if (dxx < 0) {
+    dxx = 0.5;
+  }
+  while (right_prob > threshold) {
+    if (right12 < dxx) {
+      if (right12 < 0.5) {
+	break;
+      } else if (right_prob * DOUBLE_PREC_LIMIT > threshold) {
+	threshold = right_prob * DOUBLE_PREC_LIMIT;
+	do {
+	  right11 += 1;
+	  right22 += 1;
+	  right_prob *= (right12 * right21) / (right11 * right22);
+	  right12 -= 1;
+	  right21 -= 1;
+	  if (right12 < 0.5) {
+	    break;
+	  }
+	} while (right_prob > threshold);
+	break;
+      }
+      dxx = 0.5;
+    }
+    right11 += 1;
+    right22 += 1;
+    right_prob *= (right12 * right21) / (right11 * right22);
+    right12 -= 1;
+    right21 -= 1;
+  }
+  fill_double_zero(left_cbuf, PRECOMP_PVALSP1);
+  fill_double_zero(right_cbuf, PRECOMP_PVALSP1);
+  threshold = pval * tot_prob;
+  while (1) {
+    if (left_prob < right_prob * (1 - EPSILON)) {
+      if (tail_prob + left_prob > threshold) {
+	break;
+      }
+      tail_prob += left_prob;
+      uii = 1;
+    } else if (right_prob < left_prob * (1 - EPSILON)) {
+      if (tail_prob + right_prob > threshold) {
+	break;
+      }
+      tail_prob += right_prob;
+      uii = 2;
+    } else {
+      if (tail_prob + left_prob + right_prob > threshold) {
+	break;
+      }
+      tail_prob += left_prob + right_prob;
+      uii = 3;
+    }
+    // if more speed is necessary, the left_prob and right_prob values could be
+    // saved on a stack earlier and looked up here.
+    if (uii & 1) {
+      left_cbuf[lcbuf_idx] = tail_prob;
+      lcbuf_idx = (lcbuf_idx + 1) % PRECOMP_PVALSP1;
+      left11 += 1;
+      left22 += 1;
+      left_prob *= (left12 * left21) / (left11 * left22);
+      left12 -= 1;
+      left21 -= 1;
+    }
+    if (uii & 2) {
+      right_cbuf[rcbuf_idx] = tail_prob;
+      rcbuf_idx = (rcbuf_idx + 1) % PRECOMP_PVALSP1;
+      right12 += 1;
+      right21 += 1;
+      right_prob *= (right11 * right22) / (right12 * right21);
+      right11 -= 1;
+      right22 -= 1;
+    }
+  }
+  *m11_minp = m11_offset + ((int32_t)left11);
+  *m11_maxp = m11_offset + ((int32_t)right11) + 1;
+  dxx = 1.0 / tot_prob;
+  ujj = PRECOMP_PVALS - lcbuf_idx;
+  ukk = lcbuf_idx + 1;
+  for (uii = 0; uii < ujj; uii++) {
+    low_pvals[uii] = left_cbuf[ukk + uii] * dxx;
+  }
+  for (uii = 0; uii < lcbuf_idx; uii++) {
+    low_pvals[uii + ujj] = left_cbuf[uii] * dxx;
+  }
+  // recover the smallest p-value
+  if (left11 > PRECOMP_PVALS - 0.5) {
+    ujj = lcbuf_idx;
+    *m11p = *m11_minp - PRECOMP_PVALS;
+  } else {
+    ujj = (lcbuf_idx + PRECOMP_PVALS - (*m11_minp)) % PRECOMP_PVALSP1;
+    *m11p = m11_offset;
+  }
+  left_prob = left_cbuf[(ujj + 1) % PRECOMP_PVALSP1] - left_cbuf[ujj];
+  final_left_prob_recip = 1.0 / left_prob;
+  *tail_sump = left_cbuf[ujj];
+  *tot_probp = tot_prob * final_left_prob_recip;
+
+  if (rcbuf_idx) {
+    ujj = (rcbuf_idx + PRECOMP_PVALSP1 - 1) % PRECOMP_PVALSP1;
+  } else {
+    ujj = PRECOMP_PVALS - 1;
+  }
+  for (uii = 0; uii <= ujj; uii++) {
+    high_pvals[uii] = right_cbuf[ujj - uii] * dxx;
+  }
+  ujj += PRECOMP_PVALSP1;
+  for (; uii < PRECOMP_PVALS; uii++) {
+    high_pvals[uii] = right_cbuf[ujj - uii] * dxx;
+  }
+  if (right12 > PRECOMP_PVALS - 0.5) {
+    ujj = lcbuf_idx;
+    *right_offsetp = (*m11_maxp) + PRECOMP_PVALS - 1;
+  } else {
+    ujj = (lcbuf_idx + PRECOMP_PVALS - ((int32_t)right12)) % PRECOMP_PVALSP1;
+    *right_offsetp = (*m11_maxp) + ((int32_t)right12) - 1;
+  }
+  right_prob = right_cbuf[(ujj + 1) % PRECOMP_PVALSP1] - right_cbuf[ujj];
+  *right_probp = right_prob * final_left_prob_recip;
+  (*tail_sump) += right_cbuf[ujj];
+  (*tail_sump) *= final_left_prob_recip;
+}
+
 int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p, double* saved22p, double* saved23p, double *totalp, uint32_t right_side) {
   double total = 0;
   double cur_prob = *base_probp;
@@ -842,4 +1233,33 @@ void chi22_precomp_thresh(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22
     *tiel = m11;
     *tieh = m11;
   }
+}
+
+void chi22_precomp_coeffs(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, double* coeff_ap, double* coeff_bp, double* coeff_cp) {
+  if (((!m11) || (!m22)) && ((!m12) || (!m21))) {
+    *coeff_ap = 0;
+    *coeff_bp = 0;
+    *coeff_cp = 0;
+    return;
+  }
+  double cur11 = ((int32_t)m11);
+  double cur12 = ((int32_t)m12);
+  double cur21 = ((int32_t)m21);
+  double cur22 = ((int32_t)m22);
+  double row1_sum = cur11 + cur12;
+  double row2_sum = cur21 + cur22;
+  double col1_sum = cur11 + cur21;
+  double col2_sum = cur12 + cur22;
+  double tot_recip = 1.0 / (row1_sum + row2_sum);
+  double exp11 = row1_sum * col1_sum * tot_recip;
+  double exp12 = row1_sum * col2_sum * tot_recip;
+  double exp21 = row2_sum * col1_sum * tot_recip;
+  double exp22 = row2_sum * col2_sum * tot_recip;
+  double recipx11 = 1.0 / exp11;
+  double recipx12 = 1.0 / exp12;
+  double recipx21 = 1.0 / exp21;
+  double recipx22 = 1.0 / exp22;
+  *coeff_ap = recipx11 + recipx12 + recipx21 + recipx22;
+  *coeff_bp = -2.0 * (recipx11 * exp11 + recipx12 * (row1_sum - exp12) + recipx21 * (col1_sum - exp21) + recipx22 * (exp22 + cur11 - cur22));
+  *coeff_cp = exp11 * exp11 * recipx11 + (row1_sum - exp12) * (row1_sum - exp12) * recipx12 + (col1_sum - exp21) * (col1_sum - exp21) * recipx21 + (exp22 + cur11 - cur22) * (exp22 + cur11 - cur22) * recipx22;
 }

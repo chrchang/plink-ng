@@ -70,7 +70,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (15 Mar 2013)";
+  " (16 Mar 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -1016,7 +1016,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 
     help_print("aperm", &help_ctrl, 0,
-"  --aperm [min perms - 1] [max perms] [alpha] [beta] [init interval] [slope]\n"
+"  --aperm [min perms] [max perms] [alpha] [beta] [init interval] [slope]\n"
 "    This sets six parameters controlling adaptive permutation tests.\n\n"
 	       );
     if (!param_ct) {
@@ -6516,6 +6516,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_mperm_val = (uint32_t)kk;
+	    model_modifier |= MODEL_MPERM;
 	  } else if (!strcmp(argv[cur_arg + uii], "qt-means")) {
 	    if (model_modifier & MODEL_DMASK) {
 	      sprintf(logbuf, "Error: --assoc 'qt-means' does not make sense with a case/control-specific\nmodifier.%s", errstr_append);
@@ -6552,7 +6553,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	ii = atoi(argv[cur_arg + 1]);
 	if (ii < 1) {
-	  sprintf(logbuf, "Error: Invalid --aperm (min - 1) permutation count '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  sprintf(logbuf, "Error: Invalid --aperm min permutation count '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	aperm_min = ii + 1;
@@ -7960,6 +7961,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_mperm_val = (uint32_t)kk;
+	    model_modifier |= MODEL_MPERM;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --model parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
