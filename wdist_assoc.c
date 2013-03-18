@@ -462,7 +462,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   return retval;
 }
 
-void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotient, uint64_t totq_magic, uint32_t totq_preshift, uint32_t totq_postshift, uint32_t totq_incr, uintptr_t* perm_vec) {
+void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotient, uint64_t totq_magic, uint32_t totq_preshift, uint32_t totq_postshift, uint32_t totq_incr, uintptr_t* perm_vec, sfmt_t* sfmtp) {
   // assumes perm_vec is initially zeroed out, tot_quotient is
   // 4294967296 / tot_ct, and totq_magic/totq_preshift/totq_postshift/totq_incr
   // have been precomputed from magic_num();
@@ -475,7 +475,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
     for (; num_set < set_ct; num_set++) {
       do {
 	do {
-	  urand = sfmt_genrand_uint32(&sfmt);
+	  urand = sfmt_genrand_uint32(sfmtp);
 	} while (urand >= upper_bound);
 	uii = 2 * ((totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift);
       } while (is_set(perm_vec, uii));
@@ -487,7 +487,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
     for (; num_set < set_ct; num_set++) {
       do {
 	do {
-	  urand = sfmt_genrand_uint32(&sfmt);
+	  urand = sfmt_genrand_uint32(sfmtp);
 	} while (urand >= upper_bound);
 	uii = 2 * ((totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift);
       } while (!is_set(perm_vec, uii));
@@ -591,6 +591,24 @@ static double g_aperm_alpha;
 static double g_adaptive_ci_zt;
 static uint32_t g_is_x;
 static uint32_t g_is_haploid;
+
+static uint32_t g_tot_quotient;
+static uint64_t g_totq_magic;
+static uint32_t g_totq_preshift;
+static uint32_t g_totq_postshift;
+static uint32_t g_totq_incr;
+static sfmt_t** g_sfmtp_arr;
+
+THREAD_RET_TYPE model_assoc_gen_perms_thread(void* arg) {
+  intptr_t tidx = (intptr_t)arg;
+  uintptr_t pheno_nm_ctl2 = 2 * ((g_pheno_nm_ct + (BITCT - 1)) / BITCT);
+  uint32_t pidx = (((uint64_t)tidx) * g_perm_vec_ct) / g_assoc_thread_ct;
+  uint32_t pmax = (((uint64_t)tidx + 1) * g_perm_vec_ct) / g_assoc_thread_ct;
+  for (; pidx < pmax; pidx++) {
+    generate_cc_perm_vec(g_pheno_nm_ct, g_case_ct, g_tot_quotient, g_totq_magic, g_totq_preshift, g_totq_postshift, g_totq_incr, &(g_perm_vecs[pidx * pheno_nm_ctl2]), g_sfmtp_arr[tidx]);
+  }
+  THREAD_RETURN;
+}
 
 THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
@@ -968,14 +986,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   double ca_chisq = 0.0;
   uint32_t pct = 0;
   uint32_t perm_pass_idx = 0;
-  uint32_t tot_quotient = 0;
   uint32_t mu_table[MODEL_BLOCKSIZE];
   char wprefix[5];
   char wbuf[48];
-  uint64_t totq_magic;
-  uint32_t totq_preshift;
-  uint32_t totq_postshift;
-  uint32_t totq_incr;
   char* wptr;
   char* wptr2;
   char* wptr_mid;
@@ -1225,6 +1238,23 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     nonmale_ct = pheno_nm_ct - male_ct;
   }
   if (model_perms) {
+    g_sfmtp_arr = (sfmt_t**)wkspace_alloc(g_thread_ct * sizeof(intptr_t));
+    if (!g_sfmtp_arr) {
+      goto model_assoc_ret_NOMEM;
+    }
+    g_sfmtp_arr[0] = &sfmt;
+    if (g_thread_ct > 1) {
+      // make the permutation analysis reproducible with --seed + --threads
+      ujj = sfmt_genrand_uint32(&sfmt);
+      for (uii = 1; uii < g_thread_ct; uii++) {
+	g_sfmtp_arr[uii] = (sfmt_t*)wkspace_alloc(sizeof(sfmt_t));
+	if (!g_sfmtp_arr[uii]) {
+	  goto model_assoc_ret_NOMEM;
+	}
+	sfmt_init_gen_rand(g_sfmtp_arr[uii], ujj + uii);
+      }
+    }
+
     g_precomp_width = (1 + (int32_t)(sqrt(pheno_nm_ct) * EXPECTED_MISSING_FREQ * 4.24264));
     if (wkspace_alloc_ui_checked(&g_perm_2success_ct, marker_ct * sizeof(uint32_t))) {
       goto model_assoc_ret_NOMEM;
@@ -1281,8 +1311,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       }
       fill_ulong_zero(g_perm_adapt_stop, marker_ctl);
     }
-    tot_quotient = 4294967296LLU / pheno_nm_ct;
-    magic_num(tot_quotient, &totq_magic, &totq_preshift, &totq_postshift, &totq_incr);
+    g_tot_quotient = 4294967296LLU / pheno_nm_ct;
+    magic_num(g_tot_quotient, &g_totq_magic, &g_totq_preshift, &g_totq_postshift, &g_totq_incr);
   }
   wkspace_mark2 = wkspace_base;
   if (wkspace_alloc_ui_checked(&g_marker_uidxs, marker_ct * sizeof(uint32_t))) {
@@ -1377,9 +1407,18 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       }
       g_perms_done += g_perm_vec_ct;
       g_perm_vecs = (uintptr_t*)wkspace_alloc(g_perm_vec_ct * pheno_nm_ctl2 * sizeof(intptr_t));
-      for (uii = 0; uii < g_perm_vec_ct; uii++) {
-        generate_cc_perm_vec(pheno_nm_ct, g_case_ct, tot_quotient, totq_magic, totq_preshift, totq_postshift, totq_incr, &(g_perm_vecs[uii * pheno_nm_ctl2]));
+      if (g_perm_vec_ct > g_thread_ct) {
+	g_assoc_thread_ct = g_thread_ct;
+      } else {
+	g_assoc_thread_ct = g_perm_vec_ct;
       }
+      if (spawn_threads(threads, &model_assoc_gen_perms_thread, g_assoc_thread_ct)) {
+	logprint(errstr_thread_create);
+	goto model_assoc_ret_THREAD_CREATE_FAIL;
+      }
+      ulii = 0;
+      model_assoc_gen_perms_thread((void*)ulii);
+      join_threads(threads, g_assoc_thread_ct);
     }
     chrom_fo_idx = 0xffffffffU;
     marker_uidx = 0;
