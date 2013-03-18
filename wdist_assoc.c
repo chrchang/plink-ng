@@ -630,8 +630,7 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
     min_ploidy = 2;
   }
   for (; marker_bidx < marker_bceil; marker_bidx++) {
-    // guaranteed during loading that g_perm_adapt_stop[] is not set
-    // yet
+    // guaranteed during loading that g_perm_adapt_stop[] is not set yet
     marker_idx = g_adapt_m_table[marker_bidx];
     next_adapt_check = g_first_adapt_check;
     col1_sum = g_set_cts[marker_idx];
@@ -1286,7 +1285,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       }
       */
     } else if (model_assoc) {
-      if (wkspace_alloc_ui_checked(&g_precomp_ui, g_precomp_width * 3 * sizeof(uint32_t))) {
+      if (wkspace_alloc_ui_checked(&g_precomp_ui, g_precomp_width * 3 * MODEL_BLOCKSIZE * sizeof(uint32_t))) {
 	goto model_assoc_ret_NOMEM;
       }
     }
@@ -2009,7 +2008,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	    } else {
 	      uqq = 2;
 	    }
-	    for (uii = g_block_start; uii < g_block_diff; uii++) {
+	    for (uii = g_block_start; uii < block_size; uii++) {
 	      upp = g_missing_cts[marker_idx + uii];
 	      get_model_assoc_precomp_bounds(upp, &ujj, &ukk);
 	      g_precomp_start[uii] = ujj;
@@ -2181,7 +2180,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     dxx = 0.5 * dyy;
     memset(tbuf, 32, 5);
     tbuf[5 + plink_maxsnp] = ' ';
-    do {
+    while (1) {
       while (1) {
 	do {
           chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
@@ -2194,8 +2193,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	marker_uidx = next_non_set_unsafe(marker_exclude, chrom_end);
       }
       intprint2(&(tbuf[2]), uii);
-      for (; marker_uidx < chrom_end; marker_idx++) {
-        marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+      for (; marker_uidx < chrom_end;) {
 	if (model_adapt) {
 	  pval = ((double)(g_perm_2success_ct[marker_idx] + 2)) / ((double)(2 * (g_perm_attempt_ct[marker_idx] + 1)));
 	} else {
@@ -2231,9 +2229,13 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	    goto model_assoc_ret_WRITE_FAIL;
 	  }
 	}
-	marker_uidx++;
+	if (++marker_idx == marker_ct) {
+	  goto model_assoc_loop_end;
+	}
+        marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
       }
-    } while (marker_idx < marker_ct);
+    }
+  model_assoc_loop_end:
     if (fclose_null(&outfile)) {
       goto model_assoc_ret_WRITE_FAIL;
     }

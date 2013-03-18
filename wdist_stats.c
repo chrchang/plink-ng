@@ -1026,109 +1026,69 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
   return tprob / (tprob + cprob);
 }
 
-void chi22_precomp_coeffs(uint32_t row1_sum, uint32_t col1_sum, uint32_t total, double* coeffs) {
-  // coeffs[0] = E[m11]
-  // coeffs[1] = 1 / E[m11]
-  // coeffs[2] = E[m12]
-  // ...
-  double tot_recip;
+void chi22_precomp_coeffs(intptr_t row1_sum, intptr_t col1_sum, intptr_t total, double* expm11p, double* recip_sump) {
+  // chisq = (m11 - expm11)^2 * recip_sum
+  // (see discussion for chi22_precomp_val_bounds() below.)
+  //
+  // expm11 = row1_sum * col1_sum / total
+  // expm12 = row1_sum * col2_sum / total, etc.
+  // recip_sum = 1 / expm11 + 1 / expm12 + 1 / expm21 + 1 / expm22
+  // = total * (1 / (row1_sum * col1_sum) + 1 / (row1_sum * col2_sum) +
+  //            1 / (row2_sum * col1_sum) + 1 / (row2_sum * col2_sum))
+  // = total^3 / (row1_sum * col1_sum * row2_sum * col2_sum)
+  intptr_t row2_sum = total - row1_sum;
+  intptr_t col2_sum = total - col1_sum;
   double dxx;
-  uint32_t uii;
-  if (!total) {
-    // hardcode to avoid divide-by-zero
-    for (uii = 0; uii < 8; uii++) {
-      coeffs[uii] = 1;
+  if (row1_sum && row2_sum && col1_sum && col2_sum) {
+    dxx = total;
+    *expm11p = ((double)(((int64_t)row1_sum) * col1_sum)) / ((double)total);
+    *recip_sump = dxx * dxx * dxx / (((double)row1_sum) * ((double)row2_sum) * ((double)col1_sum) * ((double)col2_sum));
+  } else {
+    // since an entire row or column is zero, either m11 or m22 is zero
+    // row1_sum + col1_sum - total = m11 - m22
+    if (row1_sum + col1_sum < total) {
+      *expm11p = 0;
+    } else {
+      *expm11p = row1_sum + col1_sum - total;
     }
-    return;
+    *recip_sump = 0;
   }
-  tot_recip = 1.0 / total;
-  dxx = row1_sum * col1_sum * tot_recip;
-  coeffs[0] = dxx;
-  coeffs[1] = 1.0 / dxx;
-  dxx = row1_sum * (total - col1_sum) * tot_recip;
-  coeffs[2] = dxx;
-  coeffs[3] = 1.0 / dxx;
-  dxx = (total - row1_sum) * col1_sum * tot_recip;
-  coeffs[4] = dxx;
-  coeffs[5] = 1.0 / dxx;
-  dxx = (total - row1_sum) * (total - col1_sum) * tot_recip;
-  coeffs[6] = dxx;
-  coeffs[7] = 1.0 / dxx;
 }
 
-void chi22_precomp_val_bounds(double chisq, uint32_t row1_sum, uint32_t col1_sum, uint32_t total, uint32_t* m11_minp, uint32_t* m11_maxp, uint32_t* tiep) {
+void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum, intptr_t total, uint32_t* m11_minp, uint32_t* m11_maxp, uint32_t* tiep) {
   // Treating m11 as the only variable, this returns the minimum and (maximum -
   // 1) values of m11 which produce smaller chisq statistics than given.  Also
   // sets the low bit of *tiep if m11 = minimum - 1 results in a tie (2^{-21}
   // tolerance), and the second-lowest bit if m11 = maximum does.
-  double cfs[8];
-  double adj12;
-  double adj21;
-  double adj22;
-  double coeff_a;
-  double coeff_b;
-  double coeff_c;
-  double cval; // m11 value for bottom of chisq parabola
-  double discrim;
+  double expm11;
+  double recip_sum;
   double cur11;
   double dxx;
-  int32_t ceil11;
+  intptr_t ceil11;
   intptr_t lii;
   *tiep = 0;
-  if (!total) {
+  chi22_precomp_coeffs(row1_sum, col1_sum, total, &expm11, &recip_sum);
+  if (recip_sum == 0) {
     // sum-0 row or column, no freedom at all
-    *m11_minp = 0;
-    *m11_maxp = 0;
+    *m11_minp = expm11;
+    *m11_maxp = expm11;
     if (chisq == 0) {
       *tiep = 2;
     }
     return;
   }
-  chi22_precomp_coeffs(row1_sum, col1_sum, total, cfs);
 
   // double cur_stat = (cur11 - exp11) * (cur11 - exp11) * recipx11 + (cur12 - exp12) * (cur12 - exp12) * recipx12 + (cur21 - exp21) * (cur21 - exp21) * recipx21 + (cur22 - exp22) * (cur22 - exp22) * recipx22;
-  //
-  // Given constant cfs[], chisq statistic is just a quadratic function of
-  // cur11.  Expressing it as ax^2 + bx + c (where x = cur11), we can determine
-  // that the minimizing value is -b/(2a), and it follows that (-b/a) -
-  // [initial m11] is the equal p-value cur11 on the other side.
-  //
-  // cur12 = row1_sum - cur11
-  // cur21 = col1_sum - cur11
-  // cur22 = (m22 - m11) + cur11
-  //
-  // (row1_sum - cur11 - exp12) * (row1_sum - cur11 - exp12)
-  //   = (cur11 + exp12 - row1_sum) * (cur11 + exp12 - row1_sum)
-  //   = cur11^2 - cur11 * (2(row1_sum - exp12)) + [constant]
-  //
-  // cur_stat = cur11^2 * (recipx11 + recipx12 + recipx21 + recipx22)
-  //          - cur11 * (2recipx11 * exp11 + 2recipx12 * (row1_sum - exp12)
-  //                   + 2recipx21 * (col1_sum - exp21)
-  //                   + 2recipx22 * (exp22 + m11 - m22))
-  //          + [constant]
-  adj12 = row1_sum - cfs[2];
-  adj21 = col1_sum - cfs[4];
-  adj22 = cfs[6] + (row1_sum + col1_sum - total);
-  coeff_a = cfs[1] + cfs[3] + cfs[5] + cfs[7];
-  // actually -b/2
-  coeff_b = cfs[1] * cfs[0] + cfs[3] * adj12 + cfs[5] * adj21 + cfs[7] * adj22;
-  cval = coeff_b / coeff_a;
-  coeff_b *= -2; // now it's b
-  coeff_c = cfs[0] + cfs[3] * adj12 * adj12 + cfs[5] * adj21 * adj21 + cfs[7] * adj22 * adj22 - chisq;
-  discrim = coeff_b * coeff_b + SMALL_EPSILON - 4 * coeff_a * coeff_c;
-  if (discrim < 0) {
-    *m11_minp = (uint32_t)(cval + 0.5 - SMALLISH_EPSILON);
-    *m11_maxp = *m11_minp;
-    *tiep = 0;
-    return;
-  }
-  if (row1_sum <= col1_sum) {
-    ceil11 = row1_sum;
-  } else {
-    ceil11 = col1_sum;
-  }
-  discrim = sqrt(discrim) / (2 * coeff_a);
-  cur11 = cval - discrim;
+  // However, we have
+  //   cur11 - exp11 = -(cur12 - exp12) = -(cur21 - exp21) = cur22 - exp22
+  // So the chisq statistic reduces to
+  //   (cur11 - exp11)^2 * (recipx11 + recipx12 + recipx21 + recipx22).
+
+  ceil11 = MINV(row1_sum, col1_sum);
+  // chisq = (cur11 - expm11)^2 * recip_sum
+  // -> expm11 +/- sqrt(chisq / recip_sum) = cur11
+  recip_sum = sqrt(chisq / recip_sum);
+  cur11 = expm11 - recip_sum;
   dxx = cur11 + 1 - BIG_EPSILON;
   if (dxx < 0) {
     *m11_minp = 0;
@@ -1139,7 +1099,7 @@ void chi22_precomp_val_bounds(double chisq, uint32_t row1_sum, uint32_t col1_sum
       *tiep = 1;
     }
   }
-  cur11 = cval + discrim;
+  cur11 = expm11 + recip_sum;
   if (cur11 > ceil11 + BIG_EPSILON) {
     *m11_maxp = ceil11 + 1;
   } else {

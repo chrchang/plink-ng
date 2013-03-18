@@ -569,7 +569,7 @@ int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
       goto load_bim_ret_INVALID_FORMAT_2;
     }
 
-    // bufpter = col 2 start
+    // bufptr = col 2 start
     bufptr = next_item(bufptr);
     if (no_more_items_kns(bufptr)) {
       goto load_bim_ret_INVALID_FORMAT_5;
@@ -771,6 +771,12 @@ int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
     if (to_slen && (to_chrom == MAX_POSSIBLE_CHROM)) {
       sprintf(logbuf, "Error: --to marker '%s' not found.\n", markername_to);
       goto load_bim_ret_INVALID_FORMAT_2;
+    }
+    if (marker_pos_start == -1) {
+      marker_pos_start = 0;
+    }
+    if (marker_pos_end == -1) {
+      marker_pos_end = 2147483647;
     }
     if (marker_pos_start > marker_pos_end) {
       ii = marker_pos_start;
