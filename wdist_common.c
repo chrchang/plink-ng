@@ -3076,7 +3076,7 @@ void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i
     loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
     loader2 = _mm_and_si128(loader2, loader);
     to_ct_abtmp = _mm_add_epi64(loader3, loader2);
-    to_ct2_c = _mm_add_epi64(to_ct1_c, _mm_andnot_si128(loader3, loader2));
+    to_ct2_c = _mm_add_epi64(to_ct2_c, _mm_andnot_si128(loader3, loader2));
     to_ct2_ab = _mm_add_epi64(to_ct2_ab, _mm_add_epi64(_mm_and_si128(to_ct_abtmp, m2), _mm_and_si128(_mm_srli_epi64(to_ct_abtmp, 2), m2)));
 
     loader = *vptr++;
@@ -3090,7 +3090,7 @@ void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i
     loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
     loader2 = _mm_and_si128(loader2, loader);
     to_ct_abtmp = _mm_add_epi64(loader3, loader2);
-    to_ct2_c = _mm_add_epi64(to_ct1_c, _mm_andnot_si128(loader3, loader2));
+    to_ct2_c = _mm_add_epi64(to_ct2_c, _mm_andnot_si128(loader3, loader2));
     to_ct2_ab = _mm_add_epi64(to_ct2_ab, _mm_add_epi64(_mm_and_si128(to_ct_abtmp, m2), _mm_and_si128(_mm_srli_epi64(to_ct_abtmp, 2), m2)));
 
     to_ct1_c = _mm_add_epi64(_mm_and_si128(to_ct1_c, m2), _mm_and_si128(_mm_srli_epi64(to_ct1_c, 2), m2));

@@ -25,6 +25,7 @@ void single_marker_cc_freqs(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t*
   uintptr_t loader;
   uintptr_t loader2;
   uintptr_t loader3;
+  uintptr_t loader4;
 #ifdef __LP64__
   uintptr_t cur_decr;
   uintptr_t* lptr_6x_end;
@@ -55,15 +56,14 @@ void single_marker_cc_freqs(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t*
   while (lptr < lptr_end) {
     loader = *lptr++;
     loader2 = *ctrl_include2++;
-    loader3 = (loader >> 1) & loader2;
-    loader2 &= loader;
-    tot_ctrl_ab += popcount2_long(loader2 + loader3);
-    tot_ctrl_c += popcount2_long(loader2 & (~loader3));
+    loader3 = loader >> 1;
+    loader4 = loader2 & loader;
+    tot_ctrl_ab += popcount2_long(loader4 + (loader3 & loader2));
+    tot_ctrl_c += popcount2_long(loader4 & (~loader3));
     loader2 = *case_include2++;
-    loader3 = (loader >> 1) & loader2;
-    loader2 &= loader;
-    tot_case_ab += popcount2_long(loader2 + loader3);
-    tot_case_c += popcount2_long(loader2 & (~loader3));
+    loader4 = loader2 & loader;
+    tot_case_ab += popcount2_long(loader4 + (loader3 & loader2));
+    tot_case_c += popcount2_long(loader4 & (~loader3));
   }
   *ctrl_missingp = tot_ctrl_c;
   *ctrl_setp = tot_ctrl_ab - tot_ctrl_c;
@@ -528,9 +528,9 @@ static uint32_t g_precomp_start[MODEL_BLOCKSIZE];
 //        g_precomp_start[marker_bidx].
 //
 // For --assoc perm:
-//   g_precomp_ui[3n] and [3n + 1] define the interval with less extreme
-//   p-values than the original.  ([3n + 2] & 1) indicates the presence of a
-//   low tie, and ([3n + 2] & 2) a high tie.
+//   g_precomp_ui[4n] and [4n + 1] define the interval with less extreme
+//   p-values than the original.  [4n + 2] and [4n + 3] define the
+//   interval with less or equally extreme p-values.
 //
 // For --assoc mperm fisher:
 //   g_precomp_ui is as in --assoc perm.
@@ -538,8 +538,7 @@ static uint32_t g_precomp_start[MODEL_BLOCKSIZE];
 //     tail_sum, respectively, for fisher22_tail_pval().
 //
 // For --assoc mperm [no fisher]:
-//   g_precomp_d[8n] and [8n + 1] are E[m11] and its reciprocal, respectively.
-//   E[m12] is saved in [8n + 2] and [8n + 3], etc.
+//   No precomputation at all.
 //
 // ...fix later...
 // For --model perm-gen:
@@ -607,12 +606,11 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
   uint32_t success_2start;
   uint32_t success_2incr;
   uint32_t next_adapt_check;
-  uint32_t row1x_sum;
-  uint32_t col1_sum;
-  uint32_t col2_sum;
-  uint32_t tot_obs;
+  intptr_t row1x_sum;
+  intptr_t col1_sum;
+  intptr_t col2_sum;
+  intptr_t tot_obs;
   uint32_t missing_start;
-  uint32_t comparev;
   uint32_t case_set_ct;
   uint32_t case_missing_ct;
   uint32_t uii;
@@ -622,8 +620,6 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
   double dxx;
   double dyy;
   double dzz;
-  double dww;
-  double dvv;
   if (g_is_x || g_is_haploid) {
     min_ploidy = 1;
   } else {
@@ -643,7 +639,7 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
     }
     col2_sum = tot_obs - col1_sum;
     missing_start = g_precomp_start[marker_bidx];
-    gpui = &(g_precomp_ui[3 * g_precomp_width * marker_bidx]);
+    gpui = &(g_precomp_ui[4 * g_precomp_width * marker_bidx]);
     success_2start = g_perm_2success_ct[marker_idx];
     success_2incr = 0;
     if (g_model_fisher) {
@@ -669,20 +665,18 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
       // underflow wraparound is *intentional*
       uii = (uint32_t)(case_missing_ct - missing_start);
       if (uii < g_precomp_width) {
-	comparev = gpui[3 * uii];
-	if (case_set_ct < comparev) {
-	  if ((case_set_ct == comparev - 1) && (gpui[3 * uii + 2] & 1)) {
-	    success_2incr++;
-	  } else {
+	if (case_set_ct < gpui[4 * uii]) {
+	  if (case_set_ct < gpui[4 * uii + 2]) {
 	    success_2incr += 2;
+	  } else {
+	    success_2incr++;
 	  }
 	} else {
-	  comparev = gpui[3 * uii + 1];
-	  if (case_set_ct >= comparev) {
-	    if ((case_set_ct == comparev) && (gpui[3 * uii + 2] & 2)) {
-	      success_2incr++;
-	    } else {
+	  if (case_set_ct >= gpui[4 * uii + 1]) {
+	    if (case_set_ct >= gpui[4 * uii + 3]) {
 	      success_2incr += 2;
+	    } else {
+	      success_2incr++;
 	    }
 	  }
 	}
@@ -691,19 +685,9 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
         if (g_model_fisher) {
 	  dxx = 1.0 - fisher22(case_set_ct, uii - case_set_ct, col1_sum - case_set_ct, col2_sum + case_set_ct - uii);
 	} else {
-	  dxx = (uii * ((int64_t)col1_sum)) * tobs_recip;
-	  dyy = (uii * ((int64_t)col2_sum)) * tobs_recip;
-	  uii = tot_obs - uii;
-	  dzz = (uii * ((int64_t)col1_sum)) * tobs_recip;
-	  dww = (uii * ((int64_t)col2_sum)) * tobs_recip;
-	  dvv = case_set_ct - dxx;
-	  dxx = dvv * dvv / dxx;
-	  dvv = ((intptr_t)(uii - case_set_ct)) - dyy;
-	  dxx += dvv * dvv / dyy;
-	  dvv = ((intptr_t)(col1_sum - case_set_ct)) - dzz;
-	  dxx += dvv * dvv / dzz;
-	  dvv = ((intptr_t)(col2_sum + case_set_ct - uii)) - dww;
-	  dxx += dvv * dvv / dww;
+	  chi22_precomp_coeffs(uii, col1_sum, tot_obs, &dyy, &dzz);
+	  dxx = ((double)((intptr_t)case_set_ct)) - dyy;
+	  dxx = dxx * dxx * dzz;
 	}
 	if (dxx > stat_high) {
 	  success_2incr += 2;
@@ -1254,7 +1238,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     if (model_maxt) {
       if (g_model_fisher) {
 	if (model_assoc) {
-	  if (wkspace_alloc_ui_checked(&g_precomp_ui, g_precomp_width * 3 * MODEL_BLOCKSIZE * sizeof(uint32_t)) ||
+	  if (wkspace_alloc_ui_checked(&g_precomp_ui, g_precomp_width * 4 * MODEL_BLOCKSIZE * sizeof(uint32_t)) ||
 	      wkspace_alloc_d_checked(&g_precomp_d, g_precomp_width * 3 * MODEL_BLOCKSIZE * sizeof(double))) {
 	    goto model_assoc_ret_NOMEM;
 	  }
@@ -1262,11 +1246,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  // TODO
 	}
       } else {
-	if (model_assoc) {
-	  if (wkspace_alloc_d_checked(&g_precomp_d, g_precomp_width * 8 * MODEL_BLOCKSIZE * sizeof(double))) {
-	    goto model_assoc_ret_NOMEM;
-	  }
-	}
+	// TODO
       }
     } else if ((!model_assoc) && (!model_perm_best)) {
       /*
@@ -1285,7 +1265,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       }
       */
     } else if (model_assoc) {
-      if (wkspace_alloc_ui_checked(&g_precomp_ui, g_precomp_width * 3 * MODEL_BLOCKSIZE * sizeof(uint32_t))) {
+      if (wkspace_alloc_ui_checked(&g_precomp_ui, g_precomp_width * 4 * MODEL_BLOCKSIZE * sizeof(uint32_t))) {
 	goto model_assoc_ret_NOMEM;
       }
     }
@@ -2025,13 +2005,13 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      if (g_model_fisher) {
 		dxx = g_orig_1mpval[marker_idx + uii];
 	        for (umm = uii * g_precomp_width; umm < ukk; umm++) {
-		  fisher22_precomp_pval_bounds(dxx, unn - ujj, uoo, upp, &(g_precomp_ui[umm * 3]), &(g_precomp_ui[umm * 3 + 1]), &(g_precomp_ui[umm * 3 + 2]), &dyy, &dzz, &dww);
+		  fisher22_precomp_pval_bounds(dxx, unn - ujj, uoo, upp, &(g_precomp_ui[umm * 4]), &dyy, &dzz, &dww);
 		  ujj += uqq;
 	        }
 	      } else {
 		dxx = g_orig_chisq[marker_idx + uii];
 	        for (umm = uii * g_precomp_width; umm < ukk; umm++) {
-		  chi22_precomp_val_bounds(dxx, unn - ujj, uoo, upp, &(g_precomp_ui[umm * 3]), &(g_precomp_ui[umm * 3 + 1]), &(g_precomp_ui[umm * 3 + 2]));
+		  chi22_precomp_val_bounds(dxx, unn - ujj, uoo, upp, &(g_precomp_ui[umm * 4]));
 		  ujj += uqq;
 	        }
 	      }

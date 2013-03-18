@@ -293,14 +293,17 @@ double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22
   return psum / tot_prob;
 }
 
-void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_sum, uint32_t total, uint32_t* m11_minp, uint32_t* m11_maxp, uint32_t* tiep, double* tot_probp, double* right_probp, double* tail_sump) {
-  // Treating m11 as the only variable, this returns the minimum and (maximum -
-  // 1) values of m11 which are less extreme than the observed result.  Sets
-  // the low bit of *tiep if m11 = minimum - 1 results in a tie (2^{-35}
-  // tolerance), and the second-lowest bit if m11 = maximum does.  Finally,
-  // returns the values necessary for invoking fisher22_tail_pval() with
-  //   m11 := (m11_min - (tie & 1)) and
-  //   right_offset := (m11_max - 1) + (tie / 2) - m11.
+void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_sum, uint32_t total, uint32_t* bounds, double* tot_probp, double* right_probp, double* tail_sump) {
+  // bounds[0] = m11 min
+  // bounds[1] = m11 (max + 1)
+  // bounds[2] = m11 min after including ties
+  // bounds[3] = m11 (max + 1) after including ties
+  // Treating m11 as the only variable, this returns the minimum and (maximum +
+  // 1) values of m11 which are less extreme than the observed result, and
+  // notes ties (2^{-35} tolerance).  Also, returns the values necessary for
+  // invoking fisher22_tail_pval() with
+  //   m11 := bounds[2] and
+  //   right_offset := bounds[3] - bounds[2] - 1.
   //
   // Algorithm:
   // 1. Determine center.
@@ -331,21 +334,23 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
   uint32_t uii;
   if (!total) {
     // hardcode this to avoid divide-by-zero
-    *m11_minp = 0;
-    *m11_maxp = 0;
-    *tiep = 2;
+    bounds[0] = 0;
+    bounds[1] = 0;
+    bounds[2] = 0;
+    bounds[3] = 1;
     // no need to initialize the other return values, they should never be used
     return;
   } else {
-    *tiep = 0;
     if (pval == 0) {
       if (total >= row1_sum + col1_sum) {
-	*m11_minp = 0;
-	*m11_maxp = MINV(row1_sum, col1_sum) + 1;
+	bounds[0] = 0;
+	bounds[1] = MINV(row1_sum, col1_sum) + 1;
       } else {
-	*m11_minp = row1_sum + col1_sum - total;
-	*m11_maxp = total - MAXV(row1_sum, col1_sum) + 1;
+	bounds[0] = row1_sum + col1_sum - total;
+	bounds[1] = total - MAXV(row1_sum, col1_sum) + 1;
       }
+      bounds[2] = bounds[0];
+      bounds[3] = bounds[1];
       return;
     }
   }
@@ -509,7 +514,7 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
       uii = 3;
     }
     if (tail_prob > dxx) {
-      *tiep = uii;
+      lii = uii;
       break;
     }
     // if more speed is necessary, we could use a buffer to save all unscaled
@@ -529,11 +534,19 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
       right22 -= 1;
     }
   }
-  *m11_minp = m11_offset + ((intptr_t)left11);
-  *m11_maxp = m11_offset + ((intptr_t)right11) + 1;
+  bounds[2] = m11_offset + ((intptr_t)left11);
+  bounds[3] = m11_offset + ((intptr_t)right11) + 1;
+  bounds[0] = bounds[2] + (lii & 1);
+  bounds[1] = bounds[3] - (lii >> 1);
   dxx = 1.0 / left_prob;
   *tot_probp = tot_prob * dxx;
   *right_probp = right_prob * dxx;
+  if (lii & 1) {
+    tail_prob -= left_prob;
+  }
+  if (lii >> 1) {
+    tail_prob -= right_prob;
+  }
   *tail_sump = tail_prob * dxx;
 }
 
@@ -1055,25 +1068,27 @@ void chi22_precomp_coeffs(intptr_t row1_sum, intptr_t col1_sum, intptr_t total, 
   }
 }
 
-void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum, intptr_t total, uint32_t* m11_minp, uint32_t* m11_maxp, uint32_t* tiep) {
-  // Treating m11 as the only variable, this returns the minimum and (maximum -
-  // 1) values of m11 which produce smaller chisq statistics than given.  Also
-  // sets the low bit of *tiep if m11 = minimum - 1 results in a tie (2^{-21}
-  // tolerance), and the second-lowest bit if m11 = maximum does.
+void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum, intptr_t total, uint32_t* bounds) {
+  // Treating m11 as the only variable, this returns the minimum and (maximum +
+  // 1) values of m11 which produce smaller chisq statistics than given in
+  // bounds[0] and bounds[1] respectively, and smaller-or-equal interval
+  // bounds in bounds[2] and bounds[3].
   double expm11;
   double recip_sum;
   double cur11;
   double dxx;
   intptr_t ceil11;
   intptr_t lii;
-  *tiep = 0;
   chi22_precomp_coeffs(row1_sum, col1_sum, total, &expm11, &recip_sum);
   if (recip_sum == 0) {
     // sum-0 row or column, no freedom at all
-    *m11_minp = expm11;
-    *m11_maxp = expm11;
+    bounds[0] = (intptr_t)expm11;
+    bounds[1] = bounds[0];
+    bounds[2] = bounds[0];
     if (chisq == 0) {
-      *tiep = 2;
+      bounds[3] = bounds[0] + 1;
+    } else {
+      bounds[3] = bounds[0];
     }
     return;
   }
@@ -1091,23 +1106,29 @@ void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum
   cur11 = expm11 - recip_sum;
   dxx = cur11 + 1 - BIG_EPSILON;
   if (dxx < 0) {
-    *m11_minp = 0;
+    bounds[0] = 0;
+    bounds[2] = 0;
   } else {
     lii = (intptr_t)dxx;
-    *m11_minp = lii;
+    bounds[2] = lii;
     if (lii == (intptr_t)(cur11 + BIG_EPSILON)) {
-      *tiep = 1;
+      bounds[0] = lii + 1;
+    } else {
+      bounds[0] = lii;
     }
   }
   cur11 = expm11 + recip_sum;
   if (cur11 > ceil11 + BIG_EPSILON) {
-    *m11_maxp = ceil11 + 1;
+    bounds[1] = ceil11 + 1;
+    bounds[3] = bounds[1];
   } else {
     dxx = cur11 + 1 - BIG_EPSILON;
     lii = (intptr_t)dxx;
-    *m11_maxp = lii;
+    bounds[1] = lii;
     if (lii == (intptr_t)(cur11 + BIG_EPSILON)) {
-      *tiep |= 2;
+      bounds[3] = lii + 1;
+    } else {
+      bounds[3] = lii;
     }
   }
 }
