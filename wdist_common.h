@@ -103,6 +103,8 @@ typedef union {
 // less tolerant versions (2^{-35}, 2^{-44}) for some exact calculations
 #define SMALLISH_EPSILON 0.00000000002910383045673370361328125
 #define SMALL_EPSILON 0.00000000000005684341886080801486968994140625
+// at least sqrt(SMALL_EPSILON)
+#define BIG_EPSILON 0.000000476837158203125
 // 53-bit double precision limit
 #define DOUBLE_PREC_LIMIT 0.00000000000000011102230246251565404236316680908203125
 
@@ -306,9 +308,8 @@ typedef union {
 #define MULTIPLEX_REL 30
 #endif
 
-// best if PRECOMP_PVALS + 1 is a power of 2.
-#define PRECOMP_PVALS 63
-#define PRECOMP_PVALSP1 64
+// used to size a few tables
+#define EXPECTED_MISSING_FREQ 0.025
 
 // fit 4 pathologically long IDs plus a bit extra
 extern char tbuf[];
@@ -1053,9 +1054,9 @@ uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx
 
 uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx);
 
-uint32_t vec_set_freq(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec);
+void vec_set_freq(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
 
-uint32_t vec_set_freq_haploid(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec);
+void vec_set_freq_haploid(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
 
 #ifdef __LP64__
 void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp);
