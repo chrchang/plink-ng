@@ -493,6 +493,7 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
   }
   dxx = pval * tot_prob * (1 - SMALLISH_EPSILON);
   threshold = pval * tot_prob * (1 + SMALLISH_EPSILON);
+  lii = 0;
   while (1) {
     if (left_prob < right_prob * (1 - SMALLISH_EPSILON)) {
       if (tail_prob + left_prob > threshold) {
@@ -508,6 +509,11 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
       uii = 2;
     } else {
       if (tail_prob + left_prob + right_prob > threshold) {
+	if (pval > 1 - SMALLISH_EPSILON) {
+	  // p=1 special case: left and right refer to the same table
+	  tail_prob += left_prob;
+	  lii = 1;
+	}
 	break;
       }
       tail_prob += left_prob + right_prob;

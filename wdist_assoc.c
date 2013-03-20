@@ -7,7 +7,7 @@
 #define MODEL_BLOCKSIZE 256
 #define MODEL_BLOCKKEEP 64
 
-void single_marker_cc_freqs(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ctrl_include2, uintptr_t* case_include2, uint32_t* ctrl_setp, uint32_t* ctrl_missingp, uint32_t* case_setp, uint32_t* case_missingp) {
+void single_marker_cc_freqs(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ctrl_include2, uintptr_t* case_include2, uint32_t* ctrl_setp, uint32_t* ctrl_missingp, uint32_t* case_setp, uint32_t* case_missingp) {
   // Counts the number of A2 alleles and missing calls for both cases and
   // controls, for an autosomal marker.  (The caller is expected to calculate
   // the A1 allele count.)
@@ -71,7 +71,7 @@ void single_marker_cc_freqs(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t*
   *case_setp = tot_case_ab - tot_case_c;
 }
 
-void haploid_single_marker_cc_freqs(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ctrl_include2, uintptr_t* case_include2, uint32_t* ctrl_setp, uint32_t* ctrl_missingp, uint32_t* case_setp, uint32_t* case_missingp) {
+void haploid_single_marker_cc_freqs(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ctrl_include2, uintptr_t* case_include2, uint32_t* ctrl_setp, uint32_t* ctrl_missingp, uint32_t* case_setp, uint32_t* case_missingp) {
   // Counts the number of A1 and A2 alleles for both cases and controls, for a
   // haploid marker.
   //   A := genotype & 0x5555...
@@ -105,7 +105,7 @@ void haploid_single_marker_cc_freqs(uintptr_t indiv_ct, uintptr_t indiv_ctl2, ui
   *case_missingp = tot_case_c;
 }
 
-void single_marker_cc_3freqs(uintptr_t indiv_ct, uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ctrl_include2, uintptr_t* case_include2, uint32_t* ctrl_hom2p, uint32_t* ctrl_hetp, uint32_t* ctrl_missingp, uint32_t* case_hom2p, uint32_t* case_hetp, uint32_t* case_missingp) {
+void single_marker_cc_3freqs(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ctrl_include2, uintptr_t* case_include2, uint32_t* ctrl_hom2p, uint32_t* ctrl_hetp, uint32_t* ctrl_missingp, uint32_t* case_hom2p, uint32_t* case_hetp, uint32_t* case_missingp) {
   // Counts the number of heterozygotes, A2 homozygotes, and missing calls for
   // both cases and controls.  Assumes marker is diploid.  The caller is
   // expected to calculate the A1 allele count.
@@ -471,7 +471,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
   uint32_t urand;
   uint32_t uii;
   if (set_ct * 2 < tot_ct) {
-    fill_ulong_zero(perm_vec, 2 * (tot_ct + (BITCT - 1) / BITCT));
+    fill_ulong_zero(perm_vec, 2 * (tot_ct + (BITCT - 1)) / BITCT);
     for (; num_set < set_ct; num_set++) {
       do {
 	do {
@@ -585,6 +585,7 @@ static uint32_t g_perms_done;
 static uint32_t g_first_adapt_check;
 static uint32_t g_pheno_nm_ct;
 static uint32_t g_case_ct;
+static uint32_t g_male_ct;
 static double g_adaptive_intercept;
 static double g_adaptive_slope;
 static double g_aperm_alpha;
@@ -672,13 +673,12 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
     }
     for (pidx = 0; pidx < g_perm_vec_ct;) {
       if (g_is_x) {
-	// TODO
-	case_set_ct = 0;
-	case_missing_ct = 0;
+        vec_set_freq_x(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), &(g_indiv_nonmale_include2[pidx * pheno_nm_ctl2]), &(g_indiv_male_include2[pidx * pheno_nm_ctl2]), &case_set_ct, &case_missing_ct);
+	case_missing_ct += g_male_ct;
       } else if (g_is_haploid) {
-	vec_set_freq_haploid(g_pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), &case_set_ct, &case_missing_ct);
+	vec_set_freq_haploid(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), &case_set_ct, &case_missing_ct);
       } else {
-	vec_set_freq(g_pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), &case_set_ct, &case_missing_ct);
+	vec_set_freq(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), &case_set_ct, &case_missing_ct);
       }
       // underflow wraparound is *intentional*
       uii = (uint32_t)(case_missing_ct - missing_start);
@@ -793,9 +793,9 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
       success_2incr = 0;
       for (pidx = pidx_start; pidx < pidx_end; pidx++) {
 	if (g_is_haploid) {
-	  case_set_ct = vec_set_freq_haploid(g_pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]));
+	  case_set_ct = vec_set_freq_haploid(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]));
 	} else {
-	  case_set_ct = vec_set_freq(g_pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]));
+	  case_set_ct = vec_set_freq(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]));
 	}
 	if (case_set_ct < compare_min) {
 	  if (case_set_ct == compare_tiel) {
@@ -879,9 +879,9 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
 	case_set_ct = 0;
 	chisq = 0;
       } else if (g_is_haploid) {
-	case_set_ct = vec_set_freq_haploid(g_pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]));
+	case_set_ct = vec_set_freq_haploid(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]));
       } else {
-	case_set_ct = vec_set_freq(g_pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]));
+	case_set_ct = vec_set_freq(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]));
       }
       chisq = (coeff_a * case_set_ct + coeff_b) * case_set_ct + coeff_c;
       if (chisq > chisq_maxmatch) {
@@ -960,7 +960,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uint32_t perms_total = 0;
   int32_t x_code = -1;
   int32_t y_code = -1;
-  uint32_t male_ct = 0;
   uint32_t nonmale_ct = 0;
   uint32_t ctrl_male_ct = 0;
   uint32_t case_male_ct = 0;
@@ -1072,6 +1071,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   g_perms_done = 0;
   g_aperm_alpha = aperm_alpha;
   g_reverse = marker_reverse;
+  g_male_ct = 0;
 
   if (assoc_p2) {
     logprint("Error: --assoc p2 not yet supported.\n");
@@ -1230,12 +1230,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
       if (is_set(sex_nm, indiv_uidx) && is_set(sex_male, indiv_uidx)) {
 	set_bit_noct(g_indiv_male_include2, indiv_idx * 2);
-	male_ct++;
+	g_male_ct++;
       }
       indiv_uidx++;
     }
     vec_init_invert(pheno_nm_ct, g_indiv_nonmale_include2, g_indiv_male_include2);
-    nonmale_ct = pheno_nm_ct - male_ct;
+    nonmale_ct = pheno_nm_ct - g_male_ct;
   }
   if (model_perms) {
     g_sfmtp_arr = (sfmt_t**)wkspace_alloc(g_thread_ct * sizeof(intptr_t));
@@ -1360,7 +1360,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     vec_init_andnot(pheno_nm_ctl2, indiv_male_ctrl_include2, g_indiv_male_include2, indiv_male_case_include2);
     vec_init_andnot(pheno_nm_ctl2, indiv_nonmale_case_include2, indiv_case_include2, indiv_male_case_include2);
     vec_init_andnot(pheno_nm_ctl2, indiv_nonmale_ctrl_include2, indiv_ctrl_include2, indiv_male_ctrl_include2);
-    ctrl_male_ct = male_ct - case_male_ct;
+    ctrl_male_ct = g_male_ct - case_male_ct;
     case_nonmale_ct = g_case_ct - case_male_ct;
     ctrl_nonmale_ct = ctrl_ct - ctrl_male_ct;
   }
@@ -1378,15 +1378,11 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
     goto model_assoc_ret_READ_FAIL;
   }
-  do {
-    marker_unstopped_ct = marker_ct;
+  marker_unstopped_ct = marker_ct;
+  while (1) {
     if (pheno_c && model_perms) {
       if (model_adapt) {
 	if (perm_pass_idx) {
-	  marker_unstopped_ct = marker_ct - popcount_longs(g_perm_adapt_stop, 0, marker_ctl);
-	  if (!marker_unstopped_ct) {
-	    break;
-	  }
 	  while (g_first_adapt_check <= g_perms_done) {
 	    // APERM_MAX prevents infinite loop here
 	    g_first_adapt_check += (int32_t)(aperm_init_interval + ((int32_t)g_first_adapt_check) * aperm_interval_slope);
@@ -1439,7 +1435,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	    if (is_y) {
 	      cur_ctrl_include2 = indiv_male_ctrl_include2;
 	      cur_case_include2 = indiv_male_case_include2;
-	      load_indiv_ct = male_ct;
+	      load_indiv_ct = g_male_ct;
 	      load_case_ct = case_male_ct;
 	    } else {
 	      cur_ctrl_include2 = indiv_ctrl_include2;
@@ -1560,23 +1556,23 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      is_reverse = is_set(marker_reverse, marker_uidx2);
 	      if (g_is_x) {
 		if (is_reverse) {
-		  single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_nonmale_ctrl_include2, indiv_nonmale_case_include2, &ujj, &uii, &umm, &ukk);
+		  single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_nonmale_ctrl_include2, indiv_nonmale_case_include2, &ujj, &uii, &umm, &ukk);
 		  *missp = 2 * (uii + ukk);
 		  *setp = 2 * (ujj + umm);
 		  uii = 2 * (ctrl_nonmale_ct - uii) - ujj;
 		  ukk = 2 * (case_nonmale_ct - ukk) - umm;
-		  haploid_single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_male_ctrl_include2, indiv_male_case_include2, &uoo, &unn, &uqq, &upp);
-		  *missp += unn + upp + male_ct;
+		  haploid_single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_male_ctrl_include2, indiv_male_case_include2, &uoo, &unn, &uqq, &upp);
+		  *missp += unn + upp + g_male_ct;
 		  *setp += uoo + uqq;
 		  unn = ctrl_male_ct - unn - uoo;
 		  upp = case_male_ct - upp - uqq;
 		} else {
-		  single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_nonmale_ctrl_include2, indiv_nonmale_case_include2, &uii, &ujj, &ukk, &umm);
+		  single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_nonmale_ctrl_include2, indiv_nonmale_case_include2, &uii, &ujj, &ukk, &umm);
 		  *missp = 2 * (ujj + umm);
 		  *setp = 2 * (uii + ukk);
 		  ujj = 2 * (ctrl_nonmale_ct - ujj) - uii;
 		  umm = 2 * (case_nonmale_ct - umm) - ukk;
-		  haploid_single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_male_ctrl_include2, indiv_male_case_include2, &unn, &uoo, &upp, &uqq);
+		  haploid_single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_male_ctrl_include2, indiv_male_case_include2, &unn, &uoo, &upp, &uqq);
 		  *missp += uoo + uqq;
 		  *setp = unn + upp;
 		  uoo = ctrl_male_ct - uoo - unn;
@@ -1588,13 +1584,13 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		umm += uqq;
 	      } else if (g_is_haploid) {
 		if (is_reverse) {
-		  haploid_single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &ujj, &uii, &umm, &ukk);
+		  haploid_single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &ujj, &uii, &umm, &ukk);
 		  *missp = uii + ukk;
 		  *setp = ujj + umm;
 		  uii = load_ctrl_ct - uii - ujj;
 		  ukk = load_case_ct - ukk - umm;
 		} else {
-		  haploid_single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm);
+		  haploid_single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm);
 		  *missp = ujj + umm;
 		  *setp = uii + ukk;
 		  ujj = load_ctrl_ct - ujj - uii;
@@ -1602,13 +1598,13 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		}
 	      } else {
 		if (is_reverse) {
-		  single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &ujj, &uii, &umm, &ukk);
+		  single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &ujj, &uii, &umm, &ukk);
 		  *missp = uii + ukk;
 		  *setp = ujj + umm;
 		  uii = 2 * (ctrl_ct - uii) - ujj;
 		  ukk = 2 * (g_case_ct - ukk) - umm;
 		} else {
-		  single_marker_cc_freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &uii, &ujj, &ukk, &umm);
+		  single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &uii, &ujj, &ukk, &umm);
 		  *missp = ujj + umm;
 		  *setp = uii + ukk;
 		  ujj = 2 * (ctrl_ct - ujj) - uii;
@@ -1739,13 +1735,13 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      g_marker_uidxs[marker_idx + marker_bidx] = marker_uidx2;
 	      is_reverse = is_set(marker_reverse, marker_uidx2);
 	      if (is_reverse) {
-		single_marker_cc_3freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &ukk, &ujj, &uii, &uoo, &unn, &umm);
+		single_marker_cc_3freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &ukk, &ujj, &uii, &uoo, &unn, &umm);
 		*missp = uii + umm;
 		*setp = ukk + uoo;
 		uii = load_ctrl_ct - uii - ujj - ukk;
 		umm = load_case_ct - umm - unn - uoo;
 	      } else {
-		single_marker_cc_3freqs(pheno_nm_ct, pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm, &unn, &uoo);
+		single_marker_cc_3freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm, &unn, &uoo);
 		*missp = ukk + uoo;
 		*setp = uii + umm;
 		ukk = load_ctrl_ct - uii - ujj - ukk;
@@ -2042,7 +2038,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      ujj *= uqq;
 	      ukk += uii * g_precomp_width;
 	      if (g_model_fisher) {
-		dxx = g_orig_1mpval[marker_idx + uii];
+		dxx = 1 - g_orig_1mpval[marker_idx + uii];
 	        for (umm = uii * g_precomp_width; umm < ukk; umm++) {
 		  fisher22_precomp_pval_bounds(dxx, unn - ujj, uoo, upp, &(g_precomp_ui[umm * 4]), &dyy, &dzz, &dww);
 		  ujj += uqq;
@@ -2162,15 +2158,35 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       }
     }
     if (model_perms) {
+      wkspace_reset(wkspace_mark2);
+      if (g_perms_done == perms_total) {
+	if (model_adapt) {
+	model_assoc_adapt_perm_count:
+	  g_perms_done = 0;
+	  for (uii = 0; uii < marker_ct; uii++) {
+	    if (g_perm_attempt_ct[uii] > g_perms_done) {
+	      g_perms_done = g_perm_attempt_ct[uii];
+	      if (g_perms_done == perms_total) {
+		break;
+	      }
+	    }
+	  }
+	}
+	putchar('\r');
+        sprintf(logbuf, "%u permutations complete.\n", g_perms_done);
+	logprintb();
+	break;
+      } else if (model_adapt) {
+	marker_unstopped_ct = marker_ct - popcount_longs(g_perm_adapt_stop, 0, marker_ctl);
+	if (!marker_unstopped_ct) {
+	  goto model_assoc_adapt_perm_count;
+	}
+      }
       printf("\r%u permutations complete.", g_perms_done);
       fflush(stdout);
-      wkspace_reset(wkspace_mark2);
     }
-  } while (g_perms_done < perms_total);
+  }
   if (model_perms) {
-    putchar('\n');
-    sprintf(logbuf, "%u permutations complete.\n", g_perms_done);
-    logstr(logbuf);
     if (model_adapt) {
       memcpy(outname_end2, ".perm", 6);
     } else {
