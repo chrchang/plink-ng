@@ -3190,7 +3190,7 @@ void vec_set_freq_haploid(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* incl
 
 void vec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* nonmale_vec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
   // diploid counting for nonmales, haploid counting for males
-  // missing_ct := male_missing + 2 * female_missing
+  // missing_ct := male_obs + male_missing + 2 * female_missing
   uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
   uintptr_t loader;
   uintptr_t loader2;
@@ -3199,6 +3199,7 @@ void vec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ve
   uintptr_t missing_incr;
   uint32_t acc = 0;
   uint32_t accm = 0;
+  /*
 #ifdef __LP64__
   uintptr_t cur_decr;
   uintptr_t* lptr_6x_end;
@@ -3228,6 +3229,7 @@ void vec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ve
     male_vec = &(male_vec[6]);
   }
 #endif
+  */
   while (lptr < lptr_end) {
     loader = *lptr++;
     loader2 = loader >> 1;
@@ -3239,7 +3241,7 @@ void vec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ve
 
     loader4 = loader3 & (*male_vec++);
     acc += popcount2_long(loader & loader2 & loader4);
-    accm += popcount2_long((loader ^ loader2) & loader4);
+    accm += popcount_long(((loader ^ loader2) & loader4) | (loader4 << 1));
   }
   *set_ctp = acc;
   *missing_ctp = accm;

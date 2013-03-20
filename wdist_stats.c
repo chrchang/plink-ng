@@ -293,7 +293,7 @@ double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22
   return psum / tot_prob;
 }
 
-void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_sum, uint32_t total, uint32_t* bounds, double* tot_probp, double* right_probp, double* tail_sump) {
+void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_sum, uint32_t total, uint32_t* bounds, double* tprobs) {
   // bounds[0] = m11 min
   // bounds[1] = m11 (max + 1)
   // bounds[2] = m11 min after including ties
@@ -303,7 +303,8 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
   // notes ties (2^{-35} tolerance).  Also, returns the values necessary for
   // invoking fisher22_tail_pval() with
   //   m11 := bounds[2] and
-  //   right_offset := bounds[3] - bounds[2] - 1.
+  //   right_offset := bounds[3] - bounds[2] - 1
+  // in tprobs[0], [1], and [2] (if tprobs is not NULL).
   //
   // Algorithm:
   // 1. Determine center.
@@ -544,16 +545,19 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
   bounds[3] = m11_offset + ((intptr_t)right11) + 1;
   bounds[0] = bounds[2] + (lii & 1);
   bounds[1] = bounds[3] - (lii >> 1);
+  if (!tprobs) {
+    return;
+  }
   dxx = 1.0 / left_prob;
-  *tot_probp = tot_prob * dxx;
-  *right_probp = right_prob * dxx;
+  tprobs[0] = tot_prob * dxx;
+  tprobs[1] = right_prob * dxx;
   if (lii & 1) {
     tail_prob -= left_prob;
   }
   if (lii >> 1) {
     tail_prob -= right_prob;
   }
-  *tail_sump = tail_prob * dxx;
+  tprobs[2] = tail_prob * dxx;
 }
 
 int32_t fisher23_tailsum(double* base_probp, double* saved12p, double* saved13p, double* saved22p, double* saved23p, double *totalp, uint32_t right_side) {
@@ -1045,7 +1049,7 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
   return tprob / (tprob + cprob);
 }
 
-void chi22_precomp_coeffs(intptr_t row1_sum, intptr_t col1_sum, intptr_t total, double* expm11p, double* recip_sump) {
+void chi22_get_coeffs(double row1_sum, double col1_sum, double total, double* expm11p, double* recip_sump) {
   // chisq = (m11 - expm11)^2 * recip_sum
   // (see discussion for chi22_precomp_val_bounds() below.)
   //
@@ -1055,13 +1059,11 @@ void chi22_precomp_coeffs(intptr_t row1_sum, intptr_t col1_sum, intptr_t total, 
   // = total * (1 / (row1_sum * col1_sum) + 1 / (row1_sum * col2_sum) +
   //            1 / (row2_sum * col1_sum) + 1 / (row2_sum * col2_sum))
   // = total^3 / (row1_sum * col1_sum * row2_sum * col2_sum)
-  intptr_t row2_sum = total - row1_sum;
-  intptr_t col2_sum = total - col1_sum;
-  double dxx;
-  if (row1_sum && row2_sum && col1_sum && col2_sum) {
-    dxx = total;
-    *expm11p = ((double)(((int64_t)row1_sum) * col1_sum)) / ((double)total);
-    *recip_sump = dxx * dxx * dxx / (((double)row1_sum) * ((double)row2_sum) * ((double)col1_sum) * ((double)col2_sum));
+  double m11_numer = row1_sum * col1_sum;
+  double denom = m11_numer * (total - row1_sum) * (total - col1_sum);
+  if (denom != 0) {
+    *expm11p = m11_numer / total;
+    *recip_sump = total * total * total / denom;
   } else {
     // since an entire row or column is zero, either m11 or m22 is zero
     // row1_sum + col1_sum - total = m11 - m22
@@ -1085,7 +1087,7 @@ void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum
   double dxx;
   intptr_t ceil11;
   intptr_t lii;
-  chi22_precomp_coeffs(row1_sum, col1_sum, total, &expm11, &recip_sum);
+  chi22_get_coeffs(row1_sum, col1_sum, total, &expm11, &recip_sum);
   if (recip_sum == 0) {
     // sum-0 row or column, no freedom at all
     bounds[0] = (intptr_t)expm11;

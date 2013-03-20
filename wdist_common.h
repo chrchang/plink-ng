@@ -253,6 +253,7 @@ typedef union {
 #define WKSPACE_DEFAULT_MB 2048
 
 #define CACHELINE 64 // assumed number of bytes per cache line, for alignment
+#define CACHELINE_INT32 (CACHELINE / sizeof(int32_t))
 #define CACHELINE_DBL (CACHELINE / sizeof(double))
 
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
