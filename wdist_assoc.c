@@ -520,8 +520,9 @@ static uint32_t g_precomp_start[MODEL_BLOCKSIZE];
 // Space for precomputed tables to accelerate permutation p-value computations.
 // The sizing and usage of this space varies depending on the permutation
 // analysis requested.  (The main objective here is to bring Fisher 2x2 exact
-// p-values to the masses.  There's some chi-square speedup as well, but that's
-// realistically fast enough anyway.)
+// p-values to the masses.  There's a very minor chi-square speedup as well;
+// it's really only present because it allowed for simpler debugging of parts
+// of the Fisher logic.)
 //
 // In what follows,
 //   n := (g_precomp_width * marker_bidx) + missing_ct -
@@ -534,11 +535,16 @@ static uint32_t g_precomp_start[MODEL_BLOCKSIZE];
 //
 // For --assoc mperm fisher:
 //   g_precomp_ui is as in --assoc perm.
-//   g_precomp_d[3n], [3n + 1], and [3n + 2] are tot_prob, right_prob, and
-//     tail_sum, respectively, for fisher22_tail_pval().
+//   g_thread_precomp_ui[2n] and [2n + 1] are the floor and offset for the
+//     range of case_set_cts where Fisher p-value calculation is unnecessary.
+//   g_thread_precomp_d[3n], [3n + 1], and [3n + 2] are tot_prob, right_prob,
+//     and tail_sum, respectively, for fisher22_tail_pval().
 //
 // For --assoc mperm [no fisher]:
-//   No precomputation at all.
+//   g_precomp_ui is as in --assoc perm.
+//   g_precomp_d[2n] and [2n + 1] are expm11 and recip_sum from
+//   chi22_get_coeffs().
+//   g_thread_precomp_ui is as in --assoc mperm fisher.
 //
 // ...fix later...
 // For --model perm-gen:
@@ -589,7 +595,6 @@ static uint32_t g_perms_done;
 static uint32_t g_first_adapt_check;
 static uint32_t g_pheno_nm_ct;
 static uint32_t g_case_ct;
-static uint32_t g_male_ct; // er, this may not need to be global
 static double g_adaptive_intercept;
 static double g_adaptive_slope;
 static double g_aperm_alpha;
@@ -681,7 +686,7 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
       } else {
 	vec_set_freq(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), &case_set_ct, &case_missing_ct);
       }
-      // underflow wraparound is *intentional*
+      // deliberate underflow
       uii = (uint32_t)(case_missing_ct - missing_start);
       if (uii < g_precomp_width) {
 	if (case_set_ct < gpui[4 * uii]) {
@@ -745,6 +750,7 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
   uint32_t pidx_end = CACHELINE_DBL * ((((int64_t)tidx + 1) * perm_vec_ctcl) / g_assoc_thread_ct);
   double max_pval = g_maxt_extreme_stat[pidx_start];
   uint32_t min_ploidy = 2;
+  uint32_t uibuf[4];
   uint32_t* gpui;
   uint32_t* tpui;
   double* tpd;
@@ -760,16 +766,18 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
   uint32_t case_set_ct;
   uint32_t case_missing_ct;
   uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
   double pv_high;
   double pv_low;
   double pval;
   if (g_is_haploid) { // includes g_is_x
     min_ploidy = 1;
   }
-  pidx = (g_precomp_width * 4 + CACHELINE_INT32 - 1) / CACHELINE_INT32;
-  tpui = &(g_thread_precomp_ui[tidx * pidx]);
-  pidx = (g_precomp_width * 3 + CACHELINE_DBL - 1) / CACHELINE_DBL;
-  tpd = &(g_thread_precomp_d[tidx * pidx]);
+  uii = (g_precomp_width * 2 + CACHELINE_INT32 - 1) / CACHELINE_INT32;
+  tpui = &(g_thread_precomp_ui[tidx * uii]);
+  uii = (g_precomp_width * 3 + CACHELINE_DBL - 1) / CACHELINE_DBL;
+  tpd = &(g_thread_precomp_d[tidx * uii]);
   for (pidx = pidx_start + 1; pidx < pidx_end; pidx++) {
     if (g_maxt_extreme_stat[pidx] > max_pval) {
       max_pval = g_maxt_extreme_stat[pidx];
@@ -789,8 +797,10 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
     missing_start = g_precomp_start[marker_bidx];
     gpui = &(g_precomp_ui[4 * g_precomp_width * marker_bidx]);
     case_missing_ct = missing_start;
-    for (pidx = 0; pidx < g_precomp_width; pidx++) {
-      fisher22_precomp_pval_bounds(max_pval, row1x_sum - case_missing_ct, col1_sum, tot_obs, &(tpui[4 * pidx]), &(tpd[3 * pidx]));
+    for (uii = 0; uii < g_precomp_width; uii++) {
+      fisher22_precomp_pval_bounds(max_pval, row1x_sum - case_missing_ct, col1_sum, tot_obs, uibuf, &(tpd[3 * uii]));
+      tpui[2 * uii] = uibuf[2];
+      tpui[2 * uii + 1] = uibuf[3];
       case_missing_ct += min_ploidy;
     }
     pv_high = 1.0 + EPSILON - g_orig_1mpval[marker_idx];
@@ -804,9 +814,34 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
       } else {
 	vec_set_freq(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), &case_set_ct, &case_missing_ct);
       }
+      // deliberate underflow
       uii = (uint32_t)(case_missing_ct - missing_start);
-      // if (uii < g_precomp_width) {
-      if (0) {
+      if (uii < g_precomp_width) {
+	if (case_set_ct < gpui[4 * uii]) {
+	  if (case_set_ct < gpui[4 * uii + 2]) {
+	    success_2incr += 2;
+	  } else {
+	    success_2incr++;
+	  }
+	} else {
+	  if (case_set_ct >= gpui[4 * uii + 1]) {
+	    if (case_set_ct >= gpui[4 * uii + 3]) {
+	      success_2incr += 2;
+	    } else {
+	      success_2incr++;
+	    }
+	  }
+	}
+	ukk = tpui[2 * uii];
+	ujj = (uint32_t)(case_set_ct - ukk); // deliberate underflow
+	if (ujj >= tpui[2 * uii + 1]) {
+	  ujj = row1x_sum - case_missing_ct * min_ploidy;
+	  pval = fisher22(case_set_ct, ujj - case_set_ct, col1_sum - case_set_ct, col2_sum + case_set_ct - ujj);
+	  // pval = fisher22_tail_pval(ukk, ujj - ukk, col1_sum - ukk, col2_sum + ukk - ujj, ukk - 1, tpd[3 * uii], tpd[3 * uii + 1], tpd[3 * uii + 2], case_set_ct);
+	  if (g_maxt_extreme_stat[pidx] > pval) {
+	    g_maxt_extreme_stat[pidx] = pval;
+	  }
+	}
       } else {
 	uii = row1x_sum - case_missing_ct * min_ploidy;
 	pval = fisher22(case_set_ct, uii - case_set_ct, col1_sum - case_set_ct, col2_sum + case_set_ct - uii);
@@ -820,52 +855,6 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
 	}
       }
     }
-    /*
-    marker_set_ct = g_compare_bounds[6 * marker_idx + 4];
-    marker_tot_slots = g_compare_bounds[6 * marker_idx + 5];
-    marker_clear_ct = marker_tot_slots - marker_set_ct;
-    success_2incr = 0;
-    for (pidx = pidx_start; pidx < pidx_end; pidx++) {
-      if (g_is_haploid) {
-	case_set_ct = vec_set_freq_haploid(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]));
-      } else {
-	case_set_ct = vec_set_freq(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]));
-      }
-      if (case_set_ct < compare_min) {
-	if (case_set_ct == compare_tiel) {
-	  success_2incr++;
-	} else {
-	  success_2incr += 2;
-	}
-      } else if (case_set_ct >= compare_maxp1) {
-	if (case_set_ct == compare_tieh) {
-	  success_2incr++;
-	} else {
-	  success_2incr += 2;
-	}
-      }
-      if (case_set_ct < quick_min) {
-	if (quick_min - case_set_ct <= PRECOMP_PVALS) {
-	  pval = left_tail_pvals[PRECOMP_PVALS + case_set_ct - quick_min];
-	} else {
-	  goto assoc_maxt_fisher_thread_far_tail_pval;
-	}
-	if (g_maxt_extreme_stat[pidx] > pval) {
-	  g_maxt_extreme_stat[pidx] = pval;
-	}
-      } else if (case_set_ct >= quick_max) {
-	if (case_set_ct - quick_max < PRECOMP_PVALS) {
-	  pval = right_tail_pvals[case_set_ct - quick_max];
-	} else {
-	assoc_maxt_fisher_thread_far_tail_pval:
-	  pval = fisher22_tail_pval(m11, );
-	}
-	if (g_maxt_extreme_stat[pidx] > pval) {
-	  g_maxt_extreme_stat[pidx] = pval;
-	}
-      }
-    }
-    */
     results[marker_bidx] = success_2incr;
     marker_idx++;
   }
@@ -880,16 +869,24 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
   uint32_t perm_vec_ctcl = (g_perm_vec_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
   uint32_t pidx_start = CACHELINE_DBL * ((((int64_t)tidx) * perm_vec_ctcl) / g_assoc_thread_ct);
   uint32_t pidx_end = CACHELINE_DBL * ((((int64_t)tidx + 1) * perm_vec_ctcl) / g_assoc_thread_ct);
+  double min_chisq = g_maxt_extreme_stat[pidx_start];
   uint32_t min_ploidy = 2;
+  uint32_t uibuf[4];
+  uint32_t* gpui;
+  uint32_t* tpui;
+  double* gpd;
   uintptr_t marker_bidx;
   uintptr_t marker_idx;
   uintptr_t pidx;
   intptr_t row1x_sum;
-  double col1_sum;
-  double tot_obs;
+  intptr_t col1_sum;
+  intptr_t tot_obs;
   uint32_t success_2incr;
+  uint32_t missing_start;
   uint32_t case_set_ct;
   uint32_t case_missing_ct;
+  uint32_t uii;
+  uint32_t ujj;
   double chisq_high;
   double chisq_low;
   double chisq;
@@ -897,6 +894,13 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
   double recip_sum;
   if (g_is_haploid) { // includes g_is_x
     min_ploidy = 1;
+  }
+  uii = (g_precomp_width * 2 + CACHELINE_INT32 - 1) / CACHELINE_INT32;
+  tpui = &(g_thread_precomp_ui[tidx * uii]);
+  for (pidx = pidx_start + 1; pidx < pidx_end; pidx++) {
+    if (g_maxt_extreme_stat[pidx] < min_chisq) {
+      min_chisq = g_maxt_extreme_stat[pidx];
+    }
   }
   marker_idx = g_maxt_block_base + g_block_start;
   for (marker_bidx = g_block_start; marker_bidx < marker_bceil; marker_bidx++) {
@@ -908,9 +912,19 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
       row1x_sum = min_ploidy * g_case_ct;
       tot_obs = min_ploidy * (g_pheno_nm_ct - g_missing_cts[marker_idx]);
     }
+    missing_start = g_precomp_start[marker_idx];
     chisq_high = g_orig_chisq[marker_idx] + EPSILON;
     chisq_low = g_orig_chisq[marker_idx] - EPSILON;
     success_2incr = 0;
+    gpui = &(g_precomp_ui[4 * g_precomp_width * marker_bidx]);
+    gpd = &(g_precomp_d[2 * g_precomp_width * marker_bidx]);
+    case_missing_ct = missing_start;
+    for (uii = 0; uii < g_precomp_width; uii++) {
+      chi22_precomp_val_bounds(min_chisq, row1x_sum - case_missing_ct, col1_sum, tot_obs, uibuf, NULL);
+      tpui[uii * 2] = uibuf[2];
+      tpui[uii * 2 + 1] = uibuf[3];
+      case_missing_ct += min_ploidy;
+    }
     for (pidx = pidx_start; pidx < pidx_end; pidx++) {
       if (g_is_x) {
         vec_set_freq_x(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), g_indiv_nonmale_include2, g_indiv_male_include2, &case_set_ct, &case_missing_ct);
@@ -919,16 +933,44 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
       } else {
 	vec_set_freq(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), &case_set_ct, &case_missing_ct);
       }
-      chi22_get_coeffs(row1x_sum - case_missing_ct * min_ploidy, col1_sum, tot_obs, &expm11, &recip_sum);
-      chisq = case_set_ct - expm11;
-      chisq = chisq * chisq * recip_sum;
-      if (chisq > chisq_high) {
-	success_2incr += 2;
-      } else if (chisq > chisq_low) {
-	success_2incr++;
-      }
-      if (g_maxt_extreme_stat[pidx] < chisq) {
-	g_maxt_extreme_stat[pidx] = chisq;
+      // deliberate underflow
+      uii = (uint32_t)(case_missing_ct - missing_start);
+      if (uii < g_precomp_width) {
+	if (case_set_ct < gpui[4 * uii]) {
+	  if (case_set_ct < gpui[4 * uii + 2]) {
+	    success_2incr += 2;
+	  } else {
+	    success_2incr++;
+	  }
+	} else {
+	  if (case_set_ct >= gpui[4 * uii + 1]) {
+	    if (case_set_ct >= gpui[4 * uii + 3]) {
+	      success_2incr += 2;
+	    } else {
+	      success_2incr++;
+	    }
+	  }
+	}
+	ujj = (uint32_t)(case_set_ct - tpui[2 * uii]); // deliberate underflow
+	if (ujj >= tpui[2 * uii + 1]) {
+	  chisq = ((double)((intptr_t)case_set_ct)) - gpd[2 * uii];
+	  chisq = chisq * chisq * gpd[2 * uii + 1];
+	  if (g_maxt_extreme_stat[pidx] < chisq) {
+	    g_maxt_extreme_stat[pidx] = chisq;
+	  }
+	}
+      } else {
+        chi22_get_coeffs(row1x_sum - case_missing_ct * min_ploidy, col1_sum, tot_obs, &expm11, &recip_sum);
+	chisq = ((double)((intptr_t)case_set_ct)) - expm11;
+	chisq = chisq * chisq * recip_sum;
+	if (chisq > chisq_high) {
+	  success_2incr += 2;
+	} else if (chisq > chisq_low) {
+	  success_2incr++;
+	}
+	if (g_maxt_extreme_stat[pidx] < chisq) {
+	  g_maxt_extreme_stat[pidx] = chisq;
+	}
       }
     }
     results[marker_bidx] = success_2incr;
@@ -998,6 +1040,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uint32_t perms_total = 0;
   int32_t x_code = -1;
   int32_t y_code = -1;
+  uint32_t male_ct = 0;
   uint32_t nonmale_ct = 0;
   uint32_t ctrl_male_ct = 0;
   uint32_t case_male_ct = 0;
@@ -1109,7 +1152,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   g_perms_done = 0;
   g_aperm_alpha = aperm_alpha;
   g_reverse = marker_reverse;
-  g_male_ct = 0;
 
   if (assoc_p2) {
     logprint("Error: --assoc p2 not yet supported.\n");
@@ -1268,12 +1310,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
       if (is_set(sex_nm, indiv_uidx) && is_set(sex_male, indiv_uidx)) {
 	set_bit_noct(g_indiv_male_include2, indiv_idx * 2);
-	g_male_ct++;
+	male_ct++;
       }
       indiv_uidx++;
     }
     vec_init_invert(pheno_nm_ct, g_indiv_nonmale_include2, g_indiv_male_include2);
-    nonmale_ct = pheno_nm_ct - g_male_ct;
+    nonmale_ct = pheno_nm_ct - male_ct;
   }
   if (model_perms) {
     g_sfmtp_arr = (sfmt_t**)wkspace_alloc(g_thread_ct * sizeof(intptr_t));
@@ -1306,9 +1348,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     if (model_maxt) {
       if (g_model_fisher) {
 	if (model_assoc) {
-	  uii = (g_precomp_width * 4 + CACHELINE_INT32 - 1) / CACHELINE_INT32;
+	  uii = (g_precomp_width * 2 + CACHELINE_INT32 - 1) / CACHELINE_INT32;
 	  if (wkspace_alloc_ui_checked(&g_precomp_ui, g_precomp_width * 4 * MODEL_BLOCKSIZE * sizeof(uint32_t)) ||
-	      wkspace_alloc_d_checked(&g_precomp_d, g_precomp_width * 3 * MODEL_BLOCKSIZE * sizeof(double)) ||
               wkspace_alloc_ui_checked(&g_thread_precomp_ui, uii * CACHELINE * g_thread_ct)) {
 	    goto model_assoc_ret_NOMEM;
 	  }
@@ -1320,7 +1361,14 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  // TODO
 	}
       } else {
-	if (!model_assoc) {
+	if (model_assoc) {
+	  uii = (g_precomp_width * 2 + CACHELINE_INT32 - 1) / CACHELINE_INT32;
+	  if (wkspace_alloc_ui_checked(&g_precomp_ui, g_precomp_width * 4 * MODEL_BLOCKSIZE * sizeof(uint32_t)) ||
+              wkspace_alloc_d_checked(&g_precomp_d, g_precomp_width * 2 * MODEL_BLOCKSIZE * sizeof(double)) ||
+              wkspace_alloc_ui_checked(&g_thread_precomp_ui, uii * CACHELINE * g_thread_ct)) {
+	    goto model_assoc_ret_NOMEM;
+	  }
+	} else {
 	  // TODO
 	}
       }
@@ -1406,7 +1454,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     vec_init_andnot(pheno_nm_ctl2, indiv_male_ctrl_include2, g_indiv_male_include2, indiv_male_case_include2);
     vec_init_andnot(pheno_nm_ctl2, indiv_nonmale_case_include2, indiv_case_include2, indiv_male_case_include2);
     vec_init_andnot(pheno_nm_ctl2, indiv_nonmale_ctrl_include2, indiv_ctrl_include2, indiv_male_ctrl_include2);
-    ctrl_male_ct = g_male_ct - case_male_ct;
+    ctrl_male_ct = male_ct - case_male_ct;
     case_nonmale_ct = g_case_ct - case_male_ct;
     ctrl_nonmale_ct = ctrl_ct - ctrl_male_ct;
   }
@@ -1421,777 +1469,761 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     }
   }
   marker_unstopped_ct = marker_ct;
-  while (1) {
-    if (pheno_c && model_perms) {
-      if (model_adapt) {
-	if (perm_pass_idx) {
-	  while (g_first_adapt_check <= g_perms_done) {
-	    // APERM_MAX prevents infinite loop here
-	    g_first_adapt_check += (int32_t)(aperm_init_interval + ((int32_t)g_first_adapt_check) * aperm_interval_slope);
-	  }
-	} else {
-	  if (aperm_min < aperm_init_interval) {
-	    g_first_adapt_check = (int32_t)aperm_init_interval;
-	  } else {
-	    g_first_adapt_check = aperm_min;
-	  }
-	  g_adaptive_intercept = aperm_init_interval;
-	  g_adaptive_slope = aperm_interval_slope;
+ model_assoc_more_perms:
+  if (pheno_c && model_perms) {
+    if (model_adapt) {
+      if (perm_pass_idx) {
+	while (g_first_adapt_check <= g_perms_done) {
+	  // APERM_MAX prevents infinite loop here
+	  g_first_adapt_check += (int32_t)(aperm_init_interval + ((int32_t)g_first_adapt_check) * aperm_interval_slope);
 	}
-      }
-      g_perm_vec_ct = wkspace_left / (pheno_nm_ctl2 * sizeof(intptr_t));
-      if (g_perm_vec_ct > perms_total - g_perms_done) {
-	g_perm_vec_ct = perms_total - g_perms_done;
-      }
-      g_perms_done += g_perm_vec_ct;
-      g_perm_vecs = (uintptr_t*)wkspace_alloc(g_perm_vec_ct * pheno_nm_ctl2 * sizeof(intptr_t));
-      if (g_perm_vec_ct > g_thread_ct) {
-	g_assoc_thread_ct = g_thread_ct;
       } else {
-	g_assoc_thread_ct = g_perm_vec_ct;
-      }
-      if (spawn_threads(threads, &model_assoc_gen_perms_thread, g_assoc_thread_ct)) {
-	logprint(errstr_thread_create);
-	goto model_assoc_ret_THREAD_CREATE_FAIL;
-      }
-      ulii = 0;
-      model_assoc_gen_perms_thread((void*)ulii);
-      join_threads(threads, g_assoc_thread_ct);
-    }
-    chrom_fo_idx = 0xffffffffU;
-    marker_uidx = next_non_set_unsafe(marker_exclude, 0);
-    if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
-      goto model_assoc_ret_READ_FAIL;
-    }
-    marker_idx = 0;
-    marker_idx2 = 0;
-    chrom_end = 0;
-    loop_end = marker_idx / 100LLU;
-    do {
-      if (marker_uidx >= chrom_end) {
-	g_block_start = 0;
-	if (model_assoc) {
-	  // exploit overflow
-	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_haploid);
-	  uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	  is_y = (uii == (uint32_t)y_code);
-	  if (g_is_haploid && (!g_is_x)) {
-	    if (is_y) {
-	      cur_ctrl_include2 = indiv_male_ctrl_include2;
-	      cur_case_include2 = indiv_male_case_include2;
-	      load_indiv_ct = g_male_ct;
-	      load_case_ct = case_male_ct;
-	    } else {
-	      cur_ctrl_include2 = indiv_ctrl_include2;
-	      cur_case_include2 = indiv_case_include2;
-	      load_indiv_ct = pheno_nm_ct;
-	      load_case_ct = g_case_ct;
-	    }
-	    load_ctrl_ct = load_indiv_ct - load_case_ct;
-	  }
+	if (aperm_min < aperm_init_interval) {
+	  g_first_adapt_check = (int32_t)aperm_init_interval;
 	} else {
-	  while (1) {
-	    do {
-	      chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
-	    } while (marker_uidx >= chrom_end);
-	    uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	    g_is_x = (uii == (uint32_t)x_code);
-	    if ((!((species_haploid_mask[chrom_info_ptr->species] >> uii) & 1LLU)) || g_is_x) {
-	      break;
-	    }
-	    marker_uidx = next_non_set_unsafe(marker_exclude, chrom_end);
-	  }
-	  if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
-	    goto model_assoc_ret_READ_FAIL;
-	  }
-	  if (!g_is_x) {
+	  g_first_adapt_check = aperm_min;
+	}
+	g_adaptive_intercept = aperm_init_interval;
+	g_adaptive_slope = aperm_interval_slope;
+      }
+    }
+    g_perm_vec_ct = wkspace_left / (pheno_nm_ctl2 * sizeof(intptr_t));
+    if (g_perm_vec_ct > perms_total - g_perms_done) {
+      g_perm_vec_ct = perms_total - g_perms_done;
+    }
+    g_perms_done += g_perm_vec_ct;
+    g_perm_vecs = (uintptr_t*)wkspace_alloc(g_perm_vec_ct * pheno_nm_ctl2 * sizeof(intptr_t));
+    if (g_perm_vec_ct > g_thread_ct) {
+      g_assoc_thread_ct = g_thread_ct;
+    } else {
+      g_assoc_thread_ct = g_perm_vec_ct;
+    }
+    if (spawn_threads(threads, &model_assoc_gen_perms_thread, g_assoc_thread_ct)) {
+      logprint(errstr_thread_create);
+      goto model_assoc_ret_THREAD_CREATE_FAIL;
+    }
+    ulii = 0;
+    model_assoc_gen_perms_thread((void*)ulii);
+    join_threads(threads, g_assoc_thread_ct);
+  }
+  chrom_fo_idx = 0xffffffffU;
+  marker_uidx = next_non_set_unsafe(marker_exclude, 0);
+  if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
+    goto model_assoc_ret_READ_FAIL;
+  }
+  marker_idx = 0;
+  marker_idx2 = 0;
+  chrom_end = 0;
+  loop_end = marker_idx / 100LLU;
+  do {
+    if (marker_uidx >= chrom_end) {
+      g_block_start = 0;
+      if (model_assoc) {
+	// exploit overflow
+	chrom_fo_idx++;
+	refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_haploid);
+	uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+	is_y = (uii == (uint32_t)y_code);
+	if (g_is_haploid && (!g_is_x)) {
+	  if (is_y) {
+	    cur_ctrl_include2 = indiv_male_ctrl_include2;
+	    cur_case_include2 = indiv_male_case_include2;
+	    load_indiv_ct = male_ct;
+	    load_case_ct = case_male_ct;
+	  } else {
 	    cur_ctrl_include2 = indiv_ctrl_include2;
 	    cur_case_include2 = indiv_case_include2;
 	    load_indiv_ct = pheno_nm_ct;
 	    load_case_ct = g_case_ct;
-	  } else {
-	    cur_ctrl_include2 = indiv_nonmale_ctrl_include2;
-	    cur_case_include2 = indiv_nonmale_case_include2;
-	    load_indiv_ct = nonmale_ct;
-	    load_case_ct = case_nonmale_ct;
 	  }
 	  load_ctrl_ct = load_indiv_ct - load_case_ct;
 	}
-	intprint2(&(wprefix[2]), uii);
-      } else if (model_maxt) {
-	g_block_start = 0;
-	// todo: copy LD table, etc.
-	// could conditionally do this for adaptive permutation, but I doubt
-	// it's worth the trouble
       } else {
-	g_block_start = 0;
-      }
-      block_size = g_block_start;
-      block_end = marker_unstopped_ct + g_block_start - marker_idx;
-      if (block_end > MODEL_BLOCKSIZE) {
-	block_end = MODEL_BLOCKSIZE;
-      }
-      do {
-	if (model_adapt && is_set(g_perm_adapt_stop, marker_idx2)) {
+	while (1) {
 	  do {
-	    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
-	    marker_idx2++;
-	  } while ((marker_uidx < chrom_end) && is_set(g_perm_adapt_stop, marker_idx2));
-	  if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
-	    goto model_assoc_ret_READ_FAIL;
-	  }
-	  if (marker_uidx >= chrom_end) {
+	    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
+	  } while (marker_uidx >= chrom_end);
+	  uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+	  g_is_x = (uii == (uint32_t)x_code);
+	  if ((!((species_haploid_mask[chrom_info_ptr->species] >> uii) & 1LLU)) || g_is_x) {
 	    break;
 	  }
+	  marker_uidx = next_non_set_unsafe(marker_exclude, chrom_end);
 	}
-	if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
 	  goto model_assoc_ret_READ_FAIL;
 	}
-	indiv_uidx = 0;
-	ukk = pheno_nm_ct / BITCT2;
-	loadbuf_ptr = &(g_loadbuf[block_size * pheno_nm_ctl2]);
-	for (uii = 0; uii < ukk; uii++) {
-	  ulii = 0;
-	  for (ujj = 0; ujj < BITCT; ujj += 2) {
-	    indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
-	    ulii |= ((uintptr_t)(((loadbuf_raw[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3))) << ujj;
-	    indiv_uidx++;
-	  }
-	  *loadbuf_ptr++ = ulii;
+	if (!g_is_x) {
+	  cur_ctrl_include2 = indiv_ctrl_include2;
+	  cur_case_include2 = indiv_case_include2;
+	  load_indiv_ct = pheno_nm_ct;
+	  load_case_ct = g_case_ct;
+	} else {
+	  cur_ctrl_include2 = indiv_nonmale_ctrl_include2;
+	  cur_case_include2 = indiv_nonmale_case_include2;
+	  load_indiv_ct = nonmale_ct;
+	  load_case_ct = case_nonmale_ct;
 	}
-	ujj = 2 * (pheno_nm_ct & (BITCT2 - 1));
-	if (ujj) {
-	  ulii = 0;
-	  for (uii = 0; uii < ujj; uii += 2) {
-	    indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
-	    ulii |= ((uintptr_t)(((loadbuf_raw[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3))) << uii;
-	    indiv_uidx++;
-	  }
-	  *loadbuf_ptr = ulii;
+	load_ctrl_ct = load_indiv_ct - load_case_ct;
+      }
+      intprint2(&(wprefix[2]), uii);
+    } else if (model_maxt) {
+      g_block_start = 0;
+      // todo: copy LD table, etc.
+      // could conditionally do this for adaptive permutation, but I doubt
+      // it's worth the trouble
+    } else {
+      g_block_start = 0;
+    }
+    block_size = g_block_start;
+    block_end = marker_unstopped_ct + g_block_start - marker_idx;
+    if (block_end > MODEL_BLOCKSIZE) {
+      block_end = MODEL_BLOCKSIZE;
+    }
+    do {
+      if (model_adapt && is_set(g_perm_adapt_stop, marker_idx2)) {
+	do {
+	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+	  marker_idx2++;
+	} while ((marker_uidx < chrom_end) && is_set(g_perm_adapt_stop, marker_idx2));
+	if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
+	  goto model_assoc_ret_READ_FAIL;
 	}
-	if (model_adapt) {
-	  g_adapt_m_table[block_size] = marker_idx2++;
-	}
-	mu_table[block_size++] = marker_uidx;
-	if (marker_idx + block_size == marker_unstopped_ct) {
+	if (marker_uidx >= chrom_end) {
 	  break;
 	}
-	if (is_set(marker_exclude, ++marker_uidx)) {
-	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
-	  if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
-	    goto model_assoc_ret_READ_FAIL;
-	  }
-	}
-      } while ((block_size < block_end) && (marker_uidx < chrom_end));
-      if (block_size == g_block_start) {
-	continue;
       }
-      if (!perm_pass_idx) {
-	// basic --assoc/--model
-	o1mpptr = &(g_orig_1mpval[marker_idx + g_block_start]);
-	missp = &(g_missing_cts[marker_idx + g_block_start]);
-	setp = &(g_set_cts[marker_idx + g_block_start]);
-	if (pheno_c) {
-	  if (model_assoc) {
-	    ooptr = &(orig_odds[marker_idx + g_block_start]);
-	    for (marker_bidx = g_block_start; marker_bidx < block_size; marker_bidx++) {
-	      marker_uidx2 = mu_table[marker_bidx];
-	      g_marker_uidxs[marker_idx + marker_bidx] = marker_uidx2;
-	      is_reverse = is_set(marker_reverse, marker_uidx2);
-	      if (g_is_x) {
-		if (is_reverse) {
-		  single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_nonmale_ctrl_include2, indiv_nonmale_case_include2, &ujj, &uii, &umm, &ukk);
-		  *missp = 2 * (uii + ukk);
-		  *setp = ujj + umm;
-		  uii = 2 * (ctrl_nonmale_ct - uii) - ujj;
-		  ukk = 2 * (case_nonmale_ct - ukk) - umm;
-		  haploid_single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_male_ctrl_include2, indiv_male_case_include2, &uoo, &unn, &uqq, &upp);
-		  *missp += unn + upp + g_male_ct;
-		  *setp += uoo + uqq;
-		  unn = ctrl_male_ct - unn - uoo;
-		  upp = case_male_ct - upp - uqq;
-		} else {
-		  single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_nonmale_ctrl_include2, indiv_nonmale_case_include2, &uii, &ujj, &ukk, &umm);
-		  *missp = 2 * (ujj + umm);
-		  *setp = uii + ukk;
-		  ujj = 2 * (ctrl_nonmale_ct - ujj) - uii;
-		  umm = 2 * (case_nonmale_ct - umm) - ukk;
-		  haploid_single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_male_ctrl_include2, indiv_male_case_include2, &unn, &uoo, &upp, &uqq);
-		  *missp += uoo + uqq + g_male_ct;
-		  *setp += unn + upp;
-		  uoo = ctrl_male_ct - uoo - unn;
-		  uqq = case_male_ct - uqq - upp;
-		}
-		uii += unn;
-		ujj += uoo;
-		ukk += upp;
-		umm += uqq;
-	      } else if (g_is_haploid) {
-		if (is_reverse) {
-		  haploid_single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &ujj, &uii, &umm, &ukk);
-		  *missp = uii + ukk;
-		  *setp = ujj + umm;
-		  uii = load_ctrl_ct - uii - ujj;
-		  ukk = load_case_ct - ukk - umm;
-		} else {
-		  haploid_single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm);
-		  *missp = ujj + umm;
-		  *setp = uii + ukk;
-		  ujj = load_ctrl_ct - ujj - uii;
-		  umm = load_case_ct - umm - ukk;
-		}
-	      } else {
-		if (is_reverse) {
-		  single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &ujj, &uii, &umm, &ukk);
-		  *missp = uii + ukk;
-		  *setp = ujj + umm;
-		  uii = 2 * (ctrl_ct - uii) - ujj;
-		  ukk = 2 * (g_case_ct - ukk) - umm;
-		} else {
-		  single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &uii, &ujj, &ukk, &umm);
-		  *missp = ujj + umm;
-		  *setp = uii + ukk;
-		  ujj = 2 * (ctrl_ct - ujj) - uii;
-		  umm = 2 * (g_case_ct - umm) - ukk;
-		}
-	      }
-	      da1 = umm;
-	      da2 = ukk;
-	      du1 = ujj;
-	      du2 = uii;
-	      if (g_model_fisher) {
-		pval = fisher22(uii, ujj, ukk, umm);
-		*o1mpptr = 1 - pval;
-	      } else if (!assoc_p2) {
-		if ((!umm) && (!ujj)) {
-		  *o1mpptr = -9;
-		  pval = -1;
-		  dxx = 0;
-		} else {
-		  chi22_get_coeffs(da1 + da2, da2 + du2, da1 + da2 + du1 + du2, &dxx, &dyy);
-		  dxx = da2 - dxx;
-		  dxx = dxx * dxx * dyy;
-		  pval = chiprob_p(dxx, 1);
-		  *o1mpptr = 1 - pval;
-		}
-		if (model_perms) {
-		  g_orig_chisq[marker_idx + marker_bidx] = dxx;
-		}
-	      } else {
-		// todo
-	      }
-	      *ooptr = (da1 * du2) / (du1 * da2);
-	      if ((pval <= pfilter) || (pfilter == 1.0)) {
-		a1ptr = &(marker_alleles[(2 * marker_uidx2 + is_reverse) * max_marker_allele_len]);
-		a2ptr = &(marker_alleles[(2 * marker_uidx2 + 1 - is_reverse) * max_marker_allele_len]);
-		memcpy(tbuf, wprefix, 5);
-		wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), &(tbuf[5]));
-		*wptr++ = ' ';
-		wptr = uint32_writew10(wptr, marker_pos[marker_uidx2]);
-		if (max_marker_allele_len == 1) {
-		  memset(wptr, 32, 4);
-		  wptr[4] = *a1ptr;
-		  wptr = &(wptr[5]);
-		} else {
-		  *wptr = ' ';
-		  wptr = fw_strcpy(4, a1ptr, &(wptr[1]));
-		}
-		*wptr++ = ' ';
-		if (umm + ukk) {
-		  if (assoc_counts) {
-		    wptr = uint32_writew8(wptr, umm);
-		  } else {
-		    wptr = double_g_writewx4(wptr, da1 / (da1 + da2), 8);
-		  }
-		  *wptr++ = ' ';
-		} else {
-		  wptr = memcpya(wptr, "      NA ", 9);
-		}
-		if (ujj + uii) {
-		  if (assoc_counts) {
-		    wptr = uint32_writew8(wptr, ujj);
-		  } else {
-		    wptr = double_g_writewx4(wptr, du1 / (du1 + du2), 8);
-		  }
-		} else {
-		  wptr = memcpya(wptr, "      NA", 8);
-		}
-		if (max_marker_allele_len == 1) {
-		  memset(wptr, 32, 4);
-		  wptr[4] = *a2ptr;
-		  wptr = &(wptr[5]);
-		} else {
-		  *wptr = ' ';
-		  wptr = fw_strcpy(4, a2ptr, &(wptr[1]));
-		}
-		*wptr++ = ' ';
-		if (g_model_fisher) {
-		  wptr = double_g_writewx4(wptr, pval, 12);
-		} else {
-		  if (pval > -1) {
-		    wptr = double_g_writewx4(double_g_writewx4x(wptr, dvv, 12, ' '), pval, 12);
-		  } else {
-		    wptr = memcpya(wptr, "          NA           NA", 25);
-		  }
-		}
-		*wptr++ = ' ';
-		if (du1 * da2 == 0.0) {
-		  wptr = memcpya(wptr, "          NA", 12);
-		  if (display_ci) {
-		    wptr = memcpya(wptr, "           NA           NA           NA", 39);
-		  }
-		} else {
-		  wptr = double_g_writewx4(wptr, *ooptr, 12);
-		  if (display_ci) {
-		    dxx = log(*ooptr);
-		    dyy = sqrt(1 / da1 + 1 / da2 + 1 / du1 + 1 / du2);
-		    dzz = ci_zt * dyy;
-		    dww = exp(dxx - dzz);
-		    dvv = exp(dxx + dzz);
-		    *wptr++ = ' ';
-		    wptr = double_g_writewx4(double_g_writewx4x(double_g_writewx4x(wptr, dyy, 12, ' '), dww, 12, ' '), dvv, 12);
-		  }
-		}
-		memcpy(wptr, " \n", 2);
-		if (fwrite_checked(tbuf, 2 + (wptr - tbuf), outfile)) {
-		  goto model_assoc_ret_WRITE_FAIL;
-		}
-	      }
-	      missp++;
-	      setp++;
-	      o1mpptr++;
-	      ooptr++;
-	    }
-	  } else {
-	    hetp = &(g_het_cts[marker_idx + g_block_start]);
-	    for (marker_bidx = g_block_start; marker_bidx < block_size; marker_bidx++) {
-	      marker_uidx2 = mu_table[marker_bidx];
-	      g_marker_uidxs[marker_idx + marker_bidx] = marker_uidx2;
-	      is_reverse = is_set(marker_reverse, marker_uidx2);
+      if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	goto model_assoc_ret_READ_FAIL;
+      }
+      indiv_uidx = 0;
+      ukk = pheno_nm_ct / BITCT2;
+      loadbuf_ptr = &(g_loadbuf[block_size * pheno_nm_ctl2]);
+      for (uii = 0; uii < ukk; uii++) {
+	ulii = 0;
+	for (ujj = 0; ujj < BITCT; ujj += 2) {
+	  indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
+	  ulii |= ((uintptr_t)(((loadbuf_raw[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3))) << ujj;
+	  indiv_uidx++;
+	}
+	*loadbuf_ptr++ = ulii;
+      }
+      ujj = 2 * (pheno_nm_ct & (BITCT2 - 1));
+      if (ujj) {
+	ulii = 0;
+	for (uii = 0; uii < ujj; uii += 2) {
+	  indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
+	  ulii |= ((uintptr_t)(((loadbuf_raw[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3))) << uii;
+	  indiv_uidx++;
+	}
+	*loadbuf_ptr = ulii;
+      }
+      if (model_adapt) {
+	g_adapt_m_table[block_size] = marker_idx2++;
+      }
+      mu_table[block_size++] = marker_uidx;
+      if (marker_idx + block_size == marker_unstopped_ct) {
+	break;
+      }
+      if (is_set(marker_exclude, ++marker_uidx)) {
+	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+	if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
+	  goto model_assoc_ret_READ_FAIL;
+	}
+      }
+    } while ((block_size < block_end) && (marker_uidx < chrom_end));
+    if (block_size == g_block_start) {
+      continue;
+    }
+    if (!perm_pass_idx) {
+      // basic --assoc/--model
+      o1mpptr = &(g_orig_1mpval[marker_idx + g_block_start]);
+      missp = &(g_missing_cts[marker_idx + g_block_start]);
+      setp = &(g_set_cts[marker_idx + g_block_start]);
+      if (pheno_c) {
+	if (model_assoc) {
+	  ooptr = &(orig_odds[marker_idx + g_block_start]);
+	  for (marker_bidx = g_block_start; marker_bidx < block_size; marker_bidx++) {
+	    marker_uidx2 = mu_table[marker_bidx];
+	    g_marker_uidxs[marker_idx + marker_bidx] = marker_uidx2;
+	    is_reverse = is_set(marker_reverse, marker_uidx2);
+	    if (g_is_x) {
 	      if (is_reverse) {
-		single_marker_cc_3freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &ukk, &ujj, &uii, &uoo, &unn, &umm);
-		*missp = uii + umm;
-		*setp = ukk + uoo;
-		uii = load_ctrl_ct - uii - ujj - ukk;
-		umm = load_case_ct - umm - unn - uoo;
+		single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_nonmale_ctrl_include2, indiv_nonmale_case_include2, &ujj, &uii, &umm, &ukk);
+		*missp = 2 * (uii + ukk);
+		*setp = ujj + umm;
+		uii = 2 * (ctrl_nonmale_ct - uii) - ujj;
+		ukk = 2 * (case_nonmale_ct - ukk) - umm;
+		haploid_single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_male_ctrl_include2, indiv_male_case_include2, &uoo, &unn, &uqq, &upp);
+		*missp += unn + upp + male_ct;
+		*setp += uoo + uqq;
+		unn = ctrl_male_ct - unn - uoo;
+		upp = case_male_ct - upp - uqq;
 	      } else {
-		single_marker_cc_3freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm, &unn, &uoo);
-		*missp = ukk + uoo;
-		*setp = uii + umm;
-		ukk = load_ctrl_ct - uii - ujj - ukk;
-		uoo = load_case_ct - umm - unn - uoo;
+		single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_nonmale_ctrl_include2, indiv_nonmale_case_include2, &uii, &ujj, &ukk, &umm);
+		*missp = 2 * (ujj + umm);
+		*setp = uii + ukk;
+		ujj = 2 * (ctrl_nonmale_ct - ujj) - uii;
+		umm = 2 * (case_nonmale_ct - umm) - ukk;
+		haploid_single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_male_ctrl_include2, indiv_male_case_include2, &unn, &uoo, &upp, &uqq);
+		*missp += uoo + uqq + male_ct;
+		*setp += unn + upp;
+		uoo = ctrl_male_ct - uoo - unn;
+		uqq = case_male_ct - uqq - upp;
 	      }
-	      *hetp = ujj + unn;
-	      da1 = uoo;
-	      da12 = unn;
-	      da2 = umm;
-	      du1 = ukk;
-	      du12 = ujj;
-	      du2 = uii;
-	      is_invalid = (uoo < model_cell_ct) || (unn < model_cell_ct) || (umm < model_cell_ct) || (ukk < model_cell_ct) || (ujj < model_cell_ct) || (uii < model_cell_ct);
-
-	      dxx = da1 + da12 + da2; // obs_A
-	      dyy = du1 + du12 + du2; // obs_U
-	      obs_t = dxx + dyy;
-	      dzz = 1.0 / obs_t;
-	      obs_11 = da1 + du1;
-	      obs_12 = da12 + du12;
-	      obs_22 = da2 + du2;
-	      obs_1 = 2 * obs_11 + obs_12;
-	      obs_2 = 2 * obs_22 + obs_12;
-	      dvv = dzz * dxx;
-	      exp_a11 = dvv * obs_11;
-	      exp_a12 = dvv * obs_12;
-	      exp_a22 = dvv * obs_22;
-	      dvv = dzz * dyy;
-	      exp_u11 = dvv * obs_11;
-	      exp_u12 = dvv * obs_12;
-	      exp_u22 = dvv * obs_22;
-
+	      uii += unn;
+	      ujj += uoo;
+	      ukk += upp;
+	      umm += uqq;
+	    } else if (g_is_haploid) {
+	      if (is_reverse) {
+		haploid_single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &ujj, &uii, &umm, &ukk);
+		*missp = uii + ukk;
+		*setp = ujj + umm;
+		uii = load_ctrl_ct - uii - ujj;
+		ukk = load_case_ct - ukk - umm;
+	      } else {
+		haploid_single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm);
+		*missp = ujj + umm;
+		*setp = uii + ukk;
+		ujj = load_ctrl_ct - ujj - uii;
+		umm = load_case_ct - umm - ukk;
+	      }
+	    } else {
+	      if (is_reverse) {
+		single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &ujj, &uii, &umm, &ukk);
+		*missp = uii + ukk;
+		*setp = ujj + umm;
+		uii = 2 * (ctrl_ct - uii) - ujj;
+		ukk = 2 * (g_case_ct - ukk) - umm;
+	      } else {
+		single_marker_cc_freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &uii, &ujj, &ukk, &umm);
+		*missp = ujj + umm;
+		*setp = uii + ukk;
+		ujj = 2 * (ctrl_ct - ujj) - uii;
+		umm = 2 * (g_case_ct - umm) - ukk;
+	      }
+	    }
+	    da1 = umm;
+	    da2 = ukk;
+	    du1 = ujj;
+	    du2 = uii;
+	    if (g_model_fisher) {
+	      pval = fisher22(uii, ujj, ukk, umm);
+	      *o1mpptr = 1 - pval;
+	    } else if (!assoc_p2) {
+	      if ((!umm) && (!ujj)) {
+		*o1mpptr = -9;
+		pval = -1;
+		dxx = 0;
+	      } else {
+		chi22_get_coeffs(ukk + umm, uii + ukk, uii + ujj + ukk + umm, &dxx, &dyy);
+		dxx = da2 - dxx;
+		dxx = dxx * dxx * dyy;
+		pval = chiprob_p(dxx, 1);
+		*o1mpptr = 1 - pval;
+	      }
+	      if (model_perms) {
+		g_orig_chisq[marker_idx + marker_bidx] = dxx;
+	      }
+	    } else {
+	      // todo
+	    }
+	    *ooptr = (da1 * du2) / (du1 * da2);
+	    if ((pval <= pfilter) || (pfilter == 1.0)) {
 	      a1ptr = &(marker_alleles[(2 * marker_uidx2 + is_reverse) * max_marker_allele_len]);
 	      a2ptr = &(marker_alleles[(2 * marker_uidx2 + 1 - is_reverse) * max_marker_allele_len]);
 	      memcpy(tbuf, wprefix, 5);
 	      wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), &(tbuf[5]));
+	      *wptr++ = ' ';
+	      wptr = uint32_writew10(wptr, marker_pos[marker_uidx2]);
 	      if (max_marker_allele_len == 1) {
 		memset(wptr, 32, 4);
 		wptr[4] = *a1ptr;
-		memset(&(wptr[5]), 32, 4);
-		wptr[9] = *a2ptr;
-		wptr = &(wptr[10]);
+		wptr = &(wptr[5]);
 	      } else {
-		*wptr++ = ' ';
-		wptr = fw_strcpy(4, a1ptr, wptr);
-		*wptr++ = ' ';
-		wptr = fw_strcpy(4, a2ptr, wptr);
+		*wptr = ' ';
+		wptr = fw_strcpy(4, a1ptr, &(wptr[1]));
 	      }
-	      memset(wptr, 32, 2);
-	      wptr = &(wptr[2]);
-	      wptr_mid = wptr;
-	      if (!model_trendonly) {
-		memcpy(wptr, "   GENO ", 8);
-		wptr2 = uint32_write(uint32_writex(uint32_writex(wbuf, uoo, '/'), unn, '/'), umm);
-		wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr[8]));
-		*wptr++ = ' ';
-		wptr2 = uint32_write(uint32_writex(uint32_writex(wbuf, ukk, '/'), ujj, '/'), uii);
-		wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
-		*wptr++ = ' ';
-		if (is_invalid) {
-		  gen_p = -9;
-		} else {
-		  if (g_model_fisher) {
-		    gen_p = fisher23(uii, ujj, ukk, umm, unn, uoo);
-		  } else {
-		    dvv = ((da1 - exp_a11) * (da1 - exp_a11)) / exp_a11 +
-		      ((da12 - exp_a12) * (da12 - exp_a12)) / exp_a12 +
-		      ((da2 - exp_a22) * (da2 - exp_a22)) / exp_a22 +
-		      ((du1 - exp_u11) * (du1 - exp_u11)) / exp_u11 +
-		      ((du12 - exp_u12) * (du12 - exp_u12)) / exp_u12 +
-		      ((du2 - exp_u22) * (du2 - exp_u22)) / exp_u22;
-		    gen_p = chiprob_p(dvv, 2);
-		    if (model_perms && (model_modifier & MODEL_PGEN)) {
-		      g_orig_chisq[marker_idx + marker_bidx] = dvv;
-		    }
-		  }
-		}
-		if (gen_p < -1) {
-		  wptr = model_assoc_tna(g_model_fisher, wptr);
-		} else {
-		  if (!g_model_fisher) {
-		    wptr = memcpya(double_g_writewx4(wptr, dvv, 12), "    2 ", 6);
-		  }
-		  wptr = double_g_writewx4x(wptr, gen_p, 12, '\n');
-		}
-		if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-		  goto model_assoc_ret_WRITE_FAIL;
-		}
-	      }
-	      memcpy(wptr_mid, "  TREND ", 8);
-	      wptr2 = uint32_write(uint32_writex(wbuf, uoo * 2 + unn, '/'), umm * 2 + unn);
-	      wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr_mid[8]));
 	      *wptr++ = ' ';
-	      wptr2 = uint32_write(uint32_writex(wbuf, ukk * 2 + ujj, '/'), uii * 2 + ujj);
+	      if (umm + ukk) {
+		if (assoc_counts) {
+		  wptr = uint32_writew8(wptr, umm);
+		} else {
+		  wptr = double_g_writewx4(wptr, da1 / (da1 + da2), 8);
+		}
+		*wptr++ = ' ';
+	      } else {
+		wptr = memcpya(wptr, "      NA ", 9);
+	      }
+	      if (ujj + uii) {
+		if (assoc_counts) {
+		  wptr = uint32_writew8(wptr, ujj);
+		} else {
+		  wptr = double_g_writewx4(wptr, du1 / (du1 + du2), 8);
+		}
+	      } else {
+		wptr = memcpya(wptr, "      NA", 8);
+	      }
+	      if (max_marker_allele_len == 1) {
+		memset(wptr, 32, 4);
+		wptr[4] = *a2ptr;
+		wptr = &(wptr[5]);
+	      } else {
+		*wptr = ' ';
+		wptr = fw_strcpy(4, a2ptr, &(wptr[1]));
+	      }
+	      *wptr++ = ' ';
+	      if (g_model_fisher) {
+		wptr = double_g_writewx4(wptr, pval, 12);
+	      } else {
+		if (pval > -1) {
+		  wptr = double_g_writewx4(double_g_writewx4x(wptr, dxx, 12, ' '), pval, 12);
+		} else {
+		  wptr = memcpya(wptr, "          NA           NA", 25);
+		}
+	      }
+	      *wptr++ = ' ';
+	      if (du1 * da2 == 0.0) {
+		wptr = memcpya(wptr, "          NA", 12);
+		if (display_ci) {
+		  wptr = memcpya(wptr, "           NA           NA           NA", 39);
+		}
+	      } else {
+		wptr = double_g_writewx4(wptr, *ooptr, 12);
+		if (display_ci) {
+		  dxx = log(*ooptr);
+		  dyy = sqrt(1 / da1 + 1 / da2 + 1 / du1 + 1 / du2);
+		  dzz = ci_zt * dyy;
+		  dww = exp(dxx - dzz);
+		  dvv = exp(dxx + dzz);
+		  *wptr++ = ' ';
+		  wptr = double_g_writewx4(double_g_writewx4x(double_g_writewx4x(wptr, dyy, 12, ' '), dww, 12, ' '), dvv, 12);
+		}
+	      }
+	      memcpy(wptr, " \n", 2);
+	      if (fwrite_checked(tbuf, 2 + (wptr - tbuf), outfile)) {
+		goto model_assoc_ret_WRITE_FAIL;
+	      }
+	    }
+	    missp++;
+	    setp++;
+	    o1mpptr++;
+	    ooptr++;
+	  }
+	} else {
+	  hetp = &(g_het_cts[marker_idx + g_block_start]);
+	  for (marker_bidx = g_block_start; marker_bidx < block_size; marker_bidx++) {
+	    marker_uidx2 = mu_table[marker_bidx];
+	    g_marker_uidxs[marker_idx + marker_bidx] = marker_uidx2;
+	    is_reverse = is_set(marker_reverse, marker_uidx2);
+	    if (is_reverse) {
+	      single_marker_cc_3freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &ukk, &ujj, &uii, &uoo, &unn, &umm);
+	      *missp = uii + umm;
+	      *setp = ukk + uoo;
+	      uii = load_ctrl_ct - uii - ujj - ukk;
+	      umm = load_case_ct - umm - unn - uoo;
+	    } else {
+	      single_marker_cc_3freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm, &unn, &uoo);
+	      *missp = ukk + uoo;
+	      *setp = uii + umm;
+	      ukk = load_ctrl_ct - uii - ujj - ukk;
+	      uoo = load_case_ct - umm - unn - uoo;
+	    }
+	    *hetp = ujj + unn;
+	    da1 = uoo;
+	    da12 = unn;
+	    da2 = umm;
+	    du1 = ukk;
+	    du12 = ujj;
+	    du2 = uii;
+	    is_invalid = (uoo < model_cell_ct) || (unn < model_cell_ct) || (umm < model_cell_ct) || (ukk < model_cell_ct) || (ujj < model_cell_ct) || (uii < model_cell_ct);
+
+	    dxx = da1 + da12 + da2; // obs_A
+	    dyy = du1 + du12 + du2; // obs_U
+	    obs_t = dxx + dyy;
+	    dzz = 1.0 / obs_t;
+	    obs_11 = da1 + du1;
+	    obs_12 = da12 + du12;
+	    obs_22 = da2 + du2;
+	    obs_1 = 2 * obs_11 + obs_12;
+	    obs_2 = 2 * obs_22 + obs_12;
+	    dvv = dzz * dxx;
+	    exp_a11 = dvv * obs_11;
+	    exp_a12 = dvv * obs_12;
+	    exp_a22 = dvv * obs_22;
+	    dvv = dzz * dyy;
+	    exp_u11 = dvv * obs_11;
+	    exp_u12 = dvv * obs_12;
+	    exp_u22 = dvv * obs_22;
+
+	    a1ptr = &(marker_alleles[(2 * marker_uidx2 + is_reverse) * max_marker_allele_len]);
+	    a2ptr = &(marker_alleles[(2 * marker_uidx2 + 1 - is_reverse) * max_marker_allele_len]);
+	    memcpy(tbuf, wprefix, 5);
+	    wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), &(tbuf[5]));
+	    if (max_marker_allele_len == 1) {
+	      memset(wptr, 32, 4);
+	      wptr[4] = *a1ptr;
+	      memset(&(wptr[5]), 32, 4);
+	      wptr[9] = *a2ptr;
+	      wptr = &(wptr[10]);
+	    } else {
+	      *wptr++ = ' ';
+	      wptr = fw_strcpy(4, a1ptr, wptr);
+	      *wptr++ = ' ';
+	      wptr = fw_strcpy(4, a2ptr, wptr);
+	    }
+	    memset(wptr, 32, 2);
+	    wptr = &(wptr[2]);
+	    wptr_mid = wptr;
+	    if (!model_trendonly) {
+	      memcpy(wptr, "   GENO ", 8);
+	      wptr2 = uint32_write(uint32_writex(uint32_writex(wbuf, uoo, '/'), unn, '/'), umm);
+	      wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr[8]));
+	      *wptr++ = ' ';
+	      wptr2 = uint32_write(uint32_writex(uint32_writex(wbuf, ukk, '/'), ujj, '/'), uii);
 	      wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
 	      *wptr++ = ' ';
-	      wptr_mid2 = wptr; // save this for next line
-	      if ((((uint64_t)(uoo * 2 + unn)) * (uii * 2 + ujj)) == (((uint64_t)(umm * 2 + unn)) * (ukk * 2 + ujj))) {
-		dww = 0;
-		if (uoo * 2 + unn) {
-		  ca_chisq = 0;
-		  ca_p = 1;
-		} else {
-		  ca_p = -9;
-		}
+	      if (is_invalid) {
+		gen_p = -9;
 	      } else {
-		// CA
-		dww = (dyy * dzz * da12 - dxx * dzz * du12) + 2 * (dyy * dzz * da2 - dxx * dzz * du2);
-		// varCA
-		dvv = dxx * dyy * (obs_t * (obs_12 + 4 * obs_22) - (obs_12 + 2 * obs_22) * (obs_12 + 2 * obs_22)) * dzz * dzz * dzz;
-		ca_chisq = (dww * dww) / dvv;
-		ca_p = chiprob_p(ca_chisq, 1);
-	      }
-	      if (model_perms && (model_modifier & MODEL_PTREND)) {
-		// varCA is constant, and obs_A/obs_U/obs_T are constant across
-		// all markers.  So we just save fabs(CA).
-		// todo: fix this
-		// g_compare_d[marker_idx + marker_bidx] = fabs(dww);
-	      }
-	      if (ca_p > -1) {
-		if (!g_model_fisher) {
-		  wptr = memcpya(double_g_writewx4(wptr, ca_chisq, 12), "    1 ", 6);
+		if (g_model_fisher) {
+		  gen_p = fisher23(uii, ujj, ukk, umm, unn, uoo);
+		} else {
+		  dvv = ((da1 - exp_a11) * (da1 - exp_a11)) / exp_a11 +
+		    ((da12 - exp_a12) * (da12 - exp_a12)) / exp_a12 +
+		    ((da2 - exp_a22) * (da2 - exp_a22)) / exp_a22 +
+		    ((du1 - exp_u11) * (du1 - exp_u11)) / exp_u11 +
+		    ((du12 - exp_u12) * (du12 - exp_u12)) / exp_u12 +
+		    ((du2 - exp_u22) * (du2 - exp_u22)) / exp_u22;
+		  gen_p = chiprob_p(dvv, 2);
+		  if (model_perms && (model_modifier & MODEL_PGEN)) {
+		    g_orig_chisq[marker_idx + marker_bidx] = dvv;
+		  }
 		}
-		wptr = double_g_writewx4x(wptr, ca_p, 12, '\n');
+	      }
+	      if (gen_p < -1) {
+		wptr = model_assoc_tna(g_model_fisher, wptr);
+	      } else {
+		if (!g_model_fisher) {
+		  wptr = memcpya(double_g_writewx4(wptr, dvv, 12), "    2 ", 6);
+		}
+		wptr = double_g_writewx4x(wptr, gen_p, 12, '\n');
+	      }
+	      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+		goto model_assoc_ret_WRITE_FAIL;
+	      }
+	    }
+	    memcpy(wptr_mid, "  TREND ", 8);
+	    wptr2 = uint32_write(uint32_writex(wbuf, uoo * 2 + unn, '/'), umm * 2 + unn);
+	    wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr_mid[8]));
+	    *wptr++ = ' ';
+	    wptr2 = uint32_write(uint32_writex(wbuf, ukk * 2 + ujj, '/'), uii * 2 + ujj);
+	    wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
+	    *wptr++ = ' ';
+	    wptr_mid2 = wptr; // save this for next line
+	    if ((((uint64_t)(uoo * 2 + unn)) * (uii * 2 + ujj)) == (((uint64_t)(umm * 2 + unn)) * (ukk * 2 + ujj))) {
+	      dww = 0;
+	      if (uoo * 2 + unn) {
+		ca_chisq = 0;
+		ca_p = 1;
+	      } else {
+		ca_p = -9;
+	      }
+	    } else {
+	      // CA
+	      dww = (dyy * dzz * da12 - dxx * dzz * du12) + 2 * (dyy * dzz * da2 - dxx * dzz * du2);
+	      // varCA
+	      dvv = dxx * dyy * (obs_t * (obs_12 + 4 * obs_22) - (obs_12 + 2 * obs_22) * (obs_12 + 2 * obs_22)) * dzz * dzz * dzz;
+	      ca_chisq = (dww * dww) / dvv;
+	      ca_p = chiprob_p(ca_chisq, 1);
+	    }
+	    if (model_perms && (model_modifier & MODEL_PTREND)) {
+	      // varCA is constant, and obs_A/obs_U/obs_T are constant across
+	      // all markers.  So we just save fabs(CA).
+	      // todo: fix this
+	      // g_compare_d[marker_idx + marker_bidx] = fabs(dww);
+	    }
+	    if (ca_p > -1) {
+	      if (!g_model_fisher) {
+		wptr = memcpya(double_g_writewx4(wptr, ca_chisq, 12), "    1 ", 6);
+	      }
+	      wptr = double_g_writewx4x(wptr, ca_p, 12, '\n');
+	    } else {
+	      wptr = model_assoc_tna(g_model_fisher, wptr);
+	    }
+	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	      goto model_assoc_ret_WRITE_FAIL;
+	    }
+	    if (!model_trendonly) {
+	      memcpy(wptr_mid, "ALLELIC", 7);
+	      wptr = wptr_mid2;
+	      obs_a1 = 2 * da1 + da12;
+	      obs_a2 = 2 * da2 + da12;
+	      obs_u1 = 2 * du1 + du12;
+	      obs_u2 = 2 * du2 + du12;
+	      if (g_model_fisher) {
+		mult_p = fisher22(2 * uoo + unn, 2 * umm + unn, 2 * ukk + ujj, 2 * uii + ujj);
+	      } else {
+		if ((((uint64_t)(uoo * 2 + unn)) * (uii * 2 + ujj)) == (((uint64_t)(umm * 2 + unn)) * (ukk * 2 + ujj))) {
+		  if (uoo * 2 + unn) {
+		    dww = 0;
+		    mult_p = 1;
+		  } else {
+		    mult_p = -9;
+		  }
+		} else {
+		  exp_a1 = dxx * obs_1 * dzz;
+		  exp_a2 = dxx * obs_2 * dzz;
+		  exp_u1 = dyy * obs_1 * dzz;
+		  exp_u2 = dyy * obs_2 * dzz;
+		  dww = ((obs_a1 - exp_a1) * (obs_a1 - exp_a1)) / exp_a1 + ((obs_a2 - exp_a2) * (obs_a2 - exp_a2)) / exp_a2 + ((obs_u1 - exp_u1) * (obs_u1 - exp_u1)) / exp_u1 + ((obs_u2 - exp_u2) * (obs_u2 - exp_u2)) / exp_u2;
+		  mult_p = chiprob_p(dww, 1);
+		}
+	      }
+	      if (mult_p > -1) {
+		if (!g_model_fisher) {
+		  wptr = memcpya(double_g_writewx4(wptr, dww, 12), "    1 ", 6);
+		}
+		wptr = double_g_writewx4x(wptr, mult_p, 12, '\n');
 	      } else {
 		wptr = model_assoc_tna(g_model_fisher, wptr);
 	      }
 	      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 		goto model_assoc_ret_WRITE_FAIL;
 	      }
-	      if (!model_trendonly) {
-		memcpy(wptr_mid, "ALLELIC", 7);
-		wptr = wptr_mid2;
-		obs_a1 = 2 * da1 + da12;
-		obs_a2 = 2 * da2 + da12;
-		obs_u1 = 2 * du1 + du12;
-		obs_u2 = 2 * du2 + du12;
+	      memcpy(wptr_mid, "    DOM", 7);
+	      wptr2 = uint32_write(uint32_writex(wbuf, uoo + unn, '/'), umm);
+	      wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr_mid[8]));
+	      *wptr++ = ' ';
+	      wptr2 = uint32_write(uint32_writex(wbuf, ukk + ujj, '/'), uii);
+	      wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
+	      *wptr++ = ' ';
+	      if (is_invalid) {
+		dom_p = -9;
+	      } else {
 		if (g_model_fisher) {
-		  mult_p = fisher22(2 * uoo + unn, 2 * umm + unn, 2 * ukk + ujj, 2 * uii + ujj);
+		  dom_p = fisher22(uoo + unn, umm, ukk + ujj, uii);
 		} else {
-		  if ((((uint64_t)(uoo * 2 + unn)) * (uii * 2 + ujj)) == (((uint64_t)(umm * 2 + unn)) * (ukk * 2 + ujj))) {
-		    if (uoo * 2 + unn) {
-		      dww = 0;
-		      mult_p = 1;
-		    } else {
-		      mult_p = -9;
-		    }
+		  if (((uint64_t)umm) * (ukk + ujj) == ((uint64_t)uii) * (uoo + unn)) {
+		    dww = 0;
+		    dom_p = 1;
 		  } else {
-		    exp_a1 = dxx * obs_1 * dzz;
-		    exp_a2 = dxx * obs_2 * dzz;
-		    exp_u1 = dyy * obs_1 * dzz;
-		    exp_u2 = dyy * obs_2 * dzz;
-		    dww = ((obs_a1 - exp_a1) * (obs_a1 - exp_a1)) / exp_a1 + ((obs_a2 - exp_a2) * (obs_a2 - exp_a2)) / exp_a2 + ((obs_u1 - exp_u1) * (obs_u1 - exp_u1)) / exp_u1 + ((obs_u2 - exp_u2) * (obs_u2 - exp_u2)) / exp_u2;
-		    mult_p = chiprob_p(dww, 1);
+		    dww = exp_a11 + exp_a12;
+		    dvv = exp_u11 + exp_u12;
+		    dww = (((da1 + da12) - dww) * ((da1 + da12) - dww)) / dww + ((da2 - exp_a22) * (da2 - exp_a22)) / exp_a22 + (((du1 + du12) - dvv) * ((du1 + du12) - dvv)) / dvv + ((du2 - exp_u22) * (du2 - exp_u22)) / exp_u22;
+		    dom_p = chiprob_p(dww, 1);
 		  }
-		}
-		if (mult_p > -1) {
-		  if (!g_model_fisher) {
-		    wptr = memcpya(double_g_writewx4(wptr, dww, 12), "    1 ", 6);
-		  }
-		  wptr = double_g_writewx4x(wptr, mult_p, 12, '\n');
-		} else {
-		  wptr = model_assoc_tna(g_model_fisher, wptr);
-		}
-		if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-		  goto model_assoc_ret_WRITE_FAIL;
-		}
-		memcpy(wptr_mid, "    DOM", 7);
-		wptr2 = uint32_write(uint32_writex(wbuf, uoo + unn, '/'), umm);
-		wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr_mid[8]));
-		*wptr++ = ' ';
-		wptr2 = uint32_write(uint32_writex(wbuf, ukk + ujj, '/'), uii);
-		wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
-		*wptr++ = ' ';
-		if (is_invalid) {
-		  dom_p = -9;
-		} else {
-		  if (g_model_fisher) {
-		    dom_p = fisher22(uoo + unn, umm, ukk + ujj, uii);
-		  } else {
-		    if (((uint64_t)umm) * (ukk + ujj) == ((uint64_t)uii) * (uoo + unn)) {
-		      dww = 0;
-		      dom_p = 1;
-		    } else {
-		      dww = exp_a11 + exp_a12;
-		      dvv = exp_u11 + exp_u12;
-		      dww = (((da1 + da12) - dww) * ((da1 + da12) - dww)) / dww + ((da2 - exp_a22) * (da2 - exp_a22)) / exp_a22 + (((du1 + du12) - dvv) * ((du1 + du12) - dvv)) / dvv + ((du2 - exp_u22) * (du2 - exp_u22)) / exp_u22;
-		      dom_p = chiprob_p(dww, 1);
-		    }
-		  }
-		}
-		if (dom_p < -1) {
-		  wptr = model_assoc_tna(g_model_fisher, wptr);
-		} else {
-		  if (!g_model_fisher) {
-		    wptr = memcpya(double_g_writewx4(wptr, dww, 12), "    1 ", 6);
-		  }
-		  wptr = double_g_writewx4x(wptr, dom_p, 12, '\n');
-		}
-		if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-		  goto model_assoc_ret_WRITE_FAIL;
-		}
-		memcpy(&(wptr_mid[4]), "REC", 3);
-		wptr2 = uint32_write(uint32_writex(wbuf, uoo, '/'), unn + umm);
-		wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr_mid[8]));
-		*wptr++ = ' ';
-		wptr2 = uint32_write(uint32_writex(wbuf, ukk, '/'), ujj + uii);
-		wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
-		*wptr++ = ' ';
-		if (is_invalid) {
-		  rec_p = -9;
-		} else {
-		  if (g_model_fisher) {
-		    rec_p = fisher22(uoo, unn + umm, ukk, ujj + uii);
-		  } else {
-		    if (((uint64_t)uoo) * (ujj + uii) == ((uint64_t)ukk) * (unn + umm)) {
-		      // special-case zero?
-		      dww = 0;
-		      rec_p = 1;
-		    } else {
-		      dww = exp_a22 + exp_a12;
-		      dvv = exp_u22 + exp_u12;
-		      dww = (((da2 + da12) - dww) * ((da2 + da12) - dww)) / dww + ((da1 - exp_a11) * (da1 - exp_a11)) / exp_a11 + (((du2 + du12) - dvv) * ((du2 + du12) - dvv)) / dvv + ((du1 - exp_u11) * (du1 - exp_u11)) / exp_u11;
-		      rec_p = chiprob_p(dww, 1);
-		    }
-		  }
-		}
-		if (rec_p < -1) {
-		  wptr = model_assoc_tna(g_model_fisher, wptr);
-		} else {
-		  if (!g_model_fisher) {
-		    wptr = memcpya(double_g_writewx4(wptr, dww, 12), "    1 ", 6);
-		  }
-		  wptr = double_g_writewx4x(wptr, rec_p, 12, '\n');
-		}
-		if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-		  goto model_assoc_ret_WRITE_FAIL;
 		}
 	      }
-	      if (model_perm_best) {
-		dxx = mult_p;
-		if (!is_invalid) {
-		  if ((dom_p < dxx) && (dom_p >= 0)) {
-		    dxx = dom_p;
-		  }
-		  if ((rec_p < dxx) && (rec_p >= 0)) {
-		    dxx = rec_p;
+	      if (dom_p < -1) {
+		wptr = model_assoc_tna(g_model_fisher, wptr);
+	      } else {
+		if (!g_model_fisher) {
+		  wptr = memcpya(double_g_writewx4(wptr, dww, 12), "    1 ", 6);
+		}
+		wptr = double_g_writewx4x(wptr, dom_p, 12, '\n');
+	      }
+	      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+		goto model_assoc_ret_WRITE_FAIL;
+	      }
+	      memcpy(&(wptr_mid[4]), "REC", 3);
+	      wptr2 = uint32_write(uint32_writex(wbuf, uoo, '/'), unn + umm);
+	      wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, &(wptr_mid[8]));
+	      *wptr++ = ' ';
+	      wptr2 = uint32_write(uint32_writex(wbuf, ukk, '/'), ujj + uii);
+	      wptr = fw_strcpyn(14, wptr2 - wbuf, wbuf, wptr);
+	      *wptr++ = ' ';
+	      if (is_invalid) {
+		rec_p = -9;
+	      } else {
+		if (g_model_fisher) {
+		  rec_p = fisher22(uoo, unn + umm, ukk, ujj + uii);
+		} else {
+		  if (((uint64_t)uoo) * (ujj + uii) == ((uint64_t)ukk) * (unn + umm)) {
+		    // special-case zero?
+		    dww = 0;
+		    rec_p = 1;
+		  } else {
+		    dww = exp_a22 + exp_a12;
+		    dvv = exp_u22 + exp_u12;
+		    dww = (((da2 + da12) - dww) * ((da2 + da12) - dww)) / dww + ((da1 - exp_a11) * (da1 - exp_a11)) / exp_a11 + (((du2 + du12) - dvv) * ((du2 + du12) - dvv)) / dvv + ((du1 - exp_u11) * (du1 - exp_u11)) / exp_u11;
+		    rec_p = chiprob_p(dww, 1);
 		  }
 		}
-		dxx = 1 - dxx;
-	      } else if (model_modifier & MODEL_PGEN) {
-		dxx = (gen_p >= 0)? (1 - gen_p) : -9;
-	      } else if (model_modifier & MODEL_PDOM) {
-		dxx = (dom_p >= 0)? (1 - dom_p) : -9;
-	      } else if (model_modifier & MODEL_PREC) {
-		dxx = (rec_p >= 0)? (1 - rec_p) : -9;
-	      } else if (model_modifier & MODEL_PTREND) {
-		dxx = (ca_p >= 0)? ca_chisq : -9;
 	      }
-	      missp++;
-	      setp++;
-	      hetp++;
-	      *o1mpptr++ = dxx;
+	      if (rec_p < -1) {
+		wptr = model_assoc_tna(g_model_fisher, wptr);
+	      } else {
+		if (!g_model_fisher) {
+		  wptr = memcpya(double_g_writewx4(wptr, dww, 12), "    1 ", 6);
+		}
+		wptr = double_g_writewx4x(wptr, rec_p, 12, '\n');
+	      }
+	      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+		goto model_assoc_ret_WRITE_FAIL;
+	      }
 	    }
+	    if (model_perm_best) {
+	      dxx = mult_p;
+	      if (!is_invalid) {
+		if ((dom_p < dxx) && (dom_p >= 0)) {
+		  dxx = dom_p;
+		}
+		if ((rec_p < dxx) && (rec_p >= 0)) {
+		  dxx = rec_p;
+		}
+	      }
+	      dxx = 1 - dxx;
+	    } else if (model_modifier & MODEL_PGEN) {
+	      dxx = (gen_p >= 0)? (1 - gen_p) : -9;
+	    } else if (model_modifier & MODEL_PDOM) {
+	      dxx = (dom_p >= 0)? (1 - dom_p) : -9;
+	    } else if (model_modifier & MODEL_PREC) {
+	      dxx = (rec_p >= 0)? (1 - rec_p) : -9;
+	    } else if (model_modifier & MODEL_PTREND) {
+	      dxx = (ca_p >= 0)? ca_chisq : -9;
+	    }
+	    missp++;
+	    setp++;
+	    hetp++;
+	    *o1mpptr++ = dxx;
 	  }
 	}
       }
-      if (perms_total) {
-	g_block_diff = block_size - g_block_start;
-	if (model_adapt) {
-	  g_assoc_thread_ct = g_block_diff;
+    }
+    if (perms_total) {
+      g_block_diff = block_size - g_block_start;
+      if (model_adapt) {
+	g_assoc_thread_ct = g_block_diff;
+      } else {
+	g_maxt_block_base = marker_idx;
+	g_assoc_thread_ct = (g_perm_vec_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
+      }
+      if (g_assoc_thread_ct > g_thread_ct) {
+	g_assoc_thread_ct = g_thread_ct;
+      }
+      if (model_assoc) {
+	if (g_is_haploid) { // includes g_is_x
+	  uqq = 1;
 	} else {
-	  g_maxt_block_base = marker_idx;
-	  g_assoc_thread_ct = (g_perm_vec_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
+	  uqq = 2;
 	}
-	if (g_assoc_thread_ct > g_thread_ct) {
-	  g_assoc_thread_ct = g_thread_ct;
-	}
-	if (model_assoc && (g_model_fisher || model_adapt)) {
-	  if (g_is_haploid) { // includes g_is_x
-	    uqq = 1;
+	for (uii = g_block_start; uii < block_size; uii++) {
+	  upp = g_missing_cts[marker_idx + uii];
+	  get_model_assoc_precomp_bounds(upp, &ujj, &ukk);
+	  g_precomp_start[uii] = ujj;
+	  uoo = g_set_cts[marker_idx + uii];
+	  if (g_is_x) {
+	    unn = 2 * g_case_ct;
+	    upp = 2 * g_pheno_nm_ct - upp;
 	  } else {
-	    uqq = 2;
+	    unn = uqq * g_case_ct;
+	    upp = uqq * (g_pheno_nm_ct - upp);
 	  }
-	  for (uii = g_block_start; uii < block_size; uii++) {
-	    upp = g_missing_cts[marker_idx + uii];
-	    get_model_assoc_precomp_bounds(upp, &ujj, &ukk);
-	    g_precomp_start[uii] = ujj;
-	    uoo = g_set_cts[marker_idx + uii];
-	    if (g_is_x) {
-	      unn = 2 * g_case_ct;
-	      upp = 2 * g_pheno_nm_ct - upp;
-	    } else {
-	      unn = uqq * g_case_ct;
-	      upp = uqq * (g_pheno_nm_ct - upp);
+	  ujj *= uqq;
+	  ukk += uii * g_precomp_width;
+	  if (g_model_fisher) {
+	    dxx = 1 - g_orig_1mpval[marker_idx + uii];
+	    for (umm = uii * g_precomp_width; umm < ukk; umm++) {
+	      fisher22_precomp_pval_bounds(dxx, unn - ujj, uoo, upp, &(g_precomp_ui[umm * 4]), NULL);
+	      ujj += uqq;
 	    }
-	    ujj *= uqq;
-	    ukk += uii * g_precomp_width;
-	    if (g_model_fisher) {
-	      dxx = 1 - g_orig_1mpval[marker_idx + uii];
-	      if (model_adapt) {
-		for (umm = uii * g_precomp_width; umm < ukk; umm++) {
-		  fisher22_precomp_pval_bounds(dxx, unn - ujj, uoo, upp, &(g_precomp_ui[umm * 4]), NULL);
-		  ujj += uqq;
-		}
-	      } else {
-		for (umm = uii * g_precomp_width; umm < ukk; umm++) {
-		  fisher22_precomp_pval_bounds(dxx, unn - ujj, uoo, upp, &(g_precomp_ui[umm * 4]), &(g_precomp_d[umm * 3]));
-		  ujj += uqq;
-		}
+	  } else {
+	    dxx = g_orig_chisq[marker_idx + uii];
+	    if (model_adapt) {
+	      for (umm = uii * g_precomp_width; umm < ukk; umm++) {
+		chi22_precomp_val_bounds(dxx, unn - ujj, uoo, upp, &(g_precomp_ui[umm * 4]), NULL);
+		ujj += uqq;
 	      }
 	    } else {
-	      dxx = g_orig_chisq[marker_idx + uii];
 	      for (umm = uii * g_precomp_width; umm < ukk; umm++) {
-		chi22_precomp_val_bounds(dxx, unn - ujj, uoo, upp, &(g_precomp_ui[umm * 4]));
+		chi22_precomp_val_bounds(dxx, unn - ujj, uoo, upp, &(g_precomp_ui[umm * 4]), &(g_precomp_d[umm * 2]));
 		ujj += uqq;
 	      }
 	    }
 	  }
 	}
-	if (model_adapt) {
-	  if (model_assoc) {
-	    if (spawn_threads(threads, &assoc_adapt_thread, g_assoc_thread_ct)) {
+      }
+      if (model_adapt) {
+	if (model_assoc) {
+	  if (spawn_threads(threads, &assoc_adapt_thread, g_assoc_thread_ct)) {
+	    logprint(errstr_thread_create);
+	    goto model_assoc_ret_THREAD_CREATE_FAIL;
+	  }
+	  ulii = 0;
+	  assoc_adapt_thread((void*)ulii);
+	  join_threads(threads, g_assoc_thread_ct);
+	} else {
+	  // TODO
+	}
+      } else {
+	if (model_assoc) {
+	  if (g_model_fisher) {
+	    if (spawn_threads(threads, &assoc_maxt_fisher_thread, g_assoc_thread_ct)) {
 	      logprint(errstr_thread_create);
 	      goto model_assoc_ret_THREAD_CREATE_FAIL;
 	    }
 	    ulii = 0;
-	    assoc_adapt_thread((void*)ulii);
+	    assoc_maxt_fisher_thread((void*)ulii);
 	    join_threads(threads, g_assoc_thread_ct);
 	  } else {
-	    // TODO
+	    if (spawn_threads(threads, &assoc_maxt_thread, g_assoc_thread_ct)) {
+	      logprint(errstr_thread_create);
+	      goto model_assoc_ret_THREAD_CREATE_FAIL;
+	    }
+	    ulii = 0;
+	    assoc_maxt_thread((void*)ulii);
+	    join_threads(threads, g_assoc_thread_ct);
+	  }
+	  for (uii = g_block_start; uii < block_size; uii++) {
+	    ukk = 0;
+	    for (ujj = 0; ujj < g_assoc_thread_ct; ujj++) {
+	      ukk += g_maxt_thread_results[ujj * MODEL_BLOCKSIZE + uii];
+	    }
+	    g_perm_2success_ct[marker_idx + uii] += ukk;
 	  }
 	} else {
-	  if (model_assoc) {
-	    if (g_model_fisher) {
-	      if (spawn_threads(threads, &assoc_maxt_fisher_thread, g_assoc_thread_ct)) {
-		logprint(errstr_thread_create);
-		goto model_assoc_ret_THREAD_CREATE_FAIL;
-	      }
-	      ulii = 0;
-	      assoc_maxt_fisher_thread((void*)ulii);
-	      join_threads(threads, g_assoc_thread_ct);
-	    } else {
-	      if (spawn_threads(threads, &assoc_maxt_thread, g_assoc_thread_ct)) {
-		logprint(errstr_thread_create);
-		goto model_assoc_ret_THREAD_CREATE_FAIL;
-	      }
-	      ulii = 0;
-	      assoc_maxt_thread((void*)ulii);
-	      join_threads(threads, g_assoc_thread_ct);
-	    }
-	    for (uii = g_block_start; uii < block_size; uii++) {
-	      ukk = 0;
-	      for (ujj = 0; ujj < g_assoc_thread_ct; ujj++) {
-		ukk += g_maxt_thread_results[ujj * MODEL_BLOCKSIZE + uii];
-	      }
-	      g_perm_2success_ct[marker_idx + uii] += ukk;
-	    }
-	  } else {
-	    // TODO
-	  }
-	}
-      }
-      marker_idx += block_size - g_block_start;
-      if ((!perm_pass_idx) && (marker_idx >= loop_end)) {
-	if (marker_idx < marker_unstopped_ct) {
-	  if (pct >= 10) {
-	    putchar('\b');
-	  }
-	  pct = (marker_idx * 100LLU) / marker_unstopped_ct;
-	  printf("\b\b%u%%", pct);
-	  fflush(stdout);
-	  loop_end = ((uint64_t)(pct + 1LLU) * marker_unstopped_ct) / 100;
-	}
-      }
-    } while (marker_idx < marker_unstopped_ct);
-    if (!perm_pass_idx) {
-      if (pct >= 10) {
-	putchar('\b');
-      }
-      fputs("\b\b\b", stdout);
-      logprint(" done.\n");
-      if (model_perms) {
-        wkspace_reset((unsigned char*)g_perm_vecs);
-      }
-      if (fclose_null(&outfile)) {
-	goto model_assoc_ret_WRITE_FAIL;
-      }
-      if (mtest_adjust) {
-	retval = multcomp(outname, outname_end, g_marker_uidxs, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_1mpval, pfilter, mtest_adjust, adjust_lambda, g_model_fisher);
-	if (retval) {
-	  goto model_assoc_ret_1;
+	  // TODO
 	}
       }
     }
-    if (model_perms) {
-      wkspace_reset(wkspace_mark2);
-      if (g_perms_done == perms_total) {
-	if (model_adapt) {
-	model_assoc_adapt_perm_count:
-	  g_perms_done = 0;
-	  for (uii = 0; uii < marker_ct; uii++) {
-	    if (g_perm_attempt_ct[uii] > g_perms_done) {
-	      g_perms_done = g_perm_attempt_ct[uii];
-	      if (g_perms_done == perms_total) {
-		break;
-	      }
-	    }
-	  }
+    marker_idx += block_size - g_block_start;
+    if ((!perm_pass_idx) && (marker_idx >= loop_end)) {
+      if (marker_idx < marker_unstopped_ct) {
+	if (pct >= 10) {
+	  putchar('\b');
 	}
-	putchar('\r');
-        sprintf(logbuf, "%u permutations complete.\n", g_perms_done);
-	logprintb();
-	break;
-      } else if (model_adapt) {
+	pct = (marker_idx * 100LLU) / marker_unstopped_ct;
+	printf("\b\b%u%%", pct);
+	fflush(stdout);
+	loop_end = ((uint64_t)(pct + 1LLU) * marker_unstopped_ct) / 100;
+      }
+    }
+  } while (marker_idx < marker_unstopped_ct);
+  if (!perm_pass_idx) {
+    if (pct >= 10) {
+      putchar('\b');
+    }
+    fputs("\b\b\b", stdout);
+    logprint(" done.\n");
+    if (model_perms) {
+      wkspace_reset((unsigned char*)g_perm_vecs);
+    }
+    if (fclose_null(&outfile)) {
+      goto model_assoc_ret_WRITE_FAIL;
+    }
+    if (mtest_adjust) {
+      retval = multcomp(outname, outname_end, g_marker_uidxs, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_1mpval, pfilter, mtest_adjust, adjust_lambda, g_model_fisher);
+      if (retval) {
+	goto model_assoc_ret_1;
+      }
+    }
+  }
+  if (model_perms) {
+    wkspace_reset(wkspace_mark2);
+    if (g_perms_done < perms_total) {
+      if (model_adapt) {
 	marker_unstopped_ct = marker_ct - popcount_longs(g_perm_adapt_stop, 0, marker_ctl);
 	if (!marker_unstopped_ct) {
 	  goto model_assoc_adapt_perm_count;
@@ -2199,9 +2231,23 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       }
       printf("\r%u permutations complete.", g_perms_done);
       fflush(stdout);
+      goto model_assoc_more_perms;
     }
-  }
-  if (model_perms) {
+    if (model_adapt) {
+    model_assoc_adapt_perm_count:
+      g_perms_done = 0;
+      for (uii = 0; uii < marker_ct; uii++) {
+	if (g_perm_attempt_ct[uii] > g_perms_done) {
+	  g_perms_done = g_perm_attempt_ct[uii];
+	  if (g_perms_done == perms_total) {
+	    break;
+	  }
+	}
+      }
+    }
+    putchar('\r');
+    sprintf(logbuf, "%u permutations complete.\n", g_perms_done);
+    logprintb();
     if (model_adapt) {
       memcpy(outname_end2, ".perm", 6);
     } else {
@@ -2220,6 +2266,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       qsort(g_maxt_extreme_stat, perms_total, sizeof(double), double_cmp);
 #endif
     }
+    printf("extreme pvals: %g %g\n", g_maxt_extreme_stat[0], g_maxt_extreme_stat[perms_total - 1]);
     if (fprintf(outfile, tbuf, "SNP") < 0) {
       goto model_assoc_ret_WRITE_FAIL;
     }

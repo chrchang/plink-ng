@@ -17,8 +17,8 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
 
 double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t m22, uint32_t m23);
 
-void chi22_get_coeffs(double row1_sum, double col1_sum, double total, double* expm11p, double* recip_sump);
+void chi22_get_coeffs(intptr_t row1_sum, intptr_t col1_sum, intptr_t total, double* expm11p, double* recip_sump);
 
-void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum, intptr_t total, uint32_t* bounds);
+void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum, intptr_t total, uint32_t* bounds, double* coeffs);
 
 #endif

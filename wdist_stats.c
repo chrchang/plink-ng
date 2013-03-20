@@ -1,6 +1,7 @@
 #include "wdist_common.h"
 #include "ipmpar.h"
 #include "dcdflib.h"
+#include "wdist_stats.h"
 
 double chiprob_p(double xx, double df) {
   int st = 0;
@@ -1049,7 +1050,7 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
   return tprob / (tprob + cprob);
 }
 
-void chi22_get_coeffs(double row1_sum, double col1_sum, double total, double* expm11p, double* recip_sump) {
+void chi22_get_coeffs(intptr_t row1_sum, intptr_t col1_sum, intptr_t total, double* expm11p, double* recip_sump) {
   // chisq = (m11 - expm11)^2 * recip_sum
   // (see discussion for chi22_precomp_val_bounds() below.)
   //
@@ -1059,11 +1060,13 @@ void chi22_get_coeffs(double row1_sum, double col1_sum, double total, double* ex
   // = total * (1 / (row1_sum * col1_sum) + 1 / (row1_sum * col2_sum) +
   //            1 / (row2_sum * col1_sum) + 1 / (row2_sum * col2_sum))
   // = total^3 / (row1_sum * col1_sum * row2_sum * col2_sum)
-  double m11_numer = row1_sum * col1_sum;
-  double denom = m11_numer * (total - row1_sum) * (total - col1_sum);
+  double m11_numer = ((uint64_t)row1_sum) * ((uint64_t)col1_sum);
+  double denom = m11_numer * (((uint64_t)(total - row1_sum)) * ((uint64_t)(total - col1_sum)));
+  double dxx;
   if (denom != 0) {
-    *expm11p = m11_numer / total;
-    *recip_sump = total * total * total / denom;
+    dxx = total;
+    *expm11p = m11_numer / dxx;
+    *recip_sump = dxx * dxx * dxx / denom;
   } else {
     // since an entire row or column is zero, either m11 or m22 is zero
     // row1_sum + col1_sum - total = m11 - m22
@@ -1076,7 +1079,7 @@ void chi22_get_coeffs(double row1_sum, double col1_sum, double total, double* ex
   }
 }
 
-void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum, intptr_t total, uint32_t* bounds) {
+void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum, intptr_t total, uint32_t* bounds, double* coeffs) {
   // Treating m11 as the only variable, this returns the minimum and (maximum +
   // 1) values of m11 which produce smaller chisq statistics than given in
   // bounds[0] and bounds[1] respectively, and smaller-or-equal interval
@@ -1088,6 +1091,10 @@ void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum
   intptr_t ceil11;
   intptr_t lii;
   chi22_get_coeffs(row1_sum, col1_sum, total, &expm11, &recip_sum);
+  if (coeffs) {
+    coeffs[0] = expm11;
+    coeffs[1] = recip_sum;
+  }
   if (recip_sum == 0) {
     // sum-0 row or column, no freedom at all
     bounds[0] = (intptr_t)expm11;
