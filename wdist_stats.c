@@ -214,7 +214,7 @@ double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22
   // not including the two references) sum to tail_sum/tot_prob, this
   // calculates the p-value of the given m11 (which must be on one tail).
   double left_prob = 1.0;
-  double dxx = new_m11;
+  double dxx = ((intptr_t)new_m11);
   double left11 = m11;
   double left12 = m12;
   double left21 = m21;
@@ -493,17 +493,17 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
     right12 -= 1;
     right21 -= 1;
   }
-  dxx = pval * tot_prob * (1 - SMALLISH_EPSILON);
-  threshold = pval * tot_prob * (1 + SMALLISH_EPSILON);
+  dxx = pval * tot_prob * (1 - SMALL_EPSILON / 2);
+  threshold = pval * tot_prob * (1 + SMALL_EPSILON / 2);
   lii = 0;
   while (1) {
-    if (left_prob < right_prob * (1 - SMALLISH_EPSILON)) {
+    if (left_prob < right_prob * (1 - SMALL_EPSILON / 2)) {
       if (tail_prob + left_prob > threshold) {
 	break;
       }
       tail_prob += left_prob;
       uii = 1;
-    } else if (right_prob < left_prob * (1 - SMALLISH_EPSILON)) {
+    } else if (right_prob < left_prob * (1 - SMALL_EPSILON / 2)) {
       if (tail_prob + right_prob > threshold) {
 	break;
       }
@@ -511,10 +511,12 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
       uii = 2;
     } else {
       if (tail_prob + left_prob + right_prob > threshold) {
-	if (pval > 1 - SMALLISH_EPSILON) {
+	if (left11 == right11) {
 	  // p=1 special case: left and right refer to the same table
-	  tail_prob += left_prob;
-	  lii = 1;
+	  if (tail_prob + left_prob < threshold) {
+	    tail_prob += left_prob;
+	    lii = 1;
+	  }
 	}
 	break;
       }

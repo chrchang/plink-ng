@@ -471,7 +471,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
   uint32_t urand;
   uint32_t uii;
   if (set_ct * 2 < tot_ct) {
-    fill_ulong_zero(perm_vec, 2 * (tot_ct + (BITCT - 1)) / BITCT);
+    fill_ulong_zero(perm_vec, 2 * ((tot_ct + (BITCT - 1)) / BITCT));
     for (; num_set < set_ct; num_set++) {
       do {
 	do {
@@ -771,13 +771,16 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
   double pv_high;
   double pv_low;
   double pval;
+  if (tidx == g_assoc_thread_ct - 1) {
+    pidx_end = g_perm_vec_ct;
+  }
   if (g_is_haploid) { // includes g_is_x
     min_ploidy = 1;
   }
   uii = (g_precomp_width * 2 + CACHELINE_INT32 - 1) / CACHELINE_INT32;
-  tpui = &(g_thread_precomp_ui[tidx * uii]);
+  tpui = &(g_thread_precomp_ui[tidx * uii * CACHELINE_INT32]);
   uii = (g_precomp_width * 3 + CACHELINE_DBL - 1) / CACHELINE_DBL;
-  tpd = &(g_thread_precomp_d[tidx * uii]);
+  tpd = &(g_thread_precomp_d[tidx * uii * CACHELINE_DBL]);
   for (pidx = pidx_start + 1; pidx < pidx_end; pidx++) {
     if (g_maxt_extreme_stat[pidx] > max_pval) {
       max_pval = g_maxt_extreme_stat[pidx];
@@ -800,7 +803,7 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
     for (uii = 0; uii < g_precomp_width; uii++) {
       fisher22_precomp_pval_bounds(max_pval, row1x_sum - case_missing_ct, col1_sum, tot_obs, uibuf, &(tpd[3 * uii]));
       tpui[2 * uii] = uibuf[2];
-      tpui[2 * uii + 1] = uibuf[3];
+      tpui[2 * uii + 1] = uibuf[3] - uibuf[2] - 1;
       case_missing_ct += min_ploidy;
     }
     pv_high = 1.0 + EPSILON - g_orig_1mpval[marker_idx];
@@ -834,10 +837,10 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
 	}
 	ukk = tpui[2 * uii];
 	ujj = (uint32_t)(case_set_ct - ukk); // deliberate underflow
-	if (ujj >= tpui[2 * uii + 1]) {
+	if (ujj > tpui[2 * uii + 1]) {
 	  ujj = row1x_sum - case_missing_ct * min_ploidy;
-	  pval = fisher22(case_set_ct, ujj - case_set_ct, col1_sum - case_set_ct, col2_sum + case_set_ct - ujj);
-	  // pval = fisher22_tail_pval(ukk, ujj - ukk, col1_sum - ukk, col2_sum + ukk - ujj, ukk - 1, tpd[3 * uii], tpd[3 * uii + 1], tpd[3 * uii + 2], case_set_ct);
+	  // pval = fisher22(case_set_ct, ujj - case_set_ct, col1_sum - case_set_ct, col2_sum + case_set_ct - ujj);
+	  pval = fisher22_tail_pval(ukk, ujj - ukk, col1_sum - ukk, col2_sum + ukk - ujj, tpui[2 * uii + 1], tpd[3 * uii], tpd[3 * uii + 1], tpd[3 * uii + 2], case_set_ct);
 	  if (g_maxt_extreme_stat[pidx] > pval) {
 	    g_maxt_extreme_stat[pidx] = pval;
 	  }
@@ -892,11 +895,14 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
   double chisq;
   double expm11;
   double recip_sum;
+  if (tidx == g_assoc_thread_ct - 1) {
+    pidx_end = g_perm_vec_ct;
+  }
   if (g_is_haploid) { // includes g_is_x
     min_ploidy = 1;
   }
   uii = (g_precomp_width * 2 + CACHELINE_INT32 - 1) / CACHELINE_INT32;
-  tpui = &(g_thread_precomp_ui[tidx * uii]);
+  tpui = &(g_thread_precomp_ui[tidx * uii * CACHELINE_INT32]);
   for (pidx = pidx_start + 1; pidx < pidx_end; pidx++) {
     if (g_maxt_extreme_stat[pidx] < min_chisq) {
       min_chisq = g_maxt_extreme_stat[pidx];
@@ -922,7 +928,7 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
     for (uii = 0; uii < g_precomp_width; uii++) {
       chi22_precomp_val_bounds(min_chisq, row1x_sum - case_missing_ct, col1_sum, tot_obs, uibuf, NULL);
       tpui[uii * 2] = uibuf[2];
-      tpui[uii * 2 + 1] = uibuf[3];
+      tpui[uii * 2 + 1] = uibuf[3] - uibuf[2];
       case_missing_ct += min_ploidy;
     }
     for (pidx = pidx_start; pidx < pidx_end; pidx++) {
@@ -2246,7 +2252,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       }
     }
     putchar('\r');
-    sprintf(logbuf, "%u permutations complete.\n", g_perms_done);
+    sprintf(logbuf, "%u %s permutations complete.\n", g_perms_done, model_maxt? "max(T)" : "(adaptive)");
     logprintb();
     if (model_adapt) {
       memcpy(outname_end2, ".perm", 6);
@@ -2266,7 +2272,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       qsort(g_maxt_extreme_stat, perms_total, sizeof(double), double_cmp);
 #endif
     }
-    printf("extreme pvals: %g %g\n", g_maxt_extreme_stat[0], g_maxt_extreme_stat[perms_total - 1]);
+    // printf("extreme pvals: %g %g\n", g_maxt_extreme_stat[0], g_maxt_extreme_stat[perms_total - 1]);
     if (fprintf(outfile, tbuf, "SNP") < 0) {
       goto model_assoc_ret_WRITE_FAIL;
     }
