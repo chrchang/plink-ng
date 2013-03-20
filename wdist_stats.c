@@ -207,7 +207,7 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22) {
   return tprob / (cprob + tprob);
 }
 
-double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t right_offset, double tot_prob, double right_prob, double tail_sum, uint32_t new_m11) {
+double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t right_offset, double tot_prob_recip, double right_prob, double tail_sum, uint32_t new_m11) {
   // Given that the left (w.r.t. m11) reference contingency table has
   // likelihood 1/tot_prob, the contingency table with m11 increased by
   // right_offset has likelihood right_prob/tot_prob, and the tails (up to but
@@ -215,83 +215,120 @@ double fisher22_tail_pval(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22
   // calculates the p-value of the given m11 (which must be on one tail).
   double left_prob = 1.0;
   double dxx = ((intptr_t)new_m11);
-  double left11 = m11;
-  double left12 = m12;
-  double left21 = m21;
-  double left22 = m22;
-  double right11 = m11 + right_offset;
-  double right12 = m12 - right_offset;
-  double right21 = m21 - right_offset;
-  double right22 = m22 + right_offset;
+  double cur11;
+  double cur12;
+  double cur21;
+  double cur22;
   double psum;
+  double thresh;
   if (new_m11 < m11) {
+    cur11 = ((intptr_t)m11);
+    cur12 = ((intptr_t)m12);
+    cur21 = ((intptr_t)m21);
+    cur22 = ((intptr_t)m22);
     dxx += 0.5; // unnecessary (53 vs. 32 bits precision), but whatever
     do {
-      left12 += 1;
-      left21 += 1;
-      left_prob *= left11 * left22 / (left12 * left21);
-      if (left_prob == 0) {
-	return 0;
-      }
-      left11 -= 1;
-      left22 -= 1;
-    } while (left11 > dxx);
+      cur12 += 1;
+      cur21 += 1;
+      left_prob *= cur11 * cur22 / (cur12 * cur21);
+      cur11 -= 1;
+      cur22 -= 1;
+    } while (cur11 > dxx);
+    if (left_prob == 0) {
+      return 0;
+    }
     psum = left_prob;
-    dxx = left_prob * (1 + SMALLISH_EPSILON);
-    while (right_prob > dxx) {
-      right11 += 1;
-      right22 += 1;
-      right_prob *= right12 * right21 / (right11 * right22);
-      right12 -= 1;
-      right21 -= 1;
-    }
-    psum += right_prob;
-  } else {
-    dxx -= 0.5;
+    thresh = left_prob * (1 + SMALLISH_EPSILON);
     do {
-      right11 += 1;
-      right22 += 1;
-      right_prob *= right12 * right21 / (right11 * right22);
-      if (right_prob == 0) {
-	return 0;
+      if (cur11 < 0.5) {
+	break;
       }
-      right12 -= 1;
-      right21 -= 1;
-    } while (right11 < dxx);
-    psum = right_prob;
-    dxx = right_prob * (1 + SMALLISH_EPSILON);
-    while (left_prob > dxx) {
-      left12 += 1;
-      left21 += 1;
-      left_prob *= left11 * left22 / (left12 * left21);
-      left11 -= 1;
-      left22 -= 1;
-    }
-    psum += left_prob;
-  }
-  if (left11 * left22 > 0.5) {
-    do {
-      left12 += 1;
-      left21 += 1;
-      left_prob *= left11 * left22 / (left12 * left21);
-      left11 -= 1;
-      left22 -= 1;
+      cur12 += 1;
+      cur21 += 1;
+      left_prob *= cur11 * cur22 / (cur12 * cur21);
+      cur11 -= 1;
+      cur22 -= 1;
       dxx = psum;
       psum += left_prob;
     } while (psum > dxx);
-  }
-  if (right12 * right21 > 0.5) {
+    cur11 = ((intptr_t)(m11 + right_offset));
+    cur12 = ((intptr_t)(m12 - right_offset));
+    cur21 = ((intptr_t)(m21 - right_offset));
+    cur22 = ((intptr_t)(m22 + right_offset));
+    while (right_prob > thresh) {
+      cur11 += 1;
+      cur22 += 1;
+      right_prob *= cur12 * cur21 / (cur11 * cur22);
+      cur12 -= 1;
+      cur21 -= 1;
+    }
+    if (right_prob > 0) {
+      psum += right_prob;
+      do {
+	cur11 += 1;
+	cur22 += 1;
+	right_prob *= cur12 * cur21 / (cur11 * cur22);
+	cur12 -= 1;
+	cur21 -= 1;
+	dxx = psum;
+	psum += right_prob;
+      } while (psum > dxx);
+    }
+  } else {
+    dxx -= 0.5;
+    cur11 = ((intptr_t)(m11 + right_offset));
+    cur12 = ((intptr_t)(m12 - right_offset));
+    cur21 = ((intptr_t)(m21 - right_offset));
+    cur22 = ((intptr_t)(m22 + right_offset));
     do {
-      right11 += 1;
-      right22 += 1;
-      right_prob *= right12 * right21 / (right11 * right22);
-      right12 -= 1;
-      right21 -= 1;
+      cur11 += 1;
+      cur22 += 1;
+      right_prob *= cur12 * cur21 / (cur11 * cur22);
+      cur12 -= 1;
+      cur21 -= 1;
+    } while (cur11 < dxx);
+    if (right_prob == 0) {
+      return 0;
+    }
+    psum = right_prob;
+    thresh = right_prob * (1 + SMALLISH_EPSILON);
+    do {
+      if (cur12 < 0.5) {
+	break;
+      }
+      cur11 += 1;
+      cur22 += 1;
+      right_prob *= cur12 * cur21 / (cur11 * cur22);
+      cur12 -= 1;
+      cur21 -= 1;
       dxx = psum;
       psum += right_prob;
     } while (psum > dxx);
+    cur11 = ((intptr_t)m11);
+    cur12 = ((intptr_t)m12);
+    cur21 = ((intptr_t)m21);
+    cur22 = ((intptr_t)m22);
+    while (left_prob > thresh) {
+      cur12 += 1;
+      cur21 += 1;
+      left_prob *= cur11 * cur22 / (cur12 * cur21);
+      cur11 -= 1;
+      cur22 -= 1;
+    }
+    if (left_prob > 0) {
+      psum += left_prob;
+      do {
+	cur12 += 1;
+	cur21 += 1;
+	left_prob *= cur11 * cur22 / (cur12 * cur21);
+	cur11 -= 1;
+	cur22 -= 1;
+	dxx = psum;
+	psum += left_prob;
+      } while (psum > dxx);
+    }
   }
-  return psum / tot_prob;
+  return psum * tot_prob_recip;
 }
 
 void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_sum, uint32_t total, uint32_t* bounds, double* tprobs) {
@@ -552,7 +589,7 @@ void fisher22_precomp_pval_bounds(double pval, uint32_t row1_sum, uint32_t col1_
     return;
   }
   dxx = 1.0 / left_prob;
-  tprobs[0] = tot_prob * dxx;
+  tprobs[0] = left_prob / tot_prob;
   tprobs[1] = right_prob * dxx;
   if (lii & 1) {
     tail_prob -= left_prob;

@@ -538,7 +538,8 @@ static uint32_t g_precomp_start[MODEL_BLOCKSIZE];
 //   g_thread_precomp_ui[2n] and [2n + 1] are the floor and offset for the
 //     range of case_set_cts where Fisher p-value calculation is unnecessary.
 //   g_thread_precomp_d[3n], [3n + 1], and [3n + 2] are tot_prob, right_prob,
-//     and tail_sum, respectively, for fisher22_tail_pval().
+//     and tail_sum, respectively, for fisher22_tail_pval().  (This is almost
+//     irrelevant.)
 //
 // For --assoc mperm [no fisher]:
 //   g_precomp_ui is as in --assoc perm.
@@ -802,6 +803,7 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
     case_missing_ct = missing_start;
     for (uii = 0; uii < g_precomp_width; uii++) {
       fisher22_precomp_pval_bounds(max_pval, row1x_sum - case_missing_ct, col1_sum, tot_obs, uibuf, &(tpd[3 * uii]));
+      // fisher22_precomp_pval_bounds(max_pval, row1x_sum - case_missing_ct, col1_sum, tot_obs, uibuf, NULL);
       tpui[2 * uii] = uibuf[2];
       tpui[2 * uii + 1] = uibuf[3] - uibuf[2] - 1;
       case_missing_ct += min_ploidy;
