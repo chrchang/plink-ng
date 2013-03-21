@@ -2850,6 +2850,112 @@ void count_set_freq_x_60v(__m128i* vptr, __m128i* vend, __m128i* include_vec, __
   *set_ctp += ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
   *missing_ctp += ((accm.u8[0] + accm.u8[1]) * 0x1000100010001LLU) >> 48;
 }
+
+void count_homset_freq_120v(__m128i* vptr, __m128i* vend, __m128i* include_vec, uint32_t* accsp, uint32_t* accp) {
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  __m128i loader;
+  __m128i loader2;
+  __m128i both;
+  __m128i homa2;
+  __m128i accs_tmp;
+  __m128i acc_tmp;
+  __uni16 accs;
+  __uni16 acc;
+  accs.vi = _mm_setzero_si128();
+  acc.vi = _mm_setzero_si128();
+  do {
+    loader = *vptr++;
+    both = _mm_and_si128(*include_vec++, loader);
+    homa2 = _mm_and_si128(both, _mm_srli_epi64(loader, 1));
+    loader = *vptr++;
+    loader2 = _mm_and_si128(*include_vec++, loader);
+    both = _mm_add_epi64(both, loader2);
+    homa2 = _mm_add_epi64(homa2, _mm_and_si128(loader2, _mm_srli_epi64(loader, 1)));
+    loader = *vptr++;
+    loader2 = _mm_and_si128(*include_vec++, loader);
+    both = _mm_add_epi64(both, loader2);
+    homa2 = _mm_add_epi64(homa2, _mm_and_si128(loader2, _mm_srli_epi64(loader, 1)));
+
+    accs_tmp = _mm_add_epi64(_mm_and_si128(both, m2), _mm_and_si128(_mm_srli_epi64(both, 2), m2));
+    acc_tmp = _mm_add_epi64(_mm_and_si128(homa2, m2), _mm_and_si128(_mm_srli_epi64(homa2, 2), m2));
+
+    loader = *vptr++;
+    both = _mm_and_si128(*include_vec++, loader);
+    homa2 = _mm_and_si128(both, _mm_srli_epi64(loader, 1));
+    loader = *vptr++;
+    loader2 = _mm_and_si128(*include_vec++, loader);
+    both = _mm_add_epi64(both, loader2);
+    homa2 = _mm_add_epi64(homa2, _mm_and_si128(loader2, _mm_srli_epi64(loader, 1)));
+    loader = *vptr++;
+    loader2 = _mm_and_si128(*include_vec++, loader);
+    both = _mm_add_epi64(both, loader2);
+    homa2 = _mm_add_epi64(homa2, _mm_and_si128(loader2, _mm_srli_epi64(loader, 1)));
+
+    accs_tmp = _mm_add_epi64(accs_tmp, _mm_add_epi64(_mm_and_si128(both, m2), _mm_and_si128(_mm_srli_epi64(both, 2), m2)));
+    acc_tmp = _mm_add_epi64(acc_tmp, _mm_add_epi64(_mm_and_si128(homa2, m2), _mm_and_si128(_mm_srli_epi64(homa2, 2), m2)));
+    accs.vi = _mm_add_epi64(accs.vi, _mm_add_epi64(_mm_and_si128(accs_tmp, m4), _mm_and_si128(_mm_srli_epi64(accs_tmp, 4), m4)));
+    acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(acc_tmp, m4), _mm_and_si128(_mm_srli_epi64(acc_tmp, 4), m4)));
+  } while (vptr < vend);
+  accs.vi = _mm_add_epi64(_mm_and_si128(accs.vi, m8), _mm_and_si128(_mm_srli_epi64(accs.vi, 8), m8));
+  acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
+  *accsp += ((accs.u8[0] + accs.u8[1]) * 0x1000100010001LLU) >> 48;
+  *accp += ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
+}
+
+void count_homclear_freq_120v(__m128i* vptr, __m128i* vend, __m128i* include_vec, uint32_t* accsp, uint32_t* accmp) {
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  __m128i loader;
+  __m128i loader2;
+  __m128i both;
+  __m128i missings;
+  __m128i accs_tmp;
+  __m128i accm_tmp;
+  __uni16 accs;
+  __uni16 accm;
+  accs.vi = _mm_setzero_si128();
+  accm.vi = _mm_setzero_si128();
+  do {
+    loader = *vptr++;
+    both = _mm_andnot_si128(_mm_srli_epi64(loader, 1), *include_vec++);
+    missings = _mm_and_si128(both, loader);
+    loader = *vptr++;
+    loader2 = _mm_andnot_si128(_mm_srli_epi64(loader, 1), *include_vec++);
+    both = _mm_add_epi64(both, loader2);
+    missings = _mm_add_epi64(missings, _mm_and_si128(loader, loader2));
+    loader = *vptr++;
+    loader2 = _mm_andnot_si128(_mm_srli_epi64(loader, 1), *include_vec++);
+    both = _mm_add_epi64(both, loader2);
+    missings = _mm_add_epi64(missings, _mm_and_si128(loader, loader2));
+
+    accs_tmp = _mm_add_epi64(_mm_and_si128(both, m2), _mm_and_si128(_mm_srli_epi64(both, 2), m2));
+    accm_tmp = _mm_add_epi64(_mm_and_si128(missings, m2), _mm_and_si128(_mm_srli_epi64(missings, 2), m2));
+
+    loader = *vptr++;
+    both = _mm_andnot_si128(_mm_srli_epi64(loader, 1), *include_vec++);
+    missings = _mm_and_si128(both, loader);
+    loader = *vptr++;
+    loader2 = _mm_andnot_si128(_mm_srli_epi64(loader, 1), *include_vec++);
+    both = _mm_add_epi64(both, loader2);
+    missings = _mm_add_epi64(missings, _mm_and_si128(loader, loader2));
+    loader = *vptr++;
+    loader2 = _mm_andnot_si128(_mm_srli_epi64(loader, 1), *include_vec++);
+    both = _mm_add_epi64(both, loader2);
+    missings = _mm_add_epi64(missings, _mm_and_si128(loader, loader2));
+
+    accs_tmp = _mm_add_epi64(accs_tmp, _mm_add_epi64(_mm_and_si128(both, m2), _mm_and_si128(_mm_srli_epi64(both, 2), m2)));
+    accm_tmp = _mm_add_epi64(accm_tmp, _mm_add_epi64(_mm_and_si128(missings, m2), _mm_and_si128(_mm_srli_epi64(missings, 2), m2)));
+    accs.vi = _mm_add_epi64(accs.vi, _mm_add_epi64(_mm_and_si128(accs_tmp, m4), _mm_and_si128(_mm_srli_epi64(accs_tmp, 4), m4)));
+    accm.vi = _mm_add_epi64(accm.vi, _mm_add_epi64(_mm_and_si128(accm_tmp, m4), _mm_and_si128(_mm_srli_epi64(accm_tmp, 4), m4)));
+  } while (vptr < vend);
+  accs.vi = _mm_add_epi64(_mm_and_si128(accs.vi, m8), _mm_and_si128(_mm_srli_epi64(accs.vi, 8), m8));
+  accm.vi = _mm_add_epi64(_mm_and_si128(accm.vi, m8), _mm_and_si128(_mm_srli_epi64(accm.vi, 8), m8));
+  *accsp += ((accs.u8[0] + accs.u8[1]) * 0x1000100010001LLU) >> 48;
+  *accmp += ((accm.u8[0] + accm.u8[1]) * 0x1000100010001LLU) >> 48;
+}
 #else
 void count_set_freq_6(uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
   uintptr_t loader = *lptr++;
@@ -3017,20 +3123,6 @@ void count_set_freq_x_6(uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* nonm
   uintptr_t males;
   uintptr_t acc;
   uintptr_t accm;
-  /*
-    loader = *lptr++;
-    loader2 = loader >> 1;
-    loader3 = *include_vec++;
-    loader4 = loader3 & (*nonmale_vec++);
-    missing_incr = popcount2_long(loader & (~loader2) & loader4);
-    accm += 2 * missing_incr;
-    acc += popcount_long(loader & (loader4 * 3)) - missing_incr;
-
-    loader4 = loader3 & (*male_vec++);
-    acc += popcount2_long(loader & loader2 & loader4);
-    accm += popcount_long(((loader ^ loader2) & loader4) | (loader4 << 1));
-  */
-
   males = loader3 & (*male_vec++);
   set_evens |= loader & loader2 & males;
   missings_m = (loader ^ loader2) & males;
@@ -3117,6 +3209,154 @@ void count_set_freq_x_6(uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* nonm
   accm += (missings_nm & 0x0f0f0f0f) + ((missings_nm >> 4) & 0x0f0f0f0f);
   *set_ctp += (acc * 0x01010101) >> 24;
   *missing_ctp += (accm * 0x01010101) >> 24;
+}
+
+void count_homset_freq_12(uintptr_t* lptr, uintptr_t* include_vec, uint32_t* accsp, uint32_t* accp) {
+  uintptr_t loader = *lptr++;
+  uintptr_t both = (*include_vec++) & loader;
+  uintptr_t homa2 = (loader >> 1) & both;
+  uintptr_t loader2;
+  uintptr_t accs;
+  uintptr_t acc;
+  uintptr_t accs2;
+  uintptr_t acc2;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & loader;
+  both += loader2;
+  homa2 += (loader >> 1) & loader2;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & loader;
+  both += loader2;
+  homa2 += (loader >> 1) & loader2;
+
+  accs = (both & 0x33333333) + ((both >> 2) & 0x33333333);
+  acc = (homa2 & 0x33333333) + ((homa2 >> 2) & 0x33333333);
+
+  loader = *lptr++;
+  both = (*include_vec++) & loader;
+  homa2 = (loader >> 1) & both;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & loader;
+  both += loader2;
+  homa2 += (loader >> 1) & loader2;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & loader;
+  both += loader2;
+  homa2 += (loader >> 1) & loader2;
+
+  accs += (both & 0x33333333) + ((both >> 2) & 0x33333333);
+  acc += (homa2 & 0x33333333) + ((homa2 >> 2) & 0x33333333);
+
+  loader = *lptr++;
+  both = (*include_vec++) & loader;
+  homa2 = (loader >> 1) & both;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & loader;
+  both += loader2;
+  homa2 += (loader >> 1) & loader2;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & loader;
+  both += loader2;
+  homa2 += (loader >> 1) & loader2;
+
+  accs2 = (both & 0x33333333) + ((both >> 2) & 0x33333333);
+  acc2 = (homa2 & 0x33333333) + ((homa2 >> 2) & 0x33333333);
+
+  loader = *lptr++;
+  both = (*include_vec++) & loader;
+  homa2 = (loader >> 1) & both;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & loader;
+  both += loader2;
+  homa2 += (loader >> 1) & loader2;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & loader;
+  both += loader2;
+  homa2 += (loader >> 1) & loader2;
+
+  accs2 += (both & 0x33333333) + ((both >> 2) & 0x33333333);
+  acc2 += (homa2 & 0x33333333) + ((homa2 >> 2) & 0x33333333);
+
+  accs = (accs & 0x0f0f0f0f) + ((accs >> 4) & 0x0f0f0f0f);
+  acc = (acc & 0x0f0f0f0f) + ((acc >> 4) & 0x0f0f0f0f);
+  accs += (accs2 & 0x0f0f0f0f) + ((accs2 >> 4) & 0x0f0f0f0f);
+  acc += (acc2 & 0x0f0f0f0f) + ((acc2 >> 4) & 0x0f0f0f0f);
+  *accsp += (accs * 0x01010101) >> 24;
+  *accp += (acc * 0x01010101) >> 24;
+}
+
+void count_homclear_freq_12(uintptr_t* lptr, uintptr_t* include_vec, uint32_t* accsp, uint32_t* accmp) {
+  uintptr_t loader = *lptr++;
+  uintptr_t both = (*include_vec++) & (~(loader >> 1));
+  uintptr_t missings = loader & both;
+  uintptr_t loader2;
+  uintptr_t accs;
+  uintptr_t accm;
+  uintptr_t accs2;
+  uintptr_t accm2;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & (~(loader >> 1));
+  both += loader2;
+  missings += loader & both;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & (~(loader >> 1));
+  both += loader2;
+  missings += loader & both;
+
+  accs = (both & 0x33333333) + ((both >> 2) & 0x33333333);
+  accm = (missings & 0x33333333) + ((missings >> 2) & 0x33333333);
+
+  loader = *lptr++;
+  both = (*include_vec++) & (~(loader >> 1));
+  missings = loader & both;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & (~(loader >> 1));
+  both += loader2;
+  missings += loader & both;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & (~(loader >> 1));
+  both += loader2;
+  missings += loader & both;
+
+  accs += (both & 0x33333333) + ((both >> 2) & 0x33333333);
+  accm += (missings & 0x33333333) + ((missings >> 2) & 0x33333333);
+
+  loader = *lptr++;
+  both = (*include_vec++) & (~(loader >> 1));
+  missings = loader & both;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & (~(loader >> 1));
+  both += loader2;
+  missings += loader & both;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & (~(loader >> 1));
+  both += loader2;
+  missings += loader & both;
+
+  accs2 = (both & 0x33333333) + ((both >> 2) & 0x33333333);
+  accm2 = (missings & 0x33333333) + ((missings >> 2) & 0x33333333);
+
+  loader = *lptr++;
+  both = (*include_vec++) & (~(loader >> 1));
+  missings = loader & both;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & (~(loader >> 1));
+  both += loader2;
+  missings += loader & both;
+  loader = *lptr++;
+  loader2 = (*include_vec++) & (~(loader >> 1));
+  both += loader2;
+  missings += loader & both;
+
+  accs2 += (both & 0x33333333) + ((both >> 2) & 0x33333333);
+  accm2 += (missings & 0x33333333) + ((missings >> 2) & 0x33333333);
+
+  accs = (accs & 0x0f0f0f0f) + ((accs >> 4) & 0x0f0f0f0f);
+  accm = (accm & 0x0f0f0f0f) + ((accm >> 4) & 0x0f0f0f0f);
+  accs += (accs2 & 0x0f0f0f0f) + ((accs2 >> 4) & 0x0f0f0f0f);
+  accm += (accm2 & 0x0f0f0f0f) + ((accm2 >> 4) & 0x0f0f0f0f);
+  *accsp += (accs * 0x01010101) >> 24;
+  *accmp += (accm * 0x01010101) >> 24;
 }
 #endif
 
@@ -3270,6 +3510,93 @@ void vec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ve
   *missing_ctp = accm;
 }
 
+void vec_homset_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* homa2_ctp, uint32_t* missing_ctp) {
+  // Counts homozygote-A2s and missings.
+  // sum of both: popcount2(genotype & 0x5555...)
+  // homozyg A2s only: popcount2(genotype & (genotype >> 1) & 0x5555...)
+  uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
+  uintptr_t loader;
+  uintptr_t loader2;
+  uint32_t accs = 0;
+  uint32_t acc = 0;
+#ifdef __LP64__
+  uintptr_t cur_decr;
+  uintptr_t* lptr_12x_end;
+  indiv_ctl2 -= indiv_ctl2 % 12;
+  while (indiv_ctl2 >= 120) {
+    cur_decr = 120;
+  vec_homset_freq_loop:
+    lptr_12x_end = &(lptr[cur_decr]);
+    count_homset_freq_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, &accs, &acc);
+    lptr = lptr_12x_end;
+    include_vec = &(include_vec[cur_decr]);
+    indiv_ctl2 -= cur_decr;
+  }
+  if (indiv_ctl2) {
+    cur_decr = indiv_ctl2;
+    goto vec_homset_freq_loop;
+  }
+#else
+  uintptr_t* lptr_twelve_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 12)]);
+  while (lptr < lptr_twelve_end) {
+    count_homset_freq_12(lptr, include_vec, &accs, &acc);
+    lptr = &(lptr[12]);
+    include_vec = &(include_vec[12]);
+  }
+#endif
+  while (lptr < lptr_end) {
+    loader = *lptr++;
+    loader2 = (*include_vec++) & loader;
+    accs += popcount2_long(loader2);
+    acc += popcount2_long((loader >> 1) & loader2);
+  }
+  *homa2_ctp = acc;
+  *missing_ctp = accs - acc;
+}
+
+void vec_homclear_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* homa1_ctp, uint32_t* missing_ctp) {
+  // Counts homozygote-A1s and missings.
+  // sum of both: popcount2((~genotype >> 1) & 0x5555...)
+  // missings only: popcount2(genotype & (~genotype >> 1) & 0x5555...)
+  uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
+  uintptr_t loader;
+  uintptr_t loader2;
+  uint32_t accs = 0;
+  uint32_t accm = 0;
+#ifdef __LP64__
+  uintptr_t cur_decr;
+  uintptr_t* lptr_12x_end;
+  indiv_ctl2 -= indiv_ctl2 % 12;
+  while (indiv_ctl2 >= 120) {
+    cur_decr = 120;
+  vec_homclear_freq_loop:
+    lptr_12x_end = &(lptr[cur_decr]);
+    count_homclear_freq_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, &accs, &accm);
+    lptr = lptr_12x_end;
+    include_vec = &(include_vec[cur_decr]);
+    indiv_ctl2 -= cur_decr;
+  }
+  if (indiv_ctl2) {
+    cur_decr = indiv_ctl2;
+    goto vec_homclear_freq_loop;
+  }
+#else
+  uintptr_t* lptr_twelve_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 12)]);
+  while (lptr < lptr_twelve_end) {
+    count_homclear_freq_12(lptr, include_vec, &accs, &accm);
+    lptr = &(lptr[12]);
+    include_vec = &(include_vec[12]);
+  }
+#endif
+  while (lptr < lptr_end) {
+    loader = *lptr++;
+    loader2 = (*include_vec++) & (~(loader >> 1));
+    accs += popcount2_long(loader2);
+    accm += popcount2_long(loader & loader2);
+  }
+  *missing_ctp = accm;
+  *homa1_ctp = accs - accm;
+}
 
 #ifdef __LP64__
 void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp) {
