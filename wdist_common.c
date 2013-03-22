@@ -3598,6 +3598,106 @@ void vec_homclear_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include
   *homa1_ctp = accs - accm;
 }
 
+void vec_homset_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* homa2_ctp, uint32_t* missing_ctp) {
+  // Counts homozygote-A2s and missings, counting all males as missing.
+  // sum of both: popcount2((genotype | male) & 0x5555...)
+  // homa2: popcount2((genotype | male) & 0x5555... & (geno >> 1) & ~male)
+  uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
+  uintptr_t loader;
+  uintptr_t loader2;
+  uintptr_t loader3;
+  uint32_t accs = 0;
+  uint32_t acc = 0;
+  /*
+#ifdef __LP64__
+  uintptr_t cur_decr;
+  uintptr_t* lptr_12x_end;
+  indiv_ctl2 -= indiv_ctl2 % 12;
+  while (indiv_ctl2 >= 120) {
+    cur_decr = 120;
+  vec_homset_freq_loop:
+    lptr_12x_end = &(lptr[cur_decr]);
+    count_homset_freq_x_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, (__m128i*)male_vec, &accs, &acc);
+    lptr = lptr_12x_end;
+    include_vec = &(include_vec[cur_decr]);
+    male_vec = &(male_vec[cur_decr]);
+    indiv_ctl2 -= cur_decr;
+  }
+  if (indiv_ctl2) {
+    cur_decr = indiv_ctl2;
+    goto vec_homset_freq_loop;
+  }
+#else
+  uintptr_t* lptr_twelve_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 12)]);
+  while (lptr < lptr_twelve_end) {
+    count_homset_freq_x_12(lptr, include_vec, male_vec, &accs, &acc);
+    lptr = &(lptr[12]);
+    include_vec = &(include_vec[12]);
+    male_vec = &(male_vec[12]);
+  }
+#endif
+  */
+  while (lptr < lptr_end) {
+    loader = *lptr++;
+    loader2 = *male_vec++;
+    loader3 = (loader | loader2) & (*include_vec++);
+    accs += popcount2_long(loader3);
+    acc += popcount2_long(loader3 & (loader >> 1) & (~loader2));
+  }
+  *homa2_ctp = acc;
+  *missing_ctp = accs - acc;
+}
+
+void vec_homclear_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* homa1_ctp, uint32_t* missing_ctp) {
+  // Counts homozygote-A1s and missings, counting all males as missing.
+  // sum of both: popcount2(((~genotype >> 1) | male) & 0x5555...)
+  // homa1: popcount2(((~genotype >> 1) | male) & 0x5555... & ~male & ~geno)
+  uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
+  uintptr_t loader;
+  uintptr_t loader2;
+  uintptr_t loader3;
+  uint32_t accs = 0;
+  uint32_t acc = 0;
+  /*
+#ifdef __LP64__
+  uintptr_t cur_decr;
+  uintptr_t* lptr_12x_end;
+  indiv_ctl2 -= indiv_ctl2 % 12;
+  while (indiv_ctl2 >= 120) {
+    cur_decr = 120;
+  vec_homclear_freq_loop:
+    lptr_12x_end = &(lptr[cur_decr]);
+    count_homclear_freq_x_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, (__m128i*)male_vec, &accs, &acc);
+    lptr = lptr_12x_end;
+    include_vec = &(include_vec[cur_decr]);
+    male_vec = &(male_vec[cur_decr]);
+    indiv_ctl2 -= cur_decr;
+  }
+  if (indiv_ctl2) {
+    cur_decr = indiv_ctl2;
+    goto vec_homclear_freq_loop;
+  }
+#else
+  uintptr_t* lptr_twelve_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 12)]);
+  while (lptr < lptr_twelve_end) {
+    count_homclear_freq_x_12(lptr, include_vec, male_vec, &accs, &acc);
+    lptr = &(lptr[12]);
+    include_vec = &(include_vec[12]);
+    male_vec = &(male_vec[12]);
+  }
+#endif
+  */
+  while (lptr < lptr_end) {
+    loader = *lptr++;
+    loader2 = *male_vec++;
+    loader3 = ((~(loader >> 1)) | loader2) & (*include_vec++);
+    accs += popcount2_long(loader3);
+    acc += popcount2_long(loader3 & (~loader2) & (~loader));
+  }
+  *homa1_ctp = acc;
+  *missing_ctp = accs - acc;
+}
+
 #ifdef __LP64__
 void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};

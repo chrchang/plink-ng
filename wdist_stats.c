@@ -1132,6 +1132,22 @@ double chi22_eval(intptr_t m11, intptr_t row1_sum, intptr_t col1_sum, intptr_t t
   }
 }
 
+double chi22_evalx(intptr_t m11, intptr_t row1_sum, intptr_t col1_sum, intptr_t total) {
+  // PLINK emulation.  returns -9 instead of 0 if row1_sum, row2_sum, col1_sum,
+  // or col2_sum is zero, for identical "NA" reporting.
+  double expm11_numer = ((uint64_t)row1_sum) * ((uint64_t)col1_sum);
+  double denom = expm11_numer * (((uint64_t)(total - row1_sum)) * ((uint64_t)(total - col1_sum)));
+  double dxx;
+  double dyy;
+  if (denom != 0) {
+    dxx = total;
+    dyy = m11 * dxx - expm11_numer; // total * (m11 - expm11)
+    return (dyy * dyy * dxx) / denom;
+  } else {
+    return -9;
+  }
+}
+
 void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum, intptr_t total, uint32_t* bounds, double* coeffs) {
   // Treating m11 as the only variable, this returns the minimum and (maximum +
   // 1) values of m11 which produce smaller chisq statistics than given in
@@ -1198,5 +1214,87 @@ void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum
     } else {
       bounds[3] = lii;
     }
+  }
+}
+
+double chi23_evalx(intptr_t m11, intptr_t m12, intptr_t m13, intptr_t m21, intptr_t m22, intptr_t m23) {
+  // Slightly different from PLINK calculation, since it doesn't return nan if
+  // a lone column is zero.
+  intptr_t row1_sum = m11 + m12 + m13;
+  intptr_t row2_sum = m21 + m22 + m23;
+  intptr_t col1_sum = m11 + m21;
+  intptr_t col2_sum = m12 + m22;
+  intptr_t col3_sum = m13 + m23;
+  intptr_t total;
+  double col1_sumd;
+  double col2_sumd;
+  double col3_sumd;
+  double tot_recip;
+  double dxx;
+  double expect;
+  double delta;
+  double chisq;
+  if ((!row1_sum) || (!row2_sum)) {
+    return -9;
+  }
+  total = row1_sum + row2_sum;
+  if (!col1_sum) {
+    return chi22_evalx(m12, row1_sum, col2_sum, total);
+  } else if ((!col2_sum) || (!col3_sum)) {
+    return chi22_evalx(m11, row1_sum, col1_sum, total);
+  }
+  col1_sumd = col1_sum;
+  col2_sumd = col2_sum;
+  col3_sumd = col3_sum;
+  tot_recip = 1.0 / ((double)total);
+  dxx = row1_sum * tot_recip;
+  expect = dxx * col1_sumd;
+  delta = m11 - expect;
+  chisq = delta * delta / expect;
+  expect = dxx * col2_sumd;
+  delta = m12 - expect;
+  chisq += delta * delta / expect;
+  expect = dxx * col3_sumd;
+  delta = m13 - expect;
+  chisq += delta * delta / expect;
+  dxx = row2_sum * tot_recip;
+  expect = dxx * col1_sumd;
+  delta = m21 - expect;
+  chisq += delta * delta / expect;
+  expect = dxx * col2_sumd;
+  delta = m22 - expect;
+  chisq += delta * delta / expect;
+  expect = dxx * col3_sumd;
+  delta = m23 - expect;
+  return chisq + (delta * delta / expect);
+}
+
+double ca_trend_evalx(intptr_t case_a2_ct, intptr_t case_ct, intptr_t het_ct, intptr_t homa2_ct, intptr_t total) {
+  // case_a2_ct is an allele count (2 * homa2 + het), while other inputs are
+  // observation counts.
+  //
+  // If case_missing_ct is fixed,
+  //   row1_sum = case ct
+  //   col1_sum = A2 ct
+  //   case_ct * ctrl_ct * A1_ct * A2_ct
+  //   A1_ct = 2 * obs_11 + obs_12
+  //   A2_ct = 2 * obs_22 + obs_12
+  //   CA = (obs_U / obs_T) * (case A2 ct) - (obs_A / obs_T) * (ctrl A2 ct)
+  //      = (case A2) * (obs_U / obs_T) - (obs_A / obs_T) * (A2 ct - case A2)
+  //      = (case A2) * (obs_U / obs_T) + (case A2) * (obs_A / obs_T) - A2*(A/T)
+  //      = (case A2 ct) - total A2 ct * (A/T)
+  //   varCA_recip = obs_T * obs_T * obs_T /
+  //     (obs_A * obs_U * (obs_T * (obs_12 + 4 * obs_22) - A2ct * A2ct))
+  //   trend statistic = CA * CA * varCA_recip
+  double a2_ct = het_ct + 2 * homa2_ct;
+  double totald = total;
+  double case_ctd = case_ct;
+  double ca = case_a2_ct - a2_ct * case_ctd / totald;
+  double dxx = totald * (het_ct + 4 * ((int64_t)homa2_ct)) - a2_ct * a2_ct;
+  if (dxx != 0) {
+    dxx *= case_ctd * (totald - case_ctd);
+    return ca * ca * totald * totald * totald / dxx;
+  } else {
+    return -9;
   }
 }

@@ -5,6 +5,14 @@
 
 double chiprob_p(double xx, double df);
 
+static inline double chiprob_px(double xx, double df) {
+  if (xx != -9) {
+    return chiprob_p(xx, df);
+  } else {
+    return -9;
+  }
+}
+
 double inverse_chiprob(double qq, double df);
 
 double ltqnorm(double p);
@@ -21,6 +29,12 @@ void chi22_get_coeffs(intptr_t row1_sum, intptr_t col1_sum, intptr_t total, doub
 
 double chi22_eval(intptr_t m11, intptr_t row1_sum, intptr_t col1_sum, intptr_t total);
 
+double chi22_evalx(intptr_t m11, intptr_t row1_sum, intptr_t col1_sum, intptr_t total);
+
 void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum, intptr_t total, uint32_t* bounds, double* coeffs);
+
+double chi23_evalx(intptr_t m11, intptr_t m12, intptr_t m13, intptr_t m21, intptr_t m22, intptr_t m23);
+
+double ca_trend_evalx(intptr_t case_a2_ct, intptr_t case_ct, intptr_t het_ct, intptr_t homa2_ct, intptr_t total);
 
 #endif
