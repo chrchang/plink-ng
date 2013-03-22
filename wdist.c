@@ -70,7 +70,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (21 Mar 2013)";
+  " (22 Mar 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -8017,6 +8017,10 @@ int32_t main(int32_t argc, char** argv) {
 	model_modifier |= MODEL_PTREND;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "perm", 5)) {
+	if (model_modifier & (MODEL_PERM | MODEL_MPERM)) {
+	  sprintf(logbuf, "Error: --mperm cannot be used with --%s %sperm.%s", (model_modifier & MODEL_ASSOC)? "assoc" : "model", (model_modifier & MODEL_PERM)? "" : "m", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8025,13 +8029,10 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --mperm parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (model_modifier & (MODEL_PERM | MODEL_MPERM)) {
-	  sprintf(logbuf, "Error: --mperm cannot be used with --%s %sperm.%s", (model_modifier & MODEL_ASSOC)? "assoc" : "model", (model_modifier & MODEL_PERM)? "" : "m", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	logprint("Note: --mperm flag deprecated.  Use e.g. '--model mperm=[value]'.");
+	logprint("Note: --mperm flag deprecated.  Use e.g. '--model mperm=[value]'.\n");
 	mperm_val = (uint32_t)ii;
 	model_mperm_val = mperm_val;
+	model_modifier |= MODEL_MPERM;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }

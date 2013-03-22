@@ -1118,6 +1118,20 @@ void chi22_get_coeffs(intptr_t row1_sum, intptr_t col1_sum, intptr_t total, doub
   }
 }
 
+double chi22_eval(intptr_t m11, intptr_t row1_sum, intptr_t col1_sum, intptr_t total) {
+  double expm11_numer = ((uint64_t)row1_sum) * ((uint64_t)col1_sum);
+  double denom = expm11_numer * (((uint64_t)(total - row1_sum)) * ((uint64_t)(total - col1_sum)));
+  double dxx;
+  double dyy;
+  if (denom != 0) {
+    dxx = total;
+    dyy = m11 * dxx - expm11_numer; // total * (m11 - expm11)
+    return (dyy * dyy * dxx) / denom;
+  } else {
+    return 0;
+  }
+}
+
 void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum, intptr_t total, uint32_t* bounds, double* coeffs) {
   // Treating m11 as the only variable, this returns the minimum and (maximum +
   // 1) values of m11 which produce smaller chisq statistics than given in

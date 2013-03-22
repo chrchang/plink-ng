@@ -19,6 +19,8 @@ double fisher23(uint32_t m11, uint32_t m12, uint32_t m13, uint32_t m21, uint32_t
 
 void chi22_get_coeffs(intptr_t row1_sum, intptr_t col1_sum, intptr_t total, double* expm11p, double* recip_sump);
 
+double chi22_eval(intptr_t m11, intptr_t row1_sum, intptr_t col1_sum, intptr_t total);
+
 void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum, intptr_t total, uint32_t* bounds, double* coeffs);
 
 #endif
