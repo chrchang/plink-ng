@@ -3510,6 +3510,58 @@ void vec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ve
   *missing_ctp = accm;
 }
 
+void vec_set_freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+  // diploid counting for nonmales, males count as missing
+  // set_ct = popcount(genotype & (((genotype >> 1) & nonmale & 0x555...) * 3))
+  // missing_ct = popcount2(((genotype & (~genotype >> 1)) | male) & 0x5555...)
+  uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
+  uintptr_t loader;
+  uintptr_t loader2;
+  uintptr_t loader3;
+  uintptr_t loader4;
+  uint32_t acc = 0;
+  uint32_t accm = 0;
+  /*
+#ifdef __LP64__
+  uintptr_t cur_decr;
+  uintptr_t* lptr_6x_end;
+  indiv_ctl2 -= indiv_ctl2 % 6;
+  while (indiv_ctl2 >= 60) {
+    cur_decr = 60;
+  vec_set_freq_loop:
+    lptr_6x_end = &(lptr[cur_decr]);
+    count_set_freq_xx_60v((__m128i*)lptr, (__m128i*)lptr_6x_end, (__m128i*)include_vec, (__m128i*)male_vec, &acc, &accm);
+    lptr = lptr_6x_end;
+    include_vec = &(include_vec[cur_decr]);
+    male_vec = &(nonmale_vec[cur_decr]);
+    indiv_ctl2 -= cur_decr;
+  }
+  if (indiv_ctl2) {
+    cur_decr = indiv_ctl2;
+    goto vec_set_freq_loop;
+  }
+#else
+  uintptr_t* lptr_six_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 6)]);
+  while (lptr < lptr_twelve_end) {
+    count_set_freq_xx_6(lptr, include_vec, male_vec, &acc, &accm);
+    lptr = &(lptr[6]);
+    include_vec = &(include_vec[6]);
+    male_vec = &(male_vec[6]);
+  }
+#endif
+  */
+  while (lptr < lptr_end) {
+    loader = *lptr++;
+    loader2 = loader >> 1;
+    loader3 = *include_vec++;
+    loader4 = *male_vec++;
+    acc += popcount_long(loader & (3 * (loader2 & (~loader4) & loader3)));
+    accm += popcount2_long(((loader & (~loader2)) | loader4) & loader3);
+  }
+  *set_ctp = acc;
+  *missing_ctp = accm;
+}
+
 void vec_homset_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* homa2_ctp, uint32_t* missing_ctp) {
   // Counts homozygote-A2s and missings.
   // sum of both: popcount2(genotype & 0x5555...)
@@ -3598,7 +3650,7 @@ void vec_homclear_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include
   *homa1_ctp = accs - accm;
 }
 
-void vec_homset_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* homa2_ctp, uint32_t* missing_ctp) {
+void vec_homset_freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* homa2_ctp, uint32_t* missing_ctp) {
   // Counts homozygote-A2s and missings, counting all males as missing.
   // sum of both: popcount2((genotype | male) & 0x5555...)
   // homa2: popcount2((genotype | male) & 0x5555... & (geno >> 1) & ~male)
@@ -3617,7 +3669,7 @@ void vec_homset_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include
     cur_decr = 120;
   vec_homset_freq_loop:
     lptr_12x_end = &(lptr[cur_decr]);
-    count_homset_freq_x_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, (__m128i*)male_vec, &accs, &acc);
+    count_homset_freq_xx_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, (__m128i*)male_vec, &accs, &acc);
     lptr = lptr_12x_end;
     include_vec = &(include_vec[cur_decr]);
     male_vec = &(male_vec[cur_decr]);
@@ -3630,7 +3682,7 @@ void vec_homset_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include
 #else
   uintptr_t* lptr_twelve_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 12)]);
   while (lptr < lptr_twelve_end) {
-    count_homset_freq_x_12(lptr, include_vec, male_vec, &accs, &acc);
+    count_homset_freq_xx_12(lptr, include_vec, male_vec, &accs, &acc);
     lptr = &(lptr[12]);
     include_vec = &(include_vec[12]);
     male_vec = &(male_vec[12]);
@@ -3648,7 +3700,7 @@ void vec_homset_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include
   *missing_ctp = accs - acc;
 }
 
-void vec_homclear_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* homa1_ctp, uint32_t* missing_ctp) {
+void vec_homclear_freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* homa1_ctp, uint32_t* missing_ctp) {
   // Counts homozygote-A1s and missings, counting all males as missing.
   // sum of both: popcount2(((~genotype >> 1) | male) & 0x5555...)
   // homa1: popcount2(((~genotype >> 1) | male) & 0x5555... & ~male & ~geno)
@@ -3667,7 +3719,7 @@ void vec_homclear_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* inclu
     cur_decr = 120;
   vec_homclear_freq_loop:
     lptr_12x_end = &(lptr[cur_decr]);
-    count_homclear_freq_x_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, (__m128i*)male_vec, &accs, &acc);
+    count_homclear_freq_xx_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, (__m128i*)male_vec, &accs, &acc);
     lptr = lptr_12x_end;
     include_vec = &(include_vec[cur_decr]);
     male_vec = &(male_vec[cur_decr]);
@@ -3680,7 +3732,7 @@ void vec_homclear_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* inclu
 #else
   uintptr_t* lptr_twelve_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 12)]);
   while (lptr < lptr_twelve_end) {
-    count_homclear_freq_x_12(lptr, include_vec, male_vec, &accs, &acc);
+    count_homclear_freq_xx_12(lptr, include_vec, male_vec, &accs, &acc);
     lptr = &(lptr[12]);
     include_vec = &(include_vec[12]);
     male_vec = &(male_vec[12]);

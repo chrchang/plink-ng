@@ -1217,9 +1217,9 @@ void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum
   }
 }
 
-double chi23_evalx(intptr_t m11, intptr_t m12, intptr_t m13, intptr_t m21, intptr_t m22, intptr_t m23) {
-  // Slightly different from PLINK calculation, since it doesn't return nan if
-  // a lone column is zero.
+void chi23_evalx(intptr_t m11, intptr_t m12, intptr_t m13, intptr_t m21, intptr_t m22, intptr_t m23, double* chip, uint32_t* dfp) {
+  // Slightly different from PLINK calculation, since it detects lone nonzero
+  // columns.
   intptr_t row1_sum = m11 + m12 + m13;
   intptr_t row2_sum = m21 + m22 + m23;
   intptr_t col1_sum = m11 + m21;
@@ -1235,13 +1235,27 @@ double chi23_evalx(intptr_t m11, intptr_t m12, intptr_t m13, intptr_t m21, intpt
   double delta;
   double chisq;
   if ((!row1_sum) || (!row2_sum)) {
-    return -9;
+    *chip = -9;
+    *dfp = 0;
+    return;
   }
   total = row1_sum + row2_sum;
   if (!col1_sum) {
-    return chi22_evalx(m12, row1_sum, col2_sum, total);
+    *chip = chi22_evalx(m12, row1_sum, col2_sum, total);
+    if (*chip != -9) {
+      *dfp = 1;
+    } else {
+      *dfp = 0;
+    }
+    return;
   } else if ((!col2_sum) || (!col3_sum)) {
-    return chi22_evalx(m11, row1_sum, col1_sum, total);
+    *chip = chi22_evalx(m11, row1_sum, col1_sum, total);
+    if (*chip != -9) {
+      *dfp = 1;
+    } else {
+      *dfp = 0;
+    }
+    return;
   }
   col1_sumd = col1_sum;
   col2_sumd = col2_sum;
@@ -1266,13 +1280,55 @@ double chi23_evalx(intptr_t m11, intptr_t m12, intptr_t m13, intptr_t m21, intpt
   chisq += delta * delta / expect;
   expect = dxx * col3_sumd;
   delta = m23 - expect;
-  return chisq + (delta * delta / expect);
+  *chip = chisq + (delta * delta / expect);
+  *dfp = 2;
 }
 
-double ca_trend_evalx(intptr_t case_a2_ct, intptr_t case_ct, intptr_t het_ct, intptr_t homa2_ct, intptr_t total) {
+double ca_trend_eval(intptr_t case_a2_ct, intptr_t case_ct, intptr_t het_ct, intptr_t homa2_ct, intptr_t total) {
   // case_a2_ct is an allele count (2 * homa2 + het), while other inputs are
   // observation counts.
   //
+  // If case_missing_ct is fixed,
+  //   row1_sum = case ct
+  //   col1_sum = A2 ct
+  //   case_ct * ctrl_ct * A1_ct * A2_ct
+  //   A1_ct = 2 * obs_11 + obs_12
+  //   A2_ct = 2 * obs_22 + obs_12
+  //   CA = (obs_U / obs_T) * (case A2 ct) - (obs_A / obs_T) * (ctrl A2 ct)
+  //      = (case A2) * (obs_U / obs_T) - (obs_A / obs_T) * (A2 ct - case A2)
+  //      = (case A2) * (obs_U / obs_T) + (case A2) * (obs_A / obs_T) - A2*(A/T)
+  //      = (case A2 ct) - total A2 ct * (A/T)
+  //   CAT = CA * obs_T
+  //   varCA_recip = obs_T * obs_T * obs_T /
+  //     (obs_A * obs_U * (obs_T * (obs_12 + 4 * obs_22) - A2ct * A2ct))
+  //   trend statistic = CAT * CAT * [varCA_recip / obs_T^2]
+  double a2_ct = het_ct + 2 * homa2_ct;
+  double totald = total;
+  double case_ctd = case_ct;
+  double cat = case_a2_ct * totald - a2_ct * case_ctd;
+  double dxx = totald * (het_ct + 4 * ((int64_t)homa2_ct)) - a2_ct * a2_ct;
+
+  // This should never be called with dxx == 0 (which happens when two columns
+  // are all-zero).  Use ca_trend_evalx() to check for that.
+  dxx *= case_ctd * (totald - case_ctd);
+  return cat * cat * totald / dxx;
+}
+
+double ca_trend_evalx(intptr_t case_a2_ct, intptr_t case_ct, intptr_t het_ct, intptr_t homa2_ct, intptr_t total) {
+  double a2_ct = het_ct + 2 * homa2_ct;
+  double totald = total;
+  double case_ctd = case_ct;
+  double cat = case_a2_ct * totald - a2_ct * case_ctd;
+  double dxx = totald * (het_ct + 4 * ((int64_t)homa2_ct)) - a2_ct * a2_ct;
+  if (dxx != 0) {
+    dxx *= case_ctd * (totald - case_ctd);
+    return cat * cat * totald / dxx;
+  } else {
+    return -9;
+  }
+}
+
+void ca_trend_precomp_val_bounds(double chisq, intptr_t case_ct, intptr_t het_ct, intptr_t homa2_ct, intptr_t total, uint32_t* bounds, double* coeffs) {
   // If case_missing_ct is fixed,
   //   row1_sum = case ct
   //   col1_sum = A2 ct
@@ -1289,12 +1345,57 @@ double ca_trend_evalx(intptr_t case_a2_ct, intptr_t case_ct, intptr_t het_ct, in
   double a2_ct = het_ct + 2 * homa2_ct;
   double totald = total;
   double case_ctd = case_ct;
-  double ca = case_a2_ct - a2_ct * case_ctd / totald;
-  double dxx = totald * (het_ct + 4 * ((int64_t)homa2_ct)) - a2_ct * a2_ct;
-  if (dxx != 0) {
-    dxx *= case_ctd * (totald - case_ctd);
-    return ca * ca * totald * totald * totald / dxx;
+  double tot_recip = 1.0 / totald;
+  double expm11 = a2_ct * case_ctd * tot_recip;
+  double dxx = case_ctd * (totald - case_ctd) * (totald * (het_ct + 4 * ((int64_t)homa2_ct)) - a2_ct * a2_ct);
+  double varca_recip;
+  double cur11;
+  intptr_t ceil11;
+  intptr_t lii;
+  if (dxx == 0) {
+    // bounds/coefficients should never be referenced in this case
+    return;
+  }
+  varca_recip = totald * totald * totald / dxx;
+  if (coeffs) {
+    coeffs[0] = expm11;
+    coeffs[1] = varca_recip;
+  }
+
+  // statistic: (cur11 - expm11)^2 * varca_recip
+  ceil11 = case_ct * 2;
+  if (homa2_ct < ceil11) {
+    ceil11 = homa2_ct;
+  }
+  // chisq = (cur11 - expm11)^2 * varca_recip
+  // -> expm11 +/- sqrt(chisq / varca_recip) = cur11
+  varca_recip = sqrt(chisq / varca_recip);
+  cur11 = expm11 - varca_recip;
+  dxx = cur11 + 1 - BIG_EPSILON;
+  if (dxx < 0) {
+    bounds[0] = 0;
+    bounds[2] = 0;
   } else {
-    return -9;
+    lii = (intptr_t)dxx;
+    bounds[2] = lii;
+    if (lii == (intptr_t)(cur11 + BIG_EPSILON)) {
+      bounds[0] = lii + 1;
+    } else {
+      bounds[0] = lii;
+    }
+  }
+  cur11 = expm11 + varca_recip;
+  if (cur11 > ceil11 + BIG_EPSILON) {
+    bounds[1] = ceil11 + 1;
+    bounds[3] = bounds[1];
+  } else {
+    dxx = cur11 + 1 - BIG_EPSILON;
+    lii = (intptr_t)dxx;
+    bounds[1] = lii;
+    if (lii == (intptr_t)(cur11 + BIG_EPSILON)) {
+      bounds[3] = lii + 1;
+    } else {
+      bounds[3] = lii;
+    }
   }
 }
