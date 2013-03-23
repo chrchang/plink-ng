@@ -1365,7 +1365,7 @@ void ca_trend_precomp_val_bounds(double chisq, intptr_t case_ct, intptr_t het_ct
   // statistic: (cur11 - expm11)^2 * varca_recip
   ceil11 = case_ct * 2;
   if (homa2_ct < ceil11) {
-    ceil11 = homa2_ct;
+    ceil11 = homa2_ct * 2;
   }
   // chisq = (cur11 - expm11)^2 * varca_recip
   // -> expm11 +/- sqrt(chisq / varca_recip) = cur11
