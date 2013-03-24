@@ -503,14 +503,12 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
   // permutation pp, and 0 if not.  16-byte alignment is enforced so SSE2
   // adds can be performed.
   // Note that this does not allow genotype indexing to work on any marker with
-  // more than 255 missing, heterozygote, or homozygote A1 individuals, because
-  // that could cause adds to overflow.  (The sum of those three numbers can
-  // exceed 255; they just can't individually do so.)
-  // Using short ints instead of chars would raise the limit to 65535, but I
-  // really don't think that's worth halving the speed of the inner loop; the
-  // standard bit arithmetic approach should do well enough there.  This is
-  // really just for efficient handling of the large numbers of very-low-MAF
-  // markers that may appear in tomorrow's whole genome sequencing datasets.
+  // more than 255 missing, heterozygote, or homozygote A1 individuals,
+  // because that could cause adds to overflow.  (The sum of those three
+  // numbers can exceed 255; they just can't individually do so.)
+  // Widening perm_vecst to 16 bits (to raise the limit to 65535) does not seem
+  // to be worth it, though this depends on what the typical dataset looks
+  // like.
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
   uintptr_t indiv_idx = 0;
   uint32_t pvc_rem = (16 - (perm_vec_ct & 15)) & 15;
@@ -821,7 +819,7 @@ void calc_git(uintptr_t pheno_nm_ctl2, uint32_t do_reverse, uintptr_t* loadbuf, 
   }
   gitv[3] = (uintptr_t*)git_homa1_cts;
   for (uii = 1; uii <= 3; uii++) {
-    fill_ulong_zero(gitv[uii], perm_ct4x);
+    fill_ulong_zero(gitv[uii], perm_ct2x);
   }
 #endif
   for (uii = 0; uii < pheno_nm_ctl2; uii++) {
@@ -923,10 +921,10 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
       } else {
 	if (!g_is_haploid) {
 	  case_missing_ct = git_missing_cts[pidx];
-	  case_set_ct = row1x_sum - git_het_cts[pidx] - 2 * (case_missing_ct + git_homa1_cts[pidx]);
+	  case_set_ct = row1x_sum - ((uintptr_t)git_het_cts[pidx]) - 2 * (case_missing_ct + ((uint32_t)git_homa1_cts[pidx]));
 	} else {
-	  case_missing_ct = git_missing_cts[pidx] + git_het_cts[pidx];
-	  case_set_ct = row1x_sum - case_missing_ct - git_homa1_cts[pidx];
+	  case_missing_ct = ((uint32_t)git_missing_cts[pidx]) + ((uint32_t)git_het_cts[pidx]);
+	  case_set_ct = row1x_sum - case_missing_ct - ((uintptr_t)git_homa1_cts[pidx]);
 	}
       }
       // deliberate underflow
@@ -1974,7 +1972,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   g_aperm_alpha = aperm_alpha;
   g_reverse = marker_reverse;
   g_is_model_prec = (model_modifier & MODEL_PREC)? 1 : 0;
-  g_git_thresh = pheno_nm_ct / 16;
+  g_git_thresh = pheno_nm_ct / 8;
   if (g_git_thresh > 255) {
     g_git_thresh = 255;
   }
