@@ -1342,12 +1342,13 @@ void ca_trend_precomp_val_bounds(double chisq, intptr_t case_ct, intptr_t het_ct
   //   varCA_recip = obs_T * obs_T * obs_T /
   //     (obs_A * obs_U * (obs_T * (obs_12 + 4 * obs_22) - A2ct * A2ct))
   //   trend statistic = CA * CA * varCA_recip
-  double a2_ct = het_ct + 2 * homa2_ct;
+  intptr_t a2_ct = het_ct + 2 * homa2_ct;
+  double a2_ctd = a2_ct;
   double totald = total;
   double case_ctd = case_ct;
   double tot_recip = 1.0 / totald;
-  double expm11 = a2_ct * case_ctd * tot_recip;
-  double dxx = case_ctd * (totald - case_ctd) * (totald * (het_ct + 4 * ((int64_t)homa2_ct)) - a2_ct * a2_ct);
+  double expm11 = a2_ctd * case_ctd * tot_recip;
+  double dxx = case_ctd * (totald - case_ctd) * (totald * (het_ct + 4 * ((int64_t)homa2_ct)) - a2_ctd * a2_ctd);
   double varca_recip;
   double cur11;
   intptr_t ceil11;
@@ -1364,8 +1365,8 @@ void ca_trend_precomp_val_bounds(double chisq, intptr_t case_ct, intptr_t het_ct
 
   // statistic: (cur11 - expm11)^2 * varca_recip
   ceil11 = case_ct * 2;
-  if (homa2_ct < ceil11) {
-    ceil11 = homa2_ct * 2;
+  if (a2_ct < ceil11) {
+    ceil11 = a2_ct;
   }
   // chisq = (cur11 - expm11)^2 * varca_recip
   // -> expm11 +/- sqrt(chisq / varca_recip) = cur11
