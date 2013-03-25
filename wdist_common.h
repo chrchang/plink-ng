@@ -310,7 +310,7 @@ typedef union {
 #endif
 
 // used to size a few tables
-#define EXPECTED_MISSING_FREQ 0.025
+#define EXPECTED_MISSING_FREQ 0.05
 
 // fit 4 pathologically long IDs plus a bit extra
 extern char tbuf[];
