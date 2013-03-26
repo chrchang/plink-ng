@@ -616,10 +616,10 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
   // limiting memory traffic; see generate_cc_perm_vec() for discussion.  The
   // index order used here is:
   // 64-bit build:
-  //   first 16 bytes: 0 32 64 96 8 40 72 104 16 48 80 112 24 56 88 120 1... 
+  //   first 16 bytes: 0 32 64 96 16 48 80 112 8 40 72 104 24 56 88 120 1... 
   //   next 16 bytes: 128 160 192...
   // 32-bit build:
-  //   first 4 bytes: 0 8 16 24 2 10 18 26 4 12 20 28 6 14 22 30 1 9 17...
+  //   first 4 bytes: 0 8 16 24 4 12 20 28 2 10 18 26 6 14 22 30 1 9 17...
   //   next 4 bytes: 32 40 48...
   //
   // Yes, converting between two interleaved formats is a bit ugly, but hey,
@@ -647,7 +647,7 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
     do {
       if (!(perm_idx % 8)) {
 	if (perm_idx % 128) {
-	  wshift = ((perm_idx % 128) / 32) | (4 * ((perm_idx % 32) / 8));
+	  wshift = ((perm_idx & 96) >> 5) | ((perm_idx & 16) >> 2) | (perm_idx & 8);
 	} else {
 	  memcpy(perm_vecst, wbuf, 16);
 	  perm_vecst = &(perm_vecst[2]);
@@ -669,7 +669,7 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
     do {
       if (!(perm_idx % 2)) {
 	if (perm_idx % 32) {
-	  wshift = ((perm_idx % 32) / 8) | (4 * ((perm_idx % 8) / 2));
+	  wshift = ((perm_idx & 24) >> 3) | (perm_idx & 4) | ((perm_idx & 2) << 2);
 	} else {
 	  memcpy(perm_vecst, wbuf, 4);
 	  perm_vecst++;
@@ -876,11 +876,11 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
     }
     for (pidx = 0; pidx < g_perm_vec_ct;) {
       if (g_is_x) {
-        vec_set_freq_x(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), g_indiv_nonmale_include2, g_indiv_male_include2, &case_set_ct, &case_missing_ct);
+        ivec_set_freq_x(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), g_indiv_nonmale_include2, g_indiv_male_include2, &case_set_ct, &case_missing_ct);
       } else if (g_is_haploid) {
-	vec_set_freq_haploid(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), &case_set_ct, &case_missing_ct);
+	ivec_set_freq_haploid(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), &case_set_ct, &case_missing_ct);
       } else {
-	vec_set_freq(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), &case_set_ct, &case_missing_ct);
+	ivec_set_freq(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctl2]), &case_set_ct, &case_missing_ct);
       }
       // deliberate underflow
       uii = (uint32_t)(case_missing_ct - missing_start);
@@ -1253,18 +1253,18 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
     success_2incr = 0;
     // overly conservative because it combines hets and homa1s, but this isn't
     // a big deal
-    do_git = (!is_x) && (col2_sum <= g_git_thresh) && (g_missing_cts[marker_idx] <= g_git_thresh);
+    do_git = (col2_sum <= g_git_thresh) && (g_missing_cts[marker_idx] <= g_git_thresh) && (!is_x);
     if (do_git) {
       calc_git(pheno_nm_ct, 0, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), (uintptr_t*)git_homa1_cts);
     }
     for (pidx = 0; pidx < g_perm_vec_ct; pidx++) {
       if (!do_git) {
 	if (is_x) {
-	  vec_set_freq_x(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctlv]), g_indiv_nonmale_include2, g_indiv_male_include2, &case_set_ct, &case_missing_ct);
+	  ivec_set_freq_x(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctlv]), g_indiv_nonmale_include2, g_indiv_male_include2, &case_set_ct, &case_missing_ct);
 	} else if (is_haploid) {
-	  vec_set_freq_haploid(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctlv]), &case_set_ct, &case_missing_ct);
+	  ivec_set_freq_haploid(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctlv]), &case_set_ct, &case_missing_ct);
 	} else {
-	  vec_set_freq(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctlv]), &case_set_ct, &case_missing_ct);
+	  ivec_set_freq(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), &(g_perm_vecs[pidx * pheno_nm_ctlv]), &case_set_ct, &case_missing_ct);
 	}
       } else {
 	if (!is_haploid) {
