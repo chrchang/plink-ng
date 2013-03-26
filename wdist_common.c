@@ -2758,7 +2758,7 @@ void count_set_freq_haploid_120iv(__m128i* vptr, __m128i* vend, __m128i* ivec, u
     partialm = _mm_and_si128(loader3, _mm_xor_si128(loader, loader2));
     loader = vptr[1];
     loader2 = _mm_srli_epi64(loader, 1);
-    loader3 = _mm_srli_epi64(m1, _mm_srli_epi64(ivec[0], 1));
+    loader3 = _mm_and_si128(m1, _mm_srli_epi64(ivec[0], 1));
     partial = _mm_add_epi64(partial, _mm_and_si128(loader3, _mm_and_si128(loader, loader2)));
     partialm = _mm_add_epi64(partialm, _mm_and_si128(loader3, _mm_and_si128(loader, loader2)));
     loader = vptr[2];
@@ -3032,9 +3032,9 @@ void count_3freq_rem_iv(__m128i* vptr, __m128i* vend, __m128i* ivec, uint32_t* m
   acc2.vi = _mm_add_epi64(_mm_and_si128(acc2.vi, m4), _mm_and_si128(_mm_srli_epi64(acc2.vi, 4), m4));
   acc3.vi = _mm_add_epi64(_mm_and_si128(acc3.vi, m4), _mm_and_si128(_mm_srli_epi64(acc3.vi, 4), m4));
   // each 8-bit value <= 20
-  acc1.vi = _mm_and_si128(_mm_add_epi64(acc1.vi, m8), _mm_srli_epi64(acc1.vi, 8), m8);
-  acc2.vi = _mm_and_si128(_mm_add_epi64(acc2.vi, m8), _mm_srli_epi64(acc2.vi, 8), m8);
-  acc3.vi = _mm_and_si128(_mm_add_epi64(acc3.vi, m8), _mm_srli_epi64(acc3.vi, 8), m8);
+  acc1.vi = _mm_and_si128(_mm_add_epi64(acc1.vi, _mm_srli_epi64(acc1.vi, 8)), m8);
+  acc2.vi = _mm_and_si128(_mm_add_epi64(acc2.vi, _mm_srli_epi64(acc2.vi, 8)), m8);
+  acc3.vi = _mm_and_si128(_mm_add_epi64(acc3.vi, _mm_srli_epi64(acc3.vi, 8)), m8);
   *missing_ctp += ((acc1.u8[0] + acc1.u8[1]) * 0x1000100010001LLU) >> 48;
   *het_ctp += ((acc2.u8[0] + acc2.u8[1]) * 0x1000100010001LLU) >> 48;
   *homa2_ctp += ((acc3.u8[0] + acc3.u8[1]) * 0x1000100010001LLU) >> 48;
@@ -3432,8 +3432,6 @@ void ivec_set_freq_haploid(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* inc
 void ivec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ivec, uintptr_t* nonmale_vec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
   // diploid counting for nonmales, haploid counting for males
   // missing_ct := male_obs + male_missing + 2 * female_missing
-  uint32_t uii = 0;
-  uint32_t ujj = 0;
 #ifdef __LP64__
   uint32_t acc = 0;
   uint32_t accm = 0;
