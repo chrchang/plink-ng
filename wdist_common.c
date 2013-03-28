@@ -2673,59 +2673,76 @@ void count_set_freq_60iv(__m128i* vptr, __m128i* vend, __m128i* ivec, uint32_t* 
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
   __m128i loader;
   __m128i loader2;
-  __m128i loader3a;
-  __m128i loader3b;
-  __m128i loader3c;
+  __m128i loader3;
+  __m128i loader4;
   __m128i odds;
   __m128i evens;
   __m128i missings;
+  __m128i missings2;
   __uni16 acc;
   __uni16 accm;
-  uint32_t uii;
   acc.vi = _mm_setzero_si128();
   accm.vi = _mm_setzero_si128();
   do {
-    loader3a = _mm_and_si128(m1, ivec[0]);
-    loader3b = _mm_and_si128(m1, _mm_srli_epi64(ivec[0], 1));
-    loader3c = _mm_and_si128(m1, ivec[1]);
-    missings = _mm_setzero_si128();
-    uii = 1;
-    goto count_set_freq_60iv_iloop_start;
-    do {
-      loader3a = _mm_and_si128(m1, _mm_srli_epi64(ivec[1], 1));
-      loader3b = _mm_and_si128(m1, ivec[2]);
-      loader3c = _mm_and_si128(m1, _mm_srli_epi64(ivec[2], 1));
-      uii = 0;
-    count_set_freq_60iv_iloop_start:
-      loader = vptr[0];
-      loader2 = _mm_srli_epi64(loader, 1);
-      odds = _mm_and_si128(loader2, loader3a);
-      evens = _mm_and_si128(odds, loader);
-      missings = _mm_add_epi64(missings, _mm_and_si128(loader, _mm_andnot_si128(loader2, loader3a)));
+    loader = *vptr++;
+    loader2 = _mm_srli_epi64(loader, 1);
+    loader4 = *ivec++;
+    loader3 = _mm_and_si128(m1, loader4);
+    odds = _mm_and_si128(loader2, loader3);
+    evens = _mm_and_si128(odds, loader);
+    missings = _mm_and_si128(loader, _mm_andnot_si128(loader2, loader3));
 
-      loader = vptr[1];
-      loader2 = _mm_srli_epi64(loader, 1);
-      odds = _mm_add_epi64(odds, _mm_and_si128(loader2, loader3b));
-      loader3b = _mm_and_si128(loader, loader3b);
-      evens = _mm_add_epi64(evens, _mm_and_si128(loader2, loader3b));
-      missings = _mm_add_epi64(missings, _mm_andnot_si128(loader2, loader3b));
+    loader = *vptr++;
+    loader2 = _mm_srli_epi64(loader, 1);
+    loader3 = _mm_and_si128(m1, _mm_srli_epi64(loader4, 1));
+    odds = _mm_add_epi64(odds, _mm_and_si128(loader2, loader3));
+    loader3 = _mm_and_si128(loader, loader3);
+    evens = _mm_add_epi64(evens, _mm_and_si128(loader2, loader3));
+    missings = _mm_add_epi64(missings, _mm_andnot_si128(loader2, loader3));
 
-      loader = vptr[2];
-      loader2 = _mm_srli_epi64(loader, 1);
-      odds = _mm_add_epi64(odds, _mm_and_si128(loader2, loader3c));
-      loader3c = _mm_and_si128(loader, loader3c);
-      evens = _mm_add_epi64(evens, _mm_and_si128(loader2, loader3c));
-      missings = _mm_add_epi64(missings, _mm_andnot_si128(loader2, loader3c));
+    loader = *vptr++;
+    loader2 = _mm_srli_epi64(loader, 1);
+    loader4 = *ivec++;
+    loader3 = _mm_and_si128(m1, loader4);
+    odds = _mm_add_epi64(odds, _mm_and_si128(loader2, loader3));
+    loader3 = _mm_and_si128(loader, loader3);
+    evens = _mm_add_epi64(evens, _mm_and_si128(loader2, loader3));
+    missings = _mm_add_epi64(missings, _mm_andnot_si128(loader2, loader3));
 
-      odds = _mm_add_epi64(_mm_and_si128(odds, m2), _mm_and_si128(_mm_srli_epi64(odds, 2), m2));
-      missings = _mm_add_epi64(_mm_and_si128(missings, m2), _mm_and_si128(_mm_srli_epi64(missings, 2), m2));
-      odds = _mm_add_epi64(odds, _mm_add_epi64(_mm_and_si128(evens, m2), _mm_and_si128(_mm_srli_epi64(evens, 2), m2)));
+    odds = _mm_add_epi64(_mm_and_si128(odds, m2), _mm_and_si128(_mm_srli_epi64(odds, 2), m2));
+    missings = _mm_add_epi64(_mm_and_si128(missings, m2), _mm_and_si128(_mm_srli_epi64(missings, 2), m2));
+    odds = _mm_add_epi64(odds, _mm_add_epi64(_mm_and_si128(evens, m2), _mm_and_si128(_mm_srli_epi64(evens, 2), m2)));
+    acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(odds, m4), _mm_and_si128(_mm_srli_epi64(odds, 4), m4)));
 
-      acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(odds, m4), _mm_and_si128(_mm_srli_epi64(odds, 4), m4)));
-      vptr = &(vptr[3]);
-    } while (uii);
+    loader = *vptr++;
+    loader2 = _mm_srli_epi64(loader, 1);
+    loader3 = _mm_and_si128(m1, _mm_srli_epi64(loader4, 1));
+    odds = _mm_and_si128(loader2, loader3);
+    evens = _mm_and_si128(odds, loader);
+    missings2 = _mm_and_si128(loader, _mm_andnot_si128(loader2, loader3));
+
+    loader = *vptr++;
+    loader2 = _mm_srli_epi64(loader, 1);
+    loader4 = *ivec++;
+    loader3 = _mm_and_si128(m1, loader4);
+    odds = _mm_add_epi64(odds, _mm_and_si128(loader2, loader3));
+    loader3 = _mm_and_si128(loader, loader3);
+    evens = _mm_add_epi64(evens, _mm_and_si128(loader2, loader3));
+    missings2 = _mm_add_epi64(missings2, _mm_andnot_si128(loader2, loader3));
+
+    loader = *vptr++;
+    loader2 = _mm_srli_epi64(loader, 1);
+    loader3 = _mm_and_si128(m1, _mm_srli_epi64(loader4, 1));
+    odds = _mm_add_epi64(odds, _mm_and_si128(loader2, loader3));
+    loader3 = _mm_and_si128(loader, loader3);
+    evens = _mm_add_epi64(evens, _mm_and_si128(loader2, loader3));
+    missings2 = _mm_add_epi64(missings2, _mm_andnot_si128(loader2, loader3));
+
+    odds = _mm_add_epi64(_mm_and_si128(odds, m2), _mm_and_si128(_mm_srli_epi64(odds, 2), m2));
+    missings = _mm_add_epi64(missings, _mm_add_epi64(_mm_and_si128(missings2, m2), _mm_and_si128(_mm_srli_epi64(missings2, 2), m2)));
+    odds = _mm_add_epi64(odds, _mm_add_epi64(_mm_and_si128(evens, m2), _mm_and_si128(_mm_srli_epi64(evens, 2), m2)));
+    acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(odds, m4), _mm_and_si128(_mm_srli_epi64(odds, 4), m4)));
     accm.vi = _mm_add_epi64(accm.vi, _mm_add_epi64(_mm_and_si128(missings, m4), _mm_and_si128(_mm_srli_epi64(missings, 4), m4)));
-    ivec = &(ivec[3]);
   } while (vptr < vend);
   // each 8-bit value here <= 120
   accm.vi = _mm_and_si128(_mm_add_epi64(accm.vi, _mm_srli_epi64(accm.vi, 8)), m8);
@@ -3203,7 +3220,7 @@ void count_3freq_iv(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ivec, uint
   }
   *missing_ctp = acc1;
   *het_ctp = acc2;
-  *homa2_ctp = acc2;
+  *homa2_ctp = acc3;
 }
 
 void count_set_freq_x_iv(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ivec, uintptr_t* nonmale_vec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
@@ -3225,7 +3242,7 @@ void count_set_freq_x_iv(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ivec,
     loader = lptr[0];
     loader2 = loader >> 1;
     // no fivemask needed here because of nonmale_vec/male_vec
-    loader3 = include_vec[0];
+    loader3 = ivec[0];
     loader4 = loader3 & nonmale_vec[0];
     set_odds = loader2 & loader4;
     set_evens = loader & loader4;
@@ -3236,7 +3253,7 @@ void count_set_freq_x_iv(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ivec,
 
     loader = lptr[1];
     loader2 = loader >> 1;
-    loader3 = include_vec[0] >> 1;
+    loader3 = ivec[0] >> 1;
     loader4 = loader3 & nonmale_vec[1];
     set_odds += loader2 & loader4;
     loader4 &= loader;
@@ -3249,7 +3266,7 @@ void count_set_freq_x_iv(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ivec,
 
     loader = lptr[2];
     loader2 = loader >> 1;
-    loader3 = include_vec[1];
+    loader3 = ivec[1];
     loader4 = loader3 & nonmale_vec[2];
     set_odds += loader2 & loader4;
     loader4 &= loader;
@@ -3271,7 +3288,7 @@ void count_set_freq_x_iv(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ivec,
 
     loader = lptr[3];
     loader2 = loader >> 1;
-    loader3 = include_vec[1] >> 1;
+    loader3 = ivec[1] >> 1;
     loader4 = loader3 & nonmale_vec[3];
     set_odds = loader2 & loader4;
     set_evens = loader & loader4;
@@ -3282,7 +3299,7 @@ void count_set_freq_x_iv(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ivec,
 
     loader = lptr[4];
     loader2 = loader >> 1;
-    loader3 = include_vec[2];
+    loader3 = ivec[2];
     loader4 = loader3 & nonmale_vec[4];
     set_odds += loader2 & loader4;
     loader4 &= loader;
@@ -3295,7 +3312,7 @@ void count_set_freq_x_iv(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ivec,
 
     loader = lptr[5];
     loader2 = loader >> 1;
-    loader3 = include_vec[2] >> 1;
+    loader3 = ivec[2] >> 1;
     loader4 = loader3 & nonmale_vec[5];
     set_odds += loader2 & loader4;
     loader4 &= loader;
@@ -3320,14 +3337,14 @@ void count_set_freq_x_iv(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* ivec,
     lptr = &(lptr[6]);
     nonmale_vec = &(nonmale_vec[6]);
     male_vec = &(male_vec[6]);
-    include_vec = &(include_vec[3]);
+    ivec = &(ivec[3]);
   }
   while (indiv_ctl2) {
-    loader3 = *include_vec;
+    loader3 = *ivec;
     uii = 1;
     goto count_set_freq_x_iv_floop_start;
     do {
-      loader3 = (*include_vec++) >> 1;
+      loader3 = (*ivec++) >> 1;
       uii = 0;
     count_set_freq_x_iv_floop_start:
       loader = *lptr++;
@@ -3392,12 +3409,12 @@ void ivec_set_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ive
 }
 
 void ivec_set_freq_haploid(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ivec, uint32_t* set_ctp, uint32_t* missing_ctp) {
-  // set allele count: popcount(genotype & (genotype >> 1) & include_vec)
-  uint32_t accm = 0;
+  // set allele count: popcount(genotype & (genotype >> 1) & include_ivec)
   uint32_t uii = 0;
   uint32_t ujj = 0;
 #ifdef __LP64__
   uint32_t acc = 0;
+  uint32_t accm = 0;
   uint32_t remainder = (indiv_ctl2 / 2) % 6;
   __m128i* vptr = (__m128i*)lptr;
   __m128i* ivptr = (__m128i*)include_ivec;
@@ -3423,6 +3440,7 @@ void ivec_set_freq_haploid(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* inc
   }
   *missing_ctp = accm;
 #else
+  uint32_t acc;
   count_3freq_iv(indiv_ctl2, lptr, include_ivec, &uii, &ujj, &acc);
   *missing_ctp = uii + ujj;
 #endif

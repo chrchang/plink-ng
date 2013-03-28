@@ -527,12 +527,12 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
     widx = 2 * (tot_ct / 128);
     fill_ulong_one(perm_vec, widx);
     if (tot_ct % 128) {
-      if (tot_ct < 64) {
-	perm_vec[widx] = (ONELU << (widx % 64)) - 1LLU;
-	perm_vec[widx + 1] = 0;
-      } else {
+      if (tot_ct & 64) {
 	perm_vec[widx] = ~0LLU;
-	perm_vec[widx + 1] = (ONELU << (widx % 64)) - 1LLU;
+	perm_vec[widx + 1] = (1LLU << (tot_ct % 64)) - 1LLU;
+      } else {
+	perm_vec[widx] = (1LLU << (tot_ct % 64)) - 1LLU;
+	perm_vec[widx + 1] = 0;
       }
     }
 #else
@@ -548,7 +548,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
 	do {
 	  urand = sfmt_genrand_uint32(sfmtp);
 	} while (urand >= upper_bound);
-	uii = 2 * ((totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift);
+	uii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
         widx = uii / BITCT;
 	wcomp = ONELU << (uii % BITCT);
 	pv_val = perm_vec[widx];
@@ -628,13 +628,13 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
 #ifdef __LP64__
   uintptr_t pheno_nm_ctlv = 2 * ((pheno_nm_ct + 127) / 128);
   uint16_t wbuf[8];
+  uint32_t uii;
 #else
   uintptr_t pheno_nm_ctlv = (pheno_nm_ct + 31) / 32;
   uint16_t wbuf[2];
 #endif
   uint32_t rshift;
   uint32_t wshift;
-  uint32_t uii;
   uintptr_t* pvptr;
   uint16_t* wbptr;
   uintptr_t perm_idx;
@@ -683,7 +683,7 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
       }
       *wbptr |= ((pvptr[perm_idx * pheno_nm_ctlv] >> rshift) & 1) << wshift;
       wbptr++;
-    }
+    } while (++perm_idx < perm_vec_ct);
     memcpy(perm_vecst, wbuf, 4);
     perm_vecst++;
 #endif
@@ -766,7 +766,20 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uint32_t do_reverse, u
   cur_cts[0] = 0;
   cur_cts[1] = 0;
   cur_cts[2] = 0;
-  fill_ulong_zero(thread_bufs, 6 * (perm_ct8 + perm_ct16 + perm_ct32));
+  for (indiv_type = 0; indiv_type < 3; indiv_type++) {
+    git_merge4 = gitv[indiv_type];
+    for (uii = 0; uii < perm_ct32; uii++) {
+      *git_merge4++ = _mm_setzero_si128();
+    }
+    git_merge8 = gitv[indiv_type + 3];
+    for (uii = 0; uii < perm_ct16; uii++) {
+      *git_merge8++ = _mm_setzero_si128();
+    }
+    git_write = gitv[indiv_type + 6];
+    for (uii = 0; uii < perm_ct8; uii++) {
+      *git_write++ = _mm_setzero_si128();
+    }
+  }
   for (uii = 0; uii < pheno_nm_ctl2; uii++) {
     ulii = loadbuf[uii] ^ xormask;
     while (ulii) {
@@ -857,6 +870,7 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uint32_t do_reverse, u
   uint32_t pbidx;
   uint32_t uii;
   uint32_t ujj;
+  uint32_t ukk;
   uint32_t indiv_type;
   // first perm_ct2 4-byte blocks: homa1_cts
   // ...
@@ -1315,7 +1329,8 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
     success_2incr = 0;
     // overly conservative because it combines hets and homa1s, but this isn't
     // a big deal
-    do_git = (col2_sum <= git_thresh) && (missing_cts[marker_idx] <= git_thresh) && (!is_x);
+    // do_git = (col2_sum <= git_thresh) && (missing_cts[marker_idx] <= git_thresh) && (!is_x);
+    do_git = (!is_x);
     if (do_git) {
       calc_git(pheno_nm_ct, perm_vec_ct, 0, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, (uintptr_t*)git_homa1_cts);
     }
@@ -2386,7 +2401,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   g_aperm_alpha = aperm_alpha;
   g_reverse = marker_reverse;
   g_is_model_prec = (model_modifier & MODEL_PREC)? 1 : 0;
-  g_git_thresh = pheno_nm_ct / 8;
+  g_git_thresh = pheno_nm_ct / 4;
   if (g_git_thresh > 65535) {
     g_git_thresh = 65535;
   }
