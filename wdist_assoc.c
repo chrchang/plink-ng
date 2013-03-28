@@ -1109,16 +1109,6 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
 	vec1_set_freq_haploid(pheno_nm_ctlv, &(loadbuf1[marker_bidx * pheno_nm_ctlv2]), &(perm_vecs[pidx * pheno_nm_ctlv]), &case_set_ct, &case_missing_ct);
       } else {
 	vec1_set_freq(pheno_nm_ctlv, &(loadbuf1[marker_bidx * pheno_nm_ctlv2]), &(perm_vecs[pidx * pheno_nm_ctlv]), &case_set_ct, &case_missing_ct);
-	/*
-	if (tidx == 0) {
-	  printf("%lu %u %u %u\n", pheno_nm_ctlv, missing_start, case_set_ct, case_missing_ct);
-	  for (uii = 0; uii < pheno_nm_ct; uii++) {
-	    printf("%d ", is_set(&(loadbuf1[marker_bidx * pheno_nm_ctlv2]), uii) + 2 * is_set(&(loadbuf1[marker_bidx * pheno_nm_ctlv2 + pheno_nm_ctlv]), uii));
-	  }
-	  printf("\n");
-	  exit(1);
-	}
-	*/
       }
       // deliberate underflow
       uii = (uint32_t)(case_missing_ct - missing_start);
@@ -2322,7 +2312,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   char* a2ptr;
   uint32_t loop_end;
   g_orig_chisq = NULL;
-  g_sex_male = sex_male;
   g_model_fisher = model_modifier & MODEL_FISHER;
   g_pheno_nm_ct = pheno_nm_ct;
   g_perms_done = 0;
@@ -2479,14 +2468,17 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   gender_req = ((x_code != -1) && (ullii & (1LLU << x_code))) || (model_assoc && (((y_code != -1) && (ullii & (1LLU << y_code)))));
   if (gender_req) {
     if (wkspace_alloc_ul_checked(&g_indiv_nonmale_include2, pheno_nm_ctl2 * sizeof(intptr_t)) ||
-	wkspace_alloc_ul_checked(&g_indiv_male_include2, pheno_nm_ctl2 * sizeof(intptr_t))) {
+	wkspace_alloc_ul_checked(&g_indiv_male_include2, pheno_nm_ctl2 * sizeof(intptr_t)) ||
+        wkspace_alloc_ul_checked(&g_sex_male, pheno_nm_ctlv * sizeof(intptr_t))) {
       goto model_assoc_ret_NOMEM;
     }
     fill_ulong_zero(g_indiv_male_include2, pheno_nm_ctl2);
+    fill_ulong_zero(g_sex_male, pheno_nm_ctlv);
     indiv_uidx = 0;
     for (indiv_idx = 0; indiv_idx < pheno_nm_ct; indiv_idx++) {
       indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
       if (is_set(sex_nm, indiv_uidx) && is_set(sex_male, indiv_uidx)) {
+	set_bit_noct(g_sex_male, indiv_idx);
 	set_bit_noct(g_indiv_male_include2, indiv_idx * 2);
 	male_ct++;
       }
