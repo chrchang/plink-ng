@@ -466,41 +466,10 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
   // Assumes perm_vec is initially zeroed out, tot_quotient is
   // 4294967296 / tot_ct, and totq_magic/totq_preshift/totq_postshift/totq_incr
   // have been precomputed from magic_num().
-  //
-  // Permutations are stored in an interleaved format, to efficiently bridge
-  // the gap between 1 bit permutation statuses and 2-bit PLINK genotypes.  The
-  // 64-bit build stores the statuses in 16-byte blocks, in the following
-  // order (low bit first):
-  //   first 16 bytes: 0 64 1 65 2 66 ... 63 127
-  //   second 16 bytes: 128 192 129 193 130 194 ... 191 255
-  //   third 16 bytes: 256 320 257 ...
-  // whereas the 32-bit build uses 4-byte blocks:
-  //   first 4 bytes: 0 16 1 17 2 18 ... 15 31
-  //   second 4 bytes: 32 48 33 49 34 50 ... 47 63
-  //   third 4 bytes: 64 80 65 ...
-  // This forces an additional mask/shift-and-mask to be used in the main
-  // loops, but that's easily worth the halving of memory traffic.
-  //
-  // An alternative approach is to reshuffle the genotype data instead, to use
-  // pairs of 16-byte blocks where the first block of each pair contains 128
-  // original low bits and the second block contains all the original high
-  // bits.  Actually, I'd expect that to be asymptotically faster than the
-  // current approach.  But the advantage (if it exists at all) is very small
-  // because the popcount algorithms spend so much of their time in
-  // 2-bit-accumulator mode, so I'm not bothering for now.  (Maybe that could
-  // be thrown in if there's ever an AVX-exploiting rewrite a few years down
-  // the line.)
-  //
-  // Note that the interleaving is almost irrelevant during permutation
-  // generation: we act as if there is no interleaving, and then just reshuffle
-  // the last block.
   uint32_t num_set = 0;
   uint32_t upper_bound = tot_ct * tot_quotient;
   uintptr_t widx;
   uintptr_t wcomp;
-#ifdef __LP64__
-  uintptr_t wtmp2;
-#endif
   uintptr_t pv_val;
   uint32_t urand;
   uint32_t uii;
@@ -556,79 +525,26 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
       perm_vec[widx] = pv_val & (~wcomp);
     }
   }
-#ifdef __LP64__
-  if (tot_ct % 128) {
-    widx = 2 * (tot_ct / 128);
-    pv_val = (uint32_t)perm_vec[widx];
-    wcomp = 0;
-    wtmp2 = 0;
-    while (pv_val) {
-      uii = CTZLU(pv_val);
-      wcomp |= ONELU << (uii * 2);
-      pv_val &= pv_val - 1;
-    }
-    pv_val = perm_vec[widx] >> 32;
-    while (pv_val) {
-      uii = CTZLU(pv_val);
-      wtmp2 |= ONELU << (uii * 2);
-      pv_val &= pv_val - 1;
-    }
-    pv_val = (uint32_t)perm_vec[widx + 1];
-    while (pv_val) {
-      uii = CTZLU(pv_val);
-      wcomp |= ONELU << (uii * 2 + 1);
-      pv_val &= pv_val - 1;
-    }
-    pv_val = perm_vec[widx + 1] >> 32;
-    while (pv_val) {
-      uii = CTZLU(pv_val);
-      wtmp2 |= ONELU << (uii * 2 + 1);
-      pv_val &= pv_val - 1;
-    }
-    perm_vec[widx] = wcomp;
-    perm_vec[widx + 1] = wtmp2;
-  }
-#else
-  if (tot_ct % 32) {
-    widx = tot_ct / 32;
-    pv_val = perm_vec[widx] & 0xffff;
-    wcomp = 0;
-    while (pv_val) {
-      uii = CTZLU(pv_val);
-      wcomp |= ONELU << (uii * 2);
-      pv_val &= pv_val - 1;
-    }
-    pv_val = perm_vec[widx] >> 16;
-    while (pv_val) {
-      uii = CTZLU(pv_val);
-      wcomp |= ONELU << (uii * 2 + 1);
-      pv_val &= pv_val - 1;
-    }
-    perm_vec[widx] = wcomp;
-  }
-#endif
 }
 
 void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_nm_ct, uintptr_t* perm_vecst) {
   // Transpose permutations so PRESTO/PERMORY-style genotype indexing can work.
   //
-  // We used a 16-ply interleaved format, to allow counts up to 65535 while
-  // limiting memory traffic; see generate_cc_perm_vec() for discussion.  The
-  // index order used here is:
+  // We used a 16-ply interleaved format, to allow counts up to 65535 without
+  // giving up highly parallel adds in the calc_git() inner loop.  The index
+  // order used here is:
   // 64-bit build:
   //   first 16 bytes: 0 32 64 96 16 48 80 112 8 40 72 104 24 56 88 120 1... 
   //   next 16 bytes: 128 160 192...
   // 32-bit build:
   //   first 4 bytes: 0 8 16 24 4 12 20 28 2 10 18 26 6 14 22 30 1 9 17...
   //   next 4 bytes: 32 40 48...
-  //
-  // Yes, converting between two interleaved formats is a bit ugly, but hey,
-  // this function only needs to be written once.
+  // It's straightforward to modify this to support counts up to the uint32_t
+  // limit.
   uintptr_t indiv_idx = 0;
 #ifdef __LP64__
   uintptr_t pheno_nm_ctlv = 2 * ((pheno_nm_ct + 127) / 128);
   uint16_t wbuf[8];
-  uint32_t uii;
 #else
   uintptr_t pheno_nm_ctlv = (pheno_nm_ct + 31) / 32;
   uint16_t wbuf[2];
@@ -640,11 +556,10 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
   uintptr_t perm_idx;
   for (; indiv_idx < pheno_nm_ct; indiv_idx++) {
     perm_idx = 0;
-#ifdef __LP64__
-    uii = (indiv_idx / 32) & 1;
-    pvptr = &(perm_vecs[2 * (indiv_idx / 128) + uii]);
-    rshift = ((indiv_idx % 32) * 2) | ((indiv_idx / 64) & 1);
+    pvptr = &(perm_vecs[indiv_idx / BITCT]);
+    rshift = indiv_idx % BITCT;
     goto transpose_perms_loop_start;
+#ifdef __LP64__
     do {
       if (!(perm_idx % 8)) {
 	if (perm_idx % 128) {
@@ -664,9 +579,6 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
     memcpy(perm_vecst, wbuf, 16);
     perm_vecst = &(perm_vecst[2]);
 #else
-    pvptr = &(perm_vecs[indiv_idx / 32]);
-    rshift = ((indiv_idx % 16) * 2) | ((indiv_idx / 16) & 1);
-    goto transpose_perms_loop_start;
     do {
       if (!(perm_idx % 2)) {
 	if (perm_idx % 32) {
@@ -971,6 +883,10 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uint32_t do_reverse, u
 static double* g_orig_1mpval;
 static double* g_orig_chisq;
 static uintptr_t* g_loadbuf;
+
+// low and high bits separated, for more efficient permutation processing.
+static uintptr_t* g_loadbuf1;
+
 static uintptr_t* g_perm_vecs;
 
 static uintptr_t* g_perm_vecst; // genotype indexing support
@@ -1041,6 +957,7 @@ static double g_maxt_cur_extreme_stat;
 static unsigned char* g_perm_adapt_stop;
 
 static uint32_t g_adapt_m_table[MODEL_BLOCKSIZE];
+static uintptr_t* g_sex_male;
 static uintptr_t* g_indiv_nonmale_include2;
 static uintptr_t* g_indiv_male_include2 = NULL;
 static uint32_t* g_marker_uidxs;
@@ -1100,12 +1017,12 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
   uint32_t marker_bidx = g_block_start + (((uint64_t)tidx) * g_block_diff) / g_assoc_thread_ct;
   uint32_t marker_bceil = g_block_start + (((uint64_t)tidx + 1) * g_block_diff) / g_assoc_thread_ct;
   uintptr_t pheno_nm_ct = g_pheno_nm_ct;
-  uintptr_t pheno_nm_ctl2 = 2 * ((g_pheno_nm_ct + (BITCT - 1)) / BITCT);
 #ifdef __LP64__
   uintptr_t pheno_nm_ctlv = 2 * ((pheno_nm_ct + 127) / 128);
 #else
   uintptr_t pheno_nm_ctlv = (pheno_nm_ct + 31) / 32;
 #endif
+  uintptr_t pheno_nm_ctlv2 = pheno_nm_ctlv * 2;
   uint32_t perm_vec_ct = g_perm_vec_ct;
   uint32_t pidx_offset = g_perms_done - perm_vec_ct;
   uint32_t model_fisher = g_model_fisher;
@@ -1115,9 +1032,8 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
   uint32_t precomp_width = g_precomp_width;
   uint32_t first_adapt_check = g_first_adapt_check;
   uint32_t case_ct = g_case_ct;
-  uintptr_t* __restrict__ loadbuf = g_loadbuf;
-  uintptr_t* __restrict__ indiv_nonmale_include2 = g_indiv_nonmale_include2;
-  uintptr_t* __restrict__ indiv_male_include2 = g_indiv_male_include2;
+  uintptr_t* __restrict__ loadbuf1 = g_loadbuf1;
+  uintptr_t* __restrict__ sex_male = g_sex_male;
   uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
   uint32_t* __restrict__ perm_attempt_ct = g_perm_attempt_ct;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
@@ -1188,11 +1104,11 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
     }
     for (pidx = 0; pidx < perm_vec_ct;) {
       if (is_x) {
-        ivec_set_freq_x(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctlv]), indiv_nonmale_include2, indiv_male_include2, &case_set_ct, &case_missing_ct);
+        vec1_set_freq_x(pheno_nm_ctlv, &(loadbuf1[marker_bidx * pheno_nm_ctlv2]), &(perm_vecs[pidx * pheno_nm_ctlv]), sex_male, &case_set_ct, &case_missing_ct);
       } else if (is_haploid) {
-	ivec_set_freq_haploid(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctlv]), &case_set_ct, &case_missing_ct);
+	vec1_set_freq_haploid(pheno_nm_ctlv, &(loadbuf1[marker_bidx * pheno_nm_ctlv2]), &(perm_vecs[pidx * pheno_nm_ctlv]), &case_set_ct, &case_missing_ct);
       } else {
-	ivec_set_freq(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctlv]), &case_set_ct, &case_missing_ct);
+	vec1_set_freq(pheno_nm_ctlv, &(loadbuf1[marker_bidx * pheno_nm_ctlv2]), &(perm_vecs[pidx * pheno_nm_ctlv]), &case_set_ct, &case_missing_ct);
       }
       // deliberate underflow
       uii = (uint32_t)(case_missing_ct - missing_start);
@@ -1247,6 +1163,7 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
 }
 
 THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
+  /*
   intptr_t tidx = (intptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uint32_t is_x = g_is_x;
@@ -1276,8 +1193,7 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
   uint32_t git_thresh = g_git_thresh;
   uint32_t case_ct = g_case_ct;
   uintptr_t* __restrict__ loadbuf = g_loadbuf;
-  uintptr_t* __restrict__ indiv_nonmale_include2 = g_indiv_nonmale_include2;
-  uintptr_t* __restrict__ indiv_male_include2 = g_indiv_male_include2;
+  uintptr_t* __restrict__ sex_male = g_sex_male;
   uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
   uintptr_t* __restrict__ perm_vecst = g_perm_vecst;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
@@ -1337,7 +1253,7 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!do_git) {
 	if (is_x) {
-	  ivec_set_freq_x(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctlv]), indiv_nonmale_include2, indiv_male_include2, &case_set_ct, &case_missing_ct);
+	  ivec_set_freq_x(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctlv]), sex_male, &case_set_ct, &case_missing_ct);
 	} else if (is_haploid) {
 	  ivec_set_freq_haploid(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctlv]), &case_set_ct, &case_missing_ct);
 	} else {
@@ -1395,6 +1311,7 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
     }
     perm_2success_ct[marker_idx++] += success_2incr;
   }
+  */
   THREAD_RETURN;
 }
 
@@ -2395,6 +2312,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   char* a2ptr;
   uint32_t loop_end;
   g_orig_chisq = NULL;
+  g_sex_male = sex_male;
   g_model_fisher = model_modifier & MODEL_FISHER;
   g_pheno_nm_ct = pheno_nm_ct;
   g_perms_done = 0;
@@ -2568,6 +2486,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     nonmale_ct = pheno_nm_ct - male_ct;
   }
   if (model_perms) {
+    if (wkspace_alloc_ul_checked(&g_loadbuf1, MODEL_BLOCKSIZE * 2 * pheno_nm_ctlv)) {
+      goto model_assoc_ret_NOMEM;
+    }
     g_sfmtp_arr = (sfmt_t**)wkspace_alloc(g_thread_ct * sizeof(intptr_t));
     if (!g_sfmtp_arr) {
       goto model_assoc_ret_NOMEM;
@@ -3474,93 +3395,96 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  }
 	}
       }
-      if (model_adapt) {
-	if (model_assoc) {
-	  if (spawn_threads(threads, &assoc_adapt_thread, g_assoc_thread_ct)) {
-	    logprint(errstr_thread_create);
-	    goto model_assoc_ret_THREAD_CREATE_FAIL;
-	  }
-	  ulii = 0;
-	  assoc_adapt_thread((void*)ulii);
-	  join_threads(threads, g_assoc_thread_ct);
-	} else if (model_modifier & (MODEL_PDOM | MODEL_PREC)) {
-	  if (spawn_threads(threads, &model_adapt_domrec_thread, g_assoc_thread_ct)) {
-	    logprint(errstr_thread_create);
-	    goto model_assoc_ret_THREAD_CREATE_FAIL;
-	  }
-	  ulii = 0;
-	  model_adapt_domrec_thread((void*)ulii);
-	  join_threads(threads, g_assoc_thread_ct);
-	} else if (model_modifier & MODEL_PTREND) {
-	  if (spawn_threads(threads, &model_adapt_trend_thread, g_assoc_thread_ct)) {
-	    logprint(errstr_thread_create);
-	    goto model_assoc_ret_THREAD_CREATE_FAIL;
-	  }
-	  ulii = 0;
-	  model_adapt_trend_thread((void*)ulii);
-	  join_threads(threads, g_assoc_thread_ct);
-	} else {
-	  // TODO
-	}
-      } else {
-	g_maxt_block_base = marker_idx;
-	ulii = 0;
-	if (model_assoc) {
-	  if (g_model_fisher) {
-	    if (spawn_threads(threads, &assoc_maxt_fisher_thread, g_assoc_thread_ct)) {
+      if (model_perms) {
+	split_low_and_high(MODEL_BLOCKSIZE, pheno_nm_ct, g_loadbuf, g_loadbuf1);
+	if (model_adapt) {
+	  if (model_assoc) {
+	    if (spawn_threads(threads, &assoc_adapt_thread, g_assoc_thread_ct)) {
 	      logprint(errstr_thread_create);
 	      goto model_assoc_ret_THREAD_CREATE_FAIL;
 	    }
-	    assoc_maxt_fisher_thread((void*)ulii);
+	    ulii = 0;
+	    assoc_adapt_thread((void*)ulii);
+	    join_threads(threads, g_assoc_thread_ct);
+	  } else if (model_modifier & (MODEL_PDOM | MODEL_PREC)) {
+	    if (spawn_threads(threads, &model_adapt_domrec_thread, g_assoc_thread_ct)) {
+	      logprint(errstr_thread_create);
+	      goto model_assoc_ret_THREAD_CREATE_FAIL;
+	    }
+	    ulii = 0;
+	    model_adapt_domrec_thread((void*)ulii);
+	    join_threads(threads, g_assoc_thread_ct);
+	  } else if (model_modifier & MODEL_PTREND) {
+	    if (spawn_threads(threads, &model_adapt_trend_thread, g_assoc_thread_ct)) {
+	      logprint(errstr_thread_create);
+	      goto model_assoc_ret_THREAD_CREATE_FAIL;
+	    }
+	    ulii = 0;
+	    model_adapt_trend_thread((void*)ulii);
+	    join_threads(threads, g_assoc_thread_ct);
 	  } else {
-	    if (spawn_threads(threads, &assoc_maxt_thread, g_assoc_thread_ct)) {
-	      logprint(errstr_thread_create);
-	      goto model_assoc_ret_THREAD_CREATE_FAIL;
-	    }
-	    assoc_maxt_thread((void*)ulii);
+	    // TODO
 	  }
-	} else if (model_modifier & (MODEL_PDOM | MODEL_PREC)) {
-	  if (g_model_fisher) {
-	    if (spawn_threads(threads, &model_maxt_domrec_fisher_thread, g_assoc_thread_ct)) {
-	      logprint(errstr_thread_create);
-	      goto model_assoc_ret_THREAD_CREATE_FAIL;
-	    }
-	    model_maxt_domrec_fisher_thread((void*)ulii);
-	  } else {
-	    if (spawn_threads(threads, &model_maxt_domrec_thread, g_assoc_thread_ct)) {
-	      logprint(errstr_thread_create);
-	      goto model_assoc_ret_THREAD_CREATE_FAIL;
-	    }
-	    model_maxt_domrec_thread((void*)ulii);
-	  }
-	} else if (model_modifier & MODEL_PTREND) {
-	  if (spawn_threads(threads, &model_maxt_trend_thread, g_assoc_thread_ct)) {
-	    logprint(errstr_thread_create);
-	    goto model_assoc_ret_THREAD_CREATE_FAIL;
-	  }
-	  model_maxt_trend_thread((void*)ulii);
 	} else {
-	  // TODO
-	}
-	join_threads(threads, g_assoc_thread_ct);
-	ulii = CACHELINE_DBL * ((g_perm_vec_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL);
-	if (model_fisherx) {
-	  for (uii = 0; uii < g_assoc_thread_ct; uii++) {
-	    ooptr = &(g_maxt_thread_results[uii * ulii]);
-	    for (ujj = g_perms_done - g_perm_vec_ct; ujj < g_perms_done; ujj++) {
-	      dxx = *ooptr++;
-	      if (dxx < g_maxt_extreme_stat[ujj]) {
-		g_maxt_extreme_stat[ujj] = dxx;
+	  g_maxt_block_base = marker_idx;
+	  ulii = 0;
+	  if (model_assoc) {
+	    if (g_model_fisher) {
+	      if (spawn_threads(threads, &assoc_maxt_fisher_thread, g_assoc_thread_ct)) {
+		logprint(errstr_thread_create);
+		goto model_assoc_ret_THREAD_CREATE_FAIL;
+	      }
+	      assoc_maxt_fisher_thread((void*)ulii);
+	    } else {
+	      if (spawn_threads(threads, &assoc_maxt_thread, g_assoc_thread_ct)) {
+		logprint(errstr_thread_create);
+		goto model_assoc_ret_THREAD_CREATE_FAIL;
+	      }
+	      assoc_maxt_thread((void*)ulii);
+	    }
+	  } else if (model_modifier & (MODEL_PDOM | MODEL_PREC)) {
+	    if (g_model_fisher) {
+	      if (spawn_threads(threads, &model_maxt_domrec_fisher_thread, g_assoc_thread_ct)) {
+		logprint(errstr_thread_create);
+		goto model_assoc_ret_THREAD_CREATE_FAIL;
+	      }
+	      model_maxt_domrec_fisher_thread((void*)ulii);
+	    } else {
+	      if (spawn_threads(threads, &model_maxt_domrec_thread, g_assoc_thread_ct)) {
+		logprint(errstr_thread_create);
+		goto model_assoc_ret_THREAD_CREATE_FAIL;
+	      }
+	      model_maxt_domrec_thread((void*)ulii);
+	    }
+	  } else if (model_modifier & MODEL_PTREND) {
+	    if (spawn_threads(threads, &model_maxt_trend_thread, g_assoc_thread_ct)) {
+	      logprint(errstr_thread_create);
+	      goto model_assoc_ret_THREAD_CREATE_FAIL;
+	    }
+	    model_maxt_trend_thread((void*)ulii);
+	  } else {
+	    // TODO
+	  }
+	  join_threads(threads, g_assoc_thread_ct);
+	  ulii = CACHELINE_DBL * ((g_perm_vec_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL);
+	  if (model_fisherx) {
+	    for (uii = 0; uii < g_assoc_thread_ct; uii++) {
+	      ooptr = &(g_maxt_thread_results[uii * ulii]);
+	      for (ujj = g_perms_done - g_perm_vec_ct; ujj < g_perms_done; ujj++) {
+		dxx = *ooptr++;
+		if (dxx < g_maxt_extreme_stat[ujj]) {
+		  g_maxt_extreme_stat[ujj] = dxx;
+		}
 	      }
 	    }
-	  }
-	} else {
-	  for (uii = 0; uii < g_assoc_thread_ct; uii++) {
-	    ooptr = &(g_maxt_thread_results[uii * ulii]);
-	    for (ujj = g_perms_done - g_perm_vec_ct; ujj < g_perms_done; ujj++) {
-	      dxx = *ooptr++;
-	      if (dxx > g_maxt_extreme_stat[ujj]) {
-		g_maxt_extreme_stat[ujj] = dxx;
+	  } else {
+	    for (uii = 0; uii < g_assoc_thread_ct; uii++) {
+	      ooptr = &(g_maxt_thread_results[uii * ulii]);
+	      for (ujj = g_perms_done - g_perm_vec_ct; ujj < g_perms_done; ujj++) {
+		dxx = *ooptr++;
+		if (dxx > g_maxt_extreme_stat[ujj]) {
+		  g_maxt_extreme_stat[ujj] = dxx;
+		}
 	      }
 	    }
 	  }

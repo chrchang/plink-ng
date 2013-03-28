@@ -1002,6 +1002,8 @@ int32_t eval_affection(char* bufptr, int32_t missing_pheno, int32_t missing_phen
 
 void triangle_fill(uint32_t* target_arr, int32_t ct, int32_t pieces, int32_t parallel_idx, int32_t parallel_tot, int32_t start, int32_t align);
 
+void split_low_and_high(uint32_t marker_ct, uint32_t indiv_ct, uintptr_t* loadbuf, uintptr_t* loadbuf1);
+
 int32_t write_ids(char* outname, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
 
 int32_t distance_d_write_ids(char* outname, char* outname_end, int32_t dist_calc_type, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
@@ -1055,11 +1057,11 @@ uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx
 
 uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx);
 
-void ivec_set_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ivec, uint32_t* set_ctp, uint32_t* missing_ctp);
+void vec1_set_freq(uintptr_t indiv_ctlv, uintptr_t* lptr1, uintptr_t* include_vec1, uint32_t* set_ctp, uint32_t* missing_ctp);
 
-void ivec_set_freq_haploid(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ivec, uint32_t* set_ctp, uint32_t* missing_ctp);
+void vec1_set_freq_haploid(uintptr_t indiv_ctlv, uintptr_t* lptr1, uintptr_t* include_vec1, uint32_t* set_ctp, uint32_t* missing_ctp);
 
-void ivec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ivec, uintptr_t* nonmale_vec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
+void vec1_set_freq_x(uintptr_t indiv_ctlv, uintptr_t* lptr1, uintptr_t* include_vec1, uintptr_t* sex_male, uint32_t* set_ctp, uint32_t* missing_ctp);
 
 void ivec_set_freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ivec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
 
