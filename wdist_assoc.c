@@ -1109,6 +1109,16 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
 	vec1_set_freq_haploid(pheno_nm_ctlv, &(loadbuf1[marker_bidx * pheno_nm_ctlv2]), &(perm_vecs[pidx * pheno_nm_ctlv]), &case_set_ct, &case_missing_ct);
       } else {
 	vec1_set_freq(pheno_nm_ctlv, &(loadbuf1[marker_bidx * pheno_nm_ctlv2]), &(perm_vecs[pidx * pheno_nm_ctlv]), &case_set_ct, &case_missing_ct);
+	/*
+	if (tidx == 0) {
+	  printf("%lu %u %u %u\n", pheno_nm_ctlv, missing_start, case_set_ct, case_missing_ct);
+	  for (uii = 0; uii < pheno_nm_ct; uii++) {
+	    printf("%d ", is_set(&(loadbuf1[marker_bidx * pheno_nm_ctlv2]), uii) + 2 * is_set(&(loadbuf1[marker_bidx * pheno_nm_ctlv2 + pheno_nm_ctlv]), uii));
+	  }
+	  printf("\n");
+	  exit(1);
+	}
+	*/
       }
       // deliberate underflow
       uii = (uint32_t)(case_missing_ct - missing_start);
@@ -2486,7 +2496,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     nonmale_ct = pheno_nm_ct - male_ct;
   }
   if (model_perms) {
-    if (wkspace_alloc_ul_checked(&g_loadbuf1, MODEL_BLOCKSIZE * 2 * pheno_nm_ctlv)) {
+    if (wkspace_alloc_ul_checked(&g_loadbuf1, MODEL_BLOCKSIZE * 2 * pheno_nm_ctlv * sizeof(intptr_t))) {
       goto model_assoc_ret_NOMEM;
     }
     g_sfmtp_arr = (sfmt_t**)wkspace_alloc(g_thread_ct * sizeof(intptr_t));
@@ -3396,7 +3406,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	}
       }
       if (model_perms) {
-	split_low_and_high(MODEL_BLOCKSIZE, pheno_nm_ct, g_loadbuf, g_loadbuf1);
+	split_low_and_high(block_size, pheno_nm_ct, g_loadbuf, g_loadbuf1);
 	if (model_adapt) {
 	  if (model_assoc) {
 	    if (spawn_threads(threads, &assoc_adapt_thread, g_assoc_thread_ct)) {

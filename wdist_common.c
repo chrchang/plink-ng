@@ -2125,7 +2125,7 @@ void triangle_fill(uint32_t* target_arr, int32_t ct, int32_t pieces, int32_t par
 }
 
 void split_low_and_high(uint32_t marker_ct, uint32_t indiv_ct, uintptr_t* loadbuf, uintptr_t* loadbuf1) {
-  uintptr_t indiv_ctl2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
+  uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
 #ifdef __LP64__
   uintptr_t indiv_ctlv = 2 * ((indiv_ct + 127) / 128);
 #else
@@ -2140,32 +2140,32 @@ void split_low_and_high(uint32_t marker_ct, uint32_t indiv_ct, uintptr_t* loadbu
   uint32_t uii;
   uint32_t ujj;
   for (; marker_idx < marker_ct; marker_idx++) {
-    for (indiv_bidx = 0; indiv_bidx < indiv_ctl2; indiv_bidx++) {
-      loadbuf1_high = &(loadbuf1[2 * indiv_ctlv]);
-      loadbuf1 = &(loadbuf1[indiv_ctlv]);
+    loadbuf1_high = &(loadbuf1[indiv_ctlv]);
+    for (indiv_bidx = 0; indiv_bidx < indiv_ctl; indiv_bidx++) {
       cur_word = *loadbuf++;
       cur_wordl = 0;
       cur_wordh = 0;
       ujj = 0;
       for (uii = 0; uii < BITCT2; uii++) {
-	cur_wordl |= ((cur_word >> (ujj++)) & 1) << uii;
-        cur_wordh |= ((cur_word >> (ujj++)) & 1) << uii;
+	cur_wordl |= ((cur_word >> (ujj++)) & ONELU) << uii;
+        cur_wordh |= ((cur_word >> (ujj++)) & ONELU) << uii;
       }
       cur_word = *loadbuf++;
       ujj = 0;
       for (; uii < BITCT; uii++) {
-	cur_wordl |= ((cur_word >> (ujj++)) & 1) << uii;
-        cur_wordh |= ((cur_word >> (ujj++)) & 1) << uii;
+	cur_wordl |= ((cur_word >> (ujj++)) & ONELU) << uii;
+        cur_wordh |= ((cur_word >> (ujj++)) & ONELU) << uii;
       }
       *loadbuf1++ = cur_wordl;
       *loadbuf1_high++ = cur_wordh;
-#ifdef __LP64__
-      if (indiv_ctl2 < indiv_ctlv) {
-	*loadbuf1++ = 0;
-	*loadbuf1_high = 0;
-      }
-#endif
     }
+#ifdef __LP64__
+    if (indiv_ctl < indiv_ctlv) {
+      *loadbuf1 = 0;
+      *loadbuf1_high++ = 0;
+    }
+#endif
+    loadbuf1 = loadbuf1_high;
   }
 }
 
