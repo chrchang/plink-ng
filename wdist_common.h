@@ -1002,8 +1002,6 @@ int32_t eval_affection(char* bufptr, int32_t missing_pheno, int32_t missing_phen
 
 void triangle_fill(uint32_t* target_arr, int32_t ct, int32_t pieces, int32_t parallel_idx, int32_t parallel_tot, int32_t start, int32_t align);
 
-void split_low_and_high(uint32_t marker_ct, uint32_t indiv_ct, uintptr_t* loadbuf, uintptr_t* loadbuf1);
-
 int32_t write_ids(char* outname, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
 
 int32_t distance_d_write_ids(char* outname, char* outname_end, int32_t dist_calc_type, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
@@ -1038,8 +1036,8 @@ void bitfield_andnot(uintptr_t* vv, uintptr_t* exclude_vec, uintptr_t ct);
 
 static inline uint32_t popcount2_long(uintptr_t val) {
 #ifdef __LP64__
-  val = (val & 0x3333333333333333LU) + ((val >> 2) & 0x3333333333333333LU);
-  return (((val + (val >> 4)) & 0x0f0f0f0f0f0f0f0fLU) * 0x0101010101010101LU) >> 56;
+  val = (val & 0x3333333333333333LLU) + ((val >> 2) & 0x3333333333333333LLU);
+  return (((val + (val >> 4)) & 0x0f0f0f0f0f0f0f0fLLU) * 0x0101010101010101LLU) >> 56;
 #else
   val = (val & 0x33333333) + ((val >> 2) & 0x33333333);
   return (((val + (val >> 4)) & 0x0f0f0f0f) * 0x01010101) >> 24;
@@ -1057,22 +1055,6 @@ uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx
 
 uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx);
 
-void vec1_set_freq(uintptr_t indiv_ctlv, uintptr_t* lptr1, uintptr_t* include_vec1, uint32_t* set_ctp, uint32_t* missing_ctp);
-
-void vec1_set_freq_haploid(uintptr_t indiv_ctlv, uintptr_t* lptr1, uintptr_t* include_vec1, uint32_t* set_ctp, uint32_t* missing_ctp);
-
-void vec1_set_freq_x(uintptr_t indiv_ctlv, uintptr_t* lptr1, uintptr_t* include_vec1, uintptr_t* sex_male, uint32_t* set_ctp, uint32_t* missing_ctp);
-
-void ivec_set_freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ivec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
-
-void ivec_homset_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ivec, uint32_t* homa2_ctp, uint32_t* missing_ctp);
-
-void ivec_homclear_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ivec, uint32_t* homa1_ctp, uint32_t* missing_ctp);
-
-void ivec_homset_freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ivec, uintptr_t* male_vec, uint32_t* homa2_ctp, uint32_t* missing_ctp);
-
-void ivec_homclear_freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ivec, uintptr_t* male_vec, uint32_t* homa1_ctp, uint32_t* missing_ctp);
-
 #ifdef __LP64__
 void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp);
 
@@ -1082,6 +1064,18 @@ void count_2freq_dbl_6(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, ui
 
 void count_3freq_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp);
 #endif
+
+void vec_set_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
+
+void vec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
+
+void vec_set_freq_y(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* nonmale_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
+
+void vec_set_freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
+
+void vec_3freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* missing_ctp, uint32_t* het_ctp, uint32_t* homa2_ctp);
+
+void vec_3freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uintptr_t* missing_ctp, uint32_t* het_ctp, uint32_t* homa2_ctp);
 
 static inline void zero_trailing_bits(uintptr_t* bitfield, uintptr_t unfiltered_ct) {
   uintptr_t trail_ct = unfiltered_ct & (BITCT - 1);
