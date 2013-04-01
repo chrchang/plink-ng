@@ -1217,6 +1217,44 @@ void chi22_precomp_val_bounds(double chisq, intptr_t row1_sum, intptr_t col1_sum
   }
 }
 
+double chi23_eval(intptr_t m11, intptr_t m12, intptr_t row1_sum, intptr_t col1_sum, intptr_t col2_sum, intptr_t total) {
+  // assumes no sum-zero row
+  intptr_t m13 = row1_sum - m11 - m12;
+  intptr_t col3_sum = total - col1_sum - col2_sum;
+  double col1_sumd;
+  double col2_sumd;
+  double col3_sumd;
+  double tot_recip;
+  double dxx;
+  double expect;
+  double delta;
+  double chisq;
+  col1_sumd = col1_sum;
+  col2_sumd = col2_sum;
+  col3_sumd = col3_sum;
+  tot_recip = 1.0 / ((double)total);
+  dxx = row1_sum * tot_recip;
+  expect = dxx * col1_sumd;
+  delta = m11 - expect;
+  chisq = delta * delta / expect;
+  expect = dxx * col2_sumd;
+  delta = m12 - expect;
+  chisq += delta * delta / expect;
+  expect = dxx * col3_sumd;
+  delta = m13 - expect;
+  chisq += delta * delta / expect;
+  dxx = (total - row1_sum) * tot_recip;
+  expect = dxx * col1_sumd;
+  delta = (col1_sum - m11) - expect;
+  chisq += delta * delta / expect;
+  expect = dxx * col2_sumd;
+  delta = (col2_sum - m12) - expect;
+  chisq += delta * delta / expect;
+  expect = dxx * col3_sumd;
+  delta = (col3_sum - m13) - expect;
+  return chisq + (delta * delta / expect);
+}
+
 void chi23_evalx(intptr_t m11, intptr_t m12, intptr_t m13, intptr_t m21, intptr_t m22, intptr_t m23, double* chip, uint32_t* dfp) {
   // Slightly different from PLINK calculation, since it detects lone nonzero
   // columns.
