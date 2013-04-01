@@ -2239,8 +2239,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   char* wptr2;
   char* wptr_mid;
   char* wptr_mid2;
-  uintptr_t marker_ctl;
-  unsigned char* wkspace_mark2;
   char* outname_end2;
   uint32_t marker_unstopped_ct;
   uint32_t gender_req;
@@ -2285,10 +2283,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   double dyy;
   double dzz;
   double da1;
-  double da12;
   double da2;
   double du1;
-  double du12;
   double du2;
   double ca_p;
   char* a1ptr;
@@ -2426,7 +2422,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     }
   }
   g_adaptive_ci_zt = ltqnorm(1 - aperm_beta / (2.0 * marker_ct));
-  marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
   if (wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctl2 * sizeof(intptr_t)) ||
       wkspace_alloc_d_checked(&g_orig_1mpval, marker_ct * sizeof(double)) ||
       wkspace_alloc_ui_checked(&g_missing_cts, marker_ct * sizeof(uint32_t)) ||
@@ -2534,7 +2529,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     g_tot_quotient = 4294967296LLU / pheno_nm_ct;
     magic_num(g_tot_quotient, &g_totq_magic, &g_totq_preshift, &g_totq_postshift, &g_totq_incr);
   }
-  wkspace_mark2 = wkspace_base;
   if (wkspace_alloc_ui_checked(&g_marker_uidxs, marker_ct * sizeof(uint32_t))) {
     goto model_assoc_ret_NOMEM;
   }
@@ -3005,12 +2999,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	    }
 	    *hetp = ujj + unn;
 	    *setp = 2 * (*setp) + (*hetp);
-	    da1 = uoo;
-	    da12 = unn;
-	    da2 = umm;
-	    du1 = ukk;
-	    du12 = ujj;
-	    du2 = uii;
 	    is_invalid = (uoo < model_cell_ct) || (unn < model_cell_ct) || (umm < model_cell_ct) || (ukk < model_cell_ct) || (ujj < model_cell_ct) || (uii < model_cell_ct);
 
 	    a1ptr = &(marker_alleles[(2 * marker_uidx2 + is_reverse) * max_marker_allele_len]);
