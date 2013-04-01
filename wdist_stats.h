@@ -41,4 +41,4 @@ double ca_trend_evalx(intptr_t case_a2_ct, intptr_t case_ct, intptr_t het_ct, in
 
 void ca_trend_precomp_val_bounds(double chisq, intptr_t case_ct, intptr_t het_ct, intptr_t homa2_ct, intptr_t total, uint32_t* bounds, double* coeffs);
 
-#endif __WDIST_STATS_H__
+#endif // __WDIST_STATS_H__

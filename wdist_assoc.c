@@ -2501,7 +2501,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      wkspace_alloc_d_checked(&g_precomp_d, g_precomp_width * 3 * MODEL_BLOCKSIZE * sizeof(double))) {
 	    goto model_assoc_ret_NOMEM;
 	  }
-	} else {
+	} else if (model_perm_best) {
 	  // TODO
 	}
       } else if (model_assoc || (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PTREND))) {
@@ -2509,25 +2509,15 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	    wkspace_alloc_d_checked(&g_precomp_d, g_precomp_width * 2 * MODEL_BLOCKSIZE * sizeof(double))) {
 	  goto model_assoc_ret_NOMEM;
 	}
-      } else {
+      } else if (model_perm_best) {
 	// TODO
       }
     } else if (model_assoc || (model_modifier & (MODEL_PDOM | MODEL_PREC | MODEL_PTREND))) {
       if (wkspace_alloc_ui_checked(&g_precomp_ui, g_precomp_width * 4 * MODEL_BLOCKSIZE * sizeof(uint32_t))) {
 	goto model_assoc_ret_NOMEM;
       }
-    } else {
-      /*
-      if (model_modifier & MODEL_PGEN) {
-	if (wkspace_alloc_ui_checked(&g_precomp_ui, 3 * marker_ct * sizeof(uint32_t))) {
-	  goto model_assoc_ret_NOMEM;
-	}
-      } else {
-	if (wkspace_alloc_ui_checked(&g_precomp_ui, g_precomp_width * 3 * MODEL_BLOCKSIZE * sizeof(uint32_t))) {
-	  goto model_assoc_ret_NOMEM;
-	}
-      }
-      */
+    } else if (model_perm_best) {
+      // TODO
     }
     fill_uint_zero(g_perm_2success_ct, marker_ct);
     g_thread_block_ctl = (MODEL_BLOCKSIZE + (g_thread_ct - 1)) / g_thread_ct;
