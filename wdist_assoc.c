@@ -515,7 +515,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
   }
 }
 
-void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_nm_ct, uintptr_t* perm_vecst) {
+void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_nm_ct, uint32_t* perm_vecst) {
   // Transpose permutations so PRESTO/PERMORY-style genotype indexing can work.
   //
   // We used a 32-ply interleaved format, to allow counts up to the uint32_t
@@ -591,7 +591,7 @@ char* model_assoc_tna(uint32_t model_fisher, char* wptr) {
   }
 }
 
-void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uint32_t do_reverse, uintptr_t* __restrict__ loadbuf, uintptr_t* perm_vecst, uint32_t* thread_bufs) {
+void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uint32_t do_reverse, uintptr_t* __restrict__ loadbuf, uint32_t* perm_vecst, uint32_t* thread_bufs) {
   // Brian Browning's genotype indexing algorithm for low-MAF (and low missing
   // frequency) markers.
   // We accelerate it by using a special interleaved permutation representation
@@ -667,16 +667,6 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uint32_t do_reverse, u
     xormask = 0;
   }
   gitv[8] = (__m128i*)thread_bufs;
-  git_merge4 = gitv[0];
-  ujj = 3 * perm_ct128x4;
-  for (uii = 0; uii < ujj; uii++) {
-    *git_merge4++ = _mm_setzero_si128();
-  }
-  git_merge8 = gitv[3];
-  ujj = 6 * perm_ct32;
-  for (uii = 0; uii < ujj; uii++) {
-    *git_merge8++ = _mm_setzero_si128();
-  }
 #else
   // first perm_ct 4-byte blocks: homa1_cts
   // ...
@@ -696,7 +686,6 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uint32_t do_reverse, u
     xormask = 0;
   }
   gitv[8] = thread_bufs;
-  fill_ulong_zero(gitv[0], 6 * perm_ct8 + 3 * perm_ct32x4);
 #endif
   cur_cts[0] = 0;
   cur_cts[1] = 0;
@@ -707,7 +696,7 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uint32_t do_reverse, u
     if (uii + 1 == pheno_nm_ctl2x) {
       ujj = pheno_nm_ct & (BITCT2 - 1);
       if (ujj) {
-	ulii &= (1LLU << (ujj * 2)) - 1LLU;
+	ulii &= (ONELU << (ujj * 2)) - ONELU;
       }
     }
     while (ulii) {
@@ -715,7 +704,7 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uint32_t do_reverse, u
       indiv_type = ((ulii >> ujj) & 3) - 1;
       git_merge4 = gitv[indiv_type];
 #ifdef __LP64__
-      perm_ptr = &(permsv[ujj * perm_ct128]);
+      perm_ptr = &(permsv[(ujj / 2) * perm_ct128]);
       for (pbidx = 0; pbidx < perm_ct128; pbidx++) {
 	loader = *perm_ptr++;
 	git_merge4[0] = _mm_add_epi64(git_merge4[0], _mm_and_si128(loader, m1x4));
@@ -744,14 +733,14 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uint32_t do_reverse, u
 	    git_write[0] = _mm_add_epi64(git_write[0], _mm_and_si128(loader, m8x32));
 	    git_write[1] = _mm_add_epi64(git_write[1], _mm_and_si128(_mm_srli_epi64(loader, 8), m8x32));
 	    git_write[2] = _mm_add_epi64(git_write[2], _mm_and_si128(_mm_srli_epi64(loader, 16), m8x32));
-	    git_write[3] = _mm_add_epi64(git_write[3], _mm_and_si128(_mm_srli_epi64(loader, 24), m8x32));
+	    git_write[3] = _mm_add_epi64(git_write[3], _mm_srli_epi32(loader, 24));
 	    git_write = &(git_write[4]);
 	    *git_merge8++ = _mm_setzero_si128();
 	  }
 	}
       }
 #else
-      perm_ptr = &(permsv[ujj * perm_ct32]);
+      perm_ptr = &(permsv[(ujj / 2) * perm_ct32]);
       for (pbidx = 0; pbidx < perm_ct32; pbidx++) {
 	loader = *perm_ptr++;
 	git_merge4[0] += loader & 0x11111111;
@@ -790,9 +779,9 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uint32_t do_reverse, u
       ulii &= ~(3 * (ONELU << ujj));
     }
 #ifdef __LP64__
-    permsv = &(permsv[BITCT * perm_ct128]);
+    permsv = &(permsv[BITCT2 * perm_ct128]);
 #else
-    permsv = &(permsv[BITCT * perm_ct32]);
+    permsv = &(permsv[BITCT2 * perm_ct32]);
 #endif
   }
   for (indiv_type = 0; indiv_type < 3; indiv_type++) {
@@ -816,7 +805,7 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uint32_t do_reverse, u
 	git_write[0] = _mm_add_epi64(git_write[0], _mm_and_si128(loader, m8x32));
 	git_write[1] = _mm_add_epi64(git_write[1], _mm_and_si128(_mm_srli_epi64(loader, 8), m8x32));
 	git_write[2] = _mm_add_epi64(git_write[2], _mm_and_si128(_mm_srli_epi64(loader, 16), m8x32));
-	git_write[3] = _mm_add_epi64(git_write[3], _mm_and_si128(_mm_srli_epi64(loader, 24), m8x32));
+	git_write[3] = _mm_add_epi64(git_write[3], _mm_srli_epi32(loader, 24));
 	git_write = &(git_write[4]);
       }
     }
@@ -857,7 +846,7 @@ static uintptr_t* g_loadbuf;
 
 static uintptr_t* g_perm_vecs;
 
-static uintptr_t* g_perm_vecst; // genotype indexing support
+static uint32_t* g_perm_vecst; // genotype indexing support
 static uint32_t* g_thread_git_cts;
 
 // maximum number of precomputed table entries per marker
@@ -1157,7 +1146,7 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
   uintptr_t* __restrict__ male_vec = g_indiv_male_include2;
   uintptr_t* __restrict__ nonmale_vec = g_indiv_nonmale_include2;
   uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
-  uintptr_t* __restrict__ perm_vecst = g_perm_vecst;
+  uint32_t* __restrict__ perm_vecst = g_perm_vecst;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
   uint32_t* __restrict__ precomp_ui = g_precomp_ui;
   uint32_t* __restrict__ precomp_start = g_precomp_start;
@@ -1206,9 +1195,9 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
     success_2incr = 0;
     if (!is_x_or_y) {
 #ifdef __LP64__
-      fill_ulong_zero((uintptr_t*)git_homa1_cts, 24 * perm_ct16);
+      fill_ulong_zero((uintptr_t*)git_homa1_cts, perm_ct128 * 264);
 #else
-      fill_ulong_zero(git_homa1_cts, 12 * perm_ct4);
+      fill_ulong_zero(git_homa1_cts, 132 * perm_ct32);
 #endif
       calc_git(pheno_nm_ct, perm_vec_ct, 0, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homa1_cts);
     }
@@ -1216,7 +1205,7 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
       if (!is_x_or_y) {
 	if (!is_haploid) {
 	  case_missing_ct = git_missing_cts[pidx];
-	  case_set_ct = row1x_sum - (git_het_cts[pidx] - 2 * (case_missing_ct + git_homa1_cts[pidx]));
+	  case_set_ct = row1x_sum - (git_het_cts[pidx] + 2 * (case_missing_ct + git_homa1_cts[pidx]));
 	} else {
 	  case_missing_ct = git_missing_cts[pidx] + git_het_cts[pidx];
 	  case_set_ct = row1x_sum - case_missing_ct - git_homa1_cts[pidx];
@@ -1229,6 +1218,7 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
 	}
       }
       // deliberate underflow
+      // printf("%ld %lu %u %u %u %u %ld %ld %u %u %u %u\n", tidx, marker_idx, marker_bidx, case_set_ct, case_missing_ct, missing_start, row1x_sum, col1_sum, gpui[0], gpui[1], gpui[2], gpui[3]);
       uii = (uint32_t)(case_missing_ct - missing_start);
       if (uii < precomp_width) {
 	if (case_set_ct < gpui[6 * uii]) {
@@ -2632,7 +2622,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 #else
       ulii = ((g_perm_vec_ct + 31) / 32) * 4;
 #endif
-      g_perm_vecst = (uintptr_t*)wkspace_alloc(ulii * pheno_nm_ct);
+      g_perm_vecst = (uint32_t*)wkspace_alloc(ulii * pheno_nm_ct);
       g_thread_git_cts = (uint32_t*)wkspace_alloc(ulii * 132 * g_thread_ct);
       transpose_perms(g_perm_vecs, g_perm_vec_ct, pheno_nm_ct, g_perm_vecst);
 #ifdef __LP64__
