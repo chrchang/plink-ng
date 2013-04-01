@@ -523,13 +523,13 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
 #ifdef __LP64__
   uint32_t wbuf[4];
+  uint32_t* wbptr;
 #else
   uint32_t wval;
 #endif
   uint32_t rshift;
   uint32_t wshift;
   uintptr_t* pvptr;
-  uint32_t* wbptr;
   uintptr_t perm_idx;
   for (; indiv_idx < pheno_nm_ct; indiv_idx++) {
     perm_idx = 0;
@@ -619,12 +619,12 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uint32_t do_reverse, u
   uint32_t perm_ct8 = (perm_vec_ct + 7) / 8;
   uint32_t perm_ct4 = (perm_vec_ct + 3) / 4;
   uint32_t perm_ct4x4 = 4 * perm_ct4;
-  uintptr_t* permsv = perm_vecst;
-  uintptr_t* gitv[9];
-  uintptr_t* git_merge4;
-  uintptr_t* git_merge8;
-  uintptr_t* git_write;
-  uintptr_t* perm_ptr;
+  uint32_t* permsv = perm_vecst;
+  uint32_t* gitv[9];
+  uint32_t* git_merge4;
+  uint32_t* git_merge8;
+  uint32_t* git_write;
+  uint32_t* perm_ptr;
   uintptr_t loader;
 #endif
   uint32_t cur_cts[3];
@@ -1202,7 +1202,7 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
 #ifdef __LP64__
       fill_ulong_zero((uintptr_t*)git_homa1_cts, perm_ct128 * 264);
 #else
-      fill_ulong_zero(git_homa1_cts, 132 * perm_ct32);
+      fill_ulong_zero((uintptr_t*)git_homa1_cts, 132 * perm_ct32);
 #endif
       calc_git(pheno_nm_ct, perm_vec_ct, 0, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homa1_cts);
     }
@@ -1532,7 +1532,7 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
 #ifdef __LP64__
       fill_ulong_zero((uintptr_t*)git_homa1_cts, perm_ct128 * 264);
 #else
-      fill_ulong_zero(git_homa1_cts, 132 * perm_ct32);
+      fill_ulong_zero((uintptr_t*)git_homa1_cts, 132 * perm_ct32);
 #endif
       calc_git(pheno_nm_ct, perm_vec_ct, cur_reverse, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homa1_cts);
     }
@@ -1820,7 +1820,7 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
 #ifdef __LP64__
       fill_ulong_zero((uintptr_t*)git_homa1_cts, perm_ct128 * 264);
 #else
-      fill_ulong_zero(git_homa1_cts, 132 * perm_ct32);
+      fill_ulong_zero((uintptr_t*)git_homa1_cts, 132 * perm_ct32);
 #endif
       calc_git(pheno_nm_ct, perm_vec_ct, cur_reverse, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homa1_cts);
     }
@@ -2094,7 +2094,7 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
 #ifdef __LP64__
       fill_ulong_zero((uintptr_t*)git_homa1_cts, perm_ct128 * 264);
 #else
-      fill_ulong_zero(git_homa1_cts, 132 * perm_ct32);
+      fill_ulong_zero((uintptr_t*)git_homa1_cts, 132 * perm_ct32);
 #endif
       calc_git(pheno_nm_ct, perm_vec_ct, cur_reverse, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homa1_cts);
     }

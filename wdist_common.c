@@ -3564,6 +3564,8 @@ void count_set_freq_y_12(uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* non
   uintptr_t loader4 = *nonmale_vec++;
   uintptr_t sets1 = loader3 & loader & loader2 & (~loader4);
   uintptr_t missings1 = loader3 & (loader4 | (loader ^ loader2));
+  uintptr_t sets2;
+  uintptr_t missings2;
   uintptr_t acc;
   uintptr_t accm;
 
