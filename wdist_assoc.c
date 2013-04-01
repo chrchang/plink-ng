@@ -488,17 +488,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
       perm_vec[widx] = pv_val | wcomp;
     }
   } else {
-    widx = 2 * (tot_ct / BITCT);
-    fill_ulong_one(perm_vec, widx);
-    if (tot_ct % BITCT) {
-      if (tot_ct > BITCT2) {
-	perm_vec[widx] = FIVEMASK;
-	perm_vec[widx + 1] = FIVEMASK >> (2 * (BITCT - tot_ct));
-      } else {
-	perm_vec[widx] = FIVEMASK >> (BITCT - 2 * tot_ct);
-	perm_vec[widx + 1] = 0;
-      }
-    }
+    fill_vec_55(perm_vec, tot_ct);
     set_ct = tot_ct - set_ct;
     for (; num_set < set_ct; num_set++) {
       do {
@@ -510,7 +500,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
 	wcomp = ONELU << (2 * (uii % BITCT2));
 	pv_val = perm_vec[widx];
       } while (!(pv_val & wcomp));
-      perm_vec[widx] = pv_val & (~wcomp);
+      perm_vec[widx] = pv_val - wcomp;
     }
   }
 }
@@ -1218,7 +1208,6 @@ THREAD_RET_TYPE assoc_maxt_fisher_thread(void* arg) {
 	}
       }
       // deliberate underflow
-      // printf("%ld %lu %u %u %u %u %ld %ld %u %u %u %u\n", tidx, marker_idx, marker_bidx, case_set_ct, case_missing_ct, missing_start, row1x_sum, col1_sum, gpui[0], gpui[1], gpui[2], gpui[3]);
       uii = (uint32_t)(case_missing_ct - missing_start);
       if (uii < precomp_width) {
 	if (case_set_ct < gpui[6 * uii]) {
@@ -2227,6 +2216,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   uint32_t uoo;
   uint32_t upp;
   uint32_t uqq;
+  uint32_t urr;
   uint32_t is_invalid;
   double pval;
   double dyy;
@@ -2542,9 +2532,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     ctrl_nonmale_ct = ctrl_ct - ctrl_male_ct;
   }
 
-  for (uii = 0; uii < MODEL_BLOCKSIZE; uii++) {
-    g_loadbuf[(uii + 1) * pheno_nm_ctl2 - 2] = 0;
-    g_loadbuf[(uii + 1) * pheno_nm_ctl2 - 1] = 0;
+  for (uii = 1; uii <= MODEL_BLOCKSIZE; uii++) {
+    g_loadbuf[uii * pheno_nm_ctl2 - 2] = 0;
+    g_loadbuf[uii * pheno_nm_ctl2 - 1] = 0;
   }
   if (model_perms) {
     if (pheno_c && (wkspace_left < pheno_nm_ctl2 * sizeof(intptr_t))) {
@@ -3213,10 +3203,15 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  uqq = 2;
 	}
 	for (uii = g_block_start; uii < block_size; uii++) {
-	  upp = g_missing_cts[marker_idx + uii];
+	  if (model_adapt) {
+	    urr = g_adapt_m_table[uii];
+	  } else {
+	    urr = marker_idx + uii;
+	  }
+	  upp = g_missing_cts[urr];
 	  get_model_assoc_precomp_bounds(upp, &ujj, &ukk);
 	  g_precomp_start[uii] = ujj;
-	  uoo = g_set_cts[marker_idx + uii];
+	  uoo = g_set_cts[urr];
 	  if (g_is_x) {
 	    unn = 2 * g_case_ct;
 	    upp = 2 * g_pheno_nm_ct - upp;
@@ -3227,7 +3222,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  ujj *= uqq;
 	  ukk += uii * g_precomp_width;
 	  if (g_model_fisher) {
-	    dxx = 1 - g_orig_1mpval[marker_idx + uii];
+	    dxx = 1 - g_orig_1mpval[urr];
 	    if (model_adapt) {
 	      for (umm = uii * g_precomp_width; umm < ukk; umm++) {
 		fisher22_precomp_pval_bounds(dxx, unn - ujj, uoo, upp, &(g_precomp_ui[umm * 4]), NULL);
@@ -3243,7 +3238,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      }
 	    }
 	  } else {
-	    dxx = g_orig_chisq[marker_idx + uii];
+	    dxx = g_orig_chisq[urr];
 	    if (model_adapt) {
 	      for (umm = uii * g_precomp_width; umm < ukk; umm++) {
 		chi22_precomp_val_bounds(dxx, unn - ujj, uoo, upp, &(g_precomp_ui[umm * 4]), NULL);
@@ -3264,15 +3259,20 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       } else if (model_modifier & MODEL_PGEN) {
       } else if (model_modifier & MODEL_PTREND) {
 	for (uii = g_block_start; uii < block_size; uii++) {
-	  upp = g_missing_cts[marker_idx + uii];
+	  if (model_adapt) {
+	    urr = g_adapt_m_table[uii];
+	  } else {
+	    urr = marker_idx + uii;
+	  }
+	  upp = g_missing_cts[urr];
 	  get_model_assoc_precomp_bounds(upp, &ujj, &ukk);
 	  g_precomp_start[uii] = ujj;
-	  unn = g_het_cts[marker_idx + uii];
+	  unn = g_het_cts[urr];
 	  upp = g_pheno_nm_ct - upp; // tot_obs
-	  uoo = (g_set_cts[marker_idx + uii] - unn) / 2; // homa2_ct
+	  uoo = (g_set_cts[urr] - unn) / 2; // homa2_ct
 	  ukk += uii * g_precomp_width;
 	  ujj = g_case_ct - ujj;
-	  dxx = g_orig_chisq[marker_idx + uii];
+	  dxx = g_orig_chisq[urr];
 	  if (model_adapt) {
 	    for (umm = uii * g_precomp_width; umm < ukk; umm++) {
 	      ca_trend_precomp_val_bounds(dxx, ujj--, unn, uoo, upp, &(g_precomp_ui[umm * 4]), NULL);
@@ -3288,19 +3288,24 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	}
       } else {
 	for (uii = g_block_start; uii < block_size; uii++) {
-	  upp = g_missing_cts[marker_idx + uii];
+	  if (model_adapt) {
+	    urr = g_adapt_m_table[uii];
+	  } else {
+	    urr = marker_idx + uii;
+	  }
+	  upp = g_missing_cts[urr];
 	  get_model_assoc_precomp_bounds(upp, &ujj, &ukk);
 	  g_precomp_start[uii] = ujj;
 	  upp = g_pheno_nm_ct - upp; // tot_obs
 	  if (model_modifier & MODEL_PREC) {
-	    uoo = upp - ((g_set_cts[marker_idx + uii] + g_het_cts[marker_idx + uii]) / 2); // col1_sum
+	    uoo = upp - ((g_set_cts[urr] + g_het_cts[urr]) / 2); // col1_sum
 	  } else {
-	    uoo = (g_set_cts[marker_idx + uii] - g_het_cts[marker_idx + uii]) / 2;
+	    uoo = (g_set_cts[urr] - g_het_cts[urr]) / 2;
 	  }
 	  ukk += uii * g_precomp_width;
 	  ujj = g_case_ct - ujj;
 	  if (g_model_fisher) {
-	    dxx = 1 - g_orig_1mpval[marker_idx + uii];
+	    dxx = 1 - g_orig_1mpval[urr];
 	    if (model_adapt) {
 	      for (umm = uii * g_precomp_width; umm < ukk; umm++) {
 	        fisher22_precomp_pval_bounds(dxx, ujj--, uoo, upp, &(g_precomp_ui[umm * 4]), NULL);
@@ -3314,7 +3319,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	      }
 	    }
 	  } else {
-	    dxx = g_orig_chisq[marker_idx + uii];
+	    dxx = g_orig_chisq[urr];
 	    if (model_adapt) {
 	      for (umm = uii * g_precomp_width; umm < ukk; umm++) {
 		chi22_precomp_val_bounds(dxx, ujj--, uoo, upp, &(g_precomp_ui[umm * 4]), NULL);
@@ -3508,7 +3513,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       qsort(g_maxt_extreme_stat, perms_total, sizeof(double), double_cmp);
 #endif
     }
-    printf("extreme stats: %g %g\n", g_maxt_extreme_stat[0], g_maxt_extreme_stat[perms_total - 1]);
+    // printf("extreme stats: %g %g\n", g_maxt_extreme_stat[0], g_maxt_extreme_stat[perms_total - 1]);
     if (fprintf(outfile, tbuf, "SNP") < 0) {
       goto model_assoc_ret_WRITE_FAIL;
     }
