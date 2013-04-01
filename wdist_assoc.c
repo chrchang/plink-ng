@@ -1945,8 +1945,8 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
 	perm_attempt_ct[marker_idx] = 0;
 	continue;
       }
-      stat_high = orig_1mpval[marker_idx] + EPSILON;
-      stat_low = orig_1mpval[marker_idx] - EPSILON;
+      stat_high = 1.0 + EPSILON - orig_1mpval[marker_idx];
+      stat_low = 1.0 - EPSILON - orig_1mpval[marker_idx];
     } else {
       if (orig_chisq[marker_idx] == -9) {
 	perm_adapt_stop[marker_idx] = 1;
@@ -1963,7 +1963,7 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
 	vec_3freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_missing_ct, &case_het_ct, &case_homset_ct);
       }
       if (model_fisher) {
-        uii = case_ct - case_het_ct - case_homset_ct;
+        uii = case_ct - case_het_ct - case_homset_ct - case_missing_ct;
 	// this is very slow.  a precomputed 2-dimensional table could improve
 	// matters, but I doubt it's worth the effort for now.
 	dxx = fisher23(case_homset_ct, case_het_ct, uii, homset_ct - case_homset_ct, het_ct - case_het_ct, homclear_ct - uii);
@@ -2079,8 +2079,8 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
 	marker_idx++;
 	continue;
       }
-      stat_high = orig_1mpval[marker_idx] + EPSILON;
-      stat_low = orig_1mpval[marker_idx] - EPSILON;
+      stat_high = 1.0 + EPSILON - orig_1mpval[marker_idx];
+      stat_low = 1.0 - EPSILON - orig_1mpval[marker_idx];
     } else {
       if (orig_chisq[marker_idx] == -9) {
 	marker_idx++;
@@ -2111,7 +2111,7 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
 	vec_3freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_missing_ct, &case_het_ct, &case_homset_ct);
       }
       if (model_fisher) {
-        uii = case_ct - case_het_ct - case_homset_ct;
+        uii = case_ct - case_het_ct - case_homset_ct - case_missing_ct;
 	sval = fisher23(case_homset_ct, case_het_ct, uii, homset_ct - case_homset_ct, het_ct - case_het_ct, homclear_ct - uii);
 	if (sval < stat_low) {
 	  success_2incr += 2;
@@ -2484,7 +2484,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       }
     }
 
-    g_precomp_width = (1 + (int32_t)(sqrt(pheno_nm_ct) * EXPECTED_MISSING_FREQ * 4.24264));
+    g_precomp_width = (1 + (int32_t)(sqrt(pheno_nm_ct) * EXPECTED_MISSING_FREQ * 5.65686));
     if (wkspace_alloc_ui_checked(&g_perm_2success_ct, marker_ct * sizeof(uint32_t))) {
       goto model_assoc_ret_NOMEM;
     }
