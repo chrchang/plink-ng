@@ -2548,7 +2548,7 @@ THREAD_RET_TYPE calc_rel_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   int32_t ii = g_thread_start[tidx];
   int32_t jj = g_thread_start[0];
-  incr_dists_r(&(g_rel_dists[((int64_t)ii * (ii - 1) - (int64_t)jj * (jj - 1)) / 2]), (uintptr_t*)g_geno, g_masks, (int)tidx, g_weights);
+  incr_dists_r(&(g_rel_dists[((int64_t)ii * (ii - 1) - (int64_t)jj * (jj - 1)) / 2]), (uintptr_t*)g_geno, g_masks, (int32_t)tidx, g_weights);
   THREAD_RETURN;
 }
 

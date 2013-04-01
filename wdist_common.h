@@ -1075,7 +1075,7 @@ void vec_set_freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_v
 
 void vec_3freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* missing_ctp, uint32_t* het_ctp, uint32_t* homa2_ctp);
 
-void vec_3freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uintptr_t* missing_ctp, uint32_t* het_ctp, uint32_t* homa2_ctp);
+void vec_3freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* missing_ctp, uint32_t* het_ctp, uint32_t* homa2_ctp);
 
 static inline void zero_trailing_bits(uintptr_t* bitfield, uintptr_t unfiltered_ct) {
   uintptr_t trail_ct = unfiltered_ct & (BITCT - 1);
