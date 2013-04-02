@@ -2382,7 +2382,6 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
 }
 
 THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
-  /*
   intptr_t tidx = (intptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uint32_t is_x = g_is_x;
@@ -2429,6 +2428,7 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   uintptr_t pidx;
   intptr_t tot_obs;
   intptr_t set_ct;
+  intptr_t clear_ct;
   intptr_t het_ct;
   intptr_t homa1_ct;
   intptr_t homa2_ct;
@@ -2438,20 +2438,25 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   uint32_t case_homa2_ct;
   uint32_t case_het_ct;
   uint32_t case_missing_ct;
+  uint32_t case_set_ct;
   uint32_t cur_reverse;
   uint32_t skip_domrec;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
+  uint32_t cur_add;
   double stat_high;
   double stat_low;
   double sval;
+  double best_stat;
+  double default_best_stat;
   memcpy(results, &(g_maxt_extreme_stat[g_perms_done - perm_vec_ct]), perm_vec_ct * sizeof(double));
   marker_idx = g_maxt_block_base + marker_bidx;
   for (; marker_bidx < marker_bceil; marker_bidx++) {
     tot_obs = pheno_nm_ct - missing_cts[marker_idx];
     set_ct = set_cts[marker_idx];
     het_ct = het_cts[marker_idx];
+    clear_ct = tot_obs * 2 - set_ct;
     homa1_ct = tot_obs - ((set_ct + het_ct) / 2);
     homa2_ct = (set_ct - het_ct) / 2;
     cur_reverse = is_set(reverse, marker_idx);
@@ -2462,14 +2467,16 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
       gpd = &(precomp_d[9 * precomp_width * marker_bidx]);
       stat_high = 1.0 + EPSILON - orig_1mpval[marker_idx];
       stat_low = 1.0 - EPSILON - orig_1mpval[marker_idx];
+      default_best_stat = 1;
     } else {
       if (orig_chisq[marker_idx] == -9) {
 	marker_idx++;
 	continue;
       }
-      gpd = &(precomp_d[2 * precomp_width * marker_bidx]);
+      gpd = &(precomp_d[6 * precomp_width * marker_bidx]);
       stat_high = orig_chisq[marker_idx] + EPSILON;
       stat_low = orig_chisq[marker_idx] - EPSILON;
+      default_best_stat = 0;
     }
     success_2incr = 0;
     if (!is_x) {
@@ -2484,79 +2491,174 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
       if (!is_x) {
 	case_missing_ct = git_missing_cts[pidx];
 	case_het_ct = git_het_cts[pidx];
-	if (!cur_reverse) {
-	  case_homa1_ct = ;
-	} else {
-	}
+	case_homa1_ct = git_homa1_cts[pidx];
+	case_homa2_ct = case_ct - case_missing_ct - case_het_ct - case_homa1_ct;
       } else {
-	vec_3freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_missing_ct, &uii, &case_homx_ct);
-	if (cur_xor) {
-	  case_homx_ct = case_ct - case_homx_ct - case_missing_ct - uii;
-	}
+	vec_3freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_missing_ct, &case_het_ct, &case_homa2_ct);
+	case_homa1_ct = case_ct - case_missing_ct - case_het_ct - case_homa2_ct;
       }
+      if (cur_reverse) {
+	uii = case_homa1_ct;
+	case_homa1_ct = case_homa2_ct;
+	case_homa2_ct = uii;
+      }
+      case_set_ct = case_het_ct + 2 * case_homa2_ct;
+      cur_add = 0;
       // deliberate underflow
       uii = (uint32_t)(case_missing_ct - missing_start);
       if (uii < precomp_width) {
-	if (case_homx_ct < gpui[6 * uii]) {
-	  if (case_homx_ct < gpui[6 * uii + 2]) {
-	    success_2incr += 2;
+	best_stat = default_best_stat;
+	if (case_set_ct < gpui[18 * uii]) {
+	  if (case_set_ct < gpui[18 * uii + 2]) {
+	    cur_add = 2;
 	  } else {
-	    success_2incr++;
+	    cur_add = 1;
 	  }
 	} else {
-	  if (case_homx_ct >= gpui[6 * uii + 1]) {
-	    if (case_homx_ct >= gpui[6 * uii + 3]) {
-	      success_2incr += 2;
+	  if (case_set_ct >= gpui[18 * uii + 1]) {
+	    if (case_set_ct >= gpui[18 * uii + 3]) {
+	      cur_add = 2;
 	    } else {
-	      success_2incr++;
+	      cur_add = 1;
 	    }
 	  }
 	}
-	ukk = gpui[6 * uii + 4];
-	ujj = (uint32_t)(case_homx_ct - ukk); // deliberate underflow
-	if (ujj >= gpui[6 * uii + 5]) {
+	ukk = gpui[18 * uii + 4];
+	ujj = (uint32_t)(case_set_ct - ukk); // deliberate underflow
+	if (ujj >= gpui[18 * uii + 5]) {
 	  if (model_fisher) {
-	    ujj = case_ct - case_missing_ct;
-	    sval = fisher22_tail_pval(ukk, ujj - ukk, col1_sum - ukk, col2_sum + ukk - ujj, gpui[6 * uii + 5] - 1, gpd[3 * uii], gpd[3 * uii + 1], gpd[3 * uii + 2], case_homx_ct);
-	    if (results[pidx] > sval) {
-	      results[pidx] = sval;
-	    }
+	    ujj = 2 * (case_ct - case_missing_ct);
+	    best_stat = fisher22_tail_pval(ukk, ujj - ukk, set_ct - ukk, clear_ct + ukk - ujj, gpui[18 * uii + 5] - 1, gpd[9 * uii], gpd[9 * uii + 1], gpd[9 * uii + 2], case_set_ct);
 	  } else {
-	    sval = ((double)((intptr_t)case_homx_ct)) - gpd[2 * uii];
-	    sval = sval * sval * gpd[2 * uii + 1];
-	    if (results[pidx] < sval) {
-	      results[pidx] = sval;
+	    best_stat = ((double)((intptr_t)case_set_ct)) - gpd[6 * uii];
+	    best_stat = best_stat * best_stat * gpd[6 * uii + 1];
+	  }
+	}
+	if (!skip_domrec) {
+	  if (cur_add != 2) {
+	    if (case_homa2_ct < gpui[18 * uii + 6]) {
+	      if (case_homa2_ct < gpui[18 * uii + 8]) {
+		goto model_maxt_best_thread_domrec2;
+	      } else {
+		cur_add = 1;
+	      }
+	    } else {
+	      if (case_homa2_ct >= gpui[18 * uii + 7]) {
+		if (case_homa2_ct >= gpui[18 * uii + 9]) {
+		  goto model_maxt_best_thread_domrec2;
+		} else {
+		  cur_add = 1;
+		}
+	      }
+	    }
+	    if (1) {
+	      if (case_homa1_ct < gpui[18 * uii + 12]) {
+		if (case_homa1_ct < gpui[18 * uii + 14]) {
+		  goto model_maxt_best_thread_domrec2;
+		} else {
+		  cur_add = 1;
+		}
+	      } else {
+		if (case_homa1_ct >= gpui[18 * uii + 13]) {
+		  if (case_homa1_ct >= gpui[18 * uii + 15]) {
+		    goto model_maxt_best_thread_domrec2;
+		  } else {
+		    cur_add = 1;
+		  }
+		}
+	      }
+	    } else {
+	    model_maxt_best_thread_domrec2:
+	      cur_add = 2;
+	    }
+	  }
+	  ukk = gpui[18 * uii + 10];
+	  ujj = (uint32_t)(case_homa2_ct - ukk); // deliberate underflow
+	  if (ujj >= gpui[18 * uii + 11]) {
+	    if (model_fisher) {
+	      ujj = case_ct - case_missing_ct;
+	      sval = fisher22_tail_pval(ukk, ujj - ukk, homa2_ct - ukk, homa1_ct + het_ct + ukk - ujj, gpui[18 * uii + 11] - 1, gpd[9 * uii + 3], gpd[9 * uii + 4], gpd[9 * uii + 5], case_homa2_ct);
+	      if (sval < best_stat) {
+		best_stat = sval;
+	      }
+	    } else {
+	      sval = ((double)((intptr_t)case_homa2_ct)) - gpd[6 * uii + 2];
+	      sval = sval * sval * gpd[6 * uii + 3];
+	      if (sval > best_stat) {
+		best_stat = sval;
+	      }
+	    }
+	  }
+	  ukk = gpui[18 * uii + 16];
+	  ujj = (uint32_t)(case_homa1_ct - ukk); // deliberate underflow
+	  if (ujj >= gpui[18 * uii + 17]) {
+	    if (model_fisher) {
+	      ujj = case_ct - case_missing_ct;
+	      sval = fisher22_tail_pval(ukk, ujj - ukk, homa1_ct - ukk, homa2_ct + het_ct + ukk - ujj, gpui[18 * uii + 17] - 1, gpd[9 * uii + 6], gpd[9 * uii + 7], gpd[9 * uii + 8], case_homa1_ct);
+	      if (sval < best_stat) {
+		best_stat = sval;
+	      }
+	    } else {
+	      sval = ((double)((intptr_t)case_homa1_ct)) - gpd[6 * uii + 4];
+	      sval = sval * sval * gpd[6 * uii + 5];
+	      if (sval > best_stat) {
+		best_stat = sval;
+	      }
 	    }
 	  }
 	}
       } else {
 	uii = case_ct - case_missing_ct;
 	if (model_fisher) {
-	  sval = fisher22(case_homx_ct, uii - case_homx_ct, col1_sum - case_homx_ct, col2_sum + case_homx_ct - uii);
-	  if (sval < stat_low) {
-	    success_2incr += 2;
-	  } else if (sval < stat_high) {
-	    success_2incr++;
+	  ukk = tot_obs - uii;
+	  best_stat = fisher22(case_set_ct, 2 * uii - case_set_ct, set_ct - case_set_ct, 2 * ukk + case_set_ct - set_ct);
+	  if (!skip_domrec) {
+	    sval = fisher22(case_homa2_ct, uii - case_homa2_ct, homa2_ct - case_homa2_ct, ukk + case_homa2_ct - homa2_ct);
+	    if (sval < best_stat) {
+	      best_stat = sval;
+	    }
+	    sval = fisher22(case_homa1_ct, uii - case_homa1_ct, homa1_ct - case_homa1_ct, ukk + case_homa1_ct - homa1_ct);
+	    if (sval < best_stat) {
+	      best_stat = sval;
+	    }
 	  }
-	  if (results[pidx] > sval) {
-	    results[pidx] = sval;
+	  if (best_stat < stat_low) {
+	    cur_add = 2;
+	  } else if (best_stat < stat_high) {
+	    cur_add = 1;
 	  }
 	} else {
-	  sval = chi22_eval(case_homx_ct, uii, col1_sum, tot_obs);
-	  if (sval > stat_high) {
-	    success_2incr += 2;
-	  } else if (sval > stat_low) {
-	    success_2incr++;
+	  best_stat = chi22_eval(case_set_ct, 2 * uii, set_ct, 2 * tot_obs);
+	  if (!skip_domrec) {
+	    sval = chi22_eval(case_homa2_ct, uii, homa2_ct, tot_obs);
+	    if (sval > best_stat) {
+	      best_stat = sval;
+	    }
+	    sval = chi22_eval(case_homa1_ct, uii, homa1_ct, tot_obs);
+	    if (sval > best_stat) {
+	      best_stat = sval;
+	    }
 	  }
-	  if (results[pidx] < sval) {
-	    results[pidx] = sval;
+	  if (best_stat > stat_high) {
+	    cur_add = 2;
+	  } else if (best_stat > stat_low) {
+	    cur_add = 1;
 	  }
+	}
+      }
+      success_2incr += cur_add;
+      if (model_fisher) {
+	if (results[pidx] > best_stat) {
+	  results[pidx] = best_stat;
+	}
+      } else {
+	if (results[pidx] < best_stat) {
+	  results[pidx] = best_stat;
 	}
       }
     }
     perm_2success_ct[marker_idx++] += success_2incr;
   }
-  */
   THREAD_RETURN;
 }
 
@@ -4099,7 +4201,11 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       qsort(g_maxt_extreme_stat, perms_total, sizeof(double), double_cmp);
 #endif
     }
-    // printf("extreme stats: %g %g\n", g_maxt_extreme_stat[0], g_maxt_extreme_stat[perms_total - 1]);
+    /*
+    if (model_maxt) {
+      printf("extreme stats: %g %g\n", g_maxt_extreme_stat[0], g_maxt_extreme_stat[perms_total - 1]);
+    }
+    */
     if (fprintf(outfile, tbuf, "SNP") < 0) {
       goto model_assoc_ret_WRITE_FAIL;
     }
