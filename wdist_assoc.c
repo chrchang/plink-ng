@@ -596,6 +596,8 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uint32_t do_reverse, u
   // 3. This can happen up to 17 times before the 8-bit accumulators risk
   //    overflow.  Then, they are unfolded into the final output array of
   //    32-bit ints, zeroed out, and the second loop restarts.
+  // Note that thread_bufs[] is assumed to be zeroed out before this function
+  // is called.
   uint32_t pheno_nm_ctl2x = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
 #ifdef __LP64__
   uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
@@ -1317,7 +1319,7 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
   uintptr_t* __restrict__ loadbuf = g_loadbuf;
   uintptr_t* __restrict__ male_vec = g_indiv_male_include2;
   uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
-  uintptr_t* __restrict__ reverse = g_reverse;
+  uintptr_t* reverse = g_reverse;
   uint32_t* __restrict__ perm_attempt_ct = g_perm_attempt_ct;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
   uint32_t* __restrict__ precomp_ui = g_precomp_ui;
@@ -1477,7 +1479,7 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
   uintptr_t* __restrict__ loadbuf = g_loadbuf;
   uintptr_t* __restrict__ male_vec = g_indiv_male_include2;
   uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
-  uintptr_t* __restrict__ reverse = g_reverse;
+  uintptr_t* reverse = g_reverse;
   uint32_t* __restrict__ perm_vecst = g_perm_vecst;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
   uint32_t* __restrict__ precomp_ui = g_precomp_ui;
@@ -2406,11 +2408,11 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   double* __restrict__ results = &(g_maxt_thread_results[perm_vec_ctcl8 * CACHELINE_DBL * tidx]);
   uint32_t precomp_width = g_precomp_width;
   uint32_t case_ct = g_case_ct;
-  int32_t is_model_prec = g_is_model_prec;
   uintptr_t* __restrict__ loadbuf = g_loadbuf;
   uintptr_t* __restrict__ male_vec = g_indiv_male_include2;
   uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
-  uintptr_t* __restrict__ reverse = g_reverse;
+  uintptr_t* reverse = g_reverse;
+  uintptr_t* is_invalid = g_is_invalid;
   uint32_t* __restrict__ perm_vecst = g_perm_vecst;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
   uint32_t* __restrict__ precomp_ui = g_precomp_ui;
@@ -2425,15 +2427,19 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   double* __restrict__ gpd;
   uintptr_t marker_idx;
   uintptr_t pidx;
-  intptr_t col1_sum;
-  intptr_t col2_sum;
   intptr_t tot_obs;
+  intptr_t set_ct;
+  intptr_t het_ct;
+  intptr_t homa1_ct;
+  intptr_t homa2_ct;
   uint32_t success_2incr;
   uint32_t missing_start;
-  uint32_t case_homx_ct;
+  uint32_t case_homa1_ct;
+  uint32_t case_homa2_ct;
+  uint32_t case_het_ct;
   uint32_t case_missing_ct;
   uint32_t cur_reverse;
-  uint32_t cur_xor;
+  uint32_t skip_domrec;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -2444,23 +2450,16 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   marker_idx = g_maxt_block_base + marker_bidx;
   for (; marker_bidx < marker_bceil; marker_bidx++) {
     tot_obs = pheno_nm_ct - missing_cts[marker_idx];
-    if (is_model_prec) {
-      col2_sum = (set_cts[marker_idx] + het_cts[marker_idx]) / 2;
-      col1_sum = tot_obs - col2_sum;
-    } else {
-      col1_sum = (set_cts[marker_idx] - het_cts[marker_idx]) / 2;
-      col2_sum = tot_obs - col1_sum;
-    }
+    set_ct = set_cts[marker_idx];
+    het_ct = het_cts[marker_idx];
+    homa1_ct = tot_obs - ((set_ct + het_ct) / 2);
+    homa2_ct = (set_ct - het_ct) / 2;
     cur_reverse = is_set(reverse, marker_idx);
-    cur_xor = is_model_prec ^ cur_reverse;
     missing_start = precomp_start[marker_bidx];
-    gpui = &(precomp_ui[6 * precomp_width * marker_bidx]);
+    skip_domrec = is_set(is_invalid, marker_idx);
+    gpui = &(precomp_ui[18 * precomp_width * marker_bidx]);
     if (model_fisher) {
-      if (orig_1mpval[marker_idx] == -9) {
-	marker_idx++;
-	continue;
-      }
-      gpd = &(precomp_d[3 * precomp_width * marker_bidx]);
+      gpd = &(precomp_d[9 * precomp_width * marker_bidx]);
       stat_high = 1.0 + EPSILON - orig_1mpval[marker_idx];
       stat_low = 1.0 - EPSILON - orig_1mpval[marker_idx];
     } else {
@@ -2484,10 +2483,10 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!is_x) {
 	case_missing_ct = git_missing_cts[pidx];
-	if (is_model_prec) {
-	  case_homx_ct = case_ct - case_missing_ct - git_homa1_cts[pidx] - git_het_cts[pidx];
+	case_het_ct = git_het_cts[pidx];
+	if (!cur_reverse) {
+	  case_homa1_ct = ;
 	} else {
-	  case_homx_ct = git_homa1_cts[pidx];
 	}
       } else {
 	vec_3freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_missing_ct, &uii, &case_homx_ct);
@@ -3325,7 +3324,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		g_orig_chisq[marker_idx + marker_bidx] = dxx;
 	      }
 	    } else {
-	      // todo
+	      // --p2 not written yet
 	    }
 	    *ooptr = (da1 * du2) / (du1 * da2);
 	    if ((pval <= pfilter) || (pfilter == 1.0)) {
@@ -3634,10 +3633,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 		if (is_invalid) {
 		  set_bit_noct(g_is_invalid, marker_idx + marker_bidx);
 		}
-		if (dxx != -9) {
-		  g_orig_chisq[marker_idx + marker_bidx] = inverse_chiprob(dxx, 1);
-		} else {
-		  g_orig_chisq[marker_idx + marker_bidx] = -9;
+		if (!g_model_fisher) {
+		  if (dxx != -9) {
+		    g_orig_chisq[marker_idx + marker_bidx] = inverse_chiprob(dxx, 1);
+		  } else {
+		    g_orig_chisq[marker_idx + marker_bidx] = -9;
+		  }
 		}
 	      }
 	      if (dxx != -9) {
