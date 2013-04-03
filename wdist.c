@@ -70,7 +70,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (2 Apr 2013)";
+  " (3 Apr 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -6524,6 +6524,9 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_QT_MEANS;
+	  } else if (!memcmp(argv[cur_arg + uii], "mperm", 6)) {
+	    logprint("Error: Improper --assoc mperm syntax.  (Use '--assoc mperm=[value]'.)\n");
+	    goto main_ret_INVALID_CMDLINE;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --assoc parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
@@ -7963,6 +7966,9 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    model_mperm_val = (uint32_t)kk;
 	    model_modifier |= MODEL_MPERM;
+	  } else if (!memcmp(argv[cur_arg + uii], "mperm", 6)) {
+	    logprint("Error: Improper --model mperm syntax.  (Use '--model mperm=[value]'.)\n");
+	    goto main_ret_INVALID_CMDLINE;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --model parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;

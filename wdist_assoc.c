@@ -1554,9 +1554,9 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
       if (!is_x) {
 	case_missing_ct = git_missing_cts[pidx];
 	if (is_model_prec) {
-	  case_homx_ct = case_ct - case_missing_ct - git_homa1_cts[pidx] - git_het_cts[pidx];
-	} else {
 	  case_homx_ct = git_homa1_cts[pidx];
+	} else {
+	  case_homx_ct = case_ct - case_missing_ct - git_homa1_cts[pidx] - git_het_cts[pidx];
 	}
       } else {
 	vec_3freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_missing_ct, &uii, &case_homx_ct);
@@ -4282,7 +4282,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     if (fclose_null(&outfile)) {
       goto model_assoc_ret_WRITE_FAIL;
     }
-    sprintf(logbuf, "Report written to %s.\n", outname);
+    sprintf(logbuf, "Permutation test report written to %s.\n", outname);
     logprintb();
   }
 
