@@ -2748,81 +2748,81 @@ void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i
   *ct2cp += ((acc2_c.u8[0] + acc2_c.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 
-void count_3freq_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp) {
+void count_3freq_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* even_ctp, uint32_t* odd_ctp, uint32_t* homset_ctp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   __m128i loader;
   __m128i loader2;
   __m128i loader3;
-  __m128i to_ct_a1;
-  __m128i to_ct_b1;
-  __m128i to_ct_c1;
-  __m128i to_ct_a2;
-  __m128i to_ct_b2;
-  __m128i to_ct_c2;
-  __uni16 acc_a;
-  __uni16 acc_b;
-  __uni16 acc_c;
+  __m128i even1;
+  __m128i odd1;
+  __m128i homset1;
+  __m128i even2;
+  __m128i odd2;
+  __m128i homset2;
+  __uni16 acc_even;
+  __uni16 acc_odd;
+  __uni16 acc_homset;
 
-  acc_a.vi = _mm_setzero_si128();
-  acc_b.vi = _mm_setzero_si128();
-  acc_c.vi = _mm_setzero_si128();
+  acc_even.vi = _mm_setzero_si128();
+  acc_odd.vi = _mm_setzero_si128();
+  acc_homset.vi = _mm_setzero_si128();
   do {
     loader = *vptr++;
     loader2 = *maskvp++;
-    to_ct_b1 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
-    to_ct_a1 = _mm_and_si128(loader2, loader);
-    to_ct_c1 = _mm_and_si128(to_ct_b1, loader);
+    odd1 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    even1 = _mm_and_si128(loader2, loader);
+    homset1 = _mm_and_si128(odd1, loader);
     loader = *vptr++;
     loader2 = *maskvp++;
     loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
-    to_ct_a1 = _mm_add_epi64(to_ct_a1, _mm_and_si128(loader2, loader));
-    to_ct_b1 = _mm_add_epi64(to_ct_b1, loader3);
-    to_ct_c1 = _mm_add_epi64(to_ct_c1, _mm_and_si128(loader3, loader));
+    even1 = _mm_add_epi64(even1, _mm_and_si128(loader2, loader));
+    odd1 = _mm_add_epi64(odd1, loader3);
+    homset1 = _mm_add_epi64(homset1, _mm_and_si128(loader3, loader));
     loader = *vptr++;
     loader2 = *maskvp++;
     loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
-    to_ct_a1 = _mm_add_epi64(to_ct_a1, _mm_and_si128(loader2, loader));
-    to_ct_b1 = _mm_add_epi64(to_ct_b1, loader3);
-    to_ct_c1 = _mm_add_epi64(to_ct_c1, _mm_and_si128(loader3, loader));
+    even1 = _mm_add_epi64(even1, _mm_and_si128(loader2, loader));
+    odd1 = _mm_add_epi64(odd1, loader3);
+    homset1 = _mm_add_epi64(homset1, _mm_and_si128(loader3, loader));
 
-    to_ct_a1 = _mm_add_epi64(_mm_and_si128(to_ct_a1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_a1, 2), m2));
-    to_ct_b1 = _mm_add_epi64(_mm_and_si128(to_ct_b1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_b1, 2), m2));
-    to_ct_c1 = _mm_add_epi64(_mm_and_si128(to_ct_c1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_c1, 2), m2));
+    even1 = _mm_add_epi64(_mm_and_si128(even1, m2), _mm_and_si128(_mm_srli_epi64(even1, 2), m2));
+    odd1 = _mm_add_epi64(_mm_and_si128(odd1, m2), _mm_and_si128(_mm_srli_epi64(odd1, 2), m2));
+    homset1 = _mm_add_epi64(_mm_and_si128(homset1, m2), _mm_and_si128(_mm_srli_epi64(homset1, 2), m2));
 
     loader = *vptr++;
     loader2 = *maskvp++;
-    to_ct_b2 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
-    to_ct_a2 = _mm_and_si128(loader2, loader);
-    to_ct_c2 = _mm_and_si128(to_ct_b2, loader);
-    loader = *vptr++;
-    loader2 = *maskvp++;
-    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
-    to_ct_a2 = _mm_add_epi64(to_ct_a2, _mm_and_si128(loader2, loader));
-    to_ct_b2 = _mm_add_epi64(to_ct_b2, loader3);
-    to_ct_c2 = _mm_add_epi64(to_ct_c2, _mm_and_si128(loader3, loader));
+    odd2 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    even2 = _mm_and_si128(loader2, loader);
+    homset2 = _mm_and_si128(odd2, loader);
     loader = *vptr++;
     loader2 = *maskvp++;
     loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
-    to_ct_a2 = _mm_add_epi64(to_ct_a2, _mm_and_si128(loader2, loader));
-    to_ct_b2 = _mm_add_epi64(to_ct_b2, loader3);
-    to_ct_c2 = _mm_add_epi64(to_ct_c2, _mm_and_si128(loader3, loader));
+    even2 = _mm_add_epi64(even2, _mm_and_si128(loader2, loader));
+    odd2 = _mm_add_epi64(odd2, loader3);
+    homset2 = _mm_add_epi64(homset2, _mm_and_si128(loader3, loader));
+    loader = *vptr++;
+    loader2 = *maskvp++;
+    loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
+    even2 = _mm_add_epi64(even2, _mm_and_si128(loader2, loader));
+    odd2 = _mm_add_epi64(odd2, loader3);
+    homset2 = _mm_add_epi64(homset2, _mm_and_si128(loader3, loader));
 
-    to_ct_a1 = _mm_add_epi64(to_ct_a1, _mm_add_epi64(_mm_and_si128(to_ct_a2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_a2, 2), m2)));
-    to_ct_b1 = _mm_add_epi64(to_ct_b1, _mm_add_epi64(_mm_and_si128(to_ct_b2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_b2, 2), m2)));
-    to_ct_c1 = _mm_add_epi64(to_ct_c1, _mm_add_epi64(_mm_and_si128(to_ct_c2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_c2, 2), m2)));
+    even1 = _mm_add_epi64(even1, _mm_add_epi64(_mm_and_si128(even2, m2), _mm_and_si128(_mm_srli_epi64(even2, 2), m2)));
+    odd1 = _mm_add_epi64(odd1, _mm_add_epi64(_mm_and_si128(odd2, m2), _mm_and_si128(_mm_srli_epi64(odd2, 2), m2)));
+    homset1 = _mm_add_epi64(homset1, _mm_add_epi64(_mm_and_si128(homset2, m2), _mm_and_si128(_mm_srli_epi64(homset2, 2), m2)));
 
-    acc_a.vi = _mm_add_epi64(acc_a.vi, _mm_add_epi64(_mm_and_si128(to_ct_a1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_a1, 4), m4)));
-    acc_b.vi = _mm_add_epi64(acc_b.vi, _mm_add_epi64(_mm_and_si128(to_ct_b1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_b1, 4), m4)));
-    acc_c.vi = _mm_add_epi64(acc_c.vi, _mm_add_epi64(_mm_and_si128(to_ct_c1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_c1, 4), m4)));
+    acc_even.vi = _mm_add_epi64(acc_even.vi, _mm_add_epi64(_mm_and_si128(even1, m4), _mm_and_si128(_mm_srli_epi64(even1, 4), m4)));
+    acc_odd.vi = _mm_add_epi64(acc_odd.vi, _mm_add_epi64(_mm_and_si128(odd1, m4), _mm_and_si128(_mm_srli_epi64(odd1, 4), m4)));
+    acc_homset.vi = _mm_add_epi64(acc_homset.vi, _mm_add_epi64(_mm_and_si128(homset1, m4), _mm_and_si128(_mm_srli_epi64(homset1, 4), m4)));
   } while (vptr < vend);
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  acc_a.vi = _mm_add_epi64(_mm_and_si128(acc_a.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_a.vi, 8), m8));
-  acc_b.vi = _mm_add_epi64(_mm_and_si128(acc_b.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_b.vi, 8), m8));
-  acc_c.vi = _mm_add_epi64(_mm_and_si128(acc_c.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_c.vi, 8), m8));
-  *ctap += ((acc_a.u8[0] + acc_a.u8[1]) * 0x1000100010001LLU) >> 48;
-  *ctbp += ((acc_b.u8[0] + acc_b.u8[1]) * 0x1000100010001LLU) >> 48;
-  *ctcp += ((acc_c.u8[0] + acc_c.u8[1]) * 0x1000100010001LLU) >> 48;
+  acc_even.vi = _mm_add_epi64(_mm_and_si128(acc_even.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_even.vi, 8), m8));
+  acc_odd.vi = _mm_add_epi64(_mm_and_si128(acc_odd.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_odd.vi, 8), m8));
+  acc_homset.vi = _mm_add_epi64(_mm_and_si128(acc_homset.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_homset.vi, 8), m8));
+  *even_ctp += ((acc_even.u8[0] + acc_even.u8[1]) * 0x1000100010001LLU) >> 48;
+  *odd_ctp += ((acc_odd.u8[0] + acc_odd.u8[1]) * 0x1000100010001LLU) >> 48;
+  *homset_ctp += ((acc_homset.u8[0] + acc_homset.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 
 void count_3freq_xx_120v(__m128i* vptr, __m128i* vend, __m128i* include_vec, __m128i* male_vec, uint32_t* missing_ctp, uint32_t* odd_ctp, uint32_t* homset_ctp) {
@@ -4219,7 +4219,7 @@ void vec_set_freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_v
   *missing_ctp = accm;
 }
 
-void vec_3freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* missing_ctp, uint32_t* het_ctp, uint32_t* homa2_ctp) {
+void vec_3freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* missing_ctp, uint32_t* het_ctp, uint32_t* homset_ctp) {
   // generic routine for getting all counts.
   uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
   uintptr_t loader;
@@ -4263,10 +4263,10 @@ void vec_3freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, ui
   }
   *missing_ctp = acc_even - acc_and;
   *het_ctp = acc_odd - acc_and;
-  *homa2_ctp = acc_and;
+  *homset_ctp = acc_and;
 }
 
-void vec_3freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* missing_ctp, uint32_t* het_ctp, uint32_t* homa2_ctp) {
+void vec_3freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* missing_ctp, uint32_t* het_ctp, uint32_t* homset_ctp) {
   uintptr_t* lptr_end = &(lptr[indiv_ctl2]);
   uintptr_t loader;
   uintptr_t loader2;
@@ -4314,7 +4314,7 @@ void vec_3freq_xx(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec,
   }
   *missing_ctp = accm;
   *het_ctp = acco - acch;
-  *homa2_ctp = acch;
+  *homset_ctp = acch;
 }
 
 uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude) {
