@@ -35,10 +35,10 @@ double chi23_eval(intptr_t m11, intptr_t m12, intptr_t row1_sum, intptr_t col1_s
 
 void chi23_evalx(intptr_t m11, intptr_t m12, intptr_t m13, intptr_t m21, intptr_t m22, intptr_t m23, double* chip, uint32_t* dfp);
 
-double ca_trend_eval(intptr_t case_a2_ct, intptr_t case_ct, intptr_t het_ct, intptr_t homa2_ct, intptr_t total);
+double ca_trend_eval(intptr_t case_dom_ct, intptr_t case_ct, intptr_t het_ct, intptr_t homdom_ct, intptr_t total);
 
-double ca_trend_evalx(intptr_t case_a2_ct, intptr_t case_ct, intptr_t het_ct, intptr_t homa2_ct, intptr_t total);
+double ca_trend_evalx(intptr_t case_dom_ct, intptr_t case_ct, intptr_t het_ct, intptr_t homdom_ct, intptr_t total);
 
-void ca_trend_precomp_val_bounds(double chisq, intptr_t case_ct, intptr_t het_ct, intptr_t homa2_ct, intptr_t total, uint32_t* bounds, double* coeffs);
+void ca_trend_precomp_val_bounds(double chisq, intptr_t case_ct, intptr_t het_ct, intptr_t homdom_ct, intptr_t total, uint32_t* bounds, double* coeffs);
 
 #endif // __WDIST_STATS_H__

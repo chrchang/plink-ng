@@ -1772,13 +1772,13 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
 #ifdef __LP64__
   uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
   uint32_t perm_ct16 = (perm_vec_ct + 15) / 16;
-  uint32_t* git_homa1_cts = &(g_thread_git_cts[tidx * perm_ct128 * 528]);
+  uint32_t* git_homrec_cts = &(g_thread_git_cts[tidx * perm_ct128 * 528]);
   uint32_t* git_missing_cts = &(g_thread_git_cts[tidx * perm_ct128 * 528 + 16 * perm_ct16]);
   uint32_t* git_het_cts = &(g_thread_git_cts[tidx * perm_ct128 * 528 + 32 * perm_ct16]);
 #else
   uint32_t perm_ct32 = (perm_vec_ct + 31) / 32;
   uint32_t perm_ct4 = (perm_vec_ct + 3) / 4;
-  uint32_t* git_homa1_cts = &(g_thread_git_cts[tidx * perm_ct32 * 132]);
+  uint32_t* git_homrec_cts = &(g_thread_git_cts[tidx * perm_ct32 * 132]);
   uint32_t* git_missing_cts = &(g_thread_git_cts[tidx * perm_ct32 * 132 + 4 * perm_ct4]);
   uint32_t* git_het_cts = &(g_thread_git_cts[tidx * perm_ct32 * 132 + 8 * perm_ct4]);
 #endif
@@ -1808,9 +1808,9 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
   uint32_t success_2incr;
   uint32_t missing_start;
   uint32_t het_ct;
-  uint32_t homa2_ct;
+  uint32_t homdom_ct;
   uint32_t cur_reverse;
-  uint32_t case_set_ct;
+  uint32_t case_dom_ct;
   uint32_t case_missing_ct;
   uint32_t uii;
   uint32_t ujj;
@@ -1829,9 +1829,9 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
     het_ct = het_cts[marker_idx];
     cur_reverse = is_set(reverse, marker_idx);
     if (!cur_reverse) {
-      homa2_ct = (set_cts[marker_idx] - het_ct) / 2;
+      homdom_ct = (set_cts[marker_idx] - het_ct) / 2;
     } else {
-      homa2_ct = tot_obs - ((set_cts[marker_idx] + het_ct) / 2);
+      homdom_ct = tot_obs - ((set_cts[marker_idx] + het_ct) / 2);
     }
     missing_start = precomp_start[marker_bidx];
     gpui = &(precomp_ui[6 * precomp_width * marker_bidx]);
@@ -1841,34 +1841,34 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
     success_2incr = 0;
     if (!is_x) {
 #ifdef __LP64__
-      fill_ulong_zero((uintptr_t*)git_homa1_cts, perm_ct128 * 264);
+      fill_ulong_zero((uintptr_t*)git_homrec_cts, perm_ct128 * 264);
 #else
-      fill_ulong_zero((uintptr_t*)git_homa1_cts, 132 * perm_ct32);
+      fill_ulong_zero((uintptr_t*)git_homrec_cts, 132 * perm_ct32);
 #endif
-      calc_git(pheno_nm_ct, perm_vec_ct, cur_reverse, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homa1_cts);
+      calc_git(pheno_nm_ct, perm_vec_ct, cur_reverse, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homrec_cts);
     }
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!is_x) {
 	case_missing_ct = git_missing_cts[pidx];
-	case_set_ct = 2 * (case_ct - case_missing_ct - git_homa1_cts[pidx]) - git_het_cts[pidx];
+	case_dom_ct = 2 * (case_ct - case_missing_ct - git_homrec_cts[pidx]) - git_het_cts[pidx];
       } else {
-	vec_set_freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_set_ct, &case_missing_ct);
+	vec_set_freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_dom_ct, &case_missing_ct);
 	if (cur_reverse) {
-	  case_set_ct = 2 * (case_ct - case_missing_ct) - case_set_ct;
+	  case_dom_ct = 2 * (case_ct - case_missing_ct) - case_dom_ct;
 	}
       }
       // deliberate underflow
       uii = (uint32_t)(case_missing_ct - missing_start);
       if (uii < precomp_width) {
-	if (case_set_ct < gpui[6 * uii]) {
-	  if (case_set_ct < gpui[6 * uii + 2]) {
+	if (case_dom_ct < gpui[6 * uii]) {
+	  if (case_dom_ct < gpui[6 * uii + 2]) {
 	    success_2incr += 2;
 	  } else {
 	    success_2incr++;
 	  }
 	} else {
-	  if (case_set_ct >= gpui[6 * uii + 1]) {
-	    if (case_set_ct >= gpui[6 * uii + 3]) {
+	  if (case_dom_ct >= gpui[6 * uii + 1]) {
+	    if (case_dom_ct >= gpui[6 * uii + 3]) {
 	      success_2incr += 2;
 	    } else {
 	      success_2incr++;
@@ -1876,16 +1876,16 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
 	  }
 	}
 	ukk = gpui[6 * uii + 4];
-	ujj = (uint32_t)(case_set_ct - ukk); // deliberate underflow
+	ujj = (uint32_t)(case_dom_ct - ukk); // deliberate underflow
 	if (ujj >= gpui[6 * uii + 5]) {
-	  chisq = ((double)((intptr_t)case_set_ct)) - gpd[2 * uii];
+	  chisq = ((double)((intptr_t)case_dom_ct)) - gpd[2 * uii];
 	  chisq = chisq * chisq * gpd[2 * uii + 1];
 	  if (results[pidx] < chisq) {
 	    results[pidx] = chisq;
 	  }
 	}
       } else {
-        chisq = ca_trend_eval(case_set_ct, case_ct - case_missing_ct, het_ct, homa2_ct, tot_obs);
+        chisq = ca_trend_eval(case_dom_ct, case_ct - case_missing_ct, het_ct, homdom_ct, tot_obs);
 	if (chisq > chisq_high) {
 	  success_2incr += 2;
 	} else if (chisq > chisq_low) {
@@ -2045,13 +2045,13 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
 #ifdef __LP64__
   uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
   uint32_t perm_ct16 = (perm_vec_ct + 15) / 16;
-  uint32_t* git_homa1_cts = &(g_thread_git_cts[tidx * perm_ct128 * 528]);
+  uint32_t* git_homrec_cts = &(g_thread_git_cts[tidx * perm_ct128 * 528]);
   uint32_t* git_missing_cts = &(g_thread_git_cts[tidx * perm_ct128 * 528 + 16 * perm_ct16]);
   uint32_t* git_het_cts = &(g_thread_git_cts[tidx * perm_ct128 * 528 + 32 * perm_ct16]);
 #else
   uint32_t perm_ct32 = (perm_vec_ct + 31) / 32;
   uint32_t perm_ct4 = (perm_vec_ct + 3) / 4;
-  uint32_t* git_homa1_cts = &(g_thread_git_cts[tidx * perm_ct32 * 132]);
+  uint32_t* git_homrec_cts = &(g_thread_git_cts[tidx * perm_ct32 * 132]);
   uint32_t* git_missing_cts = &(g_thread_git_cts[tidx * perm_ct32 * 132 + 4 * perm_ct4]);
   uint32_t* git_het_cts = &(g_thread_git_cts[tidx * perm_ct32 * 132 + 8 * perm_ct4]);
 #endif
@@ -2118,20 +2118,20 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
     success_2incr = 0;
     if (!is_x) {
 #ifdef __LP64__
-      fill_ulong_zero((uintptr_t*)git_homa1_cts, perm_ct128 * 264);
+      fill_ulong_zero((uintptr_t*)git_homrec_cts, perm_ct128 * 264);
 #else
-      fill_ulong_zero((uintptr_t*)git_homa1_cts, 132 * perm_ct32);
+      fill_ulong_zero((uintptr_t*)git_homrec_cts, 132 * perm_ct32);
 #endif
-      calc_git(pheno_nm_ct, perm_vec_ct, cur_reverse, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homa1_cts);
+      calc_git(pheno_nm_ct, perm_vec_ct, cur_reverse, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homrec_cts);
     }
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!is_x) {
 	case_missing_ct = git_missing_cts[pidx];
 	case_het_ct = git_het_cts[pidx];
 	if (!cur_reverse) {
-	  case_homset_ct = case_ct - case_missing_ct - case_het_ct - git_homa1_cts[pidx];
+	  case_homset_ct = case_ct - case_missing_ct - case_het_ct - git_homrec_cts[pidx];
 	} else {
-	  case_homset_ct = git_homa1_cts[pidx];
+	  case_homset_ct = git_homrec_cts[pidx];
 	}
       } else {
 	vec_3freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_missing_ct, &case_het_ct, &case_homset_ct);

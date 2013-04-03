@@ -1322,29 +1322,29 @@ void chi23_evalx(intptr_t m11, intptr_t m12, intptr_t m13, intptr_t m21, intptr_
   *dfp = 2;
 }
 
-double ca_trend_eval(intptr_t case_a2_ct, intptr_t case_ct, intptr_t het_ct, intptr_t homa2_ct, intptr_t total) {
-  // case_a2_ct is an allele count (2 * homa2 + het), while other inputs are
+double ca_trend_eval(intptr_t case_dom_ct, intptr_t case_ct, intptr_t het_ct, intptr_t homdom_ct, intptr_t total) {
+  // case_dom_ct is an allele count (2 * homa2 + het), while other inputs are
   // observation counts.
   //
   // If case_missing_ct is fixed,
   //   row1_sum = case ct
   //   col1_sum = A2 ct
-  //   case_ct * ctrl_ct * A1_ct * A2_ct
-  //   A1_ct = 2 * obs_11 + obs_12
-  //   A2_ct = 2 * obs_22 + obs_12
-  //   CA = (obs_U / obs_T) * (case A2 ct) - (obs_A / obs_T) * (ctrl A2 ct)
-  //      = (case A2) * (obs_U / obs_T) - (obs_A / obs_T) * (A2 ct - case A2)
-  //      = (case A2) * (obs_U / obs_T) + (case A2) * (obs_A / obs_T) - A2*(A/T)
+  //   case_ct * ctrl_ct * REC_ct * DOM_ct
+  //   REC_ct = 2 * obs_11 + obs_12
+  //   DOM_ct = 2 * obs_22 + obs_12
+  //   CA = (obs_U / obs_T) * (case REC ct) - (obs_A / obs_T) * (ctrl DOM ct)
+  //      = (case A2) * (obs_U / obs_T) - (obs_A / obs_T) * (DOM ct - case DOM)
+  //      = (case A2) * (obs_U / obs_T) + (case DOM) * (obs_A / obs_T) - DOM*(A/T)
   //      = (case A2 ct) - total A2 ct * (A/T)
   //   CAT = CA * obs_T
   //   varCA_recip = obs_T * obs_T * obs_T /
-  //     (obs_A * obs_U * (obs_T * (obs_12 + 4 * obs_22) - A2ct * A2ct))
+  //     (obs_A * obs_U * (obs_T * (obs_12 + 4 * obs_22) - DOMct * DOMct))
   //   trend statistic = CAT * CAT * [varCA_recip / obs_T^2]
-  double a2_ct = het_ct + 2 * homa2_ct;
+  double dom_ct = het_ct + 2 * homdom_ct;
   double totald = total;
   double case_ctd = case_ct;
-  double cat = case_a2_ct * totald - a2_ct * case_ctd;
-  double dxx = totald * (het_ct + 4 * ((int64_t)homa2_ct)) - a2_ct * a2_ct;
+  double cat = case_dom_ct * totald - dom_ct * case_ctd;
+  double dxx = totald * (het_ct + 4 * ((int64_t)homdom_ct)) - dom_ct * dom_ct;
 
   // This should never be called with dxx == 0 (which happens when two columns
   // are all-zero).  Use ca_trend_evalx() to check for that.
@@ -1352,12 +1352,12 @@ double ca_trend_eval(intptr_t case_a2_ct, intptr_t case_ct, intptr_t het_ct, int
   return cat * cat * totald / dxx;
 }
 
-double ca_trend_evalx(intptr_t case_a2_ct, intptr_t case_ct, intptr_t het_ct, intptr_t homa2_ct, intptr_t total) {
-  double a2_ct = het_ct + 2 * homa2_ct;
+double ca_trend_evalx(intptr_t case_dom_ct, intptr_t case_ct, intptr_t het_ct, intptr_t homdom_ct, intptr_t total) {
+  double dom_ct = het_ct + 2 * homdom_ct;
   double totald = total;
   double case_ctd = case_ct;
-  double cat = case_a2_ct * totald - a2_ct * case_ctd;
-  double dxx = totald * (het_ct + 4 * ((int64_t)homa2_ct)) - a2_ct * a2_ct;
+  double cat = case_dom_ct * totald - dom_ct * case_ctd;
+  double dxx = totald * (het_ct + 4 * ((int64_t)homdom_ct)) - dom_ct * dom_ct;
   if (dxx != 0) {
     dxx *= case_ctd * (totald - case_ctd);
     return cat * cat * totald / dxx;
@@ -1366,27 +1366,27 @@ double ca_trend_evalx(intptr_t case_a2_ct, intptr_t case_ct, intptr_t het_ct, in
   }
 }
 
-void ca_trend_precomp_val_bounds(double chisq, intptr_t case_ct, intptr_t het_ct, intptr_t homa2_ct, intptr_t total, uint32_t* bounds, double* coeffs) {
+void ca_trend_precomp_val_bounds(double chisq, intptr_t case_ct, intptr_t het_ct, intptr_t homdom_ct, intptr_t total, uint32_t* bounds, double* coeffs) {
   // If case_missing_ct is fixed,
   //   row1_sum = case ct
-  //   col1_sum = A2 ct
-  //   case_ct * ctrl_ct * A1_ct * A2_ct
-  //   A1_ct = 2 * obs_11 + obs_12
-  //   A2_ct = 2 * obs_22 + obs_12
-  //   CA = (obs_U / obs_T) * (case A2 ct) - (obs_A / obs_T) * (ctrl A2 ct)
-  //      = (case A2) * (obs_U / obs_T) - (obs_A / obs_T) * (A2 ct - case A2)
-  //      = (case A2) * (obs_U / obs_T) + (case A2) * (obs_A / obs_T) - A2*(A/T)
-  //      = (case A2 ct) - total A2 ct * (A/T)
+  //   col1_sum = DOM ct
+  //   case_ct * ctrl_ct * REC_ct * DOM_ct
+  //   REC_ct = 2 * obs_11 + obs_12
+  //   DOM_ct = 2 * obs_22 + obs_12
+  //   CA = (obs_U / obs_T) * (case DOM ct) - (obs_A / obs_T) * (ctrl DOM ct)
+  //      = (case DOM) * (obs_U / obs_T) - (obs_A / obs_T) * (DOM ct - case DOM)
+  //      = (case DOM) * (obs_U / obs_T) + (case DOM) * (obs_A / obs_T) - DOM*(A/T)
+  //      = (case DOM ct) - total DOM ct * (A/T)
   //   varCA_recip = obs_T * obs_T * obs_T /
-  //     (obs_A * obs_U * (obs_T * (obs_12 + 4 * obs_22) - A2ct * A2ct))
+  //     (obs_A * obs_U * (obs_T * (obs_12 + 4 * obs_22) - DOMct * DOMct))
   //   trend statistic = CA * CA * varCA_recip
-  intptr_t a2_ct = het_ct + 2 * homa2_ct;
-  double a2_ctd = a2_ct;
+  intptr_t dom_ct = het_ct + 2 * homdom_ct;
+  double dom_ctd = dom_ct;
   double totald = total;
   double case_ctd = case_ct;
   double tot_recip = 1.0 / totald;
-  double expm11 = a2_ctd * case_ctd * tot_recip;
-  double dxx = case_ctd * (totald - case_ctd) * (totald * (het_ct + 4 * ((int64_t)homa2_ct)) - a2_ctd * a2_ctd);
+  double expm11 = dom_ctd * case_ctd * tot_recip;
+  double dxx = case_ctd * (totald - case_ctd) * (totald * (het_ct + 4 * ((int64_t)homdom_ct)) - dom_ctd * dom_ctd);
   double varca_recip;
   double cur11;
   intptr_t ceil11;
@@ -1403,8 +1403,8 @@ void ca_trend_precomp_val_bounds(double chisq, intptr_t case_ct, intptr_t het_ct
 
   // statistic: (cur11 - expm11)^2 * varca_recip
   ceil11 = case_ct * 2;
-  if (a2_ct < ceil11) {
-    ceil11 = a2_ct;
+  if (dom_ct < ceil11) {
+    ceil11 = dom_ct;
   }
   // chisq = (cur11 - expm11)^2 * varca_recip
   // -> expm11 +/- sqrt(chisq / varca_recip) = cur11
