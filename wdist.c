@@ -2240,18 +2240,22 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	      if (*bufptr == '0') {
 		set_bit_noct(isz, person_idx);
 	      }
-	    } else if (affection_01) {
-	      if (*bufptr == '0') {
-		clear_bit_noct(pheno_c, person_idx);
-	      } else {
-		set_bit_noct(pheno_c, person_idx);
-	      }
+	      clear_bit_noct(pheno_nm, person_idx);
 	    } else {
-	      if (*bufptr == '1') {
-		clear_bit_noct(pheno_c, person_idx);
+              if (affection_01) {
+		if (*bufptr == '0') {
+		  clear_bit_noct(pheno_c, person_idx);
+		} else {
+		  set_bit_noct(pheno_c, person_idx);
+		}
 	      } else {
-		set_bit_noct(pheno_c, person_idx);
+		if (*bufptr == '1') {
+		  clear_bit_noct(pheno_c, person_idx);
+		} else {
+		  set_bit_noct(pheno_c, person_idx);
+		}
 	      }
+	      set_bit_noct(pheno_nm, person_idx);
 	    }
 	  } else {
 	    pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
