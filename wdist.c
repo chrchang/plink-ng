@@ -2227,11 +2227,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	person_idx = id_map[person_idx];
 	bufptr = next_item_mult(bufptr, mpheno_col);
 	if (no_more_items_kns(bufptr)) {
-	  logprint(errstr_phenotype_format);
-	  logprint("Fewer entries than expected in line.\n");
-	  sprintf(logbuf, "Original line: %s", bufptr0);
-	  logprintb();
-	  return RET_INVALID_FORMAT;
+	  return LOAD_PHENO_LAST_COL;
 	}
 	if (affection) {
 	  if (eval_affection(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
@@ -4633,6 +4629,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t* founder_info = NULL;
   uintptr_t* sex_nm = NULL;
   uintptr_t* sex_male = NULL;
+  char* outname_end2;
   uintptr_t marker_ct;
   uint32_t plink_maxsnp;
   int32_t ii;
@@ -4662,10 +4659,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   int32_t map_cols = 3;
   int32_t affection = 0;
   uintptr_t* pheno_nm = NULL;
+  uintptr_t* orig_pheno_nm = NULL; // --all-pheno + --pheno-merge
   uintptr_t* pheno_c = NULL;
+  uintptr_t* orig_pheno_c = NULL;
   double* pheno_d = NULL;
-  double* phenor_d = NULL;
-  char* phenor_c = NULL;
+  double* orig_pheno_d = NULL;
   double* marker_weights = NULL;
   uint32_t* marker_weights_i = NULL;
   char* person_ids = NULL;
@@ -4815,6 +4813,30 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (retval) {
     goto wdist_ret_2;
   }
+  if (pheno_modifier & PHENO_MERGE) {
+    if ((!pheno_c) && (!pheno_d)) {
+      pheno_modifier &= ~PHENO_MERGE; // nothing to merge
+    } else if (pheno_modifier & PHENO_ALL) {
+      orig_pheno_nm = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
+      if (!orig_pheno_nm) {
+	goto wdist_ret_NOMEM;
+      }
+      memcpy(orig_pheno_nm, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
+      if (pheno_c) {
+	orig_pheno_c = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
+	if (!orig_pheno_c) {
+	  goto wdist_ret_NOMEM;
+	}
+	memcpy(orig_pheno_c, pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
+      } else if (pheno_d) {
+	orig_pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
+	if (!orig_pheno_d) {
+	  goto wdist_ret_NOMEM;
+	}
+	memcpy(orig_pheno_d, pheno_d, unfiltered_indiv_ct * sizeof(double));
+      }
+    }
+  }
   count_genders(sex_nm, sex_male, unfiltered_indiv_ct, indiv_exclude, &ii, &jj, &kk);
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   if (kk) {
@@ -4846,6 +4868,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     } else if (phenofile) {
       retval = load_pheno(phenofile, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, iptr, missing_pheno, missing_pheno_len, affection_01, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d);
       if (retval) {
+	if (retval == LOAD_PHENO_LAST_COL) {
+	  logprint(errstr_phenotype_format);
+	  logprint("Fewer entries than expected in line.\n");
+	  retval = RET_INVALID_FORMAT;
+	}
 	goto wdist_ret_2;
       }
     }
@@ -5339,10 +5366,61 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_MODEL) {
-    retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end, calculation_type, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, sex_nm, sex_male);
+    if (!(pheno_modifier & PHENO_ALL)) {
+      outname_end2 = outname_end;
+      goto wdist_skip_all_pheno;
+    }
+    wkspace_mark = wkspace_base;
+    duplicate_fail = 1;
+    retval = sort_item_ids(&cptr, &iptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, strcmp_deref, &duplicate_fail);
     if (retval) {
       goto wdist_ret_2;
     }
+    uii = 0;
+    memcpy(outname_end, ".P", 2);
+    do {
+      if (pheno_modifier & PHENO_MERGE) {
+	memcpy(pheno_nm, orig_pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
+	if (orig_pheno_c) {
+	  if (!pheno_c) {
+	    free(pheno_d);
+	    pheno_d = NULL;
+	    pheno_c = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
+	  }
+	  memcpy(pheno_c, orig_pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
+	} else {
+	  memcpy(pheno_d, orig_pheno_d, unfiltered_indiv_ct * sizeof(double));
+	}
+      } else {
+	fill_ulong_zero(pheno_nm, unfiltered_indiv_ctl);
+	if (pheno_c) {
+	  free(pheno_c);
+	  pheno_c = NULL;
+	}
+	if (pheno_d) {
+	  free(pheno_d);
+	  pheno_d = NULL;
+	}
+      }
+      retval = load_pheno(phenofile, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, iptr, missing_pheno, missing_pheno_len, affection_01, ++uii, NULL, pheno_nm, &pheno_c, &pheno_d);
+      if (retval == LOAD_PHENO_LAST_COL) {
+	wkspace_reset(wkspace_mark);
+	break;
+      }
+      outname_end2 = uint32_write(&(outname_end[2]), uii);
+      *outname_end2 = '\0';
+    wdist_skip_all_pheno:
+      if (calculation_type & CALC_MODEL) {
+	if (pheno_d) {
+	  retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, calculation_type, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, pheno_nm_ct, pheno_nm, pheno_d, sex_nm, sex_male);
+	} else {
+	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, calculation_type, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, pheno_nm_ct, pheno_nm, pheno_c, sex_nm, sex_male);
+	}
+	if (retval) {
+	  goto wdist_ret_2;
+	}
+      }
+    } while (pheno_modifier & PHENO_ALL);
   }
 
   while (0) {
@@ -5371,10 +5449,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   fclose_cond(bimtmpfile);
   fclose_cond(famtmpfile);
  wdist_ret_1:
+  free_cond(orig_pheno_d);
+  free_cond(orig_pheno_c);
+  free_cond(orig_pheno_nm);
   free_cond(pheno_d);
   free_cond(pheno_c);
-  free_cond(phenor_d);
-  free_cond(phenor_c);
   free_cond(id_buf);
   free_cond(id_list);
   free_cond(pid_list);
@@ -9084,9 +9163,14 @@ int32_t main(int32_t argc, char** argv) {
       }
     }
   }
-  if (prune && (!phenoname) && (!fam_col_6)) {
-    sprintf(logbuf, "Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.%s", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+  if (!phenoname) {
+    if (prune && (!fam_col_6)) {
+      sprintf(logbuf, "Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.%s", errstr_append);
+      goto main_ret_INVALID_CMDLINE_3;
+    } else if (pheno_modifier & PHENO_ALL) {
+      sprintf(logbuf, "Error: --all-pheno must be used with --pheno.%s", errstr_append);
+      goto main_ret_INVALID_CMDLINE_3;
+    }
   } else if ((calculation_type & CALC_LOAD_DISTANCES) && (!(calculation_type & (CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))) {
     sprintf(logbuf, "Error: --load-dists cannot be used without either --groupdist or\n--regress-distance.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
