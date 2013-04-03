@@ -5406,6 +5406,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	  pheno_d = NULL;
 	}
       }
+      rewind(phenofile);
       retval = load_pheno(phenofile, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, iptr, missing_pheno, missing_pheno_len, affection_01, ++uii, NULL, pheno_nm, &pheno_c, &pheno_d);
       if (retval == LOAD_PHENO_LAST_COL) {
 	wkspace_reset(wkspace_mark);
