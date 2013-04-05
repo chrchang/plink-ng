@@ -837,6 +837,7 @@ static double* g_orig_chisq;
 static uintptr_t* g_loadbuf;
 
 static uintptr_t* g_perm_vecs;
+static double* g_qperm_vecs;
 
 static uint32_t* g_perm_vecst; // genotype indexing support
 static uint32_t* g_thread_git_cts;
@@ -2872,7 +2873,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     if (fopen_checked(&outfile, outname, "w")) {
       goto model_assoc_ret_OPEN_FAIL;
     }
-    sprintf(logbuf, "Writing --assoc report to %s...", outname);
+    sprintf(logbuf, "Writing case/control --assoc report to %s...", outname);
     logprintb();
     fflush(stdout);
     sprintf(tbuf, " CHR %%%us         BP   A1 ", plink_maxsnp);
@@ -4342,8 +4343,132 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 }
 
 int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* sex_nm, uintptr_t* sex_male) {
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  FILE* outfile = NULL;
+  FILE* outfile_qtm = NULL;
+  uint32_t perm_adapt = model_modifier & MODEL_PERM;
+  uint32_t perm_maxt = model_modifier & MODEL_MPERM;
+  uint32_t do_perms = perm_adapt | perm_maxt;
+  uint32_t qt_means = model_modifier & MODEL_QT_MEANS;
+  char* outname_end2 = memcpyb(outname_end, ".qassoc", 8);
+  uint32_t perms_total = 0;
+  uint32_t pct = 0;
+  uint32_t perm_pass_idx = 0;
   int32_t retval = 0;
-  logprint("Error: --assoc does not yet handle quantitative phenotypes.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
+  // uint32_t is_haploid;
+  unsigned char* loadbuf_raw;
+  uint32_t marker_unstopped_ct;
+  g_pheno_nm_ct = pheno_nm_ct;
+  g_aperm_alpha = aperm_alpha;
+  g_reverse = marker_reverse;
+  g_perms_done = 0;
+  if (perm_maxt) {
+    perms_total = model_mperm_val;
+    if (wkspace_alloc_d_checked(&g_maxt_extreme_stat, sizeof(double) * perms_total)) {
+      goto qassoc_ret_NOMEM;
+    }
+    fill_double_zero(g_maxt_extreme_stat, perms_total); // fabs of t-statistic
+  } else if (perm_adapt) {
+    perms_total = aperm_max;
+  }
+  if (wkspace_alloc_uc_checked(&loadbuf_raw, unfiltered_indiv_ct4)) {
+    goto qassoc_ret_NOMEM;
+  }
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto qassoc_ret_OPEN_FAIL;
+  }
+  if (qt_means) {
+    memcpy(outname_end2, ".means", 7);
+    if (fopen_checked(&outfile_qtm, outname, "w")) {
+      goto qassoc_ret_OPEN_FAIL;
+    }
+    sprintf(tbuf, " CHR %%%us  VALUE      G11      G12      G22\n", plink_maxsnp);
+    if (fprintf(outfile_qtm, tbuf, "SNP") < 0) {
+      goto qassoc_ret_WRITE_FAIL;
+    }
+    *outname_end2 = '\0';
+  }
+  if (species_haploid_mask[chrom_info_ptr->species] & chrom_info_ptr->chrom_mask) {
+    logprint("Warning: QT --assoc doesn't handle X/Y/haploid markers normally (try --linear).\n");
+  }
+  sprintf(logbuf, "Writing QT --assoc report to %s...", outname);
+  logprintb();
+  fflush(stdout);
+  sprintf(tbuf, " CHR %%%us         BP    NMISS       BETA         SE         R2        T            P \n", plink_maxsnp);
+  if (fprintf(outfile, tbuf, "SNP") < 0) {
+    goto qassoc_ret_WRITE_FAIL;
+  }
+  if (do_perms) {
+    g_sfmtp_arr = (sfmt_t**)wkspace_alloc(g_thread_ct * sizeof(intptr_t));
+    if (!g_sfmtp_arr) {
+      goto qassoc_ret_NOMEM;
+    }
+    g_sfmtp_arr[0] = &sfmt;
+
+  }
+
+  g_marker_uidxs = NULL; // todo
+  g_orig_1mpval = NULL; // todo
+ qassoc_more_perms:
+  if (!perm_pass_idx) {
+    if (pct >= 10) {
+      putchar('\b');
+    }
+    fputs("\b\b\b", stdout);
+    logprint(" done.\n");
+    if (do_perms) {
+      wkspace_reset((unsigned char*)g_qperm_vecs);
+    }
+    if (fclose_null(&outfile)) {
+      goto qassoc_ret_WRITE_FAIL;
+    }
+    if (mtest_adjust) {
+      retval = multcomp(outname, outname_end, g_marker_uidxs, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_1mpval, pfilter, mtest_adjust, adjust_lambda, 0);
+      if (retval) {
+	goto qassoc_ret_1;
+      }
+    }
+  }
+  if (do_perms) {
+    wkspace_reset((unsigned char*)g_qperm_vecs);
+    if (g_perms_done < perms_total) {
+      if (perm_adapt) {
+	marker_unstopped_ct = marker_ct - popcount_longs((uintptr_t*)g_perm_adapt_stop, 0, (marker_ct + sizeof(uintptr_t) - 1) / sizeof(uintptr_t));
+	if (!marker_unstopped_ct) {
+	  goto qassoc_adapt_perm_count;
+	}
+      }
+      printf("\r%u permutations complete.", g_perms_done);
+      fflush(stdout);
+      perm_pass_idx++;
+      goto qassoc_more_perms;
+    }
+    if (perm_adapt) {
+    qassoc_adapt_perm_count:
+      retval = 0;
+    }
+  }
+
+  while (0) {
+  qassoc_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  qassoc_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+    /*
+  qassoc_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+    */
+  qassoc_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+ qassoc_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  fclose_cond(outfile_qtm);
   return retval;
 }

@@ -61,7 +61,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.18.0"
+  "WDIST v0.18.1"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -70,7 +70,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (3 Apr 2013)";
+  " (5 Apr 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -865,7 +865,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     500 if unspecified.\n"
 	       );
     help_print("seed", &help_ctrl, 0,
-"  --seed [val]     : Set random number seed.\n"
+"  --seed [val...]  : Set random number seed(s).  Each value must be an integer\n"
+"                     between 0 and 4294967295 inclusive.\n"
 	       );
     help_print("memory", &help_ctrl, 0,
 "  --memory [val]   : Size, in MB, of initial malloc attempt.  (Some operating\n"
@@ -5406,11 +5407,20 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	  pheno_d = NULL;
 	}
       }
+      uii++;
+    wdist_skip_empty_pheno:
       rewind(phenofile);
-      retval = load_pheno(phenofile, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, iptr, missing_pheno, missing_pheno_len, affection_01, ++uii, NULL, pheno_nm, &pheno_c, &pheno_d);
+      retval = load_pheno(phenofile, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, iptr, missing_pheno, missing_pheno_len, affection_01, uii, NULL, pheno_nm, &pheno_c, &pheno_d);
       if (retval == LOAD_PHENO_LAST_COL) {
 	wkspace_reset(wkspace_mark);
 	break;
+      } else if (retval) {
+	goto wdist_ret_2;
+      }
+      bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
+      pheno_nm_ct = popcount_longs(pheno_nm, 0, unfiltered_indiv_ctl);
+      if (!pheno_nm_ct) {
+	goto wdist_skip_empty_pheno;
       }
       outname_end2 = uint32_write(&(outname_end[2]), uii);
       *outname_end2 = '\0';
@@ -5921,7 +5931,8 @@ int32_t main(int32_t argc, char** argv) {
   int32_t nn;
   int32_t oo;
   int32_t ppc_gap = DEFAULT_PPC_GAP;
-  unsigned long int rseed = 0;
+  uint32_t* rseeds = NULL;
+  uint32_t rseed_ct = 0;
   int32_t genome_output_gz = 0;
   int32_t genome_output_full = 0;
   int32_t genome_ibd_unbounded = 0;
@@ -8693,13 +8704,16 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	strcpy(samplename, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "eed", 4)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2147483647)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	rseed = (unsigned long int)atol(argv[cur_arg + 1]);
-	if (rseed == 0) {
-	  sprintf(logbuf, "Error: Invalid --seed parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	rseed_ct = param_ct;
+	rseeds = (uint32_t*)malloc(param_ct * sizeof(int32_t));
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if (strtoui32(argv[cur_arg + uii], &(rseeds[uii - 1]))) {
+	    sprintf(logbuf, "Error: Invalid --seed parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
 	}
       } else if (!memcmp(argptr2, "np", 3)) {
         if (markername_from) {
@@ -9238,6 +9252,18 @@ int32_t main(int32_t argc, char** argv) {
   rerun_buf = NULL;
   flag_buf = NULL;
   flag_map = NULL;
+  if (!rseeds) {
+    sfmt_init_gen_rand(&sfmt, (uint32_t)time(NULL));
+  } else {
+    if (rseed_ct == 1) {
+      sfmt_init_gen_rand(&sfmt, rseeds[0]);
+    } else {
+      sfmt_init_by_array(&sfmt, rseeds, rseed_ct);
+    }
+    free(rseeds);
+    rseeds = NULL;
+  }
+
 
   bubble = (char*)malloc(67108864 * sizeof(char));
   if (!bubble) {
@@ -9298,11 +9324,6 @@ int32_t main(int32_t argc, char** argv) {
   wkspace_base = wkspace;
   wkspace_left = malloc_size_mb * 1048576 - (uintptr_t)(wkspace - wkspace_ua);
   free(bubble);
-
-  if (!rseed) {
-    rseed = (unsigned long int)time(NULL);
-  }
-  sfmt_init_gen_rand(&sfmt, rseed);
 
   tbuf[MAXLINELEN - 6] = ' ';
   tbuf[MAXLINELEN - 1] = ' ';
@@ -9431,6 +9452,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(update_parents_fname);
   free_cond(update_sex_fname);
   free_cond(loop_assoc_fname);
+  free_cond(rseeds);
 
   if (logfile) {
     if (!log_failed) {

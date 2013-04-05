@@ -516,6 +516,8 @@ static inline int32_t is_space_or_eoln(char cc) {
 
 int32_t atoiz(char* ss, int32_t* sval);
 
+uint32_t strtoui32(char* ss, uint32_t* valp);
+
 static inline char* memseta(char* target, const unsigned char val, uint32_t ct) {
   memset(target, val, ct);
   return &(target[ct]);

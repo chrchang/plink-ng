@@ -99,6 +99,33 @@ int32_t atoiz(char* ss, int32_t* sval) {
   return 0;
 }
 
+uint32_t strtoui32(char* ss, uint32_t* valp) {
+  // one way to wrap strtoul() in a way that handles "0" and "4294967295"
+  // nicely.  not high-performance; we probably want to write our own
+  // string-to-number conversion routines at some point.
+  uintptr_t ulii = strtoul(ss, NULL, 10);
+  if (!ulii) {
+    if (!memcmp(ss, "0", 2)) {
+      *valp = 0;
+      return 0;
+    }
+    return 1;
+#ifdef __LP64__
+  } else if (ulii > 4294967295LLU) {
+#else
+  } else if (ulii == ULONG_MAX) {
+    if (!memcmp(ss, "4294967295", 11)) {
+      *valp = 4294967295U;
+      return 0;
+    }
+#endif
+    return 1;
+  } else {
+    *valp = ulii;
+    return 0;
+  }
+}
+
 int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr) {
   char* lptr;
   do {
@@ -2411,6 +2438,7 @@ void distance_print_done(int32_t format_code, char* outname, char* outname_end) 
 void bitfield_andnot(uintptr_t* vv, uintptr_t* exclude_vec, uintptr_t ct) {
   // vv := vv ANDNOT exclude_vec
   // on 64-bit systems, assumes vv and exclude_vec are 16-byte aligned
+  // note that this is the reverse of the _mm_andnot() operand order
 #ifdef __LP64__
   __m128i* vv128 = (__m128i*)vv;
   __m128i* ev128 = (__m128i*)exclude_vec;
