@@ -843,7 +843,7 @@ static uint32_t* g_thread_git_cts;
 
 // always use genotype indexing for quantitative traits
 static double* g_perm_vecstd;
-static double* g_thread_git_qbufs;
+// static double* g_thread_git_qbufs;
 static double* g_pheno_d2;
 
 // maximum number of precomputed table entries per marker
