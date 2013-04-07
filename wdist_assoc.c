@@ -4362,17 +4362,21 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
   int32_t retval = 0;
   double pheno_sum = 0;
   double pheno_ssq = 0;
+  double x11 = 0;
+  double x12 = 0;
+  double x22 = 0;
   uintptr_t* indiv_raw_male_include2 = NULL;
   uint32_t mu_table[MODEL_BLOCKSIZE];
   uint32_t uibuf[4];
   char wprefix[5];
+  char* wptr;
+  char* wptr_restart;
   unsigned char* loadbuf_raw;
   uintptr_t* loadbuf_ptr;
   uintptr_t* lbptr2;
   uintptr_t* indiv_raw_include2;
   uintptr_t* indiv_include2;
   double* pheno_d2;
-  char* wptr;
   uint32_t marker_unstopped_ct;
   uint32_t gender_req;
   uint32_t chrom_fo_idx;
@@ -4388,6 +4392,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
   uintptr_t indiv_idx;
   intptr_t g_sum;
   intptr_t nanal;
+  double nanal_recip;
   double qt_sum;
   double qt_ssq;
   intptr_t g_ssq;
@@ -4402,6 +4407,11 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
   double tstat;
   double tp;
   double rsq;
+  double qt_het_sum;
+  double qt_het_ssq;
+  double qt_homrar_sum;
+  double qt_homrar_ssq;
+  double qt_homcom_sum;
   int32_t x_code;
   int32_t y_code;
   uint32_t is_reverse;
@@ -4418,6 +4428,8 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
   uint64_t ullii;
   double dxx;
   uint32_t loop_end;
+  char* a1ptr;
+  char* a2ptr;
   if (pheno_nm_ct < 2) {
     logprint("Skipping QT --assoc since less than two phenotypes are present.\n");
     goto qassoc_ret_1;
@@ -4627,49 +4639,61 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
 	*wptr++ = ' ';
 	wptr = uint32_writew8(wptr, nanal);
 	*wptr++ = ' ';
-	if (nanal > 1) {
-	  if (!is_reverse) {
-	    homrar_ct = nanal - het_ct - homcom_ct;
-	    xor_homcom = ~ZEROLU;
-	    het_code_postxor = 1;
-	  } else {
-	    homrar_ct = homcom_ct;
-	    homcom_ct = nanal - het_ct - homcom_ct;
-	    xor_homcom = 0;
-	    het_code_postxor = 2;
+	if (!is_reverse) {
+	  homrar_ct = nanal - het_ct - homcom_ct;
+	  xor_homcom = ~ZEROLU;
+	  het_code_postxor = 1;
+	} else {
+	  homrar_ct = homcom_ct;
+	  homcom_ct = nanal - het_ct - homcom_ct;
+	  xor_homcom = 0;
+	  het_code_postxor = 2;
+	}
+	g_sum = 2 * homrar_ct + het_ct;
+	g_ssq = 4 * homrar_ct + het_ct;
+	qt_sum = pheno_sum;
+	qt_g_prod = 0;
+	qt_ssq = pheno_ssq;
+	lbptr2 = loadbuf_ptr;
+	uii = 0;
+	qt_het_sum = 0;
+	qt_het_ssq = 0;
+	qt_homrar_sum = 0;
+	qt_homrar_ssq = 0;
+	do {
+	  ulii = (*lbptr2++) ^ xor_homcom;
+	  if (uii > pheno_nm_ct) {
+	    ulii &= (ONELU << ((pheno_nm_ct & (BITCT2 - 1)) * 2)) - ONELU;
 	  }
-	  g_sum = 2 * homrar_ct + het_ct;
-	  g_ssq = 4 * homrar_ct + het_ct;
-	  qt_sum = pheno_sum;
-	  qt_g_prod = 0;
-	  qt_ssq = pheno_ssq;
-	  lbptr2 = loadbuf_ptr;
-	  uii = 0;
-	  do {
-	    ulii = (*lbptr2++) ^ xor_homcom;
-	    if (uii > pheno_nm_ct) {
-	      ulii &= (ONELU << ((pheno_nm_ct & (BITCT2 - 1)) * 2)) - ONELU;
-	    }
-	    while (ulii) {
-	      ujj = CTZLU(ulii) & (BITCT - 2);
-	      ukk = (ulii >> ujj) & 3;
-	      indiv_idx = uii + (ujj / 2);
-	      dxx = pheno_d2[indiv_idx];
-	      if (ukk == het_code_postxor) {
-		qt_g_prod += dxx;
-	      } else if (ukk == 3) {
-		qt_g_prod += 2 * dxx;
-	      } else {
-		qt_sum -= dxx;
-		qt_ssq -= dxx * dxx;
+	  while (ulii) {
+	    ujj = CTZLU(ulii) & (BITCT - 2);
+	    ukk = (ulii >> ujj) & 3;
+	    indiv_idx = uii + (ujj / 2);
+	    dxx = pheno_d2[indiv_idx];
+	    if (ukk == het_code_postxor) {
+	      qt_g_prod += dxx;
+	      if (qt_means) {
+		qt_het_sum += dxx;
+		qt_het_ssq += dxx * dxx;
 	      }
-	      ulii &= ~(3 * (ONELU << ujj));
+	    } else if (ukk == 3) {
+	      qt_g_prod += 2 * dxx;
+	      if (qt_means) {
+		qt_homrar_sum += dxx;
+		qt_homrar_ssq += dxx * dxx;
+	      }
+	    } else {
+	      qt_sum -= dxx;
+	      qt_ssq -= dxx * dxx;
 	    }
-	    uii += BITCT2;
-	  } while (uii < pheno_nm_ct);
-	  dxx = 1.0 / ((double)nanal);
-	  qt_mean = qt_sum * dxx;
-	  g_mean = ((double)g_sum) * dxx;
+	    ulii &= ~(3 * (ONELU << ujj));
+	  }
+	  uii += BITCT2;
+	} while (uii < pheno_nm_ct);
+	nanal_recip = 1.0 / ((double)nanal);
+	if (nanal > 1) {
+	  qt_mean = qt_sum * nanal_recip;
+	  g_mean = ((double)g_sum) * nanal_recip;
 	  dxx = 1.0 / ((double)(nanal - 1));
 	  qt_var = (qt_ssq - qt_sum * qt_mean) * dxx;
 	  g_var = (((double)g_ssq) - g_sum * g_mean) * dxx;
@@ -4706,6 +4730,123 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
 	}
+	if (qt_means) {
+	  wptr_restart = &(tbuf[6 + plink_maxsnp]);
+	  wptr = memcpya(wptr_restart, "  GENO ", 7);
+	  a1ptr = &(marker_alleles[(2 * marker_uidx2 + is_reverse) * max_marker_allele_len]);
+	  a2ptr = &(marker_alleles[(2 * marker_uidx2 + 1 - is_reverse) * max_marker_allele_len]);
+	  if (max_marker_allele_len == 1) {
+	    memset(wptr, 32, 5);
+	    wptr[5] = *a1ptr;
+	    wptr[6] = '/';
+	    wptr[7] = *a1ptr;
+	    memset(&(wptr[8]), 32, 6);
+            wptr[14] = *a1ptr;
+	    wptr[15] = '/';
+	    wptr[16] = *a2ptr;
+	    memset(&(wptr[17]), 32, 6);
+	    wptr[23] = *a2ptr;
+	    wptr[24] = '/';
+	    wptr[25] = *a2ptr;
+	    wptr = &(wptr[26]);
+	  } else {
+	    uii = strlen(a1ptr);
+	    ujj = strlen(a2ptr);
+	    if (uii < 4) {
+	      wptr = memseta(wptr, 32, 7 - 2 * uii);
+	    }
+	    wptr = memcpyax(wptr, a1ptr, uii, '/');
+	    wptr = memcpyax(wptr, a1ptr, uii, ' ');
+	    if (uii + ujj < 7) {
+	      wptr = memseta(wptr, 32, 7 - uii - ujj);
+	    }
+	    wptr = memcpyax(wptr, a1ptr, uii, '/');
+	    wptr = memcpyax(wptr, a2ptr, ujj, ' ');
+	    if (ujj < 4) {
+	      wptr = memseta(wptr, 32, 7 - 2 * ujj);
+	    }
+	    wptr = memcpyax(wptr, a2ptr, ujj, '/');
+	    wptr = memcpya(wptr, a2ptr, ujj);
+	  }
+	  *wptr++ = '\n';
+	  if (fwrite_checked(tbuf, wptr - tbuf, outfile_qtm)) {
+	    goto qassoc_ret_WRITE_FAIL;
+	  }
+	  wptr = memcpya(wptr_restart, "COUNTS ", 7);
+	  wptr = uint32_writew8(wptr, homrar_ct);
+	  *wptr++ = ' ';
+	  wptr = uint32_writew8(wptr, het_ct);
+	  *wptr++ = ' ';
+	  wptr = uint32_writew8(wptr, homcom_ct);
+	  *wptr++ = '\n';
+	  if (fwrite_checked(tbuf, wptr - tbuf, outfile_qtm)) {
+	    goto qassoc_ret_WRITE_FAIL;
+	  }
+	  wptr = memcpya(wptr_restart, "  FREQ ", 7);
+	  wptr = double_g_writewx4x(wptr, nanal_recip * ((intptr_t)homrar_ct), 8, ' ');
+	  wptr = double_g_writewx4x(wptr, nanal_recip * ((intptr_t)het_ct), 8, ' ');
+	  wptr = double_g_writewx4x(wptr, nanal_recip * ((intptr_t)homcom_ct), 8, '\n');
+	  if (fwrite_checked(tbuf, wptr - tbuf, outfile_qtm)) {
+	    goto qassoc_ret_WRITE_FAIL;
+	  }
+	  wptr = memcpya(wptr_restart, "  MEAN ", 7);
+	  qt_homcom_sum = qt_sum - qt_homrar_sum - qt_het_sum;
+	  if (homrar_ct) {
+	    x11 = qt_homrar_sum / ((double)homrar_ct);
+	    wptr = double_g_writewx4(wptr, x11, 8);
+	  } else {
+	    wptr = memcpya(wptr, "      NA", 8);
+	  }
+	  *wptr++ = ' ';
+	  if (het_ct) {
+	    x12 = qt_het_sum / ((double)het_ct);
+	    wptr = double_g_writewx4(wptr, x12, 8);
+	  } else {
+	    wptr = memcpya(wptr, "      NA", 8);
+	  }
+	  *wptr++ = ' ';
+	  if (homcom_ct) {
+	    x22 = qt_homcom_sum / ((double)homcom_ct);
+	    wptr = double_g_writewx4(wptr, x22, 8);
+	  } else {
+	    wptr = memcpya(wptr, "      NA", 8);
+	  }
+	  *wptr++ = '\n';
+	  if (fwrite_checked(tbuf, wptr - tbuf, outfile_qtm)) {
+	    goto qassoc_ret_WRITE_FAIL;
+	  }
+	  wptr = memcpya(wptr_restart, "    SD ", 7);
+	  if (homrar_ct > 1) {
+            dxx = sqrt((qt_homrar_ssq - qt_homrar_sum * x11) / ((double)((intptr_t)homrar_ct - 1)));
+	    wptr = double_g_writewx4(wptr, dxx, 8);
+	  } else if (homrar_ct == 1) {
+	    wptr = memcpya(wptr, "       0", 8);
+	  } else {
+	    wptr = memcpya(wptr, "      NA", 8);
+	  }
+	  *wptr++ = ' ';
+	  if (het_ct > 1) {
+            dxx = sqrt((qt_het_ssq - qt_het_sum * x12) / ((double)((intptr_t)het_ct - 1)));
+	    wptr = double_g_writewx4(wptr, dxx, 8);
+	  } else if (het_ct == 1) {
+	    wptr = memcpya(wptr, "       0", 8);
+	  } else {
+	    wptr = memcpya(wptr, "      NA", 8);
+	  }
+	  *wptr++ = ' ';
+	  if (homcom_ct > 1) {
+            dxx = sqrt((qt_ssq - qt_het_ssq - qt_homrar_ssq - qt_homcom_sum * x22) / ((double)((intptr_t)homcom_ct - 1)));
+	    wptr = double_g_writewx4(wptr, dxx, 8);
+	  } else if (homcom_ct == 1) {
+	    wptr = memcpya(wptr, "       0", 8);
+	  } else {
+	    wptr = memcpya(wptr, "      NA", 8);
+	  }
+	  *wptr++ = '\n';
+	  if (fwrite_checked(tbuf, wptr - tbuf, outfile_qtm)) {
+	    goto qassoc_ret_WRITE_FAIL;
+	  }
+	}
       }
     }
     marker_idx += block_size - g_block_start;
@@ -4728,6 +4869,10 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
     }
     fputs("\b\b\b", stdout);
     logprint(" done.\n");
+    if (qt_means) {
+      sprintf(logbuf, "QT means report saved to %s.means.\n", outname);
+      logprintb();
+    }
     if (do_perms) {
       wkspace_reset((unsigned char*)g_qperm_vecs);
     }
