@@ -467,7 +467,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
   // 4294967296 / tot_ct, and totq_magic/totq_preshift/totq_postshift/totq_incr
   // have been precomputed from magic_num().
   uint32_t num_set = 0;
-  uint32_t upper_bound = tot_ct * tot_quotient;
+  uint32_t upper_bound = tot_ct * tot_quotient - 1;
   uintptr_t widx;
   uintptr_t wcomp;
   uintptr_t pv_val;
@@ -479,7 +479,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
       do {
 	do {
 	  urand = sfmt_genrand_uint32(sfmtp);
-	} while (urand >= upper_bound);
+	} while (urand > upper_bound);
 	uii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
         widx = uii / BITCT2;
 	wcomp = ONELU << (2 * (uii % BITCT2));
@@ -494,7 +494,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
       do {
 	do {
 	  urand = sfmt_genrand_uint32(sfmtp);
-	} while (urand >= upper_bound);
+	} while (urand > upper_bound);
 	uii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
         widx = uii / BITCT2;
 	wcomp = ONELU << (2 * (uii % BITCT2));
@@ -837,10 +837,14 @@ static double* g_orig_chisq;
 static uintptr_t* g_loadbuf;
 
 static uintptr_t* g_perm_vecs;
-static double* g_qperm_vecs;
 
 static uint32_t* g_perm_vecst; // genotype indexing support
 static uint32_t* g_thread_git_cts;
+
+// always use genotype indexing for quantitative traits
+static double* g_perm_vecstd;
+static double* g_thread_git_qbufs;
+static double* g_pheno_d2;
 
 // maximum number of precomputed table entries per marker
 static uint32_t g_precomp_width;
@@ -969,6 +973,60 @@ THREAD_RET_TYPE model_assoc_gen_perms_thread(void* arg) {
   for (; pidx < pmax; pidx++) {
     generate_cc_perm_vec(pheno_nm_ct, case_ct, tot_quotient, totq_magic, totq_preshift, totq_postshift, totq_incr, &(perm_vecs[pidx * pheno_nm_ctl2]), sfmtp);
   }
+  THREAD_RETURN;
+}
+
+THREAD_RET_TYPE qassoc_gen_perms_thread(void* arg) {
+  /*
+  intptr_t tidx = (intptr_t)arg;
+  uint32_t pheno_nm_ct = g_pheno_nm_ct;
+  uintptr_t perm_vec_ctcl8 = (g_perm_vec_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
+  uintptr_t perm_vec_ctcl8m = perm_vec_ctcl8 * CACHELINE_DBL;
+  double* pheno_d2 = g_pheno_d2;
+  sfmt_t* sfmtp = g_sfmtp_arr[tidx];
+  uint32_t pmin = CACHELINE_DBL * ((((uint64_t)tidx) * g_perm_vec_ctcl8) / g_assoc_thread_ct);
+  uint32_t pmax = CACHELINE_DBL * ((((uint64_t)tidx + 1) * g_perm_vec_ctcl8) / g_assoc_thread_ct);
+  double* perm_vecstd = &(g_perm_vecstd[pmin]);
+  uint32_t pdiff = pmax - pmin;
+  uint32_t poffset = 0;
+  uint32_t indiv_idx = 1;
+  uint32_t tot_quotient;
+  uint32_t upper_bound;
+  uint64_t totq_magic;
+  uint32_t totq_preshift;
+  uint32_t totq_postshift;
+  uint32_t totq_incr;
+  uint32_t urand;
+  uint32_t uii;
+  double* wptr;
+  double* wptr2;
+  double cur_source;
+  if (tidx + 1 == g_assoc_thread_ct) {
+    pmax = g_perm_vec_ct;
+  }
+  cur_source = *pheno_d2++;
+  wptr = perm_vecstd;
+  for (; poffset < pdiff; poffset++) {
+    *wptr++ = cur_source;
+  }
+  for (; indiv_idx < pheno_nm_ct; indiv_idx++) {
+    tot_quotient = 4294967296LLU / (indiv_idx + 1);
+    upper_bound = indiv_idx * tot_quotient - 1;
+    magic_num(tot_quotient, &totq_magic, &totq_preshift, &totq_postshift, &totq_incr);
+    cur_source = *pheno_d2++;
+    wptr = &(perm_vecstd[indiv_idx * perm_vec_ctcl8m]);
+    wptr2 = perm_vecstd;
+    for (poffset = 0; poffset < pdiff; poffset++) {
+      do {
+	urand = sfmt_genrand_uint32(sfmtp);
+      } while (urand > upper_bound);
+      uii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
+      *wptr++ = ;
+      *wptr2++ = ;
+    }
+    perm_vecstd++;
+  }
+  */
   THREAD_RETURN;
 }
 
@@ -2871,7 +2929,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     if (fopen_checked(&outfile, outname, "w")) {
       goto model_assoc_ret_OPEN_FAIL;
     }
-    sprintf(logbuf, "Writing case/control --assoc report to %s...", outname);
+    sprintf(logbuf, "Writing C/C --assoc report to %s...", outname);
     logprintb();
     fflush(stdout);
     sprintf(tbuf, " CHR %%%us         BP   A1 ", plink_maxsnp);
@@ -3081,7 +3139,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   if (wkspace_alloc_ui_checked(&g_marker_uidxs, marker_ct * sizeof(uint32_t))) {
     goto model_assoc_ret_NOMEM;
   }
-  fputs(" 0%", stdout);
   g_case_ct = 0;
   if (wkspace_alloc_ul_checked(&indiv_ctrl_include2, pheno_nm_ctl2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&indiv_case_include2, pheno_nm_ctl2 * sizeof(intptr_t))) {
@@ -3140,6 +3197,10 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   // ----- begin main loop -----
  model_assoc_more_perms:
   if (model_perms) {
+    if (!perm_pass_idx) {
+      fputs(" [generating permutations]", stdout);
+      fflush(stdout);
+    }
     if (model_adapt) {
       if (perm_pass_idx) {
 	while (g_first_adapt_check <= g_perms_done) {
@@ -3217,6 +3278,13 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       fill_ulong_zero((uintptr_t*)g_thread_git_cts, ulii * 33 * g_thread_ct);
 #endif
     }
+    if (!perm_pass_idx) {
+      fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b                         \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", stdout);
+    }
+  }
+  if (!perm_pass_idx) {
+    fputs(" 0%", stdout);
+    fflush(stdout);
   }
   chrom_fo_idx = 0xffffffffU;
   marker_uidx = next_non_set_unsafe(marker_exclude, 0);
@@ -4344,7 +4412,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   return retval;
 }
 
-int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t xmhh_exists, uint32_t nxmhh_exists) {
+int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t xmhh_exists, uint32_t nxmhh_exists, uint32_t perm_batch_size) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = 2 * ((unfiltered_indiv_ct + BITCT - 1) / BITCT);
@@ -4376,7 +4444,6 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
   uintptr_t* lbptr2;
   uintptr_t* indiv_raw_include2;
   uintptr_t* indiv_include2;
-  double* pheno_d2;
   uint32_t marker_unstopped_ct;
   uint32_t gender_req;
   uint32_t chrom_fo_idx;
@@ -4425,11 +4492,17 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
   uint32_t het_code_postxor;
   uintptr_t xor_homcom;
   uintptr_t ulii;
+  uintptr_t uljj;
   uint64_t ullii;
   double dxx;
   uint32_t loop_end;
   char* a1ptr;
   char* a2ptr;
+  if (do_perms) {
+    logprint("QT permutation tests are not yet complete.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto qassoc_ret_1;
+  }
   if (pheno_nm_ct < 2) {
     logprint("Skipping QT --assoc since less than two phenotypes are present.\n");
     goto qassoc_ret_1;
@@ -4515,16 +4588,15 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
       goto qassoc_ret_NOMEM;
     }
   }
-  fputs(" 0%", stdout);
   marker_unstopped_ct = marker_ct;
   indiv_uidx = 0;
-  if (wkspace_alloc_d_checked(&pheno_d2, pheno_nm_ct * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&g_pheno_d2, pheno_nm_ct * sizeof(double))) {
     goto qassoc_ret_NOMEM;
   }
   for (indiv_idx = 0; indiv_idx < pheno_nm_ct; indiv_idx++) {
     indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
     dxx = pheno_d[indiv_uidx++];
-    pheno_d2[indiv_idx] = dxx;
+    g_pheno_d2[indiv_idx] = dxx;
     pheno_sum += dxx;
     pheno_ssq += dxx * dxx;
   }
@@ -4532,7 +4604,70 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
   // ----- begin main loop -----
  qassoc_more_perms:
   if (do_perms) {
-    // todo: generate permutations
+    if (!perm_pass_idx) {
+      fputs(" [generating permutations]", stdout);
+      fflush(stdout);
+    }
+    if (perm_batch_size) {
+      g_perm_vec_ct = perm_batch_size;
+    } else {
+      if (perm_adapt) {
+	if (perm_pass_idx) {
+	  while (g_first_adapt_check <= g_perms_done) {
+	    // APERM_MAX prevents infinite loop here
+	    g_first_adapt_check += (int32_t)(aperm_init_interval + ((int32_t)g_first_adapt_check) * aperm_interval_slope);
+	  }
+	} else {
+	  if (aperm_min < aperm_init_interval) {
+	    g_first_adapt_check = (int32_t)aperm_init_interval;
+	  } else {
+	    g_first_adapt_check = aperm_min;
+	  }
+	  g_adaptive_intercept = aperm_init_interval;
+	  g_adaptive_slope = aperm_interval_slope;
+	}
+	g_perm_vec_ct = CACHELINE_DBL * (wkspace_left / (pheno_nm_ct * CACHELINE));
+      } else {
+	// g_perm_vec_ct memory allocation dependencies:
+	//   g_maxt_thread_results: (8 * g_perm_vec_ct, CL-aligned) * thread_ct
+	//   g_perm_vecstd: (8 * g_perm_vec_ct, CL-aligned) * pheno_nm_ct
+	//   g_thread_git_qbufs: (8 * g_perm_vec_ct, CL-aligned) * 3 * thread_ct
+	g_perm_vec_ct = CACHELINE_DBL * (wkspace_left / ((pheno_nm_ct + 4 * g_thread_ct) * CACHELINE));
+      }
+    }
+    uljj = g_perm_vec_ct / CACHELINE_DBL;
+    if (g_perm_vec_ct > perms_total - g_perms_done) {
+      g_perm_vec_ct = perms_total - g_perms_done;
+      uljj = (g_perm_vec_ct + CACHELINE_DBL - 1) / CACHELINE_DBL;
+    } else if (!g_perm_vec_ct) {
+      goto qassoc_ret_NOMEM;
+    }
+    if (wkspace_alloc_d_checked(&g_perm_vecstd, uljj * CACHELINE * pheno_nm_ct)) {
+      goto qassoc_ret_NOMEM;
+    }
+    g_perms_done += g_perm_vec_ct;
+    if (g_perm_vec_ct >= CACHELINE_DBL * g_thread_ct) {
+      g_assoc_thread_ct = g_thread_ct;
+    } else {
+      g_assoc_thread_ct = g_perm_vec_ct / CACHELINE_DBL;
+      if (!g_assoc_thread_ct) {
+	g_assoc_thread_ct = 1;
+      }
+    }
+    if (spawn_threads(threads, &qassoc_gen_perms_thread, g_assoc_thread_ct)) {
+      logprint(errstr_thread_create);
+      goto qassoc_ret_THREAD_CREATE_FAIL;
+    }
+    ulii = 0;
+    qassoc_gen_perms_thread((void*)ulii);
+    join_threads(threads, g_assoc_thread_ct);
+    if (!perm_pass_idx) {
+      fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b                         \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", stdout);
+    }
+  }
+  if (!perm_pass_idx) {
+    fputs(" 0%", stdout);
+    fflush(stdout);
   }
   chrom_fo_idx = 0xffffffffU;
   marker_uidx = next_non_set_unsafe(marker_exclude, 0);
@@ -4669,7 +4804,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
 	    ujj = CTZLU(ulii) & (BITCT - 2);
 	    ukk = (ulii >> ujj) & 3;
 	    indiv_idx = uii + (ujj / 2);
-	    dxx = pheno_d2[indiv_idx];
+	    dxx = g_pheno_d2[indiv_idx];
 	    if (ukk == het_code_postxor) {
 	      qt_g_prod += dxx;
 	      if (qt_means) {
@@ -4874,7 +5009,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
       logprintb();
     }
     if (do_perms) {
-      wkspace_reset((unsigned char*)g_qperm_vecs);
+      wkspace_reset((unsigned char*)g_perm_vecstd);
     }
     if (fclose_null(&outfile)) {
       goto qassoc_ret_WRITE_FAIL;
@@ -4887,7 +5022,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
     }
   }
   if (do_perms) {
-    wkspace_reset((unsigned char*)g_qperm_vecs);
+    wkspace_reset((unsigned char*)g_perm_vecstd);
     if (g_perms_done < perms_total) {
       if (perm_adapt) {
 	marker_unstopped_ct = marker_ct - popcount_longs((uintptr_t*)g_perm_adapt_stop, 0, (marker_ct + sizeof(uintptr_t) - 1) / sizeof(uintptr_t));
@@ -4918,6 +5053,9 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
     break;
   qassoc_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  qassoc_ret_THREAD_CREATE_FAIL:
+    retval = RET_THREAD_CREATE_FAIL;
     break;
   }
  qassoc_ret_1:

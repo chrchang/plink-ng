@@ -5596,7 +5596,7 @@ void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm
   uintptr_t tot_ctl = (tot_ct + (BITCT - 1)) / BITCT;
   uintptr_t tot_rem = tot_ct & (BITCT - 1);
   uint32_t tot_quotient = (uint32_t)(4294967296LLU / tot_ct);
-  uint32_t upper_bound = tot_ct * tot_quotient;
+  uint32_t upper_bound = tot_ct * tot_quotient - 1;
   uintptr_t uljj = perm_ct - perm_idx;
   uint32_t totq_preshift;
   uint64_t totq_magic;
@@ -5619,7 +5619,7 @@ void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm
 	do {
 	  do {
 	    urand = sfmt_genrand_uint32(&sfmt);
-	  } while (urand >= upper_bound);
+	  } while (urand > upper_bound);
 	  // this is identical to ulii = urand / tot_quotient
 	  ulii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
 	  uljj = ulii / BITCT;
@@ -5640,7 +5640,7 @@ void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm
 	do {
 	  do {
 	    urand = sfmt_genrand_uint32(&sfmt);
-	  } while (urand >= upper_bound);
+	  } while (urand > upper_bound);
 	  ulii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
 	  uljj = ulii / BITCT;
 	  ulii &= (BITCT - 1);
