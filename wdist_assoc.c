@@ -1027,7 +1027,7 @@ THREAD_RET_TYPE qassoc_gen_perms_thread(void* arg) {
   double* wptr;
   double* wptr2;
   double cur_source;
-  if (tidx + 1 == g_assoc_thread_ct) {
+  if (((uintptr_t)tidx) + 1 == g_assoc_thread_ct) {
     pmax = g_perm_vec_ct;
   }
   cur_source = *pheno_d2++;
