@@ -251,7 +251,24 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
       wkspace_alloc_ui_checked(&new_order, chi_ct * sizeof(uint32_t))) {
     goto multcomp_ret_NOMEM;
   }
-  if (non_chi) {
+  if (tcnt) {
+    if (wkspace_alloc_ui_checked(&new_tcnt, chi_ct * sizeof(uint32_t))) {
+      goto multcomp_ret_NOMEM;
+    }
+    for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
+      dxx = chi[cur_idx]; // not actually squared
+      if (dxx >= 0) {
+	dyy = tprob(dxx, tcnt[cur_idx]);
+	if (dyy > -1) {
+	  sp[uii] = dyy;
+	  new_order[uii] = marker_uidxs[cur_idx];
+	  schi[uii] = dxx * dxx;
+	  new_tcnt[uii] = tcnt[cur_idx];
+	  uii++;
+	}
+      }
+    }
+  } else if (non_chi) {
     for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
       dxx = 1 - chi[cur_idx];
       if (dxx < 1) {
@@ -260,23 +277,6 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	  sp[uii] = dxx;
 	  new_order[uii] = marker_uidxs[cur_idx];
 	  schi[uii] = dyy;
-	  uii++;
-	}
-      }
-    }
-  } else if (tcnt) {
-    if (wkspace_alloc_ui_checked(&new_tcnt, chi_ct * sizeof(uint32_t))) {
-      goto multcomp_ret_NOMEM;
-    }
-    for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
-      dxx = chi[cur_idx];
-      if (dxx >= 0) {
-	dyy = tprob(dxx, tcnt[cur_idx]);
-	if (dyy > -1) {
-	  sp[uii] = dyy;
-	  new_order[uii] = marker_uidxs[cur_idx];
-	  schi[uii] = dxx;
-	  new_tcnt[uii] = tcnt[cur_idx];
 	  uii++;
 	}
       }
@@ -1026,6 +1026,7 @@ THREAD_RET_TYPE qassoc_gen_perms_thread(void* arg) {
   uint32_t uii;
   double* wptr;
   double* wptr2;
+  double* wptr3;
   double cur_source;
   if (((uintptr_t)tidx) + 1 == g_assoc_thread_ct) {
     pmax = g_perm_vec_ct;
@@ -1047,8 +1048,10 @@ THREAD_RET_TYPE qassoc_gen_perms_thread(void* arg) {
 	urand = sfmt_genrand_uint32(sfmtp);
       } while (urand > upper_bound);
       uii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
-      *wptr++ = wptr2[uii * perm_vec_ctcl8m];
-      *wptr2++ = cur_source;
+      wptr3 = &(wptr2[uii * perm_vec_ctcl8m]);
+      *wptr++ = *wptr3;
+      *wptr3 = cur_source;
+      wptr2++;
     }
     perm_vecstd++;
   }
@@ -4450,6 +4453,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
   uint32_t perm_maxt = model_modifier & MODEL_MPERM;
   uint32_t do_perms = perm_adapt | perm_maxt;
   uint32_t qt_means = model_modifier & MODEL_QT_MEANS;
+  uint32_t fill_orig_chiabs = do_perms || mtest_adjust;
   char* outname_end2 = memcpyb(outname_end, ".qassoc", 8);
   uint32_t perms_total = 0;
   uint32_t pct = 0;
@@ -4461,6 +4465,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
   double x12 = 0;
   double x22 = 0;
   uintptr_t* indiv_raw_male_include2 = NULL;
+  uint32_t* tcnt = NULL;
   uint32_t mu_table[MODEL_BLOCKSIZE];
   uint32_t uibuf[4];
   char wprefix[5];
@@ -4549,9 +4554,18 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
     }
     fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(uintptr_t) - 1) / sizeof(uintptr_t));
   }
-  if (wkspace_alloc_d_checked(&g_orig_chisq, marker_ct * sizeof(double)) ||
-      wkspace_alloc_uc_checked(&loadbuf_raw, unfiltered_indiv_ct4)) {
+  if (wkspace_alloc_uc_checked(&loadbuf_raw, unfiltered_indiv_ct4)) {
     goto qassoc_ret_NOMEM;
+  }
+  if (fill_orig_chiabs) {
+    if (wkspace_alloc_d_checked(&g_orig_chisq, marker_ct * sizeof(double))) {
+      goto qassoc_ret_NOMEM;
+    }
+    if (mtest_adjust) {
+      if (wkspace_alloc_ui_checked(&tcnt, marker_ct * sizeof(int32_t))) {
+	goto qassoc_ret_NOMEM;
+      }
+    }
   }
   if (fopen_checked(&outfile, outname, "w")) {
     goto qassoc_ret_OPEN_FAIL;
@@ -4858,43 +4872,41 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
 	  uii += BITCT2;
 	} while (uii < pheno_nm_ct);
 	nanal_recip = 1.0 / ((double)nanal);
-	if (nanal > 1) {
-	  qt_mean = qt_sum * nanal_recip;
-	  g_mean = ((double)g_sum) * nanal_recip;
-	  dxx = 1.0 / ((double)(nanal - 1));
-	  qt_var = (qt_ssq - qt_sum * qt_mean) * dxx;
-	  g_var = (((double)g_ssq) - g_sum * g_mean) * dxx;
-	  qt_g_covar = (qt_g_prod - qt_sum * g_mean) * dxx;
+	qt_mean = qt_sum * nanal_recip;
+	g_mean = ((double)g_sum) * nanal_recip;
+	dxx = 1.0 / ((double)(nanal - 1));
+	qt_var = (qt_ssq - qt_sum * qt_mean) * dxx;
+	g_var = (((double)g_ssq) - g_sum * g_mean) * dxx;
+	qt_g_covar = (qt_g_prod - qt_sum * g_mean) * dxx;
 
-	  dxx = 1.0 / g_var;
-	  beta = qt_g_covar * dxx;
-	  vbeta_sqrt = sqrt((qt_var * dxx - beta * beta) / ((double)(nanal - 2)));
-	  tstat = beta / vbeta_sqrt;
-	  g_orig_chisq[marker_idx + marker_bidx] = tstat * tstat;
-	  tp = tprob(tstat, nanal - 2);
-	  rsq = (qt_g_covar * qt_g_covar) / (qt_var * g_var);
-	  if ((pfilter == 1.0) || ((tp != -9) && (tp <= pfilter))) {
-	    if (!realnum(beta)) {
-	      wptr = memcpya(wptr, "        NA         NA         NA ", 33);
-	    } else {
-	      wptr = double_g_writewx4x(wptr, beta, 10, ' ');
-	      wptr = double_g_writewx4x(wptr, vbeta_sqrt, 10, ' ');
-	      wptr = double_g_writewx4x(wptr, rsq, 10, ' ');
-	    }
-	    if (tp >= 0) {
-	      wptr = double_g_writewx4x(wptr, tstat, 8, ' ');
-	      wptr = double_g_writewx4(wptr, tp, 12);
-	    } else {
-	      wptr = memcpya(wptr, "      NA           NA", 21);
-	    }
-	    memcpy(wptr, " \n", 2);
-	    if (fwrite_checked(tbuf, 2 + (wptr - tbuf), outfile)) {
-	      goto qassoc_ret_WRITE_FAIL;
-	    }
+	dxx = 1.0 / g_var;
+	beta = qt_g_covar * dxx;
+	vbeta_sqrt = sqrt((qt_var * dxx - beta * beta) / ((double)(nanal - 2)));
+	tstat = beta / vbeta_sqrt;
+	if (fill_orig_chiabs) {
+	  g_orig_chisq[marker_idx + marker_bidx] = fabs(tstat);
+	  if (mtest_adjust) {
+	    tcnt[marker_idx + marker_bidx] = nanal - 2;
 	  }
-	} else {
-	  wptr = memcpya(wptr, "        NA         NA         NA       NA           NA \n", 56);
-	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	}
+	tp = tprob(tstat, nanal - 2);
+	rsq = (qt_g_covar * qt_g_covar) / (qt_var * g_var);
+	if ((pfilter == 1.0) || ((tp != -9) && (tp <= pfilter))) {
+	  if (!realnum(beta)) {
+	    wptr = memcpya(wptr, "        NA         NA         NA ", 33);
+	  } else {
+	    wptr = double_g_writewx4x(wptr, beta, 10, ' ');
+	    wptr = double_g_writewx4x(wptr, vbeta_sqrt, 10, ' ');
+	    wptr = double_g_writewx4x(wptr, rsq, 10, ' ');
+	  }
+	  if (tp >= 0) {
+	    wptr = double_g_writewx4x(wptr, tstat, 8, ' ');
+	    wptr = double_g_writewx4(wptr, tp, 12);
+	  } else {
+	    wptr = memcpya(wptr, "      NA           NA", 21);
+	  }
+	  memcpy(wptr, " \n", 2);
+	  if (fwrite_checked(tbuf, 2 + (wptr - tbuf), outfile)) {
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
 	}
@@ -5060,7 +5072,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
       goto qassoc_ret_WRITE_FAIL;
     }
     if (mtest_adjust) {
-      // retval = multcomp(outname, outname_end, g_marker_uidxs, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, mtest_adjust, adjust_lambda, 0, tcnt);
+      retval = multcomp(outname, outname_end, g_marker_uidxs, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, g_orig_chisq, pfilter, mtest_adjust, adjust_lambda, 1, tcnt);
       if (retval) {
 	goto qassoc_ret_1;
       }
