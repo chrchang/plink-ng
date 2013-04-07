@@ -3,6 +3,10 @@
 
 #include "wdist_common.h"
 
+static inline uint32_t realnum(double dd) {
+  return (dd == dd) && (dd != INFINITY) && (dd != -INFINITY);
+}
+
 double chiprob_p(double xx, double df);
 
 static inline double chiprob_px(double xx, double df) {
@@ -14,6 +18,8 @@ static inline double chiprob_px(double xx, double df) {
 }
 
 double inverse_chiprob(double qq, double df);
+
+double tprob(double tt, double df);
 
 double ltqnorm(double p);
 

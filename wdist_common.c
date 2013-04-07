@@ -4396,6 +4396,35 @@ uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* mark
   return ct;
 }
 
+void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, int32_t* male_ct_ptr, int32_t* female_ct_ptr, int32_t* unk_ct_ptr) {
+  int32_t male_ct = 0;
+  int32_t female_ct = 0;
+  int32_t unk_ct = 0;
+  uint32_t unfiltered_indiv_ctld = unfiltered_indiv_ct / BITCT;
+  uint32_t unfiltered_indiv_ct_rem = unfiltered_indiv_ct & (BITCT - 1);
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uintptr_t indiv_bidx;
+  for (indiv_bidx = 0; indiv_bidx < unfiltered_indiv_ctld; indiv_bidx++) {
+    ulii = ~(*indiv_exclude++);
+  count_genders_last_loop:
+    uljj = *sex_nm++;
+    unk_ct += popcount_long(ulii & (~uljj));
+    ulii &= uljj;
+    uljj = *sex_male++;
+    male_ct += popcount_long(ulii & uljj);
+    female_ct += popcount_long(ulii & (~uljj));
+  }
+  if (unfiltered_indiv_ct_rem) {
+    ulii = (~(*indiv_exclude)) & ((ONELU << unfiltered_indiv_ct_rem) - ONELU);
+    unfiltered_indiv_ct_rem = 0;
+    goto count_genders_last_loop;
+  }
+  *male_ct_ptr = male_ct;
+  *female_ct_ptr = female_ct;
+  *unk_ct_ptr = unk_ct;
+}
+
 uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_indiv_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf) {
   uintptr_t marker_uidx = *marker_uidx_ptr;
   uintptr_t marker_idx = *marker_idx_ptr;
@@ -4718,6 +4747,86 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfil
     ucc = *loadbuf;
     ucc2 = ((ucc >> 1) & (~ucc)) & (*iicp++);
     *loadbuf++ = ucc - ucc2;
+  }
+}
+
+void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct) {
+  uintptr_t indiv_bidx = 0;
+  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + 3) / 4]);
+  unsigned char* iicp;
+  unsigned char* imicp;
+  unsigned char ucc;
+  unsigned char ucc2;
+  unsigned char ucc3;
+  uintptr_t unfiltered_indiv_ctd;
+  uint32_t* loadbuf_alias32;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+#ifdef __LP64__
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  uint32_t* indiv_include2_alias32;
+  uint32_t* indiv_male_include2_alias32;
+  __m128i* loadbuf_alias;
+  __m128i* iivp;
+  __m128i* imivp;
+  __m128i vii;
+  __m128i vjj;
+  __m128i vkk;
+  if (!(((uintptr_t)loadbuf) & 15)) {
+    loadbuf_alias = (__m128i*)loadbuf;
+    iivp = (__m128i*)indiv_include2;
+    imivp = (__m128i*)indiv_male_include2;
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / 64;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+      // indiv_include2 & ~indiv_male_include2: force to 01
+      // indiv_male_include2: convert 10 to 01, keep everything else
+      vii = *imivp++;
+      vjj = *iivp++;
+      vkk = _mm_and_si128(*loadbuf_alias, _mm_or_si128(vii, _mm_slli_epi64(vii, 1)));
+      *loadbuf_alias++ = _mm_or_si128(_mm_andnot_si128(vii, vjj), _mm_sub_epi64(vkk, _mm_and_si128(_mm_andnot_si128(vkk, _mm_srli_epi64(vkk, 1)), m1)));
+    }
+    loadbuf = (unsigned char*)loadbuf_alias;
+    iicp = (unsigned char*)iivp;
+    imicp = (unsigned char*)imivp;
+  } else if (!(((uintptr_t)loadbuf) & 3)) {
+    loadbuf_alias32 = (uint32_t*)loadbuf;
+    indiv_include2_alias32 = (uint32_t*)indiv_include2;
+    indiv_male_include2_alias32 = (uint32_t*)indiv_male_include2;
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+      uii = *indiv_male_include2_alias32++;
+      ujj = *indiv_include2_alias32++;
+      ukk = (*loadbuf_alias32) & (uii * 3);
+      *loadbuf_alias32++ = (uii & (~ujj)) | (ukk - ((~ukk) & (ukk >> 1) & 0x55555555));
+    }
+    loadbuf = (unsigned char*)loadbuf_alias32;
+    iicp = (unsigned char*)indiv_include2_alias32;
+    imicp = (unsigned char*)indiv_male_include2_alias32;
+  } else {
+    iicp = (unsigned char*)indiv_include2;
+    imicp = (unsigned char*)indiv_male_include2;
+  }
+#else
+  if (!(((uintptr_t)loadbuf) & 3)) {
+    loadbuf_alias32 = (uint32_t*)loadbuf;
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+      uii = *indiv_male_include2++;
+      ujj = *indiv_include2++;
+      ukk = (*loadbuf_alias32) & (uii * 3);
+      *loadbuf_alias32++ = (uii & (~ujj)) | (ukk - ((~ukk) & (ukk >> 1) & 0x55555555));
+    }
+    loadbuf = (unsigned char*)loadbuf_alias32;
+  }
+  iicp = (unsigned char*)indiv_include2;
+  imicp = (unsigned char*)indiv_male_include2;
+#endif
+  for (; loadbuf < loadbuf_end;) {
+    ucc = *imicp++;
+    ucc2 = *iicp++;
+    ucc3 = (*loadbuf) & (ucc * 3);
+    *loadbuf++ = (ucc & (~ucc2)) | (ucc3 - ((~ucc3) & (ucc3 >> 1) & 0x55));
   }
 }
 

@@ -1319,14 +1319,12 @@ void fill_bmap_hap(unsigned char* bmap_hap, uint32_t ct_mod4) {
 
 int32_t make_bed(FILE* bedfile, int32_t bed_offset, FILE* bimfile, int32_t map_cols, FILE** bedoutfile_ptr, FILE** famoutfile_ptr, FILE** bimoutfile_ptr, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, double missing_phenod, char* output_missing_pheno, uintptr_t max_marker_id_len, int32_t map_is_unsorted, uint32_t* indiv_sort_map, uint32_t set_hh_missing, Chrom_info* chrom_info_ptr) {
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t indiv_ct4 = (indiv_ct + 3) / 4;
   unsigned char* wkspace_mark = wkspace_base;
   int32_t affection = (pheno_c != NULL);
   int32_t species = chrom_info_ptr->species;
   uint32_t omplen = strlen(output_missing_pheno);
   FILE* famoutfile;
-  uintptr_t* is_male_arr;
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
   uintptr_t indiv_uidx;
@@ -1463,12 +1461,6 @@ int32_t make_bed(FILE* bedfile, int32_t bed_offset, FILE* bimfile, int32_t map_c
     }
     fill_bmap_hap(bmap_hap, indiv_ct & 3);
     if (set_hh_missing) {
-      if (wkspace_alloc_ul_checked(&is_male_arr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
-	return RET_NOMEM;
-      }
-      for (indiv_idx = 0; indiv_idx < unfiltered_indiv_ctl; indiv_idx++) {
-	is_male_arr[indiv_idx] = sex_nm[indiv_idx] & sex_male[indiv_idx];
-      }
       pct = 0;
       loop_end = marker_ct / 100;
       imap[1] = 1;
@@ -1515,7 +1507,7 @@ int32_t make_bed(FILE* bedfile, int32_t bed_offset, FILE* bimfile, int32_t map_c
 		  indiv_uidx2 = indiv_sort_map[indiv_uidx++];
 		} while (is_set(indiv_exclude, indiv_uidx2));
 		ii_mod4 = indiv_idx & 3;
-		if (is_set(is_male_arr, indiv_uidx2)) {
+		if (is_set(sex_male, indiv_uidx2)) {
 		  cc |= (imap_m[(loadbuf[indiv_uidx2 / 4] >> ((indiv_uidx2 & 3) * 2)) & 3] << (ii_mod4 * 2));
 		} else {
 		  cc |= (imap[(loadbuf[indiv_uidx2 / 4] >> ((indiv_uidx2 & 3) * 2)) & 3] << (ii_mod4 * 2));
@@ -1529,7 +1521,7 @@ int32_t make_bed(FILE* bedfile, int32_t bed_offset, FILE* bimfile, int32_t map_c
 	      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
 		indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
 		ii_mod4 = indiv_idx & 3;
-		if (is_set(is_male_arr, indiv_uidx)) {
+		if (is_set(sex_male, indiv_uidx)) {
 		  cc |= (imap_m[(loadbuf[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3] << (ii_mod4 * 2));
 		} else {
 		  cc |= (imap[(loadbuf[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3] << (ii_mod4 * 2));

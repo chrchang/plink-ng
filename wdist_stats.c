@@ -33,6 +33,23 @@ double inverse_chiprob(double qq, double df) {
   return xx;
 }
 
+double tprob(double tt, double df) {  
+  int32_t st = 0;
+  int32_t ww = 1;
+  double bnd = 1;
+  double pp;
+  double qq;
+  if (!realnum(tt)) {
+    return -9;
+  }
+  tt = fabs(tt);
+  cdft(&ww, &pp, &qq, &tt, &df, &st, &bnd);
+  if (st != 0) {
+    return -9;
+  }
+  return 2 * qq;
+}
+
 // Inverse normal distribution
 
 //

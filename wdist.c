@@ -70,7 +70,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (5 Apr 2013)";
+  " (7 Apr 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -2110,35 +2110,6 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   }
   wkspace_reset(wkspace_mark);
   return 0;
-}
-
-void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, int32_t* male_ct_ptr, int32_t* female_ct_ptr, int32_t* unk_ct_ptr) {
-  int32_t male_ct = 0;
-  int32_t female_ct = 0;
-  int32_t unk_ct = 0;
-  uint32_t unfiltered_indiv_ctld = unfiltered_indiv_ct / BITCT;
-  uint32_t unfiltered_indiv_ct_rem = unfiltered_indiv_ct & (BITCT - 1);
-  uintptr_t ulii;
-  uintptr_t uljj;
-  uintptr_t indiv_bidx;
-  for (indiv_bidx = 0; indiv_bidx < unfiltered_indiv_ctld; indiv_bidx++) {
-    ulii = ~(*indiv_exclude++);
-  count_genders_last_loop:
-    uljj = *sex_nm++;
-    unk_ct += popcount_long(ulii & (~uljj));
-    ulii &= uljj;
-    uljj = *sex_male++;
-    male_ct += popcount_long(ulii & uljj);
-    female_ct += popcount_long(ulii & (~uljj));
-  }
-  if (unfiltered_indiv_ct_rem) {
-    ulii = (~(*indiv_exclude)) & ((ONELU << unfiltered_indiv_ct_rem) - ONELU);
-    unfiltered_indiv_ct_rem = 0;
-    goto count_genders_last_loop;
-  }
-  *male_ct_ptr = male_ct;
-  *female_ct_ptr = female_ct;
-  *unk_ct_ptr = unk_ct;
 }
 
 int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_exclude_ct, char* sorted_person_ids, uintptr_t max_person_id_len, int32_t* id_map, int32_t missing_pheno, int32_t missing_pheno_len, int32_t affection_01, uint32_t mpheno_col, char* phenoname_str, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr) {
@@ -5427,7 +5398,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     wdist_skip_all_pheno:
       if (calculation_type & CALC_MODEL) {
 	if (pheno_d) {
-	  retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, calculation_type, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, pheno_nm_ct, pheno_nm, pheno_d, sex_nm, sex_male);
+	  retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, calculation_type, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, pheno_nm_ct, pheno_nm, pheno_d, sex_nm, sex_male, xmhh_exists, nxmhh_exists);
 	} else {
 	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, calculation_type, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, pheno_nm_ct, pheno_nm, pheno_c, sex_nm, sex_male);
 	}

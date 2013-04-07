@@ -3808,7 +3808,7 @@ void normalize_phenos(double* new_phenos, uintptr_t indiv_ct, uintptr_t unfilter
   }
 }
 
-int32_t ld_process_load(unsigned char* loadbuf, uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* missing_buf, double* marker_stdev_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t indiv_ctl, int32_t indiv_trail_ct, uint32_t is_haploid, uint32_t is_x, uintptr_t* is_nm_male) {
+int32_t ld_process_load(unsigned char* loadbuf, uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* missing_buf, double* marker_stdev_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t indiv_ctl, int32_t indiv_trail_ct, uint32_t is_haploid, uint32_t is_x, uintptr_t* sex_male) {
   uintptr_t unfiltered_idx = 0;
   uint32_t write_offset;
   int32_t sloop_max;
@@ -3883,7 +3883,7 @@ int32_t ld_process_load(unsigned char* loadbuf, uintptr_t* geno_buf, uintptr_t* 
 
 	uljj = ulii >> 1;
 	new_geno |= (ulii - uljj) << (write_idx * 2);
-	uljj = ((ulii == 1) || ((ulii == 2) && is_set(is_nm_male, unfiltered_idx)))? 1 : 0;
+	uljj = ((ulii == 1) || ((ulii == 2) && is_set(sex_male, unfiltered_idx)))? 1 : 0;
 	new_missing |= uljj << write_idx;
 	new_mask |= ((uljj ^ 1) * 3) << (write_idx * 2);
 	unfiltered_idx++;
@@ -5184,7 +5184,6 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
   FILE* outfile_out = NULL;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t indiv_ctl = (g_indiv_ct + BITCT - 1) / BITCT;
   uintptr_t indiv_ct_mld = (g_indiv_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
   int32_t indiv_ct_mld_m1 = (int)indiv_ct_mld - 1;
@@ -5219,7 +5218,6 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
   uint32_t chrom_end;
   uint32_t is_haploid;
   uint32_t is_x;
-  uintptr_t* is_nm_male;
   double* marker_stdevs;
   unsigned char* loadbuf;
   uint32_t* missing_cts;
@@ -5293,15 +5291,11 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
     return RET_INVALID_FORMAT;
   }
 
-  if (wkspace_alloc_ul_checked(&pruned_arr, unfiltered_marker_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&is_nm_male, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(&pruned_arr, unfiltered_marker_ctl * sizeof(intptr_t))) {
     goto ld_prune_ret_NOMEM;
   }
 
   memcpy(pruned_arr, marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t));
-  for (uii = 0; uii < unfiltered_indiv_ctl; uii++) {
-    is_nm_male[uii] = sex_nm[uii] & sex_male[uii];
-  }
 
   if (!ld_window_kb) {
     window_max = ld_window_size;
@@ -5350,7 +5344,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
-        missing_cts[ulii] = ld_process_load(loadbuf, &(geno[ulii * indiv_ct_mld_long]), &(g_masks[ulii * indiv_ct_mld_long]), &(g_mmasks[ulii * indiv_ctl]), &(marker_stdevs[ulii]), unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, indiv_ctl, indiv_trail_ct, is_haploid, is_x, is_nm_male);
+        missing_cts[ulii] = ld_process_load(loadbuf, &(geno[ulii * indiv_ct_mld_long]), &(g_masks[ulii * indiv_ct_mld_long]), &(g_mmasks[ulii * indiv_ctl]), &(marker_stdevs[ulii]), unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, indiv_ctl, indiv_trail_ct, is_haploid, is_x, sex_male);
       }
     }
     pct = 1;
@@ -5604,7 +5598,7 @@ int32_t ld_prune(FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_
 	  if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	    goto ld_prune_ret_READ_FAIL;
 	  }
-	  missing_cts[cur_window_size] = ld_process_load(loadbuf, &(geno[cur_window_size * indiv_ct_mld_long]), &(g_masks[cur_window_size * indiv_ct_mld_long]), &(g_mmasks[cur_window_size * indiv_ctl]), &(marker_stdevs[cur_window_size]), unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, indiv_ctl, indiv_trail_ct, is_haploid, is_x, is_nm_male);
+	  missing_cts[cur_window_size] = ld_process_load(loadbuf, &(geno[cur_window_size * indiv_ct_mld_long]), &(g_masks[cur_window_size * indiv_ct_mld_long]), &(g_mmasks[cur_window_size * indiv_ctl]), &(marker_stdevs[cur_window_size]), unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, indiv_ctl, indiv_trail_ct, is_haploid, is_x, sex_male);
 	  cur_window_size++;
 	  window_unfiltered_end++;
 	}
