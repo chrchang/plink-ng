@@ -244,6 +244,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   double lambda;
   double bonf;
   double pv_sidak_ss;
+  uint32_t ujj;
   uint32_t loop_end;
 
   if (wkspace_alloc_d_checked(&sp, chi_ct * sizeof(double)) ||
@@ -256,14 +257,15 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
       goto multcomp_ret_NOMEM;
     }
     for (cur_idx = 0; cur_idx < chi_ct; cur_idx++) {
-      dxx = chi[cur_idx]; // not actually squared
-      if (dxx >= 0) {
-	dyy = tprob(dxx, tcnt[cur_idx]);
+      ujj = tcnt[cur_idx];
+      if (ujj > 2) {
+	dxx = chi[cur_idx]; // not actually squared
+	dyy = tprob(dxx, ujj - 2);
 	if (dyy > -1) {
 	  sp[uii] = dyy;
 	  new_order[uii] = marker_uidxs[cur_idx];
 	  schi[uii] = dxx * dxx;
-	  new_tcnt[uii] = tcnt[cur_idx];
+	  new_tcnt[uii] = ujj - 2;
 	  uii++;
 	}
       }
@@ -297,6 +299,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
   }
   chi_ct = uii;
   if (!chi_ct) {
+    logprint("Zero valid tests; --adjust skipped.\n");
     goto multcomp_ret_1;
   }
   qsort_ext((char*)sp, chi_ct, sizeof(double), double_cmp_deref, (char*)new_order, sizeof(uint32_t));
@@ -1053,7 +1056,6 @@ THREAD_RET_TYPE qassoc_gen_perms_thread(void* arg) {
       *wptr3 = cur_source;
       wptr2++;
     }
-    perm_vecstd++;
   }
   THREAD_RETURN;
 }
@@ -4670,14 +4672,12 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
 	  g_adaptive_intercept = aperm_init_interval;
 	  g_adaptive_slope = aperm_interval_slope;
 	}
-	g_perm_vec_ct = CACHELINE_DBL * (wkspace_left / (pheno_nm_ct * CACHELINE));
-      } else {
-	// g_perm_vec_ct memory allocation dependencies:
-	//   g_maxt_thread_results: (8 * g_perm_vec_ct, CL-aligned) * thread_ct
-	//   g_perm_vecstd: (8 * g_perm_vec_ct, CL-aligned) * pheno_nm_ct
-	//   g_thread_git_qbufs: (8 * g_perm_vec_ct, CL-aligned) * 3 * thread_ct
-	g_perm_vec_ct = CACHELINE_DBL * (wkspace_left / ((pheno_nm_ct + 4 * g_thread_ct) * CACHELINE));
       }
+      // g_perm_vec_ct memory allocation dependencies:
+      //   g_maxt_thread_results: (8 * g_perm_vec_ct, CL-aligned) * thread_ct
+      //   g_perm_vecstd: (8 * g_perm_vec_ct, CL-aligned) * pheno_nm_ct
+      //   g_thread_git_qbufs: (8 * g_perm_vec_ct, CL-aligned) * 3 * thread_ct
+      g_perm_vec_ct = CACHELINE_DBL * (wkspace_left / ((pheno_nm_ct + 4 * g_thread_ct) * CACHELINE));
     }
     ulii = g_perm_vec_ct / CACHELINE_DBL;
     if (g_perm_vec_ct > perms_total - g_perms_done) {
@@ -4886,27 +4886,34 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
 	if (fill_orig_chiabs) {
 	  g_orig_chisq[marker_idx + marker_bidx] = fabs(tstat);
 	  if (mtest_adjust) {
-	    tcnt[marker_idx + marker_bidx] = nanal - 2;
+	    tcnt[marker_idx + marker_bidx] = nanal;
 	  }
 	}
-	tp = tprob(tstat, nanal - 2);
-	rsq = (qt_g_covar * qt_g_covar) / (qt_var * g_var);
-	if ((pfilter == 1.0) || ((tp != -9) && (tp <= pfilter))) {
-	  if (!realnum(beta)) {
-	    wptr = memcpya(wptr, "        NA         NA         NA ", 33);
-	  } else {
-	    wptr = double_g_writewx4x(wptr, beta, 10, ' ');
-	    wptr = double_g_writewx4x(wptr, vbeta_sqrt, 10, ' ');
-	    wptr = double_g_writewx4x(wptr, rsq, 10, ' ');
+	if (nanal > 1) {
+	  tp = tprob(tstat, nanal - 2);
+	  rsq = (qt_g_covar * qt_g_covar) / (qt_var * g_var);
+	  if ((pfilter == 1.0) || ((tp != -9) && (tp <= pfilter))) {
+	    if (!realnum(beta)) {
+	      wptr = memcpya(wptr, "        NA         NA         NA ", 33);
+	    } else {
+	      wptr = double_g_writewx4x(wptr, beta, 10, ' ');
+	      wptr = double_g_writewx4x(wptr, vbeta_sqrt, 10, ' ');
+	      wptr = double_g_writewx4x(wptr, rsq, 10, ' ');
+	    }
+	    if (tp >= 0) {
+	      wptr = double_g_writewx4x(wptr, tstat, 8, ' ');
+	      wptr = double_g_writewx4(wptr, tp, 12);
+	    } else {
+	      wptr = memcpya(wptr, "      NA           NA", 21);
+	    }
+	    memcpy(wptr, " \n", 2);
+	    if (fwrite_checked(tbuf, 2 + (wptr - tbuf), outfile)) {
+	      goto qassoc_ret_WRITE_FAIL;
+	    }
 	  }
-	  if (tp >= 0) {
-	    wptr = double_g_writewx4x(wptr, tstat, 8, ' ');
-	    wptr = double_g_writewx4(wptr, tp, 12);
-	  } else {
-	    wptr = memcpya(wptr, "      NA           NA", 21);
-	  }
-	  memcpy(wptr, " \n", 2);
-	  if (fwrite_checked(tbuf, 2 + (wptr - tbuf), outfile)) {
+	} else {
+	  wptr = memcpya(wptr, "        NA         NA         NA       NA           NA \n", 56);
+	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
 	}
