@@ -1548,7 +1548,7 @@ THREAD_RET_TYPE qassoc_adapt_thread(void* arg) {
   uint32_t is_reverse;
   intptr_t g_sum;
   intptr_t g_ssq;
-  intptr_t nanal;
+  uint32_t nanal;
   double nanal_recip;
   double nanal_m1_recip;
   double g_mean;
@@ -1599,13 +1599,13 @@ THREAD_RET_TYPE qassoc_adapt_thread(void* arg) {
     // Larger values of this last statistic monotonically result in smaller
     // P-values, so this is what we use for comparison (this saves a few
     // floating point operations at the end).
-    sval = sval * sval / ((double)(nanal - 2));
+    sval = sval * sval / ((double)(((int32_t)nanal) - 2));
     stat_high = sval + EPSILON;
     stat_low = sval - EPSILON;
     g_sum = 2 * homrar_ct + het_ct;
     g_ssq = 4 * homrar_ct + het_ct;
-    nanal_recip = 1.0 / ((double)nanal);
-    nanal_m1_recip = 1.0 / ((double)(nanal - 1));
+    nanal_recip = 1.0 / ((double)((int32_t)nanal));
+    nanal_m1_recip = 1.0 / ((double)(((int32_t)nanal) - 1));
     g_mean = ((double)g_sum) * nanal_recip;
     g_var = (((double)g_ssq) - g_sum * g_mean) * nanal_m1_recip;
     success_2start = perm_2success_ct[marker_idx];
@@ -1698,7 +1698,7 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
   uint32_t is_reverse;
   intptr_t g_sum;
   intptr_t g_ssq;
-  intptr_t nanal;
+  uint32_t nanal;
   double nanal_recip;
   double nanal_m1_recip;
   double g_mean;
@@ -1736,8 +1736,8 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
     stat_low = sval - EPSILON;
     g_sum = 2 * homrar_ct + het_ct;
     g_ssq = 4 * homrar_ct + het_ct;
-    nanal_recip = 1.0 / ((double)nanal);
-    nanal_m1_recip = 1.0 / ((double)(nanal - 1));
+    nanal_recip = 1.0 / ((double)((int32_t)nanal));
+    nanal_m1_recip = 1.0 / ((double)(((int32_t)nanal) - 1));
     nanal_m2d = nanal - 2;
     g_mean = ((double)g_sum) * nanal_recip;
     g_var = (((double)g_ssq) - g_sum * g_mean) * nanal_m1_recip;
