@@ -4880,6 +4880,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   } else if ((calculation_type & CALC_MODEL) && (!(model_modifier & MODEL_ASSOC)) && (!pheno_c)) {
     logprint("Error: --model requires dichotomous phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
+  } else if ((calculation_type & CALC_GXE) && (!pheno_d)) {
+    logprint("Error: --gxe requires scalar phenotype.\n");
+    goto wdist_ret_INVALID_CMDLINE;
   }
 
   if (prune) {
@@ -5406,6 +5409,16 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	} else {
 	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, calculation_type, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, pheno_nm_ct, pheno_nm, pheno_c, sex_nm, sex_male);
 	}
+	if (retval) {
+	  goto wdist_ret_2;
+	}
+      }
+      // if dichotomous phenotype loaded with --all-pheno, skip --gxe
+      if ((calculation_type & CALC_GXE) && pheno_d) {
+	logprint("Error: --gxe is not implemented yet.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto wdist_ret_2;
+	// retval = perm_test_gxe();
 	if (retval) {
 	  goto wdist_ret_2;
 	}
