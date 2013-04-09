@@ -1524,7 +1524,7 @@ THREAD_RET_TYPE qassoc_adapt_thread(void* arg) {
   uintptr_t* reverse = g_reverse;
   double* __restrict__ perm_vecstd = g_perm_vecstd;
   uint32_t* __restrict__ adapt_m_table = g_adapt_m_table;
-  unsigned char* __restrict__ perm_adapt_stop = g_perm_adapt_stop;
+  unsigned char* perm_adapt_stop = g_perm_adapt_stop;
   uint32_t* __restrict__ perm_attempt_ct = g_perm_attempt_ct;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
   uint32_t* __restrict__ missing_cts = g_missing_cts;
@@ -1577,16 +1577,14 @@ THREAD_RET_TYPE qassoc_adapt_thread(void* arg) {
     next_adapt_check = first_adapt_check;
     missing_ct = missing_cts[marker_idx];
     nanal = pheno_nm_ct - missing_ct;
-    if (nanal < 3) {
+    homcom_ct = homcom_cts[marker_idx];
+    het_ct = het_cts[marker_idx];
+    if ((nanal < 3) || (homcom_ct == nanal) || (het_ct == nanal)) {
       perm_adapt_stop[marker_idx] = 1;
-      // check if these are these needed for compatibility
-      // perm_attempt_ct[marker_idx] = next_adapt_check;
-      // perm_2success_ct[marker_idx] = next_adapt_check;
+      perm_attempt_ct[marker_idx] = 0;
       continue;
     }
     is_reverse = is_set(reverse, marker_idx);
-    het_ct = het_cts[marker_idx];
-    homcom_ct = homcom_cts[marker_idx];
     homrar_ct = pheno_nm_ct - missing_ct - het_ct - homcom_ct;
     sval = orig_chiabs[marker_idx];
     // tstat = beta / vbeta_sqrt
@@ -4910,6 +4908,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
   uint32_t perm_maxt = model_modifier & MODEL_MPERM;
   uint32_t do_perms = perm_adapt | perm_maxt;
   uint32_t qt_means = model_modifier & MODEL_QT_MEANS;
+  uint32_t perm_count = model_modifier & MODEL_PERM_COUNT;
   uint32_t fill_orig_chiabs = do_perms || mtest_adjust;
   char* outname_end2 = memcpyb(outname_end, ".qassoc", 8);
   uint32_t perms_total = 0;
@@ -4982,6 +4981,9 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
   uintptr_t ulii;
   uint64_t ullii;
   double dxx;
+  double dyy;
+  double dzz;
+  double pval;
   uint32_t loop_end;
   char* a1ptr;
   char* a2ptr;
@@ -5117,30 +5119,32 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
       fputs(" [generating permutations]", stdout);
       fflush(stdout);
     }
+    if (perm_adapt) {
+      if (perm_pass_idx) {
+	while (g_first_adapt_check <= g_perms_done) {
+	  // APERM_MAX prevents infinite loop here
+	  g_first_adapt_check += (int32_t)(aperm_init_interval + ((int32_t)g_first_adapt_check) * aperm_interval_slope);
+	}
+      } else {
+	if (aperm_min < aperm_init_interval) {
+	  g_first_adapt_check = (int32_t)aperm_init_interval;
+	} else {
+	  g_first_adapt_check = aperm_min;
+	}
+	g_adaptive_intercept = aperm_init_interval;
+	g_adaptive_slope = aperm_interval_slope;
+      }
+    }
+    // g_perm_vec_ct memory allocation dependencies:
+    //   g_maxt_thread_results: (8 * g_perm_vec_ct, CL-aligned) * thread_ct
+    //   g_perm_vecstd: (8 * g_perm_vec_ct, CL-aligned) * pheno_nm_ct
+    //   g_thread_git_qbufs: (8 * g_perm_vec_ct, CL-aligned) * 3 * thread_ct
     if (perm_batch_size) {
       g_perm_vec_ct = perm_batch_size;
     } else {
-      if (perm_adapt) {
-	if (perm_pass_idx) {
-	  while (g_first_adapt_check <= g_perms_done) {
-	    // APERM_MAX prevents infinite loop here
-	    g_first_adapt_check += (int32_t)(aperm_init_interval + ((int32_t)g_first_adapt_check) * aperm_interval_slope);
-	  }
-	} else {
-	  if (aperm_min < aperm_init_interval) {
-	    g_first_adapt_check = (int32_t)aperm_init_interval;
-	  } else {
-	    g_first_adapt_check = aperm_min;
-	  }
-	  g_adaptive_intercept = aperm_init_interval;
-	  g_adaptive_slope = aperm_interval_slope;
-	}
-      }
-      // g_perm_vec_ct memory allocation dependencies:
-      //   g_maxt_thread_results: (8 * g_perm_vec_ct, CL-aligned) * thread_ct
-      //   g_perm_vecstd: (8 * g_perm_vec_ct, CL-aligned) * pheno_nm_ct
-      //   g_thread_git_qbufs: (8 * g_perm_vec_ct, CL-aligned) * 3 * thread_ct
-      g_perm_vec_ct = CACHELINE_DBL * (wkspace_left / ((pheno_nm_ct + 4 * g_thread_ct) * CACHELINE));
+      // this seems to work better than pregenerating as many permutations as
+      // possible
+      g_perm_vec_ct = 512;
     }
     ulii = g_perm_vec_ct / CACHELINE_DBL;
     if (g_perm_vec_ct > perms_total - g_perms_done) {
@@ -5149,12 +5153,16 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
     } else if (!g_perm_vec_ct) {
       goto qassoc_ret_NOMEM;
     }
-    if (wkspace_alloc_d_checked(&g_perm_vecstd, ulii * CACHELINE * pheno_nm_ct) || 
-        wkspace_alloc_d_checked(&g_maxt_thread_results, g_thread_ct * ulii * CACHELINE) ||
+    if (wkspace_alloc_d_checked(&g_perm_vecstd, ulii * CACHELINE * pheno_nm_ct) ||
 	wkspace_alloc_d_checked(&g_thread_git_qbufs, 3 * g_thread_ct * ulii * CACHELINE)) {
       goto qassoc_ret_NOMEM;
     }
     fill_double_zero(g_thread_git_qbufs, 3 * g_thread_ct * ulii * CACHELINE_DBL);
+    if (perm_maxt) {
+      if (wkspace_alloc_d_checked(&g_maxt_thread_results, g_thread_ct * ulii * CACHELINE)) {
+	goto qassoc_ret_NOMEM;
+      }
+    }
     g_perms_done += g_perm_vec_ct;
     if (g_perm_vec_ct >= CACHELINE_DBL * g_thread_ct) {
       g_assoc_thread_ct = g_thread_ct;
@@ -5636,14 +5644,13 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
 #endif
     }
     /*
-    if (model_maxt) {
+    if (perm_maxt) {
       printf("extreme stats: %g %g\n", g_maxt_extreme_stat[0], g_maxt_extreme_stat[perms_total - 1]);
     }
     */
     if (fprintf(outfile, tbuf, "SNP") < 0) {
       goto qassoc_ret_WRITE_FAIL;
     }
-    /*
     chrom_fo_idx = 0xffffffffU;
     marker_uidx = next_non_set_unsafe(marker_exclude, 0);
     marker_idx = 0;
@@ -5652,20 +5659,13 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
     memset(tbuf, 32, 5);
     tbuf[5 + plink_maxsnp] = ' ';
     while (1) {
-      while (1) {
-	do {
-          chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
-	} while (marker_uidx >= chrom_end);
-	uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	g_is_x = (uii == (uint32_t)x_code);
-	if (model_assoc || ((!((species_haploid_mask[chrom_info_ptr->species] >> uii) & 1LLU)) || g_is_x)) {
-	  break;
-	}
-	marker_uidx = next_non_set_unsafe(marker_exclude, chrom_end);
-      }
+      do {
+	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1U];
+      } while (marker_uidx >= chrom_end);
+      uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       intprint2(&(tbuf[2]), uii);
       for (; marker_uidx < chrom_end;) {
-	if (model_adapt) {
+	if (perm_adapt) {
 	  pval = ((double)(g_perm_2success_ct[marker_idx] + 2)) / ((double)(2 * (g_perm_attempt_ct[marker_idx] + 1)));
 	} else {
 	  pval = ((double)(g_perm_2success_ct[marker_idx] + 2)) * dxx;
@@ -5673,29 +5673,24 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
         if ((pval <= pfilter) || (pfilter == 1.0)) {
 	  fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), &(tbuf[5]));
 	  wptr = &(tbuf[6 + plink_maxsnp]);
-	  if ((!model_assoc) && ((model_adapt && (!g_perm_attempt_ct[marker_idx])) || ((!model_adapt) && ((g_model_fisher && (g_orig_1mpval[marker_idx] == -9)) || ((!g_model_fisher) && (g_orig_chisq[marker_idx] == -9)))))) {
+	  if (perm_adapt && (!g_perm_attempt_ct[marker_idx])) {
 	    // invalid
             wptr = memcpya(wptr, "          NA           NA", 25);
 	  } else {
-	    if (!model_perm_count) {
+	    if (!perm_count) {
 	      wptr = double_g_writewx4x(wptr, pval, 12, ' ');
 	    } else {
 	      wptr = double_g_writewx4x(wptr, ((double)g_perm_2success_ct[marker_idx]) / 2.0, 12, ' ');
 	    }
-	    if (model_adapt) {
+	    if (perm_adapt) {
 	      if (g_perm_attempt_ct[marker_idx]) {
 		wptr = memseta(wptr, 32, 2);
 		wptr = uint32_writew10(wptr, g_perm_attempt_ct[marker_idx]);
 	      }
 	    } else {
-	      if (g_model_fisher) {
-		// minimum p-value
-		dzz = (int32_t)(doublearr_greater_than(g_maxt_extreme_stat, perms_total, 1.0 + EPSILON - g_orig_1mpval[marker_idx]) + 1);
-	      } else {
-		// maximum chisq
-		dzz = (int32_t)(perms_total - doublearr_greater_than(g_maxt_extreme_stat, perms_total, g_orig_chisq[marker_idx] - EPSILON) + 1);
-	      }
-	      if (!model_perm_count) {
+	      // maximum chisq
+	      dzz = (int32_t)(perms_total - doublearr_greater_than(g_maxt_extreme_stat, perms_total, g_orig_chisq[marker_idx] - EPSILON) + 1);
+	      if (!perm_count) {
 		wptr = double_g_writewx4(wptr, dzz * dyy, 12);
 	      } else {
 		wptr = double_g_writewx4(wptr, dzz, 12);
@@ -5717,7 +5712,6 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
     if (fclose_null(&outfile)) {
       goto qassoc_ret_WRITE_FAIL;
     }
-    */
     sprintf(logbuf, "Permutation test report written to %s.\n", outname);
     logprintb();
 
