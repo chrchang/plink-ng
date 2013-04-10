@@ -1111,6 +1111,8 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfil
 
 void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct);
 
+void unreverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct);
+
 static inline char sexchar(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t indiv_uidx) {
   return is_set(sex_nm, indiv_uidx)? (is_set(sex_male, indiv_uidx)? '1' : '2') : '0';
 }

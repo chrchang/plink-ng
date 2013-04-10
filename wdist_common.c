@@ -4830,6 +4830,68 @@ void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* in
   }
 }
 
+void unreverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
+  uintptr_t indiv_bidx = 0;
+  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + 3) / 4]);
+  unsigned char ucc;
+  unsigned char ucc2;
+  uintptr_t unfiltered_indiv_ctd;
+  uint32_t* loadbuf_alias32;
+  uint32_t uii;
+  uint32_t ujj;
+#ifdef __LP64__
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  __m128i* loadbuf_alias;
+  __m128i vii;
+  __m128i vjj;
+  if (!(((uintptr_t)loadbuf) & 15)) {
+    loadbuf_alias = (__m128i*)loadbuf;
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / 64;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+      vii = *loadbuf_alias;
+      // we want to exchange 00 and 11, and leave 01/10 untouched.  So make
+      // vjj := 11 iff vii is 00/11, and vjj := 00 otherwise; then xor.
+      vjj = _mm_andnot_si128(_mm_xor_si128(vii, _mm_srli_epi64(vii, 1)), m1);
+      vjj = _mm_or_si128(vjj, _mm_slli_epi64(vjj, 1));
+      *loadbuf_alias++ = _mm_xor_si128(vii, vjj);
+    }
+    loadbuf = (unsigned char*)loadbuf_alias;
+  } else if (!(((uintptr_t)loadbuf) & 3)) {
+    loadbuf_alias32 = (uint32_t*)loadbuf;
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+      uii = *loadbuf_alias32;
+      ujj = 0x55555555 & (~(uii ^ (uii >> 1)));
+      ujj *= 3;
+      *loadbuf_alias32++ = uii ^ ujj;
+    }
+    loadbuf = (unsigned char*)loadbuf_alias32;
+  }
+#else
+  if (!(((uintptr_t)loadbuf) & 3)) {
+    loadbuf_alias32 = (uint32_t*)loadbuf;
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+      uii = *loadbuf_alias32;
+      ujj = 0x55555555 & (~(uii ^ (uii >> 1)));
+      ujj *= 3;
+      *loadbuf_alias32++ = uii ^ ujj;
+    }
+    loadbuf = (unsigned char*)loadbuf_alias32;
+  }
+#endif
+  for (; loadbuf < loadbuf_end;) {
+    ucc = *loadbuf;
+    ucc2 = 0x55 & (~(ucc ^ (ucc >> 1)));
+    ucc2 *= 3;
+    *loadbuf++ = ucc ^ ucc2;
+  }
+  uii = unfiltered_indiv_ct & 3;
+  if (uii) {
+    loadbuf[-1] &= (0x55 >> (8 - 2 * uii));
+  }
+}
+
 static uint32_t g_pct;
 static uintptr_t g_dw_indiv1idx;
 static uintptr_t g_dw_indiv2idx;
