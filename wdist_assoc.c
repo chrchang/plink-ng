@@ -5913,9 +5913,11 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
       qsort(g_maxt_extreme_stat, perms_total, sizeof(double), double_cmp);
 #endif
     }
+    /*
     if (perm_maxt) {
       printf("extreme stats: %g %g\n", g_maxt_extreme_stat[0], g_maxt_extreme_stat[perms_total - 1]);
     }
+    */
     if (fprintf(outfile, tbuf, "SNP") < 0) {
       goto qassoc_ret_WRITE_FAIL;
     }
