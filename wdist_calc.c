@@ -3375,7 +3375,12 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
     g_perm_rows[ulii * perm_ct] = g_perm_rows[ulii];
   }
 
+  printf("--ibs-test (%" PRIuPTR " permutations): [generating permutations]", perm_ct - 1);
+  fflush(stdout);
+  // minor todo: multithread this
   generate_perm1_interleaved(pheno_nm_ct, case_ct, 1, perm_ct, g_perm_rows);
+  fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b                       \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b0%", stdout);
+  fflush(stdout);
   for (ulii = 0; ulii < pheno_nm_ct; ulii++) {
     uljj += ((g_perm_rows[((ulii / BITCT) * perm_ct)] >> (ulii & (BITCT - 1))) & 1);
   }
@@ -3384,7 +3389,6 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
     goto ibs_test_calc_ret_THREAD_CREATE_FAIL;
   }
   ulii = 0;
-  printf("--ibs-test (%" PRIuPTR " permutations): 0%%", perm_ct - 1);
   fflush(stdout);
   ibs_test_thread((void*)ulii);
   join_threads(threads, g_thread_ct);

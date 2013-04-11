@@ -1096,6 +1096,271 @@ uintptr_t qgit_ld_cost(uintptr_t indiv_ctl2, uintptr_t* loadbuf1, uintptr_t* loa
   return cost;
 }
 
+void calc_qrem(uint32_t pheno_nm_ct, uintptr_t perm_vec_ct, uintptr_t* loadbuf, uintptr_t* loadbuf_ref, double* perm_vecstd, double* outbufs) {
+  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uint32_t pheno_nm_ctl2x = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
+#ifdef __LP64__
+  // halve for 8 bytes vs. 16, halve again for ujj being double the indiv idx
+  uint32_t row_mult = perm_vec_ctcl8m / 4;
+
+  uint32_t loop_len = (perm_vec_ct + 1) / 2;
+  __m128d* permsv = (__m128d*)perm_vecstd;
+  __m128d* __restrict__ perm_readv;
+  __m128d* __restrict__ rem_writev;
+  __m128d* __restrict__ rem_write2v;
+  __m128d* __restrict__ rem_write3v;
+  __m128d vxx;
+#else
+  uint32_t row_mult = perm_vec_ctcl8m / 2;
+  double* __restrict__ perm_read;
+  double* __restrict__ rem_write;
+  double* __restrict__ rem_write2;
+  double* __restrict__ rem_write3;
+  double dxx;
+#endif
+  uintptr_t ulraw1;
+  uintptr_t ulxor;
+  uint32_t cur_xor;
+  uint32_t cur_raw;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  for (uii = 0; uii < pheno_nm_ctl2x; uii++) {
+    ulraw1 = *loadbuf++;
+    ulxor = ulraw1 ^ (*loadbuf_ref++);
+    if (uii + 1 == pheno_nm_ctl2x) {
+      ujj = pheno_nm_ct & (BITCT2 - 1);
+      if (ujj) {
+	ulxor &= (ONELU << (ujj * 2)) - ONELU;
+      }
+    }
+    while (ulxor) {
+      ujj = CTZLU(ulxor) & (BITCT - 2);
+      cur_xor = (ulxor >> ujj) & 3;
+      cur_raw = (ulraw1 >> ujj) & 3;
+#ifdef __LP64__
+      perm_readv = &(permsv[ujj * row_mult]);
+      rem_writev = (__m128d*)outbufs;
+      rem_write2v = (__m128d*)(&(outbufs[perm_vec_ctcl8m]));
+      rem_write3v = (__m128d*)(&(outbufs[2 * perm_vec_ctcl8m]));
+      if (cur_raw == 3) {
+	if (cur_xor == 1) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_sub_pd(*rem_writev, vxx);
+	    rem_writev++;
+	  }
+	} else if (cur_xor == 3) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_sub_pd(*rem_writev, _mm_add_pd(vxx, vxx));
+	    rem_writev++;
+	  }
+        } else {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_write2v = _mm_sub_pd(*rem_write2v, vxx);
+	    rem_write2v++;
+	    *rem_write3v = _mm_sub_pd(*rem_write3v, _mm_mul_pd(vxx, vxx));
+	    rem_write3v++;
+	  }
+        }
+      } else if (cur_raw == 2) {
+	if (cur_xor == 1) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_add_pd(*rem_writev, vxx);
+	    rem_writev++;
+	  }
+	} else if (cur_xor == 2) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_sub_pd(*rem_writev, vxx);
+	    rem_writev++;
+	  }
+	} else {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_add_pd(*rem_writev, vxx);
+	    rem_writev++;
+	    *rem_write2v = _mm_sub_pd(*rem_write2v, vxx);
+	    rem_write2v++;
+	    *rem_write3v = _mm_sub_pd(*rem_write3v, _mm_mul_pd(vxx, vxx));
+	    rem_write3v++;
+	  }
+	}
+      } else if (!cur_raw) {
+	if (cur_xor == 3) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_add_pd(*rem_writev, _mm_add_pd(vxx, vxx));
+	    rem_writev++;
+	  }
+	} else if (cur_xor == 2) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_add_pd(*rem_writev, vxx);
+	    rem_writev++;
+	  }
+	} else {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_add_pd(*rem_writev, _mm_add_pd(vxx, vxx));
+	    rem_writev++;
+	    *rem_write2v = _mm_sub_pd(*rem_writev, vxx);
+	    rem_write2v++;
+	    *rem_write3v = _mm_sub_pd(*rem_writev, _mm_mul_pd(vxx, vxx));
+	    rem_write3v++;
+	  }
+	}
+      } else {
+	if (cur_xor == 2) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_write2v = _mm_add_pd(*rem_write2v, vxx);
+	    rem_write2v++;
+	    *rem_write3v = _mm_add_pd(*rem_write3v, _mm_mul_pd(vxx, vxx));
+	    rem_write3v++;
+	  }
+	} else if (cur_xor == 3) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_sub_pd(*rem_writev, vxx);
+	    rem_writev++;
+	    *rem_write2v = _mm_add_pd(*rem_write2v, vxx);
+	    rem_write2v++;
+	    *rem_write3v = _mm_add_pd(*rem_write3v, _mm_mul_pd(vxx, vxx));
+	    rem_write3v++;
+	  }
+	} else {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_sub_pd(*rem_writev, _mm_add_pd(vxx, vxx));
+	    rem_writev++;
+	    *rem_write2v = _mm_add_pd(*rem_write2v, vxx);
+	    rem_write2v++;
+	    *rem_write3v = _mm_add_pd(*rem_write3v, _mm_mul_pd(vxx, vxx));
+	    rem_write3v++;
+	  }
+	}
+      }
+#else
+      perm_read = &(perm_vecstd[ujj * row_mult]);
+      rem_write = outbufs;
+      rem_write2 = &(outbufs[perm_vec_ctcl8m]);
+      rem_write3 = &(outbufs[2 * perm_vec_ctcl8m]);
+      if (cur_raw == 3) {
+	if (cur_xor == 1) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write -= dxx;
+	    rem_write++;
+	  }
+	} else if (cur_xor == 3) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write -= 2 * dxx;
+	    rem_write++;
+	  }
+	} else {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write2 -= dxx;
+	    rem_write2++;
+	    *rem_write3 -= dxx * dxx;
+	    rem_write3++;
+	  }
+	}
+      } else if (cur_raw == 2) {
+	if (cur_xor == 1) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write += dxx;
+	    rem_write++;
+	  }
+	} else if (cur_xor == 2) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write -= dxx;
+	    rem_write++;
+	  }
+	} else {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write += dxx;
+	    rem_write++;
+	    *rem_write2 -= dxx;
+	    rem_write2++;
+	    *rem_write3 -= dxx * dxx;
+	    rem_write3++;
+	  }
+	}
+      } else if (!cur_raw) {
+	if (cur_xor == 3) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write += 2 * dxx;
+	    rem_write++;
+	  }
+	} else if (cur_xor == 2) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write += dxx;
+	    rem_write++;
+	  }
+	} else {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write += 2 * dxx;
+	    rem_write++;
+	    *rem_write2 -= dxx;
+	    rem_write2++;
+	    *rem_write3 -= dxx * dxx;
+	    rem_write3++;
+	  }
+	}
+      } else {
+	if (cur_xor == 2) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write2 += dxx;
+	    rem_write2++;
+	    *rem_write3 += dxx * dxx;
+	    rem_write3++;
+	  }
+	} else if (cur_xor == 3) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write -= dxx;
+	    rem_write++;
+	    *rem_write2 += dxx;
+	    rem_write2++;
+	    *rem_write3 += dxx * dxx;
+	    rem_write3++;
+	  }
+	} else {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write -= 2 * dxx;
+	    rem_write++;
+	    *rem_write2 += dxx;
+	    rem_write2++;
+	    *rem_write3 += dxx * dxx;
+	    rem_write3++;
+	  }
+	}
+      }
+#endif
+      ulxor &= ~(3 * (ONELU << ujj));
+    }
+#ifdef __LP64__
+    permsv = &(permsv[(BITCT2 / 2) * perm_vec_ctcl8m]);
+#else
+    perm_vecstd = &(perm_vecstd[BITCT2 * perm_vec_ctcl8m]);
+#endif
+  }
+}
+
 // multithread globals
 static double* g_orig_1mpval;
 static double* g_orig_chisq;
@@ -1116,6 +1381,7 @@ static double* g_qresultbuf;
 static double* g_pheno_d2;
 static double g_pheno_sum;
 static double g_pheno_ssq;
+static uint16_t* g_ldrefs;
 
 // maximum number of precomputed table entries per marker
 static uint32_t g_precomp_width;
@@ -1813,6 +2079,7 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
   uint32_t* __restrict__ missing_cts = g_missing_cts;
   uint32_t* __restrict__ het_cts = g_het_cts;
   uint32_t* __restrict__ homcom_cts = g_homcom_cts;
+  uint16_t* ldrefs = g_ldrefs;
   double* __restrict__ orig_chiabs = g_orig_chisq;
   double pheno_sum = g_pheno_sum;
   double pheno_ssq = g_pheno_ssq;
@@ -1866,7 +2133,7 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
     homcom_ct = homcom_cts[marker_idx];
     het_ct = het_cts[marker_idx];
     if ((nanal < 3) || (homcom_ct == nanal) || (het_ct == nanal)) {
-      perm_2success_ct[marker_idx] += perm_vec_ct;
+      perm_2success_ct[marker_idx++] += perm_vec_ct;
       continue;
     }
     homrar_ct = nanal - het_ct - homcom_ct;
@@ -1884,57 +2151,56 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
     success_2incr = 0;
     git_qt_g_prod = &(qresultbuf[3 * marker_bidx * perm_vec_ctcl8m]);
     git_qt_sum = &(git_qt_g_prod[perm_vec_ctcl8m]);
-    git_qt_ssq = &(git_qt_g_prod[perm_vec_ctcl8m]);
-
-    // Check if PERMORY-style LD exploitation is better than genotype indexing
-    // algorithm.
-    // Addition loops required for genotype indexing:
-    //   het_ct + homrar_ct + 2 * missing_ct
-    //
-    // Addition loops required for LD exploitation:
-    //   3 * (missing <-> homrar/het) + 2 * (missing <-> homcom) +
-    //   (homrar <-> het/homcom) + (het <-> homcom)
-    // Simple lower bound (may allow us to skip full LD cost calculation):
-    //   (delta(homrar) + 2 * delta(missing) + delta(het) + delta(homcom)) / 2
-    best_cost = het_ct + homrar_ct + 2 * missing_ct;
-    ldref = marker_bidx;
-    marker_idx_tmp = maxt_block_base;
-    loop_ceil = maxt_block_base2;
+    git_qt_ssq = &(git_qt_g_prod[2 * perm_vec_ctcl8m]);
     loadbuf_cur = &(loadbuf[marker_bidx * pheno_nm_ctl2]);
-    do {
-      if (marker_idx_tmp == maxt_block_base2) {
-	marker_idx_tmp = maxt_block_base3;
-	loop_ceil = marker_idx;
-      }
-      for (; marker_idx_tmp < loop_ceil; marker_idx_tmp++) {
-	missing_ct_tmp = missing_cts[marker_idx_tmp];
-	nanal_tmp = pheno_nm_ct - missing_ct_tmp;
-	homcom_ct_tmp = homcom_cts[marker_idx_tmp];
-	het_ct_tmp = het_cts[marker_idx_tmp];
-	homrar_ct_tmp = nanal_tmp - het_ct_tmp - homcom_ct_tmp;
-	if ((nanal_tmp >= 3) && (homcom_ct_tmp < nanal_tmp) && (het_ct_tmp < nanal_tmp)) {
-	  cur_cost = labs(((int32_t)missing_ct) - missing_ct_tmp) + (labs(((int32_t)homrar_ct) - homrar_ct_tmp) + labs(((int32_t)het_ct) - het_ct_tmp) + labs(((int32_t)homcom_ct) - homcom_ct_tmp) + 1) / 2;
-	  if (cur_cost < best_cost) {
-	    marker_bidx2 = marker_idx_tmp - marker_idx;
-	    cur_cost = qgit_ld_cost(pheno_nm_ctl2, &(loadbuf[marker_bidx2 * pheno_nm_ctl2]), loadbuf_cur);
+    ldref = ldrefs[marker_idx];
+    if (ldref == 65535) {
+      // Check if PERMORY-style LD exploitation is better than genotype
+      // indexing algorithm.
+      // Addition loops required for genotype indexing:
+      //   het_ct + homrar_ct + 2 * missing_ct
+      //
+      // Addition loops required for LD exploitation:
+      //   3 * (missing <-> homrar/het) + 2 * (missing <-> homcom) +
+      //   (homrar <-> het/homcom) + (het <-> homcom)
+      // Simple lower bound (may allow us to skip full LD cost calculation):
+      //   (delta(homrar) + 2*delta(missing) + delta(het) + delta(homcom)) / 2
+      best_cost = het_ct + homrar_ct + 2 * missing_ct;
+      ldref = marker_bidx;
+      marker_idx_tmp = maxt_block_base;
+      loop_ceil = maxt_block_base2;
+      do {
+	if (marker_idx_tmp == maxt_block_base2) {
+	  marker_idx_tmp = maxt_block_base3;
+	  loop_ceil = marker_idx;
+	}
+	for (; marker_idx_tmp < loop_ceil; marker_idx_tmp++) {
+	  missing_ct_tmp = missing_cts[marker_idx_tmp];
+	  nanal_tmp = pheno_nm_ct - missing_ct_tmp;
+	  homcom_ct_tmp = homcom_cts[marker_idx_tmp];
+	  het_ct_tmp = het_cts[marker_idx_tmp];
+	  homrar_ct_tmp = nanal_tmp - het_ct_tmp - homcom_ct_tmp;
+	  if ((nanal_tmp >= 3) && (homcom_ct_tmp < nanal_tmp) && (het_ct_tmp < nanal_tmp)) {
+	    cur_cost = labs(((int32_t)missing_ct) - missing_ct_tmp) + (labs(((int32_t)homrar_ct) - homrar_ct_tmp) + labs(((int32_t)het_ct) - het_ct_tmp) + labs(((int32_t)homcom_ct) - homcom_ct_tmp) + 1) / 2;
 	    if (cur_cost < best_cost) {
-	      ldref = marker_bidx2;
-	      best_cost = cur_cost;
+	      marker_bidx2 = marker_idx_tmp - maxt_block_base;
+	      cur_cost = qgit_ld_cost(pheno_nm_ctl2, &(loadbuf[marker_bidx2 * pheno_nm_ctl2]), loadbuf_cur);
+	      if (cur_cost < best_cost) {
+		ldref = marker_bidx2;
+		best_cost = cur_cost;
+	      }
 	    }
 	  }
 	}
-      }
-    } while (marker_idx_tmp < marker_idx);
-    if (1) {
-    // if (ldref == marker_bidx) {
+      } while (marker_idx_tmp < marker_idx);
+      ldrefs[marker_idx] = ldref;
+    }
+    if (ldref == marker_bidx) {
       fill_double_zero(git_qt_g_prod, perm_vec_ctcl8m * 3);
       calc_qgit(pheno_nm_ct, perm_vec_ctcl8m, perm_vec_ct, loadbuf_cur, perm_vecstd, git_qt_g_prod);
     } else {
-      /*
-      printf("%lu %u %u\n", );
-      exit(1);
-      */
-      // calc_qrem();
+      memcpy(git_qt_g_prod, &(qresultbuf[3 * ldref * perm_vec_ctcl8m]), 3 * perm_vec_ctcl8m * sizeof(double));
+      calc_qrem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctl2]), perm_vecstd, git_qt_g_prod);
     }
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       qt_sum = pheno_sum - git_qt_sum[pidx];
@@ -5000,6 +5266,12 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
       goto qassoc_ret_NOMEM;
     }
     fill_double_zero(g_maxt_extreme_stat, perms_total); // square of t-stat
+    g_ldrefs = (uint16_t*)wkspace_alloc(marker_ct * sizeof(uint16_t));
+#ifdef __LP64__
+    fill_ulong_one((uintptr_t*)g_ldrefs, (marker_ct + 3) / 4);
+#else
+    fill_ulong_one((uintptr_t*)g_ldrefs, (marker_ct + 1) / 2);
+#endif
   } else if (perm_adapt) {
     perms_total = aperm_max;
     if (wkspace_alloc_ui_checked(&g_perm_attempt_ct, marker_ct * sizeof(uint32_t)) ||
@@ -5203,6 +5475,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
       g_is_y = (uii == (uint32_t)y_code);
       intprint2(&(wprefix[2]), uii);
     } else if (perm_maxt) {
+      marker_idx -= MODEL_BLOCKKEEP;
       memcpy(g_loadbuf, &(g_loadbuf[(MODEL_BLOCKSIZE - MODEL_BLOCKKEEP) * pheno_nm_ctl2]), MODEL_BLOCKKEEP * pheno_nm_ctl2 * sizeof(intptr_t));
       memcpy(g_qresultbuf, &(g_qresultbuf[3 * (MODEL_BLOCKSIZE - MODEL_BLOCKKEEP) * perm_vec_ctcl8m]), MODEL_BLOCKKEEP * perm_vec_ctcl8m * 3 * sizeof(double));
       g_qblock_start = MODEL_BLOCKKEEP;
@@ -5210,7 +5483,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
       g_qblock_start = 0;
     }
     block_size = g_qblock_start;
-    block_end = marker_unstopped_ct + g_qblock_start - marker_idx;
+    block_end = marker_unstopped_ct - marker_idx;
     if (block_end > MODEL_BLOCKSIZE) {
       block_end = MODEL_BLOCKSIZE;
     }
@@ -5520,7 +5793,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
       }
       ulii = 0;
       if (perm_maxt) {
-	g_maxt_block_base = marker_idx - g_qblock_start;
+	g_maxt_block_base = marker_idx;
 	g_maxt_cur_extreme_stat = g_maxt_extreme_stat[0];
 	for (uii = 1; uii < g_perm_vec_ct; uii++) {
 	  dxx = g_maxt_extreme_stat[uii];
@@ -5553,7 +5826,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
         join_threads(threads, g_assoc_thread_ct);
       }
     }
-    marker_idx += block_size - g_qblock_start;
+    marker_idx += block_size;
     if ((!perm_pass_idx) && (marker_idx >= loop_end)) {
       if (marker_idx < marker_unstopped_ct) {
 	if (pct >= 10) {
@@ -5566,7 +5839,6 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
       }
     }
   } while (marker_idx < marker_unstopped_ct);
-
   if (!perm_pass_idx) {
     if (pct >= 10) {
       putchar('\b');
@@ -5641,11 +5913,9 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
       qsort(g_maxt_extreme_stat, perms_total, sizeof(double), double_cmp);
 #endif
     }
-    /*
     if (perm_maxt) {
       printf("extreme stats: %g %g\n", g_maxt_extreme_stat[0], g_maxt_extreme_stat[perms_total - 1]);
     }
-    */
     if (fprintf(outfile, tbuf, "SNP") < 0) {
       goto qassoc_ret_WRITE_FAIL;
     }
