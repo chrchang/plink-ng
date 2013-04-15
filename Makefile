@@ -13,7 +13,7 @@ LINKFLAGS=
 ZLIB=zlib-1.2.7/libz.a
 ZLIB64=zlib-1.2.7/libz-64.a
 else
-ifeq ($(UNAME), MINGW32_NT-6.0)
+ifeq ($(UNAME), MINGW32_NT-6.2)
 ARCH64=
 BLASFLAGS=-Wl,-Bstatic -L. lapack/liblapack.a -L. lapack/librefblas.a
 BLASFLAGS64=-Wl,-Bstatic -L. lapack/liblapack-64.a -L. lapack/librefblas-64.a
@@ -31,7 +31,7 @@ wdist: $(SRC)
 
 wdistw: $(SRC)
 	g++ $(CFLAGS) $(SRC) -c
-	gfortran $(OBJ) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+	gfortran -O2 $(OBJ) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
 wdistc: $(SRC)
 	gcc $(CFLAGS) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
@@ -50,7 +50,7 @@ wdist64: $(SRC)
 
 wdist64w: $(SRC)
 	g++ $(CFLAGS) $(ARCH64) $(SRC) -c
-	gfortran $(OBJ) -o wdist64 $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+	gfortran -O2 $(OBJ) -o wdist64 $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
 wdist64c: $(SRC)
 	gcc $(CFLAGS) $(ARCH64) $(SRC) -o wdist $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
