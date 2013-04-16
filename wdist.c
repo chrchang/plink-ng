@@ -501,11 +501,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      as the basis for --model permutation.  (By default, the most significant\n"
 "      result among the allelic, dominant, and recessive tests is used.)\n"
 "    * 'trend-only' causes only the trend test to be performed.\n"
-"    Given a quantitative phenotype, --assoc normally performs a Wald test.  In\n"
-"    this case, the 'qt-means' modifier causes trait means and standard\n"
-"    deviations stratified by genotype to be reported as well.  'lin' causes the\n"
-"    Lin statistic to be computed as well, and makes it the basis for\n"
-"    multiple-testing corrections and/or permutation tests.\n"
+"    Given a quantitative phenotype, --assoc normally performs a Wald test.\n"
+"    * In this case, the 'qt-means' modifier causes trait means and standard\n"
+"      deviations stratified by genotype to be reported as well.\n"
+"    * 'lin' causes the Lin statistic to be computed, and makes it the basis for\n"
+"      multiple-testing corrections and permutation tests.\n"
 "    Several other flags (most notably, --aperm) can be used to customize the\n"
 "    permutation test.\n\n"
 	       );
@@ -1023,7 +1023,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 
     help_print("aperm", &help_ctrl, 0,
-"  --aperm [min perms] [max perms] [alpha] [beta] [init interval] [slope]\n"
+"  --aperm [min perms] [max perms] [alpha] [beta] [init interval] [slope] :\n"
 "    This sets six parameters controlling adaptive permutation tests.  Defaults\n"
 "    are 5, 1000000, 0, 0.0001, 1, and 0.001, respectively.\n\n"
 	       );
