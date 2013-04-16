@@ -504,8 +504,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Given a quantitative phenotype, --assoc normally performs a Wald test.  In\n"
 "    this case, the 'qt-means' modifier causes trait means and standard\n"
 "    deviations stratified by genotype to be reported as well.  'lin' causes the\n"
-"    Lin statistic to be computed as well, and for it to be used instead of the\n"
-"    Wald statistic in any permutation test.\n"
+"    Lin statistic to be computed as well, and makes it the basis for\n"
+"    multiple-testing corrections and/or permutation tests.\n"
 "    Several other flags (most notably, --aperm) can be used to customize the\n"
 "    permutation test.\n\n"
 	       );
