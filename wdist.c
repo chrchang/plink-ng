@@ -61,7 +61,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.18.3"
+  "WDIST v0.18.4"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -70,7 +70,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (11 Apr 2013)";
+  " (17 Apr 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -480,7 +480,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 		);
     help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means\ttrend", &help_ctrl, 1,
 "  --assoc <perm | mperm=[value]> <genedrop> <perm-count> <fisher> <counts> <p2>\n"
-"  --assoc <perm | mperm=[value]> <perm-count> <qt-means>\n"
+"  --assoc <perm | mperm=[value]> <perm-count> <qt-means> <lin>\n"
 "  --model <perm | mperm=[value]> <genedrop> <perm-count> <fisher | trend-only>\n"
 "          <dom | rec | gen | trend>\n"
 "    Basic association analysis report.\n"
@@ -501,9 +501,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      as the basis for --model permutation.  (By default, the most significant\n"
 "      result among the allelic, dominant, and recessive tests is used.)\n"
 "    * 'trend-only' causes only the trend test to be performed.\n"
-"    Given a quantitative phenotype, --assoc performs a Wald test.  In this\n"
-"    case, the 'qt-means' modifier causes trait means and standard deviations\n"
-"    stratified by genotype to be reported as well.\n"
+"    Given a quantitative phenotype, --assoc normally performs a Wald test.  In\n"
+"    this case, the 'qt-means' modifier causes trait means and standard\n"
+"    deviations stratified by genotype to be reported as well.  'lin' causes the\n"
+"    Lin statistic to be computed as well, and for it to be used instead of the\n"
+"    Wald statistic in any permutation test.\n"
 "    Several other flags (most notably, --aperm) can be used to customize the\n"
 "    permutation test.\n\n"
 	       );
@@ -6571,7 +6573,7 @@ int32_t main(int32_t argc, char** argv) {
 	    model_modifier |= MODEL_ASSOC_COUNTS;
 	  } else if (!strcmp(argv[cur_arg + uii], "fisher")) {
 	    if (model_modifier & MODEL_QMASK) {
-	      sprintf(logbuf, "Error: --assoc 'qt-means' modifier does not make sense with 'fisher'.%s", errstr_append);
+	      sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with 'fisher'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_FISHER;
@@ -6579,7 +6581,7 @@ int32_t main(int32_t argc, char** argv) {
 	    model_modifier |= MODEL_PERM;
 	  } else if (!strcmp(argv[cur_arg + uii], "genedrop")) {
 	    if (model_modifier & MODEL_QMASK) {
-	      sprintf(logbuf, "Error: --assoc 'qt-means' modifier does not make sense with 'genedrop'.%s", errstr_append);
+	      sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with 'genedrop'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_GENEDROP;
@@ -6608,6 +6610,12 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_QT_MEANS;
+	  } else if (!memcmp(argv[cur_arg + uii], "lin", 4)) {
+	    if (model_modifier & MODEL_DMASK) {
+	      sprintf(logbuf, "Error: --assoc 'lin' does not make sense with a case/control-specific modifier.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    model_modifier |= MODEL_LIN;
 	  } else if (!memcmp(argv[cur_arg + uii], "mperm", 6)) {
 	    logprint("Error: Improper --assoc mperm syntax.  (Use '--assoc mperm=[value]'.)\n");
 	    goto main_ret_INVALID_CMDLINE;
@@ -6802,7 +6810,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "ounts", 6)) {
 	if (model_modifier & MODEL_ASSOC) {
 	  if (model_modifier & MODEL_QMASK) {
-	    sprintf(logbuf, "Error: --assoc 'qt-means' modifier does not make sense with --counts.%s", errstr_append);
+	    sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with --counts.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	  logprint("Note: --counts flag deprecated.  Use '--assoc counts' instead.\n");
@@ -7362,7 +7370,7 @@ int32_t main(int32_t argc, char** argv) {
 	calculation_type |= CALC_GXE;
       } else if (!memcmp(argptr2, "enedrop", 8)) {
 	if (model_modifier & MODEL_QMASK) {
-	  sprintf(logbuf, "Error: --assoc 'qt-means' modifier does not make sense with --genedrop.%s", errstr_append);
+	  sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with --genedrop.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	logprint("Note: --genedrop flag deprecated.  Use e.g. '--model genedrop'.\n");
@@ -8292,7 +8300,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (model_modifier & MODEL_QMASK) {
-	  sprintf(logbuf, "Error: --assoc 'qt-means' modifier does not make sense with --p2.%s", errstr_append);
+	  sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with --p2.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	logprint("Note: --p2 flag deprecated.  Use '--assoc p2 ...'.\n");
@@ -8329,6 +8337,10 @@ int32_t main(int32_t argc, char** argv) {
       if (!memcmp(argptr2, "t-means", 8)) {
 	if ((!(calculation_type & CALC_MODEL)) || (!(model_modifier & MODEL_ASSOC))) {
 	  sprintf(logbuf, "Error: --qt-means must be used with --assoc.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (model_modifier & MODEL_DMASK) {
+	  sprintf(logbuf, "Error: --qt-means does not make sense with a case/control-specific --assoc\nmodifier.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	logprint("Note: --qt-means flag deprecated.  Use '--assoc qt-means ...'.\n");

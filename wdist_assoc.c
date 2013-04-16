@@ -1050,7 +1050,7 @@ uintptr_t qgit_ld_cost(uintptr_t indiv_ctl2, uintptr_t* loadbuf1, uintptr_t* loa
   //   cost += popcount2(A + B + C)
   // (I would not be surprised if a few operations could be shaved from this.)
   uintptr_t* lptr_end = &(loadbuf1[indiv_ctl2]);
-  uintptr_t cost = 0;
+  uintptr_t cost = 3;
   uintptr_t loader;
   uintptr_t loader2;
   uintptr_t xor_word;
@@ -1382,6 +1382,7 @@ static double* g_pheno_d2;
 static double g_pheno_sum;
 static double g_pheno_ssq;
 static uint16_t* g_ldrefs;
+static double* g_orig_lin; // square of Lin t-statistic
 
 // maximum number of precomputed table entries per marker
 static uint32_t g_precomp_width;
@@ -2160,8 +2161,8 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
       // Addition loops required for genotype indexing:
       //   het_ct + homrar_ct + 2 * missing_ct
       //
-      // Addition loops required for LD exploitation:
-      //   3 * (missing <-> homrar/het) + 2 * (missing <-> homcom) +
+      // Addition/initial copy loops required for LD exploitation:
+      //   3 + 3 * (missing <-> homrar/het) + 2 * (missing <-> homcom) +
       //   (homrar <-> het/homcom) + (het <-> homcom)
       // Simple lower bound (may allow us to skip full LD cost calculation):
       //   (delta(homrar) + 2*delta(missing) + delta(het) + delta(homcom)) / 2
@@ -2181,7 +2182,7 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
 	  het_ct_tmp = het_cts[marker_idx_tmp];
 	  homrar_ct_tmp = nanal_tmp - het_ct_tmp - homcom_ct_tmp;
 	  if ((nanal_tmp >= 3) && (homcom_ct_tmp < nanal_tmp) && (het_ct_tmp < nanal_tmp)) {
-	    cur_cost = labs(((int32_t)missing_ct) - missing_ct_tmp) + (labs(((int32_t)homrar_ct) - homrar_ct_tmp) + labs(((int32_t)het_ct) - het_ct_tmp) + labs(((int32_t)homcom_ct) - homcom_ct_tmp) + 1) / 2;
+	    cur_cost = labs(((int32_t)missing_ct) - missing_ct_tmp) + (labs(((int32_t)homrar_ct) - homrar_ct_tmp) + labs(((int32_t)het_ct) - het_ct_tmp) + labs(((int32_t)homcom_ct) - homcom_ct_tmp) + 7) / 2;
 	    if (cur_cost < best_cost) {
 	      marker_bidx2 = marker_idx_tmp - maxt_block_base;
 	      cur_cost = qgit_ld_cost(pheno_nm_ctl2, &(loadbuf[marker_bidx2 * pheno_nm_ctl2]), loadbuf_cur);
@@ -5175,6 +5176,8 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
   uint32_t perm_maxt = model_modifier & MODEL_MPERM;
   uint32_t do_perms = perm_adapt | perm_maxt;
   uint32_t qt_means = model_modifier & MODEL_QT_MEANS;
+  uint32_t do_lin = model_modifier & MODEL_LIN;
+  uint32_t qt_means_or_lin = qt_means || do_lin;
   uint32_t perm_count = model_modifier & MODEL_PERM_COUNT;
   uint32_t fill_orig_chiabs = do_perms || mtest_adjust;
   char* outname_end2 = memcpyb(outname_end, ".qassoc", 8);
@@ -5219,6 +5222,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
   double qt_ssq;
   intptr_t g_ssq;
   double qt_g_prod;
+  double qt_g_prod_centered;
   double qt_mean;
   double g_mean;
   double qt_var;
@@ -5316,8 +5320,14 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
   sprintf(logbuf, "Writing QT --assoc report to %s...", outname);
   logprintb();
   fflush(stdout);
-  sprintf(tbuf, " CHR %%%us         BP    NMISS       BETA         SE         R2        T            P \n", plink_maxsnp);
+  sprintf(tbuf, " CHR %%%us         BP    NMISS       BETA         SE         R2        T            P ", plink_maxsnp);
   if (fprintf(outfile, tbuf, "SNP") < 0) {
+    goto qassoc_ret_WRITE_FAIL;
+  }
+  if (do_lin) {
+    fputs("         LIN        LIN_P ", outfile);
+  }
+  if (putc('\n', outfile) == EOF) {
     goto qassoc_ret_WRITE_FAIL;
   }
   if (do_perms) {
@@ -5347,6 +5357,11 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
       goto qassoc_ret_NOMEM;
     }
     fill_uint_zero(g_perm_2success_ct, marker_ct);
+  }
+  if (do_lin) {
+    if (wkspace_alloc_d_checked(&g_orig_lin, marker_ct * sizeof(double))) {
+      goto qassoc_ret_NOMEM;
+    }
   }
   g_adaptive_ci_zt = ltqnorm(1 - aperm_beta / (2.0 * marker_ct));
   if (wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctl2 * sizeof(intptr_t)) ||
@@ -5600,13 +5615,13 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
 	    dxx = g_pheno_d2[indiv_idx];
 	    if (ukk == 1) {
 	      qt_g_prod += dxx;
-	      if (qt_means) {
+	      if (qt_means_or_lin) {
 		qt_het_sum += dxx;
 		qt_het_ssq += dxx * dxx;
 	      }
 	    } else if (ukk == 3) {
 	      qt_g_prod += 2 * dxx;
-	      if (qt_means) {
+	      if (qt_means_or_lin) {
 		qt_homrar_sum += dxx;
 		qt_homrar_ssq += dxx * dxx;
 	      }
@@ -5624,7 +5639,8 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
 	dxx = 1.0 / ((double)(nanal - 1));
 	qt_var = (qt_ssq - qt_sum * qt_mean) * dxx;
 	g_var = (((double)g_ssq) - g_sum * g_mean) * dxx;
-	qt_g_covar = (qt_g_prod - qt_sum * g_mean) * dxx;
+	qt_g_prod_centered = qt_g_prod - qt_sum * g_mean;
+	qt_g_covar = qt_g_prod_centered * dxx;
 
 	dxx = 1.0 / g_var;
 	beta = qt_g_covar * dxx;
@@ -5635,6 +5651,18 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
 	  if (mtest_adjust) {
 	    tcnt[marker_idx + marker_bidx] = nanal;
 	  }
+	}
+	if (do_lin) {
+	  // Square of Lin statistic:
+	  //   \frac{(\sum_{i=1}^nU_{ji})^2}{\sum_{i=1}^nU_{ji}^2}
+	  // where U_{ji} = (Y_i - \bar{Y_{\dot}})(X_{ji} - \bar{X_{j\dot}}),
+	  // Y_{\dot}s are phenotypes, and X_{\dot\dot}s are genotypes.
+	  //
+	  // We evaluate the denominator by separating the sum into three
+	  // components (one for each possible genotype value), each of which
+	  // can be computed from the partial sums/sums-of-squares we already
+	  // have.
+	  g_orig_lin[marker_idx + marker_bidx] = qt_g_prod_centered * qt_g_prod_centered / (g_mean * g_mean * (qt_ssq - 2 * qt_sum + qt_mean * qt_sum) + (1 - 2 * g_mean) * (qt_het_ssq - 2 * qt_het_sum * qt_mean + qt_mean * qt_mean * ((intptr_t)het_ct)) + (4 - 4 * g_mean) * (qt_homrar_ssq - 2 * qt_homrar_sum * qt_mean + qt_mean * qt_mean * ((intptr_t)homrar_ct)));
 	}
 	if (nanal > 1) {
 	  tp = tprob(tstat, nanal - 2);
@@ -5653,13 +5681,28 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
 	    } else {
 	      wptr = memcpya(wptr, "      NA           NA", 21);
 	    }
+	    if (do_lin && (nanal > 2)) {
+	      dxx = g_orig_lin[marker_idx + marker_bidx];
+	      if (realnum(dxx)) {
+		*wptr++ = ' ';
+		dxx = sqrt(dxx);
+		wptr = double_g_writewx4x(wptr, dxx * dxx, 12, ' ');
+		wptr = double_g_writewx4(wptr, tprob(dxx, nanal - 2), 12);
+	      } else {
+		wptr = memcpya(wptr, "           NA           NA", 26);
+	      }
+	    }
 	    memcpy(wptr, " \n", 2);
 	    if (fwrite_checked(tbuf, 2 + (wptr - tbuf), outfile)) {
 	      goto qassoc_ret_WRITE_FAIL;
 	    }
 	  }
 	} else {
-	  wptr = memcpya(wptr, "        NA         NA         NA       NA           NA \n", 56);
+	  wptr = memcpya(wptr, "        NA         NA         NA       NA           NA ", 55);
+	  if (do_lin) {
+	    wptr = memcpya(wptr, "          NA           NA ", 26);
+	  }
+	  *wptr++ = '\n';
 	  if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
