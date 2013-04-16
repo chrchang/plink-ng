@@ -1070,6 +1070,51 @@ uintptr_t qgit_ld_cost_40v(__m128i* vec1, __m128i* vend, __m128i* vec2) {
   acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
   return ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
 }
+
+uintptr_t qgit_lin_ld_cost_60v(__m128i* vec1, __m128i* vend, __m128i* vec2) {
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  __m128i loader;
+  __m128i loader2;
+  __m128i xor_vec;
+  __m128i detect_homcom;
+  __m128i result_a;
+  __m128i acc_a;
+  __m128i acc_b;
+  __uni16 acc;
+  acc.vi = _mm_setzero_si128();
+  do {
+    loader = *vec1++;
+    loader2 = *vec2++;
+    xor_vec = _mm_xor_si128(loader, loader2);
+    detect_homcom = _mm_or_si128(_mm_and_si128(_mm_srli_epi64(loader, 1), loader), _mm_and_si128(_mm_srli_epi64(loader2, 1), loader2));
+    acc_a = _mm_and_si128(_mm_or_si128(xor_vec, _mm_srli_epi64(xor_vec, 1)), m1);
+    acc_b = _mm_andnot_si128(detect_homcom, acc_a);
+
+    loader = *vec1++;
+    loader2 = *vec2++;
+    xor_vec = _mm_xor_si128(loader, loader2);
+    detect_homcom = _mm_or_si128(_mm_and_si128(_mm_srli_epi64(loader, 1), loader), _mm_and_si128(_mm_srli_epi64(loader2, 1), loader2));
+    result_a = _mm_and_si128(_mm_or_si128(xor_vec, _mm_srli_epi64(xor_vec, 1)), m1);
+    acc_a = _mm_add_epi64(acc_a, result_a);
+    acc_b = _mm_add_epi64(acc_b, _mm_andnot_si128(detect_homcom, result_a));
+
+    loader = *vec1++;
+    loader2 = *vec2++;
+    xor_vec = _mm_xor_si128(loader, loader2);
+    detect_homcom = _mm_or_si128(_mm_and_si128(_mm_srli_epi64(loader, 1), loader), _mm_and_si128(_mm_srli_epi64(loader2, 1), loader2));
+    result_a = _mm_and_si128(_mm_or_si128(xor_vec, _mm_srli_epi64(xor_vec, 1)), m1);
+    acc_a = _mm_add_epi64(acc_a, result_a);
+    acc_b = _mm_add_epi64(acc_b, _mm_andnot_si128(detect_homcom, result_a));
+    acc_a = _mm_add_epi64(_mm_and_si128(acc_a, m2), _mm_and_si128(_mm_srli_epi64(acc_a, 2), m2));
+    acc_a = _mm_add_epi64(acc_a, _mm_add_epi64(_mm_and_si128(acc_b, m2), _mm_and_si128(_mm_srli_epi64(acc_b, 2), m2)));
+    acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(acc_a, m4), _mm_and_si128(_mm_srli_epi64(acc_a, 4), m4)));
+  } while (vec1 < vend);
+  acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
+  return ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
+}
 #else
 uintptr_t qgit_ld_cost_4(uintptr_t* loadbuf1, uintptr_t* loadbuf2) {
   uintptr_t loader = *loadbuf1++;
@@ -1117,10 +1162,67 @@ uintptr_t qgit_ld_cost_4(uintptr_t* loadbuf1, uintptr_t* loadbuf2) {
   acc += (inner_acc & 0x0f0f0f0f) + ((inner_acc >> 4) & 0x0f0f0f0f);
   return (acc * 0x01010101) >> 24;
 }
+
+uintptr_t qgit_lin_ld_cost_6(uintptr_t* loadbuf1, uintptr_t* loadbuf2) {
+  uintptr_t loader = *loadbuf1++;
+  uintptr_t loader2 = *loadbuf2++;
+  uintptr_t xor_word = loader ^ loader2;
+  uintptr_t detect_homcom = (loader & (loader >> 1)) | (loader2 & (loader2 >> 1));
+  uintptr_t acc_a = (xor_word | (xor_word >> 1)) & FIVEMASK;
+  uintptr_t acc_b = acc_a & (~detect_homcom);
+  uintptr_t result_a;
+  uintptr_t acc;
+
+  loader = *loadbuf1++;
+  loader2 = *loadbuf2++;
+  xor_word = loader & loader2;
+  detect_homcom = (loader & (loader >> 1)) | (loader2 & (loader2 >> 1));
+  result_a = (xor_word | (xor_word >> 1)) & FIVEMASK;
+  acc_a += result_a;
+  acc_b += result_a & (~detect_homcom);
+
+  loader = *loadbuf1++;
+  loader2 = *loadbuf2++;
+  xor_word = loader & loader2;
+  detect_homcom = (loader & (loader >> 1)) | (loader2 & (loader2 >> 1));
+  result_a = (xor_word | (xor_word >> 1)) & FIVEMASK;
+  acc_a += result_a;
+  acc_b += result_a & (~detect_homcom);
+  acc_a = (acc_a & 0x33333333) + ((acc_a >> 2) & 0x33333333);
+  acc_a += (acc_b & 0x33333333) + ((acc_b >> 2) & 0x33333333);
+  acc = (acc_a & 0x0f0f0f0f) + ((acc_a >> 4) & 0x0f0f0f0f);
+
+  loader = *loadbuf1++;
+  loader2 = *loadbuf2++;
+  xor_word = loader & loader2;
+  detect_homcom = (loader & (loader >> 1)) | (loader2 & (loader2 >> 1));
+  acc_a = (xor_word | (xor_word >> 1)) & FIVEMASK;
+  acc_b = acc_a & (~detect_homcom);
+
+  loader = *loadbuf1++;
+  loader2 = *loadbuf2++;
+  xor_word = loader & loader2;
+  detect_homcom = (loader & (loader >> 1)) | (loader2 & (loader2 >> 1));
+  result_a = (xor_word | (xor_word >> 1)) & FIVEMASK;
+  acc_a += result_a;
+  acc_b += result_a & (~detect_homcom);
+
+  loader = *loadbuf1++;
+  loader2 = *loadbuf2++;
+  xor_word = loader & loader2;
+  detect_homcom = (loader & (loader >> 1)) | (loader2 & (loader2 >> 1));
+  result_a = (xor_word | (xor_word >> 1)) & FIVEMASK;
+  acc_a += result_a;
+  acc_b += result_a & (~detect_homcom);
+  acc_a = (acc_a & 0x33333333) + ((acc_a >> 2) & 0x33333333);
+  acc_a += (acc_b & 0x33333333) + ((acc_b >> 2) & 0x33333333);
+  acc += (acc_a & 0x0f0f0f0f) + ((acc_a >> 4) & 0x0f0f0f0f);
+  return (acc * 0x01010101) >> 24;
+}
 #endif
 
 uintptr_t qgit_ld_cost(uintptr_t indiv_ctl2, uintptr_t* loadbuf1, uintptr_t* loadbuf2) {
-  // Cost: 3 * (missing <-> homrar/het) + 2 * (missing <-> homcom) +
+  // Cost: 3 + 3 * (missing <-> homrar/het) + 2 * (missing <-> homcom) +
   //       (homrar <-> het/homcom) + (het <-> homcom)
   //
   // xor 01: 3 if 00-01, 1 of 10-11
@@ -1178,6 +1280,60 @@ uintptr_t qgit_ld_cost(uintptr_t indiv_ctl2, uintptr_t* loadbuf1, uintptr_t* loa
     result_b = result_a & detect_missing;
     result_c = result_b & xor_word;
     cost += popcount2_long(result_a + result_b + result_c);
+  }
+  return cost;
+}
+
+uintptr_t qgit_lin_ld_cost(uintptr_t indiv_ctl2, uintptr_t* loadbuf1, uintptr_t* loadbuf2) {
+  // Cost: 3 + 2 * (<-> neither side homcom) + (<-> homcom)
+  //
+  // We can efficiently calculate this as follows:
+  //   xor = vec1 ^ vec2
+  //   detect_homcom = (vec1 & (vec1 >> 1)) | (vec2 & (vec2 >> 1))
+  //   A := (xor | (xor >> 1)) & 0x5555...
+  //   B := A & (~detect_homcom)
+  //   cost += popcount2(A + B)
+  uintptr_t* lptr_end = &(loadbuf1[indiv_ctl2]);
+  uintptr_t cost = 3;
+  uintptr_t loader;
+  uintptr_t loader2;
+  uintptr_t xor_word;
+  uintptr_t detect_homcom;
+  uintptr_t result_a;
+  uintptr_t result_b;
+#ifdef __LP64__
+  uintptr_t cur_decr;
+  uintptr_t* lptr_6x_end;
+  indiv_ctl2 -= indiv_ctl2 % 6;
+  while (indiv_ctl2 >= 60) {
+    cur_decr = 60;
+  qgit_ld_cost_loop:
+    lptr_6x_end = &(loadbuf1[cur_decr]);
+    cost += qgit_lin_ld_cost_60v((__m128i*)loadbuf1, (__m128i*)lptr_6x_end, (__m128i*)loadbuf2);
+    loadbuf1 = lptr_6x_end;
+    loadbuf2 = &(loadbuf2[cur_decr]);
+    indiv_ctl2 -= cur_decr;
+  }
+  if (indiv_ctl2) {
+    cur_decr = indiv_ctl2;
+    goto qgit_ld_cost_loop;
+  }
+#else
+  uintptr_t* lptr_six_end = &(loadbuf1[indiv_ctl2 - (indiv_ctl2 % 6)]);
+  while (loadbuf1 < lptr_six_end) {
+    cost += qgit_lin_ld_cost_6(loadbuf1, loadbuf2);
+    loadbuf1 = &(loadbuf1[6]);
+    loadbuf2 = &(loadbuf2[6]);
+  }
+#endif
+  while (loadbuf1 < lptr_end) {
+    loader = *loadbuf1++;
+    loader2 = *loadbuf2++;
+    xor_word = loader ^ loader2;
+    detect_homcom = (loader & (loader >> 1)) | (loader2 & (loader2 >> 1));
+    result_a = (xor_word | (xor_word >> 1)) & FIVEMASK;
+    result_b = result_a & (~detect_homcom);
+    cost += popcount2_long(result_a + result_b);
   }
   return cost;
 }
@@ -1435,6 +1591,387 @@ void calc_qrem(uint32_t pheno_nm_ct, uintptr_t perm_vec_ct, uintptr_t* loadbuf, 
 	    rem_write3++;
 	  }
 	}
+      }
+#endif
+      ulxor &= ~(3 * (ONELU << ujj));
+    }
+#ifdef __LP64__
+    permsv = &(permsv[(BITCT2 / 2) * perm_vec_ctcl8m]);
+#else
+    perm_vecstd = &(perm_vecstd[BITCT2 * perm_vec_ctcl8m]);
+#endif
+  }
+}
+
+void calc_qrem_lin(uint32_t pheno_nm_ct, uintptr_t perm_vec_ct, uintptr_t* loadbuf, uintptr_t* loadbuf_ref, double* perm_vecstd, double* outbufs) {
+  uintptr_t perm_vec_ctcl8m = (perm_vec_ct + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+  uint32_t pheno_nm_ctl2x = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
+#ifdef __LP64__
+  // halve for 8 bytes vs. 16, halve again for ujj being double the indiv idx
+  uint32_t row_mult = perm_vec_ctcl8m / 4;
+
+  uint32_t loop_len = (perm_vec_ct + 1) / 2;
+  __m128d* permsv = (__m128d*)perm_vecstd;
+  __m128d* __restrict__ perm_readv;
+  __m128d* __restrict__ rem_writev = (__m128d*)outbufs;
+  __m128d* __restrict__ rem_write2v = (__m128d*)(&(outbufs[perm_vec_ctcl8m]));
+  __m128d* __restrict__ rem_write3v = (__m128d*)(&(outbufs[2 * perm_vec_ctcl8m]));
+  __m128d* __restrict__ rem_write4v = (__m128d*)(&(outbufs[3 * perm_vec_ctcl8m]));
+  __m128d* __restrict__ rem_write5v = (__m128d*)(&(outbufs[4 * perm_vec_ctcl8m]));
+  __m128d* __restrict__ rem_write6v = (__m128d*)(&(outbufs[5 * perm_vec_ctcl8m]));
+  __m128d vxx;
+#else
+  uint32_t row_mult = perm_vec_ctcl8m / 2;
+  double* __restrict__ perm_read;
+  double* __restrict__ rem_write = outbufs;
+  double* __restrict__ rem_write2 = &(outbufs[perm_vec_ctcl8m]);
+  double* __restrict__ rem_write3 = &(outbufs[2 * perm_vec_ctcl8m]);
+  double* __restrict__ rem_write4 = &(outbufs[3 * perm_vec_ctcl8m]);
+  double* __restrict__ rem_write5 = &(outbufs[4 * perm_vec_ctcl8m]);
+  double* __restrict__ rem_write6 = &(outbufs[5 * perm_vec_ctcl8m]);
+  double dxx;
+#endif
+  uintptr_t ulraw1;
+  uintptr_t ulxor;
+  uint32_t cur_xor;
+  uint32_t cur_raw;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  for (uii = 0; uii < pheno_nm_ctl2x; uii++) {
+    ulraw1 = *loadbuf++;
+    ulxor = ulraw1 ^ (*loadbuf_ref++);
+    if (uii + 1 == pheno_nm_ctl2x) {
+      ujj = pheno_nm_ct & (BITCT2 - 1);
+      if (ujj) {
+	ulxor &= (ONELU << (ujj * 2)) - ONELU;
+      }
+    }
+    while (ulxor) {
+      ujj = CTZLU(ulxor) & (BITCT - 2);
+      cur_xor = (ulxor >> ujj) & 3;
+      cur_raw = (ulraw1 >> ujj) & 3;
+#ifdef __LP64__
+      perm_readv = &(permsv[ujj * row_mult]);
+      if (cur_raw == 3) {
+	if (cur_xor == 1) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_sub_pd(*rem_writev, vxx);
+	    rem_writev++;
+	    *rem_write2v = _mm_sub_pd(*rem_write2v, _mm_mul_pd(vxx, vxx));
+	    rem_write2v++;
+	  }
+	  rem_writev = (__m128d*)outbufs;
+	  rem_write2v = (__m128d*)(&(outbufs[perm_vec_ctcl8m]));
+	} else if (cur_xor == 3) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_write3v = _mm_sub_pd(*rem_write3v, vxx);
+	    rem_write3v++;
+	    *rem_write4v = _mm_sub_pd(*rem_write4v, _mm_mul_pd(vxx, vxx));
+	    rem_write4v++;
+	  }
+	  rem_write3v = (__m128d*)(&(outbufs[2 * perm_vec_ctcl8m]));
+	  rem_write4v = (__m128d*)(&(outbufs[3 * perm_vec_ctcl8m]));
+        } else {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_write5v = _mm_sub_pd(*rem_write5v, vxx);
+	    rem_write5v++;
+	    *rem_write6v = _mm_sub_pd(*rem_write6v, _mm_mul_pd(vxx, vxx));
+	    rem_write6v++;
+	  }
+	  rem_write5v = (__m128d*)(&(outbufs[4 * perm_vec_ctcl8m]));
+	  rem_write6v = (__m128d*)(&(outbufs[5 * perm_vec_ctcl8m]));
+        }
+      } else if (cur_raw == 2) {
+	if (cur_xor == 1) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_add_pd(*rem_writev, vxx);
+	    rem_writev++;
+	    *rem_write2v = _mm_add_pd(*rem_write2v, _mm_mul_pd(vxx, vxx));
+	    rem_write2v++;
+	  }
+	} else if (cur_xor == 2) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_add_pd(*rem_writev, vxx);
+	    rem_writev++;
+	    *rem_write3v = _mm_sub_pd(*rem_write3v, vxx);
+	    rem_write3v++;
+	    vxx = _mm_mul_pd(vxx, vxx);
+	    *rem_write2v = _mm_add_pd(*rem_write2v, vxx);
+	    rem_write2v++;
+	    *rem_write4v = _mm_sub_pd(*rem_write4v, vxx);
+	    rem_write4v++;
+	  }
+	  rem_write3v = (__m128d*)(&(outbufs[2 * perm_vec_ctcl8m]));
+	  rem_write4v = (__m128d*)(&(outbufs[3 * perm_vec_ctcl8m]));
+	} else {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_add_pd(*rem_writev, vxx);
+	    rem_writev++;
+	    *rem_write5v = _mm_sub_pd(*rem_write5v, vxx);
+	    rem_write5v++;
+	    vxx = _mm_mul_pd(vxx, vxx);
+	    *rem_write2v = _mm_add_pd(*rem_write2v, vxx);
+	    rem_write2v++;
+	    *rem_write6v = _mm_sub_pd(*rem_write6v, vxx);
+	    rem_write6v++;
+	  }
+	  rem_write5v = (__m128d*)(&(outbufs[4 * perm_vec_ctcl8m]));
+	  rem_write6v = (__m128d*)(&(outbufs[5 * perm_vec_ctcl8m]));
+	}
+	rem_writev = (__m128d*)outbufs;
+	rem_write2v = (__m128d*)(&(outbufs[perm_vec_ctcl8m]));
+      } else if (!cur_raw) {
+	if (cur_xor == 3) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_write3v = _mm_add_pd(*rem_write3v, vxx);
+	    rem_write3v++;
+	    *rem_write4v = _mm_add_pd(*rem_write4v, _mm_mul_pd(vxx, vxx));
+	    rem_write4v++;
+	  }
+	} else if (cur_xor == 2) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_sub_pd(*rem_writev, vxx);
+	    rem_writev++;
+	    *rem_write3v = _mm_add_pd(*rem_write3v, vxx);
+	    rem_write3v++;
+	    vxx = _mm_mul_pd(vxx, vxx);
+	    *rem_write2v = _mm_sub_pd(*rem_write2v, vxx);
+	    rem_write2v++;
+	    *rem_write4v = _mm_add_pd(*rem_write4v, vxx);
+	    rem_write4v++;
+	  }
+	  rem_writev = (__m128d*)outbufs;
+	  rem_write2v = (__m128d*)(&(outbufs[perm_vec_ctcl8m]));
+	} else {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_write3v = _mm_add_pd(*rem_write3v, vxx);
+	    rem_write3v++;
+	    *rem_write5v = _mm_sub_pd(*rem_write5v, vxx);
+	    rem_write5v++;
+	    vxx = _mm_mul_pd(vxx, vxx);
+	    *rem_write4v = _mm_add_pd(*rem_write4v, vxx);
+	    rem_write4v++;
+	    *rem_write6v = _mm_sub_pd(*rem_write6v, vxx);
+	    rem_write6v++;
+	  }
+	  rem_write5v = (__m128d*)(&(outbufs[4 * perm_vec_ctcl8m]));
+	  rem_write6v = (__m128d*)(&(outbufs[5 * perm_vec_ctcl8m]));
+	}
+	rem_write3v = (__m128d*)(&(outbufs[2 * perm_vec_ctcl8m]));
+	rem_write4v = (__m128d*)(&(outbufs[3 * perm_vec_ctcl8m]));
+      } else {
+	if (cur_xor == 2) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_write5v = _mm_add_pd(*rem_write5v, vxx);
+	    rem_write5v++;
+	    *rem_write6v = _mm_add_pd(*rem_write6v, _mm_mul_pd(vxx, vxx));
+	    rem_write6v++;
+	  }
+	} else if (cur_xor == 3) {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_writev = _mm_sub_pd(*rem_writev, vxx);
+	    rem_writev++;
+	    *rem_write5v = _mm_add_pd(*rem_write5v, vxx);
+	    rem_write5v++;
+	    vxx = _mm_mul_pd(vxx, vxx);
+	    *rem_write2v = _mm_sub_pd(*rem_write2v, vxx);
+	    rem_write2v++;
+	    *rem_write6v = _mm_add_pd(*rem_write6v, vxx);
+	    rem_write6v++;
+	  }
+	  rem_writev = (__m128d*)outbufs;
+	  rem_write2v = (__m128d*)(&(outbufs[perm_vec_ctcl8m]));
+	} else {
+	  for (ukk = 0; ukk < loop_len; ukk++) {
+	    vxx = *perm_readv++;
+	    *rem_write3v = _mm_sub_pd(*rem_write3v, vxx);
+	    rem_write3v++;
+	    *rem_write5v = _mm_add_pd(*rem_write5v, vxx);
+	    rem_write5v++;
+	    vxx = _mm_mul_pd(vxx, vxx);
+	    *rem_write4v = _mm_sub_pd(*rem_write4v, vxx);
+	    rem_write4v++;
+	    *rem_write6v = _mm_add_pd(*rem_write6v, vxx);
+	    rem_write6v++;
+	  }
+	  rem_write3v = (__m128d*)(&(outbufs[2 * perm_vec_ctcl8m]));
+	  rem_write4v = (__m128d*)(&(outbufs[3 * perm_vec_ctcl8m]));
+	}
+	rem_write5v = (__m128d*)(&(outbufs[4 * perm_vec_ctcl8m]));
+	rem_write6v = (__m128d*)(&(outbufs[5 * perm_vec_ctcl8m]));
+      }
+#else
+      perm_read = &(perm_vecstd[ujj * row_mult]);
+      if (cur_raw == 3) {
+	if (cur_xor == 1) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write -= dxx;
+	    rem_write++;
+	    *rem_write2 -= dxx * dxx;
+	    rem_write2++;
+	  }
+          rem_write = outbufs;
+          rem_write2 = &(outbufs[perm_vec_ctcl8m]);
+	} else if (cur_xor == 3) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write3 -= dxx;
+	    rem_write3++;
+	    *rem_write4 -= dxx * dxx;
+	    rem_write4++;
+	  }
+          rem_write3 = &(outbufs[2 * perm_vec_ctcl8m]);
+          rem_write4 = &(outbufs[3 * perm_vec_ctcl8m]);
+	} else {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write5 -= dxx;
+	    rem_write5++;
+	    *rem_write6 -= dxx * dxx;
+	    rem_write6++;
+	  }
+          rem_write5 = &(outbufs[4 * perm_vec_ctcl8m]);
+          rem_write6 = &(outbufs[5 * perm_vec_ctcl8m]);
+	}
+      } else if (cur_raw == 2) {
+	if (cur_xor == 1) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write += dxx;
+	    rem_write++;
+	    *rem_write2 += dxx * dxx;
+	    rem_write2++;
+	  }
+	} else if (cur_xor == 2) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write += dxx;
+	    rem_write++;
+	    *rem_write3 -= dxx;
+	    rem_write3++;
+	    dxx *= dxx;
+	    *rem_write2 += dxx;
+	    rem_write2++;
+	    *rem_write4 -= dxx;
+	    rem_write4++;
+	  }
+          rem_write3 = &(outbufs[2 * perm_vec_ctcl8m]);
+          rem_write4 = &(outbufs[3 * perm_vec_ctcl8m]);
+	} else {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write += dxx;
+	    rem_write++;
+	    *rem_write5 -= dxx;
+	    rem_write5++;
+	    dxx *= dxx;
+	    *rem_write2 += dxx;
+	    rem_write2++;
+	    *rem_write6 -= dxx;
+	    rem_write6++;
+	  }
+          rem_write5 = &(outbufs[4 * perm_vec_ctcl8m]);
+          rem_write6 = &(outbufs[5 * perm_vec_ctcl8m]);
+	}
+	rem_write = outbufs;
+	rem_write2 = &(outbufs[perm_vec_ctcl8m]);
+      } else if (!cur_raw) {
+	if (cur_xor == 3) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write3 += dxx;
+	    rem_write3++;
+	    *rem_write4 += dxx * dxx;
+	    rem_write4++;
+	  }
+	} else if (cur_xor == 2) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write -= dxx;
+	    rem_write++;
+	    *rem_write3 += dxx;
+	    rem_write3++;
+	    dxx *= dxx;
+	    *rem_write2 -= dxx;
+	    rem_write2++;
+	    *rem_write4 += dxx;
+	    rem_write4++;
+	  }
+	  rem_write = outbufs;
+	  rem_write2 = &(outbufs[perm_vec_ctcl8m]);
+	} else {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write3 += dxx;
+	    rem_write3++;
+	    *rem_write5 -= dxx;
+	    rem_write5++;
+	    dxx *= dxx;
+	    *rem_write4 += dxx;
+	    rem_write4++;
+	    *rem_write6 -= dxx;
+	    rem_write6++;
+	  }
+          rem_write5 = &(outbufs[4 * perm_vec_ctcl8m]);
+          rem_write6 = &(outbufs[5 * perm_vec_ctcl8m]);
+	}
+	rem_write3 = &(outbufs[2 * perm_vec_ctcl8m]);
+	rem_write4 = &(outbufs[3 * perm_vec_ctcl8m]);
+      } else {
+	if (cur_xor == 2) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write5 += dxx;
+	    rem_write5++;
+	    *rem_write6 += dxx * dxx;
+	    rem_write6++;
+	  }
+	} else if (cur_xor == 3) {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write -= dxx;
+	    rem_write++;
+	    *rem_write5 += dxx;
+	    rem_write5++;
+	    dxx *= dxx;
+	    *rem_write2 -= dxx;
+	    rem_write2++;
+	    *rem_write6 += dxx;
+	    rem_write6++;
+	  }
+	  rem_write = outbufs;
+	  rem_write2 = &(outbufs[perm_vec_ctcl8m]);
+	} else {
+	  for (ukk = 0; ukk < perm_vec_ct; ukk++) {
+	    dxx = *perm_read++;
+	    *rem_write3 -= dxx;
+	    rem_write3++;
+	    *rem_write5 += dxx;
+	    rem_write5++;
+	    dxx *= dxx;
+	    *rem_write4 -= dxx;
+	    rem_write4++;
+	    *rem_write6 += dxx;
+	    rem_write6++;
+	  }
+	  rem_write3 = &(outbufs[2 * perm_vec_ctcl8m]);
+	  rem_write4 = &(outbufs[3 * perm_vec_ctcl8m]);
+	}
+	rem_write5 = &(outbufs[4 * perm_vec_ctcl8m]);
+	rem_write6 = &(outbufs[5 * perm_vec_ctcl8m]);
       }
 #endif
       ulxor &= ~(3 * (ONELU << ujj));
@@ -2066,7 +2603,7 @@ THREAD_RET_TYPE qassoc_adapt_thread(void* arg) {
       perm_attempt_ct[marker_idx] = 0;
       continue;
     }
-    homrar_ct = pheno_nm_ct - missing_ct - het_ct - homcom_ct;
+    homrar_ct = nanal - het_ct - homcom_ct;
     sval = orig_chiabs[marker_idx];
     // tstat = beta / vbeta_sqrt
     // tstat^2 = beta * beta / vbeta;
@@ -2225,7 +2762,7 @@ THREAD_RET_TYPE qassoc_adapt_lin_thread(void* arg) {
       perm_attempt_ct[marker_idx] = 0;
       continue;
     }
-    homrar_ct = pheno_nm_ct - missing_ct - het_ct - homcom_ct;
+    homrar_ct = nanal - het_ct - homcom_ct;
     sval = orig_linsq[marker_idx];
     stat_high = sval + EPSILON;
     stat_low = sval - EPSILON;
@@ -2469,7 +3006,6 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
 }
 
 THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
-  /*
   intptr_t tidx = (intptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
@@ -2491,12 +3027,15 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
   uint32_t* __restrict__ het_cts = g_het_cts;
   uint32_t* __restrict__ homcom_cts = g_homcom_cts;
   uint16_t* ldrefs = g_ldrefs;
-  double* __restrict__ orig_chiabs = g_orig_chisq;
+  double* __restrict__ orig_linsq = g_orig_linsq;
   double pheno_sum = g_pheno_sum;
   double pheno_ssq = g_pheno_ssq;
-  double* git_qt_g_prod;
-  double* git_qt_sum;
-  double* git_qt_ssq;
+  double* git_qt_het_sum;
+  double* git_qt_het_ssq;
+  double* git_qt_homrar_sum;
+  double* git_qt_homrar_ssq;
+  double* git_qt_missing_sum;
+  double* git_qt_missing_ssq;
   uintptr_t* loadbuf_cur;
   uintptr_t marker_idx;
   uintptr_t pidx;
@@ -2506,22 +3045,23 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
   uint32_t homcom_ct;
   uint32_t homrar_ct;
   intptr_t geno_sum;
-  intptr_t geno_ssq;
   uint32_t nanal;
+  double het_ctd;
+  double homrar_ctd;
   double nanal_recip;
-  double nanal_m1_recip;
   double geno_mean;
-  double geno_var;
+  double geno_mean_sq;
+  double geno_mean_coeff2;
+  double geno_mean_coeff3;
   double qt_sum;
   double qt_ssq;
+  double qt_het_sum;
+  double qt_het_ssq;
+  double qt_homrar_sum;
+  double qt_homrar_ssq;
   double qt_g_prod;
   double qt_mean;
-  double qt_var;
-  double qt_g_covar;
-  double nanal_m2d;
-  double beta;
-  double betasq;
-  double dxx;
+  double qt_g_prod_centered;
   uint32_t success_2incr;
   double stat_high;
   double stat_low;
@@ -2534,6 +3074,8 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
   int32_t homcom_ct_tmp;
   int32_t homrar_ct_tmp;
   uint32_t loop_ceil;
+  uintptr_t homcom_delta;
+  uintptr_t nonhc_delta;
   uintptr_t cur_cost;
   uint32_t ldref;
   memcpy(results, &(g_maxt_extreme_stat[g_perms_done - perm_vec_ct]), perm_vec_ct * sizeof(double));
@@ -2548,35 +3090,36 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
       continue;
     }
     homrar_ct = nanal - het_ct - homcom_ct;
-    sval = orig_chiabs[marker_idx];
-    sval = sval * sval;
+    sval = orig_linsq[marker_idx];
     stat_high = sval + EPSILON;
     stat_low = sval - EPSILON;
     geno_sum = 2 * homrar_ct + het_ct;
-    geno_ssq = 4 * homrar_ct + het_ct;
     nanal_recip = 1.0 / ((double)((int32_t)nanal));
-    nanal_m1_recip = 1.0 / ((double)(((int32_t)nanal) - 1));
-    nanal_m2d = nanal - 2;
+    het_ctd = het_ct;
+    homrar_ctd = homrar_ct;
     geno_mean = ((double)geno_sum) * nanal_recip;
-    geno_var = (((double)geno_ssq) - geno_sum * geno_mean) * nanal_m1_recip;
+    geno_mean_sq = geno_mean * geno_mean;
+    geno_mean_coeff2 = 1 - 2 * geno_mean;
+    geno_mean_coeff3 = 4 - 4 * geno_mean;
     success_2incr = 0;
-    git_qt_g_prod = &(qresultbuf[3 * marker_bidx * perm_vec_ctcl8m]);
-    git_qt_sum = &(git_qt_g_prod[perm_vec_ctcl8m]);
-    git_qt_ssq = &(git_qt_g_prod[2 * perm_vec_ctcl8m]);
+    git_qt_het_sum = &(qresultbuf[6 * marker_bidx * perm_vec_ctcl8m]);
+    git_qt_het_ssq = &(git_qt_het_sum[perm_vec_ctcl8m]);
+    git_qt_homrar_sum = &(git_qt_het_sum[2 * perm_vec_ctcl8m]);
+    git_qt_homrar_ssq = &(git_qt_het_sum[3 * perm_vec_ctcl8m]);
+    git_qt_missing_sum = &(git_qt_het_sum[4 * perm_vec_ctcl8m]);
+    git_qt_missing_ssq = &(git_qt_het_sum[5 * perm_vec_ctcl8m]);
     loadbuf_cur = &(loadbuf[marker_bidx * pheno_nm_ctl2]);
     ldref = ldrefs[marker_idx];
     if (ldref == 65535) {
-      // Check if PERMORY-style LD exploitation is better than genotype
-      // indexing algorithm.
-      // Addition loops required for genotype indexing:
-      //   het_ct + homrar_ct + 2 * missing_ct
+      // 2x addition loops required for genotype indexing:
+      //   het_ct + homrar_ct + missing_ct
       //
-      // Addition/initial copy loops required for LD exploitation:
-      //   3 + 3 * (missing <-> homrar/het) + 2 * (missing <-> homcom) +
-      //   (homrar <-> het/homcom) + (het <-> homcom)
+      // 2x addition/initial copy loops required for LD exploitation:
+      //   3 + 2 * (<-> neither side homcom) + (<-> homcom)
       // Simple lower bound (may allow us to skip full LD cost calculation):
-      //   (delta(homrar) + 2*delta(missing) + delta(het) + delta(homcom)) / 2
-      best_cost = het_ct + homrar_ct + 2 * missing_ct;
+      //   3 + delta(homcom) if delta(homcom) >= sum of other deltas
+      //   3 + delta(non-homcom) otherwise
+      best_cost = het_ct + homrar_ct + missing_ct;
       ldref = marker_bidx;
       marker_idx_tmp = maxt_block_base;
       loop_ceil = maxt_block_base2;
@@ -2592,10 +3135,12 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
 	  het_ct_tmp = het_cts[marker_idx_tmp];
 	  homrar_ct_tmp = nanal_tmp - het_ct_tmp - homcom_ct_tmp;
 	  if ((nanal_tmp >= 3) && (homcom_ct_tmp < nanal_tmp) && (het_ct_tmp < nanal_tmp)) {
-	    cur_cost = labs(((int32_t)missing_ct) - missing_ct_tmp) + (labs(((int32_t)homrar_ct) - homrar_ct_tmp) + labs(((int32_t)het_ct) - het_ct_tmp) + labs(((int32_t)homcom_ct) - homcom_ct_tmp) + 7) / 2;
+	    homcom_delta = labs(((int32_t)homcom_ct) - homcom_ct_tmp);
+	    nonhc_delta = labs(((int32_t)missing_ct) - missing_ct_tmp) + labs(((int32_t)homrar_ct) - homrar_ct_tmp) + labs(((int32_t)het_ct) - het_ct_tmp);
+	    cur_cost = 3 + MAXV(homcom_delta, nonhc_delta);
 	    if (cur_cost < best_cost) {
 	      marker_bidx2 = marker_idx_tmp - maxt_block_base;
-	      cur_cost = qgit_ld_cost(pheno_nm_ctl2, &(loadbuf[marker_bidx2 * pheno_nm_ctl2]), loadbuf_cur);
+	      cur_cost = qgit_lin_ld_cost(pheno_nm_ctl2, &(loadbuf[marker_bidx2 * pheno_nm_ctl2]), loadbuf_cur);
 	      if (cur_cost < best_cost) {
 		ldref = marker_bidx2;
 		best_cost = cur_cost;
@@ -2607,23 +3152,23 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
       ldrefs[marker_idx] = ldref;
     }
     if (ldref == marker_bidx) {
-      fill_double_zero(git_qt_g_prod, perm_vec_ctcl8m * 3);
-      calc_qgit(pheno_nm_ct, perm_vec_ctcl8m, perm_vec_ct, loadbuf_cur, perm_vecstd, git_qt_g_prod);
+      fill_double_zero(git_qt_het_sum, perm_vec_ctcl8m * 6);
+      calc_qgit_lin(pheno_nm_ct, perm_vec_ctcl8m, perm_vec_ct, loadbuf_cur, perm_vecstd, git_qt_het_sum);
     } else {
-      memcpy(git_qt_g_prod, &(qresultbuf[3 * ldref * perm_vec_ctcl8m]), 3 * perm_vec_ctcl8m * sizeof(double));
-      calc_qrem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctl2]), perm_vecstd, git_qt_g_prod);
+      memcpy(git_qt_het_sum, &(qresultbuf[6 * ldref * perm_vec_ctcl8m]), 6 * perm_vec_ctcl8m * sizeof(double));
+      calc_qrem_lin(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctl2]), perm_vecstd, git_qt_het_sum);
     }
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
-      qt_sum = pheno_sum - git_qt_sum[pidx];
-      qt_ssq = pheno_ssq - git_qt_ssq[pidx];
-      qt_g_prod = git_qt_g_prod[pidx];
+      qt_sum = pheno_sum - git_qt_missing_sum[pidx];
+      qt_ssq = pheno_ssq - git_qt_missing_ssq[pidx];
+      qt_het_sum = git_qt_het_sum[pidx];
+      qt_het_ssq = git_qt_het_ssq[pidx];
+      qt_homrar_sum = git_qt_homrar_sum[pidx];
+      qt_homrar_ssq = git_qt_homrar_ssq[pidx];
+      qt_g_prod = qt_het_sum + 2 * qt_homrar_sum;
       qt_mean = qt_sum * nanal_recip;
-      qt_var = (qt_ssq - qt_sum * qt_mean) * nanal_m1_recip;
-      qt_g_covar = (qt_g_prod - qt_sum * geno_mean) * nanal_m1_recip;
-      dxx = 1.0 / geno_var;
-      beta = qt_g_covar * dxx;
-      betasq = beta * beta;
-      sval = betasq * nanal_m2d / (qt_var * dxx - betasq);
+      qt_g_prod_centered = qt_g_prod - qt_sum * geno_mean;
+      sval = qt_g_prod_centered * qt_g_prod_centered / (geno_mean_sq * (qt_ssq + (qt_mean - 2) * qt_sum) + geno_mean_coeff2 * (qt_het_ssq + qt_mean * (qt_mean * het_ctd - 2 * qt_het_sum)) + geno_mean_coeff3 * (qt_homrar_ssq + qt_mean * (qt_mean * homrar_ctd - 2 * qt_homrar_sum)));
       if (sval > stat_high) {
 	success_2incr += 2;
       } else if (sval > stat_low) {
@@ -2635,7 +3180,6 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
     }
     perm_2success_ct[marker_idx++] += success_2incr;
   }
-  */
   THREAD_RETURN;
 }
 
