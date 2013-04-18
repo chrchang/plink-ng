@@ -677,8 +677,6 @@ void calc_git(uint32_t pheno_nm_ct, uint32_t perm_vec_ct, uintptr_t* __restrict_
   gitv[7] = &(((__m128i*)results_bufs)[perm_ct16x4]);
   gitv[8] = (__m128i*)results_bufs;
 #else
-  // first perm_ct 4-byte blocks: homa1_cts
-  // ...
   gitv[0] = thread_wkspace;
   gitv[1] = &(thread_wkspace[perm_ct32x4]);
   gitv[2] = &(thread_wkspace[2 * perm_ct32x4]);
@@ -1332,6 +1330,337 @@ uintptr_t qrem_cost2(uintptr_t indiv_ctl2, uintptr_t* loadbuf1, uintptr_t* loadb
     cost += popcount2_long(result_a + result_b + result_c);
   }
   return cost;
+}
+
+#ifdef __LP64__
+static inline void calc_rem_merge4_one(uint32_t perm_ct128, __m128i* __restrict__ perm_ptr, __m128i* __restrict__ rem_merge4) {
+  const __m128i m1x4 = {0x1111111111111111LLU, 0x1111111111111111LLU};
+  __m128i loader;
+  uint32_t pbidx;
+  for (pbidx = 0; pbidx < perm_ct128; pbidx++) {
+    loader = *perm_ptr++;
+    rem_merge4[0] = _mm_add_epi64(rem_merge4[0], _mm_and_si128(loader, m1x4));
+    rem_merge4[1] = _mm_add_epi64(rem_merge4[1], _mm_and_si128(_mm_srli_epi64(loader, 1), m1x4));
+    rem_merge4[2] = _mm_add_epi64(rem_merge4[2], _mm_and_si128(_mm_srli_epi64(loader, 2), m1x4));
+    rem_merge4[3] = _mm_add_epi64(rem_merge4[3], _mm_and_si128(_mm_srli_epi64(loader, 3), m1x4));
+    rem_merge4 = &(rem_merge4[4]);
+  }
+}
+
+static inline void calc_rem_merge4_two(uint32_t perm_ct128, __m128i* __restrict__ perm_ptr, __m128i* __restrict__ rem_merge4a, __m128i* __restrict__ rem_merge4b) {
+  const __m128i m1x4 = {0x1111111111111111LLU, 0x1111111111111111LLU};
+  __m128i loader;
+  __m128i loader2;
+  uint32_t pbidx;
+  for (pbidx = 0; pbidx < perm_ct128; pbidx++) {
+    loader = *perm_ptr++;
+    loader2 = _mm_and_si128(loader, m1x4);
+    rem_merge4a[0] = _mm_add_epi64(rem_merge4a[0], loader2);
+    rem_merge4b[0] = _mm_add_epi64(rem_merge4b[0], loader2);
+    loader2 = _mm_and_si128(_mm_srli_epi64(loader, 1), m1x4);
+    rem_merge4a[1] = _mm_add_epi64(rem_merge4a[1], loader2);
+    rem_merge4b[1] = _mm_add_epi64(rem_merge4b[1], loader2);
+    loader2 = _mm_and_si128(_mm_srli_epi64(loader, 2), m1x4);
+    rem_merge4a[2] = _mm_add_epi64(rem_merge4a[2], loader2);
+    rem_merge4b[2] = _mm_add_epi64(rem_merge4b[2], loader2);
+    loader2 = _mm_and_si128(_mm_srli_epi64(loader, 3), m1x4);
+    rem_merge4a[3] = _mm_add_epi64(rem_merge4a[3], loader2);
+    rem_merge4b[3] = _mm_add_epi64(rem_merge4b[3], loader2);
+    rem_merge4a = &(rem_merge4a[4]);
+    rem_merge4b = &(rem_merge4b[4]);
+  }
+}
+
+static inline void calc_rem_merge8(uint32_t perm_ct32, __m128i* __restrict__ rem_merge4, __m128i* __restrict__ rem_merge8) {
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  __m128i loader;
+  uint32_t pbidx;
+  for (pbidx = 0; pbidx < perm_ct32; pbidx++) {
+    loader = *rem_merge4;
+    rem_merge8[0] = _mm_add_epi64(rem_merge8[0], _mm_and_si128(loader, m4));
+    rem_merge8[1] = _mm_add_epi64(rem_merge8[1], _mm_and_si128(_mm_srli_epi64(loader, 4), m4));
+    rem_merge8 = &(rem_merge8[2]);
+    *rem_merge4++ = _mm_setzero_si128();
+  }
+}
+
+static inline void calc_rem_merge32_plus(uint32_t perm_ct16, __m128i* __restrict__ rem_merge8, __m128i* rem_write) {
+  const __m128i m8x32 = {0x000000ff000000ffLLU, 0x000000ff000000ffLLU};
+  __m128i loader;
+  uint32_t pbidx;
+  for (pbidx = 0; pbidx < perm_ct16; pbidx++) {
+    loader = *rem_merge8;
+    rem_write[0] = _mm_add_epi64(rem_write[0], _mm_and_si128(loader, m8x32));
+    rem_write[1] = _mm_add_epi64(rem_write[1], _mm_and_si128(_mm_srli_epi64(loader, 8), m8x32));
+    rem_write[2] = _mm_add_epi64(rem_write[2], _mm_and_si128(_mm_srli_epi64(loader, 16), m8x32));
+    rem_write[3] = _mm_add_epi64(rem_write[3], _mm_and_si128(_mm_srli_epi64(loader, 24), m8x32));
+    rem_write = &(rem_write[4]);
+    *rem_merge8++ = _mm_setzero_si128();
+  }
+}
+
+static inline void calc_rem_merge32_minus(uint32_t perm_ct16, __m128i* __restrict__ rem_merge8, __m128i* rem_write) {
+  // temporary integer underflow is possible here, but by the end of the
+  // calculation it should be reversed
+  const __m128i m8x32 = {0x000000ff000000ffLLU, 0x000000ff000000ffLLU};
+  __m128i loader;
+  uint32_t pbidx;
+  for (pbidx = 0; pbidx < perm_ct16; pbidx++) {
+    loader = *rem_merge8;
+    rem_write[0] = _mm_sub_epi64(rem_write[0], _mm_and_si128(loader, m8x32));
+    rem_write[1] = _mm_sub_epi64(rem_write[1], _mm_and_si128(_mm_srli_epi64(loader, 8), m8x32));
+    rem_write[2] = _mm_sub_epi64(rem_write[2], _mm_and_si128(_mm_srli_epi64(loader, 16), m8x32));
+    rem_write[3] = _mm_sub_epi64(rem_write[3], _mm_and_si128(_mm_srli_epi64(loader, 24), m8x32));
+    rem_write = &(rem_write[4]);
+    *rem_merge8++ = _mm_setzero_si128();
+  }
+}
+#else
+static inline void calc_rem_merge4_one(uint32_t perm_ct32, uintptr_t* __restrict__ perm_ptr, uintptr_t* __restrict__ rem_merge4) {
+  uintptr_t loader;
+  uint32_t pbidx;
+  for (pbidx = 0; pbidx < perm_ct32; pbidx++) {
+    loader = *perm_ptr++;
+    rem_merge4[0] += loader & 0x11111111;
+    rem_merge4[1] += (loader >> 1) & 0x11111111;
+    rem_merge4[2] += (loader >> 2) & 0x11111111;
+    rem_merge4[3] += (loader >> 3) & 0x11111111;
+    rem_merge4 = &(rem_merge4[4]);
+  }
+}
+
+static inline void calc_rem_merge4_two(uint32_t perm_ct32, uintptr_t* __restrict__ perm_ptr, uintptr_t* __restrict__ rem_merge4a, uintptr_t* __restrict__ rem_merge4b) {
+  uintptr_t loader;
+  uintptr_t loader2;
+  uint32_t pbidx;
+  for (pbidx = 0; pbidx < perm_ct32; pbidx++) {
+    loader = *perm_ptr++;
+    loader2 = loader & 0x11111111;
+    rem_merge4a[0] += loader2;
+    rem_merge4b[0] += loader2;
+    loader2 = (loader >> 1) & 0x11111111;
+    rem_merge4a[1] += loader2;
+    rem_merge4b[1] += loader2;
+    loader2 = (loader >> 2) & 0x11111111;
+    rem_merge4a[2] += loader2;
+    rem_merge4b[2] += loader2;
+    loader2 = (loader >> 3) & 0x11111111;
+    rem_merge4a[3] += loader2;
+    rem_merge4b[3] += loader2;
+    rem_merge4a = &(rem_merge4a[4]);
+    rem_merge4b = &(rem_merge4b[4]);
+  }
+}
+
+static inline void calc_rem_merge8(uint32_t perm_ct8, uintptr_t* __restrict__ rem_merge4, uintptr_t* __restrict__ rem_merge8) {
+  uintptr_t loader;
+  uint32_t pbidx;
+  for (pbidx = 0; pbidx < perm_ct8; pbidx++) {
+    loader = *rem_merge4;
+    rem_merge8[0] += loader & 0x0f0f0f0f;
+    rem_merge8[1] += (loader >> 4) & 0x0f0f0f0f;
+    rem_merge8 = &(rem_merge8[2]);
+    *rem_merge4++ = 0;
+  }
+}
+
+static inline void calc_rem_merge32_plus(uint32_t perm_ct4, uintptr_t* __restrict__ rem_merge8, uintptr_t* __restrict__ rem_write) {
+  uintptr_t loader;
+  uint32_t pbidx;
+  for (pbidx = 0; pbidx < perm_ct4; pbidx++) {
+    loader = *rem_merge8;
+    rem_write[0] += loader & 0x000000ff;
+    rem_write[1] += (loader >> 8) & 0x000000ff;
+    rem_write[2] += (loader >> 16) & 0x000000ff;
+    rem_write[3] += loader >> 24;
+    rem_write = &(rem_write[4]);
+    *rem_merge8++ = 0;
+  }
+}
+
+static inline void calc_rem_merge32_minus(uint32_t perm_ct4, uintptr_t* __restrict__ rem_merge8, uintptr_t* __restrict__ rem_write) {
+  uintptr_t loader;
+  uint32_t pbidx;
+  for (pbidx = 0; pbidx < perm_ct4; pbidx++) {
+    loader = *rem_merge8;
+    rem_write[0] -= loader & 0x000000ff;
+    rem_write[1] -= (loader >> 8) & 0x000000ff;
+    rem_write[2] -= (loader >> 16) & 0x000000ff;
+    rem_write[3] -= loader >> 24;
+    rem_write = &(rem_write[4]);
+    *rem_merge8++ = 0;
+  }
+}
+#endif
+
+void calc_rem(uint32_t pheno_nm_ct, uintptr_t perm_vec_ct, uintptr_t* loadbuf, uintptr_t* loadbuf_ref, uint32_t* perm_vecst, uint32_t* results_bufs, uint32_t* thread_wkspace) {
+  uint32_t pheno_nm_ctl2x = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;
+  uint32_t perm_ct16 = (perm_vec_ct + 15) / 16;
+  // [cur_xor - 1][cur_raw]
+  // low 8 bits give index of first remv[] array to increment; next 8 bits give
+  // second index if nonzero, or indicate its absence
+  const uint32_t idx_table[3][4] = {{0x300, 0x102, 4, 5}, {0x500, 2, 0x104, 3}, {0, 0x502, 0x304, 1}};
+#ifdef __LP64__
+  uint32_t perm_ct128 = (perm_vec_ct + 127) / 128;
+  uint32_t perm_ct128x4 = perm_ct128 * 4;
+  uint32_t perm_ct32 = (perm_vec_ct + 31) / 32;
+  uint32_t perm_ct16x4 = 4 * perm_ct16;
+  __m128i* permsv = (__m128i*)perm_vecst;
+  // 0, 2, 4: homrar, missing, het ct increment
+  // 1, 3, 5: homrar, missing, het ct decrement
+  __m128i* remv[15];
+  __m128i* __restrict__ perm_ptr;
+#else
+  uint32_t perm_ct32 = (perm_vec_ct + 31) / 32;
+  uint32_t perm_ct32x4 = perm_ct32 * 4;
+  uint32_t perm_ct8 = (perm_vec_ct + 7) / 8;
+  uint32_t perm_ct4 = (perm_vec_ct + 3) / 4;
+  uint32_t perm_ct16x16 = 16 * perm_ct16;
+  uintptr_t* permsv = perm_vecst;
+  uintptr_t* remv[15];
+  uintptr_t* perm_ptr;
+#endif
+
+  uint32_t cur_cts[6];
+  uintptr_t ulraw1;
+  uintptr_t ulxor;
+  uint32_t cur_xor;
+  uint32_t cur_raw;
+  uint32_t idx1;
+  uint32_t idx2;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+#ifdef __LP64__
+  for (uii = 0; uii < 6; uii++) {
+    remv[uii] = &(((__m128i*)thread_wkspace)[uii * perm_ct128x4]);
+  }
+  for (uii = 0; uii < 6; uii++) {
+    remv[uii + 6] = &(((__m128i*)thread_wkspace)[6 * perm_ct128x4 + 2 * uii * perm_ct32]);
+  }
+  remv[12] = (__m128i*)results_bufs;
+  remv[13] = &(((__m128i*)results_bufs)[perm_ct16x4]);
+  remv[14] = &(((__m128i*)results_bufs)[2 * perm_ct16x4]);
+#else
+  for (uii = 0; uii < 6; uii++) {
+    remv[uii] = &(thread_wkspace[uii * perm_ct32x4]);
+  }
+  for (uii = 0; uii < 6; uii++) {
+    remv[uii + 6] = &(thread_wkspace[6 * perm_ct32x4 + 2 * uii * perm_ct8]);
+  }
+  remv[12] = results_bufs;
+  remv[13] = &(results_bufs[perm_ct16x16]);
+  remv[14] = &(results_bufs[2 * perm_ct16x16]);
+#endif
+
+  for (uii = 0; uii < 6; uii++) {
+    cur_cts[uii] = 0;
+  }
+  for (uii = 0; uii < pheno_nm_ctl2x; uii++) {
+    ulraw1 = *loadbuf++;
+    ulxor = ulraw1 ^ (*loadbuf_ref++);
+    if (uii + 1 == pheno_nm_ctl2x) {
+      ujj = pheno_nm_ct & (BITCT2 - 1);
+      if (ujj) {
+	ulxor &= (ONELU << (ujj * 2)) - ONELU;
+      }
+    }
+    while (ulxor) {
+      ujj = CTZLU(ulxor) & (BITCT - 2);
+      cur_xor = (ulxor >> ujj) & 3;
+      cur_raw = (ulraw1 >> ujj) & 3;
+      idx1 = idx_table[cur_xor - 1][cur_raw];
+      idx2 = idx1 >> 8;
+      idx1 &= 255;
+#ifdef __LP64__
+      perm_ptr = &(permsv[(ujj / 2) * perm_ct128]);
+      if (!idx2) {
+	calc_rem_merge4_one(perm_ct128, perm_ptr, remv[idx1]);
+      } else {
+	calc_rem_merge4_two(perm_ct128, perm_ptr, remv[idx1], remv[idx2]);
+	ukk = cur_cts[idx2] + 1;
+	cur_cts[idx2] = ukk;
+	if (!(ukk % 15)) {
+	  calc_rem_merge8(perm_ct32, remv[idx2], remv[idx2 + 6]);
+	  if (!(ukk % 255)) {
+	    calc_rem_merge32_minus(perm_ct16, remv[idx2 + 6], remv[(idx2 / 2) + 12]);
+	  }
+	}
+      }
+      ukk = cur_cts[idx1] + 1;
+      cur_cts[idx1] = ukk;
+      if (!(ukk % 15)) {
+	calc_rem_merge8(perm_ct32, remv[idx1], remv[idx1 + 6]);
+	if (!(ukk % 255)) {
+	  if (!(idx1 & 1)) {
+	    calc_rem_merge32_plus(perm_ct16, remv[idx1 + 6], remv[(idx1 / 2) + 12]);
+	  } else {
+	    calc_rem_merge32_minus(perm_ct16, remv[idx1 + 6], remv[(idx1 / 2) + 12]);
+	  }
+	}
+      }
+#else
+      perm_ptr = &(permsv[(ujj / 2) * perm_ct32]);
+      if (!idx2) {
+	calc_rem_merge4_one(perm_ct32, perm_ptr, remv[idx1]);
+      } else {
+	calc_rem_merge4_two(perm_ct32, perm_ptr, remv[idx1], remv[idx2]);
+	ukk = cur_cts[idx2] + 1;
+	cur_cts[idx2] = ukk;
+	if (!(ukk % 15)) {
+	  calc_rem_merge8(perm_ct8, remv[idx2], remv[idx2 + 6]);
+	  if (!(ukk % 255)) {
+	    calc_rem_merge32_minus(perm_ct4, remv[idx2 + 6], remv[(idx2 / 2) + 12]);
+	  }
+	}
+      }
+      ukk = cur_cts[idx1] + 1;
+      cur_cts[idx1] = ukk;
+      if (!(ukk % 15)) {
+	calc_rem_merge8(perm_ct8, remv[idx1], remv[idx1 + 6]);
+	if (!(ukk % 255)) {
+	  if (!(idx1 & 1)) {
+	    calc_rem_merge32_plus(perm_ct4, remv[idx1 + 6], remv[(idx1 / 2) + 12]);
+	  } else {
+	    calc_rem_merge32_minus(perm_ct4, remv[idx1 + 6], remv[(idx1 / 2) + 12]);
+	  }
+	}
+      }
+#endif
+      ulxor &= ~(3 * (ONELU << ujj));
+    }
+#ifdef __LP64__
+    permsv = &(permsv[BITCT2 * perm_ct128]);
+#else
+    permsv = &(permsv[BITCT2 * perm_ct32]);
+#endif
+  }
+  for (idx1 = 0; idx1 < 6; idx1++) {
+    uii = cur_cts[idx1];
+#ifdef __LP64__
+    if (uii % 15) {
+      calc_rem_merge8(perm_ct32, remv[idx1], remv[idx1 + 6]);
+    }
+    if (uii % 255) {
+      if (!(idx1 & 1)) {
+	calc_rem_merge32_plus(perm_ct16, remv[idx1 + 6], remv[(idx1 / 2) + 12]);
+      } else {
+	calc_rem_merge32_minus(perm_ct16, remv[idx1 + 6], remv[(idx1 / 2) + 12]);
+      }
+    }
+#else
+    if (uii % 15) {
+      calc_rem_merge8(perm_ct8, remv[idx1], remv[idx1 + 6]);
+    }
+    if (uii % 255) {
+      if (!(idx1 & 1)) {
+	calc_rem_merge32_plus(perm_ct4, remv[idx1 + 6], remv[(idx1 / 2) + 12]);
+      } else {
+	calc_rem_merge32_minus(perm_ct4, remv[idx1 + 6], remv[(idx1 / 2) + 12]);
+      }
+    }
+#endif
+  }
 }
 
 void calc_qrem(uint32_t pheno_nm_ct, uintptr_t perm_vec_ct, uintptr_t* loadbuf, uintptr_t* loadbuf_ref, double* perm_vecstd, double* outbufs) {
@@ -2390,6 +2719,7 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
   double* __restrict__ precomp_d = g_precomp_d;
   double* __restrict__ orig_1mpval = g_orig_1mpval;
   double* __restrict__ orig_chisq = g_orig_chisq;
+  uintptr_t best_cost = 0;
   uint16_t* ldrefs = g_ldrefs;
   uint32_t* __restrict__ gpui;
   double* __restrict__ gpd;
@@ -2409,14 +2739,19 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
   double stat_high;
   double stat_low;
   double sval;
+  uint32_t marker_bidx2;
   uint32_t missing_ct;
   uint32_t het_ct;
   uint32_t homcom_ct;
   uint32_t homrar_ct;
+  uint32_t marker_idx_tmp;
   int32_t missing_ct_tmp;
   int32_t het_ct_tmp;
   int32_t homcom_ct_tmp;
   int32_t homrar_ct_tmp;
+  uint32_t loop_ceil;
+  uintptr_t homcom_delta;
+  uintptr_t cur_cost;
   uint32_t ldref;
   memcpy(results, &(g_maxt_extreme_stat[g_perms_done - perm_vec_ct]), perm_vec_ct * sizeof(double));
   if (is_haploid) { // includes g_is_x
@@ -2474,33 +2809,54 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
 	//   ~50 + 2 * (<-> neither side homcom) + (<-> homcom)
 	// Simple lower bound:
 	//   50 + max(delta(homcom), delta(non-homcom))
-	ldref = marker_bidx;
-	/*
 	best_cost = het_ct + homrar_ct + missing_ct;
-	do {
-	} while (marker_idx_tmp < marker_idx);
-	*/
+	ldref = marker_bidx;
+	if (best_cost > 50) {
+	  marker_idx_tmp = maxt_block_base;
+	  loop_ceil = maxt_block_base2;
+	  do {
+	    if (marker_idx_tmp == maxt_block_base2) {
+	      marker_idx_tmp = maxt_block_base3;
+	      loop_ceil = marker_idx;
+	    }
+	    for (; marker_idx_tmp < loop_ceil; marker_idx_tmp++) {
+	      if (ldrefs[marker_idx_tmp] != 65535) {
+		missing_ct_tmp = missing_cts[marker_idx_tmp];
+		homcom_ct_tmp = homcom_cts[marker_idx_tmp];
+		het_ct_tmp = het_cts[marker_idx_tmp];
+		homrar_ct_tmp = pheno_nm_ct - missing_ct_tmp - het_ct_tmp - homcom_ct_tmp;
+		homcom_delta = labs(((int32_t)homcom_ct) - homcom_ct_tmp);
+		cur_cost = labs(((int32_t)missing_ct) - missing_ct_tmp) + labs(((int32_t)homrar_ct) - homrar_ct_tmp) + labs(((int32_t)het_ct) - het_ct_tmp);
+		cur_cost = 50 + MAXV(homcom_delta, cur_cost);
+		if (cur_cost < best_cost) {
+		  marker_bidx2 = marker_idx_tmp - maxt_block_base;
+		  cur_cost = 50 + rem_cost(pheno_nm_ctl2, &(loadbuf[marker_bidx2 * pheno_nm_ctl2]), loadbuf_cur);
+		  if (cur_cost < best_cost) {
+		    ldref = marker_bidx2;
+		    best_cost = cur_cost;
+		  }
+		}
+	      }
+	    }
+	  } while (marker_idx_tmp < marker_idx);
+	}
 	ldrefs[marker_idx] = ldref;
       }
       if (ldref == marker_bidx) {
 #ifdef __LP64__
         fill_ulong_zero((uintptr_t*)git_homclear_cts, 3 * (perm_vec_ctcl4m / 2));
-        fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
 #else
         fill_ulong_zero((uintptr_t*)git_homclear_cts, 3 * perm_vec_ctcl4m);
-        fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
 #endif
         calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homclear_cts, thread_git_wkspace);
-      } else {
-	/*
 #ifdef __LP64__
-        fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 144);
+        fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
 #else
-        fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 144);
+        fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
 #endif
+      } else {
 	memcpy(git_homclear_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
 	calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctl2]), perm_vecst, git_homclear_cts, thread_git_wkspace);
-	*/
       }
     }
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
@@ -2956,7 +3312,6 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
   uintptr_t best_cost;
   uint32_t marker_idx_tmp;
   int32_t missing_ct_tmp;
-  int32_t nanal_tmp;
   int32_t het_ct_tmp;
   int32_t homcom_ct_tmp;
   int32_t homrar_ct_tmp;
@@ -2993,8 +3348,6 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
     loadbuf_cur = &(loadbuf[marker_bidx * pheno_nm_ctl2]);
     ldref = ldrefs[marker_idx];
     if (ldref == 65535) {
-      // Check if PERMORY-style LD exploitation is better than genotype
-      // indexing algorithm.
       // Addition loops required for genotype indexing:
       //   het_ct + homrar_ct + 2 * missing_ct
       //
@@ -3013,12 +3366,11 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
 	  loop_ceil = marker_idx;
 	}
 	for (; marker_idx_tmp < loop_ceil; marker_idx_tmp++) {
-	  missing_ct_tmp = missing_cts[marker_idx_tmp];
-	  nanal_tmp = pheno_nm_ct - missing_ct_tmp;
-	  homcom_ct_tmp = homcom_cts[marker_idx_tmp];
-	  het_ct_tmp = het_cts[marker_idx_tmp];
-	  homrar_ct_tmp = nanal_tmp - het_ct_tmp - homcom_ct_tmp;
-	  if ((nanal_tmp >= 3) && (homcom_ct_tmp < nanal_tmp) && (het_ct_tmp < nanal_tmp)) {
+	  if (ldrefs[marker_idx_tmp] != 65535) {
+	    missing_ct_tmp = missing_cts[marker_idx_tmp];
+	    homcom_ct_tmp = homcom_cts[marker_idx_tmp];
+	    het_ct_tmp = het_cts[marker_idx_tmp];
+	    homrar_ct_tmp = pheno_nm_ct - missing_ct_tmp - het_ct_tmp - homcom_ct_tmp;
 	    cur_cost = labs(((int32_t)missing_ct) - missing_ct_tmp) + (labs(((int32_t)homrar_ct) - homrar_ct_tmp) + labs(((int32_t)het_ct) - het_ct_tmp) + labs(((int32_t)homcom_ct) - homcom_ct_tmp) + 7) / 2;
 	    if (cur_cost < best_cost) {
 	      marker_bidx2 = marker_idx_tmp - maxt_block_base;
@@ -3129,13 +3481,11 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
   uintptr_t best_cost;
   uint32_t marker_idx_tmp;
   int32_t missing_ct_tmp;
-  int32_t nanal_tmp;
   int32_t het_ct_tmp;
   int32_t homcom_ct_tmp;
   int32_t homrar_ct_tmp;
   uint32_t loop_ceil;
   uintptr_t homcom_delta;
-  uintptr_t nonhc_delta;
   uintptr_t cur_cost;
   uint32_t ldref;
   memcpy(results, &(g_maxt_extreme_stat[g_perms_done - perm_vec_ct]), perm_vec_ct * sizeof(double));
@@ -3189,15 +3539,14 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
 	  loop_ceil = marker_idx;
 	}
 	for (; marker_idx_tmp < loop_ceil; marker_idx_tmp++) {
-	  missing_ct_tmp = missing_cts[marker_idx_tmp];
-	  nanal_tmp = pheno_nm_ct - missing_ct_tmp;
-	  homcom_ct_tmp = homcom_cts[marker_idx_tmp];
-	  het_ct_tmp = het_cts[marker_idx_tmp];
-	  homrar_ct_tmp = nanal_tmp - het_ct_tmp - homcom_ct_tmp;
-	  if ((nanal_tmp >= 3) && (homcom_ct_tmp < nanal_tmp) && (het_ct_tmp < nanal_tmp)) {
+	  if (ldrefs[marker_idx_tmp] != 65535) {
+	    missing_ct_tmp = missing_cts[marker_idx_tmp];
+	    homcom_ct_tmp = homcom_cts[marker_idx_tmp];
+	    het_ct_tmp = het_cts[marker_idx_tmp];
+	    homrar_ct_tmp = pheno_nm_ct - missing_ct_tmp - het_ct_tmp - homcom_ct_tmp;
 	    homcom_delta = labs(((int32_t)homcom_ct) - homcom_ct_tmp);
-	    nonhc_delta = labs(((int32_t)missing_ct) - missing_ct_tmp) + labs(((int32_t)homrar_ct) - homrar_ct_tmp) + labs(((int32_t)het_ct) - het_ct_tmp);
-	    cur_cost = 3 + MAXV(homcom_delta, nonhc_delta);
+	    cur_cost = labs(((int32_t)missing_ct) - missing_ct_tmp) + labs(((int32_t)homrar_ct) - homrar_ct_tmp) + labs(((int32_t)het_ct) - het_ct_tmp);
+	    cur_cost = 3 + MAXV(homcom_delta, cur_cost);
 	    if (cur_cost < best_cost) {
 	      marker_bidx2 = marker_idx_tmp - maxt_block_base;
 	      cur_cost = 3 + rem_cost(pheno_nm_ctl2, &(loadbuf[marker_bidx2 * pheno_nm_ctl2]), loadbuf_cur);
@@ -5315,7 +5664,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  is_reverse = is_set(marker_reverse, marker_uidx2);
 	  if (!g_is_haploid) {
 	    if (model_maxt) {
-	      single_marker_cc_3freqs(pheno_nm_ctl2, &(g_loadbuf[marker_idx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &unn, &uoo, &ujj, &upp, &uqq, &umm);
+	      single_marker_cc_3freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &unn, &uoo, &ujj, &upp, &uqq, &umm);
 	      g_het_cts[marker_idx + marker_bidx] = uoo + uqq;
 	      g_homcom_cts[marker_idx + marker_bidx] = unn + upp;
 	      uii = 2 * unn + uoo;
