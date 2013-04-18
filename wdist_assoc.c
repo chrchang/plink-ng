@@ -2740,7 +2740,7 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
   uint32_t perm_ct64 = (perm_vec_ct + 63) / 64;
   uint32_t* thread_git_wkspace = &(g_thread_git_wkspace[tidx * perm_ct64 * 144]);
 #endif
-  uint32_t* git_homclear_cts = NULL;
+  uint32_t* git_homrar_cts = NULL;
   uint32_t* git_missing_cts = NULL;
   uint32_t* git_het_cts = NULL;
   uintptr_t perm_vec_ctcl4m = (perm_vec_ct + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1));
@@ -2820,8 +2820,8 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
     missing_start = precomp_start[marker_bidx];
     success_2incr = 0;
     loadbuf_cur = &(loadbuf[marker_bidx * pheno_nm_ctl2]);
-    ldref = ldrefs[marker_idx];
     if (!is_x_or_y) {
+      ldref = ldrefs[marker_idx];
       if (!is_haploid) {
 	het_ct = het_cts[marker_idx];
         homcom_ct = (col1_sum - het_ct) / 2;
@@ -2829,9 +2829,9 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
 	het_ct = 0;
 	homcom_ct = col1_sum;
       }
-      git_homclear_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
-      git_missing_cts = &(git_homclear_cts[perm_vec_ctcl4m]);
-      git_het_cts = &(git_homclear_cts[2 * perm_vec_ctcl4m]);
+      git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
+      git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
+      git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
       if (ldref == 65535) {
 	ldref = marker_bidx;
 	if (pheno_nm_ct - homcom_ct > 50) {
@@ -2841,29 +2841,29 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
       }
       if (ldref == marker_bidx) {
 #ifdef __LP64__
-        fill_ulong_zero((uintptr_t*)git_homclear_cts, 3 * (perm_vec_ctcl4m / 2));
+        fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
 #else
-        fill_ulong_zero((uintptr_t*)git_homclear_cts, 3 * perm_vec_ctcl4m);
+        fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
 #endif
-        calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homclear_cts, thread_git_wkspace);
+        calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
 #ifdef __LP64__
         fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
 #else
         fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
 #endif
       } else {
-	memcpy(git_homclear_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
-	calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctl2]), perm_vecst, git_homclear_cts, thread_git_wkspace);
+	memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
+	calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
       }
     }
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!is_x_or_y) {
 	if (!is_haploid) {
 	  case_missing_ct = git_missing_cts[pidx];
-	  case_set_ct = row1x_sum - (git_het_cts[pidx] + 2 * (case_missing_ct + git_homclear_cts[pidx]));
+	  case_set_ct = row1x_sum - (git_het_cts[pidx] + 2 * (case_missing_ct + git_homrar_cts[pidx]));
 	} else {
 	  case_missing_ct = git_missing_cts[pidx] + git_het_cts[pidx];
-	  case_set_ct = row1x_sum - case_missing_ct - git_homclear_cts[pidx];
+	  case_set_ct = row1x_sum - case_missing_ct - git_homrar_cts[pidx];
 	}
       } else {
 	if (is_x) {
@@ -3448,7 +3448,6 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
   uintptr_t* loadbuf_cur;
   uintptr_t marker_idx;
   uintptr_t pidx;
-  uint32_t marker_bidx2;
   uint32_t missing_ct;
   uint32_t het_ct;
   uint32_t homcom_ct;
@@ -3475,15 +3474,6 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
   double stat_high;
   double stat_low;
   double sval;
-  uintptr_t best_cost;
-  uint32_t marker_idx_tmp;
-  int32_t missing_ct_tmp;
-  int32_t het_ct_tmp;
-  int32_t homcom_ct_tmp;
-  int32_t homrar_ct_tmp;
-  uint32_t loop_ceil;
-  uintptr_t homcom_delta;
-  uintptr_t cur_cost;
   uint32_t ldref;
   memcpy(results, &(g_maxt_extreme_stat[g_perms_done - perm_vec_ct]), perm_vec_ct * sizeof(double));
   marker_idx = maxt_block_base + marker_bidx;
@@ -3526,35 +3516,10 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
       // Simple lower bound (may allow us to skip full LD cost calculation):
       //   3 + delta(homcom) if delta(homcom) >= sum of other deltas
       //   3 + delta(non-homcom) otherwise
-      best_cost = het_ct + homrar_ct + missing_ct;
       ldref = marker_bidx;
-      marker_idx_tmp = maxt_block_base;
-      loop_ceil = maxt_block_base2;
-      do {
-	if (marker_idx_tmp == maxt_block_base2) {
-	  marker_idx_tmp = maxt_block_base3;
-	  loop_ceil = marker_idx;
-	}
-	for (; marker_idx_tmp < loop_ceil; marker_idx_tmp++) {
-	  if (ldrefs[marker_idx_tmp] != 65535) {
-	    missing_ct_tmp = missing_cts[marker_idx_tmp];
-	    homcom_ct_tmp = homcom_cts[marker_idx_tmp];
-	    het_ct_tmp = het_cts[marker_idx_tmp];
-	    homrar_ct_tmp = pheno_nm_ct - missing_ct_tmp - het_ct_tmp - homcom_ct_tmp;
-	    homcom_delta = labs(((int32_t)homcom_ct) - homcom_ct_tmp);
-	    cur_cost = labs(((int32_t)missing_ct) - missing_ct_tmp) + labs(((int32_t)homrar_ct) - homrar_ct_tmp) + labs(((int32_t)het_ct) - het_ct_tmp);
-	    cur_cost = 3 + MAXV(homcom_delta, cur_cost);
-	    if (cur_cost < best_cost) {
-	      marker_bidx2 = marker_idx_tmp - maxt_block_base;
-	      cur_cost = 3 + rem_cost(pheno_nm_ctl2, &(loadbuf[marker_bidx2 * pheno_nm_ctl2]), loadbuf_cur);
-	      if (cur_cost < best_cost) {
-		ldref = marker_bidx2;
-		best_cost = cur_cost;
-	      }
-	    }
-	  }
-	}
-      } while (marker_idx_tmp < marker_idx);
+      if (pheno_nm_ct - homcom_ct > 3) {
+	check_for_better_rem_cost(pheno_nm_ct - homcom_ct - 3, maxt_block_base, maxt_block_base2, maxt_block_base3, marker_idx, missing_cts, homcom_cts, het_cts, ldrefs, pheno_nm_ct, missing_ct, het_ct, homcom_ct, loadbuf, loadbuf_cur, &ldref);
+      }
       ldrefs[marker_idx] = ldref;
     }
     if (ldref == marker_bidx) {
@@ -3775,11 +3740,14 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
   uint32_t* __restrict__ missing_cts = g_missing_cts;
   uint32_t* __restrict__ set_cts = g_set_cts;
   uint32_t* __restrict__ het_cts = g_het_cts;
+  uint32_t* __restrict__ homcom_cts = g_homcom_cts;
   double* __restrict__ precomp_d = g_precomp_d;
   double* __restrict__ orig_1mpval = g_orig_1mpval;
   double* __restrict__ orig_chisq = g_orig_chisq;
+  uint16_t* ldrefs = g_ldrefs;
   uint32_t* __restrict__ gpui;
   double* __restrict__ gpd;
+  uintptr_t* loadbuf_cur;
   uintptr_t pidx;
   intptr_t col1_sum;
   intptr_t col2_sum;
@@ -3794,6 +3762,10 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
   double stat_high;
   double stat_low;
   double sval;
+  uint32_t missing_ct;
+  uint32_t het_ct;
+  uint32_t homcom_ct;
+  uint32_t ldref;
   memcpy(results, &(g_maxt_extreme_stat[g_perms_done - perm_vec_ct]), perm_vec_ct * sizeof(double));
   for (; marker_bidx < marker_bceil; marker_bidx++) {
     if (model_fisher) {
@@ -3813,29 +3785,49 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
       stat_high = orig_chisq[marker_idx] + EPSILON;
       stat_low = orig_chisq[marker_idx] - EPSILON;
     }
-    tot_obs = pheno_nm_ct - missing_cts[marker_idx];
+    missing_ct = missing_cts[marker_idx];
+    het_ct = het_cts[marker_idx];
+    homcom_ct = (set_cts[marker_idx] - het_ct) / 2;
+    tot_obs = pheno_nm_ct - missing_ct;
     if (is_model_prec) {
-      col2_sum = (set_cts[marker_idx] + het_cts[marker_idx]) / 2;
+      col2_sum = homcom_ct + het_ct;
       col1_sum = tot_obs - col2_sum;
     } else {
-      col1_sum = (set_cts[marker_idx] - het_cts[marker_idx]) / 2;
+      col1_sum = homcom_ct;
       col2_sum = tot_obs - col1_sum;
     }
     missing_start = precomp_start[marker_bidx];
     gpui = &(precomp_ui[6 * precomp_width * marker_bidx]);
     success_2incr = 0;
+    loadbuf_cur = &(loadbuf[marker_bidx * pheno_nm_ctl2]);
     if (!is_x) {
+      ldref = ldrefs[marker_idx];
       git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
       git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
       git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
+      if (ldref == 65535) {
+	ldref = marker_bidx;
+	if (pheno_nm_ct - homcom_ct > 50) {
+	  check_for_better_rem_cost(pheno_nm_ct - homcom_ct - 50, maxt_block_base, maxt_block_base2, maxt_block_base3, marker_idx, missing_cts, homcom_cts, het_cts, ldrefs, pheno_nm_ct, missing_ct, het_ct, homcom_ct, loadbuf, loadbuf_cur, &ldref);
+	}
+	ldrefs[marker_idx] = ldref;
+      }
+      if (ldref == marker_bidx) {
 #ifdef __LP64__
-      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
-      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 144);
+        fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
 #else
-      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
-      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 144);
+        fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
 #endif
-      calc_git(pheno_nm_ct, perm_vec_ct, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
+        calc_git(pheno_nm_ct, perm_vec_ct, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
+#ifdef __LP64__
+        fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
+#else
+        fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
+#endif
+      } else {
+	memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
+	calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
+      }
     }
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!is_x) {
@@ -5818,6 +5810,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  single_marker_cc_3freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm, &unn, &uoo);
 	  *missp = ukk + uoo;
 	  *setp = uii + umm;
+	  if (model_maxt) {
+	    g_homcom_cts[marker_idx + marker_bidx] = *setp;
+	  }
 	  ukk = load_ctrl_ct - uii - ujj - ukk;
 	  uoo = load_case_ct - umm - unn - uoo;
 	  if (g_is_x) {
