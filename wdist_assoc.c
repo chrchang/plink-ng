@@ -1516,7 +1516,7 @@ void calc_rem(uint32_t pheno_nm_ct, uintptr_t perm_vec_ct, uintptr_t* loadbuf, u
   uint32_t perm_ct8 = (perm_vec_ct + 7) / 8;
   uint32_t perm_ct4 = (perm_vec_ct + 3) / 4;
   uint32_t perm_ct16x16 = 16 * perm_ct16;
-  uintptr_t* permsv = (uint32_t*)perm_vecst;
+  uintptr_t* permsv = (uintptr_t*)perm_vecst;
   uintptr_t* remv[15];
   uintptr_t* perm_ptr;
 #endif
