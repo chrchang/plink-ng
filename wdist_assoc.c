@@ -3572,8 +3572,8 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
   uint32_t* __restrict__ precomp_ui = g_precomp_ui;
   uint32_t* __restrict__ precomp_start = g_precomp_start;
   uint32_t* __restrict__ missing_cts = g_missing_cts;
-  uint32_t* __restrict__ set_cts = g_set_cts;
   uint32_t* __restrict__ het_cts = g_het_cts;
+  uint32_t* __restrict__ homcom_cts = g_homcom_cts;
   uint32_t* __restrict__ adapt_m_table = g_adapt_m_table;
   unsigned char* __restrict__ perm_adapt_stop = g_perm_adapt_stop;
   double* __restrict__ orig_1mpval = g_orig_1mpval;
@@ -3623,10 +3623,10 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
     next_adapt_check = first_adapt_check;
     tot_obs = pheno_nm_ct - missing_cts[marker_idx];
     if (is_model_prec) {
-      col2_sum = (set_cts[marker_idx] + het_cts[marker_idx]) / 2;
+      col2_sum = homcom_cts[marker_idx] + het_cts[marker_idx];
       col1_sum = tot_obs - col2_sum;
     } else {
-      col1_sum = (set_cts[marker_idx] - het_cts[marker_idx]) / 2;
+      col1_sum = homcom_cts[marker_idx];
       col2_sum = tot_obs - col1_sum;
     }
     missing_start = precomp_start[marker_bidx];
@@ -3727,7 +3727,6 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
   uint32_t* __restrict__ precomp_ui = g_precomp_ui;
   uint32_t* __restrict__ precomp_start = g_precomp_start;
   uint32_t* __restrict__ missing_cts = g_missing_cts;
-  uint32_t* __restrict__ set_cts = g_set_cts;
   uint32_t* __restrict__ het_cts = g_het_cts;
   uint32_t* __restrict__ homcom_cts = g_homcom_cts;
   double* __restrict__ precomp_d = g_precomp_d;
@@ -3776,7 +3775,7 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
     }
     missing_ct = missing_cts[marker_idx];
     het_ct = het_cts[marker_idx];
-    homcom_ct = (set_cts[marker_idx] - het_ct) / 2;
+    homcom_ct = homcom_cts[marker_idx];
     tot_obs = pheno_nm_ct - missing_ct;
     if (is_model_prec) {
       col2_sum = homcom_ct + het_ct;
@@ -3906,8 +3905,8 @@ THREAD_RET_TYPE model_adapt_trend_thread(void* arg) {
   uint32_t* __restrict__ precomp_ui = g_precomp_ui;
   uint32_t* __restrict__ precomp_start = g_precomp_start;
   uint32_t* __restrict__ missing_cts = g_missing_cts;
-  uint32_t* __restrict__ set_cts = g_set_cts;
   uint32_t* __restrict__ het_cts = g_het_cts;
+  uint32_t* __restrict__ homcom_cts = g_homcom_cts;
   uint32_t* __restrict__ adapt_m_table = g_adapt_m_table;
   unsigned char* __restrict__ perm_adapt_stop = g_perm_adapt_stop;
   double* __restrict__ orig_1mpval = g_orig_1mpval;
@@ -3946,7 +3945,7 @@ THREAD_RET_TYPE model_adapt_trend_thread(void* arg) {
     }
     tot_obs = pheno_nm_ct - missing_cts[marker_idx];
     het_ct = het_cts[marker_idx];
-    homcom_ct = (set_cts[marker_idx] - het_ct) / 2;
+    homcom_ct = homcom_cts[marker_idx];
     missing_start = precomp_start[marker_bidx];
     gpui = &(precomp_ui[4 * precomp_width * marker_bidx]);
     success_2start = perm_2success_ct[marker_idx];
@@ -4038,7 +4037,6 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
   uint32_t* __restrict__ precomp_ui = g_precomp_ui;
   uint32_t* __restrict__ precomp_start = g_precomp_start;
   uint32_t* __restrict__ missing_cts = g_missing_cts;
-  uint32_t* __restrict__ set_cts = g_set_cts;
   uint32_t* __restrict__ het_cts = g_het_cts;
   uint32_t* __restrict__ homcom_cts = g_homcom_cts;
   double* __restrict__ precomp_d = g_precomp_d;
@@ -4073,7 +4071,7 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
     missing_ct = missing_cts[marker_idx];
     tot_obs = pheno_nm_ct - missing_ct;
     het_ct = het_cts[marker_idx];
-    homcom_ct = (set_cts[marker_idx] - het_ct) / 2;
+    homcom_ct = homcom_cts[marker_idx];
     missing_start = precomp_start[marker_bidx];
     gpui = &(precomp_ui[6 * precomp_width * marker_bidx]);
     gpd = &(precomp_d[2 * precomp_width * marker_bidx]);
@@ -4171,8 +4169,8 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
   uint32_t* __restrict__ perm_attempt_ct = g_perm_attempt_ct;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
   uint32_t* __restrict__ missing_cts = g_missing_cts;
-  uint32_t* __restrict__ set_cts = g_set_cts;
   uint32_t* __restrict__ het_cts = g_het_cts;
+  uint32_t* __restrict__ homcom_cts = g_homcom_cts;
   uint32_t* __restrict__ adapt_m_table = g_adapt_m_table;
   unsigned char* __restrict__ perm_adapt_stop = g_perm_adapt_stop;
   double* __restrict__ orig_1mpval = g_orig_1mpval;
@@ -4188,12 +4186,12 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
   uint32_t next_adapt_check;
   uint32_t missing_col;
   intptr_t tot_obs;
-  intptr_t homset_ct;
-  intptr_t homclear_ct;
+  intptr_t homcom_ct;
+  intptr_t homrar_ct;
   intptr_t het_ct;
   uint32_t case_missing_ct;
   uint32_t case_het_ct;
-  uint32_t case_homset_ct;
+  uint32_t case_homcom_ct;
   uint32_t uii;
   double stat_high;
   double stat_low;
@@ -4223,11 +4221,11 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
     next_adapt_check = first_adapt_check;
     het_ct = het_cts[marker_idx];
     tot_obs = pheno_nm_ct - missing_cts[marker_idx];
-    homset_ct = (set_cts[marker_idx] - het_ct) / 2;
-    homclear_ct = tot_obs - het_ct - homset_ct;
-    if (!homset_ct) {
+    homcom_ct = homcom_cts[marker_idx];
+    homrar_ct = tot_obs - het_ct - homcom_ct;
+    if (!homcom_ct) {
       missing_col = 3;
-    } else if ((het_ct + homset_ct == tot_obs) || (!het_ct)) {
+    } else if ((het_ct + homcom_ct == tot_obs) || (!het_ct)) {
       missing_col = 2; // either no hom A1s or no hets (no need to distinguish)
     } else {
       missing_col = 0;
@@ -4235,12 +4233,12 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
     success_2start = perm_2success_ct[marker_idx];
     success_2incr = 0;
     for (pidx = 0; pidx < perm_vec_ct;) {
-      vec_3freq(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), &case_missing_ct, &case_het_ct, &case_homset_ct);
+      vec_3freq(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), &case_missing_ct, &case_het_ct, &case_homcom_ct);
       if (model_fisher) {
-        uii = case_ct - case_het_ct - case_homset_ct - case_missing_ct;
+        uii = case_ct - case_het_ct - case_homcom_ct - case_missing_ct;
 	// this is very slow.  a precomputed 2-dimensional table could improve
 	// matters, but I doubt it's worth the effort for now.
-	dxx = fisher23(case_homset_ct, case_het_ct, uii, homset_ct - case_homset_ct, het_ct - case_het_ct, homclear_ct - uii);
+	dxx = fisher23(case_homcom_ct, case_het_ct, uii, homcom_ct - case_homcom_ct, het_ct - case_het_ct, homrar_ct - uii);
 	if (dxx < stat_low) {
 	  success_2incr += 2;
 	} else if (dxx < stat_high) {
@@ -4248,11 +4246,11 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
 	}
       } else {
 	if (!missing_col) {
-	  dxx = chi23_eval(case_homset_ct, case_het_ct, case_ct - case_missing_ct, homset_ct, het_ct, tot_obs);
+	  dxx = chi23_eval(case_homcom_ct, case_het_ct, case_ct - case_missing_ct, homcom_ct, het_ct, tot_obs);
 	} else if (missing_col == 3) {
 	  dxx = chi22_eval(case_het_ct, case_ct - case_missing_ct, het_ct, tot_obs);
 	} else {
-	  dxx = chi22_eval(case_homset_ct, case_ct - case_missing_ct, homset_ct, tot_obs);
+	  dxx = chi22_eval(case_homcom_ct, case_ct - case_missing_ct, homcom_ct, tot_obs);
 	}
 	if (dxx > stat_high) {
 	  success_2incr += 2;
@@ -4314,7 +4312,6 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
   uint32_t* __restrict__ perm_vecst = g_perm_vecst;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
   uint32_t* __restrict__ missing_cts = g_missing_cts;
-  uint32_t* __restrict__ set_cts = g_set_cts;
   uint32_t* __restrict__ het_cts = g_het_cts;
   uint32_t* __restrict__ homcom_cts = g_homcom_cts;
   double* __restrict__ orig_1mpval = g_orig_1mpval;
@@ -4357,7 +4354,7 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
     missing_ct = missing_cts[marker_idx];
     het_ct = het_cts[marker_idx];
     tot_obs = pheno_nm_ct - missing_ct;
-    homcom_ct = (set_cts[marker_idx] - het_ct) / 2;
+    homcom_ct = homcom_cts[marker_idx];
     homrar_ct = tot_obs - het_ct - homcom_ct;
     if (!homcom_ct) {
       missing_col = 3;
@@ -4453,8 +4450,8 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
   uint32_t* __restrict__ precomp_ui = g_precomp_ui;
   uint32_t* __restrict__ precomp_start = g_precomp_start;
   uint32_t* __restrict__ missing_cts = g_missing_cts;
-  uint32_t* __restrict__ set_cts = g_set_cts;
   uint32_t* __restrict__ het_cts = g_het_cts;
+  uint32_t* __restrict__ homcom_cts = g_homcom_cts;
   uint32_t* __restrict__ adapt_m_table = g_adapt_m_table;
   unsigned char* __restrict__ perm_adapt_stop = g_perm_adapt_stop;
   double* __restrict__ orig_1mpval = g_orig_1mpval;
@@ -4507,9 +4504,9 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
     next_adapt_check = first_adapt_check;
     tot_obs = pheno_nm_ct - missing_cts[marker_idx];
     het_ct = het_cts[marker_idx];
-    com_ct = set_cts[marker_idx];
-    homrar_ct = tot_obs - ((com_ct + het_ct) / 2);
-    homcom_ct = (com_ct - het_ct) / 2;
+    homcom_ct = homcom_cts[marker_idx];
+    com_ct = homcom_ct * 2 + het_ct;
+    homrar_ct = tot_obs - het_ct - homcom_ct;
     missing_start = precomp_start[marker_bidx];
     skip_domrec = is_set(is_invalid, marker_idx);
     gpui = &(precomp_ui[12 * precomp_width * marker_bidx]);
@@ -4679,7 +4676,6 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   uint32_t* __restrict__ precomp_ui = g_precomp_ui;
   uint32_t* __restrict__ precomp_start = g_precomp_start;
   uint32_t* __restrict__ missing_cts = g_missing_cts;
-  uint32_t* __restrict__ set_cts = g_set_cts;
   uint32_t* __restrict__ het_cts = g_het_cts;
   uint32_t* __restrict__ homcom_cts = g_homcom_cts;
   double* __restrict__ precomp_d = g_precomp_d;
@@ -4735,10 +4731,10 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
     missing_ct = missing_cts[marker_idx];
     tot_obs = pheno_nm_ct - missing_ct;
     het_ct = het_cts[marker_idx];
-    com_ct = set_cts[marker_idx];
+    homcom_ct = homcom_cts[marker_idx];
+    com_ct = 2 * homcom_ct + het_ct;
     rar_ct = tot_obs * 2 - com_ct;
-    homrar_ct = tot_obs - ((com_ct + het_ct) / 2);
-    homcom_ct = (com_ct - het_ct) / 2;
+    homrar_ct = tot_obs - homcom_ct - het_ct;
     missing_start = precomp_start[marker_bidx];
     skip_domrec = is_set(is_invalid, marker_idx);
     gpui = &(precomp_ui[18 * precomp_width * marker_bidx]);
@@ -5217,23 +5213,19 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   g_adaptive_ci_zt = ltqnorm(1 - aperm_beta / (2.0 * marker_ct));
   if (wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctl2 * sizeof(intptr_t)) ||
       wkspace_alloc_d_checked(&g_orig_1mpval, marker_ct * sizeof(double)) ||
-      wkspace_alloc_ui_checked(&g_missing_cts, marker_ct * sizeof(uint32_t)) ||
-      wkspace_alloc_ui_checked(&g_set_cts, marker_ct * sizeof(uint32_t))) {
+      wkspace_alloc_ui_checked(&g_missing_cts, marker_ct * sizeof(uint32_t))) {
     goto model_assoc_ret_NOMEM;
   }
   if (model_assoc) {
-    if (wkspace_alloc_d_checked(&orig_odds, marker_ct * sizeof(double))) {
+    if (wkspace_alloc_d_checked(&orig_odds, marker_ct * sizeof(double)) ||
+        wkspace_alloc_ui_checked(&g_set_cts, marker_ct * sizeof(uint32_t))) {
       goto model_assoc_ret_NOMEM;
     }
   }
   if ((!model_assoc) || model_maxt) {
-    if (wkspace_alloc_ui_checked(&g_het_cts, marker_ct * sizeof(uint32_t))) {
+    if (wkspace_alloc_ui_checked(&g_het_cts, marker_ct * sizeof(uint32_t)) ||
+        wkspace_alloc_ui_checked(&g_homcom_cts, marker_ct * sizeof(uint32_t))) {
       goto model_assoc_ret_NOMEM;
-    }
-    if (model_maxt) {
-      if (wkspace_alloc_ui_checked(&g_homcom_cts, marker_ct * sizeof(uint32_t))) {
-	goto model_assoc_ret_NOMEM;
-      }
     }
   }
   x_code = species_x_code[chrom_info_ptr->species];
@@ -5642,8 +5634,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       // basic --assoc/--model
       o1mpptr = &(g_orig_1mpval[marker_idx + g_block_start]);
       missp = &(g_missing_cts[marker_idx + g_block_start]);
-      setp = &(g_set_cts[marker_idx + g_block_start]);
       if (model_assoc) {
+	setp = &(g_set_cts[marker_idx + g_block_start]);
 	ooptr = &(orig_odds[marker_idx + g_block_start]);
 	for (marker_bidx = g_block_start; marker_bidx < block_size; marker_bidx++) {
 	  marker_uidx2 = mu_table[marker_bidx];
@@ -5800,6 +5792,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  ooptr++;
 	}
       } else {
+	// repurpose setp as homcom_cts pointer
+	setp = &(g_homcom_cts[marker_idx + g_block_start]);
 	hetp = &(g_het_cts[marker_idx + g_block_start]);
 	for (marker_bidx = g_block_start; marker_bidx < block_size; marker_bidx++) {
 	  marker_uidx2 = mu_table[marker_bidx];
@@ -5808,13 +5802,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  single_marker_cc_3freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &uii, &ujj, &ukk, &umm, &unn, &uoo);
 	  *missp = ukk + uoo;
 	  *setp = uii + umm;
-	  if (model_maxt) {
-	    g_homcom_cts[marker_idx + marker_bidx] = *setp;
-	  }
 	  ukk = pheno_nm_ct - g_case_ct - uii - ujj - ukk;
 	  uoo = g_case_ct - umm - unn - uoo;
 	  *hetp = ujj + unn;
-	  *setp = 2 * (*setp) + (*hetp);
 	  is_invalid = (uoo < model_cell_ct) || (unn < model_cell_ct) || (umm < model_cell_ct) || (ukk < model_cell_ct) || (ujj < model_cell_ct) || (uii < model_cell_ct);
 	  a1ptr = &(marker_alleles[(2 * marker_uidx2 + is_reverse) * max_marker_allele_len]);
 	  a2ptr = &(marker_alleles[(2 * marker_uidx2 + 1 - is_reverse) * max_marker_allele_len]);
@@ -6137,7 +6127,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  g_precomp_start[uii] = ujj;
 	  unn = 2 * g_case_ct;
 	  uqq = 2 * (pheno_nm_ct - upp);
-	  uoo = g_set_cts[urr];
+	  uoo = 2 * g_homcom_cts[urr] + g_het_cts[urr];
 	  ukk += uii * g_precomp_width;
 	  uss = 2 * ujj;
 	  if (g_model_fisher) {
@@ -6158,8 +6148,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	    }
 	    if (!is_set(g_is_invalid, urr)) {
 	      upp = pheno_nm_ct - upp;
-	      uoo = (g_set_cts[urr] - g_het_cts[urr]) / 2;
-	      uqq = upp - ((g_set_cts[urr] + g_het_cts[urr]) / 2);
+	      uoo = g_homcom_cts[urr];
+	      uqq = upp - uoo - g_het_cts[urr];
 	      ujj = g_case_ct - ujj;
 	      if (model_adapt) {
 		for (umm = uii * g_precomp_width; umm < ukk; umm++) {
@@ -6199,8 +6189,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	    }
 	    if (!is_set(g_is_invalid, urr)) {
 	      upp = pheno_nm_ct - upp;
-	      uoo = (g_set_cts[urr] - g_het_cts[urr]) / 2;
-	      uqq = upp - ((g_set_cts[urr] + g_het_cts[urr]) / 2);
+	      uoo = g_homcom_cts[urr];
+	      uqq = upp - uoo - g_het_cts[urr];
 	      ujj = g_case_ct - ujj;
 	      if (model_adapt) {
 		for (umm = uii * g_precomp_width; umm < ukk; umm++) {
@@ -6236,7 +6226,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  g_precomp_start[uii] = ujj;
 	  unn = g_het_cts[urr];
 	  upp = pheno_nm_ct - upp; // tot_obs
-	  uoo = (g_set_cts[urr] - unn) / 2; // homcom_ct
+	  uoo = g_homcom_cts[urr];
 	  ukk += uii * g_precomp_width;
 	  ujj = g_case_ct - ujj;
 	  dxx = g_orig_chisq[urr];
@@ -6265,9 +6255,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  g_precomp_start[uii] = ujj;
 	  upp = pheno_nm_ct - upp; // tot_obs
 	  if (model_modifier & MODEL_PREC) {
-	    uoo = upp - ((g_set_cts[urr] + g_het_cts[urr]) / 2); // col1_sum
+	    uoo = upp - g_homcom_cts[urr] - g_het_cts[urr]; // col1_sum
 	  } else {
-	    uoo = (g_set_cts[urr] - g_het_cts[urr]) / 2;
+	    uoo = g_homcom_cts[urr];
 	  }
 	  ukk += uii * g_precomp_width;
 	  ujj = g_case_ct - ujj;
