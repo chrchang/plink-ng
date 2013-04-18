@@ -4892,6 +4892,75 @@ void unreverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
   }
 }
 
+void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, uintptr_t unfiltered_indiv_ct) {
+  uintptr_t indiv_bidx = 0;
+  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + 3) / 4]);
+  unsigned char* fmicp;
+  unsigned char ucc;
+  unsigned char ucc2;
+  uintptr_t unfiltered_indiv_ctd;
+  uint32_t* loadbuf_alias32;
+  uint32_t uii;
+  uint32_t ujj;
+#ifdef __LP64__
+  uint32_t* force_missing_include2_alias32;
+  __m128i* loadbuf_alias;
+  __m128i* fmivp;
+  __m128i vii;
+  __m128i vjj;
+  if (!(((uintptr_t)loadbuf) & 15)) {
+    loadbuf_alias = (__m128i*)loadbuf;
+    fmivp = (__m128i*)force_missing_include2;
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / 64;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+      vii = *loadbuf_alias;
+      vjj = *fmivp++;
+      vii = _mm_or_si128(vii, vjj);
+      vjj = _mm_slli_epi64(vjj, 1);
+      *loadbuf_alias++ = _mm_andnot_si128(vjj, vii);
+    }
+    loadbuf = (unsigned char*)loadbuf_alias;
+    fmicp = (unsigned char*)fmivp;
+  } else if (!(((uintptr_t)loadbuf) & 3)) {
+    loadbuf_alias32 = (uint32_t*)loadbuf;
+    force_missing_include2_alias32 = (uint32_t*)force_missing_include2;
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+      uii = *loadbuf_alias32;
+      ujj = *force_missing_include2_alias32++;
+      uii |= ujj;
+      ujj <<= 1;
+      *loadbuf_alias32++ = uii & (~ujj);
+    }
+    loadbuf = (unsigned char*)loadbuf_alias32;
+    fmicp = (unsigned char*)force_missing_include2_alias32;
+  } else {
+    fmicp = (unsigned char*)force_missing_include2;
+  }
+#else
+  if (!(((uintptr_t)loadbuf) & 3)) {
+    loadbuf_alias32 = (uint32_t*)loadbuf;
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+      uii = *loadbuf_alias32;
+      ujj = *force_missing_include2++;
+      uii |= ujj;
+      ujj <<= 1;
+      *loadbuf_alias32++ = uii & (~ujj);
+    }
+    loadbuf = (unsigned char*)loadbuf_alias32;
+  }
+  fmicp = (unsigned char*)force_missing_include2;
+#endif
+  for (; loadbuf < loadbuf_end;) {
+    ucc = *loadbuf;
+    ucc2 = *fmicp++;
+    ucc |= ucc2;
+    ucc2 <<= 1;
+    *loadbuf++ = ucc & (~ucc2);
+  }
+}
+
 static uint32_t g_pct;
 static uintptr_t g_dw_indiv1idx;
 static uintptr_t g_dw_indiv2idx;

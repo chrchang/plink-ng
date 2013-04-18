@@ -2443,8 +2443,6 @@ static uint32_t* g_missing_cts;
 
 static uint32_t* g_set_cts;
 static uint32_t* g_het_cts;
-
-// QT --assoc uses this instead of g_set_cts
 static uint32_t* g_homcom_cts;
 
 // This is *twice* the number of successes, because PLINK counts tie as 0.5.
@@ -3563,13 +3561,11 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t pidx_offset = g_perms_done - perm_vec_ct;
   uint32_t model_fisher = g_model_fisher;
-  uint32_t is_x = g_is_x;
   uint32_t precomp_width = g_precomp_width;
   uint32_t first_adapt_check = g_first_adapt_check;
   uint32_t case_ct = g_case_ct;
   int32_t is_model_prec = g_is_model_prec;
   uintptr_t* __restrict__ loadbuf = g_loadbuf;
-  uintptr_t* __restrict__ male_vec = g_indiv_male_include2;
   uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
   uint32_t* __restrict__ perm_attempt_ct = g_perm_attempt_ct;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
@@ -3638,11 +3634,7 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
     success_2start = perm_2success_ct[marker_idx];
     success_2incr = 0;
     for (pidx = 0; pidx < perm_vec_ct;) {
-      if (!is_x) {
-	vec_3freq(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), &case_missing_ct, &uii, &case_homx_ct);
-      } else {
-	vec_3freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_missing_ct, &uii, &case_homx_ct);
-      }
+      vec_3freq(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), &case_missing_ct, &uii, &case_homx_ct);
       if (is_model_prec) {
 	case_homx_ct = case_ct - case_homx_ct - case_missing_ct - uii;
       }
@@ -3701,7 +3693,6 @@ THREAD_RET_TYPE model_adapt_domrec_thread(void* arg) {
 THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
-  uint32_t is_x = g_is_x;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t block_start = g_block_start;
   uint32_t maxt_block_base = g_maxt_block_base;
@@ -3731,8 +3722,6 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
   uint32_t case_ct = g_case_ct;
   int32_t is_model_prec = g_is_model_prec;
   uintptr_t* __restrict__ loadbuf = g_loadbuf;
-  uintptr_t* __restrict__ male_vec = g_indiv_male_include2;
-  uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
   uint32_t* __restrict__ perm_vecst = g_perm_vecst;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
   uint32_t* __restrict__ precomp_ui = g_precomp_ui;
@@ -3800,48 +3789,39 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
     gpui = &(precomp_ui[6 * precomp_width * marker_bidx]);
     success_2incr = 0;
     loadbuf_cur = &(loadbuf[marker_bidx * pheno_nm_ctl2]);
-    if (!is_x) {
-      ldref = ldrefs[marker_idx];
-      git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
-      git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
-      git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
-      if (ldref == 65535) {
-	ldref = marker_bidx;
-	if (pheno_nm_ct - homcom_ct > 50) {
-	  check_for_better_rem_cost(pheno_nm_ct - homcom_ct - 50, maxt_block_base, maxt_block_base2, maxt_block_base3, marker_idx, missing_cts, homcom_cts, het_cts, ldrefs, pheno_nm_ct, missing_ct, het_ct, homcom_ct, loadbuf, loadbuf_cur, &ldref);
-	}
-	ldrefs[marker_idx] = ldref;
+    ldref = ldrefs[marker_idx];
+    git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
+    git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
+    git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
+    if (ldref == 65535) {
+      ldref = marker_bidx;
+      if (pheno_nm_ct - homcom_ct > 50) {
+	check_for_better_rem_cost(pheno_nm_ct - homcom_ct - 50, maxt_block_base, maxt_block_base2, maxt_block_base3, marker_idx, missing_cts, homcom_cts, het_cts, ldrefs, pheno_nm_ct, missing_ct, het_ct, homcom_ct, loadbuf, loadbuf_cur, &ldref);
       }
-      if (ldref == marker_bidx) {
+      ldrefs[marker_idx] = ldref;
+    }
+    if (ldref == marker_bidx) {
 #ifdef __LP64__
-        fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
+      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
 #else
-        fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
+      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
 #endif
-        calc_git(pheno_nm_ct, perm_vec_ct, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
+      calc_git(pheno_nm_ct, perm_vec_ct, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
 #ifdef __LP64__
-        fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
+      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
 #else
-        fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
+      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
 #endif
-      } else {
-	memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
-	calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
-      }
+    } else {
+      memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
+      calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
     }
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
-      if (!is_x) {
-	case_missing_ct = git_missing_cts[pidx];
-	if (is_model_prec) {
-	  case_homx_ct = git_homrar_cts[pidx];
-	} else {
-	  case_homx_ct = case_ct - case_missing_ct - git_homrar_cts[pidx] - git_het_cts[pidx];
-	}
+      case_missing_ct = git_missing_cts[pidx];
+      if (is_model_prec) {
+	case_homx_ct = git_homrar_cts[pidx];
       } else {
-	vec_3freq_xx(pheno_nm_ctl2, loadbuf_cur, &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_missing_ct, &uii, &case_homx_ct);
-	if (is_model_prec) {
-	  case_homx_ct = case_ct - case_homx_ct - case_missing_ct - uii;
-	}
+	case_homx_ct = case_ct - case_missing_ct - git_homrar_cts[pidx] - git_het_cts[pidx];
       }
       // deliberate underflow
       uii = (uint32_t)(case_missing_ct - missing_start);
@@ -3916,12 +3896,10 @@ THREAD_RET_TYPE model_adapt_trend_thread(void* arg) {
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t pidx_offset = g_perms_done - perm_vec_ct;
-  uint32_t is_x = g_is_x;
   uint32_t precomp_width = g_precomp_width;
   uint32_t first_adapt_check = g_first_adapt_check;
   uint32_t case_ct = g_case_ct;
   uintptr_t* __restrict__ loadbuf = g_loadbuf;
-  uintptr_t* __restrict__ male_vec = g_indiv_male_include2;
   uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
   uint32_t* __restrict__ perm_attempt_ct = g_perm_attempt_ct;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
@@ -3976,11 +3954,7 @@ THREAD_RET_TYPE model_adapt_trend_thread(void* arg) {
     chisq_high = orig_chisq[marker_idx] + EPSILON;
     chisq_low = orig_chisq[marker_idx] - EPSILON;
     for (pidx = 0; pidx < perm_vec_ct;) {
-      if (!is_x) {
-	vec_set_freq(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), &case_com_ct, &case_missing_ct);
-      } else {
-        vec_set_freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_com_ct, &case_missing_ct);
-      }
+      vec_set_freq(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), &case_com_ct, &case_missing_ct);
       // deliberate underflow
       uii = (uint32_t)(case_missing_ct - missing_start);
       if (uii < precomp_width) {
@@ -4032,7 +4006,6 @@ THREAD_RET_TYPE model_adapt_trend_thread(void* arg) {
 THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
-  uint32_t is_x = g_is_x;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t block_start = g_block_start;
   uint32_t maxt_block_base = g_maxt_block_base;
@@ -4060,8 +4033,6 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
   uint32_t precomp_width = g_precomp_width;
   uint32_t case_ct = g_case_ct;
   uintptr_t* __restrict__ loadbuf = g_loadbuf;
-  uintptr_t* __restrict__ male_vec = g_indiv_male_include2;
-  uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
   uint32_t* __restrict__ perm_vecst = g_perm_vecst;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
   uint32_t* __restrict__ precomp_ui = g_precomp_ui;
@@ -4110,43 +4081,36 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
     chisq_low = orig_chisq[marker_idx] - EPSILON;
     success_2incr = 0;
     loadbuf_cur = &(loadbuf[marker_bidx * pheno_nm_ctl2]);
-    if (!is_x) {
-      ldref = ldrefs[marker_idx];
-      git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
-      git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
-      git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
-      if (ldref == 65535) {
-	ldref = marker_bidx;
-	if (pheno_nm_ct - homcom_ct > 50) {
-	  check_for_better_rem_cost(pheno_nm_ct - homcom_ct - 50, maxt_block_base, maxt_block_base2, maxt_block_base3, marker_idx, missing_cts, homcom_cts, het_cts, ldrefs, pheno_nm_ct, missing_ct, het_ct, homcom_ct, loadbuf, loadbuf_cur, &ldref);
-	}
-	ldrefs[marker_idx] = ldref;
+    ldref = ldrefs[marker_idx];
+    git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
+    git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
+    git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
+    if (ldref == 65535) {
+      ldref = marker_bidx;
+      if (pheno_nm_ct - homcom_ct > 50) {
+	check_for_better_rem_cost(pheno_nm_ct - homcom_ct - 50, maxt_block_base, maxt_block_base2, maxt_block_base3, marker_idx, missing_cts, homcom_cts, het_cts, ldrefs, pheno_nm_ct, missing_ct, het_ct, homcom_ct, loadbuf, loadbuf_cur, &ldref);
       }
-      if (1) {
-      // if (ldref == marker_bidx) {
+      ldrefs[marker_idx] = ldref;
+    }
+    if (ldref == marker_bidx) {
 #ifdef __LP64__
-        fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
+      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
 #else
-        fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
+      fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
 #endif
-        calc_git(pheno_nm_ct, perm_vec_ct, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
+      calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
 #ifdef __LP64__
-        fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
+      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
 #else
-        fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
+      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
 #endif
-      } else {
-	memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
-	calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
-      }
+    } else {
+      memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
+      calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
     }
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
-      if (!is_x) {
-	case_missing_ct = git_missing_cts[pidx];
-	case_com_ct = 2 * (case_ct - case_missing_ct - git_homrar_cts[pidx]) - git_het_cts[pidx];
-      } else {
-	vec_set_freq_xx(pheno_nm_ctl2, loadbuf_cur, &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_com_ct, &case_missing_ct);
-      }
+      case_missing_ct = git_missing_cts[pidx];
+      case_com_ct = 2 * (case_ct - case_missing_ct - git_homrar_cts[pidx]) - git_het_cts[pidx];
       // deliberate underflow
       uii = (uint32_t)(case_missing_ct - missing_start);
       if (uii < precomp_width) {
@@ -4200,11 +4164,9 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t pidx_offset = g_perms_done - perm_vec_ct;
   uint32_t model_fisher = g_model_fisher;
-  uint32_t is_x = g_is_x;
   uint32_t first_adapt_check = g_first_adapt_check;
   uint32_t case_ct = g_case_ct;
   uintptr_t* __restrict__ loadbuf = g_loadbuf;
-  uintptr_t* __restrict__ male_vec = g_indiv_male_include2;
   uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
   uint32_t* __restrict__ perm_attempt_ct = g_perm_attempt_ct;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
@@ -4273,11 +4235,7 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
     success_2start = perm_2success_ct[marker_idx];
     success_2incr = 0;
     for (pidx = 0; pidx < perm_vec_ct;) {
-      if (!is_x) {
-	vec_3freq(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), &case_missing_ct, &case_het_ct, &case_homset_ct);
-      } else {
-	vec_3freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_missing_ct, &case_het_ct, &case_homset_ct);
-      }
+      vec_3freq(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), &case_missing_ct, &case_het_ct, &case_homset_ct);
       if (model_fisher) {
         uii = case_ct - case_het_ct - case_homset_ct - case_missing_ct;
 	// this is very slow.  a precomputed 2-dimensional table could improve
@@ -4326,7 +4284,6 @@ THREAD_RET_TYPE model_adapt_gen_thread(void* arg) {
 THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
-  uint32_t is_x = g_is_x;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t block_start = g_block_start;
   uint32_t maxt_block_base = g_maxt_block_base;
@@ -4354,25 +4311,28 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
   uint32_t* resultbuf = g_resultbuf;
   uint32_t case_ct = g_case_ct;
   uintptr_t* __restrict__ loadbuf = g_loadbuf;
-  uintptr_t* __restrict__ male_vec = g_indiv_male_include2;
-  uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
   uint32_t* __restrict__ perm_vecst = g_perm_vecst;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
   uint32_t* __restrict__ missing_cts = g_missing_cts;
   uint32_t* __restrict__ set_cts = g_set_cts;
   uint32_t* __restrict__ het_cts = g_het_cts;
+  uint32_t* __restrict__ homcom_cts = g_homcom_cts;
   double* __restrict__ orig_1mpval = g_orig_1mpval;
   double* __restrict__ orig_chisq = g_orig_chisq;
+  uint16_t* ldrefs = g_ldrefs;
+  uintptr_t* loadbuf_cur;
   uintptr_t pidx;
   uint32_t missing_col;
   intptr_t tot_obs;
-  intptr_t homset_ct;
-  intptr_t homclear_ct;
+  int32_t missing_ct;
+  intptr_t homcom_ct;
+  intptr_t homrar_ct;
   intptr_t het_ct;
+  uint32_t ldref;
   uint32_t success_2incr;
   uint32_t case_missing_ct;
   uint32_t case_het_ct;
-  uint32_t case_homset_ct;
+  uint32_t case_homcom_ct;
   uint32_t uii;
   double stat_high;
   double stat_low;
@@ -4394,42 +4354,54 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
       stat_high = orig_chisq[marker_idx] + EPSILON;
       stat_low = orig_chisq[marker_idx] - EPSILON;
     }
+    missing_ct = missing_cts[marker_idx];
     het_ct = het_cts[marker_idx];
-    tot_obs = pheno_nm_ct - missing_cts[marker_idx];
-    homset_ct = (set_cts[marker_idx] - het_ct) / 2;
-    homclear_ct = tot_obs - het_ct - homset_ct;
-    if (!homset_ct) {
+    tot_obs = pheno_nm_ct - missing_ct;
+    homcom_ct = (set_cts[marker_idx] - het_ct) / 2;
+    homrar_ct = tot_obs - het_ct - homcom_ct;
+    if (!homcom_ct) {
       missing_col = 3;
-    } else if ((het_ct + homset_ct == tot_obs) || (!het_ct)) {
+    } else if ((het_ct + homcom_ct == tot_obs) || (!het_ct)) {
       missing_col = 2;
     } else {
       missing_col = 0;
     }
     success_2incr = 0;
-    if (!is_x) {
-      git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
-      git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
-      git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
+    loadbuf_cur = &(loadbuf[marker_bidx * pheno_nm_ctl2]);
+    ldref = ldrefs[marker_idx];
+    git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
+    git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
+    git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
+    if (ldref == 65535) {
+      ldref = marker_bidx;
+      if (pheno_nm_ct - homcom_ct > 50) {
+	check_for_better_rem_cost(pheno_nm_ct - homcom_ct - 50, maxt_block_base, maxt_block_base2, maxt_block_base3, marker_idx, missing_cts, homcom_cts, het_cts, ldrefs, pheno_nm_ct, missing_ct, het_ct, homcom_ct, loadbuf, loadbuf_cur, &ldref);
+      }
+      ldrefs[marker_idx] = ldref;
+    }
+    if (ldref == marker_bidx) {
 #ifdef __LP64__
       fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
-      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 144);
 #else
       fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
-      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 144);
 #endif
-      calc_git(pheno_nm_ct, perm_vec_ct, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
+      calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
+#ifdef __LP64__
+      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
+#else
+      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
+#endif
+    } else {
+      memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
+      calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
     }
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
-      if (!is_x) {
-	case_missing_ct = git_missing_cts[pidx];
-	case_het_ct = git_het_cts[pidx];
-	case_homset_ct = case_ct - case_missing_ct - case_het_ct - git_homrar_cts[pidx];
-      } else {
-	vec_3freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_missing_ct, &case_het_ct, &case_homset_ct);
-      }
+      case_missing_ct = git_missing_cts[pidx];
+      case_het_ct = git_het_cts[pidx];
+      case_homcom_ct = case_ct - case_missing_ct - case_het_ct - git_homrar_cts[pidx];
       if (model_fisher) {
-        uii = case_ct - case_het_ct - case_homset_ct - case_missing_ct;
-	sval = fisher23(case_homset_ct, case_het_ct, uii, homset_ct - case_homset_ct, het_ct - case_het_ct, homclear_ct - uii);
+        uii = case_ct - case_het_ct - case_homcom_ct - case_missing_ct;
+	sval = fisher23(case_homcom_ct, case_het_ct, uii, homcom_ct - case_homcom_ct, het_ct - case_het_ct, homrar_ct - uii);
 	if (sval < stat_low) {
 	  success_2incr += 2;
 	} else if (sval < stat_high) {
@@ -4440,11 +4412,11 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
 	}
       } else {
 	if (!missing_col) {
-	  sval = chi23_eval(case_homset_ct, case_het_ct, case_ct - case_missing_ct, homset_ct, het_ct, tot_obs);
+	  sval = chi23_eval(case_homcom_ct, case_het_ct, case_ct - case_missing_ct, homcom_ct, het_ct, tot_obs);
 	} else if (missing_col == 3) {
 	  sval = chi22_eval(case_het_ct, case_ct - case_missing_ct, het_ct, tot_obs);
 	} else {
-	  sval = chi22_eval(case_homset_ct, case_ct - case_missing_ct, homset_ct, tot_obs);
+	  sval = chi22_eval(case_homcom_ct, case_ct - case_missing_ct, homcom_ct, tot_obs);
 	}
 	if (sval > stat_high) {
 	  success_2incr += 2;
@@ -4470,12 +4442,10 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t pidx_offset = g_perms_done - perm_vec_ct;
   uint32_t model_fisher = g_model_fisher;
-  uint32_t is_x = g_is_x;
   uint32_t precomp_width = g_precomp_width;
   uint32_t first_adapt_check = g_first_adapt_check;
   uint32_t case_ct = g_case_ct;
   uintptr_t* __restrict__ loadbuf = g_loadbuf;
-  uintptr_t* __restrict__ male_vec = g_indiv_male_include2;
   uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
   uintptr_t* is_invalid = g_is_invalid;
   uint32_t* __restrict__ perm_attempt_ct = g_perm_attempt_ct;
@@ -4546,11 +4516,7 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
     success_2start = perm_2success_ct[marker_idx];
     success_2incr = 0;
     for (pidx = 0; pidx < perm_vec_ct;) {
-      if (!is_x) {
-	vec_3freq(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), &case_missing_ct, &case_het_ct, &case_homcom_ct);
-      } else {
-	vec_3freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_missing_ct, &case_het_ct, &case_homcom_ct);
-      }
+      vec_3freq(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), &case_missing_ct, &case_het_ct, &case_homcom_ct);
       case_homrar_ct = case_ct - case_missing_ct - case_het_ct - case_homcom_ct;
       case_com_ct = case_het_ct + 2 * case_homcom_ct;
       ujj = 0; // best increment so far
@@ -4679,7 +4645,6 @@ THREAD_RET_TYPE model_adapt_best_thread(void* arg) {
 THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
-  uint32_t is_x = g_is_x;
   uintptr_t perm_vec_ct = g_perm_vec_ct;
   uint32_t block_start = g_block_start;
   uint32_t maxt_block_base = g_maxt_block_base;
@@ -4708,8 +4673,6 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   uint32_t precomp_width = g_precomp_width;
   uint32_t case_ct = g_case_ct;
   uintptr_t* __restrict__ loadbuf = g_loadbuf;
-  uintptr_t* __restrict__ male_vec = g_indiv_male_include2;
-  uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
   uintptr_t* is_invalid = g_is_invalid;
   uint32_t* __restrict__ perm_vecst = g_perm_vecst;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
@@ -4718,18 +4681,23 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
   uint32_t* __restrict__ missing_cts = g_missing_cts;
   uint32_t* __restrict__ set_cts = g_set_cts;
   uint32_t* __restrict__ het_cts = g_het_cts;
+  uint32_t* __restrict__ homcom_cts = g_homcom_cts;
   double* __restrict__ precomp_d = g_precomp_d;
   double* __restrict__ orig_1mpval = g_orig_1mpval;
   double* __restrict__ orig_chisq = g_orig_chisq;
+  uint16_t* ldrefs = g_ldrefs;
   uint32_t* __restrict__ gpui;
   double* __restrict__ gpd;
+  uintptr_t* loadbuf_cur;
   uintptr_t pidx;
+  int32_t missing_ct;
   intptr_t tot_obs;
   intptr_t com_ct;
   intptr_t rar_ct;
   intptr_t het_ct;
   intptr_t homrar_ct;
   intptr_t homcom_ct;
+  uint32_t ldref;
   uint32_t success_2incr;
   uint32_t missing_start;
   uint32_t case_homrar_ct;
@@ -4764,7 +4732,8 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
       stat_low = orig_chisq[marker_idx] - EPSILON;
       default_best_stat = 0;
     }
-    tot_obs = pheno_nm_ct - missing_cts[marker_idx];
+    missing_ct = missing_cts[marker_idx];
+    tot_obs = pheno_nm_ct - missing_ct;
     het_ct = het_cts[marker_idx];
     com_ct = set_cts[marker_idx];
     rar_ct = tot_obs * 2 - com_ct;
@@ -4774,29 +4743,39 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
     skip_domrec = is_set(is_invalid, marker_idx);
     gpui = &(precomp_ui[18 * precomp_width * marker_bidx]);
     success_2incr = 0;
-    if (!is_x) {
-      git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
-      git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
-      git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
+    loadbuf_cur = &(loadbuf[marker_bidx * pheno_nm_ctl2]);
+    ldref = ldrefs[marker_idx];
+    git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
+    git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
+    git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
+    if (ldref == 65535) {
+      ldref = marker_bidx;
+      if (pheno_nm_ct - homcom_ct > 50) {
+	check_for_better_rem_cost(pheno_nm_ct - homcom_ct - 50, maxt_block_base, maxt_block_base2, maxt_block_base3, marker_idx, missing_cts, homcom_cts, het_cts, ldrefs, pheno_nm_ct, missing_ct, het_ct, homcom_ct, loadbuf, loadbuf_cur, &ldref);
+      }
+      ldrefs[marker_idx] = ldref;
+    }
+    if (ldref == marker_bidx) {
 #ifdef __LP64__
       fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * (perm_vec_ctcl4m / 2));
-      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 144);
 #else
       fill_ulong_zero((uintptr_t*)git_homrar_cts, 3 * perm_vec_ctcl4m);
-      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 144);
 #endif
       calc_git(pheno_nm_ct, perm_vec_ct, &(loadbuf[marker_bidx * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
+#ifdef __LP64__
+      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct128 * 72);
+#else
+      fill_ulong_zero((uintptr_t*)thread_git_wkspace, perm_ct64 * 72);
+#endif
+    } else {
+      memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
+      calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctl2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
     }
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
-      if (!is_x) {
-	case_missing_ct = git_missing_cts[pidx];
-	case_het_ct = git_het_cts[pidx];
-	case_homrar_ct = git_homrar_cts[pidx];
-	case_homcom_ct = case_ct - case_missing_ct - case_het_ct - case_homrar_ct;
-      } else {
-	vec_3freq_xx(pheno_nm_ctl2, &(loadbuf[marker_bidx * pheno_nm_ctl2]), &(perm_vecs[pidx * pheno_nm_ctl2]), male_vec, &case_missing_ct, &case_het_ct, &case_homcom_ct);
-	case_homrar_ct = case_ct - case_missing_ct - case_het_ct - case_homcom_ct;
-      }
+      case_missing_ct = git_missing_cts[pidx];
+      case_het_ct = git_het_cts[pidx];
+      case_homrar_ct = git_homrar_cts[pidx];
+      case_homcom_ct = case_ct - case_missing_ct - case_het_ct - case_homrar_ct;
       case_com_ct = case_het_ct + 2 * case_homcom_ct;
       cur_add = 0;
       // deliberate underflow
@@ -5576,18 +5555,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
 	  goto model_assoc_ret_READ_FAIL;
 	}
-	if (!g_is_x) {
-	  cur_ctrl_include2 = indiv_ctrl_include2;
-	  cur_case_include2 = indiv_case_include2;
-	  load_indiv_ct = pheno_nm_ct;
-	  load_case_ct = g_case_ct;
-	} else {
-	  cur_ctrl_include2 = indiv_nonmale_ctrl_include2;
-	  cur_case_include2 = indiv_nonmale_case_include2;
-	  load_indiv_ct = nonmale_ct;
-	  load_case_ct = case_nonmale_ct;
-	}
-	load_ctrl_ct = load_indiv_ct - load_case_ct;
       }
       intprint2(&(wprefix[2]), uii);
     } else if (model_maxt) {
@@ -5595,15 +5562,19 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       memcpy(g_loadbuf, &(g_loadbuf[(MODEL_BLOCKSIZE - MODEL_BLOCKKEEP) * pheno_nm_ctl2]), MODEL_BLOCKKEEP * pheno_nm_ctl2 * sizeof(intptr_t));
       memcpy(g_resultbuf, &(g_resultbuf[3 * (MODEL_BLOCKSIZE - MODEL_BLOCKKEEP) * perm_vec_ctcl4m]), MODEL_BLOCKKEEP * perm_vec_ctcl4m * 3 * sizeof(int32_t));
       g_block_start = MODEL_BLOCKKEEP;
-      // todo: copy LD table, etc.
-      // could conditionally do this for adaptive permutation, but I doubt
-      // it's worth the trouble
     } else {
       g_block_start = 0;
     }
     block_size = g_block_start;
     block_end = marker_unstopped_ct - marker_idx;
-    if (block_end > MODEL_BLOCKSIZE) {
+    if ((!marker_idx) && model_maxt) {
+      // For max(T) permutation tests, minimize how long we have to work with
+      // crappy precomputed values.  Most important when using Fisher exact
+      // test p-values.
+      if (block_end > MODEL_BLOCKKEEP) {
+	block_end = MODEL_BLOCKKEEP;
+      }
+    } else if (block_end > MODEL_BLOCKSIZE) {
       block_end = MODEL_BLOCKSIZE;
     }
     do {
@@ -5649,6 +5620,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       }
       if (is_set(marker_reverse, marker_uidx)) {
 	unreverse_loadbuf((unsigned char*)(&(g_loadbuf[block_size * pheno_nm_ctl2])), pheno_nm_ct);
+      }
+      if ((!model_assoc) && g_is_x) {
+	force_missing((unsigned char*)(&(g_loadbuf[block_size * pheno_nm_ctl2])), g_indiv_male_include2, pheno_nm_ct);
       }
       mu_table[block_size++] = marker_uidx;
       if (marker_idx + block_size == marker_unstopped_ct) {
@@ -5831,17 +5805,14 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	  marker_uidx2 = mu_table[marker_bidx];
 	  g_marker_uidxs[marker_idx + marker_bidx] = marker_uidx2;
 	  is_reverse = is_set(marker_reverse, marker_uidx2);
-	  single_marker_cc_3freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), cur_ctrl_include2, cur_case_include2, &uii, &ujj, &ukk, &umm, &unn, &uoo);
+	  single_marker_cc_3freqs(pheno_nm_ctl2, &(g_loadbuf[marker_bidx * pheno_nm_ctl2]), indiv_ctrl_include2, indiv_case_include2, &uii, &ujj, &ukk, &umm, &unn, &uoo);
 	  *missp = ukk + uoo;
 	  *setp = uii + umm;
 	  if (model_maxt) {
 	    g_homcom_cts[marker_idx + marker_bidx] = *setp;
 	  }
-	  ukk = load_ctrl_ct - uii - ujj - ukk;
-	  uoo = load_case_ct - umm - unn - uoo;
-	  if (g_is_x) {
-	    *missp += male_ct;
-	  }
+	  ukk = pheno_nm_ct - g_case_ct - uii - ujj - ukk;
+	  uoo = g_case_ct - umm - unn - uoo;
 	  *hetp = ujj + unn;
 	  *setp = 2 * (*setp) + (*hetp);
 	  is_invalid = (uoo < model_cell_ct) || (unn < model_cell_ct) || (umm < model_cell_ct) || (ukk < model_cell_ct) || (ujj < model_cell_ct) || (uii < model_cell_ct);
