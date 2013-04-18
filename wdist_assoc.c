@@ -2309,6 +2309,52 @@ void calc_qrem_lin(uint32_t pheno_nm_ct, uintptr_t perm_vec_ct, uintptr_t* loadb
   }
 }
 
+void check_for_better_rem_cost(uintptr_t best_cost, uint32_t maxt_block_base, uint32_t maxt_block_base2, uint32_t maxt_block_base3, uintptr_t marker_idx, uint32_t* __restrict__ missing_cts, uint32_t* __restrict__ homcom_cts, uint32_t* __restrict__ het_cts, uint16_t* ldrefs, uint32_t pheno_nm_ct, int32_t missing_ct, int32_t het_ct, int32_t homcom_ct, uintptr_t* loadbuf, uintptr_t* loadbuf_cur, uint32_t* ldrefp) {
+  // Check if PERMORY-style LD exploitation is better than genotype indexing
+  // algorithm.
+  //
+  // Effective inner loop iterations required for LD exploitation:
+  //   2 * (<-> neither side homcom) + (<-> homcom) + constant
+  // Simple lower bound:
+  //   max(delta(homcom), delta(non-homcom)) + constant
+  uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
+  uint32_t marker_idx_tmp = maxt_block_base;
+  uint32_t loop_ceil = maxt_block_base2;
+  int32_t homrar_ct = pheno_nm_ct - missing_ct - het_ct - homcom_ct;
+  int32_t missing_ct_tmp;
+  int32_t het_ct_tmp;
+  int32_t homcom_ct_tmp;
+  int32_t homrar_ct_tmp;
+  uint32_t marker_bidx2;
+  uintptr_t homcom_delta;
+  uintptr_t cur_cost;
+  do {
+    if (marker_idx_tmp == maxt_block_base2) {
+      marker_idx_tmp = maxt_block_base3;
+      loop_ceil = marker_idx;
+    }
+    for (; marker_idx_tmp < loop_ceil; marker_idx_tmp++) {
+      if (ldrefs[marker_idx_tmp] != 65535) {
+	missing_ct_tmp = missing_cts[marker_idx_tmp];
+	homcom_ct_tmp = homcom_cts[marker_idx_tmp];
+	het_ct_tmp = het_cts[marker_idx_tmp];
+	homrar_ct_tmp = pheno_nm_ct - missing_ct_tmp - het_ct_tmp - homcom_ct_tmp;
+	homcom_delta = labs(((int32_t)homcom_ct) - homcom_ct_tmp);
+	cur_cost = labs(((int32_t)missing_ct) - missing_ct_tmp) + labs(((int32_t)homrar_ct) - homrar_ct_tmp) + labs(((int32_t)het_ct) - het_ct_tmp);
+	cur_cost = MAXV(homcom_delta, cur_cost);
+	if (cur_cost < best_cost) {
+	  marker_bidx2 = marker_idx_tmp - maxt_block_base;
+	  cur_cost = rem_cost(pheno_nm_ctl2, &(loadbuf[marker_bidx2 * pheno_nm_ctl2]), loadbuf_cur);
+	  if (cur_cost < best_cost) {
+	    *ldrefp = marker_bidx2;
+	    best_cost = cur_cost;
+	  }
+	}
+      }
+    }
+  } while (marker_idx_tmp < marker_idx);
+}
+
 // multithread globals
 static double* g_orig_1mpval;
 static double* g_orig_chisq;
@@ -2719,7 +2765,6 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
   double* __restrict__ precomp_d = g_precomp_d;
   double* __restrict__ orig_1mpval = g_orig_1mpval;
   double* __restrict__ orig_chisq = g_orig_chisq;
-  uintptr_t best_cost = 0;
   uint16_t* ldrefs = g_ldrefs;
   uint32_t* __restrict__ gpui;
   double* __restrict__ gpd;
@@ -2739,19 +2784,9 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
   double stat_high;
   double stat_low;
   double sval;
-  uint32_t marker_bidx2;
   uint32_t missing_ct;
   uint32_t het_ct;
   uint32_t homcom_ct;
-  uint32_t homrar_ct;
-  uint32_t marker_idx_tmp;
-  int32_t missing_ct_tmp;
-  int32_t het_ct_tmp;
-  int32_t homcom_ct_tmp;
-  int32_t homrar_ct_tmp;
-  uint32_t loop_ceil;
-  uintptr_t homcom_delta;
-  uintptr_t cur_cost;
   uint32_t ldref;
   memcpy(results, &(g_maxt_extreme_stat[g_perms_done - perm_vec_ct]), perm_vec_ct * sizeof(double));
   if (is_haploid) { // includes g_is_x
@@ -2790,55 +2825,17 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
       if (!is_haploid) {
 	het_ct = het_cts[marker_idx];
         homcom_ct = (col1_sum - het_ct) / 2;
-	homrar_ct = (col2_sum - het_ct) / 2;
       } else {
 	het_ct = 0;
 	homcom_ct = col1_sum;
-	homrar_ct = col2_sum;
       }
       git_homclear_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
       git_missing_cts = &(git_homclear_cts[perm_vec_ctcl4m]);
       git_het_cts = &(git_homclear_cts[2 * perm_vec_ctcl4m]);
       if (ldref == 65535) {
-	// Check if PERMORY-style LD exploitation is better than genotype
-	// indexing algorithm.
-	// Effective inner loop iterations required for genotype indexing:
-	//   het_ct + homrar_ct + missing_ct
-	//
-	// Effective inner loop iterations required for LD exploitation:
-	//   ~50 + 2 * (<-> neither side homcom) + (<-> homcom)
-	// Simple lower bound:
-	//   50 + max(delta(homcom), delta(non-homcom))
-	best_cost = het_ct + homrar_ct + missing_ct;
 	ldref = marker_bidx;
-	if (best_cost > 50) {
-	  marker_idx_tmp = maxt_block_base;
-	  loop_ceil = maxt_block_base2;
-	  do {
-	    if (marker_idx_tmp == maxt_block_base2) {
-	      marker_idx_tmp = maxt_block_base3;
-	      loop_ceil = marker_idx;
-	    }
-	    for (; marker_idx_tmp < loop_ceil; marker_idx_tmp++) {
-	      if (ldrefs[marker_idx_tmp] != 65535) {
-		missing_ct_tmp = missing_cts[marker_idx_tmp];
-		homcom_ct_tmp = homcom_cts[marker_idx_tmp];
-		het_ct_tmp = het_cts[marker_idx_tmp];
-		homrar_ct_tmp = pheno_nm_ct - missing_ct_tmp - het_ct_tmp - homcom_ct_tmp;
-		homcom_delta = labs(((int32_t)homcom_ct) - homcom_ct_tmp);
-		cur_cost = labs(((int32_t)missing_ct) - missing_ct_tmp) + labs(((int32_t)homrar_ct) - homrar_ct_tmp) + labs(((int32_t)het_ct) - het_ct_tmp);
-		cur_cost = 50 + MAXV(homcom_delta, cur_cost);
-		if (cur_cost < best_cost) {
-		  marker_bidx2 = marker_idx_tmp - maxt_block_base;
-		  cur_cost = 50 + rem_cost(pheno_nm_ctl2, &(loadbuf[marker_bidx2 * pheno_nm_ctl2]), loadbuf_cur);
-		  if (cur_cost < best_cost) {
-		    ldref = marker_bidx2;
-		    best_cost = cur_cost;
-		  }
-		}
-	      }
-	    }
-	  } while (marker_idx_tmp < marker_idx);
+	if (pheno_nm_ct - homcom_ct > 50) {
+	  check_for_better_rem_cost(pheno_nm_ct - homcom_ct - 50, maxt_block_base, maxt_block_base2, maxt_block_base3, marker_idx, missing_cts, homcom_cts, het_cts, ldrefs, pheno_nm_ct, missing_ct, het_ct, homcom_ct, loadbuf, loadbuf_cur, &ldref);
 	}
 	ldrefs[marker_idx] = ldref;
       }
