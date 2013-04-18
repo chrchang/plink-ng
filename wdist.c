@@ -8971,7 +8971,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --trend cannot be used with --model dom/rec/gen.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	logprint("Note: --trend flag deprecated.  Use '--model trend-only ...'.\n");
+	logprint("Note: --trend flag deprecated.  Use '--model trend ...'.\n");
 	model_modifier |= MODEL_PTREND | MODEL_TRENDONLY;
 	goto main_param_zero;
       } else {
