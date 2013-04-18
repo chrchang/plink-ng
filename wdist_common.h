@@ -223,6 +223,10 @@ typedef union {
 #define DUMMY_1234 16
 #define DUMMY_12 32
 
+#define SIMULATE_QT 1
+#define SIMULATE_TAGS 2
+#define SIMULATE_HAPS 4
+
 #define MODEL_ASSOC 1
 #define MODEL_FISHER 2
 #define MODEL_PERM 4

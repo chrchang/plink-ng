@@ -4974,7 +4974,7 @@ void get_model_assoc_precomp_bounds(uint32_t missing_ct, uint32_t is_model, uint
   }
 }
 
-int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_nm, uintptr_t* sex_male) {
+int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
@@ -6453,6 +6453,49 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     if (model_adapt) {
       memcpy(outname_end2, ".perm", 6);
     } else {
+      if (mperm_save == 1) {
+	if (wkspace_alloc_c_checked(&a1ptr, FNAMESIZE)) {
+	  goto model_assoc_ret_NOMEM;
+	}
+	ulii = outname_end - outname;
+	memcpy(a1ptr, outname, ulii);
+	memcpy(&(a1ptr[ulii]), ".mperm.dump.best", 17);
+	sprintf(logbuf, "Dumping best permutation statistics to %s.\n", a1ptr);
+	logprintb();
+	if (fopen_checked(&outfile, a1ptr, "w")) {
+	  goto model_assoc_ret_OPEN_FAIL;
+	}
+	dxx = 0;
+	if (g_model_fisher) {
+	  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+	    if (g_orig_1mpval[marker_idx] > dxx) {
+	      dxx = g_orig_1mpval[marker_idx];
+	    }
+	  }
+	  dxx = 1 - dxx;
+	} else {
+	  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+	    if (g_orig_chisq[marker_idx] > dxx) {
+	      dxx = g_orig_chisq[marker_idx];
+	    }
+	  }
+	}
+        memcpy(tbuf, "0 ", 2);
+	wptr = double_g_writex(&(tbuf[2]), dxx, '\n');
+	if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
+	  goto model_assoc_ret_WRITE_FAIL;
+	}
+	for (uii = 0; uii < perms_total; uii++) {
+	  wptr = uint32_writex(tbuf, uii + 1, ' ');
+	  wptr = double_g_writex(wptr, g_maxt_extreme_stat[uii], '\n');
+	  if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
+	    goto model_assoc_ret_WRITE_FAIL;
+	  }
+	}
+	if (fclose_null(&outfile)) {
+	  goto model_assoc_ret_WRITE_FAIL;
+	}
+      }
       memcpy(outname_end2, ".mperm", 7);
     }
     if (fopen_checked(&outfile, outname, "w")) {
@@ -6576,7 +6619,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   return retval;
 }
 
-int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t xmhh_exists, uint32_t nxmhh_exists, uint32_t perm_batch_size) {
+int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t xmhh_exists, uint32_t nxmhh_exists, uint32_t perm_batch_size) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = 2 * ((unfiltered_indiv_ct + BITCT - 1) / BITCT);
@@ -7385,6 +7428,44 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
     if (perm_adapt) {
       memcpy(outname_end2, ".perm", 6);
     } else {
+      if (mperm_save == 1) {
+	memcpy(outname_end, ".mperm.dump.best", 17);
+	sprintf(logbuf, "Dumping best permutation statistics to %s.\n", outname);
+	logprintb();
+	if (fopen_checked(&outfile, outname, "w")) {
+	  goto qassoc_ret_OPEN_FAIL;
+	}
+	dxx = 0;
+	if (!do_lin) {
+	  ooptr = g_orig_chisq;
+	} else {
+	  ooptr = g_orig_linsq;
+	}
+	for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+	  if (fabs(ooptr[marker_idx]) > dxx) {
+	    dxx = fabs(ooptr[marker_idx]);
+	  }
+	}
+	if (!do_lin) {
+	  dxx = dxx * dxx;
+	}
+        memcpy(tbuf, "0 ", 2);
+	wptr = double_g_writex(&(tbuf[2]), dxx, '\n');
+	if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
+	  goto qassoc_ret_WRITE_FAIL;
+	}
+	for (uii = 0; uii < perms_total; uii++) {
+	  wptr = uint32_writex(tbuf, uii + 1, ' ');
+	  wptr = double_g_writex(wptr, g_maxt_extreme_stat[uii], '\n');
+	  if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile)) {
+	    goto qassoc_ret_WRITE_FAIL;
+	  }
+	}
+	if (fclose_null(&outfile)) {
+	  goto qassoc_ret_WRITE_FAIL;
+	}
+	memcpy(outname_end, ".qassoc", 7);
+      }
       memcpy(outname_end2, ".mperm", 7);
     }
     if (fopen_checked(&outfile, outname, "w")) {
