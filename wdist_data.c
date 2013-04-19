@@ -4665,6 +4665,42 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
   return retval;
 }
 
+int32_t simulate_cc(char* outname, char* outname_end, uint32_t flags, char* simulate_fname, uint32_t case_ct, uint32_t ctrl_ct, double prevalence, double missing_freq, char* name_suffix) {
+  FILE* outfile = NULL;
+  unsigned char* wkspace_mark = wkspace_base;
+  int32_t retval = 0;
+  memcpy(outname_end, ".bim", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto simulate_cc_ret_OPEN_FAIL;
+  }
+  while (0) {
+  simulate_cc_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  }
+  fclose_cond(outfile);
+  wkspace_reset(wkspace_mark);
+  return retval;
+}
+
+int32_t simulate_qt(char* outname, char* outname_end, uint32_t flags, char* simulate_fname, uint32_t indiv_ct, double missing_freq, char* name_suffix) {
+  FILE* outfile = NULL;
+  unsigned char* wkspace_mark = wkspace_base;
+  int32_t retval = 0;
+  memcpy(outname_end, ".bim", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto simulate_qt_ret_OPEN_FAIL;
+  }
+  while (0) {
+  simulate_qt_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  }
+  fclose_cond(outfile);
+  wkspace_reset(wkspace_mark);
+  return retval;
+}
+
 int32_t recode_allele_load(char* recode_allele_name, char*** allele_missing_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* recode_allele_reverse, char* recode_allele_extra) {
   FILE* rafile = NULL;
   uint32_t missing_allele = 0;

@@ -71,7 +71,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (19 Apr 2013)";
+  " (20 Apr 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -925,6 +925,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     --read-freq if you want to explicitly specify some or all\n"
 "                     of the MAFs.)\n"
 	       );
+    help_print("mperm-save\tmperm-save-all", &help_ctrl, 0,
+"  --mperm-save     : Save best max(T) permutation test statistics.\n"
+"  --mperm-save-all : Save all max(T) permutation test statistics.\n"
+	       );
     help_print("recode\trecode-allele", &help_ctrl, 0,
 "  --recode-allele [f] : With --recode A or --recode AD, count alleles named in\n"
 "                        the file (instead of the minor allele).\n"
@@ -932,9 +936,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("keep-allele-order\tmake-bed\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
 "  --keep-allele-order : Keep the original allele order when creating a new\n"
 "                        fileset, instead of forcing A2 to be the major allele.\n"
-	       );
-    help_print("mperm-save\tmperm-save-all", &help_ctrl, 0,
-"  --mperm-save <all>  : Save max(T) permutation test statistics.\n"
 	       );
     help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,
 "  --update-map [f] <chr | cm | name> : Update marker information.\n"
@@ -5977,7 +5978,7 @@ int32_t main(int32_t argc, char** argv) {
   double dummy_missing_geno = 0.0;
   double dummy_missing_pheno = 0.0;
   char* simulate_fname = NULL;
-  uint32_t simulate_modifier = 0;
+  uint32_t simulate_flags = 0;
   uint32_t simulate_cases = 100;
   uint32_t simulate_controls = 100;
   double simulate_prevalence = 0.01;
@@ -6684,7 +6685,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	aperm_min = ii + 1;
 	ii = atoi(argv[cur_arg + 2]);
-	if ((ii < ((int32_t)aperm_min)) || (ii > APERM_MAX)) {
+	if ((ii <= ((int32_t)aperm_min)) || (ii > APERM_MAX)) {
 	  sprintf(logbuf, "Error: Invalid --aperm max permutation count '%s'.%s", argv[cur_arg + 2], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8163,20 +8164,13 @@ int32_t main(int32_t argc, char** argv) {
 	model_mperm_val = mperm_val;
 	model_modifier |= MODEL_MPERM;
       } else if (!memcmp(argptr2, "perm-save", 10)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	if (param_ct == 1) {
-	  if (memcmp(argv[cur_arg + 1], "all", 4)) {
-	    sprintf(logbuf, "Error: Invalid --mperm-save parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
-	  }
-	  mperm_save = 2;
-	} else {
-	  mperm_save = 1;
-	}
+	mperm_save = 1;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "perm-save-all", 14)) {
-	logprint("Note: --mperm-save-all flag deprecated.  Use '--mperm-save all'.\n");
+	if (mperm_save) {
+	  logprint("Error: --mperm-save cannot be used with --mperm-save-all.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
 	mperm_save = 2;
 	goto main_param_zero;
       } else {
@@ -8371,7 +8365,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	perm_batch_size = atoi(argv[cur_arg + 1]);
-	if ((perm_batch_size < 64) || (perm_batch_size > 2147483647)) {
+	if ((perm_batch_size < 1) || (perm_batch_size > 2147483647)) {
 	  sprintf(logbuf, "Error: Invalid --perm-batch-size parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8841,13 +8835,13 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	if (argptr2[7] == '-') {
-	  simulate_modifier |= SIMULATE_QT;
+	  simulate_flags |= SIMULATE_QT;
 	}
 	if (param_ct == 2) {
 	  if (!memcmp(argv[cur_arg + 2], "tags", 5)) {
-	    simulate_modifier |= SIMULATE_TAGS;
+	    simulate_flags |= SIMULATE_TAGS;
 	  } else if (!memcmp(argv[cur_arg + 2], "haps", 5)) {
-	    simulate_modifier |= SIMULATE_HAPS;
+	    simulate_flags |= SIMULATE_HAPS;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --s%s parameter '%s'.%s", argptr2, argv[cur_arg + 2], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
@@ -9264,11 +9258,6 @@ int32_t main(int32_t argc, char** argv) {
       }
     }
   }
-  if (mperm_save == 2) {
-    logprint("Error: '--mperm-save all' not yet implemented.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto main_ret_1;
-  }
   if (!phenoname) {
     if (prune && (!fam_col_6)) {
       sprintf(logbuf, "Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.%s", errstr_append);
@@ -9448,7 +9437,11 @@ int32_t main(int32_t argc, char** argv) {
       } else if (load_rare & LOAD_RARE_DUMMY) {
 	retval = generate_dummy(outname, sptr, dummy_flags, (uint32_t)dummy_marker_ct, (uint32_t)dummy_indiv_ct, dummy_missing_geno, dummy_missing_pheno);
       } else if (load_rare & LOAD_RARE_SIMULATE) {
-	;;;
+	if (simulate_flags & SIMULATE_QT) {
+	  retval = simulate_qt(outname, sptr, simulate_flags, simulate_fname, simulate_qt_indivs, simulate_missing, simulate_label);
+	} else {
+	  retval = simulate_cc(outname, sptr, simulate_flags, simulate_fname, simulate_cases, simulate_controls, simulate_prevalence, simulate_missing, simulate_label);
+	}
       } else {
         retval = ped_to_bed(pedname, mapname, outname, sptr, fam_col_1, fam_col_34, fam_col_5, fam_col_6, affection_01, missing_pheno, &chrom_info);
 	fam_col_1 = 1;

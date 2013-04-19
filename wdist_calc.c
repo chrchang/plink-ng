@@ -1435,7 +1435,7 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m
   // 1. N + \sum_i x_i = popcount_variant(vec1 & mask2)
   // The "variant" suffix refers to starting with two-bit integers instead of
   // one-bit integers in our summing process, so we get to skip a few
-  // operations.  (Once all reserachers are using machines with fast hardware
+  // operations.  (Once all researchers are using machines with fast hardware
   // popcount, a slightly different implementation would be better.)
   //
   // 2. zcheck := (vec1 | vec2) & 0x5555...
