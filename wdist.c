@@ -337,7 +337,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    brackets describes its nature.\n"
 "  * <angle brackets> denote an optional modifier (or if '|' is present, a set\n"
 "    of mutually exclusive optional modifiers).  Use the EXACT text in the\n"
-"    definition, e.g. '--distance square0'.\n"
+"    definition, e.g. '--dummy acgt'.\n"
 "  * There's one exception to the angle brackets/exact text rule: when an angle\n"
 "    bracket term ends with '=[value]', '[value]' designates a variable\n"
 "    parameter.\n"
@@ -8164,14 +8164,10 @@ int32_t main(int32_t argc, char** argv) {
 	model_mperm_val = mperm_val;
 	model_modifier |= MODEL_MPERM;
       } else if (!memcmp(argptr2, "perm-save", 10)) {
-	mperm_save = 1;
+	mperm_save |= MPERM_DUMP_BEST;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "perm-save-all", 14)) {
-	if (mperm_save) {
-	  logprint("Error: --mperm-save cannot be used with --mperm-save-all.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	mperm_save = 2;
+	mperm_save |= MPERM_DUMP_ALL;
 	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;

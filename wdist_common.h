@@ -247,6 +247,9 @@ typedef union {
 #define MODEL_LIN 32768
 #define MODEL_QMASK (MODEL_QT_MEANS | MODEL_LIN)
 
+#define MPERM_DUMP_BEST 1
+#define MPERM_DUMP_ALL 2
+
 // (2^31 - 1000001) / 2
 #define APERM_MAX 1073241823
 
