@@ -5154,7 +5154,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     }
   }
   *outname_end = '\0';
-  sprintf(" done.\nRealized simulation parameters saved to %s.simfreq.\n", outname);
+  sprintf(logbuf, " done.\nRealized simulation parameters saved to %s.simfreq.\n", outname);
   logprintb();
   while (0) {
   simulate_ret_NOMEM:
