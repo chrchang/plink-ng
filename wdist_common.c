@@ -89,7 +89,7 @@ void wkspace_reset(void* new_base) {
   wkspace_left += freed_bytes;
 }
 
-uint32_t match_upper(char* ss, char* fixed_str) {
+uint32_t match_upper(char* ss, const char* fixed_str) {
   // Returns whether uppercased ss matches nonempty fixed_str.  Assumes
   // fixed_str contains nothing but letters and a null terminator.
   char cc = *fixed_str++;
@@ -102,7 +102,7 @@ uint32_t match_upper(char* ss, char* fixed_str) {
   return !(*ss);
 }
 
-uint32_t match_upper_nt(char* ss, char* fixed_str, uint32_t ct) {
+uint32_t match_upper_nt(char* ss, const char* fixed_str, uint32_t ct) {
   do {
     if ((((unsigned char)(*ss++)) & 0xdf) != ((unsigned char)(*fixed_str++))) {
       return 0;

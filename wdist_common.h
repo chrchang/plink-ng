@@ -532,7 +532,7 @@ static inline int32_t is_space_or_eoln(char cc) {
 
 uint32_t match_upper(char* ss, const char* fixed_str);
 
-uint32_t match_upper_nt(char* ss, char* fixed_str, uint32_t ct);
+uint32_t match_upper_nt(char* ss, const char* fixed_str, uint32_t ct);
 
 int32_t atoiz(char* ss, int32_t* sval);
 
