@@ -557,7 +557,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      arithmetic, which is generally good enough; this decreases memory usage\n"
 "      and speeds up computation.\n"
                );
-    help_print("make-grm\tgrm", &help_ctrl, 1,
+    help_print("make-grm\tmake-grm-bin\tgrm\tgrm-bin", &help_ctrl, 1,
 "  --make-grm <no-gz> <cov | ibc1 | ibc2> <single-prec>\n"
 "  --make-grm-bin <cov | ibc1 | ibc2>\n"
 "    --make-grm writes the relationships in GCTA's gzipped list format, which\n"
@@ -7865,7 +7865,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	rel_calc_type |= REL_CALC_GRM_BIN;
+	rel_calc_type |= REL_CALC_GRM_BIN | REL_CALC_SINGLE_PREC;
 	if (param_ct) {
 	  if (!memcmp(argv[cur_arg + 1], "cov", 4)) {
 	    if (calculation_type & CALC_IBC) {

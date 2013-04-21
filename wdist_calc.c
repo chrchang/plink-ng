@@ -7436,6 +7436,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
   FILE* outfile = NULL;
+  FILE* out_bin_nfile = NULL;
   gzFile gz_outfile = NULL;
   int32_t retval = 0;
   uint64_t ullxx = 0;
@@ -7454,6 +7455,8 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
   float* rel_ibc;
   uintptr_t ulii;
   uintptr_t uljj;
+  float fxx;
+  uint32_t* mdeptr;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -7721,6 +7724,46 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
       if (fclose_null(&outfile)) {
 	goto calc_rel_f_ret_WRITE_FAIL;
       }
+    } else if (rel_calc_type & REL_CALC_GRM_BIN) {
+      memcpy(outname_end, ".grm.N.bin", 11);
+      if (parallel_tot > 1) {
+	outname[10] = '.';
+	uint32_writex(&(outname[11]), parallel_idx + 1, '\0');
+      }
+      if (fopen_checked(&out_bin_nfile, outname, "wb")) {
+	goto calc_rel_f_ret_OPEN_FAIL;
+      }
+      memcpy(outname_end, ".grm.bin", 9);
+      if (parallel_tot > 1) {
+	outname[8] = '.';
+	uint32_writex(&(outname[9]), parallel_idx + 1, '\0');
+      }
+      if (fopen_checked(&outfile, outname, "wb")) {
+	goto calc_rel_f_ret_OPEN_FAIL;
+      }
+      mdeptr = g_missing_dbl_excluded;
+      for (indiv_idx = min_indiv; indiv_idx < max_parallel_indiv; indiv_idx++) {
+	if (fwrite_checkedz(&(g_rel_f_dists[((int64_t)indiv_idx * (indiv_idx - 1)) / 2 - g_cr_start_offset]), indiv_idx * sizeof(float), outfile)) {
+	  goto calc_rel_f_ret_WRITE_FAIL;
+	}
+	if (fwrite_checked(dptr2++, sizeof(float), outfile)) {
+	  goto calc_rel_f_ret_WRITE_FAIL;
+	}
+	uii = marker_ct - g_indiv_missing_unwt[indiv_idx];
+	for (ujj = 0; ujj < indiv_idx; ujj++) {
+	  fxx = (float)((int32_t)(uii - g_indiv_missing_unwt[ujj] + (*mdeptr++)));
+	  fwrite(&fxx, 4, 1, out_bin_nfile);
+	}
+	fxx = (float)((int32_t)uii);
+	if (fwrite_checked(&fxx, sizeof(float), out_bin_nfile)) {
+	  goto calc_rel_f_ret_WRITE_FAIL;
+	}
+	if ((((uint64_t)indiv_idx + 1) * (indiv_idx + 2) / 2 - g_cr_start_offset) >= g_cr_hundredth * g_pct) {
+	  g_pct = (((uint64_t)indiv_idx + 1) * (indiv_idx + 2) / 2 - g_cr_start_offset) / g_cr_hundredth;
+	  printf("\rWriting... %u%%", g_pct++);
+	  fflush(stdout);
+	}
+      }
     } else {
       g_cr_indiv1idx = min_indiv;
       g_cr_indiv2idx = 0;
@@ -7833,6 +7876,7 @@ int32_t calc_rel_f(pthread_t* threads, int32_t parallel_idx, int32_t parallel_to
   }
  calc_rel_f_ret_1:
   fclose_cond(outfile);
+  fclose_cond(out_bin_nfile);
   gzclose_cond(gz_outfile);
   return retval;
 }
