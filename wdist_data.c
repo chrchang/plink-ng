@@ -4665,38 +4665,318 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
   return retval;
 }
 
-int32_t simulate_cc(char* outname, char* outname_end, uint32_t flags, char* simulate_fname, uint32_t case_ct, uint32_t ctrl_ct, double prevalence, double missing_freq, char* name_suffix) {
-  FILE* outfile = NULL;
-  unsigned char* wkspace_mark = wkspace_base;
-  int32_t retval = 0;
-  memcpy(outname_end, ".bim", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto simulate_cc_ret_OPEN_FAIL;
-  }
-  while (0) {
-  simulate_cc_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
-  }
-  fclose_cond(outfile);
-  wkspace_reset(wkspace_mark);
-  return retval;
+void simulate_init_freqs_qt(double dprime, double missing_freq, double* freqs) {
+  // initialize frequency table for current SNP.  Similar to instanceSNP_QT()
+  // in PLINK simul.cpp.
+  // double freq = freqs[0];
+  // double mfreq = freqs[1];
 }
 
-int32_t simulate_qt(char* outname, char* outname_end, uint32_t flags, char* simulate_fname, uint32_t indiv_ct, double missing_freq, char* name_suffix) {
-  FILE* outfile = NULL;
+void simulate_init_freqs_cc(double dprime, double missing_freq, double* freqs) {
+  // Similar to instanceSNP().
+  double freq = freqs[0];
+  double mfreq = freqs[1];
+  double ld = freq * (1 - mfreq);
+
+  // joint causal variant/marker probabilities
+  double h21 = (1 - freq) * mfreq;
+  double h11;
+  double h12;
+  double h22;
+
+  // double dxx;
+  if (h21 < ld) {
+    ld = h21;
+  }
+  ld *= dprime;
+  h11 = freq * mfreq + ld;
+  h12 = freq * (1 - mfreq) - ld;
+  h21 -= ld;
+  h22 = (1 - freq) * (1 - mfreq) + ld;
+
+}
+
+int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char* simulate_fname, uint32_t case_ct, uint32_t ctrl_ct, double prevalence, uint32_t indiv_ct, double missing_freq, char* name_suffix) {
+  FILE* infile = NULL;
+  FILE* outfile_txt = NULL;
+  FILE* outfile_simfreq = NULL;
+  FILE* outfile_bed = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   int32_t retval = 0;
-  memcpy(outname_end, ".bim", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto simulate_qt_ret_OPEN_FAIL;
+  uint32_t do_tags = flags & SIMULATE_TAGS;
+  uint32_t do_haps = flags & SIMULATE_HAPS;
+  uint32_t tags_or_haps = do_tags | do_haps;
+  uint32_t is_qt = flags & SIMULATE_QT;
+  uint32_t randomize_alleles = flags & (SIMULATE_ACGT | SIMULATE_1234 | SIMULATE_12);
+  // uint32_t simulate_12 = flags & SIMULATE_12;
+  double* qt_vals = NULL;
+  double dxx = 0;
+  double dyy = 0;
+  double qt_totvar = 0;
+  uint32_t cur_marker_ct = 0;
+  char* cur_snp_label = &(tbuf[MAXLINELEN]);
+  uint32_t snp_label_len = 0;
+  double marker_freq_lb = 0;
+  double marker_freq_delta = 0;
+  double dprime = 0;
+  double het_odds = 0;
+  double hom_odds = 0;
+  double qt_var = 0;
+  double qt_dom = 0;
+  char* marker_freq_lb_ptr = NULL;
+  char* marker_ld_ptr = NULL;
+  char alleles[13];
+  double freqs[38];
+  unsigned char* writebuf;
+  char* cptr;
+  char* snp_label_ptr;
+  char* freq_lb_ptr;
+  char* penult_ptr; // het disease odds for C/C, additive genetic var for QT
+  char* last_ptr; // homset disease odds for C/C, dominance/additive for QT
+  char* wptr;
+  uintptr_t indiv_ct4;
+  sfmt_t* sfmt64;
+  uint32_t indiv_idx;
+  uint32_t cur_marker_idx;
+  double freq_lb;
+  double freq_delta;
+  int32_t ii;
+  // uint32_t uii;
+  double dzz;
+  if (!is_qt) {
+    indiv_ct = case_ct + ctrl_ct;
+  } else {
+    if (wkspace_alloc_d_checked(&qt_vals, indiv_ct * sizeof(double))) {
+      goto simulate_ret_NOMEM;
+    }
+    fill_double_zero(qt_vals, indiv_ct);
   }
+  indiv_ct4 = (indiv_ct + 3) / 4;
+  if (randomize_alleles) {
+    if (flags & SIMULATE_ACGT) {
+      memcpy(alleles, "ACAGATCGCTGTA", 13);
+    } else if (flags & SIMULATE_1234) {
+      memcpy(alleles, "1213142324341", 13);
+    } else {
+      memcpyl3(alleles, "121");
+    }
+  }
+  if (wkspace_alloc_uc_checked(&writebuf, indiv_ct4)) {
+    goto simulate_ret_NOMEM;
+  }
+  if (fopen_checked(&infile, simulate_fname, "r")) {
+    goto simulate_ret_OPEN_FAIL;
+  }
+  memcpy(outname_end, ".bim", 5);
+  if (fopen_checked(&outfile_txt, outname, "w")) {
+    goto simulate_ret_OPEN_FAIL;
+  }
+  memcpy(outname_end, ".simfreq", 9);
+  if (fopen_checked(&outfile_simfreq, outname, "w")) {
+    goto simulate_ret_OPEN_FAIL;
+  }
+  memcpy(outname_end, ".bed", 5);
+  if (fopen_checked(&outfile_bed, outname, "wb")) {
+    goto simulate_ret_OPEN_FAIL;
+  }
+  if (fwrite_checked("l\x1b\x01", 3, outfile_bed)) {
+    goto simulate_ret_WRITE_FAIL;
+  }
+  sprintf(logbuf, "Writing --simulate%s dataset to %s + .bim + .fam...", is_qt? "-qt" : "", outname);
+  logprintb();
+  fflush(stdout);
+  sfmt64 = (sfmt_t*)wkspace_alloc(sizeof(sfmt_t));
+  if (!sfmt64) {
+    goto simulate_ret_NOMEM;
+  }
+  init_sfmt64_from_sfmt32(&sfmt, sfmt64);
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      sprintf(logbuf, "\nError: Excessively long line in --simulate%s file.\n", is_qt? "-qt" : "");
+      goto simulate_ret_INVALID_FORMAT_2;
+    }
+    cptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*cptr)) {
+      continue;
+    }
+    snp_label_ptr = next_item(cptr);
+    freq_lb_ptr = next_item(snp_label_ptr);
+    if (tags_or_haps) {
+      marker_freq_lb_ptr = next_item_mult(freq_lb_ptr, 2);
+      marker_ld_ptr = next_item_mult(marker_freq_lb_ptr, 2);
+      penult_ptr = next_item(marker_ld_ptr);
+    } else {
+      penult_ptr = next_item_mult(freq_lb_ptr, 2);
+    }
+    last_ptr = next_item(penult_ptr);
+    if (no_more_items(last_ptr)) {
+      sprintf(logbuf, "\nError: Missing field(s) in --simulate%s line.\n", is_qt? "-qt" : "");
+      goto simulate_ret_INVALID_FORMAT_2;
+    }
+    if (!no_more_items(next_item(last_ptr))) {
+      sprintf(logbuf, "\nError: Too many field(s) in --simulate%s line.\n", is_qt? "-qt" : "");
+      goto simulate_ret_INVALID_FORMAT_2;
+    }
+    if (atoiz(cptr, &ii)) {
+      sprintf(logbuf, "\nError: Invalid marker count in --simulate%s line.\n", is_qt? "-qt" : "");
+      goto simulate_ret_INVALID_FORMAT_2;
+    }
+    if (!ii) {
+      continue;
+    }
+    cur_marker_ct = ii;
+    snp_label_len = strlen_se(snp_label_ptr);
+    memcpy(cur_snp_label, snp_label_ptr, snp_label_len);
+    cur_snp_label[snp_label_len++] = '_';
+    if ((sscanf(freq_lb_ptr, "%lg %lg", &freq_lb, &freq_delta) != 2) || (freq_lb < 0) || (freq_delta < freq_lb) || (freq_delta > 1)) {
+      sprintf(logbuf, "\nError: Invalid allele frequency bound in --simulate%s line.\n", is_qt? "-qt" : "");
+      goto simulate_ret_INVALID_FORMAT_2;
+    }
+    freq_delta -= freq_lb;
+    if (tags_or_haps) {
+      if ((sscanf(marker_freq_lb_ptr, "%lg %lg", &marker_freq_lb, &marker_freq_delta) != 2) || (marker_freq_lb < 0) || (marker_freq_delta < marker_freq_lb) || (marker_freq_delta > 1)) {
+	sprintf(logbuf, "\nError: Invalid marker allele frequency bound in --simulate%s line.\n", is_qt? "-qt" : "");
+	goto simulate_ret_INVALID_FORMAT_2;
+      }
+      marker_freq_delta -= marker_freq_lb;
+      if ((sscanf(marker_ld_ptr, "%lg", &dprime) != 1) || (dprime < 0) || (dprime > 1)) {
+	sprintf(logbuf, "\nError: Invalid d-prime in --simulate%s line.\n", is_qt? "-qt" : "");
+	goto simulate_ret_INVALID_FORMAT_2;
+      }
+    }
+    if (is_qt) {
+      if ((sscanf(penult_ptr, "%lg", &qt_var) != 1) || (qt_var < 0) || (qt_var > 1)) {
+	logprint("\nError: Invalid variance value in --simulate-qt line.\n");
+	goto simulate_ret_INVALID_FORMAT;
+      }
+      qt_totvar += ((intptr_t)cur_marker_ct) * qt_var;
+      if (qt_totvar > 1 + EPSILON) {
+	logprint("\nError: --simulate-qt specific QTL variance greater than 1.\n");
+	goto simulate_ret_INVALID_FORMAT;
+      }
+      if (sscanf(last_ptr, "%lg", &qt_dom) != 1) {
+	logprint("\nError: Invalid dominance deviation value in --simulate-qt line.\n");
+	goto simulate_ret_INVALID_FORMAT;
+      }
+    } else {
+      if ((sscanf(penult_ptr, "%lg", &het_odds) != 1) || (het_odds < 0)) {
+	logprint("\nError: Invalid heterozygote disease odds ratio in --simulate line.\n");
+	goto simulate_ret_INVALID_FORMAT;
+      }
+      if ((strlen_se(last_ptr) == 4) && match_upper_nt(last_ptr, "MULT", 4)) {
+	hom_odds = het_odds * het_odds;
+      } else if ((sscanf(last_ptr, "%lg", &hom_odds) != 1) || (hom_odds < 0)) {
+	logprint("\nError: Invalid homozygote disease odds ratio in --simulate line.\n");
+	goto simulate_ret_INVALID_FORMAT;
+      }
+    }
+    for (cur_marker_idx = 0; cur_marker_idx < cur_marker_ct; cur_marker_idx++) {
+      freqs[0] = freq_lb + rand_unif() * freq_delta;
+      if (tags_or_haps) {
+	freqs[1] = marker_freq_lb + rand_unif() * marker_freq_delta;
+      } else {
+	freqs[1] = freqs[0];
+      }
+      if (is_qt) {
+	simulate_init_freqs_qt(dprime, missing_freq, freqs);
+      } else {
+	simulate_init_freqs_cc(dprime, missing_freq, freqs);
+      }
+      wptr = memcpya(tbuf, "1 ", 2);
+      wptr = memcpya(wptr, cur_snp_label, snp_label_len);
+      wptr = uint32_writex(wptr, cur_marker_idx, '\t');
+      dxx = freqs[0];
+      wptr = double_g_writex(wptr, dxx, ' ');
+      wptr = double_g_writex(wptr, dxx, '\t');
+      if (tags_or_haps) {
+	dxx = freqs[1];
+	wptr = double_g_writex(wptr, dxx, ' ');
+	wptr = double_g_writex(wptr, dxx, '\t');
+	wptr = double_g_writex(wptr, dprime, '\t');
+      }
+      if (is_qt) {
+	wptr = double_g_writex(wptr, qt_var, '\t');
+	wptr = double_g_writex(wptr, qt_dom, '\n');
+      } else {
+	wptr = double_g_writex(wptr, het_odds, '\t');
+	wptr = double_g_writex(wptr, hom_odds, '\n');
+      }
+      if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_simfreq)) {
+	goto simulate_ret_WRITE_FAIL;
+      }
+    }
+  }
+  if (!feof(infile)) {
+    goto simulate_ret_READ_FAIL;
+  }
+  if (!cur_marker_ct) {
+    sprintf(logbuf, "\nError: No --simulate%s markers.\n", is_qt? "-qt" : "");
+    goto simulate_ret_INVALID_FORMAT_2;
+  }
+  fclose_null(&outfile_txt);
+  memcpy(outname_end, ".fam", 5);
+  if (fopen_checked(&outfile_txt, outname, "w")) {
+    goto simulate_ret_OPEN_FAIL;
+  }
+  memcpyl3(tbuf, "per");
+  if (is_qt) {
+    if (qt_totvar < 1 - EPSILON) {
+      dyy = sqrt(1 - qt_totvar);
+    } else {
+      dyy = 0;
+    }
+  }
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    wptr = uint32_write(&(tbuf[3]), indiv_idx);
+    wptr = memcpya(wptr, " per", 4);
+    wptr = uint32_write(wptr, indiv_idx);
+    wptr = memcpya(wptr, " 0 0 2 ", 7);
+    if (is_qt) {
+      if (indiv_idx & 1) {
+	dzz = qt_vals[indiv_idx] + dyy * dxx;
+      } else {
+	dzz = qt_vals[indiv_idx] + dyy * rand_normal(&dxx);
+      }
+      wptr = double_g_write(wptr, dzz);
+    } else {
+      if (indiv_idx < case_ct) {
+	*wptr++ = '2';
+      } else {
+	*wptr++ = '1';
+      }
+    }
+    *wptr++ = '\n';
+    if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_txt)) {
+      goto simulate_ret_WRITE_FAIL;
+    }
+  }
+  *outname_end = '\0';
+  sprintf(" done.\nRealized simulation parameters saved to %s.simfreq.\n", outname);
+  logprintb();
   while (0) {
-  simulate_qt_ret_OPEN_FAIL:
+  simulate_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  simulate_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
+  simulate_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  simulate_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  simulate_ret_INVALID_FORMAT_2:
+    logprintb();
+  simulate_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
   }
-  fclose_cond(outfile);
+  fclose_cond(infile);
+  fclose_cond(outfile_txt);
+  fclose_cond(outfile_simfreq);
+  fclose_cond(outfile_bed);
   wkspace_reset(wkspace_mark);
   return retval;
 }

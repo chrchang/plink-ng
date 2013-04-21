@@ -5899,6 +5899,8 @@ uint32_t g_rcb_new_col;
 uint32_t g_rcb_indiv_ct;
 uint64_t g_rcb_progress;
 uint64_t g_rcb_hundredth;
+FILE* g_rcb_in_binfile;
+FILE* g_rcb_in_bin_nfile;
 gzFile g_rcb_cur_gzfile;
 int32_t* g_rcb_rel_ct_arr;
 
@@ -5947,12 +5949,72 @@ uint32_t rel_cutoff_batch_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double rel_cutoff, int32_t rel_calc_type) {
+uint32_t rel_cutoff_batch_rbin_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  char wbuf[16];
+  char* cptr;
+  uint32_t wbuf_ct;
+  uint32_t uii;
+  float fxx;
+
+  while (g_rcb_row < g_rcb_indiv_ct) {
+    if (g_rcb_rel_ct_arr[g_rcb_row] == -1) {
+      fseeko(g_rcb_in_binfile, (g_rcb_row + 1) * sizeof(float), SEEK_CUR);
+      fseeko(g_rcb_in_bin_nfile, (g_rcb_row + 1) * sizeof(float), SEEK_CUR);
+    } else {
+      cptr = uint32_writex(wbuf, g_rcb_new_row, '\t');
+      wbuf_ct = (uintptr_t)(cptr - wbuf);
+      while (g_rcb_col <= g_rcb_row) {
+	if (g_rcb_rel_ct_arr[g_rcb_col] == -1) {
+	  uii = g_rcb_col;
+	  while (++g_rcb_col <= g_rcb_row) {
+	    if (g_rcb_rel_ct_arr[g_rcb_col] != -1) {
+	      break;
+	    }
+	  }
+	  fseeko(g_rcb_in_binfile, (g_rcb_col - uii) * sizeof(float), SEEK_CUR);
+	  fseeko(g_rcb_in_bin_nfile, (g_rcb_col - uii) * sizeof(float), SEEK_CUR);
+	  if (g_rcb_col > g_rcb_row) {
+	    break;
+	  }
+	}
+	sptr_cur = uint32_writex(memcpya(sptr_cur, wbuf, wbuf_ct), ++g_rcb_new_col, '\t');
+	fread(&fxx, 4, 1, g_rcb_in_bin_nfile);
+	sptr_cur = uint32_writex(sptr_cur, (int32_t)fxx, '\t');
+	fread(&fxx, 4, 1, g_rcb_in_binfile);
+	sptr_cur = float_e_writex(sptr_cur, fxx, '\n');
+	g_rcb_col++;
+	if (sptr_cur >= readbuf_end) {
+	  goto rel_cutoff_batch_rbin_emitn_ret;
+	}
+      }
+      g_rcb_new_row++;
+      g_rcb_new_col = 0;
+    }
+    g_rcb_row++;
+    g_rcb_progress += g_rcb_row;
+    if (g_rcb_progress >= g_pct * g_rcb_hundredth) {
+      if (g_pct > 10) {
+	putchar('\b');
+      }
+      g_pct = 1 + (g_rcb_progress / g_rcb_hundredth);
+      printf("\b\b%u%%", g_pct - 1);
+      fflush(stdout);
+    }
+    g_rcb_col = 0;
+  }  
+ rel_cutoff_batch_rbin_emitn_ret:
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
+int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, char* outname_end, double rel_cutoff, int32_t rel_calc_type) {
   // Specialized --rel-cutoff usable on larger files.
   char* grmname_end = (char*)memchr(grmname, 0, FNAMESIZE);
   uintptr_t indiv_ct = 0;
   FILE* idfile = NULL;
   FILE* outfile = NULL;
+  FILE* out_bin_nfile = NULL;
   gzFile cur_gzfile = NULL;
   gzFile gz_outfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
@@ -5977,11 +6039,16 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
   uint32_t col;
   uintptr_t indiv_idx;
   int32_t* rel_ct_arr;
+  float rel_cutoff_f;
+  float fxx;
+  float fyy;
   double dxx;
   int32_t retval;
   int32_t kk;
   int32_t mm;
   int32_t cur_prune;
+  g_rcb_in_binfile = NULL;
+  g_rcb_in_bin_nfile = NULL;
   g_rcb_cur_gzfile = NULL;
   memcpy(grmname_end, ".grm.id", 8);
   if (fopen_checked(&idfile, grmname, "r")) {
@@ -6019,77 +6086,120 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
   }
   fill_int_zero(rel_ct_arr, indiv_ct);
 
-  memcpy(grmname_end, ".grm.gz", 8);
-  if (gzopen_checked(&cur_gzfile, grmname, "rb")) {
-    goto rel_cutoff_batch_ret_OPEN_FAIL;
-  }
-  if (gzbuffer(cur_gzfile, 131072)) {
-    goto rel_cutoff_batch_ret_NOMEM;
-  }
-
-  words_left = tot_words;
-  rtptr = compact_rel_table;
   fputs("Reading... 0%", stdout);
   fflush(stdout);
+  words_left = tot_words;
+  rtptr = compact_rel_table;
   row = 0;
   col = 0;
-  for (g_pct = 1; g_pct <= 100; g_pct++) {
-    wl_floor = (((uint64_t)tot_words) * (100 - g_pct)) / 100;
-    while (words_left > wl_floor) {
-      cur_word = 0;
-      if (--words_left) {
-	inword_bound = BITCT;
-      } else {
-	// only indiv_ct mod (BITCT * 2) matters for remainder
-	uii = indiv_ct & (BITCT * 2 - 1);
-	inword_bound = ((uii * (uii - 1)) / 2) & (BITCT - 1);
-	if (!inword_bound) {
+  if (load_grm_bin) {
+    memcpy(grmname_end, ".grm.bin", 9);
+    if (fopen_checked(&g_rcb_in_binfile, grmname, "rb")) {
+      goto rel_cutoff_batch_ret_OPEN_FAIL;
+    }
+    rel_cutoff_f = (float)rel_cutoff;
+    for (g_pct = 1; g_pct <= 100; g_pct++) {
+      wl_floor = (((uint64_t)tot_words) * (100 - g_pct)) / 100;
+      while (words_left > wl_floor) {
+	cur_word = 0;
+	if (--words_left) {
 	  inword_bound = BITCT;
+	} else {
+	  // only indiv_ct mod (BITCT * 2) matters for remainder
+	  uii = indiv_ct & (BITCT * 2 - 1);
+	  inword_bound = ((uii * (uii - 1)) / 2) & (BITCT - 1);
+	  if (!inword_bound) {
+	    inword_bound = BITCT;
+	  }
 	}
+	for (inword_idx = 0; inword_idx < inword_bound; inword_idx++) {
+	  if (!fread(&fxx, 4, 1, g_rcb_in_binfile)) {
+	    goto rel_cutoff_batch_ret_READ_FAIL;
+	  }
+	  if (row == col) {
+	    row++;
+	    col = 0;
+	    if (!fread(&fxx, 4, 1, g_rcb_in_binfile)) {
+	      goto rel_cutoff_batch_ret_READ_FAIL;
+	    }
+	  }
+	  if (fxx > rel_cutoff_f) {
+	    rel_ct_arr[row] += 1;
+	    rel_ct_arr[col] += 1;
+	    cur_word |= (ONELU << inword_idx);
+	  }
+	  col++;
+	}
+	*rtptr++ = cur_word;
       }
-      for (inword_idx = 0; inword_idx < inword_bound; inword_idx++) {
-	if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
-	  goto rel_cutoff_batch_ret_READ_FAIL;
+    }
+    fclose_null(&g_rcb_in_binfile);
+  } else {
+    memcpy(grmname_end, ".grm.gz", 8);
+    if (gzopen_checked(&cur_gzfile, grmname, "rb")) {
+      goto rel_cutoff_batch_ret_OPEN_FAIL;
+    }
+    if (gzbuffer(cur_gzfile, 131072)) {
+      goto rel_cutoff_batch_ret_NOMEM;
+    }
+    for (g_pct = 1; g_pct <= 100; g_pct++) {
+      wl_floor = (((uint64_t)tot_words) * (100 - g_pct)) / 100;
+      while (words_left > wl_floor) {
+	cur_word = 0;
+	if (--words_left) {
+	  inword_bound = BITCT;
+	} else {
+	  // only indiv_ct mod (BITCT * 2) matters for remainder
+	  uii = indiv_ct & (BITCT * 2 - 1);
+	  inword_bound = ((uii * (uii - 1)) / 2) & (BITCT - 1);
+	  if (!inword_bound) {
+	    inword_bound = BITCT;
+	  }
 	}
-	if (row == col) {
-	  row++;
-	  col = 0;
+	for (inword_idx = 0; inword_idx < inword_bound; inword_idx++) {
 	  if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
 	    goto rel_cutoff_batch_ret_READ_FAIL;
 	  }
+	  if (row == col) {
+	    row++;
+	    col = 0;
+	    if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
+	      goto rel_cutoff_batch_ret_READ_FAIL;
+	    }
+	  }
+	  bufptr = next_item_mult(tbuf, 3);
+	  if (no_more_items_kns(bufptr)) {
+	    goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
+	  }
+	  if (sscanf(bufptr, "%lg", &dxx) != 1) {
+	    goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
+	  }
+	  if (dxx > rel_cutoff) {
+	    rel_ct_arr[row] += 1;
+	    rel_ct_arr[col] += 1;
+	    cur_word |= (ONELU << inword_idx);
+	  }
+	  col++;
 	}
-	bufptr = next_item_mult(tbuf, 3);
-	if (no_more_items_kns(bufptr)) {
-	  goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
-	}
-	if (sscanf(bufptr, "%lg", &dxx) != 1) {
-	  goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
-	}
-	if (dxx > rel_cutoff) {
-	  rel_ct_arr[row] += 1;
-	  rel_ct_arr[col] += 1;
-	  cur_word |= (ONELU << inword_idx);
-	}
-	col++;
+	*rtptr++ = cur_word;
       }
-      *rtptr++ = cur_word;
-    }
-    if (g_pct < 100) {
-      if (g_pct > 10) {
-	putchar('\b');
+      if (g_pct < 100) {
+	if (g_pct > 10) {
+	  putchar('\b');
+	}
+	printf("\b\b%u%%", g_pct);
+	fflush(stdout);
       }
-      printf("\b\b%u%%", g_pct);
-      fflush(stdout);
     }
+    if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
+      goto rel_cutoff_batch_ret_READ_FAIL;
+    }
+    if (gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
+      goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
+    }
+    gzclose(cur_gzfile);
+    cur_gzfile = NULL;
   }
-  if (!gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
-    goto rel_cutoff_batch_ret_READ_FAIL;
-  }
-  if (gzgets(cur_gzfile, tbuf, MAXLINELEN)) {
-    goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
-  }
-  gzclose(cur_gzfile);
-  cur_gzfile = NULL;
   putchar('\r');
   sprintf(logbuf, "%s read complete.  Pruning.\n", grmname);
   logprintb();
@@ -6284,33 +6394,126 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
   logprintb();
   sprintf(logbuf, "Remaining individual IDs written to %s.\n", outname);
   logprintb();
-  if (rel_calc_type & REL_CALC_GRM) {
-    memcpy(grmname_end, ".grm.gz", 8);
-    if (gzopen_checked(&g_rcb_cur_gzfile, grmname, "rb")) {
-      goto rel_cutoff_batch_ret_OPEN_FAIL;
-    }
-    if (gzbuffer(g_rcb_cur_gzfile, 131072)) {
-      goto rel_cutoff_batch_ret_NOMEM;
-    }
+  if (rel_calc_type & (REL_CALC_GRM | REL_CALC_GRM_BIN)) {
     g_pct = 1;
     g_rcb_row = 0;
     g_rcb_col = 0;
     g_rcb_new_row = 1;
     g_rcb_new_col = 0;
-    g_rcb_indiv_ct = indiv_ct;
     g_rcb_progress = 0;
     g_rcb_hundredth = 1 + ((((uint64_t)indiv_ct) * (indiv_ct - 1)) / 100);
-    g_rcb_rel_ct_arr = rel_ct_arr;
+    if (load_grm_bin) {
+      memcpy(grmname_end, ".grm.bin", 9);
+      if (fopen_checked(&g_rcb_in_binfile, grmname, "rb")) {
+	goto rel_cutoff_batch_ret_OPEN_FAIL;
+      }
+      memcpy(grmname_end, ".grm.N.bin", 11);
+      if (fopen_checked(&g_rcb_in_bin_nfile, grmname, "rb")) {
+	goto rel_cutoff_batch_ret_OPEN_FAIL;
+      }
+    } else {
+      memcpy(grmname_end, ".grm.gz", 8);
+      if (gzopen_checked(&g_rcb_cur_gzfile, grmname, "rb")) {
+	goto rel_cutoff_batch_ret_OPEN_FAIL;
+      }
+      if (gzbuffer(g_rcb_cur_gzfile, 131072)) {
+	goto rel_cutoff_batch_ret_NOMEM;
+      }
+    }
     fputs("Rewriting matrix... 0%", stdout);
     fflush(stdout);
-    if (rel_calc_type & REL_CALC_GZ) {
-      memcpy(outname_end, ".grm.gz", 8);
-      parallel_compress(outname, rel_cutoff_batch_emitn);
+    if (rel_calc_type & REL_CALC_GRM) {
+      g_rcb_indiv_ct = indiv_ct;
+      g_rcb_rel_ct_arr = rel_ct_arr;
+      if (load_grm_bin) {
+	if (rel_calc_type & REL_CALC_GZ) {
+	  memcpy(outname_end, ".grm.gz", 8);
+	  parallel_compress(outname, rel_cutoff_batch_rbin_emitn);
+	} else {
+	  memcpy(outname_end, ".grm", 5);
+	  retval = write_uncompressed(outname, rel_cutoff_batch_rbin_emitn);
+	  if (retval) {
+	    goto rel_cutoff_batch_ret_1;
+	  }
+	}
+      } else {
+	if (rel_calc_type & REL_CALC_GZ) {
+	  memcpy(outname_end, ".grm.gz", 8);
+	  parallel_compress(outname, rel_cutoff_batch_emitn);
+	} else {
+	  memcpy(outname_end, ".grm", 5);
+	  retval = write_uncompressed(outname, rel_cutoff_batch_emitn);
+	  if (retval) {
+	    goto rel_cutoff_batch_ret_1;
+	  }
+	}
+      }
     } else {
-      memcpy(outname_end, ".grm", 5);
-      retval = write_uncompressed(outname, rel_cutoff_batch_emitn);
-      if (retval) {
-	goto rel_cutoff_batch_ret_1;
+      memcpy(outname_end, ".grm.N.bin", 11);
+      if (fopen_checked(&out_bin_nfile, outname, "wb")) {
+	goto rel_cutoff_batch_ret_OPEN_FAIL;
+      }
+      memcpy(outname_end, ".grm.bin", 9);
+      if (fopen_checked(&outfile, outname, "wb")) {
+	goto rel_cutoff_batch_ret_OPEN_FAIL;
+      }
+      while (g_rcb_row < indiv_ct) {
+	if (rel_ct_arr[g_rcb_row] == -1) {
+	  if (load_grm_bin) {
+	    fseeko(g_rcb_in_binfile, (g_rcb_row + 1) * sizeof(float), SEEK_CUR);
+	    fseeko(g_rcb_in_bin_nfile, (g_rcb_row + 1) * sizeof(float), SEEK_CUR);
+	  } else {
+	    for (uii = 0; uii <= g_rcb_row; uii++) {
+	      gzgets(g_rcb_cur_gzfile, tbuf, MAXLINELEN);
+	    }
+	  }
+	} else {
+	  if (load_grm_bin) {
+	    while (g_rcb_col <= g_rcb_row) {
+	      if (rel_ct_arr[g_rcb_col] == -1) {
+		uii = g_rcb_col;
+		while (++g_rcb_col <= g_rcb_row) {
+		  if (rel_ct_arr[g_rcb_col] != -1) {
+		    break;
+		  }
+		}
+		fseeko(g_rcb_in_bin_nfile, (g_rcb_col - uii) * sizeof(float), SEEK_CUR);
+		fseeko(g_rcb_in_bin_nfile, (g_rcb_col - uii) * sizeof(float), SEEK_CUR);
+		if (g_rcb_col > g_rcb_row) {
+		  break;
+		}
+	      }
+	      fread(&fxx, 4, 1, g_rcb_in_bin_nfile);
+	      fwrite(&fxx, 4, 1, out_bin_nfile);
+	      fread(&fxx, 4, 1, g_rcb_in_binfile);
+	      fwrite(&fxx, 4, 1, outfile);
+	      g_rcb_col++;
+	    }
+	  } else {
+	    while (g_rcb_col <= g_rcb_row) {
+	      gzgets(g_rcb_cur_gzfile, tbuf, MAXLINELEN);
+	      if (rel_ct_arr[g_rcb_col++] != -1) {
+		bufptr = next_item_mult(tbuf, 2);
+		sscanf(bufptr, "%g %e", &fxx, &fyy);
+		fwrite(&fxx, 4, 1, out_bin_nfile);
+		fwrite(&fyy, 4, 1, outfile);
+	      }
+	    }
+	  }
+	  g_rcb_new_row++;
+	  g_rcb_new_col = 0;
+	}
+	g_rcb_row++;
+	g_rcb_progress += g_rcb_row;
+	if (g_rcb_progress >= g_pct * g_rcb_hundredth) {
+	  if (g_pct > 10) {
+	    putchar('\b');
+	  }
+	  g_pct = 1 + (g_rcb_progress / g_rcb_hundredth);
+	  printf("\b\b%u%%", g_pct - 1);
+	  fflush(stdout);
+	}
+	g_rcb_col = 0;
       }
     }
     putchar('\r');
@@ -6340,7 +6543,10 @@ int32_t rel_cutoff_batch(char* grmname, char* outname, char* outname_end, double
   }
  rel_cutoff_batch_ret_1:
   fclose_cond(idfile);
+  fclose_cond(g_rcb_in_binfile);
+  fclose_cond(g_rcb_in_bin_nfile);
   fclose_cond(outfile);
+  fclose_cond(out_bin_nfile);
   gzclose_cond(cur_gzfile);
   gzclose_cond(g_rcb_cur_gzfile);
   gzclose_cond(gz_outfile);

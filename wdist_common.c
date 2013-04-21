@@ -89,9 +89,30 @@ void wkspace_reset(void* new_base) {
   wkspace_left += freed_bytes;
 }
 
+uint32_t match_upper(char* ss, char* fixed_str) {
+  // Returns whether uppercased ss matches nonempty fixed_str.  Assumes
+  // fixed_str contains nothing but letters and a null terminator.
+  char cc = *fixed_str++;
+  do {
+    if ((((unsigned char)(*ss++)) & 0xdf) != ((unsigned char)cc)) {
+      return 0;
+    }
+    cc = *fixed_str++;
+  } while (cc);
+  return !(*ss);
+}
+
+uint32_t match_upper_nt(char* ss, char* fixed_str, uint32_t ct) {
+  do {
+    if ((((unsigned char)(*ss++)) & 0xdf) != ((unsigned char)(*fixed_str++))) {
+      return 0;
+    }
+  } while (--ct);
+  return 1;
+}
+
 int32_t atoiz(char* ss, int32_t* sval) {
   int32_t ii = atoi(ss);
-  ii = atoi(ss);
   if ((ii < 1) && ((*ss != '0') || (ss[1] != '\0'))) {
     return -1;
   }
@@ -5193,10 +5214,6 @@ void collapse_bitarr_incl(uintptr_t* bitarr, uintptr_t* include_arr, uint32_t or
   }
 }
 
-double rand_unif(void) {
-  return (sfmt_genrand_uint32(&sfmt) + 0.5) * RECIP_2_32;
-}
-
 // implementation used in PLINK stats.cpp
 double normdist(double zz) {
   double sqrt2pi = 2.50662827463;
@@ -5243,6 +5260,19 @@ void pick_d_small(unsigned char* tmp_cbuf, int32_t* ibuf, uint32_t ct, uint32_t 
     }
   }
   *ibuf = ct;
+}
+
+void init_sfmt64_from_sfmt32(sfmt_t* sfmt32, sfmt_t* sfmt64) {
+  // sfmt_genrand_uint64() is not supposed to be called after
+  // sfmt_genrand_uint32() is called on the same generator.  To work around
+  // this, we initialize a new sfmt64 generator with this function when
+  // necessary, and stick to genrand_uint32() calls with the main generator.
+  uint32_t init_arr[4];
+  uint32_t uii;
+  for (uii = 0; uii < 4; uii++) {
+    init_arr[uii] = sfmt_genrand_uint32(sfmt32);
+  }
+  sfmt_init_by_array(sfmt64, init_arr, 4);
 }
 
 void print_pheno_stdev(double* pheno_d, uint32_t indiv_ct) {

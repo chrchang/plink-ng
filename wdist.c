@@ -49,13 +49,14 @@
 #define DEFAULT_IBS_TEST_PERMS 100000
 
 #define LOAD_RARE_GRM 1
-#define LOAD_RARE_LGEN 2
-#define LOAD_RARE_TRANSPOSE 4
-#define LOAD_RARE_TPED 8
-#define LOAD_RARE_TFAM 16
+#define LOAD_RARE_GRM_BIN 2
+#define LOAD_RARE_LGEN 4
+#define LOAD_RARE_TRANSPOSE 8
+#define LOAD_RARE_TPED 16
+#define LOAD_RARE_TFAM 32
 #define LOAD_RARE_TRANSPOSE_MASK (LOAD_RARE_TRANSPOSE | LOAD_RARE_TPED | LOAD_RARE_TFAM)
-#define LOAD_RARE_DUMMY 32
-#define LOAD_RARE_SIMULATE 64
+#define LOAD_RARE_DUMMY 64
+#define LOAD_RARE_SIMULATE 128
 
 // maximum number of usable cluster computers, this is arbitrary though it
 // shouldn't be larger than 2^31 - 1
@@ -71,7 +72,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (20 Apr 2013)";
+  " (21 Apr 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -81,7 +82,7 @@ const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n"
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
 const char cmdline_format_str[] = "\n  wdist [input flag(s)...] [command flag(s)...] {other flag(s)...}\n  wdist --help {flag name(s)...}\n\n";
 const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
-const char notestr_null_calc2[] = "Commands include --freqx, --hardy, --ibc, --distance, --genome, --model,\n--make-rel, --make-grm, --rel-cutoff, --regress-distance, --ibs-test,\n--make-bed, --recode, --merge-list, and --write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --freqx, --hardy, --ibc, --distance, --genome, --model,\n--make-rel, --make-grm-bin, --rel-cutoff, --regress-distance, --ibs-test,\n--make-bed, --recode, --merge-list, and --write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).\n";
 
 int32_t edit1_match(int32_t len1, char* s1, int32_t len2, char* s2) {
   // permit one difference of the following forms:
@@ -377,9 +378,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --gen [filename] : Specify full name of .gen file.\n"
 "  --sample [fname] : Specify full name of .sample file.\n\n"
 	       );
-    help_print("grm\trel-cutoff\tgrm-cutoff", &help_ctrl, 1,
+    help_print("grm\tgrm-bin\trel-cutoff\tgrm-cutoff", &help_ctrl, 1,
 "  --grm {prefix}   : Load a GCTA relationship matrix (.grm.gz + .grm.id) for\n"
-"                     --rel-cutoff.\n\n"
+"                     --rel-cutoff.\n"
+"  --grm-bin {prfx} : Load a GCTA triangular binary relationship matrix\n"
+"                     (.grm.bin + .grm.N.bin + .grm.id) for --rel-cutoff.\n\n"
 	       );
     help_print("dummy", &help_ctrl, 1,
 "  --dummy [indiv ct] [marker ct] {missing geno freq} {missing pheno freq}\n"
@@ -391,8 +394,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    distributed scalar phenotype to be generated instead of a binary one.\n\n"
 	       );
     help_print("simulate\tsimulate-qt", &help_ctrl, 1,
-"  --simulate [.sim file] <tags | haps>\n"
-"  --simulate-qt [.sim file] <tags | haps>\n"
+"  --simulate [.sim file] <tags | haps> <acgt | 1234 | 12>\n"
+"  --simulate-qt [.sim file] <tags | haps> <acgt | 1234 | 12>\n"
 "    --simulate generates a fake input dataset with disease-associated SNPs,\n"
 "    while --simulate-qt generates a dataset with quantitative trait loci.\n\n"
 	       );
@@ -556,10 +559,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
                );
     help_print("make-grm\tgrm", &help_ctrl, 1,
 "  --make-grm <no-gz> <cov | ibc1 | ibc2> <single-prec>\n"
-"    Writes the relationships in GCTA's gzipped list format, describing one pair\n"
-"    per line.  Note that this file explicitly stores the number of valid\n"
-"    observations (where neither individual has a missing call) for each pair,\n"
-"    which is useful input for some scripts.\n\n"
+"  --make-grm-bin <cov | ibc1 | ibc2>\n"
+"    --make-grm writes the relationships in GCTA's gzipped list format, which\n"
+"    describes one pair per line, while --make-grm-bin writes them in GCTA's\n"
+"    single-precision triangular binary format.  Note that these formats\n"
+"    explicitly store the number of valid observations (where neither individual\n"
+"    has a missing call) for each pair, which is useful input for some scripts.\n\n"
 	       );
     help_print("rel-cutoff\tgrm-cutoff", &help_ctrl, 1,
 "  --rel-cutoff {val}\n"
@@ -881,7 +886,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --memory [val]   : Size, in MB, of initial malloc attempt.  (Some operating\n"
 "                     systems allow this number to exceed total physical RAM.)\n"
 	       );
-    help_print("threads", &help_ctrl, 0,
+    help_print("threads\tthread-num", &help_ctrl, 0,
 "  --threads [val]  : Maximum number of concurrent threads.\n"
 	       );
     help_print("debug", &help_ctrl, 0,
@@ -951,7 +956,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
 "  --simulate-ncases [num]   : Set --simulate case count (default 100).\n"
 "  --simulate-ncontrols [n]  : Set --simulate control count (default 100).\n"
-"  --simulate-prevalence [f] : Set --simulate disease prevalence (default 0.01).\n"
+"  --simulate-prevalence [p] : Set --simulate disease prevalence (default 0.01).\n"
 	       );
     help_print("simulate-qt\tsimulate-n", &help_ctrl, 0,
 "  --simulate-n [num]        : Set --simulate-qt indiv count (default 1000).\n"
@@ -5979,8 +5984,8 @@ int32_t main(int32_t argc, char** argv) {
   double dummy_missing_pheno = 0.0;
   char* simulate_fname = NULL;
   uint32_t simulate_flags = 0;
-  uint32_t simulate_cases = 100;
-  uint32_t simulate_controls = 100;
+  uint32_t simulate_cases = 1000;
+  uint32_t simulate_controls = 1000;
   double simulate_prevalence = 0.01;
   char* simulate_label = NULL;
   double simulate_missing = 0.0;
@@ -6297,8 +6302,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	goto main_flag_copy;
       case 'a':
-	if ((kk == 10) && (!memcmp(argptr, "allele", 6))) {
-	  if ((tolower(argptr[6]) == 'a') && (tolower(argptr[7]) == 'c') && (tolower(argptr[8]) == 'g') && (tolower(argptr[9]) == 't')) {
+	if ((kk == 11) && (!memcmp(argptr, "allele", 6))) {
+	  if (match_upper(&(argptr[6]), "ACGT")) {
 	    memcpy(flagptr, "alleleACGT", 11);
 	    break;
 	  }
@@ -6330,7 +6335,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_flag_copy;
       case 'r':
 	if (!memcmp(argptr, "recode", 6)) {
-	  if (((kk == 9) && ((!memcmp(&(argptr[6]), "12", 2)) || ((tolower(argptr[6]) == 'a') && (tolower(argptr[7]) == 'd')))) || (!memcmp(&(argptr[6]), "-lgen", 6)) || (!memcmp(&(argptr[6]), "-rlist", 7)) || ((tolower(argptr[6]) == 'a') && (kk == 8))) {
+	  if (((kk == 9) && ((!memcmp(&(argptr[6]), "12", 2)) || match_upper(&(argptr[6]), "AD"))) || (!memcmp(&(argptr[6]), "-lgen", 6)) || (!memcmp(&(argptr[6]), "-rlist", 7)) || ((tolower(argptr[6]) == 'a') && (kk == 8))) {
 	    if (kk == 13) {
 	      memcpy(flagptr, "recode rlist", 13);
 	    } else if (kk == 12) {
@@ -6346,6 +6351,12 @@ int32_t main(int32_t argc, char** argv) {
 	    mm++;
             break;
 	  }
+	}
+	goto main_flag_copy;
+      case 't':
+        if (!memcmp(argptr, "thread-num", 11)) {
+	  memcpy(flagptr, "threads", 8);
+	  break;
 	}
 	goto main_flag_copy;
       case 'u':
@@ -7058,7 +7069,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         for (uii = 3; uii <= param_ct; uii++) {
-	  if ((argv[cur_arg + uii][4] == '\0') && (tolower(argv[cur_arg + uii][0]) == 'a') && (tolower(argv[cur_arg + uii][1]) == 'c') && (tolower(argv[cur_arg + uii][2]) == 'g') && (tolower(argv[cur_arg + uii][3]) == 't')) {
+	  if (match_upper(argv[cur_arg + uii], "ACGT")) {
 	    if (dummy_flags & (DUMMY_1234 | DUMMY_12)) {
 	      sprintf(logbuf, "Error: --dummy 'acgt' modifier cannot be used with '1234' or '12'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -7380,6 +7391,24 @@ int32_t main(int32_t argc, char** argv) {
 	  memcpy(pedname, "wdist", 6);
 	}
         load_rare = LOAD_RARE_GRM;
+      } else if (!memcmp(argptr2, "rm-bin", 7)) {
+	if (load_params || load_rare) {
+	  goto main_ret_INVALID_CMDLINE_4;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (param_ct) {
+	  sptr = argv[cur_arg + 1];
+	  if (strlen(sptr) > (FNAMESIZE - 11)) {
+	    logprint("Error: --grm-bin parameter too long.\n");
+	    goto main_ret_OPEN_FAIL;
+	  }
+	  strcpy(pedname, sptr);
+	} else {
+	  memcpy(pedname, "wdist", 6);
+	}
+        load_rare = LOAD_RARE_GRM_BIN;
       } else if (!memcmp(argptr2, "xe", 3)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -7475,14 +7504,14 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct == 4) {
-	  if ((tolower(argv[cur_arg + 2][0]) != 'k') || (tolower(argv[cur_arg + 2][1]) != 'b') || (argv[cur_arg + 2][2] != '\0')) {
+	  if (!match_upper(argv[cur_arg + 2], "KB")) {
 	    sprintf(logbuf, "Error: Invalid --indep-pairwise parameter sequence.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	  ld_window_kb = 1;
 	} else {
 	  jj = strlen(argv[cur_arg + 1]);
-	  if ((jj > 2) && (tolower(argv[cur_arg + 1][jj - 2]) == 'k') && (tolower(argv[cur_arg + 1][jj - 1]) == 'b')) {
+	  if ((jj > 2) && match_upper(&(argv[cur_arg + 1][jj - 2]), "KB")) {
 	    ld_window_kb = 1;
 	  }
 	}
@@ -7491,11 +7520,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid increment '%s' for --indep-pairwise.%s", argv[cur_arg + param_ct - 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (sscanf(argv[cur_arg + param_ct], "%lg", &ld_last_param) != 1) {
-	  sprintf(logbuf, "Error: Invalid --indep-pairwise r^2 threshold '%s'.%s", argv[cur_arg + param_ct], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	if ((ld_last_param < 0.0) || (ld_last_param >= 1.0)) {
+	if ((sscanf(argv[cur_arg + param_ct], "%lg", &ld_last_param) != 1) || (ld_last_param < 0.0) || (ld_last_param >= 1.0)) {
 	  sprintf(logbuf, "Error: Invalid --indep-pairwise r^2 threshold '%s'.%s", argv[cur_arg + param_ct], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7510,14 +7535,14 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct == 4) {
-	  if ((tolower(argv[cur_arg + 2][0]) != 'k') || (tolower(argv[cur_arg + 2][1]) != 'b') || (argv[cur_arg + 2][2] != '\0')) {
+	  if (!match_upper(argv[cur_arg + 2], "KB")) {
 	    sprintf(logbuf, "Error: Invalid --indep parameter sequence.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	  ld_window_kb = 1;
 	} else {
 	  jj = strlen(argv[cur_arg + 1]);
-	  if ((jj > 2) && (tolower(argv[cur_arg + 1][jj - 2]) == 'k') && (tolower(argv[cur_arg + 1][jj - 1]) == 'b')) {
+	  if ((jj > 2) && match_upper(&(argv[cur_arg + 1][jj - 2]), "KB")) {
 	    ld_window_kb = 1;
 	  }
 	}
@@ -7832,9 +7857,33 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	calculation_type |= CALC_RELATIONSHIP;
+      } else if (!memcmp(argptr2, "ake-grm-bin", 12)) {
+	if (calculation_type & CALC_RELATIONSHIP) {
+	  sprintf(logbuf, "Error: --make-grm-bin cannot be used with --make-grm.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	rel_calc_type |= REL_CALC_GRM_BIN;
+	if (param_ct) {
+	  if (!memcmp(argv[cur_arg + 1], "cov", 4)) {
+	    if (calculation_type & CALC_IBC) {
+	      sprintf(logbuf, "Error: --make-grm-bin 'cov' modifier cannot coexist with --ibc flag.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    rel_calc_type |= REL_CALC_COV;
+	  } else if ((!memcmp(argv[cur_arg + 1], "ibc1", 5)) || (!memcmp(argv[cur_arg + 1], "ibc2", 5))) {
+	    ibc_type = argv[cur_arg + 1][3] - '0';
+	  } else {
+	    sprintf(logbuf, "Error: Invalid --make-grm-bin parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	}
+	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "ake-rel", 8)) {
 	if (calculation_type & CALC_RELATIONSHIP) {
-	  sprintf(logbuf, "Error: --make-rel cannot be used with --make-grm.%s", errstr_append);
+	  sprintf(logbuf, "Error: --make-rel cannot be used with --make-grm(-bin).%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
@@ -8414,11 +8463,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
-	  if (sscanf(argv[cur_arg + 1], "%lg", &rel_cutoff) != 1) {
-	    sprintf(logbuf, "Error: Invalid %s parameter '%s'.%s", argptr, argv[cur_arg + 1], errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
-	  }
-	  if ((rel_cutoff <= 0.0) || (rel_cutoff >= 1.0)) {
+	  if ((sscanf(argv[cur_arg + 1], "%lg", &rel_cutoff) != 1) || (rel_cutoff <= 0.0) || (rel_cutoff >= 1.0)) {
 	    sprintf(logbuf, "Error: Invalid %s parameter '%s'.%s", argptr, argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -8651,7 +8696,7 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_A)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if ((!argv[cur_arg + uii][2]) && (tolower(argv[cur_arg + uii][0]) == 'a') && (tolower(argv[cur_arg + uii][1]) == 'd')) {
+	  } else if ((!argv[cur_arg + uii][2]) && match_upper(argv[cur_arg + uii], "AD")) {
 	    if (recode_type_set(&recode_modifier, RECODE_AD)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
@@ -8823,7 +8868,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (load_params || load_rare) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 3)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	retval = alloc_fname(&simulate_fname, argv[cur_arg + 1], argptr, 0);
@@ -8833,16 +8878,97 @@ int32_t main(int32_t argc, char** argv) {
 	if (argptr2[7] == '-') {
 	  simulate_flags |= SIMULATE_QT;
 	}
-	if (param_ct == 2) {
-	  if (!memcmp(argv[cur_arg + 2], "tags", 5)) {
+	for (uii = 2; uii <= param_ct; uii++) {
+	  if (!memcmp(argv[cur_arg + uii], "tags", 5)) {
+	    if (simulate_flags & SIMULATE_HAPS) {
+	      sprintf(logbuf, "Error: --%s 'tags' and 'haps' modifiers cannot be used together.%s", argptr, errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	    simulate_flags |= SIMULATE_TAGS;
-	  } else if (!memcmp(argv[cur_arg + 2], "haps", 5)) {
+	  } else if (!memcmp(argv[cur_arg + uii], "haps", 5)) {
+	    if (simulate_flags & SIMULATE_TAGS) {
+	      sprintf(logbuf, "Error: --%s 'tags' and 'haps' modifiers cannot be used together.%s", argptr, errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	    simulate_flags |= SIMULATE_HAPS;
+	  } else if (match_upper(argv[cur_arg + uii], "ACGT")) {
+	    if (simulate_flags & (SIMULATE_1234 | SIMULATE_12)) {
+	      sprintf(logbuf, "Error: --%s 'acgt' modifier cannot be used with '1234' or '12'.%s", argptr, errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+            simulate_flags |= SIMULATE_ACGT;
+	  } else if (!memcmp(argv[cur_arg + uii], "1234", 5)) {
+	    if (simulate_flags & (SIMULATE_ACGT | SIMULATE_12)) {
+	      sprintf(logbuf, "Error: --%s '1234' modifier cannot be used with 'acgt' or '12'.%s", argptr, errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+            simulate_flags |= SIMULATE_1234;
+	  } else if (!memcmp(argv[cur_arg + uii], "12", 3)) {
+	    if (simulate_flags & (SIMULATE_ACGT | SIMULATE_1234)) {
+	      sprintf(logbuf, "Error: --%s '12' modifier cannot be used with 'acgt' or '1234'.%s", argptr, errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+            simulate_flags |= SIMULATE_12;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --s%s parameter '%s'.%s", argptr2, argv[cur_arg + 2], errstr_append);
+	    sprintf(logbuf, "Error: Invalid --%s parameter '%s'.%s", argptr, argv[cur_arg + uii], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
+      } else if (!memcmp(argptr2, "imulate-ncases", 15)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (atoiz(argv[cur_arg + 1], &ii) || (ii < 0)) {
+	  sprintf(logbuf, "Error: Invalid --simulate-ncases parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	simulate_cases = ii;
+      } else if (!memcmp(argptr2, "imulate-ncontrols", 18)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (atoiz(argv[cur_arg + 1], &ii) || (ii < 0)) {
+	  sprintf(logbuf, "Error: Invalid --simulate-ncontrols parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((!ii) && (!simulate_cases)) {
+	  logprint("Error: '--simulate-ncases 0' cannot be used with '--simulate-ncontrols 0'.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	simulate_controls = ii;
+      } else if (!memcmp(argptr2, "imulate-prevalence", 19)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((sscanf(argv[cur_arg + 1], "%lg", &simulate_prevalence) != 1) || (simulate_prevalence < 0) || (simulate_prevalence > 1)) {
+	  sprintf(logbuf, "Error: Invalid --simulate-prevalence parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+      } else if (!memcmp(argptr2, "imulate-label", 14)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (alloc_string(&simulate_label, argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
+	}
+      } else if (!memcmp(argptr2, "imulate-missing", 16)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((sscanf(argv[cur_arg + 1], "%lg", &simulate_missing) != 1) || (simulate_missing < 0) || (simulate_missing > 1)) {
+	  sprintf(logbuf, "Error: Invalid --simulate-missing parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+      } else if (!memcmp(argptr2, "imulate-n", 10)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 1) {
+	  sprintf(logbuf, "Error: Invalid --simulate-n parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	simulate_qt_indivs = ii;
       } else if (memcmp(argptr2, "ilent", 6)) {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -9247,9 +9373,13 @@ int32_t main(int32_t argc, char** argv) {
     outname_end = &(outname[5]);
   }
   if (load_rare) {
-    if (load_rare == LOAD_RARE_GRM) {
+    if (load_rare & (LOAD_RARE_GRM | LOAD_RARE_GRM_BIN)) {
       if ((!(calculation_type & CALC_REL_CUTOFF)) || (calculation_type & (~(CALC_REL_CUTOFF | CALC_RELATIONSHIP)))) {
-	sprintf(logbuf, "Error: --grm currently must be used with --rel-cutoff (possibly combined with\n--make-grm).%s", errstr_append);
+	if (load_rare == LOAD_RARE_GRM) {
+	  sprintf(logbuf, "Error: --grm currently must be used with --rel-cutoff (possibly combined with\n--make-grm(-bin)).%s", errstr_append);
+	} else {
+	  sprintf(logbuf, "Error: --grm-bin currently must be used with --rel-cutoff (possibly combined\nwith --make-grm(-bin)).%s", errstr_append);
+	}
 	goto main_ret_INVALID_CMDLINE_3;
       }
     }
@@ -9400,9 +9530,9 @@ int32_t main(int32_t argc, char** argv) {
   tbuf[MAXLINELEN - 6] = ' ';
   tbuf[MAXLINELEN - 1] = ' ';
   pigz_init(g_thread_ct);
-  if (load_rare == LOAD_RARE_GRM) {
+  if (load_rare & (LOAD_RARE_GRM | LOAD_RARE_GRM_BIN)) {
     // --rel-cutoff batch mode special case
-    retval = rel_cutoff_batch(pedname, outname, outname_end, rel_cutoff, rel_calc_type);
+    retval = rel_cutoff_batch(load_rare - 1, pedname, outname, outname_end, rel_cutoff, rel_calc_type);
   } else if (genname[0]) {
     if (calculation_type & (~(CALC_DISTANCE | CALC_REGRESS_DISTANCE))) {
       logprint("Error: Only --distance calculations are currently supported with --data.\n");
@@ -9433,10 +9563,12 @@ int32_t main(int32_t argc, char** argv) {
       } else if (load_rare & LOAD_RARE_DUMMY) {
 	retval = generate_dummy(outname, sptr, dummy_flags, (uint32_t)dummy_marker_ct, (uint32_t)dummy_indiv_ct, dummy_missing_geno, dummy_missing_pheno);
       } else if (load_rare & LOAD_RARE_SIMULATE) {
-	if (simulate_flags & SIMULATE_QT) {
-	  retval = simulate_qt(outname, sptr, simulate_flags, simulate_fname, simulate_qt_indivs, simulate_missing, simulate_label);
-	} else {
-	  retval = simulate_cc(outname, sptr, simulate_flags, simulate_fname, simulate_cases, simulate_controls, simulate_prevalence, simulate_missing, simulate_label);
+	retval = simulate_dataset(outname, sptr, simulate_flags, simulate_fname, simulate_cases, simulate_controls, simulate_prevalence, simulate_qt_indivs, simulate_missing, simulate_label);
+	free(simulate_fname);
+	simulate_fname = NULL;
+	if (simulate_label) {
+	  free(simulate_label);
+	  simulate_label = NULL;
 	}
       } else {
         retval = ped_to_bed(pedname, mapname, outname, sptr, fam_col_1, fam_col_34, fam_col_5, fam_col_6, affection_01, missing_pheno, &chrom_info);

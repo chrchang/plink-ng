@@ -173,7 +173,11 @@ typedef union {
 #define REL_CALC_GZ 8
 #define REL_CALC_BIN 16
 #define REL_CALC_GRM 32
-#define REL_CALC_SINGLE_PREC 64
+
+// GCTA 1.10 format
+#define REL_CALC_GRM_BIN 64
+
+#define REL_CALC_SINGLE_PREC 128
 
 #define DISTANCE_SQ 1
 #define DISTANCE_SQ0 2
@@ -226,6 +230,9 @@ typedef union {
 #define SIMULATE_QT 1
 #define SIMULATE_TAGS 2
 #define SIMULATE_HAPS 4
+#define SIMULATE_ACGT 8
+#define SIMULATE_1234 16
+#define SIMULATE_12 32
 
 #define MODEL_ASSOC 1
 #define MODEL_FISHER 2
@@ -521,6 +528,10 @@ static inline int32_t is_space_or_eoln(char cc) {
 static inline int32_t is_space_or_eoln(char cc) {
   return ((unsigned char)cc) <= 32;
 }
+
+uint32_t match_upper(char* ss, char* fixed_str);
+
+uint32_t match_upper_nt(char* ss, char* fixed_str, uint32_t ct);
 
 int32_t atoiz(char* ss, int32_t* sval);
 
@@ -1131,7 +1142,9 @@ void collapse_bitarr(uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t orig_ct
 
 void collapse_bitarr_incl(uintptr_t* bitarr, uintptr_t* include_arr, uint32_t orig_ct);
 
-// double rand_unif(void);
+static inline double rand_unif(void) {
+  return (sfmt_genrand_uint32(&sfmt) + 0.5) * RECIP_2_32;
+}
 
 double normdist(double zz);
 
@@ -1140,6 +1153,8 @@ double rand_normal(double* secondval_ptr);
 // void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd);
 
 void pick_d_small(unsigned char* tmp_cbuf, int32_t* ibuf, uint32_t ct, uint32_t dd);
+
+void init_sfmt64_from_sfmt32(sfmt_t* sfmt32, sfmt_t* sfmt64);
 
 void print_pheno_stdev(double* pheno_d, uint32_t indiv_ct);
 
