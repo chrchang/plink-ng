@@ -107,6 +107,7 @@ typedef union {
 #define BIG_EPSILON 0.000000476837158203125
 // 53-bit double precision limit
 #define DOUBLE_PREC_LIMIT 0.00000000000000011102230246251565404236316680908203125
+#define TWO_63 9223372036854775808.0
 
 // 2^{-83} bias to give exact tests maximum ability to determine tiny p-values.
 // (~2^{-53} is necessary to take advantage of denormalized small numbers, then

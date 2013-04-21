@@ -6132,6 +6132,13 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	}
 	*rtptr++ = cur_word;
       }
+      if (g_pct < 100) {
+	if (g_pct > 10) {
+	  putchar('\b');
+	}
+	printf("\b\b%u%%", g_pct);
+	fflush(stdout);
+      }
     }
     fclose_null(&g_rcb_in_binfile);
   } else {
@@ -6401,7 +6408,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
     g_rcb_new_row = 1;
     g_rcb_new_col = 0;
     g_rcb_progress = 0;
-    g_rcb_hundredth = 1 + ((((uint64_t)indiv_ct) * (indiv_ct - 1)) / 100);
+    g_rcb_hundredth = 1 + ((((uint64_t)indiv_ct) * (indiv_ct - 1)) / 200);
     if (load_grm_bin) {
       memcpy(grmname_end, ".grm.bin", 9);
       if (fopen_checked(&g_rcb_in_binfile, grmname, "rb")) {
