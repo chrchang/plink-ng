@@ -2311,14 +2311,34 @@ int32_t qsort_ext(char* main_arr, int32_t arr_length, int32_t item_length, int(*
   return 0;
 }
 
-uint32_t doublearr_greater_than(double* sorted_dbl_arr, uint32_t arr_length, double dxx) {
-  // assumes arr_length is nonzero.
-  // dxx guaranteed to be larger than sorted_dbl_arr[min_idx - 1] if it exists,
-  // but NOT necessarily sorted_dbl_arr[min_idx].
+uint32_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uint32_t arr_length, uint64_t ullii) {
+  // assumes arr_length is nonzero, and sorted_uint64_arr is in nondecreasing
+  // order.
+  // ullii guaranteed to be larger than sorted_uint64_arr[min_idx - 1] if it
+  // exists, but NOT necessarily sorted_uint64_arr[min_idx].
   int32_t min_idx = 0;
-  // similarly, dxx guaranteed to be no greater than sorted_dbl_arr[max_idx +
-  // 1] if it exists, but not necessarily sorted_dbl_arr[max_idx].
-  // Signed integer since it could become -1.
+  // similarly, ullii guaranteed to be no greater than
+  // sorted_uint64_arr[max_idx + 1] if it exists, but not necessarily
+  // sorted_uint64_arr[max_idx].  Signed integer since it could become -1.
+  int32_t max_idx = arr_length - 1;
+  uint32_t mid_idx;
+  while (min_idx < max_idx) {
+    mid_idx = (((uint32_t)min_idx) + ((uint32_t)max_idx)) / 2;
+    if (ullii > sorted_uint64_arr[mid_idx]) {
+      min_idx = mid_idx + 1;
+    } else {
+      max_idx = mid_idx - 1;
+    }
+  }
+  if (ullii > sorted_uint64_arr[((uint32_t)min_idx)]) {
+    return (min_idx + 1);
+  } else {
+    return min_idx;
+  }
+}
+
+uint32_t doublearr_greater_than(double* sorted_dbl_arr, uint32_t arr_length, double dxx) {
+  int32_t min_idx = 0;
   int32_t max_idx = arr_length - 1;
   uint32_t mid_idx;
   while (min_idx < max_idx) {
@@ -4394,7 +4414,7 @@ void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* in
   }
 }
 
-void unreverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
+void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
   uintptr_t indiv_bidx = 0;
   unsigned char* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + 3) / 4]);
   unsigned char ucc;

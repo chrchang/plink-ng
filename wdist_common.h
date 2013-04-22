@@ -1045,6 +1045,8 @@ void qsort_ext2(char* main_arr, int32_t arr_length, int32_t item_length, int(* c
 
 int32_t qsort_ext(char* main_arr, int32_t arr_length, int32_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int32_t secondary_item_len);
 
+uint32_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uint32_t arr_length, uint64_t ullii);
+
 uint32_t doublearr_greater_than(double* sorted_dbl_arr, uint32_t arr_length, double dxx);
 
 int32_t bsearch_str(char* id_buf, char* lptr, intptr_t max_id_len, int32_t min_idx, int32_t max_idx);
@@ -1127,7 +1129,7 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfil
 
 void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct);
 
-void unreverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct);
+void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct);
 
 void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, uintptr_t unfiltered_indiv_ct);
 

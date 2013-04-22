@@ -5703,7 +5703,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	g_adapt_m_table[block_size] = marker_idx2++;
       }
       if (is_set(marker_reverse, marker_uidx)) {
-	unreverse_loadbuf((unsigned char*)(&(g_loadbuf[block_size * pheno_nm_ctl2])), pheno_nm_ct);
+	reverse_loadbuf((unsigned char*)(&(g_loadbuf[block_size * pheno_nm_ctl2])), pheno_nm_ct);
       }
       if ((!model_assoc) && g_is_x) {
 	force_missing((unsigned char*)(&(g_loadbuf[block_size * pheno_nm_ctl2])), g_indiv_male_include2, pheno_nm_ct);
@@ -7213,7 +7213,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
 	g_adapt_m_table[block_size] = marker_idx2++;
       }
       if (is_set(marker_reverse, marker_uidx)) {
-	unreverse_loadbuf((unsigned char*)(&(g_loadbuf[block_size * pheno_nm_ctl2])), pheno_nm_ct);
+	reverse_loadbuf((unsigned char*)(&(g_loadbuf[block_size * pheno_nm_ctl2])), pheno_nm_ct);
       }
       mu_table[block_size++] = marker_uidx;
       if (marker_idx + block_size == marker_unstopped_ct) {

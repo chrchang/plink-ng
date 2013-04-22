@@ -4665,25 +4665,63 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
   return retval;
 }
 
-void simulate_init_freqs_qt(double dprime, double* freqs, uint64_t* thresholds) {
+void simulate_init_freqs_qt(uint32_t tags_or_haps, double dprime, double qt_var, double qt_dom, double missing_freq, double* freqs, uint64_t* thresholds, double* qt_adj) {
   // Initialize frequency table for current SNP.  Similar to instanceSNP_QT()
   // in PLINK simul.cpp.  (The difference is that heterozygote frequencies are
   // not stored in a redundant manner.)
   // thresholds[0]: P(causal 11, marker 11) * 2^63
-  // thresholds[1]: [P(causal 11, marker 11) + P(causal 11, marker 12)] * 2^63
+  // thresholds[1]: P(causal 11, marker 11 or missing) * 2^63
+  // thresholds[2]: P(causal 11, marker 11 or missing or 12) * 2^63
   // ...
-  // thresholds[7]: [1 - P(causal 22, marker 22)] * 2^63
+  // thresholds[14]: [1 - P(causal 22, marker 22)] * 2^63
   // We use 2^63 instead of 2^64 to avoid integer overflow headaches.
   double freq = freqs[0];
   double mfreq = freqs[1];
+  double nonmissing_freq = 1 - missing_freq;
+  double scaled_miss_freq = missing_freq * TWO_63;
+  double scaled_nm_freq = nonmissing_freq * TWO_63;
   double ld = freq * (1 - mfreq);
+
+  double qq = 1 - freq;
+  double aa = sqrt(qt_var / (2 * freq * qq * ((1 + qt_dom * (qq - freq)) * (1 + qt_dom * (qq - freq)) + qt_dom * 2 * freq * qq * qt_dom)));
+  double dd = qt_dom * aa;
+  double dxx = aa * (1 - 2 * freq * (1 + qq * qt_dom));
 
   // Joint causal variant/marker probs, considering one allele at a time.
   // First digit indicates causal allele, second digit indicates marker.
-  double h21 = (1 - freq) * mfreq;
+  double h21 = qq * mfreq;
   double h11;
   double h12;
   double h22;
+
+  // first 2 digits indicate causal variant genotype, last 2 indicate marker.
+  // this is DIFFERENT from instanceSNP()'s usage.
+  double h_11_11;
+  double h_11_12;
+  double h_11_22;
+  double h_12_11;
+  double h_12_12;
+  double h_12_22;
+  double h_22_11;
+  double h_22_12;
+  double h_22_22;
+
+  // Constraints:
+  // 1. mean = (qq^2) * qt_adj[3] + 2 * freq * qq * qt_adj[2] +
+  //           (freq^2) * qt_adj[0]
+  //         = 0
+  // 2. variance = (qq^2) * (qt_adj[3]^2) + 2 * freq * qq * (qt_adj[2]^2) +
+  //               (freq^2) * (qt_adj[0]^2)
+  //             = qt_var
+  // 3. qt_adj[2] = ((qt_adj[0] + qt_adj[3]) / 2) +
+  //                qt_dom * ((qt_adj[0] - qt_adj[3]) / 2)
+  // PLINK computes the correct values, but incorrectly reverses their
+  // positions, and also incorrectly uses sp[s].gAB in some places where .gBB
+  // should be used and vice versa.
+  qt_adj[0] = dxx + aa;
+  qt_adj[2] = dxx + dd;
+  qt_adj[3] = dxx - aa;
+
   if (h21 < ld) {
     ld = h21;
   }
@@ -4691,25 +4729,78 @@ void simulate_init_freqs_qt(double dprime, double* freqs, uint64_t* thresholds) 
   h11 = freq * mfreq + ld;
   h12 = freq * (1 - mfreq) - ld;
   h21 -= ld;
-  h22 = (1 - freq) * (1 - mfreq) + ld;
-  thresholds[0] = (uint64_t)(h11 * h11 * TWO_63);
-  thresholds[1] = thresholds[0] + (uint64_t)(h11 * h12 * 2 * TWO_63);
-  thresholds[2] = thresholds[1] + (uint64_t)(h12 * h12 * TWO_63);
-  thresholds[3] = thresholds[2] + (uint64_t)(h21 * h11 * 2 * TWO_63);
-  thresholds[4] = thresholds[3] + (uint64_t)((h22 * h11 + h21 * h12) * 2 * TWO_63);
-  thresholds[5] = thresholds[4] + (uint64_t)(h22 * h12 * 2 * TWO_63);
-  thresholds[6] = thresholds[5] + (uint64_t)(h21 * h21 * TWO_63);
-  thresholds[7] = thresholds[6] + (uint64_t)(h22 * h21 * 2 * TWO_63);
+  h22 = qq * (1 - mfreq) + ld;
+  h_11_11 = h11 * h11;
+  h_11_12 = h11 * h12 * 2;
+  h_11_22 = h12 * h12;
+  h_12_11 = h21 * h11 * 2;
+  h_12_12 = (h22 * h11 + h21 * h12) * 2;
+  h_12_22 = h22 * h12 * 2;
+  h_22_11 = h21 * h21;
+  h_22_12 = h22 * h21 * 2;
+  h_22_22 = h22 * h22;
+  // determination of causal variant missing/nonmissing status is deferred, to
+  // simplify phenotype updating
+  if (!tags_or_haps) {
+    thresholds[0] = (uint64_t)((h_11_11 + h_12_11 + h_22_11) * TWO_63);
+    thresholds[1] = thresholds[0] + (uint64_t)((h_11_12 + h_12_12 + h_22_12) * TWO_63);
+  } else {
+    thresholds[0] = (uint64_t)(h_11_11 * scaled_nm_freq);
+    thresholds[1] = thresholds[0] + (uint64_t)((h_11_11 + h_11_12 + h_11_22) * scaled_miss_freq);
+    thresholds[2] = thresholds[1] + (uint64_t)(h_11_12 * scaled_nm_freq);
+    thresholds[3] = thresholds[2] + (uint64_t)(h_11_22 * scaled_nm_freq);
+    thresholds[4] = thresholds[3] + (uint64_t)(h_12_11 * scaled_nm_freq);
+    thresholds[5] = thresholds[4] + (uint64_t)((h_12_11 + h_12_12 + h_12_22) * scaled_miss_freq);
+    thresholds[6] = thresholds[5] + (uint64_t)(h_12_12 * scaled_nm_freq);
+    thresholds[7] = thresholds[6] + (uint64_t)(h_12_22 * scaled_nm_freq);
+    thresholds[8] = thresholds[7] + (uint64_t)(h_22_11 * scaled_nm_freq);
+    thresholds[9] = thresholds[8] + (uint64_t)((h_22_11 + h_22_12 + h_22_22) * scaled_miss_freq);
+    thresholds[10] = thresholds[9] + (uint64_t)(h_22_12 * scaled_nm_freq);
+  }
 }
 
 void simulate_cc_get_conditional_probs(double prevalence, double g0, double g1, double g2, double het_odds, double hom0_odds, double* f0p, double* f1p, double* f2p) {
   // PLINK interprets het_odds and hom0_odds as probability ratios instead of
   // odds ratios.  The two are nearly identical if prevalence is small, but
-  // it's still better to avoid that approximation.
-  // Unfortunately, the equation is a messy cubic, so we use a numeric binary
-  // search instead of solving analytically.  (I'm sure there are much faster
-  // ways, but this isn't *too* time-critical.)
-  uint32_t iters_left = 51;
+  // it's still better to avoid that approximation.  This requires solving a
+  // cubic equation in X := odds(hom2).
+  //
+  // prevalence = g0 * (hom0_odds * X) / (1 + hom0_odds * X)
+  //            + g1 * (het_odds * X) / (1 + het_odds * X)
+  //            + g2 * X / (1 + X)
+  //
+  // prevalence * (1 + X) * (1 + het_odds * X) * (1 + hom0_odds * X) =
+  //   X * (g0 * hom0_odds * (1 + het_odds * X) * (1 + X) +
+  //        g1 * het_odds * (1 + hom0_odds * X) * (1 + X) +
+  //        g2 * (1 + hom0_odds * X) * (1 + het_odds * X))
+  //
+  //   X^3 * prevalence * het_odds * hom0_odds
+  // + X^2 * prevalence * (het_odds * hom0_odds + het_odds + hom0_odds)
+  // + X * prevalence * (1 + het_odds + hom0_odds)
+  // + prevalence =
+  //   X^3 * het_odds * hom0_odds
+  // + X^2 * (g0 * hom0_odds * (1 + het_odds) +
+  //          g1 * het_odds * (1 + hom0_odds) +
+  //          g2 * (hom0_odds + het_odds))
+  // + X * (g0 * hom0_odds + g1 * het_odds + g2)
+  //
+  // 0 = X^3 * het_odds * hom0_odds * (1 - prevalence)
+  //   + X^2 * (g0 * hom0_odds * (1 + het_odds) +
+  //            g1 * het_odds * (1 + hom0_odds) +
+  //            g2 * (hom0_odds + het_odds) -
+  //            prevalence * (het_odds * hom0_odds + het_odds + hom0_odds))
+  //   + X * (g0 * hom0_odds + g1 * het_odds + g2 -
+  //          prevalence * (1 + het_odds + hom0_odds)
+  //   - prevalence
+  //
+  // Cubic discriminant:
+  //   27a^2d^2 + 4ac^3 + 4b^3d - b^2c^2 - 18abcd
+  //   (Wikipedia article currently has the sign wrong!)
+  //
+  // ...eh, screw it, casework for applying the formula is a bit too annoying
+  // for me to implement it for now.  Maybe if one or two other cubics come up,
+  // I'll do it.  Meanwhile, here's a simple numeric binary search.
+  uint32_t iters_left = 52;
   double min_f2 = 0.0;
   double max_f2 = 1.0;
   double cur_f2;
@@ -4746,10 +4837,13 @@ void simulate_cc_get_conditional_probs(double prevalence, double g0, double g1, 
   *f2p = cur_f2;
 }
 
-void simulate_init_freqs_cc(uint32_t do_haps, double dprime, double* freqs, double prevalence, double het_odds, double hom0_odds, uint64_t* ctrl_thresholds, uint64_t* case_thresholds) {
+void simulate_init_freqs_cc(uint32_t do_haps, double dprime, double* freqs, double prevalence, double het_odds, double hom0_odds, double missing_freq, uint64_t* ctrl_thresholds, uint64_t* case_thresholds) {
   // Similar to instanceSNP().
   double freq = freqs[0];
   double mfreq = freqs[1];
+  double nonmissing_freq = 1 - missing_freq;
+  double scaled_missing_freq = missing_freq * TWO_63;
+  double scaled_nonmissing_freq = nonmissing_freq * TWO_63;
 
   // P(causal variant genotype)
   double g0 = freq * freq;
@@ -4802,6 +4896,8 @@ void simulate_init_freqs_cc(uint32_t do_haps, double dprime, double* freqs, doub
   double xh_22_22;
 
   double tot_recip;
+  double tot_recip_nmsq;
+  double tot_recip_1miss;
 
   if (h21 < ld) {
     ld = h21;
@@ -4849,10 +4945,12 @@ void simulate_init_freqs_cc(uint32_t do_haps, double dprime, double* freqs, doub
   u2 *= tot_recip;
 
   if (!do_haps) {
-    case_thresholds[0] = (uint64_t)(a0 * TWO_63);
-    case_thresholds[1] = case_thresholds[0] + (uint64_t)(a1 * TWO_63);
-    ctrl_thresholds[0] = (uint64_t)(u0 * TWO_63);
-    ctrl_thresholds[1] = ctrl_thresholds[0] + (uint64_t)(u1 * TWO_63);
+    case_thresholds[0] = (uint64_t)(a0 * scaled_nonmissing_freq);
+    case_thresholds[1] = case_thresholds[0] + (uint64_t)(scaled_missing_freq);
+    case_thresholds[2] = case_thresholds[1] + (uint64_t)(a1 * scaled_nonmissing_freq);
+    ctrl_thresholds[0] = (uint64_t)(u0 * scaled_nonmissing_freq);
+    ctrl_thresholds[1] = ctrl_thresholds[0] + (uint64_t)(scaled_missing_freq);
+    ctrl_thresholds[2] = ctrl_thresholds[1] + (uint64_t)(u1 * scaled_nonmissing_freq);
   } else {
     xh_11_11 = h_11_11 * f0;
     xh_11_12 = h_11_12 * f0;
@@ -4863,16 +4961,25 @@ void simulate_init_freqs_cc(uint32_t do_haps, double dprime, double* freqs, doub
     xh_22_11 = h_22_11 * f2;
     xh_22_12 = h_22_12 * f2;
     xh_22_22 = h_22_22 * f2;
-    tot_recip = TWO_63 / (xh_11_11 + xh_11_12 + xh_11_22 + xh_12_11 + xh_12_12 + xh_12_22 + xh_22_11 + xh_22_12 + xh_22_22);
+    tot_recip = 1.0 / (xh_11_11 + xh_11_12 + xh_11_22 + xh_12_11 + xh_12_12 + xh_12_22 + xh_22_11 + xh_22_12 + xh_22_22);
+    tot_recip_nmsq = tot_recip * nonmissing_freq * scaled_nonmissing_freq;
+    tot_recip_1miss = tot_recip * nonmissing_freq * scaled_missing_freq;
 
-    case_thresholds[0] = (uint64_t)(xh_11_11 * tot_recip);
-    case_thresholds[1] = case_thresholds[0] + (uint64_t)(xh_11_12 * tot_recip);
-    case_thresholds[2] = case_thresholds[1] + (uint64_t)(xh_11_22 * tot_recip);
-    case_thresholds[3] = case_thresholds[2] + (uint64_t)(xh_12_11 * tot_recip);
-    case_thresholds[4] = case_thresholds[3] + (uint64_t)(xh_12_12 * tot_recip);
-    case_thresholds[5] = case_thresholds[4] + (uint64_t)(xh_12_22 * tot_recip);
-    case_thresholds[6] = case_thresholds[5] + (uint64_t)(xh_22_11 * tot_recip);
-    case_thresholds[7] = case_thresholds[6] + (uint64_t)(xh_22_12 * tot_recip);
+    case_thresholds[0] = (uint64_t)(xh_11_11 * tot_recip_nmsq);
+    case_thresholds[1] = case_thresholds[0] + (uint64_t)((xh_11_11 + xh_11_12 + xh_11_22) * tot_recip_1miss);
+    case_thresholds[2] = case_thresholds[1] + (uint64_t)(xh_11_12 * tot_recip_nmsq);
+    case_thresholds[3] = case_thresholds[2] + (uint64_t)(xh_11_22 * tot_recip_nmsq);
+    case_thresholds[4] = case_thresholds[3] + (uint64_t)((xh_11_11 + xh_12_11 + xh_22_11) * tot_recip_1miss);
+    case_thresholds[5] = case_thresholds[4] + (uint64_t)(missing_freq * scaled_missing_freq);
+    case_thresholds[6] = case_thresholds[5] + (uint64_t)((xh_11_12 + xh_12_12 + xh_22_12) * tot_recip_1miss);
+    case_thresholds[7] = case_thresholds[6] + (uint64_t)((xh_11_22 + xh_12_22 + xh_22_22) * tot_recip_1miss);
+    case_thresholds[8] = case_thresholds[7] + (uint64_t)(xh_12_11 * tot_recip_nmsq);
+    case_thresholds[9] = case_thresholds[8] + (uint64_t)((xh_12_11 + xh_12_12 + xh_12_22) * tot_recip_1miss);
+    case_thresholds[10] = case_thresholds[9] + (uint64_t)(xh_12_12 * tot_recip_nmsq);
+    case_thresholds[11] = case_thresholds[10] + (uint64_t)(xh_12_22 * tot_recip_nmsq);
+    case_thresholds[12] = case_thresholds[11] + (uint64_t)(xh_22_11 * tot_recip_nmsq);
+    case_thresholds[13] = case_thresholds[12] + (uint64_t)((xh_22_11 + xh_22_12 + xh_22_22) * tot_recip_1miss);
+    case_thresholds[14] = case_thresholds[13] + (uint64_t)(xh_22_12 * tot_recip_nmsq);
 
     xh_11_11 = h_11_11 * (1 - f0);
     xh_11_12 = h_11_12 * (1 - f0);
@@ -4883,16 +4990,25 @@ void simulate_init_freqs_cc(uint32_t do_haps, double dprime, double* freqs, doub
     xh_22_11 = h_22_11 * (1 - f2);
     xh_22_12 = h_22_12 * (1 - f2);
     xh_22_22 = h_22_22 * (1 - f2);
-    tot_recip = TWO_63 / (xh_11_11 + xh_11_12 + xh_11_22 + xh_12_11 + xh_12_12 + xh_12_22 + xh_22_11 + xh_22_12 + xh_22_22);
+    tot_recip = 1.0 / (xh_11_11 + xh_11_12 + xh_11_22 + xh_12_11 + xh_12_12 + xh_12_22 + xh_22_11 + xh_22_12 + xh_22_22);
+    tot_recip_nmsq = tot_recip * nonmissing_freq * scaled_nonmissing_freq;
+    tot_recip_1miss = tot_recip * nonmissing_freq * scaled_missing_freq;
 
-    ctrl_thresholds[0] = (uint64_t)(xh_11_11 * tot_recip);
-    ctrl_thresholds[1] = ctrl_thresholds[0] + (uint64_t)(xh_11_12 * tot_recip);
-    ctrl_thresholds[2] = ctrl_thresholds[1] + (uint64_t)(xh_11_22 * tot_recip);
-    ctrl_thresholds[3] = ctrl_thresholds[2] + (uint64_t)(xh_12_11 * tot_recip);
-    ctrl_thresholds[4] = ctrl_thresholds[3] + (uint64_t)(xh_12_12 * tot_recip);
-    ctrl_thresholds[5] = ctrl_thresholds[4] + (uint64_t)(xh_12_22 * tot_recip);
-    ctrl_thresholds[6] = ctrl_thresholds[5] + (uint64_t)(xh_22_11 * tot_recip);
-    ctrl_thresholds[7] = ctrl_thresholds[6] + (uint64_t)(xh_22_12 * tot_recip);
+    ctrl_thresholds[0] = (uint64_t)(xh_11_11 * tot_recip_nmsq);
+    ctrl_thresholds[1] = ctrl_thresholds[0] + (uint64_t)((xh_11_11 + xh_11_12 + xh_11_22) * tot_recip_1miss);
+    ctrl_thresholds[2] = ctrl_thresholds[1] + (uint64_t)(xh_11_12 * tot_recip_nmsq);
+    ctrl_thresholds[3] = ctrl_thresholds[2] + (uint64_t)(xh_11_22 * tot_recip_nmsq);
+    ctrl_thresholds[4] = ctrl_thresholds[3] + (uint64_t)((xh_11_11 + xh_12_11 + xh_22_11) * tot_recip_1miss);
+    ctrl_thresholds[5] = ctrl_thresholds[4] + (uint64_t)(missing_freq * scaled_missing_freq);
+    ctrl_thresholds[6] = ctrl_thresholds[5] + (uint64_t)((xh_11_12 + xh_12_12 + xh_22_12) * tot_recip_1miss);
+    ctrl_thresholds[7] = ctrl_thresholds[6] + (uint64_t)((xh_11_22 + xh_12_22 + xh_22_22) * tot_recip_1miss);
+    ctrl_thresholds[8] = ctrl_thresholds[7] + (uint64_t)(xh_12_11 * tot_recip_nmsq);
+    ctrl_thresholds[9] = ctrl_thresholds[8] + (uint64_t)((xh_12_11 + xh_12_12 + xh_12_22) * tot_recip_1miss);
+    ctrl_thresholds[10] = ctrl_thresholds[9] + (uint64_t)(xh_12_12 * tot_recip_nmsq);
+    ctrl_thresholds[11] = ctrl_thresholds[10] + (uint64_t)(xh_12_22 * tot_recip_nmsq);
+    ctrl_thresholds[12] = ctrl_thresholds[11] + (uint64_t)(xh_22_11 * tot_recip_nmsq);
+    ctrl_thresholds[13] = ctrl_thresholds[12] + (uint64_t)((xh_22_11 + xh_22_12 + xh_22_22) * tot_recip_1miss);
+    ctrl_thresholds[14] = ctrl_thresholds[13] + (uint64_t)(xh_22_12 * tot_recip_nmsq);
   }
 }
 
@@ -4908,7 +5024,8 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   uint32_t tags_or_haps = do_tags | do_haps;
   uint32_t is_qt = flags & SIMULATE_QT;
   uint32_t randomize_alleles = flags & (SIMULATE_ACGT | SIMULATE_1234 | SIMULATE_12);
-  // uint32_t simulate_12 = flags & SIMULATE_12;
+  uint32_t simulate_12 = flags & SIMULATE_12;
+  uint32_t marker_pos = 1;
   double* qt_vals = NULL;
   double dxx = 0;
   double dyy = 0;
@@ -4916,6 +5033,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   uint32_t cur_marker_ct = 0;
   char* cur_snp_label = &(tbuf[MAXLINELEN]);
   uint32_t snp_label_len = 0;
+  uint32_t missing_thresh = (uint32_t)(missing_freq * 4294967296.0);
   double marker_freq_lb = 0;
   double marker_freq_delta = 0;
   double dprime = 0;
@@ -4925,25 +5043,37 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   double qt_dom = 0;
   char* marker_freq_lb_ptr = NULL;
   char* marker_ld_ptr = NULL;
+  uintptr_t* writebuf2 = NULL;
   char alleles[13];
+  char cur_alleles[4];
   double freqs[6];
-  uint64_t thresholds[8];
-  uint64_t case_thresholds[8];
-  unsigned char* writebuf;
+  uint64_t thresholds[15];
+  uint64_t case_thresholds[15];
+  double qt_adj[4];
+  uintptr_t* writebuf;
   char* cptr;
   char* snp_label_ptr;
   char* freq_lb_ptr;
   char* penult_ptr; // het disease odds for C/C, additive genetic var for QT
   char* last_ptr; // homset disease odds for C/C, dominance/additive for QT
   char* wptr;
+  uintptr_t* wbptr;
+  uintptr_t* wbptr2;
   uintptr_t indiv_ct4;
-  sfmt_t* sfmt64;
+  uintptr_t indiv_ctl2;
+  sfmt_t* sfmt64p;
   uint32_t indiv_idx;
   uint32_t cur_marker_idx;
   double freq_lb;
   double freq_delta;
   int32_t ii;
-  // uint32_t uii;
+  char cc;
+  uint64_t ullii;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
   double dzz;
   if (!is_qt) {
     indiv_ct = case_ct + ctrl_ct;
@@ -4954,6 +5084,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     fill_double_zero(qt_vals, indiv_ct);
   }
   indiv_ct4 = (indiv_ct + 3) / 4;
+  indiv_ctl2 = (indiv_ct + BITCT2 - 1) / BITCT2;
   if (randomize_alleles) {
     if (flags & SIMULATE_ACGT) {
       memcpy(alleles, "ACAGATCGCTGTA", 13);
@@ -4962,9 +5093,20 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     } else {
       memcpyl3(alleles, "121");
     }
+  } else {
+    if (is_qt) {
+      memcpy(alleles, "HLAB", 4);
+    } else {
+      memcpy(alleles, "DdAB", 4);
+    }
   }
-  if (wkspace_alloc_uc_checked(&writebuf, indiv_ct4)) {
+  if (wkspace_alloc_ul_checked(&writebuf, indiv_ctl2 * sizeof(intptr_t))) {
     goto simulate_ret_NOMEM;
+  }
+  if (do_haps) {
+    if (wkspace_alloc_ul_checked(&writebuf2, indiv_ctl2 * sizeof(intptr_t))) {
+      goto simulate_ret_NOMEM;
+    }
   }
   if (fopen_checked(&infile, simulate_fname, "r")) {
     goto simulate_ret_OPEN_FAIL;
@@ -4987,11 +5129,11 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   sprintf(logbuf, "Writing --simulate%s dataset to %s + .bim + .fam...", is_qt? "-qt" : "", outname);
   logprintb();
   fflush(stdout);
-  sfmt64 = (sfmt_t*)wkspace_alloc(sizeof(sfmt_t));
-  if (!sfmt64) {
+  sfmt64p = (sfmt_t*)wkspace_alloc(sizeof(sfmt_t));
+  if (!sfmt64p) {
     goto simulate_ret_NOMEM;
   }
-  init_sfmt64_from_sfmt32(&sfmt, sfmt64);
+  init_sfmt64_from_sfmt32(&sfmt, sfmt64p);
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, infile)) {
     if (!tbuf[MAXLINELEN - 1]) {
@@ -5046,10 +5188,16 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	sprintf(logbuf, "\nError: Invalid d-prime in --simulate%s line.\n", is_qt? "-qt" : "");
 	goto simulate_ret_INVALID_FORMAT_2;
       }
+    } else {
+      dprime = 1;
     }
     if (is_qt) {
       if ((sscanf(penult_ptr, "%lg", &qt_var) != 1) || (qt_var < 0) || (qt_var > 1)) {
 	logprint("\nError: Invalid variance value in --simulate-qt line.\n");
+	goto simulate_ret_INVALID_FORMAT;
+      }
+      if ((qt_var > 0) && (((freq_delta == 0) && ((freq_lb == 0) || (freq_lb == 1))) || (tags_or_haps && (marker_freq_delta == 0) && ((marker_freq_lb == 0) || (marker_freq_lb == 1))))) {
+	logprint("\nError: Nonzero variance with fixed 0/1 allele frequency in --simulate-qt line.\n");
 	goto simulate_ret_INVALID_FORMAT;
       }
       qt_totvar += ((intptr_t)cur_marker_ct) * qt_var;
@@ -5073,6 +5221,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	goto simulate_ret_INVALID_FORMAT;
       }
     }
+    tbuf[0] = '1';
     for (cur_marker_idx = 0; cur_marker_idx < cur_marker_ct; cur_marker_idx++) {
       freqs[0] = freq_lb + rand_unif() * freq_delta;
       if (tags_or_haps) {
@@ -5081,13 +5230,19 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	freqs[1] = freqs[0];
       }
       if (is_qt) {
-	simulate_init_freqs_qt(dprime, freqs, thresholds);
+	simulate_init_freqs_qt(do_haps, dprime, qt_var, qt_dom, missing_freq, freqs, thresholds, qt_adj);
       } else {
-	simulate_init_freqs_cc(do_haps, dprime, freqs, prevalence, het_odds, hom0_odds, thresholds, case_thresholds);
+	simulate_init_freqs_cc(do_haps, dprime, freqs, prevalence, het_odds, hom0_odds, missing_freq, thresholds, case_thresholds);
       }
-      wptr = memcpya(tbuf, "1 ", 2);
-      wptr = memcpya(wptr, cur_snp_label, snp_label_len);
-      wptr = uint32_writex(wptr, cur_marker_idx, '\t');
+      wptr = &(tbuf[1]);
+      *wptr++ = ' ';
+      if (cur_marker_ct > 1) {
+	wptr = memcpya(wptr, cur_snp_label, snp_label_len);
+	wptr = uint32_write(wptr, cur_marker_idx);
+      } else {
+	wptr = memcpya(wptr, cur_snp_label, snp_label_len - 1);
+      }
+      *wptr++ = '\t';
       dxx = freqs[0];
       wptr = double_g_writex(wptr, dxx, ' ');
       wptr = double_g_writex(wptr, dxx, '\t');
@@ -5106,6 +5261,193 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
       }
       if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_simfreq)) {
 	goto simulate_ret_WRITE_FAIL;
+      }
+      if (randomize_alleles) {
+	if (!simulate_12) {
+	  do {
+	    uii = sfmt_genrand_uint32(&sfmt);
+	  } while (uii < 4294967184U);
+	  uii = uii % 144U;
+	  ujj = uii / 12;
+	  uii -= ujj * 12;
+	} else {
+	  uii = sfmt_genrand_uint32(&sfmt) & 3;
+	  ujj = uii >> 1;
+	  uii &= 1;
+	}
+	memcpy(cur_alleles, &(alleles[uii]), 2);
+	memcpy(&(cur_alleles[2]), &(alleles[ujj]), 2);
+      } else {
+	memcpy(cur_alleles, alleles, 4);
+      }
+      ulii = 0;
+      ukk = 0;
+      wbptr = writebuf;
+      if (!do_haps) {
+	if (is_qt) {
+	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	    ullii = sfmt_genrand_uint64(sfmt64p) >> 1;
+	    if (ullii > thresholds[1]) {
+	      uii = 3;
+	    } else if (ullii > thresholds[0]) {
+	      uii = 2;
+	    } else {
+	      uii = 0;
+	    }
+	    qt_vals[indiv_idx] += qt_adj[uii];
+	    if (sfmt_genrand_uint32(&sfmt) < missing_thresh) {
+	      uii = 1;
+	    }
+	    ulii |= uii << ukk;
+	    ukk += 2;
+	    if (ukk == BITCT) {
+	      *wbptr++ = ulii;
+	      ulii = 0;
+	      ukk = 0;
+	    }
+	  }
+	} else {
+	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	    ullii = sfmt_genrand_uint64(sfmt64p) >> 1;
+	    if (indiv_idx < case_ct) {
+	      if (ullii > case_thresholds[1]) {
+		if (ullii > case_thresholds[2]) {
+		  uii = 3;
+		} else {
+		  uii = 2;
+		}
+	      } else if (ullii > case_thresholds[0]) {
+		uii = 1;
+	      } else {
+		uii = 0;
+	      }
+	    } else {
+	      if (ullii > thresholds[1]) {
+		if (ullii > thresholds[2]) {
+		  uii = 3;
+		} else {
+		  uii = 2;
+		}
+	      } else if (ullii > thresholds[0]) {
+		uii = 1;
+	      } else {
+		uii = 0;
+	      }
+	    }
+	    ulii |= uii << ukk;
+	    ukk += 2;
+	    if (ukk == BITCT) {
+	      *wbptr++ = ulii;
+	      ulii = 0;
+	      ukk = 0;
+	    }
+	  }
+	}
+	if (ukk) {
+	  *wbptr = ulii;
+	}
+      } else {
+	uljj = 0;
+	wbptr2 = writebuf2;
+	if (is_qt) {
+	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	    ullii = sfmt_genrand_uint64(sfmt64p) >> 1;
+	    uii = uint64arr_greater_than(thresholds, 11, ullii);
+	    ujj = uii & 3;
+	    uii /= 4;
+	    uii += (uii + 1) >> 1;
+	    qt_vals[indiv_idx] += qt_adj[uii];
+	    if (sfmt_genrand_uint32(&sfmt) < missing_thresh) {
+	      uii = 1;
+	    }
+	    ulii |= uii << ukk;
+	    uljj |= ujj << ukk;
+	    ukk += 2;
+	    if (ukk == BITCT) {
+	      *wbptr++ = ulii;
+	      *wbptr2++ = uljj;
+	      ulii = 0;
+	      uljj = 0;
+	      ukk = 0;
+	    }
+	  }
+	} else {
+	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	    ullii = sfmt_genrand_uint64(sfmt64p) >> 1;
+	    if (indiv_idx < case_ct) {
+	      uii = uint64arr_greater_than(case_thresholds, 15, ullii);
+	    } else {
+	      uii = uint64arr_greater_than(thresholds, 15, ullii);
+	    }
+	    ujj = uii & 3;
+	    uii /= 4;
+	    ulii |= uii << ukk;
+	    uljj |= ujj << ukk;
+	    ukk += 2;
+	    if (ukk == BITCT) {
+	      *wbptr++ = ulii;
+	      *wbptr2++ = uljj;
+	      ulii = 0;
+	      uljj = 0;
+	      ukk = 0;
+	    }
+	  }
+	}
+	if (ukk) {
+	  *wbptr = ulii;
+	  *wbptr2 = uljj;
+	}
+      }
+      if (popcount_longs(writebuf, 0, indiv_ctl2) < indiv_ct) {
+	reverse_loadbuf((unsigned char*)writebuf, indiv_ct);
+	cc = cur_alleles[0];
+	cur_alleles[0] = cur_alleles[1];
+	cur_alleles[1] = cc;
+      }
+      wptr = &(tbuf[1]);
+      *wptr++ = '\t';
+      if (cur_marker_ct > 1) {
+	wptr = memcpya(wptr, cur_snp_label, snp_label_len);
+	wptr = uint32_write(wptr, cur_marker_idx);
+      } else {
+	wptr = memcpya(wptr, cur_snp_label, snp_label_len - 1);
+      }
+      if (do_tags) {
+	wptr = memcpya(wptr, "_M", 2);
+      }
+      wptr = memcpyl3a(wptr, "\t0\t");
+      wptr = uint32_writex(wptr, marker_pos++, '\t');
+      *wptr++ = cur_alleles[0];
+      *wptr++ = '\t';
+      *wptr++ = cur_alleles[1];
+      *wptr++ = '\n';
+      if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_txt)) {
+	goto simulate_ret_WRITE_FAIL;
+      }
+      if (fwrite_checked((unsigned char*)writebuf, indiv_ct4, outfile_bed)) {
+	goto simulate_ret_WRITE_FAIL;
+      }
+      if (do_haps) {
+	if (popcount_longs(writebuf2, 0, indiv_ctl2) < indiv_ct) {
+	  reverse_loadbuf((unsigned char*)writebuf2, indiv_ct);
+	  cc = cur_alleles[2];
+	  cur_alleles[2] = cur_alleles[3];
+	  cur_alleles[3] = cc;
+	}
+	wptr = &(tbuf[2 + snp_label_len]);
+	wptr = uint32_write(wptr, cur_marker_idx);
+	wptr = memcpya(wptr, "_M\t0\t", 5);
+	wptr = uint32_writex(wptr, marker_pos++, '\t');
+	*wptr++ = cur_alleles[2];
+	*wptr++ = '\t';
+	*wptr++ = cur_alleles[3];
+	*wptr++ = '\n';
+	if (fwrite_checked(tbuf, (uintptr_t)(wptr - tbuf), outfile_txt)) {
+	  goto simulate_ret_WRITE_FAIL;
+	}
+	if (fwrite_checked((unsigned char*)writebuf2, indiv_ct4, outfile_bed)) {
+	  goto simulate_ret_WRITE_FAIL;
+	}
       }
     }
   }
