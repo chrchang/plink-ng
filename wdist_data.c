@@ -5325,7 +5325,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	if (!simulate_12) {
 	  do {
 	    uii = sfmt_genrand_uint32(&sfmt);
-	  } while (uii < 4294967184U);
+	  } while (uii >= 4294967184U);
 	  uii = uii % 144U;
 	  ujj = uii / 12;
 	  uii -= ujj * 12;
