@@ -8914,8 +8914,13 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
+	load_rare = LOAD_RARE_SIMULATE;
       } else if (!memcmp(argptr2, "imulate-ncases", 15)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (load_rare != LOAD_RARE_SIMULATE) {
+	  sprintf(logbuf, "Error: --simulate-ncases must be used with --simulate.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (atoiz(argv[cur_arg + 1], &ii) || (ii < 0)) {
@@ -8925,6 +8930,10 @@ int32_t main(int32_t argc, char** argv) {
 	simulate_cases = ii;
       } else if (!memcmp(argptr2, "imulate-ncontrols", 18)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (load_rare != LOAD_RARE_SIMULATE) {
+	  sprintf(logbuf, "Error: --simulate-ncontrols must be used with --simulate.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (atoiz(argv[cur_arg + 1], &ii) || (ii < 0)) {
@@ -8963,12 +8972,33 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
+	// exploit alphabetical order
+	if (load_rare == LOAD_RARE_SIMULATE) {
+	  sprintf(logbuf, "Error: --simulate-n must be used with --simulate-qt, not --simulate.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
 	ii = atoi(argv[cur_arg + 1]);
 	if (ii < 1) {
 	  sprintf(logbuf, "Error: Invalid --simulate-n parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	simulate_qt_indivs = ii;
+      } else if (!memcmp(argptr2, "imulate-haps", 12)) {
+	if (simulate_flags & SIMULATE_TAGS) {
+	  sprintf(logbuf, "Error: --simulate-tags cannot be used with --simulate-haps.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --simulate-haps flag deprecated.  Use e.g. '--simulate haps'.\n");
+	simulate_flags |= SIMULATE_HAPS;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "imulate-tags", 12)) {
+	if (simulate_flags & SIMULATE_HAPS) {
+	  sprintf(logbuf, "Error: --simulate-tags cannot be used with --simulate-haps.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --simulate-tags flag deprecated.  Use e.g. '--simulate tags'.\n");
+	simulate_flags |= SIMULATE_TAGS;
+	goto main_param_zero;
       } else if (memcmp(argptr2, "ilent", 6)) {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -9437,7 +9467,7 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
 
-  if ((!calculation_type) && (load_rare != LOAD_RARE_LGEN) && (load_rare != LOAD_RARE_DUMMY) && (!(load_rare & LOAD_RARE_TRANSPOSE_MASK)) && (famname[0] || load_rare)) {
+  if ((!calculation_type) && (load_rare != LOAD_RARE_LGEN) && (load_rare != LOAD_RARE_DUMMY) && (load_rare != LOAD_RARE_SIMULATE) && (!(load_rare & LOAD_RARE_TRANSPOSE_MASK)) && (famname[0] || load_rare)) {
     goto main_ret_NULL_CALC;
   }
   if (!(load_params || load_rare)) {

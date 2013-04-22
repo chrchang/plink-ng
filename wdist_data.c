@@ -5035,12 +5035,14 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   uint32_t snp_label_len = 0;
   uint32_t missing_thresh = (uint32_t)(missing_freq * 4294967296.0);
   double marker_freq_lb = 0;
-  double marker_freq_delta = 0;
+  double marker_freq_ub = 0;
   double dprime = 0;
   double het_odds = 0;
   double hom0_odds = 0;
   double qt_var = 0;
   double qt_dom = 0;
+  uint32_t marker_idx_offset = 0;
+  uint32_t pct = 0;
   char* marker_freq_lb_ptr = NULL;
   char* marker_ld_ptr = NULL;
   uintptr_t* writebuf2 = NULL;
@@ -5050,6 +5052,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   uint64_t thresholds[15];
   uint64_t case_thresholds[15];
   double qt_adj[4];
+  uint32_t marker_ct;
   uintptr_t* writebuf;
   char* cptr;
   char* snp_label_ptr;
@@ -5064,6 +5067,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   sfmt_t* sfmt64p;
   uint32_t indiv_idx;
   uint32_t cur_marker_idx;
+  uint32_t loop_end;
   double freq_lb;
   double freq_delta;
   int32_t ii;
@@ -5071,6 +5075,8 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   uint64_t ullii;
   uintptr_t ulii;
   uintptr_t uljj;
+  uintptr_t ulkk;
+  uintptr_t ulmm;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -5128,6 +5134,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   }
   sprintf(logbuf, "Writing --simulate%s dataset to %s + .bim + .fam...", is_qt? "-qt" : "", outname);
   logprintb();
+  fputs(" 0%", stdout);
   fflush(stdout);
   sfmt64p = (sfmt_t*)wkspace_alloc(sizeof(sfmt_t));
   if (!sfmt64p) {
@@ -5135,11 +5142,37 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   }
   init_sfmt64_from_sfmt32(&sfmt, sfmt64p);
   tbuf[MAXLINELEN - 1] = ' ';
+  // just determine total marker ct in initial scan, for progress indicator
+  ullii = 0;
   while (fgets(tbuf, MAXLINELEN, infile)) {
     if (!tbuf[MAXLINELEN - 1]) {
       sprintf(logbuf, "\nError: Excessively long line in --simulate%s file.\n", is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2;
     }
+    cptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*cptr)) {
+      continue;
+    }
+    if (atoiz(cptr, &ii)) {
+      sprintf(logbuf, "\nError: Invalid marker count in --simulate%s line.\n", is_qt? "-qt" : "");
+      goto simulate_ret_INVALID_FORMAT_2;
+    }
+    ullii += ii;
+  }
+  if (!feof(infile)) {
+    goto simulate_ret_READ_FAIL;
+  }
+  if (!ullii) {
+    sprintf(logbuf, "\nError: No --simulate%s markers.\n", is_qt? "-qt" : "");
+    goto simulate_ret_INVALID_FORMAT_2;
+  } else if (ullii > 2147483647) {
+    sprintf(logbuf, "\nError: Too many --simulate%s markers.\n", is_qt? "-qt" : "");
+    goto simulate_ret_INVALID_FORMAT_2;
+  }
+  marker_ct = ullii;
+  loop_end = (marker_ct + 99) / 100;
+  rewind(infile);
+  while (fgets(tbuf, MAXLINELEN, infile)) {
     cptr = skip_initial_spaces(tbuf);
     if (is_eoln_kns(*cptr)) {
       continue;
@@ -5162,10 +5195,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
       sprintf(logbuf, "\nError: Too many field(s) in --simulate%s line.\n", is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2;
     }
-    if (atoiz(cptr, &ii)) {
-      sprintf(logbuf, "\nError: Invalid marker count in --simulate%s line.\n", is_qt? "-qt" : "");
-      goto simulate_ret_INVALID_FORMAT_2;
-    }
+    atoiz(cptr, &ii);
     if (!ii) {
       continue;
     }
@@ -5179,11 +5209,10 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     }
     freq_delta -= freq_lb;
     if (tags_or_haps) {
-      if ((sscanf(marker_freq_lb_ptr, "%lg %lg", &marker_freq_lb, &marker_freq_delta) != 2) || (marker_freq_lb < 0) || (marker_freq_delta < marker_freq_lb) || (marker_freq_delta > 1)) {
+      if ((sscanf(marker_freq_lb_ptr, "%lg %lg", &marker_freq_lb, &marker_freq_ub) != 2) || (marker_freq_lb < 0) || (marker_freq_ub < marker_freq_lb) || (marker_freq_ub > 1)) {
 	sprintf(logbuf, "\nError: Invalid marker allele frequency bound in --simulate%s line.\n", is_qt? "-qt" : "");
 	goto simulate_ret_INVALID_FORMAT_2;
       }
-      marker_freq_delta -= marker_freq_lb;
       if ((sscanf(marker_ld_ptr, "%lg", &dprime) != 1) || (dprime < 0) || (dprime > 1)) {
 	sprintf(logbuf, "\nError: Invalid d-prime in --simulate%s line.\n", is_qt? "-qt" : "");
 	goto simulate_ret_INVALID_FORMAT_2;
@@ -5196,7 +5225,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	logprint("\nError: Invalid variance value in --simulate-qt line.\n");
 	goto simulate_ret_INVALID_FORMAT;
       }
-      if ((qt_var > 0) && (((freq_delta == 0) && ((freq_lb == 0) || (freq_lb == 1))) || (tags_or_haps && (marker_freq_delta == 0) && ((marker_freq_lb == 0) || (marker_freq_lb == 1))))) {
+      if ((qt_var > 0) && (((freq_delta == 0) && ((freq_lb == 0) || (freq_lb == 1))) || (tags_or_haps && (marker_freq_lb == marker_freq_ub) && ((marker_freq_lb == 0) || (marker_freq_lb == 1))))) {
 	logprint("\nError: Nonzero variance with fixed 0/1 allele frequency in --simulate-qt line.\n");
 	goto simulate_ret_INVALID_FORMAT;
       }
@@ -5225,7 +5254,37 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     for (cur_marker_idx = 0; cur_marker_idx < cur_marker_ct; cur_marker_idx++) {
       freqs[0] = freq_lb + rand_unif() * freq_delta;
       if (tags_or_haps) {
-	freqs[1] = marker_freq_lb + rand_unif() * marker_freq_delta;
+	// force marker freq/c.v. freq and (1 - marker freq)/(1 - c.v. freq) to
+	// not be smaller than dprime or larger than 1 / dprime, unless that
+	// causes marker freq to be out of range.
+	if (dprime > 0) {
+	  dxx = 1 - (1 - freqs[0]) / dprime;
+	  dzz = freqs[0] * dprime;
+	  if (dxx < dzz) {
+	    dxx = dzz;
+	  }
+	  if (dxx < marker_freq_lb) {
+	    dxx = marker_freq_lb;
+	  }
+	  dyy = 1 - (1 - freqs[0]) * dprime;
+	  dzz = freqs[0] / dprime;
+	  if (dyy > dzz) {
+	    dyy = dzz;
+	  }
+	  if (dyy > marker_freq_ub) {
+	    dyy = marker_freq_ub;
+	  }
+	  if (dyy < dxx) {
+	    if (dyy < marker_freq_lb) {
+	      dyy = marker_freq_lb;
+	    }
+	    dxx = dyy;
+	  }
+	} else {
+	  dxx = marker_freq_lb;
+	  dyy = marker_freq_ub;
+	}
+	freqs[1] = dxx + rand_unif() * (dyy - dxx);
       } else {
 	freqs[1] = freqs[0];
       }
@@ -5288,17 +5347,17 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
 	    ullii = sfmt_genrand_uint64(sfmt64p) >> 1;
 	    if (ullii > thresholds[1]) {
-	      uii = 3;
+	      ulkk = 3;
 	    } else if (ullii > thresholds[0]) {
-	      uii = 2;
+	      ulkk = 2;
 	    } else {
-	      uii = 0;
+	      ulkk = 0;
 	    }
-	    qt_vals[indiv_idx] += qt_adj[uii];
+	    qt_vals[indiv_idx] += qt_adj[ulkk];
 	    if (sfmt_genrand_uint32(&sfmt) < missing_thresh) {
-	      uii = 1;
+	      ulkk = 1;
 	    }
-	    ulii |= uii << ukk;
+	    ulii |= ulkk << ukk;
 	    ukk += 2;
 	    if (ukk == BITCT) {
 	      *wbptr++ = ulii;
@@ -5312,29 +5371,29 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	    if (indiv_idx < case_ct) {
 	      if (ullii > case_thresholds[1]) {
 		if (ullii > case_thresholds[2]) {
-		  uii = 3;
+		  ulkk = 3;
 		} else {
-		  uii = 2;
+		  ulkk = 2;
 		}
 	      } else if (ullii > case_thresholds[0]) {
-		uii = 1;
+		ulkk = 1;
 	      } else {
-		uii = 0;
+		ulkk = 0;
 	      }
 	    } else {
 	      if (ullii > thresholds[1]) {
 		if (ullii > thresholds[2]) {
-		  uii = 3;
+		  ulkk = 3;
 		} else {
-		  uii = 2;
+		  ulkk = 2;
 		}
 	      } else if (ullii > thresholds[0]) {
-		uii = 1;
+		ulkk = 1;
 	      } else {
-		uii = 0;
+		ulkk = 0;
 	      }
 	    }
-	    ulii |= uii << ukk;
+	    ulii |= ulkk << ukk;
 	    ukk += 2;
 	    if (ukk == BITCT) {
 	      *wbptr++ = ulii;
@@ -5352,16 +5411,16 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	if (is_qt) {
 	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
 	    ullii = sfmt_genrand_uint64(sfmt64p) >> 1;
-	    uii = uint64arr_greater_than(thresholds, 11, ullii);
-	    ujj = uii & 3;
-	    uii /= 4;
-	    uii += (uii + 1) >> 1;
-	    qt_vals[indiv_idx] += qt_adj[uii];
+	    ulkk = uint64arr_greater_than(thresholds, 11, ullii);
+	    ulmm = ulkk & 3;
+	    ulkk /= 4;
+	    ulkk += (ulkk + 1) >> 1;
+	    qt_vals[indiv_idx] += qt_adj[ulkk];
 	    if (sfmt_genrand_uint32(&sfmt) < missing_thresh) {
-	      uii = 1;
+	      ulkk = 1;
 	    }
-	    ulii |= uii << ukk;
-	    uljj |= ujj << ukk;
+	    ulii |= ulkk << ukk;
+	    uljj |= ulmm << ukk;
 	    ukk += 2;
 	    if (ukk == BITCT) {
 	      *wbptr++ = ulii;
@@ -5375,14 +5434,14 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
 	    ullii = sfmt_genrand_uint64(sfmt64p) >> 1;
 	    if (indiv_idx < case_ct) {
-	      uii = uint64arr_greater_than(case_thresholds, 15, ullii);
+	      ulkk = uint64arr_greater_than(case_thresholds, 15, ullii);
 	    } else {
-	      uii = uint64arr_greater_than(thresholds, 15, ullii);
+	      ulkk = uint64arr_greater_than(thresholds, 15, ullii);
 	    }
-	    ujj = uii & 3;
-	    uii /= 4;
-	    ulii |= uii << ukk;
-	    uljj |= ujj << ukk;
+	    ulmm = ulkk & 3;
+	    ulkk /= 4;
+	    ulii |= ulkk << ukk;
+	    uljj |= ulmm << ukk;
 	    ukk += 2;
 	    if (ukk == BITCT) {
 	      *wbptr++ = ulii;
@@ -5449,16 +5508,25 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	  goto simulate_ret_WRITE_FAIL;
 	}
       }
+      if (cur_marker_idx >= loop_end) {
+	if (pct > 9) {
+	  putchar('\b');
+	}
+	pct = ((cur_marker_idx + marker_idx_offset) * 100LLU) / marker_ct;
+	printf("\b\b%u%%", pct);
+	fflush(stdout);
+	loop_end = ((marker_ct * (pct + 1LLU) + 99LLU) / 100U) - marker_idx_offset;
+      }
     }
+    marker_idx_offset += cur_marker_ct;
+    loop_end -= cur_marker_ct;
   }
   if (!feof(infile)) {
     goto simulate_ret_READ_FAIL;
   }
-  if (!cur_marker_ct) {
-    sprintf(logbuf, "\nError: No --simulate%s markers.\n", is_qt? "-qt" : "");
-    goto simulate_ret_INVALID_FORMAT_2;
+  if (fclose_null(&outfile_txt) || fclose_null(&outfile_bed)) {
+    goto simulate_ret_WRITE_FAIL;
   }
-  fclose_null(&outfile_txt);
   memcpy(outname_end, ".fam", 5);
   if (fopen_checked(&outfile_txt, outname, "w")) {
     goto simulate_ret_OPEN_FAIL;
@@ -5496,6 +5564,10 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     }
   }
   *outname_end = '\0';
+  if (pct > 9) {
+    putchar('\b');
+  }
+  fputs("\b\b\b", stdout);
   sprintf(logbuf, " done.\nRealized simulation parameters saved to %s.simfreq.\n", outname);
   logprintb();
   while (0) {
