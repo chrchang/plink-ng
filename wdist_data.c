@@ -5146,7 +5146,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   ullii = 0;
   while (fgets(tbuf, MAXLINELEN, infile)) {
     if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "\nError: Excessively long line in --simulate%s file.\n", is_qt? "-qt" : "");
+      sprintf(logbuf, "\nError: Excessively long line in --simulate%s input file.\n", is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2;
     }
     cptr = skip_initial_spaces(tbuf);
@@ -5154,7 +5154,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
       continue;
     }
     if (atoiz(cptr, &ii)) {
-      sprintf(logbuf, "\nError: Invalid marker count in --simulate%s line.\n", is_qt? "-qt" : "");
+      sprintf(logbuf, "\nError: Invalid marker count in --simulate%s input file.\n", is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2;
     }
     ullii += ii;
@@ -5163,10 +5163,10 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     goto simulate_ret_READ_FAIL;
   }
   if (!ullii) {
-    sprintf(logbuf, "\nError: No --simulate%s markers.\n", is_qt? "-qt" : "");
+    sprintf(logbuf, "\nError: --simulate%s input file specifies zero variants/markers.\n", is_qt? "-qt" : "");
     goto simulate_ret_INVALID_FORMAT_2;
-  } else if (ullii > 2147483647) {
-    sprintf(logbuf, "\nError: Too many --simulate%s markers.\n", is_qt? "-qt" : "");
+  } else if (ullii > (do_haps? 1073741823 : 2147483647)) {
+    sprintf(logbuf, "\nError: --simulate%s input file specifies too many variants/markers.\n", is_qt? "-qt" : "");
     goto simulate_ret_INVALID_FORMAT_2;
   }
   marker_ct = ullii;
@@ -5188,11 +5188,11 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     }
     last_ptr = next_item(penult_ptr);
     if (no_more_items(last_ptr)) {
-      sprintf(logbuf, "\nError: Missing field(s) in --simulate%s line.\n", is_qt? "-qt" : "");
+      sprintf(logbuf, "\nError: Missing field(s) in --simulate%s input file line.\n", is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2;
     }
     if (!no_more_items(next_item(last_ptr))) {
-      sprintf(logbuf, "\nError: Too many field(s) in --simulate%s line.\n", is_qt? "-qt" : "");
+      sprintf(logbuf, "\nError: Too many field(s) in --simulate%s input file line.\n", is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2;
     }
     atoiz(cptr, &ii);
@@ -5204,17 +5204,17 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     memcpy(cur_snp_label, snp_label_ptr, snp_label_len);
     cur_snp_label[snp_label_len++] = '_';
     if ((sscanf(freq_lb_ptr, "%lg %lg", &freq_lb, &freq_delta) != 2) || (freq_lb < 0) || (freq_delta < freq_lb) || (freq_delta > 1)) {
-      sprintf(logbuf, "\nError: Invalid allele frequency bound in --simulate%s line.\n", is_qt? "-qt" : "");
+      sprintf(logbuf, "\nError: Invalid allele frequency bound in --simulate%s input file.\n", is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2;
     }
     freq_delta -= freq_lb;
     if (tags_or_haps) {
       if ((sscanf(marker_freq_lb_ptr, "%lg %lg", &marker_freq_lb, &marker_freq_ub) != 2) || (marker_freq_lb < 0) || (marker_freq_ub < marker_freq_lb) || (marker_freq_ub > 1)) {
-	sprintf(logbuf, "\nError: Invalid marker allele frequency bound in --simulate%s line.\n", is_qt? "-qt" : "");
+	sprintf(logbuf, "\nError: Invalid marker allele frequency bound in --simulate%s input file.\n", is_qt? "-qt" : "");
 	goto simulate_ret_INVALID_FORMAT_2;
       }
       if ((sscanf(marker_ld_ptr, "%lg", &dprime) != 1) || (dprime < 0) || (dprime > 1)) {
-	sprintf(logbuf, "\nError: Invalid d-prime in --simulate%s line.\n", is_qt? "-qt" : "");
+	sprintf(logbuf, "\nError: Invalid d-prime in --simulate%s input file.\n", is_qt? "-qt" : "");
 	goto simulate_ret_INVALID_FORMAT_2;
       }
     } else {
@@ -5222,31 +5222,31 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     }
     if (is_qt) {
       if ((sscanf(penult_ptr, "%lg", &qt_var) != 1) || (qt_var < 0) || (qt_var > 1)) {
-	logprint("\nError: Invalid variance value in --simulate-qt line.\n");
+	logprint("\nError: Invalid variance value in --simulate-qt input file.\n");
 	goto simulate_ret_INVALID_FORMAT;
       }
       if ((qt_var > 0) && (((freq_delta == 0) && ((freq_lb == 0) || (freq_lb == 1))) || (tags_or_haps && (marker_freq_lb == marker_freq_ub) && ((marker_freq_lb == 0) || (marker_freq_lb == 1))))) {
-	logprint("\nError: Nonzero variance with fixed 0/1 allele frequency in --simulate-qt line.\n");
+	logprint("\nError: Nonzero variance with fixed 0/1 allele frequency in --simulate-qt input file.\n");
 	goto simulate_ret_INVALID_FORMAT;
       }
       qt_totvar += ((intptr_t)cur_marker_ct) * qt_var;
       if (qt_totvar > 1 + EPSILON) {
-	logprint("\nError: --simulate-qt specific QTL variance greater than 1.\n");
+	logprint("\nError: --simulate-qt input file specific QTL variance greater than 1.\n");
 	goto simulate_ret_INVALID_FORMAT;
       }
       if (sscanf(last_ptr, "%lg", &qt_dom) != 1) {
-	logprint("\nError: Invalid dominance deviation value in --simulate-qt line.\n");
+	logprint("\nError: Invalid dominance deviation value in --simulate-qt input file.\n");
 	goto simulate_ret_INVALID_FORMAT;
       }
     } else {
       if ((sscanf(penult_ptr, "%lg", &het_odds) != 1) || (het_odds < 0)) {
-	logprint("\nError: Invalid heterozygote disease odds ratio in --simulate line.\n");
+	logprint("\nError: Invalid heterozygote disease odds ratio in --simulate input file.\n");
 	goto simulate_ret_INVALID_FORMAT;
       }
       if ((strlen_se(last_ptr) == 4) && match_upper_nt(last_ptr, "MULT", 4)) {
 	hom0_odds = het_odds * het_odds;
       } else if ((sscanf(last_ptr, "%lg", &hom0_odds) != 1) || (hom0_odds < 0)) {
-	logprint("\nError: Invalid homozygote disease odds ratio in --simulate line.\n");
+	logprint("\nError: Invalid homozygote disease odds ratio in --simulate input file.\n");
 	goto simulate_ret_INVALID_FORMAT;
       }
     }
