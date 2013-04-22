@@ -954,8 +954,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --update-sex [fname]        the PLINK documentation for file format details.\n"
 	       );
     help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
-"  --simulate-ncases [num]   : Set --simulate case count (default 100).\n"
-"  --simulate-ncontrols [n]  : Set --simulate control count (default 100).\n"
+"  --simulate-ncases [num]   : Set --simulate case count (default 1000).\n"
+"  --simulate-ncontrols [n]  : Set --simulate control count (default 1000).\n"
 "  --simulate-prevalence [p] : Set --simulate disease prevalence (default 0.01).\n"
 	       );
     help_print("simulate-qt\tsimulate-n", &help_ctrl, 0,
