@@ -72,7 +72,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (22 Apr 2013)";
+  " (23 Apr 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -962,7 +962,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --simulate-n [num]        : Set --simulate-qt indiv count (default 1000).\n"
 	       );
     help_print("simulate\tsimulate-qt\tsimulate-label\tsimulate-missing", &help_ctrl, 0,
-"  --simulate-label [suffix] : Set --simulate(-qt) individual name suffix.\n"
+"  --simulate-label [prefix] : Set --simulate(-qt) individual name prefix.\n"
 "  --simulate-missing [freq] : Set --simulate(-qt) missing genotype frequency.\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-allow-equal-pos", &help_ctrl, 0,

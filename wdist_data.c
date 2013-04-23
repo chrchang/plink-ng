@@ -5012,7 +5012,7 @@ void simulate_init_freqs_cc(uint32_t do_haps, double dprime, double* freqs, doub
   }
 }
 
-int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char* simulate_fname, uint32_t case_ct, uint32_t ctrl_ct, double prevalence, uint32_t indiv_ct, double missing_freq, char* name_suffix) {
+int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char* simulate_fname, uint32_t case_ct, uint32_t ctrl_ct, double prevalence, uint32_t indiv_ct, double missing_freq, char* name_prefix) {
   FILE* infile = NULL;
   FILE* outfile_txt = NULL;
   FILE* outfile_simfreq = NULL;
@@ -5043,6 +5043,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   double qt_dom = 0;
   uint32_t marker_idx_offset = 0;
   uint32_t pct = 0;
+  uint32_t name_prefix_len = 0;
   char* marker_freq_lb_ptr = NULL;
   char* marker_ld_ptr = NULL;
   uintptr_t* writebuf2 = NULL;
@@ -5531,7 +5532,15 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   if (fopen_checked(&outfile_txt, outname, "w")) {
     goto simulate_ret_OPEN_FAIL;
   }
-  memcpyl3(tbuf, "per");
+  wptr = tbuf;
+  if (name_prefix) {
+    name_prefix_len = strlen(name_prefix);
+    wptr = memcpyax(wptr, name_prefix, name_prefix_len, '-');
+    uii = 4 + name_prefix_len;
+  } else {
+    uii = 3;
+  }
+  memcpyl3(wptr, "per");
   if (is_qt) {
     if (qt_totvar < 1 - EPSILON) {
       dyy = sqrt(1 - qt_totvar);
@@ -5540,8 +5549,11 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     }
   }
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    wptr = uint32_write(&(tbuf[3]), indiv_idx);
-    wptr = memcpya(wptr, " per", 4);
+    wptr = uint32_writex(&(tbuf[uii]), indiv_idx, ' ');
+    if (name_prefix_len) {
+      wptr = memcpyax(wptr, name_prefix, name_prefix_len, '-');
+    }
+    wptr = memcpyl3a(wptr, "per");
     wptr = uint32_write(wptr, indiv_idx);
     wptr = memcpya(wptr, " 0 0 2 ", 7);
     if (is_qt) {
