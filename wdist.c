@@ -57,13 +57,15 @@
 #define LOAD_RARE_TRANSPOSE_MASK (LOAD_RARE_TRANSPOSE | LOAD_RARE_TPED | LOAD_RARE_TFAM)
 #define LOAD_RARE_DUMMY 64
 #define LOAD_RARE_SIMULATE 128
+#define LOAD_RARE_CNV 256
+#define LOAD_RARE_GVAR 512
 
 // maximum number of usable cluster computers, this is arbitrary though it
 // shouldn't be larger than 2^31 - 1
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.18.5"
+  "WDIST v0.19.0"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -72,7 +74,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (23 Apr 2013)";
+  " (2 May 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -355,34 +357,38 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
   }
   do {
     help_print("bfile\tbed\tbim\tfam", &help_ctrl, 1,
-"  --bfile {prefix} : Specify .bed/.bim/.fam prefix (default 'wdist').\n"
+"  --bfile {prefix} : Specify .bed + .bim + .fam prefix (default 'wdist').\n"
 "  --bed [filename] : Specify full name of .bed file.\n"
 "  --bim [filename] : Specify full name of .bim file.\n"
 "  --fam [filename] : Specify full name of .fam file.\n\n"
 	       );
     help_print("file\tped\tmap", &help_ctrl, 1,
-"  --file {prefix}  : Specify prefix for .ped and .map files (default 'wdist').\n"
+"  --file {prefix}  : Specify .ped + .map filename prefix (default 'wdist').\n"
 "  --ped [filename] : Specify full name of .ped file.\n"
 "  --map [filename] : Specify full name of .map file.\n\n"
 	       );
     help_print("tfile\ttped\ttfam", &help_ctrl, 1,
-"  --tfile {prefix} : Specify .tped/.tfam prefix (default 'wdist').\n"
+"  --tfile {prefix} : Specify .tped + .tfam filename prefix (default 'wdist').\n"
 "  --tped [fname]   : Specify full name of .tped file.\n"
 "  --tfam [fname]   : Specify full name of .tfam file.\n\n"
 	       );
     help_print("lfile", &help_ctrl, 1,
-"  --lfile {prefix} : Specify .lgen/.map/.fam (long-format fileset) prefix.\n\n"
+"  --lfile {prefix} : Specify .lgen + .map + .fam (long-format fileset) prefix.\n\n"
 	       );
     help_print("data\tgen\tsample", &help_ctrl, 1,
-"  --data {prefix}  : Specify Oxford .gen/.sample prefix (default 'wdist').\n"
+"  --data {prefix}  : Specify Oxford .gen + .sample prefix (default 'wdist').\n"
 "  --gen [filename] : Specify full name of .gen file.\n"
 "  --sample [fname] : Specify full name of .sample file.\n\n"
 	       );
+    help_print("cfile\tcnv-list\tgfile", &help_ctrl, 1,
+"  --cfile [prefix] : Specify .cnv + .fam + .cnv.map (segmental CNV) prefix.\n"
+"  --cnv-list [fn]  : Specify full name of .cnv file.\n"
+"  --gfile [prefix] : Specify .gvar + .fam + .map (genetic variant) prefix.\n\n"
+	       );
     help_print("grm\tgrm-bin\trel-cutoff\tgrm-cutoff", &help_ctrl, 1,
-"  --grm {prefix}   : Load a GCTA relationship matrix (.grm.gz + .grm.id) for\n"
-"                     --rel-cutoff.\n"
-"  --grm-bin {prfx} : Load a GCTA triangular binary relationship matrix\n"
-"                     (.grm.bin + .grm.N.bin + .grm.id) for --rel-cutoff.\n\n"
+"  --grm {prefix}   : Specify .grm.gz + .grm.id (GCTA rel. matrix) prefix.\n"
+"  --grm-bin {prfx} : Specify .grm.bin + .grm.N.bin + .grm.id (GCTA triangular\n"
+"                     binary relationship matrix) filename prefix.\n\n"
 	       );
     help_print("dummy", &help_ctrl, 1,
 "  --dummy [indiv ct] [marker ct] {missing geno freq} {missing pheno freq}\n"
@@ -394,8 +400,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    distributed scalar phenotype to be generated instead of a binary one.\n\n"
 	       );
     help_print("simulate\tsimulate-qt", &help_ctrl, 1,
-"  --simulate [.sim file] <tags | haps> <acgt | 1234 | 12>\n"
-"  --simulate-qt [.sim file] <tags | haps> <acgt | 1234 | 12>\n"
+"  --simulate [simulation parameter file] <tags | haps> <acgt | 1234 | 12>\n"
+"  --simulate-qt [simulation parameter file] <tags | haps> <acgt | 1234 | 12>\n"
 "    --simulate generates a fake input dataset with disease-associated SNPs,\n"
 "    while --simulate-qt generates a dataset with quantitative trait loci.\n\n"
 	       );
@@ -644,7 +650,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    WDIST's filtering flags.\n"
 	       );
     help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference", &help_ctrl, 1,
-"  --recode <12> <compound-genotypes | 23 | A | AD | lgen | lgen-ref | list |\n"
+"  --recode <12> <compound-genotypes> <23 | A | AD | lgen | lgen-ref | list |\n"
 "           rlist | transpose> <tab | tabx | spacex>\n"
 "    Creates a new text fileset with all filters applied.\n"
 "    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
@@ -6748,12 +6754,8 @@ int32_t main(int32_t argc, char** argv) {
 	if (!(load_params & 16)) {
 	  memcpy(strcpya(pedname, sptr), ".bed", 5);
 	}
-	if (!(load_params & 32)) {
-	  memcpy(strcpya(mapname, sptr), ".bim", 5);
-	}
-	if (!(load_params & 64)) {
-	  memcpy(strcpya(famname, sptr), ".fam", 5);
-	}
+	memcpy(strcpya(mapname, sptr), ".bim", 5);
+	memcpy(strcpya(famname, sptr), ".fam", 5);
       } else if (!memcmp(argptr2, "ed", 3)) {
 	load_params |= 16;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -6844,7 +6846,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
       } else if (!memcmp(argptr2, "ompound-genotypes", 18)) {
-	logprint("Note: --compound-genotypes flag unnecessary (spaces between alleles in .ped\nare optional).\n");
+	logprint("Note: --compound-genotypes flag unnecessary (spaces between alleles in .ped\nand .lgen files are optional if all alleles are single-character).\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ompress", 8)) {
 	logprint("Error: --compress flag retired.  Use e.g. 'gzip [filename]'.\n");
@@ -6921,6 +6923,32 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --ci confidence interval size s must satisfy 0.01 <= s < 1.%s", errstr_append);
 	}
 	ci_size = dxx;
+      } else if (!memcmp(argptr2, "file", 5)) {
+	if (load_rare || load_params) {
+	  goto main_ret_INVALID_CMDLINE_4;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	sptr = argv[cur_arg + 1];
+	uii = strlen(sptr);
+	if (uii > (FNAMESIZE - 9)) {
+	  logprint("Error: --cfile parameter too long.\n");
+	  goto main_ret_OPEN_FAIL;
+	}
+	memcpy(memcpya(pedname, sptr, uii), ".cnv", 5);
+	memcpy(memcpya(famname, sptr, uii), ".fam", 5);
+	memcpy(memcpya(mapname, sptr, uii), ".cnv.map", 9);
+	load_rare = LOAD_RARE_CNV;
+      } else if (!memcmp(argptr2, "nv-list", 8)) {
+	if ((load_rare & (~LOAD_RARE_CNV)) || load_params) {
+	  goto main_ret_INVALID_CMDLINE_4;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	strcpya(pedname, argv[cur_arg + 1]);
+	load_rare = LOAD_RARE_CNV;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -7444,6 +7472,25 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --gc flag deprecated.  Use '--adjust gc'.\n");
 	mtest_adjust |= ADJUST_GC;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "file", 5)) {
+	if (load_rare || (load_params & (~64))) {
+	  goto main_ret_INVALID_CMDLINE_4;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	sptr = argv[cur_arg + 1];
+	uii = strlen(sptr);
+	if (uii > (FNAMESIZE - 6)) {
+	  logprint("Error: --gfile parameter too long.\n");
+	  goto main_ret_OPEN_FAIL;
+	}
+	memcpy(memcpya(pedname, sptr, uii), ".gvar", 6);
+	if (!(load_params & 64)) {
+	  memcpy(memcpya(famname, sptr, uii), ".fam", 5);
+	}
+	memcpy(memcpya(mapname, sptr, uii), ".map", 5);
+	load_rare = LOAD_RARE_GVAR;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -7684,7 +7731,7 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'm':
       if (!memcmp(argptr2, "ap", 3)) {
-	if ((load_params & 0x3fc) || load_rare) {
+	if ((load_params & 0x3fc) || (load_rare & (~(LOAD_RARE_CNV | LOAD_RARE_GVAR)))) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	load_params |= 4;
@@ -8685,9 +8732,7 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    recode_modifier |= RECODE_12;
 	  } else if (!memcmp(argv[cur_arg + uii], "compound-genotypes", 19)) {
-	    if (recode_type_set(&recode_modifier, RECODE_COMPOUND)) {
-	      goto main_ret_INVALID_CMDLINE_3;
-	    }
+	    recode_modifier |= RECODE_COMPOUND;
 	  } else if (!memcmp(argv[cur_arg + uii], "23", 3)) {
 	    if (recode_type_set(&recode_modifier, RECODE_23)) {
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -9600,6 +9645,14 @@ int32_t main(int32_t argc, char** argv) {
 	  free(simulate_label);
 	  simulate_label = NULL;
 	}
+      } else if (load_rare & LOAD_RARE_CNV) {
+	logprint("Error: CNV analysis not yet implemented.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto main_ret_1;
+      } else if (load_rare & LOAD_RARE_GVAR) {
+	logprint("Error: CNP analysis not yet implemented.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto main_ret_1;
       } else {
         retval = ped_to_bed(pedname, mapname, outname, sptr, fam_col_1, fam_col_34, fam_col_5, fam_col_6, affection_01, missing_pheno, &chrom_info);
 	fam_col_1 = 1;

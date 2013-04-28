@@ -3339,6 +3339,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   uintptr_t* indiv_exclude = NULL;
   int32_t map_is_unsorted = 0;
   int32_t duplicate_fail = 0;
+  uint32_t compound_genotypes = 1; // 0 = no, 1 = unresolved, 2 = yes
   uintptr_t* pheno_nm = NULL;
   uintptr_t* pheno_c = NULL;
   double* pheno_d = NULL;
@@ -3558,10 +3559,27 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       sptr = item_end(a1ptr);
       a1len = (uintptr_t)(sptr - a1ptr);
       a2ptr = next_item(sptr);
-      if (no_more_items_kns(a2ptr)) {
-	goto lgen_to_bed_ret_INVALID_FORMAT;
+      if (compound_genotypes == 1) {
+	if (no_more_items_kns(a2ptr)) {
+	  compound_genotypes = 2;
+	} else {
+	  compound_genotypes = 0;
+	}
       }
-      a2len = strlen_se(a2ptr);
+      if (!compound_genotypes) {
+	if (no_more_items_kns(a2ptr)) {
+	  goto lgen_to_bed_ret_INVALID_FORMAT;
+	}
+	a2len = strlen_se(a2ptr);
+      } else {
+	if (a1len != 2) {
+	  goto lgen_to_bed_ret_INVALID_FORMAT;
+	}
+	a1len = 1;
+	a2ptr = &(a1ptr[2]);
+	*a2ptr = a1ptr[1];
+	a2len = 1;
+      }
       ii = bsearch_fam_indiv(id_buf, sorted_indiv_ids, max_person_id_len, indiv_ct, cptr, cptr2);
       if (ii == -1) {
 	goto lgen_to_bed_ret_INVALID_FORMAT_2;
@@ -5044,6 +5062,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   uint32_t marker_idx_offset = 0;
   uint32_t pct = 0;
   uint32_t name_prefix_len = 0;
+  uint32_t zero_odds_ratio_warning_given = 0;
   char* marker_freq_lb_ptr = NULL;
   char* marker_ld_ptr = NULL;
   uintptr_t* writebuf2 = NULL;
@@ -5249,6 +5268,13 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
       } else if ((sscanf(last_ptr, "%lg", &hom0_odds) != 1) || (hom0_odds < 0)) {
 	logprint("\nError: Invalid homozygote disease odds ratio in --simulate input file.\n");
 	goto simulate_ret_INVALID_FORMAT;
+      }
+      if ((!zero_odds_ratio_warning_given) && ((het_odds == 0) || (hom0_odds == 0))) {
+        putchar('\r');
+	logstr("\n");
+	logprint("Warning: Zero odds ratio present in --simulate input file.  Did you mean\n--simulate-qt instead?\n");
+	zero_odds_ratio_warning_given = 1;
+        printf("%u%%", pct);
       }
     }
     tbuf[0] = '1';
@@ -5579,8 +5605,11 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   if (pct > 9) {
     putchar('\b');
   }
-  fputs("\b\b\b", stdout);
-  sprintf(logbuf, " done.\nRealized simulation parameters saved to %s.simfreq.\n", outname);
+  fputs("\b\b", stdout);
+  if (!zero_odds_ratio_warning_given) {
+    logstr(" ");
+  }
+  sprintf(logbuf, "done.\nRealized simulation parameters saved to %s.simfreq.\n", outname);
   logprintb();
   while (0) {
   simulate_ret_NOMEM:
@@ -5829,6 +5858,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
   uint32_t lgen_ref = (recode_modifier & RECODE_LGEN_REF);
   uint32_t rlist = (recode_modifier & RECODE_RLIST);
   int32_t retval = 0;
+  uint32_t recode_compound;
   time_t rawtime;
   FILE* outfile;
   uint32_t is_x;
@@ -5904,6 +5934,10 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
       goto recode_ret_NOMEM;
     }
   } else if (recode_modifier & (RECODE_LGEN | RECODE_LGEN_REF)) {
+    if ((recode_modifier & RECODE_COMPOUND) && (max_marker_allele_len != 1)) {
+      logprint("Error: --recode compound-genotypes cannot be used with multi-character allele\nnames.\n");
+      goto recode_ret_INVALID_FORMAT;
+    }
     if (wkspace_alloc_c_checked(&writebuf, 3)) {
       goto recode_ret_NOMEM;
     }
@@ -5946,6 +5980,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
       goto recode_ret_NOMEM;
     }
   } else {
+    if (recode_modifier & (RECODE_A | RECODE_AD)) {
+      recode_modifier &= ~RECODE_COMPOUND;
+    }
     if (recode_modifier & RECODE_AD) {
       ulii = 6;
     } else if (recode_modifier & (RECODE_A | RECODE_COMPOUND)) {
@@ -5983,6 +6020,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
       }
     }
   }
+  recode_compound = recode_modifier & RECODE_COMPOUND;
   if (recode_modifier & RECODE_12) {
     if (wkspace_alloc_c_checked(&mk_alleles, unfiltered_marker_ct * max_marker_allele_len * 2)) {
       goto recode_ret_NOMEM;
@@ -6252,9 +6290,11 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
       marker_uidx++;
     }
   } else if (recode_modifier & (RECODE_LGEN | RECODE_LGEN_REF)) {
-    strcpy(outname_end, ".ref");
-    if (fopen_checked(&ref_file, outname, "w")) {
-      goto recode_ret_OPEN_FAIL;
+    if (lgen_ref) {
+      strcpy(outname_end, ".ref");
+      if (fopen_checked(&ref_file, outname, "w")) {
+	goto recode_ret_OPEN_FAIL;
+      }
     }
     strcpy(outname_end, ".lgen");
     if (fopen_checked(outfile_ptr, outname, "w")) {
@@ -6329,18 +6369,23 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	    }
 	    ucc2 = is_set(marker_reverse, marker_uidx)? 0 : 3;
 	  }
-	  alen = 4 + (uintptr_t)(cptr - tbuf);
 	  *cptr++ = *cur_mk_alleles;
-	  *cptr++ = delim2;
+	  if (!recode_compound) {
+	    *cptr++ = delim2;
+	    ulii = 4;
+	  } else {
+	    ulii = 3;
+	  }
 	  *cptr++ = *cur_mk_alleles;
 	  *cptr++ = '\n';
+	  alen = (uintptr_t)(cptr - tbuf);
 	  memcpy(memcpya(cptr, tbuf, alen), tbuf, alen);
 	  memcpy(&(cptr[alen * 2]), tbuf, alen);
-	  cptr[alen - 4] = '0';
+	  cptr[alen - ulii] = '0';
 	  cptr[alen - 2] = '0';
-	  cptr[2 * alen - 4] = cur_mk_alleles[2];
+	  cptr[2 * alen - ulii] = cur_mk_alleles[2];
 	  cptr[2 * alen - 2] = cur_mk_alleles[3];
-	  cptr[3 * alen - 4] = cur_mk_alleles[1];
+	  cptr[3 * alen - ulii] = cur_mk_alleles[1];
 	  cptr[3 * alen - 2] = cur_mk_alleles[1];
 	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
 	    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
@@ -6843,7 +6888,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
       indiv_uidx = 0;
       indiv_idx = 0;
       if (max_marker_allele_len == 1) {
-	if (recode_modifier & RECODE_COMPOUND) {
+	if (recode_compound) {
 	  memset(writebuf, delimiter, marker_ct * 3 - 1);
 	  writebuf[marker_ct * 3 - 1] = '\n';
 	} else {
@@ -6877,7 +6922,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	  wbufptr = writebuf;
 	  shiftval = (indiv_idx % 4) * 2;
 	  marker_uidx = 0;
-	  if (recode_modifier & RECODE_COMPOUND) {
+	  if (recode_compound) {
 	    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
 	      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
 	      ucc = ((*bufptr) >> shiftval) & 3;
