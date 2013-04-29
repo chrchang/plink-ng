@@ -36,6 +36,7 @@
 
 #include "wdist_assoc.h"
 #include "wdist_calc.h"
+#include "wdist_cnv.h"
 #include "wdist_data.h"
 #include "wdist_dosage.h"
 #include "wdist_stats.h"
@@ -424,7 +425,67 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "want automatic text-to-binary conversion):\n\n"
 , stdout);
     }
-
+    help_print("make-bed", &help_ctrl, 1,
+"  --make-bed\n"
+"    Creates a new binary fileset.  Unlike the automatic text-to-binary\n"
+"    converter (which only respects --autosome and --chr), this supports all of\n"
+"    WDIST's filtering flags.\n"
+	       );
+    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference", &help_ctrl, 1,
+"  --recode <12> <compound-genotypes> <23 | A | AD | lgen | lgen-ref | list |\n"
+"           rlist | transpose> <tab | tabx | spacex>\n"
+"    Creates a new text fileset with all filters applied.\n"
+"    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
+"    * The 'compound-genotypes' modifier removes the space between pairs of\n"
+"      genotype codes for the same marker.\n"
+"    * The '23' modifier causes a 23andMe-formatted file to be generated.  This\n"
+"      can only be used on a single individual's data (--keep may be handy).\n"
+"    * The 'AD' modifier causes an additive + dominant component file, suitable\n"
+"      for loading from R, to be generated instead.  If you don't want the\n"
+"      dominant component, use 'A' instead.\n"
+"    * The 'lgen' modifier causes a long-format fileset to be generated instead,\n"
+"      (loadable with --lfile), while 'lgen-ref' generates a (usually) smaller\n"
+"      long-format fileset loadable with --lfile + --reference.\n"
+"    * The 'list' modifier creates a genotype-based list, while 'rlist'\n"
+"      creates a rare-genotype fileset.  (These formats are not directly\n"
+"      loadable by WDIST or PLINK.)\n"
+"    * 'transpose' creates a transposed text fileset (loadable with --tfile).\n"
+"    * The 'tab' modifier makes the output mostly tab-delimited instead of\n"
+"      mostly space-delimited.  'tabx' and 'spacex' force all tabs and all\n"
+"      spaces, respectively.\n\n"
+	       );
+    help_print("write-covar", &help_ctrl, 1,
+"  --write-covar\n"
+"    If a --covar file is loaded, this creates a revised covariate file after\n"
+"    applying all filters.  (This automatically happens if --make-bed or\n"
+"    --recode is specified.)\n\n"
+	       );
+    help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
+"  --merge [.ped filename] [.map filename]\n"
+"  --merge [text fileset prefix]\n"
+"  --bmerge [.bed filename] [.bim filename] [.fam filename]\n"
+"  --bmerge [binary fileset prefix]\n"
+"    Merges the given fileset with the initially loaded fileset.  If you specify\n"
+"    --make-bed or '--recode lgen', the initial merge result is written to\n"
+"    {output prefix}-merge.bed + .bim + .fam, filtering is performed, and then\n"
+"    the post-filtering data is written to {output prefix}.bed + .bim + .fam.\n"
+"    Otherwise, the merged data is written directly to\n"
+"    {output prefix}.bed + .bim + .fam.\n"
+"  --merge-list [filename]\n"
+"    Merge all filesets named in the text file with the initially loaded\n"
+"    fileset.  The text file is interpreted as follows:\n"
+"    * If a line contains only one name, it is assumed to be the prefix for a\n"
+"      binary fileset.\n"
+"    * If a line contains exactly two names, they are assumed to be the full\n"
+"      filenames for a text fileset (.ped first, then .map).\n"
+"    * If a line contains exactly three names, they are assumed to be the full\n"
+"      filenames for a binary fileset (.bed, then .bim, then .fam).\n\n"
+	       );
+    help_print("write-snplist", &help_ctrl, 1,
+"  --write-snplist\n"
+"    Writes a .snplist file listing the names of all markers that pass the\n"
+"    filters and inclusion thresholds you've specified.\n\n"
+	       );
     help_print("freq\tfreqx\tfrqx\tcounts", &help_ctrl, 1,
 "  --freq <counts>\n"
 "  --freqx\n"
@@ -643,66 +704,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
 	       );
 #endif
-    help_print("make-bed", &help_ctrl, 1,
-"  --make-bed\n"
-"    Creates a new binary fileset.  Unlike the automatic text-to-binary\n"
-"    converter (which only respects --autosome and --chr), this supports all of\n"
-"    WDIST's filtering flags.\n"
+    help_print("cnv-make-map", &help_ctrl, 1,
+"  --cnv-make-map\n"
+"    Given a .cnv file, this generates the corresponding .cnv.map file needed\n"
+"    by WDIST and PLINK's other CNV analysis commands.  (Now automatically\n"
+"    invoked when necessary.)\n\n"
 	       );
-    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference", &help_ctrl, 1,
-"  --recode <12> <compound-genotypes> <23 | A | AD | lgen | lgen-ref | list |\n"
-"           rlist | transpose> <tab | tabx | spacex>\n"
-"    Creates a new text fileset with all filters applied.\n"
-"    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
-"    * The 'compound-genotypes' modifier removes the space between pairs of\n"
-"      genotype codes for the same marker.\n"
-"    * The '23' modifier causes a 23andMe-formatted file to be generated.  This\n"
-"      can only be used on a single individual's data (--keep may be handy).\n"
-"    * The 'AD' modifier causes an additive + dominant component file, suitable\n"
-"      for loading from R, to be generated instead.  If you don't want the\n"
-"      dominant component, use 'A' instead.\n"
-"    * The 'lgen' modifier causes a long-format fileset to be generated instead,\n"
-"      (loadable with --lfile), while 'lgen-ref' generates a (usually) smaller\n"
-"      long-format fileset loadable with --lfile + --reference.\n"
-"    * The 'list' modifier creates a genotype-based list, while 'rlist'\n"
-"      creates a rare-genotype fileset.  (These formats are not directly\n"
-"      loadable by WDIST or PLINK.)\n"
-"    * 'transpose' creates a transposed text fileset (loadable with --tfile).\n"
-"    * The 'tab' modifier makes the output mostly tab-delimited instead of\n"
-"      mostly space-delimited.  'tabx' and 'spacex' force all tabs and all\n"
-"      spaces, respectively.\n\n"
-	       );
-    help_print("write-covar", &help_ctrl, 1,
-"  --write-covar\n"
-"    If a --covar file is loaded, this creates a revised covariate file after\n"
-"    applying all filters.  (This automatically happens if --make-bed or\n"
-"    --recode is specified.)\n\n"
-	       );
-    help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
-"  --merge [.ped filename] [.map filename]\n"
-"  --merge [text fileset prefix]\n"
-"  --bmerge [.bed filename] [.bim filename] [.fam filename]\n"
-"  --bmerge [binary fileset prefix]\n"
-"    Merges the given fileset with the initially loaded fileset.  If you specify\n"
-"    --make-bed or '--recode lgen', the initial merge result is written to\n"
-"    {output prefix}-merge.bed + .bim + .fam, filtering is performed, and then\n"
-"    the post-filtering data is written to {output prefix}.bed + .bim + .fam.\n"
-"    Otherwise, the merged data is written directly to\n"
-"    {output prefix}.bed + .bim + .fam.\n"
-"  --merge-list [filename]\n"
-"    Merge all filesets named in the text file with the initially loaded\n"
-"    fileset.  The text file is interpreted as follows:\n"
-"    * If a line contains only one name, it is assumed to be the prefix for a\n"
-"      binary fileset.\n"
-"    * If a line contains exactly two names, they are assumed to be the full\n"
-"      filenames for a text fileset (.ped first, then .map).\n"
-"    * If a line contains exactly three names, they are assumed to be the full\n"
-"      filenames for a binary fileset (.bed, then .bim, then .fam).\n\n"
-	       );
-    help_print("write-snplist", &help_ctrl, 1,
-"  --write-snplist\n"
-"    Writes a .snplist file listing the names of all markers that pass the\n"
-"    filters and inclusion thresholds you've specified.\n\n"
+    help_print("cnv-check-no-overlap", &help_ctrl, 1,
+"  --cnv-check-no-overlap\n"
+"    Given a .cnv file, this checks for within-individual CNV overlaps.\n\n"
 	       );
     if (!param_ct) {
       fputs(
@@ -6020,6 +6030,25 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t mtest_adjust = 0;
   double adjust_lambda = 0.0;
   uint32_t ibs_test_perms = DEFAULT_IBS_TEST_PERMS;
+  uint32_t cnv_calc_type = 0;
+  uint32_t cnv_kb = 0;
+  uint32_t cnv_max_kb = 4294967295U;
+  uint32_t cnv_score = 0;
+  uint32_t cnv_max_score = 4294967295U;
+  uint32_t cnv_sites = 0;
+  uint32_t cnv_max_sites = 4294967295U;
+  uint32_t cnv_intex_type = 0;
+  char* cnv_intex_fname = NULL;
+  char* cnv_subset_fname = NULL;
+  uint32_t cnv_overlap_type = 0;
+  uint32_t cnv_overlap_val = 0;
+  uint32_t cnv_freq_type = 0;
+  uint32_t cnv_freq_val = 0;
+  char* cnv_count_fname = NULL;
+  char* cnv_write_fname = NULL;
+  uint32_t cnv_test_window = 0;
+  uint32_t segment_modifier = 0;
+  char* segment_spanning_fname = NULL;
   Chrom_info chrom_info;
   char* argptr2;
   char* flagptr;
@@ -8255,7 +8284,9 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --mperm parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	logprint("Note: --mperm flag deprecated.  Use e.g. '--model mperm=[value]'.\n");
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Note: --mperm flag deprecated.  Use e.g. '--model mperm=[value]'.\n");
+	}
 	mperm_val = (uint32_t)ii;
 	model_mperm_val = mperm_val;
 	model_modifier |= MODEL_MPERM;
@@ -9512,7 +9543,7 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
 
-  if ((!calculation_type) && (load_rare != LOAD_RARE_LGEN) && (load_rare != LOAD_RARE_DUMMY) && (load_rare != LOAD_RARE_SIMULATE) && (!(load_rare & LOAD_RARE_TRANSPOSE_MASK)) && (famname[0] || load_rare)) {
+  if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_CNV))) && (famname[0] || load_rare)) {
     goto main_ret_NULL_CALC;
   }
   if (!(load_params || load_rare)) {
@@ -9646,13 +9677,9 @@ int32_t main(int32_t argc, char** argv) {
 	  simulate_label = NULL;
 	}
       } else if (load_rare & LOAD_RARE_CNV) {
-	logprint("Error: CNV analysis not yet implemented.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
+	retval = wdist_cnv(outname, sptr, pedname, mapname, famname, phenoname, cnv_calc_type, cnv_kb, cnv_max_kb, cnv_score, cnv_max_score, cnv_sites, cnv_max_sites, cnv_intex_type, cnv_intex_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_count_fname, cnv_write_fname, mperm_val, cnv_test_window, segment_modifier, segment_spanning_fname);
       } else if (load_rare & LOAD_RARE_GVAR) {
-	logprint("Error: CNP analysis not yet implemented.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
+	retval = wdist_gvar(outname, sptr, pedname, mapname, famname);
       } else {
         retval = ped_to_bed(pedname, mapname, outname, sptr, fam_col_1, fam_col_34, fam_col_5, fam_col_6, affection_01, missing_pheno, &chrom_info);
 	fam_col_1 = 1;
@@ -9748,6 +9775,11 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(rseeds);
   free_cond(simulate_fname);
   free_cond(simulate_label);
+  free_cond(cnv_intex_fname);
+  free_cond(cnv_subset_fname);
+  free_cond(cnv_count_fname);
+  free_cond(cnv_write_fname);
+  free_cond(segment_spanning_fname);
   if (logfile) {
     if (!log_failed) {
       logstr("\nEnd time: ");
