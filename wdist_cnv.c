@@ -120,7 +120,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   //        [chrom information stored separately, initially in reverse order]
   uint64_t* il_small = (uint64_t*)wkspace_base;
   uint64_t* tmp_il_large = &(il_small[2 * max_interval_ct]); // grows down
-  char* tmp_il_large_chroms = (char*)tmp_il_large; // grows up
+  unsigned char* tmp_il_large_chroms = (unsigned char*)tmp_il_large; // up
   uint32_t reverse_warning_given = 0;
   int32_t retval = 0;
   uint64_t* il_large;
@@ -135,8 +135,8 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   int32_t ii;
   int32_t jj;
   int32_t kk;
-  char cur_chrom;
-  char cc;
+  uint32_t cur_chrom;
+  uint32_t uii;
   *il_small_ptr = il_small;
   if (fopen_checked(&intersect_file, intersect_filter_fname, "r")) {
     goto cnv_intersect_load_ret_OPEN_FAIL;
@@ -233,12 +233,12 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
     max_width = 0;
     for (ulii = 0; ulii < small_interval_ct; ulii++) {
       ullii = il_small[ulii];
-      cc = (char)(ullii >> (SMALL_INTERVAL_BITS + 32));
-      if (cc > cur_chrom) {
+      uii = (uint32_t)(ullii >> (SMALL_INTERVAL_BITS + 32));
+      if (uii > cur_chrom) {
 	il_chrom_max_width_small[cur_chrom] = max_width;
 	do {
 	  il_chrom_start_small[++cur_chrom] = ulii;
-	} while (cur_chrom < cc);
+	} while (cur_chrom < uii);
 	max_width = 0;
       }
       cur_width = ullii & (SMALL_INTERVAL_MAX_SIZE * 1LLU);
@@ -260,20 +260,20 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       uljj = large_interval_ct / 2;
       ulkk = large_interval_ct - 1;
       for (ulii = 0; ulii < uljj; ulii++) {
-        cc = tmp_il_large_chroms[ulii];
+        uii = tmp_il_large_chroms[ulii];
 	tmp_il_large_chroms[ulii] = tmp_il_large_chroms[ulkk];
-	tmp_il_large_chroms[ulkk--] = cc;
+	tmp_il_large_chroms[ulkk--] = (unsigned char)uii;
       }
     }
-    qsort_ext(tmp_il_large_chroms, large_interval_ct, sizeof(char), char_cmp_deref, (char*)tmp_il_large, sizeof(int64_t));
+    qsort_ext((char*)tmp_il_large_chroms, large_interval_ct, sizeof(char), char_cmp_deref, (char*)tmp_il_large, sizeof(int64_t));
     il_chrom_start_large[0] = 0;
     cur_chrom = 0;
     for (ulii = 0; ulii < large_interval_ct; ulii++) {
-      cc = tmp_il_large_chroms[ulii];
-      if (cc > cur_chrom) {
+      uii = tmp_il_large_chroms[ulii];
+      if (uii > cur_chrom) {
 	do {
 	  il_chrom_start_large[++cur_chrom] = ulii;
-	} while (cur_chrom < cc);
+	} while (cur_chrom < uii);
       }
     }
     do {
