@@ -6056,12 +6056,12 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   }
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, idfile)) {
-    if (is_eoln_kns(*(skip_initial_spaces(tbuf)))) {
-      continue;
-    }
     if (!tbuf[MAXLINELEN - 1]) {
       logprint("Error: Pathologically long line in .grm.id file.\n");
       goto rel_cutoff_batch_ret_INVALID_FORMAT_1;
+    }
+    if (is_eoln_kns(*(skip_initial_spaces(tbuf)))) {
+      continue;
     }
     indiv_ct++;
   }

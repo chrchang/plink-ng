@@ -19,14 +19,6 @@
 #include <ctype.h>
 #include <time.h>
 #include <unistd.h>
-#if _WIN32
-// needed for MEMORYSTATUSEX
-#ifndef _WIN64
-#define WINVER 0x0500
-#endif
-#else // Unix
-#include <sys/stat.h>
-#endif
 #include "wdist_common.h"
 
 #ifdef __APPLE__
@@ -83,7 +75,7 @@ const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
-const char cmdline_format_str[] = "\n  wdist [input flag(s)...] [command flag(s)...] {other flag(s)...}\n  wdist --help {flag name(s)...}\n\n";
+const char cmdline_format_str[] = "\n  wdist [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  wdist --help {flag name(s)...}\n\n";
 const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
 const char notestr_null_calc2[] = "Commands include --freqx, --hardy, --ibc, --distance, --genome, --model,\n--make-rel, --make-grm-bin, --rel-cutoff, --regress-distance, --ibs-test,\n--make-bed, --recode, --merge-list, and --write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).\n";
 
@@ -1093,13 +1085,32 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "\nThese flags only apply to .cnv fileset analysis:\n"
 , stdout);
     }
+    help_print("cnv-del\tcnv-dup", &help_ctrl, 0,
+"  --cnv-del             : Exclude all variants with two or more copies.\n"
+"  --cnv-dup             : Exclude all variants with two or fewer copies.\n"
+	       );
+    help_print("cnv-kb\tcnv-max-kb", &help_ctrl, 0,
+"  --cnv-kb [kb len]     : Exclude all segments shorter than the given length.\n"
+"  --cnv-max-kb [kb len] : Exclude all segments longer than the given length.\n"
+	       );
+    help_print("cnv-score\tcnv-max-score", &help_ctrl, 0,
+"  --cnv-score [val]     : Exclude all variants with confidence score < val.\n"
+"  --cnv-max-score [val] : Exclude all variants with confidence score > val.\n"
+	       );
+    help_print("cnv-sites\tcnv-max-sites", &help_ctrl, 0,
+"  --cnv-sites [ct]      : Exclude all segments with fewer than ct probes.\n"
+"  --cnv-max-sites [ct]  : Exclude all segments with more than ct probes.\n"
+	       );
     help_print("cnv-intersect\tcnv-exclude\tcnv-count", &help_ctrl, 0,
-"  --cnv-intersect [f] : Exclude all segments which do not intersect a region in\n"
-"                        the given region list.\n"
-"  --cnv-exclude [fn]  : Exclude all segments which intersect a region in the\n"
-"                        given region list.\n"
-"  --cnv-count [fname] : Specify a region list, and report CNV/region\n"
-"                        intersection stats.\n"
+"  --cnv-intersect [fn]  : Exclude all segments which do not intersect a region\n"
+"                          in the given region list.\n"
+"  --cnv-exclude [fname] : Exclude all segments which intersect a region in the\n"
+"                          given region list.\n"
+"  --cnv-count [fname]   : Specify a region list, and report CNV/region\n"
+"                          intersection stats.\n"
+	       );
+    help_print("cnv-test-window\tcnv-test", &help_ctrl, 0,
+"  --cnv-test-window [s] : Specify window size (in kb) for CNV association test.\n"
 	       );
     if (!param_ct) {
       fputs(
@@ -1573,10 +1584,6 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
 }
 
 // back to our regular program
-
-int32_t strcmp_casted(const void* s1, const void* s2) {
-  return strcmp((char*)s1, (char*)s2);
-}
 
 inline char* read_next_unsafe(char* target, char* source) {
   // assumes space- or tab-termination
@@ -5873,19 +5880,6 @@ int32_t recode_type_set(uint32_t* recode_modifier_ptr, uint32_t cur_code) {
   return 0;
 }
 
-int32_t filename_exists(char* fname, char* fname_end, const char* fname_append) {
-#if _WIN32
-  DWORD file_attr;
-  strcpy(fname_end, fname_append);
-  file_attr = GetFileAttributes(fname);
-  return (file_attr != 0xffffffffU);
-#else
-  struct stat st;
-  strcpy(fname_end, fname_append);
-  return (stat(fname, &st) == 0);
-#endif
-}
-
 int32_t main(int32_t argc, char** argv) {
   unsigned char* wkspace_ua;
   char outname[FNAMESIZE];
@@ -6066,11 +6060,11 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t cnv_test_mperms = 0;
   uint32_t cnv_test_region_mperms = 0;
   uint32_t cnv_enrichment_test_mperms = 0;
-  uint32_t cnv_kb = 0;
-  uint32_t cnv_max_kb = 4294967295U;
-  uint32_t cnv_score = 0;
-  uint32_t cnv_max_score = 4294967295U;
-  uint32_t cnv_sites = 0;
+  uint32_t cnv_min_seglen = 0;
+  uint32_t cnv_max_seglen = 4294967295U;
+  double cnv_min_score = -INFINITY;
+  double cnv_max_score = INFINITY;
+  uint32_t cnv_min_sites = 0;
   uint32_t cnv_max_sites = 4294967295U;
   uint32_t cnv_intersect_filter_type = 0;
   char* cnv_intersect_filter_fname = NULL;
@@ -7011,6 +7005,16 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	cnv_intersect_filter_type = CNV_COUNT;
+      } else if (!memcmp(argptr2, "nv-del", 7)) {
+	cnv_calc_type |= CNV_DEL;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "nv-dup", 7)) {
+	if (cnv_calc_type & CNV_DEL) {
+	  sprintf(logbuf, "Error: --cnv-dup cannot be used with --cnv-del.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	cnv_calc_type |= CNV_DUP;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "nv-enrichment-test", 19)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -7063,6 +7067,15 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	cnv_intersect_filter_type = CNV_INTERSECT;
+      } else if (!memcmp(argptr2, "nv-kb", 6)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx < 0.001) || (dxx > 2147483.647)) {
+	  sprintf(logbuf, "Error: Invalid --cnv-kb size '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	cnv_min_seglen = (int32_t)(dxx * 1000);
       } else if (!memcmp(argptr2, "nv-list", 8)) {
 	if ((load_rare & (~LOAD_RARE_CNV)) || load_params) {
 	  goto main_ret_INVALID_CMDLINE_4;
@@ -7072,6 +7085,79 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	strcpya(pedname, argv[cur_arg + 1]);
 	load_rare = LOAD_RARE_CNV;
+      } else if (!memcmp(argptr2, "nv-max-kb", 10)) {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-max-kb cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx < 0.001) || (dxx > 2147483.647)) {
+	  sprintf(logbuf, "Error: Invalid --cnv-max-kb size '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	cnv_max_seglen = (int32_t)(dxx * 1000);
+	if (cnv_min_seglen > cnv_max_seglen) {
+	  logprint("Error: --cnv-max-kb value cannot be smaller than --cnv-kb value.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+      } else if (!memcmp(argptr2, "nv-max-score", 13)) {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-max-score cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (sscanf(argv[cur_arg + 1], "%lg", &cnv_max_score) != 1) {
+	  sprintf(logbuf, "Error: Invalid --cnv-max-score value '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+      } else if (!memcmp(argptr2, "nv-max-sites", 13)) {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-max-sites cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (atoiz(argv[cur_arg + 1], (int32_t*)(&cnv_max_sites))) {
+	  sprintf(logbuf, "Error: Invalid --cnv-max-sites parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+      } else if (!memcmp(argptr2, "nv-score", 9)) {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-score cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (sscanf(argv[cur_arg + 1], "%lg", &cnv_min_score) != 1) {
+	  sprintf(logbuf, "Error: Invalid --cnv-score value '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (cnv_min_score > cnv_max_score) {
+	  logprint("Error: --cnv-score value cannot be greater than --cnv-max-score value.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+      } else if (!memcmp(argptr2, "nv-sites", 9)) {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-sites cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (atoiz(argv[cur_arg + 1], (int32_t*)(&cnv_min_sites))) {
+	  sprintf(logbuf, "Error: Invalid --cnv-sites parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (cnv_min_sites > cnv_max_sites) {
+	  logprint("Error: --cnv-sites value cannot be greater than --cnv-max-sites value.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
       } else if (!memcmp(argptr2, "nv-test", 8)) {
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-test cannot be used without a .cnv fileset.\n");
@@ -7139,6 +7225,24 @@ int32_t main(int32_t argc, char** argv) {
 	  cnv_test_region_mperms = ii;
 	}
 	cnv_calc_type |= CNV_TEST_REGION;
+      } else if (!memcmp(argptr2, "nv-test-window", 15)) {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-test-window cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx < 0.001)) {
+	  sprintf(logbuf, "Error: Invalid --cnv-test-window size '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	dxx *= 1000;
+	if (dxx > 2147483647) {
+	  cnv_test_window = 2147483647;
+	} else {
+	  cnv_test_window = (int32_t)dxx;
+	}
       } else if (!memcmp(argptr2, "nv-write", 9)) {
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-write cannot be used without a .cnv fileset.\n");
@@ -8453,14 +8557,21 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	mperm_val = (uint32_t)ii;
 	if (load_rare & LOAD_RARE_CNV) {
-	  logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-test [value]'.\n");
-	  // if e.g. --cnv-indiv-perm had a valid parameter, don't clobber it
-	  if (!cnv_indiv_mperms) {
+	  if ((cnv_calc_type & CNV_INDIV_PERM) && (!cnv_indiv_mperms)) {
+	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-indiv-perm [perm. count]'.\n");
 	    cnv_indiv_mperms = mperm_val;
-	  }
-	  if (!cnv_test_mperms) {
+	  } else if ((cnv_calc_type & CNV_TEST_REGION) && (!cnv_test_region_mperms)) {
+	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-test-region [perm. count]'.\n");
+	  } else if ((cnv_calc_type & CNV_ENRICHMENT_TEST) && (!cnv_enrichment_test_mperms)) {
+	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-enrichment-test [perm. count]'.\n");
+	  } else {
+	    logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-test [permutation count]'.\n");
+            if (!(cnv_calc_type & (CNV_INDIV_PERM | CNV_ENRICHMENT_TEST | CNV_TEST | CNV_TEST_REGION))) {
+	      cnv_calc_type |= CNV_TEST;
+	    }
 	    cnv_test_mperms = mperm_val;
 	  }
+	  // if e.g. --cnv-test-region had a valid parameter, don't clobber it
 	  if (!cnv_test_region_mperms) {
 	    cnv_test_region_mperms = mperm_val;
 	  }
@@ -9841,7 +9952,7 @@ int32_t main(int32_t argc, char** argv) {
       retval = wdist_dosage(calculation_type, dist_calc_type, genname, samplename, outname, outname_end, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else if (load_rare & LOAD_RARE_CNV) {
-    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, cnv_calc_type, cnv_kb, cnv_max_kb, cnv_score, cnv_max_score, cnv_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, mperm_val, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, &chrom_info);
+    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, &chrom_info);
   } else if (load_rare & LOAD_RARE_GVAR) {
     retval = wdist_gvar(outname, outname_end, pedname, mapname, famname);
   } else {

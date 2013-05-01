@@ -15,6 +15,15 @@
 // #define NOLAPACK
 
 #if _WIN32
+// needed for MEMORYSTATUSEX
+#ifndef _WIN64
+#define WINVER 0x0500
+#endif
+#else // Unix
+#include <sys/stat.h>
+#endif
+
+#if _WIN32
 #define PRId64 "I64d"
 #define PRIu64 "I64u"
 #define fseeko fseeko64
@@ -959,6 +968,19 @@ static inline char convert_to_acgt(char cc) {
   return cc;
 }
 
+static inline int32_t filename_exists(char* fname, char* fname_end, const char* fname_append) {
+#if _WIN32
+  DWORD file_attr;
+  strcpy(fname_end, fname_append);
+  file_attr = GetFileAttributes(fname);
+  return (file_attr != 0xffffffffU);
+#else
+  struct stat st;
+  strcpy(fname_end, fname_append);
+  return (stat(fname, &st) == 0);
+#endif
+}
+
 void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc);
 
 // maximum accepted chromosome index is this minus 1.
@@ -1049,6 +1071,8 @@ static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr
 
 void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t set_hh_missing, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_haploid_ptr);
 
+int32_t strcmp_casted(const void* s1, const void* s2);
+
 int32_t strcmp_natural(const void* s1, const void* s2);
 
 int32_t strcmp_deref(const void* s1, const void* s2);
@@ -1073,21 +1097,23 @@ int32_t double_cmp(const void* aa, const void* bb);
 
 int32_t double_cmp_deref(const void* aa, const void* bb);
 
+int32_t char_cmp_deref(const void* aa, const void* bb);
+
 #ifndef __cplusplus
 int32_t llcmp(const void* aa, const void* bb);
 #endif
 
-void qsort_ext2(char* main_arr, int32_t arr_length, int32_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int32_t secondary_item_len, char* proxy_arr, int32_t proxy_len);
+void qsort_ext2(char* main_arr, intptr_t arr_length, intptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, intptr_t secondary_item_len, char* proxy_arr, intptr_t proxy_len);
 
-int32_t qsort_ext(char* main_arr, int32_t arr_length, int32_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int32_t secondary_item_len);
+int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, intptr_t secondary_item_len);
 
 uint32_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uint32_t arr_length, uint64_t ullii);
 
 uint32_t doublearr_greater_than(double* sorted_dbl_arr, uint32_t arr_length, double dxx);
 
-int32_t bsearch_str(char* id_buf, char* lptr, intptr_t max_id_len, int32_t min_idx, int32_t max_idx);
+intptr_t bsearch_str(char* id_buf, char* lptr, intptr_t max_id_len, intptr_t min_idx, intptr_t max_idx);
 
-int32_t bsearch_str_natural(char* id_buf, char* lptr, intptr_t max_id_len, int32_t min_idx, int32_t max_idx);
+intptr_t bsearch_str_natural(char* id_buf, char* lptr, intptr_t max_id_len, intptr_t min_idx, intptr_t max_idx);
 
 void fill_idbuf_fam_indiv(char* id_buf, char* fam_indiv, char fillchar);
 

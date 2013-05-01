@@ -1937,6 +1937,10 @@ void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint3
   }
 }
 
+int32_t strcmp_casted(const void* s1, const void* s2) {
+  return strcmp((char*)s1, (char*)s2);
+}
+
 // WDIST's natural sort uses the following logic:
 // - All alphabetic characters act as if they are capitalized, except for
 // tiebreaking purposes (where ASCII is used).
@@ -2245,6 +2249,10 @@ int32_t double_cmp_deref(const void* aa, const void* bb) {
   }
 }
 
+int32_t char_cmp_deref(const void* aa, const void* bb) {
+  return (int32_t)(**((const char**)aa) - **((const char**)bb));
+}
+
 #ifndef __cplusplus
 int32_t llcmp(const void* aa, const void* bb) {
   int64_t diff = *((const int64_t*)aa) - *((const int64_t*)bb);
@@ -2262,25 +2270,25 @@ int32_t llcmp(const void* aa, const void* bb) {
 
 // Normally use qsort_ext(), but this version is necessary before wkspace has
 // been allocated.
-void qsort_ext2(char* main_arr, int32_t arr_length, int32_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int32_t secondary_item_len, char* proxy_arr, int32_t proxy_len) {
-  int32_t ii;
-  for (ii = 0; ii < arr_length; ii++) {
-    *(char**)(&(proxy_arr[ii * proxy_len])) = &(main_arr[ii * item_length]);
-    memcpy(&(proxy_arr[ii * proxy_len + sizeof(void*)]), &(secondary_arr[ii * secondary_item_len]), secondary_item_len);
+void qsort_ext2(char* main_arr, intptr_t arr_length, intptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, intptr_t secondary_item_len, char* proxy_arr, intptr_t proxy_len) {
+  intptr_t lii;
+  for (lii = 0; lii < arr_length; lii++) {
+    *(char**)(&(proxy_arr[lii * proxy_len])) = &(main_arr[lii * item_length]);
+    memcpy(&(proxy_arr[lii * proxy_len + sizeof(void*)]), &(secondary_arr[lii * secondary_item_len]), secondary_item_len);
   }
   qsort(proxy_arr, arr_length, proxy_len, comparator_deref);
-  for (ii = 0; ii < arr_length; ii++) {
-    memcpy(&(secondary_arr[ii * secondary_item_len]), &(proxy_arr[ii * proxy_len + sizeof(void*)]), secondary_item_len);
-    memcpy(&(proxy_arr[ii * proxy_len]), *(char**)(&(proxy_arr[ii * proxy_len])), item_length);
+  for (lii = 0; lii < arr_length; lii++) {
+    memcpy(&(secondary_arr[lii * secondary_item_len]), &(proxy_arr[lii * proxy_len + sizeof(void*)]), secondary_item_len);
+    memcpy(&(proxy_arr[lii * proxy_len]), *(char**)(&(proxy_arr[lii * proxy_len])), item_length);
   }
-  for (ii = 0; ii < arr_length; ii++) {
-    memcpy(&(main_arr[ii * item_length]), &(proxy_arr[ii * proxy_len]), item_length);
+  for (lii = 0; lii < arr_length; lii++) {
+    memcpy(&(main_arr[lii * item_length]), &(proxy_arr[lii * proxy_len]), item_length);
   }
 }
 
 // This actually tends to be faster than just sorting an array of indices,
 // because of memory locality issues.
-int32_t qsort_ext(char* main_arr, int32_t arr_length, int32_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, int32_t secondary_item_len) {
+int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, intptr_t secondary_item_len) {
   // main_arr = packed array of equal-length items to sort
   // arr_length = number of items
   // item_length = byte count of each main_arr item
@@ -2294,7 +2302,7 @@ int32_t qsort_ext(char* main_arr, int32_t arr_length, int32_t item_length, int(*
   //                 be a lookup table for the original position of each
   //                 main_arr item.)
   // secondary_item_len = byte count of each secondary_arr item
-  int32_t proxy_len = secondary_item_len + sizeof(void*);
+  intptr_t proxy_len = secondary_item_len + sizeof(void*);
   unsigned char* wkspace_mark = wkspace_base;
   char* proxy_arr;
   if (!arr_length) {
@@ -2356,8 +2364,8 @@ uint32_t doublearr_greater_than(double* sorted_dbl_arr, uint32_t arr_length, dou
   }
 }
 
-int32_t bsearch_str(char* id_buf, char* lptr, intptr_t max_id_len, int32_t min_idx, int32_t max_idx) {
-  int32_t mid_idx;
+intptr_t bsearch_str(char* id_buf, char* lptr, intptr_t max_id_len, intptr_t min_idx, intptr_t max_idx) {
+  intptr_t mid_idx;
   int32_t ii;
   if (max_idx < min_idx) {
     return -1;
@@ -2375,8 +2383,8 @@ int32_t bsearch_str(char* id_buf, char* lptr, intptr_t max_id_len, int32_t min_i
   }
 }
 
-int32_t bsearch_str_natural(char* id_buf, char* lptr, intptr_t max_id_len, int32_t min_idx, int32_t max_idx) {
-  int32_t mid_idx;
+intptr_t bsearch_str_natural(char* id_buf, char* lptr, intptr_t max_id_len, intptr_t min_idx, intptr_t max_idx) {
+  intptr_t mid_idx;
   int32_t ii;
   if (max_idx < min_idx) {
     return -1;
