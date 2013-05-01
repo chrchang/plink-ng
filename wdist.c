@@ -422,7 +422,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "that would conflict with the output of another command like --make-bed).  You\n"
 "are encouraged to directly use the new binary fileset in future runs.\n\n"
 "Every run also requires at least one of the following commands (unless you just\n"
-"want automatic text-to-binary conversion):\n\n"
+"want automatic text-to-binary conversion or the default CNV report):\n\n"
 , stdout);
     }
     help_print("make-bed", &help_ctrl, 1,
@@ -712,7 +712,25 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("cnv-check-no-overlap", &help_ctrl, 1,
 "  --cnv-check-no-overlap\n"
-"    Given a .cnv file, this checks for within-individual CNV overlaps.\n\n"
+"    Given a .cnv fileset, this checks for within-individual CNV overlaps.\n\n"
+	       );
+    help_print("cnv-write", &help_ctrl, 1,
+"  --cnv-write\n"
+"    Writes a new .cnv fileset, after applying all requested filters.\n\n"
+	       );
+    help_print("cnv-indiv-perm\tcnv-test\tcnv-test-region\tcnv-enrichment-test\tmperm\tcnv-test-1sided\tcnv-test-2sided", &help_ctrl, 1,
+"  --cnv-indiv-perm [permutation count]\n"
+"  --cnv-test <1sided | 2sided> [permutation count]\n"
+"  --cnv-test-region [permutation count]\n"
+"  --cnv-enrichment-test {permutation count}\n"
+"    Given a .cnv fileset,\n"
+"    * --cnv-indiv-perm performs a case/control CNV burden test.\n"
+"    * --cnv-test performs a basic permutation-based CNV association test.  By\n"
+"      default, this is 1-sided for case/control phenotypes and 2-sided for\n"
+"      quantitative traits; you can use '1sided'/'2sided' to force the opposite.\n"
+"    * --cnv-test-region reports case/ctrl association test results by region.\n"
+"    * --cnv-enrichment-test performs Raychaudhuri et al.'s geneset enrichment\n"
+"      test.  Gene locations must be loaded with --cnv-count.\n\n"
 	       );
     if (!param_ct) {
       fputs(
@@ -1068,11 +1086,24 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("aperm", &help_ctrl, 0,
 "  --aperm [min perms] [max perms] [alpha] [beta] [init interval] [slope] :\n"
 "    This sets six parameters controlling adaptive permutation tests.  Defaults\n"
-"    are 5, 1000000, 0, 0.0001, 1, and 0.001, respectively.\n\n"
+"    are 5, 1000000, 0, 0.0001, 1, and 0.001, respectively.\n"
 	       );
     if (!param_ct) {
       fputs(
-"For further documentation and support, consult the main webpage\n"
+"\nThese flags only apply to .cnv fileset analysis:\n"
+, stdout);
+    }
+    help_print("cnv-intersect\tcnv-exclude\tcnv-count", &help_ctrl, 0,
+"  --cnv-intersect [f] : Exclude all segments which do not intersect a region in\n"
+"                        the given region list.\n"
+"  --cnv-exclude [fn]  : Exclude all segments which intersect a region in the\n"
+"                        given region list.\n"
+"  --cnv-count [fname] : Specify a region list, and report CNV/region\n"
+"                        intersection stats.\n"
+	       );
+    if (!param_ct) {
+      fputs(
+"\nFor further documentation and support, consult the main webpage\n"
 "(https://www.cog-genomics.org/wdist ) and/or the wdist-users mailing list\n"
 "(https://groups.google.com/d/forum/wdist-users ).\n"
 , stdout);
@@ -6031,21 +6062,23 @@ int32_t main(int32_t argc, char** argv) {
   double adjust_lambda = 0.0;
   uint32_t ibs_test_perms = DEFAULT_IBS_TEST_PERMS;
   uint32_t cnv_calc_type = 0;
+  uint32_t cnv_indiv_mperms = 0;
+  uint32_t cnv_test_mperms = 0;
+  uint32_t cnv_test_region_mperms = 0;
+  uint32_t cnv_enrichment_test_mperms = 0;
   uint32_t cnv_kb = 0;
   uint32_t cnv_max_kb = 4294967295U;
   uint32_t cnv_score = 0;
   uint32_t cnv_max_score = 4294967295U;
   uint32_t cnv_sites = 0;
   uint32_t cnv_max_sites = 4294967295U;
-  uint32_t cnv_intex_type = 0;
-  char* cnv_intex_fname = NULL;
+  uint32_t cnv_intersect_filter_type = 0;
+  char* cnv_intersect_filter_fname = NULL;
   char* cnv_subset_fname = NULL;
   uint32_t cnv_overlap_type = 0;
-  uint32_t cnv_overlap_val = 0;
+  double cnv_overlap_val = 0.0;
   uint32_t cnv_freq_type = 0;
   uint32_t cnv_freq_val = 0;
-  char* cnv_count_fname = NULL;
-  char* cnv_write_fname = NULL;
   uint32_t cnv_test_window = 0;
   uint32_t segment_modifier = 0;
   char* segment_spanning_fname = NULL;
@@ -6969,6 +7002,67 @@ int32_t main(int32_t argc, char** argv) {
 	memcpy(memcpya(famname, sptr, uii), ".fam", 5);
 	memcpy(memcpya(mapname, sptr, uii), ".cnv.map", 9);
 	load_rare = LOAD_RARE_CNV;
+      } else if (!memcmp(argptr2, "nv-count", 9)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&cnv_intersect_filter_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+	cnv_intersect_filter_type = CNV_COUNT;
+      } else if (!memcmp(argptr2, "nv-enrichment-test", 19)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (param_ct) {
+	  ii = atoi(argv[cur_arg + 1]);
+	  if (ii < 1) {
+	    sprintf(logbuf, "Error: Invalid --cnv-enrichment-test permutation count '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  cnv_enrichment_test_mperms = ii;
+	}
+	cnv_calc_type |= CNV_ENRICHMENT_TEST;
+      } else if (!memcmp(argptr2, "nv-exclude", 11)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (cnv_intersect_filter_type) {
+	  sprintf(logbuf, "Error: --cnv-exclude cannot be used with --cnv-count.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&cnv_intersect_filter_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+	cnv_intersect_filter_type = CNV_EXCLUDE;
+      } else if (!memcmp(argptr2, "nv-indiv-perm", 14)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (param_ct) {
+	  ii = atoi(argv[cur_arg + 1]);
+	  if (ii < 1) {
+	    sprintf(logbuf, "Error: Invalid --cnv-indiv-perm permutation count '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  cnv_indiv_mperms = ii;
+	}
+	cnv_calc_type |= CNV_INDIV_PERM;
+      } else if (!memcmp(argptr2, "nv-intersect", 13)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (cnv_intersect_filter_type) {
+	  sprintf(logbuf, "Error: --cnv-intersect cannot be used with --cnv-count/--cnv-exclude.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&cnv_intersect_filter_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+	cnv_intersect_filter_type = CNV_INTERSECT;
       } else if (!memcmp(argptr2, "nv-list", 8)) {
 	if ((load_rare & (~LOAD_RARE_CNV)) || load_params) {
 	  goto main_ret_INVALID_CMDLINE_4;
@@ -6978,6 +7072,79 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	strcpya(pedname, argv[cur_arg + 1]);
 	load_rare = LOAD_RARE_CNV;
+      } else if (!memcmp(argptr2, "nv-test", 8)) {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-test cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (param_ct == 2) {
+	  if (!memcmp(argv[cur_arg + 1], "1sided", 7)) {
+	    uii = 2;
+	    cnv_calc_type |= CNV_TEST_FORCE_1SIDED;
+	  } else if (!memcmp(argv[cur_arg + 1], "2sided", 7)) {
+	    uii = 2;
+	    cnv_calc_type |= CNV_TEST_FORCE_2SIDED;
+	  } else {
+	    uii = 1;
+	    if (!memcmp(argv[cur_arg + 2], "1sided", 7)) {
+	      cnv_calc_type |= CNV_TEST_FORCE_1SIDED;
+	    } else if (!memcmp(argv[cur_arg + 2], "2sided", 7)) {
+	      cnv_calc_type |= CNV_TEST_FORCE_2SIDED;
+	    } else {
+	      sprintf(logbuf, "Error: Invalid --cnv-test parameter sequence.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	  }
+	} else {
+	  uii = 1;
+	}
+	ii = atoi(argv[cur_arg + uii]);
+	if (ii < 1) {
+	  sprintf(logbuf, "Error: Invalid --cnv-test permutation count '%s'.%s", argv[cur_arg + uii], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	cnv_test_mperms = ii;
+	cnv_calc_type |= CNV_TEST;
+      } else if (!memcmp(argptr2, "nv-test-1sided", 15)) {
+	if (cnv_calc_type & CNV_TEST_FORCE_2SIDED) {
+	  logprint("Error: --cnv-test cannot be both 1-sided and 2-sided at the same time.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	logprint("Note: --cnv-test-1sided flag deprecated.  Use '--cnv-test 1sided'.\n");
+	cnv_calc_type |= CNV_TEST_FORCE_1SIDED;
+      } else if (!memcmp(argptr2, "nv-test-2sided", 15)) {
+	if (cnv_calc_type & CNV_TEST_FORCE_1SIDED) {
+	  logprint("Error: --cnv-test cannot be both 1-sided and 2-sided at the same time.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	logprint("Note: --cnv-test-2sided flag deprecated.  Use '--cnv-test 2sided'.\n");
+	cnv_calc_type |= CNV_TEST_FORCE_2SIDED;
+      } else if (!memcmp(argptr2, "nv-test-region", 15)) {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-test-region cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (param_ct) {
+	  ii = atoi(argv[cur_arg + 1]);
+	  if (ii < 1) {
+	    sprintf(logbuf, "Error: Invalid --cnv-test-region permutation count '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  cnv_test_region_mperms = ii;
+	}
+	cnv_calc_type |= CNV_TEST_REGION;
+      } else if (!memcmp(argptr2, "nv-write", 9)) {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-write cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	cnv_calc_type |= CNV_WRITE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8284,12 +8451,27 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --mperm parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (!(load_rare & LOAD_RARE_CNV)) {
-	  logprint("Note: --mperm flag deprecated.  Use e.g. '--model mperm=[value]'.\n");
-	}
 	mperm_val = (uint32_t)ii;
-	model_mperm_val = mperm_val;
-	model_modifier |= MODEL_MPERM;
+	if (load_rare & LOAD_RARE_CNV) {
+	  logprint("Note: --mperm flag deprecated.  Use e.g. '--cnv-test [value]'.\n");
+	  // if e.g. --cnv-indiv-perm had a valid parameter, don't clobber it
+	  if (!cnv_indiv_mperms) {
+	    cnv_indiv_mperms = mperm_val;
+	  }
+	  if (!cnv_test_mperms) {
+	    cnv_test_mperms = mperm_val;
+	  }
+	  if (!cnv_test_region_mperms) {
+	    cnv_test_region_mperms = mperm_val;
+	  }
+	  if (!cnv_enrichment_test_mperms) {
+	    cnv_enrichment_test_mperms = mperm_val;
+	  }
+	} else {
+	  logprint("Note: --mperm flag deprecated.  Use e.g. '--model mperm=[value]'.\n");
+	  model_mperm_val = mperm_val;
+	  model_modifier |= MODEL_MPERM;
+	}
       } else if (!memcmp(argptr2, "perm-save", 10)) {
 	mperm_save |= MPERM_DUMP_BEST;
 	goto main_param_zero;
@@ -9489,6 +9671,15 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE_3;
       }
     }
+    if (!mperm_val) {
+      if ((cnv_calc_type & CNV_INDIV_PERM) && (!cnv_indiv_mperms)) {
+	sprintf(logbuf, "Error: --cnv-indiv-perm requires a permutation count.%s", errstr_append);
+	goto main_ret_INVALID_CMDLINE_3;
+      } else if ((cnv_calc_type & CNV_TEST_REGION) && (!cnv_test_region_mperms)) {
+	sprintf(logbuf, "Error: --cnv-test-region requires a permutation count.%s", errstr_append);
+	goto main_ret_INVALID_CMDLINE_3;
+      }
+    }
   }
   if (!phenoname) {
     if (prune && (!fam_col_6)) {
@@ -9649,6 +9840,10 @@ int32_t main(int32_t argc, char** argv) {
       }
       retval = wdist_dosage(calculation_type, dist_calc_type, genname, samplename, outname, outname_end, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
+  } else if (load_rare & LOAD_RARE_CNV) {
+    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, cnv_calc_type, cnv_kb, cnv_max_kb, cnv_score, cnv_max_score, cnv_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, mperm_val, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, &chrom_info);
+  } else if (load_rare & LOAD_RARE_GVAR) {
+    retval = wdist_gvar(outname, outname_end, pedname, mapname, famname);
   } else {
   // famname[0] indicates binary vs. text
   // extractname, excludename, keepname, and removename indicate the presence
@@ -9676,10 +9871,6 @@ int32_t main(int32_t argc, char** argv) {
 	  free(simulate_label);
 	  simulate_label = NULL;
 	}
-      } else if (load_rare & LOAD_RARE_CNV) {
-	retval = wdist_cnv(outname, sptr, pedname, mapname, famname, phenoname, cnv_calc_type, cnv_kb, cnv_max_kb, cnv_score, cnv_max_score, cnv_sites, cnv_max_sites, cnv_intex_type, cnv_intex_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_count_fname, cnv_write_fname, mperm_val, cnv_test_window, segment_modifier, segment_spanning_fname);
-      } else if (load_rare & LOAD_RARE_GVAR) {
-	retval = wdist_gvar(outname, sptr, pedname, mapname, famname);
       } else {
         retval = ped_to_bed(pedname, mapname, outname, sptr, fam_col_1, fam_col_34, fam_col_5, fam_col_6, affection_01, missing_pheno, &chrom_info);
 	fam_col_1 = 1;
@@ -9775,10 +9966,8 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(rseeds);
   free_cond(simulate_fname);
   free_cond(simulate_label);
-  free_cond(cnv_intex_fname);
+  free_cond(cnv_intersect_filter_fname);
   free_cond(cnv_subset_fname);
-  free_cond(cnv_count_fname);
-  free_cond(cnv_write_fname);
   free_cond(segment_spanning_fname);
   if (logfile) {
     if (!log_failed) {
