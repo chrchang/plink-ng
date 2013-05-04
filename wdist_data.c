@@ -703,11 +703,11 @@ int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
 	    unn = uoo;
 	  }
 	  if (sf_mask & (1LLU << ujj)) {
-	    load_bim_sf_insert(ujj, ukk, 2147483647, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
+	    load_bim_sf_insert(ujj, ukk, 0x7fffffff, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
 	  }
 	  for (uoo = ujj + 1; uoo < umm; uoo++) {
 	    if (sf_mask & (1LLU << uoo)) {
-	      load_bim_sf_insert(uoo, 0, 2147483647, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
+	      load_bim_sf_insert(uoo, 0, 0x7fffffff, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
 	    }
 	  }
 	  if (sf_mask & (1LLU << umm)) {
@@ -776,7 +776,7 @@ int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
       marker_pos_start = 0;
     }
     if (marker_pos_end == -1) {
-      marker_pos_end = 2147483647;
+      marker_pos_end = 0x7fffffff;
     }
     if (marker_pos_start > marker_pos_end) {
       ii = marker_pos_start;
@@ -794,8 +794,8 @@ int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
     } else {
       marker_pos_start = snp_pos - snp_window_size;
     }
-    if (snp_window_size > (2147483647 - snp_pos)) {
-      marker_pos_end = 2147483647;
+    if (snp_window_size > (0x7fffffff - snp_pos)) {
+      marker_pos_end = 0x7fffffff;
     } else {
       marker_pos_end = snp_pos + snp_window_size;
     }
@@ -2143,7 +2143,7 @@ int32_t incr_text_allele_str(uintptr_t* topsize_ptr, char* allele_name, uint32_t
 	allele_list_start = allele_list_start->next;
 	cur_allele_name_start = allele_list_start->ss;
       } else {
-	chars_left = ((2147483632 - sizeof(intptr_t)) - ((uintptr_t)(&(cur_allele_name_start[slen + 1]) - allele_list_start->ss))) & 15;
+	chars_left = ((0x7ffffff0 - sizeof(intptr_t)) - ((uintptr_t)(&(cur_allele_name_start[slen + 1]) - allele_list_start->ss))) & 15;
 	if (chars_left > an_len) {
 	  cur_allele_name_start[slen] = '\t';
 	  memcpyx(&(cur_allele_name_start[slen + 1]), allele_name, an_len, '\0');
@@ -2256,8 +2256,8 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   fflush(stdout);
   while (1) {
     loadbuf_size = wkspace_left - topsize;
-    if (loadbuf_size > 2147483584) {
-      loadbuf_size = 2147483584;
+    if (loadbuf_size > 0x7fffffc0) {
+      loadbuf_size = 0x7fffffc0;
     }
     loadbuf[loadbuf_size - 1] = ' ';
   ped_to_bed_multichar_allele_loop_1_start:
@@ -2803,7 +2803,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       }
     }
     unfiltered_marker_ct++;
-    if (unfiltered_marker_ct > 2147483647) {
+    if (unfiltered_marker_ct > 0x7fffffff) {
       logprint("Error: Too many markers in .map file (max 2147483647).\n");
       goto ped_to_bed_ret_INVALID_FORMAT;
     }
@@ -2852,8 +2852,8 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   }
   loadbuf = (char*)wkspace_base;
   loadbuf_size = wkspace_left;
-  if (loadbuf_size > 2147483584) {
-    loadbuf_size = 2147483584;
+  if (loadbuf_size > 0x7fffffc0) {
+    loadbuf_size = 0x7fffffc0;
   }
   if (loadbuf_size < MAXLINELEN) {
     goto ped_to_bed_ret_NOMEM;
@@ -4071,8 +4071,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   }
   mapvals = (int64_t*)wkspace_base;
   loadbuf = (char*)(&wkspace_base[sizeof(int64_t)]);
-  if (wkspace_left > 2147483592) {
-    max_load = 2147483584;
+  if (wkspace_left > 0x7fffffc8) {
+    max_load = 0x7fffffc0;
   } else {
     max_load = wkspace_left - 8;
   }
@@ -4373,7 +4373,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     if (fwrite_checked("l\x1b\x01", 3, outfile)) {
       goto transposed_to_bed_ret_WRITE_FAIL;
     }
-    uii = 4294967294U; // last marker uidx
+    uii = 0xfffffffeU; // last marker uidx
     for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
       marker_uidx = map_reverse[marker_idx];
       if (marker_uidx != uii + 1) {
@@ -5185,7 +5185,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
   if (!ullii) {
     sprintf(logbuf, "\nError: --simulate%s input file specifies zero variants/markers.\n", is_qt? "-qt" : "");
     goto simulate_ret_INVALID_FORMAT_2;
-  } else if (ullii > (do_haps? 1073741823 : 2147483647)) {
+  } else if (ullii > (do_haps? 0x3fffffff : 0x7fffffff)) {
     sprintf(logbuf, "\nError: --simulate%s input file specifies too many variants/markers.\n", is_qt? "-qt" : "");
     goto simulate_ret_INVALID_FORMAT_2;
   }
@@ -5352,7 +5352,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	if (!simulate_12) {
 	  do {
 	    uii = sfmt_genrand_uint32(&sfmt);
-	  } while (uii >= 4294967184U);
+	  } while (uii >= 4294967184U); // largest multiple of 144 < 2^32
 	  uii = uii % 144U;
 	  ujj = uii / 12;
 	  uii -= ujj * 12;
@@ -7355,7 +7355,7 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
 	}
 	ulii += MAXLINELEN - 1;
 #ifndef __LP64__
-	if (ulii > 2147483647) {
+	if (ulii > 0x7fffffff) {
 	  sprintf(logbuf, "Error: .ped line too long (>= 2GB) in %s for 32-bit WDIST.\n", famname);
 	  goto merge_fam_id_scan_ret_INVALID_FORMAT;
 	}
@@ -7782,8 +7782,8 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
   uint32_t tot_indiv_ct4 = (tot_indiv_ct + 3) / 4;
   uint32_t tot_indiv_ctl = (tot_indiv_ct + (BITCT - 1)) / BITCT;
   uint32_t end_marker_idx = start_marker_idx + marker_window_size;
-  uint32_t marker_in_idx = 4294967295U; // overflow to zero on first add
-  uint32_t last_marker_in_idx = 4294967294U;
+  uint32_t marker_in_idx = 0xffffffffU; // overflow to zero on first add
+  uint32_t last_marker_in_idx = 0xfffffffeU;
   uint32_t cur_indiv_ct = 0;
   uintptr_t* mbufptr = NULL; // merge mode 1, 4, 6, 7
   uint64_t diff_total_overlap = 0;
@@ -7880,7 +7880,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
     }
     if (*bufptr2 == '-') {
       if (!is_binary) {
-	flex_map[marker_in_idx] = 4294967295U;
+	flex_map[marker_in_idx] = 0xffffffffU;
       }
       continue;
     }
@@ -7894,7 +7894,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
     marker_out_idx = marker_map[ii];
     if ((marker_out_idx < start_marker_idx) || (marker_out_idx >= end_marker_idx)) {
       if (!is_binary) {
-	flex_map[marker_in_idx] = 4294967295U;
+	flex_map[marker_in_idx] = 0xffffffffU;
       }
       continue;
     }
@@ -8242,7 +8242,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 	}
 	bufptr3 = skip_initial_spaces(&(bufptr3[1]));
         uii = flex_map[marker_in_idx];
-	if (uii == 4294967295U) {
+	if (uii == 0xffffffffU) {
 	  continue;
 	}
 	if (cc == '0') {
@@ -8568,7 +8568,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       goto merge_datasets_ret_INVALID_FORMAT;
     }
 #ifndef __LP64__
-    if (ullxx > 2147483647) {
+    if (ullxx > 0x7fffffff) {
       goto merge_datasets_ret_NOMEM;
     }
 #endif
@@ -8660,13 +8660,13 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     }
   } while (++mlpos < merge_ct);
 #ifdef __LP64__
-  if (ullxx > 2147483647) {
+  if (ullxx > 0x7fffffff) {
     sprintf(logbuf, "Error: Too many %s (max 2147483647).\n", species_plural);
     goto merge_datasets_ret_INVALID_FORMAT_2;
   }
 #else
   // avoid integer overflow in wkspace_alloc calls
-  if (ullxx * max_person_full_len > 2147483647) {
+  if (ullxx * max_person_full_len > 0x7fffffff) {
     sprintf(logbuf, "Error: Too many %s for 32-bit WDIST.\n", species_plural);
     goto merge_datasets_ret_INVALID_FORMAT_2;
   }
@@ -8846,12 +8846,12 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     }
   } while (++mlpos < merge_ct);
 #ifdef __LP64__
-  if (ullxx > 2147483647) {
+  if (ullxx > 0x7fffffff) {
     logprint("Error: Too many markers (max 2147483647).\n");
     goto merge_datasets_ret_INVALID_FORMAT;
   }
 #else
-  if (ullxx * MAXV(max_marker_id_len, 8) > 2147483647) {
+  if (ullxx * MAXV(max_marker_id_len, 8) > 0x7fffffff) {
     logprint("Error: Too many markers for 32-bit WDIST.\n");
     goto merge_datasets_ret_INVALID_FORMAT;
   }

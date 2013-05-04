@@ -7936,7 +7936,7 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
   llxx = ((llxx * (llxx - 1)) - (int64_t)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
   dists_alloc = llxx * sizeof(double);
 #ifndef __LP64__
-  if (dists_alloc > 2147483647) {
+  if (dists_alloc > 0x7fffffff) {
     goto calc_distance_ret_NOMEM;
   }
 #endif
@@ -8332,7 +8332,7 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
 	giptr2 = g_indiv_missing;
 	uii = giptr2[indiv_idx];
 	for (ujj = 0; ujj < indiv_idx; ujj++) {
-	  *dptr2++ = (4294967295.0 / ((4294967295U - uii - (*giptr2++)) + (*giptr++))) * (*iptr++);
+	  *dptr2++ = (4294967295.0 / ((0xffffffffU - uii - (*giptr2++)) + (*giptr++))) * (*iptr++);
 	}
       }
     } else {
@@ -8340,7 +8340,7 @@ int32_t calc_distance(pthread_t* threads, int32_t parallel_idx, int32_t parallel
 	giptr2 = g_indiv_missing;
 	uii = giptr2[indiv_idx];
 	for (ujj = 0; ujj < indiv_idx; ujj++) {
-	  *dptr2 *= (4294967295.0 / ((4294967295U - uii - (*giptr2++)) + (*giptr++)));
+	  *dptr2 *= (4294967295.0 / ((0xffffffffU - uii - (*giptr2++)) + (*giptr++)));
 	  dptr2++;
 	}
       }

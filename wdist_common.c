@@ -132,11 +132,11 @@ uint32_t strtoui32(char* ss, uint32_t* valp) {
     }
     return 1;
 #ifdef __LP64__
-  } else if (ulii > 4294967295LLU) {
+  } else if (ulii > 0xffffffffLLU) {
 #else
   } else if (ulii == ULONG_MAX) {
     if (!memcmp(ss, "4294967295", 11)) {
-      *valp = 4294967295U;
+      *valp = 0xffffffffU;
       return 0;
     }
 #endif
@@ -376,12 +376,12 @@ char* int64_write(char* start, int64_t llii) {
     *start++ = '-';
     llii = -llii;
   }
-  if (llii <= 4294967295LL) {
+  if (llii <= 0xffffffffLL) {
     return uint32_write(start, (uint32_t)llii);
   }
   top_digits = llii / 100000000LL;
   bottom_eight = (uint32_t)(llii - (top_digits * 100000000));
-  if (top_digits <= 4294967295LL) {
+  if (top_digits <= 0xffffffffLL) {
     start = uint32_write(start, (uint32_t)top_digits);
     uint32_write8(start, bottom_eight);
     return &(start[8]);
@@ -1642,8 +1642,8 @@ void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* pre_shiftp, uint32_t
   uint32_t exponent;
   uint32_t uii;
   if (divisor & (divisor - 1)) {
-    quotient = 2147483648U / divisor;
-    remainder = 2147483648U - (quotient * divisor);
+    quotient = 0x80000000U / divisor;
+    remainder = 0x80000000U - (quotient * divisor);
     ceil_log_2_d = 32 - __builtin_clz(divisor);
     for (exponent = 0; ; exponent++) {
       if (remainder >= divisor - remainder) {
@@ -2319,26 +2319,26 @@ int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int
   return 0;
 }
 
-uint32_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uint32_t arr_length, uint64_t ullii) {
+uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii) {
   // assumes arr_length is nonzero, and sorted_uint64_arr is in nondecreasing
   // order.
   // ullii guaranteed to be larger than sorted_uint64_arr[min_idx - 1] if it
   // exists, but NOT necessarily sorted_uint64_arr[min_idx].
-  int32_t min_idx = 0;
+  intptr_t min_idx = 0;
   // similarly, ullii guaranteed to be no greater than
   // sorted_uint64_arr[max_idx + 1] if it exists, but not necessarily
   // sorted_uint64_arr[max_idx].  Signed integer since it could become -1.
-  int32_t max_idx = arr_length - 1;
-  uint32_t mid_idx;
+  intptr_t max_idx = arr_length - 1;
+  uintptr_t mid_idx;
   while (min_idx < max_idx) {
-    mid_idx = (((uint32_t)min_idx) + ((uint32_t)max_idx)) / 2;
+    mid_idx = (((uintptr_t)min_idx) + ((uintptr_t)max_idx)) / 2;
     if (ullii > sorted_uint64_arr[mid_idx]) {
       min_idx = mid_idx + 1;
     } else {
       max_idx = mid_idx - 1;
     }
   }
-  if (ullii > sorted_uint64_arr[((uint32_t)min_idx)]) {
+  if (ullii > sorted_uint64_arr[((uintptr_t)min_idx)]) {
     return (min_idx + 1);
   } else {
     return min_idx;
@@ -5267,7 +5267,7 @@ void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd) {
   uint32_t ujj;
   uint32_t ukk;
   memset(cbuf, 0, ct);
-  ukk = (uint32_t)(4294967296LLU % ct);
+  ukk = (uint32_t)(0x100000000LLU % ct);
   for (uii = 0; uii < dd; uii++) {
     do {
       do {
@@ -5327,7 +5327,7 @@ uint32_t set_default_jackknife_d(uint32_t ct) {
 void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm_idx, uintptr_t perm_ct, uintptr_t* perm_buf) {
   uintptr_t tot_ctl = (tot_ct + (BITCT - 1)) / BITCT;
   uintptr_t tot_rem = tot_ct & (BITCT - 1);
-  uint32_t tot_quotient = (uint32_t)(4294967296LLU / tot_ct);
+  uint32_t tot_quotient = (uint32_t)(0x100000000LLU / tot_ct);
   uint32_t upper_bound = tot_ct * tot_quotient - 1;
   uintptr_t uljj = perm_ct - perm_idx;
   uint32_t totq_preshift;

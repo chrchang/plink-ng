@@ -6085,11 +6085,11 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t cnv_test_region_mperms = 0;
   uint32_t cnv_enrichment_test_mperms = 0;
   uint32_t cnv_min_seglen = 0;
-  uint32_t cnv_max_seglen = 4294967295U;
+  uint32_t cnv_max_seglen = 0xffffffffU;
   double cnv_min_score = -INFINITY;
   double cnv_max_score = INFINITY;
   uint32_t cnv_min_sites = 0;
-  uint32_t cnv_max_sites = 4294967295U;
+  uint32_t cnv_max_sites = 0xffffffffU;
   uint32_t cnv_intersect_filter_type = 0;
   char* cnv_intersect_filter_fname = NULL;
   char* cnv_subset_fname = NULL;
@@ -7209,6 +7209,13 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	strcpya(pedname, argv[cur_arg + 1]);
 	load_rare = LOAD_RARE_CNV;
+      } else if (!memcmp(argptr2, "nv-make-map", 12)) {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-make-map cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	cnv_calc_type |= CNV_MAKE_MAP;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "nv-max-kb", 10)) {
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-max-kb cannot be used without a .cnv fileset.\n");
@@ -7419,8 +7426,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	dxx *= 1000;
-	if (dxx > 2147483647) {
-	  cnv_test_window = 2147483647;
+	if (dxx > 0x7fffffff) {
+	  cnv_test_window = 0x7fffffff;
 	} else {
 	  cnv_test_window = (int32_t)dxx;
 	}
@@ -7800,6 +7807,9 @@ int32_t main(int32_t argc, char** argv) {
 	if (chrom_info.chrom_mask) {
 	  sprintf(logbuf, "Error: --from cannot be used with --autosome(-xy) or --chr%s.%s", chrom_exclude? "-excl" : "", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (cnv_calc_type & CNV_MAKE_MAP) {
+	  sprintf(logbuf, "--from cannot be used with --cnv-make-map.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -7834,7 +7844,7 @@ int32_t main(int32_t argc, char** argv) {
 	  if (dxx < 0) {
 	    marker_pos_start = 0;
 	  } else if (dxx > 2147483647) {
-	    marker_pos_start = 2147483647;
+	    marker_pos_start = 0x7fffffff;
 	  } else {
 	    marker_pos_start = (int)dxx;
 	  }
@@ -8963,7 +8973,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (dxx < 0) {
 	  ppc_gap = 0;
 	} else if (dxx > 2147483647) {
-	  ppc_gap = 2147483647;
+	  ppc_gap = 0x7fffffff;
 	} else {
 	  ppc_gap = (int)dxx;
 	}
@@ -9005,7 +9015,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	perm_batch_size = atoi(argv[cur_arg + 1]);
-	if ((perm_batch_size < 1) || (perm_batch_size > 2147483647)) {
+	if ((perm_batch_size < 1) || (perm_batch_size > 0x7fffffff)) {
 	  sprintf(logbuf, "Error: Invalid --perm-batch-size parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9390,7 +9400,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	strcpy(samplename, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "eed", 4)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2147483647)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	rseed_ct = param_ct;
@@ -9715,6 +9725,9 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (snps_flag_markers) {
 	  sprintf(logbuf, "Error: --to cannot be used with --snps.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (cnv_calc_type & CNV_MAKE_MAP) {
+	  sprintf(logbuf, "--to cannot be used with --cnv-make-map.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -9758,7 +9771,7 @@ int32_t main(int32_t argc, char** argv) {
 	  if (dxx < 0) {
 	    ii = 0;
 	  } else if (dxx > 2147483647) {
-	    ii = 2147483647;
+	    ii = 0x7fffffff;
 	  } else {
 	    ii = (int)dxx;
 	  }
@@ -9939,7 +9952,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --window parameter '%s' too small.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (dxx > 2147483647) {
-	  snp_window_size = 2147483647;
+	  snp_window_size = 0x7fffffff;
 	} else {
 	  snp_window_size = (int)dxx;
 	}
@@ -10016,7 +10029,7 @@ int32_t main(int32_t argc, char** argv) {
       }
     }
   }
-  if ((cnv_intersect_filter_type == CNV_COUNT) && (!(cnv_calc_type & (CNV_INDIV_PERM | CNV_ENRICHMENT_TEST)))) {
+  if ((cnv_intersect_filter_type & CNV_COUNT) && (!(cnv_calc_type & (CNV_INDIV_PERM | CNV_ENRICHMENT_TEST)))) {
     sprintf(logbuf, "Error: --cnv-count must be used with --cnv-indiv-perm or --cnv-enrichment-test.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
@@ -10044,7 +10057,7 @@ int32_t main(int32_t argc, char** argv) {
   // --from-bp/-kb/-mb without any --to/--to-bp/...: include to end of
   // chromosome
   if ((marker_pos_start != -1) && (!markername_to) && (marker_pos_end == -1)) {
-    marker_pos_end = 2147483647;
+    marker_pos_end = 0x7fffffff;
   }
   if (!chrom_info.chrom_mask) {
     chrom_info.chrom_mask = species_valid_chrom_mask[chrom_info.species];

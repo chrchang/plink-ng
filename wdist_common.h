@@ -296,7 +296,7 @@ typedef union {
 
 #define CNV_INTERSECT 1
 #define CNV_EXCLUDE 2
-#define CNV_COUNT 3
+#define CNV_COUNT 4
 
 #define CNV_OVERLAP 1
 #define CNV_OVERLAP_REGION 2
@@ -1110,7 +1110,7 @@ void qsort_ext2(char* main_arr, intptr_t arr_length, intptr_t item_length, int(*
 
 int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int(* comparator_deref)(const void*, const void*), char* secondary_arr, intptr_t secondary_item_len);
 
-uint32_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uint32_t arr_length, uint64_t ullii);
+uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii);
 
 uint32_t doublearr_greater_than(double* sorted_dbl_arr, uint32_t arr_length, double dxx);
 

@@ -371,8 +371,8 @@ int32_t oxford_gen_load1(FILE* genfile, uint32_t* gen_buf_len_ptr, uintptr_t* un
   double cur_ref_allele_ct;
   double cur_allele_wt;
   double dxx;
-  if (wkspace_left > 2147483584) {
-    max_load = 2147483584;
+  if (wkspace_left > 0x7fffffc0) {
+    max_load = 0x7fffffc0;
   } else {
     max_load = wkspace_left;
   }
@@ -1132,7 +1132,7 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
   llxx = g_thread_start[thread_ct];
   llxx = ((llxx * (llxx - 1)) - (int64_t)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
 #ifndef __LP64__
-  if (llxx > 4294967295LL) {
+  if (llxx > 0xffffffffLL) {
     return RET_NOMEM;
   }
 #endif
@@ -1402,7 +1402,7 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
   llxx = g_thread_start[thread_ct];
   llxx = ((llxx * (llxx - 1)) - (int64_t)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;
 #ifndef __LP64__
-  if (llxx > 4294967295LL) {
+  if (llxx > 0xffffffffLL) {
     return RET_NOMEM;
   }
 #endif
@@ -1437,8 +1437,8 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
     }
   }
 
-  if (wkspace_left > 2147483584LU) {
-    max_load = 2147483584LU;
+  if (wkspace_left > 0x7fffffc0LU) {
+    max_load = 0x7fffffc0LU;
   } else {
     max_load = wkspace_left;
   }

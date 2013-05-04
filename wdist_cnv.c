@@ -70,9 +70,9 @@ int32_t cnv_subset_load(char* subset_fname, char** subset_list_ptr, uintptr_t* s
 }
 
 char* cnv_intersect_filter_type_to_str(uint32_t intersect_filter_type) {
-  if (intersect_filter_type == CNV_INTERSECT) {
+  if (intersect_filter_type & CNV_INTERSECT) {
     return (char*)"intersect";
-  } else if (intersect_filter_type == CNV_EXCLUDE) {
+  } else if (intersect_filter_type & CNV_EXCLUDE) {
     return (char*)"exclude";
   } else {
     return (char*)"count";
@@ -85,9 +85,9 @@ char* cnv_intersect_filter_type_to_str(uint32_t intersect_filter_type) {
 
 int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filter_fname, char* subset_list, uintptr_t subset_ct, uintptr_t max_subset_name_len, uintptr_t* il_chrom_start_small, uintptr_t* il_chrom_start_large, uint32_t* il_chrom_max_width_small, uint32_t* il_chrom_max_width_large, uint64_t** il_small_ptr, uint64_t** il_large_ptr, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t species, uint64_t chrom_mask, uintptr_t* topsize_ptr) {
   // We store intervals in sorted order, with the center of each interval in
-  // the high-order bits, and the size in the low-order bits.  (Chromosome
-  // beginnings and endings are stored in small external arrays.)  We also
-  // track each chromosome's largest interval size.
+  // the high-order bits, and the size (without adding 1) in the low-order
+  // bits.  (Chromosome beginnings and endings are stored in small external
+  // arrays.)  We also track each chromosome's largest interval size.
   // If all intervals are small, this enables very efficient intersection
   // checks.  However, if there is a single very large interval, the standard
   // intersection checking algorithm might have to assume the worst for all the
@@ -364,8 +364,88 @@ int32_t cnv_first_nonheader_line(FILE* cnvfile) {
   return retval;
 }
 
+uint32_t is_cnv_overlap_one_size(uint32_t start_pos, uint32_t end_pos, uint32_t overlap_type, double overlap_val, uint32_t max_width, uint64_t* interval_list, uintptr_t interval_list_len) {
+  // earliest possible overlap: center at start_pos - (max_width / 2)
+  // latest possible overlap: center at end_pos + (max_width / 2)
+  uint64_t twice_end_pos = (uint64_t)(end_pos * 2);
+  uint64_t ullii = ((uint64_t)start_pos) << 33;
+  uint64_t ulljj = (uint64_t)max_width;
+  uint64_t ullkk = ulljj << 32;
+  double denominator = (double)(1 + end_pos - start_pos);
+  uint32_t region_start;
+  uint32_t region_end;
+  uint32_t smaller_start;
+  uint32_t larger_start;
+  uint32_t smaller_end;
+  uint32_t larger_end;
+  uintptr_t cur_idx;
+  uintptr_t last_idx;
+  double numerator;
+  if (!interval_list_len) {
+    return 0;
+  }
+  if (ullii <= ullkk) {
+    cur_idx = 0;
+  } else {
+    cur_idx = uint64arr_greater_than(interval_list, interval_list_len, (ullii - ullkk) | ulljj);
+  }
+  if ((twice_end_pos + ulljj > 0xffffffffLLU) || (cur_idx == interval_list_len)) {
+    last_idx = interval_list_len;
+  } else {
+    last_idx = cur_idx + uint64arr_greater_than(&(interval_list[cur_idx]), interval_list_len - cur_idx, ((twice_end_pos << 32) + ullkk) | 0xffffffffLLU);
+  }
+  while (cur_idx < last_idx) {
+    ullii = interval_list[cur_idx++];
+    region_end = (uint32_t)(((ullii >> 32) + ullii) / 2);
+    if (region_end >= start_pos) {
+      region_start = (uint32_t)(((ullii >> 32) - ullii) / 2);
+      if (region_start <= end_pos) {
+	if (!overlap_type) {
+	  return 1;
+	} else if (overlap_type == CNV_DISRUPT) {
+	  if (((region_start < start_pos) && (region_end <= end_pos)) || ((region_start >= start_pos) && (region_end > end_pos))) {
+	    return 1;
+	  }
+	} else {
+	  if (region_start < start_pos) {
+	    smaller_start = region_start;
+	    larger_start = start_pos;
+	  } else {
+	    smaller_start = start_pos;
+	    larger_start = region_start;
+	  }
+	  if (region_end < end_pos) {
+	    smaller_end = region_end;
+	    larger_end = end_pos;
+	  } else {
+	    smaller_end = end_pos;
+	    larger_end = region_end;
+	  }
+	  numerator = (double)(1 + smaller_end - larger_start);
+	  if (overlap_type == CNV_OVERLAP_REGION) {
+	    denominator = (double)(1 + region_end - region_start);
+	  } else if (overlap_type == CNV_OVERLAP_UNION) {
+	    denominator = (double)(1 + larger_end - smaller_start);
+	  }
+	  if (denominator * overlap_val <= numerator) {
+	    return 1;
+	  }
+	}
+      }
+    }
+  }
+  return 0;
+}
+
+uint32_t is_cnv_overlap(uint32_t start_pos, uint32_t end_pos, uint32_t overlap_type, double overlap_val, uint32_t small_max_width, uint32_t large_max_width, uint64_t* il_small, uintptr_t il_small_len, uint64_t* il_large, uintptr_t il_large_len) {
+  if (is_cnv_overlap_one_size(start_pos, end_pos, overlap_type, overlap_val, small_max_width, il_small, il_small_len)) {
+    return 1;
+  }
+  return is_cnv_overlap_one_size(start_pos, end_pos, overlap_type, overlap_val, large_max_width, il_large, il_large_len);
+}
+
 int32_t cnv_make_map_write(FILE* new_mapfile, uint64_t ullii) {
-  uint32_t chrom_idx = ullii >> 32;
+  uint32_t chrom_idx = (uint32_t)(ullii >> 32);
   uint32_t bp_pos = (uint32_t)ullii;
   char* wptr = uint32_write(tbuf, chrom_idx);
   wptr = memcpya(wptr, "\tp", 2);
@@ -381,13 +461,13 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
   FILE* new_mapfile = NULL;
   uintptr_t raw_marker_ct = 0;
 #ifdef __LP64__
-  uint32_t distinct_marker_countdown = 2147483646;
+  uint32_t distinct_marker_countdown = 0x7ffffffe;
 #endif
   uint32_t req_fields = 3;
-  uint32_t filter_seglen = min_seglen || (max_seglen < 4294967295U);
+  uint32_t filter_seglen = min_seglen || (max_seglen < 0xffffffffU);
   uint32_t cnv_del = cnv_calc_type & CNV_DEL;
   uint32_t filter_score = (min_score > -INFINITY) || (max_score < INFINITY);
-  uint32_t filter_sites = min_sites || (max_sites < 4294967295U);
+  uint32_t filter_sites = min_sites || (max_sites < 0xffffffffU);
   uintptr_t max_marker_ct;
   int32_t retval;
   char* bufptr;
@@ -395,7 +475,9 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
   int64_t llii;
   uint64_t ullii;
   uintptr_t ulii;
+  uintptr_t uljj;
   uint32_t uii;
+  uint32_t chrom_idx;
   int32_t ii;
   int32_t jj;
   double dxx;
@@ -433,10 +515,11 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	logprint("\nError: Invalid chromosome code in .cnv file.\n");
         goto cnv_make_map_ret_INVALID_FORMAT;
       }
-      if (!((chrom_mask >> ((uint32_t)ii)) & 1)) {
+      chrom_idx = ii;
+      if (!((chrom_mask >> chrom_idx) & 1)) {
 	continue;
       }
-      ullii = ((uint64_t)((uint32_t)ii)) << 32;
+      ullii = ((uint64_t)chrom_idx) << 32;
       bufptr = next_item(bufptr);
       ii = atoi(bufptr);
       if (ii < 0) {
@@ -448,11 +531,9 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
       if (jj < 0) {
         logprint("\nError: Negative bp position in .cnv file.\n");
 	goto cnv_make_map_ret_INVALID_FORMAT;
-      }
-      if (jj < ii) {
-	uii = ii;
-	ii = jj;
-	jj = uii;
+      } else if (jj < ii) {
+	logprint("\nError: Segment end position smaller than segment start in .cnv file.\n");
+	goto cnv_make_map_ret_INVALID_FORMAT;
       }
       if ((marker_pos_start > ii) || ((marker_pos_end != -1) && (marker_pos_end < jj))) {
 	continue;
@@ -500,7 +581,17 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	  continue;
 	}
       }
-      // todo: interval-based filtering
+      if (intersect_filter_type & (CNV_INTERSECT | CNV_EXCLUDE)) {
+	ulii = il_chrom_start_small[chrom_idx];
+	uljj = il_chrom_start_large[chrom_idx];
+	if (is_cnv_overlap((uint32_t)((uint64_t)llii), (uint32_t)ullii, overlap_type, overlap_val, il_chrom_max_width_small[chrom_idx], il_chrom_max_width_large[chrom_idx], &(il_small[ulii]), il_chrom_start_small[chrom_idx + 1] - ulii, &(il_large[uljj]), il_chrom_start_large[chrom_idx + 1] - uljj)) {
+          if (intersect_filter_type & CNV_EXCLUDE) {
+	    continue;
+	  }
+	} else if (intersect_filter_type & CNV_INTERSECT) {
+	  continue;
+	}
+      }
       if (raw_marker_ct + 1 >= max_marker_ct) {
         goto cnv_make_map_ret_NOMEM;
       }
@@ -630,8 +721,12 @@ int32_t wdist_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
 	  goto wdist_cnv_ret_INVALID_CMDLINE;
 	}
       }
+      if (markername_from || markername_to) {
+	logprint("Error: --from/--to cannot be used with .cnv.map autogeneration.\n");
+	goto wdist_cnv_ret_INVALID_CMDLINE;
+      }
       sprintf(logbuf, "Autogenerating missing %s...", mapname);
-      retval = cnv_make_map(cnvfile, mapname, 0, 0, 4294967295U, -INFINITY, INFINITY, 0, 4294967295U, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0.0, -1, -1, chrom_info_ptr->species, ~0LLU);
+      retval = cnv_make_map(cnvfile, mapname, 0, 0, 0xffffffffU, -INFINITY, INFINITY, 0, 0xffffffffU, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0.0, -1, -1, chrom_info_ptr->species, ~0LLU);
       if (retval) {
 	goto wdist_cnv_ret_1;
       }
