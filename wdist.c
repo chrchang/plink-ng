@@ -67,7 +67,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (2 May 2013)";
+  " (5 May 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -707,8 +707,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Given a .cnv fileset, this checks for within-individual CNV overlaps.\n\n"
 	       );
     help_print("cnv-write", &help_ctrl, 1,
-"  --cnv-write\n"
-"    Writes a new .cnv fileset, after applying all requested filters.\n\n"
+"  --cnv-write <freq>\n"
+"    Writes a new .cnv fileset, after applying all requested filters.  The\n"
+"    'freq' modifier (which must be used with --cnv-freq-method2) causes an\n"
+"    additional \"FREQ\" field to be written with CNV-CNV overlap counts.\n\n"
 	       );
     help_print("cnv-indiv-perm\tcnv-test\tcnv-test-region\tcnv-enrichment-test\tmperm\tcnv-test-1sided\tcnv-test-2sided", &help_ctrl, 1,
 "  --cnv-indiv-perm [permutation count]\n"
@@ -1086,31 +1088,53 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 , stdout);
     }
     help_print("cnv-del\tcnv-dup", &help_ctrl, 0,
-"  --cnv-del             : Exclude all variants with two or more copies.\n"
-"  --cnv-dup             : Exclude all variants with two or fewer copies.\n"
+"  --cnv-del                : Exclude all variants with more than one copy.\n"
+"  --cnv-dup                : Exclude all variants with fewer than three copies.\n"
 	       );
     help_print("cnv-kb\tcnv-max-kb", &help_ctrl, 0,
-"  --cnv-kb [kb len]     : Exclude all segments shorter than the given length.\n"
-"  --cnv-max-kb [kb len] : Exclude all segments longer than the given length.\n"
+"  --cnv-kb [kb len]        : Exclude segments shorter than the given length.\n"
+"  --cnv-max-kb [kb len]    : Exclude segments longer than the given length.\n"
 	       );
     help_print("cnv-score\tcnv-max-score", &help_ctrl, 0,
-"  --cnv-score [val]     : Exclude all variants with confidence score < val.\n"
-"  --cnv-max-score [val] : Exclude all variants with confidence score > val.\n"
+"  --cnv-score [val]        : Exclude all variants with confidence score < val.\n"
+"  --cnv-max-score [val]    : Exclude all variants with confidence score > val.\n"
 	       );
     help_print("cnv-sites\tcnv-max-sites", &help_ctrl, 0,
-"  --cnv-sites [ct]      : Exclude all segments with fewer than ct probes.\n"
-"  --cnv-max-sites [ct]  : Exclude all segments with more than ct probes.\n"
+"  --cnv-sites [ct]         : Exclude all segments with fewer than ct probes.\n"
+"  --cnv-max-sites [ct]     : Exclude all segments with more than ct probes.\n"
 	       );
-    help_print("cnv-intersect\tcnv-exclude\tcnv-count", &help_ctrl, 0,
-"  --cnv-intersect [fn]  : Exclude all segments which do not intersect a region\n"
-"                          in the given region list.\n"
-"  --cnv-exclude [fname] : Exclude all segments which intersect a region in the\n"
-"                          given region list.\n"
-"  --cnv-count [fname]   : Specify a region list, and report CNV/region\n"
-"                          intersection stats.\n"
+    help_print("cnv-intersect\tcnv-exclude\tcnv-subset\tcnv-overlap\tcnv-region-overlap\tcnv-union-overlap\tcnv-disrupt", &help_ctrl, 0,
+"  --cnv-intersect [fname]  : Only include segments which intersect a region in\n"
+"                             the given region list.\n"
+"  --cnv-exclude [fname]    : Exclude all segments which intersect a region in\n"
+"                             the given region list.\n"
+"  --cnv-count [fname]      : Specify region list for --cnv-indiv-perm\n"
+"                             (optional) or --cnv-enrichment-test (required).\n"
+"  --cnv-subset [fname]     : Ignore all regions in the --cnv-intersect/-exclude\n"
+"                             /-count list that aren't named in the given file.\n"
+"  --cnv-overlap [x]        : Only count intersections of length at least xn,\n"
+"                             where n is the segment size.\n"
+"  --cnv-region-overlap [x] : x >= [overlap] / [region size].\n"
+"  --cnv-union-overlap [x]  : x >= [overlap] / [union size].\n"
+"  --cnv-disrupt            : Only include/exclude segments with an endpoint in\n"
+"                             a region.\n"
+	       );
+    help_print("cnv-freq-exclude-above\tcnv-freq-exclude-below\tcnv-freq-exclude-exact\tcnv-freq-include-exact\tcnv-freq-overlap\tcnv-freq-method2", &help_ctrl, 0,
+"  --cnv-freq-exclude-above [k] : Exclude all segments where any portion is\n"
+"                                 included by more than k total segments.\n"
+"  --cnv-freq-exclude-below [k] : Exclude all segments where no portion is\n"
+"                                 included by k or more total segments.\n"
+"  --cnv-freq-exclude-exact [k] : Exclude all segments which have a portion\n"
+"                                 included by at least k total segments, but no\n"
+"                                 portion included by more.\n"
+"  --cnv-freq-include-exact [k] : Reverse of --cnv-freq-exclude-exact.\n"
+"  --cnv-freq-overlap {x}   : Only count portions of length at least xn, where n\n"
+"                             is the segment size.\n"
+"  --cnv-freq-method2 {x}   : Causes k to instead be compared against the number\n"
+"                             of segments for which x >= [overlap] / [union].\n"
 	       );
     help_print("cnv-test-window\tcnv-test", &help_ctrl, 0,
-"  --cnv-test-window [s] : Specify window size (in kb) for CNV association test.\n"
+"  --cnv-test-window [size] : Specify window size (in kb) for CNV assoc. test.\n"
 	       );
     if (!param_ct) {
       fputs(
@@ -6073,6 +6097,7 @@ int32_t main(int32_t argc, char** argv) {
   double cnv_overlap_val = 0.0;
   uint32_t cnv_freq_type = 0;
   uint32_t cnv_freq_val = 0;
+  double cnv_freq_val2 = 0.0;
   uint32_t cnv_test_window = 0;
   uint32_t segment_modifier = 0;
   char* segment_spanning_fname = NULL;
@@ -7008,6 +7033,9 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "nv-del", 7)) {
 	cnv_calc_type |= CNV_DEL;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "nv-disrupt", 11)) {
+	cnv_overlap_type = CNV_DISRUPT;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "nv-dup", 7)) {
 	if (cnv_calc_type & CNV_DEL) {
 	  sprintf(logbuf, "Error: --cnv-dup cannot be used with --cnv-del.%s", errstr_append);
@@ -7016,6 +7044,10 @@ int32_t main(int32_t argc, char** argv) {
 	cnv_calc_type |= CNV_DUP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "nv-enrichment-test", 19)) {
+	if (!cnv_intersect_filter_type) {
+	  sprintf(logbuf, "Error: --cnv-enrichment-test must be used with --cnv-count.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7041,6 +7073,98 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	cnv_intersect_filter_type = CNV_EXCLUDE;
+      } else if (!memcmp(argptr2, "nv-freq-exclude-above", 22)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 1) {
+	  sprintf(logbuf, "Error: Invalid --cnv-freq-exclude-above parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	cnv_freq_type = CNV_FREQ_EXCLUDE_ABOVE;
+	cnv_freq_val = ii;
+      } else if (!memcmp(argptr2, "nv-freq-exclude-below", 22)) {
+	if (cnv_freq_type) {
+	  logprint("Error: --cnv-freq-exclude-below cannot be used with --cnv-freq-exclude-above.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 2) {
+	  sprintf(logbuf, "Error: Invalid --cnv-freq-exclude-below parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	cnv_freq_type = CNV_FREQ_EXCLUDE_BELOW;
+	cnv_freq_val = ii;
+      } else if (!memcmp(argptr2, "nv-freq-exclude-exact", 22)) {
+	if (cnv_freq_type) {
+	  logprint("Error: --cnv-freq-exclude-exact cannot be used with\n--cnv-freq-exclude-above/-below.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 1) {
+	  sprintf(logbuf, "Error: Invalid --cnv-freq-exclude-exact parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	cnv_freq_type = CNV_FREQ_EXCLUDE_EXACT;
+	cnv_freq_val = ii;
+      } else if (!memcmp(argptr2, "nv-freq-include-exact", 22)) {
+	if (cnv_freq_type) {
+	  logprint("Error: --cnv-freq-include-exact cannot be used with\n--cnv-freq-exclude-above/-below/-exact.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 1) {
+	  sprintf(logbuf, "Error: Invalid --cnv-freq-include-exact parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	cnv_freq_type = CNV_FREQ_INCLUDE_EXACT;
+	cnv_freq_val = ii;
+      } else if (!memcmp(argptr2, "nv-freq-method2", 16)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (param_ct) {
+	  if ((sscanf(argv[cur_arg + 1], "%lg", &cnv_freq_val2) != 1) || (cnv_freq_val2 < 0) || (cnv_freq_val2 > 1)) {
+	    sprintf(logbuf, "Error: Invalid --cnv-freq-method2 parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	}
+	cnv_freq_type |= CNV_FREQ_METHOD2;
+	if (cnv_freq_val2 == 0) {
+	  // allow >= comparison to be used
+	  cnv_freq_val2 = SMALLISH_EPSILON;
+	}
+      } else if (!memcmp(argptr2, "nv-freq-overlap", 16)) {
+	if (!(cnv_freq_type & CNV_FREQ_FILTER)) {
+	  logprint("Error: --cnv-freq-overlap must be used with --cnv-freq-include-exact or\n--cnv-freq-exclude-above/-below/-exact.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	} else if (cnv_freq_type & CNV_FREQ_METHOD2) {
+	  logprint("Error: --cnv-freq-overlap cannot be used with --cnv-freq-method2.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (param_ct) {
+	  if ((sscanf(argv[cur_arg + 1], "%lg", &cnv_freq_val2) != 1) || (cnv_freq_val2 < 0) || (cnv_freq_val2 > 1)) {
+	    sprintf(logbuf, "Error: Invalid --cnv-freq-overlap parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	}
+	if (cnv_freq_val2 == 0) {
+	  cnv_freq_val2 = SMALLISH_EPSILON;
+	}
+	cnv_freq_type |= CNV_FREQ_OVERLAP;
       } else if (!memcmp(argptr2, "nv-indiv-perm", 14)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -7126,6 +7250,48 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --cnv-max-sites parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
+      } else if (!memcmp(argptr2, "nv-overlap", 11))  {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-overlap cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	} else if (cnv_overlap_type == CNV_DISRUPT) {
+	  sprintf(logbuf, "Error: --cnv-overlap cannot be used with --cnv-disrupt.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((sscanf(argv[cur_arg + 1], "%lg", &cnv_overlap_val) != 1) || (cnv_overlap_val < 0) || (cnv_overlap_val > 1))  {
+	  sprintf(logbuf, "Error: Invalid --cnv-overlap value '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (cnv_overlap_val != 0) {
+	  // ignore --cnv-overlap 0
+	  cnv_overlap_type = CNV_OVERLAP;
+	}
+	if ((cnv_freq_type & CNV_FREQ_FILTER) && (!(cnv_freq_type & (CNV_FREQ_OVERLAP | CNV_FREQ_METHOD2)))) {
+	  logprint("Note: --cnv-overlap + --cnv-freq-... deprecated.  Use --cnv-freq-overlap.\n");
+	  if (cnv_overlap_val != 0) {
+	    cnv_freq_type |= CNV_FREQ_OVERLAP;
+	    cnv_freq_val2 = cnv_overlap_val;
+	  }
+	} 
+      } else if (!memcmp(argptr2, "nv-region-overlap", 18)) {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-region-overlap cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	} else if (cnv_overlap_type) {
+	  sprintf(logbuf, "Error: --cnv-region-overlap cannot be used with --cnv-overlap/-disrupt.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((sscanf(argv[cur_arg + 1], "%lg", &cnv_overlap_val) != 1) || (cnv_overlap_val <= 0) || (cnv_overlap_val > 1))  {
+	  sprintf(logbuf, "Error: Invalid --cnv-region-overlap value '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	cnv_overlap_type = CNV_OVERLAP_REGION;
       } else if (!memcmp(argptr2, "nv-score", 9)) {
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-score cannot be used without a .cnv fileset.\n");
@@ -7157,6 +7323,21 @@ int32_t main(int32_t argc, char** argv) {
 	if (cnv_min_sites > cnv_max_sites) {
 	  logprint("Error: --cnv-sites value cannot be greater than --cnv-max-sites value.\n");
 	  goto main_ret_INVALID_CMDLINE;
+	}
+      } else if (!memcmp(argptr2, "nv-subset", 10)) {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-subset cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	} else if (!cnv_intersect_filter_type) {
+	  sprintf(logbuf, "Error: --cnv-subset must be used with --cnv-intersect/-exclude/-count.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&cnv_subset_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "nv-test", 8)) {
 	if (!(load_rare & LOAD_RARE_CNV)) {
@@ -7243,12 +7424,55 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  cnv_test_window = (int32_t)dxx;
 	}
+      } else if (!memcmp(argptr2, "nv-union-overlap", 17)) {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-union-overlap cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	} else if (cnv_overlap_type) {
+	  sprintf(logbuf, "Error: --cnv-union-overlap cannot be used with --cnv-[region-]overlap/-disrupt.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((sscanf(argv[cur_arg + 1], "%lg", &cnv_overlap_val) != 1) || (cnv_overlap_val <= 0) || (cnv_overlap_val > 1))  {
+	  sprintf(logbuf, "Error: Invalid --cnv-union-overlap value '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	cnv_overlap_type = CNV_OVERLAP_UNION;
       } else if (!memcmp(argptr2, "nv-write", 9)) {
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-write cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (param_ct) {
+	  if (memcmp(argv[cur_arg + 1], "freq", 5)) {
+            sprintf(logbuf, "Error: Invalid --cnv-write parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  if (!(cnv_freq_val & CNV_FREQ_METHOD2)) {
+	    sprintf(logbuf, "Error: --cnv-write 'freq' modifier must be used with --cnv-freq-method2.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  cnv_calc_type |= CNV_WRITE_FREQ;
+	}
 	cnv_calc_type |= CNV_WRITE;
+      } else if (!memcmp(argptr2, "nv-write-freq", 14)) {
+	if (!(load_rare & LOAD_RARE_CNV)) {
+	  logprint("Error: --cnv-write freq cannot be used without a .cnv fileset.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	} else if (!(cnv_freq_val & CNV_FREQ_METHOD2)) {
+	  sprintf(logbuf, "Error: --cnv-write 'freq' modifier must be used with --cnv-freq-method2.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (!(cnv_calc_type & CNV_WRITE)) {
+	  sprintf(logbuf, "Error: --cnv-write-freq must be used with --cnv-write.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --cnv-write-freq flag deprecated.  Use '--cnv-write freq'.\n");
+	cnv_calc_type |= CNV_WRITE_FREQ;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -9792,6 +10016,10 @@ int32_t main(int32_t argc, char** argv) {
       }
     }
   }
+  if ((cnv_intersect_filter_type == CNV_COUNT) && (!(cnv_calc_type & (CNV_INDIV_PERM | CNV_ENRICHMENT_TEST)))) {
+    sprintf(logbuf, "Error: --cnv-count must be used with --cnv-indiv-perm or --cnv-enrichment-test.%s", errstr_append);
+    goto main_ret_INVALID_CMDLINE_3;
+  }
   if (!phenoname) {
     if (prune && (!fam_col_6)) {
       sprintf(logbuf, "Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.%s", errstr_append);
@@ -9952,7 +10180,7 @@ int32_t main(int32_t argc, char** argv) {
       retval = wdist_dosage(calculation_type, dist_calc_type, genname, samplename, outname, outname_end, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else if (load_rare & LOAD_RARE_CNV) {
-    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, &chrom_info);
+    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_freq_val2, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, markername_from, markername_to, marker_pos_start, marker_pos_end, &chrom_info);
   } else if (load_rare & LOAD_RARE_GVAR) {
     retval = wdist_gvar(outname, outname_end, pedname, mapname, famname);
   } else {

@@ -296,18 +296,20 @@ typedef union {
 
 #define CNV_INTERSECT 1
 #define CNV_EXCLUDE 2
-#define CNV_COUNT 4
+#define CNV_COUNT 3
 
 #define CNV_OVERLAP 1
 #define CNV_OVERLAP_REGION 2
-#define CNV_OVERLAP_UNION 4
-#define CNV_DISRUPT 8
-#define CNV_METHOD2 16
+#define CNV_OVERLAP_UNION 3
+#define CNV_DISRUPT 4
 
 #define CNV_FREQ_EXCLUDE_ABOVE 1
 #define CNV_FREQ_EXCLUDE_BELOW 2
 #define CNV_FREQ_EXCLUDE_EXACT 4
 #define CNV_FREQ_INCLUDE_EXACT 8
+#define CNV_FREQ_FILTER 15
+#define CNV_FREQ_OVERLAP 16
+#define CNV_FREQ_METHOD2 32
 
 #define SEGMENT_GROUP 1
 
@@ -316,6 +318,7 @@ typedef union {
 
 #define CACHELINE 64 // assumed number of bytes per cache line, for alignment
 #define CACHELINE_INT32 (CACHELINE / sizeof(int32_t))
+#define CACHELINE_INT64 (CACHELINE / sizeof(int64_t))
 #define CACHELINE_DBL (CACHELINE / sizeof(double))
 
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
