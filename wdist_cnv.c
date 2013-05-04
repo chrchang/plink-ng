@@ -201,7 +201,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
 	*il_large = (((uint64_t)(((uint32_t)ii) + ((uint32_t)jj))) << 31) | ((uint64_t)((uint32_t)kk));
 	tmp_il_large_chroms[large_interval_ct++] = uljj;
       } else {
-	tmp_il_small[small_interval_ct++] = (uljj << (32 + SMALL_INTERVAL_BITS)) | (((uint64_t)(((uint32_t)ii) + ((uint32_t)jj))) << SMALL_INTERVAL_BITS) | ((uint64_t)((uint32_t)kk));
+	tmp_il_small[small_interval_ct++] = (((uint64_t)uljj) << (32 + SMALL_INTERVAL_BITS)) | (((uint64_t)(((uint32_t)ii) + ((uint32_t)jj))) << SMALL_INTERVAL_BITS) | ((uint64_t)((uint32_t)kk));
       }
     }
   }
