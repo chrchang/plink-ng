@@ -534,6 +534,9 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
       } else if (jj < ii) {
 	logprint("\nError: Segment end position smaller than segment start in .cnv file.\n");
 	goto cnv_make_map_ret_INVALID_FORMAT;
+      } else if (jj > 0x7ffffffe) {
+	logprint("\nError: Excessively large bp position in .cnv file.\n");
+	goto cnv_make_map_ret_INVALID_FORMAT;
       }
       if ((marker_pos_start > ii) || ((marker_pos_end != -1) && (marker_pos_end < jj))) {
 	continue;
@@ -592,13 +595,14 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	  continue;
 	}
       }
-      if (raw_marker_ct + 1 >= max_marker_ct) {
+      if (raw_marker_ct + 2 >= max_marker_ct) {
         goto cnv_make_map_ret_NOMEM;
       }
       marker_pos_arr[raw_marker_ct++] = llii;
       if (((uint64_t)llii) != ullii) {
         marker_pos_arr[raw_marker_ct++] = (int64_t)ullii;
       }
+      marker_pos_arr[raw_marker_ct++] = 1 + (int64_t)ullii;
     }
   } while (fgets(tbuf, MAXLINELEN, cnvfile));
   if (!raw_marker_ct) {
