@@ -3,6 +3,7 @@
 
 #ifndef _WIN32
 #include <sys/mman.h>
+#include <unistd.h>
 #endif
 
 #include <sys/stat.h>

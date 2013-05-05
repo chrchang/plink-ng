@@ -4448,8 +4448,7 @@ static uintptr_t* g_cg_founder_info;
 static char* g_cg_person_ids;
 static char* g_cg_paternal_ids;
 static char* g_cg_maternal_ids;
-static int32_t g_cg_genome_output_full;
-static int32_t g_cg_genome_ibd_unbounded;
+static uint32_t g_cg_genome_modifier;
 static Pedigree_rel_info g_cg_pri;
 static uint32_t g_cg_family_id_fixed;
 static int32_t g_cg_is_founder_fixed;
@@ -4578,7 +4577,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       dxx = (double)g_genome_main[g_cg_gmcell + 1] / (g_cg_e00 * nn);
       dyy = ((double)g_genome_main[g_cg_gmcell] - dxx * g_cg_e01 * nn) / (g_cg_e11 * nn);
       dxx1 = ((double)oo - nn * (dxx * g_cg_e02 + dyy * g_cg_e12)) / ((double)nn);
-      if (!g_cg_genome_ibd_unbounded) {
+      if (!(g_cg_genome_modifier & GENOME_IBD_UNBOUNDED)) {
 	if (dxx > 1) {
 	  dxx = 1;
 	  dyy = 0;
@@ -4639,7 +4638,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       } else {
 	sptr_cur = memcpya(sptr_cur, "     NA", 7);
       }
-      if (g_cg_genome_output_full) {
+      if (g_cg_genome_modifier & GENOME_OUTPUT_FULL) {
 	*sptr_cur = ' ';
 	sptr_cur = double_f_writew74(double_f_writew74x(uint32_writew7x(uint32_writew7x(uint32_writew7x(&(sptr_cur[1]), g_genome_main[uii + 1], ' '), g_genome_main[g_cg_gmcell], ' '), oo, ' '), dyy, ' '), dxx);
       }
@@ -4664,7 +4663,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, int32_t parallel_idx, int32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, uint64_t calculation_type, int32_t genome_output_gz, int32_t genome_output_full, int32_t genome_ibd_unbounded, int32_t ppc_gap, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri) {
+int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, int32_t parallel_idx, int32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, uint64_t calculation_type, uint32_t genome_modifier, int32_t ppc_gap, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri) {
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
   int32_t retval = 0;
@@ -5110,7 +5109,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
   }
 
   if (!parallel_idx) {
-    if (genome_output_full) {
+    if (genome_modifier & GENOME_OUTPUT_FULL) {
       sprintf(tbuf, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO    IBS0    IBS1    IBS2  HOMHOM  HETHET\n", g_cg_max_person_fid_len, g_cg_max_person_iid_len, g_cg_max_person_fid_len, g_cg_max_person_iid_len);
     } else {
       sprintf(tbuf, "%%%us%%%us%%%us%%%us RT    EZ      Z0      Z1      Z2  PI_HAT PHE       DST     PPC   RATIO\n", g_cg_max_person_fid_len, g_cg_max_person_iid_len, g_cg_max_person_fid_len, g_cg_max_person_iid_len);
@@ -5129,8 +5128,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
   g_cg_person_ids = person_ids;
   g_cg_paternal_ids = paternal_ids;
   g_cg_maternal_ids = maternal_ids;
-  g_cg_genome_output_full = genome_output_full;
-  g_cg_genome_ibd_unbounded = genome_ibd_unbounded;
+  g_cg_genome_modifier = genome_modifier;
   g_cg_pri = pri;
   g_cg_cur_line = 0;
 
@@ -5138,7 +5136,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, int32_t bed_offset, uint3
   // a later part of a parallel write
   g_cg_indiv1idx = parallel_idx;
   g_cg_indiv2idx = 0;
-  if (genome_output_gz) {
+  if (genome_modifier & GENOME_OUTPUT_GZ) {
     if (parallel_tot > 1) {
       sprintf(outname_end, ".genome.%d.gz", parallel_idx + 1);
     } else {
