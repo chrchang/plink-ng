@@ -394,11 +394,12 @@ uint32_t is_cnv_overlap_one_size(uint32_t start_pos, uint32_t end_pos, uint32_t 
   } else {
     last_idx = cur_idx + uint64arr_greater_than(&(interval_list[cur_idx]), interval_list_len - cur_idx, ((twice_end_pos << 32) + ullkk) | 0xffffffffLLU);
   }
+  // printf("%u %u %u %g %u %u %u %lu\n", start_pos, end_pos, overlap_type, overlap_val, small_max_width, (uint32_t)(il_small[0] >> 32), (uint32_t)il_small[0], il_small_len);
   while (cur_idx < last_idx) {
     ullii = interval_list[cur_idx++];
-    region_end = (uint32_t)(((ullii >> 32) + ullii) / 2);
+    region_end = ((uint32_t)((ullii >> 32) + ullii)) / 2;
     if (region_end >= start_pos) {
-      region_start = (uint32_t)(((ullii >> 32) - ullii) / 2);
+      region_start = ((uint32_t)((ullii >> 32) - ullii)) / 2;
       if (region_start <= end_pos) {
 	if (!overlap_type) {
 	  return 1;
@@ -468,6 +469,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
   uint32_t cnv_del = cnv_calc_type & CNV_DEL;
   uint32_t filter_score = (min_score > -INFINITY) || (max_score < INFINITY);
   uint32_t filter_sites = min_sites || (max_sites < 0xffffffffU);
+  uint32_t make_map_long = cnv_calc_type & CNV_MAKE_MAP_LONG;
   uintptr_t max_marker_ct;
   int32_t retval;
   char* bufptr;
@@ -599,7 +601,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
         goto cnv_make_map_ret_NOMEM;
       }
       marker_pos_arr[raw_marker_ct++] = llii;
-      if (((uint64_t)llii) != ullii) {
+      if (make_map_long && (((uint64_t)llii) != ullii)) {
         marker_pos_arr[raw_marker_ct++] = (int64_t)ullii;
       }
       marker_pos_arr[raw_marker_ct++] = 1 + (int64_t)ullii;

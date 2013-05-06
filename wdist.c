@@ -697,10 +697,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #endif
     help_print("cnv-make-map", &help_ctrl, 1,
-"  --cnv-make-map\n"
+"  --cnv-make-map <short>\n"
 "    Given a .cnv file, this generates the corresponding .cnv.map file needed\n"
-"    by WDIST and PLINK's other CNV analysis commands.  (Now automatically\n"
-"    invoked when necessary.)\n\n"
+"    by WDIST and PLINK's other CNV analysis commands.  The 'short' modifier\n"
+"    causes entries needed by PLINK but not WDIST to be omitted.  (Now\n"
+"    automatically invoked, with 'short', when necessary.)\n\n"
 	       );
     help_print("cnv-check-no-overlap", &help_ctrl, 1,
 "  --cnv-check-no-overlap\n"
@@ -7197,7 +7198,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --cnv-kb size '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	cnv_min_seglen = (int32_t)(dxx * 1000);
+	cnv_min_seglen = (int32_t)(dxx * 1000 + SMALLISH_EPSILON);
       } else if (!memcmp(argptr2, "nv-list", 8)) {
 	if ((load_rare & (~LOAD_RARE_CNV)) || load_params) {
 	  goto main_ret_INVALID_CMDLINE_4;
@@ -7212,8 +7213,18 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --cnv-make-map cannot be used without a .cnv fileset.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	cnv_calc_type |= CNV_MAKE_MAP;
-	goto main_param_zero;
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (param_ct) {
+	  if (memcmp(argv[cur_arg + 1], "short", 6)) {
+            sprintf(logbuf, "Error: Invalid --cnv-make-map parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  cnv_calc_type |= CNV_MAKE_MAP;
+	} else {
+	  cnv_calc_type |= CNV_MAKE_MAP | CNV_MAKE_MAP_LONG;
+	}
       } else if (!memcmp(argptr2, "nv-max-kb", 10)) {
 	if (!(load_rare & LOAD_RARE_CNV)) {
 	  logprint("Error: --cnv-max-kb cannot be used without a .cnv fileset.\n");
@@ -7226,7 +7237,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --cnv-max-kb size '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	cnv_max_seglen = (int32_t)(dxx * 1000);
+	cnv_max_seglen = (int32_t)(dxx * 1000 + SMALLISH_EPSILON);
 	if (cnv_min_seglen > cnv_max_seglen) {
 	  logprint("Error: --cnv-max-kb value cannot be smaller than --cnv-kb value.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -7424,10 +7435,10 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	dxx *= 1000;
-	if (dxx > 0x7fffffff) {
+	if (dxx > 2147483647) {
 	  cnv_test_window = 0x7fffffff;
 	} else {
-	  cnv_test_window = (int32_t)dxx;
+	  cnv_test_window = (int32_t)(dxx + SMALLISH_EPSILON);
 	}
       } else if (!memcmp(argptr2, "nv-union-overlap", 17)) {
 	if (!(load_rare & LOAD_RARE_CNV)) {
@@ -7844,7 +7855,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (dxx > 2147483647) {
 	    marker_pos_start = 0x7fffffff;
 	  } else {
-	    marker_pos_start = (int)dxx;
+	    marker_pos_start = (int32_t)(dxx + SMALL_EPSILON);
 	  }
 	}
       } else if (!memcmp(argptr2, "isher", 6)) {
@@ -8981,7 +8992,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (dxx > 2147483647) {
 	  ppc_gap = 0x7fffffff;
 	} else {
-	  ppc_gap = (int)dxx;
+	  ppc_gap = (int32_t)(dxx + SMALLISH_EPSILON);
 	}
       } else if (!memcmp(argptr2, "erm", 4)) {
 	model_modifier |= MODEL_PERM;
@@ -9779,7 +9790,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (dxx > 2147483647) {
 	    ii = 0x7fffffff;
 	  } else {
-	    ii = (int)dxx;
+	    ii = (int32_t)(dxx + SMALLISH_EPSILON);
 	  }
 	}
 	if (ii < marker_pos_start) {
@@ -9968,7 +9979,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (dxx > 2147483647) {
 	  snp_window_size = 0x7fffffff;
 	} else {
-	  snp_window_size = (int)dxx;
+	  snp_window_size = (int32_t)(dxx + SMALLISH_EPSILON);
 	}
       } else if (!memcmp(argptr2, "ithin", 6)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
