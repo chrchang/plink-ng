@@ -182,14 +182,16 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       }
       if (subset_ct) {
 	bufptr = next_item(bufptr2);
-	if (!no_more_items_kns(bufptr)) {
-	  ulii = strlen_se(bufptr);
-	  if (ulii < max_subset_name_len) {
-	    bufptr[ulii] = '\0';
-	    if (bsearch_str(bufptr, subset_list, max_subset_name_len, 0, subset_ct - 1) != -1) {
-	      continue;
-	    }
-	  }
+	if (no_more_items_kns(bufptr)) {
+	  continue;
+	}
+	ulii = strlen_se(bufptr);
+	if (ulii >= max_subset_name_len) {
+	  continue;
+	}
+	bufptr[ulii] = '\0';
+	if (bsearch_str(bufptr, subset_list, max_subset_name_len, 0, subset_ct - 1) == -1) {
+	  continue;
 	}
       }
       if (small_interval_ct + large_interval_ct == max_interval_ct) {
@@ -227,19 +229,19 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
 #else
     qsort((int64_t*)tmp_il_small, small_interval_ct, sizeof(int64_t), llcmp);
 #endif
-    il_chrom_start_small[0] = 0;
-    cur_chrom = 0;
+    il_chrom_start_small[MAX_POSSIBLE_CHROM] = small_interval_ct;
+    cur_chrom = MAX_POSSIBLE_CHROM - 1;
     max_width = 0;
     ulii = small_interval_ct;
     do {
       ulii--;
       ullii = tmp_il_small[ulii];
       uii = (uint32_t)(ullii >> (SMALL_INTERVAL_BITS + 32));
-      if (uii > cur_chrom) {
+      if (uii < cur_chrom) {
 	il_chrom_max_width_small[cur_chrom] = max_width;
 	do {
-	  il_chrom_start_small[++cur_chrom] = ulii;
-	} while (cur_chrom < uii);
+	  il_chrom_start_small[cur_chrom--] = ulii + 1;
+	} while (cur_chrom > uii);
 	max_width = 0;
       }
       cur_width = ullii & (SMALL_INTERVAL_MAX_SIZE * 1LLU);
@@ -250,8 +252,8 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
     } while (ulii);
     il_chrom_max_width_small[cur_chrom] = max_width;
     do {
-      il_chrom_start_small[++cur_chrom] = small_interval_ct;
-    } while (cur_chrom < MAX_POSSIBLE_CHROM);
+      il_chrom_start_small[cur_chrom] = 0;
+    } while (cur_chrom--);
   } else {
     fill_ulong_zero(il_chrom_start_small, MAX_POSSIBLE_CHROM + 1);
   }
@@ -394,7 +396,6 @@ uint32_t is_cnv_overlap_one_size(uint32_t start_pos, uint32_t end_pos, uint32_t 
   } else {
     last_idx = cur_idx + uint64arr_greater_than(&(interval_list[cur_idx]), interval_list_len - cur_idx, ((twice_end_pos << 32) + ullkk) | 0xffffffffLLU);
   }
-  // printf("%u %u %u %g %u %u %u %lu\n", start_pos, end_pos, overlap_type, overlap_val, small_max_width, (uint32_t)(il_small[0] >> 32), (uint32_t)il_small[0], il_small_len);
   while (cur_idx < last_idx) {
     ullii = interval_list[cur_idx++];
     region_end = ((uint32_t)((ullii >> 32) + ullii)) / 2;
@@ -439,6 +440,7 @@ uint32_t is_cnv_overlap_one_size(uint32_t start_pos, uint32_t end_pos, uint32_t 
 }
 
 uint32_t is_cnv_overlap(uint32_t start_pos, uint32_t end_pos, uint32_t overlap_type, double overlap_val, uint32_t small_max_width, uint32_t large_max_width, uint64_t* il_small, uintptr_t il_small_len, uint64_t* il_large, uintptr_t il_large_len) {
+  // printf("%u %u %u %g %u %u %u %lu\n", start_pos, end_pos, overlap_type, overlap_val, small_max_width, (uint32_t)(il_small[0] >> 32), (uint32_t)il_small[0], il_small_len);
   if (is_cnv_overlap_one_size(start_pos, end_pos, overlap_type, overlap_val, small_max_width, il_small, il_small_len)) {
     return 1;
   }
