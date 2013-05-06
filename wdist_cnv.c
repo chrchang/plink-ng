@@ -436,9 +436,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
   int64_t* marker_pos_arr = (int64_t*)wkspace_base;
   FILE* new_mapfile = NULL;
   uintptr_t raw_marker_ct = 0;
-#ifdef __LP64__
   uint32_t distinct_marker_ct = 1;
-#endif
   uint32_t req_fields = 3;
   uint32_t filter_seglen = min_seglen || (max_seglen < 0xffffffffU);
   uint32_t cnv_del = cnv_calc_type & CNV_DEL;
