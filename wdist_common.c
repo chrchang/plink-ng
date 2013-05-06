@@ -4553,6 +4553,81 @@ void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, ui
   }
 }
 
+int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* list_len_ptr, uintptr_t* max_str_len_ptr) {
+  // assumes file is not open yet, and tbuf is safe to clobber
+  uint32_t max_len = 0;
+  uintptr_t list_len = 0;
+  int32_t retval = 0;
+  char* bufptr;
+  uint32_t cur_len;
+  if (fopen_checked(infile_ptr, fname, "r")) {
+    goto open_and_size_string_list_ret_OPEN_FAIL;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, *infile_ptr)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      sprintf(logbuf, "Error: Pathologically long line in %s.\n", fname);
+      logprintb();
+      goto open_and_size_string_list_ret_INVALID_FORMAT;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    // don't complain about more than one entry on a line for now
+    list_len++;
+    cur_len = strlen_se(bufptr);
+    if (cur_len >= max_len) {
+      max_len = cur_len + 1;
+    }
+  }
+  if (!feof(*infile_ptr)) {
+    goto open_and_size_string_list_ret_READ_FAIL;
+  }
+  *list_len_ptr = list_len;
+  *max_str_len_ptr = max_len;
+  while (0) {
+  open_and_size_string_list_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  open_and_size_string_list_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  open_and_size_string_list_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  return retval;
+}
+
+int32_t load_string_list(FILE** infile_ptr, uintptr_t max_str_len, char* str_list) {
+  // assumes file is open (probably by open_and_size_string_list), and tbuf is
+  // safe to clobber
+  int32_t retval = 0;
+  char* bufptr;
+  uint32_t cur_len;
+  rewind(*infile_ptr);
+  while (fgets(tbuf, MAXLINELEN, *infile_ptr)) {
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    cur_len = strlen_se(bufptr);
+    memcpy(str_list, bufptr, cur_len);
+    str_list[cur_len] = '\0';
+    str_list = &(str_list[max_str_len]);
+  }
+  if (!feof(*infile_ptr)) {
+    goto load_string_list_ret_READ_FAIL;
+  }
+  while (0) {
+  load_string_list_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  }
+  return retval;
+}
+
 static uint32_t g_pct;
 static uintptr_t g_dw_indiv1idx;
 static uintptr_t g_dw_indiv2idx;

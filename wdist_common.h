@@ -172,6 +172,13 @@ typedef union {
 #define PHENO_ALL 1
 #define PHENO_MERGE 2
 
+#define FILTER_BINARY_CASES 1
+#define FILTER_BINARY_CONTROLS 2
+#define FILTER_BINARY_FEMALES 4
+#define FILTER_BINARY_MALES 8
+#define FILTER_BINARY_FOUNDERS 16
+#define FILTER_BINARY_NONFOUNDERS 32
+
 #define COVAR_NAME 1
 #define COVAR_NUMBER 2
 
@@ -1206,6 +1213,10 @@ void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, ui
 static inline char sexchar(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t indiv_uidx) {
   return is_set(sex_nm, indiv_uidx)? (is_set(sex_male, indiv_uidx)? '1' : '2') : '0';
 }
+
+int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* list_len_ptr, uintptr_t* max_str_len_ptr);
+
+int32_t load_string_list(FILE** infile_ptr, uintptr_t max_str_len, char* str_list);
 
 int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf);
 
