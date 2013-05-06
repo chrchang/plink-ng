@@ -1038,12 +1038,13 @@ int32_t wdist_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
 	    goto wdist_cnv_ret_NOMEM;
 	  }
 #endif
-	  topsize2 = CACHEALIGN(exclude_list_len * max_exclude_id_len);
-	  if (wkspace_left < topsize2) {
+	  ulii = CACHEALIGN(exclude_list_len * max_exclude_id_len);
+	  if (wkspace_left < ulii) {
 	    goto wdist_cnv_ret_NOMEM;
 	  }
-	  wkspace_left -= topsize2;
-	  topsize += topsize2;
+	  wkspace_left -= ulii;
+	  topsize += ulii;
+	  topsize2 += ulii;
 	  exclude_list = (char*)(&(wkspace_base[wkspace_left]));
 	  retval = load_string_list(&mapfile, max_exclude_id_len, exclude_list);
 	  if (retval) {
