@@ -124,7 +124,7 @@ int32_t edit1_match(int32_t len1, char* s1, int32_t len2, char* s2) {
   return 1;
 }
 
-#define MAX_EQUAL_HELP_PARAMS 15
+#define MAX_EQUAL_HELP_PARAMS 16
 
 typedef struct {
   int32_t iters_left;
@@ -423,9 +423,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    converter (which only respects --autosome and --chr), this supports all of\n"
 "    WDIST's filtering flags.\n"
 	       );
-    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference", &help_ctrl, 1,
+    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid", &help_ctrl, 1,
 "  --recode <12> <compound-genotypes> <23 | A | AD | lgen | lgen-ref | list |\n"
-"           rlist | transpose> <tab | tabx | spacex>\n"
+"           rlist | transpose | vcf | vcf-fid | vcf-iid> <tab | tabx | spacex>\n"
 "    Creates a new text fileset with all filters applied.\n"
 "    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
 "    * The 'compound-genotypes' modifier removes the space between pairs of\n"
@@ -442,6 +442,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      creates a rare-genotype fileset.  (These formats are not directly\n"
 "      loadable by WDIST or PLINK.)\n"
 "    * 'transpose' creates a transposed text fileset (loadable with --tfile).\n"
+"    * 'vcf', 'vcf-fid', and 'vcf-iid' result in production of a VCFv4.0 file.\n"
+"      'vcf-fid' and 'vcf-iid' cause family IDs or within-family IDs\n"
+"      respectively to be used for the sample IDs in the last header row, while\n"
+"      'vcf' merges both IDs and puts an underscore between them.\n"
 "    * The 'tab' modifier makes the output mostly tab-delimited instead of\n"
 "      mostly space-delimited.  'tabx' and 'spacex' force all tabs and all\n"
 "      spaces, respectively.\n\n"
@@ -6447,11 +6451,13 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_flag_copy;
       case 'r':
 	if (!memcmp(argptr, "recode", 6)) {
-	  if (((kk == 9) && ((!memcmp(&(argptr[6]), "12", 2)) || match_upper(&(argptr[6]), "AD"))) || (!memcmp(&(argptr[6]), "-lgen", 6)) || (!memcmp(&(argptr[6]), "-rlist", 7)) || ((tolower(argptr[6]) == 'a') && (kk == 8))) {
+	  if (((kk == 9) && ((!memcmp(&(argptr[6]), "12", 2)) || match_upper(&(argptr[6]), "AD"))) || (!memcmp(&(argptr[6]), "-lgen", 6)) || (!memcmp(&(argptr[6]), "-rlist", 7)) || (!memcmp(&(argptr[6]), "-vcf", 5)) || ((tolower(argptr[6]) == 'a') && (kk == 8))) {
 	    if (kk == 13) {
 	      memcpy(flagptr, "recode rlist", 13);
 	    } else if (kk == 12) {
 	      memcpy(flagptr, "recode lgen", 12);
+	    } else if (kk == 11) {
+	      memcpy(flagptr, "recode vcf", 11);
 	    } else if (argptr[6] == '1') {
 	      memcpy(flagptr, "recode 12", 10);
 	    } else if (kk == 9) {
@@ -7907,6 +7913,10 @@ int32_t main(int32_t argc, char** argv) {
 	model_modifier |= MODEL_ASSOC | MODEL_FISHER | MODEL_ASSOC_FDEPR;
 	calculation_type = CALC_MODEL;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "id", 3)) {
+        logprint("Note: --fid flag deprecated.  Use --recode vcf-fid'.\n");
+	recode_modifier |= RECODE_FID;
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8229,6 +8239,10 @@ int32_t main(int32_t argc, char** argv) {
 	  ibs_test_perms = ii;
 	}
 	calculation_type |= CALC_IBS_TEST;
+      } else if (!memcmp(argptr2, "id", 3)) {
+        logprint("Note: --iid flag deprecated.  Use --recode vcf-iid'.\n");
+	recode_modifier |= RECODE_IID;
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -9321,7 +9335,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode lgen", 11)) || (!memcmp(argptr2, "ecode AD", 9)) || (!memcmp(argptr2, "ecode A", 8)) || (!memcmp(argptr2, "ecode list", 11)) || (!memcmp(argptr2, "ecode rlist", 12))) {
+      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode lgen", 11)) || (!memcmp(argptr2, "ecode AD", 9)) || (!memcmp(argptr2, "ecode A", 8)) || (!memcmp(argptr2, "ecode vcf", 10)) || (!memcmp(argptr2, "ecode list", 11)) || (!memcmp(argptr2, "ecode rlist", 12))) {
 	if (argptr2[5] == ' ') {
 	  if (argptr2[6] == '1') {
 	    recode_modifier |= RECODE_12;
@@ -9333,6 +9347,8 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	  } else if (argptr2[6] == 'r') {
 	    recode_modifier |= RECODE_RLIST;
+	  } else if (argptr2[6] == 'v') {
+	    recode_modifier |= RECODE_VCF;
 	  } else if (argptr2[7] == 'D') {
 	    recode_modifier |= RECODE_AD;
 	  } else {
@@ -9404,6 +9420,32 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_TRANSPOSE)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
+	  } else if (!memcmp(argv[cur_arg + uii], "vcf", 4)) {
+	    if (recode_modifier & RECODE_VCF) {
+	      sprintf(logbuf, "Error: Conflicting or redundant --recode modifiers.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    if (recode_type_set(&recode_modifier, RECODE_VCF)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	  } else if (!memcmp(argv[cur_arg + uii], "vcf-fid", 8)) {
+	    if (recode_modifier & (RECODE_VCF | RECODE_IID)) {
+	      sprintf(logbuf, "Error: Conflicting or redundant --recode modifiers.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    if (recode_type_set(&recode_modifier, RECODE_VCF)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    recode_modifier |= RECODE_FID;
+	  } else if (!memcmp(argv[cur_arg + uii], "vcf-iid", 8)) {
+	    if (recode_modifier & (RECODE_VCF | RECODE_FID)) {
+	      sprintf(logbuf, "Error: Conflicting or redundant --recode modifiers.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    if (recode_type_set(&recode_modifier, RECODE_VCF)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    recode_modifier |= RECODE_IID;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --recode parameter '%s'.%s%s", argv[cur_arg + uii], ((uii == param_ct) && (!outname_end))? "  (Did you forget '--out'?)" : "", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
