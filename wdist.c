@@ -58,7 +58,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.19.1"
+  "WDIST v0.19.2"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -67,7 +67,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (6 May 2013)";
+  " (9 May 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -1088,6 +1088,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "\nThese flags only apply to .cnv fileset analysis:\n"
 , stdout);
     }
+    help_print("cnv-exclude-off-by-1", &help_ctrl, 0,
+"  --cnv-exclude-off-by-1   : Exclude .cnv segments where the terminal .cnv.map\n"
+"                             entry is off by 1.\n"
+	       );
     help_print("cnv-del\tcnv-dup", &help_ctrl, 0,
 "  --cnv-del                : Exclude all variants with more than one copy.\n"
 "  --cnv-dup                : Exclude all variants with fewer than three copies.\n"
@@ -4695,11 +4699,10 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   FILE* bedfile = NULL;
   FILE* famfile = NULL;
   FILE* phenofile = NULL;
-  FILE* filterfile = NULL;
   FILE* bedtmpfile = NULL;
   FILE* bimtmpfile = NULL;
   FILE* famtmpfile = NULL;
-  FILE* freqfile = NULL;
+  FILE* infile = NULL;
   FILE* loaddistfile = NULL;
   char* id_buf = NULL;
   uintptr_t unfiltered_marker_ct = 0;
@@ -4886,7 +4889,24 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto wdist_ret_OPEN_FAIL;
   }
   // load .bim, count markers, filter chromosomes
-  retval = load_bim(&bimfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_pos, freqname, refalleles, calculation_type, recode_modifier, allelexxxx, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &map_is_unsorted);
+  if (update_map_modifier & UPDATE_MAP_NAME) {
+    retval = scan_max_strlen(update_map_fname, 1, &max_marker_id_len);
+    if (retval) {
+      goto wdist_ret_2;
+    }
+    max_marker_id_len++;
+  }
+  if (are_marker_alleles_needed(calculation_type, freqname)) {
+    if (update_alleles_fname) {
+      retval = scan_max_strlen(update_alleles_fname, 1, &max_marker_allele_len);
+      if (retval) {
+        goto wdist_ret_2;
+      }
+    }
+  } else {
+    allelexxxx = 0;
+  }
+  retval = load_bim(&bimfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_pos, freqname, refalleles, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &map_is_unsorted);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -5222,10 +5242,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto wdist_ret_2;
   }
   if (freqname) {
-    retval = read_external_freqs(freqname, &freqfile, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, chrom_info_ptr, marker_alleles, max_marker_allele_len, marker_allele_cts, set_allele_freqs, maf_succ, missing_geno, exponent, wt_needed, marker_weights);
+    retval = read_external_freqs(freqname, &infile, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, chrom_info_ptr, marker_alleles, max_marker_allele_len, marker_allele_cts, set_allele_freqs, maf_succ, missing_geno, exponent, wt_needed, marker_weights);
     if (retval) {
       goto wdist_ret_2;
     }
+    fclose_null(&infile);
   }
 
   if (!keep_allele_order) {
@@ -5569,8 +5590,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   free_cond(id_list);
   free_cond(pid_list);
   fclose_cond(loaddistfile);
-  fclose_cond(freqfile);
-  fclose_cond(filterfile);
+  fclose_cond(infile);
   fclose_cond(phenofile);
   fclose_cond(famfile);
   fclose_cond(bimfile);
@@ -7078,6 +7098,9 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	cnv_intersect_filter_type = CNV_EXCLUDE;
+      } else if (!memcmp(argptr2, "nv-exclude-off-by-1", 20)) {
+        cnv_calc_type |= CNV_EXCLUDE_OFF_BY_1;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "nv-freq-exclude-above", 22)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_3;
@@ -7204,7 +7227,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --cnv-kb size '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	cnv_min_seglen = (int32_t)(dxx * 1000 + SMALLISH_EPSILON);
+	cnv_min_seglen = (int32_t)(dxx * 1000 + EPSILON);
       } else if (!memcmp(argptr2, "nv-list", 8)) {
 	if ((load_rare & (~LOAD_RARE_CNV)) || load_params) {
 	  goto main_ret_INVALID_CMDLINE_4;
@@ -7243,7 +7266,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --cnv-max-kb size '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	cnv_max_seglen = (int32_t)(dxx * 1000 + SMALLISH_EPSILON);
+	cnv_max_seglen = (int32_t)(dxx * 1000 + EPSILON);
 	if (cnv_min_seglen > cnv_max_seglen) {
 	  logprint("Error: --cnv-max-kb value cannot be smaller than --cnv-kb value.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -7444,7 +7467,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (dxx > 2147483647) {
 	  cnv_test_window = 0x7fffffff;
 	} else {
-	  cnv_test_window = (int32_t)(dxx + SMALLISH_EPSILON);
+	  cnv_test_window = (int32_t)(dxx + EPSILON);
 	}
       } else if (!memcmp(argptr2, "nv-union-overlap", 17)) {
 	if (!(load_rare & LOAD_RARE_CNV)) {
@@ -7872,7 +7895,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (dxx > 2147483647) {
 	    marker_pos_start = 0x7fffffff;
 	  } else {
-	    marker_pos_start = (int32_t)(dxx + SMALL_EPSILON);
+	    marker_pos_start = (int32_t)(dxx + EPSILON);
 	  }
 	}
       } else if (!memcmp(argptr2, "isher", 6)) {
@@ -8608,6 +8631,9 @@ int32_t main(int32_t argc, char** argv) {
 	if (calculation_type & CALC_MERGE) {
 	  sprintf(logbuf, "Error: --merge cannot be used with --bmerge.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (load_rare & LOAD_RARE_CNV) {
+	  sprintf(logbuf, "Error: --merge does not currently support .cnv filesets.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -9012,7 +9038,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (dxx > 2147483647) {
 	  ppc_gap = 0x7fffffff;
 	} else {
-	  ppc_gap = (int32_t)(dxx + SMALLISH_EPSILON);
+	  ppc_gap = (int32_t)(dxx + EPSILON);
 	}
       } else if (!memcmp(argptr2, "erm", 4)) {
 	model_modifier |= MODEL_PERM;
@@ -9458,6 +9484,9 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (chrom_info.chrom_mask) {
 	  sprintf(logbuf, "Error: --snp cannot be used with --autosome(-xy) or --chr%s.%s", chrom_exclude? "-excl" : "", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (cnv_calc_type & CNV_MAKE_MAP) {
+	  sprintf(logbuf, "Error: --snp cannot be used with --cnv-make-map.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -9474,6 +9503,9 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (markername_snp) {
 	  sprintf(logbuf, "Error: --snps cannot be used with --snp.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (cnv_calc_type & CNV_MAKE_MAP) {
+	  sprintf(logbuf, "Error: --snps cannot be used with --cnv-make-map.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	// mise well allow --snps + --autosome/--autosome-xy/--chr/--chr-excl
@@ -9810,7 +9842,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (dxx > 2147483647) {
 	    ii = 0x7fffffff;
 	  } else {
-	    ii = (int32_t)(dxx + SMALLISH_EPSILON);
+	    ii = (int32_t)(dxx + EPSILON);
 	  }
 	}
 	if (ii < marker_pos_start) {
@@ -9904,8 +9936,10 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	logprint("Error: --update-alleles is not implemented yet.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
+	retval = alloc_fname(&update_alleles_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else if (!memcmp(argptr2, "pdate-chr", 10)) {
 	logprint("Note: --update-chr flag deprecated.  Use '--update-map chr'.\n");
 	update_map_modifier = UPDATE_MAP_CHR;
@@ -9922,15 +9956,45 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	logprint("Error: --update-ids is not implemented yet.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
+	retval = alloc_fname(&update_ids_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else if (!memcmp(argptr2, "pdate-map", 10)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	logprint("Error: --update-map is not implemented yet.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
+        if (param_ct == 2) {
+	  if (!memcmp(argv[cur_arg + 2], "chr", 4)) {
+	    if (update_map_modifier & UPDATE_MAP_CM) {
+	      logprint("Error: --update-map 'cm' modifier cannot be used with 'chr'.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    update_map_modifier = UPDATE_MAP_CHR;
+	  } else if (!memcmp(argv[cur_arg + 2], "cm", 3)) {
+	    if (update_map_modifier & UPDATE_MAP_CHR) {
+	      logprint("Error: --update-map 'cm' modifier cannot be used with 'chr'.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    update_map_modifier = UPDATE_MAP_CM;
+	  } else if (!memcmp(argv[cur_arg + 2], "name", 5)) {
+	    if (update_map_modifier) {
+	      logprint("Error: --update-map 'name' modifier cannot be used with 'chr' or 'cm'.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    update_map_modifier = UPDATE_MAP_NAME;
+	  } else if ((!memcmp(argv[cur_arg + 1], "chr", 4)) || (!memcmp(argv[cur_arg + 1], "cm", 3)) || (!memcmp(argv[cur_arg + 1], "name", 5))) {
+	    logprint("Error: 'chr'/'cm'/'name' must be the second parameter to --update-map, not the\nfirst.\n");
+	    goto main_ret_INVALID_CMDLINE;
+	  } else {
+	    sprintf(logbuf, "Error: Invalid --update-map parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	}
+	retval = alloc_fname(&update_map_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else if (!memcmp(argptr2, "pdate-name", 11)) {
 	if (update_map_fname) {
 	  sprintf(logbuf, "Error: --update-name cannot be used without --update-map.%s", errstr_append);
@@ -9951,8 +10015,10 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --update-parents cannot be used with --update-ids.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	logprint("Error: --update-parents is not implemented yet.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
+	retval = alloc_fname(&update_parents_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else if (!memcmp(argptr2, "pdate-sex", 10)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -9961,8 +10027,10 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --update-sex cannot be used with --update-ids.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	logprint("Error: --update-sex is not implemented yet.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
+	retval = alloc_fname(&update_sex_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else if (!memcmp(argptr2, "nbounded", 9)) {
 	if (!(calculation_type & CALC_GENOME)) {
 	  sprintf(logbuf, "Error: --unbounded must be used with --genome.%s", errstr_append);
@@ -9999,7 +10067,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (dxx > 2147483647) {
 	  snp_window_size = 0x7fffffff;
 	} else {
-	  snp_window_size = (int32_t)(dxx + SMALLISH_EPSILON);
+	  snp_window_size = (int32_t)(dxx + EPSILON);
 	}
       } else if (!memcmp(argptr2, "ithin", 6)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -10238,7 +10306,7 @@ int32_t main(int32_t argc, char** argv) {
       retval = wdist_dosage(calculation_type, dist_calc_type, genname, samplename, outname, outname_end, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else if (load_rare & LOAD_RARE_CNV) {
-    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, filterval, filter_binary, allelexxxx, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_freq_val2, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, markername_from, markername_to, marker_pos_start, marker_pos_end, &chrom_info);
+    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, filterval, filter_binary, allelexxxx, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_freq_val2, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, snp_window_size, markername_from, markername_to, markername_snp, marker_pos_start, marker_pos_end, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &chrom_info);
   } else if (load_rare & LOAD_RARE_GVAR) {
     retval = wdist_gvar(outname, outname_end, pedname, mapname, famname);
   } else {

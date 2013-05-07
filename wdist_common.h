@@ -305,6 +305,7 @@ typedef union {
 #define CNV_REPORT_REGIONS 0x10000
 #define CNV_VERBOSE_REPORT_REGIONS 0x20000
 #define CNV_WRITE 0x40000
+#define CNV_EXCLUDE_OFF_BY_1 0x80000
 
 #define CNV_INTERSECT 1
 #define CNV_EXCLUDE 2
@@ -1216,7 +1217,14 @@ static inline char sexchar(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t ind
 
 int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* list_len_ptr, uintptr_t* max_str_len_ptr);
 
+
 int32_t load_string_list(FILE** infile_ptr, uintptr_t max_str_len, char* str_list);
+
+int32_t scan_max_strlen(char* fname, uint32_t colskip, uintptr_t* max_str_len_ptr);
+
+static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname) {
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL)));
+}
 
 int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf);
 

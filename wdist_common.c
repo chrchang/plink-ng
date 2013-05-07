@@ -4628,6 +4628,58 @@ int32_t load_string_list(FILE** infile_ptr, uintptr_t max_str_len, char* str_lis
   return retval;
 }
 
+int32_t scan_max_strlen(char* fname, uint32_t colskip, uintptr_t* max_str_len_ptr) {
+  // does not include terminating null in the length
+  FILE* infile = NULL;
+  uintptr_t max_str_len = 0;
+  int32_t retval = 0;
+  char* bufptr;
+  uintptr_t cur_str_len;
+  if (fopen_checked(&infile, fname, "r")) {
+    goto scan_max_strlen_ret_OPEN_FAIL;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      sprintf(logbuf, "Error: Pathologically long line in %s.\n", fname);
+      goto scan_max_strlen_ret_INVALID_FORMAT;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    if (colskip) {
+      bufptr = next_item_mult(bufptr, colskip);
+      if (is_eoln_kns(*bufptr)) {
+	// probably want option for letting this slide in the future
+	sprintf(logbuf, "Error: Fewer items than expected in %s line.\n", fname);
+	goto scan_max_strlen_ret_INVALID_FORMAT;
+      }
+    }
+    cur_str_len = strlen_se(bufptr);
+    if (cur_str_len > max_str_len) {
+      max_str_len = cur_str_len;
+    }
+  }
+  if (!feof(infile)) {
+    goto scan_max_strlen_ret_READ_FAIL;
+  }
+  while (0) {
+  scan_max_strlen_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  scan_max_strlen_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  scan_max_strlen_ret_INVALID_FORMAT:
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  fclose_cond(infile);
+  return retval;
+}
+
 static uint32_t g_pct;
 static uintptr_t g_dw_indiv1idx;
 static uintptr_t g_dw_indiv2idx;
