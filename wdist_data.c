@@ -7559,7 +7559,7 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
   return retval;
 }
 
-int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_id_len_ptr, uintptr_t* max_marker_allele_len_ptr, Ll_entry2** htable2, uintptr_t* topsize_ptr, uint64_t* tot_marker_ct_ptr, uint32_t* cur_marker_ct_ptr, uint32_t* position_warning_ct_ptr, int32_t species) {
+int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_id_len_ptr, uintptr_t* max_marker_allele_len_ptr, Ll_entry2** htable2, uintptr_t* topsize_ptr, uint64_t* tot_marker_ct_ptr, uint32_t* cur_marker_ct_ptr, uint32_t* position_warning_ct_ptr, Ll_str** non_biallelics_ptr, int32_t species) {
   uintptr_t max_marker_id_len = *max_marker_id_len_ptr;
   uintptr_t max_marker_allele_len = *max_marker_allele_len_ptr;
   uintptr_t topsize = *topsize_ptr;
@@ -7582,6 +7582,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
   uint32_t ukk;
   Ll_entry2** ll_pptr;
   Ll_entry2* ll_ptr;
+  Ll_str* ll_string_new;
   double gd_val;
   char* aptr1;
   char* aptr2;
@@ -7677,7 +7678,14 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	      }
 	      if (ukk == allele_ct) {
 		if (allele_ct == 2) {
-		  goto merge_bim_scan_ret_INVALID_FORMAT_3;
+		  ll_string_new = top_alloc_llstr(&topsize, uii);
+		  if (!ll_string_new) {
+		    goto merge_bim_scan_ret_NOMEM;
+		  }
+		  ll_string_new->next = *non_biallelics_ptr;
+		  memcpy(ll_string_new->ss, bufptr, uii);
+		  *non_biallelics_ptr = ll_string_new;
+		  break;
 		}
 		if (top_alloc_str(&topsize, aptr2, alen2, &new_aptr)) {
 		  goto merge_bim_scan_ret_NOMEM;
@@ -7698,7 +7706,14 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	      }
 	      if (ukk == allele_ct) {
 		if (allele_ct == 2) {
-		  goto merge_bim_scan_ret_INVALID_FORMAT_3;
+		  ll_string_new = top_alloc_llstr(&topsize, uii);
+		  if (!ll_string_new) {
+		    goto merge_bim_scan_ret_NOMEM;
+		  }
+		  ll_string_new->next = *non_biallelics_ptr;
+		  memcpy(ll_string_new->ss, bufptr, uii);
+		  *non_biallelics_ptr = ll_string_new;
+		  break;
 		}
 		if (top_alloc_str(&topsize, aptr1, alen1, &new_aptr)) {
 		  goto merge_bim_scan_ret_NOMEM;
@@ -7796,11 +7811,6 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
   merge_bim_scan_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  merge_bim_scan_ret_INVALID_FORMAT_3:
-    sprintf(logbuf, "Error: Marker %s is not biallelic.\n", bufptr);
-    logprintb();
-    retval = RET_INVALID_FORMAT;
-    break;
   merge_bim_scan_ret_INVALID_FORMAT_2:
     sprintf(logbuf, "Error: %s is not a properly formatted .map/.bim file.\n", bimname);
   merge_bim_scan_ret_INVALID_FORMAT:
@@ -7808,6 +7818,78 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
     retval = RET_INVALID_FORMAT;
   }
   fclose_cond(infile);
+  return retval;
+}
+
+int32_t report_non_biallelics(char* outname, char* outname_end, Ll_str* non_biallelics) {
+  FILE* outfile = NULL;
+  int32_t retval = 0;
+  uintptr_t nbmarker_ct_dup = 0;
+  uintptr_t nbmarker_ct = 1;
+  uintptr_t max_nbmarker_id_len = 0;
+  Ll_str* cur_ptr = non_biallelics;
+  uintptr_t cur_slen;
+  char* id_arr;
+  char* id_arr_ptr;
+  char* id_arr_ptr_old;
+  char* id_arr_end;
+  do {
+    cur_slen = strlen(cur_ptr->ss);
+    if (cur_slen >= max_nbmarker_id_len) {
+      max_nbmarker_id_len = cur_slen + 1;
+    }
+    nbmarker_ct_dup++;
+    cur_ptr = cur_ptr->next;
+  } while (cur_ptr);
+  if (wkspace_alloc_c_checked(&id_arr, nbmarker_ct_dup * max_nbmarker_id_len)) {
+    goto report_non_biallelics_ret_NOMEM;
+  }
+  cur_ptr = non_biallelics;
+  id_arr_ptr = id_arr;
+  do {
+    strcpy(id_arr_ptr, cur_ptr->ss);
+    cur_ptr = cur_ptr->next;
+    id_arr_ptr = &(id_arr_ptr[max_nbmarker_id_len]);
+  } while (cur_ptr);
+  qsort(id_arr, nbmarker_ct_dup, max_nbmarker_id_len, strcmp_casted);
+  memcpy(outname_end, ".missnp", 8);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto report_non_biallelics_ret_OPEN_FAIL;
+  }
+  id_arr_ptr = id_arr;
+  if (fputs(id_arr_ptr, outfile) == EOF) {
+    goto report_non_biallelics_ret_WRITE_FAIL;
+  }
+  putc('\n', outfile);
+  id_arr_end = &(id_arr[(nbmarker_ct_dup - 1) * max_nbmarker_id_len]);
+  while (id_arr_ptr != id_arr_end) {
+    id_arr_ptr_old = id_arr_ptr;
+    id_arr_ptr = &(id_arr_ptr[max_nbmarker_id_len]);
+    if (strcmp(id_arr_ptr, id_arr_ptr_old)) {
+      nbmarker_ct++;
+      fputs(id_arr_ptr, outfile);
+      if (putc('\n', outfile) == EOF) {
+        goto report_non_biallelics_ret_WRITE_FAIL;
+      }
+    }
+  }
+  if (fclose_null(&outfile)) {
+    goto report_non_biallelics_ret_WRITE_FAIL;
+  }
+  sprintf(logbuf, "Error: %" PRIuPTR " marker%s with 3+ alleles present.  Use PLINK --flip with\n%s for now.\n", nbmarker_ct, (nbmarker_ct == 1)? "" : "s", outname);
+  logprintb();
+  while (0) {
+  report_non_biallelics_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  report_non_biallelics_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  report_non_biallelics_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  fclose_cond(outfile);
   return retval;
 }
 
@@ -8613,6 +8695,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   uint32_t merge_disallow_equal_pos = (merge_type & MERGE_ALLOW_EQUAL_POS)? 0 : 1;
   Ll_entry** htable = (Ll_entry**)(&(wkspace_base[wkspace_left - HASHMEM_S]));
   Ll_entry2** htable2 = (Ll_entry2**)(&(wkspace_base[wkspace_left - HASHMEM]));
+  Ll_str* non_biallelics = NULL;
   uint32_t ped_buflen = MAXLINELEN;
   char* pheno_c_char = NULL;
   double* pheno_d = NULL;
@@ -9009,7 +9092,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   ullxx = 0;
   mlpos = 0;
   do {
-    retval = merge_bim_scan(mergelist_bim[mlpos], (mergelist_fam[mlpos])? 1 : 0, &max_marker_id_len, &max_marker_allele_len, htable2, &topsize, &ullxx, &cur_marker_ct, &position_warning_ct, chrom_info_ptr->species);
+    retval = merge_bim_scan(mergelist_bim[mlpos], (mergelist_fam[mlpos])? 1 : 0, &max_marker_id_len, &max_marker_allele_len, htable2, &topsize, &ullxx, &cur_marker_ct, &position_warning_ct, &non_biallelics, chrom_info_ptr->species);
     if (retval) {
       goto merge_datasets_ret_1;
     }
@@ -9030,6 +9113,14 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     goto merge_datasets_ret_INVALID_FORMAT;
   }
 #endif
+  if (non_biallelics) {
+    wkspace_reset(wkspace_mark);
+    retval = report_non_biallelics(outname, outname_end, non_biallelics);
+    if (retval) {
+      goto merge_datasets_ret_1;
+    }
+    goto merge_datasets_ret_INVALID_FORMAT;
+  }
   tot_marker_ct = ullxx;
   wkspace_left -= topsize;
   if (max_marker_allele_len > 1) {
