@@ -6549,7 +6549,8 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
   memcpy(&(outname[uii]), ".log", 5);
-  if (fopen_checked(&logfile, outname, "w")) {
+  logfile = fopen(outname, "w");
+  if (!logfile) {
     goto main_ret_OPEN_FAIL;
   }
   printf("Logging to %s.\n", outname);
