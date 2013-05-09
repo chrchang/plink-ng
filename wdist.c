@@ -6551,6 +6551,7 @@ int32_t main(int32_t argc, char** argv) {
   memcpy(&(outname[uii]), ".log", 5);
   logfile = fopen(outname, "w");
   if (!logfile) {
+    printf("Error: Failed to open %s.\n", outname);
     goto main_ret_OPEN_FAIL;
   }
   printf("Logging to %s.\n", outname);
