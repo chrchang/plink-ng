@@ -231,9 +231,10 @@ typedef union {
 #define WRITE_COVAR_PHENO 1
 #define WRITE_COVAR_DUMMY 2
 
-#define UPDATE_MAP_CHR 1
-#define UPDATE_MAP_CM 2
-#define UPDATE_MAP_NAME 4
+#define UPDATE_MAP_BP 1
+#define UPDATE_MAP_CHR 2
+#define UPDATE_MAP_CM 4
+#define UPDATE_MAP_NAME 8
 
 #define MERGE_MODE_MASK 7
 #define MERGE_ALLOW_EQUAL_POS 8

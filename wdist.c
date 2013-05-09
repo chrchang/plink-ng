@@ -4893,7 +4893,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto wdist_ret_OPEN_FAIL;
   }
   // load .bim, count markers, filter chromosomes
-  if (update_map_modifier & UPDATE_MAP_NAME) {
+  if (update_map_modifier == UPDATE_MAP_NAME) {
     retval = scan_max_strlen(update_map_fname, 1, &max_marker_id_len);
     if (retval) {
       goto wdist_ret_2;
@@ -4910,7 +4910,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   } else {
     allelexxxx = 0;
   }
-  retval = load_bim(&bimfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_pos, freqname, refalleles, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &map_is_unsorted);
+  retval = load_bim(&bimfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_pos, freqname, refalleles, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, update_map_modifier, &map_is_unsorted);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -5338,6 +5338,10 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_LD_PRUNE) {
+    if (map_is_unsorted == 2) {
+      logprint("Error: Cannot perform LD-based marker pruning on an unsorted .map/.bim.\n");
+      goto wdist_ret_INVALID_CMDLINE;
+    }
     retval = ld_prune(bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, indiv_exclude, sex_nm, sex_male, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type);
     if (retval) {
       goto wdist_ret_2;
@@ -7914,7 +7918,7 @@ int32_t main(int32_t argc, char** argv) {
 	calculation_type = CALC_MODEL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "id", 3)) {
-        logprint("Note: --fid flag deprecated.  Use --recode vcf-fid'.\n");
+        logprint("Note: --fid flag deprecated.  Use '--recode vcf-fid'.\n");
 	recode_modifier |= RECODE_FID;
 	goto main_param_zero;
       } else {
@@ -8240,7 +8244,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_IBS_TEST;
       } else if (!memcmp(argptr2, "id", 3)) {
-        logprint("Note: --iid flag deprecated.  Use --recode vcf-iid'.\n");
+        logprint("Note: --iid flag deprecated.  Use '--recode vcf-iid'.\n");
 	recode_modifier |= RECODE_IID;
 	goto main_param_zero;
       } else {
@@ -10003,18 +10007,22 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "pdate-map", 10)) {
+	if (cnv_calc_type & CNV_MAKE_MAP) {
+	  sprintf(logbuf, "--update-map cannot be used with --cnv-make-map.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         if (param_ct == 2) {
 	  if (!memcmp(argv[cur_arg + 2], "chr", 4)) {
-	    if (update_map_modifier & UPDATE_MAP_CM) {
+	    if (update_map_modifier == UPDATE_MAP_CM) {
 	      logprint("Error: --update-map 'cm' modifier cannot be used with 'chr'.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    update_map_modifier = UPDATE_MAP_CHR;
 	  } else if (!memcmp(argv[cur_arg + 2], "cm", 3)) {
-	    if (update_map_modifier & UPDATE_MAP_CHR) {
+	    if (update_map_modifier == UPDATE_MAP_CHR) {
 	      logprint("Error: --update-map 'cm' modifier cannot be used with 'chr'.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
@@ -10032,6 +10040,8 @@ int32_t main(int32_t argc, char** argv) {
 	    sprintf(logbuf, "Error: Invalid --update-map parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
+	} else {
+	  update_map_modifier = UPDATE_MAP_BP;
 	}
 	retval = alloc_fname(&update_map_fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
@@ -10200,9 +10210,14 @@ int32_t main(int32_t argc, char** argv) {
     sprintf(logbuf, "Error: --load-dists cannot be used without either --groupdist or\n--regress-distance.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
-  if (update_map_modifier && (!update_map_fname)) {
-    sprintf(logbuf, "Error: --update-%s cannot be used without --update-map.%s", (update_map_modifier == UPDATE_MAP_CHR)? "chr" : "cm", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+  if (update_map_modifier) {
+    if (!update_map_fname) {
+      sprintf(logbuf, "Error: --update-%s cannot be used without --update-map.%s", (update_map_modifier == UPDATE_MAP_CHR)? "chr" : "cm", errstr_append);
+      goto main_ret_INVALID_CMDLINE_3;
+    } else if ((update_map_modifier == UPDATE_MAP_CHR) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((!load_rare) && (calculation_type != CALC_MAKE_BED)))) {
+      sprintf(logbuf, "Error: --update-map chr must be used with --make-bed and no other commands.%s", errstr_append);
+      goto main_ret_INVALID_CMDLINE_3;
+    }
   }
   if ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_23) && (chrom_info.species != SPECIES_HUMAN)) {
     logprint("Error: --recode 23 can only be used on human data.\n");
@@ -10348,7 +10363,7 @@ int32_t main(int32_t argc, char** argv) {
       retval = wdist_dosage(calculation_type, dist_calc_type, genname, samplename, outname, outname_end, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else if (load_rare & LOAD_RARE_CNV) {
-    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, filterval, filter_binary, allelexxxx, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_freq_val2, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, snp_window_size, markername_from, markername_to, markername_snp, marker_pos_start, marker_pos_end, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &chrom_info);
+    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, update_map_fname, update_ids_fname, update_parents_fname, update_sex_fname, filterval, filter_binary, update_map_modifier, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_freq_val2, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, snp_window_size, markername_from, markername_to, markername_snp, marker_pos_start, marker_pos_end, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &chrom_info);
   } else if (load_rare & LOAD_RARE_GVAR) {
     retval = wdist_gvar(outname, outname_end, pedname, mapname, famname);
   } else {

@@ -1832,6 +1832,13 @@ char* species_plural = NULL;
 int32_t marker_code_raw(char* sptr) {
   // any character <= ' ' is considered a terminator
   int32_t ii;
+  if (*sptr == 'c') {
+    if ((sptr[1] == 'h') && (sptr[2] == 'r')) {
+      sptr = &(sptr[3]);
+    } else {
+      return -1;
+    }
+  }
   if (sptr[1] > ' ') {
     if (sptr[2] > ' ') {
       return -1;
