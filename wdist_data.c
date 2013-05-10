@@ -7577,6 +7577,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
   char* bufptr3;
   int32_t ii;
   int32_t jj;
+  uint32_t name_match;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
@@ -7655,7 +7656,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
       ujj = hashval2(bufptr, uii);
       ll_pptr = &(htable2[ujj]);
       ll_ptr = *ll_pptr;
-      ukk = 1; // no match?
+      name_match = 0;
       bufptr[uii++] = '\0';
       while (ll_ptr) {
 	if (!memcmp(ll_ptr->idstr, bufptr, uii)) {
@@ -7685,17 +7686,17 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 		  ll_string_new->next = *non_biallelics_ptr;
 		  memcpy(ll_string_new->ss, bufptr, uii);
 		  *non_biallelics_ptr = ll_string_new;
-		  break;
-		}
-		if (top_alloc_str(&topsize, aptr2, alen2, &new_aptr)) {
-		  goto merge_bim_scan_ret_NOMEM;
-		}
-		if (!ll_ptr->allele[1]) {
-		  ll_ptr->allele[1] = new_aptr;
 		} else {
-		  ll_ptr->allele[0] = new_aptr;
+		  if (top_alloc_str(&topsize, aptr2, alen2, &new_aptr)) {
+		    goto merge_bim_scan_ret_NOMEM;
+		  }
+		  if (!ll_ptr->allele[1]) {
+		    ll_ptr->allele[1] = new_aptr;
+		  } else {
+		    ll_ptr->allele[0] = new_aptr;
+		  }
+		  cur_alleles[allele_ct++] = new_aptr;
 		}
-		cur_alleles[allele_ct++] = new_aptr;
 	      }
 	    }
 	    if (aptr1) {
@@ -7713,17 +7714,17 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 		  ll_string_new->next = *non_biallelics_ptr;
 		  memcpy(ll_string_new->ss, bufptr, uii);
 		  *non_biallelics_ptr = ll_string_new;
-		  break;
-		}
-		if (top_alloc_str(&topsize, aptr1, alen1, &new_aptr)) {
-		  goto merge_bim_scan_ret_NOMEM;
-		}
-		if (!ll_ptr->allele[1]) {
-		  ll_ptr->allele[1] = new_aptr;
 		} else {
-		  ll_ptr->allele[0] = new_aptr;
+		  if (top_alloc_str(&topsize, aptr1, alen1, &new_aptr)) {
+		    goto merge_bim_scan_ret_NOMEM;
+		  }
+		  if (!ll_ptr->allele[1]) {
+		    ll_ptr->allele[1] = new_aptr;
+		  } else {
+		    ll_ptr->allele[0] = new_aptr;
+		  }
+		  cur_alleles[allele_ct++] = new_aptr;
 		}
-		cur_alleles[allele_ct++] = new_aptr;
 	      }
 	    }
 	  }
@@ -7746,13 +7747,13 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	      logprintb();
 	    }
 	  }
-	  ukk = 0;
+	  name_match = 1;
 	  break;
 	}
         ll_pptr = &(ll_ptr->next);
 	ll_ptr = *ll_pptr;
       }
-      if (ukk) {
+      if (!name_match) {
         if (uii > max_marker_id_len) {
 	  max_marker_id_len = uii;
 	}
