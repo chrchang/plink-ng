@@ -411,6 +411,13 @@ extern int32_t log_failed;
 extern uintptr_t g_indiv_ct;
 extern uint32_t g_thread_ct;
 
+typedef struct ll_str_struct {
+  struct ll_str_struct* next;
+  char ss[];
+} Ll_str;
+
+uint32_t push_ll_str(Ll_str** ll_stack_ptr, const char* ss);
+
 void logstr(const char* ss);
 
 void logprint(const char* ss);

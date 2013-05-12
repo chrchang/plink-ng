@@ -486,10 +486,8 @@ static inline uint32_t sf_out_of_range(uint32_t cur_pos, uint32_t chrom_idx, uin
   return 1;
 }
 
-int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uint32_t* plink_maxsnp_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, uint32_t** marker_pos_ptr, char* freqname, char* refalleles, uint64_t calculation_type, uint32_t recode_modifier, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* sf_markers, unsigned char* sf_starts_range, uint32_t sf_ct, uint32_t sf_max_len, uint32_t update_map_modifier, int32_t* map_is_unsorted_ptr) {
+int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uint32_t* plink_maxsnp_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, uint32_t** marker_pos_ptr, char* freqname, char* refalleles, uint64_t calculation_type, uint32_t recode_modifier, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* sf_markers, unsigned char* sf_starts_range, uint32_t sf_ct, uint32_t sf_max_len, uint32_t update_map_modifier, int32_t* map_is_unsorted_ptr, uint32_t marker_alleles_needed) {
   unsigned char* wkspace_mark = wkspace_base;
-  // may want to just always load
-  uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname);
   uintptr_t unfiltered_marker_ct = 0;
   uintptr_t max_marker_id_len = *max_marker_id_len_ptr;
   uintptr_t max_marker_allele_len = *max_marker_allele_len_ptr;
@@ -1176,6 +1174,114 @@ int32_t sort_and_write_bim(int32_t** map_reverse_ptr, FILE* mapfile, int32_t map
   if (ll_buf) {
     wkspace_reset((unsigned char*)ll_buf);
   }
+  return retval;
+}
+
+uint32_t flip_char(char* allele_char_ptr) {
+  char cc = *allele_char_ptr;
+  if (cc == 'A') {
+    *allele_char_ptr = 'T';
+  } else if (cc == 'C') {
+    *allele_char_ptr = 'G';
+  } else if (cc == 'G') {
+    *allele_char_ptr = 'C';
+  } else if (cc == 'T') {
+    *allele_char_ptr = 'A';
+  } else if (cc != '0') {
+    return 1;
+  }
+  return 0;
+}
+
+uint32_t flip_str(char* allele_str) {
+  if (allele_str[1] != '\0') {
+    return 1;
+  }
+  return flip_char(allele_str);
+}
+
+int32_t flip_strand(uintptr_t unfiltered_marker_ct, uintptr_t marker_exclude_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, char* flip_fname) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* flipfile = NULL;
+  uint32_t non_acgt_ct = 0;
+  uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
+  uintptr_t marker_uidx = 0;
+  int32_t retval = 0;
+  char* sorted_marker_ids;
+  char* bufptr;
+  uint32_t* marker_id_map;
+  uintptr_t marker_idx;
+  uint32_t slen;
+  uint32_t cur_non_acgt0;
+  int32_t ii;
+  if (wkspace_alloc_c_checked(&sorted_marker_ids, marker_ct * max_marker_id_len) ||
+      wkspace_alloc_ui_checked(&marker_id_map, marker_ct * sizeof(int32_t))) {
+    goto flip_strand_ret_NOMEM;
+  }
+  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+    strcpy(&(sorted_marker_ids[marker_idx * max_marker_id_len]), &(marker_ids[marker_uidx * max_marker_id_len]));
+    marker_id_map[marker_idx] = marker_uidx;
+    marker_uidx++;
+  }
+  if (qsort_ext(sorted_marker_ids, marker_ct, max_marker_id_len, strcmp_deref, (char*)marker_id_map, sizeof(int32_t))) {
+    goto flip_strand_ret_NOMEM;
+  }
+  if (fopen_checked(&flipfile, flip_fname, "r")) {
+    goto flip_strand_ret_OPEN_FAIL;
+  }
+  sprintf(logbuf, "Flipping strand for markers in %s...", flip_fname);
+  logprintb();
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, flipfile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      logprint("Error: Pathologically long line in --flip file.\n");
+      goto flip_strand_ret_INVALID_FORMAT;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    slen = strlen_se(bufptr);
+    bufptr[slen] = '\0';
+    ii = bsearch_str(bufptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
+    if (ii != -1) {
+      marker_uidx = marker_id_map[ii];
+      cur_non_acgt0 = 0;
+      if (max_marker_allele_len == 1) {
+        cur_non_acgt0 |= flip_char(&(marker_alleles[2 * marker_uidx]));
+        cur_non_acgt0 |= flip_char(&(marker_alleles[2 * marker_uidx + 1]));
+      } else {
+        cur_non_acgt0 |= flip_str(&(marker_alleles[(2 * marker_uidx) * max_marker_allele_len]));
+        cur_non_acgt0 |= flip_str(&(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]));
+      }
+      non_acgt_ct += cur_non_acgt0;
+    }
+  }
+  if (!feof(flipfile)) {
+    goto flip_strand_ret_READ_FAIL;
+  }
+  logprint(" done.\n");
+  if (non_acgt_ct) {
+    sprintf(logbuf, "Warning: %u marker%s had non-A/C/G/T allele names.\n", non_acgt_ct, (non_acgt_ct == 1)? "" : "s");
+    logprintb();
+  }
+  while (0) {
+  flip_strand_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  flip_strand_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  flip_strand_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  flip_strand_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  fclose_cond(flipfile);
+  wkspace_reset(wkspace_mark);
   return retval;
 }
 
@@ -2079,11 +2185,6 @@ int32_t incr_text_allele0(char cc, char* marker_alleles, uint32_t* marker_allele
   }
   return -1;
 }
-
-typedef struct ll_str_struct {
-  struct ll_str_struct* next;
-  char ss[];
-} Ll_str;
 
 typedef struct ll_str_fixed_struct {
   struct ll_str_struct* next;
@@ -6248,13 +6349,13 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
       ulii = strlen_se(cptr);
       putc('\t', *outfile_ptr);
       if (vcf_not_iid) {
+	fwrite(cptr, 1, ulii, *outfile_ptr);
 	if (!shiftval) {
 	  if (strchr(cptr, '_')) {
 	    shiftval = 1;
 	    logprint("Warning: Underscore(s) present in individual IDs.\n");
 	  }
 	}
-	fwrite(cptr, 1, ulii, *outfile_ptr);
 	if (vcf_two_ids) {
 	  putc('_', *outfile_ptr);
 	}
@@ -7877,7 +7978,7 @@ int32_t report_non_biallelics(char* outname, char* outname_end, Ll_str* non_bial
   if (fclose_null(&outfile)) {
     goto report_non_biallelics_ret_WRITE_FAIL;
   }
-  sprintf(logbuf, "Error: %" PRIuPTR " marker%s with 3+ alleles present.  Use PLINK --flip with\n%s for now.\n", nbmarker_ct, (nbmarker_ct == 1)? "" : "s", outname);
+  sprintf(logbuf, "Error: %" PRIuPTR " marker%s with 3+ alleles present.  Use --flip with\n%s for now.\n", nbmarker_ct, (nbmarker_ct == 1)? "" : "s", outname);
   logprintb();
   while (0) {
   report_non_biallelics_ret_NOMEM:

@@ -16,6 +16,18 @@ int32_t log_failed = 0;
 uintptr_t g_indiv_ct;
 uint32_t g_thread_ct;
 
+uint32_t push_ll_str(Ll_str** ll_stack_ptr, const char* ss) {
+  uint32_t slen = strlen(ss);
+  Ll_str* new_ll_str = (Ll_str*)malloc(sizeof(Ll_str) + slen + 1);
+  if (!new_ll_str) {
+    return 1;
+  }
+  new_ll_str->next = *ll_stack_ptr;
+  memcpy(new_ll_str->ss, ss, slen + 1);
+  *ll_stack_ptr = new_ll_str;
+  return 0;
+}
+
 void logstr(const char* ss) {
   if (!debug_on) {
     if (fprintf(logfile, "%s", ss) < 0) {

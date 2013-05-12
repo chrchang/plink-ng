@@ -58,7 +58,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.19.2"
+  "WDIST v0.19.3"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -67,7 +67,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (10 May 2013)";
+  " (12 May 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -966,6 +966,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("mperm-save\tmperm-save-all", &help_ctrl, 0,
 "  --mperm-save     : Save best max(T) permutation test statistics.\n"
 "  --mperm-save-all : Save all max(T) permutation test statistics.\n"
+	       );
+    help_print("flip\tflip-subset", &help_ctrl, 0,
+"  --flip [filename]   : Flip alleles (A<->T, C<->G) for all SNP ID in the file.\n"
+"  --flip-subset [fn]  : Only apply --flip to indivs in the --flip-subset file.\n"
 	       );
     help_print("recode\trecode-allele", &help_ctrl, 0,
 "  --recode-allele [f] : With --recode A or --recode AD, count alleles named in\n"
@@ -4695,7 +4699,7 @@ inline int32_t distance_wt_req(uint64_t calculation_type) {
   return ((calculation_type & CALC_DISTANCE) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))));
 }
 
-int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, char* update_map_fname, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* filterval, int32_t mfilter_col, uint32_t filter_binary, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, int32_t mpheno_col, uint32_t pheno_modifier, int32_t prune, int32_t affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int32_t hwe_all, double rel_cutoff, int32_t tail_pheno, double tail_bottom, double tail_top, uint64_t calculation_type, int32_t rel_calc_type, int32_t dist_calc_type, uintptr_t groupdist_iters, int32_t groupdist_d, uintptr_t regress_iters, int32_t regress_d, uintptr_t regress_rel_iters, int32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, int32_t parallel_idx, uint32_t parallel_tot, int32_t ppc_gap, int32_t allow_no_sex, int32_t must_have_sex, int32_t nonfounders, uint32_t genome_modifier, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, int32_t maf_succ, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, int32_t freq_counts, int32_t freqx, int32_t distance_flat_missing, uint32_t recode_modifier, int32_t allelexxxx, int32_t merge_type, int32_t indiv_sort, int32_t keep_allele_order, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t set_hh_missing, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t update_map_modifier, uint32_t write_covar_modifier, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size) {
+int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, char* update_map_fname, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filterval, int32_t mfilter_col, uint32_t filter_binary, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, int32_t mpheno_col, uint32_t pheno_modifier, int32_t prune, int32_t affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int32_t hwe_all, double rel_cutoff, int32_t tail_pheno, double tail_bottom, double tail_top, uint64_t calculation_type, int32_t rel_calc_type, int32_t dist_calc_type, uintptr_t groupdist_iters, int32_t groupdist_d, uintptr_t regress_iters, int32_t regress_d, uintptr_t regress_rel_iters, int32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, int32_t parallel_idx, uint32_t parallel_tot, int32_t ppc_gap, int32_t allow_no_sex, int32_t must_have_sex, int32_t nonfounders, uint32_t genome_modifier, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, int32_t maf_succ, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, int32_t freq_counts, int32_t freqx, int32_t distance_flat_missing, uint32_t recode_modifier, int32_t allelexxxx, int32_t merge_type, int32_t indiv_sort, int32_t keep_allele_order, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t set_hh_missing, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t update_map_modifier, uint32_t write_covar_modifier, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, Ll_str** file_delete_list_ptr) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -4724,6 +4728,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t* founder_info = NULL;
   uintptr_t* sex_nm = NULL;
   uintptr_t* sex_male = NULL;
+  uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname);
   char* outname_end2;
   uintptr_t marker_ct;
   uint32_t plink_maxsnp;
@@ -4884,6 +4889,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     memcpy(memcpya(pedname, outname, uljj), ".bed", 5);
     memcpy(memcpya(famname, pedname, uljj), ".fam", 5);
     memcpy(memcpya(mapname, pedname, uljj), ".bim", 5);
+    if ((calculation_type & CALC_MAKE_BED) && ulii) {
+      if (push_ll_str(file_delete_list_ptr, pedname) || push_ll_str(file_delete_list_ptr, famname) || push_ll_str(file_delete_list_ptr, mapname)) {
+	goto wdist_ret_NOMEM;
+      }
+    }
   }
 
   if (fopen_checked(&bedfile, pedname, "rb")) {
@@ -4900,7 +4910,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
     max_marker_id_len++;
   }
-  if (are_marker_alleles_needed(calculation_type, freqname)) {
+  if (marker_alleles_needed) {
     if (update_alleles_fname) {
       retval = scan_max_strlen(update_alleles_fname, 1, &max_marker_allele_len);
       if (retval) {
@@ -4910,9 +4920,15 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   } else {
     allelexxxx = 0;
   }
-  retval = load_bim(&bimfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_pos, freqname, refalleles, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, update_map_modifier, &map_is_unsorted);
+  retval = load_bim(&bimfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_pos, freqname, refalleles, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, update_map_modifier, &map_is_unsorted, marker_alleles_needed);
   if (retval) {
     goto wdist_ret_2;
+  }
+  if (marker_alleles_needed && flip_fname && (!flip_subset_fname)) {
+    retval = flip_strand(unfiltered_marker_ct, marker_exclude_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, flip_fname);
+    if (retval) {
+      goto wdist_ret_2;
+    }
   }
 
   ulii = MAXLINELEN;
@@ -5934,19 +5950,6 @@ int32_t recode_type_set(uint32_t* recode_modifier_ptr, uint32_t cur_code) {
 }
 
 int32_t main(int32_t argc, char** argv) {
-  unsigned char* wkspace_ua;
-  char outname[FNAMESIZE];
-  char mapname[FNAMESIZE];
-  char pedname[FNAMESIZE];
-  char famname[FNAMESIZE];
-  char genname[FNAMESIZE];
-  char samplename[FNAMESIZE];
-  char mergename1[FNAMESIZE];
-  char mergename2[FNAMESIZE];
-  char mergename3[FNAMESIZE];
-  time_t rawtime;
-  char* argptr;
-  char* sptr;
   char* outname_end = NULL;
   char** subst_argv = NULL;
   char* script_buf = NULL;
@@ -5979,9 +5982,9 @@ int32_t main(int32_t argc, char** argv) {
   char* update_parents_fname = NULL;
   char* update_sex_fname = NULL;
   char* loop_assoc_fname = NULL;
-  char** subst_argv2;
+  char* flip_fname = NULL;
+  char* flip_subset_fname = NULL;
   int32_t retval = 0;
-  uint32_t param_ct;
   int32_t load_params = 0; // describes what file parameters have been provided
   int32_t load_rare = 0;
   int32_t fam_col_1 = 1;
@@ -6003,17 +6006,13 @@ int32_t main(int32_t argc, char** argv) {
   uint64_t calculation_type = 0;
   int32_t rel_calc_type = 0;
   int32_t dist_calc_type = 0;
-  char* bubble;
   int32_t mfilter_col = 0;
   uint32_t pheno_modifier = 0;
   int32_t tail_pheno = 0;
   int32_t prune = 0;
   int32_t missing_pheno = -9;
   char missing_geno = '0';
-  char output_missing_pheno[32];
   char output_missing_geno = '0';
-  double tail_bottom;
-  double tail_top;
   int32_t distance_3d = 0;
   int32_t distance_flat_missing = 0;
   uintptr_t groupdist_iters = ITERS_DEFAULT;
@@ -6035,19 +6034,11 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t model_modifier = 0;
   int32_t model_cell_ct = -1;
   uint32_t gxe_mcovar = 0;
-  int32_t ii;
-  int32_t jj;
-  int32_t kk;
-  int32_t mm;
-  int32_t nn;
-  int32_t oo;
   int32_t ppc_gap = DEFAULT_PPC_GAP;
   uint32_t* rseeds = NULL;
   uint32_t rseed_ct = 0;
   uint32_t genome_modifier = 0;
   FILE* scriptfile = NULL;
-  int32_t num_params;
-  int32_t in_param;
   int32_t ld_window_size = 0;
   int32_t ld_window_incr = 0;
   double ld_last_param = 0.0;
@@ -6126,9 +6117,6 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t cnv_test_window = 0;
   uint32_t segment_modifier = 0;
   char* segment_spanning_fname = NULL;
-  Chrom_info chrom_info;
-  char* argptr2;
-  char* flagptr;
   char* missing_code = NULL;
   char range_delim = '-';
   uint64_t chrom_exclude = 0;
@@ -6136,20 +6124,52 @@ int32_t main(int32_t argc, char** argv) {
   unsigned char* snps_flag_starts_range = NULL;
   uint32_t snps_flag_ct = 0;
   uint32_t set_hh_missing = 0;
+  Ll_str* file_delete_list = NULL;
+  char outname[FNAMESIZE];
+  char mapname[FNAMESIZE];
+  char pedname[FNAMESIZE];
+  char famname[FNAMESIZE];
+  char genname[FNAMESIZE];
+  char samplename[FNAMESIZE];
+  char mergename1[FNAMESIZE];
+  char mergename2[FNAMESIZE];
+  char mergename3[FNAMESIZE];
+  char output_missing_pheno[32];
+#ifdef __APPLE__
+  int32_t mib[2];
+  size_t sztmp;
+#endif
+  unsigned char* wkspace_ua;
+  char** subst_argv2;
+  uint32_t param_ct;
+  time_t rawtime;
+  char* argptr;
+  char* sptr;
+  char* bubble;
+  double tail_bottom;
+  double tail_top;
+  int32_t ii;
+  int32_t jj;
+  int32_t kk;
+  int32_t mm;
+  int32_t nn;
+  int32_t oo;
+  int32_t num_params;
+  int32_t in_param;
+  Chrom_info chrom_info;
+  char* argptr2;
+  char* flagptr;
   uint32_t snps_flag_max_len;
   double dxx;
   char cc;
   uint32_t uii;
   intptr_t default_alloc_mb;
   int64_t llxx;
-#ifdef __APPLE__
-  int32_t mib[2];
-  size_t sztmp;
-#endif
+  Ll_str* ll_str_ptr;
 #if _WIN32
   SYSTEM_INFO sysinfo;
   MEMORYSTATUSEX memstatus;
-  DWORD windows_dw; // no idea why the f*** a uint32_t doesn't work
+  DWORD windows_dw; // why the f*** does uint32_t not work?
 #endif
   for (ii = 1; ii < argc; ii++) {
     if ((!memcmp("-script", argv[ii], 8)) || (!memcmp("--script", argv[ii], 9))) {
@@ -7923,6 +7943,26 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Note: --fid flag deprecated.  Use '--recode vcf-fid'.\n");
 	recode_modifier |= RECODE_FID;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "lip", 4)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&flip_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+      } else if (!memcmp(argptr2, "lip-subset", 11)) {
+	if (!flip_fname) {
+          sprintf(logbuf, "Error: --flip-subset must be used with --flip.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&flip_subset_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -10221,6 +10261,13 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE_3;
     }
   }
+  if (flip_subset_fname && (load_rare || (calculation_type != CALC_MAKE_BED) || (min_maf != 0.0) || (max_maf != 0.5) || (hwe_thresh != 0.0))) {
+    sprintf(logbuf, "Error: --flip-subset must be used with --flip, --make-bed, and no other\ncommands or MAF-based filters.%s", errstr_append);
+    goto main_ret_INVALID_CMDLINE_3;
+  } else if (flip_subset_fname) {
+    logprint("Error: --flip-subset is not implemented yet.\n");
+    goto main_ret_INVALID_CMDLINE;
+  }
   if ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_23) && (chrom_info.species != SPECIES_HUMAN)) {
     logprint("Error: --recode 23 can only be used on human data.\n");
     goto main_ret_INVALID_CMDLINE;
@@ -10377,7 +10424,8 @@ int32_t main(int32_t argc, char** argv) {
     // if (load_rare) {
     if (load_rare || (!famname[0])) {
       sptr = outname_end;
-      if (bed_suffix_conflict(calculation_type, recode_modifier) || filename_exists(outname, outname_end, ".bed")) {
+      ii = bed_suffix_conflict(calculation_type, recode_modifier);
+      if (ii || filename_exists(outname, outname_end, ".bed")) {
         sptr = memcpyb(sptr, "-working", 9);
       }
       uii = (sptr - outname);
@@ -10411,9 +10459,14 @@ int32_t main(int32_t argc, char** argv) {
       memcpy(memcpya(pedname, outname, uii), ".bed", 5);
       memcpy(memcpya(mapname, outname, uii), ".bim", 5);
       memcpy(memcpya(famname, outname, uii), ".fam", 5);
+      if (ii && (calculation_type & CALC_MAKE_BED)) {
+	if (push_ll_str(&file_delete_list, pedname) || push_ll_str(&file_delete_list, mapname) || push_ll_str(&file_delete_list, famname)) {
+	  goto main_ret_NOMEM;
+	}
+      }
       *outname_end = '\0';
     }
-    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, update_alleles_fname, update_map_fname, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, filterval, mfilter_col, filter_binary, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (uint32_t)parallel_tot, ppc_gap, allow_no_sex, must_have_sex, nonfounders, genome_modifier, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, set_hh_missing, covar_modifier, covar_str, mcovar_col, update_map_modifier, write_covar_modifier, model_modifier, (uint32_t)model_cell_ct, (uint32_t)model_mperm_val, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, ibs_test_perms, perm_batch_size);
+    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, update_alleles_fname, update_map_fname, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filterval, mfilter_col, filter_binary, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (uint32_t)parallel_tot, ppc_gap, allow_no_sex, must_have_sex, nonfounders, genome_modifier, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, set_hh_missing, covar_modifier, covar_str, mcovar_col, update_map_modifier, write_covar_modifier, model_modifier, (uint32_t)model_cell_ct, (uint32_t)model_mperm_val, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, ibs_test_perms, perm_batch_size, &file_delete_list);
   }
  main_ret_2:
   free(wkspace_ua);
@@ -10487,12 +10540,22 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(update_parents_fname);
   free_cond(update_sex_fname);
   free_cond(loop_assoc_fname);
+  free_cond(flip_fname);
+  free_cond(flip_subset_fname);
   free_cond(rseeds);
   free_cond(simulate_fname);
   free_cond(simulate_label);
   free_cond(cnv_intersect_filter_fname);
   free_cond(cnv_subset_fname);
   free_cond(segment_spanning_fname);
+  if ((!retval) && (file_delete_list)) {
+    do {
+      ll_str_ptr = file_delete_list->next;
+      unlink(file_delete_list->ss);
+      free(file_delete_list);
+      file_delete_list = ll_str_ptr;
+    } while (file_delete_list);
+  }
   if (logfile) {
     if (!log_failed) {
       logstr("\nEnd time: ");
