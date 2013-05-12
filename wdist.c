@@ -67,7 +67,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (12 May 2013)";
+  " (13 May 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";

@@ -5961,6 +5961,14 @@ void init_cur_mk_allelesx(char* mk_alleles, uintptr_t max_marker_allele_len, uin
   }
 }
 
+char zero_to_dot(char cc) {
+  if (cc != '0') {
+    return cc;
+  } else {
+    return '.';
+  }
+}
+
 int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE* famfile, FILE* bimfile, FILE** outfile_ptr, char* outname, char* outname_end, char* recode_allele_name, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, uint32_t* marker_pos, uintptr_t* marker_reverse, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, double missing_phenod, char output_missing_geno, char* output_missing_pheno, uint32_t set_hh_missing, uint32_t xmhh_exists, uint32_t nxmhh_exists, Chrom_info* chrom_info_ptr) {
   FILE* ref_file = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -6350,13 +6358,13 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
       putc('\t', *outfile_ptr);
       if (vcf_not_iid) {
 	fwrite(cptr, 1, ulii, *outfile_ptr);
-	if (!shiftval) {
-	  if (strchr(cptr, '_')) {
-	    shiftval = 1;
-	    logprint("Warning: Underscore(s) present in individual IDs.\n");
-	  }
-	}
 	if (vcf_two_ids) {
+	  if (!shiftval) {
+	    if (strchr(cptr, '_')) {
+	      shiftval = 1;
+	      logprint("Warning: Underscore(s) present in individual IDs.\n");
+	    }
+	  }
 	  putc('_', *outfile_ptr);
 	}
       }
@@ -6390,23 +6398,39 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	  cur_mk_alleles[0] = '1';
 	  cur_mk_alleles[1] = '0';
 	  if (max_marker_allele_len == 1) {
-	    *wbufptr++ = mk_alleles[2 * marker_uidx];
+	    *wbufptr++ = zero_to_dot(mk_alleles[2 * marker_uidx]);
 	    *wbufptr++ = '\t';
-	    *wbufptr++ = mk_alleles[2 * marker_uidx + 1];
+	    *wbufptr++ = zero_to_dot(mk_alleles[2 * marker_uidx + 1]);
 	  } else {
-	    wbufptr = strcpyax(wbufptr, &(mk_alleles[2 * marker_uidx * max_marker_allele_len]), '\t');
-	    wbufptr = strcpya(wbufptr, &(mk_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]));
+	    if (memcmp(&(mk_alleles[2 * marker_uidx * max_marker_allele_len]), "0", 2)) {
+	      wbufptr = strcpyax(wbufptr, &(mk_alleles[2 * marker_uidx * max_marker_allele_len]), '\t');
+	    } else {
+	      wbufptr = memcpya(wbufptr, "0\t", 2);
+	    }
+	    if (memcmp(&(mk_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), "0", 2)) {
+	      wbufptr = strcpyax(wbufptr, &(mk_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), '\t');
+	    } else {
+	      wbufptr = memcpya(wbufptr, "0\t", 2);
+	    }
 	  }
 	} else {
 	  cur_mk_alleles[0] = '0';
 	  cur_mk_alleles[1] = '1';
 	  if (max_marker_allele_len == 1) {
-	    *wbufptr++ = mk_alleles[2 * marker_uidx + 1];
+	    *wbufptr++ = zero_to_dot(mk_alleles[2 * marker_uidx + 1]);
 	    *wbufptr++ = '\t';
-	    *wbufptr++ = mk_alleles[2 * marker_uidx];
+	    *wbufptr++ = zero_to_dot(mk_alleles[2 * marker_uidx]);
 	  } else {
-	    wbufptr = strcpyax(wbufptr, &(mk_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), '\t');
-	    wbufptr = strcpya(wbufptr, &(mk_alleles[2 * marker_uidx * max_marker_allele_len]));
+	    if (memcmp(&(mk_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), "0", 2)) {
+	      wbufptr = strcpyax(wbufptr, &(mk_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), '\t');
+	    } else {
+	      wbufptr = memcpya(wbufptr, "0\t", 2);
+	    }
+	    if (memcmp(&(mk_alleles[2 * marker_uidx * max_marker_allele_len]), "0", 2)) {
+	      wbufptr = strcpyax(wbufptr, &(mk_alleles[2 * marker_uidx * max_marker_allele_len]), '\t');
+	    } else {
+	      wbufptr = memcpya(wbufptr, "0\t", 2);
+	    }
 	  }
 	}
 	wbufptr = memcpya(wbufptr, "\t.\t.\t.\tGT", 9);
