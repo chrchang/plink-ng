@@ -237,7 +237,7 @@ typedef union {
 #define UPDATE_MAP_NAME 8
 
 #define MERGE_MODE_MASK 7
-#define MERGE_ALLOW_EQUAL_POS 8
+#define MERGE_EQUAL_POS 8
 #define MERGE_BINARY 16
 #define MERGE_LIST 32
 

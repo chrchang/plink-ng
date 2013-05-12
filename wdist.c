@@ -979,6 +979,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --keep-allele-order : Keep the original allele order when creating a new\n"
 "                        fileset, instead of forcing A2 to be the major allele.\n"
 	       );
+    help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-equal-pos", &help_ctrl, 0,
+"  --merge-equal-pos   : Merge markers with different names but identical\n"
+"                        positions.\n"
+	       );
     help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,
 "  --update-map [f] <chr | cm | name> : Update marker information.\n"
 	       );
@@ -1001,10 +1005,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("simulate\tsimulate-qt\tsimulate-label\tsimulate-missing", &help_ctrl, 0,
 "  --simulate-label [prefix] : Set --simulate(-qt) individual name prefix.\n"
 "  --simulate-missing [freq] : Set --simulate(-qt) missing genotype frequency.\n"
-	       );
-    help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-allow-equal-pos", &help_ctrl, 0,
-"  --merge-allow-equal-pos   : Do not merge markers with different names but\n"
-"                              identical positions.\n"
 	       );
     help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
 "  --allele1234 <multichar>  : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"
@@ -8750,8 +8750,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         merge_type |= cc - '0';
-      } else if (!memcmp(argptr2, "erge-allow-equal-pos", 21)) {
-	merge_type |= MERGE_ALLOW_EQUAL_POS;
+      } else if (!memcmp(argptr2, "erge-equal-pos", 15)) {
+	merge_type |= MERGE_EQUAL_POS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ust-have-sex", 13)) {
 	logprint("Warning: --must-have-sex currently has no effect.\n");

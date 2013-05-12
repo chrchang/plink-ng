@@ -7995,7 +7995,74 @@ int32_t report_non_biallelics(char* outname, char* outname_end, Ll_str* non_bial
   return retval;
 }
 
-static inline void merge_post_msort_update_maps(char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_map, uint32_t* pos_buf, int64_t* ll_buf, uint32_t* chrom_start, uint32_t* chrom_id, uint32_t chrom_ct, uint32_t* dedup_marker_ct_ptr, uint32_t merge_disallow_equal_pos, uint64_t chrom_mask) {
+void merge_alleles_update_char(char* marker_allele_ptr, char** allele_ptrs, uint32_t* distinct_allele_ct_ptr) {
+  char cc = *marker_allele_ptr;
+  uint32_t distinct_allele_ct = *distinct_allele_ct_ptr;
+  uint32_t allele_idx = 0;
+  if ((cc == '0') || (distinct_allele_ct == 3)) {
+    return;
+  }
+  while (allele_idx < distinct_allele_ct) {
+    if (cc == allele_ptrs[allele_idx][0]) {
+      return;
+    }
+    allele_idx++;
+  }
+  *distinct_allele_ct_ptr = distinct_allele_ct + 1;
+  if (distinct_allele_ct == 2) {
+    return;
+  }
+  allele_ptrs[distinct_allele_ct] = marker_allele_ptr;
+}
+
+void merge_alleles_update_str(char* marker_allele_ptr, char** allele_ptrs, uint32_t* distinct_allele_ct_ptr) {
+  uint32_t distinct_allele_ct = *distinct_allele_ct_ptr;
+  uint32_t allele_idx = 0;
+  if (((*marker_allele_ptr == '0') && (marker_allele_ptr[1] == '\0')) || (distinct_allele_ct == 3)) {
+    return;
+  }
+  while (allele_idx < distinct_allele_ct) {
+    if (!strcmp(marker_allele_ptr, allele_ptrs[allele_idx])) {
+      return;
+    }
+    allele_idx++;
+  }
+  *distinct_allele_ct_ptr = distinct_allele_ct + 1;
+  if (distinct_allele_ct == 2) {
+    return;
+  }
+  allele_ptrs[distinct_allele_ct] = marker_allele_ptr;
+}
+
+uint32_t merge_alleles(char* marker_alleles, uintptr_t max_marker_allele_len, uint32_t marker_uidx, uint32_t marker_uidx2) {
+  uint32_t distinct_allele_ct = 0;
+  char* allele_ptrs[2];
+  allele_ptrs[0] = NULL;
+  allele_ptrs[1] = NULL;
+  if (max_marker_allele_len == 1) {
+    merge_alleles_update_char(&(marker_alleles[2 * marker_uidx]), allele_ptrs, &distinct_allele_ct);
+    merge_alleles_update_char(&(marker_alleles[2 * marker_uidx + 1]), allele_ptrs, &distinct_allele_ct);
+    merge_alleles_update_char(&(marker_alleles[2 * marker_uidx2]), allele_ptrs, &distinct_allele_ct);
+    merge_alleles_update_char(&(marker_alleles[2 * marker_uidx2 + 1]), allele_ptrs, &distinct_allele_ct);
+  } else {
+    merge_alleles_update_str(&(marker_alleles[2 * marker_uidx * max_marker_allele_len]), allele_ptrs, &distinct_allele_ct);
+    merge_alleles_update_str(&(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), allele_ptrs, &distinct_allele_ct);
+    merge_alleles_update_str(&(marker_alleles[2 * marker_uidx2 * max_marker_allele_len]), allele_ptrs, &distinct_allele_ct);
+    merge_alleles_update_str(&(marker_alleles[(2 * marker_uidx2 + 1) * max_marker_allele_len]), allele_ptrs, &distinct_allele_ct);
+  }
+  if (distinct_allele_ct > 2) {
+    return 1;
+  }
+  if (allele_ptrs[0] && (allele_ptrs[0] != (&(marker_alleles[2 * marker_uidx * max_marker_allele_len])))) {
+    memcpy(&(marker_alleles[2 * marker_uidx * max_marker_allele_len]), allele_ptrs[0], max_marker_allele_len);
+  }
+  if (allele_ptrs[1] && (allele_ptrs[1] != (&(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len])))) {
+    memcpy(&(marker_alleles[2 * marker_uidx * max_marker_allele_len]), allele_ptrs[0], max_marker_allele_len);
+  }
+  return 0;
+}
+
+static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_map, uint32_t* pos_buf, int64_t* ll_buf, uint32_t* chrom_start, uint32_t* chrom_id, uint32_t chrom_ct, uint32_t* dedup_marker_ct_ptr, uint32_t merge_equal_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uint64_t chrom_mask) {
   // Input: ll_buf is a effectively sequence of sorted arrays (one per
   // chromosome) with base-pair positions in high 32 bits, and pre-sort indices
   // in low 32 bits.  Chromosome boundaries are stored in chrom_start[].
@@ -8034,10 +8101,15 @@ static inline void merge_post_msort_update_maps(char* marker_ids, uintptr_t max_
       presort_idx = (uint32_t)llxx;
       cur_bp = (uint32_t)(llxx >> 32);
       if (prev_bp == cur_bp) {
+	if (merge_equal_pos && merge_alleles(marker_alleles, max_marker_allele_len, ((uint32_t)ll_buf[read_pos - 1]), presort_idx)) {
+	  sprintf(logbuf, "Error: --merge-equal-pos failure.  Markers %s and %s\nhave the same position, but do not share the same alleles.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
+	  logprintb();
+	  return 1;
+	}
 	sprintf(logbuf, "Warning: Markers %s and %s have the same position.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
 	logprintb();
-	if (merge_disallow_equal_pos) {
-          marker_map[presort_idx] = write_pos - 1;
+	if (merge_equal_pos) {
+	  marker_map[presort_idx] = write_pos - 1;
 	  continue;
 	}
       } else {
@@ -8050,6 +8122,7 @@ static inline void merge_post_msort_update_maps(char* marker_ids, uintptr_t max_
     chrom_start[chrom_idx + 1] = write_pos;
   }
   *dedup_marker_ct_ptr = write_pos;
+  return 0;
 }
 
 static inline int32_t merge_must_track_write(int32_t mm) {
@@ -8058,8 +8131,8 @@ static inline int32_t merge_must_track_write(int32_t mm) {
   return (mm == 1) || (mm > 5) || (mm == 4);
 }
 
-static inline int32_t merge_first_mode(int32_t mm, uint32_t merge_disallow_equal_pos) {
-  if (merge_disallow_equal_pos) {
+static inline int32_t merge_first_mode(int32_t mm, uint32_t merge_equal_pos) {
+  if (merge_equal_pos) {
     return (mm > 5)? 4 : mm;
   } else {
     return merge_must_track_write(mm)? 4 : 5;
@@ -8794,7 +8867,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   int32_t is_dichot_pheno = 1;
   int32_t merge_mode = (merge_type & MERGE_MODE_MASK);
   uint32_t merge_nsort = ((!indiv_sort) || (indiv_sort == INDIV_SORT_NATURAL))? 1 : 0;
-  uint32_t merge_disallow_equal_pos = (merge_type & MERGE_ALLOW_EQUAL_POS)? 0 : 1;
+  uint32_t merge_equal_pos = (merge_type & MERGE_EQUAL_POS)? 1 : 0;
   Ll_entry** htable = (Ll_entry**)(&(wkspace_base[wkspace_left - HASHMEM_S]));
   Ll_entry2** htable2 = (Ll_entry2**)(&(wkspace_base[wkspace_left - HASHMEM]));
   Ll_str* non_biallelics = NULL;
@@ -9306,7 +9379,9 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     }
   }
   sort_marker_chrom_pos(ll_buf, tot_marker_ct, (int32_t*)pos_buf, chrom_start, chrom_id, &chrom_ct);
-  merge_post_msort_update_maps(marker_ids, max_marker_id_len, marker_map, pos_buf, ll_buf, chrom_start, chrom_id, chrom_ct, &dedup_marker_ct, merge_disallow_equal_pos, chrom_info_ptr->chrom_mask);
+  if (merge_post_msort_update_maps(marker_ids, max_marker_id_len, marker_map, pos_buf, ll_buf, chrom_start, chrom_id, chrom_ct, &dedup_marker_ct, merge_equal_pos, marker_alleles, max_marker_allele_len, chrom_info_ptr->chrom_mask)) {
+    goto merge_datasets_ret_INVALID_FORMAT;
+  }
   if (!dedup_marker_ct) {
     logprint("Error: No markers in merged file.\n");
     goto merge_datasets_ret_INVALID_FORMAT;
@@ -9400,7 +9475,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       fill_ulong_zero(markbuf, ujj * ulii);
     }
     for (mlpos = 0; mlpos < merge_ct; mlpos++) {
-      retval = merge_main(mergelist_bed[mlpos], mergelist_bim[mlpos], mergelist_fam[mlpos], tot_indiv_ct, tot_marker_ct, dedup_marker_ct, uii * markers_per_pass, ujj, marker_alleles, max_marker_allele_len, marker_ids, max_marker_id_len, person_ids, max_person_id_len, merge_nsort, indiv_nsmap, flex_map, marker_map, chrom_start, chrom_id, chrom_ct, idbuf, readbuf, writebuf, mlpos? merge_mode : merge_first_mode(merge_mode, merge_disallow_equal_pos), markbuf, outfile, &diff_total_overlap, &diff_not_both_genotyped, &diff_discordant, ped_buflen, bmap_raw);
+      retval = merge_main(mergelist_bed[mlpos], mergelist_bim[mlpos], mergelist_fam[mlpos], tot_indiv_ct, tot_marker_ct, dedup_marker_ct, uii * markers_per_pass, ujj, marker_alleles, max_marker_allele_len, marker_ids, max_marker_id_len, person_ids, max_person_id_len, merge_nsort, indiv_nsmap, flex_map, marker_map, chrom_start, chrom_id, chrom_ct, idbuf, readbuf, writebuf, mlpos? merge_mode : merge_first_mode(merge_mode, merge_equal_pos), markbuf, outfile, &diff_total_overlap, &diff_not_both_genotyped, &diff_discordant, ped_buflen, bmap_raw);
       if (retval) {
 	goto merge_datasets_ret_1;
       }
