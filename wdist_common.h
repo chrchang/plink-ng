@@ -166,6 +166,11 @@ typedef union {
 #define CALC_GXE 0x2000000LLU
 #define CALC_IBS_TEST 0x4000000LLU
 
+#define UNSORTED_CHROM 1
+#define UNSORTED_BP 2
+// probably insert unsorted centimorgans later
+#define UNSORTED_SPLIT_CHROM 4
+
 #define LGEN_REFERENCE 1
 #define LGEN_ALLELE_COUNT 2
 

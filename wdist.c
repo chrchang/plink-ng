@@ -68,7 +68,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (16 May 2013)";
+  " (15 May 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -3485,6 +3485,10 @@ int32_t write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, uint
   return 0;
 }
 
+static inline uint32_t are_marker_pos_needed(uint64_t calculation_type) {
+  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL));
+}
+
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, Two_col_params* update_cm) {
   return (calculation_type & (CALC_MAKE_BED | CALC_RECODE));
 }
@@ -3527,6 +3531,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t* founder_info = NULL;
   uintptr_t* sex_nm = NULL;
   uintptr_t* sex_male = NULL;
+  uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type);
   uint32_t marker_cms_needed = are_marker_cms_needed(calculation_type, update_cm);
   uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname);
   int32_t jj = 0;
@@ -3616,6 +3621,13 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   int32_t duplicate_fail;
   Two_col_params* tcp_ptr;
 
+  if (update_cm && (!marker_cms_needed)) {
+    logprint("Error: --update-cm results would never be used.  (Did you forget --make-bed?)\n");
+    goto wdist_ret_INVALID_CMDLINE;
+  } else if (update_map && (!marker_pos_needed)) {
+    logprint("Error: --update-map results would never be used.  (Did you forget --make-bed?)\n");
+    goto wdist_ret_INVALID_CMDLINE;
+  }
   if (ci_size != 0.0) {
     ci_zt = ltqnorm(1 - (1 - ci_size) / 2);
   }
@@ -3755,9 +3767,13 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   } else {
     allelexxxx = 0;
   }
-  retval = load_bim(&bimfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &map_is_unsorted, marker_cms_needed, marker_alleles_needed, "bim");
+  retval = load_bim(&bimfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, "bim", (calculation_type == CALC_MAKE_BED)? NULL : "make-bed");
   if (retval) {
     goto wdist_ret_1;
+  }
+  if ((map_is_unsorted & UNSORTED_SPLIT_CHROM) && update_map) {
+    logprint("Error: Cannot use --update-map on a .bim with a split chromosome.  Run\n--make-bed by itself first.\n");
+    goto wdist_ret_INVALID_CMDLINE;
   }
 
   // load .fam, count indivs
@@ -3865,7 +3881,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     prune_missing_phenos(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, pheno_nm, pheno_d, missing_phenod);
   }
 
-  if ((update_cm && marker_cms_needed) || update_name || (marker_alleles_needed && (update_alleles_fname || (flip_fname && (!flip_subset_fname)))) || extractname || excludename) {
+  if (update_cm || update_map || update_name || (marker_alleles_needed && (update_alleles_fname || (flip_fname && (!flip_subset_fname)))) || extractname || excludename) {
     wkspace_mark = wkspace_base;
     duplicate_fail = 0;
     retval = sort_item_ids(&cptr, &iptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, strcmp_deref, &duplicate_fail);
@@ -3873,8 +3889,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_1;
     }
     if (duplicate_fail) {
-      if (update_cm && marker_cms_needed) {
+      if (update_cm) {
         logprint("Error: Duplicate marker ID(s) in input.  --update-cm cannot be used in their\npresence.\n");
+	goto wdist_ret_INVALID_FORMAT;
+      } else if (update_map) {
+        logprint("Error: Duplicate marker ID(s) in input.  --update-map cannot be used in their\npresence.\n");
 	goto wdist_ret_INVALID_FORMAT;
       } else if (update_name) {
         logprint("Error: Duplicate marker ID(s) in input.  --update-name cannot be used in their\npresence.\n");
@@ -3892,14 +3911,17 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
     // length of sorted list is NOT necessarily equal to unfiltered_marker_ct -
     // marker_exclude_ct for --exclude, since marker_exclude_ct may first
-    // change from --extract
+    // change from --update-map or --extract
     ii = unfiltered_marker_ct - marker_exclude_ct;
 
-    if (update_cm && marker_cms_needed) {
+    if (update_cm) {
       retval = update_marker_cms(update_cm, cptr, (uint32_t)ii, max_marker_id_len, (uint32_t*)iptr, marker_cms);
       if (retval) {
 	goto wdist_ret_1;
       }
+    }
+    if (update_map) {
+      retval = update_marker_pos(update_map, cptr, (uint32_t)ii, max_marker_id_len, (uint32_t*)iptr, marker_exclude, &marker_exclude_ct, marker_pos, &map_is_unsorted, chrom_info_ptr);
     }
     if (update_name) {
       retval = update_marker_names(update_name, cptr, (uint32_t)ii, max_marker_id_len, (uint32_t*)iptr, marker_ids);
@@ -4251,7 +4273,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_LD_PRUNE) {
-    if (map_is_unsorted == 2) {
+    if (map_is_unsorted & UNSORTED_BP) {
       logprint("Error: Cannot perform LD-based marker pruning on an unsorted .map/.bim.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
@@ -9266,7 +9288,7 @@ int32_t main(int32_t argc, char** argv) {
     sprintf(logbuf, "Error: Deprecated parameter-free --update-%s cannot be used without\n--update-map.%s", (update_map_modifier == 1)? "chr" : "cm", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
-  if ((update_chr || update_map) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((!load_rare) && (calculation_type != CALC_MAKE_BED)))) {
+  if (update_chr && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((!load_rare) && (calculation_type != CALC_MAKE_BED)))) {
     sprintf(logbuf, "Error: --update-chr/--update-map must be used with --make-bed and no other\ncommands.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
