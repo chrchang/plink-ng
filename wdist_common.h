@@ -1033,9 +1033,8 @@ typedef struct {
   // no point to dynamic allocation when MAX_POSSIBLE_CHROM is small
 
   // order of chromosomes in input files
-  // currently tolerates out-of-order chromosomes, as long as markers within a
-  // chromosome are not out of order, and all markers for any given chromosome
-  // are together
+  // currently tolerates out-of-order chromosomes, as long as all markers for
+  // any given chromosome are together
   uint32_t chrom_file_order[MAX_POSSIBLE_CHROM];
   uint32_t chrom_ct; // length of chrom_file_order
   uint32_t chrom_file_order_marker_idx[MAX_POSSIBLE_CHROM + 1];
