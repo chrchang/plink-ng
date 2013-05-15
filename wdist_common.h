@@ -172,6 +172,11 @@ typedef union {
 #define PHENO_ALL 1
 #define PHENO_MERGE 2
 
+#define FAM_COL_1 1
+#define FAM_COL_34 2
+#define FAM_COL_5 4
+#define FAM_COL_6 8
+
 #define FILTER_BINARY_CASES 1
 #define FILTER_BINARY_CONTROLS 2
 #define FILTER_BINARY_FEMALES 4
@@ -230,11 +235,6 @@ typedef union {
 
 #define WRITE_COVAR_PHENO 1
 #define WRITE_COVAR_DUMMY 2
-
-#define UPDATE_MAP_BP 1
-#define UPDATE_MAP_CHR 2
-#define UPDATE_MAP_CM 4
-#define UPDATE_MAP_NAME 8
 
 #define MERGE_MODE_MASK 7
 #define MERGE_EQUAL_POS 8
@@ -402,6 +402,7 @@ extern sfmt_t sfmt;
 extern const char errstr_fopen[];
 extern const char errstr_append[];
 extern const char errstr_thread_create[];
+extern const char cmdline_format_str[];
 
 extern FILE* logfile;
 extern char logbuf[MAXLINELEN];
@@ -415,6 +416,14 @@ typedef struct ll_str_struct {
   struct ll_str_struct* next;
   char ss[];
 } Ll_str;
+
+typedef struct two_col_params_struct {
+  uint32_t colx;
+  uint32_t colid;
+  uint32_t skip;
+  char skipchar;
+  char fname[];
+} Two_col_params;
 
 uint32_t push_ll_str(Ll_str** ll_stack_ptr, const char* ss);
 

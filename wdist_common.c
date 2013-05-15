@@ -4,6 +4,7 @@
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
 const char errstr_append[] = "\nFor more information, try 'wdist --help [flag name]' or 'wdist --help | more'.\n";
 const char errstr_thread_create[] = "\nError: Failed to create thread.\n";
+const char cmdline_format_str[] = "\n  wdist [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  wdist --help {flag name(s)...}\n\n";
 
 char tbuf[MAXLINELEN * 4 + 256];
 
@@ -4648,22 +4649,29 @@ int32_t load_string_list(FILE** infile_ptr, uintptr_t max_str_len, char* str_lis
 }
 
 int32_t scan_max_strlen(char* fname, uint32_t colskip, uintptr_t* max_str_len_ptr) {
-  // does not include terminating null in the length
+  // includes terminating null in the length
   FILE* infile = NULL;
-  uintptr_t max_str_len = 0;
+  uintptr_t max_str_len = *max_str_len_ptr;
   int32_t retval = 0;
+  char* loadbuf = (char*)wkspace_base;
+  uintptr_t loadbuf_size = wkspace_left;
   char* bufptr;
   uintptr_t cur_str_len;
+  if (loadbuf_size > 0x7fffffc0) {
+    loadbuf_size = 0x7fffffc0;
+  }
+  if (loadbuf_size < MAXLINELEN) {
+    goto scan_max_strlen_ret_NOMEM;
+  }
   if (fopen_checked(&infile, fname, "r")) {
     goto scan_max_strlen_ret_OPEN_FAIL;
   }
-  tbuf[MAXLINELEN - 1] = ' ';
-  while (fgets(tbuf, MAXLINELEN, infile)) {
-    if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Pathologically long line in %s.\n", fname);
-      goto scan_max_strlen_ret_INVALID_FORMAT;
+  loadbuf[loadbuf_size - 1] = ' ';
+  while (fgets(loadbuf, loadbuf_size, infile)) {
+    if (!(loadbuf[loadbuf_size - 1])) {
+      goto scan_max_strlen_ret_NOMEM;
     }
-    bufptr = skip_initial_spaces(tbuf);
+    bufptr = skip_initial_spaces(loadbuf);
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
@@ -4676,14 +4684,18 @@ int32_t scan_max_strlen(char* fname, uint32_t colskip, uintptr_t* max_str_len_pt
       }
     }
     cur_str_len = strlen_se(bufptr);
-    if (cur_str_len > max_str_len) {
-      max_str_len = cur_str_len;
+    if (cur_str_len >= max_str_len) {
+      max_str_len = cur_str_len + 1;
     }
   }
+  *max_str_len_ptr = max_str_len;
   if (!feof(infile)) {
     goto scan_max_strlen_ret_READ_FAIL;
   }
   while (0) {
+  scan_max_strlen_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
   scan_max_strlen_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;

@@ -31,6 +31,7 @@
 #include "wdist_cnv.h"
 #include "wdist_data.h"
 #include "wdist_dosage.h"
+#include "wdist_help.h"
 #include "wdist_stats.h"
 #include "pigz.h"
 
@@ -58,7 +59,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.19.3"
+  "WDIST v0.19.4"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -67,7 +68,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (13 May 2013)";
+  " (15 May 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -75,1146 +76,8 @@ const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
-const char cmdline_format_str[] = "\n  wdist [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  wdist --help {flag name(s)...}\n\n";
 const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
 const char notestr_null_calc2[] = "Commands include --freqx, --hardy, --ibc, --distance, --genome, --model,\n--make-rel, --make-grm-bin, --rel-cutoff, --regress-distance, --ibs-test,\n--make-bed, --recode, --merge-list, and --write-snplist.\n\n'wdist --help | more' describes all functions (warning: long).\n";
-
-int32_t edit1_match(int32_t len1, char* s1, int32_t len2, char* s2) {
-  // permit one difference of the following forms:
-  // - inserted/deleted character
-  // - replaced character
-  // - adjacent pair of swapped characters
-  int32_t diff_found = 0;
-  int32_t pos = 0;
-  if (len1 == len2) {
-    while (pos < len1) {
-      if (s1[pos] != s2[pos]) {
-	if (diff_found) {
-	  if ((diff_found == 2) || (s1[pos] != s2[pos - 1]) || (s1[pos - 1] != s2[pos])) {
-	    return 0;
-	  }
-	}
-	diff_found++;
-      }
-      pos++;
-    }
-  } else if (len1 == len2 - 1) {
-    do {
-      if (s1[pos - diff_found] != s2[pos]) {
-	if (diff_found) {
-	  return 0;
-	}
-	diff_found++;
-      }
-      pos++;
-    } while (pos < len2);
-  } else if (len1 == len2 + 1) {
-    do {
-      if (s1[pos] != s2[pos - diff_found]) {
-	if (diff_found) {
-	  return 0;
-	}
-	diff_found++;
-      }
-      pos++;
-    } while (pos < len1);
-  } else {
-    return 0;
-  }
-  return 1;
-}
-
-#define MAX_EQUAL_HELP_PARAMS 16
-
-typedef struct {
-  int32_t iters_left;
-  uint32_t param_ct;
-  char** argv;
-  uintptr_t unmatched_ct;
-  uintptr_t* all_match_arr;
-  uintptr_t* prefix_match_arr;
-  uintptr_t* perfect_match_arr;
-  uint32_t* param_lens;
-  int32_t preprint_newline;
-} Help_ctrl;
-
-void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, int32_t postprint_newline, const char* payload) {
-  // unmatched_ct fixed during call, *unmatched_ct_ptr may decrease
-  uint32_t unmatched_ct = help_ctrl_ptr->unmatched_ct;
-  int32_t print_this = 0;
-  int32_t cur_param_lens[MAX_EQUAL_HELP_PARAMS];
-  char* cur_param_start[MAX_EQUAL_HELP_PARAMS];
-  int32_t cur_param_ct;
-  int32_t cur_param_idx;
-  uint32_t arg_uidx;
-  uint32_t arg_idx;
-  int32_t uii;
-  int32_t payload_len;
-  char* payload_ptr;
-  char* line_end;
-  char* payload_end;
-  if (help_ctrl_ptr->param_ct) {
-    strcpy(tbuf, cur_params);
-    cur_param_ct = 1;
-    cur_param_start[0] = tbuf;
-    payload_ptr = strchr(tbuf, '\t');
-    while (payload_ptr) {
-      *payload_ptr++ = '\0';
-      cur_param_start[cur_param_ct++] = payload_ptr;
-      payload_ptr = strchr(payload_ptr, '\t');
-    }
-    if (help_ctrl_ptr->iters_left) {
-      if (help_ctrl_ptr->unmatched_ct) {
-	arg_uidx = 0;
-	if (help_ctrl_ptr->iters_left == 2) {
-	  for (arg_idx = 0; arg_idx < unmatched_ct; arg_idx++) {
-	    arg_uidx = next_non_set_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
-	    for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
-	      if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
-		set_bit_noct(help_ctrl_ptr->perfect_match_arr, arg_uidx);
-		set_bit_noct(help_ctrl_ptr->prefix_match_arr, arg_uidx);
-		set_bit_sub(help_ctrl_ptr->all_match_arr, arg_uidx, &(help_ctrl_ptr->unmatched_ct));
-		break;
-	      }
-	    }
-	    arg_uidx++;
-	  }
-	} else {
-	  for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
-	    cur_param_lens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
-	  }
-	  for (arg_idx = 0; arg_idx < unmatched_ct; arg_idx++) {
-	    arg_uidx = next_non_set_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
-	    uii = help_ctrl_ptr->param_lens[arg_uidx];
-	    for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
-	      if (cur_param_lens[cur_param_idx] > uii) {
-		if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], uii)) {
-		  set_bit_noct(help_ctrl_ptr->prefix_match_arr, arg_uidx);
-		  set_bit_sub(help_ctrl_ptr->all_match_arr, arg_uidx, &(help_ctrl_ptr->unmatched_ct));
-		  break;
-		}
-	      }
-	    }
-	    arg_uidx++;
-	  }
-	}
-      }
-    } else {
-      for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
-	cur_param_lens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
-      }
-      for (arg_uidx = 0; arg_uidx < help_ctrl_ptr->param_ct; arg_uidx++) {
-	if (is_set(help_ctrl_ptr->prefix_match_arr, arg_uidx)) {
-	  if (!print_this) {
-	    if (is_set(help_ctrl_ptr->perfect_match_arr, arg_uidx)) {
-	      for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
-		if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
-		  print_this = 1;
-		  break;
-		}
-	      }
-	    } else {
-	      uii = help_ctrl_ptr->param_lens[arg_uidx];
-	      for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
-		if (cur_param_lens[cur_param_idx] > uii) {
-		  if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], uii)) {
-		    print_this = 1;
-		    break;
-		  }
-		}
-	      }
-	    }
-	  }
-	} else {
-	  for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
-	    if (edit1_match(cur_param_lens[cur_param_idx], cur_param_start[cur_param_idx], help_ctrl_ptr->param_lens[arg_uidx], help_ctrl_ptr->argv[arg_uidx])) {
-	      print_this = 1;
-	      set_bit_sub(help_ctrl_ptr->all_match_arr, arg_uidx, &(help_ctrl_ptr->unmatched_ct));
-	      break;
-	    }
-	  }
-	}
-      }
-      if (print_this) {
-	payload_len = strlen(payload);
-	if (payload[payload_len - 2] == '\n') {
-	  payload_end = (char*)(&(payload[payload_len - 1]));
-	} else {
-	  payload_end = (char*)(&(payload[payload_len]));
-	}
-	if (help_ctrl_ptr->preprint_newline) {
-	  putchar('\n');
-	}
-	help_ctrl_ptr->preprint_newline = postprint_newline;
-	payload_ptr = (char*)payload;
-	do {
-	  line_end = strchr(payload_ptr, '\n') + 1;
-	  uii = (uint32_t)(line_end - payload_ptr);
-	  if (uii > 2) {
-	    payload_ptr = &(payload_ptr[2]);
-	    uii -= 2;
-	  }
-	  memcpyx(tbuf, payload_ptr, uii, 0);
-	  fputs(tbuf, stdout);
-	  payload_ptr = line_end;
-	} while (payload_ptr < payload_end);
-      }
-    }
-  } else {
-    fputs(payload, stdout);
-  }
-}
-
-int32_t disp_help(uint32_t param_ct, char** argv) {
-  // yes, this is overkill.  But it should be a good template for other
-  // command-line programs to use.
-  uint32_t param_ctl = (param_ct + (BITCT - 1)) / BITCT;
-  int32_t retval = 0;
-  Help_ctrl help_ctrl;
-  uint32_t arg_uidx;
-  uint32_t arg_idx;
-  uint32_t net_unmatched_ct;
-  int32_t col_num;
-  int32_t leading_dashes;
-  help_ctrl.iters_left = param_ct? 2 : 0;
-  help_ctrl.param_ct = param_ct;
-  help_ctrl.argv = argv;
-  help_ctrl.unmatched_ct = param_ct;
-  help_ctrl.param_lens = NULL;
-  help_ctrl.all_match_arr = NULL;
-  help_ctrl.argv = NULL;
-  if (param_ct) {
-    help_ctrl.param_lens = (uint32_t*)malloc(param_ct * sizeof(int32_t));
-    if (!help_ctrl.param_lens) {
-      goto disp_help_ret_NOMEM;
-    }
-    help_ctrl.all_match_arr = (uintptr_t*)malloc(param_ctl * 3 * sizeof(intptr_t));
-    if (!help_ctrl.all_match_arr) {
-      goto disp_help_ret_NOMEM;
-    }
-    leading_dashes = 0;
-    for (arg_uidx = 0; arg_uidx < param_ct; arg_uidx++) {
-      if (argv[arg_uidx][0] == '-') {
-	leading_dashes = 1;
-	break;
-      }
-    }
-    if (leading_dashes) {
-      help_ctrl.argv = (char**)malloc(param_ct * sizeof(char*));
-      if (!help_ctrl.argv) {
-	goto disp_help_ret_NOMEM;
-      }
-      for (arg_uidx = 0; arg_uidx < param_ct; arg_uidx++) {
-	if (argv[arg_uidx][0] == '-') {
-	  if (argv[arg_uidx][1] == '-') {
-	    help_ctrl.argv[arg_uidx] = &(argv[arg_uidx][2]);
-	  } else {
-	    help_ctrl.argv[arg_uidx] = &(argv[arg_uidx][1]);
-	  }
-	} else {
-	  help_ctrl.argv[arg_uidx] = argv[arg_uidx];
-	}
-      }
-    } else {
-      help_ctrl.argv = argv;
-    }
-    for (arg_idx = 0; arg_idx < param_ct; arg_idx++) {
-      help_ctrl.param_lens[arg_idx] = strlen(help_ctrl.argv[arg_idx]);
-    }
-    fill_ulong_zero(help_ctrl.all_match_arr, param_ctl * 3);
-    help_ctrl.prefix_match_arr = &(help_ctrl.all_match_arr[param_ctl]);
-    help_ctrl.perfect_match_arr = &(help_ctrl.all_match_arr[param_ctl * 2]);
-    help_ctrl.preprint_newline = 1;
-  } else {
-    help_ctrl.argv = NULL;
-    fputs(
-"\nIn the command line flag definitions that follow,\n"
-"  * [square brackets] denote a required parameter, where the text between the\n"
-"    brackets describes its nature.\n"
-"  * <angle brackets> denote an optional modifier (or if '|' is present, a set\n"
-"    of mutually exclusive optional modifiers).  Use the EXACT text in the\n"
-"    definition, e.g. '--dummy acgt'.\n"
-"  * There's one exception to the angle brackets/exact text rule: when an angle\n"
-"    bracket term ends with '=[value]', '[value]' designates a variable\n"
-"    parameter.\n"
-"  * {curly braces} denote an optional parameter, where the text between the\n"
-"    braces describes its nature.\n"
-"  * An ellipsis (...) indicates that you may enter multiple parameters of the\n"
-"    specified type.\n"
-, stdout);
-    fputs(cmdline_format_str, stdout);
-    fputs(
-"Each WDIST run requires exactly one main input fileset.  The following flags\n"
-"are available for defining its form and location:\n\n"
-, stdout);
-  }
-  do {
-    help_print("bfile\tbed\tbim\tfam", &help_ctrl, 1,
-"  --bfile {prefix} : Specify .bed + .bim + .fam prefix (default 'wdist').\n"
-"  --bed [filename] : Specify full name of .bed file.\n"
-"  --bim [filename] : Specify full name of .bim file.\n"
-"  --fam [filename] : Specify full name of .fam file.\n\n"
-	       );
-    help_print("file\tped\tmap", &help_ctrl, 1,
-"  --file {prefix}  : Specify .ped + .map filename prefix (default 'wdist').\n"
-"  --ped [filename] : Specify full name of .ped file.\n"
-"  --map [filename] : Specify full name of .map file.\n\n"
-	       );
-    help_print("tfile\ttped\ttfam", &help_ctrl, 1,
-"  --tfile {prefix} : Specify .tped + .tfam filename prefix (default 'wdist').\n"
-"  --tped [fname]   : Specify full name of .tped file.\n"
-"  --tfam [fname]   : Specify full name of .tfam file.\n\n"
-	       );
-    help_print("lfile", &help_ctrl, 1,
-"  --lfile {prefix} : Specify .lgen + .map + .fam (long-format fileset) prefix.\n\n"
-	       );
-    help_print("data\tgen\tsample", &help_ctrl, 1,
-"  --data {prefix}  : Specify Oxford .gen + .sample prefix (default 'wdist').\n"
-"  --gen [filename] : Specify full name of .gen file.\n"
-"  --sample [fname] : Specify full name of .sample file.\n\n"
-	       );
-    help_print("cfile\tcnv-list\tgfile", &help_ctrl, 1,
-"  --cfile [prefix] : Specify .cnv + .fam + .cnv.map (segmental CNV) prefix.\n"
-"  --cnv-list [fn]  : Specify full name of .cnv file.\n"
-"  --gfile [prefix] : Specify .gvar + .fam + .map (genetic variant) prefix.\n\n"
-	       );
-    help_print("grm\tgrm-bin\trel-cutoff\tgrm-cutoff", &help_ctrl, 1,
-"  --grm {prefix}   : Specify .grm.gz + .grm.id (GCTA rel. matrix) prefix.\n"
-"  --grm-bin {prfx} : Specify .grm.bin + .grm.N.bin + .grm.id (GCTA triangular\n"
-"                     binary relationship matrix) filename prefix.\n\n"
-	       );
-    help_print("dummy", &help_ctrl, 1,
-"  --dummy [indiv ct] [marker ct] {missing geno freq} {missing pheno freq}\n"
-"          <acgt | 1234 | 12> <scalar-pheno>\n"
-"    This generates a fake input dataset with the specified number of\n"
-"    individuals and markers.  By default, the missing genotype and phenotype\n"
-"    frequencies are zero, and genotypes are As and Bs (change the latter with\n"
-"    'acgt'/'1234'/'12').  The 'scalar-pheno' modifier causes a normally\n"
-"    distributed scalar phenotype to be generated instead of a binary one.\n\n"
-	       );
-    help_print("simulate\tsimulate-qt", &help_ctrl, 1,
-"  --simulate [simulation parameter file] <tags | haps> <acgt | 1234 | 12>\n"
-"  --simulate-qt [simulation parameter file] <tags | haps> <acgt | 1234 | 12>\n"
-"    --simulate generates a fake input dataset with disease-associated SNPs,\n"
-"    while --simulate-qt generates a dataset with quantitative trait loci.\n\n"
-	       );
-    if (!param_ct) {
-      fputs(
-"Output files have names of the form 'wdist.{extension}' by default.  You can\n"
-"change the 'wdist' prefix with\n\n"
-, stdout);
-    }
-    help_print("out", &help_ctrl, 1,
-"  --out [prefix]   : Specify prefix for output files.\n\n"
-	       );
-    if (!param_ct) {
-      fputs(
-"WDIST automatically converts PLINK text filesets to binary during the loading\n"
-"process (the new fileset is saved to {output prefix}.bed + .bim + .fam, unless\n"
-"that would conflict with the output of another command like --make-bed).  You\n"
-"are encouraged to directly use the new binary fileset in future runs.\n\n"
-"Every run also requires at least one of the following commands (unless you just\n"
-"want automatic text-to-binary conversion or the default CNV report):\n\n"
-, stdout);
-    }
-    help_print("make-bed", &help_ctrl, 1,
-"  --make-bed\n"
-"    Creates a new binary fileset.  Unlike the automatic text-to-binary\n"
-"    converter (which only respects --autosome and --chr), this supports all of\n"
-"    WDIST's filtering flags.\n"
-	       );
-    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid", &help_ctrl, 1,
-"  --recode <12> <compound-genotypes> <23 | A | AD | lgen | lgen-ref | list |\n"
-"           rlist | transpose | vcf | vcf-fid | vcf-iid> <tab | tabx | spacex>\n"
-"    Creates a new text fileset with all filters applied.\n"
-"    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
-"    * The 'compound-genotypes' modifier removes the space between pairs of\n"
-"      genotype codes for the same marker.\n"
-"    * The '23' modifier causes a 23andMe-formatted file to be generated.  This\n"
-"      can only be used on a single individual's data (--keep may be handy).\n"
-"    * The 'AD' modifier causes an additive + dominant component file, suitable\n"
-"      for loading from R, to be generated instead.  If you don't want the\n"
-"      dominant component, use 'A' instead.\n"
-"    * The 'lgen' modifier causes a long-format fileset to be generated instead,\n"
-"      (loadable with --lfile), while 'lgen-ref' generates a (usually) smaller\n"
-"      long-format fileset loadable with --lfile + --reference.\n"
-"    * The 'list' modifier creates a genotype-based list, while 'rlist'\n"
-"      creates a rare-genotype fileset.  (These formats are not directly\n"
-"      loadable by WDIST or PLINK.)\n"
-"    * 'transpose' creates a transposed text fileset (loadable with --tfile).\n"
-"    * 'vcf', 'vcf-fid', and 'vcf-iid' result in production of a VCFv4.0 file.\n"
-"      'vcf-fid' and 'vcf-iid' cause family IDs or within-family IDs\n"
-"      respectively to be used for the sample IDs in the last header row, while\n"
-"      'vcf' merges both IDs and puts an underscore between them.\n"
-"    * The 'tab' modifier makes the output mostly tab-delimited instead of\n"
-"      mostly space-delimited.  'tabx' and 'spacex' force all tabs and all\n"
-"      spaces, respectively.\n\n"
-	       );
-    help_print("write-covar", &help_ctrl, 1,
-"  --write-covar\n"
-"    If a --covar file is loaded, this creates a revised covariate file after\n"
-"    applying all filters.  (This automatically happens if --make-bed or\n"
-"    --recode is specified.)\n\n"
-	       );
-    help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
-"  --merge [.ped filename] [.map filename]\n"
-"  --merge [text fileset prefix]\n"
-"  --bmerge [.bed filename] [.bim filename] [.fam filename]\n"
-"  --bmerge [binary fileset prefix]\n"
-"    Merges the given fileset with the initially loaded fileset.  If you specify\n"
-"    --make-bed or '--recode lgen', the initial merge result is written to\n"
-"    {output prefix}-merge.bed + .bim + .fam, filtering is performed, and then\n"
-"    the post-filtering data is written to {output prefix}.bed + .bim + .fam.\n"
-"    Otherwise, the merged data is written directly to\n"
-"    {output prefix}.bed + .bim + .fam.\n"
-"  --merge-list [filename]\n"
-"    Merge all filesets named in the text file with the initially loaded\n"
-"    fileset.  The text file is interpreted as follows:\n"
-"    * If a line contains only one name, it is assumed to be the prefix for a\n"
-"      binary fileset.\n"
-"    * If a line contains exactly two names, they are assumed to be the full\n"
-"      filenames for a text fileset (.ped first, then .map).\n"
-"    * If a line contains exactly three names, they are assumed to be the full\n"
-"      filenames for a binary fileset (.bed, then .bim, then .fam).\n\n"
-	       );
-    help_print("write-snplist", &help_ctrl, 1,
-"  --write-snplist\n"
-"    Writes a .snplist file listing the names of all markers that pass the\n"
-"    filters and inclusion thresholds you've specified.\n\n"
-	       );
-    help_print("freq\tfreqx\tfrqx\tcounts", &help_ctrl, 1,
-"  --freq <counts>\n"
-"  --freqx\n"
-"    --freq generates an allele frequency report identical to that of PLINK\n"
-"    --freq (or --freq --counts, if the 'counts' modifier is used).  Using the\n"
-"    --freqx flag instead causes the MAF and NCHROBS columns to be replaced with\n"
-"    homozygote and heterozygote counts, which (when reloaded with --read-freq)\n"
-"    allow distance matrix terms to be weighted consistently through multiple\n"
-"    filtering runs.\n\n"
-		);
-    help_print("hardy", &help_ctrl, 1,
-"  --hardy\n"
-"    Generates a Hardy-Weinberg exact test p-value report.  (This does NOT\n"
-"    filter on the p-value; use --hwe for that.)\n\n"
-	       );
-    help_print("ibc\thet", &help_ctrl, 1,
-"  --ibc\n"
-"    Calculates inbreeding coefficients in three different ways.\n"
-"    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
-"      a tool for Genome-wide Complex Trait Analysis.  Am J Hum Genet. 2011 Jan\n"
-"      88(1): 76-82.  This paper also describes the relationship matrix\n"
-"      computation we implement.\n\n"
-	       );
-    help_print("distance\tregress-pcs-distance", &help_ctrl, 1,
-"  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <alct> <3d>\n"
-"             <flat-missing>\n"
-"    Writes a lower-triangular tab-delimited table of (weighted) genomic\n"
-"    distances in allele count units to {output prefix}.dist, and a list of the\n"
-"    corresponding family/individual IDs to {output prefix}.dist.id.  The first\n"
-"    row of the .dist file contains a single {genotype 1-genotype 2} distance,\n"
-"    the second row has the {genotype 1-genotype 3} and {genotype 2-genotype 3}\n"
-"    distances in that order, etc.\n"
-"    * If the 'square' or 'square0' modifier is present, a square matrix is\n"
-"      written instead; 'square0' fills the upper right triangle with zeroes.\n"
-"    * If the 'gz' modifier is present, a compressed .dist.gz file is written\n"
-"      instead of a plain text file.\n"
-"    * If the 'bin' modifier is present, a binary (square) matrix of\n"
-"      double-precision floating point values, suitable for loading from R, is\n"
-"      instead written to {output prefix}.dist.bin.  This can be combined with\n"
-"      'square0' if you still want the upper right zeroed out, or 'triangle' if\n"
-"      you don't want to pad the upper right at all.\n"
-"    * If the 'ibs' modifier is present, an identity-by-state matrix is written\n"
-"      to {output prefix}.mibs.  '1-ibs' causes distances expressed as genomic\n"
-"      proportions (i.e. 1 - IBS) to be written to {output prefix}.mdist.\n"
-"      Combine with 'alct' if you want to generate the usual .dist file as well.\n"
-"    * With dosage data, the '3d' modifier considers 0-1-2 allele count\n"
-"      probabilities separately, instead of collapsing them into an expected\n"
-"      value and a missingness probability.\n"
-"    * By default, distance rescaling in the presence of missing markers is\n"
-"      sensitive to allele count distributions: if allele A contributes, on\n"
-"      average, twice as much to other pairwise distances as allele B, a missing\n"
-"      allele A will result in twice as large of a missingness correction.  To\n"
-"      turn this off, use the 'flat-missing' modifier.\n"
-	       );
-    help_print("matrix\tdistance-matrix", &help_ctrl, 1,
-"  --matrix\n"
-"  --distance-matrix\n"
-"    These generate space-delimited text matrices, and are included for\n"
-"    backwards compatibility with old scripts relying on the corresponding PLINK\n"
-"    flags.  New scripts should migrate to '--distance ibs' and '--distance\n"
-"    1-ibs', which support output formats better suited to parallel computation\n"
-"    and have more accurate handling of missing markers.\n\n"
-		);
-    help_print("genome\tZ-genome\tgenome-full\tunbounded", &help_ctrl, 1,
-"  --genome <gz> <full> <unbounded>\n"
-"    Identity-by-descent analysis.  This yields the same output as PLINK\n"
-"    --genome/--Z-genome, and the 'full' and 'unbounded' modifiers have the same\n"
-"    effect as PLINK's --genome-full and --unbounded flags.\n\n"
-		);
-    help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means\ttrend", &help_ctrl, 1,
-"  --assoc <perm | mperm=[value]> <genedrop> <perm-count> <fisher> <counts> <p2>\n"
-"  --assoc <perm | mperm=[value]> <perm-count> <qt-means> <lin>\n"
-"  --model <perm | mperm=[value]> <genedrop> <perm-count> <fisher | trend-only>\n"
-"          <dom | rec | gen | trend>\n"
-"    Basic association analysis report.\n"
-"    Given a case/control phenotype, --assoc performs a 1df chi-square allelic\n"
-"    test, while --model performs 4 other tests as well (1df dominant gene\n"
-"    action, 1df recessive gene action, 2df genotypic, Cochran-Armitage trend).\n"
-"    * With 'fisher', Fisher's exact test is used to generate p-values.\n"
-"    * 'perm' causes an adaptive permutation test to be performed.\n"
-"    * 'mperm=[value]' causes a max(T) permutation test with the specified\n"
-"      number of replications to be performed.\n"
-"    * 'genedrop' causes offspring genotypes to be regenerated via gene-dropping\n"
-"      in the permutation test.\n"
-"    * 'perm-count' causes the permutation test report to include counts instead\n"
-"      of frequencies.\n"
-"    * 'counts' causes --assoc to report allele counts instead of frequencies.\n"
-"    * 'p2' changes the --assoc permutation test used (see PLINK documentation).\n"
-"    * 'dom', 'rec', 'gen', and 'trend' force the corresponding test to be used\n"
-"      as the basis for --model permutation.  (By default, the most significant\n"
-"      result among the allelic, dominant, and recessive tests is used.)\n"
-"    * 'trend-only' causes only the trend test to be performed.\n"
-"    Given a quantitative phenotype, --assoc normally performs a Wald test.\n"
-"    * In this case, the 'qt-means' modifier causes trait means and standard\n"
-"      deviations stratified by genotype to be reported as well.\n"
-"    * 'lin' causes the Lin statistic to be computed, and makes it the basis for\n"
-"      multiple-testing corrections and permutation tests.\n"
-"    Several other flags (most notably, --aperm) can be used to customize the\n"
-"    permutation test.\n\n"
-	       );
-    help_print("gxe\tmcovar", &help_ctrl, 1,
-"  --gxe {covariate index}\n"
-"    Given both a quantitative phenotype and a dichotomous covariate loaded with\n"
-"    --covar defining two groups, --gxe compares the regression coefficient\n"
-"    derived from considering only members of one group to the regression\n"
-"    coefficient derived from considering only members of the other.  By\n"
-"    default, the first covariate in the --covar file defines the groups; use\n"
-"    e.g. '--gxe 3' to base them on the third covariate instead.\n\n"
-	       );
-    help_print(
-"indep\tindep-pairwise", &help_ctrl, 1,
-"  --indep [window size]<kb> [step size (markers)] [VIF threshold]\n"
-"  --indep-pairwise [window size]<kb> [step size (markers)] [r^2 threshold]\n"
-"    Generates a list of markers in approximate linkage equilibrium.  With the\n"
-"    'kb' modifier, the window size is in kilobase units instead of marker\n"
-"    count.  (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5'\n"
-"    and '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
-"    Note that you need to rerun WDIST using --extract or --exclude on the\n"
-"    .prune.in/.prune.out file to apply the list to another computation.\n\n"
-		);
-    help_print("make-rel", &help_ctrl, 1,
-"  --make-rel <square | square0 | triangle> <gz | bin> <cov | ibc1 | ibc2>\n"
-"             <single-prec>\n"
-"    Writes a lower-triangular variance-standardized relationship (coancestry)\n"
-"    matrix to {output prefix}.rel, and corresponding IDs to\n"
-"    {output prefix}.rel.id.\n"
-"    * 'square', 'square0', 'triangle', 'gz', and 'bin' act as they do on\n"
-"      --distance.\n"
-"    * The 'cov' modifier removes the variance standardization step, causing a\n"
-"      covariance matrix to be calculated instead.\n"
-"    * By default, the diagonal elements in the relationship matrix are based on\n"
-"      --ibc's Fhat3; use the 'ibc1' or 'ibc2' modifiers to base them on Fhat1\n"
-"      or Fhat2 instead.\n"
-"    * WDIST normally performs this calculation with double-precision floating\n"
-"      point numbers.  The 'single-prec' modifier switches to single-precision\n"
-"      arithmetic, which is generally good enough; this decreases memory usage\n"
-"      and speeds up computation.\n"
-               );
-    help_print("make-grm\tmake-grm-bin\tgrm\tgrm-bin", &help_ctrl, 1,
-"  --make-grm <no-gz> <cov | ibc1 | ibc2> <single-prec>\n"
-"  --make-grm-bin <cov | ibc1 | ibc2>\n"
-"    --make-grm writes the relationships in GCTA's gzipped list format, which\n"
-"    describes one pair per line, while --make-grm-bin writes them in GCTA's\n"
-"    single-precision triangular binary format.  Note that these formats\n"
-"    explicitly store the number of valid observations (where neither individual\n"
-"    has a missing call) for each pair, which is useful input for some scripts.\n\n"
-	       );
-    help_print("rel-cutoff\tgrm-cutoff", &help_ctrl, 1,
-"  --rel-cutoff {val}\n"
-"  --grm-cutoff {val}\n"
-"    Excludes one member of each pair of individuals with relatedness greater\n"
-"    than the given cutoff value (default 0.025).  If no later operation will\n"
-"    cause the list of remaining individuals to be written to disk, this will\n"
-"    save it to {output prefix}.rel.id.\n"
-"    Note that maximizing the remaining sample size is equivalent to the NP-hard\n"
-"    maximum independent set problem, so we use a greedy algorithm instead of\n"
-"    guaranteeing optimality.  (Use the --make-rel and --keep/--remove flags if\n"
-"    you want to try to do better.)\n\n"
-	       );
-    help_print("regress-distance", &help_ctrl, 1,
-"  --regress-distance {iters} {d}\n"
-"    Linear regression of pairwise genomic distances on pairwise average\n"
-"    phenotypes and vice versa, using delete-d jackknife for standard errors.\n"
-"    Scalar phenotype data is required.\n"
-"    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
-"      down.  With no parameters, 100k iterations are run.\n\n"
-	       );
-    help_print("regress-pcs\tdistance\tregress-pcs-distance", &help_ctrl, 1,
-"  --regress-pcs [.evec or .eigenvec filename] <normalize-pheno> <sex-specific>\n"
-"                <clip> {max PCs}\n"
-"    Linear regression of phenotypes and genotypes on the given list of\n"
-"    principal components (produced by SMARTPCA or GCTA).  Output is a .gen +\n"
-"    .sample fileset in the Oxford IMPUTE/SNPTEST v2 format.\n"
-"    * The 'normalize-pheno' modifier converts all phenotype residuals to\n"
-"      Z-scores.  When combined with 'sex-specific', the Z-scores are evaluated\n"
-"      separately by sex.\n"
-"    * The 'clip' modifier clips out-of-range genotype residuals.  Without it,\n"
-"      they are represented as negative probabilities in the .gen file, which\n"
-"      are invalid input for some programs.\n"
-"    * By default, principal components beyond the 20th are ignored; change this\n"
-"      by setting the max PCs parameter.\n"
-"  --regress-pcs-distance [.evec/.eigenvec file] <normalize-pheno>\n"
-"                         <sex-specific> {max PCs} <square | square0 | triangle>\n"
-"                         <gz | bin> <ibs> <1-ibs> <alct> <3d> <flat-missing>\n"
-"    High-speed combination of --regress-pcs and --distance (no .gen + .sample\n"
-"    fileset is written to disk).\n\n"
-	       );
-    help_print("regress-rel", &help_ctrl, 1,
-"  --regress-rel {iters} {d}\n"
-"    Linear regression of pairwise genomic relationships on pairwise average\n"
-"    phenotypes, and vice versa.  Defaults for iters and d are the same as for\n"
-"    --regress-distance.\n\n"
-	       );
-    help_print("ibs-test\tgroupdist", &help_ctrl, 1,
-"  --ibs-test {permutation count}\n"
-"  --groupdist {iters} {d}\n"
-"    Given dichotomous phenotype data, these commands consider three subsets of\n"
-"    the distance matrix: pairs of affected individuals, affected-unaffected\n"
-"    pairs, and pairs of unaffected individuals.  Each of these subsets has a\n"
-"    distribution of pairwise genomic distances; --ibs-test uses permutation to\n"
-"    estimate p-values re: which types of pairs are most similar, while\n"
-"    --groupdist focuses on the differences between the centers of these\n"
-"    distributions and estimates standard errors via delete-d jackknife.\n\n"
-	       );
-#ifndef NOLAPACK
-    help_print("unrelated-heritability", &help_ctrl, 1,
-"  --unrelated-heritability <strict> {tol} {initial covg} {initial covr}\n"
-"    REML estimate of additive heritability, iterating with an accelerated\n"
-"    variant of the EM algorithm until the rate of change of the log likelihood\n"
-"    function is less than tol.  Scalar phenotype data is required.\n"
-"    * The 'strict' modifier forces regular EM to be used.  tol defaults to\n"
-"      10^{-7}, genomic covariance prior defaults to 0.45, and residual\n"
-"      covariance prior defaults to (1 - covg).\n"
-"    * For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
-"      Genetic Correlations Explained by Common SNPs for Metabolic Syndrome\n"
-"      Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
-	       );
-#endif
-    help_print("cnv-make-map", &help_ctrl, 1,
-"  --cnv-make-map <short>\n"
-"    Given a .cnv file, this generates the corresponding .cnv.map file needed\n"
-"    by WDIST and PLINK's other CNV analysis commands.  The 'short' modifier\n"
-"    causes entries needed by PLINK but not WDIST to be omitted.  (Now\n"
-"    automatically invoked, with 'short', when necessary.)\n\n"
-	       );
-    help_print("cnv-check-no-overlap", &help_ctrl, 1,
-"  --cnv-check-no-overlap\n"
-"    Given a .cnv fileset, this checks for within-individual CNV overlaps.\n\n"
-	       );
-    help_print("cnv-write", &help_ctrl, 1,
-"  --cnv-write <freq>\n"
-"    Writes a new .cnv fileset, after applying all requested filters.  The\n"
-"    'freq' modifier (which must be used with --cnv-freq-method2) causes an\n"
-"    additional \"FREQ\" field to be written with CNV-CNV overlap counts.\n\n"
-	       );
-    help_print("cnv-indiv-perm\tcnv-test\tcnv-test-region\tcnv-enrichment-test\tmperm\tcnv-test-1sided\tcnv-test-2sided", &help_ctrl, 1,
-"  --cnv-indiv-perm [permutation count]\n"
-"  --cnv-test <1sided | 2sided> [permutation count]\n"
-"  --cnv-test-region [permutation count]\n"
-"  --cnv-enrichment-test {permutation count}\n"
-"    Given a .cnv fileset,\n"
-"    * --cnv-indiv-perm performs a case/control CNV burden test.\n"
-"    * --cnv-test performs a basic permutation-based CNV association test.  By\n"
-"      default, this is 1-sided for case/control phenotypes and 2-sided for\n"
-"      quantitative traits; you can use '1sided'/'2sided' to force the opposite.\n"
-"    * --cnv-test-region reports case/ctrl association test results by region.\n"
-"    * --cnv-enrichment-test performs Raychaudhuri et al.'s geneset enrichment\n"
-"      test.  Gene locations must be loaded with --cnv-count.\n\n"
-	       );
-    if (!param_ct) {
-      fputs(
-"The following other flags are supported.  (Order of operations is described at\n"
-"https://www.cog-genomics.org/wdist/order .)\n"
-, stdout);
-    }
-    help_print("script", &help_ctrl, 0,
-"  --script [fname] : Include command-line options from file.\n"
-	       );
-    help_print("rerun", &help_ctrl, 0,
-"  --rerun {log}    : Rerun commands in log (default 'wdist.log').\n"
-	       );
-    help_print("no-fid", &help_ctrl, 0,
-"  --no-fid         : .fam/.ped file does not contain column 1 (family ID).\n"
-	       );
-    help_print("no-parents", &help_ctrl, 0,
-"  --no-parents     : .fam/.ped file does not contain columns 3-4 (parents).\n"
-	       );
-    help_print("no-sex", &help_ctrl, 0,
-"  --no-sex         : .fam/.ped file does not contain column 5 (sex).\n"
-	       );
-    help_print("no-pheno", &help_ctrl, 0,
-"  --no-pheno       : .fam/.ped file does not contain column 6 (phenotype).\n"
-	       );
-    help_print("load-dists\tgroupdist\tregress-distance", &help_ctrl, 0,
-"  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --groupdist\n"
-"                     or --regress-distance analysis, instead of recalculating\n"
-"                     it from scratch.\n"
-	       );
-    help_print("silent", &help_ctrl, 0,
-"  --silent         : Suppress output to console.\n"
-	       );
-    help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 0,
-"  --merge-mode [n] : Adjust --merge/--bmerge/--merge-list behavior based on a\n"
-"                     numeric code.\n"
-"                     1 (default) = difference -> missing\n"
-"                     2 = only overwrite originally missing calls\n"
-"                     3 = only overwrite calls which are nonmissing in new file\n"
-"                     4/5 = never overwrite and always overwrite, respectively\n"
-"                     6 = report all mismatching calls without merging\n"
-"                     7 = report mismatching nonmissing calls without merging\n"
-	       );
-    help_print("indiv-sort\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
-"  --indiv-sort [m] : Specify family/individual ID sort order.  The following\n"
-"                     three modes are currently supported:\n"
-"                     * 'none'/'0' keeps individuals in the order they were\n"
-"                       loaded.  This is the default for non-merge operations.\n"
-"                     * 'natural'/'n' invokes \"natural sort\", e.g. 'id2' <\n"
-"                       'ID3' < 'ID10'.  This is the default when merging.\n"
-"                     * 'ascii'/'a' sorts in ASCII order, e.g. 'ID3' < 'id10' <\n"
-"                       'id2'.\n"
-"                     For now, only --make-bed and --merge/--bmerge/--merge-list\n"
-"                     respect this flag.\n"
-	       );
-    help_print("pheno\tall-pheno", &help_ctrl, 0,
-"  --pheno [fname]  : Specify alternate phenotype.\n"
-"  --all-pheno      : For basic association tests, loop through all phenotypes\n"
-"                     in --pheno file.\n"
-	       );
-    help_print("mpheno\tpheno", &help_ctrl, 0,
-"  --mpheno [col]   : Specify phenotype column number in --pheno file.\n"
-	       );
-    help_print("pheno-name\tpheno", &help_ctrl, 0,
-"  --pheno-name [c] : If phenotype file has a header row, use column with the\n"
-"                     given name.\n"
-	       );
-    help_print("pheno-merge\tpheno", &help_ctrl, 0,
-"  --pheno-merge    : If a phenotype is present in the original but not the\n"
-"                     alternate file, use the original value instead of setting\n"
-"                     the phenotype to missing.\n"
-	       );
-    help_print("covar\tcovar-name\tcovar-number", &help_ctrl, 0,
-"  --covar [filename]    : Specify covariate file.\n"
-"  --covar-name [names]  : Specifies covariate(s) in --covar file by name.\n"
-"                          Separate multiple names with commas (spaces are not\n"
-"                          permitted).  Use dashes to designate ranges.\n"
-"  --covar-number [nums] : Specifies covariate(s) in --covar file by number.\n"
-	       );
-    help_print("within", &help_ctrl, 0,
-"  --within [fname] : Specify clusters.\n"
-	       );
-    help_print("set\tsubset", &help_ctrl, 0,
-"  --set [filename] : Specify sets.\n"
-"  --subset [fname] : Specify list of subsets to extract from --set file.\n"
-	       );
-    help_print("prune", &help_ctrl, 0,
-"  --prune          : Remove individuals with missing phenotypes.\n"
-	       );
-    help_print("1", &help_ctrl, 0,
-"  --1              : Affection phenotypes are interpreted as 0 = unaffected,\n"
-"                     1 = affected (instead of 0 = missing, 1 = unaffected,\n"
-"                     2 = affected).\n"
-	       );
-// --map3 implicitly supported via autodetection
-// --compound-genotypes automatically supported
-    help_print("cow\tdog\thorse\tmouse\trice\tsheep", &help_ctrl, 0,
-"  --cow/--dog/--horse/--mouse/--rice/--sheep : Specify nonhuman species.\n"
-	       );
-    help_print("autosome\tautosome-xy\tchr\tchr-excl", &help_ctrl, 0,
-"  --autosome       : Exclude all non-autosomal markers.\n"
-"  --autosome-xy    : Exclude all non-autosomal markers, except those with\n"
-"                     chromosome code XY (pseudo-autosomal region of X).\n"
-	       );
-    help_print("chr\tchr-excl\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
-"  --chr [chrs...]  : Exclude all markers not on the given chromosome(s).  Valid\n"
-"                     choices for humans are 0 (unplaced), 1-22, X, Y, XY, and\n"
-"                     MT.  Separate multiple chromosomes with spaces and/or\n"
-"                     commas, and use a dash (no adjacent spaces permitted) to\n"
-"                     denote a range, e.g. '--chr 1-4, 22, xy'.\n"
-"  --chr-excl [...] : Reverse of --chr (excludes markers on listed chromosomes).\n"
-	       );
-    help_print("d\tsnps", &help_ctrl, 0,
-"  --d [char]       : Change marker range delimiter (usually '-').\n"
-	       );
-    help_print("from\tto\tsnp\twindow\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
-"  --from [mkr ID]  : Use ID(s) to specify a marker range to load.  When used\n"
-"  --to   [mkr ID]    together, both markers must be on the same chromosome.\n"
-"  --snp  [mkr ID]  : Specify a single marker to load.\n"
-"  --window  [kbs]  : With --snp, loads all markers within half the specified kb\n"
-"                     distance of the named marker.\n"
-"  --from-bp [pos]  : Use physical position(s) to define a marker range to load.\n"
-"  --to-bp   [pos]    --from-kb/--to-kb/--from-mb/--to-mb allow decimal values.\n"
-"    ...              You're required to specify a single chromosome with these.\n"
-	       );
-    help_print("snps", &help_ctrl, 0,
-"  --snps [IDs...]  : Use IDs to specify multiple marker ranges to load.  E.g.\n"
-"                     '--snps rs1111-rs2222, rs3333, rs4444'.\n"
-	       );
-    help_print("maf", &help_ctrl, 0,
-"  --maf {val}      : Minor allele frequency minimum threshold (default 0.01).\n"
-"                     Note that the default threshold is only applied if --maf\n"
-"                     is used without an accompanying value; if you do not\n"
-"                     invoke --maf, no MAF inclusion threshold is applied.\n"
-"                     Other inclusion thresholds work the same way.\n"
-	       );
-    help_print("max-maf\tmaf", &help_ctrl, 0,
-"  --max-maf [val]  : Minor allele frequency maximum threshold.\n"
-	       );
-    help_print("geno\tmind", &help_ctrl, 0,
-"  --geno {val}     : Maximum per-marker missing (default 0.1).\n"
-"  --mind {val}     : Maximum per-person missing (default 0.1).\n"
-	       );
-    help_print("hwe", &help_ctrl, 0,
-"  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
-"                     default 0.001.\n"
-	       );
-    help_print("hwe-all\thwe", &help_ctrl, 0,
-"  --hwe-all        : Given case-control data, include noncontrols in HWE test.\n"
-	       );
-    help_print("allow-no-sex\tmust-have-sex", &help_ctrl, 0,
-"  --allow-no-sex   : Do not treat ambiguous-sex individuals as having missing\n"
-"                     phenotypes in analysis commands.  (Automatic /w --no-sex.)\n"
-"  --must-have-sex  : Force ambiguous-sex phenotypes to missing on --make-bed\n"
-"                     and --recode.\n"
-	       );
-    help_print("set-hh-missing", &help_ctrl, 0,
-"  --set-hh-missing : Cause --make-bed and --recode to set heterozygous haploid\n"
-"                     genotypes to missing.\n"
-	       );
-    help_print("reference\tallele-count\tlfile", &help_ctrl, 0,
-"  --reference [fn] : Specify default allele file for .lgen input.\n"
-"  --allele-count   : When used with --reference, specifies that the .lgen file\n"
-"                     contains reference allele counts.\n"
-	       );
-    help_print("with-phenotype\twrite-covar", &help_ctrl, 0,
-"  --with-phenotype : Include phenotype when writing updated covariate file.\n"
-	       );
-    help_print("dummy-coding\twrite-covar", &help_ctrl, 0,
-"  --dummy-coding   : Split categorical variables (n categories, for 2 < n < 50)\n"
-"                     into n-1 binary dummy variables when writing updated\n"
-"                     covariate file.\n"
-	       );
-    help_print("nonfounders", &help_ctrl, 0,
-"  --nonfounders    : Include nonfounders in allele frequency/HWE calculations.\n"
-	       );
-    help_print("ppc-gap\tgenome\tZ-genome", &help_ctrl, 0,
-"  --ppc-gap [val]  : Minimum number of base pairs, in thousands, between\n"
-"                     informative pairs of markers used in --genome PPC test.\n"
-"                     500 if unspecified.\n"
-	       );
-    help_print("seed", &help_ctrl, 0,
-"  --seed [val...]  : Set random number seed(s).  Each value must be an integer\n"
-"                     between 0 and 4294967295 inclusive.\n"
-	       );
-    help_print("memory", &help_ctrl, 0,
-"  --memory [val]   : Size, in MB, of initial malloc attempt.  (Some operating\n"
-"                     systems allow this number to exceed total physical RAM.)\n"
-	       );
-    help_print("threads\tthread-num", &help_ctrl, 0,
-"  --threads [val]  : Maximum number of concurrent threads.\n"
-	       );
-    help_print("debug", &help_ctrl, 0,
-"  --debug          : Enable debug logging.\n"
-	       );
-    help_print("extract\texclude", &help_ctrl, 0,
-"  --extract [file] : Exclude all markers not in the given list.\n"
-"  --exclude [file] : Exclude all markers in the given list.\n"
-	       );
-    help_print("keep\tremove", &help_ctrl, 0,
-"  --keep [fname]   : Exclude all individuals not in the given list.\n"
-"  --remove [fname] : Exclude all individuals in the given list.\n"
-	       );
-    help_print("maf-succ", &help_ctrl, 0,
-"  --maf-succ       : Rule of succession MAF estimation (used in EIGENSTRAT).\n"
-"                     Given j observations of one allele and k >= j observations\n"
-"                     of the other, infer a MAF of (j+1) / (j+k+2), rather than\n"
-"                     the usual j / (j+k).\n"
-	       );
-    help_print("ci", &help_ctrl, 0,
-"  --ci [size]      : Set size of odds ratio confidence interval to report.\n"
-	       );
-    help_print("pfilter", &help_ctrl, 0,
-"  --pfilter [val]  : Filter out association test results with higher p-values.\n"
-	       );
-    help_print("loop-assoc", &help_ctrl, 0,
-"  --loop-assoc [f] : Run specified case/control association commands once for\n"
-"                     each cluster in the file, using cluster membership as the\n"
-"                     phenotype.\n"
-	       );
-    help_print("cell\tmodel", &help_ctrl, 0,
-"  --cell [thresh]  : Specify contingency table threshold for performing all\n"
-"                     --model tests.\n"
-	       );
-    help_print("adjust\tlambda", &help_ctrl, 0,
-"  --lambda [val]   : Set genomic control lambda for --adjust.\n"
-	       );
-    help_print("exponent\tdistance", &help_ctrl, 0,
-"  --exponent [val] : When computing genomic distances, each marker has a weight\n"
-"                     of (2q(1-q))^{-val}, where q is the inferred MAF.  (Use\n"
-"                     --read-freq if you want to explicitly specify some or all\n"
-"                     of the MAFs.)\n"
-	       );
-    help_print("mperm-save\tmperm-save-all", &help_ctrl, 0,
-"  --mperm-save     : Save best max(T) permutation test statistics.\n"
-"  --mperm-save-all : Save all max(T) permutation test statistics.\n"
-	       );
-    help_print("flip\tflip-subset", &help_ctrl, 0,
-"  --flip [filename]   : Flip alleles (A<->T, C<->G) for all SNP ID in the file.\n"
-"  --flip-subset [fn]  : Only apply --flip to indivs in the --flip-subset file.\n"
-	       );
-    help_print("recode\trecode-allele", &help_ctrl, 0,
-"  --recode-allele [f] : With --recode A or --recode AD, count alleles named in\n"
-"                        the file (instead of the minor allele).\n"
-	       );
-    help_print("keep-allele-order\tmake-bed\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
-"  --keep-allele-order : Keep the original allele order when creating a new\n"
-"                        fileset, instead of forcing A2 to be the major allele.\n"
-	       );
-    help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-equal-pos", &help_ctrl, 0,
-"  --merge-equal-pos   : Merge markers with different names but identical\n"
-"                        positions.\n"
-	       );
-    help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,
-"  --update-map [f] <chr | cm | name> : Update marker information.\n"
-	       );
-    help_print("update-alleles", &help_ctrl, 0,
-"  --update-alleles [fname]  : Update marker allele codes.\n"
-	       );
-    help_print("update-ids\tupdate-parents\tupdate-sex", &help_ctrl, 0,
-"  --update-ids [fname]      : Update individual IDs, parental IDs, or sexes\n"
-"  --update-parents [fname]    using the information in the provided file.  See\n"
-"  --update-sex [fname]        the PLINK documentation for file format details.\n"
-	       );
-    help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
-"  --simulate-ncases [num]   : Set --simulate case count (default 1000).\n"
-"  --simulate-ncontrols [n]  : Set --simulate control count (default 1000).\n"
-"  --simulate-prevalence [p] : Set --simulate disease prevalence (default 0.01).\n"
-	       );
-    help_print("simulate-qt\tsimulate-n", &help_ctrl, 0,
-"  --simulate-n [num]        : Set --simulate-qt indiv count (default 1000).\n"
-	       );
-    help_print("simulate\tsimulate-qt\tsimulate-label\tsimulate-missing", &help_ctrl, 0,
-"  --simulate-label [prefix] : Set --simulate(-qt) individual name prefix.\n"
-"  --simulate-missing [freq] : Set --simulate(-qt) missing genotype frequency.\n"
-	       );
-    help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
-"  --allele1234 <multichar>  : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"
-"                              With 'multichar', converts all A/C/G/Ts in\n"
-"                              allele names to 1/2/3/4s.\n"
-"  --alleleACGT <multichar>  : Reverse of --allele1234.\n"
-	       );
-    help_print("reference-allele\tupdate-ref-allele", &help_ctrl, 0,
-"  --reference-allele [file] : Force alleles named in the file to A1.\n"
-	       );
-    help_print("read-freq\tupdate-freq", &help_ctrl, 0,
-"  --read-freq [filename]    : Loads MAFs from the given PLINK-style or --freqx\n"
-"  --update-freq [filename]    frequency file, instead of just setting them to\n"
-"                              frequencies observed in the .ped/.bed file.\n"
-	       );
-    help_print("parallel", &help_ctrl, 0,
-"  --parallel [k] [n]        : Divide the output matrix into n pieces, and only\n"
-"                              compute the kth piece.  The primary output file\n"
-"                              will have the piece number included in its name,\n"
-"                              e.g. wdist.rel.13 or wdist.rel.13.gz if k is 13.\n"
-"                              Concatenating these files in order will yield the\n"
-"                              full matrix of interest.  (Yes, this can be done\n"
-"                              before unzipping.)\n"
-"                              N.B. This cannot be used to directly write a\n"
-"                              symmetric square matrix.  Choose the square0 or\n"
-"                              triangle format instead, and postprocess as\n"
-"                              necessary.\n"
-	       );
-    help_print("filter", &help_ctrl, 0,
-"  --filter [filename] [val] : Filter individuals based on a phenotype value.\n"
-	       );
-    help_print("mfilter\tfilter", &help_ctrl, 0,
-"  --mfilter [col]           : Specify alternate column in --filter file.\n"
-	       );
-    help_print("filter-cases\tfilter-controls", &help_ctrl, 0,
-"  --filter-cases            : Include only cases.\n"
-"  --filter-controls         : Include only controls.\n"
-	       );
-    help_print("filter-males\tfilter-females", &help_ctrl, 0,
-"  --filter-males            : Include only males.\n"
-"  --filter-females          : Include only females.\n"
-	       );
-    help_print("filter-founders\tfilter-nonfounders", &help_ctrl, 0,
-"  --filter-founders         : Include only founders.\n"
-"  --filter-nonfounders      : Include only nonfounders.\n"
-	       );
-    help_print("missing-genotype\tmissing-phenotype", &help_ctrl, 0,
-"  --missing-genotype [char] : Code for missing genotype (normally '0').\n"
-"  --missing-phenotype [val] : Numeric code for missing phenotype (normally -9).\n"
-	       );
-    help_print("perm-batch-size", &help_ctrl, 0,
-"  --perm-batch-size [val]   : Set number of permutations per batch in QT\n"
-"                              permutation tests.\n"
-	       );
-    help_print("output-missing-genotype\toutput-missing-phenotype", &help_ctrl, 0,
-"  --output-missing-genotype [ch] : Code for missing genotype when creating new\n"
-"                                   text fileset (--recode).\n"
-"  --output-missing-phenotype [n] : Numeric code for missing phenotype when\n"
-"                                   creating new fileset (--make-bed/--recode).\n"
-	       );
-    help_print("missing-code\tmissing_code\tmissing-phenotype", &help_ctrl, 0,
-"  --missing-code {vals}     : Comma-separated list of missing phenotype values,\n"
-"  --missing_code {vals}       for Oxford-formatted filesets (normally 'NA').\n"
-	       );
-    help_print("make-pheno", &help_ctrl, 0,
-"  --make-pheno [file] [val] : Specify dichotomous phenotype, where cases have\n"
-"                              the given value.  If the value is '*', all\n"
-"                              individuals present in the phenotype file are\n"
-"                              affected (and other individuals in the .ped/.fam\n"
-"                              are unaffected).\n"
-	       );
-    help_print("tail-pheno\tgroupdist", &help_ctrl, 0,
-"  --tail-pheno [Ltop] {Hbt} : Form 'low' (<= Ltop, unaffected) and 'high'\n"
-"                              (greater than Hbt, affected) groups from scalar\n"
-"                              phenotype data.  If Hbt is unspecified, it is set\n"
-"                              equal to Ltop.  Central phenotype values are\n"
-"                              treated as missing.\n"
-	       );
-    help_print("adjust\tgc\tlog10\tqq-plot", &help_ctrl, 0,
-"  --adjust <gc> <log10> <qq-plot> : Report some multiple-testing corrections.\n"
-	       );
-    help_print("aperm", &help_ctrl, 0,
-"  --aperm [min perms] [max perms] [alpha] [beta] [init interval] [slope] :\n"
-"    This sets six parameters controlling adaptive permutation tests.  Defaults\n"
-"    are 5, 1000000, 0, 0.0001, 1, and 0.001, respectively.\n"
-	       );
-    if (!param_ct) {
-      fputs(
-"\nThese flags only apply to .cnv fileset analysis:\n"
-, stdout);
-    }
-    help_print("cnv-exclude-off-by-1", &help_ctrl, 0,
-"  --cnv-exclude-off-by-1   : Exclude .cnv segments where the terminal .cnv.map\n"
-"                             entry is off by 1.\n"
-	       );
-    help_print("cnv-del\tcnv-dup", &help_ctrl, 0,
-"  --cnv-del                : Exclude all variants with more than one copy.\n"
-"  --cnv-dup                : Exclude all variants with fewer than three copies.\n"
-	       );
-    help_print("cnv-kb\tcnv-max-kb", &help_ctrl, 0,
-"  --cnv-kb [kb len]        : Exclude segments shorter than the given length.\n"
-"  --cnv-max-kb [kb len]    : Exclude segments longer than the given length.\n"
-	       );
-    help_print("cnv-score\tcnv-max-score", &help_ctrl, 0,
-"  --cnv-score [val]        : Exclude all variants with confidence score < val.\n"
-"  --cnv-max-score [val]    : Exclude all variants with confidence score > val.\n"
-	       );
-    help_print("cnv-sites\tcnv-max-sites", &help_ctrl, 0,
-"  --cnv-sites [ct]         : Exclude all segments with fewer than ct probes.\n"
-"  --cnv-max-sites [ct]     : Exclude all segments with more than ct probes.\n"
-	       );
-    help_print("cnv-intersect\tcnv-exclude\tcnv-subset\tcnv-overlap\tcnv-region-overlap\tcnv-union-overlap\tcnv-disrupt", &help_ctrl, 0,
-"  --cnv-intersect [fname]  : Only include segments which intersect a region in\n"
-"                             the given region list.\n"
-"  --cnv-exclude [fname]    : Exclude all segments which intersect a region in\n"
-"                             the given region list.\n"
-"  --cnv-count [fname]      : Specify region list for --cnv-indiv-perm\n"
-"                             (optional) or --cnv-enrichment-test (required).\n"
-"  --cnv-subset [fname]     : Ignore all regions in the --cnv-intersect/-exclude\n"
-"                             /-count list that aren't named in the given file.\n"
-"  --cnv-overlap [x]        : Only count intersections of length at least xn,\n"
-"                             where n is the segment size.\n"
-"  --cnv-region-overlap [x] : x >= [overlap] / [region size].\n"
-"  --cnv-union-overlap [x]  : x >= [overlap] / [union size].\n"
-"  --cnv-disrupt            : Only include/exclude segments with an endpoint in\n"
-"                             a region.\n"
-	       );
-    help_print("cnv-freq-exclude-above\tcnv-freq-exclude-below\tcnv-freq-exclude-exact\tcnv-freq-include-exact\tcnv-freq-overlap\tcnv-freq-method2", &help_ctrl, 0,
-"  --cnv-freq-exclude-above [k] : Exclude all segments where any portion is\n"
-"                                 included by more than k total segments.\n"
-"  --cnv-freq-exclude-below [k] : Exclude all segments where no portion is\n"
-"                                 included by k or more total segments.\n"
-"  --cnv-freq-exclude-exact [k] : Exclude all segments which have a portion\n"
-"                                 included by at least k total segments, but no\n"
-"                                 portion included by more.\n"
-"  --cnv-freq-include-exact [k] : Reverse of --cnv-freq-exclude-exact.\n"
-"  --cnv-freq-overlap {x}   : Only count portions of length at least xn, where n\n"
-"                             is the segment size.\n"
-"  --cnv-freq-method2 {x}   : Causes k to instead be compared against the number\n"
-"                             of segments for which x >= [overlap] / [union].\n"
-	       );
-    help_print("cnv-test-window\tcnv-test", &help_ctrl, 0,
-"  --cnv-test-window [size] : Specify window size (in kb) for CNV assoc. test.\n"
-	       );
-    if (!param_ct) {
-      fputs(
-"\nFor further documentation and support, consult the main webpage\n"
-"(https://www.cog-genomics.org/wdist ) and/or the wdist-users mailing list\n"
-"(https://groups.google.com/d/forum/wdist-users ).\n"
-, stdout);
-    }
-  } while (help_ctrl.iters_left--);
-  if (help_ctrl.unmatched_ct) {
-    net_unmatched_ct = help_ctrl.unmatched_ct;
-    printf("\nNo help entr%s for", (help_ctrl.unmatched_ct == 1)? "y" : "ies");
-    col_num = (help_ctrl.unmatched_ct == 1)? 17 : 19;
-    arg_uidx = 0;
-    while (help_ctrl.unmatched_ct) {
-      arg_uidx = next_non_set_unsafe(help_ctrl.all_match_arr, arg_uidx);
-      help_ctrl.unmatched_ct--;
-      if (help_ctrl.unmatched_ct) {
-	if (net_unmatched_ct == 2) {
-	  if (help_ctrl.param_lens[arg_uidx] + col_num > 76) {
-	    printf("\n'%s'", argv[arg_uidx]);
-	    col_num = 2 + help_ctrl.param_lens[arg_uidx];
-	  } else {
-	    printf(" '%s'", argv[arg_uidx]);
-	    col_num += 3 + help_ctrl.param_lens[arg_uidx];
-	  }
-	} else {
-	  if (help_ctrl.param_lens[arg_uidx] + col_num > 75) {
-	    printf("\n'%s',", argv[arg_uidx]);
-	    col_num = 3 + help_ctrl.param_lens[arg_uidx];
-	  } else {
-	    printf(" '%s',", argv[arg_uidx]);
-	    col_num += 4 + help_ctrl.param_lens[arg_uidx];
-	  }
-	}
-	if (help_ctrl.unmatched_ct == 1) {
-	  if (col_num > 76) {
-	    fputs("\nor", stdout);
-	    col_num = 2;
-	  } else {
-	    fputs(" or", stdout);
-	    col_num += 3;
-	  }
-	}
-      } else {
-	if (help_ctrl.param_lens[arg_uidx] + col_num > 75) {
-	  printf("\n'%s'.\n", argv[arg_uidx]);
-	} else {
-	  printf(" '%s'.\n", argv[arg_uidx]);
-	}
-      }
-      arg_uidx++;
-    }
-  }
-  if (param_ct) {
-    while (0) {
-    disp_help_ret_NOMEM:
-      retval = RET_NOMEM;
-    }
-    free_cond(help_ctrl.param_lens);
-    free_cond(help_ctrl.all_match_arr);
-    if (help_ctrl.argv && (help_ctrl.argv != argv)) {
-      free(help_ctrl.argv);
-    }
-  }
-  return retval;
-}
 
 intptr_t malloc_size_mb = 0;
 
@@ -4584,67 +3447,125 @@ void calc_marker_weights(double exponent, uintptr_t* marker_exclude, uintptr_t m
   }
 }
 
-int32_t load_ref_alleles(char* infilename, uintptr_t unfiltered_marker_ct, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len) {
+int32_t load_ref_alleles(Two_col_params* refalleles, uintptr_t unfiltered_marker_ct, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t is_a2) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
+  char skipchar = refalleles->skipchar;
   uint32_t slen;
   char* sorted_ids;
-  char* bufptr;
-  char* bufptr2;
-  char* bufptr3;
+  // We actually do want to handle lines longer than MAXLINELEN - 2 chars,
+  // since this could plausibly happen with large VCFs.
+  char* loadbuf;
+  char* colid_ptr;
+  char* colx_ptr;
   int32_t* id_map;
+  uintptr_t loadbuf_size;
+  uint32_t colmin;
+  uint32_t coldiff;
+  uint32_t colid_first;
   int32_t retval;
   int32_t sorted_idx;
+  uint32_t uii;
   char cc;
-  if (fopen_checked(&infile, infilename, "r")) {
+  if (fopen_checked(&infile, refalleles->fname, "r")) {
     goto load_ref_alleles_ret_OPEN_FAIL;
   }
   retval = sort_item_ids_nx(&sorted_ids, &id_map, unfiltered_marker_ct, marker_ids, max_marker_id_len);
   if (retval) {
     goto load_ref_alleles_ret_1;
   }
-  while (fgets(tbuf, MAXLINELEN, infile)) {
-    bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln_kns(*bufptr)) {
+
+  loadbuf = (char*)wkspace_base;
+  loadbuf_size = wkspace_left;
+  if (loadbuf_size > 0x7fffffc0) {
+    loadbuf_size = 0x7fffffc0;
+  }
+  if (loadbuf_size < MAXLINELEN) {
+    goto load_ref_alleles_ret_NOMEM;
+  }
+  loadbuf[loadbuf_size - 1] = ' ';
+  if (refalleles->skip) {
+    uii = refalleles->skip;
+    do {
+      if (!fgets(loadbuf, loadbuf_size, infile)) {
+	if (!feof(infile)) {
+	  goto load_ref_alleles_ret_READ_FAIL;
+	}
+	sprintf(logbuf, "Error: Number of lines in --%s-allele file smaller than skip parameter.\n", is_a2? "a2" : "reference");
+	goto load_ref_alleles_ret_INVALID_FORMAT;
+      }
+      if (!(loadbuf[loadbuf_size - 1])) {
+	goto load_ref_alleles_ret_NOMEM;
+      }
+    } while (--uii);
+  }
+  colid_first = (refalleles->colid < refalleles->colx);
+  if (colid_first) {
+    colmin = refalleles->colid - 1;
+    coldiff = refalleles->colx - refalleles->colid;
+  } else {
+    colmin = refalleles->colx - 1;
+    coldiff = refalleles->colid - refalleles->colx;
+  }
+  while (fgets(loadbuf, loadbuf_size, infile)) {
+    if (!(loadbuf[loadbuf_size - 1])) {
+      goto load_ref_alleles_ret_NOMEM;
+    }
+    colid_ptr = skip_initial_spaces(loadbuf);
+    cc = *colid_ptr;
+    if (is_eoln_kns(cc) || (cc == skipchar)) {
       continue;
     }
-    bufptr2 = item_endnn(bufptr);
-    bufptr3 = skip_initial_spaces(bufptr2);
-    if (is_eoln_kns(*bufptr3)) {
-      logprint("Error: Improperly formatted --reference-allele file.\n");
-      goto load_ref_alleles_ret_INVALID_FORMAT;
+    if (colid_first) {
+      if (colmin) {
+        colid_ptr = next_item_mult(colid_ptr, colmin);
+      }
+      colx_ptr = next_item_mult(colid_ptr, coldiff);
+      if (no_more_items_kns(colx_ptr)) {
+	goto load_ref_alleles_ret_INVALID_FORMAT_2;
+      }
+    } else {
+      colx_ptr = colid_ptr;
+      if (colmin) {
+	colx_ptr = next_item_mult(colx_ptr, colmin);
+      }
+      colid_ptr = next_item_mult(colx_ptr, coldiff);
+      if (no_more_items_kns(colid_ptr)) {
+	goto load_ref_alleles_ret_INVALID_FORMAT_2;
+      }
     }
-    *bufptr2 = '\0';
-    sorted_idx = bsearch_str(bufptr, sorted_ids, max_marker_id_len, 0, unfiltered_marker_ct - 1);
+    colid_ptr[strlen_se(colid_ptr)] = '\0';
+    sorted_idx = bsearch_str(colid_ptr, sorted_ids, max_marker_id_len, 0, unfiltered_marker_ct - 1);
     if (sorted_idx == -1) {
       continue;
     } else {
       sorted_idx = id_map[sorted_idx];
       if (max_marker_allele_len == 1) {
-	cc = *bufptr3;
-	if (cc == marker_alleles[sorted_idx * 2]) {
+	cc = *colx_ptr;
+	if (cc == marker_alleles[sorted_idx * 2 + is_a2]) {
 	  clear_bit_noct(marker_reverse, sorted_idx);
-	} else if (cc == marker_alleles[sorted_idx * 2 + 1]) {
+	} else if (cc == marker_alleles[sorted_idx * 2 + 1 - is_a2]) {
 	  set_bit_noct(marker_reverse, sorted_idx);
+	} else if (marker_alleles[sorted_idx * 2 + is_a2] == '0') {
+          marker_alleles[sorted_idx * 2 + is_a2] = cc;
+	  clear_bit_noct(marker_reverse, sorted_idx);
 	} else {
-	  sprintf(logbuf, "Warning: Impossible reference allele assignment for marker %s.\n", bufptr);
+	  sprintf(logbuf, "Warning: Impossible %s allele assignment for marker %s.\n", is_a2? "A2" : "reference", colid_ptr);
 	  logprintb();
 	}
       } else {
-	slen = strlen_se(bufptr3);
-	if (slen >= max_marker_allele_len) {
-	  sprintf(logbuf, "Warning: Impossible reference allele assignment for marker %s.\n", bufptr);
-	  logprintb();
+	slen = strlen_se(colx_ptr);
+	colx_ptr[slen++] = '\0';
+	if (!memcmp(colx_ptr, &(marker_alleles[(sorted_idx * 2 + is_a2) * max_marker_allele_len]), slen)) {
+	  clear_bit_noct(marker_reverse, sorted_idx);
+	} else if (!memcmp(colx_ptr, &(marker_alleles[(sorted_idx * 2 + 1 - is_a2) * max_marker_allele_len]), slen)) {
+	  set_bit_noct(marker_reverse, sorted_idx);
+	} else if (!memcmp(&(marker_alleles[(sorted_idx * 2 + is_a2) * max_marker_allele_len]), "0", 2)) {
+	  memcpy(&(marker_alleles[(sorted_idx * 2 + is_a2) * max_marker_allele_len]), colx_ptr, slen);
+	  clear_bit_noct(marker_reverse, sorted_idx);
 	} else {
-	  bufptr3[slen++] = '\0';
-	  if (!memcmp(bufptr3, &(marker_alleles[sorted_idx * 2 * max_marker_allele_len]), slen)) {
-	    clear_bit_noct(marker_reverse, sorted_idx);
-	  } else if (!memcmp(bufptr3, &(marker_alleles[(sorted_idx * 2 + 1) * max_marker_allele_len]), slen)) {
-	    set_bit_noct(marker_reverse, sorted_idx);
-	  } else {
-	    sprintf(logbuf, "Warning: Impossible reference allele assignment for marker %s.\n", bufptr);
-	    logprintb();
-	  }
+	  sprintf(logbuf, "Warning: Impossible %s allele assignment for marker %s.\n", is_a2? "A2" : "reference", colid_ptr);
+	  logprintb();
 	}
       }
     }
@@ -4653,13 +3574,19 @@ int32_t load_ref_alleles(char* infilename, uintptr_t unfiltered_marker_ct, char*
     goto load_ref_alleles_ret_READ_FAIL;
   }
   while (0) {
+  load_ref_alleles_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
   load_ref_alleles_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
   load_ref_alleles_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  load_ref_alleles_ret_INVALID_FORMAT_2:
+    sprintf(logbuf, "Error: Missing field(s) in %s-allele input file line.\n", is_a2? "a2" : "reference");
   load_ref_alleles_ret_INVALID_FORMAT:
+    logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -4699,7 +3626,7 @@ inline int32_t distance_wt_req(uint64_t calculation_type) {
   return ((calculation_type & CALC_DISTANCE) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))));
 }
 
-int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, char* refalleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, char* update_map_fname, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filterval, int32_t mfilter_col, uint32_t filter_binary, int32_t fam_col_1, int32_t fam_col_34, int32_t fam_col_5, int32_t fam_col_6, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, int32_t mpheno_col, uint32_t pheno_modifier, int32_t prune, int32_t affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int32_t hwe_all, double rel_cutoff, int32_t tail_pheno, double tail_bottom, double tail_top, uint64_t calculation_type, int32_t rel_calc_type, int32_t dist_calc_type, uintptr_t groupdist_iters, int32_t groupdist_d, uintptr_t regress_iters, int32_t regress_d, uintptr_t regress_rel_iters, int32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, int32_t parallel_idx, uint32_t parallel_tot, int32_t ppc_gap, int32_t allow_no_sex, int32_t must_have_sex, int32_t nonfounders, uint32_t genome_modifier, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, int32_t maf_succ, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, int32_t freq_counts, int32_t freqx, int32_t distance_flat_missing, uint32_t recode_modifier, int32_t allelexxxx, int32_t merge_type, int32_t indiv_sort, int32_t keep_allele_order, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t set_hh_missing, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t update_map_modifier, uint32_t write_covar_modifier, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, Ll_str** file_delete_list_ptr) {
+int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* refalleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filterval, int32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, int32_t mpheno_col, uint32_t pheno_modifier, int32_t prune, int32_t affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int32_t hwe_all, double rel_cutoff, int32_t tail_pheno, double tail_bottom, double tail_top, uint64_t calculation_type, int32_t rel_calc_type, int32_t dist_calc_type, uintptr_t groupdist_iters, int32_t groupdist_d, uintptr_t regress_iters, int32_t regress_d, uintptr_t regress_rel_iters, int32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, int32_t parallel_idx, uint32_t parallel_tot, int32_t ppc_gap, int32_t allow_no_sex, int32_t must_have_sex, int32_t nonfounders, uint32_t genome_modifier, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, int32_t maf_succ, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, int32_t freq_counts, int32_t freqx, int32_t distance_flat_missing, uint32_t recode_modifier, int32_t allelexxxx, int32_t merge_type, int32_t indiv_sort, int32_t keep_allele_order, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t set_hh_missing, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t write_covar_modifier, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, Ll_str** file_delete_list_ptr) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -4871,7 +3798,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_MERGE) {
-    if (!(fam_col_1 && fam_col_34 && fam_col_5 && fam_col_6 && (!affection_01) && (missing_pheno == -9))) {
+    if (!(((fam_cols & (FAM_COL_1 | FAM_COL_34 | FAM_COL_5 | FAM_COL_6)) == (FAM_COL_1 | FAM_COL_34 | FAM_COL_5 | FAM_COL_6)) && (!affection_01) && (missing_pheno == -9))) {
       logprint("Error: --merge/--bmerge/--merge-list cannot be used with an irregularly\nformatted reference fileset (--no-fid, --no-parents, --no-sex, --no-pheno,\n--1).  Use --make-bed first.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
@@ -4903,24 +3830,36 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto wdist_ret_OPEN_FAIL;
   }
   // load .bim, count markers, filter chromosomes
-  if (update_map_modifier == UPDATE_MAP_NAME) {
-    retval = scan_max_strlen(update_map_fname, 1, &max_marker_id_len);
+  if (update_name) {
+    retval = scan_max_strlen(update_name->fname, 1, &max_marker_id_len);
     if (retval) {
       goto wdist_ret_2;
     }
-    max_marker_id_len++;
   }
   if (marker_alleles_needed) {
+    if (refalleles || a2alleles) {
+      retval = scan_max_strlen(refalleles? (refalleles->fname) : (a2alleles->fname), refalleles? ((refalleles->colid) - 1) : ((a2alleles->colid) - 1), &max_marker_id_len);
+      if (retval) {
+	goto wdist_ret_2;
+      }
+      retval = scan_max_strlen(refalleles? (refalleles->fname) : (a2alleles->fname), refalleles? ((refalleles->colx) - 1) : ((a2alleles->colx) - 1), &max_marker_allele_len);
+      if (retval) {
+	goto wdist_ret_2;
+      }
+    }
     if (update_alleles_fname) {
       retval = scan_max_strlen(update_alleles_fname, 1, &max_marker_allele_len);
       if (retval) {
         goto wdist_ret_2;
       }
     }
+    if (max_marker_allele_len > 1) {
+      max_marker_allele_len--;
+    }
   } else {
     allelexxxx = 0;
   }
-  retval = load_bim(&bimfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_pos, freqname, refalleles, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, update_map_modifier, &map_is_unsorted, marker_alleles_needed);
+  retval = load_bim(&bimfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_pos, freqname, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, update_map, &map_is_unsorted, marker_alleles_needed);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -4933,11 +3872,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   ulii = MAXLINELEN;
   // load .fam, count indivs
-  ii = fam_col_6;
-  if (ii && phenoname) {
-    ii = (pheno_modifier & PHENO_MERGE) && (!makepheno_str);
+  uii = fam_cols & FAM_COL_6;
+  if (uii && phenoname) {
+    uii = (pheno_modifier & PHENO_MERGE) && (!makepheno_str);
   }
-  retval = load_fam(famfile, ulii, fam_col_1, fam_col_34, fam_col_5, ii, fam_col_6, missing_pheno, missing_pheno_len, affection_01, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
+  retval = load_fam(famfile, ulii, fam_cols, uii, missing_pheno, missing_pheno_len, affection_01, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -5160,7 +4099,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
     if (memcmp(tbuf, "l\x1b\x01", 3)) {
       if (memcmp(tbuf, "l\x1b", 3)) {
-	logprint("Error: Invalid header bytes in .bed file.\n");
+	if ((tbuf[0] == '#') || (!memcmp(tbuf, "chr", 3))) {
+          logprint("Error: Invalid header bytes in PLINK .bed file.  (Is this a UCSC Genome Browser\nBED file instead?\n");
+	} else {
+	  logprint("Error: Invalid header bytes in PLINK .bed file.\n");
+	}
 	goto wdist_ret_INVALID_FORMAT;
       }
       bed_offset = 2;
@@ -5254,7 +4197,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  nonfounders = (nonfounders || (!fam_col_34));
+  nonfounders = (nonfounders || (!(fam_cols & FAM_COL_34)));
   wt_needed = distance_wt_req(calculation_type) && (!distance_flat_missing);
   hwe_needed = (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY);
   retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, maf_succ, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (unsigned char)missing_geno, hwe_needed, hwe_all, (pheno_nm_ct && pheno_c)? (calculation_type & CALC_HARDY) : 0, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &marker_weights_base, &marker_weights, exponent, chrom_info_ptr, sex_nm, sex_male, map_is_unsorted, &xmhh_exists, &nxmhh_exists);
@@ -5321,14 +4264,15 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   sprintf(logbuf, "%" PRIuPTR " marker%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", g_indiv_ct, species_str(g_indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
   logprintb();
 
-  if (refalleles) {
+  if (refalleles || a2alleles) {
     if (marker_alleles) {
-      retval = load_ref_alleles(refalleles, unfiltered_marker_ct, marker_alleles, max_marker_allele_len, marker_reverse, marker_ids, max_marker_id_len);
+      retval = load_ref_alleles(refalleles? refalleles : a2alleles, unfiltered_marker_ct, marker_alleles, max_marker_allele_len, marker_reverse, marker_ids, max_marker_id_len, a2alleles? 1 : 0);
       if (retval) {
 	goto wdist_ret_2;
       }
     } else {
-      logprint("Note: Ignoring --reference-allele, since allele IDs are not used in this run.\n");
+      sprintf(logbuf, "Note: Ignoring --%s-allele, since allele IDs are not used in this run.\n", refalleles? "reference" : "a2");
+      logprintb();
     }
   }
 
@@ -5924,6 +4868,65 @@ int32_t alloc_fname(char** fnbuf, char* source, char* argptr, uint32_t extra_siz
   return 0;
 }
 
+int32_t alloc_2col(Two_col_params** tcbuf, char** params_ptr, char* argptr, uint32_t param_ct) {
+  uint32_t slen = strlen(*params_ptr) + 1;
+  int32_t ii;
+  char cc;
+  if (slen > FNAMESIZE) {
+    sprintf(logbuf, "Error: --%s filename too long.\n", argptr);
+    logprintb();
+    return RET_OPEN_FAIL;
+  }
+  *tcbuf = (Two_col_params*)malloc(sizeof(Two_col_params) + slen);
+  if (!(*tcbuf)) {
+    return RET_NOMEM;
+  }
+  memcpy((*tcbuf)->fname, params_ptr[0], slen);
+  if (param_ct > 1) {
+    ii = atoi(params_ptr[1]);
+    if (ii < 1) {
+      sprintf(logbuf, "Error: Invalid --%s column number.\n", argptr);
+      logprintb();
+      return RET_INVALID_FORMAT;
+    }
+    (*tcbuf)->colx = ii;
+    if (param_ct > 2) {
+      ii = atoi(params_ptr[2]);
+      if (ii < 1) {
+	sprintf(logbuf, "Error: Invalid --%s marker ID column number.\n", argptr);
+	logprintb();
+	return RET_INVALID_FORMAT;
+      }
+      (*tcbuf)->colid = ii;
+      (*tcbuf)->skip = 0;
+      (*tcbuf)->skipchar = '\0';
+      if (param_ct == 4) {
+	cc = params_ptr[3][0];
+	if ((!(params_ptr[3][1])) && ((cc < '0') || (cc > '9'))) {
+	  (*tcbuf)->skipchar = cc;
+	} else {
+	  if (atoiz(params_ptr[3], &ii)) {
+	    sprintf(logbuf, "Error: Invalid --%s skip parameter.  (This needs to either be a\nsingle character--usually '#'--which, when present at the start of a line,\nindicates it should be skipped; or the number of initial lines to skip.)\n", argptr);
+	    logprintb();
+	    return RET_INVALID_FORMAT;
+	  }
+	  (*tcbuf)->skip = ii;
+	}
+      }
+    } else {
+      (*tcbuf)->colid = 1;
+    }
+    if ((*tcbuf)->colx == (*tcbuf)->colid) {
+      sprintf(logbuf, "Error: Column numbers for --%s cannot be equal.%s", argptr, errstr_append);
+      logprintb();
+      return RET_INVALID_FORMAT;
+    }
+  } else {
+    (*tcbuf)->colx = 2;
+  }
+  return 0;
+}
+
 int32_t flag_match(const char* to_match, uint32_t* cur_flag_ptr, uint32_t flag_ct, char* flag_buf) {
   int32_t ii;
   while (*cur_flag_ptr < flag_ct) {
@@ -5958,7 +4961,8 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t* flag_map = NULL;
   char* makepheno_str = NULL;
   char* phenoname_str = NULL;
-  char* refalleles = NULL;
+  Two_col_params* refalleles = NULL;
+  Two_col_params* a2alleles = NULL;
   char* filterval = NULL;
   char* evecname = NULL;
   char* filtername = NULL;
@@ -5977,7 +4981,10 @@ int32_t main(int32_t argc, char** argv) {
   char* set_fname = NULL;
   char* subset_fname = NULL;
   char* update_alleles_fname = NULL;
-  char* update_map_fname = NULL;
+  Two_col_params* update_chr = NULL;
+  Two_col_params* update_cm = NULL;
+  Two_col_params* update_map = NULL;
+  Two_col_params* update_name = NULL;
   char* update_ids_fname = NULL;
   char* update_parents_fname = NULL;
   char* update_sex_fname = NULL;
@@ -5987,10 +4994,7 @@ int32_t main(int32_t argc, char** argv) {
   int32_t retval = 0;
   int32_t load_params = 0; // describes what file parameters have been provided
   int32_t load_rare = 0;
-  int32_t fam_col_1 = 1;
-  int32_t fam_col_34 = 1;
-  int32_t fam_col_5 = 1;
-  int32_t fam_col_6 = 1;
+  uint32_t fam_cols = FAM_COL_1 | FAM_COL_34 | FAM_COL_5 | FAM_COL_6;
   int32_t mpheno_col = 0;
   int32_t mcovar_col = 0;
   int32_t affection_01 = 0;
@@ -6124,6 +5128,8 @@ int32_t main(int32_t argc, char** argv) {
   unsigned char* snps_flag_starts_range = NULL;
   uint32_t snps_flag_ct = 0;
   uint32_t set_hh_missing = 0;
+  // uint32_t allele_set_id_col = 1;
+  // uint32_t allele_set_ax_col = 2;
   Ll_str* file_delete_list = NULL;
   char outname[FNAMESIZE];
   char mapname[FNAMESIZE];
@@ -6868,6 +5874,14 @@ int32_t main(int32_t argc, char** argv) {
 	if ((aperm_interval_slope < 0) || (aperm_interval_slope > 1)) {
 	  sprintf(logbuf, "Error: Invalid --aperm pruning interval slope '%s'.%s", argv[cur_arg + 6], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
+	}
+      } else if (!memcmp(argptr2, "2-allele", 9)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 4)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_2col(&a2alleles, &(argv[cur_arg + 1]), argptr, param_ct);
+	if (retval) {
+	  goto main_ret_1;
 	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -8540,7 +7554,7 @@ int32_t main(int32_t argc, char** argv) {
 	    rel_calc_type |= REL_CALC_COV;
 	  } else if (!memcmp(argv[cur_arg + uii], "no-gz", 6)) {
 	    rel_calc_type &= ~REL_CALC_GZ;
-	  } else if ((!memcmp(argv[cur_arg + uii], "ibc1", 5)) || (!memcmp(argv[cur_arg + uii], "ibc2", 5))) {
+	  } else if ((!memcmp(argv[cur_arg + uii], "ibc2", 5)) || (!memcmp(argv[cur_arg + uii], "ibc3", 5))) {
 	    if (rel_calc_type & REL_CALC_COV) {
 	      sprintf(logbuf, "Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -8574,7 +7588,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_COV;
-	  } else if ((!memcmp(argv[cur_arg + 1], "ibc1", 5)) || (!memcmp(argv[cur_arg + 1], "ibc2", 5))) {
+	  } else if ((!memcmp(argv[cur_arg + 1], "ibc2", 5)) || (!memcmp(argv[cur_arg + 1], "ibc3", 5))) {
 	    ibc_type = argv[cur_arg + 1][3] - '0';
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --make-grm-bin parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
@@ -8640,7 +7654,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_TRI;
-	  } else if ((!memcmp(argv[cur_arg + uii], "ibc1", 5)) || (!memcmp(argv[cur_arg + uii], "ibc2", 5))) {
+	  } else if ((!memcmp(argv[cur_arg + uii], "ibc2", 5)) || (!memcmp(argv[cur_arg + uii], "ibc3", 5))) {
 	    if (rel_calc_type & REL_CALC_COV) {
 	      sprintf(logbuf, "Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -8953,21 +7967,21 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'n':
       if (!memcmp(argptr2, "o-fid", 6)) {
-	fam_col_1 = 0;
+	fam_cols &= ~FAM_COL_1;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "o-parents", 10)) {
-	fam_col_34 = 0;
+	fam_cols &= ~FAM_COL_34;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "o-sex", 6)) {
 	if (filter_binary & (FILTER_BINARY_FEMALES | FILTER_BINARY_MALES)) {
 	  logprint("Error: --filter-males/--filter-females cannot be used with --no-sex.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	fam_col_5 = 0;
+	fam_cols &= ~FAM_COL_5;
 	allow_no_sex = 1;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "o-pheno", 8)) {
-	fam_col_6 = 0;
+	fam_cols &= ~FAM_COL_6;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "onfounders", 11)) {
 	nonfounders = 1;
@@ -9515,10 +8529,14 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "eference-allele", 16)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	if (a2alleles) {
+	  logprint("Error: --reference-allele cannot be used with --a2-allele.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 4)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&refalleles, argv[cur_arg + 1], argptr, 0);
+	retval = alloc_2col(&refalleles, &(argv[cur_arg + 1]), argptr, param_ct);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -10029,17 +9047,41 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "pdate-chr", 10)) {
-	logprint("Note: --update-chr flag deprecated.  Use '--update-map chr'.\n");
-	update_map_modifier = UPDATE_MAP_CHR;
-	goto main_param_zero;
+	if (cnv_calc_type & CNV_MAKE_MAP) {
+	  sprintf(logbuf, "--update-chr cannot be used with --cnv-make-map.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (!param_ct) {
+	  update_map_modifier = 1;
+	} else {
+	  retval = alloc_2col(&update_chr, &(argv[cur_arg + 1]), argptr, param_ct);
+	  if (retval) {
+	    goto main_ret_1;
+	  }
+	}
       } else if (!memcmp(argptr, "pdate-cm", 9)) {
+	if (cnv_calc_type & CNV_MAKE_MAP) {
+	  sprintf(logbuf, "--update-cm cannot be used with --cnv-make-map.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
 	if (update_map_modifier) {
 	  logprint("Error: --update-map 'cm' modifier cannot be used with 'chr'.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	logprint("Note: --update-cm flag deprecated.  Use '--update-map cm'.\n");
-	update_map_modifier = UPDATE_MAP_CM;
-	goto main_param_zero;
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (!param_ct) {
+	  update_map_modifier = 2;
+	} else {
+	  retval = alloc_2col(&update_cm, &(argv[cur_arg + 1]), argptr, param_ct);
+	  if (retval) {
+	    goto main_ret_1;
+	  }
+	}
       } else if (!memcmp(argptr2, "pdate-ids", 10)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10053,54 +9095,66 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "--update-map cannot be used with --cnv-make-map.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 4)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (param_ct == 2) {
-	  if (!memcmp(argv[cur_arg + 2], "chr", 4)) {
-	    if (update_map_modifier == UPDATE_MAP_CM) {
-	      logprint("Error: --update-map 'cm' modifier cannot be used with 'chr'.\n");
-	      goto main_ret_INVALID_CMDLINE;
-	    }
-	    update_map_modifier = UPDATE_MAP_CHR;
-	  } else if (!memcmp(argv[cur_arg + 2], "cm", 3)) {
-	    if (update_map_modifier == UPDATE_MAP_CHR) {
-	      logprint("Error: --update-map 'cm' modifier cannot be used with 'chr'.\n");
-	      goto main_ret_INVALID_CMDLINE;
-	    }
-	    update_map_modifier = UPDATE_MAP_CM;
-	  } else if (!memcmp(argv[cur_arg + 2], "name", 5)) {
-	    if (update_map_modifier) {
-	      logprint("Error: --update-map 'name' modifier cannot be used with 'chr' or 'cm'.\n");
-	      goto main_ret_INVALID_CMDLINE;
-	    }
-	    update_map_modifier = UPDATE_MAP_NAME;
-	  } else if ((!memcmp(argv[cur_arg + 1], "chr", 4)) || (!memcmp(argv[cur_arg + 1], "cm", 3)) || (!memcmp(argv[cur_arg + 1], "name", 5))) {
-	    logprint("Error: 'chr'/'cm'/'name' must be the second parameter to --update-map, not the\nfirst.\n");
-	    goto main_ret_INVALID_CMDLINE;
-	  } else {
-	    sprintf(logbuf, "Error: Invalid --update-map parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
+	if (update_map_modifier) {
+	  if (param_ct != 1) {
+	    sprintf(logbuf, "Error: Multi-parameter --update-map cannot be used with deprecated\nparameter-free --update-%s.\n", (update_map_modifier == 1)? "chr" : "cm");
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
+	  retval = alloc_2col((update_map_modifier == 1)? (&update_chr) : (&update_cm), &(argv[cur_arg + 1]), argptr, 1);
+	  if (retval) {
+	    goto main_ret_1;
+	  }
+	  sprintf(logbuf, "Note: --update-map [filename] + parameter-free --update-%s deprecated.  Use\n--update-%s [filename] instead.\n", (update_map_modifier == 1)? "chr" : "cm", (update_map_modifier == 1)? "chr" : "cm");
+	  logprintb();
+	  update_map_modifier = 0;
 	} else {
-	  update_map_modifier = UPDATE_MAP_BP;
-	}
-	retval = alloc_fname(&update_map_fname, argv[cur_arg + 1], argptr, 0);
-	if (retval) {
-	  goto main_ret_1;
+	  retval = alloc_2col(&update_map, &(argv[cur_arg + 1]), argptr, param_ct);
+	  if (retval) {
+	    goto main_ret_1;
+	  }
 	}
       } else if (!memcmp(argptr2, "pdate-name", 11)) {
-	if (update_map_fname) {
-	  sprintf(logbuf, "Error: --update-name cannot be used without --update-map.%s", errstr_append);
+	if (cnv_calc_type & CNV_MAKE_MAP) {
+	  sprintf(logbuf, "--update-name cannot be used with --cnv-make-map.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (update_map_modifier & (UPDATE_MAP_CHR | UPDATE_MAP_CM)) {
-	  sprintf(logbuf, "Error: --update-map 'name' modifier cannot be used with '%s'.%s", (update_map_modifier == UPDATE_MAP_CHR)? "chr" : "cm", errstr_append);
+	if (update_chr) {
+	  logprint("Error: --update-name cannot be used with --update-chr.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	} else if (update_cm) {
+	  logprint("Error: --update-name cannot be used with --update-cm.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	logprint("Note: --update-name flag deprecated.  Use '--update-map name'.\n");
-	update_map_modifier = UPDATE_MAP_NAME;
-	goto main_param_zero;
+	if (!param_ct) {
+	  if (!update_map) {
+	    sprintf(logbuf, "Error: Deprecated parameter-free --update-name cannot be used without\n--update-map.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  if ((update_map->colx != 2) || (update_map->colid != 1) || (update_map->skip) || (update_map->skipchar)) {
+	    logprint("Error: Multi-parameter --update-map cannot be used with deprecated\nparameter-free --update-name.\n");
+	    goto main_ret_INVALID_CMDLINE;
+	  }
+	  logprint("Note: --update-map [filename] + parameter-free --update-name deprecated.  Use\n--update-name [filename] instead.\n");
+	  update_name = update_map;
+	  update_map = NULL;
+	} else {
+	  if (update_map) {
+	    // no point in explaining the deprecated exception to this in the
+	    // error message
+	    logprint("Error: --update-name cannot be used with --update-map.\n");
+	    goto main_ret_INVALID_CMDLINE;
+	  }
+	  retval = alloc_2col(&update_name, &(argv[cur_arg + 1]), argptr, param_ct);
+	  if (retval) {
+	    goto main_ret_1;
+	  }
+	}
       } else if (!memcmp(argptr2, "pdate-parents", 14)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10241,7 +9295,7 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_INVALID_CMDLINE_3;
   }
   if (!phenoname) {
-    if (prune && (!fam_col_6)) {
+    if (prune && (!(fam_cols & FAM_COL_6))) {
       sprintf(logbuf, "Error: --prune and --no-pheno cannot coexist without an alternate phenotype\nfile.%s", errstr_append);
       goto main_ret_INVALID_CMDLINE_3;
     } else if (pheno_modifier & PHENO_ALL) {
@@ -10253,13 +9307,12 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_INVALID_CMDLINE_3;
   }
   if (update_map_modifier) {
-    if (!update_map_fname) {
-      sprintf(logbuf, "Error: --update-%s cannot be used without --update-map.%s", (update_map_modifier == UPDATE_MAP_CHR)? "chr" : "cm", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
-    } else if ((update_map_modifier == UPDATE_MAP_CHR) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((!load_rare) && (calculation_type != CALC_MAKE_BED)))) {
-      sprintf(logbuf, "Error: --update-map chr must be used with --make-bed and no other commands.%s", errstr_append);
-      goto main_ret_INVALID_CMDLINE_3;
-    }
+    sprintf(logbuf, "Error: Deprecated parameter-free --update-%s cannot be used without\n--update-map.%s", (update_map_modifier == 1)? "chr" : "cm", errstr_append);
+    goto main_ret_INVALID_CMDLINE_3;
+  }
+  if (update_chr && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((!load_rare) && (calculation_type != CALC_MAKE_BED)))) {
+    sprintf(logbuf, "Error: --update-map chr must be used with --make-bed and no other commands.%s", errstr_append);
+    goto main_ret_INVALID_CMDLINE_3;
   }
   if (flip_subset_fname && (load_rare || (calculation_type != CALC_MAKE_BED) || (min_maf != 0.0) || (max_maf != 0.5) || (hwe_thresh != 0.0))) {
     sprintf(logbuf, "Error: --flip-subset must be used with --flip, --make-bed, and no other\ncommands or MAF-based filters.%s", errstr_append);
@@ -10412,7 +9465,7 @@ int32_t main(int32_t argc, char** argv) {
       retval = wdist_dosage(calculation_type, dist_calc_type, genname, samplename, outname, outname_end, missing_code, distance_3d, distance_flat_missing, exponent, maf_succ, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else if (load_rare & LOAD_RARE_CNV) {
-    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, update_map_fname, update_ids_fname, update_parents_fname, update_sex_fname, filterval, filter_binary, update_map_modifier, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_freq_val2, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, snp_window_size, markername_from, markername_to, markername_snp, marker_pos_start, marker_pos_end, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &chrom_info);
+    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filterval, filter_binary, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_freq_val2, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, snp_window_size, markername_from, markername_to, markername_snp, marker_pos_start, marker_pos_end, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &chrom_info);
   } else if (load_rare & LOAD_RARE_GVAR) {
     retval = wdist_gvar(outname, outname_end, pedname, mapname, famname);
   } else {
@@ -10444,12 +9497,10 @@ int32_t main(int32_t argc, char** argv) {
 	  simulate_label = NULL;
 	}
       } else {
-        retval = ped_to_bed(pedname, mapname, outname, sptr, fam_col_1, fam_col_34, fam_col_5, fam_col_6, affection_01, missing_pheno, &chrom_info);
-	fam_col_1 = 1;
-	fam_col_34 = 1;
-	fam_col_5 = 1;
-	if (!fam_col_6) {
-          fam_col_6 = 1;
+        retval = ped_to_bed(pedname, mapname, outname, sptr, fam_cols, affection_01, missing_pheno, &chrom_info);
+	fam_cols |= FAM_COL_1 | FAM_COL_34 | FAM_COL_5;
+	if (!(fam_cols & FAM_COL_6)) {
+          fam_cols |= FAM_COL_6;
 	  missing_pheno = -9;
 	}
       }
@@ -10466,7 +9517,12 @@ int32_t main(int32_t argc, char** argv) {
       }
       *outname_end = '\0';
     }
-    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, update_alleles_fname, update_map_fname, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filterval, mfilter_col, filter_binary, fam_col_1, fam_col_34, fam_col_5, fam_col_6, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (uint32_t)parallel_tot, ppc_gap, allow_no_sex, must_have_sex, nonfounders, genome_modifier, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, set_hh_missing, covar_modifier, covar_str, mcovar_col, update_map_modifier, write_covar_modifier, model_modifier, (uint32_t)model_cell_ct, (uint32_t)model_mperm_val, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, ibs_test_perms, perm_batch_size, &file_delete_list);
+    if (ibc_type == 3) { // todo: make this less ugly
+      ibc_type = 0;
+    } else if (!ibc_type) {
+      ibc_type = 1;
+    }
+    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, a2alleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, update_alleles_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filterval, mfilter_col, filter_binary, fam_cols, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (uint32_t)parallel_tot, ppc_gap, allow_no_sex, must_have_sex, nonfounders, genome_modifier, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, set_hh_missing, covar_modifier, covar_str, mcovar_col, write_covar_modifier, model_modifier, (uint32_t)model_cell_ct, (uint32_t)model_mperm_val, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, ibs_test_perms, perm_batch_size, &file_delete_list);
   }
  main_ret_2:
   free(wkspace_ua);
@@ -10512,6 +9568,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(makepheno_str);
   free_cond(phenoname_str);
   free_cond(refalleles);
+  free_cond(a2alleles);
   free_cond(filterval);
   free_cond(evecname);
   free_cond(filtername);
@@ -10535,7 +9592,10 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(set_fname);
   free_cond(subset_fname);
   free_cond(update_alleles_fname);
-  free_cond(update_map_fname);
+  free_cond(update_chr);
+  free_cond(update_cm);
+  free_cond(update_map);
+  free_cond(update_name);
   free_cond(update_ids_fname);
   free_cond(update_parents_fname);
   free_cond(update_sex_fname);
