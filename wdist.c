@@ -3488,6 +3488,14 @@ int32_t write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, uint
   return 0;
 }
 
+static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, Two_col_params* update_cm) {
+  return (update_cm && (calculation_type & (CALC_MAKE_BED | CALC_RECODE)));
+}
+
+static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname) {
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL)));
+}
+
 inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
@@ -3525,12 +3533,14 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t* founder_info = NULL;
   uintptr_t* sex_nm = NULL;
   uintptr_t* sex_male = NULL;
+  uint32_t marker_cms_needed = are_marker_cms_needed(calculation_type, update_cm);
   uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname);
   int32_t jj = 0;
   int32_t kk = 0;
   uint32_t uii = 0;
   int64_t llxx = 0;
   char* marker_ids = NULL;
+  double* marker_cms = NULL;
   unsigned char* marker_weights_base = NULL;
   // if max_marker_allele_len == 1:
   //   marker_alleles[2 * ii] is id of A1 (usually minor) allele at marker ii
@@ -3747,7 +3757,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   } else {
     allelexxxx = 0;
   }
-  retval = load_bim(&bimfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_pos, freqname, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, update_map, &map_is_unsorted, marker_alleles_needed);
+  retval = load_bim(&bimfile, mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, update_map, &map_is_unsorted, marker_cms_needed, marker_alleles_needed, "bim");
   if (retval) {
     goto wdist_ret_2;
   }
@@ -3857,7 +3867,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     prune_missing_phenos(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, pheno_nm, pheno_d, missing_phenod);
   }
 
-  if ((marker_alleles_needed && flip_fname && (!flip_subset_fname)) || extractname || excludename) {
+  if ((update_cm && marker_cms_needed) || update_name || update_alleles_fname || (marker_alleles_needed && flip_fname && (!flip_subset_fname)) || extractname || excludename) {
     wkspace_mark = wkspace_base;
     duplicate_fail = 0;
     retval = sort_item_ids(&cptr, &iptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, strcmp_deref, &duplicate_fail);
@@ -3865,16 +3875,63 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_2;
     }
     if (duplicate_fail) {
-      if (marker_alleles_needed && flip_fname && (!flip_subset_fname)) {
+      if (update_cm) {
+        logprint("Error: Duplicate marker ID(s) in input.  --update-cm cannot be used in their\npresence.\n");
+	goto wdist_ret_INVALID_FORMAT;
+      } else if (update_name) {
+        logprint("Error: Duplicate marker ID(s) in input.  --update-name cannot be used in their\npresence.\n");
+	goto wdist_ret_INVALID_FORMAT;
+      } else if (update_alleles_fname) {
+        logprint("Error: Duplicate marker ID(s) in input.  --update-alleles cannot be used in\ntheir presence.\n");
+	goto wdist_ret_INVALID_FORMAT;
+      } else if (marker_alleles_needed && flip_fname && (!flip_subset_fname)) {
         logprint("Error: Duplicate marker ID(s) in input.  --flip cannot be used in their\npresence.\n");
 	goto wdist_ret_INVALID_FORMAT;
       }
       logprint("Warning: Duplicate marker ID(s) in input.\n");
     }
     // length of sorted list is NOT necessarily equal to unfiltered_marker_ct -
-    // marker_exclude_ct, since marker_exclude_ct may change before second call
+    // marker_exclude_ct for --exclude, since marker_exclude_ct may first
+    // change from --extract
     ii = unfiltered_marker_ct - marker_exclude_ct;
 
+    if (update_cm) {
+      retval = update_marker_cms();
+      if (retval) {
+	goto wdist_ret_2;
+      }
+    }
+    if (update_name) {
+      retval = update_marker_names();
+      if (retval) {
+	goto wdist_ret_2;
+      }
+      if (update_alleles_fname || (marker_alleles_needed && flip_fname && (!flip_subset_fname)) || extractname || excludename) {
+	wkspace_reset(wkspace_mark);
+	duplicate_fail = 0;
+	retval = sort_item_ids(&cptr, &iptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, strcmp_deref, &duplicate_fail);
+	if (retval) {
+	  goto wdist_ret_2;
+	}
+	ii = unfiltered_marker_ct - marker_exclude_ct;
+	if (duplicate_fail) {
+          if (update_alleles_fname) {
+            logprint("Error: Duplicate marker ID(s) in input after --update-name.  --update-alleles\ncannot be used in their presence.\n");
+	    goto wdist_ret_INVALID_FORMAT;
+          } else if (marker_alleles_needed && flip_fname && (!flip_subset_fname)) {
+            logprint("Error: Duplicate marker ID(s) in input after --update-name.  --flip cannot be\nused in their presence.\n");
+	    goto wdist_ret_INVALID_FORMAT;
+          }
+          logprint("Warning: Duplicate marker ID(s) in input after --update-name.\n");
+	}
+      }
+    }
+    if (update_alleles_fname) {
+      retval = update_marker_alleles();
+      if (retval) {
+	goto wdist_ret_2;
+      }
+    }
     if (marker_alleles_needed && flip_fname && (!flip_subset_fname)) {
       retval = flip_strand(flip_fname, cptr, (uint32_t)ii, max_marker_id_len, (uint32_t*)iptr, marker_alleles, max_marker_allele_len);
       if (retval) {
@@ -3900,7 +3957,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     allelexxxx_recode(allelexxxx, marker_alleles, max_marker_allele_len, marker_exclude, unfiltered_marker_ct - marker_exclude_ct);
   }
 
-  if (removename || keepname || filtername || (indiv_sort == INDIV_SORT_ASCII)) {
+  if (update_ids_fname || update_parents_fname || update_sex_fname || removename || keepname || filtername || (indiv_sort == INDIV_SORT_ASCII)) {
     wkspace_mark = wkspace_base;
     duplicate_fail = 0;
     retval = sort_item_ids(&cptr, &iptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, strcmp_deref, &duplicate_fail);
@@ -4176,7 +4233,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_MAKE_BED) {
-    retval = make_bed(bedfile, bed_offset, bimfile, map_cols, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_alleles, max_marker_allele_len, marker_reverse, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, pheno_d, missing_phenod, output_missing_pheno, max_marker_id_len, map_is_unsorted, indiv_sort_map, set_hh_missing, chrom_info_ptr);
+    retval = make_bed(bedfile, bed_offset, bimfile, map_cols, &bedtmpfile, &famtmpfile, &bimtmpfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_cms, marker_alleles, max_marker_allele_len, marker_reverse, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, pheno_d, missing_phenod, output_missing_pheno, max_marker_id_len, map_is_unsorted, indiv_sort_map, set_hh_missing, update_chr, update_map, flip_subset_fname, chrom_info_ptr);
     if (retval) {
       goto wdist_ret_2;
     }
@@ -6873,10 +6930,13 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "lip-subset", 11)) {
-	// todo: hardcode --flip-subset + --allele1234/ACGT
 	if (!flip_fname) {
           sprintf(logbuf, "Error: --flip-subset must be used with --flip.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (allelexxxx) {
+	  // fix for this is too messy to be worthwhile
+	  logprint("Error: --flip-subset cannot be used with --allele1234/ACGT.\n");
+	  goto main_ret_INVALID_CMDLINE;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -9213,9 +9273,6 @@ int32_t main(int32_t argc, char** argv) {
   if (flip_subset_fname && (load_rare || (calculation_type != CALC_MAKE_BED) || (min_maf != 0.0) || (max_maf != 0.5) || (hwe_thresh != 0.0))) {
     sprintf(logbuf, "Error: --flip-subset must be used with --flip, --make-bed, and no other\ncommands or MAF-based filters.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
-  } else if (flip_subset_fname) {
-    logprint("Error: --flip-subset is not implemented yet.\n");
-    goto main_ret_INVALID_CMDLINE;
   }
   if ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_23) && (chrom_info.species != SPECIES_HUMAN)) {
     logprint("Error: --recode 23 can only be used on human data.\n");
