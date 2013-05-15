@@ -10,7 +10,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
 
 int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids, uint32_t marker_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, char* true_marker_ids);
 
-int32_t update_marker_alleles(char* update_alleles_name, char* sorted_marker_ids, uint32_t marker_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, char* marker_alelles, uintptr_t max_marker_allele_len);
+int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_ids, uint32_t marker_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, char* marker_alelles, uintptr_t max_marker_allele_len, char* outname, char* outname_end);
 
 int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uint32_t marker_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, char* marker_alleles, uintptr_t max_marker_allele_len);
 

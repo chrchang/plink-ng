@@ -3725,7 +3725,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (update_alleles_fname) {
       ulii = 1;
       uljj = 1;
-      retval = scan_max_strlen(update_alleles_fname, 3, 5, 0, '\0', &ulii, &uljj);
+      retval = scan_max_strlen(update_alleles_fname, 4, 5, 0, '\0', &ulii, &uljj);
       if (retval) {
         goto wdist_ret_2;
       }
@@ -3920,7 +3920,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
     if (marker_alleles_needed) {
       if (update_alleles_fname) {
-        retval = update_marker_alleles(update_alleles_fname, cptr, (uint32_t)ii, max_marker_id_len, (uint32_t*)iptr, marker_alleles, max_marker_allele_len);
+        retval = update_marker_alleles(update_alleles_fname, cptr, (uint32_t)ii, max_marker_id_len, (uint32_t*)iptr, marker_alleles, max_marker_allele_len, outname, outname_end);
         if (retval) {
 	  goto wdist_ret_2;
         }

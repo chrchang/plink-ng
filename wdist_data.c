@@ -993,13 +993,16 @@ int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
 }
 
 int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, uint32_t marker_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, double* marker_cms) {
+  unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
-  char* loadbuf = (char*)wkspace_base;
-  uintptr_t loadbuf_size = wkspace_left;
   char skipchar = update_cm->skipchar;
   uint32_t colid_first = (update_cm->colid < update_cm->colx);
+  uint32_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
+  uintptr_t* already_seen;
+  char* loadbuf;
+  uintptr_t loadbuf_size;
   uint32_t colmin;
   uint32_t coldiff;
   char* colid_ptr;
@@ -1008,6 +1011,13 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
   uint32_t marker_uidx;
   char cc;
   int32_t retval;
+  if (wkspace_alloc_ul_checked(&already_seen, marker_ctl * sizeof(intptr_t))) {
+    goto update_marker_cms_ret_NOMEM;
+  }
+  fill_ulong_zero(already_seen, marker_ctl);
+
+  loadbuf = (char*)wkspace_base;
+  loadbuf_size = wkspace_left;
   if (loadbuf_size > 0x7fffffc0) {
     loadbuf_size = 0x7fffffc0;
   }
@@ -1058,6 +1068,12 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
       miss_ct++;
       continue;
     }
+    if (is_set(already_seen, sorted_idx)) {
+      sprintf(logbuf, "Error: Duplicate marker %s in --update-cm file.\n", colid_ptr);
+      logprintb();
+      goto update_marker_cms_ret_INVALID_FORMAT;
+    }
+    set_bit_noct(already_seen, sorted_idx);
     marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
     if (sscanf(colx_ptr, "%lg", &(marker_cms[marker_uidx])) != 1) {
       logprint("Error: Invalid centimorgan value in --update-cm file.\n");
@@ -1089,17 +1105,21 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
   }
  update_marker_cms_ret_1:
   fclose_cond(infile);
+  wkspace_reset(wkspace_mark);
   return retval;
 }
 
 int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids, uint32_t marker_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, char* true_marker_ids) {
+  unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
-  char* loadbuf = (char*)wkspace_base;
-  uintptr_t loadbuf_size = wkspace_left;
   char skipchar = update_name->skipchar;
   uint32_t colold_first = (update_name->colid < update_name->colx);
+  uint32_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
+  uintptr_t* already_seen;
+  char* loadbuf;
+  uintptr_t loadbuf_size;
   uint32_t colmin;
   uint32_t coldiff;
   char* colold_ptr;
@@ -1109,6 +1129,12 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
   uint32_t slen;
   char cc;
   int32_t retval;
+  if (wkspace_alloc_ul_checked(&already_seen, marker_ctl * sizeof(intptr_t))) {
+    goto update_marker_names_ret_NOMEM;
+  }
+  fill_ulong_zero(already_seen, marker_ctl);
+  loadbuf = (char*)wkspace_base;
+  loadbuf_size = wkspace_left;
   if (loadbuf_size > 0x7fffffc0) {
     loadbuf_size = 0x7fffffc0;
   }
@@ -1153,6 +1179,12 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
       miss_ct++;
       continue;
     }
+    if (is_set(already_seen, sorted_idx)) {
+      sprintf(logbuf, "Error: Duplicate marker %s in --update-name file.\n", colold_ptr);
+      logprintb();
+      goto update_marker_names_ret_INVALID_FORMAT;
+    }
+    set_bit_noct(already_seen, sorted_idx);
     marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
     slen = strlen_se(colnew_ptr);
     colnew_ptr[slen] = '\0';
@@ -1174,19 +1206,38 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
   update_marker_names_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  update_marker_names_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
   }
  update_marker_names_ret_1:
   fclose_cond(infile);
+  wkspace_reset(wkspace_mark);
   return retval;
 }
 
-int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_ids, uint32_t marker_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, char* marker_alelles, uintptr_t max_marker_allele_len) {
+int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_ids, uint32_t marker_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, char* marker_alleles, uintptr_t max_marker_allele_len, char* outname, char* outname_end) {
+  unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
+  FILE* errfile = NULL;
   int32_t retval = 0;
+  uint32_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
+  uintptr_t hit_ct = 0;
+  uintptr_t miss_ct = 0;
+  uintptr_t err_ct = 0;
+  uintptr_t* already_seen;
   char* bufptr;
   char* bufptr2;
+  char* bufptr3;
+  uint32_t len2;
+  uint32_t len;
   int32_t sorted_idx;
-  uint32_t marker_uidx;
+  uintptr_t marker_uidx;
+  uint32_t cur_status; // 0 = error, 1 = match, 2 = reverse match
+  if (wkspace_alloc_ul_checked(&already_seen, marker_ctl * sizeof(intptr_t))) {
+    goto update_marker_alleles_ret_NOMEM;
+  }
+  fill_ulong_zero(already_seen, marker_ctl);
   if (fopen_checked(&infile, update_alleles_fname, "r")) {
     goto update_marker_alleles_ret_OPEN_FAIL;
   }
@@ -1196,37 +1247,121 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
       logprint("Error: Pathologically long line in --update-alleles file.\n");
       goto update_marker_alleles_ret_INVALID_FORMAT;
     }
-    bufptr = skip_initial_spaces(tbuf);
-    if (is_eoln_kns(*bufptr)) {
+    bufptr3 = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr3)) {
       continue;
     }
-    bufptr2 = item_endnn(bufptr);
+    bufptr2 = item_endnn(bufptr3);
     *bufptr2 = '\0';
     bufptr2 = skip_initial_spaces(&(bufptr2[1]));
-    sorted_idx = bsearch_str(bufptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
+    sorted_idx = bsearch_str(bufptr3, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
     if (sorted_idx == -1) {
+      miss_ct++;
       continue;
     }
+    if (is_set(already_seen, sorted_idx)) {
+      sprintf(logbuf, "Error: Duplicate marker %s in --update-alleles file.\n", bufptr3);
+      logprintb();
+      goto update_marker_alleles_ret_INVALID_FORMAT;
+    }
+    set_bit_noct(already_seen, sorted_idx);
     marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
+    cur_status = 0;
+    bufptr = item_endnn(bufptr2);
+    len2 = (uintptr_t)(bufptr - bufptr2);
+    *bufptr = '\0';
+    bufptr = skip_initial_spaces(&(bufptr[1]));
+    len = strlen_se(bufptr);
+    bufptr[len] = '\0';
     if (max_marker_allele_len == 1) {
+      if ((len == 1) && (len2 == 1)) {
+	if (((*bufptr2) == marker_alleles[marker_uidx * 2]) && ((*bufptr) == marker_alleles[marker_uidx * 2 + 1])) {
+	  bufptr2 = skip_initial_spaces(&(bufptr[1]));
+	  bufptr = next_item(bufptr2);
+	} else if (((*bufptr) == marker_alleles[marker_uidx * 2]) && ((*bufptr2) == marker_alleles[marker_uidx * 2 + 1])) {
+	  bufptr = skip_initial_spaces(&(bufptr[1]));
+	  bufptr2 = next_item(bufptr2);
+	} else {
+	  goto update_marker_alleles_mismatch;
+	}
+      } else {
+	goto update_marker_alleles_mismatch;
+      }
+      marker_alleles[marker_uidx * 2] = *bufptr2;
+      marker_alleles[marker_uidx * 2 + 1] = *bufptr;
+      hit_ct++;
     } else {
+      if ((!strcmp(bufptr2, &(marker_alleles[2 * marker_uidx * max_marker_allele_len]))) && (!strcmp(bufptr, &(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len])))) {
+	bufptr2 = skip_initial_spaces(&(bufptr[1]));
+	bufptr = next_item(bufptr2);
+	goto update_marker_alleles_multichar_match;
+      } else if ((!strcmp(bufptr, &(marker_alleles[2 * marker_uidx * max_marker_allele_len]))) && (!strcmp(bufptr2, &(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len])))) {
+	bufptr = skip_initial_spaces(&(bufptr[1]));
+	bufptr2 = next_item(bufptr2);
+      update_marker_alleles_multichar_match:
+	len = strlen_se(bufptr);
+        len2 = strlen_se(bufptr2);
+	bufptr[len] = '\0';
+	bufptr2[len2] = '\0';
+        memcpy(&(marker_alleles[2 * marker_uidx * max_marker_allele_len]), bufptr2, len2 + 1);
+	memcpy(&(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), bufptr, len + 1);
+	hit_ct++;
+      } else {
+      update_marker_alleles_mismatch:
+	if (!err_ct) {
+          memcpy(outname_end, ".allele.no.snp", 15);
+	  if (fopen_checked(&errfile, outname, "w")) {
+	    goto update_marker_alleles_ret_OPEN_FAIL;
+	  }
+	}
+	if (fputs(bufptr3, errfile) == EOF) {
+	  goto update_marker_alleles_ret_WRITE_FAIL;
+	}
+	putc('\t', errfile);
+	fputs(bufptr2, errfile);
+	putc('\t', errfile);
+	fputs(bufptr, errfile);
+	if (putc('\n', errfile) == EOF) {
+	  goto update_marker_alleles_ret_WRITE_FAIL;
+	}
+	err_ct++;
+      }
     }
   }
   if (!feof(infile)) {
     goto update_marker_alleles_ret_READ_FAIL;
   }
+  if (miss_ct) {
+    sprintf(logbuf, "--update-alleles: %" PRIuPTR " marker%s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+  } else {
+    sprintf(logbuf, "--update-alleles: %" PRIuPTR " marker%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+  }
+  logprintb();
+  if (err_ct) {
+    sprintf(logbuf, "%" PRIuPTR " update failure%s logged to %s.\n", err_ct, (err_ct == 1)? "" : "s", outname);
+    logprintb();
+  }
+
   while (0) {
+  update_marker_alleles_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
   update_marker_alleles_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
   update_marker_alleles_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  update_marker_alleles_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
   update_marker_alleles_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }
   fclose_cond(infile);
+  fclose_cond(errfile);
+  wkspace_reset(wkspace_mark);
   return retval;
 }
 
@@ -1256,16 +1391,23 @@ uint32_t flip_str(char* allele_str) {
 }
 
 int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uint32_t marker_ct, uintptr_t max_marker_id_len, uint32_t* marker_id_map, char* marker_alleles, uintptr_t max_marker_allele_len) {
+  unsigned char* wkspace_mark = wkspace_base;
   FILE* flipfile = NULL;
   uint32_t non_acgt_ct = 0;
   int32_t retval = 0;
+  uint32_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
+  uintptr_t* already_seen;
   char* bufptr;
   uint32_t slen;
   uint32_t cur_non_acgt0;
   int32_t sorted_idx;
   uintptr_t marker_uidx;
+  if (wkspace_alloc_ul_checked(&already_seen, marker_ctl * sizeof(intptr_t))) {
+    goto flip_strand_ret_NOMEM;
+  }
+  fill_ulong_zero(already_seen, marker_ctl);
   if (fopen_checked(&flipfile, flip_fname, "r")) {
     goto flip_strand_ret_OPEN_FAIL;
   }
@@ -1285,6 +1427,12 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uint32_t marker_c
     if (sorted_idx == -1) {
       continue;
     }
+    if (is_set(already_seen, sorted_idx)) {
+      sprintf(logbuf, "Error: Duplicate marker %s in --flip file.\n", bufptr);
+      logprintb();
+      goto flip_strand_ret_INVALID_FORMAT;
+    }
+    set_bit_noct(already_seen, sorted_idx);
     marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
     cur_non_acgt0 = 0;
     if (max_marker_allele_len == 1) {
@@ -1311,6 +1459,9 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uint32_t marker_c
     logprintb();
   }
   while (0) {
+  flip_strand_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
   flip_strand_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
@@ -1322,6 +1473,7 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uint32_t marker_c
     break;
   }
   fclose_cond(flipfile);
+  wkspace_reset(wkspace_mark);
   return retval;
 }
 
