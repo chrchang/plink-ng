@@ -1435,122 +1435,6 @@ void allelexxxx_recode(int32_t allelexxxx, char* marker_alleles, uintptr_t max_m
   }
 }
 
-inline void set_surrounding_bits(char* id_buf, int32_t id_idx, uintptr_t* exclude_arr, char* sorted_ids, uintptr_t max_id_len, int32_t* id_map, int32_t sorted_ids_len, uintptr_t* exclude_ct_ptr) {
-  uint32_t id_len = strlen(id_buf) + 1;
-  int32_t id_idx2 = id_idx - 1;
-  while ((id_idx2 >= 0) && (!memcmp(id_buf, &(sorted_ids[id_idx2 * max_id_len]), id_len))) {
-    set_bit(exclude_arr, id_map[id_idx2--], exclude_ct_ptr);
-  }
-  id_idx2 = id_idx + 1;
-  while ((id_idx2 < sorted_ids_len) && (!memcmp(id_buf, &(sorted_ids[id_idx2 * max_id_len]), id_len))) {
-    set_bit(exclude_arr, id_map[id_idx2++], exclude_ct_ptr);
-  }
-}
-
-inline void clear_surrounding_bits(char* id_buf, int32_t id_idx, uintptr_t* exclude_arr_new, char* sorted_ids, uintptr_t max_id_len, int32_t* id_map, int32_t sorted_ids_len, uintptr_t* include_ct_ptr) {
-  uint32_t id_len = strlen(id_buf) + 1;
-  int32_t id_idx2 = id_idx - 1;
-  while ((id_idx2 >= 0) && (!memcmp(id_buf, &(sorted_ids[id_idx2 * max_id_len]), id_len))) {
-    clear_bit(exclude_arr_new, id_map[id_idx2--], include_ct_ptr);
-  }
-  id_idx2 = id_idx + 1;
-  while ((id_idx2 < sorted_ids_len) && (!memcmp(id_buf, &(sorted_ids[id_idx2 * max_id_len]), id_len))) {
-    clear_bit(exclude_arr_new, id_map[id_idx2++], include_ct_ptr);
-  }
-}
-
-int32_t include_or_exclude(char* fname, char* sorted_ids, int32_t sorted_ids_len, uintptr_t max_id_len, int32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr, int32_t indivs, int32_t do_exclude, int32_t duplicates_present) {
-  FILE* infile = NULL;
-  unsigned char* wkspace_mark = wkspace_base;
-  uintptr_t* exclude_arr_new = NULL;
-  uintptr_t include_ct = 0;
-  uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
-  char* id_buf;
-  char* bufptr0;
-  char* bufptr;
-  int32_t ii;
-  int32_t jj;
-
-  if (!do_exclude) {
-    if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(intptr_t))) {
-      return RET_NOMEM;
-    }
-    fill_ulong_one(exclude_arr_new, unfiltered_ctl);
-  }
-  if (fopen_checked(&infile, fname, "r")) {
-    return RET_OPEN_FAIL;
-  }
-  tbuf[MAXLINELEN - 1] = ' ';
-  if (indivs) {
-    if (wkspace_alloc_c_checked(&id_buf, max_id_len)) {
-      return RET_NOMEM;
-    }
-    while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
-      if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Excessively long line in --keep/--remove file (max %d chars).\n", MAXLINELEN - 3);
-	logprintb();
-        return RET_INVALID_FORMAT;
-      }
-      bufptr0 = skip_initial_spaces(tbuf);
-      if (is_eoln_kns(*bufptr0)) {
-	continue;
-      }
-      bufptr = next_item(tbuf);
-      if (no_more_items_kns(bufptr)) {
-	logprint("Error: Improperly formatted --keep/--remove file.\n");
-        return RET_INVALID_FORMAT;
-      }
-      ii = bsearch_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_len, tbuf, bufptr);
-      if (ii != -1) {
-        jj = id_map[ii];
-        if (do_exclude) {
-          set_bit(exclude_arr, jj, exclude_ct_ptr);
-	  if (duplicates_present) {
-            set_surrounding_bits(id_buf, ii, exclude_arr, sorted_ids, max_id_len, id_map, sorted_ids_len, exclude_ct_ptr);
-	  }
-	} else if (!is_set(exclude_arr, jj)) {
-	  clear_bit(exclude_arr_new, jj, &include_ct);
-	  if (duplicates_present) {
-	    clear_surrounding_bits(id_buf, ii, exclude_arr_new, sorted_ids, max_id_len, id_map, sorted_ids_len, &include_ct);
-	  }
-	}
-      }
-    }
-  } else {
-    while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
-      read_next_terminate(tbuf, tbuf);
-      if (!(*tbuf)) {
-	continue;
-      }
-      ii = bsearch_str(tbuf, sorted_ids, max_id_len, 0, sorted_ids_len - 1);
-      if (ii != -1) {
-	jj = id_map[ii];
-	if (do_exclude) {
-	  set_bit(exclude_arr, jj, exclude_ct_ptr);
-	  if (duplicates_present) {
-            set_surrounding_bits(tbuf, ii, exclude_arr, sorted_ids, max_id_len, id_map, sorted_ids_len, exclude_ct_ptr);
-	  }
-	} else if (!is_set(exclude_arr, jj)) {
-	  clear_bit(exclude_arr_new, jj, &include_ct);
-	  if (duplicates_present) {
-	    clear_surrounding_bits(tbuf, ii, exclude_arr_new, sorted_ids, max_id_len, id_map, sorted_ids_len, &include_ct);
-	  }
-	}
-      }
-    }
-  }
-  if (!feof(infile)) {
-    return RET_READ_FAIL;
-  }
-  if (!do_exclude) {
-    memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
-    *exclude_ct_ptr = unfiltered_ct - include_ct;
-  }
-  wkspace_reset(wkspace_mark);
-  fclose(infile);
-  return 0;
-}
-
 int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, int32_t sorted_ids_len, uintptr_t max_person_id_len, int32_t* id_map, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* filterval, int32_t mfilter_col) {
   FILE* infile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
@@ -3447,10 +3331,12 @@ void calc_marker_weights(double exponent, uintptr_t* marker_exclude, uintptr_t m
   }
 }
 
-int32_t load_ref_alleles(Two_col_params* refalleles, uintptr_t unfiltered_marker_ct, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t is_a2) {
+int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_ct, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t is_a2) {
+  // No need to check format here thanks to earlier scan_max_strlen()
+  // invocation.
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
-  char skipchar = refalleles->skipchar;
+  char skipchar = axalleles->skipchar;
   uint32_t slen;
   char* sorted_ids;
   // We actually do want to handle lines longer than MAXLINELEN - 2 chars,
@@ -3467,12 +3353,12 @@ int32_t load_ref_alleles(Two_col_params* refalleles, uintptr_t unfiltered_marker
   int32_t sorted_idx;
   uint32_t uii;
   char cc;
-  if (fopen_checked(&infile, refalleles->fname, "r")) {
-    goto load_ref_alleles_ret_OPEN_FAIL;
+  if (fopen_checked(&infile, axalleles->fname, "r")) {
+    goto load_ax_alleles_ret_OPEN_FAIL;
   }
   retval = sort_item_ids_nx(&sorted_ids, &id_map, unfiltered_marker_ct, marker_ids, max_marker_id_len);
   if (retval) {
-    goto load_ref_alleles_ret_1;
+    goto load_ax_alleles_ret_1;
   }
 
   loadbuf = (char*)wkspace_base;
@@ -3481,35 +3367,31 @@ int32_t load_ref_alleles(Two_col_params* refalleles, uintptr_t unfiltered_marker
     loadbuf_size = 0x7fffffc0;
   }
   if (loadbuf_size < MAXLINELEN) {
-    goto load_ref_alleles_ret_NOMEM;
+    goto load_ax_alleles_ret_NOMEM;
   }
   loadbuf[loadbuf_size - 1] = ' ';
-  if (refalleles->skip) {
-    uii = refalleles->skip;
+  if (axalleles->skip) {
+    uii = axalleles->skip;
     do {
       if (!fgets(loadbuf, loadbuf_size, infile)) {
-	if (!feof(infile)) {
-	  goto load_ref_alleles_ret_READ_FAIL;
-	}
-	sprintf(logbuf, "Error: Number of lines in --%s-allele file smaller than skip parameter.\n", is_a2? "a2" : "reference");
-	goto load_ref_alleles_ret_INVALID_FORMAT;
+	goto load_ax_alleles_ret_READ_FAIL;
       }
       if (!(loadbuf[loadbuf_size - 1])) {
-	goto load_ref_alleles_ret_NOMEM;
+	goto load_ax_alleles_ret_NOMEM;
       }
     } while (--uii);
   }
-  colid_first = (refalleles->colid < refalleles->colx);
+  colid_first = (axalleles->colid < axalleles->colx);
   if (colid_first) {
-    colmin = refalleles->colid - 1;
-    coldiff = refalleles->colx - refalleles->colid;
+    colmin = axalleles->colid - 1;
+    coldiff = axalleles->colx - axalleles->colid;
   } else {
-    colmin = refalleles->colx - 1;
-    coldiff = refalleles->colid - refalleles->colx;
+    colmin = axalleles->colx - 1;
+    coldiff = axalleles->colid - axalleles->colx;
   }
   while (fgets(loadbuf, loadbuf_size, infile)) {
     if (!(loadbuf[loadbuf_size - 1])) {
-      goto load_ref_alleles_ret_NOMEM;
+      goto load_ax_alleles_ret_NOMEM;
     }
     colid_ptr = skip_initial_spaces(loadbuf);
     cc = *colid_ptr;
@@ -3521,18 +3403,12 @@ int32_t load_ref_alleles(Two_col_params* refalleles, uintptr_t unfiltered_marker
         colid_ptr = next_item_mult(colid_ptr, colmin);
       }
       colx_ptr = next_item_mult(colid_ptr, coldiff);
-      if (no_more_items_kns(colx_ptr)) {
-	goto load_ref_alleles_ret_INVALID_FORMAT_2;
-      }
     } else {
       colx_ptr = colid_ptr;
       if (colmin) {
 	colx_ptr = next_item_mult(colx_ptr, colmin);
       }
       colid_ptr = next_item_mult(colx_ptr, coldiff);
-      if (no_more_items_kns(colid_ptr)) {
-	goto load_ref_alleles_ret_INVALID_FORMAT_2;
-      }
     }
     colid_ptr[strlen_se(colid_ptr)] = '\0';
     sorted_idx = bsearch_str(colid_ptr, sorted_ids, max_marker_id_len, 0, unfiltered_marker_ct - 1);
@@ -3550,7 +3426,7 @@ int32_t load_ref_alleles(Two_col_params* refalleles, uintptr_t unfiltered_marker
           marker_alleles[sorted_idx * 2 + is_a2] = cc;
 	  clear_bit_noct(marker_reverse, sorted_idx);
 	} else {
-	  sprintf(logbuf, "Warning: Impossible %s allele assignment for marker %s.\n", is_a2? "A2" : "reference", colid_ptr);
+	  sprintf(logbuf, "Warning: Impossible A%c allele assignment for marker %s.\n", is_a2? '2' : '1', colid_ptr);
 	  logprintb();
 	}
       } else {
@@ -3564,33 +3440,27 @@ int32_t load_ref_alleles(Two_col_params* refalleles, uintptr_t unfiltered_marker
 	  memcpy(&(marker_alleles[(sorted_idx * 2 + is_a2) * max_marker_allele_len]), colx_ptr, slen);
 	  clear_bit_noct(marker_reverse, sorted_idx);
 	} else {
-	  sprintf(logbuf, "Warning: Impossible %s allele assignment for marker %s.\n", is_a2? "A2" : "reference", colid_ptr);
+	  sprintf(logbuf, "Warning: Impossible A%c allele assignment for marker %s.\n", is_a2? '2' : '1', colid_ptr);
 	  logprintb();
 	}
       }
     }
   }
   if (!feof(infile)) {
-    goto load_ref_alleles_ret_READ_FAIL;
+    goto load_ax_alleles_ret_READ_FAIL;
   }
   while (0) {
-  load_ref_alleles_ret_NOMEM:
+  load_ax_alleles_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  load_ref_alleles_ret_OPEN_FAIL:
+  load_ax_alleles_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
-  load_ref_alleles_ret_READ_FAIL:
+  load_ax_alleles_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  load_ref_alleles_ret_INVALID_FORMAT_2:
-    sprintf(logbuf, "Error: Missing field(s) in %s-allele input file line.\n", is_a2? "a2" : "reference");
-  load_ref_alleles_ret_INVALID_FORMAT:
-    logprintb();
-    retval = RET_INVALID_FORMAT;
-    break;
   }
- load_ref_alleles_ret_1:
+ load_ax_alleles_ret_1:
   fclose_cond(infile);
   wkspace_reset(wkspace_mark);
   return 0;
@@ -3626,7 +3496,7 @@ inline int32_t distance_wt_req(uint64_t calculation_type) {
   return ((calculation_type & CALC_DISTANCE) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))));
 }
 
-int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* refalleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filterval, int32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, int32_t mpheno_col, uint32_t pheno_modifier, int32_t prune, int32_t affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int32_t hwe_all, double rel_cutoff, int32_t tail_pheno, double tail_bottom, double tail_top, uint64_t calculation_type, int32_t rel_calc_type, int32_t dist_calc_type, uintptr_t groupdist_iters, int32_t groupdist_d, uintptr_t regress_iters, int32_t regress_d, uintptr_t regress_rel_iters, int32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, int32_t parallel_idx, uint32_t parallel_tot, int32_t ppc_gap, int32_t allow_no_sex, int32_t must_have_sex, int32_t nonfounders, uint32_t genome_modifier, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, int32_t maf_succ, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, int32_t freq_counts, int32_t freqx, int32_t distance_flat_missing, uint32_t recode_modifier, int32_t allelexxxx, int32_t merge_type, int32_t indiv_sort, int32_t keep_allele_order, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t set_hh_missing, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t write_covar_modifier, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, Ll_str** file_delete_list_ptr) {
+int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filterval, int32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, int32_t mpheno_col, uint32_t pheno_modifier, int32_t prune, int32_t affection_01, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, int32_t hwe_all, double rel_cutoff, int32_t tail_pheno, double tail_bottom, double tail_top, uint64_t calculation_type, int32_t rel_calc_type, int32_t dist_calc_type, uintptr_t groupdist_iters, int32_t groupdist_d, uintptr_t regress_iters, int32_t regress_d, uintptr_t regress_rel_iters, int32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, int32_t parallel_idx, uint32_t parallel_tot, int32_t ppc_gap, int32_t allow_no_sex, int32_t must_have_sex, int32_t nonfounders, uint32_t genome_modifier, int32_t ld_window_size, int32_t ld_window_kb, int32_t ld_window_incr, double ld_last_param, int32_t maf_succ, int32_t regress_pcs_normalize_pheno, int32_t regress_pcs_sex_specific, int32_t regress_pcs_clip, int32_t max_pcs, int32_t freq_counts, int32_t freqx, int32_t distance_flat_missing, uint32_t recode_modifier, int32_t allelexxxx, int32_t merge_type, int32_t indiv_sort, int32_t keep_allele_order, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t set_hh_missing, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t write_covar_modifier, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, Ll_str** file_delete_list_ptr) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -3656,18 +3526,10 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t* sex_nm = NULL;
   uintptr_t* sex_male = NULL;
   uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname);
-  char* outname_end2;
-  uintptr_t marker_ct;
-  uint32_t plink_maxsnp;
-  int32_t ii;
   int32_t jj = 0;
   int32_t kk = 0;
   uint32_t uii = 0;
-  uintptr_t ulii;
-  uintptr_t uljj;
-  double dxx;
   int64_t llxx = 0;
-  int64_t llyy;
   char* marker_ids = NULL;
   unsigned char* marker_weights_base = NULL;
   // if max_marker_allele_len == 1:
@@ -3680,7 +3542,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   char* marker_alleles = NULL;
   uintptr_t max_marker_allele_len = 1;
   uintptr_t* marker_reverse = NULL;
-  uint32_t* marker_allele_cts;
   int32_t retval = RET_SUCCESS;
   int32_t map_is_unsorted = 0;
   int32_t map_cols = 3;
@@ -3694,16 +3555,13 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   double* marker_weights = NULL;
   uint32_t* marker_weights_i = NULL;
   char* person_ids = NULL;
-  uintptr_t max_person_id_len;
   char* paternal_ids = NULL;
   uintptr_t max_paternal_id_len = 2;
   char* maternal_ids = NULL;
   uintptr_t max_maternal_id_len = 2;
   unsigned char* wkspace_mark = NULL;
   char* cptr = NULL;
-  int32_t* iptr;
   uint64_t dists_alloc = 0;
-  double* rel_ibc;
   uintptr_t marker_exclude_ct = 0;
   char* pid_list = NULL;
   char* id_list = NULL;
@@ -3711,6 +3569,28 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   double ci_zt = 0.0;
   int32_t missing_pheno_len = intlen(missing_pheno);
   int32_t var_std = 1;
+  int32_t exp0 = (exponent == 0.0);
+  int32_t wt_needed = 0;
+  int32_t hwe_needed = 0;
+  int32_t bed_offset = 3;
+  uint32_t* marker_pos = NULL;
+  int32_t xmhh_exists = 0;
+  int32_t nxmhh_exists = 0;
+  uint32_t pheno_ctrl_ct = 0;
+  unsigned char* wkspace_mark2 = NULL;
+  pthread_t threads[MAX_THREADS];
+  uint32_t* marker_allele_cts;
+  uintptr_t max_person_id_len;
+  int32_t* iptr;
+  double* rel_ibc;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  double dxx;
+  char* outname_end2;
+  uintptr_t marker_ct;
+  uint32_t plink_maxsnp;
+  int32_t ii;
+  int64_t llyy;
   int32_t* hwe_lls;
   int32_t* hwe_lhs;
   int32_t* hwe_hhs;
@@ -3725,21 +3605,12 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uint32_t indiv_male_ct;
   uint32_t indiv_f_ct;
   uint32_t indiv_f_male_ct;
-  pthread_t threads[MAX_THREADS];
-  int32_t exp0 = (exponent == 0.0);
-  int32_t wt_needed = 0;
-  int32_t hwe_needed = 0;
-  int32_t bed_offset = 3;
-  uint32_t* marker_pos = NULL;
-  int32_t xmhh_exists = 0;
-  int32_t nxmhh_exists = 0;
-  uint32_t pheno_ctrl_ct = 0;
   uint32_t pheno_nm_ct;
   Pedigree_rel_info pri;
-  unsigned char* wkspace_mark2 = NULL;
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
   int32_t duplicate_fail;
+  Two_col_params* tcp_ptr;
 
   if (ci_size != 0.0) {
     ci_zt = ltqnorm(1 - (1 - ci_size) / 2);
@@ -3798,7 +3669,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_MERGE) {
-    if (!(((fam_cols & (FAM_COL_1 | FAM_COL_34 | FAM_COL_5 | FAM_COL_6)) == (FAM_COL_1 | FAM_COL_34 | FAM_COL_5 | FAM_COL_6)) && (!affection_01) && (missing_pheno == -9))) {
+    if (!(((fam_cols & FAM_COL_13456) == FAM_COL_13456) && (!affection_01) && (missing_pheno == -9))) {
       logprint("Error: --merge/--bmerge/--merge-list cannot be used with an irregularly\nformatted reference fileset (--no-fid, --no-parents, --no-sex, --no-pheno,\n--1).  Use --make-bed first.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
@@ -3831,26 +3702,43 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   // load .bim, count markers, filter chromosomes
   if (update_name) {
-    retval = scan_max_strlen(update_name->fname, 1, &max_marker_id_len);
+    ulii = 0;
+    retval = scan_max_strlen(update_name->fname, update_name->colid, update_name->colx, update_name->skip, update_name->skipchar, &max_marker_id_len, &ulii);
     if (retval) {
       goto wdist_ret_2;
     }
+    if (ulii > 80) {
+      // only warn on long new marker ID, since if there's a long old marker ID
+      // and no long new one, it's reasonable to infer that the user is fixing
+      // the problem, so we shouldn't spam them.
+      logprint("Warning: Unusually long new marker ID(s) in --update-name file.  Double-check\nyour file and command-line parameters, and consider changing your naming\nscheme if you encounter memory problems.\n");
+    }
+    if (ulii > max_marker_id_len) {
+      max_marker_id_len = ulii;
+    }
   }
   if (marker_alleles_needed) {
-    if (refalleles || a2alleles) {
-      retval = scan_max_strlen(refalleles? (refalleles->fname) : (a2alleles->fname), refalleles? ((refalleles->colid) - 1) : ((a2alleles->colid) - 1), &max_marker_id_len);
+    if (a1alleles || a2alleles) {
+      tcp_ptr = a1alleles? a1alleles : a2alleles;
+      retval = scan_max_strlen(tcp_ptr->fname, tcp_ptr->colid, tcp_ptr->colx, tcp_ptr->skip, tcp_ptr->skipchar, &max_marker_id_len, &max_marker_allele_len);
       if (retval) {
 	goto wdist_ret_2;
       }
-      retval = scan_max_strlen(refalleles? (refalleles->fname) : (a2alleles->fname), refalleles? ((refalleles->colx) - 1) : ((a2alleles->colx) - 1), &max_marker_allele_len);
-      if (retval) {
-	goto wdist_ret_2;
+      if ((max_marker_id_len > 80) || (max_marker_allele_len > 80)) {
+	logprint("Warning: Unusually long marker ID(s) and/or allele name(s) in\n--a1-allele/--a2-allele file.  Double-check your file and command-line\nparameters, and consider changing your naming scheme if you encounter memory\nproblems.\n");
       }
     }
     if (update_alleles_fname) {
-      retval = scan_max_strlen(update_alleles_fname, 1, &max_marker_allele_len);
+      ulii = 1;
+      retval = scan_max_strlen(update_alleles_fname, 1, 0, 0, '\0', &ulii, NULL);
       if (retval) {
         goto wdist_ret_2;
+      }
+      if (ulii > 80) {
+	logprint("Warning: Unusually long allele name(s) in --update-alleles file.  Double-check\nyour file and command-line parameters, and consider changing your naming\nscheme if you encounter memory problems.\n");
+      }
+      if (ulii > max_marker_allele_len) {
+	max_marker_allele_len = ulii;
       }
     }
     if (max_marker_allele_len > 1) {
@@ -3863,20 +3751,13 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (retval) {
     goto wdist_ret_2;
   }
-  if (marker_alleles_needed && flip_fname && (!flip_subset_fname)) {
-    retval = flip_strand(unfiltered_marker_ct, marker_exclude_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, flip_fname);
-    if (retval) {
-      goto wdist_ret_2;
-    }
-  }
 
-  ulii = MAXLINELEN;
   // load .fam, count indivs
   uii = fam_cols & FAM_COL_6;
   if (uii && phenoname) {
     uii = (pheno_modifier & PHENO_MERGE) && (!makepheno_str);
   }
-  retval = load_fam(famfile, ulii, fam_cols, uii, missing_pheno, missing_pheno_len, affection_01, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
+  retval = load_fam(famfile, MAXLINELEN, fam_cols, uii, missing_pheno, missing_pheno_len, affection_01, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
   if (retval) {
     goto wdist_ret_2;
   }
@@ -3976,11 +3857,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     prune_missing_phenos(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, pheno_nm, pheno_d, missing_phenod);
   }
 
-  if (allelexxxx) {
-    allelexxxx_recode(allelexxxx, marker_alleles, max_marker_allele_len, marker_exclude, unfiltered_marker_ct - marker_exclude_ct);
-  }
-
-  if (extractname || excludename) {
+  if ((marker_alleles_needed && flip_fname && (!flip_subset_fname)) || extractname || excludename) {
     wkspace_mark = wkspace_base;
     duplicate_fail = 0;
     retval = sort_item_ids(&cptr, &iptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, strcmp_deref, &duplicate_fail);
@@ -3988,11 +3865,22 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_2;
     }
     if (duplicate_fail) {
+      if (marker_alleles_needed && flip_fname && (!flip_subset_fname)) {
+        logprint("Error: Duplicate marker ID(s) in input.  --flip cannot be used in their\npresence.\n");
+	goto wdist_ret_INVALID_FORMAT;
+      }
       logprint("Warning: Duplicate marker ID(s) in input.\n");
     }
     // length of sorted list is NOT necessarily equal to unfiltered_marker_ct -
     // marker_exclude_ct, since marker_exclude_ct may change before second call
     ii = unfiltered_marker_ct - marker_exclude_ct;
+
+    if (marker_alleles_needed && flip_fname && (!flip_subset_fname)) {
+      retval = flip_strand(flip_fname, cptr, (uint32_t)ii, max_marker_id_len, (uint32_t*)iptr, marker_alleles, max_marker_allele_len);
+      if (retval) {
+	goto wdist_ret_2;
+      }
+    }
     if (extractname) {
       retval = include_or_exclude(extractname, cptr, ii, max_marker_id_len, iptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0, 0, duplicate_fail);
       if (retval) {
@@ -4006,6 +3894,10 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     }
     wkspace_reset(wkspace_mark);
+  }
+
+  if (allelexxxx) {
+    allelexxxx_recode(allelexxxx, marker_alleles, max_marker_allele_len, marker_exclude, unfiltered_marker_ct - marker_exclude_ct);
   }
 
   if (removename || keepname || filtername || (indiv_sort == INDIV_SORT_ASCII)) {
@@ -4100,7 +3992,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (memcmp(tbuf, "l\x1b\x01", 3)) {
       if (memcmp(tbuf, "l\x1b", 3)) {
 	if ((tbuf[0] == '#') || (!memcmp(tbuf, "chr", 3))) {
-          logprint("Error: Invalid header bytes in PLINK .bed file.  (Is this a UCSC Genome Browser\nBED file instead?\n");
+          logprint("Error: Invalid header bytes in PLINK .bed file.  (Is this actually a UCSC\nGenome Browser BED file?)\n");
 	} else {
 	  logprint("Error: Invalid header bytes in PLINK .bed file.\n");
 	}
@@ -4264,14 +4156,14 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   sprintf(logbuf, "%" PRIuPTR " marker%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", g_indiv_ct, species_str(g_indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
   logprintb();
 
-  if (refalleles || a2alleles) {
+  if (a1alleles || a2alleles) {
     if (marker_alleles) {
-      retval = load_ref_alleles(refalleles? refalleles : a2alleles, unfiltered_marker_ct, marker_alleles, max_marker_allele_len, marker_reverse, marker_ids, max_marker_id_len, a2alleles? 1 : 0);
+      retval = load_ax_alleles(a1alleles? a1alleles : a2alleles, unfiltered_marker_ct, marker_alleles, max_marker_allele_len, marker_reverse, marker_ids, max_marker_id_len, a2alleles? 1 : 0);
       if (retval) {
 	goto wdist_ret_2;
       }
     } else {
-      sprintf(logbuf, "Note: Ignoring --%s-allele, since allele IDs are not used in this run.\n", refalleles? "reference" : "a2");
+      sprintf(logbuf, "Note: Ignoring --a%c-allele, since allele IDs are not used in this run.\n", a1alleles? '1' : '2');
       logprintb();
     }
   }
@@ -4961,7 +4853,7 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t* flag_map = NULL;
   char* makepheno_str = NULL;
   char* phenoname_str = NULL;
-  Two_col_params* refalleles = NULL;
+  Two_col_params* a1alleles = NULL;
   Two_col_params* a2alleles = NULL;
   char* filterval = NULL;
   char* evecname = NULL;
@@ -4994,7 +4886,7 @@ int32_t main(int32_t argc, char** argv) {
   int32_t retval = 0;
   int32_t load_params = 0; // describes what file parameters have been provided
   int32_t load_rare = 0;
-  uint32_t fam_cols = FAM_COL_1 | FAM_COL_34 | FAM_COL_5 | FAM_COL_6;
+  uint32_t fam_cols = FAM_COL_13456;
   int32_t mpheno_col = 0;
   int32_t mcovar_col = 0;
   int32_t affection_01 = 0;
@@ -5499,6 +5391,9 @@ int32_t main(int32_t argc, char** argv) {
 	    mm++;
             break;
 	  }
+	} else if (!memcmp(argptr, "reference-allele", 17)) {
+	  memcpy(flagptr, "a1-allele", 10);
+	  break;
 	}
 	goto main_flag_copy;
       case 't':
@@ -5513,7 +5408,7 @@ int32_t main(int32_t argc, char** argv) {
 	  break;
 	} else if (!memcmp(argptr, "update-ref-allele", 18)) {
 	  // GCTA alias
-	  memcpy(flagptr, "reference-allele", 17);
+	  memcpy(flagptr, "a1-allele", 10);
 	  break;
 	}
 	// fall through
@@ -5875,7 +5770,19 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --aperm pruning interval slope '%s'.%s", argv[cur_arg + 6], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
+      } else if (!memcmp(argptr2, "1-allele", 9)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 4)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_2col(&a1alleles, &(argv[cur_arg + 1]), argptr, param_ct);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else if (!memcmp(argptr2, "2-allele", 9)) {
+	if (a1alleles) {
+	  logprint("Error: --a2-allele cannot be used with --a1-allele.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 4)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -6966,6 +6873,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "lip-subset", 11)) {
+	// todo: hardcode --flip-subset + --allele1234/ACGT
 	if (!flip_fname) {
           sprintf(logbuf, "Error: --flip-subset must be used with --flip.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -8528,18 +8436,6 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-      } else if (!memcmp(argptr2, "eference-allele", 16)) {
-	if (a2alleles) {
-	  logprint("Error: --reference-allele cannot be used with --a2-allele.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 4)) {
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	retval = alloc_2col(&refalleles, &(argv[cur_arg + 1]), argptr, param_ct);
-	if (retval) {
-	  goto main_ret_1;
-	}
       } else if (!memcmp(argptr2, "eference", 9)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -9310,8 +9206,8 @@ int32_t main(int32_t argc, char** argv) {
     sprintf(logbuf, "Error: Deprecated parameter-free --update-%s cannot be used without\n--update-map.%s", (update_map_modifier == 1)? "chr" : "cm", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
-  if (update_chr && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((!load_rare) && (calculation_type != CALC_MAKE_BED)))) {
-    sprintf(logbuf, "Error: --update-map chr must be used with --make-bed and no other commands.%s", errstr_append);
+  if ((update_chr || update_map) && (((load_rare == LOAD_RARE_CNV) && (cnv_calc_type != CNV_WRITE)) || ((!load_rare) && (calculation_type != CALC_MAKE_BED)))) {
+    sprintf(logbuf, "Error: --update-chr/--update-map must be used with --make-bed and no other\ncommands.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
   if (flip_subset_fname && (load_rare || (calculation_type != CALC_MAKE_BED) || (min_maf != 0.0) || (max_maf != 0.5) || (hwe_thresh != 0.0))) {
@@ -9522,7 +9418,7 @@ int32_t main(int32_t argc, char** argv) {
     } else if (!ibc_type) {
       ibc_type = 1;
     }
-    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, refalleles, a2alleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, update_alleles_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filterval, mfilter_col, filter_binary, fam_cols, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (uint32_t)parallel_tot, ppc_gap, allow_no_sex, must_have_sex, nonfounders, genome_modifier, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, set_hh_missing, covar_modifier, covar_str, mcovar_col, write_covar_modifier, model_modifier, (uint32_t)model_cell_ct, (uint32_t)model_mperm_val, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, ibs_test_perms, perm_batch_size, &file_delete_list);
+    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, update_alleles_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filterval, mfilter_col, filter_binary, fam_cols, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, prune, affection_01, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, hwe_all, rel_cutoff, tail_pheno, tail_bottom, tail_top, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, (uint32_t)parallel_tot, ppc_gap, allow_no_sex, must_have_sex, nonfounders, genome_modifier, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, maf_succ, regress_pcs_normalize_pheno, regress_pcs_sex_specific, regress_pcs_clip, max_pcs, freq_counts, freqx, distance_flat_missing, recode_modifier, allelexxxx, merge_type, indiv_sort, keep_allele_order, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, set_hh_missing, covar_modifier, covar_str, mcovar_col, write_covar_modifier, model_modifier, (uint32_t)model_cell_ct, (uint32_t)model_mperm_val, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, ibs_test_perms, perm_batch_size, &file_delete_list);
   }
  main_ret_2:
   free(wkspace_ua);
@@ -9567,7 +9463,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(flag_map);
   free_cond(makepheno_str);
   free_cond(phenoname_str);
-  free_cond(refalleles);
+  free_cond(a1alleles);
   free_cond(a2alleles);
   free_cond(filterval);
   free_cond(evecname);

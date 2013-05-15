@@ -4648,14 +4648,21 @@ int32_t load_string_list(FILE** infile_ptr, uintptr_t max_str_len, char* str_lis
   return retval;
 }
 
-int32_t scan_max_strlen(char* fname, uint32_t colskip, uintptr_t* max_str_len_ptr) {
-  // includes terminating null in the length
+int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t headerskip, char skipchar, uintptr_t* max_str_len_ptr, uintptr_t* max_str2_len_ptr) {
+  // colnum and colnum2 are 1-based indices.  If colnum2 is zero, only colnum
+  // is scanned.
+  // Includes terminating null in lengths.
   FILE* infile = NULL;
-  uintptr_t max_str_len = *max_str_len_ptr;
   int32_t retval = 0;
   char* loadbuf = (char*)wkspace_base;
   uintptr_t loadbuf_size = wkspace_left;
-  char* bufptr;
+  uintptr_t max_str_len = *max_str_len_ptr;
+  uintptr_t max_str2_len = 0;
+  uint32_t colmin;
+  uint32_t coldiff;
+  char* str1_ptr;
+  char* str2_ptr;
+  char cc;
   uintptr_t cur_str_len;
   if (loadbuf_size > 0x7fffffc0) {
     loadbuf_size = 0x7fffffc0;
@@ -4666,29 +4673,76 @@ int32_t scan_max_strlen(char* fname, uint32_t colskip, uintptr_t* max_str_len_pt
   if (fopen_checked(&infile, fname, "r")) {
     goto scan_max_strlen_ret_OPEN_FAIL;
   }
+  if (colnum < colnum2) {
+    max_str2_len = *max_str2_len_ptr;
+    colmin = colnum - 1;
+    coldiff = colnum2 - colnum;
+  } else if (colnum2) {
+    max_str2_len = max_str_len;
+    max_str_len = *max_str2_len_ptr;
+    colmin = colnum2 - 1;
+    coldiff = colnum - colnum2;
+  } else {
+    colmin = colnum - 1;
+    coldiff = 0;
+    colnum2 = 0xffffffffU;
+  }
   loadbuf[loadbuf_size - 1] = ' ';
+  while (headerskip) {
+    if (!fgets(loadbuf, loadbuf_size, infile)) {
+      if (!feof(infile)) {
+	goto scan_max_strlen_ret_READ_FAIL;
+      }
+      sprintf(logbuf, "Error: Fewer lines than expected in %s.\n", fname);
+      goto scan_max_strlen_ret_INVALID_FORMAT;
+    }
+    if (!(loadbuf[loadbuf_size - 1])) {
+      goto scan_max_strlen_ret_NOMEM;
+    }
+    headerskip--;
+  }
   while (fgets(loadbuf, loadbuf_size, infile)) {
     if (!(loadbuf[loadbuf_size - 1])) {
       goto scan_max_strlen_ret_NOMEM;
     }
-    bufptr = skip_initial_spaces(loadbuf);
-    if (is_eoln_kns(*bufptr)) {
+    str1_ptr = skip_initial_spaces(loadbuf);
+    cc = *str1_ptr;
+    if (is_eoln_kns(cc) || (cc == skipchar)) {
       continue;
     }
-    if (colskip) {
-      bufptr = next_item_mult(bufptr, colskip);
-      if (is_eoln_kns(*bufptr)) {
-	// probably want option for letting this slide in the future
-	sprintf(logbuf, "Error: Fewer items than expected in %s line.\n", fname);
-	goto scan_max_strlen_ret_INVALID_FORMAT;
-      }
+    if (colmin) {
+      str1_ptr = next_item_mult(str1_ptr, colmin);
     }
-    cur_str_len = strlen_se(bufptr);
+    if (coldiff) {
+      str2_ptr = next_item_mult(str1_ptr, coldiff);
+    } else {
+      str2_ptr = str1_ptr;
+    }
+    if (no_more_items_kns(str2_ptr)) {
+      // probably want option for letting this slide in the future
+      sprintf(logbuf, "Error: Fewer items than expected in %s line.\n", fname);
+      goto scan_max_strlen_ret_INVALID_FORMAT;
+    }
+    cur_str_len = strlen_se(str1_ptr);
     if (cur_str_len >= max_str_len) {
       max_str_len = cur_str_len + 1;
     }
+    if (coldiff) {
+      cur_str_len = strlen_se(str2_ptr);
+      if (cur_str_len >= max_str2_len) {
+	max_str2_len = cur_str_len + 1;
+      }
+    }
   }
-  *max_str_len_ptr = max_str_len;
+  if (colnum < colnum2) {
+    *max_str_len_ptr = max_str_len;
+    if (coldiff) {
+      *max_str2_len_ptr = max_str2_len;
+    }
+  } else {
+    *max_str_len_ptr = max_str2_len;
+    *max_str2_len_ptr = max_str_len;
+  }
   if (!feof(infile)) {
     goto scan_max_strlen_ret_READ_FAIL;
   }

@@ -936,9 +936,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                              allele names to 1/2/3/4s.\n"
 "  --alleleACGT <multichar>  : Reverse of --allele1234.\n"
 	       );
-    help_print("reference-allele\tupdate-ref-allele\ta2-allele", &help_ctrl, 0,
-"  --reference-allele [f] {a1col} {IDcol} {skip} : Force alleles in file to A1.\n"
-"  --a2-allele [filename] {a2col} {IDcol} {skip} : Force alleles in file to A2.\n"
+    help_print("a1-allele\treference-allele\tupdate-ref-allele\ta2-allele", &help_ctrl, 0,
+"  --a1-allele [f] {a1col} {IDcol} {skip} : Force alleles in the file to A1.\n"
+"  --a2-allele [f] {a2col} {IDcol} {skip} : Force alleles in the file to A2.\n"
 	       );
     help_print("read-freq\tupdate-freq", &help_ctrl, 0,
 "  --read-freq [filename]    : Loads MAFs from the given PLINK-style or --freqx\n"
