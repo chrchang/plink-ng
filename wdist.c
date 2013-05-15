@@ -59,7 +59,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.19.4"
+  "WDIST v0.19.4p"
 #ifdef NOLAPACK
   "NL"
 #endif
