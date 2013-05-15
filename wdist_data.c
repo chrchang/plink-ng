@@ -998,6 +998,8 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
   uintptr_t loadbuf_size = wkspace_left;
   char skipchar = update_cm->skipchar;
   uint32_t colid_first = (update_cm->colid < update_cm->colx);
+  uintptr_t hit_ct = 0;
+  uintptr_t miss_ct = 0;
   uint32_t colmin;
   uint32_t coldiff;
   char* colid_ptr;
@@ -1053,6 +1055,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
     colid_ptr[strlen_se(colid_ptr)] = '\0';
     sorted_idx = bsearch_str(colid_ptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
     if (sorted_idx == -1) {
+      miss_ct++;
       continue;
     }
     marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
@@ -1060,10 +1063,17 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
       logprint("Error: Invalid centimorgan value in --update-cm file.\n");
       goto update_marker_cms_ret_INVALID_FORMAT;
     }
+    hit_ct++;
   }
   if (!feof(infile)) {
     goto update_marker_cms_ret_READ_FAIL;
   }
+  if (miss_ct) {
+    sprintf(logbuf, "--update-cm: %" PRIuPTR " value%s changed, %" PRIuPTR " marker ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+  } else {
+    sprintf(logbuf, "--update-cm: %" PRIuPTR " value%s changed.\n", hit_ct, (hit_ct == 1)? "" : "s");
+  }
+  logprintb();
   while (0) {
   update_marker_cms_ret_NOMEM:
     retval = RET_NOMEM;
@@ -1088,6 +1098,8 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
   uintptr_t loadbuf_size = wkspace_left;
   char skipchar = update_name->skipchar;
   uint32_t colold_first = (update_name->colid < update_name->colx);
+  uintptr_t hit_ct = 0;
+  uintptr_t miss_ct = 0;
   uint32_t colmin;
   uint32_t coldiff;
   char* colold_ptr;
@@ -1138,15 +1150,22 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
     colold_ptr[strlen_se(colold_ptr)] = '\0';
     sorted_idx = bsearch_str(colold_ptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
     if (sorted_idx == -1) {
+      miss_ct++;
       continue;
     }
     marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
     slen = strlen_se(colnew_ptr);
     colnew_ptr[slen] = '\0';
     memcpy(&(true_marker_ids[marker_uidx * max_marker_id_len]), colnew_ptr, slen + 1);
+    hit_ct++;
   }
   if (!feof(infile)) {
     goto update_marker_names_ret_READ_FAIL;
+  }
+  if (miss_ct) {
+    sprintf(logbuf, "--update-name: %" PRIuPTR " value%s changed, %" PRIuPTR " marker ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+  } else {
+    sprintf(logbuf, "--update-name: %" PRIuPTR " value%s changed.\n", hit_ct, (hit_ct == 1)? "" : "s");
   }
   while (0) {
   update_marker_names_ret_NOMEM:
@@ -1221,10 +1240,12 @@ uint32_t flip_char(char* allele_char_ptr) {
     *allele_char_ptr = 'C';
   } else if (cc == 'T') {
     *allele_char_ptr = 'A';
-  } else if (cc != '0') {
+  } else if (cc == '0') {
+    return 0;
+  } else {
     return 1;
   }
-  return 0;
+  return 2;
 }
 
 uint32_t flip_str(char* allele_str) {
@@ -1238,6 +1259,8 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uint32_t marker_c
   FILE* flipfile = NULL;
   uint32_t non_acgt_ct = 0;
   int32_t retval = 0;
+  uintptr_t hit_ct = 0;
+  uintptr_t miss_ct = 0;
   char* bufptr;
   uint32_t slen;
   uint32_t cur_non_acgt0;
@@ -1246,8 +1269,6 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uint32_t marker_c
   if (fopen_checked(&flipfile, flip_fname, "r")) {
     goto flip_strand_ret_OPEN_FAIL;
   }
-  sprintf(logbuf, "Flipping strand for markers in %s...", flip_fname);
-  logprintb();
   tbuf[MAXLINELEN - 1] = ' ';
   while (fgets(tbuf, MAXLINELEN, flipfile)) {
     if (!tbuf[MAXLINELEN - 1]) {
@@ -1261,25 +1282,32 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uint32_t marker_c
     slen = strlen_se(bufptr);
     bufptr[slen] = '\0';
     sorted_idx = bsearch_str(bufptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
-    if (sorted_idx != -1) {
-      marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
-      cur_non_acgt0 = 0;
-      if (max_marker_allele_len == 1) {
-        cur_non_acgt0 |= flip_char(&(marker_alleles[2 * marker_uidx]));
-        cur_non_acgt0 |= flip_char(&(marker_alleles[2 * marker_uidx + 1]));
-      } else {
-        cur_non_acgt0 |= flip_str(&(marker_alleles[(2 * marker_uidx) * max_marker_allele_len]));
-        cur_non_acgt0 |= flip_str(&(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]));
-      }
-      non_acgt_ct += cur_non_acgt0;
+    if (sorted_idx == -1) {
+      continue;
     }
+    marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
+    cur_non_acgt0 = 0;
+    if (max_marker_allele_len == 1) {
+      cur_non_acgt0 |= flip_char(&(marker_alleles[2 * marker_uidx]));
+      cur_non_acgt0 |= flip_char(&(marker_alleles[2 * marker_uidx + 1]));
+    } else {
+      cur_non_acgt0 |= flip_str(&(marker_alleles[(2 * marker_uidx) * max_marker_allele_len]));
+      cur_non_acgt0 |= flip_str(&(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]));
+    }
+    non_acgt_ct += (cur_non_acgt0 & 1);
+    hit_ct += (cur_non_acgt0 >> 1);
   }
   if (!feof(flipfile)) {
     goto flip_strand_ret_READ_FAIL;
   }
-  logprint(" done.\n");
+  if (miss_ct) {
+    sprintf(logbuf, "--flip: %" PRIuPTR " marker%s flipped, %" PRIuPTR " marker ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+  } else {
+    sprintf(logbuf, "--flip: %" PRIuPTR " marker%s flipped.\n", hit_ct, (hit_ct == 1)? "" : "s");
+  }
+  logprintb();
   if (non_acgt_ct) {
-    sprintf(logbuf, "Warning: %u marker%s had non-A/C/G/T allele names.\n", non_acgt_ct, (non_acgt_ct == 1)? "" : "s");
+    sprintf(logbuf, "Warning: %u marker%s had at least one non-A/C/G/T allele name.\n", non_acgt_ct, (non_acgt_ct == 1)? "" : "s");
     logprintb();
   }
   while (0) {
