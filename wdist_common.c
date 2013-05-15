@@ -4648,12 +4648,34 @@ int32_t load_string_list(FILE** infile_ptr, uintptr_t max_str_len, char* str_lis
   return retval;
 }
 
+int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf, uintptr_t loadbuf_size, uint32_t lines_to_skip) {
+  loadbuf[loadbuf_size - 1] = ' ';
+  if (fopen_checked(infile_ptr, fname, "r")) {
+    return RET_OPEN_FAIL;
+  }
+  while (lines_to_skip) {
+    if (!fgets(loadbuf, loadbuf_size, *infile_ptr)) {
+      if (feof(*infile_ptr)) {
+	sprintf(logbuf, "Error: Fewer lines than expected in %s.\n", fname);
+	logprintb();
+	return RET_INVALID_FORMAT;
+      } else {
+	return RET_READ_FAIL;
+      }
+    }
+    if (!(loadbuf[loadbuf_size - 1])) {
+      return RET_NOMEM;
+    }
+    lines_to_skip--;
+  }
+  return 0;
+}
+
 int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t headerskip, char skipchar, uintptr_t* max_str_len_ptr, uintptr_t* max_str2_len_ptr) {
   // colnum and colnum2 are 1-based indices.  If colnum2 is zero, only colnum
   // is scanned.
   // Includes terminating null in lengths.
   FILE* infile = NULL;
-  int32_t retval = 0;
   char* loadbuf = (char*)wkspace_base;
   uintptr_t loadbuf_size = wkspace_left;
   uintptr_t max_str_len = *max_str_len_ptr;
@@ -4664,14 +4686,16 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
   char* str2_ptr;
   char cc;
   uintptr_t cur_str_len;
+  int32_t retval;
   if (loadbuf_size > 0x7fffffc0) {
     loadbuf_size = 0x7fffffc0;
   }
   if (loadbuf_size < MAXLINELEN) {
     goto scan_max_strlen_ret_NOMEM;
   }
-  if (fopen_checked(&infile, fname, "r")) {
-    goto scan_max_strlen_ret_OPEN_FAIL;
+  retval = open_and_skip_first_lines(&infile, fname, loadbuf, loadbuf_size, headerskip);
+  if (retval) {
+    goto scan_max_strlen_ret_1;
   }
   if (colnum < colnum2) {
     max_str2_len = *max_str2_len_ptr;
@@ -4686,20 +4710,6 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
     colmin = colnum - 1;
     coldiff = 0;
     colnum2 = 0xffffffffU;
-  }
-  loadbuf[loadbuf_size - 1] = ' ';
-  while (headerskip) {
-    if (!fgets(loadbuf, loadbuf_size, infile)) {
-      if (!feof(infile)) {
-	goto scan_max_strlen_ret_READ_FAIL;
-      }
-      sprintf(logbuf, "Error: Fewer lines than expected in %s.\n", fname);
-      goto scan_max_strlen_ret_INVALID_FORMAT;
-    }
-    if (!(loadbuf[loadbuf_size - 1])) {
-      goto scan_max_strlen_ret_NOMEM;
-    }
-    headerskip--;
   }
   while (fgets(loadbuf, loadbuf_size, infile)) {
     if (!(loadbuf[loadbuf_size - 1])) {
@@ -4750,9 +4760,6 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
   scan_max_strlen_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  scan_max_strlen_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
   scan_max_strlen_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
@@ -4761,6 +4768,7 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
     retval = RET_INVALID_FORMAT;
     break;
   }
+ scan_max_strlen_ret_1:
   fclose_cond(infile);
   return retval;
 }

@@ -3331,32 +3331,31 @@ void calc_marker_weights(double exponent, uintptr_t* marker_exclude, uintptr_t m
   }
 }
 
-int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_ct, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t is_a2) {
+int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t is_a2) {
   // No need to check format here thanks to earlier scan_max_strlen()
   // invocation.
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   char skipchar = axalleles->skipchar;
+  uint32_t colid_first = (axalleles->colid < axalleles->colx);
+  uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
+  int32_t duplicate_fail = 1;
+  char* loadbuf;
+  uintptr_t loadbuf_size;
   uint32_t slen;
-  char* sorted_ids;
+  char* sorted_marker_ids;
   // We actually do want to handle lines longer than MAXLINELEN - 2 chars,
   // since this could plausibly happen with large VCFs.
-  char* loadbuf;
   char* colid_ptr;
   char* colx_ptr;
-  int32_t* id_map;
-  uintptr_t loadbuf_size;
+  int32_t* marker_id_map;
   uint32_t colmin;
   uint32_t coldiff;
-  uint32_t colid_first;
-  int32_t retval;
   int32_t sorted_idx;
-  uint32_t uii;
+  uint32_t marker_uidx;
   char cc;
-  if (fopen_checked(&infile, axalleles->fname, "r")) {
-    goto load_ax_alleles_ret_OPEN_FAIL;
-  }
-  retval = sort_item_ids_nx(&sorted_ids, &id_map, unfiltered_marker_ct, marker_ids, max_marker_id_len);
+  int32_t retval;
+  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, strcmp_deref, &duplicate_fail);
   if (retval) {
     goto load_ax_alleles_ret_1;
   }
@@ -3369,19 +3368,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   if (loadbuf_size < MAXLINELEN) {
     goto load_ax_alleles_ret_NOMEM;
   }
-  loadbuf[loadbuf_size - 1] = ' ';
-  if (axalleles->skip) {
-    uii = axalleles->skip;
-    do {
-      if (!fgets(loadbuf, loadbuf_size, infile)) {
-	goto load_ax_alleles_ret_READ_FAIL;
-      }
-      if (!(loadbuf[loadbuf_size - 1])) {
-	goto load_ax_alleles_ret_NOMEM;
-      }
-    } while (--uii);
-  }
-  colid_first = (axalleles->colid < axalleles->colx);
+  retval = open_and_skip_first_lines(&infile, axalleles->fname, loadbuf, loadbuf_size, axalleles->skip);
   if (colid_first) {
     colmin = axalleles->colid - 1;
     coldiff = axalleles->colx - axalleles->colid;
@@ -3411,20 +3398,20 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       colid_ptr = next_item_mult(colx_ptr, coldiff);
     }
     colid_ptr[strlen_se(colid_ptr)] = '\0';
-    sorted_idx = bsearch_str(colid_ptr, sorted_ids, max_marker_id_len, 0, unfiltered_marker_ct - 1);
+    sorted_idx = bsearch_str(colid_ptr, sorted_marker_ids, max_marker_id_len, 0, marker_ct - 1);
     if (sorted_idx == -1) {
       continue;
     } else {
-      sorted_idx = id_map[sorted_idx];
+      marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
       if (max_marker_allele_len == 1) {
 	cc = *colx_ptr;
-	if (cc == marker_alleles[sorted_idx * 2 + is_a2]) {
-	  clear_bit_noct(marker_reverse, sorted_idx);
-	} else if (cc == marker_alleles[sorted_idx * 2 + 1 - is_a2]) {
-	  set_bit_noct(marker_reverse, sorted_idx);
-	} else if (marker_alleles[sorted_idx * 2 + is_a2] == '0') {
-          marker_alleles[sorted_idx * 2 + is_a2] = cc;
-	  clear_bit_noct(marker_reverse, sorted_idx);
+	if (cc == marker_alleles[marker_uidx * 2 + is_a2]) {
+	  clear_bit_noct(marker_reverse, marker_uidx);
+	} else if (cc == marker_alleles[marker_uidx * 2 + 1 - is_a2]) {
+	  set_bit_noct(marker_reverse, marker_uidx);
+	} else if (marker_alleles[marker_uidx * 2 + is_a2] == '0') {
+          marker_alleles[marker_uidx * 2 + is_a2] = cc;
+	  clear_bit_noct(marker_reverse, marker_uidx);
 	} else {
 	  sprintf(logbuf, "Warning: Impossible A%c allele assignment for marker %s.\n", is_a2? '2' : '1', colid_ptr);
 	  logprintb();
@@ -3432,13 +3419,13 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       } else {
 	slen = strlen_se(colx_ptr);
 	colx_ptr[slen++] = '\0';
-	if (!memcmp(colx_ptr, &(marker_alleles[(sorted_idx * 2 + is_a2) * max_marker_allele_len]), slen)) {
-	  clear_bit_noct(marker_reverse, sorted_idx);
-	} else if (!memcmp(colx_ptr, &(marker_alleles[(sorted_idx * 2 + 1 - is_a2) * max_marker_allele_len]), slen)) {
-	  set_bit_noct(marker_reverse, sorted_idx);
-	} else if (!memcmp(&(marker_alleles[(sorted_idx * 2 + is_a2) * max_marker_allele_len]), "0", 2)) {
-	  memcpy(&(marker_alleles[(sorted_idx * 2 + is_a2) * max_marker_allele_len]), colx_ptr, slen);
-	  clear_bit_noct(marker_reverse, sorted_idx);
+	if (!memcmp(colx_ptr, &(marker_alleles[(marker_uidx * 2 + is_a2) * max_marker_allele_len]), slen)) {
+	  clear_bit_noct(marker_reverse, marker_uidx);
+	} else if (!memcmp(colx_ptr, &(marker_alleles[(marker_uidx * 2 + 1 - is_a2) * max_marker_allele_len]), slen)) {
+	  set_bit_noct(marker_reverse, marker_uidx);
+	} else if (!memcmp(&(marker_alleles[(marker_uidx * 2 + is_a2) * max_marker_allele_len]), "0", 2)) {
+	  memcpy(&(marker_alleles[(marker_uidx * 2 + is_a2) * max_marker_allele_len]), colx_ptr, slen);
+	  clear_bit_noct(marker_reverse, marker_uidx);
 	} else {
 	  sprintf(logbuf, "Warning: Impossible A%c allele assignment for marker %s.\n", is_a2? '2' : '1', colid_ptr);
 	  logprintb();
@@ -3452,9 +3439,6 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   while (0) {
   load_ax_alleles_ret_NOMEM:
     retval = RET_NOMEM;
-    break;
-  load_ax_alleles_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
     break;
   load_ax_alleles_ret_READ_FAIL:
     retval = RET_READ_FAIL;
@@ -3740,9 +3724,13 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
     if (update_alleles_fname) {
       ulii = 1;
-      retval = scan_max_strlen(update_alleles_fname, 1, 0, 0, '\0', &ulii, NULL);
+      uljj = 1;
+      retval = scan_max_strlen(update_alleles_fname, 3, 5, 0, '\0', &ulii, &uljj);
       if (retval) {
         goto wdist_ret_2;
+      }
+      if (uljj > ulii) {
+	ulii = uljj;
       }
       if (ulii > 80) {
 	logprint("Warning: Unusually long allele name(s) in --update-alleles file.  Double-check\nyour file and command-line parameters, and consider changing your naming\nscheme if you encounter memory problems.\n");
@@ -3867,7 +3855,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     prune_missing_phenos(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, pheno_nm, pheno_d, missing_phenod);
   }
 
-  if ((update_cm && marker_cms_needed) || update_name || update_alleles_fname || (marker_alleles_needed && flip_fname && (!flip_subset_fname)) || extractname || excludename) {
+  if ((update_cm && marker_cms_needed) || update_name || (marker_alleles_needed && (update_alleles_fname || (flip_fname && (!flip_subset_fname)))) || extractname || excludename) {
     wkspace_mark = wkspace_base;
     duplicate_fail = 0;
     retval = sort_item_ids(&cptr, &iptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, strcmp_deref, &duplicate_fail);
@@ -3875,18 +3863,20 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_2;
     }
     if (duplicate_fail) {
-      if (update_cm) {
+      if (update_cm && marker_cms_needed) {
         logprint("Error: Duplicate marker ID(s) in input.  --update-cm cannot be used in their\npresence.\n");
 	goto wdist_ret_INVALID_FORMAT;
       } else if (update_name) {
         logprint("Error: Duplicate marker ID(s) in input.  --update-name cannot be used in their\npresence.\n");
 	goto wdist_ret_INVALID_FORMAT;
-      } else if (update_alleles_fname) {
-        logprint("Error: Duplicate marker ID(s) in input.  --update-alleles cannot be used in\ntheir presence.\n");
-	goto wdist_ret_INVALID_FORMAT;
-      } else if (marker_alleles_needed && flip_fname && (!flip_subset_fname)) {
-        logprint("Error: Duplicate marker ID(s) in input.  --flip cannot be used in their\npresence.\n");
-	goto wdist_ret_INVALID_FORMAT;
+      } else if (marker_alleles_needed) {
+        if (update_alleles_fname) {
+          logprint("Error: Duplicate marker ID(s) in input.  --update-alleles cannot be used in\ntheir presence.\n");
+	  goto wdist_ret_INVALID_FORMAT;
+        } else if (flip_fname && (!flip_subset_fname)) {
+          logprint("Error: Duplicate marker ID(s) in input.  --flip cannot be used in their\npresence.\n");
+	  goto wdist_ret_INVALID_FORMAT;
+	}
       }
       logprint("Warning: Duplicate marker ID(s) in input.\n");
     }
@@ -3895,14 +3885,14 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     // change from --extract
     ii = unfiltered_marker_ct - marker_exclude_ct;
 
-    if (update_cm) {
-      retval = update_marker_cms();
+    if (update_cm && marker_cms_needed) {
+      retval = update_marker_cms(update_cm, cptr, (uint32_t)ii, max_marker_id_len, (uint32_t*)iptr, marker_cms);
       if (retval) {
 	goto wdist_ret_2;
       }
     }
     if (update_name) {
-      retval = update_marker_names();
+      retval = update_marker_names(update_name, cptr, (uint32_t)ii, max_marker_id_len, (uint32_t*)iptr, marker_ids);
       if (retval) {
 	goto wdist_ret_2;
       }
@@ -3915,27 +3905,31 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	}
 	ii = unfiltered_marker_ct - marker_exclude_ct;
 	if (duplicate_fail) {
-          if (update_alleles_fname) {
-            logprint("Error: Duplicate marker ID(s) in input after --update-name.  --update-alleles\ncannot be used in their presence.\n");
-	    goto wdist_ret_INVALID_FORMAT;
-          } else if (marker_alleles_needed && flip_fname && (!flip_subset_fname)) {
-            logprint("Error: Duplicate marker ID(s) in input after --update-name.  --flip cannot be\nused in their presence.\n");
-	    goto wdist_ret_INVALID_FORMAT;
-          }
+          if (marker_alleles_needed) {
+            if (update_alleles_fname) {
+              logprint("Error: Duplicate marker ID(s) in input after --update-name.  --update-alleles\ncannot be used in their presence.\n");
+	      goto wdist_ret_INVALID_FORMAT;
+            } else if (flip_fname && (!flip_subset_fname)) {
+              logprint("Error: Duplicate marker ID(s) in input after --update-name.  --flip cannot be\nused in their presence.\n");
+	      goto wdist_ret_INVALID_FORMAT;
+            }
+	  }
           logprint("Warning: Duplicate marker ID(s) in input after --update-name.\n");
 	}
       }
     }
-    if (update_alleles_fname) {
-      retval = update_marker_alleles();
-      if (retval) {
-	goto wdist_ret_2;
+    if (marker_alleles_needed) {
+      if (update_alleles_fname) {
+        retval = update_marker_alleles(update_alleles_fname, cptr, (uint32_t)ii, max_marker_id_len, (uint32_t*)iptr, marker_alleles, max_marker_allele_len);
+        if (retval) {
+	  goto wdist_ret_2;
+        }
       }
-    }
-    if (marker_alleles_needed && flip_fname && (!flip_subset_fname)) {
-      retval = flip_strand(flip_fname, cptr, (uint32_t)ii, max_marker_id_len, (uint32_t*)iptr, marker_alleles, max_marker_allele_len);
-      if (retval) {
-	goto wdist_ret_2;
+      if (flip_fname && (!flip_subset_fname)) {
+        retval = flip_strand(flip_fname, cptr, (uint32_t)ii, max_marker_id_len, (uint32_t*)iptr, marker_alleles, max_marker_allele_len);
+        if (retval) {
+	  goto wdist_ret_2;
+        }
       }
     }
     if (extractname) {
@@ -4215,7 +4209,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (a1alleles || a2alleles) {
     if (marker_alleles) {
-      retval = load_ax_alleles(a1alleles? a1alleles : a2alleles, unfiltered_marker_ct, marker_alleles, max_marker_allele_len, marker_reverse, marker_ids, max_marker_id_len, a2alleles? 1 : 0);
+      retval = load_ax_alleles(a1alleles? a1alleles : a2alleles, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_alleles, max_marker_allele_len, marker_reverse, marker_ids, max_marker_id_len, a2alleles? 1 : 0);
       if (retval) {
 	goto wdist_ret_2;
       }
