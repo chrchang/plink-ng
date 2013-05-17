@@ -166,10 +166,16 @@ typedef union {
 #define CALC_GXE 0x2000000LLU
 #define CALC_IBS_TEST 0x4000000LLU
 
+#define MARKER_CMS_OPTIONAL 1
+#define MARKER_CMS_FORCED 2
+
 #define UNSORTED_CHROM 1
 #define UNSORTED_BP 2
 // probably insert unsorted centimorgans later
 #define UNSORTED_SPLIT_CHROM 4
+
+#define ALLOW_NO_SEX 1
+#define MUST_HAVE_SEX 2
 
 #define LGEN_REFERENCE 1
 #define LGEN_ALLELE_COUNT 2
@@ -1160,7 +1166,13 @@ void fill_idbuf_fam_indiv(char* id_buf, char* fam_indiv, char fillchar);
 
 int32_t bsearch_fam_indiv(char* id_buf, char* lptr, intptr_t max_id_len, int32_t filter_line_ct, char* fam_id, char* indiv_id);
 
-void bitfield_andnot(uintptr_t* vv, uintptr_t* exclude_vec, uintptr_t ct);
+void bitfield_and(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct);
+
+void bitfield_andnot(uintptr_t* vv, uintptr_t* exclude_vec, uintptr_t word_ct);
+
+void bitfield_andnot_reversed_args(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct);
+
+void bitfield_ornot(uintptr_t* vv, uintptr_t* inverted_or_vec, uintptr_t word_ct);
 
 static inline uint32_t popcount2_long(uintptr_t val) {
 #ifdef __LP64__
@@ -1212,7 +1224,7 @@ uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uin
 
 uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x);
 
-void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, int32_t* male_ct_ptr, int32_t* female_ct_ptr, int32_t* unk_ct_ptr);
+void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, int32_t* male_ct_ptr, int32_t* female_ct_ptr, uint32_t* unk_ct_ptr);
 
 uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_indiv_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf);
 

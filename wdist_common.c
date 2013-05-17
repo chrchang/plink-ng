@@ -2504,26 +2504,97 @@ void distance_print_done(int32_t format_code, char* outname, char* outname_end) 
   logprintb();
 }
 
-void bitfield_andnot(uintptr_t* vv, uintptr_t* exclude_vec, uintptr_t ct) {
+void bitfield_and(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct) {
+  // vv := vv AND include_vec
+  // on 64-bit systems, assumes vv and include_vec are 16-byte aligned
+#ifdef __LP64__
+  __m128i* vv128 = (__m128i*)vv;
+  __m128i* iv128 = (__m128i*)include_vec;
+  __m128i* vv128_end = &(vv128[word_ct / 2]);
+  while (vv128 < vv128_end) {
+    *vv128 = _mm_and_si128(*iv128++, *vv128);
+    vv128++;
+  }
+  if (word_ct & 1) {
+    word_ct--;
+    vv[word_ct] &= include_vec[word_ct];
+  }
+#else
+  uintptr_t* vec_end = &(vv[word_ct]);
+  do {
+    *vv++ &= *include_vec++;
+  } while (vv < vec_end);
+#endif
+}
+
+void bitfield_andnot(uintptr_t* vv, uintptr_t* exclude_vec, uintptr_t word_ct) {
   // vv := vv ANDNOT exclude_vec
   // on 64-bit systems, assumes vv and exclude_vec are 16-byte aligned
   // note that this is the reverse of the _mm_andnot() operand order
 #ifdef __LP64__
   __m128i* vv128 = (__m128i*)vv;
   __m128i* ev128 = (__m128i*)exclude_vec;
-  __m128i* vv128_end = &(vv128[ct / 2]);
+  __m128i* vv128_end = &(vv128[word_ct / 2]);
   while (vv128 < vv128_end) {
     *vv128 = _mm_andnot_si128(*ev128++, *vv128);
     vv128++;
   }
-  if (ct & 1) {
-    ct--;
-    vv[ct] &= ~(exclude_vec[ct]);
+  if (word_ct & 1) {
+    word_ct--;
+    vv[word_ct] &= ~(exclude_vec[word_ct]);
   }
 #else
-  uintptr_t* vec_end = &(vv[ct]);
+  uintptr_t* vec_end = &(vv[word_ct]);
   do {
     *vv++ &= ~(*exclude_vec++);
+  } while (vv < vec_end);
+#endif
+}
+
+void bitfield_andnot_reversed_args(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct) {
+  // vv := (~vv) AND include_vec
+  // on 64-bit systems, assumes vv and exclude_vec are 16-byte aligned
+#ifdef __LP64__
+  __m128i* vv128 = (__m128i*)vv;
+  __m128i* iv128 = (__m128i*)include_vec;
+  __m128i* vv128_end = &(vv128[word_ct / 2]);
+  while (vv128 < vv128_end) {
+    *vv128 = _mm_andnot_si128(*vv128, *iv128++);
+    vv128++;
+  }
+  if (word_ct & 1) {
+    word_ct--;
+    vv[word_ct] = (~vv[word_ct]) & include_vec[word_ct];
+  }
+#else
+  uintptr_t* vec_end = &(vv[word_ct]);
+  do {
+    *vv = (~(*vv)) & (*include_vec++);
+    vv++;
+  } while (vv < vec_end);
+#endif
+}
+
+void bitfield_ornot(uintptr_t* vv, uintptr_t* inverted_or_vec, uintptr_t word_ct) {
+  // vv := vv OR (~inverted_or_vec)
+  // on 64-bit systems, assumes vv and inverted_or_vec are 16-byte aligned
+#ifdef __LP64__
+  const __m128i all1 = {0xffffffffffffffffLLU, 0xffffffffffffffffLLU};
+  __m128i* vv128 = (__m128i*)vv;
+  __m128i* ev128 = (__m128i*)inverted_or_vec;
+  __m128i* vv128_end = &(vv128[word_ct / 2]);
+  while (vv128 < vv128_end) {
+    *vv128 = _mm_or_si128(_mm_xor_si128(*ev128++, all1), *vv128);
+    vv128++;
+  }
+  if (word_ct & 1) {
+    word_ct--;
+    vv[word_ct] |= ~(inverted_or_vec[word_ct]);
+  }
+#else
+  uintptr_t* vec_end = &(vv[word_ct]);
+  do {
+    *vv++ |= ~(*inverted_or_vec++);
   } while (vv < vec_end);
 #endif
 }
@@ -4008,10 +4079,10 @@ uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* mark
   return ct;
 }
 
-void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, int32_t* male_ct_ptr, int32_t* female_ct_ptr, int32_t* unk_ct_ptr) {
+void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, int32_t* male_ct_ptr, int32_t* female_ct_ptr, uint32_t* unk_ct_ptr) {
   int32_t male_ct = 0;
   int32_t female_ct = 0;
-  int32_t unk_ct = 0;
+  uint32_t unk_ct = 0;
   uint32_t unfiltered_indiv_ctld = unfiltered_indiv_ct / BITCT;
   uint32_t unfiltered_indiv_ct_rem = unfiltered_indiv_ct & (BITCT - 1);
   uintptr_t ulii;

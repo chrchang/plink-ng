@@ -505,12 +505,12 @@ int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
   uint32_t snp_pos = 0;
   uint32_t mcm2 = 1;
   uint32_t* sf_pos = NULL;
-  uint32_t sf_entry_ct;
   uint32_t* sf_str_chroms = NULL;
   uint32_t* sf_str_pos = NULL;
   uint32_t* sf_str_lens = NULL;
   uint32_t* sf_llbuf = NULL;
   char* marker_alleles = NULL;
+  uint32_t sf_entry_ct;
   uint64_t sf_mask;
   uint32_t sf_lltop;
   uint32_t sf_start_idxs[MAX_POSSIBLE_CHROM + 1];
@@ -845,13 +845,11 @@ int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
   }
   // todo: check whether marker_cms can be unloaded before
   // marker_ids/marker_alleles, or vice versa
-  if (marker_cms_needed) {
+  if (marker_cms_needed & MARKER_CMS_FORCED) {
     if (wkspace_alloc_d_checked(marker_cms_ptr, unfiltered_marker_ct * sizeof(double))) {
       goto load_bim_ret_NOMEM;
     }
-    if ((*map_cols_ptr) == 3) {
-      fill_double_zero(*marker_cms_ptr, unfiltered_marker_ct);
-    }
+    fill_double_zero(*marker_cms_ptr, unfiltered_marker_ct);
   }
 
   // second pass: actually load stuff
@@ -897,9 +895,17 @@ int32_t load_bim(FILE** bimfile_ptr, char* mapname, int32_t* map_cols_ptr, uintp
 	if (no_more_items_kns(bufptr)) {
 	  goto load_bim_ret_INVALID_FORMAT_5;
 	}
-	if (sscanf(bufptr, "%lg", &((*marker_cms_ptr)[marker_uidx])) != 1) {
-	  sprintf(logbuf, "Error: Invalid centimorgan position in .%s file.\n", extension);
-	  goto load_bim_ret_INVALID_FORMAT_2;
+	if ((*bufptr != '0') || (bufptr[1] > ' ')) {
+	  if (!(*marker_cms_ptr)) {
+	    if (wkspace_alloc_d_checked(marker_cms_ptr, unfiltered_marker_ct * sizeof(double))) {
+	      goto load_bim_ret_NOMEM;
+	    }
+	    fill_double_zero(*marker_cms_ptr, unfiltered_marker_ct);
+	  }
+	  if (sscanf(bufptr, "%lg", &((*marker_cms_ptr)[marker_uidx])) != 1) {
+	    sprintf(logbuf, "Error: Invalid centimorgan position in .%s file.\n", extension);
+	    goto load_bim_ret_INVALID_FORMAT_2;
+	  }
 	}
 	bufptr = next_item(bufptr);
       } else {
@@ -1377,7 +1383,6 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
   uint32_t len;
   int32_t sorted_idx;
   uintptr_t marker_uidx;
-  uint32_t cur_status; // 0 = error, 1 = match, 2 = reverse match
   if (wkspace_alloc_ul_checked(&already_seen, marker_ctl * sizeof(intptr_t))) {
     goto update_marker_alleles_ret_NOMEM;
   }
@@ -1410,7 +1415,6 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
     }
     set_bit_noct(already_seen, sorted_idx);
     marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
-    cur_status = 0;
     bufptr = item_endnn(bufptr2);
     len2 = (uintptr_t)(bufptr - bufptr2);
     *bufptr = '\0';
@@ -1758,7 +1762,11 @@ int32_t write_bim(char* outname, uintptr_t* marker_exclude, uintptr_t marker_ct,
       buf_start = uint32_writex(tbuf, chrom_idx, '\t');
     }
     bufptr = strcpyax(buf_start, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
-    bufptr = double_g_writex(bufptr, marker_cms[marker_uidx], '\t');
+    if (!marker_cms) {
+      bufptr = memcpya(bufptr, "0\t", 2);
+    } else {
+      bufptr = double_g_writex(bufptr, marker_cms[marker_uidx], '\t');
+    }
     bufptr = uint32_writex(bufptr, marker_pos[marker_uidx], '\t');
     if (max_marker_allele_len == 1) {
       if (is_set(marker_reverse, marker_uidx)) {
@@ -6953,7 +6961,12 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	  cptr = uint32_writex(tbuf, chrom_idx, delimiter);
 	}
 	wbufptr = strcpyax(cptr, &(marker_ids[marker_uidx * max_marker_id_len]), delimiter);
-	wbufptr = double_g_writex(wbufptr, marker_cms[marker_uidx], delimiter);
+	if (!marker_cms) {
+	  *wbufptr++ = '0';
+	} else {
+	  wbufptr = double_g_write(wbufptr, marker_cms[marker_uidx]);
+	}
+	*wbufptr++ = delimiter;
 	wbufptr = uint32_writex(wbufptr, marker_pos[marker_uidx], delimiter);
         if (fwrite_checked(tbuf, wbufptr - tbuf, *outfile_ptr)) {
 	  goto recode_ret_WRITE_FAIL;
@@ -8103,7 +8116,12 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, int32_t bed_offset, FILE
 	cptr = uint32_writex(tbuf, chrom_idx, cc);
       }
       wbufptr = strcpyax(cptr, &(marker_ids[marker_uidx * max_marker_id_len]), cc);
-      wbufptr = double_g_writex(wbufptr, marker_cms[marker_uidx], cc);
+      if (!marker_cms) {
+	*wbufptr++ = '0';
+      } else {
+        wbufptr = double_g_write(wbufptr, marker_cms[marker_uidx]);
+      }
+      *wbufptr++ = cc;
       wbufptr = uint32_writex(wbufptr, marker_pos[marker_uidx], '\n');
       if (fwrite_checked(tbuf, wbufptr - tbuf, *outfile_ptr)) {
 	goto recode_ret_WRITE_FAIL;
