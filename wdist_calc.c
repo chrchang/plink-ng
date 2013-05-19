@@ -4002,7 +4002,8 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
   *is_x_ptr = (species_x_code[species] == ((int32_t)cur_chrom))? 1 : 0;
 }
 
-int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t max_pcs, FILE* pedfile, uint32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, double* pheno_d, double missing_phenod, FILE** outfile_ptr, char* outname, char* outname_end) {
+int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t max_pcs, FILE* pedfile, uint32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, double* pheno_d, double missing_phenod, char* outname, char* outname_end) {
+  FILE* outfile = NULL;
   FILE* evecfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -4013,7 +4014,6 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   uint32_t regress_pcs_sex_specific = regress_pcs_modifier & REGRESS_PCS_SEX_SPECIFIC;
   uint32_t regress_pcs_clip = regress_pcs_modifier & REGRESS_PCS_CLIP;
   char wbuf[32];
-  FILE* outfile;
   int32_t pc_ct_p1; // plus 1 to account for intercept
   double* pc_matrix;
   double* pc_orig_prod_sums; // pc_ct_p1 * pc_ct_p1, upper triangle filled
@@ -4038,13 +4038,13 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   double* dbl_2d_buf;
   double dxx;
   if (wkspace_alloc_uc_checked(&loadbuf, unfiltered_indiv_ct4)) {
-    return RET_NOMEM;
+    goto calc_regress_pcs_ret_NOMEM;
   }
   if (wkspace_alloc_ui_checked(&missing_cts, indiv_ct * sizeof(int32_t))) {
-    return RET_NOMEM;
+    goto calc_regress_pcs_ret_NOMEM;
   }
   if (wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
-    return RET_NOMEM;
+    goto calc_regress_pcs_ret_NOMEM;
   }
   
   // try unaltered filename.  If that fails and the unaltered filename didn't
@@ -4054,14 +4054,14 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   if (!evecfile) {
     ii = strlen(evecname);
     if (((ii >= 5) && (!memcmp(".evec", &(evecname[ii - 5]), 5))) || ((ii >= 9) && (!memcmp(".eigenvec", &(evecname[ii - 9]), 9)))) {
-      return RET_OPEN_FAIL;
+      goto calc_regress_pcs_ret_OPEN_FAIL;
     }
     strcpy(&(evecname[ii]), ".evec");
     evecfile = fopen(evecname, "r");
     if (!evecfile) {
       strcpy(&(evecname[ii]), ".eigenvec");
       if (fopen_checked(&evecfile, evecname, "r")) {
-	return RET_OPEN_FAIL;
+        goto calc_regress_pcs_ret_OPEN_FAIL;
       }
     }
   }
@@ -4106,26 +4106,16 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   if (wkspace_alloc_d_checked(&pc_matrix, pc_ct_p1 * indiv_ct * sizeof(double))) {
     goto calc_regress_pcs_ret_NOMEM;
   }
-  if (wkspace_alloc_d_checked(&pc_orig_prod_sums, pc_ct_p1 * pc_ct_p1 * sizeof(double))) {
-    goto calc_regress_pcs_ret_NOMEM;
-  }
-  if (wkspace_alloc_d_checked(&pc_prod_sums, pc_ct_p1 * pc_ct_p1 * sizeof(double))) {
-    goto calc_regress_pcs_ret_NOMEM;
-  }
-  if (wkspace_alloc_d_checked(&x_prime_y, pc_ct_p1 * sizeof(double))) {
-    goto calc_regress_pcs_ret_NOMEM;
-  }
-  if (wkspace_alloc_d_checked(&beta_vec, pc_ct_p1 * sizeof(double))) {
-    goto calc_regress_pcs_ret_NOMEM;
-  }
-  if (wkspace_alloc_d_checked(&residual_vec, pc_ct_p1 * sizeof(double))) {
+  if (wkspace_alloc_d_checked(&pc_orig_prod_sums, pc_ct_p1 * pc_ct_p1 * sizeof(double)) ||
+      wkspace_alloc_d_checked(&pc_prod_sums, pc_ct_p1 * pc_ct_p1 * sizeof(double)) ||
+      wkspace_alloc_d_checked(&x_prime_y, pc_ct_p1 * sizeof(double)) ||
+      wkspace_alloc_d_checked(&beta_vec, pc_ct_p1 * sizeof(double)) ||
+      wkspace_alloc_d_checked(&residual_vec, pc_ct_p1 * sizeof(double)) ||
+      wkspace_alloc_d_checked(&dbl_2d_buf, pc_ct_p1 * pc_ct_p1 * sizeof(double))) {
     goto calc_regress_pcs_ret_NOMEM;
   }
   inv_1d_buf = (MATRIX_INVERT_BUF1_TYPE*)wkspace_alloc(pc_ct_p1 * sizeof(MATRIX_INVERT_BUF1_TYPE));
   if (!inv_1d_buf) {
-    goto calc_regress_pcs_ret_NOMEM;
-  }
-  if (wkspace_alloc_d_checked(&dbl_2d_buf, pc_ct_p1 * pc_ct_p1 * sizeof(double))) {
     goto calc_regress_pcs_ret_NOMEM;
   }
 
@@ -4203,22 +4193,21 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   // bits instead of the ~20 you get from printf("%g", dxx)), and there's no
   // need for repeated random access.
   strcpy(outname_end, ".gen");
-  if (fopen_checked(outfile_ptr, outname, "w")) {
-    return RET_OPEN_FAIL;
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto calc_regress_pcs_ret_OPEN_FAIL;
   }
   if (fseeko(pedfile, bed_offset, SEEK_SET)) {
-    return RET_READ_FAIL;
+    goto calc_regress_pcs_ret_READ_FAIL;
   }
-  outfile = *outfile_ptr;
   for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
     if (is_set(marker_exclude, marker_uidx)) {
       marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
       if (fseeko(pedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
-	return RET_READ_FAIL;
+	goto calc_regress_pcs_ret_READ_FAIL;
       }
     }
     if (fread(loadbuf, 1, unfiltered_indiv_ct4, pedfile) < unfiltered_indiv_ct4) {
-      return RET_READ_FAIL;
+      goto calc_regress_pcs_ret_READ_FAIL;
     }
     bufptr = uint32_writex(tbuf, get_marker_chrom(chrom_info_ptr, marker_uidx), ' ');
     fwrite(tbuf, 1, bufptr - tbuf, outfile);
@@ -4230,14 +4219,14 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
       bufptr[1] = ' ';
       bufptr[2] = marker_alleles[2 * marker_uidx + 1];
       if (fwrite_checked(tbuf, 3 + (uintptr_t)(bufptr - tbuf), outfile)) {
-        return RET_WRITE_FAIL;
+        goto calc_regress_pcs_ret_WRITE_FAIL;
       }
     } else {
       fwrite(tbuf, 1, bufptr - tbuf, outfile);
       fputs(&(marker_alleles[2 * marker_uidx * max_marker_allele_len]), outfile);
       putc(' ', outfile);
       if (fputs(&(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), outfile) == EOF) {
-        return RET_WRITE_FAIL;
+        goto calc_regress_pcs_ret_WRITE_FAIL;
       }
     }
     memcpy(pc_prod_sums, pc_orig_prod_sums, pc_ct_p1 * pc_ct_p1 * sizeof(double));
@@ -4321,7 +4310,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
       indiv_uidx++;
     }
     if (putc('\n', outfile) == EOF) {
-      return RET_WRITE_FAIL;
+      goto calc_regress_pcs_ret_WRITE_FAIL;
     }
     if (marker_idx * 100LLU >= ((uint64_t)pct * marker_ct)) {
       pct = ((uint64_t)marker_idx * 100) / marker_ct;
@@ -4330,16 +4319,15 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     }
     marker_uidx++;
   }
-  if (fclose_null(outfile_ptr)) {
-    return RET_WRITE_FAIL;
+  if (fclose_null(&outfile)) {
+    goto calc_regress_pcs_ret_WRITE_FAIL;
   }
   strcpy(outname_end, ".sample");
-  if (fopen_checked(outfile_ptr, outname, "w")) {
-    return RET_OPEN_FAIL;
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto calc_regress_pcs_ret_OPEN_FAIL;
   }
-  outfile = *outfile_ptr;
   if (fputs_checked("ID_1 ID_2 missing sex phenotype\n0 0 0 D P\n", outfile)) {
-    return RET_WRITE_FAIL;
+    goto calc_regress_pcs_ret_WRITE_FAIL;
   }
   // regress phenotype
   fill_double_zero(x_prime_y, pc_ct_p1);
@@ -4402,12 +4390,12 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     bufptr[1] = ' ';
     bufptr = double_g_writex(&(bufptr[2]), residual_vec[indiv_idx], '\n');
     if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-      return RET_WRITE_FAIL;
+      goto calc_regress_pcs_ret_WRITE_FAIL;
     }
     indiv_uidx++;
   }
-  if (fclose_null(outfile_ptr)) {
-    return RET_WRITE_FAIL;
+  if (fclose_null(&outfile)) {
+    goto calc_regress_pcs_ret_WRITE_FAIL;
   }
   *outname_end = '\0';
   putchar('\r');
@@ -4418,8 +4406,14 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   calc_regress_pcs_ret_NOMEM:
     retval = RET_NOMEM;
     break;
+  calc_regress_pcs_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
   calc_regress_pcs_ret_READ_FAIL:
     retval = RET_READ_FAIL;
+    break;
+  calc_regress_pcs_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
     break;
   calc_regress_pcs_ret_INVALID_FORMAT_3:
     logprintb();
@@ -4432,6 +4426,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     break;
   }
   fclose_cond(evecfile);
+  fclose_cond(outfile);
   return retval;
 }
 
@@ -7888,7 +7883,7 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   return retval;
 }
 
-int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, FILE* bedfile, uint32_t bed_offset, FILE** outfile_ptr, char* outname, char* outname_end, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t* marker_exclude, uint32_t marker_ct, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, Chrom_info* chrom_info_ptr, uint32_t wt_needed, uint32_t* marker_weights_i, double exponent) {
+int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, FILE* bedfile, uint32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t* marker_exclude, uint32_t marker_ct, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, Chrom_info* chrom_info_ptr, uint32_t wt_needed, uint32_t* marker_weights_i, double exponent) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
@@ -8230,10 +8225,9 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   logprint("Distance matrix calculation complete.\n");
   if (calculation_type & CALC_PLINK_DISTANCE_MATRIX) {
     strcpy(outname_end, ".mdist");
-    if (fopen_checked(outfile_ptr, outname, "w")) {
+    if (fopen_checked(&outfile, outname, "w")) {
       goto calc_distance_ret_OPEN_FAIL;
     }
-    outfile = *outfile_ptr;
     iptr = g_idists;
     giptr = g_missing_dbl_excluded;
     pct = 1;
@@ -8262,8 +8256,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	fflush(stdout);
       }
     }
-    outfile = NULL;
-    if (fclose_null(outfile_ptr)) {
+    if (fclose_null(&outfile)) {
       goto calc_distance_ret_WRITE_FAIL;
     }
     putchar('\r');
@@ -8279,10 +8272,9 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   }
   if (calculation_type & CALC_PLINK_IBS_MATRIX) {
     strcpy(outname_end, ".mibs");
-    if (fopen_checked(outfile_ptr, outname, "w")) {
+    if (fopen_checked(&outfile, outname, "w")) {
       goto calc_distance_ret_OPEN_FAIL;
     }
-    outfile = *outfile_ptr;
     iptr = g_idists;
     giptr = g_missing_dbl_excluded;
     pct = 1;
@@ -8310,8 +8302,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	fflush(stdout);
       }
     }
-    outfile = NULL;
-    if (fclose_null(outfile_ptr)) {
+    if (fclose_null(&outfile)) {
       goto calc_distance_ret_WRITE_FAIL;
     }
     putchar('\r');

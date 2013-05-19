@@ -2819,11 +2819,13 @@ int32_t read_external_freqs(char* freqname, FILE** freqfile_ptr, uintptr_t unfil
   return RET_ALLELE_MISMATCH;
 }
 
-int32_t write_freqs(FILE** outfile_ptr, char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, double* set_allele_freqs, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, int32_t* ll_cts, int32_t* lh_cts, int32_t* hh_cts, int32_t* hapl_cts, int32_t* haph_cts, uint32_t indiv_f_ct, uint32_t indiv_f_male_ct, uint64_t misc_flags, char missing_geno, uintptr_t* marker_reverse) {
+int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, double* set_allele_freqs, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, int32_t* ll_cts, int32_t* lh_cts, int32_t* hh_cts, int32_t* hapl_cts, int32_t* haph_cts, uint32_t indiv_f_ct, uint32_t indiv_f_male_ct, uint64_t misc_flags, char missing_geno, uintptr_t* marker_reverse) {
+  FILE* outfile = NULL;
   int32_t reverse = 0;
   char minor_allele = '\0';
   uint32_t freq_counts = (misc_flags / MISC_FREQ_COUNTS) & 1;
   uint32_t freqx = (misc_flags / MISC_FREQX) & 1;
+  int32_t retval = 0;
   char missing_geno_buf[2];
   uint32_t uii;
   char cc2;
@@ -2835,17 +2837,17 @@ int32_t write_freqs(FILE** outfile_ptr, char* outname, uint32_t plink_maxsnp, ui
   uint32_t is_y;
   uint32_t is_haploid;
   uint32_t missing_ct;
-  if (fopen_checked(outfile_ptr, outname, "w")) {
-    return RET_OPEN_FAIL;
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto write_freqs_ret_OPEN_FAIL;
   }
   if (freqx) {
-    if (fputs("CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)\n", *outfile_ptr) == EOF) {
-      return RET_WRITE_FAIL;
+    if (fputs("CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)\n", outfile) == EOF) {
+      goto write_freqs_ret_WRITE_FAIL;
     }
   } else if (plink_maxsnp < 5) {
     if (freq_counts) {
-      if (fputs_checked(" CHR  SNP   A1   A2     C1     C2     G0\n", *outfile_ptr)) {
-	return RET_WRITE_FAIL;
+      if (fputs_checked(" CHR  SNP   A1   A2     C1     C2     G0\n", outfile)) {
+	goto write_freqs_ret_WRITE_FAIL;
       }
       if (max_marker_allele_len == 1) {
         strcpy(tbuf, "%4u %4s    %c    %c %6u %6u %6u\n");
@@ -2853,8 +2855,8 @@ int32_t write_freqs(FILE** outfile_ptr, char* outname, uint32_t plink_maxsnp, ui
 	strcpy(tbuf, "%4u %4s %4s %4s %6u %6u %6u\n");
       }
     } else {
-      if (fputs_checked(" CHR  SNP   A1   A2          MAF  NCHROBS\n", *outfile_ptr)) {
-        return RET_WRITE_FAIL;
+      if (fputs_checked(" CHR  SNP   A1   A2          MAF  NCHROBS\n", outfile)) {
+        goto write_freqs_ret_WRITE_FAIL;
       }
       if (max_marker_allele_len == 1) {
         strcpy(tbuf, "%4u %4s    %c    %c %12.4g %8d\n");
@@ -2864,8 +2866,8 @@ int32_t write_freqs(FILE** outfile_ptr, char* outname, uint32_t plink_maxsnp, ui
     }
   } else if (freq_counts) {
     sprintf(tbuf, " CHR %%%ds   A1   A2     C1     C2     G0\n", plink_maxsnp);
-    if (fprintf(*outfile_ptr, tbuf, "SNP") < 0) {
-      return RET_WRITE_FAIL;
+    if (fprintf(outfile, tbuf, "SNP") < 0) {
+      goto write_freqs_ret_WRITE_FAIL;
     }
     if (max_marker_allele_len == 1) {
       sprintf(tbuf, "%%4u %%%ds    %%c    %%c %%6u %%6u %%6u\n", plink_maxsnp);
@@ -2874,8 +2876,8 @@ int32_t write_freqs(FILE** outfile_ptr, char* outname, uint32_t plink_maxsnp, ui
     }
   } else {
     sprintf(tbuf, " CHR %%%ds   A1   A2          MAF  NCHROBS\n", plink_maxsnp);
-    if (fprintf(*outfile_ptr, tbuf, "SNP") < 0) {
-      return RET_WRITE_FAIL;
+    if (fprintf(outfile, tbuf, "SNP") < 0) {
+      goto write_freqs_ret_WRITE_FAIL;
     }
     if (max_marker_allele_len == 1) {
       sprintf(tbuf, "%%4u %%%ds    %%c    %%c %%12.4g %%8d\n", plink_maxsnp);
@@ -2924,17 +2926,17 @@ int32_t write_freqs(FILE** outfile_ptr, char* outname, uint32_t plink_maxsnp, ui
 	    if (!cc2) {
 	      cc2 = missing_geno;
 	    }
-	    if (fprintf(*outfile_ptr, tbuf, get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), minor_allele, cc2, 2 * ll_cts[uii] + lh_cts[uii] + hapl_cts[uii], 2 * hh_cts[uii] + lh_cts[uii] + haph_cts[uii], missing_ct) < 0) {
-	      return RET_WRITE_FAIL;
+	    if (fprintf(outfile, tbuf, get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), minor_allele, cc2, 2 * ll_cts[uii] + lh_cts[uii] + hapl_cts[uii], 2 * hh_cts[uii] + lh_cts[uii] + haph_cts[uii], missing_ct) < 0) {
+	      goto write_freqs_ret_WRITE_FAIL;
 	    }
 	  } else {
-	    if (fprintf(*outfile_ptr, "%u\t%s\t%c\t%c\t%u\t%u\t%u\t%u\t%u\t%u\n", get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), minor_allele, marker_alleles[uii * 2 + (1 ^ reverse)], reverse? hh_cts[uii] : ll_cts[uii], lh_cts[uii], reverse? ll_cts[uii] : hh_cts[uii], reverse? haph_cts[uii] : hapl_cts[uii], reverse? hapl_cts[uii] : haph_cts[uii], missing_ct) < 0) {
-	      return RET_WRITE_FAIL;
+	    if (fprintf(outfile, "%u\t%s\t%c\t%c\t%u\t%u\t%u\t%u\t%u\t%u\n", get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), minor_allele, marker_alleles[uii * 2 + (1 ^ reverse)], reverse? hh_cts[uii] : ll_cts[uii], lh_cts[uii], reverse? ll_cts[uii] : hh_cts[uii], reverse? haph_cts[uii] : hapl_cts[uii], reverse? hapl_cts[uii] : haph_cts[uii], missing_ct) < 0) {
+	      goto write_freqs_ret_WRITE_FAIL;
 	    }
 	  }
 	} else {
-	  if (fprintf(*outfile_ptr, tbuf, get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), minor_allele, marker_alleles[uii * 2 + (1 ^ reverse)], reverse? set_allele_freqs[uii] : (1.0 - set_allele_freqs[uii]), 2 * (ll_cts[uii] + lh_cts[uii] + hh_cts[uii]) + hapl_cts[uii] + haph_cts[uii]) < 0) {
-	    return RET_WRITE_FAIL;
+	  if (fprintf(outfile, tbuf, get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), minor_allele, marker_alleles[uii * 2 + (1 ^ reverse)], reverse? set_allele_freqs[uii] : (1.0 - set_allele_freqs[uii]), 2 * (ll_cts[uii] + lh_cts[uii] + hh_cts[uii]) + hapl_cts[uii] + haph_cts[uii]) < 0) {
+	    goto write_freqs_ret_WRITE_FAIL;
 	  }
 	}
 	uii = next_non_set(marker_exclude, uii + 1, chrom_end_marker);
@@ -2968,29 +2970,38 @@ int32_t write_freqs(FILE** outfile_ptr, char* outname, uint32_t plink_maxsnp, ui
 	    missing_ct = indiv_f_ct - (ll_cts[uii] + lh_cts[uii] + hh_cts[uii]);
 	  }
 	  if (freqx) {
-	    if (fprintf(*outfile_ptr, "%u\t%s\t%s\t%s\t%u\t%u\t%u\t%u\t%u\t%u\n", get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), minor_ptr, major_ptr, reverse? hh_cts[uii] : ll_cts[uii], lh_cts[uii], reverse? ll_cts[uii] : hh_cts[uii], reverse? haph_cts[uii] : hapl_cts[uii], reverse? hapl_cts[uii] : haph_cts[uii], missing_ct) < 0) {
-	      return RET_WRITE_FAIL;
+	    if (fprintf(outfile, "%u\t%s\t%s\t%s\t%u\t%u\t%u\t%u\t%u\t%u\n", get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), minor_ptr, major_ptr, reverse? hh_cts[uii] : ll_cts[uii], lh_cts[uii], reverse? ll_cts[uii] : hh_cts[uii], reverse? haph_cts[uii] : hapl_cts[uii], reverse? hapl_cts[uii] : haph_cts[uii], missing_ct) < 0) {
+	      goto write_freqs_ret_WRITE_FAIL;
 	    }
 	  } else {
-	    if (fprintf(*outfile_ptr, tbuf, get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), minor_ptr, major_ptr, 2 * ll_cts[uii] + lh_cts[uii] + hapl_cts[uii], 2 * hh_cts[uii] + lh_cts[uii] + haph_cts[uii], missing_ct) < 0) {
-	      return RET_WRITE_FAIL;
+	    if (fprintf(outfile, tbuf, get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), minor_ptr, major_ptr, 2 * ll_cts[uii] + lh_cts[uii] + hapl_cts[uii], 2 * hh_cts[uii] + lh_cts[uii] + haph_cts[uii], missing_ct) < 0) {
+	      goto write_freqs_ret_WRITE_FAIL;
 	    }
 	  }
 	} else {
-	  if (fprintf(*outfile_ptr, tbuf, get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), minor_ptr, major_ptr, reverse? set_allele_freqs[uii] : (1.0 - set_allele_freqs[uii]), 2 * (ll_cts[uii] + lh_cts[uii] + hh_cts[uii]) + hapl_cts[uii] + haph_cts[uii]) < 0) {
-	    return RET_WRITE_FAIL;
+	  if (fprintf(outfile, tbuf, get_marker_chrom(chrom_info_ptr, uii), &(marker_ids[uii * max_marker_id_len]), minor_ptr, major_ptr, reverse? set_allele_freqs[uii] : (1.0 - set_allele_freqs[uii]), 2 * (ll_cts[uii] + lh_cts[uii] + hh_cts[uii]) + hapl_cts[uii] + haph_cts[uii]) < 0) {
+	    goto write_freqs_ret_WRITE_FAIL;
 	  }
 	}
         uii = next_non_set(marker_exclude, uii + 1, chrom_end_marker);
       }
     }
   }
-  if (fclose_null(outfile_ptr)) {
-    return RET_WRITE_FAIL;
+  if (fclose_null(&outfile)) {
+    goto write_freqs_ret_WRITE_FAIL;
   }
   sprintf(logbuf, "Allele frequencies written to %s.\n", outname);
   logprintb();
-  return 0;
+  while (0) {
+  write_freqs_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  write_freqs_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  fclose_cond(outfile);
+  return retval;
 }
 
 uint32_t binary_geno_filter(double geno_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uintptr_t indiv_ct, uintptr_t male_ct, uint32_t* marker_allele_cts, Chrom_info* chrom_info_ptr) {
@@ -3516,7 +3527,6 @@ inline int32_t distance_wt_req(uint64_t calculation_type) {
 }
 
 int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filterval, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t rel_calc_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uintptr_t regress_rel_iters, uint32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t genome_modifier, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, uint32_t regress_pcs_modifier, uint32_t max_pcs, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t write_covar_modifier, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, Ll_str** file_delete_list_ptr) {
-  FILE* outfile = NULL;
   FILE* bedfile = NULL;
   FILE* famfile = NULL;
   FILE* phenofile = NULL;
@@ -4085,7 +4095,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     strcpy(outname_end, ".bed.tmp"); // not really temporary
     logprint("Individual-major .bed file detected.  Transposing to SNP-major form.\n");
     fclose(bedfile);
-    retval = indiv_major_to_snp_major(pedname, outname, &outfile, unfiltered_marker_ct);
+    retval = indiv_major_to_snp_major(pedname, outname, unfiltered_marker_ct);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4178,7 +4188,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     } else {
       strcpy(outname_end, ".frq");
     }
-    retval = write_freqs(&outfile, outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, hwe_hapl_allfs, hwe_haph_allfs, indiv_f_ct, indiv_f_male_ct, misc_flags, missing_geno, marker_reverse);
+    retval = write_freqs(outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, hwe_hapl_allfs, hwe_haph_allfs, indiv_f_ct, indiv_f_male_ct, misc_flags, missing_geno, marker_reverse);
     if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_FREQ))))) {
       goto wdist_ret_1;
     }
@@ -4246,7 +4256,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     }
     if (calculation_type & CALC_RECODE) {
-      retval = recode(recode_modifier, bedfile, bed_offset, famfile, &outfile, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_cms, marker_alleles, max_marker_allele_len, marker_pos, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nosex_exclude? pheno_nosex_exclude : pheno_nm, pheno_c, pheno_d, missing_phenod, output_missing_geno, output_missing_pheno, (misc_flags / MISC_SET_HH_MISSING) & 1, xmhh_exists, nxmhh_exists, chrom_info_ptr);
+      retval = recode(recode_modifier, bedfile, bed_offset, famfile, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_cms, marker_alleles, max_marker_allele_len, marker_pos, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nosex_exclude? pheno_nosex_exclude : pheno_nm, pheno_c, pheno_d, missing_phenod, output_missing_geno, output_missing_pheno, (misc_flags / MISC_SET_HH_MISSING) & 1, xmhh_exists, nxmhh_exists, chrom_info_ptr);
       if (retval) {
         goto wdist_ret_1;
       }
@@ -4269,7 +4279,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (calculation_type & CALC_REGRESS_PCS) {
     // do this before marker_alleles is overwritten in memory...
-    retval = calc_regress_pcs(evecname, regress_pcs_modifier, max_pcs, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, chrom_info_ptr, marker_pos, g_indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, sex_nm, sex_male, pheno_d, missing_phenod, &outfile, outname, outname_end);
+    retval = calc_regress_pcs(evecname, regress_pcs_modifier, max_pcs, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, chrom_info_ptr, marker_pos, g_indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, sex_nm, sex_male, pheno_d, missing_phenod, outname, outname_end);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4348,7 +4358,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto wdist_ret_1;
   } else if (distance_req(calculation_type)) {
-    retval = calc_distance(threads, parallel_idx, parallel_tot, bedfile, bed_offset, &outfile, outname, outname_end, calculation_type, dist_calc_type, marker_exclude, marker_ct, set_allele_freqs, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, person_ids, max_person_id_len, chrom_info_ptr, wt_needed, marker_weights_i, exponent);
+    retval = calc_distance(threads, parallel_idx, parallel_tot, bedfile, bed_offset, outname, outname_end, calculation_type, dist_calc_type, marker_exclude, marker_ct, set_allele_freqs, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, person_ids, max_person_id_len, chrom_info_ptr, wt_needed, marker_weights_i, exponent);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4519,7 +4529,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   fclose_cond(phenofile);
   fclose_cond(famfile);
   fclose_cond(bedfile);
-  fclose_cond(outfile);
   return retval;
 }
 
