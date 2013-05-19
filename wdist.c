@@ -3496,7 +3496,7 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t* marker_exclud
     break;
   }
   fclose_cond(outfile);
-  return 0;
+  return retval;
 }
 
 static inline uint32_t are_marker_pos_needed(uint64_t calculation_type) {
@@ -4898,7 +4898,7 @@ int32_t alloc_2col(Two_col_params** tcbuf, char** params_ptr, char* argptr, uint
 	cc = params_ptr[3][0];
 	if ((!(params_ptr[3][1])) && ((cc < '0') || (cc > '9'))) {
 	  (*tcbuf)->skipchar = cc;
-	} else if (((cc == '\'') || (cc == '"')) && (params_ptr[3][1] != '\0') && (params_ptr[3][2] == cc) || (params_ptr[3][3] == '\0')) {
+	} else if (((cc == '\'') || (cc == '"')) && (params_ptr[3][1] != '\0') && (params_ptr[3][2] == cc) && (params_ptr[3][3] == '\0')) {
 	  (*tcbuf)->skipchar = params_ptr[3][1];
 	} else {
 	  if (atoiz(params_ptr[3], &ii)) {

@@ -100,7 +100,7 @@ int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t un
 }
 
 #ifdef _WIN32
-int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, FILE** outfile_ptr, uintptr_t unfiltered_marker_ct) {
+int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr_t unfiltered_marker_ct) {
   logprint("Error: Win32 WDIST does not yet support transposition of individual-major .bed\nfiles.  Contact the developers if you need this.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
 }
