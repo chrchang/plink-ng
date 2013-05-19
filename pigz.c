@@ -17,7 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <windows.h>
-#include "zlib-1.2.7/zlib.h"
+#include "zlib-1.2.8/zlib.h"
 
 void pigz_init(uint32_t setprocs) {
   return;
@@ -381,7 +381,7 @@ void parallel_compress(char* out_fname, uint32_t(* emitn)(uint32_t, unsigned cha
 #  include <sys/pstat.h>
 #endif
 
-#include "zlib-1.2.7/zlib.h" /* deflateInit2(), deflateReset(), deflate(), */
+#include "zlib-1.2.8/zlib.h" /* deflateInit2(), deflateReset(), deflate(), */
                         /* deflateEnd(), deflateSetDictionary(), crc32(),
                            inflateBackInit(), inflateBack(), inflateBackEnd(),
                            Z_DEFAULT_COMPRESSION, Z_DEFAULT_STRATEGY,

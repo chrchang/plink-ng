@@ -102,7 +102,7 @@ typedef union {
 #endif
 #endif // __LP64__
 
-#include "zlib-1.2.7/zlib.h"
+#include "zlib-1.2.8/zlib.h"
 #include "SFMT.h"
 
 #define PI 3.1415926535897932
