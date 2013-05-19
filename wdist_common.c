@@ -204,13 +204,13 @@ char* item_endl(char* sptr) {
   return sptr;
 }
 
-void get_top_two(uint32_t* uint_arr, uint32_t uia_size, uint32_t* top_idx_ptr, uint32_t* second_idx_ptr) {
-  uint32_t cur_idx = 2;
-  uint32_t top_idx;
+void get_top_two(uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* top_idx_ptr, uintptr_t* second_idx_ptr) {
+  uintptr_t cur_idx = 2;
+  uintptr_t top_idx;
   uint32_t top_val;
-  uint32_t second_idx;
+  uintptr_t second_idx;
   uint32_t second_val;
-  uint32_t cur_val;
+  uintptr_t cur_val;
   if (uint_arr[1] > uint_arr[0]) {
     top_idx = 1;
   } else {
@@ -260,7 +260,7 @@ int32_t strlen_se(char* ss) {
   return val;
 }
 
-int32_t strcmp_se(char* s_read, const char* s_const, int32_t len) {
+int32_t strcmp_se(char* s_read, const char* s_const, uint32_t len) {
   return memcmp(s_read, s_const, len) || (!is_space_or_eoln(s_read[len]));
 }
 
@@ -1926,11 +1926,11 @@ int32_t marker_code2(uint32_t species, char* sptr, uint32_t slen) {
   return retval;
 }
 
-int32_t get_marker_chrom(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx) {
+uint32_t get_marker_chrom(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx) {
   uint32_t* marker_binsearch = chrom_info_ptr->chrom_file_order_marker_idx;
-  int32_t chrom_min = 0;
-  int32_t chrom_ct = chrom_info_ptr->chrom_ct;
-  int32_t chrom_cur;
+  uint32_t chrom_min = 0;
+  uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
+  uint32_t chrom_cur;
   while (chrom_ct - chrom_min > 1) {
     chrom_cur = (chrom_ct + chrom_min) / 2;
     if (marker_binsearch[chrom_cur] > marker_uidx) {
@@ -2115,7 +2115,7 @@ int32_t strcmp_natural_deref(const void* s1, const void* s2) {
   return strcmp_natural_uncasted(*(char**)s1, *(char**)s2);
 }
 
-int32_t is_missing(char* bufptr, int32_t missing_pheno, int32_t missing_pheno_len, int32_t affection_01) {
+int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01) {
   if ((atoi(bufptr) == missing_pheno) && is_space_or_eoln(bufptr[missing_pheno_len])) {
     return 1;
   } else if ((!affection_01) && (*bufptr == '0') && is_space_or_eoln(bufptr[1])) {
@@ -2124,8 +2124,8 @@ int32_t is_missing(char* bufptr, int32_t missing_pheno, int32_t missing_pheno_le
   return 0;
 }
 
-int32_t eval_affection(char* bufptr, int32_t missing_pheno, int32_t missing_pheno_len, int32_t affection_01) {
-  if (is_missing(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
+int32_t eval_affection(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01) {
+  if (is_missing_pheno(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
     return 1;
   } else if (((*bufptr == '0') || (*bufptr == '1') || ((*bufptr == '2') && (!affection_01))) && is_space_or_eoln(bufptr[1])) {
     return 1;
@@ -2133,7 +2133,7 @@ int32_t eval_affection(char* bufptr, int32_t missing_pheno, int32_t missing_phen
   return 0;
 }
 
-int32_t triangle_divide(int64_t cur_prod, int32_t modif) {
+uint32_t triangle_divide(int64_t cur_prod, int32_t modif) {
   // return smallest integer vv for which (vv * (vv + modif)) is no smaller
   // than cur_prod, and neither term in the product is negative.  (Note the
   // lack of a divide by two; cur_prod should also be double its "true" value
@@ -2156,54 +2156,54 @@ int32_t triangle_divide(int64_t cur_prod, int32_t modif) {
   return vv;
 }
 
-void parallel_bounds(int32_t ct, int32_t start, int32_t parallel_idx, int32_t parallel_tot, int32_t* bound_start_ptr, int32_t* bound_end_ptr) {
+void parallel_bounds(uint32_t ct, int32_t start, uint32_t parallel_idx, uint32_t parallel_tot, int32_t* bound_start_ptr, int32_t* bound_end_ptr) {
   int32_t modif = 1 - start * 2;
-  int64_t ct_tot = (int64_t)ct * (ct + modif);
+  int64_t ct_tot = ((int64_t)ct) * (ct + modif);
   *bound_start_ptr = triangle_divide((ct_tot * parallel_idx) / parallel_tot, modif);
   *bound_end_ptr = triangle_divide((ct_tot * (parallel_idx + 1)) / parallel_tot, modif);
 }
 
 // set align to 1 for no alignment
-void triangle_fill(uint32_t* target_arr, int32_t ct, int32_t pieces, int32_t parallel_idx, int32_t parallel_tot, int32_t start, int32_t align) {
+void triangle_fill(uint32_t* target_arr, uint32_t ct, uint32_t pieces, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t start, uint32_t align) {
+  int32_t modif = 1 - start * 2;
+  uint32_t cur_piece = 1;
   int64_t ct_tr;
   int64_t cur_prod;
-  int32_t modif = 1 - start * 2;
-  int32_t cur_piece = 1;
   int32_t lbound;
   int32_t ubound;
-  int32_t ii;
-  int32_t align_m1;
+  uint32_t uii;
+  uint32_t align_m1;
   parallel_bounds(ct, start, parallel_idx, parallel_tot, &lbound, &ubound);
   // x(x+1)/2 is divisible by y iff (x % (2y)) is 0 or (2y - 1).
   align *= 2;
   align_m1 = align - 1;
   target_arr[0] = lbound;
   target_arr[pieces] = ubound;
-  cur_prod = (int64_t)lbound * (lbound + modif);
-  ct_tr = ((int64_t)ubound * (ubound + modif) - cur_prod) / pieces;
+  cur_prod = ((int64_t)lbound) * (lbound + modif);
+  ct_tr = (((int64_t)ubound) * (ubound + modif) - cur_prod) / pieces;
   while (cur_piece < pieces) {
     cur_prod += ct_tr;
     lbound = triangle_divide(cur_prod, modif);
-    ii = (lbound - start) & align_m1;
-    if ((ii) && (ii != align_m1)) {
-      lbound = start + ((lbound - start) | align_m1);
+    uii = (lbound - ((int32_t)start)) & align_m1;
+    if ((uii) && (uii != align_m1)) {
+      lbound = start + ((lbound - ((int32_t)start)) | align_m1);
     }
     // lack of this check caused a nasty bug earlier
-    if (lbound > ct) {
+    if (((uint32_t)lbound) > ct) {
       lbound = ct;
     }
     target_arr[cur_piece++] = lbound;
   }
 }
 
-int32_t write_ids(char* outname, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len) {
+int32_t write_ids(char* outname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len) {
   FILE* outfile;
-  uint32_t uii;
+  uintptr_t ulii;
   if (fopen_checked(&outfile, outname, "w")) {
     return RET_OPEN_FAIL;
   }
-  for (uii = 0; uii < unfiltered_indiv_ct; uii++) {
-    if (!is_set(indiv_exclude, uii) && (fprintf(outfile, "%s\n", &(person_ids[uii * max_person_id_len])) < 0)) {
+  for (ulii = 0; ulii < unfiltered_indiv_ct; ulii++) {
+    if (!is_set(indiv_exclude, ulii) && (fprintf(outfile, "%s\n", &(person_ids[ulii * max_person_id_len])) < 0)) {
       return RET_WRITE_FAIL;
     }
   }
@@ -2213,7 +2213,7 @@ int32_t write_ids(char* outname, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_
   return 0;
 }
 
-int32_t distance_d_write_ids(char* outname, char* outname_end, int32_t dist_calc_type, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len) {
+int32_t distance_d_write_ids(char* outname, char* outname_end, uint32_t dist_calc_type, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len) {
   int32_t retval;
   if (dist_calc_type & DISTANCE_ALCT) {
     strcpy(outname_end, ".dist.id");
@@ -2365,33 +2365,33 @@ uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_leng
   }
 }
 
-uint32_t doublearr_greater_than(double* sorted_dbl_arr, uint32_t arr_length, double dxx) {
-  int32_t min_idx = 0;
-  int32_t max_idx = arr_length - 1;
-  uint32_t mid_idx;
+uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, double dxx) {
+  intptr_t min_idx = 0;
+  intptr_t max_idx = arr_length - 1;
+  uintptr_t mid_idx;
   while (min_idx < max_idx) {
-    mid_idx = (((uint32_t)min_idx) + ((uint32_t)max_idx)) / 2;
+    mid_idx = (((uintptr_t)min_idx) + ((uintptr_t)max_idx)) / 2;
     if (dxx > sorted_dbl_arr[mid_idx]) {
       min_idx = mid_idx + 1;
     } else {
       max_idx = mid_idx - 1;
     }
   }
-  if (dxx > sorted_dbl_arr[((uint32_t)min_idx)]) {
+  if (dxx > sorted_dbl_arr[((uintptr_t)min_idx)]) {
     return (min_idx + 1);
   } else {
     return min_idx;
   }
 }
 
-intptr_t bsearch_str(char* id_buf, char* lptr, intptr_t max_id_len, intptr_t min_idx, intptr_t max_idx) {
+int32_t bsearch_str(char* id_buf, char* lptr, uintptr_t max_id_len, intptr_t min_idx, intptr_t max_idx) {
   intptr_t mid_idx;
   int32_t ii;
   if (max_idx < min_idx) {
     return -1;
   }
   mid_idx = (min_idx + max_idx) / 2;
-  ii = strcmp(id_buf, &(lptr[mid_idx * max_id_len]));
+  ii = strcmp(id_buf, &(lptr[((uintptr_t)mid_idx) * max_id_len]));
   if (ii) {
     if (ii < 0) {
       return bsearch_str(id_buf, lptr, max_id_len, min_idx, mid_idx - 1);
@@ -2403,14 +2403,14 @@ intptr_t bsearch_str(char* id_buf, char* lptr, intptr_t max_id_len, intptr_t min
   }
 }
 
-intptr_t bsearch_str_natural(char* id_buf, char* lptr, intptr_t max_id_len, intptr_t min_idx, intptr_t max_idx) {
+int32_t bsearch_str_natural(char* id_buf, char* lptr, uintptr_t max_id_len, intptr_t min_idx, intptr_t max_idx) {
   intptr_t mid_idx;
   int32_t ii;
   if (max_idx < min_idx) {
     return -1;
   }
   mid_idx = (min_idx + max_idx) / 2;
-  ii = strcmp_natural(id_buf, &(lptr[mid_idx * max_id_len]));
+  ii = strcmp_natural(id_buf, &(lptr[((uintptr_t)mid_idx) * max_id_len]));
   if (ii) {
     if (ii < 0) {
       return bsearch_str_natural(id_buf, lptr, max_id_len, min_idx, mid_idx - 1);
@@ -2434,21 +2434,21 @@ void fill_idbuf_fam_indiv(char* idbuf, char* fam_indiv, char fillchar) {
   memcpyx(&(idbuf[slen + 1]), fam_indiv, slen2, '\0');
 }
 
-int32_t bsearch_fam_indiv(char* id_buf, char* lptr, intptr_t max_id_len, int32_t filter_line_ct, char* fam_id, char* indiv_id) {
+int32_t bsearch_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, char* indiv_id) {
   // id_buf = workspace
   // lptr = packed, sorted list of ID strings to search over
   // fam_id and indiv_id are considered terminated by any space/eoln character
-  int32_t ii;
-  int32_t jj;
+  uint32_t uii;
+  uint32_t ujj;
   if (!filter_line_ct) {
     return -1;
   }
-  ii = strlen_se(fam_id);
-  jj = strlen_se(indiv_id);
-  if (ii + jj + 2 > max_id_len) {
+  uii = strlen_se(fam_id);
+  ujj = strlen_se(indiv_id);
+  if (uii + ujj + 2 > max_id_len) {
     return -1;
   }
-  memcpyx(memcpyax(id_buf, fam_id, ii, '\t'), indiv_id, jj, '\0');
+  memcpyx(memcpyax(id_buf, fam_id, uii, '\t'), indiv_id, ujj, '\0');
   return bsearch_str(id_buf, lptr, max_id_len, 0, filter_line_ct - 1);
 }
 
@@ -4079,9 +4079,9 @@ uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* mark
   return ct;
 }
 
-void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, int32_t* male_ct_ptr, int32_t* female_ct_ptr, uint32_t* unk_ct_ptr) {
-  int32_t male_ct = 0;
-  int32_t female_ct = 0;
+void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr) {
+  uint32_t male_ct = 0;
+  uint32_t female_ct = 0;
   uint32_t unk_ct = 0;
   uint32_t unfiltered_indiv_ctld = unfiltered_indiv_ct / BITCT;
   uint32_t unfiltered_indiv_ct_rem = unfiltered_indiv_ct & (BITCT - 1);
@@ -5570,15 +5570,15 @@ void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd) {
   }
 }
 
-void pick_d_small(unsigned char* tmp_cbuf, int32_t* ibuf, uint32_t ct, uint32_t dd) {
+void pick_d_small(unsigned char* tmp_cbuf, uint32_t* uibuf, uint32_t ct, uint32_t dd) {
   uint32_t uii;
   pick_d(tmp_cbuf, ct, dd);
   for (uii = 0; uii < ct; uii++) {
     if (tmp_cbuf[uii]) {
-      *ibuf++ = uii;
+      *uibuf++ = uii;
     }
   }
-  *ibuf = ct;
+  *uibuf = ct;
 }
 
 void init_sfmt64_from_sfmt32(sfmt_t* sfmt32, sfmt_t* sfmt64) {
@@ -5737,13 +5737,13 @@ static double* g_dists;
 static double g_calc_result[4][MAX_THREADS_P1];
 static unsigned char* g_generic_buf;
 
-// double regress_jack(int32_t* ibuf) {
-double regress_jack(int32_t* ibuf, double* ret2_ptr) {
-  int32_t* iptr = ibuf;
-  int32_t* jptr = &(ibuf[g_jackknife_d]);
+// double regress_jack(uint32_t* uibuf) {
+double regress_jack(uint32_t* uibuf, double* ret2_ptr) {
+  uint32_t* uiptr = uibuf;
+  uint32_t* uiptr2 = &(uibuf[g_jackknife_d]);
   uint32_t uii;
-  int32_t jj;
-  int32_t kk;
+  uint32_t ujj;
+  uint32_t ukk;
   double* dptr;
   double* dptr2;
   double neg_tot_xy = 0.0;
@@ -5754,24 +5754,24 @@ double regress_jack(int32_t* ibuf, double* ret2_ptr) {
   double dxx;
   double dxx1;
   double dyy;
-  while (iptr < jptr) {
-    dptr2 = &(g_jackknife_precomp[(*iptr++) * JACKKNIFE_VALS_DIST]);
+  while (uiptr < uiptr2) {
+    dptr2 = &(g_jackknife_precomp[(*uiptr++) * JACKKNIFE_VALS_DIST]);
     neg_tot_xy += *dptr2++;
     neg_tot_x += *dptr2++;
     neg_tot_y += *dptr2++;
     neg_tot_xx += *dptr2++;
     neg_tot_yy += *dptr2++;
   }
-  iptr = ibuf;
+  uiptr = uibuf;
   for (uii = 1; uii < g_jackknife_d; uii++) {
-    jj = *(++iptr);
-    dxx1 = g_pheno_d[jj];
-    jptr = ibuf;
-    dptr = &(g_dists[((intptr_t)jj * (jj - 1)) / 2]);
-    while (jptr < iptr) {
-      kk = *jptr++;
-      dxx = (dxx1 + g_pheno_d[kk]) * 0.5;
-      dyy = dptr[kk];
+    ujj = *(++uiptr);
+    dxx1 = g_pheno_d[ujj];
+    uiptr2 = uibuf;
+    dptr = &(g_dists[(((uintptr_t)ujj) * (ujj - 1)) / 2]);
+    while (uiptr2 < uiptr) {
+      ukk = *uiptr2++;
+      dxx = (dxx1 + g_pheno_d[ukk]) * 0.5;
+      dyy = dptr[ukk];
       neg_tot_xy -= dxx * dyy;
       neg_tot_x -= dxx;
       neg_tot_y -= dyy;
@@ -5788,8 +5788,8 @@ double regress_jack(int32_t* ibuf, double* ret2_ptr) {
 }
 
 THREAD_RET_TYPE regress_jack_thread(void* arg) {
-  intptr_t tidx = (intptr_t)arg;
-  int32_t* ibuf = (int32_t*)(&(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t))]));
+  uintptr_t tidx = (uintptr_t)arg;
+  uint32_t* uibuf = (uint32_t*)(&(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t))]));
   unsigned char* cbuf = &(g_generic_buf[tidx * CACHEALIGN(g_indiv_ct + (g_jackknife_d + 1) * sizeof(int32_t)) + (g_jackknife_d + 1) * sizeof(int32_t)]);
   uint64_t ulii;
   uint64_t uljj = g_jackknife_iters / 100;
@@ -5800,8 +5800,8 @@ THREAD_RET_TYPE regress_jack_thread(void* arg) {
   double dxx;
   double ret2;
   for (ulii = 0; ulii < g_jackknife_iters; ulii++) {
-    pick_d_small(cbuf, ibuf, g_indiv_ct, g_jackknife_d);
-    dxx = regress_jack(ibuf, &ret2);
+    pick_d_small(cbuf, uibuf, g_indiv_ct, g_jackknife_d);
+    dxx = regress_jack(uibuf, &ret2);
     // dxx = regress_jack(ibuf);
     sum += dxx;
     sum_sq += dxx * dxx;

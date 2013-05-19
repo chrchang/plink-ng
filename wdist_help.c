@@ -427,8 +427,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      computation we implement.\n\n"
 	       );
     help_print("distance\tregress-pcs-distance", &help_ctrl, 1,
-"  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <alct> <3d>\n"
-"             <flat-missing>\n"
+"  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <allele-ct>\n"
+"             <3d> <flat-missing>\n"
 "    Writes a lower-triangular tab-delimited table of (weighted) genomic\n"
 "    distances in allele count units to {output prefix}.dist, and a list of the\n"
 "    corresponding family/individual IDs to {output prefix}.dist.id.  The first\n"
@@ -447,7 +447,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * If the 'ibs' modifier is present, an identity-by-state matrix is written\n"
 "      to {output prefix}.mibs.  '1-ibs' causes distances expressed as genomic\n"
 "      proportions (i.e. 1 - IBS) to be written to {output prefix}.mdist.\n"
-"      Combine with 'alct' if you want to generate the usual .dist file as well.\n"
+"      Combine with 'allele-ct' if you want to generate the usual .dist file as\n"
+"      well.\n"
 "    * With dosage data, the '3d' modifier considers 0-1-2 allele count\n"
 "      probabilities separately, instead of collapsing them into an expected\n"
 "      value and a missingness probability.\n"
@@ -586,7 +587,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      by setting the max PCs parameter.\n"
 "  --regress-pcs-distance [.evec/.eigenvec file] <normalize-pheno>\n"
 "                         <sex-specific> {max PCs} <square | square0 | triangle>\n"
-"                         <gz | bin> <ibs> <1-ibs> <alct> <3d> <flat-missing>\n"
+"                         <gz | bin> <ibs> <1-ibs> <allele-ct> <3d>\n"
+"                         <flat-missing>\n"
 "    High-speed combination of --regress-pcs and --distance (no .gen + .sample\n"
 "    fileset is written to disk).\n\n"
 	       );

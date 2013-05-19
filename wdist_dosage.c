@@ -347,7 +347,7 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
   return retval;
 }
 
-int32_t oxford_gen_load1(FILE* genfile, uint32_t* gen_buf_len_ptr, uintptr_t* unfiltered_marker_ct_ptr, double** set_allele_freqs_ptr, int32_t* is_missing_01_ptr, uintptr_t unfiltered_indiv_ct, int32_t maf_succ) {
+int32_t oxford_gen_load1(FILE* genfile, uint32_t* gen_buf_len_ptr, uintptr_t* unfiltered_marker_ct_ptr, double** set_allele_freqs_ptr, uint32_t* is_missing_01_ptr, uintptr_t unfiltered_indiv_ct, uint32_t maf_succ) {
   // Determine maximum line length, calculate reference allele frequencies,
   // and check if all missingness probabilities are 0 or ~1.
   uintptr_t unfiltered_marker_ct = 0;
@@ -355,7 +355,7 @@ int32_t oxford_gen_load1(FILE* genfile, uint32_t* gen_buf_len_ptr, uintptr_t* un
   uint32_t gen_buf_len = 0;
   char* stack_base = (char*)wkspace_base;
   char* loadbuf = (&(stack_base[sizeof(double)]));
-  int32_t is_missing_01 = 1;
+  uint32_t is_missing_01 = 1;
   uint32_t pct = 1;
   uint64_t file_length;
   uint64_t file_pos_100;
@@ -1040,7 +1040,9 @@ THREAD_RET_TYPE incr_dosage_missing_wt_01_thread(void* arg) {
   THREAD_RETURN;
 }
 
-int32_t update_distance_dosage_matrix(int32_t is_missing_01, int32_t distance_3d, int32_t distance_flat_missing, uint32_t thread_ct) {
+int32_t update_distance_dosage_matrix(uint32_t is_missing_01, uint32_t dist_calc_type, uint32_t thread_ct) {
+  uint32_t distance_3d = dist_calc_type & DISTANCE_3D;
+  uint32_t distance_flat_missing = dist_calc_type & DISTANCE_FLAT_MISSING;
   pthread_t threads[MAX_THREADS];
   uintptr_t thread_idx;
   if (!distance_3d) {
@@ -1094,11 +1096,13 @@ int32_t update_distance_dosage_matrix(int32_t is_missing_01, int32_t distance_3d
   return RET_THREAD_CREATE_FAIL;
 }
 
-int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_allele_freqs, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, int32_t is_missing_01, int32_t distance_3d, int32_t distance_flat_missing, double exponent, uint32_t thread_ct, int32_t parallel_idx, uint32_t parallel_tot) {
-  int32_t is_exponent_zero = (exponent == 0.0);
+int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_allele_freqs, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, int32_t is_missing_01, uint32_t dist_calc_type, double exponent, uint32_t thread_ct, int32_t parallel_idx, uint32_t parallel_tot) {
+  uint32_t is_exponent_zero = (exponent == 0.0);
   uintptr_t unfiltered_indiv_ct8m = unfiltered_indiv_ct & 0xfffffff8U;
   uintptr_t indiv_ctl = (g_indiv_ct + (BITCT - 1)) / BITCT;
   double marker_wt = 1.0;
+  uint32_t distance_3d = (dist_calc_type / DISTANCE_3D) & 1;
+  uint32_t distance_flat_missing = (dist_calc_type / DISTANCE_FLAT_MISSING) & 1;
   double* cur_marker_freqs = NULL;
   double* cmf_ptr = NULL;
   uintptr_t* cur_missings = NULL;
@@ -1303,7 +1307,7 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
     }
     marker_uidx++;
     if (marker_idxl == BITCT - 1) {
-      retval = update_distance_dosage_matrix(is_missing_01, distance_3d, distance_flat_missing, thread_ct);
+      retval = update_distance_dosage_matrix(is_missing_01, dist_calc_type, thread_ct);
       if (retval) {
 	goto oxford_distance_calc_ret_1;
       }
@@ -1320,7 +1324,7 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
     for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
       fill_double_zero(&(g_dosage_vals[indiv_idx * BITCT + marker_idxl]), ulii);
     }
-    retval = update_distance_dosage_matrix(is_missing_01, distance_3d, distance_flat_missing, thread_ct);
+    retval = update_distance_dosage_matrix(is_missing_01, dist_calc_type, thread_ct);
     if (retval) {
       goto oxford_distance_calc_ret_1;
     }
@@ -1352,19 +1356,21 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
   return retval;
 }
 
-int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr, double** set_allele_freqs_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t** marker_exclude_ptr, uintptr_t* marker_ct_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, int32_t distance_3d, int32_t distance_flat_missing, double exponent, uint32_t thread_ct, int32_t parallel_idx, uint32_t parallel_tot) {
+int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr, double** set_allele_freqs_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t** marker_exclude_ptr, uintptr_t* marker_ct_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t dist_calc_type, double exponent, uint32_t thread_ct, int32_t parallel_idx, uint32_t parallel_tot) {
   // Easily usable when no filters are applied, or no .freq/.freqx file is
   // loaded and there are no filters on individuals that depend on genotype
   // information.
   // Could be extended to handle the --read-freq case as well, but that's more
   // complicated.
   unsigned char* wkspace_mark = NULL;
-  int32_t is_exponent_zero = (exponent == 0.0);
+  uint32_t is_exponent_zero = (exponent == 0.0);
   uintptr_t unfiltered_marker_ct = 0;
   uintptr_t unfiltered_indiv_ct8m = unfiltered_indiv_ct & 0xfffffff8U;
   uint32_t marker_idxl = 0;
   uintptr_t marker_ct = 0;
   uint32_t gen_buf_len = 0;
+  uint32_t distance_3d = (dist_calc_type / DISTANCE_3D) & 1;
+  uint32_t distance_flat_missing = (dist_calc_type / DISTANCE_FLAT_MISSING) & 1;
   double tot_missing_wt = 0.0;
   double missing_wt = 1.0;
   double* cur_marker_freqs = NULL;
@@ -1612,7 +1618,7 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
       if (max_load <= 0) {
 	return RET_NOMEM;
       }
-      retval = update_distance_dosage_matrix(0, distance_3d, distance_flat_missing, thread_ct);
+      retval = update_distance_dosage_matrix(0, dist_calc_type, thread_ct);
       if (retval) {
 	return retval;
       }
@@ -1641,7 +1647,7 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
 	fill_double_zero(&(g_nonmissing_vals[indiv_idx * MULTIPLEX_DOSAGE_NM + marker_idxl]), ulii);
       }
     }
-    retval = update_distance_dosage_matrix(0, distance_3d, distance_flat_missing, thread_ct);
+    retval = update_distance_dosage_matrix(0, dist_calc_type, thread_ct);
     if (retval) {
       return retval;
     }
@@ -1685,13 +1691,13 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
   return retval;
 }
 
-int32_t wdist_dosage(uint64_t calculation_type, int32_t dist_calc_type, char* genname, char* samplename, char* outname, char* outname_end, char* missing_code, int32_t distance_3d, int32_t distance_flat_missing, double exponent, int32_t maf_succ, uintptr_t regress_iters, uint32_t regress_d, uint32_t thread_ct, int32_t parallel_idx, uint32_t parallel_tot) {
+int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* genname, char* samplename, char* outname, char* outname_end, char* missing_code, double exponent, uint32_t maf_succ, uintptr_t regress_iters, uint32_t regress_d, uint32_t thread_ct, uint32_t parallel_idx, uint32_t parallel_tot) {
   FILE* genfile = NULL;
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
-  int32_t gen_scanned = 0;
-  int32_t is_missing_01 = 0;
+  uint32_t gen_scanned = 0;
+  uint32_t is_missing_01 = 0;
   uintptr_t* sex_nm;
   uintptr_t* sex_male;
   unsigned char* membuf;
@@ -1762,11 +1768,11 @@ int32_t wdist_dosage(uint64_t calculation_type, int32_t dist_calc_type, char* ge
   if (distance_req(calculation_type)) {
     wkspace_mark = wkspace_base;
     if (gen_scanned) {
-      retval = oxford_distance_calc(genfile, gen_buf_len, set_allele_freqs, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, is_missing_01, distance_3d, distance_flat_missing, exponent, thread_ct, parallel_idx, parallel_tot);
+      retval = oxford_distance_calc(genfile, gen_buf_len, set_allele_freqs, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, is_missing_01, dist_calc_type, exponent, thread_ct, parallel_idx, parallel_tot);
     } else {
       // N.B. this causes set_allele_freqs and marker_exclude to be allocated
       // *above* distance_matrix on the stack.
-      retval = oxford_distance_calc_unscanned(genfile, &gen_buf_len, &set_allele_freqs, &unfiltered_marker_ct, &marker_exclude, &marker_ct, unfiltered_indiv_ct, indiv_exclude, distance_3d, distance_flat_missing, exponent, thread_ct, parallel_idx, parallel_tot);
+      retval = oxford_distance_calc_unscanned(genfile, &gen_buf_len, &set_allele_freqs, &unfiltered_marker_ct, &marker_exclude, &marker_ct, unfiltered_indiv_ct, indiv_exclude, dist_calc_type, exponent, thread_ct, parallel_idx, parallel_tot);
     }
     if (retval) {
       goto wdist_dosage_ret_1;

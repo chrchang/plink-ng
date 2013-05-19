@@ -137,6 +137,17 @@ typedef union {
 #define RET_NULL_CALC 11
 #define LOAD_PHENO_LAST_COL 127
 
+#define MISC_AFFECTION_01 1LLU
+#define MISC_PRUNE 2LLU
+#define MISC_TAIL_PHENO 4LLU
+#define MISC_HWE_ALL 8LLU
+#define MISC_NONFOUNDERS 0x10LLU
+#define MISC_MAF_SUCC 0x20LLU
+#define MISC_FREQ_COUNTS 0x40LLU
+#define MISC_FREQX 0x80LLU
+#define MISC_KEEP_ALLELE_ORDER 0x100LLU
+#define MISC_SET_HH_MISSING 0x200LLU
+
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
 #define CALC_DISTANCE 4LLU
@@ -223,6 +234,8 @@ typedef union {
 #define DISTANCE_1_MINUS_IBS 0x20
 #define DISTANCE_ALCT 0x40
 #define DISTANCE_TYPEMASK 0x70
+#define DISTANCE_FLAT_MISSING 0x80
+#define DISTANCE_3D 0x100
 
 #define RECODE_12 1
 #define RECODE_TAB 2
@@ -256,6 +269,10 @@ typedef union {
 #define INDIV_SORT_NONE 1
 #define INDIV_SORT_NATURAL 2
 #define INDIV_SORT_ASCII 3
+
+#define REGRESS_PCS_NORMALIZE_PHENO 1
+#define REGRESS_PCS_SEX_SPECIFIC 2
+#define REGRESS_PCS_CLIP 4
 
 #define DUMMY_MISSING_GENO 1
 #define DUMMY_MISSING_PHENO 2
@@ -631,12 +648,12 @@ int32_t atoiz(char* ss, int32_t* sval);
 
 uint32_t strtoui32(char* ss, uint32_t* valp);
 
-static inline char* memseta(char* target, const unsigned char val, uint32_t ct) {
+static inline char* memseta(char* target, const unsigned char val, uintptr_t ct) {
   memset(target, val, ct);
   return &(target[ct]);
 }
 
-static inline char* memcpya(char* target, const void* source, uint32_t ct) {
+static inline char* memcpya(char* target, const void* source, uintptr_t ct) {
   memcpy(target, source, ct);
   return &(target[ct]);
 }
@@ -671,13 +688,13 @@ static inline char* memcpyl3a(char* target, const void* source) {
 }
 
 static inline char* strcpya(char* target, const void* source) {
-  uint32_t slen = strlen((char*)source);
+  uintptr_t slen = strlen((char*)source);
   memcpy(target, source, slen);
   return &(target[slen]);
 }
 
 static inline char* strcpyax(char* target, const void* source, const char extra_char) {
-  uint32_t slen = strlen((char*)source);
+  uintptr_t slen = strlen((char*)source);
   memcpy(target, source, slen);
   target[slen] = extra_char;
   return &(target[slen + 1]);
@@ -699,13 +716,13 @@ static inline char* item_endnn(char* sptr) {
   return sptr;
 }
 
-void get_top_two(uint32_t* uint_arr, uint32_t uia_size, uint32_t* top_idx_ptr, uint32_t* second_idx_ptr);
+void get_top_two(uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* top_idx_ptr, uintptr_t* second_idx_ptr);
 
 int32_t intlen(int32_t num);
 
 int32_t strlen_se(char* ss);
 
-int32_t strcmp_se(char* s_read, const char* s_const, int32_t len);
+int32_t strcmp_se(char* s_read, const char* s_const, uint32_t len);
 
 char* next_item(char* sptr);
 
@@ -881,8 +898,8 @@ static inline int32_t is_set(uintptr_t* exclude_arr, uint32_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
-static inline int32_t is_founder(uintptr_t* founder_info, int32_t ii) {
-  return ((!founder_info) || ((founder_info[ii / BITCT]) & (ONELU << (ii % BITCT))));
+static inline int32_t is_founder(uintptr_t* founder_info, uint32_t loc) {
+  return ((!founder_info) || ((founder_info[loc / BITCT]) & (ONELU << (loc % BITCT))));
 }
 
 int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc);
@@ -1093,7 +1110,7 @@ int32_t marker_code(uint32_t species, char* sptr);
 
 int32_t marker_code2(uint32_t species, char* sptr, uint32_t slen);
 
-int32_t get_marker_chrom(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx);
+uint32_t get_marker_chrom(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx);
 
 static inline int32_t chrom_exists(Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
   return (chrom_info_ptr->chrom_mask & (1LLU << chrom_idx));
@@ -1126,15 +1143,15 @@ int32_t strcmp_deref(const void* s1, const void* s2);
 
 int32_t strcmp_natural_deref(const void* s1, const void* s2);
 
-int32_t is_missing(char* bufptr, int32_t missing_pheno, int32_t missing_pheno_len, int32_t affection_01);
+int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01);
 
-int32_t eval_affection(char* bufptr, int32_t missing_pheno, int32_t missing_pheno_len, int32_t affection_01);
+int32_t eval_affection(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01);
 
-void triangle_fill(uint32_t* target_arr, int32_t ct, int32_t pieces, int32_t parallel_idx, int32_t parallel_tot, int32_t start, int32_t align);
+void triangle_fill(uint32_t* target_arr, uint32_t ct, uint32_t pieces, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t start, uint32_t align);
 
-int32_t write_ids(char* outname, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
+int32_t write_ids(char* outname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
 
-int32_t distance_d_write_ids(char* outname, char* outname_end, int32_t dist_calc_type, uint32_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
+int32_t distance_d_write_ids(char* outname, char* outname_end, uint32_t dist_calc_type, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len);
 
 int32_t relationship_req(uint64_t calculation_type);
 
@@ -1156,15 +1173,15 @@ int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int
 
 uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii);
 
-uint32_t doublearr_greater_than(double* sorted_dbl_arr, uint32_t arr_length, double dxx);
+uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, double dxx);
 
-intptr_t bsearch_str(char* id_buf, char* lptr, intptr_t max_id_len, intptr_t min_idx, intptr_t max_idx);
+int32_t bsearch_str(char* id_buf, char* lptr, uintptr_t max_id_len, intptr_t min_idx, intptr_t max_idx);
 
-intptr_t bsearch_str_natural(char* id_buf, char* lptr, intptr_t max_id_len, intptr_t min_idx, intptr_t max_idx);
+int32_t bsearch_str_natural(char* id_buf, char* lptr, uintptr_t max_id_len, intptr_t min_idx, intptr_t max_idx);
 
 void fill_idbuf_fam_indiv(char* id_buf, char* fam_indiv, char fillchar);
 
-int32_t bsearch_fam_indiv(char* id_buf, char* lptr, intptr_t max_id_len, int32_t filter_line_ct, char* fam_id, char* indiv_id);
+int32_t bsearch_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, char* indiv_id);
 
 void bitfield_and(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct);
 
@@ -1224,7 +1241,7 @@ uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uin
 
 uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x);
 
-void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, int32_t* male_ct_ptr, int32_t* female_ct_ptr, uint32_t* unk_ct_ptr);
+void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr);
 
 uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_indiv_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf);
 
@@ -1279,7 +1296,7 @@ double rand_normal(double* secondval_ptr);
 
 // void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd);
 
-void pick_d_small(unsigned char* tmp_cbuf, int32_t* ibuf, uint32_t ct, uint32_t dd);
+void pick_d_small(unsigned char* tmp_cbuf, uint32_t* uibuf, uint32_t ct, uint32_t dd);
 
 void init_sfmt64_from_sfmt32(sfmt_t* sfmt32, sfmt_t* sfmt64);
 
