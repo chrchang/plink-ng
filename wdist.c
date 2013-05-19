@@ -59,7 +59,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.19.5p"
+  "WDIST v0.20.0p"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -68,7 +68,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (19 May 2013)";
+  " (20 May 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -5110,8 +5110,6 @@ int32_t main(int32_t argc, char** argv) {
   char* snps_flag_markers = NULL;
   unsigned char* snps_flag_starts_range = NULL;
   uint32_t snps_flag_ct = 0;
-  // uint32_t allele_set_id_col = 1;
-  // uint32_t allele_set_ax_col = 2;
   Ll_str* file_delete_list = NULL;
   char outname[FNAMESIZE];
   char mapname[FNAMESIZE];
@@ -6071,6 +6069,24 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --ci confidence interval size s must satisfy 0.01 <= s < 1.%s", errstr_append);
 	}
 	ci_size = dxx;
+      } else if (!memcmp(argptr2, "luster", 7)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (param_ct) {
+	  if (!memcmp(argv[cur_arg + 1], "cc", 3)) {
+            sprintf(logbuf, "Error: Invalid --cluster parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+          misc_flags |= MISC_CLUSTER_CC;
+	}
+        calculation_type |= CALC_CLUSTER;
+        logprint("Error: --cluster is not implemented yet.\n");
+	goto main_ret_INVALID_CMDLINE;
+      } else if (!memcmp(argptr2, "c", 2)) {
+        logprint("Note: --cc flag deprecated.  Use '--cluster cc'.\n");
+        misc_flags |= MISC_CLUSTER_CC;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "file", 5)) {
 	if (load_rare || load_params) {
 	  goto main_ret_INVALID_CMDLINE_4;
@@ -7155,6 +7171,9 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	memcpy(memcpya(mapname, sptr, uii), ".map", 5);
 	load_rare = LOAD_RARE_GVAR;
+      } else if (!memcmp(argptr2, "enome-lists", 12)) {
+	logprint("Error: --genome-lists flag retired.  Use --parallel.\n");
+	goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }

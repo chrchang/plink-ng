@@ -473,6 +473,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    --genome/--Z-genome, and the 'full' and 'unbounded' modifiers have the same\n"
 "    effect as PLINK's --genome-full and --unbounded flags.\n\n"
 		);
+    help_print("cluster", &help_ctrl, 1,
+"  --cluster <cc>\n"
+"    Cluster individuals based on IBS statistics.  The 'cc' modifier forces\n"
+"    every cluster to have at least one case and one control.\n\n"
+	       );
     help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means\ttrend", &help_ctrl, 1,
 "  --assoc <perm | mperm=[value]> <genedrop> <perm-count> <fisher> <counts> <p2>\n"
 "  --assoc <perm | mperm=[value]> <perm-count> <qt-means> <lin>\n"
@@ -725,6 +730,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     alternate file, use the original value instead of setting\n"
 "                     the phenotype to missing.\n"
 	       );
+    help_print("read-genome\tcluster", &help_ctrl, 0,
+"  --read-genome [fname] : Load a --genome report for --cluster, instead of\n"
+"                          recalculating from scratch.\n"
+	       );
     help_print("covar\tcovar-name\tcovar-number", &help_ctrl, 0,
 "  --covar [filename]    : Specify covariate file.\n"
 "  --covar-name [names]  : Specifies covariate(s) in --covar file by name.\n"
@@ -947,7 +956,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --update-freq [filename]    frequency file, instead of just setting them to\n"
 "                              frequencies observed in the .ped/.bed file.\n"
 	       );
-    help_print("parallel", &help_ctrl, 0,
+    help_print("parallel\tgenome-lists", &help_ctrl, 0,
 "  --parallel [k] [n]        : Divide the output matrix into n pieces, and only\n"
 "                              compute the kth piece.  The primary output file\n"
 "                              will have the piece number included in its name,\n"
