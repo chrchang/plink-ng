@@ -2580,7 +2580,7 @@ void bitfield_ornot(uintptr_t* vv, uintptr_t* inverted_or_vec, uintptr_t word_ct
   // on 64-bit systems, assumes vv and inverted_or_vec are 16-byte aligned
 #ifdef __LP64__
 #ifdef _WIN32
-  const __m128i all1 = {-1LLU, -1LLU};
+  const __m128i all1 = {-1LL, -1LL};
 #else
   const __m128i all1 = {0xffffffffffffffffLLU, 0xffffffffffffffffLLU};
 #endif
