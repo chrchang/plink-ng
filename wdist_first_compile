@@ -1,6 +1,6 @@
 #!/bin/bash
-tar -xzvf zlib-1.2.7.tar.gz
-cd zlib-1.2.7
+tar -xzvf zlib-1.2.8.tar.gz
+cd zlib-1.2.8
 ./configure
 make
 cd ..

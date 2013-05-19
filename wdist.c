@@ -3455,25 +3455,36 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   return 0;
 }
 
-int32_t write_snplist(FILE** outfile_ptr, char* outname, char* outname_end, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len) {
+int32_t write_snplist(char* outname, char* outname_end, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len) {
+  FILE* outfile;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
+  int32_t retval = 0;
   strcpy(outname_end, ".snplist");
-  if (fopen_checked(outfile_ptr, outname, "w")) {
-    return RET_OPEN_FAIL;
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto write_snplist_ret_OPEN_FAIL;
   }
   for (; marker_idx < marker_ct; marker_idx++) {
     marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-    if (fprintf(*outfile_ptr, "%s\n", &(marker_ids[marker_uidx * max_marker_id_len])) < 0) {
-      return RET_WRITE_FAIL;
+    if (fprintf(outfile, "%s\n", &(marker_ids[marker_uidx * max_marker_id_len])) < 0) {
+      goto write_snplist_ret_WRITE_FAIL;
     }
     marker_uidx++;
   }
-  if (fclose_null(outfile_ptr)) {
-    return RET_WRITE_FAIL;
+  if (fclose_null(&outfile)) {
+    goto write_snplist_ret_WRITE_FAIL;
   }
   sprintf(logbuf, "Final list of marker IDs written to %s.\n", outname);
   logprintb();
+  while (0) {
+  write_snplist_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  write_snplist_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  fclose_cond(outfile);
   return 0;
 }
 
@@ -3506,8 +3517,6 @@ inline int32_t distance_wt_req(uint64_t calculation_type) {
 
 int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filterval, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t rel_calc_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uintptr_t regress_rel_iters, uint32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t genome_modifier, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, uint32_t regress_pcs_modifier, uint32_t max_pcs, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t write_covar_modifier, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, Ll_str** file_delete_list_ptr) {
   FILE* outfile = NULL;
-  FILE* outfile2 = NULL;
-  FILE* outfile3 = NULL;
   FILE* bedfile = NULL;
   FILE* famfile = NULL;
   FILE* phenofile = NULL;
@@ -4220,7 +4229,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_WRITE_SNPLIST) {
-    retval = write_snplist(&outfile, outname, outname_end, marker_exclude, marker_ct, marker_ids, max_marker_id_len);
+    retval = write_snplist(outname, outname_end, marker_exclude, marker_ct, marker_ids, max_marker_id_len);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4510,8 +4519,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   fclose_cond(phenofile);
   fclose_cond(famfile);
   fclose_cond(bedfile);
-  fclose_cond(outfile3);
-  fclose_cond(outfile2);
   fclose_cond(outfile);
   return retval;
 }
@@ -4851,9 +4858,11 @@ int32_t alloc_2col(Two_col_params** tcbuf, char** params_ptr, char* argptr, uint
 	cc = params_ptr[3][0];
 	if ((!(params_ptr[3][1])) && ((cc < '0') || (cc > '9'))) {
 	  (*tcbuf)->skipchar = cc;
+	} else if (((cc == '\'') || (cc == '"')) && (params_ptr[3][1] != '\0') && (params_ptr[3][2] == cc) || (params_ptr[3][3] == '\0')) {
+	  (*tcbuf)->skipchar = params_ptr[3][1];
 	} else {
 	  if (atoiz(params_ptr[3], &ii)) {
-	    sprintf(logbuf, "Error: Invalid --%s skip parameter.  (This needs to either be a\nsingle character--usually '#'--which, when present at the start of a line,\nindicates it should be skipped; or the number of initial lines to skip.)\n", argptr);
+	    sprintf(logbuf, "Error: Invalid --%s skip parameter.  This needs to either be a\nsingle character (usually '#') which, when present at the start of a line,\nindicates it should be skipped; or the number of initial lines to skip.  (Note\nthat in shells such as bash, '#' is a special character that must be\nsurrounded by single- or double-quotes to be parsed correctly.)\n", argptr);
 	    logprintb();
 	    return RET_INVALID_FORMAT;
 	  }
@@ -6900,7 +6909,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	logprint("Note: --fisher flag deprecated.  Use '--assoc fisher' or '--model fisher'.\n");
 	model_modifier |= MODEL_ASSOC | MODEL_FISHER | MODEL_ASSOC_FDEPR;
-	calculation_type = CALC_MODEL;
+	calculation_type |= CALC_MODEL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "id", 3)) {
         logprint("Note: --fid flag deprecated.  Use '--recode vcf-fid'.\n");
@@ -9015,7 +9024,7 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	}
-      } else if (!memcmp(argptr, "pdate-cm", 9)) {
+      } else if (!memcmp(argptr2, "pdate-cm", 9)) {
 	if (cnv_calc_type & CNV_MAKE_MAP) {
 	  sprintf(logbuf, "--update-cm cannot be used with --cnv-make-map.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;

@@ -1,3 +1,5 @@
+# This is a bit of a mess.  Work with Makefile.std instead.
+
 CFLAGS=-Wall -O2
 BLASFLAGS=-L/usr/lib64/atlas -llapack -lcblas -latlas
 BLASFLAGS64=-L/usr/lib64/atlas -llapack -lcblas -latlas

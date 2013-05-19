@@ -1,0 +1,55 @@
+# General-purpose Makefile for WDIST
+#
+# Compilation options:
+#   Do not link to LAPACK                    NO_LAPACK
+
+# Leave blank after "=" to disable; put "= 1" to enable
+# (when enabled, "#define NOLAPACK" must be uncommented in wdist_common.h)
+NO_LAPACK =
+
+
+# should autodetect system
+SYS = UNIX
+ifdef SystemRoot
+  SYS = WIN
+else
+  UNAME := $(shell uname)
+  ifeq ($(UNAME), Darwin)
+    SYS = MAC
+  endif
+endif
+
+CFLAGS=-Wall -O2
+BLASFLAGS=-L/usr/lib64/atlas -llapack -lcblas -latlas
+LINKFLAGS=-lm -lpthread
+ZLIB=zlib-1.2.8/libz.so.1.2.8
+
+ifeq ($(SYS), MAC)
+  BLASFLAGS=-framework Accelerate
+  LINKFLAGS=
+  ZLIB=zlib-1.2.8/libz.1.2.8.dylib
+endif
+
+ifeq ($(SYS), WIN)
+# Note that, unlike the Linux and Mac build processes, this STATICALLY links
+# LAPACK, since we have not gotten around to trying dynamically-linked LAPACK
+# on Windows.
+# If you don't already have LAPACK built, you'll probably want to turn on
+# NO_LAPACK.
+  BLASFLAGS=-L. lapack/liblapack.a -L. lapack/librefblas.a
+  LINKFLAGS=-lm -static-libgcc
+  ZLIB=zlib-1.2.8/libz.a
+endif
+
+ifdef NO_LAPACK
+  BLASFLAGS=
+endif
+
+SRC = wdist.c wdist_assoc.c wdist_calc.c wdist_cnv.c wdist_common.c wdist_data.c wdist_dosage.c wdist_help.c wdist_stats.c SFMT.c dcdflib.c pigz.c yarn.c
+
+wdist: $(SRC)
+	g++ $(CFLAGS) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+
+wdistw: $(SRC)
+	g++ $(CFLAGS) $(SRC) -c
+	gfortran -O2 $(OBJ) -o wdist -Wl,-Bstatic $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
