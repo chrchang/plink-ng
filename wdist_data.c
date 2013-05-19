@@ -1582,9 +1582,9 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
     goto update_indiv_ids_ret_READ_FAIL;
   }
   if (miss_ct) {
-    sprintf(logbuf, "--update-ids: %" PRIuPTR " indiv%s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    sprintf(logbuf, "--update-ids: %" PRIuPTR " %s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, species_str(hit_ct), miss_ct, (miss_ct == 1)? "" : "s");
   } else {
-    sprintf(logbuf, "--update-ids: %" PRIuPTR " indiv%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+    sprintf(logbuf, "--update-ids: %" PRIuPTR " %s updated.\n", hit_ct, species_str(hit_ct));
   }
   logprintb();
 
@@ -1608,11 +1608,211 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
 }
 
 int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids, uintptr_t indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len) {
-  return 0;
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile = NULL;
+  int32_t retval = 0;
+  uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t hit_ct = 0;
+  uintptr_t miss_ct = 0;
+  char* idbuf;
+  uintptr_t* already_seen;
+  char* bufptr;
+  char* bufptr2;
+  char* wptr;
+  uint32_t len;
+  uint32_t len2;
+  int32_t sorted_idx;
+  uintptr_t indiv_uidx;
+  if (wkspace_alloc_c_checked(&idbuf, max_person_id_len) ||
+      wkspace_alloc_ul_checked(&already_seen, indiv_ctl * sizeof(intptr_t))) {
+    goto update_indiv_parents_ret_NOMEM;
+  }
+  fill_ulong_zero(already_seen, indiv_ctl);
+  if (fopen_checked(&infile, update_parents_fname, "r")) {
+    goto update_indiv_parents_ret_OPEN_FAIL;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      logprint("Error: Pathologically long line in --update-parents file.\n");
+      goto update_indiv_parents_ret_INVALID_FORMAT;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    len = strlen_se(bufptr);
+    bufptr2 = skip_initial_spaces(&(bufptr[len + 1]));
+    len2 = strlen_se(bufptr2);
+    if (len + len2 + 2 > max_person_id_len) {
+      miss_ct++;
+      continue;
+    }
+    memcpy(idbuf, bufptr, len);
+    idbuf[len] = '\t';
+    memcpy(&(idbuf[len + 1]), bufptr2, len2);
+    idbuf[len + len2 + 1] = '\0';
+    sorted_idx = bsearch_str(idbuf, sorted_person_ids, max_person_id_len, 0, indiv_ct - 1);
+    if (sorted_idx == -1) {
+      miss_ct++;
+      continue;
+    }
+    if (is_set(already_seen, (uint32_t)sorted_idx)) {
+      idbuf[len] = ' ';
+      sprintf(logbuf, "Error: Duplicate individual %s in --update-parents file.\n", idbuf);
+      logprintb();
+      goto update_indiv_parents_ret_INVALID_FORMAT;
+    }
+    set_bit_noct(already_seen, sorted_idx);
+    indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
+    wptr = &(paternal_ids[indiv_uidx * max_paternal_id_len]);
+    bufptr = skip_initial_spaces(&(bufptr2[len2 + 1]));
+    bufptr2 = item_endnn(bufptr);
+    memcpyx(wptr, bufptr, (uintptr_t)(bufptr2 - bufptr), '\0');
+    wptr = &(maternal_ids[indiv_uidx * max_maternal_id_len]);
+    bufptr = skip_initial_spaces(&(bufptr2[1]));
+    memcpyx(wptr, bufptr, strlen_se(bufptr), '\0');
+    hit_ct++;
+  }
+  if (!feof(infile)) {
+    goto update_indiv_parents_ret_READ_FAIL;
+  }
+  if (miss_ct) {
+    sprintf(logbuf, "--update-parents: %" PRIuPTR " %s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, species_str(hit_ct), miss_ct, (miss_ct == 1)? "" : "s");
+  } else {
+    sprintf(logbuf, "--update-parents: %" PRIuPTR " %s updated.\n", hit_ct, species_str(hit_ct));
+  }
+  logprintb();
+
+  while (0) {
+  update_indiv_parents_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  update_indiv_parents_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  update_indiv_parents_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  update_indiv_parents_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  fclose_cond(infile);
+  wkspace_reset(wkspace_mark);
+  return retval;
 }
 
-int32_t update_indiv_sexes(char* update_ids_fname, char* sorted_person_ids, uintptr_t indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, uintptr_t* sex_nm, uintptr_t* sex_male) {
-  return 0;
+int32_t update_indiv_sexes(char* update_sex_fname, char* sorted_person_ids, uintptr_t indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, uintptr_t* sex_nm, uintptr_t* sex_male) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile = NULL;
+  int32_t retval = 0;
+  uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t hit_ct = 0;
+  uintptr_t miss_ct = 0;
+  char* idbuf;
+  uintptr_t* already_seen;
+  char* bufptr;
+  char* bufptr2;
+  uint32_t len;
+  uint32_t len2;
+  int32_t sorted_idx;
+  uint32_t indiv_uidx;
+  char cc;
+  unsigned char ucc;
+  if (wkspace_alloc_c_checked(&idbuf, max_person_id_len) ||
+      wkspace_alloc_ul_checked(&already_seen, indiv_ctl * sizeof(intptr_t))) {
+    goto update_indiv_sexes_ret_NOMEM;
+  }
+  fill_ulong_zero(already_seen, indiv_ctl);
+  if (fopen_checked(&infile, update_sex_fname, "r")) {
+    goto update_indiv_sexes_ret_OPEN_FAIL;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      logprint("Error: Pathologically long line in --update-sex file.\n");
+      goto update_indiv_sexes_ret_INVALID_FORMAT;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    len = strlen_se(bufptr);
+    bufptr2 = skip_initial_spaces(&(bufptr[len + 1]));
+    len2 = strlen_se(bufptr2);
+    if (len + len2 + 2 > max_person_id_len) {
+      miss_ct++;
+      continue;
+    }
+    memcpy(idbuf, bufptr, len);
+    idbuf[len] = '\t';
+    memcpy(&(idbuf[len + 1]), bufptr2, len2);
+    idbuf[len + len2 + 1] = '\0';
+    sorted_idx = bsearch_str(idbuf, sorted_person_ids, max_person_id_len, 0, indiv_ct - 1);
+    if (sorted_idx == -1) {
+      miss_ct++;
+      continue;
+    }
+    if (is_set(already_seen, (uint32_t)sorted_idx)) {
+      idbuf[len] = ' ';
+      sprintf(logbuf, "Error: Duplicate individual %s in --update-sex file.\n", idbuf);
+      logprintb();
+      goto update_indiv_sexes_ret_INVALID_FORMAT;
+    }
+    set_bit_noct(already_seen, sorted_idx);
+    indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
+    bufptr = skip_initial_spaces(&(bufptr2[len2 + 1]));
+    if (no_more_items_kns(bufptr)) {
+      logprint("Error: Fewer entries than expected in --update-sex line.\n");
+      goto update_indiv_sexes_ret_INVALID_FORMAT;
+    }
+    cc = *bufptr;
+    ucc = ((unsigned char)cc) & 0xdfU;
+    if ((cc < '0') || ((cc > '2') && (ucc != 'M') && (ucc != 'F')) || (bufptr[1] > ' ')) {
+      logprint("Error: Invalid sex value in --update-sex line.  (Acceptable values: 1/M = male,\n2/F = female, 0 = missing.)\n");
+      goto update_indiv_sexes_ret_INVALID_FORMAT;
+    }
+    if (cc == '0') {
+      clear_bit_noct(sex_nm, indiv_uidx);
+      clear_bit_noct(sex_male, indiv_uidx);
+    } else {
+      set_bit_noct(sex_nm, indiv_uidx);
+      if ((cc == '1') || (ucc == 'M')) {
+	set_bit_noct(sex_male, indiv_uidx);
+      } else {
+	clear_bit_noct(sex_male, indiv_uidx);
+      }
+    }
+    hit_ct++;
+  }
+  if (!feof(infile)) {
+    goto update_indiv_sexes_ret_READ_FAIL;
+  }
+  if (miss_ct) {
+    sprintf(logbuf, "--update-sex: %" PRIuPTR " %s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, species_str(hit_ct), miss_ct, (miss_ct == 1)? "" : "s");
+  } else {
+    sprintf(logbuf, "--update-sex: %" PRIuPTR " %s updated.\n", hit_ct, species_str(hit_ct));
+  }
+  logprintb();
+
+  while (0) {
+  update_indiv_sexes_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  update_indiv_sexes_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  update_indiv_sexes_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  update_indiv_sexes_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  fclose_cond(infile);
+  wkspace_reset(wkspace_mark);
+  return retval;
 }
 
 uint32_t flip_char(char* allele_char_ptr) {
