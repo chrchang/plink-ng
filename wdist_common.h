@@ -268,7 +268,7 @@ typedef union {
 
 #define INDIV_SORT_NONE 1
 #define INDIV_SORT_NATURAL 2
-#define INDIV_SORT_ASCII 3
+#define INDIV_SORT_ASCII 4
 
 #define REGRESS_PCS_NORMALIZE_PHENO 1
 #define REGRESS_PCS_SEX_SPECIFIC 2
@@ -1277,6 +1277,8 @@ int32_t load_string_list(FILE** infile_ptr, uintptr_t max_str_len, char* str_lis
 int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf, uintptr_t loadbuf_size, uint32_t lines_to_skip);
 
 int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t headerskip, char skipchar, uintptr_t* max_str_len_ptr, uintptr_t* max_str2_len_ptr);
+
+int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_person_id_len_ptr);
 
 int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf);
 

@@ -3579,6 +3579,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   double* marker_weights = NULL;
   uint32_t* marker_weights_i = NULL;
   char* person_ids = NULL;
+  uintptr_t max_person_id_len = 4;
   char* paternal_ids = NULL;
   uintptr_t max_paternal_id_len = 2;
   char* maternal_ids = NULL;
@@ -3603,7 +3604,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t unfiltered_indiv_ct4;
   uintptr_t unfiltered_indiv_ctl;
   uint32_t* marker_allele_cts;
-  uintptr_t max_person_id_len;
   uint32_t* uiptr;
   double* rel_ibc;
   uintptr_t ulii;
@@ -3795,6 +3795,19 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (uii && phenoname) {
     uii = (pheno_modifier & PHENO_MERGE) && (!makepheno_str);
   }
+  if (update_ids_fname) {
+    ulii = 0;
+    retval = scan_max_fam_indiv_strlen(update_ids_fname, 3, &max_person_id_len);
+    if (retval) {
+      goto wdist_ret_1;
+    }
+  } else if (update_parents_fname) {
+    retval = scan_max_strlen(update_parents_fname, 3, 4, 0, '\0', &max_paternal_id_len, &max_maternal_id_len);
+    if (retval) {
+      goto wdist_ret_1;
+    }
+  }
+
   retval = load_fam(famfile, MAXLINELEN, fam_cols, uii, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
   unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
@@ -3839,7 +3852,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto wdist_ret_OPEN_FAIL;
   }
 
-  if (phenofile || (misc_flags & MISC_TAIL_PHENO)) {
+  if (phenofile || update_ids_fname || update_parents_fname || update_sex_fname || (misc_flags & MISC_TAIL_PHENO)) {
     wkspace_mark = wkspace_base;
     retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, strcmp_deref);
     if (retval) {
@@ -3889,24 +3902,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   } else if ((calculation_type & CALC_GXE) && (!pheno_d)) {
     logprint("Error: --gxe requires scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
-  }
-
-  if (gender_unk_ct && (calculation_type & (CALC_MAKE_BED | CALC_RECODE)) && (!sex_missing_pheno)) {
-    pheno_nosex_exclude = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
-    if (!pheno_nosex_exclude) {
-      goto wdist_ret_NOMEM;
-    }
-    memcpy(pheno_nosex_exclude, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
-    bitfield_andnot(pheno_nosex_exclude, indiv_exclude, unfiltered_indiv_ctl);
-    bitfield_andnot(pheno_nosex_exclude, sex_nm, unfiltered_indiv_ctl);
-  }
-  if (!(sex_missing_pheno & ALLOW_NO_SEX)) {
-    bitfield_and(pheno_nm, sex_nm, unfiltered_indiv_ctl);
-  }
-  if (misc_flags & MISC_PRUNE) {
-    bitfield_ornot(indiv_exclude, pheno_nm, unfiltered_indiv_ctl);
-    zero_trailing_bits(indiv_exclude, unfiltered_indiv_ct);
-    indiv_exclude_ct = popcount_longs(indiv_exclude, 0, unfiltered_indiv_ctl);
   }
 
   if (update_cm || update_map || update_name || (marker_alleles_needed && (update_alleles_fname || (flip_fname && (!flip_subset_fname)))) || extractname || excludename) {
@@ -3976,13 +3971,32 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     allelexxxx_recode(allelexxxx, marker_alleles, max_marker_allele_len, marker_exclude, unfiltered_marker_ct - marker_exclude_ct);
   }
 
-  if (update_ids_fname || update_parents_fname || update_sex_fname || removename || keepname || filtername || (indiv_sort == INDIV_SORT_ASCII)) {
+  if (update_ids_fname || update_parents_fname || update_sex_fname || removename || keepname || filtername) {
     wkspace_mark = wkspace_base;
     retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, strcmp_deref);
     if (retval) {
       goto wdist_ret_1;
     }
     ulii = unfiltered_indiv_ct - indiv_exclude_ct;
+    if (update_ids_fname) {
+      retval = update_indiv_ids(update_ids_fname, cptr, ulii, max_person_id_len, uiptr, person_ids);
+      if (retval) {
+	goto wdist_ret_1;
+      }
+    } else {
+      if (update_parents_fname) {
+	retval = update_indiv_parents(update_parents_fname, cptr, ulii, max_person_id_len, uiptr, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len);
+	if (retval) {
+	  goto wdist_ret_1;
+	}
+      }
+      if (update_sex_fname) {
+        retval = update_indiv_sexes(update_sex_fname, cptr, ulii, max_person_id_len, uiptr, sex_nm, sex_male);
+	if (retval) {
+	  goto wdist_ret_1;
+	}
+      }
+    }
     if (removename) {
       retval = include_or_exclude(removename, cptr, ulii, max_person_id_len, uiptr, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 3);
       if (retval) {
@@ -4004,20 +4018,27 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	goto wdist_ret_1;
       }
     }
-    if (indiv_sort == INDIV_SORT_ASCII) {
-      indiv_sort_map = uiptr;
-      wkspace_reset((unsigned char*)cptr);
-    } else {
-      wkspace_reset(wkspace_mark);
-    }
+    wkspace_reset(wkspace_mark);
   }
-  if (indiv_sort == INDIV_SORT_NATURAL) {
-    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, strcmp_natural_deref);
-    if (retval) {
-      goto wdist_ret_1;
+
+  if (gender_unk_ct && (calculation_type & (CALC_MAKE_BED | CALC_RECODE)) && (!sex_missing_pheno)) {
+    // postponed to here to avoid e.g. --update-sex not working on missing-sex
+    // individuals because --allow-no-sex was not specified
+    pheno_nosex_exclude = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
+    if (!pheno_nosex_exclude) {
+      goto wdist_ret_NOMEM;
     }
-    indiv_sort_map = uiptr;
-    wkspace_reset((unsigned char*)cptr);
+    memcpy(pheno_nosex_exclude, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
+    bitfield_andnot(pheno_nosex_exclude, indiv_exclude, unfiltered_indiv_ctl);
+    bitfield_andnot(pheno_nosex_exclude, sex_nm, unfiltered_indiv_ctl);
+  }
+  if (!(sex_missing_pheno & ALLOW_NO_SEX)) {
+    bitfield_and(pheno_nm, sex_nm, unfiltered_indiv_ctl);
+  }
+  if (misc_flags & MISC_PRUNE) {
+    bitfield_ornot(indiv_exclude, pheno_nm, unfiltered_indiv_ctl);
+    zero_trailing_bits(indiv_exclude, unfiltered_indiv_ct);
+    indiv_exclude_ct = popcount_longs(indiv_exclude, 0, unfiltered_indiv_ctl);
   }
 
   if (filter_binary & (FILTER_BINARY_CASES | FILTER_BINARY_CONTROLS)) {
@@ -4160,12 +4181,22 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
+  if (indiv_sort & (INDIV_SORT_NATURAL | INDIV_SORT_ASCII)) {
+    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, (indiv_sort & INDIV_SORT_NATURAL)? strcmp_natural_deref : strcmp_deref);
+    if (retval) {
+      goto wdist_ret_1;
+    }
+    indiv_sort_map = uiptr;
+    wkspace_reset((unsigned char*)cptr);
+  }
+
   nonfounders = (nonfounders || (!(fam_cols & FAM_COL_34)));
   wt_needed = distance_wt_req(calculation_type) && (!(dist_calc_type & DISTANCE_FLAT_MISSING));
   retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (unsigned char)missing_geno, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), (misc_flags / MISC_HWE_ALL) & 1, (pheno_nm_ct && pheno_c)? (calculation_type & CALC_HARDY) : 0, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &marker_weights_base, &marker_weights, exponent, chrom_info_ptr, sex_nm, sex_male, map_is_unsorted, &xmhh_exists, &nxmhh_exists);
   if (retval) {
     goto wdist_ret_1;
   }
+
   if (freqname) {
     retval = read_external_freqs(freqname, &infile, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, chrom_info_ptr, marker_alleles, max_marker_allele_len, marker_allele_cts, set_allele_freqs, (misc_flags / MISC_MAF_SUCC) & 1, missing_geno, exponent, wt_needed, marker_weights);
     if (retval) {

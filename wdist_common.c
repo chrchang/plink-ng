@@ -4815,6 +4815,9 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
       }
     }
   }
+  if (!feof(infile)) {
+    goto scan_max_strlen_ret_READ_FAIL;
+  }
   if (colnum < colnum2) {
     *max_str_len_ptr = max_str_len;
     if (coldiff) {
@@ -4823,9 +4826,6 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
   } else {
     *max_str_len_ptr = max_str2_len;
     *max_str2_len_ptr = max_str_len;
-  }
-  if (!feof(infile)) {
-    goto scan_max_strlen_ret_READ_FAIL;
   }
   while (0) {
   scan_max_strlen_ret_NOMEM:
@@ -4840,6 +4840,71 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
     break;
   }
  scan_max_strlen_ret_1:
+  fclose_cond(infile);
+  return retval;
+}
+
+int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_person_id_len_ptr) {
+  // colnum is a 1-based index with the FID column number; IID column is
+  // assumed to follow.
+  // Includes terminating null in lengths.
+  FILE* infile = NULL;
+  char* loadbuf = (char*)wkspace_base;
+  uintptr_t loadbuf_size = wkspace_left;
+  uintptr_t max_person_id_len = *max_person_id_len_ptr;
+  char* bufptr;
+  char* bufptr2;
+  uintptr_t cur_person_id_len;
+  int32_t retval;
+  colnum--;
+  if (loadbuf_size > 0x7fffffc0) {
+    loadbuf_size = 0x7fffffc0;
+  }
+  if (loadbuf_size < MAXLINELEN) {
+    goto scan_max_fam_indiv_strlen_ret_NOMEM;
+  }
+  retval = open_and_skip_first_lines(&infile, fname, loadbuf, loadbuf_size, 0);
+  if (retval) {
+    goto scan_max_fam_indiv_strlen_ret_1;
+  }
+  while (fgets(loadbuf, loadbuf_size, infile)) {
+    if (!(loadbuf[loadbuf_size - 1])) {
+      goto scan_max_fam_indiv_strlen_ret_NOMEM;
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    if (colnum) {
+      bufptr = next_item_mult(bufptr, colnum);
+    }
+    bufptr2 = next_item(bufptr);
+    if (no_more_items_kns(bufptr2)) {
+      sprintf(logbuf, "Error: Fewer items than expected in %s line.\n", fname);
+      goto scan_max_fam_indiv_strlen_ret_INVALID_FORMAT;
+    }
+    cur_person_id_len = strlen_se(bufptr) + strlen_se(bufptr2) + 2;
+    if (cur_person_id_len > max_person_id_len) {
+      max_person_id_len = cur_person_id_len;
+    }
+  }
+  if (!feof(infile)) {
+    goto scan_max_fam_indiv_strlen_ret_READ_FAIL;
+  }
+  *max_person_id_len_ptr = max_person_id_len;
+  while (0) {
+  scan_max_fam_indiv_strlen_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  scan_max_fam_indiv_strlen_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  scan_max_fam_indiv_strlen_ret_INVALID_FORMAT:
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ scan_max_fam_indiv_strlen_ret_1:
   fclose_cond(infile);
   return retval;
 }
