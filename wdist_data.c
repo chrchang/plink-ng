@@ -1424,11 +1424,11 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
     if (max_marker_allele_len == 1) {
       if ((len == 1) && (len2 == 1)) {
 	if (((*bufptr2) == marker_alleles[marker_uidx * 2]) && ((*bufptr) == marker_alleles[marker_uidx * 2 + 1])) {
-	  bufptr2 = skip_initial_spaces(&(bufptr[1]));
+	  bufptr2 = skip_initial_spaces(&(bufptr[2]));
 	  bufptr = next_item(bufptr2);
 	} else if (((*bufptr) == marker_alleles[marker_uidx * 2]) && ((*bufptr2) == marker_alleles[marker_uidx * 2 + 1])) {
-	  bufptr = skip_initial_spaces(&(bufptr[1]));
-	  bufptr2 = next_item(bufptr2);
+	  bufptr = skip_initial_spaces(&(bufptr[2]));
+	  bufptr2 = next_item(bufptr);
 	} else {
 	  goto update_marker_alleles_mismatch;
 	}
@@ -1440,12 +1440,12 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
       hit_ct++;
     } else {
       if ((!strcmp(bufptr2, &(marker_alleles[2 * marker_uidx * max_marker_allele_len]))) && (!strcmp(bufptr, &(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len])))) {
-	bufptr2 = skip_initial_spaces(&(bufptr[1]));
+	bufptr2 = skip_initial_spaces(&(bufptr[len + 1]));
 	bufptr = next_item(bufptr2);
 	goto update_marker_alleles_multichar_match;
       } else if ((!strcmp(bufptr, &(marker_alleles[2 * marker_uidx * max_marker_allele_len]))) && (!strcmp(bufptr2, &(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len])))) {
-	bufptr = skip_initial_spaces(&(bufptr[1]));
-	bufptr2 = next_item(bufptr2);
+	bufptr = skip_initial_spaces(&(bufptr[len + 1]));
+	bufptr2 = next_item(bufptr);
       update_marker_alleles_multichar_match:
 	len = strlen_se(bufptr);
         len2 = strlen_se(bufptr2);
