@@ -4987,6 +4987,11 @@ int32_t main(int32_t argc, char** argv) {
   char* loop_assoc_fname = NULL;
   char* flip_fname = NULL;
   char* flip_subset_fname = NULL;
+  char* read_genome_fname = NULL;
+  char* cluster_match_fname = NULL;
+  char* cluster_match_type_fname = NULL;
+  char* cluster_qmatch_fname = NULL;
+  char* cluster_qt_fname = NULL;
   int32_t retval = 0;
   uint32_t load_params = 0; // describes what file parameters have been provided
   uint32_t load_rare = 0;
@@ -5110,6 +5115,13 @@ int32_t main(int32_t argc, char** argv) {
   char* snps_flag_markers = NULL;
   unsigned char* snps_flag_starts_range = NULL;
   uint32_t snps_flag_ct = 0;
+  uint32_t cluster_modifier = 0;
+  double cluster_ppc = 0.0;
+  uint32_t cluster_max_size = 0xffffffffU;
+  uint32_t cluster_max_cases = 0xffffffffU;
+  uint32_t cluster_max_controls = 0xffffffffU;
+  uint32_t cluster_min_ct = 1;
+  double cluster_max_missing_discordance = 1.0;
   Ll_str* file_delete_list = NULL;
   char outname[FNAMESIZE];
   char mapname[FNAMESIZE];
@@ -5676,6 +5688,21 @@ int32_t main(int32_t argc, char** argv) {
       }
       break;
 
+    case 'K':
+      if (*argptr2 == '\0') {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 1) {
+          sprintf(logbuf, "Error: Invalid --K cluster count '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        cluster_min_ct = ii;
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
+      }
+
     case 'a':
       if (!memcmp(argptr2, "utosome", 8)) {
 	chrom_info.chrom_mask = species_autosome_mask[chrom_info.species];
@@ -6070,22 +6097,25 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	ci_size = dxx;
       } else if (!memcmp(argptr2, "luster", 7)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (param_ct) {
-	  if (!memcmp(argv[cur_arg + 1], "cc", 3)) {
-            sprintf(logbuf, "Error: Invalid --cluster parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if (!memcmp(argv[cur_arg + uii], "cc", 3)) {
+            cluster_modifier |= CLUSTER_CC;
+	  } else if (!memcmp(argv[cur_arg + uii], "only2", 6)) {
+	    cluster_modifier |= CLUSTER_ONLY2;
+	  } else {
+            sprintf(logbuf, "Error: Invalid --cluster parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
-          misc_flags |= MISC_CLUSTER_CC;
 	}
         calculation_type |= CALC_CLUSTER;
         logprint("Error: --cluster is not implemented yet.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "c", 2)) {
         logprint("Note: --cc flag deprecated.  Use '--cluster cc'.\n");
-        misc_flags |= MISC_CLUSTER_CC;
+        cluster_modifier |= CLUSTER_CC;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "file", 5)) {
 	if (load_rare || load_params) {
@@ -7174,6 +7204,9 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "enome-lists", 12)) {
 	logprint("Error: --genome-lists flag retired.  Use --parallel.\n");
 	goto main_ret_INVALID_CMDLINE;
+      } else if (!memcmp(argptr2, "enome-minimal", 14)) {
+	logprint("Error: --genome-minimal flag retired.  Use '--genome gz'.\n");
+        goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -7329,6 +7362,23 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Note: --iid flag deprecated.  Use '--recode vcf-iid'.\n");
 	recode_modifier |= RECODE_IID;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "bm", 3)) {
+        if (!(calculation_type & CALC_CLUSTER)) {
+	  sprintf(logbuf, "Error: --ibm must be used with --cluster.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
+	  sprintf(logbuf, "Error: Invalid --ibm parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((dxx < 0.0) || (dxx >= 1.0)) {
+	  sprintf(logbuf, "Error: --ibm threshold must be in [0, 1).%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        cluster_max_missing_discordance = dxx;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -7988,6 +8038,90 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "perm-save-all", 14)) {
 	mperm_save |= MPERM_DUMP_ALL;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "c", 2)) {
+	if (!(calculation_type & CALC_CLUSTER)) {
+	  sprintf(logbuf, "Error: --mc must be used with --cluster.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 1) {
+	  sprintf(logbuf, "Error: Invalid --mc parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        cluster_max_size = ii;
+      } else if (!memcmp(argptr2, "cc", 2)) {
+	if (!(calculation_type & CALC_CLUSTER)) {
+	  sprintf(logbuf, "Error: --mcc must be used with --cluster.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 1) {
+	  sprintf(logbuf, "Error: Invalid --mcc parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (((uint32_t)ii) > cluster_max_size) {
+          logprint("Error: --mcc parameter exceeds --mc parameter.\n");
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        cluster_max_cases = ii;
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 1) {
+	  sprintf(logbuf, "Error: Invalid --mcc parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (((uint32_t)ii) > cluster_max_size) {
+          logprint("Error: --mcc parameter exceeds --mc parameter.\n");
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        cluster_max_controls = ii;
+      } else if (!memcmp(argptr2, "atch", 5)) {
+	if (!(calculation_type & CALC_CLUSTER)) {
+	  sprintf(logbuf, "Error: --match must be used with --cluster.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&cluster_match_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+      } else if (!memcmp(argptr2, "atch-type", 10)) {
+	if (!cluster_match_fname) {
+	  sprintf(logbuf, "Error: --match-type must be used with --match.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&cluster_match_type_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+      } else if (!memcmp(argptr2, "ds-plot", 8)) {
+	if (!(calculation_type & CALC_CLUSTER)) {
+	  sprintf(logbuf, "Error: --mds-plot must be used with --cluster.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        logprint("Error: --mds-plot has not been implemented yet.\n");
+        retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto main_ret_1;
+      } else if (!memcmp(argptr2, "ds-cluster", 11)) {
+	if (!(calculation_type & CALC_CLUSTER)) {
+	  sprintf(logbuf, "Error: --mds-cluster must be used with --cluster.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        logprint("Note: --mds-cluster flag deprecated.  Use '--mds-plot mds-cluster'.\n");
+        cluster_modifier |= CLUSTER_MDS;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8185,6 +8319,23 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --perm-batch-size parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
+      } else if (!memcmp(argptr2, "pc", 3)) {
+	if (!(calculation_type & CALC_CLUSTER)) {
+          sprintf(logbuf, "Error: --ppc must be used with --cluster.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
+	  sprintf(logbuf, "Error: Invalid --ppc parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((dxx <= 0.0) || (dxx >= 1.0)) {
+	  sprintf(logbuf, "Error: --ppc threshold must be between 0 and 1 exclusive.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        cluster_ppc = dxx;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8211,6 +8362,30 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --qq-plot flag deprecated.  Use '--adjust qq-plot'.\n");
 	mtest_adjust |= ADJUST_QQ;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "match", 6)) {
+        if (!(calculation_type & CALC_CLUSTER)) {
+          sprintf(logbuf, "Error: --qmatch must be used with --cluster.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        retval = alloc_fname(&cluster_qmatch_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+      } else if (!memcmp(argptr2, "t", 2)) {
+        if (!cluster_qmatch_fname) {
+          sprintf(logbuf, "Error: --qt must be used with --qmatch.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        retval = alloc_fname(&cluster_qt_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8570,6 +8745,24 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	lgen_modifier |= LGEN_REFERENCE;
+      } else if (!memcmp(argptr2, "ead-genome", 11)) {
+	if (calculation_type & CALC_GENOME) {
+          sprintf(logbuf, "Error: --read-genome cannot be used with --genome.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        retval = alloc_fname(&read_genome_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+      } else if (!memcmp(argptr2, "ead-genome-list", 19)) {
+	logprint("Error: --read-genome-list flag retired.  Use --parallel + Unix cat instead.\n");
+	goto main_ret_INVALID_CMDLINE;
+      } else if (!memcmp(argptr2, "ead-genome-minimal", 19)) {
+	logprint("Error: --read-genome-minimal flag retired.  Use --genome gz + --read-genome\ninstead.");
+	goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -9356,6 +9549,10 @@ int32_t main(int32_t argc, char** argv) {
       }
     }
   }
+  if (cluster_qmatch_fname && (!cluster_qt_fname)) {
+    sprintf(logbuf, "Error: --qt must be used with --qmatch.%s", errstr_append);
+    goto main_ret_INVALID_CMDLINE_3;
+  }
 
   // --from-bp/-kb/-mb without any --to/--to-bp/...: include to end of
   // chromosome
@@ -9633,6 +9830,11 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(loop_assoc_fname);
   free_cond(flip_fname);
   free_cond(flip_subset_fname);
+  free_cond(read_genome_fname);
+  free_cond(cluster_match_fname);
+  free_cond(cluster_match_type_fname);
+  free_cond(cluster_qmatch_fname);
+  free_cond(cluster_qt_fname);
   free_cond(rseeds);
   free_cond(simulate_fname);
   free_cond(simulate_label);

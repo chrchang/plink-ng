@@ -474,9 +474,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    effect as PLINK's --genome-full and --unbounded flags.\n\n"
 		);
     help_print("cluster", &help_ctrl, 1,
-"  --cluster <cc>\n"
-"    Cluster individuals based on IBS statistics.  The 'cc' modifier forces\n"
-"    every cluster to have at least one case and one control.\n\n"
+"  --cluster <cc> <only2>\n"
+"    Cluster individuals based on IBS statistics.\n"
+"    * The 'cc' modifier forces every cluster to have at least one case and one\n"
+"      control.\n"
+"    * The 'only2' modifier causes only a .cluster2 file (which is valid input\n"
+"      for --within) to be written; otherwise 3 other files will be produced.\n\n"
 	       );
     help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means\ttrend", &help_ctrl, 1,
 "  --assoc <perm | mperm=[value]> <genedrop> <perm-count> <fisher> <counts> <p2>\n"
@@ -899,8 +902,26 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --mperm-save     : Save best max(T) permutation test statistics.\n"
 "  --mperm-save-all : Save all max(T) permutation test statistics.\n"
 	       );
+    help_print("ppc\tmc\tmcc\tK\tk\tibm\tcluster", &help_ctrl, 0,
+"  --ppc [p-val]    : Specify minimum PPC-test p-value within a cluster.\n"
+"  --mc [max size]  : Specify maximum cluster size.\n"
+"  --mcc [c1] [c2]  : Specify maximum cases and maximum controls per cluster.\n"
+"  --K [min count]  : Specify minimum cluster count.\n"
+"  --ibm [val]      : Specify maximum missing call discordance.\n"
+	       );
+    help_print("match\tmatch-type\tqmatch\tqt\tcluster", &help_ctrl, 0,
+"  --match [fname]  : Use covariate values to restrict clustering.  Without\n"
+"                     --match-type, two individuals can only be in the same\n"
+"                     cluster if all covariates match.\n"
+"  --match-type [f] : Specify that some --match covariates must be unequal\n"
+"                     instead of equal.\n"
+"  --qmatch [fname] : Force all members of a cluster to have similar\n"
+"  --qt [fname]       quantitative covariate values.  (The --qmatch parameter\n"
+"                     contains the covariates, and the --qt parameter contains\n"
+"                     the tolerances.)\n"
+	       );
     help_print("flip\tflip-subset", &help_ctrl, 0,
-"  --flip [filename]   : Flip alleles (A<->T, C<->G) for all SNP ID in the file.\n"
+"  --flip [filename]   : Flip alleles (A<->T, C<->G) for SNP IDs in the file.\n"
 "  --flip-subset [fn]  : Only apply --flip to indivs in the --flip-subset file.\n"
 	       );
     help_print("recode\trecode-allele", &help_ctrl, 0,
@@ -914,6 +935,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-equal-pos", &help_ctrl, 0,
 "  --merge-equal-pos   : Merge markers with different names but identical\n"
 "                        positions.\n"
+	       );
+    help_print("cluster\tmds-plot\tmds-cluster", &help_ctrl, 0,
+"  --mds-plot [dims] <mds-cluster> : Multidimensional scaling analysis.\n"
 	       );
     help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,
 "  --update-chr  [f] {chrcol} {IDcol}  {skip} : Update marker chromosome codes.\n"
