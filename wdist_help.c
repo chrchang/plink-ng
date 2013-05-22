@@ -281,24 +281,35 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --ped [filename] : Specify full name of .ped file.\n"
 "  --map [filename] : Specify full name of .map file.\n\n"
 	       );
+    help_print("bfile\tfam\tfile\tped\tno-fid\tno-parents\tno-sex\tno-pheno", &help_ctrl, 1,
+"  --no-fid         : .fam/.ped file does not contain column 1 (family ID).\n"
+"  --no-parents     : .fam/.ped file does not contain columns 3-4 (parents).\n"
+"  --no-sex         : .fam/.ped file does not contain column 5 (sex).\n"
+"  --no-pheno       : .fam/.ped file does not contain column 6 (phenotype).\n\n"
+	       );
     help_print("tfile\ttped\ttfam", &help_ctrl, 1,
 "  --tfile {prefix} : Specify .tped + .tfam filename prefix (default 'wdist').\n"
 "  --tped [fname]   : Specify full name of .tped file.\n"
 "  --tfam [fname]   : Specify full name of .tfam file.\n\n"
 	       );
-    help_print("lfile", &help_ctrl, 1,
-"  --lfile {prefix} : Specify .lgen + .map + .fam (long-format fileset) prefix.\n\n"
+    help_print("lfile\treference\tallele-count", &help_ctrl, 1,
+"  --lfile {prefix} : Specify .lgen + .map + .fam (long-format fileset) prefix.\n"
+"  --reference [fn] : Specify default allele file accompanying --lfile input.\n"
+"  --allele-count   : When used with --lfile + --reference, specifies that the\n"
+"                     .lgen file contains reference allele counts.\n\n"
 	       );
     help_print("data\tgen\tsample", &help_ctrl, 1,
 "  --data {prefix}  : Specify Oxford .gen + .sample prefix (default 'wdist').\n"
 "  --gen [filename] : Specify full name of .gen file.\n"
 "  --sample [fname] : Specify full name of .sample file.\n\n"
 	       );
+    /*
     help_print("cfile\tcnv-list\tgfile", &help_ctrl, 1,
 "  --cfile [prefix] : Specify .cnv + .fam + .cnv.map (segmental CNV) prefix.\n"
 "  --cnv-list [fn]  : Specify full name of .cnv file.\n"
 "  --gfile [prefix] : Specify .gvar + .fam + .map (genetic variant) prefix.\n\n"
 	       );
+    */
     help_print("grm\tgrm-bin\trel-cutoff\tgrm-cutoff", &help_ctrl, 1,
 "  --grm {prefix}   : Specify .grm.gz + .grm.id (GCTA rel. matrix) prefix.\n"
 "  --grm-bin {prfx} : Specify .grm.bin + .grm.N.bin + .grm.id (GCTA triangular\n"
@@ -334,14 +345,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "process (the new fileset is saved to {output prefix}.bed + .bim + .fam, unless\n"
 "that would conflict with the output of another command like --make-bed).  You\n"
 "are encouraged to directly use the new binary fileset in future runs.\n\n"
-"Every run also requires at least one of the following commands (unless you just\n"
-"want automatic text-to-binary conversion or the default CNV report):\n\n"
+"Most runs also require at least one of the following commands:\n\n"
 , stdout);
     }
     help_print("make-bed", &help_ctrl, 1,
 "  --make-bed\n"
 "    Creates a new binary fileset.  Unlike the automatic text-to-binary\n"
-"    converter (which only respects --autosome and --chr), this supports all of\n"
+"    converters (which only respect --autosome and --chr), this supports all of\n"
 "    WDIST's filtering flags.\n"
 	       );
     help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid", &help_ctrl, 1,
@@ -371,12 +381,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      mostly space-delimited.  'tabx' and 'spacex' force all tabs and all\n"
 "      spaces, respectively.\n\n"
 	       );
+    /*
     help_print("write-covar", &help_ctrl, 1,
 "  --write-covar\n"
 "    If a --covar file is loaded, this creates a revised covariate file after\n"
 "    applying all filters.  (This automatically happens if --make-bed or\n"
 "    --recode is specified.)\n\n"
 	       );
+    */
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
 "  --merge [.ped filename] [.map filename]\n"
 "  --merge [text fileset prefix]\n"
@@ -473,6 +485,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    --genome/--Z-genome, and the 'full' and 'unbounded' modifiers have the same\n"
 "    effect as PLINK's --genome-full and --unbounded flags.\n\n"
 		);
+    /*
     help_print("cluster", &help_ctrl, 1,
 "  --cluster <cc> <only2>\n"
 "    Cluster individuals based on IBS statistics.\n"
@@ -481,10 +494,17 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * The 'only2' modifier causes only a .cluster2 file (which is valid input\n"
 "      for --within) to be written; otherwise 3 other files will be produced.\n\n"
 	       );
+    */
     help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means\ttrend", &help_ctrl, 1,
+"  --assoc <perm | mperm=[value]> <perm-count> <fisher> <counts>\n"
+	       /*
 "  --assoc <perm | mperm=[value]> <genedrop> <perm-count> <fisher> <counts> <p2>\n"
+	       */
 "  --assoc <perm | mperm=[value]> <perm-count> <qt-means> <lin>\n"
+"  --model <perm | mperm=[value]> <perm-count> <fisher | trend-only>\n"
+      /*
 "  --model <perm | mperm=[value]> <genedrop> <perm-count> <fisher | trend-only>\n"
+										  */
 "          <dom | rec | gen | trend>\n"
 "    Basic association analysis report.\n"
 "    Given a case/control phenotype, --assoc performs a 1df chi-square allelic\n"
@@ -494,12 +514,16 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'perm' causes an adaptive permutation test to be performed.\n"
 "    * 'mperm=[value]' causes a max(T) permutation test with the specified\n"
 "      number of replications to be performed.\n"
+	       /*
 "    * 'genedrop' causes offspring genotypes to be regenerated via gene-dropping\n"
 "      in the permutation test.\n"
+	       */
 "    * 'perm-count' causes the permutation test report to include counts instead\n"
 "      of frequencies.\n"
 "    * 'counts' causes --assoc to report allele counts instead of frequencies.\n"
+	       /*
 "    * 'p2' changes the --assoc permutation test used (see PLINK documentation).\n"
+	       */
 "    * 'dom', 'rec', 'gen', and 'trend' force the corresponding test to be used\n"
 "      as the basis for --model permutation.  (By default, the most significant\n"
 "      result among the allelic, dominant, and recessive tests is used.)\n"
@@ -512,6 +536,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Several other flags (most notably, --aperm) can be used to customize the\n"
 "    permutation test.\n\n"
 	       );
+    /*
     help_print("gxe\tmcovar", &help_ctrl, 1,
 "  --gxe {covariate index}\n"
 "    Given both a quantitative phenotype and a dichotomous covariate loaded with\n"
@@ -521,6 +546,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    default, the first covariate in the --covar file defines the groups; use\n"
 "    e.g. '--gxe 3' to base them on the third covariate instead.\n\n"
 	       );
+		  */
     help_print(
 "indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (markers)] [VIF threshold]\n"
@@ -561,7 +587,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("rel-cutoff\tgrm-cutoff", &help_ctrl, 1,
 "  --rel-cutoff {val}\n"
-"  --grm-cutoff {val}\n"
+"    (alias: --grm-cutoff)\n"
 "    Excludes one member of each pair of individuals with relatedness greater\n"
 "    than the given cutoff value (default 0.025).  If no later operation will\n"
 "    cause the list of remaining individuals to be written to disk, this will\n"
@@ -571,15 +597,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    guaranteeing optimality.  (Use the --make-rel and --keep/--remove flags if\n"
 "    you want to try to do better.)\n\n"
 	       );
-    help_print("regress-distance", &help_ctrl, 1,
-"  --regress-distance {iters} {d}\n"
-"    Linear regression of pairwise genomic distances on pairwise average\n"
-"    phenotypes and vice versa, using delete-d jackknife for standard errors.\n"
-"    Scalar phenotype data is required.\n"
-"    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
-"      down.  With no parameters, 100k iterations are run.\n\n"
-	       );
-    help_print("regress-pcs\tdistance\tregress-pcs-distance", &help_ctrl, 1,
+    help_print("regress-pcs\tregress-pcs-distance", &help_ctrl, 1,
 "  --regress-pcs [.evec or .eigenvec filename] <normalize-pheno> <sex-specific>\n"
 "                <clip> {max PCs}\n"
 "    Linear regression of phenotypes and genotypes on the given list of\n"
@@ -592,13 +610,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      they are represented as negative probabilities in the .gen file, which\n"
 "      are invalid input for some programs.\n"
 "    * By default, principal components beyond the 20th are ignored; change this\n"
-"      by setting the max PCs parameter.\n"
-"  --regress-pcs-distance [.evec/.eigenvec file] <normalize-pheno>\n"
-"                         <sex-specific> {max PCs} <square | square0 | triangle>\n"
-"                         <gz | bin> <ibs> <1-ibs> <allele-ct> <3d>\n"
-"                         <flat-missing>\n"
-"    High-speed combination of --regress-pcs and --distance (no .gen + .sample\n"
-"    fileset is written to disk).\n\n"
+"      by setting the max PCs parameter.\n\n"
+      );
+    help_print("regress-distance", &help_ctrl, 1,
+"  --regress-distance {iters} {d}\n"
+"    Linear regression of pairwise genomic distances on pairwise average\n"
+"    phenotypes and vice versa, using delete-d jackknife for standard errors.\n"
+"    Scalar phenotype data is required.\n"
+"    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
+"      down.  With no parameters, 100k iterations are run.\n\n"
 	       );
     help_print("regress-rel", &help_ctrl, 1,
 "  --regress-rel {iters} {d}\n"
@@ -606,6 +626,16 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    phenotypes, and vice versa.  Defaults for iters and d are the same as for\n"
 "    --regress-distance.\n\n"
 	       );
+    /*
+    help_print("regress-pcs\tdistance\tregress-pcs-distance", &help_ctrl, 1,
+"  --regress-pcs-distance [.evec/.eigenvec file] <normalize-pheno>\n"
+"                         <sex-specific> {max PCs} <square | square0 | triangle>\n"
+"                         <gz | bin> <ibs> <1-ibs> <allele-ct> <3d>\n"
+"                         <flat-missing>\n"
+"    High-speed combination of --regress-pcs and --distance (no .gen + .sample\n"
+"    fileset is written to disk).\n\n"
+	       );
+				     */
     help_print("ibs-test\tgroupdist", &help_ctrl, 1,
 "  --ibs-test {permutation count}\n"
 "  --groupdist {iters} {d}\n"
@@ -631,6 +661,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
 	       );
 #endif
+    /*
     help_print("cnv-make-map", &help_ctrl, 1,
 "  --cnv-make-map <short>\n"
 "    Given a .cnv file, this generates the corresponding .cnv.map file needed\n"
@@ -662,6 +693,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * --cnv-enrichment-test performs Raychaudhuri et al.'s geneset enrichment\n"
 "      test.  Gene locations must be loaded with --cnv-count.\n\n"
 	       );
+    */
     if (!param_ct) {
       fputs(
 "The following other flags are supported.  (Order of operations is described at\n"
@@ -674,47 +706,28 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("rerun", &help_ctrl, 0,
 "  --rerun {log}    : Rerun commands in log (default 'wdist.log').\n"
 	       );
-    help_print("no-fid", &help_ctrl, 0,
-"  --no-fid         : .fam/.ped file does not contain column 1 (family ID).\n"
-	       );
-    help_print("no-parents", &help_ctrl, 0,
-"  --no-parents     : .fam/.ped file does not contain columns 3-4 (parents).\n"
-	       );
-    help_print("no-sex", &help_ctrl, 0,
-"  --no-sex         : .fam/.ped file does not contain column 5 (sex).\n"
-	       );
-    help_print("no-pheno", &help_ctrl, 0,
-"  --no-pheno       : .fam/.ped file does not contain column 6 (phenotype).\n"
-	       );
-    help_print("load-dists\tgroupdist\tregress-distance", &help_ctrl, 0,
-"  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --groupdist\n"
-"                     or --regress-distance analysis, instead of recalculating\n"
-"                     it from scratch.\n"
-	       );
     help_print("silent", &help_ctrl, 0,
 "  --silent         : Suppress output to console.\n"
 	       );
-    help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 0,
-"  --merge-mode [n] : Adjust --merge/--bmerge/--merge-list behavior based on a\n"
-"                     numeric code.\n"
-"                     1 (default) = difference -> missing\n"
-"                     2 = only overwrite originally missing calls\n"
-"                     3 = only overwrite calls which are nonmissing in new file\n"
-"                     4/5 = never overwrite and always overwrite, respectively\n"
-"                     6 = report all mismatching calls without merging\n"
-"                     7 = report mismatching nonmissing calls without merging\n"
+    help_print("missing-genotype\tmissing-phenotype", &help_ctrl, 0,
+"  --missing-genotype [char] : Code for missing genotype (normally '0').\n"
+"  --missing-phenotype [val] : Numeric code for missing phenotype (normally -9).\n"
 	       );
-    help_print("indiv-sort\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
-"  --indiv-sort [m] : Specify family/individual ID sort order.  The following\n"
-"                     three modes are currently supported:\n"
-"                     * 'none'/'0' keeps individuals in the order they were\n"
-"                       loaded.  This is the default for non-merge operations.\n"
-"                     * 'natural'/'n' invokes \"natural sort\", e.g. 'id2' <\n"
-"                       'ID3' < 'ID10'.  This is the default when merging.\n"
-"                     * 'ascii'/'a' sorts in ASCII order, e.g. 'ID3' < 'id10' <\n"
-"                       'id2'.\n"
-"                     For now, only --make-bed and --merge/--bmerge/--merge-list\n"
-"                     respect this flag.\n"
+    help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
+"  --simulate-ncases [num]   : Set --simulate case count (default 1000).\n"
+"  --simulate-ncontrols [n]  : Set --simulate control count (default 1000).\n"
+"  --simulate-prevalence [p] : Set --simulate disease prevalence (default 0.01).\n"
+	       );
+    help_print("simulate-qt\tsimulate-n", &help_ctrl, 0,
+"  --simulate-n [num]        : Set --simulate-qt indiv count (default 1000).\n"
+	       );
+    help_print("simulate\tsimulate-qt\tsimulate-label\tsimulate-missing", &help_ctrl, 0,
+"  --simulate-label [prefix] : Set --simulate(-qt) individual name prefix.\n"
+"  --simulate-missing [freq] : Set --simulate(-qt) missing genotype frequency.\n"
+	       );
+    help_print("missing-code\tmissing_code\tmissing-phenotype", &help_ctrl, 0,
+"  --missing-code {vals}     : Comma-separated list of missing phenotype values,\n"
+"    (alias: --missing_code)   for Oxford-formatted filesets (normally 'NA').\n"
 	       );
     help_print("pheno\tall-pheno", &help_ctrl, 0,
 "  --pheno [fname]  : Specify alternate phenotype.\n"
@@ -733,10 +746,26 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     alternate file, use the original value instead of setting\n"
 "                     the phenotype to missing.\n"
 	       );
-    help_print("read-genome\tcluster", &help_ctrl, 0,
-"  --read-genome [fname] : Load a --genome report for --cluster, instead of\n"
-"                          recalculating from scratch.\n"
+    help_print("1", &help_ctrl, 0,
+"  --1              : Affection phenotypes are interpreted as 0 = unaffected,\n"
+"                     1 = affected (instead of 0 = missing, 1 = unaffected,\n"
+"                     2 = affected).\n"
 	       );
+    help_print("make-pheno", &help_ctrl, 0,
+"  --make-pheno [file] [val] : Specify dichotomous phenotype, where cases have\n"
+"                              the given value.  If the value is '*', all\n"
+"                              individuals present in the phenotype file are\n"
+"                              affected (and other individuals in the .ped/.fam\n"
+"                              are unaffected).\n"
+	       );
+    help_print("tail-pheno\tgroupdist", &help_ctrl, 0,
+"  --tail-pheno [Ltop] {Hbt} : Form 'low' (<= Ltop, unaffected) and 'high'\n"
+"                              (greater than Hbt, affected) groups from scalar\n"
+"                              phenotype data.  If Hbt is unspecified, it is set\n"
+"                              equal to Ltop.  Central phenotype values are\n"
+"                              treated as missing.\n"
+	       );
+    /*
     help_print("covar\tcovar-name\tcovar-number", &help_ctrl, 0,
 "  --covar [filename]    : Specify covariate file.\n"
 "  --covar-name [names]  : Specifies covariate(s) in --covar file by name.\n"
@@ -751,23 +780,19 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --set [filename] : Specify sets.\n"
 "  --subset [fname] : Specify list of subsets to extract from --set file.\n"
 	       );
-    help_print("prune", &help_ctrl, 0,
-"  --prune          : Remove individuals with missing phenotypes.\n"
+    help_print("loop-assoc", &help_ctrl, 0,
+"  --loop-assoc [f] : Run specified case/control association commands once for\n"
+"                     each cluster in the file, using cluster membership as the\n"
+"                     phenotype.\n"
 	       );
-    help_print("1", &help_ctrl, 0,
-"  --1              : Affection phenotypes are interpreted as 0 = unaffected,\n"
-"                     1 = affected (instead of 0 = missing, 1 = unaffected,\n"
-"                     2 = affected).\n"
+    */
+    help_print("keep\tremove", &help_ctrl, 0,
+"  --keep [fname]   : Exclude all individuals not in the given list.\n"
+"  --remove [fname] : Exclude all individuals in the given list.\n"
 	       );
-// --map3 implicitly supported via autodetection
-// --compound-genotypes automatically supported
-    help_print("cow\tdog\thorse\tmouse\trice\tsheep", &help_ctrl, 0,
-"  --cow/--dog/--horse/--mouse/--rice/--sheep : Specify nonhuman species.\n"
-	       );
-    help_print("autosome\tautosome-xy\tchr\tchr-excl", &help_ctrl, 0,
-"  --autosome       : Exclude all non-autosomal markers.\n"
-"  --autosome-xy    : Exclude all non-autosomal markers, except those with\n"
-"                     chromosome code XY (pseudo-autosomal region of X).\n"
+    help_print("extract\texclude", &help_ctrl, 0,
+"  --extract [file] : Exclude all markers not in the given list.\n"
+"  --exclude [file] : Exclude all markers in the given list.\n"
 	       );
     help_print("chr\tchr-excl\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
 "  --chr [chrs...]  : Exclude all markers not on the given chromosome(s).  Valid\n"
@@ -777,8 +802,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     denote a range, e.g. '--chr 1-4, 22, xy'.\n"
 "  --chr-excl [...] : Reverse of --chr (excludes markers on listed chromosomes).\n"
 	       );
-    help_print("d\tsnps", &help_ctrl, 0,
-"  --d [char]       : Change marker range delimiter (usually '-').\n"
+    help_print("autosome\tautosome-xy\tchr\tchr-excl", &help_ctrl, 0,
+"  --autosome       : Exclude all non-autosomal markers.\n"
+"  --autosome-xy    : Exclude all non-autosomal markers, except those with\n"
+"                     chromosome code XY (pseudo-autosomal region of X).\n"
 	       );
     help_print("from\tto\tsnp\twindow\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
 "  --from [mkr ID]  : Use ID(s) to specify a marker range to load.  When used\n"
@@ -794,6 +821,19 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --snps [IDs...]  : Use IDs to specify multiple marker ranges to load.  E.g.\n"
 "                     '--snps rs1111-rs2222, rs3333, rs4444'.\n"
 	       );
+    help_print("filter", &help_ctrl, 0,
+"  --filter [f] [v] : Filter individuals based on a phenotype value.\n"
+	       );
+    help_print("mfilter\tfilter", &help_ctrl, 0,
+"  --mfilter [col]  : Specify alternate column in --filter file.\n"
+	       );
+    help_print("geno\tmind", &help_ctrl, 0,
+"  --geno {val}     : Maximum per-marker missing (default 0.1).\n"
+"  --mind {val}     : Maximum per-person missing (default 0.1).\n"
+	       );
+    help_print("prune", &help_ctrl, 0,
+"  --prune          : Remove individuals with missing phenotypes.\n"
+	       );
     help_print("maf", &help_ctrl, 0,
 "  --maf {val}      : Minor allele frequency minimum threshold (default 0.01).\n"
 "                     Note that the default threshold is only applied if --maf\n"
@@ -803,10 +843,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("max-maf\tmaf", &help_ctrl, 0,
 "  --max-maf [val]  : Minor allele frequency maximum threshold.\n"
-	       );
-    help_print("geno\tmind", &help_ctrl, 0,
-"  --geno {val}     : Maximum per-marker missing (default 0.1).\n"
-"  --mind {val}     : Maximum per-person missing (default 0.1).\n"
 	       );
     help_print("hwe", &help_ctrl, 0,
 "  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
@@ -821,15 +857,62 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --must-have-sex  : Force ambiguous-sex phenotypes to missing on --make-bed\n"
 "                     and --recode.\n"
 	       );
-    help_print("set-hh-missing", &help_ctrl, 0,
-"  --set-hh-missing : Cause --make-bed and --recode to set heterozygous haploid\n"
-"                     genotypes to missing.\n"
+    help_print("filter-cases\tfilter-controls", &help_ctrl, 0,
+"  --filter-cases       : Include only cases.\n"
+"  --filter-controls    : Include only controls.\n"
 	       );
-    help_print("reference\tallele-count\tlfile", &help_ctrl, 0,
-"  --reference [fn] : Specify default allele file for .lgen input.\n"
-"  --allele-count   : When used with --reference, specifies that the .lgen file\n"
-"                     contains reference allele counts.\n"
+    help_print("filter-males\tfilter-females", &help_ctrl, 0,
+"  --filter-males       : Include only males.\n"
+"  --filter-females     : Include only females.\n"
 	       );
+    help_print("filter-founders\tfilter-nonfounders", &help_ctrl, 0,
+"  --filter-founders    : Include only founders.\n"
+"  --filter-nonfounders : Include only nonfounders.\n"
+	       );
+    help_print("nonfounders", &help_ctrl, 0,
+"  --nonfounders    : Include nonfounders in allele frequency/HWE calculations.\n"
+	       );
+    help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,
+"  --update-chr  [f] {chrcol} {IDcol}  {skip} : Update marker chromosome codes.\n"
+"  --update-cm   [f] {cmcol}  {IDcol}  {skip} : Update centimorgan positions.\n"
+"  --update-map  [f] {bpcol}  {IDcol}  {skip} : Update marker bp positions.\n"
+"  --update-name [f] {newcol} {oldcol} {skip} : Update marker IDs.\n"
+	       );
+    help_print("update-alleles", &help_ctrl, 0,
+"  --update-alleles [f] : Update marker allele codes.\n"
+	       );
+    help_print("update-ids\tupdate-parents\tupdate-sex", &help_ctrl, 0,
+"  --update-ids [f]     : Update individual IDs.\n"
+"  --update-parents [f] : Update parental IDs.\n"
+"  --update-sex [f]     : Update individual sexes.\n"
+	       );
+    help_print("flip\tflip-subset", &help_ctrl, 0,
+"  --flip [filename]    : Flip alleles (A<->T, C<->G) for SNP IDs in the file.\n"
+	       /*
+"  --flip-subset [fn]   : Only apply --flip to indivs in the --flip-subset file.\n"
+	       */
+	       );
+    help_print("keep-allele-order\tmake-bed\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
+"  --keep-allele-order  : Keep the original allele order when creating a new\n"
+"                         fileset, instead of forcing A2 to be the major allele.\n"
+	       );
+    help_print("a1-allele\treference-allele\tupdate-ref-allele\ta2-allele", &help_ctrl, 0,
+"  --a1-allele [f] {a1col} {IDcol} {skip} : Force alleles in the file to A1.\n"
+"  --a2-allele [f] {a2col} {IDcol} {skip} : Force alleles in the file to A2.\n"
+	       );
+    help_print("indiv-sort\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
+"  --indiv-sort [m] : Specify family/individual ID sort order.  The following\n"
+"                     three modes are currently supported:\n"
+"                     * 'none'/'0' keeps individuals in the order they were\n"
+"                       loaded.  This is the default for non-merge operations.\n"
+"                     * 'natural'/'n' invokes \"natural sort\", e.g. 'id2' <\n"
+"                       'ID3' < 'ID10'.  This is the default when merging.\n"
+"                     * 'ascii'/'a' sorts in ASCII order, e.g. 'ID3' < 'id10' <\n"
+"                       'id2'.\n"
+"                     For now, only --make-bed and --merge/--bmerge/--merge-list\n"
+"                     respect this flag.\n"
+	       );
+    /*
     help_print("with-phenotype\twrite-covar", &help_ctrl, 0,
 "  --with-phenotype : Include phenotype when writing updated covariate file.\n"
 	       );
@@ -838,59 +921,20 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     into n-1 binary dummy variables when writing updated\n"
 "                     covariate file.\n"
 	       );
-    help_print("nonfounders", &help_ctrl, 0,
-"  --nonfounders    : Include nonfounders in allele frequency/HWE calculations.\n"
+    */
+    help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 0,
+"  --merge-mode [n] : Adjust --merge/--bmerge/--merge-list behavior based on a\n"
+"                     numeric code.\n"
+"                     1 (default) = difference -> missing\n"
+"                     2 = only overwrite originally missing calls\n"
+"                     3 = only overwrite calls which are nonmissing in new file\n"
+"                     4/5 = never overwrite and always overwrite, respectively\n"
+"                     6 = report all mismatching calls without merging\n"
+"                     7 = report mismatching nonmissing calls without merging\n"
 	       );
-    help_print("ppc-gap\tgenome\tZ-genome", &help_ctrl, 0,
-"  --ppc-gap [val]  : Minimum number of base pairs, in thousands, between\n"
-"                     informative pairs of markers used in --genome PPC test.\n"
-"                     500 if unspecified.\n"
-	       );
-    help_print("seed", &help_ctrl, 0,
-"  --seed [val...]  : Set random number seed(s).  Each value must be an integer\n"
-"                     between 0 and 4294967295 inclusive.\n"
-	       );
-    help_print("memory", &help_ctrl, 0,
-"  --memory [val]   : Size, in MB, of initial malloc attempt.  (Some operating\n"
-"                     systems allow this number to exceed total physical RAM.)\n"
-	       );
-    help_print("threads\tthread-num", &help_ctrl, 0,
-"  --threads [val]  : Maximum number of concurrent threads.\n"
-	       );
-    help_print("debug", &help_ctrl, 0,
-"  --debug          : Enable debug logging.\n"
-	       );
-    help_print("extract\texclude", &help_ctrl, 0,
-"  --extract [file] : Exclude all markers not in the given list.\n"
-"  --exclude [file] : Exclude all markers in the given list.\n"
-	       );
-    help_print("keep\tremove", &help_ctrl, 0,
-"  --keep [fname]   : Exclude all individuals not in the given list.\n"
-"  --remove [fname] : Exclude all individuals in the given list.\n"
-	       );
-    help_print("maf-succ", &help_ctrl, 0,
-"  --maf-succ       : Rule of succession MAF estimation (used in EIGENSTRAT).\n"
-"                     Given j observations of one allele and k >= j observations\n"
-"                     of the other, infer a MAF of (j+1) / (j+k+2), rather than\n"
-"                     the usual j / (j+k).\n"
-	       );
-    help_print("ci", &help_ctrl, 0,
-"  --ci [size]      : Set size of odds ratio confidence interval to report.\n"
-	       );
-    help_print("pfilter", &help_ctrl, 0,
-"  --pfilter [val]  : Filter out association test results with higher p-values.\n"
-	       );
-    help_print("loop-assoc", &help_ctrl, 0,
-"  --loop-assoc [f] : Run specified case/control association commands once for\n"
-"                     each cluster in the file, using cluster membership as the\n"
-"                     phenotype.\n"
-	       );
-    help_print("cell\tmodel", &help_ctrl, 0,
-"  --cell [thresh]  : Specify contingency table threshold for performing all\n"
-"                     --model tests.\n"
-	       );
-    help_print("adjust\tlambda", &help_ctrl, 0,
-"  --lambda [val]   : Set genomic control lambda for --adjust.\n"
+    help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-equal-pos", &help_ctrl, 0,
+"  --merge-equal-pos : Merge markers with different names but identical\n"
+"                      positions.\n"
 	       );
     help_print("exponent\tdistance", &help_ctrl, 0,
 "  --exponent [val] : When computing genomic distances, each marker has a weight\n"
@@ -898,10 +942,108 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     --read-freq if you want to explicitly specify some or all\n"
 "                     of the MAFs.)\n"
 	       );
+    help_print("load-dists\tgroupdist\tregress-distance", &help_ctrl, 0,
+"  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --groupdist\n"
+"                     or --regress-distance analysis, instead of recalculating\n"
+"                     it from scratch.\n"
+	       );
+    help_print("ppc-gap\tgenome\tZ-genome", &help_ctrl, 0,
+"  --ppc-gap [val]  : Minimum number of base pairs, in thousands, between\n"
+"                     informative pairs of markers used in --genome PPC test.\n"
+"                     500 if unspecified.\n"
+	       );
+    help_print("cell\tmodel", &help_ctrl, 0,
+"  --cell [thresh]  : Specify contingency table threshold for performing all\n"
+"                     --model tests.\n"
+	       );
+    help_print("adjust\tgc\tlog10\tqq-plot", &help_ctrl, 0,
+"  --adjust <gc> <log10> <qq-plot> : Report some multiple-testing corrections.\n"
+	       );
+    help_print("adjust\tlambda", &help_ctrl, 0,
+"  --lambda [val]   : Set genomic control lambda for --adjust.\n"
+	       );
+    help_print("ci", &help_ctrl, 0,
+"  --ci [size]      : Set size of odds ratio confidence interval to report.\n"
+	       );
+    help_print("pfilter", &help_ctrl, 0,
+"  --pfilter [val]  : Filter out association test results with higher p-values.\n"
+	       );
+    help_print("aperm", &help_ctrl, 0,
+"  --aperm [min perms] [max perms] [alpha] [beta] [init interval] [slope] :\n"
+"    This sets six parameters controlling adaptive permutation tests.  Defaults\n"
+"    are 5, 1000000, 0, 0.0001, 1, and 0.001, respectively.\n"
+	       );
     help_print("mperm-save\tmperm-save-all", &help_ctrl, 0,
 "  --mperm-save     : Save best max(T) permutation test statistics.\n"
 "  --mperm-save-all : Save all max(T) permutation test statistics.\n"
 	       );
+    help_print("parallel\tgenome-lists", &help_ctrl, 0,
+"  --parallel [k] [n] : Divide the output matrix into n pieces, and only compute\n"
+"                       the kth piece.  The primary output file will have the\n"
+"                       piece number included in its name, e.g. wdist.rel.13 or\n"
+"                       wdist.rel.13.gz if k is 13.  Concatenating these files\n"
+"                       in order will yield the full matrix of interest.  (Yes,\n"
+"                       this can be done before unzipping.)\n"
+"                       N.B. This cannot be used to directly write a symmetric\n"
+"                       square matrix.  Choose the square0 or triangle format\n"
+"                       instead, and postprocess as necessary.\n"
+	       );
+    help_print("memory", &help_ctrl, 0,
+"  --memory [val]   : Set size, in MB, of initial malloc attempt.\n"
+	       );
+    help_print("threads\tthread-num", &help_ctrl, 0,
+"  --threads [val]  : Set maximum number of concurrent threads.\n"
+	       );
+    help_print("maf-succ", &help_ctrl, 0,
+"  --maf-succ       : Rule of succession MAF estimation (used in EIGENSTRAT).\n"
+"                     Given j observations of one allele and k >= j observations\n"
+"                     of the other, infer a MAF of (j+1) / (j+k+2), rather than\n"
+"                     the usual j / (j+k).\n"
+	       );
+    help_print("read-freq\tupdate-freq", &help_ctrl, 0,
+"  --read-freq [filename]   : Loads MAFs from the given PLINK-style or --freqx\n"
+"    (alias: --update-freq)   frequency file, instead of just setting them to\n"
+"                             frequencies observed in the .ped/.bed file.\n"
+	       );
+    help_print("cow\tdog\thorse\tmouse\trice\tsheep", &help_ctrl, 0,
+"  --cow/--dog/--horse/--mouse/--rice/--sheep : Specify nonhuman species.\n"
+	       );
+    help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
+"  --allele1234 <multichar> : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"
+"                             With 'multichar', converts all A/C/G/Ts in allele\n"
+"                             names to 1/2/3/4s.\n"
+"  --alleleACGT <multichar> : Reverse of --allele1234.\n"
+	       );
+    help_print("set-hh-missing", &help_ctrl, 0,
+"  --set-hh-missing : Cause --make-bed and --recode to set heterozygous haploid\n"
+"                     genotypes to missing.\n"
+	       );
+    help_print("d\tsnps", &help_ctrl, 0,
+"  --d [char]       : Change marker range delimiter (would otherwise be '-').\n"
+	       );
+    help_print("output-missing-genotype\toutput-missing-phenotype", &help_ctrl, 0,
+"  --output-missing-genotype [ch] : Code for missing genotype when creating new\n"
+"                                   text fileset (--recode).\n"
+"  --output-missing-phenotype [n] : Numeric code for missing phenotype when\n"
+"                                   creating new fileset (--make-bed/--recode).\n"
+	       );
+    help_print("seed", &help_ctrl, 0,
+"  --seed [val...]  : Set random number seed(s).  Each value must be an integer\n"
+"                     between 0 and 4294967295 inclusive.\n"
+	       );
+    help_print("perm-batch-size", &help_ctrl, 0,
+"  --perm-batch-size [val] : Set number of permutations per batch in QT\n"
+"                            permutation tests.\n"
+	       );
+    help_print("debug", &help_ctrl, 0,
+"  --debug          : Use slower, more crash-resistant logging method.\n"
+	       );
+    /*
+    help_print("read-genome\tcluster", &help_ctrl, 0,
+"  --read-genome [fname] : Load a --genome report for --cluster, instead of\n"
+"                          recalculating from scratch.\n"
+	       );
+
     help_print("ppc\tmc\tmcc\tK\tk\tibm\tcluster", &help_ctrl, 0,
 "  --ppc [p-val]    : Specify minimum PPC-test p-value within a cluster.\n"
 "  --mc [max size]  : Specify maximum cluster size.\n"
@@ -920,136 +1062,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     contains the covariates, and the --qt parameter contains\n"
 "                     the tolerances.)\n"
 	       );
-    help_print("flip\tflip-subset", &help_ctrl, 0,
-"  --flip [filename]   : Flip alleles (A<->T, C<->G) for SNP IDs in the file.\n"
-"  --flip-subset [fn]  : Only apply --flip to indivs in the --flip-subset file.\n"
-	       );
     help_print("recode\trecode-allele", &help_ctrl, 0,
 "  --recode-allele [f] : With --recode A or --recode AD, count alleles named in\n"
 "                        the file (instead of the minor allele).\n"
 	       );
-    help_print("keep-allele-order\tmake-bed\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
-"  --keep-allele-order : Keep the original allele order when creating a new\n"
-"                        fileset, instead of forcing A2 to be the major allele.\n"
-	       );
-    help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-equal-pos", &help_ctrl, 0,
-"  --merge-equal-pos   : Merge markers with different names but identical\n"
-"                        positions.\n"
-	       );
     help_print("cluster\tmds-plot\tmds-cluster", &help_ctrl, 0,
 "  --mds-plot [dims] <mds-cluster> : Multidimensional scaling analysis.\n"
-	       );
-    help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,
-"  --update-chr  [f] {chrcol} {IDcol}  {skip} : Update marker chromosome codes.\n"
-"  --update-cm   [f] {cmcol}  {IDcol}  {skip} : Update centimorgan positions.\n"
-"  --update-map  [f] {bpcol}  {IDcol}  {skip} : Update marker bp positions.\n"
-"  --update-name [f] {newcol} {oldcol} {skip} : Update marker IDs.\n"
-	       );
-    help_print("update-alleles", &help_ctrl, 0,
-"  --update-alleles [fname]  : Update marker allele codes.\n"
-	       );
-    help_print("update-ids\tupdate-parents\tupdate-sex", &help_ctrl, 0,
-"  --update-ids [fname]      : Update individual IDs, parental IDs, or sexes\n"
-"  --update-parents [fname]    using the information in the provided file.  See\n"
-"  --update-sex [fname]        the PLINK documentation for file format details.\n"
-	       );
-    help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
-"  --simulate-ncases [num]   : Set --simulate case count (default 1000).\n"
-"  --simulate-ncontrols [n]  : Set --simulate control count (default 1000).\n"
-"  --simulate-prevalence [p] : Set --simulate disease prevalence (default 0.01).\n"
-	       );
-    help_print("simulate-qt\tsimulate-n", &help_ctrl, 0,
-"  --simulate-n [num]        : Set --simulate-qt indiv count (default 1000).\n"
-	       );
-    help_print("simulate\tsimulate-qt\tsimulate-label\tsimulate-missing", &help_ctrl, 0,
-"  --simulate-label [prefix] : Set --simulate(-qt) individual name prefix.\n"
-"  --simulate-missing [freq] : Set --simulate(-qt) missing genotype frequency.\n"
-	       );
-    help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
-"  --allele1234 <multichar>  : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"
-"                              With 'multichar', converts all A/C/G/Ts in\n"
-"                              allele names to 1/2/3/4s.\n"
-"  --alleleACGT <multichar>  : Reverse of --allele1234.\n"
-	       );
-    help_print("a1-allele\treference-allele\tupdate-ref-allele\ta2-allele", &help_ctrl, 0,
-"  --a1-allele [f] {a1col} {IDcol} {skip} : Force alleles in the file to A1.\n"
-"  --a2-allele [f] {a2col} {IDcol} {skip} : Force alleles in the file to A2.\n"
-	       );
-    help_print("read-freq\tupdate-freq", &help_ctrl, 0,
-"  --read-freq [filename]    : Loads MAFs from the given PLINK-style or --freqx\n"
-"  --update-freq [filename]    frequency file, instead of just setting them to\n"
-"                              frequencies observed in the .ped/.bed file.\n"
-	       );
-    help_print("parallel\tgenome-lists", &help_ctrl, 0,
-"  --parallel [k] [n]        : Divide the output matrix into n pieces, and only\n"
-"                              compute the kth piece.  The primary output file\n"
-"                              will have the piece number included in its name,\n"
-"                              e.g. wdist.rel.13 or wdist.rel.13.gz if k is 13.\n"
-"                              Concatenating these files in order will yield the\n"
-"                              full matrix of interest.  (Yes, this can be done\n"
-"                              before unzipping.)\n"
-"                              N.B. This cannot be used to directly write a\n"
-"                              symmetric square matrix.  Choose the square0 or\n"
-"                              triangle format instead, and postprocess as\n"
-"                              necessary.\n"
-	       );
-    help_print("filter", &help_ctrl, 0,
-"  --filter [filename] [val] : Filter individuals based on a phenotype value.\n"
-	       );
-    help_print("mfilter\tfilter", &help_ctrl, 0,
-"  --mfilter [col]           : Specify alternate column in --filter file.\n"
-	       );
-    help_print("filter-cases\tfilter-controls", &help_ctrl, 0,
-"  --filter-cases            : Include only cases.\n"
-"  --filter-controls         : Include only controls.\n"
-	       );
-    help_print("filter-males\tfilter-females", &help_ctrl, 0,
-"  --filter-males            : Include only males.\n"
-"  --filter-females          : Include only females.\n"
-	       );
-    help_print("filter-founders\tfilter-nonfounders", &help_ctrl, 0,
-"  --filter-founders         : Include only founders.\n"
-"  --filter-nonfounders      : Include only nonfounders.\n"
-	       );
-    help_print("missing-genotype\tmissing-phenotype", &help_ctrl, 0,
-"  --missing-genotype [char] : Code for missing genotype (normally '0').\n"
-"  --missing-phenotype [val] : Numeric code for missing phenotype (normally -9).\n"
-	       );
-    help_print("perm-batch-size", &help_ctrl, 0,
-"  --perm-batch-size [val]   : Set number of permutations per batch in QT\n"
-"                              permutation tests.\n"
-	       );
-    help_print("output-missing-genotype\toutput-missing-phenotype", &help_ctrl, 0,
-"  --output-missing-genotype [ch] : Code for missing genotype when creating new\n"
-"                                   text fileset (--recode).\n"
-"  --output-missing-phenotype [n] : Numeric code for missing phenotype when\n"
-"                                   creating new fileset (--make-bed/--recode).\n"
-	       );
-    help_print("missing-code\tmissing_code\tmissing-phenotype", &help_ctrl, 0,
-"  --missing-code {vals}     : Comma-separated list of missing phenotype values,\n"
-"  --missing_code {vals}       for Oxford-formatted filesets (normally 'NA').\n"
-	       );
-    help_print("make-pheno", &help_ctrl, 0,
-"  --make-pheno [file] [val] : Specify dichotomous phenotype, where cases have\n"
-"                              the given value.  If the value is '*', all\n"
-"                              individuals present in the phenotype file are\n"
-"                              affected (and other individuals in the .ped/.fam\n"
-"                              are unaffected).\n"
-	       );
-    help_print("tail-pheno\tgroupdist", &help_ctrl, 0,
-"  --tail-pheno [Ltop] {Hbt} : Form 'low' (<= Ltop, unaffected) and 'high'\n"
-"                              (greater than Hbt, affected) groups from scalar\n"
-"                              phenotype data.  If Hbt is unspecified, it is set\n"
-"                              equal to Ltop.  Central phenotype values are\n"
-"                              treated as missing.\n"
-	       );
-    help_print("adjust\tgc\tlog10\tqq-plot", &help_ctrl, 0,
-"  --adjust <gc> <log10> <qq-plot> : Report some multiple-testing corrections.\n"
-	       );
-    help_print("aperm", &help_ctrl, 0,
-"  --aperm [min perms] [max perms] [alpha] [beta] [init interval] [slope] :\n"
-"    This sets six parameters controlling adaptive permutation tests.  Defaults\n"
-"    are 5, 1000000, 0, 0.0001, 1, and 0.001, respectively.\n"
 	       );
     if (!param_ct) {
       fputs(
@@ -1109,6 +1127,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("cnv-test-window\tcnv-test", &help_ctrl, 0,
 "  --cnv-test-window [size] : Specify window size (in kb) for CNV assoc. test.\n"
 	       );
+    */
     if (!param_ct) {
       fputs(
 "\nFor further documentation and support, consult the main webpage\n"

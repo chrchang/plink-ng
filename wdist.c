@@ -59,7 +59,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.20.0p"
+  "WDIST v0.19.5"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -68,7 +68,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (20 May 2013)";
+  " (22 May 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -6616,11 +6616,15 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (argv[cur_arg + 1][1]) {
+	if (!argv[cur_arg + 1][1]) {
+	  range_delim = argv[cur_arg + 1][0];
+	} else if (((argv[cur_arg + 1][0] == '\'') || (argv[cur_arg + 1][0] == '"')) && (argv[cur_arg + 1][2] == argv[cur_arg + 1][0]) && (!(argv[cur_arg + 1][3]))) {
+	  // allow character to be single- or double-quoted
+	  range_delim = argv[cur_arg + 1][1];
+	} else {
 	  sprintf(logbuf, "Error: --d parameter too long (must be a single character).%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	range_delim = argv[cur_arg + 1][0];
 	if ((range_delim == '-') || (range_delim == ',')) {
 	  sprintf(logbuf, "Error: --d parameter cannot be '-' or ','.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
