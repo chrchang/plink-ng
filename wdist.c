@@ -5116,12 +5116,12 @@ int32_t main(int32_t argc, char** argv) {
   unsigned char* snps_flag_starts_range = NULL;
   uint32_t snps_flag_ct = 0;
   uint32_t cluster_modifier = 0;
-  double cluster_ppc = 0.0;
+  // double cluster_ppc = 0.0;
   uint32_t cluster_max_size = 0xffffffffU;
-  uint32_t cluster_max_cases = 0xffffffffU;
-  uint32_t cluster_max_controls = 0xffffffffU;
-  uint32_t cluster_min_ct = 1;
-  double cluster_max_missing_discordance = 1.0;
+  // uint32_t cluster_max_cases = 0xffffffffU;
+  // uint32_t cluster_max_controls = 0xffffffffU;
+  // uint32_t cluster_min_ct = 1;
+  // double cluster_max_missing_discordance = 1.0;
   Ll_str* file_delete_list = NULL;
   char outname[FNAMESIZE];
   char mapname[FNAMESIZE];
@@ -5698,7 +5698,7 @@ int32_t main(int32_t argc, char** argv) {
           sprintf(logbuf, "Error: Invalid --K cluster count '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        cluster_min_ct = ii;
+        // cluster_min_ct = ii;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -7382,7 +7382,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --ibm threshold must be in [0, 1).%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        cluster_max_missing_discordance = dxx;
+        // cluster_max_missing_discordance = dxx;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8073,7 +8073,7 @@ int32_t main(int32_t argc, char** argv) {
           logprint("Error: --mcc parameter exceeds --mc parameter.\n");
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        cluster_max_cases = ii;
+        // cluster_max_cases = ii;
 	ii = atoi(argv[cur_arg + 1]);
 	if (ii < 1) {
 	  sprintf(logbuf, "Error: Invalid --mcc parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
@@ -8083,7 +8083,7 @@ int32_t main(int32_t argc, char** argv) {
           logprint("Error: --mcc parameter exceeds --mc parameter.\n");
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        cluster_max_controls = ii;
+        // cluster_max_controls = ii;
       } else if (!memcmp(argptr2, "atch", 5)) {
 	if (!(calculation_type & CALC_CLUSTER)) {
 	  sprintf(logbuf, "Error: --match must be used with --cluster.%s", errstr_append);
@@ -8339,7 +8339,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --ppc threshold must be between 0 and 1 exclusive.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        cluster_ppc = dxx;
+        // cluster_ppc = dxx;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
