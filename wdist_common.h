@@ -14,6 +14,16 @@
 // Uncomment this to build this without CBLAS/CLAPACK.
 // #define NOLAPACK
 
+// Uncomment this to prevent all unstable features from being accessible from
+// the command line.
+#define STABLE_BUILD
+
+#ifdef STABLE_BUILD
+#define UNSTABLE goto main_unstable_disabled
+#else
+#define UNSTABLE
+#endif
+
 #if _WIN32
 // needed for MEMORYSTATUSEX
 #ifndef _WIN64

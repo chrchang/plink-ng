@@ -303,13 +303,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --gen [filename] : Specify full name of .gen file.\n"
 "  --sample [fname] : Specify full name of .sample file.\n\n"
 	       );
-    /*
+#ifndef STABLE_BUILD
     help_print("cfile\tcnv-list\tgfile", &help_ctrl, 1,
 "  --cfile [prefix] : Specify .cnv + .fam + .cnv.map (segmental CNV) prefix.\n"
 "  --cnv-list [fn]  : Specify full name of .cnv file.\n"
 "  --gfile [prefix] : Specify .gvar + .fam + .map (genetic variant) prefix.\n\n"
 	       );
-    */
+#endif
     help_print("grm\tgrm-bin\trel-cutoff\tgrm-cutoff", &help_ctrl, 1,
 "  --grm {prefix}   : Specify .grm.gz + .grm.id (GCTA rel. matrix) prefix.\n"
 "  --grm-bin {prfx} : Specify .grm.bin + .grm.N.bin + .grm.id (GCTA triangular\n"
@@ -381,14 +381,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      mostly space-delimited.  'tabx' and 'spacex' force all tabs and all\n"
 "      spaces, respectively.\n\n"
 	       );
-    /*
+#ifndef STABLE_BUILD
     help_print("write-covar", &help_ctrl, 1,
 "  --write-covar\n"
 "    If a --covar file is loaded, this creates a revised covariate file after\n"
 "    applying all filters.  (This automatically happens if --make-bed or\n"
 "    --recode is specified.)\n\n"
 	       );
-    */
+#endif
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
 "  --merge [.ped filename] [.map filename]\n"
 "  --merge [text fileset prefix]\n"
@@ -485,7 +485,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    --genome/--Z-genome, and the 'full' and 'unbounded' modifiers have the same\n"
 "    effect as PLINK's --genome-full and --unbounded flags.\n\n"
 		);
-    /*
+#ifndef STABLE_BUILD
     help_print("cluster", &help_ctrl, 1,
 "  --cluster <cc> <only2>\n"
 "    Cluster individuals based on IBS statistics.\n"
@@ -494,7 +494,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * The 'only2' modifier causes only a .cluster2 file (which is valid input\n"
 "      for --within) to be written; otherwise 3 other files will be produced.\n\n"
 	       );
-    */
+#endif
     help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means\ttrend", &help_ctrl, 1,
 "  --assoc <perm | mperm=[value]> <perm-count> <fisher> <counts>\n"
 	       /*
@@ -661,7 +661,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
 	       );
 #endif
-    /*
+#ifndef STABLE_BUILD
     help_print("cnv-make-map", &help_ctrl, 1,
 "  --cnv-make-map <short>\n"
 "    Given a .cnv file, this generates the corresponding .cnv.map file needed\n"
@@ -669,16 +669,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    causes entries needed by PLINK but not WDIST to be omitted.  (Now\n"
 "    automatically invoked, with 'short', when necessary.)\n\n"
 	       );
-    help_print("cnv-check-no-overlap", &help_ctrl, 1,
-"  --cnv-check-no-overlap\n"
-"    Given a .cnv fileset, this checks for within-individual CNV overlaps.\n\n"
-	       );
     help_print("cnv-write", &help_ctrl, 1,
 "  --cnv-write <freq>\n"
 "    Writes a new .cnv fileset, after applying all requested filters.  The\n"
 "    'freq' modifier (which must be used with --cnv-freq-method2) causes an\n"
 "    additional \"FREQ\" field to be written with CNV-CNV overlap counts.\n\n"
 	       );
+    /*
+    help_print("cnv-check-no-overlap", &help_ctrl, 1,
+"  --cnv-check-no-overlap\n"
+"    Given a .cnv fileset, this checks for within-individual CNV overlaps.\n\n"
+	       );
+    */
     help_print("cnv-indiv-perm\tcnv-test\tcnv-test-region\tcnv-enrichment-test\tmperm\tcnv-test-1sided\tcnv-test-2sided", &help_ctrl, 1,
 "  --cnv-indiv-perm [permutation count]\n"
 "  --cnv-test <1sided | 2sided> [permutation count]\n"
@@ -693,7 +695,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * --cnv-enrichment-test performs Raychaudhuri et al.'s geneset enrichment\n"
 "      test.  Gene locations must be loaded with --cnv-count.\n\n"
 	       );
-    */
+#endif
     if (!param_ct) {
       fputs(
 "The following other flags are supported.  (Order of operations is described at\n"
@@ -765,7 +767,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                              equal to Ltop.  Central phenotype values are\n"
 "                              treated as missing.\n"
 	       );
-    /*
+#ifndef STABLE_BUILD
     help_print("covar\tcovar-name\tcovar-number", &help_ctrl, 0,
 "  --covar [filename]    : Specify covariate file.\n"
 "  --covar-name [names]  : Specifies covariate(s) in --covar file by name.\n"
@@ -785,7 +787,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     each cluster in the file, using cluster membership as the\n"
 "                     phenotype.\n"
 	       );
-    */
+#endif
     help_print("keep\tremove", &help_ctrl, 0,
 "  --keep [fname]   : Exclude all individuals not in the given list.\n"
 "  --remove [fname] : Exclude all individuals in the given list.\n"
@@ -870,7 +872,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --filter-nonfounders : Include only nonfounders.\n"
 	       );
     help_print("nonfounders", &help_ctrl, 0,
-"  --nonfounders    : Include nonfounders in allele frequency/HWE calculations.\n"
+"  --nonfounders        : Include nonfounders in allele freq/HWE calculations.\n"
+	       );
+    help_print("recode\trecode-allele", &help_ctrl, 0,
+"  --recode-allele [f]  : With --recode A or --recode AD, count alleles named in\n"
+"                         the file (instead of the minor allele).\n"
 	       );
     help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,
 "  --update-chr  [f] {chrcol} {IDcol}  {skip} : Update marker chromosome codes.\n"
@@ -888,9 +894,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("flip\tflip-subset", &help_ctrl, 0,
 "  --flip [filename]    : Flip alleles (A<->T, C<->G) for SNP IDs in the file.\n"
-	       /*
+#ifndef STABLE_BUILD
 "  --flip-subset [fn]   : Only apply --flip to indivs in the --flip-subset file.\n"
-	       */
+#endif
 	       );
     help_print("keep-allele-order\tmake-bed\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
 "  --keep-allele-order  : Keep the original allele order when creating a new\n"
@@ -912,7 +918,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     For now, only --make-bed and --merge/--bmerge/--merge-list\n"
 "                     respect this flag.\n"
 	       );
-    /*
+#ifndef STABLE_BUILD
     help_print("with-phenotype\twrite-covar", &help_ctrl, 0,
 "  --with-phenotype : Include phenotype when writing updated covariate file.\n"
 	       );
@@ -921,7 +927,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     into n-1 binary dummy variables when writing updated\n"
 "                     covariate file.\n"
 	       );
-    */
+#endif
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 0,
 "  --merge-mode [n] : Adjust --merge/--bmerge/--merge-list behavior based on a\n"
 "                     numeric code.\n"
@@ -952,6 +958,33 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     informative pairs of markers used in --genome PPC test.\n"
 "                     500 if unspecified.\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("read-genome\tcluster", &help_ctrl, 0,
+"  --read-genome [f] : Load a --genome report for --cluster, instead of\n"
+"                      recalculating from scratch.\n"
+	       );
+    help_print("ppc\tmc\tmcc\tK\tk\tibm\tcluster", &help_ctrl, 0,
+"  --ppc [p-val]    : Specify minimum PPC-test p-value within a cluster.\n"
+"  --mc [max size]  : Specify maximum cluster size.\n"
+"  --mcc [c1] [c2]  : Specify maximum cases and maximum controls per cluster.\n"
+"  --K [min count]  : Specify minimum cluster count.\n"
+"  --ibm [val]      : Specify maximum missing call discordance.\n"
+	       );
+    help_print("match\tmatch-type\tqmatch\tqt\tcluster", &help_ctrl, 0,
+"  --match [fname]  : Use covariate values to restrict clustering.  Without\n"
+"                     --match-type, two individuals can only be in the same\n"
+"                     cluster if all covariates match.\n"
+"  --match-type [f] : Specify that some --match covariates must be unequal\n"
+"                     instead of equal.\n"
+"  --qmatch [fname] : Force all members of a cluster to have similar\n"
+"  --qt [fname]       quantitative covariate values.  (The --qmatch parameter\n"
+"                     contains the covariates, and the --qt parameter contains\n"
+"                     the tolerances.)\n"
+	       );
+    help_print("cluster\tmds-plot\tmds-cluster", &help_ctrl, 0,
+"  --mds-plot [dims] <mds-cluster> : Multidimensional scaling analysis.\n"
+	       );
+#endif
     help_print("cell\tmodel", &help_ctrl, 0,
 "  --cell [thresh]  : Specify contingency table threshold for performing all\n"
 "                     --model tests.\n"
@@ -1038,46 +1071,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("debug", &help_ctrl, 0,
 "  --debug          : Use slower, more crash-resistant logging method.\n"
 	       );
-    /*
-    help_print("read-genome\tcluster", &help_ctrl, 0,
-"  --read-genome [fname] : Load a --genome report for --cluster, instead of\n"
-"                          recalculating from scratch.\n"
-	       );
-
-    help_print("ppc\tmc\tmcc\tK\tk\tibm\tcluster", &help_ctrl, 0,
-"  --ppc [p-val]    : Specify minimum PPC-test p-value within a cluster.\n"
-"  --mc [max size]  : Specify maximum cluster size.\n"
-"  --mcc [c1] [c2]  : Specify maximum cases and maximum controls per cluster.\n"
-"  --K [min count]  : Specify minimum cluster count.\n"
-"  --ibm [val]      : Specify maximum missing call discordance.\n"
-	       );
-    help_print("match\tmatch-type\tqmatch\tqt\tcluster", &help_ctrl, 0,
-"  --match [fname]  : Use covariate values to restrict clustering.  Without\n"
-"                     --match-type, two individuals can only be in the same\n"
-"                     cluster if all covariates match.\n"
-"  --match-type [f] : Specify that some --match covariates must be unequal\n"
-"                     instead of equal.\n"
-"  --qmatch [fname] : Force all members of a cluster to have similar\n"
-"  --qt [fname]       quantitative covariate values.  (The --qmatch parameter\n"
-"                     contains the covariates, and the --qt parameter contains\n"
-"                     the tolerances.)\n"
-	       );
-    help_print("recode\trecode-allele", &help_ctrl, 0,
-"  --recode-allele [f] : With --recode A or --recode AD, count alleles named in\n"
-"                        the file (instead of the minor allele).\n"
-	       );
-    help_print("cluster\tmds-plot\tmds-cluster", &help_ctrl, 0,
-"  --mds-plot [dims] <mds-cluster> : Multidimensional scaling analysis.\n"
-	       );
+#ifndef STABLE_BUILD
     if (!param_ct) {
       fputs(
 "\nThese flags only apply to .cnv fileset analysis:\n"
 , stdout);
     }
-    help_print("cnv-exclude-off-by-1", &help_ctrl, 0,
-"  --cnv-exclude-off-by-1   : Exclude .cnv segments where the terminal .cnv.map\n"
-"                             entry is off by 1.\n"
-	       );
     help_print("cnv-del\tcnv-dup", &help_ctrl, 0,
 "  --cnv-del                : Exclude all variants with more than one copy.\n"
 "  --cnv-dup                : Exclude all variants with fewer than three copies.\n"
@@ -1099,8 +1098,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                             the given region list.\n"
 "  --cnv-exclude [fname]    : Exclude all segments which intersect a region in\n"
 "                             the given region list.\n"
-"  --cnv-count [fname]      : Specify region list for --cnv-indiv-perm\n"
-"                             (optional) or --cnv-enrichment-test (required).\n"
 "  --cnv-subset [fname]     : Ignore all regions in the --cnv-intersect/-exclude\n"
 "                             /-count list that aren't named in the given file.\n"
 "  --cnv-overlap [x]        : Only count intersections of length at least xn,\n"
@@ -1124,10 +1121,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --cnv-freq-method2 {x}   : Causes k to instead be compared against the number\n"
 "                             of segments for which x >= [overlap] / [union].\n"
 	       );
+    help_print("cnv-exclude-off-by-1", &help_ctrl, 0,
+"  --cnv-exclude-off-by-1   : Exclude .cnv segments where the terminal .cnv.map\n"
+"                             entry is off by 1.\n"
+	       );
     help_print("cnv-test-window\tcnv-test", &help_ctrl, 0,
 "  --cnv-test-window [size] : Specify window size (in kb) for CNV assoc. test.\n"
 	       );
-    */
+    help_print("cnv-count\tcnv-indiv-perm\tcnv-enrichment-test", &help_ctrl, 0,
+"  --cnv-count [fname]      : Specify region list for --cnv-indiv-perm\n"
+"                             (optional) or --cnv-enrichment-test (required).\n"
+	       );
+#endif
     if (!param_ct) {
       fputs(
 "\nFor further documentation and support, consult the main webpage\n"
