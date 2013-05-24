@@ -70,7 +70,7 @@
 // but we believe we have beaten down the leading constant by a large enough
 // factor to meaningfully help researchers.
 
-#include "wdist_common.h"
+#include "wdist_cluster.h"
 #include "pigz.h"
 
 #ifdef __APPLE__
@@ -1742,7 +1742,7 @@ static uintptr_t* g_mmasks;
 static uint32_t* g_missing_tot_weights;
 static uint32_t* g_indiv_missing;
 static double* g_jackknife_precomp = NULL;
-static uint32_t* g_genome_main;
+static uint32_t* g_genome_main = NULL;
 static uintptr_t g_marker_window[GENOME_MULTIPLEX * 2];
 static double* g_pheno_packed;
 
@@ -4666,8 +4666,8 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uint
   int32_t retval = 0;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  unsigned char* loadbuf = NULL; // from file
   char wbuf[16];
-  unsigned char* loadbuf; // from file
   unsigned char* gptr;
   char* cptr;
   char* cptr2;
@@ -5154,7 +5154,6 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uint
   putchar('\r');
   sprintf(logbuf, "Finished writing %s.\n", outname);
   logprintb();
-  wkspace_reset(wkspace_mark);
   while (0) {
   calc_genome_ret_NOMEM:
     retval = RET_NOMEM;
@@ -5173,6 +5172,11 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uint
  calc_genome_ret_1:
   gzclose_cond(gz_outfile);
   fclose_cond(outfile);
+  if ((!retval) && (calculation_type & CALC_CLUSTER)) {
+    wkspace_reset(loadbuf);
+  } else {
+    wkspace_reset(wkspace_mark);
+  }
   return retval;
 }
 
@@ -8415,5 +8419,29 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   fclose_cond(outfile);
   fclose_cond(outfile2);
   fclose_cond(outfile3);
+  return retval;
+}
+
+int32_t calc_cluster(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* read_genome_fname, char* cluster_match_fname, char* cluster_match_type_fname, char* cluster_qmatch_fname, char* cluster_qt_fname, char* outname, char* outname_end, uint32_t cluster_modifier, double cluster_ppc, uint32_t cluster_max_size, uint32_t cluster_max_cases, uint32_t cluster_max_controls, uint32_t cluster_min_ct, double cluster_max_missing_discordance, uint32_t cluster_mds_dim_ct, uint32_t cluster_neighbor_n1, uint32_t cluster_neighbor_n2, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+  int32_t retval = 0;
+  unsigned char* wkspace_mark;
+  if (g_genome_main) {
+    wkspace_mark = (unsigned char*)g_missing_dbl_excluded;
+  } else {
+    // technically could try to avoid recomputing ordinary distance matrix as
+    // well, but that should not be a big deal
+
+    // if CLUSTER_MISSING then just compute identity-by-missingness
+    // otherwise, if cluster_ppc is nonzero, use calc_genome() algorithm
+    // otherwise, calculate IBS with no missingness rescaling
+    wkspace_mark = wkspace_base;
+    // ...
+  }
+  // if CLUSTER_GROUP_AVG then use binary heap + triangular matrix to
+  // efficiently track sorted inter-cluster distances
+  // otherwise a simple sorted list will do
+  while (0) {
+  }
+  wkspace_reset(wkspace_mark);
   return retval;
 }

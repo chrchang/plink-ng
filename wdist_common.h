@@ -270,8 +270,10 @@ typedef union {
 #define GENOME_IBD_UNBOUNDED 4
 
 #define CLUSTER_CC 1
-#define CLUSTER_ONLY2 2
-#define CLUSTER_MDS 4
+#define CLUSTER_GROUP_AVG 2
+#define CLUSTER_MISSING 4
+#define CLUSTER_ONLY2 8
+#define CLUSTER_MDS 0x10
 
 #define WRITE_COVAR_PHENO 1
 #define WRITE_COVAR_DUMMY 2
