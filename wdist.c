@@ -59,7 +59,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.20.0p"
+  "WDIST v0.19.7"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -68,7 +68,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (23 May 2013)";
+  " (26 May 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -5602,7 +5602,12 @@ int32_t main(int32_t argc, char** argv) {
   memcpy(&(outname[uii]), ".log", 5);
   logfile = fopen(outname, "w");
   if (!logfile) {
-    printf("Error: Failed to open %s.\n", outname);
+    printf("Error: Failed to open %s.  Try ", outname);
+    if (!memcmp(outname, "wdist", 6)) {
+      printf("using --out.\n");
+    } else {
+      printf("changing the --out parameter.\n");
+    }
     goto main_ret_OPEN_FAIL;
   }
   printf("Logging to %s.\n", outname);
