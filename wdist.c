@@ -8771,10 +8771,12 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode lgen", 11)) || (!memcmp(argptr2, "ecode AD", 9)) || (!memcmp(argptr2, "ecode A", 8)) || (!memcmp(argptr2, "ecode vcf", 10)) || (!memcmp(argptr2, "ecode list", 11)) || (!memcmp(argptr2, "ecode rlist", 12))) {
+      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode 23", 9)) || (!memcmp(argptr2, "ecode lgen", 11)) || (!memcmp(argptr2, "ecode AD", 9)) || (!memcmp(argptr2, "ecode A", 8)) || (!memcmp(argptr2, "ecode vcf", 10)) || (!memcmp(argptr2, "ecode list", 11)) || (!memcmp(argptr2, "ecode rlist", 12))) {
 	if (argptr2[5] == ' ') {
 	  if (argptr2[6] == '1') {
 	    recode_modifier |= RECODE_12;
+	  } else if (argptr2[6] == '2') {
+	    recode_modifier |= RECODE_23;
 	  } else if (argptr2[6] == 'l') {
 	    if (argptr2[7] == 'g') {
 	      recode_modifier |= RECODE_LGEN;
@@ -8794,7 +8796,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  kk = 0;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3 - kk)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4 - kk)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
