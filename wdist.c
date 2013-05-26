@@ -68,7 +68,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (26 May 2013)";
+  " (27 May 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -5503,7 +5503,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_flag_copy;
       case 'r':
 	if (!memcmp(argptr, "recode", 6)) {
-	  if (((kk == 9) && ((!memcmp(&(argptr[6]), "12", 2)) || match_upper(&(argptr[6]), "AD"))) || (!memcmp(&(argptr[6]), "-lgen", 6)) || (!memcmp(&(argptr[6]), "-rlist", 7)) || (!memcmp(&(argptr[6]), "-vcf", 5)) || ((tolower(argptr[6]) == 'a') && (kk == 8))) {
+	  if (((kk == 9) && ((!memcmp(&(argptr[6]), "12", 2)) || (!memcmp(&(argptr[6]), "23", 2)) || match_upper(&(argptr[6]), "AD"))) || (!memcmp(&(argptr[6]), "-lgen", 6)) || (!memcmp(&(argptr[6]), "-rlist", 7)) || (!memcmp(&(argptr[6]), "-vcf", 5)) || ((tolower(argptr[6]) == 'a') && (kk == 8))) {
 	    if (kk == 13) {
 	      memcpy(flagptr, "recode rlist", 13);
 	    } else if (kk == 12) {
@@ -5512,6 +5512,8 @@ int32_t main(int32_t argc, char** argv) {
 	      memcpy(flagptr, "recode vcf", 11);
 	    } else if (argptr[6] == '1') {
 	      memcpy(flagptr, "recode 12", 10);
+	    } else if (argptr[6] == '2') {
+	      memcpy(flagptr, "recode 23", 10);
 	    } else if (kk == 9) {
 	      memcpy(flagptr, "recode AD", 10);
 	    } else {
