@@ -59,7 +59,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.19.8"
+  "WDIST v0.20.0p"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -7514,6 +7514,9 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "eep-before-remove", 18)) {
         logprint("Note: --keep-before-remove has no effect.\n");
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "eep-autogen", 12)) {
+        misc_flags |= MISC_KEEP_AUTOGEN;
+        goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -7890,6 +7893,10 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --map3 flag unnecessary (.map file format is autodetected).\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ake-bed", 8)) {
+        if (misc_flags & MISC_KEEP_AUTOGEN) {
+	  sprintf(logbuf, "Error: --make-bed cannot be used with --keep-autogen.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
 	if (param_ct) {
 	  sprintf(logbuf, "Error: --%s doesn't accept parameters.%s%s", argptr, ((param_ct == 1) && (!outname_end))? "  (Did you forget '--out'?)" : "", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -9881,7 +9888,7 @@ int32_t main(int32_t argc, char** argv) {
     if (load_rare || (!famname[0])) {
       sptr = outname_end;
       ii = bed_suffix_conflict(calculation_type, recode_modifier);
-      if (ii || filename_exists(outname, outname_end, ".bed")) {
+      if (calculation_type && (ii || filename_exists(outname, outname_end, ".bed") || filename_exists(outname, outname_end, ".bim") || filename_exists(outname, outname_end, ".fam"))) {
         sptr = memcpyb(sptr, "-working", 9);
       }
       uii = (sptr - outname);
@@ -9913,7 +9920,7 @@ int32_t main(int32_t argc, char** argv) {
       memcpy(memcpya(pedname, outname, uii), ".bed", 5);
       memcpy(memcpya(mapname, outname, uii), ".bim", 5);
       memcpy(memcpya(famname, outname, uii), ".fam", 5);
-      if (ii && (calculation_type & CALC_MAKE_BED)) {
+      if (calculation_type && (!(misc_flags & MISC_KEEP_AUTOGEN))) {
 	if (push_ll_str(&file_delete_list, pedname) || push_ll_str(&file_delete_list, mapname) || push_ll_str(&file_delete_list, famname)) {
 	  goto main_ret_NOMEM;
 	}
@@ -10022,7 +10029,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(cnv_intersect_filter_fname);
   free_cond(cnv_subset_fname);
   free_cond(segment_spanning_fname);
-  if ((!retval) && (file_delete_list)) {
+  if (file_delete_list) {
     do {
       ll_str_ptr = file_delete_list->next;
       unlink(file_delete_list->ss);
