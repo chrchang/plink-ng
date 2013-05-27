@@ -9888,7 +9888,7 @@ int32_t main(int32_t argc, char** argv) {
     if (load_rare || (!famname[0])) {
       sptr = outname_end;
       if (calculation_type && (!(misc_flags & MISC_KEEP_AUTOGEN))) {
-        sptr = memcpyb(sptr, "-working", 9);
+        sptr = memcpyb(sptr, "-temporary", 11);
       }
       uii = (sptr - outname);
       if (load_rare == LOAD_RARE_LGEN) {
