@@ -1928,13 +1928,13 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uintptr_t marker_
 }
 
 int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_len, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr, uint32_t flags) {
-  // flags & 1 = indivs?
   FILE* infile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t* exclude_arr_new = NULL;
   uintptr_t include_ct = 0;
   uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
-  uint32_t do_exclude = flags & 2;
+  uint32_t do_exclude = flags & 1;
+  // flags & 2 = indivs
   char* id_buf;
   char* bufptr0;
   char* bufptr;
@@ -1951,7 +1951,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
     return RET_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
-  if (flags & 1) {
+  if (flags & 2) {
     if (wkspace_alloc_c_checked(&id_buf, max_id_len)) {
       return RET_NOMEM;
     }
