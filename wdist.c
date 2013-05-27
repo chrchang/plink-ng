@@ -59,7 +59,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.20.0p"
+  "WDIST v0.19.8"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -7514,8 +7514,8 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "eep-before-remove", 18)) {
         logprint("Note: --keep-before-remove has no effect.\n");
 	goto main_param_zero;
-      } else if (!memcmp(argptr2, "eep-autogen", 12)) {
-        misc_flags |= MISC_KEEP_AUTOGEN;
+      } else if (!memcmp(argptr2, "eep-autoconv", 13)) {
+        misc_flags |= MISC_KEEP_AUTOCONV;
         goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -7893,8 +7893,8 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --map3 flag unnecessary (.map file format is autodetected).\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ake-bed", 8)) {
-        if (misc_flags & MISC_KEEP_AUTOGEN) {
-	  sprintf(logbuf, "Error: --make-bed cannot be used with --keep-autogen.%s", errstr_append);
+        if (misc_flags & MISC_KEEP_AUTOCONV) {
+	  sprintf(logbuf, "Error: --make-bed cannot be used with --keep-autoconv.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
@@ -9887,7 +9887,7 @@ int32_t main(int32_t argc, char** argv) {
     // if (load_rare) {
     if (load_rare || (!famname[0])) {
       sptr = outname_end;
-      if (calculation_type && (!(misc_flags & MISC_KEEP_AUTOGEN))) {
+      if (calculation_type && (!(misc_flags & MISC_KEEP_AUTOCONV))) {
         sptr = memcpyb(sptr, "-temporary", 11);
       }
       uii = (sptr - outname);
@@ -9919,7 +9919,7 @@ int32_t main(int32_t argc, char** argv) {
       memcpy(memcpya(pedname, outname, uii), ".bed", 5);
       memcpy(memcpya(mapname, outname, uii), ".bim", 5);
       memcpy(memcpya(famname, outname, uii), ".fam", 5);
-      if (calculation_type && (!(misc_flags & MISC_KEEP_AUTOGEN))) {
+      if (calculation_type && (!(misc_flags & MISC_KEEP_AUTOCONV))) {
 	if (push_ll_str(&file_delete_list, pedname) || push_ll_str(&file_delete_list, mapname) || push_ll_str(&file_delete_list, famname)) {
 	  goto main_ret_NOMEM;
 	}
