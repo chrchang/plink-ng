@@ -355,8 +355,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("make-bed", &help_ctrl, 1,
 "  --make-bed\n"
 "    Creates a new binary fileset.  Unlike the automatic text-to-binary\n"
-"    converters (which only respect --autosome and --chr), this supports all of\n"
-"    WDIST's filtering flags.\n"
+"    converters (which only respect --chr[-excl] and --autosome[-xy]), this\n"
+"    supports all of WDIST's filtering flags.\n"
 	       );
     help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid", &help_ctrl, 1,
 "  --recode <12> <compound-genotypes> <23 | A | AD | lgen | lgen-ref | list |\n"

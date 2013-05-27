@@ -59,7 +59,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.20.0p"
+  "WDIST v0.19.8"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -9887,8 +9887,7 @@ int32_t main(int32_t argc, char** argv) {
     // if (load_rare) {
     if (load_rare || (!famname[0])) {
       sptr = outname_end;
-      ii = bed_suffix_conflict(calculation_type, recode_modifier);
-      if (calculation_type && (ii || filename_exists(outname, outname_end, ".bed") || filename_exists(outname, outname_end, ".bim") || filename_exists(outname, outname_end, ".fam"))) {
+      if (calculation_type && (!(misc_flags & MISC_KEEP_AUTOGEN))) {
         sptr = memcpyb(sptr, "-working", 9);
       }
       uii = (sptr - outname);
