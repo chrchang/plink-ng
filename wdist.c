@@ -5892,12 +5892,15 @@ int32_t main(int32_t argc, char** argv) {
 	if (load_rare != LOAD_RARE_23) {
 	  logprint("Error: --23file-make-xylist must be used with --23file.\n");
 	  goto main_ret_INVALID_CMDLINE;
-	} else if (!(modifier_23 & M23_MALE)) {
-	  sprintf(logbuf, "Error: --23file-make-xylist must be used on a male genome.%s", errstr_append);
+	} else if (modifier_23 & M23_FEMALE) {
+	  sprintf(logbuf, "Error: --23file-make-xylist cannot be used on a female genome.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (convert_xy_23) {
 	  logprint("Error: --23file-make-xylist cannot be used with a --23file-convert-xy file.\n");
 	  goto main_ret_INVALID_CMDLINE;
+	} else if (!(modifier_23 & M23_SEX)) {
+	  logprint("Note: Inferring male sex due to use of --23file-make-xylist.\n");
+	  modifier_23 |= M23_MALE;
 	}
 	modifier_23 |= M23_MAKE_XYLIST;
 	goto main_param_zero;

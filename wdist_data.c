@@ -5882,11 +5882,14 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   return retval;
 }
 
-uint32_t write_23_chrom_xy(char* new_xy_buf, uint32_t markers_left, FILE* outfile_bed, FILE* outfile_bim, char* outname, char* outname_end) {
-  uint32_t uii;
+void announce_make_xylist_complete(uint32_t markers_left, char* outname, char* outname_end) {
   *outname_end = '\0';
-  sprintf(logbuf, "--23file-convert-xy: writing %u marker ID%s to %s.xylist.\n", markers_left, (markers_left == 1)? "" : "s", outname);
+  sprintf(logbuf, "--23file-make-xylist: %u marker ID%s written to %s.xylist.\n", markers_left, (markers_left == 1)? "" : "s", outname);
   logprintb();
+}
+
+uint32_t write_23_chrom_xy(char* new_xy_buf, uint32_t markers_left, FILE* outfile_bed, FILE* outfile_bim) {
+  uint32_t uii;
   do {
     uii = strlen(new_xy_buf);
     if (fwrite_checked(new_xy_buf, uii, outfile_bim)) {
@@ -5909,6 +5912,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   uint32_t is_male = modifier_23 & M23_MALE;
   uint32_t is_female = modifier_23 & M23_FEMALE;
   uint32_t do_convert_xy = modifier_23 & M23_CONVERT_XY;
+  uint32_t make_xylist = modifier_23 & M23_MAKE_XYLIST;
   char* xylist = NULL;
   uintptr_t xylist_ct = 0;
   uintptr_t xylist_max_id_len = 0;
@@ -5974,10 +5978,10 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     fclose_null(&xylist_file);
     qsort(xylist, xylist_ct, xylist_max_id_len, strcmp_casted);
   } else {
-    if (do_convert_xy && (modifier_23 & M23_FORCE_MISSING_SEX)) {
+    if ((do_convert_xy || make_xylist) && (modifier_23 & M23_FORCE_MISSING_SEX)) {
       is_male = 1;
     }
-    if (modifier_23 & M23_MAKE_XYLIST) {
+    if (make_xylist) {
       memcpy(outname_end, ".xylist", 8);
       if (fopen_checked(&xylist_file, outname, "w")) {
         goto bed_from_23_ret_OPEN_FAIL;
@@ -6049,14 +6053,19 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
 	  }
 	  writebuf_cur = writebuf;
 	}
-        if (write_23_chrom_xy(new_xy_buf, xy_marker_ct, outfile_bed, outfile_txt, outname, outname_end)) {
-          goto bed_from_23_ret_WRITE_FAIL;
+	if (xylist_file) {
+	  announce_make_xylist_complete(xy_marker_ct, outname, outname_end);
+	}
+	if (do_convert_xy) {
+	  if (write_23_chrom_xy(new_xy_buf, xy_marker_ct, outfile_bed, outfile_txt)) {
+	    goto bed_from_23_ret_WRITE_FAIL;
+	  }
 	}
 	xy_marker_ct = 0;
       }
     }
     cc2 = allele_start[0];
-    if ((cur_chrom == 23) && (!is_xy) && do_convert_xy) {
+    if ((cur_chrom == 23) && (!is_xy) && (do_convert_xy || make_xylist)) {
       if (xylist) {
 	id_start[id_len] = '\0';
         if (bsearch_str(id_start, xylist, xylist_max_id_len, 0, xylist_ct - 1) != -1) {
@@ -6120,6 +6129,9 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
 	  goto bed_from_23_ret_WRITE_FAIL;
 	}
       }
+      xy_marker_ct++;
+    }
+    if (is_xy && do_convert_xy) {
       new_xy_buf_cur = memcpyl3a(new_xy_buf_cur, "25\t");
       new_xy_buf_cur = memcpya(new_xy_buf_cur, id_start, id_len);
       new_xy_buf_cur = memcpyl3a(new_xy_buf_cur, "\t0\t");
@@ -6130,12 +6142,11 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
       *new_xy_buf_cur++ = '\n';
       *new_xy_buf_cur++ = '\0';
       *new_xy_buf_cur++ = (char)ucc;
-      xy_marker_ct++;
     } else {
-      if ((cur_chrom == 23) && (!keep_x)) {
+      if ((cur_chrom == 23) && (!is_xy) && (!keep_x)) {
 	continue;
       }
-      if ((allele_calls == 1) && (cur_chrom <= 23)) {
+      if ((allele_calls == 1) && (cur_chrom <= 23) && (!is_xy)) {
 	if ((cur_chrom == 23) && (!is_female)) {
 	  is_male = 1;
 	} else {
@@ -6186,8 +6197,13 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     goto bed_from_23_ret_WRITE_FAIL;
   }
   if (xy_marker_ct) {
-    if (write_23_chrom_xy(new_xy_buf_cur, xy_marker_ct, outfile_bed, outfile_txt, outname, outname_end)) {
-      goto bed_from_23_ret_WRITE_FAIL;
+    if (do_convert_xy) {
+      if (write_23_chrom_xy(new_xy_buf_cur, xy_marker_ct, outfile_bed, outfile_txt)) {
+	goto bed_from_23_ret_WRITE_FAIL;
+      }
+    }
+    if (xylist_file) {
+      announce_make_xylist_complete(xy_marker_ct, outname, outname_end);
     }
   }
   if (fclose_null(&outfile_txt)) {
@@ -8260,7 +8276,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uint32_t bed_offset, FIL
 	writebuf[3] = *cur_mk_alleles;
 	writebuf[4] = *cur_mk_alleles;
       }
-      if ((chrom_idx > 23) && (ucc != 1)) {
+      if (((chrom_idx == 24) || (chrom_idx == 26)) && (ucc != 1)) {
 	if (fprintf(outfile, "%s\t%s\t%u\t%c\n", &(marker_ids[marker_uidx * max_marker_id_len]), writebuf, marker_pos[marker_uidx], writebuf[3]) < 0) {
 	  goto recode_ret_WRITE_FAIL;
 	}
