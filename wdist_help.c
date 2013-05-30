@@ -738,11 +738,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --silent         : Suppress output to console.\n"
 	       );
     help_print("23file\t23file-convert-xy\t23file-make-xylist", &help_ctrl, 0,
-"  --23file-convert-xy {file} : Separate out XY pseudo-autosomal region.  A SNP\n"
-"                               list (from e.g. --23file-make-xylist) is\n"
+"  --23file-convert-xy {file} : Separate out XY pseudo-autosomal region.  A\n"
+"                               marker list (from e.g. --23file-make-xylist) is\n"
 "                               necessary to use this on a female genome.\n"
 "  --23file-make-xylist : Given a male 23andMe genome, list XY pseudo-autosomal\n"
-"                         region SNPs in {output prefix}.xylist.\n"
+"                         region markers in {output prefix}.xylist.\n"
 	       );
     help_print("missing-genotype\tmissing-phenotype", &help_ctrl, 0,
 "  --missing-genotype [char] : Code for missing genotype (normally '0').\n"

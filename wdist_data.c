@@ -6034,6 +6034,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     if (uii == 25) {
       is_xy = 1;
       uii = 23;
+      xy_phase = 2;
     } else {
       is_xy = 0;
     }
