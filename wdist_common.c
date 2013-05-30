@@ -1836,8 +1836,8 @@ const char species_xy_code[] = {25, -1, 41, -1, -1, -1, -1};
 const char species_mt_code[] = {26, -1, -1, -1, -1, -1, -1};
 const char species_max_code[] = {26, 31, 41, 33, 21, 12, 28};
 const uint64_t species_haploid_mask[] = {0x05800000LLU, 0xc0000000LLU, 0x18000000000LLU, 0x300000000LLU, 0x00300000LLU, 0x00001fffLLU, 0x18000000LLU};
-char species_singulars[][7] = {"person", "animal", "animal", "animal", "animal", "plant", "animal"};
-char species_plurals[][8] = {"people", "animals", "animals", "animals", "animals", "plants", "animals"};
+char species_singulars[][7] = {"person", "cow", "dog", "horse", "mouse", "plant", "sheep"};
+char species_plurals[][8] = {"people", "cows", "dogs", "horses", "mice", "plants", "sheep"};
 
 char* species_singular = NULL;
 char* species_plural = NULL;
@@ -1942,7 +1942,7 @@ uint32_t get_marker_chrom(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx) {
   return chrom_info_ptr->chrom_file_order[chrom_min];
 }
 
-void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t set_hh_missing, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_haploid_ptr) {
+void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t allow_x_haploid, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_haploid_ptr) {
   uint32_t species = chrom_info_ptr->species;
   int32_t chrom_idx;
   *chrom_end_ptr = chrom_info_ptr->chrom_file_order_marker_idx[(*chrom_fo_idx_ptr) + 1];
@@ -1950,8 +1950,8 @@ void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint3
     *chrom_end_ptr = chrom_info_ptr->chrom_file_order_marker_idx[(++(*chrom_fo_idx_ptr)) + 1];
   }
   chrom_idx = chrom_info_ptr->chrom_file_order[*chrom_fo_idx_ptr];
-  *is_x_ptr = set_hh_missing && (chrom_idx == species_x_code[species]);
-  *is_haploid_ptr = set_hh_missing && ((species_haploid_mask[species] >> chrom_idx) & 1LLU);
+  *is_x_ptr = allow_x_haploid && (chrom_idx == species_x_code[species]);
+  *is_haploid_ptr = allow_x_haploid && ((species_haploid_mask[species] >> chrom_idx) & 1LLU);
   if (is_all_nonmale) {
     *is_haploid_ptr = (*is_haploid_ptr) && (!(*is_x_ptr));
   }

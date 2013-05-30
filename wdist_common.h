@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #ifdef STABLE_BUILD
 #define UNSTABLE goto main_unstable_disabled
@@ -173,21 +173,30 @@ typedef union {
 #define CALC_FREQ 0x400LLU
 #define CALC_REL_CUTOFF 0x800LLU
 #define CALC_WRITE_SNPLIST 0x1000LLU
-#define CALC_GENOME 0x2000LLU
-#define CALC_REGRESS_REL 0x4000LLU
-#define CALC_LD_PRUNE 0x8000LLU
-#define CALC_LD_PRUNE_PAIRWISE 0x10000LLU
-#define CALC_REGRESS_PCS 0x20000LLU
-#define CALC_REGRESS_PCS_DISTANCE 0x40000LLU
-#define CALC_MAKE_BED 0x80000LLU
-#define CALC_RECODE 0x100000LLU
-#define CALC_MERGE 0x200000LLU
-#define CALC_WRITE_COVAR 0x400000LLU
-#define CALC_MODEL 0x800000LLU
-#define CALC_HARDY 0x1000000LLU
-#define CALC_GXE 0x2000000LLU
-#define CALC_IBS_TEST 0x4000000LLU
-#define CALC_CLUSTER 0x8000000LLU
+#define CALC_LIST_INDELS 0x2000LLU
+#define CALC_GENOME 0x4000LLU
+#define CALC_REGRESS_REL 0x8000LLU
+#define CALC_LD_PRUNE 0x10000LLU
+#define CALC_LD_PRUNE_PAIRWISE 0x20000LLU
+#define CALC_REGRESS_PCS 0x40000LLU
+#define CALC_REGRESS_PCS_DISTANCE 0x80000LLU
+#define CALC_MAKE_BED 0x100000LLU
+#define CALC_RECODE 0x200000LLU
+#define CALC_MERGE 0x400000LLU
+#define CALC_WRITE_COVAR 0x800000LLU
+#define CALC_MODEL 0x1000000LLU
+#define CALC_HARDY 0x2000000LLU
+#define CALC_GXE 0x4000000LLU
+#define CALC_IBS_TEST 0x8000000LLU
+#define CALC_CLUSTER 0x10000000LLU
+#define CALC_HOMOZYG 0x20000000LLU
+
+#define M23_MALE 1
+#define M23_FEMALE 2
+#define M23_FORCE_MISSING_SEX 4
+#define M23_SEX 7
+#define M23_CONVERT_XY 8
+#define M23_MAKE_XYLIST 0x10
 
 #define MARKER_CMS_OPTIONAL 1
 #define MARKER_CMS_FORCED 2
@@ -269,6 +278,11 @@ typedef union {
 #define GENOME_OUTPUT_GZ 1
 #define GENOME_OUTPUT_FULL 2
 #define GENOME_IBD_UNBOUNDED 4
+
+#define HOMOZYG_GROUP 1
+#define HOMOZYG_VERBOSE 2
+#define HOMOZYG_CONSENSUS_MATCH 4
+#define HOMOZYG_INCLUDE_MISSING 8
 
 #define CLUSTER_CC 1
 #define CLUSTER_GROUP_AVG 2
@@ -1151,7 +1165,7 @@ static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr
   return marker_uidx;
 }
 
-void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t set_hh_missing, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_haploid_ptr);
+void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t allow_x_haploid, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_haploid_ptr);
 
 int32_t strcmp_casted(const void* s1, const void* s2);
 

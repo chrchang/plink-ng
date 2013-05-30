@@ -4650,7 +4650,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     goto ped_to_bed_ret_WRITE_FAIL_2;
   }
   putchar('\r');
-  sprintf(logbuf, "Binary fileset written to %s + .bim + .fam.\n", outname);
+  sprintf(logbuf, "--file: binary fileset written to %s + .bim + .fam.\n", outname);
   logprintb();
 
   while (0) {
@@ -5259,7 +5259,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
     }
   }
   memcpy(outname_end, ".bed", 5);
-  sprintf(logbuf, "%s + .bim + .fam written.\n", outname);
+  sprintf(logbuf, "Binary fileset written to %s + .bim + .fam.\n", outname);
   logprintb();
 
   while (0) {
@@ -5876,15 +5876,409 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     retval = RET_INVALID_FORMAT;
     break;
   }
-  if (infile) {
-    fclose(infile);
+  fclose_cond(infile);
+  fclose_cond(bimfile);
+  fclose_cond(outfile);
+  return retval;
+}
+
+uint32_t write_23_chrom_xy(char* new_xy_buf, uint32_t markers_left, FILE* outfile_bed, FILE* outfile_bim, char* outname, char* outname_end) {
+  uint32_t uii;
+  *outname_end = '\0';
+  sprintf(logbuf, "--23file-convert-xy: writing %u marker ID%s to %s.xylist.\n", markers_left, (markers_left == 1)? "" : "s", outname);
+  logprintb();
+  do {
+    uii = strlen(new_xy_buf);
+    if (fwrite_checked(new_xy_buf, uii, outfile_bim)) {
+      return 1;
+    }
+    new_xy_buf = &(new_xy_buf[uii + 1]);
+    if (putc(*new_xy_buf++, outfile_bed) == EOF) {
+      return 1;
+    }
+  } while (--markers_left);
+  return 0;
+}
+
+int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_t modifier_23, char* fid_23, char* iid_23, double pheno_23, char* paternal_id_23, char* maternal_id_23, char* convert_xy_fname, uint64_t chrom_mask) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile_23 = NULL;
+  FILE* outfile_bed = NULL;
+  FILE* outfile_txt = NULL;
+  FILE* xylist_file = NULL;
+  uint32_t is_male = modifier_23 & M23_MALE;
+  uint32_t is_female = modifier_23 & M23_FEMALE;
+  uint32_t do_convert_xy = modifier_23 & M23_CONVERT_XY;
+  char* xylist = NULL;
+  uintptr_t xylist_ct = 0;
+  uintptr_t xylist_max_id_len = 0;
+  unsigned char* writebuf = (unsigned char*)(&(tbuf[MAXLINELEN]));
+  char* writebuf2 = &(tbuf[MAXLINELEN * 2]);
+  // xy_phase:
+  // 0 = start of X chromosome, in initial pseudoautosomal region
+  // 1 = in middle, out of region
+  // 2 = at end, in final pseudoautosomal region
+  uint32_t xy_phase = 0;
+  int32_t retval = 0;
+  uint32_t cur_chrom = 0;
+  uint32_t keep_x = ((uint32_t)(chrom_mask >> 23)) & 1;
+  uint32_t keep_xy = ((uint32_t)(chrom_mask >> 25)) & 1;
+  uint32_t indel_ct = 0;
+  uint32_t xy_marker_ct = 0;
+  unsigned char* writebuf_cur;
+  unsigned char* writebuf_end;
+  char* new_xy_buf;
+  char* new_xy_buf_cur;
+  char* new_xy_buf_end;
+  char* id_start;
+  char* chrom_start;
+  char* pos_start;
+  char* allele_start;
+  char* writebuf2_cur;
+  uintptr_t id_len;
+  uint32_t allele_calls;
+  uint32_t is_xy;
+  uint32_t uii;
+  int32_t ii;
+  char cc;
+  char cc2;
+  unsigned char ucc;
+  if (fopen_checked(&infile_23, infile_name, "r")) {
+    goto bed_from_23_ret_OPEN_FAIL;
   }
-  if (bimfile) {
-    fclose(bimfile);
+  memcpy(outname_end, ".bim", 5);
+  if (fopen_checked(&outfile_txt, outname, "w")) {
+    goto bed_from_23_ret_OPEN_FAIL;
   }
-  if (outfile) {
-    fclose(outfile);
+  memcpy(&(outname_end[2]), "ed", 2);
+  if (fopen_checked(&outfile_bed, outname, "wb")) {
+    goto bed_from_23_ret_OPEN_FAIL;
   }
+  if (convert_xy_fname) {
+    retval = open_and_size_string_list(convert_xy_fname, &xylist_file, &xylist_ct, &xylist_max_id_len);
+    if (retval) {
+      goto bed_from_23_ret_1;
+    }
+#ifndef __LP64__
+    if (((uint64_t)xylist_ct) * xylist_max_id_len > 0x7fffffffLLU) {
+      goto bed_from_23_ret_NOMEM;
+    }
+#endif
+    if (wkspace_alloc_c_checked(&xylist, xylist_ct * xylist_max_id_len)) {
+      goto bed_from_23_ret_NOMEM;
+    }
+    retval = load_string_list(&xylist_file, xylist_max_id_len, xylist);
+    if (retval) {
+      goto bed_from_23_ret_1;
+    }
+    fclose_null(&xylist_file);
+    qsort(xylist, xylist_ct, xylist_max_id_len, strcmp_casted);
+  } else {
+    if (do_convert_xy && (modifier_23 & M23_FORCE_MISSING_SEX)) {
+      is_male = 1;
+    }
+    if (modifier_23 & M23_MAKE_XYLIST) {
+      memcpy(outname_end, ".xylist", 8);
+      if (fopen_checked(&xylist_file, outname, "w")) {
+        goto bed_from_23_ret_OPEN_FAIL;
+      }
+    }
+  }
+  if (wkspace_left < MAXLINELEN) {
+    goto bed_from_23_ret_NOMEM;
+  }
+  new_xy_buf = (char*)wkspace_base;
+  new_xy_buf_cur = new_xy_buf;
+  new_xy_buf_end = (char*)(&(wkspace_base[wkspace_left - MAXLINELEN]));
+  writebuf_cur = (unsigned char*)memcpyl3a((char*)writebuf, "l\x1b\x01");
+  writebuf_end = &(writebuf[MAXLINELEN]);
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, infile_23)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      sprintf(logbuf, "Error: Pathologically long line in %s.\n", infile_name);
+      logprintb();
+      goto bed_from_23_ret_INVALID_FORMAT;
+    }
+    id_start = skip_initial_spaces(tbuf);
+    cc = *id_start;
+    if (is_eoln_kns(cc) || (cc == '#')) {
+      continue;
+    }
+    chrom_start = item_endnn(id_start);
+    id_len = (uintptr_t)(chrom_start - id_start);
+    chrom_start = skip_initial_spaces(chrom_start);
+    pos_start = next_item(chrom_start);
+    allele_start = next_item(pos_start);
+    if (no_more_items_kns(allele_start)) {
+      logprint("Error: Fewer items than expected in --23file line.\n");
+      goto bed_from_23_ret_INVALID_FORMAT;
+    }
+    allele_calls = strlen_se(allele_start);
+    if (allele_calls > 2) {
+      logprint("Error: Too many allele calls in --23file line.\n");
+      goto bed_from_23_ret_INVALID_FORMAT;
+    }
+    ii = marker_code(SPECIES_HUMAN, chrom_start);
+    if (ii == -1) {
+      logprint("Error: Invalid chromosome code in --23file line.\n");
+      goto bed_from_23_ret_INVALID_FORMAT;
+    }
+    uii = (uint32_t)ii;
+    if ((!(chrom_mask & (1 << uii))) && ((uii != 23) || (!(keep_x || keep_xy)))) {
+      continue;
+    }
+    if (uii == 25) {
+      is_xy = 1;
+      uii = 23;
+    } else {
+      is_xy = 0;
+    }
+    if (uii < cur_chrom) {
+      // allow 24 -> XY
+      if ((!is_xy) || (cur_chrom == 26)) {
+        sprintf(logbuf, "Error: Chromosomes in %s are out of order.\n", infile_name);
+        goto bed_from_23_ret_INVALID_FORMAT;
+      }
+      cur_chrom = 25;
+    } else if (uii > cur_chrom) {
+      cur_chrom = uii;
+      if ((uii == 26) && xy_marker_ct) {
+	if (writebuf_cur != writebuf) {
+	  if (fwrite_checked(writebuf, (uintptr_t)(writebuf_cur - writebuf), outfile_bed)) {
+	    goto bed_from_23_ret_WRITE_FAIL;
+	  }
+	  writebuf_cur = writebuf;
+	}
+        if (write_23_chrom_xy(new_xy_buf, xy_marker_ct, outfile_bed, outfile_txt, outname, outname_end)) {
+          goto bed_from_23_ret_WRITE_FAIL;
+	}
+	xy_marker_ct = 0;
+      }
+    }
+    cc2 = allele_start[0];
+    if ((cur_chrom == 23) && (!is_xy) && do_convert_xy) {
+      if (xylist) {
+	id_start[id_len] = '\0';
+        if (bsearch_str(id_start, xylist, xylist_max_id_len, 0, xylist_ct - 1) != -1) {
+	  is_xy = 1;
+	}
+      } else if (cc2 == '-') {
+	// status quo
+	if (xy_phase != 1) {
+	  is_xy = 1;
+	}
+      } else if (allele_calls == 2) {
+	is_xy = 1;
+      }
+      if (is_xy) {
+        if (xy_phase == 1) {
+	  xy_phase = 2;
+	}
+      } else if (xy_phase != 1) {
+	if (xy_phase == 2) {
+	  logprint("Error: Invalid X chromosome data (more than one haploid component).\n");
+	  goto bed_from_23_ret_INVALID_FORMAT;
+	}
+	xy_phase = 1;
+      }
+    }
+    if (cc2 == '-') {
+      ucc = 1;
+      cc = '0';
+      cc2 = '0';
+    } else if (allele_calls == 2) {
+      cc = allele_start[1];
+      if (cc == cc2) {
+	cc = '0';
+	ucc = 3;
+      } else {
+	ucc = 2;
+      }
+    } else {
+      cc = '0';
+      ucc = 3;
+    }
+    if ((cc2 == 'D') || (cc2 == 'I')) {
+      indel_ct++;
+      cc = (char)(((unsigned char)cc2) ^ 13); // swaps D and I
+    }
+    if (is_xy) {
+      if (allele_calls != 2) {
+	goto bed_from_23_ret_INVALID_FORMAT_2;
+      }
+      if (!keep_xy) {
+	continue;
+      }
+      if (new_xy_buf_cur > new_xy_buf_end) {
+	goto bed_from_23_ret_NOMEM;
+      }
+      if (xylist_file) {
+        if (fwrite_checked(id_start, id_len, xylist_file)) {
+	  goto bed_from_23_ret_WRITE_FAIL;
+	}
+        if (putc('\n', xylist_file) == EOF) {
+	  goto bed_from_23_ret_WRITE_FAIL;
+	}
+      }
+      new_xy_buf_cur = memcpyl3a(new_xy_buf_cur, "25\t");
+      new_xy_buf_cur = memcpya(new_xy_buf_cur, id_start, id_len);
+      new_xy_buf_cur = memcpyl3a(new_xy_buf_cur, "\t0\t");
+      new_xy_buf_cur = memcpyax(new_xy_buf_cur, pos_start, strlen_se(pos_start), '\t');
+      *new_xy_buf_cur++ = cc;
+      *new_xy_buf_cur++ = '\t';
+      *new_xy_buf_cur++ = cc2;
+      *new_xy_buf_cur++ = '\n';
+      *new_xy_buf_cur++ = '\0';
+      *new_xy_buf_cur++ = (char)ucc;
+      xy_marker_ct++;
+    } else {
+      if ((cur_chrom == 23) && (!keep_x)) {
+	continue;
+      }
+      if ((allele_calls == 1) && (cur_chrom <= 23)) {
+	if ((cur_chrom == 23) && (!is_female)) {
+	  is_male = 1;
+	} else {
+	  logprint("Error: Too few allele calls in --23file line.\n");
+	  goto bed_from_23_ret_INVALID_FORMAT;
+	}
+      } else if ((cur_chrom == 24) && (cc2 != '0') && (!is_male)) {
+	if (!is_female) {
+	  is_male = 1;
+	} else {
+	  logprint("Error: Nonmissing female --23file allele call on Y chromosome.\n");
+	  goto bed_from_23_ret_INVALID_FORMAT;
+	}
+      }
+      writebuf2_cur = uint32_writex(writebuf2, cur_chrom, '\t');
+      writebuf2_cur = memcpya(writebuf2_cur, id_start, id_len);
+      writebuf2_cur = memcpyl3a(writebuf2_cur, "\t0\t");
+      writebuf2_cur = memcpyax(writebuf2_cur, pos_start, strlen_se(pos_start), '\t');
+      *writebuf2_cur++ = cc;
+      *writebuf2_cur++ = '\t';
+      *writebuf2_cur++ = cc2;
+      *writebuf2_cur++ = '\n';
+      if (fwrite_checked(writebuf2, (uintptr_t)(writebuf2_cur - writebuf2), outfile_txt)) {
+	goto bed_from_23_ret_WRITE_FAIL;
+      }
+      if (writebuf_cur == writebuf_end) {
+	if (fwrite_checked(writebuf, (uintptr_t)(writebuf_cur - writebuf), outfile_bed)) {
+	  goto bed_from_23_ret_WRITE_FAIL;
+	}
+	writebuf_cur = writebuf;
+      }
+      *writebuf_cur++ = (char)ucc;
+    }
+  }
+  if (!feof(infile_23)) {
+    goto bed_from_23_ret_READ_FAIL;
+  }
+  if ((writebuf_cur == &(writebuf[3])) && (writebuf[0] == 'l')) {
+    if (chrom_mask == species_valid_chrom_mask[SPECIES_HUMAN]) {
+      logprint("Error: No --23file markers.\n");
+      goto bed_from_23_ret_INVALID_FORMAT;
+    } else {
+      logprint("Error: No --23file markers pass chromosome filter.\n");
+      goto bed_from_23_ret_INVALID_CMDLINE;
+    }
+  }
+  if (fwrite_checked(writebuf, (uintptr_t)(writebuf_cur - writebuf), outfile_bed)) {
+    goto bed_from_23_ret_WRITE_FAIL;
+  }
+  if (xy_marker_ct) {
+    if (write_23_chrom_xy(new_xy_buf_cur, xy_marker_ct, outfile_bed, outfile_txt, outname, outname_end)) {
+      goto bed_from_23_ret_WRITE_FAIL;
+    }
+  }
+  if (fclose_null(&outfile_txt)) {
+    goto bed_from_23_ret_WRITE_FAIL;
+  }
+  memcpy(outname_end, ".fam", 5);
+  if (fopen_checked(&outfile_txt, outname, "w")) {
+    goto bed_from_23_ret_OPEN_FAIL;
+  }
+  if (fid_23) {
+    if (fputs(fid_23, outfile_txt) == EOF) {
+      goto bed_from_23_ret_WRITE_FAIL;
+    }
+    putc(' ', outfile_txt);
+  } else {
+    if (fputs("FAM001 ", outfile_txt) == EOF) {
+      goto bed_from_23_ret_WRITE_FAIL;
+    }
+  }
+  if (iid_23) {
+    fputs(iid_23, outfile_txt);
+    putc(' ', outfile_txt);
+  } else {
+    fputs("ID001 ", outfile_txt);
+  }
+  if (paternal_id_23) {
+    fputs(paternal_id_23, outfile_txt);
+    putc(' ', outfile_txt);
+  } else {
+    fputs("0 ", outfile_txt);
+  }
+  if (maternal_id_23) {
+    fputs(maternal_id_23, outfile_txt);
+  } else {
+    putc('0', outfile_txt);
+  }
+  if (modifier_23 & M23_FORCE_MISSING_SEX) {
+    cc = '0';
+  } else if (is_male) {
+    cc = '1';
+  } else {
+    cc = '2';
+  }
+  if (fprintf(outfile_txt, " %c %g\n", cc, pheno_23) < 0) {
+    goto bed_from_23_ret_WRITE_FAIL;
+  }
+  if (fclose_null(&outfile_txt)) {
+    goto bed_from_23_ret_WRITE_FAIL;
+  }
+  *outname_end = '\0';
+  sprintf(logbuf, "--23file: binary fileset written to %s.bed + .bim + .fam.\n", outname);
+  logprintb();
+  if (indel_ct) {
+    sprintf(logbuf, "%u markers with indel calls present.  --list-indels may be useful here.\n", indel_ct);
+    logprintb();
+  }
+  if (!(modifier_23 & M23_SEX)) {
+    sprintf(logbuf, "Inferred sex: %smale.\n", is_male? "" : "fe");
+    logprintb();
+  }
+  if (is_male && keep_x && xy_marker_ct && (!xy_phase)) {
+    logprint("Warning: No haploid calls on X chromosome.\n");
+  }
+  while (0) {
+  bed_from_23_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  bed_from_23_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  bed_from_23_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  bed_from_23_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  bed_from_23_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  bed_from_23_ret_INVALID_FORMAT_2:
+    logprint("Error: Too few allele calls in --23file line.\n");
+  bed_from_23_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ bed_from_23_ret_1:
+  fclose_cond(infile_23);
+  fclose_cond(outfile_bed);
+  fclose_cond(outfile_txt);
+  fclose_cond(xylist_file);
+  wkspace_reset(wkspace_mark);
   return retval;
 }
 
@@ -7811,6 +8205,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uint32_t bed_offset, FIL
     }
     chrom_print_human_terminate(writebuf, chrom_idx);
     indiv_uidx = next_non_set_unsafe(indiv_exclude, 0);
+    ulii = is_set(sex_male, indiv_uidx);
     // May want to add special handling of X/XY, depending on what our pipeline
     // generates.
     for (; marker_idx < marker_ct; marker_idx++) {
@@ -7843,11 +8238,11 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uint32_t bed_offset, FIL
       cur_mk_alleles[0] = mk_alleles[2 * marker_uidx];
       cur_mk_alleles[1] = mk_alleles[2 * marker_uidx + 1];
       if (is_set(marker_reverse, marker_uidx)) {
-	cur_mk_alleles[2] = cur_mk_alleles[1];
-	cur_mk_alleles[3] = *cur_mk_alleles;
-      } else {
 	cur_mk_alleles[2] = *cur_mk_alleles;
 	cur_mk_alleles[3] = cur_mk_alleles[1];
+      } else {
+	cur_mk_alleles[2] = cur_mk_alleles[1];
+	cur_mk_alleles[3] = *cur_mk_alleles;
       }
       ucc = (loadbuf[indiv_uidx / 4] >> ((indiv_uidx % 4) * 2)) & 3;
       if (ucc) {
@@ -7858,15 +8253,21 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uint32_t bed_offset, FIL
 	  writebuf[3] = cur_mk_alleles[1];
 	  writebuf[4] = cur_mk_alleles[1];
 	} else {
-	  writebuf[3] = output_missing_geno;
-	  writebuf[4] = output_missing_geno;
+	  writebuf[3] = '-';
+	  writebuf[4] = '-';
 	}
       } else {
 	writebuf[3] = *cur_mk_alleles;
 	writebuf[4] = *cur_mk_alleles;
       }
-      if (fprintf(outfile, "%s\t%s\t%u\t%c%c\n", &(marker_ids[marker_uidx * max_marker_id_len]), writebuf, marker_pos[marker_uidx], writebuf[3], writebuf[4]) < 0) {
-	goto recode_ret_WRITE_FAIL;
+      if ((chrom_idx > 23) && (ucc != 1)) {
+	if (fprintf(outfile, "%s\t%s\t%u\t%c\n", &(marker_ids[marker_uidx * max_marker_id_len]), writebuf, marker_pos[marker_uidx], writebuf[3]) < 0) {
+	  goto recode_ret_WRITE_FAIL;
+	}
+      } else {
+	if (fprintf(outfile, "%s\t%s\t%u\t%c%c\n", &(marker_ids[marker_uidx * max_marker_id_len]), writebuf, marker_pos[marker_uidx], writebuf[3], writebuf[4]) < 0) {
+	  goto recode_ret_WRITE_FAIL;
+	}
       }
       marker_uidx++;
     }

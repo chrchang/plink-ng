@@ -25,8 +25,8 @@ ZLIB64=zlib-1.2.8/libz-64.a
 endif
 endif
 
-SRC = wdist.c wdist_assoc.c wdist_calc.c wdist_cluster.c wdist_cnv.c wdist_common.c wdist_data.c wdist_dosage.c wdist_help.c wdist_stats.c SFMT.c dcdflib.c pigz.c yarn.c
-OBJ = wdist.o wdist_assoc.o wdist_calc.o wdist_cluster.o wdist_cnv.o wdist_common.o wdist_data.o wdist_dosage.o wdist_help.o wdist_stats.o SFMT.o dcdflib.o pigz.o yarn.o
+SRC = wdist.c wdist_assoc.c wdist_calc.c wdist_cluster.c wdist_cnv.c wdist_common.c wdist_data.c wdist_dosage.c wdist_help.c wdist_homozyg.c wdist_stats.c SFMT.c dcdflib.c pigz.c yarn.c
+OBJ = wdist.o wdist_assoc.o wdist_calc.o wdist_cluster.o wdist_cnv.o wdist_common.o wdist_data.o wdist_dosage.o wdist_help.o wdist_homozyg.o wdist_stats.o SFMT.o dcdflib.o pigz.o yarn.o
 
 wdist: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
