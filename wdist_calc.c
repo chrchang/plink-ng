@@ -8422,7 +8422,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   return retval;
 }
 
-int32_t calc_cluster(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* read_genome_fname, char* cluster_match_fname, char* cluster_match_type_fname, char* cluster_qmatch_fname, char* cluster_qt_fname, char* outname, char* outname_end, uint32_t cluster_modifier, double cluster_ppc, uint32_t cluster_max_size, uint32_t cluster_max_cases, uint32_t cluster_max_controls, uint32_t cluster_min_ct, double cluster_max_missing_discordance, uint32_t cluster_mds_dim_ct, uint32_t cluster_neighbor_n1, uint32_t cluster_neighbor_n2, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+int32_t calc_cluster(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* read_genome_fname, Cluster_info* cp, char* outname, char* outname_end, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
   int32_t retval = 0;
   unsigned char* wkspace_mark;
   if (g_genome_main) {
@@ -8437,6 +8437,8 @@ int32_t calc_cluster(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uin
     wkspace_mark = wkspace_base;
     // ...
   }
+  logprint("Error: --cluster is currently under development.\n");
+  retval = RET_CALC_NOT_YET_SUPPORTED;
   // if CLUSTER_GROUP_AVG then use binary heap + triangular matrix to
   // efficiently track sorted inter-cluster distances
   // otherwise a simple sorted list will do

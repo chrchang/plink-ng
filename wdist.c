@@ -3604,7 +3604,7 @@ inline int32_t distance_wt_req(uint64_t calculation_type) {
   return ((calculation_type & CALC_DISTANCE) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))));
 }
 
-int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, char* read_genome_fname, char* cluster_match_fname, char* cluster_match_type_fname, char* cluster_qmatch_fname, char* cluster_qt_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filterval, double thin_keep_prob, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t rel_calc_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uintptr_t regress_rel_iters, uint32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t genome_modifier, Homozyg_info* homozyg_ptr, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, uint32_t regress_pcs_modifier, uint32_t max_pcs, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t write_covar_modifier, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, uint32_t cluster_modifier, double cluster_ppc, uint32_t cluster_max_size, uint32_t cluster_max_cases, uint32_t cluster_max_controls, uint32_t cluster_min_ct, double cluster_max_missing_discordance, uint32_t cluster_mds_dim_ct, uint32_t cluster_neighbor_n1, uint32_t cluster_neighbor_n2, Ll_str** file_delete_list_ptr) {
+int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filterval, double thin_keep_prob, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t rel_calc_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uintptr_t regress_rel_iters, uint32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t genome_modifier, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, uint32_t regress_pcs_modifier, uint32_t max_pcs, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t write_covar_modifier, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, Ll_str** file_delete_list_ptr) {
   FILE* bedfile = NULL;
   FILE* famfile = NULL;
   FILE* phenofile = NULL;
@@ -3981,10 +3981,10 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     logprint("Error: --gxe requires scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
   } else if ((calculation_type & CALC_CLUSTER) && (!pheno_c)) {
-    if (cluster_modifier & CLUSTER_CC) {
+    if (cluster_ptr->modifier & CLUSTER_CC) {
       logprint("Error: --cc requires dichotomous phenotype.\n");
       goto wdist_ret_INVALID_CMDLINE;
-    } else if ((cluster_max_cases != 0xffffffffU) || (cluster_max_controls != 0xffffffffU)) {
+    } else if ((cluster_ptr->max_cases != 0xffffffffU) || (cluster_ptr->max_controls != 0xffffffffU)) {
       logprint("Error: --mcc requires dichotomous phenotype.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
@@ -4499,6 +4499,12 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
+  if (calculation_type & CALC_HOMOZYG) {
+    logprint("Error: --homozyg is currently under development.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto wdist_ret_1;
+  }
+
   if (calculation_type & CALC_REGRESS_PCS_DISTANCE) {
     logprint("Error: --regress-pcs-distance has not yet been written.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -4561,7 +4567,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_CLUSTER) {
-    retval = calc_cluster(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, read_genome_fname, cluster_match_fname, cluster_match_type_fname, cluster_qmatch_fname, cluster_qt_fname, outname, outname_end, cluster_modifier, cluster_ppc, cluster_max_size, cluster_max_cases, cluster_max_controls, cluster_min_ct, cluster_max_missing_discordance, cluster_mds_dim_ct, cluster_neighbor_n1, cluster_neighbor_n2, pheno_nm, pheno_c);
+    retval = calc_cluster(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, read_genome_fname, cluster_ptr, outname, outname_end, pheno_nm, pheno_c);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -5114,7 +5120,6 @@ int32_t main(int32_t argc, char** argv) {
   char* lgen_reference_fname = NULL;
   char* covar_fname = NULL;
   char* covar_str = NULL;
-  char* cluster_fname = NULL;
   char* set_fname = NULL;
   char* subset_fname = NULL;
   char* update_alleles_fname = NULL;
@@ -5129,10 +5134,6 @@ int32_t main(int32_t argc, char** argv) {
   char* flip_fname = NULL;
   char* flip_subset_fname = NULL;
   char* read_genome_fname = NULL;
-  char* cluster_match_fname = NULL;
-  char* cluster_match_type_fname = NULL;
-  char* cluster_qmatch_fname = NULL;
-  char* cluster_qt_fname = NULL;
   int32_t retval = 0;
   uint32_t load_params = 0; // describes what file parameters have been provided
   uint32_t load_rare = 0;
@@ -5258,16 +5259,6 @@ int32_t main(int32_t argc, char** argv) {
   char* snps_flag_markers = NULL;
   unsigned char* snps_flag_starts_range = NULL;
   uint32_t snps_flag_ct = 0;
-  uint32_t cluster_modifier = 0;
-  double cluster_ppc = 0.0;
-  uint32_t cluster_max_size = 0xffffffffU;
-  uint32_t cluster_max_cases = 0xffffffffU;
-  uint32_t cluster_max_controls = 0xffffffffU;
-  uint32_t cluster_min_ct = 1;
-  uint32_t cluster_mds_dim_ct = 0;
-  uint32_t cluster_neighbor_n1 = 0; // yeah, American spelling, deal with it
-  uint32_t cluster_neighbor_n2 = 0;
-  double cluster_max_missing_discordance = 1.0;
   uint32_t modifier_23 = 0;
   double pheno_23 = INFINITY;
   char* fid_23 = NULL;
@@ -5309,6 +5300,7 @@ int32_t main(int32_t argc, char** argv) {
   int32_t in_param;
   Chrom_info chrom_info;
   Homozyg_info homozyg;
+  Cluster_info cluster;
   char* argptr2;
   char* flagptr;
   uint32_t snps_flag_max_len;
@@ -5324,6 +5316,7 @@ int32_t main(int32_t argc, char** argv) {
   DWORD windows_dw; // why the f*** does uint32_t not work?
 #endif
   homozyg_init(&homozyg);
+  cluster_init(&cluster);
   for (ii = 1; ii < argc; ii++) {
     if ((!memcmp("-script", argv[ii], 8)) || (!memcmp("--script", argv[ii], 9))) {
       jj = param_count(argc, argv, ii);
@@ -5984,7 +5977,7 @@ int32_t main(int32_t argc, char** argv) {
           sprintf(logbuf, "Error: Invalid --K cluster count '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        cluster_min_ct = ii;
+        cluster.min_ct = ii;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -6402,21 +6395,21 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!memcmp(argv[cur_arg + uii], "cc", 3)) {
-            cluster_modifier |= CLUSTER_CC;
+            cluster.modifier |= CLUSTER_CC;
 	  } else if (!memcmp(argv[cur_arg + uii], "group-avg", 10)) {
-	    cluster_modifier |= CLUSTER_GROUP_AVG;
+	    cluster.modifier |= CLUSTER_GROUP_AVG;
 	  } else if (!memcmp(argv[cur_arg + uii], "missing", 8)) {
-	    if (cluster_modifier & CLUSTER_ONLY2) {
+	    if (cluster.modifier & CLUSTER_ONLY2) {
 	      logprint("Error: --cluster 'missing' and 'only2' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
-	    cluster_modifier |= CLUSTER_MISSING;
+	    cluster.modifier |= CLUSTER_MISSING;
 	  } else if (!memcmp(argv[cur_arg + uii], "only2", 6)) {
-	    if (cluster_modifier & CLUSTER_MISSING) {
+	    if (cluster.modifier & CLUSTER_MISSING) {
 	      logprint("Error: --cluster 'missing' and 'only2' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
-	    cluster_modifier |= CLUSTER_ONLY2;
+	    cluster.modifier |= CLUSTER_ONLY2;
 	  } else {
             sprintf(logbuf, "Error: Invalid --cluster parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
@@ -6426,7 +6419,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "c", 2)) {
 	UNSTABLE;
         logprint("Note: --cc flag deprecated.  Use '--cluster cc'.\n");
-        cluster_modifier |= CLUSTER_CC;
+        cluster.modifier |= CLUSTER_CC;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "luster-missing", 15)) {
 	UNSTABLE;
@@ -6436,7 +6429,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	logprint("Note: --cluster-missing flag deprecated.  Use '--cluster missing'.\n");
         calculation_type |= CALC_CLUSTER;
-        cluster_modifier |= CLUSTER_MISSING;
+        cluster.modifier |= CLUSTER_MISSING;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "file", 5)) {
         UNSTABLE;
@@ -7578,7 +7571,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         logprint("Note: --group-avg flag deprecated.  Use '--cluster group-avg'.\n");
-	cluster_modifier |= CLUSTER_GROUP_AVG;
+	cluster.modifier |= CLUSTER_GROUP_AVG;
 	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -7953,7 +7946,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --ibm threshold must be in [0, 1).%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        cluster_max_missing_discordance = dxx;
+        cluster.max_missing_discordance = dxx;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8645,7 +8638,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --mc parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        cluster_max_size = ii;
+        cluster.max_size = ii;
       } else if (!memcmp(argptr2, "cc", 2)) {
 	UNSTABLE;
 	if (!(calculation_type & CALC_CLUSTER)) {
@@ -8660,21 +8653,21 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --mcc parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (((uint32_t)ii) > cluster_max_size) {
+	if (((uint32_t)ii) > cluster.max_size) {
           logprint("Error: --mcc parameter exceeds --mc parameter.\n");
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        cluster_max_cases = ii;
+        cluster.max_cases = ii;
 	ii = atoi(argv[cur_arg + 1]);
 	if (ii < 1) {
 	  sprintf(logbuf, "Error: Invalid --mcc parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (((uint32_t)ii) > cluster_max_size) {
+	if (((uint32_t)ii) > cluster.max_size) {
           logprint("Error: --mcc parameter exceeds --mc parameter.\n");
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        cluster_max_controls = ii;
+        cluster.max_controls = ii;
       } else if (!memcmp(argptr2, "atch", 5)) {
 	UNSTABLE;
 	if (!(calculation_type & CALC_CLUSTER)) {
@@ -8684,20 +8677,20 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&cluster_match_fname, argv[cur_arg + 1], argptr, 0);
+	retval = alloc_fname(&cluster.match_fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "atch-type", 10)) {
 	UNSTABLE;
-	if (!cluster_match_fname) {
+	if (!cluster.match_fname) {
 	  sprintf(logbuf, "Error: --match-type must be used with --match.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&cluster_match_type_fname, argv[cur_arg + 1], argptr, 0);
+	retval = alloc_fname(&cluster.match_type_fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -8718,7 +8711,7 @@ int32_t main(int32_t argc, char** argv) {
 	    sprintf(logbuf, "Error: Invalid --mds-plot parameter sequence.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
-	  cluster_modifier |= CLUSTER_MDS;
+	  cluster.modifier |= CLUSTER_MDS;
 	} else {
 	  uii = 1;
 	}
@@ -8727,7 +8720,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --mds-plot parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	cluster_mds_dim_ct = ii;
+	cluster.mds_dim_ct = ii;
       } else if (!memcmp(argptr2, "ds-cluster", 11)) {
 	UNSTABLE;
 	if (!(calculation_type & CALC_CLUSTER)) {
@@ -8735,7 +8728,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         logprint("Note: --mds-cluster flag deprecated.  Use '--mds-plot mds-cluster'.\n");
-        cluster_modifier |= CLUSTER_MDS;
+        cluster.modifier |= CLUSTER_MDS;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8776,14 +8769,14 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --neighbour parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	cluster_neighbor_n1 = ii;
+	cluster.neighbor_n1 = ii;
 	ii = atoi(argv[cur_arg + 2]);
 	if (ii < 1) {
 	  sprintf(logbuf, "Error: Invalid --neighbour parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	cluster_neighbor_n2 = ii;
-	if (cluster_neighbor_n2 < cluster_neighbor_n1) {
+	cluster.neighbor_n2 = ii;
+	if (cluster.neighbor_n2 < cluster.neighbor_n1) {
 	  sprintf(logbuf, "Error: Second --neighbour parameter cannot be smaller than first parameter.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8963,7 +8956,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (!(calculation_type & CALC_CLUSTER)) {
           sprintf(logbuf, "Error: --ppc must be used with --cluster.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (cluster_modifier & CLUSTER_MISSING) {
+	} else if (cluster.modifier & CLUSTER_MISSING) {
 	  sprintf(logbuf, "Error: --ppc cannot be used with --cluster missing.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8978,7 +8971,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --ppc threshold must be between 0 and 1 exclusive.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        cluster_ppc = dxx;
+        cluster.ppc = dxx;
       } else if (!memcmp(argptr2, "ool-size", 9)) {
 	UNSTABLE;
 	if (!(homozyg.modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE))) {
@@ -9029,20 +9022,20 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        retval = alloc_fname(&cluster_qmatch_fname, argv[cur_arg + 1], argptr, 0);
+        retval = alloc_fname(&cluster.qmatch_fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "t", 2)) {
 	UNSTABLE;
-        if (!cluster_qmatch_fname) {
+        if (!cluster.qmatch_fname) {
           sprintf(logbuf, "Error: --qt must be used with --qmatch.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        retval = alloc_fname(&cluster_qt_fname, argv[cur_arg + 1], argptr, 0);
+        retval = alloc_fname(&cluster.qt_fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -10125,7 +10118,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&cluster_fname, argv[cur_arg + 1], argptr, 0);
+	retval = alloc_fname(&cluster.fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -10241,7 +10234,7 @@ int32_t main(int32_t argc, char** argv) {
       }
     }
   }
-  if (cluster_qmatch_fname && (!cluster_qt_fname)) {
+  if (cluster.qmatch_fname && (!cluster.qt_fname)) {
     sprintf(logbuf, "Error: --qt must be used with --qmatch.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
@@ -10443,7 +10436,7 @@ int32_t main(int32_t argc, char** argv) {
     } else if (!ibc_type) {
       ibc_type = 1;
     }
-    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, update_alleles_fname, read_genome_fname, cluster_match_fname, cluster_match_type_fname, cluster_qmatch_fname, cluster_qt_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filterval, thin_keep_prob, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_bottom, tail_top, misc_flags, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, sex_missing_pheno, genome_modifier, &homozyg, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, regress_pcs_modifier, max_pcs, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, covar_modifier, covar_str, mcovar_col, write_covar_modifier, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, ibs_test_perms, perm_batch_size, cluster_modifier, cluster_ppc, cluster_max_size, cluster_max_cases, cluster_max_controls, cluster_min_ct, cluster_max_missing_discordance, cluster_mds_dim_ct, cluster_neighbor_n1, cluster_neighbor_n2, &file_delete_list);
+    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, set_fname, subset_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filterval, thin_keep_prob, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_bottom, tail_top, misc_flags, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, sex_missing_pheno, genome_modifier, &homozyg, &cluster, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, regress_pcs_modifier, max_pcs, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, covar_modifier, covar_str, mcovar_col, write_covar_modifier, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, ibs_test_perms, perm_batch_size, &file_delete_list);
   }
  main_ret_2:
   free(wkspace_ua);
@@ -10517,7 +10510,6 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(lgen_reference_fname);
   free_cond(covar_fname);
   free_cond(covar_str);
-  free_cond(cluster_fname);
   free_cond(set_fname);
   free_cond(subset_fname);
   free_cond(update_alleles_fname);
@@ -10532,10 +10524,11 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(flip_fname);
   free_cond(flip_subset_fname);
   free_cond(read_genome_fname);
-  free_cond(cluster_match_fname);
-  free_cond(cluster_match_type_fname);
-  free_cond(cluster_qmatch_fname);
-  free_cond(cluster_qt_fname);
+  free_cond(cluster.fname);
+  free_cond(cluster.match_fname);
+  free_cond(cluster.match_type_fname);
+  free_cond(cluster.qmatch_fname);
+  free_cond(cluster.qt_fname);
   free_cond(rseeds);
   free_cond(simulate_fname);
   free_cond(simulate_label);
