@@ -5949,8 +5949,11 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   uint32_t do_convert_xy = modifier_23 & M23_CONVERT_XY;
   uint32_t make_xylist = modifier_23 & M23_MAKE_XYLIST;
   char* xylist = NULL;
+  uint32_t y_present = 0;
+  uint32_t nonmissing_y_present = 0;
   uintptr_t xylist_ct = 0;
   uintptr_t xylist_max_id_len = 0;
+  uint32_t xychrom_written = 0;
   unsigned char* writebuf = (unsigned char*)(&(tbuf[MAXLINELEN]));
   char* writebuf2 = &(tbuf[MAXLINELEN * 2]);
   // xy_phase:
@@ -6097,7 +6100,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
 	    goto bed_from_23_ret_WRITE_FAIL;
 	  }
 	}
-	xy_marker_ct = 0;
+	xychrom_written = 1;
       }
     }
     cc2 = allele_start[0];
@@ -6125,6 +6128,11 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
 	  goto bed_from_23_ret_INVALID_FORMAT;
 	}
 	xy_phase = 1;
+      }
+    } else if ((cur_chrom == 24) && (!nonmissing_y_present)) {
+      y_present = 1;
+      if (cc2 != '-') {
+	nonmissing_y_present = 1;
       }
     }
     if (cc2 == '-') {
@@ -6232,7 +6240,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   if (fwrite_checked(writebuf, (uintptr_t)(writebuf_cur - writebuf), outfile_bed)) {
     goto bed_from_23_ret_WRITE_FAIL;
   }
-  if (xy_marker_ct) {
+  if (xy_marker_ct && (!xychrom_written)) {
     if (do_convert_xy) {
       if (write_23_chrom_xy(new_xy_buf_cur, xy_marker_ct, outfile_bed, outfile_txt)) {
 	goto bed_from_23_ret_WRITE_FAIL;
@@ -6300,8 +6308,14 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     sprintf(logbuf, "Inferred sex: %smale.\n", is_male? "" : "fe");
     logprintb();
   }
-  if (is_male && keep_x && xy_marker_ct && (!xy_phase)) {
-    logprint("Warning: No haploid calls on X chromosome.\n");
+  if ((modifier_23 & M23_MALE) && y_present && (!nonmissing_y_present)) {
+    if (keep_x && xy_marker_ct) {
+      if (!xy_phase) {
+	logprint("Warning: No explicit haploid calls on X chromosome, and no nonmissing calls on Y\nchromosome.  Double-check whether this is really a male sample.\n");
+      }
+    } else {
+      logprint("Warning: No nonmissing calls on Y chromosome.  Double-check whether this is\nreally a male sample.\n");
+    }
   }
   while (0) {
   bed_from_23_ret_NOMEM:

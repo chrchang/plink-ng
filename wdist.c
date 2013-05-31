@@ -575,21 +575,21 @@ char* resize_id_buf(char* id_buf, int32_t max_id_len, int32_t max_pid_len) {
 void random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
   uintptr_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uint32_t marker_uidx = 0;
-  uint32_t thinned_ct = 0;
+  uint32_t marker_idx = 0;
+  uint32_t removed_ct = 0;
   uint32_t uint32_thresh;
-  uint32_t marker_idx;
   uint32_thresh = (uint32_t)(thin_keep_prob * 4294967296.0 + 0.5);
-  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+  for (; marker_idx < marker_ct; marker_idx++) {
     marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
     if (sfmt_genrand_uint32(&sfmt) >= uint32_thresh) {
       set_bit_noct(marker_exclude, marker_uidx);
-      thinned_ct++;
+      removed_ct++;
     }
     marker_uidx++;
   }
-  sprintf(logbuf, "--thin: %u/%" PRIuPTR " marker%s removed.\n", thinned_ct, marker_ct, (marker_ct == 1)? "" : "s");
+  sprintf(logbuf, "--thin: %u marker%s removed (%" PRIuPTR " remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", marker_ct - removed_ct);
   logprintb();
-  *marker_exclude_ct_ptr += thinned_ct;
+  *marker_exclude_ct_ptr += removed_ct;
 }
 
 
@@ -3326,10 +3326,10 @@ void enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, ui
 }
 
 void enforce_maf_threshold(double min_maf, double max_maf, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, double* set_allele_freqs) {
-  uint32_t removed_ct = 0;
   uintptr_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
+  uint32_t removed_ct = 0;
   double dxx;
   for (; marker_idx < marker_ct; marker_idx++) {
     marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
@@ -3342,6 +3342,35 @@ void enforce_maf_threshold(double min_maf, double max_maf, uintptr_t unfiltered_
   }
   sprintf(logbuf, "%u marker%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
   logprintb();
+}
+
+void enforce_min_bp_space(int32_t min_bp_space, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, uintptr_t* marker_exclude_ct_ptr, Chrom_info* chrom_info_ptr) {
+  uintptr_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
+  uint32_t removed_ct = 0;
+  uint32_t chrom_end = 0;
+  uint32_t marker_uidx = 0;
+  uint32_t marker_idx = 0;
+  uint32_t chrom_fo_idx_p1 = 0;
+  int32_t last_pos = 0;
+  int32_t cur_pos;
+  for (; marker_idx < marker_ct; marker_idx++) {
+    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+    while (marker_uidx >= chrom_end) {
+      chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[++chrom_fo_idx_p1];
+      last_pos = -2147483647;
+    }
+    cur_pos = marker_pos[marker_uidx];
+    if (cur_pos < (last_pos + min_bp_space)) {
+      set_bit_noct(marker_exclude, marker_uidx);
+      removed_ct++;
+    } else {
+      last_pos = cur_pos;
+    }
+    marker_uidx++;
+  }
+  sprintf(logbuf, "--bp-space: %u marker%s removed (%" PRIuPTR " remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", marker_ct - removed_ct);
+  logprintb();
+  *marker_exclude_ct_ptr += removed_ct;
 }
 
 void calc_marker_weights(double exponent, uintptr_t* marker_exclude, uintptr_t marker_ct, int32_t* ll_cts, int32_t* lh_cts, int32_t* hh_cts, double* marker_weights) {
@@ -3548,8 +3577,8 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t* marker_exclud
   return retval;
 }
 
-static inline uint32_t are_marker_pos_needed(uint64_t calculation_type) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL));
+static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, uint32_t min_bp_space) {
+  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL)) || min_bp_space;
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, Two_col_params* update_cm) {
@@ -3595,7 +3624,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t* founder_info = NULL;
   uintptr_t* sex_nm = NULL;
   uintptr_t* sex_male = NULL;
-  uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type);
+  uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type, min_bp_space);
   uint32_t marker_cms_needed = are_marker_cms_needed(calculation_type, update_cm);
   uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname);
   uint32_t uii = 0;
@@ -4314,6 +4343,13 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   if ((min_maf != 0.0) || (max_maf != 0.5)) {
     enforce_maf_threshold(min_maf, max_maf, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, set_allele_freqs);
+  }
+  if (min_bp_space) {
+    if (map_is_unsorted & (UNSORTED_BP | UNSORTED_SPLIT_CHROM)) {
+      logprint("Error: --bp-space requires a sorted .bim file.\n");
+      goto wdist_ret_INVALID_FORMAT;
+    }
+    enforce_min_bp_space(min_bp_space, unfiltered_marker_ct, marker_exclude, marker_pos, &marker_exclude_ct, chrom_info_ptr);
   }
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   if (marker_ct == 0) {
@@ -9615,8 +9651,15 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if ((sscanf(argv[cur_arg + 1], "%lg", &thin_keep_prob) != 1) || (thin_keep_prob < (0.5 / 4294967296.0)) || (thin_keep_prob >= (4294967295.5 / 4294967296.0))) {
+	if (sscanf(argv[cur_arg + 1], "%lg", &thin_keep_prob) != 1) {
 	  sprintf(logbuf, "Error: Invalid --thin marker retention probability '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (thin_keep_prob < (0.5 / 4294967296.0)) {
+	  sprintf(logbuf, "Error: --thin marker retention probability too small.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (thin_keep_prob >= (4294967295.5 / 4294967296.0)) {
+	  sprintf(logbuf, "Error: --thin marker retention probability too large.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
       } else {
