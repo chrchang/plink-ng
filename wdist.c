@@ -3604,7 +3604,7 @@ inline int32_t distance_wt_req(uint64_t calculation_type) {
   return ((calculation_type & CALC_DISTANCE) || ((!(calculation_type & CALC_LOAD_DISTANCES)) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))));
 }
 
-int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, char* read_genome_fname, char* cluster_match_fname, char* cluster_match_type_fname, char* cluster_qmatch_fname, char* cluster_qt_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filterval, double thin_keep_prob, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t rel_calc_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uintptr_t regress_rel_iters, uint32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t genome_modifier, uint32_t homozyg_modifier, uint32_t homozyg_min_snp, uint32_t homozyg_min_bases, double homozyg_max_bases_per_snp, uint32_t homozyg_max_gap, uint32_t homozyg_max_hets, uint32_t homozyg_window_size, uint32_t homozyg_window_max_hets, uint32_t homozyg_window_max_missing, double homozyg_hit_threshold, double homozyg_overlap_min, uint32_t homozyg_pool_size_min, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, uint32_t regress_pcs_modifier, uint32_t max_pcs, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t write_covar_modifier, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, uint32_t cluster_modifier, double cluster_ppc, uint32_t cluster_max_size, uint32_t cluster_max_cases, uint32_t cluster_max_controls, uint32_t cluster_min_ct, double cluster_max_missing_discordance, uint32_t cluster_mds_dim_ct, uint32_t cluster_neighbor_n1, uint32_t cluster_neighbor_n2, Ll_str** file_delete_list_ptr) {
+int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* loaddistname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* cluster_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, char* read_genome_fname, char* cluster_match_fname, char* cluster_match_type_fname, char* cluster_qmatch_fname, char* cluster_qt_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filterval, double thin_keep_prob, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t rel_calc_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uintptr_t regress_rel_iters, uint32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t genome_modifier, Homozyg_info* homozyg_ptr, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, uint32_t regress_pcs_modifier, uint32_t max_pcs, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t write_covar_modifier, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, uint32_t cluster_modifier, double cluster_ppc, uint32_t cluster_max_size, uint32_t cluster_max_cases, uint32_t cluster_max_controls, uint32_t cluster_min_ct, double cluster_max_missing_discordance, uint32_t cluster_mds_dim_ct, uint32_t cluster_neighbor_n1, uint32_t cluster_neighbor_n2, Ll_str** file_delete_list_ptr) {
   FILE* bedfile = NULL;
   FILE* famfile = NULL;
   FILE* phenofile = NULL;
@@ -5179,18 +5179,6 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t* rseeds = NULL;
   uint32_t rseed_ct = 0;
   uint32_t genome_modifier = 0;
-  uint32_t homozyg_modifier = 0;
-  uint32_t homozyg_min_snp = 0;
-  uint32_t homozyg_min_bases = 0;
-  double homozyg_max_bases_per_snp = INFINITY;
-  uint32_t homozyg_max_gap = 0x7fffffff;
-  uint32_t homozyg_max_hets = 0x7fffffff;
-  uint32_t homozyg_window_size = 50;
-  uint32_t homozyg_window_max_hets = 1;
-  uint32_t homozyg_window_max_missing = 5;
-  double homozyg_hit_threshold = 0.05;
-  double homozyg_overlap_min = 0.95;
-  uint32_t homozyg_pool_size_min = 2;
   FILE* scriptfile = NULL;
   uint32_t ld_window_size = 0;
   uint32_t ld_window_incr = 0;
@@ -5320,6 +5308,7 @@ int32_t main(int32_t argc, char** argv) {
   int32_t num_params;
   int32_t in_param;
   Chrom_info chrom_info;
+  Homozyg_info homozyg;
   char* argptr2;
   char* flagptr;
   uint32_t snps_flag_max_len;
@@ -5334,6 +5323,7 @@ int32_t main(int32_t argc, char** argv) {
   MEMORYSTATUSEX memstatus;
   DWORD windows_dw; // why the f*** does uint32_t not work?
 #endif
+  homozyg_init(&homozyg);
   for (ii = 1; ii < argc; ii++) {
     if ((!memcmp("-script", argv[ii], 8)) || (!memcmp("--script", argv[ii], 9))) {
       jj = param_count(argc, argv, ii);
@@ -6972,6 +6962,11 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	logprint("Note: --cnv-write-freq flag deprecated.  Use '--cnv-write freq'.\n");
 	cnv_calc_type |= CNV_WRITE_FREQ;
+      } else if (!memcmp(argptr2, "onsensus-match", 15)) {
+	UNSTABLE;
+        logprint("Note: --consensus-match flag deprecated.  Use '--homozyg consensus-match'.\n");
+	homozyg.modifier |= HOMOZYG_CONSENSUS_MATCH;
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -7622,6 +7617,207 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "ardy2", 6)) {
 	sprintf(logbuf, "Error: --hardy2 retired.  Use the exact test-based --hardy report.%s", errstr_append);
 	goto main_ret_INVALID_CMDLINE_3;
+      } else if (!memcmp(argptr2, "omozyg", 7)) {
+	UNSTABLE;
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if (!memcmp(argv[cur_arg + uii], "group", 6)) {
+	    if (homozyg.modifier & HOMOZYG_GROUP_VERBOSE) {
+	      logprint("Error: --homozyg 'group' and 'group-verbose' modifiers cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    homozyg.modifier |= HOMOZYG_GROUP;
+	  } else if (!memcmp(argv[cur_arg + uii], "group-verbose", 14)) {
+	    if (homozyg.modifier & HOMOZYG_GROUP) {
+	      logprint("Error: --homozyg 'group' and 'group-verbose' modifiers cannot be used together.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    homozyg.modifier |= HOMOZYG_GROUP_VERBOSE;
+	  } else if (!memcmp(argv[cur_arg + uii], "consensus-match", 16)) {
+	    homozyg.modifier |= HOMOZYG_CONSENSUS_MATCH;
+	  } else if (!memcmp(argv[cur_arg + uii], "include-missing", 16)) {
+	    homozyg.modifier |= HOMOZYG_INCLUDE_MISSING;
+	  } else {
+	    sprintf(logbuf, "Error: Invalid --homozyg parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	}
+	calculation_type |= CALC_HOMOZYG;
+      } else if (!memcmp(argptr2, "omozyg-snp", 11)) {
+        UNSTABLE;
+        if (!(calculation_type & CALC_HOMOZYG)) {
+	  logprint("Error: --homozyg-snp must be used with --homozyg.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 2) {
+	  sprintf(logbuf, "Error: Invalid --homozyg-snp parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	homozyg.min_snp = ii;
+      } else if (!memcmp(argptr2, "omozyg-kb", 10)) {
+	UNSTABLE;
+        if (!(calculation_type & CALC_HOMOZYG)) {
+	  logprint("Error: --homozyg-snp must be used with --homozyg.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx < EPSILON) || (dxx >= (2147483.647 + EPSILON))) {
+	  sprintf(logbuf, "Error: Invalid --homozyg-kb parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	// round up
+	homozyg.min_bases = 1 + (uint32_t)((int32_t)(dxx - EPSILON));
+      } else if (!memcmp(argptr2, "omozyg-density", 15)) {
+	UNSTABLE;
+        if (!(calculation_type & CALC_HOMOZYG)) {
+	  logprint("Error: --homozyg-density must be used with --homozyg.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx <= 0.0) || (dxx >= 2147483.647)) {
+	  sprintf(logbuf, "Error: Invalid --homozyg-density parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	homozyg.max_bases_per_snp = dxx * 1000 + SMALLISH_EPSILON;
+      } else if (!memcmp(argptr2, "omozyg-gap", 11)) {
+	UNSTABLE;
+        if (!(calculation_type & CALC_HOMOZYG)) {
+	  logprint("Error: --homozyg-gap must be used with --homozyg.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx < 0.001) || (dxx >= 2147483.647)) {
+	  sprintf(logbuf, "Error: Invalid --homozyg-gap parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	homozyg.max_gap = ((int32_t)(dxx * 1000 + EPSILON));
+      } else if (!memcmp(argptr2, "omozyg-het", 11)) {
+	UNSTABLE;
+        if (!(calculation_type & CALC_HOMOZYG)) {
+	  logprint("Error: --homozyg-het must be used with --homozyg.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (atoiz(argv[cur_arg + 1], &ii) || (ii < 0)) {
+	  sprintf(logbuf, "Error: Invalid --homozyg-het parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	homozyg.max_hets = ii;
+      } else if (!memcmp(argptr2, "omozyg-window-snp", 18)) {
+	UNSTABLE;
+        if (!(calculation_type & CALC_HOMOZYG)) {
+	  logprint("Error: --homozyg-window-snp must be used with --homozyg.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 2) {
+	  sprintf(logbuf, "Error: Invalid --homozyg-window-snp parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	homozyg.window_size = ii;
+      } else if (!memcmp(argptr2, "omozyg-window-het", 18)) {
+	UNSTABLE;
+        if (!(calculation_type & CALC_HOMOZYG)) {
+	  logprint("Error: --homozyg-window-het must be used with --homozyg.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (atoiz(argv[cur_arg + 1], &ii) || (ii < 0)) {
+	  sprintf(logbuf, "Error: Invalid --homozyg-window-het parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	homozyg.window_max_hets = ii;
+      } else if (!memcmp(argptr2, "omozyg-window-missing", 22)) {
+	UNSTABLE;
+        if (!(calculation_type & CALC_HOMOZYG)) {
+	  logprint("Error: --homozyg-window-missing must be used with --homozyg.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (atoiz(argv[cur_arg + 1], &ii) || (ii < 0)) {
+	  sprintf(logbuf, "Error: Invalid --homozyg-window-missing parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	homozyg.window_max_missing = ii;
+      } else if (!memcmp(argptr2, "omozyg-window-threshold", 24)) {
+	UNSTABLE;
+        if (!(calculation_type & CALC_HOMOZYG)) {
+	  logprint("Error: --homozyg-window-threshold must be used with --homozyg.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx <= 0.0) || (dxx > 1.0)) {
+	  sprintf(logbuf, "Error: Invalid --homozyg-window-threshold parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	homozyg.hit_threshold = dxx;
+      } else if (!memcmp(argptr2, "omozyg-match", 13)) {
+	if (!(homozyg.modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE))) {
+	  logprint("Error: --homozyg-match must be used with --homozyg group[-verbose].\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx <= 0.0) || (dxx > 1.0)) {
+	  sprintf(logbuf, "Error: Invalid --homozyg-match parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	homozyg.overlap_min = dxx;
+      } else if (!memcmp(argptr2, "omozyg-group", 13)) {
+	UNSTABLE;
+	if (!(calculation_type & CALC_HOMOZYG)) {
+	  logprint("Error: --homozyg-group must be used with --homozyg.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (homozyg.modifier & HOMOZYG_GROUP_VERBOSE) {
+	  logprint("Note: --homozyg-group deprecated, and superseded by --homozyg group-verbose.\n");
+	} else {
+	  logprint("Note: --homozyg-group flag deprecated.  Use '--homozyg group'.\n");
+	  homozyg.modifier |= HOMOZYG_GROUP;
+	}
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "omozyg-verbose", 15)) {
+	UNSTABLE;
+	if (!(homozyg.modifier & HOMOZYG_GROUP)) {
+	  logprint("Error: --homozyg-verbose must be used with --homozyg group.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	logprint("Note: --homozyg-verbose flag deprecated.  Use '--homozyg group-verbose'.\n");
+	homozyg.modifier = (homozyg.modifier & (~HOMOZYG_GROUP)) | HOMOZYG_GROUP_VERBOSE;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "omozyg-include-missing", 23)) {
+	UNSTABLE;
+	if (!(calculation_type & CALC_HOMOZYG)) {
+	  logprint("Error: --homozyg-include-missing flag must be used with --homozyg.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        logprint("Note: --homozyg-include-missing deprecated.  Use '--homozyg include-missing'.\n");
+	homozyg.modifier |= HOMOZYG_INCLUDE_MISSING;
+        goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8783,6 +8979,21 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         cluster_ppc = dxx;
+      } else if (!memcmp(argptr2, "ool-size", 9)) {
+	UNSTABLE;
+	if (!(homozyg.modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE))) {
+          logprint("Error: --pool-size must be used with --homozyg group[-verbose].\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 2) {
+	  sprintf(logbuf, "Error: Invalid --pool-size parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	homozyg.pool_size_min = ii;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8924,6 +9135,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_REGRESS_REL;
       } else if (!memcmp(argptr2, "egress-pcs", 11)) {
+	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 5)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9673,6 +9885,7 @@ int32_t main(int32_t argc, char** argv) {
         sprintf(logbuf, "Error: --unrelated-heritability requires WDIST to be built with LAPACK.\n");
 	goto main_ret_INVALID_CMDLINE_3;
 #else
+	UNSTABLE;
 	if (rel_calc_type & REL_CALC_COV) {
 	  sprintf(logbuf, "Error: --unrelated-heritability flag cannot coexist with a covariance\nmatrix calculation.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10230,7 +10443,7 @@ int32_t main(int32_t argc, char** argv) {
     } else if (!ibc_type) {
       ibc_type = 1;
     }
-    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, update_alleles_fname, read_genome_fname, cluster_match_fname, cluster_match_type_fname, cluster_qmatch_fname, cluster_qt_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filterval, thin_keep_prob, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_bottom, tail_top, misc_flags, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, sex_missing_pheno, genome_modifier, homozyg_modifier, homozyg_min_snp, homozyg_min_bases, homozyg_max_bases_per_snp, homozyg_max_gap, homozyg_max_hets, homozyg_window_size, homozyg_window_max_hets, homozyg_window_max_missing, homozyg_hit_threshold, homozyg_overlap_min, homozyg_pool_size_min, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, regress_pcs_modifier, max_pcs, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, covar_modifier, covar_str, mcovar_col, write_covar_modifier, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, ibs_test_perms, perm_batch_size, cluster_modifier, cluster_ppc, cluster_max_size, cluster_max_cases, cluster_max_controls, cluster_min_ct, cluster_max_missing_discordance, cluster_mds_dim_ct, cluster_neighbor_n1, cluster_neighbor_n2, &file_delete_list);
+    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, loaddistname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, cluster_fname, set_fname, subset_fname, update_alleles_fname, read_genome_fname, cluster_match_fname, cluster_match_type_fname, cluster_qmatch_fname, cluster_qt_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filterval, thin_keep_prob, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_bottom, tail_top, misc_flags, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, sex_missing_pheno, genome_modifier, &homozyg, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, regress_pcs_modifier, max_pcs, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, covar_modifier, covar_str, mcovar_col, write_covar_modifier, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, ibs_test_perms, perm_batch_size, cluster_modifier, cluster_ppc, cluster_max_size, cluster_max_cases, cluster_max_controls, cluster_min_ct, cluster_max_missing_discordance, cluster_mds_dim_ct, cluster_neighbor_n1, cluster_neighbor_n2, &file_delete_list);
   }
  main_ret_2:
   free(wkspace_ua);
@@ -10267,7 +10480,7 @@ int32_t main(int32_t argc, char** argv) {
 #ifdef STABLE_BUILD
     break;
   main_unstable_disabled:
-    logprint("Error: This flag's implementation is unfinished.  If you still wish to test it,\nuse the latest development build.\n");
+    logprint("Error: This flag's implementation is unfinished or unstable.  If you wish to\ntest it, use the latest development build.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
 #endif
   }

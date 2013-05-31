@@ -619,6 +619,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    guaranteeing optimality.  (Use the --make-rel and --keep/--remove flags if\n"
 "    you want to try to do better.)\n\n"
 	       );
+#ifndef STABLE_BUILD
     help_print("regress-pcs\tregress-pcs-distance", &help_ctrl, 1,
 "  --regress-pcs [.evec or .eigenvec filename] <normalize-pheno> <sex-specific>\n"
 "                <clip> {max PCs}\n"
@@ -634,6 +635,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * By default, principal components beyond the 20th are ignored; change this\n"
 "      by setting the max PCs parameter.\n\n"
       );
+#endif
     help_print("regress-distance", &help_ctrl, 1,
 "  --regress-distance {iters} {d}\n"
 "    Linear regression of pairwise genomic distances on pairwise average\n"
@@ -669,6 +671,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    --groupdist focuses on the differences between the centers of these\n"
 "    distributions and estimates standard errors via delete-d jackknife.\n\n"
 	       );
+#ifndef STABLE_BUILD
 #ifndef NOLAPACK
     help_print("unrelated-heritability", &help_ctrl, 1,
 "  --unrelated-heritability <strict> {tol} {initial covg} {initial covr}\n"
@@ -683,7 +686,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
 	       );
 #endif
-#ifndef STABLE_BUILD
     help_print("cnv-make-map", &help_ctrl, 1,
 "  --cnv-make-map <short>\n"
 "    Given a .cnv file, this generates the corresponding .cnv.map file needed\n"
@@ -996,6 +998,26 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     500 if unspecified.\n"
 	       );
 #ifndef STABLE_BUILD
+    help_print("homozyg\thomozyg-snp\thomozyg-kb\thomozyg-density\thomozyg-gap\thomozyg-het", &help_ctrl, 0,
+"  --homozyg-snp [ct]    : Set min. SNP count in reported runs of homozygosity.\n"
+"  --homozyg-kb [kbs]    : Set min. length (in kbs) in reported ROH.\n"
+"  --homozyg-density [x] : Set max. INVERSE density (kb/SNP) in reported ROH.\n"
+"  --homozyg-gap [kbs]   : Set max. internal gap length in reported ROH.\n"
+"  --homozyg-het [ct]    : Set max. heterozygous call count in reported ROH.\n"
+	       );
+    help_print("homozyg\thomozyg-window-snp\thomozyg-window-het\thomozyg-window-missing\thomozyg-window-threshold", &help_ctrl, 0,
+"  --homozyg-window-snp [ct]      : Set size (in SNPs; default 50) of --homozyg\n"
+"                                   scanning window.\n"
+"  --homozyg-window-het [ct]      : Set max. het count (default 1) in scan hit.\n"
+"  --homozyg-window-missing [ct]  : Set max. missing ct (default 5) in scan hit.\n"
+"  --homozyg-window-threshold [x] : Set minimum hit rate (default 0.05) for a\n"
+"                                   SNP to be considered for inclusion in a ROH.\n"
+	       );
+    help_print("homozyg\thomozyg-match\tpool-size", &help_ctrl, 0,
+"  --homozyg-match [x] : Set min. allelic match rate for inclusion in the same\n"
+"                        '--homozyg group' segment pool.\n"
+"  --pool-size [ct]    : Set min. size of pools in '--homozyg group' report.\n"
+	       );
     help_print("read-genome\tcluster", &help_ctrl, 0,
 "  --read-genome [f] : Load a --genome report for --cluster, instead of\n"
 "                      recalculating from scratch.\n"
