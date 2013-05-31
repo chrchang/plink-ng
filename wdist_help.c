@@ -414,13 +414,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * If a line contains exactly three names, they are assumed to be the full\n"
 "      filenames for a binary fileset (.bed, then .bim, then .fam).\n\n"
 	       );
-    help_print("write-snplist\tlist-indels", &help_ctrl, 1,
+    help_print("write-snplist\tlist-23-indels", &help_ctrl, 1,
 "  --write-snplist\n"
-"  --list-indels\n"
+"  --list-23-indels\n"
 "    --write-snplist writes a .snplist file listing the names of all markers\n"
 "    that pass the filters and inclusion thresholds you've specified, while\n"
-"    --list-indels writes the subset with 23andMe-style indel calls (I/D allele\n"
-"    codes).\n\n"
+"    --list-23-indels writes the subset with 23andMe-style indel calls (I/D\n"
+"    allele codes).\n\n"
 	       );
     help_print("freq\tfreqx\tfrqx\tcounts", &help_ctrl, 1,
 "  --freq <counts>\n"

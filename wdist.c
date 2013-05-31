@@ -3516,14 +3516,14 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   return 0;
 }
 
-int32_t write_snplist(char* outname, char* outname_end, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, uint32_t list_indels) {
+int32_t write_snplist(char* outname, char* outname_end, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, uint32_t list_23_indels) {
   FILE* outfile;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
   int32_t retval = 0;
   char cc;
   char cc2;
-  if (!list_indels) {
+  if (!list_23_indels) {
     memcpy(outname_end, ".snplist", 9);
   } else {
     memcpy(outname_end, ".indel", 7);
@@ -3531,7 +3531,7 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t* marker_exclud
   if (fopen_checked(&outfile, outname, "w")) {
     goto write_snplist_ret_OPEN_FAIL;
   }
-  if (!list_indels) {
+  if (!list_23_indels) {
     for (; marker_idx < marker_ct; marker_idx++) {
       marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
       if (fprintf(outfile, "%s\n", &(marker_ids[marker_uidx * max_marker_id_len])) < 0) {
@@ -3563,7 +3563,7 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t* marker_exclud
   if (fclose_null(&outfile)) {
     goto write_snplist_ret_WRITE_FAIL;
   }
-  sprintf(logbuf, "List of %smarker IDs written to %s.\n", list_indels? "indel " : "" , outname);
+  sprintf(logbuf, "List of %smarker IDs written to %s.\n", list_23_indels? "indel " : "" , outname);
   logprintb();
   while (0) {
   write_snplist_ret_OPEN_FAIL:
@@ -3593,7 +3593,7 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, Two_col_
 }
 
 static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_LIST_INDELS)));
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_LIST_23_INDELS)));
 }
 
 inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -4384,7 +4384,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  if (calculation_type & CALC_LIST_INDELS) {
+  if (calculation_type & CALC_LIST_23_INDELS) {
     retval = write_snplist(outname, outname_end, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, 1);
     if (retval) {
       goto wdist_ret_1;
@@ -5934,7 +5934,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  retval = alloc_fname(&convert_xy_23, argv[cur_arg + 1], argptr, 0);
-	  if (!retval) {
+	  if (retval) {
 	    goto main_ret_1;
 	  }
 	} else if (modifier_23 & M23_FEMALE) {
@@ -6335,7 +6335,7 @@ int32_t main(int32_t argc, char** argv) {
 	retval = RET_CALC_NOT_YET_SUPPORTED;
 	goto main_ret_1;
 	retval = alloc_fname(&covar_fname, argv[cur_arg + 1], argptr, 0);
-	if (!retval) {
+	if (retval) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "ovar-name", 10)) {
@@ -8048,8 +8048,8 @@ int32_t main(int32_t argc, char** argv) {
 	  adjust_lambda = 1;
 	}
 	mtest_adjust |= ADJUST_LAMBDA;
-      } else if (!memcmp(argptr2, "ist-indels", 11)) {
-        calculation_type |= CALC_LIST_INDELS;
+      } else if (!memcmp(argptr2, "ist-23-indels", 14)) {
+        calculation_type |= CALC_LIST_23_INDELS;
       } else {
         goto main_ret_INVALID_CMDLINE_2;
       }

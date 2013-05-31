@@ -5923,15 +5923,20 @@ void announce_make_xylist_complete(uint32_t markers_left, char* outname, char* o
   logprintb();
 }
 
-uint32_t write_23_chrom_xy(char* new_xy_buf, uint32_t markers_left, FILE* outfile_bed, FILE* outfile_bim) {
+uint32_t write_23_cached_chrom(char* write_cache, uint32_t markers_left, char chrom_second_char, FILE* outfile_bed, FILE* outfile_bim) {
+  // N.B. must flush writebuf before calling this
   uint32_t uii;
   do {
-    uii = strlen(new_xy_buf);
-    if (fwrite_checked(new_xy_buf, uii, outfile_bim)) {
+    uii = strlen(write_cache);
+    if (putc('2', outfile_bim) == EOF) {
       return 1;
     }
-    new_xy_buf = &(new_xy_buf[uii + 1]);
-    if (putc(*new_xy_buf++, outfile_bed) == EOF) {
+    putc(chrom_second_char, outfile_bim);
+    if (fwrite_checked(write_cache, uii, outfile_bim)) {
+      return 1;
+    }
+    write_cache = &(write_cache[uii + 1]);
+    if (putc(*write_cache++, outfile_bed) == EOF) {
       return 1;
     }
   } while (--markers_left);
@@ -5967,11 +5972,13 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   uint32_t keep_xy = ((uint32_t)(chrom_mask >> 25)) & 1;
   uint32_t indel_ct = 0;
   uint32_t xy_marker_ct = 0;
+  uint32_t mid_x_marker_ct = 0;
   unsigned char* writebuf_cur;
   unsigned char* writebuf_end;
   char* new_xy_buf;
   char* new_xy_buf_cur;
   char* new_xy_buf_end;
+  char* last_early_xy;
   char* id_start;
   char* chrom_start;
   char* pos_start;
@@ -6031,6 +6038,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   }
   new_xy_buf = (char*)wkspace_base;
   new_xy_buf_cur = new_xy_buf;
+  last_early_xy = new_xy_buf;
   new_xy_buf_end = (char*)(&(wkspace_base[wkspace_left - MAXLINELEN]));
   writebuf_cur = (unsigned char*)memcpyl3a((char*)writebuf, "l\x1b\x01");
   writebuf_end = &(writebuf[MAXLINELEN]);
@@ -6052,7 +6060,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     pos_start = next_item(chrom_start);
     allele_start = next_item(pos_start);
     if (no_more_items_kns(allele_start)) {
-      logprint("Error: Fewer items than expected in --23file line.\n");
+      logprint("Error: Fewer entries than expected in --23file line.\n");
       goto bed_from_23_ret_INVALID_FORMAT;
     }
     allele_calls = strlen_se(allele_start);
@@ -6096,7 +6104,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
 	  announce_make_xylist_complete(xy_marker_ct, outname, outname_end);
 	}
 	if (do_convert_xy) {
-	  if (write_23_chrom_xy(new_xy_buf, xy_marker_ct, outfile_bed, outfile_txt)) {
+          if (write_23_cached_chrom(new_xy_buf, xy_marker_ct, '5', outfile_bed, outfile_txt)) {
 	    goto bed_from_23_ret_WRITE_FAIL;
 	  }
 	}
@@ -6106,9 +6114,51 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     cc2 = allele_start[0];
     if ((cur_chrom == 23) && (!is_xy) && (do_convert_xy || make_xylist)) {
       if (xylist) {
-	id_start[id_len] = '\0';
-        if (bsearch_str(id_start, xylist, xylist_max_id_len, 0, xylist_ct - 1) != -1) {
+	// This should be robust to changes in the 23andMe marker set.
+	// Strategy: We actually only care about the end of the beginning, and
+	// the beginning of the end.  So we just look for the last hit in the
+	// first half or so of the chromosome, and the first hit in the last
+	// half.  While the precise bp length of the X chromosome varies
+	// between reference builds, position 77000000 should be safely in the
+	// middle.
+	if (!last_early_xy) {
+	  // already saw "first hit in last half", also count this as XY even
+	  // if it's not explicitly listed
 	  is_xy = 1;
+	} else {
+	  id_start[id_len] = '\0';
+	  if (bsearch_str(id_start, xylist, xylist_max_id_len, 0, xylist_ct - 1) != -1) {
+	    if (atoiz(pos_start, &ii) || (ii < 0)) {
+	      pos_start[strlen_se(pos_start)] = '\0';
+	      sprintf(logbuf, "Error: Invalid --23file marker position '%s'.\n", pos_start);
+	      goto bed_from_23_ret_INVALID_FORMAT;
+	    }
+	    if (((uint32_t)ii) > 77000000) {
+	      if (mid_x_marker_ct) {
+		if (xy_marker_ct) {
+		  last_early_xy = &(last_early_xy[strlen(last_early_xy) + 2]);
+		}
+		if (writebuf_cur != writebuf) {
+		  if (fwrite_checked(writebuf, (uintptr_t)(writebuf_cur - writebuf), outfile_bed)) {
+		    goto bed_from_23_ret_WRITE_FAIL;
+		  }
+		  writebuf_cur = writebuf;
+		}
+		if (write_23_cached_chrom(last_early_xy, mid_x_marker_ct, '3', outfile_bed, outfile_txt)) {
+		  goto bed_from_23_ret_WRITE_FAIL;
+		}
+	      }
+	      new_xy_buf_cur = last_early_xy;
+	      last_early_xy = NULL;
+	    } else {
+	      last_early_xy = new_xy_buf_cur;
+	      xy_marker_ct += mid_x_marker_ct;
+	      mid_x_marker_ct = 0;
+	    }
+	    is_xy = 1;
+	  } else if (last_early_xy) {
+	    mid_x_marker_ct++;
+	  }
 	}
       } else if (cc2 == '-') {
 	// status quo
@@ -6175,8 +6225,8 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
       }
       xy_marker_ct++;
     }
-    if (is_xy && do_convert_xy) {
-      new_xy_buf_cur = memcpyl3a(new_xy_buf_cur, "25\t");
+    if (do_convert_xy && (cur_chrom == 23) && (xylist || is_xy)) {
+      *new_xy_buf_cur++ = '\t';
       new_xy_buf_cur = memcpya(new_xy_buf_cur, id_start, id_len);
       new_xy_buf_cur = memcpyl3a(new_xy_buf_cur, "\t0\t");
       new_xy_buf_cur = memcpyax(new_xy_buf_cur, pos_start, strlen_se(pos_start), '\t');
@@ -6242,7 +6292,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   }
   if (xy_marker_ct && (!xychrom_written)) {
     if (do_convert_xy) {
-      if (write_23_chrom_xy(new_xy_buf_cur, xy_marker_ct, outfile_bed, outfile_txt)) {
+      if (write_23_cached_chrom(new_xy_buf_cur, xy_marker_ct, '5', outfile_bed, outfile_txt)) {
 	goto bed_from_23_ret_WRITE_FAIL;
       }
     }
@@ -6301,7 +6351,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   sprintf(logbuf, "--23file: binary fileset written to %s.bed + .bim + .fam.\n", outname);
   logprintb();
   if (indel_ct) {
-    sprintf(logbuf, "%u markers with indel calls present.  --list-indels may be useful here.\n", indel_ct);
+    sprintf(logbuf, "%u markers with indel calls present.  --list-23-indels may be useful here.\n", indel_ct);
     logprintb();
   }
   if (!(modifier_23 & M23_SEX)) {
@@ -7754,6 +7804,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uint32_t bed_offset, FIL
   uint32_t vcf_not_fid = (recode_modifier & RECODE_VCF) && (!(recode_modifier & RECODE_FID));
   uint32_t vcf_not_iid = (recode_modifier & RECODE_VCF) && (!(recode_modifier & RECODE_IID));
   uint32_t vcf_two_ids = vcf_not_fid && vcf_not_iid;
+  uint32_t xmhh_exists_orig = xmhh_exists;
   int32_t retval = 0;
   uint32_t recode_compound;
   time_t rawtime;
@@ -8272,8 +8323,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uint32_t bed_offset, FIL
     chrom_print_human_terminate(writebuf, chrom_idx);
     indiv_uidx = next_non_set_unsafe(indiv_exclude, 0);
     ulii = is_set(sex_male, indiv_uidx);
-    // May want to add special handling of X/XY, depending on what our pipeline
-    // generates.
+    ucc2 = ((chrom_idx == 24) || (chrom_idx == 26) || (ulii && (chrom_idx == 23) && (!xmhh_exists_orig)))? 1 : 0;
+    // todo: add a way to use output of --23file-make-xylist
     for (; marker_idx < marker_ct; marker_idx++) {
       if (is_set(marker_exclude, marker_uidx)) {
         marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
@@ -8286,6 +8337,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uint32_t bed_offset, FIL
 	refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
 	chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	chrom_print_human_terminate(writebuf, chrom_idx);
+	ucc2 = ((chrom_idx == 24) || (chrom_idx == 26) || (ulii && (chrom_idx == 23) && (!xmhh_exists_orig)))? 1 : 0;
       }
 
       if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
@@ -8326,7 +8378,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uint32_t bed_offset, FIL
 	writebuf[3] = *cur_mk_alleles;
 	writebuf[4] = *cur_mk_alleles;
       }
-      if (((chrom_idx == 24) || (chrom_idx == 26)) && (ucc != 1)) {
+      if (ucc2 && (ucc != 1)) {
 	if (fprintf(outfile, "%s\t%s\t%u\t%c\n", &(marker_ids[marker_uidx * max_marker_id_len]), writebuf, marker_pos[marker_uidx], writebuf[3]) < 0) {
 	  goto recode_ret_WRITE_FAIL;
 	}
