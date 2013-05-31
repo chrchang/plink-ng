@@ -572,6 +572,27 @@ char* resize_id_buf(char* id_buf, int32_t max_id_len, int32_t max_pid_len) {
   return (char*)malloc(max_id_len * sizeof(char));
 }
 
+void random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr) {
+  uintptr_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
+  uint32_t marker_uidx = 0;
+  uint32_t thinned_ct = 0;
+  uint32_t uint32_thresh;
+  uint32_t marker_idx;
+  uint32_thresh = (uint32_t)(thin_keep_prob * 4294967296.0 + 0.5);
+  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+    if (sfmt_genrand_uint32(&sfmt) >= uint32_thresh) {
+      set_bit_noct(marker_exclude, marker_uidx);
+      thinned_ct++;
+    }
+    marker_uidx++;
+  }
+  sprintf(logbuf, "--thin: %u/%" PRIuPTR " marker%s removed.\n", thinned_ct, marker_ct, (marker_ct == 1)? "" : "s");
+  logprintb();
+  *marker_exclude_ct_ptr += thinned_ct;
+}
+
+
 double calc_wt_mean(double exponent, int32_t lhi, int32_t lli, int32_t hhi) {
   double lcount = (double)lli + ((double)lhi * 0.5);
   int64_t tot = lhi + lli + hhi;
@@ -600,8 +621,6 @@ double calc_wt_mean_maf(double exponent, double maf) {
   weight = pow(lh_freq, -exponent);
   return (lh_freq * (ll_freq + lh_freq) + 2 * ll_freq * hh_freq) * weight;
 }
-
-
 
 // The following functions may come in handy if we need to store large array(s)
 // of auxiliary ternary data in memory.
@@ -4069,6 +4088,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     }
     wkspace_reset(wkspace_mark);
+  }
+  if (thin_keep_prob != 1.0) {
+    random_thin_markers(thin_keep_prob, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
   }
 
   if (gender_unk_ct && (calculation_type & (CALC_MAKE_BED | CALC_RECODE)) && (!sex_missing_pheno)) {
@@ -9593,7 +9615,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if ((sscanf(argv[cur_arg + 1], "%lg", &thin_keep_prob) != 1) || (thin_keep_prob <= 0.0) || (thin_keep_prob >= 1.0)) {
+	if ((sscanf(argv[cur_arg + 1], "%lg", &thin_keep_prob) != 1) || (thin_keep_prob < (0.5 / 4294967296.0)) || (thin_keep_prob >= (4294967295.5 / 4294967296.0))) {
 	  sprintf(logbuf, "Error: Invalid --thin marker retention probability '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
