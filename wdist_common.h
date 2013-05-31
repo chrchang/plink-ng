@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #ifdef STABLE_BUILD
 #define UNSTABLE goto main_unstable_disabled
@@ -1214,6 +1214,8 @@ int32_t bsearch_str_natural(char* id_buf, char* lptr, uintptr_t max_id_len, intp
 void fill_idbuf_fam_indiv(char* id_buf, char* fam_indiv, char fillchar);
 
 int32_t bsearch_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, char* indiv_id);
+
+void bsearch_fam(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, uint32_t* first_idx_ptr, uint32_t* last_idx_ptr);
 
 void bitfield_and(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct);
 

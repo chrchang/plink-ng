@@ -2366,6 +2366,7 @@ uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_leng
 }
 
 uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, double dxx) {
+  // assumes nonempty array
   intptr_t min_idx = 0;
   intptr_t max_idx = arr_length - 1;
   uintptr_t mid_idx;
@@ -2378,6 +2379,26 @@ uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, d
     }
   }
   if (dxx > sorted_dbl_arr[((uintptr_t)min_idx)]) {
+    return (min_idx + 1);
+  } else {
+    return min_idx;
+  }
+}
+
+uintptr_t bsearch_str_lb(char* lptr, uintptr_t arr_length, uintptr_t max_id_len, char* id_buf) {
+  // assumes nonempty array
+  intptr_t min_idx = 0;
+  intptr_t max_idx = arr_length - 1;
+  uintptr_t mid_idx;
+  while (min_idx < max_idx) {
+    mid_idx = (((uintptr_t)min_idx) + ((uintptr_t)max_idx)) / 2;
+    if (strcmp(id_buf, &(lptr[mid_idx * max_id_len])) > 0) {
+      min_idx = mid_idx + 1;
+    } else {
+      max_idx = mid_idx - 1;
+    }
+  }
+  if (strcmp(id_buf, &(lptr[((uintptr_t)min_idx) * max_id_len])) > 0) {
     return (min_idx + 1);
   } else {
     return min_idx;
@@ -2450,6 +2471,37 @@ int32_t bsearch_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uint32
   }
   memcpyx(memcpyax(id_buf, fam_id, uii, '\t'), indiv_id, ujj, '\0');
   return bsearch_str(id_buf, lptr, max_id_len, 0, filter_line_ct - 1);
+}
+
+void bsearch_fam(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, uint32_t* first_idx_ptr, uint32_t* last_idx_ptr) {
+  uint32_t slen;
+  uint32_t fidx;
+  uint32_t loff;
+  if (!filter_line_ct) {
+    goto bsearch_fam_ret_null;
+  }
+  slen = strlen_se(fam_id);
+  if (slen + 3 > max_id_len) {
+    goto bsearch_fam_ret_null;
+  }
+  memcpy(id_buf, fam_id, slen);
+  id_buf[slen] = '\t';
+  id_buf[slen + 1] = '\0';
+  fidx = bsearch_str_lb(lptr, filter_line_ct, max_id_len, id_buf);
+  if (fidx == filter_line_ct) {
+    goto bsearch_fam_ret_null;
+  }
+  id_buf[slen] = ' ';
+  loff = bsearch_str_lb(&(lptr[fidx * max_id_len]), filter_line_ct - fidx, max_id_len, id_buf);
+  if (!loff) {
+    goto bsearch_fam_ret_null;
+  }
+  *first_idx_ptr = fidx;
+  *last_idx_ptr = fidx + loff;
+  return;
+ bsearch_fam_ret_null:
+  *first_idx_ptr = 0;
+  *last_idx_ptr = 0;
 }
 
 int32_t distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, char* outname, char* outname_end, const char* varsuffix, const char* mode, int32_t dist_calc_type, int32_t parallel_idx, int32_t parallel_tot) {

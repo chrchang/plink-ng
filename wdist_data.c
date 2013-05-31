@@ -1927,6 +1927,25 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uintptr_t marker_
   return retval;
 }
 
+const char keep_str[] = "keep";
+const char keep_fam_str[] = "keep-fam";
+const char remove_str[] = "remove";
+const char remove_fam_str[] = "remove-fam";
+
+const char* include_or_exclude_flag_str(uint32_t flags) {
+  switch (flags) {
+  case 2:
+    return keep_str;
+  case 3:
+    return remove_str;
+  case 6:
+    return keep_fam_str;
+  case 7:
+    return remove_fam_str;
+  }
+  return NULL;
+}
+
 int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_len, uintptr_t max_id_len, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t* exclude_ct_ptr, uint32_t flags) {
   FILE* infile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
@@ -1935,11 +1954,14 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
   uintptr_t unfiltered_ctl = (unfiltered_ct + (BITCT - 1)) / BITCT;
   uint32_t do_exclude = flags & 1;
   // flags & 2 = indivs
+  uint32_t families_only = flags & 4;
   char* id_buf;
   char* bufptr0;
   char* bufptr;
   int32_t ii;
-  uint32_t uii;
+  uint32_t unfiltered_idx;
+  uint32_t cur_idx;
+  uint32_t last_idx;
 
   if (!do_exclude) {
     if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(intptr_t))) {
@@ -1957,7 +1979,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
     }
     while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
       if (!tbuf[MAXLINELEN - 1]) {
-	sprintf(logbuf, "Error: Excessively long line in --keep/--remove file (max %d chars).\n", MAXLINELEN - 3);
+	sprintf(logbuf, "Error: Excessively long line in --%s file (max %d chars).\n", include_or_exclude_flag_str(flags), MAXLINELEN - 3);
 	logprintb();
         return RET_INVALID_FORMAT;
       }
@@ -1965,18 +1987,31 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
       if (is_eoln_kns(*bufptr0)) {
 	continue;
       }
-      bufptr = next_item(tbuf);
-      if (no_more_items_kns(bufptr)) {
-	logprint("Error: Improperly formatted --keep/--remove file.\n");
-        return RET_INVALID_FORMAT;
-      }
-      ii = bsearch_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_len, tbuf, bufptr);
-      if (ii != -1) {
-        uii = id_map[ii];
-        if (do_exclude) {
-          set_bit(exclude_arr, uii, exclude_ct_ptr);
-	} else if (!is_set(exclude_arr, uii)) {
-	  clear_bit(exclude_arr_new, uii, &include_ct);
+      if (!families_only) {
+	bufptr = next_item(tbuf);
+	if (no_more_items_kns(bufptr)) {
+	  sprintf(logbuf, "Error: Fewer entries than expected in --%s line.\n", include_or_exclude_flag_str(flags));
+	  logprintb();
+	  return RET_INVALID_FORMAT;
+	}
+	ii = bsearch_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_len, tbuf, bufptr);
+	if (ii != -1) {
+	  unfiltered_idx = id_map[(uint32_t)ii];
+	  if (do_exclude) {
+	    set_bit(exclude_arr, unfiltered_idx, exclude_ct_ptr);
+	  } else if (!is_set(exclude_arr, unfiltered_idx)) {
+	    clear_bit(exclude_arr_new, unfiltered_idx, &include_ct);
+	  }
+	}
+      } else {
+	bsearch_fam(id_buf, sorted_ids, max_id_len, sorted_ids_len, bufptr0, &cur_idx, &last_idx);
+	while (cur_idx < last_idx) {
+	  unfiltered_idx = id_map[cur_idx++];
+	  if (do_exclude) {
+	    set_bit(exclude_arr, unfiltered_idx, exclude_ct_ptr);
+	  } else {
+	    clear_bit(exclude_arr_new, unfiltered_idx, &include_ct);
+	  }
 	}
       }
     }
@@ -1988,11 +2023,11 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
       }
       ii = bsearch_str(tbuf, sorted_ids, max_id_len, 0, sorted_ids_len - 1);
       if (ii != -1) {
-	uii = id_map[ii];
+	unfiltered_idx = id_map[(uint32_t)ii];
 	if (do_exclude) {
-	  set_bit(exclude_arr, uii, exclude_ct_ptr);
-	} else if (!is_set(exclude_arr, uii)) {
-	  clear_bit(exclude_arr_new, uii, &include_ct);
+	  set_bit(exclude_arr, unfiltered_idx, exclude_ct_ptr);
+	} else if (!is_set(exclude_arr, unfiltered_idx)) {
+	  clear_bit(exclude_arr_new, unfiltered_idx, &include_ct);
 	}
       }
     }

@@ -349,10 +349,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     if (!param_ct) {
       fputs(
-"WDIST automatically converts PLINK text filesets to binary during the loading\n"
-"process (the new fileset is saved to {output prefix}.bed + .bim + .fam, unless\n"
-"that would conflict with the output of another command like --make-bed).  You\n"
-"are encouraged to directly use the new binary fileset in future runs.\n\n"
 "Most runs also require at least one of the following commands:\n\n"
 , stdout);
     }
@@ -821,9 +817,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     phenotype.\n"
 	       );
 #endif
-    help_print("keep\tremove", &help_ctrl, 0,
+    help_print("keep\tremove\tkeep-fam\tremove-fam", &help_ctrl, 0,
 "  --keep [fname]   : Exclude all individuals not in the given list.\n"
 "  --remove [fname] : Exclude all individuals in the given list.\n"
+"  --keep-fam [fn]  : Exclude all families not in the given list.\n"
+"  --remove-fam [f] : Exclude all families in the given list.\n"
 	       );
     help_print("extract\texclude", &help_ctrl, 0,
 "  --extract [file] : Exclude all markers not in the given list.\n"
@@ -855,6 +853,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("snps", &help_ctrl, 0,
 "  --snps [IDs...]  : Use IDs to specify multiple marker ranges to load.  E.g.\n"
 "                     '--snps rs1111-rs2222, rs3333, rs4444'.\n"
+	       );
+    help_print("thin", &help_ctrl, 0,
+"  --thin [p]       : Remove markers at random (p = retention probability).\n"
+	       );
+    help_print("bp-space", &help_ctrl, 0,
+"  --bp-space [bps] : Enforce minimum bp distance between markers.\n"
 	       );
     help_print("filter", &help_ctrl, 0,
 "  --filter [f] [v] : Filter individuals based on a phenotype value.\n"
