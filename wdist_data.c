@@ -6121,11 +6121,10 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
 	// half.  While the precise bp length of the X chromosome varies
 	// between reference builds, position 77000000 should be safely in the
 	// middle.
-	if (!last_early_xy) {
-	  // already saw "first hit in last half", also count this as XY even
-	  // if it's not explicitly listed
-	  is_xy = 1;
-	} else {
+	is_xy = 1;
+	// if !last_early_xy, then we already saw "first hit in last half" and
+	// force the marker to be on XY.
+	if (last_early_xy) {
 	  id_start[id_len] = '\0';
 	  if (bsearch_str(id_start, xylist, xylist_max_id_len, 0, xylist_ct - 1) != -1) {
 	    if (atoiz(pos_start, &ii) || (ii < 0)) {
@@ -6154,9 +6153,10 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
 	      last_early_xy = new_xy_buf_cur;
 	      xy_marker_ct += mid_x_marker_ct;
 	      mid_x_marker_ct = 0;
+	      xy_phase = 0;
 	    }
-	    is_xy = 1;
-	  } else if (last_early_xy) {
+	  } else {
+	    is_xy = 0;
 	    mid_x_marker_ct++;
 	  }
 	}
