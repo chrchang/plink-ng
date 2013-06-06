@@ -2143,6 +2143,11 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uint32_t ukk;
   uint32_t* marker_allele_cts;
   double maf;
+  uii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
+  if (wkspace_alloc_ul_checked(marker_reverse_ptr, uii * sizeof(intptr_t))) {
+    goto calc_freqs_and_hwe_ret_NOMEM;
+  }
+  fill_ulong_zero(*marker_reverse_ptr, uii);
   if (wt_needed) {
     if (wkspace_alloc_uc_checked(marker_weights_base_ptr, CACHELINE) ||
         wkspace_alloc_d_checked(marker_weights_ptr, unfiltered_marker_ct * sizeof(double))) {
@@ -2153,11 +2158,6 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       marker_weights[marker_uidx] = -1.0;
     }
   }
-  uii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
-  if (wkspace_alloc_ul_checked(marker_reverse_ptr, uii * sizeof(intptr_t))) {
-    goto calc_freqs_and_hwe_ret_NOMEM;
-  }
-  fill_ulong_zero(*marker_reverse_ptr, uii);
 
   if (!hwe_needed) {
     *hwe_lls_ptr = (int32_t*)wkspace_base;
@@ -3695,6 +3695,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t ulii;
   uintptr_t uljj;
   uint32_t ujj;
+  uint32_t ukk;
   double dxx;
   char* outname_end2;
   uintptr_t marker_ct;
@@ -3996,9 +3997,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: --mcc requires dichotomous phenotype.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
-  } else if (loop_assoc_fname && (!pheno_c)) {
-    logprint("Error: --loop-assoc requires dichotomous phenotype.\n");
-    goto wdist_ret_INVALID_CMDLINE;
   }
 
   if (update_cm || update_map || update_name || (marker_alleles_needed && (update_alleles_fname || (flip_fname && (!flip_subset_fname)))) || extractname || excludename) {
@@ -4374,6 +4372,27 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   wkspace_reset(hwe_lls);
 
+  if (wt_needed) {
+    // N.B. marker_weights now on top of stack
+    wkspace_reset(marker_weights_base);
+    // normalize included marker weights to add to 2^32 - 1.  (switch to
+    // 2^64 - 1 if/when 32-bit performance becomes less important than accuracy
+    // on 50+ million marker sets.)
+    dxx = 0.0;
+    marker_uidx = 0;
+    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+      dxx += marker_weights[marker_uidx++];
+    }
+    dxx = 4294967295.0 / dxx;
+    marker_idx = 0;
+    marker_weights_i = (uint32_t*)wkspace_alloc(marker_idx * sizeof(int32_t));
+    for (marker_uidx = 0; marker_idx < marker_ct; marker_uidx++) {
+      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+      marker_weights_i[marker_idx++] = (uint32_t)(marker_weights[marker_uidx] * dxx + 0.5);
+    }
+  }
+
   sprintf(logbuf, "%" PRIuPTR " marker%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", g_indiv_ct, species_str(g_indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
   logprintb();
 
@@ -4390,7 +4409,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (cluster_ptr->fname) {
-    retval = load_clusters(cluster_ptr->fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, mwithin_col, (misc_flags / MISC_WITHIN_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len);
+    retval = load_clusters(cluster_ptr->fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4460,25 +4479,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   // possibly no more need for marker_ids/marker_alleles, conditional unload to
   // clear space for IBS matrix, etc.?  (probably want to initially load at far
   // end of stack to make this workable...)
-
-  if (wt_needed) {
-    // normalize included marker weights to add to 2^32 - 1.  (switch to
-    // 2^64 - 1 if/when 32-bit performance becomes less important than accuracy
-    // on 50+ million marker sets.)
-    dxx = 0.0;
-    marker_uidx = 0;
-    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-      dxx += marker_weights[marker_uidx++];
-    }
-    dxx = 4294967295.0 / dxx;
-    marker_idx = 0;
-    marker_weights_i = (uint32_t*)marker_weights_base;
-    for (marker_uidx = 0; marker_idx < marker_ct; marker_uidx++) {
-      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-      marker_weights_i[marker_idx++] = (uint32_t)(marker_weights[marker_uidx] * dxx + 0.5);
-    }
-  }
   if (calculation_type & CALC_GENOME) {
     if (!id_buf) {
       id_buf = (char*)malloc(max_person_id_len * sizeof(char));
@@ -4605,11 +4605,22 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       outname_end2 = outname_end;
       goto wdist_skip_all_pheno;
     }
-    wkspace_mark = wkspace_base;
     uii = 0; // phenotype/cluster number
     if (loop_assoc_fname) {
+      retval = load_clusters(loop_assoc_fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len);
+      if (retval) {
+	goto wdist_ret_1;
+      }
       *outname_end = '.';
+      if (pheno_d) {
+	free(pheno_d);
+	pheno_d = NULL;
+      }
+      if (!pheno_c) {
+	pheno_c = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
+      }
     } else {
+      wkspace_mark = wkspace_base;
       retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, strcmp_deref);
       if (retval) {
 	goto wdist_ret_1;
@@ -4618,8 +4629,16 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
     do {
       if (loop_assoc_fname) {
+	if (uii == cluster_ct) {
+	  break;
+	}
 	outname_end2 = strcpya(&(outname_end[1]), &(cluster_ids[uii * max_cluster_id_len]));
-	// todo: initialize pheno_c
+	fill_ulong_zero(pheno_c, unfiltered_indiv_ctl);
+	ukk = cluster_starts[uii + 1];
+	for (ujj = cluster_starts[uii]; ujj < ukk; ujj++) {
+	  set_bit_noct(pheno_c, cluster_map[ujj]);
+	}
+	uii++;
       } else {
 	// --all-pheno
 	if (pheno_modifier & PHENO_MERGE) {
@@ -4671,7 +4690,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	if (pheno_d) {
 	  retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, calculation_type, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, sex_nm, sex_male, xmhh_exists, nxmhh_exists, perm_batch_size);
 	} else {
-	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, calculation_type, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_nm, sex_male);
+	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, calculation_type, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, loop_assoc_fname? 0 : cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_nm, sex_male);
 	}
 	if (retval) {
 	  goto wdist_ret_1;
@@ -8058,10 +8077,20 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf("Error: --loop-assoc cannot be used with --all-pheno.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&loop_assoc_fname, argv[cur_arg + 1], argptr, 0);
+	uii = 1;
+	if (param_ct == 2) {
+	  if ((!memcmp(argv[cur_arg + 1], "keep-", 5)) && match_upper(&(argv[cur_arg + 1][5]), "NA")) {
+	    uii = 2;
+	  } else if (memcmp(argv[cur_arg + 2], "keep-", 5) || (!match_upper(&(argv[cur_arg + 2][5]), "NA"))) {
+            sprintf(logbuf, "Error: Invalid --loop-assoc parameter sequence.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+          misc_flags |= MISC_LOAD_CLUSTER_KEEP_NA;
+	}
+	retval = alloc_fname(&loop_assoc_fname, argv[cur_arg + uii], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -10186,7 +10215,7 @@ int32_t main(int32_t argc, char** argv) {
             sprintf(logbuf, "Error: Invalid --within parameter sequence.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
-          misc_flags |= MISC_WITHIN_KEEP_NA;
+          misc_flags |= MISC_LOAD_CLUSTER_KEEP_NA;
 	}
 	retval = alloc_fname(&cluster.fname, argv[cur_arg + uii], argptr, 0);
 	if (retval) {
@@ -10325,7 +10354,7 @@ int32_t main(int32_t argc, char** argv) {
     sprintf(logbuf, "Error: --qt must be used with --qmatch.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
-  if (mwithin_col && (!cluster.fname)) {
+  if (mwithin_col && (!loop_assoc_fname) && (!cluster.fname)) {
     sprintf(logbuf, "Error: --mwithin must be used with --within.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }

@@ -821,9 +821,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --subset [fname] : Specify list of subsets to extract from --set file.\n"
 	       );
     help_print("loop-assoc", &help_ctrl, 0,
-"  --loop-assoc [f] : Run specified case/control association commands once for\n"
-"                     each cluster in the file, using cluster membership as the\n"
-"                     phenotype.\n"
+"  --loop-assoc [f] <keep-NA> : Run specified case/control association commands\n"
+"                               once for each cluster in the file, using cluster\n"
+"                               membership as the phenotype.\n"
 	       );
 #endif
     help_print("keep\tremove\tkeep-fam\tremove-fam", &help_ctrl, 0,
