@@ -8074,7 +8074,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "oop-assoc", 10)) {
 	UNSTABLE;
 	if (pheno_modifier & PHENO_ALL) {
-	  sprintf("Error: --loop-assoc cannot be used with --all-pheno.%s", errstr_append);
+	  sprintf(logbuf, "Error: --loop-assoc cannot be used with --all-pheno.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
