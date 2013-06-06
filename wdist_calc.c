@@ -811,102 +811,6 @@ void fill_weights_r_f(float* weights_f, float* set_allele_freqs_f, uint32_t var_
   }
 }
 
-/*
-void collapse_chrom_marker_idxs(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, int32_t unfiltered_marker_ct) {
-  uint32_t* chrom_fo = chrom_info_ptr->chrom_file_order;
-  uint32_t* chrom_fo_midxs = chrom_info_ptr->chrom_file_order_marker_idx;
-  uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
-  int32_t midx = 0;
-  int32_t new_midx = 0;
-  int32_t chrom_end_midx;
-  uint32_t chrom_fo_idx;
-  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
-    chrom_fo_midxs[chrom_fo_idx] = new_midx;
-    chrom_info_ptr->chrom_start[chrom_fo[chrom_fo_idx]] = new_midx;
-    chrom_end_midx = chrom_fo_midxs[chrom_fo_idx + 1];
-    for (; midx < chrom_end_midx; midx++) {
-      if (!is_set(marker_exclude, midx)) {
-	new_midx++;
-      }
-    }
-    // todo: collapse when chromosome completely eliminated
-    chrom_info_ptr->chrom_end[chrom_fo[chrom_fo_idx]] = new_midx;
-  }
-  chrom_fo_midxs[chrom_fo_idx] = new_midx;
-}
-*/
-
-  /*
-// (using this as a dumping ground for old code that is likely enough to be
-// useful later that I don't want to be forced to dredge it from git)
-
-    collapse_arr(marker_alleles, 2, marker_exclude, unfiltered_marker_ct);
-    sscanf(output_missing_pheno, "%lg", &missing_phenod);
-    // if this becomes much more of a maintenance nightmare, consider exiting
-    // function and reloading from .bed from scratch
-    if (g_pheno_c) {
-      collapse_arr(g_pheno_c, sizeof(char), indiv_exclude, unfiltered_indiv_ct);
-    } else if (g_pheno_d) {
-      collapse_arr((char*)g_pheno_d, sizeof(double), indiv_exclude, unfiltered_indiv_ct);
-    }
-    if (sex_info) {
-      collapse_arr((char*)sex_info, sizeof(char), indiv_exclude, unfiltered_indiv_ct);
-    }
-    collapse_bitarr(marker_reverse, marker_exclude, unfiltered_marker_ct);
-    if ((calculation_type & CALC_WRITE_SNPLIST) || ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_LGEN))) {
-      collapse_arr(marker_ids, max_marker_id_len, marker_exclude, unfiltered_marker_ct);
-    }
-    if (calculation_type & (CALC_WRITE_SNPLIST | CALC_GENOME | CALC_LD_PRUNE)) {
-      collapse_chrom_marker_idxs(chrom_info_ptr, marker_exclude, unfiltered_marker_ct);
-      if (calculation_type & (CALC_GENOME | CALC_LD_PRUNE)) {
-	collapse_arr((char*)marker_pos, sizeof(int32_t), marker_exclude, unfiltered_marker_ct);
-      }
-    }
-    collapse_arr(person_ids, max_person_id_len, indiv_exclude, unfiltered_indiv_ct);
-    if (fam_col_34) {
-      collapse_arr(paternal_ids, max_paternal_id_len, indiv_exclude, unfiltered_indiv_ct);
-      collapse_arr(maternal_ids, max_maternal_id_len, indiv_exclude, unfiltered_indiv_ct);
-      collapse_bitarr(founder_info, indiv_exclude, unfiltered_indiv_ct);
-    }
-    if (wt_needed) {
-      collapse_arr((char*)g_marker_weights, sizeof(double), marker_exclude, unfiltered_marker_ct);
-    }
-    collapse_arr((char*)set_allele_freqs, sizeof(double), marker_exclude, unfiltered_marker_ct);
-    unfiltered_marker_ct -= marker_exclude_ct;
-    marker_exclude_ct = 0;
-    fill_ulong_zero(marker_exclude, (unfiltered_marker_ct + (BITCT - 1)) / BITCT);
-    unfiltered_indiv_ct -= indiv_exclude_ct;
-    unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-    indiv_exclude_ct = 0;
-    fill_ulong_zero(indiv_exclude, (unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
-  }
-  if (!allow_no_sex) {
-    ii = indiv_exclude_ct;
-    exclude_ambiguous_sex(unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, sex_info);
-    ii = indiv_exclude_ct - ii;
-    if (ii) {
-      sprintf(logbuf, "%d individual%s with unknown sex removed (prevent with --allow-no-sex).\n", ii, (ii == 1)? "" : "s");
-      logprintb();
-    }
-    g_indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
-    if (!g_indiv_ct) {
-      logprint("Error: No people remaining.\n");
-      goto wdist_ret_INVALID_FORMAT;
-    }
-
-inline int32_t flexclose_null(FILE** outfile_ptr, gzFile* gz_outfile_ptr) {
-  int32_t ii;
-  if (*outfile_ptr) {
-    return fclose_null(outfile_ptr);
-  } else {
-    ii = gzclose(*gz_outfile_ptr);
-    *gz_outfile_ptr = NULL;
-    return (ii != Z_OK);
-  }
-}
-
-  */
-
 inline double SQR(const double a) {
   return a * a;
 }
@@ -3288,7 +3192,6 @@ double get_dmedian(double* sorted_arr, int32_t len) {
 int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t perm_ct, uintptr_t pheno_nm_ct, uintptr_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t indiv_ctl  = (g_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
   uintptr_t perm_ctcl = (perm_ct + (CACHELINE * 8)) / (CACHELINE * 8);
   uintptr_t perm_ctclm = perm_ctcl * (CACHELINE / sizeof(intptr_t));
@@ -3356,10 +3259,8 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
       wkspace_alloc_ul_checked(&g_pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
     goto ibs_test_calc_ret_NOMEM;
   }
-  memcpy(g_pheno_nm, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
-  memcpy(g_pheno_c, pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
-  collapse_bitarr(g_pheno_nm, indiv_exclude, unfiltered_indiv_ct);
-  collapse_bitarr(g_pheno_c, indiv_exclude, unfiltered_indiv_ct);
+  collapse_copy_bitarr(unfiltered_indiv_ct, pheno_nm, indiv_exclude, g_indiv_ct, g_pheno_nm);
+  collapse_copy_bitarr(unfiltered_indiv_ct, pheno_c, indiv_exclude, g_indiv_ct, g_pheno_c);
   if (wkspace_alloc_d_checked(&g_ibs_test_partial_sums, g_thread_ct * 32 * BITCT * sizeof(double)) ||
       wkspace_alloc_ul_checked(&g_perm_rows, perm_ct * pheno_nm_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&g_perm_col_buf, perm_ctclm * sizeof(intptr_t) * g_thread_ct) ||
@@ -3369,8 +3270,7 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
   fill_double_zero(g_perm_results, 2 * perm_ctcldm * g_thread_ct);
 
   // first permutation = original
-  memcpy(g_perm_rows, g_pheno_c, indiv_ctl * sizeof(intptr_t));
-  collapse_bitarr_incl(g_perm_rows, g_pheno_nm, g_indiv_ct);
+  collapse_copy_bitarr_incl(unfiltered_indiv_ct, g_pheno_c, g_pheno_nm, pheno_nm_ct, g_perm_rows);
   for (ulii = pheno_nm_ctl - 1; ulii; ulii--) {
     g_perm_rows[ulii * perm_ct] = g_perm_rows[ulii];
   }
@@ -3564,11 +3464,8 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
       wkspace_alloc_ul_checked(&g_pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t))) {
     goto groupdist_calc_ret_NOMEM;
   }
-  memcpy(g_pheno_nm, pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t));
-  memcpy(g_pheno_c, pheno_c, unfiltered_indiv_ctl * sizeof(intptr_t));
-  collapse_bitarr(g_pheno_nm, indiv_exclude, unfiltered_indiv_ct);
-  collapse_bitarr(g_pheno_c, indiv_exclude, unfiltered_indiv_ct);
-  zero_trailing_bits(g_pheno_nm, g_indiv_ct);
+  collapse_copy_bitarr(unfiltered_indiv_ct, pheno_nm, indiv_exclude, g_indiv_ct, g_pheno_nm);
+  collapse_copy_bitarr(unfiltered_indiv_ct, pheno_c, indiv_exclude, g_indiv_ct, g_pheno_c);
   ll_size = ((uintptr_t)g_ctrl_ct * (g_ctrl_ct - 1)) / 2;
   lh_size = g_ctrl_ct * g_case_ct;
   hh_size = ((uintptr_t)g_case_ct * (g_case_ct - 1)) / 2;

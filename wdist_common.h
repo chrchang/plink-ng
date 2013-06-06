@@ -71,9 +71,9 @@
 #endif
 
 #ifdef __LP64__
+
 #include <emmintrin.h>
 #define FIVEMASK 0x5555555555555555LLU
-
 typedef union {
   __m128i vi;
   __m128d vd;
@@ -81,26 +81,31 @@ typedef union {
   double d8[2];
   uint32_t u4[4];
 } __uni16;
-
 #define ZEROLU 0LLU
 #define ONELU 1LLU
 
-#if _WIN32
+#if _WIN32 // i.e. Win64
+
 #ifndef PRIuPTR
 #define PRIuPTR PRIu64
 #endif
 #ifndef PRIdPTR
 #define PRIdPTR PRId64
 #endif
+
 #else // not _WIN32
+
 #ifndef PRIuPTR
 #define PRIuPTR "ld"
 #endif
 #ifndef PRIdPTR
 #define PRIdPTR "lu"
 #endif
-#endif
+
+#endif // Win64
+
 #else // not __LP64__
+
 #define FIVEMASK 0x55555555
 #define ZEROLU 0LU
 #define ONELU 1LU
@@ -110,6 +115,7 @@ typedef union {
 #ifndef PRIdPTR
 #define PRIdPTR "ld"
 #endif
+
 #endif // __LP64__
 
 #include "zlib-1.2.8/zlib.h"
@@ -1023,6 +1029,12 @@ static inline void fill_double_zero(double* darr, size_t size) {
   }
 }
 
+void fill_idx_to_uidx(uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* idx_to_uidx);
+
+void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* uidx_to_idx);
+
+void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t item_ct, uint32_t* uidx_to_idx);
+
 void fill_vec_55(uintptr_t* vec, uint32_t ct);
 
 static inline void free_cond(void* memptr) {
@@ -1194,6 +1206,8 @@ int32_t double_cmp_deref(const void* aa, const void* bb);
 int32_t char_cmp_deref(const void* aa, const void* bb);
 
 #ifndef __cplusplus
+int32_t intcmp(const void* aa, const void* bb);
+
 int32_t llcmp(const void* aa, const void* bb);
 #endif
 
@@ -1316,9 +1330,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 
 void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr, int32_t exclude_arr_size);
 
-void collapse_bitarr(uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t orig_ct);
+void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr);
 
-void collapse_bitarr_incl(uintptr_t* bitarr, uintptr_t* include_arr, uint32_t orig_ct);
+void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr);
+
+void collapse_copy_bitarr_to_vec_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_vec);
 
 uint32_t scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len);
 

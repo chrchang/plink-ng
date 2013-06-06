@@ -2420,12 +2420,7 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
   if (wkspace_alloc_ui_checked(&unpack_map, marker_ct * sizeof(int32_t))) {
     goto sort_and_write_bim_ret_NOMEM;
   }
-  marker_uidx = 0;
-  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-    unpack_map[marker_idx] = marker_uidx;
-    marker_uidx++;
-  }
+  fill_idx_to_uidx(marker_exclude, marker_ct, unpack_map);
   sort_marker_chrom_pos(ll_buf, marker_ct, marker_pos, chrom_start, chrom_id, &chrom_ct);
   if (fopen_checked(&outfile, outname, "w")) {
     goto sort_and_write_bim_ret_OPEN_FAIL;
@@ -4802,11 +4797,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   if (wkspace_alloc_ui_checked(&indiv_id_map, unfiltered_marker_ct * sizeof(int32_t))) {
     goto lgen_to_bed_ret_NOMEM;
   }
-  marker_idx = 0;
-  for (uii = 0; uii < marker_ct; uii++) {
-    marker_idx = next_non_set_unsafe(marker_exclude, marker_idx);
-    indiv_id_map[marker_idx++] = uii;
-  }
+  fill_uidx_to_idx(marker_exclude, marker_ct, indiv_id_map);
   for (uii = 0; uii < marker_ct; uii++) {
     marker_id_map[uii] = indiv_id_map[marker_id_map[uii]];
   }

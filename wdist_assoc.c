@@ -1,4 +1,4 @@
-#include "wdist_common.h"
+#include "wdist_cluster.h"
 #include "wdist_stats.h"
 
 // load markers in blocks to enable multithreading and, for quantitative
@@ -492,9 +492,9 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 }
 
 void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotient, uint64_t totq_magic, uint32_t totq_preshift, uint32_t totq_postshift, uint32_t totq_incr, uintptr_t* perm_vec, sfmt_t* sfmtp) {
-  // Assumes perm_vec is initially zeroed out, tot_quotient is
-  // 4294967296 / tot_ct, and totq_magic/totq_preshift/totq_postshift/totq_incr
-  // have been precomputed from magic_num().
+  // Assumes tot_quotient is 4294967296 / tot_ct, and
+  // totq_magic/totq_preshift/totq_postshift/totq_incr have been precomputed
+  // from magic_num().
   uint32_t num_set = 0;
   uint32_t upper_bound = tot_ct * tot_quotient - 1;
   uintptr_t widx;
@@ -530,6 +530,68 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
 	pv_val = perm_vec[widx];
       } while (!(pv_val & wcomp));
       perm_vec[widx] = pv_val - wcomp;
+    }
+  }
+}
+
+void generate_cc_cluster_perm_vec(uint32_t tot_ct, uintptr_t* preimage, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* cluster_case_cts, uint32_t* tot_quotients, uint64_t* totq_magics, uint32_t* totq_preshifts, uint32_t* totq_postshifts, uint32_t* totq_incrs, uintptr_t* perm_vec, sfmt_t* sfmtp) {
+  uint32_t tot_ctl2 = 2 * ((tot_ct + (BITCT - 1)) / BITCT);
+  uint32_t cluster_idx;
+  uint32_t target_ct;
+  uint32_t cluster_end;
+  uint32_t cluster_size;
+  uint32_t* map_ptr;
+  uint32_t num_swapped;
+  uint32_t upper_bound;
+  uint64_t totq_magic;
+  uint32_t totq_preshift;
+  uint32_t totq_postshift;
+  uint32_t totq_incr;
+  uintptr_t widx;
+  uintptr_t wcomp;
+  uintptr_t pv_val;
+  uint32_t urand;
+  uint32_t uii;
+  memcpy(perm_vec, preimage, tot_ctl2 * sizeof(intptr_t));
+  for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
+    target_ct = cluster_case_cts[cluster_idx];
+    cluster_end = cluster_starts[cluster_idx + 1];
+    cluster_size = cluster_end - cluster_starts[cluster_idx];
+    if (target_ct && (target_ct != cluster_size)) {
+      upper_bound = tot_ct * tot_quotients[cluster_idx] - 1;
+      totq_magic = totq_magics[cluster_idx];
+      totq_preshift = totq_preshifts[cluster_idx];
+      totq_postshift = totq_postshifts[cluster_idx];
+      totq_incr = totq_incrs[cluster_idx];
+      map_ptr = &(cluster_map[cluster_starts[cluster_idx]]);
+      if (target_ct * 2 < cluster_size) {
+	for (num_swapped = 0; num_swapped < target_ct; num_swapped++) {
+	  do {
+	    do {
+	      urand = sfmt_genrand_uint32(sfmtp);
+	    } while (urand > upper_bound);
+	    uii = map_ptr[(uint32_t)((totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift)];
+	    widx = uii / BITCT2;
+	    wcomp = ONELU << (2 * (uii % BITCT2));
+	    pv_val = perm_vec[widx];
+	  } while (pv_val & wcomp);
+	  perm_vec[widx] = pv_val | wcomp;
+	}
+      } else {
+	target_ct = cluster_size - target_ct;
+	for (num_swapped = 0; num_swapped < target_ct; num_swapped++) {
+	  do {
+	    do {
+	      urand = sfmt_genrand_uint32(sfmtp);
+	    } while (urand > upper_bound);
+	    uii = map_ptr[(uint32_t)((totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift)];
+	    widx = uii / BITCT2;
+	    wcomp = ONELU << (2 * (uii % BITCT2));
+	    pv_val = perm_vec[widx];
+	  } while (!(pv_val & wcomp));
+	  perm_vec[widx] = pv_val - wcomp;
+	}
+      }
     }
   }
 }
@@ -2491,6 +2553,19 @@ static uint32_t g_totq_postshift;
 static uint32_t g_totq_incr;
 static sfmt_t** g_sfmtp_arr;
 
+static uint32_t g_cluster_ct;
+static uint32_t* g_cluster_map;
+static uint32_t* g_cluster_starts;
+static uint32_t* g_cluster_case_cts;
+
+// per-cluster magic number sets
+static uintptr_t* g_cluster_cc_perm_preimage;
+static uint32_t* g_tot_quotients;
+static uint64_t* g_totq_magics;
+static uint32_t* g_totq_preshifts;
+static uint32_t* g_totq_postshifts;
+static uint32_t* g_totq_incrs;
+
 THREAD_RET_TYPE model_assoc_gen_perms_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
@@ -2507,6 +2582,30 @@ THREAD_RET_TYPE model_assoc_gen_perms_thread(void* arg) {
   uint32_t pmax = (((uint64_t)tidx + 1) * g_perm_vec_ct) / g_assoc_thread_ct;
   for (; pidx < pmax; pidx++) {
     generate_cc_perm_vec(pheno_nm_ct, case_ct, tot_quotient, totq_magic, totq_preshift, totq_postshift, totq_incr, &(perm_vecs[pidx * pheno_nm_ctl2]), sfmtp);
+  }
+  THREAD_RETURN;
+}
+
+THREAD_RET_TYPE model_assoc_gen_cluster_perms_thread(void* arg) {
+  intptr_t tidx = (intptr_t)arg;
+  uint32_t pheno_nm_ct = g_pheno_nm_ct;
+  uintptr_t* __restrict__ perm_vecs = g_perm_vecs;
+  sfmt_t* __restrict__ sfmtp = g_sfmtp_arr[tidx];
+  uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
+  uint32_t pidx = (((uint64_t)tidx) * g_perm_vec_ct) / g_assoc_thread_ct;
+  uint32_t pmax = (((uint64_t)tidx + 1) * g_perm_vec_ct) / g_assoc_thread_ct;
+  uint32_t cluster_ct = g_cluster_ct;
+  uint32_t* cluster_map = g_cluster_map;
+  uint32_t* cluster_starts = g_cluster_starts;
+  uint32_t* cluster_case_cts = g_cluster_case_cts;
+  uintptr_t* cluster_cc_perm_preimage = g_cluster_cc_perm_preimage;
+  uint32_t* tot_quotients = g_tot_quotients;
+  uint64_t* totq_magics = g_totq_magics;
+  uint32_t* totq_preshifts = g_totq_preshifts;
+  uint32_t* totq_postshifts = g_totq_postshifts;
+  uint32_t* totq_incrs = g_totq_incrs;
+  for (; pidx < pmax; pidx++) {
+    generate_cc_cluster_perm_vec(pheno_nm_ct, cluster_cc_perm_preimage, cluster_ct, cluster_map, cluster_starts, cluster_case_cts, tot_quotients, totq_magics, totq_preshifts, totq_postshifts, totq_incrs, &(perm_vecs[pidx * pheno_nm_ctl2]), sfmtp);
   }
   THREAD_RETURN;
 }
@@ -3338,8 +3437,10 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
     het_ct = het_cts[marker_idx];
     if ((nanal < 3) || (homcom_ct == nanal) || (het_ct == nanal)) {
       perm_2success_ct[marker_idx++] += perm_vec_ct;
-      for (pidx = 0; pidx < perm_vec_ct; pidx++) {
-	*msa_ptr++ = -9;
+      if (msa_ptr) {
+	for (pidx = 0; pidx < perm_vec_ct; pidx++) {
+	  *msa_ptr++ = -9;
+	}
       }
       continue;
     }
@@ -3507,8 +3608,10 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
     het_ct = het_cts[marker_idx];
     if ((nanal < 3) || (homcom_ct == nanal) || (het_ct == nanal)) {
       perm_2success_ct[marker_idx++] += perm_vec_ct;
-      for (pidx = 0; pidx < perm_vec_ct; pidx++) {
-	*msa_ptr++ = -9;
+      if (msa_ptr) {
+	for (pidx = 0; pidx < perm_vec_ct; pidx++) {
+	  *msa_ptr++ = -9;
+	}
       }
       continue;
     }
@@ -5250,8 +5353,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     marker_ct -= uii;
     if (!marker_ct) {
       logprint("Error: No markers remaining for --model analysis.\n");
-      retval = RET_INVALID_CMDLINE;
-      goto model_assoc_ret_1;
+      goto model_assoc_ret_INVALID_CMDLINE;
     }
     outname_end2 = memcpyb(outname_end, ".model", 7);
     if (fopen_checked(&outfile, outname, "w")) {
@@ -5336,6 +5438,17 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
   }
 
   if (model_perms) {
+    if (cluster_starts) {
+      retval = cluster_include_and_reindex(unfiltered_indiv_ct, pheno_nm, 1, pheno_c, pheno_nm_ct, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, &g_cluster_case_cts, &g_cluster_cc_perm_preimage);
+      if (retval) {
+	goto model_assoc_ret_1;
+      }
+      if (!g_cluster_ct) {
+        logprint("Error: No size 2+ clusters for permutation test.\n");
+	goto model_assoc_ret_INVALID_CMDLINE;
+      }
+      retval = cluster_alloc_and_populate_magic_nums(g_cluster_ct, g_cluster_map, g_cluster_starts, &g_tot_quotients, &g_totq_magics, &g_totq_preshifts, &g_totq_postshifts, &g_totq_incrs);
+    }
     g_ldrefs = (uint16_t*)wkspace_alloc(marker_ct * sizeof(uint16_t));
     if (!g_ldrefs) {
       goto model_assoc_ret_NOMEM;
@@ -5423,8 +5536,10 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       }
       fill_ulong_zero((uintptr_t*)g_perm_adapt_stop, (marker_ct + sizeof(uintptr_t) - 1) / sizeof(uintptr_t));
     }
-    g_tot_quotient = 4294967296LLU / pheno_nm_ct;
-    magic_num(g_tot_quotient, &g_totq_magic, &g_totq_preshift, &g_totq_postshift, &g_totq_incr);
+    if (!cluster_starts) {
+      g_tot_quotient = 4294967296LLU / pheno_nm_ct;
+      magic_num(g_tot_quotient, &g_totq_magic, &g_totq_preshift, &g_totq_postshift, &g_totq_incr);
+    }
   }
   if (wkspace_alloc_ui_checked(&g_marker_uidxs, marker_ct * sizeof(uint32_t))) {
     goto model_assoc_ret_NOMEM;
@@ -5521,9 +5636,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
       //                    pheno_nm_ct + sizeof(intptr_t) * pheno_nm_ctl2
       //                    [+ marker_ct * sizeof(double) * mperm_save_all])
       //
-      // "2176?  12.5?  wtf?"
-      // Excellent questions.  Each max(T) thread has six buffers to support
-      // rapid execution of the genotype indexing and LD exploiter algorithms:
+      // Each max(T) thread has six buffers to support rapid execution of the
+      // genotype indexing and LD exploiter algorithms:
       //   six with 4-bit accumulators, each has size perm_vec_ct / 2 bytes
       //   six with 8-bit accumulators, each has size perm_vec_ct bytes
       // The initial 6 multiplier is to allow heterozygote, homozygote minor,
@@ -5552,13 +5666,23 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     } else {
       g_assoc_thread_ct = g_perm_vec_ct;
     }
-    if (spawn_threads(threads, &model_assoc_gen_perms_thread, g_assoc_thread_ct)) {
-      logprint(errstr_thread_create);
-      goto model_assoc_ret_THREAD_CREATE_FAIL;
+    if (!cluster_starts) {
+      if (spawn_threads(threads, &model_assoc_gen_perms_thread, g_assoc_thread_ct)) {
+	logprint(errstr_thread_create);
+	goto model_assoc_ret_THREAD_CREATE_FAIL;
+      }
+      ulii = 0;
+      model_assoc_gen_perms_thread((void*)ulii);
+      join_threads(threads, g_assoc_thread_ct);
+    } else {
+      if (spawn_threads(threads, &model_assoc_gen_cluster_perms_thread, g_assoc_thread_ct)) {
+	logprint(errstr_thread_create);
+	goto model_assoc_ret_THREAD_CREATE_FAIL;
+      }
+      ulii = 0;
+      model_assoc_gen_cluster_perms_thread((void*)ulii);
+      join_threads(threads, g_assoc_thread_ct);
     }
-    ulii = 0;
-    model_assoc_gen_perms_thread((void*)ulii);
-    join_threads(threads, g_assoc_thread_ct);
     if (!model_adapt) {
       ulii = (g_perm_vec_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
       g_maxt_thread_results = (double*)wkspace_alloc(g_thread_ct * ulii * CACHELINE);
@@ -6776,6 +6900,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
     break;
   model_assoc_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  model_assoc_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
     break;
   model_assoc_ret_THREAD_CREATE_FAIL:
     retval = RET_THREAD_CREATE_FAIL;

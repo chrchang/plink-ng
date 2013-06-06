@@ -1776,6 +1776,33 @@ int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc) {
   return (idx * BITCT) + CTZLU(*include_arr);
 }
 
+void fill_idx_to_uidx(uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* idx_to_uidx) {
+  uint32_t item_uidx = 0;
+  uint32_t item_idx;
+  for (item_idx = 0; item_idx < item_ct; item_idx++) {
+    item_uidx = next_non_set_unsafe(exclude_arr, item_uidx);
+    idx_to_uidx[item_idx] = item_uidx++;
+  }
+}
+
+void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* uidx_to_idx) {
+  uint32_t item_uidx = 0;
+  uint32_t item_idx;
+  for (item_idx = 0; item_idx < item_ct; item_idx++) {
+    item_uidx = next_non_set_unsafe(exclude_arr, item_uidx);
+    uidx_to_idx[item_uidx++] = item_idx;
+  }
+}
+
+void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t item_ct, uint32_t* uidx_to_idx) {
+  uint32_t item_uidx = 0;
+  uint32_t item_idx;
+  for (item_idx = 0; item_idx < item_ct; item_idx++) {
+    item_uidx = next_set_unsafe(include_arr, item_uidx);
+    uidx_to_idx[item_uidx++] = item_idx;
+  }
+}
+
 void fill_vec_55(uintptr_t* vec, uint32_t ct) {
   uint32_t ctl = 2 * ((ct + (BITCT - 1)) / BITCT);
   uint32_t rem = ct & (BITCT - 1);
@@ -2300,6 +2327,10 @@ int32_t char_cmp_deref(const void* aa, const void* bb) {
 }
 
 #ifndef __cplusplus
+int32_t intcmp(const void* aa, const void* bb) {
+  return *((const int32_t*)aa) - *((const int32_t*)bb);
+}
+
 int32_t llcmp(const void* aa, const void* bb) {
   int64_t diff = *((const int64_t*)aa) - *((const int64_t*)bb);
   if (diff > 0) {
@@ -5640,43 +5671,66 @@ void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr
   }
 }
 
-void collapse_bitarr(uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t orig_ct) {
-  uint32_t uii = 0;
-  uint32_t ujj;
-  while ((uii < orig_ct) && (!is_set(exclude_arr, uii))) {
-    uii++;
-  }
-  ujj = uii;
-  while (++uii < orig_ct) {
-    if (!is_set(exclude_arr, uii)) {
-      if (is_set(bitarr, uii)) {
-        // set bit jj
-        bitarr[ujj / BITCT] |= (ONELU << (ujj % BITCT));
-      } else {
-	bitarr[ujj / BITCT] &= (~(ONELU << (ujj % BITCT)));
-      }
-      ujj++;
+void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
+  uintptr_t ulii = 0;
+  uint32_t item_uidx = 0;
+  uint32_t write_bit = 0;
+  uint32_t item_idx;
+  fill_ulong_zero(output_arr, ((filtered_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
+  for (item_idx = 0; item_idx < filtered_ct; item_idx++) {
+    item_uidx = next_non_set_unsafe(exclude_arr, item_uidx);
+    ulii |= ((bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & ONELU) << write_bit;
+    if (++write_bit == BITCT) {
+      *output_arr++ = ulii;
+      ulii = 0;
     }
+    item_uidx++;
+  }
+  if (filtered_ct % BITCT) {
+    *output_arr = ulii;
   }
 }
 
-void collapse_bitarr_incl(uintptr_t* bitarr, uintptr_t* include_arr, uint32_t orig_ct) {
-  uint32_t uii = 0;
-  uint32_t ujj;
-  while ((uii < orig_ct) && is_set(include_arr, uii)) {
-    uii++;
-  }
-  ujj = uii;
-  while (++uii < orig_ct) {
-    if (is_set(include_arr, uii)) {
-      if (is_set(bitarr, uii)) {
-        // set bit jj
-        bitarr[ujj / BITCT] |= (ONELU << (ujj % BITCT));
-      } else {
-	bitarr[ujj / BITCT] &= (~(ONELU << (ujj % BITCT)));
-      }
-      ujj++;
+void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
+  uintptr_t ulii = 0;
+  uint32_t item_uidx = 0;
+  uint32_t write_bit = 0;
+  uint32_t item_idx;
+  fill_ulong_zero(output_arr, ((filtered_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
+  for (item_idx = 0; item_idx < filtered_ct; item_idx++) {
+    item_uidx = next_set_unsafe(include_arr, item_uidx);
+    ulii |= ((bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & ONELU) << write_bit;
+    if (++write_bit == BITCT) {
+      *output_arr++ = ulii;
+      ulii = 0;
     }
+    item_uidx++;
+  }
+  if (filtered_ct % BITCT) {
+    *output_arr = ulii;
+  }
+}
+
+void collapse_copy_bitarr_to_vec_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_vec) {
+  uintptr_t ulii = 0;
+  uint32_t item_uidx = 0;
+  uint32_t write_bit = 0;
+  uint32_t item_idx;
+  fill_ulong_zero(output_vec, 2 * ((filtered_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
+  for (item_idx = 0; item_idx < filtered_ct; item_idx++) {
+    item_uidx = next_set_unsafe(include_arr, item_uidx);
+    ulii |= ((bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & ONELU) << (write_bit * 2);
+    if (++write_bit == BITCT2) {
+      *output_vec++ = ulii;
+      ulii = 0;
+    }
+    item_uidx++;
+  }
+  if (filtered_ct % BITCT2) {
+    *output_vec++ = ulii;
+  }
+  if ((filtered_ct + (BITCT2 - 1)) & BITCT2) {
+    *output_vec = 0;
   }
 }
 
