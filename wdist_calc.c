@@ -8425,6 +8425,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 int32_t calc_cluster(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* read_genome_fname, Cluster_info* cp, char* outname, char* outname_end, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
   int32_t retval = 0;
   unsigned char* wkspace_mark;
+  // if relevant IBS matrix already computed, use it
   if (g_genome_main) {
     wkspace_mark = (unsigned char*)g_missing_dbl_excluded;
   } else {

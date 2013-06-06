@@ -388,9 +388,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef STABLE_BUILD
     help_print("write-covar", &help_ctrl, 1,
 "  --write-covar\n"
-"    If a --covar file is loaded, this creates a revised covariate file after\n"
+"    If a --covar file is loaded, this creates a pruned covariate file after\n"
 "    applying all filters.  (This automatically happens if --make-bed or\n"
 "    --recode is specified.)\n\n"
+	       );
+    help_print("write-cluster", &help_ctrl, 1,
+"  --write-cluster <omit-unassigned>\n"
+"    If a --within file is loaded, this creates a pruned cluster file after\n"
+"    applying all filters.  The 'omit-unassigned' modifier causes unclustered\n"
+"    individuals to be omitted from the file; otherwise their cluster is \"NA\".\n\n"
 	       );
 #endif
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
@@ -800,14 +806,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #ifndef STABLE_BUILD
     help_print("covar\tcovar-name\tcovar-number", &help_ctrl, 0,
-"  --covar [filename]    : Specify covariate file.\n"
-"  --covar-name [names]  : Specifies covariate(s) in --covar file by name.\n"
-"                          Separate multiple names with commas (spaces are not\n"
-"                          permitted).  Use dashes to designate ranges.\n"
-"  --covar-number [nums] : Specifies covariate(s) in --covar file by number.\n"
+"  --covar [filename]     : Specify covariate file.\n"
+"  --covar-name [names]   : Specifies covariate(s) in --covar file by name.\n"
+"                           Separate multiple names with commas (spaces are not\n"
+"                           permitted).  Use dashes to designate ranges.\n"
+"  --covar-number [nums]  : Specifies covariate(s) in --covar file by number.\n"
 	       );
-    help_print("within", &help_ctrl, 0,
-"  --within [fname] : Specify clusters.\n"
+    help_print("within\tmwithin", &help_ctrl, 0,
+"  --within [f] <keep-NA> : Specify initial cluster assignment.\n"
+"  --mwithin [n]          : Load cluster names from column n+2 of --within file.\n"
 	       );
     help_print("set\tsubset", &help_ctrl, 0,
 "  --set [filename] : Specify sets.\n"
@@ -988,9 +995,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     of the MAFs.)\n"
 	       );
     help_print("load-dists\tgroupdist\tregress-distance", &help_ctrl, 0,
-"  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --groupdist\n"
-"                     or --regress-distance analysis, instead of recalculating\n"
-"                     it from scratch.\n"
+"  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --cluster,\n"
+"                     --ibs-test, --groupdist, or --regress-distance analysis,\n"
+"                     instead of recalculating the matrix from scratch.\n"
 	       );
     help_print("ppc-gap\tgenome\tZ-genome", &help_ctrl, 0,
 "  --ppc-gap [val]  : Minimum number of base pairs, in thousands, between\n"

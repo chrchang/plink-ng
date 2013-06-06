@@ -2115,6 +2115,32 @@ int32_t strcmp_natural_deref(const void* s1, const void* s2) {
   return strcmp_natural_uncasted(*(char**)s1, *(char**)s2);
 }
 
+int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, int(* comparator_deref)(const void*, const void*)) {
+  // Stores a lexicographically sorted list of IDs in sorted_ids and the raw
+  // positions of the corresponding markers/indivs in *id_map_ptr.  Does not
+  // include excluded markers/indivs in the list.
+  // Assumes sorted_ids and id_map have been allocated; use the sort_item_ids()
+  // wrapper if they haven't been.
+  uint32_t uii = 0;
+  uint32_t ujj;
+  if (!item_ct) {
+    return 0;
+  }
+  for (ujj = 0; ujj < item_ct; ujj++) {
+    uii = next_non_set_unsafe(exclude_arr, uii);
+    memcpy(&(sorted_ids[ujj * max_id_len]), &(item_ids[uii * max_id_len]), max_id_len);
+    id_map[ujj] = uii++;
+  }
+  if (qsort_ext(sorted_ids, item_ct, max_id_len, comparator_deref, (char*)id_map, sizeof(int32_t))) {
+    return RET_NOMEM;
+  }
+  if (scan_for_duplicate_ids(sorted_ids, item_ct, max_id_len)) {
+    logprint("Error: Duplicate IDs.\n");
+    return RET_INVALID_FORMAT;
+  }
+  return 0;
+}
+
 int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01) {
   if ((atoi(bufptr) == missing_pheno) && is_space_or_eoln(bufptr[missing_pheno_len])) {
     return 1;
@@ -5600,7 +5626,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 }
 
 void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr, int32_t exclude_arr_size) {
-  // collapses array of fixed-length items
+  // collapses array of fixed-length items, based on exclusion bitarray
   int32_t ii = 0;
   int32_t jj;
   while ((ii < exclude_arr_size) && (!is_set(exclude_arr, ii))) {
@@ -5652,6 +5678,41 @@ void collapse_bitarr_incl(uintptr_t* bitarr, uintptr_t* include_arr, uint32_t or
       ujj++;
     }
   }
+}
+
+uint32_t scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len) {
+  uintptr_t id_idx;
+  id_ct--;
+  for (id_idx = 0; id_idx < id_ct; id_idx++) {
+    if (!strcmp(&(sorted_ids[id_idx * max_id_len]), &(sorted_ids[(id_idx + 1) * max_id_len]))) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, uint32_t* id_starts) {
+  // Collapses array of sorted IDs to remove duplicates, and writes
+  // pre-collapse positions to id_starts (so e.g. duplication count of any
+  // individual ID can be determined via subtraction).
+  // Assumes id_ct is positive.
+  uintptr_t read_idx;
+  uintptr_t write_idx;
+  id_starts[0] = 0;
+  for (read_idx = 1; read_idx < id_ct; read_idx++) {
+    if (!strcmp(&(sorted_ids[(read_idx - 1) * max_id_len]), &(sorted_ids[read_idx * max_id_len]))) {
+      break;
+    }
+    id_starts[read_idx] = read_idx;
+  }
+  write_idx = read_idx;
+  while (++read_idx < id_ct) {
+    if (strcmp(&(sorted_ids[(write_idx - 1) * max_id_len]), &(sorted_ids[read_idx * max_id_len]))) {
+      strcpy(&(sorted_ids[write_idx * max_id_len]), &(sorted_ids[read_idx * max_id_len]));
+      id_starts[write_idx++] = read_idx;
+    }
+  }
+  return write_idx;
 }
 
 // implementation used in PLINK stats.cpp

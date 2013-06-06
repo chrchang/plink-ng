@@ -24,17 +24,6 @@
 #define HASHMEM_S 2097152
 #endif
 
-uint32_t scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len) {
-  uintptr_t id_idx;
-  id_ct--;
-  for (id_idx = 0; id_idx < id_ct; id_idx++) {
-    if (!strcmp(&(sorted_ids[id_idx * max_id_len]), &(sorted_ids[(id_idx + 1) * max_id_len]))) {
-      return 1;
-    }
-  }
-  return 0;
-}
-
 int32_t sort_item_ids_nx(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len) {
   // Version of sort_item_ids() with no exclusion.
   uintptr_t ulii;
@@ -66,37 +55,13 @@ int32_t sort_item_ids_nx(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t
 }
 
 int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, int(* comparator_deref)(const void*, const void*)) {
-  // Allocates space for *id_map_ptr and *sorted_ids_ptr from wkspace; then
-  // stores a lexicographically sorted list of IDs in *sorted_ids_ptr and
-  // the raw positions of the corresponding markers/indivs in *id_map_ptr.
-  // Does not include excluded markers/indivs in the list.
   uintptr_t item_ct = unfiltered_ct - exclude_ct;
-  uint32_t uii;
-  uint32_t ujj;
-  char* sorted_ids;
   // id_map on bottom because --indiv-sort frees *sorted_ids_ptr
   if (wkspace_alloc_ui_checked(id_map_ptr, item_ct * sizeof(int32_t)) ||
       wkspace_alloc_c_checked(sorted_ids_ptr, item_ct * max_id_len)) {
     return RET_NOMEM;
   }
-  sorted_ids = *sorted_ids_ptr;
-  if (!item_ct) {
-    return 0;
-  }
-  uii = 0;
-  for (ujj = 0; ujj < item_ct; ujj++) {
-    uii = next_non_set_unsafe(exclude_arr, uii);
-    memcpy(&(sorted_ids[ujj * max_id_len]), &(item_ids[uii * max_id_len]), max_id_len);
-    (*id_map_ptr)[ujj] = uii++;
-  }
-  if (qsort_ext(sorted_ids, item_ct, max_id_len, comparator_deref, (char*)(*id_map_ptr), sizeof(int32_t))) {
-    return RET_NOMEM;
-  }
-  if (scan_for_duplicate_ids(sorted_ids, item_ct, max_id_len)) {
-    logprint("Error: Duplicate IDs.\n");
-    return RET_INVALID_FORMAT;
-  }
-  return 0;
+  return sort_item_ids_noalloc(*sorted_ids_ptr, *id_map_ptr, unfiltered_ct, exclude_arr, item_ct, item_ids, max_id_len, comparator_deref);
 }
 
 #ifdef _WIN32
@@ -3520,10 +3485,6 @@ typedef struct ll_str_fixed_struct {
   char ss[12];
 #endif
 } Ll_str_fixed;
-
-static inline Ll_str* top_alloc_llstr(uintptr_t* topsize_ptr, uint32_t size) {
-  return (Ll_str*)top_alloc(topsize_ptr, size + sizeof(Ll_str));
-}
 
 int32_t incr_text_allele_str(uintptr_t* topsize_ptr, char* allele_name, uint32_t an_len, Ll_str* allele_list_start, uint32_t* marker_allele_cts) {
   // Start with preallocated array of 16-byte Ll_strs.
@@ -9238,7 +9199,8 @@ static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
   return vv;
 }
 
-int top_alloc_str(uintptr_t* topsize_ptr, char* ss, uint32_t slen, char** new_alloc_ptr) {
+int top_alloc_allele_str(uintptr_t* topsize_ptr, char* ss, uint32_t slen, char** new_alloc_ptr) {
+  // variant of top_alloc_llstr() that can point to a fixed one-char str
   if ((slen == 1) && (*((unsigned char*)ss) > ' ')) {
     *new_alloc_ptr = &(one_char_strs[2 * ((unsigned char)(*ss) - 32)]);
     return 0;
@@ -9564,7 +9526,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 		  memcpy(ll_string_new->ss, bufptr, uii);
 		  *non_biallelics_ptr = ll_string_new;
 		} else {
-		  if (top_alloc_str(&topsize, aptr2, alen2, &new_aptr)) {
+		  if (top_alloc_allele_str(&topsize, aptr2, alen2, &new_aptr)) {
 		    goto merge_bim_scan_ret_NOMEM;
 		  }
 		  if (!ll_ptr->allele[1]) {
@@ -9592,7 +9554,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 		  memcpy(ll_string_new->ss, bufptr, uii);
 		  *non_biallelics_ptr = ll_string_new;
 		} else {
-		  if (top_alloc_str(&topsize, aptr1, alen1, &new_aptr)) {
+		  if (top_alloc_allele_str(&topsize, aptr1, alen1, &new_aptr)) {
 		    goto merge_bim_scan_ret_NOMEM;
 		  }
 		  if (!ll_ptr->allele[1]) {
@@ -9642,14 +9604,14 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	ll_ptr->pos = llxx;
 	ll_ptr->cm = cm;
 	if (aptr1) {
-	  if (top_alloc_str(&topsize, aptr1, alen1, &(ll_ptr->allele[0]))) {
+	  if (top_alloc_allele_str(&topsize, aptr1, alen1, &(ll_ptr->allele[0]))) {
 	    goto merge_bim_scan_ret_NOMEM;
 	  }
 	} else {
 	  ll_ptr->allele[0] = NULL;
 	}
 	if (aptr2) {
-	  if (top_alloc_str(&topsize, aptr2, alen2, &(ll_ptr->allele[1]))) {
+	  if (top_alloc_allele_str(&topsize, aptr2, alen2, &(ll_ptr->allele[1]))) {
 	    goto merge_bim_scan_ret_NOMEM;
 	  }
 	} else {
@@ -10883,29 +10845,30 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   fill_bmap_raw(bmap_raw, tot_indiv_ct % 4);
   bmap = &(bmap_raw[256]);
   bmap2 = &(bmap_raw[512]);
+  // "allocate" first hash table off far side of stack before making regular
+  // stack allocations
+  wkspace_left -= topsize;
   if (indiv_sort == INDIV_SORT_NONE) {
     if (wkspace_alloc_ui_checked(&indiv_nsmap, tot_indiv_ct * sizeof(int32_t))) {
-      goto merge_datasets_ret_NOMEM;
+      goto merge_datasets_ret_NOMEM2;
     }
   }
   if (wkspace_alloc_c_checked(&person_ids, max_person_id_len * tot_indiv_ct) ||
       wkspace_alloc_c_checked(&person_fids, max_person_full_len * tot_indiv_ct)) {
-    goto merge_datasets_ret_NOMEM;
+    goto merge_datasets_ret_NOMEM2;
   }
   if (is_dichot_pheno) {
-    if (wkspace_left < topsize + tot_indiv_ct) {
-      goto merge_datasets_ret_NOMEM;
+    if (wkspace_alloc_c_checked(&pheno_c_char, tot_indiv_ct)) {
+      goto merge_datasets_ret_NOMEM2;
     }
-    wkspace_alloc_c_checked(&pheno_c_char, tot_indiv_ct * sizeof(char));
   } else {
-    if (wkspace_left < topsize + tot_indiv_ct * sizeof(double)) {
-      goto merge_datasets_ret_NOMEM;
+    if (wkspace_alloc_d_checked(&pheno_d, tot_indiv_ct * sizeof(double))) {
+      goto merge_datasets_ret_NOMEM2;
     }
-    wkspace_alloc_d_checked(&pheno_d, tot_indiv_ct * sizeof(double));
   }
   if (indiv_sort == INDIV_SORT_NONE) {
     if (wkspace_alloc_ui_checked(&map_reverse, tot_indiv_ct * sizeof(int32_t))) {
-      goto merge_datasets_ret_NOMEM;
+      goto merge_datasets_ret_NOMEM2;
     }
     for (uii = 0; uii < HASHSIZE_S; uii++) {
       if (htable[uii]) {
@@ -10929,7 +10892,6 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     for (uii = 0; uii < tot_indiv_ct; uii++) {
       indiv_nsmap[uii] = uii;
     }
-    wkspace_left -= topsize;
     if (qsort_ext(person_fids, tot_indiv_ct, max_person_full_len, strcmp_deref, (char*)indiv_nsmap, sizeof(int32_t))) {
       goto merge_datasets_ret_NOMEM2;
     }
@@ -10956,7 +10918,6 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	} while (ll_ptr);
       }
     }
-    wkspace_left -= topsize;
     if (is_dichot_pheno) {
       if (qsort_ext(person_fids, tot_indiv_ct, max_person_full_len, merge_nsort? strcmp_natural_deref : strcmp_deref, pheno_c_char, 1)) {
 	goto merge_datasets_ret_NOMEM2;
@@ -10966,8 +10927,8 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	goto merge_datasets_ret_NOMEM2;
       }
     }
-    wkspace_left += topsize;
   }
+  wkspace_left += topsize; // deallocate first hash table
   if (merge_mode < 6) {
     memcpy(outname_end, ".fam", 5);
     if (fopen_checked(&outfile, outname, "w")) {
@@ -11073,6 +11034,8 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     goto merge_datasets_ret_INVALID_FORMAT;
   }
   tot_marker_ct = ullxx;
+  // "allocate" second hash table off far side of stack before making regular
+  // stack allocations
   wkspace_left -= topsize;
   if (max_marker_allele_len > 1) {
     max_marker_allele_len++;
@@ -11107,7 +11070,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   for (uii = 0; uii < tot_marker_ct; uii++) {
     marker_map[pos_buf[uii]] = uii;
   }
-  wkspace_left += topsize;
+  wkspace_left += topsize; // deallocate second hash table
   ulii = 0;
   if (max_marker_allele_len == 1) {
     for (uii = 0; uii < HASHSIZE; uii++) {

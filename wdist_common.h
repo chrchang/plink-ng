@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-#define STABLE_BUILD
+// #define STABLE_BUILD
 
 #ifdef STABLE_BUILD
 #define UNSTABLE goto main_unstable_disabled
@@ -158,6 +158,8 @@ typedef union {
 #define MISC_KEEP_ALLELE_ORDER 0x100LLU
 #define MISC_SET_HH_MISSING 0x200LLU
 #define MISC_KEEP_AUTOCONV 0x400LLU
+#define MISC_WITHIN_KEEP_NA 0x800LLU
+#define MISC_WRITE_CLUSTER_OMIT_UNASSIGNED 0x1000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
@@ -184,12 +186,13 @@ typedef union {
 #define CALC_RECODE 0x200000LLU
 #define CALC_MERGE 0x400000LLU
 #define CALC_WRITE_COVAR 0x800000LLU
-#define CALC_MODEL 0x1000000LLU
-#define CALC_HARDY 0x2000000LLU
-#define CALC_GXE 0x4000000LLU
-#define CALC_IBS_TEST 0x8000000LLU
-#define CALC_CLUSTER 0x10000000LLU
-#define CALC_HOMOZYG 0x20000000LLU
+#define CALC_WRITE_CLUSTER 0x1000000LLU
+#define CALC_MODEL 0x2000000LLU
+#define CALC_HARDY 0x4000000LLU
+#define CALC_GXE 0x8000000LLU
+#define CALC_IBS_TEST 0x10000000LLU
+#define CALC_CLUSTER 0x20000000LLU
+#define CALC_HOMOZYG 0x40000000LLU
 
 #define M23_MALE 1
 #define M23_FEMALE 2
@@ -600,6 +603,10 @@ static inline unsigned char* top_alloc(uintptr_t* topsize_ptr, uint32_t size) {
     *topsize_ptr = ts;
     return &(wkspace_base[wkspace_left - ts]);
   }
+}
+
+static inline Ll_str* top_alloc_llstr(uintptr_t* topsize_ptr, uint32_t size) {
+  return (Ll_str*)top_alloc(topsize_ptr, size + sizeof(Ll_str));
 }
 
 static inline int32_t is_letter(char cc) {
@@ -1164,6 +1171,8 @@ int32_t strcmp_deref(const void* s1, const void* s2);
 
 int32_t strcmp_natural_deref(const void* s1, const void* s2);
 
+int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, int(* comparator_deref)(const void*, const void*));
+
 int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01);
 
 int32_t eval_affection(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01);
@@ -1310,6 +1319,10 @@ void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr
 void collapse_bitarr(uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t orig_ct);
 
 void collapse_bitarr_incl(uintptr_t* bitarr, uintptr_t* include_arr, uint32_t orig_ct);
+
+uint32_t scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len);
+
+uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, uint32_t* id_starts);
 
 static inline double rand_unif(void) {
   return (sfmt_genrand_uint32(&sfmt) + 0.5) * RECIP_2_32;
