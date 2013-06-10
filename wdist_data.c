@@ -5636,7 +5636,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     for (uii = 1; uii < 4; uii++) {
       ujj = allele_cts[uii];
       if (allele_cts[uii - 1] < ujj) {
-	a1ptr = alleles[uii];
+	a1ptr = salleles[uii];
 	ii = uii;
 	do {
 	  ii--;
@@ -5722,7 +5722,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     if (salleles[0][0] == '\0') {
       putc('0', bimfile);
     } else {
-      uii = strlen(salleles[1]);
+      uii = strlen(salleles[0]);
       if (uii >= max_marker_allele_len) {
         max_marker_allele_len = uii + 1;
       }
@@ -5789,8 +5789,13 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       if (sscanf(cptr3, "%lg", &(marker_cms[marker_idx])) != 1) {
 	goto transposed_to_bed_ret_INVALID_FORMAT;
       }
-      strcpy(&(marker_alleles[2 * marker_idx * max_marker_allele_len]), cptr4);
-      strcpy(&(marker_alleles[(2 * marker_idx + 1) * max_marker_allele_len]), next_item(cptr4));
+      uii = strlen_se(cptr4);
+      memcpy(&(marker_alleles[2 * marker_idx * max_marker_allele_len]), cptr4, uii);
+      marker_alleles[2 * marker_idx * max_marker_allele_len + uii] = '\0';
+      cptr4 = skip_initial_spaces(&(cptr4[uii + 1]));
+      uii = strlen_se(cptr4);
+      memcpy(&(marker_alleles[(2 * marker_idx + 1) * max_marker_allele_len]), cptr4, uii);
+      marker_alleles[(2 * marker_idx + 1) * max_marker_allele_len + uii] = '\0';
       marker_idx++;
     }
     if (!feof(infile)) {
