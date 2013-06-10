@@ -61,7 +61,7 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-  "WDIST v0.20.0p"
+  "WDIST v0.19.13"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -70,7 +70,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (6 Jun 2013)";
+  " (10 Jun 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
@@ -2615,7 +2615,7 @@ int32_t read_external_freqs(char* freqname, FILE** freqfile_ptr, uintptr_t unfil
     return RET_INVALID_FORMAT;
   }
   wkspace_mark = wkspace_base;
-  ii = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, strcmp_deref);
+  ii = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, strcmp_deref);
   if (ii) {
     return ii;
   }
@@ -3410,7 +3410,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   uint32_t marker_uidx;
   char cc;
   int32_t retval;
-  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, strcmp_deref);
+  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, strcmp_deref);
   if (retval) {
     goto load_ax_alleles_ret_1;
   }
@@ -3513,7 +3513,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
  load_ax_alleles_ret_1:
   fclose_cond(infile);
   wkspace_reset(wkspace_mark);
-  return 0;
+  return retval;
 }
 
 int32_t write_snplist(char* outname, char* outname_end, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, uint32_t list_23_indels) {
@@ -3941,7 +3941,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (phenofile || update_ids_fname || update_parents_fname || update_sex_fname || (misc_flags & MISC_TAIL_PHENO)) {
     wkspace_mark = wkspace_base;
-    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, strcmp_deref);
+    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, strcmp_deref);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -3999,9 +3999,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  if (update_cm || update_map || update_name || (marker_alleles_needed && (update_alleles_fname || (flip_fname && (!flip_subset_fname)))) || extractname || excludename) {
+  uii = update_cm || update_map || update_name || (marker_alleles_needed && (update_alleles_fname || (flip_fname && (!flip_subset_fname))));
+  if (uii || extractname || excludename) {
     wkspace_mark = wkspace_base;
-    retval = sort_item_ids(&cptr, &uiptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, strcmp_deref);
+    // only permit duplicate marker IDs for --extract/--exclude
+    retval = sort_item_ids(&cptr, &uiptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, !uii, strcmp_deref);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4026,7 +4028,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
       if (update_alleles_fname || (marker_alleles_needed && flip_fname && (!flip_subset_fname)) || extractname || excludename) {
 	wkspace_reset(wkspace_mark);
-	retval = sort_item_ids(&cptr, &uiptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, strcmp_deref);
+	retval = sort_item_ids(&cptr, &uiptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, strcmp_deref);
 	if (retval) {
 	  goto wdist_ret_1;
 	}
@@ -4068,7 +4070,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (update_ids_fname || update_parents_fname || update_sex_fname || keepname || keepfamname || removename || removefamname || filtername) {
     wkspace_mark = wkspace_base;
-    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, strcmp_deref);
+    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, strcmp_deref);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4293,7 +4295,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (indiv_sort & (INDIV_SORT_NATURAL | INDIV_SORT_ASCII)) {
-    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, (indiv_sort & INDIV_SORT_NATURAL)? strcmp_natural_deref : strcmp_deref);
+    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, (indiv_sort & INDIV_SORT_NATURAL)? strcmp_natural_deref : strcmp_deref);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4621,7 +4623,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     } else {
       wkspace_mark = wkspace_base;
-      retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, strcmp_deref);
+      retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, strcmp_deref);
       if (retval) {
 	goto wdist_ret_1;
       }
@@ -5074,6 +5076,8 @@ int32_t alloc_2col(Two_col_params** tcbuf, char** params_ptr, char* argptr, uint
     return RET_NOMEM;
   }
   memcpy((*tcbuf)->fname, params_ptr[0], slen);
+  (*tcbuf)->skip = 0;
+  (*tcbuf)->skipchar = '\0';
   if (param_ct > 1) {
     ii = atoi(params_ptr[1]);
     if (ii < 1) {
@@ -5090,8 +5094,6 @@ int32_t alloc_2col(Two_col_params** tcbuf, char** params_ptr, char* argptr, uint
 	return RET_INVALID_FORMAT;
       }
       (*tcbuf)->colid = ii;
-      (*tcbuf)->skip = 0;
-      (*tcbuf)->skipchar = '\0';
       if (param_ct == 4) {
 	cc = params_ptr[3][0];
 	if ((cc < '0') || (cc > '9')) {

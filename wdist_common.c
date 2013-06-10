@@ -2142,13 +2142,25 @@ int32_t strcmp_natural_deref(const void* s1, const void* s2) {
   return strcmp_natural_uncasted(*(char**)s1, *(char**)s2);
 }
 
-int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, int(* comparator_deref)(const void*, const void*)) {
+char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len) {
+  uintptr_t id_idx;
+  id_ct--;
+  for (id_idx = 0; id_idx < id_ct; id_idx++) {
+    if (!strcmp(&(sorted_ids[id_idx * max_id_len]), &(sorted_ids[(id_idx + 1) * max_id_len]))) {
+      return &(sorted_ids[id_idx * max_id_len]);
+    }
+  }
+  return NULL;
+}
+
+int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, int(* comparator_deref)(const void*, const void*)) {
   // Stores a lexicographically sorted list of IDs in sorted_ids and the raw
   // positions of the corresponding markers/indivs in *id_map_ptr.  Does not
   // include excluded markers/indivs in the list.
   // Assumes sorted_ids and id_map have been allocated; use the sort_item_ids()
   // wrapper if they haven't been.
   uint32_t uii = 0;
+  char* dup_id;
   uint32_t ujj;
   if (!item_ct) {
     return 0;
@@ -2161,9 +2173,13 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
   if (qsort_ext(sorted_ids, item_ct, max_id_len, comparator_deref, (char*)id_map, sizeof(int32_t))) {
     return RET_NOMEM;
   }
-  if (scan_for_duplicate_ids(sorted_ids, item_ct, max_id_len)) {
-    logprint("Error: Duplicate IDs.\n");
-    return RET_INVALID_FORMAT;
+  if (!allow_dups) {
+    dup_id = scan_for_duplicate_ids(sorted_ids, item_ct, max_id_len);
+    if (dup_id) {
+      sprintf(logbuf, "Error: Duplicate ID %s.\n", dup_id);
+      logprintb();
+      return RET_INVALID_FORMAT;
+    }
   }
   return 0;
 }
@@ -5732,17 +5748,6 @@ void collapse_copy_bitarr_to_vec_incl(uint32_t orig_ct, uintptr_t* bitarr, uintp
   if ((filtered_ct + (BITCT2 - 1)) & BITCT2) {
     *output_vec = 0;
   }
-}
-
-uint32_t scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len) {
-  uintptr_t id_idx;
-  id_ct--;
-  for (id_idx = 0; id_idx < id_ct; id_idx++) {
-    if (!strcmp(&(sorted_ids[id_idx * max_id_len]), &(sorted_ids[(id_idx + 1) * max_id_len]))) {
-      return 1;
-    }
-  }
-  return 0;
 }
 
 uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, uint32_t* id_starts) {

@@ -63,7 +63,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   fill_ulong_zero(already_seen, indiv_ctl);
   memcpy(sorted_ids, person_ids, indiv_ct * max_person_id_len);
   wkspace_left -= topsize;
-  retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, strcmp_deref);
+  retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, 0, strcmp_deref);
   wkspace_left += topsize;
   if (retval) {
     goto load_clusters_ret_1;

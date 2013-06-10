@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #ifdef STABLE_BUILD
 #define UNSTABLE goto main_unstable_disabled
@@ -1183,7 +1183,9 @@ int32_t strcmp_deref(const void* s1, const void* s2);
 
 int32_t strcmp_natural_deref(const void* s1, const void* s2);
 
-int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, int(* comparator_deref)(const void*, const void*));
+char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len);
+
+int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, int(* comparator_deref)(const void*, const void*));
 
 int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01);
 
@@ -1218,6 +1220,8 @@ int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int
 uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii);
 
 uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, double dxx);
+
+uintptr_t bsearch_str_lb(char* lptr, uintptr_t arr_length, uintptr_t max_id_len, char* id_buf);
 
 int32_t bsearch_str(char* id_buf, char* lptr, uintptr_t max_id_len, intptr_t min_idx, intptr_t max_idx);
 
@@ -1335,8 +1339,6 @@ void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* exclud
 void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr);
 
 void collapse_copy_bitarr_to_vec_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_vec);
-
-uint32_t scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len);
 
 uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, uint32_t* id_starts);
 
