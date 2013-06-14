@@ -71,6 +71,7 @@
 // factor to meaningfully help researchers.
 
 #include "wdist_cluster.h"
+#include "wdist_data.h"
 #include "pigz.h"
 
 #ifdef __APPLE__
@@ -1217,12 +1218,21 @@ void exclude_multi(uintptr_t* exclude_arr, int32_t* new_excl, uintptr_t indiv_ct
   }
 }
 
-void collapse_copy_phenod(double *target, double* pheno_d, uintptr_t* indiv_exclude, uintptr_t indiv_ct) {
-  int32_t ii = 0;
+void collapse_copy_phenod(double* target, double* pheno_d, uintptr_t* indiv_exclude, uintptr_t indiv_ct) {
+  uint32_t indiv_uidx = 0;
   double* target_end = &(target[indiv_ct]);
   while (target < target_end) {
-    ii = next_non_set_unsafe(indiv_exclude, ii);
-    *target++ = pheno_d[ii++];
+    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+    *target++ = pheno_d[indiv_uidx++];
+  }
+}
+
+void collapse_copy_phenod_incl(double* target, double* pheno_d, uintptr_t* indiv_include, uintptr_t indiv_ct) {
+  uint32_t indiv_uidx = 0;
+  double* target_end = &(target[indiv_ct]);
+  while (target < target_end) {
+    indiv_uidx = next_set_unsafe(indiv_include, indiv_uidx);
+    *target++ = pheno_d[indiv_uidx++];
   }
 }
 
@@ -2955,7 +2965,9 @@ void matrix_row_sum_ur(double* sums, double* matrix) {
 // wkbase is assumed to have space for three cache-aligned
 // indiv_ct * indiv_ct double matrices plus three more rows.  The unpacked
 // relationship matrix is stored in the SECOND slot.
-void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* covr_ref, double tol, int32_t strict) {
+//
+// g_indiv_ct currently must be set.
+void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* covr_ref, double tol, uint32_t is_strict) {
   double ll_change;
   int64_t mat_offset = g_indiv_ct;
   double* rel_dists;
@@ -2998,6 +3010,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   }
   fill_double_zero(matrix_pvg, mat_offset);
   fill_double_zero(row2, g_indiv_ct);
+  printf("      ");
   do {
     memcpy(wkbase, rel_dists, mat_offset * sizeof(double));
     matrix_const_mult_add(wkbase, *covg_ref, *covr_ref);
@@ -3053,7 +3066,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     covr_last_change = covr_cur_change;
     covg_cur_change = (*covg_ref) * (*covg_ref) * dlg * indiv_ct_d;
     covr_cur_change = (*covr_ref) * (*covr_ref) * dle * indiv_ct_d;
-    if (strict) {
+    if (is_strict) {
       max_jump = 1.0;
     } else {
       // acceleration factor:
@@ -3108,74 +3121,337 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
   logstr(logbuf);
 }
 
-int32_t calc_unrelated_herit(uint64_t calculation_type, int32_t ibc_type, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, double* pheno_d, double* rel_ibc, double unrelated_herit_covg, double unrelated_herit_covr, double unrelated_herit_tol) {
-  double dxx = 0.0;
-  double dyy = 0.0;
-  double dzz;
+void mean_zero_var_one_in_place(uint32_t indiv_ct, double* pheno_d) {
+  double sum = 0.0;
+  double ssq = 0.0;
+  double* dptr = pheno_d;
+  double dxx;
+  double indiv_ctd;
+  double mean;
+  double stdev_recip;
+  uint32_t indiv_idx;
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    dxx = *dptr++;
+    sum += dxx;
+    ssq += dxx * dxx;
+  }
+  indiv_ctd = (double)((int32_t)indiv_ct);
+  mean = sum / indiv_ctd;
+  // --unrelated-heritability is intended to be a straight port of Carson's
+  // MATLAB script; it does not have "- 1" in the numerator here.
+  stdev_recip = sqrt(indiv_ctd / (ssq - sum * mean));
+  dptr = pheno_d;
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    *dptr = ((*dptr) - mean) * stdev_recip;
+    dptr++;
+  }
+}
+
+int32_t calc_unrelated_herit(uint64_t calculation_type, int32_t ibc_type, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, double* pheno_d, double* rel_ibc, uint32_t is_strict, double unrelated_herit_covg, double unrelated_herit_covr, double unrelated_herit_tol) {
   uintptr_t ulii;
   uintptr_t uljj;
-  double* dist_ptr;
-  double* dptr2;
-  double* dptr3;
-  double* dptr4;
+  double* pheno_ptr;
+  double* ibc_ptr;
+  double* rel_base;
   g_missing_dbl_excluded = NULL;
   ulii = g_indiv_ct;
   ulii = CACHEALIGN_DBL(ulii * ulii);
-  dptr4 = &(g_rel_dists[ulii]);
+  rel_base = &(g_rel_dists[ulii]);
   ulii = ulii * 3 + CACHEALIGN_DBL(g_indiv_ct) * 3;
   wkspace_reset(g_rel_dists);
   g_rel_dists = (double*)wkspace_alloc(ulii * sizeof(double));
   if (!g_rel_dists) {
     return RET_NOMEM;
   }
-  dptr2 = &(g_rel_dists[ulii - CACHEALIGN_DBL(g_indiv_ct)]);
-  collapse_copy_phenod(dptr2, pheno_d, indiv_exclude, unfiltered_indiv_ct);
-  dptr3 = dptr2;
-  dist_ptr = &(dptr2[g_indiv_ct]);
-  while (dptr3 < dist_ptr) {
-    dzz = *dptr3++;
-    dxx += dzz;
-    dyy += dzz * dzz;
-  }
-  dxx /= (double)g_indiv_ct;
-  dxx = 1 / sqrt((dyy / (double)g_indiv_ct) - dxx * dxx);
-  dptr3 = dptr2;
-  while (dptr3 < dist_ptr) {
-    *dptr3 *= dxx;
-    dptr3++;
-  }
+  pheno_ptr = &(g_rel_dists[ulii - CACHEALIGN_DBL(g_indiv_ct)]);
+  collapse_copy_phenod(pheno_ptr, pheno_d, indiv_exclude, unfiltered_indiv_ct);
+  mean_zero_var_one_in_place(g_indiv_ct, pheno_ptr);
   if (calculation_type & CALC_IBC) {
-    dptr3 = &(rel_ibc[ibc_type * g_indiv_ct]);
+    ibc_ptr = &(rel_ibc[ibc_type * g_indiv_ct]);
   } else {
-    dptr3 = rel_ibc;
+    ibc_ptr = rel_ibc;
   }
   for (ulii = 0; ulii < g_indiv_ct; ulii++) {
-    memcpy(&(dptr4[ulii * g_indiv_ct]), &(g_rel_dists[(ulii * (ulii - 1)) / 2]), ulii * sizeof(double));
-    dptr4[ulii * (g_indiv_ct + 1)] = *dptr3++;
+    memcpy(&(rel_base[ulii * g_indiv_ct]), &(g_rel_dists[(ulii * (ulii - 1)) / 2]), ulii * sizeof(double));
+    rel_base[ulii * (g_indiv_ct + 1)] = *ibc_ptr++;
     for (uljj = ulii + 1; uljj < g_indiv_ct; uljj++) {
-      dptr4[ulii * g_indiv_ct + uljj] = g_rel_dists[(uljj * (uljj - 1)) / 2 + ulii];
+      rel_base[ulii * g_indiv_ct + uljj] = g_rel_dists[(uljj * (uljj - 1)) / 2 + ulii];
     }
   }
-  reml_em_one_trait(g_rel_dists, dptr2, &unrelated_herit_covg, &unrelated_herit_covr, unrelated_herit_tol, calculation_type & CALC_UNRELATED_HERITABILITY_STRICT);
+  reml_em_one_trait(g_rel_dists, pheno_ptr, &unrelated_herit_covg, &unrelated_herit_covr, unrelated_herit_tol, is_strict);
   sprintf(logbuf, "h^2 estimate: %g\n", unrelated_herit_covg);
   logprintb();
   return 0;
 }
-#endif
 
-/*
-double get_dmedian_i(int32_t* sorted_arr, int32_t len) {
-  if (len) {
-    if (len % 2) {
-      return (double)sorted_arr[len / 2];
-    } else {
-      return ((double)sorted_arr[len / 2] + (double)sorted_arr[(len / 2) - 1]) * 0.5;
-    }
-  } else {
-    return 0.0;
+int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenoname, uint32_t mpheno_col, char* phenoname_str, int32_t missing_pheno, uint32_t is_strict, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr) {
+  char* grmname_end = (char*)memchr(grmname, 0, FNAMESIZE);
+  FILE* infile = NULL;
+  FILE* grm_binfile = NULL;
+  gzFile grm_gzfile = NULL;
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t topsize = 0;
+  uintptr_t max_person_id_len = 4;
+  uintptr_t unfiltered_indiv_ct = 0;
+  uintptr_t indiv_uidx = 0;
+  uintptr_t* pheno_c = NULL;
+  double* pheno_d = NULL;
+  uintptr_t cur_person_id_len;
+  uintptr_t unfiltered_indiv_ctl;
+  uintptr_t* pheno_nm;
+  uintptr_t pheno_nm_ct;
+  uintptr_t indiv_uidx2;
+  char* sorted_ids;
+  uint32_t* id_map;
+  char* bufptr;
+  char* bufptr2;
+  double* matrix_wkbase;
+  double* pheno_ptr;
+  double* rel_base;
+  double* row_ptr;
+  uint64_t fpos;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  double dxx;
+  float fxx;
+  int32_t retval;
+  // 1. load IDs
+  // 2. load phenotypes and check for missing indivs
+  // 3. collapse phenotypes if necessary,  load (subset of) relationship matrix
+  // 4. call reml_em_one_trait()
+  memcpy(grmname_end, ".grm.id", 8);
+  if (fopen_checked(&infile, grmname, "r")) {
+    goto unrelated_herit_batch_ret_OPEN_FAIL;
   }
+  tbuf[MAXLINELEN - 1] = ' ';
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      logprint("Error: Pathologically long line in .grm.id file.\n");
+      goto unrelated_herit_batch_ret_INVALID_FORMAT;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    bufptr2 = item_endnn(bufptr);
+    cur_person_id_len = bufptr2 - bufptr;
+    bufptr2 = skip_initial_spaces(bufptr2);
+    if (is_eoln_kns(*bufptr2)) {
+      logprint("Error: Fewer items than expected in .grm.id line.\n");
+      goto unrelated_herit_batch_ret_INVALID_FORMAT;
+    }
+    cur_person_id_len += strlen_se(bufptr2) + 2;
+    if (cur_person_id_len > max_person_id_len) {
+      max_person_id_len = cur_person_id_len;
+    }
+    unfiltered_indiv_ct++;
+  }
+  if (!feof(infile)) {
+    goto unrelated_herit_batch_ret_READ_FAIL;
+  }
+  if (unfiltered_indiv_ct < 2) {
+    logprint("Error: Less than two individuals in .grm.id file.\n");
+    goto unrelated_herit_batch_ret_INVALID_FORMAT;
+  }
+  rewind(infile);
+  unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  if (wkspace_alloc_ul_checked(&pheno_nm, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+    goto unrelated_herit_batch_ret_NOMEM;
+  }
+  sorted_ids = (char*)top_alloc(&topsize, unfiltered_indiv_ct * max_person_id_len);
+  if (!sorted_ids) {
+    goto unrelated_herit_batch_ret_NOMEM;
+  }
+  id_map = (uint32_t*)top_alloc(&topsize, unfiltered_indiv_ct * sizeof(int32_t));
+  if (!id_map) {
+    goto unrelated_herit_batch_ret_NOMEM;
+  }
+  fill_ulong_zero(pheno_nm, unfiltered_indiv_ctl);
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    bufptr = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    bufptr2 = item_endnn(bufptr);
+    cur_person_id_len = bufptr2 - bufptr;
+    memcpy(&(sorted_ids[indiv_uidx * max_person_id_len]), bufptr, cur_person_id_len);
+    sorted_ids[indiv_uidx * max_person_id_len + (cur_person_id_len++)] = '\t';
+    bufptr2 = skip_initial_spaces(bufptr2);
+    ulii = strlen_se(bufptr2);
+    memcpy(&(sorted_ids[indiv_uidx * max_person_id_len + cur_person_id_len]), bufptr2, ulii);
+    sorted_ids[(indiv_uidx++) * max_person_id_len + cur_person_id_len + ulii] = '\0';
+  }
+  if (!feof(infile)) {
+    goto unrelated_herit_batch_ret_READ_FAIL;
+  }
+  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
+    id_map[indiv_uidx] = indiv_uidx;
+  }
+  wkspace_left -= topsize;
+  if (qsort_ext(sorted_ids, unfiltered_indiv_ct, max_person_id_len, strcmp_deref, (char*)id_map, sizeof(int32_t))) {
+    goto unrelated_herit_batch_ret_NOMEM2;
+  }
+  wkspace_left += topsize;
+
+  fclose_null(&infile);
+  if (fopen_checked(&infile, phenoname, "r")) {
+    goto unrelated_herit_batch_ret_OPEN_FAIL;
+  }
+  wkspace_left -= topsize;
+  retval = load_pheno(infile, unfiltered_indiv_ct, 0, sorted_ids, max_person_id_len, id_map, missing_pheno, intlen(missing_pheno), 0, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d);
+  wkspace_left += topsize;
+  // topsize = 0; (sorted_ids and id_map no longer used)
+  fclose_null(&infile);
+  if (retval) {
+    goto unrelated_herit_batch_ret_1;
+  }
+  if (!pheno_d) {
+    logprint("Error: --unrelated-heritability requires scalar phenotype.\n");
+    goto unrelated_herit_batch_ret_INVALID_CMDLINE;
+  }
+  pheno_nm_ct = popcount_longs(pheno_nm, 0, unfiltered_indiv_ctl);
+  if (pheno_nm_ct < 2) {
+    logprint("Error: Less than two phenotypes present.\n");
+    goto unrelated_herit_batch_ret_INVALID_FORMAT;
+  }
+  ulii = CACHEALIGN_DBL(pheno_nm_ct * pheno_nm_ct);
+  uljj = ulii * 3 + CACHEALIGN_DBL(pheno_nm_ct) * 3;
+  if (wkspace_alloc_d_checked(&matrix_wkbase, ulii * sizeof(double))) {
+    goto unrelated_herit_batch_ret_NOMEM;
+  }
+  g_indiv_ct = pheno_nm_ct;
+  pheno_ptr = &(matrix_wkbase[uljj - CACHEALIGN_DBL(pheno_nm_ct)]);
+  collapse_copy_phenod_incl(pheno_ptr, pheno_d, pheno_nm, unfiltered_indiv_ct);
+  rel_base = &(matrix_wkbase[ulii]);
+  mean_zero_var_one_in_place(pheno_nm_ct, pheno_ptr);
+  indiv_uidx = 0;
+  if (load_grm_bin) {
+    memcpy(grmname_end, ".grm.bin", 9);
+    if (fopen_checked(&grm_binfile, grmname, "rb")) {
+      goto unrelated_herit_batch_ret_OPEN_FAIL;
+    }
+    if (fseeko(grm_binfile, 0, SEEK_END)) {
+      goto unrelated_herit_batch_ret_READ_FAIL;
+    }
+    fpos = ftello(grm_binfile);
+    // n(n+1)/2 * 4 bytes per float
+    if (fpos != ((uint64_t)unfiltered_indiv_ct) * (unfiltered_indiv_ct + 1) * 2) {
+      goto unrelated_herit_batch_ret_INVALID_FORMAT_2;
+    }
+    rewind(grm_binfile);
+    for (ulii = 0; ulii < pheno_nm_ct; ulii++) {
+      if (is_set(pheno_nm, indiv_uidx)) {
+	fpos = indiv_uidx * (indiv_uidx + 1) * (sizeof(float) / 2);
+      } else {
+        indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx + 1);
+	fpos = indiv_uidx * (indiv_uidx + 1) * (sizeof(float) / 2);
+        if (fseeko(grm_binfile, fpos, SEEK_SET)) {
+          goto unrelated_herit_batch_ret_READ_FAIL;
+	}
+      }
+      row_ptr = &(rel_base[ulii * pheno_nm_ct]);
+      indiv_uidx2 = 0;
+      for (uljj = 0; uljj <= ulii; uljj++) {
+        if (!is_set(pheno_nm, indiv_uidx2)) {
+          indiv_uidx2 = next_set_unsafe(pheno_nm, indiv_uidx2 + 1);
+          if (fseeko(grm_binfile, fpos + (indiv_uidx2 * sizeof(float)), SEEK_SET)) {
+            goto unrelated_herit_batch_ret_READ_FAIL;
+	  }
+	}
+        fread(&fxx, 4, 1, grm_binfile);
+        *row_ptr++ = (double)fxx;
+        indiv_uidx2++;
+      }
+      indiv_uidx++;
+    }
+    fclose_null(&grm_binfile);
+  } else {
+    memcpy(grmname_end, ".grm.gz", 8);
+    if (gzopen_checked(&grm_gzfile, grmname, "rb")) {
+      goto unrelated_herit_batch_ret_OPEN_FAIL;
+    }
+    ulii = 0;
+    for (indiv_uidx = 0; indiv_uidx < pheno_nm_ct; indiv_uidx++) {
+      if (!is_set(pheno_nm, indiv_uidx)) {
+        for (indiv_uidx2 = 0; indiv_uidx2 <= indiv_uidx; indiv_uidx2++) {
+          if (!gzgets(grm_gzfile, tbuf, MAXLINELEN)) {
+	    goto unrelated_herit_batch_ret_READ_FAIL;
+	  }
+	  if (!tbuf[MAXLINELEN - 1]) {
+	    goto unrelated_herit_batch_ret_INVALID_FORMAT_3;
+	  }
+	}
+      } else {
+	row_ptr = &(rel_base[ulii * pheno_nm_ct]);
+	for (indiv_uidx2 = 0; indiv_uidx2 <= indiv_uidx; indiv_uidx2++) {
+	  if (!gzgets(grm_gzfile, tbuf, MAXLINELEN)) {
+	    goto unrelated_herit_batch_ret_READ_FAIL;
+	  }
+	  if (!tbuf[MAXLINELEN - 1]) {
+	    goto unrelated_herit_batch_ret_INVALID_FORMAT_3;
+	  }
+	  if (is_set(pheno_nm, indiv_uidx2)) {
+	    bufptr = next_item_mult(tbuf, 3);
+	    if (no_more_items_kns(bufptr)) {
+	      goto unrelated_herit_batch_ret_INVALID_FORMAT_3;
+	    }
+	    if (sscanf(bufptr, "%lg", &dxx) != 1) {
+	      goto unrelated_herit_batch_ret_INVALID_FORMAT_3;
+	    }
+            *row_ptr++ = dxx;
+	  }
+	}
+        ulii++;
+      }
+    }
+    gzclose(grm_gzfile);
+    grm_gzfile = NULL;
+  }
+  // fill in upper right
+  for (ulii = 0; ulii < pheno_nm_ct; ulii++) {
+    row_ptr = &(rel_base[ulii * pheno_nm_ct + ulii + 1]);
+    for (uljj = ulii + 1; uljj < pheno_nm_ct; uljj++) {
+      *row_ptr++ = rel_base[uljj * pheno_nm_ct + ulii];
+    }
+  }
+  sprintf(logbuf, "--unrelated-heritability: %" PRIuPTR " phenotypes loaded.\n", pheno_nm_ct);
+  logprintb();
+  reml_em_one_trait(matrix_wkbase, pheno_ptr, &unrelated_herit_covg, &unrelated_herit_covr, unrelated_herit_tol, is_strict);
+  sprintf(logbuf, "h^2 estimate: %g\n", unrelated_herit_covg);
+  logprintb();
+  while (0) {
+  unrelated_herit_batch_ret_NOMEM2:
+    wkspace_left += topsize;
+  unrelated_herit_batch_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  unrelated_herit_batch_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  unrelated_herit_batch_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  unrelated_herit_batch_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  unrelated_herit_batch_ret_INVALID_FORMAT_3:
+    logprint("Error: Invalid .grm.gz file.\n");
+    retval = RET_INVALID_FORMAT;
+    break;
+  unrelated_herit_batch_ret_INVALID_FORMAT_2:
+    logprint("Error: Invalid .grm.bin file (impossible file size).\n");
+  unrelated_herit_batch_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ unrelated_herit_batch_ret_1:
+  fclose_cond(infile);
+  fclose_cond(grm_binfile);
+  gzclose_cond(grm_gzfile);
+  wkspace_reset(wkspace_mark);
+  return retval;
 }
-*/
+#endif
 
 double get_dmedian(double* sorted_arr, int32_t len) {
   if (len) {
@@ -3399,7 +3675,6 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
   logprintb();
   sprintf(logbuf, "    T12: Ctrl/ctrl more similar than case/ctrl    p = %g\n", (perm_ct - perm_test[5]) * perm_ct_recip);
   logprintb();
-
 
   while (0) {
   ibs_test_calc_ret_NOMEM:

@@ -166,6 +166,7 @@ typedef union {
 #define MISC_KEEP_AUTOCONV 0x400LLU
 #define MISC_LOAD_CLUSTER_KEEP_NA 0x800LLU
 #define MISC_WRITE_CLUSTER_OMIT_UNASSIGNED 0x1000LLU
+#define MISC_UNRELATED_HERITABILITY_STRICT 0x2000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
@@ -177,28 +178,27 @@ typedef union {
 #define CALC_GROUPDIST 0x40LLU
 #define CALC_REGRESS_DISTANCE 0x80LLU
 #define CALC_UNRELATED_HERITABILITY 0x100LLU
-#define CALC_UNRELATED_HERITABILITY_STRICT 0x200LLU
-#define CALC_FREQ 0x400LLU
-#define CALC_REL_CUTOFF 0x800LLU
-#define CALC_WRITE_SNPLIST 0x1000LLU
-#define CALC_LIST_23_INDELS 0x2000LLU
-#define CALC_GENOME 0x4000LLU
-#define CALC_REGRESS_REL 0x8000LLU
-#define CALC_LD_PRUNE 0x10000LLU
-#define CALC_LD_PRUNE_PAIRWISE 0x20000LLU
-#define CALC_REGRESS_PCS 0x40000LLU
-#define CALC_REGRESS_PCS_DISTANCE 0x80000LLU
-#define CALC_MAKE_BED 0x100000LLU
-#define CALC_RECODE 0x200000LLU
-#define CALC_MERGE 0x400000LLU
-#define CALC_WRITE_COVAR 0x800000LLU
-#define CALC_WRITE_CLUSTER 0x1000000LLU
-#define CALC_MODEL 0x2000000LLU
-#define CALC_HARDY 0x4000000LLU
-#define CALC_GXE 0x8000000LLU
-#define CALC_IBS_TEST 0x10000000LLU
-#define CALC_CLUSTER 0x20000000LLU
-#define CALC_HOMOZYG 0x40000000LLU
+#define CALC_FREQ 0x200LLU
+#define CALC_REL_CUTOFF 0x400LLU
+#define CALC_WRITE_SNPLIST 0x800LLU
+#define CALC_LIST_23_INDELS 0x1000LLU
+#define CALC_GENOME 0x2000LLU
+#define CALC_REGRESS_REL 0x4000LLU
+#define CALC_LD_PRUNE 0x8000LLU
+#define CALC_LD_PRUNE_PAIRWISE 0x10000LLU
+#define CALC_REGRESS_PCS 0x20000LLU
+#define CALC_REGRESS_PCS_DISTANCE 0x40000LLU
+#define CALC_MAKE_BED 0x80000LLU
+#define CALC_RECODE 0x100000LLU
+#define CALC_MERGE 0x200000LLU
+#define CALC_WRITE_COVAR 0x400000LLU
+#define CALC_WRITE_CLUSTER 0x800000LLU
+#define CALC_MODEL 0x1000000LLU
+#define CALC_HARDY 0x2000000LLU
+#define CALC_GXE 0x4000000LLU
+#define CALC_IBS_TEST 0x8000000LLU
+#define CALC_CLUSTER 0x10000000LLU
+#define CALC_HOMOZYG 0x20000000LLU
 
 #define M23_MALE 1
 #define M23_FEMALE 2
@@ -462,6 +462,7 @@ extern const char errstr_fopen[];
 extern const char errstr_append[];
 extern const char errstr_thread_create[];
 extern const char cmdline_format_str[];
+extern const char errstr_phenotype_format[];
 
 extern FILE* logfile;
 extern char logbuf[MAXLINELEN];
@@ -1190,6 +1191,8 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
 int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01);
 
 int32_t eval_affection(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01);
+
+uint32_t triangle_divide(int64_t cur_prod, int32_t modif);
 
 void triangle_fill(uint32_t* target_arr, uint32_t ct, uint32_t pieces, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t start, uint32_t align);
 

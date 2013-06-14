@@ -70,12 +70,11 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (10 Jun 2013)";
+  " (14 Jun 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
   "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
-const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
 const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
@@ -1115,165 +1114,6 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
       }
       wkspace_reset(wkspace_mark2);
     }
-  }
-  wkspace_reset(wkspace_mark);
-  return 0;
-}
-
-int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_exclude_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01, uint32_t mpheno_col, char* phenoname_str, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr) {
-  uint32_t affection = 1;
-  uintptr_t* pheno_c = *pheno_c_ptr;
-  double* pheno_d = *pheno_d_ptr;
-  int32_t header_processed = 0;
-  unsigned char* wkspace_mark = wkspace_base;
-  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
-  uintptr_t* isz = NULL;
-  int32_t person_idx;
-  char* id_buf;
-  char* bufptr0;
-  char* bufptr;
-  uint32_t tmp_len;
-  uint32_t tmp_len2;
-  uint32_t uii;
-  double dxx;
-  double dyy;
-  if (pheno_d) {
-    affection = 0;
-  } else {
-    if (wkspace_alloc_ul_checked(&isz, unfiltered_indiv_ctl * sizeof(intptr_t))) {
-      return RET_NOMEM;
-    }
-    fill_ulong_zero(isz, unfiltered_indiv_ctl);
-    if (!pheno_c) {
-      pheno_c = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
-      if (!pheno_c) {
-	return RET_NOMEM;
-      }
-      *pheno_c_ptr = pheno_c;
-    }
-  }
-  if (wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
-    return RET_NOMEM;
-  }
-  // ----- phenotype file load -----
-  tbuf[MAXLINELEN - 1] = ' ';
-  while (fgets(tbuf, MAXLINELEN, phenofile) != NULL) {
-    if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Excessively long line in phenotype file (max %d chars).\n", MAXLINELEN - 3);
-      logprintb();
-      return RET_INVALID_FORMAT;
-    }
-    bufptr0 = skip_initial_spaces(tbuf);
-    if (is_eoln_kns(*bufptr0)) {
-      continue;
-    }
-    tmp_len = strlen_se(bufptr0);
-    bufptr = next_item(bufptr0);
-    if (no_more_items_kns(bufptr)) {
-      logprint(errstr_phenotype_format);
-      logprint("At least two items expected in line.\n");
-      sprintf(logbuf, "Original line: %s", bufptr0);
-      logprintb();
-      return RET_INVALID_FORMAT;
-    }
-    tmp_len2 = strlen_se(bufptr);
-    if (!header_processed) {
-      if (phenoname_str || ((tmp_len == 3) && (tmp_len2 == 3) && (!memcmp("FID", bufptr0, 3)) && (!memcmp("IID", bufptr, 3)))) {
-	if (phenoname_str) {
-	  tmp_len = strlen(phenoname_str);
-	  do {
-	    bufptr = next_item(bufptr);
-	    if (no_more_items_kns(bufptr)) {
-	      logprint("Error: --pheno-name column not found.\n");
-	      return RET_INVALID_FORMAT;
-	    }
-	    mpheno_col++;
-	    tmp_len2 = strlen_se(bufptr);
-	  } while ((tmp_len2 != tmp_len) || memcmp(bufptr, phenoname_str, tmp_len));
-	}
-      } else {
-	header_processed = 1;
-        if (!mpheno_col) {
-	  mpheno_col = 1;
-        }
-      }
-    }
-    if (!header_processed) {
-      header_processed = 1;
-    } else {
-      person_idx = bsearch_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr0, bufptr);
-      if (person_idx != -1) {
-	person_idx = id_map[person_idx];
-	bufptr = next_item_mult(bufptr, mpheno_col);
-	if (no_more_items_kns(bufptr)) {
-	  return LOAD_PHENO_LAST_COL;
-	}
-	if (affection) {
-	  if (eval_affection(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
-	    if (is_missing_pheno(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
-	      // Since we're only making one pass through the file, we don't
-	      // have the luxury of knowing in advance whether the phenotype is
-	      // binary or scalar.  If there is a '0' entry that occurs before
-	      // we know the phenotype is scalar, we need to not set the
-	      // phenotype to zero during the binary -> scalar conversion step.
-	      if (*bufptr == '0') {
-		set_bit_noct(isz, person_idx);
-	      }
-	      clear_bit_noct(pheno_nm, person_idx);
-	    } else {
-              if (affection_01) {
-		if (*bufptr == '0') {
-		  clear_bit_noct(pheno_c, person_idx);
-		} else {
-		  set_bit_noct(pheno_c, person_idx);
-		}
-	      } else {
-		if (*bufptr == '1') {
-		  clear_bit_noct(pheno_c, person_idx);
-		} else {
-		  set_bit_noct(pheno_c, person_idx);
-		}
-	      }
-	      set_bit_noct(pheno_nm, person_idx);
-	    }
-	  } else {
-	    pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
-	    if (!pheno_d) {
-	      return RET_NOMEM;
-	    }
-	    *pheno_d_ptr = pheno_d;
-	    if (affection_01) {
-	      dxx = 0.0;
-	      dyy = 1.0;
-	    } else {
-	      dxx = 1.0;
-	      dyy = 2.0;
-	    }
-	    for (uii = 0; uii < unfiltered_indiv_ct; uii++) {
-	      if (is_set(isz, uii)) {
-		pheno_d[uii] = 0.0;
-		set_bit_noct(pheno_nm, uii);
-	      } else if (is_set(pheno_nm, uii)) {
-		pheno_d[uii] = is_set(pheno_c, uii)? dyy : dxx;
-	      }
-	    }
-	    free(pheno_c);
-	    *pheno_c_ptr = NULL;
-	    affection = 0;
-	  }
-	}
-	if (!affection) {
-	  if (sscanf(bufptr, "%lg", &dxx) == 1) {
-	    pheno_d[person_idx] = dxx;
-	    set_bit_noct(pheno_nm, person_idx);
-	  }
-	}
-      }
-    }
-  }
-  if (!feof(phenofile)) {
-    return RET_READ_FAIL;
   }
   wkspace_reset(wkspace_mark);
   return 0;
@@ -4513,7 +4353,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
 #ifndef NOLAPACK
     if (calculation_type & CALC_UNRELATED_HERITABILITY) {
-      retval = calc_unrelated_herit(calculation_type, ibc_type, unfiltered_indiv_ct, indiv_exclude, pheno_d, rel_ibc, unrelated_herit_covg, unrelated_herit_covr, unrelated_herit_tol);
+      retval = calc_unrelated_herit(calculation_type, ibc_type, unfiltered_indiv_ct, indiv_exclude, pheno_d, rel_ibc, (misc_flags / MISC_UNRELATED_HERITABILITY_STRICT) & 1, unrelated_herit_covg, unrelated_herit_covr, unrelated_herit_tol);
       if (retval) {
 	goto wdist_ret_1;
       }
@@ -9976,12 +9816,21 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --unrelated-heritability flag cannot be used with a single-precision\nrelationship matrix calculation.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
+	if (load_rare & (LOAD_RARE_GRM | LOAD_RARE_GRM_BIN)) {
+	  if (calculation_type & CALC_REL_CUTOFF) {
+	    sprintf(logbuf, "Error: --unrelated-heritability + --grm[-bin] cannot be used with --rel-cutoff.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  } else if (!phenoname) {
+	    sprintf(logbuf, "Error: --unrelated-heritability + --grm[-bin] requires --pheno as well.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
 	  if (!strcmp(argv[cur_arg + 1], "strict")) {
-	    calculation_type |= CALC_UNRELATED_HERITABILITY_STRICT;
+	    misc_flags |= MISC_UNRELATED_HERITABILITY_STRICT;
 	    uii = 2;
 	  } else {
 	    uii = 1;
@@ -10288,11 +10137,11 @@ int32_t main(int32_t argc, char** argv) {
   }
   if (load_rare) {
     if (load_rare & (LOAD_RARE_GRM | LOAD_RARE_GRM_BIN)) {
-      if ((!(calculation_type & CALC_REL_CUTOFF)) || (calculation_type & (~(CALC_REL_CUTOFF | CALC_RELATIONSHIP)))) {
+      if ((!(calculation_type & (CALC_REL_CUTOFF | CALC_UNRELATED_HERITABILITY))) || (calculation_type & (~(CALC_REL_CUTOFF | CALC_RELATIONSHIP | CALC_UNRELATED_HERITABILITY)))) {
 	if (load_rare == LOAD_RARE_GRM) {
-	  sprintf(logbuf, "Error: --grm currently must be used with --rel-cutoff (possibly combined with\n--make-grm(-bin)).%s", errstr_append);
+	  sprintf(logbuf, "Error: --grm currently must be used with --rel-cutoff (possibly combined with\n--make-grm(-bin)) or --unrelated-heritability.%s", errstr_append);
 	} else {
-	  sprintf(logbuf, "Error: --grm-bin currently must be used with --rel-cutoff (possibly combined\nwith --make-grm(-bin)).%s", errstr_append);
+	  sprintf(logbuf, "Error: --grm-bin currently must be used with --rel-cutoff (possibly combined\nwith --make-grm(-bin)) or --unrelated-heritability.%s", errstr_append);
 	}
 	goto main_ret_INVALID_CMDLINE_3;
       }
@@ -10487,8 +10336,16 @@ int32_t main(int32_t argc, char** argv) {
   tbuf[MAXLINELEN - 1] = ' ';
   pigz_init(g_thread_ct);
   if (load_rare & (LOAD_RARE_GRM | LOAD_RARE_GRM_BIN)) {
-    // --rel-cutoff batch mode special case
-    retval = rel_cutoff_batch(load_rare - 1, pedname, outname, outname_end, rel_cutoff, rel_calc_type);
+    // --unrelated-heritability and --rel-cutoff batch mode special cases
+#ifndef NOLAPACK
+    if (calculation_type & CALC_UNRELATED_HERITABILITY) {
+      retval = unrelated_herit_batch(load_rare & LOAD_RARE_GRM_BIN, pedname, phenoname, mpheno_col, phenoname_str, missing_pheno, (misc_flags / MISC_UNRELATED_HERITABILITY_STRICT) & 1, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr);
+    } else {
+#endif
+      retval = rel_cutoff_batch(load_rare & LOAD_RARE_GRM_BIN, pedname, outname, outname_end, rel_cutoff, rel_calc_type);
+#ifndef NOLAPACK
+    }
+#endif
   } else if (genname[0]) {
     if (calculation_type & (~(CALC_DISTANCE | CALC_REGRESS_DISTANCE))) {
       logprint("Error: Only --distance calculations are currently supported with --data.\n");

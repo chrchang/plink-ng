@@ -687,9 +687,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * The 'strict' modifier forces regular EM to be used.  tol defaults to\n"
 "      10^{-7}, genomic covariance prior defaults to 0.45, and residual\n"
 "      covariance prior defaults to (1 - covg).\n"
-"    * For more details, see Vattikuti S, Guo J, Chow CC (2012) Heritability and\n"
-"      Genetic Correlations Explained by Common SNPs for Metabolic Syndrome\n"
-"      Traits.  PLoS Genet 8(3): e1002637.  doi:10.1371/journal.pgen.1002637\n\n"
+"    * You can combine this with --grm/--grm-bin to reuse a previously computed\n"
+"      relationship matrix.  (Specify the phenotype with --pheno.)\n"
+"    * For more details about the method, see Vattikuti S, Guo J, Chow CC (2012)\n"
+"      Heritability and Genetic Correlations Explained by Common SNPs for\n"
+"      Metabolic Syndrome Traits.  PLoS Genet 8(3): e1002637.\n"
+"      doi:10.1371/journal.pgen.1002637\n\n"
 	       );
 #endif
     help_print("cnv-make-map", &help_ctrl, 1,

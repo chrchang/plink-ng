@@ -5,6 +5,7 @@ const char errstr_fopen[] = "Error: Failed to open %s.\n";
 const char errstr_append[] = "\nFor more information, try 'wdist --help [flag name]' or 'wdist --help | more'.\n";
 const char errstr_thread_create[] = "\nError: Failed to create thread.\n";
 const char cmdline_format_str[] = "\n  wdist [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  wdist --help {flag name(s)...}\n\n";
+const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 
 char tbuf[MAXLINELEN * 4 + 256];
 
