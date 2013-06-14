@@ -2566,6 +2566,9 @@ static uint32_t* g_totq_preshifts;
 static uint32_t* g_totq_postshifts;
 static uint32_t* g_totq_incrs;
 
+static uint32_t* g_indiv_to_cluster;
+static uint32_t* g_qassoc_cluster_thread_wkspace;
+
 THREAD_RET_TYPE model_assoc_gen_perms_thread(void* arg) {
   intptr_t tidx = (intptr_t)arg;
   uint32_t pheno_nm_ct = g_pheno_nm_ct;
@@ -2659,6 +2662,79 @@ THREAD_RET_TYPE qassoc_gen_perms_thread(void* arg) {
       *wptr++ = *wptr3;
       *wptr3 = cur_source;
       wptr2++;
+    }
+  }
+  THREAD_RETURN;
+}
+
+THREAD_RET_TYPE qassoc_gen_cluster_perms_thread(void* arg) {
+  intptr_t tidx = (intptr_t)arg;
+  uint32_t pheno_nm_ct = g_pheno_nm_ct;
+  uintptr_t perm_vec_ctcl8 = (g_perm_vec_ct + (CACHELINE_DBL - 1)) / CACHELINE_DBL;
+  uintptr_t perm_vec_ctcl8m = perm_vec_ctcl8 * CACHELINE_DBL;
+  double* pheno_d2 = g_pheno_d2;
+  sfmt_t* sfmtp = g_sfmtp_arr[tidx];
+  uint32_t pmin = CACHELINE_DBL * ((((uint64_t)tidx) * perm_vec_ctcl8) / g_assoc_thread_ct);
+  uint32_t pmax = CACHELINE_DBL * ((((uint64_t)tidx + 1) * perm_vec_ctcl8) / g_assoc_thread_ct);
+  double* perm_vecstd = &(g_perm_vecstd[pmin]);
+  uint32_t cluster_ct = g_cluster_ct;
+  uint32_t cluster_ctcl = (cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32;
+  uint32_t* cluster_map = g_cluster_map;
+  uint32_t* cluster_starts = g_cluster_starts;
+  uint32_t* in_cluster_positions = &(g_qassoc_cluster_thread_wkspace[tidx * cluster_ctcl * CACHELINE_INT32]);
+  uint32_t* indiv_to_cluster = g_indiv_to_cluster;
+  uint32_t pdiff = pmax - pmin;
+  uint32_t poffset = 0;
+  uint32_t indiv_idx = 0;
+  uint32_t cluster_idx;
+  uint32_t cur_in_cluster_pos;
+  uint32_t* cur_map_start;
+  uint32_t tot_quotient;
+  uint32_t upper_bound;
+  uint64_t totq_magic;
+  uint32_t totq_preshift;
+  uint32_t totq_postshift;
+  uint32_t totq_incr;
+  uint32_t urand;
+  uint32_t uii;
+  double* wptr;
+  double* wptr2;
+  double* wptr3;
+  double cur_source;
+  if (((uintptr_t)tidx) + 1 == g_assoc_thread_ct) {
+    pmax = g_perm_vec_ct;
+  }
+  fill_uint_zero(in_cluster_positions, cluster_ct);
+  for (; indiv_idx < pheno_nm_ct; indiv_idx++) {
+    cur_source = *pheno_d2++;
+    cluster_idx = indiv_to_cluster[indiv_idx];
+    if (cluster_idx == 0xffffffffU) {
+      cur_in_cluster_pos = 0;
+    } else {
+      cur_in_cluster_pos = in_cluster_positions[cluster_idx];
+      in_cluster_positions[cluster_idx] += 1;
+    }
+    wptr = &(perm_vecstd[indiv_idx * perm_vec_ctcl8m]);
+    if (!cur_in_cluster_pos) {
+      for (poffset = 0; poffset < pdiff; poffset++) {
+        *wptr++ = cur_source;
+      }
+    } else {
+      cur_map_start = &(cluster_map[cluster_starts[cluster_idx]]);
+      tot_quotient = 4294967296LLU / (cur_in_cluster_pos + 1);
+      upper_bound = (cur_in_cluster_pos + 1) * tot_quotient - 1;
+      magic_num(tot_quotient, &totq_magic, &totq_preshift, &totq_postshift, &totq_incr);
+      wptr2 = perm_vecstd;
+      for (poffset = 0; poffset < pdiff; poffset++) {
+	do {
+	  urand = sfmt_genrand_uint32(sfmtp);
+	} while (urand > upper_bound);
+	uii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
+	wptr3 = &(wptr2[cur_map_start[uii] * perm_vec_ctcl8m]);
+	*wptr++ = *wptr3;
+	*wptr3 = cur_source;
+	wptr2++;
+      }
     }
   }
   THREAD_RETURN;
@@ -5448,6 +5524,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 	goto model_assoc_ret_INVALID_CMDLINE;
       }
       retval = cluster_alloc_and_populate_magic_nums(g_cluster_ct, g_cluster_map, g_cluster_starts, &g_tot_quotients, &g_totq_magics, &g_totq_preshifts, &g_totq_postshifts, &g_totq_incrs);
+      if (retval) {
+        goto model_assoc_ret_1;
+      }
     }
     g_ldrefs = (uint16_t*)wkspace_alloc(marker_ct * sizeof(uint16_t));
     if (!g_ldrefs) {
@@ -6916,7 +6995,6 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char*
 }
 
 int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t xmhh_exists, uint32_t nxmhh_exists, uint32_t perm_batch_size) {
-  ;;;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = 2 * ((unfiltered_indiv_ct + BITCT - 1) / BITCT);
@@ -7102,6 +7180,21 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
     goto qassoc_ret_WRITE_FAIL;
   }
   if (do_perms) {
+    if (cluster_starts) {
+      retval = cluster_include_and_reindex(unfiltered_indiv_ct, pheno_nm, 1, NULL, pheno_nm_ct, cluster_ct, cluster_map, cluster_starts, &g_cluster_ct, &g_cluster_map, &g_cluster_starts, NULL, NULL);
+      if (retval) {
+	goto qassoc_ret_1;
+      }
+      if (!g_cluster_ct) {
+        logprint("Error: No size 2+ clusters for permutation test.\n");
+        goto qassoc_ret_INVALID_CMDLINE;
+      }
+      if (wkspace_alloc_ui_checked(&g_indiv_to_cluster, pheno_nm_ct * sizeof(int32_t)) ||
+          wkspace_alloc_ui_checked(&g_qassoc_cluster_thread_wkspace, g_thread_ct * ((g_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE)) {
+	goto qassoc_ret_NOMEM;
+      }
+      fill_indiv_to_cluster(g_indiv_to_cluster, pheno_nm_ct, g_cluster_ct, g_cluster_map, g_cluster_starts);
+    }
     g_sfmtp_arr = (sfmt_t**)wkspace_alloc(g_thread_ct * sizeof(intptr_t));
     if (!g_sfmtp_arr) {
       goto qassoc_ret_NOMEM;
@@ -7119,8 +7212,6 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
 	sfmt_init_by_array(g_sfmtp_arr[uii], uibuf, 4);
       }
     }
-    g_tot_quotient = 4294967296LLU / pheno_nm_ct;
-    magic_num(g_tot_quotient, &g_totq_magic, &g_totq_preshift, &g_totq_postshift, &g_totq_incr);
     if (wkspace_alloc_ui_checked(&g_missing_cts, marker_ct * sizeof(uint32_t)) ||
         wkspace_alloc_ui_checked(&g_het_cts, marker_ct * sizeof(uint32_t)) ||
         wkspace_alloc_ui_checked(&g_homcom_cts, marker_ct * sizeof(uint32_t)) ||
@@ -7245,12 +7336,20 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
 	g_assoc_thread_ct = 1;
       }
     }
-    if (spawn_threads(threads, &qassoc_gen_perms_thread, g_assoc_thread_ct)) {
-      logprint(errstr_thread_create);
-      goto qassoc_ret_THREAD_CREATE_FAIL;
-    }
     ulii = 0;
-    qassoc_gen_perms_thread((void*)ulii);
+    if (!cluster_starts) {
+      if (spawn_threads(threads, &qassoc_gen_perms_thread, g_assoc_thread_ct)) {
+	logprint(errstr_thread_create);
+	goto qassoc_ret_THREAD_CREATE_FAIL;
+      }
+      qassoc_gen_perms_thread((void*)ulii);
+    } else {
+      if (spawn_threads(threads, &qassoc_gen_cluster_perms_thread, g_assoc_thread_ct)) {
+	logprint(errstr_thread_create);
+	goto qassoc_ret_THREAD_CREATE_FAIL;
+      }
+      qassoc_gen_cluster_perms_thread((void*)ulii);
+    }
     join_threads(threads, g_assoc_thread_ct);
   }
   chrom_fo_idx = 0xffffffffU;
@@ -7954,6 +8053,9 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
     break;
   qassoc_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  qassoc_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
     break;
   qassoc_ret_THREAD_CREATE_FAIL:
     retval = RET_THREAD_CREATE_FAIL;

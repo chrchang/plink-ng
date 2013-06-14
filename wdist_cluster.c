@@ -351,10 +351,11 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
   // per-cluster permutation function), allocating space for the latter.
   // Otherwise, this just sets the new cluster map to point to the old one.
   //
-  // remove_size1 should 0 or 1.  If it's 1, all size-1 clusters are removed.
+  // remove_size1 should be 0 or 1.  If it's 1, all size-1 clusters are
+  // removed.
   //
   // If pheno_c is set, this also allocates and populates an array of
-  // per-cluster case counts.
+  // per-cluster case counts, and a permutation preimage.
   unsigned char* wkspace_mark = wkspace_base;
   uint32_t old_assigned_ct = cluster_starts[cluster_ct];
   uint32_t new_cluster_ct = 0;
