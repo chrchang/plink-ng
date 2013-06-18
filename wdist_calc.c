@@ -3465,7 +3465,7 @@ double get_dmedian(double* sorted_arr, int32_t len) {
   }
 }
 
-int32_t ibs_test_calc(pthread_t* threads, char* loaddistname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t perm_ct, uintptr_t pheno_nm_ct, uintptr_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+int32_t ibs_test_calc(pthread_t* threads, char* readdistname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t perm_ct, uintptr_t pheno_nm_ct, uintptr_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
@@ -3514,7 +3514,7 @@ int32_t ibs_test_calc(pthread_t* threads, char* loaddistname, uintptr_t unfilter
   double* rptr2;
 #endif
   uintptr_t perm_idx;
-  g_load_dists = loaddistname? 1 : 0;
+  g_load_dists = readdistname? 1 : 0;
   perm_ct += 1; // first permutation = original config
   if (pheno_ctrl_ct < 2) {
     logprint("Skipping --ibs-test: Too few controls (minimum 2).\n");
@@ -4945,9 +4945,9 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uint
     goto calc_genome_ret_NOMEM;
   }
 
-  fill_int_zero((int32_t*)g_missing_dbl_excluded, tot_cells);
-  fill_int_zero((int32_t*)g_indiv_missing_unwt, g_indiv_ct);
-  fill_int_zero((int32_t*)g_genome_main, tot_cells * 5);
+  fill_uint_zero(g_missing_dbl_excluded, tot_cells);
+  fill_uint_zero(g_indiv_missing_unwt, g_indiv_ct);
+  fill_uint_zero(g_genome_main, tot_cells * 5);
   if (!is_set(marker_exclude, 0)) {
     if (fseeko(bedfile, bed_offset, SEEK_SET)) {
       retval = RET_READ_FAIL;
@@ -5344,7 +5344,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uint
  calc_genome_ret_1:
   gzclose_cond(gz_outfile);
   fclose_cond(outfile);
-  if ((!retval) && (calculation_type & CALC_CLUSTER)) {
+  if ((!retval) && (calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR))) {
     wkspace_reset(loadbuf);
   } else {
     wkspace_reset(wkspace_mark);
@@ -8120,37 +8120,30 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   // to make the results obsolete.  It's unimportant to keep this
   // optimization around if it ever complicates maintenance.
   if (((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX )) || (dist_calc_type & DISTANCE_FLAT_MISSING)) && (!g_missing_dbl_excluded)) {
-    g_missing_dbl_excluded = (uint32_t*)wkspace_alloc(llxx * sizeof(int32_t));
-    if (!g_missing_dbl_excluded) {
+    if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, llxx * sizeof(int32_t))) {
       goto calc_distance_ret_NOMEM;
     }
-    fill_int_zero((int32_t*)g_missing_dbl_excluded, llxx);
+    fill_uint_zero(g_missing_dbl_excluded, llxx);
     unwt_needed = 1;
     if (!g_indiv_missing_unwt) {
-      g_indiv_missing_unwt = (uint32_t*)wkspace_alloc(g_indiv_ct * sizeof(int32_t));
-      if (!g_indiv_missing_unwt) {
+      if (wkspace_alloc_ui_checked(&g_indiv_missing_unwt, g_indiv_ct * sizeof(int32_t))) {
 	goto calc_distance_ret_NOMEM;
       }
       unwt_needed_full = 1;
-      fill_int_zero((int32_t*)g_indiv_missing_unwt, g_indiv_ct);
+      fill_uint_zero(g_indiv_missing_unwt, g_indiv_ct);
     }
   }
-  g_dists = (double*)wkspace_alloc(dists_alloc + CACHELINE);
-  if (!g_dists) {
+  if (wkspace_alloc_d_checked(&g_dists, dists_alloc + CACHELINE)) {
     goto calc_distance_ret_NOMEM;
   }
   wkspace_mark = wkspace_base;
   if (wt_needed) {
-    g_missing_tot_weights = (uint32_t*)wkspace_alloc(llxx * sizeof(int32_t));
-    if (!g_missing_tot_weights) {
+    if (wkspace_alloc_ui_checked(&g_missing_tot_weights, llxx * sizeof(int32_t)) ||
+        wkspace_alloc_ui_checked(&g_indiv_missing, g_indiv_ct * sizeof(int32_t))) {
       goto calc_distance_ret_NOMEM;
     }
-    fill_int_zero((int32_t*)g_missing_tot_weights, llxx);
-    g_indiv_missing = (uint32_t*)wkspace_alloc(g_indiv_ct * sizeof(int32_t));
-    if (!g_indiv_missing) {
-      goto calc_distance_ret_NOMEM;
-    }
-    fill_int_zero((int32_t*)g_indiv_missing, g_indiv_ct);
+    fill_uint_zero(g_missing_tot_weights, llxx);
+    fill_uint_zero(g_indiv_missing, g_indiv_ct);
   }
 
   if (exp0) {
@@ -8164,8 +8157,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   if (!g_masks) {
     goto calc_distance_ret_NOMEM;
   }
-  g_mmasks = (uintptr_t*)wkspace_alloc(g_indiv_ct * sizeof(intptr_t));
-  if (!g_mmasks) {
+  if (wkspace_alloc_ul_checked(&g_mmasks, g_indiv_ct * sizeof(intptr_t))) {
     goto calc_distance_ret_NOMEM;
   }
 
@@ -8594,7 +8586,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   return retval;
 }
 
-int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* loaddistname, char* read_genome_fname, char* outname, char* outname_end, uint64_t calculation_type, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Cluster_info* cp, uint32_t ppc_gap, uintptr_t* pheno_nm, uintptr_t* pheno_c, uint32_t* mds_plot_cluster_assignment, double* mds_plot_dmatrix_copy, uintptr_t* cluster_merge_prevented, uint32_t* cluster_sdistance_indices, double* cluster_group_avg_dheap, unsigned char* wkspace_mark_precluster) {
+int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* readdistname, char* read_genome_fname, char* outname, char* outname_end, uint64_t calculation_type, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Cluster_info* cp, uint32_t ppc_gap, uintptr_t* pheno_nm, uintptr_t* pheno_c, uint32_t* mds_plot_cluster_assignment, double* mds_plot_dmatrix_copy, uintptr_t* cluster_merge_prevented, uint32_t* cluster_sdistance_indices, double* cluster_group_avg_dheap, unsigned char* wkspace_mark_precluster) {
   // Sorted list/heap-based implementation of PLINK --cluster.  O(n^2 log n)
   // time, O(n^2) space.
   // It is possible to do significantly better than this in some scenarios.
@@ -8607,12 +8599,67 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_of
 #ifdef __LP64__
   uint64_t* cluster_sdistance_indices_big = NULL;
 #endif
+  uintptr_t* initial_ppc_restrictions = cluster_merge_prevented;
   uint32_t do_neighbor = (calculation_type / CALC_NEIGHBOR) & 1;
   uint32_t cur_cluster_ct = g_indiv_ct;
+  uintptr_t initial_triangle_size = (g_indiv_ct * (g_indiv_ct - 1)) >> 1;
   int32_t retval = 0;
+  uintptr_t ulii;
+  uint32_t uii;
 
-  if (cluster_ct && (!do_neighbor)) {
+  if (cluster_ct) {
     cur_cluster_ct += cluster_ct - cluster_starts[cluster_ct];
+  }
+  ulii = (((uintptr_t)cur_cluster_ct) * (cur_cluster_ct - 1)) >> 1;
+  fill_ulong_zero(cluster_merge_prevented, (ulii + (BITCT - 1)) / BITCT);
+  if (cp->ppc != 0.0) {
+    // Case 1: --read-genome + either --neighbour or no --within
+    //   Use PPC test values to fill initial_ppc_restrictions, and, if
+    //   necessary, load distance values.  Fail if any pair of individuals is
+    //   not in .genome[.gz] file!
+    // Case 2: --read-genome + --within + no --neighbour
+    //   Apply the cluster assignment during the loading process, so
+    //   pre-clustering can be used to sidestep memory limits.
+    // Case 3: --genome
+    //   Use PPC test values (field 13) to fill initial_ppc_restrictions
+    //   triangular bit matrix, then, if necessary, condense g_genome_main down
+    //   to a regular distance matrix.
+    // Case 4: None of the above
+    //   Perform abbreviated --genome calculation, then act like case 3.
+    if (read_genome_fname) {
+      if ((cur_cluster_ct == g_indiv_ct) || do_neighbor) {
+	if (do_neighbor && (cur_cluster_ct != g_indiv_ct)) {
+	  ulii = (initial_triangle_size + (BITCT - 1)) / BITCT;
+	  if (wkspace_alloc_ul_checked(&initial_ppc_restrictions, ulii * sizeof(uintptr_t))) {
+	    goto calc_cluster_neighbor_ret_NOMEM;
+	  }
+	  fill_ulong_zero(initial_ppc_restrictions, ulii);
+	}
+	uii = (!g_dists) && (!readdistname); // use .genome distances?
+	if (uii) {
+	  if (wkspace_alloc_d_checked(&g_dists, initial_triangle_size * sizeof(double))) {
+	    goto calc_cluster_neighbor_ret_NOMEM;
+	  }
+	  for (ulii = 0; ulii < initial_triangle_size; ulii++) {
+	    g_dists[ulii] = -1;
+	  }
+	}
+	retval = read_genome();
+	if (retval) {
+	  goto calc_cluster_neighbor_ret_1;
+	}
+      } else {
+	retval = read_genome();
+	if (retval) {
+	  goto calc_cluster_neighbor_ret_1;
+	}
+      }
+    } else {
+      if (!g_genome_main) {
+      }
+      // ...
+    }
+  } else {
   }
 #ifdef __LP64__
   if (cur_cluster_ct > 65535) {
@@ -8622,19 +8669,25 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_of
 #endif
   // if relevant IBS matrix already computed (from --distance ibs, --matrix, or
   // --genome), use it
-  if (g_genome_main) {
-  } else {
-    // * if CLUSTER_MISSING then just compute identity-by-missingness
+  if (read_genome_fname) {
+  } else if (1) {
+  } else if (g_genome_main) {
+    // * if CLUSTER_MISSING then compute and write identity-by-missingness
     // * otherwise, if cluster_ppc is nonzero, use calc_genome() algorithm
     // * otherwise, use --matrix algorithm (no missingness rescaling)
     // ...
   }
+  
   logprint("Error: --cluster is currently under development.\n");
   retval = RET_CALC_NOT_YET_SUPPORTED;
   // * if CLUSTER_GROUP_AVG then use binary heap + triangular matrix to
   // efficiently track sorted inter-cluster distances
   // * otherwise a simple sorted list will do
   while (0) {
+  calc_cluster_neighbor_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
   }
+ calc_cluster_neighbor_ret_1:
   return retval;
 }

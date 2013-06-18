@@ -518,3 +518,8 @@ int32_t cluster_alloc_and_populate_magic_nums(uint32_t cluster_ct, uint32_t* clu
   }
   return 0;
 }
+
+int32_t read_genome() {
+  int32_t retval = 0;
+  return retval;
+}

@@ -1202,7 +1202,7 @@ int32_t distance_d_write_ids(char* outname, char* outname_end, uint32_t dist_cal
 
 int32_t relationship_req(uint64_t calculation_type);
 
-int32_t distance_req(uint64_t calculation_type, char* loaddistname);
+int32_t distance_req(uint64_t calculation_type, char* readdistname);
 
 int32_t double_cmp(const void* aa, const void* bb);
 

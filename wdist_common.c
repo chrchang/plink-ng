@@ -2162,6 +2162,7 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
   // wrapper if they haven't been.
   uint32_t uii = 0;
   char* dup_id;
+  char* tptr;
   uint32_t ujj;
   if (!item_ct) {
     return 0;
@@ -2177,6 +2178,10 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
   if (!allow_dups) {
     dup_id = scan_for_duplicate_ids(sorted_ids, item_ct, max_id_len);
     if (dup_id) {
+      tptr = strchr(dup_id, '\t');
+      if (tptr) {
+        *tptr = ' ';
+      }
       sprintf(logbuf, "Error: Duplicate ID %s.\n", dup_id);
       logprintb();
       return RET_INVALID_FORMAT;
@@ -2313,8 +2318,8 @@ int32_t relationship_req(uint64_t calculation_type) {
   return (calculation_type & (CALC_RELATIONSHIP | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF | CALC_REGRESS_REL));
 }
 
-int32_t distance_req(uint64_t calculation_type, char* loaddistname) {
-  return ((calculation_type & CALC_DISTANCE) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!loaddistname) && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))));
+int32_t distance_req(uint64_t calculation_type, char* readdistname) {
+  return ((calculation_type & CALC_DISTANCE) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!readdistname) && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))));
 }
 
 int32_t double_cmp(const void* aa, const void* bb) {

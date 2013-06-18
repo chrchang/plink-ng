@@ -518,7 +518,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * The 'group-avg' modifier causes clusters to be joined based on average\t"
 "      instead of minimum pairwise distance.\n"
 "    * The 'missing' modifier causes clustering to be based on\n"
-"      identity-by-missingness instead of identity-by-state.\n"
+"      identity-by-missingness instead of identity-by-state, and writes a\n"
+"      space-delimited identity-by-missingness matrix to disk.\n"
 "    * The 'only2' modifier causes only a .cluster2 file (which is valid input\n"
 "      for --within) to be written; otherwise 2 other files will be produced.\n\n"
 	       );
@@ -1002,8 +1003,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     --read-freq if you want to explicitly specify some or all\n"
 "                     of the MAFs.)\n"
 	       );
-    help_print("load-dists\tgroupdist\tregress-distance", &help_ctrl, 0,
-"  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --cluster,\n"
+    help_print("read-dists\tload-dists\tibs-test\tgroupdist\tregress-distance\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
+"  --read-dists [f] : Load a binary TRIANGULAR distance matrix for --cluster,\n"
 "                     --ibs-test/--groupdist, --neighbour, or --regress-distance\n"
 "                     analysis, instead of recalculating it from scratch.\n"
 	       );
@@ -1033,9 +1034,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                        '--homozyg group' segment pool.\n"
 "  --pool-size [ct]    : Set min. size of pools in '--homozyg group' report.\n"
 	       );
-    help_print("read-genome\tcluster", &help_ctrl, 0,
-"  --read-genome [f] : Load a --genome report for --cluster, instead of\n"
-"                      recalculating from scratch.\n"
+    help_print("read-genome\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
+"  --read-genome [f] : Load a --genome report for --cluster/--neighbour, instead\n"
+"                      of recalculating from scratch.\n"
 	       );
     help_print("ppc\tmc\tmcc\tK\tk\tibm\tcluster", &help_ctrl, 0,
 "  --ppc [p-val]    : Specify minimum PPC-test p-value within a cluster.\n"

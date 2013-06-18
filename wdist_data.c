@@ -188,6 +188,7 @@ int32_t sort_item_ids_nx(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t
   uintptr_t ulii;
   char* sorted_ids;
   char* dup_id;
+  char* tptr;
   sorted_ids = (char*)wkspace_alloc(item_ct * max_id_len);
   if (!sorted_ids) {
     return RET_NOMEM;
@@ -209,6 +210,10 @@ int32_t sort_item_ids_nx(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t
   }
   dup_id = scan_for_duplicate_ids(sorted_ids, item_ct, max_id_len);
   if (dup_id) {
+    tptr = strchr(dup_id, '\t');
+    if (tptr) {
+      *tptr = ' ';
+    }
     sprintf(logbuf, "Error: Duplicate ID %s.\n", dup_id);
     logprintb();
     return RET_INVALID_FORMAT;
