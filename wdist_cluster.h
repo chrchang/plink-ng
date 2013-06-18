@@ -12,8 +12,10 @@
 typedef struct {
   char* fname;
   char* match_fname;
+  char* match_missing_str;
   char* match_type_fname;
   char* qmatch_fname;
+  char* qmatch_missing_str;
   char* qt_fname;
   uint32_t modifier;
   double ppc;
@@ -22,9 +24,7 @@ typedef struct {
   uint32_t max_controls;
   uint32_t min_ct;
   uint32_t mds_dim_ct;
-  uint32_t neighbor_n1; // yeah, American spelling, deal with it
-  uint32_t neighbor_n2;
-  double max_missing_discordance;
+  double min_ibm;
 } Cluster_info;
 
 void cluster_init(Cluster_info* cluster_ptr);

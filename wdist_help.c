@@ -520,7 +520,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * The 'missing' modifier causes clustering to be based on\n"
 "      identity-by-missingness instead of identity-by-state.\n"
 "    * The 'only2' modifier causes only a .cluster2 file (which is valid input\n"
-"      for --within) to be written; otherwise 3 other files will be produced.\n\n"
+"      for --within) to be written; otherwise 2 other files will be produced.\n\n"
+	       );
+    help_print("neighbour\tneighbor", &help_ctrl, 1,
+"  --neighbour [n1] [n2]\n"
+"    (alias: --neighbor)\n"
+"    Compute nearest neighbor-based outlier detection diagnostics.\n\n"
 	       );
 #endif
     help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means\ttrend", &help_ctrl, 1,
@@ -706,7 +711,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --cnv-write <freq>\n"
 "    Writes a new .cnv fileset, after applying all requested filters.  The\n"
 "    'freq' modifier (which must be used with --cnv-freq-method2) causes an\n"
-"    additional \"FREQ\" field to be written with CNV-CNV overlap counts.\n\n"
+"    additional 'FREQ' field to be written with CNV-CNV overlap counts.\n\n"
 	       );
     /*
     help_print("cnv-check-no-overlap", &help_ctrl, 1,
@@ -999,8 +1004,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("load-dists\tgroupdist\tregress-distance", &help_ctrl, 0,
 "  --load-dists [f] : Load a binary TRIANGULAR distance matrix for --cluster,\n"
-"                     --ibs-test, --groupdist, or --regress-distance analysis,\n"
-"                     instead of recalculating the matrix from scratch.\n"
+"                     --ibs-test/--groupdist, --neighbour, or --regress-distance\n"
+"                     analysis, instead of recalculating it from scratch.\n"
 	       );
     help_print("ppc-gap\tgenome\tZ-genome", &help_ctrl, 0,
 "  --ppc-gap [val]  : Minimum number of base pairs, in thousands, between\n"
@@ -1037,17 +1042,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --mc [max size]  : Specify maximum cluster size.\n"
 "  --mcc [c1] [c2]  : Specify maximum cases and maximum controls per cluster.\n"
 "  --K [min count]  : Specify minimum cluster count.\n"
-"  --ibm [val]      : Specify maximum missing call discordance.\n"
+"  --ibm [val]      : Specify minimum identity-by-missingness.\n"
 	       );
     help_print("match\tmatch-type\tqmatch\tqt\tcluster", &help_ctrl, 0,
-"  --match [fname]  : Use covariate values to restrict clustering.  Without\n"
+"  --match [f] {mv} : Use covariate values to restrict clustering.  Without\n"
 "                     --match-type, two individuals can only be in the same\n"
-"                     cluster if all covariates match.\n"
+"                     cluster if all covariates match.  The optional second\n"
+"                     parameter specifies a covariate value to treat as missing.\n"
 "  --match-type [f] : Specify that some --match covariates must be unequal\n"
 "                     instead of equal.\n"
-"  --qmatch [fname] : Force all members of a cluster to have similar\n"
-"  --qt [fname]       quantitative covariate values.  (The --qmatch parameter\n"
-"                     contains the covariates, and the --qt parameter contains\n"
+"  --qmatch [f] {m} : Force all members of a cluster to have similar\n"
+"  --qt [fname]       quantitative covariate values.  (The --qmatch file should\n"
+"                     contain the covariates, and the --qt file should contain\n"
 "                     the tolerances.)\n"
 	       );
     help_print("cluster\tmds-plot\tmds-cluster", &help_ctrl, 0,

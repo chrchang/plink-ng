@@ -1765,7 +1765,7 @@ int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
     sprintf(logbuf, "Using %d threads (change this with --threads).\n", thread_ct);
     logprintb();
   }
-  if (distance_req(calculation_type)) {
+  if (distance_req(calculation_type, NULL)) {
     wkspace_mark = wkspace_base;
     if (gen_scanned) {
       retval = oxford_distance_calc(genfile, gen_buf_len, set_allele_freqs, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, is_missing_01, dist_calc_type, exponent, thread_ct, parallel_idx, parallel_tot);

@@ -2123,8 +2123,8 @@ void incr_genome(uint32_t* genome_main, uintptr_t* geno, uint32_t tidx) {
 	if (next_ppc_marker_hybrid < GENOME_MULTIPLEX2) {
 	  ibs_incr = 0; // hethet low-order, ibs0 high-order
 
-          // This PPC test is now the limiting step of --genome, not the IBS
-	  // matrix.
+          // This PPC test, rather than the IBS matrix, is now the limiting
+	  // step of --genome.
 	  //
           // I've taken a few "maintenance nightmare" liberties with this code
           // to speed it up, such as using a single lookup table that stores
@@ -3465,7 +3465,7 @@ double get_dmedian(double* sorted_arr, int32_t len) {
   }
 }
 
-int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t perm_ct, uintptr_t pheno_nm_ct, uintptr_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+int32_t ibs_test_calc(pthread_t* threads, char* loaddistname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t perm_ct, uintptr_t pheno_nm_ct, uintptr_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t pheno_nm_ctl = (pheno_nm_ct + (BITCT - 1)) / BITCT;
@@ -3514,7 +3514,7 @@ int32_t ibs_test_calc(pthread_t* threads, uint64_t calculation_type, uintptr_t u
   double* rptr2;
 #endif
   uintptr_t perm_idx;
-  g_load_dists = (calculation_type & CALC_LOAD_DISTANCES)? 1 : 0;
+  g_load_dists = loaddistname? 1 : 0;
   perm_ct += 1; // first permutation = original config
   if (pheno_ctrl_ct < 2) {
     logprint("Skipping --ibs-test: Too few controls (minimum 2).\n");
@@ -8594,29 +8594,47 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   return retval;
 }
 
-int32_t calc_cluster(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* read_genome_fname, Cluster_info* cp, char* outname, char* outname_end, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* loaddistname, char* read_genome_fname, char* outname, char* outname_end, uint64_t calculation_type, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Cluster_info* cp, uint32_t ppc_gap, uintptr_t* pheno_nm, uintptr_t* pheno_c, uint32_t* mds_plot_cluster_assignment, double* mds_plot_dmatrix_copy, uintptr_t* cluster_merge_prevented, uint32_t* cluster_sdistance_indices, double* cluster_group_avg_dheap, unsigned char* wkspace_mark_precluster) {
+  // Sorted list/heap-based implementation of PLINK --cluster.  O(n^2 log n)
+  // time, O(n^2) space.
+  // It is possible to do significantly better than this in some scenarios.
+  // For example, if there are no clustering restrictions, Sibson's SLINK
+  // algorithm (an oldie--from 1973--but goodie; see e.g.
+  // http://comjnl.oxfordjournals.org/content/16/1/30.abstract ) requires only
+  // O(n) space, so it's an excellent complement to --distance/--genome +
+  // --parallel on very large datasets, and should be added to WDIST as a
+  // special case in the future.
+#ifdef __LP64__
+  uint64_t* cluster_sdistance_indices_big = NULL;
+#endif
+  uint32_t do_neighbor = (calculation_type / CALC_NEIGHBOR) & 1;
+  uint32_t cur_cluster_ct = g_indiv_ct;
   int32_t retval = 0;
-  unsigned char* wkspace_mark;
-  // if relevant IBS matrix already computed, use it
-  if (g_genome_main) {
-    wkspace_mark = (unsigned char*)g_missing_dbl_excluded;
-  } else {
-    // technically could try to avoid recomputing ordinary distance matrix as
-    // well, but that should not be a big deal
 
-    // if CLUSTER_MISSING then just compute identity-by-missingness
-    // otherwise, if cluster_ppc is nonzero, use calc_genome() algorithm
-    // otherwise, calculate IBS with no missingness rescaling
-    wkspace_mark = wkspace_base;
+  if (cluster_ct && (!do_neighbor)) {
+    cur_cluster_ct += cluster_ct - cluster_starts[cluster_ct];
+  }
+#ifdef __LP64__
+  if (cur_cluster_ct > 65535) {
+    cluster_sdistance_indices_big = (uint64_t*)cluster_sdistance_indices;
+    cluster_sdistance_indices = NULL;
+  }
+#endif
+  // if relevant IBS matrix already computed (from --distance ibs, --matrix, or
+  // --genome), use it
+  if (g_genome_main) {
+  } else {
+    // * if CLUSTER_MISSING then just compute identity-by-missingness
+    // * otherwise, if cluster_ppc is nonzero, use calc_genome() algorithm
+    // * otherwise, use --matrix algorithm (no missingness rescaling)
     // ...
   }
   logprint("Error: --cluster is currently under development.\n");
   retval = RET_CALC_NOT_YET_SUPPORTED;
-  // if CLUSTER_GROUP_AVG then use binary heap + triangular matrix to
+  // * if CLUSTER_GROUP_AVG then use binary heap + triangular matrix to
   // efficiently track sorted inter-cluster distances
-  // otherwise a simple sorted list will do
+  // * otherwise a simple sorted list will do
   while (0) {
   }
-  wkspace_reset(wkspace_mark);
   return retval;
 }
