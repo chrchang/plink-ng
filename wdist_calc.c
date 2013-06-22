@@ -9177,6 +9177,9 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_of
     goto calc_cluster_neighbor_ret_1;
   }
 
+  logprint("Error: --cluster is not yet complete.\n");
+  retval = RET_CALC_NOT_YET_SUPPORTED;
+
   while (0) {
   calc_cluster_neighbor_ret_NOMEM:
     retval = RET_NOMEM;
