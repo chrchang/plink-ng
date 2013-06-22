@@ -221,16 +221,6 @@ int32_t sort_item_ids_nx(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t
   return 0;
 }
 
-int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, int(* comparator_deref)(const void*, const void*)) {
-  uintptr_t item_ct = unfiltered_ct - exclude_ct;
-  // id_map on bottom because --indiv-sort frees *sorted_ids_ptr
-  if (wkspace_alloc_ui_checked(id_map_ptr, item_ct * sizeof(int32_t)) ||
-      wkspace_alloc_c_checked(sorted_ids_ptr, item_ct * max_id_len)) {
-    return RET_NOMEM;
-  }
-  return sort_item_ids_noalloc(*sorted_ids_ptr, *id_map_ptr, unfiltered_ct, exclude_arr, item_ct, item_ids, max_id_len, allow_dups, comparator_deref);
-}
-
 #ifdef _WIN32
 int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr_t unfiltered_marker_ct) {
   logprint("Error: Win32 WDIST does not yet support transposition of individual-major .bed\nfiles.  Contact the developers if you need this.\n");
@@ -2190,6 +2180,163 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
   wkspace_reset(wkspace_mark);
   fclose(infile);
   return 0;
+}
+
+int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, double* dists) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* dist_file = NULL;
+  FILE* id_file = NULL;
+  uintptr_t id_entry_ct = indiv_ct;
+  uintptr_t matching_entry_ct = indiv_ct;
+  char* id_buf = &(tbuf[MAXLINELEN]);
+  uint64_t* fidx_to_memidx = NULL; // high 32 bits = fidx, low 32 = memidx
+  uint32_t is_presorted = 1;
+  int32_t retval = 0;
+  char* sorted_ids;
+  uint32_t* id_map;
+  char* fam_id;
+  char* indiv_id;
+  uint64_t fpos;
+  uint64_t fpos2;
+  uintptr_t memidx1;
+  uintptr_t memidx2;
+  uintptr_t fidx1;
+  uint64_t fidx2;
+  uintptr_t trimem;
+  uint64_t trif;
+  uint64_t ullii;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uint32_t uii;
+  int32_t ii;
+  if (fopen_checked(&dist_file, dist_fname, "rb")) {
+    goto read_dists_ret_OPEN_FAIL;
+  }
+  if (fseeko(dist_file, 0, SEEK_END)) {
+    goto read_dists_ret_READ_FAIL;
+  }
+  if (id_fname) {
+    if (wkspace_alloc_ull_checked(&fidx_to_memidx, indiv_ct * sizeof(int64_t))) {
+      goto read_dists_ret_NOMEM;
+    }
+    for (ulii = 0; ulii < indiv_ct; ulii++) {
+      fidx_to_memidx[ulii] = 0xffffffffffffffffLLU;
+    }
+    if (fopen_checked(&id_file, id_fname, "r")) {
+      goto read_dists_ret_OPEN_FAIL;
+    }
+    retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, 0, strcmp_deref);
+    if (retval) {
+      goto read_dists_ret_1;
+    }
+    id_entry_ct = 0;
+    matching_entry_ct = 0;
+    tbuf[MAXLINELEN - 1] = ' ';
+    while (fgets(tbuf, MAXLINELEN, id_file)) {
+      if (!tbuf[MAXLINELEN - 1]) {
+        sprintf(logbuf, "Error: Pathologically long line in %s.\n", id_fname);
+        logprintb();
+        goto read_dists_ret_INVALID_FORMAT;
+      }
+      fam_id = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*fam_id)) {
+        continue;
+      }
+      indiv_id = next_item(fam_id);
+      if (no_more_items(indiv_id)) {
+        logprint("Error: Improperly formatted --read-dists ID file.\n");
+        goto read_dists_ret_INVALID_FORMAT;
+      }
+      ii = bsearch_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, fam_id, indiv_id);
+      if (ii == -1) {
+        is_presorted = 0;
+        id_entry_ct++;
+        continue;
+      }
+      uii = id_map[(uint32_t)ii];
+      if (uii != id_entry_ct) {
+        is_presorted = 0;
+      }
+      if (fidx_to_memidx[uii] != 0xffffffffffffffffLLU) {
+        logprint("Error: Duplicate ID in --read-dists ID file.\n");
+        goto read_dists_ret_INVALID_FORMAT;
+      }
+      fidx_to_memidx[uii] = ((uint64_t)uii) | (((uint64_t)id_entry_ct) << 32);
+      id_entry_ct++;
+      matching_entry_ct++;
+    }
+    if (!feof(id_file)) {
+      goto read_dists_ret_READ_FAIL;
+    }
+    fclose_null(&id_file);
+    if (matching_entry_ct < indiv_ct) {
+      logprint("Error: --read-dists ID file does not contain all individuals in current run.\n");
+      goto read_dists_ret_INVALID_FORMAT;
+    }
+    if (!is_presorted) {
+#ifdef __cplusplus
+      std::sort((int64_t*)fidx_to_memidx, (int64_t*)(&(fidx_to_memidx[indiv_ct])));
+#else
+      qsort(fidx_to_memidx, indiv_ct, sizeof(int64_t), llcmp);
+#endif
+    }
+  }
+  fpos = (((uint64_t)id_entry_ct) * (id_entry_ct - 1)) * (sizeof(double) / 2);
+  if (ftello(dist_file) != (int64_t)fpos) {
+    sprintf(logbuf, "Error: Invalid --read-dists filesize (%" PRIu64 " bytes expected).\n", fpos);
+    logprintb();
+    goto read_dists_ret_INVALID_FORMAT;
+  }
+  rewind(dist_file);
+  if (is_presorted) {
+    if (fread(dists, 1, fpos, dist_file) < fpos) {
+      goto read_dists_ret_READ_FAIL;
+    }
+  } else {
+    fpos = 0;
+    for (ulii = 1; ulii < indiv_ct; ulii++) {
+      ullii = fidx_to_memidx[ulii];
+      memidx1 = (uintptr_t)(ullii & (ONELU * 0xffffffffU));
+      fidx1 = (uintptr_t)(ullii >> 32);
+      trimem = (memidx1 * (memidx1 - 1)) / 2;
+      trif = (((uint64_t)fidx1) * (fidx1 - 1)) * (sizeof(double) / 2);
+      for (uljj = 0; uljj < ulii; uljj++) {
+        ullii = fidx_to_memidx[uljj];
+        memidx2 = (uintptr_t)(ullii & (ONELU * 0xffffffffU));
+        fidx2 = (uint64_t)(ullii >> 32);
+        fpos2 = trif + (fidx2 * (sizeof(double) / 2));
+        if (fpos2 > fpos) {
+          fpos = fpos2;
+          if (fseeko(dist_file, fpos, SEEK_SET)) {
+            goto read_dists_ret_READ_FAIL;
+	  }
+	}
+        if (fread(&(dists[trimem + memidx2]), 1, sizeof(double), dist_file) < sizeof(double)) {
+	  goto read_dists_ret_READ_FAIL;
+	}
+        fpos += sizeof(double);
+      }
+    }
+  }
+  while (0) {
+  read_dists_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  read_dists_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  read_dists_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  read_dists_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ read_dists_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(dist_file);
+  fclose_cond(id_file);
+  return retval;
 }
 
 int32_t write_fam(char* outname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, char delim, uint32_t* indiv_sort_map) {

@@ -519,7 +519,199 @@ int32_t cluster_alloc_and_populate_magic_nums(uint32_t cluster_ct, uint32_t* clu
   return 0;
 }
 
-int32_t read_genome() {
-  int32_t retval = 0;
+void cluster_dist_divide(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_starts, double* cluster_sdistances) {
+  uintptr_t tcoord;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uint32_t uii;
+  double dxx;
+  for (ulii = 0; ulii < cluster_ct; ulii++) {
+    uii = cluster_starts[ulii + 1] - cluster_starts[ulii];
+    if (uii > 1) {
+      dxx = 1.0 / ((double)((int32_t)uii));
+      uljj = (ulii * (ulii + 1)) / 2;
+      for (tcoord = (ulii * (ulii - 1)) / 2; tcoord < uljj; tcoord++) {
+	cluster_sdistances[tcoord] *= dxx;
+      }
+      for (uljj = ulii + 1; uljj < indiv_ct; uljj++) {
+	cluster_sdistances[tri_coord_no_diag(ulii, uljj)] *= dxx;
+      }
+    }
+  }
+}
+
+int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t* cluster_merge_prevented, double* cluster_sdistances, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices, uint32_t* ppc_fail_counts, double min_ppc, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster) {
+  unsigned char* wkspace_mark = wkspace_base;
+  gzFile gz_infile = NULL;
+  uint32_t neighbor_load_quantiles = neighbor_quantiles && cluster_sdistances;
+  uint32_t ppc_warning = 0;
+  uintptr_t loaded_entry_ct = 0;
+  uint32_t ppc_fail = 0;
+  char* idbuf = &(tbuf[MAXLINELEN]);
+  char* sorted_ids;
+  uint32_t* id_map;
+  char* bufptr;
+  char* fam_id;
+  char* indiv_id;
+  uint32_t indiv_idx1;
+  uint32_t indiv_idx2;
+  double cur_ibs;
+  double cur_ppc;
+  uintptr_t tcoord;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uint32_t uii;
+  int32_t ii;
+  int32_t retval;
+  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, 0, strcmp_deref);
+  if (retval) {
+    goto read_genome_ret_1;
+  }
+  if (gzopen_checked(&gz_infile, read_genome_fname, "rb")) {
+    goto read_genome_ret_OPEN_FAIL;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  // header line
+  do {
+    if (gzgets(gz_infile, tbuf, MAXLINELEN)) {
+      goto read_genome_ret_READ_FAIL;
+    }
+    if (!tbuf[MAXLINELEN - 1]) {
+      goto read_genome_ret_INVALID_FORMAT_3;
+    }
+    bufptr = skip_initial_spaces(tbuf);
+  } while (is_eoln_kns(*bufptr));
+  // a little bit of input validation
+  if (memcmp(bufptr, "FID1", 4)) {
+    logprint("Error: Invalid --read-genome input file.\n");
+    goto read_genome_ret_INVALID_FORMAT;
+  }
+  while (gzgets(gz_infile, tbuf, MAXLINELEN)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      goto read_genome_ret_INVALID_FORMAT_3;
+    }
+    fam_id = skip_initial_spaces(tbuf);
+    if (is_eoln_kns(*fam_id)) {
+      continue;
+    }
+    indiv_id = next_item(fam_id);
+    bufptr = next_item_mult(indiv_id, 2);
+    if (no_more_items(bufptr)) {
+      goto read_genome_ret_INVALID_FORMAT_4;
+    }
+    ii = bsearch_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, indiv_id);
+    if (ii == -1) {
+      continue;
+    }
+    indiv_idx1 = id_map[(uint32_t)ii];
+    fam_id = next_item(indiv_id);
+    indiv_id = bufptr;
+    ii = bsearch_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, indiv_id);
+    if (ii == -1) {
+      continue;
+    }
+    indiv_idx2 = id_map[(uint32_t)ii];
+    if (indiv_idx2 == indiv_idx1) {
+      logprint("Error: FID1/IID1 matches FID2/IID2 in --read-genome input file line.\n");
+      goto read_genome_ret_INVALID_FORMAT;
+    }
+    bufptr = next_item_mult(indiv_id, 8); // distance
+    fam_id = next_item(bufptr); // repurposed to PPC test value
+    if (no_more_items(fam_id)) {
+      goto read_genome_ret_INVALID_FORMAT_4;
+    }
+    if (min_ppc != 0.0) {
+      if (sscanf(fam_id, "%lg", &cur_ppc) != 1) {
+	logprint("Error: Invalid PPC test value in --read-genome input file.\n");
+	goto read_genome_ret_INVALID_FORMAT;
+      }
+      ppc_fail = (cur_ppc < min_ppc)? 1 : 0;
+      if (ppc_fail && ppc_fail_counts) {
+	ppc_fail_counts[indiv_idx1] += 1;
+	ppc_fail_counts[indiv_idx2] += 1;
+      }
+    }
+    if (sscanf(bufptr, "%lg", &cur_ibs) != 1) {
+      logprint("Error: Invalid IBS value in --read-genome input file.\n");
+      goto read_genome_ret_INVALID_FORMAT;
+    }
+    if (neighbor_load_quantiles) {
+      ulii = nonincr_doublearr_lesser_stride(&(neighbor_quantiles[indiv_idx1]), neighbor_n2, indiv_ct, cur_ibs);
+      if (ulii < neighbor_n2) {
+        for (uljj = neighbor_n2 - 1; uljj > ulii; uljj--) {
+          neighbor_quantiles[uljj * indiv_ct + indiv_idx1] = neighbor_quantiles[(uljj - 1) * indiv_ct + indiv_idx1];
+          neighbor_qindices[uljj * indiv_ct + indiv_idx1] = neighbor_qindices[(uljj - 1) * indiv_ct + indiv_idx1];
+	}
+        neighbor_quantiles[(ulii * indiv_ct) + indiv_idx1] = cur_ibs;
+        neighbor_qindices[(ulii * indiv_ct) + indiv_idx1] = indiv_idx2;
+      }
+      ulii = nonincr_doublearr_lesser_stride(&(neighbor_quantiles[indiv_idx2]), neighbor_n2, indiv_ct, cur_ibs);
+      if (ulii < neighbor_n2) {
+        for (uljj = neighbor_n2 - 1; uljj > ulii; uljj--) {
+          neighbor_quantiles[uljj * indiv_ct + indiv_idx2] = neighbor_quantiles[(uljj - 1) * indiv_ct + indiv_idx2];
+          neighbor_qindices[uljj * indiv_ct + indiv_idx2] = neighbor_qindices[(uljj - 1) * indiv_ct + indiv_idx2];
+	}
+        neighbor_quantiles[(ulii * indiv_ct) + indiv_idx2] = cur_ibs;
+        neighbor_qindices[(ulii * indiv_ct) + indiv_idx2] = indiv_idx1;
+      }
+    }
+    loaded_entry_ct++;
+    if (indiv_to_cluster) {
+      indiv_idx1 = indiv_to_cluster[indiv_idx1];
+      indiv_idx2 = indiv_to_cluster[indiv_idx2];
+      if (indiv_idx1 == indiv_idx2) {
+	if (ppc_fail && (!ppc_warning)) {
+	  logprint("Warning: Initial cluster assignment violates PPC test constraint.\n");
+	  ppc_warning = 1;
+	}
+	continue;
+      }
+    }
+    if (indiv_idx2 < indiv_idx1) {
+      uii = indiv_idx1;
+      indiv_idx1 = indiv_idx2;
+      indiv_idx2 = uii;
+    }
+    tcoord = tri_coord_no_diag(indiv_idx1, indiv_idx2);
+    if (ppc_fail) {
+      set_bit_ul(cluster_merge_prevented, tcoord);
+    }
+    if (cluster_sdistances) {
+      cluster_sdistances[tcoord] += cur_ibs;
+    }
+  }
+  if (!gzeof(gz_infile)) {
+    goto read_genome_ret_READ_FAIL;
+  }
+  if (loaded_entry_ct != (indiv_ct * (indiv_ct - 1)) / 2) {
+    sprintf(logbuf, "Error: %s does not include all individual pairs.\n", read_genome_fname);
+    goto read_genome_ret_INVALID_FORMAT_2;
+  }
+  if (cluster_sdistances) {
+    cluster_dist_divide(indiv_ct, cluster_ct, cluster_starts, cluster_sdistances);
+  }
+  while (0) {
+  read_genome_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  read_genome_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  read_genome_ret_INVALID_FORMAT_4:
+    sprintf(logbuf, "Error: Fewer entries than expected in %s line.\n", read_genome_fname);
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  read_genome_ret_INVALID_FORMAT_3:
+    sprintf(logbuf, "Error: Pathologically long line in %s.\n", read_genome_fname);
+  read_genome_ret_INVALID_FORMAT_2:
+    logprintb();
+  read_genome_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ read_genome_ret_1:
+  wkspace_reset(wkspace_mark);
+  gzclose_cond(gz_infile);
   return retval;
 }

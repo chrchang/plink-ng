@@ -2190,6 +2190,16 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
   return 0;
 }
 
+int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, int(* comparator_deref)(const void*, const void*)) {
+  uintptr_t item_ct = unfiltered_ct - exclude_ct;
+  // id_map on bottom because --indiv-sort frees *sorted_ids_ptr
+  if (wkspace_alloc_ui_checked(id_map_ptr, item_ct * sizeof(int32_t)) ||
+      wkspace_alloc_c_checked(sorted_ids_ptr, item_ct * max_id_len)) {
+    return RET_NOMEM;
+  }
+  return sort_item_ids_noalloc(*sorted_ids_ptr, *id_map_ptr, unfiltered_ct, exclude_arr, item_ct, item_ids, max_id_len, allow_dups, comparator_deref);
+}
+
 int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01) {
   if ((atoi(bufptr) == missing_pheno) && is_space_or_eoln(bufptr[missing_pheno_len])) {
     return 1;
@@ -2318,8 +2328,8 @@ int32_t relationship_req(uint64_t calculation_type) {
   return (calculation_type & (CALC_RELATIONSHIP | CALC_UNRELATED_HERITABILITY | CALC_REL_CUTOFF | CALC_REGRESS_REL));
 }
 
-int32_t distance_req(uint64_t calculation_type, char* readdistname) {
-  return ((calculation_type & CALC_DISTANCE) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!readdistname) && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))));
+int32_t distance_req(uint64_t calculation_type, char* read_dists_fname) {
+  return ((calculation_type & CALC_DISTANCE) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!read_dists_fname) && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))));
 }
 
 int32_t double_cmp(const void* aa, const void* bb) {
@@ -2445,7 +2455,8 @@ uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_leng
 }
 
 uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, double dxx) {
-  // assumes nonempty array
+  // returns number of items in sorted_dbl_arr which dxx is greater than.
+  // assumes array is nonempty and sorted in nondecreasing order
   intptr_t min_idx = 0;
   intptr_t max_idx = arr_length - 1;
   uintptr_t mid_idx;
@@ -2458,6 +2469,27 @@ uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, d
     }
   }
   if (dxx > sorted_dbl_arr[((uintptr_t)min_idx)]) {
+    return (min_idx + 1);
+  } else {
+    return min_idx;
+  }
+}
+
+uintptr_t nonincr_doublearr_lesser_stride(double* nonincr_dbl_arr, uintptr_t arr_length, uintptr_t stride, double dxx) {
+  // assumes relevant elements of array are sorted in nonincreasing order
+  // instead, and they are spaced stride units apart
+  intptr_t min_idx = 0;
+  intptr_t max_idx = arr_length - 1;
+  uintptr_t mid_idx;
+  while (min_idx < max_idx) {
+    mid_idx = (((uintptr_t)min_idx) + ((uintptr_t)max_idx)) / 2;
+    if (dxx < nonincr_dbl_arr[mid_idx * stride]) {
+      min_idx = mid_idx + 1;
+    } else {
+      max_idx = mid_idx - 1;
+    }
+  }
+  if (dxx < nonincr_dbl_arr[((uintptr_t)min_idx) * stride]) {
     return (min_idx + 1);
   } else {
     return min_idx;

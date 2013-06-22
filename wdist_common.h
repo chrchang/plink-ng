@@ -915,8 +915,17 @@ void chrom_print_human_terminate(char* buf, uint32_t num);
 
 void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* pre_shiftp, uint32_t* post_shiftp, uint32_t* incrp);
 
+static inline uintptr_t tri_coord_no_diag(uintptr_t small_coord, uintptr_t big_coord) {
+  // small_coord and big_coord are 0-based indices, small_coord < big_coord
+  return ((big_coord * (big_coord - 1)) / 2) + small_coord;
+}
+
 static inline void set_bit_noct(uintptr_t* exclude_arr, uint32_t loc) {
   exclude_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
+}
+
+static inline void set_bit_ul(uintptr_t* bitarr, uintptr_t loc) {
+  bitarr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
 void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr);
@@ -1188,6 +1197,8 @@ char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id
 
 int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, int(* comparator_deref)(const void*, const void*));
 
+int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, int(* comparator_deref)(const void*, const void*));
+
 int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01);
 
 int32_t eval_affection(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01);
@@ -1202,7 +1213,7 @@ int32_t distance_d_write_ids(char* outname, char* outname_end, uint32_t dist_cal
 
 int32_t relationship_req(uint64_t calculation_type);
 
-int32_t distance_req(uint64_t calculation_type, char* readdistname);
+int32_t distance_req(uint64_t calculation_type, char* read_dists_fname);
 
 int32_t double_cmp(const void* aa, const void* bb);
 
@@ -1223,6 +1234,8 @@ int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int
 uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii);
 
 uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, double dxx);
+
+uintptr_t nonincr_doublearr_lesser_stride(double* nonincr_dbl_arr, uintptr_t arr_length, uintptr_t stride, double dxx);
 
 uintptr_t bsearch_str_lb(char* lptr, uintptr_t arr_length, uintptr_t max_id_len, char* id_buf);
 
