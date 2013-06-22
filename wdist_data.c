@@ -2182,7 +2182,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
   return 0;
 }
 
-int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, double* dists) {
+int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uint32_t for_cluster, double* dists, double* mds_plot_dmatrix_copy, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* dist_file = NULL;
   FILE* id_file = NULL;
@@ -2190,12 +2190,13 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
   uintptr_t matching_entry_ct = indiv_ct;
   char* id_buf = &(tbuf[MAXLINELEN]);
   uint64_t* fidx_to_memidx = NULL; // high 32 bits = fidx, low 32 = memidx
-  uint32_t is_presorted = 1;
+  uint32_t is_presorted = cluster_ct? 0 : 1;
   int32_t retval = 0;
   char* sorted_ids;
   uint32_t* id_map;
   char* fam_id;
   char* indiv_id;
+  double* dptr;
   uint64_t fpos;
   uint64_t fpos2;
   uintptr_t memidx1;
@@ -2204,9 +2205,12 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
   uint64_t fidx2;
   uintptr_t trimem;
   uint64_t trif;
+  uintptr_t clidx1;
+  uintptr_t clidx2;
   uint64_t ullii;
   uintptr_t ulii;
   uintptr_t uljj;
+  double cur_ibs;
   uint32_t uii;
   int32_t ii;
   if (fopen_checked(&dist_file, dist_fname, "rb")) {
@@ -2225,7 +2229,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
     if (fopen_checked(&id_file, id_fname, "r")) {
       goto read_dists_ret_OPEN_FAIL;
     }
-    retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_ct, person_ids, max_person_id_len, 0, strcmp_deref);
+    retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
     if (retval) {
       goto read_dists_ret_1;
     }
@@ -2261,7 +2265,13 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
         logprint("Error: Duplicate ID in --read-dists ID file.\n");
         goto read_dists_ret_INVALID_FORMAT;
       }
-      fidx_to_memidx[uii] = ((uint64_t)uii) | (((uint64_t)id_entry_ct) << 32);
+      if (cluster_ct && (!neighbor_n2) && (!mds_plot_dmatrix_copy)) {
+	// if cluster_ct && (neighbor_n2 || mds_plot_dmatrix_copy), best to
+	// postpone indiv_to_cluster dereference
+        fidx_to_memidx[uii] = ((uint64_t)(indiv_to_cluster[uii])) | (((uint64_t)id_entry_ct) << 32);
+      } else {
+        fidx_to_memidx[uii] = ((uint64_t)uii) | (((uint64_t)id_entry_ct) << 32);
+      }
       id_entry_ct++;
       matching_entry_ct++;
     }
@@ -2273,13 +2283,26 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
       logprint("Error: --read-dists ID file does not contain all individuals in current run.\n");
       goto read_dists_ret_INVALID_FORMAT;
     }
-    if (!is_presorted) {
-#ifdef __cplusplus
-      std::sort((int64_t*)fidx_to_memidx, (int64_t*)(&(fidx_to_memidx[indiv_ct])));
-#else
-      qsort(fidx_to_memidx, indiv_ct, sizeof(int64_t), llcmp);
-#endif
+  } else if (cluster_ct) {
+    if (wkspace_alloc_ull_checked(&fidx_to_memidx, indiv_ct * sizeof(int64_t))) {
+      goto read_dists_ret_NOMEM;
     }
+    if (neighbor_n2 || mds_plot_dmatrix_copy) {
+      for (id_entry_ct = 0; id_entry_ct < indiv_ct; id_entry_ct++) {
+	fidx_to_memidx[id_entry_ct] = ((uint64_t)id_entry_ct) | (((uint64_t)id_entry_ct) << 32);
+      }
+    } else {
+      for (id_entry_ct = 0; id_entry_ct < indiv_ct; id_entry_ct++) {
+	fidx_to_memidx[id_entry_ct] = ((uint64_t)(indiv_to_cluster[id_entry_ct])) | (((uint64_t)id_entry_ct) << 32);
+      }
+    }
+  }
+  if (!is_presorted) {
+#ifdef __cplusplus
+    std::sort((int64_t*)fidx_to_memidx, (int64_t*)(&(fidx_to_memidx[indiv_ct])));
+#else
+    qsort(fidx_to_memidx, indiv_ct, sizeof(int64_t), llcmp);
+#endif
   }
   fpos = (((uint64_t)id_entry_ct) * (id_entry_ct - 1)) * (sizeof(double) / 2);
   if (ftello(dist_file) != (int64_t)fpos) {
@@ -2292,33 +2315,98 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
     if (fread(dists, 1, fpos, dist_file) < fpos) {
       goto read_dists_ret_READ_FAIL;
     }
+    if (neighbor_n2) {
+      dptr = dists;
+      for (memidx1 = 1; memidx1 < indiv_ct; memidx1++) {
+	for (memidx2 = 0; memidx2 < memidx1; memidx2++) {
+          update_neighbor(indiv_ct, neighbor_n2, memidx1, memidx2, *dptr++, neighbor_quantiles, neighbor_qindices);
+	}
+      }
+    }
   } else {
     fpos = 0;
-    for (ulii = 1; ulii < indiv_ct; ulii++) {
-      ullii = fidx_to_memidx[ulii];
-      memidx1 = (uintptr_t)(ullii & (ONELU * 0xffffffffU));
-      fidx1 = (uintptr_t)(ullii >> 32);
-      trimem = (memidx1 * (memidx1 - 1)) / 2;
-      trif = (((uint64_t)fidx1) * (fidx1 - 1)) * (sizeof(double) / 2);
-      for (uljj = 0; uljj < ulii; uljj++) {
-        ullii = fidx_to_memidx[uljj];
-        memidx2 = (uintptr_t)(ullii & (ONELU * 0xffffffffU));
-        fidx2 = (uint64_t)(ullii >> 32);
-        fpos2 = trif + (fidx2 * sizeof(double));
-        if (fpos2 > fpos) {
-          fpos = fpos2;
-          if (fseeko(dist_file, fpos, SEEK_SET)) {
-            goto read_dists_ret_READ_FAIL;
+    if ((!cluster_ct) || ((!neighbor_n2) && (!mds_plot_dmatrix_copy))) {
+      for (ulii = 1; ulii < indiv_ct; ulii++) {
+	ullii = fidx_to_memidx[ulii];
+	memidx1 = (uintptr_t)(ullii & (ONELU * 0xffffffffU));
+	fidx1 = (uintptr_t)(ullii >> 32);
+	trimem = (memidx1 * (memidx1 - 1)) / 2;
+	trif = (((uint64_t)fidx1) * (fidx1 - 1)) * (sizeof(double) / 2);
+	for (uljj = 0; uljj < ulii; uljj++) {
+	  ullii = fidx_to_memidx[uljj];
+	  memidx2 = (uintptr_t)(ullii & (ONELU * 0xffffffffU));
+	  fidx2 = (uint64_t)(ullii >> 32);
+	  fpos2 = trif + (fidx2 * sizeof(double));
+	  if (fpos2 > fpos) {
+	    fpos = fpos2;
+	    if (fseeko(dist_file, fpos, SEEK_SET)) {
+	      goto read_dists_ret_READ_FAIL;
+	    }
 	  }
+	  if (fread(&cur_ibs, 1, sizeof(double), dist_file) < sizeof(double)) {
+	    goto read_dists_ret_READ_FAIL;
+	  }
+	  if (memidx2 < memidx1) {
+	    dists[trimem + memidx2] += cur_ibs;
+	  } else {
+	    dists[((memidx2 * (memidx2 - 1)) / 2) + memidx1] += cur_ibs;
+	  }
+	  if (neighbor_n2) {
+	    update_neighbor(indiv_ct, neighbor_n2, memidx1, memidx2, cur_ibs, neighbor_quantiles, neighbor_qindices);
+	  }
+	  fpos += sizeof(double);
 	}
-	if (fread((memidx2 < memidx1)? (&(dists[trimem + memidx2])) : (&(dists[((memidx2 * (memidx2 - 1)) / 2) + memidx1])), 1, sizeof(double), dist_file) < sizeof(double)) {
-	  goto read_dists_ret_READ_FAIL;
+      }
+      if (mds_plot_dmatrix_copy) {
+        memcpy(mds_plot_dmatrix_copy, dists, (indiv_ct * (indiv_ct - 1)) * (sizeof(double) / 2));
+      }
+    } else {
+      for (ulii = 1; ulii < indiv_ct; ulii++) {
+	ullii = fidx_to_memidx[ulii];
+	memidx1 = (uintptr_t)(ullii & (ONELU * 0xffffffffU));
+	fidx1 = (uintptr_t)(ullii >> 32);
+        clidx1 = indiv_to_cluster[memidx1];
+	trimem = (clidx1 * (clidx1 - 1)) / 2;
+	trif = (((uint64_t)fidx1) * (fidx1 - 1)) * (sizeof(double) / 2);
+	for (uljj = 0; uljj < ulii; uljj++) {
+	  ullii = fidx_to_memidx[uljj];
+	  memidx2 = (uintptr_t)(ullii & (ONELU * 0xffffffffU));
+	  fidx2 = (uint64_t)(ullii >> 32);
+	  clidx2 = indiv_to_cluster[memidx2];
+	  fpos2 = trif + (fidx2 * sizeof(double));
+	  if (fpos2 > fpos) {
+	    fpos = fpos2;
+	    if (fseeko(dist_file, fpos, SEEK_SET)) {
+	      goto read_dists_ret_READ_FAIL;
+	    }
+	  }
+	  if (fread(&cur_ibs, 1, sizeof(double), dist_file) < sizeof(double)) {
+	    goto read_dists_ret_READ_FAIL;
+	  }
+	  if (mds_plot_dmatrix_copy) {
+	    if (memidx2 < memidx1) {
+              mds_plot_dmatrix_copy[((memidx1 * (memidx1 - 1)) / 2) + memidx2] = cur_ibs;
+	    } else {
+              mds_plot_dmatrix_copy[((memidx2 * (memidx2 - 1)) / 2) + memidx1] = cur_ibs;
+	    }
+	  }
+	  if (clidx2 < clidx1) {
+	    dists[trimem + clidx2] += cur_ibs;
+	  } else {
+	    dists[((clidx2 * (clidx2 - 1)) / 2) + clidx1] += cur_ibs;
+	  }
+	  if (neighbor_n2) {
+	    update_neighbor(indiv_ct, neighbor_n2, memidx1, memidx2, cur_ibs, neighbor_quantiles, neighbor_qindices);
+	  }
+	  fpos += sizeof(double);
 	}
-        fpos += sizeof(double);
       }
     }
   }
-  sprintf(logbuf, "--read-dists: %" PRIuPTR " values loaded.\n", (indiv_ct * (indiv_ct - 1)) / 2);
+  if (cluster_ct) {
+    cluster_dist_divide(indiv_ct, cluster_ct, cluster_starts, dists);
+  }
+  sprintf(logbuf, "--read-dists: %" PRIuPTR " values loaded%s.\n", (indiv_ct * (indiv_ct - 1)) / 2, for_cluster? " for --cluster/--neighbor" : "");
   logprintb();
   while (0) {
   read_dists_ret_NOMEM:
@@ -5113,7 +5201,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
     goto lgen_to_bed_ret_1;
   }
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
-  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, strcmp_deref);
+  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
   if (retval) {
     goto lgen_to_bed_ret_1;
   }
@@ -7915,7 +8003,7 @@ int32_t recode_allele_load(char* recode_allele_name, char*** allele_missing_ptr,
   if (fopen_checked(&rafile, recode_allele_name, "r")) {
     goto recode_allele_load_ret_OPEN_FAIL;
   }
-  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, strcmp_deref);
+  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
   if (retval) {
     goto recode_allele_load_ret_1;
   }

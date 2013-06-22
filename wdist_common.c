@@ -408,8 +408,65 @@ char* int64_write(char* start, int64_t llii) {
   return &(start[16]);
 }
 
+char* uint32_writew6(char* start, uint32_t uii) {
+  // Minimum field width 6.
+  uint32_t quotient;
+  if (uii < 1000) {
+    if (uii < 10) {
+      memset(start, 32, 5);
+      start[5] = '0' + uii;
+      return &(start[6]);
+    } else if (uii < 100) {
+      memset(start, 32, 4);
+    } else {
+      memset(start, 32, 3);
+      quotient = uii / 100;
+      start[3] = '0' + quotient;
+      uii -= quotient * 100;
+    }
+    return memcpya(&(start[4]), &(digit2_table[uii * 2]), 2);
+  } else if (uii < 10000000) {
+    if (uii >= 100000) {
+      if (uii >= 1000000) {
+	quotient = uii / 1000000;
+	*start++ = '0' + quotient;
+	goto uint32_writew6_6b;
+      }
+      goto uint32_writew6_6;
+    } else if (uii < 100000) {
+      *start++ = ' ';
+      quotient = uii / 10000;
+      *start++ = '0' + quotient;
+    } else {
+      start = memseta(start, 32, 2);
+      goto uint32_writew6_4;
+    }
+  } else {
+    if (uii >= 100000000) {
+      quotient = uii / 100000000;
+      if (uii >= 1000000000) {
+	start = memcpya(start, &(digit2_table[quotient * 2]), 2);
+      } else {
+	*start++ = '0' + quotient;
+      }
+      uii -= 100000000 * quotient;
+    }
+    quotient = uii / 1000000;
+    start = memcpya(start, &(digit2_table[quotient * 2]), 2);
+  uint32_writew6_6b:
+    uii -= 1000000 * quotient;
+  uint32_writew6_6:
+    quotient = uii / 10000;
+    start = memcpya(start, &(digit2_table[quotient * 2]), 2);
+  }
+  uii -= 10000 * quotient;
+ uint32_writew6_4:
+  quotient = uii / 100;
+  uii -= 100 * quotient;
+  return memcpya(memcpya(start, &(digit2_table[quotient * 2]), 2), &(digit2_table[uii * 2]), 2);
+}
+
 char* uint32_writew7(char* start, uint32_t uii) {
-  // Minimum field width 7.
   uint32_t quotient;
   if (uii < 1000) {
     if (uii < 10) {
@@ -2154,7 +2211,7 @@ char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id
   return NULL;
 }
 
-int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, int(* comparator_deref)(const void*, const void*)) {
+int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*)) {
   // Stores a lexicographically sorted list of IDs in sorted_ids and the raw
   // positions of the corresponding markers/indivs in *id_map_ptr.  Does not
   // include excluded markers/indivs in the list.
@@ -2167,10 +2224,19 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
   if (!item_ct) {
     return 0;
   }
-  for (ujj = 0; ujj < item_ct; ujj++) {
-    uii = next_non_set_unsafe(exclude_arr, uii);
-    memcpy(&(sorted_ids[ujj * max_id_len]), &(item_ids[uii * max_id_len]), max_id_len);
-    id_map[ujj] = uii++;
+  if (!collapse_idxs) {
+    for (ujj = 0; ujj < item_ct; ujj++) {
+      uii = next_non_set_unsafe(exclude_arr, uii);
+      memcpy(&(sorted_ids[ujj * max_id_len]), &(item_ids[uii * max_id_len]), max_id_len);
+      id_map[ujj] = uii++;
+    }
+  } else {
+    for (ujj = 0; ujj < item_ct; ujj++) {
+      uii = next_non_set_unsafe(exclude_arr, uii);
+      memcpy(&(sorted_ids[ujj * max_id_len]), &(item_ids[uii * max_id_len]), max_id_len);
+      id_map[ujj] = ujj;
+      uii++;
+    }
   }
   if (qsort_ext(sorted_ids, item_ct, max_id_len, comparator_deref, (char*)id_map, sizeof(int32_t))) {
     return RET_NOMEM;
@@ -2190,14 +2256,14 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
   return 0;
 }
 
-int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, int(* comparator_deref)(const void*, const void*)) {
+int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*)) {
   uintptr_t item_ct = unfiltered_ct - exclude_ct;
   // id_map on bottom because --indiv-sort frees *sorted_ids_ptr
   if (wkspace_alloc_ui_checked(id_map_ptr, item_ct * sizeof(int32_t)) ||
       wkspace_alloc_c_checked(sorted_ids_ptr, item_ct * max_id_len)) {
     return RET_NOMEM;
   }
-  return sort_item_ids_noalloc(*sorted_ids_ptr, *id_map_ptr, unfiltered_ct, exclude_arr, item_ct, item_ids, max_id_len, allow_dups, comparator_deref);
+  return sort_item_ids_noalloc(*sorted_ids_ptr, *id_map_ptr, unfiltered_ct, exclude_arr, item_ct, item_ids, max_id_len, allow_dups, collapse_idxs, comparator_deref);
 }
 
 int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01) {
@@ -2493,6 +2559,29 @@ uintptr_t nonincr_doublearr_lesser_stride(double* nonincr_dbl_arr, uintptr_t arr
     return (min_idx + 1);
   } else {
     return min_idx;
+  }
+}
+
+void update_neighbor(uintptr_t indiv_ct, uint32_t neighbor_n2, uintptr_t indiv_idx1, uintptr_t indiv_idx2, double cur_ibs, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
+  uintptr_t exceed_ct;
+  uintptr_t cur_write;
+  exceed_ct = nonincr_doublearr_lesser_stride(&(neighbor_quantiles[indiv_idx1]), neighbor_n2, indiv_ct, cur_ibs);
+  if (exceed_ct < neighbor_n2) {
+    for (cur_write = neighbor_n2 - 1; cur_write > exceed_ct; cur_write--) {
+      neighbor_quantiles[cur_write * indiv_ct + indiv_idx1] = neighbor_quantiles[(cur_write - 1) * indiv_ct + indiv_idx1];
+      neighbor_qindices[cur_write * indiv_ct + indiv_idx1] = neighbor_qindices[(cur_write - 1) * indiv_ct + indiv_idx1];
+    }
+    neighbor_quantiles[(exceed_ct * indiv_ct) + indiv_idx1] = cur_ibs;
+    neighbor_qindices[(exceed_ct * indiv_ct) + indiv_idx1] = indiv_idx2;
+  }
+  exceed_ct = nonincr_doublearr_lesser_stride(&(neighbor_quantiles[indiv_idx2]), neighbor_n2, indiv_ct, cur_ibs);
+  if (exceed_ct < neighbor_n2) {
+    for (cur_write = neighbor_n2 - 1; cur_write > exceed_ct; cur_write--) {
+      neighbor_quantiles[cur_write * indiv_ct + indiv_idx2] = neighbor_quantiles[(cur_write - 1) * indiv_ct + indiv_idx2];
+      neighbor_qindices[cur_write * indiv_ct + indiv_idx2] = neighbor_qindices[(cur_write - 1) * indiv_ct + indiv_idx2];
+    }
+    neighbor_quantiles[(exceed_ct * indiv_ct) + indiv_idx2] = cur_ibs;
+    neighbor_qindices[(exceed_ct * indiv_ct) + indiv_idx2] = indiv_idx1;
   }
 }
 
@@ -5956,6 +6045,27 @@ void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm
       for (ulii = perm_idx; ulii < perm_ct; ulii++) {
 	*pbptr &= uljj;
 	pbptr++;
+      }
+    }
+  }
+}
+
+void cluster_dist_divide(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_starts, double* cluster_sdistances) {
+  uintptr_t tcoord;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uint32_t uii;
+  double dxx;
+  for (ulii = 0; ulii < cluster_ct; ulii++) {
+    uii = cluster_starts[ulii + 1] - cluster_starts[ulii];
+    if (uii > 1) {
+      dxx = 1.0 / ((double)((int32_t)uii));
+      uljj = (ulii * (ulii + 1)) / 2;
+      for (tcoord = (ulii * (ulii - 1)) / 2; tcoord < uljj; tcoord++) {
+	cluster_sdistances[tcoord] *= dxx;
+      }
+      for (uljj = ulii + 1; uljj < indiv_ct; uljj++) {
+	cluster_sdistances[tri_coord_no_diag(ulii, uljj)] *= dxx;
       }
     }
   }

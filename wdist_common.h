@@ -266,6 +266,7 @@ typedef union {
 #define DISTANCE_TYPEMASK 0x70
 #define DISTANCE_FLAT_MISSING 0x80
 #define DISTANCE_3D 0x100
+#define DISTANCE_CLUSTER 0x200
 
 #define RECODE_12 1
 #define RECODE_TAB 2
@@ -789,6 +790,7 @@ static inline char* write_item(char* read_ptr, FILE* outfile) {
 }
 
 static inline char* fw_strcpyn(uint32_t min_width, uint32_t source_len, char* source, char* dest) {
+  // right-justified strcpy with known source length
   if (source_len < min_width) {
     memcpy(memseta(dest, 32, min_width - source_len), source, source_len);
     return &(dest[min_width]);
@@ -814,6 +816,8 @@ static inline void intprint2(char* buf, uint32_t num) {
 }
 
 char* uint32_write(char* start, uint32_t uii);
+
+char* uint32_writew6(char* start, uint32_t uii);
 
 char* uint32_writew7(char* start, uint32_t uii);
 
@@ -852,6 +856,12 @@ char* double_g_writewx4(char* start, double dxx, uint32_t min_width);
 
 static inline char* uint32_writex(char* start, uint32_t uii, const char extra_char) {
   char* penult = uint32_write(start, uii);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
+static inline char* uint32_writew6x(char* start, uint32_t uii, const char extra_char) {
+  char* penult = uint32_writew6(start, uii);
   *penult = extra_char;
   return &(penult[1]);
 }
@@ -1195,9 +1205,9 @@ int32_t strcmp_natural_deref(const void* s1, const void* s2);
 
 char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len);
 
-int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, int(* comparator_deref)(const void*, const void*));
+int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*));
 
-int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, int(* comparator_deref)(const void*, const void*));
+int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*));
 
 int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01);
 
@@ -1235,7 +1245,7 @@ uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_leng
 
 uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, double dxx);
 
-uintptr_t nonincr_doublearr_lesser_stride(double* nonincr_dbl_arr, uintptr_t arr_length, uintptr_t stride, double dxx);
+void update_neighbor(uintptr_t indiv_ct, uint32_t neighbor_n2, uintptr_t indiv_idx1, uintptr_t indiv_idx2, double cur_ibs, double* neighbor_quantiles, uint32_t* neighbor_qindices);
 
 uintptr_t bsearch_str_lb(char* lptr, uintptr_t arr_length, uintptr_t max_id_len, char* id_buf);
 
@@ -1377,6 +1387,8 @@ void print_pheno_stdev(double* pheno_d, uint32_t indiv_ct);
 uint32_t set_default_jackknife_d(uint32_t ct);
 
 void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm_idx, uintptr_t perm_ct, uintptr_t* perm_buf);
+
+void cluster_dist_divide(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_starts, double* cluster_sdistances);
 
 void join_threads(pthread_t* threads, uint32_t ctp1);
 

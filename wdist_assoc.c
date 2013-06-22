@@ -7193,7 +7193,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, int32_t bed_offset, char* outn
           wkspace_alloc_ui_checked(&g_qassoc_cluster_thread_wkspace, g_thread_ct * ((g_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE)) {
 	goto qassoc_ret_NOMEM;
       }
-      fill_indiv_to_cluster(g_indiv_to_cluster, pheno_nm_ct, g_cluster_ct, g_cluster_map, g_cluster_starts);
+      fill_unfiltered_indiv_to_cluster(pheno_nm_ct, g_cluster_ct, g_cluster_map, g_cluster_starts, g_indiv_to_cluster);
     }
     g_sfmtp_arr = (sfmt_t**)wkspace_alloc(g_thread_ct * sizeof(intptr_t));
     if (!g_sfmtp_arr) {

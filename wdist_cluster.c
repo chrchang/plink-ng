@@ -63,7 +63,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   fill_ulong_zero(already_seen, indiv_ctl);
   memcpy(sorted_ids, person_ids, indiv_ct * max_person_id_len);
   wkspace_left -= topsize;
-  retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, 0, strcmp_deref);
+  retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, 0, 0, strcmp_deref);
   wkspace_left += topsize;
   if (retval) {
     goto load_clusters_ret_1;
@@ -228,7 +228,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   return retval;
 }
 
-void fill_indiv_to_cluster(uint32_t* indiv_to_cluster, uintptr_t unfiltered_indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts) {
+void fill_unfiltered_indiv_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* indiv_to_cluster) {
   uint32_t* cluster_map_pos = cluster_map;
   uint32_t* cluster_end_ptr;
   uint32_t cluster_idx;
@@ -240,6 +240,39 @@ void fill_indiv_to_cluster(uint32_t* indiv_to_cluster, uintptr_t unfiltered_indi
       indiv_to_cluster[*cluster_map_pos] = cluster_idx;
     } while (++cluster_map_pos < cluster_end_ptr);
   }
+}
+
+int32_t fill_indiv_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* indiv_to_cluster) {
+  unsigned char* wkspace_mark = wkspace_base;
+  uint32_t* cluster_map_pos = cluster_map;
+  int32_t retval = 0;
+  uint32_t* uidx_to_idx;
+  uint32_t* cluster_end_ptr;
+  uint32_t cluster_idx;
+  uint32_t indiv_idx;
+  if (wkspace_alloc_ui_checked(&uidx_to_idx, unfiltered_indiv_ct * sizeof(int32_t))) {
+    goto fill_indiv_to_cluster_ret_NOMEM;
+  }
+  fill_uidx_to_idx(indiv_exclude, indiv_ct, uidx_to_idx);
+  fill_uint_one(indiv_to_cluster, indiv_ct);
+  for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
+    cluster_end_ptr = &(cluster_map[cluster_starts[cluster_idx + 1]]);
+    do {
+      indiv_to_cluster[uidx_to_idx[*cluster_map_pos]] = cluster_idx;
+    } while (++cluster_map_pos < cluster_end_ptr);
+  }
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    if (indiv_to_cluster[indiv_idx] == 0xffffffffU) {
+      indiv_to_cluster[indiv_idx] = cluster_idx++;
+    }
+  }
+  while (0) {
+  fill_indiv_to_cluster_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  return retval;
 }
 
 int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t omit_unassigned, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len) {
@@ -256,7 +289,7 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_in
   if (wkspace_alloc_ui_checked(&indiv_to_cluster, unfiltered_indiv_ct * sizeof(int32_t))) {
     goto write_cluster_ret_NOMEM;
   }
-  fill_indiv_to_cluster(indiv_to_cluster, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts);
+  fill_unfiltered_indiv_to_cluster(unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, indiv_to_cluster);
   memcpy(outname_end, ".clst", 6);
   if (fopen_checked(&outfile, outname, "w")) {
     goto write_cluster_ret_OPEN_FAIL;
@@ -519,28 +552,7 @@ int32_t cluster_alloc_and_populate_magic_nums(uint32_t cluster_ct, uint32_t* clu
   return 0;
 }
 
-void cluster_dist_divide(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_starts, double* cluster_sdistances) {
-  uintptr_t tcoord;
-  uintptr_t ulii;
-  uintptr_t uljj;
-  uint32_t uii;
-  double dxx;
-  for (ulii = 0; ulii < cluster_ct; ulii++) {
-    uii = cluster_starts[ulii + 1] - cluster_starts[ulii];
-    if (uii > 1) {
-      dxx = 1.0 / ((double)((int32_t)uii));
-      uljj = (ulii * (ulii + 1)) / 2;
-      for (tcoord = (ulii * (ulii - 1)) / 2; tcoord < uljj; tcoord++) {
-	cluster_sdistances[tcoord] *= dxx;
-      }
-      for (uljj = ulii + 1; uljj < indiv_ct; uljj++) {
-	cluster_sdistances[tri_coord_no_diag(ulii, uljj)] *= dxx;
-      }
-    }
-  }
-}
-
-int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t* cluster_merge_prevented, double* cluster_sdistances, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices, uint32_t* ppc_fail_counts, double min_ppc, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster) {
+int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t* cluster_merge_prevented, double* cluster_sdistances, double* mds_plot_dmatrix_copy, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices, uint32_t* ppc_fail_counts, double min_ppc, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster) {
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_infile = NULL;
   uint32_t neighbor_load_quantiles = neighbor_quantiles && cluster_sdistances;
@@ -558,12 +570,10 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
   double cur_ibs;
   double cur_ppc;
   uintptr_t tcoord;
-  uintptr_t ulii;
-  uintptr_t uljj;
   uint32_t uii;
   int32_t ii;
   int32_t retval;
-  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, 0, strcmp_deref);
+  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
   if (retval) {
     goto read_genome_ret_1;
   }
@@ -573,7 +583,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
   tbuf[MAXLINELEN - 1] = ' ';
   // header line
   do {
-    if (gzgets(gz_infile, tbuf, MAXLINELEN)) {
+    if (!gzgets(gz_infile, tbuf, MAXLINELEN)) {
       goto read_genome_ret_READ_FAIL;
     }
     if (!tbuf[MAXLINELEN - 1]) {
@@ -636,27 +646,10 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
       goto read_genome_ret_INVALID_FORMAT;
     }
     if (neighbor_load_quantiles) {
-      ulii = nonincr_doublearr_lesser_stride(&(neighbor_quantiles[indiv_idx1]), neighbor_n2, indiv_ct, cur_ibs);
-      if (ulii < neighbor_n2) {
-        for (uljj = neighbor_n2 - 1; uljj > ulii; uljj--) {
-          neighbor_quantiles[uljj * indiv_ct + indiv_idx1] = neighbor_quantiles[(uljj - 1) * indiv_ct + indiv_idx1];
-          neighbor_qindices[uljj * indiv_ct + indiv_idx1] = neighbor_qindices[(uljj - 1) * indiv_ct + indiv_idx1];
-	}
-        neighbor_quantiles[(ulii * indiv_ct) + indiv_idx1] = cur_ibs;
-        neighbor_qindices[(ulii * indiv_ct) + indiv_idx1] = indiv_idx2;
-      }
-      ulii = nonincr_doublearr_lesser_stride(&(neighbor_quantiles[indiv_idx2]), neighbor_n2, indiv_ct, cur_ibs);
-      if (ulii < neighbor_n2) {
-        for (uljj = neighbor_n2 - 1; uljj > ulii; uljj--) {
-          neighbor_quantiles[uljj * indiv_ct + indiv_idx2] = neighbor_quantiles[(uljj - 1) * indiv_ct + indiv_idx2];
-          neighbor_qindices[uljj * indiv_ct + indiv_idx2] = neighbor_qindices[(uljj - 1) * indiv_ct + indiv_idx2];
-	}
-        neighbor_quantiles[(ulii * indiv_ct) + indiv_idx2] = cur_ibs;
-        neighbor_qindices[(ulii * indiv_ct) + indiv_idx2] = indiv_idx1;
-      }
+      update_neighbor(indiv_ct, neighbor_n2, indiv_idx1, indiv_idx2, cur_ibs, neighbor_quantiles, neighbor_qindices);
     }
     loaded_entry_ct++;
-    if (indiv_to_cluster) {
+    if (cluster_ct) {
       indiv_idx1 = indiv_to_cluster[indiv_idx1];
       indiv_idx2 = indiv_to_cluster[indiv_idx2];
       if (indiv_idx1 == indiv_idx2) {

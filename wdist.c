@@ -2435,7 +2435,7 @@ int32_t read_external_freqs(char* freqname, FILE** freqfile_ptr, uintptr_t unfil
     return RET_INVALID_FORMAT;
   }
   wkspace_mark = wkspace_base;
-  ii = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, strcmp_deref);
+  ii = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
   if (ii) {
     return ii;
   }
@@ -3230,7 +3230,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   uint32_t marker_uidx;
   char cc;
   int32_t retval;
-  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, strcmp_deref);
+  retval = sort_item_ids(&sorted_marker_ids, &marker_id_map, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
   if (retval) {
     goto load_ax_alleles_ret_1;
   }
@@ -3420,8 +3420,8 @@ inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-inline int32_t distance_wt_req(uint64_t calculation_type, char* read_dists_fname) {
-  return ((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))));
+inline int32_t distance_wt_req(uint64_t calculation_type, char* read_dists_fname, uint32_t dist_calc_type) {
+  return (((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))))) && (!(dist_calc_type & DISTANCE_FLAT_MISSING)));
 }
 
 int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filterval, double thin_keep_prob, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t rel_calc_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uintptr_t regress_rel_iters, uint32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t genome_modifier, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, uint32_t regress_pcs_modifier, uint32_t max_pcs, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t write_covar_modifier, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, Ll_str** file_delete_list_ptr) {
@@ -3503,7 +3503,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   double missing_phenod = (double)missing_pheno;
   double ci_zt = 0.0;
   uint32_t missing_pheno_len = intlen(missing_pheno);
-  uint32_t wt_needed = distance_wt_req(calculation_type, read_dists_fname) && (!(dist_calc_type & DISTANCE_FLAT_MISSING));
+  uint32_t wt_needed = distance_wt_req(calculation_type, read_dists_fname, dist_calc_type);
   uint32_t bed_offset = 3;
   uint32_t* marker_pos = NULL;
   int32_t xmhh_exists = 0;
@@ -3767,7 +3767,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (phenofile || update_ids_fname || update_parents_fname || update_sex_fname || (misc_flags & MISC_TAIL_PHENO)) {
     wkspace_mark = wkspace_base;
-    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, strcmp_deref);
+    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, 0, strcmp_deref);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -3829,7 +3829,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (uii || extractname || excludename) {
     wkspace_mark = wkspace_base;
     // only permit duplicate marker IDs for --extract/--exclude
-    retval = sort_item_ids(&cptr, &uiptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, !uii, strcmp_deref);
+    retval = sort_item_ids(&cptr, &uiptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, !uii, 0, strcmp_deref);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -3854,7 +3854,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
       if (update_alleles_fname || (marker_alleles_needed && flip_fname && (!flip_subset_fname)) || extractname || excludename) {
 	wkspace_reset(wkspace_mark);
-	retval = sort_item_ids(&cptr, &uiptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, strcmp_deref);
+	retval = sort_item_ids(&cptr, &uiptr, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
 	if (retval) {
 	  goto wdist_ret_1;
 	}
@@ -3896,7 +3896,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (update_ids_fname || update_parents_fname || update_sex_fname || keepname || keepfamname || removename || removefamname || filtername) {
     wkspace_mark = wkspace_base;
-    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, strcmp_deref);
+    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, 0, strcmp_deref);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4121,7 +4121,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (indiv_sort & (INDIV_SORT_NATURAL | INDIV_SORT_ASCII)) {
-    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, (indiv_sort & INDIV_SORT_NATURAL)? strcmp_natural_deref : strcmp_deref);
+    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, 0, (indiv_sort & INDIV_SORT_NATURAL)? strcmp_natural_deref : strcmp_deref);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4361,8 +4361,8 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       if (wkspace_alloc_d_checked(&cluster_sdistances, ulii * sizeof(double))) {
 	goto wdist_ret_NOMEM;
       }
+      fill_double_zero(cluster_sdistances, ulii);
     }
-    fill_double_zero(cluster_sdistances, ulii);
     wkspace_mark_precluster = wkspace_base;
   }
 
@@ -4398,13 +4398,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     }
 #endif
-    if (calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX) && (!(calculation_type & CALC_REL_CUTOFF))) {
-      wkspace_reset(g_rel_dists);
-    } else {
-      wkspace_reset(g_indiv_missing_unwt);
-      g_indiv_missing_unwt = NULL;
-      g_missing_dbl_excluded = NULL;
-    }
+    wkspace_reset(g_indiv_missing_unwt);
+    g_indiv_missing_unwt = NULL;
+    g_missing_dbl_excluded = NULL;
   }
 
   if (calculation_type & CALC_HOMOZYG) {
@@ -4418,7 +4414,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto wdist_ret_1;
   } else if (distance_req(calculation_type, read_dists_fname)) {
-    retval = calc_distance(threads, parallel_idx, parallel_tot, bedfile, bed_offset, outname, outname_end, calculation_type, dist_calc_type, marker_exclude, marker_ct, set_allele_freqs, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, person_ids, max_person_id_len, chrom_info_ptr, wt_needed, marker_weights_i, exponent);
+    retval = calc_distance(threads, parallel_idx, parallel_tot, bedfile, bed_offset, outname, outname_end, calculation_type, dist_calc_type, marker_exclude, marker_ct, set_allele_freqs, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, chrom_info_ptr, wt_needed, marker_weights_i, exponent);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4432,7 +4428,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (wkspace_alloc_d_checked(&g_dists, dists_alloc)) {
       goto wdist_ret_NOMEM;
     }
-    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, g_dists);
+    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, 0, NULL, NULL, 0, g_dists, NULL, 0, NULL, NULL);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4501,7 +4497,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     } else {
       wkspace_mark = wkspace_base;
-      retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, strcmp_deref);
+      retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, 0, strcmp_deref);
       if (retval) {
 	goto wdist_ret_1;
       }
