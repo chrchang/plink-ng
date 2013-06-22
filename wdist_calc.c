@@ -2578,11 +2578,11 @@ THREAD_RET_TYPE calc_genomem_thread(void* arg) {
   int32_t ii = g_thread_start[tidx];
   int32_t jj = g_thread_start[0];
   // f(0) = 0
-  // f(1) = ic - 2
-  // f(2) = 2ic - 5
-  // f(3) = 3ic - 9
+  // f(1) = indiv_ct - 2
+  // f(2) = 2 * indiv_ct - 5
+  // f(3) = 3 * indiv_ct - 9
   // ...
-  // f(n) = nic - (n+1)(n+2)/2 + 1
+  // f(n) = n * indiv_ct - (n+1)(n+2)/2 + 1
   incr_dists_rm_inv(&(g_missing_dbl_excluded[(int64_t)g_indiv_ct * (ii - jj) - ((int64_t)(ii + 1) * (ii + 2) - (int64_t)(jj + 1) * (jj + 2)) / 2]), (uint32_t)tidx);
   THREAD_RETURN;
 }
@@ -8063,6 +8063,111 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   return retval;
 }
 
+int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uint32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, Chrom_info* chrom_info_ptr) {
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uint64_t dists_alloc = 0;
+  uintptr_t marker_uidx = 0;
+  uintptr_t marker_idx = 0;
+  uint32_t chrom_fo_idx = 0;
+  int32_t retval = 0;
+  uint32_t* giptr = NULL;
+  unsigned char* wkspace_mark;
+  unsigned char* bedbuf;
+  unsigned char* gptr;
+  uintptr_t indiv_uidx;
+  uintptr_t ulii;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
+  uint32_t unn;
+  uintptr_t* glptr;
+  uint32_t marker_ct_autosomal;
+  int64_t llxx;
+  triangle_fill(g_thread_start, g_indiv_ct, g_thread_ct, 0, 1, 1, 1);
+  llxx = g_thread_start[g_thread_ct];
+  llxx = (llxx * (llxx - 1)) / 2;
+  dists_alloc = llxx * sizeof(double);
+  if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, llxx * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&g_indiv_missing_unwt, g_indiv_ct * sizeof(int32_t))) {
+    goto calc_ibm_ret_NOMEM;
+  }
+  fill_uint_zero(g_missing_dbl_excluded, llxx);
+  fill_uint_zero(g_indiv_missing_unwt, g_indiv_ct);
+  wkspace_mark = wkspace_base;
+
+  if (wkspace_alloc_ul_checked(&g_mmasks, g_indiv_ct * sizeof(intptr_t)) ||
+      wkspace_alloc_uc_checked(&bedbuf, MULTIPLEX_DIST * unfiltered_indiv_ct4)) {
+    goto calc_ibm_ret_NOMEM;
+  }
+  fseeko(bedfile, bed_offset, SEEK_SET);
+  uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
+  marker_ct_autosomal = marker_ct - uii;
+  if (uii) {
+    sprintf(logbuf, "Excluding %u marker%s on non-autosomes from IBM calculation.\n", uii, (uii == 1)? "" : "s");
+    logprintb();
+  }
+  while (marker_idx < marker_ct_autosomal) {
+    retval = block_load_autosomal(bedfile, bed_offset, marker_exclude, marker_ct_autosomal, MULTIPLEX_DIST, unfiltered_indiv_ct4, chrom_info_ptr, NULL, NULL, bedbuf, &chrom_fo_idx, &marker_uidx, &marker_idx, &ujj, NULL, NULL, NULL);
+    if (retval) {
+      goto calc_ibm_ret_1;
+    }
+    if (ujj < MULTIPLEX_DIST) {
+      memset(&(bedbuf[ujj * unfiltered_indiv_ct4]), 0, (MULTIPLEX_DIST - ujj) * unfiltered_indiv_ct4);
+    }
+    for (ukk = 0; ukk < ujj; ukk += BITCT) {
+      glptr = g_mmasks;
+      giptr = g_indiv_missing_unwt;
+      for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
+	if (!is_set(indiv_exclude, indiv_uidx)) {
+	  unn = (indiv_uidx % 4) * 2;
+	  ulii = 0;
+	  gptr = &(bedbuf[indiv_uidx / 4 + ukk * unfiltered_indiv_ct4]);
+	  for (umm = 0; umm < BITCT2; umm++) {
+	    if (((gptr[umm * unfiltered_indiv_ct4] >> unn) & 3) == 1) {
+	      ulii |= ONELU << umm;
+	      *giptr += 1;
+	    }
+	  }
+	  *glptr = ulii;
+	  ulii = 0;
+	  gptr = &(bedbuf[indiv_uidx / 4 + (ukk + BITCT2) * unfiltered_indiv_ct4]);
+	  for (umm = 0; umm < BITCT2; umm++) {
+	    if (((gptr[umm * unfiltered_indiv_ct4] >> unn) & 3) == 1) {
+	      ulii |= ONELU << umm;
+	      *giptr += 1;
+	    }
+	  }
+	  *glptr++ |= ulii << BITCT2;
+	  giptr++;
+	}
+      }
+
+      if (spawn_threads(threads, &calc_missing_thread, g_thread_ct)) {
+	goto calc_ibm_ret_THREAD_CREATE_FAIL;
+      }
+      incr_dists_rm(g_missing_dbl_excluded, 0, g_thread_start);
+      join_threads(threads, g_thread_ct);
+    }
+
+    printf("\r%" PRIuPTR " markers complete.", marker_idx);
+    fflush(stdout);
+  }
+  putchar('\r');
+  wkspace_reset(wkspace_mark);
+  while (0) {
+  calc_ibm_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  calc_ibm_ret_THREAD_CREATE_FAIL:
+    logprint(errstr_thread_create);
+    retval = RET_THREAD_CREATE_FAIL;
+    break;
+  }
+ calc_ibm_ret_1:
+  return retval;
+}
+
 int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, FILE* bedfile, uint32_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t* marker_exclude, uint32_t marker_ct, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, Chrom_info* chrom_info_ptr, uint32_t wt_needed, uint32_t* marker_weights_i, double exponent) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
@@ -8116,8 +8221,6 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     goto calc_distance_ret_NOMEM;
   }
 #endif
-  // Additional + CACHELINE is to fix aliasing bug that shows up with -O2 in
-  // some cases.
   if ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) || (dist_calc_type & DISTANCE_FLAT_MISSING)) {
     if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, llxx * sizeof(int32_t)) ||
         wkspace_alloc_ui_checked(&g_indiv_missing_unwt, g_indiv_ct * sizeof(int32_t))) {
@@ -8127,6 +8230,8 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     fill_uint_zero(g_indiv_missing_unwt, g_indiv_ct);
     unwt_needed = 1;
   }
+  // Additional + CACHELINE is to fix aliasing bug that shows up with -O2 in
+  // some cases.
   if (wkspace_alloc_d_checked(&g_dists, dists_alloc + CACHELINE)) {
     goto calc_distance_ret_NOMEM;
   }
@@ -8616,8 +8721,11 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_of
   double* neighbor_quantile_stdev_recips = NULL;
   uint32_t* neighbor_qindices = NULL;
   uint32_t* ppc_fail_counts = NULL;
+  double* dptr = NULL;
   double min_ppc = cp->ppc;
+  double min_ibm = cp->min_ibm;
   double min_zx = 0.0;
+  uint32_t ibm_constraint = (min_ibm != 0.0)? 1 : 0;
   uintptr_t indiv_ct = g_indiv_ct;
   double indiv_ct_recip = 1.0 / ((double)((intptr_t)indiv_ct));
   uint32_t do_neighbor = (calculation_type / CALC_NEIGHBOR) & 1;
@@ -8626,15 +8734,16 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_of
   uint32_t cur_cluster_ct = indiv_ct;
   uintptr_t neighbor_row_ct = neighbor_n2 - neighbor_n1 + 1;
   uint32_t ppc_warning = 0;
+  uint32_t ibm_warning = 0;
   uintptr_t tcoord = 0;
   uintptr_t clidx1 = 0;
   uintptr_t clidx2 = 0;
   double dyy = 0.0;
+  uint32_t pct = 1;
   int32_t retval = 0;
   uintptr_t initial_triangle_size;
   uint32_t* indiv_missing_ptr;
   uint32_t* dbl_exclude_ptr;
-  double* dptr;
   char* wptr_start;
   char* fam_id;
   char* indiv_id;
@@ -8694,8 +8803,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_of
     fill_double_zero(neighbor_quantiles, ulii);
   }
   fill_ulong_zero(cluster_merge_prevented, (initial_triangle_size + (BITCT - 1)) / BITCT);
-  if ((min_ppc != 0.0) || g_genome_main) {
-    if (do_neighbor) {
+  if ((min_ppc != 0.0) || g_genome_main || read_genome_fname) {
+    if (do_neighbor && (min_ppc != 0.0)) {
       ppc_fail_counts = (uint32_t*)malloc(indiv_ct * sizeof(int32_t));
       if (!ppc_fail_counts) {
         goto calc_cluster_neighbor_ret_NOMEM;
@@ -8737,7 +8846,9 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_of
 	      update_neighbor(indiv_ct, neighbor_n2, indiv_idx1, indiv_idx2, dxx, neighbor_quantiles, neighbor_qindices);
 	    }
 	    if (cluster_ct) {
-              cluster_sdistances[tcoord] += dxx;
+	      if (clidx1 != clidx2) {
+                cluster_sdistances[tcoord] += dxx;
+	      }
 	    } else {
 	      cluster_sdistances[tri_coord_no_diag(indiv_idx1, indiv_idx2)] = dxx;
 	    }
@@ -8749,7 +8860,6 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_of
 	    dxx = (double)g_genome_main[ulii + 4];
 	    dxx1 = 1.0 / ((double)(g_genome_main[ulii + 4] + g_genome_main[ulii + 3]));
 	    if (((dxx * dxx1 - 0.666666) / sqrt(dxx1)) < min_zx) {
-	    // if (normdist((dxx * dxx1 - 0.666666) / sqrt(0.2222222 * dxx1)) < min_ppc) {
 	      if (do_neighbor) {
 		ppc_fail_counts[indiv_idx1] += 1;
 		ppc_fail_counts[indiv_idx2] += 1;
@@ -8805,8 +8915,10 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_of
           clidx2 = indiv_to_cluster[indiv_idx2];
 	  if (clidx1 < clidx2) {
 	    cluster_sdistances[tri_coord_no_diag(clidx1, clidx2)] += *dptr++;
-	  } else {
+	  } else if (clidx1 > clidx2) {
             cluster_sdistances[tri_coord_no_diag(clidx2, clidx1)] += *dptr++;
+	  } else {
+	    dptr++;
 	  }
 	}
       }
@@ -8886,14 +8998,168 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_of
       goto calc_cluster_neighbor_ret_1;
     }
   }
-  if (cluster_missing) {
+  if (cluster_missing || ibm_constraint) {
     if (!g_missing_dbl_excluded) {
-      // todo: calc IBM
+      retval = calc_ibm(threads, bedfile, bed_offset, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, chrom_info_ptr);
       if (retval) {
         goto calc_cluster_neighbor_ret_1;
       }
+      if (!cluster_missing) {
+        logprint("IBM matrix calculated.      \n");
+      }
+      // N.B. this is still used until the end of the block
+      wkspace_reset((unsigned char*)g_missing_dbl_excluded);
     }
-    // write IBM results to disk
+    dxx1 = 1.0 / ((double)((int32_t)marker_ct));
+    if (cluster_missing) {
+      memcpy(outname_end, ".mdist.missing", 15);
+      if (fopen_checked(&outfile, outname, "w")) {
+	goto calc_cluster_neighbor_ret_OPEN_FAIL;
+      }
+      fputs("Writing IBM matrix... 0%    \b\b\b\b", stdout);
+      fflush(stdout);
+    }
+    for (indiv_idx1 = 0; indiv_idx1 < indiv_ct; indiv_idx1++) {
+      indiv_missing_ptr = g_indiv_missing_unwt;
+      uii = indiv_missing_ptr[indiv_idx1];
+      if (!cluster_ct) {
+	dptr = &(cluster_sdistances[indiv_idx1 * (indiv_idx1 - 1)]);
+      }
+      ulii = indiv_ct - 2;
+      if (!g_genome_main) {
+	dbl_exclude_ptr = &(g_missing_dbl_excluded[(indiv_idx1 * (indiv_idx1 - 1)) / 2]);
+	if (!cluster_ct) {
+	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx1; indiv_idx2++) {
+	    dxx = 1.0 - ((double)((int32_t)(uii + (*indiv_missing_ptr++) - 2 * (*dbl_exclude_ptr++)))) * dxx1;
+	    if (cluster_missing) {
+	      *dptr++ = dxx;
+	      wptr = double_g_writex(tbuf, dxx, ' ');
+	      fwrite(tbuf, 1, wptr - tbuf, outfile);
+	    }
+	    if (dxx < min_ibm) {
+	      set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(indiv_idx2, indiv_idx1));
+	    }
+	  }
+	} else {
+	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx1; indiv_idx2++) {
+	    dxx = 1.0 - ((double)((int32_t)(uii + (*indiv_missing_ptr++) - 2 * (*dbl_exclude_ptr++)))) * dxx1;
+	    clidx2 = indiv_to_cluster[indiv_idx2];
+	    if (cluster_missing) {
+	      if (clidx1 < clidx2) {
+		cluster_sdistances[tri_coord_no_diag(clidx1, clidx2)] = dxx;
+	      } else if (clidx1 > clidx2) {
+		cluster_sdistances[tri_coord_no_diag(clidx2, clidx1)] = dxx;
+	      }
+	      wptr = double_g_writex(tbuf, dxx, ' ');
+	      fwrite(tbuf, 1, wptr - tbuf, outfile);
+	    }
+	    if (dxx < min_ibm) {
+	      if (clidx1 < clidx2) {
+		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+	      } else if (clidx1 > clidx2) {
+		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
+	      } else {
+		if (!ibm_warning) {
+		  logprint("Warning: Initial cluster assignment violates IBM constraint.\n");
+		  ibm_warning = 1;
+		}
+	      }
+	    }
+	  }
+	}
+      } else {
+	dbl_exclude_ptr = &(g_missing_dbl_excluded[indiv_idx1 - 1]);
+	if (!cluster_ct) {
+	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx1; indiv_idx2++) {
+	    dxx = 1.0 - ((double)((int32_t)(uii + (*indiv_missing_ptr++) - 2 * (*dbl_exclude_ptr)))) * dxx1;
+	    dbl_exclude_ptr = &(dbl_exclude_ptr[ulii - indiv_idx2]);
+	    if (cluster_missing) {
+	      *dptr++ = dxx;
+	      wptr = double_g_writex(tbuf, dxx, ' ');
+	      fwrite(tbuf, 1, wptr - tbuf, outfile);
+	    }
+	    if (dxx < min_ibm) {
+	      set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(indiv_idx2, indiv_idx1));
+	    }
+	  }
+	} else {
+	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx1; indiv_idx2++) {
+	    dxx = 1.0 - ((double)((int32_t)(uii + (*indiv_missing_ptr++) - 2 * (*dbl_exclude_ptr)))) * dxx1;
+	    dbl_exclude_ptr = &(dbl_exclude_ptr[ulii - indiv_idx2]);
+	    clidx2 = indiv_to_cluster[indiv_idx2];
+	    if (cluster_missing) {
+	      if (clidx1 < clidx2) {
+		cluster_sdistances[tri_coord_no_diag(clidx1, clidx2)] = dxx;
+	      } else if (clidx1 > clidx2) {
+		cluster_sdistances[tri_coord_no_diag(clidx2, clidx1)] = dxx;
+	      }
+	      wptr = double_g_writex(tbuf, dxx, ' ');
+	      fwrite(tbuf, 1, wptr - tbuf, outfile);
+	    }
+	    if (dxx < min_ibm) {
+	      if (clidx1 < clidx2) {
+		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+	      } else if (clidx1 > clidx2) {
+		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
+	      } else {
+		if (!ibm_warning) {
+		  logprint("Warning: Initial cluster assignment violates IBM constraint.\n");
+		  ibm_warning = 1;
+		}
+	      }
+	    }
+	  }
+	}
+      }
+      if (cluster_missing) {
+	if (putc('1', outfile) == EOF) {
+	  goto calc_cluster_neighbor_ret_WRITE_FAIL;
+	}
+	putc(' ', outfile);
+	if (!g_genome_main) {
+	  for (indiv_idx2 = indiv_idx1 + 1; indiv_idx2 < indiv_ct; indiv_idx2++) {
+	    dxx = 1.0 - ((double)((int32_t)(uii + (*(++indiv_missing_ptr)) - 2 * g_missing_dbl_excluded[((indiv_idx2 * (indiv_idx2 - 1)) / 2) + indiv_idx1]))) * dxx1;
+	    if (cluster_missing) {
+	      wptr = double_g_writex(tbuf, dxx, ' ');
+	      fwrite(tbuf, 1, wptr - tbuf, outfile);
+	    }
+	  }
+	} else {
+	  // f(0) = 0
+	  // f(1) = indiv_ct - 1
+	  // f(2) = 2 * indiv_ct - 3
+	  // ...
+          // f(n) = n * indiv_ct - n(n+1)/2
+	  dbl_exclude_ptr = &(g_missing_dbl_excluded[indiv_ct * indiv_idx1 + ((indiv_idx1 * (indiv_idx1 + 1)) / 2)]);
+	  for (indiv_idx2 = indiv_idx1 + 1; indiv_idx2 < indiv_ct; indiv_idx2++) {
+	    dxx = 1.0 - ((double)((int32_t)(uii + (*(++indiv_missing_ptr)) - 2 * (*dbl_exclude_ptr++)))) * dxx1;
+	    if (cluster_missing) {
+	      wptr = double_g_writex(tbuf, dxx, ' ');
+	      fwrite(tbuf, 1, wptr - tbuf, outfile);
+	    }
+	  }
+	}
+	if (putc('\n', outfile) == EOF) {
+	  goto calc_cluster_neighbor_ret_WRITE_FAIL;
+	}
+        if ((indiv_idx1 + 1) * 100LLU >= indiv_ct * ((uint64_t)pct)) {
+          if (pct > 10) {
+	    putchar('\b');
+	  }
+	  pct = ((indiv_idx1 + 1) * 100LLU) / indiv_ct;
+          printf("\b\b%u%%", pct++);
+	  fflush(stdout);
+	}
+      }
+    }
+    if (cluster_missing) {
+      if (fclose_null(&outfile)) {
+	goto calc_cluster_neighbor_ret_WRITE_FAIL;
+      }
+      putchar('\r');
+      sprintf(logbuf, "IBM matrix written to %s.\n", outname);
+      logprintb();
+    }
   }
 #ifdef __LP64__
   if (cur_cluster_ct > 65535) {

@@ -2541,7 +2541,7 @@ uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, d
   }
 }
 
-uintptr_t nonincr_doublearr_lesser_stride(double* nonincr_dbl_arr, uintptr_t arr_length, uintptr_t stride, double dxx) {
+uintptr_t nonincr_doublearr_leq_stride(double* nonincr_dbl_arr, uintptr_t arr_length, uintptr_t stride, double dxx) {
   // assumes relevant elements of array are sorted in nonincreasing order
   // instead, and they are spaced stride units apart
   intptr_t min_idx = 0;
@@ -2549,13 +2549,13 @@ uintptr_t nonincr_doublearr_lesser_stride(double* nonincr_dbl_arr, uintptr_t arr
   uintptr_t mid_idx;
   while (min_idx < max_idx) {
     mid_idx = (((uintptr_t)min_idx) + ((uintptr_t)max_idx)) / 2;
-    if (dxx < nonincr_dbl_arr[mid_idx * stride]) {
+    if (dxx <= nonincr_dbl_arr[mid_idx * stride]) {
       min_idx = mid_idx + 1;
     } else {
       max_idx = mid_idx - 1;
     }
   }
-  if (dxx < nonincr_dbl_arr[((uintptr_t)min_idx) * stride]) {
+  if (dxx <= nonincr_dbl_arr[((uintptr_t)min_idx) * stride]) {
     return (min_idx + 1);
   } else {
     return min_idx;
@@ -2565,7 +2565,7 @@ uintptr_t nonincr_doublearr_lesser_stride(double* nonincr_dbl_arr, uintptr_t arr
 void update_neighbor(uintptr_t indiv_ct, uint32_t neighbor_n2, uintptr_t indiv_idx1, uintptr_t indiv_idx2, double cur_ibs, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
   uintptr_t exceed_ct;
   uintptr_t cur_write;
-  exceed_ct = nonincr_doublearr_lesser_stride(&(neighbor_quantiles[indiv_idx1]), neighbor_n2, indiv_ct, cur_ibs);
+  exceed_ct = nonincr_doublearr_leq_stride(&(neighbor_quantiles[indiv_idx1]), neighbor_n2, indiv_ct, cur_ibs);
   if (exceed_ct < neighbor_n2) {
     for (cur_write = neighbor_n2 - 1; cur_write > exceed_ct; cur_write--) {
       neighbor_quantiles[cur_write * indiv_ct + indiv_idx1] = neighbor_quantiles[(cur_write - 1) * indiv_ct + indiv_idx1];
@@ -2574,7 +2574,7 @@ void update_neighbor(uintptr_t indiv_ct, uint32_t neighbor_n2, uintptr_t indiv_i
     neighbor_quantiles[(exceed_ct * indiv_ct) + indiv_idx1] = cur_ibs;
     neighbor_qindices[(exceed_ct * indiv_ct) + indiv_idx1] = indiv_idx2;
   }
-  exceed_ct = nonincr_doublearr_lesser_stride(&(neighbor_quantiles[indiv_idx2]), neighbor_n2, indiv_ct, cur_ibs);
+  exceed_ct = nonincr_doublearr_leq_stride(&(neighbor_quantiles[indiv_idx2]), neighbor_n2, indiv_ct, cur_ibs);
   if (exceed_ct < neighbor_n2) {
     for (cur_write = neighbor_n2 - 1; cur_write > exceed_ct; cur_write--) {
       neighbor_quantiles[cur_write * indiv_ct + indiv_idx2] = neighbor_quantiles[(cur_write - 1) * indiv_ct + indiv_idx2];

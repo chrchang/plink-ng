@@ -15,7 +15,7 @@ void cluster_init(Cluster_info* cluster_ptr) {
   cluster_ptr->max_controls = 0xffffffffU;
   cluster_ptr->min_ct = 1;
   cluster_ptr->mds_dim_ct = 0;
-  cluster_ptr->min_ibm = 0;
+  cluster_ptr->min_ibm = 0.0;
 }
 
 int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t mwithin_col, uint32_t keep_na, uintptr_t* cluster_ct_ptr, uint32_t** cluster_map_ptr, uint32_t** cluster_starts_ptr, char** cluster_ids_ptr, uintptr_t* max_cluster_id_len_ptr) {

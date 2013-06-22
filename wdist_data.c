@@ -2348,7 +2348,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
 	  }
 	  if (memidx2 < memidx1) {
 	    dists[trimem + memidx2] += cur_ibs;
-	  } else {
+	  } else if (memidx2 > memidx1) {
 	    dists[((memidx2 * (memidx2 - 1)) / 2) + memidx1] += cur_ibs;
 	  }
 	  if (neighbor_n2) {
@@ -2392,7 +2392,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
 	  }
 	  if (clidx2 < clidx1) {
 	    dists[trimem + clidx2] += cur_ibs;
-	  } else {
+	  } else if (clidx2 > clidx1) {
 	    dists[((clidx2 * (clidx2 - 1)) / 2) + clidx1] += cur_ibs;
 	  }
 	  if (neighbor_n2) {
