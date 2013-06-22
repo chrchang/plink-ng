@@ -2225,7 +2225,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
     if (fopen_checked(&id_file, id_fname, "r")) {
       goto read_dists_ret_OPEN_FAIL;
     }
-    retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, 0, strcmp_deref);
+    retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_ct, person_ids, max_person_id_len, 0, strcmp_deref);
     if (retval) {
       goto read_dists_ret_1;
     }
@@ -2304,20 +2304,22 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
         ullii = fidx_to_memidx[uljj];
         memidx2 = (uintptr_t)(ullii & (ONELU * 0xffffffffU));
         fidx2 = (uint64_t)(ullii >> 32);
-        fpos2 = trif + (fidx2 * (sizeof(double) / 2));
+        fpos2 = trif + (fidx2 * sizeof(double));
         if (fpos2 > fpos) {
           fpos = fpos2;
           if (fseeko(dist_file, fpos, SEEK_SET)) {
             goto read_dists_ret_READ_FAIL;
 	  }
 	}
-        if (fread(&(dists[trimem + memidx2]), 1, sizeof(double), dist_file) < sizeof(double)) {
+	if (fread((memidx2 < memidx1)? (&(dists[trimem + memidx2])) : (&(dists[((memidx2 * (memidx2 - 1)) / 2) + memidx1])), 1, sizeof(double), dist_file) < sizeof(double)) {
 	  goto read_dists_ret_READ_FAIL;
 	}
         fpos += sizeof(double);
       }
     }
   }
+  sprintf(logbuf, "--read-dists: %" PRIuPTR " values loaded.\n", (indiv_ct * (indiv_ct - 1)) / 2);
+  logprintb();
   while (0) {
   read_dists_ret_NOMEM:
     retval = RET_NOMEM;
@@ -7076,7 +7078,7 @@ void simulate_cc_get_conditional_probs(double prevalence, double g0, double g1, 
   // ...eh, screw it, casework for applying the formula is a bit too annoying
   // for me to implement it for now.  Maybe if one or two other cubics come up,
   // I'll do it.  Meanwhile, here's a simple numeric binary search.
-  uint32_t iters_left = 52;
+  uint32_t iters_left = 53;
   double min_f2 = 0.0;
   double max_f2 = 1.0;
   double cur_f2;
