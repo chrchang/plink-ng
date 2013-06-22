@@ -8925,7 +8925,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_of
       cluster_dist_divide(indiv_ct, cluster_ct, cluster_starts, cluster_sdistances);
     }
   }
-  if (read_dists_fname && ((!cluster_missing) || do_neighbor)) {
+  if (read_dists_fname) {
     retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, cluster_ct, cluster_starts, indiv_to_cluster, (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))? 1 : 0, cluster_sdistances, mds_plot_dmatrix_copy, neighbor_n2, neighbor_quantiles, neighbor_qindices);
     if (retval) {
       goto calc_cluster_neighbor_ret_1;
@@ -9023,7 +9023,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_of
       indiv_missing_ptr = g_indiv_missing_unwt;
       uii = indiv_missing_ptr[indiv_idx1];
       if (!cluster_ct) {
-	dptr = &(cluster_sdistances[indiv_idx1 * (indiv_idx1 - 1)]);
+	dptr = &(cluster_sdistances[indiv_idx1 * (indiv_idx1 - 1) / 2]);
       }
       ulii = indiv_ct - 2;
       if (!g_genome_main) {
@@ -9130,7 +9130,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uint32_t bed_of
 	  // f(2) = 2 * indiv_ct - 3
 	  // ...
           // f(n) = n * indiv_ct - n(n+1)/2
-	  dbl_exclude_ptr = &(g_missing_dbl_excluded[indiv_ct * indiv_idx1 + ((indiv_idx1 * (indiv_idx1 + 1)) / 2)]);
+	  dbl_exclude_ptr = &(g_missing_dbl_excluded[indiv_ct * indiv_idx1 - ((indiv_idx1 * (indiv_idx1 + 1)) / 2)]);
 	  for (indiv_idx2 = indiv_idx1 + 1; indiv_idx2 < indiv_ct; indiv_idx2++) {
 	    dxx = 1.0 - ((double)((int32_t)(uii + (*(++indiv_missing_ptr)) - 2 * (*dbl_exclude_ptr++)))) * dxx1;
 	    if (cluster_missing) {

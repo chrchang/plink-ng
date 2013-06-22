@@ -9399,6 +9399,9 @@ int32_t main(int32_t argc, char** argv) {
 	if (calculation_type & (CALC_DISTANCE | CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) {
 	  sprintf(logbuf, "Error: --read-dists cannot be used with a distance matrix calculation.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (cluster.modifier & CLUSTER_MISSING) {
+          sprintf(logbuf, "Error: --read-dists cannot be used with '--cluster missing'.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
