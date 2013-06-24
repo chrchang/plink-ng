@@ -2877,7 +2877,6 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   uint32_t cslen = 10;
   int32_t retval = 0;
   uint32_t cur_cts[4];
-  char missing_geno_buf[2];
   uintptr_t* readbuf;
   uint32_t* uiptr;
   uint32_t* uiptr2;
@@ -2966,8 +2965,6 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   if (fprintf(outfile, tbuf, "SNP") < 0) {
     goto write_stratified_freqs_ret_WRITE_FAIL;
   }
-  missing_geno_buf[0] = missing_geno;
-  missing_geno_buf[1] = '\0';
   memset(tbuf, 32, 2);
   tbuf[4] = ' ';
   memset(csptr, 32, 10);
@@ -2997,9 +2994,21 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 	csptr[4] = marker_alleles[marker_uidx * 2 + reverse];
         csptr[9] = marker_alleles[marker_uidx * 2 + (1 ^ reverse)];
       } else {
-        wptr = fw_strcpy(4, &(marker_alleles[(marker_uidx * 2 + reverse) * max_marker_allele_len]), &(csptr[1]));
+	sptr = &(marker_alleles[(marker_uidx * 2 + reverse) * max_marker_allele_len]);
+	if (*sptr) {
+          wptr = fw_strcpy(4, sptr, &(csptr[1]));
+	} else {
+	  wptr = memseta(&(csptr[1]), 32, 3);
+	  *wptr++ = missing_geno;
+	}
 	*wptr++ = ' ';
-        wptr = fw_strcpy(4, &(marker_alleles[(marker_uidx * 2 + (1 ^ reverse)) * max_marker_allele_len]), wptr);
+	sptr = &(marker_alleles[(marker_uidx * 2 + (1 ^ reverse)) * max_marker_allele_len]);
+	if (*sptr) {
+          wptr = fw_strcpy(4, sptr, wptr);
+	} else {
+	  wptr = memseta(wptr, 32, 3);
+	  *wptr++ = missing_geno;
+	}
         *wptr++ = ' ';
 	cslen = (uintptr_t)(wptr - csptr);
       }
