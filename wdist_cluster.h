@@ -43,4 +43,8 @@ int32_t cluster_alloc_and_populate_magic_nums(uint32_t cluster_ct, uint32_t* clu
 
 int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t* cluster_merge_prevented, double* cluster_sdistances, double* mds_plot_dmatrix_copy, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices, uint32_t* ppc_fail_counts, double min_ppc, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster);
 
+uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_t list_size, uint32_t* sdistance_indices, uint32_t* cur_cluster_sizes, uint32_t indiv_ct, uint32_t* cur_cluster_case_cts, uint32_t case_ct, uint32_t ctrl_ct, uint32_t* cur_cluster_remap, Cluster_info* cp, uint32_t* merge_sequence);
+
+uint32_t cluster_group_avg_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_t heap_size, double* sdistances, uint32_t* sdistance_indices, uint32_t* cur_cluster_sizes, uint32_t indiv_ct, uint32_t* cur_cluster_case_cts, uint32_t case_ct, uint32_t ctrl_ct, uint32_t* cur_cluster_remap, Cluster_info* cp, uint32_t* merge_sequence);
+
 #endif // __WDIST_CLUSTER_H__

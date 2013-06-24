@@ -708,3 +708,139 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
   gzclose_cond(gz_infile);
   return retval;
 }
+
+uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_t list_size, uint32_t* sdistance_indices, uint32_t* cur_cluster_sizes, uint32_t indiv_ct, uint32_t* cur_cluster_case_cts, uint32_t case_ct, uint32_t ctrl_ct, uint32_t* cur_cluster_remap, Cluster_info* cp, uint32_t* merge_sequence) {
+  uint32_t* list_end = &(sdistance_indices[list_size]);
+  uint32_t max_merge = cluster_ct - cp->min_ct;
+  uint32_t update_size_restriction = (cp->max_size < indiv_ct)? 1 : 0;
+  uint32_t update_case_restriction = (cp->max_cases < case_ct)? 1 : 0;
+  uint32_t update_ctrl_restriction = (cp->max_controls < ctrl_ct)? 1 : 0;
+  uint32_t is_restricted = (update_size_restriction || update_case_restriction || update_ctrl_restriction || (list_size < ((cluster_ct * (cluster_ct - 1)) / 2)))? 1 : 0;
+  uint32_t case_ctrl_only = 0;
+  uint32_t merge_ct = 0;
+  uint32_t clidx_large;
+  uint32_t clidx_small;
+  uint32_t tcoord1;
+  uint32_t tcoord2;
+  uint32_t uii;
+  if (cp->modifier & CLUSTER_CC) {
+    for (clidx_small = 0; clidx_small < cluster_ct; clidx_small++) {
+      uii = cur_cluster_case_cts[clidx_small];
+      if ((!uii) || (uii == cur_cluster_sizes[clidx_small])) {
+	case_ctrl_only++;
+      }
+    }
+  }
+  do {
+    if (case_ctrl_only > 1) {
+      while (1) {
+	if (sdistance_indices == list_end) {
+	  goto cluster_main_finished;
+	}
+	uii = *sdistance_indices++;
+	clidx_large = cur_cluster_remap[uii >> 16];
+	clidx_small = cur_cluster_remap[uii & 65535];
+	if (clidx_small == clidx_large) {
+	  continue;
+	}
+	uii = cur_cluster_case_cts[clidx_small] + cur_cluster_case_cts[clidx_large];
+	if ((!uii) || (cur_cluster_sizes[clidx_small] + cur_cluster_sizes[clidx_large] == 0)) {
+	  continue;
+	}
+	if (clidx_small > clidx_large) {
+	  uii = clidx_small;
+	  clidx_small = clidx_large;
+	  clidx_large = uii;
+	}
+	tcoord1 = tri_coord_no_diag_32(clidx_small, clidx_large);
+	if (!is_set(merge_prevented, tcoord1)) {
+	  break;
+	}
+      }
+      uii = cur_cluster_case_cts[clidx_small];
+      if ((!uii) || (uii == cur_cluster_sizes[clidx_small])) {
+	case_ctrl_only--;
+      }
+      uii = cur_cluster_case_cts[clidx_large];
+      if ((!uii) || (uii == cur_cluster_sizes[clidx_large])) {
+	case_ctrl_only--;
+      }
+    } else {
+      while (1) {
+	if (sdistance_indices == list_end) {
+	  goto cluster_main_finished;
+	}
+	uii = *sdistance_indices++;
+	clidx_large = cur_cluster_remap[uii >> 16];
+	clidx_small = cur_cluster_remap[uii & 65535];
+	if (clidx_small == clidx_large) {
+	  continue;
+	}
+	if (clidx_small > clidx_large) {
+	  uii = clidx_small;
+	  clidx_small = clidx_large;
+	  clidx_large = uii;
+	}
+	tcoord1 = tri_coord_no_diag_32(clidx_small, clidx_large);
+	if (!is_set(merge_prevented, tcoord1)) {
+	  break;
+	}
+      }
+    }
+    *merge_sequence++ = clidx_small;
+    *merge_sequence++ = clidx_large;
+    cur_cluster_remap[clidx_large] = clidx_small;
+    for (uii = clidx_large + 1; uii < cluster_ct; uii++) {
+      // there are faster ways to do this update, but it doesn't really matter
+      if (cur_cluster_remap[uii] == clidx_large) {
+	cur_cluster_remap[uii] = clidx_small;
+      }
+    }
+    if (cur_cluster_sizes) {
+      cur_cluster_sizes[clidx_small] += cur_cluster_sizes[clidx_large];
+      if (cur_cluster_case_cts) {
+        cur_cluster_case_cts[clidx_small] += cur_cluster_case_cts[clidx_large];
+      }
+    }
+    if (is_restricted) {
+      tcoord1 = (clidx_large * (clidx_large - 1)) / 2;
+      tcoord2 = (clidx_small * (clidx_small - 1)) / 2;
+      for (uii = 0; uii < clidx_small; uii++) {
+	if (is_set(merge_prevented, tcoord1 + uii)) {
+	  set_bit_noct(merge_prevented, tcoord2 + uii);
+	}
+      }
+      for (uii = clidx_small + 1; uii < clidx_large; uii++) {
+	if (is_set(merge_prevented, tcoord1 + uii)) {
+	  set_bit_noct(merge_prevented, tri_coord_no_diag_32(clidx_small, uii));
+	}
+      }
+      for (uii = clidx_large + 1; uii < cluster_ct; uii++) {
+	if (is_set(merge_prevented, tri_coord_no_diag_32(clidx_large, uii))) {
+	  set_bit_noct(merge_prevented, tri_coord_no_diag_32(clidx_small, uii));
+	}
+      }
+      /*
+      if (update_size_restriction) {
+	for (uii = 0; uii < clidx_small; uii++) {
+	  if () {
+	    set_bit_noct(merge_prevented, tcoord2 + uii);
+	  }
+	}
+	for (uii = clidx_small + 1; uii < cluster_ct; uii++) {
+	  if () {
+	    set_bit_noct(merge_prevented, tri_coord_no_diag_32(clidx_small, uii));
+	  }
+	}
+      }
+      */
+    }
+  } while ((++merge_ct) < max_merge);
+ cluster_main_finished:
+  return merge_ct;
+}
+
+uint32_t cluster_group_avg_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_t heap_size, double* sdistances, uint32_t* sdistance_indices, uint32_t* cur_cluster_sizes, uint32_t indiv_ct, uint32_t* cur_cluster_case_cts, uint32_t case_ct, uint32_t ctrl_ct, uint32_t* cur_cluster_remap, Cluster_info* cp, uint32_t* merge_sequence) {
+  uint32_t merge_ct = 0;
+  return merge_ct;
+}

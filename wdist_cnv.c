@@ -163,7 +163,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
 	}
       }
       if (small_interval_ct + large_interval_ct == max_interval_ct) {
-        goto cnv_intersect_load_NOMEM;
+        goto cnv_intersect_load_ret_NOMEM;
       }
       kk = ii - jj;
       if (kk > SMALL_INTERVAL_MAX_SIZE) {
@@ -235,7 +235,9 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
 	tmp_il_large_chroms[ulkk--] = ucc;
       }
     }
-    qsort_ext((char*)tmp_il_large_chroms, large_interval_ct, sizeof(char), char_cmp_deref, (char*)il_large, sizeof(int64_t));
+    if (qsort_ext((char*)tmp_il_large_chroms, large_interval_ct, sizeof(char), char_cmp_deref, (char*)il_large, sizeof(int64_t))) {
+      goto cnv_intersect_load_ret_NOMEM;
+    }
     il_chrom_start_large[0] = 0;
     cur_chrom = 0;
     for (ulii = 0; ulii < large_interval_ct; ulii++) {
@@ -281,7 +283,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   *topsize_ptr = CACHELINE * ((small_interval_ct + large_interval_ct + CACHELINE_INT64 - 1) / CACHELINE_INT64);
   wkspace_left -= (*topsize_ptr);
   while (0) {
-  cnv_intersect_load_NOMEM:
+  cnv_intersect_load_ret_NOMEM:
     retval = RET_NOMEM;
     break;
   cnv_intersect_load_ret_OPEN_FAIL:

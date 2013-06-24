@@ -993,13 +993,13 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	  split_chrom = 1;
 	  *map_is_unsorted_ptr = UNSORTED_CHROM | UNSORTED_BP | UNSORTED_SPLIT_CHROM;
 	} else {
-	  loaded_chrom_mask |= 1LLU << ((uint32_t)jj);
 	  chrom_info_ptr->chrom_start[(uint32_t)jj] = marker_uidx;
 	  chrom_info_ptr->chrom_file_order[++chroms_encountered_m1] = jj;
 	  chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
 	}
         last_pos = 0;
       }
+      loaded_chrom_mask |= 1LLU << ((uint32_t)jj);
     }
 
     if (!(chrom_info_ptr->chrom_mask & (1LLU << ((uint32_t)jj)))) {
@@ -2182,7 +2182,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
   return 0;
 }
 
-int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uint32_t for_cluster, double* dists, double* mds_plot_dmatrix_copy, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
+int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uint32_t for_cluster_flag, double* dists, double* mds_plot_dmatrix_copy, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* dist_file = NULL;
   FILE* id_file = NULL;
@@ -2406,7 +2406,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
   if (cluster_ct) {
     cluster_dist_divide(indiv_ct, cluster_ct, cluster_starts, dists);
   }
-  sprintf(logbuf, "--read-dists: %" PRIuPTR " values loaded%s.\n", (indiv_ct * (indiv_ct - 1)) / 2, for_cluster? " for --cluster/--neighbor" : "");
+  sprintf(logbuf, "--read-dists: %" PRIuPTR " values loaded%s.\n", (indiv_ct * (indiv_ct - 1)) / 2, for_cluster_flag? " for --cluster/--neighbor" : "");
   logprintb();
   while (0) {
   read_dists_ret_NOMEM:

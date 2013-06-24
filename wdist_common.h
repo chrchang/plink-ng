@@ -942,6 +942,10 @@ static inline uintptr_t tri_coord_no_diag(uintptr_t small_coord, uintptr_t big_c
   return ((big_coord * (big_coord - 1)) / 2) + small_coord;
 }
 
+static inline uint32_t tri_coord_no_diag_32(uint32_t small_coord, uint32_t big_coord) {
+  return ((big_coord * (big_coord - 1)) / 2) + small_coord;
+}
+
 static inline void set_bit_noct(uintptr_t* bit_arr, uint32_t loc) {
   bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
@@ -966,6 +970,10 @@ static inline int32_t is_set(uintptr_t* exclude_arr, uint32_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
+static inline uint32_t is_set_ul(uintptr_t* exclude_arr, uintptr_t loc) {
+  return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
+}
+
 static inline int32_t is_founder(uintptr_t* founder_info, uint32_t loc) {
   return ((!founder_info) || ((founder_info[loc / BITCT]) & (ONELU << (loc % BITCT))));
 }
@@ -975,6 +983,8 @@ int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc);
 int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil);
 
 int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc);
+
+uintptr_t next_set_ul(uintptr_t* include_arr, uintptr_t loc, uintptr_t ceil);
 
 // These functions seem to optimize better than memset(arr, 0, x) under gcc.
 static inline void fill_long_zero(intptr_t* larr, size_t size) {
@@ -1242,6 +1252,8 @@ int32_t distance_req(uint64_t calculation_type, char* read_dists_fname);
 int32_t double_cmp(const void* aa, const void* bb);
 
 int32_t double_cmp_deref(const void* aa, const void* bb);
+
+int32_t double_cmp_decr_deref(const void* aa, const void* bb);
 
 int32_t char_cmp_deref(const void* aa, const void* bb);
 

@@ -1850,6 +1850,24 @@ int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc) {
   return (idx * BITCT) + CTZLU(*include_arr);
 }
 
+uintptr_t next_set_ul(uintptr_t* include_arr, uintptr_t loc, uintptr_t ceil) {
+  uintptr_t idx = loc / BITCT;
+  uintptr_t max_idx;
+  uintptr_t ulii;
+  include_arr = &(include_arr[idx]);
+  ulii = (*include_arr) >> (loc % BITCT);
+  if (ulii) {
+    return MINV(loc + CTZLU(ulii), ceil);
+  }
+  max_idx = (ceil - 1) / BITCT;
+  do {
+    if ((++idx) > max_idx) {
+      return ceil;
+    }
+  } while (*(++include_arr) == 0);
+  return MINV((idx * BITCT) + CTZLU(*include_arr), ceil);
+}
+
 void fill_idx_to_uidx(uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* idx_to_uidx) {
   uint32_t item_uidx = 0;
   uint32_t item_idx;
@@ -2430,6 +2448,17 @@ int32_t double_cmp_deref(const void* aa, const void* bb) {
   if (cc > 0.0) {
     return 1;
   } else if (cc < 0.0) {
+    return -1;
+  } else {
+    return 0;
+  }
+}
+
+int32_t double_cmp_decr_deref(const void* aa, const void* bb) {
+  double cc = **((const double**)aa) - **((const double**)bb);
+  if (cc < 0.0) {
+    return 1;
+  } else if (cc > 0.0) {
     return -1;
   } else {
     return 0;

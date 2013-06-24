@@ -74,7 +74,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (24 Jun 2013)";
+  " (25 Jun 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -3781,7 +3781,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uint32_t* mds_plot_cluster_assignment = NULL;
   double* mds_plot_dmatrix_copy = NULL;
   uintptr_t* cluster_merge_prevented = NULL;
-  uint32_t* cluster_sdistance_indices = NULL;
   double* cluster_sdistances = NULL;
   char* cptr = NULL;
   uint64_t dists_alloc = 0;
@@ -3982,13 +3981,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   } else {
     allelexxxx = 0;
   }
-  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, "bim", (calculation_type == CALC_MAKE_BED)? NULL : "make-bed");
+  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, "bim", ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (!update_map) && freqname)? NULL : "make-bed");
   if (retval) {
     goto wdist_ret_1;
-  }
-  if ((map_is_unsorted & UNSORTED_SPLIT_CHROM) && update_map) {
-    logprint("Error: Cannot use --update-map on a .bim with a split chromosome.  Run\n--make-bed by itself first.\n");
-    goto wdist_ret_INVALID_CMDLINE;
   }
 
   // load .fam, count indivs
@@ -4635,21 +4630,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (wkspace_alloc_ul_checked(&cluster_merge_prevented, ((ulii + (BITCT - 1)) / BITCT) * sizeof(intptr_t))) {
       goto wdist_ret_NOMEM;
     }
-#ifdef __LP64__
-    if (ulii <= 0x7fffffff) {
-#endif
-      if (wkspace_alloc_ui_checked(&cluster_sdistance_indices, ulii * sizeof(int32_t))) {
-        goto wdist_ret_NOMEM;
-      }
-#ifdef __LP64__
-    } else {
-      // more than 64k initial clusters, so have to use 64 bits to store a pair
-      // of cluster indices; cast this to uint64_t* in calc_cluster()
-      if (wkspace_alloc_ui_checked(&cluster_sdistance_indices, ulii * sizeof(int64_t))) {
-        goto wdist_ret_NOMEM;
-      }
-    }
-#endif
     if (cluster_ct || (calculation_type & CALC_GENOME) || genome_skip_write) {
       if (wkspace_alloc_d_checked(&cluster_sdistances, ulii * sizeof(double))) {
 	goto wdist_ret_NOMEM;
@@ -4761,7 +4741,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) {
-    retval = calc_cluster_neighbor(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, read_dists_fname, read_dists_id_fname, read_genome_fname, outname, outname_end, calculation_type, cluster_ct, cluster_map, cluster_starts, cluster_ptr, neighbor_n1, neighbor_n2, ppc_gap, pheno_nm, pheno_c, mds_plot_cluster_assignment, mds_plot_dmatrix_copy, cluster_merge_prevented, cluster_sdistance_indices, cluster_sdistances, wkspace_mark_precluster);
+    retval = calc_cluster_neighbor(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, read_dists_fname, read_dists_id_fname, read_genome_fname, outname, outname_end, calculation_type, cluster_ct, cluster_map, cluster_starts, cluster_ptr, neighbor_n1, neighbor_n2, ppc_gap, pheno_c, mds_plot_cluster_assignment, mds_plot_dmatrix_copy, cluster_merge_prevented, cluster_sdistances, wkspace_mark_precluster);
     if (retval) {
       goto wdist_ret_1;
     }
