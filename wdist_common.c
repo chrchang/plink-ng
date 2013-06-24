@@ -2,9 +2,9 @@
 #include "pigz.h"
 
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
-const char errstr_append[] = "\nFor more information, try 'wdist --help [flag name]' or 'wdist --help | more'.\n";
+const char errstr_append[] = "\nFor more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 const char errstr_thread_create[] = "\nError: Failed to create thread.\n";
-const char cmdline_format_str[] = "\n  wdist [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  wdist --help {flag name(s)...}\n\n";
+const char cmdline_format_str[] = "\n  " PROG_NAME_STR " [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  " PROG_NAME_STR " --help {flag name(s)...}\n\n";
 const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype file.\n";
 
 char tbuf[MAXLINELEN * 4 + 256];
@@ -1759,29 +1759,45 @@ void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* pre_shiftp, uint32_t
   }
 }
 
+void fill_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len) {
+  uintptr_t maj_start = loc_start / BITCT;
+  uintptr_t maj_end = (loc_start + len) / BITCT;
+  uintptr_t minor;
+  if (maj_start == maj_end) {
+    bit_arr[maj_start] |= (ONELU << ((loc_start + len) % BITCT)) - (ONELU << (loc_start % BITCT));
+  } else {
+    bit_arr[maj_start] |= (~ZEROLU) - ((ONELU << (loc_start % BITCT)) - ONELU);
+    fill_ulong_one(&(bit_arr[maj_start + 1]), maj_end - maj_start - 1);
+    minor = (loc_start + len) % BITCT;
+    if (minor) {
+      bit_arr[maj_end] |= (ONELU << minor) - ONELU;
+    }
+  }
+}
+
 void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr) {
   uint32_t maj = loc / BITCT;
-  uintptr_t min = ONELU << (loc % BITCT);
-  if (!(bit_arr[maj] & min)) {
-    bit_arr[maj] |= min;
+  uintptr_t minor = ONELU << (loc % BITCT);
+  if (!(bit_arr[maj] & minor)) {
+    bit_arr[maj] |= minor;
     *bit_set_ct_ptr += 1;
   }
 }
 
 void set_bit_sub(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_unset_ct_ptr) {
   uint32_t maj = loc / BITCT;
-  uintptr_t min = ONELU << (loc % BITCT);
-  if (!(bit_arr[maj] & min)) {
-    bit_arr[maj] |= min;
+  uintptr_t minor = ONELU << (loc % BITCT);
+  if (!(bit_arr[maj] & minor)) {
+    bit_arr[maj] |= minor;
     *bit_unset_ct_ptr -= 1;
   }
 }
 
 void clear_bit(uintptr_t* exclude_arr, uint32_t loc, uintptr_t* include_ct_ptr) {
   uint32_t maj = loc / BITCT;
-  uintptr_t min = ONELU << (loc % BITCT);
-  if (exclude_arr[maj] & min) {
-    exclude_arr[maj] -= min;
+  uintptr_t minor = ONELU << (loc % BITCT);
+  if (exclude_arr[maj] & minor) {
+    exclude_arr[maj] -= minor;
     *include_ct_ptr += 1;
   }
 }

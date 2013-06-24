@@ -18,10 +18,22 @@
 // the command line.
 // #define STABLE_BUILD
 
+// Uncomment this to produce a PLINK 1.50 alpha build (with some default
+// parameters set to 'plink' instead of 'wdist', etc.).
+// #define PLINK_BUILD
+
 #ifdef STABLE_BUILD
 #define UNSTABLE goto main_unstable_disabled
 #else
 #define UNSTABLE
+#endif
+
+#ifdef PLINK_BUILD
+#define PROG_NAME_STR "plink"
+#define PROG_NAME_CAPS "PLINK"
+#else
+#define PROG_NAME_STR "wdist"
+#define PROG_NAME_CAPS "WDIST"
 #endif
 
 #if _WIN32
@@ -930,13 +942,15 @@ static inline uintptr_t tri_coord_no_diag(uintptr_t small_coord, uintptr_t big_c
   return ((big_coord * (big_coord - 1)) / 2) + small_coord;
 }
 
-static inline void set_bit_noct(uintptr_t* exclude_arr, uint32_t loc) {
-  exclude_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
+static inline void set_bit_noct(uintptr_t* bit_arr, uint32_t loc) {
+  bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
-static inline void set_bit_ul(uintptr_t* bitarr, uintptr_t loc) {
-  bitarr[loc / BITCT] |= (ONELU << (loc % BITCT));
+static inline void set_bit_ul(uintptr_t* bit_arr, uintptr_t loc) {
+  bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
+
+void fill_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len);
 
 void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr);
 

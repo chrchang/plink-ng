@@ -265,19 +265,19 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 , stdout);
     fputs(cmdline_format_str, stdout);
     fputs(
-"Each WDIST run requires exactly one main input fileset.  The following flags\n"
+"Each " PROG_NAME_CAPS " run requires exactly one main input fileset.  The following flags\n"
 "are available for defining its form and location:\n\n"
 , stdout);
   }
   do {
     help_print("bfile\tbed\tbim\tfam", &help_ctrl, 1,
-"  --bfile {prefix} : Specify .bed + .bim + .fam prefix (default 'wdist').\n"
+"  --bfile {prefix} : Specify .bed + .bim + .fam prefix (default '" PROG_NAME_STR "').\n"
 "  --bed [filename] : Specify full name of .bed file.\n"
 "  --bim [filename] : Specify full name of .bim file.\n"
 "  --fam [filename] : Specify full name of .fam file.\n\n"
 	       );
     help_print("file\tped\tmap", &help_ctrl, 1,
-"  --file {prefix}  : Specify .ped + .map filename prefix (default 'wdist').\n"
+"  --file {prefix}  : Specify .ped + .map filename prefix (default '" PROG_NAME_STR "').\n"
 "  --ped [filename] : Specify full name of .ped file.\n"
 "  --map [filename] : Specify full name of .map file.\n\n"
 	       );
@@ -288,7 +288,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --no-pheno       : .fam/.ped file does not contain column 6 (phenotype).\n\n"
 	       );
     help_print("tfile\ttped\ttfam", &help_ctrl, 1,
-"  --tfile {prefix} : Specify .tped + .tfam filename prefix (default 'wdist').\n"
+"  --tfile {prefix} : Specify .tped + .tfam filename prefix (default '" PROG_NAME_STR "').\n"
 "  --tped [fname]   : Specify full name of .tped file.\n"
 "  --tfam [fname]   : Specify full name of .tfam file.\n\n"
 	       );
@@ -307,7 +307,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Specify 23andMe input file.\n\n"
 	       );
     help_print("data\tgen\tsample", &help_ctrl, 1,
-"  --data {prefix}  : Specify Oxford .gen + .sample prefix (default 'wdist').\n"
+"  --data {prefix}  : Specify Oxford .gen + .sample prefix (default '" PROG_NAME_STR "').\n"
 "  --gen [filename] : Specify full name of .gen file.\n"
 "  --sample [fname] : Specify full name of .sample file.\n\n"
 	       );
@@ -340,8 +340,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     if (!param_ct) {
       fputs(
-"Output files have names of the form 'wdist.{extension}' by default.  You can\n"
-"change the 'wdist' prefix with\n\n"
+"Output files have names of the form '" PROG_NAME_STR ".{extension}' by default.  You can\n"
+"change the '" PROG_NAME_STR "' prefix with\n\n"
 , stdout);
     }
     help_print("out", &help_ctrl, 1,
@@ -356,7 +356,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --make-bed\n"
 "    Creates a new binary fileset.  Unlike the automatic text-to-binary\n"
 "    converters (which only respect --chr[-excl] and --autosome[-xy]), this\n"
-"    supports all of WDIST's filtering flags.\n"
+"    supports all of " PROG_NAME_CAPS "'s filtering flags.\n"
 	       );
     help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid", &help_ctrl, 1,
 "  --recode <12> <compound-genotypes> <23 | A | AD | lgen | lgen-ref | list |\n"
@@ -375,7 +375,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      long-format fileset loadable with --lfile + --reference.\n"
 "    * The 'list' modifier creates a genotype-based list, while 'rlist'\n"
 "      creates a rare-genotype fileset.  (These formats are not directly\n"
-"      loadable by WDIST or PLINK.)\n"
+"      loadable by " PROG_NAME_CAPS ".)\n"
 "    * 'transpose' creates a transposed text fileset (loadable with --tfile).\n"
 "    * 'vcf', 'vcf-fid', and 'vcf-iid' result in production of a VCFv4.0 file.\n"
 "      'vcf-fid' and 'vcf-iid' cause family IDs or within-family IDs\n"
@@ -431,12 +431,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("freq\tfreqx\tfrqx\tcounts", &help_ctrl, 1,
 "  --freq <counts>\n"
 "  --freqx\n"
-"    --freq generates an allele frequency report identical to that of PLINK\n"
-"    --freq (or --freq --counts, if the 'counts' modifier is used).  Using the\n"
-"    --freqx flag instead causes the MAF and NCHROBS columns to be replaced with\n"
-"    homozygote and heterozygote counts, which (when reloaded with --read-freq)\n"
-"    allow distance matrix terms to be weighted consistently through multiple\n"
-"    filtering runs.\n\n"
+"    --freq generates a basic allele frequency (or count, if the 'counts'\n"
+"    modifier is present) report.  This can be combined with --within to produce\n"
+"    a cluster-stratified allele frequency/count report instead.\n"
+"    --freqx generates a genotype count report, which (when reloaded with\n"
+"    --read-freq) allows distance matrix terms to be weighted consistently\n"
+"    through multiple filtering runs.\n\n"
 		);
     help_print("hardy", &help_ctrl, 1,
 "  --hardy\n"
@@ -487,16 +487,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --distance-matrix\n"
 "  --matrix\n"
 "    These generate space-delimited text matrices, and are included for\n"
-"    backwards compatibility with old scripts relying on the corresponding PLINK\n"
-"    flags.  New scripts should migrate to '--distance 1-ibs' and '--distance\n"
-"    ibs', which support output formats better suited to parallel computation\n"
-"    and more accurate handling of missing markers.\n\n"
+"    backwards compatibility with old scripts.  New scripts should migrate to\n"
+"    '--distance 1-ibs' and '--distance ibs', which support output formats\n"
+"    better suited to parallel computation and more flexible handling of missing\n"
+"    markers.\n\n"
 		);
     help_print("genome\tZ-genome\tgenome-full\tunbounded", &help_ctrl, 1,
 "  --genome <gz> <full> <unbounded>\n"
-"    Identity-by-descent analysis.  This yields the same output as PLINK\n"
-"    --genome/--Z-genome, and the 'full' and 'unbounded' modifiers have the same\n"
-"    effect as PLINK's --genome-full and --unbounded flags.\n\n"
+"    Generates an identity-by-descent report.\n"
+"    * The 'full' modifier adds raw pairwise comparison data to the report.\n"
+"    * The P(IBD=0/1/2) estimator employed by this command sometimes yields\n"
+"      numbers outside the range [0,1]; by default, these are clipped.  The\n"
+"      'unbounded' modifier turns off this clipping.\n\n"
 		);
 #ifndef STABLE_BUILD
     help_print("homozyg", &help_ctrl, 1,
@@ -589,7 +591,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    'kb' modifier, the window size is in kilobase units instead of marker\n"
 "    count.  (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5'\n"
 "    and '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
-"    Note that you need to rerun WDIST using --extract or --exclude on the\n"
+"    Note that you need to rerun " PROG_NAME_CAPS " using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
 		);
     help_print("make-rel", &help_ctrl, 1,
@@ -605,7 +607,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * By default, the diagonal elements in the relationship matrix are based on\n"
 "      --ibc's Fhat1; use the 'ibc2' or 'ibc3' modifiers to base them on Fhat2\n"
 "      or Fhat3 instead.\n"
-"    * WDIST normally performs this calculation with double-precision floating\n"
+"    * " PROG_NAME_CAPS " normally performs this calculation with double-precision floating\n"
 "      point numbers.  The 'single-prec' modifier switches to single-precision\n"
 "      arithmetic, which is generally good enough; this decreases memory usage\n"
 "      and speeds up computation.\n"
@@ -704,8 +706,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("cnv-make-map", &help_ctrl, 1,
 "  --cnv-make-map <short>\n"
 "    Given a .cnv file, this generates the corresponding .cnv.map file needed\n"
-"    by WDIST and PLINK's other CNV analysis commands.  The 'short' modifier\n"
-"    causes entries needed by PLINK but not WDIST to be omitted.  (Now\n"
+"    by " PROG_NAME_CAPS "'s other CNV analysis commands.  The 'short' modifier causes\n"
+"    causes entries needed by old PLINK versions to be omitted.  (This is now\n"
 "    automatically invoked, with 'short', when necessary.)\n\n"
 	       );
     help_print("cnv-write", &help_ctrl, 1,
@@ -745,7 +747,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --script [fname] : Include command-line options from file.\n"
 	       );
     help_print("rerun", &help_ctrl, 0,
-"  --rerun {log}    : Rerun commands in log (default 'wdist.log').\n"
+"  --rerun {log}    : Rerun commands in log (default '" PROG_NAME_STR ".log').\n"
 	       );
     help_print("silent", &help_ctrl, 0,
 "  --silent         : Suppress output to console.\n"
@@ -845,15 +847,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --extract [file] : Exclude all markers not in the given list.\n"
 "  --exclude [file] : Exclude all markers in the given list.\n"
 	       );
-    help_print("chr\tchr-excl\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
+    help_print("chr\tnot-chr\tchr-excl\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
 "  --chr [chrs...]  : Exclude all markers not on the given chromosome(s).  Valid\n"
 "                     choices for humans are 0 (unplaced), 1-22, X, Y, XY, and\n"
 "                     MT.  Separate multiple chromosomes with spaces and/or\n"
 "                     commas, and use a dash (no adjacent spaces permitted) to\n"
 "                     denote a range, e.g. '--chr 1-4, 22, xy'.\n"
-"  --chr-excl [...] : Reverse of --chr (excludes markers on listed chromosomes).\n"
+"  --not-chr [...]  : Reverse of --chr (excludes markers on listed chromosomes).\n"
 	       );
-    help_print("autosome\tautosome-xy\tchr\tchr-excl", &help_ctrl, 0,
+    help_print("autosome\tautosome-xy\tchr\tnot-chr\tchr-excl", &help_ctrl, 0,
 "  --autosome       : Exclude all non-autosomal markers.\n"
 "  --autosome-xy    : Exclude all non-autosomal markers, except those with\n"
 "                     chromosome code XY (pseudo-autosomal region of X).\n"
@@ -1088,8 +1090,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("parallel\tgenome-lists", &help_ctrl, 0,
 "  --parallel [k] [n] : Divide the output matrix into n pieces, and only compute\n"
 "                       the kth piece.  The primary output file will have the\n"
-"                       piece number included in its name, e.g. wdist.rel.13 or\n"
-"                       wdist.rel.13.gz if k is 13.  Concatenating these files\n"
+"                       piece number included in its name, e.g. " PROG_NAME_STR ".rel.13 or\n"
+"                       " PROG_NAME_STR ".rel.13.gz if k is 13.  Concatenating these files\n"
 "                       in order will yield the full matrix of interest.  (Yes,\n"
 "                       this can be done before unzipping.)\n"
 "                       N.B. This cannot be used to directly write a symmetric\n"
@@ -1110,7 +1112,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("read-freq\tupdate-freq", &help_ctrl, 0,
 "  --read-freq [filename]   : Loads MAFs from the given PLINK-style or --freqx\n"
-"    (alias: --update-freq)   frequency file, instead of just setting them to\n"
+"    (alias: --update-freq)   frequency report, instead of just setting them to\n"
 "                             frequencies observed in the .ped/.bed file.\n"
 	       );
     help_print("cow\tdog\thorse\tmouse\trice\tsheep", &help_ctrl, 0,

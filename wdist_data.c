@@ -223,7 +223,7 @@ int32_t sort_item_ids_nx(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t
 
 #ifdef _WIN32
 int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr_t unfiltered_marker_ct) {
-  logprint("Error: Win32 WDIST does not yet support transposition of individual-major .bed\nfiles.  Contact the developers if you need this.\n");
+  logprint("Error: Win32 " PROG_NAME_CAPS " does not yet support transposition of individual-major .bed\nfiles.  Contact the developers if you need this.\n");
   return RET_CALC_NOT_YET_SUPPORTED;
 }
 #else
@@ -3172,7 +3172,7 @@ void fill_bmap_hap(unsigned char* bmap_hap, uint32_t ct_mod4) {
   }
 }
 
-int32_t make_bed(FILE* bedfile, uint32_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, double missing_phenod, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint32_t set_hh_missing, Two_col_params* update_chr, char* flip_subset_fname, Chrom_info* chrom_info_ptr) {
+int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, double missing_phenod, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint32_t set_hh_missing, Two_col_params* update_chr, char* flip_subset_fname, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t indiv_ct4 = (indiv_ct + 3) / 4;
@@ -5792,6 +5792,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   uint32_t map_is_unsorted = 0;
   uintptr_t max_marker_id_len = 0;
   uintptr_t max_marker_allele_len = 2;
+  uint32_t unrecognized_chrom_ct = 0;
   uintptr_t indiv_ct4;
   uintptr_t indiv_idx;
   uintptr_t ulii;
@@ -5929,8 +5930,12 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     }
     ii = marker_code(chrom_info_ptr->species, cptr);
     if (ii == -1) {
-      logprint("Error: Invalid chromosome code in .tped file.\n");
-      goto transposed_to_bed_ret_INVALID_FORMAT_2;
+      // temporary hack to make Laurent happy.  Replace this with proper
+      // handling of contigs in a near-future build.
+      unrecognized_chrom_ct++;
+      ii = 0;
+      cptr = &(cptr[strlen_se(cptr) - 1]);
+      *cptr = '0';
     }
     if (*cptr == 'c') {
       // total hack to make PLINK work in our pipeline for now
@@ -5942,6 +5947,14 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
         cptr = &(cptr[2]);
 	*cptr = '2';
 	cptr[1] = '4';
+      } else if ((cptr[3] == 'M') && (!(chrom_info_ptr->species))) {
+        if (cptr[4] == 'T') {
+          cptr = &(cptr[3]);
+	} else {
+          cptr = &(cptr[2]);
+	}
+        *cptr = '2';
+        cptr[1] = '6';
       } else {
         cptr = &(cptr[3]);
       }
@@ -6287,6 +6300,10 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   fputs("\rProcessing .tped file... done.\n", stdout);
   sprintf(logbuf, "%s + .bim + .fam written.\n", outname);
   logprintb();
+  if (unrecognized_chrom_ct) {
+    sprintf(logbuf, "Warning: %u marker%s unrecognized chromosome code%s in .tped file.\n(Chromosome code%s been set to zero.)\n", unrecognized_chrom_ct, (unrecognized_chrom_ct == 1)? " with an" : "s with", (unrecognized_chrom_ct == 1)? "" : "(s)", (unrecognized_chrom_ct == 1)? " has" : "s have");
+    logprintb();
+  }
 
   while (0) {
   transposed_to_bed_ret_NOMEM:
@@ -8086,7 +8103,7 @@ int32_t recode_allele_load(char* recode_allele_name, char*** allele_missing_ptr,
   return retval;
 }
 
-int32_t recode_load_to(unsigned char* loadbuf, FILE* bedfile, uint32_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t marker_idx, uintptr_t marker_idx_end, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr, uintptr_t unfiltered_indiv_ct4) {
+int32_t recode_load_to(unsigned char* loadbuf, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t marker_idx, uintptr_t marker_idx_end, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr, uintptr_t unfiltered_indiv_ct4) {
   uintptr_t marker_uidx = *marker_uidx_ptr;
   uintptr_t ulii;
   while (marker_idx < marker_idx_end) {
@@ -8196,7 +8213,7 @@ char zero_to_dot(char cc) {
   }
 }
 
-int32_t recode(uint32_t recode_modifier, FILE* bedfile, uint32_t bed_offset, FILE* famfile, char* outname, char* outname_end, char* recode_allele_name, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, char* marker_alleles, uintptr_t max_marker_allele_len, uint32_t* marker_pos, uintptr_t* marker_reverse, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, double missing_phenod, char output_missing_geno, char* output_missing_pheno, uint32_t set_hh_missing, uint32_t xmhh_exists, uint32_t nxmhh_exists, Chrom_info* chrom_info_ptr) {
+int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FILE* famfile, char* outname, char* outname_end, char* recode_allele_name, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, char* marker_alleles, uintptr_t max_marker_allele_len, uint32_t* marker_pos, uintptr_t* marker_reverse, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, double missing_phenod, char output_missing_geno, char* output_missing_pheno, uint32_t set_hh_missing, uint32_t xmhh_exists, uint32_t nxmhh_exists, Chrom_info* chrom_info_ptr) {
   FILE* outfile = NULL;
   FILE* ref_file = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -8561,7 +8578,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uint32_t bed_offset, FIL
     }
     if (fputs(
 "##fileformat=VCFv4.0\n"
-"##source=WDIST\n"
+"##source=" PROG_NAME_CAPS "\n"
 "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT"
 , outfile) == EOF) {
       goto recode_ret_WRITE_FAIL;
@@ -8715,7 +8732,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uint32_t bed_offset, FIL
     sprintf(logbuf, "--recode 23 to %s... ", outname);
     logprintb();
     time(&rawtime);
-    if (fprintf(outfile, "# This data file generated by WDIST at: %s", ctime(&rawtime)) < 0) {
+    if (fprintf(outfile, "# This data file generated by " PROG_NAME_CAPS " at: %s", ctime(&rawtime)) < 0) {
       goto recode_ret_WRITE_FAIL;
     }
     if (fputs(
@@ -9139,7 +9156,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uint32_t bed_offset, FIL
 	}
       }
     } else {
-      sprintf(logbuf, "Error: --recode A%s does not yet support multipass recoding of very large .bed\nfiles; contact the WDIST developers if you need this.\n", (recode_modifier & RECODE_AD)? "D" : "");
+      sprintf(logbuf, "Error: --recode A%s does not yet support multipass recoding of very large .bed\nfiles; contact the " PROG_NAME_CAPS " developers if you need this.\n", (recode_modifier & RECODE_AD)? "D" : "");
       logprintb();
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto recode_ret_1;
@@ -9541,7 +9558,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uint32_t bed_offset, FIL
 	}
       }
     } else {
-      logprint("Error: --recode does not yet support multipass recoding of very large .bed\nfiles; contact the WDIST developers if you need this.\n");
+      logprint("Error: --recode does not yet support multipass recoding of very large .bed\nfiles; contact the " PROG_NAME_CAPS " developers if you need this.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto recode_ret_1;
     }
@@ -9804,7 +9821,7 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
 	ulii += MAXLINELEN - 1;
 #ifndef __LP64__
 	if (ulii > 0x7fffffff) {
-	  sprintf(logbuf, "Error: .ped line too long (>= 2GB) in %s for 32-bit WDIST.\n", famname);
+	  sprintf(logbuf, "Error: .ped line too long (>= 2GB) in %s for 32-bit " PROG_NAME_CAPS ".\n", famname);
 	  goto merge_fam_id_scan_ret_INVALID_FORMAT;
 	}
 #endif
@@ -11286,7 +11303,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 #else
   // avoid integer overflow in wkspace_alloc calls
   if (ullxx * max_person_full_len > 0x7fffffff) {
-    sprintf(logbuf, "Error: Too many %s for 32-bit WDIST.\n", species_plural);
+    sprintf(logbuf, "Error: Too many %s for 32-bit " PROG_NAME_CAPS ".\n", species_plural);
     goto merge_datasets_ret_INVALID_FORMAT_2;
   }
 #endif
@@ -11470,7 +11487,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   }
 #else
   if (ullxx * MAXV(max_marker_id_len, 8) > 0x7fffffff) {
-    logprint("Error: Too many markers for 32-bit WDIST.\n");
+    logprint("Error: Too many markers for 32-bit " PROG_NAME_CAPS ".\n");
     goto merge_datasets_ret_INVALID_FORMAT;
   }
 #endif
