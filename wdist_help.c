@@ -969,7 +969,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     * 'none'/'0' keeps individuals in the order they were\n"
 "                       loaded.  This is the default for non-merge operations.\n"
 "                     * 'natural'/'n' invokes \"natural sort\", e.g. 'id2' <\n"
-"                       'ID3' < 'ID10'.  This is the default when merging.\n"
+"                       'ID3' < 'id10'.  This is the default when merging.\n"
 "                     * 'ascii'/'a' sorts in ASCII order, e.g. 'ID3' < 'id10' <\n"
 "                       'id2'.\n"
 "                     For now, only --make-bed and --merge/--bmerge/--merge-list\n"

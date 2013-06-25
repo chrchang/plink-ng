@@ -3787,7 +3787,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uint32_t* cluster_starts = NULL;
   char* cluster_ids = NULL;
   uintptr_t max_cluster_id_len = 2;
-  uint32_t* mds_plot_cluster_assignment = NULL;
   double* mds_plot_dmatrix_copy = NULL;
   uintptr_t* cluster_merge_prevented = NULL;
   double* cluster_sdistances = NULL;
@@ -4613,9 +4612,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
         goto wdist_ret_NOMEM;
       }
 #endif
-      if (wkspace_alloc_ui_checked(&mds_plot_cluster_assignment, g_indiv_ct * sizeof(int32_t))) {
-        goto wdist_ret_NOMEM;
-      }
       if (!(cluster_ptr->modifier & CLUSTER_MDS)) {
         if (wkspace_alloc_d_checked(&mds_plot_dmatrix_copy, ulii * sizeof(double))) {
           goto wdist_ret_NOMEM;
@@ -4750,7 +4746,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) {
-    retval = calc_cluster_neighbor(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, read_dists_fname, read_dists_id_fname, read_genome_fname, outname, outname_end, calculation_type, cluster_ct, cluster_map, cluster_starts, cluster_ptr, neighbor_n1, neighbor_n2, ppc_gap, pheno_c, mds_plot_cluster_assignment, mds_plot_dmatrix_copy, cluster_merge_prevented, cluster_sdistances, wkspace_mark_precluster);
+    retval = calc_cluster_neighbor(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, read_dists_fname, read_dists_id_fname, read_genome_fname, outname, outname_end, calculation_type, cluster_ct, cluster_map, cluster_starts, cluster_ptr, neighbor_n1, neighbor_n2, ppc_gap, pheno_c, mds_plot_dmatrix_copy, cluster_merge_prevented, cluster_sdistances, wkspace_mark_precluster);
     if (retval) {
       goto wdist_ret_1;
     }
