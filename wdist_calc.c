@@ -8881,7 +8881,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    if (cluster_ct) {
 	      if (clidx1 != clidx2) {
 		if (!is_group_avg) {
-		  if (dxx > cluster_sorted_ibs[tcoord]) {
+		  if (dxx < cluster_sorted_ibs[tcoord]) {
                     cluster_sorted_ibs[tcoord] = dxx;
 		  }
 		} else {
@@ -8957,7 +8957,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	      } else {
 	        dptr2 = &(cluster_sorted_ibs[tri_coord_no_diag(clidx2, clidx1)]);
 	      }
-	      if (dxx > (*dptr2)) {
+	      if (dxx < (*dptr2)) {
 		*dptr2 = dxx;
 	      }
 	    } else {
@@ -9118,7 +9118,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 		  dptr2 = &(cluster_sorted_ibs[tri_coord_no_diag(clidx2, clidx1)]);
 		}
 		if (!is_group_avg) {
-		  if (dxx > (*dptr2)) {
+		  if (dxx < (*dptr2)) {
 		    *dptr2 = dxx;
 		  }
 		} else {
@@ -9171,7 +9171,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 		  dptr2 = &(cluster_sorted_ibs[tri_coord_no_diag(clidx2, clidx1)]);
 		}
 		if (!is_group_avg) {
-		  if (dxx > (*dptr2)) {
+		  if (dxx < (*dptr2)) {
 		    *dptr2 = dxx;
 		  }
 		} else {
@@ -9254,7 +9254,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   if (pheno_c) {
     case_ct = popcount_longs(pheno_c, 0, unfiltered_indiv_ctl);
     ctrl_ct = indiv_ct - case_ct;
-    if ((cp->modifier & CLUSTER_CC) || (cp->max_cases < case_ct) || (cp->max_controls < ctrl_ct)) {
+    if ((cp->modifier & CLUSTER_CC) || (cp->max_cases < case_ct) || (cp->max_ctrls < ctrl_ct)) {
       if (wkspace_alloc_ul_checked(&collapsed_pheno_c, indiv_ctl * sizeof(intptr_t))) {
 	goto calc_cluster_neighbor_ret_NOMEM;
       }
@@ -9309,7 +9309,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     for (clidx1 = cluster_ct; clidx1 < cur_cluster_ct; clidx1++) {
       cur_cluster_sizes[clidx1] = 1;
     }
-    if ((cp->max_cases < case_ct) || (cp->max_controls < ctrl_ct)) {
+    if ((cp->max_cases < case_ct) || (cp->max_ctrls < ctrl_ct)) {
       uii = cp->max_cases;
       if (uii < case_ct) {
 	for (clidx1 = 0; clidx1 < cluster_ct; clidx1++) {
@@ -9353,7 +9353,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	  }
 	}
       }
-      uii = cp->max_controls;
+      uii = cp->max_ctrls;
       if (uii < ctrl_ct) {
 	for (clidx1 = 0; clidx1 < cluster_ct; clidx1++) {
 	  ujj = cur_cluster_sizes[clidx1] - cur_cluster_case_cts[clidx1];
@@ -9500,12 +9500,13 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	ujj = 0;
       } while ((++uii) < umm);
     }
-    qsort(&(cluster_sorted_ibs_indices[CACHELINE_INT32]), heap_size, 12, double_cmp_decr_deref);
+    qsort(&(cluster_sorted_ibs_indices[CACHELINE_INT32]), heap_size, 12, double_cmp_decr);
     if (!is_group_avg) {
       for (ulii = 0; ulii < heap_size; ulii++) {
         cluster_sorted_ibs_indices[ulii] = cluster_sorted_ibs_indices[CACHELINE_INT32 + 2 + (ulii * 3)];
       }
-      wkspace_reset((unsigned char*)(&(cluster_sorted_ibs_indices[(heap_size + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1))])));
+      // this size allows write_cluster_solution() to reuse the space
+      wkspace_reset((unsigned char*)(&(cluster_sorted_ibs_indices[(initial_triangle_size + CACHELINE_INT32) & (~(CACHELINE_INT32 - 1))])));
     } else {
       // todo
     }
@@ -9529,12 +9530,25 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   //   track sorted inter-cluster distances
   // * otherwise a simple sorted list will do
   if (!is_group_avg) {
+    logprint("Error: --cluster is currently under development.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto calc_cluster_neighbor_ret_1;
     merge_ct = cluster_main(cur_cluster_ct, cluster_merge_prevented, heap_size, cluster_sorted_ibs_indices, cur_cluster_sizes, indiv_ct, cur_cluster_case_cts, case_ct, ctrl_ct, cur_cluster_remap, cp, merge_sequence);
   } else {
     logprint("Error: --cluster group-avg is currently under development.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto calc_cluster_neighbor_ret_1;
     merge_ct = cluster_group_avg_main(cur_cluster_ct, cluster_merge_prevented, heap_size, cluster_sorted_ibs, cluster_sorted_ibs_indices, cur_cluster_sizes, indiv_ct, cur_cluster_case_cts, case_ct, ctrl_ct, cur_cluster_remap, cp, merge_sequence);
+  }
+  retval = write_cluster_solution(outname, outname_end, indiv_to_cluster, indiv_ct, cur_cluster_ct, person_ids, max_person_id_len, cp, cur_cluster_remap, cluster_sorted_ibs_indices, merge_ct, merge_sequence);
+  if (retval) {
+    goto calc_cluster_neighbor_ret_1;
+  }
+
+  if (cp->mds_dim_ct) {
+    logprint("Error: --mds-plot is currently under development.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto calc_cluster_neighbor_ret_1;
   }
 
   while (0) {

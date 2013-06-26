@@ -2388,22 +2388,22 @@ int32_t double_cmp(const void* aa, const void* bb) {
   }
 }
 
-int32_t double_cmp_deref(const void* aa, const void* bb) {
-  double cc = **((const double**)aa) - **((const double**)bb);
-  if (cc > 0.0) {
+int32_t double_cmp_decr(const void* aa, const void* bb) {
+  double cc = *((const double*)aa) - *((const double*)bb);
+  if (cc < 0.0) {
     return 1;
-  } else if (cc < 0.0) {
+  } else if (cc > 0.0) {
     return -1;
   } else {
     return 0;
   }
 }
 
-int32_t double_cmp_decr_deref(const void* aa, const void* bb) {
+int32_t double_cmp_deref(const void* aa, const void* bb) {
   double cc = **((const double**)aa) - **((const double**)bb);
-  if (cc < 0.0) {
+  if (cc > 0.0) {
     return 1;
-  } else if (cc > 0.0) {
+  } else if (cc < 0.0) {
     return -1;
   } else {
     return 0;

@@ -74,7 +74,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (25 Jun 2013)";
+  " (26 Jun 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -4110,7 +4110,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (cluster_ptr->modifier & CLUSTER_CC) {
       logprint("Error: --cc requires dichotomous phenotype.\n");
       goto wdist_ret_INVALID_CMDLINE;
-    } else if ((cluster_ptr->max_cases != 0xffffffffU) || (cluster_ptr->max_controls != 0xffffffffU)) {
+    } else if ((cluster_ptr->max_cases != 0xffffffffU) || (cluster_ptr->max_ctrls != 0xffffffffU)) {
       logprint("Error: --mcc requires dichotomous phenotype.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
@@ -4646,7 +4646,13 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       if (wkspace_alloc_d_checked(&cluster_sorted_ibs, ulii * sizeof(double))) {
 	goto wdist_ret_NOMEM;
       }
-      fill_double_zero(cluster_sorted_ibs, ulii);
+      if (cluster_ptr->modifier & CLUSTER_GROUP_AVG) {
+        fill_double_zero(cluster_sorted_ibs, ulii);
+      } else {
+	for (uljj = 0; uljj < ulii; uljj++) {
+	  cluster_sorted_ibs[uljj] = 1.0;
+	}
+      }
     }
     wkspace_mark_precluster = wkspace_base;
   }
@@ -8874,7 +8880,7 @@ int32_t main(int32_t argc, char** argv) {
           logprint("Error: --mcc parameter exceeds --mc parameter.\n");
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        cluster.max_controls = ii;
+        cluster.max_ctrls = ii;
       } else if (!memcmp(argptr2, "atch", 5)) {
 	UNSTABLE;
 	if (!(calculation_type & CALC_CLUSTER)) {

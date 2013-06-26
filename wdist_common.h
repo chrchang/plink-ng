@@ -1247,9 +1247,9 @@ int32_t distance_req(uint64_t calculation_type, char* read_dists_fname);
 
 int32_t double_cmp(const void* aa, const void* bb);
 
-int32_t double_cmp_deref(const void* aa, const void* bb);
+int32_t double_cmp_decr(const void* aa, const void* bb);
 
-int32_t double_cmp_decr_deref(const void* aa, const void* bb);
+int32_t double_cmp_deref(const void* aa, const void* bb);
 
 int32_t char_cmp_deref(const void* aa, const void* bb);
 
