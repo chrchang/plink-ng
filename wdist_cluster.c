@@ -929,12 +929,11 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
   uint32_t only2 = cp->modifier & CLUSTER_ONLY2;
   int32_t retval = 0;
   char wbuf[16];
-  uint32_t* clidx_remap = &(clidx_table_space[(((uintptr_t)(initial_cluster_ct - 1)) * (initial_cluster_ct - 2)) >> 1]);
+  uint32_t* clidx_remap = &(clidx_table_space[(((uintptr_t)initial_cluster_ct) * (initial_cluster_ct - 1)) >> 1]);
   char* sptr;
   char* sptr2;
   char* wptr;
   uint32_t* cur_remap;
-  uint32_t slen;
   uint32_t indiv_idx;
   uint32_t clidx;
   uint32_t uii;
@@ -1067,8 +1066,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
 	clidx = indiv_idx;
       }
       wptr = uint32_writex(wbuf, clidx, ' ');
-      slen = wptr - wbuf;
-      fwrite(wbuf, 1, slen, outfile);
+      fwrite(wbuf, 1, wptr - wbuf, outfile);
       uii = 0;
       if (merge_ct) {
 	ujj = clidx_remap[clidx];
@@ -1079,14 +1077,8 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
 	  }
 	  for (; uii < ujj; uii++) {
 	    wptr = uint32_writex(wbuf, *cur_remap++, ' ');
-	    fwrite(wbuf, 1, slen, outfile);
+	    fwrite(wbuf, 1, wptr - wbuf, outfile);
 	  }
-	  /*
-	  if (merge_sequence[ujj * 2 + 1] != clidx) {
-	    printf("%u %u %u\n", ujj, clidx, clidx_remap[merge_sequence[ujj * 2]]);
-	    exit(1);
-	  }
-	  */
 	  if (ujj == merge_ct) {
 	    break;
 	  }
@@ -1094,16 +1086,23 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
           ujj = clidx_remap[merge_sequence[ujj * 2]];
 	}
       }
+      for (ujj = merge_ct + 1; ujj < initial_cluster_ct; ujj++) {
+	fputs("0 ", outfile);
+      }
       if (putc('\n', outfile) == EOF) {
 	goto write_cluster_solution_ret_WRITE_FAIL;
       }
     }
+    putc('\n', outfile);
     if (fclose_null(&outfile)) {
       goto write_cluster_solution_ret_WRITE_FAIL;
     }
+    *outname_end = '\0';
+    sprintf(logbuf, "Cluster solution written to %s.cluster{1,2,3%s}.\n", outname, (cp->modifier & CLUSTER_MISSING)? ".missing" : "");
+  } else {
+    *outname_end = '\0';
+    sprintf(logbuf, "Cluster solution written to %s.cluster2.\n", outname);
   }
-  *outname_end = '\0';
-  sprintf(logbuf, "Cluster solution written to %s.cluster*.\n", outname);
   logprintb();
   while (0) {
   write_cluster_solution_ret_OPEN_FAIL:

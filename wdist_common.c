@@ -5871,6 +5871,7 @@ void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* exclud
     if (++write_bit == BITCT) {
       *output_arr++ = ulii;
       ulii = 0;
+      write_bit = 0;
     }
     item_uidx++;
   }
@@ -5891,6 +5892,7 @@ void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* i
     if (++write_bit == BITCT) {
       *output_arr++ = ulii;
       ulii = 0;
+      write_bit = 0;
     }
     item_uidx++;
   }
@@ -5911,6 +5913,7 @@ void collapse_copy_bitarr_to_vec_incl(uint32_t orig_ct, uintptr_t* bitarr, uintp
     if (++write_bit == BITCT2) {
       *output_vec++ = ulii;
       ulii = 0;
+      write_bit = 0;
     }
     item_uidx++;
   }

@@ -9265,9 +9265,17 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       }
       collapse_copy_bitarr(unfiltered_indiv_ct, pheno_c, indiv_exclude, indiv_ct, collapsed_pheno_c);
       fill_uint_zero(cur_cluster_case_cts, cur_cluster_ct);
-      for (indiv_idx1 = 0; indiv_idx1 < indiv_ct; indiv_idx1++) {
-	if (is_set(collapsed_pheno_c, indiv_idx1)) {
-	  cur_cluster_case_cts[indiv_to_cluster[indiv_idx1]] += 1;
+      if (!cluster_ct) {
+	for (indiv_idx1 = 0; indiv_idx1 < indiv_ct; indiv_idx1++) {
+	  if (is_set(collapsed_pheno_c, indiv_idx1)) {
+	    cur_cluster_case_cts[indiv_idx1] += 1;
+	  }
+	}
+      } else {
+	for (indiv_idx1 = 0; indiv_idx1 < indiv_ct; indiv_idx1++) {
+	  if (is_set(collapsed_pheno_c, indiv_idx1)) {
+	    cur_cluster_case_cts[indiv_to_cluster[indiv_idx1]] += 1;
+	  }
 	}
       }
       wkspace_reset((unsigned char*)collapsed_pheno_c);
@@ -9416,6 +9424,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 
   tcoord = next_set_ul(cluster_merge_prevented, 0, initial_triangle_size);
   wkspace_reset(wkspace_mark_precluster);
+  logprint("Clustering...");
+  fflush(stdout);
 #ifdef __LP64__
   if (cur_cluster_ct <= 65536) {
 #endif
@@ -9506,8 +9516,11 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       for (ulii = 0; ulii < heap_size; ulii++) {
         cluster_sorted_ibs_indices[ulii] = cluster_sorted_ibs_indices[CACHELINE_INT32 + 2 + (ulii * 3)];
       }
-      // this size allows write_cluster_solution() to reuse the space
-      wkspace_reset((unsigned char*)(&(cluster_sorted_ibs_indices[(heap_size + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1))])));
+      if (ulii < indiv_ct) {
+	// this guarantees write_cluster_solution() has enough space
+	ulii = indiv_ct;
+      }
+      wkspace_reset((unsigned char*)(&(cluster_sorted_ibs_indices[(ulii + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1))])));
     } else {
       // todo
     }
@@ -9547,6 +9560,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     goto calc_cluster_neighbor_ret_1;
     merge_ct = cluster_group_avg_main(cur_cluster_ct, cluster_merge_prevented, heap_size, cluster_sorted_ibs, cluster_sorted_ibs_indices, cur_cluster_sizes, indiv_ct, cur_cluster_case_cts, case_ct, ctrl_ct, cur_cluster_remap, cp, merge_sequence);
   }
+  logprint(" done.\n");
   retval = write_cluster_solution(outname, outname_end, indiv_to_cluster, indiv_ct, cur_cluster_ct, person_ids, max_person_id_len, cp, cur_cluster_remap, cluster_sorted_ibs_indices, merge_ct, merge_sequence);
   if (retval) {
     goto calc_cluster_neighbor_ret_1;
