@@ -3789,7 +3789,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t max_cluster_id_len = 2;
   double* mds_plot_dmatrix_copy = NULL;
   uintptr_t* cluster_merge_prevented = NULL;
-  double* cluster_sdistances = NULL;
+  double* cluster_sorted_ibs = NULL;
   char* cptr = NULL;
   uint64_t dists_alloc = 0;
   uintptr_t marker_exclude_ct = 0;
@@ -4612,10 +4612,17 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
         goto wdist_ret_NOMEM;
       }
 #endif
-      if (!(cluster_ptr->modifier & CLUSTER_MDS)) {
-        if (wkspace_alloc_d_checked(&mds_plot_dmatrix_copy, ulii * sizeof(double))) {
-          goto wdist_ret_NOMEM;
-        }
+      if ((!read_dists_fname) && (!read_genome_fname)) {
+	if ((!(cluster_ptr->modifier & CLUSTER_MDS)) || (!cluster_ct)) {
+          if (wkspace_alloc_d_checked(&mds_plot_dmatrix_copy, ulii * sizeof(double))) {
+            goto wdist_ret_NOMEM;
+          }
+	} else {
+	  ulii = cluster_ct + g_indiv_ct - cluster_starts[cluster_ct];
+          if (wkspace_alloc_d_checked(&mds_plot_dmatrix_copy, (ulii * (ulii - 1)) * (sizeof(double) / 2))) {
+            goto wdist_ret_NOMEM;
+          }
+	}
       }
     }
 
@@ -4636,10 +4643,10 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_NOMEM;
     }
     if (cluster_ct || (calculation_type & CALC_GENOME) || genome_skip_write) {
-      if (wkspace_alloc_d_checked(&cluster_sdistances, ulii * sizeof(double))) {
+      if (wkspace_alloc_d_checked(&cluster_sorted_ibs, ulii * sizeof(double))) {
 	goto wdist_ret_NOMEM;
       }
-      fill_double_zero(cluster_sdistances, ulii);
+      fill_double_zero(cluster_sorted_ibs, ulii);
     }
     wkspace_mark_precluster = wkspace_base;
   }
@@ -4706,7 +4713,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (wkspace_alloc_d_checked(&g_dists, dists_alloc)) {
       goto wdist_ret_NOMEM;
     }
-    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, 0, NULL, NULL, 0, g_dists, NULL, 0, NULL, NULL);
+    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, 0, NULL, NULL, 0, 0, g_dists, NULL, 0, NULL, NULL);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4746,11 +4753,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) {
-    retval = calc_cluster_neighbor(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, read_dists_fname, read_dists_id_fname, read_genome_fname, outname, outname_end, calculation_type, cluster_ct, cluster_map, cluster_starts, cluster_ptr, neighbor_n1, neighbor_n2, ppc_gap, pheno_c, mds_plot_dmatrix_copy, cluster_merge_prevented, cluster_sdistances, wkspace_mark_precluster);
+    retval = calc_cluster_neighbor(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, read_dists_fname, read_dists_id_fname, read_genome_fname, outname, outname_end, calculation_type, cluster_ct, cluster_map, cluster_starts, cluster_ptr, neighbor_n1, neighbor_n2, ppc_gap, pheno_c, mds_plot_dmatrix_copy, cluster_merge_prevented, cluster_sorted_ibs, wkspace_mark_precluster);
+    wkspace_reset(wkspace_mark_postcluster);
     if (retval) {
       goto wdist_ret_1;
     }
-    wkspace_reset(wkspace_mark_postcluster);
   }
 
 
@@ -6600,7 +6607,7 @@ int32_t main(int32_t argc, char** argv) {
 	ci_size = dxx;
       } else if (!memcmp(argptr2, "luster", 7)) {
 	UNSTABLE;
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
@@ -6609,16 +6616,8 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!memcmp(argv[cur_arg + uii], "group-avg", 10)) {
 	    cluster.modifier |= CLUSTER_GROUP_AVG;
 	  } else if (!memcmp(argv[cur_arg + uii], "missing", 8)) {
-	    if (cluster.modifier & CLUSTER_ONLY2) {
-	      logprint("Error: --cluster 'missing' and 'only2' modifiers cannot be used together.\n");
-	      goto main_ret_INVALID_CMDLINE;
-	    }
 	    cluster.modifier |= CLUSTER_MISSING;
 	  } else if (!memcmp(argv[cur_arg + uii], "only2", 6)) {
-	    if (cluster.modifier & CLUSTER_MISSING) {
-	      logprint("Error: --cluster 'missing' and 'only2' modifiers cannot be used together.\n");
-	      goto main_ret_INVALID_CMDLINE;
-	    }
 	    cluster.modifier |= CLUSTER_ONLY2;
 	  } else {
             sprintf(logbuf, "Error: Invalid --cluster parameter '%s'.%s", argv[cur_arg + uii], errstr_append);

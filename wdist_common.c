@@ -2245,61 +2245,6 @@ char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id
   return NULL;
 }
 
-int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*)) {
-  // Stores a lexicographically sorted list of IDs in sorted_ids and the raw
-  // positions of the corresponding markers/indivs in *id_map_ptr.  Does not
-  // include excluded markers/indivs in the list.
-  // Assumes sorted_ids and id_map have been allocated; use the sort_item_ids()
-  // wrapper if they haven't been.
-  uint32_t uii = 0;
-  char* dup_id;
-  char* tptr;
-  uint32_t ujj;
-  if (!item_ct) {
-    return 0;
-  }
-  if (!collapse_idxs) {
-    for (ujj = 0; ujj < item_ct; ujj++) {
-      uii = next_non_set_unsafe(exclude_arr, uii);
-      memcpy(&(sorted_ids[ujj * max_id_len]), &(item_ids[uii * max_id_len]), max_id_len);
-      id_map[ujj] = uii++;
-    }
-  } else {
-    for (ujj = 0; ujj < item_ct; ujj++) {
-      uii = next_non_set_unsafe(exclude_arr, uii);
-      memcpy(&(sorted_ids[ujj * max_id_len]), &(item_ids[uii * max_id_len]), max_id_len);
-      id_map[ujj] = ujj;
-      uii++;
-    }
-  }
-  if (qsort_ext(sorted_ids, item_ct, max_id_len, comparator_deref, (char*)id_map, sizeof(int32_t))) {
-    return RET_NOMEM;
-  }
-  if (!allow_dups) {
-    dup_id = scan_for_duplicate_ids(sorted_ids, item_ct, max_id_len);
-    if (dup_id) {
-      tptr = strchr(dup_id, '\t');
-      if (tptr) {
-        *tptr = ' ';
-      }
-      sprintf(logbuf, "Error: Duplicate ID %s.\n", dup_id);
-      logprintb();
-      return RET_INVALID_FORMAT;
-    }
-  }
-  return 0;
-}
-
-int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*)) {
-  uintptr_t item_ct = unfiltered_ct - exclude_ct;
-  // id_map on bottom because --indiv-sort frees *sorted_ids_ptr
-  if (wkspace_alloc_ui_checked(id_map_ptr, item_ct * sizeof(int32_t)) ||
-      wkspace_alloc_c_checked(sorted_ids_ptr, item_ct * max_id_len)) {
-    return RET_NOMEM;
-  }
-  return sort_item_ids_noalloc(*sorted_ids_ptr, *id_map_ptr, unfiltered_ct, exclude_arr, item_ct, item_ids, max_id_len, allow_dups, collapse_idxs, comparator_deref);
-}
-
 int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01) {
   if ((atoi(bufptr) == missing_pheno) && is_space_or_eoln(bufptr[missing_pheno_len])) {
     return 1;
@@ -2537,6 +2482,61 @@ int32_t qsort_ext(char* main_arr, intptr_t arr_length, intptr_t item_length, int
   qsort_ext2(main_arr, arr_length, item_length, comparator_deref, secondary_arr, secondary_item_len, proxy_arr, proxy_len);
   wkspace_reset(wkspace_mark);
   return 0;
+}
+
+int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*)) {
+  // Stores a lexicographically sorted list of IDs in sorted_ids and the raw
+  // positions of the corresponding markers/indivs in *id_map_ptr.  Does not
+  // include excluded markers/indivs in the list.
+  // Assumes sorted_ids and id_map have been allocated; use the sort_item_ids()
+  // wrapper if they haven't been.
+  uint32_t uii = 0;
+  char* dup_id;
+  char* tptr;
+  uint32_t ujj;
+  if (!item_ct) {
+    return 0;
+  }
+  if (!collapse_idxs) {
+    for (ujj = 0; ujj < item_ct; ujj++) {
+      uii = next_non_set_unsafe(exclude_arr, uii);
+      memcpy(&(sorted_ids[ujj * max_id_len]), &(item_ids[uii * max_id_len]), max_id_len);
+      id_map[ujj] = uii++;
+    }
+  } else {
+    for (ujj = 0; ujj < item_ct; ujj++) {
+      uii = next_non_set_unsafe(exclude_arr, uii);
+      memcpy(&(sorted_ids[ujj * max_id_len]), &(item_ids[uii * max_id_len]), max_id_len);
+      id_map[ujj] = ujj;
+      uii++;
+    }
+  }
+  if (qsort_ext(sorted_ids, item_ct, max_id_len, comparator_deref, (char*)id_map, sizeof(int32_t))) {
+    return RET_NOMEM;
+  }
+  if (!allow_dups) {
+    dup_id = scan_for_duplicate_ids(sorted_ids, item_ct, max_id_len);
+    if (dup_id) {
+      tptr = strchr(dup_id, '\t');
+      if (tptr) {
+        *tptr = ' ';
+      }
+      sprintf(logbuf, "Error: Duplicate ID %s.\n", dup_id);
+      logprintb();
+      return RET_INVALID_FORMAT;
+    }
+  }
+  return 0;
+}
+
+int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*)) {
+  uintptr_t item_ct = unfiltered_ct - exclude_ct;
+  // id_map on bottom because --indiv-sort frees *sorted_ids_ptr
+  if (wkspace_alloc_ui_checked(id_map_ptr, item_ct * sizeof(int32_t)) ||
+      wkspace_alloc_c_checked(sorted_ids_ptr, item_ct * max_id_len)) {
+    return RET_NOMEM;
+  }
+  return sort_item_ids_noalloc(*sorted_ids_ptr, *id_map_ptr, unfiltered_ct, exclude_arr, item_ct, item_ids, max_id_len, allow_dups, collapse_idxs, comparator_deref);
 }
 
 uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii) {

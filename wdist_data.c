@@ -2182,7 +2182,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
   return 0;
 }
 
-int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uint32_t for_cluster_flag, double* dists, double* mds_plot_dmatrix_copy, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
+int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uint32_t for_cluster_flag, uint32_t is_min_dist, double* dists, double* mds_plot_dmatrix_copy, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* dist_file = NULL;
   FILE* id_file = NULL;
@@ -2390,10 +2390,23 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
               mds_plot_dmatrix_copy[((memidx2 * (memidx2 - 1)) / 2) + memidx1] = cur_ibs;
 	    }
 	  }
-	  if (clidx2 < clidx1) {
-	    dists[trimem + clidx2] += cur_ibs;
-	  } else if (clidx2 > clidx1) {
-	    dists[((clidx2 * (clidx2 - 1)) / 2) + clidx1] += cur_ibs;
+	  if (!is_min_dist) {
+	    if (clidx2 < clidx1) {
+	      dists[trimem + clidx2] += cur_ibs;
+	    } else if (clidx2 > clidx1) {
+	      dists[((clidx2 * (clidx2 - 1)) / 2) + clidx1] += cur_ibs;
+	    }
+	  } else {
+	    if (clidx1 != clidx2) {
+	      if (clidx2 < clidx1) {
+	        dptr = &(dists[trimem + clidx2]);
+	      } else {
+		dptr = &(dists[((clidx2 * (clidx2 - 1)) / 2) + clidx1]);
+	      }
+	      if (cur_ibs > (*dptr)) {
+		*dptr = cur_ibs;
+	      }
+	    }
 	  }
 	  if (neighbor_n2) {
 	    update_neighbor(indiv_ct, neighbor_n2, memidx1, memidx2, cur_ibs, neighbor_quantiles, neighbor_qindices);
@@ -2402,9 +2415,6 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
 	}
       }
     }
-  }
-  if (cluster_ct) {
-    cluster_dist_divide(indiv_ct, cluster_ct, cluster_starts, dists);
   }
   sprintf(logbuf, "--read-dists: %" PRIuPTR " values loaded%s.\n", (indiv_ct * (indiv_ct - 1)) / 2, for_cluster_flag? " for --cluster/--neighbor" : "");
   logprintb();

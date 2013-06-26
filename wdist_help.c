@@ -513,12 +513,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    homozygous in this analysis.\n\n"
 	       );
     help_print("cluster\tcc\tgroup-avg\tgroup-average\tcluster-missing", &help_ctrl, 1,
-"  --cluster <cc> <group-avg> <missing | only2>\n"
-"    Cluster individuals using a pairwise distance statistic (normally IBS).\n"
+"  --cluster <cc> <group-avg> <missing> <only2>\n"
+"    Cluster individuals using a pairwise similarity statistic (normally IBS).\n"
 "    * The 'cc' modifier forces every cluster to have at least one case and one\n"
 "      control.\n"
 "    * The 'group-avg' modifier causes clusters to be joined based on average\t"
-"      instead of minimum pairwise distance.\n"
+"      instead of maximum pairwise similarity.\n"
 "    * The 'missing' modifier causes clustering to be based on\n"
 "      identity-by-missingness instead of identity-by-state, and writes a\n"
 "      space-delimited identity-by-missingness matrix to disk.\n"

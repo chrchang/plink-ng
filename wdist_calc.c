@@ -8694,7 +8694,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   return retval;
 }
 
-int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* read_dists_fname, char* read_dists_id_fname, char* read_genome_fname, char* outname, char* outname_end, uint64_t calculation_type, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Cluster_info* cp, uint32_t neighbor_n1, uint32_t neighbor_n2, uint32_t ppc_gap, uintptr_t* pheno_c, double* mds_plot_dmatrix_copy, uintptr_t* cluster_merge_prevented, double* cluster_sdistances, unsigned char* wkspace_mark_precluster) {
+int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* read_dists_fname, char* read_dists_id_fname, char* read_genome_fname, char* outname, char* outname_end, uint64_t calculation_type, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Cluster_info* cp, uint32_t neighbor_n1, uint32_t neighbor_n2, uint32_t ppc_gap, uintptr_t* pheno_c, double* mds_plot_dmatrix_copy, uintptr_t* cluster_merge_prevented, double* cluster_sorted_ibs, unsigned char* wkspace_mark_precluster) {
   // --cluster and --neighbour.  They are handled by the same function because
   // they initially process the distance matrix/PPC test results in roughly the
   // same way, but we have removed the PLINK requirement that --cluster be
@@ -8710,9 +8710,9 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   // --parallel on very large datasets, and should be added to WDIST as a
   // special case in the future.
   FILE* outfile = NULL;
-  uint32_t* cluster_sdistance_indices = NULL;
+  uint32_t* cluster_sorted_ibs_indices = NULL;
 #ifdef __LP64__
-  // uint64_t* cluster_sdistance_indices_big = NULL;
+  // uint64_t* cluster_sorted_ibs_indices_big = NULL;
 #endif
   uint32_t* indiv_to_cluster = NULL;
   double* neighbor_quantiles = NULL;
@@ -8734,6 +8734,9 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
   double indiv_ct_recip = 1.0 / ((double)((intptr_t)indiv_ct));
   uint32_t do_neighbor = (calculation_type / CALC_NEIGHBOR) & 1;
+  uint32_t is_group_avg = cp->modifier & CLUSTER_GROUP_AVG;
+  uint32_t is_mds_cluster = cp->modifier & CLUSTER_MDS;
+  uint32_t mds_fill_nonclust = (!is_mds_cluster) && mds_plot_dmatrix_copy;
   uint32_t cluster_missing = cp->modifier & CLUSTER_MISSING;
   uint32_t use_genome_dists = (!g_dists) && (!read_dists_fname) && (!cluster_missing);
   uint32_t cur_cluster_ct = indiv_ct;
@@ -8752,11 +8755,12 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   int32_t retval = 0;
   uintptr_t initial_triangle_size;
   uintptr_t heap_size;
+  double* dptr2;
   uint32_t* indiv_missing_ptr;
   uint32_t* dbl_exclude_ptr;
   uint32_t* merge_sequence;
   uint32_t* uiptr;
-  // uint64_t* ullptr;
+  uint32_t* uiptr2;
   uint32_t merge_ct;
   char* wptr_start;
   char* fam_id;
@@ -8771,9 +8775,10 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   uint32_t ujj;
   uint32_t ukk;
   uint32_t umm;
-  uint32_t unn;
 
   if (indiv_ct <= cp->min_ct) {
+    // todo: check if anyone uses --mds-plot without caring about clustering;
+    // if yes, we should stop forcing --mds-plot to be used with --cluster.
     logprint("Error: --K parameter too large (>= individual count).\n");
     goto calc_cluster_neighbor_ret_INVALID_CMDLINE;
   }
@@ -8794,16 +8799,17 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   }
   initial_triangle_size = (((uintptr_t)cur_cluster_ct) * (cur_cluster_ct - 1)) >> 1;
   heap_size = initial_triangle_size;
-  if (!cluster_sdistances) {
+  if (!cluster_sorted_ibs) {
     // --genome calculation not run, no --within
     if (g_dists) {
-      cluster_sdistances = g_dists;
+      cluster_sorted_ibs = g_dists;
     } else {
-      if (wkspace_alloc_d_checked(&cluster_sdistances, initial_triangle_size * sizeof(double))) {
+      if (wkspace_alloc_d_checked(&cluster_sorted_ibs, initial_triangle_size * sizeof(double))) {
         goto calc_cluster_neighbor_ret_NOMEM;
       }
-      fill_double_zero(cluster_sdistances, initial_triangle_size);
+      fill_double_zero(cluster_sorted_ibs, initial_triangle_size);
     }
+    wkspace_mark_precluster = wkspace_base;
   }
   if (do_neighbor) {
     if (neighbor_n2 >= indiv_ct) {
@@ -8839,7 +8845,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       fill_uint_zero(ppc_fail_counts, indiv_ct);
     }
     if (read_genome_fname) {
-      retval = read_genome(read_genome_fname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, cluster_merge_prevented, use_genome_dists? cluster_sdistances : NULL, mds_plot_dmatrix_copy, neighbor_n2, neighbor_quantiles, neighbor_qindices, ppc_fail_counts, min_ppc, cluster_ct, cluster_starts, indiv_to_cluster);
+      retval = read_genome(read_genome_fname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, cluster_merge_prevented, use_genome_dists? cluster_sorted_ibs : NULL, (use_genome_dists && (!is_mds_cluster))? mds_plot_dmatrix_copy : NULL, neighbor_n2, neighbor_quantiles, neighbor_qindices, ppc_fail_counts, min_ppc, cluster_ct && (!is_group_avg), cluster_ct, cluster_starts, indiv_to_cluster);
       if (retval) {
 	goto calc_cluster_neighbor_ret_1;
       }
@@ -8874,10 +8880,16 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    }
 	    if (cluster_ct) {
 	      if (clidx1 != clidx2) {
-                cluster_sdistances[tcoord] += dxx;
+		if (!is_group_avg) {
+		  if (dxx > cluster_sorted_ibs[tcoord]) {
+                    cluster_sorted_ibs[tcoord] = dxx;
+		  }
+		} else {
+                  cluster_sorted_ibs[tcoord] += dxx;
+		}
 	      }
 	    } else {
-	      cluster_sdistances[tri_coord_no_diag(indiv_idx1, indiv_idx2)] = dxx;
+	      cluster_sorted_ibs[tri_coord_no_diag(indiv_idx1, indiv_idx2)] = dxx;
 	    }
 	    if (mds_plot_dmatrix_copy) {
               mds_plot_dmatrix_copy[tri_coord_no_diag(indiv_idx1, indiv_idx2)] = dxx;
@@ -8906,9 +8918,6 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	  ulii += 5;
 	}
       }
-      if (use_genome_dists && cluster_ct) {
-        cluster_dist_divide(indiv_ct, cluster_ct, cluster_starts, cluster_sdistances);
-      }
       wkspace_reset((unsigned char*)g_genome_main);
     }
   } else if (((!cluster_missing) || do_neighbor) && (!read_dists_fname)) {
@@ -8920,7 +8929,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
         goto calc_cluster_neighbor_ret_1;
       }
       if (!cluster_ct) {
-        cluster_sdistances = g_dists;
+        cluster_sorted_ibs = g_dists;
       }
     }
     if (do_neighbor) {
@@ -8931,30 +8940,51 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	}
       }
     }
-    if (mds_plot_dmatrix_copy) {
+    if (mds_plot_dmatrix_copy && (!is_mds_cluster)) {
       memcpy(mds_plot_dmatrix_copy, g_dists, (indiv_ct * (indiv_ct - 1)) * (sizeof(double) / 2));
     }
     if (cluster_ct) {
       dptr = g_dists;
-      for (indiv_idx1 = 1; indiv_idx1 < indiv_ct; indiv_idx1++) {
-        clidx1 = indiv_to_cluster[indiv_idx1];
-        for (indiv_idx2 = 0; indiv_idx2 < indiv_idx1; indiv_idx2++) {
-          clidx2 = indiv_to_cluster[indiv_idx2];
-	  if (clidx1 < clidx2) {
-	    cluster_sdistances[tri_coord_no_diag(clidx1, clidx2)] += *dptr++;
-	  } else if (clidx1 > clidx2) {
-            cluster_sdistances[tri_coord_no_diag(clidx2, clidx1)] += *dptr++;
-	  } else {
-	    dptr++;
+      if (!is_group_avg) {
+	for (indiv_idx1 = 1; indiv_idx1 < indiv_ct; indiv_idx1++) {
+	  clidx1 = indiv_to_cluster[indiv_idx1];
+	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx1; indiv_idx2++) {
+	    clidx2 = indiv_to_cluster[indiv_idx2];
+	    if (clidx1 != clidx2) {
+	      dxx = *dptr++;
+	      if (clidx1 < clidx2) {
+	        dptr2 = &(cluster_sorted_ibs[tri_coord_no_diag(clidx1, clidx2)]);
+	      } else {
+	        dptr2 = &(cluster_sorted_ibs[tri_coord_no_diag(clidx2, clidx1)]);
+	      }
+	      if (dxx > (*dptr2)) {
+		*dptr2 = dxx;
+	      }
+	    } else {
+	      dptr++;
+	    }
+	  }
+	}
+      } else {
+	for (indiv_idx1 = 1; indiv_idx1 < indiv_ct; indiv_idx1++) {
+	  clidx1 = indiv_to_cluster[indiv_idx1];
+	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx1; indiv_idx2++) {
+	    clidx2 = indiv_to_cluster[indiv_idx2];
+	    if (clidx1 < clidx2) {
+	      cluster_sorted_ibs[tri_coord_no_diag(clidx1, clidx2)] += *dptr++;
+	    } else if (clidx1 > clidx2) {
+	      cluster_sorted_ibs[tri_coord_no_diag(clidx2, clidx1)] += *dptr++;
+	    } else {
+	      dptr++;
+	    }
 	  }
 	}
       }
-      cluster_dist_divide(indiv_ct, cluster_ct, cluster_starts, cluster_sdistances);
       wkspace_reset((unsigned char*)g_dists);
     }
   }
   if (read_dists_fname) {
-    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, cluster_ct, cluster_starts, indiv_to_cluster, (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))? 1 : 0, cluster_sdistances, mds_plot_dmatrix_copy, neighbor_n2, neighbor_quantiles, neighbor_qindices);
+    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, cluster_ct, cluster_starts, indiv_to_cluster, (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))? 1 : 0, cluster_ct && (!is_group_avg), cluster_sorted_ibs, is_mds_cluster? NULL : mds_plot_dmatrix_copy, neighbor_n2, neighbor_quantiles, neighbor_qindices);
     if (retval) {
       goto calc_cluster_neighbor_ret_1;
     }
@@ -9053,7 +9083,9 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       indiv_missing_ptr = g_indiv_missing_unwt;
       uii = indiv_missing_ptr[indiv_idx1];
       if (!cluster_ct) {
-	dptr = &(cluster_sdistances[(indiv_idx1 * (indiv_idx1 - 1)) >> 1]);
+	dptr = &(cluster_sorted_ibs[(indiv_idx1 * (indiv_idx1 - 1)) >> 1]);
+      } else if (mds_fill_nonclust) {
+	dptr = &(mds_plot_dmatrix_copy[(indiv_idx1 * (indiv_idx1 - 1)) >> 1]);
       }
       ulii = indiv_ct - 2;
       if (!g_genome_main) {
@@ -9071,14 +9103,27 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    }
 	  }
 	} else {
+	  clidx1 = indiv_to_cluster[indiv_idx1];
 	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx1; indiv_idx2++) {
 	    dxx = 1.0 - ((double)((int32_t)(uii + (*indiv_missing_ptr++) - 2 * (*dbl_exclude_ptr++)))) * dxx1;
 	    clidx2 = indiv_to_cluster[indiv_idx2];
 	    if (cluster_missing) {
-	      if (clidx1 < clidx2) {
-		cluster_sdistances[tri_coord_no_diag(clidx1, clidx2)] = dxx;
-	      } else if (clidx1 > clidx2) {
-		cluster_sdistances[tri_coord_no_diag(clidx2, clidx1)] = dxx;
+	      if (mds_fill_nonclust) {
+		*dptr++ = dxx;
+	      }
+	      if (clidx1 != clidx2) {
+		if (clidx1 < clidx2) {
+		  dptr2 = &(cluster_sorted_ibs[tri_coord_no_diag(clidx1, clidx2)]);
+		} else {
+		  dptr2 = &(cluster_sorted_ibs[tri_coord_no_diag(clidx2, clidx1)]);
+		}
+		if (!is_group_avg) {
+		  if (dxx > (*dptr2)) {
+		    *dptr2 = dxx;
+		  }
+		} else {
+		  *dptr2 += dxx;
+		}
 	      }
 	      wptr = double_g_writex(tbuf, dxx, ' ');
 	      fwrite(tbuf, 1, wptr - tbuf, outfile);
@@ -9110,15 +9155,28 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    }
 	  }
 	} else {
+	  clidx1 = indiv_to_cluster[indiv_idx1];
 	  for (indiv_idx2 = 0; indiv_idx2 < indiv_idx1; indiv_idx2++) {
 	    dxx = 1.0 - ((double)((int32_t)(uii + (*indiv_missing_ptr++) - 2 * (*dbl_exclude_ptr)))) * dxx1;
 	    dbl_exclude_ptr = &(dbl_exclude_ptr[ulii - indiv_idx2]);
 	    clidx2 = indiv_to_cluster[indiv_idx2];
 	    if (cluster_missing) {
-	      if (clidx1 < clidx2) {
-		cluster_sdistances[tri_coord_no_diag(clidx1, clidx2)] = dxx;
-	      } else if (clidx1 > clidx2) {
-		cluster_sdistances[tri_coord_no_diag(clidx2, clidx1)] = dxx;
+	      if (mds_fill_nonclust) {
+		*dptr++ = dxx;
+	      }
+	      if (clidx1 != clidx2) {
+		if (clidx1 < clidx2) {
+		  dptr2 = &(cluster_sorted_ibs[tri_coord_no_diag(clidx1, clidx2)]);
+		} else {
+		  dptr2 = &(cluster_sorted_ibs[tri_coord_no_diag(clidx2, clidx1)]);
+		}
+		if (!is_group_avg) {
+		  if (dxx > (*dptr2)) {
+		    *dptr2 = dxx;
+		  }
+		} else {
+		  *dptr2 += dxx;
+		}
 	      }
 	      wptr = double_g_writex(tbuf, dxx, ' ');
 	      fwrite(tbuf, 1, wptr - tbuf, outfile);
@@ -9143,10 +9201,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	if (!g_genome_main) {
 	  for (indiv_idx2 = indiv_idx1 + 1; indiv_idx2 < indiv_ct; indiv_idx2++) {
 	    dxx = 1.0 - ((double)((int32_t)(uii + (*(++indiv_missing_ptr)) - 2 * g_missing_dbl_excluded[((indiv_idx2 * (indiv_idx2 - 1)) >> 1) + indiv_idx1]))) * dxx1;
-	    if (cluster_missing) {
-	      wptr = double_g_writex(tbuf, dxx, ' ');
-	      fwrite(tbuf, 1, wptr - tbuf, outfile);
-	    }
+	    wptr = double_g_writex(tbuf, dxx, ' ');
+	    fwrite(tbuf, 1, wptr - tbuf, outfile);
 	  }
 	} else {
 	  // f(0) = 0
@@ -9157,10 +9213,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	  dbl_exclude_ptr = &(g_missing_dbl_excluded[indiv_ct * indiv_idx1 - ((indiv_idx1 * (indiv_idx1 + 1)) >> 1)]);
 	  for (indiv_idx2 = indiv_idx1 + 1; indiv_idx2 < indiv_ct; indiv_idx2++) {
 	    dxx = 1.0 - ((double)((int32_t)(uii + (*(++indiv_missing_ptr)) - 2 * (*dbl_exclude_ptr++)))) * dxx1;
-	    if (cluster_missing) {
-	      wptr = double_g_writex(tbuf, dxx, ' ');
-	      fwrite(tbuf, 1, wptr - tbuf, outfile);
-	    }
+	    wptr = double_g_writex(tbuf, dxx, ' ');
+	    fwrite(tbuf, 1, wptr - tbuf, outfile);
 	  }
 	}
 	if (putc('\n', outfile) == EOF) {
@@ -9186,7 +9240,16 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       if (ibm_warning) {
 	logprint("Warning: Initial cluster assignment violates IBM constraint.\n");
       }
+      if (mds_plot_dmatrix_copy && (!is_mds_cluster) && (!cluster_ct)) {
+	memcpy(mds_plot_dmatrix_copy, cluster_sorted_ibs, initial_triangle_size * sizeof(double));
+      }
     }
+  }
+  if (is_group_avg) {
+    cluster_dist_divide(indiv_ct, cluster_ct, cluster_starts, cluster_sorted_ibs);
+  }
+  if (mds_plot_dmatrix_copy && is_mds_cluster) {
+    memcpy(mds_plot_dmatrix_copy, cluster_sorted_ibs, initial_triangle_size * sizeof(double));
   }
   if (pheno_c) {
     case_ct = popcount_longs(pheno_c, 0, unfiltered_indiv_ctl);
@@ -9350,14 +9413,33 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     goto calc_cluster_neighbor_ret_1;
   }
 
-  if (wkspace_alloc_ui_checked(&merge_sequence, 2 * (indiv_ct - cp->min_ct) * sizeof(int32_t))) {
-    goto calc_cluster_neighbor_ret_NOMEM;
-  }
-
   tcoord = next_set_ul(cluster_merge_prevented, 0, initial_triangle_size);
+  wkspace_reset(wkspace_mark_precluster);
 #ifdef __LP64__
-  if (cur_cluster_ct > 65536) {
+  if (cur_cluster_ct <= 65536) {
 #endif
+    // Objective: Produce a list of inter-cluster IBS values sorted in
+    // nonincreasing order, where we can look up the distance endpoints.
+    // We could do this with qsort_ext(), but that could use twice as much
+    // memory as necessary, which is bad since this is a major memory
+    // bottleneck.  (E.g. with 20k samples and no pre-clustering, we're talking
+    // about 20k * 10k * 12 = ~2.4GB minimum, which already overflows my dev
+    // machine's 2GB default workspace allocation; so I cannot in good
+    // conscience double this requirement to 4.8GB.)
+    //
+    // So we perform a special in-place qsort_ext():
+    // 0. Ensure cluster_sorted_ibs is on top of the stack.  (This is why we
+    //    use malloc more than wkspace_alloc here.)
+    // 1. Convert it to an array of 12-byte structs (first 8 bytes = original
+    //    IBS value, last 4 bytes = cluster indices) by allocating ~50% more
+    //    memory, and copying values back-to-front.  (If there are >65536
+    //    initial clusters, we will use 16-byte structs instead.)
+    // 2. Remove distances corresponding to prohibited cluster merges from this
+    //    array (to speed up the sort, and possibly reduce step 4's memory
+    //    requirement), and fill in cluster indices.
+    // 3. Sort.
+    // 4. If is_group_avg, un-interleave the array-of-structs into two arrays;
+    //    otherwise extract just the cluster indices.
     if (tcoord == initial_triangle_size) {
       umm = cur_cluster_ct;
     } else {
@@ -9378,67 +9460,81 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       logprint("Error: No cluster merges possible.\n");
       goto calc_cluster_neighbor_ret_INVALID_CMDLINE;
     }
-    if (wkspace_alloc_ui_checked(&cluster_sdistance_indices, heap_size * sizeof(int32_t))) {
+    wkspace_reset((unsigned char*)cluster_sorted_ibs);
+    if (wkspace_alloc_ui_checked(&cluster_sorted_ibs_indices, (3 * initial_triangle_size * sizeof(int32_t)) + CACHELINE)) {
       goto calc_cluster_neighbor_ret_NOMEM;
     }
+    ulii = initial_triangle_size - 1;
+    do {
+      cluster_sorted_ibs_indices[ulii * 3 + CACHELINE_INT32] = cluster_sorted_ibs_indices[ulii * 2];
+      cluster_sorted_ibs_indices[ulii * 3 + CACHELINE_INT32 + 1] = cluster_sorted_ibs_indices[ulii * 2 + 1];
+    } while (ulii--);
 
-    uiptr = cluster_sdistance_indices;
+    uiptr = &(cluster_sorted_ibs_indices[CACHELINE_INT32 + 2]);
     for (uii = 1; uii < umm; uii++) {
       ukk = uii << 16;
       for (ujj = 0; ujj < uii; ujj++) {
-	*uiptr++ = ukk | ujj;
+	*uiptr = ukk | ujj;
+	uiptr = &(uiptr[3]);
       }
     }
     if (uii < cur_cluster_ct) {
       umm = tcoord - ((uii * (uii - 1)) / 2);
       ukk = uii << 16;
       for (ujj = 0; ujj < umm; ujj++) {
-        *uiptr++ = ukk | ujj;
+        *uiptr = ukk | ujj;
+	uiptr = &(uiptr[3]);
       }
-      dptr = &(cluster_sdistances[tcoord]);
       umm = cur_cluster_ct;
+      uiptr = &(uiptr[-2]);
       do {
+        uiptr2 = &(cluster_sorted_ibs_indices[CACHELINE_INT32 + ((uintptr_t)((uii * (uii - 1)) / 2)) * 3]);
 	ukk = uii << 16;
-	unn = (uii * (uii - 1)) / 2;
 	do {
 	  if (!is_set_ul(cluster_merge_prevented, tcoord++)) {
+	    *uiptr++ = uiptr2[3 * ujj];
+	    *uiptr++ = uiptr2[3 * ujj + 1];
             *uiptr++ = ukk | ujj;
-	    *dptr++ = cluster_sdistances[unn + ujj];
 	  }
 	} while ((++ujj) < uii);
 	ujj = 0;
       } while ((++uii) < umm);
     }
-    if (qsort_ext((char*)cluster_sdistances, heap_size, sizeof(double), double_cmp_decr_deref, (char*)cluster_sdistance_indices, sizeof(uint32_t))) {
-      goto calc_cluster_neighbor_ret_NOMEM;
+    qsort(&(cluster_sorted_ibs_indices[CACHELINE_INT32]), heap_size, 12, double_cmp_decr_deref);
+    if (!is_group_avg) {
+      for (ulii = 0; ulii < heap_size; ulii++) {
+        cluster_sorted_ibs_indices[ulii] = cluster_sorted_ibs_indices[CACHELINE_INT32 + 2 + (ulii * 3)];
+      }
+      wkspace_reset((unsigned char*)(&(cluster_sorted_ibs_indices[(heap_size + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1))])));
+    } else {
+      // todo
     }
 #ifdef __LP64__
   } else {
-    // todo
+    logprint("Error: --cluster cannot handle >65536 initial clusters yet.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto calc_cluster_neighbor_ret_1;
   }
 #endif
 
-  if (wkspace_alloc_ui_checked(&cur_cluster_remap, cur_cluster_ct * sizeof(int32_t))) {
+  if (wkspace_alloc_ui_checked(&merge_sequence, 2 * (indiv_ct - cp->min_ct) * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&cur_cluster_remap, cur_cluster_ct * sizeof(int32_t))) {
     goto calc_cluster_neighbor_ret_NOMEM;
   }
   for (clidx1 = 0; clidx1 < cur_cluster_ct; clidx1++) {
     cur_cluster_remap[clidx1] = clidx1;
   }
 
-  // * if CLUSTER_GROUP_AVG then use binary heap + triangular matrix to
-  // efficiently track sorted inter-cluster distances
+  // * if is_group_avg then use binary heap + triangular matrix to efficiently
+  //   track sorted inter-cluster distances
   // * otherwise a simple sorted list will do
-  if (!(cp->modifier & CLUSTER_GROUP_AVG)) {
-    // todo: > 65536 case
-    logprint("Error: --cluster is currently under development.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto calc_cluster_neighbor_ret_1;
-    merge_ct = cluster_main(cur_cluster_ct, cluster_merge_prevented, heap_size, cluster_sdistance_indices, cur_cluster_sizes, indiv_ct, cur_cluster_case_cts, case_ct, ctrl_ct, cur_cluster_remap, cp, merge_sequence);
+  if (!is_group_avg) {
+    merge_ct = cluster_main(cur_cluster_ct, cluster_merge_prevented, heap_size, cluster_sorted_ibs_indices, cur_cluster_sizes, indiv_ct, cur_cluster_case_cts, case_ct, ctrl_ct, cur_cluster_remap, cp, merge_sequence);
   } else {
     logprint("Error: --cluster group-avg is currently under development.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto calc_cluster_neighbor_ret_1;
-    merge_ct = cluster_group_avg_main(cur_cluster_ct, cluster_merge_prevented, heap_size, cluster_sdistances, cluster_sdistance_indices, cur_cluster_sizes, indiv_ct, cur_cluster_case_cts, case_ct, ctrl_ct, cur_cluster_remap, cp, merge_sequence);
+    merge_ct = cluster_group_avg_main(cur_cluster_ct, cluster_merge_prevented, heap_size, cluster_sorted_ibs, cluster_sorted_ibs_indices, cur_cluster_sizes, indiv_ct, cur_cluster_case_cts, case_ct, ctrl_ct, cur_cluster_remap, cp, merge_sequence);
   }
 
   while (0) {
@@ -9456,7 +9552,6 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     break;
   }
  calc_cluster_neighbor_ret_1:
-  wkspace_reset(wkspace_mark_precluster);
   free_cond(indiv_to_cluster);
   free_cond(neighbor_quantiles);
   free_cond(neighbor_qindices);
