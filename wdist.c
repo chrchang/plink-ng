@@ -74,7 +74,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (26 Jun 2013)";
+  " (27 Jun 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -6217,6 +6217,7 @@ int32_t main(int32_t argc, char** argv) {
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
+      break;
 
     case 'a':
       if (!memcmp(argptr2, "utosome", 8)) {

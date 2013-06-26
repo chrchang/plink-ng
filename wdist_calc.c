@@ -8723,6 +8723,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   uint32_t* cur_cluster_sizes = NULL;
   uint32_t* cur_cluster_case_cts = NULL;
   uint32_t* cur_cluster_remap = NULL;
+  uint32_t* cluster_index = NULL;
   uintptr_t* collapsed_pheno_c = NULL;
   double* dptr = NULL;
   double min_ppc = cp->ppc;
@@ -9506,9 +9507,18 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
         cluster_sorted_ibs_indices[ulii] = cluster_sorted_ibs_indices[CACHELINE_INT32 + 2 + (ulii * 3)];
       }
       // this size allows write_cluster_solution() to reuse the space
-      wkspace_reset((unsigned char*)(&(cluster_sorted_ibs_indices[(initial_triangle_size + CACHELINE_INT32) & (~(CACHELINE_INT32 - 1))])));
+      wkspace_reset((unsigned char*)(&(cluster_sorted_ibs_indices[(heap_size + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1))])));
     } else {
       // todo
+    }
+    if (wkspace_alloc_ui_checked(&cluster_index, initial_triangle_size * sizeof(int32_t))) {
+      goto calc_cluster_neighbor_ret_NOMEM;
+    }
+    fill_uint_zero(cluster_index, initial_triangle_size);
+    ujj = heap_size;
+    for (uii = 0; uii < ujj; uii++) {
+      ukk = cluster_sorted_ibs_indices[uii];
+      cluster_index[tri_coord_no_diag_32(ukk & 65535, ukk >> 16)] = uii;
     }
 #ifdef __LP64__
   } else {
@@ -9528,12 +9538,9 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 
   // * if is_group_avg then use binary heap + triangular matrix to efficiently
   //   track sorted inter-cluster distances
-  // * otherwise a simple sorted list will do
+  // * otherwise a sorted list + index will do
   if (!is_group_avg) {
-    logprint("Error: --cluster is currently under development.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto calc_cluster_neighbor_ret_1;
-    merge_ct = cluster_main(cur_cluster_ct, cluster_merge_prevented, heap_size, cluster_sorted_ibs_indices, cur_cluster_sizes, indiv_ct, cur_cluster_case_cts, case_ct, ctrl_ct, cur_cluster_remap, cp, merge_sequence);
+    merge_ct = cluster_main(cur_cluster_ct, cluster_merge_prevented, heap_size, cluster_sorted_ibs_indices, cluster_index, cur_cluster_sizes, indiv_ct, cur_cluster_case_cts, case_ct, ctrl_ct, cur_cluster_remap, cp, merge_sequence);
   } else {
     logprint("Error: --cluster group-avg is currently under development.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
