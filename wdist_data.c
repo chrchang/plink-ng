@@ -1047,7 +1047,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	if ((sf_ct && sf_out_of_range(cur_pos, (uint32_t)jj, sf_start_idxs, sf_pos)) || ((marker_pos_start != -1) && ((((int32_t)cur_pos) < marker_pos_start) || (((int32_t)cur_pos) > marker_pos_end)))) {
 	  set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
 	} else {
-	  if (marker_pos_needed && ((uint32_t)jj)) {
+	  if (marker_pos_needed) {
 	    (*marker_pos_ptr)[marker_uidx] = cur_pos;
 	  }
 	  if (marker_alleles_needed) {
@@ -4599,7 +4599,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       logprint("Error: Invalid chromosome index in .map file.\n");
       goto ped_to_bed_ret_INVALID_FORMAT;
     }
-    if ((*bufptr == '-') || (!(chrom_info_ptr->chrom_mask & (1LLU << ii)))) {
+    if ((*bufptr == '-') || (!(chrom_info_ptr->chrom_mask & (1LLU << ((uint32_t)ii))))) {
       set_bit(marker_exclude, unfiltered_marker_ct, &marker_exclude_ct);
     } else {
       if ((*bufptr < '0') || (*bufptr > '9')) {
