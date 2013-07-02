@@ -32,6 +32,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
+  char case_char = affection_01? '1' : '2';
   uintptr_t* isz = NULL;
   int32_t person_idx;
   char* id_buf;
@@ -54,6 +55,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
       if (!pheno_c) {
 	return RET_NOMEM;
       }
+      fill_ulong_zero(pheno_c, unfiltered_indiv_ctl);
       *pheno_c_ptr = pheno_c;
     }
   }
@@ -125,19 +127,12 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 		set_bit_noct(isz, person_idx);
 	      }
 	      clear_bit_noct(pheno_nm, person_idx);
+	      clear_bit_noct(pheno_c, person_idx);
 	    } else {
-              if (affection_01) {
-		if (*bufptr == '0') {
-		  clear_bit_noct(pheno_c, person_idx);
-		} else {
-		  set_bit_noct(pheno_c, person_idx);
-		}
+	      if (*bufptr == case_char) {
+		set_bit_noct(pheno_c, person_idx);
 	      } else {
-		if (*bufptr == '1') {
-		  clear_bit_noct(pheno_c, person_idx);
-		} else {
-		  set_bit_noct(pheno_c, person_idx);
-		}
+		clear_bit_noct(pheno_c, person_idx);
 	      }
 	      set_bit_noct(pheno_nm, person_idx);
 	    }
@@ -600,13 +595,12 @@ static inline uint32_t sf_out_of_range(uint32_t cur_pos, uint32_t chrom_idx, uin
   return 1;
 }
 
-int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uint32_t* plink_maxsnp_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, double** marker_cms_ptr, uint32_t** marker_pos_ptr, char* freqname, uint64_t calculation_type, uint32_t recode_modifier, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* sf_markers, unsigned char* sf_starts_range, uint32_t sf_ct, uint32_t sf_max_len, uint32_t* map_is_unsorted_ptr, uint32_t marker_pos_needed, uint32_t marker_cms_needed, uint32_t marker_alleles_needed, const char* extension, const char* split_chrom_cmd) {
+int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, double** marker_cms_ptr, uint32_t** marker_pos_ptr, char* freqname, uint64_t calculation_type, uint32_t recode_modifier, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* sf_markers, unsigned char* sf_starts_range, uint32_t sf_ct, uint32_t sf_max_len, uint32_t* map_is_unsorted_ptr, uint32_t marker_pos_needed, uint32_t marker_cms_needed, uint32_t marker_alleles_needed, const char* extension, const char* split_chrom_cmd) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* bimfile = NULL;
   uintptr_t unfiltered_marker_ct = 0;
   uintptr_t max_marker_id_len = *max_marker_id_len_ptr;
   uintptr_t max_marker_allele_len = *max_marker_allele_len_ptr;
-  uint32_t plink_maxsnp = 4;
   uint64_t loaded_chrom_mask = 0;
   int32_t last_chrom = -1;
   uint32_t last_pos = 0;
@@ -691,9 +685,6 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     ulii = strlen_se(bufptr) + 1;
     if (ulii > max_marker_id_len) {
       max_marker_id_len = ulii;
-    }
-    if (ulii > (plink_maxsnp + 1)) {
-      plink_maxsnp = ulii + 1;
     }
     if (!unfiltered_marker_ct) {
       if (!strcmp(extension, "cnv.map")) {
@@ -921,7 +912,6 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 
   *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
   *max_marker_id_len_ptr = max_marker_id_len;
-  *plink_maxsnp_ptr = plink_maxsnp;
   rewind(bimfile);
   unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
 
@@ -2182,7 +2172,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
   return 0;
 }
 
-int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uint32_t for_cluster_flag, uint32_t is_max_dist, double* dists, double* mds_plot_dmatrix_copy, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
+int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uint32_t for_cluster_flag, uint32_t is_max_dist, double* dists, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* dist_file = NULL;
   FILE* id_file = NULL;
@@ -2265,8 +2255,8 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
         logprint("Error: Duplicate ID in --read-dists ID file.\n");
         goto read_dists_ret_INVALID_FORMAT;
       }
-      if (cluster_ct && (!neighbor_n2) && (!mds_plot_dmatrix_copy)) {
-	// if cluster_ct && (neighbor_n2 || mds_plot_dmatrix_copy), best to
+      if (cluster_ct && (!neighbor_n2)) {
+	// if cluster_ct && neighbor_n2, best to
 	// postpone indiv_to_cluster dereference
         fidx_to_memidx[uii] = ((uint64_t)(indiv_to_cluster[uii])) | (((uint64_t)id_entry_ct) << 32);
       } else {
@@ -2287,7 +2277,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
     if (wkspace_alloc_ull_checked(&fidx_to_memidx, indiv_ct * sizeof(int64_t))) {
       goto read_dists_ret_NOMEM;
     }
-    if (neighbor_n2 || mds_plot_dmatrix_copy) {
+    if (neighbor_n2) {
       for (id_entry_ct = 0; id_entry_ct < indiv_ct; id_entry_ct++) {
 	fidx_to_memidx[id_entry_ct] = ((uint64_t)id_entry_ct) | (((uint64_t)id_entry_ct) << 32);
       }
@@ -2325,7 +2315,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
     }
   } else {
     fpos = 0;
-    if ((!cluster_ct) || ((!neighbor_n2) && (!mds_plot_dmatrix_copy))) {
+    if ((!cluster_ct) || (!neighbor_n2)) {
       for (ulii = 1; ulii < indiv_ct; ulii++) {
 	ullii = fidx_to_memidx[ulii];
 	memidx1 = (uintptr_t)(ullii & (ONELU * 0xffffffffU));
@@ -2357,9 +2347,6 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
 	  fpos += sizeof(double);
 	}
       }
-      if (mds_plot_dmatrix_copy) {
-        memcpy(mds_plot_dmatrix_copy, dists, (indiv_ct * (indiv_ct - 1)) * (sizeof(double) / 2));
-      }
     } else {
       for (ulii = 1; ulii < indiv_ct; ulii++) {
 	ullii = fidx_to_memidx[ulii];
@@ -2382,13 +2369,6 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
 	  }
 	  if (fread(&cur_ibs, 1, sizeof(double), dist_file) < sizeof(double)) {
 	    goto read_dists_ret_READ_FAIL;
-	  }
-	  if (mds_plot_dmatrix_copy) {
-	    if (memidx2 < memidx1) {
-              mds_plot_dmatrix_copy[((memidx1 * (memidx1 - 1)) / 2) + memidx2] = cur_ibs;
-	    } else {
-              mds_plot_dmatrix_copy[((memidx2 * (memidx2 - 1)) / 2) + memidx1] = cur_ibs;
-	    }
 	  }
 	  if (!is_max_dist) {
 	    if (clidx2 < clidx1) {
@@ -2416,8 +2396,10 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
       }
     }
   }
-  sprintf(logbuf, "--read-dists: %" PRIuPTR " values loaded%s.\n", (indiv_ct * (indiv_ct - 1)) / 2, for_cluster_flag? " for --cluster/--neighbor" : "");
-  logprintb();
+  if (for_cluster_flag != 2) {
+    sprintf(logbuf, "--read-dists: %" PRIuPTR " values loaded%s.\n", (indiv_ct * (indiv_ct - 1)) / 2, for_cluster_flag? " for --cluster/--neighbor" : "");
+    logprintb();
+  }
   while (0) {
   read_dists_ret_NOMEM:
     retval = RET_NOMEM;
@@ -3658,6 +3640,7 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
   uintptr_t unfiltered_indiv_ctl;
   int32_t ii;
   char* fgets_return;
+
   if (wkspace_alloc_c_checked(&linebuf, buflen)) {
     return RET_NOMEM;
   }

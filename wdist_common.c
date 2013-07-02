@@ -6119,6 +6119,27 @@ void cluster_dist_divide(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* clu
   }
 }
 
+void cluster_dist_multiply(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_starts, double* cluster_sdistances) {
+  uintptr_t tcoord;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uint32_t uii;
+  double dxx;
+  for (ulii = 0; ulii < cluster_ct; ulii++) {
+    uii = cluster_starts[ulii + 1] - cluster_starts[ulii];
+    if (uii > 1) {
+      dxx = ((double)((int32_t)uii));
+      uljj = (ulii * (ulii + 1)) / 2;
+      for (tcoord = (ulii * (ulii - 1)) / 2; tcoord < uljj; tcoord++) {
+	cluster_sdistances[tcoord] *= dxx;
+      }
+      for (uljj = ulii + 1; uljj < indiv_ct; uljj++) {
+	cluster_sdistances[tri_coord_no_diag(ulii, uljj)] *= dxx;
+      }
+    }
+  }
+}
+
 void join_threads(pthread_t* threads, uint32_t ctp1) {
   if (!(--ctp1)) {
     return;

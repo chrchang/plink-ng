@@ -1190,22 +1190,24 @@ int32_t convert_tail_pheno(uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, u
     logprint("Error: --tail-pheno requires scalar phenotype data.\n");
     return RET_INVALID_FORMAT;
   }
+  uii = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   if (!pheno_c) {
-    pheno_c = (uintptr_t*)malloc(((unfiltered_indiv_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
+    pheno_c = (uintptr_t*)malloc(uii * sizeof(intptr_t));
     if (!pheno_c) {
       return RET_NOMEM;
     }
     *pheno_c_ptr = pheno_c;
   }
+  fill_ulong_zero(pheno_c, uii);
   for (uii = 0; uii < unfiltered_indiv_ct; uii++) {
     if (is_set(pheno_nm, uii)) {
       dxx = pheno_d[uii];
-      if (dxx <= tail_bottom) {
-	clear_bit_noct(pheno_c, uii);
-      } else if (dxx > tail_top) {
-        set_bit_noct(pheno_c, uii);
-      } else {
-	clear_bit_noct(pheno_nm, uii);
+      if (dxx > tail_bottom) {
+        if (dxx > tail_top) {
+          set_bit_noct(pheno_c, uii);
+        } else {
+	  clear_bit_noct(pheno_nm, uii);
+        }
       }
     }
   }
@@ -1374,6 +1376,48 @@ void filter_indivs_bitfields(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exc
   }
   zero_trailing_bits(indiv_exclude, unfiltered_indiv_ct);
   *indiv_exclude_ct_ptr = popcount_longs(indiv_exclude, 0, unfiltered_indiv_ctl);
+}
+
+void calc_plink_maxfid(uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t* plink_maxfid_ptr, uint32_t* plink_maxiid_ptr) {
+  uint32_t plink_maxfid = 4;
+  uint32_t plink_maxiid = 4;
+  uint32_t indiv_uidx = 0;
+  char* cptr;
+  uint32_t indiv_idx;
+  uint32_t slen;
+  // imitate PLINK behavior (see Plink::prettyPrintLengths() in helper.cpp), to
+  // simplify testing and avoid randomly breaking existing scripts
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+    cptr = &(person_ids[indiv_uidx * max_person_id_len]);
+    slen = strlen_se(cptr);
+    if (slen > plink_maxfid) {
+      plink_maxfid = slen + 2;
+    }
+    slen = strlen(&(cptr[slen + 1]));
+    if (slen > plink_maxiid) {
+      plink_maxiid = slen + 2;
+    }
+    indiv_uidx++;
+  }
+  *plink_maxfid_ptr = plink_maxfid;
+  *plink_maxiid_ptr = plink_maxiid;
+}
+
+uint32_t calc_plink_maxsnp(uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len) {
+  uint32_t plink_maxsnp = 4;
+  uint32_t marker_uidx = 0;
+  uint32_t marker_idx;
+  uint32_t slen;
+  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+    slen = strlen(&(marker_ids[marker_uidx * max_marker_id_len]));
+    if (slen > plink_maxsnp) {
+      plink_maxsnp = slen + 2;
+    }
+    marker_uidx++;
+  }
+  return plink_maxsnp;
 }
 
 int32_t mind_filter(FILE* bedfile, double mind_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, uintptr_t bed_offset, char missing_geno) {
@@ -3804,6 +3848,8 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   int32_t xmhh_exists = 0;
   int32_t nxmhh_exists = 0;
   uint32_t pheno_ctrl_ct = 0;
+  uint32_t plink_maxfid = 0;
+  uint32_t plink_maxiid = 0;
   unsigned char* wkspace_mark2 = NULL;
   unsigned char* wkspace_mark_precluster = NULL;
   unsigned char* wkspace_mark_postcluster = NULL;
@@ -3989,7 +4035,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   } else {
     allelexxxx = 0;
   }
-  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &plink_maxsnp, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, "bim", ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (!update_map) && freqname)? NULL : "make-bed");
+  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, "bim", ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (!update_map) && freqname)? NULL : "make-bed");
   if (retval) {
     goto wdist_ret_1;
   }
@@ -4373,6 +4419,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
+  if (pheno_c) {
+    bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
+  }
   pheno_nm_ct = popcount_longs(pheno_nm, 0, unfiltered_indiv_ctl);
   if (!pheno_nm_ct) {
     logprint("Note: No phenotypes present.\n");
@@ -4410,6 +4459,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Using 1 thread (no multithreaded calculations invoked).\n");
     }
   }
+
+  if ((calculation_type & CALC_GENOME) || cluster_ptr->mds_dim_ct) {
+    calc_plink_maxfid(indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, &plink_maxfid, &plink_maxiid);
+  }
+  plink_maxsnp = calc_plink_maxsnp(marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len);
 
   if (indiv_sort & (INDIV_SORT_NATURAL | INDIV_SORT_ASCII)) {
     retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, 0, (indiv_sort & INDIV_SORT_NATURAL)? strcmp_natural_deref : strcmp_deref);
@@ -4612,7 +4666,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
         goto wdist_ret_NOMEM;
       }
 #endif
-      if ((!read_dists_fname) && (!read_genome_fname)) {
+      if (((!read_dists_fname) && (!read_genome_fname)) || (cluster_ptr->modifier & CLUSTER_MISSING)) {
 	if ((!(cluster_ptr->modifier & CLUSTER_MDS)) || (!cluster_ct)) {
           if (wkspace_alloc_d_checked(&mds_plot_dmatrix_copy, ulii * sizeof(double))) {
             goto wdist_ret_NOMEM;
@@ -4719,7 +4773,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (wkspace_alloc_d_checked(&g_dists, dists_alloc)) {
       goto wdist_ret_NOMEM;
     }
-    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, 0, NULL, NULL, 0, 0, g_dists, NULL, 0, NULL, NULL);
+    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, 0, NULL, NULL, 0, 0, g_dists, 0, NULL, NULL);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4752,15 +4806,14 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if ((calculation_type & CALC_GENOME) || genome_skip_write) {
     wkspace_reset(wkspace_mark2);
     g_dists = NULL;
-    retval = calc_genome(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_pos, set_allele_freqs, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info, parallel_idx, parallel_tot, outname, outname_end, nonfounders, calculation_type, genome_modifier, ppc_gap, pheno_nm, pheno_c, pri, genome_skip_write);
+    retval = calc_genome(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_pos, set_allele_freqs, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info, parallel_idx, parallel_tot, outname, outname_end, nonfounders, calculation_type, genome_modifier, ppc_gap, pheno_nm, pheno_c, pri, genome_skip_write);
     if (retval) {
       goto wdist_ret_1;
     }
   }
 
   if (calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) {
-    retval = calc_cluster_neighbor(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, read_dists_fname, read_dists_id_fname, read_genome_fname, outname, outname_end, calculation_type, cluster_ct, cluster_map, cluster_starts, cluster_ptr, neighbor_n1, neighbor_n2, ppc_gap, pheno_c, mds_plot_dmatrix_copy, cluster_merge_prevented, cluster_sorted_ibs, wkspace_mark_precluster);
-    wkspace_reset(wkspace_mark_postcluster);
+    retval = calc_cluster_neighbor(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, set_allele_freqs, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, read_dists_fname, read_dists_id_fname, read_genome_fname, outname, outname_end, calculation_type, cluster_ct, cluster_map, cluster_starts, cluster_ptr, neighbor_n1, neighbor_n2, ppc_gap, pheno_c, mds_plot_dmatrix_copy, cluster_merge_prevented, cluster_sorted_ibs, wkspace_mark_precluster, wkspace_mark_postcluster);
     if (retval) {
       goto wdist_ret_1;
     }

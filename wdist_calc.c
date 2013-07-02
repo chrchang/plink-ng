@@ -4833,7 +4833,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, uint64_t calculation_type, uint32_t genome_modifier, uint32_t ppc_gap, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri, uint32_t skip_write) {
+int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, uint64_t calculation_type, uint32_t genome_modifier, uint32_t ppc_gap, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri, uint32_t skip_write) {
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
   int32_t retval = 0;
@@ -4843,7 +4843,6 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   char wbuf[16];
   unsigned char* gptr;
   char* cptr;
-  char* cptr2;
   int32_t jj;
   int32_t kk;
   int32_t mm;
@@ -4895,10 +4894,8 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t indiv_idx;
   uint32_t pct;
 
-  // imitate PLINK behavior (see Plink::prettyPrintLengths() in helper.cpp), to
-  // avoid randomly breaking existing scripts
-  g_cg_max_person_fid_len = 4;
-  g_cg_max_person_iid_len = 4;
+  g_cg_max_person_fid_len = plink_maxfid;
+  g_cg_max_person_iid_len = plink_maxiid;
 
   triangle_fill(g_thread_start, g_indiv_ct, g_thread_ct, parallel_tot - parallel_idx - 1, parallel_tot, 1, 1);
   // invert order, for --genome --parallel to naturally work
@@ -4920,20 +4917,6 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   // f(n) = nindiv_ct - n(n+1)/2
   tot_cells = (int64_t)g_indiv_ct * (g_cg_tstc - g_thread_start[0]) - ((int64_t)g_cg_tstc * (g_cg_tstc + 1) - (int64_t)g_thread_start[0] * (g_thread_start[0] + 1)) / 2;
   g_cg_tot_lines = cur_line + tot_cells;
-  for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-    if (!is_set(indiv_exclude, indiv_uidx)) {
-      cptr = &(person_ids[indiv_uidx * max_person_id_len]);
-      uii = strlen_se(cptr);
-      cptr2 = next_item(cptr);
-      if (uii > g_cg_max_person_fid_len) {
-	g_cg_max_person_fid_len = uii + 2;
-      }
-      uii = strlen_se(cptr2);
-      if (uii > g_cg_max_person_iid_len) {
-        g_cg_max_person_iid_len = uii + 2;
-      }
-    }
-  }
   if (wkspace_alloc_ui_checked(&g_missing_dbl_excluded, tot_cells * sizeof(int32_t)) ||
       wkspace_alloc_ui_checked(&g_indiv_missing_unwt, g_indiv_ct * sizeof(int32_t)) ||
       wkspace_alloc_ui_checked(&g_genome_main, tot_cells * 5 * sizeof(int32_t)) ||
@@ -8694,7 +8677,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   return retval;
 }
 
-int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, char* read_dists_fname, char* read_dists_id_fname, char* read_genome_fname, char* outname, char* outname_end, uint64_t calculation_type, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Cluster_info* cp, uint32_t neighbor_n1, uint32_t neighbor_n2, uint32_t ppc_gap, uintptr_t* pheno_c, double* mds_plot_dmatrix_copy, uintptr_t* cluster_merge_prevented, double* cluster_sorted_ibs, unsigned char* wkspace_mark_precluster) {
+int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* read_dists_fname, char* read_dists_id_fname, char* read_genome_fname, char* outname, char* outname_end, uint64_t calculation_type, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Cluster_info* cp, uint32_t neighbor_n1, uint32_t neighbor_n2, uint32_t ppc_gap, uintptr_t* pheno_c, double* mds_plot_dmatrix_copy, uintptr_t* cluster_merge_prevented, double* cluster_sorted_ibs, unsigned char* wkspace_mark_precluster, unsigned char* wkspace_mark_postcluster) {
   // --cluster and --neighbour.  They are handled by the same function because
   // they initially process the distance matrix/PPC test results in roughly the
   // same way, but we have removed the PLINK requirement that --cluster be
@@ -8856,7 +8839,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       fill_uint_zero(ppc_fail_counts, indiv_ct);
     }
     if (read_genome_fname) {
-      retval = read_genome(read_genome_fname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, cluster_merge_prevented, use_genome_dists? cluster_sorted_ibs : NULL, (use_genome_dists && (!is_mds_cluster))? mds_plot_dmatrix_copy : NULL, neighbor_n2, neighbor_quantiles, neighbor_qindices, ppc_fail_counts, min_ppc, cluster_ct && (!is_group_avg), cluster_ct, cluster_starts, indiv_to_cluster);
+      retval = read_genome(read_genome_fname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, cluster_merge_prevented, use_genome_dists? cluster_sorted_ibs : NULL, neighbor_n2, neighbor_quantiles, neighbor_qindices, ppc_fail_counts, min_ppc, cluster_ct && (!is_group_avg), cluster_ct, cluster_starts, indiv_to_cluster);
       if (retval) {
 	goto calc_cluster_neighbor_ret_1;
       }
@@ -8951,7 +8934,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	}
       }
     }
-    if (mds_plot_dmatrix_copy && (!is_mds_cluster)) {
+    if (mds_fill_nonclust) {
       memcpy(mds_plot_dmatrix_copy, g_dists, (indiv_ct * (indiv_ct - 1)) * (sizeof(double) / 2));
     }
     if (cluster_ct) {
@@ -8995,7 +8978,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     }
   }
   if (read_dists_fname) {
-    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, cluster_ct, cluster_starts, indiv_to_cluster, (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))? 1 : 0, cluster_ct && (!is_group_avg), cluster_sorted_ibs, is_mds_cluster? NULL : mds_plot_dmatrix_copy, neighbor_n2, neighbor_quantiles, neighbor_qindices);
+    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, cluster_ct, cluster_starts, indiv_to_cluster, (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))? 1 : 0, cluster_ct && (!is_group_avg), cluster_sorted_ibs, neighbor_n2, neighbor_quantiles, neighbor_qindices);
     if (retval) {
       goto calc_cluster_neighbor_ret_1;
     }
@@ -9256,7 +9239,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       if (ibm_warning) {
 	logprint("Warning: Initial cluster assignment violates IBM constraint.\n");
       }
-      if (mds_plot_dmatrix_copy && (!is_mds_cluster) && (!cluster_ct)) {
+      if (mds_fill_nonclust && (!cluster_ct)) {
 	memcpy(mds_plot_dmatrix_copy, cluster_sorted_ibs, initial_triangle_size * sizeof(double));
       }
     }
@@ -9440,6 +9423,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   tcoord = next_set_ul(cluster_merge_prevented, 0, initial_triangle_size);
   wkspace_reset(wkspace_mark_precluster);
   logprint("Clustering...");
+  printf(" [sorting IB%c values]", cluster_missing? 'M' : 'S');
   fflush(stdout);
 #ifdef __LP64__
   if (cur_cluster_ct <= 65536) {
@@ -9570,8 +9554,11 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   }
 #endif
 
-  if (wkspace_alloc_ui_checked(&merge_sequence, 2 * (indiv_ct - cp->min_ct) * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&cur_cluster_remap, cur_cluster_ct * sizeof(int32_t))) {
+  if (wkspace_alloc_ui_checked(&merge_sequence, 2 * (indiv_ct - cp->min_ct) * sizeof(int32_t))) {
+    goto calc_cluster_neighbor_ret_NOMEM;
+  }
+  cur_cluster_remap = (uint32_t*)malloc(cur_cluster_ct * sizeof(int32_t));
+  if (!cur_cluster_remap) {
     goto calc_cluster_neighbor_ret_NOMEM;
   }
   for (clidx1 = 0; clidx1 < cur_cluster_ct; clidx1++) {
@@ -9589,16 +9576,53 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     goto calc_cluster_neighbor_ret_1;
     merge_ct = cluster_group_avg_main(cur_cluster_ct, cluster_merge_prevented, heap_size, cluster_sorted_ibs, cluster_sorted_ibs_indices, cur_cluster_sizes, indiv_ct, cur_cluster_case_cts, case_ct, ctrl_ct, cur_cluster_remap, cp, merge_sequence);
   }
-  logprint(" done.\n");
+  fputs("\rClustering...", stdout);
+  logprint(" done.");
+  fputs("                        ", stdout);
+  logprint("\n");
   retval = write_cluster_solution(outname, outname_end, indiv_to_cluster, indiv_ct, cluster_map, cluster_starts, late_clidx_to_indiv_uidx, cluster_ct, cur_cluster_ct, person_ids, max_person_id_len, pheno_c, indiv_idx_to_uidx, cp, cur_cluster_remap, cluster_sorted_ibs_indices, merge_ct, merge_sequence);
   if (retval) {
     goto calc_cluster_neighbor_ret_1;
   }
 
   if (cp->mds_dim_ct) {
-    logprint("Error: --mds-plot is currently under development.\n");
+    if (!mds_plot_dmatrix_copy) {
+      // --read-dists or --read-genome, and not cluster_missing
+      wkspace_reset(wkspace_mark_postcluster);
+      if (!is_mds_cluster) {
+	ulii = indiv_ct;
+      } else {
+	ulii = cur_cluster_ct;
+      }
+      if (wkspace_alloc_d_checked(&mds_plot_dmatrix_copy, ulii * (ulii - 1) * (sizeof(double) / 2))) {
+	goto calc_cluster_neighbor_ret_NOMEM;
+      }
+      if (is_mds_cluster || (!read_dists_fname)) {
+	fill_double_zero(mds_plot_dmatrix_copy, (ulii * (ulii - 1)) / 2);
+      }
+      if (read_dists_fname) {
+	retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, is_mds_cluster? cluster_ct : 0, is_mds_cluster? cluster_starts : NULL, is_mds_cluster? indiv_to_cluster : NULL, 2, 0, mds_plot_dmatrix_copy, 0, NULL, NULL);
+      } else {
+	retval = read_genome(read_genome_fname, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, NULL, mds_plot_dmatrix_copy, 0, NULL, NULL, NULL, 0.0, 0, is_mds_cluster? cluster_ct : 0, is_mds_cluster? cluster_starts : NULL, is_mds_cluster? indiv_to_cluster : NULL);
+      }
+      if (retval) {
+	goto calc_cluster_neighbor_ret_1;
+      }
+    } else {
+      wkspace_reset((unsigned char*)cluster_merge_prevented);
+      if (is_mds_cluster) {
+        cluster_dist_multiply(indiv_ct, cluster_ct, cluster_starts, mds_plot_dmatrix_copy);
+      }
+    }
+#ifdef NOLAPACK
+    logprint("Error: No-LAPACK --mds-plot not implemented yet.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto calc_cluster_neighbor_ret_1;
+#else
+    retval = mds_plot(outname, outname_end, indiv_exclude, indiv_ct, indiv_idx_to_uidx, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, cur_cluster_ct, merge_ct, indiv_to_cluster, cur_cluster_remap, cp->mds_dim_ct, is_mds_cluster, mds_plot_dmatrix_copy);
+#endif
+    if (retval) {
+      goto calc_cluster_neighbor_ret_1;
+    }
   }
 
   while (0) {
@@ -9616,6 +9640,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     break;
   }
  calc_cluster_neighbor_ret_1:
+  wkspace_reset(wkspace_mark_postcluster);
   free_cond(indiv_to_cluster);
   free_cond(neighbor_quantiles);
   free_cond(neighbor_qindices);
@@ -9626,6 +9651,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   free_cond(cur_cluster_sizes);
   free_cond(indiv_idx_to_uidx);
   free_cond(late_clidx_to_indiv_uidx);
+  free_cond(cur_cluster_remap);
   fclose_cond(outfile);
   return retval;
 }

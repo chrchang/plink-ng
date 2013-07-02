@@ -1416,6 +1416,8 @@ void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm
 
 void cluster_dist_divide(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_starts, double* cluster_sdistances);
 
+void cluster_dist_multiply(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_starts, double* cluster_sdistances);
+
 void join_threads(pthread_t* threads, uint32_t ctp1);
 
 #if _WIN32
