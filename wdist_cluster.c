@@ -35,8 +35,6 @@ extern "C" {
 
 #endif
 
-  void xerbla_(void) {}
-
 #ifdef __cplusplus
 }
 #endif
@@ -1497,7 +1495,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
   fill_int_zero((int32_t*)isuppz, 2 * dim_ct * (sizeof(__CLPK_integer) / sizeof(int32_t)));
   ldz = mdim;
 
-  dsyevr_("V", "I", "U", &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, &optim_lwork, &lwork, &optim_liwork, &liwork, &info);
+  dsyevr_((char*)"V", (char*)"I", (char*)"U", &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, &optim_lwork, &lwork, &optim_liwork, &liwork, &info);
   lwork = (int32_t)optim_lwork;
   if (wkspace_alloc_d_checked(&work, lwork * sizeof(double))) {
     goto mds_plot_ret_NOMEM;
@@ -1509,7 +1507,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
   }
   fill_double_zero(work, lwork);
   fill_int_zero((int32_t*)iwork, liwork * (sizeof(__CLPK_integer) / sizeof(int32_t)));
-  dsyevr_("V", "I", "U", &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, work, &lwork, iwork, &liwork, &info);
+  dsyevr_((char*)"V", (char*)"I", (char*)"U", &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, work, &lwork, iwork, &liwork, &info);
 
   // * out_w[0..(dim_ct-1)] contains eigenvalues
   // * out_z[(ii*ulii)..(ii*ulii + ulii - 1)] is eigenvector corresponding to
