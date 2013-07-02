@@ -19,6 +19,8 @@ extern "C" {
 #define HAVE_LAPACK_CONFIG_H
 #define LAPACK_COMPLEX_STRUCTURE
 #include "lapack/lapacke/include/lapacke.h"
+
+  typedef int32_t __CLPK_integer;
   // int dsyevr_(); needed?
 
 #else // not _WIN32
