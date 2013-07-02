@@ -3630,8 +3630,6 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 const char errstr_fam_format[] = "Error: Improperly formatted .fam file.\n";
 
 int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uintptr_t* max_person_id_len_ptr, char** paternal_ids_ptr, uintptr_t* max_paternal_id_len_ptr, char** maternal_ids_ptr, uintptr_t* max_maternal_id_len_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, uint32_t* affection_ptr, uintptr_t** pheno_nm_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** founder_info_ptr, uintptr_t** indiv_exclude_ptr) {
-  char* bufptr0;
-  char* bufptr;
   uintptr_t unfiltered_indiv_ct = 0;
   uintptr_t max_person_id_len = *max_person_id_len_ptr;
   uintptr_t max_paternal_id_len = *max_paternal_id_len_ptr;
@@ -3641,12 +3639,15 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
   uint32_t new_buflen = 0;
   unsigned char* wkspace_mark = wkspace_base;
   double missing_phenod = (double)missing_pheno;
-  char* linebuf;
-  char* person_ids;
+  char case_char = affection_01? '1' : '2';
   char* paternal_ids = NULL;
   char* maternal_ids = NULL;
   uintptr_t* pheno_c = NULL;
   double* pheno_d = NULL;
+  char* bufptr0;
+  char* bufptr;
+  char* linebuf;
+  char* person_ids;
   char cc;
   uint64_t* line_locs;
   uint64_t* tmp_ullp;
@@ -3767,12 +3768,14 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
       if (!pheno_c) {
 	return RET_NOMEM;
       }
+      fill_ulong_zero(pheno_c, unfiltered_indiv_ctl);
       *pheno_c_ptr = pheno_c;
     } else {
       pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
       if (!pheno_d) {
 	return RET_NOMEM;
       }
+      fill_double_zero(pheno_d, unfiltered_indiv_ct);
       *pheno_d_ptr = pheno_d;
     }
   }
@@ -3843,10 +3846,8 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
       if (affection) {
 	if (!is_missing_pheno(bufptr, missing_pheno, missing_pheno_len, affection_01)) {
 	  set_bit_noct(*pheno_nm_ptr, indiv_uidx);
-	  if (*bufptr == (affection_01? '1' : '2')) {
+	  if (*bufptr == case_char) {
 	    set_bit_noct(pheno_c, indiv_uidx);
-	  } else {
-	    clear_bit_noct(pheno_c, indiv_uidx);
 	  }
 	}
       } else {

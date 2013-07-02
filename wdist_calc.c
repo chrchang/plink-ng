@@ -8703,12 +8703,11 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   // This sorted list/heap --cluster implementation is O(n^2 log n) time,
   // O(n^2) space.  While this is a major improvement over PLINK's O(n^3) time,
   // it is possible to do even better in some scenarios.  In particular, if
-  // there are no clustering restrictions, Sibson's SLINK algorithm (an
-  // oldie--from 1973--but goodie; see e.g.
-  // http://comjnl.oxfordjournals.org/content/16/1/30.abstract ) requires only
+  // there are no clustering restrictions, Defays' CLINK algorithm (see e.g.
+  // http://comjnl.oxfordjournals.org/content/20/4/364.full.pdf ) requires only
   // O(n) space, so it's an excellent complement to --distance/--genome +
-  // --parallel on very large datasets, and should be added to WDIST as a
-  // special case in the future.
+  // --parallel on very large datasets (e.g. 500k individuals), and should be
+  // added to WDIST as a special case in the future.
   FILE* outfile = NULL;
   uint32_t* cluster_sorted_ibs_indices = NULL;
 #ifdef __LP64__
@@ -8725,6 +8724,9 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   uint32_t* cur_cluster_remap = NULL;
   uint32_t* cluster_index = NULL;
   uintptr_t* collapsed_pheno_c = NULL;
+  uint32_t* indiv_idx_to_uidx = NULL;
+  uint32_t* late_clidx_to_indiv_uidx = NULL;
+  uintptr_t* ibs_ties = NULL;
   double* dptr = NULL;
   double min_ppc = cp->ppc;
   double min_ibm = cp->min_ibm;
@@ -8737,6 +8739,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   uint32_t do_neighbor = (calculation_type / CALC_NEIGHBOR) & 1;
   uint32_t is_group_avg = cp->modifier & CLUSTER_GROUP_AVG;
   uint32_t is_mds_cluster = cp->modifier & CLUSTER_MDS;
+  uint32_t is_old_tiebreaks = cp->modifier & CLUSTER_OLD_TIEBREAKS;
   uint32_t mds_fill_nonclust = (!is_mds_cluster) && mds_plot_dmatrix_copy;
   uint32_t cluster_missing = cp->modifier & CLUSTER_MISSING;
   uint32_t use_genome_dists = (!g_dists) && (!read_dists_fname) && (!cluster_missing);
@@ -8770,6 +8773,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   double dxx;
   double dxx1;
   uintptr_t ulii;
+  uintptr_t uljj;
   uintptr_t indiv_idx1;
   uintptr_t indiv_idx2;
   uint32_t uii;
@@ -8793,7 +8797,13 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     if (!indiv_to_cluster) {
       goto calc_cluster_neighbor_ret_NOMEM;
     }
-    retval = fill_indiv_to_cluster(unfiltered_indiv_ct, indiv_exclude, indiv_ct, cluster_ct, cluster_map, cluster_starts, indiv_to_cluster);
+    if (cluster_starts[cluster_ct] < indiv_ct) {
+      late_clidx_to_indiv_uidx = (uint32_t*)malloc((indiv_ct - cluster_starts[cluster_ct]) * sizeof(int32_t));
+      if (!late_clidx_to_indiv_uidx) {
+        goto calc_cluster_neighbor_ret_NOMEM;
+      }
+    }
+    retval = fill_indiv_to_cluster(unfiltered_indiv_ct, indiv_exclude, indiv_ct, cluster_ct, cluster_map, cluster_starts, indiv_to_cluster, late_clidx_to_indiv_uidx);
     if (!retval) {
       goto calc_cluster_neighbor_ret_1;
     }
@@ -8990,6 +9000,11 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       goto calc_cluster_neighbor_ret_1;
     }
   }
+  indiv_idx_to_uidx = (uint32_t*)malloc(indiv_ct * sizeof(int32_t));
+  if (!indiv_idx_to_uidx) {
+    goto calc_cluster_neighbor_ret_NOMEM;
+  }
+  fill_idx_to_uidx(indiv_exclude, indiv_ct, indiv_idx_to_uidx);
   if (do_neighbor) {
     memcpy(outname_end, ".nearest", 9);
     if (fopen_checked(&outfile, outname, "w")) {
@@ -9017,7 +9032,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     putc('\n', outfile);
     dxx1 = 1.0 / ((double)((intptr_t)(indiv_ct - 1)));
     for (indiv_idx1 = 0; indiv_idx1 < indiv_ct; indiv_idx1++) {
-      fam_id = &(person_ids[indiv_idx1 * max_person_id_len]);
+      fam_id = &(person_ids[indiv_idx_to_uidx[indiv_idx1] * max_person_id_len]);
       indiv_id = (char*)memchr(fam_id, '\t', max_person_id_len);
       wptr_start = fw_strcpyn(12, (uint32_t)(indiv_id - fam_id), fam_id, tbuf);
       *wptr_start++ = ' ';
@@ -9033,7 +9048,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
         wptr = double_g_writewx4x(wptr, (dxx - neighbor_quantile_means[ulii]) * neighbor_quantile_stdev_recips[ulii], 12, ' ');
 	indiv_idx2 = neighbor_qindices[indiv_idx2];
-        fam_id = &(person_ids[indiv_idx2 * max_person_id_len]);
+        fam_id = &(person_ids[indiv_idx_to_uidx[indiv_idx2] * max_person_id_len]);
         indiv_id = (char*)memchr(fam_id, '\t', max_person_id_len);
         wptr = fw_strcpyn(12, (uint32_t)(indiv_id - fam_id), fam_id, wptr);
         *wptr++ = ' ';
@@ -9513,12 +9528,26 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     }
     qsort(&(cluster_sorted_ibs_indices[CACHELINE_INT32]), heap_size, 12, double_cmp_decr);
     if (!is_group_avg) {
+      if (is_old_tiebreaks) {
+        ulii = 1 + (heap_size / BITCT);
+	if (wkspace_alloc_ul_checked(&ibs_ties, ulii * sizeof(intptr_t))) {
+	  goto calc_cluster_neighbor_ret_NOMEM;
+	}
+	// copy this earlier after cluster_index allocated?
+        fill_ulong_zero(ibs_ties, ulii);
+	uljj = heap_size - 1;
+        for (ulii = 0; ulii < uljj; ulii++) {
+	  if ((cluster_sorted_ibs_indices[ulii * 3 + CACHELINE_INT32] == cluster_sorted_ibs_indices[ulii * 3 + 3 + CACHELINE_INT32]) && (cluster_sorted_ibs_indices[ulii * 3 + 1 + CACHELINE_INT32] == cluster_sorted_ibs_indices[ulii * 3 + 4 + CACHELINE_INT32])) {
+            set_bit_noct(ibs_ties, ulii);
+	  }
+	}
+      }
       for (ulii = 0; ulii < heap_size; ulii++) {
         cluster_sorted_ibs_indices[ulii] = cluster_sorted_ibs_indices[CACHELINE_INT32 + 2 + (ulii * 3)];
       }
-      if (ulii < indiv_ct) {
+      if (ulii < cur_cluster_ct) {
 	// this guarantees write_cluster_solution() has enough space
-	ulii = indiv_ct;
+	ulii = cur_cluster_ct;
       }
       wkspace_reset((unsigned char*)(&(cluster_sorted_ibs_indices[(ulii + (CACHELINE_INT32 - 1)) & (~(CACHELINE_INT32 - 1))])));
     } else {
@@ -9553,7 +9582,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   //   track sorted inter-cluster distances
   // * otherwise a sorted list + index will do
   if (!is_group_avg) {
-    merge_ct = cluster_main(cur_cluster_ct, cluster_merge_prevented, heap_size, cluster_sorted_ibs_indices, cluster_index, cur_cluster_sizes, indiv_ct, cur_cluster_case_cts, case_ct, ctrl_ct, cur_cluster_remap, cp, merge_sequence);
+    merge_ct = cluster_main(cur_cluster_ct, cluster_merge_prevented, heap_size, cluster_sorted_ibs_indices, cluster_index, cur_cluster_sizes, indiv_ct, cur_cluster_case_cts, case_ct, ctrl_ct, cur_cluster_remap, cp, ibs_ties, merge_sequence);
   } else {
     logprint("Error: --cluster group-avg is currently under development.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -9561,7 +9590,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     merge_ct = cluster_group_avg_main(cur_cluster_ct, cluster_merge_prevented, heap_size, cluster_sorted_ibs, cluster_sorted_ibs_indices, cur_cluster_sizes, indiv_ct, cur_cluster_case_cts, case_ct, ctrl_ct, cur_cluster_remap, cp, merge_sequence);
   }
   logprint(" done.\n");
-  retval = write_cluster_solution(outname, outname_end, indiv_to_cluster, indiv_ct, cur_cluster_ct, person_ids, max_person_id_len, cp, cur_cluster_remap, cluster_sorted_ibs_indices, merge_ct, merge_sequence);
+  retval = write_cluster_solution(outname, outname_end, indiv_to_cluster, indiv_ct, cluster_map, cluster_starts, late_clidx_to_indiv_uidx, cluster_ct, cur_cluster_ct, person_ids, max_person_id_len, pheno_c, indiv_idx_to_uidx, cp, cur_cluster_remap, cluster_sorted_ibs_indices, merge_ct, merge_sequence);
   if (retval) {
     goto calc_cluster_neighbor_ret_1;
   }
@@ -9595,6 +9624,8 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   free_cond(ppc_fail_counts);
   free_cond(cur_cluster_case_cts);
   free_cond(cur_cluster_sizes);
+  free_cond(indiv_idx_to_uidx);
+  free_cond(late_clidx_to_indiv_uidx);
   fclose_cond(outfile);
   return retval;
 }

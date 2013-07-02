@@ -242,13 +242,14 @@ void fill_unfiltered_indiv_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t c
   }
 }
 
-int32_t fill_indiv_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* indiv_to_cluster) {
+int32_t fill_indiv_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uint32_t* late_clidx_to_indiv_uidx) {
   unsigned char* wkspace_mark = wkspace_base;
   uint32_t* cluster_map_pos = cluster_map;
   int32_t retval = 0;
   uint32_t* uidx_to_idx;
   uint32_t* cluster_end_ptr;
   uint32_t cluster_idx;
+  uint32_t indiv_uidx;
   uint32_t indiv_idx;
   if (wkspace_alloc_ui_checked(&uidx_to_idx, unfiltered_indiv_ct * sizeof(int32_t))) {
     goto fill_indiv_to_cluster_ret_NOMEM;
@@ -261,9 +262,15 @@ int32_t fill_indiv_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_ex
       indiv_to_cluster[uidx_to_idx[*cluster_map_pos]] = cluster_idx;
     } while (++cluster_map_pos < cluster_end_ptr);
   }
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    if (indiv_to_cluster[indiv_idx] == 0xffffffffU) {
-      indiv_to_cluster[indiv_idx] = cluster_idx++;
+  if (cluster_starts[cluster_ct] < indiv_ct) {
+    indiv_uidx = 0;
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+      if (indiv_to_cluster[indiv_idx] == 0xffffffffU) {
+	late_clidx_to_indiv_uidx[cluster_idx - cluster_ct] = indiv_uidx;
+	indiv_to_cluster[indiv_idx] = cluster_idx++;
+      }
+      indiv_uidx++;
     }
   }
   while (0) {
@@ -719,7 +726,8 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
   return retval;
 }
 
-uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_t list_size, uint32_t* sorted_ibs_indices, uint32_t* cluster_index, uint32_t* cur_cluster_sizes, uint32_t indiv_ct, uint32_t* cur_cluster_case_cts, uint32_t case_ct, uint32_t ctrl_ct, uint32_t* cur_cluster_remap, Cluster_info* cp, uint32_t* merge_sequence) {
+uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_t list_size, uint32_t* sorted_ibs_indices, uint32_t* cluster_index, uint32_t* cur_cluster_sizes, uint32_t indiv_ct, uint32_t* cur_cluster_case_cts, uint32_t case_ct, uint32_t ctrl_ct, uint32_t* cur_cluster_remap, Cluster_info* cp, uintptr_t* ibs_ties, uint32_t* merge_sequence) {
+  uint32_t is_old_tiebreaks = cp->modifier & CLUSTER_OLD_TIEBREAKS;
   uint32_t* list_end = &(sorted_ibs_indices[list_size]);
   uint32_t max_merge = cluster_ct - cp->min_ct;
   uint32_t max_size = cp->max_size;
@@ -735,6 +743,9 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
   uint32_t cur_cases = 0;
   uint32_t cur_ctrls = 0;
   uint32_t* siptr = sorted_ibs_indices;
+  uint32_t* siptr2;
+  uint32_t* siptr_best;
+  uint32_t* tie_end;
   uint32_t clidx_large;
   uint32_t clidx_small;
   uint32_t tcoord1;
@@ -742,6 +753,7 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
+  uint32_t umm;
   if (cp->modifier & CLUSTER_CC) {
     for (clidx_small = 0; clidx_small < cluster_ct; clidx_small++) {
       uii = cur_cluster_case_cts[clidx_small];
@@ -750,31 +762,80 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
       }
     }
   }
+  if (is_old_tiebreaks) {
+    tie_end = sorted_ibs_indices;
+  } else {
+    tie_end = list_end;
+  }
   do {
     if (case_ctrl_only > 1) {
       while (1) {
-	if (siptr == list_end) {
-	  goto cluster_main_finished;
+	if (siptr == tie_end) {
+	  if (siptr == list_end) {
+	    goto cluster_main_finished;
+	  }
+          tie_end = &(sorted_ibs_indices[1 + next_non_set_unsafe(ibs_ties, siptr - sorted_ibs_indices)]);
 	}
 	uii = *siptr++;
+	if (uii == 0xffffffffU) {
+	  continue;
+	}
 	clidx_large = cur_cluster_remap[uii >> 16];
 	clidx_small = cur_cluster_remap[uii & 65535];
-	if (clidx_small == clidx_large) {
+	ujj = cur_cluster_case_cts[clidx_small] + cur_cluster_case_cts[clidx_large];
+	if ((clidx_small == clidx_large) || (!ujj) || (ujj == cur_cluster_sizes[clidx_small] + cur_cluster_sizes[clidx_large])) {
 	  continue;
 	}
-	uii = cur_cluster_case_cts[clidx_small] + cur_cluster_case_cts[clidx_large];
-	if ((!uii) || (uii == cur_cluster_sizes[clidx_small] + cur_cluster_sizes[clidx_large])) {
-	  continue;
-	}
-	if (clidx_small > clidx_large) {
-	  uii = clidx_small;
+	if (clidx_large < clidx_small) {
+	  ujj = clidx_small;
 	  clidx_small = clidx_large;
-	  clidx_large = uii;
+          clidx_large = ujj;
 	}
-	tcoord1 = tri_coord_no_diag_32(clidx_small, clidx_large);
-	if (!is_set(merge_prevented, tcoord1)) {
-	  break;
+	if (is_set(merge_prevented, tri_coord_no_diag_32(clidx_small, clidx_large))) {
+	  continue;
 	}
+	if (is_old_tiebreaks && (siptr != tie_end)) {
+	  siptr2 = siptr;
+	  siptr_best = NULL;
+	  for (siptr2 = siptr; siptr2 < tie_end; siptr2++) {
+	    ujj = *siptr2;
+	    if (ujj != 0xffffffffU) {
+	      tcoord2 = cur_cluster_remap[ujj >> 16];
+	      tcoord1 = cur_cluster_remap[ujj & 65535];
+	      if (tcoord1 == tcoord2) {
+		*siptr2 = 0xffffffffU;
+	      } else {
+	        ujj = cur_cluster_case_cts[tcoord1] + cur_cluster_case_cts[tcoord2];
+		if (ujj && (ujj < (cur_cluster_sizes[tcoord1] + cur_cluster_sizes[tcoord2]))) {
+		  if (tcoord2 < tcoord1) {
+		    ujj = tcoord1;
+		    tcoord1 = tcoord2;
+		    tcoord2 = ujj;
+		  }
+		  if (is_set(merge_prevented, tri_coord_no_diag_32(tcoord1, tcoord2))) {
+		    *siptr2 = 0xffffffffU;
+		  } else if ((tcoord1 < clidx_small) || ((tcoord1 == clidx_small) && (tcoord2 < clidx_large))) {
+		    clidx_large = tcoord2;
+		    clidx_small = tcoord1;
+	            siptr_best = siptr2;
+		  }
+	        }
+	      }
+	    }
+	  }
+          if (siptr_best) {
+	    *siptr_best = uii;
+	    tcoord2 = cur_cluster_remap[uii >> 16];
+	    tcoord1 = cur_cluster_remap[uii & 65535];
+	    if (tcoord2 < tcoord1) {
+	      uii = tcoord1;
+	      tcoord1 = tcoord2;
+	      tcoord2 = uii;
+	    }
+	    cluster_index[tri_coord_no_diag_32(tcoord1, tcoord2)] = siptr_best - sorted_ibs_indices;
+	  }
+        }
+	break;
       }
       uii = cur_cluster_case_cts[clidx_small];
       if ((!uii) || (uii == cur_cluster_sizes[clidx_small])) {
@@ -786,24 +847,61 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
       }
     } else {
       while (1) {
-	if (siptr == list_end) {
-	  goto cluster_main_finished;
+	if (siptr == tie_end) {
+	  if (siptr == list_end) {
+	    goto cluster_main_finished;
+	  }
+          tie_end = &(sorted_ibs_indices[1 + next_non_set_unsafe(ibs_ties, siptr - sorted_ibs_indices)]);
 	}
 	uii = *siptr++;
-	clidx_large = cur_cluster_remap[uii >> 16];
-	clidx_small = cur_cluster_remap[uii & 65535];
-	if (clidx_small == clidx_large) {
+	if (uii == 0xffffffffU) {
 	  continue;
 	}
-	if (clidx_small > clidx_large) {
-	  uii = clidx_small;
+	clidx_large = cur_cluster_remap[uii >> 16];
+	clidx_small = cur_cluster_remap[uii & 65535];
+	if (clidx_large < clidx_small) {
+	  ujj = clidx_small;
 	  clidx_small = clidx_large;
-	  clidx_large = uii;
+          clidx_large = ujj;
 	}
-	tcoord1 = tri_coord_no_diag_32(clidx_small, clidx_large);
-	if (!is_set(merge_prevented, tcoord1)) {
-	  break;
+	if ((clidx_small == clidx_large) || is_set(merge_prevented, tri_coord_no_diag_32(clidx_small, clidx_large))) {
+	  continue;
 	}
+	if (is_old_tiebreaks && (siptr != tie_end)) {
+	  siptr2 = siptr;
+	  siptr_best = NULL;
+	  for (siptr2 = siptr; siptr2 < tie_end; siptr2++) {
+	    ujj = *siptr2;
+	    if (ujj != 0xffffffffU) {
+	      tcoord2 = cur_cluster_remap[ujj >> 16];
+	      tcoord1 = cur_cluster_remap[ujj & 65535];
+	      if (tcoord2 < tcoord1) {
+                ujj = tcoord1;
+		tcoord1 = tcoord2;
+		tcoord2 = ujj;
+	      }
+	      if ((tcoord1 == tcoord2) || is_set(merge_prevented, tri_coord_no_diag_32(tcoord1, tcoord2))) {
+                *siptr2 = 0xffffffffU;
+	      } else if ((tcoord1 < clidx_small) || ((tcoord1 == clidx_small) && (tcoord2 < clidx_large))) {
+		clidx_large = tcoord2;
+		clidx_small = tcoord1;
+	        siptr_best = siptr2;
+	      }
+	    }
+	  }
+          if (siptr_best) {
+	    *siptr_best = uii;
+	    tcoord2 = cur_cluster_remap[uii >> 16];
+	    tcoord1 = cur_cluster_remap[uii & 65535];
+	    if (tcoord2 < tcoord1) {
+	      ujj = tcoord1;
+	      tcoord1 = tcoord2;
+	      tcoord2 = ujj;
+	    }
+	    cluster_index[tri_coord_no_diag_32(tcoord1, tcoord2)] = siptr_best - sorted_ibs_indices;
+	  }
+        }
+	break;
       }
     }
     *merge_sequence++ = clidx_small;
@@ -819,96 +917,113 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
       cur_size = cur_cluster_sizes[clidx_small] + cur_cluster_sizes[clidx_large];
       cur_cluster_sizes[clidx_small] = cur_size;
       if (cur_cluster_case_cts) {
-        cur_cases = cur_cluster_case_cts[clidx_small] + cur_cluster_case_cts[clidx_large];
+	cur_cases = cur_cluster_case_cts[clidx_small] + cur_cluster_case_cts[clidx_large];
 	cur_cluster_case_cts[clidx_small] = cur_cases;
 	cur_ctrls = cur_size - cur_cases;
       }
     }
     tcoord1 = (clidx_large * (clidx_large - 1)) / 2;
     tcoord2 = (clidx_small * (clidx_small - 1)) / 2;
+    umm = clidx_small << 16;
     if (!sccr) {
       for (uii = 0; uii < clidx_small; uii++) {
-	if (is_set(merge_prevented, tcoord1 + uii)) {
-	  set_bit_noct(merge_prevented, tcoord2 + uii);
-	} else {
-	  ujj = cluster_index[tcoord1 + uii];
-	  ukk = cluster_index[tcoord2 + uii];
-	  if (ujj < ukk) {
-	    sorted_ibs_indices[ujj] = 0;
+	if (cur_cluster_remap[uii] == uii) {
+	  if (is_set(merge_prevented, tcoord1 + uii)) {
+	    set_bit_noct(merge_prevented, tcoord2 + uii);
 	  } else {
-	    sorted_ibs_indices[ukk] = 0;
-	    cluster_index[tcoord2 + uii] = ujj;
+	    ujj = cluster_index[tcoord1 + uii];
+	    ukk = cluster_index[tcoord2 + uii];
+	    if (ujj < ukk) {
+	      sorted_ibs_indices[ujj] = 0xffffffffU;
+	    } else {
+	      sorted_ibs_indices[ukk] = 0xffffffffU;
+	      cluster_index[tcoord2 + uii] = ujj;
+	    }
 	  }
 	}
       }
       for (uii = clidx_small + 1; uii < clidx_large; uii++) {
-	if (is_set(merge_prevented, tcoord1 + uii)) {
-	  set_bit_noct(merge_prevented, tri_coord_no_diag_32(clidx_small, uii));
-	} else {
-	  ujj = cluster_index[tcoord1 + uii];
-	  ukk = cluster_index[tri_coord_no_diag_32(clidx_small, uii)];
-	  if (ujj < ukk) {
-	    sorted_ibs_indices[ujj] = 0;
+	if (cur_cluster_remap[uii] == uii) {
+	  umm = tri_coord_no_diag_32(clidx_small, uii);
+	  if (is_set(merge_prevented, tcoord1 + uii)) {
+	    set_bit_noct(merge_prevented, umm);
 	  } else {
-	    sorted_ibs_indices[ukk] = 0;
-	    cluster_index[tri_coord_no_diag_32(clidx_small, uii)] = ujj;
+	    ujj = cluster_index[tcoord1 + uii];
+	    ukk = cluster_index[umm];
+	    if (ujj < ukk) {
+	      sorted_ibs_indices[ujj] = 0xffffffffU;
+	    } else {
+	      sorted_ibs_indices[ukk] = 0xffffffffU;
+	      cluster_index[umm] = ujj;
+	    }
 	  }
 	}
       }
       for (uii = clidx_large + 1; uii < cluster_ct; uii++) {
-	if (is_set(merge_prevented, tri_coord_no_diag_32(clidx_large, uii))) {
-	  set_bit_noct(merge_prevented, tri_coord_no_diag_32(clidx_small, uii));
-	} else {
-	  ujj = cluster_index[tri_coord_no_diag_32(clidx_large, uii)];
-	  ukk = cluster_index[tri_coord_no_diag_32(clidx_small, uii)];
-	  if (ujj < ukk) {
-	    sorted_ibs_indices[ujj] = 0;
+	if (cur_cluster_remap[uii] == uii) {
+	  umm = tri_coord_no_diag_32(clidx_small, uii);
+	  if (is_set(merge_prevented, tri_coord_no_diag_32(clidx_large, uii))) {
+	    set_bit_noct(merge_prevented, umm);
 	  } else {
-	    sorted_ibs_indices[ukk] = 0;
-	    cluster_index[tri_coord_no_diag_32(clidx_small, uii)] = ujj;
+	    ujj = cluster_index[tri_coord_no_diag_32(clidx_large, uii)];
+	    ukk = cluster_index[umm];
+	    if (ujj < ukk) {
+	      sorted_ibs_indices[ujj] = 0xffffffffU;
+	    } else {
+	      sorted_ibs_indices[ukk] = 0xffffffffU;
+	      cluster_index[umm] = ujj;
+	    }
 	  }
 	}
       }
     } else {
       for (uii = 0; uii < clidx_small; uii++) {
-	if (is_set(merge_prevented, tcoord1 + uii) || (size_restriction && (cur_size + cur_cluster_sizes[uii] > max_size)) || (case_restriction && (cur_cases + cur_cluster_case_cts[uii] > max_cases)) || (ctrl_restriction && (cur_ctrls + cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > max_ctrls))) {
-	  set_bit_noct(merge_prevented, tcoord2 + uii);
-	} else {
-	  ujj = cluster_index[tcoord1 + uii];
-	  ukk = cluster_index[tcoord2 + uii];
-	  if (ujj < ukk) {
-	    sorted_ibs_indices[ujj] = 0;
+	if (cur_cluster_remap[uii] == uii) {
+	  if (is_set(merge_prevented, tcoord1 + uii) || (size_restriction && (cur_size + cur_cluster_sizes[uii] > max_size)) || (case_restriction && (cur_cases + cur_cluster_case_cts[uii] > max_cases)) || (ctrl_restriction && (cur_ctrls + cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > max_ctrls))) {
+	    set_bit_noct(merge_prevented, tcoord2 + uii);
 	  } else {
-	    sorted_ibs_indices[ukk] = 0;
-	    cluster_index[tcoord2 + uii] = ujj;
+	    ujj = cluster_index[tcoord1 + uii];
+	    ukk = cluster_index[tcoord2 + uii];
+	    if (ujj < ukk) {
+	      sorted_ibs_indices[ujj] = 0xffffffffU;
+	    } else {
+	      sorted_ibs_indices[ukk] = 0xffffffffU;
+	      cluster_index[tcoord2 + uii] = ujj;
+	    }
 	  }
 	}
       }
       for (uii = clidx_small + 1; uii < clidx_large; uii++) {
-	if (is_set(merge_prevented, tcoord1 + uii) || (size_restriction && (cur_size + cur_cluster_sizes[uii] > max_size)) || (case_restriction && (cur_cases + cur_cluster_case_cts[uii] > max_cases)) || (ctrl_restriction && (cur_ctrls + cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > max_ctrls))) {
-	  set_bit_noct(merge_prevented, tri_coord_no_diag_32(clidx_small, uii));
-	} else {
-	  ujj = cluster_index[tcoord1 + uii];
-	  ukk = cluster_index[tri_coord_no_diag_32(clidx_small, uii)];
-	  if (ujj < ukk) {
-	    sorted_ibs_indices[ujj] = 0;
+	if (cur_cluster_remap[uii] == uii) {
+	  umm = tri_coord_no_diag_32(clidx_small, uii);
+	  if (is_set(merge_prevented, tcoord1 + uii) || (size_restriction && (cur_size + cur_cluster_sizes[uii] > max_size)) || (case_restriction && (cur_cases + cur_cluster_case_cts[uii] > max_cases)) || (ctrl_restriction && (cur_ctrls + cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > max_ctrls))) {
+	    set_bit_noct(merge_prevented, umm);
 	  } else {
-	    sorted_ibs_indices[ukk] = 0;
-	    cluster_index[tri_coord_no_diag_32(clidx_small, uii)] = ujj;
+	    ujj = cluster_index[tri_coord_no_diag_32(clidx_large, uii)];
+	    ukk = cluster_index[umm];
+	    if (ujj < ukk) {
+	      sorted_ibs_indices[ujj] = 0xffffffffU;
+	    } else {
+	      sorted_ibs_indices[ukk] = 0xffffffffU;
+	      cluster_index[umm] = ujj;
+	    }
 	  }
 	}
       }
       for (uii = clidx_large + 1; uii < cluster_ct; uii++) {
-	if (is_set(merge_prevented, tri_coord_no_diag_32(clidx_large, uii)) || (size_restriction && (cur_size + cur_cluster_sizes[uii] > max_size)) || (case_restriction && (cur_cases + cur_cluster_case_cts[uii] > max_cases)) || (ctrl_restriction && (cur_ctrls + cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > max_ctrls))) {
-	  set_bit_noct(merge_prevented, tri_coord_no_diag_32(clidx_small, uii));
-	} else {
-	  ujj = cluster_index[tri_coord_no_diag_32(clidx_large, uii)];
-	  ukk = cluster_index[tri_coord_no_diag_32(clidx_small, uii)];
-	  if (ujj < ukk) {
-	    sorted_ibs_indices[ujj] = 0;
+	if (cur_cluster_remap[uii] == uii) {
+	  umm = tri_coord_no_diag_32(clidx_small, uii);
+	  if (is_set(merge_prevented, tri_coord_no_diag_32(clidx_large, uii)) || (size_restriction && (cur_size + cur_cluster_sizes[uii] > max_size)) || (case_restriction && (cur_cases + cur_cluster_case_cts[uii] > max_cases)) || (ctrl_restriction && (cur_ctrls + cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > max_ctrls))) {
+	    set_bit_noct(merge_prevented, umm);
 	  } else {
-	    sorted_ibs_indices[ukk] = 0;
-	    cluster_index[tri_coord_no_diag_32(clidx_small, uii)] = ujj;
+	    ujj = cluster_index[tri_coord_no_diag_32(clidx_large, uii)];
+	    ukk = cluster_index[umm];
+	    if (ujj < ukk) {
+	      sorted_ibs_indices[ujj] = 0xffffffffU;
+	    } else {
+	      sorted_ibs_indices[ukk] = 0xffffffffU;
+	      cluster_index[umm] = ujj;
+	    }
 	  }
 	}
       }
@@ -923,13 +1038,91 @@ uint32_t cluster_group_avg_main(uintptr_t cluster_ct, uintptr_t* merge_prevented
   return merge_ct;
 }
 
-int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_indiv_to_cluster, uintptr_t indiv_ct, uint32_t initial_cluster_ct, char* person_ids, uintptr_t max_person_id_len, Cluster_info* cp, uint32_t* cluster_remap, uint32_t* clidx_table_space, uint32_t merge_ct, uint32_t* merge_sequence) {
+void write_cluster1(FILE* outfile, uint32_t clidx, char* person_ids, uintptr_t max_person_id_len, uintptr_t* pheno_c, uint32_t* indiv_idx_to_uidx, uint32_t* merge_sequence, uint32_t merge_ct) {
+  // Manually manage recursion, to minimize crash risk when there are e.g. 500k
+  // clusters.  Fortunately, no recursion stack is even needed.
+  char* sptr;
+  char* sptr2;
+  uint32_t msidx;
+ write_cluster1_recurse:
+  putc(' ', outfile);
+  sptr = &(person_ids[indiv_idx_to_uidx[clidx] * max_person_id_len]);
+  sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
+  fwrite(sptr, 1, sptr2 - sptr, outfile);
+  putc('_', outfile);
+  fputs(&(sptr2[1]), outfile);
+  if (pheno_c) {
+    if (is_set(pheno_c, indiv_idx_to_uidx[clidx])) {
+      fputs("(2)", outfile);
+    } else {
+      fputs("(1)", outfile);
+    }
+  }
+  for (msidx = 0; msidx < merge_ct; msidx++) {
+    if (merge_sequence[msidx * 2] == clidx) {
+      clidx = merge_sequence[msidx * 2 + 1];
+      goto write_cluster1_recurse;
+    } else if (merge_sequence[msidx * 2 + 1] == clidx) {
+      clidx = merge_sequence[msidx * 2];
+    }
+  }
+}
+
+void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* person_ids, uintptr_t max_person_id_len, uintptr_t* pheno_c, uint32_t* orig_cluster_map, uint32_t* orig_cluster_starts, uint32_t* late_clidx_to_indiv_uidx, uint32_t orig_within_ct, uint32_t* cluster_remap, uint32_t* merge_sequence, uint32_t merge_ct) {
+  char* sptr;
+  char* sptr2;
+  uint32_t uii;
+  uint32_t ujj;
+ write_cluster1_oitc_recurse:
+  putc(' ', outfile);
+  if (clidx >= orig_within_ct) {
+    sptr = &(person_ids[late_clidx_to_indiv_uidx[clidx - orig_within_ct] * max_person_id_len]);
+    sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
+    fwrite(sptr, 1, sptr2 - sptr, outfile);
+    putc('_', outfile);
+    fputs(&(sptr2[1]), outfile);
+    if (pheno_c) {
+      if (is_set(pheno_c, late_clidx_to_indiv_uidx[clidx - orig_within_ct])) {
+	fputs("(2)", outfile);
+      } else {
+	fputs("(1)", outfile);
+      }
+    }
+  } else {
+    ujj = orig_cluster_starts[clidx + 1];
+    for (uii = orig_cluster_starts[clidx]; uii < ujj; uii++) {
+      sptr = &(person_ids[orig_cluster_map[uii] * max_person_id_len]);
+      sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
+      fwrite(sptr, 1, sptr2 - sptr, outfile);
+      putc('_', outfile);
+      fputs(&(sptr2[1]), outfile);
+      if (pheno_c) {
+	if (is_set(pheno_c, orig_cluster_map[uii])) {
+	  fputs("(2)", outfile);
+	} else {
+	  fputs("(1)", outfile);
+	}
+      }
+    }
+  }
+  for (uii = 0; uii < merge_ct; uii++) {
+    if (merge_sequence[uii * 2] == clidx) {
+      clidx = merge_sequence[uii * 2 + 1];
+      goto write_cluster1_oitc_recurse;
+    } else if (merge_sequence[uii * 2 + 1] == clidx) {
+      clidx = merge_sequence[uii * 2];
+    }
+  }
+}
+
+int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_indiv_to_cluster, uintptr_t indiv_ct, uint32_t* orig_cluster_map, uint32_t* orig_cluster_starts, uint32_t* late_clidx_to_indiv_uidx, uint32_t orig_within_ct, uint32_t orig_cluster_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t* pheno_c, uint32_t* indiv_idx_to_uidx, Cluster_info* cp, uint32_t* cluster_remap, uint32_t* clidx_table_space, uint32_t merge_ct, uint32_t* merge_sequence) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uint32_t only2 = cp->modifier & CLUSTER_ONLY2;
+  uint32_t report_pheno = (cp->modifier & CLUSTER_CC) || (cp->max_ctrls != 0xffffffffU);
   int32_t retval = 0;
   char wbuf[16];
-  uint32_t* clidx_remap = &(clidx_table_space[(((uintptr_t)initial_cluster_ct) * (initial_cluster_ct - 1)) >> 1]);
+  uint32_t* clidx_remap = &(clidx_table_space[(((uintptr_t)orig_cluster_ct) * (orig_cluster_ct - 1)) >> 1]);
   char* sptr;
   char* sptr2;
   char* wptr;
@@ -939,9 +1132,8 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
   uint32_t uii;
   uint32_t ujj;
   uint32_t msidx;
-  char cc;
   clidx = 0;
-  for (uii = 0; uii < initial_cluster_ct; uii++) {
+  for (uii = 0; uii < orig_cluster_ct; uii++) {
     if (cluster_remap[uii] == uii) {
       clidx_remap[uii] = clidx++;
     }
@@ -956,7 +1148,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
     } else {
       clidx = cluster_remap[indiv_idx];
     }
-    sptr = &(person_ids[indiv_idx * max_person_id_len]);
+    sptr = &(person_ids[indiv_idx_to_uidx[indiv_idx] * max_person_id_len]);
     sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
     wptr = memcpyax(tbuf, sptr, (sptr2 - sptr), ' ');
     wptr = strcpyax(wptr, &(sptr2[1]), '\t');
@@ -974,37 +1166,16 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
       goto write_cluster_solution_ret_OPEN_FAIL;
     }
     memcpy(tbuf, "SOL-", 4);
-    for (clidx = 0; clidx < initial_cluster_ct; clidx++) {
+    for (clidx = 0; clidx < orig_cluster_ct; clidx++) {
       if (cluster_remap[clidx] == clidx) {
-        wptr = uint32_write(&(tbuf[4]), clidx_remap[clidx]);
+        wptr = uint32_writex(&(tbuf[4]), clidx_remap[clidx], '\t');
         if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	  goto write_cluster_solution_ret_WRITE_FAIL;
 	}
-	cc = '\t';
-        if (orig_indiv_to_cluster) {
-	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-	    if (cluster_remap[orig_indiv_to_cluster[indiv_idx]] == clidx) {
-	      putc(cc, outfile);
-	      cc = ' ';
-              sptr = &(person_ids[indiv_idx * max_person_id_len]);
-              sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
-              fwrite(sptr, 1, sptr2 - sptr, outfile);
-              putc('_', outfile);
-              fputs(&(sptr2[1]), outfile);
-	    }
-	  }
+        if (!orig_indiv_to_cluster) {
+	  write_cluster1(outfile, clidx, person_ids, max_person_id_len, report_pheno? pheno_c : NULL, indiv_idx_to_uidx, merge_sequence, merge_ct);
 	} else {
-	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-	    if (cluster_remap[indiv_idx] == clidx) {
-	      putc(cc, outfile);
-	      cc = ' ';
-              sptr = &(person_ids[indiv_idx * max_person_id_len]);
-              sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
-              fwrite(sptr, 1, sptr2 - sptr, outfile);
-              putc('_', outfile);
-              fputs(&(sptr2[1]), outfile);
-	    }
-	  }
+	  write_cluster1_oitc(outfile, clidx, person_ids, max_person_id_len, report_pheno? pheno_c : NULL, orig_cluster_map, orig_cluster_starts, late_clidx_to_indiv_uidx, orig_within_ct, cluster_remap, merge_sequence, merge_ct);
 	}
 	if (putc('\n', outfile) == EOF) {
 	  goto write_cluster_solution_ret_WRITE_FAIL;
@@ -1023,9 +1194,9 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
       goto write_cluster_solution_ret_WRITE_FAIL;
     }
     clidx = 0;
-    for (uii = 0; uii < initial_cluster_ct; uii++) {
+    for (uii = 0; uii < orig_cluster_ct; uii++) {
       if (cluster_remap[uii] == uii) {
-	ujj = initial_cluster_ct - (++clidx);
+	ujj = orig_cluster_ct - (++clidx);
 	clidx_remap[uii] = ujj;
 	cur_remap = &(clidx_table_space[(((uintptr_t)ujj) * (ujj - 1)) >> 1]);
 	ujj = uii;
@@ -1052,7 +1223,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
       }
     }
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-      sptr = &(person_ids[indiv_idx * max_person_id_len]);
+      sptr = &(person_ids[indiv_idx_to_uidx[indiv_idx] * max_person_id_len]);
       sptr2 = (char*)memchr(sptr, '\t', max_person_id_len);
       if (fwrite_checked(sptr, sptr2 - sptr, outfile)) {
 	goto write_cluster_solution_ret_WRITE_FAIL;
@@ -1086,7 +1257,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
           ujj = clidx_remap[merge_sequence[ujj * 2]];
 	}
       }
-      for (ujj = merge_ct + 1; ujj < initial_cluster_ct; ujj++) {
+      for (ujj = merge_ct + 1; ujj < orig_cluster_ct; ujj++) {
 	fputs("0 ", outfile);
       }
       if (putc('\n', outfile) == EOF) {

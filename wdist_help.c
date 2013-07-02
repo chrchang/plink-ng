@@ -513,7 +513,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    homozygous in this analysis.\n\n"
 	       );
     help_print("cluster\tcc\tgroup-avg\tgroup-average\tcluster-missing", &help_ctrl, 1,
-"  --cluster <cc> <group-avg> <missing> <only2>\n"
+"  --cluster <cc> <group-avg> <missing> <only2> <old-tiebreaks>\n"
 "    Cluster individuals using a pairwise similarity statistic (normally IBS).\n"
 "    * The 'cc' modifier forces every cluster to have at least one case and one\n"
 "      control.\n"
@@ -523,7 +523,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      identity-by-missingness instead of identity-by-state, and writes a\n"
 "      space-delimited identity-by-missingness matrix to disk.\n"
 "    * The 'only2' modifier causes only a .cluster2 file (which is valid input\n"
-"      for --within) to be written; otherwise 2 other files will be produced.\n\n"
+"      for --within) to be written; otherwise 2 other files will be produced.\n"
+"    * By default, IBS ties are not broken in the same manner as PLINK 1.07, so\n"
+"      final cluster solutions tend to differ.  This is generally harmless.\n"
+"      However, to simplify testing, you can use the 'old-tiebreaks' modifier to\n"
+"      force emulation of the old algorithm.\n\n"
 	       );
     help_print("neighbour\tneighbor", &help_ctrl, 1,
 "  --neighbour [n1] [n2]\n"
@@ -1101,7 +1105,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("memory", &help_ctrl, 0,
 "  --memory [val]   : Set size, in MB, of initial malloc attempt.\n"
 	       );
-    help_print("threads\tthread-num", &help_ctrl, 0,
+    help_print("threads\tthread-num\tnum_threads", &help_ctrl, 0,
 "  --threads [val]  : Set maximum number of concurrent threads.\n"
 	       );
     help_print("maf-succ", &help_ctrl, 0,

@@ -64,7 +64,7 @@ const char ver_str[] =
 #ifdef PLINK_BUILD
   "PLINK v1.50a"
 #else
-  "WDIST v0.20.1"
+  "WDIST v0.20.2"
 #endif
 #ifdef NOLAPACK
   "NL"
@@ -74,7 +74,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (28 Jun 2013)";
+  " (2 Jul 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -5865,6 +5865,9 @@ int32_t main(int32_t argc, char** argv) {
 	if (!memcmp(argptr, "neighbor", 9)) {
 	  memcpy(flagptr, "neighbour", 10);
 	  break;
+	} else if (!memcmp(argptr, "num_threads", 12)) {
+	  memcpy(flagptr, "threads", 8);
+	  break;
 	}
 	goto main_flag_copy;
       case 'r':
@@ -6614,7 +6617,7 @@ int32_t main(int32_t argc, char** argv) {
 	ci_size = dxx;
       } else if (!memcmp(argptr2, "luster", 7)) {
 	UNSTABLE;
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
@@ -6626,6 +6629,8 @@ int32_t main(int32_t argc, char** argv) {
 	    cluster.modifier |= CLUSTER_MISSING;
 	  } else if (!memcmp(argv[cur_arg + uii], "only2", 6)) {
 	    cluster.modifier |= CLUSTER_ONLY2;
+	  } else if (!memcmp(argv[cur_arg + uii], "old-tiebreaks", 14)) {
+	    cluster.modifier |= CLUSTER_OLD_TIEBREAKS;
 	  } else {
             sprintf(logbuf, "Error: Invalid --cluster parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
