@@ -8973,8 +8973,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "ds-plot", 8)) {
 #ifdef NOLAPACK
-	// PLINK 1.07's SVD-based non-LAPACK implementation is not actually
-	// proper MDS!
+	// PLINK 1.07's SVD-based non-LAPACK implementation does not conform to
+	// classical MDS, so we do not replicate it.
         logprint("Error: --mds-plot requires " PROG_NAME_CAPS " to be built with LAPACK.\n");
 	goto main_ret_INVALID_CMDLINE;
 #else
@@ -8988,9 +8988,9 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	uii = 1;
         if (param_ct == 2) {
-	  if (!memcmp(argv[cur_arg + 1], "mds-cluster", 12)) {
+	  if (!memcmp(argv[cur_arg + 1], "by-cluster", 11)) {
 	    uii = 2;
-	  } else if (memcmp(argv[cur_arg + 2], "mds-cluster", 12)) {
+	  } else if (memcmp(argv[cur_arg + 2], "by-cluster", 11)) {
 	    sprintf(logbuf, "Error: Invalid --mds-plot parameter sequence.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -9011,7 +9011,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --mds-cluster must be used with --cluster.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        logprint("Note: --mds-cluster flag deprecated.  Use '--mds-plot mds-cluster'.\n");
+        logprint("Note: --mds-cluster flag deprecated.  Use '--mds-plot by-cluster'.\n");
         cluster.modifier |= CLUSTER_MDS;
       } else if (!memcmp(argptr2, "within", 7)) {
 	UNSTABLE;

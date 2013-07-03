@@ -1389,12 +1389,9 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
     goto mds_plot_ret_NOMEM;
   }
   if ((indiv_ct > 5000) && (!is_mds_cluster) && (final_cluster_ct < indiv_ct) && (final_cluster_ct > 1)) {
-    sprintf(logbuf, "Warning: Per-individual --mds-plot can be very slow with over 5000 %s.\nConsider using the 'mds-cluster' modifier.\n", species_plural);
+    sprintf(logbuf, "Warning: Per-individual --mds-plot can be very slow with over 5000 %s.\nConsider using the 'by-cluster' modifier.\n", species_plural);
     logprintb();
   }
-  sprintf(logbuf, "Performing multidimensional scaling analysis (%u dimension%s)...", dim_ct, (dim_ct == 1)? "" : "s");
-  logprintb();
-  fflush(stdout);
   for (clidx1 = 0; clidx1 < cur_cluster_ct; clidx1++) {
     clidx2 = cur_cluster_remap[clidx1];
     if (clidx2 == clidx1) {
@@ -1493,6 +1490,10 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
   if (dim_ct > ulii) {
     dim_ct = ulii;
   }
+
+  sprintf(logbuf, "Performing multidimensional scaling analysis (%u dimension%s)...", dim_ct, (dim_ct == 1)? "" : "s");
+  logprintb();
+  fflush(stdout);
 
   // no need to fill upper right
 
