@@ -1054,6 +1054,9 @@ int32_t invert_matrix_trunc_singular_svd(__CLPK_integer dim, double* matrix, dou
   memcpy(matrix_copy, matrix, dim * dim * sizeof(double));
   flag = svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf);
 
+  if (flag == -1) {
+    return -1;
+  }
   if (!flag) {
     max_dim = dim;
     if (dim > min_dim + 1) {
@@ -9585,6 +9588,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     goto calc_cluster_neighbor_ret_1;
   }
 
+#ifndef NOLAPACK
   if (cp->mds_dim_ct) {
     if (!mds_plot_dmatrix_copy) {
       // --read-dists or --read-genome, and not cluster_missing
@@ -9614,16 +9618,12 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
         cluster_dist_multiply(indiv_ct, cluster_ct, cluster_starts, mds_plot_dmatrix_copy);
       }
     }
-#ifdef NOLAPACK
-    logprint("Error: No-LAPACK --mds-plot not implemented yet.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-#else
     retval = mds_plot(outname, outname_end, indiv_exclude, indiv_ct, indiv_idx_to_uidx, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, cur_cluster_ct, merge_ct, indiv_to_cluster, cur_cluster_remap, cp->mds_dim_ct, is_mds_cluster, mds_plot_dmatrix_copy);
-#endif
     if (retval) {
       goto calc_cluster_neighbor_ret_1;
     }
   }
+#endif
 
   while (0) {
   calc_cluster_neighbor_ret_NOMEM:

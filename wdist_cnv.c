@@ -37,13 +37,13 @@ int32_t cnv_subset_load(char* subset_fname, char** subset_list_ptr, uintptr_t* s
   return retval;
 }
 
-char* cnv_intersect_filter_type_to_str(uint32_t intersect_filter_type) {
+const char* cnv_intersect_filter_type_to_str(uint32_t intersect_filter_type) {
   if (intersect_filter_type & CNV_INTERSECT) {
-    return (char*)"intersect";
+    return "intersect";
   } else if (intersect_filter_type & CNV_EXCLUDE) {
-    return (char*)"exclude";
+    return "exclude";
   } else {
-    return (char*)"count";
+    return "count";
   }
 }
 

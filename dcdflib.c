@@ -6022,7 +6022,7 @@ static unsigned long qbdd,qcond,qdum1,qdum2,qincr,qlim,qup;
 DINVR:
     if(*status > 0) goto S310;
     qcond = !qxmon(small,*x,big);
-    if(qcond) ftnstop((char*)" SMALL, X, BIG not monotone in INVR");
+    if(qcond) ftnstop(" SMALL, X, BIG not monotone in INVR");
     xsave = *x;
 /*
      See that SMALL and BIG bound the zero and set QINCR
@@ -6397,7 +6397,7 @@ static double dlanor,approx,correc,xx,xx2,T2;
      .. Executable Statements ..
 */
     xx = fabs(*x);
-    if(xx < 5.0e0) ftnstop((char*)" Argument too small in DLANOR");
+    if(xx < 5.0e0) ftnstop(" Argument too small in DLANOR");
     approx = -dlsqpi-0.5e0*xx*xx-log(xx);
     xx2 = xx*xx;
     T2 = 1.0e0/xx2;
@@ -6778,7 +6778,7 @@ static double dstrem,sterl,T2;
             0.347320283765002252252252252252D12
             -0.123696021422692744542517103493D14
 */
- if(*z <= 0.0e0) ftnstop((char*)"Zero or negative argument in DSTREM");
+ if(*z <= 0.0e0) ftnstop("Zero or negative argument in DSTREM");
     if(!(*z > 6.0e0)) goto S10;
     T2 = 1.0e0/pow(*z,2.0);
     dstrem = devlpl(coef,&K1,&T2)**z;
@@ -9194,7 +9194,7 @@ long fifmod(long a,long b)
 FTNSTOP:
 Prints msg to standard error and then exits
 ************************************************************************/
-void ftnstop(char* msg)
+void ftnstop(const char* msg)
 /* msg - error message */
 {
   if (msg != NULL) fprintf(stderr,"%s\n",msg);

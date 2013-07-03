@@ -64,7 +64,7 @@ const char ver_str[] =
 #ifdef PLINK_BUILD
   "PLINK v1.50a"
 #else
-  "WDIST v0.20.2"
+  "WDIST v0.20.3p"
 #endif
 #ifdef NOLAPACK
   "NL"
@@ -74,7 +74,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (2 Jul 2013)";
+  " (3 Jul 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -8972,6 +8972,12 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "ds-plot", 8)) {
+#ifdef NOLAPACK
+	// PLINK 1.07's SVD-based non-LAPACK implementation is not actually
+	// proper MDS!
+        logprint("Error: --mds-plot requires " PROG_NAME_CAPS " to be built with LAPACK.\n");
+	goto main_ret_INVALID_CMDLINE;
+#else
 	UNSTABLE;
 	if (!(calculation_type & CALC_CLUSTER)) {
 	  sprintf(logbuf, "Error: --mds-plot must be used with --cluster.%s", errstr_append);
@@ -8998,6 +9004,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	cluster.mds_dim_ct = ii;
+#endif
       } else if (!memcmp(argptr2, "ds-cluster", 11)) {
 	UNSTABLE;
 	if (!(calculation_type & CALC_CLUSTER)) {
@@ -10215,8 +10222,8 @@ int32_t main(int32_t argc, char** argv) {
     case 'u':
       if (!memcmp(argptr2, "nrelated-heritability", 22)) {
 #ifdef NOLAPACK
-        sprintf(logbuf, "Error: --unrelated-heritability requires WDIST to be built with LAPACK.\n");
-	goto main_ret_INVALID_CMDLINE_3;
+        logprint("Error: --unrelated-heritability requires " PROG_NAME_CAPS " to be built with LAPACK.\n");
+	goto main_ret_INVALID_CMDLINE;
 #else
 	UNSTABLE;
 	if (rel_calc_type & REL_CALC_COV) {

@@ -1345,15 +1345,30 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
   FILE* outfile = NULL;
   uintptr_t final_cluster_ct = cur_cluster_ct - merge_ct;
   double grand_mean = 0.0;
+  uintptr_t ulii = 0;
+  int32_t retval = 0;
+  char jobz = 'V';
+  char range = 'I';
+  char uplo = 'U';
   double nz = 0.0;
   double zz = -1.0;
-  uintptr_t ulii = 0;
   __CLPK_integer info = 0;
   __CLPK_integer lwork = -1;
   __CLPK_integer liwork = -1;
-  int32_t retval = 0;
+  __CLPK_integer mdim;
+  __CLPK_integer i1;
+  __CLPK_integer i2;
+  __CLPK_integer out_m;
+  __CLPK_integer ldz;
+  __CLPK_integer optim_liwork;
+  __CLPK_integer* iwork;
+  __CLPK_integer* isuppz;
+  double* work;
+  double optim_lwork;
   double* main_matrix;
   double* column_means;
+  double* out_w;
+  double* out_z;
   uint32_t* final_cluster_remap;
   uint32_t* final_cluster_sizes;
   double* dptr;
@@ -1368,23 +1383,18 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
   uint32_t ujj;
   double dxx;
   double dyy;
-  __CLPK_integer mdim;
-  __CLPK_integer i1;
-  __CLPK_integer i2;
-  __CLPK_integer out_m;
-  __CLPK_integer ldz;
-  double* work;
-  double* out_w;
-  double* out_z;
-  double optim_lwork;
-  __CLPK_integer optim_liwork;
-  __CLPK_integer* iwork;
-  __CLPK_integer* isuppz;
   double* sqrt_eigvals;
   final_cluster_remap = (uint32_t*)malloc(cur_cluster_ct * sizeof(int32_t));
   if (!final_cluster_remap) {
     goto mds_plot_ret_NOMEM;
   }
+  if ((indiv_ct > 5000) && (!is_mds_cluster) && (final_cluster_ct < indiv_ct) && (final_cluster_ct > 1)) {
+    sprintf(logbuf, "Warning: Per-individual --mds-plot can be very slow with over 5000 %s.\nConsider using the 'mds-cluster' modifier.\n", species_plural);
+    logprintb();
+  }
+  sprintf(logbuf, "Performing multidimensional scaling analysis (%u dimension%s)...", dim_ct, (dim_ct == 1)? "" : "s");
+  logprintb();
+  fflush(stdout);
   for (clidx1 = 0; clidx1 < cur_cluster_ct; clidx1++) {
     clidx2 = cur_cluster_remap[clidx1];
     if (clidx2 == clidx1) {
@@ -1479,30 +1489,32 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
       dptr++;
     }
   }
+
+  if (dim_ct > ulii) {
+    dim_ct = ulii;
+  }
+
   // no need to fill upper right
 
   // see eigen_lapack() in PLINK lapackf.cpp (though we use dsyevr_ instead of
   // dsyevx_)
   mdim = ulii;
   i2 = mdim;
-  if (dim_ct > ulii) {
-    dim_ct = ulii;
-  }
   i1 = i2 + 1 - dim_ct;
   if (wkspace_alloc_d_checked(&out_w, dim_ct * sizeof(double)) ||
       wkspace_alloc_d_checked(&out_z, dim_ct * ulii * sizeof(double))) {
     goto mds_plot_ret_NOMEM;
   }
+  fill_double_zero(out_w, dim_ct);
+  fill_double_zero(out_z, dim_ct * ulii);
   isuppz = (__CLPK_integer*)wkspace_alloc(2 * dim_ct * sizeof(__CLPK_integer));
   if (!isuppz) {
     goto mds_plot_ret_NOMEM;
   }
-  fill_double_zero(out_w, dim_ct);
-  fill_double_zero(out_z, dim_ct * ulii);
   fill_int_zero((int32_t*)isuppz, 2 * dim_ct * (sizeof(__CLPK_integer) / sizeof(int32_t)));
   ldz = mdim;
 
-  dsyevr_((char*)"V", (char*)"I", (char*)"U", &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, &optim_lwork, &lwork, &optim_liwork, &liwork, &info);
+  dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, &optim_lwork, &lwork, &optim_liwork, &liwork, &info);
   lwork = (int32_t)optim_lwork;
   if (wkspace_alloc_d_checked(&work, lwork * sizeof(double))) {
     goto mds_plot_ret_NOMEM;
@@ -1514,12 +1526,12 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
   }
   fill_double_zero(work, lwork);
   fill_int_zero((int32_t*)iwork, liwork * (sizeof(__CLPK_integer) / sizeof(int32_t)));
-  dsyevr_((char*)"V", (char*)"I", (char*)"U", &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, work, &lwork, iwork, &liwork, &info);
+  dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, work, &lwork, iwork, &liwork, &info);
 
   // * out_w[0..(dim_ct-1)] contains eigenvalues
   // * out_z[(ii*ulii)..(ii*ulii + ulii - 1)] is eigenvector corresponding to
   //   out_w[ii]
-  wkspace_reset((unsigned char*)work);
+  wkspace_reset((unsigned char*)isuppz);
   if (wkspace_alloc_d_checked(&sqrt_eigvals, dim_ct * sizeof(double))) {
     goto mds_plot_ret_NOMEM;
   }
@@ -1538,6 +1550,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
       *dptr++ = out_z[dim_idx * ulii + clidx1] * sqrt_eigvals[dim_idx];
     }
   }
+  logprint(" done.\n");
 
   memcpy(outname_end, ".mds", 5);
   if (fopen_checked(&outfile, outname, "w")) {

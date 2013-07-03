@@ -1062,9 +1062,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     contain the covariates, and the --qt file should contain\n"
 "                     the tolerances.)\n"
 	       );
+#ifndef NOLAPACK
     help_print("cluster\tmds-plot\tmds-cluster", &help_ctrl, 0,
 "  --mds-plot [dims] <mds-cluster> : Multidimensional scaling analysis.\n"
 	       );
+#endif
 #endif
     help_print("cell\tmodel", &help_ctrl, 0,
 "  --cell [thresh]  : Specify contingency table threshold for performing all\n"
