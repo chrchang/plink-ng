@@ -967,10 +967,9 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
     }
     tcoord1 = (clidx_large * (clidx_large - 1)) / 2;
     tcoord2 = (clidx_small * (clidx_small - 1)) / 2;
-    umm = clidx_small << 16;
     if (!sccr) {
       for (uii = 0; uii < clidx_small; uii++) {
-	if (cur_cluster_remap[uii] == uii) {
+	if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, tcoord2 + uii))) {
 	  if (is_set(merge_prevented, tcoord1 + uii)) {
 	    set_bit_noct(merge_prevented, tcoord2 + uii);
 	  } else {
@@ -986,8 +985,8 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
 	}
       }
       for (uii = clidx_small + 1; uii < clidx_large; uii++) {
-	if (cur_cluster_remap[uii] == uii) {
-	  umm = tri_coord_no_diag_32(clidx_small, uii);
+	umm = tri_coord_no_diag_32(clidx_small, uii);
+	if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, umm))) {
 	  if (is_set(merge_prevented, tcoord1 + uii)) {
 	    set_bit_noct(merge_prevented, umm);
 	  } else {
@@ -1003,8 +1002,8 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
 	}
       }
       for (uii = clidx_large + 1; uii < cluster_ct; uii++) {
-	if (cur_cluster_remap[uii] == uii) {
-	  umm = tri_coord_no_diag_32(clidx_small, uii);
+	umm = tri_coord_no_diag_32(clidx_small, uii);
+	if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, umm))) {
 	  if (is_set(merge_prevented, tri_coord_no_diag_32(clidx_large, uii))) {
 	    set_bit_noct(merge_prevented, umm);
 	  } else {
@@ -1021,7 +1020,7 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
       }
     } else {
       for (uii = 0; uii < clidx_small; uii++) {
-	if (cur_cluster_remap[uii] == uii) {
+	if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, tcoord2 + uii))) {
 	  if (is_set(merge_prevented, tcoord1 + uii) || (size_restriction && (cur_size + cur_cluster_sizes[uii] > max_size)) || (case_restriction && (cur_cases + cur_cluster_case_cts[uii] > max_cases)) || (ctrl_restriction && (cur_ctrls + cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > max_ctrls))) {
 	    set_bit_noct(merge_prevented, tcoord2 + uii);
 	  } else {
@@ -1037,12 +1036,12 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
 	}
       }
       for (uii = clidx_small + 1; uii < clidx_large; uii++) {
-	if (cur_cluster_remap[uii] == uii) {
-	  umm = tri_coord_no_diag_32(clidx_small, uii);
+	umm = tri_coord_no_diag_32(clidx_small, uii);
+	if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, umm))) {
 	  if (is_set(merge_prevented, tcoord1 + uii) || (size_restriction && (cur_size + cur_cluster_sizes[uii] > max_size)) || (case_restriction && (cur_cases + cur_cluster_case_cts[uii] > max_cases)) || (ctrl_restriction && (cur_ctrls + cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > max_ctrls))) {
 	    set_bit_noct(merge_prevented, umm);
 	  } else {
-	    ujj = cluster_index[tri_coord_no_diag_32(clidx_large, uii)];
+	    ujj = cluster_index[tcoord1 + uii];
 	    ukk = cluster_index[umm];
 	    if (ujj < ukk) {
 	      sorted_ibs_indices[ujj] = 0xffffffffU;
@@ -1054,8 +1053,8 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
 	}
       }
       for (uii = clidx_large + 1; uii < cluster_ct; uii++) {
-	if (cur_cluster_remap[uii] == uii) {
-	  umm = tri_coord_no_diag_32(clidx_small, uii);
+	umm = tri_coord_no_diag_32(clidx_small, uii);
+	if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, umm))) {
 	  if (is_set(merge_prevented, tri_coord_no_diag_32(clidx_large, uii)) || (size_restriction && (cur_size + cur_cluster_sizes[uii] > max_size)) || (case_restriction && (cur_cases + cur_cluster_case_cts[uii] > max_cases)) || (ctrl_restriction && (cur_ctrls + cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > max_ctrls))) {
 	    set_bit_noct(merge_prevented, umm);
 	  } else {

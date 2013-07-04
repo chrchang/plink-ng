@@ -513,7 +513,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    homozygous in this analysis.\n\n"
 	       );
     help_print("cluster\tcc\tgroup-avg\tgroup-average\tcluster-missing", &help_ctrl, 1,
-"  --cluster <cc> <group-avg> <missing> <only2> <old-tiebreaks>\n"
+"  --cluster <cc> <group-avg | old-tiebreaks> <missing> <only2>\n"
 "    Cluster individuals using a pairwise similarity statistic (normally IBS).\n"
 "    * The 'cc' modifier forces every cluster to have at least one case and one\n"
 "      control.\n"

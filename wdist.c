@@ -74,7 +74,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (3 Jul 2013)";
+  " (4 Jul 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -6670,19 +6670,27 @@ int32_t main(int32_t argc, char** argv) {
 	ci_size = dxx;
       } else if (!memcmp(argptr2, "luster", 7)) {
 	UNSTABLE;
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!memcmp(argv[cur_arg + uii], "cc", 3)) {
             cluster.modifier |= CLUSTER_CC;
 	  } else if (!memcmp(argv[cur_arg + uii], "group-avg", 10)) {
+	    if (cluster.modifier & CLUSTER_OLD_TIEBREAKS) {
+              sprintf(logbuf, "Error: --cluster 'group-avg' and 'old-tiebreaks' cannot be used together.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	    cluster.modifier |= CLUSTER_GROUP_AVG;
 	  } else if (!memcmp(argv[cur_arg + uii], "missing", 8)) {
 	    cluster.modifier |= CLUSTER_MISSING;
 	  } else if (!memcmp(argv[cur_arg + uii], "only2", 6)) {
 	    cluster.modifier |= CLUSTER_ONLY2;
 	  } else if (!memcmp(argv[cur_arg + uii], "old-tiebreaks", 14)) {
+	    if (cluster.modifier & CLUSTER_GROUP_AVG) {
+              sprintf(logbuf, "Error: --cluster 'group-avg' and 'old-tiebreaks' cannot be used together.%s", errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
+	    }
 	    cluster.modifier |= CLUSTER_OLD_TIEBREAKS;
 	  } else {
             sprintf(logbuf, "Error: Invalid --cluster parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
@@ -7842,6 +7850,9 @@ int32_t main(int32_t argc, char** argv) {
 	UNSTABLE;
         if (!(calculation_type & CALC_CLUSTER)) {
 	  sprintf(logbuf, "Error: --group-avg must be used with --cluster.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (cluster.modifier & CLUSTER_OLD_TIEBREAKS) {
+	  sprintf(logbuf, "Error: --cluster 'group-avg' and 'old-tiebreaks' cannot be used together.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         logprint("Note: --group-avg flag deprecated.  Use '--cluster group-avg'.\n");
