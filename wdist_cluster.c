@@ -1243,6 +1243,8 @@ int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, u
       logprint("Warning: Initial cluster assignment violates --qmatch constraint.\n");
     }
   }
+  sprintf(logbuf, "--%smatch constraints applied.\n", cp->match_fname? (cp->qmatch_fname? "match and q" : "") : "q");
+  logprintb();
   while (0) {
   cluster_enforce_match_ret_NOMEM:
     retval = RET_NOMEM;
