@@ -930,8 +930,11 @@ int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, u
 	}
         bufptr2 = item_endnn(bufptr);
 	if (cov_type_arr[cov_idx]) {
-          wptr = memcpyax(wptr, bufptr, bufptr2 - bufptr, '\t');
+          wptr = memcpyax(wptr, bufptr, bufptr2 - bufptr, '\0');
 	}
+      }
+      if ((uintptr_t)(((unsigned char*)wptr) - wkspace_base) > wkspace_left - MAXLINELEN) {
+	goto cluster_enforce_match_ret_NOMEM;
       }
     } while (fgets(tbuf, MAXLINELEN, matchfile));
     if (!feof(matchfile)) {
