@@ -78,7 +78,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
     bufptr = next_item(bufptr0);
     if (no_more_items_kns(bufptr)) {
       logprint(errstr_phenotype_format);
-      logprint("At least two items expected in line.\n");
+      logprint("At least two tokens expected in line.\n");
       sprintf(logbuf, "Original line: %s", bufptr0);
       logprintb();
       return RET_INVALID_FORMAT;
@@ -1207,7 +1207,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
     retval = RET_READ_FAIL;
     break;
   update_marker_cms_ret_INVALID_FORMAT_2:
-    logprint("Error: Fewer entries than expected in --update-cm file line.\n");
+    logprint("Error: Fewer tokens than expected in --update-cm file line.\n");
   update_marker_cms_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -1359,7 +1359,7 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
     retval = RET_READ_FAIL;
     break;
   update_marker_pos_ret_INVALID_FORMAT_2:
-    logprint("Error: Fewer entries than expected in --update-map file line.\n");
+    logprint("Error: Fewer tokens than expected in --update-map file line.\n");
   update_marker_pos_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -1876,7 +1876,7 @@ int32_t update_indiv_sexes(char* update_sex_fname, char* sorted_person_ids, uint
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
     bufptr = skip_initial_spaces(&(bufptr2[len2 + 1]));
     if (no_more_items_kns(bufptr)) {
-      logprint("Error: Fewer entries than expected in --update-sex line.\n");
+      logprint("Error: Fewer tokens than expected in --update-sex line.\n");
       goto update_indiv_sexes_ret_INVALID_FORMAT;
     }
     cc = *bufptr;
@@ -2104,7 +2104,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
       if (!families_only) {
 	bufptr = next_item(tbuf);
 	if (no_more_items_kns(bufptr)) {
-	  sprintf(logbuf, "Error: Fewer entries than expected in --%s line.\n", include_or_exclude_flag_str(flags));
+	  sprintf(logbuf, "Error: Fewer tokens than expected in --%s line.\n", include_or_exclude_flag_str(flags));
 	  logprintb();
 	  return RET_INVALID_FORMAT;
 	}
@@ -2748,7 +2748,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
     retval = RET_READ_FAIL;
     break;
   update_marker_chroms_ret_INVALID_FORMAT_2:
-    logprint("Error: Fewer entries than expected in --update-chr file line.\n");
+    logprint("Error: Fewer tokens than expected in --update-chr file line.\n");
   update_marker_chroms_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -4088,12 +4088,12 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
     bufptr = next_item_mult(col2_ptr, ped_col_skip - 1);
     if (no_more_items_kns(bufptr)) {
       putchar('\n');
-      sprintf(logbuf, "Error: Missing columns in .ped line: %s\n", col1_ptr);
+      sprintf(logbuf, "Error: Missing token(s) in .ped line: %s\n", col1_ptr);
       goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2;
     }
     if ((bufptr - col1_ptr) > (MAXLINELEN / 2) - 4) {
       putchar('\n');
-      logprint("Error: Pathologically long header item(s) in .ped file.\n");
+      logprint("Error: Pathologically long token(s) in .ped file.\n");
       goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT;
     }
     if (fwrite_checked(col1_ptr, strlen_se(col1_ptr), outfile)) {
@@ -4169,7 +4169,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
     wkspace_left += cur_slen_rdup;
     if (!is_eoln_kns(*bufptr)) {
       putchar('\n');
-      sprintf(logbuf, "Error: Too many entries in .ped line for indiv %" PRIuPTR ".\n", indiv_ct);
+      sprintf(logbuf, "Error: Too many tokens in .ped line for indiv %" PRIuPTR ".\n", indiv_ct);
       goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2;
     }
     indiv_ct++;
@@ -4560,7 +4560,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   }
   tbuf[MAXLINELEN - 6] = ' ';
   if (check_cm_col(mapfile, tbuf, 0, &cm_col)) {
-    sprintf(logbuf, "Error: Missing columns in .map line: %s", skip_initial_spaces(tbuf));
+    sprintf(logbuf, "Error: Missing token(s) in .map line: %s", skip_initial_spaces(tbuf));
     goto ped_to_bed_ret_INVALID_FORMAT_2;
   }
   do {
@@ -4575,7 +4575,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     col2_ptr = next_item(col1_ptr);
     bufptr = next_item_mult(col2_ptr, 1 + cm_col);
     if (no_more_items_kns(bufptr)) {
-      sprintf(logbuf, "Error: Missing columns in .map line: %s", col1_ptr);
+      sprintf(logbuf, "Error: Missing token(s) in .map line: %s", col1_ptr);
       goto ped_to_bed_ret_INVALID_FORMAT_2;
     }
     ii = marker_code(chrom_info_ptr->species, col1_ptr);
@@ -4689,11 +4689,11 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     }
     bufptr = next_item_mult(col2_ptr, ped_col_skip - 1);
     if (no_more_items_kns(bufptr)) {
-      sprintf(logbuf, "\nError: Missing columns in .ped line: %s\n", col1_ptr);
+      sprintf(logbuf, "\nError: Missing token(s) in .ped line: %s\n", col1_ptr);
       goto ped_to_bed_ret_INVALID_FORMAT_2;
     }
     if ((bufptr - col1_ptr) > (MAXLINELEN / 2) - 4) {
-      logprint("\nError: Pathologically long header item(s) in .ped file.\n");
+      logprint("\nError: Pathologically long token(s) in .ped file.\n");
       goto ped_to_bed_ret_INVALID_FORMAT;
     }
     if (fwrite_checked(col1_ptr, strlen_se(col1_ptr), outfile)) {
@@ -6481,7 +6481,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
     pos_start = next_item(chrom_start);
     allele_start = next_item(pos_start);
     if (no_more_items_kns(allele_start)) {
-      logprint("Error: Fewer entries than expected in --23file line.\n");
+      logprint("Error: Fewer tokens than expected in --23file line.\n");
       goto bed_from_23_ret_INVALID_FORMAT;
     }
     allele_calls = strlen_se(allele_start);
@@ -7567,11 +7567,11 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     }
     last_ptr = next_item(penult_ptr);
     if (no_more_items(last_ptr)) {
-      sprintf(logbuf, "\nError: Missing field(s) in --simulate%s input file line.\n", is_qt? "-qt" : "");
+      sprintf(logbuf, "\nError: Missing token(s) in --simulate%s input file line.\n", is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2;
     }
     if (!no_more_items(next_item(last_ptr))) {
-      sprintf(logbuf, "\nError: Too many field(s) in --simulate%s input file line.\n", is_qt? "-qt" : "");
+      sprintf(logbuf, "\nError: Too many tokens in --simulate%s input file line.\n", is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2;
     }
     atoiz(cptr, &ii);
@@ -8031,7 +8031,7 @@ int32_t recode_allele_load(char* recode_allele_name, char*** allele_missing_ptr,
     slen = strlen_se(bufptr);
     bufptr2 = skip_initial_spaces(&(bufptr[slen]));
     if (is_eoln_kns(*bufptr2)) {
-      logprint("Error: --recode-allele line has only one entry.\n");
+      logprint("Error: --recode-allele line has only one token.\n");
       goto recode_allele_load_ret_INVALID_FORMAT;
     }
     alen = strlen_se(bufptr2);
@@ -11004,7 +11004,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
       }
       if (!is_eoln_kns(*bufptr3)) {
 	fill_idbuf_fam_indiv(idbuf, bufptr, ' ');
-	sprintf(logbuf, "Error: %s line has too many entries (indiv id %s).\nIf this file has multi-character alleles, convert to binary before merging.\n", bedname, idbuf);
+	sprintf(logbuf, "Error: %s line has too many tokens (indiv id %s).\nIf this file has multi-character alleles, convert to binary before merging.\n", bedname, idbuf);
 	goto merge_main_ret_INVALID_FORMAT_4;
       }
     }
@@ -11165,7 +11165,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       }
       bufptr2 = next_item_mult(bufptr, 3);
       if (!no_more_items_kns(bufptr2)) {
-	logprint("Error: More than three items on --merge-list line.\n");
+	logprint("Error: More than three tokens on --merge-list line.\n");
         goto merge_datasets_ret_INVALID_FORMAT;
       }
       if (no_more_items_kns(next_item(bufptr))) {

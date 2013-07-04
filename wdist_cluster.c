@@ -144,7 +144,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     indiv_id = next_item(fam_id);
     cluster_name_ptr = next_item_mult(indiv_id, mwithin_col);
     if (no_more_items_kns(cluster_name_ptr)) {
-      logprint("Error: Fewer entries than expected in --within file line.\n");
+      logprint("Error: Fewer tokens than expected in --within file line.\n");
       goto load_clusters_ret_INVALID_FORMAT;
     }
     sorted_idx = bsearch_fam_indiv(idbuf, sorted_ids, max_person_id_len, indiv_ct, fam_id, indiv_id);
@@ -751,7 +751,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
     retval = RET_READ_FAIL;
     break;
   read_genome_ret_INVALID_FORMAT_4:
-    sprintf(logbuf, "Error: Fewer entries than expected in %s line.\n", read_genome_fname);
+    sprintf(logbuf, "Error: Fewer tokens than expected in %s line.\n", read_genome_fname);
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
@@ -766,6 +766,303 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
  read_genome_ret_1:
   wkspace_reset(wkspace_mark);
   gzclose_cond(gz_infile);
+  return retval;
+}
+
+int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uintptr_t* merge_prevented) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* matchfile = NULL;
+  FILE* typefile = NULL;
+  char* id_buf = &(tbuf[MAXLINELEN]);
+  uintptr_t cur_coord = 0;
+  uint32_t cluster_mismatch_warning = 0;
+  uint32_t cov_ct = 0;
+  uint32_t non_null_cov_ct = 0;
+  int32_t retval = 0;
+  char* sorted_ids;
+  uint32_t* id_map;
+  char** indiv_idx_to_match_str;
+  unsigned char* wkspace_mark2;
+  unsigned char* cov_type_arr;
+  char* bufptr;
+  char* bufptr2;
+  char* wptr;
+  unsigned char* ucptr;
+  uintptr_t indiv_idx1;
+  uintptr_t indiv_idx2;
+  uintptr_t clidx1;
+  uintptr_t clidx2;
+  uintptr_t tcoord;
+  uint32_t cov_idx;
+  uint32_t slen;
+  uint32_t uii;
+  int32_t ii;
+  char cc;
+  retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_indiv_ct, indiv_exclude, unfiltered_indiv_ct - indiv_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
+  if (retval) {
+    goto cluster_enforce_match_ret_1;
+  }
+  
+  wkspace_mark2 = wkspace_base;
+  tbuf[MAXLINELEN - 1] = ' ';
+  if (cp->match_fname) {
+    indiv_idx_to_match_str = (char**)wkspace_alloc(indiv_ct * sizeof(intptr_t));
+    if (!indiv_idx_to_match_str) {
+      goto cluster_enforce_match_ret_NOMEM;
+    }
+    for (indiv_idx1 = 0; indiv_idx1 < indiv_ct; indiv_idx1++) {
+      indiv_idx_to_match_str[indiv_idx1] = NULL;
+    }
+    cov_type_arr = wkspace_base;
+    if (wkspace_left < MAXLINELEN) {
+      goto cluster_enforce_match_ret_NOMEM;
+    }
+    if (fopen_checked(&matchfile, cp->match_fname, "r")) {
+      goto cluster_enforce_match_ret_OPEN_FAIL;
+    }
+    if (cp->match_type_fname) {
+      if (fopen_checked(&typefile, cp->match_type_fname, "r")) {
+	goto cluster_enforce_match_ret_OPEN_FAIL;
+      }
+      cov_idx = 0;
+      while (fgets(tbuf, MAXLINELEN, typefile)) {
+        if (!tbuf[MAXLINELEN - 1]) {
+	  logprint("Error: Pathologically long line in --match-type file.\n");
+          goto cluster_enforce_match_ret_INVALID_FORMAT;
+	}
+        bufptr = skip_initial_spaces(tbuf);
+	cc = *bufptr;
+        while (!is_eoln_kns(cc)) {
+	  slen = strlen_se(bufptr);
+	  cc = bufptr[0];
+	  if ((slen == 1) && ((cc == '0') || (cc == '-'))) {
+            cov_type_arr[cov_ct] = 1;
+	  } else if ((slen == 1) && ((cc == '1') || (cc == '+'))) {
+	    cov_type_arr[cov_ct] = 2;
+	  } else if (((slen == 2) && (cc == '-') && (bufptr[1] == '1')) || ((slen == 1) && (cc == '*'))) {
+            cov_type_arr[cov_ct] = 0;
+	    cov_idx++;
+	  } else {
+            logprint("Error: Invalid token in --match-type file (0/1/-1/-/+/* expected).\n");
+	    goto cluster_enforce_match_ret_INVALID_FORMAT;
+	  }
+	  cov_ct++;
+	  bufptr = skip_initial_spaces(&(bufptr[slen]));
+	  cc = *bufptr;
+	}
+	if (cov_ct > MAXLINELEN / 2) {
+	  logprint("Error: Too many tokens in --match-type file (max 65536).\n");
+	  goto cluster_enforce_match_ret_INVALID_FORMAT;
+	}
+      }
+      if (!feof(typefile)) {
+	goto cluster_enforce_match_ret_READ_FAIL;
+      }
+      fclose_null(&typefile);
+      if (!cov_ct) {
+        logprint("Error: Empty --match-type file.\n");
+	goto cluster_enforce_match_ret_INVALID_FORMAT;
+      }
+      non_null_cov_ct = cov_ct - cov_idx;
+      if (!non_null_cov_ct) {
+	logprint("Error: Degenerate --match-type file (all -1/*).\n");
+	goto cluster_enforce_match_ret_INVALID_FORMAT;
+      }
+      while (!cov_type_arr[cov_ct - 1]) {
+	cov_ct--;
+      }
+      cov_type_arr = (unsigned char*)wkspace_alloc(cov_ct);
+    }
+    do {
+      if (!fgets(tbuf, MAXLINELEN, matchfile)) {
+	if (feof(matchfile)) {
+	  logprint("Error: Empty --match file.\n");
+	  goto cluster_enforce_match_ret_INVALID_FORMAT;
+	}
+	goto cluster_enforce_match_ret_READ_FAIL;
+      }
+      if (!tbuf[MAXLINELEN - 1]) {
+        goto cluster_enforce_match_ret_INVALID_FORMAT_3;
+      }
+      bufptr = skip_initial_spaces(tbuf);
+    } while (is_eoln_kns(*bufptr));
+    if (!cov_ct) {
+      bufptr2 = next_item_mult(bufptr, 2);
+      if (no_more_items(bufptr2)) {
+        goto cluster_enforce_match_ret_INVALID_FORMAT_2;
+      }
+      do {
+	bufptr2 = next_item(bufptr2);
+	cov_ct++;
+      } while (!no_more_items(bufptr2));
+      cov_type_arr = (unsigned char*)wkspace_alloc(cov_ct);
+      memset(cov_type_arr, 2, cov_ct);
+      non_null_cov_ct = cov_ct;
+    }
+    wptr = (char*)wkspace_base;
+    do {
+      if (!tbuf[MAXLINELEN - 1]) {
+	goto cluster_enforce_match_ret_INVALID_FORMAT_3;
+      }
+      bufptr = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*bufptr)) {
+	continue;
+      }
+      bufptr2 = next_item(bufptr);
+      if (no_more_items(bufptr2)) {
+        goto cluster_enforce_match_ret_INVALID_FORMAT_2;
+      }
+      ii = bsearch_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, bufptr, bufptr2);
+      if (ii == -1) {
+	continue;
+      }
+      indiv_idx1 = id_map[(uint32_t)ii];
+      if (indiv_idx_to_match_str[indiv_idx1]) {
+        logprint("Error: Duplicate individual ID in --match file.\n");
+	goto cluster_enforce_match_ret_INVALID_FORMAT;
+      }
+      indiv_idx_to_match_str[indiv_idx1] = wptr;
+      bufptr2 = item_endnn(bufptr2);
+      for (cov_idx = 0; cov_idx < cov_ct; cov_idx++) {
+        bufptr = skip_initial_spaces(bufptr2);
+	if (is_eoln_kns(*bufptr)) {
+          goto cluster_enforce_match_ret_INVALID_FORMAT_2;
+	}
+        bufptr2 = item_endnn(bufptr);
+	if (cov_type_arr[cov_idx]) {
+          wptr = memcpyax(wptr, bufptr, bufptr2 - bufptr, '\t');
+	}
+      }
+    } while (fgets(tbuf, MAXLINELEN, matchfile));
+    if (!feof(matchfile)) {
+      goto cluster_enforce_match_ret_READ_FAIL;
+    }
+    fclose_null(&matchfile);
+    if (non_null_cov_ct != cov_ct) {
+      // collapse type array, now that ignored items have been removed
+      bufptr = (char*)cov_type_arr;
+      bufptr2 = &(bufptr[cov_ct]);
+      while (*bufptr) {
+	bufptr++;
+      }
+      wptr = bufptr;
+      do {
+	cc = *bufptr;
+	if (cc) {
+	  *wptr++ = cc;
+	}
+      } while ((++bufptr) < bufptr2);
+    }
+    clidx1 = 0;
+    clidx2 = 1; // need these unequal if indiv_to_cluster undefined
+    for (indiv_idx1 = 1; indiv_idx1 < indiv_ct; indiv_idx1++) {
+      wptr = indiv_idx_to_match_str[indiv_idx1];
+      if (!wptr) {
+	continue;
+      }
+      if (indiv_to_cluster) {
+        clidx1 = indiv_to_cluster[indiv_idx1];
+	tcoord = (clidx1 * (clidx1 - 1)) >> 1;
+      } else {
+	tcoord = (indiv_idx1 * (indiv_idx1 - 1)) >> 1;
+      }
+      for (indiv_idx2 = 0; indiv_idx2 < indiv_idx1; indiv_idx2++) {
+        bufptr = indiv_idx_to_match_str[indiv_idx2];
+	if (!bufptr) {
+	  continue;
+	}
+	if (indiv_to_cluster) {
+	  clidx2 = indiv_to_cluster[indiv_idx2];
+	  if (clidx2 == clidx1) {
+            if (cluster_mismatch_warning) {
+	      continue;
+	    }
+	  } else {
+            if (clidx2 < clidx1) {
+	      cur_coord = tcoord + clidx2;
+	    } else {
+	      cur_coord = ((clidx2 * (clidx2 - 1)) >> 1) + clidx1;
+	    }
+            if (is_set_ul(merge_prevented, cur_coord)) {
+	      continue;
+	    }
+	  }
+	} else {
+	  cur_coord = tcoord + indiv_idx2;
+	  if (is_set_ul(merge_prevented, cur_coord)) {
+	    continue;
+	  }
+	}
+	ucptr = cov_type_arr;
+        bufptr2 = wptr;
+	for (cov_idx = 0; cov_idx < non_null_cov_ct; cov_idx++) {
+	  slen = strlen(bufptr);
+	  uii = strlen(bufptr2);
+	  if (*ucptr++ == 1) {
+	    // negative match
+	    if ((slen == uii) && (!memcmp(bufptr, bufptr2, uii))) {
+	      break;
+	    }
+	  } else {
+	    // positive match
+	    if ((slen != uii) || memcmp(bufptr, bufptr2, uii)) {
+	      break;
+	    }
+	  }
+	  bufptr = &(bufptr[slen + 1]);
+	  bufptr2 = &(bufptr2[uii + 1]);
+	}
+	if (cov_idx < non_null_cov_ct) {
+	  if (clidx1 != clidx2) {
+	    set_bit_ul(merge_prevented, cur_coord);
+	  } else {
+	    cluster_mismatch_warning = 1;
+	  }
+	}
+      }
+    }
+    if (cluster_mismatch_warning) {
+      logprint("Warning: Initial cluster assignment violates --match constraint.\n");
+      cluster_mismatch_warning = 0;
+    }
+    wkspace_reset(wkspace_mark2);
+  }
+  if (cp->qmatch_fname) {
+    if (fopen_checked(&matchfile, cp->qmatch_fname, "r")) {
+      goto cluster_enforce_match_ret_OPEN_FAIL;
+    }
+    if (fopen_checked(&typefile, cp->qt_fname, "r")) {
+      goto cluster_enforce_match_ret_OPEN_FAIL;
+    }
+    // ...
+    if (cluster_mismatch_warning) {
+      logprint("Warning: Initial cluster assignment violates --qmatch constraint.\n");
+    }
+  }
+  while (0) {
+  cluster_enforce_match_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  cluster_enforce_match_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  cluster_enforce_match_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  cluster_enforce_match_ret_INVALID_FORMAT_3:
+    logprint("Error: Pathologically long line in --match file.\n");
+    retval = RET_INVALID_FORMAT;
+    break;
+  cluster_enforce_match_ret_INVALID_FORMAT_2:
+    logprint("Error: Fewer tokens than expected in --match line.\n");
+  cluster_enforce_match_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ cluster_enforce_match_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(matchfile);
+  fclose_cond(typefile);
   return retval;
 }
 

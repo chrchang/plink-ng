@@ -5102,7 +5102,7 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
     }
     if (no_more_items_kns(str2_ptr)) {
       // probably want option for letting this slide in the future
-      sprintf(logbuf, "Error: Fewer items than expected in %s line.\n", fname);
+      sprintf(logbuf, "Error: Fewer tokens than expected in %s line.\n", fname);
       goto scan_max_strlen_ret_INVALID_FORMAT;
     }
     cur_str_len = strlen_se(str1_ptr);
@@ -5181,7 +5181,7 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
     }
     bufptr2 = next_item(bufptr);
     if (no_more_items_kns(bufptr2)) {
-      sprintf(logbuf, "Error: Fewer items than expected in %s line.\n", fname);
+      sprintf(logbuf, "Error: Fewer tokens than expected in %s line.\n", fname);
       goto scan_max_fam_indiv_strlen_ret_INVALID_FORMAT;
     }
     cur_person_id_len = strlen_se(bufptr) + strlen_se(bufptr2) + 2;

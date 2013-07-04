@@ -3241,7 +3241,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     cur_person_id_len = bufptr2 - bufptr;
     bufptr2 = skip_initial_spaces(bufptr2);
     if (is_eoln_kns(*bufptr2)) {
-      logprint("Error: Fewer items than expected in .grm.id line.\n");
+      logprint("Error: Fewer tokens than expected in .grm.id line.\n");
       goto unrelated_herit_batch_ret_INVALID_FORMAT;
     }
     cur_person_id_len += strlen_se(bufptr2) + 2;
@@ -3805,8 +3805,8 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
     }
   }
 #ifdef __cplusplus
-  // std::sort is faster than qsort for basic types.  See e.g. Anders
-  // Kaseorg's answer to
+  // std::sort is faster than qsort for basic types.  See e.g. Anders Kaseorg's
+  // answer to
   // http://www.quora.com/Software-Engineering/Generally-how-much-faster-is-C-compared-to-C++
   std::sort(ll_pool, &(ll_pool[ll_size]));
   std::sort(lh_pool, &(lh_pool[lh_size]));
@@ -9412,19 +9412,15 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     }
   }
 
-  if (cp->match_fname) {
-    logprint("Error: --match is not implemented yet.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto calc_cluster_neighbor_ret_1;
-  }
-  if (cp->qmatch_fname) {
-    logprint("Error: --qmatch/--qt is not implemented yet.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto calc_cluster_neighbor_ret_1;
+  wkspace_reset(wkspace_mark_precluster);
+  if (cp->match_fname || cp->qmatch_fname) {
+    retval = cluster_enforce_match(cp, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, cluster_ct, cluster_starts, indiv_to_cluster, cluster_merge_prevented);
+    if (retval) {
+      goto calc_cluster_neighbor_ret_1;
+    }
   }
 
   tcoord = next_set_ul(cluster_merge_prevented, 0, initial_triangle_size);
-  wkspace_reset(wkspace_mark_precluster);
   logprint("Clustering...");
   printf(" [sorting IB%c values]", cluster_missing? 'M' : 'S');
   fflush(stdout);

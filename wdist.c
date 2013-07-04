@@ -4119,7 +4119,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       if (retval) {
 	if (retval == LOAD_PHENO_LAST_COL) {
 	  logprint(errstr_phenotype_format);
-	  logprint("Fewer entries than expected in line.\n");
+	  logprint("Fewer tokens than expected in line.\n");
 	  retval = RET_INVALID_FORMAT;
 	}
 	goto wdist_ret_1;
@@ -4359,7 +4359,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (memcmp(tbuf, "l\x1b\x01", 3)) {
       if (memcmp(tbuf, "l\x1b", 3)) {
 	if ((tbuf[0] == '#') || (!memcmp(tbuf, "chr", 3))) {
-          logprint("Error: Invalid header bytes in PLINK .bed file.  (Is this actually a UCSC\nGenome Browser BED file?)\n");
+          logprint("Error: Invalid header bytes in PLINK .bed file.  (Is this a UCSC Genome Browser\nBED file instead?)\n");
 	} else {
 	  logprint("Error: Invalid header bytes in PLINK .bed file.\n");
 	}
@@ -7855,7 +7855,8 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --cluster 'group-avg' and 'old-tiebreaks' cannot be used together.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        logprint("Note: --group-avg flag deprecated.  Use '--cluster group-avg'.\n");
+        sprintf(logbuf, "Note: --%s flag deprecated.  Use '--cluster group-avg'.\n", argptr);
+	logprintb();
 	cluster.modifier |= CLUSTER_GROUP_AVG;
 	goto main_param_zero;
       } else {
