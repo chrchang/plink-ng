@@ -774,25 +774,35 @@ int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, u
   FILE* matchfile = NULL;
   FILE* typefile = NULL;
   char* id_buf = &(tbuf[MAXLINELEN]);
+  char* missing_str = NULL;
   uintptr_t cur_coord = 0;
   uint32_t cluster_mismatch_warning = 0;
   uint32_t cov_ct = 0;
   uint32_t non_null_cov_ct = 0;
+  uint32_t missing_len = 0;
+  const char default_missing[] = "-9";
   int32_t retval = 0;
   char* sorted_ids;
   uint32_t* id_map;
   char** indiv_idx_to_match_str;
+  double** indiv_idx_to_dvals;
   unsigned char* wkspace_mark2;
   unsigned char* cov_type_arr;
+  double* tol_arr;
   char* bufptr;
   char* bufptr2;
   char* wptr;
   unsigned char* ucptr;
+  double* dptr;
+  double* dptr2;
+  double* dptr3;
   uintptr_t indiv_idx1;
   uintptr_t indiv_idx2;
   uintptr_t clidx1;
   uintptr_t clidx2;
   uintptr_t tcoord;
+  double dxx;
+  double dyy;
   uint32_t cov_idx;
   uint32_t slen;
   uint32_t uii;
@@ -820,6 +830,12 @@ int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, u
     if (fopen_checked(&matchfile, cp->match_fname, "r")) {
       goto cluster_enforce_match_ret_OPEN_FAIL;
     }
+    if (cp->match_missing_str) {
+      missing_str = cp->match_missing_str;
+    } else {
+      missing_str = (char*)default_missing;
+    }
+    missing_len = strlen(missing_str);
     if (cp->match_type_fname) {
       if (fopen_checked(&typefile, cp->match_type_fname, "r")) {
 	goto cluster_enforce_match_ret_OPEN_FAIL;
@@ -930,7 +946,12 @@ int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, u
 	}
         bufptr2 = item_endnn(bufptr);
 	if (cov_type_arr[cov_idx]) {
-          wptr = memcpyax(wptr, bufptr, bufptr2 - bufptr, '\0');
+	  uii = bufptr2 - bufptr;
+	  if ((uii == missing_len) && (!memcmp(bufptr, missing_str, uii))) {
+	    *wptr++ = '\0';
+	  } else {
+            wptr = memcpyax(wptr, bufptr, uii, '\0');
+	  }
 	}
       }
       if ((uintptr_t)(((unsigned char*)wptr) - wkspace_base) > wkspace_left - MAXLINELEN) {
@@ -944,17 +965,17 @@ int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, u
     if (non_null_cov_ct != cov_ct) {
       // collapse type array, now that ignored items have been removed
       bufptr = (char*)cov_type_arr;
-      bufptr2 = &(bufptr[cov_ct]);
+      bufptr2 = &(bufptr[non_null_cov_ct]);
       while (*bufptr) {
 	bufptr++;
       }
       wptr = bufptr;
-      do {
-	cc = *bufptr;
-	if (cc) {
-	  *wptr++ = cc;
-	}
-      } while ((++bufptr) < bufptr2);
+      while (wptr < bufptr2) {
+	do {
+          cc = *(++bufptr);
+	} while (!cc);
+	*wptr++ = cc;
+      }
     }
     clidx1 = 0;
     clidx2 = 1; // need these unequal if indiv_to_cluster undefined
@@ -1001,15 +1022,17 @@ int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, u
 	for (cov_idx = 0; cov_idx < non_null_cov_ct; cov_idx++) {
 	  slen = strlen(bufptr);
 	  uii = strlen(bufptr2);
-	  if (*ucptr++ == 1) {
-	    // negative match
-	    if ((slen == uii) && (!memcmp(bufptr, bufptr2, uii))) {
-	      break;
-	    }
-	  } else {
-	    // positive match
-	    if ((slen != uii) || memcmp(bufptr, bufptr2, uii)) {
-	      break;
+	  if (slen && uii) {
+	    if (*ucptr++ == 1) {
+	      // negative match
+	      if ((slen == uii) && (!memcmp(bufptr, bufptr2, uii))) {
+		break;
+	      }
+	    } else {
+	      // positive match
+	      if ((slen != uii) || memcmp(bufptr, bufptr2, uii)) {
+		break;
+	      }
 	    }
 	  }
 	  bufptr = &(bufptr[slen + 1]);
@@ -1028,16 +1051,194 @@ int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, u
       logprint("Warning: Initial cluster assignment violates --match constraint.\n");
       cluster_mismatch_warning = 0;
     }
+    cov_ct = 0;
+    non_null_cov_ct = 0;
+    missing_len = 0;
     wkspace_reset(wkspace_mark2);
   }
   if (cp->qmatch_fname) {
-    if (fopen_checked(&matchfile, cp->qmatch_fname, "r")) {
-      goto cluster_enforce_match_ret_OPEN_FAIL;
+    indiv_idx_to_dvals = (double**)wkspace_alloc(indiv_ct * sizeof(intptr_t));
+    if (!indiv_idx_to_dvals) {
+      goto cluster_enforce_match_ret_NOMEM;
     }
+    for (indiv_idx1 = 0; indiv_idx1 < indiv_ct; indiv_idx1++) {
+      indiv_idx_to_dvals[indiv_idx1] = NULL;
+    }
+    tol_arr = (double*)wkspace_base;
+    if (wkspace_left <= MAXLINELEN * 4) {
+      goto cluster_enforce_match_ret_NOMEM;
+    }
+    if (cp->qmatch_missing_str) {
+      missing_str = cp->qmatch_missing_str;
+    } else {
+      missing_str = (char*)default_missing;
+    }
+    missing_len = strlen(missing_str);
     if (fopen_checked(&typefile, cp->qt_fname, "r")) {
       goto cluster_enforce_match_ret_OPEN_FAIL;
     }
-    // ...
+    while (fgets(tbuf, MAXLINELEN, typefile)) {
+      if (!tbuf[MAXLINELEN - 1]) {
+        logprint("Error: Pathologically long line in --qt file.\n");
+	goto cluster_enforce_match_ret_INVALID_FORMAT;
+      }
+      bufptr = skip_initial_spaces(tbuf);
+      while (!is_eoln_kns(*bufptr)) {
+        if (sscanf(bufptr, "%lg", &dxx) != 1) {
+	  logprint("Error: Non-numeric value in --qt file.\n");
+	  goto cluster_enforce_match_ret_INVALID_FORMAT;
+	}
+	if (dxx < 0) {
+	  if (dxx != -1) {
+	    logprint("Error: Invalid tolerance in --qt file (-1 = ignore, other values must be\nnonnegative).\n");
+            goto cluster_enforce_match_ret_INVALID_FORMAT;
+	  }
+	} else {
+	  non_null_cov_ct++;
+	}
+	tol_arr[cov_ct++] = dxx;
+	bufptr = skip_initial_spaces(item_endnn(bufptr));
+	if (cov_ct > 65536) {
+          logprint("Error: Too many values in --qt file.\n");
+	  goto cluster_enforce_match_ret_INVALID_FORMAT;
+	}
+      }
+    }
+    if (!feof(typefile)) {
+      goto cluster_enforce_match_ret_READ_FAIL;
+    }
+    fclose_null(&typefile);
+    if (!cov_ct) {
+      logprint("Error: Empty --qt file.\n");
+      goto cluster_enforce_match_ret_INVALID_FORMAT;
+    }
+    tol_arr = (double*)wkspace_alloc(cov_ct * sizeof(double));
+    if (wkspace_left < non_null_cov_ct * sizeof(double)) {
+      goto cluster_enforce_match_ret_NOMEM;
+    }
+    dptr = (double*)wkspace_base;
+    if (fopen_checked(&matchfile, cp->qmatch_fname, "r")) {
+      goto cluster_enforce_match_ret_OPEN_FAIL;
+    }
+    while (fgets(tbuf, MAXLINELEN, matchfile)) {
+      if (!tbuf[MAXLINELEN - 1]) {
+	logprint("Error: Pathologically long line in --qmatch file.\n");
+	goto cluster_enforce_match_ret_INVALID_FORMAT;
+      }
+      bufptr = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*bufptr)) {
+	continue;
+      }
+      bufptr2 = next_item(bufptr);
+      if (no_more_items(bufptr2)) {
+        goto cluster_enforce_match_ret_INVALID_FORMAT_4;
+      }
+      ii = bsearch_fam_indiv(id_buf, sorted_ids, max_person_id_len, indiv_ct, bufptr, bufptr2);
+      if (ii == -1) {
+	continue;
+      }
+      indiv_idx1 = id_map[(uint32_t)ii];
+      if (indiv_idx_to_dvals[indiv_idx1]) {
+	logprint("Error: Duplicate individual ID in --qmatch file.\n");
+        goto cluster_enforce_match_ret_INVALID_FORMAT;
+      }
+      indiv_idx_to_dvals[indiv_idx1] = dptr;
+      for (cov_idx = 0; cov_idx < cov_ct; cov_idx++) {
+	bufptr2 = skip_initial_spaces(item_endnn(bufptr2));
+	if (is_eoln_kns(*bufptr2)) {
+	  goto cluster_enforce_match_ret_INVALID_FORMAT_4;
+	}
+        if (tol_arr[cov_idx] != -1) {
+	  if ((!memcmp(bufptr2, missing_str, missing_len)) && (((unsigned char)bufptr2[missing_len]) <= ' ')) {
+	    *dptr++ = -INFINITY;
+	  } else {
+            if (sscanf(bufptr2, "%lg", dptr++) != 1) {
+              logprint("Error: Non-numeric covariate in --qmatch file.\n");
+	      goto cluster_enforce_match_ret_INVALID_FORMAT;
+	    }
+	  }
+	}
+      }
+
+      if (wkspace_left < (uintptr_t)(((unsigned char*)(&(dptr[non_null_cov_ct]))) - wkspace_base)) {
+	goto cluster_enforce_match_ret_NOMEM;
+      }
+    }
+    if (!feof(matchfile)) {
+      goto cluster_enforce_match_ret_READ_FAIL;
+    }
+    fclose_null(&matchfile);
+    if (non_null_cov_ct != cov_ct) {
+      dptr = tol_arr;
+      dptr3 = &(tol_arr[non_null_cov_ct]);
+      while (*dptr != -1) {
+	dptr++;
+      }
+      dptr2 = dptr;
+      while (dptr2 < dptr3) {
+	do {
+          dxx = *(++dptr);
+	} while (dxx == -1);
+        *dptr2++ = dxx;
+      }
+    }
+    clidx1 = 0;
+    clidx2 = 1;
+    for (indiv_idx1 = 1; indiv_idx1 < indiv_ct; indiv_idx1++) {
+      dptr3 = indiv_idx_to_dvals[indiv_idx1];
+      if (!dptr3) {
+	continue;
+      }
+      if (indiv_to_cluster) {
+	clidx1 = indiv_to_cluster[indiv_idx1];
+	tcoord = (clidx1 * (clidx1 - 1)) >> 1;
+      } else {
+        tcoord = (indiv_idx1 * (indiv_idx1 - 1)) >> 1;
+      }
+      for (indiv_idx2 = 0; indiv_idx2 < indiv_idx1; indiv_idx2++) {
+        dptr = indiv_idx_to_dvals[indiv_idx2];
+        if (!dptr) {
+	  continue;
+	}
+	if (indiv_to_cluster) {
+	  clidx2 = indiv_to_cluster[indiv_idx2];
+	  if (clidx2 == clidx1) {
+            if (cluster_mismatch_warning) {
+	      continue;
+	    }
+	  } else {
+            if (clidx2 < clidx1) {
+	      cur_coord = tcoord + clidx2;
+	    } else {
+	      cur_coord = ((clidx2 * (clidx2 - 1)) >> 1) + clidx1;
+	    }
+            if (is_set_ul(merge_prevented, cur_coord)) {
+	      continue;
+	    }
+	  }
+	} else {
+	  cur_coord = tcoord + indiv_idx2;
+	  if (is_set_ul(merge_prevented, cur_coord)) {
+	    continue;
+	  }
+	}
+        dptr2 = dptr3;
+	for (cov_idx = 0; cov_idx < non_null_cov_ct; cov_idx++) {
+	  dxx = *dptr++;
+	  dyy = *dptr2++;
+	  if ((dxx != -INFINITY) && (dyy != -INFINITY) && (tol_arr[cov_idx] < fabs(dxx - dyy))) {
+            break;
+	  }
+	}
+	if (cov_idx < non_null_cov_ct) {
+	  if (clidx1 != clidx2) {
+	    set_bit_ul(merge_prevented, cur_coord);
+	  } else {
+	    cluster_mismatch_warning = 1;
+	  }
+	}
+      }
+    }
     if (cluster_mismatch_warning) {
       logprint("Warning: Initial cluster assignment violates --qmatch constraint.\n");
     }
@@ -1051,6 +1252,10 @@ int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, u
     break;
   cluster_enforce_match_ret_READ_FAIL:
     retval = RET_READ_FAIL;
+    break;
+  cluster_enforce_match_ret_INVALID_FORMAT_4:
+    logprint("Error: Fewer tokens than expected in --qmatch line.\n");
+    retval = RET_INVALID_FORMAT;
     break;
   cluster_enforce_match_ret_INVALID_FORMAT_3:
     logprint("Error: Pathologically long line in --match file.\n");
