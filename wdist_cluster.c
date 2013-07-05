@@ -769,7 +769,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
   return retval;
 }
 
-int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uintptr_t* merge_prevented) {
+int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uintptr_t* merge_prevented) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* matchfile = NULL;
   FILE* typefile = NULL;
@@ -780,8 +780,8 @@ int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, u
   uint32_t cov_ct = 0;
   uint32_t non_null_cov_ct = 0;
   uint32_t missing_len = 0;
-  const char default_missing[] = "-9";
   int32_t retval = 0;
+  char intbuf[12];
   char* sorted_ids;
   uint32_t* id_map;
   char** indiv_idx_to_match_str;
@@ -832,10 +832,8 @@ int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, u
     }
     if (cp->match_missing_str) {
       missing_str = cp->match_missing_str;
-    } else {
-      missing_str = (char*)default_missing;
+      missing_len = strlen(missing_str);
     }
-    missing_len = strlen(missing_str);
     if (cp->match_type_fname) {
       if (fopen_checked(&typefile, cp->match_type_fname, "r")) {
 	goto cluster_enforce_match_ret_OPEN_FAIL;
@@ -1053,7 +1051,6 @@ int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, u
     }
     cov_ct = 0;
     non_null_cov_ct = 0;
-    missing_len = 0;
     wkspace_reset(wkspace_mark2);
   }
   if (cp->qmatch_fname) {
@@ -1071,7 +1068,14 @@ int32_t cluster_enforce_match(Cluster_info* cp, uintptr_t unfiltered_indiv_ct, u
     if (cp->qmatch_missing_str) {
       missing_str = cp->qmatch_missing_str;
     } else {
-      missing_str = (char*)default_missing;
+      bufptr = intbuf;
+      if (missing_pheno < 0) {
+	*bufptr++ = '-';
+	missing_pheno = -missing_pheno;
+      }
+      bufptr = uint32_write(bufptr, (uint32_t)missing_pheno);
+      *bufptr = '\0';
+      missing_str = intbuf;
     }
     missing_len = strlen(missing_str);
     if (fopen_checked(&typefile, cp->qt_fname, "r")) {
