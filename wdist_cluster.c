@@ -2384,7 +2384,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
   // no need to fill upper right
 
   // see eigen_lapack() in PLINK lapackf.cpp (though we use dsyevr_ instead of
-  // dsyevx_)
+  // dsyevx_).  todo: use arpack-ng instead?
   mdim = ulii;
   i2 = mdim;
   i1 = i2 + 1 - dim_ct;

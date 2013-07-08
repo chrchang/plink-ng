@@ -3,62 +3,9 @@
  * Version 2.3  3 Mar 2013  Mark Adler
  */
 
-#include <stdint.h>
-#include <inttypes.h>
-#define BLOCKSIZE 131072LU
-// extra allocated input buffer space, to simplify callback function logic
-#define SUPERSIZE 131072LU
-
 // Modified by Christopher Chang (chrchang@alumni.caltech.edu) to export
-// parallel_compress() as a library function...
-#ifdef _WIN32
-// ...except on Windows, where the yarn.c threading library doesn't yet work.
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <windows.h>
-#include "zlib-1.2.8/zlib.h"
-
-void pigz_init(uint32_t setprocs) {
-  return;
-}
-
-// not so parallel for now
-void parallel_compress(char* out_fname, uint32_t(* emitn)(uint32_t, unsigned char*)) {
-  unsigned char buf[BLOCKSIZE + SUPERSIZE];
-  uint32_t overflow_ct = 0;
-  gzFile gz_outfile = gzopen(out_fname, "wb");
-  uint32_t last_size;
-  if (!gz_outfile) {
-    printf("\nError: Failed to open %s.\n", out_fname);
-    exit(2);
-  }
-  do {
-    last_size = emitn(overflow_ct, buf);
-    if (last_size > BLOCKSIZE) {
-      overflow_ct = last_size - BLOCKSIZE;
-      last_size = BLOCKSIZE;
-    } else {
-      overflow_ct = 0;
-    }
-    if (last_size) {
-      if (!gzwrite(gz_outfile, buf, last_size)) {
-	printf("\nError: File write failure.\n");
-	gzclose(gz_outfile);
-	exit(6);
-      }
-    }
-    if (overflow_ct) {
-      memcpy(buf, &(buf[BLOCKSIZE]), overflow_ct);
-    }
-  } while (last_size);
-  if (gzclose(gz_outfile) != Z_OK) {
-    printf("\nError: File write failure.\n");
-    exit(6);
-  }
-}
-
-#else
+// parallel_compress() as a library function (except on Windows, where the
+// yarn.c threadling library doesn't yet work).
 
 /*
   This software is provided 'as-is', without any express or implied
@@ -74,7 +21,8 @@ void parallel_compress(char* out_fname, uint32_t(* emitn)(uint32_t, unsigned cha
      in a product, an acknowledgment in the product documentation would be
      appreciated but is not required.
   2. Altered source versions must be plainly marked as such, and must not be
-     misrepresented as being the original software.
+     misrepresented as being the original software.  (THIS IS AN ALTERED
+     VERSION.)
   3. This notice may not be removed or altered from any source distribution.
 
   Mark Adler
@@ -213,8 +161,6 @@ void parallel_compress(char* out_fname, uint32_t(* emitn)(uint32_t, unsigned cha
                        Fix handling of junk after compressed data
  */
 
-#define VERSION "pigz 2.3\n"
-
 /* To-do:
     - make source portable for Windows, VMS, etc. (see gzip source code)
     - make build portable (currently good for Unixish)
@@ -344,6 +290,62 @@ void parallel_compress(char* out_fname, uint32_t(* emitn)(uint32_t, unsigned cha
    buffers is not directly limited, but is indirectly limited by the release of
    input buffers to about the same number.
  */
+
+#include <stdint.h>
+#include <inttypes.h>
+#define BLOCKSIZE 131072LU
+// extra allocated input buffer space, to simplify callback function logic
+#define SUPERSIZE 131072LU
+
+#ifdef _WIN32
+// stopgap non-parallel code for Windows
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <windows.h>
+#include "zlib-1.2.8/zlib.h"
+
+void pigz_init(uint32_t setprocs) {
+  return;
+}
+
+void parallel_compress(char* out_fname, uint32_t(* emitn)(uint32_t, unsigned char*)) {
+  unsigned char buf[BLOCKSIZE + SUPERSIZE];
+  uint32_t overflow_ct = 0;
+  gzFile gz_outfile = gzopen(out_fname, "wb");
+  uint32_t last_size;
+  if (!gz_outfile) {
+    printf("\nError: Failed to open %s.\n", out_fname);
+    exit(2);
+  }
+  do {
+    last_size = emitn(overflow_ct, buf);
+    if (last_size > BLOCKSIZE) {
+      overflow_ct = last_size - BLOCKSIZE;
+      last_size = BLOCKSIZE;
+    } else {
+      overflow_ct = 0;
+    }
+    if (last_size) {
+      if (!gzwrite(gz_outfile, buf, last_size)) {
+	printf("\nError: File write failure.\n");
+	gzclose(gz_outfile);
+	exit(6);
+      }
+    }
+    if (overflow_ct) {
+      memcpy(buf, &(buf[BLOCKSIZE]), overflow_ct);
+    }
+  } while (last_size);
+  if (gzclose(gz_outfile) != Z_OK) {
+    printf("\nError: File write failure.\n");
+    exit(6);
+  }
+}
+
+#else
+
+#define VERSION "pigz 2.3\n"
 
 /* use large file functions if available */
 #define _FILE_OFFSET_BITS 64

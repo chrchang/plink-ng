@@ -298,8 +298,12 @@ typedef union {
 #define RECODE_IID 0x4000
 
 #define GENOME_OUTPUT_GZ 1
-#define GENOME_OUTPUT_FULL 2
-#define GENOME_IBD_UNBOUNDED 4
+#define GENOME_REL_CHECK 2
+#define GENOME_OUTPUT_FULL 4
+#define GENOME_IBD_UNBOUNDED 8
+#define GENOME_NUDGE 0x10
+// separate flag to ensure behavior is unchanged under --unbounded
+#define GENOME_FILTER_PI_HAT 0x20
 
 #define WRITE_COVAR_PHENO 1
 #define WRITE_COVAR_DUMMY 2

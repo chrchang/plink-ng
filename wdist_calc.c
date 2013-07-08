@@ -39,8 +39,8 @@
 // directly to f_0(x_0) + f_1(x_1) + f_2(x_2) + f_3(x_3) + f_4(x_4); similarly
 // for f_{5-9}, f_{10-14}, and f_{15-19}.  This requires precomputation of four
 // lookup tables of size 2^15, total size 1 MB (which fits comfortably in a
-// typical L2 cache these days), and licenses the use of four table lookups and
-// adds instead of twenty.
+// typical L2/L3 cache these days), and licenses the use of four table lookups
+// and adds instead of twenty.
 //
 // 4. Bitslicing algorithms for especially fast calculation of unweighted
 // distances and SNP covariances.  Zero-exponent distance matrices and IBS
@@ -458,8 +458,8 @@ void fill_weights(double* weights, double* set_allele_freqs, double exponent) {
 #endif
     twt[0] = 0;
     for (ii = 0; ii < 4; ii += 1) {
-      // bizarrely, turning the ii == 2 case into a memcpy doesn't actually
-      // seem to speed this up
+      // turning the ii == 2 case into a memcpy doesn't actually seem to speed
+      // this up
       if (ii & 1) {
 	twt[0] += wt[6];
       }
@@ -4643,14 +4643,23 @@ static double g_cg_e01;
 static double g_cg_e02;
 static double g_cg_e11;
 static double g_cg_e12;
+static double g_cg_min_pi_hat;
+static double g_cg_max_pi_hat;
 
 uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
   char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
-  char* cptr;
-  char* indiv2;
+  uint32_t is_rel_check = g_cg_genome_modifier & GENOME_REL_CHECK;
+  uint32_t is_unbounded = g_cg_genome_modifier & GENOME_IBD_UNBOUNDED;
+  uint32_t is_nudge = g_cg_genome_modifier & GENOME_NUDGE;
+  double min_pi_hat = g_cg_min_pi_hat;
+  double max_pi_hat = g_cg_max_pi_hat;
+  uint32_t filter_pi_hat = g_cg_genome_modifier & GENOME_FILTER_PI_HAT;
   char* pat2 = NULL;
   char* mat2 = NULL;
+  char* cptr;
+  char* indiv2;
+  char* sptr_cur_start;
   uint32_t founder_ct;
   uint32_t uii;
   uint32_t ujj;
@@ -4692,6 +4701,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       *g_cg_sptr_start++ = ' ';
     }
     while (g_cg_indiv2idx < g_indiv_ct) {
+      sptr_cur_start = sptr_cur;
       sptr_cur = memcpya(sptr_cur, tbuf, g_cg_sptr_start - tbuf);
       cptr = &(g_cg_person_ids[g_cg_indiv2idx * g_cg_max_person_id_len]);
       uii = strlen_se(cptr);
@@ -4742,15 +4752,18 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	  }
 	  sptr_cur = width_force(5, sptr_cur, double_g_write(sptr_cur, dxx));
 	}
-      } else {
+      } else if (!is_rel_check) {
 	sptr_cur = memcpya(sptr_cur, "UN    NA", 8);
+      } else {
+        sptr_cur = sptr_cur_start;
+	goto calc_genome_emitn_skip_line;
       }
       nn = g_cg_marker_ct - g_indiv_missing_unwt[g_cg_indiv1idx] - g_indiv_missing_unwt[g_cg_indiv2idx] + g_missing_dbl_excluded[g_cg_mdecell];
       oo = nn - g_genome_main[g_cg_gmcell] - g_genome_main[g_cg_gmcell + 1];
       dxx = (double)g_genome_main[g_cg_gmcell + 1] / (g_cg_e00 * nn);
       dyy = ((double)g_genome_main[g_cg_gmcell] - dxx * g_cg_e01 * nn) / (g_cg_e11 * nn);
       dxx1 = ((double)oo - nn * (dxx * g_cg_e02 + dyy * g_cg_e12)) / ((double)nn);
-      if (!(g_cg_genome_modifier & GENOME_IBD_UNBOUNDED)) {
+      if (!is_unbounded) {
 	if (dxx > 1) {
 	  dxx = 1;
 	  dyy = 0;
@@ -4782,8 +4795,18 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	  dxx1 = 0;
 	}
       }
+      dxx2 = dyy * 0.5 + dxx1; // PI_HAT
+      if (filter_pi_hat && ((dxx2 < min_pi_hat) || (dxx2 > max_pi_hat))) {
+	sptr_cur = sptr_cur_start;
+        goto calc_genome_emitn_skip_line;
+      }
+      if (is_nudge && (dxx2 * dxx2 < dxx1)) {
+        dxx = (1 - dxx2) * (1 - dxx2);
+	dyy = 2 * dxx2 * (1 - dxx2);
+	dxx1 = dxx2 * dxx2;
+      }
       *sptr_cur++ = ' ';
-      sptr_cur = double_f_writew74(double_f_writew74x(double_f_writew74x(double_f_writew74x(sptr_cur, dxx, ' '), dyy, ' '), dxx1, ' '), dyy * 0.5 + dxx1);
+      sptr_cur = double_f_writew74(double_f_writew74x(double_f_writew74x(double_f_writew74x(sptr_cur, dxx, ' '), dyy, ' '), dxx1, ' '), dxx2);
 
       if (g_cg_pheno_c) {
 	uii = is_set(g_cg_pheno_nm, g_cg_indiv1idx);
@@ -4816,6 +4839,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	sptr_cur = double_f_writew74(double_f_writew74x(uint32_writew7x(uint32_writew7x(uint32_writew7x(&(sptr_cur[1]), g_genome_main[uii + 1], ' '), g_genome_main[g_cg_gmcell], ' '), oo, ' '), dyy, ' '), dxx);
       }
       *sptr_cur++ = '\n';
+    calc_genome_emitn_skip_line:
       g_cg_gmcell += 5;
       g_cg_mdecell++;
       g_cg_indiv2idx++;
@@ -4836,7 +4860,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
 }
 
-int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, uint64_t calculation_type, uint32_t genome_modifier, uint32_t ppc_gap, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri, uint32_t skip_write) {
+int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, uint64_t calculation_type, uint32_t genome_modifier, uint32_t ppc_gap, double min_pi_hat, double max_pi_hat, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri, uint32_t skip_write) {
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
   int32_t retval = 0;
@@ -4899,6 +4923,8 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
 
   g_cg_max_person_fid_len = plink_maxfid;
   g_cg_max_person_iid_len = plink_maxiid;
+  g_cg_min_pi_hat = min_pi_hat;
+  g_cg_max_pi_hat = max_pi_hat;
 
   triangle_fill(g_thread_start, g_indiv_ct, g_thread_ct, parallel_tot - parallel_idx - 1, parallel_tot, 1, 1);
   // invert order, for --genome --parallel to naturally work

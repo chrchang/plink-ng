@@ -492,25 +492,65 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    better suited to parallel computation and more flexible handling of missing\n"
 "    markers.\n\n"
 		);
-    help_print("genome\tZ-genome\tgenome-full\tunbounded", &help_ctrl, 1,
-"  --genome <gz> <full> <unbounded>\n"
+    help_print("genome\tZ-genome\trel-check\timpossible\tnudge\tgenome-full\tunbounded", &help_ctrl, 1,
+"  --genome <gz> <rel-check> <full> <unbounded> <nudge>\n"
 "    Generates an identity-by-descent report.\n"
-"    * The 'full' modifier adds raw pairwise comparison data to the report.\n"
+"    * The 'rel-check' modifier excludes pairs of individuals with different\n"
+"      FIDs from the final report.\n"
+"    * 'full' adds raw pairwise comparison data to the report.\n"
 "    * The P(IBD=0/1/2) estimator employed by this command sometimes yields\n"
 "      numbers outside the range [0,1]; by default, these are clipped.  The\n"
-"      'unbounded' modifier turns off this clipping.\n\n"
+"      'unbounded' modifier turns off this clipping.\n"
+"    * Then, when PI_HAT^2 < P(IBD=2), 'nudge' adjusts the final P(IBD=0/1/2)\n"
+"      estimates to a theoretically possible configuration.\n\n"
 		);
 #ifndef STABLE_BUILD
-    help_print("homozyg", &help_ctrl, 1,
+    help_print("homozyg\thomozyg-snp\thomozyg-kb\thomozyg-density\thomozyg-gap\thomozyg-het\thomozyg-window-snp\thomozyg-window-het\thomozyg-window-missing\thomozyg-window-threshold", &help_ctrl, 1,
 "  --homozyg <group | group-verbose> <consensus-match> <include-missing>\n"
-"    Report runs of homozygosity.\n"
-"    * The 'group[-verbose]' modifier adds a report on pools of runs which are\n"
-"    similar between multiple individuals.\n"
-"    * With 'group[-verbose]', the 'consensus-match' modifier causes pairwise\n"
-"    segmental matches to be called based on the SNPs in the pool's\n"
-"    consensus segment, rather than the SNPs in the pairwise intersection.\n"
-"    * The 'include-missing' modifier causes missing calls to be treated as\n"
-"    homozygous in this analysis.\n\n"
+"            <subtract-1-from-lengths>\n"
+"  --homozyg-snp [min SNP count]\n"
+"  --homozyg-kb [min length]\n"
+"  --homozyg-density [max inverse density (kb/SNP)]\n"
+"  --homozyg-gap [max internal gap kb length]\n"
+"  --homozyg-het [max hets]\n"
+"  --homozyg-window-snp [scanning window size]\n"
+"  --homozyg-window-het [max hets in scanning window hit]\n"
+"  --homozyg-window-missing [max missing calls in scanning window hit]\n"
+"  --homozyg-window-threshold [min scanning window hit rate]\n"
+"    These flags request a set of run-of-homozygosity reports, and allow you to\n"
+"    customize how they are generated.\n"
+"    * If you're satisfied with all the default settings described below, just\n"
+"      use --homozyg with no modifiers.  Otherwise, --homozyg lets you change a\n"
+"      few binary settings:\n"
+"      * 'group[-verbose]' adds a report on pools of overlapping runs of\n"
+"        homozygosity.  (Automatically set when --homozyg-match is present.)\n"
+"      * With 'group[-verbose]', 'consensus-match' causes pairwise segmental\n"
+"        matches to be called based on the SNPs in the pool's consensus segment,\n"
+"        rather than the SNPs in the pairwise intersection.\n"
+"      * 'include-missing' causes missing calls to be treated as\n"
+"        homozygous in this analysis.\n"
+"      * By default, segment bp lengths are calculated as [end bp position] -\n"
+"        [start bp position] + 1.  Therefore, reports normally differ slightly\n"
+"        from PLINK 1.07, which does not add 1 at the end.  For testing\n"
+"        purposes, you can use the 'subtract-1-from-lengths' modifier to apply\n"
+"        the old formula.\n"
+"    * By default, only runs of homozygosity containing at least 100 SNPs, and\n"
+"      of total length >= 1000 kilobases, are noted.  You can change these\n"
+"      minimums with --homozyg-snp and --homozyg-kb, respectively.\n"
+"    * By default, a ROH must have at least one SNP per 50 kb on average; change\n"
+"      this bound with --homozyg-density.\n"
+"    * By default, if two SNPs are more than 1000 kb apart, they cannot be in\n"
+"      the same ROH; change this bound with --homozyg-gap.\n"
+"    * By default, a ROH cannot contain more than 1 heterozygous call; change\n"
+"      this limit with --homozyg-het.\n"
+"    * By default, the scanning window contains 50 SNPs; change this with\n"
+"      --homozyg-window-snp.\n"
+"    * By default, a scanning window hit can contain at most 1 heterozygous\n"
+"      call and 5 missing calls; change these limits with --homozyg-window-het\n"
+"      and --homozyg-window-missing, respectively.\n"
+"    * By default, for a SNP to be eligible for inclusion in a ROH, the hit rate\n"
+"      of all scanning windows containing the SNP must be at least 0.05; change\n"
+"      this threshold with --homozyg-window-threshold.\n\n"
 	       );
     help_print("cluster\tcc\tgroup-avg\tgroup-average\tcluster-missing", &help_ctrl, 1,
 "  --cluster <cc> <group-avg | old-tiebreaks> <missing> <only2>\n"
@@ -1004,8 +1044,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                      positions.\n"
 	       );
     help_print("exponent\tdistance", &help_ctrl, 0,
-"  --exponent [val] : When computing genomic distances, each marker has a weight\n"
-"                     of (2q(1-q))^{-val}, where q is the inferred MAF.  (Use\n"
+"  --exponent [x]   : When computing genomic distances, each marker has a weight\n"
+"                     of (2q(1-q))^{-x}, where q is the inferred MAF.  (Use\n"
 "                     --read-freq if you want to explicitly specify some or all\n"
 "                     of the MAFs.)\n"
 	       );
@@ -1013,27 +1053,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --read-dists [dist file] {id file} : Load a triangular binary distance matrix\n"
 "                                       instead of recalculating from scratch.\n"
 	       );
-    help_print("ppc-gap\tgenome\tZ-genome", &help_ctrl, 0,
+    help_print("ppc-gap\tmin\tmax\tgenome\tZ-genome", &help_ctrl, 0,
 "  --ppc-gap [val]  : Minimum number of base pairs, in thousands, between\n"
 "                     informative pairs of markers used in --genome PPC test.\n"
 "                     500 if unspecified.\n"
+"  --min [cutoff]   : Specify minimum PI_HAT for inclusion in --genome report.\n"
+"  --max [cutoff]   : Specify maximum PI_HAT for inclusion in --genome report.\n"
 	       );
 #ifndef STABLE_BUILD
-    help_print("homozyg\thomozyg-snp\thomozyg-kb\thomozyg-density\thomozyg-gap\thomozyg-het", &help_ctrl, 0,
-"  --homozyg-snp [ct]    : Set min. SNP count in reported runs of homozygosity.\n"
-"  --homozyg-kb [kbs]    : Set min. length (in kbs) in reported ROH.\n"
-"  --homozyg-density [x] : Set max. INVERSE density (kb/SNP) in reported ROH.\n"
-"  --homozyg-gap [kbs]   : Set max. internal gap length in reported ROH.\n"
-"  --homozyg-het [ct]    : Set max. heterozygous call count in reported ROH.\n"
-	       );
-    help_print("homozyg\thomozyg-window-snp\thomozyg-window-het\thomozyg-window-missing\thomozyg-window-threshold", &help_ctrl, 0,
-"  --homozyg-window-snp [ct]      : Set size (in SNPs; default 50) of --homozyg\n"
-"                                   scanning window.\n"
-"  --homozyg-window-het [ct]      : Set max. het count (default 1) in scan hit.\n"
-"  --homozyg-window-missing [ct]  : Set max. missing ct (default 5) in scan hit.\n"
-"  --homozyg-window-threshold [x] : Set minimum hit rate (default 0.05) for a\n"
-"                                   SNP to be considered for inclusion in a ROH.\n"
-	       );
     help_print("homozyg\thomozyg-match\tpool-size", &help_ctrl, 0,
 "  --homozyg-match [x] : Set min. allelic match rate for inclusion in the same\n"
 "                        '--homozyg group' segment pool.\n"
