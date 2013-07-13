@@ -360,6 +360,17 @@ char* uint32_write(char* start, uint32_t uii) {
   return memcpya(memcpya(start, &(digit2_table[quotient * 2]), 2), &(digit2_table[uii * 2]), 2);
 }
 
+char* int32_write(char* start, int32_t ii) {
+  if (ii < 0) {
+    if (ii < -2147483647) {
+      return memcpya(start, "-2147483648", 11);
+    }
+    *start++ = '-';
+    ii = -ii;
+  }
+  return uint32_write(start, (uint32_t)ii);
+}
+
 static inline void uint32_write4(char* start, uint32_t uii) {
   // Write exactly four digits (padding with zeroes if necessary); useful for
   // e.g. floating point encoders.
@@ -1154,7 +1165,67 @@ char* float_e_write(char* start, float dxx) {
   return memcpya(start, &(digit2_table[xp10 * 2]), 2);
 }
 
-char* double_f_writew6(char* start, double dxx) {
+char* double_f_writew3(char* start, double dxx) {
+  int64_t llii;
+  uint32_t uii;
+  uint32_t quotient;
+  if (dxx != dxx) {
+    *((uint32_t*)start) = *((uint32_t*)"nan");
+    return &(start[3]);
+  } else if (dxx < 9.9995) {
+    if (dxx < 0) {
+      *start++ = '-';
+      dxx = -dxx;
+      if (dxx >= 9.9995) {
+        goto double_f_writew3_10;
+      }
+    }
+    dxx += 0.0005;
+    uii = ((int32_t)dxx);
+    *start++ = '0' + uii;
+    uii = ((int32_t)(dxx * 1000)) - (uii * 1000);
+  double_f_writew3_dec:
+    *start++ = '.';
+    quotient = uii / 100;
+    uii -= 100 * quotient;
+    *start++ = '0' + quotient;
+    return memcpya(start, &(digit2_table[uii * 2]), 2);
+  }
+ double_f_writew3_10:
+  dxx += 0.0005;
+#ifndef __LP64__
+  if (dxx <= 2147483.625) {
+    uii = (int32_t)dxx;
+    start = uint32_write(start, uii);
+    uii = ((int32_t)(dxx * 1000)) - (uii * 1000);
+    goto double_f_writew3_dec;
+  }
+#endif
+  // 2 ^ 63 int64_t max, divided by 1000
+  if (dxx <= 9223372036854775.75) {
+    llii = (int64_t)dxx;
+    start = int64_write(start, llii);
+    uii = (uint32_t)(((int64_t)(dxx * 1000)) - (llii * 1000));
+    goto double_f_writew3_dec;
+  } else if (dxx < 9223372036854775808.0) {
+    llii = (int64_t)dxx;
+    start = int64_write(start, llii);
+    // actually, since there are just 53 bits of precision, this should always
+    // be 0, but whatever...
+    uii = (int32_t)((dxx - ((double)llii)) * 1000);
+    goto double_f_writew3_dec;
+  }
+  if (dxx == INFINITY) {
+    *((uint32_t*)start) = *((uint32_t*)"inf");
+    return &(start[3]);
+  }
+  // don't worry about optimizing %f on huge-ass finite numbers for now, since
+  // it should be irrelevant for PLINK
+  start += sprintf(start, "%.3f", dxx);
+  return start;
+}
+
+char* double_f_writew96(char* start, double dxx) {
   int64_t llii;
   uint32_t uii;
   if (dxx != dxx) {
@@ -1165,7 +1236,7 @@ char* double_f_writew6(char* start, double dxx) {
       *start++ = '-';
       dxx = -dxx;
       if (dxx >= 9.9999995) {
-	goto double_f_writew6_10;
+	goto double_f_writew96_10;
       }
     } else {
       *start++ = ' ';
@@ -1174,19 +1245,19 @@ char* double_f_writew6(char* start, double dxx) {
     uii = ((int32_t)dxx);
     *start++ = '0' + uii;
     uii = ((int32_t)(dxx * 1000000)) - (uii * 1000000);
-  double_f_writew6_dec:
+  double_f_writew96_dec:
     *start++ = '.';
     uint32_write6(start, uii);
     return &(start[6]);
   }
- double_f_writew6_10:
+ double_f_writew96_10:
   dxx += 0.0000005;
 #ifndef __LP64__
   if (dxx < 2147.375) {
     uii = (int32_t)dxx;
     start = uint32_write(start, uii);
     uii = ((int32_t)(dxx * 1000000)) - (uii * 1000000);
-    goto double_f_writew6_dec;
+    goto double_f_writew96_dec;
   }
 #endif
   // 2 ^ 63 int64_t max, divided by 1000000
@@ -1194,19 +1265,17 @@ char* double_f_writew6(char* start, double dxx) {
     llii = (int64_t)dxx;
     start = int64_write(start, llii);
     uii = (uint32_t)(((int64_t)(dxx * 1000000)) - (llii * 1000000));
-    goto double_f_writew6_dec;
+    goto double_f_writew96_dec;
   } else if (dxx < 9223372036854775808.0) {
     llii = (int64_t)dxx;
     start = int64_write(start, llii);
     uii = (int32_t)((dxx - ((double)llii)) * 1000000);
-    goto double_f_writew6_dec;
+    goto double_f_writew96_dec;
   }
   if (dxx == INFINITY) {
     *((uint32_t*)start) = *((uint32_t*)"inf");
     return &(start[3]);
   }
-  // don't worry about optimizing %f on huge-ass finite numbers for now, since
-  // it should be irrelevant for PLINK
   start += sprintf(start, "%.6f", dxx);
   return start;
 }

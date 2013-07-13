@@ -833,6 +833,8 @@ static inline void intprint2(char* buf, uint32_t num) {
 
 char* uint32_write(char* start, uint32_t uii);
 
+char* int32_write(char* start, int32_t ii);
+
 char* uint32_writew6(char* start, uint32_t uii);
 
 char* uint32_writew7(char* start, uint32_t uii);
@@ -845,7 +847,9 @@ char* double_e_write(char* start, double dxx);
 
 char* float_e_write(char* start, float dxx);
 
-char* double_f_writew6(char* start, double dxx);
+char* double_f_writew3(char* start, double dxx);
+
+char* double_f_writew96(char* start, double dxx);
 
 char* double_f_writew74(char* start, double dxx);
 
@@ -888,6 +892,12 @@ static inline char* uint32_writew7x(char* start, uint32_t uii, const char extra_
   return &(penult[1]);
 }
 
+static inline char* uint32_writew8x(char* start, uint32_t uii, const char extra_char) {
+  char* penult = uint32_writew8(start, uii);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
 static inline char* double_e_writex(char* start, double dxx, const char extra_char) {
   char* penult = double_e_write(start, dxx);
   *penult = extra_char;
@@ -900,8 +910,8 @@ static inline char* float_e_writex(char* start, float dxx, const char extra_char
   return &(penult[1]);
 }
 
-static inline char* double_f_writew6x(char* start, double dxx, const char extra_char) {
-  char* penult = double_f_writew6(start, dxx);
+static inline char* double_f_writew96x(char* start, double dxx, const char extra_char) {
+  char* penult = double_f_writew96(start, dxx);
   *penult = extra_char;
   return &(penult[1]);
 }
