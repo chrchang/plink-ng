@@ -74,7 +74,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (8 Jul 2013)";
+  " (13 Jul 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -4635,7 +4635,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if (calculation_type & CALC_HOMOZYG) {
-    retval = calc_homozyg(homozyg_ptr, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, outname, outname_end, pheno_nm, pheno_c, pheno_d);
+    if (map_is_unsorted & UNSORTED_BP) {
+      logprint("Error: Run-of-homozygosity scanning requires a sorted .map/.bim.  Retry this\ncommand after using --make-bed to sort your data.\n");
+      goto wdist_ret_INVALID_CMDLINE;
+    }
+    retval = calc_homozyg(homozyg_ptr, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, chrom_info_ptr, marker_pos, g_indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, outname, outname_end, pheno_nm, pheno_c, pheno_d, sex_male);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4643,7 +4647,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (calculation_type & CALC_LD_PRUNE) {
     if (map_is_unsorted & UNSORTED_BP) {
-      logprint("Error: Cannot perform LD-based marker pruning on an unsorted .map/.bim.\n");
+      logprint("Error: LD-based marker pruning requires a sorted .map/.bim.  Retry this command\nafter using --make-bed to sort your data.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
     retval = ld_prune(bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, indiv_exclude, sex_male, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type);
@@ -7906,7 +7910,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE_3;
       } else if (!memcmp(argptr2, "omozyg", 7)) {
 	UNSTABLE;
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
@@ -7924,8 +7928,6 @@ int32_t main(int32_t argc, char** argv) {
 	    homozyg.modifier |= HOMOZYG_GROUP_VERBOSE;
 	  } else if (!memcmp(argv[cur_arg + uii], "consensus-match", 16)) {
 	    homozyg.modifier |= HOMOZYG_CONSENSUS_MATCH;
-	  } else if (!memcmp(argv[cur_arg + uii], "include-missing", 16)) {
-	    homozyg.modifier |= HOMOZYG_INCLUDE_MISSING;
 	  } else if (!memcmp(argv[cur_arg + uii], "subtract-1-from-lengths", 24)) {
             homozyg.modifier |= HOMOZYG_OLD_LENGTHS;
 	  } else {
@@ -7957,7 +7959,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_HOMOZYG;
 	// round up
-	homozyg.min_bases = 1 + (uint32_t)((int32_t)(dxx - EPSILON));
+	homozyg.min_bases = 1 + (uint32_t)((int32_t)(dxx * 1000 - EPSILON));
       } else if (!memcmp(argptr2, "omozyg-density", 15)) {
 	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -7968,7 +7970,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         calculation_type |= CALC_HOMOZYG;
-	homozyg.max_bases_per_snp = dxx * 1000 + SMALLISH_EPSILON;
+	homozyg.max_bases_per_snp = dxx * 1000 + EPSILON;
       } else if (!memcmp(argptr2, "omozyg-gap", 11)) {
 	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -7989,8 +7991,8 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --homozyg-het parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        calculation_type |= CALC_HOMOZYG;
-	homozyg.max_hets = ii;
+	calculation_type |= CALC_HOMOZYG;
+        homozyg.max_hets = ii;
       } else if (!memcmp(argptr2, "omozyg-window-snp", 18)) {
 	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -8003,6 +8005,9 @@ int32_t main(int32_t argc, char** argv) {
 	}
         calculation_type |= CALC_HOMOZYG;
 	homozyg.window_size = ii;
+      } else if (!memcmp(argptr2, "omozyg-window-kb", 17)) {
+        logprint("Error: --homozyg-window-kb flag provisionally retired, since it had no effect\nin PLINK 1.07.\n");
+	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "omozyg-window-het", 18)) {
 	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -8067,14 +8072,8 @@ int32_t main(int32_t argc, char** argv) {
 	homozyg.modifier = (homozyg.modifier & (~HOMOZYG_GROUP)) | HOMOZYG_GROUP_VERBOSE;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "omozyg-include-missing", 23)) {
-	UNSTABLE;
-	if (!(calculation_type & CALC_HOMOZYG)) {
-	  logprint("Error: --homozyg-include-missing flag must be used with --homozyg.\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-        logprint("Note: --homozyg-include-missing deprecated.  Use '--homozyg include-missing'.\n");
-	homozyg.modifier |= HOMOZYG_INCLUDE_MISSING;
-        goto main_param_zero;
+        logprint("Error: --homozyg-include-missing flag provisionally retired, since it had no\neffect in PLINK 1.07.\n");
+	goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -10036,7 +10035,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	simulate_qt_indivs = ii;
-      } else if (!memcmp(argptr2, "imulate-haps", 12)) {
+      } else if (!memcmp(argptr2, "imulate-haps", 13)) {
 	if (simulate_flags & SIMULATE_TAGS) {
 	  sprintf(logbuf, "Error: --simulate-tags cannot be used with --simulate-haps.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10044,7 +10043,7 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --simulate-haps flag deprecated.  Use e.g. '--simulate haps'.\n");
 	simulate_flags |= SIMULATE_HAPS;
 	goto main_param_zero;
-      } else if (!memcmp(argptr2, "imulate-tags", 12)) {
+      } else if (!memcmp(argptr2, "imulate-tags", 13)) {
 	if (simulate_flags & SIMULATE_HAPS) {
 	  sprintf(logbuf, "Error: --simulate-tags cannot be used with --simulate-haps.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10052,6 +10051,21 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --simulate-tags flag deprecated.  Use e.g. '--simulate tags'.\n");
 	simulate_flags |= SIMULATE_TAGS;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "egment-match-snp", 17)) {
+	UNSTABLE;
+	if (!(homozyg.modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE))) {
+          logprint("Error: --segment-match-snp must be used with --homozyg group[-verbose].\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	ii = atoi(argv[cur_arg + 1]);
+	if (ii < 1) {
+	  sprintf(logbuf, "Error: Invalid --segment-match-snp parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	homozyg.segment_match_snp = ii;
       } else if (memcmp(argptr2, "ilent", 6)) {
 	goto main_ret_INVALID_CMDLINE_2;
       }

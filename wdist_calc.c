@@ -4867,7 +4867,14 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   unsigned char* loadbuf = NULL; // from file
+  int32_t ibd_prect = 0;
+  int64_t cur_line = 0;
+  uint32_t mp_lead_unfiltered_idx = 0;
+  uint32_t mp_lead_idx = 0;
+  uint32_t chrom_fo_idx = 0;
   char wbuf[16];
+  int32_t missing_ct_buf[BITCT];
+  double set_allele_freq_buf[GENOME_MULTIPLEX];
   unsigned char* gptr;
   char* cptr;
   int32_t jj;
@@ -4889,10 +4896,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
-  int32_t missing_ct_buf[BITCT];
   int32_t missing_ct_all;
-  double set_allele_freq_buf[GENOME_MULTIPLEX];
-  int32_t ibd_prect = 0;
   double dpp;
   double dqq;
   double dpp_sq;
@@ -4905,14 +4909,10 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   double dxx2;
   double dyy1;
   double dyy2;
-  int64_t cur_line = 0;
   int64_t tot_cells;
   double num_alleles;
   double num_allelesf2;
   double num_allelesf3;
-  uint32_t mp_lead_unfiltered_idx = 0;
-  uint32_t mp_lead_idx = 0;
-  uint32_t chrom_fo_idx = 0;
   uint32_t chrom_end;
   uint32_t is_x;
   uint32_t is_haploid;

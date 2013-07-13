@@ -539,10 +539,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      minimums with --homozyg-snp and --homozyg-kb, respectively.\n"
 "    * By default, a ROH must have at least one SNP per 50 kb on average; change\n"
 "      this bound with --homozyg-density.\n"
-"    * By default, if two SNPs are more than 1000 kb apart, they cannot be in\n"
-"      the same ROH; change this bound with --homozyg-gap.\n"
-"    * By default, a ROH cannot contain more than 1 heterozygous call; change\n"
-"      this limit with --homozyg-het.\n"
+"    * By default, if two consecutive SNPs are more than 1000 kb apart, they\n"
+"      cannot be in the same ROH; change this bound with --homozyg-gap.\n"
+"    * By default, a ROH can contain an unlimited number of heterozygous calls;\n"
+"      you can impose a limit with --homozyg-het.\n"
 "    * By default, the scanning window contains 50 SNPs; change this with\n"
 "      --homozyg-window-snp.\n"
 "    * By default, a scanning window hit can contain at most 1 heterozygous\n"
@@ -1061,10 +1061,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --max [cutoff]   : Specify maximum PI_HAT for inclusion in --genome report.\n"
 	       );
 #ifndef STABLE_BUILD
-    help_print("homozyg\thomozyg-match\tpool-size", &help_ctrl, 0,
-"  --homozyg-match [x] : Set min. allelic match rate for inclusion in the same\n"
-"                        '--homozyg group' segment pool.\n"
-"  --pool-size [ct]    : Set min. size of pools in '--homozyg group' report.\n"
+    help_print("homozyg\thomozyg-match\tsegment-match-snp\tpool-size", &help_ctrl, 0,
+"  --homozyg-match [x]     : Set min. concordance across jointly homozygous\n"
+"                            sites for a pairwise allelic match to be declared.\n"
+"  --segment-match-snp [n] : Set min. joint homozygous site count for pairwise\n"
+"                            allelic match candidates.\n"
+"  --pool-size [ct]        : Set min. size of pools in '--homozyg group' report.\n"
 	       );
     help_print("read-genome\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
 "  --read-genome [f] : Load a --genome report for --cluster/--neighbour, instead\n"

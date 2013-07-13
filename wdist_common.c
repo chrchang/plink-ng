@@ -3134,6 +3134,21 @@ uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintpt
   return tot;
 }
 
+void vertical_bitct_subtract(uintptr_t* bitarr, uint32_t item_ct, uint32_t* sum_arr) {
+  // assumes trailing bits are zeroed out
+  uintptr_t cur_word;
+  uint32_t idx_offset;
+  uint32_t last_set_bit;
+  for (idx_offset = 0; idx_offset < item_ct; idx_offset += BITCT) {
+    cur_word = *bitarr++;
+    while (cur_word) {
+      last_set_bit = CTZLU(cur_word);
+      sum_arr[idx_offset + last_set_bit] -= 1;
+      cur_word &= cur_word - ONELU;
+    }
+  }
+}
+
 #ifdef __LP64__
 void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
