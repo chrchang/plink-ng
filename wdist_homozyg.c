@@ -92,10 +92,14 @@ uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_c
   uint32_t uidx_first;
   uint32_t base_len;
   uintptr_t indiv_last_roh;
-  if (readbuf_cur) {
-    cur_word = *readbuf_cur++;
-  }
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    if (!(indiv_idx & (BITCT2 - 1))) {
+      if (readbuf_cur) {
+        cur_word = *readbuf_cur++;
+      }
+    } else {
+      cur_word >>= 2;
+    }
     if ((!cur_indiv_male) || (!is_set(cur_indiv_male, indiv_idx))) {
       // not X-chromosome male
       if (readbuf_cur) {
@@ -152,13 +156,6 @@ uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_c
 	}
       }
     }
-    if ((indiv_idx & (BITCT2 - 1)) == BITCT2 - 1) {
-      if (readbuf_cur) {
-        cur_word = *readbuf_cur++;
-      }
-    } else {
-      cur_word >>= 2;
-    }
   }
   *roh_ct_ptr = roh_ct;
   return 0;
@@ -209,6 +206,8 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t unfil
   if (fprintf(outfile_indiv, tbuf, "FID", "IID") < 0) {
     goto write_main_roh_reports_ret_WRITE_FAIL;
   }
+  tbuf[plink_maxfid] = ' ';
+  tbuf[plink_maxfid + plink_maxiid + 1] = ' ';
   indiv_uidx = 0;
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
     indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
@@ -292,7 +291,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t unfil
       cur_roh[5] = indiv_idx;
     }
     if (!is_set(pheno_nm, indiv_uidx)) {
-      wptr = fw_strcpyn(4, missing_pheno_len, missing_pheno_str, wptr_phe);
+      wptr = fw_strcpyn(4, missing_pheno_len - 4, missing_pheno_str, wptr_phe);
     } else if (pheno_c) {
       wptr = memseta(wptr_phe, 32, 3);
       *wptr++ = '1' + is_set(pheno_c, indiv_uidx);
@@ -359,7 +358,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   uint32_t swhit_min = 0;
   int32_t retval = 0;
   uintptr_t roh_list_chrom_starts[MAX_POSSIBLE_CHROM + 1];
-  char missing_pheno_str[11];
+  char missing_pheno_str[15];
   uint32_t missing_pheno_len;
   uintptr_t* rawbuf;
   uintptr_t* readbuf; // circular window of actual genotype data
@@ -405,6 +404,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   uint32_t swbuf_full;
   uint32_t uii;
   wptr = int32_write(missing_pheno_str, missing_pheno);
+  wptr = memcpya(wptr, ".000", 4);
   missing_pheno_len = (uintptr_t)(wptr - missing_pheno_str);
 
   if (wkspace_alloc_ul_checked(&rawbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
