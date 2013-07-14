@@ -16,51 +16,30 @@ void homozyg_init(Homozyg_info* homozyg_ptr) {
   homozyg_ptr->pool_size_min = 2;
 }
 
-void homozyg_update_readbuf(uintptr_t* rawbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude, uintptr_t* readbuf_cur, uint32_t* het_cts, uint32_t* missing_cts) {
-  uintptr_t cur_write = 0;
-  uint32_t indiv_uidx = 0;
-  uint32_t indiv_idx_low = 0;
-  uintptr_t cur_read;
-  uint32_t indiv_idx;
-  uint32_t het_tot = 0;
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
-    cur_read = (rawbuf[indiv_uidx / BITCT2] >> (2 * (indiv_uidx % BITCT2))) & (3 * ONELU);
-    if (cur_read == 2) {
-      het_tot++;
-      het_cts[indiv_idx] += 1;
-    } else if (cur_read == 1) {
-      missing_cts[indiv_idx] += 1;
-    }
-    cur_write |= cur_read << (indiv_idx_low * 2);
-    if (++indiv_idx_low == BITCT2) {
-      *readbuf_cur++ = cur_write;
-      cur_write = 0;
-      indiv_idx_low = 0;
-    }
-    indiv_uidx++;
-  }
-  if (indiv_idx_low) {
-    *readbuf_cur = cur_write;
-  }
+void mask_out_homozyg_major(uintptr_t* readbuf_cur, uint32_t indiv_ct) {
+  // if readbuf_cur were 16-byte aligned, this could be vectorized, but it
+  // isn't, and this isn't a limiting step anyway
+  uintptr_t* readbuf_cur_end = &(readbuf_cur[(indiv_ct + (BITCT2 - 1)) / BITCT2]);
+  uintptr_t cur_word;
+  do {
+    cur_word = *readbuf_cur;
+    *readbuf_cur &= ((cur_word ^ (cur_word >> 1)) & FIVEMASK) * (3 * ONELU);
+  } while (++readbuf_cur < readbuf_cur_end);
 }
 
-void homozyg_scroll_out(uintptr_t* readbuf_cur, uint32_t indiv_ct, uint32_t* het_cts, uint32_t* missing_cts) {
+void increment_het_missing(uintptr_t* readbuf_cur, uint32_t indiv_ct, uint32_t* het_cts, uint32_t* missing_cts, int32_t incr) {
+  // assumes homozyg majors masked out
   uint32_t indiv_idx_offset;
   uintptr_t cur_word;
   uint32_t last_set_bit;
-  // oh, why not, may as well make this faster than the original add
   for (indiv_idx_offset = 0; indiv_idx_offset < indiv_ct; indiv_idx_offset += BITCT2) {
     cur_word = *readbuf_cur++;
-    // mask out all homozygous majors
-    cur_word &= ((cur_word ^ (cur_word >> 1)) & FIVEMASK) * (3 * ONELU);
-
     while (cur_word) {
       last_set_bit = CTZLU(cur_word);
       if (last_set_bit & 1) {
-        het_cts[indiv_idx_offset + (last_set_bit / 2)] -= 1;
+        het_cts[indiv_idx_offset + (last_set_bit / 2)] += incr;
       } else {
-        missing_cts[indiv_idx_offset + (last_set_bit / 2)] -= 1;
+        missing_cts[indiv_idx_offset + (last_set_bit / 2)] += incr;
       }
       cur_word &= cur_word - ONELU;
     }
@@ -112,47 +91,48 @@ uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_c
         is_cur_hit = (swhit_cts[indiv_idx] >= swhit_min);
       }
       cur_call = cur_word & (3 * ONELU);
-      if ((cur_roh_cidx_starts[indiv_idx] != 0xffffffffU) && (forced_end || (!is_cur_hit) || ((cur_call == 2) && (cur_roh_het_cts[indiv_idx] == max_hets)))) {
+      if ((cur_roh_cidx_starts[indiv_idx] != 0xffffffffU) && ((!is_cur_hit) || ((cur_call == 2) && (cur_roh_het_cts[indiv_idx] == max_hets)) || forced_end)) {
 	cidx_len = marker_cidx - cur_roh_cidx_starts[indiv_idx];
-	uidx_first = cur_roh_uidx_starts[indiv_idx];
-	base_len = marker_pos[older_uidx] + is_new_lengths - marker_pos[uidx_first];
-	if ((cidx_len >= min_snp) && (base_len >= min_bases) && (((double)((int32_t)cidx_len)) * max_bases_per_snp >= ((double)base_len))) {
-	  if (roh_ct == max_roh_ct) {
-	    return 1;
-	  }
-	  *roh_list_cur++ = uidx_first;
-	  *roh_list_cur++ = older_uidx;
-	  *roh_list_cur++ = cidx_len;
-	  *roh_list_cur++ = cidx_len - cur_roh_het_cts[indiv_idx] - cur_roh_missing_cts[indiv_idx];
-	  *roh_list_cur++ = cur_roh_het_cts[indiv_idx];
-	  indiv_last_roh = indiv_to_last_roh[indiv_idx];
+	if (cidx_len >= min_snp) {
+	  uidx_first = cur_roh_uidx_starts[indiv_idx];
+	  base_len = marker_pos[older_uidx] + is_new_lengths - marker_pos[uidx_first];
+          if ((base_len >= min_bases) && (((double)((int32_t)cidx_len)) * max_bases_per_snp >= ((double)base_len))) {
+	    if (roh_ct == max_roh_ct) {
+	      return 1;
+	    }
+	    *roh_list_cur++ = uidx_first;
+	    *roh_list_cur++ = older_uidx;
+	    *roh_list_cur++ = cidx_len;
+	    *roh_list_cur++ = cidx_len - cur_roh_het_cts[indiv_idx] - cur_roh_missing_cts[indiv_idx];
+	    *roh_list_cur++ = cur_roh_het_cts[indiv_idx];
+	    indiv_last_roh = indiv_to_last_roh[indiv_idx];
 #ifdef __LP64__
-	  *roh_list_cur++ = (uint32_t)indiv_last_roh;
-	  *roh_list_cur++ = (uint32_t)(indiv_last_roh >> 32);
+	    *roh_list_cur++ = (uint32_t)indiv_last_roh;
+	    *roh_list_cur++ = (uint32_t)(indiv_last_roh >> 32);
 #else
-	  *roh_list_cur++ = (uint32_t)indiv_last_roh;
+	    *roh_list_cur++ = (uint32_t)indiv_last_roh;
 #endif
-	  indiv_to_last_roh[indiv_idx] = roh_ct++;
+	    indiv_to_last_roh[indiv_idx] = roh_ct++;
+	  }
 	}
 	cur_roh_cidx_starts[indiv_idx] = 0xffffffffU;
       }
       if (is_cur_hit) {
 	if (cur_roh_cidx_starts[indiv_idx] == 0xffffffffU) {
+	  if ((!max_hets) && (cur_call == 2)) {
+	    continue;
+	  }
 	  cur_roh_uidx_starts[indiv_idx] = old_uidx;
 	  cur_roh_cidx_starts[indiv_idx] = marker_cidx;
 	  cur_roh_het_cts[indiv_idx] = 0;
 	  cur_roh_missing_cts[indiv_idx] = 0;
 	}
-	if (cur_call == 2) {
-	  if (!max_hets) {
-	    // if the first would-be ROH call is actually a het, and
-	    // max_hets == 0, don't start the ROH at all
-	    cur_roh_cidx_starts[indiv_idx] = 0xffffffffU;
-	  } else {
+	if (cur_call) {
+	  if (cur_call == 2) {
 	    cur_roh_het_cts[indiv_idx] += 1;
+	  } else {
+	    cur_roh_missing_cts[indiv_idx] += 1;
 	  }
-	} else if (cur_call == 1) {
-	  cur_roh_missing_cts[indiv_idx] += 1;
 	}
       }
     }
@@ -273,12 +253,12 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t unfil
       *wptr++ = ' ';
       wptr = uint32_writew8x(wptr, cur_roh[2], ' ');
       dyy = 1.0 / ((double)((int32_t)cur_roh[2]));
-      wptr = width_force(8, wptr, double_f_writew3(wptr, dxx * dyy));
+      wptr = width_force(8, wptr, double_f_writew3(wptr, dxx * dyy + SMALLISH_EPSILON));
       // next two decimals guaranteed to be length 5
       wptr = memseta(wptr, 32, 4);
-      wptr = double_f_writew3(wptr, ((double)((int32_t)cur_roh[3])) * dyy);
+      wptr = double_f_writew3(wptr, ((double)((int32_t)cur_roh[3])) * dyy + SMALLISH_EPSILON);
       wptr = memseta(wptr, 32, 4);
-      wptr = double_f_writew3(wptr, ((double)((int32_t)cur_roh[4])) * dyy);
+      wptr = double_f_writew3(wptr, ((double)((int32_t)cur_roh[4])) * dyy + SMALLISH_EPSILON);
       *wptr++ = '\n';
       if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	goto write_main_roh_reports_ret_WRITE_FAIL;
@@ -318,10 +298,17 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t unfil
   if (fclose_null(&outfile_indiv)) {
     goto write_main_roh_reports_ret_WRITE_FAIL;
   }
+  memcpy(&(outname_end[5]), "summary", 8);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto write_main_roh_reports_ret_WRITE_FAIL;
+  }
   /*
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
   }
   */
+  if (fclose_null(&outfile)) {
+    goto write_main_roh_reports_ret_WRITE_FAIL;
+  }
   while (0) {
   write_main_roh_reports_ret_NOMEM:
     retval = RET_NOMEM;
@@ -507,10 +494,12 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
       if (marker_uidx == chrom_end) {
 	break;
       }
-      if (fread(rawbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      readbuf_cur = &(readbuf[widx * indiv_ctl2]);
+      if (load_and_collapse(bedfile, rawbuf, unfiltered_indiv_ct, readbuf_cur, indiv_ct, indiv_exclude)) {
 	goto calc_homozyg_ret_READ_FAIL;
       }
-      homozyg_update_readbuf(rawbuf, indiv_ct, indiv_exclude, &(readbuf[widx * indiv_ctl2]), het_cts, missing_cts);
+      mask_out_homozyg_major(readbuf_cur, indiv_ct);
+      increment_het_missing(readbuf_cur, indiv_ct, het_cts, missing_cts, 1);
       uidx_buf[widx] = marker_uidx++;
     }
     if (widx == window_size) {
@@ -537,7 +526,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	if (roh_update(hp, readbuf_cur, swbuf_cur, het_cts, missing_cts, marker_pos, cur_indiv_male, indiv_ct, swhit_min, older_uidx, old_uidx, marker_cidx, max_roh_ct, swhit_cts, cur_roh_uidx_starts, cur_roh_cidx_starts, cur_roh_het_cts, cur_roh_missing_cts, indiv_to_last_roh, roh_list, &roh_ct)) {
 	  goto calc_homozyg_ret_NOMEM;
 	}
-	homozyg_scroll_out(readbuf_cur, indiv_ct, het_cts, missing_cts);
+	increment_het_missing(readbuf_cur, indiv_ct, het_cts, missing_cts, -1);
 	if (++marker_uidx == chrom_end) {
 	  break;
 	}
@@ -551,10 +540,11 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	  }
 	}
 	uidx_buf[widx] = marker_uidx;
-	if (fread(rawbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	if (load_and_collapse(bedfile, rawbuf, unfiltered_indiv_ct, readbuf_cur, indiv_ct, indiv_exclude)) {
 	  goto calc_homozyg_ret_READ_FAIL;
 	}
-        homozyg_update_readbuf(rawbuf, indiv_ct, indiv_exclude, readbuf_cur, het_cts, missing_cts);
+	mask_out_homozyg_major(readbuf_cur, indiv_ct);
+	increment_het_missing(readbuf_cur, indiv_ct, het_cts, missing_cts, 1);
 	widx++;
 	marker_cidx++;
 	if (widx == window_size) {
@@ -587,9 +577,8 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     }
   }
   putchar('\r');
-  logprint("--homozyg: ROH scan complete.");
-  fputs("     ", stdout);
-  logprint("\n");
+  sprintf(logbuf, "--homozyg: Scan complete, found %" PRIuPTR " ROH.\n", roh_ct);
+  logprintb();
   roh_list_chrom_starts[chrom_ct] = roh_ct;
   // "truncate" the completed list so we can start making workspace allocations
   // again
@@ -599,7 +588,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     goto calc_homozyg_ret_1;
   }
   *outname_end = '\0';
-  sprintf(logbuf, "ROH scan results saved to %s.hom{,.indiv,.summary}.\n", outname);
+  sprintf(logbuf, "Results saved to %s.hom{,.indiv,.summary}.\n", outname);
   logprintb();
   if (hp->modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE)) {
     // todo
