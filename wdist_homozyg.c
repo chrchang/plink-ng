@@ -624,8 +624,9 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
             //   [1]: P
 	    //   [2]: 1-based pool idx
 	    //   [3-(P+2)]: roh indexes
-	    //   [(P+3)-(3P+2)]: allelic-match group assignment, followed by
-	    //                   NSIM count, interleaved
+	    //   [(P+3)-(2P+2)]: allelic-match group assignment (31st bit set
+	    //                   if reference), followed by NSIM count,
+	    //                   interleaved
 	    old_pool_list_size = pool_list_size;
 #ifdef __LP64__
 	    pool_list_size += 2 * pool_size + 2;
@@ -1065,8 +1066,8 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
       sprintf(logbuf, "Skipping --homozyg group%s report since there are no pools.\n", (hp->modifier & HOMOZYG_GROUP_VERBOSE)? "-verbose" : "");
       logprintb();
 #ifndef __LP64__
-    } else if (max_pool_size > 65535) {
-      logprint("Error: 32-bit " PROG_NAME_STR "'s --homozyg group cannot handle a pool of size >65535.\n");
+    } else if (max_pool_size > 65536) {
+      logprint("Error: 32-bit " PROG_NAME_STR "'s --homozyg group cannot handle a pool of size >65536.\n");
       goto calc_homozyg_ret_NOMEM;
 #endif
     } else {
