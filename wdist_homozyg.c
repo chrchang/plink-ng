@@ -147,6 +147,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t unfil
   FILE* outfile_indiv = NULL;
   char* wptr_iid = &(tbuf[plink_maxfid + 1]);
   char* wptr_phe = &(tbuf[plink_maxfid + plink_maxiid + 2]);
+  int32_t* roh_ct_aff_adj = NULL;
   int32_t retval = 0;
   char* cptr;
   char* cptr2;
@@ -155,20 +156,25 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t unfil
   char* wptr_bp1;
   char* wptr_kb;
   char* wptr;
+  uint32_t* cur_roh;
+  int32_t* roh_ct_unaff_adj;
   uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
-  uint32_t slen;
   uintptr_t prev_roh_idx;
   uintptr_t cur_roh_idx;
   uintptr_t next_roh_idx;
-  uint32_t* cur_roh;
+  uintptr_t chrom_roh_start;
+  uintptr_t chrom_roh_ct;
   uint32_t cur_roh_ct;
   uint32_t chrom_fo_idx;
   uint32_t marker_uidx1;
   uint32_t marker_uidx2;
+  uint32_t chrom_start;
+  uint32_t chrom_len;
   double dxx;
   double dyy;
   double kb_tot;
+  uint32_t slen;
   uint32_t uii;
   memcpy(outname_end, ".hom", 5);
   if (fopen_checked(&outfile, outname, "w")) {
@@ -247,18 +253,18 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t unfil
       memcpy(memseta(wptr_snp2, 32, plink_maxsnp - slen), cptr, slen);
       uint32_writew10(wptr_bp1, marker_pos[marker_uidx1]);
       uint32_writew10(&(wptr_bp1[13]), marker_pos[marker_uidx2]);
-      dxx = ((double)(marker_pos[marker_uidx2] + is_new_lengths - marker_pos[marker_uidx1])) / 1000;
+      dxx = ((double)(marker_pos[marker_uidx2] + is_new_lengths - marker_pos[marker_uidx1])) / (1000.0 - EPSILON);
       kb_tot += dxx;
       wptr = width_force(10, wptr_kb, double_f_writew3(wptr_kb, dxx));
       *wptr++ = ' ';
       wptr = uint32_writew8x(wptr, cur_roh[2], ' ');
-      dyy = 1.0 / ((double)((int32_t)cur_roh[2]));
-      wptr = width_force(8, wptr, double_f_writew3(wptr, dxx * dyy + SMALLISH_EPSILON));
+      dyy = (1.0 + SMALLISH_EPSILON) / ((double)((int32_t)cur_roh[2]));
+      wptr = width_force(8, wptr, double_f_writew3(wptr, dxx * dyy));
       // next two decimals guaranteed to be length 5
       wptr = memseta(wptr, 32, 4);
-      wptr = double_f_writew3(wptr, ((double)((int32_t)cur_roh[3])) * dyy + SMALLISH_EPSILON);
+      wptr = double_f_writew3(wptr, ((double)((int32_t)cur_roh[3])) * dyy);
       wptr = memseta(wptr, 32, 4);
-      wptr = double_f_writew3(wptr, ((double)((int32_t)cur_roh[4])) * dyy + SMALLISH_EPSILON);
+      wptr = double_f_writew3(wptr, ((double)((int32_t)cur_roh[4])) * dyy);
       *wptr++ = '\n';
       if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	goto write_main_roh_reports_ret_WRITE_FAIL;
@@ -268,7 +274,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t unfil
 #else
       cur_roh_idx = (uintptr_t)cur_roh[5];
 #endif
-      cur_roh[5] = indiv_idx;
+      cur_roh[5] = indiv_uidx;
     }
     if (!is_set(pheno_nm, indiv_uidx)) {
       wptr = fw_strcpyn(4, missing_pheno_len - 4, missing_pheno_str, wptr_phe);
@@ -302,10 +308,71 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t unfil
   if (fopen_checked(&outfile, outname, "w")) {
     goto write_main_roh_reports_ret_WRITE_FAIL;
   }
-  /*
-  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+  sprintf(tbuf, " CHR %%%us           BP      AFF    UNAFF\n", plink_maxsnp);
+  if (fprintf(outfile, tbuf, "SNP") < 0) {
+    goto write_main_roh_reports_ret_WRITE_FAIL;
   }
-  */
+  tbuf[1] = ' ';
+  wptr_chr = &(tbuf[5]);
+  memset(&(wptr_chr[plink_maxsnp]), 32, 3);
+  wptr_bp1 = &(wptr_chr[plink_maxsnp + 3]);
+  memset(&(wptr_bp1[10]), 32, 8);
+  wptr_bp1[18] = '0';
+  wptr_bp1[19] = ' ';
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+    chrom_roh_start = roh_list_chrom_starts[chrom_fo_idx];
+    chrom_roh_ct = roh_list_chrom_starts[chrom_fo_idx + 1] - chrom_roh_start;
+    uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+    chrom_start = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
+    chrom_len = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - chrom_start;
+    wkspace_reset(wkspace_mark);
+    if (wkspace_alloc_i_checked(&roh_ct_unaff_adj, (chrom_len + 1) * sizeof(int32_t))) {
+      goto write_main_roh_reports_ret_NOMEM;
+    }
+    fill_int_zero(roh_ct_unaff_adj, chrom_len);
+    if (pheno_c) {
+      if (wkspace_alloc_i_checked(&roh_ct_aff_adj, (chrom_len + 1) * sizeof(int32_t))) {
+        goto write_main_roh_reports_ret_NOMEM;
+      }
+      fill_int_zero(roh_ct_aff_adj, chrom_len);
+    }
+    cur_roh = &(roh_list[chrom_roh_start * ROH_ENTRY_INTS]);
+    for (cur_roh_idx = 0; cur_roh_idx < chrom_roh_ct; cur_roh_idx++) {
+      indiv_uidx = cur_roh[5];
+      if ((!pheno_c) || (!is_set(pheno_c, indiv_uidx))) {
+        roh_ct_unaff_adj[cur_roh[0] - chrom_start] += 1;
+        roh_ct_unaff_adj[cur_roh[1] + 1 - chrom_start] -= 1;
+      } else {
+        roh_ct_aff_adj[cur_roh[0] - chrom_start] += 1;
+        roh_ct_aff_adj[cur_roh[1] + 1 - chrom_start] -= 1;
+      }
+      cur_roh = &(cur_roh[ROH_ENTRY_INTS]);
+    }
+    intprint2(&(tbuf[2]), uii);
+    chrom_len += chrom_start; // now chrom_end
+    cur_roh_ct = 0; // unaff ct
+    uii = 0; // aff ct
+    for (marker_uidx1 = chrom_start; marker_uidx1 < chrom_len; marker_uidx1++) {
+      if (is_set(marker_exclude, marker_uidx1)) {
+	continue;
+      }
+      cptr = &(marker_ids[marker_uidx1 * max_marker_id_len]);
+      slen = strlen(cptr);
+      memcpy(memseta(wptr_chr, 32, plink_maxsnp - slen), cptr, slen);
+      uint32_writew10(wptr_bp1, marker_pos[marker_uidx1]);
+      if (!pheno_c) {
+        wptr = &(wptr_bp1[20]);
+      } else {
+	uii += roh_ct_aff_adj[marker_uidx1 - chrom_start];
+        wptr = uint32_writew8x(&(wptr_bp1[11]), uii, ' ');
+      }
+      cur_roh_ct += roh_ct_unaff_adj[marker_uidx1 - chrom_start];
+      wptr = uint32_writew8x(wptr, cur_roh_ct, '\n');
+      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+        goto write_main_roh_reports_ret_WRITE_FAIL;
+      }
+    }
+  }
   if (fclose_null(&outfile)) {
     goto write_main_roh_reports_ret_WRITE_FAIL;
   }
@@ -387,7 +454,6 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   uint32_t older_uidx;
   uint32_t marker_cidx;
   uint32_t marker_cidx_max;
-  // uint32_t indiv_idx;
   uint32_t swbuf_full;
   uint32_t uii;
   wptr = int32_write(missing_pheno_str, missing_pheno);
@@ -462,6 +528,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     goto calc_homozyg_ret_READ_FAIL;
   }
   fill_ulong_one(indiv_to_last_roh, indiv_ct);
+
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
     uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     roh_list_chrom_starts[chrom_fo_idx] = roh_ct;
@@ -582,7 +649,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   roh_list_chrom_starts[chrom_ct] = roh_ct;
   // "truncate" the completed list so we can start making workspace allocations
   // again
-  roh_list = (uint32_t*)wkspace_alloc(roh_ct * ROH_ENTRY_INTS);
+  roh_list = (uint32_t*)wkspace_alloc(roh_ct * ROH_ENTRY_INTS * sizeof(int32_t));
   retval = write_main_roh_reports(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, marker_pos, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, pheno_nm, pheno_c, pheno_d, missing_pheno_str, missing_pheno_len, is_new_lengths, indiv_male, roh_ct, roh_list, roh_list_chrom_starts, indiv_to_last_roh);
   if (retval) {
     goto calc_homozyg_ret_1;

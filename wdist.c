@@ -64,7 +64,7 @@ const char ver_str[] =
 #ifdef PLINK_BUILD
   "PLINK v1.50a"
 #else
-  "WDIST v0.21.0p"
+  "WDIST v0.21.0"
 #endif
 #ifdef NOLAPACK
   "NL"
@@ -74,7 +74,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (14 Jul 2013)";
+  " (15 Jul 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -5237,7 +5237,7 @@ int32_t species_flag(Chrom_info* chrom_info_ptr, int32_t species_val) {
 }
 
 void invalid_arg(char* argv) {
-  sprintf(logbuf, "Error: Invalid flag ('%s').%s%s", argv, (argv[0] == '-')? "" : "  All flags must be preceded by 1-2 dashes.", errstr_append);
+  sprintf(logbuf, "Error: Unrecognized flag ('%s').%s%s", argv, (argv[0] == '-')? "" : "  All flags must be preceded by 1-2 dashes.", errstr_append);
 }
 
 void print_ver() {

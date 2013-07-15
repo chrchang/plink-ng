@@ -5224,6 +5224,7 @@ void get_model_assoc_precomp_bounds(uint32_t missing_ct, uint32_t is_model, uint
 int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
   int32_t retval = 0;
   FILE* outfile = NULL;
@@ -5297,7 +5298,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   uint32_t* hetp;
   double* o1mpptr;
   double* ooptr;
-  unsigned char* loadbuf_raw;
+  uintptr_t* loadbuf_raw;
   uintptr_t* loadbuf_ptr;
   uintptr_t* indiv_ctrl_include2;
   uintptr_t* indiv_case_include2;
@@ -5372,9 +5373,10 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       perms_total = aperm_max;
     }
   }
-  if (wkspace_alloc_uc_checked(&loadbuf_raw, unfiltered_indiv_ct4)) {
+  if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
     goto model_assoc_ret_NOMEM;
   }
+  loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
   memset(wprefix, 32, 5);
   if (model_assoc) {
     if (g_model_fisher) {
@@ -5881,30 +5883,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	  break;
 	}
       }
-      if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
-	goto model_assoc_ret_READ_FAIL;
-      }
-      indiv_uidx = 0;
-      ukk = pheno_nm_ct / BITCT2;
       loadbuf_ptr = &(g_loadbuf[block_size * pheno_nm_ctl2]);
-      for (uii = 0; uii < ukk; uii++) {
-	ulii = 0;
-	for (ujj = 0; ujj < BITCT; ujj += 2) {
-	  indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
-	  ulii |= ((uintptr_t)(((loadbuf_raw[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3))) << ujj;
-	  indiv_uidx++;
-	}
-	*loadbuf_ptr++ = ulii;
-      }
-      ujj = 2 * (pheno_nm_ct & (BITCT2 - 1));
-      if (ujj) {
-	ulii = 0;
-	for (uii = 0; uii < ujj; uii += 2) {
-	  indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
-	  ulii |= ((uintptr_t)(((loadbuf_raw[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3))) << uii;
-	  indiv_uidx++;
-	}
-	*loadbuf_ptr = ulii;
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_ptr, pheno_nm_ct, pheno_nm)) {
+	goto model_assoc_ret_READ_FAIL;
       }
       if (model_adapt) {
 	g_adapt_m_table[block_size] = marker_idx2++;
@@ -7001,8 +6982,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t model_modifier, uint32_t model_mperm_val, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t xmhh_exists, uint32_t nxmhh_exists, uint32_t perm_batch_size) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-  uintptr_t unfiltered_indiv_ctl2 = 2 * ((unfiltered_indiv_ct + BITCT - 1) / BITCT);
-  uintptr_t pheno_nm_ctl2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + BITCT2 - 1) / BITCT2;
+  uintptr_t unfiltered_indiv_ctv2 = 2 * ((unfiltered_indiv_ct + BITCT - 1) / BITCT);
+  uintptr_t pheno_nm_ctv2 = 2 * ((pheno_nm_ct + (BITCT - 1)) / BITCT);
   FILE* outfile = NULL;
   FILE* outfile_qtm = NULL;
   FILE* outfile_msa = NULL;
@@ -7030,8 +7012,9 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   char* outname_end2;
   char* wptr;
   char* wptr_restart;
-  unsigned char* loadbuf_raw;
+  uintptr_t* loadbuf_raw;
   uintptr_t* loadbuf_ptr;
+  uintptr_t* cur_loadbuf;
   uintptr_t* lbptr2;
   uintptr_t* indiv_raw_include2;
   uintptr_t* indiv_include2;
@@ -7140,9 +7123,11 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     }
   }
   outname_end2 = memcpyb(outname_end, ".qassoc", 8);
-  if (wkspace_alloc_uc_checked(&loadbuf_raw, unfiltered_indiv_ct4)) {
+  if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
     goto qassoc_ret_NOMEM;
   }
+  loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
+  cur_loadbuf = loadbuf_raw;
   if (fill_orig_chiabs) {
     if (wkspace_alloc_d_checked(&g_orig_chisq, marker_ct * sizeof(double))) {
       goto qassoc_ret_NOMEM;
@@ -7230,11 +7215,11 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     }
   }
   g_adaptive_ci_zt = ltqnorm(1 - aperm_beta / (2.0 * marker_ct));
-  if (wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctl2 * sizeof(intptr_t)) ||
+  if (wkspace_alloc_ul_checked(&g_loadbuf, MODEL_BLOCKSIZE * pheno_nm_ctv2 * sizeof(intptr_t)) ||
       wkspace_alloc_d_checked(&g_orig_1mpval, marker_ct * sizeof(double)) ||
       wkspace_alloc_ui_checked(&g_marker_uidxs, marker_ct * sizeof(uint32_t)) ||
-      wkspace_alloc_ul_checked(&indiv_raw_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&indiv_include2, pheno_nm_ctl2 * sizeof(intptr_t))) {
+      wkspace_alloc_ul_checked(&indiv_raw_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&indiv_include2, pheno_nm_ctv2 * sizeof(intptr_t))) {
     goto qassoc_ret_NOMEM;
   }
   memset(wprefix, 32, 5);
@@ -7245,7 +7230,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   ullii = chrom_info_ptr->chrom_mask;
   gender_req = ((x_code != -1) && (ullii & (1LLU << x_code))) || ((y_code != -1) && (ullii & (1LLU << y_code)));
   if (gender_req) {
-    if (wkspace_alloc_ul_checked(&indiv_raw_male_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(&indiv_raw_male_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
       goto qassoc_ret_NOMEM;
     }
   }
@@ -7376,7 +7361,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       intprint2(&(wprefix[2]), uii);
     } else if (perm_maxt) {
       marker_idx -= MODEL_BLOCKKEEP;
-      memcpy(g_loadbuf, &(g_loadbuf[(MODEL_BLOCKSIZE - MODEL_BLOCKKEEP) * pheno_nm_ctl2]), MODEL_BLOCKKEEP * pheno_nm_ctl2 * sizeof(intptr_t));
+      memcpy(g_loadbuf, &(g_loadbuf[(MODEL_BLOCKSIZE - MODEL_BLOCKKEEP) * pheno_nm_ctv2]), MODEL_BLOCKKEEP * pheno_nm_ctv2 * sizeof(intptr_t));
       if (!do_lin) {
 	memcpy(g_qresultbuf, &(g_qresultbuf[3 * (MODEL_BLOCKSIZE - MODEL_BLOCKKEEP) * perm_vec_ctcl8m]), MODEL_BLOCKKEEP * perm_vec_ctcl8m * 3 * sizeof(double));
       } else {
@@ -7404,47 +7389,32 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	  break;
 	}
       }
-      if (fread(loadbuf_raw, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      loadbuf_ptr = &(g_loadbuf[block_size * pheno_nm_ctv2]);
+      if (unfiltered_indiv_ct == pheno_nm_ct) {
+	cur_loadbuf = loadbuf_ptr;
+      }
+      if (fread(cur_loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	goto qassoc_ret_READ_FAIL;
       }
       if (g_is_haploid) {
 	if (g_is_x) {
 	  if (xmhh_exists) {
-	    hh_reset(loadbuf_raw, indiv_raw_male_include2, unfiltered_indiv_ct);
+	    hh_reset((unsigned char*)cur_loadbuf, indiv_raw_male_include2, unfiltered_indiv_ct);
 	  }
 	} else if (g_is_y) {
-	  hh_reset_y(loadbuf_raw, indiv_raw_include2, indiv_raw_male_include2, unfiltered_indiv_ct);
+	  hh_reset_y((unsigned char*)cur_loadbuf, indiv_raw_include2, indiv_raw_male_include2, unfiltered_indiv_ct);
 	} else if (nxmhh_exists) {
-	  hh_reset(loadbuf_raw, indiv_raw_include2, unfiltered_indiv_ct);
+	  hh_reset((unsigned char*)cur_loadbuf, indiv_raw_include2, unfiltered_indiv_ct);
 	}
       }
-      indiv_uidx = 0;
-      ukk = pheno_nm_ct / BITCT2;
-      loadbuf_ptr = &(g_loadbuf[block_size * pheno_nm_ctl2]);
-      for (uii = 0; uii < ukk; uii++) {
-	ulii = 0;
-	for (ujj = 0; ujj < BITCT; ujj += 2) {
-	  indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
-	  ulii |= ((uintptr_t)(((loadbuf_raw[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3))) << ujj;
-	  indiv_uidx++;
-	}
-	*loadbuf_ptr++ = ulii;
-      }
-      ujj = 2 * (pheno_nm_ct & (BITCT2 - 1));
-      if (ujj) {
-	ulii = 0;
-	for (uii = 0; uii < ujj; uii += 2) {
-	  indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
-	  ulii |= ((uintptr_t)(((loadbuf_raw[indiv_uidx / 4] >> ((indiv_uidx & 3) * 2)) & 3))) << uii;
-	  indiv_uidx++;
-	}
-	*loadbuf_ptr = ulii;
+      if (unfiltered_indiv_ct != pheno_nm_ct) {
+        collapse_copy_2bitarr_incl(loadbuf_raw, loadbuf_ptr, pheno_nm_ct, pheno_nm);
       }
       if (perm_adapt) {
 	g_adapt_m_table[block_size] = marker_idx2++;
       }
       if (is_set(marker_reverse, marker_uidx)) {
-	reverse_loadbuf((unsigned char*)(&(g_loadbuf[block_size * pheno_nm_ctl2])), pheno_nm_ct);
+	reverse_loadbuf((unsigned char*)loadbuf_ptr, pheno_nm_ct);
       }
       mu_table[block_size++] = marker_uidx;
       if (marker_idx + block_size == marker_unstopped_ct) {
@@ -7465,8 +7435,8 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	marker_uidx2 = mu_table[marker_bidx];
         g_marker_uidxs[marker_idx + marker_bidx] = marker_uidx2;
         is_reverse = is_set(marker_reverse, marker_uidx2);
-	loadbuf_ptr = &(g_loadbuf[marker_bidx * pheno_nm_ctl2]);
-	vec_3freq(pheno_nm_ctl2, loadbuf_ptr, indiv_include2, &missing_ct, &het_ct, &homcom_ct);
+	loadbuf_ptr = &(g_loadbuf[marker_bidx * pheno_nm_ctv2]);
+	vec_3freq(pheno_nm_ctv2, loadbuf_ptr, indiv_include2, &missing_ct, &het_ct, &homcom_ct);
 	nanal = pheno_nm_ct - missing_ct;
 	memcpy(tbuf, wprefix, 5);
         wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), &(tbuf[5]));

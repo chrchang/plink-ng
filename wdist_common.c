@@ -4524,6 +4524,40 @@ uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered
   return 0;
 }
 
+void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include) {
+  uintptr_t cur_write = 0;
+  uint32_t indiv_uidx = 0;
+  uint32_t indiv_idx_low = 0;
+  uint32_t indiv_idx;
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    indiv_uidx = next_set_unsafe(indiv_include, indiv_uidx);
+    cur_write |= ((rawbuf[indiv_uidx / BITCT2] >> (2 * (indiv_uidx % BITCT2))) & (3 * ONELU)) << (indiv_idx_low * 2);
+    if (++indiv_idx_low == BITCT2) {
+      *mainbuf++ = cur_write;
+      cur_write = 0;
+      indiv_idx_low = 0;
+    }
+    indiv_uidx++;
+  }
+  if (indiv_idx_low) {
+    *mainbuf = cur_write;
+  }
+}
+
+uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include) {
+  uint32_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  if (unfiltered_indiv_ct == indiv_ct) {
+    rawbuf = mainbuf;
+  }
+  if (fread(rawbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+    return RET_READ_FAIL;
+  }
+  if (unfiltered_indiv_ct != indiv_ct) {
+    collapse_copy_2bitarr_incl(rawbuf, mainbuf, indiv_ct, indiv_include);
+  }
+  return 0;
+}
+
 uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_indiv_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf) {
   uintptr_t marker_uidx = *marker_uidx_ptr;
   uintptr_t marker_idx = *marker_idx_ptr;
