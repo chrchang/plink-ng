@@ -469,7 +469,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   FILE* outfile = NULL;
   uint64_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
-  uintptr_t cur_lookahead = 0;
+  // uintptr_t cur_lookahead = 0;
   uint32_t is_verbose = hp->modifier & HOMOZYG_GROUP_VERBOSE;
   uint32_t max_pool_sizel = (max_pool_size + (BITCT - 1)) / BITCT;
   uint32_t pool_size_min = hp->pool_size_min;
@@ -481,7 +481,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   int32_t retval = 0;
   uint32_t chrom_fo_idx_to_pidx[MAX_POSSIBLE_CHROM + 1]; // decreasing order
   unsigned char* wkspace_mark2;
-  uintptr_t* lookahead_buf;
+  // uintptr_t* lookahead_buf;
   uintptr_t* pool_size_first_plidx;
   uint32_t* marker_uidx_to_cidx;
   uintptr_t* roh_slots;
@@ -497,14 +497,14 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   uintptr_t* allelic_match_matrix; // pairwise match matrix, potentially huge
   uint32_t* uiptr;
   char* wptr;
-  uintptr_t max_lookahead;
+  // uintptr_t max_lookahead;
   uintptr_t old_pool_list_size;
   uintptr_t pool_list_idx;
   uintptr_t roh_slot_wsize;
   uintptr_t max_pool_list_size;
   uintptr_t chrom_roh_start;
   uintptr_t roh_idx;
-  uint32_t lookahead_base_uidx;
+  // uint32_t lookahead_base_uidx;
   uint32_t pool_size;
   uint32_t chrom_fo_idx;
   uint32_t cur_roh_heap_top;
@@ -679,8 +679,8 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   // Now we know how much memory the pools require, so we can assign the rest
   // to a lookahead buffer.
   pool_list = (uintptr_t*)wkspace_alloc(pool_list_size * sizeof(intptr_t));
-  max_lookahead = wkspace_left / (unfiltered_indiv_ctl2 * sizeof(intptr_t));
-  lookahead_buf = (uintptr_t*)wkspace_base;
+  // max_lookahead = wkspace_left / (unfiltered_indiv_ctl2 * sizeof(intptr_t));
+  // lookahead_buf = (uintptr_t*)wkspace_base;
 
   // Now assign ID numbers.
   // We do not precisely imitate PLINK 1.07 here.  This is because
@@ -728,8 +728,8 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
     fill_ulong_zero(roh_slot_occupied, max_pool_sizel);
     fill_ulong_one((uintptr_t*)roh_slot_map, max_pool_size * (sizeof(int64_t) / sizeof(intptr_t)));
     fill_uint_zero(roh_slot_end_uidx, max_pool_size);
-    lookahead_base_uidx = chrom_start;
-    cur_lookahead = 0;
+    // lookahead_base_uidx = chrom_start;
+    // cur_lookahead = 0;
 
     for (uii = chrom_fo_idx_to_pidx[chrom_fo_idx + 1]; uii < chrom_fo_idx_to_pidx[chrom_fo_idx]; uii++) {
       pool_list_idx = pool_list[pool_list_idx - 1];
