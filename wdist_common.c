@@ -2483,11 +2483,11 @@ int32_t char_cmp_deref(const void* aa, const void* bb) {
   return (int32_t)(**((const char**)aa) - **((const char**)bb));
 }
 
-#ifndef __cplusplus
 int32_t intcmp(const void* aa, const void* bb) {
   return *((const int32_t*)aa) - *((const int32_t*)bb);
 }
 
+#ifndef __cplusplus
 int32_t llcmp(const void* aa, const void* bb) {
   int64_t diff = *((const int64_t*)aa) - *((const int64_t*)bb);
   if (diff > 0) {

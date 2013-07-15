@@ -141,13 +141,15 @@ uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_c
   return 0;
 }
 
-int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* missing_pheno_str, uint32_t missing_pheno_len, uint32_t is_new_lengths, uintptr_t* indiv_male, uintptr_t roh_ct, uint32_t* roh_list, uintptr_t* roh_list_chrom_starts, uintptr_t* indiv_to_last_roh) {
+int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* missing_pheno_str, uint32_t missing_pheno_len, uint32_t is_new_lengths, uintptr_t roh_ct, uint32_t* roh_list, uintptr_t* roh_list_chrom_starts, uintptr_t* indiv_to_last_roh, uint32_t* max_pool_size_ptr, uint32_t* max_roh_len_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   FILE* outfile_indiv = NULL;
   char* wptr_iid = &(tbuf[plink_maxfid + 1]);
   char* wptr_phe = &(tbuf[plink_maxfid + plink_maxiid + 2]);
   int32_t* roh_ct_aff_adj = NULL;
+  uint32_t max_pool_size = 0;
+  uint32_t max_roh_len = 0;
   int32_t retval = 0;
   char* cptr;
   char* cptr2;
@@ -257,6 +259,9 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t unfil
       kb_tot += dxx;
       wptr = width_force(10, wptr_kb, double_f_writew3(wptr_kb, dxx));
       *wptr++ = ' ';
+      if (cur_roh[2] > max_roh_len) {
+	max_roh_len = cur_roh[2];
+      }
       wptr = uint32_writew8x(wptr, cur_roh[2], ' ');
       dyy = (1.0 + SMALLISH_EPSILON) / ((double)((int32_t)cur_roh[2]));
       wptr = width_force(8, wptr, double_f_writew3(wptr, dxx * dyy));
@@ -367,6 +372,9 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t unfil
         wptr = uint32_writew8x(&(wptr_bp1[11]), uii, ' ');
       }
       cur_roh_ct += roh_ct_unaff_adj[marker_uidx1 - chrom_start];
+      if (cur_roh_ct + uii > max_pool_size) {
+        max_pool_size = cur_roh_ct + uii;
+      }
       wptr = uint32_writew8x(wptr, cur_roh_ct, '\n');
       if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
         goto write_main_roh_reports_ret_WRITE_FAIL;
@@ -376,6 +384,8 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t unfil
   if (fclose_null(&outfile)) {
     goto write_main_roh_reports_ret_WRITE_FAIL;
   }
+  *max_pool_size_ptr = max_pool_size;
+  *max_roh_len_ptr = max_roh_len;
   while (0) {
   write_main_roh_reports_ret_NOMEM:
     retval = RET_NOMEM;
@@ -393,7 +403,398 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t unfil
   return retval;
 }
 
-int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* outname, char* outname_end, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, int32_t missing_pheno, uintptr_t* sex_male) {
+// heap of 64-bit integers with maximum on top
+// root at element 1, heap_size offset by 1
+// slightly more complicated variant of this in wdist_cluster.c
+
+void heapmax64_down(uint32_t cur_pos, uint32_t heap_size, uint64_t* heapmax64) {
+  uint64_t cur_val = heapmax64[cur_pos];
+  uint32_t child_pos = cur_pos * 2;
+  uint64_t tmp_val;
+  while (child_pos < heap_size) {
+    tmp_val = heapmax64[child_pos];
+    if ((child_pos + 1 < heap_size) && (heapmax64[child_pos + 1] > tmp_val)) {
+      tmp_val = heapmax64[++child_pos];
+    }
+    if (cur_val >= tmp_val) {
+      break;
+    }
+    heapmax64[cur_pos] = tmp_val;
+    cur_pos = child_pos;
+    child_pos *= 2;
+  }
+  heapmax64[cur_pos] = cur_val;
+}
+
+void heapmax64_up_then_down(uint32_t orig_pos, uint64_t* heapmax64, uint32_t heap_size) {
+  uint32_t cur_pos = orig_pos;
+  uint64_t cur_val = heapmax64[orig_pos];
+  uint32_t parent_pos = orig_pos / 2;
+  uint64_t tmp_val;
+  while (parent_pos) {
+    tmp_val = heapmax64[parent_pos];
+    if (cur_val <= tmp_val) {
+      break;
+    }
+    heapmax64[cur_pos] = tmp_val;
+    cur_pos = parent_pos;
+    parent_pos /= 2;
+  }
+  if (cur_pos != orig_pos) {
+    heapmax64[cur_pos] = cur_val;
+  }
+  heapmax64_down(cur_pos, heap_size, heapmax64);
+}
+
+void cur_roh_heap_removemax(uintptr_t* roh_slot_occupied, uint64_t* cur_roh_heap, uint32_t* cur_roh_heap_top_ptr, uint32_t* cur_roh_heap_max_ptr) {
+  uint32_t cur_roh_heap_top = *cur_roh_heap_top_ptr;
+  uint32_t initial_heap_max = *cur_roh_heap_max_ptr;
+  uint32_t new_heap_max;
+  do {
+    clear_bit_noct(roh_slot_occupied, (uint32_t)(cur_roh_heap[1]));
+    if ((--cur_roh_heap_top) == 1) {
+      new_heap_max = 0;
+      break;
+    }
+    cur_roh_heap[1] = cur_roh_heap[cur_roh_heap_top];
+    heapmax64_down(1, cur_roh_heap_top, cur_roh_heap);
+    new_heap_max = (uint32_t)(cur_roh_heap[1] >> 32);
+  } while (new_heap_max == initial_heap_max);
+  *cur_roh_heap_top_ptr = cur_roh_heap_top;
+  *cur_roh_heap_max_ptr = new_heap_max;
+}
+
+int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* outname, char* outname_end, uintptr_t* rawbuf, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char* marker_alleles, uintptr_t max_marker_allele_len, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* missing_pheno_str, uint32_t missing_pheno_len, uint32_t is_new_lengths, uintptr_t roh_ct, uint32_t* roh_list, uintptr_t* roh_list_chrom_starts, uint32_t max_pool_size, uint32_t max_roh_len) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  uint64_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t cur_lookahead = 0;
+  uint32_t is_verbose = hp->modifier & HOMOZYG_GROUP_VERBOSE;
+  uint32_t max_pool_sizel = (max_pool_size + (BITCT - 1)) / BITCT;
+  uint32_t pool_size_min = hp->pool_size_min;
+  uint32_t pool_size_ct = max_pool_size + 1 - pool_size_min;
+  uint32_t marker_uidx2 = 0;
+  uint32_t fresh_meat = 0;
+  uintptr_t pool_list_size = 0;
+  uint32_t pool_ct = 0;
+  int32_t retval = 0;
+  uint32_t chrom_fo_idx_to_pidx[MAX_POSSIBLE_CHROM + 1]; // decreasing order
+  unsigned char* wkspace_mark2;
+  uintptr_t* lookahead_buf;
+  uintptr_t* pool_size_first_plidx;
+  uint32_t* marker_uidx_to_cidx;
+  uintptr_t* roh_slots;
+  uintptr_t* roh_slot_occupied; // bitfield marking roh_slots occupancy
+  uint32_t* indiv_uidx_sort_buf;
+  uint64_t* cur_roh_heap; // high 32 bits = marker_uidx, low 32 bits = slot_idx
+  uintptr_t* pool_list;
+  uint32_t* cur_roh;
+  uintptr_t* cur_pool;
+  uint64_t* roh_slot_map; // high 32 bits = indiv_uidx, low 32 bits = slot_idx
+  uint32_t* roh_slot_end_uidx; // tracks when to flush a roh_slot
+  uint32_t* allelic_match; // counts, then group assignments
+  uintptr_t* allelic_match_matrix; // pairwise match matrix, potentially huge
+  uint32_t* uiptr;
+  char* wptr;
+  uintptr_t max_lookahead;
+  uintptr_t old_pool_list_size;
+  uintptr_t pool_list_idx;
+  uintptr_t roh_slot_wsize;
+  uintptr_t max_pool_list_size;
+  uintptr_t chrom_roh_start;
+  uintptr_t roh_idx;
+  uint32_t lookahead_base_uidx;
+  uint32_t pool_size;
+  uint32_t chrom_fo_idx;
+  uint32_t cur_roh_heap_top;
+  uint32_t marker_uidx1;
+  uint32_t marker_cidx;
+  uint32_t slot_idx;
+  uint32_t chrom_start;
+  uint32_t chrom_len;
+  uint32_t uii;
+  logprint("Error: --homozyg group[-verbose] is under development.\n");
+  retval = RET_CALC_NOT_YET_SUPPORTED;
+  goto roh_pool_ret_1;
+  uii = 0; // max chrom len
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+    if (roh_list_chrom_starts[chrom_fo_idx] == roh_list_chrom_starts[chrom_fo_idx + 1]) {
+      continue;
+    }
+    chrom_len = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
+    if (chrom_len > uii) {
+      uii = chrom_len;
+    }
+  }
+#ifdef __LP64__
+  // want each roh_slots space to be 16-byte aligned, to enable SSE2
+  // max_roh_len = 1 -> 1 vec
+  // max_roh_len in {2..65} -> 2 vecs
+  // max_roh_len in {66..129} -> 3 vecs, etc.
+  roh_slot_wsize = 2 * ((max_roh_len + 126) / 64);
+#else
+  // max_roh_len = 1 -> 1 word
+  // max_roh_len in {2..17} -> 2 words, etc.
+  roh_slot_wsize = (max_roh_len + 30) / 16;
+#endif
+  if (wkspace_alloc_ul_checked(&pool_size_first_plidx, pool_size_ct * sizeof(intptr_t)) ||
+      wkspace_alloc_ui_checked(&marker_uidx_to_cidx, uii * sizeof(int32_t)) ||
+      wkspace_alloc_ul_checked(&roh_slots, max_pool_size * roh_slot_wsize * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&roh_slot_occupied, max_pool_sizel * sizeof(intptr_t)) ||
+      wkspace_alloc_ull_checked(&roh_slot_map, max_pool_size * sizeof(int64_t)) ||
+      wkspace_alloc_ui_checked(&roh_slot_end_uidx, max_pool_size * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&allelic_match, max_pool_size * sizeof(int32_t)) ||
+      wkspace_alloc_ul_checked(&allelic_match_matrix, (((uintptr_t)max_pool_size) * (max_pool_size - 1)) * (sizeof(intptr_t) / 2))) {
+    goto roh_pool_ret_NOMEM;
+  }
+  wkspace_mark2 = wkspace_base;
+  // roh_slot_map / roh_slot_end_uidx / allelic_match / allelic_match_matrix
+  // not used at the same time as cur_roh_heap / indiv_uidx_sort_buf
+  cur_roh_heap = &(roh_slot_map[-1]);
+  wkspace_reset((unsigned char*)roh_slot_end_uidx);
+  if (wkspace_alloc_ui_checked(&indiv_uidx_sort_buf, 3 * max_pool_size * sizeof(int32_t))) {
+      goto roh_pool_ret_NOMEM;
+  }
+  if (wkspace_base < wkspace_mark2) {
+    wkspace_base = wkspace_mark2;
+  }
+
+  fill_ulong_one(pool_size_first_plidx, pool_size_ct);
+  fill_ulong_zero(roh_slot_occupied, max_pool_sizel);
+
+  pool_list = (uintptr_t*)wkspace_base;
+  max_pool_list_size = wkspace_left / sizeof(intptr_t);
+  // Since our ROH are sorted by *last* SNP, it's easiest to scan for pools
+  // from back to front if we wish to painlessly produce sorted lists.
+  chrom_fo_idx = chrom_info_ptr->chrom_ct;
+
+  do {
+    chrom_fo_idx_to_pidx[chrom_fo_idx--] = pool_ct;
+    chrom_fo_idx--;
+    chrom_roh_start = roh_list_chrom_starts[chrom_fo_idx];
+    roh_idx = roh_list_chrom_starts[chrom_fo_idx + 1];
+    if (chrom_roh_start == roh_idx) {
+      continue;
+    }
+    cur_roh_heap_top = 1;
+
+    // last marker in next ROH; marker_uidx2 is maximum heap element
+    marker_uidx1 = roh_list[1 + (roh_idx - 1) * ROH_ENTRY_INTS];
+    do {
+      if ((marker_uidx2 <= marker_uidx1) && (roh_idx != chrom_roh_start)) {
+	roh_idx--;
+	cur_roh = &(roh_list[roh_idx * ROH_ENTRY_INTS]);
+        uii = cur_roh[0];
+	// check if this ROH doesn't intersect anything
+	if ((cur_roh_heap_top > 1) || ((roh_idx != chrom_roh_start) && (cur_roh[1 - ROH_ENTRY_INTS] >= uii))) {
+	  slot_idx = next_non_set_unsafe(roh_slot_occupied, 0);
+	  set_bit_noct(roh_slot_occupied, slot_idx);
+	  // use roh_slots[0..(max_pool_size - 1)] to store references to
+	  // active ROH here
+	  roh_slots[slot_idx] = roh_idx;
+          cur_roh_heap[cur_roh_heap_top++] = (((uint64_t)uii) << 32) | ((uint64_t)slot_idx);
+	  heapmax64_up_then_down(cur_roh_heap_top - 1, cur_roh_heap, cur_roh_heap_top);
+	  marker_uidx2 = (uint32_t)(cur_roh_heap[1] >> 32);
+	  fresh_meat = 1;
+	}
+	if (roh_idx != chrom_roh_start) {
+	  marker_uidx1 = cur_roh[1 - ROH_ENTRY_INTS];
+	} else {
+	  marker_uidx1 = 0;
+	}
+      } else {
+	if (fresh_meat) {
+	  // At every SNP where a ROH begins, we check if another ROH ended
+	  // between that SNP (included) and the next SNP where a ROH begins
+          // (excluded).  (This is tracked by the fresh_meat flag.)  If, and
+	  // only if, that is the case, we are at the beginning of the
+	  // consensus region for a maximal pool.
+	  pool_size = popcount_longs(roh_slot_occupied, 0, max_pool_sizel);
+	  if (pool_size >= pool_size_min) {
+	    // pool encoding:
+	    // [0]: pool_list index of next pool of same size (~ZEROLU if none)
+	    // 64-bit:
+            //   [1]: pool size (P) in low 32 bits, 1-based pool idx in high
+	    //   [2-(P+1)]: roh indexes, sorted by increasing indiv_idx
+	    //   [(P+2)-(2P+1)]: allelic-match group assignment (32-bit) with
+	    //                   31st bit set if reference member; NSIM count
+	    //                   in high 32 bits
+	    // 32-bit:
+            //   [1]: P
+	    //   [2]: 1-based pool idx
+	    //   [3-(P+2)]: roh indexes
+	    //   [(P+3)-(3P+2)]: allelic-match group assignment, followed by
+	    //                   NSIM count, interleaved
+	    old_pool_list_size = pool_list_size;
+#ifdef __LP64__
+	    pool_list_size += 2 * pool_size + 2;
+#else
+            pool_list_size += 3 * pool_size + 3;
+#endif
+	    if (pool_list_size > max_pool_list_size) {
+	      goto roh_pool_ret_NOMEM;
+	    }
+	    cur_pool = &(pool_list[old_pool_list_size]);
+            *cur_pool++ = pool_size_first_plidx[pool_size - pool_size_min];
+            pool_size_first_plidx[pool_size - pool_size_min] = old_pool_list_size;
+	    *cur_pool++ = pool_size;
+#ifndef __LP64__
+	    *cur_pool++ = 0;
+#endif
+	    slot_idx = 0;
+	    uiptr = indiv_uidx_sort_buf;
+	    for (uii = 0; uii < pool_size; uii++) {
+	      slot_idx = next_set_unsafe(roh_slot_occupied, slot_idx);
+	      pool_list_idx = roh_slots[slot_idx]; // actually a ROH idx
+	      *uiptr++ = roh_list[pool_list_idx * ROH_ENTRY_INTS + 5]; // indiv_uidx
+              *uiptr++ = (uint32_t)pool_list_idx;
+#ifdef __LP64__
+	      *uiptr++ = (uint32_t)(pool_list_idx >> 32);
+#endif
+	      slot_idx++;
+	    }
+	    // sort in increasing indiv_uidx order, for reproducible results
+            qsort(indiv_uidx_sort_buf, pool_size, 4 + sizeof(intptr_t), intcmp);
+	    for (uii = 0; uii < pool_size; uii++) {
+#ifdef __LP64__
+              *cur_pool++ = ((uintptr_t)indiv_uidx_sort_buf[3 * uii + 1]) | (((uintptr_t)indiv_uidx_sort_buf[3 * uii + 2]) << 32);
+#else
+	      *cur_pool++ = indiv_uidx_sort_buf[2 * uii + 1];
+#endif
+	    }
+	    // leave a backward pointer
+	    pool_list[pool_list_size - 1] = old_pool_list_size;
+	    pool_ct++;
+	  }
+	  fresh_meat = 0;
+	}
+	cur_roh_heap_removemax(roh_slot_occupied, cur_roh_heap, &cur_roh_heap_top, &marker_uidx2);
+      }
+    } while ((roh_idx != chrom_roh_start) || (cur_roh_heap_top != 1));
+  } while (chrom_fo_idx);
+  chrom_fo_idx_to_pidx[0] = pool_ct;
+
+  // Now we know how much memory the pools require, so we can assign the rest
+  // to a lookahead buffer.
+  pool_list = (uintptr_t*)wkspace_alloc(pool_list_size * sizeof(intptr_t));
+  max_lookahead = wkspace_left / (unfiltered_indiv_ctl2 * sizeof(intptr_t));
+  lookahead_buf = (uintptr_t*)wkspace_base;
+
+  // Now assign ID numbers.
+  // We do not precisely imitate PLINK 1.07 here.  This is because
+  // 1. it generates non-maximal pools, includes them during ID assignment, and
+  //    then winds up with gaps in its final set of ID numbers; this is ugly.
+  // 2. it also sorts by *reverse* physical position.  Since we're already
+  //    giving up on using diff for compatibility checking, we may as well
+  //    switch this to increasing position.  If there's a script lying around
+  //    somewhere which actually depends on the reverse order, we can give them
+  //    a 'group-reverse' modifier to keep them happy.
+  uii = 0;
+  for (pool_size = max_pool_size; pool_size >= pool_size_min; --pool_size) {
+    pool_list_idx = pool_size_first_plidx[pool_size - pool_size_min];
+    while (pool_list_idx != ~ZEROLU) {
+#ifdef __LP64__
+      pool_list[pool_list_idx + 1] |= ((uintptr_t)(++uii)) << 32;
+#else
+      pool_list[pool_list_idx + 2] = ++uii;
+#endif
+      pool_list_idx = pool_list[pool_list_idx];
+    }
+  }
+
+  // Now form allelic-match groups in an I/O friendly manner (rescan the file
+  // in forward order), i.e. traverse pool_list[] in reverse order.
+  memcpy(&(outname_end[5]), "overlap.S", 9);
+  pool_list_idx = pool_list_size;
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+    if (chrom_fo_idx_to_pidx[chrom_fo_idx] == chrom_fo_idx_to_pidx[chrom_fo_idx + 1]) {
+      continue;
+    }
+
+    chrom_start = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
+    if (fseeko(bedfile, bed_offset + ((uint64_t)chrom_start) * unfiltered_indiv_ct4, SEEK_SET)) {
+      goto roh_pool_ret_READ_FAIL;
+    }
+    marker_uidx2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+    marker_cidx = 0;
+    for (marker_uidx1 = chrom_start; marker_uidx1 < marker_uidx2; marker_uidx1++) {
+      if (is_set(marker_exclude, marker_uidx1)) {
+	continue;
+      }
+      marker_uidx_to_cidx[marker_uidx1 - chrom_start] = marker_cidx;
+    }
+    fill_ulong_zero(roh_slot_occupied, max_pool_sizel);
+    fill_ulong_one((uintptr_t*)roh_slot_map, max_pool_size * (sizeof(int64_t) / sizeof(intptr_t)));
+    fill_uint_zero(roh_slot_end_uidx, max_pool_size);
+    lookahead_base_uidx = chrom_start;
+    cur_lookahead = 0;
+
+    for (uii = chrom_fo_idx_to_pidx[chrom_fo_idx + 1]; uii < chrom_fo_idx_to_pidx[chrom_fo_idx]; uii++) {
+      pool_list_idx = pool_list[pool_list_idx - 1];
+      // todo:
+      // 1. determine new roh_slots assignment, and which slots need to be
+      //    populated
+      // 2. populate them from disk and lookahead_buf
+      // 3. populate allelic_match_matrix, store NSIM values in allelic_match[]
+      // 4. greedily assign allelic match groups, save info
+      // 5. handle is_verbose if necessary
+
+      if (is_verbose) {
+#ifdef __LP64__
+	wptr = uint32_write(&(outname_end[14]), (uint32_t)(cur_pool[1] >> 32));
+#else
+	wptr = uint32_write(&(outname_end[14]), (uint32_t)cur_pool[2]);
+#endif
+	memcpy(wptr, ".verbose", 9);
+	if (fopen_checked(&outfile, outname, "w")) {
+	  goto roh_pool_ret_OPEN_FAIL;
+	}
+
+	// todo
+
+	if (fclose_null(&outfile)) {
+	  goto roh_pool_ret_WRITE_FAIL;
+	}
+      }
+    }
+  }
+
+  outname_end[12] = '\0';
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto roh_pool_ret_OPEN_FAIL;
+  }
+  sprintf(tbuf, " POOL %%%us %%%us      PHE  CHR %%%us %%%us            BP1            BP2       KB     NSNP NSIM    GRP\n", plink_maxfid, plink_maxiid, plink_maxsnp, plink_maxsnp);
+  if (fprintf(outfile, tbuf, "FID", "IID", "SNP1", "SNP2") < 0) {
+    goto roh_pool_ret_WRITE_FAIL;
+  }
+  for (; max_pool_size >= pool_size_min; max_pool_size--) {
+    // todo
+  }
+  if (fclose_null(&outfile)) {
+    goto roh_pool_ret_WRITE_FAIL;
+  }
+  while (0) {
+  roh_pool_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  roh_pool_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  roh_pool_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  roh_pool_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+ roh_pool_ret_1:
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  return retval;
+}
+
+int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char* marker_alleles, uintptr_t max_marker_allele_len, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* outname, char* outname_end, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, int32_t missing_pheno, uintptr_t* sex_male) {
   unsigned char* wkspace_mark = wkspace_base;
   uint64_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
@@ -456,6 +857,8 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   uint32_t marker_cidx_max;
   uint32_t swbuf_full;
   uint32_t uii;
+  uint32_t max_pool_size;
+  uint32_t max_roh_len;
   wptr = int32_write(missing_pheno_str, missing_pheno);
   wptr = memcpya(wptr, ".000", 4);
   missing_pheno_len = (uintptr_t)(wptr - missing_pheno_str);
@@ -650,7 +1053,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   // "truncate" the completed list so we can start making workspace allocations
   // again
   roh_list = (uint32_t*)wkspace_alloc(roh_ct * ROH_ENTRY_INTS * sizeof(int32_t));
-  retval = write_main_roh_reports(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, marker_pos, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, pheno_nm, pheno_c, pheno_d, missing_pheno_str, missing_pheno_len, is_new_lengths, indiv_male, roh_ct, roh_list, roh_list_chrom_starts, indiv_to_last_roh);
+  retval = write_main_roh_reports(outname, outname_end, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, marker_pos, indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, pheno_nm, pheno_c, pheno_d, missing_pheno_str, missing_pheno_len, is_new_lengths, roh_ct, roh_list, roh_list_chrom_starts, indiv_to_last_roh, &max_pool_size, &max_roh_len);
   if (retval) {
     goto calc_homozyg_ret_1;
   }
@@ -658,10 +1061,22 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   sprintf(logbuf, "Results saved to %s.hom{,.indiv,.summary}.\n", outname);
   logprintb();
   if (hp->modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE)) {
-    // todo
-    logprint("Error: --homozyg group is under development.\n");
-    retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto calc_homozyg_ret_1;
+    if (max_pool_size < hp->pool_size_min) {
+      sprintf(logbuf, "Skipping --homozyg group%s report since there are no pools.\n", (hp->modifier & HOMOZYG_GROUP_VERBOSE)? "-verbose" : "");
+      logprintb();
+#ifndef __LP64__
+    } else if (max_pool_size > 65535) {
+      logprint("Error: 32-bit " PROG_NAME_STR "'s --homozyg group cannot handle a pool of size >65535.\n");
+      goto calc_homozyg_ret_NOMEM;
+#endif
+    } else {
+      wptr = double_g_writewx4(missing_pheno_str, (double)missing_pheno, 8);
+      missing_pheno_len = (uintptr_t)(wptr - missing_pheno_str);
+      retval = roh_pool(hp, bedfile, bed_offset, outname, outname_end, rawbuf, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, marker_alleles, max_marker_allele_len, chrom_info_ptr, marker_pos, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, pheno_nm, pheno_c, pheno_d, missing_pheno_str, missing_pheno_len, is_new_lengths, roh_ct, roh_list, roh_list_chrom_starts, max_pool_size, max_roh_len);
+      if (retval) {
+	goto calc_homozyg_ret_1;
+      }
+    }
   }
 
   while (0) {

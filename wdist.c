@@ -3753,8 +3753,8 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, Two_col_
   return 0;
 }
 
-static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_HOMOZYG | CALC_REGRESS_PCS | CALC_MODEL | CALC_LIST_23_INDELS)));
+static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr) {
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_LIST_23_INDELS)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)));
 }
 
 inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -3786,7 +3786,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uint32_t genome_skip_write = (cluster_ptr->ppc != 0.0) && (!(calculation_type & CALC_GENOME)) && (!read_genome_fname);
   uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type, min_bp_space, genome_skip_write);
   uint32_t marker_cms_needed = are_marker_cms_needed(calculation_type, update_cm);
-  uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname);
+  uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname, homozyg_ptr);
   uint32_t uii = 0;
   int64_t llxx = 0;
   uint32_t nonfounders = (misc_flags / MISC_NONFOUNDERS) & 1;
@@ -4639,7 +4639,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: Run-of-homozygosity scanning requires a sorted .map/.bim.  Retry this\ncommand after using --make-bed to sort your data.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
-    retval = calc_homozyg(homozyg_ptr, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, marker_pos, g_indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, outname, outname_end, pheno_nm, pheno_c, pheno_d, missing_pheno, sex_male);
+    retval = calc_homozyg(homozyg_ptr, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, marker_alleles, max_marker_allele_len, chrom_info_ptr, marker_pos, g_indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, outname, outname_end, pheno_nm, pheno_c, pheno_d, missing_pheno, sex_male);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -5820,11 +5820,11 @@ int32_t main(int32_t argc, char** argv) {
     argptr = is_flag_start(argv[ii]);
     if (argptr) {
       if (!memcmp("help", argptr, 5)) {
+	print_ver();
 	if ((cur_arg != 1) || (ii != 1) || subst_argv) {
 	  fputs("--help present, ignoring other flags.\n", stdout);
 	}
-	print_ver();
-	retval = disp_help(argc - cur_arg - 1, &(argv[cur_arg + 1]));
+	retval = disp_help(argc - ii - 1, &(argv[ii + 1]));
 	goto main_ret_1;
       }
       if (strlen(argptr) >= MAX_FLAG_LEN) {
@@ -10740,7 +10740,11 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
   if ((homozyg.modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE)) && (!(calculation_type & CALC_HOMOZYG))) {
-    sprintf(logbuf, "Error: --homozyg-match must be used with another --homozyg flag.%s", errstr_append);
+    if (homozyg.overlap_min == 0.95) {
+      sprintf(logbuf, "Error: --homozyg-group must be used with another --homozyg flag.%s", errstr_append);
+    } else {
+      sprintf(logbuf, "Error: --homozyg-match must be used with another --homozyg flag.%s", errstr_append);
+    }
     goto main_ret_INVALID_CMDLINE_3;
   }
 

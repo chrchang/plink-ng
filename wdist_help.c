@@ -506,8 +506,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 		);
 #ifndef STABLE_BUILD
     help_print("homozyg\thomozyg-snp\thomozyg-kb\thomozyg-density\thomozyg-gap\thomozyg-het\thomozyg-window-snp\thomozyg-window-het\thomozyg-window-missing\thomozyg-window-threshold", &help_ctrl, 1,
-"  --homozyg <group | group-verbose> <consensus-match> <include-missing>\n"
-"            <subtract-1-from-lengths>\n"
+"  --homozyg <group | group-verbose> <consensus-match> <subtract-1-from-lengths>\n"
 "  --homozyg-snp [min SNP count]\n"
 "  --homozyg-kb [min length]\n"
 "  --homozyg-density [max inverse density (kb/SNP)]\n"
@@ -527,8 +526,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      * With 'group[-verbose]', 'consensus-match' causes pairwise segmental\n"
 "        matches to be called based on the SNPs in the pool's consensus segment,\n"
 "        rather than the SNPs in the pairwise intersection.\n"
-"      * 'include-missing' causes missing calls to be treated as\n"
-"        homozygous in this analysis.\n"
 "      * By default, segment bp lengths are calculated as [end bp position] -\n"
 "        [start bp position] + 1.  Therefore, reports normally differ slightly\n"
 "        from PLINK 1.07, which does not add 1 at the end.  For testing\n"

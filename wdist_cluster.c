@@ -1625,7 +1625,7 @@ void heap_down(uint32_t cur_pos, uint32_t heap_size, double* heap_vals, uint32_t
     val_to_cindices[cur_pos] = tmp_cindices;
     cindices_to_heap_pos[tri_coord_no_diag_32(tmp_cindices & 65535, tmp_cindices >> 16)] = cur_pos;
     cur_pos = child_pos;
-    child_pos = cur_pos * 2;
+    child_pos *= 2;
   }
   heap_vals[cur_pos] = cur_val;
   val_to_cindices[cur_pos] = cur_cindices;
@@ -1652,7 +1652,7 @@ void heap_up_then_down(uint32_t orig_pos, uint32_t heap_size, double* heap_vals,
     val_to_cindices[cur_pos] = tmp_cindices;
     cindices_to_heap_pos[tri_coord_no_diag_32(tmp_cindices & 65535, tmp_cindices >> 16)] = cur_pos;
     cur_pos = parent_pos;
-    parent_pos = cur_pos / 2;
+    parent_pos /= 2;
   }
   if (cur_pos != orig_pos) {
     heap_vals[cur_pos] = cur_val;
