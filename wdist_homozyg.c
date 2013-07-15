@@ -468,7 +468,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uint64_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  // uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   // uintptr_t cur_lookahead = 0;
   uint32_t is_verbose = hp->modifier & HOMOZYG_GROUP_VERBOSE;
   uint32_t max_pool_sizel = (max_pool_size + (BITCT - 1)) / BITCT;
