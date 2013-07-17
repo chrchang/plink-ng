@@ -1835,11 +1835,27 @@ void fill_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len) {
   if (maj_start == maj_end) {
     bit_arr[maj_start] |= (ONELU << ((loc_start + len) % BITCT)) - (ONELU << (loc_start % BITCT));
   } else {
-    bit_arr[maj_start] |= (~ZEROLU) - ((ONELU << (loc_start % BITCT)) - ONELU);
+    bit_arr[maj_start] |= ~((ONELU << (loc_start % BITCT)) - ONELU);
     fill_ulong_one(&(bit_arr[maj_start + 1]), maj_end - maj_start - 1);
     minor = (loc_start + len) % BITCT;
     if (minor) {
       bit_arr[maj_end] |= (ONELU << minor) - ONELU;
+    }
+  }
+}
+
+void clear_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len) {
+  uintptr_t maj_start = loc_start / BITCT;
+  uintptr_t maj_end = (loc_start + len) / BITCT;
+  uintptr_t minor;
+  if (maj_start == maj_end) {
+    bit_arr[maj_start] &= ~((ONELU << ((loc_start + len) % BITCT)) - (ONELU << (loc_start % BITCT)));
+  } else {
+    bit_arr[maj_start] &= ((ONELU << (loc_start % BITCT)) - ONELU);
+    fill_ulong_zero(&(bit_arr[maj_start + 1]), maj_end - maj_start - 1);
+    minor = (loc_start + len) % BITCT;
+    if (minor) {
+      bit_arr[maj_end] &= ~((ONELU << minor) - ONELU);
     }
   }
 }
@@ -1862,11 +1878,11 @@ void set_bit_sub(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_unset_ct_ptr) 
   }
 }
 
-void clear_bit(uintptr_t* exclude_arr, uint32_t loc, uintptr_t* include_ct_ptr) {
+void clear_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* include_ct_ptr) {
   uint32_t maj = loc / BITCT;
   uintptr_t minor = ONELU << (loc % BITCT);
-  if (exclude_arr[maj] & minor) {
-    exclude_arr[maj] -= minor;
+  if (bit_arr[maj] & minor) {
+    bit_arr[maj] -= minor;
     *include_ct_ptr += 1;
   }
 }

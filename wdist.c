@@ -10051,21 +10051,6 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --simulate-tags flag deprecated.  Use e.g. '--simulate tags'.\n");
 	simulate_flags |= SIMULATE_TAGS;
 	goto main_param_zero;
-      } else if (!memcmp(argptr2, "egment-match-snp", 17)) {
-	UNSTABLE;
-	if (!(homozyg.modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE))) {
-          logprint("Error: --segment-match-snp must be used with --homozyg group[-verbose].\n");
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	ii = atoi(argv[cur_arg + 1]);
-	if (ii < 1) {
-	  sprintf(logbuf, "Error: Invalid --segment-match-snp parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	homozyg.segment_match_snp = ii;
       } else if (memcmp(argptr2, "ilent", 6)) {
 	goto main_ret_INVALID_CMDLINE_2;
       }

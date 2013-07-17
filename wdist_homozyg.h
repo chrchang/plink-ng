@@ -15,7 +15,6 @@ typedef struct {
   uint32_t window_max_missing;
   double hit_threshold;
   double overlap_min;
-  uint32_t segment_match_snp;
   uint32_t pool_size_min;
 } Homozyg_info;
 

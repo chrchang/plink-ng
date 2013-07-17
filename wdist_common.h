@@ -970,15 +970,21 @@ static inline void set_bit_ul(uintptr_t* bit_arr, uintptr_t loc) {
 
 void fill_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len);
 
+void clear_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len);
+
 void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr);
 
 void set_bit_sub(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_unset_ct_ptr);
 
-static inline void clear_bit_noct(uintptr_t* exclude_arr, uint32_t loc) {
-  exclude_arr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
+static inline void clear_bit_noct(uintptr_t* bit_arr, uint32_t loc) {
+  bit_arr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }
 
-void clear_bit(uintptr_t* exclude_arr, uint32_t loc, uintptr_t* include_ct_ptr);
+static inline void clear_bit_ul(uintptr_t* bit_arr, uintptr_t loc) {
+  bit_arr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
+}
+
+void clear_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* include_ct_ptr);
 
 static inline int32_t is_set(uintptr_t* exclude_arr, uint32_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;

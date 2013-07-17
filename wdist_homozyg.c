@@ -12,7 +12,6 @@ void homozyg_init(Homozyg_info* homozyg_ptr) {
   homozyg_ptr->window_max_missing = 5;
   homozyg_ptr->hit_threshold = 0.05;
   homozyg_ptr->overlap_min = 0.95;
-  homozyg_ptr->segment_match_snp = 20;
   homozyg_ptr->pool_size_min = 2;
 }
 
@@ -649,11 +648,449 @@ int32_t populate_roh_slots_from_disk(FILE* bedfile, uint64_t bed_offset, uintptr
   return 0;
 }
 
+static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot_idxl, uintptr_t* roh_slot_idxs, uint32_t block_start_idxl, uint32_t block_start_idxs, uint32_t overlap_cidx_start, uint32_t overlap_cidx_end) {
+#ifdef __LP64__
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  __m128i* roh_vslot_idxl = (__m128i*)(&(roh_slot_idxl[2 * ((overlap_cidx_start - block_start_idxl) / 64)]));
+  __m128i* roh_vslot_idxs = (__m128i*)(&(roh_slot_idxs[2 * ((overlap_cidx_start - block_start_idxs) / 64)]));
+  uint32_t vecs_left = ((overlap_cidx_end + 63) / 64) - (overlap_cidx_start / 64);
+  uint32_t joint_homozyg_ct = 0;
+  uint32_t joint_homozyg_mismatch_ct = 0;
+  __m128i loader_l;
+  __m128i loader_s;
+  __m128i joint_vec;
+  __m128i joint_sum1;
+  __m128i mismatch_sum1;
+  __m128i joint_sum2;
+  __m128i mismatch_sum2;
+  __uni16 accj;
+  __uni16 accm;
+  __m128i* vptrl;
+  __m128i* vptrs;
+  __m128i* vptrl_end;
+  uintptr_t* roh_idxl_end;
+  uintptr_t wloader_l;
+  uintptr_t wloader_s;
+  uintptr_t joint_word;
+  // 1. set joint_vec to 01 at joint-homozygous spots, and 00 elsewhere
+  // 2. popcount joint_vec to determine number of jointly homozygous sites
+  // 3. then popcount (joint_vec & (roh_vslot_idxl ^ roh_vslot_idxs)) to
+  //    determine number of mismatches at these sites
+  vptrl = roh_vslot_idxl;
+  vptrs = roh_vslot_idxs;
+  roh_idxl_end = (uintptr_t*)(&(roh_vslot_idxl[vecs_left]));
+  vecs_left -= vecs_left % 6;
+  while (vecs_left >= 60) {
+    vecs_left -= 60;
+    vptrl_end = &(vptrl[60]);
+    accj.vi = _mm_setzero_si128();
+    accm.vi = _mm_setzero_si128();
+    do {
+    is_allelic_match_main_loop:
+      loader_l = *vptrl++;
+      loader_s = *vptrs++;
+      loader_l = _mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1));
+      loader_s = _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1));
+      joint_sum1 = _mm_andnot_si128(_mm_or_si128(loader_l, loader_s), m1);
+      mismatch_sum1 = _mm_and_si128(joint_sum1, _mm_xor_si128(loader_l, loader_s));
+
+      loader_l = *vptrl++;
+      loader_s = *vptrs++;
+      loader_l = _mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1));
+      loader_s = _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1));
+      joint_vec = _mm_andnot_si128(_mm_or_si128(loader_l, loader_s), m1);
+      joint_sum1 = _mm_add_epi64(joint_sum1, joint_vec);
+      joint_vec = _mm_and_si128(joint_vec, _mm_xor_si128(loader_l, loader_s));
+      mismatch_sum1 = _mm_add_epi64(mismatch_sum1, joint_vec);
+
+      loader_l = *vptrl++;
+      loader_s = *vptrs++;
+      loader_l = _mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1));
+      loader_s = _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1));
+      joint_vec = _mm_andnot_si128(_mm_or_si128(loader_l, loader_s), m1);
+      joint_sum1 = _mm_add_epi64(joint_sum1, joint_vec);
+      joint_vec = _mm_and_si128(joint_vec, _mm_xor_si128(loader_l, loader_s));
+      mismatch_sum1 = _mm_add_epi64(mismatch_sum1, joint_vec);
+
+      joint_sum1 = _mm_add_epi64(_mm_and_si128(joint_sum1, m2), _mm_and_si128(_mm_srli_epi64(joint_sum1, 2), m2));
+      mismatch_sum1 = _mm_add_epi64(_mm_and_si128(mismatch_sum1, m2), _mm_and_si128(_mm_srli_epi64(mismatch_sum1, 2), m2));
+
+      loader_l = *vptrl++;
+      loader_s = *vptrs++;
+      loader_l = _mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1));
+      loader_s = _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1));
+      joint_sum2 = _mm_andnot_si128(_mm_or_si128(loader_l, loader_s), m1);
+      mismatch_sum2 = _mm_and_si128(joint_sum2, _mm_xor_si128(loader_l, loader_s));
+
+      loader_l = *vptrl++;
+      loader_s = *vptrs++;
+      loader_l = _mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1));
+      loader_s = _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1));
+      joint_vec = _mm_andnot_si128(_mm_or_si128(loader_l, loader_s), m1);
+      joint_sum2 = _mm_add_epi64(joint_sum2, joint_vec);
+      joint_vec = _mm_and_si128(joint_vec, _mm_xor_si128(loader_l, loader_s));
+      mismatch_sum2 = _mm_add_epi64(mismatch_sum2, joint_vec);
+
+      loader_l = *vptrl++;
+      loader_s = *vptrs++;
+      loader_l = _mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1));
+      loader_s = _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1));
+      joint_vec = _mm_andnot_si128(_mm_or_si128(loader_l, loader_s), m1);
+      joint_sum2 = _mm_add_epi64(joint_sum2, joint_vec);
+      joint_vec = _mm_and_si128(joint_vec, _mm_xor_si128(loader_l, loader_s));
+      mismatch_sum2 = _mm_add_epi64(mismatch_sum2, joint_vec);
+
+      joint_sum1 = _mm_add_epi64(joint_sum1, _mm_add_epi64(_mm_and_si128(joint_sum2, m2), _mm_and_si128(_mm_srli_epi64(joint_sum2, 2), m2)));
+      mismatch_sum1 = _mm_add_epi64(mismatch_sum1, _mm_add_epi64(_mm_and_si128(mismatch_sum2, m2), _mm_and_si128(_mm_srli_epi64(mismatch_sum2, 2), m2)));
+
+      accj.vi = _mm_add_epi64(accj.vi, _mm_add_epi64(_mm_and_si128(joint_sum1, m4), _mm_and_si128(_mm_srli_epi64(joint_sum1, 4), m4)));
+      accm.vi = _mm_add_epi64(accm.vi, _mm_add_epi64(_mm_and_si128(mismatch_sum1, m4), _mm_and_si128(_mm_srli_epi64(mismatch_sum1, 4), m4)));
+    } while (vptrl < vptrl_end);
+    accj.vi = _mm_add_epi64(_mm_and_si128(accj.vi, m8), _mm_and_si128(_mm_srli_epi64(accj.vi, 8), m8));
+    accm.vi = _mm_add_epi64(_mm_and_si128(accm.vi, m8), _mm_and_si128(_mm_srli_epi64(accm.vi, 8), m8));
+    joint_homozyg_ct += ((accj.u8[0] + accj.u8[1]) * 0x1000100010001LLU) >> 48;
+    joint_homozyg_mismatch_ct += ((accm.u8[0] + accm.u8[1]) * 0x1000100010001LLU) >> 48;
+  }
+  if (vecs_left) {
+    accj.vi = _mm_setzero_si128();
+    accm.vi = _mm_setzero_si128();
+    vptrl_end = &(vptrl[vecs_left]);
+    vecs_left = 0;
+    goto is_allelic_match_main_loop;
+  }
+  roh_slot_idxl = (uintptr_t*)vptrl;
+  roh_slot_idxs = (uintptr_t*)vptrs;
+#else
+  uint32_t homozyg_match_ct = 0;
+  uint32_t joint_homozyg_mismatch_ct = 0;
+  uint32_t words_left = ((overlap_cidx_end + 15) / 16) - (overlap_cidx_start / 16);
+  uintptr_t* roh_idxl_end;
+  uintptr_t wloader_l;
+  uintptr_t wloader_s;
+  uintptr_t joint_word;
+  uintptr_t joint_sum1;
+  uintptr_t mismatch_sum1;
+  uintptr_t joint_sum2;
+  uintptr_t mismatch_sum2;
+  uintptr_t joint_acc;
+  uintptr_t mismatch_acc;
+  roh_slot_idxl = &(roh_slot_idxl[(overlap_cidx_start - block_start_idxl) / 16]);
+  roh_slot_idxs = &(roh_slot_idxs[(overlap_cidx_start - block_start_idxs) / 16]);
+  roh_idxl_end = &(roh_slot_idxl[words_left]);
+  words_left -= words_left % 12;
+  while (words_left) {
+    wloader_l = *roh_slot_idxl++;
+    wloader_s = *roh_slot_idxs++;
+    wloader_l = wloader_l ^ (wloader_l >> 1);
+    wloader_s = wloader_s ^ (wloader_s >> 1);
+    joint_sum1 = (~(wloader_l | wloader_s)) & FIVEMASK;
+    mismatch_sum1 = joint_sum1 & (wloader_l ^ wloader_s);
+
+    wloader_l = *roh_slot_idxl++;
+    wloader_s = *roh_slot_idxs++;
+    wloader_l = wloader_l ^ (wloader_l >> 1);
+    wloader_s = wloader_s ^ (wloader_s >> 1);
+    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_sum1 += joint_word;
+    mismatch_sum1 += joint_word & (wloader_l ^ wloader_s);
+
+    wloader_l = *roh_slot_idxl++;
+    wloader_s = *roh_slot_idxs++;
+    wloader_l = wloader_l ^ (wloader_l >> 1);
+    wloader_s = wloader_s ^ (wloader_s >> 1);
+    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_sum1 += joint_word;
+    mismatch_sum1 += joint_word & (wloader_l ^ wloader_s);
+
+    joint_sum1 = (joint_sum1 & 0x33333333) + ((joint_sum1 >> 2) & 0x33333333);
+    mismatch_sum1 = (mismatch_sum1 & 0x33333333) + ((mismatch_sum1 >> 2) & 0x33333333);
+
+    wloader_l = *roh_slot_idxl++;
+    wloader_s = *roh_slot_idxs++;
+    wloader_l = wloader_l ^ (wloader_l >> 1);
+    wloader_s = wloader_s ^ (wloader_s >> 1);
+    joint_sum2 = (~(wloader_l | wloader_s)) & FIVEMASK;
+    mismatch_sum2 = joint_sum1 & (wloader_l ^ wloader_s);
+
+    wloader_l = *roh_slot_idxl++;
+    wloader_s = *roh_slot_idxs++;
+    wloader_l = wloader_l ^ (wloader_l >> 1);
+    wloader_s = wloader_s ^ (wloader_s >> 1);
+    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_sum2 += joint_word;
+    mismatch_sum2 += joint_word & (wloader_l ^ wloader_s);
+
+    wloader_l = *roh_slot_idxl++;
+    wloader_s = *roh_slot_idxs++;
+    wloader_l = wloader_l ^ (wloader_l >> 1);
+    wloader_s = wloader_s ^ (wloader_s >> 1);
+    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_sum2 += joint_word;
+    mismatch_sum2 += joint_word & (wloader_l ^ wloader_s);
+
+    joint_sum1 += (joint_sum2 & 0x33333333) + ((joint_sum2 >> 2) & 0x33333333);
+    mismatch_sum1 += (mismatch_sum2 & 0x33333333) + ((mismatch_sum2 >> 2) & 0x33333333);
+    joint_acc = (joint_sum1 & 0x0f0f0f0f) + ((joint_sum1 >> 4) & 0x0f0f0f0f);
+    mismatch_acc = (mismatch_sum1 & 0x0f0f0f0f) + ((mismatch_sum1 >> 4) & 0x0f0f0f0f);
+
+    wloader_l = *roh_slot_idxl++;
+    wloader_s = *roh_slot_idxs++;
+    wloader_l = wloader_l ^ (wloader_l >> 1);
+    wloader_s = wloader_s ^ (wloader_s >> 1);
+    joint_sum1 = (~(wloader_l | wloader_s)) & FIVEMASK;
+    mismatch_sum1 = joint_sum1 & (wloader_l ^ wloader_s);
+
+    wloader_l = *roh_slot_idxl++;
+    wloader_s = *roh_slot_idxs++;
+    wloader_l = wloader_l ^ (wloader_l >> 1);
+    wloader_s = wloader_s ^ (wloader_s >> 1);
+    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_sum1 += joint_word;
+    mismatch_sum1 += joint_word & (wloader_l ^ wloader_s);
+
+    wloader_l = *roh_slot_idxl++;
+    wloader_s = *roh_slot_idxs++;
+    wloader_l = wloader_l ^ (wloader_l >> 1);
+    wloader_s = wloader_s ^ (wloader_s >> 1);
+    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_sum1 += joint_word;
+    mismatch_sum1 += joint_word & (wloader_l ^ wloader_s);
+
+    joint_sum1 = (joint_sum1 & 0x33333333) + ((joint_sum1 >> 2) & 0x33333333);
+    mismatch_sum1 = (mismatch_sum1 & 0x33333333) + ((mismatch_sum1 >> 2) & 0x33333333);
+
+    wloader_l = *roh_slot_idxl++;
+    wloader_s = *roh_slot_idxs++;
+    wloader_l = wloader_l ^ (wloader_l >> 1);
+    wloader_s = wloader_s ^ (wloader_s >> 1);
+    joint_sum2 = (~(wloader_l | wloader_s)) & FIVEMASK;
+    mismatch_sum2 = joint_sum1 & (wloader_l ^ wloader_s);
+
+    wloader_l = *roh_slot_idxl++;
+    wloader_s = *roh_slot_idxs++;
+    wloader_l = wloader_l ^ (wloader_l >> 1);
+    wloader_s = wloader_s ^ (wloader_s >> 1);
+    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_sum2 += joint_word;
+    mismatch_sum2 += joint_word & (wloader_l ^ wloader_s);
+
+    wloader_l = *roh_slot_idxl++;
+    wloader_s = *roh_slot_idxs++;
+    wloader_l = wloader_l ^ (wloader_l >> 1);
+    wloader_s = wloader_s ^ (wloader_s >> 1);
+    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_sum2 += joint_word;
+    mismatch_sum2 += joint_word & (wloader_l ^ wloader_s);
+
+    joint_sum1 += (joint_sum2 & 0x33333333) + ((joint_sum2 >> 2) & 0x33333333);
+    mismatch_sum1 += (mismatch_sum2 & 0x33333333) + ((mismatch_sum2 >> 2) & 0x33333333);
+    joint_acc += (joint_sum1 & 0x0f0f0f0f) + ((joint_sum1 >> 4) & 0x0f0f0f0f);
+    mismatch_acc += (mismatch_sum1 & 0x0f0f0f0f) + ((mismatch_sum1 >> 4) & 0x0f0f0f0f);
+    joint_homozyg_ct += (joint_acc * 0x01010101) >> 24;
+    joint_homozyg_mismatch_ct += (mismatch_sum1 * 0x01010101) >> 24;
+    words_left -= 12;
+  }
+#endif
+  while (roh_slot_idxl < roh_idxl_end) {
+    wloader_l = *roh_slot_idxl++;
+    wloader_s = *roh_slot_idxs++;
+    wloader_l = wloader_l ^ (wloader_l >> 1);
+    wloader_s = wloader_s ^ (wloader_s >> 1);
+    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_homozyg_ct += popcount2_long(joint_word);
+    joint_homozyg_mismatch_ct += popcount2_long(joint_word & (wloader_l ^ wloader_s));
+  }
+  return (((double)((int32_t)joint_homozyg_mismatch_ct)) <= mismatch_max * ((int32_t)joint_homozyg_ct))? 1 : 0;
+}
+
+void compute_allelic_match_matrix(double mismatch_max, uintptr_t roh_slot_wsize, uint32_t pool_size, uintptr_t* roh_slots, uintptr_t* roh_slot_occupied, uintptr_t* roh_slot_uncached, uint32_t* roh_slot_cidx_start, uint32_t* roh_slot_cidx_end, uint64_t* roh_slot_map, uint32_t overlap_cidx_start, uint32_t overlap_cidx_end, uint32_t* allelic_match_cts, uintptr_t* allelic_match_matrix) {
+  // consensus_match in effect iff roh_slot_uncached is NULL
+  // may want to make this multithreaded in the future
+  uint32_t cidx_end_idxl = 0;
+  uint32_t skip_cached = 0;
+  uintptr_t* roh_slot_idxl;
+  uint32_t map_idxl;
+  uint32_t cur_limit;
+  uint32_t map_idxs;
+  uint32_t slot_idxl;
+  uint32_t slot_idxs;
+  uintptr_t tri_offset_idxl;
+  uintptr_t tri_coord;
+  uint32_t incr_idxl;
+  uint32_t cidx_start_idxl;
+  uint32_t cidx_start_idxs;
+  uint32_t block_start_idxl;
+  uint32_t block_start_idxs;
+  uint32_t uii;
+  fill_uint_zero(allelic_match_cts, pool_size);
+  if (roh_slot_uncached) {
+    // count cached results
+    map_idxl = 0;
+    cur_limit = 0;
+    while (1) {
+      map_idxl = next_non_set(roh_slot_uncached, map_idxl, pool_size);
+      if (map_idxl == pool_size) {
+	break;
+      }
+      slot_idxl = (uint32_t)(roh_slot_map[map_idxl]);
+      tri_offset_idxl = (((uintptr_t)slot_idxl) * (slot_idxl - 1)) / 2;
+      incr_idxl = 0;
+      map_idxs = 0;
+      for (uii = 0; uii < cur_limit; uii++) {
+	map_idxs = next_non_set_unsafe(roh_slot_uncached, map_idxs);
+	slot_idxs = (uint32_t)(roh_slot_map[map_idxs]);
+	if (slot_idxs < slot_idxl) {
+	  tri_coord = tri_offset_idxl + slot_idxs;
+	} else {
+	  tri_coord = tri_coord_no_diag(slot_idxl, slot_idxs);
+	}
+        if (is_set(allelic_match_matrix, tri_coord)) {
+	  allelic_match_cts[map_idxs] += 1;
+	  incr_idxl++;
+	}
+        map_idxs++;
+      }
+      allelic_match_cts[map_idxl++] += incr_idxl;
+      cur_limit++;
+    }
+  }
+  for (map_idxl = 1; map_idxl < pool_size; map_idxl++) {
+    slot_idxl = (uint32_t)(roh_slot_map[map_idxl]);
+    tri_offset_idxl = (((uintptr_t)slot_idxl) * (slot_idxl - 1)) / 2;
+    incr_idxl = 0;
+    roh_slot_idxl = &(roh_slots[slot_idxl * roh_slot_wsize]);
+    cidx_start_idxl = roh_slot_cidx_start[slot_idxl];
+#ifdef __LP64__
+    block_start_idxl = cidx_start_idxl & (~63);
+#else
+    block_start_idxl = cidx_start_idxl & (~15);
+#endif
+    if (roh_slot_uncached) {
+      cidx_end_idxl = roh_slot_cidx_end[slot_idxl];
+      skip_cached = 1 ^ (is_set(roh_slot_uncached, map_idxl));
+    }
+    for (map_idxs = 0; map_idxs < map_idxl; map_idxs++) {
+      if (skip_cached && (!is_set(roh_slot_uncached, map_idxs))) {
+	map_idxs = next_set_32(roh_slot_uncached, map_idxs + 1, map_idxl);
+	if (map_idxs == map_idxl) {
+	  break;
+	}
+      }
+      slot_idxs = (uint32_t)(roh_slot_map[map_idxs]);
+      cidx_start_idxs = roh_slot_cidx_start[slot_idxs];
+#ifdef __LP64__
+      block_start_idxs = cidx_start_idxs & (~63);
+#else
+      block_start_idxs = cidx_start_idxs & (~15);
+#endif
+      if (roh_slot_uncached) {
+        overlap_cidx_start = cidx_start_idxs;
+        if (overlap_cidx_start < cidx_start_idxl) {
+	  overlap_cidx_start = cidx_start_idxl;
+	}
+	overlap_cidx_end = roh_slot_cidx_end[slot_idxs];
+	if (overlap_cidx_end > cidx_end_idxl) {
+          overlap_cidx_end = cidx_end_idxl;
+	}
+      }
+      if (is_allelic_match(mismatch_max, roh_slot_idxl, &(roh_slots[slot_idxs * roh_slot_wsize]), block_start_idxl, block_start_idxs, overlap_cidx_start, overlap_cidx_end)) {
+	if (slot_idxs < slot_idxl) {
+	  tri_coord = tri_offset_idxl + slot_idxs;
+	} else {
+	  tri_coord = tri_coord_no_diag(slot_idxl, slot_idxs);
+	}
+        set_bit_ul(allelic_match_matrix, tri_coord);
+        allelic_match_cts[map_idxs] += 1;
+	incr_idxl++;
+      }
+      map_idxs++;
+    }
+    allelic_match_cts[map_idxl++] += incr_idxl;
+  }
+}
+
+void assign_allelic_match_groups(uint32_t pool_size, uint32_t* allelic_match_cts, uintptr_t* allelic_match_matrix, uint64_t* roh_slot_map, uintptr_t* cur_pool) {
+  uintptr_t group_idx = 1;
+  uint32_t nsim_nz_ct = 0;
+  uint32_t max_nsim_pidx = 0;
+  uintptr_t ulii;
+  uintptr_t main_slot_idx;
+  uintptr_t tri_offset;
+  uintptr_t slot_idx2;
+  uintptr_t tri_coord;
+  uint32_t pool_idx;
+  uint32_t max_nsim;
+  uint32_t uii;
+  for (pool_idx = 0; pool_idx < pool_size; pool_idx++) {
+    ulii = allelic_match_cts[pool_idx];
+    if (ulii) {
+      nsim_nz_ct++;
+    }
+#ifdef __LP64__
+    cur_pool[pool_idx] = ulii << 32;
+#else
+    cur_pool[2 * pool_idx + 1] = ulii;
+#endif
+  }
+  while (nsim_nz_ct) {
+    max_nsim = 0;
+    for (pool_idx = 0; pool_idx < pool_size; pool_idx++) {
+      uii = allelic_match_cts[pool_idx];
+      if ((uii != 0xffffffffU) && (uii > max_nsim)) {
+        max_nsim = uii;
+        max_nsim_pidx = pool_idx;
+      }
+    }
+    nsim_nz_ct -= max_nsim + 1;
+    main_slot_idx = (uintptr_t)((uint32_t)roh_slot_map[max_nsim_pidx]);
+    tri_offset = (main_slot_idx * (main_slot_idx - 1)) / 2;
+    allelic_match_cts[max_nsim_pidx] = 0xffffffffU;
+    for (pool_idx = 0; pool_idx < pool_size; pool_idx++) {
+      if (allelic_match_cts[pool_idx] == 0xffffffffU) {
+	continue;
+      }
+      slot_idx2 = (uintptr_t)((uint32_t)roh_slot_map[pool_idx]);
+      if (slot_idx2 < main_slot_idx) {
+	tri_coord = tri_offset + slot_idx2;
+      } else {
+	tri_coord = tri_coord_no_diag(main_slot_idx, slot_idx2);
+      }
+      if (is_set(allelic_match_matrix, tri_coord)) {
+        allelic_match_cts[pool_idx] = 0xffffffffU;
+#ifdef __LP64__
+        cur_pool[pool_idx] |= group_idx;
+#else
+        cur_pool[2 * pool_idx] = group_idx;
+#endif
+      }
+    }
+#ifdef __LP64__
+    cur_pool[max_nsim_pidx] |= 0x80000000LLU | (group_idx++);
+#else
+    cur_pool[2 * max_nsim_pidx] = 0x80000000U | (group_idx++);
+#endif
+  }
+  for (pool_idx = 0; pool_idx < pool_size; pool_idx++) {
+    if (allelic_match_cts[pool_idx] != 0xffffffffU) {
+#ifdef __LP64__
+      cur_pool[pool_idx] |= 0x80000000LLU | (group_idx++);
+#else
+      cur_pool[2 * pool_idx] = 0x80000000U | (group_idx++);
+#endif
+    }
+  }  
+}
+
 int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* outname, char* outname_end, uintptr_t* rawbuf, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char* marker_alleles, uintptr_t max_marker_allele_len, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* missing_pheno_str, uint32_t missing_pheno_len, uint32_t is_new_lengths, uintptr_t roh_ct, uint32_t* roh_list, uintptr_t* roh_list_chrom_starts, uint32_t max_pool_size, uint32_t max_roh_len) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uint64_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  double mismatch_max = 1 - (hp->overlap_min * (1 - EPSILON)); // add fuzz here
+  uint32_t is_consensus_match = hp->modifier & HOMOZYG_CONSENSUS_MATCH;
   uint32_t is_verbose = hp->modifier & HOMOZYG_GROUP_VERBOSE;
   uint32_t max_pool_sizel = (max_pool_size + (BITCT - 1)) / BITCT;
   uint32_t pool_size_min = hp->pool_size_min;
@@ -662,6 +1099,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   uint32_t fresh_meat = 0;
   uintptr_t pool_list_size = 0;
   uint32_t pool_ct = 0;
+  uintptr_t* roh_slot_uncached = NULL;
   int32_t retval = 0;
   uint32_t chrom_fo_idx_to_pidx[MAX_POSSIBLE_CHROM + 1]; // decreasing order
 
@@ -695,7 +1133,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   uintptr_t* cur_pool;
   uint64_t* roh_slot_map; // high 32 bits = indiv_uidx, low 32 bits = slot_idx
   uint32_t* roh_slot_end_uidx; // tracks when to flush a roh_slot
-  uint32_t* allelic_match; // counts, then group assignments
+  uint32_t* allelic_match_cts;
   uintptr_t* allelic_match_matrix; // pairwise match matrix, potentially huge
   uint32_t* uiptr;
   char* wptr;
@@ -760,8 +1198,16 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
       wkspace_alloc_ull_checked(&roh_slot_map, (max_pool_size + 1) * sizeof(int64_t)) ||
       wkspace_alloc_ui_checked(&roh_slot_cidx_start, max_pool_size * sizeof(int32_t)) ||
       wkspace_alloc_ui_checked(&roh_slot_cidx_end, max_pool_size * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&roh_slot_end_uidx, max_pool_size * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&allelic_match, max_pool_size * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&roh_slot_end_uidx, max_pool_size * sizeof(int32_t))) {
+    goto roh_pool_ret_NOMEM;
+  }
+
+  if (!is_consensus_match) {
+    if (wkspace_alloc_ul_checked(&roh_slot_uncached, max_pool_sizel * sizeof(intptr_t))) {
+      goto roh_pool_ret_NOMEM;
+    }
+  }
+  if (wkspace_alloc_ui_checked(&allelic_match_cts, max_pool_size * sizeof(int32_t)) ||
       wkspace_alloc_ul_checked(&allelic_match_matrix, (((uintptr_t)max_pool_size) * (max_pool_size - 1)) * (sizeof(intptr_t) / 2))) {
     goto roh_pool_ret_NOMEM;
   }
@@ -936,6 +1382,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
     // an extra slot because this is a "1-terminated" list
     fill_ulong_one((uintptr_t*)roh_slot_map, (max_pool_size + 1) * (sizeof(int64_t) / sizeof(intptr_t)));
     fill_uint_zero(roh_slot_end_uidx, max_pool_size);
+    fill_ulong_zero(allelic_match_matrix, (((uintptr_t)max_pool_size) * (max_pool_size - 1)) * (sizeof(intptr_t) / 2));
     lookahead_end_uidx = next_non_set_unsafe(marker_exclude, chrom_start);
     cur_lookahead_start = 0;
     cur_lookahead_size = 0;
@@ -944,7 +1391,6 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
     for (uii = chrom_fo_idx_to_pidx[chrom_fo_idx + 1]; uii < chrom_fo_idx_to_pidx[chrom_fo_idx]; uii++) {
       pool_list_idx = pool_list[pool_list_idx - 1];
       // todo:
-      // 3. populate allelic_match_matrix, store NSIM values in allelic_match[]
       // 4. greedily assign allelic match groups, save info
       // 5. handle is_verbose if necessary
       cur_pool = &(pool_list[pool_list_idx]);
@@ -957,6 +1403,21 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
       extract_pool_info(pool_size, cur_pool, roh_list, &con_uidx1, &con_uidx2, &union_uidx1, &union_uidx2);
       // flush all roh_slots with end_uidx entries less than or equal to
       // con_uidx2
+      if (is_consensus_match) {
+	// do not cache any allelic_match_matrix results if using consensus
+	// match
+	slot_idx1 = 0;
+	while (1) {
+          slot_idx1 = next_set_32(roh_slot_occupied, slot_idx1, max_pool_size);
+          if (slot_idx1 == max_pool_size) {
+	    break;
+	  }
+          clear_bits(allelic_match_matrix, (((uintptr_t)slot_idx1) * (slot_idx1 - 1)) / 2, slot_idx1);
+          slot_idx1++;
+	}
+      } else {
+        fill_ulong_zero(roh_slot_uncached, (pool_size + (BITCT - 1)) / BITCT);
+      }
       slot_idx1 = 0;
       while (1) {
         slot_idx1 = next_set_32(roh_slot_occupied, slot_idx1, max_pool_size);
@@ -965,6 +1426,17 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	}
 	if (roh_slot_end_uidx[slot_idx1] <= con_uidx2) {
           clear_bit_noct(roh_slot_occupied, slot_idx1);
+          if (!is_consensus_match) {
+            clear_bits(allelic_match_matrix, (((uintptr_t)slot_idx1) * (slot_idx1 - 1)) / 2, slot_idx1);
+	    slot_idx2 = slot_idx1;
+	    while (1) {
+              slot_idx2 = next_set_32(roh_slot_occupied, slot_idx2 + 1, max_pool_size);
+	      if (slot_idx2 == max_pool_size) {
+		break;
+	      }
+	      clear_bit_ul(allelic_match_matrix, tri_coord_no_diag(slot_idx1, slot_idx2));
+	    }
+	  }
 	}
 	slot_idx1++;
       }
@@ -995,6 +1467,9 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	  }
 	  ujj = next_set_unsafe(roh_slot_occupied, 0);
 	  set_bit_noct(roh_slot_occupied, ujj);
+	  if (roh_slot_uncached) {
+	    set_bit_noct(roh_slot_uncached, roh_idx - 1);
+	  }
           roh_slot_map[slot_idx2++] = (((uint64_t)indiv_uidx2) << 32) | ((uint64_t)ujj);
 	  initialize_roh_slot(cur_roh, chrom_start, marker_uidx_to_cidx, &(roh_slots[ujj * roh_slot_wsize]), &(roh_slot_cidx_start[ujj]), &(roh_slot_cidx_end[ujj]), &(roh_slot_end_uidx[ujj]));
 	}
@@ -1005,6 +1480,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
         indiv_uidx2 = cur_roh[5];
         ujj = next_set_unsafe(roh_slot_occupied, 0);
         set_bit_noct(roh_slot_occupied, ujj);
+	set_bit_noct(roh_slot_uncached, roh_idx);
         roh_slot_map[roh_idx++] = (((uint64_t)indiv_uidx2) << 32) | ((uint64_t)ujj);
 	initialize_roh_slot(cur_roh, chrom_start, marker_uidx_to_cidx, &(roh_slots[ujj * roh_slot_wsize]), &(roh_slot_cidx_start[ujj]), &(roh_slot_cidx_end[ujj]), &(roh_slot_end_uidx[ujj]));
       }
@@ -1083,6 +1559,10 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 #else
       qsort((int64_t*)roh_slot_map, pool_size, sizeof(int64_t), llcmp);
 #endif
+
+      compute_allelic_match_matrix(mismatch_max, roh_slot_wsize, pool_size, roh_slots, roh_slot_occupied, roh_slot_uncached, roh_slot_cidx_start, roh_slot_cidx_end, roh_slot_map, marker_uidx_to_cidx[con_uidx1 - chrom_start], marker_uidx_to_cidx[con_uidx2 - chrom_start] + 1, allelic_match_cts, allelic_match_matrix);
+
+      assign_allelic_match_groups(pool_size, allelic_match_cts, allelic_match_matrix, roh_slot_map, &(cur_pool[pool_size]));
 
       if (is_verbose) {
 #ifdef __LP64__

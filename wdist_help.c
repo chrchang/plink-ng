@@ -1058,11 +1058,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --max [cutoff]   : Specify maximum PI_HAT for inclusion in --genome report.\n"
 	       );
 #ifndef STABLE_BUILD
-    help_print("homozyg\thomozyg-match\tsegment-match-snp\tpool-size", &help_ctrl, 0,
+    help_print("homozyg\thomozyg-match\tpool-size", &help_ctrl, 0,
 "  --homozyg-match [x]     : Set min. concordance across jointly homozygous\n"
 "                            sites for a pairwise allelic match to be declared.\n"
-"  --segment-match-snp [n] : Set min. joint homozygous site count for pairwise\n"
-"                            allelic match candidates.\n"
 "  --pool-size [ct]        : Set min. size of pools in '--homozyg group' report.\n"
 	       );
     help_print("read-genome\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
