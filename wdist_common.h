@@ -998,6 +998,8 @@ int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil);
 
 int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc);
 
+uint32_t next_set_32(uintptr_t* include_arr, uint32_t loc, uint32_t ceil);
+
 uintptr_t next_set_ul(uintptr_t* include_arr, uintptr_t loc, uintptr_t ceil);
 
 // These functions seem to optimize better than memset(arr, 0, x) under gcc.
