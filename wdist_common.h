@@ -874,6 +874,8 @@ static inline char* width_force(uint32_t min_width, char* startp, char* endp) {
 
 char* double_g_writewx4(char* start, double dxx, uint32_t min_width);
 
+char* double_g_writewx8(char* start, double dxx, uint32_t min_width);
+
 static inline char* uint32_writex(char* start, uint32_t uii, const char extra_char) {
   char* penult = uint32_write(start, uii);
   *penult = extra_char;
