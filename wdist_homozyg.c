@@ -1602,9 +1602,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	if (fopen_checked(&outfile, outname, "w")) {
 	  goto roh_pool_ret_OPEN_FAIL;
 	}
-
-	// todo
-
+	// (todo)
 	if (fclose_null(&outfile)) {
 	  goto roh_pool_ret_WRITE_FAIL;
 	}
