@@ -518,32 +518,31 @@ void initialize_roh_slot(uint32_t* cur_roh, uint32_t chrom_start, uint32_t* mark
 #ifdef __LP64__
   if (cidx_first & 32) {
     roh_slot[0] = FIVEMASK;
-    roh_slot[1] = 0x0105050505050505LLU >> (2 * (31 - uii));
+    roh_slot[1] = 0x1555555555555555LLU >> (2 * (31 - uii));
   } else {
-    roh_slot[0] = 0x0105050505050505LLU >> (2 * (31 - uii));
+    roh_slot[0] = 0x1555555555555555LLU >> (2 * (31 - uii));
     roh_slot[1] = 0;
   }
 #else
-  roh_slot[0] = 0x01050505 >> (2 * (15 - uii));
+  roh_slot[0] = 0x15555555 >> (2 * (15 - uii));
 #endif
   fill_ulong_zero(&(roh_slot[cur_bidx]), end_bidx - cur_bidx);
   uii = cidx_last & (BITCT2 - 1);
 #ifdef __LP64__
   if (cidx_last & 32) {
     // |= instead of = in case first_block and last_block are the same
-    roh_slot[end_bidx - 1] |= 0x0505050505050504LLU << (2 * uii);
+    roh_slot[end_bidx - 1] |= 0x5555555555555554LLU << (2 * uii);
   } else {
-    roh_slot[end_bidx - 2] |= 0x0505050505050504LLU << (2 * uii);
+    roh_slot[end_bidx - 2] |= 0x5555555555555554LLU << (2 * uii);
     roh_slot[end_bidx - 1] |= FIVEMASK;
   }
 #else
-  roh_slot[end_bidx - 1] |= 0x05050504 << (2 * uii);
+  roh_slot[end_bidx - 1] |= 0x55555554 << (2 * uii);
 #endif
 }
 
 void populate_roh_slot_from_lookahead_nowrap(uintptr_t* lookahead_cur_col, uint32_t read_shift, uintptr_t unfiltered_indiv_ctl2, uintptr_t row_ct, uint32_t write_start, uintptr_t* write_ptr) {
-  uint32_t write_idx = write_start;
-  uint32_t write_shift = (write_idx & (BITCT2 - 1)) * 2;
+  uint32_t write_shift = (write_start & (BITCT2 - 1)) * 2;
   uintptr_t row_idx;
   uintptr_t cur_word;
   write_ptr = &(write_ptr[write_start / BITCT2]);
@@ -556,6 +555,9 @@ void populate_roh_slot_from_lookahead_nowrap(uintptr_t* lookahead_cur_col, uint3
       cur_word = *write_ptr;
       write_shift = 0;
     }
+  }
+  if (write_shift) {
+    *write_ptr = cur_word;
   }
 }
 
@@ -654,9 +656,7 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  __m128i* roh_vslot_idxl = (__m128i*)(&(roh_slot_idxl[2 * ((overlap_cidx_start - block_start_idxl) / 64)]));
-  __m128i* roh_vslot_idxs = (__m128i*)(&(roh_slot_idxs[2 * ((overlap_cidx_start - block_start_idxs) / 64)]));
-  uint32_t vecs_left = ((overlap_cidx_end + 63) / 64) - (overlap_cidx_start / 64);
+  uint32_t words_left = ((overlap_cidx_end + 31) / 32) - 2 * (overlap_cidx_start / 64);
   uint32_t joint_homozyg_ct = 0;
   uint32_t joint_homozyg_mismatch_ct = 0;
   __m128i loader_l;
@@ -679,90 +679,85 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
   // 2. popcount joint_vec to determine number of jointly homozygous sites
   // 3. then popcount (joint_vec & (roh_vslot_idxl ^ roh_vslot_idxs)) to
   //    determine number of mismatches at these sites
-  vptrl = roh_vslot_idxl;
-  vptrs = roh_vslot_idxs;
-  roh_idxl_end = (uintptr_t*)(&(roh_vslot_idxl[vecs_left]));
-  vecs_left -= vecs_left % 6;
-  while (vecs_left >= 60) {
-    vecs_left -= 60;
-    vptrl_end = &(vptrl[60]);
-    accj.vi = _mm_setzero_si128();
-    accm.vi = _mm_setzero_si128();
-    do {
-    is_allelic_match_main_loop:
-      loader_l = *vptrl++;
-      loader_s = *vptrs++;
-      loader_l = _mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1));
-      loader_s = _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1));
-      joint_sum1 = _mm_andnot_si128(_mm_or_si128(loader_l, loader_s), m1);
-      mismatch_sum1 = _mm_and_si128(joint_sum1, _mm_xor_si128(loader_l, loader_s));
+  roh_slot_idxl = &(roh_slot_idxl[2 * ((overlap_cidx_start - block_start_idxl) / 64)]);
+  roh_slot_idxs = &(roh_slot_idxs[2 * ((overlap_cidx_start - block_start_idxs) / 64)]);
+  roh_idxl_end = &(roh_slot_idxl[words_left]);
+  if (words_left >= 11) {
+    vptrl = (__m128i*)roh_slot_idxl;
+    vptrs = (__m128i*)roh_slot_idxs;
+    if (words_left % 12 == 11) {
+      words_left++;
+    }
+    words_left -= words_left % 12;
+    while (words_left >= 120) {
+      words_left -= 120;
+      vptrl_end = &(vptrl[60]);
+      accj.vi = _mm_setzero_si128();
+      accm.vi = _mm_setzero_si128();
+      do {
+      is_allelic_match_main_loop:
+	loader_l = *vptrl++;
+	loader_s = *vptrs++;
+	joint_sum1 = _mm_andnot_si128(_mm_or_si128(_mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1)), _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1))), m1);
+	mismatch_sum1 = _mm_and_si128(joint_sum1, _mm_xor_si128(loader_l, loader_s));
 
-      loader_l = *vptrl++;
-      loader_s = *vptrs++;
-      loader_l = _mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1));
-      loader_s = _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1));
-      joint_vec = _mm_andnot_si128(_mm_or_si128(loader_l, loader_s), m1);
-      joint_sum1 = _mm_add_epi64(joint_sum1, joint_vec);
-      joint_vec = _mm_and_si128(joint_vec, _mm_xor_si128(loader_l, loader_s));
-      mismatch_sum1 = _mm_add_epi64(mismatch_sum1, joint_vec);
+	loader_l = *vptrl++;
+	loader_s = *vptrs++;
+	joint_vec = _mm_andnot_si128(_mm_or_si128(_mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1)), _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1))), m1);
+	joint_sum1 = _mm_add_epi64(joint_sum1, joint_vec);
+	joint_vec = _mm_and_si128(joint_vec, _mm_xor_si128(loader_l, loader_s));
+	mismatch_sum1 = _mm_add_epi64(mismatch_sum1, joint_vec);
 
-      loader_l = *vptrl++;
-      loader_s = *vptrs++;
-      loader_l = _mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1));
-      loader_s = _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1));
-      joint_vec = _mm_andnot_si128(_mm_or_si128(loader_l, loader_s), m1);
-      joint_sum1 = _mm_add_epi64(joint_sum1, joint_vec);
-      joint_vec = _mm_and_si128(joint_vec, _mm_xor_si128(loader_l, loader_s));
-      mismatch_sum1 = _mm_add_epi64(mismatch_sum1, joint_vec);
+	loader_l = *vptrl++;
+	loader_s = *vptrs++;
+	joint_vec = _mm_andnot_si128(_mm_or_si128(_mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1)), _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1))), m1);
+	joint_sum1 = _mm_add_epi64(joint_sum1, joint_vec);
+	joint_vec = _mm_and_si128(joint_vec, _mm_xor_si128(loader_l, loader_s));
+	mismatch_sum1 = _mm_add_epi64(mismatch_sum1, joint_vec);
 
-      joint_sum1 = _mm_add_epi64(_mm_and_si128(joint_sum1, m2), _mm_and_si128(_mm_srli_epi64(joint_sum1, 2), m2));
-      mismatch_sum1 = _mm_add_epi64(_mm_and_si128(mismatch_sum1, m2), _mm_and_si128(_mm_srli_epi64(mismatch_sum1, 2), m2));
+	joint_sum1 = _mm_add_epi64(_mm_and_si128(joint_sum1, m2), _mm_and_si128(_mm_srli_epi64(joint_sum1, 2), m2));
+	mismatch_sum1 = _mm_add_epi64(_mm_and_si128(mismatch_sum1, m2), _mm_and_si128(_mm_srli_epi64(mismatch_sum1, 2), m2));
 
-      loader_l = *vptrl++;
-      loader_s = *vptrs++;
-      loader_l = _mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1));
-      loader_s = _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1));
-      joint_sum2 = _mm_andnot_si128(_mm_or_si128(loader_l, loader_s), m1);
-      mismatch_sum2 = _mm_and_si128(joint_sum2, _mm_xor_si128(loader_l, loader_s));
+	loader_l = *vptrl++;
+	loader_s = *vptrs++;
+	joint_sum2 = _mm_andnot_si128(_mm_or_si128(_mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1)), _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1))), m1);
+	mismatch_sum2 = _mm_and_si128(joint_sum2, _mm_xor_si128(loader_l, loader_s));
 
-      loader_l = *vptrl++;
-      loader_s = *vptrs++;
-      loader_l = _mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1));
-      loader_s = _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1));
-      joint_vec = _mm_andnot_si128(_mm_or_si128(loader_l, loader_s), m1);
-      joint_sum2 = _mm_add_epi64(joint_sum2, joint_vec);
-      joint_vec = _mm_and_si128(joint_vec, _mm_xor_si128(loader_l, loader_s));
-      mismatch_sum2 = _mm_add_epi64(mismatch_sum2, joint_vec);
+	loader_l = *vptrl++;
+	loader_s = *vptrs++;
+	joint_vec = _mm_andnot_si128(_mm_or_si128(_mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1)), _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1))), m1);
+	joint_sum2 = _mm_add_epi64(joint_sum2, joint_vec);
+	joint_vec = _mm_and_si128(joint_vec, _mm_xor_si128(loader_l, loader_s));
+	mismatch_sum2 = _mm_add_epi64(mismatch_sum2, joint_vec);
 
-      loader_l = *vptrl++;
-      loader_s = *vptrs++;
-      loader_l = _mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1));
-      loader_s = _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1));
-      joint_vec = _mm_andnot_si128(_mm_or_si128(loader_l, loader_s), m1);
-      joint_sum2 = _mm_add_epi64(joint_sum2, joint_vec);
-      joint_vec = _mm_and_si128(joint_vec, _mm_xor_si128(loader_l, loader_s));
-      mismatch_sum2 = _mm_add_epi64(mismatch_sum2, joint_vec);
+	loader_l = *vptrl++;
+	loader_s = *vptrs++;
+	joint_vec = _mm_andnot_si128(_mm_or_si128(_mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1)), _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1))), m1);
+	joint_sum2 = _mm_add_epi64(joint_sum2, joint_vec);
+	joint_vec = _mm_and_si128(joint_vec, _mm_xor_si128(loader_l, loader_s));
+	mismatch_sum2 = _mm_add_epi64(mismatch_sum2, joint_vec);
 
-      joint_sum1 = _mm_add_epi64(joint_sum1, _mm_add_epi64(_mm_and_si128(joint_sum2, m2), _mm_and_si128(_mm_srli_epi64(joint_sum2, 2), m2)));
-      mismatch_sum1 = _mm_add_epi64(mismatch_sum1, _mm_add_epi64(_mm_and_si128(mismatch_sum2, m2), _mm_and_si128(_mm_srli_epi64(mismatch_sum2, 2), m2)));
+	joint_sum1 = _mm_add_epi64(joint_sum1, _mm_add_epi64(_mm_and_si128(joint_sum2, m2), _mm_and_si128(_mm_srli_epi64(joint_sum2, 2), m2)));
+	mismatch_sum1 = _mm_add_epi64(mismatch_sum1, _mm_add_epi64(_mm_and_si128(mismatch_sum2, m2), _mm_and_si128(_mm_srli_epi64(mismatch_sum2, 2), m2)));
 
-      accj.vi = _mm_add_epi64(accj.vi, _mm_add_epi64(_mm_and_si128(joint_sum1, m4), _mm_and_si128(_mm_srli_epi64(joint_sum1, 4), m4)));
-      accm.vi = _mm_add_epi64(accm.vi, _mm_add_epi64(_mm_and_si128(mismatch_sum1, m4), _mm_and_si128(_mm_srli_epi64(mismatch_sum1, 4), m4)));
-    } while (vptrl < vptrl_end);
-    accj.vi = _mm_add_epi64(_mm_and_si128(accj.vi, m8), _mm_and_si128(_mm_srli_epi64(accj.vi, 8), m8));
-    accm.vi = _mm_add_epi64(_mm_and_si128(accm.vi, m8), _mm_and_si128(_mm_srli_epi64(accm.vi, 8), m8));
-    joint_homozyg_ct += ((accj.u8[0] + accj.u8[1]) * 0x1000100010001LLU) >> 48;
-    joint_homozyg_mismatch_ct += ((accm.u8[0] + accm.u8[1]) * 0x1000100010001LLU) >> 48;
+	accj.vi = _mm_add_epi64(accj.vi, _mm_add_epi64(_mm_and_si128(joint_sum1, m4), _mm_and_si128(_mm_srli_epi64(joint_sum1, 4), m4)));
+	accm.vi = _mm_add_epi64(accm.vi, _mm_add_epi64(_mm_and_si128(mismatch_sum1, m4), _mm_and_si128(_mm_srli_epi64(mismatch_sum1, 4), m4)));
+      } while (vptrl < vptrl_end);
+      accj.vi = _mm_add_epi64(_mm_and_si128(accj.vi, m8), _mm_and_si128(_mm_srli_epi64(accj.vi, 8), m8));
+      accm.vi = _mm_add_epi64(_mm_and_si128(accm.vi, m8), _mm_and_si128(_mm_srli_epi64(accm.vi, 8), m8));
+      joint_homozyg_ct += ((accj.u8[0] + accj.u8[1]) * 0x1000100010001LLU) >> 48;
+      joint_homozyg_mismatch_ct += ((accm.u8[0] + accm.u8[1]) * 0x1000100010001LLU) >> 48;
+    }
+    if (words_left) {
+      accj.vi = _mm_setzero_si128();
+      accm.vi = _mm_setzero_si128();
+      vptrl_end = &(vptrl[words_left / 2]);
+      words_left = 0;
+      goto is_allelic_match_main_loop;
+    }
+    roh_slot_idxl = (uintptr_t*)vptrl;
+    roh_slot_idxs = (uintptr_t*)vptrs;
   }
-  if (vecs_left) {
-    accj.vi = _mm_setzero_si128();
-    accm.vi = _mm_setzero_si128();
-    vptrl_end = &(vptrl[vecs_left]);
-    vecs_left = 0;
-    goto is_allelic_match_main_loop;
-  }
-  roh_slot_idxl = (uintptr_t*)vptrl;
-  roh_slot_idxs = (uintptr_t*)vptrs;
 #else
   uint32_t homozyg_match_ct = 0;
   uint32_t joint_homozyg_mismatch_ct = 0;
@@ -784,24 +779,18 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
   while (words_left) {
     wloader_l = *roh_slot_idxl++;
     wloader_s = *roh_slot_idxs++;
-    wloader_l = wloader_l ^ (wloader_l >> 1);
-    wloader_s = wloader_s ^ (wloader_s >> 1);
-    joint_sum1 = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_sum1 = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & FIVEMASK;
     mismatch_sum1 = joint_sum1 & (wloader_l ^ wloader_s);
 
     wloader_l = *roh_slot_idxl++;
     wloader_s = *roh_slot_idxs++;
-    wloader_l = wloader_l ^ (wloader_l >> 1);
-    wloader_s = wloader_s ^ (wloader_s >> 1);
-    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_word = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & FIVEMASK;
     joint_sum1 += joint_word;
     mismatch_sum1 += joint_word & (wloader_l ^ wloader_s);
 
     wloader_l = *roh_slot_idxl++;
     wloader_s = *roh_slot_idxs++;
-    wloader_l = wloader_l ^ (wloader_l >> 1);
-    wloader_s = wloader_s ^ (wloader_s >> 1);
-    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_word = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & FIVEMASK;
     joint_sum1 += joint_word;
     mismatch_sum1 += joint_word & (wloader_l ^ wloader_s);
 
@@ -810,24 +799,18 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
 
     wloader_l = *roh_slot_idxl++;
     wloader_s = *roh_slot_idxs++;
-    wloader_l = wloader_l ^ (wloader_l >> 1);
-    wloader_s = wloader_s ^ (wloader_s >> 1);
-    joint_sum2 = (~(wloader_l | wloader_s)) & FIVEMASK;
-    mismatch_sum2 = joint_sum1 & (wloader_l ^ wloader_s);
+    joint_sum2 = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & FIVEMASK;
+    mismatch_sum2 = joint_sum2 & (wloader_l ^ wloader_s);
 
     wloader_l = *roh_slot_idxl++;
     wloader_s = *roh_slot_idxs++;
-    wloader_l = wloader_l ^ (wloader_l >> 1);
-    wloader_s = wloader_s ^ (wloader_s >> 1);
-    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_word = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & FIVEMASK;
     joint_sum2 += joint_word;
     mismatch_sum2 += joint_word & (wloader_l ^ wloader_s);
 
     wloader_l = *roh_slot_idxl++;
     wloader_s = *roh_slot_idxs++;
-    wloader_l = wloader_l ^ (wloader_l >> 1);
-    wloader_s = wloader_s ^ (wloader_s >> 1);
-    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_word = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & FIVEMASK;
     joint_sum2 += joint_word;
     mismatch_sum2 += joint_word & (wloader_l ^ wloader_s);
 
@@ -838,24 +821,18 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
 
     wloader_l = *roh_slot_idxl++;
     wloader_s = *roh_slot_idxs++;
-    wloader_l = wloader_l ^ (wloader_l >> 1);
-    wloader_s = wloader_s ^ (wloader_s >> 1);
-    joint_sum1 = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_sum1 = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & FIVEMASK;
     mismatch_sum1 = joint_sum1 & (wloader_l ^ wloader_s);
 
     wloader_l = *roh_slot_idxl++;
     wloader_s = *roh_slot_idxs++;
-    wloader_l = wloader_l ^ (wloader_l >> 1);
-    wloader_s = wloader_s ^ (wloader_s >> 1);
-    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_word = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & FIVEMASK;
     joint_sum1 += joint_word;
     mismatch_sum1 += joint_word & (wloader_l ^ wloader_s);
 
     wloader_l = *roh_slot_idxl++;
     wloader_s = *roh_slot_idxs++;
-    wloader_l = wloader_l ^ (wloader_l >> 1);
-    wloader_s = wloader_s ^ (wloader_s >> 1);
-    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_word = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & FIVEMASK;
     joint_sum1 += joint_word;
     mismatch_sum1 += joint_word & (wloader_l ^ wloader_s);
 
@@ -864,24 +841,18 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
 
     wloader_l = *roh_slot_idxl++;
     wloader_s = *roh_slot_idxs++;
-    wloader_l = wloader_l ^ (wloader_l >> 1);
-    wloader_s = wloader_s ^ (wloader_s >> 1);
-    joint_sum2 = (~(wloader_l | wloader_s)) & FIVEMASK;
-    mismatch_sum2 = joint_sum1 & (wloader_l ^ wloader_s);
+    joint_sum2 = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & FIVEMASK;
+    mismatch_sum2 = joint_sum2 & (wloader_l ^ wloader_s);
 
     wloader_l = *roh_slot_idxl++;
     wloader_s = *roh_slot_idxs++;
-    wloader_l = wloader_l ^ (wloader_l >> 1);
-    wloader_s = wloader_s ^ (wloader_s >> 1);
-    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_word = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & FIVEMASK;
     joint_sum2 += joint_word;
     mismatch_sum2 += joint_word & (wloader_l ^ wloader_s);
 
     wloader_l = *roh_slot_idxl++;
     wloader_s = *roh_slot_idxs++;
-    wloader_l = wloader_l ^ (wloader_l >> 1);
-    wloader_s = wloader_s ^ (wloader_s >> 1);
-    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_word = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & FIVEMASK;
     joint_sum2 += joint_word;
     mismatch_sum2 += joint_word & (wloader_l ^ wloader_s);
 
@@ -897,9 +868,7 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
   while (roh_slot_idxl < roh_idxl_end) {
     wloader_l = *roh_slot_idxl++;
     wloader_s = *roh_slot_idxs++;
-    wloader_l = wloader_l ^ (wloader_l >> 1);
-    wloader_s = wloader_s ^ (wloader_s >> 1);
-    joint_word = (~(wloader_l | wloader_s)) & FIVEMASK;
+    joint_word = (~((wloader_l ^ (wloader_l >> 1)) | (wloader_s ^ (wloader_s >> 1)))) & FIVEMASK;
     joint_homozyg_ct += popcount2_long(joint_word);
     joint_homozyg_mismatch_ct += popcount2_long(joint_word & (wloader_l ^ wloader_s));
   }
@@ -1006,9 +975,8 @@ void compute_allelic_match_matrix(double mismatch_max, uintptr_t roh_slot_wsize,
         allelic_match_cts[map_idxs] += 1;
 	incr_idxl++;
       }
-      map_idxs++;
     }
-    allelic_match_cts[map_idxl++] += incr_idxl;
+    allelic_match_cts[map_idxl] += incr_idxl;
   }
 }
 
@@ -1091,9 +1059,9 @@ char* roh_pool_write_middle(char* wptr, char* marker_ids, uintptr_t max_marker_i
   *wptr++ = ' ';
   wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr);
   wptr = memseta(wptr, 32, 5);
-  wptr = uint32_write(wptr, marker_pos[marker_uidx1]);
+  wptr = uint32_writew10(wptr, marker_pos[marker_uidx1]);
   wptr = memseta(wptr, 32, 5);
-  wptr = uint32_writex(wptr, marker_pos[marker_uidx2], ' ');
+  wptr = uint32_writew10x(wptr, marker_pos[marker_uidx2], ' ');
   wptr = double_g_writewx8(wptr, ((double)(marker_pos[marker_uidx2] + is_new_lengths - marker_pos[marker_uidx1])) / 1000.0, 8);
   *wptr++ = ' ';
   return wptr;
@@ -1355,6 +1323,18 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   } while (chrom_fo_idx);
   chrom_fo_idx_to_pidx[0] = pool_ct;
 
+  wptr = uint32_write(logbuf, pool_ct);
+  if (pool_size_min > 2) {
+    wptr = memcpya(wptr, " size-", 6);
+    wptr = uint32_writex(wptr, pool_size_min, '+');
+  }
+  wptr = memcpya(wptr, " pool", 5);
+  if (pool_ct != 1) {
+    *wptr++ = 's';
+  }
+  strcpy(wptr, " of overlapping ROH present.\n");
+  logprintb();
+
   // Now we know how much memory the pools require, so we can assign the rest
   // to a lookahead buffer.
   pool_list = (uintptr_t*)wkspace_alloc(pool_list_size * sizeof(intptr_t));
@@ -1422,6 +1402,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
       cur_pool = &(cur_pool[3]);
 #endif
       extract_pool_info(pool_size, cur_pool, roh_list, &con_uidx1, &con_uidx2, &union_uidx1, &union_uidx2);
+
       // flush all roh_slots with end_uidx entries less than or equal to
       // con_uidx2
       if (is_consensus_match) {
@@ -1518,10 +1499,10 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
       // 5. fill more genotype info from lookahead_buf
       // 6. resort to load-and-forget for the last SNPs if lookahead_buf is too
       //    small
+
       if (cur_lookahead_size) {
 	populate_roh_slots_from_lookahead_buf(lookahead_buf, max_lookahead, unfiltered_indiv_ctl2, cur_lookahead_start, cur_lookahead_size, lookahead_first_cidx, &(roh_slot_map[slot_idx1]), roh_slot_wsize, roh_slot_cidx_start, roh_slot_cidx_end, roh_slots);
       }
-
       if (con_uidx2 >= lookahead_end_uidx) {
 	lookahead_first_cidx = marker_uidx_to_cidx[con_uidx2 - chrom_start] + 1;
 	cur_lookahead_start = 0;
@@ -1545,7 +1526,10 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	if (fseeko(bedfile, bed_offset + ((uint64_t)lookahead_end_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	  goto roh_pool_ret_READ_FAIL;
 	}
-	ulii = cur_lookahead_start; // current write row in lookahead_buf
+	ulii = cur_lookahead_start + cur_lookahead_size;
+	if (ulii >= max_lookahead) {
+	  ulii -= max_lookahead;
+	}
 	do {
 	  if (is_set(marker_exclude, lookahead_end_uidx)) {
             lookahead_end_uidx = next_non_set_unsafe(marker_exclude, lookahead_end_uidx + 1);
@@ -1577,7 +1561,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
         }
       }
 
-#ifdef __LP64__
+#ifdef __cplusplus
       std::sort((int64_t*)roh_slot_map, (int64_t*)(&(roh_slot_map[pool_size])));
 #else
       qsort((int64_t*)roh_slot_map, pool_size, sizeof(int64_t), llcmp);
@@ -1643,8 +1627,25 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
       con_uidx2 = cur_roh[1];
       union_uidx2 = cur_roh[1];
       chrom_start = get_marker_chrom(chrom_info_ptr, con_uidx1);
+      // sort pool members primarily by allelic-match group number, then by
+      // internal ID
       for (slot_idx1 = 0; slot_idx1 < pool_size; slot_idx1++) {
-        roh_idx = cur_pool[slot_idx1];
+#ifdef __LP64__
+	roh_slot_map[slot_idx1] = ((cur_pool[pool_size + slot_idx1] & 0x7fffffffLLU) << 32) | ((uint64_t)slot_idx1);
+#else
+	// would like to just sort 32-bit integers, but if there are >32k
+	// allelic-match groups it won't work due to signed integer overflow
+        roh_slot_map[slot_idx1] = ((cur_pool[pool_size + 2 * slot_idx1] & 0x7fffffff) << 32) | ((uint64_t)slot_idx1);
+#endif
+      }
+#ifdef __cplusplus
+      std::sort((int64_t*)roh_slot_map, (int64_t*)(&(roh_slot_map[pool_size])));
+#else
+      qsort((int64_t*)roh_slot_map, pool_size, sizeof(int64_t), llcmp);
+#endif
+      for (slot_idx1 = 0; slot_idx1 < pool_size; slot_idx1++) {
+	slot_idx2 = (uint32_t)roh_slot_map[slot_idx1];
+        roh_idx = cur_pool[slot_idx2];
 	cur_roh = &(roh_list[roh_idx * ROH_ENTRY_INTS]);
 	indiv_uidx1 = cur_roh[5];
 	cptr = &(person_ids[indiv_uidx1 * max_person_id_len]);
@@ -1684,7 +1685,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
         wptr = roh_pool_write_middle(&(wptr[2]), marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, is_new_lengths, marker_uidx1, marker_uidx2);
 	wptr = uint32_writew8x(wptr, cur_roh[2], ' ');
 #ifdef __LP64__
-	ulii = cur_pool[pool_size + slot_idx1];
+	ulii = cur_pool[pool_size + slot_idx2];
         wptr = width_force(4, wptr, uint32_write(wptr, (uint32_t)(ulii >> 32)));
         *wptr++ = ' ';
         wptr = width_force(5, wptr, uint32_write(wptr, ((uint32_t)ulii) & 0x7fffffff));
@@ -1694,8 +1695,8 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	  *wptr++ = ' ';
 	}
 #else
-	ulii = cur_pool[pool_size + 2 * slot_idx1];
-        wptr = width_force(4, wptr, uint32_write(cur_pool[pool_size + 2 * slot_idx1 + 1]));
+	ulii = cur_pool[pool_size + 2 * slot_idx2];
+        wptr = width_force(4, wptr, uint32_write(cur_pool[pool_size + 2 * slot_idx2 + 1]));
 	*wptr++ = ' ';
         wptr = width_force(5, wptr, uint32_write(wptr, ulii & 0x7fffffff));
 	if (ulii & 0x80000000U) {
@@ -1741,7 +1742,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
         intprint2(wptr, chrom_start);
         wptr = roh_pool_write_middle(&(wptr[2]), marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, is_new_lengths, marker_uidx1, marker_uidx2);
         wptr = uint32_writew8(wptr, marker_cidx);
-        wptr = memcpya(wptr, "     NA     NA \n", 16);
+        wptr = memcpya(wptr, "    NA     NA \n", 15);
 	if (ujj) {
 	  *wptr++ = '\n';
 	}
@@ -1756,7 +1757,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
     goto roh_pool_ret_WRITE_FAIL;
   }
 
-  sprintf(logbuf, "%u ROH pool%s written to %s.\n", pool_ct, (pool_ct == 1)? "" : "s", outname);
+  sprintf(logbuf, "ROH pool report written to %s.\n", outname);
   logprintb();
 
   while (0) {

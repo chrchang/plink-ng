@@ -900,6 +900,12 @@ static inline char* uint32_writew8x(char* start, uint32_t uii, const char extra_
   return &(penult[1]);
 }
 
+static inline char* uint32_writew10x(char* start, uint32_t uii, const char extra_char) {
+  char* penult = uint32_writew10(start, uii);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
 static inline char* double_e_writex(char* start, double dxx, const char extra_char) {
   char* penult = double_e_write(start, dxx);
   *penult = extra_char;
