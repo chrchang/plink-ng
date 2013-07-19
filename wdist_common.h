@@ -805,7 +805,7 @@ static inline char* write_item(char* read_ptr, FILE* outfile) {
   return skip_initial_spaces(&(read_ptr[slen + 1]));
 }
 
-static inline char* fw_strcpyn(uint32_t min_width, uint32_t source_len, char* source, char* dest) {
+static inline char* fw_strcpyn(uint32_t min_width, uint32_t source_len, const char* source, char* dest) {
   // right-justified strcpy with known source length
   if (source_len < min_width) {
     memcpy(memseta(dest, 32, min_width - source_len), source, source_len);
@@ -815,7 +815,7 @@ static inline char* fw_strcpyn(uint32_t min_width, uint32_t source_len, char* so
   }
 }
 
-static inline char* fw_strcpy(uint32_t min_width, char* source, char* dest) {
+static inline char* fw_strcpy(uint32_t min_width, const char* source, char* dest) {
   return fw_strcpyn(min_width, strlen(source), source, dest);
 }
 
