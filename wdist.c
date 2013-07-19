@@ -64,7 +64,7 @@ const char ver_str[] =
 #ifdef PLINK_BUILD
   "PLINK v1.50a"
 #else
-  "WDIST v0.21.1p"
+  "WDIST v0.21.1"
 #endif
 #ifdef NOLAPACK
   "NL"

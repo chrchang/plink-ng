@@ -1367,10 +1367,14 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   // in forward order), i.e. traverse pool_list[] in reverse order.
   memcpy(outname_end, ".hom.overlap.S", 14);
   pool_list_idx = pool_list_size;
+  logprint("Determining within-pool allelic similarity... ");
+  fputs("[chromosome   ", stdout);
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     if (chrom_fo_idx_to_pidx[chrom_fo_idx] == chrom_fo_idx_to_pidx[chrom_fo_idx + 1]) {
       continue;
     }
+    printf("\b\b%u] \b", chrom_info_ptr->chrom_file_order[chrom_fo_idx]);
+    fflush(stdout);
 
     chrom_start = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
     marker_uidx2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
@@ -1596,7 +1600,12 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	}
       }
     }
+    if (chrom_info_ptr->chrom_file_order[chrom_fo_idx] > 9) {
+      putchar('\b');
+    }
   }
+  fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b               \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", stdout);
+  logprint("done.\n");
 
   outname_end[12] = '\0';
   if (fopen_checked(&outfile, outname, "w")) {
@@ -1607,6 +1616,8 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
     goto roh_pool_ret_WRITE_FAIL;
   }
   uii = 1; // pool ID
+  fputs("Writing...", stdout);
+  fflush(stdout);
   for (pool_size = max_pool_size; pool_size >= pool_size_min; pool_size--) {
     pool_list_idx = pool_size_first_plidx[pool_size - pool_size_min];
     while (pool_list_idx != ~ZEROLU) {
@@ -1757,6 +1768,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
     goto roh_pool_ret_WRITE_FAIL;
   }
 
+  putchar('\r');
   sprintf(logbuf, "ROH pool report written to %s.\n", outname);
   logprintb();
 
