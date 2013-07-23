@@ -9921,7 +9921,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	goto merge_bim_scan_ret_INVALID_FORMAT_2;
       }
     }
-    if (!atoiz(bufptr2, &jj)) {
+    if (!atoiz2(bufptr2, &jj)) {
       if (is_binary) {
 	aptr1 = next_item(bufptr2);
 	aptr2 = next_item(aptr1);

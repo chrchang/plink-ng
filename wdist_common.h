@@ -698,6 +698,8 @@ uint32_t match_upper_nt(char* ss, const char* fixed_str, uint32_t ct);
 
 int32_t atoiz(char* ss, int32_t* sval);
 
+int32_t atoiz2(char* ss, int32_t* sval);
+
 uint32_t strtoui32(char* ss, uint32_t* valp);
 
 static inline char* memseta(char* target, const unsigned char val, uintptr_t ct) {

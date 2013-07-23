@@ -126,8 +126,19 @@ uint32_t match_upper_nt(char* ss, const char* fixed_str, uint32_t ct) {
 }
 
 int32_t atoiz(char* ss, int32_t* sval) {
+  // accepts nonnegative integers
   int32_t ii = atoi(ss);
   if ((ii < 1) && ((*ss != '0') || (ss[1] != '\0'))) {
+    return -1;
+  }
+  *sval = ii;
+  return 0;
+}
+
+int32_t atoiz2(char* ss, int32_t* sval) {
+  // accepts nonnegative integers
+  int32_t ii = atoi(ss);
+  if ((ii < 1) && ((*ss != '0') || (ss[1] > ' '))) {
     return -1;
   }
   *sval = ii;
