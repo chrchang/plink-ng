@@ -9921,8 +9921,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	goto merge_bim_scan_ret_INVALID_FORMAT_2;
       }
     }
-    jj = atoi(bufptr2);
-    if (jj > 0) {
+    if (!atoiz(bufptr2, &jj)) {
       if (is_binary) {
 	aptr1 = next_item(bufptr2);
 	aptr2 = next_item(aptr1);
@@ -10082,7 +10081,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	tot_marker_ct++;
       }
       cur_marker_ct++;
-    } else if (!jj) {
+    } else if (!atoi(bufptr2)) {
       sprintf(logbuf, "Error: Invalid base-pair position in %s.\n", bimname);
       goto merge_bim_scan_ret_INVALID_FORMAT;
     }

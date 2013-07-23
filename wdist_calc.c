@@ -3569,7 +3569,6 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
     goto ibs_test_calc_ret_THREAD_CREATE_FAIL;
   }
   ulii = 0;
-  fflush(stdout);
   ibs_test_thread((void*)ulii);
   join_threads(threads, g_thread_ct);
 

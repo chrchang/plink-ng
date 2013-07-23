@@ -64,7 +64,7 @@ const char ver_str[] =
 #ifdef PLINK_BUILD
   "PLINK v1.50a"
 #else
-  "WDIST v0.21.1"
+  "WDIST v0.21.2p"
 #endif
 #ifdef NOLAPACK
   "NL"
@@ -74,7 +74,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (19 Jul 2013)";
+  " (23 Jul 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -4639,7 +4639,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: Run-of-homozygosity scanning requires a sorted .map/.bim.  Retry this\ncommand after using --make-bed to sort your data.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
-    retval = calc_homozyg(homozyg_ptr, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, marker_alleles, max_marker_allele_len, chrom_info_ptr, marker_pos, g_indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, outname, outname_end, pheno_nm, pheno_c, pheno_d, missing_pheno, sex_male);
+    retval = calc_homozyg(homozyg_ptr, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, marker_alleles, max_marker_allele_len, marker_reverse, chrom_info_ptr, marker_pos, g_indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, outname, outname_end, pheno_nm, pheno_c, pheno_d, missing_pheno, sex_male);
     if (retval) {
       goto wdist_ret_1;
     }

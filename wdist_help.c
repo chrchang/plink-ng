@@ -650,8 +650,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      or Fhat3 instead.\n"
 "    * " PROG_NAME_CAPS " normally performs this calculation with double-precision floating\n"
 "      point numbers.  The 'single-prec' modifier switches to single-precision\n"
-"      arithmetic, which is generally good enough; this decreases memory usage\n"
-"      and speeds up computation.\n"
+"      arithmetic, which sacrifices a bit of accuracy to decrease memory usage\n"
+"      and reduce computation time.\n"
                );
     help_print("make-grm\tmake-grm-bin\tgrm\tgrm-bin", &help_ctrl, 1,
 "  --make-grm <no-gz> <cov | ibc2 | ibc3> <single-prec>\n"
