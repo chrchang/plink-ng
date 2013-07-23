@@ -1098,7 +1098,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   // SNPs as we can, and then switch to load-and-forget-and-reload-later for
   // the final SNPs.
   uintptr_t* lookahead_buf;
-  uintptr_t* lookahead_row;
+  // uintptr_t* lookahead_row;
 
   uintptr_t* pool_size_first_plidx;
   uint32_t* marker_uidx_to_cidx;
@@ -1156,7 +1156,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   uint32_t case_ct;
   uint32_t uii;
   uint32_t ujj;
-  uint32_t is_reverse;
+  // uint32_t is_reverse;
   if (is_verbose) {
     logprint("Error: --homozyg group-verbose is under development.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -1662,11 +1662,11 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	  if (ulii >= max_lookahead) {
 	    ulii -= max_lookahead;
 	  }
-	  lookahead_row = &(lookahead_buf[ulii * unfiltered_indiv_ctl2]);
+	  // lookahead_row = &(lookahead_buf[ulii * unfiltered_indiv_ctl2]);
 	  wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx1 * max_marker_id_len]), tbuf);
 	  *wptr++ = ' ';
           fwrite(tbuf, 1, wptr - tbuf, outfile);
-	  is_reverse = is_set(marker_reverse, marker_uidx1);
+	  // is_reverse = is_set(marker_reverse, marker_uidx1);
 	  /* in progress
 	  if (max_marker_allele_len == 1) {
 	    tbuf[2] = '/';
