@@ -670,9 +670,17 @@ char* uint32_writew10(char* start, uint32_t uii) {
   return memcpya(memcpya(start, &(digit2_table[quotient * 2]), 2), &(digit2_table[uii * 2]), 2);
 }
 
+static inline char* uint32_write2trunc(char* start, uint32_t uii) {
+  // Given 0 < uii < 100, writes uii without *trailing* zeroes.  (I.e. this is
+  // for floating-point encoder use.)
+  memcpy(start, &(digit2_table[uii * 2]), 2);
+  if (start[1] != '0') {
+    return &(start[2]);
+  }
+  return &(start[1]);
+}
+
 static inline char* uint32_write4trunc(char* start, uint32_t uii) {
-  // Given 0 < uii < 10000, writes uii without *trailing* zeroes.  (I.e. this
-  // is for floating-point encoder use.)
   uint32_t quotient = uii / 100;
   memcpy(start, &(digit2_table[quotient * 2]), 2);
   uii -= 100 * quotient;
@@ -730,6 +738,16 @@ static inline char* uint32_write8trunc(char* start, uint32_t uii) {
     return &(start[2]);
   }
   return &(start[1]);
+}
+
+static inline char* uint32_write1p1(char* start, uint32_t quotient, uint32_t remainder) {
+  start[0] = '0' + quotient;
+  if (!remainder) {
+    return &(start[1]);
+  }
+  start[1] = '.';
+  start[2] = '0' + remainder;
+  return &(start[3]);
 }
 
 static inline char* uint32_write1p3(char* start, uint32_t quotient, uint32_t remainder) {
@@ -985,6 +1003,17 @@ char* float_write6(char* start, float dxx) {
     uint32_write6(start, (int32_t)(dxx + 0.5));
     return &(start[6]);
   }
+}
+
+char* double_write2(char* start, double dxx) {
+  // 2 sig fig number, 0.95 <= dxx < 99.5
+  uint32_t quotient;
+  if (dxx < 9.95) {
+    dxx += 0.05;
+    quotient = (int32_t)dxx;
+    return uint32_write1p1(start, quotient, ((int32_t)(dxx * 10)) - (quotient * 10));
+  }
+  return memcpya(start, &(digit2_table[((uint32_t)((int32_t)(dxx + 0.5))) * 2]), 2);
 }
 
 char* double_write4(char* start, double dxx) {
@@ -1769,8 +1798,188 @@ char* float_g_write(char* start, float dxx) {
   }
 }
 
+char* double_g_writewx2(char* start, double dxx, uint32_t min_width) {
+  // assumes min_width >= 5.
+  uint32_t xp10 = 0;
+  char wbuf[16];
+  char* wpos = wbuf;
+  uint32_t uii;
+  if (dxx != dxx) {
+    memcpy(memseta(start, 32, min_width - 4), " nan", 4);
+    return &(start[min_width]);
+  } else if (dxx < 0) {
+    *wpos++ = '-';
+    dxx = -dxx;
+  }
+  if (dxx < 9.95e-5) {
+    // 2 sig fig exponential notation, small
+    if (dxx < 9.95e-16) {
+      if (dxx < 9.95e-128) {
+	if (dxx == 0.0) {
+          memset(start, 32, min_width - 1);
+	  start[min_width - 1] = '0';
+	  return &(start[min_width]);
+        } else if (dxx < 9.95e-256) {
+	  dxx *= 1.0e256;
+	  xp10 |= 256;
+	} else {
+	  dxx *= 1.0e128;
+	  xp10 |= 128;
+	}
+      }
+      if (dxx < 9.95e-64) {
+	dxx *= 1.0e64;
+	xp10 |= 64;
+      }
+      if (dxx < 9.95e-32) {
+	dxx *= 1.0e32;
+	xp10 |= 32;
+      }
+      if (dxx < 9.95e-16) {
+	dxx *= 1.0e16;
+	xp10 |= 16;
+      }
+    }
+    if (dxx < 9.95e-8) {
+      dxx *= 100000000;
+      xp10 |= 8;
+    }
+    if (dxx < 9.95e-4) {
+      dxx *= 10000;
+      xp10 |= 4;
+    }
+    if (dxx < 9.95e-2) {
+      dxx *= 100;
+      xp10 |= 2;
+    }
+    if (dxx < 9.95e-1) {
+      dxx *= 10;
+      xp10++;
+    }
+    dxx += 0.05;
+    uii = (int32_t)dxx;
+    wpos = uint32_write1p1(wpos, uii, ((int32_t)(dxx * 10)) - (uii * 10));
+    uii = wpos - wbuf;
+    if (xp10 >= 100) {
+      if (uii < min_width - 5) {
+	memcpy(memseta(start, 32, min_width - 5 - uii), wbuf, uii);
+	start = &(start[min_width - 5]);
+      } else {
+	start = memcpya(start, wbuf, uii);
+      }
+      uii = xp10 / 100;
+      start = memcpyax(start, "e-", 2, '0' + uii);
+      xp10 -= 100 * uii;
+    } else {
+      if (uii < min_width - 4) {
+	memcpy(memseta(start, 32, min_width - 4 - uii), wbuf, uii);
+	start = &(start[min_width - 4]);
+      } else {
+	start = memcpya(start, wbuf, uii);
+      }
+      start = memcpya(start, "e-", 2);
+    }
+    return memcpya(start, &(digit2_table[xp10 * 2]), 2);
+  } else if (dxx >= 99.5) {
+    // 2 sig fig exponential notation, large
+    if (dxx >= 9.95e15) {
+      if (dxx >= 9.95e127) {
+	if (dxx == INFINITY) {
+	  start = memseta(start, 32, min_width - 4);
+	  if (wpos == wbuf) {
+	    return memcpya(start, " inf", 4);
+	  } else {
+	    return memcpya(start, "-inf", 4);
+	  }
+	} else if (dxx >= 9.95e255) {
+	  dxx *= 1.0e-256;
+	  xp10 |= 256;
+	} else {
+	  dxx *= 1.0e-128;
+	  xp10 |= 128;
+	}
+      }
+      if (dxx >= 9.95e63) {
+	dxx *= 1.0e-64;
+	xp10 |= 64;
+      }
+      if (dxx >= 9.95e31) {
+	dxx *= 1.0e-32;
+	xp10 |= 32;
+      }
+      if (dxx >= 9.95e15) {
+	dxx *= 1.0e-16;
+	xp10 |= 16;
+      }
+    }
+    if (dxx >= 9.95e7) {
+      dxx *= 1.0e-8;
+      xp10 |= 8;
+    }
+    if (dxx >= 9.95e3) {
+      dxx *= 1.0e-4;
+      xp10 |= 4;
+    }
+    if (dxx >= 9.95e1) {
+      dxx *= 1.0e-2;
+      xp10 |= 2;
+    }
+    if (dxx >= 9.95e0) {
+      dxx *= 1.0e-1;
+      xp10++;
+    }
+    dxx += 0.05;
+    uii = (int32_t)dxx;
+    wpos = uint32_write1p1(wpos, uii, ((int32_t)(dxx * 10)) - (uii * 10));
+    uii = wpos - wbuf;
+    if (xp10 >= 100) {
+      if (uii < min_width - 5) {
+	memcpy(memseta(start, 32, min_width - 5 - uii), wbuf, uii);
+	start = &(start[min_width - 5]);
+      } else {
+	start = memcpya(start, wbuf, uii);
+      }
+      uii = xp10 / 100;
+      start = memcpyax(start, "e+", 2, '0' + uii);
+      xp10 -= 100 * uii;
+    } else {
+      if (uii < min_width - 4) {
+	memcpy(memseta(start, 32, min_width - 4 - uii), wbuf, uii);
+	start = &(start[min_width - 4]);
+      } else {
+	start = memcpya(start, wbuf, uii);
+      }
+      start = memcpya(start, "e+", 2);
+    }
+    return memcpya(start, &(digit2_table[xp10 * 2]), 2);
+  } else {
+    if (dxx >= 0.995) {
+      wpos = double_write2(wpos, dxx);
+    } else {
+      // 2 sig fig decimal, no less than ~0.0001
+      wpos = memcpya(wpos, "0.", 2);
+      if (dxx < 9.95e-3) {
+	dxx *= 100;
+	wpos = memcpya(wpos, "00", 2);
+      }
+      if (dxx < 9.95e-2) {
+	dxx *= 10;
+	*wpos++ = '0';
+      }
+      wpos = uint32_write2trunc(wpos, (int32_t)((dxx * 100) + 0.5));
+    }
+    uii = wpos - wbuf;
+    if (uii < min_width) {
+      memcpy(memseta(start, 32, min_width - uii), wbuf, uii);
+      return &(start[min_width]);
+    } else {
+      return memcpya(start, wbuf, uii);
+    }
+  }
+}
+
 char* double_g_writewx4(char* start, double dxx, uint32_t min_width) {
-  // assumes min_width >= 4.
+  // assumes min_width >= 5.
   uint32_t xp10 = 0;
   char wbuf[16];
   char* wpos = wbuf;
