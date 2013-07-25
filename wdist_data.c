@@ -6548,7 +6548,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
 	if (last_early_xy) {
 	  id_start[id_len] = '\0';
 	  if (bsearch_str(id_start, xylist, xylist_max_id_len, 0, xylist_ct - 1) != -1) {
-	    if (atoiz(pos_start, &ii) || (ii < 0)) {
+	    if (atoiz(pos_start, &ii)) {
 	      pos_start[strlen_se(pos_start)] = '\0';
 	      sprintf(logbuf, "Error: Invalid --23file marker position '%s'.\n", pos_start);
 	      goto bed_from_23_ret_INVALID_FORMAT;
@@ -10406,8 +10406,10 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
   FILE* bedfile = NULL;
   FILE* infile2 = NULL;
   int32_t retval = 0;
-  uint32_t tot_indiv_ct4 = (tot_indiv_ct + 3) / 4;
-  uint32_t tot_indiv_ctl = (tot_indiv_ct + (BITCT - 1)) / BITCT;
+  // bugfix: there was a potential integer overflow back when these were
+  // uint32_t
+  uintptr_t tot_indiv_ct4 = (tot_indiv_ct + 3) / 4;
+  uintptr_t tot_indiv_ctl = (tot_indiv_ct + (BITCT - 1)) / BITCT;
   uint32_t end_marker_idx = start_marker_idx + marker_window_size;
   uint32_t marker_in_idx = 0xffffffffU; // overflow to zero on first add
   uint32_t last_marker_in_idx = 0xfffffffeU;

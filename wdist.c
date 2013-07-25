@@ -64,7 +64,7 @@ const char ver_str[] =
 #ifdef PLINK_BUILD
   "PLINK v1.50a"
 #else
-  "WDIST v0.21.2p"
+  "WDIST v0.19.16"
 #endif
 #ifdef NOLAPACK
   "NL"
@@ -74,7 +74,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (23 Jul 2013)";
+  " (25 Jul 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -7987,7 +7987,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (atoiz(argv[cur_arg + 1], &ii) || (ii < 0)) {
+	if (atoiz(argv[cur_arg + 1], &ii)) {
 	  sprintf(logbuf, "Error: Invalid --homozyg-het parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8013,7 +8013,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (atoiz(argv[cur_arg + 1], &ii) || (ii < 0)) {
+	if (atoiz(argv[cur_arg + 1], &ii)) {
 	  sprintf(logbuf, "Error: Invalid --homozyg-window-het parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8024,7 +8024,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (atoiz(argv[cur_arg + 1], &ii) || (ii < 0)) {
+	if (atoiz(argv[cur_arg + 1], &ii)) {
 	  sprintf(logbuf, "Error: Invalid --homozyg-window-missing parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9976,7 +9976,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --simulate-ncases must be used with --simulate.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (atoiz(argv[cur_arg + 1], &ii) || (ii < 0)) {
+	if (atoiz(argv[cur_arg + 1], &ii)) {
 	  sprintf(logbuf, "Error: Invalid --simulate-ncases parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9989,7 +9989,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --simulate-ncontrols must be used with --simulate.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (atoiz(argv[cur_arg + 1], &ii) || (ii < 0)) {
+	if (atoiz(argv[cur_arg + 1], &ii)) {
 	  sprintf(logbuf, "Error: Invalid --simulate-ncontrols parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
