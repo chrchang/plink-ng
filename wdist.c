@@ -67,7 +67,7 @@ const char ver_str[] =
 #ifdef STABLE_BUILD
   "WDIST v0.19.16"
 #else
-  "WDIST v0.21.2"
+  "WDIST v0.21.3p"
 #endif
 #endif
 #ifdef NOLAPACK
@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (25 Jul 2013)";
+  " (27 Jul 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -2559,7 +2559,7 @@ int32_t read_external_freqs(char* freqname, FILE** freqfile_ptr, uintptr_t unfil
 	    c_hom_a2 = atoi(next_item(bufptr));
 	    maf = ((double)c_hom_a1 + maf_succ) / ((double)(c_hom_a1 + c_hom_a2 + 2 * maf_succ));
 	  } else {
-	    if (sscanf(bufptr, "%lg", &maf) != 1) {
+	    if (scan_double(bufptr, &maf)) {
 	      goto read_external_freqs_ret_INVALID_FORMAT;
 	    }
 	  }
@@ -2684,7 +2684,7 @@ int32_t read_external_freqs(char* freqname, FILE** freqfile_ptr, uintptr_t unfil
 	if (no_more_items_kns(bufptr)) {
           goto read_external_freqs_ret_INVALID_FORMAT;
 	}
-        if (sscanf(bufptr, "%lg", &maf) != 1) {
+	if (scan_double(bufptr, &maf)) {
           goto read_external_freqs_ret_INVALID_FORMAT;
         }
 	if (max_marker_allele_len == 1) {
@@ -5542,6 +5542,8 @@ int32_t main(int32_t argc, char** argv) {
   double cnv_freq_val2 = 0.0;
   uint32_t cnv_test_window = 0;
   uint32_t segment_modifier = 0;
+  double tail_bottom = 0.0;
+  double tail_top = 0.0;
   char* segment_spanning_fname = NULL;
   char* missing_code = NULL;
   char range_delim = '-';
@@ -5578,8 +5580,6 @@ int32_t main(int32_t argc, char** argv) {
   char* argptr;
   char* sptr;
   char* bubble;
-  double tail_bottom;
-  double tail_top;
   int32_t ii;
   int32_t jj;
   int32_t kk;
@@ -6201,7 +6201,7 @@ int32_t main(int32_t argc, char** argv) {
 		goto main_ret_INVALID_CMDLINE;
 	      }
 	      if (param_ct > 4) {
-		if (sscanf(argv[cur_arg + 5], "%lg", &pheno_23) != 1) {
+		if (scan_double(argv[cur_arg + 5], &pheno_23)) {
 		  sprintf(logbuf, "Error: Invalid --23file phenotype '%s'.%s", argv[cur_arg + 5], errstr_append);
 		  goto main_ret_INVALID_CMDLINE_3;
 		}
@@ -6444,15 +6444,15 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	aperm_max = ii;
-	if (sscanf(argv[cur_arg + 3], "%lg", &aperm_alpha) != 1) {
+	if (scan_double(argv[cur_arg + 3], &aperm_alpha)) {
 	  sprintf(logbuf, "Error: Invalid --aperm alpha threshold '%s'.%s", argv[cur_arg + 3], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (sscanf(argv[cur_arg + 4], "%lg", &aperm_beta) != 1) {
+	if (scan_double(argv[cur_arg + 4], &aperm_beta)) {
 	  sprintf(logbuf, "Error: Invalid --aperm beta '%s'.%s", argv[cur_arg + 4], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (sscanf(argv[cur_arg + 5], "%lg", &aperm_init_interval) != 1) {
+	if (scan_double(argv[cur_arg + 5], &aperm_init_interval)) {
 	  sprintf(logbuf, "Error: Invalid --aperm initial pruning interval '%s'.%s", argv[cur_arg + 5], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -6460,7 +6460,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --aperm initial pruning interval '%s'.%s", argv[cur_arg + 5], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (sscanf(argv[cur_arg + 6], "%lg", &aperm_interval_slope) != 1) {
+	if (scan_double(argv[cur_arg + 6], &aperm_interval_slope)) {
 	  sprintf(logbuf, "Error: Invalid --aperm pruning interval slope '%s'.%s", argv[cur_arg + 6], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -6672,7 +6672,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
+	if (scan_double(argv[cur_arg + 1], &dxx)) {
 	  sprintf(logbuf, "Error: Invalid --ci parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -6871,7 +6871,7 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
-	  if ((sscanf(argv[cur_arg + 1], "%lg", &cnv_freq_val2) != 1) || (cnv_freq_val2 < 0) || (cnv_freq_val2 > 1)) {
+	  if (scan_double(argv[cur_arg + 1], &cnv_freq_val2) || (cnv_freq_val2 < 0) || (cnv_freq_val2 > 1)) {
 	    sprintf(logbuf, "Error: Invalid --cnv-freq-method2 parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -6894,7 +6894,7 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
-	  if ((sscanf(argv[cur_arg + 1], "%lg", &cnv_freq_val2) != 1) || (cnv_freq_val2 < 0) || (cnv_freq_val2 > 1)) {
+	  if (scan_double(argv[cur_arg + 1], &cnv_freq_val2) || (cnv_freq_val2 < 0) || (cnv_freq_val2 > 1)) {
 	    sprintf(logbuf, "Error: Invalid --cnv-freq-overlap parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -6936,7 +6936,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx < 0.001) || (dxx > 2147483.647)) {
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.001) || (dxx > 2147483.647)) {
 	  sprintf(logbuf, "Error: Invalid --cnv-kb size '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -6978,7 +6978,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx < 0.001) || (dxx > 2147483.647)) {
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.001) || (dxx > 2147483.647)) {
 	  sprintf(logbuf, "Error: Invalid --cnv-max-kb size '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -6996,7 +6996,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (sscanf(argv[cur_arg + 1], "%lg", &cnv_max_score) != 1) {
+	if (scan_double(argv[cur_arg + 1], &cnv_max_score)) {
 	  sprintf(logbuf, "Error: Invalid --cnv-max-score value '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7025,7 +7025,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if ((sscanf(argv[cur_arg + 1], "%lg", &cnv_overlap_val) != 1) || (cnv_overlap_val < 0) || (cnv_overlap_val > 1))  {
+	if (scan_double(argv[cur_arg + 1], &cnv_overlap_val) || (cnv_overlap_val < 0) || (cnv_overlap_val > 1))  {
 	  sprintf(logbuf, "Error: Invalid --cnv-overlap value '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7052,7 +7052,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if ((sscanf(argv[cur_arg + 1], "%lg", &cnv_overlap_val) != 1) || (cnv_overlap_val <= 0) || (cnv_overlap_val > 1))  {
+	if (scan_double(argv[cur_arg + 1], &cnv_overlap_val) || (cnv_overlap_val <= 0) || (cnv_overlap_val > 1))  {
 	  sprintf(logbuf, "Error: Invalid --cnv-region-overlap value '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7066,7 +7066,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (sscanf(argv[cur_arg + 1], "%lg", &cnv_min_score) != 1) {
+	if (scan_double(argv[cur_arg + 1], &cnv_min_score)) {
 	  sprintf(logbuf, "Error: Invalid --cnv-score value '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7187,7 +7187,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx < 0.001)) {
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.001)) {
 	  sprintf(logbuf, "Error: Invalid --cnv-test-window size '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7209,7 +7209,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if ((sscanf(argv[cur_arg + 1], "%lg", &cnv_overlap_val) != 1) || (cnv_overlap_val <= 0) || (cnv_overlap_val > 1))  {
+	if (scan_double(argv[cur_arg + 1], &cnv_overlap_val) || (cnv_overlap_val <= 0) || (cnv_overlap_val > 1)) {
 	  sprintf(logbuf, "Error: Invalid --cnv-union-overlap value '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7425,7 +7425,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!memcmp(argv[cur_arg + uii], "scalar-pheno", 13)) {
 	    dummy_flags |= DUMMY_SCALAR_PHENO;
 	  } else {
-	    if ((dummy_flags & DUMMY_MISSING_PHENO) || (sscanf(argv[cur_arg + uii], "%lg", &dxx) != 1) || (dxx < 0.0) || (dxx > 1.0)) {
+	    if ((dummy_flags & DUMMY_MISSING_PHENO) || scan_double(argv[cur_arg + uii], &dxx) || (dxx < 0.0) || (dxx > 1.0)) {
 	      sprintf(logbuf, "Error: Invalid --dummy parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    } else if (dummy_flags & DUMMY_MISSING_GENO) {
@@ -7487,7 +7487,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (sscanf(argv[cur_arg + 1], "%lg", &exponent) != 1) {
+	if (scan_double(argv[cur_arg + 1], &exponent)) {
 	  sprintf(logbuf, "Error: Invalid --exponent parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7624,7 +7624,7 @@ int32_t main(int32_t argc, char** argv) {
 	    logprint("Error: Multiple --from-bp/-kb/-mb values.\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  }
-	  if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
+	  if (scan_double(argv[cur_arg + 1], &dxx)) {
 	    sprintf(logbuf, "Error: Invalid --from-kb/-mb parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -7699,7 +7699,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
-	  if (sscanf(argv[cur_arg + 1], "%lg", &geno_thresh) != 1) {
+	  if (scan_double(argv[cur_arg + 1], &geno_thresh)) {
 	    sprintf(logbuf, "Error: Invalid --geno parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -7886,7 +7886,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
-	  if (sscanf(argv[cur_arg + 1], "%lg", &hwe_thresh) != 1) {
+	  if (scan_double(argv[cur_arg + 1], &hwe_thresh)) {
 	    sprintf(logbuf, "Error: Invalid --hwe parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -7957,7 +7957,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx < EPSILON) || (dxx >= (2147483.647 + EPSILON))) {
+        if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < EPSILON) || (dxx >= (2147483.647 + EPSILON))) {
 	  sprintf(logbuf, "Error: Invalid --homozyg-kb parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7969,7 +7969,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx <= 0.0) || (dxx >= 2147483.647)) {
+        if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0.0) || (dxx >= 2147483.647)) {
 	  sprintf(logbuf, "Error: Invalid --homozyg-density parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7980,7 +7980,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx < 0.001) || (dxx >= 2147483.647)) {
+        if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.001) || (dxx >= 2147483.647)) {
 	  sprintf(logbuf, "Error: Invalid --homozyg-gap parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8039,7 +8039,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx <= 0.0) || (dxx > 1.0)) {
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0.0) || (dxx > 1.0)) {
 	  sprintf(logbuf, "Error: Invalid --homozyg-window-threshold parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8052,7 +8052,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if ((sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) || (dxx <= 0.0) || (dxx > 1.0)) {
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0.0) || (dxx > 1.0)) {
 	  sprintf(logbuf, "Error: Invalid --homozyg-match parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8119,7 +8119,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	ld_window_incr = ii;
-	if ((sscanf(argv[cur_arg + param_ct], "%lg", &ld_last_param) != 1) || (ld_last_param < 0.0) || (ld_last_param >= 1.0)) {
+	if (scan_double(argv[cur_arg + param_ct], &ld_last_param) || (ld_last_param < 0.0) || (ld_last_param >= 1.0)) {
 	  sprintf(logbuf, "Error: Invalid --indep-pairwise r^2 threshold '%s'.%s", argv[cur_arg + param_ct], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8152,7 +8152,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	ld_window_incr = ii;
-	if (sscanf(argv[cur_arg + param_ct], "%lg", &ld_last_param) != 1) {
+	if (scan_double(argv[cur_arg + param_ct], &ld_last_param)) {
 	  sprintf(logbuf, "Error: Invalid --indep VIF threshold '%s'.%s", argv[cur_arg + param_ct], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8205,7 +8205,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
+        if (scan_double(argv[cur_arg + 1], &dxx)) {
 	  sprintf(logbuf, "Error: Invalid --ibm parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8310,7 +8310,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --lambda must be used with --adjust.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (sscanf(argv[cur_arg + 1], "%lg", &adjust_lambda) != 1) {
+	if (scan_double(argv[cur_arg + 1], &adjust_lambda)) {
 	  sprintf(logbuf, "Error: Invalid --lambda parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8422,7 +8422,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
-	  if (sscanf(argv[cur_arg + 1], "%lg", &min_maf) != 1) {
+	  if (scan_double(argv[cur_arg + 1], &min_maf)) {
 	    sprintf(logbuf, "Error: Invalid --maf parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -8440,7 +8440,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (sscanf(argv[cur_arg + 1], "%lg", &max_maf) != 1) {
+	if (scan_double(argv[cur_arg + 1], &max_maf)) {
 	  sprintf(logbuf, "Error: Invalid --max-maf parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8456,7 +8456,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
-	  if (sscanf(argv[cur_arg + 1], "%lg", &mind_thresh) != 1) {
+	  if (scan_double(argv[cur_arg + 1], &mind_thresh)) {
 	    sprintf(logbuf, "Error: Invalid --mind parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -9028,7 +9028,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
+        if (scan_double(argv[cur_arg + 1], &dxx)) {
 	  sprintf(logbuf, "Error: Invalid --min parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9049,7 +9049,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
+        if (scan_double(argv[cur_arg + 1], &dxx)) {
 	  sprintf(logbuf, "Error: Invalid --max parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9156,7 +9156,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --output-missing-phenotype string too long (max 31 chars).\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-        if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
+        if (scan_double(argv[cur_arg + 1], &dxx)) {
 	  logprint("Error: --output-missing-phenotype parameter currently must be numeric.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -9255,7 +9255,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
+	if (scan_double(argv[cur_arg + 1], &dxx)) {
 	  sprintf(logbuf, "Error: Invalid --ppc-gap parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9291,7 +9291,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
+        if (scan_double(argv[cur_arg + 1], &dxx)) {
 	  sprintf(logbuf, "Error: Invalid --pfilter parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9318,7 +9318,7 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
+        if (scan_double(argv[cur_arg + 1], &dxx)) {
 	  sprintf(logbuf, "Error: Invalid --ppc parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9430,7 +9430,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
-	  if ((sscanf(argv[cur_arg + 1], "%lg", &rel_cutoff) != 1) || (rel_cutoff <= 0.0) || (rel_cutoff >= 1.0)) {
+	  if (scan_double(argv[cur_arg + 1], &rel_cutoff) || (rel_cutoff <= 0.0) || (rel_cutoff >= 1.0)) {
 	    sprintf(logbuf, "Error: Invalid %s parameter '%s'.%s", argptr, argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -10006,7 +10006,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if ((sscanf(argv[cur_arg + 1], "%lg", &simulate_prevalence) != 1) || (simulate_prevalence < 0) || (simulate_prevalence > 1)) {
+	if (scan_double(argv[cur_arg + 1], &simulate_prevalence) || (simulate_prevalence < 0) || (simulate_prevalence > 1)) {
 	  sprintf(logbuf, "Error: Invalid --simulate-prevalence parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -10021,7 +10021,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if ((sscanf(argv[cur_arg + 1], "%lg", &simulate_missing) != 1) || (simulate_missing < 0) || (simulate_missing > 1)) {
+	if (scan_double(argv[cur_arg + 1], &simulate_missing) || (simulate_missing < 0) || (simulate_missing > 1)) {
 	  sprintf(logbuf, "Error: Invalid --simulate-missing parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -10069,14 +10069,14 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --tail-pheno cannot be used with --make-pheno.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (sscanf(argv[cur_arg + 1], "%lg", &tail_bottom) != 1) {
+	if (scan_double(argv[cur_arg + 1], &tail_bottom)) {
 	  sprintf(logbuf, "Error: Invalid --tail-pheno parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct == 1) {
 	  tail_top = tail_bottom;
 	} else {
-	  if (sscanf(argv[cur_arg + 2], "%lg", &tail_top) != 1) {
+	  if (scan_double(argv[cur_arg + 2], &tail_top)) {
 	    sprintf(logbuf, "Error: Invalid --tail-pheno parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -10216,7 +10216,7 @@ int32_t main(int32_t argc, char** argv) {
 	    logprint("Error: Multiple --to-bp/-kb/-mb values.\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  }
-	  if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
+	  if (scan_double(argv[cur_arg + 1], &dxx)) {
 	    sprintf(logbuf, "Error: Invalid --to-kb/-mb parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -10254,7 +10254,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (sscanf(argv[cur_arg + 1], "%lg", &thin_keep_prob) != 1) {
+	if (scan_double(argv[cur_arg + 1], &thin_keep_prob)) {
 	  sprintf(logbuf, "Error: Invalid --thin marker retention probability '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -10307,7 +10307,7 @@ int32_t main(int32_t argc, char** argv) {
 	    uii = 1;
 	  }
 	  if (param_ct >= uii) {
-	    if (sscanf(argv[cur_arg + uii], "%lg", &unrelated_herit_tol) != 1) {
+	    if (scan_double(argv[cur_arg + uii], &unrelated_herit_tol)) {
 	      sprintf(logbuf, "Error: Invalid --unrelated-heritability EM tolerance parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
@@ -10316,7 +10316,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    if (param_ct > uii) {
-	      if (sscanf(argv[cur_arg + uii + 1], "%lg", &unrelated_herit_covg) != 1) {
+	      if (scan_double(argv[cur_arg + uii + 1], &unrelated_herit_covg)) {
 		sprintf(logbuf, "Error: Invalid --unrelated-heritability genomic covariance prior '%s'.%s", argv[cur_arg + uii + 1], errstr_append);
 		goto main_ret_INVALID_CMDLINE_3;
 	      }
@@ -10325,7 +10325,7 @@ int32_t main(int32_t argc, char** argv) {
 		goto main_ret_INVALID_CMDLINE_3;
 	      }
 	      if (param_ct == uii + 2) {
-		if (sscanf(argv[cur_arg + uii + 2], "%lg", &unrelated_herit_covr) != 1) {
+		if (scan_double(argv[cur_arg + uii + 2], &unrelated_herit_covr)) {
 		  sprintf(logbuf, "Error: Invalid --unrelated-heritability residual covariance prior '%s'.%s", argv[cur_arg + uii + 2], errstr_append);
 		  goto main_ret_INVALID_CMDLINE_3;
 		}
@@ -10507,7 +10507,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (sscanf(argv[cur_arg + 1], "%lg", &dxx) != 1) {
+	if (scan_double(argv[cur_arg + 1], &dxx)) {
 	  sprintf(logbuf, "Error: Invalid --window parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}

@@ -702,6 +702,14 @@ int32_t atoiz2(char* ss, int32_t* sval);
 
 uint32_t strtoui32(char* ss, uint32_t* valp);
 
+static inline uint32_t scan_double(char* ss, double* valp) {
+  char* ss2;
+  *valp = strtod(ss, &ss2);
+  return (ss == ss2)? 1 : 0;
+}
+
+uint32_t scan_two_doubles(char* ss, double* val1p, double* val2p);
+
 static inline char* memseta(char* target, const unsigned char val, uintptr_t ct) {
   memset(target, val, ct);
   return &(target[ct]);

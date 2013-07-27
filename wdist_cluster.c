@@ -688,7 +688,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
       goto read_genome_ret_INVALID_FORMAT_4;
     }
     if (min_ppc != 0.0) {
-      if (sscanf(fam_id, "%lg", &cur_ppc) != 1) {
+      if (scan_double(fam_id, &cur_ppc)) {
 	logprint("Error: Invalid PPC test value in --read-genome input file.\n");
 	goto read_genome_ret_INVALID_FORMAT;
       }
@@ -698,7 +698,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
 	ppc_fail_counts[indiv_idx2] += 1;
       }
     }
-    if (sscanf(bufptr, "%lg", &cur_ibs) != 1) {
+    if (scan_double(bufptr, &cur_ibs)) {
       logprint("Error: Invalid IBS value in --read-genome input file.\n");
       goto read_genome_ret_INVALID_FORMAT;
     }
@@ -1088,7 +1088,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       }
       bufptr = skip_initial_spaces(tbuf);
       while (!is_eoln_kns(*bufptr)) {
-        if (sscanf(bufptr, "%lg", &dxx) != 1) {
+        if (scan_double(bufptr, &dxx)) {
 	  logprint("Error: Non-numeric value in --qt file.\n");
 	  goto cluster_enforce_match_ret_INVALID_FORMAT;
 	}
@@ -1156,7 +1156,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	  if ((!memcmp(bufptr2, missing_str, missing_len)) && (((unsigned char)bufptr2[missing_len]) <= ' ')) {
 	    *dptr++ = -INFINITY;
 	  } else {
-            if (sscanf(bufptr2, "%lg", dptr++) != 1) {
+            if (scan_double(bufptr2, dptr++)) {
               logprint("Error: Non-numeric covariate in --qmatch file.\n");
 	      goto cluster_enforce_match_ret_INVALID_FORMAT;
 	    }

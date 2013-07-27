@@ -172,6 +172,17 @@ uint32_t strtoui32(char* ss, uint32_t* valp) {
   }
 }
 
+uint32_t scan_two_doubles(char* ss, double* val1p, double* val2p) {
+  char* ss2;
+  *val1p = strtod(ss, &ss2);
+  if (ss == ss2) {
+    return 1;
+  }
+  ss = skip_initial_spaces(ss2);
+  *val2p = strtod(ss, &ss2);
+  return (ss == ss2)? 1 : 0;
+}
+
 int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr) {
   char* lptr;
   do {

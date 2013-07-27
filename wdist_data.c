@@ -163,7 +163,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	  }
 	}
 	if (!affection) {
-	  if (sscanf(bufptr, "%lg", &dxx) == 1) {
+	  if (scan_double(bufptr, &dxx)) {
 	    pheno_d[person_idx] = dxx;
 	    set_bit_noct(pheno_nm, person_idx);
 	  }
@@ -1012,7 +1012,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	    }
 	    fill_double_zero(*marker_cms_ptr, unfiltered_marker_ct);
 	  }
-	  if (sscanf(bufptr, "%lg", &((*marker_cms_ptr)[marker_uidx])) != 1) {
+	  if (scan_double(bufptr, &((*marker_cms_ptr)[marker_uidx]))) {
 	    sprintf(logbuf, "Error: Invalid centimorgan position in .%s file.\n", extension);
 	    goto load_bim_ret_INVALID_FORMAT_2;
 	  }
@@ -1184,7 +1184,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
     }
     set_bit_noct(already_seen, sorted_idx);
     marker_uidx = marker_id_map[(uint32_t)sorted_idx];
-    if (sscanf(colx_ptr, "%lg", &(marker_cms[marker_uidx])) != 1) {
+    if (scan_double(colx_ptr, &(marker_cms[marker_uidx]))) {
       logprint("Error: Invalid centimorgan value in --update-cm file.\n");
       goto update_marker_cms_ret_INVALID_FORMAT;
     }
@@ -3834,7 +3834,7 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
 	  }
 	}
       } else {
-	if (sscanf(bufptr, "%lg", &(pheno_d[indiv_uidx])) == 1) {
+	if (scan_double(bufptr, &(pheno_d[indiv_uidx]))) {
 	  if (pheno_d[indiv_uidx] != missing_phenod) {
 	    set_bit_noct(*pheno_nm_ptr, indiv_uidx);
 	  }
@@ -6194,7 +6194,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       cptr4 = next_item_mult(cptr3, 2);
       uii = cptr2 - cptr;
       memcpyx(&(marker_ids[marker_idx * max_marker_id_len]), cptr, uii, '\0');
-      if (sscanf(cptr3, "%lg", &(marker_cms[marker_idx])) != 1) {
+      if (scan_double(cptr3, &(marker_cms[marker_idx]))) {
 	goto transposed_to_bed_ret_INVALID_FORMAT;
       }
       uii = strlen_se(cptr4);
@@ -7582,17 +7582,17 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     snp_label_len = strlen_se(snp_label_ptr);
     memcpy(cur_snp_label, snp_label_ptr, snp_label_len);
     cur_snp_label[snp_label_len++] = '_';
-    if ((sscanf(freq_lb_ptr, "%lg %lg", &freq_lb, &freq_delta) != 2) || (freq_lb < 0) || (freq_delta < freq_lb) || (freq_delta > 1)) {
+    if (scan_two_doubles(freq_lb_ptr, &freq_lb, &freq_delta) || (freq_lb < 0) || (freq_delta < freq_lb) || (freq_delta > 1)) {
       sprintf(logbuf, "\nError: Invalid allele frequency bound in --simulate%s input file.\n", is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2;
     }
     freq_delta -= freq_lb;
     if (tags_or_haps) {
-      if ((sscanf(marker_freq_lb_ptr, "%lg %lg", &marker_freq_lb, &marker_freq_ub) != 2) || (marker_freq_lb < 0) || (marker_freq_ub < marker_freq_lb) || (marker_freq_ub > 1)) {
+      if (scan_two_doubles(marker_freq_lb_ptr, &marker_freq_lb, &marker_freq_ub) || (marker_freq_lb < 0) || (marker_freq_ub < marker_freq_lb) || (marker_freq_ub > 1)) {
 	sprintf(logbuf, "\nError: Invalid marker allele frequency bound in --simulate%s input file.\n", is_qt? "-qt" : "");
 	goto simulate_ret_INVALID_FORMAT_2;
       }
-      if ((sscanf(marker_ld_ptr, "%lg", &dprime) != 1) || (dprime < 0) || (dprime > 1)) {
+      if (scan_double(marker_ld_ptr, &dprime) || (dprime < 0) || (dprime > 1)) {
 	sprintf(logbuf, "\nError: Invalid d-prime in --simulate%s input file.\n", is_qt? "-qt" : "");
 	goto simulate_ret_INVALID_FORMAT_2;
       }
@@ -7600,7 +7600,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
       dprime = 1;
     }
     if (is_qt) {
-      if ((sscanf(penult_ptr, "%lg", &qt_var) != 1) || (qt_var < 0) || (qt_var > 1)) {
+      if (scan_double(penult_ptr, &qt_var) || (qt_var < 0) || (qt_var > 1)) {
 	logprint("\nError: Invalid variance value in --simulate-qt input file.\n");
 	goto simulate_ret_INVALID_FORMAT;
       }
@@ -7613,18 +7613,18 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	logprint("\nError: --simulate-qt input file specific QTL variance greater than 1.\n");
 	goto simulate_ret_INVALID_FORMAT;
       }
-      if (sscanf(last_ptr, "%lg", &qt_dom) != 1) {
+      if (scan_double(last_ptr, &qt_dom)) {
 	logprint("\nError: Invalid dominance deviation value in --simulate-qt input file.\n");
 	goto simulate_ret_INVALID_FORMAT;
       }
     } else {
-      if ((sscanf(penult_ptr, "%lg", &het_odds) != 1) || (het_odds < 0)) {
+      if (scan_double(penult_ptr, &het_odds) || (het_odds < 0)) {
 	logprint("\nError: Invalid heterozygote disease odds ratio in --simulate input file.\n");
 	goto simulate_ret_INVALID_FORMAT;
       }
       if ((strlen_se(last_ptr) == 4) && match_upper_nt(last_ptr, "MULT", 4)) {
 	hom0_odds = het_odds * het_odds;
-      } else if ((sscanf(last_ptr, "%lg", &hom0_odds) != 1) || (hom0_odds < 0)) {
+      } else if (scan_double(last_ptr, &hom0_odds) || (hom0_odds < 0)) {
 	logprint("\nError: Invalid homozygote disease odds ratio in --simulate input file.\n");
 	goto simulate_ret_INVALID_FORMAT;
       }
@@ -9760,7 +9760,7 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
       if (is_dichot_pheno) {
 	is_dichot_pheno = eval_affection(col6_start_ptr, -9, 2, 0);
       }
-      if (sscanf(col6_start_ptr, "%lg", &pheno) != 1) {
+      if (scan_double(col6_start_ptr, &pheno)) {
 	pheno = -9;
       }
       while (ll_ptr) {
@@ -9865,6 +9865,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
   uint64_t tot_marker_ct = *tot_marker_ct_ptr;
   uint32_t cur_marker_ct = *cur_marker_ct_ptr;
   uint32_t position_warning_ct = *position_warning_ct_ptr;
+  double cm = 0.0;
   FILE* infile = NULL;
   int32_t retval = 0;
   uint32_t alen1 = 1;
@@ -9883,7 +9884,6 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
   Ll_entry2** ll_pptr;
   Ll_entry2* ll_ptr;
   Ll_str* ll_string_new;
-  double cm;
   char* aptr1;
   char* aptr2;
   char* new_aptr;
@@ -9913,7 +9913,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
       goto merge_bim_scan_ret_INVALID_FORMAT_2;
     }
     if (cm_col) {
-      if (sscanf(bufptr2, "%lg", &cm) != 1) {
+      if (scan_double(bufptr2, &cm)) {
 	cm = 0;
       }
       bufptr2 = next_item(bufptr2);

@@ -3399,7 +3399,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
 	    if (no_more_items_kns(bufptr)) {
 	      goto unrelated_herit_batch_ret_INVALID_FORMAT_3;
 	    }
-	    if (sscanf(bufptr, "%lg", &dxx) != 1) {
+	    if (scan_double(bufptr, &dxx)) {
 	      goto unrelated_herit_batch_ret_INVALID_FORMAT_3;
 	    }
             *row_ptr++ = dxx;
@@ -4303,7 +4303,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
 	if (no_more_items_kns(bufptr)) {
 	  goto calc_regress_pcs_ret_INVALID_FORMAT;
 	}
-	if (sscanf(bufptr, "%lg", &(pc_matrix[uii * indiv_ct + indiv_idx])) != 1) {
+	if (scan_double(bufptr, &(pc_matrix[uii * indiv_ct + indiv_idx]))) {
 	  goto calc_regress_pcs_ret_INVALID_FORMAT;
 	}
 	bufptr = next_item(bufptr);
@@ -4336,7 +4336,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
 	if (no_more_items_kns(bufptr)) {
 	  goto calc_regress_pcs_ret_INVALID_FORMAT;
 	}
-	if (sscanf(bufptr, "%lg", &(pc_matrix[uii * indiv_ct + indiv_idx])) != 1) {
+	if (scan_double(bufptr, &(pc_matrix[uii * indiv_ct + indiv_idx]))) {
 	  goto calc_regress_pcs_ret_INVALID_FORMAT;
 	}
 	bufptr = next_item(bufptr);
@@ -6364,7 +6364,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	  if (no_more_items_kns(bufptr)) {
 	    goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
 	  }
-	  if (sscanf(bufptr, "%lg", &dxx) != 1) {
+	  if (scan_double(bufptr, &dxx)) {
 	    goto rel_cutoff_batch_ret_INVALID_FORMAT_2;
 	  }
 	  if (dxx > rel_cutoff) {
