@@ -2067,6 +2067,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
   uint32_t do_exclude = flags & 1;
   // flags & 2 = indivs
   uint32_t families_only = flags & 4;
+  int32_t retval = 0;
   char* id_buf;
   char* bufptr0;
   char* bufptr;
@@ -2079,36 +2080,34 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
 
   if (!do_exclude) {
     if (wkspace_alloc_ul_checked(&exclude_arr_new, unfiltered_ctl * sizeof(intptr_t))) {
-      return RET_NOMEM;
+      goto include_or_exclude_ret_NOMEM;
     }
     fill_ulong_one(exclude_arr_new, unfiltered_ctl);
   }
   if (fopen_checked(&infile, fname, "r")) {
-    return RET_OPEN_FAIL;
+    goto include_or_exclude_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 1] = ' ';
   if (flags & 2) {
     if (wkspace_alloc_c_checked(&id_buf, max_id_len)) {
-      return RET_NOMEM;
+      goto include_or_exclude_ret_NOMEM;
     }
     while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
       if (!tbuf[MAXLINELEN - 1]) {
 	sprintf(logbuf, "Error: Excessively long line in --%s file (max %d chars).\n", include_or_exclude_flag_str(flags), MAXLINELEN - 3);
-	logprintb();
-        return RET_INVALID_FORMAT;
+	goto include_or_exclude_ret_INVALID_FORMAT;
       }
       bufptr0 = skip_initial_spaces(tbuf);
       if (is_eoln_kns(*bufptr0)) {
 	continue;
       }
       if (!families_only) {
-	bufptr = next_item(tbuf);
+	bufptr = next_item(bufptr0);
 	if (no_more_items_kns(bufptr)) {
 	  sprintf(logbuf, "Error: Fewer tokens than expected in --%s line.\n", include_or_exclude_flag_str(flags));
-	  logprintb();
-	  return RET_INVALID_FORMAT;
+	  goto include_or_exclude_ret_INVALID_FORMAT;
 	}
-	ii = bsearch_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_len, tbuf, bufptr);
+	ii = bsearch_fam_indiv(id_buf, sorted_ids, max_id_len, sorted_ids_len, bufptr0, bufptr);
 	if (ii != -1) {
 	  unfiltered_idx = id_map[(uint32_t)ii];
 	  if (do_exclude) {
@@ -2133,8 +2132,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
     while (fgets(tbuf, MAXLINELEN, infile) != NULL) {
       if (!tbuf[MAXLINELEN - 1]) {
 	sprintf(logbuf, "Error: Excessively long line in --%s file (max %d chars).\n", flags? "exclude" : "extract", MAXLINELEN - 3);
-	logprintb();
-        return RET_INVALID_FORMAT;
+	goto include_or_exclude_ret_INVALID_FORMAT;
       }
       bufptr0 = skip_initial_spaces(tbuf);
       if (is_eoln_kns(*bufptr0)) {
@@ -2161,15 +2159,30 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
     }
   }
   if (!feof(infile)) {
-    return RET_READ_FAIL;
+    goto include_or_exclude_ret_READ_FAIL;
   }
   if (!do_exclude) {
     memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
     *exclude_ct_ptr = unfiltered_ct - include_ct;
   }
+  while (0) {
+  include_or_exclude_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  include_or_exclude_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  include_or_exclude_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  include_or_exclude_ret_INVALID_FORMAT:
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
   wkspace_reset(wkspace_mark);
-  fclose(infile);
-  return 0;
+  fclose_cond(infile);
+  return retval;
 }
 
 int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uint32_t for_cluster_flag, uint32_t is_max_dist, double* dists, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {

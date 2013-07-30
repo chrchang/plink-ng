@@ -804,6 +804,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --missing-genotype [char] : Code for missing genotype (normally '0').\n"
 "  --missing-phenotype [val] : Numeric code for missing phenotype (normally -9).\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("allow-extra-chroms", &help_ctrl, 0,
+"  --allow-extra-chroms <0>  : Permit unrecognized chromosome codes.  The '0'\n"
+"                              modifier sets those codes to zero.\n"
+               );
+#endif
     help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
 "  --simulate-ncases [num]   : Set --simulate case count (default 1000).\n"
 "  --simulate-ncontrols [n]  : Set --simulate control count (default 1000).\n"

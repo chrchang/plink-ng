@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (27 Jul 2013)";
+  " (30 Jul 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -6303,6 +6303,13 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	chrom_info.chrom_mask = species_autosome_mask[chrom_info.species] | (1LLU << ii);
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "llow-extra-chroms", 18)) {
+	UNSTABLE;
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        logprint("Error: --allow-extra-chroms is not implemented yet.\n");
+	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "llow-no-sex", 12)) {
         sex_missing_pheno |= ALLOW_NO_SEX;
 	goto main_param_zero;

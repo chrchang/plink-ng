@@ -136,7 +136,7 @@ int32_t atoiz(char* ss, int32_t* sval) {
 }
 
 int32_t atoiz2(char* ss, int32_t* sval) {
-  // accepts nonnegative integers
+  // version of atoiz which does not require the number to be null-terminated
   int32_t ii = atoi(ss);
   if ((ii < 1) && ((*ss != '0') || (ss[1] > ' '))) {
     return -1;

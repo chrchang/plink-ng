@@ -416,8 +416,8 @@ typedef union {
 
 #define CACHEALIGN(val) ((val + (CACHELINE - 1)) & (~(CACHELINE - 1)))
 #define CACHEALIGN_DBL(val) ((val + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1)))
-#define MAXV(aa, bb) ((bb) > (aa))? (bb) : (aa)
-#define MINV(aa, bb) ((aa) > (bb))? (bb) : (aa)
+#define MAXV(aa, bb) (((bb) > (aa))? (bb) : (aa))
+#define MINV(aa, bb) (((aa) > (bb))? (bb) : (aa))
 
 #define _FILE_OFFSET_BITS 64
 #if _WIN32
