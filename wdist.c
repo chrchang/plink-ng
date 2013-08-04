@@ -5043,7 +5043,7 @@ int32_t enforce_param_ct_range(uint32_t param_ct, char* flag_name, uint32_t min_
   } else if (param_ct < min_ct) {
     if (min_ct == 1) {
       sprintf(logbuf, "Error: Missing %s parameter.%s", flag_name, errstr_append);
-    } else if (min_ct < max_ct) {
+    } else {
       sprintf(logbuf, "Error: %s requires %s%d parameters.%s", flag_name, (min_ct < max_ct)? "at least " : "", min_ct, errstr_append);
     }
     return -1;

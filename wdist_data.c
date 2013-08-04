@@ -360,7 +360,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
   tbuf[MAXLINELEN - 6] = ' ';
   while (fgets(tbuf, MAXLINELEN - 5, *mapfile_ptr) != NULL) {
     if (!tbuf[MAXLINELEN - 6]) {
-      sprintf(logbuf, "Error: Excessively long line in .map/.bim file (max %u chars).\n", MAXLINELEN - 8);
+      sprintf(logbuf, "Error: Excessively long line in .map file (max %u chars).\n", MAXLINELEN - 8);
       logprintb();
       goto load_map_ret_INVALID_FORMAT;
     }
@@ -393,7 +393,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     goto load_map_ret_READ_FAIL;
   }
   if (!unfiltered_marker_ct) {
-    logprint("Error: No markers in .map/.bim file.");
+    logprint("Error: No markers in .map file.");
     goto load_map_ret_INVALID_FORMAT;
   }
   *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
@@ -433,7 +433,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     jj = marker_code(chrom_info_ptr, bufptr);
     if (jj == -1) {
       if (!allow_extra_chroms) {
-	logprint("Error: Invalid chromosome index in .map/.bim file.\n");
+	logprint("Error: Invalid chromosome index in .map file.  (Use --allow-extra-chroms to\nforce it to be accepted.\n");
 	goto load_map_ret_INVALID_FORMAT;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &jj);
@@ -697,7 +697,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       if (!allow_extra_chroms) {
 	uii = strlen_se(bufptr);
 	bufptr[uii] = '\0';
-	sprintf(logbuf, "Error: Invalid chromosome index '%s' in .bim file.\n", bufptr);
+	sprintf(logbuf, "Error: Invalid chromosome index '%s' in .bim file.\n(Use --allow-extra-chroms to force it to be accepted.)\n", bufptr);
 	goto load_bim_ret_INVALID_FORMAT_2;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &jj);
