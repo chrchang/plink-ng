@@ -179,6 +179,8 @@ typedef union {
 #define MISC_LOAD_CLUSTER_KEEP_NA 0x800LLU
 #define MISC_WRITE_CLUSTER_OMIT_UNASSIGNED 0x1000LLU
 #define MISC_UNRELATED_HERITABILITY_STRICT 0x2000LLU
+#define MISC_ALLOW_EXTRA_CHROMS 0x4000LLU
+#define MISC_ZERO_EXTRA_CHROMS 0x8000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
@@ -1174,17 +1176,27 @@ static inline int32_t filename_exists(char* fname, char* fname_end, const char* 
 
 void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc);
 
-// maximum accepted chromosome index is this minus 1.
-// currently unsafe to set this above 60 due to using a single uint64_t
-// chrom_mask, and reserving the top 4 bits
-#define MAX_POSSIBLE_CHROM 42
+// Maximum accepted chromosome index is this minus 1.  Currently cannot exceed
+// 2^14 due to SMALL_INTERVAL_BITS setting in wdist_cnv.c.
+#define MAX_POSSIBLE_CHROM 128
 #define CHROM_X MAX_POSSIBLE_CHROM
 #define CHROM_Y (MAX_POSSIBLE_CHROM + 1)
 #define CHROM_XY (MAX_POSSIBLE_CHROM + 2)
 #define CHROM_MT (MAX_POSSIBLE_CHROM + 3)
 
+#ifdef __LP64__
+// MAX_POSSIBLE_CHROM / BITCT rounded up
+#define CHROM_MASK_WORDS 2
+// dog requires 42 bits, and other species require less
+#define CHROM_MASK_INITIAL_WORDS 1
+#else
+#define CHROM_MASK_WORDS 4
+#define CHROM_MASK_INITIAL_WORDS 2
+#endif
+
 typedef struct {
-  // no point to dynamic allocation when MAX_POSSIBLE_CHROM is small
+  // no point to dynamic allocation when MAX_POSSIBLE_CHROM is small and
+  // there's only one copy of this
 
   // order of chromosomes in input files
   // currently tolerates out-of-order chromosomes, as long as all markers for
@@ -1197,8 +1209,25 @@ typedef struct {
   uint32_t chrom_start[MAX_POSSIBLE_CHROM];
   uint32_t chrom_end[MAX_POSSIBLE_CHROM];
 
+  uintptr_t chrom_mask[CHROM_MASK_WORDS];
+
   uint32_t species;
-  uint64_t chrom_mask;
+
+  int32_t x_code;
+  int32_t y_code;
+  int32_t xy_code;
+  int32_t mt_code;
+  uint32_t max_code;
+  uintptr_t autosome_mask[CHROM_MASK_WORDS];
+  uintptr_t haploid_mask[CHROM_MASK_WORDS];
+
+  // --allow-extra-chroms support
+  uint32_t name_ct;
+  Ll_str* incl_excl_name_stack;
+  uint32_t is_exclude_stack;
+  // if we ever have to deal with a very large number of named "chromosomes",
+  // this should be replaced with e.g. a balanced tree
+  char* nonstd_names[MAX_POSSIBLE_CHROM];
 } Chrom_info;
 
 #define SPECIES_HUMAN 0
@@ -1209,38 +1238,39 @@ typedef struct {
 #define SPECIES_RICE 5
 #define SPECIES_SHEEP 6
 
-// extern const uint64_t species_def_chrom_mask[];
-extern const uint64_t species_autosome_mask[];
-extern const uint64_t species_valid_chrom_mask[];
-extern const uint64_t species_haploid_mask[];
-// extern const char species_regchrom_ct_p1[];
-extern const char species_x_code[];
-extern const char species_y_code[];
-extern const char species_xy_code[];
-extern const char species_mt_code[];
-extern const char species_max_code[];
-extern const uint64_t species_haploid_mask[];
-extern char species_singulars[][7];
-extern char species_plurals[][8];
-
-extern char* species_singular;
-extern char* species_plural;
+extern char* g_species_singular;
+extern char* g_species_plural;
 
 static inline char* species_str(uintptr_t ct) {
   return (ct == ONELU)? species_singular : species_plural;
 }
 
+static inline uint32_t all_words_zero(uintptr_t* word_arr, uintptr_t word_ct) {
+  while (word_ct--) {
+    if (*word_arr++) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t zero_extra_chroms);
+
+void forget_extra_chrom_names(Chrom_info* chrom_info_ptr);
+
 int32_t marker_code_raw(char* sptr);
 
-int32_t marker_code(uint32_t species, char* sptr);
+int32_t marker_code(Chrom_info* chrom_info_ptr, char* sptr);
 
-int32_t marker_code2(uint32_t species, char* sptr, uint32_t slen);
+int32_t marker_code2(Chrom_info* chrom_info_ptr, char* sptr, uint32_t slen);
 
 uint32_t get_marker_chrom(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx);
 
 static inline int32_t chrom_exists(Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
-  return (chrom_info_ptr->chrom_mask & (1LLU << chrom_idx));
+  return is_set(chrom_info_ptr->chrom_mask, chrom_idx);
 }
+
+int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int32_t* chrom_idx_ptr);
 
 static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr_t marker_uidx, Chrom_info* chrom_info_ptr, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr) {
   marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);

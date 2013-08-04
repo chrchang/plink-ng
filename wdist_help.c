@@ -807,7 +807,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef STABLE_BUILD
     help_print("allow-extra-chroms", &help_ctrl, 0,
 "  --allow-extra-chroms <0>  : Permit unrecognized chromosome codes.  The '0'\n"
-"                              modifier sets those codes to zero.\n"
+"                              modifier causes them to be treated as if they had\n"
+"                              been set to zero.\n"
                );
 #endif
     help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
