@@ -4169,7 +4169,7 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
   *chrom_end_ptr = chrom_end;
   *window_unfiltered_end_ptr = window_unfiltered_end;
   *is_haploid_ptr = is_set(chrom_info_ptr->haploid_mask, cur_chrom);
-  *is_x_ptr = (cur_chrom == chrom_info_ptr->x_code)? 1 : 0;
+  *is_x_ptr = (((int32_t)cur_chrom) == chrom_info_ptr->x_code)? 1 : 0;
 }
 
 int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t max_pcs, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, double* pheno_d, double missing_phenod, char* outname, char* outname_end) {
@@ -4309,7 +4309,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
       }
       if (!fgets(tbuf, MAXLINELEN, evecfile)) {
 	if (feof(evecfile)) {
-	  sprintf(logbuf, "Error: Fewer %s in .eigenvec file than expected.\n", species_plural);
+	  sprintf(logbuf, "Error: Fewer %s in .eigenvec file than expected.\n", g_species_plural);
 	  goto calc_regress_pcs_ret_INVALID_FORMAT_3;
 	} else {
 	  goto calc_regress_pcs_ret_READ_FAIL;
@@ -4320,7 +4320,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       if (!fgets(tbuf, MAXLINELEN, evecfile)) {
 	if (feof(evecfile)) {
-	  sprintf(logbuf, "Error: Fewer %s in .evec file than expected.\n", species_plural);
+	  sprintf(logbuf, "Error: Fewer %s in .evec file than expected.\n", g_species_plural);
 	  goto calc_regress_pcs_ret_INVALID_FORMAT_3;
 	} else {
 	  goto calc_regress_pcs_ret_READ_FAIL;
@@ -4341,7 +4341,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   }
   if (fgets(tbuf, MAXLINELEN, evecfile)) {
     if (!no_more_items_kns(skip_initial_spaces(tbuf))) {
-      sprintf(logbuf, "Error: More %s in .e%svec file than expected.\n", species_plural, is_eigenvec? "igen" : "");
+      sprintf(logbuf, "Error: More %s in .e%svec file than expected.\n", g_species_plural, is_eigenvec? "igen" : "");
       goto calc_regress_pcs_ret_INVALID_FORMAT_3;
     }
   }

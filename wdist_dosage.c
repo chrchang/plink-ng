@@ -158,7 +158,7 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
     goto oxford_sample_load_ret_READ_FAIL;
   }
   if (!unfiltered_indiv_ct) {
-    sprintf(logbuf, "Error: No %s in .sample file.\n", species_plural);
+    sprintf(logbuf, "Error: No %s in .sample file.\n", g_species_plural);
     goto oxford_sample_load_ret_INVALID_FORMAT_4;
   }
   *unfiltered_indiv_ct_ptr = unfiltered_indiv_ct;

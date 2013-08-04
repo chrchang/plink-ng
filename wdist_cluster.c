@@ -2275,7 +2275,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
     goto mds_plot_ret_NOMEM;
   }
   if ((indiv_ct > 5000) && (!is_mds_cluster) && (final_cluster_ct < indiv_ct) && (final_cluster_ct > 1)) {
-    sprintf(logbuf, "Warning: Per-individual --mds-plot can be very slow with over 5000 %s.\nConsider using the 'by-cluster' modifier.\n", species_plural);
+    sprintf(logbuf, "Warning: Per-individual --mds-plot can be very slow with over 5000 %s.\nConsider using the 'by-cluster' modifier.\n", g_species_plural);
     logprintb();
   }
   for (clidx1 = 0; clidx1 < cur_cluster_ct; clidx1++) {

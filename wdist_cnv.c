@@ -426,7 +426,7 @@ uint32_t is_cnv_overlap(uint32_t start_pos, uint32_t end_pos, uint32_t overlap_t
   return is_cnv_overlap_one_size(start_pos, end_pos, overlap_type, overlap_val, large_max_width, il_large, il_large_len);
 }
 
-int32_t cnv_make_map_write(FILE* new_mapfile, uint32_t zero_extra_chroms, Chrom_info_ptr* chrom_info, uint32_t chrom_idx, uint32_t bp_pos, uintptr_t* max_marker_id_len_ptr) {
+int32_t cnv_make_map_write(FILE* new_mapfile, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t bp_pos, uintptr_t* max_marker_id_len_ptr) {
   char* wptr = chrom_name_write(tbuf, chrom_info_ptr, chrom_idx, zero_extra_chroms);
   char* wptr2 = memcpya(wptr, "\tp", 2);
   uintptr_t cur_marker_id_len;
@@ -1109,7 +1109,7 @@ int32_t wdist_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
       goto wdist_cnv_ret_OPEN_FAIL;
     }
   }
-  ulii = marker_chrom_start[chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_c]];
+  ulii = marker_chrom_start[chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct];
 #ifndef __LP64__
   if (((uint64_t)ulii) * max_marker_id_len > 0x7fffffffLLU) {
     goto wdist_cnv_ret_NOMEM;

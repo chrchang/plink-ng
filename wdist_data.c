@@ -8281,7 +8281,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   uint32_t vcf_not_iid = (recode_modifier & RECODE_VCF) && (!(recode_modifier & RECODE_IID));
   uint32_t vcf_two_ids = vcf_not_fid && vcf_not_iid;
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
-  uint32_t zero_extra_chroms = (misc_flags / ZERO_EXTRA_CHROMS) & 1;
+  uint32_t zero_extra_chroms = (misc_flags / MISC_ZERO_EXTRA_CHROMS) & 1;
   uint32_t xmhh_exists_orig = xmhh_exists;
   int32_t retval = 0;
   uint32_t recode_compound;

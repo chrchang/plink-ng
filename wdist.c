@@ -67,7 +67,7 @@ const char ver_str[] =
 #ifdef STABLE_BUILD
   "WDIST v0.19.16"
 #else
-  "WDIST v0.21.3p"
+  "WDIST v0.21.3"
 #endif
 #endif
 #ifdef NOLAPACK
@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (31 Jul 2013)";
+  " (4 Aug 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -2731,7 +2731,7 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
   char minor_allele = '\0';
   uint32_t freq_counts = (misc_flags / MISC_FREQ_COUNTS) & 1;
   uint32_t freqx = (misc_flags / MISC_FREQX) & 1;
-  uint32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
+  int32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
   char* tbuf2 = &(tbuf[MAXLINELEN]);
   int32_t retval = 0;
   char missing_geno_buf[2];
@@ -2937,7 +2937,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   uint32_t* cluster_starts_nonmale = NULL;
   uint32_t* cluster_map_male = NULL;
   uint32_t* cluster_starts_male = NULL;
-  uint32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
+  int32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
   uint32_t cslen = 10;
   int32_t retval = 0;
   uint32_t cur_cts[4];
@@ -5131,7 +5131,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
       if (!range_start) {
 	break;
       }
-      marker_code_start = marker_code2(species, range_start, rs_len);
+      marker_code_start = marker_code2(chrom_info_ptr, range_start, rs_len);
       if (marker_code_start == -1) {
 	range_start[rs_len] = '\0';
 	if (!allow_extra_chroms) {
@@ -5144,7 +5144,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	  goto parse_chrom_ranges_ret_NOMEM;
 	}
       } else if (range_end) {
-        marker_code_end = marker_code2(species, range_end, re_len);
+        marker_code_end = marker_code2(chrom_info_ptr, range_end, re_len);
 	if (marker_code_end == -1) {
 	  if (!allow_extra_chroms) {
 	    range_end[re_len] = '\0';
@@ -9265,7 +9265,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (ii && chrom_info.incl_excl_name_stack) {
-	  misc_flags |= MISC_EXCLUDE_NAMED_CHROMS;
+	  chrom_info.is_exclude_stack = 1;
 	}
       } else if (!memcmp(argptr2, "udge", 5)) {
         if (!(calculation_type & CALC_GENOME)) {
@@ -11028,7 +11028,7 @@ int32_t main(int32_t argc, char** argv) {
       } else if (load_rare & LOAD_RARE_TRANSPOSE_MASK) {
         retval = transposed_to_bed(pedname, famname, outname, sptr, missing_geno, misc_flags, &chrom_info);
       } else if (load_rare == LOAD_RARE_23) {
-        retval = bed_from_23(pedname, outname, sptr, modifier_23, fid_23, iid_23, (pheno_23 == INFINITY)? ((double)missing_pheno) : pheno_23, paternal_id_23, maternal_id_23, convert_xy_23, chrom_info);
+        retval = bed_from_23(pedname, outname, sptr, modifier_23, fid_23, iid_23, (pheno_23 == INFINITY)? ((double)missing_pheno) : pheno_23, paternal_id_23, maternal_id_23, convert_xy_23, &chrom_info);
       } else if (load_rare & LOAD_RARE_DUMMY) {
 	retval = generate_dummy(outname, sptr, dummy_flags, dummy_marker_ct, dummy_indiv_ct, dummy_missing_geno, dummy_missing_pheno);
       } else if (load_rare & LOAD_RARE_SIMULATE) {

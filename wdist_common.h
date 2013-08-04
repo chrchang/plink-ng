@@ -1238,11 +1238,11 @@ typedef struct {
 #define SPECIES_RICE 5
 #define SPECIES_SHEEP 6
 
-extern char* g_species_singular;
-extern char* g_species_plural;
+extern const char* g_species_singular;
+extern const char* g_species_plural;
 
-static inline char* species_str(uintptr_t ct) {
-  return (ct == ONELU)? species_singular : species_plural;
+static inline const char* species_str(uintptr_t ct) {
+  return (ct == ONELU)? g_species_singular : g_species_plural;
 }
 
 static inline uint32_t all_words_zero(uintptr_t* word_arr, uintptr_t word_ct) {

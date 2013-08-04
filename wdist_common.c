@@ -2652,8 +2652,8 @@ void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
 
 // global since species_str() may be called by functions which don't actually
 // care about Chrom_info
-char* g_species_singular = NULL;
-char* g_species_plural = NULL;
+const char* g_species_singular = NULL;
+const char* g_species_plural = NULL;
 
 char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t zero_extra_chroms) {
   // assumes chrom_idx is valid
@@ -2673,7 +2673,7 @@ void forget_extra_chrom_names(Chrom_info* chrom_info_ptr) {
   uint32_t chrom_name_idx;
   // guard against init_species() not being called yet
   if (name_ct) {
-    nonstd_names = chrom_info_ptr->nonstd_names[chrom_info_ptr->max_code + 1];
+    nonstd_names = &(chrom_info_ptr->nonstd_names[chrom_info_ptr->max_code + 1]);
     for (chrom_name_idx = 0; chrom_name_idx < name_ct; chrom_name_idx++) {
       free(nonstd_names[chrom_name_idx]);
       nonstd_names[chrom_name_idx] = NULL;
@@ -2748,6 +2748,7 @@ int32_t marker_code(Chrom_info* chrom_info_ptr, char* sptr) {
   // does not require string to be null-terminated, and does not perform
   // exhaustive error-checking
   int32_t ii = marker_code_raw(sptr);
+  char** nonstd_names = chrom_info_ptr->nonstd_names;
   uint32_t uii;
   uint32_t ujj;
   uint32_t slen;
@@ -2767,11 +2768,11 @@ int32_t marker_code(Chrom_info* chrom_info_ptr, char* sptr) {
       ii = chrom_info_ptr->mt_code;
     }
   } else if (ii == -1) {
-    ujj = max_code + 1 + chrom_info_ptr->name_ct;
+    ujj = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
     slen = strlen_se(sptr);
-    for (uii = max_code + 1; uii < ujj; uii++) {
-      slen2 = strlen(chrom_names[uii]);
-      if ((slen == slen2) && (!memcmp(chrom_names[uii], sptr, slen))) {
+    for (uii = chrom_info_ptr->max_code + 1; uii < ujj; uii++) {
+      slen2 = strlen(nonstd_names[uii]);
+      if ((slen == slen2) && (!memcmp(nonstd_names[uii], sptr, slen))) {
 	return (int32_t)uii;
       }
     }
@@ -5169,7 +5170,7 @@ uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uin
 uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x) {
   // for backward compatibility, unplaced markers are considered to be
   // autosomal
-  uintptr_t haploid_mask = chrom_info_ptr->haploid_mask;
+  uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
   uint32_t max_code = chrom_info_ptr->max_code;
   uint32_t ct = 0;
   uint32_t cur_chrom = 0;
