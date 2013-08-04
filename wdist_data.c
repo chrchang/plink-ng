@@ -623,9 +623,8 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   uintptr_t unfiltered_marker_ct = 0;
   uintptr_t max_marker_id_len = *max_marker_id_len_ptr;
   uintptr_t max_marker_allele_len = *max_marker_allele_len_ptr;
-  int32_t last_chrom = -1;
+  int32_t prev_chrom = -1;
   uint32_t last_pos = 0;
-  ;;;
   uint32_t from_slen = markername_from? strlen(markername_from) : 0;
   uint32_t to_slen = markername_to? strlen(markername_to) : 0;
   uint32_t snp_slen = markername_snp? strlen(markername_snp) : 0;
@@ -679,8 +678,9 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   if (fopen_checked(&bimfile, bimname, "r")) {
     goto load_bim_ret_OPEN_FAIL;
   }
-  // first pass: count columns, determine raw marker count,  determine maximum
-  // marker ID length and/or marker allele length if necessary.
+  // first pass: count columns, determine raw marker count, determine maximum
+  // marker ID length and/or marker allele length if necessary, save
+  // nonstandard chromosome names.
   tbuf[MAXLINELEN - 6] = ' ';
   while (fgets(tbuf, MAXLINELEN - 5, bimfile) != NULL) {
     if (!tbuf[MAXLINELEN - 6]) {
@@ -998,15 +998,15 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       goto load_bim_ret_READ_FAIL;
     }
     jj = marker_code(chrom_info_ptr, bufptr);
-    if (jj != last_chrom) {
+    if (jj != prev_chrom) {
       if (!split_chrom) {
-	if (last_chrom != -1) {
-	  chrom_info_ptr->chrom_end[(uint32_t)last_chrom] = marker_uidx;
+	if (prev_chrom != -1) {
+	  chrom_info_ptr->chrom_end[(uint32_t)prev_chrom] = marker_uidx;
 	}
-	if (jj < last_chrom) {
+	if (jj < prev_chrom) {
 	  *map_is_unsorted_ptr |= UNSORTED_CHROM;
 	}
-	last_chrom = jj;
+	prev_chrom = jj;
 	if (is_set(loaded_chrom_mask, jj)) {
 	  if (split_chrom_cmd) {
 	    sprintf(logbuf, "Error: .%s file has a split chromosome.  Use --%s by itself to\nremedy this.\n", extension, split_chrom_cmd);
@@ -1098,7 +1098,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   for (uii = 0; uii < CHROM_MASK_WORDS; uii++) {
     chrom_info_ptr->chrom_mask[uii] &= loaded_chrom_mask[uii];
   }
-  chrom_info_ptr->chrom_end[last_chrom] = marker_uidx;
+  chrom_info_ptr->chrom_end[prev_chrom] = marker_uidx;
   chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
   chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
   retval = 0;

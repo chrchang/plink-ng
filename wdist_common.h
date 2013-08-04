@@ -1258,6 +1258,8 @@ char* chrom_name_write(char* buf, Chrom_info* chrom_info_ptr, uint32_t chrom_idx
 
 void forget_extra_chrom_names(Chrom_info* chrom_info_ptr);
 
+uint32_t haploid_chrom_present(Chrom_info* chrom_info_ptr);
+
 int32_t marker_code_raw(char* sptr);
 
 int32_t marker_code(Chrom_info* chrom_info_ptr, char* sptr);
@@ -1273,6 +1275,9 @@ static inline int32_t chrom_exists(Chrom_info* chrom_info_ptr, uint32_t chrom_id
 int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int32_t* chrom_idx_ptr);
 
 static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr_t marker_uidx, Chrom_info* chrom_info_ptr, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr) {
+  // assumes we've started at an autosomal marker
+  uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
+  uint32_t chrom_idx;
   marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
   if (marker_uidx >= (*chrom_end_ptr)) {
     while (1) {
@@ -1280,7 +1285,8 @@ static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr
 	*chrom_fo_idx_ptr += 1;
 	*chrom_end_ptr = chrom_info_ptr->chrom_file_order_marker_idx[(*chrom_fo_idx_ptr) + 1];
       } while (marker_uidx >= (*chrom_end_ptr));
-      if (!((species_haploid_mask[chrom_info_ptr->species] >> chrom_info_ptr->chrom_file_order[*chrom_fo_idx_ptr]) & 1LLU)) {
+      chrom_idx = chrom_info_ptr->chrom_file_order[*chrom_fo_idx_ptr];
+      if (!is_set(haploid_mask, chrom_idx)) {
 	return marker_uidx;
       }
       marker_uidx = next_non_set_unsafe(marker_exclude, *chrom_end_ptr);
