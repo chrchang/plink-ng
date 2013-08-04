@@ -163,7 +163,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	  }
 	}
 	if (!affection) {
-	  if (scan_double(bufptr, &dxx)) {
+	  if (!scan_double(bufptr, &dxx)) {
 	    pheno_d[person_idx] = dxx;
 	    set_bit_noct(pheno_nm, person_idx);
 	  }
@@ -3707,6 +3707,7 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
   uintptr_t tmp_len2;
   uintptr_t indiv_uidx;
   uintptr_t unfiltered_indiv_ctl;
+  double dxx;
   int32_t ii;
   char* fgets_return;
 
@@ -3903,10 +3904,9 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
 	  }
 	}
       } else {
-	if (scan_double(bufptr, &(pheno_d[indiv_uidx]))) {
-	  if (pheno_d[indiv_uidx] != missing_phenod) {
-	    set_bit_noct(*pheno_nm_ptr, indiv_uidx);
-	  }
+	if ((!scan_double(bufptr, &dxx)) && (dxx != missing_phenod)) {
+	  pheno_d[indiv_uidx] = dxx;
+	  set_bit_noct(*pheno_nm_ptr, indiv_uidx);
 	}
       }
     }

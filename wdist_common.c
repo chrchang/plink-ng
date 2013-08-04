@@ -2841,7 +2841,7 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
     }
     name_stack_ptr = name_stack_ptr->next;
   }
-  if (((!in_name_stack) && chrom_info_ptr->is_exclude_stack) || (in_name_stack && (!chrom_info_ptr->is_exclude_stack))) {
+  if ((in_name_stack && chrom_info_ptr->is_include_stack) || ((!in_name_stack) && (!chrom_info_ptr->is_include_stack))) {
     set_bit_noct(chrom_info_ptr->chrom_mask, chrom_code_end);
   }
   memcpy(nonstd_names[chrom_code_end], bufptr, slen);

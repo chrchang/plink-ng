@@ -5434,7 +5434,7 @@ void init_species(Chrom_info* chrom_info_ptr, uint32_t species_code) {
   const char species_plurals[][7] = {"people", "cows", "dogs", "horses", "mice", "plants", "sheep"};
   chrom_info_ptr->species = species_code;
   chrom_info_ptr->incl_excl_name_stack = NULL;
-  chrom_info_ptr->is_exclude_stack = 0;
+  chrom_info_ptr->is_include_stack = 0;
   fill_ulong_zero(chrom_info_ptr->autosome_mask, CHROM_MASK_WORDS);
   fill_ulong_zero(chrom_info_ptr->haploid_mask, CHROM_MASK_WORDS);
   fill_ulong_zero(chrom_info_ptr->chrom_mask, CHROM_MASK_WORDS);
@@ -6728,6 +6728,9 @@ int32_t main(int32_t argc, char** argv) {
         retval = parse_chrom_ranges(param_ct, '-', &(argv[cur_arg]), chrom_info.chrom_mask, &chrom_info, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, argptr);
 	if (retval) {
 	  goto main_ret_1;
+	}
+	if (chrom_info.incl_excl_name_stack) {
+	  chrom_info.is_include_stack = 1;
 	}
       } else if (!memcmp(argptr2, "ompound-genotypes", 18)) {
 	logprint("Note: --compound-genotypes flag unnecessary (spaces between alleles in .ped\nand .lgen files are optional if all alleles are single-character).\n");
@@ -9249,6 +9252,8 @@ int32_t main(int32_t argc, char** argv) {
 	// does not make sense, disallowed:
 	//   --allow-extra-chroms --chr 5-22 bobs_chrom --not-chr petes_chrom
 	uii = all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS);
+
+	// --allow-extra-chroms present, --chr not present
 	ii = ((misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1) && (!chrom_info.incl_excl_name_stack) && uii;
 	retval = parse_chrom_ranges(param_ct, '-', &(argv[cur_arg]), chrom_exclude, &chrom_info, ii, argptr);
 	if (retval) {
@@ -9260,12 +9265,9 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 0; uii < CHROM_MASK_INITIAL_WORDS; uii++) {
 	  chrom_info.chrom_mask[uii] &= ~chrom_exclude[uii];
 	}
-	if (all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS) && ((!chrom_info.incl_excl_name_stack) || (!ii))) {
+	if (all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS) && ((!((misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1)) || (chrom_info.incl_excl_name_stack && chrom_info.is_include_stack))) {
 	  sprintf(logbuf, "Error: All chromosomes excluded.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	if (ii && chrom_info.incl_excl_name_stack) {
-	  chrom_info.is_exclude_stack = 1;
 	}
       } else if (!memcmp(argptr2, "udge", 5)) {
         if (!(calculation_type & CALC_GENOME)) {

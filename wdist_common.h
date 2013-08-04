@@ -832,6 +832,8 @@ static inline char* fw_strcpy(uint32_t min_width, const char* source, char* dest
 }
 
 static inline void intprint2(char* buf, uint32_t num) {
+  // for regular chromosome codes.  rewrite all code using this function if
+  // chromosome codes >99 are ever possible.
   uint32_t quotient;
   if (num < 10) {
     *buf++ = ' ';
@@ -1224,7 +1226,7 @@ typedef struct {
   // --allow-extra-chroms support
   uint32_t name_ct;
   Ll_str* incl_excl_name_stack;
-  uint32_t is_exclude_stack;
+  uint32_t is_include_stack;
   // if we ever have to deal with a very large number of named "chromosomes",
   // this should be replaced with e.g. a balanced tree
   char* nonstd_names[MAX_POSSIBLE_CHROM];
