@@ -335,7 +335,7 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
 
 const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 
-int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, char** marker_ids_ptr, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t** marker_pos_ptr, uint32_t* map_is_unsorted_ptr) {
+int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, uint32_t** marker_pos_ptr, uint32_t* map_is_unsorted_ptr) {
   // todo: some cleanup
   uintptr_t unfiltered_marker_ct = 0;
   uintptr_t max_marker_id_len = 0;
@@ -432,14 +432,8 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     }
     jj = marker_code(chrom_info_ptr, bufptr);
     if (jj == -1) {
-      if (!allow_extra_chroms) {
-	logprint("Error: Invalid chromosome index in .map file.  (Use --allow-extra-chroms to\nforce it to be accepted.\n");
-	goto load_map_ret_INVALID_FORMAT;
-      }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &jj);
-      if (retval) {
-	goto load_map_ret_1;
-      }
+      logprint("Error: Invalid chromosome index in .map file.\n");
+      goto load_map_ret_INVALID_FORMAT;
     }
     if (jj != last_chrom) {
       if (last_chrom != -1) {
@@ -507,7 +501,6 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     retval = RET_INVALID_FORMAT;
     break;
   }
- load_map_ret_1:
   return retval;
 }
 
@@ -697,7 +690,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       if (!allow_extra_chroms) {
 	uii = strlen_se(bufptr);
 	bufptr[uii] = '\0';
-	sprintf(logbuf, "Error: Invalid chromosome index '%s' in .bim file.\n(Use --allow-extra-chroms to force it to be accepted.)\n", bufptr);
+	sprintf(logbuf, "Error: Invalid chromosome index '%s' in .bim file.\n(Use --allow-extra-chr to force it to be accepted.)\n", bufptr);
 	goto load_bim_ret_INVALID_FORMAT_2;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &jj);
@@ -5261,7 +5254,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   }
 
   memcpy(name_end, ".map", 5);
-  retval = load_map(&infile, lgen_namebuf, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &marker_ids, 0, chrom_info_ptr, &marker_pos, &map_is_unsorted);
+  retval = load_map(&infile, lgen_namebuf, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &marker_ids, chrom_info_ptr, &marker_pos, &map_is_unsorted);
   if (retval) {
     goto lgen_to_bed_ret_1;
   }

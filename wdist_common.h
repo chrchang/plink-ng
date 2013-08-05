@@ -1220,7 +1220,9 @@ typedef struct {
   int32_t xy_code;
   int32_t mt_code;
   uint32_t max_code;
-  uintptr_t autosome_mask[CHROM_MASK_WORDS];
+
+  uint32_t autosome_ct;
+  // includes sex chromosomes
   uintptr_t haploid_mask[CHROM_MASK_WORDS];
 
   // --allow-extra-chroms support
@@ -1239,6 +1241,7 @@ typedef struct {
 #define SPECIES_MOUSE 4
 #define SPECIES_RICE 5
 #define SPECIES_SHEEP 6
+#define SPECIES_UNKNOWN 7
 
 extern const char* g_species_singular;
 extern const char* g_species_plural;

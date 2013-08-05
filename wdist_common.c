@@ -2364,7 +2364,7 @@ char* chrom_print_human(char* buf, uint32_t num) {
     *buf = 'A' + num;
     return &(buf[1]);
   } else if (num > 26) {
-    // --allow-extra-chroms 0
+    // --allow-extra-chr 0
     *buf = '0';
     return &(buf[1]);
   } else if (num == 25) {
@@ -5169,18 +5169,19 @@ uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uin
 
 uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x) {
   // for backward compatibility, unplaced markers are considered to be
-  // autosomal
-  uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
-  uint32_t max_code = chrom_info_ptr->max_code;
+  // autosomal here
   uint32_t ct = 0;
-  uint32_t cur_chrom = 0;
   int32_t x_code = chrom_info_ptr->x_code;
-  for (; cur_chrom <= max_code; cur_chrom++) {
-    if (is_set(haploid_mask, cur_chrom)) {
-      if (count_x || (cur_chrom != (uint32_t)x_code)) {
-	ct += count_chrom_markers(chrom_info_ptr, cur_chrom, marker_exclude);
-      }
-    }
+  int32_t y_code = chrom_info_ptr->y_code;
+  int32_t mt_code = chrom_info_ptr->mt_code;
+  if (count_x && (x_code != -1)) {
+    ct += count_chrom_markers(chrom_info_ptr, x_code, marker_exclude);
+  }
+  if (y_code != -1) {
+    ct += count_chrom_markers(chrom_info_ptr, y_code, marker_exclude);
+  }
+  if (mt_code != -1) {
+    ct += count_chrom_markers(chrom_info_ptr, mt_code, marker_exclude);
   }
   return ct;
 }
@@ -5285,6 +5286,10 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
   uint32_t chrom_fo_idx = *chrom_fo_idx_ptr;
   uint32_t chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
   uint32_t markers_read = 0;
+  uint32_t autosome_ct = chrom_info_ptr->autosome_ct;
+  uint32_t xy_code = (uint32_t)chrom_info_ptr->xy_code;
+  uint32_t max_code = chrom_info_ptr->max_code;
+  uint32_t cur_chrom;
   uint32_t is_x;
   uint32_t is_haploid;
 
@@ -5302,7 +5307,8 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
       while (1) {
 	chrom_fo_idx++;
 	refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
-	if (!is_haploid) {
+	cur_chrom = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+	if ((cur_chrom <= autosome_ct) || (cur_chrom == xy_code) || (cur_chrom > max_code)) {
 	  // for now, unplaced chromosomes are all "autosomal"
 	  break;
 	}

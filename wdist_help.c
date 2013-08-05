@@ -805,8 +805,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --missing-phenotype [val] : Numeric code for missing phenotype (normally -9).\n"
 	       );
 #ifndef STABLE_BUILD
-    help_print("allow-extra-chroms", &help_ctrl, 0,
-"  --allow-extra-chroms <0>  : Permit unrecognized chromosome codes.  The '0'\n"
+    help_print("allow-extra-chr", &help_ctrl, 0,
+"  --allow-extra-chr <0>     : Permit unrecognized chromosome codes.  The '0'\n"
 "                              modifier causes them to be treated as if they had\n"
 "                              been set to zero.\n"
                );
@@ -1152,8 +1152,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    (alias: --update-freq)   frequency report, instead of just setting them to\n"
 "                             frequencies observed in the .ped/.bed file.\n"
 	       );
-    help_print("cow\tdog\thorse\tmouse\trice\tsheep", &help_ctrl, 0,
-"  --cow/--dog/--horse/--mouse/--rice/--sheep : Specify nonhuman species.\n"
+    help_print("chr-set\tcow\tdog\thorse\tmouse\trice\tsheep\tautosome-num", &help_ctrl, 0,
+"  --chr-set [autosome ct] <no-x> <no-y> <no-xy> <no-mt> :\n"
+"    Specifies nonhuman chromosome set.  The first parameter specifies the\n"
+"    number of diploid autosome pairs if positive, or haploid chromosomes if\n"
+"    negative.  Given diploid autosomes, the remaining modifiers indicate the\n"
+"    absence of the named non-autosomal chromosomes.\n"
+"  --cow/--dog/--horse/--mouse/--rice/--sheep : Shortcuts for those species.\n"
+"  --autosome-num [value]   : Alias for '--chr-set [value] no-y no-xy no-mt'.\n"
 	       );
     help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
 "  --allele1234 <multichar> : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"
