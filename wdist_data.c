@@ -2486,6 +2486,107 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
   return retval;
 }
 
+int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t* covar_ct_ptr, char** covar_names_ptr, uint32_t* covar_name_max_len_ptr, uintptr_t** covar_nm_ptr, double** covar_d_ptr) {
+  // similar to load_clusters() in wdist_cluster.c
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* covar_file = NULL;
+  uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t topsize = 0;
+  int32_t retval = 0;
+  uintptr_t* already_seen;
+  char* sorted_ids;
+  uint32_t* id_map;
+  char* loadbuf;
+  uintptr_t loadbuf_size;
+  char* bufptr;
+  logprint("Error: --covar is currently under development.\n");
+  retval = RET_CALC_NOT_YET_SUPPORTED;
+  goto load_covars_ret_1;
+
+  sorted_ids = (char*)top_alloc(&topsize, indiv_ct * max_person_id_len);
+  if (!sorted_ids) {
+    goto load_covars_ret_NOMEM;
+  }
+  id_map = (uint32_t*)top_alloc(&topsize, indiv_ct * sizeof(int32_t));
+  if (!id_map) {
+    goto load_covars_ret_NOMEM;
+  }
+  already_seen = (uintptr_t*)top_alloc(&topsize, indiv_ctl * sizeof(intptr_t));
+  if (!already_seen) {
+    goto load_covars_ret_NOMEM;
+  }
+  fill_ulong_zero(already_seen, indiv_ctl);
+  wkspace_left -= topsize;
+  retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, 0, 0, strcmp_deref);
+  wkspace_left += topsize;
+  if (retval) {
+    goto load_covars_ret_1;
+  }
+
+  if (fopen_checked(&covar_file, covar_fname, "r")) {
+    goto load_covars_ret_OPEN_FAIL;
+  }
+  loadbuf = (char*)wkspace_base;
+  loadbuf_size = wkspace_left - topsize;
+  if (loadbuf_size > 0x7fffffc0) {
+    loadbuf_size = 0x7fffffc0;
+  } else if (loadbuf_size < MAXLINELEN) {
+    goto load_covars_ret_NOMEM;
+  }
+  loadbuf[loadbuf_size - 1] = ' ';
+  while (fgets(loadbuf, loadbuf_size, covar_file)) {
+    if (!loadbuf[loadbuf_size - 1]) {
+      if (loadbuf_size == 0x7fffffc0) {
+	logprint("Error: Pathologically long line in --covar file.\n");
+	goto load_covars_ret_INVALID_FORMAT;
+      } else {
+	goto load_covars_ret_NOMEM;
+      }
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    // 1. count tokens, verify there are enough
+    // 2. apply --covar-number if necessary
+    // 3. check if this is a header row; if yes, save covariate names (and
+    //    apply --covar-name if necessary)
+    // 4. reserve memory, resize loadbuf
+    // 5. load
+  }
+
+  while (0) {
+  load_covars_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  load_covars_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+    /*
+  load_covars_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+    */
+  load_covars_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ load_covars_ret_1:
+  if (retval) {
+    wkspace_reset(wkspace_mark);
+  }
+  fclose_cond(covar_file);
+  return retval;
+}
+
+int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modifier, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t covar_ct, char* covar_names, uint32_t covar_name_max_len, uintptr_t* covar_nm, double* covar_d) {
+  // stub
+  int32_t retval = 0;
+  while (0) {
+  }
+  return retval;
+}
+
 int32_t write_fam(char* outname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, char delim, uint32_t* indiv_sort_map) {
   FILE* outfile = NULL;
   uintptr_t indiv_uidx = 0;
@@ -3247,7 +3348,7 @@ void fill_bmap_hap(unsigned char* bmap_hap, uint32_t ct_mod4) {
   }
 }
 
-int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, double missing_phenod, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, Two_col_params* update_chr, char* flip_subset_fname, Chrom_info* chrom_info_ptr) {
+int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, Two_col_params* update_chr, char* flip_subset_fname, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t indiv_ct4 = (indiv_ct + 3) / 4;
@@ -8283,7 +8384,7 @@ char zero_to_dot(char cc) {
   }
 }
 
-int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FILE* famfile, char* outname, char* outname_end, char* recode_allele_name, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, char* marker_alleles, uintptr_t max_marker_allele_len, uint32_t* marker_pos, uintptr_t* marker_reverse, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, double missing_phenod, char output_missing_geno, char* output_missing_pheno, uint64_t misc_flags, uint32_t xmhh_exists, uint32_t nxmhh_exists, Chrom_info* chrom_info_ptr) {
+int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FILE* famfile, char* outname, char* outname_end, char* recode_allele_name, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, char* marker_alleles, uintptr_t max_marker_allele_len, uint32_t* marker_pos, uintptr_t* marker_reverse, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char output_missing_geno, char* output_missing_pheno, uint64_t misc_flags, uint32_t xmhh_exists, uint32_t nxmhh_exists, Chrom_info* chrom_info_ptr) {
   FILE* outfile = NULL;
   FILE* ref_file = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;

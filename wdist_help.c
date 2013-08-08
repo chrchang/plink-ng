@@ -628,7 +628,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
                */
 "  --linear <perm | mperm=[value]> <perm-count>\n"
 "           <genotypic | hethom | dominant | recessive | no-snp> <hide-covar>\n"
-"           <sex | no-x-sex> <interaction> <standard-beta>\n"
+"           <sex | no-x-sex> <interaction> <beta> <standard-beta>\n"
 	       /*
 "  --logistic <perm | mperm=[value]> <genedrop> <perm-count>\n"
 	       */
@@ -657,10 +657,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      covariate on X chromosome SNPs, and nowhere else.  The 'sex' modifier\n"
 "      causes it to be added everywhere, while 'no-x-sex' excludes it.\n"
 "    * 'interaction' adds SNP x covariate interactions to the model.\n"
+"    * For logistic regressions, the 'beta' modifier causes regression\n"
+"      coefficients instead of odds ratios to be reported.\n"
 "    * With --linear, the 'standard-beta' modifier standardizes the phenotype to\n"
-"      zero mean and unit variance before regression.\n"
-"    * With --logistic, the 'beta' modifier causes regression coefficients\n"
-"      instead of odds ratios to be reported.\n\n"
+"      zero mean and unit variance before regression.\n\n"
 	       );
     help_print(
 "indep\tindep-pairwise", &help_ctrl, 1,
@@ -1148,7 +1148,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --parameters [...]   : Include only the given covariates/interactions in the\n"
 "                         --linear/--logistic models, identified by a list of\n"
 "                         1-based indices and/or ranges of them.\n"
-"  --tests {...} <all>  : Perform a joint test on the specified terms in the\n"
+"  --tests <all> {...}  : Perform a joint test on the specified terms in the\n"
 "                         --linear/--logistic model, identified by 1-based\n"
 "                         indices and/or ranges of them.  Note that, when\n"
 "                         --parameters is also present, the indices refer to the\n"
