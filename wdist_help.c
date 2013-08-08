@@ -613,7 +613,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Several other flags (most notably, --aperm) can be used to customize the\n"
 "    permutation test.\n\n"
 	       );
-    /*
     help_print("gxe\tmcovar", &help_ctrl, 1,
 "  --gxe {covariate index}\n"
 "    Given both a quantitative phenotype and a dichotomous covariate loaded with\n"
@@ -623,7 +622,46 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    default, the first covariate in the --covar file defines the groups; use\n"
 "    e.g. '--gxe 3' to base them on the third covariate instead.\n\n"
 	       );
-		  */
+    help_print("linear\tlogistic\tperm\tmperm\tperm-count\tgenotypic\thethom\tdominant\trecessive\tno-snp\thide-covar\tsex\tno-x-sex\tinteraction\tstandard-beta\tbeta", &help_ctrl, 1,
+               /*
+"  --linear <perm | mperm=[value]> <genedrop> <perm-count>\n"
+               */
+"  --linear <perm | mperm=[value]> <perm-count>\n"
+"           <genotypic | hethom | dominant | recessive | no-snp> <hide-covar>\n"
+"           <sex | no-x-sex> <interaction> <standard-beta>\n"
+	       /*
+"  --logistic <perm | mperm=[value]> <genedrop> <perm-count>\n"
+	       */
+"  --logistic <perm | mperm=[value]> <perm-count>\n"
+"             <genotypic | hethom | dominant | recessive | no-snp> <hide-covar>\n"
+"             <sex | no-x-sex> <interaction> <beta>\n"
+"    Multi-covariate association analysis on a quantitative (--linear) or\n"
+"    dichotomous (--logistic) trait.  Normally used with --covar.\n"
+"    * 'perm' causes an adaptive permutation test to be performed, while\n"
+"      'mperm=[value]' starts a max(T) permutation test.\n"
+	       /*
+"    * 'genedrop' causes offspring genotypes to be regenerated via gene-dropping\n"
+"      in the permutation test.\n"
+	       */
+"    * 'perm-count' causes the permutation test report to include counts instead\n"
+"      of frequencies.\n"
+"    * The 'genotypic' modifier adds an additive effect/dominance deviation 2df\n"
+"      joint test (0/1/2 and 0/1/0 coding), while 'hethom' uses 0/1/0 and 0/0/1\n"
+"      coding instead.\n"
+"    * 'dominant' and 'recessive' specify a model assuming full dominance or\n"
+"      recessiveness, respectively, for the A1 allele.\n"
+"    * 'no-snp' causes regression to be performed only on the phenotype and the\n"
+"      covariates, without reference to genomic data.\n"
+"    * 'hide-covar' removes covariate-specific lines from the report.\n"
+"    * By default, sex (male = 1, female = 0) is automatically added as a\n"
+"      covariate on X chromosome SNPs, and nowhere else.  The 'sex' modifier\n"
+"      causes it to be added everywhere, while 'no-x-sex' excludes it.\n"
+"    * 'interaction' adds SNP x covariate interactions to the model.\n"
+"    * With --linear, the 'standard-beta' modifier standardizes the phenotype to\n"
+"      zero mean and unit variance before regression.\n"
+"    * With --logistic, the 'beta' modifier causes regression coefficients\n"
+"      instead of odds ratios to be reported.\n\n"
+	       );
     help_print(
 "indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (markers)] [VIF threshold]\n"
@@ -866,10 +904,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef STABLE_BUILD
     help_print("covar\tcovar-name\tcovar-number", &help_ctrl, 0,
 "  --covar [filename]     : Specify covariate file.\n"
-"  --covar-name [names]   : Specifies covariate(s) in --covar file by name.\n"
-"                           Separate multiple names with commas (spaces are not\n"
-"                           permitted).  Use dashes to designate ranges.\n"
-"  --covar-number [nums]  : Specifies covariate(s) in --covar file by number.\n"
+"  --covar-name [...]     : Specifies covariate(s) in --covar file by name.\n"
+"                           Separate multiple names with spaces or commas, and\n"
+"                           use dashes to designate ranges.\n"
+"  --covar-number [...]   : Specifies covariate(s) in --covar file by number.\n"
 	       );
     help_print("within\tmwithin", &help_ctrl, 0,
 "  --within [f] <keep-NA> : Specify initial cluster assignment.\n"
@@ -1025,7 +1063,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #ifndef STABLE_BUILD
     help_print("with-phenotype\twrite-covar", &help_ctrl, 0,
-"  --with-phenotype : Include phenotype when writing updated covariate file.\n"
+"  --with-phenotype : Include parental IDs, sex, and phenotype when writing\n"
+"                     updated covariate file.\n"
 	       );
     help_print("dummy-coding\twrite-covar", &help_ctrl, 0,
 "  --dummy-coding   : Split categorical variables (n categories, for 2 < n < 50)\n"
@@ -1102,6 +1141,27 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("cell\tmodel", &help_ctrl, 0,
 "  --cell [thresh]  : Specify contingency table threshold for performing all\n"
 "                     --model tests.\n"
+	       );
+    help_print("linear\tlogistic\tcondition\tcondition-list\tparameters\ttests\ttest-all\tvif\txchr-model", &help_ctrl, 0,
+"  --condition [mkr ID] : Add one SNP as a --linear/--logistic covariate.\n"
+"  --condition-list [f] : Add multiple SNPs as --linear/--logistic covariates.\n"
+"  --parameters [...]   : Include only the given covariates/interactions in the\n"
+"                         --linear/--logistic models, identified by a list of\n"
+"                         1-based indices and/or ranges of them.\n"
+"  --tests {...} <all>  : Perform a joint test on the specified terms in the\n"
+"                         --linear/--logistic model, identified by 1-based\n"
+"                         indices and/or ranges of them.  Note that, when\n"
+"                         --parameters is also present, the indices refer to the\n"
+"                         REMAINING sequence of terms.\n"
+"                         You can use '--tests all' to include all terms.\n"
+"  --vif [max VIF]      : Set VIF threshold for --linear/--logistic\n"
+"                         multicollinearity check (default 50).\n"
+"  --xchr-model [code]  : Sets the X chromosome --linear/--logistic model.\n"
+"                         0 = skip sex and haploid chromosomes\n"
+"                         1 (default) = add sex as a covariate on X chromosome\n"
+"                         2 = code male genotypes 0/2 instead of 0/1 (female\n"
+"                             genotypes are coded 0/1/2)\n"
+"                         3 = test for interaction between genotype and sex\n"
 	       );
     help_print("adjust\tgc\tlog10\tqq-plot", &help_ctrl, 0,
 "  --adjust <gc> <log10> <qq-plot> : Report some multiple-testing corrections.\n"

@@ -67,7 +67,7 @@ const char ver_str[] =
 #ifdef STABLE_BUILD
   "WDIST v0.19.16"
 #else
-  "WDIST v0.21.4"
+  "WDIST v0.21.5p"
 #endif
 #endif
 #ifdef NOLAPACK
@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (5 Aug 2013)";
+  " (8 Aug 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -3794,7 +3794,7 @@ inline int32_t distance_wt_req(uint64_t calculation_type, char* read_dists_fname
   return (((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))))) && (!(dist_calc_type & DISTANCE_FLAT_MISSING)));
 }
 
-int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filterval, double thin_keep_prob, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t rel_calc_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uintptr_t regress_rel_iters, uint32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, uint32_t regress_pcs_modifier, uint32_t max_pcs, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* snps_flag_markers, unsigned char* snps_flag_starts_range, uint32_t snps_flag_ct, uint32_t snps_flag_max_len, uint32_t covar_modifier, char* covar_str, uint32_t mcovar_col, uint32_t write_covar_modifier, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, Ll_str** file_delete_list_ptr) {
+int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* set_fname, char* subset_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filterval, double thin_keep_prob, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, char missing_geno, int32_t missing_pheno, char output_missing_geno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t rel_calc_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uintptr_t regress_rel_iters, uint32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, uint32_t regress_pcs_modifier, uint32_t max_pcs, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, Ll_str** file_delete_list_ptr) {
   FILE* bedfile = NULL;
   FILE* famfile = NULL;
   FILE* phenofile = NULL;
@@ -4065,7 +4065,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   } else {
     allelexxxx = 0;
   }
-  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, "bim", ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (!update_map) && freqname)? NULL : "make-bed");
+  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, "bim", ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (!update_map) && freqname)? NULL : "make-bed");
   if (retval) {
     goto wdist_ret_1;
   }
@@ -4151,6 +4151,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	  logprint(errstr_phenotype_format);
 	  logprint("Fewer tokens than expected in line.\n");
 	  retval = RET_INVALID_FORMAT;
+	  wkspace_reset(wkspace_mark);
 	}
 	goto wdist_ret_1;
       }
@@ -5188,94 +5189,126 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
   return retval;
 }
 
-int32_t parse_marker_ranges(uint32_t param_ct, char range_delim, char** argv, char** snps_flag_markers_ptr, unsigned char** snps_flag_starts_range_ptr, uint32_t* snps_flag_ct_ptr, uint32_t* snps_flag_max_len_ptr) {
-  uint32_t snps_flag_ct = 0;
+int32_t parse_name_ranges(uint32_t param_ct, char range_delim, char** argv, Range_list* range_list_ptr, uint32_t require_posint) {
+  uint32_t name_ct = 0;
   uint32_t cur_param_idx = 1;
-  uint32_t snps_flag_max_len = 0;
+  uint32_t name_max_len = 0;
   char* cur_arg_ptr;
   char* range_start;
   uint32_t rs_len;
   char* range_end;
   uint32_t re_len;
-  char* cur_snps_flag_marker_str;
+  char* cur_name_str;
   char* dup_check;
-  unsigned char* cur_snps_flag_starts_range;
-  // two passes.  first pass: count parameters, determine snps_flag_max_len;
+  unsigned char* cur_name_starts_range;
+  int32_t last_val;
+  int32_t cur_val;
+  // two passes.  first pass: count parameters, determine name_max_len;
   // then allocate memory; then fill it.
   if (param_ct) {
     cur_arg_ptr = argv[1];
     while (1) {
       if (parse_next_range(param_ct, range_delim, argv, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
-	sprintf(logbuf, "Error: Invalid --snps parameter '%s'.%s", argv[cur_param_idx], errstr_append);
+	sprintf(logbuf, "Error: Invalid %s parameter '%s'.%s", argv[0], argv[cur_param_idx], errstr_append);
         logprintb();
         return RET_INVALID_CMDLINE;
       }
       if (!range_start) {
 	break;
       }
-      snps_flag_ct++;
-      if (rs_len > snps_flag_max_len) {
-	snps_flag_max_len = rs_len; // does NOT include trailing null yet
+      name_ct++;
+      if (rs_len > name_max_len) {
+	name_max_len = rs_len; // does NOT include trailing null yet
       }
       if (range_end) {
-	snps_flag_ct++;
-	if (re_len > snps_flag_max_len) {
-	  snps_flag_max_len = re_len;
+	name_ct++;
+	if (re_len > name_max_len) {
+	  name_max_len = re_len;
 	}
       }
     }
   }
-  if (!snps_flag_ct) {
-    sprintf(logbuf, "Error: --snps requires at least one value.%s", errstr_append);
+  if (!name_ct) {
+    sprintf(logbuf, "Error: %s requires at least one value.%s", argv[0], errstr_append);
     logprintb();
     return RET_INVALID_CMDLINE;
   }
-  *snps_flag_max_len_ptr = ++snps_flag_max_len;
-  *snps_flag_ct_ptr = snps_flag_ct;
-  *snps_flag_markers_ptr = (char*)malloc(snps_flag_ct * snps_flag_max_len * sizeof(char));
-  if (!(*snps_flag_markers_ptr)) {
+  range_list_ptr->name_max_len = ++name_max_len;
+  range_list_ptr->name_ct = name_ct;
+  range_list_ptr->names = (char*)malloc(name_ct * name_max_len * sizeof(char));
+  if (!range_list_ptr->names) {
     return RET_NOMEM;
   }
-  *snps_flag_starts_range_ptr = (unsigned char*)malloc(snps_flag_ct * sizeof(char));
-  if (!(*snps_flag_starts_range_ptr)) {
+  range_list_ptr->starts_range = (unsigned char*)malloc(name_ct * sizeof(char));
+  if (!range_list_ptr->starts_range) {
     return RET_NOMEM;
   }
-  cur_snps_flag_marker_str = *snps_flag_markers_ptr;
-  cur_snps_flag_starts_range = *snps_flag_starts_range_ptr;
+  cur_name_str = range_list_ptr->names;
+  cur_name_starts_range = range_list_ptr->starts_range;
   cur_param_idx = 1;
   cur_arg_ptr = argv[1];
   while (1) {
     parse_next_range(param_ct, range_delim, argv, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len);
     if (!range_start) {
+      if (require_posint) {
+	last_val = 0;
+	for (cur_param_idx = 0; cur_param_idx < name_ct; cur_param_idx++) {
+	  cur_name_str = &(range_list_ptr->names[cur_param_idx * name_max_len]);
+	  dup_check = cur_name_str; // actually a numeric check
+	  do {
+	    if (is_not_digit(*dup_check)) {
+	      sprintf(logbuf, "Error: Invalid %s parameter '%s'.\n", argv[0], cur_name_str);
+	      logprintb();
+	      return RET_INVALID_CMDLINE;
+	    }
+	  } while (*(++dup_check));
+	  cur_val = atoi(cur_name_str);
+	  if (cur_val < 1) {
+	    sprintf(logbuf, "Error: Invalid %s parameter '%s'.\n", argv[0], cur_name_str);
+	    logprintb();
+	    return RET_INVALID_CMDLINE;
+	  }
+	  if (range_list_ptr->starts_range[cur_param_idx]) {
+	    last_val = cur_val;
+	  } else {
+	    if (cur_val <= last_val) {
+	      sprintf(logbuf, "Error: Invalid %s range '%s-%s'.\n", argv[0], &(range_list_ptr->names[(cur_param_idx - 1) * name_max_len]), cur_name_str);
+	      logprintb();
+	      return RET_INVALID_CMDLINE;
+	    }
+	    last_val = 0;
+	  }
+	}
+      }
       return 0;
     }
-    memcpyx(cur_snps_flag_marker_str, range_start, rs_len, 0);
-    dup_check = *snps_flag_markers_ptr;
-    while (dup_check < cur_snps_flag_marker_str) {
-      if (!memcmp(dup_check, cur_snps_flag_marker_str, rs_len + 1)) {
-	sprintf(logbuf, "Error: Duplicate --snps marker ID '%s'.\n", cur_snps_flag_marker_str);
+    memcpyx(cur_name_str, range_start, rs_len, 0);
+    dup_check = range_list_ptr->names;
+    while (dup_check < cur_name_str) {
+      if (!memcmp(dup_check, cur_name_str, rs_len + 1)) {
+	sprintf(logbuf, "Error: Duplicate %s parameter '%s'.\n", argv[0], cur_name_str);
 	logprintb();
 	return RET_INVALID_CMDLINE;
       }
-      dup_check = &(dup_check[snps_flag_max_len]);
+      dup_check = &(dup_check[name_max_len]);
     }
-    cur_snps_flag_marker_str = &(cur_snps_flag_marker_str[snps_flag_max_len]);
+    cur_name_str = &(cur_name_str[name_max_len]);
     if (range_end) {
-      *cur_snps_flag_starts_range++ = 1;
-      memcpyx(cur_snps_flag_marker_str, range_end, re_len, 0);
-      dup_check = *snps_flag_markers_ptr;
-      while (dup_check < cur_snps_flag_marker_str) {
-	if (!memcmp(dup_check, cur_snps_flag_marker_str, rs_len + 1)) {
-	  sprintf(logbuf, "Error: Duplicate --snps marker ID '%s'.\n", cur_snps_flag_marker_str);
+      *cur_name_starts_range++ = 1;
+      memcpyx(cur_name_str, range_end, re_len, 0);
+      dup_check = range_list_ptr->names;
+      while (dup_check < cur_name_str) {
+	if (!memcmp(dup_check, cur_name_str, rs_len + 1)) {
+	  sprintf(logbuf, "Error: Duplicate %s parameter '%s'.\n", argv[0], cur_name_str);
 	  logprintb();
 	  return RET_INVALID_CMDLINE;
 	}
-        dup_check = &(dup_check[snps_flag_max_len]);
+        dup_check = &(dup_check[name_max_len]);
       }
-      cur_snps_flag_marker_str = &(cur_snps_flag_marker_str[snps_flag_max_len]);
-      *cur_snps_flag_starts_range++ = 0;
+      cur_name_str = &(cur_name_str[name_max_len]);
+      *cur_name_starts_range++ = 0;
     } else {
-      *cur_snps_flag_starts_range++ = 0;
+      *cur_name_starts_range++ = 0;
     }
   }
 }
@@ -5418,7 +5451,7 @@ uint32_t species_flag(uint32_t* species_code_ptr, uint32_t new_code) {
 }
 
 
-int32_t init_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_map, int32_t argc, char** argv, Chrom_info* chrom_info_ptr) {
+int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_map, int32_t argc, char** argv, char* range_delim_ptr, Chrom_info* chrom_info_ptr) {
   // human: 22, X, Y, XY, MT
   // cow: 29, X, Y
   // dog: 38, X, Y, XY
@@ -5447,12 +5480,12 @@ int32_t init_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_map, int32
     cur_arg = flag_map[flag_idx - 1];
     param_ct = param_count(argc, argv, cur_arg);
     if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
-      goto init_species_ret_INVALID_CMDLINE_2;
+      goto init_delim_and_species_ret_INVALID_CMDLINE_2;
     }
     ii = atoi(argv[cur_arg + 1]);
     if ((ii < 1) || (ii > 59)) {
       sprintf(logbuf, "Error: Invalid --autosome-num parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-      goto init_species_ret_INVALID_CMDLINE_2;
+      goto init_delim_and_species_ret_INVALID_CMDLINE_2;
     }
     chrom_info_ptr->x_code = ii + 1;
     chrom_info_ptr->y_code = -1;
@@ -5464,22 +5497,22 @@ int32_t init_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_map, int32
   }
   if (flag_match("chr-set", &flag_idx, flag_ct, flag_buf)) {
     if (species_flag(&species_code, SPECIES_UNKNOWN)) {
-      goto init_species_ret_INVALID_CMDLINE;
+      goto init_delim_and_species_ret_INVALID_CMDLINE;
     }
     cur_arg = flag_map[flag_idx - 1];
     param_ct = param_count(argc, argv, cur_arg);
     if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 5)) {
-      goto init_species_ret_INVALID_CMDLINE_2;
+      goto init_delim_and_species_ret_INVALID_CMDLINE_2;
     }
     ii = atoi(argv[cur_arg + 1]);
     if ((!ii) || (ii > 59) || (ii < -59)) {
       sprintf(logbuf, "Error: Invalid --chr-set parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
-      goto init_species_ret_INVALID_CMDLINE_2;
+      goto init_delim_and_species_ret_INVALID_CMDLINE_2;
     }
     if (ii < 0) {
       if (param_ct > 1) {
 	sprintf(logbuf, "Error: --chr-set does not accept multiple parameters in haploid mode.%s", errstr_append);
-	goto init_species_ret_INVALID_CMDLINE_2;
+	goto init_delim_and_species_ret_INVALID_CMDLINE_2;
       }
       ii = -ii;
       chrom_info_ptr->autosome_ct = ii;
@@ -5512,7 +5545,7 @@ int32_t init_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_map, int32
 	  clear_bit_noct(chrom_info_ptr->haploid_mask, ii + 4);
 	} else {
 	  sprintf(logbuf, "Error: Invalid --chr-set parameter '%s'.%s", argv[cur_arg + param_idx], errstr_append);
-	  goto init_species_ret_INVALID_CMDLINE_2;
+	  goto init_delim_and_species_ret_INVALID_CMDLINE_2;
 	}
       }
       if (chrom_info_ptr->mt_code != -1) {
@@ -5530,56 +5563,72 @@ int32_t init_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_map, int32
   }
   if (flag_match("cow", &flag_idx, flag_ct, flag_buf)) {
     if (species_flag(&species_code, SPECIES_COW)) {
-      goto init_species_ret_INVALID_CMDLINE;
+      goto init_delim_and_species_ret_INVALID_CMDLINE;
     }
     if (param_count(argc, argv, flag_map[flag_idx - 1])) {
       logprint("Error: --cow doesn't accept parameters.\n");
-      goto init_species_ret_INVALID_CMDLINE;
+      goto init_delim_and_species_ret_INVALID_CMDLINE;
+    }
+  }
+  if (flag_match("d", &flag_idx, flag_ct, flag_buf)) {
+    // need to move this earlier to support --covar-name + --d
+    cur_arg = flag_map[flag_idx - 1];
+    param_ct = param_count(argc, argv, cur_arg);
+    if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+      goto init_delim_and_species_ret_INVALID_CMDLINE_2;
+    }
+    *range_delim_ptr = extract_char_param(argv[cur_arg + 1]);
+    if (!(*range_delim_ptr)) {
+      sprintf(logbuf, "Error: --d parameter too long (must be a single character).%s", errstr_append);
+      goto init_delim_and_species_ret_INVALID_CMDLINE_2;
+    } else if ((*range_delim_ptr == '-') || (*range_delim_ptr == ',')) {
+      sprintf(logbuf, "Error: --d parameter cannot be '-' or ','.%s", errstr_append);
+      goto init_delim_and_species_ret_INVALID_CMDLINE_2;
     }
   }
   if (flag_match("dog", &flag_idx, flag_ct, flag_buf)) {
     if (species_flag(&species_code, SPECIES_DOG)) {
-      goto init_species_ret_INVALID_CMDLINE;
+      goto init_delim_and_species_ret_INVALID_CMDLINE;
     }
     if (param_count(argc, argv, flag_map[flag_idx - 1])) {
       logprint("Error: --dog doesn't accept parameters.\n");
-      goto init_species_ret_INVALID_CMDLINE;
+      goto init_delim_and_species_ret_INVALID_CMDLINE;
     }
   }
   if (flag_match("horse", &flag_idx, flag_ct, flag_buf)) {
     if (species_flag(&species_code, SPECIES_HORSE)) {
-      goto init_species_ret_INVALID_CMDLINE;
+      goto init_delim_and_species_ret_INVALID_CMDLINE;
     }
     if (param_count(argc, argv, flag_map[flag_idx - 1])) {
       logprint("Error: --horse doesn't accept parameters.\n");
-      goto init_species_ret_INVALID_CMDLINE;
+      goto init_delim_and_species_ret_INVALID_CMDLINE;
     }
   }
   if (flag_match("mouse", &flag_idx, flag_ct, flag_buf)) {
     if (species_flag(&species_code, SPECIES_MOUSE)) {
-      goto init_species_ret_INVALID_CMDLINE;
+      goto init_delim_and_species_ret_INVALID_CMDLINE;
     }
     if (param_count(argc, argv, flag_map[flag_idx - 1])) {
       logprint("Error: --mouse doesn't accept parameters.\n");
-      goto init_species_ret_INVALID_CMDLINE;
+      goto init_delim_and_species_ret_INVALID_CMDLINE;
     }
   }
   if (flag_match("rice", &flag_idx, flag_ct, flag_buf)) {
     if (species_flag(&species_code, SPECIES_RICE)) {
-      goto init_species_ret_INVALID_CMDLINE;
+      goto init_delim_and_species_ret_INVALID_CMDLINE;
     }
     if (param_count(argc, argv, flag_map[flag_idx - 1])) {
       logprint("Error: --rice doesn't accept parameters.\n");
-      goto init_species_ret_INVALID_CMDLINE;
+      goto init_delim_and_species_ret_INVALID_CMDLINE;
     }
   }
   if (flag_match("sheep", &flag_idx, flag_ct, flag_buf)) {
     if (species_flag(&species_code, SPECIES_SHEEP)) {
-      goto init_species_ret_INVALID_CMDLINE;
+      goto init_delim_and_species_ret_INVALID_CMDLINE;
     }
     if (param_count(argc, argv, flag_map[flag_idx - 1])) {
       logprint("Error: --sheep doesn't accept parameters.\n");
-      goto init_species_ret_INVALID_CMDLINE;
+      goto init_delim_and_species_ret_INVALID_CMDLINE;
     }
   }
   chrom_info_ptr->species = species_code;
@@ -5633,9 +5682,9 @@ int32_t init_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_map, int32
     break;
   }
   while (0) {
-  init_species_ret_INVALID_CMDLINE_2:
+  init_delim_and_species_ret_INVALID_CMDLINE_2:
     logprintb();
-  init_species_ret_INVALID_CMDLINE:
+  init_delim_and_species_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
   }
@@ -5672,6 +5721,18 @@ int32_t recode_type_set(uint32_t* recode_modifier_ptr, uint32_t cur_code) {
   return 0;
 }
 
+void range_list_init(Range_list* range_list_ptr) {
+  range_list_ptr->names = NULL;
+  range_list_ptr->starts_range = NULL;
+  range_list_ptr->name_ct = 0;
+  range_list_ptr->name_max_len = 0;
+}
+
+void free_range_list(Range_list* range_list_ptr) {
+  free_cond(range_list_ptr->names);
+  free_cond(range_list_ptr->starts_range);
+}
+
 int32_t main(int32_t argc, char** argv) {
   char* outname_end = NULL;
   char** subst_argv = NULL;
@@ -5699,7 +5760,6 @@ int32_t main(int32_t argc, char** argv) {
   char* recode_allele_name = NULL;
   char* lgen_reference_fname = NULL;
   char* covar_fname = NULL;
-  char* covar_str = NULL;
   char* set_fname = NULL;
   char* subset_fname = NULL;
   char* update_alleles_fname = NULL;
@@ -5714,12 +5774,13 @@ int32_t main(int32_t argc, char** argv) {
   char* flip_fname = NULL;
   char* flip_subset_fname = NULL;
   char* read_genome_fname = NULL;
+  char* condition_mname = NULL;
+  char* condition_fname = NULL;
   int32_t retval = 0;
   uint32_t load_params = 0; // describes what file parameters have been provided
   uint32_t load_rare = 0;
   uint32_t fam_cols = FAM_COL_13456;
   uint32_t mpheno_col = 0;
-  uint32_t mcovar_col = 0;
   uint32_t mwithin_col = 0;
   uint64_t misc_flags = 0;
   double thin_keep_prob = 1.0;
@@ -5757,6 +5818,9 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t model_modifier = 0;
   int32_t model_cell_ct = -1;
   uint32_t gxe_mcovar = 0;
+  uint32_t glm_modifier = 0;
+  double glm_vif_thresh = 50.0;
+  uint32_t glm_xchr_model = 0;
   uint32_t ppc_gap = DEFAULT_PPC_GAP;
   uint32_t* rseeds = NULL;
   uint32_t rseed_ct = 0;
@@ -5800,6 +5864,7 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t covar_modifier = 0;
   uint32_t update_map_modifier = 0;
   uint32_t model_mperm_val = 0;
+  uint32_t glm_mperm_val = 0;
   uint32_t mperm_save = 0;
   uint32_t mperm_val = 0;
   uint32_t aperm_min = 6;
@@ -5842,9 +5907,6 @@ int32_t main(int32_t argc, char** argv) {
   char* segment_spanning_fname = NULL;
   char* missing_code = NULL;
   char range_delim = '-';
-  char* snps_flag_markers = NULL;
-  unsigned char* snps_flag_starts_range = NULL;
-  uint32_t snps_flag_ct = 0;
   uint32_t modifier_23 = 0;
   double pheno_23 = INFINITY;
   char* fid_23 = NULL;
@@ -5887,9 +5949,12 @@ int32_t main(int32_t argc, char** argv) {
   Chrom_info chrom_info;
   Homozyg_info homozyg;
   Cluster_info cluster;
+  Range_list snps_range_list;
+  Range_list covar_range_list;
+  Range_list parameters_range_list;
+  Range_list tests_range_list;
   char* argptr2;
   char* flagptr;
-  uint32_t snps_flag_max_len;
   double dxx;
   char cc;
   uint32_t uii;
@@ -5903,6 +5968,10 @@ int32_t main(int32_t argc, char** argv) {
 #endif
   homozyg_init(&homozyg);
   cluster_init(&cluster);
+  range_list_init(&snps_range_list);
+  range_list_init(&parameters_range_list);
+  range_list_init(&tests_range_list);
+
   chrom_info.name_ct = 0;
   for (ii = 1; ii < argc; ii++) {
     if ((!memcmp("-script", argv[ii], 8)) || (!memcmp("--script", argv[ii], 9))) {
@@ -6399,7 +6468,7 @@ int32_t main(int32_t argc, char** argv) {
   samplename[0] = '\0';
   memcpyl3(output_missing_pheno, "-9");
   // stuff that must be processed before regular alphabetical loop
-  retval = init_species(flag_ct, flag_buf, flag_map, argc, argv, &chrom_info);
+  retval = init_delim_and_species(flag_ct, flag_buf, flag_map, argc, argv, &range_delim, &chrom_info);
   if (retval) {
     goto main_ret_1;
   }
@@ -6633,33 +6702,37 @@ int32_t main(int32_t argc, char** argv) {
 	pheno_modifier |= PHENO_ALL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ssoc", 5)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 6)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!strcmp(argv[cur_arg + uii], "counts")) {
+	  if (!memcmp(argv[cur_arg + uii], "counts", 7)) {
 	    if (model_modifier & MODEL_QMASK) {
 	      sprintf(logbuf, "Error: --assoc 'qt-means' modifier does not make sense with 'counts'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_ASSOC_COUNTS;
-	  } else if (!strcmp(argv[cur_arg + uii], "fisher")) {
+	  } else if (!memcmp(argv[cur_arg + uii], "fisher", 7)) {
 	    if (model_modifier & MODEL_QMASK) {
 	      sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with 'fisher'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_FISHER;
-	  } else if (!strcmp(argv[cur_arg + uii], "perm")) {
+	  } else if (!memcmp(argv[cur_arg + uii], "perm", 5)) {
+	    if (model_modifier & MODEL_MPERM) {
+	      sprintf(logbuf, "Error: --assoc 'mperm' and 'perm' cannot be used together.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	    model_modifier |= MODEL_PERM;
-	  } else if (!strcmp(argv[cur_arg + uii], "genedrop")) {
+	  } else if (!memcmp(argv[cur_arg + uii], "genedrop", 9)) {
 	    if (model_modifier & MODEL_QMASK) {
 	      sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with 'genedrop'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_GENEDROP;
-	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
+	  } else if (!memcmp(argv[cur_arg + uii], "perm-count", 11)) {
 	    model_modifier |= MODEL_PERM_COUNT;
-	  } else if (!strcmp(argv[cur_arg + uii], "p2")) {
+	  } else if (!memcmp(argv[cur_arg + uii], "p2", 3)) {
 	    model_modifier |= MODEL_ASSOC_P2;
 	  } else if ((!memcmp(argv[cur_arg + uii], "mperm=", 6)) && (argv[cur_arg + uii][6] != '\0')) {
 	    if (model_modifier & MODEL_PERM) {
@@ -6676,7 +6749,7 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    model_mperm_val = (uint32_t)kk;
 	    model_modifier |= MODEL_MPERM;
-	  } else if (!strcmp(argv[cur_arg + uii], "qt-means")) {
+	  } else if (!memcmp(argv[cur_arg + uii], "qt-means", 9)) {
 	    if (model_modifier & MODEL_DMASK) {
 	      sprintf(logbuf, "Error: --assoc 'qt-means' does not make sense with a case/control-specific\nmodifier.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -6868,6 +6941,11 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         min_bp_space = ii;
+      } else if (!memcmp(argptr2, "eta", 4)) {
+	UNSTABLE;
+	logprint("Note: --beta flag deprecated.  Use '--logistic beta'.\n");
+	glm_modifier |= GLM_BETA;
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -6909,24 +6987,19 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	logprint("Error: --covar has not been implemented yet.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
 	retval = alloc_fname(&covar_fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "ovar-name", 10)) {
 	UNSTABLE;
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
 	if (!covar_fname) {
 	  logprint("Error: --covar-name must be used with --covar.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (alloc_string(&covar_str, argv[cur_arg + 1])) {
-	  goto main_ret_NOMEM;
+	retval = parse_name_ranges(param_ct, range_delim, &(argv[cur_arg]), &covar_range_list, 0);
+	if (retval) {
+	  goto main_ret_1;
 	}
 	covar_modifier = COVAR_NAME;
       } else if (!memcmp(argptr2, "ovar-number", 12)) {
@@ -6942,8 +7015,9 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --covar-number must be used with --covar.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (alloc_string(&covar_str, argv[cur_arg + 1])) {
-	  goto main_ret_NOMEM;
+	retval = parse_name_ranges(param_ct, range_delim, &(argv[cur_arg]), &covar_range_list, 1);
+	if (retval) {
+	  goto main_ret_1;
 	}
 	covar_modifier = COVAR_NUMBER;
       } else if (!memcmp(argptr2, "ell", 4)) {
@@ -7540,26 +7614,34 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Note: --consensus-match flag deprecated.  Use '--homozyg consensus-match'.\n");
 	homozyg.modifier |= HOMOZYG_CONSENSUS_MATCH;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "ondition", 9)) {
+	UNSTABLE;
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (alloc_string(&condition_mname, argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
+	}
+      } else if (!memcmp(argptr2, "ondition-list", 14)) {
+	UNSTABLE;
+	if (condition_mname) {
+	  logprint("Error: --condition-list cannot be used with --condition.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&condition_fname, argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
 
     case 'd':
-      if (!(*argptr2)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	range_delim = extract_char_param(argv[cur_arg + 1]);
-	if (!range_delim) {
-	  sprintf(logbuf, "Error: --d parameter too long (must be a single character).%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	if ((range_delim == '-') || (range_delim == ',')) {
-	  sprintf(logbuf, "Error: --d parameter cannot be '-' or ','.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-      } else if (!memcmp(argptr2, "ata", 4)) {
+      if (!memcmp(argptr2, "ata", 4)) {
 	if (load_params & 0xff) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
@@ -7731,6 +7813,11 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	write_covar_modifier |= WRITE_COVAR_DUMMY;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "ominant", 8)) {
+	UNSTABLE;
+	logprint("Note: --dominant flag deprecated.  Use e.g. '--linear dominant'.\n");
+	glm_modifier |= GLM_DOMINANT;
 	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -8113,6 +8200,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	logprint("Note: --genedrop flag deprecated.  Use e.g. '--model genedrop'.\n");
 	model_modifier |= MODEL_GENEDROP;
+	glm_modifier |= GLM_GENEDROP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "c", 2)) {
         if (!mtest_adjust) {
@@ -8160,6 +8248,15 @@ int32_t main(int32_t argc, char** argv) {
         sprintf(logbuf, "Note: --%s flag deprecated.  Use '--cluster group-avg'.\n", argptr);
 	logprintb();
 	cluster.modifier |= CLUSTER_GROUP_AVG;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "enotypic", 9)) {
+	UNSTABLE;
+	if (glm_modifier & GLM_DOMINANT) {
+	  logprint("Error: --genotypic cannot be used with --dominant.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	logprint("Note: --genotypic flag deprecated.  Use e.g. '--linear genotypic'.\n");
+	glm_modifier |= GLM_GENOTYPIC;
 	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -8364,6 +8461,20 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "omozyg-include-missing", 23)) {
         logprint("Error: --homozyg-include-missing flag provisionally retired, since it had no\neffect in PLINK 1.07.\n");
 	goto main_ret_INVALID_CMDLINE;
+      } else if (!memcmp(argptr2, "ethom", 6)) {
+	UNSTABLE;
+	if (glm_modifier & (GLM_DOMINANT | GLM_GENOTYPIC)) {
+	  sprintf(logbuf, "Error: --hethom cannot be used with --%s.\n", (glm_modifier & GLM_DOMINANT)? "dominant" : "genotypic");
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --hethom flag deprecated.  Use e.g. '--linear hethom'.\n");
+	glm_modifier |= GLM_HETHOM;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "ide-covar", 10)) {
+	UNSTABLE;
+	logprint("Note: --hide-covar flag deprecated.  Use e.g. '--linear hide-covar'.\n");
+	glm_modifier |= GLM_HIDE_COVAR;
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8503,6 +8614,11 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "mpossible", 10)) {
 	logprint("Error: --impossible flag retired.  Use '--genome nudge', or explicitly validate\nZ0/Z1/Z2/PI_HAT in your script.\n");
         goto main_ret_INVALID_CMDLINE;
+      } else if (!memcmp(argptr2, "nteraction", 11)) {
+	UNSTABLE;
+	logprint("Note: --interaction flag deprecated.  Use e.g. '--linear interaction'.\n");
+	glm_modifier |= GLM_INTERACTION;
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8607,6 +8723,115 @@ int32_t main(int32_t argc, char** argv) {
 	mtest_adjust |= ADJUST_LAMBDA;
       } else if (!memcmp(argptr2, "ist-23-indels", 14)) {
         calculation_type |= CALC_LIST_23_INDELS;
+      } else if ((!memcmp(argptr2, "inear", 6)) || (!memcmp(argptr2, "ogistic", 8))) {
+	UNSTABLE;
+        if (calculation_type & CALC_GLM) {
+	  logprint("Error: --logistic cannot be used with --linear.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (*argptr2 == 'o') {
+	  glm_modifier |= GLM_LOGISTIC;
+	} else if (glm_modifier & GLM_BETA) {
+	  sprintf(logbuf, "Error: --beta cannot be used with --linear.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 8)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if (!memcmp(argv[cur_arg + uii], "perm", 5)) {
+	    if (glm_modifier & GLM_MPERM) {
+	      sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.%s", argptr, errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+            glm_modifier |= GLM_PERM;
+	  } else if ((!memcmp(argv[cur_arg + uii], "mperm=", 6)) && (argv[cur_arg + uii][6] != '\0')) {
+            if (glm_modifier & GLM_PERM) {
+	      sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.%s", argptr, errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    } else if (glm_modifier & GLM_MPERM) {
+	      sprintf(logbuf, "Error: Duplicate --%s 'mperm' modifier.%s", argptr, errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    ii = atoi(&(argv[cur_arg + uii][6]));
+	    if (ii < 1) {
+	      sprintf(logbuf, "Error: Invalid --%s mperm parameter '%s'.%s", argptr, &(argv[cur_arg + uii][6]), errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+            glm_mperm_val = (uint32_t)ii;
+            glm_modifier |= GLM_MPERM;
+	  } else if (!memcmp(argv[cur_arg + uii], "genedrop", 9)) {
+	    glm_modifier |= GLM_GENEDROP;
+	  } else if (!memcmp(argv[cur_arg + uii], "perm-count", 11)) {
+	    glm_modifier |= GLM_PERM_COUNT;
+	  } else if (!memcmp(argv[cur_arg + uii], "genotypic", 10)) {
+	    if (glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE)) {
+	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    glm_modifier |= GLM_GENOTYPIC;
+	  } else if (!memcmp(argv[cur_arg + uii], "hethom", 7)) {
+	    if (glm_modifier & (GLM_GENOTYPIC | GLM_DOMINANT | GLM_RECESSIVE)) {
+	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    glm_modifier |= GLM_HETHOM;
+	  } else if (!memcmp(argv[cur_arg + uii], "dominant", 9)) {
+	    if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_RECESSIVE)) {
+	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    glm_modifier |= GLM_DOMINANT;
+	  } else if (!memcmp(argv[cur_arg + uii], "recessive", 10)) {
+	    if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_DOMINANT)) {
+	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    glm_modifier |= GLM_RECESSIVE;
+	  } else if (!memcmp(argv[cur_arg + uii], "no-snp", 7)) {
+	    // defer this check
+	    glm_modifier |= GLM_NO_SNP;
+	  } else if (!memcmp(argv[cur_arg + uii], "hide-covar", 11)) {
+	    glm_modifier |= GLM_HIDE_COVAR;
+	  } else if (!memcmp(argv[cur_arg + uii], "sex", 4)) {
+	    if (glm_modifier & GLM_NO_X_SEX) {
+	      sprintf(logbuf, "Error: --%s 'sex' and 'no-x-sex' cannot be used together.%s", argptr, errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    glm_modifier |= GLM_SEX;
+	  } else if (!memcmp(argv[cur_arg + uii], "no-x-sex", 9)) {
+	    if (glm_modifier & GLM_SEX) {
+	      sprintf(logbuf, "Error: --%s 'sex' and 'no-x-sex' cannot be used together.%s", argptr, errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    glm_modifier |= GLM_NO_X_SEX;
+	  } else if (!memcmp(argv[cur_arg + uii], "interaction", 12)) {
+	    glm_modifier |= GLM_INTERACTION;
+	  } else if (!memcmp(argv[cur_arg + uii], "standard-beta", 14)) {
+	    if (glm_modifier & GLM_LOGISTIC) {
+	      sprintf(logbuf, "Error: --logistic does not have a 'standard-beta' modifier.  (Did you mean\n--linear or 'beta'?)%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    glm_modifier |= GLM_STANDARD_BETA;
+	  } else if (!memcmp(argv[cur_arg + uii], "beta", 5)) {
+	    if (!(glm_modifier & GLM_LOGISTIC)) {
+	      sprintf(logbuf, "Error: --linear does not have a 'beta' modifier.  (Did you mean --logistic or\n'standard-beta'?)%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    glm_modifier |= GLM_BETA;
+	  } else if (!memcmp(argv[cur_arg + uii], "mperm", 6)) {
+	    sprintf(logbuf, "Error: Improper --%s mperm syntax.  (Use '--%s mperm=[value]'.)\n", argptr, argptr);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  } else {
+	    sprintf(logbuf, "Error: Invalid --%s parameter '%s'.%s", argptr, argv[cur_arg + uii], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	}
+	if ((glm_modifier & GLM_NO_SNP) && (glm_modifier & GLM_NO_SNP_EXCL)) {
+	  sprintf(logbuf, "Error: --%s 'no-snp' modifier conflicts with another modifier.%s", argptr, errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	calculation_type |= CALC_GLM;
       } else {
         goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8974,7 +9199,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	cc = argv[cur_arg + 1][0];
 	if ((cc < '1') || (cc > '7') || (argv[cur_arg + 1][1] != '\0')) {
-          sprintf(logbuf, "Error: Invalid --merge-mode parameter %s.%s", argv[cur_arg + 1], errstr_append);
+          sprintf(logbuf, "Error: Invalid --merge-mode parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if ((merge_type & MERGE_LIST) && (cc > '5')) {
@@ -8989,21 +9214,25 @@ int32_t main(int32_t argc, char** argv) {
         sex_missing_pheno |= MUST_HAVE_SEX;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "covar", 6)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
         if (!(calculation_type & CALC_GXE)) {
 	  logprint("Error: --mcovar must be used with --covar and --gxe.\n");
 	  goto main_ret_INVALID_CMDLINE;
+	} else if (gxe_mcovar > 1) {
+	  logprint("Error: --mcovar cannot be used with a --gxe parameter.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	ii = atoi(argv[cur_arg + 1]);
 	if (ii < 1) {
 	  sprintf(logbuf, "Error: Invalid --mcovar parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	mcovar_col = ii;
+        logprint("Note: --mcovar flag deprecated.  Use '--gxe [covariate index]'.\n");
+	gxe_mcovar = ii;
       } else if (!memcmp(argptr2, "odel", 5)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 5)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (model_modifier & MODEL_ASSOC_FDEPR) {
@@ -9020,6 +9249,10 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    model_modifier |= MODEL_FISHER;
 	  } else if (!strcmp(argv[cur_arg + uii], "perm")) {
+	    if (model_modifier & MODEL_MPERM) {
+	      sprintf(logbuf, "Error: --model 'mperm' and 'perm' cannot be used together.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	    model_modifier |= MODEL_PERM;
 	  } else if (!strcmp(argv[cur_arg + uii], "genedrop")) {
 	    model_modifier |= MODEL_GENEDROP;
@@ -9135,6 +9368,9 @@ int32_t main(int32_t argc, char** argv) {
 	if (model_modifier & (MODEL_PERM | MODEL_MPERM)) {
 	  sprintf(logbuf, "Error: --mperm cannot be used with --%s %sperm.%s", (model_modifier & MODEL_ASSOC)? "assoc" : "model", (model_modifier & MODEL_PERM)? "" : "m", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (glm_modifier & (GLM_PERM | GLM_MPERM)) {
+	  sprintf(logbuf, "Error: --mperm cannot be used with --%s %sperm.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", (glm_modifier & GLM_PERM)? "" : "m", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -9171,6 +9407,8 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Note: --mperm flag deprecated.  Use e.g. '--model mperm=[value]'.\n");
 	  model_mperm_val = mperm_val;
 	  model_modifier |= MODEL_MPERM;
+	  glm_mperm_val = mperm_val;
+	  glm_modifier |= GLM_MPERM;
 	}
       } else if (!memcmp(argptr2, "perm-save", 10)) {
 	mperm_save |= MPERM_DUMP_BEST;
@@ -9430,6 +9668,30 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Note: --nudge flag deprecated.  Use '--genome nudge'.\n");
         genome_modifier |= GENOME_NUDGE;
         goto main_param_zero;
+      } else if (!memcmp(argptr2, "o-snp", 6)) {
+	UNSTABLE;
+	if (!(calculation_type & CALC_GLM)) {
+	  sprintf(logbuf, "Error: --no-snp must be used with --linear or --logistic.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (glm_modifier & GLM_NO_SNP_EXCL) {
+	  sprintf(logbuf, "Error: --no-snp conflicts with a --%s modifier.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --no-snp flag deprecated.  Use e.g. '--linear no-snp'.\n");
+        glm_modifier |= GLM_NO_SNP;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "o-x-sex", 8)) {
+	UNSTABLE;
+	if (!(calculation_type & CALC_GLM)) {
+	  sprintf(logbuf, "Error: --no-x-sex must be used with --linear or --logistic.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (glm_modifier & (GLM_NO_SNP | GLM_SEX)) {
+	  sprintf(logbuf, "Error: --no-x-sex conflicts with a --%s modifier.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --no-x-sex flag deprecated.  Use e.g. '--linear no-x-sex'.\n");
+	glm_modifier |= GLM_NO_X_SEX;
+	goto main_param_zero;
       } else {
         goto main_ret_INVALID_CMDLINE_2;
       }
@@ -9566,11 +9828,23 @@ int32_t main(int32_t argc, char** argv) {
 	  ppc_gap = (int32_t)(dxx + EPSILON);
 	}
       } else if (!memcmp(argptr2, "erm", 4)) {
+	if ((model_modifier & MODEL_MPERM) && (calculation_type & CALC_MODEL)) {
+	  sprintf(logbuf, "Error: --perm cannot be used with --%s mperm.%s", (model_modifier & MODEL_ASSOC)? "assoc" : "model", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if ((glm_modifier & GLM_MPERM) && (calculation_type & CALC_GLM)) {
+	  sprintf(logbuf, "Error: --perm cannot be used with --%s mperm.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (model_modifier & MODEL_MPERM) {
+	  sprintf(logbuf, "Error: --perm cannot be used with --mperm.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
 	model_modifier |= MODEL_PERM;
+        glm_modifier |= GLM_PERM;
 	logprint("Note: --perm flag deprecated.  Use e.g. '--model perm'.\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "erm-count", 10)) {
 	model_modifier |= MODEL_PERM_COUNT;
+	glm_modifier |= GLM_PERM_COUNT;
 	logprint("Note: --perm-count flag deprecated.  Use e.g. '--model perm-count'.\n");
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "2", 2)) {
@@ -9640,6 +9914,16 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	homozyg.pool_size_min = ii;
+      } else if (!memcmp(argptr2, "arameters", 10)) {
+	UNSTABLE;
+	if (!(calculation_type & CALC_GLM)) {
+	  sprintf(logbuf, "Error: --parameters must be used with --linear or --logistic.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = parse_name_ranges(param_ct, '-', &(argv[cur_arg]), &parameters_range_list, 1);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -10124,6 +10408,18 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Note: --rel-check flag deprecated.  Use '--genome rel-check'.\n");
         genome_modifier |= GENOME_REL_CHECK;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "ecessive", 9)) {
+	UNSTABLE;
+	if (!(calculation_type & CALC_GLM)) {
+	  sprintf(logbuf, "Error: --recessive must be used with --linear or --logistic.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_DOMINANT | GLM_NO_SNP)) {
+	  sprintf(logbuf, "Error: --recessive conflicts with a --%s modifier.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --recessive flag deprecated.  Use e.g. '--linear recessive'.\n");
+	glm_modifier |= GLM_RECESSIVE;
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -10190,7 +10486,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	// mise well allow --snps + --autosome/--autosome-xy/--chr/--not-chr
-	retval = parse_marker_ranges(param_ct, range_delim, &(argv[cur_arg]), &snps_flag_markers, &snps_flag_starts_range, &snps_flag_ct, &snps_flag_max_len);
+	retval = parse_name_ranges(param_ct, range_delim, &(argv[cur_arg]), &snps_range_list, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -10353,6 +10649,27 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --simulate-tags flag deprecated.  Use e.g. '--simulate tags'.\n");
 	simulate_flags |= SIMULATE_TAGS;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "ex", 3)) {
+	UNSTABLE;
+	if (!(calculation_type & CALC_GLM)) {
+	  sprintf(logbuf, "Error: --sex must be used with --linear or --logistic.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (glm_modifier & (GLM_NO_SNP | GLM_NO_X_SEX)) {
+	  sprintf(logbuf, "Error: --sex conflicts with a --%s modifier.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --sex flag deprecated.  Use e.g. '--linear sex'.\n");
+	glm_modifier |= GLM_SEX;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "tandard-beta", 13)) {
+	UNSTABLE;
+	if ((!(calculation_type & CALC_GLM)) || (glm_modifier & GLM_LOGISTIC)) {
+	  sprintf(logbuf, "Error: --standard-beta must be used wtih --linear.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --standard-beta flag deprecated.  Use '--linear standard-beta'.\n");
+	glm_modifier |= GLM_STANDARD_BETA;
+	goto main_param_zero;
       } else if (memcmp(argptr2, "ilent", 6)) {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -10473,7 +10790,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (markername_snp) {
 	  sprintf(logbuf, "Error: --to cannot be used with --snp.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (snps_flag_markers) {
+	} else if (snps_range_list.names) {
 	  sprintf(logbuf, "Error: --to cannot be used with --snps.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (cnv_calc_type & CNV_MAKE_MAP) {
@@ -10490,7 +10807,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (markername_snp) {
 	  sprintf(logbuf, "Error: --to-bp/-kb/-mb cannot be used with --snp.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (snps_flag_markers) {
+	} else if (snps_range_list.names) {
 	  sprintf(logbuf, "Error: --to-bp/-kb/-mb cannot be used with --snps.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (markername_to) {
@@ -10563,6 +10880,33 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --thin marker retention probability too large.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
+      } else if (!memcmp(argptr2, "ests", 5)) {
+	UNSTABLE;
+	if (!(calculation_type & CALC_GLM)) {
+	  sprintf(logbuf, "Error: --tests must be used with --linear or --logistic.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((param_ct == 1) && (!memcmp(argv[cur_arg + 1], "all", 4))) {
+	  glm_modifier |= GLM_TEST_ALL;
+	} else {
+	  if (glm_modifier & GLM_TEST_ALL) {
+	    sprintf(logbuf, "Error: --test-all cannot be used with --tests.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  retval = parse_name_ranges(param_ct, '-', &(argv[cur_arg]), &tests_range_list, 1);
+	  if (retval) {
+	    goto main_ret_1;
+	  }
+	}
+      } else if (!memcmp(argptr2, "est-all", 8)) {
+	UNSTABLE;
+	if (!(calculation_type & CALC_GLM)) {
+	  sprintf(logbuf, "Error: --test-all must be used with --linear or --logistic.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Note: --test-all flag deprecated.  Use '--tests all'.\n");
+	glm_modifier |= GLM_TEST_ALL;
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -10793,6 +11137,29 @@ int32_t main(int32_t argc, char** argv) {
       }
       break;
 
+    case 'v':
+      if (!memcmp(argptr2, "if", 3)) {
+	UNSTABLE;
+	if (!(calculation_type & CALC_GLM)) {
+	  sprintf(logbuf, "Error: --vif must be used with --linear or --logistic.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (scan_double(argv[cur_arg + 1], &glm_vif_thresh)) {
+	  sprintf(logbuf, "Error: Invalid --linear/--logistic VIF threshold '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (glm_vif_thresh < 1.0) {
+	  sprintf(logbuf, "Error: --linear/--logistic VIF threshold '%s' too small (must be >= 1).%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
+      }
+      break;
+
     case 'w':
       if (!memcmp(argptr2, "rite-snplist", 13)) {
 	calculation_type |= CALC_WRITE_SNPLIST;
@@ -10894,6 +11261,29 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE_2;
       }
       break;
+
+    case 'x':
+      if (!memcmp(argptr2, "chr-model", 10)) {
+	UNSTABLE;
+	if (!(calculation_type & CALC_GLM)) {
+	  sprintf(logbuf, "Error: --xchr-model must be used with --linear or --logistic.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (glm_modifier & (GLM_DOMINANT | GLM_RECESSIVE | GLM_NO_SNP)) {
+	  sprintf(logbuf, "Error: --xchr-model cannot be used with --%s dominant/recessive/no-snp.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((argv[cur_arg + 1][1] != '\0') || (argv[cur_arg + 1][0] < '0') || (argv[cur_arg + 1][0] > '3')) {
+	  sprintf(logbuf, "Error: Invalid --xchr-model parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	glm_xchr_model = (uint32_t)(argv[cur_arg + 1][0] - '0');
+      } else {
+	goto main_ret_INVALID_CMDLINE_2;
+      }
+
 
     default:
       goto main_ret_INVALID_CMDLINE_2;
@@ -11162,7 +11552,7 @@ int32_t main(int32_t argc, char** argv) {
       retval = wdist_dosage(calculation_type, dist_calc_type, genname, samplename, outname, outname_end, missing_code, exponent, (misc_flags / MISC_MAF_SUCC) & 1, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else if (load_rare & LOAD_RARE_CNV) {
-    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, misc_flags, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filterval, filter_binary, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_freq_val2, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, snp_window_size, markername_from, markername_to, markername_snp, marker_pos_start, marker_pos_end, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, &chrom_info);
+    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, misc_flags, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filterval, filter_binary, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_freq_val2, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, snp_window_size, markername_from, markername_to, markername_snp, marker_pos_start, marker_pos_end, &snps_range_list, &chrom_info);
   } else if (load_rare & LOAD_RARE_GVAR) {
     retval = wdist_gvar(outname, outname_end, pedname, mapname, famname);
   } else {
@@ -11220,7 +11610,7 @@ int32_t main(int32_t argc, char** argv) {
     } else if (!ibc_type) {
       ibc_type = 1;
     }
-    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, set_fname, subset_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filterval, thin_keep_prob, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_bottom, tail_top, misc_flags, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, sex_missing_pheno, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, regress_pcs_modifier, max_pcs, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_flag_markers, snps_flag_starts_range, snps_flag_ct, snps_flag_max_len, covar_modifier, covar_str, mcovar_col, write_covar_modifier, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, ibs_test_perms, perm_batch_size, &file_delete_list);
+    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, set_fname, subset_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filterval, thin_keep_prob, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_geno, missing_pheno, output_missing_geno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_bottom, tail_top, misc_flags, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, sex_missing_pheno, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, regress_pcs_modifier, max_pcs, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, write_covar_modifier, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, ibs_test_perms, perm_batch_size, &file_delete_list);
   }
  main_ret_2:
   free(wkspace_ua);
@@ -11290,11 +11680,12 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(markername_from);
   free_cond(markername_to);
   free_cond(markername_snp);
-  free_cond(snps_flag_markers);
-  free_cond(snps_flag_starts_range);
+  free_range_list(&snps_range_list);
+  free_range_list(&covar_range_list);
+  free_range_list(&parameters_range_list);
+  free_range_list(&tests_range_list);
   free_cond(lgen_reference_fname);
   free_cond(covar_fname);
-  free_cond(covar_str);
   free_cond(set_fname);
   free_cond(subset_fname);
   free_cond(update_alleles_fname);
@@ -11327,6 +11718,8 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(paternal_id_23);
   free_cond(maternal_id_23);
   free_cond(convert_xy_23);
+  free_cond(condition_mname);
+  free_cond(condition_fname);
   if (file_delete_list) {
     do {
       ll_str_ptr = file_delete_list->next;

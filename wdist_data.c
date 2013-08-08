@@ -34,8 +34,10 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
   uintptr_t indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
   char case_char = affection_01? '1' : '2';
   uintptr_t* isz = NULL;
+  int32_t retval = 0;
+  char* loadbuf;
+  uint32_t loadbuf_size;
   int32_t person_idx;
-  char* id_buf;
   char* bufptr0;
   char* bufptr;
   uint32_t tmp_len;
@@ -47,30 +49,38 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
     affection = 0;
   } else {
     if (wkspace_alloc_ul_checked(&isz, unfiltered_indiv_ctl * sizeof(intptr_t))) {
-      return RET_NOMEM;
+      goto load_pheno_ret_NOMEM;
     }
     fill_ulong_zero(isz, unfiltered_indiv_ctl);
     if (!pheno_c) {
       pheno_c = (uintptr_t*)malloc(unfiltered_indiv_ctl * sizeof(intptr_t));
       if (!pheno_c) {
-	return RET_NOMEM;
+	goto load_pheno_ret_NOMEM;
       }
       fill_ulong_zero(pheno_c, unfiltered_indiv_ctl);
       *pheno_c_ptr = pheno_c;
     }
   }
-  if (wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
-    return RET_NOMEM;
-  }
   // ----- phenotype file load -----
-  tbuf[MAXLINELEN - 1] = ' ';
-  while (fgets(tbuf, MAXLINELEN, phenofile) != NULL) {
-    if (!tbuf[MAXLINELEN - 1]) {
-      sprintf(logbuf, "Error: Excessively long line in phenotype file (max %d chars).\n", MAXLINELEN - 3);
-      logprintb();
-      return RET_INVALID_FORMAT;
+  // worthwhile to support very long lines here...
+  loadbuf = (char*)wkspace_base;
+  if (wkspace_left > 0x7fffffc0) {
+    loadbuf_size = 0x7fffffc0;
+  } else if (wkspace_left >= MAXLINELEN) {
+    loadbuf_size = wkspace_left;
+  } else {
+    goto load_pheno_ret_NOMEM;
+  }
+  loadbuf[loadbuf_size - 1] = ' ';
+  while (fgets(loadbuf, loadbuf_size, phenofile) != NULL) {
+    if (!loadbuf[loadbuf_size - 1]) {
+      if (loadbuf_size == 0x7fffffc0) {
+	goto load_pheno_ret_INVALID_FORMAT;
+      } else {
+	goto load_pheno_ret_NOMEM;
+      }
     }
-    bufptr0 = skip_initial_spaces(tbuf);
+    bufptr0 = skip_initial_spaces(loadbuf);
     if (is_eoln_kns(*bufptr0)) {
       continue;
     }
@@ -81,7 +91,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
       logprint("At least two tokens expected in line.\n");
       sprintf(logbuf, "Original line: %s", bufptr0);
       logprintb();
-      return RET_INVALID_FORMAT;
+      goto load_pheno_ret_INVALID_FORMAT;
     }
     tmp_len2 = strlen_se(bufptr);
     if (!header_processed) {
@@ -92,7 +102,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	    bufptr = next_item(bufptr);
 	    if (no_more_items_kns(bufptr)) {
 	      logprint("Error: --pheno-name column not found.\n");
-	      return RET_INVALID_FORMAT;
+              goto load_pheno_ret_INVALID_FORMAT;
 	    }
 	    mpheno_col++;
 	    tmp_len2 = strlen_se(bufptr);
@@ -108,11 +118,12 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
     if (!header_processed) {
       header_processed = 1;
     } else {
-      person_idx = bsearch_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr0, bufptr);
+      person_idx = bsearch_fam_indiv(tbuf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr0, bufptr);
       if (person_idx != -1) {
 	person_idx = id_map[person_idx];
 	bufptr = next_item_mult(bufptr, mpheno_col);
 	if (no_more_items_kns(bufptr)) {
+	  // not always an error
 	  return LOAD_PHENO_LAST_COL;
 	}
 	if (affection) {
@@ -139,7 +150,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	  } else {
 	    pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
 	    if (!pheno_d) {
-	      return RET_NOMEM;
+	      goto load_pheno_ret_NOMEM;
 	    }
 	    *pheno_d_ptr = pheno_d;
 	    if (affection_01) {
@@ -172,10 +183,21 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
     }
   }
   if (!feof(phenofile)) {
-    return RET_READ_FAIL;
+    goto load_pheno_ret_READ_FAIL;
+  }
+  while (0) {
+  load_pheno_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  load_pheno_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  load_pheno_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
   }
   wkspace_reset(wkspace_mark);
-  return 0;
+  return retval;
 }
 
 int32_t sort_item_ids_nx(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t item_ct, char* item_ids, uintptr_t max_id_len) {
@@ -610,7 +632,7 @@ static inline uint32_t sf_out_of_range(uint32_t cur_pos, uint32_t chrom_idx, uin
   return 1;
 }
 
-int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr, double** marker_cms_ptr, uint32_t** marker_pos_ptr, char* freqname, uint64_t calculation_type, uint32_t recode_modifier, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, char* sf_markers, unsigned char* sf_starts_range, uint32_t sf_ct, uint32_t sf_max_len, uint32_t* map_is_unsorted_ptr, uint32_t marker_pos_needed, uint32_t marker_cms_needed, uint32_t marker_alleles_needed, const char* extension, const char* split_chrom_cmd) {
+int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr, double** marker_cms_ptr, uint32_t** marker_pos_ptr, char* freqname, uint64_t calculation_type, uint32_t recode_modifier, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* sf_range_list_ptr, uint32_t* map_is_unsorted_ptr, uint32_t marker_pos_needed, uint32_t marker_cms_needed, uint32_t marker_alleles_needed, const char* extension, const char* split_chrom_cmd) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* bimfile = NULL;
   uintptr_t unfiltered_marker_ct = 0;
@@ -621,6 +643,8 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   uint32_t from_slen = markername_from? strlen(markername_from) : 0;
   uint32_t to_slen = markername_to? strlen(markername_to) : 0;
   uint32_t snp_slen = markername_snp? strlen(markername_snp) : 0;
+  uint32_t sf_ct = sf_range_list_ptr->name_ct;
+  uint32_t sf_max_len = sf_range_list_ptr->name_max_len;
   uint32_t slen_check = from_slen || to_slen || snp_slen || sf_ct;
   uint32_t from_chrom = MAX_POSSIBLE_CHROM;
   uint32_t to_chrom = MAX_POSSIBLE_CHROM;
@@ -665,7 +689,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     }
     for (uii = 0; uii < sf_ct; uii++) {
       sf_str_chroms[uii] = MAX_POSSIBLE_CHROM;
-      sf_str_lens[uii] = strlen(&(sf_markers[uii * sf_max_len]));
+      sf_str_lens[uii] = strlen(&(sf_range_list_ptr->names[uii * sf_max_len]));
     }
   }
   if (fopen_checked(&bimfile, bimname, "r")) {
@@ -744,7 +768,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       if (sf_ct) {
 	uii = 0;
 	do {
-	  if ((ulii == sf_str_lens[uii]) && (!memcmp(bufptr, &(sf_markers[uii * sf_max_len]), ulii))) {
+	  if ((ulii == sf_str_lens[uii]) && (!memcmp(bufptr, &(sf_range_list_ptr->names[uii * sf_max_len]), ulii))) {
 	    if (sf_str_chroms[uii] != MAX_POSSIBLE_CHROM) {
 	      goto load_bim_ret_INVALID_FORMAT_3;
 	    }
@@ -808,7 +832,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   if (sf_ct) {
     for (uii = 0; uii < sf_ct; uii++) {
       if (sf_str_chroms[uii] == MAX_POSSIBLE_CHROM) {
-	sprintf(logbuf, "Error: Marker '%s' not found in .%s file.\n", &(sf_markers[uii * sf_max_len]), extension);
+	sprintf(logbuf, "Error: Marker '%s' not found in .%s file.\n", &(sf_range_list_ptr->names[uii * sf_max_len]), extension);
 	goto load_bim_ret_INVALID_FORMAT_2;
       }
     }
@@ -824,7 +848,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     do {
       ujj = sf_str_chroms[uii];
       ukk = sf_str_pos[uii];
-      if (sf_starts_range[uii]) {
+      if (sf_range_list_ptr->starts_range[uii]) {
 	umm = sf_str_chroms[uii + 1];
 	unn = sf_str_pos[uii + 1];
 	if (ujj != umm) {
@@ -5872,7 +5896,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   unsigned char* writebuf;
   unsigned char* prewritebuf;
   unsigned char ucc;
-  uint32_t max_load;
+  uint32_t loadbuf_size;
   char* loadbuf;
   char* cptr;
   char* cptr2;
@@ -5961,15 +5985,15 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   mapvals = (int64_t*)wkspace_base;
   loadbuf = (char*)(&(wkspace_base[sizeof(int64_t)]));
   if (wkspace_left > 0x7fffffc8) {
-    max_load = 0x7fffffc0;
+    loadbuf_size = 0x7fffffc0;
   } else {
-    max_load = wkspace_left - 8;
+    loadbuf_size = wkspace_left - 8;
   }
   writemap[16] = 1;
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
     goto transposed_to_bed_ret_WRITE_FAIL;
   }
-  while (fgets(loadbuf, max_load, infile)) {
+  while (fgets(loadbuf, loadbuf_size, infile)) {
     cptr = skip_initial_spaces(loadbuf);
     if (is_eoln_kns(*cptr)) {
       continue;
@@ -6085,8 +6109,12 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       logprint("Note: Extra columns in .tped file.  Ignoring.\n");
       transposed_to_bed_print_pct(pct);
     }
-    if (max_load == 1 + strlen(cptr2) + (cptr2 - loadbuf)) {
-      goto transposed_to_bed_ret_NOMEM;
+    if (loadbuf_size == 1 + strlen(cptr2) + (cptr2 - loadbuf)) {
+      if (loadbuf_size == 0x7fffffc0) {
+	goto transposed_to_bed_ret_INVALID_FORMAT;
+      } else {
+        goto transposed_to_bed_ret_NOMEM;
+      }
     }
 
     memcpy(salleles, alleles, 4 * sizeof(intptr_t));
@@ -6189,7 +6217,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       goto transposed_to_bed_ret_WRITE_FAIL;
     }
     loadbuf = &(loadbuf[8]);
-    max_load -= 8;
+    loadbuf_size -= 8;
   }
   if (!feof(infile)) {
     goto transposed_to_bed_ret_READ_FAIL;

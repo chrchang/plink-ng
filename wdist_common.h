@@ -213,6 +213,7 @@ typedef union {
 #define CALC_CLUSTER 0x8000000LLU
 #define CALC_HOMOZYG 0x10000000LLU
 #define CALC_NEIGHBOR 0x20000000LLU
+#define CALC_GLM 0x40000000LLU
 
 #define M23_MALE 1
 #define M23_FEMALE 2
@@ -341,21 +342,40 @@ typedef union {
 #define MODEL_FISHER 2
 #define MODEL_PERM 4
 #define MODEL_MPERM 8
-#define MODEL_GENEDROP 16
-#define MODEL_PERM_COUNT 32
-#define MODEL_ASSOC_COUNTS 64
-#define MODEL_ASSOC_P2 128
-#define MODEL_ASSOC_FDEPR 256
-#define MODEL_DMASK 466
-#define MODEL_QT_MEANS 512
-#define MODEL_PDOM 1024
-#define MODEL_PREC 2048
-#define MODEL_PGEN 4096
-#define MODEL_PTREND 8192
-#define MODEL_TRENDONLY 16384
+#define MODEL_GENEDROP 0x10
+#define MODEL_PERM_COUNT 0x20
+#define MODEL_ASSOC_COUNTS 0x40
+#define MODEL_ASSOC_P2 0x80
+#define MODEL_ASSOC_FDEPR 0x100
+#define MODEL_DMASK 0x1d2
+#define MODEL_QT_MEANS 0x200
+#define MODEL_PDOM 0x400
+#define MODEL_PREC 0x800
+#define MODEL_PGEN 0x1000
+#define MODEL_PTREND 0x2000
+#define MODEL_TRENDONLY 0x4000
 #define MODEL_PMASK (MODEL_PDOM | MODEL_PREC | MODEL_PGEN | MODEL_PTREND | MODEL_TRENDONLY)
-#define MODEL_LIN 32768
+#define MODEL_LIN 0x8000
 #define MODEL_QMASK (MODEL_QT_MEANS | MODEL_LIN)
+
+#define GLM_LOGISTIC 1
+#define GLM_PERM 2
+#define GLM_MPERM 4
+#define GLM_GENEDROP 8
+#define GLM_PERM_COUNT 0x10
+#define GLM_GENOTYPIC 0x20
+#define GLM_HETHOM 0x40
+#define GLM_DOMINANT 0x80
+#define GLM_RECESSIVE 0x100
+#define GLM_NO_SNP 0x200
+#define GLM_HIDE_COVAR 0x400
+#define GLM_SEX 0x800
+#define GLM_NO_X_SEX 0x1000
+#define GLM_INTERACTION 0x2000
+#define GLM_STANDARD_BETA 0x4000
+#define GLM_BETA 0x8000
+#define GLM_NO_SNP_EXCL 0x19fe
+#define GLM_TEST_ALL 0x10000
 
 #define MPERM_DUMP_BEST 1
 #define MPERM_DUMP_ALL 2
@@ -503,6 +523,13 @@ typedef struct two_col_params_struct {
   char skipchar;
   char fname[];
 } Two_col_params;
+
+typedef struct range_list_struct {
+  char* names;
+  unsigned char* starts_range;
+  uint32_t name_ct;
+  uint32_t name_max_len;
+} Range_list;
 
 uint32_t push_ll_str(Ll_str** ll_stack_ptr, const char* ss);
 
