@@ -848,6 +848,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                              modifier causes them to be treated as if they had\n"
 "                              been set to zero.\n"
                );
+    help_print("chr-set\tcow\tdog\thorse\tmouse\trice\tsheep\tautosome-num", &help_ctrl, 0,
+"  --chr-set [autosome ct] <no-x> <no-y> <no-xy> <no-mt> :\n"
+"    Specifies nonhuman chromosome set.  The first parameter specifies the\n"
+"    number of diploid autosome pairs if positive, or haploid chromosomes if\n"
+"    negative.  Given diploid autosomes, the remaining modifiers indicate the\n"
+"    absence of the named non-autosomal chromosomes.\n"
+"  --cow/--dog/--horse/--mouse/--rice/--sheep : Shortcuts for those species.\n"
+"  --autosome-num [value]   : Alias for '--chr-set [value] no-y no-xy no-mt'.\n"
+	       );
 #endif
     help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
 "  --simulate-ncases [num]   : Set --simulate case count (default 1000).\n"
@@ -1211,15 +1220,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --read-freq [filename]   : Loads MAFs from the given PLINK-style or --freqx\n"
 "    (alias: --update-freq)   frequency report, instead of just setting them to\n"
 "                             frequencies observed in the .ped/.bed file.\n"
-	       );
-    help_print("chr-set\tcow\tdog\thorse\tmouse\trice\tsheep\tautosome-num", &help_ctrl, 0,
-"  --chr-set [autosome ct] <no-x> <no-y> <no-xy> <no-mt> :\n"
-"    Specifies nonhuman chromosome set.  The first parameter specifies the\n"
-"    number of diploid autosome pairs if positive, or haploid chromosomes if\n"
-"    negative.  Given diploid autosomes, the remaining modifiers indicate the\n"
-"    absence of the named non-autosomal chromosomes.\n"
-"  --cow/--dog/--horse/--mouse/--rice/--sheep : Shortcuts for those species.\n"
-"  --autosome-num [value]   : Alias for '--chr-set [value] no-y no-xy no-mt'.\n"
 	       );
     help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
 "  --allele1234 <multichar> : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"

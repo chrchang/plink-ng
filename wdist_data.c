@@ -64,9 +64,9 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
   // ----- phenotype file load -----
   // worthwhile to support very long lines here...
   loadbuf = (char*)wkspace_base;
-  if (wkspace_left > 0x7fffffc0) {
-    loadbuf_size = 0x7fffffc0;
-  } else if (wkspace_left >= MAXLINELEN) {
+  if (wkspace_left > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (wkspace_left > MAXLINELEN) {
     loadbuf_size = wkspace_left;
   } else {
     goto load_pheno_ret_NOMEM;
@@ -74,7 +74,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
   loadbuf[loadbuf_size - 1] = ' ';
   while (fgets(loadbuf, loadbuf_size, phenofile) != NULL) {
     if (!loadbuf[loadbuf_size - 1]) {
-      if (loadbuf_size == 0x7fffffc0) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
 	goto load_pheno_ret_INVALID_FORMAT;
       } else {
 	goto load_pheno_ret_NOMEM;
@@ -1179,10 +1179,10 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
 
   loadbuf = (char*)wkspace_base;
   loadbuf_size = wkspace_left;
-  if (loadbuf_size > 0x7fffffc0) {
-    loadbuf_size = 0x7fffffc0;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
   }
-  if (loadbuf_size < MAXLINELEN) {
+  if (loadbuf_size <= MAXLINELEN) {
     goto update_marker_cms_ret_NOMEM;
   }
   retval = open_and_skip_first_lines(&infile, update_cm->fname, loadbuf, loadbuf_size, update_cm->skip);
@@ -1302,10 +1302,10 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
 
   loadbuf = (char*)wkspace_base;
   loadbuf_size = wkspace_left;
-  if (loadbuf_size > 0x7fffffc0) {
-    loadbuf_size = 0x7fffffc0;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
   }
-  if (loadbuf_size < MAXLINELEN) {
+  if (loadbuf_size <= MAXLINELEN) {
     goto update_marker_pos_ret_NOMEM;
   }
   retval = open_and_skip_first_lines(&infile, update_map->fname, loadbuf, loadbuf_size, update_map->skip);
@@ -1448,10 +1448,10 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
   fill_ulong_zero(already_seen, marker_ctl);
   loadbuf = (char*)wkspace_base;
   loadbuf_size = wkspace_left;
-  if (loadbuf_size > 0x7fffffc0) {
-    loadbuf_size = 0x7fffffc0;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
   }
-  if (loadbuf_size < MAXLINELEN) {
+  if (loadbuf_size <= MAXLINELEN) {
     goto update_marker_names_ret_NOMEM;
   }
   retval = open_and_skip_first_lines(&infile, update_name->fname, loadbuf, loadbuf_size, update_name->skip);
@@ -2486,22 +2486,42 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
   return retval;
 }
 
-int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t* covar_ct_ptr, char** covar_names_ptr, uint32_t* covar_name_max_len_ptr, uintptr_t** covar_nm_ptr, double** covar_d_ptr) {
+int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, double missing_phenod, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uintptr_t* covar_ct_ptr, char** covar_names_ptr, uintptr_t* max_covar_name_len_ptr, uintptr_t** covar_nm_ptr, double** covar_d_ptr) {
   // similar to load_clusters() in wdist_cluster.c
   unsigned char* wkspace_mark = wkspace_base;
+  unsigned char* wkspace_mark2 = NULL;
   FILE* covar_file = NULL;
   uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t topsize = 0;
+  uintptr_t covar_raw_ct = 0;
+  uintptr_t loaded_indiv_ct = 0;
+  uintptr_t missing_cov_ct = 0;
+  char* sorted_covar_name_flag_ids = NULL;
+  uint32_t* covar_name_flag_id_map = NULL;
+  int32_t* covar_name_flag_seen_idxs = NULL;
+  char* bufptr = NULL;
+  uintptr_t max_covar_name_len = 1;
+  double dxx = 0.0;
   int32_t retval = 0;
+  char* covar_names;
+  uintptr_t* covar_nm;
+  double* covar_d;
+  uintptr_t covar_raw_ctl;
+  uintptr_t covar_ct;
+  uintptr_t* covars_active;
   uintptr_t* already_seen;
   char* sorted_ids;
   uint32_t* id_map;
   char* loadbuf;
   uintptr_t loadbuf_size;
-  char* bufptr;
-  logprint("Error: --covar is currently under development.\n");
-  retval = RET_CALC_NOT_YET_SUPPORTED;
-  goto load_covars_ret_1;
+  char* bufptr2;
+  double* dptr;
+  uint32_t header_absent;
+  uint32_t min_covar_col_ct;
+  uint32_t uii;
+  uintptr_t covar_idx;
+  uint32_t indiv_idx;
+  int32_t ii;
 
   sorted_ids = (char*)top_alloc(&topsize, indiv_ct * max_person_id_len);
   if (!sorted_ids) {
@@ -2516,27 +2536,164 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     goto load_covars_ret_NOMEM;
   }
   fill_ulong_zero(already_seen, indiv_ctl);
-  wkspace_left -= topsize;
-  retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, 0, 0, strcmp_deref);
+  if (covar_modifier == COVAR_NAME) {
+    sorted_covar_name_flag_ids = (char*)top_alloc(&topsize, covar_range_list_ptr->name_ct * covar_range_list_ptr->name_max_len);
+    if (!sorted_covar_name_flag_ids) {
+      goto load_covars_ret_NOMEM;
+    }
+    covar_name_flag_id_map = (uint32_t*)top_alloc(&topsize, covar_range_list_ptr->name_ct * sizeof(int32_t));
+    if (!covar_name_flag_id_map) {
+      goto load_covars_ret_NOMEM;
+    }
+    covar_name_flag_seen_idxs = (int32_t*)top_alloc(&topsize, covar_range_list_ptr->name_ct * sizeof(int32_t));
+    if (!covar_name_flag_seen_idxs) {
+      goto load_covars_ret_NOMEM;
+    }
+
+    wkspace_left -= topsize;
+    // kludge to use sort_item_ids_noalloc()
+    fill_ulong_zero((uintptr_t*)covar_name_flag_seen_idxs, (covar_range_list_ptr->name_ct + (BITCT - 1)) / BITCT);
+    retval = sort_item_ids_noalloc(sorted_covar_name_flag_ids, covar_name_flag_id_map, covar_range_list_ptr->name_ct, (uintptr_t*)covar_name_flag_seen_idxs, covar_range_list_ptr->name_ct, covar_range_list_ptr->names, covar_range_list_ptr->name_max_len, 0, 0, strcmp_deref);
+    if (retval) {
+      wkspace_left += topsize;
+      if (retval == RET_INVALID_FORMAT) {
+	logprint("(in --covar-name parameter sequence)\n");
+	retval = RET_INVALID_CMDLINE;
+      }
+      goto load_covars_ret_1;
+    }
+    fill_int_one(covar_name_flag_seen_idxs, covar_range_list_ptr->name_ct);
+  } else {
+    wkspace_left -= topsize;
+  }
+  retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, 0, 1, strcmp_deref);
   wkspace_left += topsize;
   if (retval) {
     goto load_covars_ret_1;
   }
 
-  if (fopen_checked(&covar_file, covar_fname, "r")) {
-    goto load_covars_ret_OPEN_FAIL;
-  }
-  loadbuf = (char*)wkspace_base;
-  loadbuf_size = wkspace_left - topsize;
-  if (loadbuf_size > 0x7fffffc0) {
-    loadbuf_size = 0x7fffffc0;
-  } else if (loadbuf_size < MAXLINELEN) {
+  // To simplify loading sequence, guarantee enough space for covars_active[]
+  // bitfield on first pass.  Each covariate corresponds to at least 16 bits in
+  // the first nonempty line (a value and a space = 2 bytes), so reserving the
+  // first 1/17 (rounded up) always works.
+  loadbuf_size = ((wkspace_left - topsize) / 68) * 64;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (loadbuf_size <= MAXLINELEN) {
     goto load_covars_ret_NOMEM;
   }
+  loadbuf = (char*)(&(wkspace_base[wkspace_left - topsize - loadbuf_size]));
+  retval = open_and_load_to_first_token(&covar_file, covar_fname, loadbuf_size, '\0', "--covar file", loadbuf, &bufptr);
+  if (retval) {
+    goto load_covars_ret_1;
+  }
+  covar_raw_ct = count_tokens(bufptr);
+  if (covar_raw_ct < 3) {
+    goto load_covars_ret_INVALID_FORMAT_2;
+  }
+  covar_raw_ct -= 2;
+  covar_raw_ctl = (covar_raw_ct + (BITCT - 1)) / BITCT;
+  covars_active = (uintptr_t*)wkspace_alloc(covar_raw_ctl * sizeof(intptr_t));
+
+  // no header line present?
+  bufptr2 = next_item(bufptr);
+  header_absent = (strcmp_se(bufptr, "FID", 3) || strcmp_se(bufptr2, "IID", 3));
+  bufptr = next_item(bufptr2);
+
+  if (covar_modifier) {
+    fill_ulong_zero(covars_active, covar_raw_ctl);
+    if (covar_modifier == COVAR_NUMBER) {
+      if (numeric_range_list_to_bitfield(covar_range_list_ptr, covar_raw_ct, covars_active)) {
+	logprint("Error: Fewer tokens in --covar file than required by --covar-number parameters.\n");
+	goto load_covars_ret_INVALID_CMDLINE;
+      }
+    } else {
+      if (header_absent) {
+	logprint("Error: --covar file doesn't have a header line for --covar-name.\n");
+	goto load_covars_ret_INVALID_CMDLINE;
+      }
+      retval = string_range_list_to_bitfield(bufptr, covar_raw_ct, covar_range_list_ptr, sorted_covar_name_flag_ids, covar_name_flag_id_map, covar_name_flag_seen_idxs, "covar-name", "--covar file header line", covars_active);
+      if (retval) {
+	goto load_covars_ret_1;
+      }
+      // deallocate --covar-name support
+      topsize -= (uintptr_t)(((unsigned char*)already_seen) - ((unsigned char*)covar_name_flag_seen_idxs));
+    }
+    covar_ct = popcount_longs(covars_active, 0, covar_raw_ctl);
+  } else {
+    covars_active[covar_raw_ctl - 1] = 0;
+    fill_bits(covars_active, 0, covar_raw_ct);
+    covar_ct = covar_raw_ct;
+  }
+  min_covar_col_ct = last_set_bit(covars_active, covar_raw_ctl) + 1;
+  if (header_absent) {
+    max_covar_name_len = 4 + intlen(min_covar_col_ct);
+  } else {
+    uii = 0;
+    while (1) {
+      bufptr2 = item_endnn(bufptr);
+      if (is_set(covars_active, uii)) {
+        if (max_covar_name_len <= (uintptr_t)(bufptr2 - bufptr)) {
+	  max_covar_name_len = 1 + (uintptr_t)(bufptr2 - bufptr);
+	}
+      }
+      if (++uii == min_covar_col_ct) {
+	break;
+      }
+      bufptr = skip_initial_spaces(&(bufptr2[1]));
+    }
+  }
+
+  wkspace_left -= topsize;
+  // note that covar_nm does NOT have a separate entry per covariate; instead,
+  // if a single covariate is missing, they are all treated as missing.
+  if (wkspace_alloc_c_checked(covar_names_ptr, covar_ct * max_covar_name_len) ||
+      wkspace_alloc_ul_checked(covar_nm_ptr, indiv_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_d_checked(covar_d_ptr, covar_ct * indiv_ct * sizeof(double))) {
+    goto load_covars_ret_NOMEM2;
+  }
+  if (wkspace_left <= MAXLINELEN) {
+    goto load_covars_ret_NOMEM2;
+  }
+  covar_names = *covar_names_ptr;
+  covar_nm = *covar_nm_ptr;
+  covar_d = *covar_d_ptr;
+  wkspace_mark2 = wkspace_base;
+  loadbuf = (char*)wkspace_base;
+  loadbuf_size = wkspace_left;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  }
+  wkspace_left += topsize;
   loadbuf[loadbuf_size - 1] = ' ';
+  fill_ulong_zero(covar_nm, indiv_ctl);
+
+  rewind(covar_file);
+  if (header_absent) {
+    uii = 0;
+    for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
+      uii = next_set_unsafe(covars_active, uii);
+      uint32_writex(memcpyl3a(&(covar_names[covar_idx * max_covar_name_len]), "COV"), ++uii, '\0');
+    }
+  } else {
+    covar_idx = 0;
+    retval = load_to_first_token(covar_file, loadbuf_size, '\0', "--covar file", loadbuf, &bufptr);
+    if (retval) {
+      goto load_covars_ret_1;
+    }
+    bufptr2 = item_endnn(next_item(bufptr));
+    for (uii = 0; uii < min_covar_col_ct; uii++) {
+      bufptr = skip_initial_spaces(bufptr2);
+      bufptr2 = item_endnn(bufptr);
+      if (is_set(covars_active, uii)) {
+        memcpyx(&(covar_names[covar_idx * max_covar_name_len]), bufptr, (uintptr_t)(bufptr2 - bufptr), '\0');
+        covar_idx++;
+      }
+    }
+  }
   while (fgets(loadbuf, loadbuf_size, covar_file)) {
     if (!loadbuf[loadbuf_size - 1]) {
-      if (loadbuf_size == 0x7fffffc0) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
 	logprint("Error: Pathologically long line in --covar file.\n");
 	goto load_covars_ret_INVALID_FORMAT;
       } else {
@@ -2547,28 +2704,82 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    // 1. count tokens, verify there are enough
-    // 2. apply --covar-number if necessary
-    // 3. check if this is a header row; if yes, save covariate names (and
-    //    apply --covar-name if necessary)
-    // 4. reserve memory, resize loadbuf
-    // 5. load
+    bufptr2 = next_item(bufptr);
+    if (!bufptr2) {
+      goto load_covars_ret_INVALID_FORMAT_2;
+    }
+    ii = bsearch_fam_indiv(tbuf, sorted_ids, max_person_id_len, indiv_ct, bufptr, bufptr2);
+    if (ii == -1) {
+      continue;
+    }
+    if (is_set(already_seen, (uint32_t)ii)) {
+      bufptr[strlen_se(bufptr)] = '\0';
+      bufptr2[strlen_se(bufptr2)] = '\0';
+      sprintf(logbuf, "Error: %s %s appears multiple times in --covar file.\n", bufptr, bufptr2);
+      logprintb();
+      goto load_covars_ret_INVALID_FORMAT;
+    }
+    set_bit_noct(already_seen, (uint32_t)ii);
+    indiv_idx = id_map[(uint32_t)ii];
+    if (!next_item_mult(bufptr2, min_covar_col_ct)) {
+      goto load_covars_ret_INVALID_FORMAT_2;
+    }
+    bufptr2 = item_endnn(bufptr2);
+    dptr = &(covar_d[indiv_idx * covar_ct]);
+    for (uii = 0; uii < min_covar_col_ct; uii++) {
+      bufptr = skip_initial_spaces(bufptr2);
+      bufptr2 = item_endnn(bufptr);
+      if (is_set(covars_active, uii)) {
+        if (scan_double(bufptr, &dxx) || (dxx == missing_phenod)) {
+	  break;
+	}
+	*dptr++ = dxx;
+      }
+    }
+    if (uii == min_covar_col_ct) {
+      set_bit_noct(covar_nm, indiv_idx);
+    } else {
+      missing_cov_ct++;
+    }
+    loaded_indiv_ct++;
+  }
+  if (!feof(covar_file)) {
+    goto load_covars_ret_READ_FAIL;
+  }
+  if (loaded_indiv_ct == missing_cov_ct) {
+    logprint("Error: No --covar values loaded.\n");
+    goto load_covars_ret_INVALID_FORMAT;
+  }
+  if (covar_ct < covar_raw_ct) {
+    sprintf(logbuf, "--covar: %" PRIuPTR " out of %" PRIuPTR " covariates loaded for %" PRIuPTR " %s.\n", covar_ct, covar_raw_ct, loaded_indiv_ct - missing_cov_ct, species_str(loaded_indiv_ct - missing_cov_ct));
+  } else {
+    sprintf(logbuf, "--covar: %" PRIuPTR " covariate%s loaded for %" PRIuPTR " %s.\n", covar_ct, (covar_ct == 1)? "" : "s", loaded_indiv_ct - missing_cov_ct, species_str(loaded_indiv_ct - missing_cov_ct));
+  }
+  logprintb();
+  if (missing_cov_ct) {
+    sprintf(logbuf, "%" PRIuPTR " other%s had missing value(s).\n", missing_cov_ct, (missing_cov_ct == 1)? "" : "s");
+    logprintb();
   }
 
+  wkspace_reset(wkspace_mark2);
+  *covar_ct_ptr = covar_ct;
+  *max_covar_name_len_ptr = max_covar_name_len;
   while (0) {
+  load_covars_ret_NOMEM2:
+    wkspace_left += topsize;
   load_covars_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  load_covars_ret_OPEN_FAIL:
-    retval = RET_OPEN_FAIL;
-    break;
-    /*
   load_covars_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-    */
+  load_covars_ret_INVALID_FORMAT_2:
+    logprint("Error: Fewer tokens than expected in --covar file line.\n");
   load_covars_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
+    break;
+  load_covars_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
     break;
   }
  load_covars_ret_1:
@@ -2579,7 +2790,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   return retval;
 }
 
-int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modifier, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t covar_ct, char* covar_names, uint32_t covar_name_max_len, uintptr_t* covar_nm, double* covar_d) {
+int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modifier, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d) {
   // stub
   int32_t retval = 0;
   while (0) {
@@ -2833,10 +3044,10 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
   fill_ulong_zero(already_seen, marker_ctl);
   loadbuf = (char*)wkspace_base;
   loadbuf_size = wkspace_left;
-  if (loadbuf_size > 0x7fffffc0) {
-    loadbuf_size = 0x7fffffc0;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
   }
-  if (loadbuf_size < MAXLINELEN) {
+  if (loadbuf_size <= MAXLINELEN) {
     goto update_marker_chroms_ret_NOMEM;
   }
   retval = open_and_skip_first_lines(&infile, update_chr->fname, loadbuf, loadbuf_size, update_chr->skip);
@@ -4244,8 +4455,8 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   fflush(stdout);
   while (1) {
     loadbuf_size = wkspace_left - topsize;
-    if (loadbuf_size > 0x7fffffc0) {
-      loadbuf_size = 0x7fffffc0;
+    if (loadbuf_size > MAXLINEBUFLEN) {
+      loadbuf_size = MAXLINEBUFLEN;
     }
     loadbuf[loadbuf_size - 1] = ' ';
   ped_to_bed_multichar_allele_loop_1_start:
@@ -4841,10 +5052,10 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   }
   loadbuf = (char*)wkspace_base;
   loadbuf_size = wkspace_left;
-  if (loadbuf_size > 0x7fffffc0) {
-    loadbuf_size = 0x7fffffc0;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
   }
-  if (loadbuf_size < MAXLINELEN) {
+  if (loadbuf_size <= MAXLINELEN) {
     goto ped_to_bed_ret_NOMEM;
   }
   if (fseeko(pedfile, 0, SEEK_END)) {
@@ -6085,8 +6296,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   }
   mapvals = (int64_t*)wkspace_base;
   loadbuf = (char*)(&(wkspace_base[sizeof(int64_t)]));
-  if (wkspace_left > 0x7fffffc8) {
-    loadbuf_size = 0x7fffffc0;
+  if (wkspace_left > (MAXLINEBUFLEN + 8)) {
+    loadbuf_size = MAXLINEBUFLEN;
   } else {
     loadbuf_size = wkspace_left - 8;
   }
@@ -6211,7 +6422,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       transposed_to_bed_print_pct(pct);
     }
     if (loadbuf_size == 1 + strlen(cptr2) + (cptr2 - loadbuf)) {
-      if (loadbuf_size == 0x7fffffc0) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
 	goto transposed_to_bed_ret_INVALID_FORMAT;
       } else {
         goto transposed_to_bed_ret_NOMEM;

@@ -316,6 +316,16 @@ char* next_item_mult(char* sptr, uint32_t ct) {
   return sptr;
 }
 
+uint32_t count_tokens(char* bufptr) {
+  uint32_t token_ct = 0;
+  bufptr = skip_initial_spaces(bufptr);
+  while (!is_eoln_kns(*bufptr)) {
+    token_ct++;
+    bufptr = skip_initial_spaces(item_endnn(bufptr));
+  }
+  return token_ct;
+}
+
 // number-to-string encoders
 
 static const char digit2_table[] = {
@@ -2583,6 +2593,15 @@ uintptr_t next_set_ul(uintptr_t* include_arr, uintptr_t loc, uintptr_t ceil) {
   return MINV((idx * BITCT) + CTZLU(*include_arr), ceil);
 }
 
+intptr_t last_set_bit(uintptr_t* bit_arr, uintptr_t word_ct) {
+  do {
+    if (bit_arr[--word_ct]) {
+      return (word_ct * BITCT) + BITCT - 1 - CLZLU(bit_arr[word_ct]);
+    }
+  } while (word_ct);
+  return -1;
+}
+
 void fill_idx_to_uidx(uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* idx_to_uidx) {
   uint32_t item_uidx = 0;
   uint32_t item_idx;
@@ -3279,6 +3298,8 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
   // include excluded markers/indivs in the list.
   // Assumes sorted_ids and id_map have been allocated; use the sort_item_ids()
   // wrapper if they haven't been.
+  // Note that this DOES still perform a "stack" allocation (in the qsort_ext()
+  // call).
   uint32_t uii = 0;
   char* dup_id;
   char* tptr;
@@ -3923,13 +3944,13 @@ uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintpt
   return tot;
 }
 
-void vertical_bitct_subtract(uintptr_t* bitarr, uint32_t item_ct, uint32_t* sum_arr) {
+void vertical_bitct_subtract(uintptr_t* bit_arr, uint32_t item_ct, uint32_t* sum_arr) {
   // assumes trailing bits are zeroed out
   uintptr_t cur_word;
   uint32_t idx_offset;
   uint32_t last_set_bit;
   for (idx_offset = 0; idx_offset < item_ct; idx_offset += BITCT) {
-    cur_word = *bitarr++;
+    cur_word = *bit_arr++;
     while (cur_word) {
       last_set_bit = CTZLU(cur_word);
       sum_arr[idx_offset + last_set_bit] -= 1;
@@ -5133,6 +5154,89 @@ void vec_3freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, ui
   *homset_ctp = acc_and;
 }
 
+uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t item_ct, uintptr_t* bitfield) {
+  char* names = range_list_ptr->names;
+  unsigned char* starts_range = range_list_ptr->starts_range;
+  uint32_t name_ct = range_list_ptr->name_ct;
+  uint32_t name_max_len = range_list_ptr->name_max_len;
+  uint32_t name_idx;
+  uint32_t idx1;
+  uint32_t idx2;
+  for (name_idx = 0; name_idx < name_ct; name_idx++) {
+    idx1 = atoi(&(names[name_idx * name_max_len]));
+    if (idx1 > item_ct) {
+      return 1;
+    }
+    if (starts_range[name_idx]) {
+      name_idx++;
+      idx2 = atoi(&(names[name_idx * name_max_len]));
+      if (idx2 > item_ct) {
+	return 1;
+      }
+      fill_bits(bitfield, idx1 - 1, (idx2 - idx1) + 1);
+    } else {
+      set_bit_noct(bitfield, idx1 - 1);
+    }
+  }
+  return 0;
+}
+
+int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, Range_list* range_list_ptr, char* sorted_ids, uint32_t* id_map, int32_t* seen_idxs, const char* range_list_flag, const char* file_descrip, uintptr_t* bitfield) {
+  uintptr_t max_id_len = range_list_ptr->name_max_len;
+  uint32_t name_ct = range_list_ptr->name_ct;
+  intptr_t name_ct_m1 = (uintptr_t)(name_ct - 1);
+  uint32_t item_idx = 0;
+  int32_t retval = 0;
+  char* bufptr;
+  char cc;
+  int32_t ii;
+  while (1) {
+    bufptr = item_endnn(header_line);
+    cc = *bufptr;
+    *bufptr = '\0';
+    ii = bsearch_str(header_line, sorted_ids, max_id_len, 0, name_ct_m1);
+    *bufptr = cc;
+    if (ii != -1) {
+      if (seen_idxs[(uint32_t)ii] != -1) {
+        sprintf(logbuf, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
+        goto string_range_list_to_bitfield_ret_INVALID_FORMAT;
+      }
+      seen_idxs[(uint32_t)ii] = item_idx;
+      if (ii && range_list_ptr->starts_range[(uint32_t)(ii - 1)]) {
+        if (seen_idxs[ii - 1] == -1) {
+          sprintf(logbuf, "Error: Second element of --%s range appears before first element in\n%s.\n", range_list_flag, file_descrip);
+          goto string_range_list_to_bitfield_ret_INVALID_CMDLINE;
+	}
+	fill_bits(bitfield, seen_idxs[ii - 1], (item_idx - seen_idxs[ii - 1]) + 1);
+      } else if (!(range_list_ptr->starts_range[(uint32_t)ii])) {
+	set_bit_noct(bitfield, item_idx);
+      }
+    }
+    if (++item_idx == item_ct) {
+      break;
+    }
+    header_line = skip_initial_spaces(&(bufptr[1]));
+  }
+  for (item_idx = 0; item_idx < name_ct; item_idx++) {
+    if (seen_idxs[item_idx] == -1) {
+      goto string_range_list_to_bitfield_ret_INVALID_CMDLINE_2;
+    }
+  }
+  while (0) {
+  string_range_list_to_bitfield_ret_INVALID_CMDLINE_2:
+    sprintf(logbuf, "Error: Missing --%s token in %s.\n", range_list_flag, file_descrip);
+  string_range_list_to_bitfield_ret_INVALID_CMDLINE:
+    logprintb();
+    retval = RET_INVALID_CMDLINE;
+    break;
+  string_range_list_to_bitfield_ret_INVALID_FORMAT:
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  return retval;
+}
+
 uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude) {
   uint32_t min_idx;
   uint32_t max_idx;
@@ -5920,6 +6024,40 @@ int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf,
   return 0;
 }
 
+int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_char, const char* file_descrip, char* loadbuf, char** bufptr_ptr) {
+  while (fgets(loadbuf, loadbuf_size, infile)) {
+    if (!(loadbuf[loadbuf_size - 1])) {
+      if ((loadbuf_size == MAXLINELEN) || (loadbuf_size == MAXLINEBUFLEN)) {
+	sprintf(logbuf, "Error: Pathologically long line in %s.", file_descrip);
+	logprintb();
+	return RET_INVALID_FORMAT;
+      } else {
+	return RET_NOMEM;
+      }
+    }
+    *bufptr_ptr = skip_initial_spaces(loadbuf);
+    if (!is_eoln_kns(**bufptr_ptr)) {
+      if ((**bufptr_ptr) != comment_char) {
+        return 0;
+      }
+    }
+  }
+  if (!feof(infile)) {
+    return RET_READ_FAIL;
+  }
+  sprintf(logbuf, "Error: Empty %s.", file_descrip);
+  logprintb();
+  return RET_INVALID_FORMAT;
+}
+
+int32_t open_and_load_to_first_token(FILE** infile_ptr, char* fname, uintptr_t loadbuf_size, char comment_char, const char* file_descrip, char* loadbuf, char** bufptr_ptr) {
+  loadbuf[loadbuf_size - 1] = ' ';
+  if (fopen_checked(infile_ptr, fname, "r")) {
+    return RET_OPEN_FAIL;
+  }
+  return load_to_first_token(*infile_ptr, loadbuf_size, comment_char, file_descrip, loadbuf, bufptr_ptr);
+}
+
 int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t headerskip, char skipchar, uintptr_t* max_str_len_ptr, uintptr_t* max_str2_len_ptr) {
   // colnum and colnum2 are 1-based indices.  If colnum2 is zero, only colnum
   // is scanned.
@@ -5936,10 +6074,10 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
   char cc;
   uintptr_t cur_str_len;
   int32_t retval;
-  if (loadbuf_size > 0x7fffffc0) {
-    loadbuf_size = 0x7fffffc0;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
   }
-  if (loadbuf_size < MAXLINELEN) {
+  if (loadbuf_size <= MAXLINELEN) {
     goto scan_max_strlen_ret_NOMEM;
   }
   retval = open_and_skip_first_lines(&infile, fname, loadbuf, loadbuf_size, headerskip);
@@ -6035,10 +6173,10 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
   uintptr_t cur_person_id_len;
   int32_t retval;
   colnum--;
-  if (loadbuf_size > 0x7fffffc0) {
-    loadbuf_size = 0x7fffffc0;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
   }
-  if (loadbuf_size < MAXLINELEN) {
+  if (loadbuf_size <= MAXLINELEN) {
     goto scan_max_fam_indiv_strlen_ret_NOMEM;
   }
   retval = open_and_skip_first_lines(&infile, fname, loadbuf, loadbuf_size, 0);
@@ -6736,7 +6874,7 @@ void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr
   }
 }
 
-void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
+void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
   uintptr_t ulii = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
@@ -6744,7 +6882,7 @@ void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* exclud
   fill_ulong_zero(output_arr, ((filtered_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
   for (item_idx = 0; item_idx < filtered_ct; item_idx++) {
     item_uidx = next_non_set_unsafe(exclude_arr, item_uidx);
-    ulii |= ((bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & ONELU) << write_bit;
+    ulii |= ((bit_arr[item_uidx / BITCT] >> (item_uidx % BITCT)) & ONELU) << write_bit;
     if (++write_bit == BITCT) {
       *output_arr++ = ulii;
       ulii = 0;
@@ -6757,7 +6895,7 @@ void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* exclud
   }
 }
 
-void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
+void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
   uintptr_t ulii = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
@@ -6765,7 +6903,7 @@ void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* i
   fill_ulong_zero(output_arr, ((filtered_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
   for (item_idx = 0; item_idx < filtered_ct; item_idx++) {
     item_uidx = next_set_unsafe(include_arr, item_uidx);
-    ulii |= ((bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & ONELU) << write_bit;
+    ulii |= ((bit_arr[item_uidx / BITCT] >> (item_uidx % BITCT)) & ONELU) << write_bit;
     if (++write_bit == BITCT) {
       *output_arr++ = ulii;
       ulii = 0;
@@ -6778,7 +6916,7 @@ void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* i
   }
 }
 
-void collapse_copy_bitarr_to_vec_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_vec) {
+void collapse_copy_bitarr_to_vec_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_vec) {
   uintptr_t ulii = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
@@ -6786,7 +6924,7 @@ void collapse_copy_bitarr_to_vec_incl(uint32_t orig_ct, uintptr_t* bitarr, uintp
   fill_ulong_zero(output_vec, 2 * ((filtered_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
   for (item_idx = 0; item_idx < filtered_ct; item_idx++) {
     item_uidx = next_set_unsafe(include_arr, item_uidx);
-    ulii |= ((bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & ONELU) << (write_bit * 2);
+    ulii |= ((bit_arr[item_uidx / BITCT] >> (item_uidx % BITCT)) & ONELU) << (write_bit * 2);
     if (++write_bit == BITCT2) {
       *output_vec++ = ulii;
       ulii = 0;

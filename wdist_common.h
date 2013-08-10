@@ -70,8 +70,10 @@
 #ifdef _WIN64
 #define __LP64__
 #define CTZLU __builtin_ctzll
+#define CLZLU __builtin_clzll
 #else
 #define CTZLU __builtin_ctzl
+#define CLZLU __builtin_clzl
 #ifndef __LP64__
 #define uintptr_t unsigned long
 #define intptr_t long
@@ -461,6 +463,10 @@ typedef union {
 // size of generic text line load buffer.  .ped lines can of course be longer
 #define MAXLINELEN 131072
 
+// maximum size of dynamically allocated line load buffer.  (this is the limit
+// that applies to .ped and similar files)
+#define MAXLINEBUFLEN 0x7fffffc0
+
 // note that this is NOT foolproof: see e.g.
 // http://insanecoding.blogspot.com/2007/11/pathmax-simply-isnt.html .  (This
 // is why I haven't bothered with OS-based #ifdefs here.)  But it should be
@@ -819,6 +825,8 @@ char* next_item(char* sptr);
 
 char* next_item_mult(char* sptr, uint32_t ct);
 
+uint32_t count_tokens(char* bufptr);
+
 static inline void copy_nse(char* target, char* source) {
   uint32_t uii;
   if (source) {
@@ -1058,6 +1066,8 @@ int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc);
 uint32_t next_set_32(uintptr_t* include_arr, uint32_t loc, uint32_t ceil);
 
 uintptr_t next_set_ul(uintptr_t* include_arr, uintptr_t loc, uintptr_t ceil);
+
+intptr_t last_set_bit(uintptr_t* bit_arr, uintptr_t word_ct);
 
 // These functions seem to optimize better than memset(arr, 0, x) under gcc.
 static inline void fill_long_zero(intptr_t* larr, size_t size) {
@@ -1451,6 +1461,10 @@ static inline void zero_trailing_bits(uintptr_t* bitfield, uintptr_t unfiltered_
   }
 }
 
+uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t item_ct, uintptr_t* bitfield);
+
+int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, Range_list* range_list_ptr, char* sorted_ids, uint32_t* id_map, int32_t* seen_idx, const char* range_list_flag, const char* file_descrip, uintptr_t* bitfield);
+
 uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude);
 
 uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x);
@@ -1491,10 +1505,13 @@ static inline char sexchar(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t ind
 
 int32_t open_and_size_string_list(char* fname, FILE** infile_ptr, uintptr_t* list_len_ptr, uintptr_t* max_str_len_ptr);
 
-
 int32_t load_string_list(FILE** infile_ptr, uintptr_t max_str_len, char* str_list);
 
 int32_t open_and_skip_first_lines(FILE** infile_ptr, char* fname, char* loadbuf, uintptr_t loadbuf_size, uint32_t lines_to_skip);
+
+int32_t load_to_first_token(FILE* infile, uintptr_t loadbuf_size, char comment_char, const char* file_descrip, char* loadbuf, char** bufptr_ptr);
+
+int32_t open_and_load_to_first_token(FILE** infile_ptr, char* fname, uintptr_t loadbuf_size, char comment_char, const char* file_descrip, char* loadbuf, char** bufptr_ptr);
 
 int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t headerskip, char skipchar, uintptr_t* max_str_len_ptr, uintptr_t* max_str2_len_ptr);
 

@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (8 Aug 2013)";
+  " (10 Aug 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -3610,10 +3610,10 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   fill_ulong_zero(already_seen, marker_ctl);
   loadbuf = (char*)wkspace_base;
   loadbuf_size = wkspace_left;
-  if (loadbuf_size > 0x7fffffc0) {
-    loadbuf_size = 0x7fffffc0;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
   }
-  if (loadbuf_size < MAXLINELEN) {
+  if (loadbuf_size <= MAXLINELEN) {
     goto load_ax_alleles_ret_NOMEM;
   }
   retval = open_and_skip_first_lines(&infile, axalleles->fname, loadbuf, loadbuf_size, axalleles->skip);
@@ -3878,9 +3878,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   int32_t xmhh_exists = 0;
   int32_t nxmhh_exists = 0;
   uint32_t pheno_ctrl_ct = 0;
-  uint32_t covar_ct = 0;
+  uintptr_t covar_ct = 0;
   char* covar_names = NULL;
-  uint32_t covar_name_max_len = 0;
+  uintptr_t max_covar_name_len = 0;
   uintptr_t* covar_nm = NULL;
   double* covar_d = NULL;
   uint32_t plink_maxfid = 0;
@@ -4539,7 +4539,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	logprint("Note: Ignoring --covar since no commands reference the covariates.\n");
       }
     } else {
-      retval = load_covars(covar_fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, covar_modifier, covar_range_list_ptr, &covar_ct, &covar_names, &covar_name_max_len, &covar_nm, &covar_d);
+      retval = load_covars(covar_fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, missing_phenod, covar_modifier, covar_range_list_ptr, &covar_ct, &covar_names, &max_covar_name_len, &covar_nm, &covar_d);
       if (retval) {
 	goto wdist_ret_1;
       }
@@ -4676,7 +4676,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       bitfield_andnot_reversed_args(pheno_nosex_exclude, pheno_nm, unfiltered_indiv_ctl);
     }
     if (covar_fname) {
-      retval = write_covars(outname, outname_end, write_covar_modifier, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nosex_exclude? pheno_nosex_exclude : pheno_nm, pheno_c, pheno_d, output_missing_pheno, covar_ct, covar_names, covar_name_max_len, covar_nm, covar_d);
+      retval = write_covars(outname, outname_end, write_covar_modifier, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nosex_exclude? pheno_nosex_exclude : pheno_nm, pheno_c, pheno_d, output_missing_pheno, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d);
       if (retval) {
 	goto wdist_ret_1;
       }
@@ -5610,7 +5610,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
     }
   }
   if (flag_match("d", &flag_idx, flag_ct, flag_buf)) {
-    // need to move this earlier to support --covar-name + --d
+    // moved here to support --covar-name + --d
     cur_arg = flag_map[flag_idx - 1];
     param_ct = param_count(argc, argv, cur_arg);
     if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {

@@ -371,8 +371,8 @@ int32_t oxford_gen_load1(FILE* genfile, uint32_t* gen_buf_len_ptr, uintptr_t* un
   double cur_ref_allele_ct;
   double cur_allele_wt;
   double dxx;
-  if (wkspace_left > 0x7fffffc0) {
-    max_load = 0x7fffffc0;
+  if (wkspace_left > MAXLINEBUFLEN) {
+    max_load = MAXLINEBUFLEN;
   } else {
     max_load = wkspace_left;
   }
@@ -422,7 +422,8 @@ int32_t oxford_gen_load1(FILE* genfile, uint32_t* gen_buf_len_ptr, uintptr_t* un
 	total_allele_wt += cur_allele_wt;
 	indiv_uidx++;
       } else {
-	// sadly, this kludge is an important performance optimization
+	// todo: replace this ridiculous "performance optimization" with
+	// scan_double()/strtod() calls; that had better not be any slower...
 	if (sscanf(bufptr, "%lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg", &(cur_allele_wts[0]), &(cur_ref_allele_cts[0]), &(cur_ref_homs[0]), &(cur_allele_wts[1]), &(cur_ref_allele_cts[1]), &(cur_ref_homs[1]), &(cur_allele_wts[2]), &(cur_ref_allele_cts[2]), &(cur_ref_homs[2]), &(cur_allele_wts[3]), &(cur_ref_allele_cts[3]), &(cur_ref_homs[3]), &(cur_allele_wts[4]), &(cur_ref_allele_cts[4]), &(cur_ref_homs[4]), &(cur_allele_wts[5]), &(cur_ref_allele_cts[5]), &(cur_ref_homs[5]), &(cur_allele_wts[6]), &(cur_ref_allele_cts[6]), &(cur_ref_homs[6]), &(cur_allele_wts[7]), &(cur_ref_allele_cts[7]), &(cur_ref_homs[7])) != 24) {
 	  goto oxford_gen_load1_ret_INVALID_FORMAT;
 	}
@@ -1443,8 +1444,8 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
     }
   }
 
-  if (wkspace_left > 0x7fffffc0LU) {
-    max_load = 0x7fffffc0LU;
+  if (wkspace_left > MAXLINEBUFLEN) {
+    max_load = MAXLINEBUFLEN;
   } else {
     max_load = wkspace_left;
   }

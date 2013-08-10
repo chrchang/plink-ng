@@ -826,9 +826,6 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
     if (wkspace_left < MAXLINELEN) {
       goto cluster_enforce_match_ret_NOMEM;
     }
-    if (fopen_checked(&matchfile, cp->match_fname, "r")) {
-      goto cluster_enforce_match_ret_OPEN_FAIL;
-    }
     if (cp->match_missing_str) {
       missing_str = cp->match_missing_str;
       missing_len = strlen(missing_str);
@@ -886,19 +883,10 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       }
       cov_type_arr = (unsigned char*)wkspace_alloc(cov_ct);
     }
-    do {
-      if (!fgets(tbuf, MAXLINELEN, matchfile)) {
-	if (feof(matchfile)) {
-	  logprint("Error: Empty --match file.\n");
-	  goto cluster_enforce_match_ret_INVALID_FORMAT;
-	}
-	goto cluster_enforce_match_ret_READ_FAIL;
-      }
-      if (!tbuf[MAXLINELEN - 1]) {
-        goto cluster_enforce_match_ret_INVALID_FORMAT_3;
-      }
-      bufptr = skip_initial_spaces(tbuf);
-    } while (is_eoln_kns(*bufptr));
+    retval = open_and_load_to_first_token(&matchfile, cp->match_fname, MAXLINELEN, '\0', "--match file", tbuf, &bufptr);
+    if (retval) {
+      goto cluster_enforce_match_ret_1;
+    }
     if (!cov_ct) {
       bufptr2 = next_item_mult(bufptr, 2);
       if (no_more_items(bufptr2)) {
