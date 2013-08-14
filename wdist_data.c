@@ -2888,7 +2888,7 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
     if (write_covar_dummy_max_categories > indiv_ct) {
       write_covar_dummy_max_categories = indiv_ct;
     }
-    downcoding_string_buf = (char*)top_alloc(&topsize, 16 * write_covar_dummy_max_categories);
+    downcoding_string_buf = (char*)top_alloc(&topsize, 16 * (write_covar_dummy_max_categories + 1));
     if (!downcoding_string_buf) {
       goto write_covars_ret_NOMEM;
     }
@@ -3035,6 +3035,7 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
 	    wptr = double_g_write(bufptr, sorted_downcoding_buf[indiv_idx2]);
 	    ujj = downcoding_buf_idxs[indiv_idx2];
 	    if (((uintptr_t)(wptr - bufptr) != slen) || memcmp(wptr_start, bufptr, slen)) {
+	      *wptr = '\0';
 	      if (downcode_category_ct == write_covar_dummy_max_categories - 1) {
 		downcode_category_ct = 0;
 		break;
