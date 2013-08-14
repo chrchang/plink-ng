@@ -8098,7 +8098,7 @@ int32_t assoc_gxe(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   uint32_t chrom_end;
   uintptr_t loop_end;
   uintptr_t marker_idx;
-  uintptr_t indiv_uidx;
+  // uintptr_t indiv_uidx;
   // uintptr_t indiv_idx;
   uint32_t is_x;
   uint32_t is_haploid;
@@ -8183,7 +8183,7 @@ int32_t assoc_gxe(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
 	  hh_reset((unsigned char*)loadbuf, indiv_include2, unfiltered_indiv_ct);
 	}
       }
-      indiv_uidx = 0;
+      // indiv_uidx = 0;
 
       // todo (refer to line ~7500)
 
