@@ -5445,6 +5445,54 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
   return 0;
 }
 
+void vec_include_init(uintptr_t unfiltered_indiv_ct, uintptr_t* new_include2, uintptr_t* old_include) {
+  uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uintptr_t ulkk;
+  uintptr_t ulmm;
+  uint32_t bit_idx;
+  do {
+    ulii = ~(*old_include++);
+    ulkk = FIVEMASK;
+    ulmm = FIVEMASK;
+    if (ulii) {
+      uljj = ulii >> BITCT2;
+#ifdef __LP64__
+      ulii &= 0xffffffffLLU;
+#else
+      ulii &= 0xffffLU;
+#endif
+      if (ulii) {
+	do {
+	  bit_idx = CTZLU(ulii);
+	  ulkk &= ~(ONELU << (bit_idx * 2));
+	  ulii &= ulii - 1;
+	} while (ulii);
+      }
+      if (uljj) {
+	do {
+	  bit_idx = CTZLU(uljj);
+	  ulmm &= ~(ONELU << (bit_idx * 2));
+	  uljj &= uljj - 1;
+	} while (uljj);
+      }
+    }
+    *new_include2++ = ulkk;
+    *new_include2++ = ulmm;
+  } while (--unfiltered_indiv_ctl);
+  ulii = unfiltered_indiv_ct & (BITCT - 1);
+  if (ulii) {
+    new_include2--;
+    if (ulii < BITCT2) {
+      *new_include2-- = 0;
+    } else {
+      ulii -= BITCT2;
+    }
+    *new_include2 &= (ONELU << (ulii * 2)) - ONELU;
+  }
+}
+
 void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* exclude_arr) {
   uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t ulii;

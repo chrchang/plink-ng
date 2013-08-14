@@ -2486,7 +2486,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
   return retval;
 }
 
-int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, double missing_phenod, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uintptr_t* covar_ct_ptr, char** covar_names_ptr, uintptr_t* max_covar_name_len_ptr, uintptr_t* pheno_nm, uint32_t* pheno_nm_ct_ptr, uintptr_t** covar_nm_ptr, double** covar_d_ptr) {
+int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, double missing_phenod, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t gxe_mcovar, uintptr_t* covar_ct_ptr, char** covar_names_ptr, uintptr_t* max_covar_name_len_ptr, uintptr_t* pheno_nm, uint32_t* pheno_nm_ct_ptr, uintptr_t** covar_nm_ptr, double** covar_d_ptr, uintptr_t** gxe_covar_nm_ptr, uintptr_t** gxe_covar_c_ptr) {
   // similar to load_clusters() in wdist_cluster.c
   unsigned char* wkspace_mark = wkspace_base;
   unsigned char* wkspace_mark2 = NULL;
@@ -2500,14 +2500,17 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   char* sorted_covar_name_flag_ids = NULL;
   uint32_t* covar_name_flag_id_map = NULL;
   int32_t* covar_name_flag_seen_idxs = NULL;
+  char* covar_names = NULL;
+  uintptr_t* covar_nm = NULL;
+  double* covar_d = NULL;
+  uintptr_t* gxe_covar_nm = NULL;
+  uintptr_t* gxe_covar_c = NULL;
+  double* dptr = NULL;
   char* bufptr = NULL;
   uintptr_t max_covar_name_len = 1;
   double dxx = 0.0;
   uint32_t keep_pheno_on_missing_cov = covar_modifier & COVAR_KEEP_PHENO_ON_MISSING_COV;
   int32_t retval = 0;
-  char* covar_names;
-  uintptr_t* covar_nm;
-  double* covar_d;
   uintptr_t covar_raw_ctl;
   uintptr_t covar_ct;
   uintptr_t* covars_active;
@@ -2517,7 +2520,6 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   char* loadbuf;
   uintptr_t loadbuf_size;
   char* bufptr2;
-  double* dptr;
   uint32_t header_absent;
   uint32_t min_covar_col_ct;
   uint32_t uii;
@@ -2527,7 +2529,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   uint32_t covar_missing;
   int32_t ii;
 
-  if (!keep_pheno_on_missing_cov) {
+  if ((!keep_pheno_on_missing_cov) || gxe_mcovar) {
     indiv_idx_to_uidx = (uint32_t*)top_alloc(&topsize, indiv_ct * sizeof(int32_t));
     if (!indiv_idx_to_uidx) {
       goto load_covars_ret_NOMEM;
@@ -2601,6 +2603,9 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   covar_raw_ct = count_tokens(bufptr);
   if (covar_raw_ct < 3) {
     goto load_covars_ret_INVALID_FORMAT_2;
+  } else if (covar_raw_ct < 2 + gxe_mcovar) {
+    logprint("Error: Fewer tokens in --covar file than required by --gxe parameter.\n");
+    goto load_covars_ret_INVALID_CMDLINE;
   }
   covar_raw_ct -= 2;
   covar_raw_ctl = (covar_raw_ct + (BITCT - 1)) / BITCT;
@@ -2631,10 +2636,13 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
       topsize -= (uintptr_t)(((unsigned char*)already_seen) - ((unsigned char*)covar_name_flag_seen_idxs));
     }
     covar_ct = popcount_longs(covars_active, 0, covar_raw_ctl);
-  } else {
+  } else if (covar_range_list_ptr) {
     covars_active[covar_raw_ctl - 1] = 0;
     fill_bits(covars_active, 0, covar_raw_ct);
     covar_ct = covar_raw_ct;
+  } else {
+    fill_ulong_zero(covars_active, covar_raw_ctl);
+    covar_ct = 0;
   }
   min_covar_col_ct = last_set_bit(covars_active, covar_raw_ctl) + 1;
   if (header_absent) {
@@ -2654,6 +2662,9 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
       bufptr = skip_initial_spaces(&(bufptr2[1]));
     }
   }
+  if (min_covar_col_ct < gxe_mcovar) {
+    min_covar_col_ct = gxe_mcovar;
+  }
 
   wkspace_left -= topsize;
   // * covar_nm does NOT have a separate entry per covariate; instead,
@@ -2664,17 +2675,33 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   //   zero-based).  It does track when some covariates are missing and others
   //   aren't (missing covariates are represented as the --missing-phenotype
   //   value).
-  if (wkspace_alloc_c_checked(covar_names_ptr, covar_ct * max_covar_name_len) ||
-      wkspace_alloc_ul_checked(covar_nm_ptr, indiv_ctl * sizeof(intptr_t)) ||
-      wkspace_alloc_d_checked(covar_d_ptr, covar_ct * indiv_ct * sizeof(double))) {
-    goto load_covars_ret_NOMEM2;
+  if (covar_range_list_ptr) {
+    // not only --gxe
+    *covar_ct_ptr = covar_ct;
+    *max_covar_name_len_ptr = max_covar_name_len;
+    if (wkspace_alloc_c_checked(covar_names_ptr, covar_ct * max_covar_name_len) ||
+        wkspace_alloc_ul_checked(covar_nm_ptr, indiv_ctl * sizeof(intptr_t)) ||
+        wkspace_alloc_d_checked(covar_d_ptr, covar_ct * indiv_ct * sizeof(double))) {
+      goto load_covars_ret_NOMEM2;
+    }
+    covar_names = *covar_names_ptr;
+    covar_nm = *covar_nm_ptr;
+    covar_d = *covar_d_ptr;
+    fill_ulong_zero(covar_nm, indiv_ctl);
+  }
+  if (gxe_mcovar) {
+    if (wkspace_alloc_ul_checked(gxe_covar_nm_ptr, indiv_ctl * sizeof(intptr_t)) ||
+        wkspace_alloc_ul_checked(gxe_covar_c_ptr, indiv_ctl * sizeof(intptr_t))) {
+      goto load_covars_ret_NOMEM2;
+    }
+    gxe_covar_nm = *gxe_covar_nm_ptr;
+    gxe_covar_c = *gxe_covar_c_ptr;
+    fill_ulong_zero(gxe_covar_nm, indiv_ctl);
+    fill_ulong_zero(gxe_covar_c, indiv_ctl);
   }
   if (wkspace_left <= MAXLINELEN) {
     goto load_covars_ret_NOMEM2;
   }
-  covar_names = *covar_names_ptr;
-  covar_nm = *covar_nm_ptr;
-  covar_d = *covar_d_ptr;
   wkspace_mark2 = wkspace_base;
   loadbuf = (char*)wkspace_base;
   loadbuf_size = wkspace_left;
@@ -2683,14 +2710,15 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   }
   wkspace_left += topsize;
   loadbuf[loadbuf_size - 1] = ' ';
-  fill_ulong_zero(covar_nm, indiv_ctl);
 
   rewind(covar_file);
   if (header_absent) {
-    uii = 0;
-    for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
-      uii = next_set_unsafe(covars_active, uii);
-      uint32_writex(memcpyl3a(&(covar_names[covar_idx * max_covar_name_len]), "COV"), ++uii, '\0');
+    if (covar_range_list_ptr) {
+      uii = 0;
+      for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
+	uii = next_set_unsafe(covars_active, uii);
+	uint32_writex(memcpyl3a(&(covar_names[covar_idx * max_covar_name_len]), "COV"), ++uii, '\0');
+      }
     }
   } else {
     covar_idx = 0;
@@ -2698,13 +2726,15 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     if (retval) {
       goto load_covars_ret_1;
     }
-    bufptr2 = item_endnn(next_item(bufptr));
-    for (uii = 0; uii < min_covar_col_ct; uii++) {
-      bufptr = skip_initial_spaces(bufptr2);
-      bufptr2 = item_endnn(bufptr);
-      if (is_set(covars_active, uii)) {
-        memcpyx(&(covar_names[covar_idx * max_covar_name_len]), bufptr, (uintptr_t)(bufptr2 - bufptr), '\0');
-        covar_idx++;
+    if (covar_range_list_ptr) {
+      bufptr2 = item_endnn(next_item(bufptr));
+      for (uii = 0; uii < min_covar_col_ct; uii++) {
+	bufptr = skip_initial_spaces(bufptr2);
+	bufptr2 = item_endnn(bufptr);
+	if (is_set(covars_active, uii)) {
+	  memcpyx(&(covar_names[covar_idx * max_covar_name_len]), bufptr, (uintptr_t)(bufptr2 - bufptr), '\0');
+	  covar_idx++;
+	}
       }
     }
   }
@@ -2742,7 +2772,9 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
       goto load_covars_ret_INVALID_FORMAT_2;
     }
     bufptr2 = item_endnn(bufptr2);
-    dptr = &(covar_d[indiv_idx * covar_ct]);
+    if (covar_range_list_ptr) {
+      dptr = &(covar_d[indiv_idx * covar_ct]);
+    }
     covar_missing = 0;
     for (uii = 0; uii < min_covar_col_ct; uii++) {
       bufptr = skip_initial_spaces(bufptr2);
@@ -2756,16 +2788,37 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
 	}
 	*dptr++ = dxx;
       }
-    }
-    if (!covar_missing) {
-      set_bit_noct(covar_nm, indiv_idx);
-    } else {
-      missing_cov_ct++;
-      if (!keep_pheno_on_missing_cov) {
+      if (uii + 1 == gxe_mcovar) {
         indiv_uidx = indiv_idx_to_uidx[indiv_idx];
-        if (is_set(pheno_nm, indiv_uidx)) {
-	  clear_bit_noct(pheno_nm, indiv_uidx);
-	  *pheno_nm_ct_ptr -= 1;
+	if (is_set(pheno_nm, indiv_uidx)) {
+	  if (scan_double(bufptr, &dxx) || (dxx == missing_phenod)) {
+	    // PLINK 1.07 quirk: --gxe treats 0 the same as -9/nonnumeric, but
+	    // --write-covar does not, so handle 0 separately for backward
+	    // compatibility
+	    if (!keep_pheno_on_missing_cov) {
+	      clear_bit_noct(pheno_nm, indiv_uidx);
+	      *pheno_nm_ct_ptr -= 1;
+	    }
+	  } else if (dxx != 0.0) {
+	    set_bit_noct(gxe_covar_nm, indiv_idx);
+	    if (dxx == 2.0) {
+	      set_bit_noct(gxe_covar_c, indiv_idx);
+	    }
+	  }
+	}
+      }
+    }
+    if (covar_range_list_ptr) {
+      if (!covar_missing) {
+	set_bit_noct(covar_nm, indiv_idx);
+      } else {
+	missing_cov_ct++;
+	if (!keep_pheno_on_missing_cov) {
+	  indiv_uidx = indiv_idx_to_uidx[indiv_idx];
+	  if (is_set(pheno_nm, indiv_uidx)) {
+	    clear_bit_noct(pheno_nm, indiv_uidx);
+	    *pheno_nm_ct_ptr -= 1;
+	  }
 	}
       }
     }
@@ -2778,20 +2831,26 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     logprint("Error: No --covar values loaded.\n");
     goto load_covars_ret_INVALID_FORMAT;
   }
-  if (covar_ct < covar_raw_ct) {
-    sprintf(logbuf, "--covar: %" PRIuPTR " out of %" PRIuPTR " covariates loaded.\n", covar_ct, covar_raw_ct);
+  if (covar_range_list_ptr) {
+    if ((covar_ct < covar_raw_ct - 1) || ((covar_ct == covar_raw_ct - 1) && ((!gxe_mcovar) || is_set(covars_active, gxe_mcovar - 1)))) {
+      if (gxe_mcovar && (!is_set(covars_active, gxe_mcovar - 1))) {
+        sprintf(logbuf, "--covar: 1 C/C cov. loaded for --gxe, %" PRIuPTR "/%" PRIuPTR " for other operations.\n", covar_ct, covar_raw_ct);
+      } else {
+        sprintf(logbuf, "--covar: %" PRIuPTR " out of %" PRIuPTR " covariates loaded.\n", covar_ct, covar_raw_ct);
+      }
+    } else {
+      sprintf(logbuf, "--covar: %" PRIuPTR " covariate%s loaded.\n", covar_ct, (covar_ct == 1)? "" : "s");
+    }
+    logprintb();
   } else {
-    sprintf(logbuf, "--covar: %" PRIuPTR " covariate%s loaded.\n", covar_ct, (covar_ct == 1)? "" : "s");
+    logprint("--covar: 1 dichotomous covariate loaded for --gxe.\n");
   }
-  logprintb();
   if (missing_cov_ct) {
     sprintf(logbuf, "%" PRIuPTR " %s had missing value(s).\n", missing_cov_ct, species_str(missing_cov_ct));
     logprintb();
   }
 
   wkspace_reset(wkspace_mark2);
-  *covar_ct_ptr = covar_ct;
-  *max_covar_name_len_ptr = max_covar_name_len;
   while (0) {
   load_covars_ret_NOMEM2:
     wkspace_left += topsize;
@@ -9069,10 +9128,27 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   char* cur_mk_allelesx[6];
   uint32_t cmalen[4];
   uint32_t pct;
-  uint32_t loop_end;
+  uintptr_t loop_end;
   uintptr_t ulii;
   uint32_t shiftval;
   char* mk_alleles;
+  if (recode_modifier & (RECODE_BEAGLE | RECODE_BIMBAM | RECODE_FASTPHASE | RECODE_HV | RECODE_STRUCTURE | RECODE_WHAP)) {
+    if (recode_modifier & RECODE_BEAGLE) {
+      logprint("Error: --recode beagle has not been implemented yet.\n");
+    } else if (recode_modifier & RECODE_BIMBAM) {
+      logprint("Error: --recode bimbam has not been implemented yet.\n");
+    } else if (recode_modifier & RECODE_FASTPHASE) {
+      logprint("Error: --recode fastphase has not been implemented yet.\n");
+    } else if (recode_modifier & RECODE_HV) {
+      logprint("Error: --recode HV has not been implemented yet.\n");
+    } else if (recode_modifier & RECODE_STRUCTURE) {
+      logprint("Error: --recode structure has not been implemented yet.\n");
+    } else {
+      logprint("Error: --recode whap has not been implemented yet.\n");
+    }
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto recode_ret_1;
+  }
   cur_mk_alleles[0] = '\0';
   cur_mk_alleles[1] = '\0';
   cur_mk_alleles[2] = '\0';
@@ -9099,7 +9175,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       } else {
         exclude_to_vec_include(unfiltered_indiv_ct, indiv_male_include2, indiv_exclude);
       }
-      vec_include_mask_in(unfiltered_indiv_ct, indiv_male_include2, sex_nm);
+      // sex_male should be a subset of sex_nm
+      // vec_include_mask_in(unfiltered_indiv_ct, indiv_male_include2, sex_nm);
       vec_include_mask_in(unfiltered_indiv_ct, indiv_male_include2, sex_male);
     }
   }

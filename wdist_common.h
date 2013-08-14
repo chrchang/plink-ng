@@ -293,15 +293,21 @@ typedef union {
 #define RECODE_23 0x10
 #define RECODE_A 0x20
 #define RECODE_AD 0x40
-#define RECODE_LGEN 0x80
-#define RECODE_LGEN_REF 0x100
-#define RECODE_LIST 0x200
-#define RECODE_RLIST 0x400
-#define RECODE_TRANSPOSE 0x800
-#define RECODE_VCF 0x1000
-#define RECODE_TYPEMASK 0x1ff0
-#define RECODE_FID 0x2000
-#define RECODE_IID 0x4000
+#define RECODE_BEAGLE 0x80
+#define RECODE_BIMBAM 0x100
+#define RECODE_FASTPHASE 0x200
+#define RECODE_HV 0x400
+#define RECODE_LGEN 0x800
+#define RECODE_LGEN_REF 0x1000
+#define RECODE_LIST 0x2000
+#define RECODE_RLIST 0x4000
+#define RECODE_STRUCTURE 0x8000
+#define RECODE_TRANSPOSE 0x10000
+#define RECODE_VCF 0x20000
+#define RECODE_WHAP 0x40000
+#define RECODE_TYPEMASK 0x7fff0
+#define RECODE_FID 0x80000
+#define RECODE_IID 0x100000
 
 #define GENOME_OUTPUT_GZ 1
 #define GENOME_REL_CHECK 2
@@ -1489,6 +1495,8 @@ void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t 
 uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include);
 
 uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_indiv_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf);
+
+void vec_include_init(uintptr_t unfiltered_indiv_ct, uintptr_t* new_include2, uintptr_t* old_include);
 
 void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* exclude_arr);
 

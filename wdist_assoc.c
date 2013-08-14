@@ -7243,7 +7243,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       wkspace_alloc_ul_checked(&indiv_include2, pheno_nm_ctv2 * sizeof(intptr_t))) {
     goto qassoc_ret_NOMEM;
   }
-  exclude_to_vec_include(unfiltered_indiv_ct, indiv_raw_include2, pheno_nm);
+  vec_include_init(unfiltered_indiv_ct, indiv_raw_include2, pheno_nm);
   fill_vec_55(indiv_include2, pheno_nm_ct);
   x_code = chrom_info_ptr->x_code;
   y_code = chrom_info_ptr->y_code;
@@ -7252,6 +7252,8 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     if (wkspace_alloc_ul_checked(&indiv_raw_male_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
       goto qassoc_ret_NOMEM;
     }
+    memcpy(indiv_raw_male_include2, indiv_raw_include2, unfiltered_indiv_ctv2 * sizeof(intptr_t));
+    vec_include_mask_in(unfiltered_indiv_ct, indiv_raw_male_include2, sex_male);
   }
   marker_unstopped_ct = marker_ct;
   indiv_uidx = 0;
@@ -8074,5 +8076,150 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   fclose_cond(outfile);
   fclose_cond(outfile_qtm);
   fclose_cond(outfile_msa);
+  return retval;
+}
+
+int32_t assoc_gxe(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* gxe_covar_nm, uintptr_t* gxe_covar_c, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t xmhh_exists, uint32_t nxmhh_exists) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
+  uintptr_t gxe_covar_nm_ct = popcount_longs(gxe_covar_nm, 0, indiv_ctl);
+  uintptr_t group_2_size = popcount_longs(gxe_covar_c, 0, indiv_ctl);
+  uintptr_t group_1_size = gxe_covar_nm_ct - group_2_size;
+  uintptr_t marker_uidx = 0;
+  uintptr_t* indiv_male_include2 = NULL;
+  uintptr_t* indiv_include2 = NULL;
+  int32_t retval = 0;
+  uintptr_t* loadbuf;
+  char* cptr;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_end;
+  uintptr_t loop_end;
+  uintptr_t marker_idx;
+  uintptr_t indiv_uidx;
+  // uintptr_t indiv_idx;
+  uint32_t is_x;
+  uint32_t is_haploid;
+  uint32_t pct;
+
+  if (group_1_size < 2) {
+    logprint("Error: First --gxe group has fewer than two members.\n");
+    goto assoc_gxe_ret_INVALID_CMDLINE;
+  } else if (group_2_size < 2) {
+    logprint("Error: Second --gxe group has fewer than two members.\n");
+    goto assoc_gxe_ret_INVALID_CMDLINE;
+  }
+  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+    goto assoc_gxe_ret_NOMEM;
+  }
+
+  // er, time to encapsulate this stuff in wdist_common...
+  if (nxmhh_exists) {
+    if (wkspace_alloc_ul_checked(&indiv_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
+      goto assoc_gxe_ret_NOMEM;
+    }
+    vec_include_init(unfiltered_indiv_ct, indiv_include2, gxe_covar_nm);
+  }
+  if (xmhh_exists) {
+    if (wkspace_alloc_ul_checked(&indiv_male_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
+      goto assoc_gxe_ret_NOMEM;
+    }
+    if (nxmhh_exists) {
+      memcpy(indiv_male_include2, indiv_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t));
+    } else {
+      vec_include_init(unfiltered_indiv_ct, indiv_male_include2, gxe_covar_nm);
+    }
+    vec_include_mask_in(unfiltered_indiv_ct, indiv_male_include2, sex_male);
+  }
+
+  memcpy(outname_end, ".qassoc.gxe", 12);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto assoc_gxe_ret_OPEN_FAIL;
+  }
+  sprintf(logbuf, "Writing --gxe report to %s...", outname);
+  logprintb();
+  fputs(" 0%", stdout);
+  fflush(stdout);
+  sprintf(tbuf, " CHR %%%us   NMISS1      BETA1        SE1   NMISS2      BETA2        SE2    Z_GXE        P_GXE \n", plink_maxsnp);
+  if (fprintf(outfile, tbuf, "SNP") < 0) {
+    goto assoc_gxe_ret_WRITE_FAIL;
+  }
+
+  if (fseeko(bedfile, bed_offset, SEEK_SET)) {
+    goto assoc_gxe_ret_READ_FAIL;
+  }
+  // exploit overflow for initialization
+  chrom_fo_idx = 0xffffffffU;
+  marker_uidx = 0;
+  marker_idx = 0;
+  chrom_end = 0;
+  for (pct = 1; pct <= 100; pct++) {
+    loop_end = (((uint64_t)pct) * marker_ct) / 100;
+    for (; marker_idx < loop_end; marker_idx++) {
+      if (is_set(marker_exclude, marker_uidx)) {
+	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	  goto assoc_gxe_ret_READ_FAIL;
+	}
+      }
+      if (marker_uidx >= chrom_end) {
+	chrom_fo_idx++;
+	refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	cptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
+	*cptr++ = ' ';
+      }
+
+      if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	goto assoc_gxe_ret_READ_FAIL;
+      }
+      if (is_haploid) {
+	if (is_x) {
+	  if (xmhh_exists) {
+	    hh_reset((unsigned char*)loadbuf, indiv_male_include2, unfiltered_indiv_ct);
+	  }
+	} else if (nxmhh_exists) {
+	  hh_reset((unsigned char*)loadbuf, indiv_include2, unfiltered_indiv_ct);
+	}
+      }
+      indiv_uidx = 0;
+
+      // todo (refer to line ~7500)
+
+      marker_uidx++;
+    }
+    if (pct < 100) {
+      if (pct > 10) {
+        putchar('\b');
+      }
+      printf("\b\b%u%%", pct);
+      fflush(stdout);
+    }
+  }
+
+  fclose_cond(outfile);
+  logprint("\nError: --gxe is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+
+  while (0) {
+  assoc_gxe_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  assoc_gxe_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  assoc_gxe_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  assoc_gxe_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  assoc_gxe_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
   return retval;
 }

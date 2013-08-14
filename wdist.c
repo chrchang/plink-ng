@@ -2015,8 +2015,8 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uintptr_t* founder_ctrl_include2;
   uint32_t nonmales_needed;
   uint32_t males_needed;
-  uintptr_t* tmp_indiv_mask;
-  uintptr_t* tmp_indiv_mask2;
+  uintptr_t* tmp_indiv_excl_mask;
+  uintptr_t* tmp_indiv_excl_mask2;
   uintptr_t loop_end;
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
@@ -2125,7 +2125,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     }
   }
   founder_include2 = indiv_include2;
-  if (wkspace_alloc_ul_checked(&tmp_indiv_mask, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(&tmp_indiv_excl_mask, unfiltered_indiv_ctl * sizeof(intptr_t))) {
     goto calc_freqs_and_hwe_ret_NOMEM;
   }
   if (!nonfounders) {
@@ -2133,10 +2133,10 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       goto calc_freqs_and_hwe_ret_NOMEM;
     }
     for (uii = 0; uii < unfiltered_indiv_ctl; uii++) {
-      tmp_indiv_mask[uii] = indiv_exclude[uii] | (~founder_info[uii]);
+      tmp_indiv_excl_mask[uii] = indiv_exclude[uii] | (~founder_info[uii]);
     }
-    zero_trailing_bits(tmp_indiv_mask, unfiltered_indiv_ct);
-    exclude_to_vec_include(unfiltered_indiv_ct, founder_include2, tmp_indiv_mask);
+    zero_trailing_bits(tmp_indiv_excl_mask, unfiltered_indiv_ct);
+    exclude_to_vec_include(unfiltered_indiv_ct, founder_include2, tmp_indiv_excl_mask);
     if (males_needed) {
       if (wkspace_alloc_ul_checked(&founder_male_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
 	goto calc_freqs_and_hwe_ret_NOMEM;
@@ -2159,31 +2159,31 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     indiv_f_ctrl_ct = indiv_f_ct;
   } else {
     for (uii = 0; uii < unfiltered_indiv_ctl; uii++) {
-      tmp_indiv_mask[uii] = indiv_exclude[uii];
+      tmp_indiv_excl_mask[uii] = indiv_exclude[uii];
     }
     founder_ctrl_include2 = founder_include2;
   }
 
   if (!hwe_all) {
     if (wkspace_alloc_ul_checked(&founder_ctrl_include2, unfiltered_indiv_ctl2 *  sizeof(intptr_t)) ||
-	wkspace_alloc_ul_checked(&tmp_indiv_mask2, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+	wkspace_alloc_ul_checked(&tmp_indiv_excl_mask2, unfiltered_indiv_ctl * sizeof(intptr_t))) {
       goto calc_freqs_and_hwe_ret_NOMEM;
     }
     indiv_uidx = 0;
     for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ctl; indiv_uidx++) {
-      tmp_indiv_mask2[indiv_uidx] = tmp_indiv_mask[indiv_uidx] | (~(pheno_nm[indiv_uidx])) | pheno_c[indiv_uidx];
+      tmp_indiv_excl_mask2[indiv_uidx] = tmp_indiv_excl_mask[indiv_uidx] | (~(pheno_nm[indiv_uidx])) | pheno_c[indiv_uidx];
     }
-    zero_trailing_bits(tmp_indiv_mask2, unfiltered_indiv_ct);
-    // tmp_indiv_mask is now set for each indiv who is excluded, or a
+    zero_trailing_bits(tmp_indiv_excl_mask2, unfiltered_indiv_ct);
+    // tmp_indiv_excl_mask is now set for each indiv who is excluded, or a
     // nonfounder, or is noncontrol.
-    indiv_f_ctrl_ct = unfiltered_indiv_ct - popcount_longs(tmp_indiv_mask2, 0, unfiltered_indiv_ctl);
-    exclude_to_vec_include(unfiltered_indiv_ct, founder_ctrl_include2, tmp_indiv_mask2);
+    indiv_f_ctrl_ct = unfiltered_indiv_ct - popcount_longs(tmp_indiv_excl_mask2, 0, unfiltered_indiv_ctl);
+    exclude_to_vec_include(unfiltered_indiv_ct, founder_ctrl_include2, tmp_indiv_excl_mask2);
     if (nonmales_needed) {
       if (wkspace_alloc_ul_checked(&founder_ctrl_nonmale_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
 	goto calc_freqs_and_hwe_ret_NOMEM;
       }
       memcpy(founder_ctrl_nonmale_include2, indiv_nonmale_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t));
-      vec_include_mask_out(unfiltered_indiv_ct, founder_ctrl_nonmale_include2, tmp_indiv_mask2);
+      vec_include_mask_out(unfiltered_indiv_ct, founder_ctrl_nonmale_include2, tmp_indiv_excl_mask2);
       indiv_f_ctl_nonmale_ct = popcount_longs(founder_ctrl_nonmale_include2, 0, unfiltered_indiv_ctl2);
     }
     if (hardy_needed) {
@@ -2192,17 +2192,17 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       }
       indiv_uidx = 0;
       for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ctl; indiv_uidx++) {
-	tmp_indiv_mask[indiv_uidx] |= (~(pheno_nm[indiv_uidx])) | (~pheno_c[indiv_uidx]);
+	tmp_indiv_excl_mask[indiv_uidx] |= (~(pheno_nm[indiv_uidx])) | (~pheno_c[indiv_uidx]);
       }
-      zero_trailing_bits(tmp_indiv_mask, unfiltered_indiv_ct);
-      indiv_f_case_ct = unfiltered_indiv_ct - popcount_longs(tmp_indiv_mask, 0, unfiltered_indiv_ctl);
-      exclude_to_vec_include(unfiltered_indiv_ct, founder_case_include2, tmp_indiv_mask);
+      zero_trailing_bits(tmp_indiv_excl_mask, unfiltered_indiv_ct);
+      indiv_f_case_ct = unfiltered_indiv_ct - popcount_longs(tmp_indiv_excl_mask, 0, unfiltered_indiv_ctl);
+      exclude_to_vec_include(unfiltered_indiv_ct, founder_case_include2, tmp_indiv_excl_mask);
       if (nonmales_needed) {
 	if (wkspace_alloc_ul_checked(&founder_case_nonmale_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
 	  goto calc_freqs_and_hwe_ret_NOMEM;
 	}
 	memcpy(founder_case_nonmale_include2, indiv_nonmale_include2, unfiltered_indiv_ctl2 * sizeof(intptr_t));
-	vec_include_mask_out(unfiltered_indiv_ct, founder_case_nonmale_include2, tmp_indiv_mask);
+	vec_include_mask_out(unfiltered_indiv_ct, founder_case_nonmale_include2, tmp_indiv_excl_mask);
 	indiv_f_ctl_nonmale_ct = popcount_longs(founder_case_nonmale_include2, 0, unfiltered_indiv_ctl2);
       }
     }
@@ -3883,6 +3883,8 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t max_covar_name_len = 0;
   uintptr_t* covar_nm = NULL;
   double* covar_d = NULL;
+  uintptr_t* gxe_covar_nm = NULL;
+  uintptr_t* gxe_covar_c = NULL;
   uint32_t plink_maxfid = 0;
   uint32_t plink_maxiid = 0;
   unsigned char* wkspace_mark2 = NULL;
@@ -4534,12 +4536,12 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   if (covar_fname) {
     // update this as more covariate-referencing commands are added
-    if (!(calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR | CALC_GLM))) {
-      if (!(calculation_type & CALC_GXE)) {
-	logprint("Note: Ignoring --covar since no commands reference the covariates.\n");
-      }
+    if (!(calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR | CALC_GXE | CALC_GLM))) {
+      logprint("Note: Ignoring --covar since no commands reference the covariates.\n");
     } else {
-      retval = load_covars(covar_fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, missing_phenod, covar_modifier, covar_range_list_ptr, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &pheno_nm_ct, &covar_nm, &covar_d);
+      // if only --gxe, ignore --covar-name/--covar-number
+      uii = calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR | CALC_GLM);
+      retval = load_covars(covar_fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, missing_phenod, uii? covar_modifier : (covar_modifier & COVAR_KEEP_PHENO_ON_MISSING_COV), uii? covar_range_list_ptr : NULL, gxe_mcovar, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &pheno_nm_ct, &covar_nm, &covar_d, &gxe_covar_nm, &gxe_covar_c);
       if (retval) {
 	goto wdist_ret_1;
       }
@@ -4994,10 +4996,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
       // if dichotomous phenotype loaded with --all-pheno, skip --gxe
       if ((calculation_type & CALC_GXE) && pheno_d) {
-	logprint("Error: --gxe is not implemented yet.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto wdist_ret_1;
-	// retval = perm_test_gxe();
+	retval = assoc_gxe(bedfile, bed_offset, outname, outname_end, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, pheno_nm, pheno_d, gxe_covar_nm, gxe_covar_c, sex_nm, sex_male, xmhh_exists, nxmhh_exists);
 	if (retval) {
 	  goto wdist_ret_1;
 	}
@@ -6344,17 +6343,37 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_flag_copy;
       case 'r':
 	if (!memcmp(argptr, "recode", 6)) {
-	  if (((kk == 9) && ((!memcmp(&(argptr[6]), "12", 2)) || match_upper(&(argptr[6]), "AD"))) || (!memcmp(&(argptr[6]), "-lgen", 6)) || (!memcmp(&(argptr[6]), "-rlist", 7)) || (!memcmp(&(argptr[6]), "-vcf", 5)) || ((tolower(argptr[6]) == 'a') && (kk == 8))) {
-	    if (kk == 13) {
+	  if (((kk == 8) && (tolower(argptr[6]) == 'a')) || ((kk == 9) && ((!memcmp(&(argptr[6]), "12", 2)) || match_upper(&(argptr[6]), "AD") || match_upper(&(argptr[6]), "HV"))) || ((kk == 11) && (!memcmp(&(argptr[6]), "-vcf", 4))) || ((kk == 12) && ((!memcmp(&(argptr[6]), "-lgen", 5)) || (!memcmp(&(argptr[6]), "-whap", 5)))) || ((kk == 13) && (!memcmp(&(argptr[6]), "-rlist", 6))) || ((kk == 14) && ((!memcmp(&(argptr[6]), "-beagle", 7)) || (!memcmp(&(argptr[6]), "-bimbam", 7)))) || ((kk == 17) && ((!memcmp(&(argptr[6]), "-fastphase", 10)) || (!memcmp(&(argptr[6]), "-structure", 10))))) {
+	    if (kk == 17) {
+	      if (argptr[6] == 'f') {
+		memcpy(flagptr, "recode fastphase", 17);
+	      } else {
+		memcpy(flagptr, "recode structure", 17);
+	      }
+	    } else if (kk == 14) {
+	      if (argptr[7] == 'e') {
+		memcpy(flagptr, "recode beagle", 14);
+	      } else {
+		memcpy(flagptr, "recode bimbam", 14);
+	      }
+	    } else if (kk == 13) {
 	      memcpy(flagptr, "recode rlist", 13);
 	    } else if (kk == 12) {
-	      memcpy(flagptr, "recode lgen", 12);
+	      if (argptr[6] == 'l') {
+	        memcpy(flagptr, "recode lgen", 12);
+	      } else {
+                memcpy(flagptr, "recode whap", 12);
+	      }
 	    } else if (kk == 11) {
 	      memcpy(flagptr, "recode vcf", 11);
-	    } else if (argptr[6] == '1') {
-	      memcpy(flagptr, "recode 12", 10);
 	    } else if (kk == 9) {
-	      memcpy(flagptr, "recode AD", 10);
+	      if (argptr[6] == '1') {
+	        memcpy(flagptr, "recode 12", 10);
+	      } else if (tolower(argptr[6]) == 'h') {
+		memcpy(flagptr, "recode HV", 10);
+	      } else {
+	        memcpy(flagptr, "recode AD", 10);
+	      }
 	    } else {
 	      memcpy(flagptr, "recode A", 9);
 	    }
@@ -10286,7 +10305,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode 23", 9)) || (!memcmp(argptr2, "ecode lgen", 11)) || (!memcmp(argptr2, "ecode AD", 9)) || (!memcmp(argptr2, "ecode A", 8)) || (!memcmp(argptr2, "ecode vcf", 10)) || (!memcmp(argptr2, "ecode list", 11)) || (!memcmp(argptr2, "ecode rlist", 12))) {
+      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode 23", 9)) || (!memcmp(argptr2, "ecode lgen", 11)) || (!memcmp(argptr2, "ecode AD", 9)) || (!memcmp(argptr2, "ecode A", 8)) || (!memcmp(argptr2, "ecode vcf", 10)) || (!memcmp(argptr2, "ecode list", 11)) || (!memcmp(argptr2, "ecode rlist", 12)) || (!memcmp(argptr2, "ecode beagle", 13)) || (!memcmp(argptr2, "ecode bimbam", 13)) || (!memcmp(argptr2, "ecode fastphase", 16)) || (!memcmp(argptr2, "ecode HV", 9)) || (!memcmp(argptr2, "ecode structure", 16)) || (!memcmp(argptr2, "ecode whap", 11))) {
 	if (argptr2[5] == ' ') {
 	  if (argptr2[6] == '1') {
 	    recode_modifier |= RECODE_12;
@@ -10335,6 +10354,10 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_AD)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
+	  } else if ((!argv[cur_arg + uii][2]) && match_upper(argv[cur_arg + uii], "HV")) {
+	    if (recode_type_set(&recode_modifier, RECODE_HV)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	  } else if (!memcmp(argv[cur_arg + uii], "tab", 4)) {
 	    if (recode_modifier & (RECODE_TAB | RECODE_DELIMX)) {
 	      sprintf(logbuf, "Error: Multiple --recode delimiter modifiers.%s", errstr_append);
@@ -10353,6 +10376,18 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_DELIMX;
+	  } else if (!memcmp(argv[cur_arg + uii], "beagle", 7)) {
+	    if (recode_type_set(&recode_modifier, RECODE_BEAGLE)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	  } else if (!memcmp(argv[cur_arg + uii], "bimbam", 7)) {
+	    if (recode_type_set(&recode_modifier, RECODE_BIMBAM)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	  } else if (!memcmp(argv[cur_arg + uii], "fastphase", 10)) {
+	    if (recode_type_set(&recode_modifier, RECODE_FASTPHASE)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	  } else if (!memcmp(argv[cur_arg + uii], "lgen", 5)) {
 	    if (recode_type_set(&recode_modifier, RECODE_LGEN)) {
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -10367,6 +10402,10 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	  } else if (!memcmp(argv[cur_arg + uii], "rlist", 6)) {
 	    if (recode_type_set(&recode_modifier, RECODE_RLIST)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	  } else if (!memcmp(argv[cur_arg + uii], "structure", 10)) {
+	    if (recode_type_set(&recode_modifier, RECODE_STRUCTURE)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	  } else if (!memcmp(argv[cur_arg + uii], "transpose", 10)) {
@@ -10399,6 +10438,10 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_IID;
+	  } else if (!memcmp(argv[cur_arg + uii], "whap", 5)) {
+	    if (recode_type_set(&recode_modifier, RECODE_WHAP)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --recode parameter '%s'.%s%s", argv[cur_arg + uii], ((uii == param_ct) && (!outname_end))? "  (Did you forget '--out'?)" : "", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
