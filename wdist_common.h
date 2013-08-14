@@ -254,8 +254,9 @@ typedef union {
 #define FILTER_BINARY_FOUNDERS 16
 #define FILTER_BINARY_NONFOUNDERS 32
 
-#define COVAR_NAME 1
-#define COVAR_NUMBER 2
+#define COVAR_KEEP_PHENO_ON_MISSING_COV 1
+#define COVAR_NAME 2
+#define COVAR_NUMBER 4
 
 #define REL_CALC_COV 1
 #define REL_CALC_SQ 2
@@ -311,7 +312,11 @@ typedef union {
 #define GENOME_FILTER_PI_HAT 0x20
 
 #define WRITE_COVAR_PHENO 1
-#define WRITE_COVAR_DUMMY 2
+#define WRITE_COVAR_NO_PARENTS 2
+#define WRITE_COVAR_NO_SEX 4
+#define WRITE_COVAR_FEMALE_2 8
+#define WRITE_COVAR_DUMMY 0x10
+#define WRITE_COVAR_DUMMY_NO_ROUND 0x20
 
 #define MERGE_MODE_MASK 7
 #define MERGE_EQUAL_POS 8
@@ -933,6 +938,12 @@ static inline char* uint32_writex(char* start, uint32_t uii, const char extra_ch
   return &(penult[1]);
 }
 
+static inline char* int32_writex(char* start, int32_t ii, const char extra_char) {
+  char* penult = int32_write(start, ii);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
 static inline char* uint32_writew6x(char* start, uint32_t uii, const char extra_char) {
   char* penult = uint32_writew6(start, uii);
   *penult = extra_char;
@@ -1434,7 +1445,7 @@ uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx
 
 uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx);
 
-void vertical_bitct_subtract(uintptr_t* bitarr, uint32_t item_ct, uint32_t* sum_arr);
+void vertical_bitct_subtract(uintptr_t* bit_arr, uint32_t item_ct, uint32_t* sum_arr);
 
 #ifdef __LP64__
 void count_2freq_dbl_60v(__m128i* vptr, __m128i* vend, __m128i* mask1vp, __m128i* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp);
@@ -1521,11 +1532,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 
 void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr, int32_t exclude_arr_size);
 
-void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr);
+void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr);
 
-void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr);
+void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr);
 
-void collapse_copy_bitarr_to_vec_incl(uint32_t orig_ct, uintptr_t* bitarr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_vec);
+void collapse_copy_bitarr_to_vec_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_vec);
 
 uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, uint32_t* id_starts);
 

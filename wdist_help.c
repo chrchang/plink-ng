@@ -912,7 +912,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #ifndef STABLE_BUILD
     help_print("covar\tcovar-name\tcovar-number", &help_ctrl, 0,
-"  --covar [filename]     : Specify covariate file.\n"
+"  --covar [filename] <keep-pheno-on-missing-cov> : Specify covariate file.\n"
 "  --covar-name [...]     : Specifies covariate(s) in --covar file by name.\n"
 "                           Separate multiple names with spaces or commas, and\n"
 "                           use dashes to designate ranges.\n"
@@ -1071,14 +1071,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     respect this flag.\n"
 	       );
 #ifndef STABLE_BUILD
-    help_print("with-phenotype\twrite-covar", &help_ctrl, 0,
-"  --with-phenotype : Include parental IDs, sex, and phenotype when writing\n"
-"                     updated covariate file.\n"
-	       );
-    help_print("dummy-coding\twrite-covar", &help_ctrl, 0,
-"  --dummy-coding   : Split categorical variables (n categories, for 2 < n < 50)\n"
-"                     into n-1 binary dummy variables when writing updated\n"
-"                     covariate file.\n"
+    help_print("with-phenotype\tdummy-coding\twrite-covar", &help_ctrl, 0,
+"  --with-phenotype <no-parents> <no-sex | female-2> : Include more individual\n"
+"                                                      info in new .cov file.\n"
+"  --dummy-coding {N} <no-round> : Split categorical variables (n categories,\n"
+"                                  2 < n <= N, default N is 49) into n-1 binary\n"
+"                                  dummy variables when writing covariate file.\n"
 	       );
 #endif
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 0,
