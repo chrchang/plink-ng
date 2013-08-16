@@ -45,7 +45,7 @@ int32_t edit1_match(int32_t len1, char* s1, int32_t len2, char* s2) {
   return 1;
 }
 
-#define MAX_EQUAL_HELP_PARAMS 23
+#define MAX_EQUAL_HELP_PARAMS 22
 
 typedef struct {
   int32_t iters_left;
@@ -358,10 +358,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    converters (which only respect --chr[-excl] and --autosome[-xy]), this\n"
 "    supports all of " PROG_NAME_CAPS "'s filtering flags.\n"
 	       );
-    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid\trecode-beagle\trecode-bimbam\trecode-fastphase\trecodeHV\trecodehv\trecode-structure\trecode-whap", &help_ctrl, 1,
+    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid\trecode-beagle\trecode-bimbam\trecode-fastphase\trecodeHV\trecodehv\trecode-structure", &help_ctrl, 1,
 "  --recode <12> <compound-genotypes> <23 | A | AD | beagle | bimbam | fastphase\n"
-"           | HV | lgen | lgen-ref | list | rlist | structure | transpose | vcf\n"
-"           | vcf-fid | vcf-iid | whap> <tab | tabx | spacex>\n"
+"           | fastphase-1chr | HV | HV-1chr | lgen | lgen-ref | list | rlist |\n"
+"           structure | transpose | vcf | vcf-fid | vcf-iid> <tab | tabx |\n"
+"           spacex>\n"
 "    Creates a new text fileset with all filters applied.\n"
 "    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
 "    * The 'compound-genotypes' modifier removes the space between pairs of\n"

@@ -9132,19 +9132,17 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   uintptr_t ulii;
   uint32_t shiftval;
   char* mk_alleles;
-  if (recode_modifier & (RECODE_BEAGLE | RECODE_BIMBAM | RECODE_FASTPHASE | RECODE_HV | RECODE_STRUCTURE | RECODE_WHAP)) {
+  if (recode_modifier & (RECODE_BEAGLE | RECODE_BIMBAM | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_HV | RECODE_HV_1CHR | RECODE_STRUCTURE)) {
     if (recode_modifier & RECODE_BEAGLE) {
       logprint("Error: --recode beagle has not been implemented yet.\n");
     } else if (recode_modifier & RECODE_BIMBAM) {
       logprint("Error: --recode bimbam has not been implemented yet.\n");
-    } else if (recode_modifier & RECODE_FASTPHASE) {
-      logprint("Error: --recode fastphase has not been implemented yet.\n");
-    } else if (recode_modifier & RECODE_HV) {
-      logprint("Error: --recode HV has not been implemented yet.\n");
+    } else if (recode_modifier & (RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR)) {
+      logprint("Error: --recode fastphase[-1chr] has not been implemented yet.\n");
+    } else if (recode_modifier & (RECODE_HV | RECODE_HV_1CHR)) {
+      logprint("Error: --recode HV[-1chr] has not been implemented yet.\n");
     } else if (recode_modifier & RECODE_STRUCTURE) {
       logprint("Error: --recode structure has not been implemented yet.\n");
-    } else {
-      logprint("Error: --recode whap has not been implemented yet.\n");
     }
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto recode_ret_1;

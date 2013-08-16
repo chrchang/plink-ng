@@ -67,7 +67,7 @@ const char ver_str[] =
 #ifdef STABLE_BUILD
   "WDIST v0.19.16"
 #else
-  "WDIST v0.21.5"
+  "WDIST v0.21.6p"
 #endif
 #endif
 #ifdef NOLAPACK
@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (14 Aug 2013)";
+  " (16 Aug 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -6343,43 +6343,83 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_flag_copy;
       case 'r':
 	if (!memcmp(argptr, "recode", 6)) {
-	  if (((kk == 8) && (tolower(argptr[6]) == 'a')) || ((kk == 9) && ((!memcmp(&(argptr[6]), "12", 2)) || match_upper(&(argptr[6]), "AD") || match_upper(&(argptr[6]), "HV"))) || ((kk == 11) && (!memcmp(&(argptr[6]), "-vcf", 4))) || ((kk == 12) && ((!memcmp(&(argptr[6]), "-lgen", 5)) || (!memcmp(&(argptr[6]), "-whap", 5)))) || ((kk == 13) && (!memcmp(&(argptr[6]), "-rlist", 6))) || ((kk == 14) && ((!memcmp(&(argptr[6]), "-beagle", 7)) || (!memcmp(&(argptr[6]), "-bimbam", 7)))) || ((kk == 17) && ((!memcmp(&(argptr[6]), "-fastphase", 10)) || (!memcmp(&(argptr[6]), "-structure", 10))))) {
-	    if (kk == 17) {
-	      if (argptr[6] == 'f') {
-		memcpy(flagptr, "recode fastphase", 17);
-	      } else {
-		memcpy(flagptr, "recode structure", 17);
-	      }
-	    } else if (kk == 14) {
-	      if (argptr[7] == 'e') {
-		memcpy(flagptr, "recode beagle", 14);
-	      } else {
-		memcpy(flagptr, "recode bimbam", 14);
-	      }
-	    } else if (kk == 13) {
-	      memcpy(flagptr, "recode rlist", 13);
-	    } else if (kk == 12) {
-	      if (argptr[6] == 'l') {
-	        memcpy(flagptr, "recode lgen", 12);
-	      } else {
-                memcpy(flagptr, "recode whap", 12);
-	      }
-	    } else if (kk == 11) {
-	      memcpy(flagptr, "recode vcf", 11);
-	    } else if (kk == 9) {
-	      if (argptr[6] == '1') {
-	        memcpy(flagptr, "recode 12", 10);
-	      } else if (tolower(argptr[6]) == 'h') {
-		memcpy(flagptr, "recode HV", 10);
-	      } else {
-	        memcpy(flagptr, "recode AD", 10);
-	      }
-	    } else {
+	  uii = 0; // alias match?
+	  argptr2 = &(argptr[6]);
+          switch (kk) {
+	  case 8:
+            if (tolower(*argptr2) == 'a') {
 	      memcpy(flagptr, "recode A", 9);
+	      recode_modifier |= RECODE_A;
+	      uii = 1;
 	    }
-	    printf("Note: --%s flag deprecated.  Use '%s ...'.\n", argptr, flagptr);
+	    break;
+	  case 9:
+	    if (!memcmp(argptr2, "12", 2)) {
+              memcpy(flagptr, "recode 12", 10);
+	      recode_modifier |= RECODE_12;
+	      uii = 1;
+            } else if (match_upper(argptr2, "AD")) {
+              memcpy(flagptr, "recode AD", 10);
+	      recode_modifier |= RECODE_AD;
+	      uii = 1;
+	    } else if (match_upper(argptr2, "HV")) {
+	      memcpy(flagptr, "recode HV-1chr", 15);
+	      recode_modifier |= RECODE_HV_1CHR;
+              printf("Note: --recodeHV flag deprecated.  Use '--recode HV' or '--recode HV-1chr'.\n");
+	      uii = 2;
+	    }
+	    break;
+	  case 11:
+	    if (!memcmp(argptr2, "-vcf", 4)) {
+	      memcpy(flagptr, "recode vcf", 11);
+	      recode_modifier |= RECODE_VCF;
+	      uii = 1;
+	    }
+	    break;
+          case 12:
+            if (!memcmp(argptr2, "-lgen", 5)) {
+              memcpy(flagptr, "recode lgen", 12);
+	      recode_modifier |= RECODE_LGEN;
+              uii = 1;
+	    }
+	    break;
+	  case 13:
+	    if (!memcmp(argptr2, "-rlist", 6)) {
+	      memcpy(flagptr, "recode rlist", 13);
+	      recode_modifier |= RECODE_RLIST;
+	      uii = 1;
+	    }
+	    break;
+	  case 14:
+	    if (!memcmp(argptr2, "-beagle", 7)) {
+	      memcpy(flagptr, "recode beagle", 14);
+	      recode_modifier |= RECODE_BEAGLE;
+	      uii = 1;
+	    } else if (!memcmp(argptr2, "-bimbam", 7)) {
+	      memcpy(flagptr, "recode bimbam", 14);
+	      recode_modifier |= RECODE_BIMBAM;
+	      uii = 1;
+	    }
+	    break;
+	  case 17:
+	    if (!memcmp(argptr2, "-fastphase", 10)) {
+	      memcpy(flagptr, "recode fastphase-1chr", 22);
+	      recode_modifier |= RECODE_FASTPHASE_1CHR;
+	      printf("Note: --recode-fastphase flag deprecated.  Use '--recode fastphase' or\n'--recode fastphase-1chr'.\n");
+	      uii = 2;
+	    } else if (!memcmp(argptr2, "-structure", 10)) {
+	      memcpy(flagptr, "recode structure", 17);
+	      recode_modifier |= RECODE_STRUCTURE;
+	      uii = 1;
+	    }
+	    break;
+	  }
+	  if (uii) {
+	    if (uii == 1) {
+	      printf("Note: --%s flag deprecated.  Use '%s ...'.\n", argptr, flagptr);
+	    }
 	    mm++;
-            break;
+	    break;
 	  }
 	} else if (!memcmp(argptr, "reference-allele", 17)) {
 	  memcpy(flagptr, "a1-allele", 10);
@@ -10305,27 +10345,8 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
-      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode 12", 9)) || (!memcmp(argptr2, "ecode 23", 9)) || (!memcmp(argptr2, "ecode lgen", 11)) || (!memcmp(argptr2, "ecode AD", 9)) || (!memcmp(argptr2, "ecode A", 8)) || (!memcmp(argptr2, "ecode vcf", 10)) || (!memcmp(argptr2, "ecode list", 11)) || (!memcmp(argptr2, "ecode rlist", 12)) || (!memcmp(argptr2, "ecode beagle", 13)) || (!memcmp(argptr2, "ecode bimbam", 13)) || (!memcmp(argptr2, "ecode fastphase", 16)) || (!memcmp(argptr2, "ecode HV", 9)) || (!memcmp(argptr2, "ecode structure", 16)) || (!memcmp(argptr2, "ecode whap", 11))) {
+      } else if ((!memcmp(argptr2, "ecode", 6)) || (!memcmp(argptr2, "ecode ", 6))) {
 	if (argptr2[5] == ' ') {
-	  if (argptr2[6] == '1') {
-	    recode_modifier |= RECODE_12;
-	  } else if (argptr2[6] == '2') {
-	    recode_modifier |= RECODE_23;
-	  } else if (argptr2[6] == 'l') {
-	    if (argptr2[7] == 'g') {
-	      recode_modifier |= RECODE_LGEN;
-	    } else {
-	      recode_modifier |= RECODE_LIST;
-	    }
-	  } else if (argptr2[6] == 'r') {
-	    recode_modifier |= RECODE_RLIST;
-	  } else if (argptr2[6] == 'v') {
-	    recode_modifier |= RECODE_VCF;
-	  } else if (argptr2[7] == 'D') {
-	    recode_modifier |= RECODE_AD;
-	  } else {
-	    recode_modifier |= RECODE_A;
-	  }
 	  kk = 1;
 	} else {
 	  kk = 0;
@@ -10354,9 +10375,15 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_AD)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if ((!argv[cur_arg + uii][2]) && match_upper(argv[cur_arg + uii], "HV")) {
-	    if (recode_type_set(&recode_modifier, RECODE_HV)) {
-	      goto main_ret_INVALID_CMDLINE_3;
+	  } else if (match_upper(argv[cur_arg + uii], "HV")) {
+	    if (!argv[cur_arg + uii][2]) {
+	      if (recode_type_set(&recode_modifier, RECODE_HV)) {
+	        goto main_ret_INVALID_CMDLINE_3;
+	      }
+	    } else if (!memcmp(&(argv[cur_arg + uii][2]), "-1chr", 6)) {
+	      if (recode_type_set(&recode_modifier, RECODE_HV_1CHR)) {
+	        goto main_ret_INVALID_CMDLINE_3;
+	      }
 	    }
 	  } else if (!memcmp(argv[cur_arg + uii], "tab", 4)) {
 	    if (recode_modifier & (RECODE_TAB | RECODE_DELIMX)) {
@@ -10386,6 +10413,10 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	  } else if (!memcmp(argv[cur_arg + uii], "fastphase", 10)) {
 	    if (recode_type_set(&recode_modifier, RECODE_FASTPHASE)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	  } else if (!memcmp(argv[cur_arg + uii], "fastphase-1chr", 14)) {
+	    if (recode_type_set(&recode_modifier, RECODE_FASTPHASE_1CHR)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	  } else if (!memcmp(argv[cur_arg + uii], "lgen", 5)) {
@@ -10438,16 +10469,15 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_IID;
-	  } else if (!memcmp(argv[cur_arg + uii], "whap", 5)) {
-	    if (recode_type_set(&recode_modifier, RECODE_WHAP)) {
-	      goto main_ret_INVALID_CMDLINE_3;
-	    }
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --recode parameter '%s'.%s%s", argv[cur_arg + uii], ((uii == param_ct) && (!outname_end))? "  (Did you forget '--out'?)" : "", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
 	calculation_type |= CALC_RECODE;
+      } else if (!memcmp(argptr2, "ecode-whap", 11)) {
+        logprint("Error: --recode-whap flag retired since WHAP is no longer supported.\n");
+	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "ecode-allele", 13)) {
 	if (!(recode_modifier & (RECODE_A | RECODE_AD))) {
 	  sprintf(logbuf, "Error: --recode-allele must be used with --recode A or --recode AD.%s", errstr_append);
