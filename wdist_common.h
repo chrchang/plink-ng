@@ -759,7 +759,7 @@ static inline char replace_if_zero(char cc, char replacement) {
 }
 
 
-static inline char* replace_if_zstr(char* ss, const char* replacement) {
+static inline const char* replace_if_zstr(char* ss, const char* replacement) {
   if ((ss[0] != '0') || ss[1]) {
     return ss;
   }
