@@ -2602,6 +2602,25 @@ intptr_t last_set_bit(uintptr_t* bit_arr, uintptr_t word_ct) {
   return -1;
 }
 
+intptr_t last_clear_bit(uintptr_t* bit_arr, uintptr_t ceil) {
+  uintptr_t word_idx = (ceil - 1) / BITCT;
+  uintptr_t remainder = ceil & (BITCT - 1);
+  uintptr_t ulii;
+  if (remainder) {
+    ulii = ((~bit_arr[word_idx]) & ((ONELU << remainder) - ONELU));
+    if (ulii) {
+      return (word_idx * BITCT) + BITCT - 1 - CLZLU(ulii);
+    }
+  }
+  while (word_idx) {
+    ulii = ~bit_arr[--word_idx];
+    if (ulii) {
+      return (word_idx * BITCT) + BITCT - 1 - CLZLU(ulii);
+    }
+  }
+  return -1;
+}
+
 void fill_idx_to_uidx(uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* idx_to_uidx) {
   uint32_t item_uidx = 0;
   uint32_t item_idx;
@@ -2882,6 +2901,18 @@ void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint3
   if (is_all_nonmale) {
     *is_haploid_ptr = (*is_haploid_ptr) && (!(*is_x_ptr));
   }
+}
+
+int32_t single_chrom_start(Chrom_info* chrom_info_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude) {
+  // Assumes there is at least one marker, and there are no split chromosomes.
+  // Returns first marker_uidx in chromosome if there is only one, or -1 if
+  // there's more than one chromosome.
+  uint32_t first_marker_uidx = next_non_set_unsafe(marker_exclude, 0);
+  uint32_t last_marker_chrom = get_marker_chrom(chrom_info_ptr, last_clear_bit(marker_exclude, unfiltered_marker_ct));
+  if (get_marker_chrom(chrom_info_ptr, first_marker_uidx) == last_marker_chrom) {
+    return first_marker_uidx;
+  }
+  return -1;
 }
 
 int32_t strcmp_casted(const void* s1, const void* s2) {

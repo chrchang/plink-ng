@@ -11530,14 +11530,19 @@ int32_t main(int32_t argc, char** argv) {
     sprintf(logbuf, "Error: --flip-subset must be used with --flip, --make-bed, and no other\ncommands or MAF-based filters.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
-  if ((calculation_type & CALC_RECODE) && (recode_modifier & RECODE_23)) {
-    if (chrom_info.species != SPECIES_HUMAN) {
-      logprint("Error: --recode 23 can only be used on human data.\n");
-      goto main_ret_INVALID_CMDLINE;
-    }
-    if ((misc_flags & (MISC_ALLOW_EXTRA_CHROMS | MISC_ZERO_EXTRA_CHROMS)) == MISC_ALLOW_EXTRA_CHROMS) {
-      logprint("Error: --allow-extra-chr requires the '0' modifier when used with --recode 23.\n");
-      goto main_ret_INVALID_CMDLINE;
+  if (calculation_type & CALC_RECODE) {
+    if (recode_modifier & (RECODE_23 | RECODE_BEAGLE)) {
+      if (chrom_info.species != SPECIES_HUMAN) {
+	sprintf(logbuf, "Error: --recode %s can only be used on human data.\n", (recode_modifier & RECODE_23)? "23" : "beagle");
+	goto main_ret_INVALID_CMDLINE_3;
+      }
+      if ((recode_modifier & RECODE_23) && ((misc_flags & (MISC_ALLOW_EXTRA_CHROMS | MISC_ZERO_EXTRA_CHROMS)) == MISC_ALLOW_EXTRA_CHROMS)) {
+	logprint("Error: --allow-extra-chr requires the '0' modifier when used with --recode 23.\n");
+	goto main_ret_INVALID_CMDLINE;
+      } else if ((recode_modifier & RECODE_BEAGLE) && ((misc_flags & (MISC_ALLOW_EXTRA_CHROMS | MISC_ZERO_EXTRA_CHROMS)) == (MISC_ALLOW_EXTRA_CHROMS | MISC_ZERO_EXTRA_CHROMS))) {
+        logprint("Error: --allow-extra-chr cannot have the '0' modifier when used with\n--recode beagle.\n");
+	goto main_ret_INVALID_CMDLINE;
+      }
     }
   }
   if (sex_missing_pheno & MUST_HAVE_SEX) {

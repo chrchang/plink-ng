@@ -1087,6 +1087,9 @@ uintptr_t next_set_ul(uintptr_t* include_arr, uintptr_t loc, uintptr_t ceil);
 
 intptr_t last_set_bit(uintptr_t* bit_arr, uintptr_t word_ct);
 
+// note different interface from last_set_bit()
+intptr_t last_clear_bit(uintptr_t* bit_arr, uintptr_t ceil);
+
 // These functions seem to optimize better than memset(arr, 0, x) under gcc.
 static inline void fill_long_zero(intptr_t* larr, size_t size) {
   intptr_t* lptr = &(larr[size]);
@@ -1356,6 +1359,8 @@ static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr
 }
 
 void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t allow_x_haploid, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_haploid_ptr);
+
+int32_t single_chrom_start(Chrom_info* chrom_info_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude);
 
 int32_t strcmp_casted(const void* s1, const void* s2);
 
