@@ -6396,9 +6396,10 @@ int32_t main(int32_t argc, char** argv) {
 	      recode_modifier |= RECODE_BEAGLE;
 	      uii = 1;
 	    } else if (!memcmp(argptr2, "-bimbam", 7)) {
-	      memcpy(flagptr, "recode bimbam", 14);
-	      recode_modifier |= RECODE_BIMBAM;
-	      uii = 1;
+	      memcpy(flagptr, "recode bimbam-1chr", 19);
+	      recode_modifier |= RECODE_BIMBAM_1CHR;
+	      printf("Note: --recode-bimbam flag deprecated.  Use '--recode bimbam' or\n'--recode bimbam-1chr'.\n");
+	      uii = 2;
 	    }
 	    break;
 	  case 17:
@@ -10411,6 +10412,10 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_BIMBAM)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
+	  } else if (!memcmp(argv[cur_arg + uii], "bimbam-1chr", 12)) {
+	    if (recode_type_set(&recode_modifier, RECODE_BIMBAM_1CHR)) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
 	  } else if (!memcmp(argv[cur_arg + uii], "fastphase", 10)) {
 	    if (recode_type_set(&recode_modifier, RECODE_FASTPHASE)) {
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -11543,6 +11548,9 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Error: --allow-extra-chr cannot have the '0' modifier when used with\n--recode beagle.\n");
 	goto main_ret_INVALID_CMDLINE;
       }
+    } else if ((recode_modifier & RECODE_BIMBAM) && ((misc_flags & (MISC_ALLOW_EXTRA_CHROMS | MISC_ZERO_EXTRA_CHROMS)) == MISC_ALLOW_EXTRA_CHROMS)) {
+      logprint("Error: --allow-extra-chr requires the '0' modifier when used with\n--recode bimbam.\n");
+      goto main_ret_INVALID_CMDLINE;
     }
   }
   if (sex_missing_pheno & MUST_HAVE_SEX) {

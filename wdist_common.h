@@ -295,20 +295,21 @@ typedef union {
 #define RECODE_AD 0x40
 #define RECODE_BEAGLE 0x80
 #define RECODE_BIMBAM 0x100
-#define RECODE_FASTPHASE 0x200
-#define RECODE_FASTPHASE_1CHR 0x400
-#define RECODE_HV 0x800
-#define RECODE_HV_1CHR 0x1000
-#define RECODE_LGEN 0x2000
-#define RECODE_LGEN_REF 0x4000
-#define RECODE_LIST 0x8000
-#define RECODE_RLIST 0x10000
-#define RECODE_STRUCTURE 0x20000
-#define RECODE_TRANSPOSE 0x40000
-#define RECODE_VCF 0x80000
-#define RECODE_TYPEMASK 0xffff0
-#define RECODE_FID 0x100000
-#define RECODE_IID 0x200000
+#define RECODE_BIMBAM_1CHR 0x200
+#define RECODE_FASTPHASE 0x400
+#define RECODE_FASTPHASE_1CHR 0x800
+#define RECODE_HV 0x1000
+#define RECODE_HV_1CHR 0x2000
+#define RECODE_LGEN 0x4000
+#define RECODE_LGEN_REF 0x8000
+#define RECODE_LIST 0x10000
+#define RECODE_RLIST 0x20000
+#define RECODE_STRUCTURE 0x40000
+#define RECODE_TRANSPOSE 0x80000
+#define RECODE_VCF 0x100000
+#define RECODE_TYPEMASK 0x1ffff0
+#define RECODE_FID 0x200000
+#define RECODE_IID 0x400000
 
 #define GENOME_OUTPUT_GZ 1
 #define GENOME_REL_CHECK 2
@@ -748,6 +749,22 @@ int32_t atoiz(char* ss, int32_t* sval);
 int32_t atoiz2(char* ss, int32_t* sval);
 
 uint32_t strtoui32(char* ss, uint32_t* valp);
+
+static inline char replace_if_zero(char cc, char replacement) {
+  if (cc != '0') {
+    return cc;
+  } else {
+    return replacement;
+  }
+}
+
+
+static inline char* replace_if_zstr(char* ss, char* replacement) {
+  if ((ss[0] != '0') || ss[1]) {
+    return ss;
+  }
+  return replacement;
+}
 
 static inline uint32_t scan_double(char* ss, double* valp) {
   char* ss2;

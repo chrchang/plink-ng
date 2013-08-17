@@ -9067,22 +9067,6 @@ void init_cur_mk_allelesx(char* mk_alleles, uintptr_t max_marker_allele_len, uin
   }
 }
 
-char zero_to_dot(char cc) {
-  if (cc != '0') {
-    return cc;
-  } else {
-    return '.';
-  }
-}
-
-char zero_to_X(char cc) {
-  if (cc != '0') {
-    return cc;
-  } else {
-    return 'X';
-  }
-}
-
 int32_t recode_beagle_new_chrom(char* outname, char* outname_end2, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uintptr_t* marker_uidx_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* chrom_idx_ptr, uint32_t* chrom_end_ptr, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_indiv_ct4, FILE** datfile_ptr, FILE** mapfile_ptr, char* dat_header, uintptr_t dat_header_len) {
   uintptr_t marker_uidx = *marker_uidx_ptr;
   uint32_t chrom_fo_idx = *chrom_fo_idx_ptr;
@@ -9183,11 +9167,10 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   uintptr_t loop_end;
   uintptr_t ulii;
   uint32_t shiftval;
+  int32_t ii;
   char* mk_alleles;
-  if (recode_modifier & (RECODE_BIMBAM | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_HV | RECODE_HV_1CHR | RECODE_STRUCTURE)) {
-    if (recode_modifier & RECODE_BIMBAM) {
-      logprint("Error: --recode bimbam has not been implemented yet.\n");
-    } else if (recode_modifier & (RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR)) {
+  if (recode_modifier & (RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_HV | RECODE_HV_1CHR | RECODE_STRUCTURE)) {
+    if (recode_modifier & (RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR)) {
       logprint("Error: --recode fastphase[-1chr] has not been implemented yet.\n");
     } else if (recode_modifier & (RECODE_HV | RECODE_HV_1CHR)) {
       logprint("Error: --recode HV[-1chr] has not been implemented yet.\n");
@@ -9325,6 +9308,33 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       memcpy(cur_mk_allelesx[0], "    ", 5);
       memcpy(cur_mk_allelesx[2], "    ", 5);
       memcpy(cur_mk_allelesx[3], "    ", 5);
+    }
+  } else if (recode_modifier & (RECODE_BIMBAM | RECODE_BIMBAM_1CHR)) {
+    if (max_marker_allele_len != 1) {
+      logprint("Error: --recode bimbam cannot be used with multi-character allele names.\n");
+      goto recode_ret_INVALID_FORMAT;
+    }
+    indiv_uidx = 0;
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+      cptr = (char*)memchr(&(person_ids[indiv_uidx * max_person_id_len]), '\t', max_person_id_len);
+      if (strchr(&(cptr[1]), ',')) {
+        logprint("Error: Comma present in individual ID during --recode bimbam run.\n");
+        goto recode_ret_INVALID_FORMAT;
+      }
+      indiv_uidx++;
+    }
+    marker_uidx = 0;
+    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+      if (strchr(&(marker_ids[marker_uidx * max_marker_id_len]), ',')) {
+        logprint("Error: Comma present in marker ID during --recode bimbam run.\n");
+      }
+      marker_uidx++;
+    }
+    if (wkspace_alloc_c_checked(&writebuf, 3 * indiv_ct + 1) ||
+        wkspace_alloc_c_checked(&writebuf2, 32)) {
+      goto recode_ret_NOMEM;
     }
   } else if (recode_modifier & (RECODE_LGEN | RECODE_LGEN_REF)) {
     if ((recode_modifier & RECODE_COMPOUND) && (max_marker_allele_len != 1)) {
@@ -9654,9 +9664,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	  cur_mk_alleles[0] = '1';
 	  cur_mk_alleles[1] = '0';
 	  if (max_marker_allele_len == 1) {
-	    *wbufptr++ = zero_to_dot(mk_alleles[2 * marker_uidx]);
+	    *wbufptr++ = replace_if_zero(mk_alleles[2 * marker_uidx], '.');
 	    *wbufptr++ = '\t';
-	    *wbufptr++ = zero_to_dot(mk_alleles[2 * marker_uidx + 1]);
+	    *wbufptr++ = replace_if_zero(mk_alleles[2 * marker_uidx + 1], '.');
 	  } else {
 	    if (memcmp(&(mk_alleles[2 * marker_uidx * max_marker_allele_len]), "0", 2)) {
 	      wbufptr = strcpyax(wbufptr, &(mk_alleles[2 * marker_uidx * max_marker_allele_len]), '\t');
@@ -9673,9 +9683,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	  cur_mk_alleles[0] = '0';
 	  cur_mk_alleles[1] = '1';
 	  if (max_marker_allele_len == 1) {
-	    *wbufptr++ = zero_to_dot(mk_alleles[2 * marker_uidx + 1]);
+	    *wbufptr++ = replace_if_zero(mk_alleles[2 * marker_uidx + 1], '.');
 	    *wbufptr++ = '\t';
-	    *wbufptr++ = zero_to_dot(mk_alleles[2 * marker_uidx]);
+	    *wbufptr++ = replace_if_zero(mk_alleles[2 * marker_uidx], '.');
 	  } else {
 	    if (memcmp(&(mk_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), "0", 2)) {
 	      wbufptr = strcpyax(wbufptr, &(mk_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), '\t');
@@ -9896,15 +9906,15 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	  if (is_set(marker_reverse, marker_uidx)) {
 	    cur_mk_allelesx[2][1] = ucc2;
 	    cur_mk_allelesx[2][3] = ucc;
-	    putc(zero_to_X(ucc2), outfile2);
+	    putc(replace_if_zero(ucc2, 'X'), outfile2);
 	    putc('\t', outfile2);
-            putc(zero_to_X(ucc), outfile2);
+            putc(replace_if_zero(ucc, 'X'), outfile2);
 	  } else {
 	    cur_mk_allelesx[2][1] = ucc;
 	    cur_mk_allelesx[2][3] = ucc2;
-            putc(zero_to_X(ucc), outfile2);
+            putc(replace_if_zero(ucc, 'X'), outfile2);
 	    putc('\t', outfile2);
-	    putc(zero_to_X(ucc2), outfile2);
+	    putc(replace_if_zero(ucc2, 'X'), outfile2);
 	  }
 	  cur_mk_allelesx[3][1] = ucc2;
 	  cur_mk_allelesx[3][3] = ucc2;
@@ -9919,9 +9929,15 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
           if (is_set(marker_reverse, marker_uidx)) {
             wbufptr = memcpyax(cur_mk_allelesx[2], aptr2, alen2, ' ');
             wbufptr = memcpya(wbufptr, aptr, alen);
+	    fputs(replace_if_zstr(aptr2, "X"), outfile2);
+	    putc('\t', outfile2);
+	    fputs(replace_if_zstr(aptr, "X"), outfile2);
 	  } else {
 	    wbufptr = memcpyax(cur_mk_allelesx[2], aptr, alen, ' ');
             wbufptr = memcpya(wbufptr, aptr2, alen2);
+	    fputs(replace_if_zstr(aptr, "X"), outfile2);
+	    putc('\t', outfile2);
+	    fputs(replace_if_zstr(aptr2, "X"), outfile2);
 	  }
           memcpy(wbufptr, " ", 2);
           wbufptr = memcpyax(cur_mk_allelesx[3], aptr2, alen2, ' ');
@@ -9952,6 +9968,158 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     }
     if (fclose_null(&outfile2)) {
       goto recode_ret_WRITE_FAIL;
+    }
+  } else if (recode_modifier & (RECODE_BIMBAM | RECODE_BIMBAM_1CHR)) {
+    if (recode_modifier & RECODE_BIMBAM_1CHR) {
+      ii = single_chrom_start(chrom_info_ptr, unfiltered_marker_ct, marker_exclude);
+      if (ii == -1) {
+        logprint("Error: --recode bimbam-1chr requires a single-chromosome dataset.  Did you mean\n'--recode bimbam'?  (Note the lack of a dash in the middle.)\n");
+        goto recode_ret_INVALID_CMDLINE;
+      }
+      marker_uidx = ((uint32_t)ii);
+    }
+    memcpy(outname_end, ".recode.", 9);
+    sprintf(logbuf, "--recode bimbam to %s{geno,pheno,pos}.txt... ", outname);
+    logprintb();
+    fputs("0%", stdout);
+    memcpy(&(outname_end[8]), "pos.txt", 8);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto recode_ret_OPEN_FAIL;
+    }
+    writebuf2[0] = ' ';
+    ulii = recode_modifier & RECODE_BIMBAM;
+    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+      fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
+      wbufptr = uint32_write(&(writebuf2[1]), marker_pos[marker_uidx]);
+      if (ulii) {
+	if (marker_uidx >= chrom_end) {
+          chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
+          chrom_end = chrom_info_ptr->chrom_end[chrom_idx];
+	}
+        *wbufptr++ = ' ';
+        wbufptr = chrom_name_write(wbufptr, chrom_info_ptr, chrom_idx, 1);
+      }
+      *wbufptr++ = '\n';
+      if (fwrite_checked(writebuf2, wbufptr - writebuf2, outfile)) {
+        goto recode_ret_WRITE_FAIL;
+      }
+      marker_uidx++;
+    }
+    if (fclose_null(&outfile)) {
+      goto recode_ret_WRITE_FAIL;
+    }
+    memcpy(&(outname_end[8]), "pheno.txt", 10);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto recode_ret_OPEN_FAIL;
+    }
+    indiv_uidx = 0;
+    if (pheno_c) {
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+	if (is_set(pheno_nm, indiv_uidx)) {
+          putc('1' + is_set(pheno_c, indiv_uidx), outfile);
+	} else {
+	  fputs(output_missing_pheno, outfile);
+	}
+        if (putc('\n', outfile) == EOF) {
+          goto recode_ret_WRITE_FAIL;
+	}
+	indiv_uidx++;
+      }
+    } else {
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+	if (is_set(pheno_nm, indiv_uidx)) {
+          wbufptr = double_g_write(writebuf2, pheno_d[indiv_uidx]);
+	  fwrite(writebuf2, 1, (uintptr_t)(wbufptr - writebuf2), outfile);
+	} else {
+          fputs(output_missing_pheno, outfile);
+	}
+	if (putc('\n', outfile) == EOF) {
+	  goto recode_ret_WRITE_FAIL;
+	}
+	indiv_uidx++;
+      }
+    }
+    if (fclose_null(&outfile)) {
+      goto recode_ret_WRITE_FAIL;
+    }
+    memcpy(&(outname_end[8]), "geno.txt", 9);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto recode_ret_OPEN_FAIL;
+    }
+    wbufptr = uint32_writex(writebuf2, indiv_ct, '\n');
+    wbufptr = uint32_write(wbufptr, marker_ct);
+    wbufptr = memcpya(wbufptr, "\nIND", 4);
+    if (fwrite_checked(writebuf2, wbufptr - writebuf2, outfile)) {
+      goto recode_ret_WRITE_FAIL;
+    }
+    indiv_uidx = 0;
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+      cptr = (char*)memchr(&(person_ids[indiv_uidx * max_person_id_len]), '\t', max_person_id_len);
+      putc(',', outfile);
+      fputs(&(cptr[1]), outfile);
+      indiv_uidx++;
+    }
+    if (putc('\n', outfile) == EOF) {
+      goto recode_ret_WRITE_FAIL;
+    }
+    marker_uidx = 0;
+    marker_idx = 0;
+    writebuf2[0] = ',';
+    memcpy(&(writebuf2[4]), ",??", 4);
+    writebuf2[8] = ',';
+    writebuf2[12] = ',';
+    for (pct = 1; pct <= 100; pct++) {
+      loop_end = (((uint64_t)pct) * marker_ct) / 100;
+      for (; marker_idx < loop_end; marker_idx++) {
+	if (is_set(marker_exclude, marker_uidx)) {
+	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+          if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+            goto recode_ret_READ_FAIL;
+	  }
+        }
+	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+	  goto recode_ret_READ_FAIL;
+	}
+        ucc = mk_alleles[2 * marker_uidx];
+        ucc2 = mk_alleles[2 * marker_uidx + 1];
+        writebuf2[1] = ucc;
+        writebuf2[2] = ucc;
+	if (is_set(marker_reverse, marker_uidx)) {
+	  writebuf2[9] = ucc2;
+	  writebuf2[10] = ucc;
+	} else {
+          writebuf2[9] = ucc;
+          writebuf2[10] = ucc2;
+	}
+        writebuf2[13] = ucc2;
+        writebuf2[14] = ucc2;
+	if (fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile) == EOF) {
+	  goto recode_ret_WRITE_FAIL;
+	}
+	wbufptr = writebuf;
+	indiv_uidx = 0;
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	  indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+          wbufptr = memcpyl3a(wbufptr, &(writebuf2[4 * ((loadbuf[indiv_uidx / 4] >> ((indiv_uidx % 4) * 2)) & 3)]));
+          indiv_uidx++;
+	}
+        fwrite(writebuf, 1, 3 * indiv_ct, outfile);
+        if (putc('\n', outfile) == EOF) {
+	  goto recode_ret_WRITE_FAIL;
+	}
+        marker_uidx++;
+      }
+      if (pct < 100) {
+	if (pct > 10) {
+	  putchar('\b');
+	}
+	printf("\b\b%u%%", pct);
+	fflush(stdout);
+      }
     }
   } else if (recode_modifier & (RECODE_LGEN | RECODE_LGEN_REF)) {
     if (lgen_ref) {
@@ -10743,6 +10911,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     break;
   recode_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  recode_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
     break;
   recode_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
