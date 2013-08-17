@@ -9202,7 +9202,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   if (recode_modifier & (RECODE_HV | RECODE_HV_1CHR | RECODE_STRUCTURE)) {
     if (recode_modifier & (RECODE_HV | RECODE_HV_1CHR)) {
       logprint("Error: --recode HV[-1chr] has not been implemented yet.\n");
-    } else if (recode_modifier & RECODE_STRUCTURE) {
+    } else {
       logprint("Error: --recode structure has not been implemented yet.\n");
     }
     retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -10034,10 +10034,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
         goto recode_ret_INVALID_CMDLINE;
       }
       marker_uidx = ((uint32_t)ii);
-      if (marker_uidx) {
-        if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
-	  goto recode_ret_READ_FAIL;
-	}
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+	goto recode_ret_READ_FAIL;
       }
     }
     memcpy(outname_end, ".recode.", 9);
@@ -10845,13 +10843,23 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     if (delimiter != '\t') {
       indiv_delim_convert(unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, ' ', '\t');
     }
+  } else if (recode_modifier & RECODE_HV) {
+    // todo, since it now has to be per-chromosome.  similar to fastphase
   } else {
-    strcpy(outname_end, ".ped");
+    memcpy(outname_end, ".ped", 5);
     if (wkspace_left >= (uint64_t)unfiltered_indiv_ct4 * marker_ct) {
       if (fopen_checked(&outfile, outname, "w")) {
 	goto recode_ret_OPEN_FAIL;
       }
-      sprintf(logbuf, "--recode to %s + .map... ", outname);
+      if (recode_modifier & RECODE_HV_1CHR) {
+        if (single_chrom_start(chrom_info_ptr, unfiltered_marker_ct, marker_exclude) == -1) {
+          logprint("Error: --recode HV-1chr requires a single-chromosome dataset.  Did you mean\n'--recode HV'?  (Note the lack of a dash in the middle.)\n");
+ 	  goto recode_ret_INVALID_CMDLINE;
+	}
+	sprintf(logbuf, "--recode HV-1chr to %s + .info... ", outname);
+      } else {
+        sprintf(logbuf, "--recode to %s + .map... ", outname);
+      }
       logprintb();
       retval = recode_load_to(loadbuf, bedfile, bed_offset, unfiltered_marker_ct, 0, marker_ct, marker_exclude, &marker_uidx, unfiltered_indiv_ct4);
       if (retval) {
@@ -11056,6 +11064,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     if (retval) {
       goto recode_ret_1;
     }
+  } else if (recode_modifier & (RECODE_HV | RECODE_HV_1CHR)) {
+    // todo: .info
   }
   if (!(recode_modifier & (RECODE_23 | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR))) {
     fputs("\b\b\b", stdout);
