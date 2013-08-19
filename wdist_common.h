@@ -758,7 +758,6 @@ static inline char replace_if_zero(char cc, char replacement) {
   }
 }
 
-
 static inline const char* replace_if_zstr(char* ss, const char* replacement) {
   if ((ss[0] != '0') || ss[1]) {
     return ss;
@@ -1346,7 +1345,11 @@ int32_t marker_code(Chrom_info* chrom_info_ptr, char* sptr);
 
 int32_t marker_code2(Chrom_info* chrom_info_ptr, char* sptr, uint32_t slen);
 
-uint32_t get_marker_chrom(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx);
+uint32_t get_marker_chrom_fo_idx(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx);
+
+static inline uint32_t get_marker_chrom(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx) {
+  return chrom_info_ptr->chrom_file_order[get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx)];
+}
 
 static inline int32_t chrom_exists(Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
   return is_set(chrom_info_ptr->chrom_mask, chrom_idx);
@@ -1470,7 +1473,11 @@ static inline uint32_t popcount_long(uintptr_t val) {
 
 uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
 
-uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
+uintptr_t popcount_bit_idx(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
+
+static inline uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
+  return popcount_bit_idx(lptr, start_idx * 8, end_idx * 8);
+}
 
 uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx);
 
@@ -1505,9 +1512,20 @@ uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t ite
 
 int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, Range_list* range_list_ptr, char* sorted_ids, uint32_t* id_map, int32_t* seen_idx, const char* range_list_flag, const char* file_descrip, uintptr_t* bitfield);
 
-uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude);
+static inline uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude) {
+  uint32_t min_idx;
+  uint32_t max_idx;
+  if (!is_set(chrom_info_ptr->chrom_mask, chrom_idx)) {
+    return 0;
+  }
+  min_idx = chrom_info_ptr->chrom_start[chrom_idx];
+  max_idx = chrom_info_ptr->chrom_end[chrom_idx];
+  return (max_idx - min_idx) - ((uint32_t)popcount_bit_idx(marker_exclude, min_idx, max_idx));
+}
 
 uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x);
+
+uint32_t get_max_chrom_size(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t* last_chrom_fo_idx_ptr);
 
 void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr);
 
@@ -1536,6 +1554,8 @@ void vec_include_mask_out_intersect(uintptr_t unfiltered_indiv_ct, uintptr_t* in
 void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfiltered_indiv_ct);
 
 void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct);
+
+void hh_fix_multiple(uintptr_t marker_uidx_start, uintptr_t* marker_exclude, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_male_include2, uintptr_t* indiv_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf);
 
 void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct);
 

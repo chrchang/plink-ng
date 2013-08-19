@@ -2832,20 +2832,20 @@ int32_t marker_code2(Chrom_info* chrom_info_ptr, char* sptr, uint32_t slen) {
   return retval;
 }
 
-uint32_t get_marker_chrom(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx) {
+uint32_t get_marker_chrom_fo_idx(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx) {
   uint32_t* marker_binsearch = chrom_info_ptr->chrom_file_order_marker_idx;
-  uint32_t chrom_min = 0;
+  uint32_t chrom_fo_min = 0;
   uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
-  uint32_t chrom_cur;
-  while (chrom_ct - chrom_min > 1) {
-    chrom_cur = (chrom_ct + chrom_min) / 2;
-    if (marker_binsearch[chrom_cur] > marker_uidx) {
-      chrom_ct = chrom_cur;
+  uint32_t chrom_fo_cur;
+  while (chrom_ct - chrom_fo_min > 1) {
+    chrom_fo_cur = (chrom_ct + chrom_fo_min) / 2;
+    if (marker_binsearch[chrom_fo_cur] > marker_uidx) {
+      chrom_ct = chrom_fo_cur;
     } else {
-      chrom_min = chrom_cur;
+      chrom_fo_min = chrom_fo_cur;
     }
   }
-  return chrom_info_ptr->chrom_file_order[chrom_min];
+  return chrom_fo_min;
 }
 
 int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int32_t* chrom_idx_ptr) {
@@ -3901,26 +3901,25 @@ uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx
   return tot;
 }
 
-uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
-  // given a CHAR array c[] starting at the aligned address of lptr, this
-  // efficiently popcounts c[start_idx..(end_idx - 1)].
-  uint32_t extra_ct = (start_idx % (BITCT / 8));
-  uintptr_t si8l = start_idx / (BITCT / 8);
-  uintptr_t ei8l = end_idx / (BITCT / 8);
-  uintptr_t tot = 0;
-  if (si8l == ei8l) {
-    return popcount_long(lptr[si8l] & ((ONELU << ((end_idx % (BITCT / 8)) * 8)) - (ONELU << (extra_ct * 8))));
-  } else {
-    if (extra_ct) {
-      tot = popcount_long(lptr[si8l++] >> (extra_ct * 8));
-    }
-    tot += popcount_longs(lptr, si8l, ei8l);
-    extra_ct = end_idx % (BITCT / 8);
-    if (extra_ct) {
-      tot += popcount_long(lptr[ei8l] & ((ONELU << (extra_ct * 8)) - ONELU));
-    }
-    return tot;
+uintptr_t popcount_bit_idx(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
+  uintptr_t start_idxl = start_idx / BITCT;
+  uintptr_t start_idxlr = start_idx & (BITCT - 1);
+  uintptr_t end_idxl = end_idx / BITCT;
+  uintptr_t end_idxlr = end_idx & (BITCT - 1);
+  uintptr_t ct = 0;
+  if (start_idxl == end_idxl) {
+    return popcount_long(lptr[start_idxl] & ((ONELU << end_idxlr) - (ONELU << start_idxlr)));
   }
+  if (start_idxlr) {
+    ct = popcount_long(lptr[start_idxl++] >> start_idxlr);
+  }
+  if (end_idxl > start_idxl) {
+    ct += popcount_longs(lptr, start_idxl, end_idxl);
+  }
+  if (end_idxlr) {
+    ct += popcount_long(lptr[end_idxl] & ((ONELU << end_idxlr) - ONELU));
+  }
+  return ct;
 }
 
 uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx) {
@@ -5268,40 +5267,6 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, Range
   return retval;
 }
 
-uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude) {
-  uint32_t min_idx;
-  uint32_t max_idx;
-  uint32_t min_idxl;
-  uint32_t min_idxlr;
-  uint32_t max_idxl;
-  uint32_t max_idxlr;
-  uint32_t ct;
-  if (!is_set(chrom_info_ptr->chrom_mask, chrom_idx)) {
-    return 0;
-  }
-  min_idx = chrom_info_ptr->chrom_start[chrom_idx];
-  max_idx = chrom_info_ptr->chrom_end[chrom_idx];
-  min_idxl = min_idx / BITCT;
-  min_idxlr = min_idx & (BITCT - 1);
-  max_idxl = max_idx / BITCT;
-  max_idxlr = max_idx & (BITCT - 1);
-  if (min_idxl == max_idxl) {
-    return max_idx - min_idx - popcount_long(marker_exclude[min_idxl] & ((ONELU << max_idxlr) - (ONELU << min_idxlr)));
-  } else {
-    ct = 0;
-    if (min_idxlr) {
-      ct = popcount_long(marker_exclude[min_idxl++] >> min_idxlr);
-    }
-    if (max_idxl > min_idxl) {
-      ct += popcount_longs(marker_exclude, min_idxl, max_idxl);
-    }
-    if (max_idxlr) {
-      ct += popcount_long(marker_exclude[max_idxl] & ((ONELU << max_idxlr) - ONELU));
-    }
-    return max_idx - min_idx - ct;
-  }
-}
-
 uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x) {
   // for backward compatibility, unplaced markers are considered to be
   // autosomal here
@@ -5319,6 +5284,27 @@ uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* mark
     ct += count_chrom_markers(chrom_info_ptr, mt_code, marker_exclude);
   }
   return ct;
+}
+
+uint32_t get_max_chrom_size(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t* last_chrom_fo_idx_ptr) {
+  uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
+  uint32_t max_chrom_size = 0;
+  uint32_t last_chrom_fo_idx = 0;
+  uint32_t chrom_fo_idx;
+  uint32_t cur_chrom_size;
+  for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
+    cur_chrom_size = count_chrom_markers(chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], marker_exclude);
+    if (cur_chrom_size) {
+      last_chrom_fo_idx = chrom_fo_idx;
+      if (cur_chrom_size > max_chrom_size) {
+        max_chrom_size = cur_chrom_size;
+      }
+    }
+  }
+  if (last_chrom_fo_idx_ptr) {
+    *last_chrom_fo_idx_ptr = last_chrom_fo_idx;
+  }
+  return max_chrom_size;
 }
 
 void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr) {
@@ -5873,6 +5859,44 @@ void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* in
     *loadbuf++ = (ucc & (~ucc2)) | (ucc3 - ((~ucc3) & (ucc3 >> 1) & 0x55));
   }
 }
+
+void hh_fix_multiple(uintptr_t marker_uidx_start, uintptr_t* marker_exclude, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_male_include2, uintptr_t* indiv_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf) {
+  uintptr_t marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx_start);
+  uint32_t chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
+  uintptr_t marker_idx = 0;
+  uint32_t chrom_idx;
+  uint32_t is_x;
+  uint32_t is_haploid;
+  uintptr_t chrom_end;
+  uintptr_t marker_idx_chrom_end;
+
+  while (marker_idx < marker_ct) {
+    chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+    is_x = (chrom_info_ptr->x_code == (int32_t)chrom_idx);
+    is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
+    marker_idx_chrom_end = marker_idx + chrom_end - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, chrom_end);
+    if (marker_idx_chrom_end > marker_ct) {
+      marker_idx_chrom_end = marker_ct;
+    }
+    if (is_haploid) {
+      if (is_x) {
+	if (xmhh_exists) {
+	  for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
+	    hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_male_include2, unfiltered_indiv_ct);
+	  }
+	}
+      } else if (nxmhh_exists) {
+	for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
+	  hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_include2, unfiltered_indiv_ct);
+	}
+      }
+    }
+    marker_idx = marker_idx_chrom_end;
+    chrom_fo_idx++;
+  }
+}
+
 
 void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
   uintptr_t indiv_bidx = 0;
