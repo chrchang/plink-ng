@@ -9260,6 +9260,24 @@ uint32_t write_ped_lines(FILE* outfile, unsigned char* loadbuf, uintptr_t* marke
   return 0;
 }
 
+uint32_t write_haploview_map(FILE* outfile, uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos) {
+  char* wptr;
+  uintptr_t marker_idx;
+  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+    marker_uidx_start = next_non_set_unsafe(marker_exclude, marker_uidx_start);
+    if (fputs(&(marker_ids[marker_uidx_start * max_marker_id_len]), outfile) == EOF) {
+      return 1;
+    }
+    putc('\t', outfile);
+    wptr = uint32_writex(tbuf, marker_pos[marker_uidx_start], '\n');
+    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      return 1;
+    }
+    marker_uidx_start++;
+  }
+  return 0;
+}
+
 int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FILE* famfile, char* outname, char* outname_end, char* recode_allele_name, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, char* marker_alleles, uintptr_t max_marker_allele_len, uint32_t* marker_pos, uintptr_t* marker_reverse, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char output_missing_geno, char* output_missing_pheno, uint64_t misc_flags, uint32_t xmhh_exists, uint32_t nxmhh_exists, Chrom_info* chrom_info_ptr) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
@@ -9492,9 +9510,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       goto recode_ret_INVALID_CMDLINE;
     }
     if (wkspace_left < ((uint64_t)unfiltered_indiv_ct4) * max_chrom_size + 2 * ((max_chrom_size + 63) & (~(63 * ONELU)))) {
-      logprint("Error: --recode does not yet support multipass recoding of very large .bed\nfiles; contact the " PROG_NAME_CAPS " developers if you need this.\n");
-      retval = RET_CALC_NOT_YET_SUPPORTED;
-      goto recode_ret_1;
+      goto recode_ret_NO_MULTIPASS_YET;
     }
     if (wkspace_alloc_c_checked(&writebuf, max_chrom_size) ||
         wkspace_alloc_c_checked(&writebuf2, max_chrom_size)) {
@@ -9565,7 +9581,17 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	ulii = 2 * max_marker_allele_len;
       }
     }
-    if (wkspace_alloc_c_checked(&writebuf, marker_ct * ulii)) {
+    if (recode_modifier & (RECODE_HV | RECODE_HV_1CHR)) {
+      max_chrom_size = get_max_chrom_size(chrom_info_ptr, marker_exclude, &last_chrom_fo_idx);
+      if ((recode_modifier & RECODE_HV_1CHR) && (max_chrom_size != marker_ct)) {
+	logprint("Error: --recode HV-1chr requires a single-chromosome dataset.  Did you mean\n'--recode HV'?  (Note the lack of a dash in the middle.)\n");
+	goto recode_ret_INVALID_CMDLINE;
+      }
+    } else {
+      // all chromosomes at once
+      max_chrom_size = marker_ct;
+    }
+    if (wkspace_alloc_c_checked(&writebuf, max_chrom_size * ulii)) {
       goto recode_ret_NOMEM;
     }
     if (recode_allele_name) {
@@ -9591,22 +9617,22 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       // common initialization between normal --recode and --recode HV
       if (max_marker_allele_len == 1) {
 	if (recode_modifier & RECODE_COMPOUND) {
-	  memset(writebuf, delimiter, marker_ct * 3 - 1);
-	  writebuf[marker_ct * 3 - 1] = '\n';
+	  memset(writebuf, delimiter, max_chrom_size * 3 - 1);
+	  writebuf[max_chrom_size * 3 - 1] = '\n';
 	} else {
-	  if ((recode_modifier & (RECODE_TAB | RECODE_DELIMX)) == RECODE_TAB) {
+ 	  if ((recode_modifier & (RECODE_TAB | RECODE_DELIMX)) == RECODE_TAB) {
 	    // PLINK actually writes spaces between same-locus alleles even
 	    // under --tab.  We replicate this for compatibility.
-	    loop_end = marker_ct * 4;
+	    loop_end = max_chrom_size * 4;
 	    for (ulii = 1; ulii < loop_end; ulii += 4) {
 	      writebuf[ulii] = ' ';
 	      writebuf[ulii + 2] = '\t';
 	    }
 	  } else {
-	    memset(writebuf, delimiter, marker_ct * 4 - 1);
+	    memset(writebuf, delimiter, max_chrom_size * 4 - 1);
 	  }
+	  writebuf[max_chrom_size * 4 - 1] = '\n';
 	}
-	writebuf[marker_ct * 4 - 1] = '\n';
       } else {
 	if ((recode_modifier & (RECODE_TAB | RECODE_DELIMX)) == RECODE_TAB) {
 	  delim2 = ' ';
@@ -10961,17 +10987,12 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       indiv_delim_convert(unfiltered_indiv_ct, indiv_exclude, indiv_ct, person_ids, max_person_id_len, ' ', '\t');
     }
   } else if (recode_modifier & (RECODE_HV | RECODE_HV_1CHR)) {
-    max_chrom_size = get_max_chrom_size(chrom_info_ptr, marker_exclude, &last_chrom_fo_idx);
     if (wkspace_left < ((uint64_t)unfiltered_indiv_ct4) * max_chrom_size) {
       goto recode_ret_NO_MULTIPASS_YET;
     }
     if (recode_modifier & RECODE_HV) {
       memcpy(outname_end, ".chr-*", 7);
     } else {
-      if (max_chrom_size != marker_ct) {
-	logprint("Error: --recode HV-1chr requires a single-chromosome dataset.  Did you mean\n'--recode HV'?  (Note the lack of a dash in the middle.)\n");
-	goto recode_ret_INVALID_CMDLINE;
-      }
       *outname_end = '\0';
     }
     sprintf(logbuf, "--recode HV%s to %s.ped + .info... ", (recode_modifier & RECODE_HV)? "" : "-1chr", outname);
@@ -11003,10 +11024,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       if (fopen_checked(&outfile, outname, "w")) {
 	goto recode_ret_OPEN_FAIL;
       }
-      memcpy(wbufptr, ".info", 6);
-      if (fopen_checked(&outfile2, outname, "w")) {
-	goto recode_ret_OPEN_FAIL;
-      }
       marker_uidx_start = marker_uidx;
       retval = recode_load_to(loadbuf, bedfile, bed_offset, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1], 0, ulii, marker_exclude, &marker_uidx, unfiltered_indiv_ct4);
       if (retval) {
@@ -11016,20 +11033,40 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
         hh_fix_multiple(marker_exclude, marker_uidx_start, ulii, chrom_info_ptr, xmhh_exists, nxmhh_exists, indiv_male_include2, indiv_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
       }
       indiv_uidx = 0;
+      if (recode_compound) {
+        writebuf[ulii * 3 - 1] = '\n';
+      } else if (max_marker_allele_len == 1) {
+	writebuf[ulii * 4 - 1] = '\n';
+      }
       if (write_ped_lines(outfile, loadbuf, marker_exclude, marker_reverse, marker_uidx_start, ulii, unfiltered_indiv_ct4, indiv_exclude, &indiv_uidx, 0, indiv_ct, recode_compound, mk_alleles, max_marker_allele_len, delimiter, delim2, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, pheno_d, output_missing_geno, output_missing_pheno, writebuf)) {
 	goto recode_ret_WRITE_FAIL;
       }
-      // todo: .info, etc.
-      if (recode_modifier & RECODE_HV) {
-        if (chrom_idx > onechar_max) {
-          putchar('\b');
+      if (recode_compound) {
+	writebuf[ulii * 3 - 1] = delimiter;
+      } else if (max_marker_allele_len == 1) {
+	if ((recode_modifier & (RECODE_TAB | RECODE_DELIMX)) == RECODE_TAB) {
+          writebuf[ulii * 4 - 1] = '\t';
+	} else {
+	  writebuf[ulii * 4 - 1] = delimiter;
 	}
       }
       if (fclose_null(&outfile)) {
 	goto recode_ret_WRITE_FAIL;
       }
-      if (fclose_null(&outfile2)) {
+      memcpy(wbufptr, ".info", 6);
+      if (fopen_checked(&outfile, outname, "w")) {
+	goto recode_ret_OPEN_FAIL;
+      }
+      if (write_haploview_map(outfile, marker_exclude, marker_uidx_start, ulii, marker_ids, max_marker_id_len, marker_pos)) {
+        goto recode_ret_WRITE_FAIL;
+      }
+      if (fclose_null(&outfile)) {
 	goto recode_ret_WRITE_FAIL;
+      }
+      if (recode_modifier & RECODE_HV) {
+        if (chrom_idx > onechar_max) {
+          putchar('\b');
+	}
       }
     } while (chrom_fo_idx < last_chrom_fo_idx);
     if (recode_modifier & RECODE_HV) {
@@ -11098,7 +11135,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       goto recode_ret_1;
     }
   }
-  if (!(recode_modifier & (RECODE_23 | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR))) {
+  if (!(recode_modifier & (RECODE_23 | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_HV | RECODE_HV_1CHR))) {
     fputs("\b\b\b", stdout);
   }
   logprint("done.\n");
