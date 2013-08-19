@@ -65,9 +65,9 @@ const char ver_str[] =
   "PLINK v1.50a"
 #else
 #ifdef STABLE_BUILD
-  "WDIST v0.19.16"
+  "WDIST v0.19.17"
 #else
-  "WDIST v0.21.6p"
+  "WDIST v0.21.6"
 #endif
 #endif
 #ifdef NOLAPACK
@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (18 Aug 2013)";
+  " (19 Aug 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -6381,6 +6381,7 @@ int32_t main(int32_t argc, char** argv) {
             if (!memcmp(argptr2, "-lgen", 5)) {
               memcpy(flagptr, "recode lgen", 12);
 	      recode_modifier |= RECODE_LGEN;
+	      misc_flags |= MISC_SET_HH_MISSING;
               uii = 1;
 	    }
 	    break;
@@ -6388,6 +6389,7 @@ int32_t main(int32_t argc, char** argv) {
 	    if (!memcmp(argptr2, "-rlist", 6)) {
 	      memcpy(flagptr, "recode rlist", 13);
 	      recode_modifier |= RECODE_RLIST;
+	      misc_flags |= MISC_SET_HH_MISSING;
 	      uii = 1;
 	    }
 	    break;
@@ -6399,6 +6401,7 @@ int32_t main(int32_t argc, char** argv) {
 	    } else if (!memcmp(argptr2, "-bimbam", 7)) {
 	      memcpy(flagptr, "recode bimbam-1chr", 19);
 	      recode_modifier |= RECODE_BIMBAM_1CHR;
+	      misc_flags |= MISC_SET_HH_MISSING;
 	      printf("Note: --recode-bimbam flag deprecated.  Use '--recode bimbam' or\n'--recode bimbam-1chr'.\n");
 	      uii = 2;
 	    }
@@ -6407,11 +6410,13 @@ int32_t main(int32_t argc, char** argv) {
 	    if (!memcmp(argptr2, "-fastphase", 10)) {
 	      memcpy(flagptr, "recode fastphase-1chr", 22);
 	      recode_modifier |= RECODE_FASTPHASE_1CHR;
+	      misc_flags |= MISC_SET_HH_MISSING;
 	      printf("Note: --recode-fastphase flag deprecated.  Use '--recode fastphase' or\n'--recode fastphase-1chr'.\n");
 	      uii = 2;
 	    } else if (!memcmp(argptr2, "-structure", 10)) {
 	      memcpy(flagptr, "recode structure", 17);
 	      recode_modifier |= RECODE_STRUCTURE;
+	      misc_flags |= MISC_SET_HH_MISSING;
 	      uii = 1;
 	    }
 	    break;
@@ -10364,6 +10369,10 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    recode_modifier |= RECODE_12;
 	  } else if (!memcmp(argv[cur_arg + uii], "compound-genotypes", 19)) {
+	    if (recode_modifier & RECODE_STRUCTURE) {
+              logprint("Error: --recode 'compound-genotypes' modifier cannot be used with 'structure'.\n");
+              goto main_ret_INVALID_CMDLINE;
+	    }
 	    recode_modifier |= RECODE_COMPOUND;
 	  } else if (!memcmp(argv[cur_arg + uii], "23", 3)) {
 	    if (recode_type_set(&recode_modifier, RECODE_23)) {
@@ -10442,6 +10451,10 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	  } else if (!memcmp(argv[cur_arg + uii], "structure", 10)) {
+	    if (recode_modifier & RECODE_COMPOUND) {
+              logprint("Error: --recode 'compound-genotypes' modifier cannot be used with 'structure'.\n");
+              goto main_ret_INVALID_CMDLINE;
+	    }
 	    if (recode_type_set(&recode_modifier, RECODE_STRUCTURE)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }

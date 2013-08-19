@@ -8965,17 +8965,17 @@ int32_t recode_allele_load(char* recode_allele_name, char*** allele_missing_ptr,
   return retval;
 }
 
-int32_t recode_load_to(unsigned char* loadbuf, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t marker_idx, uintptr_t marker_idx_end, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr, uintptr_t unfiltered_indiv_ct4) {
+uint32_t recode_load_to(unsigned char* loadbuf, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t marker_idx, uintptr_t marker_idx_end, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr, uintptr_t unfiltered_indiv_ct4) {
   uintptr_t marker_uidx = *marker_uidx_ptr;
   uintptr_t ulii;
   if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
-    return RET_READ_FAIL;
+    return 1;
   }
   while (marker_idx < marker_idx_end) {
     if (is_set(marker_exclude, marker_uidx)) {
       marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
-	return RET_READ_FAIL;
+	return 1;
       }
     }
     if (unfiltered_marker_ct - marker_uidx > marker_idx_end - marker_idx) {
@@ -8987,7 +8987,7 @@ int32_t recode_load_to(unsigned char* loadbuf, FILE* bedfile, uintptr_t bed_offs
     marker_idx += ulii;
     ulii *= unfiltered_indiv_ct4;
     if (fread(loadbuf, 1, ulii, bedfile) < ulii) {
-      return RET_READ_FAIL;
+      return 1;
     }
     loadbuf = &(loadbuf[ulii]);
   }
@@ -9160,9 +9160,9 @@ uint32_t write_ped_lines(FILE* outfile, unsigned char* loadbuf, uintptr_t* marke
     if (recode_write_first_cols(outfile, indiv_uidx, delimiter, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, pheno_d, output_missing_pheno)) {
       return 1;
     }
-    bufptr = &(loadbuf[indiv_idx / 4]);
+    bufptr = &(loadbuf[indiv_uidx / 4]);
     wbufptr = writebuf;
-    shiftval = (indiv_idx % 4) * 2;
+    shiftval = (indiv_uidx % 4) * 2;
     marker_uidx = marker_uidx_start;
     if (recode_compound) {
       for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
@@ -9262,6 +9262,7 @@ uint32_t write_ped_lines(FILE* outfile, unsigned char* loadbuf, uintptr_t* marke
 }
 
 uint32_t write_haploview_map(FILE* outfile, uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos) {
+  char wbuf[16];
   char* wptr;
   uintptr_t marker_idx;
   for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
@@ -9270,8 +9271,8 @@ uint32_t write_haploview_map(FILE* outfile, uintptr_t* marker_exclude, uintptr_t
       return 1;
     }
     putc('\t', outfile);
-    wptr = uint32_writex(tbuf, marker_pos[marker_uidx_start], '\n');
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+    wptr = uint32_writex(wbuf, marker_pos[marker_uidx_start], '\n');
+    if (fwrite_checked(wbuf, wptr - wbuf, outfile)) {
       return 1;
     }
     marker_uidx_start++;
@@ -9298,15 +9299,20 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   uint32_t vcf_not_fid = (recode_modifier & RECODE_VCF) && (!(recode_modifier & RECODE_FID));
   uint32_t vcf_not_iid = (recode_modifier & RECODE_VCF) && (!(recode_modifier & RECODE_IID));
   uint32_t vcf_two_ids = vcf_not_fid && vcf_not_iid;
+  uint32_t recode_12 = recode_modifier & RECODE_12;
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
   uint32_t zero_extra_chroms = (misc_flags / MISC_ZERO_EXTRA_CHROMS) & 1;
   uint32_t xmhh_exists_orig = xmhh_exists;
   uintptr_t header_len = 0;
   uintptr_t max_chrom_size = 0;
+  uintptr_t max_fid_len = 0;
+  uintptr_t fid_ct = 0;
   uint32_t last_chrom_fo_idx = 0;
   uint32_t onechar_max = (chrom_info_ptr->max_code > 9)? 9 : chrom_info_ptr->max_code;
+  uint32_t last_pos = 0;
   char* writebuf2 = NULL;
   char* writebuf3 = NULL;
+  uint32_t* fid_map = NULL;
   int32_t retval = 0;
   uint32_t recode_compound;
   time_t rawtime;
@@ -9345,6 +9351,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   uintptr_t loop_end;
   uintptr_t ulii;
   uint32_t shiftval;
+  uint32_t cur_fid;
   int32_t ii;
   char* mk_alleles;
   cur_mk_alleles[0] = '\0';
@@ -9357,7 +9364,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     xmhh_exists = 0;
     nxmhh_exists = 0;
   }
-  if (set_hh_missing) {
+  if (set_hh_missing || y_exists) {
     if (nxmhh_exists || y_exists) {
       if (wkspace_alloc_ul_checked(&indiv_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
 	goto recode_ret_NOMEM;
@@ -9565,6 +9572,56 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     if (wkspace_alloc_c_checked(&writebuf, 5)) {
       goto recode_ret_NOMEM;
     }
+  } else if (recode_modifier & RECODE_STRUCTURE) {
+    indiv_uidx = 0;
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+      cptr = &(person_ids[indiv_uidx * max_person_id_len]);
+      aptr = (char*)memchr(cptr, '\t', max_person_id_len);
+      ulii = (uintptr_t)(aptr - cptr);
+      if (ulii >= max_fid_len) {
+        max_fid_len = ulii + 1;
+	if (max_fid_len == max_person_id_len - 2) {
+	  break;
+	}
+      }
+      indiv_uidx++;
+    }
+    if (wkspace_alloc_c_checked(&writebuf3, max_fid_len * indiv_ct)) {
+      goto recode_ret_NOMEM;
+    }
+    indiv_uidx = 0;
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+      cptr = &(person_ids[indiv_uidx * max_person_id_len]);
+      aptr = (char*)memchr(cptr, '\t', max_fid_len);
+      ulii = (uintptr_t)(aptr - cptr);
+      memcpy(&(writebuf3[indiv_idx * max_fid_len]), cptr, ulii);
+      writebuf3[indiv_idx * max_fid_len + ulii] = '\0';
+      indiv_uidx++;
+    }
+    qsort(writebuf3, indiv_ct, max_fid_len, strcmp_casted);
+    // simpler collapse_duplicate_ids(), probably want to make this a function
+    for (ulii = 1; ulii < indiv_ct; ulii++) {
+      if (!strcmp(&(writebuf3[(ulii - 1) * max_fid_len]), &(writebuf3[ulii * max_fid_len]))) {
+	break;
+      }
+    }
+    fid_ct = ulii;
+    while (++ulii < indiv_ct) {
+      if (strcmp(&(writebuf3[(fid_ct - 1) * max_fid_len]), &(writebuf3[ulii * max_fid_len]))) {
+        strcpy(&(writebuf3[fid_ct * max_fid_len]), &(writebuf3[ulii * max_fid_len]));
+	fid_ct++;
+      }
+    }
+    wkspace_reset((unsigned char*)writebuf3);
+    writebuf3 = (char*)wkspace_alloc(fid_ct * max_fid_len);
+    if (wkspace_alloc_ui_checked(&fid_map, fid_ct * sizeof(int32_t)) ||
+        wkspace_alloc_c_checked(&writebuf, 4 * marker_ct) ||
+        wkspace_alloc_c_checked(&writebuf2, 32)) {
+      goto recode_ret_NOMEM;
+    }
+    fill_uint_zero(fid_map, fid_ct);
   } else {
     if (recode_modifier & (RECODE_A | RECODE_AD)) {
       recode_modifier &= ~RECODE_COMPOUND;
@@ -9578,7 +9635,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       }
       ulii = 3;
     } else {
-      if (max_marker_allele_len == 1) {
+      if ((max_marker_allele_len == 1) || recode_12) {
         ulii = 4;
       } else {
 	ulii = 2 * max_marker_allele_len;
@@ -9617,8 +9674,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     }
 
     if (!(recode_modifier & (RECODE_A | RECODE_AD))) {
-      // common initialization between normal --recode and --recode HV
-      if (max_marker_allele_len == 1) {
+      // common initialization between normal --recode, --recode HV, and
+      // --recode structure
+      if ((max_marker_allele_len == 1) || recode_12) {
 	if (recode_modifier & RECODE_COMPOUND) {
 	  memset(writebuf, delimiter, max_chrom_size * 3 - 1);
 	  writebuf[max_chrom_size * 3 - 1] = '\n';
@@ -9644,35 +9702,29 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     }
   }
   recode_compound = recode_modifier & RECODE_COMPOUND;
-  if (recode_modifier & RECODE_12) {
-    if (wkspace_alloc_c_checked(&mk_alleles, unfiltered_marker_ct * max_marker_allele_len * 2)) {
+  if (recode_12) {
+    if (wkspace_alloc_c_checked(&mk_alleles, unfiltered_marker_ct * 2)) {
       goto recode_ret_NOMEM;
     }
     marker_uidx = 0;
     for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
       marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-      if (max_marker_allele_len == 1) {
-	mk_alleles[2 * marker_uidx] = '1';
-	mk_alleles[2 * marker_uidx + 1] = '2';
-      } else {
-	mk_alleles[2 * marker_uidx * max_marker_allele_len] = '1';
-	mk_alleles[2 * marker_uidx * max_marker_allele_len + 1] = '\0';
-	mk_alleles[(2 * marker_uidx + 1) * max_marker_allele_len] = '2';
-	mk_alleles[(2 * marker_uidx + 1) * max_marker_allele_len + 1] = '\0';
-      }
+      mk_alleles[2 * marker_uidx] = '1';
+      mk_alleles[2 * marker_uidx + 1] = '2';
       marker_uidx++;
     }
+    max_marker_allele_len = 1;
   } else {
     mk_alleles = marker_alleles;
-  }
-  if ((max_marker_allele_len > 1) && (!(recode_modifier & (RECODE_BEAGLE | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_VCF)))) {
-    if (wkspace_alloc_c_checked(&cur_mk_allelesx_buf, 4 * max_marker_allele_len)) {
-      goto recode_ret_NOMEM;
+    if ((max_marker_allele_len > 1) && (!(recode_modifier & (RECODE_BEAGLE | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_VCF)))) {
+      if (wkspace_alloc_c_checked(&cur_mk_allelesx_buf, 4 * max_marker_allele_len)) {
+	goto recode_ret_NOMEM;
+      }
+      cur_mk_allelesx[0] = cur_mk_allelesx_buf;
+      cur_mk_allelesx[1] = &(cur_mk_allelesx_buf[max_marker_allele_len]);
+      cur_mk_allelesx[2] = &(cur_mk_allelesx_buf[max_marker_allele_len * 2]);
+      cur_mk_allelesx[3] = &(cur_mk_allelesx_buf[max_marker_allele_len * 3]);
     }
-    cur_mk_allelesx[0] = cur_mk_allelesx_buf;
-    cur_mk_allelesx[1] = &(cur_mk_allelesx_buf[max_marker_allele_len]);
-    cur_mk_allelesx[2] = &(cur_mk_allelesx_buf[max_marker_allele_len * 2]);
-    cur_mk_allelesx[3] = &(cur_mk_allelesx_buf[max_marker_allele_len * 3]);
   }
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
     goto recode_ret_READ_FAIL;
@@ -9744,7 +9796,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto recode_ret_READ_FAIL;
 	}
-	if (is_haploid) {
+	if (is_haploid && set_hh_missing) {
           haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, loadbuf);
 	}
 	indiv_uidx = 0;
@@ -9923,7 +9975,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto recode_ret_READ_FAIL;
 	}
-	if (is_haploid) {
+	if (is_haploid && set_hh_missing) {
 	  haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, loadbuf);
 	}
 
@@ -10013,7 +10065,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	goto recode_ret_READ_FAIL;
       }
-      if (is_haploid) {
+      if (is_haploid && set_hh_missing) {
 	haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, loadbuf);
       }
 
@@ -10300,7 +10352,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto recode_ret_READ_FAIL;
 	}
-	if (is_haploid) {
+	if (is_haploid && set_hh_missing) {
 	  haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, loadbuf);
 	}
         ucc = mk_alleles[2 * marker_uidx];
@@ -10377,9 +10429,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	goto recode_ret_1;
       }
       marker_uidx_start = marker_uidx;
-      retval = recode_load_to(loadbuf, bedfile, bed_offset, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1], 0, ulii, marker_exclude, &marker_uidx, unfiltered_indiv_ct4);
-      if (retval) {
-	goto recode_ret_1;
+      if (recode_load_to(loadbuf, bedfile, bed_offset, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1], 0, ulii, marker_exclude, &marker_uidx, unfiltered_indiv_ct4)) {
+	goto recode_ret_READ_FAIL;
       }
       if (set_hh_missing) {
 	haploid_fix_multiple(marker_exclude, marker_uidx_start, ulii, chrom_info_ptr, xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
@@ -10467,7 +10518,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto recode_ret_READ_FAIL;
 	}
-	if (is_haploid) {
+	if (is_haploid && set_hh_missing) {
 	  haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, loadbuf);
 	}
 	wbufptr = &(marker_ids[marker_uidx * max_marker_id_len]);
@@ -10637,9 +10688,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     marker_idx = 0;
     sprintf(logbuf, "--recode A%s to %s... ", (recode_modifier & RECODE_AD)? "D" : "", outname);
     logprintb();
-    retval = recode_load_to(loadbuf, bedfile, bed_offset, unfiltered_marker_ct, 0, marker_ct, marker_exclude, &marker_uidx, unfiltered_indiv_ct4);
-    if (retval) {
-      goto recode_ret_1;
+    if (recode_load_to(loadbuf, bedfile, bed_offset, unfiltered_marker_ct, 0, marker_ct, marker_exclude, &marker_uidx, unfiltered_indiv_ct4)) {
+      goto recode_ret_READ_FAIL;
     }
     if (set_hh_missing) {
       haploid_fix_multiple(marker_exclude, 0, marker_ct, chrom_info_ptr, xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
@@ -10654,9 +10704,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	if (recode_write_first_cols(outfile, indiv_uidx, delimiter, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, pheno_d, output_missing_pheno)) {
 	  goto recode_ret_WRITE_FAIL;
 	}
-	bufptr = &(loadbuf[indiv_idx / 4]);
+	bufptr = &(loadbuf[indiv_uidx / 4]);
 	wbufptr = writebuf;
-	shiftval = (indiv_idx % 4) * 2;
+	shiftval = (indiv_uidx % 4) * 2;
 	marker_uidx = 0;
 	if (recode_modifier & RECODE_A) {
 	  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
@@ -10778,7 +10828,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto recode_ret_READ_FAIL;
 	}
-	if (is_haploid) {
+	if (is_haploid && set_hh_missing) {
           haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, loadbuf);
 	}
 	if (max_marker_allele_len == 1) {
@@ -10996,9 +11046,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	goto recode_ret_OPEN_FAIL;
       }
       marker_uidx_start = marker_uidx;
-      retval = recode_load_to(loadbuf, bedfile, bed_offset, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1], 0, ulii, marker_exclude, &marker_uidx, unfiltered_indiv_ct4);
-      if (retval) {
-        goto recode_ret_1;
+      if (recode_load_to(loadbuf, bedfile, bed_offset, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1], 0, ulii, marker_exclude, &marker_uidx, unfiltered_indiv_ct4)) {
+	goto recode_ret_READ_FAIL;
       }
       if (set_hh_missing) {
         haploid_fix_multiple(marker_exclude, marker_uidx_start, ulii, chrom_info_ptr, xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
@@ -11043,6 +11092,109 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     if (recode_modifier & RECODE_HV) {
       fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b               \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", stdout);
     }
+  } else if (recode_modifier & RECODE_STRUCTURE) {
+    memcpy(outname_end, ".recode.strct_in", 17);
+    if (wkspace_left < ((uint64_t)unfiltered_indiv_ct4) * marker_ct) {
+      goto recode_ret_NO_MULTIPASS_YET;
+    }
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto recode_ret_OPEN_FAIL;
+    }
+    sprintf(logbuf, "--recode structure to %s... ", outname);
+    logprintb();
+    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+      if (fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile) == EOF) {
+        goto recode_ret_WRITE_FAIL;
+      }
+      putc(' ', outfile);
+      marker_uidx++;
+    }
+    if (putc('\n', outfile) == EOF) {
+      goto recode_ret_WRITE_FAIL;
+    }
+    marker_uidx = 0;
+    chrom_fo_idx = 0xffffffffU; // exploit overflow
+    chrom_end = 0;
+    for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+      if (marker_uidx >= chrom_end) {
+	do {
+	  chrom_fo_idx++;
+          chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+	} while (marker_uidx >= chrom_end);
+	fputs("-1 ", outfile);
+      } else {
+        wbufptr = uint32_writex(writebuf2, marker_pos[marker_uidx] - last_pos, ' ');
+        fwrite(writebuf2, 1, (uintptr_t)(wbufptr - writebuf2), outfile);
+      }
+      last_pos = marker_pos[marker_uidx];
+      marker_uidx++;
+    }
+    if (putc('\n', outfile) == EOF) {
+      goto recode_ret_WRITE_FAIL;
+    }
+    marker_uidx = 0;
+    if (recode_load_to(loadbuf, bedfile, bed_offset, unfiltered_marker_ct, 0, marker_ct, marker_exclude, &marker_uidx, unfiltered_indiv_ct4)) {
+      goto recode_ret_READ_FAIL;
+    }
+    if (set_hh_missing) {
+      haploid_fix_multiple(marker_exclude, 0, marker_ct, chrom_info_ptr, xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
+    }
+    indiv_uidx = 0;
+    indiv_idx = 0;
+    fputs("0%", stdout);
+    last_pos = 0; // now unique FIDs encountered so far
+    memcpy(writebuf2, " 1 1 0 0 1 2 2 2 2 2 0 0 1 2 1 1", 32);
+    for (pct = 1; pct <= 100; pct++) {
+      loop_end = (((uint64_t)pct) * indiv_ct) / 100;
+      for (; indiv_idx < loop_end; indiv_idx++) {
+	indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+	bufptr = &(loadbuf[indiv_uidx / 4]);
+	shiftval = (indiv_uidx % 4) * 2;
+        cptr = &(person_ids[indiv_uidx * max_person_id_len]);
+        aptr = (char*)memchr(cptr, '\t', max_person_id_len);
+        if (fputs(&(aptr[1]), outfile) == EOF) {
+	  goto recode_ret_WRITE_FAIL;
+	}
+	memcpy(tbuf, cptr, (uintptr_t)(aptr - cptr));
+        tbuf[(uintptr_t)(aptr - cptr)] = '\0';
+        ii = bsearch_str(tbuf, writebuf3, max_fid_len, 0, fid_ct - 1);
+	cur_fid = fid_map[(uint32_t)ii];
+	if (!cur_fid) {
+	  cur_fid = ++last_pos;
+          fid_map[(uint32_t)ii] = last_pos;
+	}
+	tbuf[0] = ' ';
+        wbufptr = uint32_write(&(tbuf[1]), cur_fid);
+        fwrite(tbuf, 1, (uintptr_t)(wbufptr - tbuf), outfile);
+	marker_uidx = 0;
+	wbufptr = writebuf;
+        for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
+	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+          ucc = ((*bufptr) >> shiftval) & 3;
+          if (!is_set(marker_reverse, marker_uidx)) {
+            wbufptr = memcpya(wbufptr, &(writebuf2[4 * ucc]), 4);
+	  } else {
+	    wbufptr = memcpya(wbufptr, &(writebuf2[16 + 4 * ucc]), 4);
+	  }
+	  bufptr = &(bufptr[unfiltered_indiv_ct4]);
+          marker_uidx++;
+	}
+	fwrite(writebuf, 1, (uintptr_t)(wbufptr - writebuf), outfile);
+	if (putc('\n', outfile) == EOF) {
+          goto recode_ret_WRITE_FAIL;
+	}
+        indiv_uidx++;
+      }
+      if (pct < 100) {
+	if (pct > 10) {
+	  putchar('\b');
+	}
+	printf("\b\b%u%%", pct);
+	fflush(stdout);
+      }
+    }
   } else {
     memcpy(outname_end, ".ped", 5);
     if (wkspace_left < ((uint64_t)unfiltered_indiv_ct4) * marker_ct) {
@@ -11053,9 +11205,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     }
     sprintf(logbuf, "--recode to %s + .map... ", outname);
     logprintb();
-    retval = recode_load_to(loadbuf, bedfile, bed_offset, unfiltered_marker_ct, 0, marker_ct, marker_exclude, &marker_uidx, unfiltered_indiv_ct4);
-    if (retval) {
-      goto recode_ret_1;
+    if (recode_load_to(loadbuf, bedfile, bed_offset, unfiltered_marker_ct, 0, marker_ct, marker_exclude, &marker_uidx, unfiltered_indiv_ct4)) {
+      goto recode_ret_READ_FAIL;
     }
     if (set_hh_missing) {
       haploid_fix_multiple(marker_exclude, 0, marker_ct, chrom_info_ptr, xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
@@ -11064,7 +11215,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     indiv_idx = 0;
     fputs("0%", stdout);
     for (pct = 1; pct <= 100; pct++) {
-      loop_end = ((uint64_t)pct * indiv_ct) / 100;
+      loop_end = (((uint64_t)pct) * indiv_ct) / 100;
       if (write_ped_lines(outfile, loadbuf, marker_exclude, marker_reverse, 0, marker_ct, unfiltered_indiv_ct4, indiv_exclude, &indiv_uidx, indiv_idx, loop_end, recode_compound, mk_alleles, max_marker_allele_len, delimiter, delim2, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, pheno_d, output_missing_geno, output_missing_pheno, writebuf)) {
 	goto recode_ret_WRITE_FAIL;
       }
