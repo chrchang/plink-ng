@@ -5860,7 +5860,7 @@ void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* in
   }
 }
 
-void hh_fix_multiple(uintptr_t marker_uidx_start, uintptr_t* marker_exclude, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_male_include2, uintptr_t* indiv_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf) {
+void hh_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_male_include2, uintptr_t* indiv_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf) {
   uintptr_t marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx_start);
   uint32_t chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
   uintptr_t marker_idx = 0;
