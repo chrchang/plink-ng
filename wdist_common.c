@@ -5561,9 +5561,8 @@ void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_ar
 }
 
 void vec_init_invert(uintptr_t entry_ct, uintptr_t* target_arr, uintptr_t* source_arr) {
-  // initializes a half-bitfield as the inverse of another
-  // assumes target_arr and source_arr are 16-byte aligned, and vec_entry_ct is
-  // even and positive.
+  // Initializes a half-bitfield as the inverse of another.  Assumes target_arr
+  // and source_arr are doubleword-aligned.
   uint32_t vec_wsize = 2 * ((entry_ct + (BITCT - 1)) / BITCT);
   uintptr_t* second_to_last = &(target_arr[vec_wsize - 2]);
   uint32_t rem = entry_ct & (BITCT - 1);

@@ -627,6 +627,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Several other flags (most notably, --aperm) can be used to customize the\n"
 "    permutation test.\n\n"
 	       );
+#ifndef STABLE_BUILD
     help_print("gxe\tmcovar", &help_ctrl, 1,
 "  --gxe {covariate index}\n"
 "    Given both a quantitative phenotype and a dichotomous covariate loaded with\n"
@@ -676,6 +677,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * With --linear, the 'standard-beta' modifier standardizes the phenotype to\n"
 "      zero mean and unit variance before regression.\n\n"
 	       );
+#endif
     help_print(
 "indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (markers)] [VIF threshold]\n"

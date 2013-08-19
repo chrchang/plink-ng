@@ -4997,7 +4997,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
       // if dichotomous phenotype loaded with --all-pheno, skip --gxe
       if ((calculation_type & CALC_GXE) && pheno_d) {
-	retval = assoc_gxe(bedfile, bed_offset, outname, outname_end, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, pheno_nm, pheno_d, gxe_covar_nm, gxe_covar_c, sex_nm, sex_male, xmhh_exists, nxmhh_exists);
+	// retval = assoc_gxe(bedfile, bed_offset, outname, outname_end, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, pheno_nm, pheno_d, gxe_covar_nm, gxe_covar_c, sex_nm, sex_male, xmhh_exists, nxmhh_exists);
+        logprint("Error: --gxe is currently under development.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
 	if (retval) {
 	  goto wdist_ret_1;
 	}
@@ -6381,6 +6383,7 @@ int32_t main(int32_t argc, char** argv) {
             if (!memcmp(argptr2, "-lgen", 5)) {
               memcpy(flagptr, "recode lgen", 12);
 	      recode_modifier |= RECODE_LGEN;
+	      // backwards compatibility
 	      misc_flags |= MISC_SET_HH_MISSING;
               uii = 1;
 	    }

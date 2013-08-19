@@ -9364,7 +9364,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     xmhh_exists = 0;
     nxmhh_exists = 0;
   }
-  if (set_hh_missing || y_exists) {
+  if (set_hh_missing) {
     if (nxmhh_exists || y_exists) {
       if (wkspace_alloc_ul_checked(&indiv_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
 	goto recode_ret_NOMEM;

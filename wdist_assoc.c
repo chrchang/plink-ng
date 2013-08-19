@@ -7242,6 +7242,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       wkspace_alloc_ul_checked(&indiv_include2, pheno_nm_ctv2 * sizeof(intptr_t))) {
     goto qassoc_ret_NOMEM;
   }
+  indiv_raw_include2[unfiltered_indiv_ctv2 - 1] = 0;
   vec_include_init(unfiltered_indiv_ct, indiv_raw_include2, pheno_nm);
   fill_vec_55(indiv_include2, pheno_nm_ct);
   x_code = chrom_info_ptr->x_code;
@@ -8069,61 +8070,235 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   return retval;
 }
 
-int32_t assoc_gxe(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* gxe_covar_nm, uintptr_t* gxe_covar_c, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t xmhh_exists, uint32_t nxmhh_exists) {
+/*
+int32_t assoc_gxe(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, uintptr_t* indiv_exclude, uintptr_t* pheno_nm, double* pheno_d, uintptr_t* gxe_covar_nm, uintptr_t* gxe_covar_c, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t xmhh_exists, uint32_t nxmhh_exists) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
-  uintptr_t gxe_covar_nm_ct = popcount_longs(gxe_covar_nm, 0, indiv_ctl);
-  uintptr_t group_2_size = popcount_longs(gxe_covar_c, 0, indiv_ctl);
-  uintptr_t group_1_size = gxe_covar_nm_ct - group_2_size;
+  uintptr_t covar_nm_ct = popcount_longs(gxe_covar_nm, 0, indiv_ctl);
+  uintptr_t covar_nm_ctl = (covar_nm_ct + (BITCT - 1)) / BITCT;
+  uintptr_t group_freq_size = popcount_longs(gxe_covar_c, 0, indiv_ctl);
+  uintptr_t group_rare_size = covar_nm_ct - group_freq_size;
+  // group 2 has more members than group 1?
+  uint32_t group_reverse = (group_rare_size > group_freq_size)? 1 : 0;
+  uintptr_t male_ct = 0;
+  uintptr_t male_ctl = 0;
+  uintptr_t group_freq_size_male = 0;
+  uintptr_t group_rare_size_male = 0;
   uintptr_t marker_uidx = 0;
-  uintptr_t* indiv_male_include2 = NULL;
   uintptr_t* indiv_include2 = NULL;
+  uintptr_t* indiv_male_include2 = NULL;
+  uintptr_t* indiv_male_all_include2 = NULL;
+  uintptr_t* group_rare_include2 = NULL;
+  uintptr_t* group_rare_male_include2 = NULL;
+  uintptr_t* covar_nm_raw = NULL;
+  uintptr_t* covar_nm_male_raw = NULL;
+  uintptr_t* cur_indiv_i2 = NULL;
+  uintptr_t* cur_indiv_male_i2 = NULL;
+  uintptr_t* cur_group_rare_i2 = NULL;
+  uintptr_t* cur_covar_nm_raw = NULL;
+  double* pheno_d_collapsed = NULL;
+  double* pheno_d_male_collapsed = NULL;
+  double* cur_pheno_d = NULL;
+  char* wptr_start = NULL;
+  uintptr_t cur_indiv_ct = 0;
+  uintptr_t cur_indiv_ctl2 = 0;
+  uintptr_t cur_group_freq_size = 0;
+  uintptr_t cur_group_rare_size = 0;
   uint32_t y_exists = (chrom_info_ptr->y_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->y_code);
+  uint32_t skip_y = 0;
+  double pheno_sum = 0;
+  double pheno_ssq = 0;
+  double pheno_sum_rare = 0;
+  double pheno_ssq_rare = 0;
+  double pheno_sum_male = 0;
+  double pheno_ssq_male = 0;
+  double pheno_sum_male_rare = 0;
+  double pheno_ssq_male_rare = 0;
+  double base_pheno_sum_gf = 0;
+  double base_pheno_ssq_gf = 0;
+  double base_pheno_sum_gr = 0;
+  double base_pheno_ssq_gr = 0;
   int32_t retval = 0;
+  uintptr_t* loadbuf_raw;
   uintptr_t* loadbuf;
-  char* cptr;
+  uintptr_t* loadbuf_ptr;
+  uintptr_t* cgr_ptr;
+  char* wptr;
   uint32_t chrom_fo_idx;
   uint32_t chrom_end;
   uintptr_t loop_end;
   uintptr_t marker_idx;
-  // uintptr_t indiv_uidx;
-  // uintptr_t indiv_idx;
+  uintptr_t indiv_uidx;
+  uintptr_t indiv_idx;
+  uintptr_t indiv_idx2;
+  uintptr_t indiv_idx2_offset;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  uintptr_t ulkk;
+  uintptr_t ulmm;
+  uintptr_t ulnn;
+  double dxx;
+  double qt_sum_gf;
+  double qt_ssq_gf;
+  double qt_sum_gr;
+  double qt_ssq_gr;
+  double qt_g_prod_gf;
+  double qt_g_prod_gr;
+  double nanal_gf_recip;
+  double nanal_m1_gf_recip;
+  double nanal_gr_recip;
+  double nanal_m1_gr_recip;
   uint32_t is_x;
   uint32_t is_y;
   uint32_t is_haploid;
   uint32_t pct;
+  uint32_t missing_ct_gf;
+  uint32_t het_ct_gf;
+  uint32_t homcom_ct_gf;
+  uint32_t homrar_ct_gf;
+  uint32_t nanal_gf;
+  uint32_t geno_sum_gf;
+  uint32_t geno_ssq_gf;
+  uint32_t missing_ct_gr;
+  uint32_t het_ct_gr;
+  uint32_t homcom_ct_gr;
+  uint32_t homrar_ct_gr;
+  uint32_t nanal_gr;
+  uint32_t geno_sum_gr;
+  uint32_t geno_ssq_gr;
 
-  if (group_1_size < 2) {
-    logprint("Error: First --gxe group has fewer than two members.\n");
+  if (group_freq_size < 3) {
+    logprint("Error: First --gxe group has fewer than three members.\n");
     goto assoc_gxe_ret_INVALID_CMDLINE;
-  } else if (group_2_size < 2) {
-    logprint("Error: Second --gxe group has fewer than two members.\n");
+  } else if (group_rare_size < 3) {
+    logprint("Error: Second --gxe group has fewer than three members.\n");
     goto assoc_gxe_ret_INVALID_CMDLINE;
   }
-  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+  if (group_reverse) {
+    ulii = group_freq_size;
+    group_freq_size = group_rare_size;
+    group_rare_size = ulii;
+  }
+  if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl * 2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&loadbuf, covar_nm_ctl * 2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&covar_nm_raw, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_d_checked(&pheno_d_collapsed, covar_nm_ct * sizeof(double))) {
     goto assoc_gxe_ret_NOMEM;
+  }
+  loadbuf_raw[unfiltered_indiv_ctl * 2 - 2] = 0;
+  loadbuf_raw[unfiltered_indiv_ctl * 2 - 1] = 0;
+
+  fill_ulong_zero(covar_nm_raw, unfiltered_indiv_ctl);
+  indiv_uidx = 0;
+  indiv_idx2 = 0;
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+    if (is_set(gxe_covar_nm, indiv_idx)) {
+      set_bit_noct(covar_nm_raw, indiv_uidx);
+      dxx = pheno_d[indiv_uidx];
+      pheno_sum += dxx;
+      pheno_ssq += dxx * dxx;
+      if (is_set(gxe_covar_c, indiv_idx)) {
+	pheno_sum_rare += dxx;
+	pheno_ssq_rare += dxx * dxx;
+      }
+      pheno_d_collapsed[indiv_idx2++] = dxx;
+    }
+    indiv_uidx++;
+  }
+
+  if (wkspace_alloc_ul_checked(&group_rare_include2, covar_nm_ctl * 2 * sizeof(intptr_t))) {
+    goto assoc_gxe_ret_NOMEM;
+  }
+  fill_ulong_zero(group_rare_include2, covar_nm_ctl * 2);
+  indiv_idx = 0;
+  if (!group_reverse) {
+    for (indiv_idx2 = 0; indiv_idx2 < covar_nm_ct; indiv_idx2++) {
+      indiv_idx = next_set_unsafe(gxe_covar_nm, indiv_idx);
+      if (!is_set(gxe_covar_c, indiv_idx)) {
+        set_bit_noct(group_rare_include2, indiv_idx2 * 2);
+      }
+      indiv_idx++;
+    }
+  } else {
+    pheno_sum_rare = pheno_sum - pheno_sum_rare;
+    pheno_ssq_rare = pheno_ssq - pheno_ssq_rare;
+    for (indiv_idx2 = 0; indiv_idx2 < covar_nm_ct; indiv_idx2++) {
+      indiv_idx = next_set_unsafe(gxe_covar_nm, indiv_idx);
+      if (is_set(gxe_covar_c, indiv_idx)) {
+        set_bit_noct(group_rare_include2, indiv_idx2 * 2);
+      }
+      indiv_idx++;
+    }
   }
 
   // er, time to encapsulate this stuff in wdist_common...
   if (nxmhh_exists || y_exists) {
-    if (wkspace_alloc_ul_checked(&indiv_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(&indiv_include2, covar_nm_ctl * 2 * sizeof(intptr_t))) {
       goto assoc_gxe_ret_NOMEM;
     }
-    vec_include_init(unfiltered_indiv_ct, indiv_include2, gxe_covar_nm);
+    fill_vec_55(indiv_include2, covar_nm_ct);
   }
   if (xmhh_exists || y_exists) {
-    if (wkspace_alloc_ul_checked(&indiv_male_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(&indiv_male_include2, covar_nm_ctl * 2 * sizeof(intptr_t))) {
       goto assoc_gxe_ret_NOMEM;
     }
-    if (nxmhh_exists || y_exists) {
-      memcpy(indiv_male_include2, indiv_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t));
-    } else {
-      vec_include_init(unfiltered_indiv_ct, indiv_male_include2, gxe_covar_nm);
+    fill_ulong_zero(indiv_male_include2, covar_nm_ctl * 2);
+    indiv_uidx = 0;
+    indiv_idx2 = 0;
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+      if (is_set(gxe_covar_nm, indiv_idx)) {
+	if (is_set(sex_male, indiv_uidx)) {
+          set_bit_noct(indiv_male_include2, indiv_idx2 * 2);
+	  male_ct++;
+	}
+        indiv_idx2++;
+      }
+      indiv_uidx++;
     }
-    vec_include_mask_in(unfiltered_indiv_ct, indiv_male_include2, sex_male);
+    male_ctl = (male_ct + (BITCT - 1)) / BITCT;
+    if (y_exists) {
+      group_freq_size_male = popcount_longs_exclude(indiv_male_include2, group_rare_include2, covar_nm_ctl * 2);
+      group_rare_size_male = male_ct - group_freq_size_male;
+      if ((group_freq_size_male < 3) || (group_rare_size_male < 3)) {
+        logprint("Skipping Y chromosome for --gxe since a group has less than 3 males.\n");
+	skip_y = 1;
+      }
+      // currently still need to initialize covar_nm_male_raw even on skip_y
+      if (wkspace_alloc_ul_checked(&indiv_male_all_include2, male_ctl * 2 * sizeof(intptr_t)) ||
+	  wkspace_alloc_ul_checked(&group_rare_male_include2, male_ctl * 2 * sizeof(intptr_t)) ||
+	  wkspace_alloc_d_checked(&pheno_d_male_collapsed, male_ct * sizeof(double)) ||
+	  wkspace_alloc_ul_checked(&covar_nm_male_raw, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+	goto assoc_gxe_ret_NOMEM;
+      }
+      fill_vec_55(indiv_male_all_include2, male_ct);
+      fill_ulong_zero(group_rare_male_include2, male_ctl);
+      indiv_idx = 0;
+      for (indiv_idx2 = 0; indiv_idx2 < covar_nm_ct; indiv_idx2++) {
+	if (is_set(indiv_male_include2, indiv_idx2 * 2)) {
+	  dxx = pheno_d_collapsed[indiv_idx2];
+	  if (is_set(group_rare_include2, indiv_idx2 * 2)) {
+	    set_bit_noct(group_rare_male_include2, indiv_idx * 2);
+	    pheno_sum_male_rare += dxx;
+	    pheno_ssq_male_rare += dxx * dxx;
+	  }
+	  pheno_sum_male += dxx;
+	  pheno_ssq_male += dxx * dxx;
+	  pheno_d_male_collapsed[indiv_idx++] = dxx;
+	}
+      }
+      if (group_reverse) {
+	pheno_sum_male_rare = pheno_sum_male - pheno_sum_male_rare;
+	pheno_ssq_male_rare = pheno_ssq_male - pheno_ssq_male_rare;
+      }
+      for (ulii = 0; ulii < unfiltered_indiv_ctl; ulii++) {
+	covar_nm_male_raw[ulii] = covar_nm_raw[ulii] & sex_male[ulii];
+      }
+    }
   }
 
   memcpy(outname_end, ".qassoc.gxe", 12);
@@ -8159,20 +8334,147 @@ int32_t assoc_gxe(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
       if (marker_uidx >= chrom_end) {
 	chrom_fo_idx++;
 	refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
-	cptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
-	*cptr++ = ' ';
+	if (!is_y) {
+	  cur_indiv_ct = covar_nm_ct;
+	  cur_group_freq_size = group_freq_size;
+          cur_group_rare_size = group_rare_size;
+	  base_pheno_sum_gf = pheno_sum - pheno_sum_rare;
+	  base_pheno_ssq_gf = pheno_ssq - pheno_ssq_rare;
+          base_pheno_sum_gr = pheno_sum_rare;
+          base_pheno_ssq_gr = pheno_ssq_rare;
+          cur_indiv_i2 = indiv_include2;
+          cur_indiv_male_i2 = indiv_male_include2;
+          cur_group_rare_i2 = group_rare_include2;
+          cur_pheno_d = pheno_d_collapsed;
+	  cur_covar_nm_raw = covar_nm_raw;
+	} else {
+	  cur_indiv_ct = male_ct;
+	  cur_group_freq_size = group_freq_size_male;
+          cur_group_rare_size = group_rare_size_male;
+          base_pheno_sum_gf = pheno_sum - pheno_sum_male;
+	  base_pheno_ssq_gf = pheno_ssq - pheno_ssq_male;
+          base_pheno_sum_gr = pheno_sum_male_rare;
+	  base_pheno_ssq_gr = pheno_ssq_male_rare;
+          cur_indiv_i2 = indiv_male_all_include2;
+          cur_indiv_male_i2 = indiv_male_all_include2;
+          cur_group_rare_i2 = group_rare_male_include2;
+          cur_pheno_d = pheno_d_male_collapsed;
+	  cur_covar_nm_raw = covar_nm_male_raw;
+	}
+	wptr_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
+	*wptr_start++ = ' ';
+	cur_indiv_ctl2 = ((cur_indiv_ct + (BITCT - 1)) / BITCT) * 2;
+        loadbuf[cur_indiv_ctl2 - 2] = 0;
+        loadbuf[cur_indiv_ctl2 - 1] = 0;
       }
 
-      if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, cur_indiv_ct, cur_covar_nm_raw)) {
 	goto assoc_gxe_ret_READ_FAIL;
       }
-      if (is_haploid) {
-	haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, (unsigned char*)loadbuf);
+      if (is_y && skip_y) {
+	marker_uidx++;
+	continue;
       }
-      // indiv_uidx = 0;
+      if (is_haploid) {
+	haploid_fix(xmhh_exists, nxmhh_exists, cur_indiv_i2, cur_indiv_male_i2, cur_indiv_ct, is_x, is_y, (unsigned char*)loadbuf);
+      }
+      if (is_set(marker_reverse, marker_uidx)) {
+        reverse_loadbuf((unsigned char*)loadbuf, cur_indiv_ct);
+      }
 
-      // todo (refer to line ~7500)
+      wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
+      *wptr++ = ' ';
 
+      // We are interested in the following quantities from PLINK gxe.cpp:
+      //   qt_var{1,2}: (pheno_ssq - (pheno_sum^2 / N)) / (N-1)
+      //   g_var{1,2}: (geno_ssq - (geno_sum^2 / N)) / (N-1)
+      //   qt_g_covar{1,2}: (qt_g_prod - ((pheno_sum * geno_sum) / N)) / (N-1)
+
+      // totals
+      vec_3freq(cur_indiv_ctl2, loadbuf, cur_indiv_i2, &missing_ct_gf, &het_ct_gf, &homcom_ct_gf);
+      nanal_gf = ((uint32_t)cur_indiv_ct) - missing_ct_gf;
+      homrar_ct_gf = nanal_gf - (het_ct_gf + homcom_ct_gf);
+
+      // rare group only
+      vec_3freq(cur_indiv_ctl2, loadbuf, cur_group_rare_i2, &missing_ct_gr, &het_ct_gr, &homcom_ct_gr);
+      nanal_gr = ((uint32_t)cur_group_rare_size) - missing_ct_gr;
+      homrar_ct_gr = nanal_gr - (het_ct_gr + homcom_ct_gr);
+      geno_sum_gr = 2 * homrar_ct_gr + het_ct_gr;
+      geno_ssq_gr = 4 * homrar_ct_gr + het_ct_gr;
+
+      // frequent group's values, via subtraction
+      missing_ct_gf -= missing_ct_gr;
+      het_ct_gf -= het_ct_gr;
+      homcom_ct_gf -= homcom_ct_gr;
+      nanal_gf -= nanal_gr;
+      homrar_ct_gf -= homrar_ct_gr;
+      geno_sum_gf = 2 * homrar_ct_gf + het_ct_gf;
+      geno_ssq_gf = 4 * homrar_ct_gf + het_ct_gf;
+
+      if ((nanal_gf > 2) && (nanal_gr > 2)) {
+	nanal_gf_recip = 1.0 / ((int32_t)nanal_gf);
+	nanal_m1_gf_recip = 1.0 / ((int32_t)(nanal_gf - 1));
+	nanal_gr_recip = 1.0 / ((int32_t)nanal_gr);
+	nanal_m1_gr_recip = 1.0 / ((int32_t)(nanal_gr - 1));
+	qt_sum_gf = base_pheno_sum_gf;
+	qt_ssq_gf = base_pheno_ssq_gf;
+	qt_sum_gr = base_pheno_sum_gr;
+	qt_ssq_gr = base_pheno_ssq_gr;
+	qt_g_prod_gf = 0;
+	qt_g_prod_gr = 0;
+	indiv_idx2_offset = 0;
+	loadbuf_ptr = loadbuf;
+	cgr_ptr = cur_group_rare_i2;
+	do {
+	  ulmm = ~(*loadbuf_ptr++);
+	  if (indiv_idx2_offset + BITCT2 > cur_indiv_ct) {
+	    ulmm &= (ONELU << ((cur_indiv_ct & (BITCT2 - 1)) * 2)) - ONELU;
+	  }
+	  ulnn = *cgr_ptr++;
+	  ulii = ulmm & ((ulnn ^ FIVEMASK) * 3); // group f
+	  while (ulii) {
+	    uljj = CTZLU(ulii) & (BITCT - 2);
+	    ulkk = (ulii >> uljj) & 3;
+	    indiv_idx2 = indiv_idx2_offset + (uljj / 2);
+	    dxx = cur_pheno_d[indiv_idx2];
+	    if (ulkk == 1) {
+	      // het
+	      qt_g_prod_gf += dxx;
+	    } else if (ulkk == 3) {
+	      // hom rare
+	      qt_g_prod_gf += 2 * dxx;
+	    } else {
+	      // missing
+	      qt_sum_gf -= dxx;
+	      qt_ssq_gf -= dxx * dxx;
+	    }
+	    ulii &= ~(3 * (ONELU << uljj));
+	  }
+	  ulii = ulmm & (ulnn * 3); // group r
+	  while (ulii) {
+	    uljj = CTZLU(ulii) & (BITCT - 2);
+	    ulkk = (ulii >> uljj) & 3;
+	    indiv_idx2 = indiv_idx2_offset + (uljj / 2);
+	    dxx = cur_pheno_d[indiv_idx2];
+	    if (ulkk == 1) {
+	      qt_g_prod_gr += dxx;
+	    } else if (ulkk == 3) {
+	      qt_g_prod_gr += 2 * dxx;
+	    } else {
+	      qt_sum_gr -= dxx;
+	      qt_ssq_gr -= dxx * dxx;
+	    }
+	    ulii &= ~(3 * (ONELU << uljj));
+	  }
+	  indiv_idx2_offset += BITCT2;
+	} while (indiv_idx2_offset < cur_indiv_ct);
+      } else {
+        wptr = memcpya(wptr, "      NA         NA         NA       NA         NA         NA       NA           NA", 83);
+      }
+      *wptr++ = '\n';
+      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	goto assoc_gxe_ret_WRITE_FAIL;
+      }
       marker_uidx++;
     }
     if (pct < 100) {
@@ -8209,3 +8511,4 @@ int32_t assoc_gxe(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   fclose_cond(outfile);
   return retval;
 }
+*/
