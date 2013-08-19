@@ -9076,15 +9076,16 @@ int32_t recode_beagle_new_chrom(char* outname, char* outname_end2, uintptr_t* ma
   uint32_t chrom_end;
   uint32_t chrom_idx;
   uint32_t is_x;
+  uint32_t is_y;
   uint32_t is_haploid;
   char* wbufptr;
-  refresh_chrom_info(chrom_info_ptr, marker_uidx, 0, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+  refresh_chrom_info(chrom_info_ptr, marker_uidx, 0, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
   chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
   if ((chrom_idx > 22) && (chrom_idx < 27)) {
     do {
       marker_uidx = next_non_set_unsafe(marker_exclude, chrom_end);
       chrom_fo_idx++;
-      refresh_chrom_info(chrom_info_ptr, marker_uidx, 0, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, 0, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     } while ((chrom_idx > 22) && (chrom_idx < 27));
     if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
@@ -9285,6 +9286,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   unsigned char* wkspace_mark = wkspace_base;
   char delimiter = (recode_modifier & RECODE_TAB)? '\t' : ' ';
+  uint32_t y_exists = (chrom_info_ptr->y_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->y_code);
   uintptr_t* recode_allele_reverse = NULL;
   char** allele_missing = NULL;
   char* recode_allele_extra = NULL;
@@ -9309,6 +9311,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   uint32_t recode_compound;
   time_t rawtime;
   uint32_t is_x;
+  uint32_t is_y;
   uint32_t is_haploid;
   uint32_t chrom_fo_idx;
   uint32_t chrom_idx;
@@ -9355,17 +9358,17 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     nxmhh_exists = 0;
   }
   if (set_hh_missing) {
-    if (nxmhh_exists) {
+    if (nxmhh_exists || y_exists) {
       if (wkspace_alloc_ul_checked(&indiv_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
 	goto recode_ret_NOMEM;
       }
       exclude_to_vec_include(unfiltered_indiv_ct, indiv_include2, indiv_exclude);
     }
-    if (xmhh_exists) {
+    if (xmhh_exists || y_exists) {
       if (wkspace_alloc_ul_checked(&indiv_male_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
         goto recode_ret_NOMEM;
       }
-      if (nxmhh_exists) {
+      if (nxmhh_exists || y_exists) {
 	memcpy(indiv_male_include2, indiv_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t));
       } else {
         exclude_to_vec_include(unfiltered_indiv_ct, indiv_male_include2, indiv_exclude);
@@ -9681,7 +9684,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   }
   loadbuf = wkspace_base;
   chrom_fo_idx = 0;
-  refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+  refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
   chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
   if (recode_modifier & RECODE_TRANSPOSE) {
     strcpy(outname_end, ".tped");
@@ -9721,7 +9724,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	}
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	  cptr = chrom_name_write(tbuf, chrom_info_ptr, chrom_idx, zero_extra_chroms);
 	  *cptr++ = delimiter;
@@ -9742,13 +9745,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	  goto recode_ret_READ_FAIL;
 	}
 	if (is_haploid) {
-	  if (is_x) {
-	    if (xmhh_exists) {
-	      hh_reset(loadbuf, indiv_male_include2, unfiltered_indiv_ct);
-	    }
-	  } else if (nxmhh_exists) {
-	    hh_reset(loadbuf, indiv_include2, unfiltered_indiv_ct);
-	  }
+          haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, loadbuf);
 	}
 	indiv_uidx = 0;
 	wbufptr = writebuf;
@@ -9873,7 +9870,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	}
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	}
 	wbufptr = chrom_name_write(&(tbuf[1]), chrom_info_ptr, chrom_idx, zero_extra_chroms);
@@ -9927,13 +9924,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	  goto recode_ret_READ_FAIL;
 	}
 	if (is_haploid) {
-	  if (is_x) {
-	    if (xmhh_exists) {
-	      hh_reset(loadbuf, indiv_male_include2, unfiltered_indiv_ct);
-	    }
-	  } else if (nxmhh_exists) {
-	    hh_reset(loadbuf, indiv_include2, unfiltered_indiv_ct);
-	  }
+	  haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, loadbuf);
 	}
 
 	indiv_uidx = 0;
@@ -10013,7 +10004,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       }
       if (marker_uidx >= chrom_end) {
 	chrom_fo_idx++;
-	refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	chrom_print_human_terminate(writebuf, chrom_idx);
 	ucc2 = ((chrom_idx == 24) || (chrom_idx == 26) || (ulii && (chrom_idx == 23) && (!xmhh_exists_orig)))? 1 : 0;
@@ -10023,13 +10014,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	goto recode_ret_READ_FAIL;
       }
       if (is_haploid) {
-	if (is_x) {
-	  if (xmhh_exists) {
-	    hh_reset(loadbuf, indiv_male_include2, unfiltered_indiv_ct);
-	  }
-	} else if (nxmhh_exists) {
-	  hh_reset(loadbuf, indiv_include2, unfiltered_indiv_ct);
-	}
+	haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, loadbuf);
       }
 
       cur_mk_alleles[0] = mk_alleles[2 * marker_uidx];
@@ -10292,7 +10277,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     marker_uidx = 0;
     marker_idx = 0;
     chrom_fo_idx = 0;
-    refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+    refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     writebuf2[0] = ',';
     memcpy(&(writebuf2[4]), ",??", 4);
@@ -10309,20 +10294,14 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
         }
 	if (marker_uidx >= chrom_end) {
           chrom_fo_idx++;
-          refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+          refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
           chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	}
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto recode_ret_READ_FAIL;
 	}
 	if (is_haploid) {
-	  if (is_x) {
-	    if (xmhh_exists) {
-	      hh_reset(loadbuf, indiv_male_include2, unfiltered_indiv_ct);
-	    }
-	  } else if (nxmhh_exists) {
-	    hh_reset(loadbuf, indiv_include2, unfiltered_indiv_ct);
-	  }
+	  haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, loadbuf);
 	}
         ucc = mk_alleles[2 * marker_uidx];
         ucc2 = mk_alleles[2 * marker_uidx + 1];
@@ -10377,7 +10356,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     do {
       chrom_fo_idx++;
       marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-      refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       ulii = count_chrom_markers(chrom_info_ptr, chrom_idx, marker_exclude);
       if (recode_modifier & RECODE_FASTPHASE) {
@@ -10397,9 +10376,13 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       if (retval) {
 	goto recode_ret_1;
       }
+      marker_uidx_start = marker_uidx;
       retval = recode_load_to(loadbuf, bedfile, bed_offset, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1], 0, ulii, marker_exclude, &marker_uidx, unfiltered_indiv_ct4);
       if (retval) {
 	goto recode_ret_1;
+      }
+      if (set_hh_missing) {
+	haploid_fix_multiple(marker_exclude, marker_uidx_start, ulii, chrom_info_ptr, xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
       }
       indiv_uidx = 0;
       for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
@@ -10479,19 +10462,13 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	}
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	}
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto recode_ret_READ_FAIL;
 	}
 	if (is_haploid) {
-	  if (is_x) {
-	    if (xmhh_exists) {
-	      hh_reset(loadbuf, indiv_male_include2, unfiltered_indiv_ct);
-	    }
-	  } else if (nxmhh_exists) {
-	    hh_reset(loadbuf, indiv_include2, unfiltered_indiv_ct);
-	  }
+	  haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, loadbuf);
 	}
 	wbufptr = &(marker_ids[marker_uidx * max_marker_id_len]);
 	cptr = strcpya(&(tbuf[1]), wbufptr);
@@ -10665,7 +10642,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       goto recode_ret_1;
     }
     if (set_hh_missing) {
-      hh_fix_multiple(marker_exclude, 0, marker_ct, chrom_info_ptr, xmhh_exists, nxmhh_exists, indiv_male_include2, indiv_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
+      haploid_fix_multiple(marker_exclude, 0, marker_ct, chrom_info_ptr, xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
     }
     fputs("0%", stdout);
     indiv_uidx = 0;
@@ -10795,20 +10772,14 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	}
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	}
 	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
 	  goto recode_ret_READ_FAIL;
 	}
 	if (is_haploid) {
-	  if (is_x) {
-	    if (xmhh_exists) {
-	      hh_reset(loadbuf, indiv_male_include2, unfiltered_indiv_ct);
-	    }
-	  } else if (nxmhh_exists) {
-	    hh_reset(loadbuf, indiv_include2, unfiltered_indiv_ct);
-	  }
+          haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, loadbuf);
 	}
 	if (max_marker_allele_len == 1) {
 	  cur_mk_alleles[0] = mk_alleles[2 * marker_uidx];
@@ -11005,7 +10976,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     do {
       chrom_fo_idx++;
       marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-      refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       ulii = count_chrom_markers(chrom_info_ptr, chrom_idx, marker_exclude);
       if (recode_modifier & RECODE_HV) {
@@ -11030,7 +11001,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
         goto recode_ret_1;
       }
       if (set_hh_missing) {
-        hh_fix_multiple(marker_exclude, marker_uidx_start, ulii, chrom_info_ptr, xmhh_exists, nxmhh_exists, indiv_male_include2, indiv_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
+        haploid_fix_multiple(marker_exclude, marker_uidx_start, ulii, chrom_info_ptr, xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
       }
       indiv_uidx = 0;
       if (recode_compound) {
@@ -11087,7 +11058,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       goto recode_ret_1;
     }
     if (set_hh_missing) {
-      hh_fix_multiple(marker_exclude, 0, marker_ct, chrom_info_ptr, xmhh_exists, nxmhh_exists, indiv_male_include2, indiv_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
+      haploid_fix_multiple(marker_exclude, 0, marker_ct, chrom_info_ptr, xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, unfiltered_indiv_ct4, loadbuf);
     }
     indiv_uidx = 0;
     indiv_idx = 0;

@@ -3290,6 +3290,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
   uint32_t uii;
   uint32_t report_type;
   uint32_t is_x;
+  uint32_t is_y;
   uint32_t is_haploid;
   uint32_t chrom_fo_idx;
   uint32_t chrom_end;
@@ -3343,7 +3344,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
   }
  
   chrom_fo_idx = 0;
-  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
   cptr0 = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
   *cptr0++ = ' ';
   cptr = &(cptr0[10 + plink_maxsnp]);
@@ -3361,7 +3362,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	  cptr0 = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
 	  *cptr0++ = ' ';
 	  cptr = &(cptr0[10 + plink_maxsnp]);
@@ -3414,7 +3415,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	  cptr0 = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
           memset(&(cptr0[plink_maxsnp]), 32, 20);
 	  cptr = &(cptr0[10 + plink_maxsnp]);

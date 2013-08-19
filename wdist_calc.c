@@ -4910,6 +4910,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   double num_allelesf3;
   uint32_t chrom_end;
   uint32_t is_x;
+  uint32_t is_y;
   uint32_t is_haploid;
   uintptr_t marker_uidx;
   uintptr_t indiv_uidx;
@@ -4964,7 +4965,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   }
   marker_uidx = 0; // raw marker index
   g_ctrl_ct = 0; // after excluding missing (abuse of variable name, should fix this later)
-  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
   // subtract X/haploid markers from marker_ct
   ukk = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
   if (ukk) {
@@ -4994,7 +4995,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       if (marker_uidx >= chrom_end) {
 	while (1) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	  if (!is_haploid) {
 	    break;
 	  }

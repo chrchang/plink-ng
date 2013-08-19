@@ -2889,7 +2889,7 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
   return 0;
 }
 
-void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t allow_x_haploid, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_haploid_ptr) {
+void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t allow_x_haploid, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_haploid_ptr) {
   int32_t chrom_idx;
   *chrom_end_ptr = chrom_info_ptr->chrom_file_order_marker_idx[(*chrom_fo_idx_ptr) + 1];
   while (marker_uidx >= (*chrom_end_ptr)) {
@@ -2897,6 +2897,7 @@ void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint3
   }
   chrom_idx = chrom_info_ptr->chrom_file_order[*chrom_fo_idx_ptr];
   *is_x_ptr = allow_x_haploid && (chrom_idx == chrom_info_ptr->x_code);
+  *is_y_ptr = (chrom_idx == chrom_info_ptr->y_code);
   *is_haploid_ptr = allow_x_haploid && is_set(chrom_info_ptr->haploid_mask, chrom_idx);
   if (is_all_nonmale) {
     *is_haploid_ptr = (*is_haploid_ptr) && (!(*is_x_ptr));
@@ -5412,6 +5413,7 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
   uint32_t max_code = chrom_info_ptr->max_code;
   uint32_t cur_chrom;
   uint32_t is_x;
+  uint32_t is_y;
   uint32_t is_haploid;
 
   if (block_max_size > marker_ct_autosomal - marker_idx) {
@@ -5427,7 +5429,7 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
     if (marker_uidx >= chrom_end) {
       while (1) {
 	chrom_fo_idx++;
-	refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	cur_chrom = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	if ((cur_chrom <= autosome_ct) || (cur_chrom == xy_code) || (cur_chrom > max_code)) {
 	  // for now, unplaced chromosomes are all "autosomal"
@@ -5860,12 +5862,13 @@ void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* in
   }
 }
 
-void hh_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_male_include2, uintptr_t* indiv_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf) {
+void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf) {
   uintptr_t marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx_start);
   uint32_t chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
   uintptr_t marker_idx = 0;
   uint32_t chrom_idx;
   uint32_t is_x;
+  uint32_t is_y;
   uint32_t is_haploid;
   uintptr_t chrom_end;
   uintptr_t marker_idx_chrom_end;
@@ -5874,6 +5877,7 @@ void hh_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uin
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
     is_x = (chrom_info_ptr->x_code == (int32_t)chrom_idx);
+    is_y = (chrom_info_ptr->y_code == (int32_t)chrom_idx);
     is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
     marker_idx_chrom_end = marker_idx + chrom_end - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, chrom_end);
     if (marker_idx_chrom_end > marker_ct) {
@@ -5885,6 +5889,10 @@ void hh_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uin
 	  for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
 	    hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_male_include2, unfiltered_indiv_ct);
 	  }
+	}
+      } else if (is_y) {
+        for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
+          hh_reset_y(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_include2, indiv_male_include2, unfiltered_indiv_ct);
 	}
       } else if (nxmhh_exists) {
 	for (; marker_idx < marker_idx_chrom_end; marker_idx++) {

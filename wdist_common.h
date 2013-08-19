@@ -1378,7 +1378,7 @@ static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr
   return marker_uidx;
 }
 
-void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t allow_x_haploid, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_haploid_ptr);
+void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t allow_x_haploid, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_haploid_ptr);
 
 int32_t single_chrom_start(Chrom_info* chrom_info_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude);
 
@@ -1555,7 +1555,19 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfil
 
 void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct);
 
-void hh_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_male_include2, uintptr_t* indiv_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf);
+static inline void haploid_fix(uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct, uint32_t is_x, uint32_t is_y, unsigned char* loadbuf) {
+  if (is_x) {
+    if (xmhh_exists) {
+      hh_reset(loadbuf, indiv_male_include2, unfiltered_indiv_ct);
+    }
+  } else if (is_y) {
+    hh_reset_y(loadbuf, indiv_include2, indiv_male_include2, unfiltered_indiv_ct);
+  } else if (nxmhh_exists) {
+    hh_reset(loadbuf, indiv_include2, unfiltered_indiv_ct);
+  }
+}
+
+void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf);
 
 void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct);
 

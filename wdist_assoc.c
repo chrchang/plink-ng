@@ -5816,9 +5816,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       if (model_assoc) {
 	// exploit overflow
 	chrom_fo_idx++;
-	refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_haploid);
+	refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &g_is_haploid);
 	uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	g_is_y = (uii == (uint32_t)y_code);
 	if (g_is_haploid && (!g_is_x)) {
 	  if (g_is_y) {
 	    cur_ctrl_include2 = indiv_male_ctrl_include2;
@@ -7376,9 +7375,8 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       g_qblock_start = 0;
       // exploit overflow
       chrom_fo_idx++;
-      refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_haploid);
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &g_is_haploid);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-      g_is_y = (uii == (uint32_t)y_code);
       chrom_name_ptr = chrom_name_buf;
       chrom_name_len = 4;
       if (uii <= chrom_info_ptr->max_code) {
@@ -7433,15 +7431,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	goto qassoc_ret_READ_FAIL;
       }
       if (g_is_haploid) {
-	if (g_is_x) {
-	  if (xmhh_exists) {
-	    hh_reset((unsigned char*)cur_loadbuf, indiv_raw_male_include2, unfiltered_indiv_ct);
-	  }
-	} else if (g_is_y) {
-	  hh_reset_y((unsigned char*)cur_loadbuf, indiv_raw_include2, indiv_raw_male_include2, unfiltered_indiv_ct);
-	} else if (nxmhh_exists) {
-	  hh_reset((unsigned char*)cur_loadbuf, indiv_raw_include2, unfiltered_indiv_ct);
-	}
+	haploid_fix(xmhh_exists, nxmhh_exists, indiv_raw_include2, indiv_raw_male_include2, unfiltered_indiv_ct, g_is_x, g_is_y, (unsigned char*)cur_loadbuf);
       }
       if (unfiltered_indiv_ct != pheno_nm_ct) {
         collapse_copy_2bitarr_incl(loadbuf_raw, loadbuf_ptr, pheno_nm_ct, pheno_nm);
@@ -8091,6 +8081,7 @@ int32_t assoc_gxe(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   uintptr_t marker_uidx = 0;
   uintptr_t* indiv_male_include2 = NULL;
   uintptr_t* indiv_include2 = NULL;
+  uint32_t y_exists = (chrom_info_ptr->y_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->y_code);
   int32_t retval = 0;
   uintptr_t* loadbuf;
   char* cptr;
@@ -8101,6 +8092,7 @@ int32_t assoc_gxe(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   // uintptr_t indiv_uidx;
   // uintptr_t indiv_idx;
   uint32_t is_x;
+  uint32_t is_y;
   uint32_t is_haploid;
   uint32_t pct;
 
@@ -8116,17 +8108,17 @@ int32_t assoc_gxe(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   }
 
   // er, time to encapsulate this stuff in wdist_common...
-  if (nxmhh_exists) {
+  if (nxmhh_exists || y_exists) {
     if (wkspace_alloc_ul_checked(&indiv_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
       goto assoc_gxe_ret_NOMEM;
     }
     vec_include_init(unfiltered_indiv_ct, indiv_include2, gxe_covar_nm);
   }
-  if (xmhh_exists) {
+  if (xmhh_exists || y_exists) {
     if (wkspace_alloc_ul_checked(&indiv_male_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t))) {
       goto assoc_gxe_ret_NOMEM;
     }
-    if (nxmhh_exists) {
+    if (nxmhh_exists || y_exists) {
       memcpy(indiv_male_include2, indiv_include2, unfiltered_indiv_ctl * 2 * sizeof(intptr_t));
     } else {
       vec_include_init(unfiltered_indiv_ct, indiv_male_include2, gxe_covar_nm);
@@ -8166,7 +8158,7 @@ int32_t assoc_gxe(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
       }
       if (marker_uidx >= chrom_end) {
 	chrom_fo_idx++;
-	refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_haploid);
+	refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	cptr = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
 	*cptr++ = ' ';
       }
@@ -8175,13 +8167,7 @@ int32_t assoc_gxe(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
 	goto assoc_gxe_ret_READ_FAIL;
       }
       if (is_haploid) {
-	if (is_x) {
-	  if (xmhh_exists) {
-	    hh_reset((unsigned char*)loadbuf, indiv_male_include2, unfiltered_indiv_ct);
-	  }
-	} else if (nxmhh_exists) {
-	  hh_reset((unsigned char*)loadbuf, indiv_include2, unfiltered_indiv_ct);
-	}
+	haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, unfiltered_indiv_ct, is_x, is_y, (unsigned char*)loadbuf);
       }
       // indiv_uidx = 0;
 
