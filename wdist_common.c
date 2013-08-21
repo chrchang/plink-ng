@@ -6032,7 +6032,7 @@ void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
   }
   uii = unfiltered_indiv_ct & 3;
   if (uii) {
-    loadbuf[-1] &= (0x55 >> (8 - 2 * uii));
+    loadbuf[-1] &= (0xff >> (8 - 2 * uii));
   }
 }
 

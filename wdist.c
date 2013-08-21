@@ -65,9 +65,9 @@ const char ver_str[] =
   "PLINK v1.50a"
 #else
 #ifdef STABLE_BUILD
-  "WDIST v0.19.17"
+  "WDIST v0.19.18"
 #else
-  "WDIST v0.21.6"
+  "WDIST v0.21.7"
 #endif
 #endif
 #ifdef NOLAPACK
@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (19 Aug 2013)";
+  " (21 Aug 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -4893,7 +4893,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-
   if (calculation_type & (CALC_MODEL | CALC_GXE | CALC_GLM)) {
     if ((!pheno_all) && (!loop_assoc_fname)) {
       outname_end2 = outname_end;
@@ -4997,9 +4996,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
       // if dichotomous phenotype loaded with --all-pheno, skip --gxe
       if ((calculation_type & CALC_GXE) && pheno_d) {
-	// retval = assoc_gxe(bedfile, bed_offset, outname, outname_end, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, pheno_nm, pheno_d, gxe_covar_nm, gxe_covar_c, sex_nm, sex_male, xmhh_exists, nxmhh_exists);
-        logprint("Error: --gxe is currently under development.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
+	retval = assoc_gxe(bedfile, bed_offset, outname, outname_end, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, pheno_nm, pheno_d, gxe_covar_nm, gxe_covar_c, sex_nm, sex_male, xmhh_exists, nxmhh_exists);
 	if (retval) {
 	  goto wdist_ret_1;
 	}

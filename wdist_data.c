@@ -2645,6 +2645,9 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     covar_ct = 0;
   }
   min_covar_col_ct = last_set_bit(covars_active, covar_raw_ctl) + 1;
+  if (min_covar_col_ct < gxe_mcovar) {
+    min_covar_col_ct = gxe_mcovar;
+  }
   if (header_absent) {
     max_covar_name_len = 4 + intlen(min_covar_col_ct);
   } else {
@@ -2661,9 +2664,6 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
       }
       bufptr = skip_initial_spaces(&(bufptr2[1]));
     }
-  }
-  if (min_covar_col_ct < gxe_mcovar) {
-    min_covar_col_ct = gxe_mcovar;
   }
 
   wkspace_left -= topsize;
