@@ -19,7 +19,7 @@ static inline double chiprob_px(double xx, double df) {
 
 double inverse_chiprob(double qq, double df);
 
-double tprob(double tt, double df);
+double calc_tprob(double tt, double df);
 
 double ltqnorm(double p);
 

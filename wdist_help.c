@@ -674,8 +674,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'interaction' adds SNP x covariate interactions to the model.\n"
 "    * For logistic regressions, the 'beta' modifier causes regression\n"
 "      coefficients instead of odds ratios to be reported.\n"
-"    * With --linear, the 'standard-beta' modifier standardizes the phenotype to\n"
-"      zero mean and unit variance before regression.\n\n"
+"    * With --linear, the 'standard-beta' modifier standardizes the phenotype\n"
+"      and all predictors to zero mean and unit variance before regression.\n\n"
 	       );
 #endif
     help_print(

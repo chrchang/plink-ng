@@ -3074,6 +3074,23 @@ int32_t strcmp_natural_deref(const void* s1, const void* s2) {
   return strcmp_natural_uncasted(*(char**)s1, *(char**)s2);
 }
 
+int32_t get_uidx_from_unsorted(char* idstr, uintptr_t* exclude_arr, uintptr_t id_ct, char* unsorted_ids, uintptr_t max_id_len) {
+  uintptr_t id_uidx = 0;
+  uintptr_t slen_p1 = strlen(idstr) + 1;
+  uintptr_t id_idx;
+  if (slen_p1 > max_id_len) {
+    return -1;
+  }
+  for (id_idx = 0; id_idx < id_ct; id_idx++) {
+    id_uidx = next_non_set_unsafe(exclude_arr, id_uidx);
+    if (!memcmp(idstr, &(unsorted_ids[id_uidx * max_id_len]), slen_p1)) {
+      return (int32_t)((uint32_t)id_uidx);
+    }
+    id_uidx++;
+  }
+  return -1;
+}
+
 char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len) {
   uintptr_t id_idx;
   id_ct--;
@@ -5185,28 +5202,35 @@ void vec_3freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, ui
   *homset_ctp = acc_and;
 }
 
-uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t item_ct, uintptr_t* bitfield) {
+uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t item_ct, uintptr_t* bitfield, uint32_t offset, uint32_t ignore_overflow) {
   char* names = range_list_ptr->names;
   unsigned char* starts_range = range_list_ptr->starts_range;
   uint32_t name_ct = range_list_ptr->name_ct;
   uint32_t name_max_len = range_list_ptr->name_max_len;
+  uint32_t idx_max = item_ct + offset;
   uint32_t name_idx;
   uint32_t idx1;
   uint32_t idx2;
   for (name_idx = 0; name_idx < name_ct; name_idx++) {
     idx1 = atoi(&(names[name_idx * name_max_len]));
-    if (idx1 > item_ct) {
+    if (idx1 >= idx_max) {
+      if (ignore_overflow) {
+	continue;
+      }
       return 1;
     }
     if (starts_range[name_idx]) {
       name_idx++;
       idx2 = atoi(&(names[name_idx * name_max_len]));
-      if (idx2 > item_ct) {
-	return 1;
+      if (idx2 >= idx_max) {
+	if (!ignore_overflow) {
+	  return 1;
+	}
+        idx2 = idx_max - 1;
       }
-      fill_bits(bitfield, idx1 - 1, (idx2 - idx1) + 1);
+      fill_bits(bitfield, idx1 - offset, (idx2 - idx1) + 1);
     } else {
-      set_bit_noct(bitfield, idx1 - 1);
+      set_bit_noct(bitfield, idx1 - offset);
     }
   }
   return 0;

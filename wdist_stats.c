@@ -33,7 +33,7 @@ double inverse_chiprob(double qq, double df) {
   return xx;
 }
 
-double tprob(double tt, double df) {  
+double calc_tprob(double tt, double df) {  
   int32_t st = 0;
   int32_t ww = 1;
   double bnd = 1;

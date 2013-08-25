@@ -67,7 +67,7 @@ const char ver_str[] =
 #ifdef STABLE_BUILD
   "WDIST v0.19.18"
 #else
-  "WDIST v0.21.7"
+  "WDIST v0.22.0p"
 #endif
 #endif
 #ifdef NOLAPACK
@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (21 Aug 2013)";
+  " (25 Aug 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -94,9 +94,9 @@ const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
 const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --model, --indep, --make-rel,\n--make-grm-bin, --rel-cutoff, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #else
 #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --homozyg, --cluster, --neighbour,\n--model, --indep, --make-rel, --make-grm-bin, --rel-cutoff, --regress-pcs,\n--regress-distance, --ibs-test, and --unrelated-heritability.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --homozyg, --cluster, --neighbour,\n--model, --gxe, --linear, --indep, --make-rel, --make-grm-bin, --rel-cutoff,\n--regress-pcs, --regress-distance, --ibs-test, and --unrelated-heritability.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --homozyg, --cluster, --neighbour,\n--model, --indep, --make-rel, --make-grm-bin, --rel-cutoff, --regress-pcs,\n--regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --homozyg, --cluster, --neighbour,\n--model, --gxe, --indep, --make-rel, --make-grm-bin, --rel-cutoff,\n--regress-pcs, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #endif
 #endif
 
@@ -3769,7 +3769,7 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t* marker_exclud
 }
 
 static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, uint32_t min_bp_space, uint32_t genome_skip_write) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL)) || min_bp_space || genome_skip_write;
+  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM)) || min_bp_space || genome_skip_write;
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, Two_col_params* update_cm) {
@@ -3784,7 +3784,7 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, Two_col_
 }
 
 static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_LIST_23_INDELS)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)));
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LIST_23_INDELS)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)));
 }
 
 inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -4981,22 +4981,30 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     wdist_skip_all_pheno:
       if (calculation_type & CALC_MODEL) {
 	if (pheno_d) {
-	  retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, calculation_type, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, sex_nm, sex_male, xmhh_exists, nxmhh_exists, perm_batch_size);
+	  retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, sex_male, xmhh_exists, nxmhh_exists, perm_batch_size);
 	} else {
-	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, calculation_type, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_nm, sex_male);
+	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male);
 	}
 	if (retval) {
 	  goto wdist_ret_1;
 	}
       }
       if (calculation_type & CALC_GLM) {
-	logprint("Error: --linear and --logistic are not implemented yet.\n");
-        retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto wdist_ret_1;
+	if (!(glm_modifier & GLM_NO_SNP)) {
+          logprint("Error: --linear and --logistic are currently under development.\n");
+	  retval = RET_CALC_NOT_YET_SUPPORTED;
+	  goto wdist_ret_1;
+          // retval = glm_assoc(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, zero_extra_chroms, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, xmhh_exists, nxmhh_exists, perm_batch_size);
+	} else {
+	  retval = glm_assoc_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, xmhh_exists, nxmhh_exists, perm_batch_size);
+	}
+	if (retval) {
+	  goto wdist_ret_1;
+	}
       }
       // if dichotomous phenotype loaded with --all-pheno, skip --gxe
       if ((calculation_type & CALC_GXE) && pheno_d) {
-	retval = assoc_gxe(bedfile, bed_offset, outname, outname_end, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, pheno_nm, pheno_d, gxe_covar_nm, gxe_covar_c, sex_nm, sex_male, xmhh_exists, nxmhh_exists);
+	retval = gxe_assoc(bedfile, bed_offset, outname, outname_end, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, pheno_nm, pheno_d, gxe_covar_nm, gxe_covar_c, sex_male, xmhh_exists, nxmhh_exists);
 	if (retval) {
 	  goto wdist_ret_1;
 	}
@@ -5859,7 +5867,7 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t gxe_mcovar = 0;
   uint32_t glm_modifier = 0;
   double glm_vif_thresh = 50.0;
-  uint32_t glm_xchr_model = 0;
+  uint32_t glm_xchr_model = 1;
   uint32_t ppc_gap = DEFAULT_PPC_GAP;
   uint32_t* rseeds = NULL;
   uint32_t rseed_ct = 0;
@@ -7960,6 +7968,7 @@ int32_t main(int32_t argc, char** argv) {
 	UNSTABLE;
 	logprint("Note: --dominant flag deprecated.  Use e.g. '--linear dominant'.\n");
 	glm_modifier |= GLM_DOMINANT;
+	glm_xchr_model = 0;
 	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -8924,12 +8933,14 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    glm_modifier |= GLM_DOMINANT;
+	    glm_xchr_model = 0;
 	  } else if (!memcmp(argv[cur_arg + uii], "recessive", 10)) {
 	    if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_DOMINANT)) {
 	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    glm_modifier |= GLM_RECESSIVE;
+	    glm_xchr_model = 0;
 	  } else if (!memcmp(argv[cur_arg + uii], "no-snp", 7)) {
 	    // defer this check
 	    glm_modifier |= GLM_NO_SNP;
@@ -10581,12 +10592,13 @@ int32_t main(int32_t argc, char** argv) {
 	if (!(calculation_type & CALC_GLM)) {
 	  sprintf(logbuf, "Error: --recessive must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_DOMINANT | GLM_NO_SNP)) {
+	} else if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_DOMINANT)) {
 	  sprintf(logbuf, "Error: --recessive conflicts with a --%s modifier.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	logprint("Note: --recessive flag deprecated.  Use e.g. '--linear recessive'.\n");
 	glm_modifier |= GLM_RECESSIVE;
+	glm_xchr_model = 0;
 	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -10822,7 +10834,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (!(calculation_type & CALC_GLM)) {
 	  sprintf(logbuf, "Error: --sex must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (glm_modifier & (GLM_NO_SNP | GLM_NO_X_SEX)) {
+	} else if (glm_modifier & GLM_NO_X_SEX) {
 	  sprintf(logbuf, "Error: --sex conflicts with a --%s modifier.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -11458,8 +11470,8 @@ int32_t main(int32_t argc, char** argv) {
 	if (!(calculation_type & CALC_GLM)) {
 	  sprintf(logbuf, "Error: --xchr-model must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (glm_modifier & (GLM_DOMINANT | GLM_RECESSIVE | GLM_NO_SNP)) {
-	  sprintf(logbuf, "Error: --xchr-model cannot be used with --%s dominant/recessive/no-snp.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
+	} else if (glm_modifier & (GLM_DOMINANT | GLM_RECESSIVE)) {
+	  sprintf(logbuf, "Error: --xchr-model cannot be used with --%s dominant/recessive.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -11473,7 +11485,7 @@ int32_t main(int32_t argc, char** argv) {
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
-
+      break;
 
     default:
       goto main_ret_INVALID_CMDLINE_2;

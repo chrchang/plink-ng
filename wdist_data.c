@@ -2619,7 +2619,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   if (covar_modifier & (COVAR_NAME | COVAR_NUMBER)) {
     fill_ulong_zero(covars_active, covar_raw_ctl);
     if (covar_modifier & COVAR_NUMBER) {
-      if (numeric_range_list_to_bitfield(covar_range_list_ptr, covar_raw_ct, covars_active)) {
+      if (numeric_range_list_to_bitfield(covar_range_list_ptr, covar_raw_ct, covars_active, 1, 0)) {
 	logprint("Error: Fewer tokens in --covar file than required by --covar-number parameters.\n");
 	goto load_covars_ret_INVALID_CMDLINE;
       }

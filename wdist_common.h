@@ -389,7 +389,7 @@ typedef union {
 #define GLM_INTERACTION 0x2000
 #define GLM_STANDARD_BETA 0x4000
 #define GLM_BETA 0x8000
-#define GLM_NO_SNP_EXCL 0x19fe
+#define GLM_NO_SNP_EXCL 0x307e
 #define GLM_TEST_ALL 0x10000
 
 #define MPERM_DUMP_BEST 1
@@ -1390,6 +1390,8 @@ int32_t strcmp_deref(const void* s1, const void* s2);
 
 int32_t strcmp_natural_deref(const void* s1, const void* s2);
 
+int32_t get_uidx_from_unsorted(char* idstr, uintptr_t* exclude_arr, uintptr_t id_ct, char* unsorted_ids, uintptr_t max_id_len);
+
 char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len);
 
 int32_t is_missing_pheno(char* bufptr, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01);
@@ -1508,7 +1510,7 @@ static inline void zero_trailing_bits(uintptr_t* bitfield, uintptr_t unfiltered_
   }
 }
 
-uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t item_ct, uintptr_t* bitfield);
+uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t item_ct, uintptr_t* bitfield, uint32_t offset, uint32_t ignore_overflow);
 
 int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, Range_list* range_list_ptr, char* sorted_ids, uint32_t* id_map, int32_t* seen_idx, const char* range_list_flag, const char* file_descrip, uintptr_t* bitfield);
 
