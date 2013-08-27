@@ -641,9 +641,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
                /*
 "  --linear <perm | mperm=[value]> <genedrop> <perm-count>\n"
                */
+#ifndef NOLAPACK
 "  --linear <perm | mperm=[value]> <perm-count>\n"
 "           <genotypic | hethom | dominant | recessive | no-snp> <hide-covar>\n"
 "           <sex | no-x-sex> <interaction> <beta> <standard-beta>\n"
+#endif
 	       /*
 "  --logistic <perm | mperm=[value]> <genedrop> <perm-count>\n"
 	       */
@@ -1166,8 +1168,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     --model tests.\n"
 	       );
     help_print("linear\tlogistic\tcondition\tcondition-list\tparameters\ttests\ttest-all\tvif\txchr-model", &help_ctrl, 0,
-"  --condition [mkr ID] : Add one SNP as a --linear/--logistic covariate.\n"
-"  --condition-list [f] : Add multiple SNPs as --linear/--logistic covariates.\n"
+"  --condition [mkr ID] <dominant | recessive> : Add one SNP as a --linear or\n"
+"                                                --logistic covariate.\n"
+"  --condition-list [f] <dominant | recessive> : Add multiple SNPs as --linear\n"
+"                                                or --logistic covariates.\n"
 "  --parameters [...]   : Include only the given covariates/interactions in the\n"
 "                         --linear/--logistic models, identified by a list of\n"
 "                         1-based indices and/or ranges of them.\n"
@@ -1175,8 +1179,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                         --linear/--logistic model, identified by 1-based\n"
 "                         indices and/or ranges of them.  Note that, when\n"
 "                         --parameters is also present, the indices refer to the\n"
-"                         REMAINING sequence of terms.\n"
-"                         You can use '--tests all' to include all terms.\n"
+"                         terms remaining AFTER pruning by --parameters.  You\n"
+"                         can use '--tests all' to include all terms.\n"
 "  --vif [max VIF]      : Set VIF threshold for --linear/--logistic\n"
 "                         multicollinearity check (default 50).\n"
 "  --xchr-model [code]  : Sets the X chromosome --linear/--logistic model.\n"

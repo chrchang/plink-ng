@@ -2544,7 +2544,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   logprintb();
   if (hp->modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE)) {
     if (max_pool_size < hp->pool_size_min) {
-      sprintf(logbuf, "Skipping --homozyg group%s report since there are no pools.\n", (hp->modifier & HOMOZYG_GROUP_VERBOSE)? "-verbose" : "");
+      sprintf(logbuf, "Warning: Skipping --homozyg group%s report since there are no pools.\n", (hp->modifier & HOMOZYG_GROUP_VERBOSE)? "-verbose" : "");
       logprintb();
 #ifndef __LP64__
     } else if (max_pool_size > 65536) {

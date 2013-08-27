@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (25 Aug 2013)";
+  " (27 Aug 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -94,9 +94,9 @@ const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
 const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --model, --indep, --make-rel,\n--make-grm-bin, --rel-cutoff, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #else
 #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --homozyg, --cluster, --neighbour,\n--model, --gxe, --linear, --indep, --make-rel, --make-grm-bin, --rel-cutoff,\n--regress-pcs, --regress-distance, --ibs-test, and --unrelated-heritability.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --homozyg, --cluster, --neighbour,\n--model, --gxe, --logistic, --indep, --make-rel, --make-grm-bin, --rel-cutoff,\n--regress-pcs, --regress-distance, --ibs-test, and --unrelated-heritability.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --homozyg, --cluster, --neighbour,\n--model, --gxe, --indep, --make-rel, --make-grm-bin, --rel-cutoff,\n--regress-pcs, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --homozyg, --cluster, --neighbour,\n--model, --gxe, --logistic, --indep, --make-rel, --make-grm-bin, --rel-cutoff,\n--regress-pcs, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #endif
 #endif
 
@@ -4996,7 +4996,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	  goto wdist_ret_1;
           // retval = glm_assoc(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, zero_extra_chroms, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, xmhh_exists, nxmhh_exists, perm_batch_size);
 	} else {
-	  retval = glm_assoc_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, xmhh_exists, nxmhh_exists, perm_batch_size);
+	  retval = glm_assoc_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, xmhh_exists, nxmhh_exists, perm_batch_size);
 	}
 	if (retval) {
 	  goto wdist_ret_1;
@@ -7058,7 +7058,7 @@ int32_t main(int32_t argc, char** argv) {
         min_bp_space = ii;
       } else if (!memcmp(argptr2, "eta", 4)) {
 	UNSTABLE;
-	logprint("Note: --beta flag deprecated.  Use '--logistic beta'.\n");
+	logprint("Note: --beta flag deprecated.  Use e.g. '--logistic beta'.\n");
 	glm_modifier |= GLM_BETA;
 	goto main_param_zero;
       } else {
@@ -7741,10 +7741,28 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ondition", 9)) {
 	UNSTABLE;
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (alloc_string(&condition_mname, argv[cur_arg + 1])) {
+	uii = 1;
+	if (param_ct == 2) {
+	  if (!memcmp("dominant", argv[cur_arg + 2], 9)) {
+	    glm_modifier |= GLM_CONDITION_DOMINANT;
+	  } else if (!memcmp("recessive", argv[cur_arg + 2], 10)) {
+	    glm_modifier |= GLM_CONDITION_RECESSIVE;
+	  } else {
+	    uii = 2;
+            if (!memcmp("dominant", argv[cur_arg + 1], 9)) {
+	      glm_modifier |= GLM_CONDITION_DOMINANT;
+	    } else if (!memcmp("recessive", argv[cur_arg + 1], 10)) {
+	      glm_modifier |= GLM_CONDITION_RECESSIVE;
+	    } else {
+	      sprintf(logbuf, "Error: Invalid --condition parameter sequence.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	  }
+	}
+	if (alloc_string(&condition_mname, argv[cur_arg + uii])) {
 	  goto main_ret_NOMEM;
 	}
       } else if (!memcmp(argptr2, "ondition-list", 14)) {
@@ -7753,10 +7771,27 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --condition-list cannot be used with --condition.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&condition_fname, argv[cur_arg + 1], argptr, 0);
+	if (param_ct == 2) {
+	  if (!memcmp("dominant", argv[cur_arg + 2], 9)) {
+	    glm_modifier |= GLM_CONDITION_DOMINANT;
+	  } else if (!memcmp("recessive", argv[cur_arg + 2], 10)) {
+	    glm_modifier |= GLM_CONDITION_RECESSIVE;
+	  } else {
+	    uii = 2;
+            if (!memcmp("dominant", argv[cur_arg + 1], 9)) {
+	      glm_modifier |= GLM_CONDITION_DOMINANT;
+	    } else if (!memcmp("recessive", argv[cur_arg + 1], 10)) {
+	      glm_modifier |= GLM_CONDITION_RECESSIVE;
+	    } else {
+	      sprintf(logbuf, "Error: Invalid --condition-list parameter sequence.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	  }
+	}
+	retval = alloc_fname(&condition_fname, argv[cur_arg + uii], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -7966,8 +8001,8 @@ int32_t main(int32_t argc, char** argv) {
 	write_covar_modifier |= WRITE_COVAR_DUMMY;
       } else if (!memcmp(argptr2, "ominant", 8)) {
 	UNSTABLE;
-	logprint("Note: --dominant flag deprecated.  Use e.g. '--linear dominant'.\n");
-	glm_modifier |= GLM_DOMINANT;
+	logprint("Note: --dominant flag deprecated.  Use e.g. '--linear dominant' (and\n'--condition-list [filename] dominant' to change covariate coding).\n");
+	glm_modifier |= GLM_DOMINANT | GLM_CONDITION_DOMINANT;
 	glm_xchr_model = 0;
 	goto main_param_zero;
       } else {
@@ -8408,6 +8443,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	logprint("Note: --genotypic flag deprecated.  Use e.g. '--linear genotypic'.\n");
 	glm_modifier |= GLM_GENOTYPIC;
+	glm_xchr_model = 0;
 	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -8618,8 +8654,9 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --hethom cannot be used with --%s.\n", (glm_modifier & GLM_DOMINANT)? "dominant" : "genotypic");
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	logprint("Note: --hethom flag deprecated.  Use e.g. '--linear hethom'.\n");
-	glm_modifier |= GLM_HETHOM;
+	logprint("Note: --hethom flag deprecated.  Use e.g. '--linear hethom' (and\n'--condition-list [filename] recessive' to change covariate coding).\n");
+	glm_modifier |= GLM_HETHOM | GLM_CONDITION_RECESSIVE;
+	glm_xchr_model = 0;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ide-covar", 10)) {
 	UNSTABLE;
@@ -8876,15 +8913,19 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_LIST_23_INDELS;
       } else if ((!memcmp(argptr2, "inear", 6)) || (!memcmp(argptr2, "ogistic", 8))) {
 	UNSTABLE;
+#ifndef NOLAPACK
         if (calculation_type & CALC_GLM) {
 	  logprint("Error: --logistic cannot be used with --linear.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
+#endif
 	if (*argptr2 == 'o') {
 	  glm_modifier |= GLM_LOGISTIC;
-	} else if (glm_modifier & GLM_BETA) {
-	  sprintf(logbuf, "Error: --beta cannot be used with --linear.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+#ifdef NOLAPACK
+	} else {
+	  logprint("Error: --linear requires " PROG_NAME_CAPS " to be built with LAPACK.\n");
+	  goto main_ret_INVALID_CMDLINE;
+#endif
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 8)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -8918,31 +8959,37 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!memcmp(argv[cur_arg + uii], "genotypic", 10)) {
 	    if (glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE)) {
 	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE;
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    glm_modifier |= GLM_GENOTYPIC;
+	    glm_xchr_model = 0;
 	  } else if (!memcmp(argv[cur_arg + uii], "hethom", 7)) {
 	    if (glm_modifier & (GLM_GENOTYPIC | GLM_DOMINANT | GLM_RECESSIVE)) {
 	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE;
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    glm_modifier |= GLM_HETHOM;
+	    glm_xchr_model = 0;
 	  } else if (!memcmp(argv[cur_arg + uii], "dominant", 9)) {
 	    if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_RECESSIVE)) {
 	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE;
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    glm_modifier |= GLM_DOMINANT;
 	    glm_xchr_model = 0;
 	  } else if (!memcmp(argv[cur_arg + uii], "recessive", 10)) {
 	    if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_DOMINANT)) {
 	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
-	      goto main_ret_INVALID_CMDLINE;
+	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    glm_modifier |= GLM_RECESSIVE;
 	    glm_xchr_model = 0;
 	  } else if (!memcmp(argv[cur_arg + uii], "no-snp", 7)) {
-	    // defer this check
+	    if (mtest_adjust) {
+	      sprintf(logbuf, "Error: --%s no-snp cannot be used with --adjust.%s", argptr, errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    // defer the rest of the check
 	    glm_modifier |= GLM_NO_SNP;
 	  } else if (!memcmp(argv[cur_arg + uii], "hide-covar", 11)) {
 	    glm_modifier |= GLM_HIDE_COVAR;
@@ -8967,10 +9014,6 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    glm_modifier |= GLM_STANDARD_BETA;
 	  } else if (!memcmp(argv[cur_arg + uii], "beta", 5)) {
-	    if (!(glm_modifier & GLM_LOGISTIC)) {
-	      sprintf(logbuf, "Error: --linear does not have a 'beta' modifier.  (Did you mean --logistic or\n'standard-beta'?)%s", errstr_append);
-	      goto main_ret_INVALID_CMDLINE_3;
-	    }
 	    glm_modifier |= GLM_BETA;
 	  } else if (!memcmp(argv[cur_arg + uii], "mperm", 6)) {
 	    sprintf(logbuf, "Error: Improper --%s mperm syntax.  (Use '--%s mperm=[value]'.)\n", argptr, argptr);
@@ -9826,7 +9869,10 @@ int32_t main(int32_t argc, char** argv) {
 	if (!(calculation_type & CALC_GLM)) {
 	  sprintf(logbuf, "Error: --no-snp must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (glm_modifier & GLM_NO_SNP_EXCL) {
+	} else if (mtest_adjust) {
+	  sprintf(logbuf, "Error: --no-snp cannot be used with --adjust.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if ((glm_modifier & (GLM_NO_SNP_EXCL - GLM_HETHOM - GLM_DOMINANT)) || ((glm_modifier & (GLM_HETHOM | GLM_DOMINANT)) && (!(glm_modifier & (GLM_CONDITION_DOMINANT | GLM_CONDITION_RECESSIVE))))) {
 	  sprintf(logbuf, "Error: --no-snp conflicts with a --%s modifier.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -10596,8 +10642,8 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --recessive conflicts with a --%s modifier.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	logprint("Note: --recessive flag deprecated.  Use e.g. '--linear recessive'.\n");
-	glm_modifier |= GLM_RECESSIVE;
+	logprint("Note: --recessive flag deprecated.  Use e.g. '--linear recessive' (and\n'--condition-list [filename] recessive' to change covariate coding).\n");
+	glm_modifier |= GLM_RECESSIVE | GLM_CONDITION_RECESSIVE;
 	glm_xchr_model = 0;
 	goto main_param_zero;
       } else {
@@ -11470,8 +11516,8 @@ int32_t main(int32_t argc, char** argv) {
 	if (!(calculation_type & CALC_GLM)) {
 	  sprintf(logbuf, "Error: --xchr-model must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (glm_modifier & (GLM_DOMINANT | GLM_RECESSIVE)) {
-	  sprintf(logbuf, "Error: --xchr-model cannot be used with --%s dominant/recessive.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
+	} else if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE)) {
+	  sprintf(logbuf, "Error: --xchr-model cannot be used with --%s %s.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", (glm_modifier & GLM_GENOTYPIC)? "genotypic" : ((glm_modifier & GLM_HETHOM)? "hethom" : ((glm_modifier & GLM_DOMINANT)? "dominant" : "recessive")), errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {

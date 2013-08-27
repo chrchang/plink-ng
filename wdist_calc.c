@@ -72,79 +72,9 @@
 
 #include "wdist_cluster.h"
 #include "wdist_data.h"
+#include "wdist_dmatrix.h"
 #include "wdist_stats.h"
 #include "pigz.h"
-
-#ifdef __APPLE__
-#include <Accelerate/Accelerate.h>
-#endif
-
-#ifdef NOLAPACK
-#define MATRIX_INVERT_BUF1_TYPE double
-#define __CLPK_integer int
-#else // not NOLAPACK
-#ifndef __APPLE__
-#ifdef __cplusplus
-extern "C" {
-#endif
-  typedef double __CLPK_doublereal;
-#ifdef _WIN32
-#define HAVE_LAPACK_CONFIG_H
-#define LAPACK_COMPLEX_STRUCTURE
-#include "lapack/lapacke/include/lapacke.h"
-  typedef int32_t __CLPK_integer;
-
-  void dger_(int* m, int* n, double* alpha, double* x, int* incx, double* y,
-             int* incy, double* a, int* lda);
-
-  void dgemm_(char* transa, char* transb, int* m, int* n, int* k,
-              double* alpha, double* a, int* lda, double* b, int* ldb,
-              double* beta, double* c, int* ldc);
-
-  void dsymv_(char* uplo, int* n, double* alpha, double* a, int* lda,
-              double* x, int* incx, double* beta, double* y, int* incy);
-
-  double ddot_(int* n, double* dx, int* incx, double* dy, int* incy);
-
-  void dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
-               __CLPK_doublereal* a, __CLPK_integer* lda,
-               __CLPK_integer* ipiv, __CLPK_integer* info);
-
-#else // not _WIN32
-#include <cblas.h>
-#ifdef __LP64__
-  typedef int32_t __CLPK_integer;
-#else
-  typedef long int __CLPK_integer;
-#endif
-  int dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
-              __CLPK_doublereal* a, __CLPK_integer* lda,
-              __CLPK_integer* ipiv, __CLPK_integer* info);
-
-  int dgetri_(__CLPK_integer* n, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_integer* ipiv,
-              __CLPK_doublereal* work, __CLPK_integer* lwork,
-              __CLPK_integer* info);
-
-  double dlange_(char* norm, __CLPK_integer* m, __CLPK_integer* n,
-                 __CLPK_doublereal* a, __CLPK_integer* lda,
-                 __CLPK_doublereal* work);
-
-  int dgecon_(char* norm, __CLPK_integer* n, __CLPK_doublereal* a,
-              __CLPK_integer* lda, __CLPK_doublereal* anorm,
-              __CLPK_doublereal* rcond, __CLPK_doublereal* work,
-              __CLPK_integer* iwork, __CLPK_integer* info);
-#endif
-
-  void xerbla_(void) {} // fix static linking error
-#ifdef __cplusplus
-}
-#endif // __cplusplus
-#endif // __APPLE__
-#define MATRIX_INVERT_BUF1_TYPE __CLPK_integer
-#endif // NOLAPACK
-
-#define MATRIX_SINGULAR_RCOND 1e-14
 
 // number of different types of jackknife values to precompute (x^2, x, y, xy)
 #define JACKKNIFE_VALS_REL 5
@@ -812,399 +742,6 @@ void fill_weights_r_f(float* weights_f, float* set_allele_freqs_f, uint32_t var_
     }
   }
 }
-
-inline double SQR(const double a) {
-  return a * a;
-}
-
-#ifdef __cplusplus
-inline double SIGN(const double &a, const double &b) {
-  // PLINK helper.h SIGN() template specialized to doubles.
-  return (b >= 0)? (a >= 0 ? a : -a) : (a >= 0 ? -a : a);
-}
-#else
-inline double SIGN(const double a, const double b) {
-  // PLINK helper.h SIGN() template specialized to doubles.
-  return (b >= 0)? (a >= 0 ? a : -a) : (a >= 0 ? -a : a);
-}
-#endif
-
-double pythag(const double a, const double b) {
-  // PLINK stats.cpp pythag().
-  double absa,absb;
- 
-  absa=fabs(a);
-  absb=fabs(b);
-  if (absa > absb) return absa*sqrt(1.0+SQR(absb/absa));
-  else return (absb == 0.0 ? 0.0 : absb*sqrt(1.0+SQR(absa/absb)));
-}
-
-int32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
-  // C port of PLINK stats.cpp svdcmp().
-  // Note that this function is NOT thread-safe, due to the buffer allocated
-  // from the workspace stack.  Pass in a preallocated buffer if that's not
-  // okay.
-  unsigned char* wkspace_mark = wkspace_base;
-  int32_t n = m;
-  int32_t flag;
-  int32_t l = 0; // suppress compile warning
-  int32_t i,its,j,jj,k,nm;
-  double anorm,c,f,g,h,s,scale,x,y,z;
-  double volatile temp;
-  double* rv1;
-  if (wkspace_alloc_d_checked(&rv1, m * sizeof(double))) {
-    return -1;
-  }
-
-  g=scale=anorm=0.0;
-  for (i=0;i<n;i++) {
-    l=i+2;
-    rv1[i]=scale*g;
-    g=s=scale=0.0;
-    if (i < m) {
-      for (k=i;k<m;k++) scale += fabs(a[k * m + i]);
-      if (scale != 0.0) {
-	for (k=i;k<m;k++) {
-	  a[k * m + i] /= scale;
-	  s += a[k * m + i]*a[k * m + i];
-	}
-	f=a[i * m + i];
-	g = -SIGN(sqrt(s),f);
-	h=f*g-s;
-	a[i * m + i]=f-g;
-	for (j=l-1;j<n;j++) {
-	  for (s=0.0,k=i;k<m;k++) s += a[k * m + i]*a[k * m + j];
-	  f=s/h;
-	  for (k=i;k<m;k++) a[k * m + j] += f*a[k * m + i];
-	}
-	for (k=i;k<m;k++) a[k * m + i] *= scale;
-      }
-    }
-    w[i]=scale *g;
-    g=s=scale=0.0;
-    if (i+1 <= m && i+1 != n) {
-      for (k=l-1;k<n;k++) scale += fabs(a[i * m + k]);
-      if (scale != 0.0) {
-	for (k=l-1;k<n;k++) {
-	  a[i * m + k] /= scale;
-	  s += a[i * m + k]*a[i * m + k];
-	}
-	f=a[i * m + l-1];
-	g = -SIGN(sqrt(s),f);
-	h=f*g-s;
-	a[i * m + l-1]=f-g;
-	for (k=l-1;k<n;k++) rv1[k]=a[i * m + k]/h;
-	for (j=l-1;j<m;j++) {
-	  for (s=0.0,k=l-1;k<n;k++) s += a[j * m + k]*a[i * m + k];
-	  for (k=l-1;k<n;k++) a[j * m + k] += s*rv1[k];
-	}
-	for (k=l-1;k<n;k++) a[i * m + k] *= scale;
-      }
-    }
-    anorm=MAXV(anorm,(fabs(w[i])+fabs(rv1[i])));
-  }
-  for (i=n-1;i>=0;i--) {
-    if (i < n-1) {
-      if (g != 0.0) {
-	for (j=l;j<n;j++)
-	  v[j * m + i]=(a[i * m + j]/a[i * m + l])/g;
-	for (j=l;j<n;j++) {
-	  for (s=0.0,k=l;k<n;k++) s += a[i * m + k]*v[k * m + j];
-	  for (k=l;k<n;k++) v[k * m + j] += s*v[k * m + i];
-	}
-      }
-      for (j=l;j<n;j++) v[i * m + j]=v[j * m + i]=0.0;
-    }
-    v[i * m + i]=1.0;
-    g=rv1[i];
-    l=i;
-  }
-  for (i=MINV(m,n)-1;i>=0;i--) {
-    l=i+1;
-    g=w[i];
-    for (j=l;j<n;j++) a[i * m + j]=0.0;
-    if (g != 0.0) {
-      g=1.0/g;
-      for (j=l;j<n;j++) {
-	for (s=0.0,k=l;k<m;k++) s += a[k * m + i]*a[k * m + j];
-	f=(s/a[i * m + i])*g;
-	for (k=i;k<m;k++) a[k * m + j] += f*a[k * m + i];
-      }
-      for (j=i;j<m;j++) a[j * m + i] *= g;
-    } else for (j=i;j<m;j++) a[j * m + i]=0.0;
-    ++a[i * m + i];
-  }
-  for (k=n-1;k>=0;k--) {
-    for (its=0;its<30;its++) {
-      flag=1;
-      for (l=k;l>=0;l--) {
-	nm=l-1;
-	temp=fabs(rv1[l])+anorm;
-	if (temp == anorm) {
-	  flag=0;
-	  break;
-	}
-	temp=fabs(w[nm])+anorm;
-	if (temp == anorm) break;
-      }
-      if (flag) {
-	c=0.0;
-	s=1.0;
-	for (i=l;i<k+1;i++) {
-	  f=s*rv1[i];
-	  rv1[i]=c*rv1[i];
-	  temp = fabs(f)+anorm;
-	  if (temp == anorm) break;
-	  g=w[i];
-	  h=pythag(f,g);
-	  w[i]=h;
-	  h=1.0/h;
-	  c=g*h;
-	  s = -f*h;
-	  for (j=0;j<m;j++) {
-	    y=a[j * m + nm];
-	    z=a[j * m + i];
-	    a[j * m + nm]=y*c+z*s;
-	    a[j * m + i]=z*c-y*s;
-	  }
-	}
-      }
-      z=w[k];
-      if (l == k) {
-	if (z < 0.0) {
-	  w[k] = -z;
-	  for (j=0;j<n;j++) v[j * m + k] = -v[j * m + k];
-	}
-	break;
-      }
-      if (its == 29) 
-	return 0; // cannot converge: multi-collinearity?
-      x=w[l];
-      nm=k-1;
-      y=w[nm];
-      g=rv1[nm];
-      h=rv1[k];
-      f=((y-z)*(y+z)+(g-h)*(g+h))/(2.0*h*y);
-      g=pythag(f,1.0);
-      f=((x-z)*(x+z)+h*((y/(f+SIGN(g,f)))-h))/x;
-      c=s=1.0;
-      for (j=l;j<=nm;j++) {
-	i=j+1;
-	g=rv1[i];
-	y=w[i];
-	h=s*g;
-	g=c*g;
-	z=pythag(f,h);
-	rv1[j]=z;
-	c=f/z;
-	s=h/z;
-	f=x*c+g*s;
-	g=g*c-x*s;
-	h=y*s;
-	y *= c;
-	for (jj=0;jj<n;jj++) {
-	  x=v[jj * m + j];
-	  z=v[jj * m + i];
-	  v[jj * m + j]=x*c+z*s;
-	  v[jj * m + i]=z*c-x*s;
-	}
-	z=pythag(f,h);
-	w[j]=z;
-	if (z) {
-	  z=1.0/z;
-	  c=f*z;
-	  s=h*z;
-	}
-	f=c*g+s*y;
-	x=c*y-s*g;
-	for (jj=0;jj<m;jj++) {
-	  y=a[jj * m + j];
-	  z=a[jj * m + i];
-	  a[jj * m + j]=y*c+z*s;
-	  a[jj * m + i]=z*c-y*s;
-	}
-      }
-      rv1[l]=0.0;
-      rv1[k]=f;
-      w[k]=x;
-    }
-  }
-  wkspace_reset(wkspace_mark);
-  return 1;
-}
-
-int32_t invert_matrix_trunc_singular_svd(__CLPK_integer dim, double* matrix, double* dbl_1d_buf, double* dbl_2d_buf, __CLPK_integer min_dim) {
-  // for no truncation, call this with min_dim == dim
-  const double eps = 1e-24;
-  unsigned char* wkspace_mark = wkspace_base;
-  double* matrix_copy;
-  double* small_matrix = NULL;
-  uint32_t min_dim_u = min_dim;
-  int32_t flag;
-  uint32_t cur_dim;
-  uint32_t max_dim; // known singular
-  uint32_t uii;
-  int32_t i;
-  int32_t j;
-  int32_t k;
-
-  if (wkspace_alloc_d_checked(&matrix_copy, dim * dim * sizeof(double))) {
-    return -1;
-  }
-  memcpy(matrix_copy, matrix, dim * dim * sizeof(double));
-  flag = svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf);
-
-  if (flag == -1) {
-    return -1;
-  }
-  if (!flag) {
-    max_dim = dim;
-    if (dim > min_dim + 1) {
-      if (wkspace_alloc_d_checked(&small_matrix, (dim - 1) * (dim - 1) * sizeof(double))) {
-        return -1;
-      }
-    }
-    while (max_dim > min_dim_u + 1) {
-      cur_dim = (max_dim + min_dim_u) / 2;
-      for (uii = 0; uii < cur_dim; uii++) {
-        memcpy(&(small_matrix[uii * cur_dim]), &(matrix_copy[uii * dim]), cur_dim * sizeof(double));
-      }
-      flag = svdcmp_c(cur_dim, small_matrix, dbl_1d_buf, dbl_2d_buf);
-      if (flag) {
-        max_dim = cur_dim;
-      } else {
-        min_dim_u = cur_dim;
-      }
-    }
-    wkspace_reset(wkspace_mark);
-    return min_dim_u;
-  }
-  // Look for singular values
-  double wmax = 0;
-  for (i=0; i<dim; i++) {
-    wmax = dbl_1d_buf[i] > wmax ? dbl_1d_buf[i] : wmax;
-  }
-  double wmin = wmax * eps;
-  for (i=0; i<dim; i++) {
-    dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : 1/dbl_1d_buf[i];
-  }
-
-  for (i=0; i<dim; i++) {
-    for (j=0; j<dim; j++) {
-      matrix[i * dim + j] = matrix[i * dim + j] * dbl_1d_buf[j];
-    }
-  }
-
-  // [nxn].[t(v)] 
-  for (i=0; i<dim; i++) {
-    fill_double_zero(dbl_1d_buf, dim);
-    for (j=0; j<dim; j++) {
-      for (k=0; k<dim; k++) {
-	dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];
-      }
-    }
-    for (j = 0; j < dim; j++) {
-      matrix[i * dim + j] = dbl_1d_buf[j];
-    }
-  }
-  wkspace_reset(wkspace_mark);
-  return 0;
-}
-
-#ifdef NOLAPACK
-int32_t invert_matrix(int32_t dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_1d_buf, double* dbl_2d_buf) {
-  // C port of PLINK stats.cpp's svd_inverse() function.
-
-  // w -> dbl_1d_buf
-  // v -> dbl_2d_buf
-  const double eps = 1e-24;
-  int32_t i;
-  int32_t j;
-  int32_t k;
-  if (svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf) == -1) {
-    return -1;
-  }
-
-  // Look for singular values
-  double wmax = 0;
-  for (i=0; i<dim; i++) {
-    wmax = dbl_1d_buf[i] > wmax ? dbl_1d_buf[i] : wmax;
-  }
-  double wmin = wmax * eps;
-  for (i=0; i<dim; i++) {
-    dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : 1/dbl_1d_buf[i];
-  }
-  
-  for (i=0; i<dim; i++) {
-    for (j=0; j<dim; j++) {
-      matrix[i * dim + j] = matrix[i * dim + j] * dbl_1d_buf[j];
-    }
-  }
-
-  // [nxn].[t(v)] 
-  for (i=0; i<dim; i++) {
-    fill_double_zero(dbl_1d_buf, dim);
-    for (j=0; j<dim; j++) {
-      for (k=0; k<dim; k++) {
-	dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];
-      }
-    }
-    for (j = 0; j < dim; j++) {
-      matrix[i * dim + j] = dbl_1d_buf[j];
-    }
-  }
-  return 0;
-}
-
-int32_t invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf, __CLPK_integer min_dim) {
-  return invert_matrix_trunc_singular_svd(dim, matrix, int_1d_buf, dbl_2d_buf, min_dim);
-}
-#else
-int32_t invert_matrix(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf) {
-  // dgetrf_/dgetri_ is more efficient than dpotrf_/dpotri_ on OS X.
-  __CLPK_integer lwork = dim * dim;
-  __CLPK_integer info;
-  dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
-  dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
-  // todo: check if there are any major error conditions, return -1 on them
-  return 0;
-}
-
-int32_t invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* int_1d_buf, double* dbl_2d_buf, __CLPK_integer min_dim) {
-  // Variant of invert_matrix which checks if the matrix is singular.  If it
-  // is, this determines the minimum number of rows/columns which can be
-  // removed from the bottom right to make the matrix nonsingular, knowing that
-  // the upper left min_dim * min_dim matrix is nonsingular, and returns the
-  // zero-based index of the first removed row/column.
-  __CLPK_integer lwork = dim * dim;
-  char cc = '1';
-  unsigned char* wkspace_mark = wkspace_base;
-  double* matrix_copy;
-  __CLPK_integer info;
-  double norm;
-  double rcond;
-  norm = dlange_(&cc, &dim, &dim, matrix, &dim, dbl_2d_buf);
-  if (wkspace_alloc_d_checked(&matrix_copy, dim * dim * sizeof(double))) {
-    return -1;
-  }
-  memcpy(matrix_copy, matrix, dim * dim * sizeof(double));
-  dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
-  if (info > 0) {
-    rcond = 0.0;
-  } else {
-    dgecon_(&cc, &dim, matrix, &dim, &norm, &rcond, dbl_2d_buf, &(int_1d_buf[dim]), &info);
-  }
-  if (rcond < MATRIX_SINGULAR_RCOND) {
-    memcpy(matrix, matrix_copy, dim * dim * sizeof(double));
-    wkspace_reset(wkspace_mark);
-    return invert_matrix_trunc_singular_svd(dim, matrix, (double*)int_1d_buf, dbl_2d_buf, min_dim);
-  } else {
-    dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
-  }
-  wkspace_reset(wkspace_mark);
-  return 0;
-}
-#endif
 
 int32_t get_chrom_end(Chrom_info* chrom_info_ptr, uintptr_t marker_idx) {
   return chrom_info_ptr->chrom_end[get_marker_chrom(chrom_info_ptr, marker_idx)];
@@ -3033,8 +2570,9 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     // todo: test dsymm
     dyy = 1.0;
     dzz = 0.0;
-    blas_char = 'N';
-    dgemm_(&blas_char, &blas_char, &indiv_ct_i32, &indiv_ct_i32, &indiv_ct_i32, &dyy, wkbase, &indiv_ct_i32, rel_dists, &indiv_ct_i32, &dzz, matrix_pvg, &indiv_ct_i32);
+    col_major_matrix_multiply(indiv_ct_i32, indiv_ct_i32, indiv_ct_i32, wkbase, rel_dists, matrix_pvg);
+    // blas_char = 'N';
+    // dgemm_(&blas_char, &blas_char, &indiv_ct_i32, &indiv_ct_i32, &indiv_ct_i32, &dyy, wkbase, &indiv_ct_i32, rel_dists, &indiv_ct_i32, &dzz, matrix_pvg, &indiv_ct_i32);
     dlg = 0.0;
     dle = 0.0;
     jj = g_indiv_ct + 1;
@@ -3052,7 +2590,8 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
 #else
     cblas_dger(CblasColMajor, g_indiv_ct, g_indiv_ct, dxx, row, 1, row, 1, wkbase, g_indiv_ct);
     // unfortunately, cblas_dsymm is much worse than cblas_dgemm on OS X
-    cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, g_indiv_ct, g_indiv_ct, g_indiv_ct, 1.0, wkbase, g_indiv_ct, rel_dists, g_indiv_ct, 0.0, matrix_pvg, g_indiv_ct);
+    col_major_matrix_multiply(g_indiv_ct, g_indiv_ct, g_indiv_ct, wkbase, rel_dists, matrix_pvg);
+    // cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, g_indiv_ct, g_indiv_ct, g_indiv_ct, 1.0, wkbase, g_indiv_ct, rel_dists, g_indiv_ct, 0.0, matrix_pvg, g_indiv_ct);
     dlg = 0.0;
     dle = 0.0;
     jj = g_indiv_ct + 1;
@@ -3521,10 +3060,10 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
   g_load_dists = read_dists_fname? 1 : 0;
   perm_ct += 1; // first permutation = original config
   if (pheno_ctrl_ct < 2) {
-    logprint("Skipping --ibs-test: Too few controls (minimum 2).\n");
+    logprint("Warning: Skipping --ibs-test due to too few controls (minimum 2).\n");
     goto ibs_test_calc_ret_1;
   } else if (case_ct < 2) {
-    logprint("Skipping --ibs-test: Too few cases (minimum 2).\n");
+    logprint("Warning: Skipping --ibs-test due to too few cases (minimum 2).\n");
     goto ibs_test_calc_ret_1;
   }
   for (ulii = 0; ulii < 6; ulii++) {
@@ -3728,12 +3267,12 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   double dww;
   uint32_t is_case;
   if (pheno_ctrl_ct < 2) {
-    logprint("Skipping --groupdist: Too few controls (minimum 2).\n");
+    logprint("Warning: Skipping --groupdist due to too few controls (minimum 2).\n");
     goto groupdist_calc_ret_1;
   }
   g_case_ct = pheno_nm_ct - pheno_ctrl_ct;
   if (g_case_ct < 2) {
-    logprint("Skipping --groupdist: Too few cases (minimum 2).\n");
+    logprint("Warning: Skipping --groupdist due to too few cases (minimum 2).\n");
     goto groupdist_calc_ret_1;
   }
   g_ctrl_ct = pheno_ctrl_ct;
