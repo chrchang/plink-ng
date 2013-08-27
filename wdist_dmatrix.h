@@ -66,6 +66,12 @@ extern "C" {
               __CLPK_integer* lda, __CLPK_doublereal* anorm,
               __CLPK_doublereal* rcond, __CLPK_doublereal* work,
               __CLPK_integer* iwork, __CLPK_integer* info);
+
+  void dgels_(char* trans, __CLPK_integer* m, __CLPK_integer* n,
+              __CLPK_integer* nrhs, __CLPK_doublereal* a, __CLPK_integer* lda,
+              __CLPK_doublereal* b, __CLPK_integer* ldb,
+              __CLPK_doublereal* work, __CLPK_integer* lwork,
+              __CLPK_integer* info);
 #endif
 
   void xerbla_(void);
