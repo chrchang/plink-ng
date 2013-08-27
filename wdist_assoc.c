@@ -8681,9 +8681,9 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
       goto glm_scan_conditions_ret_1;
     }
     if (miss_ct) {
-      sprintf(logbuf, "--condition-list: %lu of %lu marker ID%s loaded from %s.\n", condition_ct, condition_ct + miss_ct, (condition_ct + miss_ct == 1)? "" : "s", condition_fname);
+      sprintf(logbuf, "--condition-list: %" PRIuPTR " of %" PRIuPTR " marker ID%s loaded from %s.\n", condition_ct, condition_ct + miss_ct, (condition_ct + miss_ct == 1)? "" : "s", condition_fname);
     } else {
-      sprintf(logbuf, "--condition-list: %lu marker ID%s loaded from %s.\n", condition_ct, (condition_ct == 1)? "" : "s", condition_fname);
+      sprintf(logbuf, "--condition-list: %" PRIuPTR " marker ID%s loaded from %s.\n", condition_ct, (condition_ct == 1)? "" : "s", condition_fname);
     }
     logprintb();
   }
