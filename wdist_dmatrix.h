@@ -8,10 +8,14 @@
 #endif
 
 #ifdef NOLAPACK
+
 #define MATRIX_INVERT_BUF1_TYPE double
 #define __CLPK_integer int
+
 #else // not NOLAPACK
+
 #ifndef __APPLE__
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -64,7 +68,7 @@ extern "C" {
               __CLPK_integer* iwork, __CLPK_integer* info);
 #endif
 
-  void xerbla_(void) {} // fix static linking error
+  void xerbla_(void);
 #ifdef __cplusplus
 }
 #endif // __cplusplus

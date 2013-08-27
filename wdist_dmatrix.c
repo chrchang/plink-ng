@@ -1,5 +1,11 @@
 #include "wdist_dmatrix.h"
 
+#ifndef NOLAPACK
+#ifndef __APPLE__
+  void xerbla_(void) {} // fix static linking error
+#endif
+#endif
+
 inline double SQR(const double a) {
   return a * a;
 }
