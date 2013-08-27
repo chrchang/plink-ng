@@ -308,8 +308,11 @@ int32_t invert_matrix(int32_t dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_
   int32_t i;
   int32_t j;
   int32_t k;
-  if (svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf) == -1) {
+  i = svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf);
+  if (i == -1) {
     return -1;
+  } else if (!i) {
+    return 1;
   }
 
   // Look for singular values
@@ -353,7 +356,9 @@ int32_t invert_matrix(__CLPK_integer dim, double* matrix, MATRIX_INVERT_BUF1_TYP
   __CLPK_integer info;
   dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
   dgetri_(&dim, matrix, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
-  // todo: check if there are any major error conditions, return -1 on them
+  if (info) {
+    return -1;
+  }
   return 0;
 }
 

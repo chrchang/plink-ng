@@ -1186,8 +1186,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --xchr-model [code]  : Sets the X chromosome --linear/--logistic model.\n"
 "                         0 = skip sex and haploid chromosomes\n"
 "                         1 (default) = add sex as a covariate on X chromosome\n"
-"                         2 = code male genotypes 0/2 instead of 0/1 (female\n"
-"                             genotypes are coded 0/1/2)\n"
+"                         2 = code male genotypes 0/2 instead of 0/1\n"
 "                         3 = test for interaction between genotype and sex\n"
 	       );
     help_print("adjust\tgc\tlog10\tqq-plot", &help_ctrl, 0,
