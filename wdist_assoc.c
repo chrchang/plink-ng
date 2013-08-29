@@ -9275,9 +9275,12 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uintptr_t param_ct;
   uintptr_t param_idx;
   uintptr_t ulii;
+  // warning-suppressing stopgap
+#ifndef NOLAPACK
   double se;
   double zval;
   double pval;
+#endif
   double dxx;
   double dyy;
   double dzz;
@@ -9805,6 +9808,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     join_threads(threads, g_assoc_thread_ct);
 
     if (pheno_d) {
+#ifndef NOLAPACK
       dgels_nrhs = cur_batch_size;
       fill_double_zero(linear_results, (param_ct - 1) * cur_batch_size);
       memcpy(dgels_a, covars_collapsed, param_ct * indiv_valid_ct * sizeof(double));
@@ -9825,6 +9829,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	if (mperm_save) {
 	}
       }
+#endif
     } else {
       // todo: logistic per-permutation-block stuff
     }
