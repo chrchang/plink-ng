@@ -9212,14 +9212,14 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uint32_t cur_batch_size = 1;
   uint32_t cluster_ct1 = 0;
   uint32_t do_perms = (glm_modifier & GLM_MPERM)? 1 : 0;
-  uint32_t perm_count = glm_modifier & GLM_PERM_COUNT;
+  // uint32_t perm_count = glm_modifier & GLM_PERM_COUNT;
   uint32_t report_odds = pheno_c && (!(glm_modifier & GLM_BETA));
   uint32_t display_ci = (ci_size > 0);
-  uint32_t perm_pass_idx = 0;
+  // uint32_t perm_pass_idx = 0;
   uint32_t variation_in_sex = 0; // not initialized without sex modifier
   uint32_t male_ct = 0;
   uint32_t y_exists = (chrom_info_ptr->y_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->y_code);
-  uint32_t perm_attempt_ct = 0;
+  // uint32_t perm_attempt_ct = 0;
   uint32_t perm_fail_ct = 0;
   uint32_t perms_done = 0;
   int32_t retval = 0;
