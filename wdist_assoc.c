@@ -9220,10 +9220,10 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uint32_t male_ct = 0;
   uint32_t y_exists = (chrom_info_ptr->y_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->y_code);
   // uint32_t perm_attempt_ct = 0;
-  uint32_t perm_fail_ct = 0;
   uint32_t perms_done = 0;
   int32_t retval = 0;
 #ifndef NOLAPACK
+  uint32_t perm_fail_ct = 0;
   char dgels_trans = 'N';
   int32_t dgels_m = 0;
   int32_t dgels_n = 0;
