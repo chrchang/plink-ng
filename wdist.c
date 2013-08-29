@@ -65,7 +65,7 @@ const char ver_str[] =
   "PLINK v1.50a"
 #else
 #ifdef STABLE_BUILD
-  "WDIST v0.19.18"
+  "WDIST v0.19.19"
 #else
   "WDIST v0.22.0p"
 #endif
@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (29 Aug 2013)";
+  " (30 Aug 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -5496,6 +5496,9 @@ uint32_t species_flag(uint32_t* species_code_ptr, uint32_t new_code) {
   return 0;
 }
 
+// these need global scope to stay around on all systems
+const char species_singular_constants[][7] = {"person", "cow", "dog", "horse", "mouse", "plant", "sheep", "sample"};
+const char species_plural_constants[][8] = {"people", "cows", "dogs", "horses", "mice", "plants", "sheep", "samples"};
 
 int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_map, int32_t argc, char** argv, char* range_delim_ptr, Chrom_info* chrom_info_ptr) {
   // human: 22, X, Y, XY, MT
@@ -5510,8 +5513,6 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
   const int32_t species_xy_code[] = {25, -1, 41, -1, -1, -1, -1};
   const int32_t species_mt_code[] = {26, -1, -1, -1, -1, -1, -1};
   const uint32_t species_max_code[] = {26, 31, 41, 33, 21, 12, 28};
-  const char species_singulars[][7] = {"person", "cow", "dog", "horse", "mouse", "plant", "sheep", "sample"};
-  const char species_plurals[][8] = {"people", "cows", "dogs", "horses", "mice", "plants", "sheep", "samples"};
   uint32_t species_code = SPECIES_HUMAN;
   uint32_t flag_idx = 0;
   uint32_t retval = 0;
@@ -5687,8 +5688,8 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
     chrom_info_ptr->mt_code = species_mt_code[species_code];
     chrom_info_ptr->max_code = species_max_code[species_code];
   }
-  g_species_singular = species_singulars[species_code];
-  g_species_plural = species_plurals[species_code];
+  g_species_singular = species_singular_constants[species_code];
+  g_species_plural = species_plural_constants[species_code];
   switch (species_code) {
   case SPECIES_HUMAN:
     chrom_info_ptr->autosome_ct = 22;
