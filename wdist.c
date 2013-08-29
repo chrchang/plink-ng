@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (27 Aug 2013)";
+  " (29 Aug 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -4501,7 +4501,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto wdist_ret_INVALID_CMDLINE_2;
   }
   if (g_thread_ct > 1) {
-    if ((calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname)))) {
+    if ((calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY)) || ((calculation_type & (CALC_MODEL | CALC_GLM)) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname)))) {
       sprintf(logbuf, "Using %d threads (change this with --threads).\n", g_thread_ct);
       logprintb();
     } else {
@@ -4996,7 +4996,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	  goto wdist_ret_1;
           // retval = glm_assoc(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_alleles, max_marker_allele_len, marker_reverse, zero_extra_chroms, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, xmhh_exists, nxmhh_exists, perm_batch_size);
 	} else {
-	  retval = glm_assoc_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, xmhh_exists, nxmhh_exists, perm_batch_size);
+	  retval = glm_assoc_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, cluster_ct, cluster_map, cluster_starts, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, xmhh_exists, nxmhh_exists, perm_batch_size);
 	}
 	if (retval) {
 	  goto wdist_ret_1;
@@ -9607,6 +9607,10 @@ int32_t main(int32_t argc, char** argv) {
 	  glm_modifier |= GLM_MPERM;
 	}
       } else if (!memcmp(argptr2, "perm-save", 10)) {
+	if (glm_modifier & GLM_NO_SNP) {
+          sprintf(logbuf, "Error: --mperm-save cannot be used with --linear/--logistic no-snp.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
 	mperm_save |= MPERM_DUMP_BEST;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "perm-save-all", 14)) {
@@ -9872,6 +9876,9 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (mtest_adjust) {
 	  sprintf(logbuf, "Error: --no-snp cannot be used with --adjust.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (mperm_save & MPERM_DUMP_BEST) {
+	  sprintf(logbuf, "Error: --no-snp cannot be used with --mperm-save.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	} else if ((glm_modifier & (GLM_NO_SNP_EXCL - GLM_HETHOM - GLM_DOMINANT)) || ((glm_modifier & (GLM_HETHOM | GLM_DOMINANT)) && (!(glm_modifier & (GLM_CONDITION_DOMINANT | GLM_CONDITION_RECESSIVE))))) {
 	  sprintf(logbuf, "Error: --no-snp conflicts with a --%s modifier.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10030,8 +10037,8 @@ int32_t main(int32_t argc, char** argv) {
 	if ((model_modifier & MODEL_MPERM) && (calculation_type & CALC_MODEL)) {
 	  sprintf(logbuf, "Error: --perm cannot be used with --%s mperm.%s", (model_modifier & MODEL_ASSOC)? "assoc" : "model", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if ((glm_modifier & GLM_MPERM) && (calculation_type & CALC_GLM)) {
-	  sprintf(logbuf, "Error: --perm cannot be used with --%s mperm.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", errstr_append);
+	} else if ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_MPERM + GLM_NO_SNP))) {
+	  sprintf(logbuf, "Error: --perm cannot be used with --%s %s.%s", (glm_modifier & GLM_LOGISTIC)? "logistic" : "linear", (glm_modifier & GLM_MPERM)? "mperm" : "no-snp", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (model_modifier & MODEL_MPERM) {
 	  sprintf(logbuf, "Error: --perm cannot be used with --mperm.%s", errstr_append);
