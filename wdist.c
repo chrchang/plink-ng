@@ -65,7 +65,7 @@ const char ver_str[] =
   "PLINK v1.50a"
 #else
 #ifdef STABLE_BUILD
-  "WDIST v0.19.19"
+  "WDIST v0.19.20"
 #else
   "WDIST v0.22.0p"
 #endif
@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (30 Aug 2013)";
+  " (31 Aug 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -91,12 +91,12 @@ const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n"
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
 const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
 #ifdef STABLE_BUILD
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --model, --indep, --make-rel,\n--make-grm-bin, --rel-cutoff, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --model, --indep, --make-rel,\n--make-grm-gz, --rel-cutoff, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #else
 #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --homozyg, --cluster, --neighbour,\n--model, --gxe, --logistic, --indep, --make-rel, --make-grm-bin, --rel-cutoff,\n--regress-pcs, --regress-distance, --ibs-test, and --unrelated-heritability.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --homozyg, --cluster, --neighbour,\n--model, --gxe, --logistic, --indep, --make-rel, --make-grm-gz, --rel-cutoff,\n--regress-pcs, --regress-distance, --ibs-test, and --unrelated-heritability.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --homozyg, --cluster, --neighbour,\n--model, --gxe, --logistic, --indep, --make-rel, --make-grm-bin, --rel-cutoff,\n--regress-pcs, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --homozyg, --cluster, --neighbour,\n--model, --gxe, --logistic, --indep, --make-rel, --make-grm-gz, --rel-cutoff,\n--regress-pcs, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #endif
 #endif
 
@@ -4073,7 +4073,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   } else {
     allelexxxx = 0;
   }
-  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, "bim", ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (!update_map) && freqname)? NULL : "make-bed");
+  retval = load_bim(mapname, &map_cols, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, &marker_alleles, &max_marker_allele_len, &marker_ids, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, chrom_info_ptr, &marker_cms, &marker_pos, freqname, calculation_type, recode_modifier, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, (misc_flags / MISC_EXCLUDE_MARKERNAME_SNP) & 1, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, "bim", ((calculation_type == CALC_MAKE_BED) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (!update_map) && freqname)? NULL : "make-bed");
   if (retval) {
     goto wdist_ret_1;
   }
@@ -6306,6 +6306,13 @@ int32_t main(int32_t argc, char** argv) {
 	  memcpy(flagptr, "not-chr", 8);
 	  break;
 	}
+	goto main_flag_copy;
+      case 'e':
+	if (!memcmp(argptr, "extract-snp", 12)) {
+	  memcpy(flagptr, "snp", 4);
+	  break;
+	}
+	goto main_flag_copy;
       case 'f':
 	if (!memcmp(argptr, "frqx", 5)) {
 	  memcpy(flagptr, "freqx", 6);
@@ -8013,8 +8020,8 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'e':
       if (!memcmp(argptr2, "xtract", 7)) {
-	if (cnv_calc_type & CNV_MAKE_MAP) {
-	  sprintf(logbuf, "--extract cannot be used with --cnv-make-map.%s", errstr_append);
+	if (load_rare == LOAD_RARE_CNV) {
+	  sprintf(logbuf, "--extract cannot be used with a .cnv fileset.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -8025,8 +8032,8 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "xclude", 7)) {
-	if (cnv_calc_type & CNV_MAKE_MAP) {
-	  sprintf(logbuf, "--exclude cannot be used with --cnv-make-map.%s", errstr_append);
+	if (load_rare == LOAD_RARE_CNV) {
+	  sprintf(logbuf, "--exclude cannot be used with a .cnv fileset.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -8036,6 +8043,31 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
+      } else if (!memcmp(argptr2, "xclude-snp", 11)) {
+	if (load_rare == LOAD_RARE_CNV) {
+	  sprintf(logbuf, "Error: --exclude-snp cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb\nand --to-bp/-kb/-mb instead.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (alloc_string(&markername_snp, argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
+	}
+        misc_flags |= MISC_EXCLUDE_MARKERNAME_SNP;
+      } else if (!memcmp(argptr2, "xclude-snps", 12)) {
+	if (markername_snp) {
+	  sprintf(logbuf, "Error: --exclude-snps cannot be used with --exclude-snp.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (load_rare == LOAD_RARE_CNV) {
+	  sprintf(logbuf, "Error: --exclude-snps cannot be used with a .cnv fileset.  Use\n--from-bp/-kb/-mb and --to-bp/-kb/-mb instead.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = parse_name_ranges(param_ct, range_delim, &(argv[cur_arg]), &snps_range_list, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+        misc_flags |= MISC_EXCLUDE_MARKERNAME_SNP;
       } else if (!memcmp(argptr2, "xclude-before-extract", 22)) {
         logprint("Note: --exclude-before-extract has no effect.\n");
 	goto main_param_zero;
@@ -8155,8 +8187,8 @@ int32_t main(int32_t argc, char** argv) {
 	if (chrom_flag_present) {
 	  sprintf(logbuf, "Error: --from cannot be used with --autosome[-xy] or --[not-]chr.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (cnv_calc_type & CNV_MAKE_MAP) {
-	  sprintf(logbuf, "--from cannot be used with --cnv-make-map.%s", errstr_append);
+	} else if (load_rare == LOAD_RARE_CNV) {
+	  sprintf(logbuf, "Error: --from cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb\ninstead.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -8326,6 +8358,9 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_GROUPDIST;
       } else if (!memcmp(argptr2, "rm", 3)) {
+	logprint("Error: --grm has been retired due to inconsistent meaning across GCTA versions.\nUse --grm-gz or --grm-bin.\n");
+	goto main_ret_INVALID_CMDLINE;
+      } else if (!memcmp(argptr2, "rm-gz", 6)) {
 	if (load_params || load_rare) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
@@ -8335,7 +8370,7 @@ int32_t main(int32_t argc, char** argv) {
         if (param_ct) {
 	  sptr = argv[cur_arg + 1];
 	  if (strlen(sptr) > (FNAMESIZE - 8)) {
-	    logprint("Error: --grm parameter too long.\n");
+	    logprint("Error: --grm-gz parameter too long.\n");
 	    goto main_ret_OPEN_FAIL;
 	  }
 	  strcpy(pedname, sptr);
@@ -9176,6 +9211,9 @@ int32_t main(int32_t argc, char** argv) {
 	  mind_thresh = 0.1;
 	}
       } else if (!memcmp(argptr2, "ake-grm", 8)) {
+	logprint("Error: --make-grm has been retired due to inconsistent meaning across GCTA\nversions.  Use --make-grm-gz or --make-grm-bin.\n");
+	goto main_ret_INVALID_CMDLINE;
+      } else if (!memcmp(argptr2, "ake-grm-gz", 11)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9183,11 +9221,11 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if (!memcmp(argv[cur_arg + uii], "cov", 4)) {
 	    if (calculation_type & CALC_IBC) {
-	      sprintf(logbuf, "Error: --make-grm 'cov' modifier cannot coexist with --ibc flag.%s", errstr_append);
+	      sprintf(logbuf, "Error: --make-grm-gz 'cov' modifier cannot coexist with --ibc flag.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    if (ibc_type) {
-	      sprintf(logbuf, "Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
+	      sprintf(logbuf, "Error: --make-grm-gz 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_COV;
@@ -9195,25 +9233,25 @@ int32_t main(int32_t argc, char** argv) {
 	    rel_calc_type &= ~REL_CALC_GZ;
 	  } else if ((!memcmp(argv[cur_arg + uii], "ibc2", 5)) || (!memcmp(argv[cur_arg + uii], "ibc3", 5))) {
 	    if (rel_calc_type & REL_CALC_COV) {
-	      sprintf(logbuf, "Error: --make-grm 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
+	      sprintf(logbuf, "Error: --make-grm-gz 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    if (ibc_type) {
-	      sprintf(logbuf, "Error: --make-grm '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + uii], errstr_append);
+	      sprintf(logbuf, "Error: --make-grm-gz '%s' modifier cannot coexist with another IBC modifier.%s", argv[cur_arg + uii], errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    ibc_type = argv[cur_arg + uii][3] - '0';
 	  } else if (!memcmp(argv[cur_arg + uii], "single-prec", 12)) {
 	    rel_calc_type |= REL_CALC_SINGLE_PREC;
 	  } else {
-	    sprintf(logbuf, "Error: Invalid --make-grm parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
+	    sprintf(logbuf, "Error: Invalid --make-grm-gz parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
 	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "ake-grm-bin", 12)) {
 	if (calculation_type & CALC_RELATIONSHIP) {
-	  sprintf(logbuf, "Error: --make-grm-bin cannot be used with --make-grm.%s", errstr_append);
+	  sprintf(logbuf, "Error: --make-grm-bin cannot be used with --make-grm-gz.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
@@ -9237,7 +9275,7 @@ int32_t main(int32_t argc, char** argv) {
 	calculation_type |= CALC_RELATIONSHIP;
       } else if (!memcmp(argptr2, "ake-rel", 8)) {
 	if (calculation_type & CALC_RELATIONSHIP) {
-	  sprintf(logbuf, "Error: --make-rel cannot be used with --make-grm(-bin).%s", errstr_append);
+	  sprintf(logbuf, "Error: --make-rel cannot be used with --make-grm-gz/--make-grm-bin.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
@@ -9784,6 +9822,12 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	genome_modifier |= GENOME_FILTER_PI_HAT;
 	genome_max_pi_hat = dxx;
+      } else if (!memcmp(argptr2, "lm-assoc", 9)) {
+        logprint("Error: --mlm-assoc is not implemented yet.\n");
+        goto main_ret_INVALID_CMDLINE;
+      } else if (!memcmp(argptr2, "lm-assoc-loco", 14)) {
+        logprint("Error: --mlm-assoc-loco is not implemented yet.\n");
+        goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -10695,8 +10739,14 @@ int32_t main(int32_t argc, char** argv) {
 	} else if ((!all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS)) || chrom_info.incl_excl_name_stack) {
 	  sprintf(logbuf, "Error: --snp cannot be used with --autosome[-xy] or --[not-]chr.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (cnv_calc_type & CNV_MAKE_MAP) {
-	  sprintf(logbuf, "Error: --snp cannot be used with --cnv-make-map.%s", errstr_append);
+	} else if (markername_snp) {
+          sprintf(logbuf, "Error: --snp cannot be used with --exclude-snp.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (snps_range_list.names) {
+          sprintf(logbuf, "Error: --snp cannot be used with --exclude-snps.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (load_rare == LOAD_RARE_CNV) {
+	  sprintf(logbuf, "Error: --snp cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb and\n--to-bp/-kb/-mb instead.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -10713,10 +10763,12 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --snps cannot be used with --from-bp/-kb/-mb.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (markername_snp) {
-	  sprintf(logbuf, "Error: --snps cannot be used with --snp.%s", errstr_append);
+	  sprintf(logbuf, "Error: --snps cannot be used with --snp or --exclude-snp.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (cnv_calc_type & CNV_MAKE_MAP) {
-	  sprintf(logbuf, "Error: --snps cannot be used with --cnv-make-map.%s", errstr_append);
+	} else if (snps_range_list.names) {
+	  sprintf(logbuf, "Error: --snps cannot be used with --exclude-snps.%s", errstr_append);
+	} else if (load_rare == LOAD_RARE_CNV) {
+	  sprintf(logbuf, "Error: --snps cannot be used with a .cnv fileset.  Use --from-bp/-kb/-mb and\n--to-bp/-kb/-mb instead.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	// mise well allow --snps + --autosome/--autosome-xy/--chr/--not-chr
@@ -11028,7 +11080,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --to cannot be used with --snps.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (cnv_calc_type & CNV_MAKE_MAP) {
-	  sprintf(logbuf, "--to cannot be used with --cnv-make-map.%s", errstr_append);
+	  sprintf(logbuf, "Error: --to cannot be used with a .cnv fileset.  Use --to-bp/-kb/-mb instead.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -11038,7 +11090,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_NOMEM;
 	}
       } else if ((!memcmp(argptr2, "o-bp", 5)) || (!memcmp(argptr2, "o-kb", 5)) || (!memcmp(argptr2, "o-mb", 5))) {
-	if (markername_snp) {
+	if (markername_snp && (!(misc_flags & MISC_EXCLUDE_MARKERNAME_SNP))) {
 	  sprintf(logbuf, "Error: --to-bp/-kb/-mb cannot be used with --snp.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (snps_range_list.names) {
@@ -11165,10 +11217,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (load_rare & (LOAD_RARE_GRM | LOAD_RARE_GRM_BIN)) {
 	  if (calculation_type & CALC_REL_CUTOFF) {
-	    sprintf(logbuf, "Error: --unrelated-heritability + --grm[-bin] cannot be used with --rel-cutoff.%s", errstr_append);
+	    sprintf(logbuf, "Error: --unrelated-heritability + --grm-gz/--grm-bin cannot be used with\n--rel-cutoff.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  } else if (!phenoname) {
-	    sprintf(logbuf, "Error: --unrelated-heritability + --grm[-bin] requires --pheno as well.%s", errstr_append);
+	    sprintf(logbuf, "Error: --unrelated-heritability + --grm-gz/--grm-bin requires --pheno as well.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
@@ -11400,7 +11452,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "indow", 6)) {
         if (!markername_snp) {
-	  sprintf(logbuf, "Error: --window must be used with --snp.%s", errstr_append);
+	  sprintf(logbuf, "Error: --window must be used with --snp or --exclude-snp.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -11560,9 +11612,9 @@ int32_t main(int32_t argc, char** argv) {
     if (load_rare & (LOAD_RARE_GRM | LOAD_RARE_GRM_BIN)) {
       if ((!(calculation_type & (CALC_REL_CUTOFF | CALC_UNRELATED_HERITABILITY))) || (calculation_type & (~(CALC_REL_CUTOFF | CALC_RELATIONSHIP | CALC_UNRELATED_HERITABILITY)))) {
 	if (load_rare == LOAD_RARE_GRM) {
-	  sprintf(logbuf, "Error: --grm currently must be used with --rel-cutoff (possibly combined with\n--make-grm(-bin)) or --unrelated-heritability.%s", errstr_append);
+	  sprintf(logbuf, "Error: --grm-gz currently must be used with --rel-cutoff (possibly combined\nwith --make-grm-gz/--make-grm-bin) or --unrelated-heritability.%s", errstr_append);
 	} else {
-	  sprintf(logbuf, "Error: --grm-bin currently must be used with --rel-cutoff (possibly combined\nwith --make-grm(-bin)) or --unrelated-heritability.%s", errstr_append);
+	  sprintf(logbuf, "Error: --grm-bin currently must be used with --rel-cutoff (possibly combined\nwith --make-grm-gz/--make-grm-bin) or --unrelated-heritability.%s", errstr_append);
 	}
 	goto main_ret_INVALID_CMDLINE_3;
       }
@@ -11816,7 +11868,7 @@ int32_t main(int32_t argc, char** argv) {
       retval = wdist_dosage(calculation_type, dist_calc_type, genname, samplename, outname, outname_end, missing_code, exponent, (misc_flags / MISC_MAF_SUCC) & 1, regress_iters, regress_d, g_thread_ct, parallel_idx, parallel_tot);
     }
   } else if (load_rare & LOAD_RARE_CNV) {
-    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, filtername, misc_flags, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filterval, filter_binary, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_freq_val2, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, snp_window_size, markername_from, markername_to, markername_snp, marker_pos_start, marker_pos_end, &snps_range_list, &chrom_info);
+    retval = wdist_cnv(outname, outname_end, pedname, mapname, famname, phenoname, keepname, removename, filtername, misc_flags, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, filterval, filter_binary, cnv_calc_type, cnv_min_seglen, cnv_max_seglen, cnv_min_score, cnv_max_score, cnv_min_sites, cnv_max_sites, cnv_intersect_filter_type, cnv_intersect_filter_fname, cnv_subset_fname, cnv_overlap_type, cnv_overlap_val, cnv_freq_type, cnv_freq_val, cnv_freq_val2, cnv_test_window, segment_modifier, segment_spanning_fname, cnv_indiv_mperms, cnv_test_mperms, cnv_test_region_mperms, cnv_enrichment_test_mperms, marker_pos_start, marker_pos_end, &chrom_info);
   } else if (load_rare & LOAD_RARE_GVAR) {
     retval = wdist_gvar(outname, outname_end, pedname, mapname, famname);
   } else {

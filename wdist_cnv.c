@@ -677,7 +677,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
   return retval;
 }
 
-int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, char* markername_from, char* markername_to, int32_t* marker_pos_start_ptr, int32_t* marker_pos_end_ptr, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr, char* extract_list, uintptr_t extract_list_len, uintptr_t max_extract_id_len, char* exclude_list, uintptr_t exclude_list_len, uintptr_t max_exclude_id_len, uintptr_t* max_marker_id_len_ptr, uint32_t* marker_chrom_start) {
+int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_start_ptr, int32_t* marker_pos_end_ptr, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t* max_marker_id_len_ptr, uint32_t* marker_chrom_start) {
   // also initializes chrom_names[] if necessary
   uint32_t chrom_idx = 0;
   int32_t last_pos = -1;
@@ -686,10 +686,6 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, char* markername_fro
   uintptr_t max_marker_id_len = 0;
   int32_t marker_pos_start_m1 = (*marker_pos_start_ptr) - 1;
   int32_t marker_pos_end = 0x7fffffff;
-  uint32_t from_match = 0;
-  uint32_t to_match = 0;
-  uintptr_t from_len = 0;
-  uintptr_t to_len = 0;
   uintptr_t* chrom_mask = chrom_info_ptr->chrom_mask;
   uint32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
   char* bufptr;
@@ -697,13 +693,7 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, char* markername_fro
   uint32_t colskip;
   uintptr_t cur_marker_id_len;
   int32_t ii;
-  if (markername_from) {
-    from_len = strlen(markername_from);
-    marker_pos_start_m1 = 0x7fffffff;
-  }
-  if (markername_to) {
-    to_len = strlen(markername_to);
-  } else if ((*marker_pos_end_ptr) != -1) {
+  if ((*marker_pos_end_ptr) != -1) {
     marker_pos_end = *marker_pos_end_ptr;
   }
   if (fopen_checked(mapfile_ptr, mapname, "r")) {
@@ -786,48 +776,11 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, char* markername_fro
     if (!is_set(chrom_mask, chrom_idx)) {
       continue;
     }
-    cur_marker_id_len = strlen_se(bufptr);
-    if (cur_marker_id_len == from_len) {
-      if (!memcmp(bufptr, markername_from, from_len)) {
-	if (from_match) {
-	  goto validate_cnv_map_ret_INVALID_FORMAT_3;
-	}
-	from_match = 1;
-	if (!to_match) {
-	  marker_pos_start_m1 = last_pos - 1;
-	} else {
-	  // --from/--to reverse
-	  marker_pos_end = last_pos;
-	}
-      }
-    }
-    if (cur_marker_id_len == to_len) {
-      if (!memcmp(bufptr, markername_to, to_len)) {
-	if (to_match) {
-	  goto validate_cnv_map_ret_INVALID_FORMAT_3;
-	}
-	to_match = 1;
-	if (markername_from && (!from_match)) {
-	  marker_pos_start_m1 = last_pos - 1;
-	} else {
-	  marker_pos_end = last_pos;
-	}
-      }
-    }
     if ((last_pos <= marker_pos_start_m1) || (last_pos > marker_pos_end)) {
       continue;
     }
+    cur_marker_id_len = strlen_se(bufptr);
     bufptr[cur_marker_id_len] = '\0';
-    if (extract_list_len) {
-      if (bsearch_str(bufptr, extract_list, max_extract_id_len, 0, extract_list_len - 1) == -1) {
-	continue;
-      }
-    }
-    if (exclude_list_len) {
-      if (bsearch_str(bufptr, exclude_list, max_exclude_id_len, 0, exclude_list_len - 1) != -1) {
-	continue;
-      }
-    }
     if (cur_marker_id_len >= max_marker_id_len) {
       max_marker_id_len = cur_marker_id_len + 1;
     }
@@ -843,22 +796,6 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, char* markername_fro
     marker_chrom_start[++chrom_idx] = marker_ct;
   } while (chrom_idx < chrom_code_end);
   *max_marker_id_len_ptr = max_marker_id_len;
-  if (markername_from) {
-    if (!from_match) {
-      sprintf(logbuf, "Error: Marker ID %s not found.\n", markername_from);
-      logprintb();
-      goto validate_cnv_map_ret_INVALID_FORMAT;
-    }
-    *marker_pos_start_ptr = marker_pos_start_m1 + 1;
-  }
-  if (markername_to) {
-    if (!to_match) {
-      sprintf(logbuf, "Error: Marker ID %s not found.\n", markername_to);
-      logprintb();
-      goto validate_cnv_map_ret_INVALID_FORMAT;
-    }
-    *marker_pos_end_ptr = marker_pos_end;
-  }
   rewind(*mapfile_ptr);
   while (0) {
   validate_cnv_map_ret_OPEN_FAIL:
@@ -866,10 +803,6 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, char* markername_fro
     break;
   validate_cnv_map_ret_READ_FAIL:
     retval = RET_READ_FAIL;
-    break;
-  validate_cnv_map_ret_INVALID_FORMAT_3:
-    logprint("Error: Duplicate marker ID in .cnv.map file.\n");
-    retval = RET_INVALID_FORMAT;
     break;
   validate_cnv_map_ret_INVALID_FORMAT_2:
     logprint("Error: Unsorted .cnv.map file.\n");
@@ -881,7 +814,7 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, char* markername_fro
   return retval;
 }
 
-int32_t load_cnv_map(FILE* mapfile, int32_t marker_pos_start, int32_t marker_pos_end, Chrom_info* chrom_info_ptr, uintptr_t max_marker_id_len, char* extract_list, uintptr_t extract_list_len, uintptr_t max_extract_id_len, char* exclude_list, uintptr_t exclude_list_len, uintptr_t max_exclude_id_len, uint32_t* marker_pos, char* marker_ids) {
+int32_t load_cnv_map(FILE* mapfile, int32_t marker_pos_start, int32_t marker_pos_end, Chrom_info* chrom_info_ptr, uintptr_t max_marker_id_len, uint32_t* marker_pos, char* marker_ids) {
   int32_t retval = 0;
   uint32_t chrom_idx = 0;
   uintptr_t* chrom_mask = chrom_info_ptr->chrom_mask;
@@ -926,16 +859,6 @@ int32_t load_cnv_map(FILE* mapfile, int32_t marker_pos_start, int32_t marker_pos
     }
     cur_marker_id_len = strlen_se(bufptr);
     bufptr[cur_marker_id_len] = '\0';
-    if (extract_list_len) {
-      if (bsearch_str(bufptr, extract_list, max_extract_id_len, 0, extract_list_len - 1) == -1) {
-	continue;
-      }
-    }
-    if (exclude_list_len) {
-      if (bsearch_str(bufptr, exclude_list, max_exclude_id_len, 0, exclude_list_len - 1) != -1) {
-	continue;
-      }
-    }
     memcpy(marker_ids, bufptr, cur_marker_id_len + 1);
     marker_ids = &(marker_ids[max_marker_id_len]);
     *marker_pos++ = (uint32_t)cur_pos;
@@ -951,7 +874,7 @@ int32_t load_cnv_map(FILE* mapfile, int32_t marker_pos_start, int32_t marker_pos
   return retval;
 }
 
-int32_t wdist_cnv(char* outname, char* outname_end, char* cnvname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* filtername, uint64_t misc_flags, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* filterval, uint32_t filter_binary, uint32_t cnv_calc_type, uint32_t min_seglen, uint32_t max_seglen, double min_score, double max_score, uint32_t min_sites, uint32_t max_sites, uint32_t intersect_filter_type, char* intersect_filter_fname, char* subset_fname, uint32_t overlap_type, double overlap_val, uint32_t freq_type, uint32_t freq_val, double freq_val2, uint32_t test_window, uint32_t segment_modifier, char* segment_spanning_fname, uint32_t indiv_mperms, uint32_t test_mperms, uint32_t test_region_mperms, uint32_t enrichment_test_mperms, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, int32_t marker_pos_start, int32_t marker_pos_end, Range_list* snps_range_list_ptr, Chrom_info* chrom_info_ptr) {
+int32_t wdist_cnv(char* outname, char* outname_end, char* cnvname, char* mapname, char* famname, char* phenoname, char* keepname, char* removename, char* filtername, uint64_t misc_flags, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* filterval, uint32_t filter_binary, uint32_t cnv_calc_type, uint32_t min_seglen, uint32_t max_seglen, double min_score, double max_score, uint32_t min_sites, uint32_t max_sites, uint32_t intersect_filter_type, char* intersect_filter_fname, char* subset_fname, uint32_t overlap_type, double overlap_val, uint32_t freq_type, uint32_t freq_val, double freq_val2, uint32_t test_window, uint32_t segment_modifier, char* segment_spanning_fname, uint32_t indiv_mperms, uint32_t test_mperms, uint32_t test_region_mperms, uint32_t enrichment_test_mperms, int32_t marker_pos_start, int32_t marker_pos_end, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* cnvfile = NULL;
   FILE* famfile = NULL;
@@ -961,13 +884,6 @@ int32_t wdist_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
   uintptr_t subset_ct = 0;
   uintptr_t max_subset_name_len = 0;
   uintptr_t topsize = 0;
-  uintptr_t topsize2 = 0; // extract/exclude
-  char* extract_list = NULL;
-  char* exclude_list = NULL;
-  uintptr_t extract_list_len = 0;
-  uintptr_t exclude_list_len = 0;
-  uintptr_t max_extract_id_len = 0;
-  uintptr_t max_exclude_id_len = 0;
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint64_t* il_small = NULL; // high-order 32 bits = 2x center pos,
                              // low-order 32 bits = interval end - start
@@ -1024,74 +940,10 @@ int32_t wdist_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
 	  goto wdist_cnv_ret_INVALID_CMDLINE;
 	}
       }
-      if (markername_from || markername_to || markername_snp || (snps_range_list_ptr->names)) {
-	logprint("Error: --from/--to/--snp/--snps cannot be used with .cnv.map autogeneration.\n");
-	goto wdist_cnv_ret_INVALID_CMDLINE;
-      } else if (extractname || excludename) {
-	logprint("Error: --extract/--exclude cannot be used with .cnv.map autogeneration.\n");
-	goto wdist_cnv_ret_INVALID_CMDLINE;
-      }
       sprintf(logbuf, "Autogenerating missing %s...", mapname);
       retval = cnv_make_map(cnvfile, mapname, 0, 0, 0xffffffffU, -INFINITY, INFINITY, 0, 0xffffffffU, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0.0, -1, -1, allow_extra_chroms, 0, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
     } else {
-      if (extractname) {
-	retval = open_and_size_string_list(extractname, &mapfile, &extract_list_len, &max_extract_id_len);
-	if (retval) {
-	  goto wdist_cnv_ret_1;
-	}
-	if (extract_list_len) {
-#ifndef __LP64__
-	  if (((uint64_t)extract_list_len) * max_extract_id_len > 0x7fffffffLLU) {
-	    goto wdist_cnv_ret_NOMEM;
-	  }
-#endif
-	  topsize2 = CACHEALIGN(extract_list_len * max_extract_id_len);
-	  if (wkspace_left < topsize2) {
-	    goto wdist_cnv_ret_NOMEM;
-	  }
-	  wkspace_left -= topsize2;
-	  topsize += topsize2;
-	  extract_list = (char*)(&(wkspace_base[wkspace_left]));
-	  retval = load_string_list(&mapfile, max_extract_id_len, extract_list);
-	  if (retval) {
-	    goto wdist_cnv_ret_1;
-	  }
-	  qsort(extract_list, extract_list_len, max_extract_id_len, strcmp_casted);
-	} else {
-	  logprint("Note: Empty --extract file ignored.\n");
-	}
-	fclose_null(&mapfile);
-      }
-      if (excludename) {
-	retval = open_and_size_string_list(excludename, &mapfile, &exclude_list_len, &max_exclude_id_len);
-	if (retval) {
-	  goto wdist_cnv_ret_1;
-	}
-	if (exclude_list_len) {
-#ifndef __LP64__
-	  if (((uint64_t)exclude_list_len) * max_exclude_id_len > 0x7fffffffLLU) {
-	    goto wdist_cnv_ret_NOMEM;
-	  }
-#endif
-	  ulii = CACHEALIGN(exclude_list_len * max_exclude_id_len);
-	  if (wkspace_left < ulii) {
-	    goto wdist_cnv_ret_NOMEM;
-	  }
-	  wkspace_left -= ulii;
-	  topsize += ulii;
-	  topsize2 += ulii;
-	  exclude_list = (char*)(&(wkspace_base[wkspace_left]));
-	  retval = load_string_list(&mapfile, max_exclude_id_len, exclude_list);
-	  if (retval) {
-	    goto wdist_cnv_ret_1;
-	  }
-	  qsort(exclude_list, exclude_list_len, max_exclude_id_len, strcmp_casted);
-	} else {
-	  logprint("Note: Empty --exclude file ignored.\n");
-	}
-	fclose_null(&mapfile);
-      }
-      retval = validate_cnv_map(&mapfile, mapname, markername_from, markername_to, &marker_pos_start, &marker_pos_end, allow_extra_chroms, chrom_info_ptr, extract_list, extract_list_len, max_extract_id_len, exclude_list, exclude_list_len, max_exclude_id_len, &max_marker_id_len, marker_chrom_start);
+      retval = validate_cnv_map(&mapfile, mapname, &marker_pos_start, &marker_pos_end, allow_extra_chroms, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
     }
     if (retval) {
       goto wdist_cnv_ret_1;
@@ -1119,7 +971,7 @@ int32_t wdist_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
       wkspace_alloc_c_checked(&marker_ids, ulii * max_marker_id_len)) {
     goto wdist_cnv_ret_NOMEM;
   }
-  retval = load_cnv_map(mapfile, marker_pos_start, marker_pos_end, chrom_info_ptr, max_marker_id_len, extract_list, extract_list_len, max_extract_id_len, exclude_list, exclude_list_len, max_exclude_id_len, marker_pos, marker_ids);
+  retval = load_cnv_map(mapfile, marker_pos_start, marker_pos_end, chrom_info_ptr, max_marker_id_len, marker_pos, marker_ids);
   if (retval) {
     goto wdist_cnv_ret_1;
   }

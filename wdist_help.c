@@ -709,14 +709,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      arithmetic, which sacrifices a bit of accuracy to decrease memory usage\n"
 "      and reduce computation time.\n"
                );
-    help_print("make-grm\tmake-grm-bin\tgrm\tgrm-bin", &help_ctrl, 1,
-"  --make-grm <no-gz> <cov | ibc2 | ibc3> <single-prec>\n"
+    help_print("make-grm\tmake-grm-bin\tgrm\tgrm-bin\tmake-grm-gz", &help_ctrl, 1,
+"  --make-grm-gz <no-gz> <cov | ibc2 | ibc3> <single-prec>\n"
 "  --make-grm-bin <cov | ibc2 | ibc3>\n"
-"    --make-grm writes the relationships in GCTA's gzipped list format, which\n"
-"    describes one pair per line, while --make-grm-bin writes them in GCTA's\n"
-"    single-precision triangular binary format.  Note that these formats\n"
-"    explicitly store the number of valid observations (where neither individual\n"
-"    has a missing call) for each pair, which is useful input for some scripts.\n\n"
+"    --make-grm-gz writes the relationships in GCTA's original gzipped list\n"
+"    format, which describes one pair per line, while --make-grm-bin writes them\n"
+"    in GCTA 1.1+'s single-precision triangular binary format.  Note that these\n"
+"    formats explicitly store the number of valid observations (where neither\n"
+"    individual has a missing call) for each pair, which is useful input for\n"
+"    some scripts.\n\n"
 	       );
     help_print("rel-cutoff\tgrm-cutoff", &help_ctrl, 1,
 "  --rel-cutoff {val}\n"
@@ -973,19 +974,20 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --autosome-xy    : Exclude all non-autosomal markers, except those with\n"
 "                     chromosome code XY (pseudo-autosomal region of X).\n"
 	       );
-    help_print("from\tto\tsnp\twindow\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
+    help_print("from\tto\tsnp\twindow\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb\texclude-snp", &help_ctrl, 0,
 "  --from [mkr ID]  : Use ID(s) to specify a marker range to load.  When used\n"
 "  --to   [mkr ID]    together, both markers must be on the same chromosome.\n"
 "  --snp  [mkr ID]  : Specify a single marker to load.\n"
-"  --window  [kbs]  : With --snp, loads all markers within half the specified kb\n"
-"                     distance of the named marker.\n"
+"  --exclude-snp [m] : Specify a single marker to exclude.\n"
+"  --window  [kbs]  : With --snp or --exclude-snp, loads/excludes all markers\n"
+"                     within half the specified kb distance of the named marker.\n"
 "  --from-bp [pos]  : Use physical position(s) to define a marker range to load.\n"
 "  --to-bp   [pos]    --from-kb/--to-kb/--from-mb/--to-mb allow decimal values.\n"
 "    ...              You're required to specify a single chromosome with these.\n"
 	       );
-    help_print("snps", &help_ctrl, 0,
-"  --snps [IDs...]  : Use IDs to specify multiple marker ranges to load.  E.g.\n"
-"                     '--snps rs1111-rs2222, rs3333, rs4444'.\n"
+    help_print("snps\texclude-snps", &help_ctrl, 0,
+"  --snps [IDs...]      : Use IDs to specify multiple marker ranges to load or\n"
+"  --exclude-snps [...]   exclude.  E.g. '--snps rs1111-rs2222, rs3333, rs4444'.\n"
 	       );
     help_print("thin", &help_ctrl, 0,
 "  --thin [p]       : Remove markers at random (p = retention probability).\n"

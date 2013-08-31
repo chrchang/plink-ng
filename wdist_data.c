@@ -623,16 +623,16 @@ void load_bim_sf_insert(uint32_t chrom_idx, uint32_t pos_start, uint32_t pos_end
 static inline uint32_t sf_out_of_range(uint32_t cur_pos, uint32_t chrom_idx, uint32_t* sf_start_idxs, uint32_t* sf_pos) {
   uint32_t cur_idx = sf_start_idxs[chrom_idx];
   uint32_t end_idx = sf_start_idxs[chrom_idx + 1];
-  do {
+  while (cur_idx < end_idx) {
     if ((cur_pos >= sf_pos[cur_idx]) && (cur_pos <= sf_pos[cur_idx + 1])) {
       return 0;
     }
     cur_idx += 2;
-  } while (cur_idx < end_idx);
+  }
   return 1;
 }
 
-int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr, double** marker_cms_ptr, uint32_t** marker_pos_ptr, char* freqname, uint64_t calculation_type, uint32_t recode_modifier, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* sf_range_list_ptr, uint32_t* map_is_unsorted_ptr, uint32_t marker_pos_needed, uint32_t marker_cms_needed, uint32_t marker_alleles_needed, const char* extension, const char* split_chrom_cmd) {
+int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, char** marker_alleles_ptr, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr, double** marker_cms_ptr, uint32_t** marker_pos_ptr, char* freqname, uint64_t calculation_type, uint32_t recode_modifier, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, uint32_t exclude_snp, Range_list* sf_range_list_ptr, uint32_t* map_is_unsorted_ptr, uint32_t marker_pos_needed, uint32_t marker_cms_needed, uint32_t marker_alleles_needed, const char* extension, const char* split_chrom_cmd) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* bimfile = NULL;
   uintptr_t unfiltered_marker_ct = 0;
@@ -653,6 +653,8 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   uint32_t snp_pos = 0;
   uint32_t mcm2 = 1;
   uint32_t split_chrom = 0;
+  int32_t exclude_window_start = 0;
+  int32_t exclude_window_end = -1;
   uint32_t* sf_pos = NULL;
   uint32_t* sf_str_chroms = NULL;
   uint32_t* sf_str_pos = NULL;
@@ -822,8 +824,10 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	    goto load_bim_ret_INVALID_FORMAT;
 	  }
 	  snp_chrom = jj;
-	  fill_ulong_zero(chrom_info_ptr->chrom_mask, CHROM_MASK_WORDS);
-	  set_bit_noct(chrom_info_ptr->chrom_mask, snp_chrom);
+	  if (!exclude_snp) {
+	    fill_ulong_zero(chrom_info_ptr->chrom_mask, CHROM_MASK_WORDS);
+	    set_bit_noct(chrom_info_ptr->chrom_mask, snp_chrom);
+	  }
 	}
       }
     }
@@ -911,7 +915,9 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       } while (umm != 1);
     }
     sf_start_idxs[ujj + 1] = ukk;
-    memcpy(chrom_info_ptr->chrom_mask, sf_mask, CHROM_MASK_WORDS * sizeof(intptr_t));
+    if (!exclude_snp) {
+      memcpy(chrom_info_ptr->chrom_mask, sf_mask, CHROM_MASK_WORDS * sizeof(intptr_t));
+    }
     wkspace_reset(wkspace_mark);
   }
   if (!feof(bimfile)) {
@@ -944,18 +950,29 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   }
   if (snp_slen) {
     if (snp_chrom == MAX_POSSIBLE_CHROM) {
-      sprintf(logbuf, "Error: --snp marker '%s' not found.\n", markername_snp);
+      sprintf(logbuf, "Error: --%ssnp marker '%s' not found.\n", exclude_snp? "exclude-" : "", markername_snp);
       goto load_bim_ret_INVALID_FORMAT_2;
     }
-    if (snp_window_size > snp_pos) {
-      marker_pos_start = 0;
+    if (!exclude_snp) {
+      if (snp_window_size > snp_pos) {
+	marker_pos_start = 0;
+      } else {
+	marker_pos_start = snp_pos - snp_window_size;
+      }
+      if (snp_window_size > (0x7fffffff - snp_pos)) {
+	marker_pos_end = 0x7fffffff;
+      } else {
+	marker_pos_end = snp_pos + snp_window_size;
+      }
     } else {
-      marker_pos_start = snp_pos - snp_window_size;
-    }
-    if (snp_window_size > (0x7fffffff - snp_pos)) {
-      marker_pos_end = 0x7fffffff;
-    } else {
-      marker_pos_end = snp_pos + snp_window_size;
+      if (snp_window_size <= snp_pos) {
+        exclude_window_start = snp_pos - snp_window_size;
+      }
+      if (snp_window_size > (0x7fffffff - snp_pos)) {
+	exclude_window_end = 0x7fffffff;
+      } else {
+        exclude_window_end = snp_pos + snp_window_size;
+      }
     }
   }
 
@@ -1083,7 +1100,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	} else {
 	  last_pos = cur_pos;
 	}
-	if ((sf_ct && sf_out_of_range(cur_pos, (uint32_t)jj, sf_start_idxs, sf_pos)) || ((marker_pos_start != -1) && ((((int32_t)cur_pos) < marker_pos_start) || (((int32_t)cur_pos) > marker_pos_end)))) {
+	if ((sf_ct && (exclude_snp ^ sf_out_of_range(cur_pos, (uint32_t)jj, sf_start_idxs, sf_pos))) || ((marker_pos_start != -1) && ((((int32_t)cur_pos) < marker_pos_start) || (((int32_t)cur_pos) > marker_pos_end))) || (exclude_snp && (((int32_t)cur_pos) <= exclude_window_end) && (((int32_t)cur_pos) >= exclude_window_start) && ((uint32_t)jj == snp_chrom))) {
 	  set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
 	} else {
 	  if (marker_pos_needed) {
