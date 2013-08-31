@@ -6022,6 +6022,7 @@ int32_t main(int32_t argc, char** argv) {
   range_list_init(&tests_range_list);
 
   chrom_info.name_ct = 0;
+  chrom_info.incl_excl_name_stack = NULL;
   for (ii = 1; ii < argc; ii++) {
     if ((!memcmp("-script", argv[ii], 8)) || (!memcmp("--script", argv[ii], 9))) {
       jj = param_count(argc, argv, ii);
