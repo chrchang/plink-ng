@@ -974,7 +974,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --autosome-xy    : Exclude all non-autosomal markers, except those with\n"
 "                     chromosome code XY (pseudo-autosomal region of X).\n"
 	       );
-    help_print("from\tto\tsnp\twindow\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb\texclude-snp", &help_ctrl, 0,
+    help_print("from\tto\tsnp\twindow\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb\texclude-snp\textract-snp", &help_ctrl, 0,
 "  --from [mkr ID]  : Use ID(s) to specify a marker range to load.  When used\n"
 "  --to   [mkr ID]    together, both markers must be on the same chromosome.\n"
 "  --snp  [mkr ID]  : Specify a single marker to load.\n"

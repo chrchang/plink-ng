@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (31 Aug 2013)";
+  " (2 Sep 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -5679,7 +5679,6 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
     }
   }
   chrom_info_ptr->species = species_code;
-  chrom_info_ptr->incl_excl_name_stack = NULL;
   chrom_info_ptr->is_include_stack = 0;
   if (species_code != SPECIES_UNKNOWN) {
     chrom_info_ptr->x_code = species_x_code[species_code];
