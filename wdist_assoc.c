@@ -8896,14 +8896,18 @@ int32_t glm_check_vif(double vif_thresh, uintptr_t param_ct, uintptr_t indiv_val
   return 0;
 }
 
-uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_collapsed, double* covars_transposed_buf, double* pheno_perms, uintptr_t pheno_perms_stride, double* coef, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* cluster_map1, uint32_t* cluster_starts1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* indiv_1d_buf, double* linear_results, uint32_t* perm_fail_ct_ptr) {
+uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_collapsed, double* covars_transposed_buf, double* pheno_perms, uintptr_t pheno_perms_stride, double* coef, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* cluster_map1, uint32_t* cluster_starts1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* indiv_1d_buf, double* linear_results, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
   // See the second half of PLINK linear.cpp fitLM(), and validParameters().
   // Diagonals of the final covariance matrices (not including the intercept
   // element) are saved to linear_results[(perm_idx * (param_ct - 1))..
   // ((perm_idx + 1) * (param_ct - 1) - 1)].
+  // If not all permutations yield valid results, bits in perm_fails[] are set.
+  // A return value of 1 reports that ALL permutations failed.  In this case,
+  // perm_fails is not necessarily updated.
   uintptr_t param_ct_p1 = param_ct + 1; // diagonals of param * param matrix
   uintptr_t param_ct_m1 = param_ct - 1;
   uint32_t cluster_ct1_p1 = cluster_ct1 + 1;
+  uintptr_t perm_success_ct = 0;
   uint32_t perm_fail_ct = 0;
   double* dptr;
   double* dptr2;
@@ -8923,6 +8927,7 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
   double dxx;
   double dyy;
   double dzz;
+  fill_ulong_zero(perm_fails, ((cur_batch_size + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
   col_major_matrix_multiply((uint32_t)param_ct, (uint32_t)param_ct, (uint32_t)indiv_valid_ct, covars_transposed_buf, covars_collapsed, param_2d_buf);
   if (invert_matrix((uint32_t)param_ct, param_2d_buf, mi_buf, param_2d_buf2)) {
     return 1;
@@ -8990,7 +8995,8 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
       if (dyy < min_sigma) {
 	dyy = 0;
 	perm_fail_ct++;
-	// todo: figure out what to do with linear_results in this case
+	dptr = &(dptr[param_ct_m1]);
+	set_bit_noct(perm_fails, perm_idx);
       }
       dptr2 = param_2d_buf2;
       for (param_idx = 1; param_idx < param_ct; param_idx++) {
@@ -9061,10 +9067,12 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
 	}
       } else {
       glm_linear_robust_cluster_covar_multicollinear:
-	perm_fail_ct++;
+	// technically may not need to fill with zeroes
         fill_double_zero(&(linear_results[perm_idx * param_ct_m1]), param_ct_m1);
+	set_bit_noct(perm_fails, perm_idx);
       }
     }
+    perm_fail_ct = cur_batch_size - perm_success_ct;
   }
   *perm_fail_ct_ptr = perm_fail_ct;
   return 0;
@@ -9230,6 +9238,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   int32_t retval = 0;
 #ifndef NOLAPACK
   uint32_t perm_fail_ct = 0;
+  uint32_t perm_fail_total = 0;
   char dgels_trans = 'N';
   int32_t dgels_m = 0;
   int32_t dgels_n = 0;
@@ -9251,6 +9260,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uintptr_t* indiv_include2 = NULL;
   uintptr_t* indiv_male_include2 = NULL;
   uintptr_t* active_params = NULL;
+  uintptr_t* perm_fails = NULL;
   uint32_t* perm_2success_ct = NULL;
   uint32_t* condition_uidxs = NULL;
   uint32_t* cluster_map1 = NULL;
@@ -9275,6 +9285,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   char* wptr2;
   double* dptr;
   double* dptr2;
+  double* dptr3;
   uintptr_t indiv_valid_ct;
   uintptr_t indiv_idx;
   uintptr_t param_raw_ctl;
@@ -9583,6 +9594,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 
   if (do_perms) {
     if (!perm_batch_size) {
+      // er, maybe this should be initialized in main()
       perm_batch_size = 512;
     }
     // not actually max(T), just fixed permutation count.
@@ -9592,6 +9604,10 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   } else {
     perm_batch_size = 1;
     mperm_save = 0;
+  }
+  ulii = (perm_batch_size + (BITCT - 1)) / BITCT;
+  if (wkspace_alloc_ul_checked(&perm_fails, ulii * sizeof(intptr_t))) {
+    goto glm_assoc_nosnp_ret_NOMEM;
   }
 
   if (pheno_d) {
@@ -9628,7 +9644,6 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     }
     dgels_nrhs = 1;
     dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
-    // solution now saved in dgels_b[0..(param_ct-1)]
     if (dgels_info) {
       logprint("Warning: Skipping --linear/--logistic no-snp since regression failed.\n");
       goto glm_assoc_nosnp_ret_1;
@@ -9704,7 +9719,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
         *dptr++ = dptr2[param_idx * indiv_valid_ct];
       }
     }
-    if (glm_linear_robust_cluster_covar(1, param_ct, indiv_valid_ct, covars_collapsed, covars_transposed_buf, g_pheno_d2, 1, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, cluster_map1, cluster_starts1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, linear_results, &perm_fail_ct) || perm_fail_ct) {
+    if (glm_linear_robust_cluster_covar(1, param_ct, indiv_valid_ct, covars_collapsed, covars_transposed_buf, g_pheno_d2, 1, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, cluster_map1, cluster_starts1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, linear_results, &perm_fail_ct, perm_fails) || perm_fail_ct) {
       logprint("Warning: Skipping --linear/--logistic no-snp due to multicollinearity.\n");
       goto glm_assoc_nosnp_ret_1;
     }
@@ -9796,6 +9811,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     if (cur_batch_size > glm_mperm_val - perms_done) {
       cur_batch_size = glm_mperm_val - perms_done;
     }
+    g_perm_vec_ct = cur_batch_size;
     perm_vec_ctcl8m = (cur_batch_size + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
     perms_done += cur_batch_size;
     if (cur_batch_size >= CACHELINE_DBL * g_thread_ct) {
@@ -9834,21 +9850,49 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	}
       }
       dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
-      if (glm_linear_robust_cluster_covar(cur_batch_size, param_ct, indiv_valid_ct, covars_collapsed, covars_transposed_buf, g_perm_vecstd, perm_vec_ctcl8m, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, cluster_map1, cluster_starts1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, linear_results, &perm_fail_ct)) {
+      if (glm_linear_robust_cluster_covar(cur_batch_size, param_ct, indiv_valid_ct, covars_collapsed, covars_transposed_buf, g_perm_vecstd, perm_vec_ctcl8m, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, cluster_map1, cluster_starts1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, linear_results, &perm_fail_ct, perm_fails)) {
 	perm_fail_ct = cur_batch_size;
       }
-      for (param_idx = 1; param_idx < param_ct; param_idx++) {
-
-	if (mperm_save) {
+      perm_fail_total += perm_fail_ct;
+      ulii = param_ct - 1;
+      for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
+	if (is_set(perm_fails, perm_idx)) {
+	  if (mperm_save) {
+	    // save -9s
+	  }
+	  continue;
+	}
+        // permutation-major regression coefficients
+        dptr = &(dgels_b[perm_idx * param_ct + 1]);
+	// permutation-major variances
+	dptr2 = &(linear_results[perm_idx * ulii]);
+	dptr3 = orig_stats;
+        for (param_idx = 0; param_idx < ulii; param_idx++) {
+	  dxx = *dptr++;
+	  se = sqrt(*dptr2++);
+          zval = dxx / se;
+	  dyy = *dptr3++;
+	  if (zval > dyy + EPSILON) {
+	    perm_2success_ct[param_idx] += 2;
+	  } else if (zval > dyy - EPSILON) {
+	    perm_2success_ct[param_idx] += 1;
+	  }
+	  if (mperm_save) {
+	    // todo
+	  }
 	}
       }
 #endif
     } else {
       // todo: logistic per-permutation-block stuff
     }
-    // todo
+    putchar('\r');
+    sprintf(logbuf, "%u permutation%s complete.", perms_done, (perms_done > 1)? "s" : "");
+    logprintb();
+    fflush(stdout);
   }
   if (do_perms) {
+    putchar('\n');
     memcpy(outname_end2, ".mperm", 7);
     if (fopen_checked(&outfile, outname, "w")) {
       goto glm_assoc_nosnp_ret_OPEN_FAIL;
@@ -9856,19 +9900,19 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     if (fputs("      TEST         EMP1           NP \n", outfile) == EOF) {
       goto glm_assoc_nosnp_ret_WRITE_FAIL;
     }
-    dxx = 0.5 / ((double)((int32_t)glm_mperm_val + 1));
+    dxx = 0.5 / ((double)((int32_t)(glm_mperm_val - perm_fail_total) + 1));
     for (param_idx = 1; param_idx < param_ct; param_idx++) {
       wptr = fw_strcpy(10, &(param_names[param_idx * max_param_name_len]), tbuf);
       *wptr++ = ' ';
-      pval = ((double)(perm_2success_ct[param_ct - 1] + 2)) * dxx;
+      pval = ((double)(perm_2success_ct[param_idx - 1] + 2)) * dxx;
       if (pval <= pfilter) {
 	if (!perm_count) {
 	  wptr = double_g_writewx4(wptr, pval, 12);
 	} else {
-          wptr = double_g_writewx4(wptr, ((double)g_perm_2success_ct[param_ct - 1]) / 2.0, 12);
+          wptr = double_g_writewx4(wptr, ((double)perm_2success_ct[param_idx - 1]) / 2.0, 12);
 	}
         wptr = memseta(wptr, 32, 3);
-        wptr = uint32_write(wptr, glm_mperm_val);
+        wptr = uint32_writew10(wptr, glm_mperm_val - perm_fail_total);
         wptr = memcpya(wptr, " \n", 2);
 	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
 	  goto glm_assoc_nosnp_ret_WRITE_FAIL;
@@ -9878,6 +9922,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     if (fclose_null(&outfile)) {
       goto glm_assoc_nosnp_ret_WRITE_FAIL;
     }
+    sprintf(logbuf, "Permutation test report written to %s.\n", outname);
+    logprintb();
     if (mperm_save) {
       *outname_end = '.';
       for (param_idx = 1; param_idx < param_ct; param_idx++) {
