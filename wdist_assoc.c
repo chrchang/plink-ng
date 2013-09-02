@@ -9300,7 +9300,6 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   char* wptr2;
   double* dptr;
   double* dptr2;
-  double* msa_ptr;
   uintptr_t indiv_valid_ct;
   uintptr_t indiv_idx;
   uintptr_t param_raw_ctl;
@@ -9309,6 +9308,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uintptr_t ulii;
   // warning-suppressing stopgap
 #ifndef NOLAPACK
+  double* msa_ptr;
   double* dptr3;
   double se;
   double zval;
