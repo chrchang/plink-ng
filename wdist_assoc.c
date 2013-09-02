@@ -9069,6 +9069,30 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
   return 0;
 }
 
+// make this configurable on command line?
+#define LOGISTIC_MAX_ITERS 20
+
+/*
+uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_cov_major, double* covars_indiv_major, double* pheno_perms, uintptr_t pheno_perms_stride, double* coef, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* indiv_1d_buf, double* linear_results, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
+*/
+uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_cov_major, double* pheno_perms, uintptr_t pheno_perms_stride, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* logistic_results, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
+  // See PLINK logistic.cpp fitLM().
+  // todo
+  uint32_t iters = 0;
+  uintptr_t param_idx;
+  double delta;
+  do {
+    delta = 0;
+    for (param_idx = 0; param_idx < param_ct; param_idx++) {
+      // delta += fabs();
+    }
+    if (delta < 0.000001) {
+      break;
+    }
+  } while (++iters < LOGISTIC_MAX_ITERS);
+  return 0;
+}
+
 /*
 int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, char* condition_mname, char* condition_fname, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, uintptr_t* indiv_exclude, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_male, uint32_t xmhh_exists, uint32_t nxmhh_exists, uint32_t perm_batch_size) {
   unsigned char* wkspace_mark = wkspace_base;
