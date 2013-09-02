@@ -8896,7 +8896,7 @@ int32_t glm_check_vif(double vif_thresh, uintptr_t param_ct, uintptr_t indiv_val
   return 0;
 }
 
-uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_collapsed, double* covars_transposed_buf, double* pheno_perms, uintptr_t pheno_perms_stride, double* coef, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* cluster_map1, uint32_t* cluster_starts1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* indiv_1d_buf, double* linear_results, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
+uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_cov_major, double* covars_indiv_major, double* pheno_perms, uintptr_t pheno_perms_stride, double* coef, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* cluster_map1, uint32_t* cluster_starts1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* indiv_1d_buf, double* linear_results, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
   // See the second half of PLINK linear.cpp fitLM(), and validParameters().
   // Diagonals of the final covariance matrices (not including the intercept
   // element) are saved to linear_results[(perm_idx * (param_ct - 1))..
@@ -8926,9 +8926,8 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
 
   double dxx;
   double dyy;
-  double dzz;
   fill_ulong_zero(perm_fails, ((cur_batch_size + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
-  col_major_matrix_multiply((uint32_t)param_ct, (uint32_t)param_ct, (uint32_t)indiv_valid_ct, covars_transposed_buf, covars_collapsed, param_2d_buf);
+  col_major_matrix_multiply((uint32_t)param_ct, (uint32_t)param_ct, (uint32_t)indiv_valid_ct, covars_indiv_major, covars_cov_major, param_2d_buf);
   if (invert_matrix((uint32_t)param_ct, param_2d_buf, mi_buf, param_2d_buf2)) {
     return 1;
   }
@@ -8965,23 +8964,21 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
     // S[i][i] * sigma < 1e-20 iff sigma < 1e-20 / S[i][i]
     min_sigma = 1e-20 / min_sigma;
 
-    dptr = covars_transposed_buf;
     // now temporarily save sigmas in linear_results[perm_idx * param_ct_m1]
     fill_double_zero(linear_results, cur_batch_size * param_ct_m1);
     for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
-      partial = 0;
-      dptr2 = coef;
-      for (param_idx = 0; param_idx < param_ct; param_idx++) {
-	partial += (*dptr++) * (*dptr2++);
-      }
-      // sum(all i) (partial - y[i]) * (partial - y[i])
-      // = sum(all i) y[i]^2 - 2 * y[i] * partial + partial^2
-      dxx = partial * partial;
-      dyy = 2 * partial;
       pheno_ptr = &(pheno_perms[indiv_idx * pheno_perms_stride]);
+      dptr = &(covars_indiv_major[indiv_idx * param_ct]);
       for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
-	dzz = *pheno_ptr++;
-	linear_results[perm_idx * param_ct_m1] += dzz * dzz - dzz * dyy + dxx;
+	partial = 0;
+	// not coef[perm_idx * param_ct] due to how dgels() works
+	dptr2 = &(coef[perm_idx * indiv_valid_ct]);
+	dptr3 = dptr;
+	for (param_idx = 0; param_idx < param_ct; param_idx++) {
+	  partial += (*dptr2++) * (*dptr3++);
+	}
+	partial -= *pheno_ptr++;
+	linear_results[perm_idx * param_ct_m1] += partial * partial;
       }
     }
     dxx = 1.0 / ((double)((intptr_t)(indiv_valid_ct - param_ct)));
@@ -9004,29 +9001,22 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
       }
     }
   } else {
-    dptr = covars_transposed_buf;
-    dptr2 = indiv_1d_buf;
-    // calculate and save partials before subtracting Y[i], so we don't
-    // duplicate this for every permutation
-    for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
-      partial = 0;
-      dptr3 = coef;
-      for (param_idx = 0; param_idx < param_ct; param_idx++) {
-        partial += (*dptr++) * (*dptr3++);
-      }
-      *dptr2++ = partial;
-    }
     for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
       fill_double_zero(cluster_param_buf, cluster_ct1_p1 * param_ct);
-      dptr = indiv_1d_buf; // partial
-      dptr2 = covars_transposed_buf; // X[i][j]
+      dptr2 = covars_indiv_major; // X[i][j]
       pheno_ptr = &(pheno_perms[perm_idx]); // Y[i]
       for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
-        dxx = (*dptr++) - pheno_ptr[indiv_idx * pheno_perms_stride];
+	dptr3 = &(coef[perm_idx * indiv_valid_ct]);
+	partial = 0;
+	for (param_idx = 0; param_idx < param_ct; param_idx++) {
+	  partial += dptr2[param_idx] * (*dptr3++);
+	}
+	partial -= pheno_ptr[indiv_idx * pheno_perms_stride];
 	cluster_idx_p1 = indiv_to_cluster1[indiv_idx] + 1;
 	dptr3 = &(cluster_param_buf[cluster_idx_p1 * param_ct]);
         for (param_idx = 0; param_idx < param_ct; param_idx++) {
-	  *dptr3++ += dxx * (*dptr2++); // sc[clst[i]][j] += partial * X[i][j]
+          // sc[clst[i]][j] += partial * X[i][j]
+	  *dptr3++ += partial * (*dptr2++);
 	}
       }
       dptr = cluster_param_buf2;
@@ -9286,6 +9276,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   double* dptr;
   double* dptr2;
   double* dptr3;
+  double* msa_ptr;
   uintptr_t indiv_valid_ct;
   uintptr_t indiv_idx;
   uintptr_t param_raw_ctl;
@@ -9633,6 +9624,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
     if (dgels_work[0] > 2147483647.0) {
       // maybe this can't actually happen, but just in case...
+      // (todo: see if there is any way to do cross-platform linking of a
+      // 64-bit integer LAPACK in the near future)
       logprint("Error: Multiple linear regression problem too large for current LAPACK version.\n");
       retval = RET_CALC_NOT_YET_SUPPORTED;
       goto glm_assoc_nosnp_ret_1;
@@ -9777,7 +9770,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     for (param_idx = 1; param_idx < param_ct; param_idx++) {
       dxx = dgels_b[param_idx]; // coef[p]
       se = sqrt(linear_results[param_idx - 1]);
-      zval = dxx / se;
+      zval = fabs(dxx / se);
       orig_stats[param_idx - 1] = zval;
       pval = calc_tprob(zval, indiv_valid_ct - param_ct);
       if (pval <= pfilter) {
@@ -9806,6 +9799,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   }
   logprint(" done.\n");
 
+  msa_ptr = mperm_save_stats;
   while (perms_done < glm_mperm_val) {
     cur_batch_size = perm_batch_size;
     if (cur_batch_size > glm_mperm_val - perms_done) {
@@ -9813,7 +9807,6 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     }
     g_perm_vec_ct = cur_batch_size;
     perm_vec_ctcl8m = (cur_batch_size + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
-    perms_done += cur_batch_size;
     if (cur_batch_size >= CACHELINE_DBL * g_thread_ct) {
       g_assoc_thread_ct = g_thread_ct;
     } else {
@@ -9847,7 +9840,12 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
         dptr2 = &(g_perm_vecstd[perm_idx]);
         for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
 	  *dptr++ = dptr2[indiv_idx * perm_vec_ctcl8m];
+	  // printf("%g ", dptr2[indiv_idx * perm_vec_ctcl8m]);
 	}
+	// printf("\n");
+	// if (perm_idx == 2) {
+	//   exit(1);
+	// }
       }
       dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
       if (glm_linear_robust_cluster_covar(cur_batch_size, param_ct, indiv_valid_ct, covars_collapsed, covars_transposed_buf, g_perm_vecstd, perm_vec_ctcl8m, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, cluster_map1, cluster_starts1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, linear_results, &perm_fail_ct, perm_fails)) {
@@ -9858,19 +9856,21 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
 	if (is_set(perm_fails, perm_idx)) {
 	  if (mperm_save) {
-	    // save -9s
+	    for (param_idx = 0; param_idx < ulii; param_idx++) {
+	      *msa_ptr++ = -9;
+	    }
 	  }
 	  continue;
 	}
         // permutation-major regression coefficients
-        dptr = &(dgels_b[perm_idx * param_ct + 1]);
+        dptr = &(dgels_b[perm_idx * indiv_valid_ct + 1]);
 	// permutation-major variances
 	dptr2 = &(linear_results[perm_idx * ulii]);
 	dptr3 = orig_stats;
         for (param_idx = 0; param_idx < ulii; param_idx++) {
 	  dxx = *dptr++;
 	  se = sqrt(*dptr2++);
-          zval = dxx / se;
+          zval = fabs(dxx / se);
 	  dyy = *dptr3++;
 	  if (zval > dyy + EPSILON) {
 	    perm_2success_ct[param_idx] += 2;
@@ -9878,7 +9878,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	    perm_2success_ct[param_idx] += 1;
 	  }
 	  if (mperm_save) {
-	    // todo
+	    *msa_ptr++ = zval;
 	  }
 	}
       }
@@ -9886,6 +9886,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     } else {
       // todo: logistic per-permutation-block stuff
     }
+    perms_done += cur_batch_size;
     putchar('\r');
     sprintf(logbuf, "%u permutation%s complete.", perms_done, (perms_done > 1)? "s" : "");
     logprintb();
@@ -9928,7 +9929,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       *outname_end = '.';
       for (param_idx = 1; param_idx < param_ct; param_idx++) {
 	wptr = strcpya(&(outname_end[1]), &(param_names[param_idx * max_param_name_len]));
-	memcpy(wptr, ".mperm.dump.best", 17);
+	memcpy(wptr, ".mperm.dump.all", 17);
 	if (fopen_checked(&outfile, outname, "w")) {
 	  goto glm_assoc_nosnp_ret_OPEN_FAIL;
 	}
