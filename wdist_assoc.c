@@ -8907,7 +8907,6 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
   uintptr_t param_ct_p1 = param_ct + 1; // diagonals of param * param matrix
   uintptr_t param_ct_m1 = param_ct - 1;
   uint32_t cluster_ct1_p1 = cluster_ct1 + 1;
-  uintptr_t perm_success_ct = 0;
   uint32_t perm_fail_ct = 0;
   double* dptr;
   double* dptr2;
@@ -9016,7 +9015,8 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
 	dptr3 = &(cluster_param_buf[cluster_idx_p1 * param_ct]);
         for (param_idx = 0; param_idx < param_ct; param_idx++) {
           // sc[clst[i]][j] += partial * X[i][j]
-	  *dptr3++ += partial * (*dptr2++);
+	  *dptr3 += partial * (*dptr2++);
+	  dptr3++;
 	}
       }
       dptr = cluster_param_buf2;
@@ -9030,21 +9030,21 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
       // can't overwrite param_2d_buf (= S0), everything else is fair game
       col_major_matrix_multiply(param_ct, param_ct, cluster_ct1_p1, cluster_param_buf, cluster_param_buf2, param_2d_buf2);
       col_major_matrix_multiply(param_ct, param_ct, param_ct, param_2d_buf, param_2d_buf2, cluster_param_buf); // multMatrix (S0, meat, tmp1)
-      col_major_matrix_multiply(param_ct, param_ct, param_ct, cluster_param_buf, cluster_param_buf2, cluster_param_buf); // multMatrix (tmp1, S0, S)
+      col_major_matrix_multiply(param_ct, param_ct, param_ct, cluster_param_buf, param_2d_buf, param_2d_buf2); // multMatrix (tmp1, S0, S)
       // now do validParameters() check.  validate and cache 1/sqrt(S[i][i])...
       for (param_idx = 1; param_idx < param_ct; param_idx++) {
-	dxx = cluster_param_buf[param_idx * param_ct_p1];
+	dxx = param_2d_buf2[param_idx * param_ct_p1];
         if ((dxx < 1e-20) || (!realnum(dxx))) {
 	  break;
 	}
-        param_2d_buf2[param_idx] = 1.0 / sqrt(dxx);
+        cluster_param_buf[param_idx] = 1.0 / sqrt(dxx);
       }
       if (param_idx == param_ct) {
-	param_2d_buf2[0] = 1.0 / sqrt(cluster_param_buf[0]);
+	cluster_param_buf[0] = 1.0 / sqrt(param_2d_buf2[0]);
         for (param_idx = 1; param_idx < param_ct; param_idx++) {
-	  dxx = param_2d_buf2[param_idx];
-	  dptr = &(cluster_param_buf[param_idx * param_ct]); // S[i][j]
-	  dptr2 = param_2d_buf2;
+	  dxx = cluster_param_buf[param_idx];
+	  dptr = &(param_2d_buf2[param_idx * param_ct]); // S[i][j]
+	  dptr2 = cluster_param_buf;
 	  for (param_idx2 = 0; param_idx2 < param_idx; param_idx2++) {
 	    if ((*dptr++) * (*dptr2++) * dxx > 0.99999) {
 	      goto glm_linear_robust_cluster_covar_multicollinear;
@@ -9053,16 +9053,16 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
 	}
 	dptr = &(linear_results[perm_idx * param_ct_m1]);
         for (param_idx = 1; param_idx < param_ct; param_idx++) {
-	  *dptr++ = cluster_param_buf[param_idx * param_ct_p1];
+	  *dptr++ = param_2d_buf2[param_idx * param_ct_p1];
 	}
       } else {
       glm_linear_robust_cluster_covar_multicollinear:
 	// technically may not need to fill with zeroes
         fill_double_zero(&(linear_results[perm_idx * param_ct_m1]), param_ct_m1);
 	set_bit_noct(perm_fails, perm_idx);
+	perm_fail_ct++;
       }
     }
-    perm_fail_ct = cur_batch_size - perm_success_ct;
   }
   *perm_fail_ct_ptr = perm_fail_ct;
   return 0;
@@ -9770,8 +9770,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     for (param_idx = 1; param_idx < param_ct; param_idx++) {
       dxx = dgels_b[param_idx]; // coef[p]
       se = sqrt(linear_results[param_idx - 1]);
-      zval = fabs(dxx / se);
-      orig_stats[param_idx - 1] = zval;
+      zval = dxx / se;
+      orig_stats[param_idx - 1] = fabs(zval);
       pval = calc_tprob(zval, indiv_valid_ct - param_ct);
       if (pval <= pfilter) {
 	wptr = fw_strcpy(10, &(param_names[param_idx * max_param_name_len]), tbuf);

@@ -452,9 +452,9 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
   uint32_t case_ct = 0;
   uint32_t assigned_ct = 0;
   uintptr_t* cluster_cc_perm_preimage = NULL;
+  uint32_t* cluster_case_cts = NULL;
   uint32_t* new_cluster_map;
   uint32_t* new_cluster_starts;
-  uint32_t* cluster_case_cts;
   uint32_t* uidx_to_idx;
   uint32_t cluster_assigned_ct;
   uint32_t cluster_idx;
@@ -516,11 +516,11 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     if (wkspace_alloc_ui_checked(cluster_case_cts_ptr, new_cluster_ct * sizeof(int32_t))) {
       goto cluster_include_and_reindex_ret_NOMEM;
     }
+    cluster_case_cts = *cluster_case_cts_ptr;
   }
   if (wkspace_alloc_ui_checked(&uidx_to_idx, unfiltered_indiv_ct * sizeof(int32_t))) {
     goto cluster_include_and_reindex_ret_NOMEM;
   }
-  cluster_case_cts = *cluster_case_cts_ptr;
   fill_uidx_to_idx_incl(indiv_include, indiv_ct, uidx_to_idx);
   *new_cluster_ct_ptr = new_cluster_ct;
   cluster_read_idx = 1;
