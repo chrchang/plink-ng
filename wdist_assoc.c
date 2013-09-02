@@ -9824,7 +9824,9 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   }
   logprint(" done.\n");
 
+#ifndef NOLAPACK
   msa_ptr = mperm_save_stats;
+#endif
   while (perms_done < glm_mperm_val) {
     cur_batch_size = perm_batch_size;
     if (cur_batch_size > glm_mperm_val - perms_done) {
