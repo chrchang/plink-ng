@@ -8896,7 +8896,7 @@ int32_t glm_check_vif(double vif_thresh, uintptr_t param_ct, uintptr_t indiv_val
   return 0;
 }
 
-uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_cov_major, double* covars_indiv_major, double* pheno_perms, uintptr_t pheno_perms_stride, double* coef, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* cluster_map1, uint32_t* cluster_starts1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* indiv_1d_buf, double* linear_results, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
+uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_cov_major, double* covars_indiv_major, double* pheno_perms, uintptr_t pheno_perms_stride, double* coef, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* indiv_1d_buf, double* linear_results, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
   // See the second half of PLINK linear.cpp fitLM(), and validParameters().
   // Diagonals of the final covariance matrices (not including the intercept
   // element) are saved to linear_results[(perm_idx * (param_ct - 1))..
@@ -9031,6 +9031,7 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
       col_major_matrix_multiply(param_ct, param_ct, cluster_ct1_p1, cluster_param_buf, cluster_param_buf2, param_2d_buf2);
       col_major_matrix_multiply(param_ct, param_ct, param_ct, param_2d_buf, param_2d_buf2, cluster_param_buf); // multMatrix (S0, meat, tmp1)
       col_major_matrix_multiply(param_ct, param_ct, param_ct, cluster_param_buf, param_2d_buf, param_2d_buf2); // multMatrix (tmp1, S0, S)
+
       // now do validParameters() check.  validate and cache 1/sqrt(S[i][i])...
       for (param_idx = 1; param_idx < param_ct; param_idx++) {
 	dxx = param_2d_buf2[param_idx * param_ct_p1];
@@ -9712,7 +9713,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
         *dptr++ = dptr2[param_idx * indiv_valid_ct];
       }
     }
-    if (glm_linear_robust_cluster_covar(1, param_ct, indiv_valid_ct, covars_collapsed, covars_transposed_buf, g_pheno_d2, 1, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, cluster_map1, cluster_starts1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, linear_results, &perm_fail_ct, perm_fails) || perm_fail_ct) {
+    if (glm_linear_robust_cluster_covar(1, param_ct, indiv_valid_ct, covars_collapsed, covars_transposed_buf, g_pheno_d2, 1, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, linear_results, &perm_fail_ct, perm_fails) || perm_fail_ct) {
       logprint("Warning: Skipping --linear/--logistic no-snp due to multicollinearity.\n");
       goto glm_assoc_nosnp_ret_1;
     }
@@ -9840,15 +9841,10 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
         dptr2 = &(g_perm_vecstd[perm_idx]);
         for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
 	  *dptr++ = dptr2[indiv_idx * perm_vec_ctcl8m];
-	  // printf("%g ", dptr2[indiv_idx * perm_vec_ctcl8m]);
 	}
-	// printf("\n");
-	// if (perm_idx == 2) {
-	//   exit(1);
-	// }
       }
       dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
-      if (glm_linear_robust_cluster_covar(cur_batch_size, param_ct, indiv_valid_ct, covars_collapsed, covars_transposed_buf, g_perm_vecstd, perm_vec_ctcl8m, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, cluster_map1, cluster_starts1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, linear_results, &perm_fail_ct, perm_fails)) {
+      if (glm_linear_robust_cluster_covar(cur_batch_size, param_ct, indiv_valid_ct, covars_collapsed, covars_transposed_buf, g_perm_vecstd, perm_vec_ctcl8m, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, linear_results, &perm_fail_ct, perm_fails)) {
 	perm_fail_ct = cur_batch_size;
       }
       perm_fail_total += perm_fail_ct;

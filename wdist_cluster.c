@@ -561,6 +561,9 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     }
     new_cluster_map[map_idx++] = uidx_to_idx[indiv_uidx];
   }
+  if (remove_size1 && shrink_map && (new_cluster_starts[cluster_idx - 1] == map_idx - 1)) {
+    map_idx--;
+  }
   if (new_cluster_ct && ((!remove_size1) || (map_idx - new_cluster_starts[cluster_idx] > 1))) {
     if (pheno_c) {
       cluster_case_cts[new_cluster_ct - 1] = case_ct + last_case_ct_incr;
