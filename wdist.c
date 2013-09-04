@@ -1205,7 +1205,7 @@ int32_t convert_tail_pheno(uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, u
   fill_ulong_zero(pheno_c, indiv_uidx);
   indiv_uidx = 0;
   do {
-    indiv_uidx = next_set_ul(pheno_nm, indiv_uidx, unfiltered_indiv_ct);
+    indiv_uidx = next_set(pheno_nm, indiv_uidx, unfiltered_indiv_ct);
     indiv_uidx_stop = next_unset(pheno_nm, indiv_uidx, unfiltered_indiv_ct);
     for (; indiv_uidx < indiv_uidx_stop; indiv_uidx++) {
       dxx = pheno_d[indiv_uidx];

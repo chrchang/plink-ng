@@ -937,7 +937,7 @@ void compute_allelic_match_matrix(double mismatch_max, uintptr_t roh_slot_wsize,
     }
     for (map_idxs = 0; map_idxs < map_idxl; map_idxs++) {
       if (skip_cached && (!is_set_ul(roh_slot_uncached, map_idxs))) {
-	map_idxs = next_set_ul(roh_slot_uncached, map_idxs + 1, map_idxl);
+	map_idxs = next_set(roh_slot_uncached, map_idxs, map_idxl);
 	if (map_idxs == map_idxl) {
 	  break;
 	}

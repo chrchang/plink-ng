@@ -2541,41 +2541,46 @@ uintptr_t next_set_unsafe(uintptr_t* include_arr, uintptr_t loc) {
   return (((uintptr_t)(include_arr_ptr - include_arr)) * BITCT) + CTZLU(ulii);
 }
 
-uint32_t next_set_32(uintptr_t* include_arr, uint32_t loc, uint32_t ceil) {
-  uint32_t idx = loc / BITCT;
-  uint32_t max_idx;
-  uintptr_t ulii;
-  include_arr = &(include_arr[idx]);
-  ulii = (*include_arr) >> (loc % BITCT);
+uintptr_t next_set(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
+  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
+  uintptr_t ulii = (*bit_arr_ptr) >> (loc % BITCT);
+  uintptr_t* bit_arr_last;
   if (ulii) {
-    return MINV(loc + CTZLU(ulii), ceil);
+    ulii = loc + CTZLU(ulii);
+    return MINV(ulii, ceil);
   }
-  max_idx = (ceil - 1) / BITCT;
+  bit_arr_last = &(bit_arr[(ceil - 1) / BITCT]);
   do {
-    if ((++idx) > max_idx) {
+    if (bit_arr_ptr == bit_arr_last) {
       return ceil;
     }
-  } while (*(++include_arr) == 0);
-  return MINV((idx * BITCT) + CTZLU(*include_arr), ceil);
+    ulii = *(++bit_arr_ptr);
+  } while (!ulii);
+  ulii = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(ulii);
+  return MINV(ulii, ceil);
 }
 
-uintptr_t next_set_ul(uintptr_t* include_arr, uintptr_t loc, uintptr_t ceil) {
-  uintptr_t idx = loc / BITCT;
-  uintptr_t max_idx;
-  uintptr_t ulii;
-  include_arr = &(include_arr[idx]);
-  ulii = (*include_arr) >> (loc % BITCT);
+#ifdef __LP64__
+uint32_t next_set_32(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil) {
+  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
+  uintptr_t ulii = (*bit_arr_ptr) >> (loc % BITCT);
+  uintptr_t* bit_arr_last;
+  uint32_t rval;
   if (ulii) {
-    return MINV(loc + CTZLU(ulii), ceil);
+    rval = loc + CTZLU(ulii);
+    return MINV(rval, ceil);
   }
-  max_idx = (ceil - 1) / BITCT;
+  bit_arr_last = &(bit_arr[(ceil - 1) / BITCT]);
   do {
-    if ((++idx) > max_idx) {
+    if (bit_arr_ptr == bit_arr_last) {
       return ceil;
     }
-  } while (*(++include_arr) == 0);
-  return MINV((idx * BITCT) + CTZLU(*include_arr), ceil);
+    ulii = *(++bit_arr_ptr);
+  } while (!ulii);
+  rval = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(ulii);
+  return MINV(rval, ceil);
 }
+#endif
 
 intptr_t last_set_bit(uintptr_t* bit_arr, uintptr_t word_ct) {
   do {

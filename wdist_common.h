@@ -1090,8 +1090,8 @@ static inline uintptr_t is_set_rul(uintptr_t* bit_arr, uintptr_t loc) {
   return (bit_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
-static inline uint32_t is_set_32(uintptr_t* exclude_arr, uint32_t loc) {
-  return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
+static inline uint32_t is_set_32(uintptr_t* bit_arr, uint32_t loc) {
+  return (bit_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
 static inline uint32_t is_set_ul(uintptr_t* exclude_arr, uintptr_t loc) {
@@ -1110,9 +1110,15 @@ uintptr_t next_unset(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil);
 
 uintptr_t next_set_unsafe(uintptr_t* include_arr, uintptr_t loc);
 
-uint32_t next_set_32(uintptr_t* include_arr, uint32_t loc, uint32_t ceil);
+uintptr_t next_set(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil);
 
-uintptr_t next_set_ul(uintptr_t* include_arr, uintptr_t loc, uintptr_t ceil);
+#ifdef __LP64__
+uint32_t next_set_32(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil);
+#else
+static inline uint32_t next_set_32(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil) {
+  return (uint32_t)next_set(bit_arr, loc, ceil);
+}
+#endif
 
 intptr_t last_set_bit(uintptr_t* bit_arr, uintptr_t word_ct);
 

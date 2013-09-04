@@ -8996,7 +8996,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     }
   }
 
-  tcoord = next_set_ul(cluster_merge_prevented, 0, initial_triangle_size);
+  tcoord = next_set(cluster_merge_prevented, 0, initial_triangle_size);
   logprint("Clustering...");
   printf(" [sorting IB%c values]", cluster_missing? 'M' : 'S');
   fflush(stdout);
