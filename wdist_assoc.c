@@ -8588,7 +8588,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
   __m128i* loadbuf_vend;
   __m128i vii;
 #else
-  uint32_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t* loadbuf_end;
 #endif
   uintptr_t* loadbuf_ptr;
@@ -8604,14 +8604,14 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
   char* bufptr2;
   uintptr_t condition_ct_max;
   uintptr_t condition_idx;
+  uintptr_t indiv_uidx_offset;
   uintptr_t slen;
   uintptr_t ulii;
+  uintptr_t uljj;
   uint32_t marker_uidx;
   uint32_t chrom_idx;
   uint32_t is_x;
   uint32_t is_y;
-  uint32_t indiv_uidx_offset;
-  uint32_t uii;
   int32_t ii;
   char cc;
   if (condition_mname) {
@@ -8748,8 +8748,8 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
     for (indiv_uidx_offset = 0; indiv_uidx_offset < unfiltered_indiv_ct; indiv_uidx_offset += BITCT2) {
       ulii = (*loadbuf_ptr++) & (~(*loadbuf_mask_ptr++));
       while (ulii) {
-        uii = CTZLU(ulii);
-        clear_bit_noct(load_mask, indiv_uidx_offset + (uii / 2));
+        uljj = CTZLU(ulii);
+        clear_bit(load_mask, indiv_uidx_offset + (uljj / 2));
         indiv_valid_ct--;
         ulii &= ulii - 1;
       }

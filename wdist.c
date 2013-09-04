@@ -1119,8 +1119,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   return 0;
 }
 
-int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_exclude_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr) {
-  uintptr_t indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
+int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltered_indiv_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr) {
   uint32_t mp_strlen = strlen(makepheno_str);
   uint32_t makepheno_all = ((mp_strlen == 1) && (makepheno_str[0] == '*'));
   unsigned char* wkspace_mark = wkspace_base;
@@ -1163,7 +1162,7 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
       logprint(errstr_phenotype_format);
       return RET_INVALID_FORMAT;
     }
-    ii = bsearch_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr0, bufptr);
+    ii = bsearch_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, unfiltered_indiv_ct, bufptr0, bufptr);
     if (ii != -1) {
       person_idx = id_map[(uint32_t)ii];
       if (makepheno_all) {
@@ -1188,33 +1187,37 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
 int32_t convert_tail_pheno(uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, double tail_bottom, double tail_top, double missing_phenod) {
   uintptr_t* pheno_c = *pheno_c_ptr;
   double* pheno_d = *pheno_d_ptr;
-  uint32_t uii;
+  uintptr_t indiv_uidx;
+  uintptr_t indiv_uidx_stop;
   double dxx;
   if (!(*pheno_d_ptr)) {
     logprint("Error: --tail-pheno requires scalar phenotype data.\n");
     return RET_INVALID_FORMAT;
   }
-  uii = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  indiv_uidx = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   if (!pheno_c) {
-    pheno_c = (uintptr_t*)malloc(uii * sizeof(intptr_t));
+    pheno_c = (uintptr_t*)malloc(indiv_uidx * sizeof(intptr_t));
     if (!pheno_c) {
       return RET_NOMEM;
     }
     *pheno_c_ptr = pheno_c;
   }
-  fill_ulong_zero(pheno_c, uii);
-  for (uii = 0; uii < unfiltered_indiv_ct; uii++) {
-    if (is_set(pheno_nm, uii)) {
-      dxx = pheno_d[uii];
+  fill_ulong_zero(pheno_c, indiv_uidx);
+  indiv_uidx = 0;
+  do {
+    indiv_uidx = next_set_ul(pheno_nm, indiv_uidx, unfiltered_indiv_ct);
+    indiv_uidx_stop = next_unset(pheno_nm, indiv_uidx, unfiltered_indiv_ct);
+    for (; indiv_uidx < indiv_uidx_stop; indiv_uidx++) {
+      dxx = pheno_d[indiv_uidx];
       if (dxx > tail_bottom) {
         if (dxx > tail_top) {
-          set_bit_noct(pheno_c, uii);
+          set_bit(pheno_c, indiv_uidx);
         } else {
-	  clear_bit_noct(pheno_nm, uii);
+	  clear_bit(pheno_nm, indiv_uidx);
         }
       }
     }
-  }
+  } while (indiv_uidx_stop < unfiltered_indiv_ct);
   free(pheno_d);
   *pheno_d_ptr = NULL;
   return 0;
@@ -1334,7 +1337,10 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
 	  return RET_INVALID_FORMAT;
 	}
         if ((!memcmp(filterval, bufptr, fv_strlen)) && is_space_or_eoln(bufptr[fv_strlen])) {
-          clear_bit(indiv_exclude_new, person_idx, &include_ct);
+	  if (is_set(indiv_exclude_new, person_idx)) {
+	    clear_bit(indiv_exclude_new, person_idx);
+	    include_ct++;
+	  }
 	}
       }
     }
@@ -3665,12 +3671,12 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     if (max_marker_allele_len == 1) {
       cc = *colx_ptr;
       if (cc == marker_alleles[marker_uidx * 2 + is_a2]) {
-	clear_bit_noct(marker_reverse, marker_uidx);
+	clear_bit_32(marker_reverse, marker_uidx);
       } else if (cc == marker_alleles[marker_uidx * 2 + 1 - is_a2]) {
-	set_bit_noct(marker_reverse, marker_uidx);
+	set_bit_32(marker_reverse, marker_uidx);
       } else if (marker_alleles[marker_uidx * 2 + is_a2] == '0') {
 	marker_alleles[marker_uidx * 2 + is_a2] = cc;
-	clear_bit_noct(marker_reverse, marker_uidx);
+	clear_bit_32(marker_reverse, marker_uidx);
       } else {
 	sprintf(logbuf, "Warning: Impossible A%c allele assignment for marker %s.\n", is_a2? '2' : '1', colid_ptr);
 	logprintb();
@@ -3679,12 +3685,12 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       slen = strlen_se(colx_ptr);
       colx_ptr[slen++] = '\0';
       if (!memcmp(colx_ptr, &(marker_alleles[(marker_uidx * 2 + is_a2) * max_marker_allele_len]), slen)) {
-	clear_bit_noct(marker_reverse, marker_uidx);
+	clear_bit_32(marker_reverse, marker_uidx);
       } else if (!memcmp(colx_ptr, &(marker_alleles[(marker_uidx * 2 + 1 - is_a2) * max_marker_allele_len]), slen)) {
-	set_bit_noct(marker_reverse, marker_uidx);
+	set_bit_32(marker_reverse, marker_uidx);
       } else if (!memcmp(&(marker_alleles[(marker_uidx * 2 + is_a2) * max_marker_allele_len]), "0", 2)) {
 	memcpy(&(marker_alleles[(marker_uidx * 2 + is_a2) * max_marker_allele_len]), colx_ptr, slen);
-	clear_bit_noct(marker_reverse, marker_uidx);
+	clear_bit_32(marker_reverse, marker_uidx);
       } else {
 	sprintf(logbuf, "Warning: Impossible A%c allele assignment for marker %s.\n", is_a2? '2' : '1', colid_ptr);
 	logprintb();
@@ -4146,18 +4152,18 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (phenofile || update_ids_fname || update_parents_fname || update_sex_fname || (misc_flags & MISC_TAIL_PHENO)) {
     wkspace_mark = wkspace_base;
-    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, 0, strcmp_deref);
+    retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, 0, person_ids, max_person_id_len, 0, 0, strcmp_deref);
     if (retval) {
       goto wdist_ret_1;
     }
 
     if (makepheno_str) {
-      retval = makepheno_load(phenofile, makepheno_str, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, uiptr, pheno_nm, &pheno_c);
+      retval = makepheno_load(phenofile, makepheno_str, unfiltered_indiv_ct, cptr, max_person_id_len, uiptr, pheno_nm, &pheno_c);
       if (retval) {
 	goto wdist_ret_1;
       }
     } else if (phenofile) {
-      retval = load_pheno(phenofile, unfiltered_indiv_ct, indiv_exclude_ct, cptr, max_person_id_len, uiptr, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d);
+      retval = load_pheno(phenofile, unfiltered_indiv_ct, 0, cptr, max_person_id_len, uiptr, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d);
       if (retval) {
 	if (retval == LOAD_PHENO_LAST_COL) {
 	  logprint(errstr_phenotype_format);
@@ -5544,7 +5550,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
     chrom_info_ptr->mt_code = -1;
     chrom_info_ptr->max_code = ii + 1;
     chrom_info_ptr->autosome_ct = ii;
-    set_bit_noct(chrom_info_ptr->haploid_mask, ii + 1);
+    set_bit_32(chrom_info_ptr->haploid_mask, ii + 1);
   }
   if (flag_match("chr-set", &flag_idx, flag_ct, flag_buf)) {
     if (species_flag(&species_code, SPECIES_UNKNOWN)) {
@@ -5579,21 +5585,21 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       chrom_info_ptr->y_code = ii + 2;
       chrom_info_ptr->xy_code = ii + 3;
       chrom_info_ptr->mt_code = ii + 4;
-      set_bit_noct(chrom_info_ptr->haploid_mask, ii + 1);
-      set_bit_noct(chrom_info_ptr->haploid_mask, ii + 2);
-      set_bit_noct(chrom_info_ptr->haploid_mask, ii + 4);
+      set_bit_32(chrom_info_ptr->haploid_mask, ii + 1);
+      set_bit_32(chrom_info_ptr->haploid_mask, ii + 2);
+      set_bit_32(chrom_info_ptr->haploid_mask, ii + 4);
       for (param_idx = 2; param_idx <= param_ct; param_idx++) {
 	if (!memcmp(argv[cur_arg + param_idx], "no-x", 5)) {
 	  chrom_info_ptr->x_code = -1;
-	  clear_bit_noct(chrom_info_ptr->haploid_mask, ii + 1);
+	  clear_bit_32(chrom_info_ptr->haploid_mask, ii + 1);
 	} else if (!memcmp(argv[cur_arg + param_idx], "no-y", 5)) {
 	  chrom_info_ptr->y_code = -1;
-	  clear_bit_noct(chrom_info_ptr->haploid_mask, ii + 2);
+	  clear_bit_32(chrom_info_ptr->haploid_mask, ii + 2);
 	} else if (!memcmp(argv[cur_arg + param_idx], "no-xy", 6)) {
 	  chrom_info_ptr->xy_code = -1;
 	} else if (!memcmp(argv[cur_arg + param_idx], "no-mt", 6)) {
 	  chrom_info_ptr->mt_code = -1;
-	  clear_bit_noct(chrom_info_ptr->haploid_mask, ii + 4);
+	  clear_bit_32(chrom_info_ptr->haploid_mask, ii + 4);
 	} else {
 	  sprintf(logbuf, "Error: Invalid --chr-set parameter '%s'.%s", argv[cur_arg + param_idx], errstr_append);
 	  goto init_delim_and_species_ret_INVALID_CMDLINE_2;

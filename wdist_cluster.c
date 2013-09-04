@@ -424,11 +424,11 @@ void adjust_cc_perm_preimage(uint32_t cluster_ct, uint32_t* cluster_map, uint32_
     cluster_end = cluster_starts[cluster_idx + 1];
     if (cluster_case_cts[cluster_idx] * 2 < cluster_end - map_idx) {
       do {
-        clear_bit_noct(cluster_cc_perm_preimage, cluster_map[map_idx] * 2);
+        clear_bit_32(cluster_cc_perm_preimage, cluster_map[map_idx] * 2);
       } while (++map_idx < cluster_end);
     } else {
       do {
-	set_bit_noct(cluster_cc_perm_preimage, cluster_map[map_idx] * 2);
+	set_bit_32(cluster_cc_perm_preimage, cluster_map[map_idx] * 2);
       } while (++map_idx < cluster_end);
     }
   }

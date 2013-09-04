@@ -2482,15 +2482,6 @@ void clear_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len) {
   }
 }
 
-void clear_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* include_ct_ptr) {
-  uint32_t maj = loc / BITCT;
-  uintptr_t minor = ONELU << (loc % BITCT);
-  if (bit_arr[maj] & minor) {
-    bit_arr[maj] -= minor;
-    *include_ct_ptr += 1;
-  }
-}
-
 // unsafe if you don't know there's another included marker or person remaining
 int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc) {
   uint32_t idx = loc / BITCT;
@@ -2504,6 +2495,27 @@ int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc) {
     idx++;
   } while (*(++exclude_arr) == ~ZEROLU);
   return (idx * BITCT) + CTZLU(~(*exclude_arr));
+}
+
+uintptr_t next_unset(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
+  // safe version.  ceil >= 1.
+  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
+  uintptr_t* bit_arr_last;
+  uintptr_t ulii;
+  ulii = (~(*bit_arr_ptr)) >> (loc % BITCT);
+  if (ulii) {
+    ulii = loc + CTZLU(ulii);
+    return MINV(ulii, ceil);
+  }
+  bit_arr_last = &(bit_arr[(ceil - 1) / BITCT]);
+  do {
+    if (bit_arr_ptr == bit_arr_last) {
+      return ceil;
+    }
+    ulii = *(++bit_arr_ptr);
+  } while (ulii == ~ZEROLU);
+  ulii = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(~ulii);
+  return MINV(ulii, ceil);
 }
 
 int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil) {

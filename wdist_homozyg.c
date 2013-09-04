@@ -444,7 +444,7 @@ void cur_roh_heap_removemax(uintptr_t* roh_slot_occupied, uint64_t* cur_roh_heap
   uint32_t initial_heap_max = *cur_roh_heap_max_ptr;
   uint32_t new_heap_max;
   do {
-    clear_bit_noct(roh_slot_occupied, (uint32_t)(cur_roh_heap[1]));
+    clear_bit(roh_slot_occupied, (uintptr_t)(cur_roh_heap[1]));
     if ((--cur_roh_heap_top) == 1) {
       new_heap_max = 0;
       break;
@@ -1442,7 +1442,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	  break;
 	}
 	if (roh_slot_end_uidx[slot_idx1] <= con_uidx2) {
-          clear_bit_noct(roh_slot_occupied, slot_idx1);
+          clear_bit_32(roh_slot_occupied, slot_idx1);
           if (!is_consensus_match) {
             clear_bits(allelic_match_matrix, (((uintptr_t)slot_idx1) * (slot_idx1 - 1)) / 2, slot_idx1);
 	    slot_idx2 = slot_idx1;
@@ -1451,7 +1451,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	      if (slot_idx2 == max_pool_size) {
 		break;
 	      }
-	      clear_bit_ul(allelic_match_matrix, tri_coord_no_diag(slot_idx1, slot_idx2));
+	      clear_bit(allelic_match_matrix, tri_coord_no_diag(slot_idx1, slot_idx2));
 	    }
 	  }
 	}

@@ -1073,15 +1073,13 @@ void fill_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len);
 
 void clear_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len);
 
-static inline void clear_bit_noct(uintptr_t* bit_arr, uint32_t loc) {
+static inline void clear_bit(uintptr_t* bit_arr, uintptr_t loc) {
   bit_arr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }
 
-static inline void clear_bit_ul(uintptr_t* bit_arr, uintptr_t loc) {
+static inline void clear_bit_32(uintptr_t* bit_arr, uint32_t loc) {
   bit_arr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }
-
-void clear_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* include_ct_ptr);
 
 // todo: convert to is_set_ul
 static inline int32_t is_set(uintptr_t* exclude_arr, uint32_t loc) {
@@ -1089,14 +1087,6 @@ static inline int32_t is_set(uintptr_t* exclude_arr, uint32_t loc) {
 }
 
 static inline uint32_t is_set_32(uintptr_t* exclude_arr, uint32_t loc) {
-  return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
-}
-
-static inline uintptr_t is_set_i32(uintptr_t* exclude_arr, uint32_t loc) {
-  return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
-}
-
-static inline uint32_t is_set_o32(uintptr_t* exclude_arr, uintptr_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
@@ -1109,6 +1099,8 @@ static inline int32_t is_founder(uintptr_t* founder_info, uint32_t loc) {
 }
 
 int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc);
+
+uintptr_t next_unset(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil);
 
 int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil);
 

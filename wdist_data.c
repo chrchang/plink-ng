@@ -120,7 +120,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
     } else {
       person_idx = bsearch_fam_indiv(tbuf, sorted_person_ids, max_person_id_len, indiv_ct, bufptr0, bufptr);
       if (person_idx != -1) {
-	person_idx = id_map[person_idx];
+	person_idx = id_map[(uint32_t)person_idx];
 	bufptr = next_item_mult(bufptr, mpheno_col);
 	if (no_more_items_kns(bufptr)) {
 	  // not always an error
@@ -135,17 +135,17 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	      // we know the phenotype is scalar, we need to not set the
 	      // phenotype to zero during the binary -> scalar conversion step.
 	      if (*bufptr == '0') {
-		set_bit_noct(isz, person_idx);
+		set_bit_32(isz, person_idx);
 	      }
-	      clear_bit_noct(pheno_nm, person_idx);
-	      clear_bit_noct(pheno_c, person_idx);
+	      clear_bit_32(pheno_nm, person_idx);
+	      clear_bit_32(pheno_c, person_idx);
 	    } else {
 	      if (*bufptr == case_char) {
-		set_bit_noct(pheno_c, person_idx);
+		set_bit_32(pheno_c, person_idx);
 	      } else {
-		clear_bit_noct(pheno_c, person_idx);
+		clear_bit_32(pheno_c, person_idx);
 	      }
-	      set_bit_noct(pheno_nm, person_idx);
+	      set_bit_32(pheno_nm, person_idx);
 	    }
 	  } else {
 	    pheno_d = (double*)malloc(unfiltered_indiv_ct * sizeof(double));
@@ -161,11 +161,11 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	      dyy = 2.0;
 	    }
 	    for (uii = 0; uii < unfiltered_indiv_ct; uii++) {
-	      if (is_set(isz, uii)) {
+	      if (is_set_32(isz, uii)) {
 		pheno_d[uii] = 0.0;
 		set_bit_noct(pheno_nm, uii);
-	      } else if (is_set(pheno_nm, uii)) {
-		pheno_d[uii] = is_set(pheno_c, uii)? dyy : dxx;
+	      } else if (is_set_32(pheno_nm, uii)) {
+		pheno_d[uii] = is_set_32(pheno_c, uii)? dyy : dxx;
 	      }
 	    }
 	    free(pheno_c);
@@ -175,8 +175,8 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	}
 	if (!affection) {
 	  if (!scan_double(bufptr, &dxx)) {
-	    pheno_d[person_idx] = dxx;
-	    set_bit_noct(pheno_nm, person_idx);
+	    pheno_d[(uint32_t)person_idx] = dxx;
+	    set_bit_32(pheno_nm, person_idx);
 	  }
 	}
       }
@@ -466,7 +466,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
 	*map_is_unsorted_ptr |= UNSORTED_CHROM;
       }
       last_chrom = jj;
-      if (is_set(loaded_chrom_mask, jj)) {
+      if (is_set_32(loaded_chrom_mask, jj)) {
 	*map_is_unsorted_ptr |= UNSORTED_SPLIT_CHROM;
       } else {
 	set_bit_noct(loaded_chrom_mask, jj);
@@ -477,7 +477,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
       last_pos = 0;
     }
 
-    if (!is_set(chrom_info_ptr->chrom_mask, jj)) {
+    if (!is_set_32(chrom_info_ptr->chrom_mask, jj)) {
       set_bit(*marker_exclude_ptr, marker_uidx);
       marker_exclude_ct++;
     } else {
@@ -870,15 +870,15 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	    ukk = unn;
 	    unn = uoo;
 	  }
-	  if (is_set(sf_mask, ujj)) {
+	  if (is_set_32(sf_mask, ujj)) {
 	    load_bim_sf_insert(ujj, ukk, 0x7fffffff, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
 	  }
 	  for (uoo = ujj + 1; uoo < umm; uoo++) {
-	    if (is_set(sf_mask, uoo)) {
+	    if (is_set_32(sf_mask, uoo)) {
 	      load_bim_sf_insert(uoo, 0, 0x7fffffff, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
 	    }
 	  }
-	  if (is_set(sf_mask, umm)) {
+	  if (is_set_32(sf_mask, umm)) {
 	    load_bim_sf_insert(umm, 0, unn, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
 	  }
 	} else {
@@ -887,13 +887,13 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	    ukk = unn;
 	    unn = umm;
 	  }
-	  if (is_set(sf_mask, ujj)) {
+	  if (is_set_32(sf_mask, ujj)) {
 	    load_bim_sf_insert(ujj, ukk, unn, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
 	  }
 	}
 	uii += 2;
       } else {
-	if (is_set(sf_mask, ujj)) {
+	if (is_set_32(sf_mask, ujj)) {
 	  load_bim_sf_insert(ujj, ukk, ukk, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
 	}
 	uii++;
@@ -908,7 +908,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     ukk = 0;
     for (uii = 0; uii <= ujj; uii++) {
       if (sf_start_idxs[uii] == 1) {
-	clear_bit_noct(sf_mask, uii);
+	clear_bit_32(sf_mask, uii);
 	sf_start_idxs[uii] = ukk;
 	continue;
       }
@@ -1048,7 +1048,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	  *map_is_unsorted_ptr |= UNSORTED_CHROM;
 	}
 	prev_chrom = jj;
-	if (is_set(loaded_chrom_mask, jj)) {
+	if (is_set_32(loaded_chrom_mask, jj)) {
 	  if (split_chrom_cmd) {
 	    sprintf(logbuf, "Error: .%s file has a split chromosome.  Use --%s by itself to\nremedy this.\n", extension, split_chrom_cmd);
 	    goto load_bim_ret_INVALID_FORMAT;
@@ -1065,7 +1065,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       set_bit_noct(loaded_chrom_mask, jj);
     }
 
-    if (is_set(chrom_info_ptr->chrom_mask, jj)) {
+    if (is_set_32(chrom_info_ptr->chrom_mask, jj)) {
       bufptr = next_item(bufptr);
       if (no_more_items_kns(bufptr)) {
 	goto load_bim_ret_INVALID_FORMAT_5;
@@ -1254,7 +1254,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
       miss_ct++;
       continue;
     }
-    if (is_set(already_seen, (uint32_t)sorted_idx)) {
+    if (is_set_32(already_seen, (uint32_t)sorted_idx)) {
       sprintf(logbuf, "Error: Duplicate marker %s in --update-cm file.\n", colid_ptr);
       logprintb();
       goto update_marker_cms_ret_INVALID_FORMAT;
@@ -1377,7 +1377,7 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
       miss_ct++;
       continue;
     }
-    if (is_set(already_seen, (uint32_t)sorted_idx)) {
+    if (is_set_32(already_seen, (uint32_t)sorted_idx)) {
       sprintf(logbuf, "Error: Duplicate marker %s in --update-map file.\n", colid_ptr);
       logprintb();
       goto update_marker_pos_ret_INVALID_FORMAT;
@@ -1517,7 +1517,7 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
       miss_ct++;
       continue;
     }
-    if (is_set(already_seen, (uint32_t)sorted_idx)) {
+    if (is_set_32(already_seen, (uint32_t)sorted_idx)) {
       sprintf(logbuf, "Error: Duplicate marker %s in --update-name file.\n", colold_ptr);
       logprintb();
       goto update_marker_names_ret_INVALID_FORMAT;
@@ -1596,7 +1596,7 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
       miss_ct++;
       continue;
     }
-    if (is_set(already_seen, (uint32_t)sorted_idx)) {
+    if (is_set_32(already_seen, (uint32_t)sorted_idx)) {
       sprintf(logbuf, "Error: Duplicate marker %s in --update-alleles file.\n", bufptr3);
       logprintb();
       goto update_marker_alleles_ret_INVALID_FORMAT;
@@ -1751,7 +1751,7 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
       miss_ct++;
       continue;
     }
-    if (is_set(already_seen, (uint32_t)sorted_idx)) {
+    if (is_set_32(already_seen, (uint32_t)sorted_idx)) {
       idbuf[len] = ' ';
       sprintf(logbuf, "Error: Duplicate individual %s in --update-ids file.\n", idbuf);
       logprintb();
@@ -1846,7 +1846,7 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
       miss_ct++;
       continue;
     }
-    if (is_set(already_seen, (uint32_t)sorted_idx)) {
+    if (is_set_32(already_seen, (uint32_t)sorted_idx)) {
       idbuf[len] = ' ';
       sprintf(logbuf, "Error: Duplicate individual %s in --update-parents file.\n", idbuf);
       logprintb();
@@ -1943,7 +1943,7 @@ int32_t update_indiv_sexes(char* update_sex_fname, char* sorted_person_ids, uint
       miss_ct++;
       continue;
     }
-    if (is_set(already_seen, (uint32_t)sorted_idx)) {
+    if (is_set_32(already_seen, (uint32_t)sorted_idx)) {
       idbuf[len] = ' ';
       sprintf(logbuf, "Error: Duplicate individual %s in --update-sex file.\n", idbuf);
       logprintb();
@@ -1963,14 +1963,14 @@ int32_t update_indiv_sexes(char* update_sex_fname, char* sorted_person_ids, uint
       goto update_indiv_sexes_ret_INVALID_FORMAT;
     }
     if (cc == '0') {
-      clear_bit_noct(sex_nm, indiv_uidx);
-      clear_bit_noct(sex_male, indiv_uidx);
+      clear_bit_32(sex_nm, indiv_uidx);
+      clear_bit_32(sex_male, indiv_uidx);
     } else {
-      set_bit_noct(sex_nm, indiv_uidx);
+      set_bit_32(sex_nm, indiv_uidx);
       if ((cc == '1') || (ucc == 'M')) {
-	set_bit_noct(sex_male, indiv_uidx);
+	set_bit_32(sex_male, indiv_uidx);
       } else {
-	clear_bit_noct(sex_male, indiv_uidx);
+	clear_bit_32(sex_male, indiv_uidx);
       }
     }
     hit_ct++;
@@ -2066,7 +2066,7 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uintptr_t marker_
     if (sorted_idx == -1) {
       continue;
     }
-    if (is_set(already_seen, (uint32_t)sorted_idx)) {
+    if (is_set_32(already_seen, (uint32_t)sorted_idx)) {
       sprintf(logbuf, "Error: Duplicate marker %s in --flip file.\n", bufptr);
       logprintb();
       goto flip_strand_ret_INVALID_FORMAT;
@@ -2193,8 +2193,12 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
 	    }
 	    set_bit_32(exclude_arr, unfiltered_idx);
 	    *exclude_ct_ptr += 1;
-	  } else if (!is_set(exclude_arr, unfiltered_idx)) {
-	    clear_bit(exclude_arr_new, unfiltered_idx, &include_ct);
+	  } else if (!is_set_32(exclude_arr, unfiltered_idx)) {
+	    if (!is_set_32(exclude_arr_new, unfiltered_idx)) {
+	      goto include_or_exclude_ret_INVALID_FORMAT_2;
+	    }
+	    clear_bit_32(exclude_arr_new, unfiltered_idx);
+	    include_ct++;
 	  }
 	}
       } else {
@@ -2208,7 +2212,11 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
 	    set_bit_32(exclude_arr, unfiltered_idx);
 	    *exclude_ct_ptr += 1;
 	  } else {
-	    clear_bit(exclude_arr_new, unfiltered_idx, &include_ct);
+	    if (!is_set_32(exclude_arr_new, unfiltered_idx)) {
+	      goto include_or_exclude_ret_INVALID_FORMAT_2;
+	    }
+	    clear_bit_32(exclude_arr_new, unfiltered_idx);
+	    include_ct++;
 	  }
 	}
       }
@@ -2238,8 +2246,11 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
 	        set_bit_32(exclude_arr, unfiltered_idx);
 		*exclude_ct_ptr += 1;
 	      }
-	    } else if (!is_set(exclude_arr, unfiltered_idx)) {
-	      clear_bit(exclude_arr_new, unfiltered_idx, &include_ct);
+	    } else if (!is_set_32(exclude_arr, unfiltered_idx)) {
+	      if (is_set_32(exclude_arr_new, unfiltered_idx)) {
+		clear_bit_32(exclude_arr_new, unfiltered_idx);
+                include_ct++;
+	      }
 	    }
 	  } while (++ulii < uljj);
 	}
@@ -2693,7 +2704,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     uii = 0;
     while (1) {
       bufptr2 = item_endnn(bufptr);
-      if (is_set(covars_active, uii)) {
+      if (is_set_32(covars_active, uii)) {
         if (max_covar_name_len <= (uintptr_t)(bufptr2 - bufptr)) {
 	  max_covar_name_len = 1 + (uintptr_t)(bufptr2 - bufptr);
 	}
@@ -2770,7 +2781,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
       for (uii = 0; uii < min_covar_col_ct; uii++) {
 	bufptr = skip_initial_spaces(bufptr2);
 	bufptr2 = item_endnn(bufptr);
-	if (is_set(covars_active, uii)) {
+	if (is_set_32(covars_active, uii)) {
 	  memcpyx(&(covar_names[covar_idx * max_covar_name_len]), bufptr, (uintptr_t)(bufptr2 - bufptr), '\0');
 	  covar_idx++;
 	}
@@ -2798,7 +2809,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     if (ii == -1) {
       continue;
     }
-    if (is_set(already_seen, (uint32_t)ii)) {
+    if (is_set_32(already_seen, (uint32_t)ii)) {
       bufptr[strlen_se(bufptr)] = '\0';
       bufptr2[strlen_se(bufptr2)] = '\0';
       sprintf(logbuf, "Error: %s %s appears multiple times in --covar file.\n", bufptr, bufptr2);
@@ -2818,7 +2829,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     for (uii = 0; uii < min_covar_col_ct; uii++) {
       bufptr = skip_initial_spaces(bufptr2);
       bufptr2 = item_endnn(bufptr);
-      if (is_set(covars_active, uii)) {
+      if (is_set_32(covars_active, uii)) {
         if (scan_double(bufptr, &dxx)) {
 	  covar_missing = 1;
 	  dxx = missing_phenod;
@@ -2829,19 +2840,19 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
       }
       if (uii + 1 == gxe_mcovar) {
         indiv_uidx = indiv_idx_to_uidx[indiv_idx];
-	if (is_set(pheno_nm, indiv_uidx)) {
+	if (is_set_32(pheno_nm, indiv_uidx)) {
 	  if (scan_double(bufptr, &dxx) || (dxx == missing_phenod)) {
 	    // PLINK 1.07 quirk: --gxe treats 0 the same as -9/nonnumeric, but
 	    // --write-covar does not, so handle 0 separately for backward
 	    // compatibility
 	    if (!keep_pheno_on_missing_cov) {
-	      clear_bit_noct(pheno_nm, indiv_uidx);
+	      clear_bit_32(pheno_nm, indiv_uidx);
 	      *pheno_nm_ct_ptr -= 1;
 	    }
 	  } else if (dxx != 0.0) {
-	    set_bit_noct(gxe_covar_nm, indiv_idx);
+	    set_bit_32(gxe_covar_nm, indiv_idx);
 	    if (dxx == 2.0) {
-	      set_bit_noct(gxe_covar_c, indiv_idx);
+	      set_bit_32(gxe_covar_c, indiv_idx);
 	    }
 	  }
 	}
@@ -2854,8 +2865,8 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
 	missing_cov_ct++;
 	if (!keep_pheno_on_missing_cov) {
 	  indiv_uidx = indiv_idx_to_uidx[indiv_idx];
-	  if (is_set(pheno_nm, indiv_uidx)) {
-	    clear_bit_noct(pheno_nm, indiv_uidx);
+	  if (is_set_32(pheno_nm, indiv_uidx)) {
+	    clear_bit_32(pheno_nm, indiv_uidx);
 	    *pheno_nm_ct_ptr -= 1;
 	  }
 	}
@@ -2871,8 +2882,8 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     goto load_covars_ret_INVALID_FORMAT;
   }
   if (covar_range_list_ptr) {
-    if ((covar_ct < covar_raw_ct - 1) || ((covar_ct == covar_raw_ct - 1) && ((!gxe_mcovar) || is_set(covars_active, gxe_mcovar - 1)))) {
-      if (gxe_mcovar && (!is_set(covars_active, gxe_mcovar - 1))) {
+    if ((covar_ct < covar_raw_ct - 1) || ((covar_ct == covar_raw_ct - 1) && ((!gxe_mcovar) || is_set_32(covars_active, gxe_mcovar - 1)))) {
+      if (gxe_mcovar && (!is_set_32(covars_active, gxe_mcovar - 1))) {
         sprintf(logbuf, "--covar: 1 C/C cov. loaded for --gxe, %" PRIuPTR "/%" PRIuPTR " for other operations.\n", covar_ct, covar_raw_ct);
       } else {
         sprintf(logbuf, "--covar: %" PRIuPTR " out of %" PRIuPTR " covariates loaded.\n", covar_ct, covar_raw_ct);
@@ -8946,13 +8957,13 @@ int32_t recode_allele_load(char* recode_allele_name, char*** allele_missing_ptr,
     bufptr[slen] = '\0';
     ii = bsearch_str(bufptr, sorted_ids, max_marker_id_len, 0, marker_ct - 1);
     if (ii != -1) {
-      marker_uidx = id_map[ii];
+      marker_uidx = id_map[(uint32_t)ii];
       if (max_marker_allele_len == 1) {
 	cc = *bufptr2;
 	if ((cc == marker_alleles[2 * marker_uidx]) && (alen == 1)) {
-	  clear_bit_noct(recode_allele_reverse, marker_uidx);
+	  clear_bit(recode_allele_reverse, marker_uidx);
 	} else if ((cc == marker_alleles[2 * marker_uidx + 1]) && (alen == 1)) {
-	  set_bit_noct(recode_allele_reverse, marker_uidx);
+	  set_bit(recode_allele_reverse, marker_uidx);
 	} else {
 	  if (rae_size + alen + 1 > wkspace_left) {
 	    goto recode_allele_load_ret_NOMEM;
@@ -8966,9 +8977,9 @@ int32_t recode_allele_load(char* recode_allele_name, char*** allele_missing_ptr,
       } else {
 	bufptr2[alen++] = '\0';
 	if ((alen <= max_marker_allele_len) && (!memcmp(bufptr2, &(marker_alleles[2 * marker_uidx * max_marker_allele_len]), alen))) {
-	  clear_bit_noct(recode_allele_reverse, marker_uidx);
+	  clear_bit(recode_allele_reverse, marker_uidx);
 	} else if ((alen <= max_marker_allele_len) && (!memcmp(bufptr2, &(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), alen))) {
-	  set_bit_noct(recode_allele_reverse, marker_uidx);
+	  set_bit(recode_allele_reverse, marker_uidx);
 	} else {
 	  missing_allele = 1;
 	  (*allele_missing_ptr)[marker_uidx] = &(recode_allele_extra[rae_size]);
