@@ -360,6 +360,7 @@ const char errstr_map_format[] = "Error: Improperly formatted .map file.\n";
 int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, uint32_t** marker_pos_ptr, uint32_t* map_is_unsorted_ptr) {
   // todo: some cleanup
   uintptr_t unfiltered_marker_ct = 0;
+  uintptr_t marker_exclude_ct = *marker_exclude_ct_ptr;
   uintptr_t max_marker_id_len = 0;
   int32_t last_chrom = -1;
   int32_t last_pos = 0;
@@ -477,7 +478,8 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     }
 
     if (!is_set(chrom_info_ptr->chrom_mask, jj)) {
-      set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
+      set_bit(*marker_exclude_ptr, marker_uidx);
+      marker_exclude_ct++;
     } else {
       bufptr = next_item(bufptr);
       if (no_more_items_kns(bufptr)) {
@@ -492,7 +494,8 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
       }
       if (*bufptr == '-') {
 	// negative marker positions now have same effect in .bim as .map
-	set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
+	set_bit(*marker_exclude_ptr, marker_uidx);
+	marker_exclude_ct++;
       } else {
 	cur_pos = atoi(bufptr);
 	if (cur_pos < last_pos) {
@@ -509,6 +512,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
   chrom_info_ptr->chrom_end[last_chrom] = marker_uidx;
   chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
   chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
+  *marker_exclude_ct_ptr = marker_exclude_ct;
   while (0) {
   load_map_ret_NOMEM:
     retval = RET_NOMEM;
@@ -636,6 +640,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   unsigned char* wkspace_mark = wkspace_base;
   FILE* bimfile = NULL;
   uintptr_t unfiltered_marker_ct = 0;
+  uintptr_t marker_exclude_ct = *marker_exclude_ct_ptr;
   uintptr_t max_marker_id_len = *max_marker_id_len_ptr;
   uintptr_t max_marker_allele_len = *max_marker_allele_len_ptr;
   int32_t prev_chrom = -1;
@@ -664,6 +669,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   uintptr_t loaded_chrom_mask[CHROM_MASK_WORDS];
   uintptr_t sf_mask[CHROM_MASK_WORDS];
   uint32_t sf_start_idxs[MAX_POSSIBLE_CHROM + 1];
+  uintptr_t* marker_exclude;
   uintptr_t unfiltered_marker_ctl;
   uint32_t sf_entry_ct;
   uint32_t sf_lltop;
@@ -990,7 +996,8 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       wkspace_alloc_d_checked(set_allele_freqs_ptr, unfiltered_marker_ct * sizeof(double))) {
     goto load_bim_ret_NOMEM;
   }
-  fill_ulong_zero(*marker_exclude_ptr, unfiltered_marker_ctl);
+  marker_exclude = *marker_exclude_ptr;
+  fill_ulong_zero(marker_exclude, unfiltered_marker_ctl);
   for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
     (*set_allele_freqs_ptr)[marker_uidx] = -1.0;
   }
@@ -1058,9 +1065,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       set_bit_noct(loaded_chrom_mask, jj);
     }
 
-    if (!is_set(chrom_info_ptr->chrom_mask, jj)) {
-      set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
-    } else {
+    if (is_set(chrom_info_ptr->chrom_mask, jj)) {
       bufptr = next_item(bufptr);
       if (no_more_items_kns(bufptr)) {
 	goto load_bim_ret_INVALID_FORMAT_5;
@@ -1092,40 +1097,42 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       }
       if (*bufptr == '-') {
 	// negative marker positions now have same effect in .bim as .map
-	set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
+	goto load_bim_skip_marker;
+      }
+      cur_pos = atoi(bufptr);
+      if (cur_pos < last_pos) {
+	*map_is_unsorted_ptr |= UNSORTED_BP;
       } else {
-	cur_pos = atoi(bufptr);
-	if (cur_pos < last_pos) {
-	  *map_is_unsorted_ptr |= UNSORTED_BP;
+	last_pos = cur_pos;
+      }
+      if ((sf_ct && (exclude_snp ^ sf_out_of_range(cur_pos, (uint32_t)jj, sf_start_idxs, sf_pos))) || ((marker_pos_start != -1) && ((((int32_t)cur_pos) < marker_pos_start) || (((int32_t)cur_pos) > marker_pos_end))) || (exclude_snp && (((int32_t)cur_pos) <= exclude_window_end) && (((int32_t)cur_pos) >= exclude_window_start) && ((uint32_t)jj == snp_chrom))) {
+	goto load_bim_skip_marker;
+      }
+      if (marker_pos_needed) {
+	(*marker_pos_ptr)[marker_uidx] = cur_pos;
+      }
+      if (marker_alleles_needed) {
+	bufptr = next_item(bufptr);
+	bufptr2 = next_item(bufptr);
+	if (max_marker_allele_len == 1) {
+	  marker_alleles[marker_uidx * 2] = *bufptr;
+	  marker_alleles[marker_uidx * 2 + 1] = *bufptr2;
 	} else {
-	  last_pos = cur_pos;
-	}
-	if ((sf_ct && (exclude_snp ^ sf_out_of_range(cur_pos, (uint32_t)jj, sf_start_idxs, sf_pos))) || ((marker_pos_start != -1) && ((((int32_t)cur_pos) < marker_pos_start) || (((int32_t)cur_pos) > marker_pos_end))) || (exclude_snp && (((int32_t)cur_pos) <= exclude_window_end) && (((int32_t)cur_pos) >= exclude_window_start) && ((uint32_t)jj == snp_chrom))) {
-	  set_bit(*marker_exclude_ptr, marker_uidx, marker_exclude_ct_ptr);
-	} else {
-	  if (marker_pos_needed) {
-	    (*marker_pos_ptr)[marker_uidx] = cur_pos;
-	  }
-	  if (marker_alleles_needed) {
-	    bufptr = next_item(bufptr);
-	    bufptr2 = next_item(bufptr);
-	    if (max_marker_allele_len == 1) {
-	      marker_alleles[marker_uidx * 2] = *bufptr;
-	      marker_alleles[marker_uidx * 2 + 1] = *bufptr2;
-	    } else {
-	      uii = strlen_se(bufptr);
-	      ulii = marker_uidx * 2 * max_marker_allele_len;
-	      memcpy(&(marker_alleles[ulii]), bufptr, uii);
-	      // no need to append \0 since was zeroed out earlier
-	      uii = strlen_se(bufptr2);
-	      memcpy(&(marker_alleles[ulii + max_marker_allele_len]), bufptr2, uii);
-	    }
-	  }
+	  uii = strlen_se(bufptr);
+	  ulii = marker_uidx * 2 * max_marker_allele_len;
+	  memcpy(&(marker_alleles[ulii]), bufptr, uii);
+	  // no need to append \0 since was zeroed out earlier
+	  uii = strlen_se(bufptr2);
+	  memcpy(&(marker_alleles[ulii + max_marker_allele_len]), bufptr2, uii);
 	}
       }
+    } else {
+    load_bim_skip_marker:
+      set_bit(marker_exclude, marker_uidx);
+      marker_exclude_ct++;
     }
   }
-  if (unfiltered_marker_ct == *marker_exclude_ct_ptr) {
+  if (unfiltered_marker_ct == marker_exclude_ct) {
     logprint("Error: All markers excluded.\n");
     goto load_bim_ret_INVALID_FORMAT;
   }
@@ -1135,6 +1142,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   chrom_info_ptr->chrom_end[prev_chrom] = marker_uidx;
   chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
   chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
+  *marker_exclude_ct_ptr = marker_exclude_ct;
   retval = 0;
   while (0) {
   load_bim_ret_NOMEM:
@@ -2180,7 +2188,11 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
 	if (ii != -1) {
 	  unfiltered_idx = id_map[(uint32_t)ii];
 	  if (do_exclude) {
-	    set_bit(exclude_arr, unfiltered_idx, exclude_ct_ptr);
+	    if (is_set_32(exclude_arr, unfiltered_idx)) {
+	      goto include_or_exclude_ret_INVALID_FORMAT_2;
+	    }
+	    set_bit_32(exclude_arr, unfiltered_idx);
+	    *exclude_ct_ptr += 1;
 	  } else if (!is_set(exclude_arr, unfiltered_idx)) {
 	    clear_bit(exclude_arr_new, unfiltered_idx, &include_ct);
 	  }
@@ -2190,7 +2202,11 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
 	while (cur_idx < last_idx) {
 	  unfiltered_idx = id_map[cur_idx++];
 	  if (do_exclude) {
-	    set_bit(exclude_arr, unfiltered_idx, exclude_ct_ptr);
+	    if (is_set_32(exclude_arr, unfiltered_idx)) {
+	      goto include_or_exclude_ret_INVALID_FORMAT_2;
+	    }
+	    set_bit_32(exclude_arr, unfiltered_idx);
+	    *exclude_ct_ptr += 1;
 	  } else {
 	    clear_bit(exclude_arr_new, unfiltered_idx, &include_ct);
 	  }
@@ -2218,7 +2234,10 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
           do {
 	    unfiltered_idx = id_map[ulii];
 	    if (do_exclude) {
-	      set_bit(exclude_arr, unfiltered_idx, exclude_ct_ptr);
+	      if (!is_set_32(exclude_arr, unfiltered_idx)) {
+	        set_bit_32(exclude_arr, unfiltered_idx);
+		*exclude_ct_ptr += 1;
+	      }
 	    } else if (!is_set(exclude_arr, unfiltered_idx)) {
 	      clear_bit(exclude_arr_new, unfiltered_idx, &include_ct);
 	    }
@@ -2244,6 +2263,8 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
   include_or_exclude_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  include_or_exclude_ret_INVALID_FORMAT_2:
+    sprintf(logbuf, "Error: Duplicate ID in --%s file.\n", include_or_exclude_flag_str(flags));
   include_or_exclude_ret_INVALID_FORMAT:
     logprintb();
     retval = RET_INVALID_FORMAT;
@@ -5481,7 +5502,8 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       goto ped_to_bed_ret_INVALID_FORMAT;
     }
     if ((*bufptr == '-') || (!is_set(chrom_info_ptr->chrom_mask, ii))) {
-      set_bit(marker_exclude, unfiltered_marker_ct, &marker_exclude_ct);
+      set_bit(marker_exclude, unfiltered_marker_ct);
+      marker_exclude_ct++;
     } else {
       if ((*bufptr < '0') || (*bufptr > '9')) {
 	logprint("Error: Non-numeric marker position in .map file.\n");

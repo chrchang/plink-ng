@@ -965,7 +965,7 @@ void compute_allelic_match_matrix(double mismatch_max, uintptr_t roh_slot_wsize,
 	} else {
 	  tri_coord = tri_coord_no_diag(slot_idxl, slot_idxs);
 	}
-        set_bit_ul(allelic_match_matrix, tri_coord);
+        set_bit(allelic_match_matrix, tri_coord);
         allelic_match_cts[map_idxs] += 1;
 	incr_idxl++;
       }

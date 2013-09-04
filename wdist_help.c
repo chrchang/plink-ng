@@ -1,12 +1,12 @@
 #include "wdist_common.h"
 
-int32_t edit1_match(int32_t len1, char* s1, int32_t len2, char* s2) {
+uint32_t edit1_match(uint32_t len1, char* s1, uint32_t len2, char* s2) {
   // permit one difference of the following forms:
   // - inserted/deleted character
   // - replaced character
   // - adjacent pair of swapped characters
-  int32_t diff_found = 0;
-  int32_t pos = 0;
+  uint32_t diff_found = 0;
+  uint32_t pos = 0;
   if (len1 == len2) {
     while (pos < len1) {
       if (s1[pos] != s2[pos]) {
@@ -48,7 +48,7 @@ int32_t edit1_match(int32_t len1, char* s1, int32_t len2, char* s2) {
 #define MAX_EQUAL_HELP_PARAMS 22
 
 typedef struct {
-  int32_t iters_left;
+  uint32_t iters_left;
   uint32_t param_ct;
   char** argv;
   uintptr_t unmatched_ct;
@@ -56,21 +56,21 @@ typedef struct {
   uintptr_t* prefix_match_arr;
   uintptr_t* perfect_match_arr;
   uint32_t* param_lens;
-  int32_t preprint_newline;
+  uint32_t preprint_newline;
 } Help_ctrl;
 
-void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, int32_t postprint_newline, const char* payload) {
+void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, uint32_t postprint_newline, const char* payload) {
   // unmatched_ct fixed during call, *unmatched_ct_ptr may decrease
   uint32_t unmatched_ct = help_ctrl_ptr->unmatched_ct;
-  int32_t print_this = 0;
-  int32_t cur_param_lens[MAX_EQUAL_HELP_PARAMS];
+  uint32_t print_this = 0;
+  uint32_t cur_param_lens[MAX_EQUAL_HELP_PARAMS];
   char* cur_param_start[MAX_EQUAL_HELP_PARAMS];
-  int32_t cur_param_ct;
-  int32_t cur_param_idx;
-  uint32_t arg_uidx;
+  uintptr_t arg_uidx;
+  uint32_t cur_param_ct;
+  uint32_t cur_param_idx;
   uint32_t arg_idx;
-  int32_t uii;
-  int32_t payload_len;
+  uint32_t uii;
+  uint32_t payload_len;
   char* payload_ptr;
   char* line_end;
   char* payload_end;
@@ -92,9 +92,10 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, int32_t postpr
 	    arg_uidx = next_non_set_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
 	    for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
 	      if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
-		set_bit_noct(help_ctrl_ptr->perfect_match_arr, arg_uidx);
-		set_bit_noct(help_ctrl_ptr->prefix_match_arr, arg_uidx);
-		set_bit_sub(help_ctrl_ptr->all_match_arr, arg_uidx, &(help_ctrl_ptr->unmatched_ct));
+		set_bit(help_ctrl_ptr->perfect_match_arr, arg_uidx);
+		set_bit(help_ctrl_ptr->prefix_match_arr, arg_uidx);
+		set_bit(help_ctrl_ptr->all_match_arr, arg_uidx);
+		help_ctrl_ptr->unmatched_ct -= 1;
 		break;
 	      }
 	    }
@@ -110,8 +111,9 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, int32_t postpr
 	    for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
 	      if (cur_param_lens[cur_param_idx] > uii) {
 		if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], uii)) {
-		  set_bit_noct(help_ctrl_ptr->prefix_match_arr, arg_uidx);
-		  set_bit_sub(help_ctrl_ptr->all_match_arr, arg_uidx, &(help_ctrl_ptr->unmatched_ct));
+		  set_bit(help_ctrl_ptr->prefix_match_arr, arg_uidx);
+		  set_bit(help_ctrl_ptr->all_match_arr, arg_uidx);
+		  help_ctrl_ptr->unmatched_ct -= 1;
 		  break;
 		}
 	      }
@@ -150,7 +152,10 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, int32_t postpr
 	  for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
 	    if (edit1_match(cur_param_lens[cur_param_idx], cur_param_start[cur_param_idx], help_ctrl_ptr->param_lens[arg_uidx], help_ctrl_ptr->argv[arg_uidx])) {
 	      print_this = 1;
-	      set_bit_sub(help_ctrl_ptr->all_match_arr, arg_uidx, &(help_ctrl_ptr->unmatched_ct));
+	      if (!is_set(help_ctrl_ptr->all_match_arr, arg_uidx)) {
+		set_bit(help_ctrl_ptr->all_match_arr, arg_uidx);
+		help_ctrl_ptr->unmatched_ct -= 1;
+	      }
 	      break;
 	    }
 	  }

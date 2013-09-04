@@ -1056,21 +1056,22 @@ static inline uint32_t tri_coord_no_diag_32(uint32_t small_coord, uint32_t big_c
   return ((big_coord * (big_coord - 1)) / 2) + small_coord;
 }
 
+static inline void set_bit(uintptr_t* bit_arr, uintptr_t loc) {
+  bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
+}
+
+// remove this stupid name
 static inline void set_bit_noct(uintptr_t* bit_arr, uint32_t loc) {
   bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
-static inline void set_bit_ul(uintptr_t* bit_arr, uintptr_t loc) {
+static inline void set_bit_32(uintptr_t* bit_arr, uint32_t loc) {
   bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
 void fill_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len);
 
 void clear_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len);
-
-void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr);
-
-void set_bit_sub(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_unset_ct_ptr);
 
 static inline void clear_bit_noct(uintptr_t* bit_arr, uint32_t loc) {
   bit_arr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
@@ -1082,7 +1083,20 @@ static inline void clear_bit_ul(uintptr_t* bit_arr, uintptr_t loc) {
 
 void clear_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* include_ct_ptr);
 
+// todo: convert to is_set_ul
 static inline int32_t is_set(uintptr_t* exclude_arr, uint32_t loc) {
+  return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
+}
+
+static inline uint32_t is_set_32(uintptr_t* exclude_arr, uint32_t loc) {
+  return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
+}
+
+static inline uintptr_t is_set_i32(uintptr_t* exclude_arr, uint32_t loc) {
+  return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
+}
+
+static inline uint32_t is_set_o32(uintptr_t* exclude_arr, uintptr_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 

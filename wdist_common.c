@@ -2482,24 +2482,6 @@ void clear_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len) {
   }
 }
 
-void set_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_set_ct_ptr) {
-  uint32_t maj = loc / BITCT;
-  uintptr_t minor = ONELU << (loc % BITCT);
-  if (!(bit_arr[maj] & minor)) {
-    bit_arr[maj] |= minor;
-    *bit_set_ct_ptr += 1;
-  }
-}
-
-void set_bit_sub(uintptr_t* bit_arr, uint32_t loc, uintptr_t* bit_unset_ct_ptr) {
-  uint32_t maj = loc / BITCT;
-  uintptr_t minor = ONELU << (loc % BITCT);
-  if (!(bit_arr[maj] & minor)) {
-    bit_arr[maj] |= minor;
-    *bit_unset_ct_ptr -= 1;
-  }
-}
-
 void clear_bit(uintptr_t* bit_arr, uint32_t loc, uintptr_t* include_ct_ptr) {
   uint32_t maj = loc / BITCT;
   uintptr_t minor = ONELU << (loc % BITCT);

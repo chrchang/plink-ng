@@ -1010,13 +1010,13 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	  kk = remaining_indiv_parent_idxs[uii * 2];
 	  mm = remaining_indiv_parent_idxs[uii * 2 + 1];
 	  jj = remaining_indiv_idxs[uii];
-	  if (((kk == -1) || is_set(processed_indivs, kk)) && ((mm == -1) || is_set(processed_indivs, mm))) {
+	  if (((kk == -1) || is_set_32(processed_indivs, kk)) && ((mm == -1) || is_set_32(processed_indivs, mm))) {
 	    for (nn = 0; nn < founder_ct; nn++) {
 	      // relationship between kk and nnth founder
-	      if ((kk >= (int)unfiltered_indiv_ct) || (kk == -1)) {
+	      if ((kk >= (int32_t)unfiltered_indiv_ct) || (kk == -1)) {
 		dxx = 0.0;
-	      } else if (is_set(founder_info, kk)) {
-		if (kk == (int)complete_indiv_idxs[nn]) {
+	      } else if (is_set_32(founder_info, kk)) {
+		if (kk == (int32_t)complete_indiv_idxs[nn]) {
 		  dxx = 0.5;
 		} else {
 		  dxx = 0.0;
@@ -1025,22 +1025,22 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 		oo = pri_ptr->family_rel_nf_idxs[kk];
                 dxx = 0.5 * rs_ptr[((int64_t)oo * (oo - 1) - llii) / 2 + nn];
 	      }
-	      if (is_set(founder_info, mm)) {
-		if (mm == (int)complete_indiv_idxs[nn]) {
+	      if (is_set_32(founder_info, mm)) {
+		if (mm == (int32_t)complete_indiv_idxs[nn]) {
 		  dxx += 0.5;
 		}
-	      } else if ((mm != -1) && (mm < (int)unfiltered_indiv_ct)) {
+	      } else if ((mm != -1) && (mm < (int32_t)unfiltered_indiv_ct)) {
 		oo = pri_ptr->family_rel_nf_idxs[mm];
 		dxx += 0.5 * rs_ptr[((int64_t)oo * (oo - 1) - llii) / 2 + nn];
 	      }
 	      *rel_writer++ = dxx;
 	    }
-	    for (; nn < (int)complete_indiv_idx_ct; nn++) {
+	    for (; nn < (int32_t)complete_indiv_idx_ct; nn++) {
 	      if (kk == -1) {
 		dxx = 0.0;
-	      } else if (kk >= (int)unfiltered_indiv_ct) {
+	      } else if (kk >= (int32_t)unfiltered_indiv_ct) {
 		dxx = 0.5 * tmp_rel_space[(nn - founder_ct) * stray_parent_ct + kk - unfiltered_indiv_ctlm];
-	      } else if (is_set(founder_info, kk)) {
+	      } else if (is_set_32(founder_info, kk)) {
                 dxx = 0.5 * rs_ptr[((int64_t)nn * (nn - 1) - llii) / 2 + pri_ptr->family_rel_nf_idxs[kk]];
 	      } else {
 		oo = pri_ptr->family_rel_nf_idxs[kk];
@@ -1052,9 +1052,9 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 		  dxx = 0.5 * rs_ptr[((int64_t)oo * (oo - 1) - llii) / 2 + nn];
 		}
 	      }
-	      if (mm >= (int)unfiltered_indiv_ct) {
+	      if (mm >= (int32_t)unfiltered_indiv_ct) {
 		dxx += 0.5 * tmp_rel_space[(nn - founder_ct) * stray_parent_ct + mm - unfiltered_indiv_ctlm];
-	      } else if (is_set(founder_info, mm)) {
+	      } else if (is_set_32(founder_info, mm)) {
 		dxx += 0.5 * rs_ptr[((int64_t)nn * (nn - 1) - llii) / 2 + pri_ptr->family_rel_nf_idxs[mm]];
 	      } else if (mm != -1) {
 		oo = pri_ptr->family_rel_nf_idxs[mm];
@@ -1069,8 +1069,8 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	      *rel_writer++ = dxx;
 	    }
 	    for (nn = 0; nn < stray_parent_ct; nn++) {
-	      if (kk >= (int)unfiltered_indiv_ct) {
-		if (kk == nn + (int)unfiltered_indiv_ctlm) {
+	      if (kk >= (int32_t)unfiltered_indiv_ct) {
+		if (kk == nn + (int32_t)unfiltered_indiv_ctlm) {
 		  dxx = 0.5;
 		} else {
 		  dxx = 0.0;
@@ -1085,8 +1085,8 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
                   dxx = 0.5 * tmp_rel_space[(oo - founder_ct) * stray_parent_ct + nn];
 		}
 	      }
-	      if (mm >= (int)unfiltered_indiv_ct) {
-		if (mm == nn + (int)unfiltered_indiv_ctlm) {
+	      if (mm >= (int32_t)unfiltered_indiv_ct) {
+		if (mm == nn + (int32_t)unfiltered_indiv_ctlm) {
 		  dxx += 0.5;
 		}
 	      } else if (mm != -1) {
@@ -1098,8 +1098,8 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	      *tmp_rel_writer++ = dxx;
 	    }
 	    pri_ptr->family_rel_nf_idxs[jj] = complete_indiv_idx_ct;
-	    complete_indiv_idxs[complete_indiv_idx_ct] = jj;
-	    set_bit(processed_indivs, jj, &complete_indiv_idx_ct);
+	    complete_indiv_idxs[complete_indiv_idx_ct++] = jj;
+	    set_bit_32(processed_indivs, jj);
 	  } else {
             remaining_indiv_parent_idxs[indiv_idx_write * 2] = kk;
 	    remaining_indiv_parent_idxs[indiv_idx_write * 2 + 1] = mm;
@@ -3207,8 +3207,9 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 }
 
 uint32_t binary_geno_filter(double geno_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uintptr_t indiv_ct, uintptr_t male_ct, uint32_t* marker_allele_cts, Chrom_info* chrom_info_ptr) {
-  uint32_t orig_exclude_ct = *marker_exclude_ct_ptr;
-  uint32_t geno_int_thresh = 2 * indiv_ct - (int)(geno_thresh * 2 * indiv_ct);
+  uintptr_t marker_exclude_ct = *marker_exclude_ct_ptr;
+  uintptr_t orig_exclude_ct = marker_exclude_ct;
+  uint32_t geno_int_thresh = 2 * indiv_ct - (int32_t)(geno_thresh * 2 * indiv_ct);
   uintptr_t marker_uidx = 0;
   uint32_t chrom_end;
   uint32_t chrom_fo_idx;
@@ -3228,16 +3229,18 @@ uint32_t binary_geno_filter(double geno_thresh, uintptr_t unfiltered_marker_ct, 
     } else {
       cur_ct = 2 * indiv_ct;
     }
-    geno_int_thresh = cur_ct - (int)(geno_thresh * cur_ct);
+    geno_int_thresh = cur_ct - (int32_t)(geno_thresh * cur_ct);
     marker_uidx = next_non_set(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
     while (marker_uidx < chrom_end) {
       if ((marker_allele_cts[2 * marker_uidx] + marker_allele_cts[2 * marker_uidx + 1]) < geno_int_thresh) {
-	set_bit(marker_exclude, marker_uidx, marker_exclude_ct_ptr);
+	set_bit(marker_exclude, marker_uidx);
+	marker_exclude_ct++;
       }
       marker_uidx = next_non_set(marker_exclude, marker_uidx + 1, chrom_end);
     }
   }
-  return (*marker_exclude_ct_ptr - orig_exclude_ct);
+  *marker_exclude_ct_ptr = marker_exclude_ct;
+  return (marker_exclude_ct - orig_exclude_ct);
 }
 
 void calc_marker_reverse_bin(uintptr_t* marker_reverse, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, double* set_allele_freqs) {
@@ -3520,19 +3523,20 @@ void enforce_maf_threshold(double min_maf, double max_maf, uintptr_t unfiltered_
   uintptr_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
-  uint32_t removed_ct = 0;
+  uintptr_t removed_ct = 0;
   double dxx;
   for (; marker_idx < marker_ct; marker_idx++) {
     marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
     dxx = get_maf(set_allele_freqs[marker_uidx]);
     if ((dxx < min_maf - EPSILON) || (dxx > max_maf + EPSILON)) {
-      set_bit(marker_exclude, marker_uidx, marker_exclude_ct_ptr);
+      set_bit(marker_exclude, marker_uidx);
       removed_ct++;
     }
     marker_uidx++;
   }
-  sprintf(logbuf, "%u marker%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  sprintf(logbuf, "%" PRIuPTR " marker%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
   logprintb();
+  *marker_exclude_ct_ptr -= removed_ct;
 }
 
 void enforce_min_bp_space(int32_t min_bp_space, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, uintptr_t* marker_exclude_ct_ptr, Chrom_info* chrom_info_ptr) {

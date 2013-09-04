@@ -1678,7 +1678,8 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
   for (marker_idxl = 0; marker_idxl < unfiltered_marker_ct; marker_idxl++) {
     dxx = set_allele_freqs_tmp[marker_idxl];
     if (dxx == -1.0) {
-      set_bit_sub(*marker_exclude_ptr, marker_idxl, marker_ct_ptr);
+      set_bit(*marker_exclude_ptr, marker_idxl);
+      *marker_ct_ptr -= 1;
     } else {
       (*set_allele_freqs_ptr)[marker_idxl] = dxx;
     }
