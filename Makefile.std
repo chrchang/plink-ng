@@ -45,7 +45,7 @@ ifdef NO_LAPACK
   BLASFLAGS=
 endif
 
-SRC = wdist.c wdist_assoc.c wdist_calc.c wdist_cluster.c wdist_cnv.c wdist_common.c wdist_data.c wdist_dmatrix.c wdist_dosage.c wdist_help.c wdist_homozyg.c wdist_stats.c SFMT.c dcdflib.c pigz.c yarn.c
+SRC = wdist.c wdist_assoc.c wdist_calc.c wdist_cluster.c wdist_cnv.c wdist_common.c wdist_data.c wdist_matrix.c wdist_dosage.c wdist_help.c wdist_homozyg.c wdist_stats.c SFMT.c dcdflib.c pigz.c yarn.c
 
 wdist: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)

@@ -2964,7 +2964,7 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
     name_stack_ptr = name_stack_ptr->next;
   }
   if ((in_name_stack && chrom_info_ptr->is_include_stack) || ((!in_name_stack) && (!chrom_info_ptr->is_include_stack))) {
-    set_bit_noct(chrom_info_ptr->chrom_mask, chrom_code_end);
+    set_bit(chrom_info_ptr->chrom_mask, chrom_code_end);
   }
   memcpy(nonstd_names[chrom_code_end], bufptr, slen);
   nonstd_names[chrom_code_end][slen] = '\0';
@@ -5314,7 +5314,7 @@ uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t ite
       }
       fill_bits(bitfield, idx1 - offset, (idx2 - idx1) + 1);
     } else {
-      set_bit_noct(bitfield, idx1 - offset);
+      set_bit(bitfield, idx1 - offset);
     }
   }
   return 0;
@@ -5348,7 +5348,7 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, Range
 	}
 	fill_bits(bitfield, seen_idxs[ii - 1], (item_idx - seen_idxs[ii - 1]) + 1);
       } else if (!(range_list_ptr->starts_range[(uint32_t)ii])) {
-	set_bit_noct(bitfield, item_idx);
+	set_bit(bitfield, item_idx);
       }
     }
     if (++item_idx == item_ct) {

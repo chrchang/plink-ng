@@ -1,4 +1,4 @@
-#include "wdist_dmatrix.h"
+#include "wdist_matrix.h"
 
 #ifndef NOLAPACK
 #ifndef __APPLE__

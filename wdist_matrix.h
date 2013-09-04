@@ -1,5 +1,5 @@
-#ifndef __WDIST_DMATRIX_H__
-#define __WDIST_DMATRIX_H__
+#ifndef __WDIST_MATRIX_H__
+#define __WDIST_MATRIX_H__
 
 #include "wdist_common.h"
 
@@ -94,4 +94,4 @@ int32_t invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_
 
 void col_major_matrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, double* inmatrix1, double* inmatrix2, double* outmatrix);
 
-#endif // __WDIST_DMATRIX_H__
+#endif // __WDIST_MATRIX_H__

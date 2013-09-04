@@ -1060,11 +1060,6 @@ static inline void set_bit(uintptr_t* bit_arr, uint32_t loc) {
   bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
-// remove this stupid name
-static inline void set_bit_noct(uintptr_t* bit_arr, uint32_t loc) {
-  bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
-}
-
 static inline void set_bit_ul(uintptr_t* bit_arr, uintptr_t loc) {
   bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }

@@ -19,11 +19,11 @@
 // assessing whether missingness should be treated as binary
 #define D_EPSILON 0.000244140625 // just want this above .0002
 
-int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uint32_t* max_person_id_len_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, uintptr_t** pheno_nm_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** indiv_exclude_ptr, char* missing_code) {
+int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr, char** person_ids_ptr, uintptr_t* max_person_id_len_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, uintptr_t** pheno_nm_ptr, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, uintptr_t** indiv_exclude_ptr, char* missing_code) {
   FILE* samplefile = NULL;
   unsigned char* wkspace_mark = NULL;
   uintptr_t unfiltered_indiv_ct = 0;
-  uint32_t max_person_id_len = 4;
+  uintptr_t max_person_id_len = 4;
   uint32_t missing_code_ct = 0;
   uint32_t indiv_uidx = 0;
   char** missing_code_ptrs = NULL;
@@ -37,10 +37,10 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
   double* pheno_d = NULL;
   int32_t pheno_is_binary = 0;
   uintptr_t unfiltered_indiv_ctl;
+  uintptr_t cur_person_id_len;
   char* person_ids;
   char* item_begin;
   char* bufptr;
-  uint32_t cur_person_id_len;
   uint32_t uii;
   uint32_t ujj;
   uint64_t first_real_line_loc;
@@ -146,13 +146,13 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
     if (is_eoln(*bufptr)) {
       goto oxford_sample_load_ret_INVALID_FORMAT;
     }
-    cur_person_id_len = 2 + (uint32_t)(bufptr - item_begin);
+    cur_person_id_len = 2 + (uintptr_t)(bufptr - item_begin);
     item_begin = skip_initial_spaces(bufptr);
     bufptr = item_endnn(item_begin);
     if (is_eoln(*bufptr)) {
       goto oxford_sample_load_ret_INVALID_FORMAT;
     }
-    cur_person_id_len += (uint32_t)(bufptr - item_begin);
+    cur_person_id_len += (uintptr_t)(bufptr - item_begin);
     if (cur_person_id_len > max_person_id_len) {
       max_person_id_len = cur_person_id_len;
     }
@@ -261,11 +261,11 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
         goto oxford_sample_load_ret_INVALID_FORMAT;
       }
       if (*item_begin == '1') {
-	set_bit_noct(*sex_nm_ptr, indiv_uidx);
-	set_bit_noct(*sex_male_ptr, indiv_uidx);
+	set_bit(*sex_nm_ptr, indiv_uidx);
+	set_bit(*sex_male_ptr, indiv_uidx);
         male_ct++;
       } else if (*item_begin == '2') {
-	set_bit_noct(*sex_nm_ptr, indiv_uidx);
+	set_bit(*sex_nm_ptr, indiv_uidx);
         female_ct++;
       }
       item_begin = next_item(item_begin);
@@ -286,10 +286,10 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
 	}
       }
       if (!is_missing) {
-	set_bit_noct(pheno_nm, indiv_uidx);
+	set_bit(pheno_nm, indiv_uidx);
 	if (pheno_is_binary) {
 	  if (*item_begin == '1') {
-	    set_bit_noct(pheno_c, indiv_uidx);
+	    set_bit(pheno_c, indiv_uidx);
 	  } else if (*item_begin != '0') {
 	    goto oxford_sample_load_ret_INVALID_FORMAT;
 	  }
@@ -1260,7 +1260,7 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
 		if (distance_flat_missing) {
 		  missing_tots[indiv_idx] += 1.0;
 		} else {
-		  set_bit_noct(cur_missings, indiv_idx);
+		  set_bit_ul(cur_missings, indiv_idx);
 		}
 		g_missing_vals[indiv_idx] |= 1 << marker_idxl;
 	      } else {
@@ -1720,7 +1720,7 @@ int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
   uintptr_t unfiltered_indiv_ct;
   uintptr_t* indiv_exclude;
   char* person_ids;
-  uint32_t max_person_id_len;
+  uintptr_t max_person_id_len;
   int32_t retval;
   uint32_t marker_uidx;
   uint32_t marker_idx;
@@ -1755,7 +1755,7 @@ int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
     fill_ulong_zero(marker_exclude, unfiltered_marker_ctl);
     for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
       if (set_allele_freqs[marker_uidx] == -1.0) {
-        set_bit_noct(marker_exclude, marker_uidx);
+        set_bit(marker_exclude, marker_uidx);
         marker_ct--;
       }
     }
@@ -1797,7 +1797,7 @@ int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
 	dxx = 0.0;
 	marker_uidx = 0;
 	for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-	  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+	  marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
 	  dyy = set_allele_freqs[marker_uidx];
 	  if ((dyy > 0.0) && (dyy < 1.0)) {
             dxx += pow(2 * dyy * (1.0 - dyy), -exponent);
