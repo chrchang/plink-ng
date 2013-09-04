@@ -2497,12 +2497,23 @@ int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc) {
   return (idx * BITCT) + CTZLU(~(*exclude_arr));
 }
 
+uintptr_t next_unset_unsafe(uintptr_t* bit_arr, uintptr_t loc) {
+  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
+  uintptr_t ulii = (~(*bit_arr_ptr)) >> (loc % BITCT);
+  if (ulii) {
+    return loc + CTZLU(ulii);
+  }
+  do {
+    ulii = *(++bit_arr_ptr);
+  } while (ulii == ~ZEROLU);
+  return (((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(~ulii));
+}
+
 uintptr_t next_unset(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
   // safe version.  ceil >= 1.
   uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
+  uintptr_t ulii = (~(*bit_arr_ptr)) >> (loc % BITCT);
   uintptr_t* bit_arr_last;
-  uintptr_t ulii;
-  ulii = (~(*bit_arr_ptr)) >> (loc % BITCT);
   if (ulii) {
     ulii = loc + CTZLU(ulii);
     return MINV(ulii, ceil);
@@ -2516,25 +2527,6 @@ uintptr_t next_unset(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
   } while (ulii == ~ZEROLU);
   ulii = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(~ulii);
   return MINV(ulii, ceil);
-}
-
-int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil) {
-  // safe version.  ceil >= 1.
-  uint32_t idx = loc / BITCT;
-  uint32_t max_idx;
-  uintptr_t ulii;
-  exclude_arr = &(exclude_arr[idx]);
-  ulii = (~(*exclude_arr)) >> (loc % BITCT);
-  if (ulii) {
-    return MINV(loc + CTZLU(ulii), ceil);
-  }
-  max_idx = (ceil - 1) / BITCT;
-  do {
-    if ((++idx) > max_idx) {
-      return ceil;
-    }
-  } while (*(++exclude_arr) == ~ZEROLU);
-  return MINV((idx * BITCT) + CTZLU(~(*exclude_arr)), ceil);
 }
 
 uintptr_t next_set_unsafe(uintptr_t* include_arr, uintptr_t loc) {

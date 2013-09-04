@@ -869,15 +869,15 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
   return (((double)((int32_t)joint_homozyg_mismatch_ct)) <= mismatch_max * ((int32_t)joint_homozyg_ct))? 1 : 0;
 }
 
-void compute_allelic_match_matrix(double mismatch_max, uintptr_t roh_slot_wsize, uint32_t pool_size, uintptr_t* roh_slots, uintptr_t* roh_slot_occupied, uintptr_t* roh_slot_uncached, uint32_t* roh_slot_cidx_start, uint32_t* roh_slot_cidx_end, uint64_t* roh_slot_map, uint32_t overlap_cidx_start, uint32_t overlap_cidx_end, uint32_t* allelic_match_cts, uintptr_t* allelic_match_matrix) {
+void compute_allelic_match_matrix(double mismatch_max, uintptr_t roh_slot_wsize, uintptr_t pool_size, uintptr_t* roh_slots, uintptr_t* roh_slot_occupied, uintptr_t* roh_slot_uncached, uint32_t* roh_slot_cidx_start, uint32_t* roh_slot_cidx_end, uint64_t* roh_slot_map, uint32_t overlap_cidx_start, uint32_t overlap_cidx_end, uint32_t* allelic_match_cts, uintptr_t* allelic_match_matrix) {
   // consensus_match in effect iff roh_slot_uncached is NULL
   // may want to make this multithreaded in the future
   uint32_t cidx_end_idxl = 0;
   uint32_t skip_cached = 0;
   uintptr_t* roh_slot_idxl;
-  uint32_t map_idxl;
+  uintptr_t map_idxl;
+  uintptr_t map_idxs;
   uint32_t cur_limit;
-  uint32_t map_idxs;
   uint32_t slot_idxl;
   uint32_t slot_idxs;
   uintptr_t tri_offset_idxl;
@@ -894,7 +894,7 @@ void compute_allelic_match_matrix(double mismatch_max, uintptr_t roh_slot_wsize,
     map_idxl = 0;
     cur_limit = 0;
     while (1) {
-      map_idxl = next_non_set(roh_slot_uncached, map_idxl, pool_size);
+      map_idxl = next_unset(roh_slot_uncached, map_idxl, pool_size);
       if (map_idxl == pool_size) {
 	break;
       }
@@ -933,11 +933,11 @@ void compute_allelic_match_matrix(double mismatch_max, uintptr_t roh_slot_wsize,
 #endif
     if (roh_slot_uncached) {
       cidx_end_idxl = roh_slot_cidx_end[slot_idxl];
-      skip_cached = 1 ^ (is_set(roh_slot_uncached, map_idxl));
+      skip_cached = 1 ^ (is_set_ul(roh_slot_uncached, map_idxl));
     }
     for (map_idxs = 0; map_idxs < map_idxl; map_idxs++) {
-      if (skip_cached && (!is_set(roh_slot_uncached, map_idxs))) {
-	map_idxs = next_set_32(roh_slot_uncached, map_idxs + 1, map_idxl);
+      if (skip_cached && (!is_set_ul(roh_slot_uncached, map_idxs))) {
+	map_idxs = next_set_ul(roh_slot_uncached, map_idxs + 1, map_idxl);
 	if (map_idxs == map_idxl) {
 	  break;
 	}
@@ -2322,7 +2322,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   uintptr_t max_roh_ct;
   uint32_t chrom_fo_idx;
   uintptr_t marker_uidx;
-  uint32_t chrom_end;
+  uintptr_t chrom_end;
   uintptr_t* readbuf_cur;
   uintptr_t* swbuf_cur;
   uintptr_t* cur_indiv_male;
@@ -2415,7 +2415,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     roh_list_chrom_starts[chrom_fo_idx] = roh_ct;
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
     if ((x_code == -1) || (uii != ((uint32_t)x_code))) {
-      if (is_set(haploid_mask, uii)) {
+      if (is_set_32(haploid_mask, uii)) {
 	marker_uidx = chrom_end;
 	if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
 	  goto calc_homozyg_ret_READ_FAIL;
@@ -2438,7 +2438,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     fill_uint_zero(missing_cts, indiv_ct);
     for (widx = 0; widx < window_size; widx++) {
       if (is_set(marker_exclude, marker_uidx)) {
-        marker_uidx = next_non_set(marker_exclude, marker_uidx + 1, chrom_end);
+        marker_uidx = next_unset(marker_exclude, marker_uidx, chrom_end);
         if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
 	  goto calc_homozyg_ret_READ_FAIL;
 	}
@@ -2483,7 +2483,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	  break;
 	}
 	if (is_set(marker_exclude, marker_uidx)) {
-	  marker_uidx = next_non_set(marker_exclude, marker_uidx + 1, chrom_end);
+	  marker_uidx = next_unset(marker_exclude, marker_uidx, chrom_end);
 	  if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
 	    goto calc_homozyg_ret_READ_FAIL;
 	  }

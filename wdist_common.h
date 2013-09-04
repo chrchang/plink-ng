@@ -1082,8 +1082,12 @@ static inline void clear_bit_32(uintptr_t* bit_arr, uint32_t loc) {
 }
 
 // todo: convert to is_set_ul
-static inline int32_t is_set(uintptr_t* exclude_arr, uint32_t loc) {
+static inline uint32_t is_set(uintptr_t* exclude_arr, uint32_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
+}
+
+static inline uintptr_t is_set_rul(uintptr_t* bit_arr, uintptr_t loc) {
+  return (bit_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
 static inline uint32_t is_set_32(uintptr_t* exclude_arr, uint32_t loc) {
@@ -1094,15 +1098,15 @@ static inline uint32_t is_set_ul(uintptr_t* exclude_arr, uintptr_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
-static inline int32_t is_founder(uintptr_t* founder_info, uint32_t loc) {
-  return ((!founder_info) || ((founder_info[loc / BITCT]) & (ONELU << (loc % BITCT))));
+static inline uint32_t is_founder(uintptr_t* founder_info, uintptr_t loc) {
+  return ((!founder_info) || ((founder_info[loc / BITCT] >> (loc % BITCT)) & 1));
 }
 
 int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc);
 
-uintptr_t next_unset(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil);
+uintptr_t next_unset_unsafe(uintptr_t* bit_arr, uintptr_t loc);
 
-int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil);
+uintptr_t next_unset(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil);
 
 uintptr_t next_set_unsafe(uintptr_t* include_arr, uintptr_t loc);
 

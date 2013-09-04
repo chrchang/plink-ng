@@ -4105,9 +4105,9 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uintptr_t indiv_uidx;
   uintptr_t indiv_uidx2;
   uintptr_t indiv_idx;
+  uintptr_t chrom_end;
   uint32_t ii_mod4;
   uint32_t chrom_fo_idx;
-  uint32_t chrom_end;
   uint32_t chrom_idx;
   unsigned char* loadbuf;
   unsigned char* writebuf;
@@ -4278,7 +4278,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	if (((int32_t)chrom_idx) == x_code) {
 	  for (; marker_uidx < chrom_end; marker_uidx++) {
 	    if (is_set(marker_exclude, marker_uidx)) {
-	      marker_uidx = next_non_set(marker_exclude, marker_uidx + 1, chrom_end);
+	      marker_uidx = next_unset(marker_exclude, marker_uidx, chrom_end);
 	      if (marker_uidx == chrom_end) {
 		break;
 	      }
@@ -4363,11 +4363,11 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	  }
 	  for (; marker_uidx < chrom_end; marker_uidx++) {
 	    if (is_set(marker_exclude, marker_uidx)) {
-	      marker_uidx = next_non_set(marker_exclude, marker_uidx + 1, chrom_end);
+	      marker_uidx = next_unset(marker_exclude, marker_uidx, chrom_end);
 	      if (marker_uidx == chrom_end) {
 		break;
 	      }
-	      if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
+	      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 		goto make_bed_ret_READ_FAIL;
 	      }
 	    }

@@ -3672,13 +3672,13 @@ uint32_t sparse_intersection_ct(uintptr_t* sparse_buf1, uintptr_t* sparse_buf2, 
 uint32_t ld_prune_next_valid_chrom_start(uintptr_t* marker_exclude, uintptr_t cur_uidx, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_marker_ct) {
   uint32_t max_code = chrom_info_ptr->max_code;
   uint32_t chrom_idx;
-  cur_uidx = next_non_set(marker_exclude, cur_uidx, unfiltered_marker_ct);
+  cur_uidx = next_unset(marker_exclude, cur_uidx, unfiltered_marker_ct);
   while (cur_uidx < unfiltered_marker_ct) {
     chrom_idx = get_marker_chrom(chrom_info_ptr, cur_uidx);
     if (chrom_idx && (chrom_idx <= max_code)) {
       return cur_uidx;
     }
-    cur_uidx = next_non_set(marker_exclude, chrom_info_ptr->chrom_end[chrom_idx], unfiltered_marker_ct);
+    cur_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_end[chrom_idx], unfiltered_marker_ct);
   }
   return cur_uidx;
 }
