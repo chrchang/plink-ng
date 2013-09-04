@@ -1098,7 +1098,7 @@ int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc);
 
 int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil);
 
-int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc);
+uintptr_t next_set_unsafe(uintptr_t* include_arr, uintptr_t loc);
 
 uint32_t next_set_32(uintptr_t* include_arr, uint32_t loc, uint32_t ceil);
 
@@ -1196,7 +1196,7 @@ static inline void fill_double_zero(double* darr, size_t size) {
   }
 }
 
-void fill_idx_to_uidx(uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* idx_to_uidx);
+void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx);
 
 void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* uidx_to_idx);
 

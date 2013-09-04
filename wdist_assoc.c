@@ -8631,7 +8631,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
         wkspace_alloc_ui_checked(&marker_idx_to_uidx, marker_ct * sizeof(int32_t))) {
       goto glm_scan_conditions_ret_NOMEM;
     }
-    fill_idx_to_uidx(marker_exclude, marker_ct, marker_idx_to_uidx);
+    fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
     fill_ulong_zero(already_seen, marker_ctl);
     retval = sort_item_ids_noalloc(sorted_ids, id_map, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, 1, strcmp_deref);
     if (retval) {

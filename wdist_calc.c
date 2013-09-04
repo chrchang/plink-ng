@@ -769,7 +769,7 @@ void collapse_copy_phenod(double* target, double* pheno_d, uintptr_t* indiv_excl
 }
 
 void collapse_copy_phenod_incl(double* target, double* pheno_d, uintptr_t* indiv_include, uintptr_t indiv_ct) {
-  uint32_t indiv_uidx = 0;
+  uintptr_t indiv_uidx = 0;
   double* target_end = &(target[indiv_ct]);
   while (target < target_end) {
     indiv_uidx = next_set_unsafe(indiv_include, indiv_uidx);
@@ -2886,7 +2886,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
       if (is_set(pheno_nm, indiv_uidx)) {
 	fpos = indiv_uidx * (indiv_uidx + 1) * (sizeof(float) / 2);
       } else {
-        indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx + 1);
+        indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
 	fpos = indiv_uidx * (indiv_uidx + 1) * (sizeof(float) / 2);
         if (fseeko(grm_binfile, fpos, SEEK_SET)) {
           goto unrelated_herit_batch_ret_READ_FAIL;
@@ -2896,7 +2896,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
       indiv_uidx2 = 0;
       for (uljj = 0; uljj <= ulii; uljj++) {
         if (!is_set(pheno_nm, indiv_uidx2)) {
-          indiv_uidx2 = next_set_unsafe(pheno_nm, indiv_uidx2 + 1);
+          indiv_uidx2 = next_set_unsafe(pheno_nm, indiv_uidx2);
           if (fseeko(grm_binfile, fpos + (indiv_uidx2 * sizeof(float)), SEEK_SET)) {
             goto unrelated_herit_batch_ret_READ_FAIL;
 	  }
@@ -8552,7 +8552,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   if (!indiv_idx_to_uidx) {
     goto calc_cluster_neighbor_ret_NOMEM;
   }
-  fill_idx_to_uidx(indiv_exclude, indiv_ct, indiv_idx_to_uidx);
+  fill_idx_to_uidx(indiv_exclude, unfiltered_indiv_ct, indiv_ct, indiv_idx_to_uidx);
   if (do_neighbor) {
     memcpy(outname_end, ".nearest", 9);
     if (fopen_checked(&outfile, outname, "w")) {

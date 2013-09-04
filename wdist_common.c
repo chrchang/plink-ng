@@ -2543,18 +2543,16 @@ int32_t next_non_set(uintptr_t* exclude_arr, uint32_t loc, uint32_t ceil) {
   return MINV((idx * BITCT) + CTZLU(~(*exclude_arr)), ceil);
 }
 
-int32_t next_set_unsafe(uintptr_t* include_arr, uint32_t loc) {
-  uint32_t idx = loc / BITCT;
-  uintptr_t ulii;
-  include_arr = &(include_arr[idx]);
-  ulii = (*include_arr) >> (loc % BITCT);
+uintptr_t next_set_unsafe(uintptr_t* include_arr, uintptr_t loc) {
+  uintptr_t* include_arr_ptr = &(include_arr[loc / BITCT]);
+  uintptr_t ulii = (*include_arr_ptr) >> (loc % BITCT);
   if (ulii) {
     return loc + CTZLU(ulii);
   }
   do {
-    idx++;
-  } while (*(++include_arr) == 0);
-  return (idx * BITCT) + CTZLU(*include_arr);
+    ulii = *(++include_arr_ptr);
+  } while (!ulii);
+  return (((uintptr_t)(include_arr_ptr - include_arr)) * BITCT) + CTZLU(ulii);
 }
 
 uint32_t next_set_32(uintptr_t* include_arr, uint32_t loc, uint32_t ceil) {
@@ -2621,13 +2619,21 @@ intptr_t last_clear_bit(uintptr_t* bit_arr, uintptr_t ceil) {
   return -1;
 }
 
-void fill_idx_to_uidx(uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* idx_to_uidx) {
+void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx) {
+  uint32_t* idx_to_uidx_end = &(idx_to_uidx[item_ct]);
   uint32_t item_uidx = 0;
-  uint32_t item_idx;
-  for (item_idx = 0; item_idx < item_ct; item_idx++) {
+  uint32_t* cur_stop;
+  do {
     item_uidx = next_non_set_unsafe(exclude_arr, item_uidx);
-    idx_to_uidx[item_idx] = item_uidx++;
-  }
+    if (&(idx_to_uidx[unfiltered_item_ct - item_uidx]) < idx_to_uidx_end) {
+      cur_stop = &(idx_to_uidx[next_set_unsafe(exclude_arr, item_uidx)]);
+    } else {
+      cur_stop = idx_to_uidx_end;
+    }
+    do {
+      *idx_to_uidx++ = item_uidx++;
+    } while (idx_to_uidx < cur_stop);
+  } while (idx_to_uidx < idx_to_uidx_end);
 }
 
 void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* uidx_to_idx) {
@@ -2640,7 +2646,7 @@ void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* uidx_t
 }
 
 void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t item_ct, uint32_t* uidx_to_idx) {
-  uint32_t item_uidx = 0;
+  uintptr_t item_uidx = 0;
   uint32_t item_idx;
   for (item_idx = 0; item_idx < item_ct; item_idx++) {
     item_uidx = next_set_unsafe(include_arr, item_uidx);
@@ -5394,7 +5400,7 @@ uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered
 
 void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include) {
   uintptr_t cur_write = 0;
-  uint32_t indiv_uidx = 0;
+  uintptr_t indiv_uidx = 0;
   uint32_t indiv_idx_low = 0;
   uint32_t indiv_idx;
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
@@ -7100,7 +7106,7 @@ void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclu
 
 void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
   uintptr_t ulii = 0;
-  uint32_t item_uidx = 0;
+  uintptr_t item_uidx = 0;
   uint32_t write_bit = 0;
   uint32_t item_idx;
   fill_ulong_zero(output_arr, ((filtered_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
@@ -7121,7 +7127,7 @@ void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* 
 
 void collapse_copy_bitarr_to_vec_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_vec) {
   uintptr_t ulii = 0;
-  uint32_t item_uidx = 0;
+  uintptr_t item_uidx = 0;
   uint32_t write_bit = 0;
   uint32_t item_idx;
   fill_ulong_zero(output_vec, 2 * ((filtered_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));

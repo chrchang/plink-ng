@@ -1,5 +1,9 @@
 #include "wdist_common.h"
 
+// N.B. this code kind of sucks; everything should be rewritten to use
+// dgemm/sgemm.
+
+
 // Routines that handle dosage data instead of just 0-1-2 reference allele
 // counts.  Only Oxford-formatted data is currently supported, but a PLINK
 // --dosage loader will probably be added later.
@@ -1115,10 +1119,11 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
   int64_t llxx;
   uintptr_t ulii;
   uintptr_t uljj;
+  uintptr_t indiv_idx;
+  uintptr_t tstc;
   uint32_t marker_uidx;
   uint32_t marker_idxl;
   uint32_t indiv_uidx;
-  uint32_t indiv_idx;
   uint32_t non_missing_ct;
   double* missing_tots;
   double* dptr;
@@ -1132,7 +1137,6 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
   double pone;
   double ptwo;
   double dxx;
-  uint32_t tstc;
   triangle_fill(g_thread_start, g_indiv_ct, thread_ct, parallel_idx, parallel_tot, 1, 1);
   llxx = g_thread_start[thread_ct];
   llxx = ((llxx * (llxx - 1)) - (int64_t)g_thread_start[0] * (g_thread_start[0] - 1)) / 2;

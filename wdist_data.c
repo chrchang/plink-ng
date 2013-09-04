@@ -2537,10 +2537,11 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   char* loadbuf;
   uintptr_t loadbuf_size;
   char* bufptr2;
+  uintptr_t covar_uidx;
+  uintptr_t covar_idx;
   uint32_t header_absent;
   uint32_t min_covar_col_ct;
   uint32_t uii;
-  uintptr_t covar_idx;
   uint32_t indiv_idx;
   uint32_t indiv_uidx;
   uint32_t covar_missing;
@@ -2551,7 +2552,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     if (!indiv_idx_to_uidx) {
       goto load_covars_ret_NOMEM;
     }
-    fill_idx_to_uidx(indiv_exclude, indiv_ct, indiv_idx_to_uidx);
+    fill_idx_to_uidx(indiv_exclude, unfiltered_indiv_ct, indiv_ct, indiv_idx_to_uidx);
   }
   sorted_ids = (char*)top_alloc(&topsize, indiv_ct * max_person_id_len);
   if (!sorted_ids) {
@@ -2731,10 +2732,10 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   rewind(covar_file);
   if (header_absent) {
     if (covar_range_list_ptr) {
-      uii = 0;
+      covar_uidx = 0;
       for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
-	uii = next_set_unsafe(covars_active, uii);
-	uint32_writex(memcpyl3a(&(covar_names[covar_idx * max_covar_name_len]), "COV"), ++uii, '\0');
+	covar_uidx = next_set_unsafe(covars_active, covar_uidx);
+	uint32_writex(memcpyl3a(&(covar_names[covar_idx * max_covar_name_len]), "COV"), ++covar_uidx, '\0');
       }
     }
   } else {
@@ -3717,7 +3718,7 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
   if (wkspace_alloc_ui_checked(&unpack_map, marker_ct * sizeof(int32_t))) {
     goto sort_and_write_bim_ret_NOMEM;
   }
-  fill_idx_to_uidx(marker_exclude, marker_ct, unpack_map);
+  fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, unpack_map);
   sort_marker_chrom_pos(ll_buf, marker_ct, marker_pos, chrom_start, chrom_id, &chrom_ct);
   if (fopen_checked(&outfile, outname, "w")) {
     goto sort_and_write_bim_ret_OPEN_FAIL;
