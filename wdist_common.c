@@ -2497,7 +2497,20 @@ int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc) {
   return (idx * BITCT) + CTZLU(~(*exclude_arr));
 }
 
-uintptr_t next_unset_unsafe(uintptr_t* bit_arr, uintptr_t loc) {
+uint32_t next_unset_unsafe(uintptr_t* bit_arr, uint32_t loc) {
+  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
+  uintptr_t ulii = (~(*bit_arr_ptr)) >> (loc % BITCT);
+  if (ulii) {
+    return loc + CTZLU(ulii);
+  }
+  do {
+    ulii = *(++bit_arr_ptr);
+  } while (ulii == ~ZEROLU);
+  return ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(~ulii);
+}
+
+#ifdef __LP64__
+uintptr_t next_unset_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc) {
   uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
   uintptr_t ulii = (~(*bit_arr_ptr)) >> (loc % BITCT);
   if (ulii) {
@@ -2508,9 +2521,30 @@ uintptr_t next_unset_unsafe(uintptr_t* bit_arr, uintptr_t loc) {
   } while (ulii == ~ZEROLU);
   return (((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(~ulii));
 }
+#endif
 
-uintptr_t next_unset(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
+uint32_t next_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil) {
   // safe version.  ceil >= 1.
+  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
+  uintptr_t ulii = (~(*bit_arr_ptr)) >> (loc % BITCT);
+  uintptr_t* bit_arr_last;
+  if (ulii) {
+    loc += CTZLU(ulii);
+    return MINV(loc, ceil);
+  }
+  bit_arr_last = &(bit_arr[(ceil - 1) / BITCT]);
+  do {
+    if (bit_arr_ptr == bit_arr_last) {
+      return ceil;
+    }
+    ulii = *(++bit_arr_ptr);
+  } while (ulii == ~ZEROLU);
+  loc = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(~ulii);
+  return MINV(loc, ceil);
+}
+
+#ifdef __LP64__
+uintptr_t next_unset_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
   uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
   uintptr_t ulii = (~(*bit_arr_ptr)) >> (loc % BITCT);
   uintptr_t* bit_arr_last;
@@ -2528,40 +2562,35 @@ uintptr_t next_unset(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
   ulii = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(~ulii);
   return MINV(ulii, ceil);
 }
+#endif
 
-uintptr_t next_set_unsafe(uintptr_t* include_arr, uintptr_t loc) {
-  uintptr_t* include_arr_ptr = &(include_arr[loc / BITCT]);
-  uintptr_t ulii = (*include_arr_ptr) >> (loc % BITCT);
+uint32_t next_set_unsafe(uintptr_t* bit_arr, uint32_t loc) {
+  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
+  uintptr_t ulii = (*bit_arr_ptr) >> (loc % BITCT);
   if (ulii) {
     return loc + CTZLU(ulii);
   }
   do {
-    ulii = *(++include_arr_ptr);
-  } while (!ulii);
-  return (((uintptr_t)(include_arr_ptr - include_arr)) * BITCT) + CTZLU(ulii);
-}
-
-uintptr_t next_set(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
-  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
-  uintptr_t ulii = (*bit_arr_ptr) >> (loc % BITCT);
-  uintptr_t* bit_arr_last;
-  if (ulii) {
-    ulii = loc + CTZLU(ulii);
-    return MINV(ulii, ceil);
-  }
-  bit_arr_last = &(bit_arr[(ceil - 1) / BITCT]);
-  do {
-    if (bit_arr_ptr == bit_arr_last) {
-      return ceil;
-    }
     ulii = *(++bit_arr_ptr);
   } while (!ulii);
-  ulii = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(ulii);
-  return MINV(ulii, ceil);
+  return ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(ulii);
 }
 
 #ifdef __LP64__
-uint32_t next_set_32(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil) {
+uintptr_t next_set_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc) {
+  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
+  uintptr_t ulii = (*bit_arr_ptr) >> (loc % BITCT);
+  if (ulii) {
+    return loc + CTZLU(ulii);
+  }
+  do {
+    ulii = *(++bit_arr_ptr);
+  } while (!ulii);
+  return ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(ulii);
+}
+#endif
+
+uint32_t next_set(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil) {
   uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
   uintptr_t ulii = (*bit_arr_ptr) >> (loc % BITCT);
   uintptr_t* bit_arr_last;
@@ -2580,31 +2609,54 @@ uint32_t next_set_32(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil) {
   rval = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(ulii);
   return MINV(rval, ceil);
 }
+
+#ifdef __LP64__
+uintptr_t next_set_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
+  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
+  uintptr_t ulii = (*bit_arr_ptr) >> (loc % BITCT);
+  uintptr_t* bit_arr_last;
+  if (ulii) {
+    ulii = loc + CTZLU(ulii);
+    return MINV(ulii, ceil);
+  }
+  bit_arr_last = &(bit_arr[(ceil - 1) / BITCT]);
+  do {
+    if (bit_arr_ptr == bit_arr_last) {
+      return ceil;
+    }
+    ulii = *(++bit_arr_ptr);
+  } while (!ulii);
+  ulii = ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + CTZLU(ulii);
+  return MINV(ulii, ceil);
+}
 #endif
 
-intptr_t last_set_bit(uintptr_t* bit_arr, uintptr_t word_ct) {
+int32_t last_set_bit(uintptr_t* bit_arr, uint32_t word_ct) {
+  uintptr_t* bit_arr_ptr = &(bit_arr[word_ct]);
+  uintptr_t ulii;
   do {
-    if (bit_arr[--word_ct]) {
-      return (word_ct * BITCT) + BITCT - 1 - CLZLU(bit_arr[word_ct]);
+    ulii = *(--bit_arr_ptr);
+    if (ulii) {
+      return ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + BITCT - 1 - CLZLU(ulii);
     }
-  } while (word_ct);
+  } while (bit_arr_ptr > bit_arr);
   return -1;
 }
 
-intptr_t last_clear_bit(uintptr_t* bit_arr, uintptr_t ceil) {
-  uintptr_t word_idx = (ceil - 1) / BITCT;
-  uintptr_t remainder = ceil & (BITCT - 1);
+int32_t last_clear_bit(uintptr_t* bit_arr, uint32_t ceil) {
+  uintptr_t* bit_arr_ptr = &(bit_arr[ceil / BITCT]);
   uintptr_t ulii;
-  if (remainder) {
-    ulii = ((~bit_arr[word_idx]) & ((ONELU << remainder) - ONELU));
+  ceil = ceil % BITCT;
+  if (ceil) {
+    ulii = (~(*bit_arr_ptr)) & ((ONELU << ceil) - ONELU);
     if (ulii) {
-      return (word_idx * BITCT) + BITCT - 1 - CLZLU(ulii);
+      return (ceil | (BITCT - ONELU)) - CLZLU(ulii);
     }
   }
-  while (word_idx) {
-    ulii = ~bit_arr[--word_idx];
+  while (bit_arr_ptr > bit_arr) {
+    ulii = ~(*(--bit_arr_ptr));
     if (ulii) {
-      return (word_idx * BITCT) + BITCT - 1 - CLZLU(ulii);
+      return ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + BITCT - 1 - CLZLU(ulii);
     }
   }
   return -1;
@@ -2615,7 +2667,7 @@ void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uint
   uint32_t item_uidx = 0;
   uint32_t* cur_stop;
   do {
-    item_uidx = next_non_set_unsafe(exclude_arr, item_uidx);
+    item_uidx = next_unset_unsafe(exclude_arr, item_uidx);
     if (&(idx_to_uidx[unfiltered_item_ct - item_uidx]) < idx_to_uidx_end) {
       cur_stop = &(idx_to_uidx[next_set_unsafe(exclude_arr, item_uidx)]);
     } else {
@@ -2627,13 +2679,48 @@ void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uint
   } while (idx_to_uidx < idx_to_uidx_end);
 }
 
-void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* uidx_to_idx) {
-  uint32_t item_uidx = 0;
-  uint32_t item_idx;
-  for (item_idx = 0; item_idx < item_ct; item_idx++) {
-    item_uidx = next_non_set_unsafe(exclude_arr, item_uidx);
-    uidx_to_idx[item_uidx++] = item_idx;
-  }
+void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx) {
+  uint32_t exclude_ct = unfiltered_item_ct - item_ct;
+  uint32_t excluded_so_far = 0;
+  uint32_t item_idx = 0;
+  uint32_t* uidx_to_idx_ptr;
+  uint32_t item_uidx;
+  uint32_t item_idx_stop;
+  do {
+    item_uidx = next_unset_unsafe(exclude_arr, item_idx + excluded_so_far);
+    uidx_to_idx_ptr = &(uidx_to_idx[item_uidx]);
+    excluded_so_far = item_uidx - item_idx;
+    if (exclude_ct > excluded_so_far) {
+      item_idx_stop = next_set_unsafe(exclude_arr, item_uidx) - excluded_so_far;
+    } else {
+      item_idx_stop = item_ct;
+    }
+    do {
+      *uidx_to_idx_ptr++ = item_idx++;
+    } while (item_idx < item_idx_stop);
+  } while (item_idx < item_ct);
+}
+
+void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx) {
+  uint32_t exclude_ct = unfiltered_item_ct - item_ct;
+  uint32_t excluded_so_far = 0;
+  uint32_t item_idx = 0;
+  uint32_t* uidx_to_idx_ptr;
+  uint32_t item_uidx;
+  uint32_t item_idx_stop;
+  do {
+    item_uidx = next_set_unsafe(include_arr, item_idx + excluded_so_far);
+    uidx_to_idx_ptr = &(uidx_to_idx[item_uidx]);
+    excluded_so_far = item_uidx - item_idx;
+    if (exclude_ct > excluded_so_far) {
+      item_idx_stop = next_unset_unsafe(include_arr, item_uidx) - excluded_so_far;
+    } else {
+      item_idx_stop = item_ct;
+    }
+    do {
+      *uidx_to_idx_ptr++ = item_idx++;
+    } while (item_idx < item_idx_stop);
+  } while (item_idx < item_ct);
 }
 
 void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t item_ct, uint32_t* uidx_to_idx) {
@@ -2901,7 +2988,7 @@ void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint3
   }
 }
 
-int32_t single_chrom_start(Chrom_info* chrom_info_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude) {
+int32_t single_chrom_start(Chrom_info* chrom_info_ptr, uint32_t unfiltered_marker_ct, uintptr_t* marker_exclude) {
   // Assumes there is at least one marker, and there are no split chromosomes.
   // Returns first marker_uidx in chromosome if there is only one, or -1 if
   // there's more than one chromosome.

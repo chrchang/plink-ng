@@ -303,7 +303,7 @@ int32_t fill_indiv_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_ex
   if (wkspace_alloc_ui_checked(&uidx_to_idx, unfiltered_indiv_ct * sizeof(int32_t))) {
     goto fill_indiv_to_cluster_ret_NOMEM;
   }
-  fill_uidx_to_idx(indiv_exclude, indiv_ct, uidx_to_idx);
+  fill_uidx_to_idx(indiv_exclude, unfiltered_indiv_ct, indiv_ct, uidx_to_idx);
   fill_uint_one(indiv_to_cluster, indiv_ct);
   for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
     cluster_end_ptr = &(cluster_map[cluster_starts[cluster_idx + 1]]);
@@ -424,11 +424,11 @@ void adjust_cc_perm_preimage(uint32_t cluster_ct, uint32_t* cluster_map, uint32_
     cluster_end = cluster_starts[cluster_idx + 1];
     if (cluster_case_cts[cluster_idx] * 2 < cluster_end - map_idx) {
       do {
-        clear_bit_32(cluster_cc_perm_preimage, cluster_map[map_idx] * 2);
+        clear_bit(cluster_cc_perm_preimage, cluster_map[map_idx] * 2);
       } while (++map_idx < cluster_end);
     } else {
       do {
-	set_bit_32(cluster_cc_perm_preimage, cluster_map[map_idx] * 2);
+	set_bit(cluster_cc_perm_preimage, cluster_map[map_idx] * 2);
       } while (++map_idx < cluster_end);
     }
   }
@@ -521,7 +521,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
   if (wkspace_alloc_ui_checked(&uidx_to_idx, unfiltered_indiv_ct * sizeof(int32_t))) {
     goto cluster_include_and_reindex_ret_NOMEM;
   }
-  fill_uidx_to_idx_incl(indiv_include, indiv_ct, uidx_to_idx);
+  fill_uidx_to_idx_incl(indiv_include, unfiltered_indiv_ct, indiv_ct, uidx_to_idx);
   *new_cluster_ct_ptr = new_cluster_ct;
   cluster_read_idx = 1;
   map_idx = 0;
@@ -726,7 +726,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
     }
     tcoord = tri_coord_no_diag(indiv_idx1, indiv_idx2);
     if (ppc_fail) {
-      set_bit(cluster_merge_prevented, tcoord);
+      set_bit_ul(cluster_merge_prevented, tcoord);
     }
     if (cluster_sorted_ibs) {
       if (!is_max_dist) {
@@ -1028,7 +1028,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	}
 	if (cov_idx < non_null_cov_ct) {
 	  if (clidx1 != clidx2) {
-	    set_bit(merge_prevented, cur_coord);
+	    set_bit_ul(merge_prevented, cur_coord);
 	  } else {
 	    cluster_mismatch_warning = 1;
 	  }
@@ -1226,7 +1226,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	}
 	if (cov_idx < non_null_cov_ct) {
 	  if (clidx1 != clidx2) {
-	    set_bit(merge_prevented, cur_coord);
+	    set_bit_ul(merge_prevented, cur_coord);
 	  } else {
 	    cluster_mismatch_warning = 1;
 	  }

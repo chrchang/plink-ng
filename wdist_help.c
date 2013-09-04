@@ -65,7 +65,7 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, uint32_t postp
   uint32_t print_this = 0;
   uint32_t cur_param_lens[MAX_EQUAL_HELP_PARAMS];
   char* cur_param_start[MAX_EQUAL_HELP_PARAMS];
-  uintptr_t arg_uidx;
+  uint32_t arg_uidx;
   uint32_t cur_param_ct;
   uint32_t cur_param_idx;
   uint32_t arg_idx;
@@ -89,7 +89,7 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, uint32_t postp
 	arg_uidx = 0;
 	if (help_ctrl_ptr->iters_left == 2) {
 	  for (arg_idx = 0; arg_idx < unmatched_ct; arg_idx++) {
-	    arg_uidx = next_non_set_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
+	    arg_uidx = next_unset_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
 	    for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
 	      if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
 		set_bit(help_ctrl_ptr->perfect_match_arr, arg_uidx);
@@ -106,7 +106,7 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, uint32_t postp
 	    cur_param_lens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
 	  }
 	  for (arg_idx = 0; arg_idx < unmatched_ct; arg_idx++) {
-	    arg_uidx = next_non_set_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
+	    arg_uidx = next_unset_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
 	    uii = help_ctrl_ptr->param_lens[arg_uidx];
 	    for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
 	      if (cur_param_lens[cur_param_idx] > uii) {

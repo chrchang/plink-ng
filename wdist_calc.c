@@ -747,24 +747,25 @@ int32_t get_chrom_end(Chrom_info* chrom_info_ptr, uintptr_t marker_idx) {
   return chrom_info_ptr->chrom_end[get_marker_chrom(chrom_info_ptr, marker_idx)];
 }
 
-void exclude_multi(uintptr_t* exclude_arr, int32_t* new_excl, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, uintptr_t* exclude_ct_ptr) {
-  int32_t* new_excl_end = &(new_excl[indiv_ct]);
+void exclude_multi(uintptr_t* exclude_arr, int32_t* new_excl, uint32_t unfiltered_indiv_ct, uintptr_t* exclude_ct_ptr) {
   uintptr_t exclude_ct = *exclude_ct_ptr;
-  uintptr_t indiv_uidx = 0;
-  int32_t* cur_stop;
+  uint32_t orig_exclude_ct = exclude_ct;
+  int32_t* new_excl_end = &(new_excl[unfiltered_indiv_ct - orig_exclude_ct]);
+  uint32_t indiv_uidx = 0;
+  uint32_t indiv_uidx_stop;
   do {
-    indiv_uidx = next_non_set_unsafe(exclude_arr, indiv_uidx);
+    indiv_uidx = next_unset_unsafe(exclude_arr, indiv_uidx);
     if (&(new_excl[unfiltered_indiv_ct - indiv_uidx]) < new_excl_end) {
-      cur_stop = &(new_excl[next_set_unsafe(exclude_arr, indiv_uidx)]);
+      indiv_uidx_stop = next_set_unsafe(exclude_arr, indiv_uidx);
     } else {
-      cur_stop = new_excl_end;
+      indiv_uidx_stop = unfiltered_indiv_ct;
     }
     do {
       if (*new_excl++ == -1) {
         set_bit(exclude_arr, indiv_uidx);
 	exclude_ct++;
       }
-    } while (new_excl < cur_stop);
+    } while (++indiv_uidx < indiv_uidx_stop);
   } while (new_excl < new_excl_end);
   *exclude_ct_ptr = exclude_ct;
 }
@@ -5166,8 +5167,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 		if (get_maf(set_allele_freqs[live_indices[uii]]) < get_maf(set_allele_freqs[live_indices[ujj]])) {
 		  set_bit(pruned_arr, live_indices[uii]);
 		} else {
-		  set_bit(pruned_arr, live_indices[ujj]);
-		  ujj++;
+		  set_bit(pruned_arr, live_indices[ujj++]);
 		  while (ujj < cur_window_size) {
 		    if (!is_set(pruned_arr, live_indices[ujj])) {
 		      break;
@@ -5560,7 +5560,7 @@ int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_
     rel_ct_arr[mm] = -1;
     indivs_excluded++;
   }
-  exclude_multi(indiv_exclude, rel_ct_arr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude_ct_ptr);
+  exclude_multi(indiv_exclude, rel_ct_arr, unfiltered_indiv_ct, indiv_exclude_ct_ptr);
   if (indivs_excluded) {
     dist_ptr = g_rel_dists; // write
     dptr2 = g_rel_dists; // read
@@ -6401,7 +6401,7 @@ int32_t do_rel_cutoff_f(uint64_t calculation_type, float rel_cutoff, float* rel_
     rel_ct_arr[mm] = -1;
     indivs_excluded++;
   }
-  exclude_multi(indiv_exclude, rel_ct_arr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude_ct_ptr);
+  exclude_multi(indiv_exclude, rel_ct_arr, unfiltered_indiv_ct, indiv_exclude_ct_ptr);
   if (indivs_excluded) {
     dist_ptr = g_rel_f_dists; // write
     dptr2 = g_rel_f_dists; // read
@@ -8477,10 +8477,10 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 		ppc_fail_counts[indiv_idx2] += 1;
 	      }
 	      if (!cluster_ct) {
-		set_bit(cluster_merge_prevented, tri_coord_no_diag(indiv_idx1, indiv_idx2));
+		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(indiv_idx1, indiv_idx2));
 	      } else {
 		if (clidx1 != clidx2) {
-		  set_bit(cluster_merge_prevented, tcoord);
+		  set_bit_ul(cluster_merge_prevented, tcoord);
 		} else if (!ppc_warning) {
 		  logprint("Warning: Initial cluster assignment violates PPC test constraint.\n");
 		  ppc_warning = 1;
@@ -8677,7 +8677,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	      fwrite(tbuf, 1, wptr - tbuf, outfile);
 	    }
 	    if (dxx < min_ibm) {
-	      set_bit(cluster_merge_prevented, tri_coord_no_diag(indiv_idx2, indiv_idx1));
+	      set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(indiv_idx2, indiv_idx1));
 	    }
 	  }
 	} else {
@@ -8708,9 +8708,9 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    }
 	    if (dxx < min_ibm) {
 	      if (clidx1 < clidx2) {
-		set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
 	      } else if (clidx1 > clidx2) {
-		set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
+		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
 	      } else {
 		ibm_warning = 1;
 	      }
@@ -8729,7 +8729,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	      fwrite(tbuf, 1, wptr - tbuf, outfile);
 	    }
 	    if (dxx < min_ibm) {
-	      set_bit(cluster_merge_prevented, tri_coord_no_diag(indiv_idx2, indiv_idx1));
+	      set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(indiv_idx2, indiv_idx1));
 	    }
 	  }
 	} else {
@@ -8761,9 +8761,9 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    }
 	    if (dxx < min_ibm) {
 	      if (clidx1 < clidx2) {
-		set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
 	      } else if (clidx1 > clidx2) {
-		set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
+		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
 	      } else {
 		ibm_warning = 1;
 	      }
@@ -8873,18 +8873,18 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	}
 	fill_bits(cluster_merge_prevented, (clidx1 * (clidx1 - 1)) >> 1, clidx1);
 	for (clidx2 = clidx1 + 1; clidx2 < cur_cluster_ct; clidx2++) {
-	  set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+	  set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
 	}
       } else if (ujj > uii / 2) {
 	ujj = uii - ujj;
 	for (clidx2 = 0; clidx2 < clidx1; clidx2++) {
 	  if (cluster_starts[clidx2 + 1] - cluster_starts[clidx2] > ujj) {
-	    set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
+	    set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
 	  }
 	}
 	for (clidx2 = clidx1 + 1; clidx2 < cluster_ct; clidx2++) {
 	  if (cluster_starts[clidx2 + 1] - cluster_starts[clidx2] > ujj) {
-	    set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+	    set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
 	  }
 	}
       }
@@ -8904,24 +8904,24 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    mcc_warning = 1;
 	    fill_bits(cluster_merge_prevented, (clidx1 * (clidx1 - 1)) >> 1, clidx1);
 	    for (clidx2 = clidx1 + 1; clidx2 < cur_cluster_ct; clidx2++) {
-	      set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+	      set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
 	    }
 	  } else if (ujj > uii / 2) {
 	    ujj = uii - ujj;
 	    for (clidx2 = 0; clidx2 < clidx1; clidx2++) {
 	      if (cur_cluster_case_cts[clidx2] > ujj) {
-		set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
+		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
 	      }
 	    }
 	    for (clidx2 = clidx1 + 1; clidx2 < cluster_ct; clidx2++) {
 	      if (cur_cluster_case_cts[clidx2] > ujj) {
-		set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
 	      }
 	    }
 	    if (!ujj) {
 	      for (clidx2 = cluster_ct; clidx2 < cur_cluster_ct; clidx2++) {
                 if (cur_cluster_case_cts[clidx2]) {
-		  set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		  set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
 		}
 	      }
 	    }
@@ -8932,7 +8932,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    if (cur_cluster_case_cts[clidx1]) {
 	      for (clidx2 = clidx1 + 1; clidx2 < cur_cluster_ct; clidx2++) {
 		if (cur_cluster_case_cts[clidx2]) {
-		  set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		  set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
 		}
 	      }
 	    }
@@ -8947,24 +8947,24 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    mcc_warning = 1;
 	    fill_bits(cluster_merge_prevented, (clidx1 * (clidx1 - 1)) >> 1, clidx1);
 	    for (clidx2 = clidx1 + 1; clidx2 < cur_cluster_ct; clidx2++) {
-	      set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+	      set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
 	    }
 	  } else if (ujj > uii / 2) {
 	    ujj = uii - ujj;
 	    for (clidx2 = 0; clidx2 < clidx1; clidx2++) {
 	      if (cur_cluster_sizes[clidx2] - cur_cluster_case_cts[clidx2] > ujj) {
-		set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
+		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx2, clidx1));
 	      }
 	    }
 	    for (clidx2 = clidx1 + 1; clidx2 < cluster_ct; clidx2++) {
 	      if (cur_cluster_sizes[clidx2] - cur_cluster_case_cts[clidx2] > ujj) {
-		set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
 	      }
 	    }
 	    if (!ujj) {
 	      for (clidx2 = cluster_ct; clidx2 < cur_cluster_ct; clidx2++) {
                 if (!cur_cluster_case_cts[clidx2]) {
-		  set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		  set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
 		}
 	      }
 	    }
@@ -8975,7 +8975,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    if (!cur_cluster_case_cts[clidx1]) {
 	      for (clidx2 = clidx1 + 1; clidx2 < cur_cluster_ct; clidx2++) {
 		if (!cur_cluster_case_cts[clidx2]) {
-		  set_bit(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
+		  set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(clidx1, clidx2));
 		}
 	      }
 	    }
@@ -8996,7 +8996,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     }
   }
 
-  tcoord = next_set(cluster_merge_prevented, 0, initial_triangle_size);
+  tcoord = next_set_ul(cluster_merge_prevented, 0, initial_triangle_size);
   logprint("Clustering...");
   printf(" [sorting IB%c values]", cluster_missing? 'M' : 'S');
   fflush(stdout);

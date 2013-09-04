@@ -1056,7 +1056,7 @@ static inline uint32_t tri_coord_no_diag_32(uint32_t small_coord, uint32_t big_c
   return ((big_coord * (big_coord - 1)) / 2) + small_coord;
 }
 
-static inline void set_bit(uintptr_t* bit_arr, uintptr_t loc) {
+static inline void set_bit(uintptr_t* bit_arr, uint32_t loc) {
   bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
@@ -1065,7 +1065,7 @@ static inline void set_bit_noct(uintptr_t* bit_arr, uint32_t loc) {
   bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
-static inline void set_bit_32(uintptr_t* bit_arr, uint32_t loc) {
+static inline void set_bit_ul(uintptr_t* bit_arr, uintptr_t loc) {
   bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
@@ -1073,24 +1073,19 @@ void fill_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len);
 
 void clear_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len);
 
-static inline void clear_bit(uintptr_t* bit_arr, uintptr_t loc) {
+static inline void clear_bit(uintptr_t* bit_arr, uint32_t loc) {
   bit_arr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }
 
-static inline void clear_bit_32(uintptr_t* bit_arr, uint32_t loc) {
+static inline void clear_bit_ul(uintptr_t* bit_arr, uintptr_t loc) {
   bit_arr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }
 
-// todo: convert to is_set_ul
 static inline uint32_t is_set(uintptr_t* exclude_arr, uint32_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
 static inline uintptr_t is_set_rul(uintptr_t* bit_arr, uintptr_t loc) {
-  return (bit_arr[loc / BITCT] >> (loc % BITCT)) & 1;
-}
-
-static inline uint32_t is_set_32(uintptr_t* bit_arr, uint32_t loc) {
   return (bit_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
@@ -1104,26 +1099,50 @@ static inline uint32_t is_founder(uintptr_t* founder_info, uintptr_t loc) {
 
 int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc);
 
-uintptr_t next_unset_unsafe(uintptr_t* bit_arr, uintptr_t loc);
-
-uintptr_t next_unset(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil);
-
-uintptr_t next_set_unsafe(uintptr_t* include_arr, uintptr_t loc);
-
-uintptr_t next_set(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil);
+uint32_t next_unset_unsafe(uintptr_t* bit_arr, uint32_t loc);
 
 #ifdef __LP64__
-uint32_t next_set_32(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil);
+uintptr_t next_unset_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc);
 #else
-static inline uint32_t next_set_32(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil) {
-  return (uint32_t)next_set(bit_arr, loc, ceil);
+static inline uintptr_t next_unset_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc) {
+  return (uintptr_t)next_unset_unsafe(bit_arr, loc);
 }
 #endif
 
-intptr_t last_set_bit(uintptr_t* bit_arr, uintptr_t word_ct);
+uint32_t next_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil);
+
+#ifdef __LP64__
+uintptr_t next_unset_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil);
+#else
+static inline uintptr_t next_unset_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
+  return (uintptr_t)next_unset(bit_arr, loc, ceil);
+}
+#endif
+
+uint32_t next_set_unsafe(uintptr_t* bit_arr, uint32_t loc);
+
+#ifdef __LP64__
+uintptr_t next_set_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc);
+#else
+static inline uintptr_t next_set_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc) {
+  return (uintptr_t)next_set_unsafe(bit_arr, loc);
+}
+#endif
+
+uint32_t next_set(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil);
+
+#ifdef __LP64__
+uintptr_t next_set_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil);
+#else
+static inline uintptr_t next_set_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil) {
+  return (uintptr_t)next_set(bit_arr, loc, ceil);
+}
+#endif
+
+int32_t last_set_bit(uintptr_t* bit_arr, uint32_t word_ct);
 
 // note different interface from last_set_bit()
-intptr_t last_clear_bit(uintptr_t* bit_arr, uintptr_t ceil);
+// int32_t last_clear_bit(uintptr_t* bit_arr, uint32_t ceil);
 
 // These functions seem to optimize better than memset(arr, 0, x) under gcc.
 static inline void fill_long_zero(intptr_t* larr, size_t size) {
@@ -1214,9 +1233,9 @@ static inline void fill_double_zero(double* darr, size_t size) {
 
 void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx);
 
-void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t item_ct, uint32_t* uidx_to_idx);
+void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx);
 
-void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t item_ct, uint32_t* uidx_to_idx);
+void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx);
 
 void fill_vec_55(uintptr_t* vec, uint32_t ct);
 
@@ -1399,7 +1418,7 @@ static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr
 
 void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t allow_x_haploid, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_haploid_ptr);
 
-int32_t single_chrom_start(Chrom_info* chrom_info_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude);
+int32_t single_chrom_start(Chrom_info* chrom_info_ptr, uint32_t unfiltered_marker_ct, uintptr_t* marker_exclude);
 
 int32_t strcmp_casted(const void* s1, const void* s2);
 

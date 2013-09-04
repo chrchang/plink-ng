@@ -1010,12 +1010,12 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	  kk = remaining_indiv_parent_idxs[uii * 2];
 	  mm = remaining_indiv_parent_idxs[uii * 2 + 1];
 	  jj = remaining_indiv_idxs[uii];
-	  if (((kk == -1) || is_set_32(processed_indivs, kk)) && ((mm == -1) || is_set_32(processed_indivs, mm))) {
+	  if (((kk == -1) || is_set(processed_indivs, kk)) && ((mm == -1) || is_set(processed_indivs, mm))) {
 	    for (nn = 0; nn < founder_ct; nn++) {
 	      // relationship between kk and nnth founder
 	      if ((kk >= (int32_t)unfiltered_indiv_ct) || (kk == -1)) {
 		dxx = 0.0;
-	      } else if (is_set_32(founder_info, kk)) {
+	      } else if (is_set(founder_info, kk)) {
 		if (kk == (int32_t)complete_indiv_idxs[nn]) {
 		  dxx = 0.5;
 		} else {
@@ -1025,7 +1025,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 		oo = pri_ptr->family_rel_nf_idxs[kk];
                 dxx = 0.5 * rs_ptr[((int64_t)oo * (oo - 1) - llii) / 2 + nn];
 	      }
-	      if (is_set_32(founder_info, mm)) {
+	      if (is_set(founder_info, mm)) {
 		if (mm == (int32_t)complete_indiv_idxs[nn]) {
 		  dxx += 0.5;
 		}
@@ -1040,7 +1040,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 		dxx = 0.0;
 	      } else if (kk >= (int32_t)unfiltered_indiv_ct) {
 		dxx = 0.5 * tmp_rel_space[(nn - founder_ct) * stray_parent_ct + kk - unfiltered_indiv_ctlm];
-	      } else if (is_set_32(founder_info, kk)) {
+	      } else if (is_set(founder_info, kk)) {
                 dxx = 0.5 * rs_ptr[((int64_t)nn * (nn - 1) - llii) / 2 + pri_ptr->family_rel_nf_idxs[kk]];
 	      } else {
 		oo = pri_ptr->family_rel_nf_idxs[kk];
@@ -1054,7 +1054,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	      }
 	      if (mm >= (int32_t)unfiltered_indiv_ct) {
 		dxx += 0.5 * tmp_rel_space[(nn - founder_ct) * stray_parent_ct + mm - unfiltered_indiv_ctlm];
-	      } else if (is_set_32(founder_info, mm)) {
+	      } else if (is_set(founder_info, mm)) {
 		dxx += 0.5 * rs_ptr[((int64_t)nn * (nn - 1) - llii) / 2 + pri_ptr->family_rel_nf_idxs[mm]];
 	      } else if (mm != -1) {
 		oo = pri_ptr->family_rel_nf_idxs[mm];
@@ -1099,7 +1099,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	    }
 	    pri_ptr->family_rel_nf_idxs[jj] = complete_indiv_idx_ct;
 	    complete_indiv_idxs[complete_indiv_idx_ct++] = jj;
-	    set_bit_32(processed_indivs, jj);
+	    set_bit(processed_indivs, jj);
 	  } else {
             remaining_indiv_parent_idxs[indiv_idx_write * 2] = kk;
 	    remaining_indiv_parent_idxs[indiv_idx_write * 2 + 1] = mm;
@@ -1184,11 +1184,11 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
   return 0;
 }
 
-int32_t convert_tail_pheno(uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, double tail_bottom, double tail_top, double missing_phenod) {
+int32_t convert_tail_pheno(uint32_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr, double tail_bottom, double tail_top, double missing_phenod) {
   uintptr_t* pheno_c = *pheno_c_ptr;
   double* pheno_d = *pheno_d_ptr;
-  uintptr_t indiv_uidx;
-  uintptr_t indiv_uidx_stop;
+  uint32_t indiv_uidx;
+  uint32_t indiv_uidx_stop;
   double dxx;
   if (!(*pheno_d_ptr)) {
     logprint("Error: --tail-pheno requires scalar phenotype data.\n");
@@ -1293,7 +1293,7 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
   uintptr_t* indiv_exclude_new;
   char* id_buf;
   char* bufptr;
-  intptr_t person_idx;
+  int32_t person_idx;
   int32_t ii;
   if (wkspace_alloc_c_checked(&id_buf, max_person_id_len)) {
     return RET_NOMEM;
@@ -1326,7 +1326,7 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
     }
     person_idx = bsearch_fam_indiv(id_buf, sorted_person_ids, max_person_id_len, sorted_ids_len, tbuf, bufptr);
     if (person_idx != -1) {
-      person_idx = (uint32_t)id_map[(uintptr_t)person_idx];
+      person_idx = id_map[(uint32_t)person_idx];
       if (!is_set(indiv_exclude, person_idx)) {
 	for (ii = 0; ii < mfilter_col; ii++) {
 	  bufptr = next_item(bufptr);
@@ -3189,12 +3189,12 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   return retval;
 }
 
-uintptr_t binary_geno_filter(double geno_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uintptr_t indiv_ct, uintptr_t male_ct, uint32_t* marker_allele_cts, Chrom_info* chrom_info_ptr) {
-  uintptr_t marker_exclude_ct = *marker_exclude_ct_ptr;
-  uintptr_t orig_exclude_ct = marker_exclude_ct;
-  uint32_t geno_int_thresh = (int32_t)(2 * ((uint32_t)indiv_ct)) - (int32_t)(geno_thresh * 2 * indiv_ct);
-  uintptr_t marker_uidx;
-  uintptr_t chrom_end;
+uintptr_t binary_geno_filter(double geno_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uint32_t indiv_ct, uintptr_t male_ct, uint32_t* marker_allele_cts, Chrom_info* chrom_info_ptr) {
+  uint32_t marker_exclude_ct = *marker_exclude_ct_ptr;
+  uint32_t orig_exclude_ct = marker_exclude_ct;
+  uint32_t geno_int_thresh;
+  uint32_t marker_uidx;
+  uint32_t chrom_end;
   uint32_t chrom_fo_idx;
   int32_t chrom_idx;
   uint32_t cur_ct;
@@ -3503,21 +3503,23 @@ void enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, ui
 }
 
 void enforce_maf_threshold(double min_maf, double max_maf, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, double* set_allele_freqs) {
-  uintptr_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
-  uintptr_t marker_uidx = 0;
-  uintptr_t marker_idx = 0;
-  uintptr_t removed_ct = 0;
+  uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
+  uint32_t marker_uidx = 0;
+  uint32_t marker_idx = 0;
+  uint32_t removed_ct = 0;
   double dxx;
+  min_maf -= EPSILON;
+  max_maf += EPSILON;
   for (; marker_idx < marker_ct; marker_idx++) {
     marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
     dxx = get_maf(set_allele_freqs[marker_uidx]);
-    if ((dxx < min_maf - EPSILON) || (dxx > max_maf + EPSILON)) {
+    if ((dxx < min_maf) || (dxx > max_maf)) {
       set_bit(marker_exclude, marker_uidx);
       removed_ct++;
     }
     marker_uidx++;
   }
-  sprintf(logbuf, "%" PRIuPTR " marker%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  sprintf(logbuf, "%u marker%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
   logprintb();
   *marker_exclude_ct_ptr -= removed_ct;
 }
@@ -3648,12 +3650,12 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     if (max_marker_allele_len == 1) {
       cc = *colx_ptr;
       if (cc == marker_alleles[marker_uidx * 2 + is_a2]) {
-	clear_bit_32(marker_reverse, marker_uidx);
+	clear_bit(marker_reverse, marker_uidx);
       } else if (cc == marker_alleles[marker_uidx * 2 + 1 - is_a2]) {
-	set_bit_32(marker_reverse, marker_uidx);
+	set_bit(marker_reverse, marker_uidx);
       } else if (marker_alleles[marker_uidx * 2 + is_a2] == '0') {
 	marker_alleles[marker_uidx * 2 + is_a2] = cc;
-	clear_bit_32(marker_reverse, marker_uidx);
+	clear_bit(marker_reverse, marker_uidx);
       } else {
 	sprintf(logbuf, "Warning: Impossible A%c allele assignment for marker %s.\n", is_a2? '2' : '1', colid_ptr);
 	logprintb();
@@ -3662,12 +3664,12 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       slen = strlen_se(colx_ptr);
       colx_ptr[slen++] = '\0';
       if (!memcmp(colx_ptr, &(marker_alleles[(marker_uidx * 2 + is_a2) * max_marker_allele_len]), slen)) {
-	clear_bit_32(marker_reverse, marker_uidx);
+	clear_bit(marker_reverse, marker_uidx);
       } else if (!memcmp(colx_ptr, &(marker_alleles[(marker_uidx * 2 + 1 - is_a2) * max_marker_allele_len]), slen)) {
-	set_bit_32(marker_reverse, marker_uidx);
+	set_bit(marker_reverse, marker_uidx);
       } else if (!memcmp(&(marker_alleles[(marker_uidx * 2 + is_a2) * max_marker_allele_len]), "0", 2)) {
 	memcpy(&(marker_alleles[(marker_uidx * 2 + is_a2) * max_marker_allele_len]), colx_ptr, slen);
-	clear_bit_32(marker_reverse, marker_uidx);
+	clear_bit(marker_reverse, marker_uidx);
       } else {
 	sprintf(logbuf, "Warning: Impossible A%c allele assignment for marker %s.\n", is_a2? '2' : '1', colid_ptr);
 	logprintb();
@@ -5527,7 +5529,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
     chrom_info_ptr->mt_code = -1;
     chrom_info_ptr->max_code = ii + 1;
     chrom_info_ptr->autosome_ct = ii;
-    set_bit_32(chrom_info_ptr->haploid_mask, ii + 1);
+    set_bit(chrom_info_ptr->haploid_mask, ii + 1);
   }
   if (flag_match("chr-set", &flag_idx, flag_ct, flag_buf)) {
     if (species_flag(&species_code, SPECIES_UNKNOWN)) {
@@ -5562,21 +5564,21 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       chrom_info_ptr->y_code = ii + 2;
       chrom_info_ptr->xy_code = ii + 3;
       chrom_info_ptr->mt_code = ii + 4;
-      set_bit_32(chrom_info_ptr->haploid_mask, ii + 1);
-      set_bit_32(chrom_info_ptr->haploid_mask, ii + 2);
-      set_bit_32(chrom_info_ptr->haploid_mask, ii + 4);
+      set_bit(chrom_info_ptr->haploid_mask, ii + 1);
+      set_bit(chrom_info_ptr->haploid_mask, ii + 2);
+      set_bit(chrom_info_ptr->haploid_mask, ii + 4);
       for (param_idx = 2; param_idx <= param_ct; param_idx++) {
 	if (!memcmp(argv[cur_arg + param_idx], "no-x", 5)) {
 	  chrom_info_ptr->x_code = -1;
-	  clear_bit_32(chrom_info_ptr->haploid_mask, ii + 1);
+	  clear_bit(chrom_info_ptr->haploid_mask, ii + 1);
 	} else if (!memcmp(argv[cur_arg + param_idx], "no-y", 5)) {
 	  chrom_info_ptr->y_code = -1;
-	  clear_bit_32(chrom_info_ptr->haploid_mask, ii + 2);
+	  clear_bit(chrom_info_ptr->haploid_mask, ii + 2);
 	} else if (!memcmp(argv[cur_arg + param_idx], "no-xy", 6)) {
 	  chrom_info_ptr->xy_code = -1;
 	} else if (!memcmp(argv[cur_arg + param_idx], "no-mt", 6)) {
 	  chrom_info_ptr->mt_code = -1;
-	  clear_bit_32(chrom_info_ptr->haploid_mask, ii + 4);
+	  clear_bit(chrom_info_ptr->haploid_mask, ii + 4);
 	} else {
 	  sprintf(logbuf, "Error: Invalid --chr-set parameter '%s'.%s", argv[cur_arg + param_idx], errstr_append);
 	  goto init_delim_and_species_ret_INVALID_CMDLINE_2;
@@ -11705,11 +11707,11 @@ int32_t main(int32_t argc, char** argv) {
   if (((marker_pos_start != -1) && (!markername_to)) || ((marker_pos_end != -1) && (!markername_from))) {
     // require exactly one chromosome to be defined given --from-bp/--to-bp
     // without --from/--to
-    uii = next_set_32(chrom_info.chrom_mask, 0, CHROM_MASK_INITIAL_WORDS * BITCT);
+    uii = next_set(chrom_info.chrom_mask, 0, CHROM_MASK_INITIAL_WORDS * BITCT);
     if (uii == CHROM_MASK_INITIAL_WORDS * BITCT) {
       uii = 0;
     } else {
-      uii = next_set_32(chrom_info.chrom_mask, uii + 1, CHROM_MASK_INITIAL_WORDS * BITCT);
+      uii = next_set(chrom_info.chrom_mask, uii + 1, CHROM_MASK_INITIAL_WORDS * BITCT);
     }
     if (((uii == CHROM_MASK_INITIAL_WORDS * BITCT) && chrom_info.incl_excl_name_stack) || ((uii != CHROM_MASK_INITIAL_WORDS * BITCT) && (uii || (!chrom_info.incl_excl_name_stack) || chrom_info.incl_excl_name_stack->next))) {
       sprintf(logbuf, "Error: --from-bp/-kb/-mb and --to-bp/-kb/-mb require a single chromosome to be\nidentified (either explicitly with --chr, or implicitly with --from/--to).%s", errstr_append);
