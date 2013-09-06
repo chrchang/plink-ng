@@ -916,7 +916,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
       complete_indiv_idx_ct = 0;
       cur_person_id = stray_parent_ids;
       for (uii = 0; uii < remaining_indiv_ct; uii++) {
-	while (is_set(founder_info, fis_ptr[ii])) {
+	while (IS_SET(founder_info, fis_ptr[ii])) {
 	  complete_indiv_idxs[complete_indiv_idx_ct++] = fis_ptr[ii];
 	  ii++;
 	}
@@ -1460,7 +1460,7 @@ int32_t mind_filter(FILE* bedfile, double mind_thresh, uintptr_t unfiltered_mark
   }
   marker_idx = 0;
   for (marker_uidx = 0; marker_idx < marker_ct; marker_uidx++) {
-    if (is_set(marker_exclude, marker_uidx)) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
       marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	goto mind_filter_ret_READ_FAIL;
@@ -2212,7 +2212,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   for (; pct <= 100; pct++) {
     loop_end = ((uint64_t)pct * marker_ct) / 100LU;
     for (; marker_idx < loop_end; marker_idx++) {
-      if (is_set(marker_exclude, marker_uidx)) {
+      if (IS_SET(marker_exclude, marker_uidx)) {
 	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
 	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	  goto calc_freqs_and_hwe_ret_READ_FAIL;
@@ -2792,7 +2792,7 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
       marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_start[chrom_idx], chrom_end);
       while (marker_uidx < chrom_end) {
 	if (!freq_counts) {
-	  reverse = is_set(marker_reverse, marker_uidx);
+	  reverse = IS_SET(marker_reverse, marker_uidx);
 	  minor_allele = marker_alleles[marker_uidx * 2 + reverse];
 	  if (!minor_allele) {
 	    minor_allele = missing_geno;
@@ -2844,7 +2844,7 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
       marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_start[chrom_idx], chrom_end);
       while (marker_uidx < chrom_end) {
 	if (freqx || (!freq_counts)) {
-	  reverse = is_set(marker_reverse, marker_uidx);
+	  reverse = IS_SET(marker_reverse, marker_uidx);
 	  major_ptr = &(marker_alleles[(marker_uidx * 2 + (1 ^ reverse)) * max_marker_allele_len]);
 	} else {
 	  major_ptr = &(marker_alleles[(marker_uidx * 2 + 1) * max_marker_allele_len]);
@@ -2960,7 +2960,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
       uiptr2 = &(cluster_map[cluster_starts[clidx + 1]]);
       do {
 	uii = *uiptr;
-	if (is_set(founder_info, uii)) {
+	if (IS_SET(founder_info, uii)) {
           cur_cluster_map[clmpos++] = uii;
 	}
       } while ((++uiptr) < uiptr2);
@@ -2980,7 +2980,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
       uiptr2 = &(cur_cluster_map[cur_cluster_starts[clidx + 1]]);
       while (uiptr < uiptr2) {
 	uii = *uiptr++;
-	if (!is_set(sex_male, uii)) {
+	if (!IS_SET(sex_male, uii)) {
           cluster_map_nonmale[clmpos++] = uii;
 	}
       }
@@ -3000,7 +3000,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
       uiptr2 = &(cur_cluster_map[cur_cluster_starts[clidx + 1]]);
       while (uiptr < uiptr2) {
 	uii = *uiptr++;
-	if (is_set(sex_male, uii)) {
+	if (IS_SET(sex_male, uii)) {
           cluster_map_male[clmpos++] = uii;
 	}
       }
@@ -3363,7 +3363,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 	  cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
 	}
 	fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), cptr);
-	reverse = is_set(marker_reverse, marker_uidx);
+	reverse = IS_SET(marker_reverse, marker_uidx);
 	if (reverse) {
 	  cptr3 = &(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]);
 	  cptr4 = &(marker_alleles[2 * marker_uidx * max_marker_allele_len]);
@@ -3412,7 +3412,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 	}
 	fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), cptr0);
 	memcpy(&(cptr0[4 + plink_maxsnp]), "  ALL", 5);
-	reverse = is_set(marker_reverse, marker_uidx);
+	reverse = IS_SET(marker_reverse, marker_uidx);
 	if (reverse) {
 	  cptr3 = &(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]);
 	  cptr4 = &(marker_alleles[2 * marker_uidx * max_marker_allele_len]);

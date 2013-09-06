@@ -197,7 +197,7 @@ int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr) {
 
 int32_t get_next_noncomment_excl(FILE* fptr, char** lptr_ptr, uintptr_t* marker_exclude, uintptr_t* marker_uidx_ptr) {
   while (!get_next_noncomment(fptr, lptr_ptr)) {
-    if (!is_set(marker_exclude, *marker_uidx_ptr)) {
+    if (!is_set_ul(marker_exclude, *marker_uidx_ptr)) {
       return 0;
     }
     *marker_uidx_ptr += 1;
@@ -3274,7 +3274,7 @@ int32_t write_ids(char* outname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv
     return RET_OPEN_FAIL;
   }
   for (ulii = 0; ulii < unfiltered_indiv_ct; ulii++) {
-    if (!is_set(indiv_exclude, ulii) && (fprintf(outfile, "%s\n", &(person_ids[ulii * max_person_id_len])) < 0)) {
+    if (!IS_SET(indiv_exclude, ulii) && (fprintf(outfile, "%s\n", &(person_ids[ulii * max_person_id_len])) < 0)) {
       return RET_WRITE_FAIL;
     }
   }
@@ -5528,7 +5528,7 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
     block_max_size = marker_ct_autosomal - marker_idx;
   }
   while (markers_read < block_max_size) {
-    if (is_set(marker_exclude, marker_uidx)) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
       marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	return RET_READ_FAIL;
@@ -6049,7 +6049,7 @@ void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
     is_x = (chrom_info_ptr->x_code == (int32_t)chrom_idx);
     is_y = (chrom_info_ptr->y_code == (int32_t)chrom_idx);
-    is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
+    is_haploid = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx);
     marker_idx_chrom_end = marker_idx + chrom_end - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, chrom_end);
     if (marker_idx_chrom_end > marker_ct) {
       marker_idx_chrom_end = marker_ct;

@@ -409,7 +409,7 @@ void populate_cluster_case_cts(uintptr_t* pheno_c, uint32_t cluster_ct, uint32_t
     case_ct = 0;
     cluster_end = cluster_starts[cluster_idx + 1];
     for (map_idx = cluster_starts[cluster_idx]; map_idx < cluster_end; map_idx++) {
-      case_ct += is_set(pheno_c, cluster_map[map_idx]);
+      case_ct += IS_SET(pheno_c, cluster_map[map_idx]);
     }
     cluster_case_cts[cluster_idx] = case_ct;
   }
@@ -489,7 +489,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     cluster_assigned_ct = 0;
     cluster_end = cluster_starts[cluster_idx + 1];
     for (map_idx = cluster_starts[cluster_idx]; map_idx < cluster_end; map_idx++) {
-      cluster_assigned_ct += is_set(indiv_include, cluster_map[map_idx]);
+      cluster_assigned_ct += IS_SET(indiv_include, cluster_map[map_idx]);
     }
     if (cluster_assigned_ct > remove_size1) {
       new_cluster_ct++;
@@ -530,7 +530,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
   last_case_ct_incr = 0;
   for (map_read_idx = 0; map_read_idx < old_assigned_ct; map_read_idx++) {
     indiv_uidx = cluster_map[map_read_idx];
-    if (!is_set(indiv_include, indiv_uidx)) {
+    if (!IS_SET(indiv_include, indiv_uidx)) {
       continue;
     }
     if (map_read_idx >= cluster_end) {
@@ -557,7 +557,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     }
     if (pheno_c) {
       case_ct += last_case_ct_incr;
-      last_case_ct_incr = is_set(pheno_c, indiv_uidx);
+      last_case_ct_incr = IS_SET(pheno_c, indiv_uidx);
     }
     new_cluster_map[map_idx++] = uidx_to_idx[indiv_uidx];
   }
@@ -1491,7 +1491,7 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
       }
       for (uii = clidx_small + 1; uii < clidx_large; uii++) {
 	umm = tri_coord_no_diag_32(clidx_small, uii);
-	if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, umm))) {
+	if ((cur_cluster_remap[uii] == uii) && (!IS_SET(merge_prevented, umm))) {
 	  if (is_set(merge_prevented, tcoord1 + uii)) {
 	    SET_BIT(merge_prevented, umm);
 	  } else {
@@ -1508,7 +1508,7 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
       }
       for (uii = clidx_large + 1; uii < cluster_ct; uii++) {
 	umm = tri_coord_no_diag_32(clidx_small, uii);
-	if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, umm))) {
+	if ((cur_cluster_remap[uii] == uii) && (!IS_SET(merge_prevented, umm))) {
 	  if (is_set(merge_prevented, tri_coord_no_diag_32(clidx_large, uii))) {
 	    SET_BIT(merge_prevented, umm);
 	  } else {
@@ -1542,7 +1542,7 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
       }
       for (uii = clidx_small + 1; uii < clidx_large; uii++) {
 	umm = tri_coord_no_diag_32(clidx_small, uii);
-	if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, umm))) {
+	if ((cur_cluster_remap[uii] == uii) && (!IS_SET(merge_prevented, umm))) {
 	  if (is_set(merge_prevented, tcoord1 + uii) || (size_restriction && (cur_cluster_sizes[uii] > cur_size)) || (case_restriction && (cur_cluster_case_cts[uii] > cur_cases)) || (ctrl_restriction && (cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > cur_ctrls))) {
 	    SET_BIT(merge_prevented, umm);
 	  } else {
@@ -1559,7 +1559,7 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
       }
       for (uii = clidx_large + 1; uii < cluster_ct; uii++) {
 	umm = tri_coord_no_diag_32(clidx_small, uii);
-	if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, umm))) {
+	if ((cur_cluster_remap[uii] == uii) && (!IS_SET(merge_prevented, umm))) {
 	  if (is_set(merge_prevented, tri_coord_no_diag_32(clidx_large, uii)) || (size_restriction && (cur_cluster_sizes[uii] > cur_size)) || (case_restriction && (cur_cluster_case_cts[uii] > cur_cases)) || (ctrl_restriction && (cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > cur_ctrls))) {
 	    SET_BIT(merge_prevented, umm);
 	  } else {
@@ -1830,7 +1830,7 @@ uint32_t cluster_group_avg_main(uint32_t cluster_ct, uintptr_t* merge_prevented,
 	}
 	for (uii = clidx_small + 1; uii < clidx_large; uii++) {
 	  ujj = tri_coord_no_diag_32(clidx_small, uii);
-	  if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, ujj))) {
+	  if ((cur_cluster_remap[uii] == uii) && (!IS_SET(merge_prevented, ujj))) {
 	    if (is_set(merge_prevented, tcoord1 + uii)) {
 	      SET_BIT(merge_prevented, ujj);
 	    } else {
@@ -1840,7 +1840,7 @@ uint32_t cluster_group_avg_main(uint32_t cluster_ct, uintptr_t* merge_prevented,
 	}
 	for (uii = clidx_large + 1; uii < cluster_ct; uii++) {
 	  ujj = tri_coord_no_diag_32(clidx_small, uii);
-	  if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, ujj))) {
+	  if ((cur_cluster_remap[uii] == uii) && (!IS_SET(merge_prevented, ujj))) {
 	    if (is_set(merge_prevented, tri_coord_no_diag_32(clidx_large, uii))) {
 	      SET_BIT(merge_prevented, ujj);
 	    } else {
@@ -1860,7 +1860,7 @@ uint32_t cluster_group_avg_main(uint32_t cluster_ct, uintptr_t* merge_prevented,
 	}
 	for (uii = clidx_small + 1; uii < clidx_large; uii++) {
 	  ujj = tri_coord_no_diag_32(clidx_small, uii);
-	  if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, ujj))) {
+	  if ((cur_cluster_remap[uii] == uii) && (!IS_SET(merge_prevented, ujj))) {
 	    if (is_set(merge_prevented, tcoord1 + uii) || (size_restriction && (cur_cluster_sizes[uii] > cur_size)) || (case_restriction && (cur_cluster_case_cts[uii] > cur_cases)) || (ctrl_restriction && (cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > cur_ctrls))) {
 	      SET_BIT(merge_prevented, ujj);
 	    } else {
@@ -1870,7 +1870,7 @@ uint32_t cluster_group_avg_main(uint32_t cluster_ct, uintptr_t* merge_prevented,
 	}
 	for (uii = clidx_large + 1; uii < cluster_ct; uii++) {
 	  ujj = tri_coord_no_diag_32(clidx_small, uii);
-	  if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, ujj))) {
+	  if ((cur_cluster_remap[uii] == uii) && (!IS_SET(merge_prevented, ujj))) {
 	    if (is_set(merge_prevented, tri_coord_no_diag_32(clidx_large, uii)) || (size_restriction && (cur_cluster_sizes[uii] > cur_size)) || (case_restriction && (cur_cluster_case_cts[uii] > cur_cases)) || (ctrl_restriction && (cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > cur_ctrls))) {
 	      SET_BIT(merge_prevented, ujj);
 	    } else {
@@ -1892,7 +1892,7 @@ uint32_t cluster_group_avg_main(uint32_t cluster_ct, uintptr_t* merge_prevented,
 	}
 	for (uii = clidx_small + 1; uii < clidx_large; uii++) {
 	  ujj = tri_coord_no_diag_32(clidx_small, uii);
-	  if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, ujj))) {
+	  if ((cur_cluster_remap[uii] == uii) && (!IS_SET(merge_prevented, ujj))) {
 	    if (is_set(merge_prevented, tcoord1 + uii)) {
 	      SET_BIT(merge_prevented, ujj);
 	    } else {
@@ -1902,7 +1902,7 @@ uint32_t cluster_group_avg_main(uint32_t cluster_ct, uintptr_t* merge_prevented,
 	}
 	for (uii = clidx_large + 1; uii < cluster_ct; uii++) {
 	  ujj = tri_coord_no_diag_32(clidx_small, uii);
-	  if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, ujj))) {
+	  if ((cur_cluster_remap[uii] == uii) && (!IS_SET(merge_prevented, ujj))) {
 	    if (is_set(merge_prevented, tri_coord_no_diag_32(clidx_large, uii))) {
 	      SET_BIT(merge_prevented, ujj);
 	    } else {
@@ -1922,7 +1922,7 @@ uint32_t cluster_group_avg_main(uint32_t cluster_ct, uintptr_t* merge_prevented,
 	}
 	for (uii = clidx_small + 1; uii < clidx_large; uii++) {
 	  ujj = tri_coord_no_diag_32(clidx_small, uii);
-	  if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, ujj))) {
+	  if ((cur_cluster_remap[uii] == uii) && (!IS_SET(merge_prevented, ujj))) {
 	    if (is_set(merge_prevented, tcoord1 + uii) || (size_restriction && (cur_cluster_sizes[uii] > cur_size)) || (case_restriction && (cur_cluster_case_cts[uii] > cur_cases)) || (ctrl_restriction && (cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > cur_ctrls))) {
 	      SET_BIT(merge_prevented, ujj);
 	    } else {
@@ -1932,7 +1932,7 @@ uint32_t cluster_group_avg_main(uint32_t cluster_ct, uintptr_t* merge_prevented,
 	}
 	for (uii = clidx_large + 1; uii < cluster_ct; uii++) {
 	  ujj = tri_coord_no_diag_32(clidx_small, uii);
-	  if ((cur_cluster_remap[uii] == uii) && (!is_set(merge_prevented, ujj))) {
+	  if ((cur_cluster_remap[uii] == uii) && (!IS_SET(merge_prevented, ujj))) {
 	    if (is_set(merge_prevented, tri_coord_no_diag_32(clidx_large, uii)) || (size_restriction && (cur_cluster_sizes[uii] > cur_size)) || (case_restriction && (cur_cluster_case_cts[uii] > cur_cases)) || (ctrl_restriction && (cur_cluster_sizes[uii] - cur_cluster_case_cts[uii] > cur_ctrls))) {
 	      SET_BIT(merge_prevented, ujj);
 	    } else {
@@ -1966,7 +1966,7 @@ void write_cluster1(FILE* outfile, uint32_t clidx, char* person_ids, uintptr_t m
   putc('_', outfile);
   fputs(&(sptr2[1]), outfile);
   if (pheno_c) {
-    if (is_set(pheno_c, indiv_idx_to_uidx[clidx])) {
+    if (IS_SET(pheno_c, indiv_idx_to_uidx[clidx])) {
       fputs("(2)", outfile);
     } else {
       fputs("(1)", outfile);
@@ -1996,7 +1996,7 @@ void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* person_ids, uintpt
     putc('_', outfile);
     fputs(&(sptr2[1]), outfile);
     if (pheno_c) {
-      if (is_set(pheno_c, late_clidx_to_indiv_uidx[clidx - orig_within_ct])) {
+      if (IS_SET(pheno_c, late_clidx_to_indiv_uidx[clidx - orig_within_ct])) {
 	fputs("(2)", outfile);
       } else {
 	fputs("(1)", outfile);
@@ -2011,7 +2011,7 @@ void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* person_ids, uintpt
       putc('_', outfile);
       fputs(&(sptr2[1]), outfile);
       if (pheno_c) {
-	if (is_set(pheno_c, orig_cluster_map[uii])) {
+	if (IS_SET(pheno_c, orig_cluster_map[uii])) {
 	  fputs("(2)", outfile);
 	} else {
 	  fputs("(1)", outfile);

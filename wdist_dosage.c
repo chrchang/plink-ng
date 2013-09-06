@@ -1125,9 +1125,9 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
   uintptr_t uljj;
   uintptr_t indiv_idx;
   uintptr_t tstc;
+  uintptr_t indiv_uidx;
   uint32_t marker_uidx;
   uint32_t marker_idxl;
-  uint32_t indiv_uidx;
   uint32_t non_missing_ct;
   double* missing_tots;
   double* dptr;
@@ -1212,7 +1212,7 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    if (is_set(marker_exclude, marker_uidx)) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
       marker_uidx++;
       continue;
     }
@@ -1247,7 +1247,7 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
 	  }
 	}
 	for (ulii = 0; ulii < uljj; ulii++) {
-	  if (!is_set(indiv_exclude, indiv_uidx + ulii)) {
+	  if (!is_set_ul(indiv_exclude, indiv_uidx + ulii)) {
 	    pzero = pbuf0[ulii];
 	    pone = pbuf1[ulii];
 	    ptwo = pbuf2[ulii];

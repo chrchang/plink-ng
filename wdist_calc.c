@@ -1273,7 +1273,7 @@ double fill_psbuf(uintptr_t block_size, double* dists, uintptr_t* col_uidxp, dou
       }
       increment[sub_block_idx] = subtot - dxx;
       subtot += dxx;
-      ssq[is_set(g_pheno_c, col_uidx)] += dxx * dxx;
+      ssq[IS_SET(g_pheno_c, col_uidx)] += dxx * dxx;
       col_uidx++;
     } while (++sub_block_idx < sub_block_size);
     tot += subtot;
@@ -1381,7 +1381,7 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
     dptr = &(g_dists[(row_uidx * (row_uidx - 1)) / 2]);
     col_idx = 0;
     col_uidx = 0;
-    row_set = is_set(g_pheno_c, row_uidx);
+    row_set = IS_SET(g_pheno_c, row_uidx);
     ibs_test_init_col_buf(row_idx, perm_col_buf);
     do {
       if (col_idx + BITCT > row_idx) {
@@ -2149,7 +2149,7 @@ void groupdist_jack(uint32_t* uibuf, double* returns) {
   double* dptr;
   uint32_t* uiptr3;
   uintptr_t indiv_idx;
-  uint32_t ii2;
+  uint32_t uii;
   while (uiptr < uiptr2) {
     dptr = &(g_jackknife_precomp[(*uiptr++) * JACKKNIFE_VALS_GROUPDIST]);
     neg_tot_uu += *dptr++;
@@ -2161,24 +2161,24 @@ void groupdist_jack(uint32_t* uibuf, double* returns) {
     indiv_idx = *uiptr;
     uiptr3 = uibuf;
     dptr = &(g_dists[(indiv_idx * (indiv_idx - 1)) / 2]);
-    if (is_set(g_pheno_c, indiv_idx)) {
+    if (IS_SET(g_pheno_c, indiv_idx)) {
       neg_a++;
       while (uiptr3 < uiptr) {
-	ii2 = *uiptr3++;
-	if (is_set(g_pheno_c, ii2)) {
-	  neg_tot_aa -= dptr[ii2];
+	uii = *uiptr3++;
+	if (IS_SET(g_pheno_c, uii)) {
+	  neg_tot_aa -= dptr[uii];
 	} else {
-	  neg_tot_au -= dptr[ii2];
+	  neg_tot_au -= dptr[uii];
 	}
       }
     } else {
       neg_u++;
       while (uiptr3 < uiptr) {
-	ii2 = *uiptr3++;
-	if (is_set(g_pheno_c, ii2)) {
-	  neg_tot_au -= dptr[ii2];
+	uii = *uiptr3++;
+	if (IS_SET(g_pheno_c, uii)) {
+	  neg_tot_au -= dptr[uii];
 	} else {
-	  neg_tot_uu -= dptr[ii2];
+	  neg_tot_uu -= dptr[uii];
 	}
       }
     }
@@ -2194,7 +2194,7 @@ void small_remap(uint32_t* uibuf, uint32_t ct, uint32_t dd) {
   uint32_t missings = 0;
   uint32_t curpos = 0;
   do {
-    if (!is_set(g_pheno_nm, curpos)) {
+    if (!IS_SET(g_pheno_nm, curpos)) {
       missings++;
     } else if (*uibuf == curpos - missings) {
       *uibuf++ = curpos;
@@ -2894,7 +2894,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     }
     rewind(grm_binfile);
     for (ulii = 0; ulii < pheno_nm_ct; ulii++) {
-      if (is_set(pheno_nm, indiv_uidx)) {
+      if (IS_SET(pheno_nm, indiv_uidx)) {
 	fpos = indiv_uidx * (indiv_uidx + 1) * (sizeof(float) / 2);
       } else {
         indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
@@ -2906,7 +2906,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
       row_ptr = &(rel_base[ulii * pheno_nm_ct]);
       indiv_uidx2 = 0;
       for (uljj = 0; uljj <= ulii; uljj++) {
-        if (!is_set(pheno_nm, indiv_uidx2)) {
+        if (!IS_SET(pheno_nm, indiv_uidx2)) {
           indiv_uidx2 = next_set_unsafe(pheno_nm, indiv_uidx2);
           if (fseeko(grm_binfile, fpos + (indiv_uidx2 * sizeof(float)), SEEK_SET)) {
             goto unrelated_herit_batch_ret_READ_FAIL;
@@ -2926,7 +2926,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
     }
     ulii = 0;
     for (indiv_uidx = 0; indiv_uidx < pheno_nm_ct; indiv_uidx++) {
-      if (!is_set(pheno_nm, indiv_uidx)) {
+      if (!IS_SET(pheno_nm, indiv_uidx)) {
         for (indiv_uidx2 = 0; indiv_uidx2 <= indiv_uidx; indiv_uidx2++) {
           if (!gzgets(grm_gzfile, tbuf, MAXLINELEN)) {
 	    goto unrelated_herit_batch_ret_READ_FAIL;
@@ -2944,7 +2944,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
 	  if (!tbuf[MAXLINELEN - 1]) {
 	    goto unrelated_herit_batch_ret_INVALID_FORMAT_3;
 	  }
-	  if (is_set(pheno_nm, indiv_uidx2)) {
+	  if (IS_SET(pheno_nm, indiv_uidx2)) {
 	    bufptr = next_item_mult(tbuf, 3);
 	    if (no_more_items_kns(bufptr)) {
 	      goto unrelated_herit_batch_ret_INVALID_FORMAT_3;
@@ -3315,12 +3315,12 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
   lh_poolp = lh_pool;
   hh_poolp = hh_pool;
   for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
-    if (is_set(g_pheno_nm, indiv_idx)) {
-      if (is_set(g_pheno_c, indiv_idx)) {
+    if (IS_SET(g_pheno_nm, indiv_idx)) {
+      if (IS_SET(g_pheno_c, indiv_idx)) {
 	for (uii = 0; uii < indiv_idx; uii++) {
-	  if (is_set(g_pheno_nm, uii)) {
+	  if (IS_SET(g_pheno_nm, uii)) {
 	    dxx = *dist_ptr;
-	    if (is_set(g_pheno_c, uii)) {
+	    if (IS_SET(g_pheno_c, uii)) {
 	      *hh_poolp++ = dxx;
 	      g_reg_tot_x += dxx;
 	      dhh_ssq += dxx * dxx;
@@ -3334,9 +3334,9 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
 	}
       } else {
 	for (uii = 0; uii < indiv_idx; uii++) {
-	  if (is_set(g_pheno_nm, uii)) {
+	  if (IS_SET(g_pheno_nm, uii)) {
 	    dxx = *dist_ptr;
-	    if (is_set(g_pheno_c, uii)) {
+	    if (IS_SET(g_pheno_c, uii)) {
 	      *lh_poolp++ = dxx;
 	      g_reg_tot_xy += dxx;
 	      dhl_ssq += dxx * dxx;
@@ -3410,15 +3410,15 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_indiv_ct, uintptr
     // tot_uu, tot_au, tot_aa
     dist_ptr = g_dists;
     for (indiv_idx = 1; indiv_idx < g_indiv_ct; indiv_idx++) {
-      if (is_set(g_pheno_nm, indiv_idx)) {
+      if (IS_SET(g_pheno_nm, indiv_idx)) {
 	uii = 0;
-	is_case = is_set(g_pheno_c, indiv_idx);
+	is_case = IS_SET(g_pheno_c, indiv_idx);
 	dyy = 0;
 	dzz = 0;
 	do {
-	  if (is_set(g_pheno_nm, uii)) {
+	  if (IS_SET(g_pheno_nm, uii)) {
 	    dxx = dist_ptr[uii];
-	    if (is_set(g_pheno_c, uii)) {
+	    if (IS_SET(g_pheno_c, uii)) {
 	      g_jackknife_precomp[(uii * JACKKNIFE_VALS_GROUPDIST) + is_case + 1] += dxx;
 	      dzz += dxx;
 	    } else {
@@ -3493,8 +3493,8 @@ void normalize_phenos(double* new_phenos, uintptr_t indiv_ct, uintptr_t unfilter
 
   while ((++indiv_idx) < indiv_ct) {
     indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx + 1);
-    if (is_set(sex_nm, indiv_uidx)) {
-      if (is_set(sex_male, indiv_uidx)) {
+    if (IS_SET(sex_nm, indiv_uidx)) {
+      if (IS_SET(sex_male, indiv_uidx)) {
 	if (!incl_males) {
 	  continue;
 	}
@@ -3522,8 +3522,8 @@ void normalize_phenos(double* new_phenos, uintptr_t indiv_ct, uintptr_t unfilter
   indiv_idx = ~ZEROLU;
   while ((++indiv_idx) < indiv_ct) {
     indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx + 1);
-    if (is_set(sex_nm, indiv_uidx)) {
-      if (is_set(sex_male, indiv_uidx)) {
+    if (IS_SET(sex_nm, indiv_uidx)) {
+      if (IS_SET(sex_male, indiv_uidx)) {
 	if (!incl_males) {
 	  continue;
 	}
@@ -3612,7 +3612,7 @@ int32_t ld_process_load(unsigned char* loadbuf, uintptr_t* geno_buf, uintptr_t* 
 
 	uljj = ulii >> 1;
 	new_geno |= (ulii - uljj) << (write_idx * 2);
-	uljj = ((ulii == 1) || ((ulii == 2) && is_set(sex_male, unfiltered_idx)))? 1 : 0;
+	uljj = ((ulii == 1) || ((ulii == 2) && IS_SET(sex_male, unfiltered_idx)))? 1 : 0;
 	new_missing |= uljj << write_idx;
 	new_mask |= ((uljj ^ 1) * 3) << (write_idx * 2);
 	unfiltered_idx++;
@@ -3700,7 +3700,7 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
     window_size = ld_window_size;
   }
   for (uii = 1; uii < window_size; uii++) {
-    while (is_set(marker_exclude, window_unfiltered_end)) {
+    while (IS_SET(marker_exclude, window_unfiltered_end)) {
       window_unfiltered_end++;
       if (window_unfiltered_end == chrom_end) {
 	break;
@@ -3718,7 +3718,7 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
   *cur_chrom_ptr = cur_chrom;
   *chrom_end_ptr = chrom_end;
   *window_unfiltered_end_ptr = window_unfiltered_end;
-  *is_haploid_ptr = is_set(chrom_info_ptr->haploid_mask, cur_chrom);
+  *is_haploid_ptr = IS_SET(chrom_info_ptr->haploid_mask, cur_chrom);
   *is_x_ptr = (((int32_t)cur_chrom) == chrom_info_ptr->x_code)? 1 : 0;
 }
 
@@ -3920,7 +3920,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     goto calc_regress_pcs_ret_READ_FAIL;
   }
   for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-    if (is_set(marker_exclude, marker_uidx)) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
       marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
       if (fseeko(bedfile, bed_offset + (uint64_t)marker_uidx * unfiltered_indiv_ct4, SEEK_SET)) {
 	goto calc_regress_pcs_ret_READ_FAIL;
@@ -4263,7 +4263,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       if (!strcmp(g_cg_fam1, g_cg_fam2)) {
 	while (1) {
 	  if (g_cg_paternal_ids) {
-	    if (!(g_cg_is_founder_fixed || is_set(g_cg_founder_info, g_cg_indiv2idx))) {
+	    if (!(g_cg_is_founder_fixed || IS_SET(g_cg_founder_info, g_cg_indiv2idx))) {
 	      if ((!strcmp(g_cg_pat1, pat2)) && (!strcmp(g_cg_mat1, mat2))) {
 		sptr_cur = memcpyl3a(sptr_cur, "FS ");
 		break;
@@ -4284,7 +4284,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	if (!g_cg_paternal_ids) {
 	  sptr_cur = memcpya(sptr_cur, "    0", 5);
 	} else {
-	  oo = is_set(g_cg_founder_info, g_cg_indiv2idx);
+	  oo = IS_SET(g_cg_founder_info, g_cg_indiv2idx);
 	  if (g_cg_is_founder_fixed && oo) {
 	    dxx = 0.0;
 	  } else {
@@ -4354,10 +4354,10 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       sptr_cur = double_f_writew74(double_f_writew74x(double_f_writew74x(double_f_writew74x(sptr_cur, dxx, ' '), dyy, ' '), dxx1, ' '), dxx2);
 
       if (g_cg_pheno_c) {
-	uii = is_set(g_cg_pheno_nm, g_cg_indiv1idx);
-	ujj = is_set(g_cg_pheno_nm, g_cg_indiv2idx);
-	ukk = is_set(g_cg_pheno_c, g_cg_indiv1idx);
-	umm = is_set(g_cg_pheno_c, g_cg_indiv2idx);
+	uii = IS_SET(g_cg_pheno_nm, g_cg_indiv1idx);
+	ujj = IS_SET(g_cg_pheno_nm, g_cg_indiv2idx);
+	ukk = IS_SET(g_cg_pheno_c, g_cg_indiv1idx);
+	umm = IS_SET(g_cg_pheno_c, g_cg_indiv2idx);
 	if (((!uii) || (!ukk)) && ((!ujj) || (!umm))) {
 	  memcpy(sptr_cur, "  -1 ", 5);
 	} else if (uii && ujj && ukk && umm) {
@@ -4505,7 +4505,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   fill_uint_zero(g_missing_dbl_excluded, tot_cells);
   fill_uint_zero(g_indiv_missing_unwt, g_indiv_ct);
   fill_uint_zero(g_genome_main, tot_cells * 5);
-  if (!is_set(marker_exclude, 0)) {
+  if (!IS_SET(marker_exclude, 0)) {
     if (fseeko(bedfile, bed_offset, SEEK_SET)) {
       retval = RET_READ_FAIL;
       goto calc_genome_ret_1;
@@ -4533,7 +4533,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
     }
     glptr2 = g_marker_window;
     for (ujj = 0; ujj < ukk; ujj++) {
-      if (is_set(marker_exclude, marker_uidx)) {
+      if (IS_SET(marker_exclude, marker_uidx)) {
 	marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
 	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	  retval = RET_READ_FAIL;
@@ -4580,11 +4580,11 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
 	uii = ppc_gap + marker_pos[marker_uidx];
 	if (marker_pos[mp_lead_unfiltered_idx] <= uii) {
 	  do {
-	    if (!is_set(marker_exclude, mp_lead_unfiltered_idx)) {
+	    if (!IS_SET(marker_exclude, mp_lead_unfiltered_idx)) {
 	      mp_lead_idx++;
 	    }
 	    mp_lead_unfiltered_idx++;
-	  } while ((mp_lead_unfiltered_idx < chrom_end) && (is_set(marker_exclude, mp_lead_unfiltered_idx) || (marker_pos[mp_lead_unfiltered_idx] <= uii)));
+	  } while ((mp_lead_unfiltered_idx < chrom_end) && (IS_SET(marker_exclude, mp_lead_unfiltered_idx) || (marker_pos[mp_lead_unfiltered_idx] <= uii)));
 	}
       }
       if (mp_lead_unfiltered_idx < unfiltered_marker_ct) {
@@ -5096,7 +5096,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	do {
 	  at_least_one_prune = 0;
 	  for (uii = 0; uii < cur_window_size - 1; uii++) {
-	    if (is_set(pruned_arr, live_indices[uii])) {
+	    if (IS_SET(pruned_arr, live_indices[uii])) {
 	      continue;
 	    }
 	    fixed_non_missing_ct = g_indiv_ct - missing_cts[uii];
@@ -5115,7 +5115,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	      }
 	    }
 	    for (; ujj < cur_window_size; ujj++) {
-	      if (is_set(pruned_arr, live_indices[ujj])) {
+	      if (IS_SET(pruned_arr, live_indices[ujj])) {
 		continue;
 	      }
 #ifdef __LP64__
@@ -5168,7 +5168,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 		  SET_BIT(pruned_arr, live_indices[ujj]);
 		  ujj++;
 		  while (ujj < cur_window_size) {
-		    if (!is_set(pruned_arr, live_indices[ujj])) {
+		    if (!IS_SET(pruned_arr, live_indices[ujj])) {
 		      break;
 		    }
 		    ujj++;
@@ -5189,14 +5189,14 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	  window_rem = 0;
 	  old_window_rem_li = 0;
 	  for (uii = 0; uii < old_window_size; uii++) {
-	    if (is_set(pruned_arr, live_indices[uii])) {
+	    if (IS_SET(pruned_arr, live_indices[uii])) {
 	      continue;
 	    }
             idx_remap[window_rem++] = uii;
 	  }
 	  old_window_rem_li = window_rem;
 	  for (; uii < cur_window_size; uii++) {
-	    if (is_set(pruned_arr, live_indices[uii])) {
+	    if (IS_SET(pruned_arr, live_indices[uii])) {
 	      continue;
 	    }
             idx_remap[window_rem++] = uii;
@@ -5264,7 +5264,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	}
       }
       for (uii = 0; uii < ld_window_incr; uii++) {
-	while (is_set(marker_exclude, window_unfiltered_start)) {
+	while (IS_SET(marker_exclude, window_unfiltered_start)) {
 	  if (window_unfiltered_start == chrom_end) {
 	    break;
 	  }
@@ -5293,7 +5293,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	}
       }
       for (uii = 0; ujj < cur_window_size; ujj++) {
-	if (is_set(pruned_arr, live_indices[ujj])) {
+	if (IS_SET(pruned_arr, live_indices[ujj])) {
 	  continue;
 	}
 	memcpy(&(geno[uii * indiv_ct_mld_long]), &(geno[ujj * indiv_ct_mld_long]), indiv_ct_mld_long * sizeof(intptr_t));
@@ -5324,7 +5324,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
       }
       old_window_size = cur_window_size;
       for (uii = 0; uii < ujj; uii++) {
-	while ((window_unfiltered_end < chrom_end) && is_set(marker_exclude, window_unfiltered_end)) {
+	while ((window_unfiltered_end < chrom_end) && IS_SET(marker_exclude, window_unfiltered_end)) {
 	  window_unfiltered_end++;
 	}
 	if (window_unfiltered_end < chrom_end) {
@@ -5372,7 +5372,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
   pct = 1;
   uii = 0;
   for (cur_chrom = 1; cur_chrom <= chrom_info_ptr->max_code; cur_chrom++) {
-    if (!is_set(chrom_info_ptr->chrom_mask, cur_chrom)) {
+    if (!IS_SET(chrom_info_ptr->chrom_mask, cur_chrom)) {
       continue;
     }
     if (chrom_info_ptr->chrom_end[cur_chrom]) {
@@ -5387,9 +5387,9 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
     }
     marker_unfiltered_idx = chrom_info_ptr->chrom_start[cur_chrom];
     for (; marker_unfiltered_idx < chrom_end; marker_unfiltered_idx++) {
-      if (!is_set(marker_exclude, marker_unfiltered_idx)) {
+      if (!IS_SET(marker_exclude, marker_unfiltered_idx)) {
 	sptr = &(marker_ids[marker_unfiltered_idx * max_marker_id_len]);
-	fptr = is_set(pruned_arr, marker_unfiltered_idx)? outfile_out : outfile_in;
+	fptr = IS_SET(pruned_arr, marker_unfiltered_idx)? outfile_out : outfile_in;
 	fwrite(sptr, 1, strlen(sptr), fptr);
 	if (putc('\n', fptr) == EOF) {
 	  goto ld_prune_ret_WRITE_FAIL;
@@ -7678,7 +7678,7 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
       glptr = g_mmasks;
       giptr = g_indiv_missing_unwt;
       for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-	if (!is_set(indiv_exclude, indiv_uidx)) {
+	if (!IS_SET(indiv_exclude, indiv_uidx)) {
 	  unn = (indiv_uidx % 4) * 2;
 	  ulii = 0;
 	  gptr = &(bedbuf[indiv_uidx / 4 + ukk * unfiltered_indiv_ct4]);
@@ -7915,7 +7915,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	  giptr2 = g_indiv_missing_unwt;
 	}
 	for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-	  if (!is_set(indiv_exclude, indiv_uidx)) {
+	  if (!IS_SET(indiv_exclude, indiv_uidx)) {
 	    unn = (indiv_uidx % 4) * 2;
 	    ulii = 0;
 	    ulkk = 0;
@@ -8001,7 +8001,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	glptr3 = g_mmasks;
 	giptr3 = g_indiv_missing;
 	for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-	  if (!is_set(indiv_exclude, indiv_uidx)) {
+	  if (!IS_SET(indiv_exclude, indiv_uidx)) {
 	    unn = (indiv_uidx % 4) * 2;
 	    ulii = 0;
 	    ulkk = 0;
@@ -8843,13 +8843,13 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       fill_uint_zero(cur_cluster_case_cts, cur_cluster_ct);
       if (!cluster_ct) {
 	for (indiv_idx1 = 0; indiv_idx1 < indiv_ct; indiv_idx1++) {
-	  if (is_set(collapsed_pheno_c, indiv_idx1)) {
+	  if (IS_SET(collapsed_pheno_c, indiv_idx1)) {
 	    cur_cluster_case_cts[indiv_idx1] += 1;
 	  }
 	}
       } else {
 	for (indiv_idx1 = 0; indiv_idx1 < indiv_ct; indiv_idx1++) {
-	  if (is_set(collapsed_pheno_c, indiv_idx1)) {
+	  if (IS_SET(collapsed_pheno_c, indiv_idx1)) {
 	    cur_cluster_case_cts[indiv_to_cluster[indiv_idx1]] += 1;
 	  }
 	}

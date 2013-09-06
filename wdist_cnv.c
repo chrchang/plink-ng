@@ -129,7 +129,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
 	}
       }
       uljj = ((uint32_t)ii);
-      if (!is_set(chrom_mask, uljj)) {
+      if (!IS_SET(chrom_mask, uljj)) {
 	continue;
       }
       bufptr = next_item(bufptr);
@@ -513,7 +513,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	}
       }
       chrom_idx = ii;
-      if ((!is_autogen) && (!is_set(chrom_mask, chrom_idx))) {
+      if ((!is_autogen) && (!IS_SET(chrom_mask, chrom_idx))) {
 	continue;
       }
       ullii = ((uint64_t)chrom_idx) << 32;
@@ -773,7 +773,7 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
       goto validate_cnv_map_ret_INVALID_FORMAT_2;
     }
     last_pos = ii;
-    if (!is_set(chrom_mask, chrom_idx)) {
+    if (!IS_SET(chrom_mask, chrom_idx)) {
       continue;
     }
     if ((last_pos <= marker_pos_start_m1) || (last_pos > marker_pos_end)) {
@@ -845,7 +845,7 @@ int32_t load_cnv_map(FILE* mapfile, int32_t marker_pos_start, int32_t marker_pos
       continue;
     }
     chrom_idx = marker_code(chrom_info_ptr, bufptr);
-    if (!is_set(chrom_mask, chrom_idx)) {
+    if (!IS_SET(chrom_mask, chrom_idx)) {
       continue;
     }
     bufptr = next_item(bufptr);
