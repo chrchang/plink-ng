@@ -4612,7 +4612,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       indiv_uidx = 0;
       fill_int_zero(missing_ct_buf, BITCT);
       missing_ct_all = 0;
-      for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
+      for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_uidx++, indiv_idx++) {
 	indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
 	uoo = (indiv_uidx % 4) * 2;
 	ulii = 0;
@@ -4677,7 +4677,6 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
 	glptr = &(glptr[(GENOME_MULTIPLEX2 / BITCT) - 1]);
 	glptr2 = &(glptr2[(GENOME_MULTIPLEX2 / BITCT) - 1]);
 	giptr++;
-	indiv_uidx++;
       }
       unn = ukk - ujj;
       if (unn > BITCT) {

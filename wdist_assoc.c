@@ -8135,6 +8135,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   uintptr_t loop_end;
   uintptr_t marker_idx;
   uintptr_t indiv_uidx;
+  uintptr_t indiv_uidx_stop;
   uintptr_t indiv_idx;
   uintptr_t indiv_idx2;
   uintptr_t indiv_idx2_offset;
@@ -8209,23 +8210,27 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
 
   fill_ulong_zero(covar_nm_raw, unfiltered_indiv_ctl);
   indiv_uidx = 0;
+  indiv_idx = 0;
   indiv_idx2 = 0;
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+  do {
     indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-    if (IS_SET(gxe_covar_nm, indiv_idx)) {
-      SET_BIT(covar_nm_raw, indiv_uidx);
-      dxx = pheno_d[indiv_uidx];
-      if (IS_SET(gxe_covar_c, indiv_idx)) {
-	pheno_sum_g2 += dxx;
-	pheno_ssq_g2 += dxx * dxx;
-      } else {
-        pheno_sum_g1 += dxx;
-        pheno_ssq_g1 += dxx * dxx;
+    indiv_uidx_stop = next_set_ul(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
+    do {
+      if (IS_SET(gxe_covar_nm, indiv_idx)) {
+        SET_BIT(covar_nm_raw, indiv_uidx);
+        dxx = pheno_d[indiv_uidx];
+        if (IS_SET(gxe_covar_c, indiv_idx)) {
+	  pheno_sum_g2 += dxx;
+	  pheno_ssq_g2 += dxx * dxx;
+	} else {
+	  pheno_sum_g1 += dxx;
+	  pheno_ssq_g1 += dxx * dxx;
+	}
+	pheno_d_collapsed[indiv_idx2++] = dxx;
       }
-      pheno_d_collapsed[indiv_idx2++] = dxx;
-    }
-    indiv_uidx++;
-  }
+      indiv_idx++;
+    } while (++indiv_uidx < indiv_uidx_stop);
+  } while (indiv_idx < indiv_ct);
 
   if (wkspace_alloc_ul_checked(&group1_include2, covar_nm_ctl * 2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&group2_include2, covar_nm_ctl * 2 * sizeof(intptr_t))) {
@@ -8256,18 +8261,22 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
     }
     fill_ulong_zero(indiv_male_include2, covar_nm_ctl * 2);
     indiv_uidx = 0;
+    indiv_idx = 0;
     indiv_idx2 = 0;
-    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+    do {
       indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-      if (IS_SET(gxe_covar_nm, indiv_idx)) {
-	if (IS_SET(sex_male, indiv_uidx)) {
-          SET_BIT_DBL(indiv_male_include2, indiv_idx2);
-	  male_ct++;
+      indiv_uidx_stop = next_set_ul(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
+      do {
+        if (IS_SET(gxe_covar_nm, indiv_idx)) {
+          if (IS_SET(sex_male, indiv_uidx)) {
+	    SET_BIT_DBL(indiv_male_include2, indiv_idx2);
+	    male_ct++;
+	  }
+	  indiv_idx2++;
 	}
-        indiv_idx2++;
-      }
-      indiv_uidx++;
-    }
+	indiv_idx++;
+      } while (++indiv_uidx < indiv_uidx_stop);
+    } while (indiv_idx < indiv_ct);
     male_ctl = (male_ct + (BITCT - 1)) / BITCT;
     if (y_exists) {
       group1_size_male = popcount_longs_exclude(indiv_male_include2, group2_include2, covar_nm_ctl * 2);
