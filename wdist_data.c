@@ -2768,7 +2768,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     if (covar_range_list_ptr) {
       covar_uidx = 0;
       for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
-	covar_uidx = next_set_unsafe(covars_active, covar_uidx);
+	covar_uidx = next_set_ul_unsafe(covars_active, covar_uidx);
 	uint32_writex(memcpyl3a(&(covar_names[covar_idx * max_covar_name_len]), "COV"), ++covar_uidx, '\0');
       }
     }
@@ -8786,13 +8786,13 @@ uint32_t recode_load_to(unsigned char* loadbuf, FILE* bedfile, uintptr_t bed_off
   }
   while (marker_idx < marker_idx_end) {
     if (IS_SET(marker_exclude, marker_uidx)) {
-      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	return 1;
       }
     }
     if (unfiltered_marker_ct - marker_uidx > marker_idx_end - marker_idx) {
-      ulii = next_set_unsafe(marker_exclude, marker_uidx) - marker_uidx;
+      ulii = next_set_ul_unsafe(marker_exclude, marker_uidx) - marker_uidx;
     } else {
       ulii = unfiltered_marker_ct - marker_uidx;
     }
