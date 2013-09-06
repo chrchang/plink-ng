@@ -3953,146 +3953,58 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
   return retval;
 }
 
-void fill_bmap_short(unsigned char* bmap_short, uint32_t ct_mod4) {
-  unsigned char imap[4] = {3, 1, 2, 0};
-  unsigned char* bmap = bmap_short;
-  uint32_t uii;
-  uint32_t ujj;
-  uint32_t ukk;
-  uint32_t umm;
-  uint32_t unn;
-  uint32_t extra_ct;
-  for (uii = 0; uii < 4; uii++) {
-    umm = imap[uii] * 64;
-    for (ujj = 0; ujj < 4; ujj++) {
-      unn = umm + imap[ujj] * 16;
-      for (ukk = 0; ukk < 4; ukk++) {
-	extra_ct = unn + imap[ukk] * 4;
-	*bmap++ = extra_ct + 3;
-	*bmap++ = extra_ct + 1;
-	*bmap++ = extra_ct + 2;
-	*bmap++ = extra_ct;
+int32_t make_bed_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ct4, uintptr_t* indiv_exclude, uint32_t indiv_ct, uint32_t* indiv_sort_map, uint32_t is_reverse, uintptr_t* writebuf) {
+  uintptr_t* writeptr = writebuf;
+  uintptr_t cur_word = 0;
+  uint32_t indiv_uidx = 0;
+  uint32_t ii_rem = 0;
+  uint32_t indiv_idx = 0;
+  uint32_t indiv_uidx2;
+  if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+    return RET_READ_FAIL;
+  }
+  if (indiv_sort_map) {
+    for (; indiv_idx < indiv_ct; indiv_idx++) {
+      do {
+	indiv_uidx2 = indiv_sort_map[indiv_uidx++];
+      } while (IS_SET(indiv_exclude, indiv_uidx2));
+      cur_word |= (((loadbuf[indiv_uidx2 / BITCT2] >> ((indiv_uidx2 % BITCT2) * 2)) & 3) << (ii_rem * 2));
+      if (++ii_rem == BITCT2) {
+	*writeptr++ = cur_word;
+	cur_word = 0;
+	ii_rem = 0;
       }
     }
-  }
-  if (ct_mod4) {
-    switch (ct_mod4) {
-    case 1:
-      bmap[0] = 3;
-      bmap[1] = 1;
-      bmap[2] = 2;
-      bmap[3] = 0;
-      return;
-    case 2:
-      for (uii = 0; uii < 4; uii++) {
-	ukk = imap[uii] * 4;
-	*bmap++ = ukk + 3;
-	*bmap++ = ukk + 1;
-	*bmap++ = ukk + 2;
-	*bmap++ = ukk;
-      }
-      return;
-    case 3:
-      for (uii = 0; uii < 4; uii++) {
-	ukk = imap[uii] * 16;
-	for (ujj = 0; ujj < 4; ujj++) {
-	  umm = ukk + imap[ujj] * 4;
-	  *bmap++ = umm + 3;
-	  *bmap++ = umm + 1;
-	  *bmap++ = umm + 2;
-	  *bmap++ = umm;
+  } else {
+    // just copy first words when possible
+    if (!indiv_exclude[0]) {
+      indiv_uidx = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct & (~(BITCT2 - 1)));
+      memcpy(writeptr, loadbuf, indiv_uidx / 4);
+      indiv_idx = indiv_uidx;
+      writeptr = &(writeptr[indiv_uidx / BITCT2]);
+    }
+    while (indiv_idx < indiv_ct) {
+      indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
+      indiv_uidx2 = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
+      indiv_idx += indiv_uidx2 - indiv_uidx;
+      do {
+	cur_word |= (((loadbuf[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3) << (ii_rem * 2));
+	if (++ii_rem == BITCT2) {
+	  *writeptr++ = cur_word;
+	  cur_word = 0;
+	  ii_rem = 0;                  
 	}
-      }
+      } while (++indiv_uidx < indiv_uidx2);
     }
   }
+  if (ii_rem) {
+    *writeptr = cur_word;
+  }
+  if (is_reverse) {
+    reverse_loadbuf((unsigned char*)writebuf, indiv_ct);
+  }
+  return 0;
 }
-
-void fill_bmap_raw(unsigned char* bmap_raw, uint32_t ct_mod4) {
-  // possibilities:
-  // 0. A1 -> A1, A2 -> A2 [0..255]
-  // 1. A1 -> A2, A2 -> A1 [256..511]
-  // 1 last char. [512..575]
-  uint32_t uii = 0;
-  do {
-    *bmap_raw++ = uii++;
-  } while (uii < 256);
-  fill_bmap_short(bmap_raw, ct_mod4);
-}
-
-/*
-void fill_bmap_hap(unsigned char* bmap_hap, uint32_t ct_mod4) {
-  unsigned char imap[4];
-  unsigned char* bmap = bmap_hap;
-  uint32_t uii;
-  uint32_t ujj;
-  uint32_t ukk;
-  uint32_t umm;
-  uint32_t unn;
-  uint32_t uoo;
-  imap[0] = 0;
-  imap[1] = 1;
-  imap[2] = 1;
-  imap[3] = 3;
-  for (uii = 0; uii < 4; uii++) {
-    umm = imap[uii] * 64;
-    for (ujj = 0; ujj < 4; ujj++) {
-      unn = umm + imap[ujj] * 16;
-      for (ukk = 0; ukk < 4; ukk++) {
-	uoo = unn + imap[ukk] * 4;
-	*bmap++ = uoo;
-	*bmap++ = uoo + 1;
-	*bmap++ = uoo + 1;
-	*bmap++ = uoo + 3;
-      }
-    }
-  }
-  imap[0] = 3;
-  imap[3] = 0;
-  for (uii = 0; uii < 4; uii++) {
-    umm = imap[uii] * 64;
-    for (ujj = 0; ujj < 4; ujj++) {
-      unn = umm + imap[ujj] * 16;
-      for (ukk = 0; ukk < 4; ukk++) {
-	uoo = unn + imap[ukk] * 4;
-	*bmap++ = uoo + 3;
-	*bmap++ = uoo + 1;
-	*bmap++ = uoo + 1;
-	*bmap++ = uoo;
-      }
-    }
-  }
-  if (ct_mod4) {
-    switch (ct_mod4) {
-    case 1:
-      bmap[0] = 3;
-      bmap[1] = 1;
-      bmap[2] = 1;
-      bmap[3] = 0;
-      return;
-    case 2:
-      for (uii = 0; uii < 4; uii++) {
-	ukk = imap[uii] * 4;
-	*bmap++ = ukk + 3;
-	*bmap++ = ukk + 1;
-	*bmap++ = ukk + 1;
-	*bmap++ = ukk;
-      }
-      return;
-    case 3:
-      for (uii = 0; uii < 4; uii++) {
-	ukk = imap[uii] * 16;
-	for (ujj = 0; ujj < 4; ujj++) {
-	  umm = ukk + imap[ujj] * 4;
-	  *bmap++ = umm + 3;
-	  *bmap++ = umm + 1;
-	  *bmap++ = umm + 1;
-	  *bmap++ = umm;
-	}
-      }
-    }
-  }
-}
-*/
 
 int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t map_cols, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint32_t* indiv_sort_map, uint64_t misc_flags, Two_col_params* update_chr, char* flip_subset_fname, uint32_t xmhh_exists, uint32_t nxmhh_exists, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
@@ -4119,15 +4031,11 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
   uintptr_t* loadbuf;
   uintptr_t* writebuf;
   uint32_t* map_reverse;
-  uintptr_t* writeptr;
-  uintptr_t* writeptr2;
-  uintptr_t cur_word;
   uint32_t is_haploid;
   uint32_t is_x;
   uint32_t is_y;
   uint32_t pct;
   uint32_t loop_end;
-  uint32_t ii_rem;
   if (flip_subset_fname) {
     logprint("Error: --flip-subset is not implemented yet.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -4203,47 +4111,9 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	    goto make_bed_ret_READ_FAIL;
 	  }
 	}
-	writeptr = &(writebuf[indiv_ctv2 * map_reverse[marker_uidx]]);
-	writeptr2 = writeptr;
-	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
-	  goto make_bed_ret_READ_FAIL;
-	}
-	indiv_uidx = 0;
-	cur_word = 0;
-	ii_rem = 0;
-	if (indiv_sort_map) {
-	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-	    do {
-	      indiv_uidx2 = indiv_sort_map[indiv_uidx++];
-	    } while (IS_SET(indiv_exclude, indiv_uidx2));
-	    cur_word |= (((loadbuf[indiv_uidx2 / BITCT2] >> ((indiv_uidx2 % BITCT2) * 2)) & 3) << (ii_rem * 2));
-	    if (++ii_rem == BITCT2) {
-	      *writeptr2++ = cur_word;
-	      cur_word = 0;
-	      ii_rem = 0;
-	    }
-	  }
-	} else {
-	  indiv_idx = 0;
-	  do {
-	    indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-	    indiv_uidx2 = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
-	    indiv_idx += indiv_uidx2 - indiv_uidx;
-	    do {
-	      cur_word |= (((loadbuf[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3) << (ii_rem * 2));
-	      if (++ii_rem == BITCT2) {
-		*writeptr2++ = cur_word;
-		cur_word = 0;
-		ii_rem = 0;                  
-	      }
-	    } while (++indiv_uidx < indiv_uidx2);
-	  } while (indiv_idx < indiv_ct);
-	}
-	if (ii_rem) {
-	  *writeptr2 = cur_word;
-	}
-	if (IS_SET(marker_reverse, marker_uidx)) {
-	  reverse_loadbuf((unsigned char*)writeptr, indiv_ct);
+        retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), &(writebuf[indiv_ctv2 * map_reverse[marker_uidx]]));
+	if (retval) {
+	  goto make_bed_ret_1;
 	}
       }
       if (pct < 100) {
@@ -4312,48 +4182,9 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
           chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	}
-	writeptr = writebuf;
-	// probably want to break this off into its own function since it's
-	// identical between the two make-bed halves...
-	if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
-	  goto make_bed_ret_READ_FAIL;
-	}
-	indiv_uidx = 0;
-	cur_word = 0;
-	ii_rem = 0;
-	if (indiv_sort_map) {
-	  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-	    do {
-	      indiv_uidx2 = indiv_sort_map[indiv_uidx++];
-	    } while (IS_SET(indiv_exclude, indiv_uidx2));
-	    cur_word |= (((loadbuf[indiv_uidx2 / BITCT2] >> ((indiv_uidx2 % BITCT2) * 2)) & 3) << (ii_rem * 2));
-	    if (++ii_rem == BITCT2) {
-	      *writeptr++ = cur_word;
-	      cur_word = 0;
-	      ii_rem = 0;
-	    }
-	  }
-	} else {
-	  indiv_idx = 0;
-	  do {
-	    indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-	    indiv_uidx2 = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
-	    indiv_idx += indiv_uidx2 - indiv_uidx;
-	    do {
-	      cur_word |= (((loadbuf[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3) << (ii_rem * 2));
-	      if (++ii_rem == BITCT2) {
-		*writeptr++ = cur_word;
-		cur_word = 0;
-		ii_rem = 0;                  
-	      }
-	    } while (++indiv_uidx < indiv_uidx2);
-	  } while (indiv_idx < indiv_ct);
-	}
-	if (ii_rem) {
-	  *writeptr = cur_word;
-	}
-	if (IS_SET(marker_reverse, marker_uidx)) {
-	  reverse_loadbuf((unsigned char*)writebuf, indiv_ct);
+        retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_indiv_ct, unfiltered_indiv_ct4, indiv_exclude, indiv_ct, indiv_sort_map, IS_SET(marker_reverse, marker_uidx), writebuf);
+	if (retval) {
+	  goto make_bed_ret_1;
 	}
 	if (is_haploid && set_hh_missing) {
 	  haploid_fix(xmhh_exists, nxmhh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)writebuf);
@@ -5922,6 +5753,72 @@ int32_t heapstr_alloc(char** new_sptr, char* new_str, uint32_t slen) {
     *new_sptr = sptr;
     return 0;
   }
+}
+
+void fill_bmap_short(unsigned char* bmap_short, uint32_t ct_mod4) {
+  unsigned char imap[4] = {3, 1, 2, 0};
+  unsigned char* bmap = bmap_short;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
+  uint32_t unn;
+  uint32_t extra_ct;
+  for (uii = 0; uii < 4; uii++) {
+    umm = imap[uii] * 64;
+    for (ujj = 0; ujj < 4; ujj++) {
+      unn = umm + imap[ujj] * 16;
+      for (ukk = 0; ukk < 4; ukk++) {
+	extra_ct = unn + imap[ukk] * 4;
+	*bmap++ = extra_ct + 3;
+	*bmap++ = extra_ct + 1;
+	*bmap++ = extra_ct + 2;
+	*bmap++ = extra_ct;
+      }
+    }
+  }
+  if (ct_mod4) {
+    switch (ct_mod4) {
+    case 1:
+      bmap[0] = 3;
+      bmap[1] = 1;
+      bmap[2] = 2;
+      bmap[3] = 0;
+      return;
+    case 2:
+      for (uii = 0; uii < 4; uii++) {
+	ukk = imap[uii] * 4;
+	*bmap++ = ukk + 3;
+	*bmap++ = ukk + 1;
+	*bmap++ = ukk + 2;
+	*bmap++ = ukk;
+      }
+      return;
+    case 3:
+      for (uii = 0; uii < 4; uii++) {
+	ukk = imap[uii] * 16;
+	for (ujj = 0; ujj < 4; ujj++) {
+	  umm = ukk + imap[ujj] * 4;
+	  *bmap++ = umm + 3;
+	  *bmap++ = umm + 1;
+	  *bmap++ = umm + 2;
+	  *bmap++ = umm;
+	}
+      }
+    }
+  }
+}
+
+void fill_bmap_raw(unsigned char* bmap_raw, uint32_t ct_mod4) {
+  // possibilities:
+  // 0. A1 -> A1, A2 -> A2 [0..255]
+  // 1. A1 -> A2, A2 -> A1 [256..511]
+  // 1 last char. [512..575]
+  uint32_t uii = 0;
+  do {
+    *bmap_raw++ = uii++;
+  } while (uii < 256);
+  fill_bmap_short(bmap_raw, ct_mod4);
 }
 
 int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, uint32_t lgen_modifier, char* lgen_reference_fname, Chrom_info* chrom_info_ptr) {
