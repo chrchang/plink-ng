@@ -748,18 +748,13 @@ int32_t get_chrom_end(Chrom_info* chrom_info_ptr, uintptr_t marker_idx) {
 }
 
 void exclude_multi(uintptr_t* exclude_arr, int32_t* new_excl, uint32_t unfiltered_indiv_ct, uintptr_t* exclude_ct_ptr) {
-  uintptr_t exclude_ct = *exclude_ct_ptr;
-  uint32_t orig_exclude_ct = exclude_ct;
-  int32_t* new_excl_end = &(new_excl[unfiltered_indiv_ct - orig_exclude_ct]);
+  uint32_t exclude_ct = *exclude_ct_ptr;
+  int32_t* new_excl_end = &(new_excl[unfiltered_indiv_ct - exclude_ct]);
   uint32_t indiv_uidx = 0;
   uint32_t indiv_uidx_stop;
   do {
     indiv_uidx = next_unset_unsafe(exclude_arr, indiv_uidx);
-    if (&(new_excl[unfiltered_indiv_ct - indiv_uidx]) < new_excl_end) {
-      indiv_uidx_stop = next_set_unsafe(exclude_arr, indiv_uidx);
-    } else {
-      indiv_uidx_stop = unfiltered_indiv_ct;
-    }
+    indiv_uidx_stop = next_set(exclude_arr, indiv_uidx, unfiltered_indiv_ct);
     do {
       if (*new_excl++ == -1) {
         SET_BIT(exclude_arr, indiv_uidx);
@@ -4234,7 +4229,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       if (g_cg_paternal_ids) {
 	g_cg_pat1 = &(g_cg_paternal_ids[g_cg_indiv1idx * g_cg_max_paternal_id_len]);
 	g_cg_mat1 = &(g_cg_maternal_ids[g_cg_indiv1idx * g_cg_max_maternal_id_len]);
-	g_cg_is_founder_fixed = is_founder(g_cg_founder_info, g_cg_indiv1idx);
+	g_cg_is_founder_fixed = IS_NULL_OR_SET(g_cg_founder_info, g_cg_indiv1idx);
 	g_cg_rel_space_id_fixed = g_cg_pri.family_rel_nf_idxs[g_cg_indiv1idx];
 	g_cg_family_id_fixed = g_cg_pri.family_idxs[g_cg_indiv1idx];
 	founder_ct = g_cg_pri.family_founder_cts[g_cg_family_id_fixed];
@@ -4623,7 +4618,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
 	ulii = 0;
 	ulkk = 0;
         gptr = &(loadbuf[indiv_uidx / 4 + ujj * unfiltered_indiv_ct4]);
-	uqq = (nonfounders || is_founder(founder_info, indiv_uidx));
+	uqq = (nonfounders || IS_NULL_OR_SET(founder_info, indiv_uidx));
 	if (uqq) {
 	  for (upp = 0; upp < BITCT2; upp++) {
 	    uljj = (gptr[upp * unfiltered_indiv_ct4] >> uoo) & 3;

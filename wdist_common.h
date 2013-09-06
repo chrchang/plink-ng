@@ -1098,9 +1098,7 @@ static inline uint32_t is_set_ul(uintptr_t* exclude_arr, uintptr_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
-static inline uint32_t is_founder(uintptr_t* founder_info, uintptr_t loc) {
-  return ((!founder_info) || ((founder_info[loc / BITCT] >> (loc % BITCT)) & 1));
-}
+#define IS_NULL_OR_SET(aa, bb) ((!aa) || IS_SET(aa, bb))
 
 int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc);
 

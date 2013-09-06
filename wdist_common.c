@@ -2665,71 +2665,44 @@ int32_t last_clear_bit(uintptr_t* bit_arr, uint32_t ceil) {
 void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx) {
   uint32_t* idx_to_uidx_end = &(idx_to_uidx[item_ct]);
   uint32_t item_uidx = 0;
-  uint32_t* cur_stop;
+  uint32_t item_uidx_stop;
   do {
     item_uidx = next_unset_unsafe(exclude_arr, item_uidx);
-    if (&(idx_to_uidx[unfiltered_item_ct - item_uidx]) < idx_to_uidx_end) {
-      cur_stop = &(idx_to_uidx[next_set_unsafe(exclude_arr, item_uidx)]);
-    } else {
-      cur_stop = idx_to_uidx_end;
-    }
+    item_uidx_stop = next_set(exclude_arr, item_uidx, unfiltered_item_ct);
     do {
       *idx_to_uidx++ = item_uidx++;
-    } while (idx_to_uidx < cur_stop);
+    } while (item_uidx < item_uidx_stop);
   } while (idx_to_uidx < idx_to_uidx_end);
 }
 
 void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx) {
-  uint32_t exclude_ct = unfiltered_item_ct - item_ct;
-  uint32_t excluded_so_far = 0;
+  uint32_t item_uidx = 0;
   uint32_t item_idx = 0;
   uint32_t* uidx_to_idx_ptr;
-  uint32_t item_uidx;
-  uint32_t item_idx_stop;
+  uint32_t* uidx_to_idx_stop;
   do {
-    item_uidx = next_unset_unsafe(exclude_arr, item_idx + excluded_so_far);
+    item_uidx = next_unset_unsafe(exclude_arr, item_uidx);
     uidx_to_idx_ptr = &(uidx_to_idx[item_uidx]);
-    excluded_so_far = item_uidx - item_idx;
-    if (exclude_ct > excluded_so_far) {
-      item_idx_stop = next_set_unsafe(exclude_arr, item_uidx) - excluded_so_far;
-    } else {
-      item_idx_stop = item_ct;
-    }
+    uidx_to_idx_stop = &(uidx_to_idx[next_set(exclude_arr, item_uidx, unfiltered_item_ct)]);
     do {
       *uidx_to_idx_ptr++ = item_idx++;
-    } while (item_idx < item_idx_stop);
+    } while (uidx_to_idx_ptr < uidx_to_idx_stop);
   } while (item_idx < item_ct);
 }
 
 void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx) {
-  uint32_t exclude_ct = unfiltered_item_ct - item_ct;
-  uint32_t excluded_so_far = 0;
+  uint32_t item_uidx = 0;
   uint32_t item_idx = 0;
   uint32_t* uidx_to_idx_ptr;
-  uint32_t item_uidx;
-  uint32_t item_idx_stop;
+  uint32_t* uidx_to_idx_stop;
   do {
-    item_uidx = next_set_unsafe(include_arr, item_idx + excluded_so_far);
+    item_uidx = next_set_unsafe(include_arr, item_uidx);
     uidx_to_idx_ptr = &(uidx_to_idx[item_uidx]);
-    excluded_so_far = item_uidx - item_idx;
-    if (exclude_ct > excluded_so_far) {
-      item_idx_stop = next_unset_unsafe(include_arr, item_uidx) - excluded_so_far;
-    } else {
-      item_idx_stop = item_ct;
-    }
+    uidx_to_idx_stop = &(uidx_to_idx[next_unset(include_arr, item_uidx, unfiltered_item_ct)]);
     do {
       *uidx_to_idx_ptr++ = item_idx++;
-    } while (item_idx < item_idx_stop);
+    } while (uidx_to_idx_ptr < uidx_to_idx_stop);
   } while (item_idx < item_ct);
-}
-
-void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t item_ct, uint32_t* uidx_to_idx) {
-  uintptr_t item_uidx = 0;
-  uint32_t item_idx;
-  for (item_idx = 0; item_idx < item_ct; item_idx++) {
-    item_uidx = next_set_unsafe(include_arr, item_uidx);
-    uidx_to_idx[item_uidx++] = item_idx;
-  }
 }
 
 void fill_vec_55(uintptr_t* vec, uint32_t ct) {
