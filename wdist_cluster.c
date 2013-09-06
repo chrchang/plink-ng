@@ -726,7 +726,7 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_indiv_ct, uint
     }
     tcoord = tri_coord_no_diag(indiv_idx1, indiv_idx2);
     if (ppc_fail) {
-      set_bit_ul(cluster_merge_prevented, tcoord);
+      SET_BIT(cluster_merge_prevented, tcoord);
     }
     if (cluster_sorted_ibs) {
       if (!is_max_dist) {
@@ -995,13 +995,13 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	    } else {
 	      cur_coord = ((clidx2 * (clidx2 - 1)) >> 1) + clidx1;
 	    }
-            if (is_set_ul(merge_prevented, cur_coord)) {
+            if (IS_SET(merge_prevented, cur_coord)) {
 	      continue;
 	    }
 	  }
 	} else {
 	  cur_coord = tcoord + indiv_idx2;
-	  if (is_set_ul(merge_prevented, cur_coord)) {
+	  if (IS_SET(merge_prevented, cur_coord)) {
 	    continue;
 	  }
 	}
@@ -1028,7 +1028,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	}
 	if (cov_idx < non_null_cov_ct) {
 	  if (clidx1 != clidx2) {
-	    set_bit_ul(merge_prevented, cur_coord);
+	    SET_BIT(merge_prevented, cur_coord);
 	  } else {
 	    cluster_mismatch_warning = 1;
 	  }
@@ -1206,13 +1206,13 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	    } else {
 	      cur_coord = ((clidx2 * (clidx2 - 1)) >> 1) + clidx1;
 	    }
-            if (is_set_ul(merge_prevented, cur_coord)) {
+            if (IS_SET(merge_prevented, cur_coord)) {
 	      continue;
 	    }
 	  }
 	} else {
 	  cur_coord = tcoord + indiv_idx2;
-	  if (is_set_ul(merge_prevented, cur_coord)) {
+	  if (IS_SET(merge_prevented, cur_coord)) {
 	    continue;
 	  }
 	}
@@ -1226,7 +1226,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
 	}
 	if (cov_idx < non_null_cov_ct) {
 	  if (clidx1 != clidx2) {
-	    set_bit_ul(merge_prevented, cur_coord);
+	    SET_BIT(merge_prevented, cur_coord);
 	  } else {
 	    cluster_mismatch_warning = 1;
 	  }

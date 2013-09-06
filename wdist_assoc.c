@@ -5521,8 +5521,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     indiv_uidx = 0;
     for (indiv_idx = 0; indiv_idx < pheno_nm_ct; indiv_idx++) {
       indiv_uidx = next_set_ul_unsafe(pheno_nm, indiv_uidx);
-      if (is_set_ul(sex_male, indiv_uidx)) {
-	set_bit_ul(g_indiv_male_include2, indiv_idx * 2);
+      if (IS_SET(sex_male, indiv_uidx)) {
+	SET_BIT_DBL(g_indiv_male_include2, indiv_idx);
 	male_ct++;
       }
       indiv_uidx++;
@@ -5657,8 +5657,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   indiv_uidx = 0;
   for (indiv_idx = 0; indiv_idx < pheno_nm_ct; indiv_idx++) {
     indiv_uidx = next_set_ul_unsafe(pheno_nm, indiv_uidx);
-    if (is_set_ul(pheno_c, indiv_uidx)) {
-      set_bit_ul(indiv_case_include2, indiv_idx * 2);
+    if (IS_SET(pheno_c, indiv_uidx)) {
+      SET_BIT_DBL(indiv_case_include2, indiv_idx);
       g_case_ct++;
     }
     indiv_uidx++;
@@ -5678,8 +5678,8 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     indiv_uidx = 0;
     for (indiv_idx = 0; indiv_idx < pheno_nm_ct; indiv_idx++) {
       indiv_uidx = next_set_ul_unsafe(pheno_nm, indiv_uidx);
-      if (is_set_ul(sex_male, indiv_uidx) && is_set_ul(pheno_c, indiv_uidx)) {
-	set_bit_ul(indiv_male_case_include2, indiv_idx * 2);
+      if (IS_SET(sex_male, indiv_uidx) && IS_SET(pheno_c, indiv_uidx)) {
+	SET_BIT_DBL(indiv_male_case_include2, indiv_idx);
 	case_male_ct++;
       }
       indiv_uidx++;
@@ -8210,10 +8210,10 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   indiv_idx2 = 0;
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
     indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-    if (is_set_ul(gxe_covar_nm, indiv_idx)) {
-      set_bit_ul(covar_nm_raw, indiv_uidx);
+    if (IS_SET(gxe_covar_nm, indiv_idx)) {
+      SET_BIT(covar_nm_raw, indiv_uidx);
       dxx = pheno_d[indiv_uidx];
-      if (is_set_ul(gxe_covar_c, indiv_idx)) {
+      if (IS_SET(gxe_covar_c, indiv_idx)) {
 	pheno_sum_g2 += dxx;
 	pheno_ssq_g2 += dxx * dxx;
       } else {
@@ -8234,8 +8234,8 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   indiv_idx = 0;
   for (indiv_idx2 = 0; indiv_idx2 < covar_nm_ct; indiv_idx2++) {
     indiv_idx = next_set_ul_unsafe(gxe_covar_nm, indiv_idx);
-    if (is_set_ul(gxe_covar_c, indiv_idx)) {
-      set_bit_ul(group2_include2, indiv_idx2 * 2);
+    if (IS_SET(gxe_covar_c, indiv_idx)) {
+      SET_BIT_DBL(group2_include2, indiv_idx2);
     }
     indiv_idx++;
   }
@@ -8257,9 +8257,9 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
     indiv_idx2 = 0;
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-      if (is_set_ul(gxe_covar_nm, indiv_idx)) {
-	if (is_set_ul(sex_male, indiv_uidx)) {
-          set_bit_ul(indiv_male_include2, indiv_idx2 * 2);
+      if (IS_SET(gxe_covar_nm, indiv_idx)) {
+	if (IS_SET(sex_male, indiv_uidx)) {
+          SET_BIT_DBL(indiv_male_include2, indiv_idx2);
 	  male_ct++;
 	}
         indiv_idx2++;
@@ -8287,10 +8287,10 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
       fill_ulong_zero(group2_male_include2, male_ctl * 2);
       indiv_idx = 0;
       for (indiv_idx2 = 0; indiv_idx2 < covar_nm_ct; indiv_idx2++) {
-	if (is_set_ul(indiv_male_include2, indiv_idx2 * 2)) {
+	if (IS_SET_DBL(indiv_male_include2, indiv_idx2)) {
 	  dxx = pheno_d_collapsed[indiv_idx2];
-	  if (is_set_ul(group2_include2, indiv_idx2 * 2)) {
-	    set_bit_ul(group2_male_include2, indiv_idx * 2);
+	  if (IS_SET_DBL(group2_include2, indiv_idx2)) {
+	    SET_BIT_DBL(group2_male_include2, indiv_idx);
 	    pheno_sum_male_g2 += dxx;
 	    pheno_ssq_male_g2 += dxx * dxx;
 	  } else {

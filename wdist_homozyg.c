@@ -1485,7 +1485,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	  ujj = next_non_set_unsafe(roh_slot_occupied, 0);
 	  set_bit(roh_slot_occupied, ujj);
 	  if (roh_slot_uncached) {
-	    set_bit_ul(roh_slot_uncached, roh_idx - 1);
+	    SET_BIT(roh_slot_uncached, roh_idx - 1);
 	  }
           roh_slot_map[slot_idx2++] = (((uint64_t)indiv_uidx2) << 32) | ((uint64_t)ujj);
 	  initialize_roh_slot(cur_roh, chrom_start, marker_uidx_to_cidx, &(roh_slots[ujj * roh_slot_wsize]), &(roh_slot_cidx_start[ujj]), &(roh_slot_cidx_end[ujj]), &(roh_slot_end_uidx[ujj]));
@@ -1498,7 +1498,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
         ujj = next_non_set_unsafe(roh_slot_occupied, 0);
         set_bit(roh_slot_occupied, ujj);
 	if (roh_slot_uncached) {
-	  set_bit_ul(roh_slot_uncached, roh_idx);
+	  SET_BIT(roh_slot_uncached, roh_idx);
 	}
         roh_slot_map[roh_idx++] = (((uint64_t)indiv_uidx2) << 32) | ((uint64_t)ujj);
 	initialize_roh_slot(cur_roh, chrom_start, marker_uidx_to_cidx, &(roh_slots[ujj * roh_slot_wsize]), &(roh_slot_cidx_start[ujj]), &(roh_slot_cidx_end[ujj]), &(roh_slot_end_uidx[ujj]));

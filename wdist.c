@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (4 Sep 2013)";
+  " (6 Sep 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -3037,7 +3037,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
       uii = strlen(sptr);
       wptr_start = memseta(col_2_start, 32, plink_maxsnp - uii);
       wptr_start = memcpyax(wptr_start, sptr, uii, ' ');
-      reverse = is_set_rul(marker_reverse, marker_uidx);
+      reverse = IS_SET(marker_reverse, marker_uidx);
       if (max_marker_allele_len == 1) {
 	csptr[4] = marker_alleles[marker_uidx * 2 + reverse];
         csptr[9] = marker_alleles[marker_uidx * 2 + (1 ^ reverse)];
@@ -3158,7 +3158,8 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 	  }
 	}
       }
-      if (is_set_ul(marker_exclude, ++marker_uidx)) {
+      marker_uidx++;
+      if (IS_SET(marker_exclude, marker_uidx)) {
         marker_uidx = next_unset_ul(marker_exclude, marker_uidx, chrom_end);
 	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	  goto write_stratified_freqs_ret_READ_FAIL;

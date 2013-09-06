@@ -8478,7 +8478,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 		set_bit_ul(cluster_merge_prevented, tri_coord_no_diag(indiv_idx1, indiv_idx2));
 	      } else {
 		if (clidx1 != clidx2) {
-		  set_bit_ul(cluster_merge_prevented, tcoord);
+		  SET_BIT(cluster_merge_prevented, tcoord);
 		} else if (!ppc_warning) {
 		  logprint("Warning: Initial cluster assignment violates PPC test constraint.\n");
 		  ppc_warning = 1;
@@ -9074,11 +9074,12 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
         uiptr2 = &(cluster_sorted_ibs_indices[CACHELINE_INT32 + ((uintptr_t)((uii * (uii - 1)) / 2)) * 3]);
 	ukk = uii << 16;
 	do {
-	  if (!is_set_ul(cluster_merge_prevented, tcoord++)) {
+	  if (!IS_SET(cluster_merge_prevented, tcoord)) {
 	    *uiptr++ = uiptr2[3 * ujj];
 	    *uiptr++ = uiptr2[3 * ujj + 1];
             *uiptr++ = ukk | ujj;
 	  }
+	  tcoord++;
 	} while ((++ujj) < uii);
 	ujj = 0;
       } while ((++uii) < umm);
@@ -9095,7 +9096,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	uljj = heap_size - 1;
 	for (ulii = 0; ulii < uljj; ulii++) {
 	  if ((cluster_sorted_ibs_indices[ulii * 3 + CACHELINE_INT32] == cluster_sorted_ibs_indices[ulii * 3 + 3 + CACHELINE_INT32]) && (cluster_sorted_ibs_indices[ulii * 3 + 1 + CACHELINE_INT32] == cluster_sorted_ibs_indices[ulii * 3 + 4 + CACHELINE_INT32])) {
-	    set_bit_ul(ibs_ties, ulii);
+	    SET_BIT(ibs_ties, ulii);
 	  }
 	}
       }

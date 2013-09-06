@@ -1260,7 +1260,7 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
 		if (distance_flat_missing) {
 		  missing_tots[indiv_idx] += 1.0;
 		} else {
-		  set_bit_ul(cur_missings, indiv_idx);
+		  SET_BIT(cur_missings, indiv_idx);
 		}
 		g_missing_vals[indiv_idx] |= 1 << marker_idxl;
 	      } else {

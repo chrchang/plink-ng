@@ -1056,6 +1056,11 @@ static inline uint32_t tri_coord_no_diag_32(uint32_t small_coord, uint32_t big_c
   return ((big_coord * (big_coord - 1)) / 2) + small_coord;
 }
 
+// let the compiler worry about the second argument's bit width here
+#define SET_BIT(aa, bb) (aa[(bb) / BITCT] |= ONELU << ((bb) % BITCT))
+
+#define SET_BIT_DBL(aa, bb) (aa[bb / BITCT2] |= ONELU << (2 * (bb % BITCT2)))
+
 static inline void set_bit(uintptr_t* bit_arr, uint32_t loc) {
   bit_arr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
@@ -1068,6 +1073,8 @@ void fill_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len);
 
 void clear_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len);
 
+#define CLEAR_BIT(aa, bb) (aa[bb / BITCT] &= ~(ONELU << (bb % BITCT)))
+
 static inline void clear_bit(uintptr_t* bit_arr, uint32_t loc) {
   bit_arr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }
@@ -1076,12 +1083,13 @@ static inline void clear_bit_ul(uintptr_t* bit_arr, uintptr_t loc) {
   bit_arr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }
 
+#define IS_SET(aa, bb) ((aa[bb / BITCT] >> (bb % BITCT)) & 1)
+
+#define IS_SET_DBL(aa, bb) ((aa[bb / BITCT2] >> (2 * (bb % BITCT2))) & 1)
+
+// use this instead of IS_SET() for signed 32-bit integers
 static inline uint32_t is_set(uintptr_t* exclude_arr, uint32_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
-}
-
-static inline uintptr_t is_set_rul(uintptr_t* bit_arr, uintptr_t loc) {
-  return (bit_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
 static inline uint32_t is_set_ul(uintptr_t* exclude_arr, uintptr_t loc) {
