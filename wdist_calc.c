@@ -6833,7 +6833,12 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       goto calc_rel_ret_WRITE_FAIL;
     }
     for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-      wptr = double_g_writex(double_g_writex(double_g_writex(uint32_writex(uint32_writex(uint32_writex(wbuf, indiv_idx + 1, '\t'), indiv_idx + 1, '\t'), marker_ct - g_indiv_missing_unwt[indiv_idx], '\t'), *dptr3++ - 1.0, '\t'), *dptr4++ - 1.0, '\t'), *dptr2++ - 1.0, '\n');
+      wptr = uint32_writex(uint32_writex(wbuf, indiv_idx + 1, '\t'), indiv_idx + 1, '\t');
+      wptr = uint32_writex(wptr, marker_ct - g_indiv_missing_unwt[indiv_idx], '\t');
+      wptr = double_g_writex(wptr, *dptr3++ - 1.0, '\t');
+      wptr = double_g_writex(wptr, *dptr4++ - 1.0, '\t');
+      wptr = double_g_writex(wptr, *dptr2++ - 1.0, '\n');
+
       if (fwrite_checked(wbuf, wptr - wbuf, outfile)) {
 	goto calc_rel_ret_WRITE_FAIL;
       }
@@ -7384,7 +7389,11 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
       goto calc_rel_f_ret_WRITE_FAIL;
     }
     for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-      wptr = float_g_writex(float_g_writex(float_g_writex(uint32_writex(uint32_writex(uint32_writex(wbuf, indiv_idx + 1, '\t'), indiv_idx + 1, '\t'), marker_ct - g_indiv_missing_unwt[indiv_idx], '\t'), *dptr3++ - 1.0, '\t'), *dptr4++ - 1.0, '\t'), *dptr2++ - 1.0, '\n');
+      wptr = uint32_writex(uint32_writex(wbuf, indiv_idx + 1, '\t'), indiv_idx + 1, '\t');
+      wptr = uint32_writex(wptr, marker_ct - g_indiv_missing_unwt[indiv_idx], '\t');
+      wptr = float_g_writex(wptr, *dptr3++ - 1.0, '\t');
+      wptr = float_g_writex(wptr, *dptr4++ - 1.0, '\t');
+      wptr = float_g_writex(wptr, *dptr2++ - 1.0, '\n');
       if (fwrite_checked(wbuf, wptr - wbuf, outfile)) {
 	goto calc_rel_f_ret_WRITE_FAIL;
       }
@@ -7722,12 +7731,13 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
   return retval;
 }
 
-int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t* marker_exclude, uint32_t marker_ct, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, Chrom_info* chrom_info_ptr, uint32_t wt_needed, uint32_t* marker_weights_i, double exponent) {
+int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t* marker_exclude, uint32_t marker_ct, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, Chrom_info* chrom_info_ptr, uint32_t wt_needed, uint32_t marker_weight_sum, uint32_t* marker_weights_i, double exponent) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   FILE* outfile3 = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uint64_t dists_alloc = 0;
+  double marker_weight_sum_d = (double)marker_weight_sum;
   uint32_t unwt_needed = 0;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
@@ -8145,7 +8155,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	giptr2 = g_indiv_missing;
 	uii = giptr2[indiv_idx];
 	for (ujj = 0; ujj < indiv_idx; ujj++) {
-	  *dptr2++ = (4294967295.0 / ((0xffffffffU - uii - (*giptr2++)) + (*giptr++))) * (*iptr++);
+	  *dptr2++ = (marker_weight_sum_d / ((marker_weight_sum - uii - (*giptr2++)) + (*giptr++))) * (*iptr++);
 	}
       }
     } else {
@@ -8153,7 +8163,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	giptr2 = g_indiv_missing;
 	uii = giptr2[indiv_idx];
 	for (ujj = 0; ujj < indiv_idx; ujj++) {
-	  *dptr2 *= (4294967295.0 / ((0xffffffffU - uii - (*giptr2++)) + (*giptr++)));
+	  *dptr2 *= (marker_weight_sum_d / ((marker_weight_sum - uii - (*giptr2++)) + (*giptr++)));
 	  dptr2++;
 	}
       }
@@ -8491,7 +8501,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     // calculate entire distance matrix, or use already-calculated matrix in
     // memory
     if (!g_dists) {
-      retval = calc_distance(threads, 0, 1, bedfile, bed_offset, outname, outname_end, 0, DISTANCE_FLAT_MISSING | DISTANCE_CLUSTER, marker_exclude, marker_ct, set_allele_freqs, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, chrom_info_ptr, 0, NULL, 0.0);
+      retval = calc_distance(threads, 0, 1, bedfile, bed_offset, outname, outname_end, 0, DISTANCE_FLAT_MISSING | DISTANCE_CLUSTER, marker_exclude, marker_ct, set_allele_freqs, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len, chrom_info_ptr, 0, 0, NULL, 0.0);
       if (retval) {
         goto calc_cluster_neighbor_ret_1;
       }

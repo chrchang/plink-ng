@@ -218,6 +218,10 @@ typedef union {
 #define CALC_NEIGHBOR 0x20000000LLU
 #define CALC_GLM 0x40000000LLU
 
+#define ALLELE_RECODE 1
+#define ALLELE_RECODE_MULTICHAR 2
+#define ALLELE_RECODE_ACGT 4
+
 #define M23_MALE 1
 #define M23_FEMALE 2
 #define M23_FORCE_MISSING_SEX 4
@@ -1254,28 +1258,6 @@ static inline double get_maf(double allele_freq) {
   } else {
     return (1.0 - allele_freq);
   }
-}
-
-static inline char convert_to_1234(char cc) {
-  if (cc == 'A') {
-    return '1';
-  } else if (cc == 'C') {
-    return '2';
-  } else if (cc == 'G') {
-    return '3';
-  } else if (cc == 'T') {
-    return '4';
-  }
-  return cc;
-}
-
-extern const char acgtarr[];
-
-static inline char convert_to_acgt(char cc) {
-  if ((cc > '0') && (cc <= '4')) {
-    return acgtarr[cc - '1'];
-  }
-  return cc;
 }
 
 static inline int32_t filename_exists(char* fname, char* fname_end, const char* fname_append) {

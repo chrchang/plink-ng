@@ -2730,8 +2730,6 @@ void fill_vec_55(uintptr_t* vec, uint32_t ct) {
   }
 }
 
-const char acgtarr[] = "ACGT";
-
 void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc) {
   // assumes there is exactly one delimiter to convert per name
   uintptr_t indiv_uidx = 0;
