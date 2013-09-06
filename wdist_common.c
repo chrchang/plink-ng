@@ -5425,7 +5425,7 @@ static inline void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, 
   uint32_t indiv_uidx_stop;
   // just copy first words when possible
   if (!indiv_exclude[0]) {
-    indiv_uidx = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct & (~(BITCT2 - 1)));
+    indiv_uidx = next_set(indiv_exclude, 0, unfiltered_indiv_ct & (~(BITCT2 - 1))) & (~(BITCT2 - 1));
     memcpy(mainbuf, rawbuf, indiv_uidx / 4);
     indiv_idx = indiv_uidx;
     mainbuf = &(mainbuf[indiv_uidx / BITCT2]);
@@ -5470,7 +5470,7 @@ void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t 
   uint32_t ii_rem = 0;
   uint32_t indiv_uidx_stop;
   if (!(~indiv_include[0])) {
-    indiv_uidx = next_unset(indiv_include, indiv_uidx, unfiltered_indiv_ct & (~(BITCT2 - 1)));
+    indiv_uidx = next_unset(indiv_include, 0, unfiltered_indiv_ct & (~(BITCT2 - 1))) & (~(BITCT2 - 1));
     memcpy(mainbuf, rawbuf, indiv_uidx / 4);
     indiv_idx = indiv_uidx;
     mainbuf = &(mainbuf[indiv_uidx / BITCT2]);
@@ -7159,65 +7159,86 @@ void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr
 }
 
 void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
-  uintptr_t ulii = 0;
+  uintptr_t cur_write = 0;
   uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
-  uint32_t item_idx;
-  fill_ulong_zero(output_arr, ((filtered_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
-  for (item_idx = 0; item_idx < filtered_ct; item_idx++) {
-    item_uidx = next_non_set_unsafe(exclude_arr, item_uidx);
-    ulii |= ((bit_arr[item_uidx / BITCT] >> (item_uidx % BITCT)) & ONELU) << write_bit;
-    if (++write_bit == BITCT) {
-      *output_arr++ = ulii;
-      ulii = 0;
-      write_bit = 0;
-    }
-    item_uidx++;
+  uint32_t item_idx = 0;
+  uint32_t item_uidx_stop;
+  if (!exclude_arr[0]) {
+    item_uidx = next_set(exclude_arr, 0, orig_ct & (~(BITCT - 1))) & (~(BITCT - 1));
+    memcpy(output_arr, bit_arr, item_uidx / 4);
+    item_idx = item_uidx;
+    output_arr = &(output_arr[item_uidx / BITCT2]);
   }
-  if (filtered_ct % BITCT) {
-    *output_arr = ulii;
+  while (item_idx < filtered_ct) {
+    item_uidx = next_unset_unsafe(exclude_arr, item_uidx);
+    item_uidx_stop = next_set(exclude_arr, item_uidx, orig_ct);
+    item_idx += item_uidx_stop - item_uidx;
+    do {
+      cur_write |= ((bit_arr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << write_bit;
+      if (++write_bit == BITCT) {
+	*output_arr++ = cur_write;
+        cur_write = 0;
+	write_bit = 0;
+      }
+    } while (++item_uidx < item_uidx_stop);
+  }
+  if (write_bit) {
+    *output_arr = cur_write;
   }
 }
 
 void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
-  uintptr_t ulii = 0;
-  uintptr_t item_uidx = 0;
+  uintptr_t cur_write = 0;
+  uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
-  uint32_t item_idx;
-  fill_ulong_zero(output_arr, ((filtered_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
-  for (item_idx = 0; item_idx < filtered_ct; item_idx++) {
-    item_uidx = next_set_unsafe(include_arr, item_uidx);
-    ulii |= ((bit_arr[item_uidx / BITCT] >> (item_uidx % BITCT)) & ONELU) << write_bit;
-    if (++write_bit == BITCT) {
-      *output_arr++ = ulii;
-      ulii = 0;
-      write_bit = 0;
-    }
-    item_uidx++;
+  uint32_t item_idx = 0;
+  uint32_t item_uidx_stop;
+  if (!(~include_arr[0])) {
+    item_uidx = next_unset(include_arr, 0, orig_ct & (~(BITCT - 1)));
+    memcpy(output_arr, bit_arr, item_uidx / 4);
+    item_idx = item_uidx;
+    output_arr = &(output_arr[item_uidx / BITCT2]);
   }
-  if (filtered_ct % BITCT) {
-    *output_arr = ulii;
+  while (item_idx < filtered_ct) {
+    item_uidx = next_set_unsafe(include_arr, item_uidx);
+    item_uidx_stop = next_unset(include_arr, item_uidx, orig_ct);
+    item_idx += item_uidx_stop - item_uidx;
+    do {
+      cur_write |= ((bit_arr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << write_bit;
+      if (++write_bit == BITCT) {
+	*output_arr++ = cur_write;
+        cur_write = 0;
+	write_bit = 0;
+      }
+    } while (++item_uidx < item_uidx_stop);
+  }
+  if (write_bit) {
+    *output_arr = cur_write;
   }
 }
 
 void collapse_copy_bitarr_to_vec_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_vec) {
-  uintptr_t ulii = 0;
-  uintptr_t item_uidx = 0;
+  uintptr_t cur_write = 0;
+  uint32_t item_uidx = 0;
   uint32_t write_bit = 0;
-  uint32_t item_idx;
-  fill_ulong_zero(output_vec, 2 * ((filtered_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
-  for (item_idx = 0; item_idx < filtered_ct; item_idx++) {
+  uint32_t item_idx = 0;
+  uint32_t item_uidx_stop;
+  do {
     item_uidx = next_set_unsafe(include_arr, item_uidx);
-    ulii |= ((bit_arr[item_uidx / BITCT] >> (item_uidx % BITCT)) & ONELU) << (write_bit * 2);
-    if (++write_bit == BITCT2) {
-      *output_vec++ = ulii;
-      ulii = 0;
-      write_bit = 0;
-    }
-    item_uidx++;
-  }
-  if (filtered_ct % BITCT2) {
-    *output_vec++ = ulii;
+    item_uidx_stop = next_unset(include_arr, item_uidx, orig_ct);
+    item_idx += item_uidx_stop - item_uidx;
+    do {
+      cur_write |= ((bit_arr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << (write_bit * 2);
+      if (++write_bit == BITCT2) {
+	*output_vec++ = cur_write;
+        cur_write = 0;
+	write_bit = 0;
+      }
+    } while (++item_uidx < item_uidx_stop);
+  } while (item_idx < filtered_ct);
+  if (write_bit) {
+    *output_vec++ = cur_write;
   }
   if ((filtered_ct + (BITCT2 - 1)) & BITCT2) {
     *output_vec = 0;

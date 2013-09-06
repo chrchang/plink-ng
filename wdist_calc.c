@@ -1264,7 +1264,9 @@ double fill_psbuf(uintptr_t block_size, double* dists, uintptr_t* col_uidxp, dou
     sub_block_idx = 0;
     subtot = 0.0;
     do {
-      col_uidx = next_set_unsafe(g_pheno_nm, col_uidx);
+      if (!IS_SET(g_pheno_nm, col_uidx)) {
+        col_uidx = next_set_ul_unsafe(g_pheno_nm, col_uidx);
+      }
       if (g_load_dists) {
 	dxx = dists[col_uidx];
       } else {
@@ -1371,12 +1373,15 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
   ssq[0] = 0.0;
   ssq[1] = 0.0;
   ssq[2] = 0.0;
-  for (row_idx = 0; row_idx < g_thread_start[tidx]; row_idx++) {
-    row_uidx = next_set_unsafe(g_pheno_nm, row_uidx);
-    row_uidx++;
+  for (row_idx = 0; row_idx < g_thread_start[tidx]; row_uidx++, row_idx++) {
+    if (!IS_SET(g_pheno_nm, row_uidx)) {
+      row_uidx = next_set_ul_unsafe(g_pheno_nm, row_uidx);
+    }
   }
-  for (; row_idx < g_thread_start[tidx + 1]; row_idx++) {
-    row_uidx = next_set_unsafe(g_pheno_nm, row_uidx);
+  for (; row_idx < g_thread_start[tidx + 1]; row_uidx++, row_idx++) {
+    if (!IS_SET(g_pheno_nm, row_uidx)) {
+      row_uidx = next_set_ul_unsafe(g_pheno_nm, row_uidx);
+    }
     dptr = &(g_dists[(row_uidx * (row_uidx - 1)) / 2]);
     col_idx = 0;
     col_uidx = 0;
@@ -1407,7 +1412,6 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
 	pct_next = pct_div * (pct + 1);
       }
     }
-    row_uidx++;
   }
   g_calc_result[tidx][0] = dist_tot;
   g_calc_result[tidx][1] = ssq[0];
@@ -2896,7 +2900,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
       if (IS_SET(pheno_nm, indiv_uidx)) {
 	fpos = indiv_uidx * (indiv_uidx + 1) * (sizeof(float) / 2);
       } else {
-        indiv_uidx = next_set_unsafe(pheno_nm, indiv_uidx);
+        indiv_uidx = next_set_ul_unsafe(pheno_nm, indiv_uidx);
 	fpos = indiv_uidx * (indiv_uidx + 1) * (sizeof(float) / 2);
         if (fseeko(grm_binfile, fpos, SEEK_SET)) {
           goto unrelated_herit_batch_ret_READ_FAIL;
@@ -2906,7 +2910,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
       indiv_uidx2 = 0;
       for (uljj = 0; uljj <= ulii; uljj++) {
         if (!IS_SET(pheno_nm, indiv_uidx2)) {
-          indiv_uidx2 = next_set_unsafe(pheno_nm, indiv_uidx2);
+          indiv_uidx2 = next_set_ul_unsafe(pheno_nm, indiv_uidx2);
           if (fseeko(grm_binfile, fpos + (indiv_uidx2 * sizeof(float)), SEEK_SET)) {
             goto unrelated_herit_batch_ret_READ_FAIL;
 	  }
@@ -6627,6 +6631,8 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   double set_allele_freq_buf[MULTIPLEX_DIST];
   char wbuf[96];
   char* wptr;
+  char* fam_id;
+  char* indiv_id;
   uint32_t cur_markers_loaded;
   uint32_t win_marker_idx;
   uintptr_t indiv_uidx;
@@ -6835,8 +6841,15 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     if (fputs_checked("FID\tIID\tNOMISS\tFhat1\tFhat2\tFhat3\n", outfile)) {
       goto calc_rel_ret_WRITE_FAIL;
     }
-    for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_idx++) {
-      wptr = uint32_writex(uint32_writex(wbuf, indiv_idx + 1, '\t'), indiv_idx + 1, '\t');
+    indiv_uidx = 0;
+    for (indiv_idx = 0; indiv_idx < g_indiv_ct; indiv_uidx++, indiv_idx++) {
+      if (IS_SET(indiv_exclude, indiv_uidx)) {
+	indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
+      }
+      fam_id = &(person_ids[indiv_uidx * max_person_id_len]);
+      indiv_id = (char*)memchr(fam_id, '\t', max_person_id_len);
+      wptr = memcpyax(wbuf, fam_id, (uintptr_t)(indiv_id - fam_id), '\t');
+      wptr = strcpyax(wptr, &(indiv_id[1]), '\t');
       wptr = uint32_writex(wptr, marker_ct - g_indiv_missing_unwt[indiv_idx], '\t');
       wptr = double_g_writex(wptr, *dptr3++ - 1.0, '\t');
       wptr = double_g_writex(wptr, *dptr4++ - 1.0, '\t');

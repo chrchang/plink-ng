@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (6 Sep 2013)";
+  " (7 Sep 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -1465,7 +1465,8 @@ int32_t mind_filter(FILE* bedfile, double mind_thresh, uintptr_t unfiltered_mark
   uintptr_t unfiltered_indiv_ct2l = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
   uint32_t indiv_exclude_ct = *indiv_exclude_ct_ptr;
   uint32_t indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
-  uint32_t indiv_uidx = 0xffffffffU; // deliberate overflow
+  uint32_t indiv_uidx = 0;
+  uint32_t indiv_idx = 0;
   uint32_t removed_ct = 0;
   int32_t retval = 0;
   uintptr_t* loadbuf;
@@ -1473,7 +1474,7 @@ int32_t mind_filter(FILE* bedfile, double mind_thresh, uintptr_t unfiltered_mark
   uint32_t* missing_cts;
   uintptr_t marker_uidx;
   uintptr_t marker_idx;
-  uint32_t indiv_idx;
+  uint32_t indiv_uidx_stop;
   uint32_t uii;
   uint32_t ujj;
   uintptr_t ulii;
@@ -1510,13 +1511,18 @@ int32_t mind_filter(FILE* bedfile, double mind_thresh, uintptr_t unfiltered_mark
       }
     }
   }
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx + 1);
-    if (missing_cts[indiv_uidx] > mind_int_thresh) {
-      SET_BIT(indiv_exclude, indiv_uidx);
-      removed_ct++;
-    }
-  }
+  indiv_uidx = 0;
+  do {
+    indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
+    indiv_uidx_stop = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
+    indiv_idx += indiv_uidx_stop - indiv_uidx;
+    do {
+      if (missing_cts[indiv_uidx] > mind_int_thresh) {
+        SET_BIT(indiv_exclude, indiv_uidx);
+	removed_ct++;
+      }
+    } while (++indiv_uidx < indiv_uidx_stop);
+  } while (indiv_idx < indiv_ct);
   *indiv_exclude_ct_ptr += removed_ct;
   sprintf(logbuf, "%u %s removed due to missing genotype data (--mind).\n", removed_ct, species_str(removed_ct));
   logprintb();
@@ -3247,7 +3253,10 @@ uintptr_t binary_geno_filter(double geno_thresh, uintptr_t unfiltered_marker_ct,
 	SET_BIT(marker_exclude, marker_uidx);
 	marker_exclude_ct++;
       }
-      marker_uidx = next_unset(marker_exclude, marker_uidx + 1, chrom_end);
+      marker_uidx++;
+      if (IS_SET(marker_exclude, marker_uidx)) {
+        marker_uidx = next_unset(marker_exclude, marker_uidx, chrom_end);
+      }
     }
   }
   *marker_exclude_ct_ptr = marker_exclude_ct;
@@ -3301,7 +3310,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
   uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   int32_t retval = 0;
   uint32_t pct = 0;
-  uintptr_t marker_uidx = ~ZEROLU; // deliberate overflow
+  uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
   uint32_t prefix_len;
   uint32_t loop_end;
@@ -3332,13 +3341,17 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 
   // todo: multithread?
   if (report_type) {
-    for (; marker_idx < marker_ct; marker_idx++) {
-      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx + 1);
+    for (; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+      if (IS_SET(marker_exclude, marker_uidx)) {
+        marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+      }
       p_values[marker_uidx] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx]);
     }
   } else {
-    for (; marker_idx < marker_ct; marker_idx++) {
-      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx + 1);
+    for (; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+      if (IS_SET(marker_exclude, marker_uidx)) {
+        marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+      }
       p_values[marker_uidx * 3] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx]);
       p_values[marker_uidx * 3 + 1] = SNPHWE2(hwe_lh_cases[marker_uidx], hwe_ll_cases[marker_uidx], hwe_hh_cases[marker_uidx]);
       p_values[marker_uidx * 3 + 2] = SNPHWE2(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx]);
@@ -3502,7 +3515,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 
 void enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, int32_t* hwe_lls, int32_t* hwe_lhs, int32_t* hwe_hhs, uint32_t hwe_all, int32_t* hwe_ll_allfs, int32_t* hwe_lh_allfs, int32_t* hwe_hh_allfs) {
   uint32_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
-  uint32_t marker_uidx = 0xffffffffU; // deliberate overflow
+  uint32_t marker_uidx = 0;
   uint32_t removed_ct = 0;
   uint32_t markers_done;
   hwe_thresh += EPSILON;
@@ -3511,8 +3524,10 @@ void enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, ui
     hwe_lls = hwe_ll_allfs;
     hwe_hhs = hwe_hh_allfs;
   }
-  for (markers_done = 0; markers_done < marker_ct; markers_done++) {
-    marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx + 1);
+  for (markers_done = 0; markers_done < marker_ct; marker_uidx++, markers_done++) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
+      marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
+    }
     if (SNPHWE_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh)) {
       SET_BIT(marker_exclude, marker_uidx);
       removed_ct++;
@@ -3767,7 +3782,9 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
     } while (markers_done < marker_ct);
   } else {
     for (; markers_done < marker_ct; marker_uidx++, markers_done++) {
-      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+      if (IS_SET(marker_exclude, marker_uidx)) {
+        marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+      }
       cc = marker_alleles[2 * marker_uidx * max_marker_allele_len];
       cc2 = marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len];
       if ((cc != 'D') && (cc != 'I')) {
