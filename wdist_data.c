@@ -3960,10 +3960,10 @@ int32_t make_bed_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfilter
   uint32_t ii_rem = 0;
   uint32_t indiv_idx = 0;
   uint32_t indiv_uidx2;
-  if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
-    return RET_READ_FAIL;
-  }
   if (indiv_sort_map) {
+    if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      return RET_READ_FAIL;
+    }
     for (; indiv_idx < indiv_ct; indiv_idx++) {
       do {
 	indiv_uidx2 = indiv_sort_map[indiv_uidx++];
@@ -3975,30 +3975,13 @@ int32_t make_bed_one_marker(FILE* bedfile, uintptr_t* loadbuf, uint32_t unfilter
 	ii_rem = 0;
       }
     }
+    if (ii_rem) {
+      *writeptr = cur_word;
+    }
   } else {
-    // just copy first words when possible
-    if (!indiv_exclude[0]) {
-      indiv_uidx = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct & (~(BITCT2 - 1)));
-      memcpy(writeptr, loadbuf, indiv_uidx / 4);
-      indiv_idx = indiv_uidx;
-      writeptr = &(writeptr[indiv_uidx / BITCT2]);
+    if (load_and_collapse(bedfile, loadbuf, unfiltered_indiv_ct, writeptr, indiv_ct, indiv_exclude)) {
+      return RET_READ_FAIL;
     }
-    while (indiv_idx < indiv_ct) {
-      indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
-      indiv_uidx2 = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
-      indiv_idx += indiv_uidx2 - indiv_uidx;
-      do {
-	cur_word |= (((loadbuf[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3) << (ii_rem * 2));
-	if (++ii_rem == BITCT2) {
-	  *writeptr++ = cur_word;
-	  cur_word = 0;
-	  ii_rem = 0;                  
-	}
-      } while (++indiv_uidx < indiv_uidx2);
-    }
-  }
-  if (ii_rem) {
-    *writeptr = cur_word;
   }
   if (is_reverse) {
     reverse_loadbuf((unsigned char*)writebuf, indiv_ct);

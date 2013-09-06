@@ -5314,6 +5314,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   uintptr_t marker_idx;
   uintptr_t marker_idx2;
   uintptr_t indiv_uidx;
+  uintptr_t indiv_uidx_stop;
   uintptr_t indiv_idx;
   uint32_t* missp;
   uint32_t* setp;
@@ -5519,14 +5520,18 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     }
     fill_ulong_zero(g_indiv_male_include2, pheno_nm_ctl2);
     indiv_uidx = 0;
-    for (indiv_idx = 0; indiv_idx < pheno_nm_ct; indiv_idx++) {
+    indiv_idx = 0;
+    do {
       indiv_uidx = next_set_ul_unsafe(pheno_nm, indiv_uidx);
-      if (IS_SET(sex_male, indiv_uidx)) {
-	SET_BIT_DBL(g_indiv_male_include2, indiv_idx);
-	male_ct++;
-      }
-      indiv_uidx++;
-    }
+      indiv_uidx_stop = next_unset_ul(pheno_nm, indiv_uidx, unfiltered_indiv_ct);
+      do {
+        if (IS_SET(sex_male, indiv_uidx)) {
+	  SET_BIT_DBL(g_indiv_male_include2, indiv_idx);
+	  male_ct++;
+	}
+	indiv_idx++;
+      } while (++indiv_uidx < indiv_uidx_stop);
+    } while (indiv_idx < pheno_nm_ct);
     vec_init_invert(pheno_nm_ct, g_indiv_nonmale_include2, g_indiv_male_include2);
     nonmale_ct = pheno_nm_ct - male_ct;
   }
@@ -5655,14 +5660,18 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   }
   fill_ulong_zero(indiv_case_include2, pheno_nm_ctl2);
   indiv_uidx = 0;
-  for (indiv_idx = 0; indiv_idx < pheno_nm_ct; indiv_idx++) {
+  indiv_idx = 0;
+  do {
     indiv_uidx = next_set_ul_unsafe(pheno_nm, indiv_uidx);
-    if (IS_SET(pheno_c, indiv_uidx)) {
-      SET_BIT_DBL(indiv_case_include2, indiv_idx);
-      g_case_ct++;
-    }
-    indiv_uidx++;
-  }
+    indiv_uidx_stop = next_unset_ul(pheno_nm, indiv_uidx, unfiltered_indiv_ct);
+    do {
+      if (IS_SET(pheno_c, indiv_uidx)) {
+	SET_BIT_DBL(indiv_case_include2, indiv_idx);
+	g_case_ct++;
+      }
+      indiv_idx++;
+    } while (++indiv_uidx < indiv_uidx_stop);
+  } while (indiv_idx < pheno_nm_ct);
   vec_init_invert(pheno_nm_ct, indiv_ctrl_include2, indiv_case_include2);
   ctrl_ct = pheno_nm_ct - g_case_ct;
   if (gender_req) {
@@ -5676,14 +5685,18 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     }
     fill_ulong_zero(indiv_male_case_include2, pheno_nm_ctl2);
     indiv_uidx = 0;
-    for (indiv_idx = 0; indiv_idx < pheno_nm_ct; indiv_idx++) {
+    indiv_idx = 0;
+    do {
       indiv_uidx = next_set_ul_unsafe(pheno_nm, indiv_uidx);
-      if (IS_SET(sex_male, indiv_uidx) & IS_SET(pheno_c, indiv_uidx)) {
-	SET_BIT_DBL(indiv_male_case_include2, indiv_idx);
-	case_male_ct++;
-      }
-      indiv_uidx++;
-    }
+      indiv_uidx_stop = next_unset_ul(pheno_nm, indiv_uidx, unfiltered_indiv_ct);
+      do {
+	if (IS_SET(sex_male, indiv_uidx) & IS_SET(pheno_c, indiv_uidx)) {
+	  SET_BIT_DBL(indiv_male_case_include2, indiv_idx);
+	  case_male_ct++;
+	}
+	indiv_idx++;
+      } while (++indiv_uidx < indiv_uidx_stop);
+    } while (indiv_idx < pheno_nm_ct);
     vec_init_andnot(pheno_nm_ctl2, indiv_male_ctrl_include2, g_indiv_male_include2, indiv_male_case_include2);
     vec_init_andnot(pheno_nm_ctl2, indiv_nonmale_case_include2, indiv_case_include2, indiv_male_case_include2);
     vec_init_andnot(pheno_nm_ctl2, indiv_nonmale_ctrl_include2, indiv_ctrl_include2, indiv_male_ctrl_include2);
@@ -7046,6 +7059,9 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   uintptr_t* indiv_raw_include2;
   uintptr_t* indiv_include2;
   double* ooptr;
+  double* dptr;
+  double* dptr2;
+  double* dptr3;
   uint32_t marker_unstopped_ct;
   uint32_t gender_req;
   uint32_t chrom_fo_idx;
@@ -7058,6 +7074,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   uintptr_t marker_idx;
   uintptr_t marker_idx2;
   uintptr_t indiv_uidx;
+  uintptr_t indiv_uidx_stop;
   uintptr_t indiv_idx;
   intptr_t geno_sum;
   intptr_t nanal;
@@ -7263,19 +7280,28 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     vec_include_mask_in(unfiltered_indiv_ct, indiv_raw_male_include2, sex_male);
   }
   marker_unstopped_ct = marker_ct;
-  indiv_uidx = 0;
   if (wkspace_alloc_d_checked(&g_pheno_d2, pheno_nm_ct * sizeof(double))) {
     goto qassoc_ret_NOMEM;
   }
   g_pheno_sum = 0;
   g_pheno_ssq = 0;
-  for (indiv_idx = 0; indiv_idx < pheno_nm_ct; indiv_idx++) {
+  indiv_uidx = 0;
+  indiv_idx = 0;
+  dptr = g_pheno_d2;
+  do {
     indiv_uidx = next_set_ul_unsafe(pheno_nm, indiv_uidx);
-    dxx = pheno_d[indiv_uidx++];
-    g_pheno_d2[indiv_idx] = dxx;
-    g_pheno_sum += dxx;
-    g_pheno_ssq += dxx * dxx;
-  }
+    indiv_uidx_stop = next_unset_ul(pheno_nm, indiv_uidx, unfiltered_indiv_ct);
+    indiv_idx += indiv_uidx_stop - indiv_uidx;
+    dptr2 = &(pheno_d[indiv_uidx]);
+    indiv_uidx = indiv_uidx_stop;
+    dptr3 = &(pheno_d[indiv_uidx_stop]);
+    do {
+      dxx = *dptr2++;
+      *dptr++ = dxx;
+      g_pheno_sum += dxx;
+      g_pheno_ssq += dxx * dxx;
+    } while (dptr2 < dptr3);
+  } while (indiv_idx < pheno_nm_ct);
   fputs(" 0%", stdout);
   fflush(stdout);
 
@@ -7438,7 +7464,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	haploid_fix(xmhh_exists, nxmhh_exists, indiv_raw_include2, indiv_raw_male_include2, unfiltered_indiv_ct, g_is_x, g_is_y, (unsigned char*)cur_loadbuf);
       }
       if (unfiltered_indiv_ct != pheno_nm_ct) {
-        collapse_copy_2bitarr_incl(loadbuf_raw, loadbuf_ptr, pheno_nm_ct, pheno_nm);
+        collapse_copy_2bitarr_incl(loadbuf_raw, loadbuf_ptr, unfiltered_indiv_ct, pheno_nm_ct, pheno_nm);
       }
       if (perm_adapt) {
 	g_adapt_m_table[block_size] = marker_idx2++;
@@ -8239,13 +8265,17 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   fill_vec_55(group1_include2, covar_nm_ct);
   fill_ulong_zero(group2_include2, covar_nm_ctl * 2);
   indiv_idx = 0;
-  for (indiv_idx2 = 0; indiv_idx2 < covar_nm_ct; indiv_idx2++) {
+  indiv_idx2 = 0;
+  do {
     indiv_idx = next_set_ul_unsafe(gxe_covar_nm, indiv_idx);
-    if (IS_SET(gxe_covar_c, indiv_idx)) {
-      SET_BIT_DBL(group2_include2, indiv_idx2);
-    }
-    indiv_idx++;
-  }
+    indiv_uidx_stop = next_unset_ul(gxe_covar_nm, indiv_idx, indiv_ct);
+    do {
+      if (IS_SET(gxe_covar_c, indiv_idx)) {
+	SET_BIT_DBL(group2_include2, indiv_idx2);
+      }
+      indiv_idx2++;
+    } while (++indiv_idx < indiv_uidx_stop);
+  } while (indiv_idx2 < covar_nm_ct);
   bitfield_andnot(group1_include2, group2_include2, covar_nm_ctl * 2);
 
   // er, time to encapsulate most of this boilerplate in wdist_common...
@@ -8788,47 +8818,55 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
   return retval;
 }
 
-uint32_t glm_loadbuf_to_doubles(uintptr_t* loadbuf_raw, uintptr_t* load_mask, uint32_t indiv_valid_ct, double* covar_row, double* geno_map, uintptr_t* cur_missing) {
+uint32_t glm_loadbuf_to_doubles(uintptr_t* loadbuf_raw, uintptr_t* load_mask, uint32_t unfiltered_indiv_ct, uint32_t indiv_valid_ct, double* covar_row, double* geno_map, uintptr_t* cur_missing) {
   // ok for cur_missing to be NULL if there can't possibly be any missing
   uint32_t indiv_uidx = 0;
+  uint32_t indiv_idx = 0;
   uint32_t cur_missing_ct = 0;
-  uint32_t indiv_idx;
+  uint32_t indiv_uidx_stop;
   uintptr_t cur_genotype;
-  for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+  do {
     indiv_uidx = next_set_unsafe(load_mask, indiv_uidx);
-    cur_genotype = (loadbuf_raw[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3;
-    if (cur_genotype == 1) {
-      SET_BIT(cur_missing, indiv_idx);
-      cur_missing_ct++;
-    } else {
-      *covar_row = geno_map[cur_genotype];
-    }
-    covar_row++;
-    indiv_uidx++;
-  }
+    indiv_uidx_stop = next_unset(load_mask, indiv_uidx, unfiltered_indiv_ct);
+    do {
+      cur_genotype = (loadbuf_raw[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3;
+      if (cur_genotype == 1) {
+	SET_BIT(cur_missing, indiv_idx);
+	cur_missing_ct++;
+      } else {
+	*covar_row = geno_map[cur_genotype];
+      }
+      indiv_idx++;
+      covar_row++;
+    } while (++indiv_uidx < indiv_uidx_stop);
+  } while (indiv_idx < indiv_valid_ct);
   return cur_missing_ct;
 }
 
-uint32_t glm_loadbuf_to_doubles_x(uintptr_t* loadbuf_raw, uintptr_t* load_mask, uintptr_t* sex_male, uint32_t indiv_valid_ct, double* covar_row, double* geno_map, uintptr_t* cur_missing) {
+uint32_t glm_loadbuf_to_doubles_x(uintptr_t* loadbuf_raw, uintptr_t* load_mask, uintptr_t* sex_male, uint32_t unfiltered_indiv_ct, uint32_t indiv_valid_ct, double* covar_row, double* geno_map, uintptr_t* cur_missing) {
   double* geno_map_male = &(geno_map[4]);
   uint32_t indiv_uidx = 0;
+  uint32_t indiv_idx = 0;
   uint32_t cur_missing_ct = 0;
-  uint32_t indiv_idx;
+  uint32_t indiv_uidx_stop;
   uintptr_t cur_genotype;
-  for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+  do {
     indiv_uidx = next_set_unsafe(load_mask, indiv_uidx);
-    cur_genotype = (loadbuf_raw[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3;
-    if (cur_genotype == 1) {
-      SET_BIT(cur_missing, indiv_idx);
-      cur_missing_ct++;
-    } else if (IS_SET(sex_male, indiv_uidx)) {
-      *covar_row = geno_map_male[cur_genotype];
-    } else {
-      *covar_row = geno_map[cur_genotype];
-    }
-    covar_row++;
-    indiv_uidx++;
-  }
+    indiv_uidx_stop = next_unset(load_mask, indiv_uidx, unfiltered_indiv_ct);
+    do {
+      cur_genotype = (loadbuf_raw[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3;
+      if (cur_genotype == 1) {
+	SET_BIT(cur_missing, indiv_idx);
+	cur_missing_ct++;
+      } else if (IS_SET(sex_male, indiv_uidx)) {
+	*covar_row = geno_map_male[cur_genotype];
+      } else {
+	*covar_row = geno_map[cur_genotype];
+      }
+      indiv_idx++;
+      covar_row++;
+    } while (++indiv_uidx < indiv_uidx_stop);
+  } while (indiv_idx < indiv_valid_ct);
   return cur_missing_ct;
 }
 
@@ -9312,6 +9350,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   double* dptr;
   double* dptr2;
   uintptr_t indiv_valid_ct;
+  uintptr_t indiv_uidx_stop;
   uintptr_t indiv_idx;
   uintptr_t param_raw_ctl;
   uintptr_t param_ct;
@@ -9374,13 +9413,17 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   param_raw_ct += covar_ct;
   if (glm_modifier & GLM_SEX) {
     indiv_uidx = 0;
-    for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
-      indiv_uidx = next_set_unsafe(load_mask, indiv_uidx);
-      if (IS_SET(sex_male, indiv_uidx)) {
-	male_ct++;
-      }
-      indiv_uidx++;
-    }
+    indiv_idx = 0;
+    do {
+      indiv_uidx = next_set_ul_unsafe(load_mask, indiv_uidx);
+      indiv_uidx_stop = next_unset_ul(load_mask, indiv_uidx, unfiltered_indiv_ct);
+      indiv_idx += indiv_uidx_stop - indiv_uidx;
+      do {
+	if (IS_SET(sex_male, indiv_uidx)) {
+	  male_ct++;
+	}
+      } while (++indiv_uidx < indiv_uidx_stop);
+    } while (indiv_idx < indiv_valid_ct);
     variation_in_sex = ((!male_ct) || (male_ct == indiv_valid_ct))? 0 : 1;
     if (variation_in_sex) {
       param_raw_ct++;
@@ -9500,9 +9543,9 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
         geno_map_ptr = &(geno_map_ptr[12]);
       }
       if (!is_x) {
-        glm_loadbuf_to_doubles(loadbuf_raw, load_mask, indiv_valid_ct, &(covars_collapsed[param_idx * indiv_valid_ct]), geno_map_ptr, NULL);
+        glm_loadbuf_to_doubles(loadbuf_raw, load_mask, unfiltered_indiv_ct, indiv_valid_ct, &(covars_collapsed[param_idx * indiv_valid_ct]), geno_map_ptr, NULL);
       } else {
-	glm_loadbuf_to_doubles_x(loadbuf_raw, load_mask, sex_male, indiv_valid_ct, &(covars_collapsed[param_idx * indiv_valid_ct]), geno_map_ptr, NULL);
+	glm_loadbuf_to_doubles_x(loadbuf_raw, load_mask, sex_male, unfiltered_indiv_ct, indiv_valid_ct, &(covars_collapsed[param_idx * indiv_valid_ct]), geno_map_ptr, NULL);
       }
       strcpy(&(param_names[param_idx * max_param_name_len]), &(marker_ids[marker_uidx * max_marker_id_len]));
       param_idx++;
@@ -9524,19 +9567,28 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   fill_uint_zero(perm_2success_ct, param_ct - 1);
   g_pheno_sum = 0;
   g_pheno_ssq = 0;
-  indiv_uidx = 0;
   if (pheno_d) {
 #ifdef NOLAPACK
     logprint("Warning: Skipping --logistic on --all-pheno QT since this is a no-LAPACK " PROG_NAME_CAPS "\nbuild.\n");
     goto glm_assoc_nosnp_ret_1;
 #else
-    for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
-      indiv_uidx = next_set_unsafe(load_mask, indiv_uidx);
-      dxx = pheno_d[indiv_uidx++];
-      g_pheno_d2[indiv_idx] = dxx;
-      g_pheno_sum += dxx;
-      g_pheno_ssq += dxx * dxx;
-    }
+    indiv_uidx = 0;
+    indiv_idx = 0;
+    dptr = g_pheno_d2;
+    do {
+      indiv_uidx = next_set_ul_unsafe(load_mask, indiv_uidx);
+      indiv_uidx_stop = next_unset_ul(load_mask, indiv_uidx, unfiltered_indiv_ct);
+      indiv_idx += indiv_uidx_stop - indiv_uidx;
+      dptr2 = &(pheno_d[indiv_uidx]);
+      indiv_uidx = indiv_uidx_stop;
+      dptr3 = &(pheno_d[indiv_uidx_stop]);
+      do {
+	dxx = *dptr2++;
+        *dptr++ = dxx;
+	g_pheno_sum += dxx;
+	g_pheno_ssq += dxx * dxx;
+      } while (dptr2 < dptr3);
+    } while (indiv_idx < indiv_valid_ct);
     if (g_pheno_ssq == g_pheno_sum * (g_pheno_sum / ((double)((intptr_t)indiv_valid_ct)))) {
       logprint("Warning: Skipping --linear/--logistic since phenotype is constant.\n");
       goto glm_assoc_nosnp_ret_1;
@@ -9566,13 +9618,17 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     indiv_uidx = 0;
     dptr = &(covars_collapsed[param_idx * indiv_valid_ct]);
     fill_double_zero(dptr, indiv_valid_ct);
-    for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
-      indiv_uidx = next_set_unsafe(load_mask, indiv_uidx);
-      if (IS_SET(sex_male, indiv_uidx)) {
-        dptr[indiv_idx] = 1;
-      }
-      indiv_uidx++;
-    }
+    dptr2 = &(dptr[indiv_valid_ct]);
+    do {
+      indiv_uidx = next_set_ul_unsafe(load_mask, indiv_uidx);
+      indiv_uidx_stop = next_unset_ul(load_mask, indiv_uidx, unfiltered_indiv_ct);
+      do {
+        if (IS_SET(sex_male, indiv_uidx)) {
+	  *dptr = 1;
+	}
+	dptr++;
+      } while (++indiv_uidx < indiv_uidx_stop);
+    } while (dptr < dptr2);
     memcpy(&(param_names[param_idx * max_param_name_len]), "SEX", 4);
   }
   if (glm_modifier & GLM_STANDARD_BETA) {

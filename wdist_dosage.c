@@ -1719,6 +1719,7 @@ int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
   uintptr_t* pheno_c;
   double* pheno_d;
   double* set_allele_freqs;
+  double* dptr;
   uintptr_t unfiltered_marker_ct;
   uintptr_t unfiltered_marker_ctl;
   uintptr_t* marker_exclude;
@@ -1729,6 +1730,7 @@ int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
   uintptr_t max_person_id_len;
   int32_t retval;
   uint32_t marker_uidx;
+  uint32_t marker_uidx_stop;
   uint32_t marker_idx;
   double dxx;
   double dyy;
@@ -1802,16 +1804,21 @@ int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
       } else {
 	dxx = 0.0;
 	marker_uidx = 0;
-	for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-	  marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
-	  dyy = set_allele_freqs[marker_uidx];
-	  if ((dyy > 0.0) && (dyy < 1.0)) {
-            dxx += pow(2 * dyy * (1.0 - dyy), -exponent);
-	  } else {
-	    dxx += 1.0; // prevent IBS measure from breaking down
-	  }
-	  marker_uidx++;
-	}
+	marker_idx = 0;
+        do {
+          marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
+          marker_uidx_stop = next_set(marker_exclude, marker_uidx, unfiltered_marker_ct);
+	  marker_idx += marker_uidx_stop - marker_uidx;
+	  dptr = &(set_allele_freqs[marker_uidx]);
+          do {
+	    dyy = *dptr++;
+	    if ((dyy > 0.0) && (dyy < 1.0)) {
+              dxx += pow(2 * dyy * (1.0 - dyy), -exponent);
+	    } else {
+	      dxx += 1.0; // prevent IBS measure from breaking down
+	    }
+	  } while (++marker_uidx < marker_uidx_stop);
+	} while (marker_idx < marker_ct);
 	dxx = 0.5 / dxx;
       }
       retval = distance_d_write(&outfile, &outfile2, &outfile3, dist_calc_type, outname, outname_end, g_distance_matrix, dxx, g_indiv_ct, g_thread_start[0], g_thread_start[thread_ct], parallel_idx, parallel_tot, membuf);

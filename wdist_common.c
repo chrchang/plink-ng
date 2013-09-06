@@ -5416,53 +5416,79 @@ void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_
   *unk_ct_ptr = unk_ct;
 }
 
-uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude) {
+// this will probably be exported later
+static inline void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uintptr_t* indiv_exclude) {
   uintptr_t cur_write = 0;
-  uint32_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uint32_t indiv_uidx = 0;
-  uint32_t indiv_idx_low = 0;
-  uint32_t indiv_idx;
+  uint32_t indiv_idx = 0;
+  uint32_t ii_rem = 0;
+  uint32_t indiv_uidx_stop;
+  // just copy first words when possible
+  if (!indiv_exclude[0]) {
+    indiv_uidx = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct & (~(BITCT2 - 1)));
+    memcpy(mainbuf, rawbuf, indiv_uidx / 4);
+    indiv_idx = indiv_uidx;
+    mainbuf = &(mainbuf[indiv_uidx / BITCT2]);
+  }
+  while (indiv_idx < indiv_ct) {
+    indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
+    indiv_uidx_stop = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
+    indiv_idx += indiv_uidx_stop - indiv_uidx;
+    do {
+      cur_write |= (((rawbuf[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3) << (ii_rem * 2));
+      if (++ii_rem == BITCT2) {
+        *mainbuf++ = cur_write;
+        cur_write = 0;
+        ii_rem = 0;
+      }
+    } while (++indiv_uidx < indiv_uidx_stop);
+  }
+  if (ii_rem) {
+    *mainbuf = cur_write;
+  }
+}
+
+uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude) {
+  uint32_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   if (unfiltered_indiv_ct == indiv_ct) {
     rawbuf = mainbuf;
   }
   if (fread(rawbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
     return RET_READ_FAIL;
   }
-  if (unfiltered_indiv_ct == indiv_ct) {
-    return 0;
-  }
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
-    cur_write |= ((rawbuf[indiv_uidx / BITCT2] >> (2 * (indiv_uidx % BITCT2))) & (3 * ONELU)) << (indiv_idx_low * 2);
-    if (++indiv_idx_low == BITCT2) {
-      *mainbuf++ = cur_write;
-      cur_write = 0;
-      indiv_idx_low = 0;
-    }
-    indiv_uidx++;
-  }
-  if (indiv_idx_low) {
-    *mainbuf = cur_write;
+  if (unfiltered_indiv_ct != indiv_ct) {
+    collapse_copy_2bitarr(rawbuf, mainbuf, unfiltered_indiv_ct, indiv_ct, indiv_exclude);
   }
   return 0;
 }
 
-void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include) {
+void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uintptr_t* indiv_include) {
+  // mirror image of collapse_copy_2bitarr()
   uintptr_t cur_write = 0;
-  uintptr_t indiv_uidx = 0;
-  uint32_t indiv_idx_low = 0;
-  uint32_t indiv_idx;
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    indiv_uidx = next_set_unsafe(indiv_include, indiv_uidx);
-    cur_write |= ((rawbuf[indiv_uidx / BITCT2] >> (2 * (indiv_uidx % BITCT2))) & (3 * ONELU)) << (indiv_idx_low * 2);
-    if (++indiv_idx_low == BITCT2) {
-      *mainbuf++ = cur_write;
-      cur_write = 0;
-      indiv_idx_low = 0;
-    }
-    indiv_uidx++;
+  uint32_t indiv_uidx = 0;
+  uint32_t indiv_idx = 0;
+  uint32_t ii_rem = 0;
+  uint32_t indiv_uidx_stop;
+  if (!(~indiv_include[0])) {
+    indiv_uidx = next_unset(indiv_include, indiv_uidx, unfiltered_indiv_ct & (~(BITCT2 - 1)));
+    memcpy(mainbuf, rawbuf, indiv_uidx / 4);
+    indiv_idx = indiv_uidx;
+    mainbuf = &(mainbuf[indiv_uidx / BITCT2]);
   }
-  if (indiv_idx_low) {
+  while (indiv_idx < indiv_ct) {
+    indiv_uidx = next_set_unsafe(indiv_include, indiv_uidx);
+    indiv_uidx_stop = next_unset(indiv_include, indiv_uidx, unfiltered_indiv_ct);
+    indiv_idx += indiv_uidx_stop - indiv_uidx;
+    do {
+      cur_write |= (((rawbuf[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3) << (ii_rem * 2));
+      if (++ii_rem == BITCT2) {
+        *mainbuf++ = cur_write;
+        cur_write = 0;
+        ii_rem = 0;
+      }
+    } while (++indiv_uidx < indiv_uidx_stop);
+  }
+  if (ii_rem) {
     *mainbuf = cur_write;
   }
 }
@@ -5476,7 +5502,7 @@ uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfil
     return RET_READ_FAIL;
   }
   if (unfiltered_indiv_ct != indiv_ct) {
-    collapse_copy_2bitarr_incl(rawbuf, mainbuf, indiv_ct, indiv_include);
+    collapse_copy_2bitarr_incl(rawbuf, mainbuf, unfiltered_indiv_ct, indiv_ct, indiv_include);
   }
   return 0;
 }

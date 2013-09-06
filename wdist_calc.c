@@ -774,13 +774,17 @@ void collapse_copy_phenod(double* target, double* pheno_d, uintptr_t* indiv_excl
   }
 }
 
-void collapse_copy_phenod_incl(double* target, double* pheno_d, uintptr_t* indiv_include, uintptr_t indiv_ct) {
+static inline void collapse_copy_phenod_incl(double* target, double* pheno_d, uintptr_t* indiv_include, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct) {
   uintptr_t indiv_uidx = 0;
   double* target_end = &(target[indiv_ct]);
-  while (target < target_end) {
-    indiv_uidx = next_set_unsafe(indiv_include, indiv_uidx);
-    *target++ = pheno_d[indiv_uidx++];
-  }
+  uintptr_t delta;
+  do {
+    indiv_uidx = next_set_ul_unsafe(indiv_include, indiv_uidx);
+    delta = next_unset_ul(indiv_include, indiv_uidx, unfiltered_indiv_ct) - indiv_uidx;
+    memcpy(target, &(pheno_d[indiv_uidx]), delta * sizeof(double));
+    target = &(target[delta]);
+    indiv_uidx += delta;
+  } while (target < target_end);
 }
 
 #ifdef __LP64__
@@ -2870,7 +2874,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   }
   g_indiv_ct = pheno_nm_ct;
   pheno_ptr = &(matrix_wkbase[uljj - CACHEALIGN_DBL(pheno_nm_ct)]);
-  collapse_copy_phenod_incl(pheno_ptr, pheno_d, pheno_nm, unfiltered_indiv_ct);
+  collapse_copy_phenod_incl(pheno_ptr, pheno_d, pheno_nm, unfiltered_indiv_ct, pheno_nm_ct);
   rel_base = &(matrix_wkbase[ulii]);
   mean_zero_var_one_in_place(pheno_nm_ct, pheno_ptr);
   indiv_uidx = 0;
