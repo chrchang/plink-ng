@@ -163,7 +163,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	    for (uii = 0; uii < unfiltered_indiv_ct; uii++) {
 	      if (is_set(isz, uii)) {
 		pheno_d[uii] = 0.0;
-		set_bit(pheno_nm, uii);
+		SET_BIT(pheno_nm, uii);
 	      } else if (is_set(pheno_nm, uii)) {
 		pheno_d[uii] = is_set(pheno_c, uii)? dyy : dxx;
 	      }
@@ -805,7 +805,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	    }
 	  }
 	  fill_ulong_zero(chrom_info_ptr->chrom_mask, CHROM_MASK_WORDS);
-	  set_bit(chrom_info_ptr->chrom_mask, from_chrom);
+	  SET_BIT(chrom_info_ptr->chrom_mask, from_chrom);
 	}
 	if ((ulii == to_slen) && (!memcmp(bufptr, markername_to, ulii))) {
 	  if (to_chrom != MAX_POSSIBLE_CHROM) {
@@ -822,7 +822,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	    }
 	  }
 	  fill_ulong_zero(chrom_info_ptr->chrom_mask, CHROM_MASK_WORDS);
-	  set_bit(chrom_info_ptr->chrom_mask, to_chrom);
+	  SET_BIT(chrom_info_ptr->chrom_mask, to_chrom);
 	}
 	if ((ulii == snp_slen) && (!memcmp(bufptr, markername_snp, ulii))) {
 	  if (snp_chrom != MAX_POSSIBLE_CHROM) {
@@ -834,7 +834,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	  snp_chrom = jj;
 	  if (!exclude_snp) {
 	    fill_ulong_zero(chrom_info_ptr->chrom_mask, CHROM_MASK_WORDS);
-	    set_bit(chrom_info_ptr->chrom_mask, snp_chrom);
+	    SET_BIT(chrom_info_ptr->chrom_mask, snp_chrom);
 	  }
 	}
       }
@@ -910,7 +910,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     ukk = 0;
     for (uii = 0; uii <= ujj; uii++) {
       if (sf_start_idxs[uii] == 1) {
-	clear_bit(sf_mask, uii);
+	CLEAR_BIT(sf_mask, uii);
 	sf_start_idxs[uii] = ukk;
 	continue;
       }
@@ -1392,7 +1392,7 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
       goto update_marker_pos_ret_INVALID_FORMAT;
     }
     if (sorted_idx < 0) {
-      set_bit(marker_exclude, marker_uidx);
+      SET_BIT(marker_exclude, marker_uidx);
       *marker_exclude_ct_ptr += 1;
     } else {
       marker_pos[marker_uidx] = sorted_idx;
@@ -1965,14 +1965,14 @@ int32_t update_indiv_sexes(char* update_sex_fname, char* sorted_person_ids, uint
       goto update_indiv_sexes_ret_INVALID_FORMAT;
     }
     if (cc == '0') {
-      clear_bit(sex_nm, indiv_uidx);
-      clear_bit(sex_male, indiv_uidx);
+      CLEAR_BIT(sex_nm, indiv_uidx);
+      CLEAR_BIT(sex_male, indiv_uidx);
     } else {
-      set_bit(sex_nm, indiv_uidx);
+      SET_BIT(sex_nm, indiv_uidx);
       if ((cc == '1') || (ucc == 'M')) {
-	set_bit(sex_male, indiv_uidx);
+	SET_BIT(sex_male, indiv_uidx);
       } else {
-	clear_bit(sex_male, indiv_uidx);
+	CLEAR_BIT(sex_male, indiv_uidx);
       }
     }
     hit_ct++;
@@ -2193,13 +2193,13 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
 	    if (is_set(exclude_arr, unfiltered_idx)) {
 	      goto include_or_exclude_ret_INVALID_FORMAT_2;
 	    }
-	    set_bit(exclude_arr, unfiltered_idx);
+	    SET_BIT(exclude_arr, unfiltered_idx);
 	    *exclude_ct_ptr += 1;
 	  } else if (!is_set(exclude_arr, unfiltered_idx)) {
 	    if (!is_set(exclude_arr_new, unfiltered_idx)) {
 	      goto include_or_exclude_ret_INVALID_FORMAT_2;
 	    }
-	    clear_bit(exclude_arr_new, unfiltered_idx);
+	    CLEAR_BIT(exclude_arr_new, unfiltered_idx);
 	    include_ct++;
 	  }
 	}
@@ -2211,13 +2211,13 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
 	    if (is_set(exclude_arr, unfiltered_idx)) {
 	      goto include_or_exclude_ret_INVALID_FORMAT_2;
 	    }
-	    set_bit(exclude_arr, unfiltered_idx);
+	    SET_BIT(exclude_arr, unfiltered_idx);
 	    *exclude_ct_ptr += 1;
 	  } else {
 	    if (!is_set(exclude_arr_new, unfiltered_idx)) {
 	      goto include_or_exclude_ret_INVALID_FORMAT_2;
 	    }
-	    clear_bit(exclude_arr_new, unfiltered_idx);
+	    CLEAR_BIT(exclude_arr_new, unfiltered_idx);
 	    include_ct++;
 	  }
 	}
@@ -2245,12 +2245,12 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_l
 	    unfiltered_idx = id_map[ulii];
 	    if (do_exclude) {
 	      if (!is_set(exclude_arr, unfiltered_idx)) {
-	        set_bit(exclude_arr, unfiltered_idx);
+	        SET_BIT(exclude_arr, unfiltered_idx);
 		*exclude_ct_ptr += 1;
 	      }
 	    } else if (!is_set(exclude_arr, unfiltered_idx)) {
 	      if (is_set(exclude_arr_new, unfiltered_idx)) {
-		clear_bit(exclude_arr_new, unfiltered_idx);
+		CLEAR_BIT(exclude_arr_new, unfiltered_idx);
                 include_ct++;
 	      }
 	    }
@@ -2848,13 +2848,13 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
 	    // --write-covar does not, so handle 0 separately for backward
 	    // compatibility
 	    if (!keep_pheno_on_missing_cov) {
-	      clear_bit(pheno_nm, indiv_uidx);
+	      CLEAR_BIT(pheno_nm, indiv_uidx);
 	      *pheno_nm_ct_ptr -= 1;
 	    }
 	  } else if (dxx != 0.0) {
-	    set_bit(gxe_covar_nm, indiv_idx);
+	    SET_BIT(gxe_covar_nm, indiv_idx);
 	    if (dxx == 2.0) {
-	      set_bit(gxe_covar_c, indiv_idx);
+	      SET_BIT(gxe_covar_c, indiv_idx);
 	    }
 	  }
 	}
@@ -2862,13 +2862,13 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     }
     if (covar_range_list_ptr) {
       if (!covar_missing) {
-	set_bit(covar_nm, indiv_idx);
+	SET_BIT(covar_nm, indiv_idx);
       } else {
 	missing_cov_ct++;
 	if (!keep_pheno_on_missing_cov) {
 	  indiv_uidx = indiv_idx_to_uidx[indiv_idx];
 	  if (is_set(pheno_nm, indiv_uidx)) {
-	    clear_bit(pheno_nm, indiv_uidx);
+	    CLEAR_BIT(pheno_nm, indiv_uidx);
 	    *pheno_nm_ct_ptr -= 1;
 	  }
 	}

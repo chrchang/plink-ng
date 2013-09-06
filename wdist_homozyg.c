@@ -83,7 +83,7 @@ uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_c
       if (readbuf_cur) {
         if (swbuf_cur) {
 	  if ((het_cts[indiv_idx] <= max_sw_hets) && (missing_cts[indiv_idx] <= max_sw_missings)) {
-	    set_bit(swbuf_cur, indiv_idx);
+	    SET_BIT(swbuf_cur, indiv_idx);
 	    swhit_cts[indiv_idx] += 1;
 	  }
         }
@@ -965,7 +965,7 @@ void compute_allelic_match_matrix(double mismatch_max, uintptr_t roh_slot_wsize,
 	} else {
 	  tri_coord = tri_coord_no_diag(slot_idxl, slot_idxs);
 	}
-        set_bit(allelic_match_matrix, tri_coord);
+        SET_BIT(allelic_match_matrix, tri_coord);
         allelic_match_cts[map_idxs] += 1;
 	incr_idxl++;
       }
@@ -1239,7 +1239,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	// check if this ROH doesn't intersect anything
 	if ((cur_roh_heap_top > 1) || ((roh_idx != chrom_roh_start) && (cur_roh[1 - ROH_ENTRY_INTS] >= uii))) {
 	  slot_idx1 = next_non_set_unsafe(roh_slot_occupied, 0);
-	  set_bit(roh_slot_occupied, slot_idx1);
+	  SET_BIT(roh_slot_occupied, slot_idx1);
 	  // use roh_slots[0..(max_pool_size - 1)] to store references to
 	  // active ROH here
 	  roh_slots[slot_idx1] = roh_idx;
@@ -1442,7 +1442,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	  break;
 	}
 	if (roh_slot_end_uidx[slot_idx1] <= con_uidx2) {
-          clear_bit(roh_slot_occupied, slot_idx1);
+          CLEAR_BIT(roh_slot_occupied, slot_idx1);
           if (!is_consensus_match) {
             clear_bits(allelic_match_matrix, (((uintptr_t)slot_idx1) * (slot_idx1 - 1)) / 2, slot_idx1);
 	    slot_idx2 = slot_idx1;
@@ -1483,7 +1483,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	    break;
 	  }
 	  ujj = next_non_set_unsafe(roh_slot_occupied, 0);
-	  set_bit(roh_slot_occupied, ujj);
+	  SET_BIT(roh_slot_occupied, ujj);
 	  if (roh_slot_uncached) {
 	    SET_BIT(roh_slot_uncached, roh_idx - 1);
 	  }
@@ -1496,7 +1496,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	cur_roh = &(roh_list[cur_pool[roh_idx] * ROH_ENTRY_INTS]);
         indiv_uidx2 = cur_roh[5];
         ujj = next_non_set_unsafe(roh_slot_occupied, 0);
-        set_bit(roh_slot_occupied, ujj);
+        SET_BIT(roh_slot_occupied, ujj);
 	if (roh_slot_uncached) {
 	  SET_BIT(roh_slot_uncached, roh_idx);
 	}

@@ -92,9 +92,9 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, uint32_t postp
 	    arg_uidx = next_unset_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
 	    for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
 	      if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
-		set_bit(help_ctrl_ptr->perfect_match_arr, arg_uidx);
-		set_bit(help_ctrl_ptr->prefix_match_arr, arg_uidx);
-		set_bit(help_ctrl_ptr->all_match_arr, arg_uidx);
+		SET_BIT(help_ctrl_ptr->perfect_match_arr, arg_uidx);
+		SET_BIT(help_ctrl_ptr->prefix_match_arr, arg_uidx);
+		SET_BIT(help_ctrl_ptr->all_match_arr, arg_uidx);
 		help_ctrl_ptr->unmatched_ct -= 1;
 		break;
 	      }
@@ -111,8 +111,8 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, uint32_t postp
 	    for (cur_param_idx = 0; cur_param_idx < cur_param_ct; cur_param_idx++) {
 	      if (cur_param_lens[cur_param_idx] > uii) {
 		if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], uii)) {
-		  set_bit(help_ctrl_ptr->prefix_match_arr, arg_uidx);
-		  set_bit(help_ctrl_ptr->all_match_arr, arg_uidx);
+		  SET_BIT(help_ctrl_ptr->prefix_match_arr, arg_uidx);
+		  SET_BIT(help_ctrl_ptr->all_match_arr, arg_uidx);
 		  help_ctrl_ptr->unmatched_ct -= 1;
 		  break;
 		}
@@ -153,7 +153,7 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, uint32_t postp
 	    if (edit1_match(cur_param_lens[cur_param_idx], cur_param_start[cur_param_idx], help_ctrl_ptr->param_lens[arg_uidx], help_ctrl_ptr->argv[arg_uidx])) {
 	      print_this = 1;
 	      if (!is_set(help_ctrl_ptr->all_match_arr, arg_uidx)) {
-		set_bit(help_ctrl_ptr->all_match_arr, arg_uidx);
+		SET_BIT(help_ctrl_ptr->all_match_arr, arg_uidx);
 		help_ctrl_ptr->unmatched_ct -= 1;
 	      }
 	      break;

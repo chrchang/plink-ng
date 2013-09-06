@@ -1075,6 +1075,8 @@ void clear_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len);
 
 #define CLEAR_BIT(aa, bb) (aa[bb / BITCT] &= ~(ONELU << (bb % BITCT)))
 
+#define CLEAR_BIT_DBL(aa, bb) (aa[bb / BITCT2] &= ~(ONELU << (2 * (bb % BITCT2))))
+
 static inline void clear_bit(uintptr_t* bit_arr, uint32_t loc) {
   bit_arr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }

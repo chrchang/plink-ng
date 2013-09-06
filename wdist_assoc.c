@@ -8559,7 +8559,7 @@ uint32_t glm_init_load_mask(uintptr_t* indiv_exclude, uintptr_t* pheno_nm, uintp
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
       if (is_set(pheno_nm, indiv_uidx) && is_set(covar_nm, indiv_idx)) {
-	set_bit(load_mask, indiv_uidx);
+	SET_BIT(load_mask, indiv_uidx);
       }
       indiv_uidx++;
     }
@@ -8749,7 +8749,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
       ulii = (*loadbuf_ptr++) & (~(*loadbuf_mask_ptr++));
       while (ulii) {
         uljj = CTZLU(ulii);
-        clear_bit(load_mask, indiv_uidx_offset + (uljj / 2));
+        clear_bit_ul(load_mask, indiv_uidx_offset + (uljj / 2));
         indiv_valid_ct--;
         ulii &= ulii - 1;
       }
@@ -8787,7 +8787,7 @@ uint32_t glm_loadbuf_to_doubles(uintptr_t* loadbuf_raw, uintptr_t* load_mask, ui
     indiv_uidx = next_set_unsafe(load_mask, indiv_uidx);
     cur_genotype = (loadbuf_raw[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3;
     if (cur_genotype == 1) {
-      set_bit(cur_missing, indiv_idx);
+      SET_BIT(cur_missing, indiv_idx);
       cur_missing_ct++;
     } else {
       *covar_row = geno_map[cur_genotype];
@@ -8808,7 +8808,7 @@ uint32_t glm_loadbuf_to_doubles_x(uintptr_t* loadbuf_raw, uintptr_t* load_mask, 
     indiv_uidx = next_set_unsafe(load_mask, indiv_uidx);
     cur_genotype = (loadbuf_raw[indiv_uidx / BITCT2] >> ((indiv_uidx % BITCT2) * 2)) & 3;
     if (cur_genotype == 1) {
-      set_bit(cur_missing, indiv_idx);
+      SET_BIT(cur_missing, indiv_idx);
       cur_missing_ct++;
     } else if (is_set(sex_male, indiv_uidx)) {
       *covar_row = geno_map_male[cur_genotype];
@@ -8992,7 +8992,7 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
 	dyy = 0;
 	perm_fail_ct++;
 	dptr = &(dptr[param_ct_m1]);
-	set_bit(perm_fails, perm_idx);
+	SET_BIT(perm_fails, perm_idx);
       }
       dptr2 = param_2d_buf2;
       for (param_idx = 1; param_idx < param_ct; param_idx++) {
@@ -9060,7 +9060,7 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
       glm_linear_robust_cluster_covar_multicollinear:
 	// technically may not need to fill with zeroes
         fill_double_zero(&(linear_results[perm_idx * param_ct_m1]), param_ct_m1);
-	set_bit(perm_fails, perm_idx);
+	SET_BIT(perm_fails, perm_idx);
 	perm_fail_ct++;
       }
     }

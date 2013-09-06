@@ -36,6 +36,8 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
   uintptr_t* pheno_c = NULL;
   double* pheno_d = NULL;
   int32_t pheno_is_binary = 0;
+  uintptr_t* sex_nm;
+  uintptr_t* sex_male;
   uintptr_t unfiltered_indiv_ctl;
   uintptr_t cur_person_id_len;
   char* person_ids;
@@ -194,9 +196,11 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
     pheno_d_ptr = NULL;
   }
 
+  sex_nm = *sex_nm_ptr;
+  sex_male = *sex_male_ptr;
   person_ids = *person_ids_ptr;
-  fill_ulong_zero(*sex_nm_ptr, unfiltered_indiv_ctl);
-  fill_ulong_zero(*sex_male_ptr, unfiltered_indiv_ctl);
+  fill_ulong_zero(sex_nm, unfiltered_indiv_ctl);
+  fill_ulong_zero(sex_male, unfiltered_indiv_ctl);
   fill_ulong_zero(*indiv_exclude_ptr, unfiltered_indiv_ctl);
   fill_ulong_zero(*pheno_nm_ptr, unfiltered_indiv_ctl);
   pheno_nm = *pheno_nm_ptr;
@@ -261,11 +265,11 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
         goto oxford_sample_load_ret_INVALID_FORMAT;
       }
       if (*item_begin == '1') {
-	set_bit(*sex_nm_ptr, indiv_uidx);
-	set_bit(*sex_male_ptr, indiv_uidx);
+	SET_BIT(sex_nm, indiv_uidx);
+	SET_BIT(sex_male, indiv_uidx);
         male_ct++;
       } else if (*item_begin == '2') {
-	set_bit(*sex_nm_ptr, indiv_uidx);
+	SET_BIT(sex_nm, indiv_uidx);
         female_ct++;
       }
       item_begin = next_item(item_begin);
@@ -286,10 +290,10 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
 	}
       }
       if (!is_missing) {
-	set_bit(pheno_nm, indiv_uidx);
+	SET_BIT(pheno_nm, indiv_uidx);
 	if (pheno_is_binary) {
 	  if (*item_begin == '1') {
-	    set_bit(pheno_c, indiv_uidx);
+	    SET_BIT(pheno_c, indiv_uidx);
 	  } else if (*item_begin != '0') {
 	    goto oxford_sample_load_ret_INVALID_FORMAT;
 	  }
@@ -1383,6 +1387,10 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
   double sum_one_3d = 0.0;
   double sum_two_3d = 0.0;
   double sum_exclude_3d = 0.0;
+  double pbuf0[8];
+  double pbuf1[8];
+  double pbuf2[8];
+  uintptr_t* marker_exclude;
   double* set_allele_freqs_tmp;
   uintptr_t unfiltered_marker_ctl;
   char* loadbuf;
@@ -1392,9 +1400,6 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
   double dxx;
   double dyy;
   int64_t llxx;
-  double pbuf0[8];
-  double pbuf1[8];
-  double pbuf2[8];
   double pzero;
   double pone;
   double ptwo;
@@ -1674,11 +1679,12 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
   if (wkspace_alloc_ul_checked(marker_exclude_ptr, unfiltered_marker_ctl * sizeof(intptr_t))) {
     return RET_NOMEM;
   }
-  fill_ulong_zero(*marker_exclude_ptr, unfiltered_marker_ctl);
+  marker_exclude = *marker_exclude_ptr;
+  fill_ulong_zero(marker_exclude, unfiltered_marker_ctl);
   for (marker_idxl = 0; marker_idxl < unfiltered_marker_ct; marker_idxl++) {
     dxx = set_allele_freqs_tmp[marker_idxl];
     if (dxx == -1.0) {
-      set_bit(*marker_exclude_ptr, marker_idxl);
+      SET_BIT(marker_exclude, marker_idxl);
       *marker_ct_ptr -= 1;
     } else {
       (*set_allele_freqs_ptr)[marker_idxl] = dxx;
@@ -1755,7 +1761,7 @@ int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
     fill_ulong_zero(marker_exclude, unfiltered_marker_ctl);
     for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
       if (set_allele_freqs[marker_uidx] == -1.0) {
-        set_bit(marker_exclude, marker_uidx);
+        SET_BIT(marker_exclude, marker_uidx);
         marker_ct--;
       }
     }

@@ -762,7 +762,7 @@ void exclude_multi(uintptr_t* exclude_arr, int32_t* new_excl, uint32_t unfiltere
     }
     do {
       if (*new_excl++ == -1) {
-        set_bit(exclude_arr, indiv_uidx);
+        SET_BIT(exclude_arr, indiv_uidx);
 	exclude_ct++;
       }
     } while (++indiv_uidx < indiv_uidx_stop);
@@ -5089,7 +5089,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
       if (cur_window_size > 1) {
 	for (uii = 0; uii < cur_window_size; uii++) {
 	  if (marker_stdevs[uii] == 0.0) {
-	    set_bit(pruned_arr, live_indices[uii]);
+	    SET_BIT(pruned_arr, live_indices[uii]);
 	    cur_exclude_ct++;
 	  }
 	}
@@ -5163,9 +5163,10 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 		cur_exclude_ct++;
 		// remove marker with lower MAF
 		if (get_maf(set_allele_freqs[live_indices[uii]]) < get_maf(set_allele_freqs[live_indices[ujj]])) {
-		  set_bit(pruned_arr, live_indices[uii]);
+		  SET_BIT(pruned_arr, live_indices[uii]);
 		} else {
-		  set_bit(pruned_arr, live_indices[ujj++]);
+		  SET_BIT(pruned_arr, live_indices[ujj]);
+		  ujj++;
 		  while (ujj < cur_window_size) {
 		    if (!is_set(pruned_arr, live_indices[ujj])) {
 		      break;
@@ -5218,7 +5219,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 		goto ld_prune_ret_NOMEM;
 	      }
 	      ujj = ii;
-              set_bit(pruned_arr, live_indices[idx_remap[ujj]]);
+              SET_BIT(pruned_arr, live_indices[idx_remap[ujj]]);
 	      cur_exclude_ct++;
 	      window_rem--;
 	      for (uii = ujj; uii < window_rem; uii++) {
@@ -5246,7 +5247,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	      }
 	    }
 	    if (dxx > ld_last_param) {
-	      set_bit(pruned_arr, live_indices[idx_remap[ujj]]);
+	      SET_BIT(pruned_arr, live_indices[idx_remap[ujj]]);
 	      cur_exclude_ct++;
 	      window_rem--;
 	      if (idx_remap[ujj] < (uint32_t)old_window_size) {
