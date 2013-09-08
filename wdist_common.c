@@ -32,16 +32,18 @@ uint32_t push_ll_str(Ll_str** ll_stack_ptr, const char* ss) {
 
 void logstr(const char* ss) {
   if (!debug_on) {
-    if (fprintf(logfile, "%s", ss) < 0) {
+    fputs(ss, logfile);
+    if (ferror(logfile)) {
       printf("\nWarning: Logging failure on:\n%s\nFurther logging will not be attempted in this run.\n", ss);
       log_failed = 1;
     }
   } else {
     if (log_failed) {
-      printf("%s", ss);
+      fputs(ss, stdout);
       fflush(stdout);
     } else {
-      if (fprintf(logfile, "%s", ss) < 0) {
+      fputs(ss, logfile);
+      if (ferror(logfile)) {
         printf("\nError: Debug logging failure.  Dumping to standard output:\n%s", ss);
 	log_failed = 1;
       } else {
@@ -3266,17 +3268,25 @@ void triangle_fill(uint32_t* target_arr, uint32_t ct, uint32_t pieces, uint32_t 
 }
 
 int32_t write_ids(char* outname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len) {
+  uintptr_t indiv_uidx = 0;
   FILE* outfile;
-  uintptr_t ulii;
   if (fopen_checked(&outfile, outname, "w")) {
     return RET_OPEN_FAIL;
   }
-  for (ulii = 0; ulii < unfiltered_indiv_ct; ulii++) {
-    if (!IS_SET(indiv_exclude, ulii) && (fprintf(outfile, "%s\n", &(person_ids[ulii * max_person_id_len])) < 0)) {
+  do {
+    if (IS_SET(indiv_exclude, indiv_uidx)) {
+      indiv_uidx = next_unset_ul(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
+      if (indiv_uidx == unfiltered_indiv_ct) {
+	break;
+      }
+    }
+    fputs(&(person_ids[indiv_uidx * max_person_id_len]), outfile);
+    if (putc_checked('\n', outfile)) {
       return RET_WRITE_FAIL;
     }
-  }
-  if (fclose(outfile)) {
+    indiv_uidx++;
+  } while (indiv_uidx < unfiltered_indiv_ct);
+  if (fclose_null(&outfile)) {
     return RET_WRITE_FAIL;
   }
   return 0;
@@ -7208,19 +7218,31 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
   return retval;
 }
 
-void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr, int32_t exclude_arr_size) {
-  // collapses array of fixed-length items, based on exclusion bitarray
-  int32_t ii = 0;
-  int32_t jj;
-  while ((ii < exclude_arr_size) && (!is_set(exclude_arr, ii))) {
-    ii++;
+char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t filtered_ct) {
+  char* new_arr = NULL;
+  uint32_t item_uidx = 0;
+  char* wptr;
+  char* wptr_end;
+  uintptr_t item_uidx_stop;
+  uintptr_t delta;
+  if (unfiltered_ct == filtered_ct) {
+    return item_arr;
   }
-  jj = ii;
-  while (++ii < exclude_arr_size) {
-    if (!is_set(exclude_arr, ii)) {
-      memcpy(&(item_arr[(jj++) * fixed_item_len]), &(item_arr[ii * fixed_item_len]), fixed_item_len);
-    }
+  new_arr = (char*)wkspace_alloc(filtered_ct * item_len);
+  if (!new_arr) {
+    return NULL;
   }
+  wptr = new_arr;
+  wptr_end = &(new_arr[filtered_ct]);
+  do {
+    item_uidx = next_unset_ul_unsafe(exclude_arr, item_uidx);
+    item_uidx_stop = next_set_ul(exclude_arr, item_uidx, unfiltered_ct);
+    delta = item_uidx_stop - item_uidx;
+    memcpy(wptr, &(item_arr[item_uidx * item_len]), delta * item_len);
+    wptr = &(wptr[delta * item_len]);
+    item_uidx = item_uidx_stop;
+  } while (wptr < wptr_end);
+  return new_arr;
 }
 
 void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr) {
@@ -7664,7 +7686,7 @@ THREAD_RET_TYPE regress_jack_thread(void* arg) {
   THREAD_RETURN;
 }
 
-int32_t regress_distance(uint64_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d) {
+int32_t regress_distance(uint64_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t ulii;
   uint32_t uii;
@@ -7682,13 +7704,9 @@ int32_t regress_distance(uint64_t calculation_type, double* dists_local, double*
   pthread_t threads[MAX_THREADS];
 
   g_dists = dists_local;
-  g_pheno_d = pheno_d_local;
 
   // beta = (mean(xy) - mean(x)*mean(y)) / (mean(x^2) - mean(x)^2)
-  if (unfiltered_indiv_ct != g_indiv_ct) {
-    // destructive!  make copy in the future
-    collapse_arr((char*)g_pheno_d, sizeof(double), indiv_exclude, unfiltered_indiv_ct);
-  }
+  g_pheno_d = (double*)alloc_and_init_collapsed_arr((char*)pheno_d_local, sizeof(double), unfiltered_indiv_ct, indiv_exclude, indiv_ct);
   if (!(calculation_type & CALC_REGRESS_REL)) {
     print_pheno_stdev(g_pheno_d, g_indiv_ct);
   }

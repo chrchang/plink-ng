@@ -567,17 +567,26 @@ void logprintb();
 
 int32_t fopen_checked(FILE** target_ptr, const char* fname, const char* mode);
 
-static inline int32_t fwrite_checkedz(const void* buf, size_t len, FILE* outfile) {
-  return ((!len) || fwrite(buf, len, 1, outfile))? 0 : -1;
-}
-
-
-static inline int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile) {
-  return fwrite(buf, len, 1, outfile)? 0 : -1;
+static inline int32_t putc_checked(int32_t ii, FILE* outfile) {
+  putc(ii, outfile);
+  return ferror(outfile);
 }
 
 static inline int32_t fputs_checked(const char* ss, FILE* outfile) {
-  return (fputs(ss, outfile) == EOF);
+  fputs(ss, outfile);
+  return ferror(outfile);
+}
+
+static inline int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile) {
+  fwrite(buf, 1, len, outfile);
+  return ferror(outfile);
+}
+
+static inline int32_t fwrite_checkedz(const void* buf, size_t len, FILE* outfile) {
+  if (len) {
+    fwrite(buf, 1, len, outfile);
+  }
+  return ferror(outfile);
 }
 
 static inline void fclose_cond(FILE* fptr) {
@@ -587,10 +596,10 @@ static inline void fclose_cond(FILE* fptr) {
 }
 
 static inline int32_t fclose_null(FILE** fptr_ptr) {
-  int32_t ii;
-  ii = fclose(*fptr_ptr);
+  int32_t ii = ferror(*fptr_ptr);
+  int32_t jj = fclose(*fptr_ptr);
   *fptr_ptr = NULL;
-  return ii;
+  return ii || jj;
 }
 
 int32_t gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode);
@@ -606,14 +615,6 @@ static inline int32_t gzwrite_checked(gzFile gz_outfile, const void* buf, size_t
 static inline void gzclose_cond(gzFile gz_outfile) {
   if (gz_outfile) {
     gzclose(gz_outfile);
-  }
-}
-
-static inline int32_t flexwrite_checked(FILE* outfile, gzFile gz_outfile, char* contents, uintptr_t len) {
-  if (outfile) {
-    return fwrite_checked(contents, len, outfile);
-  } else {
-    return gzwrite_checked(gz_outfile, contents, len);
   }
 }
 
@@ -1624,7 +1625,7 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
 
 int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf);
 
-void collapse_arr(char* item_arr, int32_t fixed_item_len, uintptr_t* exclude_arr, int32_t exclude_arr_size);
+char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t filtered_ct);
 
 void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr);
 
@@ -1666,7 +1667,7 @@ int32_t spawn_threads(pthread_t* threads, unsigned (__stdcall *start_routine)(vo
 int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr_t ct);
 #endif
 
-int32_t regress_distance(uint64_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d);
+int32_t regress_distance(uint64_t calculation_type, double* dists_local, double* pheno_d_local, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t thread_ct, uintptr_t regress_iters, uint32_t regress_d);
 
 typedef struct {
   char* family_ids;

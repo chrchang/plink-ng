@@ -1827,7 +1827,7 @@ int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
       }
     }
     if (calculation_type & CALC_REGRESS_DISTANCE) {
-      retval = regress_distance(calculation_type, g_distance_matrix, pheno_d, unfiltered_indiv_ct, indiv_exclude, thread_ct, regress_iters, regress_d);
+      retval = regress_distance(calculation_type, g_distance_matrix, pheno_d, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, thread_ct, regress_iters, regress_d);
       if (retval) {
 	goto wdist_dosage_ret_1;
       }

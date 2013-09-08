@@ -3949,7 +3949,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
       fwrite(tbuf, 1, bufptr - tbuf, outfile);
       fputs(&(marker_alleles[2 * marker_uidx * max_marker_allele_len]), outfile);
       putc(' ', outfile);
-      if (fputs(&(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), outfile) == EOF) {
+      if (fputs_checked(&(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), outfile)) {
         goto calc_regress_pcs_ret_WRITE_FAIL;
       }
     }
@@ -4033,7 +4033,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
       }
       indiv_uidx++;
     }
-    if (putc('\n', outfile) == EOF) {
+    if (putc_checked('\n', outfile)) {
       goto calc_regress_pcs_ret_WRITE_FAIL;
     }
     if (marker_idx * 100LLU >= ((uint64_t)pct * marker_ct)) {
@@ -4770,7 +4770,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
 	fwrite(wbuf, 1, cptr - wbuf, outfile);
 	giptr = &(giptr[5]);
       }
-      if (putc('\n', outfile) == EOF) {
+      if (putc_checked('\n', outfile)) {
 	goto calc_genome_ret_WRITE_FAIL;
       }
       if (indiv_idx * 100 >= (pct * g_indiv_ct)) {
@@ -4817,7 +4817,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
         fwrite(wbuf, 1, cptr - wbuf, outfile);
 	giptr = &(giptr[5]);
       }
-      if (putc('\n', outfile) == EOF) {
+      if (putc_checked('\n', outfile)) {
 	goto calc_genome_ret_WRITE_FAIL;
       }
       if (indiv_idx * 100 >= (ukk * g_indiv_ct)) {
@@ -5393,7 +5393,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	sptr = &(marker_ids[marker_unfiltered_idx * max_marker_id_len]);
 	fptr = IS_SET(pruned_arr, marker_unfiltered_idx)? outfile_out : outfile_in;
 	fwrite(sptr, 1, strlen(sptr), fptr);
-	if (putc('\n', fptr) == EOF) {
+	if (putc_checked('\n', fptr)) {
 	  goto ld_prune_ret_WRITE_FAIL;
 	}
       }
@@ -6125,7 +6125,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       continue;
     }
     if (rel_ct_arr[indiv_idx] != -1) {
-      if (fputs(tbuf, outfile) == EOF) {
+      if (fputs_checked(tbuf, outfile)) {
 	goto rel_cutoff_batch_ret_WRITE_FAIL;
       }
     }
@@ -8094,7 +8094,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	wptr = double_g_writex(wbuf, ((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj])), ' ');
 	fwrite(wbuf, 1, wptr - wbuf, outfile);
       }
-      if (putc('\n', outfile) == EOF) {
+      if (putc_checked('\n', outfile)) {
 	goto calc_distance_ret_WRITE_FAIL;
       }
       if (indiv_idx * 100LLU >= ((uint64_t)pct * g_indiv_ct)) {
@@ -8140,7 +8140,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
 	wptr = double_g_writex(wbuf, 1.0 - (((double)g_idists[uljj]) / (2 * (uii - (*giptr2++) + g_missing_dbl_excluded[uljj]))), ' ');
 	fwrite(wbuf, 1, wptr - wbuf, outfile);
       }
-      if (putc('\n', outfile) == EOF) {
+      if (putc_checked('\n', outfile)) {
 	goto calc_distance_ret_WRITE_FAIL;
       }
       if (indiv_idx * 100 >= (pct * g_indiv_ct)) {
@@ -8792,7 +8792,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	}
       }
       if (cluster_missing) {
-	if (putc('1', outfile) == EOF) {
+	if (putc_checked('1', outfile)) {
 	  goto calc_cluster_neighbor_ret_WRITE_FAIL;
 	}
 	putc(' ', outfile);
@@ -8815,7 +8815,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	    fwrite(tbuf, 1, wptr - tbuf, outfile);
 	  }
 	}
-	if (putc('\n', outfile) == EOF) {
+	if (putc_checked('\n', outfile)) {
 	  goto calc_cluster_neighbor_ret_WRITE_FAIL;
 	}
         if ((indiv_idx1 + 1) * 100LLU >= indiv_ct * ((uint64_t)pct)) {

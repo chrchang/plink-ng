@@ -395,13 +395,11 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
     goto multcomp_ret_OPEN_FAIL;
   }
   uii = sprintf(tbuf, " CHR %%%us      UNADJ         GC ", plink_maxsnp);
-  if (fprintf(outfile, tbuf, "SNP") < 0) {
-    goto multcomp_ret_WRITE_FAIL;
-  }
+  fprintf(outfile, tbuf, "SNP");
   if (qq_plot) {
     fputs("        QQ ", outfile);
   }
-  if (fputs("      BONF       HOLM   SIDAK_SS   SIDAK_SD     FDR_BH     FDR_BY\n", outfile) == EOF) {
+  if (fputs_checked("      BONF       HOLM   SIDAK_SS   SIDAK_SD     FDR_BH     FDR_BY\n", outfile)) {
     goto multcomp_ret_WRITE_FAIL;
   }
   fputs("0%", stdout);
@@ -464,7 +462,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	adjust_print_log10(outfile, pv_bh[cur_idx]);
 	adjust_print_log10(outfile, pv_by[cur_idx]);
       }
-      if (putc('\n', outfile) == EOF) {
+      if (putc_checked('\n', outfile)) {
 	goto multcomp_ret_WRITE_FAIL;
       }
     }
@@ -5412,39 +5410,27 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     logprintb();
     fflush(stdout);
     sprintf(tbuf, " CHR %%%us         BP   A1 ", plink_maxsnp);
-    if (fprintf(outfile, tbuf, "SNP") < 0) {
-      goto model_assoc_ret_WRITE_FAIL;
-    }
+    fprintf(outfile, tbuf, "SNP");
     if (assoc_counts) {
-      if (fputs("     C_A      C_U   A2 ", outfile) == EOF) {
-	goto model_assoc_ret_WRITE_FAIL;
-      }
+      fputs("     C_A      C_U   A2 ", outfile);
     } else {
-      if (fputs("     F_A      F_U   A2 ", outfile) == EOF) {
-	goto model_assoc_ret_WRITE_FAIL;
-      }
+      fputs("     F_A      F_U   A2 ", outfile);
     }
     if (!g_model_fisher) {
-      if (fputs("       CHISQ ", outfile) == EOF) {
-	goto model_assoc_ret_WRITE_FAIL;
-      }
+      fputs("       CHISQ ", outfile);
     }
-    if (fputs("           P           OR ", outfile) == EOF) {
+    if (fputs_checked("           P           OR ", outfile)) {
       goto model_assoc_ret_WRITE_FAIL;
     }
     if (display_ci) {
       uii = (uint32_t)((int32_t)(ci_size * 100));
       if (uii >= 10) {
-	if (fprintf(outfile, "          SE          L%u          U%u ", uii, uii) < 0) {
-	  goto model_assoc_ret_WRITE_FAIL;
-	}
+	fprintf(outfile, "          SE          L%u          U%u ", uii, uii);
       } else {
-	if (fprintf(outfile, "          SE           L%u           U%u ", uii, uii) < 0) {
-	  goto model_assoc_ret_WRITE_FAIL;
-	}
+	fprintf(outfile, "          SE           L%u           U%u ", uii, uii);
       }
     }
-    if (putc('\n', outfile) == EOF) {
+    if (putc_checked('\n', outfile)) {
       goto model_assoc_ret_WRITE_FAIL;
     }
   } else {
@@ -5477,17 +5463,13 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       outname_end2 = memcpyb(outname_end2, ".trend", 7);
     }
     sprintf(tbuf, " CHR %%%us   A1   A2     TEST            AFF          UNAFF ", plink_maxsnp);
-    if (fprintf(outfile, tbuf, "SNP") < 0) {
-      goto model_assoc_ret_WRITE_FAIL;
-    }
+    fprintf(outfile, tbuf, "SNP");
     if (!g_model_fisher) {
-      if (fputs("       CHISQ   DF ", outfile) == EOF) {
-	goto model_assoc_ret_WRITE_FAIL;
-      }
+      fputs("       CHISQ   DF ", outfile);
     } else {
       outname_end2 = memcpyb(outname_end2, ".fisher", 8);
     }
-    if (fputs("           P\n", outfile) == EOF) {
+    if (fputs_checked("           P\n", outfile)) {
       goto model_assoc_ret_WRITE_FAIL;
     }
   }
@@ -6906,9 +6888,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       printf("extreme stats: %g %g\n", g_maxt_extreme_stat[0], g_maxt_extreme_stat[perms_total - 1]);
     }
     */
-    if (fprintf(outfile, tbuf, "SNP") < 0) {
-      goto model_assoc_ret_WRITE_FAIL;
-    }
+    fprintf(outfile, tbuf, "SNP");
     chrom_fo_idx = 0xffffffffU;
     marker_uidx = next_non_set_unsafe(marker_exclude, 0);
     marker_idx = 0;
@@ -7142,7 +7122,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       if (fopen_checked(&outfile_msa, outname, "w")) {
 	goto qassoc_ret_OPEN_FAIL;
       }
-      if (putc('0', outfile_msa) == EOF) {
+      if (putc_checked('0', outfile_msa)) {
 	goto qassoc_ret_WRITE_FAIL;
       }
       sprintf(logbuf, "Dumping all permutation squared %sstats to %s.\n", do_lin? "Lin " : "Wald t-", outname);
@@ -7188,9 +7168,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       goto qassoc_ret_OPEN_FAIL;
     }
     sprintf(tbuf, " CHR %%%us  VALUE      G11      G12      G22\n", plink_maxsnp);
-    if (fprintf(outfile_qtm, tbuf, "SNP") < 0) {
-      goto qassoc_ret_WRITE_FAIL;
-    }
+    fprintf(outfile_qtm, tbuf, "SNP");
     *outname_end2 = '\0';
   }
   if (haploid_chrom_present(chrom_info_ptr)) {
@@ -7200,13 +7178,11 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   logprintb();
   fflush(stdout);
   sprintf(tbuf, " CHR %%%us         BP    NMISS       BETA         SE         R2        T            P ", plink_maxsnp);
-  if (fprintf(outfile, tbuf, "SNP") < 0) {
-    goto qassoc_ret_WRITE_FAIL;
-  }
+  fprintf(outfile, tbuf, "SNP");
   if (do_lin) {
     fputs("         LIN        LIN_P ", outfile);
   }
-  if (putc('\n', outfile) == EOF) {
+  if (putc_checked('\n', outfile)) {
     goto qassoc_ret_WRITE_FAIL;
   }
   if (do_perms) {
@@ -7858,7 +7834,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       }
     }
     if (mperm_save & MPERM_DUMP_ALL) {
-      if (putc('\n', outfile_msa) == EOF) {
+      if (putc_checked('\n', outfile_msa)) {
 	goto qassoc_ret_WRITE_FAIL;
       }
     }
@@ -7989,9 +7965,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     // if (perm_maxt) {
     //   printf("extreme stats: %g %g %g\n", g_maxt_extreme_stat[0], g_maxt_extreme_stat[(perms_total - 1) / 2], g_maxt_extreme_stat[perms_total - 1]);
     // }
-    if (fprintf(outfile, tbuf, "SNP") < 0) {
-      goto qassoc_ret_WRITE_FAIL;
-    }
+    fprintf(outfile, tbuf, "SNP");
     chrom_fo_idx = 0xffffffffU;
     marker_uidx = next_non_set_unsafe(marker_exclude, 0);
     marker_idx = 0;
@@ -8357,9 +8331,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   fputs(" 0%", stdout);
   fflush(stdout);
   sprintf(tbuf, " CHR %%%us   NMISS1      BETA1        SE1   NMISS2      BETA2        SE2    Z_GXE        P_GXE \n", plink_maxsnp);
-  if (fprintf(outfile, tbuf, "SNP") < 0) {
-    goto gxe_assoc_ret_WRITE_FAIL;
-  }
+  fprintf(outfile, tbuf, "SNP");
 
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
     goto gxe_assoc_ret_READ_FAIL;
@@ -9210,7 +9182,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       if (fopen_checked(&outfile_msa, outname, "w")) {
         goto glm_assoc_ret_OPEN_FAIL;
       }
-      if (putc('0', outfile_msa) == EOF) {
+      if (putc_checked('0', outfile_msa)) {
         goto glm_assoc_ret_WRITE_FAIL;
       }
       sprintf(logbuf, "Dumping all permutation squared t-stats to %s.\n", outname);
@@ -9233,19 +9205,13 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   logprintb();
   fflush(stdout);
   sprintf(tbuf, " CHR %%%us         BP   A1       TEST    NMISS       %s ", plink_maxsnp, report_odds? "  OR" : "BETA");
-  if (fprintf(outfile, tbuf, "SNP") < 0) {
-    goto glm_assoc_ret_WRITE_FAIL;
-  }
+  fprintf(outfile, tbuf, "SNP");
   if (display_ci) {
     uii = (uint32_t)((int32_t)(ci_size * 100));
     if (uii >= 10) {
-      if (fprintf(outfile, "      SE      L%u      U%u ", uii, uii) < 0) {
-	goto glm_assoc_ret_WRITE_FAIL;
-      }
+      fprintf(outfile, "      SE      L%u      U%u ", uii, uii);
     } else {
-      if (fprintf(outfile, "      SE       L%u       U%u ", uii, uii) < 0) {
-	goto glm_assoc_ret_WRITE_FAIL;
-      }
+      fprintf(outfile, "      SE       L%u       U%u ", uii, uii);
     }
   }
   fputs("        STAT            P \n", outfile);
@@ -9836,22 +9802,18 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   sprintf(logbuf, "Writing %s model association results to %s...", pheno_d? "linear" : "logistic", outname);
   logprintb();
   fflush(stdout);
-  if (fprintf(outfile, "      TEST    NMISS       %s ", report_odds? "  OR" : "BETA") < 0) {
-    goto glm_assoc_nosnp_ret_WRITE_FAIL;
-  }
+  fprintf(outfile, "      TEST    NMISS       %s ", report_odds? "  OR" : "BETA");
   if (display_ci) {
     uii = (uint32_t)((int32_t)(ci_size * 100));
     if (uii >= 10) {
-      if (fprintf(outfile, "      SE      L%u      U%u ", uii, uii) < 0) {
-	goto glm_assoc_nosnp_ret_WRITE_FAIL;
-      }
+      fprintf(outfile, "      SE      L%u      U%u ", uii, uii);
     } else {
-      if (fprintf(outfile, "      SE       L%u       U%u ", uii, uii) < 0) {
-	goto glm_assoc_nosnp_ret_WRITE_FAIL;
-      }
+      fprintf(outfile, "      SE       L%u       U%u ", uii, uii);
     }
   }
-  fputs("        STAT            P \n", outfile);
+  if (fputs_checked("        STAT            P \n", outfile)) {
+    goto glm_assoc_nosnp_ret_WRITE_FAIL;
+  }
 
   if (pheno_d) {
 #ifndef NOLAPACK
@@ -9983,7 +9945,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     if (fopen_checked(&outfile, outname, "w")) {
       goto glm_assoc_nosnp_ret_OPEN_FAIL;
     }
-    if (fputs("      TEST         EMP1           NP \n", outfile) == EOF) {
+    if (fputs_checked("      TEST         EMP1           NP \n", outfile)) {
       goto glm_assoc_nosnp_ret_WRITE_FAIL;
     }
     dxx = 0.5 / ((double)((int32_t)(glm_mperm_val - perm_fail_total) + 1));

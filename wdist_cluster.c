@@ -2094,7 +2094,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
 	} else {
 	  write_cluster1_oitc(outfile, clidx, person_ids, max_person_id_len, report_pheno? pheno_c : NULL, orig_cluster_map, orig_cluster_starts, late_clidx_to_indiv_uidx, orig_within_ct, cluster_remap, merge_sequence, merge_ct);
 	}
-	if (putc('\n', outfile) == EOF) {
+	if (putc_checked('\n', outfile)) {
 	  goto write_cluster_solution_ret_WRITE_FAIL;
 	}
       }
@@ -2178,7 +2178,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
       for (ujj = merge_ct + 1; ujj < orig_cluster_ct; ujj++) {
 	fputs("0 ", outfile);
       }
-      if (putc('\n', outfile) == EOF) {
+      if (putc_checked('\n', outfile)) {
 	goto write_cluster_solution_ret_WRITE_FAIL;
       }
       if ((indiv_idx + 1) * 100LLU >= ((uint64_t)pct * indiv_ct)) {
@@ -2434,9 +2434,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
     goto mds_plot_ret_OPEN_FAIL;
   }
   sprintf(tbuf, "%%%us %%%us    SOL ", plink_maxfid, plink_maxiid);
-  if (fprintf(outfile, tbuf, "FID", "IID") < 0) {
-    goto mds_plot_ret_WRITE_FAIL;
-  }
+  fprintf(outfile, tbuf, "FID", "IID");
   tbuf[22] = ' ';
   for (dim_idx = 0; dim_idx < dim_ct; dim_idx++) {
     wptr = uint32_write(tbuf, dim_idx + 1);
@@ -2446,7 +2444,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
     memcpy(wptr2, tbuf, uii);
     fwrite(&(tbuf[10]), 1, 13, outfile);
   }
-  if (putc('\n', outfile) == EOF) {
+  if (putc_checked('\n', outfile)) {
     goto mds_plot_ret_WRITE_FAIL;
   }
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
@@ -2493,7 +2491,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
 	fwrite(wptr2, 1, wptr - wptr2, outfile);
       }
     }
-    if (putc('\n', outfile) == EOF) {
+    if (putc_checked('\n', outfile)) {
       goto mds_plot_ret_WRITE_FAIL;
     }
   }
