@@ -2640,10 +2640,10 @@ int32_t last_set_bit(uintptr_t* bit_arr, uint32_t word_ct) {
 
 int32_t last_clear_bit(uintptr_t* bit_arr, uint32_t ceil) {
   uintptr_t* bit_arr_ptr = &(bit_arr[ceil / BITCT]);
+  uint32_t remainder = ceil % BITCT;
   uintptr_t ulii;
-  ceil = ceil % BITCT;
-  if (ceil) {
-    ulii = (~(*bit_arr_ptr)) & ((ONELU << ceil) - ONELU);
+  if (remainder) {
+    ulii = (~(*bit_arr_ptr)) & ((ONELU << remainder) - ONELU);
     if (ulii) {
       return (ceil | (BITCT - ONELU)) - CLZLU(ulii);
     }
@@ -2990,7 +2990,7 @@ int32_t single_chrom_start(Chrom_info* chrom_info_ptr, uint32_t unfiltered_marke
   // Assumes there is at least one marker, and there are no split chromosomes.
   // Returns first marker_uidx in chromosome if there is only one, or -1 if
   // there's more than one chromosome.
-  uint32_t first_marker_uidx = next_non_set_unsafe(marker_exclude, 0);
+  uint32_t first_marker_uidx = next_unset_unsafe(marker_exclude, 0);
   uint32_t last_marker_chrom = get_marker_chrom(chrom_info_ptr, last_clear_bit(marker_exclude, unfiltered_marker_ct));
   if (get_marker_chrom(chrom_info_ptr, first_marker_uidx) == last_marker_chrom) {
     return first_marker_uidx;
