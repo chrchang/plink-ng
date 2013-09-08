@@ -1568,7 +1568,7 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
 
 void vec_include_init(uintptr_t unfiltered_indiv_ct, uintptr_t* new_include2, uintptr_t* old_include);
 
-void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* exclude_arr);
+void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_vec, uintptr_t* exclude_arr);
 
 void vec_init_invert(uintptr_t vec_entry_ct, uintptr_t* target_arr, uintptr_t* source_arr);
 
@@ -1596,7 +1596,9 @@ static inline void haploid_fix(uint32_t xmhh_exists, uint32_t nxmhh_exists, uint
   }
 }
 
-void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf);
+uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t xmhh_exists, uint32_t nxmhh_exists, uint32_t y_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_raw_include2_ptr, uintptr_t** indiv_raw_male_include2_ptr);
+
+void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_raw_include2, uintptr_t* indiv_raw_male_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf);
 
 void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct);
 

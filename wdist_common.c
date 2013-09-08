@@ -5650,7 +5650,7 @@ void vec_include_init(uintptr_t unfiltered_indiv_ct, uintptr_t* new_include2, ui
   }
 }
 
-void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_arr, uintptr_t* exclude_arr) {
+void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_vec, uintptr_t* exclude_arr) {
   uint32_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t ulii;
   uintptr_t uljj;
@@ -5683,18 +5683,18 @@ void exclude_to_vec_include(uintptr_t unfiltered_indiv_ct, uintptr_t* include_ar
 	} while (uljj);
       }
     }
-    *include_arr++ = ulkk;
-    *include_arr++ = ulmm;
+    *include_vec++ = ulkk;
+    *include_vec++ = ulmm;
   } while (--unfiltered_indiv_ctl);
   ulii = unfiltered_indiv_ct & (BITCT - 1);
   if (ulii) {
-    include_arr--;
+    include_vec--;
     if (ulii < BITCT2) {
-      *include_arr-- = 0;
+      *include_vec-- = 0;
     } else {
       ulii -= BITCT2;
     }
-    *include_arr &= (ONELU << (ulii * 2)) - ONELU;
+    *include_vec &= (ONELU << (ulii * 2)) - ONELU;
   }
 }
 
@@ -6063,7 +6063,39 @@ void force_unset_missing(unsigned char* loadbuf, uintptr_t* indiv_male_include2,
 }
 */
 
-void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf) {
+uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t xmhh_exists, uint32_t nxmhh_exists, uint32_t y_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_raw_include2_ptr, uintptr_t** indiv_raw_male_include2_ptr) {
+  uintptr_t unfiltered_indiv_ctv2 = 2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
+  uintptr_t* indiv_raw_male_include2;
+  if (nxmhh_exists || y_exists) {
+    if (wkspace_alloc_ul_checked(indiv_raw_include2_ptr, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
+      return 1;
+    }
+    if (is_include) {
+      vec_include_init(unfiltered_indiv_ct, *indiv_raw_include2_ptr, indiv_bitarr);
+    } else {
+      exclude_to_vec_include(unfiltered_indiv_ct, *indiv_raw_include2_ptr, indiv_bitarr);
+    }
+  }
+  if (xmhh_exists || y_exists) {
+    if (wkspace_alloc_ul_checked(indiv_raw_male_include2_ptr, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
+      return 1;
+    }
+    indiv_raw_male_include2 = *indiv_raw_male_include2_ptr;
+    if (nxmhh_exists || y_exists) {
+      memcpy(indiv_raw_male_include2, *indiv_raw_include2_ptr, unfiltered_indiv_ctv2 * sizeof(intptr_t));
+    } else {
+      if (is_include) {
+	vec_include_init(unfiltered_indiv_ct, indiv_raw_male_include2, indiv_bitarr);
+      } else {
+	exclude_to_vec_include(unfiltered_indiv_ct, indiv_raw_male_include2, indiv_bitarr);
+      }
+    }
+    vec_include_mask_in(unfiltered_indiv_ct, indiv_raw_male_include2, sex_male);
+  }
+  return 0;
+}
+
+void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_raw_include2, uintptr_t* indiv_raw_male_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf) {
   uintptr_t marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx_start);
   uint32_t chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
   uintptr_t marker_idx = 0;
@@ -6088,21 +6120,21 @@ void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start
       if (is_x) {
 	if (xmhh_exists) {
 	  for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
-	    hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_male_include2, unfiltered_indiv_ct);
+	    hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_raw_male_include2, unfiltered_indiv_ct);
 	  }
 	}
       } else if (is_y) {
         for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
-          hh_reset_y(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_include2, indiv_male_include2, unfiltered_indiv_ct);
+          hh_reset_y(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_raw_include2, indiv_raw_male_include2, unfiltered_indiv_ct);
 	}
 	/*
 	for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
-	  force_unset_missing(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_male_include2, unfiltered_indiv_ct);
+	  force_unset_missing(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_raw_male_include2, unfiltered_indiv_ct);
 	}
 	*/
       } else if (nxmhh_exists) {
 	for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
-	  hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_include2, unfiltered_indiv_ct);
+	  hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_raw_include2, unfiltered_indiv_ct);
 	}
       }
     }
