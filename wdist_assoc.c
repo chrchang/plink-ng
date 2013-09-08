@@ -5928,14 +5928,11 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	}
       }
       loadbuf_ptr = &(g_loadbuf[block_size * pheno_nm_ctl2]);
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_ptr, pheno_nm_ct, pheno_nm)) {
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_ptr, pheno_nm_ct, pheno_nm, IS_SET(marker_reverse, marker_uidx))) {
 	goto model_assoc_ret_READ_FAIL;
       }
       if (model_adapt) {
 	g_adapt_m_table[block_size] = marker_idx2++;
-      }
-      if (IS_SET(marker_reverse, marker_uidx)) {
-	reverse_loadbuf((unsigned char*)(&(g_loadbuf[block_size * pheno_nm_ctl2])), pheno_nm_ct);
       }
       if ((!model_assoc) && g_is_x) {
 	force_missing((unsigned char*)(&(g_loadbuf[block_size * pheno_nm_ctl2])), g_indiv_male_include2, pheno_nm_ct);
@@ -8420,7 +8417,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
         loadbuf[cur_indiv_ctl2 - 1] = 0;
       }
 
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, cur_indiv_ct, cur_covar_nm_raw)) {
+      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, cur_indiv_ct, cur_covar_nm_raw, IS_SET(marker_reverse, marker_uidx))) {
 	goto gxe_assoc_ret_READ_FAIL;
       }
       if (is_y && skip_y) {
@@ -8429,9 +8426,6 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
       }
       if (is_haploid) {
 	haploid_fix(xmhh_exists, nxmhh_exists, cur_indiv_i2, cur_indiv_male_i2, cur_indiv_ct, is_x, is_y, (unsigned char*)loadbuf);
-      }
-      if (IS_SET(marker_reverse, marker_uidx)) {
-        reverse_loadbuf((unsigned char*)loadbuf, cur_indiv_ct);
       }
 
       wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);

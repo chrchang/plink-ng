@@ -2451,7 +2451,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	break;
       }
       readbuf_cur = &(readbuf[widx * indiv_ctl2]);
-      if (load_and_collapse(bedfile, rawbuf, unfiltered_indiv_ct, readbuf_cur, indiv_ct, indiv_exclude)) {
+      if (load_and_collapse(bedfile, rawbuf, unfiltered_indiv_ct, readbuf_cur, indiv_ct, indiv_exclude, 0)) {
 	goto calc_homozyg_ret_READ_FAIL;
       }
       mask_out_homozyg_major(readbuf_cur, indiv_ct);
@@ -2496,7 +2496,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	  }
 	}
 	uidx_buf[widx] = marker_uidx;
-	if (load_and_collapse(bedfile, rawbuf, unfiltered_indiv_ct, readbuf_cur, indiv_ct, indiv_exclude)) {
+	if (load_and_collapse(bedfile, rawbuf, unfiltered_indiv_ct, readbuf_cur, indiv_ct, indiv_exclude, 0)) {
 	  goto calc_homozyg_ret_READ_FAIL;
 	}
 	mask_out_homozyg_major(readbuf_cur, indiv_ct);

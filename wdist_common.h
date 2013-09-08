@@ -1047,7 +1047,7 @@ static inline void read_next_terminate(char* target, char* source) {
   *target = '\0';
 }
 
-void chrom_print_human_terminate(char* buf, uint32_t num);
+char* chrom_print_human(char* buf, uint32_t num);
 
 void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* pre_shiftp, uint32_t* post_shiftp, uint32_t* incrp);
 
@@ -1245,6 +1245,8 @@ void fill_uidx_to_idx(uintptr_t* exclude_arr, uint32_t unfiltered_item_ct, uint3
 void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, uint32_t item_ct, uint32_t* uidx_to_idx);
 
 void fill_vec_55(uintptr_t* vec, uint32_t ct);
+
+uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uint32_t xmhh_exists, uint32_t nxmhh_exists, uint32_t y_exists, uintptr_t* indiv_exclude, uintptr_t* sex_male, uintptr_t** indiv_include2_ptr, uintptr_t** indiv_male_include2_ptr);
 
 static inline void free_cond(void* memptr) {
   if (memptr) {
@@ -1556,11 +1558,11 @@ void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_
 
 // void collapse_copy_2bitarr(uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude);
 
-uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude);
+uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude, uint32_t do_reverse);
 
 void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uintptr_t* indiv_include);
 
-uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include);
+uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include, uint32_t do_reverse);
 
 uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_indiv_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf);
 

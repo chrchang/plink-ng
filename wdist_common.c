@@ -2386,11 +2386,6 @@ char* chrom_print_human(char* buf, uint32_t num) {
   }
 }
 
-void chrom_print_human_terminate(char* buf, uint32_t num) {
-  char* ss = chrom_print_human(buf, num);
-  *ss = '\0';
-}
-
 void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* pre_shiftp, uint32_t* post_shiftp, uint32_t* incrp) {
   // Enables fast integer division by a constant not known until runtime.  See
   // http://ridiculousfish.com/blog/posts/labor-of-division-episode-iii.html .
@@ -2728,6 +2723,38 @@ void fill_vec_55(uintptr_t* vec, uint32_t ct) {
     *second_to_last &= (~ZEROLU) >> ((BITCT2 - rem) * 2);
     second_to_last[1] = 0;
   }
+}
+
+uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uint32_t xmhh_exists, uint32_t nxmhh_exists, uint32_t y_exists, uintptr_t* indiv_exclude, uintptr_t* sex_male, uintptr_t** indiv_include2_ptr, uintptr_t** indiv_male_include2_ptr) {
+  uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
+  uint32_t indiv_uidx = 0;
+  uint32_t indiv_idx = 0;
+  uintptr_t* indiv_male_include2;
+  uint32_t indiv_uidx_stop;
+  if (nxmhh_exists || y_exists) {
+    if (wkspace_alloc_ul_checked(indiv_include2_ptr, indiv_ctv2 * sizeof(intptr_t))) {
+      return 1;
+    }
+    fill_vec_55(*indiv_include2_ptr, indiv_ct);
+  }
+  if (xmhh_exists || y_exists) {
+    if (wkspace_alloc_ul_checked(indiv_male_include2_ptr, indiv_ctv2 * sizeof(intptr_t))) {
+      return 1;
+    }
+    indiv_male_include2 = *indiv_male_include2_ptr;
+    fill_ulong_zero(indiv_male_include2, indiv_ctv2);
+    do {
+      indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
+      indiv_uidx_stop = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
+      do {
+        if (IS_SET(sex_male, indiv_uidx)) {
+	  SET_BIT_DBL(indiv_male_include2, indiv_idx);
+	}
+        indiv_idx++;
+      } while (++indiv_uidx < indiv_uidx_stop);
+    } while (indiv_idx < indiv_ct);
+  }
+  return 0;
 }
 
 void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc) {
@@ -5448,7 +5475,7 @@ static inline void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, 
   }
 }
 
-uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude) {
+uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude, uint32_t do_reverse) {
   uint32_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   if (unfiltered_indiv_ct == indiv_ct) {
     rawbuf = mainbuf;
@@ -5458,6 +5485,9 @@ uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered
   }
   if (unfiltered_indiv_ct != indiv_ct) {
     collapse_copy_2bitarr(rawbuf, mainbuf, unfiltered_indiv_ct, indiv_ct, indiv_exclude);
+  }
+  if (do_reverse) {
+    reverse_loadbuf((unsigned char*)mainbuf, indiv_ct);
   }
   return 0;
 }
@@ -5493,7 +5523,7 @@ void collapse_copy_2bitarr_incl(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t 
   }
 }
 
-uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include) {
+uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_include, uint32_t do_reverse) {
   uint32_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   if (unfiltered_indiv_ct == indiv_ct) {
     rawbuf = mainbuf;
@@ -5503,6 +5533,9 @@ uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfil
   }
   if (unfiltered_indiv_ct != indiv_ct) {
     collapse_copy_2bitarr_incl(rawbuf, mainbuf, unfiltered_indiv_ct, indiv_ct, indiv_include);
+  }
+  if (do_reverse) {
+    reverse_loadbuf((unsigned char*)mainbuf, indiv_ct);
   }
   return 0;
 }
