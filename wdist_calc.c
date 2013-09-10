@@ -4793,10 +4793,21 @@ uint32_t ld_process_load(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* mi
   // special handling of last word
   if (indiv_ct % BITCT2) {
     new_mask = (ONELU << (2 * (indiv_ct % BITCT2))) - ONELU;
-    sq_sum += popcount2_long((new_geno ^ FIVEMASK) & FIVEMASK & new_mask);
+  } else {
+    new_mask = ~ZEROLU;
   }
+  sq_sum += popcount2_long((new_geno ^ FIVEMASK) & FIVEMASK & new_mask);
   *missing_ptr = new_missing;
+#ifdef __LP64__
+  if (((uintptr_t)missing_buf) & 15) {
+    // gah, need to catch misalignment
+    missing_ct = popcount_long(missing_buf[0]) + popcount_longs(&(missing_buf[1]), 0, indiv_ctl - 1);
+  } else {
+    missing_ct = popcount_longs(missing_buf, 0, indiv_ctl);
+  }
+#else
   missing_ct = popcount_longs(missing_buf, 0, indiv_ctl);
+#endif
   non_missing_recip = 1.0 / (indiv_ct - missing_ct);
   *marker_stdev_ptr = non_missing_recip * sqrt(((int64_t)sq_sum) * (indiv_ct - missing_ct) - ((int64_t)sum) * sum);
   return missing_ct;
