@@ -2479,21 +2479,6 @@ void clear_bits(uintptr_t* bit_arr, uintptr_t loc_start, uintptr_t len) {
   }
 }
 
-// unsafe if you don't know there's another included marker or person remaining
-int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc) {
-  uint32_t idx = loc / BITCT;
-  uintptr_t ulii;
-  exclude_arr = &(exclude_arr[idx]);
-  ulii = (~(*exclude_arr)) >> (loc % BITCT);
-  if (ulii) {
-    return loc + CTZLU(ulii);
-  }
-  do {
-    idx++;
-  } while (*(++exclude_arr) == ~ZEROLU);
-  return (idx * BITCT) + CTZLU(~(*exclude_arr));
-}
-
 uint32_t next_unset_unsafe(uintptr_t* bit_arr, uint32_t loc) {
   uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
   uintptr_t ulii = (~(*bit_arr_ptr)) >> (loc % BITCT);
@@ -2779,16 +2764,17 @@ uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t 
   return 0;
 }
 
-void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc) {
+void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc) {
   // assumes there is exactly one delimiter to convert per name
   uintptr_t indiv_uidx = 0;
-  uintptr_t indiv_idx = 0;
+  uint32_t indiv_idx;
   char* nptr;
-  for (; indiv_idx < indiv_ct; indiv_idx++) {
-    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
+    if (IS_SET(indiv_exclude, indiv_uidx)) {
+      indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
+    }
     nptr = (char*)memchr(&(person_ids[indiv_uidx * max_person_id_len]), (unsigned char)oldc, max_person_id_len);
     *nptr = newc;
-    indiv_uidx++;
   }
 }
 
@@ -3178,19 +3164,18 @@ int32_t strcmp_natural_deref(const void* s1, const void* s2) {
   return strcmp_natural_uncasted(*(char**)s1, *(char**)s2);
 }
 
-int32_t get_uidx_from_unsorted(char* idstr, uintptr_t* exclude_arr, uintptr_t id_ct, char* unsorted_ids, uintptr_t max_id_len) {
+int32_t get_uidx_from_unsorted(char* idstr, uintptr_t* exclude_arr, uint32_t id_ct, char* unsorted_ids, uintptr_t max_id_len) {
   uintptr_t id_uidx = 0;
   uintptr_t slen_p1 = strlen(idstr) + 1;
-  uintptr_t id_idx;
+  uint32_t id_idx;
   if (slen_p1 > max_id_len) {
     return -1;
   }
-  for (id_idx = 0; id_idx < id_ct; id_idx++) {
-    id_uidx = next_non_set_unsafe(exclude_arr, id_uidx);
+  for (id_idx = 0; id_idx < id_ct; id_uidx++, id_idx++) {
+    id_uidx = next_unset_ul_unsafe(exclude_arr, id_uidx);
     if (!memcmp(idstr, &(unsorted_ids[id_uidx * max_id_len]), slen_p1)) {
       return (int32_t)((uint32_t)id_uidx);
     }
-    id_uidx++;
   }
   return -1;
 }
@@ -3469,17 +3454,20 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
     return 0;
   }
   if (!collapse_idxs) {
-    for (ujj = 0; ujj < item_ct; ujj++) {
-      uii = next_non_set_unsafe(exclude_arr, uii);
+    for (ujj = 0; ujj < item_ct; uii++, ujj++) {
+      if (IS_SET(exclude_arr, uii)) {
+	uii = next_unset_unsafe(exclude_arr, uii);
+      }
       memcpy(&(sorted_ids[ujj * max_id_len]), &(item_ids[uii * max_id_len]), max_id_len);
-      id_map[ujj] = uii++;
+      id_map[ujj] = uii;
     }
   } else {
-    for (ujj = 0; ujj < item_ct; ujj++) {
-      uii = next_non_set_unsafe(exclude_arr, uii);
+    for (ujj = 0; ujj < item_ct; uii++, ujj++) {
+      if (IS_SET(exclude_arr, uii)) {
+	uii = next_unset_unsafe(exclude_arr, uii);
+      }
       memcpy(&(sorted_ids[ujj * max_id_len]), &(item_ids[uii * max_id_len]), max_id_len);
       id_map[ujj] = ujj;
-      uii++;
     }
   }
   if (qsort_ext(sorted_ids, item_ct, max_id_len, comparator_deref, (char*)id_map, sizeof(int32_t))) {
@@ -5656,7 +5644,7 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
   }
   while (markers_read < block_max_size) {
     if (IS_SET(marker_exclude, marker_uidx)) {
-      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx + 1);
+      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	return RET_READ_FAIL;
       }
@@ -5670,7 +5658,7 @@ uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* mark
 	  // for now, unplaced chromosomes are all "autosomal"
 	  break;
 	}
-	marker_uidx = next_non_set_unsafe(marker_exclude, chrom_end);
+	marker_uidx = next_unset_ul_unsafe(marker_exclude, chrom_end);
 	if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	  return RET_READ_FAIL;
 	}
@@ -6129,9 +6117,9 @@ uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t hh_exi
 }
 
 void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uintptr_t* indiv_raw_include2, uintptr_t* indiv_raw_male_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf) {
-  uintptr_t marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx_start);
-  uint32_t chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
   uintptr_t marker_idx = 0;
+  uintptr_t marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx_start);
+  uint32_t chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
   uint32_t chrom_idx;
   uint32_t is_x;
   uint32_t is_y;

@@ -1113,9 +1113,11 @@ static inline uint32_t is_set_ul(uintptr_t* exclude_arr, uintptr_t loc) {
 
 #define IS_NONNULL_AND_SET(aa, bb) (aa && IS_SET(aa, bb))
 
-int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc);
-
 uint32_t next_unset_unsafe(uintptr_t* bit_arr, uint32_t loc);
+
+static inline uint32_t next_non_set_unsafe(uintptr_t* bit_arr, uint32_t loc) {
+  return next_unset_unsafe(bit_arr, loc);
+}
 
 #ifdef __LP64__
 uintptr_t next_unset_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc);
@@ -1284,7 +1286,7 @@ static inline int32_t filename_exists(char* fname, char* fname_end, const char* 
 #endif
 }
 
-void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc);
+void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc);
 
 // Maximum accepted chromosome index is this minus 1.  Currently cannot exceed
 // 2^14 due to SMALL_INTERVAL_BITS setting in wdist_cnv.c.
@@ -1392,24 +1394,26 @@ static inline int32_t chrom_exists(Chrom_info* chrom_info_ptr, uint32_t chrom_id
 int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int32_t* chrom_idx_ptr);
 
 static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr_t marker_uidx, Chrom_info* chrom_info_ptr, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr) {
-  // assumes we've started at an autosomal marker
+  // assumes we are at an autosomal marker if marker_uidx < *chrom_end_ptr
+  if (IS_SET(marker_exclude, marker_uidx)) {
+    marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+  }
+  if (marker_uidx < (*chrom_end_ptr)) {
+    return marker_uidx;
+  }
   uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
   uint32_t chrom_idx;
-  marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-  if (marker_uidx >= (*chrom_end_ptr)) {
-    while (1) {
-      do {
-	*chrom_fo_idx_ptr += 1;
-	*chrom_end_ptr = chrom_info_ptr->chrom_file_order_marker_idx[(*chrom_fo_idx_ptr) + 1];
-      } while (marker_uidx >= (*chrom_end_ptr));
-      chrom_idx = chrom_info_ptr->chrom_file_order[*chrom_fo_idx_ptr];
-      if (!is_set(haploid_mask, chrom_idx)) {
-	return marker_uidx;
-      }
-      marker_uidx = next_non_set_unsafe(marker_exclude, *chrom_end_ptr);
+  while (1) {
+    do {
+      *chrom_fo_idx_ptr += 1;
+      *chrom_end_ptr = chrom_info_ptr->chrom_file_order_marker_idx[(*chrom_fo_idx_ptr) + 1];
+    } while (marker_uidx >= (*chrom_end_ptr));
+    chrom_idx = chrom_info_ptr->chrom_file_order[*chrom_fo_idx_ptr];
+    if (!IS_SET(haploid_mask, chrom_idx)) {
+      return marker_uidx;
     }
+    marker_uidx = next_unset_ul_unsafe(marker_exclude, *chrom_end_ptr);
   }
-  return marker_uidx;
 }
 
 void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t allow_x_haploid, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_haploid_ptr);
@@ -1424,7 +1428,7 @@ int32_t strcmp_deref(const void* s1, const void* s2);
 
 int32_t strcmp_natural_deref(const void* s1, const void* s2);
 
-int32_t get_uidx_from_unsorted(char* idstr, uintptr_t* exclude_arr, uintptr_t id_ct, char* unsorted_ids, uintptr_t max_id_len);
+int32_t get_uidx_from_unsorted(char* idstr, uintptr_t* exclude_arr, uint32_t id_ct, char* unsorted_ids, uintptr_t max_id_len);
 
 char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len);
 
@@ -1595,17 +1599,17 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfil
 
 void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct);
 
-static inline void haploid_fix(uint32_t hh_exists, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct, uint32_t is_x, uint32_t is_y, unsigned char* loadbuf) {
+static inline void haploid_fix(uint32_t hh_exists, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t indiv_ct, uint32_t is_x, uint32_t is_y, unsigned char* loadbuf) {
   if (is_x) {
     if (hh_exists & XMHH_EXISTS) {
-      hh_reset(loadbuf, indiv_male_include2, unfiltered_indiv_ct);
+      hh_reset(loadbuf, indiv_male_include2, indiv_ct);
     }
   } else if (is_y) {
     if (hh_exists & Y_FIX_NEEDED) {
-      hh_reset_y(loadbuf, indiv_include2, indiv_male_include2, unfiltered_indiv_ct);
+      hh_reset_y(loadbuf, indiv_include2, indiv_male_include2, indiv_ct);
     }
   } else if (hh_exists & NXMHH_EXISTS) {
-    hh_reset(loadbuf, indiv_include2, unfiltered_indiv_ct);
+    hh_reset(loadbuf, indiv_include2, indiv_ct);
   }
 }
 
