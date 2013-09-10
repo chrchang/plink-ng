@@ -1111,6 +1111,8 @@ static inline uint32_t is_set_ul(uintptr_t* exclude_arr, uintptr_t loc) {
 
 #define IS_NULL_OR_SET(aa, bb) ((!aa) || IS_SET(aa, bb))
 
+#define IS_NONNULL_AND_SET(aa, bb) (aa && IS_SET(aa, bb))
+
 int32_t next_non_set_unsafe(uintptr_t* exclude_arr, uint32_t loc);
 
 uint32_t next_unset_unsafe(uintptr_t* bit_arr, uint32_t loc);
@@ -1253,7 +1255,7 @@ void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, 
 
 void fill_vec_55(uintptr_t* vec, uint32_t ct);
 
-uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uint32_t hh_exists, uintptr_t* indiv_exclude, uintptr_t* sex_male, uintptr_t** indiv_include2_ptr, uintptr_t** indiv_male_include2_ptr);
+uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_include2_ptr, uintptr_t** indiv_male_include2_ptr);
 
 static inline void free_cond(void* memptr) {
   if (memptr) {
@@ -1563,6 +1565,8 @@ uint32_t get_max_chrom_size(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclud
 
 void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr);
 
+void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct);
+
 // void collapse_copy_2bitarr(uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude);
 
 uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* mainbuf, uint32_t indiv_ct, uintptr_t* indiv_exclude, uint32_t do_reverse);
@@ -1608,8 +1612,6 @@ static inline void haploid_fix(uint32_t hh_exists, uintptr_t* indiv_include2, ui
 uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_raw_include2_ptr, uintptr_t** indiv_raw_male_include2_ptr);
 
 void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uintptr_t* indiv_raw_include2, uintptr_t* indiv_raw_male_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf);
-
-void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct);
 
 void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, uintptr_t unfiltered_indiv_ct);
 

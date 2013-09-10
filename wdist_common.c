@@ -2727,34 +2727,54 @@ void fill_vec_55(uintptr_t* vec, uint32_t ct) {
   }
 }
 
-uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uint32_t hh_exists, uintptr_t* indiv_exclude, uintptr_t* sex_male, uintptr_t** indiv_include2_ptr, uintptr_t** indiv_male_include2_ptr) {
+uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_include2_ptr, uintptr_t** indiv_male_include2_ptr) {
   uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
   uint32_t indiv_uidx = 0;
   uint32_t indiv_idx = 0;
   uintptr_t* indiv_male_include2;
   uint32_t indiv_uidx_stop;
   if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
-    if (wkspace_alloc_ul_checked(indiv_include2_ptr, indiv_ctv2 * sizeof(intptr_t))) {
-      return 1;
+    // if already allocated, we assume this is fully initialized
+    if (!(*indiv_include2_ptr)) {
+      if (wkspace_alloc_ul_checked(indiv_include2_ptr, indiv_ctv2 * sizeof(intptr_t))) {
+	return 1;
+      }
+      fill_vec_55(*indiv_include2_ptr, indiv_ct);
     }
-    fill_vec_55(*indiv_include2_ptr, indiv_ct);
   }
   if (hh_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
-    if (wkspace_alloc_ul_checked(indiv_male_include2_ptr, indiv_ctv2 * sizeof(intptr_t))) {
-      return 1;
+    // if already allocated, we assume it's been top_alloc'd but not
+    // initialized
+    if (!(*indiv_male_include2_ptr)) {
+      if (wkspace_alloc_ul_checked(indiv_male_include2_ptr, indiv_ctv2 * sizeof(intptr_t))) {
+	return 1;
+      }
     }
     indiv_male_include2 = *indiv_male_include2_ptr;
     fill_ulong_zero(indiv_male_include2, indiv_ctv2);
-    do {
-      indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
-      indiv_uidx_stop = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
+    if (is_include) {
       do {
-        if (IS_SET(sex_male, indiv_uidx)) {
-	  SET_BIT_DBL(indiv_male_include2, indiv_idx);
-	}
-        indiv_idx++;
-      } while (++indiv_uidx < indiv_uidx_stop);
-    } while (indiv_idx < indiv_ct);
+	indiv_uidx = next_set_unsafe(indiv_bitarr, indiv_uidx);
+        indiv_uidx_stop = next_unset(indiv_bitarr, indiv_uidx, unfiltered_indiv_ct);
+        do {
+	  if (IS_SET(sex_male, indiv_uidx)) {
+	    SET_BIT_DBL(indiv_male_include2, indiv_idx);
+	  }
+	  indiv_idx++;
+	} while (++indiv_uidx < indiv_uidx_stop);
+      } while (indiv_idx < indiv_ct);
+    } else {
+      do {
+	indiv_uidx = next_unset_unsafe(indiv_bitarr, indiv_uidx);
+	indiv_uidx_stop = next_set(indiv_bitarr, indiv_uidx, unfiltered_indiv_ct);
+	do {
+	  if (IS_SET(sex_male, indiv_uidx)) {
+	    SET_BIT_DBL(indiv_male_include2, indiv_idx);
+	  }
+	  indiv_idx++;
+	} while (++indiv_uidx < indiv_uidx_stop);
+      } while (indiv_idx < indiv_ct);
+    }
   }
   return 0;
 }
@@ -5456,6 +5476,70 @@ void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_
   *unk_ct_ptr = unk_ct;
 }
 
+void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
+  uintptr_t indiv_bidx = 0;
+  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + 3) / 4]);
+  unsigned char ucc;
+  unsigned char ucc2;
+  uintptr_t unfiltered_indiv_ctd;
+  uint32_t* loadbuf_alias32;
+  uint32_t uii;
+  uint32_t ujj;
+#ifdef __LP64__
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  __m128i* loadbuf_alias;
+  __m128i vii;
+  __m128i vjj;
+  // todo: use this vector loop even when loadbuf is unaligned, so stuff like
+  // recode_load_to() is faster
+  if (!(((uintptr_t)loadbuf) & 15)) {
+    loadbuf_alias = (__m128i*)loadbuf;
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / 64;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+      vii = *loadbuf_alias;
+      // we want to exchange 00 and 11, and leave 01/10 untouched.  So make
+      // vjj := 11 iff vii is 00/11, and vjj := 00 otherwise; then xor.
+      vjj = _mm_andnot_si128(_mm_xor_si128(vii, _mm_srli_epi64(vii, 1)), m1);
+      vjj = _mm_or_si128(vjj, _mm_slli_epi64(vjj, 1));
+      *loadbuf_alias++ = _mm_xor_si128(vii, vjj);
+    }
+    loadbuf = (unsigned char*)loadbuf_alias;
+  } else if (!(((uintptr_t)loadbuf) & 3)) {
+    loadbuf_alias32 = (uint32_t*)loadbuf;
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+      uii = *loadbuf_alias32;
+      ujj = 0x55555555 & (~(uii ^ (uii >> 1)));
+      ujj *= 3;
+      *loadbuf_alias32++ = uii ^ ujj;
+    }
+    loadbuf = (unsigned char*)loadbuf_alias32;
+  }
+#else
+  if (!(((uintptr_t)loadbuf) & 3)) {
+    loadbuf_alias32 = (uint32_t*)loadbuf;
+    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
+    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
+      uii = *loadbuf_alias32;
+      ujj = 0x55555555 & (~(uii ^ (uii >> 1)));
+      ujj *= 3;
+      *loadbuf_alias32++ = uii ^ ujj;
+    }
+    loadbuf = (unsigned char*)loadbuf_alias32;
+  }
+#endif
+  for (; loadbuf < loadbuf_end;) {
+    ucc = *loadbuf;
+    ucc2 = 0x55 & (~(ucc ^ (ucc >> 1)));
+    ucc2 *= 3;
+    *loadbuf++ = ucc ^ ucc2;
+  }
+  uii = unfiltered_indiv_ct & 3;
+  if (uii) {
+    loadbuf[-1] &= (0xff >> (8 - 2 * uii));
+  }
+}
+
 // this will probably be exported later
 static inline void collapse_copy_2bitarr(uintptr_t* rawbuf, uintptr_t* mainbuf, uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uintptr_t* indiv_exclude) {
   uintptr_t cur_write = 0;
@@ -6086,69 +6170,6 @@ void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start
     }
     marker_idx = marker_idx_chrom_end;
     chrom_fo_idx++;
-  }
-}
-
-
-void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct) {
-  uintptr_t indiv_bidx = 0;
-  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + 3) / 4]);
-  unsigned char ucc;
-  unsigned char ucc2;
-  uintptr_t unfiltered_indiv_ctd;
-  uint32_t* loadbuf_alias32;
-  uint32_t uii;
-  uint32_t ujj;
-#ifdef __LP64__
-  const __m128i m1 = {FIVEMASK, FIVEMASK};
-  __m128i* loadbuf_alias;
-  __m128i vii;
-  __m128i vjj;
-  if (!(((uintptr_t)loadbuf) & 15)) {
-    loadbuf_alias = (__m128i*)loadbuf;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / 64;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
-      vii = *loadbuf_alias;
-      // we want to exchange 00 and 11, and leave 01/10 untouched.  So make
-      // vjj := 11 iff vii is 00/11, and vjj := 00 otherwise; then xor.
-      vjj = _mm_andnot_si128(_mm_xor_si128(vii, _mm_srli_epi64(vii, 1)), m1);
-      vjj = _mm_or_si128(vjj, _mm_slli_epi64(vjj, 1));
-      *loadbuf_alias++ = _mm_xor_si128(vii, vjj);
-    }
-    loadbuf = (unsigned char*)loadbuf_alias;
-  } else if (!(((uintptr_t)loadbuf) & 3)) {
-    loadbuf_alias32 = (uint32_t*)loadbuf;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
-      uii = *loadbuf_alias32;
-      ujj = 0x55555555 & (~(uii ^ (uii >> 1)));
-      ujj *= 3;
-      *loadbuf_alias32++ = uii ^ ujj;
-    }
-    loadbuf = (unsigned char*)loadbuf_alias32;
-  }
-#else
-  if (!(((uintptr_t)loadbuf) & 3)) {
-    loadbuf_alias32 = (uint32_t*)loadbuf;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / BITCT2;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
-      uii = *loadbuf_alias32;
-      ujj = 0x55555555 & (~(uii ^ (uii >> 1)));
-      ujj *= 3;
-      *loadbuf_alias32++ = uii ^ ujj;
-    }
-    loadbuf = (unsigned char*)loadbuf_alias32;
-  }
-#endif
-  for (; loadbuf < loadbuf_end;) {
-    ucc = *loadbuf;
-    ucc2 = 0x55 & (~(ucc ^ (ucc >> 1)));
-    ucc2 *= 3;
-    *loadbuf++ = ucc ^ ucc2;
-  }
-  uii = unfiltered_indiv_ct & 3;
-  if (uii) {
-    loadbuf[-1] &= (0xff >> (8 - 2 * uii));
   }
 }
 
