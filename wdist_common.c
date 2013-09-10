@@ -2727,19 +2727,19 @@ void fill_vec_55(uintptr_t* vec, uint32_t ct) {
   }
 }
 
-uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uint32_t xmhh_exists, uint32_t nxmhh_exists, uint32_t y_exists, uintptr_t* indiv_exclude, uintptr_t* sex_male, uintptr_t** indiv_include2_ptr, uintptr_t** indiv_male_include2_ptr) {
+uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uint32_t hh_exists, uintptr_t* indiv_exclude, uintptr_t* sex_male, uintptr_t** indiv_include2_ptr, uintptr_t** indiv_male_include2_ptr) {
   uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
   uint32_t indiv_uidx = 0;
   uint32_t indiv_idx = 0;
   uintptr_t* indiv_male_include2;
   uint32_t indiv_uidx_stop;
-  if (nxmhh_exists || y_exists) {
+  if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
     if (wkspace_alloc_ul_checked(indiv_include2_ptr, indiv_ctv2 * sizeof(intptr_t))) {
       return 1;
     }
     fill_vec_55(*indiv_include2_ptr, indiv_ct);
   }
-  if (xmhh_exists || y_exists) {
+  if (hh_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
     if (wkspace_alloc_ul_checked(indiv_male_include2_ptr, indiv_ctv2 * sizeof(intptr_t))) {
       return 1;
     }
@@ -3861,7 +3861,10 @@ static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
   uintptr_t tot = 0;
   __m128i* vend;
-  __m128i count1, count2, half1, half2;
+  __m128i count1;
+  __m128i count2;
+  __m128i half1;
+  __m128i half2;
   __uni16 acc;
 
   while (ct >= 30) {
@@ -6009,74 +6012,10 @@ void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* in
   }
 }
 
-/*
-void force_unset_missing(unsigned char* loadbuf, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct) {
-  uintptr_t indiv_bidx = 0;
-  unsigned char* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + 3) / 4]);
-  unsigned char* imicp;
-  unsigned char ucc;
-  unsigned char ucc3;
-  uintptr_t unfiltered_indiv_ctd;
-  uint32_t* loadbuf_alias32;
-  uint32_t uii;
-  uint32_t ukk;
-#ifdef __LP64__
-  const __m128i m1 = {FIVEMASK, FIVEMASK};
-  uint32_t* indiv_male_include2_alias32;
-  __m128i* loadbuf_alias;
-  __m128i* imivp;
-  __m128i vii;
-  __m128i vkk;
-  if (!(((uintptr_t)loadbuf) & 15)) {
-    loadbuf_alias = (__m128i*)loadbuf;
-    imivp = (__m128i*)indiv_male_include2;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / 64;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
-      vii = *imivp++;
-      vkk = _mm_and_si128(*loadbuf_alias, _mm_or_si128(vii, _mm_slli_epi64(vii, 1)));
-      *loadbuf_alias++ = _mm_or_si128(_mm_andnot_si128(vii, m1), vkk);
-    }
-    loadbuf = (unsigned char*)loadbuf_alias;
-    imicp = (unsigned char*)imivp;
-  } else if (!(((uintptr_t)loadbuf) & 3)) {
-    loadbuf_alias32 = (uint32_t*)loadbuf;
-    indiv_male_include2_alias32 = (uint32_t*)indiv_male_include2;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / 16;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
-      uii = *indiv_male_include2_alias32++;
-      ukk = (*loadbuf_alias32) & (uii * 3);
-      *loadbuf_alias32++ = ((~uii) & 0x55555555) | ukk;
-    }
-    loadbuf = (unsigned char*)loadbuf_alias32;
-    imicp = (unsigned char*)indiv_male_include2_alias32;
-  } else {
-    imicp = (unsigned char*)indiv_male_include2;
-  }
-#else
-  if (!(((uintptr_t)loadbuf) & 3)) {
-    loadbuf_alias32 = (uint32_t*)loadbuf;
-    unfiltered_indiv_ctd = unfiltered_indiv_ct / 16;
-    for (; indiv_bidx < unfiltered_indiv_ctd; indiv_bidx++) {
-      uii = *indiv_male_include2++;
-      ukk = (*loadbuf_alias32) & (uii * 3);
-      *loadbuf_alias32++ = ((~uii) & 0x55555555) | ukk;
-    }
-    loadbuf = (unsigned char*)loadbuf_alias32;
-  }
-  imicp = (unsigned char*)indiv_male_include2;
-#endif
-  for (; loadbuf < loadbuf_end;) {
-    ucc = *imicp++;
-    ucc3 = (*loadbuf) & (ucc * 3);
-    *loadbuf++ = ((~ucc) & 0x55) | ucc3;
-  }
-}
-*/
-
-uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t xmhh_exists, uint32_t nxmhh_exists, uint32_t y_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_raw_include2_ptr, uintptr_t** indiv_raw_male_include2_ptr) {
+uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_raw_include2_ptr, uintptr_t** indiv_raw_male_include2_ptr) {
   uintptr_t unfiltered_indiv_ctv2 = 2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
   uintptr_t* indiv_raw_male_include2;
-  if (nxmhh_exists || y_exists) {
+  if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
     if (wkspace_alloc_ul_checked(indiv_raw_include2_ptr, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
       return 1;
     }
@@ -6086,12 +6025,12 @@ uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t xmhh_e
       exclude_to_vec_include(unfiltered_indiv_ct, *indiv_raw_include2_ptr, indiv_bitarr);
     }
   }
-  if (xmhh_exists || y_exists) {
+  if (hh_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
     if (wkspace_alloc_ul_checked(indiv_raw_male_include2_ptr, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
       return 1;
     }
     indiv_raw_male_include2 = *indiv_raw_male_include2_ptr;
-    if (nxmhh_exists || y_exists) {
+    if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
       memcpy(indiv_raw_male_include2, *indiv_raw_include2_ptr, unfiltered_indiv_ctv2 * sizeof(intptr_t));
     } else {
       if (is_include) {
@@ -6105,7 +6044,7 @@ uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t xmhh_e
   return 0;
 }
 
-void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_raw_include2, uintptr_t* indiv_raw_male_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf) {
+void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uintptr_t* indiv_raw_include2, uintptr_t* indiv_raw_male_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf) {
   uintptr_t marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx_start);
   uint32_t chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
   uintptr_t marker_idx = 0;
@@ -6128,21 +6067,18 @@ void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start
     }
     if (is_haploid) {
       if (is_x) {
-	if (xmhh_exists) {
+	if (hh_exists & XMHH_EXISTS) {
 	  for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
 	    hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_raw_male_include2, unfiltered_indiv_ct);
 	  }
 	}
       } else if (is_y) {
-        for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
-          hh_reset_y(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_raw_include2, indiv_raw_male_include2, unfiltered_indiv_ct);
+	if (hh_exists & Y_FIX_NEEDED) {
+	  for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
+	    hh_reset_y(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_raw_include2, indiv_raw_male_include2, unfiltered_indiv_ct);
+	  }
 	}
-	/*
-	for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
-	  force_unset_missing(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_raw_male_include2, unfiltered_indiv_ct);
-	}
-	*/
-      } else if (nxmhh_exists) {
+      } else if (hh_exists & NXMHH_EXISTS) {
 	for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
 	  hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), indiv_raw_include2, unfiltered_indiv_ct);
 	}

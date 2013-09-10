@@ -218,6 +218,12 @@ typedef union {
 #define CALC_NEIGHBOR 0x20000000LLU
 #define CALC_GLM 0x40000000LLU
 
+// necessary to patch heterozygous haploids/female Y chromosome genotypes
+// during loading?
+#define XMHH_EXISTS 1
+#define Y_FIX_NEEDED 2
+#define NXMHH_EXISTS 4
+
 #define ALLELE_RECODE 1
 #define ALLELE_RECODE_MULTICHAR 2
 #define ALLELE_RECODE_ACGT 4
@@ -1247,7 +1253,7 @@ void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, 
 
 void fill_vec_55(uintptr_t* vec, uint32_t ct);
 
-uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uint32_t xmhh_exists, uint32_t nxmhh_exists, uint32_t y_exists, uintptr_t* indiv_exclude, uintptr_t* sex_male, uintptr_t** indiv_include2_ptr, uintptr_t** indiv_male_include2_ptr);
+uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uint32_t hh_exists, uintptr_t* indiv_exclude, uintptr_t* sex_male, uintptr_t** indiv_include2_ptr, uintptr_t** indiv_male_include2_ptr);
 
 static inline void free_cond(void* memptr) {
   if (memptr) {
@@ -1585,21 +1591,23 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t unfil
 
 void hh_reset_y(unsigned char* loadbuf, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct);
 
-static inline void haploid_fix(uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct, uint32_t is_x, uint32_t is_y, unsigned char* loadbuf) {
+static inline void haploid_fix(uint32_t hh_exists, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t unfiltered_indiv_ct, uint32_t is_x, uint32_t is_y, unsigned char* loadbuf) {
   if (is_x) {
-    if (xmhh_exists) {
+    if (hh_exists & XMHH_EXISTS) {
       hh_reset(loadbuf, indiv_male_include2, unfiltered_indiv_ct);
     }
   } else if (is_y) {
-    hh_reset_y(loadbuf, indiv_include2, indiv_male_include2, unfiltered_indiv_ct);
-  } else if (nxmhh_exists) {
+    if (hh_exists & Y_FIX_NEEDED) {
+      hh_reset_y(loadbuf, indiv_include2, indiv_male_include2, unfiltered_indiv_ct);
+    }
+  } else if (hh_exists & NXMHH_EXISTS) {
     hh_reset(loadbuf, indiv_include2, unfiltered_indiv_ct);
   }
 }
 
-uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t xmhh_exists, uint32_t nxmhh_exists, uint32_t y_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_raw_include2_ptr, uintptr_t** indiv_raw_male_include2_ptr);
+uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_raw_include2_ptr, uintptr_t** indiv_raw_male_include2_ptr);
 
-void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t xmhh_exists, uint32_t nxmhh_exists, uintptr_t* indiv_raw_include2, uintptr_t* indiv_raw_male_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf);
+void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uintptr_t* indiv_raw_include2, uintptr_t* indiv_raw_male_include2, uintptr_t unfiltered_indiv_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf);
 
 void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_indiv_ct);
 
