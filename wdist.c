@@ -6605,6 +6605,8 @@ int32_t main(int32_t argc, char** argv) {
 	if (!memcmp(argptr, "list", 5)) {
 	  memcpy(flagptr, "recode list", 12);
 	  printf("Note: --list flag deprecated.  Use '--recode list' instead.\n");
+	  recode_modifier |= RECODE_LIST;
+	  misc_flags |= MISC_SET_HH_MISSING;
 	  break;
 	} else if (!memcmp(argptr, "load-dists", 11)) {
           memcpy(flagptr, "read-dists", 11);

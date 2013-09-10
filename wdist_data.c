@@ -9178,7 +9178,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       goto recode_ret_NOMEM;
     }
     loadbuf_collapsed_end = &(loadbuf_collapsed[(indiv_ct + (BITCT2 - 1)) / BITCT2]);
-    if (recode_modifier & (RECODE_LGEN | RECODE_LGEN_REF)) {
+    if (recode_modifier & (RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_RLIST)) {
       // need to collapse person_ids to remove need for indiv_uidx in inner
       // loop
       person_ids_collapsed = alloc_and_init_collapsed_arr(person_ids, max_person_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_ct);
@@ -10645,7 +10645,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	if (is_haploid && set_hh_missing) {
           haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
 	}
-	// todo: fix this
 	if (max_marker_allele_len == 1) {
 	  cur_mk_alleles[0] = mk_alleles[2 * marker_uidx];
 	  cur_mk_alleles[1] = mk_alleles[2 * marker_uidx + 1];
@@ -10764,6 +10763,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 		*(writebuflp[ulii]++) = delimiter;
 		writebuflp[ulii] = strcpya(writebuflp[ulii], &(person_ids_collapsed[indiv_idx * max_person_id_len]));
 	      }
+	      indiv_uidx += BITCT2;
 	    }
 	    if (ulptr == loadbuf_collapsed_end) {
 	      break;
