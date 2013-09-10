@@ -190,8 +190,10 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
   tbuf[plink_maxfid] = ' ';
   tbuf[plink_maxfid + plink_maxiid + 1] = ' ';
   indiv_uidx = 0;
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
+    if (IS_SET(indiv_exclude, indiv_uidx)) {
+      indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
+    }
     cptr = &(person_ids[indiv_uidx * max_person_id_len]);
     cptr2 = (char*)memchr(cptr, '\t', max_person_id_len);
     slen = (uintptr_t)(cptr2 - cptr);
@@ -291,7 +293,6 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
     if (fwrite_checked(tbuf, wptr - tbuf, outfile_indiv)) {
       goto write_main_roh_reports_ret_WRITE_FAIL;
     }
-    indiv_uidx++;
   }
   if (fclose_null(&outfile)) {
     goto write_main_roh_reports_ret_WRITE_FAIL;
@@ -1237,7 +1238,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
         uii = cur_roh[0];
 	// check if this ROH doesn't intersect anything
 	if ((cur_roh_heap_top > 1) || ((roh_idx != chrom_roh_start) && (cur_roh[1 - ROH_ENTRY_INTS] >= uii))) {
-	  slot_idx1 = next_non_set_unsafe(roh_slot_occupied, 0);
+	  slot_idx1 = next_unset_unsafe(roh_slot_occupied, 0);
 	  SET_BIT(roh_slot_occupied, slot_idx1);
 	  // use roh_slots[0..(max_pool_size - 1)] to store references to
 	  // active ROH here
@@ -1399,7 +1400,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
     fill_ulong_one((uintptr_t*)roh_slot_map, (max_pool_size + 1) * (sizeof(int64_t) / sizeof(intptr_t)));
     fill_uint_zero(roh_slot_end_uidx, max_pool_size);
     fill_ulong_zero(allelic_match_matrix, (((uintptr_t)max_pool_size) * (max_pool_size - 1)) / 2);
-    lookahead_end_uidx = next_non_set_unsafe(marker_exclude, chrom_start);
+    lookahead_end_uidx = next_unset_unsafe(marker_exclude, chrom_start);
     cur_lookahead_start = 0;
     cur_lookahead_size = 0;
     lookahead_first_cidx = 0;
@@ -1480,7 +1481,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
           if (indiv_uidx2 == indiv_uidx1) {
 	    break;
 	  }
-	  ujj = next_non_set_unsafe(roh_slot_occupied, 0);
+	  ujj = next_unset_unsafe(roh_slot_occupied, 0);
 	  SET_BIT(roh_slot_occupied, ujj);
 	  if (roh_slot_uncached) {
 	    SET_BIT(roh_slot_uncached, roh_idx - 1);
@@ -1493,7 +1494,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
       while (roh_idx < pool_size) {
 	cur_roh = &(roh_list[cur_pool[roh_idx] * ROH_ENTRY_INTS]);
         indiv_uidx2 = cur_roh[5];
-        ujj = next_non_set_unsafe(roh_slot_occupied, 0);
+        ujj = next_unset_unsafe(roh_slot_occupied, 0);
         SET_BIT(roh_slot_occupied, ujj);
 	if (roh_slot_uncached) {
 	  SET_BIT(roh_slot_uncached, roh_idx);
@@ -1562,7 +1563,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	}
 	do {
 	  if (IS_SET(marker_exclude, lookahead_end_uidx)) {
-            lookahead_end_uidx = next_non_set_unsafe(marker_exclude, lookahead_end_uidx + 1);
+            lookahead_end_uidx = next_unset_unsafe(marker_exclude, lookahead_end_uidx);
             if (fseeko(bedfile, bed_offset + ((uint64_t)lookahead_end_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
 	      goto roh_pool_ret_READ_FAIL;
 	    }
@@ -1827,7 +1828,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	  marker_cidx = marker_uidx_to_cidx[union_uidx1 - chrom_start];
 	  for (marker_uidx1 = union_uidx1; marker_uidx1 <= union_uidx2; marker_uidx1++) {
 	    if (IS_SET(marker_exclude, marker_uidx1)) {
-	      marker_uidx1 = next_non_set_unsafe(marker_exclude, marker_uidx1 + 1);
+	      marker_uidx1 = next_unset_unsafe(marker_exclude, marker_uidx1);
 	    }
 	    if (marker_uidx1 == con_uidx1) {
 	      putc('\n', outfile);
@@ -1965,7 +1966,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	marker_cidx = marker_uidx_to_cidx[union_uidx1 - chrom_start];
 	for (marker_uidx1 = union_uidx1; marker_uidx1 <= union_uidx2; marker_uidx1++) {
 	  if (IS_SET(marker_exclude, marker_uidx1)) {
-	    marker_uidx1 = next_non_set_unsafe(marker_exclude, marker_uidx1 + 1);
+	    marker_uidx1 = next_unset_unsafe(marker_exclude, marker_uidx1);
 	  }
 	  if (marker_uidx1 == con_uidx1) {
 	    putc('\n', outfile);

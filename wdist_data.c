@@ -1410,8 +1410,10 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
   logprintb();
   marker_uidx = 0;
   marker_ct -= (*marker_exclude_ct_ptr) - orig_exclude_ct;
-  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+  for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
+      marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
+    }
     while (marker_uidx >= chrom_end) {
       chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[++chrom_fo_idx_p1];
       last_pos = 0;
@@ -1424,7 +1426,6 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
       break;
     }
     last_pos = marker_pos[marker_uidx];
-    marker_uidx++;
   }
   if (((*map_is_unsorted_ptr) & UNSORTED_BP) && (!(map_is_unsorted & UNSORTED_BP))) {
     logprint("Base-pair positions are now sorted.\n");
@@ -3227,8 +3228,8 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
   if (putc_checked('\n', outfile)) {
     goto write_covars_ret_WRITE_FAIL;
   }
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
+    indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
     bufptr = &(person_ids[indiv_uidx * max_person_id_len]);
     wptr = (char*)memchr(bufptr, '\t', max_person_id_len);
     *wptr = ' ';
@@ -3309,7 +3310,6 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
     if (putc_checked('\n', outfile)) {
       goto write_covars_ret_WRITE_FAIL;
     }
-    indiv_uidx++;
   }
   sprintf(logbuf, "Covariates written to %s.\n", outname);
   logprintb();
@@ -3412,8 +3412,10 @@ int32_t write_map_or_bim(char* outname, uintptr_t* marker_exclude, uintptr_t mar
   if (fopen_checked(&outfile, outname, "w")) {
     goto write_map_or_bim_ret_OPEN_FAIL;
   }
-  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+  for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
+      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+    }
     while (marker_uidx >= chrom_end) {
       chrom_idx = chrom_info_ptr->chrom_file_order[++chrom_fo_idx];
       chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
@@ -3443,7 +3445,6 @@ int32_t write_map_or_bim(char* outname, uintptr_t* marker_exclude, uintptr_t mar
     if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
       goto write_map_or_bim_ret_WRITE_FAIL;
     }
-    marker_uidx++;
   }
   if (fclose_null(&outfile)) {
     goto write_map_or_bim_ret_WRITE_FAIL;
@@ -3505,8 +3506,10 @@ void fill_ll_buf(uintptr_t* marker_exclude, uintptr_t marker_ct, Chrom_info* chr
   uint32_t chrom_end = 0;
   uint64_t chrom_idx_shifted = 0;
   uintptr_t marker_idx;
-  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+  for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
+      marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
+    }
     if (marker_uidx >= chrom_end) {
       do {
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[++chrom_idx_p1];
@@ -3514,7 +3517,6 @@ void fill_ll_buf(uintptr_t* marker_exclude, uintptr_t marker_ct, Chrom_info* chr
       chrom_idx_shifted = ((uint64_t)(chrom_info_ptr->chrom_file_order[chrom_idx_p1 - 1])) << 32;
     }
     ll_buf[marker_idx] = (int64_t)(chrom_idx_shifted | ((uint64_t)marker_idx));
-    marker_uidx++;
   }
 }
 
@@ -3526,7 +3528,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
   uint32_t marker_ctl = (marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
-  uint32_t marker_uidx = 0;
+  uintptr_t marker_uidx = 0;
   char* sorted_marker_ids;
   uint32_t* marker_id_map;
   uintptr_t* already_seen;
@@ -3537,6 +3539,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
   char* colid_ptr;
   char* colx_ptr;
   uintptr_t marker_idx;
+  uintptr_t delta;
   int32_t sorted_idx;
   char cc;
   int32_t retval;
@@ -3548,11 +3551,15 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
   for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
     marker_id_map[marker_idx] = marker_idx;
   }
-  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-    marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
-    memcpy(&(sorted_marker_ids[marker_idx * max_marker_id_len]), &(marker_ids[((uintptr_t)marker_uidx) * max_marker_id_len]), max_marker_id_len);
-    marker_uidx++;
-  }
+  marker_uidx = 0;
+  marker_idx = 0;
+  do {
+    marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+    delta = next_set_ul(marker_exclude, marker_uidx, unfiltered_marker_ct) - marker_uidx;
+    memcpy(&(sorted_marker_ids[marker_idx * max_marker_id_len]), &(marker_ids[marker_uidx * max_marker_id_len]), delta * max_marker_id_len);
+    marker_idx += delta;
+    marker_uidx += delta;
+  } while (marker_idx < marker_ct);
   if (qsort_ext(sorted_marker_ids, marker_ct, max_marker_id_len, strcmp_deref, (char*)marker_id_map, sizeof(int32_t))) {
     goto update_marker_chroms_ret_NOMEM;
   }
@@ -8870,7 +8877,7 @@ int32_t recode_beagle_new_chrom(char* outname, char* outname_end2, uintptr_t* ma
   chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
   if ((chrom_idx > 22) && (chrom_idx < 27)) {
     do {
-      marker_uidx = next_non_set_unsafe(marker_exclude, chrom_end);
+      marker_uidx = next_unset_ul_unsafe(marker_exclude, chrom_end);
       chrom_fo_idx++;
       refresh_chrom_info(chrom_info_ptr, marker_uidx, 0, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
@@ -10462,7 +10469,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	    break;
 	  }
 	  ulptr_end++;
-	  shiftmax -= BITCT2 - (indiv_ct % BITCT2);
+	  shiftmax = indiv_ct;
 	}
 	if (fwrite_checked(writebuf, wbufptr - writebuf, outfile)) {
 	  goto recode_ret_WRITE_FAIL;
@@ -10813,7 +10820,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     chrom_fo_idx = 0xffffffffU;
     do {
       chrom_fo_idx++;
-      marker_uidx = next_non_set_unsafe(marker_exclude, marker_uidx);
+      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
       refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       ulii = count_chrom_markers(chrom_info_ptr, chrom_idx, marker_exclude);

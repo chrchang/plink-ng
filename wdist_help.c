@@ -1351,7 +1351,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     col_num = (help_ctrl.unmatched_ct == 1)? 17 : 19;
     arg_uidx = 0;
     while (help_ctrl.unmatched_ct) {
-      arg_uidx = next_non_set_unsafe(help_ctrl.all_match_arr, arg_uidx);
+      arg_uidx = next_unset_unsafe(help_ctrl.all_match_arr, arg_uidx);
       help_ctrl.unmatched_ct--;
       if (help_ctrl.unmatched_ct) {
 	if (net_unmatched_ct == 2) {

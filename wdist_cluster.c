@@ -313,13 +313,12 @@ int32_t fill_indiv_to_cluster(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_ex
   }
   if (cluster_starts[cluster_ct] < indiv_ct) {
     indiv_uidx = 0;
-    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-      indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
+      indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
       if (indiv_to_cluster[indiv_idx] == 0xffffffffU) {
 	late_clidx_to_indiv_uidx[cluster_idx - cluster_ct] = indiv_uidx;
 	indiv_to_cluster[indiv_idx] = cluster_idx++;
       }
-      indiv_uidx++;
     }
   }
   while (0) {
@@ -350,8 +349,8 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_in
   if (fopen_checked(&outfile, outname, "w")) {
     goto write_cluster_ret_OPEN_FAIL;
   }
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    indiv_uidx = next_non_set_unsafe(indiv_exclude, indiv_uidx);
+  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
+    indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
     cluster_idx = indiv_to_cluster[indiv_uidx];
     if ((!omit_unassigned) || (cluster_idx != 0xffffffffU)) {
       person_id_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
@@ -367,7 +366,6 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_in
 	goto write_cluster_ret_WRITE_FAIL;
       }
     }
-    indiv_uidx++;
   }
   if (fclose_null(&outfile)) {
     goto write_cluster_ret_WRITE_FAIL;
@@ -1318,7 +1316,7 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
 	  if (siptr == list_end) {
 	    goto cluster_main_finished;
 	  }
-          tie_end = &(sorted_ibs_indices[1 + next_non_set_unsafe(ibs_ties, siptr - sorted_ibs_indices)]);
+          tie_end = &(sorted_ibs_indices[1 + next_unset_unsafe(ibs_ties, siptr - sorted_ibs_indices)]);
 	}
 	uii = *siptr++;
 	if (uii == 0xffffffffU) {
@@ -1395,7 +1393,7 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
 	  if (siptr == list_end) {
 	    goto cluster_main_finished;
 	  }
-          tie_end = &(sorted_ibs_indices[1 + next_non_set_unsafe(ibs_ties, siptr - sorted_ibs_indices)]);
+          tie_end = &(sorted_ibs_indices[1 + next_unset_unsafe(ibs_ties, siptr - sorted_ibs_indices)]);
 	}
 	uii = *siptr++;
 	if (uii == 0xffffffffU) {

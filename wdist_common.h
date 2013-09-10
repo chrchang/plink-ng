@@ -16,7 +16,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 // Uncomment this to produce a PLINK 1.50 alpha build (with some default
 // parameters set to 'plink' instead of 'wdist', etc.).
@@ -1114,10 +1114,6 @@ static inline uint32_t is_set_ul(uintptr_t* exclude_arr, uintptr_t loc) {
 #define IS_NONNULL_AND_SET(aa, bb) (aa && IS_SET(aa, bb))
 
 uint32_t next_unset_unsafe(uintptr_t* bit_arr, uint32_t loc);
-
-static inline uint32_t next_non_set_unsafe(uintptr_t* bit_arr, uint32_t loc) {
-  return next_unset_unsafe(bit_arr, loc);
-}
 
 #ifdef __LP64__
 uintptr_t next_unset_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc);
