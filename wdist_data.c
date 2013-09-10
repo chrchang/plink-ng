@@ -8759,6 +8759,7 @@ uint32_t recode_load_to(unsigned char* loadbuf, FILE* bedfile, uintptr_t bed_off
 	break;
       }
       reverse_loadbuf(&(loadbuf[(marker_uidx - marker_uidx_start) * unfiltered_indiv_ct4]), unfiltered_indiv_ct);
+      marker_uidx++;
     }
     loadbuf = &(loadbuf[ulii]);
   }
