@@ -7028,7 +7028,6 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   char* wptr_restart;
   uintptr_t* loadbuf_raw;
   uintptr_t* loadbuf_ptr;
-  uintptr_t* cur_loadbuf;
   uintptr_t* lbptr2;
   uintptr_t* indiv_include2;
   double* ooptr;
@@ -7140,7 +7139,6 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   }
   loadbuf_raw[unfiltered_indiv_ctv2 - 2] = 0;
   loadbuf_raw[unfiltered_indiv_ctv2 - 1] = 0;
-  cur_loadbuf = loadbuf_raw;
   if (fill_orig_chiabs) {
     if (wkspace_alloc_d_checked(&g_orig_chisq, marker_ct * sizeof(double))) {
       goto qassoc_ret_NOMEM;

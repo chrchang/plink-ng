@@ -3929,7 +3929,7 @@ uint32_t swap_reversed_marker_alleles(uintptr_t unfiltered_marker_ct, uintptr_t*
       marker_uidx = next_set_ul(marker_reverse, marker_uidx, unfiltered_marker_ct);
     }
     if (marker_uidx == unfiltered_marker_ct) {
-      wkspace_reset(wkspace_base);
+      wkspace_reset(wkspace_mark);
       return 0;
     }
     aptr = &(marker_alleles[marker_uidx * 2 * max_marker_allele_len]);
