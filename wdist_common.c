@@ -3752,6 +3752,16 @@ void distance_print_done(int32_t format_code, char* outname, char* outname_end) 
   logprintb();
 }
 
+void bitfield_exclude_to_include(uintptr_t* exclude_arr, uintptr_t* include_arr, uintptr_t bit_ct) {
+  uintptr_t* exclude_end = &(exclude_arr[bit_ct / BITCT]);
+  while (exclude_arr < exclude_end) {
+    *include_arr++ = ~(*exclude_arr++);
+  }
+  if (bit_ct % BITCT) {
+    *include_arr = (~(*exclude_arr)) & ((ONELU << (bit_ct % BITCT)) - ONELU);
+  }
+}
+
 void bitfield_and(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct) {
   // vv := vv AND include_vec
   // on 64-bit systems, assumes vv and include_vec are 16-byte aligned

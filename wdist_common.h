@@ -185,7 +185,8 @@ typedef union {
 #define MISC_ZERO_EXTRA_CHROMS 0x8000LLU
 #define MISC_EXCLUDE_MARKERNAME_SNP 0x10000LLU
 #define MISC_LD_PRUNE_PAIRWISE 0x20000LLU
-#define MISC_LD_IGNORE_X 0x40000LLU
+#define MISC_LD_INCLUDE_NONFOUNDERS 0x40000LLU
+#define MISC_LD_IGNORE_X 0x80000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
@@ -279,7 +280,7 @@ typedef union {
 #define REL_CALC_BIN 16
 #define REL_CALC_GRM 32
 
-// GCTA 1.10 format
+// GCTA 1.10+ format
 #define REL_CALC_GRM_BIN 64
 
 #define REL_CALC_SINGLE_PREC 128
@@ -1528,6 +1529,8 @@ void fill_idbuf_fam_indiv(char* id_buf, char* fam_indiv, char fillchar);
 int32_t bsearch_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, char* indiv_id);
 
 void bsearch_fam(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, uint32_t* first_idx_ptr, uint32_t* last_idx_ptr);
+
+void bitfield_exclude_to_include(uintptr_t* exclude_arr, uintptr_t* include_arr, uintptr_t bit_ct);
 
 void bitfield_and(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct);
 

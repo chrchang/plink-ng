@@ -4925,31 +4925,14 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
   *is_y_ptr = (((int32_t)cur_chrom) == chrom_info_ptr->y_code)? 1 : 0;
 }
 
-int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, char* outname, char* outname_end, uint64_t misc_flags, uint32_t hh_exists) {
+int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* founder_info, uintptr_t* sex_male, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, char* outname, char* outname_end, uint64_t misc_flags, uint32_t hh_exists) {
   // for future consideration: chromosome-based multithread/parallel?
+  unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile_in = NULL;
   FILE* outfile_out = NULL;
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = 2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
-  uintptr_t founder_ct = popcount_longs(founder_info, 0, unfiltered_indiv_ctl2 / 2);
-  uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
-#ifdef __LP64__
-  uintptr_t founder_ctv = 2 * ((founder_ct + 127) / 128);
-#else
-  uintptr_t founder_ctv = founder_ctl;
-#endif
-  uintptr_t founder_ct_mld = (founder_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
-  uint32_t founder_ct_mld_m1 = ((uint32_t)founder_ct_mld) - 1;
-#ifdef __LP64__
-  uint32_t founder_ct_mld_rem = (MULTIPLEX_LD / 192) - (founder_ct_mld * MULTIPLEX_LD - founder_ct) / 192;
-#else
-  uint32_t founder_ct_mld_rem = (MULTIPLEX_LD / 48) - (founder_ct_mld * MULTIPLEX_LD - founder_ct) / 48;
-#endif
-  uintptr_t founder_ct_mld_long = founder_ct_mld * (MULTIPLEX_LD / BITCT2);
-  uint32_t founder_trail_ct = founder_ct_mld_long - founder_ctl * 2;
-  int32_t retval = 0;
-  unsigned char* wkspace_mark = wkspace_base;
   uint32_t pairwise = (misc_flags / MISC_LD_PRUNE_PAIRWISE) & 1;
   uint32_t ignore_x = (misc_flags / MISC_LD_IGNORE_X) & 1;
   uintptr_t window_max = 0;
@@ -4964,12 +4947,21 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
   uint32_t tot_exclude_ct = 0;
   uint32_t at_least_one_prune = 0;
   uint32_t max_code = chrom_info_ptr->max_code;
+  int32_t retval = 0;
+  uintptr_t founder_ct;
+  uintptr_t founder_ctl;
+  uintptr_t founder_ctv;
+  uintptr_t founder_ct_mld;
+  uintptr_t founder_ct_mld_long;
   uintptr_t* pruned_arr;
   uint32_t* live_indices;
   uint32_t* start_arr;
   uint32_t marker_unfiltered_idx;
   uintptr_t marker_idx;
   int32_t pct;
+  uint32_t founder_ct_mld_m1;
+  uint32_t founder_ct_mld_rem;
+  uint32_t founder_trail_ct;
   uint32_t pct_thresh;
   uint32_t window_unfiltered_start;
   uint32_t window_unfiltered_end;
@@ -5014,11 +5006,35 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
   __CLPK_integer old_window_rem_li;
   uint32_t window_rem;
   double prune_ld_r2;
+  if (misc_flags & MISC_LD_INCLUDE_NONFOUNDERS) {
+    // ignore original founder_info
+    if (wkspace_alloc_ul_checked(&founder_info, unfiltered_indiv_ctl2 / 2)) {
+      goto ld_prune_ret_NOMEM;
+    }
+    bitfield_exclude_to_include(indiv_exclude, founder_info, unfiltered_indiv_ct);
+  }
+  founder_ct = popcount_longs(founder_info, 0, unfiltered_indiv_ctl2 / 2);
   if (!founder_ct) {
     sprintf(logbuf, "Warning: Skipping --indep%s since there are no founders.\n", pairwise? "-pairwise" : "");
     logprintb();
     goto ld_prune_ret_1;
   }
+
+  founder_ctl = (founder_ct + BITCT - 1) / BITCT;
+#ifdef __LP64__
+  founder_ctv = 2 * ((founder_ct + 127) / 128);
+#else
+  founder_ctv = founder_ctl;
+#endif
+  founder_ct_mld = (founder_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
+  founder_ct_mld_m1 = ((uint32_t)founder_ct_mld) - 1;
+#ifdef __LP64__
+  founder_ct_mld_rem = (MULTIPLEX_LD / 192) - (founder_ct_mld * MULTIPLEX_LD - founder_ct) / 192;
+#else
+  founder_ct_mld_rem = (MULTIPLEX_LD / 48) - (founder_ct_mld * MULTIPLEX_LD - founder_ct) / 48;
+#endif
+  founder_ct_mld_long = founder_ct_mld * (MULTIPLEX_LD / BITCT2);
+  founder_trail_ct = founder_ct_mld_long - founder_ctl * 2;
 
   if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
     goto ld_prune_ret_NOMEM;

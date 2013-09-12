@@ -1217,7 +1217,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --mperm-save     : Save best max(T) permutation test statistics.\n"
 "  --mperm-save-all : Save all max(T) permutation test statistics.\n"
 	       );
-    help_print("indep\tindep-pairwise\tld-xchr", &help_ctrl, 0,
+    help_print("indep\tindep-pairwise\tld-nonfounders\tld-xchr", &help_ctrl, 0,
+"  --ld-nonfounders : Prevent --indep[-pairwise] from ignoring nonfounders.\n"
 "  --ld-xchr [code] : Specifies how --indep[-pairwise] handles the X chromosome.\n"
 "                     1 (default) = male A1 homozygotes are recoded as hets\n"
 "                     2 = no recoding or reweighting\n"
