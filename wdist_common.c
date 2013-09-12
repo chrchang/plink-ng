@@ -2770,9 +2770,7 @@ void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
   uint32_t indiv_idx;
   char* nptr;
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-    if (IS_SET(indiv_exclude, indiv_uidx)) {
-      indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-    }
+    next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
     nptr = (char*)memchr(&(person_ids[indiv_uidx * max_person_id_len]), (unsigned char)oldc, max_person_id_len);
     *nptr = newc;
   }
@@ -3278,19 +3276,17 @@ int32_t write_ids(char* outname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv
   if (fopen_checked(&outfile, outname, "w")) {
     return RET_OPEN_FAIL;
   }
-  do {
-    if (IS_SET(indiv_exclude, indiv_uidx)) {
-      indiv_uidx = next_unset_ul(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
-      if (indiv_uidx == unfiltered_indiv_ct) {
-	break;
-      }
+  while (1) {
+    next_unset_ul_ck(indiv_exclude, &indiv_uidx, unfiltered_indiv_ct);
+    if (indiv_uidx == unfiltered_indiv_ct) {
+      break;
     }
     fputs(&(person_ids[indiv_uidx * max_person_id_len]), outfile);
     if (putc_checked('\n', outfile)) {
       return RET_WRITE_FAIL;
     }
     indiv_uidx++;
-  } while (indiv_uidx < unfiltered_indiv_ct);
+  }
   if (fclose_null(&outfile)) {
     return RET_WRITE_FAIL;
   }
@@ -3455,17 +3451,13 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
   }
   if (!collapse_idxs) {
     for (ujj = 0; ujj < item_ct; uii++, ujj++) {
-      if (IS_SET(exclude_arr, uii)) {
-	uii = next_unset_unsafe(exclude_arr, uii);
-      }
+      next_unset_unsafe_ck(exclude_arr, &uii);
       memcpy(&(sorted_ids[ujj * max_id_len]), &(item_ids[uii * max_id_len]), max_id_len);
       id_map[ujj] = uii;
     }
   } else {
     for (ujj = 0; ujj < item_ct; uii++, ujj++) {
-      if (IS_SET(exclude_arr, uii)) {
-	uii = next_unset_unsafe(exclude_arr, uii);
-      }
+      next_unset_unsafe_ck(exclude_arr, &uii);
       memcpy(&(sorted_ids[ujj * max_id_len]), &(item_ids[uii * max_id_len]), max_id_len);
       id_map[ujj] = ujj;
     }

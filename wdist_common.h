@@ -1109,11 +1109,15 @@ static inline uint32_t is_set_ul(uintptr_t* exclude_arr, uintptr_t loc) {
   return (exclude_arr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
-#define IS_NULL_OR_SET(aa, bb) ((!aa) || IS_SET(aa, bb))
-
 #define IS_NONNULL_AND_SET(aa, bb) (aa && IS_SET(aa, bb))
 
 uint32_t next_unset_unsafe(uintptr_t* bit_arr, uint32_t loc);
+
+static inline void next_unset_unsafe_ck(uintptr_t* bit_arr, uint32_t* loc_ptr) {
+  if (IS_SET(bit_arr, *loc_ptr)) {
+    *loc_ptr = next_unset_unsafe(bit_arr, *loc_ptr);
+  }
+}
 
 #ifdef __LP64__
 uintptr_t next_unset_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc);
@@ -1123,7 +1127,19 @@ static inline uintptr_t next_unset_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc) 
 }
 #endif
 
+static inline void next_unset_ul_unsafe_ck(uintptr_t* bit_arr, uintptr_t* loc_ptr) {
+  if (IS_SET(bit_arr, *loc_ptr)) {
+    *loc_ptr = next_unset_ul_unsafe(bit_arr, *loc_ptr);
+  }
+}
+
 uint32_t next_unset(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil);
+
+static inline void next_unset_ck(uintptr_t* bit_arr, uint32_t* loc_ptr, uint32_t ceil) {
+  if (IS_SET(bit_arr, *loc_ptr)) {
+    *loc_ptr = next_unset(bit_arr, *loc_ptr, ceil);
+  }
+}
 
 #ifdef __LP64__
 uintptr_t next_unset_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil);
@@ -1133,7 +1149,19 @@ static inline uintptr_t next_unset_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr
 }
 #endif
 
+static inline void next_unset_ul_ck(uintptr_t* bit_arr, uintptr_t* loc_ptr, uintptr_t ceil) {
+  if (IS_SET(bit_arr, *loc_ptr)) {
+    *loc_ptr = next_unset_ul(bit_arr, *loc_ptr, ceil);
+  }
+}
+
 uint32_t next_set_unsafe(uintptr_t* bit_arr, uint32_t loc);
+
+static inline void next_set_unsafe_ck(uintptr_t* bit_arr, uint32_t* loc_ptr) {
+  if (!IS_SET(bit_arr, *loc_ptr)) {
+    *loc_ptr = next_set_unsafe(bit_arr, *loc_ptr);
+  }
+}
 
 #ifdef __LP64__
 uintptr_t next_set_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc);
@@ -1143,7 +1171,19 @@ static inline uintptr_t next_set_ul_unsafe(uintptr_t* bit_arr, uintptr_t loc) {
 }
 #endif
 
+static inline void next_set_ul_unsafe_ck(uintptr_t* bit_arr, uintptr_t* loc_ptr) {
+  if (!IS_SET(bit_arr, *loc_ptr)) {
+    *loc_ptr = next_set_ul_unsafe(bit_arr, *loc_ptr);
+  }
+}
+
 uint32_t next_set(uintptr_t* bit_arr, uint32_t loc, uint32_t ceil);
+
+static inline void next_set_ck(uintptr_t* bit_arr, uint32_t* loc_ptr, uint32_t ceil) {
+  if (!IS_SET(bit_arr, *loc_ptr)) {
+    *loc_ptr = next_set(bit_arr, *loc_ptr, ceil);
+  }
+}
 
 #ifdef __LP64__
 uintptr_t next_set_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t ceil);
@@ -1152,6 +1192,12 @@ static inline uintptr_t next_set_ul(uintptr_t* bit_arr, uintptr_t loc, uintptr_t
   return (uintptr_t)next_set(bit_arr, loc, ceil);
 }
 #endif
+
+static inline void next_set_ul_ck(uintptr_t* bit_arr, uintptr_t* loc_ptr, uintptr_t ceil) {
+  if (!IS_SET(bit_arr, *loc_ptr)) {
+    *loc_ptr = next_set_ul(bit_arr, *loc_ptr, ceil);
+  }
+}
 
 int32_t last_set_bit(uintptr_t* bit_arr, uint32_t word_ct);
 
@@ -1391,9 +1437,7 @@ int32_t resolve_or_add_chrom_name(Chrom_info* chrom_info_ptr, char* bufptr, int3
 
 static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr_t marker_uidx, Chrom_info* chrom_info_ptr, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr) {
   // assumes we are at an autosomal marker if marker_uidx < *chrom_end_ptr
-  if (IS_SET(marker_exclude, marker_uidx)) {
-    marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-  }
+  next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
   if (marker_uidx < (*chrom_end_ptr)) {
     return marker_uidx;
   }

@@ -1411,9 +1411,7 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
   marker_uidx = 0;
   marker_ct -= (*marker_exclude_ct_ptr) - orig_exclude_ct;
   for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-    if (IS_SET(marker_exclude, marker_uidx)) {
-      marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
-    }
+    next_unset_unsafe_ck(marker_exclude, &marker_uidx);
     while (marker_uidx >= chrom_end) {
       chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[++chrom_fo_idx_p1];
       last_pos = 0;
@@ -3347,9 +3345,7 @@ int32_t write_fam(char* outname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv
 	indiv_uidx = indiv_sort_map[indiv_uidx2++];
       } while (IS_SET(indiv_exclude, indiv_uidx));
     } else {
-      if (IS_SET(indiv_exclude, indiv_uidx)) {
-        indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-      }
+      next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
     }
     cptr = &(person_ids[indiv_uidx * max_person_id_len]);
     clen = strlen_se(cptr);
@@ -3413,9 +3409,7 @@ int32_t write_map_or_bim(char* outname, uintptr_t* marker_exclude, uintptr_t mar
     goto write_map_or_bim_ret_OPEN_FAIL;
   }
   for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-    if (IS_SET(marker_exclude, marker_uidx)) {
-      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-    }
+    next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
     while (marker_uidx >= chrom_end) {
       chrom_idx = chrom_info_ptr->chrom_file_order[++chrom_fo_idx];
       chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
@@ -3507,9 +3501,7 @@ void fill_ll_buf(uintptr_t* marker_exclude, uintptr_t marker_ct, Chrom_info* chr
   uint64_t chrom_idx_shifted = 0;
   uintptr_t marker_idx;
   for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-    if (IS_SET(marker_exclude, marker_uidx)) {
-      marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
-    }
+    next_unset_unsafe_ck(marker_exclude, &marker_uidx);
     if (marker_uidx >= chrom_end) {
       do {
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[++chrom_idx_p1];
@@ -8759,9 +8751,7 @@ uint32_t recode_load_to(unsigned char* loadbuf, FILE* bedfile, uintptr_t bed_off
       return 1;
     }
     while (1) {
-      if (!IS_SET(marker_reverse, marker_uidx)) {
-        marker_uidx = next_set_ul(marker_reverse, marker_uidx, marker_uidx_stop);
-      }
+      next_set_ul_ck(marker_reverse, &marker_uidx, marker_uidx_stop);
       if (marker_uidx == marker_uidx_stop) {
 	break;
       }
@@ -8921,9 +8911,7 @@ int32_t open_and_write_fastphase_header(FILE** outfile_ptr, char* outname, uintp
   fwrite(wbuf, 1, wptr - wbuf, *outfile_ptr);
   fputs("\nP ", *outfile_ptr);
   for (marker_idx = 0; marker_idx < chrom_size; marker_uidx++, marker_idx++) {
-    if (IS_SET(marker_exclude, marker_uidx)) {
-      marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
-    }
+    next_unset_unsafe_ck(marker_exclude, &marker_uidx);
     wptr = uint32_writex(wbuf, marker_pos[marker_uidx], ' ');
     fwrite(wbuf, 1, wptr - wbuf, *outfile_ptr);
   }
@@ -8950,9 +8938,7 @@ uint32_t write_ped_lines(FILE* outfile, unsigned char* loadbuf, uintptr_t* marke
   missing4[2] = output_missing_geno;
   missing4[3] = delimiter;
   for (indiv_idx = indiv_idx_start; indiv_idx < indiv_idx_end; indiv_uidx++, indiv_idx++) {
-    if (IS_SET(indiv_exclude, indiv_uidx)) {
-      indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-    }
+    next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
     if (recode_write_first_cols(outfile, indiv_uidx, delimiter, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm, pheno_c, pheno_d, output_missing_pheno)) {
       return 1;
     }
@@ -8962,9 +8948,7 @@ uint32_t write_ped_lines(FILE* outfile, unsigned char* loadbuf, uintptr_t* marke
     marker_uidx = marker_uidx_start;
     if (recode_compound) {
       for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-	if (IS_SET(marker_exclude, marker_uidx)) {
-	  marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-	}
+	next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
 	ucc = ((*bufptr) >> shiftval) & 3;
 	if (ucc) {
 	  if (ucc == 3) {
@@ -8989,9 +8973,7 @@ uint32_t write_ped_lines(FILE* outfile, unsigned char* loadbuf, uintptr_t* marke
       }
     } else if (max_marker_allele_len == 1) {
       for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-	if (IS_SET(marker_exclude, marker_uidx)) {
-	  marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-	}
+	next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
 	ucc = ((*bufptr) >> shiftval) & 3;
 	if (ucc) {
 	  if (ucc == 3) {
@@ -9016,9 +8998,7 @@ uint32_t write_ped_lines(FILE* outfile, unsigned char* loadbuf, uintptr_t* marke
       }
     } else {
       for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-	if (IS_SET(marker_exclude, marker_uidx)) {
-	  marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-	}
+	next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
 	ucc = ((*bufptr) >> shiftval) & 3;
 	if (ucc) {
 	  if (ucc == 3) {
@@ -9061,9 +9041,7 @@ uint32_t write_haploview_map(FILE* outfile, uintptr_t* marker_exclude, uintptr_t
   char* wptr;
   uintptr_t marker_idx;
   for (marker_idx = 0; marker_idx < marker_ct; marker_uidx_start++, marker_idx++) {
-    if (IS_SET(marker_exclude, marker_uidx_start)) {
-      marker_uidx_start = next_unset_ul_unsafe(marker_exclude, marker_uidx_start);
-    }
+    next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx_start);
     fputs(&(marker_ids[marker_uidx_start * max_marker_id_len]), outfile);
     putc('\t', outfile);
     wptr = uint32_writex(wbuf, marker_pos[marker_uidx_start], '\n');
@@ -9224,9 +9202,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     wbufptr = memcpya(writebuf2, "P FID ", 6);
     indiv_uidx = 0;
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-      if (IS_SET(indiv_exclude, indiv_uidx)) {
-	indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-      }
+      next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
       cptr = &(person_ids[indiv_uidx * max_person_id_len]);
       aptr = (char*)memchr(cptr, '\t', max_person_id_len);
       ulii = (uintptr_t)(aptr - cptr);
@@ -9236,9 +9212,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     wbufptr = memcpya(wbufptr, "\nI IID ", 7);
     indiv_uidx = 0;
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-      if (IS_SET(indiv_exclude, indiv_uidx)) {
-	indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-      }
+      next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
       cptr = &(person_ids[indiv_uidx * max_person_id_len]);
       cptr = (char*)memchr(cptr, '\t', max_person_id_len);
       cptr++;
@@ -9250,9 +9224,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     if (pheno_c) {
       wbufptr = memcpya(wbufptr, "\nA PHE ", 7);
       for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-	if (IS_SET(indiv_exclude, indiv_uidx)) {
-	  indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-	}
+	next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
         if (IS_SET(pheno_nm, indiv_uidx)) {
 	  cc = (unsigned char)('1' + IS_SET(pheno_c, indiv_uidx));
 	  *wbufptr++ = cc;
@@ -9266,9 +9238,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     } else {
       wbufptr = memcpya(wbufptr, "\nT PHE ", 7);
       for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-	if (IS_SET(indiv_exclude, indiv_uidx)) {
-	  indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-	}
+	next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
         if (IS_SET(pheno_nm, indiv_uidx)) {
 	  cptr = double_g_writex(wbufptr, pheno_d[indiv_uidx], ' ');
           wbufptr = memcpya(cptr, wbufptr, (uintptr_t)(cptr - wbufptr));
@@ -9310,9 +9280,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     }
     indiv_uidx = 0;
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-      if (IS_SET(indiv_exclude, indiv_uidx)) {
-	indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-      }
+      next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
       cptr = (char*)memchr(&(person_ids[indiv_uidx * max_person_id_len]), '\t', max_person_id_len);
       if (strchr(&(cptr[1]), ',')) {
         logprint("Error: Comma present in individual ID during --recode bimbam run.\n");
@@ -9321,9 +9289,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     }
     marker_uidx = 0;
     for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-      if (IS_SET(marker_exclude, marker_uidx)) {
-	marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      }
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       if (strchr(&(marker_ids[marker_uidx * max_marker_id_len]), ',')) {
         logprint("Error: Comma present in marker ID during --recode bimbam run.\n");
       }
@@ -9406,9 +9372,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   } else if (recode_modifier & RECODE_STRUCTURE) {
     indiv_uidx = 0;
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-      if (IS_SET(indiv_exclude, indiv_uidx)) {
-        indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-      }
+      next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
       cptr = &(person_ids[indiv_uidx * max_person_id_len]);
       aptr = (char*)memchr(cptr, '\t', max_person_id_len);
       ulii = (uintptr_t)(aptr - cptr);
@@ -9424,9 +9388,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     }
     indiv_uidx = 0;
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-      if (IS_SET(indiv_exclude, indiv_uidx)) {
-	indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-      }
+      next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
       cptr = &(person_ids[indiv_uidx * max_person_id_len]);
       aptr = (char*)memchr(cptr, '\t', max_fid_len);
       ulii = (uintptr_t)(aptr - cptr);
@@ -9554,9 +9516,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     }
     marker_uidx = 0;
     for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-      if (IS_SET(marker_exclude, marker_uidx)) {
-        marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      }
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       mk_alleles[2 * marker_uidx] = '1';
       mk_alleles[2 * marker_uidx + 1] = '2';
     }
@@ -9744,9 +9704,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     indiv_uidx = 0;
     shiftval = 0; // repurposed: underscore seen in ID?
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-      if (IS_SET(indiv_exclude, indiv_uidx)) {
-        indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-      }
+      next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
       cptr = &(person_ids[indiv_uidx * max_person_id_len]);
       ulii = strlen_se(cptr);
       putc('\t', outfile);
@@ -10075,9 +10033,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     writebuf2[0] = ' ';
     ulii = recode_modifier & RECODE_BIMBAM;
     for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-      if (IS_SET(marker_exclude, marker_uidx)) {
-        marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      }
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
       wbufptr = uint32_write(&(writebuf2[1]), marker_pos[marker_uidx]);
       if (ulii) {
@@ -10103,9 +10059,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     indiv_uidx = 0;
     if (pheno_c) {
       for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-	if (IS_SET(indiv_exclude, indiv_uidx)) {
-	  indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-	}
+	next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
 	if (IS_SET(pheno_nm, indiv_uidx)) {
           putc('1' + IS_SET(pheno_c, indiv_uidx), outfile);
 	} else {
@@ -10117,9 +10071,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       }
     } else {
       for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-	if (IS_SET(indiv_exclude, indiv_uidx)) {
-	  indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-	}
+	next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
 	if (IS_SET(pheno_nm, indiv_uidx)) {
           wbufptr = double_g_write(writebuf2, pheno_d[indiv_uidx]);
 	  fwrite(writebuf2, 1, (uintptr_t)(wbufptr - writebuf2), outfile);
@@ -10146,9 +10098,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     }
     indiv_uidx = 0;
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-      if (IS_SET(indiv_exclude, indiv_uidx)) {
-        indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-      }
+      next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
       cptr = (char*)memchr(&(person_ids[indiv_uidx * max_person_id_len]), '\t', max_person_id_len);
       putc(',', outfile);
       fputs(&(cptr[1]), outfile);
@@ -10243,9 +10193,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     }
     do {
       chrom_fo_idx++;
-      if (IS_SET(marker_exclude, marker_uidx)) {
-        marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      }
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       refresh_chrom_info(chrom_info_ptr, marker_uidx, set_hh_missing, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
       chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       ulii = count_chrom_markers(chrom_info_ptr, chrom_idx, marker_exclude);
@@ -10275,9 +10223,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       }
       indiv_uidx = 0;
       for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-	if (IS_SET(indiv_exclude, indiv_uidx)) {
-          indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-	}
+        next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
 	if (fputs_checked("# ID ", outfile)) {
 	  goto recode_ret_WRITE_FAIL;
 	}
@@ -10496,9 +10442,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       goto recode_ret_WRITE_FAIL;
     }
     for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-      if (IS_SET(marker_exclude, marker_uidx)) {
-        marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      }
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       cptr = &(marker_ids[marker_uidx * max_marker_id_len]);
       if ((max_marker_allele_len == 1) && ((!allele_missing) || (!allele_missing[marker_uidx]))) {
 	cc = mk_alleles[2 * marker_uidx + IS_NONNULL_AND_SET(recode_allele_reverse, marker_uidx)];
@@ -10898,9 +10842,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     sprintf(logbuf, "--recode structure to %s... ", outname);
     logprintb();
     for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-      if (IS_SET(marker_exclude, marker_uidx)) {
-	marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      }
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
       putc(' ', outfile);
     }
@@ -10911,9 +10853,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     chrom_fo_idx = 0xffffffffU; // exploit overflow
     chrom_end = 0;
     for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-      if (IS_SET(marker_exclude, marker_uidx)) {
-	marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      }
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       if (marker_uidx >= chrom_end) {
 	do {
           chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1];
@@ -10943,9 +10883,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     for (pct = 1; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * indiv_ct) / 100;
       for (; indiv_idx < loop_end; indiv_uidx++, indiv_idx++) {
-	if (IS_SET(indiv_exclude, indiv_uidx)) {
-	  indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-	}
+	next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
 	bufptr = &(loadbuf[indiv_uidx / 4]);
 	shiftval = (indiv_uidx % 4) * 2;
         cptr = &(person_ids[indiv_uidx * max_person_id_len]);
@@ -10965,9 +10903,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	marker_uidx = 0;
 	wbufptr = writebuf;
         for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-	  if (IS_SET(marker_exclude, marker_uidx)) {
-	    marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-	  }
+	  next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
           ucc = ((*bufptr) >> shiftval) & 3;
           wbufptr = memcpya(wbufptr, &(writebuf2[4 * ucc]), 4);
 	  bufptr = &(bufptr[unfiltered_indiv_ct4]);

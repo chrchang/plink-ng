@@ -191,9 +191,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
   tbuf[plink_maxfid + plink_maxiid + 1] = ' ';
   indiv_uidx = 0;
   for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-    if (IS_SET(indiv_exclude, indiv_uidx)) {
-      indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-    }
+    next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
     cptr = &(person_ids[indiv_uidx * max_person_id_len]);
     cptr2 = (char*)memchr(cptr, '\t', max_person_id_len);
     slen = (uintptr_t)(cptr2 - cptr);
@@ -1674,9 +1672,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	}
 	marker_cidx = marker_uidx_to_cidx[union_uidx1 - chrom_start];
 	for (marker_uidx1 = union_uidx1; marker_uidx1 <= union_uidx2; marker_uidx1++) {
-	  if (IS_SET(marker_exclude, marker_uidx1)) {
-	    marker_uidx1 = next_unset_unsafe(marker_exclude, marker_uidx1);
-	  }
+	  next_unset_unsafe_ck(marker_exclude, &marker_uidx1);
 	  if (marker_uidx1 == con_uidx1) {
 	    putc('\n', outfile);
 	  }
@@ -1827,9 +1823,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	  }
 	  marker_cidx = marker_uidx_to_cidx[union_uidx1 - chrom_start];
 	  for (marker_uidx1 = union_uidx1; marker_uidx1 <= union_uidx2; marker_uidx1++) {
-	    if (IS_SET(marker_exclude, marker_uidx1)) {
-	      marker_uidx1 = next_unset_unsafe(marker_exclude, marker_uidx1);
-	    }
+	    next_unset_unsafe_ck(marker_exclude, &marker_uidx1);
 	    if (marker_uidx1 == con_uidx1) {
 	      putc('\n', outfile);
 	    }
@@ -1965,9 +1959,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 
 	marker_cidx = marker_uidx_to_cidx[union_uidx1 - chrom_start];
 	for (marker_uidx1 = union_uidx1; marker_uidx1 <= union_uidx2; marker_uidx1++) {
-	  if (IS_SET(marker_exclude, marker_uidx1)) {
-	    marker_uidx1 = next_unset_unsafe(marker_exclude, marker_uidx1);
-	  }
+	  next_unset_unsafe_ck(marker_exclude, &marker_uidx1);
 	  if (marker_uidx1 == con_uidx1) {
 	    putc('\n', outfile);
 	  }

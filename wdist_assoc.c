@@ -8533,9 +8533,7 @@ uint32_t glm_init_load_mask(uintptr_t* indiv_exclude, uintptr_t* pheno_nm, uintp
   fill_ulong_zero(load_mask, unfiltered_indiv_ctv2 / 2);
   if (covar_nm) {
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-      if (IS_SET(indiv_exclude, indiv_uidx)) {
-        indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
-      }
+      next_unset_unsafe_ck(indiv_exclude, &indiv_uidx);
       if (IS_SET(pheno_nm, indiv_uidx) & IS_SET(covar_nm, indiv_idx)) {
 	SET_BIT(load_mask, indiv_uidx);
       }
@@ -9556,9 +9554,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       dptr = &(covars_collapsed[param_idx * indiv_valid_ct]);
       dptr2 = &(covar_d[ujj]);
       for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {
-	if (IS_SET(indiv_exclude, indiv_uidx)) {
-	  indiv_uidx = next_unset_ul_unsafe(indiv_exclude, indiv_uidx);
-	}
+	next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
 	if (IS_SET(load_mask, indiv_uidx)) {
 	  *dptr++ = dptr2[indiv_idx * covar_ct];
 	}

@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (10 Sep 2013)";
+  " (12 Sep 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -837,7 +837,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
     memcpyx(tbuf, cur_person_id, jj, 0);
     kk = bsearch_str(tbuf, family_ids, max_family_id_len, 0, family_id_ct - 1);
     pri_ptr->family_idxs[indiv_uidx] = kk;
-    if (IS_NULL_OR_SET(founder_info, indiv_uidx)) {
+    if (IS_SET(founder_info, indiv_uidx)) {
       pri_ptr->family_founder_cts[kk] += 1;
       pri_ptr->family_rel_nf_idxs[indiv_uidx] = uiptr[kk];
       uiptr[kk] += 1;
@@ -3419,9 +3419,7 @@ uintptr_t binary_geno_filter(double geno_thresh, uintptr_t unfiltered_marker_ct,
 	marker_exclude_ct++;
       }
       marker_uidx++;
-      if (IS_SET(marker_exclude, marker_uidx)) {
-        marker_uidx = next_unset(marker_exclude, marker_uidx, chrom_end);
-      }
+      next_unset_ck(marker_exclude, &marker_uidx, chrom_end);
     }
   }
   *marker_exclude_ct_ptr = marker_exclude_ct;
@@ -3507,16 +3505,12 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
   // todo: multithread?
   if (report_type) {
     for (; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-      if (IS_SET(marker_exclude, marker_uidx)) {
-        marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      }
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       p_values[marker_uidx] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx]);
     }
   } else {
     for (; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
-      if (IS_SET(marker_exclude, marker_uidx)) {
-        marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      }
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       p_values[marker_uidx * 3] = SNPHWE2(hwe_lh_allfs[marker_uidx], hwe_ll_allfs[marker_uidx], hwe_hh_allfs[marker_uidx]);
       p_values[marker_uidx * 3 + 1] = SNPHWE2(hwe_lh_cases[marker_uidx], hwe_ll_cases[marker_uidx], hwe_hh_cases[marker_uidx]);
       p_values[marker_uidx * 3 + 2] = SNPHWE2(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx]);
@@ -3678,9 +3672,7 @@ void enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, ui
     hwe_hhs = hwe_hh_allfs;
   }
   for (markers_done = 0; markers_done < marker_ct; marker_uidx++, markers_done++) {
-    if (IS_SET(marker_exclude, marker_uidx)) {
-      marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
-    }
+    next_unset_unsafe_ck(marker_exclude, &marker_uidx);
     if (SNPHWE_t(hwe_lhs[marker_uidx], hwe_lls[marker_uidx], hwe_hhs[marker_uidx], hwe_thresh)) {
       SET_BIT(marker_exclude, marker_uidx);
       removed_ct++;
@@ -3907,9 +3899,7 @@ uint32_t swap_reversed_marker_alleles(uintptr_t unfiltered_marker_ct, uintptr_t*
   char cc;
   if (max_marker_allele_len == 1) {
     while (1) {
-      if (!IS_SET(marker_reverse, marker_uidx)) {
-	marker_uidx = next_set_ul(marker_reverse, marker_uidx, unfiltered_marker_ct);
-      }
+      next_set_ul_ck(marker_reverse, &marker_uidx, unfiltered_marker_ct);
       if (marker_uidx == unfiltered_marker_ct) {
 	return 0;
       }
@@ -3925,9 +3915,7 @@ uint32_t swap_reversed_marker_alleles(uintptr_t unfiltered_marker_ct, uintptr_t*
     return 1;
   }
   while (1) {
-    if (!IS_SET(marker_reverse, marker_uidx)) {
-      marker_uidx = next_set_ul(marker_reverse, marker_uidx, unfiltered_marker_ct);
-    }
+    next_set_ul_ck(marker_reverse, &marker_uidx, unfiltered_marker_ct);
     if (marker_uidx == unfiltered_marker_ct) {
       wkspace_reset(wkspace_mark);
       return 0;
@@ -3976,9 +3964,7 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
     } while (markers_done < marker_ct);
   } else {
     for (; markers_done < marker_ct; marker_uidx++, markers_done++) {
-      if (IS_SET(marker_exclude, marker_uidx)) {
-        marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
-      }
+      next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       cc = marker_alleles[2 * marker_uidx * max_marker_allele_len];
       cc2 = marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len];
       if ((cc != 'D') && (cc != 'I')) {
@@ -4720,6 +4706,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (pheno_c) {
     bitfield_and(pheno_c, pheno_nm, unfiltered_indiv_ctl);
   }
+  bitfield_andnot(founder_info, indiv_exclude, unfiltered_indiv_ctl);
   pheno_nm_ct = popcount_longs(pheno_nm, 0, unfiltered_indiv_ctl);
   if (!pheno_nm_ct) {
     logprint("Note: No phenotypes present.\n");
@@ -4988,7 +4975,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: LD-based marker pruning requires a sorted .map/.bim.  Retry this command\nafter using --make-bed to sort your data.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
-    retval = ld_prune(bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, indiv_exclude, sex_male, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type, hh_exists);
+    retval = ld_prune(bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, founder_info, sex_male, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type, hh_exists);
     if (retval) {
       goto wdist_ret_1;
     }
