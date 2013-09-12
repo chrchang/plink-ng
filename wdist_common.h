@@ -1561,6 +1561,8 @@ static inline uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uin
 
 uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx);
 
+uintptr_t popcount_longs_intersect(uintptr_t* lptr1, uintptr_t* lptr2, uintptr_t word_ct);
+
 void vertical_bitct_subtract(uintptr_t* bit_arr, uint32_t item_ct, uint32_t* sum_arr);
 
 #ifdef __LP64__

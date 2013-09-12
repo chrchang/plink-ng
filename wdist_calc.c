@@ -864,7 +864,7 @@ static inline uint32_t popcount_xor_2mask_multiword(__m128i** xor1p, __m128i* xo
   return ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 
-static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m128i* mask2, int32_t* return_vals, int32_t iters) {
+static inline void ld_dot_prod_batch(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m128i* mask2, int32_t* return_vals, uint32_t iters) {
   // Main routine for computation of \sum_i^M (x_i - \mu_x)(y_i - \mu_y), where
   // x_i, y_i \in \{-1, 0, 1\}, but there are missing values.
   //
@@ -905,7 +905,7 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m
   // The "variant" suffix refers to starting with two-bit integers instead of
   // one-bit integers in our summing process, so we get to skip a few
   // operations.  (Once all researchers are using machines with fast hardware
-  // popcount, a slightly different implementation would be better.)
+  // popcount, a slightly different implementation may be better.)
   //
   // 2. zcheck := (vec1 | vec2) & 0x5555...
   // Detects whether at least one member of the pair has a 0/missing value.
@@ -1000,6 +1000,17 @@ static inline void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m
   return_vals[1] += ((acc1.u8[0] + acc1.u8[1]) * 0x1000100010001LLU) >> 48;
   return_vals[2] += ((acc2.u8[0] + acc2.u8[1]) * 0x1000100010001LLU) >> 48;
 }
+
+void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m128i* mask2, int32_t* return_vals, uint32_t batch_ct_m1, uint32_t last_batch_size) {
+  while (batch_ct_m1--) {
+    ld_dot_prod_batch(vec1, vec2, mask1, mask2, return_vals, MULTIPLEX_LD / 192);
+    vec1 = &(vec1[MULTIPLEX_LD / BITCT]);
+    vec2 = &(vec2[MULTIPLEX_LD / BITCT]);
+    mask1 = &(mask1[MULTIPLEX_LD / BITCT]);
+    mask2 = &(mask2[MULTIPLEX_LD / BITCT]);
+  }
+  ld_dot_prod_batch(vec1, vec2, mask1, mask2, return_vals, last_batch_size);
+}
 #else
 static inline uint32_t popcount_xor_1mask_multiword(uintptr_t** xor1p, uintptr_t* xor2, uintptr_t** maskp) {
   uintptr_t* xor2_end = &(xor2[MULTIPLEX_DIST / 16]);
@@ -1071,7 +1082,7 @@ static inline uint32_t popcount_xor_2mask_multiword(uintptr_t** xor1p, uintptr_t
   return bit_count;
 }
 
-static inline void ld_dot_prod(uintptr_t* vec1, uintptr_t* vec2, uintptr_t* mask1, uintptr_t* mask2, int32_t* return_vals, uint32_t iters) {
+static inline void ld_dot_prod_batch(uintptr_t* vec1, uintptr_t* vec2, uintptr_t* mask1, uintptr_t* mask2, int32_t* return_vals, uint32_t iters) {
   uint32_t final_sum1 = 0;
   uint32_t final_sum2 = 0;
   uint32_t final_sum12 = 0;
@@ -1108,7 +1119,7 @@ static inline void ld_dot_prod(uintptr_t* vec1, uintptr_t* vec2, uintptr_t* mask
     // The "variant" suffix refers to starting with two-bit integers instead of
     // one-bit integers in our summing process, so we get to skip a few
     // operations.  (Once all reserachers are using machines with fast hardware
-    // popcount, a slightly different implementation would be better.)
+    // popcount, a slightly different implementation may be better.)
     //
     // 2. zcheck := (vec1 | vec2) & 0x5555...
     // Detects whether at least one member of the pair has a 0/missing value.
@@ -1174,6 +1185,17 @@ static inline void ld_dot_prod(uintptr_t* vec1, uintptr_t* vec2, uintptr_t* mask
   return_vals[0] -= final_sum12;
   return_vals[1] += final_sum1;
   return_vals[2] += final_sum2;
+}
+
+void ld_dot_prod(uintptr_t* vec1, uintptr_t* vec2, uintptr_t* mask1, uintptr_t* mask2, int32_t* return_vals, uint32_t batch_ct_m1, uint32_t last_batch_size) {
+  while (batch_ct_m1--) {
+    ld_dot_prod_batch(vec1, vec2, mask1, mask2, return_vals, MULTIPLEX_LD / 48);
+    vec1 = &(vec1[MULTIPLEX_LD / BITCT2]);
+    vec2 = &(vec2[MULTIPLEX_LD / BITCT2]);
+    mask1 = &(mask1[MULTIPLEX_LD / BITCT2]);
+    mask2 = &(mask2[MULTIPLEX_LD / BITCT2]);
+  }
+  ld_dot_prod_batch(vec1, vec2, mask1, mask2, return_vals, last_batch_size);
 }
 #endif
 
@@ -2082,6 +2104,10 @@ void incr_dists_rm(uint32_t* idists, uint32_t tidx, uint32_t* thread_start) {
     if (ulii) {
       for (ujj = 0; ujj < uii; ujj++) {
         uljj = (*mlptr++) & ulii;
+	// if we can't count on sparsity:
+	// if (uljj) {
+	//   idists[ujj] += popcount_long(uljj);
+	// }
         while (uljj) {
           idists[ujj] += 1;
           uljj &= uljj - 1;
@@ -4771,19 +4797,20 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   return retval;
 }
 
-uint32_t ld_process_load(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* missing_buf, double* marker_stdev_ptr, uintptr_t founder_ct, uint32_t founder_ctl) {
+uint32_t ld_process_load(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* missing_buf, double* marker_stdev_ptr, uint32_t founder_ct, uint32_t founder_ctl, uint32_t is_x, uintptr_t* founder_male_include2) {
+  uintptr_t* geno_ptr = geno_buf;
   uintptr_t* geno_end = &(geno_buf[(founder_ct + (BITCT2 - 1)) / BITCT2]);
   uintptr_t* missing_ptr = missing_buf;
   uintptr_t new_missing = 0;
   uint32_t missing_bit_offset = 0;
-  int32_t sq_sum = 0;
+  uint32_t ssq = 0;
   int32_t sum = -founder_ct;
   double non_missing_recip;
   uintptr_t cur_geno;
   uintptr_t shifted_masked_geno;
   uintptr_t new_geno;
   uintptr_t new_mask;
-  uint32_t missing_ct;
+  uint32_t missing_ct = 0;
   while (1) {
     // Desired encodings:
     // new_geno: nonset homozygote -> 00
@@ -4798,22 +4825,21 @@ uint32_t ld_process_load(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* mi
     // new_missing: missing   -> 1
     //              otherwise -> 0
     // This can be assembled via repeated CTZLU on ~new_mask.
-    cur_geno = *geno_buf;
+    cur_geno = *geno_ptr;
     shifted_masked_geno = (cur_geno >> 1) & FIVEMASK;
     new_geno = cur_geno - shifted_masked_geno;
-    *geno_buf++ = new_geno;
+    *geno_ptr++ = new_geno;
     new_mask = (((~cur_geno) & FIVEMASK) | shifted_masked_geno) * 3;
     *mask_buf++ = new_mask;
     new_mask = (~new_mask) & FIVEMASK;
     while (new_mask) {
       new_missing |= ONELU << (missing_bit_offset + (CTZLU(new_mask) / 2));
+      missing_ct++;
       new_mask &= new_mask - 1;
     }
-    sum += popcount2_long(new_geno);
-    if (geno_buf == geno_end) {
+    if (geno_ptr == geno_end) {
       break;
     }
-    sq_sum += popcount2_long((new_geno ^ FIVEMASK) & FIVEMASK);
     if (missing_bit_offset) {
       missing_bit_offset = 0;
       *missing_ptr++ = new_missing;
@@ -4822,41 +4848,30 @@ uint32_t ld_process_load(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* mi
       missing_bit_offset = BITCT2;
     }
   }
-  // special handling of last word
-  if (founder_ct % BITCT2) {
-    new_mask = (ONELU << (2 * (founder_ct % BITCT2))) - ONELU;
-  } else {
-    new_mask = ~ZEROLU;
-  }
-  sq_sum += popcount2_long((new_geno ^ FIVEMASK) & FIVEMASK & new_mask);
   *missing_ptr = new_missing;
-#ifdef __LP64__
-  if (((uintptr_t)missing_buf) & 15) {
-    // gah, need to catch misalignment
-    missing_ct = popcount_long(missing_buf[0]) + popcount_longs(&(missing_buf[1]), 0, founder_ctl - 1);
-  } else {
-    missing_ct = popcount_longs(missing_buf, 0, founder_ctl);
+  if (is_x) {
+    // special case: recode male set homozygotes to 01 on X chromosome
+    geno_ptr = geno_buf;
+    do {
+      new_geno = *geno_ptr;
+      *geno_ptr++ = new_geno - ((new_geno >> 1) & (*founder_male_include2++));
+    } while (geno_ptr < geno_end);
   }
-#else
-  missing_ct = popcount_longs(missing_buf, 0, founder_ctl);
-#endif
-  non_missing_recip = 1.0 / (founder_ct - missing_ct);
-  *marker_stdev_ptr = non_missing_recip * sqrt(((int64_t)sq_sum) * (founder_ct - missing_ct) - ((int64_t)sum) * sum);
-  return missing_ct;
-}
-
-uint32_t sparse_intersection_ct(uintptr_t* sparse_buf1, uintptr_t* sparse_buf2, uint32_t len) {
-  uint32_t uii;
-  uint32_t ct = 0;
-  uintptr_t ulii;
-  for (uii = 0; uii < len; uii++) {
-    ulii = (*sparse_buf1++) & (*sparse_buf2++);
-    while (ulii) {
-      ulii &= ulii - 1;
-      ct++;
+  geno_ptr = geno_buf;
+  while (1) {
+    new_geno = *geno_ptr++;
+    sum += popcount2_long(new_geno);
+    new_geno = (new_geno ^ FIVEMASK) & FIVEMASK;
+    if (geno_ptr == geno_end) {
+      break;
     }
+    ssq += popcount2_long(new_geno);
   }
-  return ct;
+  // have to be careful with trailing zeroes here
+  ssq += popcount2_long(new_geno << (BITCT - 2 * (1 + ((founder_ct - 1) % BITCT2))));
+  non_missing_recip = 1.0 / (founder_ct - missing_ct);
+  *marker_stdev_ptr = non_missing_recip * sqrt(((int64_t)((uint64_t)ssq)) * (founder_ct - missing_ct) - ((int64_t)sum) * sum);
+  return missing_ct;
 }
 
 uint32_t ld_prune_next_valid_chrom_start(uintptr_t* marker_exclude, uint32_t cur_uidx, Chrom_info* chrom_info_ptr, uint32_t unfiltered_marker_ct) {
@@ -4915,6 +4930,11 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
   uintptr_t unfiltered_indiv_ctl2 = 2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
   uintptr_t founder_ct = popcount_longs(founder_info, 0, unfiltered_indiv_ctl2 / 2);
   uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
+#ifdef __LP64__
+  uintptr_t founder_ctv = 2 * ((founder_ct + 127) / 128);
+#else
+  uintptr_t founder_ctv = founder_ctl;
+#endif
   uintptr_t founder_ct_mld = (founder_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
   uint32_t founder_ct_mld_m1 = ((uint32_t)founder_ct_mld) - 1;
 #ifdef __LP64__
@@ -4929,8 +4949,8 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
   uint32_t pairwise = (calculation_type / CALC_LD_PRUNE_PAIRWISE) & 1;
   uintptr_t window_max = 0;
   uintptr_t* geno = NULL;
-  uintptr_t* indiv_include2 = NULL;
-  uintptr_t* indiv_male_include2 = NULL;
+  uintptr_t* founder_include2 = NULL;
+  uintptr_t* founder_male_include2 = NULL;
   double* cov_matrix = NULL;
   double* new_cov_matrix = NULL;
   MATRIX_INVERT_BUF1_TYPE* irow = NULL;
@@ -4962,6 +4982,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
   double* marker_stdevs;
   uintptr_t* loadbuf;
   uint32_t* missing_cts;
+  uint32_t fixed_missing_ct;
   uintptr_t ulii;
   double dxx;
   double cov12;
@@ -4994,7 +5015,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
     goto ld_prune_ret_1;
   }
 
-  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, hh_exists, 1, founder_info, sex_male, &indiv_include2, &indiv_male_include2)) {
+  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
     goto ld_prune_ret_NOMEM;
   }
 
@@ -5046,7 +5067,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
       wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&geno, ulii * founder_ct_mld_long * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&g_masks, ulii * founder_ct_mld_long * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&g_mmasks, ulii * founder_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&g_mmasks, ulii * founder_ctv * sizeof(intptr_t)) ||
       wkspace_alloc_ui_checked(&missing_cts, founder_ct * sizeof(int32_t))) {
     goto ld_prune_ret_NOMEM;
   }
@@ -5090,9 +5111,9 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	  goto ld_prune_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
-	  haploid_fix(hh_exists, indiv_include2, indiv_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno[ulii * founder_ct_mld_long])));
+	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno[ulii * founder_ct_mld_long])));
 	}
-        missing_cts[ulii] = ld_process_load(&(geno[ulii * founder_ct_mld_long]), &(g_masks[ulii * founder_ct_mld_long]), &(g_mmasks[ulii * founder_ctl]), &(marker_stdevs[ulii]), founder_ct, founder_ctl);
+        missing_cts[ulii] = ld_process_load(&(geno[ulii * founder_ct_mld_long]), &(g_masks[ulii * founder_ct_mld_long]), &(g_mmasks[ulii * founder_ctv]), &(marker_stdevs[ulii]), founder_ct, founder_ctl, is_x, founder_male_include2);
       }
     }
     pct = 1;
@@ -5112,7 +5133,8 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	    if (IS_SET(pruned_arr, live_indices[uii])) {
 	      continue;
 	    }
-	    fixed_non_missing_ct = founder_ct - missing_cts[uii];
+            fixed_missing_ct = missing_cts[uii];
+	    fixed_non_missing_ct = founder_ct - fixed_missing_ct;
 #ifdef __LP64__
 	    geno_fixed_vec_ptr = (__m128i*)(&(geno[uii * founder_ct_mld_long]));
 	    mask_fixed_vec_ptr = (__m128i*)(&(g_masks[uii * founder_ct_mld_long]));
@@ -5138,31 +5160,16 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	      mask_var_vec_ptr = &(g_masks[ujj * founder_ct_mld_long]);
 #endif
 
-	      non_missing_ct = fixed_non_missing_ct - missing_cts[ujj] + sparse_intersection_ct(&(g_mmasks[uii * founder_ctl]), &(g_mmasks[ujj * founder_ctl]), founder_ctl);
+	      non_missing_ct = fixed_non_missing_ct - missing_cts[ujj];
+              if (fixed_missing_ct && missing_cts[ujj]) {
+		non_missing_ct += popcount_longs_intersect(&(g_mmasks[uii * founder_ctv]), &(g_mmasks[ujj * founder_ctv]), founder_ctl);
+	      }
 	      dp_result[0] = founder_ct;
 	      // reversed from what I initially thought because I'm passing the
 	      // ujj-associated buffers before the uii-associated ones.
 	      dp_result[1] = -fixed_non_missing_ct;
 	      dp_result[2] = missing_cts[ujj] - founder_ct;
-#ifdef __LP64__
-	      for (ukk = 0; ukk < founder_ct_mld_m1; ukk++) {
-		ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[ukk * (MULTIPLEX_LD / BITCT)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[ukk * (MULTIPLEX_LD / BITCT)]), dp_result, MULTIPLEX_LD / 192);
-		geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT]);
-		mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT]);
-	      }
-	      ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[ukk * (MULTIPLEX_LD / BITCT)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[ukk * (MULTIPLEX_LD / BITCT)]), dp_result, founder_ct_mld_rem);
-	      geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT]);
-	      mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT]);
-#else
-	      for (ukk = 0; ukk < founder_ct_mld_m1; ukk++) {
-		ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[ukk * (MULTIPLEX_LD / BITCT2)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[ukk * (MULTIPLEX_LD / BITCT2)]), dp_result, MULTIPLEX_LD / 48);
-		geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
-		mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
-	      }
-	      ld_dot_prod(geno_var_vec_ptr, &(geno_fixed_vec_ptr[ukk * (MULTIPLEX_LD / BITCT2)]), mask_var_vec_ptr, &(mask_fixed_vec_ptr[ukk * (MULTIPLEX_LD / BITCT2)]), dp_result, founder_ct_mld_rem);
-	      geno_var_vec_ptr = &(geno_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
-	      mask_var_vec_ptr = &(mask_var_vec_ptr[MULTIPLEX_LD / BITCT2]);
-#endif
+              ld_dot_prod(geno_var_vec_ptr, geno_fixed_vec_ptr, mask_var_vec_ptr, mask_fixed_vec_ptr, dp_result, founder_ct_mld_m1, founder_ct_mld_rem);
 	      non_missing_recip = 1.0 / ((double)((int32_t)non_missing_ct));
 	      cov12 = non_missing_recip * (dp_result[0] - (non_missing_recip * dp_result[1]) * dp_result[2]);
 	      // r-squared
@@ -5310,7 +5317,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	}
 	memcpy(&(geno[uii * founder_ct_mld_long]), &(geno[ujj * founder_ct_mld_long]), founder_ct_mld_long * sizeof(intptr_t));
 	memcpy(&(g_masks[uii * founder_ct_mld_long]), &(g_masks[ujj * founder_ct_mld_long]), founder_ct_mld_long * sizeof(intptr_t));
-	memcpy(&(g_mmasks[uii * founder_ctl]), &(g_mmasks[ujj * founder_ctl]), founder_ctl * sizeof(intptr_t));
+	memcpy(&(g_mmasks[uii * founder_ctv]), &(g_mmasks[ujj * founder_ctv]), founder_ctl * sizeof(intptr_t));
 	marker_stdevs[uii] = marker_stdevs[ujj];
 	live_indices[uii] = live_indices[ujj];
 	start_arr[uii] = start_arr[ujj];
@@ -5351,9 +5358,9 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	    goto ld_prune_ret_READ_FAIL;
 	  }
 	  if (is_haploid && hh_exists) {
-	    haploid_fix(hh_exists, indiv_include2, indiv_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno[cur_window_size * founder_ct_mld_long])));
+	    haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno[cur_window_size * founder_ct_mld_long])));
 	  }
-	  missing_cts[cur_window_size] = ld_process_load(&(geno[cur_window_size * founder_ct_mld_long]), &(g_masks[cur_window_size * founder_ct_mld_long]), &(g_mmasks[cur_window_size * founder_ctl]), &(marker_stdevs[cur_window_size]), founder_ct, founder_ctl);
+	  missing_cts[cur_window_size] = ld_process_load(&(geno[cur_window_size * founder_ct_mld_long]), &(g_masks[cur_window_size * founder_ct_mld_long]), &(g_mmasks[cur_window_size * founder_ctv]), &(marker_stdevs[cur_window_size]), founder_ct, founder_ctl, is_x, founder_male_include2);
 	  cur_window_size++;
 	  window_unfiltered_end++;
 	}
