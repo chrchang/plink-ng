@@ -9062,12 +9062,11 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
 #define LOGISTIC_MAX_ITERS 20
 
 /*
-uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_cov_major, double* covars_indiv_major, double* pheno_perms, uintptr_t pheno_perms_stride, double* coef, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* indiv_1d_buf, double* linear_results, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
-*/
-
-/*
 uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_cov_major, double* covars_indiv_major, double* pheno_perms, uintptr_t pheno_perms_stride, double* coef, double* pbuf, double* vbuf, double* initial_t2_buf, double* t2_buf, double* t3_buf, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* logistic_results, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
   // See PLINK logistic.cpp fitLM().
+  uintptr_t param_ct_p1 = param_ct + 1;
+  uintptr_t param_ct_m1 = param_ct - 1;
+  uint32_t perm_fail_ct = 0;
   double* cur_pheno_d;
   double* dptr;
   double* dptr2;
@@ -9077,15 +9076,14 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
   double delta;
   double dxx;
   uint32_t iters;
-  uint32_t failure;
   fill_ulong_zero(perm_fails, ((cur_batch_size + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
   // precalculate and cache partially completed first iteration, since it's
   // identical between all permutations
   for (param_idx = 0; param_idx < param_ct; param_idx++) {
     for (param_idx2 = param_idx; param_idx2 < param_ct; param_idx2++) {
       dxx = 0;
-      dptr = &(covars_covar_major[param_idx * indiv_valid_ct]);
-      dptr2 = &(covars_covar_major[param_idx2 * indiv_valid_ct]);
+      dptr = &(covars_cov_major[param_idx * indiv_valid_ct]);
+      dptr2 = &(covars_cov_major[param_idx2 * indiv_valid_ct]);
       for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
 	dxx += (*dptr++) * (*dptr2++);
       }
@@ -9098,11 +9096,10 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
     return 1;
   }
   // t2_buf is covariate-major
-  col_major_matrix_multiply(indiv_valid_ct, param_ct, param_ct, covars_covar_major, param_2d_buf, initial_t2_buf);
+  col_major_matrix_multiply(indiv_valid_ct, param_ct, param_ct, covars_cov_major, param_2d_buf, initial_t2_buf);
   fill_double_zero(coef, param_ct * cur_batch_size);
   for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
     iters = 0;
-    failure = 0;
     dptr = pbuf;
     for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
       *dptr++ = 0.5;
@@ -9154,8 +9151,8 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
       for (param_idx = 0; param_idx < param_ct; param_idx++) {
 	for (param_idx2 = param_idx; param_idx2 < param_ct; param_idx2++) {
           dxx = 0;
-	  dptr = &(covars_covar_major[param_idx * indiv_valid_ct]);
-	  dptr2 = &(covars_covar_major[param_idx2 * indiv_valid_ct]);
+	  dptr = &(covars_cov_major[param_idx * indiv_valid_ct]);
+	  dptr2 = &(covars_cov_major[param_idx2 * indiv_valid_ct]);
 	  dptr3 = vbuf;
 	  for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
 	    dxx += (*dptr++) * (*dptr2++) * (*dptr3++);
@@ -9166,27 +9163,54 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
 	}
       }
       if (invert_matrix((uint32_t)param_ct, param_2d_buf, mi_buf, param_2d_buf2)) {
-	failure = 1;
+	goto glm_logistic_robust_cluster_covar_fail;
       }
-      col_major_matrix_multiply(indiv_valid_ct, param_ct, param_ct, covars_covar_major, param_2d_buf, t2_buf);
+      col_major_matrix_multiply(indiv_valid_ct, param_ct, param_ct, covars_cov_major, param_2d_buf, t2_buf);
     }
-    if (!failure) {
-      dptr = vbuf;
-      dptr2 = covars_;
-      dptr3 = t2_buf;
-      for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
-	dxx = *dptr++;
-        for (param_idx = 0; param_idx < param_ct; param_idx++) {
-	  *dptr3 = (*dptr2++) * dxx;
-	  dptr3++;
+    dptr = vbuf;
+    dptr2 = covars_indiv_major;
+    dptr3 = t2_buf;
+    for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+      dxx = *dptr++;
+      for (param_idx = 0; param_idx < param_ct; param_idx++) {
+	*dptr3 = (*dptr2++) * dxx;
+	dptr3++;
+      }
+    }
+    col_major_matrix_multiply(param_ct, param_ct, indiv_valid_ct, covars_cov_major, t2_buf, param_2d_buf);
+    if (invert_matrix((uint32_t)param_ct, param_2d_buf, mi_buf, param_2d_buf2)) {
+      goto glm_logistic_robust_cluster_covar_fail;
+    }
+    if (cluster_ct1) {
+      // HuberWhite()
+
+    }
+    // validParameters() check
+    for (param_idx = 1; param_idx < param_ct; param_idx++) {
+      if (param_2d_buf[param_idx * param_ct_p1] < 1e-20) {
+	goto glm_logistic_robust_cluster_covar_fail;
+      }
+    }
+    for (param_idx = 0; param_idx < param_ct_m1; param_idx++) {
+      for (param_idx2 = param_idx + 1; param_idx2 < param_ct; param_idx2++) {
+	if (() > 0.99999) {
+	  goto glm_logistic_robust_cluster_covar_fail;
 	}
       }
-      ;;;
-    } else {
+    }
+    dptr = &(logistic_results[perm_idx * param_ct_m1]);
+    for (param_idx = 1; param_idx < param_ct; param_idx++) {
+      *dptr++ = param_2d_buf[param_idx * param_ct_p1];
+    }
+    if (0) {
+    glm_logistic_robust_cluster_covar_fail:
+      fill_double_zero(&(logistic_results[perm_idx * param_ct_m1]), param_ct_m1);
       SET_BIT(perm_fails, perm_idx);
+      perm_fail_ct++;
     }
     coef = &(coef[param_ct]);
   }
+  *perm_fail_ct_ptr = perm_fail_ct;
   return 0;
 }
 */

@@ -1364,20 +1364,26 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
       if (help_ctrl.unmatched_ct) {
 	if (net_unmatched_ct == 2) {
 	  if (help_ctrl.param_lens[arg_uidx] + col_num > 76) {
-	    printf("\n'%s'", argv[arg_uidx]);
+	    putchar('\n');
 	    col_num = 2 + help_ctrl.param_lens[arg_uidx];
 	  } else {
-	    printf(" '%s'", argv[arg_uidx]);
+	    putchar(' ');
 	    col_num += 3 + help_ctrl.param_lens[arg_uidx];
 	  }
+	  putchar('\'');
+	  fputs(argv[arg_uidx], stdout);
+	  putchar('\'');
 	} else {
 	  if (help_ctrl.param_lens[arg_uidx] + col_num > 75) {
-	    printf("\n'%s',", argv[arg_uidx]);
+	    putchar('\n');
 	    col_num = 3 + help_ctrl.param_lens[arg_uidx];
 	  } else {
-	    printf(" '%s',", argv[arg_uidx]);
+	    putchar(' ');
 	    col_num += 4 + help_ctrl.param_lens[arg_uidx];
 	  }
+	  putchar('\'');
+	  fputs(argv[arg_uidx], stdout);
+          fputs("',", stdout);
 	}
 	if (help_ctrl.unmatched_ct == 1) {
 	  if (col_num > 76) {
@@ -1389,11 +1395,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	  }
 	}
       } else {
-	if (help_ctrl.param_lens[arg_uidx] + col_num > 75) {
-	  printf("\n'%s'.\n", argv[arg_uidx]);
-	} else {
-	  printf(" '%s'.\n", argv[arg_uidx]);
-	}
+	putchar((help_ctrl.param_lens[arg_uidx] + col_num > 75)? '\n' : ' ');
+	putchar('\'');
+        fputs(argv[arg_uidx], stdout);
+        fputs("\'.\n", stdout);
       }
       arg_uidx++;
     }

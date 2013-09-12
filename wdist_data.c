@@ -4297,25 +4297,27 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
     return RET_NOMEM;
   }
   person_ids = *person_ids_ptr;
-  if (fam_cols & FAM_COL_34) {
-    // could make this conditional, but memory footprint of this is typically
-    // negligible
-    if (wkspace_alloc_c_checked(paternal_ids_ptr, unfiltered_indiv_ct * max_paternal_id_len)) {
-      return RET_NOMEM;
-    }
-    paternal_ids = *paternal_ids_ptr;
-    if (wkspace_alloc_c_checked(maternal_ids_ptr, unfiltered_indiv_ct * max_maternal_id_len)) {
-      return RET_NOMEM;
-    }
-    maternal_ids = *maternal_ids_ptr;
-  }
   unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-  if (wkspace_alloc_ul_checked(sex_nm_ptr, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
+  // could make paternal_ids/maternal_ids conditional, but memory footprint is
+  // typically negligible
+  if (wkspace_alloc_c_checked(paternal_ids_ptr, unfiltered_indiv_ct * max_paternal_id_len) ||
+      wkspace_alloc_c_checked(maternal_ids_ptr, unfiltered_indiv_ct * max_maternal_id_len) ||
+      wkspace_alloc_ul_checked(sex_nm_ptr, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(sex_male_ptr, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(founder_info_ptr, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(indiv_exclude_ptr, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(pheno_nm_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
     return RET_NOMEM;
+  }
+  paternal_ids = *paternal_ids_ptr;
+  maternal_ids = *maternal_ids_ptr;
+  if (!(fam_cols & FAM_COL_34)) {
+    for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
+      memcpy(&(paternal_ids[indiv_uidx * max_paternal_id_len]), "0", 2);
+    }
+    for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
+      memcpy(&(maternal_ids[indiv_uidx * max_maternal_id_len]), "0", 2);
+    }
   }
 
   if (tmp_fam_col_6) {

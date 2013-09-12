@@ -644,22 +644,7 @@ double calc_wt_mean_maf(double exponent, double maf) {
   return (lh_freq * (ll_freq + lh_freq) + 2 * ll_freq * hh_freq) * weight;
 }
 
-// The following functions may come in handy if we need to store large array(s)
-// of auxiliary ternary data in memory.
-//
-// inline void set_base4(uintptr_t* base4_arr, int32_t loc, int32_t val) {
-//   int32_t shift_num = (loc % BITCT2) * 2;
-//   uintptr_t ulii = (3 * ONELU) << shift_num;
-//   uintptr_t* base4_ptr = &(base4_arr[loc / BITCT2]);
-//   *base4_ptr = (*base4_ptr & (~ulii)) | (val << shift_num);
-// }
-//
-// inline int32_t get_base4(uintptr_t* base4_arr, int32_t loc) {
-//   int32_t shift_num = (loc % BITCT2) * 2;
-//   return ((base4_arr[loc / BITCT2] >> shift_num) & (3 * ONELU));
-// }
-
-int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfiltered_indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info) {
+int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfiltered_indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uint32_t make_founders) {
   unsigned char* wkspace_mark;
   unsigned char* wkspace_mark2;
   int32_t ii;
@@ -669,6 +654,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   int32_t nn;
   int32_t oo;
   uint32_t uii;
+  uint32_t ujj;
   uint32_t initial_family_blocks;
   uintptr_t indiv_uidx;
   int64_t llii;
@@ -707,13 +693,13 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   double* tmp_rel_writer = NULL;
 
   for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-    jj = strlen_se(&(person_ids[indiv_uidx * max_person_id_len])) + 1;
-    if (jj > max_family_id_len) {
-      max_family_id_len = jj;
+    ujj = strlen_se(&(person_ids[indiv_uidx * max_person_id_len])) + 1;
+    if (ujj > max_family_id_len) {
+      max_family_id_len = ujj;
     }
-    jj = strlen_se(&(person_ids[indiv_uidx * max_person_id_len + jj]));
-    if (jj >= max_indiv_id_len) {
-      max_indiv_id_len = jj + 1;
+    ujj = strlen_se(&(person_ids[indiv_uidx * max_person_id_len + ujj]));
+    if (ujj >= max_indiv_id_len) {
+      max_indiv_id_len = ujj + 1;
     }
   }
   if (max_paternal_id_len > max_maternal_id_len) {
@@ -4785,7 +4771,13 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  nonfounders = (nonfounders || (!(fam_cols & FAM_COL_34)));
+  if ((calculation_type & CALC_GENOME) || genome_skip_write || (misc_flags & MISC_MAKE_FOUNDERS)) {
+    retval = populate_pedigree_rel_info(&pri, unfiltered_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info, (misc_flags / MISC_MAKE_FOUNDERS) & 1);
+    if (retval) {
+      goto wdist_ret_1;
+    }
+  }
+
   retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (unsigned char)missing_geno, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), (misc_flags / MISC_HWE_ALL) & 1, (pheno_nm_ct && pheno_c)? (calculation_type & CALC_HARDY) : 0, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &marker_weights_base, &marker_weights, exponent, chrom_info_ptr, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
   if (retval) {
     goto wdist_ret_1;
@@ -5048,12 +5040,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     wkspace_mark_precluster = wkspace_base;
   }
 
-  if ((calculation_type & CALC_GENOME) || genome_skip_write) {
-    retval = populate_pedigree_rel_info(&pri, unfiltered_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info);
-    if (retval) {
-      goto wdist_ret_1;
-    }
-  }
   wkspace_mark2 = wkspace_base;
 
   if (relationship_or_ibc_req(calculation_type)) {
@@ -5836,15 +5822,15 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       set_bit(chrom_info_ptr->haploid_mask, ii + 2);
       set_bit(chrom_info_ptr->haploid_mask, ii + 4);
       for (param_idx = 2; param_idx <= param_ct; param_idx++) {
-	if (!memcmp(argv[cur_arg + param_idx], "no-x", 5)) {
+	if (!strcmp(argv[cur_arg + param_idx], "no-x")) {
 	  chrom_info_ptr->x_code = -1;
 	  clear_bit(chrom_info_ptr->haploid_mask, ii + 1);
-	} else if (!memcmp(argv[cur_arg + param_idx], "no-y", 5)) {
+	} else if (!strcmp(argv[cur_arg + param_idx], "no-y")) {
 	  chrom_info_ptr->y_code = -1;
 	  clear_bit(chrom_info_ptr->haploid_mask, ii + 2);
-	} else if (!memcmp(argv[cur_arg + param_idx], "no-xy", 6)) {
+	} else if (!strcmp(argv[cur_arg + param_idx], "no-xy")) {
 	  chrom_info_ptr->xy_code = -1;
-	} else if (!memcmp(argv[cur_arg + param_idx], "no-mt", 6)) {
+	} else if (!strcmp(argv[cur_arg + param_idx], "no-mt")) {
 	  chrom_info_ptr->mt_code = -1;
 	  clear_bit(chrom_info_ptr->haploid_mask, ii + 4);
 	} else {
@@ -6095,7 +6081,7 @@ int32_t main(int32_t argc, char** argv) {
   double mind_thresh = 1.0;
   double hwe_thresh = 0.0;
   double rel_cutoff = 0.025;
-  int32_t cur_arg = 1;
+  uint32_t cur_arg = 1;
   uint64_t calculation_type = 0;
   uint32_t rel_calc_type = 0;
   uint32_t dist_calc_type = 0;
@@ -6245,9 +6231,6 @@ int32_t main(int32_t argc, char** argv) {
   int32_t ii;
   int32_t jj;
   int32_t kk;
-  int32_t mm;
-  int32_t nn;
-  int32_t oo;
   int32_t num_params;
   int32_t in_param;
   Chrom_info chrom_info;
@@ -6262,6 +6245,10 @@ int32_t main(int32_t argc, char** argv) {
   double dxx;
   char cc;
   uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
+  uint32_t unn;
   intptr_t default_alloc_mb;
   int64_t llxx;
   Ll_str* ll_str_ptr;
@@ -6279,26 +6266,26 @@ int32_t main(int32_t argc, char** argv) {
 
   chrom_info.name_ct = 0;
   chrom_info.incl_excl_name_stack = NULL;
-  for (ii = 1; ii < argc; ii++) {
-    if ((!memcmp("-script", argv[ii], 8)) || (!memcmp("--script", argv[ii], 9))) {
-      jj = param_count(argc, argv, ii);
-      if (enforce_param_ct_range(jj, argv[ii], 1, 1)) {
+  for (uii = 1; uii < (uint32_t)argc; uii++) {
+    if ((!strcmp("-script", argv[uii])) || (!strcmp("--script", argv[uii]))) {
+      ujj = param_count(argc, argv, uii);
+      if (enforce_param_ct_range(ujj, argv[uii], 1, 1)) {
 	print_ver();
 	fputs(logbuf, stdout);
 	goto main_ret_INVALID_CMDLINE;
       }
-      for (jj = ii + 2; jj < argc; jj++) {
-	if ((!memcmp("-script", argv[jj], 8)) || (!memcmp("--script", argv[jj], 9))) {
+      for (ujj = uii + 2; ujj < (uint32_t)argc; ujj++) {
+	if ((!strcmp("-script", argv[ujj])) || (!strcmp("--script", argv[ujj]))) {
 	  print_ver();
 	  printf("Error: Multiple --script flags.  Merge the files into one.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE;
 	}
       }
       // logging not yet active, so don't use fopen_checked()
-      scriptfile = fopen(argv[ii + 1], "rb");
+      scriptfile = fopen(argv[uii + 1], "rb");
       if (!scriptfile) {
 	print_ver();
-	printf(errstr_fopen, argv[ii + 1]);
+	printf(errstr_fopen, argv[uii + 1]);
 	goto main_ret_OPEN_FAIL;
       }
       if (fseeko(scriptfile, 0, SEEK_END)) {
@@ -6312,23 +6299,23 @@ int32_t main(int32_t argc, char** argv) {
 	retval = RET_INVALID_FORMAT;
 	goto main_ret_1;
       }
-      jj = llxx;
+      ujj = llxx;
       rewind(scriptfile);
-      script_buf = (char*)malloc(jj);
+      script_buf = (char*)malloc(ujj);
       if (!script_buf) {
 	print_ver();
 	goto main_ret_NOMEM;
       }
-      kk = fread(script_buf, 1, jj, scriptfile);
-      if (kk < jj) {
+      ukk = fread(script_buf, 1, ujj, scriptfile);
+      if (ukk < ujj) {
 	print_ver();
 	goto main_ret_READ_FAIL;
       }
       fclose_null(&scriptfile);
       num_params = 0;
       in_param = 0;
-      for (kk = 0; kk < jj; kk++) {
-	if (is_space_or_eoln(tbuf[kk])) {
+      for (ukk = 0; ukk < ujj; ukk++) {
+	if (is_space_or_eoln(tbuf[ukk])) {
 	  in_param = 0;
 	} else if (!in_param) {
 	  num_params++;
@@ -6338,45 +6325,45 @@ int32_t main(int32_t argc, char** argv) {
       subst_argv = (char**)malloc((num_params + argc - 3) * sizeof(char*));
       num_params = 0;
       in_param = 0;
-      for (kk = 1; kk < ii; kk++) {
-        subst_argv[num_params++] = argv[kk];
+      for (ukk = 1; ukk < uii; ukk++) {
+        subst_argv[num_params++] = argv[ukk];
       }
-      for (kk = 0; kk < jj; kk++) {
-	if (is_space_or_eoln(tbuf[kk])) {
+      for (ukk = 0; ukk < ujj; ukk++) {
+	if (is_space_or_eoln(tbuf[ukk])) {
 	  if (in_param) {
-	    tbuf[kk] = '\0';
+	    tbuf[ukk] = '\0';
 	    in_param = 0;
 	  }
 	} else if (!in_param) {
-	  subst_argv[num_params++] = &(tbuf[kk]);
+	  subst_argv[num_params++] = &(tbuf[ukk]);
 	  in_param = 1;
 	}
       }
-      for (jj = ii + 2; jj < argc; jj++) {
-	subst_argv[num_params++] = argv[jj];
+      for (ujj = uii + 2; ujj < (uint32_t)argc; ujj++) {
+	subst_argv[num_params++] = argv[ujj];
       }
       argc = num_params;
       cur_arg = 0;
       argv = subst_argv;
     }
   }
-  for (ii = cur_arg; ii < argc; ii++) {
-    if ((!memcmp("-rerun", argv[ii], 7)) || (!memcmp("--rerun", argv[ii], 8))) {
-      jj = param_count(argc, argv, ii);
-      if (enforce_param_ct_range(jj, argv[ii], 0, 1)) {
+  for (uii = cur_arg; uii < (uint32_t)argc; uii++) {
+    if ((!strcmp("-rerun", argv[uii])) || (!strcmp("--rerun", argv[uii]))) {
+      ujj = param_count(argc, argv, uii);
+      if (enforce_param_ct_range(ujj, argv[uii], 0, 1)) {
 	print_ver();
 	fputs(logbuf, stdout);
 	goto main_ret_INVALID_CMDLINE;
       }
-      for (kk = ii + jj + 1; kk < argc; kk++) {
-	if ((!memcmp("-rerun", argv[kk], 7)) || (!memcmp("--rerun", argv[kk], 8))) {
+      for (ukk = uii + ujj + 1; ukk < (uint32_t)argc; ukk++) {
+	if ((!strcmp("-rerun", argv[ukk])) || (!strcmp("--rerun", argv[ukk]))) {
 	  print_ver();
 	  fputs("Error: Duplicate --rerun flag.\n", stdout);
 	  goto main_ret_INVALID_CMDLINE;
 	}
       }
-      if (jj) {
-	scriptfile = fopen(argv[ii + 1], "r");
+      if (ujj) {
+	scriptfile = fopen(argv[uii + 1], "r");
       } else {
         scriptfile = fopen(PROG_NAME_STR ".log", "r");
       }
@@ -6401,19 +6388,19 @@ int32_t main(int32_t argc, char** argv) {
 	fputs("Error: Improperly formatted --rerun log file.\n", stdout);
 	goto main_ret_INVALID_FORMAT;
       }
-      uii = strlen(tbuf) + 1;
-      if (uii == MAXLINELEN) {
+      ukk = strlen(tbuf) + 1;
+      if (ukk == MAXLINELEN) {
 	print_ver();
 	fputs("Error: Second line too long in --rerun log file.\n", stdout);
 	goto main_ret_INVALID_FORMAT;
       }
-      rerun_buf = (char*)malloc(uii);
-      memcpy(rerun_buf, tbuf, uii);
+      rerun_buf = (char*)malloc(ukk);
+      memcpy(rerun_buf, tbuf, ukk);
 
-      memset(tbuf, 1, kk);
+      memset(tbuf, 1, (uint32_t)kk);
       sptr = next_item_mult(rerun_buf, 2);
-      mm = 0;
-      oo = 0;
+      umm = 0;
+      ukk = 0;
       do {
 	if (no_more_items_kns(sptr)) {
 	  print_ver();
@@ -6422,62 +6409,61 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	argptr = is_flag_start(sptr);
 	if (argptr) {
-	  uii = strlen_se(argptr);
-          for (nn = cur_arg; nn < argc; nn++) {
-	    argptr2 = is_flag_start(argv[nn]);
+          for (unn = cur_arg; unn < (uint32_t)argc; unn++) {
+	    argptr2 = is_flag_start(argv[unn]);
 	    if (argptr2) {
-	      if (!memcmp(argptr, argptr2, uii)) {
-		nn = -1;
+	      if (!strcmp(argptr, argptr2)) {
+		unn = 0xffffffffU;
 		break;
 	      }
 	    }
 	  }
-          if (nn == -1) {
+          if (unn == 0xffffffffU) {
 	    // matching flag, override --rerun
             do {
-	      oo++;
-	      tbuf[mm++] = 0;
-	      if (mm == kk) {
+	      ukk++;
+	      tbuf[umm++] = 0;
+	      if (umm == (uint32_t)kk) {
 		break;
 	      }
 	      sptr = next_item(sptr);
 	    } while (!is_flag(sptr));
 	  } else {
-	    mm++;
+	    umm++;
 	    sptr = next_item(sptr);
 	  }
 	} else {
-	  mm++;
+	  umm++;
           sptr = next_item(sptr);
 	}
-      } while (mm < kk);
-      subst_argv2 = (char**)malloc((argc + kk - oo - jj - 1 - cur_arg) * sizeof(char*));
+      } while (umm < (uint32_t)kk);
+      subst_argv2 = (char**)malloc((argc + kk - ukk - ujj - 1 - cur_arg) * sizeof(char*));
       if (!subst_argv2) {
 	print_ver();
 	goto main_ret_NOMEM;
       }
-      oo = 0;
-      for (mm = cur_arg; mm < ii; mm++) {
-	subst_argv2[oo++] = argv[mm];
+      unn = 0;
+      for (umm = cur_arg; umm < uii; umm++) {
+	subst_argv2[unn++] = argv[umm];
       }
       sptr = next_item_mult(rerun_buf, 2);
-      for (mm = 0; mm < kk; mm++) {
-        if (tbuf[mm]) {
-	  uii = strlen_se(sptr);
-	  subst_argv2[oo++] = sptr;
-	  sptr[uii] = '\0';
-	  if (mm != kk - 1) {
-	    sptr = skip_initial_spaces(&(sptr[uii + 1]));
+      for (umm = 0; umm < (uint32_t)kk; umm++) {
+        if (tbuf[umm]) {
+	  ukk = strlen_se(sptr);
+	  subst_argv2[unn++] = sptr;
+	  sptr[ukk] = '\0';
+	  if (umm != ((uint32_t)kk) - 1) {
+	    sptr = skip_initial_spaces(&(sptr[ukk + 1]));
 	  }
 	} else {
 	  sptr = next_item(sptr);
 	}
       }
-      for (mm = ii + jj + 1; mm < argc; mm++) {
-	subst_argv2[oo++] = argv[mm];
+      for (umm = uii + ujj + 1; umm < (uint32_t)argc; umm++) {
+	subst_argv2[unn++] = argv[umm];
       }
       cur_arg = 0;
-      argc = oo;
+      argc = unn;
       if (subst_argv) {
 	free(subst_argv);
       }
@@ -6486,26 +6472,26 @@ int32_t main(int32_t argc, char** argv) {
       subst_argv2 = NULL;
     }
   }
-  if ((cur_arg < argc) && (!is_flag(argv[cur_arg]))) {
+  if ((cur_arg < (uint32_t)argc) && (!is_flag(argv[cur_arg]))) {
     print_ver();
     printf("Error: First parameter must be a flag.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE;
   }
   flag_ct = 0;
-  for (ii = cur_arg; ii < argc; ii++) {
-    argptr = is_flag_start(argv[ii]);
+  for (uii = cur_arg; uii < (uint32_t)argc; uii++) {
+    argptr = is_flag_start(argv[uii]);
     if (argptr) {
-      if (!memcmp("help", argptr, 5)) {
+      if (!strcmp("help", argptr)) {
 	print_ver();
-	if ((cur_arg != 1) || (ii != 1) || subst_argv) {
+	if ((cur_arg != 1) || (uii != 1) || subst_argv) {
 	  fputs("--help present, ignoring other flags.\n", stdout);
 	}
-	retval = disp_help(argc - ii - 1, &(argv[ii + 1]));
+	retval = disp_help(argc - uii - 1, &(argv[uii + 1]));
 	goto main_ret_1;
       }
       if (strlen(argptr) >= MAX_FLAG_LEN) {
 	print_ver();
-	invalid_arg(argv[ii]);
+	invalid_arg(argv[uii]);
 	fputs(logbuf, stdout);
         goto main_ret_INVALID_CMDLINE;
       }
@@ -6527,27 +6513,27 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_NOMEM;
   }
   flagptr = flag_buf;
-  mm = 0; // parameter count increase due to aliases
-  for (ii = cur_arg; ii < argc; ii++) {
-    argptr = is_flag_start(argv[ii]);
+  umm = 0; // parameter count increase due to aliases
+  for (uii = cur_arg; uii < (uint32_t)argc; uii++) {
+    argptr = is_flag_start(argv[uii]);
     if (argptr) {
-      kk = strlen(argptr) + 1;
+      ukk = strlen(argptr) + 1;
       // handle aliases now, so sorting will have the desired effects
       switch (*argptr) {
       case 'Z':
-	if (!memcmp(argptr, "Z-genome", 9)) {
+	if (!strcmp(argptr, "Z-genome")) {
 	  memcpy(flagptr, "genome gz", 10);
-	  mm++;
+	  umm++;
 	  break;
 	}
 	goto main_flag_copy;
       case 'a':
-	if ((kk == 11) && (!memcmp(argptr, "allele", 6))) {
+	if ((ukk == 11) && (!memcmp(argptr, "allele", 6))) {
 	  if (match_upper(&(argptr[6]), "ACGT")) {
 	    memcpy(flagptr, "alleleACGT", 11);
 	    break;
 	  }
-	} else if ((kk == 12) && (!memcmp(argptr, "allele-", 7))) {
+	} else if ((ukk == 12) && (!memcmp(argptr, "allele-", 7))) {
           if (!memcmp(&(argptr[7]), "1234", 4)) {
 	    memcpy(flagptr, "allele1234", 11);
 	    break;
@@ -6558,26 +6544,26 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	goto main_flag_copy;
       case 'c':
-        if (!memcmp(argptr, "chr-excl", 9)) {
+        if (!strcmp(argptr, "chr-excl")) {
           logprint("Note: --chr-excl flag has been renamed to --not-chr.\n");
 	  memcpy(flagptr, "not-chr", 8);
 	  break;
 	}
 	goto main_flag_copy;
       case 'e':
-	if (!memcmp(argptr, "extract-snp", 12)) {
+	if (!strcmp(argptr, "extract-snp")) {
 	  memcpy(flagptr, "snp", 4);
 	  break;
 	}
 	goto main_flag_copy;
       case 'f':
-	if (!memcmp(argptr, "frqx", 5)) {
+	if (!strcmp(argptr, "frqx")) {
 	  memcpy(flagptr, "freqx", 6);
 	  break;
 	}
 	goto main_flag_copy;
       case 'g':
-	if (!memcmp(argptr, "grm-cutoff", 11)) {
+	if (!strcmp(argptr, "grm-cutoff")) {
           memcpy(flagptr, "rel-cutoff", 11);
 	  break;
 	}
@@ -6589,66 +6575,66 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	goto main_flag_copy;
       case 'l':
-	if (!memcmp(argptr, "list", 5)) {
+	if (!strcmp(argptr, "list")) {
 	  memcpy(flagptr, "recode list", 12);
 	  printf("Note: --list flag deprecated.  Use '--recode list' instead.\n");
 	  recode_modifier |= RECODE_LIST;
 	  misc_flags |= MISC_SET_HH_MISSING;
 	  break;
-	} else if (!memcmp(argptr, "load-dists", 11)) {
+	} else if (!strcmp(argptr, "load-dists")) {
           memcpy(flagptr, "read-dists", 11);
           printf("Note: --load-dists flag has been renamed to --read-dists.\n");
           break;
 	}
 	goto main_flag_copy;
       case 'm':
-	if (!memcmp(argptr, "missing_code", 13)) {
+	if (!strcmp(argptr, "missing_code")) {
 	  memcpy(flagptr, "missing-code", 13);
 	  break;
 	}
 	goto main_flag_copy;
       case 'n':
-	if (!memcmp(argptr, "neighbor", 9)) {
+	if (!strcmp(argptr, "neighbor")) {
 	  memcpy(flagptr, "neighbour", 10);
 	  break;
-	} else if (!memcmp(argptr, "num_threads", 12)) {
+	} else if (!strcmp(argptr, "num_threads")) {
 	  memcpy(flagptr, "threads", 8);
 	  break;
 	}
 	goto main_flag_copy;
       case 'r':
-	if (!memcmp(argptr, "recode", 6)) {
-	  uii = 0; // alias match?
+	if ((ukk >= 8) && (!memcmp(argptr, "recode", 6))) {
+	  ujj = 0; // alias match?
 	  argptr2 = &(argptr[6]);
-          switch (kk) {
+          switch (ukk) {
 	  case 8:
             if (tolower(*argptr2) == 'a') {
 	      memcpy(flagptr, "recode A", 9);
 	      recode_modifier |= RECODE_A;
-	      uii = 1;
+	      ujj = 1;
 	    }
 	    break;
 	  case 9:
 	    if (!memcmp(argptr2, "12", 2)) {
               memcpy(flagptr, "recode 12", 10);
 	      recode_modifier |= RECODE_12;
-	      uii = 1;
+	      ujj = 1;
             } else if (match_upper(argptr2, "AD")) {
               memcpy(flagptr, "recode AD", 10);
 	      recode_modifier |= RECODE_AD;
-	      uii = 1;
+	      ujj = 1;
 	    } else if (match_upper(argptr2, "HV")) {
 	      memcpy(flagptr, "recode HV-1chr", 15);
 	      recode_modifier |= RECODE_HV_1CHR;
               printf("Note: --recodeHV flag deprecated.  Use '--recode HV' or '--recode HV-1chr'.\n");
-	      uii = 2;
+	      ujj = 2;
 	    }
 	    break;
 	  case 11:
 	    if (!memcmp(argptr2, "-vcf", 4)) {
 	      memcpy(flagptr, "recode vcf", 11);
 	      recode_modifier |= RECODE_VCF;
-	      uii = 1;
+	      ujj = 1;
 	    }
 	    break;
           case 12:
@@ -6657,7 +6643,7 @@ int32_t main(int32_t argc, char** argv) {
 	      recode_modifier |= RECODE_LGEN;
 	      // backwards compatibility
 	      misc_flags |= MISC_SET_HH_MISSING;
-              uii = 1;
+              ujj = 1;
 	    }
 	    break;
 	  case 13:
@@ -6665,20 +6651,20 @@ int32_t main(int32_t argc, char** argv) {
 	      memcpy(flagptr, "recode rlist", 13);
 	      recode_modifier |= RECODE_RLIST;
 	      misc_flags |= MISC_SET_HH_MISSING;
-	      uii = 1;
+	      ujj = 1;
 	    }
 	    break;
 	  case 14:
 	    if (!memcmp(argptr2, "-beagle", 7)) {
 	      memcpy(flagptr, "recode beagle", 14);
 	      recode_modifier |= RECODE_BEAGLE;
-	      uii = 1;
+	      ujj = 1;
 	    } else if (!memcmp(argptr2, "-bimbam", 7)) {
 	      memcpy(flagptr, "recode bimbam-1chr", 19);
 	      recode_modifier |= RECODE_BIMBAM_1CHR;
 	      misc_flags |= MISC_SET_HH_MISSING;
 	      printf("Note: --recode-bimbam flag deprecated.  Use '--recode bimbam' or\n'--recode bimbam-1chr'.\n");
-	      uii = 2;
+	      ujj = 2;
 	    }
 	    break;
 	  case 17:
@@ -6687,38 +6673,38 @@ int32_t main(int32_t argc, char** argv) {
 	      recode_modifier |= RECODE_FASTPHASE_1CHR;
 	      misc_flags |= MISC_SET_HH_MISSING;
 	      printf("Note: --recode-fastphase flag deprecated.  Use '--recode fastphase' or\n'--recode fastphase-1chr'.\n");
-	      uii = 2;
+	      ujj = 2;
 	    } else if (!memcmp(argptr2, "-structure", 10)) {
 	      memcpy(flagptr, "recode structure", 17);
 	      recode_modifier |= RECODE_STRUCTURE;
 	      misc_flags |= MISC_SET_HH_MISSING;
-	      uii = 1;
+	      ujj = 1;
 	    }
 	    break;
 	  }
-	  if (uii) {
-	    if (uii == 1) {
+	  if (ujj) {
+	    if (ujj == 1) {
 	      printf("Note: --%s flag deprecated.  Use '%s ...'.\n", argptr, flagptr);
 	    }
-	    mm++;
+	    umm++;
 	    break;
 	  }
-	} else if (!memcmp(argptr, "reference-allele", 17)) {
+	} else if (!strcmp(argptr, "reference-allele")) {
 	  memcpy(flagptr, "a1-allele", 10);
 	  break;
 	}
 	goto main_flag_copy;
       case 't':
-        if (!memcmp(argptr, "thread-num", 11)) {
+        if (!strcmp(argptr, "thread-num")) {
 	  memcpy(flagptr, "threads", 8);
 	  break;
 	}
 	goto main_flag_copy;
       case 'u':
-	if (!memcmp(argptr, "update-freq", 12)) {
+	if (!strcmp(argptr, "update-freq")) {
 	  memcpy(flagptr, "read-freq", 10);
 	  break;
-	} else if (!memcmp(argptr, "update-ref-allele", 18)) {
+	} else if (!strcmp(argptr, "update-ref-allele")) {
 	  // GCTA alias
 	  memcpy(flagptr, "a1-allele", 10);
 	  break;
@@ -6726,10 +6712,10 @@ int32_t main(int32_t argc, char** argv) {
 	// fall through
       default:
       main_flag_copy:
-	memcpy(flagptr, argptr, kk);
+	memcpy(flagptr, argptr, ukk);
       }
       flagptr = &(flagptr[MAX_FLAG_LEN]);
-      flag_map[cur_flag++] = ii;
+      flag_map[cur_flag++] = uii;
     }
   }
   sptr = (char*)malloc(flag_ct * MAX_FLAG_LEN);
@@ -6739,16 +6725,16 @@ int32_t main(int32_t argc, char** argv) {
   }
   qsort_ext2(flag_buf, flag_ct, MAX_FLAG_LEN, strcmp_deref, (char*)flag_map, sizeof(int32_t), sptr, MAX_FLAG_LEN);
   free(sptr);
-  jj = strlen_se(flag_buf);
+  ujj = strlen_se(flag_buf);
   for (cur_flag = 1; cur_flag < flag_ct; cur_flag++) {
-    kk = strlen_se(&(flag_buf[cur_flag * MAX_FLAG_LEN]));
-    if ((jj == kk) && (!memcmp(&(flag_buf[(cur_flag - 1) * MAX_FLAG_LEN]), &(flag_buf[cur_flag * MAX_FLAG_LEN]), kk))) {
-      flag_buf[cur_flag * MAX_FLAG_LEN + kk] = '\0'; // just in case of aliases
+    ukk = strlen_se(&(flag_buf[cur_flag * MAX_FLAG_LEN]));
+    if ((ujj == ukk) && (!memcmp(&(flag_buf[(cur_flag - 1) * MAX_FLAG_LEN]), &(flag_buf[cur_flag * MAX_FLAG_LEN]), ukk))) {
+      flag_buf[cur_flag * MAX_FLAG_LEN + ukk] = '\0'; // just in case of aliases
       print_ver();
       printf("Error: Duplicate --%s flag.\n", &(flag_buf[cur_flag * MAX_FLAG_LEN]));
       goto main_ret_INVALID_CMDLINE;
     }
-    jj = kk;
+    ujj = ukk;
   }
 
   for (cur_flag = 0; cur_flag < flag_ct; cur_flag++) {
@@ -6763,18 +6749,18 @@ int32_t main(int32_t argc, char** argv) {
   for (cur_flag = 0; cur_flag < flag_ct; cur_flag++) {
     ii = memcmp("out", &(flag_buf[cur_flag * MAX_FLAG_LEN]), 4);
     if (!ii) {
-      ii = flag_map[cur_flag];
-      jj = param_count(argc, argv, ii);
-      if (enforce_param_ct_range(jj, argv[ii], 1, 1)) {
+      ujj = flag_map[cur_flag];
+      ukk = param_count(argc, argv, ujj);
+      if (enforce_param_ct_range(ukk, argv[ujj], 1, 1)) {
 	fputs(logbuf, stdout);
 	goto main_ret_INVALID_CMDLINE;
       }
-      if (strlen(argv[ii + 1]) > (FNAMESIZE - MAX_POST_EXT)) {
+      if (strlen(argv[ujj + 1]) > (FNAMESIZE - MAX_POST_EXT)) {
 	fputs("Error: --out parameter too long.\n", stdout);
 	goto main_ret_OPEN_FAIL;
       }
-      uii = strlen(argv[ii + 1]);
-      memcpy(outname, argv[ii + 1], uii + 1);
+      uii = strlen(argv[ujj + 1]);
+      memcpy(outname, argv[ujj + 1], uii + 1);
       outname_end = &(outname[uii]);
     }
     if (ii <= 0) {
@@ -6796,7 +6782,7 @@ int32_t main(int32_t argc, char** argv) {
   outname[uii] = '\0';
 
   logstr(ver_str);
-  sprintf(logbuf, "\n%d argument%s:", argc + mm - cur_arg, (argc + mm - cur_arg == 1)? "" : "s");
+  sprintf(logbuf, "\n%d argument%s:", argc + umm - cur_arg, (argc + umm - cur_arg == 1)? "" : "s");
   logstr(logbuf);
   for (cur_flag = 0; cur_flag < flag_ct; cur_flag++) {
     logstr(" --");
@@ -7052,7 +7038,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct == 1) {
-	  if (memcmp("multichar", argv[cur_arg + 1], 10)) {
+	  if (strcmp("multichar", argv[cur_arg + 1])) {
 	    sprintf(logbuf, "Error: Invalid --allele1234 parameter '%s'.%s\n", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -7069,7 +7055,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct == 1) {
-	  if (memcmp("multichar", argv[cur_arg + 1], 10)) {
+	  if (strcmp("multichar", argv[cur_arg + 1])) {
 	    sprintf(logbuf, "Error: Invalid --alleleACGT parameter '%s'.%s\n", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -7088,35 +7074,35 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!memcmp(argv[cur_arg + uii], "counts", 7)) {
+	  if (!strcmp(argv[cur_arg + uii], "counts")) {
 	    if (model_modifier & MODEL_QMASK) {
 	      sprintf(logbuf, "Error: --assoc 'qt-means' modifier does not make sense with 'counts'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_ASSOC_COUNTS;
-	  } else if (!memcmp(argv[cur_arg + uii], "fisher", 7)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "fisher")) {
 	    if (model_modifier & MODEL_QMASK) {
 	      sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with 'fisher'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_FISHER;
-	  } else if (!memcmp(argv[cur_arg + uii], "perm", 5)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "perm")) {
 	    if (model_modifier & MODEL_MPERM) {
 	      sprintf(logbuf, "Error: --assoc 'mperm' and 'perm' cannot be used together.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_PERM;
-	  } else if (!memcmp(argv[cur_arg + uii], "genedrop", 9)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "genedrop")) {
 	    if (model_modifier & MODEL_QMASK) {
 	      sprintf(logbuf, "Error: --assoc 'qt-means'/'lin' does not make sense with 'genedrop'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_GENEDROP;
-	  } else if (!memcmp(argv[cur_arg + uii], "perm-count", 11)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
 	    model_modifier |= MODEL_PERM_COUNT;
-	  } else if (!memcmp(argv[cur_arg + uii], "p2", 3)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "p2")) {
 	    model_modifier |= MODEL_ASSOC_P2;
-	  } else if ((!memcmp(argv[cur_arg + uii], "mperm=", 6)) && (argv[cur_arg + uii][6] != '\0')) {
+	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
 	    if (model_modifier & MODEL_PERM) {
 	      sprintf(logbuf, "Error: --assoc 'mperm' and 'perm' cannot be used together.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -7131,19 +7117,19 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    model_mperm_val = (uint32_t)kk;
 	    model_modifier |= MODEL_MPERM;
-	  } else if (!memcmp(argv[cur_arg + uii], "qt-means", 9)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "qt-means")) {
 	    if (model_modifier & MODEL_DMASK) {
 	      sprintf(logbuf, "Error: --assoc 'qt-means' does not make sense with a case/control-specific\nmodifier.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_QT_MEANS;
-	  } else if (!memcmp(argv[cur_arg + uii], "lin", 4)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "lin")) {
 	    if (model_modifier & MODEL_DMASK) {
 	      sprintf(logbuf, "Error: --assoc 'lin' does not make sense with a case/control-specific modifier.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    model_modifier |= MODEL_LIN;
-	  } else if (!memcmp(argv[cur_arg + uii], "mperm", 6)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
 	    logprint("Error: Improper --assoc mperm syntax.  (Use '--assoc mperm=[value]'.)\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  } else {
@@ -7159,11 +7145,11 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	mtest_adjust = 1;
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!memcmp(argv[cur_arg + uii], "gc", 3)) {
+	  if (!strcmp(argv[cur_arg + uii], "gc")) {
 	    mtest_adjust |= ADJUST_GC;
-	  } else if (!memcmp(argv[cur_arg + uii], "log10", 6)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "log10")) {
 	    mtest_adjust |= ADJUST_LOG10;
-	  } else if (!memcmp(argv[cur_arg + uii], "qq-plot", 8)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "qq-plot")) {
 	    mtest_adjust |= ADJUST_QQ;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --adjust parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
@@ -7371,9 +7357,9 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	uii = 1;
 	if (param_ct == 2) {
-	  if (!memcmp(argv[cur_arg + 1], "keep-pheno-on-missing-cov", 26)) {
+	  if (!strcmp(argv[cur_arg + 1], "keep-pheno-on-missing-cov")) {
 	    uii = 2;
-	  } else if (memcmp(argv[cur_arg + 2], "keep-pheno-on-missing-cov", 26)) {
+	  } else if (strcmp(argv[cur_arg + 2], "keep-pheno-on-missing-cov")) {
 	    sprintf(logbuf, "Error: Invalid --covar parameter '%s'.%s", argv[cur_arg + 2], errstr_append);
             goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -7438,19 +7424,19 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!memcmp(argv[cur_arg + uii], "cc", 3)) {
+	  if (!strcmp(argv[cur_arg + uii], "cc")) {
             cluster.modifier |= CLUSTER_CC;
-	  } else if (!memcmp(argv[cur_arg + uii], "group-avg", 10)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "group-avg")) {
 	    if (cluster.modifier & CLUSTER_OLD_TIEBREAKS) {
               sprintf(logbuf, "Error: --cluster 'group-avg' and 'old-tiebreaks' cannot be used together.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    cluster.modifier |= CLUSTER_GROUP_AVG;
-	  } else if (!memcmp(argv[cur_arg + uii], "missing", 8)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "missing")) {
 	    cluster.modifier |= CLUSTER_MISSING;
-	  } else if (!memcmp(argv[cur_arg + uii], "only2", 6)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "only2")) {
 	    cluster.modifier |= CLUSTER_ONLY2;
-	  } else if (!memcmp(argv[cur_arg + uii], "old-tiebreaks", 14)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "old-tiebreaks")) {
 	    if (cluster.modifier & CLUSTER_GROUP_AVG) {
               sprintf(logbuf, "Error: --cluster 'group-avg' and 'old-tiebreaks' cannot be used together.%s", errstr_append);
               goto main_ret_INVALID_CMDLINE_3;
@@ -7713,7 +7699,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
-	  if (memcmp(argv[cur_arg + 1], "short", 6)) {
+	  if (strcmp(argv[cur_arg + 1], "short")) {
             sprintf(logbuf, "Error: Invalid --cnv-make-map parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -7869,17 +7855,17 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct == 2) {
-	  if (!memcmp(argv[cur_arg + 1], "1sided", 7)) {
+	  if (!strcmp(argv[cur_arg + 1], "1sided")) {
 	    uii = 2;
 	    cnv_calc_type |= CNV_TEST_FORCE_1SIDED;
-	  } else if (!memcmp(argv[cur_arg + 1], "2sided", 7)) {
+	  } else if (!strcmp(argv[cur_arg + 1], "2sided")) {
 	    uii = 2;
 	    cnv_calc_type |= CNV_TEST_FORCE_2SIDED;
 	  } else {
 	    uii = 1;
-	    if (!memcmp(argv[cur_arg + 2], "1sided", 7)) {
+	    if (!strcmp(argv[cur_arg + 2], "1sided")) {
 	      cnv_calc_type |= CNV_TEST_FORCE_1SIDED;
-	    } else if (!memcmp(argv[cur_arg + 2], "2sided", 7)) {
+	    } else if (!strcmp(argv[cur_arg + 2], "2sided")) {
 	      cnv_calc_type |= CNV_TEST_FORCE_2SIDED;
 	    } else {
 	      sprintf(logbuf, "Error: Invalid --cnv-test parameter sequence.%s", errstr_append);
@@ -7976,7 +7962,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
-	  if (memcmp(argv[cur_arg + 1], "freq", 5)) {
+	  if (strcmp(argv[cur_arg + 1], "freq")) {
             sprintf(logbuf, "Error: Invalid --cnv-write parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -8013,15 +7999,15 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	uii = 1;
 	if (param_ct == 2) {
-	  if (!memcmp("dominant", argv[cur_arg + 2], 9)) {
+	  if (!strcmp("dominant", argv[cur_arg + 2])) {
 	    glm_modifier |= GLM_CONDITION_DOMINANT;
-	  } else if (!memcmp("recessive", argv[cur_arg + 2], 10)) {
+	  } else if (!strcmp("recessive", argv[cur_arg + 2])) {
 	    glm_modifier |= GLM_CONDITION_RECESSIVE;
 	  } else {
 	    uii = 2;
-            if (!memcmp("dominant", argv[cur_arg + 1], 9)) {
+            if (!strcmp("dominant", argv[cur_arg + 1])) {
 	      glm_modifier |= GLM_CONDITION_DOMINANT;
-	    } else if (!memcmp("recessive", argv[cur_arg + 1], 10)) {
+	    } else if (!strcmp("recessive", argv[cur_arg + 1])) {
 	      glm_modifier |= GLM_CONDITION_RECESSIVE;
 	    } else {
 	      sprintf(logbuf, "Error: Invalid --condition parameter sequence.%s", errstr_append);
@@ -8042,15 +8028,15 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct == 2) {
-	  if (!memcmp("dominant", argv[cur_arg + 2], 9)) {
+	  if (!strcmp("dominant", argv[cur_arg + 2])) {
 	    glm_modifier |= GLM_CONDITION_DOMINANT;
-	  } else if (!memcmp("recessive", argv[cur_arg + 2], 10)) {
+	  } else if (!strcmp("recessive", argv[cur_arg + 2])) {
 	    glm_modifier |= GLM_CONDITION_RECESSIVE;
 	  } else {
 	    uii = 2;
-            if (!memcmp("dominant", argv[cur_arg + 1], 9)) {
+            if (!strcmp("dominant", argv[cur_arg + 1])) {
 	      glm_modifier |= GLM_CONDITION_DOMINANT;
-	    } else if (!memcmp("recessive", argv[cur_arg + 1], 10)) {
+	    } else if (!strcmp("recessive", argv[cur_arg + 1])) {
 	      glm_modifier |= GLM_CONDITION_RECESSIVE;
 	    } else {
 	      sprintf(logbuf, "Error: Invalid --condition-list parameter sequence.%s", errstr_append);
@@ -8102,7 +8088,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!memcmp(argv[cur_arg + uii], "square", 7)) {
+	  if (!strcmp(argv[cur_arg + uii], "square")) {
 	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ0) {
 	      sprintf(logbuf, "Error: --distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -8111,7 +8097,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_SQ;
-	  } else if (!memcmp(argv[cur_arg + uii], "square0", 8)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "square0")) {
 	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
 	      sprintf(logbuf, "Error: --distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -8120,7 +8106,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_SQ0;
-	  } else if (!memcmp(argv[cur_arg + uii], "triangle", 9)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "triangle")) {
 	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
 	      sprintf(logbuf, "Error: --distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -8129,39 +8115,39 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_TRI;
-	  } else if (!memcmp(argv[cur_arg + uii], "gz", 3)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
 	    if (dist_calc_type & DISTANCE_BIN) {
 	      sprintf(logbuf, "Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_GZ;
-	  } else if (!memcmp(argv[cur_arg + uii], "bin", 4)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "bin")) {
 	    if (dist_calc_type & DISTANCE_GZ) {
 	      sprintf(logbuf, "Error: --distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_BIN;
-	  } else if (!memcmp(argv[cur_arg + uii], "ibs", 4)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "ibs")) {
 	    if (dist_calc_type & DISTANCE_IBS) {
 	      logprint("Error: Duplicate --distance 'ibs' modifier.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    dist_calc_type |= DISTANCE_IBS;
-	  } else if (!memcmp(argv[cur_arg + uii], "1-ibs", 6)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "1-ibs")) {
 	    if (dist_calc_type & DISTANCE_1_MINUS_IBS) {
 	      logprint("Error: Duplicate --distance '1-ibs' modifier.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    dist_calc_type |= DISTANCE_1_MINUS_IBS;
-	  } else if (!memcmp(argv[cur_arg + uii], "allele-ct", 10)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "allele-ct")) {
 	    if (dist_calc_type & DISTANCE_ALCT) {
 	      logprint("Error: Duplicate --distance 'allele-ct' modifier.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    dist_calc_type |= DISTANCE_ALCT;
-	  } else if (!memcmp(argv[cur_arg + uii], "3d", 3)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "3d")) {
 	    dist_calc_type |= DISTANCE_3D;
-	  } else if (!memcmp(argv[cur_arg + uii], "flat-missing", 13)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "flat-missing")) {
 	    dist_calc_type |= DISTANCE_FLAT_MISSING;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --distance parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
@@ -8205,19 +8191,19 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
             dummy_flags |= DUMMY_ACGT;
-	  } else if (!memcmp(argv[cur_arg + uii], "1234", 5)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "1234")) {
 	    if (dummy_flags & (DUMMY_ACGT | DUMMY_12)) {
 	      sprintf(logbuf, "Error: --dummy '1234' modifier cannot be used with 'acgt' or '12'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
             dummy_flags |= DUMMY_1234;
-	  } else if (!memcmp(argv[cur_arg + uii], "12", 3)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "12")) {
 	    if (dummy_flags & (DUMMY_ACGT | DUMMY_1234)) {
 	      sprintf(logbuf, "Error: --dummy '12' modifier cannot be used with 'acgt' or '1234'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
             dummy_flags |= DUMMY_12;
-	  } else if (!memcmp(argv[cur_arg + uii], "scalar-pheno", 13)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "scalar-pheno")) {
 	    dummy_flags |= DUMMY_SCALAR_PHENO;
 	  } else {
 	    if ((dummy_flags & DUMMY_MISSING_PHENO) || scan_double(argv[cur_arg + uii], &dxx) || (dxx < 0.0) || (dxx > 1.0)) {
@@ -8243,12 +8229,12 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
-	  if (!memcmp(argv[cur_arg + 1], "no-round", 9)) {
+	  if (!strcmp(argv[cur_arg + 1], "no-round")) {
 	    uii = 2;
 	    write_covar_modifier |= WRITE_COVAR_DUMMY_NO_ROUND;
 	  } else {
 	    if (param_ct == 2) {
-              if (memcmp(argv[cur_arg + 2], "no-round", 9)) {
+              if (strcmp(argv[cur_arg + 2], "no-round")) {
 		sprintf(logbuf, "Error: Invalid --dummy-coding parameter sequence.%s", errstr_append);
 		goto main_ret_INVALID_CMDLINE_3;
 	      }
@@ -8427,7 +8413,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
-	  if (memcmp(argv[cur_arg + 1], "counts", 7)) {
+	  if (strcmp(argv[cur_arg + 1], "counts")) {
             sprintf(logbuf, "Error: Invalid --freq parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -8576,15 +8562,15 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!memcmp(argv[cur_arg + uii], "gz", 3)) {
+	  if (!strcmp(argv[cur_arg + uii], "gz")) {
             genome_modifier |= GENOME_OUTPUT_GZ;
-	  } else if (!memcmp(argv[cur_arg + uii], "rel-check", 10)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "rel-check")) {
             genome_modifier |= GENOME_REL_CHECK;
-	  } else if (!memcmp(argv[cur_arg + uii], "full", 5)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "full")) {
 	    genome_modifier |= GENOME_OUTPUT_FULL;
-	  } else if (!memcmp(argv[cur_arg + uii], "unbounded", 10)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "unbounded")) {
 	    genome_modifier |= GENOME_IBD_UNBOUNDED;
-	  } else if (!memcmp(argv[cur_arg + uii], "nudge", 6)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "nudge")) {
             genome_modifier |= GENOME_NUDGE;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --genome parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
@@ -8787,21 +8773,21 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!memcmp(argv[cur_arg + uii], "group", 6)) {
+	  if (!strcmp(argv[cur_arg + uii], "group")) {
 	    if (homozyg.modifier & HOMOZYG_GROUP_VERBOSE) {
 	      logprint("Error: --homozyg 'group' and 'group-verbose' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    homozyg.modifier |= HOMOZYG_GROUP;
-	  } else if (!memcmp(argv[cur_arg + uii], "group-verbose", 14)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "group-verbose")) {
 	    if (homozyg.modifier & HOMOZYG_GROUP) {
 	      logprint("Error: --homozyg 'group' and 'group-verbose' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    homozyg.modifier |= HOMOZYG_GROUP_VERBOSE;
-	  } else if (!memcmp(argv[cur_arg + uii], "consensus-match", 16)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "consensus-match")) {
 	    homozyg.modifier |= HOMOZYG_CONSENSUS_MATCH;
-	  } else if (!memcmp(argv[cur_arg + uii], "subtract-1-from-lengths", 24)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "subtract-1-from-lengths")) {
             homozyg.modifier |= HOMOZYG_OLD_LENGTHS;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --homozyg parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
@@ -9051,11 +9037,11 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	jj = (argv[cur_arg + 1][1] == '\0');
-        if (!memcmp(argv[cur_arg + 1], "none", 5) || ((argv[cur_arg + 1][0] == '0') && jj)) {
+        if ((!strcmp(argv[cur_arg + 1], "none")) || ((argv[cur_arg + 1][0] == '0') && jj)) {
 	  indiv_sort = INDIV_SORT_NONE;
-	} else if (!memcmp(argv[cur_arg + 1], "natural", 8) || ((tolower(argv[cur_arg + 1][0]) == 'n') && jj)) {
+	} else if ((!strcmp(argv[cur_arg + 1], "natural")) || ((tolower(argv[cur_arg + 1][0]) == 'n') && jj)) {
 	  indiv_sort = INDIV_SORT_NATURAL;
-	} else if ((!memcmp(argv[cur_arg + 1], "ascii", 6)) || ((tolower(argv[cur_arg + 1][0]) == 'a') && jj)) {
+	} else if ((!strcmp(argv[cur_arg + 1], "ascii")) || ((tolower(argv[cur_arg + 1][0]) == 'a') && jj)) {
 	  indiv_sort = INDIV_SORT_ASCII;
 	} else {
 	  sprintf(logbuf, "Error: '%s' is not a valid mode for --indiv-sort.%s", argv[cur_arg + 1], errstr_append);
@@ -9172,9 +9158,9 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	uii = 1;
 	if (param_ct == 2) {
-	  if ((!memcmp(argv[cur_arg + 1], "keep-", 5)) && match_upper(&(argv[cur_arg + 1][5]), "NA")) {
+	  if ((strlen(argv[cur_arg + 1]) == 7) && (!memcmp(argv[cur_arg + 1], "keep-", 5)) && match_upper(&(argv[cur_arg + 1][5]), "NA")) {
 	    uii = 2;
-	  } else if (memcmp(argv[cur_arg + 2], "keep-", 5) || (!match_upper(&(argv[cur_arg + 2][5]), "NA"))) {
+	  } else if ((strlen(argv[cur_arg + 2]) != 7) || memcmp(argv[cur_arg + 2], "keep-", 5) || (!match_upper(&(argv[cur_arg + 2][5]), "NA"))) {
             sprintf(logbuf, "Error: Invalid --loop-assoc parameter sequence.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -9231,13 +9217,13 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!memcmp(argv[cur_arg + uii], "perm", 5)) {
+	  if (!strcmp(argv[cur_arg + uii], "perm")) {
 	    if (glm_modifier & GLM_MPERM) {
 	      sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.%s", argptr, errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
             glm_modifier |= GLM_PERM;
-	  } else if ((!memcmp(argv[cur_arg + uii], "mperm=", 6)) && (argv[cur_arg + uii][6] != '\0')) {
+	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
             if (glm_modifier & GLM_PERM) {
 	      sprintf(logbuf, "Error: --%s 'mperm' and 'perm' cannot be used together.%s", argptr, errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -9252,70 +9238,70 @@ int32_t main(int32_t argc, char** argv) {
 	    }
             glm_mperm_val = (uint32_t)ii;
             glm_modifier |= GLM_MPERM;
-	  } else if (!memcmp(argv[cur_arg + uii], "genedrop", 9)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "genedrop")) {
 	    glm_modifier |= GLM_GENEDROP;
-	  } else if (!memcmp(argv[cur_arg + uii], "perm-count", 11)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "perm-count")) {
 	    glm_modifier |= GLM_PERM_COUNT;
-	  } else if (!memcmp(argv[cur_arg + uii], "genotypic", 10)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "genotypic")) {
 	    if (glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE)) {
 	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    glm_modifier |= GLM_GENOTYPIC;
 	    glm_xchr_model = 0;
-	  } else if (!memcmp(argv[cur_arg + uii], "hethom", 7)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "hethom")) {
 	    if (glm_modifier & (GLM_GENOTYPIC | GLM_DOMINANT | GLM_RECESSIVE)) {
 	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    glm_modifier |= GLM_HETHOM;
 	    glm_xchr_model = 0;
-	  } else if (!memcmp(argv[cur_arg + uii], "dominant", 9)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "dominant")) {
 	    if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_RECESSIVE)) {
 	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    glm_modifier |= GLM_DOMINANT;
 	    glm_xchr_model = 0;
-	  } else if (!memcmp(argv[cur_arg + uii], "recessive", 10)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "recessive")) {
 	    if (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM | GLM_DOMINANT)) {
 	      sprintf(logbuf, "Error: Conflicting --%s parameters.\n", argptr);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    glm_modifier |= GLM_RECESSIVE;
 	    glm_xchr_model = 0;
-	  } else if (!memcmp(argv[cur_arg + uii], "no-snp", 7)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "no-snp")) {
 	    if (mtest_adjust) {
 	      sprintf(logbuf, "Error: --%s no-snp cannot be used with --adjust.%s", argptr, errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    // defer the rest of the check
 	    glm_modifier |= GLM_NO_SNP;
-	  } else if (!memcmp(argv[cur_arg + uii], "hide-covar", 11)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "hide-covar")) {
 	    glm_modifier |= GLM_HIDE_COVAR;
-	  } else if (!memcmp(argv[cur_arg + uii], "sex", 4)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "sex")) {
 	    if (glm_modifier & GLM_NO_X_SEX) {
 	      sprintf(logbuf, "Error: --%s 'sex' and 'no-x-sex' cannot be used together.%s", argptr, errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    glm_modifier |= GLM_SEX;
-	  } else if (!memcmp(argv[cur_arg + uii], "no-x-sex", 9)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "no-x-sex")) {
 	    if (glm_modifier & GLM_SEX) {
 	      sprintf(logbuf, "Error: --%s 'sex' and 'no-x-sex' cannot be used together.%s", argptr, errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    glm_modifier |= GLM_NO_X_SEX;
-	  } else if (!memcmp(argv[cur_arg + uii], "interaction", 12)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "interaction")) {
 	    glm_modifier |= GLM_INTERACTION;
-	  } else if (!memcmp(argv[cur_arg + uii], "standard-beta", 14)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "standard-beta")) {
 	    if (glm_modifier & GLM_LOGISTIC) {
 	      sprintf(logbuf, "Error: --logistic does not have a 'standard-beta' modifier.  (Did you mean\n--linear or 'beta'?)%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    glm_modifier |= GLM_STANDARD_BETA;
-	  } else if (!memcmp(argv[cur_arg + uii], "beta", 5)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "beta")) {
 	    glm_modifier |= GLM_BETA;
-	  } else if (!memcmp(argv[cur_arg + uii], "mperm", 6)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
 	    sprintf(logbuf, "Error: Improper --%s mperm syntax.  (Use '--%s mperm=[value]'.)\n", argptr, argptr);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  } else {
@@ -9510,7 +9496,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	rel_calc_type |= REL_CALC_GZ | REL_CALC_GRM;
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!memcmp(argv[cur_arg + uii], "cov", 4)) {
+	  if (!strcmp(argv[cur_arg + uii], "cov")) {
 	    if (calculation_type & CALC_IBC) {
 	      sprintf(logbuf, "Error: --make-grm-gz 'cov' modifier cannot coexist with --ibc flag.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -9520,9 +9506,9 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_COV;
-	  } else if (!memcmp(argv[cur_arg + uii], "no-gz", 6)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "no-gz")) {
 	    rel_calc_type &= ~REL_CALC_GZ;
-	  } else if ((!memcmp(argv[cur_arg + uii], "ibc2", 5)) || (!memcmp(argv[cur_arg + uii], "ibc3", 5))) {
+	  } else if ((!strcmp(argv[cur_arg + uii], "ibc2")) || (!strcmp(argv[cur_arg + uii], "ibc3"))) {
 	    if (rel_calc_type & REL_CALC_COV) {
 	      sprintf(logbuf, "Error: --make-grm-gz 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -9532,7 +9518,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    ibc_type = argv[cur_arg + uii][3] - '0';
-	  } else if (!memcmp(argv[cur_arg + uii], "single-prec", 12)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "single-prec")) {
 	    rel_calc_type |= REL_CALC_SINGLE_PREC;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --make-grm-gz parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
@@ -9550,13 +9536,13 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	rel_calc_type |= REL_CALC_GRM_BIN | REL_CALC_SINGLE_PREC;
 	if (param_ct) {
-	  if (!memcmp(argv[cur_arg + 1], "cov", 4)) {
+	  if (!strcmp(argv[cur_arg + 1], "cov")) {
 	    if (calculation_type & CALC_IBC) {
 	      sprintf(logbuf, "Error: --make-grm-bin 'cov' modifier cannot coexist with --ibc flag.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_COV;
-	  } else if ((!memcmp(argv[cur_arg + 1], "ibc2", 5)) || (!memcmp(argv[cur_arg + 1], "ibc3", 5))) {
+	  } else if ((!strcmp(argv[cur_arg + 1], "ibc2")) || (!strcmp(argv[cur_arg + 1], "ibc3"))) {
 	    ibc_type = argv[cur_arg + 1][3] - '0';
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --make-grm-bin parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
@@ -9573,7 +9559,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!memcmp(argv[cur_arg + uii], "cov", 4)) {
+	  if (!strcmp(argv[cur_arg + uii], "cov")) {
 	    if (calculation_type & CALC_IBC) {
 	      sprintf(logbuf, "Error: --make-rel 'cov' modifier cannot coexist with --ibc flag.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -9583,19 +9569,19 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_COV;
-	  } else if (!memcmp(argv[cur_arg + uii], "gz", 3)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
 	    if (rel_calc_type & REL_CALC_BIN) {
 	      sprintf(logbuf, "Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_GZ;
-	  } else if (!memcmp(argv[cur_arg + uii], "bin", 4)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "bin")) {
 	    if (rel_calc_type & REL_CALC_GZ) {
 	      sprintf(logbuf, "Error: --make-rel 'gz' and 'bin' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_BIN;
-	  } else if (!memcmp(argv[cur_arg + uii], "square", 7)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "square")) {
 	    if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_SQ0) {
 	      sprintf(logbuf, "Error: --make-rel 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -9604,7 +9590,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_SQ;
-	  } else if (!memcmp(argv[cur_arg + uii], "square0", 8)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "square0")) {
 	    if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
 	      sprintf(logbuf, "Error: --make-rel 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -9613,7 +9599,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_SQ0;
-	  } else if (!memcmp(argv[cur_arg + uii], "triangle", 9)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "triangle")) {
 	    if ((rel_calc_type & REL_CALC_SHAPEMASK) == REL_CALC_SQ) {
 	      sprintf(logbuf, "Error: --make-rel 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -9622,7 +9608,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    rel_calc_type |= REL_CALC_TRI;
-	  } else if ((!memcmp(argv[cur_arg + uii], "ibc2", 5)) || (!memcmp(argv[cur_arg + uii], "ibc3", 5))) {
+	  } else if ((!strcmp(argv[cur_arg + uii], "ibc2")) || (!strcmp(argv[cur_arg + uii], "ibc3"))) {
 	    if (rel_calc_type & REL_CALC_COV) {
 	      sprintf(logbuf, "Error: --make-rel 'cov' modifier cannot coexist with an IBC modifier.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -9632,7 +9618,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    ibc_type = argv[cur_arg + uii][3] - '0';
-	  } else if (!memcmp(argv[cur_arg + uii], "single-prec", 12)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "single-prec")) {
 	    rel_calc_type |= REL_CALC_SINGLE_PREC;
 	  } else {
 	    sprintf(logbuf, "Error: Invalid --make-rel parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
@@ -9818,7 +9804,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    model_modifier |= MODEL_PTREND | MODEL_TRENDONLY;
-	  } else if ((!memcmp(argv[cur_arg + uii], "mperm=", 6)) && (argv[cur_arg + uii][6] != '\0')) {
+	  } else if ((strlen(argv[cur_arg + uii]) > 6) && (!memcmp(argv[cur_arg + uii], "mperm=", 6))) {
 	    if (model_modifier & MODEL_PERM) {
 	      sprintf(logbuf, "Error: --model 'mperm' and 'perm' cannot be used together.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -9833,7 +9819,7 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    model_mperm_val = (uint32_t)kk;
 	    model_modifier |= MODEL_MPERM;
-	  } else if (!memcmp(argv[cur_arg + uii], "mperm", 6)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "mperm")) {
 	    logprint("Error: Improper --model mperm syntax.  (Use '--model mperm=[value]'.)\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  } else {
@@ -10038,9 +10024,9 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	uii = 1;
         if (param_ct == 2) {
-	  if (!memcmp(argv[cur_arg + 1], "by-cluster", 11)) {
+	  if (!strcmp(argv[cur_arg + 1], "by-cluster")) {
 	    uii = 2;
-	  } else if (memcmp(argv[cur_arg + 2], "by-cluster", 11)) {
+	  } else if (strcmp(argv[cur_arg + 2], "by-cluster")) {
 	    sprintf(logbuf, "Error: Invalid --mds-plot parameter sequence.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -10113,6 +10099,18 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	genome_modifier |= GENOME_FILTER_PI_HAT;
 	genome_max_pi_hat = dxx;
+      } else if (!memcmp(argptr2, "ake-founders", 13)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (param_ct) {
+	  if (strcmp(argv[cur_arg + 1], "require-2-missing")) {
+	    sprintf(logbuf, "Error: Invalid --make-founders parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  misc_flags |= MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING;
+	}
+        misc_flags |= MISC_MAKE_FOUNDERS;
       } else if (!memcmp(argptr2, "lm-assoc", 9)) {
         logprint("Error: --mlm-assoc is not implemented yet.\n");
         goto main_ret_INVALID_CMDLINE;
@@ -10621,11 +10619,11 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	for (uii = 2; uii <= param_ct; uii++) {
-	  if (!memcmp(argv[cur_arg + uii], "normalize-pheno", 16)) {
+	  if (!strcmp(argv[cur_arg + uii], "normalize-pheno")) {
 	    regress_pcs_modifier |= REGRESS_PCS_NORMALIZE_PHENO;
-	  } else if (!memcmp(argv[cur_arg + uii], "sex-specific", 13)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "sex-specific")) {
 	    regress_pcs_modifier |= REGRESS_PCS_SEX_SPECIFIC;
-	  } else if (!memcmp(argv[cur_arg + uii], "clip", 5)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "clip")) {
 	    regress_pcs_modifier |= REGRESS_PCS_CLIP;
 	  } else if ((max_pcs != MAX_PCS_DEFAULT) || (argv[cur_arg + uii][0] < '0') || (argv[cur_arg + uii][0] > '9')) {
 	    sprintf(logbuf, "Error: Invalid --regress-pcs parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
@@ -10656,11 +10654,11 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	for (uii = 2; uii <= param_ct; uii++) {
-	  if (!memcmp(argv[cur_arg + uii], "normalize-pheno", 16)) {
+	  if (!strcmp(argv[cur_arg + uii], "normalize-pheno")) {
 	    regress_pcs_modifier |= REGRESS_PCS_NORMALIZE_PHENO;
-	  } else if (!memcmp(argv[cur_arg + uii], "sex-specific", 13)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "sex-specific")) {
 	    regress_pcs_modifier |= REGRESS_PCS_SEX_SPECIFIC;
-	  } else if (!memcmp(argv[cur_arg + uii], "square", 7)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "square")) {
 	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ0) {
 	      sprintf(logbuf, "Error: --regress-pcs-distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -10672,7 +10670,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_SQ;
-	  } else if (!memcmp(argv[cur_arg + uii], "square0", 8)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "square0")) {
 	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
 	      sprintf(logbuf, "Error: --regress-pcs-distance 'square' and 'square0' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -10681,7 +10679,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_SQ0;
-	  } else if (!memcmp(argv[cur_arg + uii], "triangle", 9)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "triangle")) {
 	    if ((dist_calc_type & DISTANCE_SHAPEMASK) == DISTANCE_SQ) {
 	      sprintf(logbuf, "Error: --regress-pcs-distance 'square' and 'triangle' modifiers cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -10690,39 +10688,39 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_TRI;
-	  } else if (!memcmp(argv[cur_arg + uii], "gz", 3)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "gz")) {
 	    if (dist_calc_type & DISTANCE_BIN) {
 	      sprintf(logbuf, "Error: --regress-pcs-distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_GZ;
-	  } else if (!memcmp(argv[cur_arg + uii], "bin", 4)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "bin")) {
 	    if (dist_calc_type & DISTANCE_GZ) {
 	      sprintf(logbuf, "Error: --regress-pcs-distance 'gz' and 'bin' flags cannot coexist.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    dist_calc_type |= DISTANCE_BIN;
-	  } else if (!memcmp(argv[cur_arg + uii], "ibs", 4)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "ibs")) {
 	    if (dist_calc_type & DISTANCE_IBS) {
 	      logprint("Error: Duplicate --regress-pcs-distance 'ibs' modifier.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    dist_calc_type |= DISTANCE_IBS;
-	  } else if (!memcmp(argv[cur_arg + uii], "1-ibs", 6)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "1-ibs")) {
 	    if (dist_calc_type & DISTANCE_1_MINUS_IBS) {
 	      logprint("Error: Duplicate --regress-pcs-distance '1-ibs' modifier.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    dist_calc_type |= DISTANCE_1_MINUS_IBS;
-	  } else if (!memcmp(argv[cur_arg + uii], "allele-ct", 10)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "allele-ct")) {
 	    if (dist_calc_type & DISTANCE_ALCT) {
 	      logprint("Error: Duplicate --regress-pcs-distance 'allele-ct' modifier.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
 	    dist_calc_type |= DISTANCE_ALCT;
-	  } else if (!memcmp(argv[cur_arg + uii], "3d", 3)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "3d")) {
 	    dist_calc_type |= DISTANCE_3D;
-	  } else if (!memcmp(argv[cur_arg + uii], "flat-missing", 13)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "flat-missing")) {
 	    dist_calc_type |= DISTANCE_FLAT_MISSING;
 	  } else if ((max_pcs != MAX_PCS_DEFAULT) || (argv[cur_arg + uii][0] < '0') || (argv[cur_arg + uii][0] > '9')) {
 	    sprintf(logbuf, "Error: Invalid --regress-pcs-distance parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
@@ -10762,19 +10760,19 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!memcmp(argv[cur_arg + uii], "12", 3)) {
+	  if (!strcmp(argv[cur_arg + uii], "12")) {
 	    if (recode_modifier & (RECODE_A | RECODE_AD)) {
 	      sprintf(logbuf, "Error: --recode '12' modifier cannot be used with 'A' or 'AD'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_12;
-	  } else if (!memcmp(argv[cur_arg + uii], "compound-genotypes", 19)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "compound-genotypes")) {
 	    if (recode_modifier & RECODE_STRUCTURE) {
               logprint("Error: --recode 'compound-genotypes' modifier cannot be used with 'structure'.\n");
               goto main_ret_INVALID_CMDLINE;
 	    }
 	    recode_modifier |= RECODE_COMPOUND;
-	  } else if (!memcmp(argv[cur_arg + uii], "23", 3)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "23")) {
 	    if (recode_type_set(&recode_modifier, RECODE_23)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
@@ -10791,66 +10789,66 @@ int32_t main(int32_t argc, char** argv) {
 	      if (recode_type_set(&recode_modifier, RECODE_HV)) {
 	        goto main_ret_INVALID_CMDLINE_3;
 	      }
-	    } else if (!memcmp(&(argv[cur_arg + uii][2]), "-1chr", 6)) {
+	    } else if (!strcmp(&(argv[cur_arg + uii][2]), "-1chr")) {
 	      if (recode_type_set(&recode_modifier, RECODE_HV_1CHR)) {
 	        goto main_ret_INVALID_CMDLINE_3;
 	      }
 	    }
-	  } else if (!memcmp(argv[cur_arg + uii], "tab", 4)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "tab")) {
 	    if (recode_modifier & (RECODE_TAB | RECODE_DELIMX)) {
 	      sprintf(logbuf, "Error: Multiple --recode delimiter modifiers.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_TAB;
-	  } else if (!memcmp(argv[cur_arg + uii], "tabx", 5)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "tabx")) {
 	    if (recode_modifier & (RECODE_TAB | RECODE_DELIMX)) {
 	      sprintf(logbuf, "Error: Multiple --recode delimiter modifiers.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_TAB | RECODE_DELIMX;
-	  } else if (!memcmp(argv[cur_arg + uii], "spacex", 7)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "spacex")) {
 	    if (recode_modifier & (RECODE_TAB | RECODE_DELIMX)) {
 	      sprintf(logbuf, "Error: Multiple --recode delimiter modifiers.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_DELIMX;
-	  } else if (!memcmp(argv[cur_arg + uii], "beagle", 7)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "beagle")) {
 	    if (recode_type_set(&recode_modifier, RECODE_BEAGLE)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if (!memcmp(argv[cur_arg + uii], "bimbam", 7)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "bimbam")) {
 	    if (recode_type_set(&recode_modifier, RECODE_BIMBAM)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if (!memcmp(argv[cur_arg + uii], "bimbam-1chr", 12)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "bimbam-1chr")) {
 	    if (recode_type_set(&recode_modifier, RECODE_BIMBAM_1CHR)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if (!memcmp(argv[cur_arg + uii], "fastphase", 10)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "fastphase")) {
 	    if (recode_type_set(&recode_modifier, RECODE_FASTPHASE)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if (!memcmp(argv[cur_arg + uii], "fastphase-1chr", 14)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "fastphase-1chr")) {
 	    if (recode_type_set(&recode_modifier, RECODE_FASTPHASE_1CHR)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if (!memcmp(argv[cur_arg + uii], "lgen", 5)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "lgen")) {
 	    if (recode_type_set(&recode_modifier, RECODE_LGEN)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if (!memcmp(argv[cur_arg + uii], "lgen-ref", 9)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "lgen-ref")) {
 	    if (recode_type_set(&recode_modifier, RECODE_LGEN_REF)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if (!memcmp(argv[cur_arg + uii], "list", 5)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "list")) {
 	    if (recode_type_set(&recode_modifier, RECODE_LIST)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if (!memcmp(argv[cur_arg + uii], "rlist", 6)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "rlist")) {
 	    if (recode_type_set(&recode_modifier, RECODE_RLIST)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if (!memcmp(argv[cur_arg + uii], "structure", 10)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "structure")) {
 	    if (recode_modifier & RECODE_COMPOUND) {
               logprint("Error: --recode 'compound-genotypes' modifier cannot be used with 'structure'.\n");
               goto main_ret_INVALID_CMDLINE;
@@ -10858,11 +10856,11 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_STRUCTURE)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if (!memcmp(argv[cur_arg + uii], "transpose", 10)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "transpose")) {
 	    if (recode_type_set(&recode_modifier, RECODE_TRANSPOSE)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if (!memcmp(argv[cur_arg + uii], "vcf", 4)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "vcf")) {
 	    if (recode_modifier & RECODE_VCF) {
 	      sprintf(logbuf, "Error: Conflicting or redundant --recode modifiers.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -10870,7 +10868,7 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_VCF)) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
-	  } else if (!memcmp(argv[cur_arg + uii], "vcf-fid", 8)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "vcf-fid")) {
 	    if (recode_modifier & (RECODE_VCF | RECODE_IID)) {
 	      sprintf(logbuf, "Error: Conflicting or redundant --recode modifiers.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -10879,7 +10877,7 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    recode_modifier |= RECODE_FID;
-	  } else if (!memcmp(argv[cur_arg + uii], "vcf-iid", 8)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "vcf-iid")) {
 	    if (recode_modifier & (RECODE_VCF | RECODE_FID)) {
 	      sprintf(logbuf, "Error: Conflicting or redundant --recode modifiers.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -11107,13 +11105,13 @@ int32_t main(int32_t argc, char** argv) {
 	  simulate_flags |= SIMULATE_QT;
 	}
 	for (uii = 2; uii <= param_ct; uii++) {
-	  if (!memcmp(argv[cur_arg + uii], "tags", 5)) {
+	  if (!strcmp(argv[cur_arg + uii], "tags")) {
 	    if (simulate_flags & SIMULATE_HAPS) {
 	      sprintf(logbuf, "Error: --%s 'tags' and 'haps' modifiers cannot be used together.%s", argptr, errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    simulate_flags |= SIMULATE_TAGS;
-	  } else if (!memcmp(argv[cur_arg + uii], "haps", 5)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "haps")) {
 	    if (simulate_flags & SIMULATE_TAGS) {
 	      sprintf(logbuf, "Error: --%s 'tags' and 'haps' modifiers cannot be used together.%s", argptr, errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -11125,13 +11123,13 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
             simulate_flags |= SIMULATE_ACGT;
-	  } else if (!memcmp(argv[cur_arg + uii], "1234", 5)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "1234")) {
 	    if (simulate_flags & (SIMULATE_ACGT | SIMULATE_12)) {
 	      sprintf(logbuf, "Error: --%s '1234' modifier cannot be used with 'acgt' or '12'.%s", argptr, errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
             simulate_flags |= SIMULATE_1234;
-	  } else if (!memcmp(argv[cur_arg + uii], "12", 3)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "12")) {
 	    if (simulate_flags & (SIMULATE_ACGT | SIMULATE_1234)) {
 	      sprintf(logbuf, "Error: --%s '12' modifier cannot be used with 'acgt' or '1234'.%s", argptr, errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -11463,7 +11461,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --tests must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if ((param_ct == 1) && (!memcmp(argv[cur_arg + 1], "all", 4))) {
+	if ((param_ct == 1) && (!strcmp(argv[cur_arg + 1], "all"))) {
 	  glm_modifier |= GLM_TEST_ALL;
 	} else {
 	  if (glm_modifier & GLM_TEST_ALL) {
@@ -11777,9 +11775,9 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	uii = 1;
 	if (param_ct == 2) {
-	  if ((!memcmp(argv[cur_arg + 1], "keep-", 5)) && match_upper(&(argv[cur_arg + 1][5]), "NA")) {
+	  if ((strlen(argv[cur_arg + 1]) == 7) && (!memcmp(argv[cur_arg + 1], "keep-", 5)) && match_upper(&(argv[cur_arg + 1][5]), "NA")) {
 	    uii = 2;
-	  } else if (memcmp(argv[cur_arg + 2], "keep-", 5) || (!match_upper(&(argv[cur_arg + 2][5]), "NA"))) {
+	  } else if ((strlen(argv[cur_arg + 2]) != 7) || memcmp(argv[cur_arg + 2], "keep-", 5) || (!match_upper(&(argv[cur_arg + 2][5]), "NA"))) {
             sprintf(logbuf, "Error: Invalid --within parameter sequence.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
@@ -11799,15 +11797,15 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
-	  if (!memcmp(argv[cur_arg + uii], "no-parents", 11)) {
+	  if (!strcmp(argv[cur_arg + uii], "no-parents")) {
 	    write_covar_modifier |= WRITE_COVAR_NO_PARENTS;
-	  } else if (!memcmp(argv[cur_arg + uii], "no-sex", 7)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "no-sex")) {
 	    if (write_covar_modifier & WRITE_COVAR_FEMALE_2) {
 	      sprintf(logbuf, "Error: --with-phenotype 'female-2' modifier cannot be used with 'no-sex'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
 	    }
 	    write_covar_modifier |= WRITE_COVAR_NO_SEX;
-	  } else if (!memcmp(argv[cur_arg + uii], "female-2", 9)) {
+	  } else if (!strcmp(argv[cur_arg + uii], "female-2")) {
 	    if (write_covar_modifier & WRITE_COVAR_NO_SEX) {
 	      sprintf(logbuf, "Error: --with-phenotype 'female-2' modifier cannot be used with 'no-sex'.%s", errstr_append);
 	      goto main_ret_INVALID_CMDLINE_3;
@@ -11849,7 +11847,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (param_ct) {
-	  if (memcmp(argv[cur_arg + 1], "omit-unassigned", 16)) {
+	  if (strcmp(argv[cur_arg + 1], "omit-unassigned")) {
 	    sprintf(logbuf, "Error: Invalid --write-cluster parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
