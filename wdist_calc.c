@@ -4850,7 +4850,11 @@ uint32_t ld_process_load(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* mi
   }
   *missing_ptr = new_missing;
   if (is_x) {
-    // special case: recode male clear homozygotes to 01 on X chromosome
+    // special case: recode male clear homozygotes to 01 on X chromosome, for
+    // backwards compatibility
+    //
+    // probably want to support other Xchr models in the future, since this is
+    // sort of ugly (e.g. results actually depend on allele coding)
     geno_ptr = geno_buf;
     do {
       new_geno = *geno_ptr;
@@ -4921,7 +4925,7 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
   *is_y_ptr = (((int32_t)cur_chrom) == chrom_info_ptr->y_code)? 1 : 0;
 }
 
-int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, char* outname, char* outname_end, uint64_t calculation_type, uint32_t hh_exists) {
+int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, char* outname, char* outname_end, uint64_t misc_flags, uint32_t hh_exists) {
   // for future consideration: chromosome-based multithread/parallel?
   FILE* outfile_in = NULL;
   FILE* outfile_out = NULL;
@@ -4946,7 +4950,8 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
   uint32_t founder_trail_ct = founder_ct_mld_long - founder_ctl * 2;
   int32_t retval = 0;
   unsigned char* wkspace_mark = wkspace_base;
-  uint32_t pairwise = (calculation_type / CALC_LD_PRUNE_PAIRWISE) & 1;
+  uint32_t pairwise = (misc_flags / MISC_LD_PRUNE_PAIRWISE) & 1;
+  uint32_t ignore_x = (misc_flags / MISC_LD_IGNORE_X) & 1;
   uintptr_t window_max = 0;
   uintptr_t* geno = NULL;
   uintptr_t* founder_include2 = NULL;
@@ -5114,7 +5119,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	if (is_haploid && hh_exists) {
 	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno[ulii * founder_ct_mld_long])));
 	}
-        missing_cts[ulii] = ld_process_load(&(geno[ulii * founder_ct_mld_long]), &(g_masks[ulii * founder_ct_mld_long]), &(g_mmasks[ulii * founder_ctv]), &(marker_stdevs[ulii]), founder_ct, founder_ctl, is_x, founder_male_include2);
+        missing_cts[ulii] = ld_process_load(&(geno[ulii * founder_ct_mld_long]), &(g_masks[ulii * founder_ct_mld_long]), &(g_mmasks[ulii * founder_ctv]), &(marker_stdevs[ulii]), founder_ct, founder_ctl, is_x && (!ignore_x), founder_male_include2);
       }
     }
     pct = 1;
@@ -5361,7 +5366,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	if (is_haploid && hh_exists) {
 	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno[cur_window_size * founder_ct_mld_long])));
 	}
-	missing_cts[cur_window_size] = ld_process_load(&(geno[cur_window_size * founder_ct_mld_long]), &(g_masks[cur_window_size * founder_ct_mld_long]), &(g_mmasks[cur_window_size * founder_ctv]), &(marker_stdevs[cur_window_size]), founder_ct, founder_ctl, is_x, founder_male_include2);
+	missing_cts[cur_window_size] = ld_process_load(&(geno[cur_window_size * founder_ct_mld_long]), &(g_masks[cur_window_size * founder_ct_mld_long]), &(g_mmasks[cur_window_size * founder_ctv]), &(marker_stdevs[cur_window_size]), founder_ct, founder_ctl, is_x && (!ignore_x), founder_male_include2);
 	cur_window_size++;
       }
       if (cur_window_size > prev_end) {

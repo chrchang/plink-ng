@@ -9064,23 +9064,132 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
 /*
 uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_cov_major, double* covars_indiv_major, double* pheno_perms, uintptr_t pheno_perms_stride, double* coef, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* indiv_1d_buf, double* linear_results, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
 */
-uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_cov_major, double* pheno_perms, uintptr_t pheno_perms_stride, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* logistic_results, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
+
+/*
+uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_cov_major, double* covars_indiv_major, double* pheno_perms, uintptr_t pheno_perms_stride, double* coef, double* pbuf, double* vbuf, double* initial_t2_buf, double* t2_buf, double* t3_buf, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* logistic_results, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
   // See PLINK logistic.cpp fitLM().
-  // todo
-  uint32_t iters = 0;
+  double* cur_pheno_d;
+  double* dptr;
+  double* dptr2;
+  double* dptr3;
+  uintptr_t indiv_idx;
   uintptr_t param_idx;
   double delta;
-  do {
-    delta = 0;
-    for (param_idx = 0; param_idx < param_ct; param_idx++) {
-      // delta += fabs();
+  double dxx;
+  uint32_t iters;
+  uint32_t failure;
+  fill_ulong_zero(perm_fails, ((cur_batch_size + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
+  // precalculate and cache partially completed first iteration, since it's
+  // identical between all permutations
+  for (param_idx = 0; param_idx < param_ct; param_idx++) {
+    for (param_idx2 = param_idx; param_idx2 < param_ct; param_idx2++) {
+      dxx = 0;
+      dptr = &(covars_covar_major[param_idx * indiv_valid_ct]);
+      dptr2 = &(covars_covar_major[param_idx2 * indiv_valid_ct]);
+      for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+	dxx += (*dptr++) * (*dptr2++);
+      }
+      dxx *= 0.25;
+      param_2d_buf[param_idx * param_ct + param_idx2] = dxx;
+      param_2d_buf[param_idx2 * param_ct + param_idx] = dxx;
     }
-    if (delta < 0.000001) {
-      break;
+  }
+  if (invert_matrix((uint32_t)param_ct, param_2d_buf, mi_buf, param_2d_buf2)) {
+    return 1;
+  }
+  // t2_buf is covariate-major
+  col_major_matrix_multiply(indiv_valid_ct, param_ct, param_ct, covars_covar_major, param_2d_buf, initial_t2_buf);
+  fill_double_zero(coef, param_ct * cur_batch_size);
+  for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
+    iters = 0;
+    failure = 0;
+    dptr = pbuf;
+    for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+      *dptr++ = 0.5;
     }
-  } while (++iters < LOGISTIC_MAX_ITERS);
+    dptr = vbuf;
+    for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+      *dptr++ = 0.25;
+    }
+    memcpy(t2_buf, initial_t2_buf, indiv_valid_ct * param_ct * sizeof(double));
+    cur_pheno_d = &(pheno_perms[perm_idx * pheno_perms_stride]);
+    do {
+      dptr = t3_buf;
+      dptr2 = cur_pheno_d;
+      dptr3 = pbuf;
+      for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+	*dptr++ = (*dptr2++) - (*dptr3++);
+      }
+      dptr = t2_buf;
+      dptr2 = coef;
+      delta = 0;
+      for (param_idx = 0; param_idx < param_ct; param_idx++) {
+	dxx = 0;
+	dptr3 = t3_buf;
+	for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+          dxx += (*dptr++) * (*dptr3++);
+	}
+	*dptr2 += dxx;
+	dptr2++;
+	delta += fabs(dxx);
+      }
+      if (delta < 0.000001) {
+	break;
+      }
+      if (++iters == LOGISTIC_MAX_ITERS) {
+	break;
+      }
+      dptr2 = covars_indiv_major;
+      for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+	dxx = 0;
+	dptr = coef;
+	for (param_idx = 0; param_idx < param_ct; param_idx++) {
+	  dxx += (*dptr++) * (*dptr2++);
+	}
+	// p[i] = 1/(1+exp(-t))
+        dxx = 1 / (1 + exp(-dxx));
+	pbuf[indiv_idx] = dxx;
+        vbuf[indiv_idx] = dxx * (1 - dxx);
+      }
+      for (param_idx = 0; param_idx < param_ct; param_idx++) {
+	for (param_idx2 = param_idx; param_idx2 < param_ct; param_idx2++) {
+          dxx = 0;
+	  dptr = &(covars_covar_major[param_idx * indiv_valid_ct]);
+	  dptr2 = &(covars_covar_major[param_idx2 * indiv_valid_ct]);
+	  dptr3 = vbuf;
+	  for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+	    dxx += (*dptr++) * (*dptr2++) * (*dptr3++);
+	  }
+	  // T[j][k] = T[k][j] = sum;
+          param_2d_buf[param_idx * param_ct + param_idx2] = dxx;
+	  param_2d_buf[param_idx2 * param_ct + param_idx] = dxx;
+	}
+      }
+      if (invert_matrix((uint32_t)param_ct, param_2d_buf, mi_buf, param_2d_buf2)) {
+	failure = 1;
+      }
+      col_major_matrix_multiply(indiv_valid_ct, param_ct, param_ct, covars_covar_major, param_2d_buf, t2_buf);
+    }
+    if (!failure) {
+      dptr = vbuf;
+      dptr2 = covars_;
+      dptr3 = t2_buf;
+      for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+	dxx = *dptr++;
+        for (param_idx = 0; param_idx < param_ct; param_idx++) {
+	  *dptr3 = (*dptr2++) * dxx;
+	  dptr3++;
+	}
+      }
+      ;;;
+    } else {
+      SET_BIT(perm_fails, perm_idx);
+    }
+    coef = &(coef[param_ct]);
+  }
   return 0;
 }
+*/
 
 /*
 int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, char* condition_mname, char* condition_fname, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, uintptr_t* indiv_exclude, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_male, uint32_t hh_exists, uint32_t perm_batch_size) {
@@ -9777,7 +9886,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	goto glm_assoc_nosnp_ret_NOMEM;
       }
       *outname_end = '\0';
-      sprintf(logbuf, "Dumping all permutation absolute t-stats to %s.[test ID].mperm.dump.all.\n", outname);
+      sprintf(logbuf, "Dumping all permutation %s to %s.[test ID].mperm.dump.all.\n", pheno_d? "absolute t-stats" : "chi-square values", outname);
       logprintb();
     }
   }
@@ -9971,8 +10080,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	  goto glm_assoc_nosnp_ret_OPEN_FAIL;
 	}
 	ulii = param_ct - 1;
+	wptr = memcpya(tbuf, "0 ", 2);
 	if (pheno_d) {
-	  wptr = memcpya(tbuf, "0 ", 2);
 	  wptr = double_g_writex(wptr, orig_stats[param_idx - 1], '\n');
 	  wptr2 = &(tbuf[MAXLINELEN]);
 	  dptr = &(mperm_save_stats[param_idx - 1]);

@@ -1217,6 +1217,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --mperm-save     : Save best max(T) permutation test statistics.\n"
 "  --mperm-save-all : Save all max(T) permutation test statistics.\n"
 	       );
+    help_print("indep\tindep-pairwise\tld-xchr", &help_ctrl, 0,
+"  --ld-xchr [code] : Specifies how --indep[-pairwise] handles the X chromosome.\n"
+"                     1 (default) = male A1 homozygotes are recoded as hets\n"
+"                     2 = no recoding or reweighting\n"
+"                     3 = no recoding, but nonmale genotypes have twice the\n"
+"                         the weight of male genotypes\n"
+	       );
     help_print("parallel\tgenome-lists", &help_ctrl, 0,
 "  --parallel [k] [n] : Divide the output matrix into n pieces, and only compute\n"
 "                       the kth piece.  The primary output file will have the\n"

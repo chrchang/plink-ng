@@ -4975,7 +4975,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: LD-based marker pruning requires a sorted .map/.bim.  Retry this command\nafter using --make-bed to sort your data.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
-    retval = ld_prune(bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, founder_info, sex_male, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, calculation_type, hh_exists);
+    retval = ld_prune(bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, founder_info, sex_male, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, misc_flags, hh_exists);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -9007,7 +9007,8 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --indep-pairwise r^2 threshold '%s'.%s", argv[cur_arg + param_ct], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	calculation_type |= (CALC_LD_PRUNE | CALC_LD_PRUNE_PAIRWISE);
+	calculation_type |= CALC_LD_PRUNE;
+	misc_flags |= MISC_LD_PRUNE_PAIRWISE;
       } else if (!memcmp(argptr2, "ndep", 5)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 3, 4)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -9327,6 +9328,25 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	calculation_type |= CALC_GLM;
+      } else if (!memcmp(argptr2, "d-xchr", 7)) {
+        if (!(calculation_type & CALC_LD_PRUNE)) {
+          sprintf(logbuf, "Error: --ld-xchr must be used with --indep[-pairwise].%s", errstr_append);
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	cc = argv[cur_arg + 1][0];
+	if ((cc < '1') || (cc > '3') || (argv[cur_arg + 1][1] != '\0')) {
+	  sprintf(logbuf, "Error: Invalid --ld-xchr parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (cc == '2') {
+          misc_flags |= MISC_LD_IGNORE_X;
+	} else if (cc == '3') {
+	  retval = RET_CALC_NOT_YET_SUPPORTED;
+	  goto main_ret_1;
+	}
       } else {
         goto main_ret_INVALID_CMDLINE_2;
       }
