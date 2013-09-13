@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (12 Sep 2013)";
+  " (13 Sep 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -644,7 +644,7 @@ double calc_wt_mean_maf(double exponent, double maf) {
   return (lh_freq * (ll_freq + lh_freq) + 2 * ll_freq * hh_freq) * weight;
 }
 
-int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfiltered_indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uint32_t make_founders) {
+int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfiltered_indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info) {
   unsigned char* wkspace_mark;
   unsigned char* wkspace_mark2;
   int32_t ii;
@@ -697,7 +697,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
     if (ujj > max_family_id_len) {
       max_family_id_len = ujj;
     }
-    ujj = strlen_se(&(person_ids[indiv_uidx * max_person_id_len + ujj]));
+    ujj = strlen(&(person_ids[indiv_uidx * max_person_id_len + ujj]));
     if (ujj >= max_indiv_id_len) {
       max_indiv_id_len = ujj + 1;
     }
@@ -1106,6 +1106,86 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   }
   wkspace_reset(wkspace_mark);
   return 0;
+}
+
+int32_t make_founders(uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t require_two, uintptr_t* indiv_exclude, uintptr_t* founder_info) {
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+  uint32_t new_founder_ct = 0;
+  int32_t retval = 0;
+  char* sorted_ids;
+  char* id_buf;
+  char* wptr;
+  char* pat_ptr;
+  char* mat_ptr;
+  uintptr_t* nf_bitarr;
+  uintptr_t indiv_uidx;
+  uint32_t fam_len_p1;
+  uint32_t missing_parent_ct;
+  uint32_t cur_len;
+  int32_t ii;
+  if (wkspace_alloc_c_checked(&id_buf, max_person_id_len) ||
+      wkspace_alloc_ul_checked(&nf_bitarr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
+    goto make_founders_ret_NOMEM;
+  }
+  bitfield_exclude_to_include(indiv_exclude, nf_bitarr, unfiltered_indiv_ct);
+  bitfield_andnot(nf_bitarr, founder_info, unfiltered_indiv_ctl);
+  indiv_uidx = next_set(nf_bitarr, 0, unfiltered_indiv_ct);
+  if (indiv_uidx == unfiltered_indiv_ct) {
+    logprint("Note: Skipping --make-founders since there are no nonfounders.\n");
+    goto make_founders_ret_1;
+  }
+  sorted_ids = alloc_and_init_collapsed_arr(person_ids, max_person_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_ct, 0);
+  if (!sorted_ids) {
+    goto make_founders_ret_NOMEM;
+  }
+  qsort(sorted_ids, indiv_ct, max_person_id_len, strcmp_casted);
+  do {
+    pat_ptr = &(person_ids[indiv_uidx * max_person_id_len]);
+    fam_len_p1 = strlen_se(pat_ptr) + 1;
+    wptr = memcpya(id_buf, pat_ptr, fam_len_p1);
+    missing_parent_ct = 0;
+    pat_ptr = &(paternal_ids[indiv_uidx * max_paternal_id_len]);
+    cur_len = strlen(pat_ptr);
+    if (cur_len + fam_len_p1 >= max_person_id_len) {
+      missing_parent_ct++;
+    } else {
+      memcpy(wptr, pat_ptr, cur_len + 1);
+      ii = bsearch_str(id_buf, sorted_ids, max_person_id_len, 0, indiv_ct - 1);
+      if (ii == -1) {
+	missing_parent_ct++;
+      }
+    }
+    mat_ptr = &(maternal_ids[indiv_uidx * max_maternal_id_len]);
+    cur_len = strlen(mat_ptr);
+    if (cur_len + fam_len_p1 >= max_person_id_len) {
+      missing_parent_ct++;
+    } else {
+      memcpy(wptr, mat_ptr, cur_len + 1);
+      ii = bsearch_str(id_buf, sorted_ids, max_person_id_len, 0, indiv_ct - 1);
+      if (ii == -1) {
+	missing_parent_ct++;
+      }
+    }
+    if (missing_parent_ct > require_two) {
+      SET_BIT(founder_info, indiv_uidx);
+      memcpy(pat_ptr, "0", 2);
+      memcpy(mat_ptr, "0", 2);
+      new_founder_ct++;
+    }
+    indiv_uidx++;
+    next_set_ul_ck(nf_bitarr, &indiv_uidx, unfiltered_indiv_ct);
+  } while (indiv_uidx < unfiltered_indiv_ct);
+  sprintf(logbuf, "--make-founders: %u individual%s affected.\n", new_founder_ct, (new_founder_ct == 1)? "" : "s");
+  logprintb();
+  while (0) {
+  make_founders_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  }
+ make_founders_ret_1:
+  wkspace_reset(wkspace_mark);
+  return retval;
 }
 
 int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltered_indiv_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr) {
@@ -4318,12 +4398,19 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   retval = load_fam(famfile, MAXLINELEN, fam_cols, uii, missing_pheno, missing_pheno_len, (misc_flags / MISC_AFFECTION_01) & 1, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &paternal_ids, &max_paternal_id_len, &maternal_ids, &max_maternal_id_len, &sex_nm, &sex_male, &affection, &pheno_nm, &pheno_c, &pheno_d, &founder_info, &indiv_exclude);
-  unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-  unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
-
   if (retval) {
     goto wdist_ret_1;
   }
+
+  unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
+
+  if (misc_flags & MISC_MAKE_FOUNDERS_FIRST) {
+    if (make_founders(unfiltered_indiv_ct, unfiltered_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, (misc_flags / MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING) & 1, indiv_exclude, founder_info)) {
+      goto wdist_ret_NOMEM;
+    }
+  }
+
   if (pheno_modifier & PHENO_MERGE) {
     if ((!pheno_c) && (!pheno_d)) {
       pheno_modifier &= ~PHENO_MERGE; // nothing to merge
@@ -4515,7 +4602,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     } else {
       if (update_parents_fname) {
-	retval = update_indiv_parents(update_parents_fname, cptr, ulii, max_person_id_len, uiptr, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len);
+	retval = update_indiv_parents(update_parents_fname, cptr, ulii, max_person_id_len, uiptr, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info);
 	if (retval) {
 	  goto wdist_ret_1;
 	}
@@ -4745,6 +4832,18 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     wkspace_reset((unsigned char*)cptr);
   }
 
+  if ((misc_flags & (MISC_MAKE_FOUNDERS | MISC_MAKE_FOUNDERS_FIRST)) == MISC_MAKE_FOUNDERS) {
+    if (make_founders(unfiltered_indiv_ct, g_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, (misc_flags / MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING) & 1, indiv_exclude, founder_info)) {
+      goto wdist_ret_NOMEM;
+    }
+  }
+  if ((calculation_type & CALC_GENOME) || genome_skip_write) {
+    retval = populate_pedigree_rel_info(&pri, unfiltered_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info);
+    if (retval) {
+      goto wdist_ret_1;
+    }
+  }
+
   if (cluster_ptr->fname) {
     retval = load_clusters(cluster_ptr->fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len);
     if (retval) {
@@ -4768,13 +4867,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       if (retval) {
 	goto wdist_ret_1;
       }
-    }
-  }
-
-  if ((calculation_type & CALC_GENOME) || genome_skip_write || (misc_flags & MISC_MAKE_FOUNDERS)) {
-    retval = populate_pedigree_rel_info(&pri, unfiltered_indiv_ct, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info, (misc_flags / MISC_MAKE_FOUNDERS) & 1);
-    if (retval) {
-      goto wdist_ret_1;
     }
   }
 
@@ -10100,15 +10192,18 @@ int32_t main(int32_t argc, char** argv) {
 	genome_modifier |= GENOME_FILTER_PI_HAT;
 	genome_max_pi_hat = dxx;
       } else if (!memcmp(argptr2, "ake-founders", 13)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (param_ct) {
-	  if (strcmp(argv[cur_arg + 1], "require-2-missing")) {
-	    sprintf(logbuf, "Error: Invalid --make-founders parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	for (uii = 1; uii <= param_ct; uii++) {
+	  if (!strcmp(argv[cur_arg + uii], "require-2-missing")) {
+	    misc_flags |= MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING;
+	  } else if (!strcmp(argv[cur_arg + uii], "first")) {
+	    misc_flags |= MISC_MAKE_FOUNDERS_FIRST;
+	  } else {
+	    sprintf(logbuf, "Error: Invalid --make-founders parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
-	  misc_flags |= MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING;
 	}
         misc_flags |= MISC_MAKE_FOUNDERS;
       } else if (!memcmp(argptr2, "lm-assoc", 9)) {

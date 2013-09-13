@@ -189,6 +189,7 @@ typedef union {
 #define MISC_LD_IGNORE_X 0x80000LLU
 #define MISC_MAKE_FOUNDERS 0x100000LLU
 #define MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING 0x200000LLU
+#define MISC_MAKE_FOUNDERS_FIRST 0x400000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
@@ -1687,7 +1688,7 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
 
 int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_ptr, int32_t dist_calc_type, char* outname, char* outname_end, double* dists, double half_marker_ct_recip, uint32_t indiv_ct, int32_t first_indiv_idx, int32_t end_indiv_idx, int32_t parallel_idx, int32_t parallel_tot, unsigned char* membuf);
 
-char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t filtered_ct);
+char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t filtered_ct, uint32_t read_only);
 
 void collapse_copy_bitarr(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* exclude_arr, uint32_t filtered_ct, uintptr_t* output_arr);
 
@@ -1738,7 +1739,7 @@ typedef struct {
 
   uint32_t* family_rel_space_offsets; // offset for rel_space lookup
   uint32_t* family_founder_cts;
-  // direct indiv idx -> family idx lookup, to reduce number of bsearches
+  // direct indiv uidx -> family idx lookup, to reduce number of bsearches
   uint32_t* family_idxs;
 
   // truncated triangular arrays of pedigree coefficient of relationship

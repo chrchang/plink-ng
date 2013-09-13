@@ -1242,6 +1242,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("threads\tthread-num\tnum_threads", &help_ctrl, 0,
 "  --threads [val]  : Set maximum number of concurrent threads.\n"
 	       );
+    help_print("make-founders", &help_ctrl, 0,
+"  --make-founders <require-2-missing> <first> : Clear parental IDs for those\n"
+"                                                with 1+ missing parent(s).\n"
+	       );
     help_print("maf-succ", &help_ctrl, 0,
 "  --maf-succ       : Rule of succession MAF estimation (used in EIGENSTRAT).\n"
 "                     Given j observations of one allele and k >= j observations\n"

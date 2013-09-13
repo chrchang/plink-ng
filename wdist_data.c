@@ -1795,7 +1795,7 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
   return retval;
 }
 
-int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids, uintptr_t indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len) {
+int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids, uintptr_t indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   int32_t retval = 0;
@@ -1806,6 +1806,7 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
   uintptr_t* already_seen;
   char* bufptr;
   char* bufptr2;
+  char* bufptr3;
   char* wptr;
   uint32_t len;
   uint32_t len2;
@@ -1856,10 +1857,17 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
     wptr = &(paternal_ids[indiv_uidx * max_paternal_id_len]);
     bufptr = skip_initial_spaces(&(bufptr2[len2 + 1]));
     bufptr2 = item_endnn(bufptr);
-    memcpyx(wptr, bufptr, (uintptr_t)(bufptr2 - bufptr), '\0');
+    len = (uintptr_t)(bufptr2 - bufptr);
+    memcpyx(wptr, bufptr, len, '\0');
     wptr = &(maternal_ids[indiv_uidx * max_maternal_id_len]);
-    bufptr = skip_initial_spaces(&(bufptr2[1]));
-    memcpyx(wptr, bufptr, strlen_se(bufptr), '\0');
+    bufptr3 = skip_initial_spaces(&(bufptr2[1]));
+    len2 = strlen_se(bufptr3);
+    memcpyx(wptr, bufptr3, len2, '\0');
+    if ((len == 1) && (*bufptr == '0') && (len2 == 1) && (*bufptr3 == '0')) {
+      SET_BIT(founder_info, indiv_uidx);
+    } else {
+      CLEAR_BIT(founder_info, indiv_uidx);
+    }
     hit_ct++;
   }
   if (!feof(infile)) {
@@ -4293,14 +4301,11 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
     return RET_INVALID_FORMAT;
   }
   wkspace_reset(wkspace_mark);
-  if (wkspace_alloc_c_checked(person_ids_ptr, unfiltered_indiv_ct * max_person_id_len)) {
-    return RET_NOMEM;
-  }
-  person_ids = *person_ids_ptr;
   unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   // could make paternal_ids/maternal_ids conditional, but memory footprint is
   // typically negligible
-  if (wkspace_alloc_c_checked(paternal_ids_ptr, unfiltered_indiv_ct * max_paternal_id_len) ||
+  if (wkspace_alloc_c_checked(person_ids_ptr, unfiltered_indiv_ct * max_person_id_len) ||
+      wkspace_alloc_c_checked(paternal_ids_ptr, unfiltered_indiv_ct * max_paternal_id_len) ||
       wkspace_alloc_c_checked(maternal_ids_ptr, unfiltered_indiv_ct * max_maternal_id_len) ||
       wkspace_alloc_ul_checked(sex_nm_ptr, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(sex_male_ptr, unfiltered_indiv_ctl * sizeof(intptr_t)) ||
@@ -4309,16 +4314,8 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
       wkspace_alloc_ul_checked(pheno_nm_ptr, unfiltered_indiv_ctl * sizeof(intptr_t))) {
     return RET_NOMEM;
   }
-  paternal_ids = *paternal_ids_ptr;
-  maternal_ids = *maternal_ids_ptr;
-  if (!(fam_cols & FAM_COL_34)) {
-    for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-      memcpy(&(paternal_ids[indiv_uidx * max_paternal_id_len]), "0", 2);
-    }
-    for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
-      memcpy(&(maternal_ids[indiv_uidx * max_maternal_id_len]), "0", 2);
-    }
-  }
+  // currently NOT safe to initialize any of the above until line_locs has been
+  // copied to tmp_ullp
 
   if (tmp_fam_col_6) {
     if (affection) {
@@ -4341,16 +4338,25 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
   if (new_buflen) {
     buflen = new_buflen;
   }
-  if (wkspace_alloc_c_checked(&linebuf, buflen)) {
-    return RET_NOMEM;
-  }
-  if (wkspace_alloc_ull_checked(&tmp_ullp, unfiltered_indiv_ct * sizeof(int64_t))) {
+  if (wkspace_alloc_c_checked(&linebuf, buflen) ||
+      wkspace_alloc_ull_checked(&tmp_ullp, unfiltered_indiv_ct * sizeof(int64_t))) {
     return RET_NOMEM;
   }
   for (ii = unfiltered_indiv_ct - 1; ii >= 0; ii--) {
-    tmp_ullp[ii] = line_locs[ii];
+    tmp_ullp[(uint32_t)ii] = line_locs[(uint32_t)ii];
   }
   line_locs = tmp_ullp;
+  person_ids = *person_ids_ptr;
+  paternal_ids = *paternal_ids_ptr;
+  maternal_ids = *maternal_ids_ptr;
+  if (!(fam_cols & FAM_COL_34)) {
+    for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
+      memcpy(&(paternal_ids[indiv_uidx * max_paternal_id_len]), "0", 2);
+    }
+    for (indiv_uidx = 0; indiv_uidx < unfiltered_indiv_ct; indiv_uidx++) {
+      memcpy(&(maternal_ids[indiv_uidx * max_maternal_id_len]), "0", 2);
+    }
+  }
   sex_nm = *sex_nm_ptr;
   sex_male = *sex_male_ptr;
   pheno_nm = *pheno_nm_ptr;
@@ -9168,7 +9174,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     if (recode_modifier & (RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_RLIST)) {
       // need to collapse person_ids to remove need for indiv_uidx in inner
       // loop
-      person_ids_collapsed = alloc_and_init_collapsed_arr(person_ids, max_person_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_ct);
+      person_ids_collapsed = alloc_and_init_collapsed_arr(person_ids, max_person_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_ct, 1);
       if (!person_ids_collapsed) {
         goto recode_ret_NOMEM;
       }

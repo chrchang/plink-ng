@@ -7257,14 +7257,14 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
   return retval;
 }
 
-char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t filtered_ct) {
+char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t filtered_ct, uint32_t read_only) {
   char* new_arr = NULL;
   uint32_t item_uidx = 0;
   char* wptr;
   char* wptr_end;
   uintptr_t item_uidx_stop;
   uintptr_t delta;
-  if (unfiltered_ct == filtered_ct) {
+  if (read_only && (unfiltered_ct == filtered_ct)) {
     return item_arr;
   }
   new_arr = (char*)wkspace_alloc(filtered_ct * item_len);
@@ -7745,7 +7745,7 @@ int32_t regress_distance(uint64_t calculation_type, double* dists_local, double*
   g_dists = dists_local;
 
   // beta = (mean(xy) - mean(x)*mean(y)) / (mean(x^2) - mean(x)^2)
-  g_pheno_d = (double*)alloc_and_init_collapsed_arr((char*)pheno_d_local, sizeof(double), unfiltered_indiv_ct, indiv_exclude, indiv_ct);
+  g_pheno_d = (double*)alloc_and_init_collapsed_arr((char*)pheno_d_local, sizeof(double), unfiltered_indiv_ct, indiv_exclude, indiv_ct, 1);
   if (!(calculation_type & CALC_REGRESS_REL)) {
     print_pheno_stdev(g_pheno_d, g_indiv_ct);
   }
