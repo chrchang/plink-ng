@@ -9061,21 +9061,24 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
 // make this configurable on command line?
 #define LOGISTIC_MAX_ITERS 20
 
-/*
-uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_cov_major, double* covars_indiv_major, double* pheno_perms, uintptr_t pheno_perms_stride, double* coef, double* pbuf, double* vbuf, double* initial_t2_buf, double* t2_buf, double* t3_buf, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* logistic_results, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
+uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, double* covars_cov_major, double* covars_indiv_major, double* pheno_perms, uintptr_t pheno_perms_stride, double* coef, double* pbuf, double* vbuf, double* initial_t2_buf, double* t2_buf, double* t3_buf, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* logistic_results, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
   // See PLINK logistic.cpp fitLM().
   uintptr_t param_ct_p1 = param_ct + 1;
   uintptr_t param_ct_m1 = param_ct - 1;
+  uint32_t cluster_ct1_p1 = cluster_ct1 + 1;
   uint32_t perm_fail_ct = 0;
   double* cur_pheno_d;
   double* dptr;
   double* dptr2;
   double* dptr3;
+  uintptr_t perm_idx;
   uintptr_t indiv_idx;
   uintptr_t param_idx;
+  uintptr_t param_idx2;
   double delta;
   double dxx;
   uint32_t iters;
+  uint32_t cluster_idx_p1;
   fill_ulong_zero(perm_fails, ((cur_batch_size + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
   // precalculate and cache partially completed first iteration, since it's
   // identical between all permutations
@@ -9110,7 +9113,7 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
     }
     memcpy(t2_buf, initial_t2_buf, indiv_valid_ct * param_ct * sizeof(double));
     cur_pheno_d = &(pheno_perms[perm_idx * pheno_perms_stride]);
-    do {
+    while (1) {
       dptr = t3_buf;
       dptr2 = cur_pheno_d;
       dptr3 = pbuf;
@@ -9183,17 +9186,44 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
     }
     if (cluster_ct1) {
       // HuberWhite()
-
+      fill_double_zero(cluster_param_buf, cluster_ct1 * param_ct);
+      for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+        cluster_idx_p1 = indiv_to_cluster1[indiv_idx] + 1;
+	dxx = cur_pheno_d[indiv_idx] - pbuf[indiv_idx]; // err
+	dptr = &(cluster_param_buf[cluster_idx_p1 * param_ct]);
+	dptr2 = &(covars_indiv_major[indiv_idx * param_ct]);
+        for (param_idx = 0; param_idx < param_ct; param_idx++) {
+	  *dptr = dxx * (*dptr2++);
+	  dptr++;
+	}
+      }
+      dptr = cluster_param_buf2;
+      for (param_idx = 0; param_idx < param_ct; param_idx++) {
+        dptr2 = &(cluster_param_buf[param_idx]);
+	for (cluster_idx_p1 = 0; cluster_idx_p1 < cluster_ct1_p1; cluster_idx_p1++) {
+          *dptr++ = dptr2[cluster_idx_p1 * param_ct];
+	}
+      }
+      col_major_matrix_multiply(param_ct, param_ct, cluster_ct1_p1, cluster_param_buf, cluster_param_buf2, param_2d_buf2); // initialize meat
+      col_major_matrix_multiply(param_ct, param_ct, param_ct, param_2d_buf, param_2d_buf2, cluster_param_buf); // multMatrix (S0, meat, tmp1)
+      col_major_matrix_multiply(param_ct, param_ct, param_ct, cluster_param_buf, param_2d_buf, param_2d_buf2);
+      memcpy(param_2d_buf2, param_2d_buf, param_ct * param_ct * sizeof(double));
     }
     // validParameters() check
     for (param_idx = 1; param_idx < param_ct; param_idx++) {
-      if (param_2d_buf[param_idx * param_ct_p1] < 1e-20) {
+      dxx = param_2d_buf[param_idx * param_ct_p1];
+      if ((dxx < 1e-20) || (!realnum(dxx))) {
 	goto glm_logistic_robust_cluster_covar_fail;
       }
+      param_2d_buf2[param_idx] = 1.0 / sqrt(dxx);
     }
-    for (param_idx = 0; param_idx < param_ct_m1; param_idx++) {
-      for (param_idx2 = param_idx + 1; param_idx2 < param_ct; param_idx2++) {
-	if (() > 0.99999) {
+    param_2d_buf2[0] = 1.0 / sqrt(param_2d_buf[0]);
+    for (param_idx = 1; param_idx < param_ct; param_idx++) {
+      dxx = param_2d_buf2[param_idx];
+      dptr = &(param_2d_buf2[param_idx * param_ct]);
+      dptr2 = param_2d_buf2;
+      for (param_idx2 = 0; param_idx2 < param_idx; param_idx2++) {
+	if ((*dptr++) * (*dptr2++) * dxx > 0.99999) {
 	  goto glm_logistic_robust_cluster_covar_fail;
 	}
       }
@@ -9213,7 +9243,6 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
   *perm_fail_ct_ptr = perm_fail_ct;
   return 0;
 }
-*/
 
 /*
 int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double ci_zt, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, char* condition_mname, char* condition_fname, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, uintptr_t* indiv_exclude, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_male, uint32_t hh_exists, uint32_t perm_batch_size) {
