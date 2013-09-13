@@ -671,9 +671,9 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   int32_t* remaining_indiv_parent_idxs; // -1 = no parent (or nonshared)
   uint32_t remaining_indiv_ct;
   uint32_t indiv_idx_write;
-  intptr_t max_family_id_len = 0;
+  uintptr_t max_family_id_len = 0;
   char* indiv_ids;
-  intptr_t max_indiv_id_len = 0;
+  uintptr_t max_indiv_id_len = 0;
   int32_t max_pm_id_len;
   uint32_t family_id_ct;
   uint32_t* fis_ptr;
