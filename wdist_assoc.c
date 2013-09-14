@@ -10139,7 +10139,6 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       }
     } else {
 #endif
-      // todo: logistic per-permutation-block stuff
 #ifndef NOLAPACK
     }
 #endif
