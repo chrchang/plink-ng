@@ -9186,14 +9186,14 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
     }
     if (cluster_ct1) {
       // HuberWhite()
-      fill_double_zero(cluster_param_buf, cluster_ct1 * param_ct);
+      fill_double_zero(cluster_param_buf, cluster_ct1_p1 * param_ct);
       for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
         cluster_idx_p1 = indiv_to_cluster1[indiv_idx] + 1;
 	dxx = cur_pheno_d[indiv_idx] - indiv_1d_buf[indiv_idx]; // err
 	dptr = &(cluster_param_buf[cluster_idx_p1 * param_ct]);
 	dptr2 = &(covars_indiv_major[indiv_idx * param_ct]);
         for (param_idx = 0; param_idx < param_ct; param_idx++) {
-	  *dptr = dxx * (*dptr2++);
+	  *dptr += dxx * (*dptr2++);
 	  dptr++;
 	}
       }
@@ -9948,8 +9948,6 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     if (glm_logistic_robust_cluster_covar(1, param_ct, indiv_valid_ct, covars_collapsed, covars_transposed_buf, g_pheno_d2, 1, logistic_coef, logistic_vbuf, logistic_initial_t2_buf, logistic_t2_buf, logistic_t3_buf, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, regression_results, &perm_fail_ct, perm_fails) || perm_fail_ct) {
       goto glm_assoc_nosnp_ret_1;
     }
-    printf("step 1 complete\n");
-    exit(1);
 #ifndef NOLAPACK
   }
 #endif
@@ -10024,6 +10022,35 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     }
   } else {
 #endif
+    for (param_idx = 1; param_idx < param_ct; param_idx++) {
+      dxx = logistic_coef[param_idx];
+      se = sqrt(regression_results[param_idx - 1]);
+      zval = dxx / se;
+      orig_stats[param_idx - 1] = zval * zval;
+      pval = chiprob_p(zval * zval, 1);
+      if (pval <= pfilter) {
+	wptr = fw_strcpy(10, &(param_names[param_idx * max_param_name_len]), tbuf);
+	*wptr++ = ' ';
+	wptr = uint32_writew8x(wptr, (uint32_t)indiv_valid_ct, ' ');
+	wptr = double_g_writewx4x(wptr, report_odds? exp(dxx) : dxx, 10, ' ');
+        if (display_ci) {
+	  dyy = ci_zt * se;
+	  wptr = double_g_writewx4x(wptr, se, 8, ' ');
+	  if (report_odds) {
+	    wptr = double_g_writewx4x(wptr, exp(se - dyy), 8, ' ');
+	    wptr = double_g_writewx4x(wptr, exp(se + dyy), 8, ' ');
+	  } else {
+	    wptr = double_g_writewx4x(wptr, se - dyy, 8, ' ');
+	    wptr = double_g_writewx4x(wptr, se + dyy, 8, ' ');
+	  }
+	}
+	wptr = double_g_writewx4x(wptr, zval, 12, ' ');
+	wptr = double_g_writewx4x(wptr, pval, 12, '\n');
+	if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	  goto glm_assoc_nosnp_ret_WRITE_FAIL;
+	}
+      }
+    }
 #ifndef NOLAPACK
   }
 #endif

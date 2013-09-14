@@ -2680,7 +2680,8 @@ void fill_uidx_to_idx_incl(uintptr_t* include_arr, uint32_t unfiltered_item_ct, 
   do {
     item_uidx = next_set_unsafe(include_arr, item_uidx);
     uidx_to_idx_ptr = &(uidx_to_idx[item_uidx]);
-    uidx_to_idx_stop = &(uidx_to_idx[next_unset(include_arr, item_uidx, unfiltered_item_ct)]);
+    item_uidx = next_unset(include_arr, item_uidx, unfiltered_item_ct);
+    uidx_to_idx_stop = &(uidx_to_idx[item_uidx]);
     do {
       *uidx_to_idx_ptr++ = item_idx++;
     } while (uidx_to_idx_ptr < uidx_to_idx_stop);

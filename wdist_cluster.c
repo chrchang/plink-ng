@@ -487,7 +487,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     cluster_assigned_ct = 0;
     cluster_end = cluster_starts[cluster_idx + 1];
     for (map_idx = cluster_starts[cluster_idx]; map_idx < cluster_end; map_idx++) {
-      cluster_assigned_ct += IS_SET(indiv_include, cluster_map[map_idx]);
+      cluster_assigned_ct += is_set(indiv_include, cluster_map[map_idx]);
     }
     if (cluster_assigned_ct > remove_size1) {
       new_cluster_ct++;
