@@ -9395,8 +9395,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uint32_t perms_done = 0;
   int32_t retval = 0;
   uint32_t perm_fail_total = 0;
-#ifndef NOLAPACK
   uint32_t perm_fail_ct = 0;
+#ifndef NOLAPACK
   char dgels_trans = 'N';
   int32_t dgels_m = 0;
   int32_t dgels_n = 0;
@@ -9407,8 +9407,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   int32_t dgels_ldb = 0;
   int32_t dgels_lwork = -1;
   int32_t dgels_info;
-  double* regression_results = NULL;
 #endif
+  double* regression_results = NULL;
   double* cluster_param_buf = NULL; // guaranteed to be size >= param_ct^2
   double* cluster_param_buf2 = NULL; // not guaranteed
   double* indiv_1d_buf = NULL;
@@ -9457,13 +9457,10 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uintptr_t param_ct;
   uintptr_t param_idx;
   uintptr_t ulii;
-  // warning-suppressing stopgap
-#ifndef NOLAPACK
   double* msa_ptr;
   double* dptr3;
   double se;
   double zval;
-#endif
   double pval;
   double dxx;
   double dyy;
