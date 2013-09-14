@@ -186,9 +186,10 @@ typedef union {
 #define MISC_EXCLUDE_MARKERNAME_SNP 0x10000LLU
 #define MISC_LD_PRUNE_PAIRWISE 0x20000LLU
 #define MISC_LD_IGNORE_X 0x40000LLU
-#define MISC_MAKE_FOUNDERS 0x80000LLU
-#define MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING 0x100000LLU
-#define MISC_MAKE_FOUNDERS_FIRST 0x200000LLU
+#define MISC_LD_WEIGHTED_X 0x80000LLU
+#define MISC_MAKE_FOUNDERS 0x100000LLU
+#define MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING 0x200000LLU
+#define MISC_MAKE_FOUNDERS_FIRST 0x400000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
@@ -1531,6 +1532,8 @@ void fill_idbuf_fam_indiv(char* id_buf, char* fam_indiv, char fillchar);
 int32_t bsearch_fam_indiv(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, char* indiv_id);
 
 void bsearch_fam(char* id_buf, char* lptr, uintptr_t max_id_len, uint32_t filter_line_ct, char* fam_id, uint32_t* first_idx_ptr, uint32_t* last_idx_ptr);
+
+// void bitfield_invert(uintptr_t* bit_arr, uintptr_t bit_ct);
 
 void bitfield_exclude_to_include(uintptr_t* exclude_arr, uintptr_t* include_arr, uintptr_t bit_ct);
 

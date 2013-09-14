@@ -877,11 +877,12 @@ static inline void ld_dot_prod_batch(__m128i* vec1, __m128i* vec2, __m128i* mask
   // manner very similar to bitwise Hamming distance.  This is several times as
   // fast as the lookup tables used for relationship matrices.
   //
-  // Unfortunately, when missing values are present, \mu_y\sum_i x_i and
-  // \mu_x\sum_i y_i must be handled in the main loop, and this removes much of
-  // the speed advantage.  So the best applications of the underlying ternary
-  // dot product algorithm used here lie elsewhere.  Nevertheless, it is still
-  // faster, so we use it.
+  // Unfortunately, when missing values are present,
+  // \mu_y\sum_{i: nonmissing from y} x_i and
+  // \mu_x\sum_{i: nonmissing from x} y_i must be handled in the main loop, and
+  // this removes much of the speed advantage.  So the best applications of the
+  // underlying ternary dot product algorithm used here lie elsewhere.
+  // Nevertheless, it is still faster, so we use it.
   //
   //
   // Input:
@@ -890,27 +891,26 @@ static inline void ld_dot_prod_batch(__m128i* vec1, __m128i* vec2, __m128i* mask
   //   nonmissing).
   // * return_vals provides space for return values.
   // * iters is the number of 48-byte windows to process, anywhere from 1 to 10
-  //   inclusive.  (No, this is not the interface you'd use for a
-  //   general-purpose library.)
+  //   inclusive.
   //
   // This function performs the update
   //   return_vals[0] += (-N) + \sum_i x_iy_i
-  //   return_vals[1] += N_y + \sum_i x_i
-  //   return_vals[2] += N_x + \sum_i y_i
+  //   return_vals[1] += N_y + \sum_{i: nonmissing from y}x_i
+  //   return_vals[2] += N_x + \sum_{i: nonmissing from x}y_i
   // where N is the number of individuals processed after applying the
   // missingness masks indicated by the subscripts.  The calculation currently
   // proceeds as follows:
   //
-  // 1. N + \sum_i x_i = popcount_variant(vec1 & mask2)
-  // The "variant" suffix refers to starting with two-bit integers instead of
-  // one-bit integers in our summing process, so we get to skip a few
-  // operations.  (Once all researchers are using machines with fast hardware
-  // popcount, a slightly different implementation may be better.)
+  // 1. N + \sum_i x_i = popcount2(vec1 & mask2)
+  // The "2" suffix refers to starting with two-bit integers instead of one-bit
+  // integers in our summing process, so we get to skip a few operations.
+  // (Once we can assume the presence of hardware popcount, a slightly
+  // different implementation may be better.)
   //
   // 2. zcheck := (vec1 | vec2) & 0x5555...
   // Detects whether at least one member of the pair has a 0/missing value.
   //
-  // 3. popcount_variant(((vec1 ^ vec2) & (0xaaaa... - zcheck)) | zcheck)
+  // 3. popcount2(((vec1 ^ vec2) & (0xaaaa... - zcheck)) | zcheck)
   // Subtracting this *from* a bias will give us our desired \sum_i x_iy_i dot
   // product.
   //
@@ -1001,15 +1001,15 @@ static inline void ld_dot_prod_batch(__m128i* vec1, __m128i* vec2, __m128i* mask
   return_vals[2] += ((acc2.u8[0] + acc2.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 
-void ld_dot_prod(__m128i* vec1, __m128i* vec2, __m128i* mask1, __m128i* mask2, int32_t* return_vals, uint32_t batch_ct_m1, uint32_t last_batch_size) {
+void ld_dot_prod(uintptr_t* vec1, uintptr_t* vec2, uintptr_t* mask1, uintptr_t* mask2, int32_t* return_vals, uint32_t batch_ct_m1, uint32_t last_batch_size) {
   while (batch_ct_m1--) {
-    ld_dot_prod_batch(vec1, vec2, mask1, mask2, return_vals, MULTIPLEX_LD / 192);
-    vec1 = &(vec1[MULTIPLEX_LD / BITCT]);
-    vec2 = &(vec2[MULTIPLEX_LD / BITCT]);
-    mask1 = &(mask1[MULTIPLEX_LD / BITCT]);
-    mask2 = &(mask2[MULTIPLEX_LD / BITCT]);
+    ld_dot_prod_batch((__m128i*)vec1, (__m128i*)vec2, (__m128i*)mask1, (__m128i*)mask2, return_vals, MULTIPLEX_LD / 192);
+    vec1 = &(vec1[MULTIPLEX_LD / BITCT2]);
+    vec2 = &(vec2[MULTIPLEX_LD / BITCT2]);
+    mask1 = &(mask1[MULTIPLEX_LD / BITCT2]);
+    mask2 = &(mask2[MULTIPLEX_LD / BITCT2]);
   }
-  ld_dot_prod_batch(vec1, vec2, mask1, mask2, return_vals, last_batch_size);
+  ld_dot_prod_batch((__m128i*)vec1, (__m128i*)vec2, (__m128i*)mask1, (__m128i*)mask2, return_vals, last_batch_size);
 }
 #else
 static inline uint32_t popcount_xor_1mask_multiword(uintptr_t** xor1p, uintptr_t* xor2, uintptr_t** maskp) {
@@ -4797,14 +4797,17 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   return retval;
 }
 
-uint32_t ld_process_load(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* missing_buf, double* marker_stdev_ptr, uint32_t founder_ct, uint32_t founder_ctl, uint32_t is_x, uintptr_t* founder_male_include2) {
+uint32_t ld_process_load(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* missing_buf, double* marker_stdev_ptr, uint32_t founder_ct, uint32_t is_x, uint32_t weighted_x, uint32_t nonmale_founder_ct, uintptr_t* founder_male_include2, uintptr_t* nonmale_geno, uintptr_t* nonmale_masks, uintptr_t nonmale_offset) {
   uintptr_t* geno_ptr = geno_buf;
-  uintptr_t* geno_end = &(geno_buf[(founder_ct + (BITCT2 - 1)) / BITCT2]);
+  uintptr_t founder_ctl2 = (founder_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t* geno_end = &(geno_buf[founder_ctl2]);
+  uintptr_t* mask_buf_ptr = mask_buf;
   uintptr_t* missing_ptr = missing_buf;
   uintptr_t new_missing = 0;
   uint32_t missing_bit_offset = 0;
   uint32_t ssq = 0;
   int32_t sum = -founder_ct;
+  uintptr_t* nm_mask_ptr;
   double non_missing_recip;
   uintptr_t cur_geno;
   uintptr_t shifted_masked_geno;
@@ -4830,7 +4833,7 @@ uint32_t ld_process_load(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* mi
     new_geno = cur_geno - shifted_masked_geno;
     *geno_ptr++ = new_geno;
     new_mask = (((~cur_geno) & FIVEMASK) | shifted_masked_geno) * 3;
-    *mask_buf++ = new_mask;
+    *mask_buf_ptr++ = new_mask;
     new_mask = (~new_mask) & FIVEMASK;
     while (new_mask) {
       new_missing |= ONELU << (missing_bit_offset + (CTZLU(new_mask) / 2));
@@ -4849,12 +4852,12 @@ uint32_t ld_process_load(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* mi
     }
   }
   *missing_ptr = new_missing;
-  if (is_x) {
-    // special case: recode male clear homozygotes to 01 on X chromosome, for
-    // backwards compatibility
+  if (is_x && (!weighted_x)) {
+    // special case #1: recode male clear homozygotes to 01 on X chromosome,
+    // for backwards compatibility
     //
-    // probably want to support other Xchr models in the future, since this is
-    // sort of ugly (e.g. results actually depend on allele coding)
+    // this is a bit ugly (e.g. results are actually affected by which allele
+    // is A1), so may want to switch the default to mode 3
     geno_ptr = geno_buf;
     do {
       new_geno = *geno_ptr;
@@ -4873,6 +4876,33 @@ uint32_t ld_process_load(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* mi
   }
   // have to be careful with trailing zeroes here
   ssq += popcount2_long(new_geno << (BITCT - 2 * (1 + ((founder_ct - 1) % BITCT2))));
+  if (founder_ct % BITCT2) {
+    mask_buf[founder_ct / BITCT2] &= (ONELU << (2 * (founder_ct % BITCT2))) - ONELU;
+  }
+  if (is_x && weighted_x) {
+    // special case #2: double-count nonmales
+    geno_ptr = geno_buf;
+    sum -= founder_ct;
+    nonmale_geno = &(nonmale_geno[nonmale_offset]);
+    nonmale_masks = &(nonmale_masks[nonmale_offset]);
+    mask_buf_ptr = mask_buf;
+    nm_mask_ptr = nonmale_masks;
+    while (1) {
+      new_mask = ~((*founder_male_include2) * 3);
+      new_geno = ((*geno_ptr++) & new_mask) | (*founder_male_include2++);
+      *nonmale_geno++ = new_geno;
+      *nm_mask_ptr++ = new_mask & (*mask_buf_ptr++);
+      sum += popcount2_long(new_geno);
+      new_geno = (new_geno ^ FIVEMASK) & FIVEMASK;
+      if (geno_ptr == geno_end) {
+	break;
+      }
+      ssq += popcount2_long(new_geno);
+    }
+    ssq += popcount2_long(new_geno << (BITCT - 2 * (1 + ((founder_ct - 1) % BITCT2))));
+    missing_ct += founder_ct - (popcount_longs(nonmale_masks, 0, founder_ctl2) / 2);
+    founder_ct *= 2;
+  }
   non_missing_recip = 1.0 / (founder_ct - missing_ct);
   *marker_stdev_ptr = non_missing_recip * sqrt(((int64_t)((uint64_t)ssq)) * (founder_ct - missing_ct) - ((int64_t)sum) * sum);
   return missing_ct;
@@ -4934,12 +4964,32 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = 2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
   uintptr_t founder_ct = popcount_longs(founder_info, 0, unfiltered_indiv_ctl2 / 2);
+  uint32_t weighted_founder_ct = founder_ct;
+  uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
+#ifdef __LP64__
+  uintptr_t founder_ctv = 2 * ((founder_ct + 127) / 128);
+#else
+  uintptr_t founder_ctv = founder_ctl;
+#endif
+  uintptr_t founder_ct_mld = (founder_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
+  uint32_t founder_ct_mld_m1 = ((uint32_t)founder_ct_mld) - 1;
+#ifdef __LP64__
+  uint32_t founder_ct_mld_rem = (MULTIPLEX_LD / 192) - (founder_ct_mld * MULTIPLEX_LD - founder_ct) / 192;
+#else
+  uint32_t founder_ct_mld_rem = (MULTIPLEX_LD / 48) - (founder_ct_mld * MULTIPLEX_LD - founder_ct) / 48;
+#endif
+  uintptr_t founder_ct_mld_long = founder_ct_mld * (MULTIPLEX_LD / BITCT2);
+  uint32_t founder_trail_ct = founder_ct_mld_long - founder_ctl * 2;
   uint32_t pairwise = (misc_flags / MISC_LD_PRUNE_PAIRWISE) & 1;
   uint32_t ignore_x = (misc_flags / MISC_LD_IGNORE_X) & 1;
+  uint32_t weighted_x = (misc_flags / MISC_LD_WEIGHTED_X) & 1;
+  uint32_t nonmale_founder_ct = 0;
   uintptr_t window_max = 0;
   uintptr_t* geno = NULL;
   uintptr_t* founder_include2 = NULL;
   uintptr_t* founder_male_include2 = NULL;
+  uintptr_t* nonmale_geno = NULL;
+  uintptr_t* nonmale_masks = NULL;
   double* cov_matrix = NULL;
   double* new_cov_matrix = NULL;
   MATRIX_INVERT_BUF1_TYPE* irow = NULL;
@@ -4949,19 +4999,12 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
   uint32_t at_least_one_prune = 0;
   uint32_t max_code = chrom_info_ptr->max_code;
   int32_t retval = 0;
-  uintptr_t founder_ctl;
-  uintptr_t founder_ctv;
-  uintptr_t founder_ct_mld;
-  uintptr_t founder_ct_mld_long;
   uintptr_t* pruned_arr;
   uint32_t* live_indices;
   uint32_t* start_arr;
   uint32_t marker_unfiltered_idx;
   uintptr_t marker_idx;
   int32_t pct;
-  uint32_t founder_ct_mld_m1;
-  uint32_t founder_ct_mld_rem;
-  uint32_t founder_trail_ct;
   uint32_t pct_thresh;
   uint32_t window_unfiltered_start;
   uint32_t window_unfiltered_end;
@@ -4987,17 +5030,10 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
   uint32_t non_missing_ct;
   int32_t dp_result[3];
   double non_missing_recip;
-#ifdef __LP64__
-  __m128i* geno_fixed_vec_ptr;
-  __m128i* geno_var_vec_ptr;
-  __m128i* mask_fixed_vec_ptr;
-  __m128i* mask_var_vec_ptr;
-#else
   uintptr_t* geno_fixed_vec_ptr;
   uintptr_t* geno_var_vec_ptr;
   uintptr_t* mask_fixed_vec_ptr;
   uintptr_t* mask_var_vec_ptr;
-#endif
   uintptr_t cur_exclude_ct;
   uint32_t prev_end;
   char* sptr;
@@ -5012,24 +5048,18 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
     goto ld_prune_ret_1;
   }
 
-  founder_ctl = (founder_ct + BITCT - 1) / BITCT;
-#ifdef __LP64__
-  founder_ctv = 2 * ((founder_ct + 127) / 128);
-#else
-  founder_ctv = founder_ctl;
-#endif
-  founder_ct_mld = (founder_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
-  founder_ct_mld_m1 = ((uint32_t)founder_ct_mld) - 1;
-#ifdef __LP64__
-  founder_ct_mld_rem = (MULTIPLEX_LD / 192) - (founder_ct_mld * MULTIPLEX_LD - founder_ct) / 192;
-#else
-  founder_ct_mld_rem = (MULTIPLEX_LD / 48) - (founder_ct_mld * MULTIPLEX_LD - founder_ct) / 48;
-#endif
-  founder_ct_mld_long = founder_ct_mld * (MULTIPLEX_LD / BITCT2);
-  founder_trail_ct = founder_ct_mld_long - founder_ctl * 2;
-
-  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
+  // force founder_male_include2 allocation
+  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
     goto ld_prune_ret_NOMEM;
+  }
+  if (weighted_x) {
+    nonmale_founder_ct = founder_ct - popcount_longs(founder_male_include2, 0, founder_ctl);
+    if (founder_ct + nonmale_founder_ct > 0x7fffffff) {
+      // no, this shouldn't ever happen, but may as well document that there
+      // theoretically is a 32-bit integer range issue here
+      logprint("Error: Too many founders for --indep[-pairwise] + --ld-xchr 3.\n");
+      goto ld_prune_ret_1;
+    }
   }
 
   if (ld_window_kb) {
@@ -5084,10 +5114,20 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
       wkspace_alloc_ui_checked(&missing_cts, founder_ct * sizeof(int32_t))) {
     goto ld_prune_ret_NOMEM;
   }
+  if (weighted_x) {
+    if (wkspace_alloc_ul_checked(&nonmale_geno, ulii * founder_ct_mld_long * sizeof(intptr_t)) ||
+        wkspace_alloc_ul_checked(&nonmale_masks, ulii * founder_ct_mld_long * sizeof(intptr_t))) {
+      goto ld_prune_ret_NOMEM;
+    }
+  }
   if (founder_trail_ct) {
     for (ulii = 1; ulii <= window_max; ulii++) {
       fill_ulong_zero(&(geno[ulii * founder_ct_mld_long - founder_trail_ct - 2]), founder_trail_ct + 2);
       fill_ulong_zero(&(g_masks[ulii * founder_ct_mld_long - founder_trail_ct - 2]), founder_trail_ct + 2);
+      if (weighted_x) {
+	fill_ulong_zero(&(nonmale_geno[ulii * founder_ct_mld_long - founder_trail_ct - 2]), founder_trail_ct + 2);
+	fill_ulong_zero(&(nonmale_masks[ulii * founder_ct_mld_long - founder_trail_ct - 2]), founder_trail_ct + 2);
+      }
     }
   }
   if (!pairwise) {
@@ -5114,6 +5154,13 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
   do {
     prev_end = 0;
     ld_prune_start_chrom(ld_window_kb, &cur_chrom, &chrom_end, window_unfiltered_start, live_indices, start_arr, &window_unfiltered_end, ld_window_size, &cur_window_size, unfiltered_marker_ct, pruned_arr, chrom_info_ptr, marker_pos, &is_haploid, &is_x, &is_y);
+    if (weighted_x) {
+      if (is_x) {
+	weighted_founder_ct = 2 * founder_ct;
+      } else {
+	weighted_founder_ct = founder_ct;
+      }
+    }
     old_window_size = 1;
     if (cur_window_size > 1) {
       for (ulii = 0; ulii < (uintptr_t)cur_window_size; ulii++) {
@@ -5127,7 +5174,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	if (is_haploid && hh_exists) {
 	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno[ulii * founder_ct_mld_long])));
 	}
-        missing_cts[ulii] = ld_process_load(&(geno[ulii * founder_ct_mld_long]), &(g_masks[ulii * founder_ct_mld_long]), &(g_mmasks[ulii * founder_ctv]), &(marker_stdevs[ulii]), founder_ct, founder_ctl, is_x && (!ignore_x), founder_male_include2);
+        missing_cts[ulii] = ld_process_load(&(geno[ulii * founder_ct_mld_long]), &(g_masks[ulii * founder_ct_mld_long]), &(g_mmasks[ulii * founder_ctv]), &(marker_stdevs[ulii]), founder_ct, is_x && (!ignore_x), weighted_x, nonmale_founder_ct, founder_male_include2, nonmale_geno, nonmale_masks, ulii * founder_ct_mld_long);
       }
     }
     pct = 1;
@@ -5148,14 +5195,9 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	      continue;
 	    }
             fixed_missing_ct = missing_cts[uii];
-	    fixed_non_missing_ct = founder_ct - fixed_missing_ct;
-#ifdef __LP64__
-	    geno_fixed_vec_ptr = (__m128i*)(&(geno[uii * founder_ct_mld_long]));
-	    mask_fixed_vec_ptr = (__m128i*)(&(g_masks[uii * founder_ct_mld_long]));
-#else
+	    fixed_non_missing_ct = weighted_founder_ct - fixed_missing_ct;
 	    geno_fixed_vec_ptr = &(geno[uii * founder_ct_mld_long]);
 	    mask_fixed_vec_ptr = &(g_masks[uii * founder_ct_mld_long]);
-#endif
 	    ujj = uii + 1;
 	    while (live_indices[ujj] < start_arr[uii]) {
 	      if (++ujj == cur_window_size) {
@@ -5166,24 +5208,24 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	      if (IS_SET(pruned_arr, live_indices[ujj])) {
 		continue;
 	      }
-#ifdef __LP64__
-	      geno_var_vec_ptr = (__m128i*)(&(geno[ujj * founder_ct_mld_long]));
-	      mask_var_vec_ptr = (__m128i*)(&(g_masks[ujj * founder_ct_mld_long]));
-#else
 	      geno_var_vec_ptr = &(geno[ujj * founder_ct_mld_long]);
 	      mask_var_vec_ptr = &(g_masks[ujj * founder_ct_mld_long]);
-#endif
 
-	      non_missing_ct = fixed_non_missing_ct - missing_cts[ujj];
-              if (fixed_missing_ct && missing_cts[ujj]) {
-		non_missing_ct += popcount_longs_intersect(&(g_mmasks[uii * founder_ctv]), &(g_mmasks[ujj * founder_ctv]), founder_ctl);
-	      }
-	      dp_result[0] = founder_ct;
+	      dp_result[0] = weighted_founder_ct;
 	      // reversed from what I initially thought because I'm passing the
 	      // ujj-associated buffers before the uii-associated ones.
 	      dp_result[1] = -fixed_non_missing_ct;
-	      dp_result[2] = missing_cts[ujj] - founder_ct;
-              ld_dot_prod(geno_var_vec_ptr, geno_fixed_vec_ptr, mask_var_vec_ptr, mask_fixed_vec_ptr, dp_result, founder_ct_mld_m1, founder_ct_mld_rem);
+	      dp_result[2] = missing_cts[ujj] - weighted_founder_ct;
+	      ld_dot_prod(geno_var_vec_ptr, geno_fixed_vec_ptr, mask_var_vec_ptr, mask_fixed_vec_ptr, dp_result, founder_ct_mld_m1, founder_ct_mld_rem);
+	      if (is_x && weighted_x) {
+		non_missing_ct = (popcount_longs_intersect(&(nonmale_masks[uii * founder_ct_mld_long]), &(nonmale_masks[ujj * founder_ct_mld_long]), 2 * founder_ctl) + popcount_longs_intersect(mask_fixed_vec_ptr, mask_var_vec_ptr, 2 * founder_ctl)) / 2;
+		ld_dot_prod(&(nonmale_geno[ujj * founder_ct_mld_long]), &(nonmale_geno[uii * founder_ct_mld_long]), &(nonmale_masks[ujj * founder_ct_mld_long]), &(nonmale_masks[uii * founder_ct_mld_long]), dp_result, founder_ct_mld_m1, founder_ct_mld_rem);
+	      } else {
+	        non_missing_ct = fixed_non_missing_ct - missing_cts[ujj];
+		if (fixed_missing_ct && missing_cts[ujj]) {
+		  non_missing_ct += popcount_longs_intersect(&(g_mmasks[uii * founder_ctv]), &(g_mmasks[ujj * founder_ctv]), founder_ctl);
+		}
+	      }
 	      non_missing_recip = 1.0 / ((double)((int32_t)non_missing_ct));
 	      cov12 = non_missing_recip * (dp_result[0] - (non_missing_recip * dp_result[1]) * dp_result[2]);
 	      // r-squared
@@ -5331,6 +5373,10 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	}
 	memcpy(&(geno[uii * founder_ct_mld_long]), &(geno[ujj * founder_ct_mld_long]), founder_ct_mld_long * sizeof(intptr_t));
 	memcpy(&(g_masks[uii * founder_ct_mld_long]), &(g_masks[ujj * founder_ct_mld_long]), founder_ct_mld_long * sizeof(intptr_t));
+	if (is_x && weighted_x) {
+	  memcpy(&(nonmale_geno[uii * founder_ct_mld_long]), &(nonmale_geno[ujj * founder_ct_mld_long]), founder_ct_mld_long * sizeof(intptr_t));
+	  memcpy(&(nonmale_masks[uii * founder_ct_mld_long]), &(nonmale_masks[ujj * founder_ct_mld_long]), founder_ct_mld_long * sizeof(intptr_t));
+	}
 	memcpy(&(g_mmasks[uii * founder_ctv]), &(g_mmasks[ujj * founder_ctv]), founder_ctl * sizeof(intptr_t));
 	marker_stdevs[uii] = marker_stdevs[ujj];
 	live_indices[uii] = live_indices[ujj];
@@ -5374,7 +5420,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	if (is_haploid && hh_exists) {
 	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno[cur_window_size * founder_ct_mld_long])));
 	}
-	missing_cts[cur_window_size] = ld_process_load(&(geno[cur_window_size * founder_ct_mld_long]), &(g_masks[cur_window_size * founder_ct_mld_long]), &(g_mmasks[cur_window_size * founder_ctv]), &(marker_stdevs[cur_window_size]), founder_ct, founder_ctl, is_x && (!ignore_x), founder_male_include2);
+	missing_cts[cur_window_size] = ld_process_load(&(geno[cur_window_size * founder_ct_mld_long]), &(g_masks[cur_window_size * founder_ct_mld_long]), &(g_mmasks[cur_window_size * founder_ctv]), &(marker_stdevs[cur_window_size]), founder_ct, is_x && (!ignore_x), weighted_x, nonmale_founder_ct, founder_male_include2, nonmale_geno, nonmale_masks, cur_window_size * founder_ct_mld_long);
 	cur_window_size++;
       }
       if (cur_window_size > prev_end) {

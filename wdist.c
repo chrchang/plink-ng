@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (13 Sep 2013)";
+  " (14 Sep 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -9422,8 +9422,7 @@ int32_t main(int32_t argc, char** argv) {
         if (cc == '2') {
           misc_flags |= MISC_LD_IGNORE_X;
 	} else if (cc == '3') {
-	  retval = RET_CALC_NOT_YET_SUPPORTED;
-	  goto main_ret_1;
+	  misc_flags |= MISC_LD_WEIGHTED_X;
 	}
       } else {
         goto main_ret_INVALID_CMDLINE_2;
