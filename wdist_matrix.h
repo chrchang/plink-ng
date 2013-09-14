@@ -1,6 +1,10 @@
 #ifndef __WDIST_MATRIX_H__
 #define __WDIST_MATRIX_H__
 
+// Wrappers for frequent LAPACK calls (sometimes with no-LAPACK fallbacks).
+// May want to make this comprehensive to make linking with Intel MKL practical
+// in the future.
+
 #include "wdist_common.h"
 
 #ifdef __APPLE__
