@@ -9112,13 +9112,12 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
       *dptr++ = 0.25;
     }
     memcpy(t2_buf, initial_t2_buf, indiv_valid_ct * param_ct * sizeof(double));
-    cur_pheno_d = &(pheno_perms[perm_idx * pheno_perms_stride]);
+    cur_pheno_d = &(pheno_perms[perm_idx]);
     while (1) {
       dptr = t3_buf;
-      dptr2 = cur_pheno_d;
-      dptr3 = indiv_1d_buf;
+      dptr2 = indiv_1d_buf;
       for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
-	*dptr++ = (*dptr2++) - (*dptr3++);
+	*dptr++ = cur_pheno_d[indiv_idx * pheno_perms_stride] - (*dptr2++);
       }
       dptr = t2_buf;
       dptr2 = coef;
@@ -9189,7 +9188,7 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
       fill_double_zero(cluster_param_buf, cluster_ct1_p1 * param_ct);
       for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
         cluster_idx_p1 = indiv_to_cluster1[indiv_idx] + 1;
-	dxx = cur_pheno_d[indiv_idx] - indiv_1d_buf[indiv_idx]; // err
+	dxx = cur_pheno_d[indiv_idx * pheno_perms_stride] - indiv_1d_buf[indiv_idx]; // err
 	dptr = &(cluster_param_buf[cluster_idx_p1 * param_ct]);
 	dptr2 = &(covars_indiv_major[indiv_idx * param_ct]);
         for (param_idx = 0; param_idx < param_ct; param_idx++) {
@@ -10105,6 +10104,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
       if (glm_linear_robust_cluster_covar(cur_batch_size, param_ct, indiv_valid_ct, covars_collapsed, covars_transposed_buf, g_perm_vecstd, perm_vec_ctcl8m, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, regression_results, &perm_fail_ct, perm_fails)) {
 	perm_fail_ct = cur_batch_size;
+	fill_bits(perm_fails, 0, cur_batch_size);
       }
       perm_fail_total += perm_fail_ct;
       ulii = param_ct - 1;
@@ -10139,6 +10139,40 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       }
     } else {
 #endif
+      if (glm_logistic_robust_cluster_covar(cur_batch_size, param_ct, indiv_valid_ct, covars_collapsed, covars_transposed_buf, g_perm_vecstd, perm_vec_ctcl8m, logistic_coef, logistic_vbuf, logistic_initial_t2_buf, logistic_t2_buf, logistic_t3_buf, param_2d_buf, mi_buf, param_2d_buf2, cluster_ct1, indiv_to_cluster1, cluster_param_buf, cluster_param_buf2, indiv_1d_buf, regression_results, &perm_fail_ct, perm_fails)) {
+	perm_fail_ct = cur_batch_size;
+	fill_bits(perm_fails, 0, cur_batch_size);
+      }
+      perm_fail_total += perm_fail_ct;
+      ulii = param_ct - 1;
+      for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
+        if (IS_SET(perm_fails, perm_idx)) {
+	  if (mperm_save) {
+            for (param_idx = 0; param_idx < ulii; param_idx++) {
+	      *msa_ptr++ = -9;
+	    }
+	  }
+	  continue;
+	}
+        dptr = &(logistic_coef[perm_idx * param_ct + 1]);
+	dptr2 = &(regression_results[perm_idx * ulii]);
+        dptr3 = orig_stats;
+        for (param_idx = 0; param_idx < ulii; param_idx++) {
+          dxx = *dptr++;
+          se = sqrt(*dptr2++);
+	  zval = fabs(dxx / se);
+	  dyy = *dptr3++;
+	  zval *= zval;
+          if (zval > dyy + EPSILON) {
+	    perm_2success_ct[param_idx] += 2;
+	  } else if (zval > dyy - EPSILON) {
+	    perm_2success_ct[param_idx] += 1;
+	  }
+	  if (mperm_save) {
+	    *msa_ptr++ = zval;
+	  }
+	}
+      }
 #ifndef NOLAPACK
     }
 #endif
@@ -10191,30 +10225,26 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	}
 	ulii = param_ct - 1;
 	wptr = memcpya(tbuf, "0 ", 2);
-	if (pheno_d) {
-	  wptr = double_g_writex(wptr, orig_stats[param_idx - 1], '\n');
-	  wptr2 = &(tbuf[MAXLINELEN]);
-	  dptr = &(mperm_save_stats[param_idx - 1]);
-	  for (perm_idx = 0; perm_idx < glm_mperm_val; perm_idx++) {
-	    wptr = uint32_writex(wptr, perm_idx + 1, ' ');
-	    dxx = dptr[perm_idx * ulii];
-	    if (dxx >= 0) {
-	      wptr = double_g_writex(wptr, dxx, '\n');
-	    } else {
-	      wptr = memcpyl3a(wptr, "NA\n");
-	    }
-	    if (wptr >= wptr2) {
-	      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-		goto glm_assoc_nosnp_ret_WRITE_FAIL;
-	      }
-	      wptr = tbuf;
-	    }
+	wptr = double_g_writex(wptr, orig_stats[param_idx - 1], '\n');
+	wptr2 = &(tbuf[MAXLINELEN]);
+	dptr = &(mperm_save_stats[param_idx - 1]);
+	for (perm_idx = 0; perm_idx < glm_mperm_val; perm_idx++) {
+	  wptr = uint32_writex(wptr, perm_idx + 1, ' ');
+	  dxx = dptr[perm_idx * ulii];
+	  if (dxx >= 0) {
+	    wptr = double_g_writex(wptr, dxx, '\n');
+	  } else {
+	    wptr = memcpyl3a(wptr, "NA\n");
 	  }
-	  if (fwrite_checkedz(tbuf, wptr - tbuf, outfile)) {
-	    goto glm_assoc_nosnp_ret_WRITE_FAIL;
+	  if (wptr >= wptr2) {
+	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	      goto glm_assoc_nosnp_ret_WRITE_FAIL;
+	    }
+	    wptr = tbuf;
 	  }
-	} else {
-	  // todo
+	}
+	if (fwrite_checkedz(tbuf, wptr - tbuf, outfile)) {
+	  goto glm_assoc_nosnp_ret_WRITE_FAIL;
 	}
 	if (fclose_null(&outfile)) {
 	  goto glm_assoc_nosnp_ret_WRITE_FAIL;
