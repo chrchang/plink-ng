@@ -2741,40 +2741,31 @@ void vec_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uin
   }
 }
 
-/*
-void vec_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* newvec) {
-  uint32_t cur_uidx = 0;
-  uint32_t cur_idx = 0;
-  uint32_t cur_uidx_stop;
-  fill_ulong_zero(newvec, 2 * ((filtered_ct + (BITCT - 1)) / BITCT));
-  do {
-    cur_uidx = next_set_unsafe(filter_bitarr, cur_uidx);
-    cur_uidx_stop = next_unset(filter_bitarr, cur_uidx, unfiltered_ct);
-    do {
-      if (IS_SET(unfiltered_bitarr, cur_uidx)) {
-        SET_BIT_DBL(newvec, cur_idx);
-      }
-      cur_idx++;
-    } while (++cur_uidx < cur_uidx_stop);
-  } while (cur_idx < filtered_ct);
-}
-*/
-
 void vec_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_vec) {
-  uint32_t cur_uidx = 0;
-  uint32_t cur_idx = 0;
-  uint32_t cur_uidx_stop;
-  fill_ulong_zero(output_vec, 2 * ((filtered_ct + (BITCT - 1)) / BITCT));
+  uintptr_t cur_write = 0;
+  uint32_t item_uidx = 0;
+  uint32_t write_bit = 0;
+  uint32_t item_idx = 0;
+  uint32_t item_uidx_stop;
   do {
-    cur_uidx = next_unset_unsafe(filter_exclude_bitarr, cur_uidx);
-    cur_uidx_stop = next_set(filter_exclude_bitarr, cur_uidx, unfiltered_ct);
+    item_uidx = next_unset_unsafe(filter_exclude_bitarr, item_uidx);
+    item_uidx_stop = next_set(filter_exclude_bitarr, item_uidx, unfiltered_ct);
+    item_idx += item_uidx_stop - item_uidx;
     do {
-      if (IS_SET(unfiltered_bitarr, cur_uidx)) {
-        SET_BIT_DBL(output_vec, cur_idx);
+      cur_write |= ((unfiltered_bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << (write_bit * 2);
+      if (++write_bit == BITCT2) {
+	*output_vec++ = cur_write;
+        cur_write = 0;
+	write_bit = 0;
       }
-      cur_idx++;
-    } while (++cur_uidx < cur_uidx_stop);
-  } while (cur_idx < filtered_ct);
+    } while (++item_uidx < item_uidx_stop);
+  } while (item_idx < filtered_ct);
+  if (write_bit) {
+    *output_vec++ = cur_write;
+  }
+  if ((filtered_ct + (BITCT2 - 1)) & BITCT2) {
+    *output_vec = 0;
+  }
 }
 
 uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_include2_ptr, uintptr_t** indiv_male_include2_ptr) {
