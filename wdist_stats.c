@@ -1455,3 +1455,11 @@ void ca_trend_precomp_val_bounds(double chisq, intptr_t case_ct, intptr_t het_ct
     }
   }
 }
+
+// todo
+/*
+uint32_t linear_hypothesis_chisq(uint32_t constraint_ct, uint32_t param_ct, double* constraints, double* coef, double* estimated_cov_matrix, ...) {
+  // See PLINK model.cpp Model::linearHypothesis().
+  
+}
+*/

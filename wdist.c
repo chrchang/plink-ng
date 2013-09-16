@@ -9024,12 +9024,13 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "ethom", 6)) {
 	UNSTABLE;
-	if (glm_modifier & (GLM_DOMINANT | GLM_GENOTYPIC)) {
-	  sprintf(logbuf, "Error: --hethom cannot be used with --%s.\n", (glm_modifier & GLM_DOMINANT)? "dominant" : "genotypic");
-	  goto main_ret_INVALID_CMDLINE_3;
+	if (!(glm_modifier & GLM_GENOTYPIC)) {
+	  logprint("Error: --hethom must be used with --genotypic.\n");
+	  goto main_ret_INVALID_CMDLINE;
 	}
 	logprint("Note: --hethom flag deprecated.  Use e.g. '--linear hethom' (and\n'--condition-list [filename] recessive' to change covariate coding).\n");
 	glm_modifier |= GLM_HETHOM | GLM_CONDITION_RECESSIVE;
+	glm_modifier -= GLM_GENOTYPIC;
 	glm_xchr_model = 0;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ide-covar", 10)) {

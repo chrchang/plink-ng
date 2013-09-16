@@ -9234,13 +9234,16 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uintptr_t topsize = 0;
   uintptr_t max_param_name_len = 2;
   uintptr_t perm_vec_ctcl8m = 0;
-  uintptr_t param_raw_ct = 2;
+  uintptr_t np_base = 2;
+  uintptr_t np_diploid = 0;
+  uintptr_t np_sex = 0;
   uintptr_t condition_ct = 0;
   uintptr_t indiv_valid_ctv2 = 0;
   uint32_t cur_batch_size = 1;
   uint32_t cluster_ct1 = 0;
   uint32_t perm_adapt = glm_modifier & GLM_PERM;
   uint32_t perm_maxt = glm_modifier & GLM_MPERM;
+  uint32_t covar_interactions = (glm_modifier / GLM_INTERACTION) & 1;
   uint32_t sex_covar_everywhere = glm_modifier & GLM_SEX;
   uint32_t x_present = (chrom_info_ptr->x_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->x_code);
   uint32_t do_perms = perm_adapt | perm_maxt;
@@ -9312,7 +9315,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uintptr_t indiv_valid_ct;
   uintptr_t indiv_uidx_stop;
   uintptr_t indiv_idx;
-  uintptr_t param_raw_ctl;
+  uintptr_t param_max_ctl;
   uintptr_t param_ct;
   uintptr_t param_idx;
   uintptr_t ulii;
@@ -9335,10 +9338,10 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uint32_t slen;
   int32_t ii;
   if (glm_init_load_mask(indiv_exclude, pheno_nm, covar_nm, indiv_ct, unfiltered_indiv_ctv2, &load_mask)) {
-    goto glm_assoc_nosnp_ret_NOMEM;
+    goto glm_assoc_ret_NOMEM;
   }
   if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
-    goto glm_assoc_nosnp_ret_NOMEM;
+    goto glm_assoc_ret_NOMEM;
   }
   loadbuf_raw[unfiltered_indiv_ctv2 - 2] = 0;
   loadbuf_raw[unfiltered_indiv_ctv2 - 1] = 0;
@@ -9349,14 +9352,14 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
       indiv_include2 = (uintptr_t*)top_alloc(&topsize, unfiltered_indiv_ctv2 * sizeof(intptr_t));
       if (!indiv_include2) {
-	goto glm_assoc_nosnp_ret_NOMEM;
+	goto glm_assoc_ret_NOMEM;
       }
       fill_vec_55(indiv_include2, unfiltered_indiv_ct);
     }
     if (hh_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
       indiv_male_include2 = (uintptr_t*)top_alloc(&topsize, unfiltered_indiv_ctv2 * sizeof(intptr_t));
       if (!indiv_male_include2) {
-        goto glm_assoc_nosnp_ret_NOMEM;
+        goto glm_assoc_ret_NOMEM;
       }
       fill_ulong_zero(indiv_male_include2, unfiltered_indiv_ctv2);
       vec_include_init(unfiltered_indiv_ct, indiv_male_include2, sex_male);
@@ -9365,29 +9368,65 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     retval = glm_scan_conditions(condition_mname, condition_fname, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, chrom_info_ptr, hh_exists, loadbuf_raw, bedfile, bed_offset, unfiltered_indiv_ct, sex_male, load_mask, &indiv_valid_ct, &condition_ct, &condition_uidxs, indiv_include2, indiv_male_include2);
     wkspace_left += topsize;
     if (retval) {
-      goto glm_assoc_nosnp_ret_1;
+      goto glm_assoc_ret_1;
     }
+    // topsize = 0;
+
+    // need to set to null for next alloc_collapsed_haploid_filters() call to
+    // work properly
+    indiv_include2 = NULL;
+    indiv_male_include2 = NULL;
+    np_base += condition_ct;
   }
-  if (!(glm_modifier & GLM_NO_X_SEX)) {
+  np_base += covar_ct * (1 + covar_interactions);
+  if (!((glm_modifier & GLM_NO_X_SEX) || ((!sex_covar_everywhere) && (!x_present)))) {
     indiv_uidx = 0;
     indiv_idx = 0;
+    uii = 2;
+    // slight change from PLINK 1.07: missing sex no longer counts as female
+    // when --allow-no-sex is active (--linear/--logistic normally throws out
+    // all individuals missing a covariate, so we shouldn't make an exception
+    // for sex; allow-no-sex may still have an effect on other analyses in the
+    // current run)
     do {
       indiv_uidx = next_set_ul_unsafe(load_mask, indiv_uidx);
       indiv_uidx_stop = next_unset_ul(load_mask, indiv_uidx, unfiltered_indiv_ct);
       indiv_idx += indiv_uidx_stop - indiv_uidx;
       do {
-	if (IS_SET(sex_male, indiv_uidx)) {
-	  male_ct++;
+	if (IS_SET(sex_nm, indiv_uidx)) {
+	  ujj = is_set(sex_male, indiv_uidx);
+	  if (uii == ujj) {
+	    variation_in_sex = 1;
+	    indiv_idx = indiv_valid_ct;
+	    break;
+	  }
+          uii = 1 - ujj;
 	}
       } while (++indiv_uidx < indiv_uidx_stop);
     } while (indiv_idx < indiv_valid_ct);
-    variation_in_sex = ((!male_ct) || (male_ct == indiv_valid_ct))? 0 : 1;
-    if (!variation_in_sex) {
+    if (variation_in_sex) {
+      if (sex_covar_everywhere) {
+	np_base += 1 + covar_interactions;
+        bitfield_and(load_mask, sex_nm, unfiltered_indiv_ctv2 / 2);
+        indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctv2);
+      } else {
+	np_sex += 1 + covar_interactions;
+      }
+    } else if (sex_covar_everywhere) {
+      sprintf(logbuf, "Warning: Ignoring --%s 'sex' modifier since sex is invariant.\n", pheno_d? "linear" : "logistic");
       sex_covar_everywhere = 0;
-      sex_on_x = 0;
-    } else {
     }
   }
+  indiv_valid_ctv2 = 2 * ((indiv_valid_ct + BITCT - 1) / BITCT);
+  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_valid_ct, hh_exists, 1, load_mask, sex_male, &indiv_include2, &indiv_male_include2)) {
+    goto glm_assoc_ret_NOMEM;
+  }
+  if (wkspace_alloc_ul_checked(loadbuf_collapsed, indiv_valid_ctv2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(sex_male_collapsed, indiv_valid_ctv2 * sizeof(intptr_t))) {
+    goto glm_assoc_ret_NOMEM;
+  }
+  loadbuf_collapsed[indiv_valid_ctv2 - 1] = 0;
+  collapse_copy_bitarr_incl(unfiltered_indiv_ct, sex_male, load_mask, indiv_valid_ct, sex_male_collapsed);
 
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -9654,10 +9693,6 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     indiv_uidx = 0;
     indiv_idx = 0;
     uii = 2;
-    // slight change from PLINK 1.07: missing sex no longer counts as female
-    // when --allow-no-sex is active (--linear/--logistic normally throws out
-    // all individuals missing a covariate, so we shouldn't make an exception
-    // for sex)
     do {
       indiv_uidx = next_set_ul_unsafe(load_mask, indiv_uidx);
       indiv_uidx_stop = next_unset_ul(load_mask, indiv_uidx, unfiltered_indiv_ct);
