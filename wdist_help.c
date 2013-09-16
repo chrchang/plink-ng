@@ -1219,10 +1219,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("indep\tindep-pairwise\tld-xchr", &help_ctrl, 0,
 "  --ld-xchr [code] : Specifies how --indep[-pairwise] handles the X chromosome.\n"
-"                     1 (default) = male A1 homozygotes are recoded as hets\n"
-"                     2 = no recoding or reweighting\n"
-"                     3 = no recoding, but nonmale genotypes have twice the\n"
-"                         the weight of male genotypes\n"
+"                     1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
+"                     2 = males coded 0/2\n"
+"                     3 = males coded 0/2, but females given double weighting\n"
 	       );
     help_print("parallel\tgenome-lists", &help_ctrl, 0,
 "  --parallel [k] [n] : Divide the output matrix into n pieces, and only compute\n"

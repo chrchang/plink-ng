@@ -2714,12 +2714,71 @@ void fill_vec_55(uintptr_t* vec, uint32_t ct) {
   }
 }
 
+void vec_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* output_vec) {
+  uintptr_t cur_write = 0;
+  uint32_t item_uidx = 0;
+  uint32_t write_bit = 0;
+  uint32_t item_idx = 0;
+  uint32_t item_uidx_stop;
+  do {
+    item_uidx = next_set_unsafe(filter_bitarr, item_uidx);
+    item_uidx_stop = next_unset(filter_bitarr, item_uidx, unfiltered_ct);
+    item_idx += item_uidx_stop - item_uidx;
+    do {
+      cur_write |= ((unfiltered_bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << (write_bit * 2);
+      if (++write_bit == BITCT2) {
+	*output_vec++ = cur_write;
+        cur_write = 0;
+	write_bit = 0;
+      }
+    } while (++item_uidx < item_uidx_stop);
+  } while (item_idx < filtered_ct);
+  if (write_bit) {
+    *output_vec++ = cur_write;
+  }
+  if ((filtered_ct + (BITCT2 - 1)) & BITCT2) {
+    *output_vec = 0;
+  }
+}
+
+/*
+void vec_collapse_init(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_bitarr, uint32_t filtered_ct, uintptr_t* newvec) {
+  uint32_t cur_uidx = 0;
+  uint32_t cur_idx = 0;
+  uint32_t cur_uidx_stop;
+  fill_ulong_zero(newvec, 2 * ((filtered_ct + (BITCT - 1)) / BITCT));
+  do {
+    cur_uidx = next_set_unsafe(filter_bitarr, cur_uidx);
+    cur_uidx_stop = next_unset(filter_bitarr, cur_uidx, unfiltered_ct);
+    do {
+      if (IS_SET(unfiltered_bitarr, cur_uidx)) {
+        SET_BIT_DBL(newvec, cur_idx);
+      }
+      cur_idx++;
+    } while (++cur_uidx < cur_uidx_stop);
+  } while (cur_idx < filtered_ct);
+}
+*/
+
+void vec_collapse_init_exclude(uintptr_t* unfiltered_bitarr, uint32_t unfiltered_ct, uintptr_t* filter_exclude_bitarr, uint32_t filtered_ct, uintptr_t* output_vec) {
+  uint32_t cur_uidx = 0;
+  uint32_t cur_idx = 0;
+  uint32_t cur_uidx_stop;
+  fill_ulong_zero(output_vec, 2 * ((filtered_ct + (BITCT - 1)) / BITCT));
+  do {
+    cur_uidx = next_unset_unsafe(filter_exclude_bitarr, cur_uidx);
+    cur_uidx_stop = next_set(filter_exclude_bitarr, cur_uidx, unfiltered_ct);
+    do {
+      if (IS_SET(unfiltered_bitarr, cur_uidx)) {
+        SET_BIT_DBL(output_vec, cur_idx);
+      }
+      cur_idx++;
+    } while (++cur_uidx < cur_uidx_stop);
+  } while (cur_idx < filtered_ct);
+}
+
 uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t indiv_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t* indiv_bitarr, uintptr_t* sex_male, uintptr_t** indiv_include2_ptr, uintptr_t** indiv_male_include2_ptr) {
   uintptr_t indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
-  uint32_t indiv_uidx = 0;
-  uint32_t indiv_idx = 0;
-  uintptr_t* indiv_male_include2;
-  uint32_t indiv_uidx_stop;
   if (hh_exists & (Y_FIX_NEEDED | NXMHH_EXISTS)) {
     // if already allocated, we assume this is fully initialized
     if (!(*indiv_include2_ptr)) {
@@ -2737,30 +2796,10 @@ uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t 
 	return 1;
       }
     }
-    indiv_male_include2 = *indiv_male_include2_ptr;
-    fill_ulong_zero(indiv_male_include2, indiv_ctv2);
     if (is_include) {
-      do {
-	indiv_uidx = next_set_unsafe(indiv_bitarr, indiv_uidx);
-        indiv_uidx_stop = next_unset(indiv_bitarr, indiv_uidx, unfiltered_indiv_ct);
-        do {
-	  if (IS_SET(sex_male, indiv_uidx)) {
-	    SET_BIT_DBL(indiv_male_include2, indiv_idx);
-	  }
-	  indiv_idx++;
-	} while (++indiv_uidx < indiv_uidx_stop);
-      } while (indiv_idx < indiv_ct);
+      vec_collapse_init(sex_male, unfiltered_indiv_ct, indiv_bitarr, indiv_ct, *indiv_male_include2_ptr);
     } else {
-      do {
-	indiv_uidx = next_unset_unsafe(indiv_bitarr, indiv_uidx);
-	indiv_uidx_stop = next_set(indiv_bitarr, indiv_uidx, unfiltered_indiv_ct);
-	do {
-	  if (IS_SET(sex_male, indiv_uidx)) {
-	    SET_BIT_DBL(indiv_male_include2, indiv_idx);
-	  }
-	  indiv_idx++;
-	} while (++indiv_uidx < indiv_uidx_stop);
-      } while (indiv_idx < indiv_ct);
+      vec_collapse_init_exclude(sex_male, unfiltered_indiv_ct, indiv_bitarr, indiv_ct, *indiv_male_include2_ptr);
     }
   }
   return 0;
@@ -7356,33 +7395,6 @@ void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* 
   }
   if (write_bit) {
     *output_arr = cur_write;
-  }
-}
-
-void collapse_copy_bitarr_to_vec_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* include_arr, uint32_t filtered_ct, uintptr_t* output_vec) {
-  uintptr_t cur_write = 0;
-  uint32_t item_uidx = 0;
-  uint32_t write_bit = 0;
-  uint32_t item_idx = 0;
-  uint32_t item_uidx_stop;
-  do {
-    item_uidx = next_set_unsafe(include_arr, item_uidx);
-    item_uidx_stop = next_unset(include_arr, item_uidx, orig_ct);
-    item_idx += item_uidx_stop - item_uidx;
-    do {
-      cur_write |= ((bit_arr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << (write_bit * 2);
-      if (++write_bit == BITCT2) {
-	*output_vec++ = cur_write;
-        cur_write = 0;
-	write_bit = 0;
-      }
-    } while (++item_uidx < item_uidx_stop);
-  } while (item_idx < filtered_ct);
-  if (write_bit) {
-    *output_vec++ = cur_write;
-  }
-  if ((filtered_ct + (BITCT2 - 1)) & BITCT2) {
-    *output_vec = 0;
   }
 }
 

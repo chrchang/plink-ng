@@ -467,7 +467,7 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
       goto cluster_include_and_reindex_ret_NOMEM;
     }
     cluster_cc_perm_preimage = *cluster_cc_perm_preimage_ptr;
-    collapse_copy_bitarr_to_vec_incl(unfiltered_indiv_ct, pheno_c, indiv_include, indiv_ct, cluster_cc_perm_preimage);
+    vec_collapse_init(pheno_c, unfiltered_indiv_ct, indiv_include, indiv_ct, cluster_cc_perm_preimage);
   }
   if ((indiv_ct == unfiltered_indiv_ct) && ((!remove_size1) || no_size1(cluster_ct, cluster_starts))) {
     *new_cluster_map_ptr = cluster_map;
@@ -559,10 +559,9 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_indiv_ct, uintptr_t* in
     }
     new_cluster_map[map_idx++] = uidx_to_idx[indiv_uidx];
   }
-  if (remove_size1 && shrink_map && (new_cluster_starts[cluster_idx - 1] == map_idx - 1)) {
-    map_idx--;
-  }
-  if (new_cluster_ct && ((!remove_size1) || (map_idx - new_cluster_starts[cluster_idx] > 1))) {
+  if (new_cluster_ct && (!(remove_size1 && (new_cluster_starts[cluster_idx - 1] == map_idx - 1)))) {
+    // fill in last array elements, but guard against "last cluster is of size
+    // 1, and we're removing it" special case
     if (pheno_c) {
       cluster_case_cts[new_cluster_ct - 1] = case_ct + last_case_ct_incr;
     }
