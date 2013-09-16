@@ -9562,7 +9562,6 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uintptr_t indiv_uidx = 0;
   uintptr_t topsize = 0;
   uintptr_t max_param_name_len = 2;
-  uintptr_t perm_vec_ctcl8m = 0;
   uintptr_t param_raw_ct = 1;
   uintptr_t condition_ct = 0;
   uintptr_t indiv_valid_ctv2 = 0;
@@ -9579,6 +9578,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   uint32_t perm_fail_ct = 0;
   int32_t retval = 0;
 #ifndef NOLAPACK
+  uintptr_t perm_vec_ctcl8m = 0;
   char dgels_trans = 'N';
   int32_t dgels_m = 0;
   int32_t dgels_n = 0;
@@ -9589,6 +9589,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   int32_t dgels_ldb = 0;
   int32_t dgels_lwork = -1;
   int32_t dgels_info;
+  double dzz;
 #endif
   double* regression_results = NULL;
   double* cluster_param_buf = NULL;
@@ -9641,7 +9642,6 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   double pval;
   double dxx;
   double dyy;
-  double dzz;
   uint32_t perm_idx;
   uint32_t marker_uidx;
   uint32_t chrom_idx;
