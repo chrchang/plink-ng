@@ -436,3 +436,15 @@ void col_major_matrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, _
 #endif // _WIN32
 #endif // NOLAPACK
 }
+
+void transpose_copy(uintptr_t old_maj, uintptr_t new_maj, double* old_matrix, double* new_matrix) {
+  double* dptr;
+  uintptr_t new_maj_idx;
+  uintptr_t old_maj_idx;
+  for (new_maj_idx = 0; new_maj_idx < new_maj; new_maj_idx++) {
+    dptr = &(old_matrix[new_maj_idx]);
+    for (old_maj_idx = 0; old_maj_idx < old_maj; old_maj_idx++) {
+      *new_matrix++ = dptr[old_maj_idx * new_maj];
+    }
+  }
+}

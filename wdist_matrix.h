@@ -98,4 +98,6 @@ int32_t invert_matrix_trunc_singular(__CLPK_integer dim, double* matrix, MATRIX_
 
 void col_major_matrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, double* inmatrix1, double* inmatrix2, double* outmatrix);
 
+void transpose_copy(uintptr_t old_maj, uintptr_t new_maj, double* old_matrix, double* new_matrix);
+
 #endif // __WDIST_MATRIX_H__

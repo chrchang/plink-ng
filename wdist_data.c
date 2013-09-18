@@ -2410,6 +2410,9 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_
   }
   if (!is_presorted) {
 #ifdef __cplusplus
+    // std::sort is faster than qsort for basic types.  See e.g. Anders
+    // Kaseorg's answer to
+    // http://www.quora.com/Software-Engineering/Generally-how-much-faster-is-C-compared-to-C++
     std::sort((int64_t*)fidx_to_memidx, (int64_t*)(&(fidx_to_memidx[indiv_ct])));
 #else
     qsort(fidx_to_memidx, indiv_ct, sizeof(int64_t), llcmp);

@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (16 Sep 2013)";
+  " (18 Sep 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -11962,6 +11962,10 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	glm_xchr_model = (uint32_t)(argv[cur_arg + 1][0] - '0');
+	if ((glm_xchr_model == 3) && (tests_range_list.name_ct || (glm_modifier & GLM_TEST_ALL))) {
+	  sprintf(logbuf, "Error: --xchr-model 3 cannot be used with --tests.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }

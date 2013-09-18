@@ -1,7 +1,6 @@
-#include "wdist_common.h"
+#include "wdist_stats.h"
 #include "ipmpar.h"
 #include "dcdflib.h"
-#include "wdist_stats.h"
 
 double chiprob_p(double xx, double df) {
   int st = 0;
@@ -1456,10 +1455,50 @@ void ca_trend_precomp_val_bounds(double chisq, intptr_t case_ct, intptr_t het_ct
   }
 }
 
-// todo
-/*
-uint32_t linear_hypothesis_chisq(uint32_t constraint_ct, uint32_t param_ct, double* constraints, double* coef, double* estimated_cov_matrix, ...) {
+uint32_t linear_hypothesis_chisq(uintptr_t constraint_ct, uintptr_t param_ct, double* constraints_con_major, double* coefs, double* cov_matrix, double* param_df_buf, double* param_df_buf2, double* df_df_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* df_buf, double* chisq_ptr) {
   // See PLINK model.cpp Model::linearHypothesis().
-  
+  //
+  // outer = df_buf
+  // inner = df_df_buf
+  // tmp = param_df_buf
+  // mi_buf only needs to be of length constraint_ct
+  //
+  // Since no PLINK function ever calls this with nonzero h[] values, this just
+  // takes a df parameter for now; it's trivial to switch to the more general
+  // interface later.
+  double* dptr = constraints_con_major;
+  double* dptr2;
+  uintptr_t constraint_idx;
+  uintptr_t constraint_idx2;
+  uintptr_t param_idx;
+  double dxx;
+  double dyy;
+  for (constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
+    dxx = 0;
+    dptr2 = coefs;
+    for (param_idx = 0; param_idx < param_ct; param_idx++) {
+      dxx += (*dptr++) * (*dptr2++);
+    }
+    df_buf[constraint_idx] = dxx;
+  }
+  // temporarily set param_df_buf2[][] to H-transpose
+  transpose_copy(constraint_ct, param_ct, constraints_con_major, param_df_buf2);
+  col_major_matrix_multiply(constraint_ct, param_ct, param_ct, param_df_buf2, cov_matrix, param_df_buf);
+  // tmp[][] is now param-major
+  col_major_matrix_multiply(constraint_ct, constraint_ct, param_ct, param_df_buf, constraints_con_major, df_df_buf);
+  if (invert_matrix((uint32_t)constraint_ct, df_df_buf, mi_buf, param_df_buf2)) {
+    return 1;
+  }
+  dxx = 0; // result
+  for (constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
+    dyy = 0; // tmp2[c]
+    dptr = df_buf;
+    dptr2 = df_df_buf;
+    for (constraint_idx2 = 0; constraint_idx2 < constraint_ct; constraint_idx2++) {
+      dyy += (*dptr++) * (*dptr2++);
+    }
+    dxx += dyy * df_buf[constraint_idx];
+  }
+  *chisq_ptr = dxx;
+  return 0;
 }
-*/
