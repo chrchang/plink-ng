@@ -9884,16 +9884,16 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   // 4..7: X chromosome male
   // 8..11: haploid
   fill_double_zero(geno_map, 12);
+  geno_map[0] = 1;
   geno_map[2] = 1;
-  geno_map[3] = 1;
-  geno_map[7] = 1;
-  geno_map[11] = 1;
+  geno_map[4] = 1;
+  geno_map[8] = 1;
   if (glm_modifier & GLM_CONDITION_RECESSIVE) {
     geno_map[2] = 0;
   } else if (!(glm_modifier & GLM_CONDITION_DOMINANT)) {
-    geno_map[3] = 2;
+    geno_map[0] = 2;
     if (glm_xchr_model == 2) {
-      geno_map[7] = 2;
+      geno_map[4] = 2;
     }
   }
   for (uii = 0; uii < condition_ct; uii++) {
