@@ -26,7 +26,11 @@ endif
 endif
 
 SRC = wdist.c wdist_assoc.c wdist_calc.c wdist_cluster.c wdist_cnv.c wdist_common.c wdist_data.c wdist_dosage.c wdist_help.c wdist_homozyg.c wdist_matrix.c wdist_stats.c SFMT.c dcdflib.c pigz.c yarn.c
-OBJ = wdist.o wdist_assoc.o wdist_calc.o wdist_cluster.o wdist_cnv.o wdist_common.o wdist_data.o wdist_dosage.o wdist_help.o wdist_homozyg.o wdist_matrix.o wdist_stats.o SFMT.o dcdflib.o pigz.o yarn.o
+
+OBJ = $(SRC:.c=.o)
+
+%.o: %.c
+	g++ -c $(CFLAGS) $(ARCH64) -o $@ $<
 
 wdist: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
@@ -47,7 +51,10 @@ wdistd: $(SRC)
 wdistnl: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o wdist $(LINKFLAGS) -Wl,-Bstatic -L. $(ZLIB)
 
-wdist64: $(SRC)
+wdist64: $(OBJ)
+	g++ $(CFLAGS) $(ARCH64) $(OBJ) -o wdist $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+
+wdist64_clean: $(SRC)
 	g++ $(CFLAGS) $(ARCH64) $(SRC) -o wdist $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
 wdist64w: $(SRC)
