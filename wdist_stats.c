@@ -1455,7 +1455,7 @@ void ca_trend_precomp_val_bounds(double chisq, intptr_t case_ct, intptr_t het_ct
   }
 }
 
-uint32_t linear_hypothesis_chisq(uintptr_t constraint_ct, uintptr_t param_ct, double* constraints_con_major, double* coefs, double* cov_matrix, double* param_df_buf, double* param_df_buf2, double* df_df_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* df_buf, double* chisq_ptr) {
+uint32_t linear_hypothesis_chisq(uintptr_t constraint_ct, uintptr_t param_ct, double* constraints_con_major, double* coef, double* cov_matrix, double* param_df_buf, double* param_df_buf2, double* df_df_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* df_buf, double* chisq_ptr) {
   // See PLINK model.cpp Model::linearHypothesis().
   //
   // outer = df_buf
@@ -1475,7 +1475,7 @@ uint32_t linear_hypothesis_chisq(uintptr_t constraint_ct, uintptr_t param_ct, do
   double dyy;
   for (constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
     dxx = 0;
-    dptr2 = coefs;
+    dptr2 = coef;
     for (param_idx = 0; param_idx < param_ct; param_idx++) {
       dxx += (*dptr++) * (*dptr2++);
     }
@@ -1486,14 +1486,15 @@ uint32_t linear_hypothesis_chisq(uintptr_t constraint_ct, uintptr_t param_ct, do
   col_major_matrix_multiply(constraint_ct, param_ct, param_ct, param_df_buf2, cov_matrix, param_df_buf);
   // tmp[][] is now param-major
   col_major_matrix_multiply(constraint_ct, constraint_ct, param_ct, param_df_buf, constraints_con_major, df_df_buf);
+
   if (invert_matrix((uint32_t)constraint_ct, df_df_buf, mi_buf, param_df_buf2)) {
     return 1;
   }
   dxx = 0; // result
+  dptr = df_df_buf;
   for (constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
     dyy = 0; // tmp2[c]
-    dptr = df_buf;
-    dptr2 = df_df_buf;
+    dptr2 = df_buf;
     for (constraint_idx2 = 0; constraint_idx2 < constraint_ct; constraint_idx2++) {
       dyy += (*dptr++) * (*dptr2++);
     }

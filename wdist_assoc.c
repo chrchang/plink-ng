@@ -8980,7 +8980,6 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
 	  for (param_idx = 1; param_idx < param_ct; param_idx++) {
 	    *dptr++ = param_2d_buf2[param_idx * param_ct_p1];
 	  }
-	  printf("hi\n");
 	  if (!linear_hypothesis_chisq(constraint_ct, param_ct, constraints_con_major, &(coef[perm_idx * indiv_valid_ct]), param_2d_buf2, param_df_buf, param_df_buf2, df_df_buf, mi_buf, df_buf, &dyy)) {
 	    *dptr++ = dyy;
 	  } else {
@@ -9948,7 +9947,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     uljj = 0;
     for (constraint_idx = 0; constraint_idx < constraint_ct; uljj++, constraint_idx++) {
       next_set_ul_unsafe_ck(joint_test_params, &uljj);
-      constraints_con_major[constraint_idx * param_ct + uljj] = 1;
+      constraints_con_major[constraint_idx * param_ct + uljj + 1] = 1;
     }
     wptr = memcpya(&(param_names[param_ct * max_param_name_len]), (glm_modifier & GLM_TEST_ALL)? "FULL" : "USER", 4);
     *wptr++ = '_';
@@ -10106,11 +10105,14 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     // fallback
 
     // multiple linear regression-specific allocations and preprocessing
+    perm_vec_ctcl8m = (perm_batch_size + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
+
     dgels_m = (int32_t)((uint32_t)indiv_valid_ct);
     dgels_n = (int32_t)((uint32_t)param_ct);
     dgels_nrhs = perm_batch_size;
     dgels_ldb = dgels_m;
-    if (wkspace_alloc_d_checked(&dgels_a, param_ct * indiv_valid_ct * sizeof(double)) ||
+    if (wkspace_alloc_d_checked(&g_perm_vecstd, perm_vec_ctcl8m * sizeof(double) * indiv_valid_ct) ||
+        wkspace_alloc_d_checked(&dgels_a, param_ct * indiv_valid_ct * sizeof(double)) ||
         wkspace_alloc_d_checked(&dgels_b, perm_batch_size * indiv_valid_ct * sizeof(double)) ||
         wkspace_alloc_d_checked(&dgels_work, sizeof(double))) {
       goto glm_assoc_nosnp_ret_NOMEM;
@@ -10179,9 +10181,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	  if (!g_cluster_ct) {
 	    goto glm_assoc_nosnp_ret_NO_PERMUTATION_CLUSTERS;
 	  }
-	  perm_vec_ctcl8m = (perm_batch_size + (CACHELINE_DBL - 1)) & (~(CACHELINE_DBL - 1));
-	  if (wkspace_alloc_ui_checked(&g_qassoc_cluster_thread_wkspace, g_thread_ct * ((g_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE) ||
-	      wkspace_alloc_d_checked(&g_perm_vecstd, perm_vec_ctcl8m * sizeof(double) * indiv_valid_ct)) {
+	  if (wkspace_alloc_ui_checked(&g_qassoc_cluster_thread_wkspace, g_thread_ct * ((g_cluster_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32) * CACHELINE)) {
 	    goto glm_assoc_nosnp_ret_NOMEM;
 	  }
 	} else {
@@ -10256,7 +10256,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 #ifndef NOLAPACK
   }
 #endif
-  if (constraint_ct && (regression_results[param_ct] == -9)) {
+  if (constraint_ct && (regression_results[param_ct - 1] == -9)) {
     logprint("Warning: Ignoring --tests due to regression failure.\n");
     constraint_ct = 0;
   }
@@ -10361,8 +10361,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   }
 #endif
   if (constraint_ct) {
-    dxx = regression_results[param_ct];
-    orig_stats[param_ct] = dxx;
+    dxx = regression_results[param_ct - 1];
+    orig_stats[param_ct - 1] = dxx;
     pval = chiprob_p(dxx, constraint_ct);
     if (pval <= pfilter) {
       wptr = fw_strcpy(10, &(param_names[param_ct * max_param_name_len]), tbuf);
@@ -10469,9 +10469,9 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	    dxx = *dptr2;
 	    dyy = *dptr3;
 	    if (dxx > dyy + EPSILON) {
-	      perm_2success_ct[param_ct] += 2;
+	      perm_2success_ct[ulii] += 2;
 	    } else if (dxx > dyy - EPSILON) {
-	      perm_2success_ct[param_ct] += 1;
+	      perm_2success_ct[ulii] += 1;
 	    }
 	    if (mperm_save) {
 	      *msa_ptr++ = dxx;
@@ -10542,9 +10542,9 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	    dxx = *dptr2;
 	    dyy = *dptr3;
 	    if (dxx > dyy + EPSILON) {
-	      perm_2success_ct[param_ct] += 2;
+	      perm_2success_ct[ulii] += 2;
 	    } else if (dxx > dyy - EPSILON) {
-	      perm_2success_ct[param_ct] += 1;
+	      perm_2success_ct[ulii] += 1;
 	    }
 	    if (mperm_save) {
 	      *msa_ptr++ = dxx;
@@ -10594,7 +10594,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	}
       }
     }
-    if (condition_ct) {
+    if (constraint_ct) {
       wptr = fw_strcpy(10, &(param_names[param_ct * max_param_name_len]), tbuf);
       *wptr++ = ' ';
       pval = ((double)(perm_2success_ct[param_ct - 1] + 2)) * 0.5 / ((double)((int32_t)(glm_mperm_val - perm_fail_total - joint_perm_fail_extra) + 1));
@@ -10619,7 +10619,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     logprintb();
     if (mperm_save) {
       *outname_end = '.';
-      if ((param_ct != param_ctx) && condition_ct) {
+      if ((param_ct != param_ctx) && constraint_ct) {
 	// need to distinguish between --tests being cancelled due to inversion
 	// failure, vs. normal completion
 	param_ct++;
