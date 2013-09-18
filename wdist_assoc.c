@@ -2436,7 +2436,7 @@ static uint32_t* g_perm_vecst; // genotype indexing support
 static uint32_t* g_thread_git_wkspace;
 static uint32_t* g_resultbuf;
 
-// always use genotype indexing for quantitative traits
+// always use genotype indexing for QT --assoc
 static double* g_perm_vecstd;
 static double* g_thread_git_qbufs;
 static double* g_qresultbuf;
@@ -2445,6 +2445,10 @@ static double g_pheno_sum;
 static double g_pheno_ssq;
 static uint16_t* g_ldrefs;
 static double* g_orig_linsq; // square of Lin t-statistic
+
+// can only permute indices for --linear, since 'standard-beta' without
+// 'no-snp' may cause the actual phenotype values to vary
+static uint32_t* g_perm_indices;
 
 // maximum number of precomputed table entries per marker
 static uint32_t g_precomp_width;
@@ -2618,7 +2622,7 @@ THREAD_RET_TYPE model_assoc_gen_cluster_perms_thread(void* arg) {
 }
 
 THREAD_RET_TYPE qassoc_gen_perms_thread(void* arg) {
-  // Used by QT --assoc, --linear, and --logistic.
+  // Used by QT --assoc.
   //
   // Takes an array of phenotype values in g_pheno_d2 of length g_pheno_nm_ct,
   // and populates g_perm_vecstd[] with permutations of those values.  Also
@@ -2755,6 +2759,61 @@ THREAD_RET_TYPE qassoc_gen_cluster_perms_thread(void* arg) {
 	*wptr3 = cur_source;
 	wptr2++;
       }
+    }
+  }
+  THREAD_RETURN;
+}
+
+THREAD_RET_TYPE linear_gen_perms_thread(void* arg) {
+  // Used by --linear.  (Can't use qassoc_gen_perms_thread() if 'standard-beta'
+  // modifier is active without 'no-snp'.)  Requires g_pheno_nm_ct,
+  // g_sfmtp_arr, g_assoc_thread_ct, and g_perm_vec_ct to be initialized, and
+  // space must be allocated for g_perm_indices.
+  //
+  // g_perm_indices is permutation-major: the nth permutation is stored from
+  //   [n * indiv_valid_ct] to [(n + 1) * indiv_valid_ct - 1]
+  // inclusive.
+  intptr_t tidx = (intptr_t)arg;
+  uint32_t indiv_valid_ct = g_pheno_nm_ct;
+  uintptr_t perm_vec_ctcl = (g_perm_vec_ct + (CACHELINE_INT32 - 1)) / CACHELINE_INT32;
+  sfmt_t* sfmtp = g_sfmtp_arr[tidx];
+  uint32_t pmin = CACHELINE_INT32 * ((((uint64_t)tidx) * perm_vec_ctcl) / g_assoc_thread_ct);
+  uint32_t pmax = CACHELINE_INT32 * ((((uint64_t)tidx + 1) * perm_vec_ctcl) / g_assoc_thread_ct);
+  uint32_t* perm_indices = &(g_perm_indices[pmin * indiv_valid_ct]);
+  uint32_t pdiff = pmax - pmin;
+  uint32_t poffset = 0;
+  uint32_t indiv_idx = 0;
+  uint32_t tot_quotient;
+  uint32_t upper_bound;
+  uint64_t totq_magic;
+  uint32_t totq_preshift;
+  uint32_t totq_postshift;
+  uint32_t totq_incr;
+  uint32_t urand;
+  uint32_t uii;
+  uint32_t* wptr;
+  if (((uintptr_t)tidx) + 1 == g_assoc_thread_ct) {
+    pmax = g_perm_vec_ct;
+  }
+  wptr = perm_indices;
+  for (; poffset < pdiff; poffset++) {
+    wptr[poffset * indiv_valid_ct] = 0;
+  }
+  for (; indiv_idx < indiv_valid_ct; indiv_idx++) {
+    tot_quotient = 4294967296LLU / (indiv_idx + 1);
+    upper_bound = (indiv_idx + 1) * tot_quotient - 1;
+    magic_num(tot_quotient, &totq_magic, &totq_preshift, &totq_postshift, &totq_incr);
+    wptr = perm_indices;
+    for (poffset = 0; poffset < pdiff; poffset++) {
+      do {
+	urand = sfmt_genrand_uint32(sfmtp);
+      } while (urand > upper_bound);
+      uii = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
+      // er, probably should just do normal divides so we can write
+      // sequentially, this memory access pattern sucks
+      wptr[indiv_idx] = wptr[uii];
+      wptr[uii] = indiv_idx;
+      wptr = &(wptr[indiv_valid_ct]);
     }
   }
   THREAD_RETURN;
@@ -9268,18 +9327,19 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   /*
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-  uintptr_t unfiltered_indiv_ctv2 = 2 * ((unfiltered_indiv_ct + BITCT - 1) / BITCT);
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + BITCT - 1) / BITCT;
+  uintptr_t unfiltered_indiv_ctv2 = 2 * unfiltered_indiv_ctl;
   FILE* outfile = NULL;
   FILE* outfile_msa = NULL;
   uintptr_t indiv_uidx = 0;
   uintptr_t topsize = 0;
   uintptr_t max_param_name_len = 2;
-  uintptr_t perm_vec_ctcl8m = 0;
   uintptr_t np_base = 2;
   uintptr_t np_diploid = 0;
   uintptr_t np_sex = 0;
+  uintptr_t np_joint = 0;
   uintptr_t condition_ct = 0;
-  uintptr_t indiv_valid_ctv2 = 0;
+  uintptr_t constraint_ct = 0;
   uint32_t cur_batch_size = 1;
   uint32_t cluster_ct1 = 0;
   uint32_t perm_adapt = glm_modifier & GLM_PERM;
@@ -9291,15 +9351,17 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uint32_t perm_count = glm_modifier & GLM_PERM_COUNT;
   uint32_t report_odds = pheno_c && (!(glm_modifier & GLM_BETA));
   uint32_t display_ci = (ci_size > 0);
-  // uint32_t perm_pass_idx = 0;
   uint32_t variation_in_sex = 0; // no need to initialize if no-x-sex specified
   uint32_t male_ct = 0;
+  uint32_t perm_pass_idx = 0;
   // uint32_t perm_attempt_ct = 0;
   uint32_t perms_done = 0;
   uint32_t perm_fail_total = 0;
+  uint32_t joint_perm_fail_extra = 0;
   uint32_t perm_fail_ct = 0;
   int32_t retval = 0;
 #ifndef NOLAPACK
+  uintptr_t perm_vec_ctcl8m = 0;
   char dgels_trans = 'N';
   int32_t dgels_m = 0;
   int32_t dgels_n = 0;
@@ -9310,6 +9372,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   int32_t dgels_ldb = 0;
   int32_t dgels_lwork = -1;
   int32_t dgels_info;
+  double dzz;
 #endif
   double* regression_results = NULL;
   double* cluster_param_buf = NULL; // guaranteed to be size >= param_ct^2
@@ -9321,6 +9384,11 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   double* logistic_initial_t2_buf = NULL;
   double* logistic_t2_buf = NULL;
   double* logistic_t3_buf = NULL;
+  double* constraints_con_major = NULL;
+  double* param_df_buf = NULL;
+  double* param_df_buf2 = NULL;
+  double* df_df_buf = NULL;
+  double* df_buf = NULL;
   uintptr_t* loadbuf_raw = NULL;
   uintptr_t* loadbuf_collapsed = NULL;
   uintptr_t* load_mask = NULL;
@@ -9328,6 +9396,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uintptr_t* indiv_include2 = NULL;
   uintptr_t* indiv_male_include2 = NULL;
   uintptr_t* active_params = NULL;
+  uintptr_t* joint_test_params = NULL;
   uintptr_t* perm_fails = NULL;
   uint32_t* perm_2success_ct = NULL;
   uint32_t* condition_uidxs = NULL;
@@ -9341,8 +9410,9 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   double* param_2d_buf2;
   MATRIX_INVERT_BUF1_TYPE* mi_buf;
   char* param_names;
-  double* covars_collapsed; // covariate-major
-  double* covars_transposed_buf; // individual-major
+  double* fixed_covars_cov_major;
+  double* cur_covars_cov_major;
+  double* cur_covars_indiv_major;
 
   // linear: pval = calc_tprob(orig_stats[i], indiv_valid_ct - param_ct)
   // logistic: pval = chiprob_p(orig_stats[i] * orig_stats[i], 1);
@@ -9354,10 +9424,12 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   double* dptr;
   double* dptr2;
   uintptr_t indiv_valid_ct;
+  uintptr_t indiv_valid_ctv2;
   uintptr_t indiv_uidx_stop;
   uintptr_t indiv_idx;
-  uintptr_t param_max_ctl;
-  uintptr_t param_ct;
+  uintptr_t np_max;
+  uintptr_t np_max_ctl;
+  uintptr_t cur_param_ct;
   uintptr_t param_idx;
   uintptr_t ulii;
   double* msa_ptr;
@@ -9367,7 +9439,6 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   double pval;
   double dxx;
   double dyy;
-  double dzz;
   uint32_t x_sex;
   uint32_t perm_idx;
   uint32_t marker_uidx;
@@ -9386,7 +9457,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   }
   loadbuf_raw[unfiltered_indiv_ctv2 - 2] = 0;
   loadbuf_raw[unfiltered_indiv_ctv2 - 1] = 0;
-  indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctv2 / 2);
+  indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctl);
   if (condition_mname || condition_fname) {
     // temporary allocation of unfiltered indiv_include2 and
     // indiv_male_include2 for glm_scan_conditions()
@@ -9427,8 +9498,8 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     // slight change from PLINK 1.07: missing sex no longer counts as female
     // when --allow-no-sex is active (--linear/--logistic normally throws out
     // all individuals missing a covariate, so we shouldn't make an exception
-    // for sex; allow-no-sex may still have an effect on other analyses in the
-    // current run)
+    // for sex; --allow-no-sex may still have an effect on other analyses in
+    // the current run)
     do {
       indiv_uidx = next_set_ul_unsafe(load_mask, indiv_uidx);
       indiv_uidx_stop = next_unset_ul(load_mask, indiv_uidx, unfiltered_indiv_ct);
@@ -9448,8 +9519,8 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     if (variation_in_sex) {
       if (sex_covar_everywhere) {
 	np_base += 1 + covar_interactions;
-        bitfield_and(load_mask, sex_nm, unfiltered_indiv_ctv2 / 2);
-        indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctv2);
+        bitfield_and(load_mask, sex_nm, unfiltered_indiv_ctl);
+        indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctl);
       } else {
 	np_sex += 1 + covar_interactions;
       }
@@ -9468,6 +9539,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   }
   loadbuf_collapsed[indiv_valid_ctv2 - 1] = 0;
   collapse_copy_bitarr_incl(unfiltered_indiv_ct, sex_male, load_mask, indiv_valid_ct, sex_male_collapsed);
+
 
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -9591,21 +9663,24 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   wkspace_reset(wkspace_mark);
   fclose_cond(outfile);
   fclose_cond(outfile_msa);
+  free_cond(active_params);
+  free_cond(joint_test_params);
+  free_cond(condition_uidxs);
   return retval;
-  */
+*/
 }
 
 int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double ci_zt, double pfilter, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, char* condition_mname, char* condition_fname, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, uintptr_t* indiv_exclude, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t mperm_save, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t hh_exists, uint32_t perm_batch_size) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
-  uintptr_t unfiltered_indiv_ctv2 = 2 * ((unfiltered_indiv_ct + BITCT - 1) / BITCT);
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + BITCT - 1) / BITCT;
+  uintptr_t unfiltered_indiv_ctv2 = 2 * unfiltered_indiv_ctl;
   FILE* outfile = NULL;
   uintptr_t indiv_uidx = 0;
   uintptr_t topsize = 0;
   uintptr_t max_param_name_len = 2;
   uintptr_t param_raw_ct = 1;
   uintptr_t condition_ct = 0;
-  uintptr_t indiv_valid_ctv2 = 0;
   uintptr_t constraint_ct = 0;
   uintptr_t ulii = 0;
   uint32_t cur_batch_size = 1;
@@ -9679,6 +9754,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   double* dptr;
   double* dptr2;
   uintptr_t indiv_valid_ct;
+  uintptr_t indiv_valid_ctv2;
   uintptr_t indiv_uidx_stop;
   uintptr_t indiv_idx;
   uintptr_t param_raw_ctl;
@@ -9706,7 +9782,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   if (glm_init_load_mask(indiv_exclude, pheno_nm, covar_nm, indiv_ct, unfiltered_indiv_ctv2, &load_mask)) {
     goto glm_assoc_nosnp_ret_NOMEM;
   }
-  indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctv2 / 2);
+  indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctl);
   if (condition_mname || condition_fname) {
     loadbuf_raw = (uintptr_t*)top_alloc(&topsize, unfiltered_indiv_ctv2 * sizeof(intptr_t));
     if (!loadbuf_raw) {
@@ -9763,8 +9839,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     } while (indiv_idx < indiv_valid_ct);
     if (variation_in_sex) {
       param_raw_ct++;
-      bitfield_and(load_mask, sex_nm, unfiltered_indiv_ctv2 / 2);
-      indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctv2 / 2);
+      bitfield_and(load_mask, sex_nm, unfiltered_indiv_ctl);
+      indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctl);
     } else {
       sprintf(logbuf, "Warning: Ignoring --%s 'sex' modifier since sex is invariant.\n", pheno_d? "linear" : "logistic");
       logprintb();
