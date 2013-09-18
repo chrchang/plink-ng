@@ -9764,7 +9764,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     if (variation_in_sex) {
       param_raw_ct++;
       bitfield_and(load_mask, sex_nm, unfiltered_indiv_ctv2 / 2);
-      indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctv2);
+      indiv_valid_ct = popcount_longs(load_mask, 0, unfiltered_indiv_ctv2 / 2);
     } else {
       sprintf(logbuf, "Warning: Ignoring --%s 'sex' modifier since sex is invariant.\n", pheno_d? "linear" : "logistic");
       logprintb();
