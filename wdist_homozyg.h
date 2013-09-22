@@ -22,6 +22,7 @@ typedef struct {
 #define HOMOZYG_GROUP_VERBOSE 2
 #define HOMOZYG_CONSENSUS_MATCH 4
 #define HOMOZYG_OLD_LENGTHS 8
+#define HOMOZYG_EXTEND 0x10
 
 void homozyg_init(Homozyg_info* homozyg_ptr);
 

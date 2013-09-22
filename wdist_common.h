@@ -1209,6 +1209,17 @@ int32_t last_set_bit(uintptr_t* bit_arr, uint32_t word_ct);
 // note different interface from last_set_bit()
 // int32_t last_clear_bit(uintptr_t* bit_arr, uint32_t ceil);
 
+// unlike the next_[un]set family, this always returns a STRICTLY earlier
+// position
+uint32_t prev_unset_unsafe(uintptr_t* bit_arr, uint32_t loc);
+
+static inline void prev_unset_unsafe_ck(uintptr_t* bit_arr, uint32_t* loc_ptr) {
+  *loc_ptr -= 1;
+  if (IS_SET(bit_arr, *loc_ptr)) {
+    *loc_ptr = prev_unset_unsafe(bit_arr, *loc_ptr);
+  }
+}
+
 // These functions seem to optimize better than memset(arr, 0, x) under gcc.
 static inline void fill_long_zero(intptr_t* larr, size_t size) {
   intptr_t* lptr = &(larr[size]);

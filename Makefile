@@ -53,9 +53,7 @@ wdistnl: $(SRC)
 
 wdist64: $(OBJ)
 	g++ $(CFLAGS) $(ARCH64) $(OBJ) -o wdist $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
-
-wdist64_clean: $(SRC)
-	g++ $(CFLAGS) $(ARCH64) $(SRC) -o wdist $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+# for clean build, rm -f *.o first
 
 wdist64w: $(SRC)
 	g++ $(CFLAGS) $(ARCH64) $(SRC) -c

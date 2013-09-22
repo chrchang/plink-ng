@@ -51,7 +51,140 @@ void increment_het_missing(uintptr_t* readbuf_cur, uint32_t indiv_ct, uint32_t* 
 #define ROH_ENTRY_INTS 6
 #endif
 
-uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_cur, uint32_t* het_cts, uint32_t* missing_cts, uint32_t* marker_pos, uintptr_t* cur_indiv_male, uint32_t indiv_ct, uint32_t swhit_min, uint32_t older_uidx, uint32_t old_uidx, uint32_t marker_cidx, uintptr_t max_roh_ct, uint32_t* swhit_cts, uint32_t* cur_roh_uidx_starts, uint32_t* cur_roh_cidx_starts, uint32_t* cur_roh_het_cts, uint32_t* cur_roh_missing_cts, uintptr_t* indiv_to_last_roh, uint32_t* roh_list, uintptr_t* roh_ct_ptr) {
+void roh_extend_forward(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx, uint32_t nsnp_incr, uint32_t is_new_lengths, double max_bases_per_snp, uint32_t* roh_list_cur) {
+  // marker_uidx should be the index of the marker immediately *after* the last
+  // eligible one.
+  int32_t subtract_pos = (int32_t)(marker_pos[roh_list_cur[0]] - is_new_lengths);
+  uint32_t orig_nsnp = roh_list_cur[2];
+  while (nsnp_incr) {
+    prev_unset_unsafe_ck(marker_exclude, &marker_uidx);
+    if (((int32_t)(orig_nsnp + nsnp_incr)) * max_bases_per_snp >= (double)(marker_pos[marker_uidx] - subtract_pos)) {
+      roh_list_cur[1] = marker_uidx;
+      roh_list_cur[2] += nsnp_incr;
+      roh_list_cur[3] += nsnp_incr;
+      return;
+    }
+    nsnp_incr--;
+  }
+}
+
+void save_confirmed_roh_extend(uint32_t uidx_first, uint32_t older_uidx, uint32_t cidx_len, uint32_t cur_roh_het_ct, uint32_t cur_roh_missing_ct, uintptr_t* indiv_last_roh_idx_ptr, uintptr_t* roh_ct_ptr, uint32_t* roh_list, uint32_t* marker_pos, uintptr_t* marker_exclude, uintptr_t marker_uidx, uint32_t is_new_lengths, double max_bases_per_snp, uint32_t* prev_roh_end_cidx_ptr, uint32_t* cur_roh_earliest_extend_uidx_ptr, uint32_t cidx_cur) {
+  // This is straightforward when the 'extend' modifier isn't present, we just
+  // append to roh_list.  It's a bit more complicated with 'extend':
+  //
+  // * When a new ROH is confirmed, we extend it backwards as far as possible.
+  //   In a few pathological cases, this actually means we merge it with the
+  //   previous ROH (consider:
+  //     --homozyg-snp 2
+  //     --homozyg-window-het 0
+  //     --homozyg-window-threshold 0.0727
+  //     chromosome with 99 loci: 24 hets, then 51 homs, then 24 hets), if that
+  //   doesn't blow the --homozyg-density or --homozyg-het limit.
+  // * We defer the forwards extension until the main loop passes the last
+  //   adjacent homozygous call after the ROH (prev_roh_end_cidxs[] is set to
+  //   0xffffffffU when this happens).  It is theoretically possible to be in
+  //   another ROH candidate at this point (consider what happens to the
+  //   example above when --homozyg-window-het is changed to 1, and the 74th
+  //   site is changed to het), but w.r.t. the density constraint, it's safe to
+  //   first extend the previous ROH forwards and then try to merge if the new
+  //   ROH is confirmed.
+  //   However, --homozyg-het with a nonzero parameter can lead to ambiguity:
+  //     --homozyg-snp 2
+  //     --homozyg-window-het 2
+  //     --homozyg-het 1
+  //     --homozyg-window-threshold 0.0816
+  //     chromosome with 96 loci: 24 hets, then 48 homs, then 24 hets
+  //   so for now we actually prohibit it from being specified with 'extend' on
+  //   the command line (this shouldn't be a big loss since we do permit
+  //   --homozyg-het 0).
+  //
+  // This is biased towards backwards extension if the ROH is near the density
+  // bound, but that also shouldn't be a big deal.  (Enough minutiae for
+  // now...)
+  uintptr_t roh_ct = *roh_ct_ptr;
+  uintptr_t indiv_last_roh_idx = *indiv_last_roh_idx_ptr;
+  uint32_t cidx_start = cidx_cur - cidx_len;
+  uint32_t* prev_roh_list_entry;
+  uint32_t prev_roh_end_cidx;
+  uint32_t prev_nsnp;
+  uint32_t extended_nsnp;
+  uint32_t add_pos;
+  uint32_t cur_uidx_first;
+  prev_roh_end_cidx = *prev_roh_end_cidx_ptr;
+  *prev_roh_end_cidx_ptr = cidx_cur;
+  add_pos = marker_pos[older_uidx] + is_new_lengths;
+  if (prev_roh_end_cidx == 0xffffffffU) {
+    cur_uidx_first = *cur_roh_earliest_extend_uidx_ptr;
+  } else {
+    // we're still in the same string of homozygous calls that the last ROH
+    // ended in.  direct merge?
+    prev_roh_list_entry = &(roh_list[indiv_last_roh_idx * ROH_ENTRY_INTS]);
+    prev_nsnp = prev_roh_list_entry[2];
+    extended_nsnp = prev_nsnp + cidx_cur - prev_roh_end_cidx;
+    // only thing that can prevent it at this point is --homozyg-density
+    // bound violation; every other condition was checked incrementally
+    // (including --homozyg-het since we've prevented it from being given any
+    // value other than 0 or infinity when 'extend' is present)
+    if (((double)((int32_t)extended_nsnp)) * max_bases_per_snp >= ((double)(add_pos - marker_pos[prev_roh_list_entry[0]]))) {
+      // technically the merge can unlock even more backward extension, but
+      // I'm just gonna a draw a line here and not check for that since we're
+      // already inside a corner case that should be irrelevant in practice.
+      prev_roh_list_entry[1] = older_uidx;
+      prev_roh_list_entry[2] = extended_nsnp;
+
+      // previous hom_ct = prev_nsnp - prev_het_ct - prev_missing_ct
+      // -> prev_het_ct + prev_missing_ct = prev_nsnp - prev_hom_ct
+      //
+      // new hom_ct = extended_nsnp - cur_roh_het_ct - cur_roh_missing_ct -
+      //              (prev_het_ct + prev_missing_ct)
+      //            = extended_nsnp - cur_roh_het_ct - cur_roh_missing_ct -
+      //              (prev_nsnp - prev_hom_ct)
+      //            = prev_hom_ct + extended_nsnp - cur_roh_het_ct -
+      //              cur_roh_missing_ct - prev_nsnp
+      prev_roh_list_entry[3] += extended_nsnp - cur_roh_het_ct - cur_roh_missing_ct - prev_nsnp;
+      prev_roh_list_entry[4] += cur_roh_het_ct;
+      return;
+    }
+    // extend previous ROH as far as possible before current ROH's start,
+    // then extend current one backward
+    roh_extend_forward(marker_pos, marker_exclude, uidx_first, cidx_start - prev_roh_end_cidx, is_new_lengths, max_bases_per_snp, prev_roh_list_entry);
+    cur_uidx_first = prev_roh_list_entry[1] + 1;
+    next_unset_unsafe_ck(marker_exclude, &cur_uidx_first);
+  }
+  if (cur_uidx_first < uidx_first) {
+    extended_nsnp = cidx_len + uidx_first - cur_uidx_first - popcount_bit_idx(marker_exclude, cur_uidx_first, uidx_first);
+    do {
+      if (((int32_t)extended_nsnp) * max_bases_per_snp >= (double)(add_pos - marker_pos[cur_uidx_first])) {
+	uidx_first = cur_uidx_first;
+	cidx_len = extended_nsnp;
+	break;
+      }
+      extended_nsnp--;
+      cur_uidx_first++;
+      next_unset_unsafe_ck(marker_exclude, &cur_uidx_first);
+    } while (cur_uidx_first < uidx_first);
+  }
+  roh_list = &(roh_list[roh_ct * ROH_ENTRY_INTS]);
+  *roh_list++ = uidx_first;
+  *roh_list++ = older_uidx;
+  *roh_list++ = cidx_len;
+  *roh_list++ = cidx_len - cur_roh_het_ct - cur_roh_missing_ct;
+  *roh_list++ = cur_roh_het_ct;
+#ifdef __LP64__
+  *roh_list++ = (uint32_t)indiv_last_roh_idx;
+  *roh_list++ = (uint32_t)(indiv_last_roh_idx >> 32);
+#else
+  *roh_list++ = (uint32_t)indiv_last_roh_idx;
+#endif
+  *indiv_last_roh_idx_ptr = roh_ct++;
+  *roh_ct_ptr = roh_ct;
+}
+
+uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_cur, uint32_t* het_cts, uint32_t* missing_cts, uint32_t* marker_pos, uintptr_t* cur_indiv_male, uint32_t indiv_ct, uint32_t swhit_min, uint32_t older_uidx, uint32_t old_uidx, uint32_t marker_cidx, uintptr_t max_roh_ct, uint32_t* swhit_cts, uint32_t* cur_roh_uidx_starts, uint32_t* cur_roh_cidx_starts, uint32_t* cur_roh_het_cts, uint32_t* cur_roh_missing_cts, uintptr_t* indiv_to_last_roh, uint32_t* roh_list, uintptr_t* roh_ct_ptr, uintptr_t* marker_exclude, uint32_t* prev_roh_end_cidxs, uint32_t* earliest_extend_uidxs, uint32_t* cur_roh_earliest_extend_uidxs) {
+  // Finishes processing current marker, saving all ROH that end at the
+  // previous one.  If readbuf_cur is NULL, the previous marker is assumed to
+  // be the last one on the chromosome.
+  uint32_t* roh_list_cur = &(roh_list[(*roh_ct_ptr) * ROH_ENTRY_INTS]);
   uint32_t min_snp = hp->min_snp;
   uint32_t min_bases = hp->min_bases;
   double max_bases_per_snp = hp->max_bases_per_snp;
@@ -60,61 +193,68 @@ uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_c
   uint32_t max_sw_missings = hp->window_max_missing;
   uint32_t is_new_lengths = 1 ^ ((hp->modifier / HOMOZYG_OLD_LENGTHS) & 1);
   uint32_t forced_end = (marker_pos[old_uidx] - marker_pos[older_uidx]) > hp->max_gap;
-  uintptr_t roh_ct = *roh_ct_ptr;
   uint32_t is_cur_hit = 0;
   uintptr_t cur_word = 0;
-  uint32_t* roh_list_cur = &(roh_list[roh_ct * ROH_ENTRY_INTS]);
   uintptr_t cur_call;
-  uintptr_t indiv_last_roh;
+  uintptr_t last_roh_idx;
   uint32_t indiv_idx;
   uint32_t cidx_len;
   uint32_t uidx_first;
   uint32_t base_len;
-  for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-    if (!(indiv_idx & (BITCT2 - 1))) {
-      if (readbuf_cur) {
-        cur_word = *readbuf_cur++;
+  uint32_t cur_het_ct;
+  if (!prev_roh_end_cidxs) {
+    // ~25% performance penalty if we don't separate this out
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      if (!(indiv_idx & (BITCT2 - 1))) {
+	if (readbuf_cur) {
+	  cur_word = *readbuf_cur++;
+	}
+      } else {
+	cur_word >>= 2;
       }
-    } else {
-      cur_word >>= 2;
-    }
-    if ((!cur_indiv_male) || (!IS_SET(cur_indiv_male, indiv_idx))) {
-      // not X-chromosome male
+      if (cur_indiv_male && IS_SET(cur_indiv_male, indiv_idx)) {
+	// skip males on Xchr (cur_indiv_male should be NULL when not Xchr)
+	continue;
+      }
       if (readbuf_cur) {
-        if (swbuf_cur) {
+	if (swbuf_cur) {
 	  if ((het_cts[indiv_idx] <= max_sw_hets) && (missing_cts[indiv_idx] <= max_sw_missings)) {
 	    SET_BIT(swbuf_cur, indiv_idx);
 	    swhit_cts[indiv_idx] += 1;
 	  }
-        }
-        is_cur_hit = (swhit_cts[indiv_idx] >= swhit_min);
+	}
+	is_cur_hit = (swhit_cts[indiv_idx] >= swhit_min);
       }
       cur_call = cur_word & (3 * ONELU);
-      if ((cur_roh_cidx_starts[indiv_idx] != 0xffffffffU) && ((!is_cur_hit) || ((cur_call == 2) && (cur_roh_het_cts[indiv_idx] == max_hets)) || forced_end)) {
-	cidx_len = marker_cidx - cur_roh_cidx_starts[indiv_idx];
-	if (cidx_len >= min_snp) {
-	  uidx_first = cur_roh_uidx_starts[indiv_idx];
-	  base_len = marker_pos[older_uidx] + is_new_lengths - marker_pos[uidx_first];
-          if ((base_len >= min_bases) && (((double)((int32_t)cidx_len)) * max_bases_per_snp >= ((double)base_len))) {
-	    if (roh_ct == max_roh_ct) {
-	      return 1;
-	    }
-	    *roh_list_cur++ = uidx_first;
-	    *roh_list_cur++ = older_uidx;
-	    *roh_list_cur++ = cidx_len;
-	    *roh_list_cur++ = cidx_len - cur_roh_het_cts[indiv_idx] - cur_roh_missing_cts[indiv_idx];
-	    *roh_list_cur++ = cur_roh_het_cts[indiv_idx];
-	    indiv_last_roh = indiv_to_last_roh[indiv_idx];
+      if (cur_roh_cidx_starts[indiv_idx] != 0xffffffffU) {
+	if ((!is_cur_hit) || ((cur_call == 2) && (cur_roh_het_cts[indiv_idx] == max_hets)) || forced_end) {
+	  cidx_len = marker_cidx - cur_roh_cidx_starts[indiv_idx];
+	  if (cidx_len >= min_snp) {
+	    uidx_first = cur_roh_uidx_starts[indiv_idx];
+	    base_len = marker_pos[older_uidx] + is_new_lengths - marker_pos[uidx_first];
+	    if ((base_len >= min_bases) && (((double)((int32_t)cidx_len)) * max_bases_per_snp >= ((double)base_len))) {
+	      if (*roh_ct_ptr == max_roh_ct) {
+		return 1;
+	      }
+	      *roh_list_cur++ = uidx_first;
+	      *roh_list_cur++ = older_uidx;
+	      *roh_list_cur++ = cidx_len;
+              cur_het_ct = cur_roh_het_cts[indiv_idx];
+	      *roh_list_cur++ = cidx_len - cur_het_ct - cur_roh_missing_cts[indiv_idx];
+	      *roh_list_cur++ = cur_het_ct;
+	      last_roh_idx = indiv_to_last_roh[indiv_idx];
 #ifdef __LP64__
-	    *roh_list_cur++ = (uint32_t)indiv_last_roh;
-	    *roh_list_cur++ = (uint32_t)(indiv_last_roh >> 32);
+	      *roh_list_cur++ = (uint32_t)last_roh_idx;
+	      *roh_list_cur++ = (uint32_t)(last_roh_idx >> 32);
 #else
-	    *roh_list_cur++ = (uint32_t)indiv_last_roh;
+	      *roh_list_cur++ = (uint32_t)last_roh_idx;
 #endif
-	    indiv_to_last_roh[indiv_idx] = roh_ct++;
+              indiv_to_last_roh[indiv_idx] = *roh_ct_ptr;
+	      *roh_ct_ptr += 1;
+	    }
 	  }
+	  cur_roh_cidx_starts[indiv_idx] = 0xffffffffU;
 	}
-	cur_roh_cidx_starts[indiv_idx] = 0xffffffffU;
       }
       if (is_cur_hit) {
 	if (cur_roh_cidx_starts[indiv_idx] == 0xffffffffU) {
@@ -135,8 +275,76 @@ uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_c
 	}
       }
     }
+  } else {
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      if (!(indiv_idx & (BITCT2 - 1))) {
+	if (readbuf_cur) {
+	  cur_word = *readbuf_cur++;
+	}
+      } else {
+	cur_word >>= 2;
+      }
+      if (cur_indiv_male && IS_SET(cur_indiv_male, indiv_idx)) {
+	continue;
+      }
+      if (readbuf_cur) {
+	if (swbuf_cur) {
+	  if ((het_cts[indiv_idx] <= max_sw_hets) && (missing_cts[indiv_idx] <= max_sw_missings)) {
+	    SET_BIT(swbuf_cur, indiv_idx);
+	    swhit_cts[indiv_idx] += 1;
+	  }
+	}
+	is_cur_hit = (swhit_cts[indiv_idx] >= swhit_min);
+      }
+      cur_call = cur_word & (3 * ONELU);
+      if (cur_roh_cidx_starts[indiv_idx] != 0xffffffffU) {
+	if ((!is_cur_hit) || ((cur_call == 2) && (cur_roh_het_cts[indiv_idx] == max_hets)) || forced_end) {
+	  cidx_len = marker_cidx - cur_roh_cidx_starts[indiv_idx];
+	  if (cidx_len >= min_snp) {
+	    uidx_first = cur_roh_uidx_starts[indiv_idx];
+	    base_len = marker_pos[older_uidx] + is_new_lengths - marker_pos[uidx_first];
+	    if ((base_len >= min_bases) && (((double)((int32_t)cidx_len)) * max_bases_per_snp >= ((double)base_len))) {
+	      if (*roh_ct_ptr == max_roh_ct) {
+		return 1;
+	      }
+	      save_confirmed_roh_extend(uidx_first, older_uidx, cidx_len, cur_roh_het_cts[indiv_idx], cur_roh_missing_cts[indiv_idx], &(indiv_to_last_roh[indiv_idx]), roh_ct_ptr, roh_list, marker_pos, marker_exclude, old_uidx, is_new_lengths, max_bases_per_snp, &(prev_roh_end_cidxs[indiv_idx]), &(cur_roh_earliest_extend_uidxs[indiv_idx]), marker_cidx);
+	    }
+	  }
+	  cur_roh_cidx_starts[indiv_idx] = 0xffffffffU;
+	  if (cur_call || forced_end) {
+	    prev_roh_end_cidxs[indiv_idx] = 0xffffffffU;
+	  }
+	}
+      } else if ((cur_call || forced_end) && (prev_roh_end_cidxs[indiv_idx] != 0xffffffffU)) {
+	roh_extend_forward(marker_pos, marker_exclude, old_uidx, marker_cidx - prev_roh_end_cidxs[indiv_idx], is_new_lengths, max_bases_per_snp, &(roh_list[indiv_to_last_roh[indiv_idx] * ROH_ENTRY_INTS]));
+	prev_roh_end_cidxs[indiv_idx] = 0xffffffffU;
+      }
+      if (cur_call) {
+	earliest_extend_uidxs[indiv_idx] = 0xffffffffU;
+      } else if ((earliest_extend_uidxs[indiv_idx] == 0xffffffffU) || forced_end) {
+        earliest_extend_uidxs[indiv_idx] = old_uidx;
+      }
+      if (is_cur_hit) {
+	if (cur_roh_cidx_starts[indiv_idx] == 0xffffffffU) {
+	  if ((!max_hets) && (cur_call == 2)) {
+	    continue;
+	  }
+	  cur_roh_uidx_starts[indiv_idx] = old_uidx;
+	  cur_roh_cidx_starts[indiv_idx] = marker_cidx;
+	  cur_roh_het_cts[indiv_idx] = 0;
+	  cur_roh_missing_cts[indiv_idx] = 0;
+	  cur_roh_earliest_extend_uidxs[indiv_idx] = earliest_extend_uidxs[indiv_idx];
+	}
+	if (cur_call) {
+	  if (cur_call == 2) {
+	    cur_roh_het_cts[indiv_idx] += 1;
+	  } else {
+	    cur_roh_missing_cts[indiv_idx] += 1;
+	  }
+	}
+      }
+    }
   }
-  *roh_ct_ptr = roh_ct;
   return 0;
 }
 
@@ -147,6 +355,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
   char* wptr_iid = &(tbuf[plink_maxfid + 1]);
   char* wptr_phe = &(tbuf[plink_maxfid + plink_maxiid + 2]);
   int32_t* roh_ct_aff_adj = NULL;
+  uintptr_t next_roh_idx = 0;
   uint32_t max_pool_size = 0;
   uint32_t max_roh_len = 0;
   int32_t retval = 0;
@@ -161,7 +370,6 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
   uintptr_t indiv_idx;
   uintptr_t prev_roh_idx;
   uintptr_t cur_roh_idx;
-  uintptr_t next_roh_idx;
   uintptr_t chrom_roh_start;
   uintptr_t chrom_roh_ct;
   uint32_t cur_roh_ct;
@@ -210,7 +418,6 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
     // traverse roh_list backwards, reversing the direction of [5], then
     // traverse forwards and reset [5] again to indiv_idx
     cur_roh_idx = indiv_to_last_roh[indiv_idx];
-    next_roh_idx = ZEROLU;
     cur_roh_ct = 0;
     while (cur_roh_idx != ~ZEROLU) {
       cur_roh = &(roh_list[cur_roh_idx * ROH_ENTRY_INTS]);
@@ -2255,6 +2462,12 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   uintptr_t topsize = 0;
   uintptr_t roh_ct = 0;
   uintptr_t* indiv_male = NULL;
+
+  // support for new 'extend' modifier
+  uint32_t* prev_roh_end_cidxs = NULL;
+  uint32_t* earliest_extend_uidxs = NULL;
+  uint32_t* cur_roh_earliest_extend_uidxs = NULL;
+
   uint32_t swhit_min = 0;
   int32_t retval = 0;
   uintptr_t roh_list_chrom_starts[MAX_POSSIBLE_CHROM + 1];
@@ -2267,6 +2480,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   uint32_t* missing_cts;
   uint32_t* swhit_cts;
   uint32_t* cur_roh_uidx_starts;
+  // probably want to rewrite this code to mostly just refer to cidxs...
   uint32_t* cur_roh_cidx_starts;
   uint32_t* cur_roh_het_cts;
   uint32_t* cur_roh_missing_cts;
@@ -2339,6 +2553,20 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   cur_roh_cidx_starts = (uint32_t*)top_alloc(&topsize, indiv_ct * sizeof(int32_t));
   if (!cur_roh_cidx_starts) {
     goto calc_homozyg_ret_NOMEM;
+  }
+  if (hp->modifier & HOMOZYG_EXTEND) {
+    prev_roh_end_cidxs = (uint32_t*)top_alloc(&topsize, indiv_ct * sizeof(int32_t));
+    if (!prev_roh_end_cidxs) {
+      goto calc_homozyg_ret_NOMEM;
+    }
+    earliest_extend_uidxs = (uint32_t*)top_alloc(&topsize, indiv_ct * sizeof(int32_t));
+    if (!earliest_extend_uidxs) {
+      goto calc_homozyg_ret_NOMEM;
+    }
+    cur_roh_earliest_extend_uidxs = (uint32_t*)top_alloc(&topsize, indiv_ct * sizeof(int32_t));
+    if (!cur_roh_earliest_extend_uidxs) {
+      goto calc_homozyg_ret_NOMEM;
+    }
   }
   cur_roh_het_cts = (uint32_t*)top_alloc(&topsize, indiv_ct * sizeof(int32_t));
   if (!cur_roh_het_cts) {
@@ -2426,6 +2654,14 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
       fill_ulong_zero(swbuf, window_size * indiv_ctl);
       fill_uint_zero(swhit_cts, indiv_ct);
       fill_uint_one(cur_roh_cidx_starts, indiv_ct);
+
+      // cidx right after previous ROH end, if there has been no het or missing
+      // call since
+      if (prev_roh_end_cidxs) {
+        fill_uint_one(prev_roh_end_cidxs, indiv_ct);
+        fill_uint_one(earliest_extend_uidxs, indiv_ct);
+      }
+
       widx = 0;
       swbuf_full = 0;
       marker_cidx = 0;
@@ -2442,7 +2678,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	} else {
 	  swhit_min = (int32_t)(((double)((int32_t)(widx + 1))) * hit_threshold + 1.0 - EPSILON);
 	}
-	if (roh_update(hp, readbuf_cur, swbuf_cur, het_cts, missing_cts, marker_pos, cur_indiv_male, indiv_ct, swhit_min, older_uidx, old_uidx, marker_cidx, max_roh_ct, swhit_cts, cur_roh_uidx_starts, cur_roh_cidx_starts, cur_roh_het_cts, cur_roh_missing_cts, indiv_to_last_roh, roh_list, &roh_ct)) {
+	if (roh_update(hp, readbuf_cur, swbuf_cur, het_cts, missing_cts, marker_pos, cur_indiv_male, indiv_ct, swhit_min, older_uidx, old_uidx, marker_cidx, max_roh_ct, swhit_cts, cur_roh_uidx_starts, cur_roh_cidx_starts, cur_roh_het_cts, cur_roh_missing_cts, indiv_to_last_roh, roh_list, &roh_ct, marker_exclude, prev_roh_end_cidxs, earliest_extend_uidxs, cur_roh_earliest_extend_uidxs)) {
 	  goto calc_homozyg_ret_NOMEM;
 	}
 	increment_het_missing(readbuf_cur, indiv_ct, het_cts, missing_cts, -1);
@@ -2464,21 +2700,19 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	}
 	mask_out_homozyg_major(readbuf_cur, indiv_ct);
 	increment_het_missing(readbuf_cur, indiv_ct, het_cts, missing_cts, 1);
-	widx++;
-	marker_cidx++;
-	if (widx == window_size) {
+	if (++widx == window_size) {
 	  widx = 0;
 	  swbuf_full = 1;
 	}
+	marker_cidx++;
       }
       // now handle the last (window_size - 1) markers
       marker_cidx_max = marker_cidx + window_size;
       do {
-	widx++;
-	marker_cidx++;
-	if (widx == window_size) {
+	if (++widx == window_size) {
 	  widx = 0;
 	}
+        marker_cidx++;
 	older_uidx = old_uidx;
 	if (marker_cidx < marker_cidx_max) {
 	  old_uidx = uidx_buf[widx];
@@ -2489,7 +2723,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	} else {
 	  readbuf_cur = NULL;
 	}
-	if (roh_update(hp, readbuf_cur, NULL, het_cts, missing_cts, marker_pos, cur_indiv_male, indiv_ct, swhit_min, older_uidx, old_uidx, marker_cidx, max_roh_ct, swhit_cts, cur_roh_uidx_starts, cur_roh_cidx_starts, cur_roh_het_cts, cur_roh_missing_cts, indiv_to_last_roh, roh_list, &roh_ct)) {
+	if (roh_update(hp, readbuf_cur, NULL, het_cts, missing_cts, marker_pos, cur_indiv_male, indiv_ct, swhit_min, older_uidx, old_uidx, marker_cidx, max_roh_ct, swhit_cts, cur_roh_uidx_starts, cur_roh_cidx_starts, cur_roh_het_cts, cur_roh_missing_cts, indiv_to_last_roh, roh_list, &roh_ct, marker_exclude, prev_roh_end_cidxs, earliest_extend_uidxs, cur_roh_earliest_extend_uidxs)) {
 	  goto calc_homozyg_ret_NOMEM;
 	}
       } while (marker_cidx <= marker_cidx_max);

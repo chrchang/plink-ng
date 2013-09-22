@@ -2632,7 +2632,7 @@ int32_t last_clear_bit(uintptr_t* bit_arr, uint32_t ceil) {
   if (remainder) {
     ulii = (~(*bit_arr_ptr)) & ((ONELU << remainder) - ONELU);
     if (ulii) {
-      return (ceil | (BITCT - ONELU)) - CLZLU(ulii);
+      return (ceil | (BITCT - 1)) - CLZLU(ulii);
     }
   }
   while (bit_arr_ptr > bit_arr) {
@@ -2642,6 +2642,24 @@ int32_t last_clear_bit(uintptr_t* bit_arr, uint32_t ceil) {
     }
   }
   return -1;
+}
+
+uint32_t prev_unset_unsafe(uintptr_t* bit_arr, uint32_t loc) {
+// unlike the next_[un]set family, this always returns a STRICTLY earlier
+// position
+  uintptr_t* bit_arr_ptr = &(bit_arr[loc / BITCT]);
+  uint32_t remainder = loc % BITCT;
+  uintptr_t ulii;
+  if (remainder) {
+    ulii = (~(*bit_arr_ptr)) & ((ONELU << remainder) - ONELU);
+    if (ulii) {
+      return (loc | (BITCT - 1)) - CLZLU(ulii);
+    }
+  }
+  do {
+    ulii = ~(*(--bit_arr_ptr));
+  } while (!ulii);
+  return ((uintptr_t)(bit_arr_ptr - bit_arr)) * BITCT + BITCT - 1 - CLZLU(ulii);
 }
 
 void fill_idx_to_uidx(uintptr_t* exclude_arr, uintptr_t unfiltered_item_ct, uintptr_t item_ct, uint32_t* idx_to_uidx) {

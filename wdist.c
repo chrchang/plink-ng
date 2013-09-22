@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (18 Sep 2013)";
+  " (22 Sep 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -8858,7 +8858,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE_3;
       } else if (!memcmp(argptr2, "omozyg", 7)) {
 	UNSTABLE;
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
@@ -8876,6 +8876,8 @@ int32_t main(int32_t argc, char** argv) {
 	    homozyg.modifier |= HOMOZYG_GROUP_VERBOSE;
 	  } else if (!strcmp(argv[cur_arg + uii], "consensus-match")) {
 	    homozyg.modifier |= HOMOZYG_CONSENSUS_MATCH;
+	  } else if (!strcmp(argv[cur_arg + uii], "extend")) {
+	    homozyg.modifier |= HOMOZYG_EXTEND;
 	  } else if (!strcmp(argv[cur_arg + uii], "subtract-1-from-lengths")) {
             homozyg.modifier |= HOMOZYG_OLD_LENGTHS;
 	  } else {
@@ -8938,6 +8940,10 @@ int32_t main(int32_t argc, char** argv) {
 	if (atoiz(argv[cur_arg + 1], &ii)) {
 	  sprintf(logbuf, "Error: Invalid --homozyg-het parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (ii && (homozyg.modifier & HOMOZYG_EXTEND)) {
+	  sprintf(logbuf, "Error: --homozyg-het with a nonzero parameter cannot be used with --homozyg\nextend.  For fine-grained control over heterozygote frequency, use\n--homozyg-window-snp and --homozyg-window-het instead.%s", errstr_append);
+          goto main_ret_INVALID_CMDLINE_3;
 	}
 	calculation_type |= CALC_HOMOZYG;
         homozyg.max_hets = ii;
