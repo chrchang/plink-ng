@@ -602,7 +602,7 @@ int32_t cluster_alloc_and_populate_magic_nums(uint32_t cluster_ct, uint32_t* clu
   totq_postshifts = *totq_postshifts_ptr;
   totq_incrs = *totq_incrs_ptr;
   for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
-    tot_quotients[cluster_idx] = 4294967296LLU / (cluster_starts[cluster_idx + 1] - cluster_starts[cluster_idx]);
+    tot_quotients[cluster_idx] = 0x100000000LLU / (cluster_starts[cluster_idx + 1] - cluster_starts[cluster_idx]);
     magic_num(tot_quotients[cluster_idx], &(totq_magics[cluster_idx]), &(totq_preshifts[cluster_idx]), &(totq_postshifts[cluster_idx]), &(totq_incrs[cluster_idx]));
   }
   return 0;
