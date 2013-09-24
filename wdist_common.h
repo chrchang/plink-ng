@@ -1731,6 +1731,14 @@ void print_pheno_stdev(double* pheno_d, uint32_t indiv_ct);
 
 uint32_t set_default_jackknife_d(uint32_t ct);
 
+static inline void precompute_mods(uintptr_t indiv_ct, uint32_t* precomputed_mods) {
+  // sets precomputed_mods[n] = 2^32 mod (n-2)
+  uintptr_t indiv_idx;
+  for (indiv_idx = 2; indiv_idx <= indiv_ct; indiv_idx++) {
+    *precomputed_mods++ = (uint32_t)(0x100000000LLU % indiv_idx);
+  }
+}
+
 void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm_idx, uintptr_t perm_ct, uintptr_t* perm_buf);
 
 void cluster_dist_divide(uintptr_t indiv_ct, uintptr_t cluster_ct, uint32_t* cluster_starts, double* cluster_sdistances);

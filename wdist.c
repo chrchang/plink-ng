@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (22 Sep 2013)";
+  " (24 Sep 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -12166,7 +12166,7 @@ int32_t main(int32_t argc, char** argv) {
     rseeds = NULL;
   }
 
-
+  // guarantee 64MB of contiguous malloc space outside of main workspace
   bubble = (char*)malloc(67108864 * sizeof(char));
   if (!bubble) {
     goto main_ret_NOMEM;

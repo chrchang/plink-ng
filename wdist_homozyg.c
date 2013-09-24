@@ -45,6 +45,41 @@ void increment_het_missing(uintptr_t* readbuf_cur, uint32_t indiv_ct, uint32_t* 
   }
 }
 
+void decrement_het_missing_extend(uintptr_t* readbuf_cur, uint32_t indiv_ct, uint32_t* het_cts, uint32_t* missing_cts, uint32_t* end_nonhom_uidxs, uint32_t next_uidx) {
+  uint32_t indiv_idx_offset;
+  uint32_t indiv_idx;
+  uintptr_t cur_word;
+  uint32_t last_set_bit;
+  for (indiv_idx_offset = 0; indiv_idx_offset < indiv_ct; indiv_idx_offset += BITCT2) {
+    cur_word = *readbuf_cur++;
+    while (cur_word) {
+      last_set_bit = CTZLU(cur_word);
+      indiv_idx = indiv_idx_offset + (last_set_bit / 2);
+      if (last_set_bit & 1) {
+        het_cts[indiv_idx] -= 1;
+      } else {
+        missing_cts[indiv_idx] -= 1;
+      }
+      end_nonhom_uidxs[indiv_idx] = next_uidx;
+      cur_word &= cur_word - ONELU;
+    }
+  }
+}
+
+void update_end_nonhom(uintptr_t* readbuf_cur, uint32_t indiv_ct, uint32_t* end_nonhom_uidxs, uint32_t next_uidx) {
+  uint32_t indiv_idx_offset;
+  uintptr_t cur_word;
+  uint32_t last_set_bit;
+  for (indiv_idx_offset = 0; indiv_idx_offset < indiv_ct; indiv_idx_offset += BITCT2) {
+    cur_word = *readbuf_cur++;
+    while (cur_word) {
+      last_set_bit = CTZLU(cur_word);
+      end_nonhom_uidxs[indiv_idx_offset + (last_set_bit / 2)] = next_uidx;
+      cur_word &= cur_word - ONELU;
+    }
+  }
+}
+
 #ifdef __LP64__
 #define ROH_ENTRY_INTS 7
 #else
@@ -180,7 +215,7 @@ void save_confirmed_roh_extend(uint32_t uidx_first, uint32_t older_uidx, uint32_
   *roh_ct_ptr = roh_ct;
 }
 
-uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_cur, uint32_t* het_cts, uint32_t* missing_cts, uint32_t* marker_pos, uintptr_t* cur_indiv_male, uint32_t indiv_ct, uint32_t swhit_min, uint32_t older_uidx, uint32_t old_uidx, uint32_t marker_cidx, uintptr_t max_roh_ct, uint32_t* swhit_cts, uint32_t* cur_roh_uidx_starts, uint32_t* cur_roh_cidx_starts, uint32_t* cur_roh_het_cts, uint32_t* cur_roh_missing_cts, uintptr_t* indiv_to_last_roh, uint32_t* roh_list, uintptr_t* roh_ct_ptr, uintptr_t* marker_exclude, uint32_t* prev_roh_end_cidxs, uint32_t* earliest_extend_uidxs, uint32_t* cur_roh_earliest_extend_uidxs) {
+uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_cur, uint32_t* het_cts, uint32_t* missing_cts, uint32_t* marker_pos, uintptr_t* cur_indiv_male, uint32_t indiv_ct, uint32_t swhit_min, uint32_t older_uidx, uint32_t old_uidx, uint32_t marker_cidx, uintptr_t max_roh_ct, uint32_t* swhit_cts, uint32_t* cur_roh_uidx_starts, uint32_t* cur_roh_cidx_starts, uint32_t* cur_roh_het_cts, uint32_t* cur_roh_missing_cts, uintptr_t* indiv_to_last_roh, uint32_t* roh_list, uintptr_t* roh_ct_ptr, uintptr_t* marker_exclude, uint32_t* prev_roh_end_cidxs, uint32_t* end_nonhom_uidxs, uint32_t* cur_roh_earliest_extend_uidxs) {
   // Finishes processing current marker, saving all ROH that end at the
   // previous one.  If readbuf_cur is NULL, the previous marker is assumed to
   // be the last one on the chromosome.
@@ -276,6 +311,11 @@ uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_c
       }
     }
   } else {
+    if (forced_end) {
+      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+        end_nonhom_uidxs[indiv_idx] = old_uidx;
+      }
+    }
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       if (!(indiv_idx & (BITCT2 - 1))) {
 	if (readbuf_cur) {
@@ -319,11 +359,6 @@ uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_c
 	roh_extend_forward(marker_pos, marker_exclude, old_uidx, marker_cidx - prev_roh_end_cidxs[indiv_idx], is_new_lengths, max_bases_per_snp, &(roh_list[indiv_to_last_roh[indiv_idx] * ROH_ENTRY_INTS]));
 	prev_roh_end_cidxs[indiv_idx] = 0xffffffffU;
       }
-      if (cur_call) {
-	earliest_extend_uidxs[indiv_idx] = 0xffffffffU;
-      } else if ((earliest_extend_uidxs[indiv_idx] == 0xffffffffU) || forced_end) {
-        earliest_extend_uidxs[indiv_idx] = old_uidx;
-      }
       if (is_cur_hit) {
 	if (cur_roh_cidx_starts[indiv_idx] == 0xffffffffU) {
 	  if ((!max_hets) && (cur_call == 2)) {
@@ -333,9 +368,13 @@ uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_c
 	  cur_roh_cidx_starts[indiv_idx] = marker_cidx;
 	  cur_roh_het_cts[indiv_idx] = 0;
 	  cur_roh_missing_cts[indiv_idx] = 0;
-	  cur_roh_earliest_extend_uidxs[indiv_idx] = earliest_extend_uidxs[indiv_idx];
-	}
-	if (cur_call) {
+	  if (cur_call) {
+	    cur_roh_earliest_extend_uidxs[indiv_idx] = old_uidx;
+	    goto roh_update_extend_nonhom;
+	  }
+	  cur_roh_earliest_extend_uidxs[indiv_idx] = end_nonhom_uidxs[indiv_idx];
+	} else if (cur_call) {
+	roh_update_extend_nonhom:
 	  if (cur_call == 2) {
 	    cur_roh_het_cts[indiv_idx] += 1;
 	  } else {
@@ -2465,7 +2504,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 
   // support for new 'extend' modifier
   uint32_t* prev_roh_end_cidxs = NULL;
-  uint32_t* earliest_extend_uidxs = NULL;
+  uint32_t* end_nonhom_uidxs = NULL;
   uint32_t* cur_roh_earliest_extend_uidxs = NULL;
 
   uint32_t swhit_min = 0;
@@ -2510,6 +2549,8 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   char* wptr;
   uintptr_t ulii;
   uintptr_t widx;
+  uintptr_t widx_next;
+  uintptr_t indiv_idx;
   uint32_t old_uidx;
   uint32_t older_uidx;
   uint32_t marker_cidx;
@@ -2559,8 +2600,8 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     if (!prev_roh_end_cidxs) {
       goto calc_homozyg_ret_NOMEM;
     }
-    earliest_extend_uidxs = (uint32_t*)top_alloc(&topsize, indiv_ct * sizeof(int32_t));
-    if (!earliest_extend_uidxs) {
+    end_nonhom_uidxs = (uint32_t*)top_alloc(&topsize, indiv_ct * sizeof(int32_t));
+    if (!end_nonhom_uidxs) {
       goto calc_homozyg_ret_NOMEM;
     }
     cur_roh_earliest_extend_uidxs = (uint32_t*)top_alloc(&topsize, indiv_ct * sizeof(int32_t));
@@ -2655,17 +2696,16 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
       fill_uint_zero(swhit_cts, indiv_ct);
       fill_uint_one(cur_roh_cidx_starts, indiv_ct);
 
-      // cidx right after previous ROH end, if there has been no het or missing
-      // call since
-      if (prev_roh_end_cidxs) {
-        fill_uint_one(prev_roh_end_cidxs, indiv_ct);
-        fill_uint_one(earliest_extend_uidxs, indiv_ct);
-      }
-
       widx = 0;
       swbuf_full = 0;
       marker_cidx = 0;
       old_uidx = uidx_buf[0];
+      if (prev_roh_end_cidxs) {
+        fill_uint_one(prev_roh_end_cidxs, indiv_ct);
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+          end_nonhom_uidxs[indiv_idx] = old_uidx;
+	}
+      }
       // repurpose widx as next readbuf row
       while (1) {
 	older_uidx = old_uidx;
@@ -2678,10 +2718,19 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	} else {
 	  swhit_min = (int32_t)(((double)((int32_t)(widx + 1))) * hit_threshold + 1.0 - EPSILON);
 	}
-	if (roh_update(hp, readbuf_cur, swbuf_cur, het_cts, missing_cts, marker_pos, cur_indiv_male, indiv_ct, swhit_min, older_uidx, old_uidx, marker_cidx, max_roh_ct, swhit_cts, cur_roh_uidx_starts, cur_roh_cidx_starts, cur_roh_het_cts, cur_roh_missing_cts, indiv_to_last_roh, roh_list, &roh_ct, marker_exclude, prev_roh_end_cidxs, earliest_extend_uidxs, cur_roh_earliest_extend_uidxs)) {
+	if (roh_update(hp, readbuf_cur, swbuf_cur, het_cts, missing_cts, marker_pos, cur_indiv_male, indiv_ct, swhit_min, older_uidx, old_uidx, marker_cidx, max_roh_ct, swhit_cts, cur_roh_uidx_starts, cur_roh_cidx_starts, cur_roh_het_cts, cur_roh_missing_cts, indiv_to_last_roh, roh_list, &roh_ct, marker_exclude, prev_roh_end_cidxs, end_nonhom_uidxs, cur_roh_earliest_extend_uidxs)) {
 	  goto calc_homozyg_ret_NOMEM;
 	}
-	increment_het_missing(readbuf_cur, indiv_ct, het_cts, missing_cts, -1);
+	widx_next = widx + 1;
+	if (widx_next == window_size) {
+	  widx_next = 0;
+	  swbuf_full = 1;
+	}
+	if (!prev_roh_end_cidxs) {
+	  increment_het_missing(readbuf_cur, indiv_ct, het_cts, missing_cts, -1);
+	} else {
+	  decrement_het_missing_extend(readbuf_cur, indiv_ct, het_cts, missing_cts, end_nonhom_uidxs, uidx_buf[widx_next]);
+	}
 	if (++marker_uidx == chrom_end) {
 	  break;
 	}
@@ -2700,18 +2749,13 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	}
 	mask_out_homozyg_major(readbuf_cur, indiv_ct);
 	increment_het_missing(readbuf_cur, indiv_ct, het_cts, missing_cts, 1);
-	if (++widx == window_size) {
-	  widx = 0;
-	  swbuf_full = 1;
-	}
+	widx = widx_next;
 	marker_cidx++;
       }
       // now handle the last (window_size - 1) markers
       marker_cidx_max = marker_cidx + window_size;
       do {
-	if (++widx == window_size) {
-	  widx = 0;
-	}
+	widx = widx_next;
         marker_cidx++;
 	older_uidx = old_uidx;
 	if (marker_cidx < marker_cidx_max) {
@@ -2723,8 +2767,16 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	} else {
 	  readbuf_cur = NULL;
 	}
-	if (roh_update(hp, readbuf_cur, NULL, het_cts, missing_cts, marker_pos, cur_indiv_male, indiv_ct, swhit_min, older_uidx, old_uidx, marker_cidx, max_roh_ct, swhit_cts, cur_roh_uidx_starts, cur_roh_cidx_starts, cur_roh_het_cts, cur_roh_missing_cts, indiv_to_last_roh, roh_list, &roh_ct, marker_exclude, prev_roh_end_cidxs, earliest_extend_uidxs, cur_roh_earliest_extend_uidxs)) {
+	if (roh_update(hp, readbuf_cur, NULL, het_cts, missing_cts, marker_pos, cur_indiv_male, indiv_ct, swhit_min, older_uidx, old_uidx, marker_cidx, max_roh_ct, swhit_cts, cur_roh_uidx_starts, cur_roh_cidx_starts, cur_roh_het_cts, cur_roh_missing_cts, indiv_to_last_roh, roh_list, &roh_ct, marker_exclude, prev_roh_end_cidxs, end_nonhom_uidxs, cur_roh_earliest_extend_uidxs)) {
 	  goto calc_homozyg_ret_NOMEM;
+	}
+	widx_next = widx + 1;
+	if (widx_next == window_size) {
+          widx_next = 0;
+	}
+	if (prev_roh_end_cidxs && (marker_cidx + hp->min_snp < marker_cidx_max)) {
+	  // no need to update this once it's too late for a new ROH to begin
+          update_end_nonhom(readbuf_cur, indiv_ct, end_nonhom_uidxs, uidx_buf[widx_next]);
 	}
       } while (marker_cidx <= marker_cidx_max);
     }

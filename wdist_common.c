@@ -7456,7 +7456,11 @@ void pick_d(unsigned char* cbuf, uint32_t ct, uint32_t dd) {
   uint32_t ujj;
   uint32_t ukk;
   memset(cbuf, 0, ct);
+#ifdef __LP64__
   ukk = (uint32_t)(0x100000000LLU % ct);
+#else
+  ukk = 2 * (0x80000000U % ct);
+#endif
   for (uii = 0; uii < dd; uii++) {
     do {
       do {

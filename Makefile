@@ -53,7 +53,7 @@ wdistnl: $(SRC)
 
 wdist64: $(OBJ)
 	g++ $(CFLAGS) $(ARCH64) $(OBJ) -o wdist $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
-# for clean build, rm -f *.o first
+# for clean build, "make clobber" first
 
 wdist64w: $(SRC)
 	g++ $(CFLAGS) $(ARCH64) $(SRC) -c
@@ -67,3 +67,6 @@ wdist64nl: $(SRC)
 
 pigz_test: pigz_test.c pigz.c yarn.c
 	g++ -Wall -arch x86_64 -O2 pigz_test.c pigz.c yarn.c -o pigz_test -L. $(ZLIB64)
+
+clobber:
+	rm -f *.o
