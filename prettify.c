@@ -22,16 +22,39 @@
 
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
 
+#define FLAG_RJUSTIFY 1
+#define FLAG_SPACES_BEFORE_FIRST 2
+#define FLAG_PAD 4
+#define FLAG_SPACES_AFTER_LAST 8
+#define FLAG_FINAL_EOLN 0x10
+#define FLAG_STRIP_BLANK 0x20
+
 void disp_usage(FILE* stream) {
   fputs(
 "  prettify {flag(s)...} [input filename] {output filename}\n\n"
-"  --spacing [ct] : Change number of spaces between columns (default 2).\n"
-"  --first        : Add spaces before the first column.\n"
-"  --last         : Add spaces after the last column.\n"
+"  --spacing [ct] : Set number of spaces between columns (default 2).\n"
+"  --right        : Make the right sides of columns line up, instead of left.\n"
+"  --first        : Add [--spacing count] spaces before the first column.\n"
+"  --pad          : Add trailing spaces to each line to make lengths equal.\n"
+"  --last         : Add [--spacing count] spaces after the last column.\n"
 "  --final-eoln   : Force last line to be terminated by a newline.\n"
 "  --strip-blank  : Remove blank lines.\n\n"
 "If no output filename is provided, standard output is used.\n"
 , stream);
+}
+
+void dispmsg(retval) {
+  switch (retval) {
+  case RET_NOMEM:
+    fputs("\nError: Out of memory.\n", stderr);
+    break;
+  case RET_READ_FAIL:
+    fputs("\nError: File read failure.\n", stderr);
+    break;
+  case RET_WRITE_FAIL:
+    fputs("\nError: File write failure.\n", stderr);
+    break;
+  }
 }
 
 void free_cond(void* memptr) {
@@ -71,10 +94,9 @@ static inline void fill_ulong_zero(uintptr_t* ularr, size_t size) {
 
 static inline uint32_t skip_spaces_ck(unsigned char** str_ptr, unsigned char* buf_end) {
   unsigned char* ss;
-  unsigned char ucc;
   for (ss = *str_ptr; ss < buf_end; ss++) {
-    ucc = *ss;
-    if ((ucc != ' ') && (ucc != '\t')) {
+    // conveniently, this treats the \r in \r\n as a space
+    if ((*ss) > ' ') {
       *str_ptr = ss;
       return 0;
     }
@@ -118,8 +140,7 @@ void handle_last_column(uintptr_t* col_widths, uintptr_t cur_col_idx, uintptr_t 
   }
 }
 
-int32_t scan_column_widths(FILE* infile, uintptr_t** col_widths_ptr, uintptr_t* col_ct_ptr) {
-  int32_t retval = 0;
+int32_t scan_column_widths(FILE* infile, uintptr_t column_sep, uintptr_t** col_widths_ptr, uintptr_t* col_ct_ptr, unsigned char** spacebuf_ptr, unsigned char** rjustify_buf_ptr) {
   uintptr_t* col_widths = NULL;
   uintptr_t col_ct = 0;
   uintptr_t max_col_ct = INITIAL_COLS; // not a hard limit
@@ -131,6 +152,7 @@ int32_t scan_column_widths(FILE* infile, uintptr_t** col_widths_ptr, uintptr_t* 
   uintptr_t cur_col_idx = 0;
 
   uintptr_t cur_col_width = 0;
+  int32_t retval = 0;
   unsigned char* readptr;
   unsigned char* line_end;
   unsigned char* readbuf_end;
@@ -160,13 +182,13 @@ int32_t scan_column_widths(FILE* infile, uintptr_t** col_widths_ptr, uintptr_t* 
 	if (skip_spaces_ck(&readptr, line_end)) {
 	  break;
 	}
-      }
-      if (++cur_col_idx == max_col_ct) {
-        if (malloc_double(&malloc_size, (unsigned char**)(&col_widths))) {
-          goto scan_column_widths_ret_READ_FAIL;
+	if (++cur_col_idx == max_col_ct) {
+	  if (malloc_double(&malloc_size, (unsigned char**)(&col_widths))) {
+	    goto scan_column_widths_ret_READ_FAIL;
+	  }
+	  fill_ulong_zero(&(col_widths[max_col_ct]), max_col_ct);
+	  max_col_ct *= 2;
 	}
-        fill_ulong_zero(&(col_widths[max_col_ct]), max_col_ct);
-	max_col_ct *= 2;
       }
       token_end = get_token_end_ck(readptr, line_end);
       cur_col_width += (uintptr_t)(token_end - readptr);
@@ -179,16 +201,16 @@ int32_t scan_column_widths(FILE* infile, uintptr_t** col_widths_ptr, uintptr_t* 
       cur_col_width = 0;
       readptr = token_end;
     }
-    if (line_end < readbuf_end) {
+    if ((line_end < readbuf_end) || (!cur_read)) {
       handle_last_column(col_widths, cur_col_idx, cur_col_width, &col_ct);
+      if (line_end == readbuf_end) {
+	// EOF
+	break;
+      }
       readptr = &(line_end[1]);
       cur_col_idx = 0;
       cur_col_width = 0;
       continue;
-    }
-    if (feof(infile)) {
-      handle_last_column(col_widths, cur_col_idx, cur_col_width, &col_ct);
-      break;
     }
     // in middle of line
     cur_read = fread(g_readbuf, 1, BUFSIZE, infile);
@@ -198,12 +220,28 @@ int32_t scan_column_widths(FILE* infile, uintptr_t** col_widths_ptr, uintptr_t* 
     readptr = g_readbuf;
     readbuf_end = &(g_readbuf[cur_read]);
   }
+  cur_col_width = 0;
+  for (cur_col_idx = 1; cur_col_idx <= col_ct; cur_col_idx++) {
+    if (col_widths[cur_col_idx] > cur_col_width) {
+      cur_col_width = col_widths[cur_col_idx];
+    }
+  }
+  *spacebuf_ptr = (unsigned char*)malloc(cur_col_width + column_sep);
+  if (!(*spacebuf_ptr)) {
+    goto scan_column_widths_ret_NOMEM;
+  }
+  memset(*spacebuf_ptr, 32, cur_col_width + column_sep);
+  if (rjustify_buf_ptr) {
+    *rjustify_buf_ptr = (unsigned char*)malloc(cur_col_width);
+    if (!(*rjustify_buf_ptr)) {
+      goto scan_column_widths_ret_NOMEM;
+    }
+  }
   while (0) {
   scan_column_widths_ret_NOMEM:
     retval = RET_NOMEM;
     break;
   scan_column_widths_ret_READ_FAIL:
-    fputs("Error: File read failure.\n", stderr);
     retval = RET_READ_FAIL;
     break;
   scan_column_widths_ret_INVALID_FORMAT:
@@ -212,23 +250,140 @@ int32_t scan_column_widths(FILE* infile, uintptr_t** col_widths_ptr, uintptr_t* 
     break;
   }
   *col_widths_ptr = col_widths;
+  *col_ct_ptr = col_ct;
   return retval;
 }
 
-#define FLAG_SPACES_BEFORE_FIRST 1
-#define FLAG_SPACES_AFTER_LAST 2
-#define FLAG_FINAL_EOLN 4
-#define FLAG_STRIP_BLANK 8
-
-int32_t pretty_write(FILE* infile, char* outname, uint32_t flags, uint32_t column_sep, uintptr_t* col_widths, uintptr_t col_ct) {
+int32_t pretty_write(FILE* infile, char* outname, uint32_t flags, uintptr_t column_sep, uintptr_t* col_widths, uintptr_t col_ct, unsigned char* spacebuf, unsigned char* rjustify_buf) {
   FILE* outfile = NULL;
+  uintptr_t cur_col_idx = 0;
+  uintptr_t cur_col_width = 0;
+  uintptr_t prev_col_width = 0;
+  uintptr_t rjbuf_len = 0;
+  unsigned char* token_end = NULL;
+  uint32_t spaces_before_first = flags & FLAG_SPACES_BEFORE_FIRST;
+  uint32_t pad = flags & FLAG_PAD;
+  uint32_t spaces_after_last = flags & FLAG_SPACES_AFTER_LAST;
+  uint32_t final_eoln = flags & FLAG_FINAL_EOLN;
+  uint32_t strip_blank = flags & FLAG_STRIP_BLANK;
+  uint32_t no_final_newline = 0;
   int32_t retval = 0;
+  unsigned char* readptr;
+  unsigned char* line_end;
+  unsigned char* readbuf_end;
+  uintptr_t cur_read;
   if (!outname) {
     outfile = stdout;
   } else {
     if (fopen_checked(&outfile, outname, "w")) {
       goto pretty_write_ret_OPEN_FAIL;
     }
+  }
+  rewind(infile);
+  cur_read = fread(g_readbuf, 1, BUFSIZE, infile);
+  if (ferror(infile)) {
+    goto pretty_write_ret_READ_FAIL;
+  }
+  readptr = g_readbuf;
+  readbuf_end = &(g_readbuf[cur_read]);
+  while (1) {
+    line_end = (unsigned char*)memchr(readptr, '\n', (uintptr_t)(readbuf_end - readptr));
+    if (!line_end) {
+      if (readptr != readbuf_end) {
+        no_final_newline = 1;
+      }
+      line_end = readbuf_end;
+    }
+    while (readptr < line_end) {
+      if (!cur_col_width) {
+	if (skip_spaces_ck(&readptr, line_end)) {
+	  break;
+	}
+	if (cur_col_idx || spaces_before_first) {
+	  if (!rjustify_buf) {
+	    fwrite(spacebuf, 1, col_widths[cur_col_idx] + column_sep - prev_col_width, outfile);
+	  } else {
+	    fwrite(spacebuf, 1, column_sep, outfile);
+	  }
+	}
+	cur_col_idx++;
+      }
+      token_end = get_token_end_ck(readptr, line_end);
+      cur_col_width += (uintptr_t)(token_end - readptr);
+      if (readptr == line_end) {
+	break;
+      }
+      if (!rjustify_buf) {
+        fwrite(readptr, 1, token_end - readptr, outfile);
+        prev_col_width = cur_col_width;
+      } else {
+        fwrite(spacebuf, 1, col_widths[cur_col_idx] - cur_col_width, outfile);
+	if (rjbuf_len) {
+          fwrite(rjustify_buf, 1, rjbuf_len, outfile);
+	  rjbuf_len = 0;
+	}
+        fwrite(readptr, 1, token_end - readptr, outfile);
+      }
+      cur_col_width = 0;
+      readptr = token_end;
+    }
+    if ((line_end < readbuf_end) || (!cur_read)) {
+      if (cur_col_idx) {
+	if (!rjustify_buf) {
+	  if (cur_col_width) {
+	    // last column not dumped yet
+	    fwrite(readptr, 1, token_end - readptr, outfile);
+	    prev_col_width = cur_col_width;
+	  }
+	  if (pad || spaces_after_last) {
+	    fwrite(spacebuf, 1, col_widths[cur_col_idx] - prev_col_width, outfile);
+	  }
+	} else {
+	  fwrite(spacebuf, 1, col_widths[cur_col_idx] - cur_col_width, outfile);
+	  if (rjbuf_len) {
+	    fwrite(rjustify_buf, 1, rjbuf_len, outfile);
+	    rjbuf_len = 0;
+	  }
+	  fwrite(readptr, 1, token_end - readptr, outfile);
+	}
+	if (pad) {
+	  while (cur_col_idx < col_ct) {
+	    fwrite(spacebuf, 1, col_widths[++cur_col_idx] + column_sep, outfile);
+	  }
+	}
+	if (spaces_after_last) {
+	  fwrite(spacebuf, 1, column_sep, outfile);
+	}
+      }
+      if (!cur_read) {
+	// EOF
+	if (final_eoln && no_final_newline) {
+	  putc('\n', outfile);
+	}
+	break;
+      }
+      if (cur_col_idx || (!strip_blank)) {
+	putc('\n', outfile);
+	if (ferror(outfile)) {
+	  goto pretty_write_ret_WRITE_FAIL;
+	}
+      }
+      readptr = &(line_end[1]);
+      cur_col_idx = 0;
+      cur_col_width = 0;
+      prev_col_width = 0;
+      continue;
+    }
+    // in middle of line
+    cur_read = fread(g_readbuf, 1, BUFSIZE, infile);
+    if (ferror(infile)) {
+      goto pretty_write_ret_READ_FAIL;
+    }
+    if (cur_read) {
+      no_final_newline = 0;
+    }
+    readptr = g_readbuf;
+    readbuf_end = &(g_readbuf[cur_read]);
   }
 
   if (outname) {
@@ -239,6 +394,9 @@ int32_t pretty_write(FILE* infile, char* outname, uint32_t flags, uint32_t colum
   while (0) {
   pretty_write_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
+    break;
+  pretty_write_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
     break;
   pretty_write_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
@@ -253,18 +411,20 @@ int32_t pretty_write(FILE* infile, char* outname, uint32_t flags, uint32_t colum
 int32_t main(int32_t argc, char** argv) {
   FILE* infile = NULL;
   char* outname = NULL;
+  uintptr_t column_sep = 2;
   uint32_t flags = 0;
-  uint32_t column_sep = 2;
   uint32_t param_idx = 1;
   int32_t retval = 0;
   uintptr_t* col_widths = NULL;
+  unsigned char* spacebuf = NULL;
+  unsigned char* rjustify_buf = NULL;
   uintptr_t col_ct = 0;
   uint32_t infile_param_idx;
   char* param_ptr;
   int32_t ii;
   if ((argc == 1) || ((argc == 2) && ((!strcmp(argv[1], "--help")) || (!strcmp(argv[1], "-help"))))) {
     goto main_ret_HELP;
-  } else if (argc > 8) {
+  } else if (argc > 10) {
     fputs("Error: Too many parameters.\n\n", stderr);
     goto main_ret_INVALID_CMDLINE_2;
   }
@@ -272,6 +432,10 @@ int32_t main(int32_t argc, char** argv) {
   if ((!infile_param_idx) || (argv[infile_param_idx][0] == '-')) {
     infile_param_idx++;
   } else {
+    if (argv[infile_param_idx + 1][0] == '-') {
+      fputs("Error: Input and output filename(s) must come after all flags.\n\n", stderr);
+      goto main_ret_INVALID_CMDLINE_2;
+    }
     outname = argv[infile_param_idx + 1];
   }
   for (param_idx = 1; param_idx < infile_param_idx; param_idx++) {
@@ -301,9 +465,13 @@ int32_t main(int32_t argc, char** argv) {
 	fputs("Error: Missing input filename.\n\n", stderr);
 	goto main_ret_INVALID_CMDLINE_2;
       }
-      column_sep = ii;
+      column_sep = (uint32_t)ii;
+    } else if (!strcmp(param_ptr, "right")) {
+      flags |= FLAG_RJUSTIFY;
     } else if (!strcmp(param_ptr, "first")) {
       flags |= FLAG_SPACES_BEFORE_FIRST;
+    } else if (!strcmp(param_ptr, "pad")) {
+      flags |= FLAG_PAD;
     } else if (!strcmp(param_ptr, "last")) {
       flags |= FLAG_SPACES_AFTER_LAST;
     } else if (!strcmp(param_ptr, "final-eoln")) {
@@ -324,12 +492,11 @@ int32_t main(int32_t argc, char** argv) {
   if (fopen_checked(&infile, argv[infile_param_idx], "rb")) {
     goto main_ret_OPEN_FAIL;
   }
-  retval = scan_column_widths(infile, &col_widths, &col_ct);
+  retval = scan_column_widths(infile, column_sep, &col_widths, &col_ct, &spacebuf, (flags & FLAG_RJUSTIFY)? (&rjustify_buf) : NULL);
   if (retval) {
     goto main_ret_1;
   }
-  rewind(infile);
-  retval = pretty_write(infile, argv[param_idx], flags, column_sep, col_widths, col_ct);
+  retval = pretty_write(infile, outname, flags, column_sep, col_widths, col_ct, spacebuf, rjustify_buf);
   if (retval) {
     goto main_ret_1;
   }
@@ -338,9 +505,9 @@ int32_t main(int32_t argc, char** argv) {
   main_ret_HELP:
     fputs(
 "prettify v1.0 (26 Sep 2013)   Christopher Chang (chrchang@alumni.caltech.edu)\n\n"
-"Takes a tab-and/or-space-delimited text file, and generates a pretty-printed\n"
-"space-delimited text file from it.  Multibyte character encodings are not\n"
-"currently supported.\n\n"
+"Takes a tab-and/or-space-delimited text table, and generates a space-delimited\n"
+"pretty-printed version.  Multibyte character encodings are not currently\n"
+"supported.\n\n"
 , stdout);
     disp_usage(stdout);
     fputs(
@@ -362,5 +529,6 @@ int32_t main(int32_t argc, char** argv) {
  main_ret_1:
   free_cond(col_widths);
   fclose_cond(infile);
+  dispmsg(retval);
   return retval;
 }

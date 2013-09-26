@@ -107,7 +107,7 @@ unsigned char* wkspace;
 void dispmsg(int32_t retval) {
   switch (retval) {
   case RET_NOMEM:
-    logprint("Error: Out of memory.  Try the --memory and/or --parallel flags.\n");
+    logprint("\nError: Out of memory.  Try the --memory and/or --parallel flags.\n");
     break;
   case RET_WRITE_FAIL:
     logprint("\nError: File write failure.\n");
