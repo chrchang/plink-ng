@@ -105,11 +105,11 @@ static inline uint32_t skip_spaces_ck(unsigned char** str_ptr, unsigned char* bu
 }
 
 static inline unsigned char* get_token_end_ck(unsigned char* token_start, unsigned char* buf_end) {
-  // assumes we are currently in a token, and does not support nonspace
+  // assumes previous character was in a token, and does not support nonspace
   // characters below ASCII 33
-  do {
+  while ((token_start != buf_end) && ((*token_start) > ' ')) {
     token_start++;
-  } while ((token_start != buf_end) && ((*token_start) > ' '));
+  }
   return token_start;
 }
 
@@ -152,6 +152,7 @@ int32_t scan_column_widths(FILE* infile, uintptr_t column_sep, uintptr_t** col_w
   uintptr_t cur_col_idx = 0;
 
   uintptr_t cur_col_width = 0;
+  uintptr_t line_idx = 1;
   int32_t retval = 0;
   unsigned char* readptr;
   unsigned char* line_end;
@@ -192,7 +193,7 @@ int32_t scan_column_widths(FILE* infile, uintptr_t column_sep, uintptr_t** col_w
       }
       token_end = get_token_end_ck(readptr, line_end);
       cur_col_width += (uintptr_t)(token_end - readptr);
-      if (readptr == line_end) {
+      if (token_end == line_end) {
 	break;
       }
       if (cur_col_width > col_widths[cur_col_idx]) {
@@ -208,6 +209,7 @@ int32_t scan_column_widths(FILE* infile, uintptr_t column_sep, uintptr_t** col_w
 	break;
       }
       readptr = &(line_end[1]);
+      line_idx++;
       cur_col_idx = 0;
       cur_col_width = 0;
       continue;
@@ -310,7 +312,7 @@ int32_t pretty_write(FILE* infile, char* outname, uint32_t flags, uintptr_t colu
       }
       token_end = get_token_end_ck(readptr, line_end);
       cur_col_width += (uintptr_t)(token_end - readptr);
-      if (readptr == line_end) {
+      if (token_end == line_end) {
 	break;
       }
       if (!rjustify_buf) {
@@ -375,6 +377,15 @@ int32_t pretty_write(FILE* infile, char* outname, uint32_t flags, uintptr_t colu
       continue;
     }
     // in middle of line
+    if (cur_col_width) {
+      if (!rjustify_buf) {
+	fwrite(readptr, 1, token_end - readptr, outfile);
+      } else {
+	memcpy(&(rjustify_buf[rjbuf_len]), readptr, token_end - readptr);
+	rjbuf_len += (uintptr_t)(token_end - readptr);
+      }
+    }
+
     cur_read = fread(g_readbuf, 1, BUFSIZE, infile);
     if (ferror(infile)) {
       goto pretty_write_ret_READ_FAIL;
