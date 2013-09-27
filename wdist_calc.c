@@ -9317,7 +9317,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
         cluster_dist_multiply(indiv_ct, cluster_ct, cluster_starts, mds_plot_dmatrix_copy);
       }
     }
-    retval = mds_plot(outname, outname_end, indiv_exclude, indiv_ct, indiv_idx_to_uidx, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, cur_cluster_ct, merge_ct, indiv_to_cluster, cur_cluster_remap, cp->mds_dim_ct, is_mds_cluster, mds_plot_dmatrix_copy);
+    retval = mds_plot(outname, outname_end, indiv_exclude, indiv_ct, indiv_idx_to_uidx, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, cur_cluster_ct, merge_ct, indiv_to_cluster, cur_cluster_remap, cp->mds_dim_ct, is_mds_cluster, cp->modifier & CLUSTER_MDS_EIGVALS, mds_plot_dmatrix_copy);
     if (retval) {
       goto calc_cluster_neighbor_ret_1;
     }

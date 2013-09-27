@@ -67,7 +67,7 @@ const char ver_str[] =
 #ifdef STABLE_BUILD
   "WDIST v0.19.24"
 #else
-  "WDIST v0.22.0p"
+  "WDIST v0.21.8"
 #endif
 #endif
 #ifdef NOLAPACK
@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (24 Sep 2013)";
+  " (26 Sep 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -10107,27 +10107,27 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --mds-plot must be used with --cluster.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 3)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	uii = 1;
-        if (param_ct == 2) {
-	  if (!strcmp(argv[cur_arg + 1], "by-cluster")) {
-	    uii = 2;
-	  } else if (strcmp(argv[cur_arg + 2], "by-cluster")) {
-	    sprintf(logbuf, "Error: Invalid --mds-plot parameter sequence.%s", errstr_append);
-	    goto main_ret_INVALID_CMDLINE_3;
+	cluster.mds_dim_ct = 0;
+        for (uii = 1; uii <= param_ct; uii++) {
+          if (!strcmp(argv[cur_arg + uii], "by-cluster")) {
+	    cluster.modifier |= CLUSTER_MDS;
+	  } else if (!strcmp(argv[cur_arg + uii], "eigvals")) {
+	    cluster.modifier |= CLUSTER_MDS_EIGVALS;
+	  } else {
+	    ii = atoi(argv[cur_arg + uii]);
+	    if (ii < 1) {
+	      sprintf(logbuf, "Error: Invalid --mds-plot parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
+              goto main_ret_INVALID_CMDLINE_3;
+	    } else if (cluster.mds_dim_ct) {
+	      sprintf(logbuf, "Error: Invalid --mds-plot parameter sequence.%s", errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    cluster.mds_dim_ct = ii;
 	  }
-	  cluster.modifier |= CLUSTER_MDS;
-	} else {
-	  uii = 1;
 	}
-	ii = atoi(argv[cur_arg + uii]);
-	if (ii < 1) {
-	  sprintf(logbuf, "Error: Invalid --mds-plot parameter '%s'.%s", argv[cur_arg + uii], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	cluster.mds_dim_ct = ii;
 #endif
       } else if (!memcmp(argptr2, "ds-cluster", 11)) {
 	UNSTABLE;

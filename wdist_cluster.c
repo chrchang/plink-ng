@@ -2214,7 +2214,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
 }
 
 #ifndef NOLAPACK
-int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t* indiv_idx_to_uidx, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uint32_t cur_cluster_ct, uint32_t merge_ct, uint32_t* orig_indiv_to_cluster, uint32_t* cur_cluster_remap, uint32_t dim_ct, uint32_t is_mds_cluster, double* dists) {
+int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t* indiv_idx_to_uidx, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uint32_t cur_cluster_ct, uint32_t merge_ct, uint32_t* orig_indiv_to_cluster, uint32_t* cur_cluster_remap, uint32_t dim_ct, uint32_t is_mds_cluster, uint32_t dump_eigvals, double* dists) {
   FILE* outfile = NULL;
   uintptr_t final_cluster_ct = cur_cluster_ct - merge_ct;
   double grand_mean = 0.0;
@@ -2492,7 +2492,26 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uin
       goto mds_plot_ret_WRITE_FAIL;
     }
   }
-  sprintf(logbuf, "MDS solution written to %s.\n", outname);
+  if (fclose_null(&outfile)) {
+    goto mds_plot_ret_WRITE_FAIL;
+  }
+  if (!dump_eigvals) {
+    sprintf(logbuf, "MDS solution written to %s.\n", outname);
+  } else {
+    sprintf(logbuf, "MDS solution written to %s (eigenvalues in %s.eigvals).\n", outname, outname);
+    memcpy(&(outname_end[4]), ".eigvals", 9);
+    if (fopen_checked(&outfile, outname, "w")) {
+      goto mds_plot_ret_OPEN_FAIL;
+    }
+    for (dim_idx = dim_ct; dim_idx; dim_idx--) {
+      wptr = double_g_writex(tbuf, sqrt_eigvals[dim_idx - 1] * sqrt_eigvals[dim_idx - 1], '\n');
+      *wptr = '\0';
+      fputs(tbuf, outfile);
+    }
+    if (fclose_null(&outfile)) {
+      goto mds_plot_ret_WRITE_FAIL;
+    }
+  }
   logprintb();
   while (0) {
   mds_plot_ret_NOMEM:
