@@ -10245,6 +10245,8 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   double* dgels_a = NULL;
   double* dgels_b = NULL;
   double* dgels_work = NULL;
+  double* param_df_buf = NULL;
+  double* param_df_buf2 = NULL;
   int32_t dgels_ldb = 0;
   int32_t dgels_lwork = -1;
   uint32_t* pheno_idx_ptr;
@@ -10262,8 +10264,6 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   double* logistic_t2_buf = NULL;
   double* logistic_t3_buf = NULL;
   double* constraints_con_major = NULL;
-  double* param_df_buf = NULL;
-  double* param_df_buf2 = NULL;
   double* df_df_buf = NULL;
   double* df_buf = NULL;
   uintptr_t* loadbuf_raw = NULL;
