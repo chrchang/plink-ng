@@ -67,7 +67,7 @@ const char ver_str[] =
 #ifdef STABLE_BUILD
   "WDIST v0.19.24"
 #else
-  "WDIST v0.21.8"
+  "WDIST v0.22.0p"
 #endif
 #endif
 #ifdef NOLAPACK
@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (27 Sep 2013)";
+  " (28 Sep 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -4482,39 +4482,39 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST)) && (!pheno_c)) {
-    logprint("Error: --ibs-test and --groupdist calculations require dichotomous phenotype.\n");
+    logprint("Error: --ibs-test and --groupdist calculations require a case/control\nphenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
   } else if ((calculation_type & CALC_REGRESS_DISTANCE) && (!pheno_d)) {
-    logprint("Error: --regress-distance calculation requires scalar phenotype.\n");
+    logprint("Error: --regress-distance calculation requires a scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
   } else if ((calculation_type & CALC_UNRELATED_HERITABILITY) && (!pheno_d)) {
-    logprint("Error: --unrelated-heritability requires scalar phenotype.\n");
+    logprint("Error: --unrelated-heritability requires a scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
   } else if ((calculation_type & (CALC_REGRESS_PCS | CALC_REGRESS_PCS_DISTANCE)) && (!pheno_d)) {
-    sprintf(logbuf, "Error: --regress-pcs%s requires scalar phenotype.\n", (calculation_type & CALC_REGRESS_PCS_DISTANCE)? "-distance" : "");
+    sprintf(logbuf, "Error: --regress-pcs%s requires a scalar phenotype.\n", (calculation_type & CALC_REGRESS_PCS_DISTANCE)? "-distance" : "");
     goto wdist_ret_INVALID_CMDLINE_2;
   } else if ((calculation_type & CALC_MODEL) && (!(model_modifier & MODEL_ASSOC)) && (!pheno_c)) {
-    logprint("Error: --model requires dichotomous phenotype.\n");
+    logprint("Error: --model requires a case/control phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
   } else if ((calculation_type & CALC_GXE) && (!pheno_d)) {
-    logprint("Error: --gxe requires scalar phenotype.\n");
+    logprint("Error: --gxe requires a scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
   } else if ((calculation_type & CALC_CLUSTER) && (!pheno_c)) {
     if (cluster_ptr->modifier & CLUSTER_CC) {
-      logprint("Error: --cc requires dichotomous phenotype.\n");
+      logprint("Error: --cc requires a case/control phenotype.\n");
       goto wdist_ret_INVALID_CMDLINE;
     } else if ((cluster_ptr->max_cases != 0xffffffffU) || (cluster_ptr->max_ctrls != 0xffffffffU)) {
-      logprint("Error: --mcc requires dichotomous phenotype.\n");
+      logprint("Error: --mcc requires a case/control phenotype.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
   } else if ((calculation_type & CALC_GLM) && (!(pheno_modifier & PHENO_ALL))) {
     if (glm_modifier & GLM_LOGISTIC) {
       if (!pheno_c) {
-	logprint("Error: --logistic without --all-pheno requires dichotomous phenotype.\n");
+	logprint("Error: --logistic without --all-pheno requires a case/control phenotype.\n");
 	goto wdist_ret_INVALID_CMDLINE;
       }
     } else if (!pheno_d) {
-      logprint("Error: --linear without --all-pheno requires scalar phenotype.\n");
+      logprint("Error: --linear without --all-pheno requires a scalar phenotype.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
   }
@@ -4675,7 +4675,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (filter_binary & (FILTER_BINARY_CASES | FILTER_BINARY_CONTROLS)) {
     if (!pheno_c) {
-      logprint("Error: --filter-cases/--filter-controls requires dichotomous phenotype.\n");
+      logprint("Error: --filter-cases/--filter-controls requires a case/control phenotype.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
     ii = indiv_exclude_ct;
@@ -5334,7 +5334,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	  goto wdist_ret_1;
 	}
       }
-      // if dichotomous phenotype loaded with --all-pheno, skip --gxe
+      // if case/control phenotype loaded with --all-pheno, skip --gxe
       if ((calculation_type & CALC_GXE) && pheno_d) {
 	retval = gxe_assoc(bedfile, bed_offset, outname, outname_end, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, pheno_nm, pheno_d, gxe_covar_nm, gxe_covar_c, sex_male, hh_exists);
 	if (retval) {
@@ -9309,7 +9309,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 #endif
 	}
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 8)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 9)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	for (uii = 1; uii <= param_ct; uii++) {
@@ -11968,10 +11968,6 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	glm_xchr_model = (uint32_t)(argv[cur_arg + 1][0] - '0');
-	if ((glm_xchr_model == 3) && (tests_range_list.name_ct || (glm_modifier & GLM_TEST_ALL))) {
-	  sprintf(logbuf, "Error: --xchr-model 3 cannot be used with --tests.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }

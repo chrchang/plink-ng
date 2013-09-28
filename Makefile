@@ -68,5 +68,8 @@ wdist64nl: $(SRC)
 pigz_test: pigz_test.c pigz.c yarn.c
 	g++ -Wall -arch x86_64 -O2 pigz_test.c pigz.c yarn.c -o pigz_test -L. $(ZLIB64)
 
+prettify: prettify.c
+	gcc -Wall -arch x86_64 -O2 prettify.c -o prettify
+
 clobber:
 	rm -f *.o

@@ -640,7 +640,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef STABLE_BUILD
     help_print("gxe\tmcovar", &help_ctrl, 1,
 "  --gxe {covariate index}\n"
-"    Given both a quantitative phenotype and a dichotomous covariate loaded with\n"
+"    Given both a quantitative phenotype and a case/control covariate loaded with\n"
 "    --covar defining two groups, --gxe compares the regression coefficient\n"
 "    derived from considering only members of one group to the regression\n"
 "    coefficient derived from considering only members of the other.  By\n"
@@ -663,7 +663,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "             <genotypic | hethom | dominant | recessive | no-snp> <hide-covar>\n"
 "             <sex | no-x-sex> <interaction> <beta>\n"
 "    Multi-covariate association analysis on a quantitative (--linear) or\n"
-"    dichotomous (--logistic) trait.  Normally used with --covar.\n"
+"    case/control (--logistic) phenotype.  Normally used with --covar.\n"
 "    * 'perm' causes an adaptive permutation test to be performed, while\n"
 "      'mperm=[value]' starts a max(T) permutation test.\n"
 	       /*
@@ -785,7 +785,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("ibs-test\tgroupdist", &help_ctrl, 1,
 "  --ibs-test {permutation count}\n"
 "  --groupdist {iters} {d}\n"
-"    Given dichotomous phenotype data, these commands consider three subsets of\n"
+"    Given case/control phenotype data, these commands consider three subsets of\n"
 "    the distance matrix: pairs of affected individuals, affected-unaffected\n"
 "    pairs, and pairs of unaffected individuals.  Each of these subsets has a\n"
 "    distribution of pairwise genomic distances; --ibs-test uses permutation to\n"
@@ -926,7 +926,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     2 = affected).\n"
 	       );
     help_print("make-pheno", &help_ctrl, 0,
-"  --make-pheno [file] [val] : Specify dichotomous phenotype, where cases have\n"
+"  --make-pheno [file] [val] : Specify case/control phenotype, where cases have\n"
 "                              the given value.  If the value is '*', all\n"
 "                              individuals present in the phenotype file are\n"
 "                              affected (and other individuals in the .ped/.fam\n"

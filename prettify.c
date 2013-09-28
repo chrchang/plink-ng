@@ -39,7 +39,7 @@ void disp_usage(FILE* stream) {
 "  --last         : Add [--spacing count] spaces after the last column.\n"
 "  --final-eoln   : Force last line to be terminated by a newline.\n"
 "  --strip-blank  : Remove blank lines.\n\n"
-"If no output filename is provided, standard output is used.\n"
+"If no output filename is provided, the result is written to standard output.\n"
 , stream);
 }
 
@@ -424,39 +424,41 @@ int32_t main(int32_t argc, char** argv) {
   char* outname = NULL;
   uintptr_t column_sep = 2;
   uint32_t flags = 0;
-  uint32_t param_idx = 1;
   int32_t retval = 0;
   uintptr_t* col_widths = NULL;
   unsigned char* spacebuf = NULL;
   unsigned char* rjustify_buf = NULL;
   uintptr_t col_ct = 0;
-  uint32_t infile_param_idx;
+  uint32_t infile_param_idx = 0;
   char* param_ptr;
+  uint32_t param_idx;
   int32_t ii;
+  if (argc == 1) {
+    goto main_ret_HELP;
+  }
+  for (param_idx = 1; param_idx < (uint32_t)argc; param_idx++) {
+    if ((!strcmp(argv[param_idx], "--help")) || (!strcmp(argv[param_idx], "-help"))) {
+      goto main_ret_HELP;
+    }
+  }
+
   if ((argc == 1) || ((argc == 2) && ((!strcmp(argv[1], "--help")) || (!strcmp(argv[1], "-help"))))) {
     goto main_ret_HELP;
   } else if (argc > 10) {
     fputs("Error: Too many parameters.\n\n", stderr);
     goto main_ret_INVALID_CMDLINE_2;
   }
-  infile_param_idx = argc - 2;
-  if ((!infile_param_idx) || (argv[infile_param_idx][0] == '-')) {
-    infile_param_idx++;
-  } else {
-    if (argv[infile_param_idx + 1][0] == '-') {
-      fputs("Error: Input and output filename(s) must come after all flags.\n\n", stderr);
-      goto main_ret_INVALID_CMDLINE_2;
-    }
-    outname = argv[infile_param_idx + 1];
-  }
-  for (param_idx = 1; param_idx < infile_param_idx; param_idx++) {
+  for (param_idx = 1; param_idx < (uint32_t)argc; param_idx++) {
     if (argv[param_idx][0] != '-') {
-      if (outname) {
-        fputs("Error: All parameters before the last two must be flags.\n\n", stderr);
+      if (!infile_param_idx) {
+	infile_param_idx = param_idx;
+      } else if (!outname) {
+        outname = argv[param_idx];
       } else {
-	fputs("Error: Input filename currently must come after all flags.\n\n", stderr);
+	fputs("Error: Invalid parameter sequence.\n\n", stderr);
+	goto main_ret_INVALID_CMDLINE_2;
       }
-      goto main_ret_INVALID_CMDLINE_2;
+      continue;
     }
     param_ptr = &(argv[param_idx][1]);
     if (*param_ptr == '-') {
@@ -464,17 +466,14 @@ int32_t main(int32_t argc, char** argv) {
       param_ptr++;
     }
     if (!strcmp(param_ptr, "spacing")) {
-      ii = atoi(argv[++param_idx]);
-      if (ii < 1) {
-	if (param_idx == infile_param_idx) {
-	  fputs("Error: Missing --spacing parameter.\n\n", stderr);
-	} else {
-	  printf("Error: Invalid --spacing parameter '%s'.\n\n", argv[param_idx]);
-	}
+      if (++param_idx == (uint32_t)argc) {
+	fputs("Error: Missing --spacing parameter.\n", stderr);
 	goto main_ret_INVALID_CMDLINE;
-      } else if (param_idx == infile_param_idx) {
-	fputs("Error: Missing input filename.\n\n", stderr);
-	goto main_ret_INVALID_CMDLINE_2;
+      }
+      ii = atoi(argv[param_idx]);
+      if (ii < 1) {
+	printf("Error: Invalid --spacing parameter '%s'.\n", argv[param_idx]);
+	goto main_ret_INVALID_CMDLINE;
       }
       column_sep = (uint32_t)ii;
     } else if (!strcmp(param_ptr, "right")) {
@@ -489,15 +488,13 @@ int32_t main(int32_t argc, char** argv) {
       flags |= FLAG_FINAL_EOLN;
     } else if (!strcmp(param_ptr, "strip-blank")) {
       flags |= FLAG_STRIP_BLANK;
-    } else if (!strcmp(param_ptr, "help")) {
-      goto main_ret_HELP;
     } else {
       printf("Error: Invalid flag '%s'.\n\n", argv[param_idx]);
       goto main_ret_INVALID_CMDLINE_2;
     }
   }
-  if (argv[infile_param_idx][0] == '-') {
-    fputs("Error: Input filename cannot begin with '-'.\n\n", stderr);
+  if (!infile_param_idx) {
+    fputs("Error: No input filename.\n\n", stderr);
     goto main_ret_INVALID_CMDLINE_2;
   }
   if (fopen_checked(&infile, argv[infile_param_idx], "rb")) {
@@ -515,7 +512,7 @@ int32_t main(int32_t argc, char** argv) {
   while (0) {
   main_ret_HELP:
     fputs(
-"prettify v1.0 (26 Sep 2013)   Christopher Chang (chrchang@alumni.caltech.edu)\n\n"
+"prettify v1.01 (28 Sep 2013)   Christopher Chang (chrchang@alumni.caltech.edu)\n\n"
 "Takes a tab-and/or-space-delimited text table, and generates a space-delimited\n"
 "pretty-printed version.  Multibyte character encodings are not currently\n"
 "supported.\n\n"

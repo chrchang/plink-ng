@@ -2903,7 +2903,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
     }
     logprintb();
   } else {
-    logprint("--covar: 1 dichotomous covariate loaded for --gxe.\n");
+    logprint("--covar: 1 case/control covariate loaded for --gxe.\n");
   }
   if (missing_cov_ct) {
     sprintf(logbuf, "%" PRIuPTR " %s had missing value(s).\n", missing_cov_ct, species_str(missing_cov_ct));
