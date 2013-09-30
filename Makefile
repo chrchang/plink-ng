@@ -71,5 +71,11 @@ pigz_test: pigz_test.c pigz.c yarn.c
 prettify: prettify.c
 	gcc -Wall -arch x86_64 -O2 prettify.c -o prettify
 
+prettifyw: prettify.c
+	gcc -Wall -O2 prettify.c -o prettify
+
+prettify64w: prettify.c
+	gcc -Wall -O2 prettify.c -o prettify64
+
 clobber:
 	rm -f *.o
