@@ -42,15 +42,16 @@ char pathbuf[FNAMESIZE * 2 + 128];
 void disp_usage(FILE* stream) {
   fputs(
 "  prettify {flag(s)...} [input filename] {output filename}\n\n"
-"  --inplace      : Replace the input instead of writing to a new file.\n"
-"  --spacing [ct] : Set number of spaces between columns (default 2).\n"
-"  --right        : Make the right sides of columns line up, instead of left.\n"
-"  --first        : Add [--spacing count] spaces before the first column.\n"
-"  --pad          : Add trailing spaces to each line to make lengths equal.\n"
-"  --last         : Add [--spacing count] spaces after the last column.\n"
-"  --final-eoln   : Force last line to be terminated by a newline.\n"
-"  --strip-blank  : Remove blank lines.\n\n"
-"If no output filename is provided, the result is written to standard output.\n"
+"  -i, --inplace      : Replace the input instead of writing to a new file.\n"
+"  -s, --spacing [ct] : Set number of spaces between columns (default 2).\n"
+"  -r, --ralign       : Make right sides of columns line up, instead of left.\n"
+"  -l, --leading      : Add space(s) before the first column.\n"
+"  -e, --extend-short : Use spaces to extend lines with fewer columns.\n"
+"  -t, --trailing     : Add space(s) after the last column.\n"
+"  -f, --force-eoln   : Force last line to be terminated by a newline.\n"
+"  -n, --noblank      : Remove blank lines.\n\n"
+"If no output filename is provided (and --inplace isn't in effect), results are\n"
+"dumped to standard output.\n"
 , stream);
 }
 
@@ -438,11 +439,12 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t param_idx;
   uint32_t uii;
   int32_t ii;
+  char cc;
   if (argc == 1) {
     goto main_ret_HELP;
   }
   for (param_idx = 1; param_idx < (uint32_t)argc; param_idx++) {
-    if ((!strcmp(argv[param_idx], "--help")) || (!strcmp(argv[param_idx], "-help"))) {
+    if ((!strcmp(argv[param_idx], "--help")) || (!strcmp(argv[param_idx], "-help")) || (!strcmp(argv[param_idx], "-?")) || (!strcmp(argv[param_idx], "-h"))) {
       goto main_ret_HELP;
     }
   }
@@ -478,7 +480,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE_3;
       }
       flags |= FLAG_INPLACE;
-    } else if (!strcmp(param_ptr, "spacing")) {
+    } else if ((!strcmp(param_ptr, "spacing")) || (!strcmp(param_ptr, "s"))) {
       if (++param_idx == (uint32_t)argc) {
 	fputs("Error: Missing --spacing parameter.\n", stderr);
 	goto main_ret_INVALID_CMDLINE;
@@ -489,21 +491,60 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE;
       }
       column_sep = (uint32_t)ii;
-    } else if (!strcmp(param_ptr, "right")) {
+    } else if (!strcmp(param_ptr, "ralign")) {
       flags |= FLAG_RJUSTIFY;
-    } else if (!strcmp(param_ptr, "first")) {
+    } else if (!strcmp(param_ptr, "leading")) {
       flags |= FLAG_SPACES_BEFORE_FIRST;
-    } else if (!strcmp(param_ptr, "pad")) {
+    } else if (!strcmp(param_ptr, "extend-short")) {
       flags |= FLAG_PAD;
-    } else if (!strcmp(param_ptr, "last")) {
+    } else if (!strcmp(param_ptr, "trailing")) {
       flags |= FLAG_SPACES_AFTER_LAST;
-    } else if (!strcmp(param_ptr, "final-eoln")) {
+    } else if (!strcmp(param_ptr, "force-eoln")) {
       flags |= FLAG_FINAL_EOLN;
-    } else if (!strcmp(param_ptr, "strip-blank")) {
+    } else if (!strcmp(param_ptr, "noblank")) {
       flags |= FLAG_STRIP_BLANK;
     } else {
-      fprintf(stderr, "Error: Invalid flag '%s'.\n\n", argv[param_idx]);
-      goto main_ret_INVALID_CMDLINE_2;
+      if ((argv[param_idx][1] != '-') && argv[param_idx][1]) {
+	// permit abbreviated style
+	while (1) {
+	  cc = *param_ptr++;
+	  if (!cc) {
+	    break;
+	  }
+	  switch (cc) {
+	  case 'i':
+	    if (outname) {
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    flags |= FLAG_INPLACE;
+	    break;
+	  case 'r':
+	    flags |= FLAG_RJUSTIFY;
+	    break;
+	  case 'l':
+	    flags |= FLAG_SPACES_BEFORE_FIRST;
+	    break;
+	  case 'e':
+	    flags |= FLAG_PAD;
+	    break;
+	  case 't':
+	    flags |= FLAG_SPACES_AFTER_LAST;
+	    break;
+	  case 'f':
+	    flags |= FLAG_FINAL_EOLN;
+	    break;
+	  case 'n':
+	    flags |= FLAG_STRIP_BLANK;
+	    break;
+	  default:
+            fprintf(stderr, "Error: Invalid flag '%s'.\n\n", argv[param_idx]);
+	    goto main_ret_INVALID_CMDLINE_2;
+	  }
+	}
+      } else {
+	fprintf(stderr, "Error: Invalid flag '%s'.\n\n", argv[param_idx]);
+	goto main_ret_INVALID_CMDLINE_2;
+      }
     }
   }
   if (!infile_param_idx) {
@@ -563,7 +604,7 @@ int32_t main(int32_t argc, char** argv) {
   while (0) {
   main_ret_HELP:
     fputs(
-"prettify v1.02 (4 Oct 2013)   Christopher Chang (chrchang@alumni.caltech.edu)\n\n"
+"prettify v1.02 (4 Oct 2013)    Christopher Chang (chrchang@alumni.caltech.edu)\n\n"
 "Takes a tab-and/or-space-delimited text table, and generates a space-delimited\n"
 "pretty-printed version.  Multibyte character encodings are not currently\n"
 "supported.\n\n"
