@@ -507,9 +507,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --matrix\n"
 "    These generate space-delimited text matrices, and are included for\n"
 "    backwards compatibility with old scripts.  New scripts should migrate to\n"
-"    '--distance 1-ibs' and '--distance ibs', which support output formats\n"
-"    better suited to parallel computation and more flexible handling of missing\n"
-"    markers.\n\n"
+"    '--distance 1-ibs flat-missing' and '--distance ibs flat-missing', which\n"
+"    support output formats better suited to parallel computation.\n\n"
 		);
     help_print("genome\tZ-genome\trel-check\timpossible\tnudge\tgenome-full\tunbounded", &help_ctrl, 1,
 "  --genome <gz> <rel-check> <full> <unbounded> <nudge>\n"
@@ -1032,6 +1031,17 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("max-maf\tmaf", &help_ctrl, 0,
 "  --max-maf [val]  : Minor allele frequency maximum threshold.\n"
 	       );
+    help_print("maf-succ", &help_ctrl, 0,
+"  --maf-succ       : Rule of succession MAF estimation (used in EIGENSTRAT).\n"
+"                     Given j observations of one allele and k >= j observations\n"
+"                     of the other, infer a MAF of (j+1) / (j+k+2), rather than\n"
+"                     the usual j / (j+k).\n"
+	       );
+    help_print("read-freq\tupdate-freq", &help_ctrl, 0,
+"  --read-freq [filename]   : Loads MAFs from the given PLINK-style or --freqx\n"
+"    (alias: --update-freq)   frequency report, instead of just setting them to\n"
+"                             frequencies observed in the .ped/.bed file.\n"
+	       );
     help_print("hwe", &help_ctrl, 0,
 "  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
 "                     default 0.001.\n"
@@ -1060,9 +1070,17 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("nonfounders", &help_ctrl, 0,
 "  --nonfounders        : Include nonfounders in allele freq/HWE calculations.\n"
 	       );
+    help_print("make-founders", &help_ctrl, 0,
+"  --make-founders <require-2-missing> <first> : Clear parental IDs for those\n"
+"                                                with 1+ missing parent(s).\n"
+	       );
     help_print("recode\trecode-allele", &help_ctrl, 0,
 "  --recode-allele [f]  : With --recode A or --recode AD, count alleles named in\n"
 "                         the file (instead of the minor allele).\n"
+	       );
+    help_print("set-hh-missing", &help_ctrl, 0,
+"  --set-hh-missing : Cause --make-bed and --recode to set heterozygous haploid\n"
+"                     genotypes to missing.\n"
 	       );
     help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,
 "  --update-chr  [f] {chrcol} {IDcol}  {skip} : Update marker chromosome codes.\n"
@@ -1072,6 +1090,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("update-alleles", &help_ctrl, 0,
 "  --update-alleles [f] : Update marker allele codes.\n"
+	       );
+    help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
+"  --allele1234 <multichar> : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"
+"                             With 'multichar', converts all A/C/G/Ts in allele\n"
+"                             names to 1/2/3/4s.\n"
+"  --alleleACGT <multichar> : Reverse of --allele1234.\n"
 	       );
     help_print("update-ids\tupdate-parents\tupdate-sex", &help_ctrl, 0,
 "  --update-ids [f]     : Update individual IDs.\n"
@@ -1250,31 +1274,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("threads\tthread-num\tnum_threads", &help_ctrl, 0,
 "  --threads [val]  : Set maximum number of concurrent threads.\n"
-	       );
-    help_print("make-founders", &help_ctrl, 0,
-"  --make-founders <require-2-missing> <first> : Clear parental IDs for those\n"
-"                                                with 1+ missing parent(s).\n"
-	       );
-    help_print("maf-succ", &help_ctrl, 0,
-"  --maf-succ       : Rule of succession MAF estimation (used in EIGENSTRAT).\n"
-"                     Given j observations of one allele and k >= j observations\n"
-"                     of the other, infer a MAF of (j+1) / (j+k+2), rather than\n"
-"                     the usual j / (j+k).\n"
-	       );
-    help_print("read-freq\tupdate-freq", &help_ctrl, 0,
-"  --read-freq [filename]   : Loads MAFs from the given PLINK-style or --freqx\n"
-"    (alias: --update-freq)   frequency report, instead of just setting them to\n"
-"                             frequencies observed in the .ped/.bed file.\n"
-	       );
-    help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
-"  --allele1234 <multichar> : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"
-"                             With 'multichar', converts all A/C/G/Ts in allele\n"
-"                             names to 1/2/3/4s.\n"
-"  --alleleACGT <multichar> : Reverse of --allele1234.\n"
-	       );
-    help_print("set-hh-missing", &help_ctrl, 0,
-"  --set-hh-missing : Cause --make-bed and --recode to set heterozygous haploid\n"
-"                     genotypes to missing.\n"
 	       );
     help_print("d\tsnps", &help_ctrl, 0,
 "  --d [char]       : Change marker range delimiter (would otherwise be '-').\n"

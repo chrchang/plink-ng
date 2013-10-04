@@ -234,6 +234,11 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
       bufptr = strchr(bufptr, ',');
       if (bufptr) {
 	missing_code_lens[uii] = (uint32_t)(bufptr - missing_code_ptrs[uii]);
+	// N.B. this is dangerous since missing_code can currently point to a
+	// constant buffer (though not incorrect as of this writing since
+	// strchr(missing_code, ',') is always NULL in that situation).
+	// probably best for wdist.c to allocate a mutable buffer in all cases
+	// instead.
 	*bufptr = '\0';
 	bufptr++;
       } else {

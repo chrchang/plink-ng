@@ -65,7 +65,7 @@ const char ver_str[] =
   "PLINK v1.50a"
 #else
 #ifdef STABLE_BUILD
-  "WDIST v0.19.24"
+  "WDIST v0.19.25"
 #else
   "WDIST v0.22.0p"
 #endif
@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (30 Sep 2013)";
+  " (4 Oct 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -4130,6 +4130,24 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   //   max_marker_allele_len INCLUDES TRAILING NULL, so at least 3
   //   marker_alleles[2 * ii * max_marker_allele_len] is id of A1
   //   marker_alleles[(2 * ii + 1) + max_marker_allele_len] is id of A2
+  //
+  // THIS DATA STRUCTURE MUST BE CHANGED ASAP.  Its speed may be awesome for
+  // the common only-SNP case, but multiple users have reported "Pathologically
+  // long allele code" errors on operations which PLINK 1.07 had no problem
+  // with, due to e.g. 6+ megabase indels, and this is only going to get worse
+  // as more and more researchers migrate to WGS.  The new structure will
+  // probably consist of an array of pointers-to-strings, plus one or more
+  // buffers for the strings (the simplest --update-alleles implementation may
+  // involve allocation of an additional buffer).
+  //
+  // It probably isn't worth the effort of optimizing the length=1 case beyond
+  // making multiple pointers point to the same string, since the structure
+  // will be changed again in the future to accommodate e.g. triallelic sites.
+  //
+  // Simultaneous with this change, it will be necessary to modify all
+  // functions referencing allele codes to stop assuming each line is limited
+  // to MAXLINELEN - 2 characters.  (The MAXLINELEN restriction can still apply
+  // to e.g. marker and sample IDs.)
   char* marker_alleles = NULL;
   uintptr_t max_marker_allele_len = 1;
   uintptr_t* marker_reverse = NULL;
@@ -6382,14 +6400,18 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_READ_FAIL;
       }
       llxx = ftello(scriptfile);
-      if (llxx > MAXLINELEN) {
+      if (llxx == -1) {
 	print_ver();
-	printf("Error: Script file too long (max %u bytes).\n", MAXLINELEN);
-	retval = RET_INVALID_FORMAT;
-	goto main_ret_1;
+	goto main_ret_READ_FAIL;
+      } else if (llxx > 0x7fffffff) {
+	// could actually happen if user enters parameters in the wrong order,
+	// so may as well catch it and print a somewhat informative error msg
+	print_ver();
+        fputs("Error: --script file too large.\n", stdout);
+        goto main_ret_NOMEM;
       }
-      ujj = llxx;
       rewind(scriptfile);
+      ujj = (uint32_t)((uint64_t)llxx);
       script_buf = (char*)malloc(ujj);
       if (!script_buf) {
 	print_ver();
@@ -6404,7 +6426,7 @@ int32_t main(int32_t argc, char** argv) {
       num_params = 0;
       in_param = 0;
       for (ukk = 0; ukk < ujj; ukk++) {
-	if (is_space_or_eoln(tbuf[ukk])) {
+	if (is_space_or_eoln(script_buf[ukk])) {
 	  in_param = 0;
 	} else if (!in_param) {
 	  num_params++;
@@ -6418,13 +6440,13 @@ int32_t main(int32_t argc, char** argv) {
         subst_argv[num_params++] = argv[ukk];
       }
       for (ukk = 0; ukk < ujj; ukk++) {
-	if (is_space_or_eoln(tbuf[ukk])) {
+	if (is_space_or_eoln(script_buf[ukk])) {
 	  if (in_param) {
-	    tbuf[ukk] = '\0';
+	    script_buf[ukk] = '\0';
 	    in_param = 0;
 	  }
 	} else if (!in_param) {
-	  subst_argv[num_params++] = &(tbuf[ukk]);
+	  subst_argv[num_params++] = &(script_buf[ukk]);
 	  in_param = 1;
 	}
       }
@@ -12126,9 +12148,9 @@ int32_t main(int32_t argc, char** argv) {
   }
   if ((homozyg.modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE)) && (!(calculation_type & CALC_HOMOZYG))) {
     if (homozyg.overlap_min == 0.95) {
-      sprintf(logbuf, "Error: --homozyg-group must be used with another --homozyg flag.%s", errstr_append);
+      sprintf(logbuf, "Error: --homozyg-group must be used with another --homozyg... flag.%s", errstr_append);
     } else {
-      sprintf(logbuf, "Error: --homozyg-match must be used with another --homozyg flag.%s", errstr_append);
+      sprintf(logbuf, "Error: --homozyg-match must be used with another --homozyg... flag.%s", errstr_append);
     }
     goto main_ret_INVALID_CMDLINE_3;
   }

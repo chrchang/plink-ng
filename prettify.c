@@ -3,6 +3,11 @@
 #include <string.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include <unistd.h>
+
+#if _WIN32
+#include <windows.h>
+#endif
 
 // Simple pretty printer.  (Christopher Chang, chrchang@alumni.caltech.edu)
 //
@@ -22,16 +27,22 @@
 
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
 
-#define FLAG_RJUSTIFY 1
-#define FLAG_SPACES_BEFORE_FIRST 2
-#define FLAG_PAD 4
-#define FLAG_SPACES_AFTER_LAST 8
-#define FLAG_FINAL_EOLN 0x10
-#define FLAG_STRIP_BLANK 0x20
+#define FLAG_INPLACE 1
+#define FLAG_RJUSTIFY 2
+#define FLAG_SPACES_BEFORE_FIRST 4
+#define FLAG_PAD 8
+#define FLAG_SPACES_AFTER_LAST 0x10
+#define FLAG_FINAL_EOLN 0x20
+#define FLAG_STRIP_BLANK 0x40
+
+#define FNAMESIZE 4096
+
+char pathbuf[FNAMESIZE * 2 + 128];
 
 void disp_usage(FILE* stream) {
   fputs(
 "  prettify {flag(s)...} [input filename] {output filename}\n\n"
+"  --inplace      : Replace the input instead of writing to a new file.\n"
 "  --spacing [ct] : Set number of spaces between columns (default 2).\n"
 "  --right        : Make the right sides of columns line up, instead of left.\n"
 "  --first        : Add [--spacing count] spaces before the first column.\n"
@@ -66,7 +77,7 @@ void free_cond(void* memptr) {
 int32_t fopen_checked(FILE** target_ptr, const char* fname, const char* mode) {
   *target_ptr = fopen(fname, mode);
   if (!(*target_ptr)) {
-    printf(errstr_fopen, fname);
+    fprintf(stderr, errstr_fopen, fname);
     return -1;
   }
   return 0;
@@ -118,19 +129,6 @@ static inline unsigned char* get_token_end_ck(unsigned char* token_start, unsign
 
 unsigned char g_readbuf[BUFSIZE];
 
-uint32_t malloc_double(uintptr_t* malloc_size_ptr, unsigned char** old_ptr_ptr) {
-  uintptr_t malloc_size = *malloc_size_ptr;
-  unsigned char* new_ptr;
-  new_ptr = (unsigned char*)malloc(malloc_size * 2);
-  if (!new_ptr) {
-    return 1;
-  }
-  memcpy(new_ptr, *old_ptr_ptr, malloc_size);
-  free(*old_ptr_ptr);
-  *old_ptr_ptr = new_ptr;
-  return 0;
-}
-
 void handle_last_column(uintptr_t* col_widths, uintptr_t cur_col_idx, uintptr_t cur_col_width, uintptr_t* col_ct_ptr) {
   if (cur_col_width > col_widths[cur_col_idx]) {
     col_widths[cur_col_idx] = cur_col_width;
@@ -141,10 +139,10 @@ void handle_last_column(uintptr_t* col_widths, uintptr_t cur_col_idx, uintptr_t 
 }
 
 int32_t scan_column_widths(FILE* infile, uintptr_t column_sep, uintptr_t** col_widths_ptr, uintptr_t* col_ct_ptr, unsigned char** spacebuf_ptr, unsigned char** rjustify_buf_ptr) {
-  uintptr_t* col_widths = NULL;
+  uintptr_t malloc_size = INITIAL_COLS * sizeof(intptr_t);
+  uintptr_t* col_widths = (uintptr_t*)malloc(malloc_size);
   uintptr_t col_ct = 0;
   uintptr_t max_col_ct = INITIAL_COLS; // not a hard limit
-  uintptr_t malloc_size = INITIAL_COLS * sizeof(intptr_t);
 
   // actually a one-based index, to simplify distinguishing between
   // beginning-of-line-and-not-in-column from beginning-of-line-and-in-column
@@ -158,8 +156,8 @@ int32_t scan_column_widths(FILE* infile, uintptr_t column_sep, uintptr_t** col_w
   unsigned char* line_end;
   unsigned char* readbuf_end;
   unsigned char* token_end;
+  uintptr_t* new_col_widths;
   uintptr_t cur_read;
-  col_widths = (uintptr_t*)malloc(malloc_size);
   if (!col_widths) {
     goto scan_column_widths_ret_NOMEM;
   }
@@ -184,9 +182,12 @@ int32_t scan_column_widths(FILE* infile, uintptr_t column_sep, uintptr_t** col_w
 	  break;
 	}
 	if (++cur_col_idx == max_col_ct) {
-	  if (malloc_double(&malloc_size, (unsigned char**)(&col_widths))) {
+	  malloc_size *= 2;
+	  new_col_widths = realloc(col_widths, malloc_size);
+	  if (!new_col_widths) {
 	    goto scan_column_widths_ret_READ_FAIL;
 	  }
+          col_widths = new_col_widths;
 	  fill_ulong_zero(&(col_widths[max_col_ct]), max_col_ct);
 	  max_col_ct *= 2;
 	}
@@ -431,7 +432,11 @@ int32_t main(int32_t argc, char** argv) {
   uintptr_t col_ct = 0;
   uint32_t infile_param_idx = 0;
   char* param_ptr;
+#ifndef _WIN32
+  char* cptr;
+#endif
   uint32_t param_idx;
+  uint32_t uii;
   int32_t ii;
   if (argc == 1) {
     goto main_ret_HELP;
@@ -453,6 +458,9 @@ int32_t main(int32_t argc, char** argv) {
       if (!infile_param_idx) {
 	infile_param_idx = param_idx;
       } else if (!outname) {
+	if (flags & FLAG_INPLACE) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
         outname = argv[param_idx];
       } else {
 	fputs("Error: Invalid parameter sequence.\n\n", stderr);
@@ -465,14 +473,19 @@ int32_t main(int32_t argc, char** argv) {
       // allow both single- and double-dash
       param_ptr++;
     }
-    if (!strcmp(param_ptr, "spacing")) {
+    if (!strcmp(param_ptr, "inplace")) {
+      if (outname) {
+	goto main_ret_INVALID_CMDLINE_3;
+      }
+      flags |= FLAG_INPLACE;
+    } else if (!strcmp(param_ptr, "spacing")) {
       if (++param_idx == (uint32_t)argc) {
 	fputs("Error: Missing --spacing parameter.\n", stderr);
 	goto main_ret_INVALID_CMDLINE;
       }
       ii = atoi(argv[param_idx]);
       if (ii < 1) {
-	printf("Error: Invalid --spacing parameter '%s'.\n", argv[param_idx]);
+	fprintf(stderr, "Error: Invalid --spacing parameter '%s'.\n", argv[param_idx]);
 	goto main_ret_INVALID_CMDLINE;
       }
       column_sep = (uint32_t)ii;
@@ -489,13 +502,44 @@ int32_t main(int32_t argc, char** argv) {
     } else if (!strcmp(param_ptr, "strip-blank")) {
       flags |= FLAG_STRIP_BLANK;
     } else {
-      printf("Error: Invalid flag '%s'.\n\n", argv[param_idx]);
+      fprintf(stderr, "Error: Invalid flag '%s'.\n\n", argv[param_idx]);
       goto main_ret_INVALID_CMDLINE_2;
     }
   }
   if (!infile_param_idx) {
     fputs("Error: No input filename.\n\n", stderr);
     goto main_ret_INVALID_CMDLINE_2;
+  }
+  if (flags & FLAG_INPLACE) {
+    uii = strlen(argv[infile_param_idx]);
+    outname = (char*)malloc(uii + 11);
+    if (!outname) {
+      goto main_ret_NOMEM;
+    }
+    memcpy(outname, argv[infile_param_idx], uii);
+    memcpy(&(outname[uii]), "-temporary", 11);
+  } else if (outname) {
+#if _WIN32
+    uii = GetFullPathName(argv[infile_param_idx], FNAMESIZE, pathbuf, NULL);
+    if ((!uii) || (uii > FNAMESIZE))
+#else
+    if (!realpath(argv[infile_param_idx], pathbuf))
+#endif
+    {
+      fprintf(stderr, "Error: Failed to open %s.\n", argv[infile_param_idx]);
+      goto main_ret_OPEN_FAIL;
+    }
+#if _WIN32
+    uii = GetFullPathName(outname, FNAMESIZE, &(pathbuf[FNAMESIZE + 64]), NULL);
+    if (uii && (uii <= FNAMESIZE) && (!strcmp(pathbuf, &(pathbuf[FNAMESIZE + 64]))))
+#else
+    cptr = realpath(outname, &(pathbuf[FNAMESIZE + 64]));
+    if (cptr && (!strcmp(pathbuf, &(pathbuf[FNAMESIZE + 64]))))
+#endif
+    {
+      fputs("Error: Input and output files match.  Use --inplace instead.\n", stderr);
+      goto main_ret_INVALID_CMDLINE;
+    }
   }
   if (fopen_checked(&infile, argv[infile_param_idx], "rb")) {
     goto main_ret_OPEN_FAIL;
@@ -509,10 +553,17 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_1;
   }
   fclose_null(&infile);
+  if (flags & FLAG_INPLACE) {
+    unlink(argv[infile_param_idx]);
+    if (rename(outname, argv[infile_param_idx])) {
+      fprintf(stderr, "Error: File rename failed.  Output is in %s instead of %s.\n", outname, argv[infile_param_idx]);
+      goto main_ret_OPEN_FAIL;
+    }
+  }
   while (0) {
   main_ret_HELP:
     fputs(
-"prettify v1.01 (28 Sep 2013)   Christopher Chang (chrchang@alumni.caltech.edu)\n\n"
+"prettify v1.02 (4 Oct 2013)   Christopher Chang (chrchang@alumni.caltech.edu)\n\n"
 "Takes a tab-and/or-space-delimited text table, and generates a space-delimited\n"
 "pretty-printed version.  Multibyte character encodings are not currently\n"
 "supported.\n\n"
@@ -525,8 +576,15 @@ int32_t main(int32_t argc, char** argv) {
 , stdout);
     retval = RET_HELP;
     break;
+  main_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
   main_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
+    break;
+  main_ret_INVALID_CMDLINE_3:
+    fputs("Error: --inplace cannot be used with an output filename.\n", stderr);
+    retval = RET_INVALID_CMDLINE;
     break;
   main_ret_INVALID_CMDLINE_2:
     disp_usage(stderr);
