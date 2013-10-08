@@ -4904,6 +4904,56 @@ void count_set_freq_y_120v(__m128i* vptr, __m128i* vend, __m128i* include_vec, _
   *set_ctp += ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
   *missing_ctp += ((accm.u8[0] + accm.u8[1]) * 0x1000100010001LLU) >> 48;
 }
+
+uintptr_t count_01_vecs(__m128i* vptr, uintptr_t vct) {
+  // counts number of aligned 01s (i.e. PLINK missing genotypes) in
+  // [vptr, vend).  Assumes number of words in interval is a multiple of 12.
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  uintptr_t tot = 0;
+  __m128i* vend;
+  __m128i loader1;
+  __m128i loader2;
+  __m128i count1;
+  __m128i count2;
+  __uni16 acc;
+
+  while (vct >= 60) {
+    vct -= 60;
+    acc.vi = _mm_setzero_si128();
+    vend = &(vptr[60]);
+  count_01_vecs_main_loop:
+    do {
+      loader1 = *vptr++;
+      loader2 = *vptr++;
+      count1 = _mm_and_si128(_mm_andnot_si128(_mm_srli_epi64(loader1, 1), loader1), m1);
+      count2 = _mm_and_si128(_mm_andnot_si128(_mm_srli_epi64(loader2, 1), loader2), m1);
+      loader1 = *vptr++;
+      loader2 = *vptr++;
+      count1 = _mm_add_epi64(count1, _mm_and_si128(_mm_andnot_si128(_mm_srli_epi64(loader1, 1), loader1), m1));
+      count2 = _mm_add_epi64(count2, _mm_and_si128(_mm_andnot_si128(_mm_srli_epi64(loader2, 1), loader2), m1));
+      loader1 = *vptr++;
+      loader2 = *vptr++;
+      count1 = _mm_add_epi64(count1, _mm_and_si128(_mm_andnot_si128(_mm_srli_epi64(loader1, 1), loader1), m1));
+      count2 = _mm_add_epi64(count2, _mm_and_si128(_mm_andnot_si128(_mm_srli_epi64(loader2, 1), loader2), m1));
+      count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
+      count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
+      acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
+    } while (vptr < vend);
+    acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
+    tot += ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
+  }
+  if (vct) {
+    acc.vi = _mm_setzero_si128();
+    vend = &(vptr[vct]);
+    vct = 0;
+    goto count_01_vecs_main_loop;
+  }
+  return tot;
+}
+
 #else
 void count_set_freq_6(uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
   uintptr_t loader = *lptr++;
@@ -5262,6 +5312,44 @@ void count_set_freq_y_12(uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* non
   *set_ctp += (acc * 0x01010101) >> 24;
   *missing_ctp += (accm * 0x01010101) >> 24;
 }
+
+void count_01_12(uintptr_t* lptr) {
+  uintptr_t loader1 = *lptr++;
+  uintptr_t loader2 = *lptr++;
+  uintptr_t count1 = loader1 & (~(loader1 >> 1)) & FIVEMASK;
+  uintptr_t count2 = loader2 & (~(loader2 >> 1)) & FIVEMASK;
+  uintptr_t partial1;
+  uintptr_t partial2;
+  loader1 = *lptr++;
+  loader2 = *lptr++;
+  count1 += loader1 & (~(loader1 >> 1)) & FIVEMASK;
+  count2 += loader2 & (~(loader2 >> 1)) & FIVEMASK;
+  loader1 = *lptr++;
+  loader2 = *lptr++;
+  count1 += loader1 & (~(loader1 >> 1)) & FIVEMASK;
+  count2 += loader2 & (~(loader2 >> 1)) & FIVEMASK;
+  partial1 = (count1 & 0x33333333) + ((count1 >> 2) & 0x33333333);
+  partial2 = (count2 & 0x33333333) + ((count2 >> 2) & 0x33333333);
+
+  loader1 = *lptr++;
+  loader2 = *lptr++;
+  count1 = loader1 & (~(loader1 >> 1)) & FIVEMASK;
+  count2 = loader2 & (~(loader2 >> 1)) & FIVEMASK;
+  loader1 = *lptr++;
+  loader2 = *lptr++;
+  count1 += loader1 & (~(loader1 >> 1)) & FIVEMASK;
+  count2 += loader2 & (~(loader2 >> 1)) & FIVEMASK;
+  loader1 = *lptr++;
+  loader2 = *lptr++;
+  count1 += loader1 & (~(loader1 >> 1)) & FIVEMASK;
+  count2 += loader2 & (~(loader2 >> 1)) & FIVEMASK;
+  partial1 += (count1 & 0x33333333) + ((count1 >> 2) & 0x33333333);
+  partial2 += (count2 & 0x33333333) + ((count2 >> 2) & 0x33333333);
+
+  partial1 = (partial1 & 0x0f0f0f0f) + ((partial1 >> 4) & 0x0f0f0f0f);
+  partial1 += (partial2 & 0x0f0f0f0f) + ((partial2 >> 4) & 0x0f0f0f0f);
+  return (partial1 * 0x01010101) >> 24;
+}
 #endif
 
 void vec_set_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
@@ -5278,11 +5366,10 @@ void vec_set_freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec,
   uint32_t acc = 0;
   uint32_t accm = 0;
 #ifdef __LP64__
-  uintptr_t cur_decr;
+  uintptr_t cur_decr = 60;
   uintptr_t* lptr_6x_end;
   indiv_ctl2 -= indiv_ctl2 % 6;
   while (indiv_ctl2 >= 60) {
-    cur_decr = 60;
   vec_set_freq_loop:
     lptr_6x_end = &(lptr[cur_decr]);
     count_set_freq_60v((__m128i*)lptr, (__m128i*)lptr_6x_end, (__m128i*)include_vec, &acc, &accm);
@@ -5325,12 +5412,11 @@ void vec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ve
   uint32_t acc = 0;
   uint32_t accm = 0;
 #ifdef __LP64__
-  uintptr_t cur_decr;
+  uintptr_t cur_decr = 60;
   uintptr_t* lptr_6x_end;
   indiv_ctl2 -= indiv_ctl2 % 6;
   while (indiv_ctl2 >= 60) {
-    cur_decr = 60;
-  vec_set_freq_loop:
+  vec_set_freq_x_loop:
     lptr_6x_end = &(lptr[cur_decr]);
     count_set_freq_x_60v((__m128i*)lptr, (__m128i*)lptr_6x_end, (__m128i*)include_vec, (__m128i*)male_vec, &acc, &accm);
     lptr = lptr_6x_end;
@@ -5340,7 +5426,7 @@ void vec_set_freq_x(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ve
   }
   if (indiv_ctl2) {
     cur_decr = indiv_ctl2;
-    goto vec_set_freq_loop;
+    goto vec_set_freq_x_loop;
   }
 #else
   uintptr_t* lptr_six_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 6)]);
@@ -5377,12 +5463,11 @@ void vec_set_freq_y(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ve
   uint32_t acc = 0;
   uint32_t accm = 0;
 #ifdef __LP64__
-  uintptr_t cur_decr;
+  uintptr_t cur_decr = 120;
   uintptr_t* lptr_12x_end;
   indiv_ctl2 -= indiv_ctl2 % 12;
   while (indiv_ctl2 >= 120) {
-    cur_decr = 120;
-  vec_set_freq_loop:
+  vec_set_freq_y_loop:
     lptr_12x_end = &(lptr[cur_decr]);
     count_set_freq_y_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, (__m128i*)nonmale_vec, &acc, &accm);
     lptr = lptr_12x_end;
@@ -5392,7 +5477,7 @@ void vec_set_freq_y(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_ve
   }
   if (indiv_ctl2) {
     cur_decr = indiv_ctl2;
-    goto vec_set_freq_loop;
+    goto vec_set_freq_y_loop;
   }
 #else
   uintptr_t* lptr_twelve_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 12)]);
@@ -5425,12 +5510,11 @@ void vec_3freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, ui
   uint32_t acc_odd = 0;
   uint32_t acc_and = 0;
 #ifdef __LP64__
-  uintptr_t cur_decr;
+  uintptr_t cur_decr = 120;
   uintptr_t* lptr_12x_end;
   indiv_ctl2 -= indiv_ctl2 % 12;
   while (indiv_ctl2 >= 120) {
-    cur_decr = 120;
-  vec_homset_freq_loop:
+  vec_3freq_loop:
     lptr_12x_end = &(lptr[cur_decr]);
     count_3freq_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, &acc_even, &acc_odd, &acc_and);
     lptr = lptr_12x_end;
@@ -5439,7 +5523,7 @@ void vec_3freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, ui
   }
   if (indiv_ctl2) {
     cur_decr = indiv_ctl2;
-    goto vec_homset_freq_loop;
+    goto vec_3freq_loop;
   }
 #else
   uintptr_t* lptr_twelve_end = &(lptr[indiv_ctl2 - (indiv_ctl2 % 12)]);
@@ -5460,6 +5544,30 @@ void vec_3freq(uintptr_t indiv_ctl2, uintptr_t* lptr, uintptr_t* include_vec, ui
   *missing_ctp = acc_even - acc_and;
   *het_ctp = acc_odd - acc_and;
   *homset_ctp = acc_and;
+}
+
+uintptr_t count_01(uintptr_t* lptr, uintptr_t word_ct) {
+  // really just for getting a missing count
+  uintptr_t* lptr_end = &(lptr[word_ct]);
+  uintptr_t loader;
+#ifdef __LP64__
+  uintptr_t acc;
+  word_ct -= word_ct % 12;
+  acc = count_01_vecs((__m128i*)lptr, word_ct / 2);
+  lptr = &(lptr[word_ct]);
+#else
+  uintptr_t* lptr_twelve_end = &(lptr[word_ct - (word_ct % 12)]);
+  uintptr_t acc = 0;
+  while (lptr < lptr_twelve_end) {
+    acc += count_01_12(lptr);
+    lptr = &(lptr[12]);
+  }
+#endif
+  while (lptr < lptr_end) {
+    loader = *lptr++;
+    acc += popcount2_long(loader & (~(loader >> 1)) & FIVEMASK);
+  }
+  return acc;
 }
 
 uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t item_ct, uintptr_t* bitfield, uint32_t offset, uint32_t ignore_overflow) {
@@ -7404,6 +7512,39 @@ void collapse_copy_bitarr_incl(uint32_t orig_ct, uintptr_t* bit_arr, uintptr_t* 
   }
   if (write_bit) {
     *output_arr = cur_write;
+  }
+}
+
+void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size, uintptr_t unfiltered_indiv_ct, uintptr_t missing_ct, char* dest) {
+  uintptr_t* loadbuf_end = &(loadbuf[(unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2]);
+  uintptr_t last_missing_p1 = 0;
+  uintptr_t indiv_idx_offset = 0;
+  uintptr_t cur_word;
+  uintptr_t new_missing_idx;
+  uintptr_t diff;
+  if (!missing_ct) {
+    memcpy(dest, source, unfiltered_indiv_ct * elem_size);
+    return;
+  }
+  do {
+    cur_word = *loadbuf++;
+    cur_word = cur_word & (~(cur_word >> 1)) & FIVEMASK;
+    if (cur_word) {
+      do {
+	new_missing_idx = indiv_idx_offset + (CTZLU(cur_word) / 2);
+	diff = new_missing_idx - last_missing_p1;
+	if (diff) {
+	  dest = memcpya(dest, &(source[last_missing_p1 * elem_size]), diff * elem_size);
+	}
+	last_missing_p1 = new_missing_idx + 1;
+	cur_word &= cur_word - 1;
+      } while (cur_word);
+    }
+    indiv_idx_offset += BITCT2;
+  } while (loadbuf < loadbuf_end);
+  diff = unfiltered_indiv_ct - last_missing_p1;
+  if (diff) {
+    memcpy(dest, &(source[last_missing_p1 * elem_size]), diff * elem_size);
   }
 }
 

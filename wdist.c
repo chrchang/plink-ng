@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (4 Oct 2013)";
+  " (8 Oct 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -1863,11 +1863,10 @@ static inline void single_marker_freqs_and_hwe(uintptr_t unfiltered_indiv_ctl2, 
   uintptr_t loader2;
   uintptr_t loader3;
 #ifdef __LP64__
-  uintptr_t cur_decr;
+  uintptr_t cur_decr = 120;
   uintptr_t* lptr_12x_end;
   unfiltered_indiv_ctl2 -= unfiltered_indiv_ctl2 % 12;
   while (unfiltered_indiv_ctl2 >= 120) {
-    cur_decr = 120;
   single_marker_freqs_and_hwe_loop:
     lptr_12x_end = &(lptr[cur_decr]);
     count_3freq_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)indiv_include2, &tot_a, &tot_b, &tot_c);
@@ -2140,11 +2139,10 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, ui
   uintptr_t loader3;
   uintptr_t loader4;
 #ifdef __LP64__
-  uintptr_t cur_decr;
+  uintptr_t cur_decr = 120;
   uintptr_t* lptr_12x_end;
   unfiltered_indiv_ctl2 -= unfiltered_indiv_ctl2 % 12;
   while (unfiltered_indiv_ctl2 >= 120) {
-    cur_decr = 120;
   single_marker_freqs_and_hwe_loop:
     lptr_12x_end = &(lptr[cur_decr]);
   // Given a buffer with PLINK binary genotypes for a single marker, let
