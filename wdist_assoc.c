@@ -9056,8 +9056,8 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
 
     // now temporarily save sigmas in linear_results[perm_idx * param_ctx_m1]
     pheno_idx_ptr = pheno_idx_perms;
-    dyy = 0;
-    dzz = 1;
+    dyy = 1;
+    dzz = 0;
     for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
       // not coef[perm_idx * param_ct] due to how dgels() works
       dptr = &(coef[perm_idx * indiv_valid_ct]);
@@ -9491,7 +9491,7 @@ uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t p
     for (param_idx = 1; param_idx < param_ct; param_idx++) {
       dxx = param_2d_buf2[param_idx];
       dptr = &(param_2d_buf[param_idx * param_ct]);
-      dptr2 = param_2d_buf;
+      dptr2 = param_2d_buf2;
       for (param_idx2 = 0; param_idx2 < param_idx; param_idx2++) {
 	if ((*dptr++) * (*dptr2++) * dxx > 0.99999) {
 	  goto glm_logistic_robust_cluster_covar_fail;
@@ -9991,6 +9991,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   double* dptr;
   double* dptr2;
   uintptr_t* loadbuf_ptr;
+  uintptr_t* ulptr;
   uintptr_t indiv_valid_ct;
   uintptr_t indiv_valid_ctv2;
   uintptr_t indiv_uidx_stop;
@@ -10010,6 +10011,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uintptr_t param_idx;
   uintptr_t param_idx_fixed;
   uintptr_t constraint_idx;
+  uintptr_t cur_word;
   uintptr_t ulii;
   uintptr_t uljj;
   double* msa_ptr;
@@ -10019,6 +10021,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   double pval;
   double dxx;
   double dyy;
+  double dzz;
   uint32_t chrom_fo_idx;
   uint32_t chrom_end;
   uint32_t block_size;
@@ -10859,7 +10862,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
         dptr++;
       }
       g_pheno_sum = 0;
-      g_pheno_ssq = (double)((intptr_t)indiv_valid_ct);
+      g_pheno_ssq = (double)((intptr_t)(indiv_valid_ct - 1));
     }
     if (do_perms) {
       if (wkspace_alloc_ui_checked(&g_precomputed_mods, (indiv_valid_ct - 1) * sizeof(int32_t)) ||
@@ -11108,6 +11111,9 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       continue;
     }
     if (!perm_pass_idx) {
+#ifndef NOLAPACK
+      dgels_nrhs = 1;
+#endif
       for (marker_bidx = 0; marker_bidx < block_size; marker_bidx++) {
 	// 1. fill design matrix and make transposed copy; fill g_set_cts[] in
 	//    the process
@@ -11119,12 +11125,38 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 	marker_idx2 = g_adapt_m_table[marker_bidx];
         cur_indiv_valid_ct = indiv_valid_ct - glm_fill_design(loadbuf_ptr, fixed_covars_cov_major, indiv_valid_ct, indiv_to_cluster1, cur_param_ct, standard_beta, hethom, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, g_is_haploid && (!g_is_x), g_glm_mt[0].cur_covars_cov_major, g_glm_mt[0].cur_covars_indiv_major, g_glm_mt[0].cur_indiv_to_cluster1_buf, &(g_glm_mt[0].cur_indiv_to_cluster1));
 	g_set_cts[marker_idx2] = cur_indiv_valid_ct;
-	if (cur_indiv_valid_ct > cur_param_ct) {
+	if ((cur_indiv_valid_ct > cur_param_ct) && (!glm_check_vif(glm_vif_thresh, cur_param_ct, cur_indiv_valid_ct, g_glm_mt[0].cur_covars_cov_major, g_glm_mt[0].param_2d_buf, g_glm_mt[0].mi_buf, g_glm_mt[0].param_2d_buf2))) {
 	  regression_fail = 0;
 #ifndef NOLAPACK
 	  if (pheno_d) {
 	    memcpy(g_glm_mt[0].dgels_a, g_glm_mt[0].cur_covars_cov_major, cur_param_ct * cur_indiv_valid_ct * sizeof(double));
 	    copy_when_nonmissing(loadbuf_ptr, (char*)g_pheno_d2, sizeof(double), indiv_valid_ct, indiv_valid_ct - cur_indiv_valid_ct, (char*)(g_glm_mt[0].dgels_b));
+	    if (standard_beta) {
+	      dxx = g_pheno_sum;
+	      dyy = g_pheno_ssq;
+	      ulptr = loadbuf_ptr;
+	      for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx += BITCT2) {
+		cur_word = *ulptr++;
+		cur_word = cur_word & (~(cur_word >> 1)) & FIVEMASK;
+		while (cur_word) {
+		  dzz = g_pheno_d2[indiv_idx + (CTZLU(cur_word) / 2)];
+		  dxx -= dzz;
+		  dyy -= dzz * dzz;
+		  cur_word &= cur_word - 1;
+		}
+	      }
+	      dzz = dxx / ((double)((intptr_t)cur_indiv_valid_ct));
+	      dyy = sqrt(((double)((intptr_t)(cur_indiv_valid_ct - 1))) / (dyy - dxx * dzz));
+	      dptr = g_glm_mt[0].dgels_b;
+	      for (indiv_idx = 0; indiv_idx < cur_indiv_valid_ct; indiv_idx++) {
+		*dptr = ((*dptr) - dzz) * dyy;
+		dptr++;
+	      }
+	    }
+	    dgels_m = (int32_t)((uint32_t)cur_indiv_valid_ct);
+	    dgels_n = (int32_t)((uint32_t)cur_param_ct);
+	    dgels_ldb = dgels_m;
+
             dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, g_glm_mt[0].dgels_a, &dgels_m, g_glm_mt[0].dgels_b, &dgels_ldb, g_glm_mt[0].dgels_work, &dgels_lwork, &dgels_info);
 	    if (glm_linear_robust_cluster_covar(1, cur_param_ct, cur_indiv_valid_ct, indiv_valid_ct - cur_indiv_valid_ct, loadbuf_ptr, standard_beta, g_pheno_sum, g_pheno_ssq, g_glm_mt[0].cur_covars_cov_major, g_glm_mt[0].cur_covars_indiv_major, unpermuted_indices, g_pheno_d2, g_glm_mt[0].dgels_b, g_glm_mt[0].param_2d_buf, g_glm_mt[0].mi_buf, g_glm_mt[0].param_2d_buf2, cluster_ct1, g_glm_mt[0].cur_indiv_to_cluster1, g_glm_mt[0].cluster_param_buf, g_glm_mt[0].cluster_param_buf2, g_glm_mt[0].indiv_1d_buf, g_glm_mt[0].regression_results, cur_constraint_ct, constraints_con_major, g_glm_mt[0].param_df_buf, g_glm_mt[0].param_df_buf2, g_glm_mt[0].df_df_buf, g_glm_mt[0].df_buf, &perm_fail_ct, g_glm_mt[0].perm_fails) || perm_fail_ct) {
 	      regression_fail = 1;
@@ -11876,6 +11908,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       goto glm_assoc_nosnp_ret_NOMEM;
     }
     dgels_nrhs = 1;
+
     dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
     if (dgels_info) {
       logprint("Warning: Skipping --linear/--logistic no-snp since regression failed.\n");
