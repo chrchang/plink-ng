@@ -11135,7 +11135,9 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 	marker_uidx2 = mu_table[marker_bidx];
         loadbuf_ptr = &(g_loadbuf[marker_bidx * indiv_valid_ctv2]);
 	marker_idx3 = g_adapt_m_table[marker_bidx];
-	marker_idx_to_uidx[marker_idx3] = marker_uidx2;
+	if (marker_idx_to_uidx) {
+	  marker_idx_to_uidx[marker_idx3] = marker_uidx2;
+	}
         cur_indiv_valid_ct = indiv_valid_ct - glm_fill_design(loadbuf_ptr, fixed_covars_cov_major, indiv_valid_ct, indiv_to_cluster1, cur_param_ct, standard_beta, hethom, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, g_is_haploid && (!g_is_x), g_glm_mt[0].cur_covars_cov_major, g_glm_mt[0].cur_covars_indiv_major, g_glm_mt[0].cur_indiv_to_cluster1_buf, &(g_glm_mt[0].cur_indiv_to_cluster1));
 	g_set_cts[marker_idx3] = cur_indiv_valid_ct;
 	if ((cur_indiv_valid_ct > cur_param_ct) && (!glm_check_vif(glm_vif_thresh, cur_param_ct, cur_indiv_valid_ct, g_glm_mt[0].cur_covars_cov_major, g_glm_mt[0].param_2d_buf, g_glm_mt[0].mi_buf, g_glm_mt[0].param_2d_buf2))) {

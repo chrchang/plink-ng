@@ -65,9 +65,9 @@ const char ver_str[] =
   "PLINK v1.50a"
 #else
 #ifdef STABLE_BUILD
-  "WDIST v0.19.25"
+  "WDIST v0.22.0"
 #else
-  "WDIST v0.22.0p"
+  "WDIST v0.23.0p"
 #endif
 #endif
 #ifdef NOLAPACK
@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (10 Oct 2013)";
+  " (11 Oct 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -1974,154 +1974,6 @@ static inline uint32_t nonmissing_present_diff(uintptr_t unfiltered_indiv_ctl2, 
   return 0;
 }
 
-/*
-static inline uint32_t nonmissing_ct_diff(uintptr_t unfiltered_indiv_ctl2, uintptr_t* lptr, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2) {
-  // This function counts nonmissing nonmale genotypes on the Y chromosome.
-  // (It may be moved to wdist_common.c if another calculation wants this type
-  // of count.)
-  //
-  // indiv_nonmale_include2: indiv_include2 ^ indiv_male_include2
-  // nonmissing nonmale: (~(geno & (~(geno >> 1)))) & indiv_nonmale_include2
-  uint32_t ct_diff = 0;
-  uintptr_t* lptr_end = &(lptr[unfiltered_indiv_ctl2]);
-  uintptr_t loader;
-  uintptr_t loader2;
-#ifdef __LP64__
-  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
-  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  __m128i* vptr = (__m128i*)lptr;
-  __m128i* rvptr1 = (__m128i*)indiv_include2;
-  __m128i* rvptr2 = (__m128i*)indiv_male_include2;
-  __m128i* vptr_stop = &(vptr[60]);
-  __m128i* vptr_stop2 = (__m128i*)(&(lptr[unfiltered_indiv_ctl2 - (unfiltered_indiv_ctl2 % 120)]));
-  __m128i* vptr_stop3 = (__m128i*)(&(lptr[unfiltered_indiv_ctl2 - (unfiltered_indiv_ctl2 % 12)]));
-  __m128i vloader;
-  __m128i vloader2;
-  __m128i count1;
-  __m128i count2;
-  __uni16 acc;
-  while (1) {
-    if (vptr < vptr_stop2) {
-      while (1) {
-	acc.vi = _mm_setzero_si128();
-	do {
-	  vloader = *vptr++;
-	  vloader2 = _mm_xor_si128(*rvptr1++, *rvptr2++);
-	  count1 = _mm_andnot_si128(_mm_andnot_si128(_mm_srli_epi64(vloader, 1), vloader), vloader2);
-
-	  vloader = *vptr++;
-	  vloader2 = _mm_xor_si128(*rvptr1++, *rvptr2++);
-	  count1 = _mm_add_epi64(count1, _mm_andnot_si128(_mm_andnot_si128(_mm_srli_epi64(vloader, 1), vloader), vloader2));
-
-	  vloader = *vptr++;
-	  vloader2 = _mm_xor_si128(*rvptr1++, *rvptr2++);
-	  count1 = _mm_add_epi64(count1, _mm_andnot_si128(_mm_andnot_si128(_mm_srli_epi64(vloader, 1), vloader), vloader2));
-	  count1 = _mm_add_epi64(_mm_and_si128(count1, m2), _mm_and_si128(_mm_srli_epi64(count1, 2), m2));
-
-	  vloader = *vptr++;
-	  vloader2 = _mm_xor_si128(*rvptr1++, *rvptr2++);
-	  count2 = _mm_andnot_si128(_mm_andnot_si128(_mm_srli_epi64(vloader, 1), vloader), vloader2);
-
-	  vloader = *vptr++;
-	  vloader2 = _mm_xor_si128(*rvptr1++, *rvptr2++);
-	  count2 = _mm_add_epi64(count2, _mm_andnot_si128(_mm_andnot_si128(_mm_srli_epi64(vloader, 1), vloader), vloader2));
-
-	  vloader = *vptr++;
-	  vloader2 = _mm_xor_si128(*rvptr1++, *rvptr2++);
-	  count2 = _mm_add_epi64(count2, _mm_andnot_si128(_mm_andnot_si128(_mm_srli_epi64(vloader, 1), vloader), vloader2));
-	  count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(count2, m2), _mm_and_si128(_mm_srli_epi64(count2, 2), m2)));
-
-	  acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
-	} while (vptr < vptr_stop);
-	acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
-        ct_diff += ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
-	if (vptr == vptr_stop2) {
-	  break;
-	}
-	vptr_stop = &(vptr[60]);
-      }
-    }
-    if (vptr == vptr_stop3) {
-      break;
-    }
-    vptr_stop = vptr_stop3;
-    vptr_stop2 = vptr_stop3;
-  }
-  lptr = (uintptr_t*)vptr;
-  indiv_include2 = (uintptr_t*)rptr1;
-  indiv_male_include2 = (uintptr_t*)rptr2;
-#else
-  uintptr_t* lptr_stop = &(lptr[unfiltered_indiv_ctl2 - (unfiltered_indiv_ctl2 % 12)]);
-  uintptr_t count1;
-  uintptr_t count2;
-  uintptr_t partial;
-  while (lptr < lptr_stop) {
-    loader = *lptr++;
-    loader2 = (*indiv_include2++) ^ (*indiv_male_include2++);
-    count1 = (~((~(loader >> 1)) & loader)) & loader2;
-
-    loader = *lptr++;
-    loader2 = (*indiv_include2++) ^ (*indiv_male_include2++);
-    count1 += (~((~(loader >> 1)) & loader)) & loader2;
-
-    loader = *lptr++;
-    loader2 = (*indiv_include2++) ^ (*indiv_male_include2++);
-    count1 += (~((~(loader >> 1)) & loader)) & loader2;
-    count1 = (count1 & 0x33333333) + ((count1 >> 2) & 0x33333333);
-
-    loader = *lptr++;
-    loader2 = (*indiv_include2++) ^ (*indiv_male_include2++);
-    count2 = (~((~(loader >> 1)) & loader)) & loader2;
-
-    loader = *lptr++;
-    loader2 = (*indiv_include2++) ^ (*indiv_male_include2++);
-    count2 += (~((~(loader >> 1)) & loader)) & loader2;
-
-    loader = *lptr++;
-    loader2 = (*indiv_include2++) ^ (*indiv_male_include2++);
-    count2 += (~((~(loader >> 1)) & loader)) & loader2;
-    count1 += (count2 & 0x33333333) + ((count2 >> 2) & 0x33333333);
-    partial = (count1 & 0x0f0f0f0f) + ((count1 >> 4) & 0x0f0f0f0f);
-
-    loader = *lptr++;
-    loader2 = (*indiv_include2++) ^ (*indiv_male_include2++);
-    count1 = (~((~(loader >> 1)) & loader)) & loader2;
-
-    loader = *lptr++;
-    loader2 = (*indiv_include2++) ^ (*indiv_male_include2++);
-    count1 += (~((~(loader >> 1)) & loader)) & loader2;
-
-    loader = *lptr++;
-    loader2 = (*indiv_include2++) ^ (*indiv_male_include2++);
-    count1 += (~((~(loader >> 1)) & loader)) & loader2;
-    count1 = (count1 & 0x33333333) + ((count1 >> 2) & 0x33333333);
-
-    loader = *lptr++;
-    loader2 = (*indiv_include2++) ^ (*indiv_male_include2++);
-    count2 = (~((~(loader >> 1)) & loader)) & loader2;
-
-    loader = *lptr++;
-    loader2 = (*indiv_include2++) ^ (*indiv_male_include2++);
-    count2 += (~((~(loader >> 1)) & loader)) & loader2;
-
-    loader = *lptr++;
-    loader2 = (*indiv_include2++) ^ (*indiv_male_include2++);
-    count2 += (~((~(loader >> 1)) & loader)) & loader2;
-    count1 += (count2 & 0x33333333) + ((count2 >> 2) & 0x33333333);
-    partial += (count1 & 0x0f0f0f0f) + ((count1 >> 4) & 0x0f0f0f0f);
-    ct_diff += (partial * 0x01010101) >> 24;
-  }
-#endif
-  while (lptr < lptr_end) {
-    loader = *lptr++;
-    loader2 = (*indiv_include2++) ^ (*indiv_male_include2++);
-    ct_diff += popcount2_long((~((~(loader >> 1)) & loader)) & loader2);
-  }
-  return ct_diff;
-}
-*/
-
 static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, uintptr_t unfiltered_indiv_ctl2, uintptr_t* lptr, uintptr_t* indiv_include2, uintptr_t* founder_include2, uintptr_t indiv_ct, uint32_t* ll_ctp, uint32_t* hh_ctp, uint32_t indiv_f_ct, uint32_t* ll_ctfp, uint32_t* hh_ctfp, uint32_t* hethap_incr_ptr) {
   // Here, we interpret heterozygotes as missing.
   // Nonmissing: (genotype ^ (~(genotype >> 1))) & 0x5555...
@@ -2175,7 +2027,7 @@ static inline void haploid_single_marker_freqs(uintptr_t unfiltered_indiv_ct, ui
     founder_include2 = &(founder_include2[12]);
   }
 #endif
-  tot_nm = 2 * tot_hmaj + (indiv_ct & (~(63 * ONELU))) - tot_a - tot_b;
+  tot_nm = 2 * tot_hmaj + indiv_ct - tot_a - tot_b;
   hethap_incr = tot_b - tot_hmaj;
   while (lptr < lptr_end) {
     loader = *lptr++;
@@ -2205,6 +2057,12 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   int32_t retval = 0;
   uint32_t pct = 1;
   uint32_t indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
+  double indiv_ct_recip = 1.0 / ((double)((int32_t)indiv_ct));
+  // sum of nonmissing rates over all markers
+  // rate is in [0, 1] for each marker, so sum is in [0, marker_ct].
+  double nonmissing_rate_tot = 0.0;
+  // track this to defend against Y chromosome/0 males pathological case
+  uintptr_t nonmissing_rate_tot_max = marker_ct;
   uint32_t indiv_f_ct = indiv_ct;
   uintptr_t indiv_f_ctrl_ct = indiv_ct;
   uintptr_t indiv_f_case_ct = indiv_ct;
@@ -2228,6 +2086,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uint32_t ll_ctf = 0;
   uint32_t lh_ctf = 0;
   uint32_t hh_ctf = 0;
+  uint32_t ukk = 0;
   int32_t* hwe_lls = NULL;
   int32_t* hwe_lhs = NULL;
   int32_t* hwe_hhs = NULL;
@@ -2250,6 +2109,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uint32_t indiv_f_ctl_nonmale_ct = 0;
   uint32_t indiv_f_case_nonmale_ct = 0;
   uint64_t hethap_ct = 0;
+  double male_ct_recip = 0;
   uint32_t indiv_male_ct;
   uint32_t indiv_f_male_ct;
   uint32_t hethap_incr;
@@ -2270,7 +2130,6 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uintptr_t ulii;
   uint32_t uii;
   uint32_t ujj;
-  uint32_t ukk;
   uint32_t* marker_allele_cts;
   double maf;
   uii = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
@@ -2355,6 +2214,9 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   vec_include_mask_in(unfiltered_indiv_ct, indiv_male_include2, sex_nm);
   vec_include_mask_in(unfiltered_indiv_ct, indiv_male_include2, sex_male);
   indiv_male_ct = popcount_longs(indiv_male_include2, 0, unfiltered_indiv_ctl2);
+  if (indiv_male_ct) {
+    male_ct_recip = 1.0 / ((double)((int32_t)indiv_male_ct));
+  }
   *indiv_male_ct_ptr = indiv_male_ct;
   indiv_f_male_ct = indiv_male_ct;
   if (males_needed) {
@@ -2500,6 +2362,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	marker_allele_cts[2 * marker_uidx] += 2 * ll_ct + lh_ct;
 	marker_allele_cts[2 * marker_uidx + 1] += 2 * hh_ct + lh_ct;
 	uii = 2 * (ll_ctf + lh_ctf + hh_ctf + maf_succ);
+	nonmissing_rate_tot += (ll_ct + lh_ct + hh_ct) * indiv_ct_recip;
 	if (!uii) {
 	  // avoid 0/0 division
 	  set_allele_freqs[marker_uidx] = 0.5;
@@ -2529,6 +2392,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	    marker_allele_cts[2 * marker_uidx + 1] += 2 * hh_ct + lh_ct;
 	    uii = 2 * (ll_ctf + lh_ctf + hh_ctf);
 	    ujj = 2 * hh_ctf + lh_ctf;
+	    ukk = ll_ct + lh_ct + hh_ct;
 	    if (hwe_needed) {
 	      hwe_lls[marker_uidx] = ll_hwe;
 	      hwe_lhs[marker_uidx] = lh_hwe;
@@ -2543,8 +2407,16 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	    nonmissing_nonmale_y = nonmissing_present_diff(unfiltered_indiv_ctl2, loadbuf, indiv_include2, indiv_male_include2);
 	  }
 	  haploid_single_marker_freqs(unfiltered_indiv_ct, unfiltered_indiv_ctl2, loadbuf, indiv_male_include2, founder_male_include2, indiv_male_ct, &ll_ct, &hh_ct, indiv_f_male_ct, &ll_ctf, &hh_ctf, &hethap_incr);
+	  if (is_x) {
+	    nonmissing_rate_tot += ((int32_t)(ll_ct + hh_ct + ukk)) * indiv_ct_recip;
+	  } else if (indiv_male_ct) {
+	    nonmissing_rate_tot += ((int32_t)(ll_ct + hh_ct)) * male_ct_recip;
+	  } else {
+	    nonmissing_rate_tot_max -= 1;
+	  }
 	} else {
 	  haploid_single_marker_freqs(unfiltered_indiv_ct, unfiltered_indiv_ctl2, loadbuf, indiv_include2, founder_include2, indiv_ct, &ll_ct, &hh_ct, indiv_f_ct, &ll_ctf, &hh_ctf, &hethap_incr);
+	  nonmissing_rate_tot += ((int32_t)(ll_ct + hh_ct)) * indiv_ct_recip;
 	}
 	if (hethap_incr) {
 	  if (!hhfile) {
@@ -2627,6 +2499,10 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   if (nonmissing_nonmale_y) {
     logprint("Warning: Nonmissing nonmale Y chromosome genotype(s) present.\n");
     *hh_exists_ptr |= Y_FIX_NEEDED;
+  }
+  if (nonmissing_rate_tot < ((double)((intptr_t)nonmissing_rate_tot_max))) {
+    sprintf(logbuf, "Total genotyping rate %sis %g.\n", indiv_exclude_ct? "in remaining individuals " : "", nonmissing_rate_tot / ((double)((intptr_t)nonmissing_rate_tot_max)));
+    logprintb();
   }
   while (0) {
   calc_freqs_and_hwe_ret_NOMEM:
@@ -7085,7 +6961,6 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'K':
       if (*argptr2 == '\0') {
-	UNSTABLE;
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7120,7 +6995,6 @@ int32_t main(int32_t argc, char** argv) {
 	chrom_info.is_include_stack = 1;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "llow-extra-chr", 15)) {
-	UNSTABLE;
 	if (load_rare == LOAD_RARE_23) {
 	  logprint("Error: --allow-extra-chr cannot currently be used with --23file.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -7419,7 +7293,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
         min_bp_space = ii;
       } else if (!memcmp(argptr2, "eta", 4)) {
-	UNSTABLE;
 	logprint("Note: --beta flag deprecated.  Use e.g. '--logistic beta'.\n");
 	glm_modifier |= GLM_BETA;
 	goto main_param_zero;
@@ -7460,7 +7333,6 @@ int32_t main(int32_t argc, char** argv) {
 	misc_flags |= MISC_FREQ_COUNTS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ovar", 5)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7479,7 +7351,6 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "ovar-name", 10)) {
-	UNSTABLE;
 	if (!covar_fname) {
 	  logprint("Error: --covar-name must be used with --covar.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -7490,7 +7361,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	covar_modifier |= COVAR_NAME;
       } else if (!memcmp(argptr2, "ovar-number", 12)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7528,7 +7398,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	ci_size = dxx;
       } else if (!memcmp(argptr2, "luster", 7)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7558,12 +7427,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
         calculation_type |= CALC_CLUSTER;
       } else if (!memcmp(argptr2, "c", 2)) {
-	UNSTABLE;
         logprint("Note: --cc flag deprecated.  Use '--cluster cc'.\n");
         cluster.modifier |= CLUSTER_CC;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "luster-missing", 15)) {
-	UNSTABLE;
 	if (calculation_type & CALC_CLUSTER) {
 	  sprintf(logbuf, "Error: --cluster-missing cannot be used with --cluster.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -8097,12 +7964,10 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --cnv-write-freq flag deprecated.  Use '--cnv-write freq'.\n");
 	cnv_calc_type |= CNV_WRITE_FREQ;
       } else if (!memcmp(argptr2, "onsensus-match", 15)) {
-	UNSTABLE;
         logprint("Note: --consensus-match flag deprecated.  Use '--homozyg consensus-match'.\n");
 	homozyg.modifier |= HOMOZYG_CONSENSUS_MATCH;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ondition", 9)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8128,7 +7993,6 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_NOMEM;
 	}
       } else if (!memcmp(argptr2, "ondition-list", 14)) {
-	UNSTABLE;
 	if (condition_mname) {
 	  logprint("Error: --condition-list cannot be used with --condition.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -8329,7 +8193,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	load_rare = LOAD_RARE_DUMMY;
       } else if (!memcmp(argptr2, "ummy-coding", 12)) {
-	UNSTABLE;
 	if (!covar_fname) {
 	  sprintf(logbuf, "Error: --dummy-coding cannot be used without --covar.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -8362,7 +8225,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	write_covar_modifier |= WRITE_COVAR_DUMMY;
       } else if (!memcmp(argptr2, "ominant", 8)) {
-	UNSTABLE;
 	logprint("Note: --dominant flag deprecated.  Use e.g. '--linear dominant' (and\n'--condition-list [filename] dominant' to change covariate coding).\n");
 	glm_modifier |= GLM_DOMINANT | GLM_CONDITION_DOMINANT;
 	glm_xchr_model = 0;
@@ -8817,7 +8679,6 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Error: --genome-minimal flag retired.  Use '--genome gz'.\n");
         goto main_ret_INVALID_CMDLINE;
       } else if ((!memcmp(argptr2, "roup-avg", 9)) || (!memcmp(argptr2, "roup-average", 13))) {
-	UNSTABLE;
         if (!(calculation_type & CALC_CLUSTER)) {
 	  sprintf(logbuf, "Error: --group-avg must be used with --cluster.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -8830,7 +8691,6 @@ int32_t main(int32_t argc, char** argv) {
 	cluster.modifier |= CLUSTER_GROUP_AVG;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "enotypic", 9)) {
-	UNSTABLE;
 	if (glm_modifier & GLM_DOMINANT) {
 	  logprint("Error: --genotypic cannot be used with --dominant.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -8877,7 +8737,6 @@ int32_t main(int32_t argc, char** argv) {
 	sprintf(logbuf, "Error: --hardy2 retired.  Use the exact test-based --hardy report.%s", errstr_append);
 	goto main_ret_INVALID_CMDLINE_3;
       } else if (!memcmp(argptr2, "omozyg", 7)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8907,7 +8766,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_HOMOZYG;
       } else if (!memcmp(argptr2, "omozyg-snp", 11)) {
-        UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8919,7 +8777,6 @@ int32_t main(int32_t argc, char** argv) {
 	calculation_type |= CALC_HOMOZYG;
 	homozyg.min_snp = ii;
       } else if (!memcmp(argptr2, "omozyg-kb", 10)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8931,7 +8788,6 @@ int32_t main(int32_t argc, char** argv) {
 	// round up
 	homozyg.min_bases = 1 + (uint32_t)((int32_t)(dxx * 1000 - EPSILON));
       } else if (!memcmp(argptr2, "omozyg-density", 15)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8942,7 +8798,6 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_HOMOZYG;
 	homozyg.max_bases_per_snp = dxx * 1000 + EPSILON;
       } else if (!memcmp(argptr2, "omozyg-gap", 11)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8953,7 +8808,6 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_HOMOZYG;
 	homozyg.max_gap = ((int32_t)(dxx * 1000 + EPSILON));
       } else if (!memcmp(argptr2, "omozyg-het", 11)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8968,7 +8822,6 @@ int32_t main(int32_t argc, char** argv) {
 	calculation_type |= CALC_HOMOZYG;
         homozyg.max_hets = ii;
       } else if (!memcmp(argptr2, "omozyg-window-snp", 18)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8983,7 +8836,6 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Error: --homozyg-window-kb flag provisionally retired, since it had no effect\nin PLINK 1.07.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "omozyg-window-het", 18)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8994,7 +8846,6 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_HOMOZYG;
 	homozyg.window_max_hets = ii;
       } else if (!memcmp(argptr2, "omozyg-window-missing", 22)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9005,7 +8856,6 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_HOMOZYG;
 	homozyg.window_max_missing = ii;
       } else if (!memcmp(argptr2, "omozyg-window-threshold", 24)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9028,7 +8878,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	homozyg.overlap_min = dxx;
       } else if (!memcmp(argptr2, "omozyg-group", 13)) {
-	UNSTABLE;
 	if (homozyg.modifier & HOMOZYG_GROUP_VERBOSE) {
 	  logprint("Note: --homozyg-group deprecated, and superseded by --homozyg group-verbose.\n");
 	} else {
@@ -9037,7 +8886,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "omozyg-verbose", 15)) {
-	UNSTABLE;
 	if (!(homozyg.modifier & HOMOZYG_GROUP)) {
 	  logprint("Error: --homozyg-verbose must be used with --homozyg group.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -9049,7 +8897,6 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Error: --homozyg-include-missing flag provisionally retired, since it had no\neffect in PLINK 1.07.\n");
 	goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "ethom", 6)) {
-	UNSTABLE;
 	if (!(glm_modifier & GLM_GENOTYPIC)) {
 	  logprint("Error: --hethom must be used with --genotypic.\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -9060,7 +8907,6 @@ int32_t main(int32_t argc, char** argv) {
 	glm_xchr_model = 0;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ide-covar", 10)) {
-	UNSTABLE;
 	logprint("Note: --hide-covar flag deprecated.  Use e.g. '--linear hide-covar'.\n");
 	glm_modifier |= GLM_HIDE_COVAR;
 	goto main_param_zero;
@@ -9184,7 +9030,6 @@ int32_t main(int32_t argc, char** argv) {
 	recode_modifier |= RECODE_IID;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "bm", 3)) {
-	UNSTABLE;
         if (!(calculation_type & CALC_CLUSTER)) {
 	  sprintf(logbuf, "Error: --ibm must be used with --cluster.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -9205,7 +9050,6 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Error: --impossible flag retired.  Use '--genome nudge', or explicitly validate\nZ0/Z1/Z2/PI_HAT in your script.\n");
         goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "nteraction", 11)) {
-	UNSTABLE;
 	logprint("Note: --interaction flag deprecated.  Use e.g. '--linear interaction'.\n");
 	glm_modifier |= GLM_INTERACTION;
 	goto main_param_zero;
@@ -9264,7 +9108,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	load_rare = LOAD_RARE_LGEN;
       } else if (!memcmp(argptr2, "oop-assoc", 10)) {
-	UNSTABLE;
 	if (pheno_modifier & PHENO_ALL) {
 	  sprintf(logbuf, "Error: --loop-assoc cannot be used with --all-pheno.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -9314,7 +9157,6 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "ist-23-indels", 14)) {
         calculation_type |= CALC_LIST_23_INDELS;
       } else if ((!memcmp(argptr2, "inear", 6)) || (!memcmp(argptr2, "ogistic", 8))) {
-	UNSTABLE;
 #ifndef NOLAPACK
         if (calculation_type & CALC_GLM) {
 	  logprint("Error: --logistic cannot be used with --linear.\n");
@@ -10041,7 +9883,6 @@ int32_t main(int32_t argc, char** argv) {
 	mperm_save |= MPERM_DUMP_ALL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "c", 2)) {
-	UNSTABLE;
 	if (!(calculation_type & CALC_CLUSTER)) {
 	  sprintf(logbuf, "Error: --mc must be used with --cluster.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10056,7 +9897,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
         cluster.max_size = ii;
       } else if (!memcmp(argptr2, "cc", 2)) {
-	UNSTABLE;
 	if (!(calculation_type & CALC_CLUSTER)) {
 	  sprintf(logbuf, "Error: --mcc must be used with --cluster.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10085,7 +9925,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
         cluster.max_ctrls = ii;
       } else if (!memcmp(argptr2, "atch", 5)) {
-	UNSTABLE;
 	if (!(calculation_type & CALC_CLUSTER)) {
 	  sprintf(logbuf, "Error: --match must be used with --cluster.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10103,7 +9942,6 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
       } else if (!memcmp(argptr2, "atch-type", 10)) {
-	UNSTABLE;
 	if (!cluster.match_fname) {
 	  sprintf(logbuf, "Error: --match-type must be used with --match.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10122,7 +9960,6 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Error: --mds-plot requires " PROG_NAME_CAPS " to be built with LAPACK.\n");
 	goto main_ret_INVALID_CMDLINE;
 #else
-	UNSTABLE;
 	if (!(calculation_type & CALC_CLUSTER)) {
 	  sprintf(logbuf, "Error: --mds-plot must be used with --cluster.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10150,7 +9987,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 #endif
       } else if (!memcmp(argptr2, "ds-cluster", 11)) {
-	UNSTABLE;
 	if (!(calculation_type & CALC_CLUSTER)) {
 	  sprintf(logbuf, "Error: --mds-cluster must be used with --cluster.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10158,7 +9994,6 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Note: --mds-cluster flag deprecated.  Use '--mds-plot by-cluster'.\n");
         cluster.modifier |= CLUSTER_MDS;
       } else if (!memcmp(argptr2, "within", 7)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -10255,7 +10090,6 @@ int32_t main(int32_t argc, char** argv) {
 	misc_flags |= MISC_NONFOUNDERS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "eighbour", 9)) {
-	UNSTABLE;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -10314,7 +10148,6 @@ int32_t main(int32_t argc, char** argv) {
         genome_modifier |= GENOME_NUDGE;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "o-snp", 6)) {
-	UNSTABLE;
 	if (!(calculation_type & CALC_GLM)) {
 	  sprintf(logbuf, "Error: --no-snp must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10332,7 +10165,6 @@ int32_t main(int32_t argc, char** argv) {
         glm_modifier |= GLM_NO_SNP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "o-x-sex", 8)) {
-	UNSTABLE;
 	if (!(calculation_type & CALC_GLM)) {
 	  sprintf(logbuf, "Error: --no-x-sex must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10533,7 +10365,6 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
       } else if (!memcmp(argptr2, "pc", 3)) {
-	UNSTABLE;
 	if (!(calculation_type & (CALC_NEIGHBOR | CALC_CLUSTER))) {
           sprintf(logbuf, "Error: --ppc must be used with --cluster or --neigbour.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10551,7 +10382,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
         cluster.ppc = dxx;
       } else if (!memcmp(argptr2, "ool-size", 9)) {
-	UNSTABLE;
 	if (!(homozyg.modifier & (HOMOZYG_GROUP | HOMOZYG_GROUP_VERBOSE))) {
           logprint("Error: --pool-size must be used with --homozyg group[-verbose].\n");
 	  goto main_ret_INVALID_CMDLINE;
@@ -10566,7 +10396,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	homozyg.pool_size_min = ii;
       } else if (!memcmp(argptr2, "arameters", 10)) {
-	UNSTABLE;
 	if (!(calculation_type & CALC_GLM)) {
 	  sprintf(logbuf, "Error: --parameters must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10602,7 +10431,6 @@ int32_t main(int32_t argc, char** argv) {
 	mtest_adjust |= ADJUST_QQ;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "match", 6)) {
-	UNSTABLE;
         if (!(calculation_type & CALC_CLUSTER)) {
           sprintf(logbuf, "Error: --qmatch must be used with --cluster.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -10620,7 +10448,6 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
       } else if (!memcmp(argptr2, "t", 2)) {
-	UNSTABLE;
         if (!cluster.qmatch_fname) {
           sprintf(logbuf, "Error: --qt must be used with --qmatch.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11032,7 +10859,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	lgen_modifier |= LGEN_REFERENCE;
       } else if (!memcmp(argptr2, "ead-genome", 11)) {
-	UNSTABLE;
 	if (calculation_type & CALC_GENOME) {
           sprintf(logbuf, "Error: --read-genome cannot be used with --genome.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11086,7 +10912,6 @@ int32_t main(int32_t argc, char** argv) {
         genome_modifier |= GENOME_REL_CHECK;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ecessive", 9)) {
-	UNSTABLE;
 	if (!(calculation_type & CALC_GLM)) {
 	  sprintf(logbuf, "Error: --recessive must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11336,7 +11161,6 @@ int32_t main(int32_t argc, char** argv) {
 	simulate_flags |= SIMULATE_TAGS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ex", 3)) {
-	UNSTABLE;
 	if (!(calculation_type & CALC_GLM)) {
 	  sprintf(logbuf, "Error: --sex must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11348,7 +11172,6 @@ int32_t main(int32_t argc, char** argv) {
 	glm_modifier |= GLM_SEX;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "tandard-beta", 13)) {
-	UNSTABLE;
 	if ((!(calculation_type & CALC_GLM)) || (glm_modifier & GLM_LOGISTIC)) {
 	  sprintf(logbuf, "Error: --standard-beta must be used wtih --linear.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11567,7 +11390,6 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
       } else if (!memcmp(argptr2, "ests", 5)) {
-	UNSTABLE;
 	if (!(calculation_type & CALC_GLM)) {
 	  sprintf(logbuf, "Error: --tests must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11585,7 +11407,6 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
       } else if (!memcmp(argptr2, "est-all", 8)) {
-	UNSTABLE;
 	if (!(calculation_type & CALC_GLM)) {
 	  sprintf(logbuf, "Error: --test-all must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11825,7 +11646,6 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'v':
       if (!memcmp(argptr2, "if", 3)) {
-	UNSTABLE;
 	if (!(calculation_type & CALC_GLM)) {
 	  sprintf(logbuf, "Error: --vif must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11872,7 +11692,6 @@ int32_t main(int32_t argc, char** argv) {
 	  snp_window_size = (int32_t)(dxx + EPSILON);
 	}
       } else if (!memcmp(argptr2, "ithin", 6)) {
-	UNSTABLE;
         if (loop_assoc_fname) {
 	  sprintf(logbuf, "Error: --within cannot be used with --loop-assoc.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11899,7 +11718,6 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "ith-phenotype", 14)) {
-	UNSTABLE;
 	if (!covar_fname) {
 	  sprintf(logbuf, "Error: --with-phenotype cannot be used without --covar.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11937,7 +11755,6 @@ int32_t main(int32_t argc, char** argv) {
 	recode_modifier += RECODE_LGEN_REF - RECODE_LGEN;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rite-covar", 11)) {
-	UNSTABLE;
 	if (calculation_type & (CALC_MAKE_BED | CALC_RECODE)) {
 	  sprintf(logbuf, "Error: --write-covar cannot be used with --make-bed or --recode.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11949,7 +11766,6 @@ int32_t main(int32_t argc, char** argv) {
         calculation_type |= CALC_WRITE_COVAR;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rite-cluster", 13)) {
-	UNSTABLE;
 	if (!cluster.fname) {
 	  sprintf(logbuf, "Error: --write-cluster must be used with --within.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11972,7 +11788,6 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'x':
       if (!memcmp(argptr2, "chr-model", 10)) {
-	UNSTABLE;
 	if (!(calculation_type & CALC_GLM)) {
 	  sprintf(logbuf, "Error: --xchr-model must be used with --linear or --logistic.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;

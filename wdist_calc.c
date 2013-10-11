@@ -5052,7 +5052,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
   __CLPK_integer window_rem_li;
   __CLPK_integer old_window_rem_li;
   uint32_t window_rem;
-  double prune_ld_r2;
+  double prune_ld_r1;
   if (!founder_ct) {
     sprintf(logbuf, "Warning: Skipping --indep%s since there are no founders.\n", pairwise? "-pairwise" : "");
     logprintb();
@@ -5093,9 +5093,9 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
     }
   }
   if (pairwise) {
-    prune_ld_r2 = sqrt(ld_last_param);
+    prune_ld_r1 = sqrt(ld_last_param);
   } else {
-    prune_ld_r2 = 0.999999;
+    prune_ld_r1 = 0.999999;
   }
 
   window_unfiltered_start = ld_prune_next_valid_chrom_start(marker_exclude, 0, chrom_info_ptr, unfiltered_marker_ct);
@@ -5239,12 +5239,12 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 	      }
 	      non_missing_recip = 1.0 / ((double)((int32_t)non_missing_ct));
 	      cov12 = non_missing_recip * (dp_result[0] - (non_missing_recip * dp_result[1]) * dp_result[2]);
-	      // r-squared
+	      // r, not squared
 	      dxx = cov12 / (marker_stdevs[uii] * marker_stdevs[ujj]);
 	      if (!pairwise) {
 		cov_matrix[uii * window_max + ujj] = dxx;
 	      }
-	      if (fabs(dxx) > prune_ld_r2) {
+	      if (fabs(dxx) > prune_ld_r1) {
 		at_least_one_prune = 1;
 		cur_exclude_ct++;
 		// remove marker with lower MAF

@@ -404,7 +404,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      mostly space-delimited.  'tabx' and 'spacex' force all tabs and all\n"
 "      spaces, respectively.\n\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("write-covar", &help_ctrl, 1,
 "  --write-covar\n"
 "    If a --covar file is loaded, this creates a pruned covariate file after\n"
@@ -417,7 +416,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    applying all filters.  The 'omit-unassigned' modifier causes unclustered\n"
 "    individuals to be omitted from the file; otherwise their cluster is \"NA\".\n\n"
 	       );
-#endif
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
 "  --merge [.ped filename] [.map filename]\n"
 "  --merge [text fileset prefix]\n"
@@ -522,7 +520,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * Then, when PI_HAT^2 < P(IBD=2), 'nudge' adjusts the final P(IBD=0/1/2)\n"
 "      estimates to a theoretically possible configuration.\n\n"
 		);
-#ifndef STABLE_BUILD
     help_print("homozyg\thomozyg-snp\thomozyg-kb\thomozyg-density\thomozyg-gap\thomozyg-het\thomozyg-window-snp\thomozyg-window-het\thomozyg-window-missing\thomozyg-window-threshold", &help_ctrl, 1,
 "  --homozyg <group | group-verbose> <consensus-match> <extend>\n"
 "            <subtract-1-from-lengths>\n"
@@ -594,7 +591,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    (alias: --neighbor)\n"
 "    Compute nearest neighbor-based outlier detection diagnostics.\n\n"
 	       );
-#endif
     help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means\ttrend", &help_ctrl, 1,
 "  --assoc <perm | mperm=[value]> <perm-count> <fisher> <counts>\n"
 	       /*
@@ -636,7 +632,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Several other flags (most notably, --aperm) can be used to customize the\n"
 "    permutation test.\n\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("gxe\tmcovar", &help_ctrl, 1,
 "  --gxe {covariate index}\n"
 "    Given both a quantitative phenotype and a case/control covariate loaded with\n"
@@ -692,7 +687,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * With --linear, the 'standard-beta' modifier standardizes the phenotype\n"
 "      and all predictors to zero mean and unit variance before regression.\n\n"
 	       );
-#endif
     help_print(
 "indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (markers)] [VIF threshold]\n"
@@ -874,7 +868,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --missing-genotype [char] : Code for missing genotype (normally '0').\n"
 "  --missing-phenotype [val] : Numeric code for missing phenotype (normally -9).\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("allow-extra-chr", &help_ctrl, 0,
 "  --allow-extra-chr <0>     : Permit unrecognized chromosome codes.  The '0'\n"
 "                              modifier causes them to be treated as if they had\n"
@@ -889,7 +882,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --cow/--dog/--horse/--mouse/--rice/--sheep : Shortcuts for those species.\n"
 "  --autosome-num [value]   : Alias for '--chr-set [value] no-y no-xy no-mt'.\n"
 	       );
-#endif
     help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
 "  --simulate-ncases [num]   : Set --simulate case count (default 1000).\n"
 "  --simulate-ncontrols [n]  : Set --simulate control count (default 1000).\n"
@@ -942,7 +934,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                              equal to Ltop.  Central phenotype values are\n"
 "                              treated as missing.\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("covar\tcovar-name\tcovar-number", &help_ctrl, 0,
 "  --covar [filename] <keep-pheno-on-missing-cov> : Specify covariate file.\n"
 "  --covar-name [...]     : Specifies covariate(s) in --covar file by name.\n"
@@ -963,7 +954,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                               once for each cluster in the file, using cluster\n"
 "                               membership as the phenotype.\n"
 	       );
-#endif
     help_print("keep\tremove\tkeep-fam\tremove-fam", &help_ctrl, 0,
 "  --keep [fname]   : Exclude all individuals not in the given list.\n"
 "  --remove [fname] : Exclude all individuals in the given list.\n"
@@ -1128,7 +1118,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     For now, only --make-bed and --merge/--bmerge/--merge-list\n"
 "                     respect this flag.\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("with-phenotype\tdummy-coding\twrite-covar", &help_ctrl, 0,
 "  --with-phenotype <no-parents> <no-sex | female-2> : Include more individual\n"
 "                                                      info in new .cov file.\n"
@@ -1136,7 +1125,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                  2 < n <= N, default N is 49) into n-1 binary\n"
 "                                  dummy variables when writing covariate file.\n"
 	       );
-#endif
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 0,
 "  --merge-mode [n] : Adjust --merge/--bmerge/--merge-list behavior based on a\n"
 "                     numeric code.\n"
@@ -1168,7 +1156,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --min [cutoff]   : Specify minimum PI_HAT for inclusion in --genome report.\n"
 "  --max [cutoff]   : Specify maximum PI_HAT for inclusion in --genome report.\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("homozyg\thomozyg-match\tpool-size", &help_ctrl, 0,
 "  --homozyg-match [x]     : Set min. concordance across jointly homozygous\n"
 "                            sites for a pairwise allelic match to be declared.\n"
@@ -1201,7 +1188,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("cluster\tmds-plot\tmds-cluster", &help_ctrl, 0,
 "  --mds-plot [dims] <by-cluster> <eigvals> : Multidimensional scaling analysis.\n"
 	       );
-#endif
 #endif
     help_print("cell\tmodel", &help_ctrl, 0,
 "  --cell [thresh]  : Specify contingency table threshold for performing all\n"
