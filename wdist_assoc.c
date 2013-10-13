@@ -10660,6 +10660,10 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   int32_t dgels_n = 0;
   int32_t dgels_nrhs = 0;
   int32_t dgels_ldb = 0;
+  uint32_t* unpermuted_indices = NULL;
+  uintptr_t* ulptr;
+  double* dptr3;
+  uintptr_t cur_word;
   int32_t dgels_info;
 #endif
   double* constraints_con_major = NULL;
@@ -10674,7 +10678,6 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uint32_t* condition_uidxs = NULL;
   uint32_t* cluster_map1 = NULL;
   uint32_t* cluster_starts1 = NULL;
-  uint32_t* unpermuted_indices = NULL;
   uint32_t* tcnt = NULL;
   uint32_t* marker_idx_to_uidx = NULL;
   uint32_t* cur_indiv_to_cluster1 = NULL;
@@ -10699,7 +10702,6 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   double* dptr;
   double* dptr2;
   uintptr_t* loadbuf_ptr;
-  uintptr_t* ulptr;
   uintptr_t indiv_valid_ct;
   uintptr_t indiv_valid_ctv2;
   uintptr_t indiv_uidx_stop;
@@ -10720,11 +10722,9 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uintptr_t param_idx;
   uintptr_t param_idx_fixed;
   uintptr_t constraint_idx;
-  uintptr_t cur_word;
   uintptr_t ulii;
   uintptr_t uljj;
   double* msa_ptr;
-  double* dptr3;
   double se;
   double zval;
   double pval;
