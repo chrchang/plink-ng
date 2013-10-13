@@ -10018,7 +10018,7 @@ THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
   } else {
     param_ctx_m1 = cur_param_ct - 1;
   }
-  if (tidx + 1 == g_assoc_thread_ct) {
+  if ((uintptr_t)tidx + 1 == g_assoc_thread_ct) {
     marker_bceil = g_block_diff;
   }
   for (; marker_bidx < marker_bceil; marker_bidx++) {
@@ -10206,7 +10206,7 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
   } else {
     param_ctx_m1 = cur_param_ct - 1;
   }
-  if (tidx + 1 == g_assoc_thread_ct) {
+  if ((uintptr_t)tidx + 1 == g_assoc_thread_ct) {
     marker_bceil = g_block_diff;
   }
   for (; marker_bidx < marker_bceil; marker_bidx++) {
@@ -10365,7 +10365,7 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
   } else {
     param_ctx_m1 = cur_param_ct - 1;
   }
-  if (tidx + 1 == g_assoc_thread_ct) {
+  if ((uintptr_t)tidx + 1 == g_assoc_thread_ct) {
     marker_bceil = g_block_diff;
   }
   memcpy(results, &(g_maxt_extreme_stat[pidx_offset]), perm_vec_ct * sizeof(double));
@@ -10543,7 +10543,7 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
   } else {
     param_ctx_m1 = cur_param_ct - 1;
   }
-  if (tidx + 1 == g_assoc_thread_ct) {
+  if ((uintptr_t)tidx + 1 == g_assoc_thread_ct) {
     marker_bceil = g_block_diff;
   }
   memcpy(results, &(g_maxt_extreme_stat[pidx_offset]), perm_vec_ct * sizeof(double));

@@ -5313,7 +5313,7 @@ void count_set_freq_y_12(uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* non
   *missing_ctp += (accm * 0x01010101) >> 24;
 }
 
-void count_01_12(uintptr_t* lptr) {
+uintptr_t count_01_12(uintptr_t* lptr) {
   uintptr_t loader1 = *lptr++;
   uintptr_t loader2 = *lptr++;
   uintptr_t count1 = loader1 & (~(loader1 >> 1)) & FIVEMASK;
