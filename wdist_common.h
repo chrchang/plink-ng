@@ -222,6 +222,7 @@ typedef union {
 #define CALC_HOMOZYG 0x8000000LLU
 #define CALC_NEIGHBOR 0x10000000LLU
 #define CALC_GLM 0x20000000LLU
+#define CALC_MISSING_REPORT 0x40000000LLU
 
 // necessary to patch heterozygous haploids/female Y chromosome genotypes
 // during loading?

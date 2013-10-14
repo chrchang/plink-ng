@@ -91,12 +91,12 @@ const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n"
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
 const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
 #ifdef STABLE_BUILD
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --model, --indep, --make-rel,\n--make-grm-gz, --rel-cutoff, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --distance, --genome, --model, --indep, --make-rel,\n--make-grm-gz, --rel-cutoff, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #else
 #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --homozyg, --cluster, --neighbour,\n--model, --gxe, --logistic, --indep, --make-rel, --make-grm-gz, --rel-cutoff,\n--regress-pcs, --regress-distance, --ibs-test, and --unrelated-heritability.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --distance, --genome, --homozyg, --cluster,\n--neighbour, --model, --gxe, --logistic, --indep, --make-rel, --make-grm-gz,\n--rel-cutoff, --regress-pcs, --regress-distance, --ibs-test, and\n--unrelated-heritability.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--hardy, --ibc, --distance, --genome, --homozyg, --cluster, --neighbour,\n--model, --gxe, --logistic, --indep, --make-rel, --make-grm-gz, --rel-cutoff,\n--regress-pcs, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --distance, --genome, --homozyg, --cluster,\n--neighbour, --model, --gxe, --logistic, --indep, --make-rel, --make-grm-gz,\n--rel-cutoff, --regress-pcs, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #endif
 #endif
 
@@ -1523,12 +1523,13 @@ uint32_t calc_plink_maxsnp(uint32_t unfiltered_marker_ct, uintptr_t* marker_excl
   return plink_maxsnp;
 }
 
-int32_t mind_filter(FILE* bedfile, double mind_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, uintptr_t bed_offset, char missing_geno) {
+int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, double mind_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char missing_geno) {
   unsigned char* wkspace_mark = wkspace_base;
   uint32_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   uint32_t mind_int_thresh = (int32_t)(mind_thresh * ((int32_t)marker_ct) + EPSILON);
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ct2l = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t marker_idx = 0;
   uint32_t indiv_exclude_ct = *indiv_exclude_ct_ptr;
   uint32_t indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
   uint32_t indiv_uidx = 0;
@@ -1539,7 +1540,6 @@ int32_t mind_filter(FILE* bedfile, double mind_thresh, uintptr_t unfiltered_mark
   uintptr_t* lptr;
   uint32_t* missing_cts;
   uintptr_t marker_uidx;
-  uintptr_t marker_idx;
   uint32_t indiv_uidx_stop;
   uint32_t uii;
   uint32_t ujj;
@@ -1554,7 +1554,6 @@ int32_t mind_filter(FILE* bedfile, double mind_thresh, uintptr_t unfiltered_mark
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
     goto mind_filter_ret_READ_FAIL;
   }
-  marker_idx = 0;
   ujj = unfiltered_indiv_ct2l * BITCT2;
   for (marker_uidx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
     if (IS_SET(marker_exclude, marker_uidx)) {
@@ -1577,7 +1576,6 @@ int32_t mind_filter(FILE* bedfile, double mind_thresh, uintptr_t unfiltered_mark
       }
     }
   }
-  indiv_uidx = 0;
   do {
     indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
     indiv_uidx_stop = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
@@ -3328,6 +3326,94 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   return retval;
 }
 
+int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t plink_maxfid, uint32_t plink_maxiid, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_ct, uintptr_t* indiv_exclude, uintptr_t* pheno_nm, uintptr_t* sex_male, uint32_t indiv_male_ct, uint32_t* marker_allele_cts, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ct2l = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t marker_idx = 0;
+  uint32_t indiv_uidx = 0;
+  uint32_t indiv_idx = 0;
+  int32_t retval = 0;
+  uintptr_t* loadbuf;
+  uintptr_t* lptr;
+  uint32_t* missing_cts;
+  uintptr_t marker_uidx;
+  uintptr_t ulii;
+  uint32_t indiv_uidx_stop;
+  uint32_t uii;
+  uint32_t ujj;
+  // this part is basically the same as mind_filter()
+  if (wkspace_alloc_ui_checked(&missing_cts, indiv_ct * sizeof(int32_t)) ||
+      wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ct2l * sizeof(intptr_t))) {
+    goto write_missingness_reports_ret_NOMEM;
+  }
+  loadbuf[unfiltered_indiv_ct2l - 1] = 0;
+  fill_uint_zero(missing_cts, unfiltered_indiv_ct);
+  ujj = unfiltered_indiv_ct2l * BITCT2;
+  for (marker_uidx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    if (IS_SET(marker_exclude, marker_uidx)) {
+      marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
+      if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_indiv_ct4, SEEK_SET)) {
+        goto write_missingness_reports_ret_READ_FAIL;
+      }
+    }
+    if (fread(loadbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+      goto write_missingness_reports_ret_READ_FAIL;
+    }
+    lptr = loadbuf;
+    for (uii = 0; uii < ujj; uii += BITCT2) {
+      ulii = *lptr++;
+      ulii = ulii & ((~ulii) >> 1) & FIVEMASK;
+      while (ulii) {
+	missing_cts[uii + (CTZLU(ulii) / 2)] += 1;
+        ulii &= ulii - 1;
+      }
+    }
+  }
+  memcpy(outname_end, ".imiss", 7);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto write_missingness_reports_ret_WRITE_FAIL;
+  }
+  sprintf(tbuf, "%%%us %%%us MISS_PHENO   N_MISS   N_GENO   F_MISS\n", plink_maxfid, plink_maxiid);
+  fprintf(outfile, tbuf, "FID", "IID");
+  do {
+    indiv_uidx = next_unset_unsafe(indiv_exclude, indiv_uidx);
+    indiv_uidx_stop = next_set(indiv_exclude, indiv_uidx, unfiltered_indiv_ct);
+    indiv_idx += indiv_uidx_stop - indiv_uidx;
+    do {
+      
+    } while (++indiv_uidx < indiv_uidx_stop);
+  } while (indiv_idx < indiv_ct);
+  if (fclose_null(&outfile)) {
+    goto write_missingness_reports_ret_WRITE_FAIL;
+  }
+  outname_end[1] = 'l';
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto write_missingness_reports_ret_WRITE_FAIL;
+  }
+  if (fclose_null(&outfile)) {
+    goto write_missingness_reports_ret_WRITE_FAIL;
+  }
+  *outname_end = '\0';
+  sprintf(logbuf, "--missing: Individual missing data report written to %s.imiss, and\nmarker-based %smissing data report written to %s.lmiss.\n", outname, cluster_ct? "cluster-stratified " : "", outname);
+  logprintb();
+  while (0) {
+  write_missingness_reports_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  write_missingness_reports_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  write_missingness_reports_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  wkspace_reset(wkspace_mark);
+  fclose_cond(outfile);
+  return retval;
+}
+
 uintptr_t binary_geno_filter(double geno_thresh, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uint32_t indiv_ct, uintptr_t male_ct, uint32_t* marker_allele_cts, Chrom_info* chrom_info_ptr) {
   uint32_t marker_exclude_ct = *marker_exclude_ct_ptr;
   uint32_t orig_exclude_ct = marker_exclude_ct;
@@ -4651,7 +4737,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     bed_offset = 3;
   }
   if (mind_thresh < 1.0) {
-    retval = mind_filter(bedfile, mind_thresh, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, bed_offset, missing_geno);
+    retval = mind_filter(bedfile, bed_offset, mind_thresh, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, missing_geno);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -4702,7 +4788,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto wdist_ret_INVALID_CMDLINE_2;
   }
   if (g_thread_ct > 1) {
-    if ((calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY)) || ((calculation_type & (CALC_MODEL | CALC_GLM)) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname)))) {
+    if ((calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname)))) {
       sprintf(logbuf, "Using %d threads (change this with --threads).\n", g_thread_ct);
       logprintb();
     } else {
@@ -4710,7 +4796,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  if ((calculation_type & (CALC_GENOME | CALC_HOMOZYG)) || cluster_ptr->mds_dim_ct) {
+  if ((calculation_type & (CALC_MISSING_REPORT | CALC_GENOME | CALC_HOMOZYG)) || cluster_ptr->mds_dim_ct) {
     calc_plink_maxfid(unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, &plink_maxfid, &plink_maxiid);
   }
   plink_maxsnp = calc_plink_maxsnp(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len);
@@ -4808,6 +4894,12 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       retval = write_freqs(outname, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, zero_extra_chroms, chrom_info_ptr, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, hwe_hapl_allfs, hwe_haph_allfs, indiv_f_ct, indiv_f_male_ct, misc_flags, missing_geno, marker_reverse);
     }
     if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ))))) {
+      goto wdist_ret_1;
+    }
+  }
+  if (calculation_type & CALC_MISSING_REPORT) {
+    retval = write_missingness_reports(bedfile, bed_offset, outname, outname_end, plink_maxfid, plink_maxiid, plink_maxsnp, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, zero_extra_chroms, chrom_info_ptr, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, unfiltered_indiv_ct, g_indiv_ct, indiv_exclude, pheno_nm, sex_male, indiv_male_ct, marker_allele_cts, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
+    if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_MISSING_REPORT))))) {
       goto wdist_ret_1;
     }
   }
@@ -10057,6 +10149,9 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
         misc_flags |= MISC_MAKE_FOUNDERS;
+      } else if (!memcmp(argptr2, "issing", 7)) {
+	calculation_type |= CALC_MISSING_REPORT;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "lm-assoc", 9)) {
         logprint("Error: --mlm-assoc is not implemented yet.\n");
         goto main_ret_INVALID_CMDLINE;

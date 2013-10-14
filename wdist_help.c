@@ -455,6 +455,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    --read-freq) allows distance matrix terms to be weighted consistently\n"
 "    through multiple filtering runs.\n\n"
 		);
+    help_print("missing", &help_ctrl, 1,
+"  --missing\n"
+"    Generates individual- and marker-based missing data reports.  With\n"
+"    --within, the marker-based report is cluster-stratified.\n\n"
+	       );
     help_print("hardy", &help_ctrl, 1,
 "  --hardy\n"
 "    Generates a Hardy-Weinberg exact test p-value report.  (This does NOT\n"
