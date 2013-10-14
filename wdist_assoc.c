@@ -10980,6 +10980,20 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     logprint("Error: --adjust cannot be used when --parameters excludes the main effect.\n");
     goto glm_assoc_ret_INVALID_CMDLINE;
   }
+  if (hide_covar) {
+    if (genotypic_or_hethom && IS_SET(active_params, 2)) {
+      if (IS_SET(active_params, 1)) {
+        param_idx_end = 3;
+      }
+    } else if (!IS_SET(active_params, 1)) {
+      if (tests_range_list_ptr->name_ct || (glm_modifier & GLM_TEST_ALL)) {
+        param_idx_end = 1;
+      } else {
+        logprint("Error: 'hide-covar' modifier suppresses all output due to --parameters setting.\n");
+        goto glm_assoc_ret_INVALID_CMDLINE;
+      }
+    }
+  }
 
   if (genotypic_or_hethom) {
     if (genotypic) {
@@ -11816,7 +11830,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 	cur_param_ctx++;
 	if (g_is_x || (!g_is_haploid)) {
 	  ulii = 0;
-	  for (constraint_idx = 0; constraint_idx < cur_constraint_ct; constraint_idx++) {
+	  for (constraint_idx = 0; constraint_idx < cur_constraint_ct; ulii++, constraint_idx++) {
             next_set_ul_unsafe_ck(g_joint_test_params, &ulii);
 	    constraints_con_major[constraint_idx * cur_param_ct + ulii + 1] = 1;
 	  }
