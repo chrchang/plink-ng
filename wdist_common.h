@@ -190,6 +190,8 @@ typedef union {
 #define MISC_MAKE_FOUNDERS 0x100000LLU
 #define MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING 0x200000LLU
 #define MISC_MAKE_FOUNDERS_FIRST 0x400000LLU
+#define MISC_CMH_BD 0x800000LLU
+#define MISC_CMH2 0x1000000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
@@ -223,6 +225,8 @@ typedef union {
 #define CALC_NEIGHBOR 0x10000000LLU
 #define CALC_GLM 0x20000000LLU
 #define CALC_MISSING_REPORT 0x40000000LLU
+#define CALC_CMH 0x80000000LLU
+#define CALC_HOMOG 0x100000000LLU
 
 // necessary to patch heterozygous haploids/female Y chromosome genotypes
 // during loading?

@@ -65,7 +65,7 @@ const char ver_str[] =
   "PLINK v1.50a"
 #else
 #ifdef STABLE_BUILD
-  "WDIST v0.22.1"
+  "WDIST v0.22.2"
 #else
   "WDIST v0.23.0p"
 #endif
@@ -78,7 +78,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (14 Oct 2013)";
+  " (16 Oct 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -6777,6 +6777,9 @@ int32_t main(int32_t argc, char** argv) {
           logprint("Note: --chr-excl flag has been renamed to --not-chr.\n");
 	  memcpy(flagptr, "not-chr", 8);
 	  break;
+	} else if (!strcmp(argptr, "cmh")) {
+	  memcpy(flagptr, "mh", 3);
+	  break;
 	}
 	goto main_flag_copy;
       case 'e':
@@ -6819,6 +6822,9 @@ int32_t main(int32_t argc, char** argv) {
       case 'm':
 	if (!strcmp(argptr, "missing_code")) {
 	  memcpy(flagptr, "missing-code", 13);
+	  break;
+	} else if (!strcmp(argptr, "mh1")) {
+	  memcpy(flagptr, "mh", 3);
 	  break;
 	}
 	goto main_flag_copy;
@@ -7540,6 +7546,12 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --beta flag deprecated.  Use e.g. '--logistic beta'.\n");
 	glm_modifier |= GLM_BETA;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "d", 2)) {
+	logprint("Note: --bd flag deprecated.  Use '--mh bd'.\n");
+	calculation_type |= CALC_CMH;
+	misc_flags |= MISC_CMH_BD;
+	logprint("Error: --mh is not implemented yet.\n");
+	goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -9154,6 +9166,11 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --hide-covar flag deprecated.  Use e.g. '--linear hide-covar'.\n");
 	glm_modifier |= GLM_HIDE_COVAR;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "omog", 5)) {
+        calculation_type |= CALC_HOMOG;
+        logprint("Error: --homog is not implemented yet.\n");
+	goto main_ret_INVALID_CMDLINE;
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -10303,6 +10320,30 @@ int32_t main(int32_t argc, char** argv) {
         misc_flags |= MISC_MAKE_FOUNDERS;
       } else if (!memcmp(argptr2, "issing", 7)) {
 	calculation_type |= CALC_MISSING_REPORT;
+	goto main_param_zero;
+      } else if (!memcmp(argptr2, "h", 2)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (param_ct) {
+	  if (strcmp(argv[cur_arg + 1], "bd")) {
+	    sprintf(logbuf, "Error: Invalid --mh parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  misc_flags |= MISC_CMH_BD;
+	}
+	calculation_type |= CALC_CMH;
+	logprint("Error: --mh is not implemented yet.\n");
+        goto main_ret_INVALID_CMDLINE;
+      } else if (!memcmp(argptr2, "h2", 3)) {
+	if (calculation_type & CALC_CMH) {
+	  logprint("Error: --mh2 cannot be used with --mh.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	calculation_type |= CALC_CMH;
+        misc_flags |= MISC_CMH2;
+	logprint("Error: --mh2 is not implemented yet.\n");
+	goto main_ret_INVALID_CMDLINE;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "lm-assoc", 9)) {
         logprint("Error: --mlm-assoc is not implemented yet.\n");

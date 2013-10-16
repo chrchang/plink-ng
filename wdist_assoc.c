@@ -9667,24 +9667,46 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
 	indiv_idx_stop = BITCT2;
 	dptr2 = &(fixed_covars_cov_major[fixed_covar_idx * indiv_valid_ct]);
 	if (!hethom) {
-	  while (1) {
-	    while (ulptr < ulptr_end) {
-	      cur_word = *ulptr++;
-	      for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
-		cur_genotype = cur_word & 3;
-		if (cur_genotype != 1) {
-		  // 0/1/2
-	          *dptr++ = ((double)((intptr_t)(2 + (cur_genotype / 2) - cur_genotype))) * (*dptr2);
+	  if (!male_x_01) {
+	    while (1) {
+	      while (ulptr < ulptr_end) {
+		cur_word = *ulptr++;
+		for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+		  cur_genotype = cur_word & 3;
+		  if (cur_genotype != 1) {
+		    // 0/1/2
+		    *dptr++ = ((double)((intptr_t)(2 + (cur_genotype / 2) - cur_genotype))) * (*dptr2);
+		  }
+		  dptr2++;
 		}
-		dptr2++;
+		indiv_idx_stop += BITCT2;
 	      }
-	      indiv_idx_stop += BITCT2;
+	      if (indiv_idx == indiv_valid_ct) {
+		break;
+	      }
+	      ulptr_end++;
+	      indiv_idx_stop = indiv_valid_ct;
 	    }
-	    if (indiv_idx == indiv_valid_ct) {
-	      break;
+	  } else {
+	    while (1) {
+	      while (ulptr < ulptr_end) {
+		cur_word = *ulptr++;
+		for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+		  cur_genotype = cur_word & 3;
+		  if (cur_genotype != 1) {
+		    // 0/1/2
+		    *dptr++ = ((double)((intptr_t)((2 + (cur_genotype / 2) - cur_genotype) >> IS_SET(sex_male_collapsed, indiv_idx)))) * (*dptr2);
+		  }
+		  dptr2++;
+		}
+		indiv_idx_stop += BITCT2;
+	      }
+	      if (indiv_idx == indiv_valid_ct) {
+		break;
+	      }
+	      ulptr_end++;
+	      indiv_idx_stop = indiv_valid_ct;
 	    }
-	    ulptr_end++;
-	    indiv_idx_stop = indiv_valid_ct;
 	  }
 	} else {
 	  while (1) {
@@ -9742,8 +9764,8 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
   if (include_sex) {
     if (IS_SET(active_params, sex_start_idx)) {
       copy_when_nonmissing(loadbuf_collapsed, (char*)(&(fixed_covars_cov_major[fixed_covar_nonsex_ct * indiv_valid_ct])), sizeof(double), indiv_valid_ct, missing_ct, (char*)dptr);
+      dptr = &(dptr[cur_indiv_valid_ct]);
     }
-    dptr = &(dptr[cur_indiv_valid_ct]);
     if (interactions_present) {
       if (is_set(active_params, sex_start_idx + 1)) {
 	ulptr = loadbuf_collapsed;
@@ -9752,24 +9774,46 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
 	indiv_idx_stop = BITCT2;
 	dptr2 = &(fixed_covars_cov_major[fixed_covar_nonsex_ct * indiv_valid_ct]);
 	if (!hethom) {
-	  while (1) {
-	    while (ulptr < ulptr_end) {
-	      cur_word = *ulptr++;
-	      for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
-		cur_genotype = cur_word & 3;
-		if (cur_genotype != 1) {
-		  // 0/1/2
-	          *dptr++ = ((double)((intptr_t)(2 + (cur_genotype / 2) - cur_genotype))) * (*dptr2);
+	  if (!male_x_01) {
+	    while (1) {
+	      while (ulptr < ulptr_end) {
+		cur_word = *ulptr++;
+		for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+		  cur_genotype = cur_word & 3;
+		  if (cur_genotype != 1) {
+		    // 0/1/2
+		    *dptr++ = ((double)((intptr_t)(2 + (cur_genotype / 2) - cur_genotype))) * (*dptr2);
+		  }
+		  dptr2++;
 		}
-		dptr2++;
+		indiv_idx_stop += BITCT2;
 	      }
-	      indiv_idx_stop += BITCT2;
+	      if (indiv_idx == indiv_valid_ct) {
+		break;
+	      }
+	      ulptr_end++;
+	      indiv_idx_stop = indiv_valid_ct;
 	    }
-	    if (indiv_idx == indiv_valid_ct) {
-	      break;
+	  } else {
+	    while (1) {
+	      while (ulptr < ulptr_end) {
+		cur_word = *ulptr++;
+		for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
+		  cur_genotype = cur_word & 3;
+		  if (cur_genotype != 1) {
+		    // 0/1/2
+		    *dptr++ = ((double)((intptr_t)((2 + (cur_genotype / 2) - cur_genotype) >> IS_SET(sex_male_collapsed, indiv_idx)))) * (*dptr2);
+		  }
+		  dptr2++;
+		}
+		indiv_idx_stop += BITCT2;
+	      }
+	      if (indiv_idx == indiv_valid_ct) {
+		break;
+	      }
+	      ulptr_end++;
+	      indiv_idx_stop = indiv_valid_ct;
 	    }
-	    ulptr_end++;
-	    indiv_idx_stop = indiv_valid_ct;
 	  }
 	} else {
 	  while (1) {
@@ -9821,10 +9865,10 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
       }
     }
   }
-  if (dptr != &(cur_covars_cov_major[cur_param_ct * cur_indiv_valid_ct])) {
-    printf("assert failure:\n  cur_param_ct = %u\n  cur_indiv_valid_ct = %" PRIuPTR "\n  dptr - cur_covars_cov_major = %" PRIuPTR "\n", cur_param_ct, cur_indiv_valid_ct, (uintptr_t)(dptr - cur_covars_cov_major));
-    exit(1);
-  }
+  // if (dptr != &(cur_covars_cov_major[cur_param_ct * cur_indiv_valid_ct])) {
+  //   printf("assert failure:\n  cur_param_ct = %u\n  cur_indiv_valid_ct = %" PRIuPTR "\n  dptr - cur_covars_cov_major = %" PRIuPTR "\n", cur_param_ct, cur_indiv_valid_ct, (uintptr_t)(dptr - cur_covars_cov_major));
+  //   exit(1);
+  // }
   if (indiv_to_cluster1) {
     if (!missing_ct) {
       *cur_indiv_to_cluster1_ptr = indiv_to_cluster1;
@@ -9857,6 +9901,7 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
       }
     }
   }
+
   transpose_copy(cur_param_ct, cur_indiv_valid_ct, cur_covars_cov_major, cur_covars_indiv_major);
   return missing_ct;
 }
