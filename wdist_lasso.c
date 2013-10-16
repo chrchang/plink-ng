@@ -376,7 +376,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
     goto lasso_ret_WRITE_FAIL;
   }
   putchar('\r');
-  sprintf(logbuf, "--lasso report written to %s.  Total iterations: %llu.\n", outname, iter_tot);
+  sprintf(logbuf, "--lasso report written to %s.  Total iterations: %" PRIu64 ".\n", outname, iter_tot);
   logprintb();
 
   while (0) {
