@@ -223,8 +223,8 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
       lambda_max = dxx;
     }
   }
-  sige = sqrt(1.0 - lasso_h2);
-  zz = (sige + sqrt_n_recip) * sqrt_n_recip;
+  sige = sqrt(1.0 - lasso_h2 + 1.0 / ((double)((intptr_t)pheno_nm_ct)));
+  zz = sige * sqrt_n_recip;
   uljj = (pheno_nm_ct * WARM_START_ITERS) - 1;
   printf("\r--lasso: Initializing warm start matrix...");
   fflush(stdout);
