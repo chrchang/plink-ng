@@ -11629,7 +11629,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
 	g_pheno_ssq += dxx * dxx;
       } while (dptr2 < dptr3);
     } while (indiv_idx < indiv_valid_ct);
-    if (g_pheno_ssq == g_pheno_sum * (g_pheno_sum / ((double)((intptr_t)indiv_valid_ct)))) {
+    if (g_pheno_ssq * ((double)((intptr_t)indiv_valid_ct)) == g_pheno_sum * g_pheno_sum) {
       goto glm_assoc_ret_PHENO_CONSTANT;
     }
     if (standard_beta) {
@@ -12840,7 +12840,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	g_pheno_ssq += dxx * dxx;
       } while (dptr2 < dptr3);
     } while (indiv_idx < indiv_valid_ct);
-    if (g_pheno_ssq == g_pheno_sum * (g_pheno_sum / ((double)((intptr_t)indiv_valid_ct)))) {
+    if (g_pheno_ssq * ((double)((intptr_t)indiv_valid_ct)) == g_pheno_sum * g_pheno_sum) {
       goto glm_assoc_nosnp_ret_PHENO_CONSTANT;
     }
   }

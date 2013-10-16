@@ -192,6 +192,7 @@ typedef union {
 #define MISC_MAKE_FOUNDERS_FIRST 0x400000LLU
 #define MISC_CMH_BD 0x800000LLU
 #define MISC_CMH2 0x1000000LLU
+#define MISC_LASSO_REPORT_ZEROES 0x2000000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
@@ -227,6 +228,7 @@ typedef union {
 #define CALC_MISSING_REPORT 0x40000000LLU
 #define CALC_CMH 0x80000000LLU
 #define CALC_HOMOG 0x100000000LLU
+#define CALC_LASSO 0x200000000LLU
 
 // necessary to patch heterozygous haploids/female Y chromosome genotypes
 // during loading?
@@ -1484,6 +1486,8 @@ static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr
 void refresh_chrom_info(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t allow_x_haploid, uint32_t is_all_nonmale, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* is_haploid_ptr);
 
 int32_t single_chrom_start(Chrom_info* chrom_info_ptr, uint32_t unfiltered_marker_ct, uintptr_t* marker_exclude);
+
+double destructive_get_dmedian(double* unsorted_arr, uintptr_t len);
 
 int32_t strcmp_casted(const void* s1, const void* s2);
 

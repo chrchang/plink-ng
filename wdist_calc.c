@@ -3034,41 +3034,6 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
 }
 #endif
 
-#ifdef __cplusplus
-double destructive_get_dmedian(double* unsorted_arr, uintptr_t len) {
-  if (!len) {
-    return 0.0;
-  }
-  uintptr_t len_d2 = len / 2;
-  std::nth_element(unsorted_arr, &(unsorted_arr[len_d2]), &(unsorted_arr[len]));
-  if (!(len % 2)) {
-    std::nth_element(unsorted_arr, &(unsorted_arr[len_d2 - 1]), &(unsorted_arr[len_d2]));
-    return (unsorted_arr[len_d2 - 1] + unsorted_arr[len_d2]) * 0.5;
-  } else {
-    return unsorted_arr[len_d2];
-  }
-}
-#else
-double get_dmedian(double* sorted_arr, uintptr_t len) {
-  if (len) {
-    if (len % 2) {
-      return sorted_arr[len / 2];
-    } else {
-      return (sorted_arr[len / 2] + sorted_arr[(len / 2) - 1]) * 0.5;
-    }
-  } else {
-    return 0.0;
-  }
-}
-
-double destructive_get_dmedian(double* unsorted_arr, uintptr_t len) {
-  // no, I'm not gonna bother reimplementing introselect just for folks who
-  // insist on using gcc over g++
-  qsort(unsorted_arr, len, sizeof(double), double_cmp);
-  return get_dmedian(unsorted_arr, len);
-}
-#endif
-
 int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t perm_ct, uintptr_t pheno_nm_ct, uintptr_t pheno_ctrl_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;

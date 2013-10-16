@@ -692,8 +692,17 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * With --linear, the 'standard-beta' modifier standardizes the phenotype\n"
 "      and all predictors to zero mean and unit variance before regression.\n\n"
 	       );
-    help_print(
-"indep\tindep-pairwise", &help_ctrl, 1,
+    help_print("lasso", &help_ctrl, 1,
+"  --lasso [h2 estimate] <report-zeroes>\n"
+"    Given a quantitative trait, estimate marker effect sizes via the LASSO\n"
+"    regression discussed in Vattikuti S, Lee J, Hsu S, Chow CC (2013)\n"
+"    Application of compressed sensing to genome wide association studies and\n"
+"    genomic selection (http://arxiv.org/abs/1310.2264 ).  You must provide a\n"
+"    heritability estimate to calibrate the regression.\n"
+"    Note that this method may require a very large sample size (e.g. hundreds\n"
+"    of thousands) to be effective.\n\n"
+	       );
+    help_print("indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (markers)] [VIF threshold]\n"
 "  --indep-pairwise [window size]<kb> [step size (markers)] [r^2 threshold]\n"
 "    Generates a list of markers in approximate linkage equilibrium.  With the\n"
