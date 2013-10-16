@@ -697,8 +697,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Given a quantitative trait, estimate marker effect sizes via the LASSO\n"
 "    regression discussed in Vattikuti S, Lee J, Hsu S, Chow CC (2013)\n"
 "    Application of compressed sensing to genome wide association studies and\n"
-"    genomic selection (http://arxiv.org/abs/1310.2264 ).  You must provide a\n"
-"    heritability estimate to calibrate the regression.\n"
+"    genomic selection (http://arxiv.org/abs/1310.2264 ).  You must provide an\n"
+"    additive heritability estimate to calibrate the regression.\n"
 "    Note that this method may require a very large sample size (e.g. hundreds\n"
 "    of thousands) to be effective.\n\n"
 	       );
