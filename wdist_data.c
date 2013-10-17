@@ -34,6 +34,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
   uintptr_t indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
   char case_char = affection_01? '1' : '2';
   uintptr_t* isz = NULL;
+  double missing_phenod = (double)missing_pheno;
   int32_t retval = 0;
   char* loadbuf;
   uint32_t loadbuf_size;
@@ -174,7 +175,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t ind
 	  }
 	}
 	if (!affection) {
-	  if (!scan_double(bufptr, &dxx)) {
+	  if ((!scan_double(bufptr, &dxx)) && (dxx != missing_phenod)) {
 	    pheno_d[(uint32_t)person_idx] = dxx;
 	    set_bit(pheno_nm, person_idx);
 	  }

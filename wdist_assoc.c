@@ -13530,3 +13530,13 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   free_cond(condition_uidxs);
   return retval;
 }
+
+int32_t assoc_cmh() {
+  logprint("Error: --mh and --mh2 are currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+}
+
+int32_t assoc_homog() {
+  logprint("Error: --homog is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+}

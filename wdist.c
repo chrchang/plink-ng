@@ -66,7 +66,7 @@ const char ver_str[] =
   "PLINK v1.50a"
 #else
 #ifdef STABLE_BUILD
-  "WDIST v0.22.2"
+  "WDIST v0.22.3"
 #else
   "WDIST v0.23.0p"
 #endif
@@ -4633,6 +4633,12 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   } else if ((calculation_type & CALC_LASSO) && (!pheno_d)) {
     logprint("Error: --lasso requires a scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
+  } else if ((calculation_type & CALC_CMH) && (!pheno_c)) {
+    logprint("Error: --mh and --mh2 require a case/control phenotype.\n");
+    goto wdist_ret_INVALID_CMDLINE;
+  } else if ((calculation_type & CALC_HOMOG) && (!pheno_c)) {
+    logprint("Error: --homog requires a case/control phenotype.\n");
+    goto wdist_ret_INVALID_CMDLINE;
   } else if ((calculation_type & CALC_CLUSTER) && (!pheno_c)) {
     if (cluster_ptr->modifier & CLUSTER_CC) {
       logprint("Error: --cc requires a case/control phenotype.\n");
@@ -5368,7 +5374,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  if (calculation_type & (CALC_MODEL | CALC_GXE | CALC_GLM | CALC_LASSO)) {
+  if (calculation_type & (CALC_MODEL | CALC_GXE | CALC_GLM | CALC_LASSO | CALC_CMH | CALC_HOMOG)) {
     if ((!pheno_all) && (!loop_assoc_fname)) {
       outname_end2 = outname_end;
       goto wdist_skip_all_pheno;
@@ -5485,6 +5491,18 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	retval = lasso(threads, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_alleles, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm_ct, lasso_h2, (misc_flags / MISC_LASSO_REPORT_ZEROES) & 1, pheno_nm, pheno_d, sex_male, hh_exists);
         if (retval) {
 	  goto wdist_ret_1;
+	}
+      }
+      if ((calculation_type & CALC_CMH) && pheno_c) {
+        retval = assoc_cmh();
+        if (retval) {
+          goto wdist_ret_1;
+	}
+      }
+      if ((calculation_type & CALC_HOMOG) && pheno_c) {
+	retval = assoc_homog();
+        if (retval) {
+          goto wdist_ret_1;
 	}
       }
     } while (pheno_all || loop_assoc_fname);
@@ -7561,8 +7579,6 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --bd flag deprecated.  Use '--mh bd'.\n");
 	calculation_type |= CALC_CMH;
 	misc_flags |= MISC_CMH_BD;
-	logprint("Error: --mh is not implemented yet.\n");
-	goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -9179,8 +9195,6 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "omog", 5)) {
         calculation_type |= CALC_HOMOG;
-        logprint("Error: --homog is not implemented yet.\n");
-	goto main_ret_INVALID_CMDLINE;
 	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -10372,8 +10386,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	calculation_type |= CALC_CMH;
         misc_flags |= MISC_CMH2;
-	logprint("Error: --mh2 is not implemented yet.\n");
-	goto main_ret_INVALID_CMDLINE;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "lm-assoc", 9)) {
         logprint("Error: --mlm-assoc is not implemented yet.\n");
