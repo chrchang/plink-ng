@@ -10387,11 +10387,14 @@ int32_t main(int32_t argc, char** argv) {
 	calculation_type |= CALC_CMH;
         misc_flags |= MISC_CMH2;
 	goto main_param_zero;
-      } else if (!memcmp(argptr2, "lm-assoc", 9)) {
-        logprint("Error: --mlm-assoc is not implemented yet.\n");
+      } else if (!memcmp(argptr2, "lma", 4)) {
+        logprint("Error: --mlma is not implemented yet.\n");
         goto main_ret_INVALID_CMDLINE;
-      } else if (!memcmp(argptr2, "lm-assoc-loco", 14)) {
-        logprint("Error: --mlm-assoc-loco is not implemented yet.\n");
+      } else if (!memcmp(argptr2, "lma-loco", 9)) {
+        logprint("Error: --mlma-loco is not implemented yet.\n");
+        goto main_ret_INVALID_CMDLINE;
+      } else if (!memcmp(argptr2, "lma-no-adj-covar", 17)) {
+        logprint("Error: --mlma-no-adj-covar is not implemented yet.\n");
         goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
