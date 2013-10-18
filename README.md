@@ -1,7 +1,7 @@
 wdist
 =====
 
-This is mostly a large a collection of report-generating functions which do not
+This is mostly a large collection of report-generating functions which do not
 depend on each other.  wdist_common contains convenience functions for file
 parsing and bit manipulation, wdist_matrix encapsulates a few common matrix
 operations (which are resolved via LAPACK calls under the hood), and wdist.c
