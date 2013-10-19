@@ -31,7 +31,7 @@ wdist.rel*
 *~
 d2/
 test3/
-zlib-1.2.7/
+zlib-1.2.*
 wdist_src.zip
 wdist_mac_x86_64.zip
 *.tmp
