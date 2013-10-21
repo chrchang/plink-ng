@@ -22,8 +22,8 @@
 #include "wdist_common.h"
 
 #ifdef __APPLE__
-#include <sys/types.h>
-#include <sys/sysctl.h>
+  #include <sys/types.h>
+  #include <sys/sysctl.h>
 #endif
 
 #include "wdist_assoc.h"
@@ -65,11 +65,11 @@ const char ver_str[] =
 #ifdef PLINK_BUILD
   "PLINK v1.50a"
 #else
-#ifdef STABLE_BUILD
+  #ifdef STABLE_BUILD
   "WDIST v0.22.4"
-#else
+  #else
   "WDIST v0.23.0p"
-#endif
+  #endif
 #endif
 #ifdef NOLAPACK
   "NL"
@@ -79,7 +79,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (19 Oct 2013)";
+  " (21 Oct 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -94,11 +94,11 @@ const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
 #ifdef STABLE_BUILD
 const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --distance, --genome, --homozyg, --cluster,\n--neighbour, --model, --gxe, --logistic, --lasso,  --indep, --make-rel,\n--make-grm-gz, --rel-cutoff, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #else
-#ifndef NOLAPACK
+  #ifndef NOLAPACK
 const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --distance, --genome, --homozyg, --cluster,\n--neighbour, --model, --gxe, --logistic, --lasso, --indep, --make-rel,\n--make-grm-gz, --rel-cutoff, --regress-pcs, --regress-distance, --ibs-test,\nand --unrelated-heritability.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
-#else
+  #else
 const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --distance, --genome, --homozyg, --cluster,\n--neighbour, --model, --gxe, --logistic, --lasso, --indep, --make-rel,\n--make-grm-gz, --rel-cutoff, --regress-pcs, --regress-distance, and\n--ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
-#endif
+  #endif
 #endif
 
 intptr_t malloc_size_mb = 0;

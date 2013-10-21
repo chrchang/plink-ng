@@ -23,112 +23,111 @@
 // #define PLINK_BUILD
 
 #ifdef STABLE_BUILD
-#define UNSTABLE goto main_unstable_disabled
+  #define UNSTABLE goto main_unstable_disabled
 #else
-#define UNSTABLE
+  #define UNSTABLE
 #endif
 
 #ifdef PLINK_BUILD
-#define PROG_NAME_STR "plink"
-#define PROG_NAME_CAPS "PLINK"
+  #define PROG_NAME_STR "plink"
+  #define PROG_NAME_CAPS "PLINK"
 #else
-#define PROG_NAME_STR "wdist"
-#define PROG_NAME_CAPS "WDIST"
+  #define PROG_NAME_STR "wdist"
+  #define PROG_NAME_CAPS "WDIST"
 #endif
 
 #if _WIN32
-// needed for MEMORYSTATUSEX
-#ifndef _WIN64
-#define WINVER 0x0500
-#endif
+  // needed for MEMORYSTATUSEX
+  #ifndef _WIN64
+    #define WINVER 0x0500
+  #endif
 #else // Unix
-#include <sys/stat.h>
+  #include <sys/stat.h>
 #endif
 
 #if _WIN32
-#define PRId64 "I64d"
-#define PRIu64 "I64u"
-#define fseeko fseeko64
-#define ftello ftello64
-#include <windows.h>
-#include <process.h>
-#define pthread_t HANDLE
-#define THREAD_RET_TYPE unsigned __stdcall
-#define THREAD_RETURN return 0
+  #define PRId64 "I64d"
+  #define PRIu64 "I64u"
+  #define fseeko fseeko64
+  #define ftello ftello64
+  #include <windows.h>
+  #include <process.h>
+  #define pthread_t HANDLE
+  #define THREAD_RET_TYPE unsigned __stdcall
+  #define THREAD_RETURN return 0
 #else
-#include <pthread.h>
-#define THREAD_RET_TYPE void*
-#define THREAD_RETURN return NULL
-#ifdef __cplusplus
-#define PRId64 "lld"
-#endif
+  #include <pthread.h>
+  #define THREAD_RET_TYPE void*
+  #define THREAD_RETURN return NULL
+  #ifdef __cplusplus
+    #define PRId64 "lld"
+  #endif
 #endif
 
 #define uint64_t unsigned long long
 #define int64_t long long
 
 #ifdef _WIN64
-#define __LP64__
-#define CTZLU __builtin_ctzll
-#define CLZLU __builtin_clzll
+  #define __LP64__
+  #define CTZLU __builtin_ctzll
+  #define CLZLU __builtin_clzll
 #else
-#define CTZLU __builtin_ctzl
-#define CLZLU __builtin_clzl
-#ifndef __LP64__
-#define uintptr_t unsigned long
-#define intptr_t long
-#endif
+  #define CTZLU __builtin_ctzl
+  #define CLZLU __builtin_clzl
+  #ifndef __LP64__
+    #define uintptr_t unsigned long
+    #define intptr_t long
+  #endif
 #endif
 
 #ifdef __cplusplus
-#include <algorithm>
+  #include <algorithm>
 #endif
 
 #ifdef __LP64__
+  #include <emmintrin.h>
+  #define FIVEMASK 0x5555555555555555LLU
+  typedef union {
+    __m128i vi;
+    __m128d vd;
+    uintptr_t u8[2];
+    double d8[2];
+    uint32_t u4[4];
+  } __uni16;
+  #define ZEROLU 0LLU
+  #define ONELU 1LLU
 
-#include <emmintrin.h>
-#define FIVEMASK 0x5555555555555555LLU
-typedef union {
-  __m128i vi;
-  __m128d vd;
-  uintptr_t u8[2];
-  double d8[2];
-  uint32_t u4[4];
-} __uni16;
-#define ZEROLU 0LLU
-#define ONELU 1LLU
+  #if _WIN32 // i.e. Win64
 
-#if _WIN32 // i.e. Win64
+    #ifndef PRIuPTR
+      #define PRIuPTR PRIu64
+    #endif
+    #ifndef PRIdPTR
+      #define PRIdPTR PRId64
+    #endif
 
-#ifndef PRIuPTR
-#define PRIuPTR PRIu64
-#endif
-#ifndef PRIdPTR
-#define PRIdPTR PRId64
-#endif
+  #else // not _WIN32
 
-#else // not _WIN32
+    #ifndef PRIuPTR
+      #define PRIuPTR "lu"
+    #endif
+    #ifndef PRIdPTR
+      #define PRIdPTR "ld"
+    #endif
 
-#ifndef PRIuPTR
-#define PRIuPTR "ld"
-#endif
-#ifndef PRIdPTR
-#define PRIdPTR "lu"
-#endif
-
-#endif // Win64
+  #endif // Win64
 
 #else // not __LP64__
 
-#define FIVEMASK 0x55555555
-#define ZEROLU 0LU
-#define ONELU 1LU
-#ifndef PRIuPTR
-#define PRIuPTR "lu"
-#endif
-#ifndef PRIdPTR
-#define PRIdPTR "ld"
-#endif
+  #define FIVEMASK 0x55555555
+  #define ZEROLU 0LU
+  #define ONELU 1LU
+  #ifndef PRIuPTR
+    #define PRIuPTR "lu"
+  #endif
+  #ifndef PRIdPTR
+    #define PRIdPTR "ld"
+  #endif
 
 #endif // __LP64__
 
@@ -483,17 +482,17 @@ typedef union {
 
 #define _FILE_OFFSET_BITS 64
 #if _WIN32
-#define MAX_THREADS 63
-#define MAX_THREADS_P1 64
+  #define MAX_THREADS 63
+  #define MAX_THREADS_P1 64
 #else
-#define MAX_THREADS 127
-#define MAX_THREADS_P1 128
+  #define MAX_THREADS 127
+  #define MAX_THREADS_P1 128
 #endif
 
 #ifdef __LP64__
-#define BITCT 64
+  #define BITCT 64
 #else
-#define BITCT 32
+  #define BITCT 32
 #endif
 
 #define BITCT2 (BITCT / 2)
@@ -519,18 +518,18 @@ typedef union {
 #define JACKKNIFE_VALS_GROUPDIST 3
 
 #ifdef __LP64__
-#define AAAAMASK 0xaaaaaaaaaaaaaaaaLLU
-// number of snp-major .bed lines to read at once for distance calc if exponent
-// is nonzero.
-#define MULTIPLEX_DIST_EXP 64
-// number of snp-major .bed lines to read at once for relationship calc
-#define MULTIPLEX_REL 60
+  #define AAAAMASK 0xaaaaaaaaaaaaaaaaLLU
+  // number of snp-major .bed lines to read at once for distance calc if
+  // exponent is nonzero.
+  #define MULTIPLEX_DIST_EXP 64
+  // number of snp-major .bed lines to read at once for relationship calc
+  #define MULTIPLEX_REL 60
 #else
-// N.B. 32-bit version not as carefully tested or optimized, but I'll try to
-// make sure it works properly
-#define AAAAMASK 0xaaaaaaaaU
-#define MULTIPLEX_DIST_EXP 28
-#define MULTIPLEX_REL 30
+  // N.B. 32-bit version not as carefully tested or optimized, but I'll try to
+  // make sure it works properly
+  #define AAAAMASK 0xaaaaaaaaU
+  #define MULTIPLEX_DIST_EXP 28
+  #define MULTIPLEX_REL 30
 #endif
 
 // used to size a few tables
@@ -1366,13 +1365,13 @@ void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude
 #define CHROM_MT (MAX_POSSIBLE_CHROM + 3)
 
 #ifdef __LP64__
-// MAX_POSSIBLE_CHROM / BITCT rounded up
-#define CHROM_MASK_WORDS 2
-// dog requires 42 bits, and other species require less
-#define CHROM_MASK_INITIAL_WORDS 1
+  // MAX_POSSIBLE_CHROM / BITCT rounded up
+  #define CHROM_MASK_WORDS 2
+  // dog requires 42 bits, and other species require less
+  #define CHROM_MASK_INITIAL_WORDS 1
 #else
-#define CHROM_MASK_WORDS 4
-#define CHROM_MASK_INITIAL_WORDS 2
+  #define CHROM_MASK_WORDS 4
+  #define CHROM_MASK_INITIAL_WORDS 2
 #endif
 
 typedef struct {
