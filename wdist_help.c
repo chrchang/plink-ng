@@ -978,6 +978,16 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --extract [file] : Exclude all markers not in the given list.\n"
 "  --exclude [file] : Exclude all markers in the given list.\n"
 	       );
+    help_print("keep-clusters\tkeep-cluster-names\tremove-clusters\tremove-cluster-names", &help_ctrl, 0,
+"  --keep-clusters [filename]          : These can be used individually or in\n"
+"  --keep-cluster-names [name(s)...]     combination to define a list of\n"
+"                                        clusters to keep; all individuals not\n"
+"                                        in a cluster in that list are then\n"
+"                                        excluded.  Use spaces to separate\n"
+"                                        cluster names for --keep-cluster-names.\n"
+"  --remove-clusters [filename]        : Exclude all clusters named in the file.\n"
+"  --remove-cluster-names [name(s)...] : Exclude the named clusters.\n"
+	       );
     help_print("chr\tnot-chr\tchr-excl\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
 "  --chr [chrs...]  : Exclude all markers not on the given chromosome(s).  Valid\n"
 "                     choices for humans are 0 (unplaced), 1-22, X, Y, XY, and\n"

@@ -79,7 +79,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (22 Oct 2013)";
+  " (23 Oct 2013)";
 const char ver_str2[] =
   "    https://www.cog-genomics.org/wdist\n"
 #ifdef PLINK_BUILD
@@ -4904,6 +4904,12 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_1;
     }
   }
+  if (cluster_ptr->fname) {
+    retval = load_clusters(cluster_ptr->fname, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, cluster_ptr->keep_fname, cluster_ptr->keep_flattened, cluster_ptr->remove_fname, cluster_ptr->remove_flattened);
+    if (retval) {
+      goto wdist_ret_1;
+    }
+  }
   // er, obvious todo: convert this to a local variable
   g_indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
   if (!g_indiv_ct) {
@@ -4984,16 +4990,10 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  if (cluster_ptr->fname) {
-    retval = load_clusters(cluster_ptr->fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len);
-    if (retval) {
+  if (calculation_type & CALC_WRITE_CLUSTER) {
+    retval = write_clusters(outname, outname_end, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, (misc_flags / MISC_WRITE_CLUSTER_OMIT_UNASSIGNED) & 1, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
+    if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER))))) {
       goto wdist_ret_1;
-    }
-    if (calculation_type & CALC_WRITE_CLUSTER) {
-      retval = write_clusters(outname, outname_end, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, (misc_flags / MISC_WRITE_CLUSTER_OMIT_UNASSIGNED) & 1, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
-      if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER))))) {
-	goto wdist_ret_1;
-      }
     }
   }
   if (covar_fname) {
@@ -5381,7 +5381,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
     uii = 0; // phenotype/cluster number
     if (loop_assoc_fname) {
-      retval = load_clusters(loop_assoc_fname, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, person_ids, max_person_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len);
+      retval = load_clusters(loop_assoc_fname, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, person_ids, max_person_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, NULL, NULL, NULL, NULL);
       if (retval) {
 	goto wdist_ret_1;
       }
@@ -5900,6 +5900,24 @@ int32_t alloc_fname(char** fnbuf, char* source, char* argptr, uint32_t extra_siz
     return RET_NOMEM;
   }
   memcpy(*fnbuf, source, slen);
+  return 0;
+}
+
+int32_t alloc_and_flatten(char** flattened_buf_ptr, char** sources, uint32_t param_ct) {
+  uint32_t totlen = 0;
+  char* bufptr;
+  uint32_t param_idx;
+  for (param_idx = 0; param_idx < param_ct; param_idx++) {
+    totlen += 1 + strlen(sources[param_idx]);
+  }
+  bufptr = (char*)malloc(totlen);
+  if (!bufptr) {
+    return RET_NOMEM;
+  }
+  *flattened_buf_ptr = bufptr;
+  for (param_idx = 0; param_idx < param_ct; param_idx++) {
+    bufptr = strcpyax(bufptr, sources[param_idx], '\0');
+  }
   return 0;
 }
 
@@ -9370,6 +9388,22 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "eep-autoconv", 13)) {
         misc_flags |= MISC_KEEP_AUTOCONV;
         goto main_param_zero;
+      } else if (!memcmp(argptr2, "eep-clusters", 13)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&(cluster.keep_fname), argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+      } else if (!memcmp(argptr2, "eep-cluster-names", 18)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_and_flatten(&(cluster.keep_flattened), &(argv[cur_arg + 1]), param_ct);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -10814,6 +10848,22 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
+      } else if (!memcmp(argptr2, "emove-clusters", 15)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        retval = alloc_fname(&(cluster.remove_fname), argv[cur_arg + 1], argptr, 0);
+        if (retval) {
+	  goto main_ret_1;
+	}
+      } else if (!memcmp(argptr2, "emove-cluster-names", 20)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_and_flatten(&(cluster.remove_flattened), &(argv[cur_arg + 1]), param_ct);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else if (!memcmp(argptr2, "el-cutoff", 10)) {
 	if (parallel_tot > 1) {
 	  sprintf(logbuf, "Error: --parallel cannot be used with %s.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", argptr, errstr_append);
@@ -12250,9 +12300,23 @@ int32_t main(int32_t argc, char** argv) {
     sprintf(logbuf, "Error: --qt must be used with --qmatch.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
-  if (mwithin_col && (!loop_assoc_fname) && (!cluster.fname)) {
-    sprintf(logbuf, "Error: --mwithin must be used with --within.%s", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
+  if (!cluster.fname) {
+    if (mwithin_col && (!loop_assoc_fname)) {
+      sprintf(logbuf, "Error: --mwithin must be used with --within.%s", errstr_append);
+      goto main_ret_INVALID_CMDLINE_3;
+    } else if (cluster.keep_fname) {
+      sprintf(logbuf, "Error: --keep-clusters must be used with --within.\n");
+      goto main_ret_INVALID_CMDLINE;
+    } else if (cluster.keep_flattened) {
+      sprintf(logbuf, "Error: --keep-cluster-names must be used with --within.\n");
+      goto main_ret_INVALID_CMDLINE;
+    } else if (cluster.remove_fname) {
+      sprintf(logbuf, "Error: --remove-clusters must be used with --within.\n");
+      goto main_ret_INVALID_CMDLINE;
+    } else if (cluster.remove_flattened) {
+      sprintf(logbuf, "Error: --remove-cluster-names must be used with --within.\n");
+      goto main_ret_INVALID_CMDLINE;
+    }
   }
 
   // --from-bp/-kb/-mb without any --to/--to-bp/...: include to end of
@@ -12571,6 +12635,10 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(cluster.qmatch_fname);
   free_cond(cluster.qmatch_missing_str);
   free_cond(cluster.qt_fname);
+  free_cond(cluster.keep_fname);
+  free_cond(cluster.remove_fname);
+  free_cond(cluster.keep_flattened);
+  free_cond(cluster.remove_flattened);
   free_cond(rseeds);
   free_cond(simulate_fname);
   free_cond(simulate_label);
