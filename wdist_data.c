@@ -4745,12 +4745,12 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       if (indiv_ct == 2) {
 	sprintf(logbuf, "Marker number: %" PRIuPTR "\n", marker_uidx);
         logstr(logbuf);
-	memcpy(logbuf, "Allele 1: ");
+	memcpy(logbuf, "Allele 1: ", 10);
 	memcpy(&(logbuf[10]), aptr1, alen1);
         logbuf[10 + alen1] = '\n';
 	logbuf[11 + alen1] = '\0';
 	logstr(logbuf);
-	memcpy(logbuf, "Allele 2: ");
+	memcpy(logbuf, "Allele 2: ", 10);
 	memcpy(&(logbuf[10]), aptr2, alen2);
         logbuf[10 + alen2] = '\n';
 	logbuf[11 + alen2] = '\0';
