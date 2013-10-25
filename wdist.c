@@ -4065,7 +4065,7 @@ uint32_t swap_reversed_marker_alleles(uintptr_t unfiltered_marker_ct, uintptr_t*
     }
   }
   wkspace_mark = wkspace_base;
-  if (!wkspace_alloc_c_checked(&swap_space, max_marker_allele_len)) {
+  if (wkspace_alloc_c_checked(&swap_space, max_marker_allele_len)) {
     return 1;
   }
   while (1) {
