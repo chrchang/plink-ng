@@ -4623,9 +4623,11 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   uint32_t ii_shift;
   unsigned char* writebuf;
   unsigned char* wbufptr;
+#ifndef STABLE_BUILD
   Ll_str* debug_ptr_main;
   char* debug_ptr_w;
   char* debug_ptr_ss;
+#endif
   wkspace_reset((unsigned char*)marker_alleles_f);
   if ((wkspace_left / (4LU * sizeof(int32_t) + 16)) <= marker_ct) {
     goto ped_to_bed_multichar_allele_ret_NOMEM;
@@ -4746,6 +4748,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
 	max_marker_allele_len = alen2;
       }
       uii = map_is_unsorted? map_reverse[marker_idx] : marker_idx;
+#ifndef STABLE_BUILD
       if (indiv_ct == 2) {
 	sprintf(logbuf, "Marker number: %" PRIuPTR "\n", marker_uidx);
         logstr(logbuf);
@@ -4776,13 +4779,16 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
 	sprintf(logbuf, "Preexisting counts: %u %u\n", marker_allele_cts[4 * uii], marker_allele_cts[4 * uii + 1]);
 	logstr(logbuf);
       }
+#endif
       retval = incr_text_allele_str(&topsize, aptr1, alen1, (Ll_str*)(&(marker_alleles_tmp[uii])), &(marker_allele_cts[4 * uii]));
       if (retval) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_6;
       }
+#ifndef STABLE_BUILD
       if (indiv_ct == 2) {
 	logstr("First allele processed.\n");
       }
+#endif
       retval = incr_text_allele_str(&topsize, aptr2, alen2, (Ll_str*)(&(marker_alleles_tmp[uii])), &(marker_allele_cts[4 * uii]));
       if (retval) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_6;
