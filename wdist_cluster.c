@@ -450,9 +450,9 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
       if (sorted_keep_ids) {
         sorted_idx = bsearch_str(cluster_name_ptr, sorted_keep_ids, max_cluster_kr_len, 0, cluster_kr_ct - 1);
 	if (sorted_idx == -1) {
-          set_bit(indiv_exclude_new, indiv_uidx);
 	  continue;
 	}
+        clear_bit(indiv_exclude_new, indiv_uidx);
       } else if (sorted_remove_ids) {
         sorted_idx = bsearch_str(cluster_name_ptr, sorted_remove_ids, max_cluster_kr_len, 0, cluster_kr_ct - 1);
         if (sorted_idx != -1) {

@@ -1368,7 +1368,6 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
 	    clear_bit(indiv_exclude_new, person_idx);
 	    include_ct++;
 	  }
-	  break;
 	}
       }
     }
@@ -2475,7 +2474,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     logprint("Warning: Nonmissing nonmale Y chromosome genotype(s) present.\n");
     *hh_exists_ptr |= Y_FIX_NEEDED;
   }
-  if (nonmissing_rate_tot < ((double)((intptr_t)nonmissing_rate_tot_max))) {
+  if (nonmissing_rate_tot <= 0.9999995 * ((double)((intptr_t)nonmissing_rate_tot_max))) {
     sprintf(logbuf, "Total genotyping rate %sis %g.\n", indiv_exclude_ct? "in remaining individuals " : "", nonmissing_rate_tot / ((double)((intptr_t)nonmissing_rate_tot_max)));
     logprintb();
   }
