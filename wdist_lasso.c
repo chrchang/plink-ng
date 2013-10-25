@@ -640,7 +640,6 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   double dzz;
   uint64_t ullii;
   uintptr_t indiv_valid_ct;
-  uintptr_t indiv_valid_ctl2;
   uintptr_t indiv_valid_ctv2;
   uintptr_t marker_idx;
   uintptr_t marker_idx2;
@@ -678,7 +677,6 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
       }
     }
   }
-  indiv_valid_ctl2 = (indiv_valid_ct + (BITCT2 - 1)) / BITCT2;
   indiv_valid_ctv2 = 2 * ((indiv_valid_ct + (BITCT - 1)) / BITCT);
   sqrt_n_recip = sqrt(1.0 / ((double)((intptr_t)indiv_valid_ct)));
   if (wkspace_alloc_ul_checked(&indiv_include2, indiv_valid_ctv2 * sizeof(intptr_t)) ||
