@@ -4657,6 +4657,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       putchar('\n');
       goto ped_to_bed_multichar_allele_ret_NOMEM;
     }
+    logstr("step 0.1\n");
     cur_slen = strlen(loadbuf);
     ulii = cur_slen + 1;
     if (ulii > ped_buflen) {
@@ -4667,13 +4668,14 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       goto ped_to_bed_multichar_allele_loop_1_start;
     }
     // check for top-of-stack allocations colliding with load buffer
-    cur_slen_rdup = (cur_slen + CACHELINE) & (CACHELINE - 1);
+    cur_slen_rdup = (cur_slen + CACHELINE) & (~(CACHELINE - 1));
     if (fam_cols & FAM_COL_1) {
       col2_ptr = next_item(col1_ptr);
     } else {
       col2_ptr = col1_ptr;
     }
     bufptr = next_item_mult(col2_ptr, ped_col_skip - 1);
+    logstr("step 0.2\n");
     if (no_more_items_kns(bufptr)) {
       putchar('\n');
       sprintf(logbuf, "Error: Missing token(s) in .ped line: %s\n", col1_ptr);
@@ -4713,8 +4715,8 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       }
     }
     wkspace_left -= cur_slen_rdup;
-    marker_idx = 0;
-    for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+    for (marker_uidx = 0, marker_idx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+      logstr("step 1\n");
       alen1 = strlen_se(bufptr);
       aptr1 = bufptr;
       bufptr = skip_initial_spaces(&(bufptr[alen1]));
@@ -4728,6 +4730,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       if (IS_SET(marker_exclude, marker_uidx)) {
 	continue;
       }
+      logstr("step 2\n");
       if ((*aptr1 == '0') && (alen1 == 1)) {
 	if ((alen2 != 1) || (*aptr2 != '0')) {
           goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_4;
@@ -4743,6 +4746,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       if (alen2 > max_marker_allele_len) {
 	max_marker_allele_len = alen2;
       }
+      logstr("step 3\n");
       uii = map_is_unsorted? map_reverse[marker_idx] : marker_idx;
       retval = incr_text_allele_str(&topsize, aptr1, alen1, (Ll_str*)(&(marker_alleles_tmp[uii])), &(marker_allele_cts[4 * uii]));
       if (retval) {
@@ -4752,6 +4756,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       if (retval) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_6;
       }
+      logstr("step 4\n");
       marker_idx++;
     }
     wkspace_left += cur_slen_rdup;
