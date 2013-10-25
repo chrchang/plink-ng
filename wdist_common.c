@@ -7586,22 +7586,37 @@ void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size,
 uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, uint32_t* id_starts) {
   // Collapses array of sorted IDs to remove duplicates, and writes
   // pre-collapse positions to id_starts (so e.g. duplication count of any
-  // individual ID can be determined via subtraction).
-  // Assumes id_ct is positive.
+  // individual ID can be determined via subtraction) if it isn't NULL.
+  // Assumes id_ct is positive.  Returns id_ct of collapsed array.
   uintptr_t read_idx;
   uintptr_t write_idx;
-  id_starts[0] = 0;
-  for (read_idx = 1; read_idx < id_ct; read_idx++) {
-    if (!strcmp(&(sorted_ids[(read_idx - 1) * max_id_len]), &(sorted_ids[read_idx * max_id_len]))) {
-      break;
+  if (id_starts) {
+    id_starts[0] = 0;
+    for (read_idx = 1; read_idx < id_ct; read_idx++) {
+      if (!strcmp(&(sorted_ids[(read_idx - 1) * max_id_len]), &(sorted_ids[read_idx * max_id_len]))) {
+	break;
+      }
+      id_starts[read_idx] = read_idx;
     }
-    id_starts[read_idx] = read_idx;
-  }
-  write_idx = read_idx;
-  while (++read_idx < id_ct) {
-    if (strcmp(&(sorted_ids[(write_idx - 1) * max_id_len]), &(sorted_ids[read_idx * max_id_len]))) {
-      strcpy(&(sorted_ids[write_idx * max_id_len]), &(sorted_ids[read_idx * max_id_len]));
-      id_starts[write_idx++] = read_idx;
+    write_idx = read_idx;
+    while (++read_idx < id_ct) {
+      if (strcmp(&(sorted_ids[(write_idx - 1) * max_id_len]), &(sorted_ids[read_idx * max_id_len]))) {
+	strcpy(&(sorted_ids[write_idx * max_id_len]), &(sorted_ids[read_idx * max_id_len]));
+	id_starts[write_idx++] = read_idx;
+      }
+    }
+  } else {
+    for (read_idx = 1; read_idx < id_ct; read_idx++) {
+      if (!strcmp(&(sorted_ids[(read_idx - 1) * max_id_len]), &(sorted_ids[read_idx * max_id_len]))) {
+	break;
+      }
+    }
+    write_idx = read_idx;
+    while (++read_idx < id_ct) {
+      if (strcmp(&(sorted_ids[(write_idx - 1) * max_id_len]), &(sorted_ids[read_idx * max_id_len]))) {
+	strcpy(&(sorted_ids[write_idx * max_id_len]), &(sorted_ids[read_idx * max_id_len]));
+	write_idx++;
+      }
     }
   }
   return write_idx;

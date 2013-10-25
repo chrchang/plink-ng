@@ -1022,11 +1022,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("bp-space", &help_ctrl, 0,
 "  --bp-space [bps] : Enforce minimum bp distance between markers.\n"
 	       );
-    help_print("filter", &help_ctrl, 0,
-"  --filter [f] [v] : Filter individuals based on a phenotype value.\n"
-	       );
-    help_print("mfilter\tfilter", &help_ctrl, 0,
-"  --mfilter [col]  : Specify alternate column in --filter file.\n"
+    help_print("filter\tmfilter", &help_ctrl, 0,
+"  --filter [f] [val(s)...] : Filter individuals based on covariate value(s).\n"
+"  --mfilter [n]            : Match against (n+2)th column in --filter file.\n"
 	       );
     help_print("geno\tmind", &help_ctrl, 0,
 "  --geno {val}     : Maximum per-marker missing (default 0.1).\n"

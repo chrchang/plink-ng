@@ -75,12 +75,25 @@ void cluster_init(Cluster_info* cluster_ptr) {
 int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t* indiv_exclude_ct_ptr, char* person_ids, uintptr_t max_person_id_len, uint32_t mwithin_col, uint32_t keep_na, uintptr_t* cluster_ct_ptr, uint32_t** cluster_map_ptr, uint32_t** cluster_starts_ptr, char** cluster_ids_ptr, uintptr_t* max_cluster_id_len_ptr, char* keep_fname, char* keep_flattened, char* remove_fname, char* remove_flattened) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
+  uintptr_t* indiv_exclude_new = NULL;
+  uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t indiv_exclude_ct = *indiv_exclude_ct_ptr;
   uintptr_t indiv_ct = unfiltered_indiv_ct - indiv_exclude_ct;
   uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t topsize = 0;
+  uintptr_t max_cluster_kr_len = 0;
+  uint32_t cluster_filter = (keep_fname || keep_flattened || remove_fname || remove_flattened)? 1 : 0;
+  uint32_t cluster_kr_ct = 0;
   int32_t retval = 0;
   char* idbuf = &(tbuf[MAXLINELEN]);
+  // even if both --keep-clusters and --remove-clusters were specified, only
+  // one is effectively active (i.e. any names in both lists are deleted from
+  // the keep list, and then the function proceeds as if --remove-clusters
+  // wasn't specified); this is tracked by which of
+  // sorted_keep_ids/sorted_remove_ids is non-NULL.  cluster_kr_ct and
+  // max_cluster_kr_len apply to that array.
+  char* sorted_keep_ids = NULL;
+  char* sorted_remove_ids = NULL;
   uintptr_t max_cluster_id_len = 0;
   uintptr_t assigned_ct = 0;
   uintptr_t cluster_ct = 0;
@@ -99,11 +112,204 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   char* cluster_name_ptr;
   uintptr_t ulii;
   int32_t sorted_idx;
+  uint32_t read_idx;
   uint32_t indiv_uidx;
   uint32_t slen;
   uint32_t uii;
-  // todo: support --keep-clusters, etc.
-
+  tbuf[MAXLINELEN - 1] = ' ';
+  if (cluster_filter) {
+    indiv_exclude_new = (uintptr_t*)top_alloc(&topsize, unfiltered_indiv_ctl * sizeof(intptr_t));
+    if (keep_flattened || keep_fname) {
+      if (keep_flattened) {
+	cluster_name_ptr = keep_flattened;
+	do {
+	  slen = strlen(cluster_name_ptr);
+	  if (slen >= max_cluster_kr_len) {
+	    max_cluster_kr_len = slen + 1;
+	  }
+	  cluster_kr_ct++;
+	  cluster_name_ptr = &(cluster_name_ptr[slen + 1]);
+	} while (*cluster_name_ptr);
+      }
+      if (keep_fname) {
+	if (fopen_checked(&infile, keep_fname, "r")) {
+	  goto load_clusters_ret_OPEN_FAIL;
+	}
+	while (fgets(tbuf, MAXLINELEN, infile)) {
+	  if (!tbuf[MAXLINELEN - 1]) {
+	    logprint("Error: Pathologically long line in --keep-clusters file.\n");
+	    goto load_clusters_ret_INVALID_FORMAT;
+	  }
+	  cluster_name_ptr = skip_initial_spaces(tbuf);
+	  if (is_eoln_kns(*cluster_name_ptr)) {
+	    continue;
+	  }
+	  slen = strlen_se(cluster_name_ptr);
+	  if (slen >= max_cluster_kr_len) {
+	    max_cluster_kr_len = slen + 1;
+	  }
+	  cluster_kr_ct++;
+	}
+	if (!cluster_kr_ct) {
+	  logprint("Error: Empty --keep-clusters file.\n");
+	  goto load_clusters_ret_INVALID_FORMAT;
+	}
+      }
+      indiv_exclude_new[unfiltered_indiv_ctl - 1] = 0;
+      fill_bits(indiv_exclude_new, 0, unfiltered_indiv_ct);
+      sorted_keep_ids = (char*)top_alloc(&topsize, cluster_kr_ct * max_cluster_kr_len);
+      if (!sorted_keep_ids) {
+	goto load_clusters_ret_NOMEM;
+      }
+      ulii = 0;
+      if (keep_flattened) {
+        cluster_name_ptr = keep_flattened;
+	do {
+	  slen = strlen(cluster_name_ptr) + 1;
+	  memcpy(&(sorted_keep_ids[ulii * max_cluster_kr_len]), cluster_name_ptr, slen);
+	  ulii++;
+	  cluster_name_ptr = &(cluster_name_ptr[slen]);
+	} while (*cluster_name_ptr);
+      }
+      if (keep_fname) {
+	rewind(infile);
+	while (fgets(tbuf, MAXLINELEN, infile)) {
+	  cluster_name_ptr = skip_initial_spaces(tbuf);
+	  if (is_eoln_kns(*cluster_name_ptr)) {
+	    continue;
+	  }
+	  slen = strlen_se(cluster_name_ptr);
+          memcpyx(&(sorted_keep_ids[ulii * max_cluster_kr_len]), cluster_name_ptr, slen, '\0');
+          ulii++;
+	}
+	fclose_null(&infile);
+      }
+      qsort(sorted_keep_ids, cluster_kr_ct, max_cluster_kr_len, strcmp_casted);
+      cluster_kr_ct = collapse_duplicate_ids(sorted_keep_ids, cluster_kr_ct, max_cluster_kr_len, NULL);
+      if (remove_flattened || remove_fname) {
+	topsize_bak = topsize;
+	ulii = (cluster_kr_ct + (BITCT - 1)) / BITCT;
+	// track deletions
+	already_seen = (uintptr_t*)top_alloc(&topsize, ulii * sizeof(intptr_t));
+	if (!already_seen) {
+	  goto load_clusters_ret_NOMEM;
+	}
+	fill_ulong_zero(already_seen, ulii);
+	if (remove_flattened) {
+	  cluster_name_ptr = remove_flattened;
+	  do {
+	    slen = strlen(cluster_name_ptr);
+	    if (slen < max_cluster_kr_len) {
+	      sorted_idx = bsearch_str(cluster_name_ptr, sorted_keep_ids, max_cluster_kr_len, 0, cluster_kr_ct - 1);
+	      if (sorted_idx != -1) {
+		set_bit(already_seen, sorted_idx);
+	      }
+	    }
+	    cluster_name_ptr = &(cluster_name_ptr[slen + 1]);
+	  } while (*cluster_name_ptr);
+	}
+	if (remove_fname) {
+	  if (fopen_checked(&infile, remove_fname, "r")) {
+            goto load_clusters_ret_OPEN_FAIL;
+	  }
+          while (fgets(tbuf, MAXLINELEN, infile)) {
+            if (!tbuf[MAXLINELEN - 1]) {
+	      logprint("Error: Pathologically long line in --remove-clusters file.\n");
+	      goto load_clusters_ret_INVALID_FORMAT;
+	    }
+	    cluster_name_ptr = skip_initial_spaces(tbuf);
+	    if (is_eoln_kns(*cluster_name_ptr)) {
+	      continue;
+	    }
+            slen = strlen(cluster_name_ptr);
+	    if (slen < max_cluster_kr_len) {
+              cluster_name_ptr[slen] = '\0';
+              sorted_idx = bsearch_str(cluster_name_ptr, sorted_keep_ids, max_cluster_kr_len, 0, cluster_kr_ct - 1);
+              if (sorted_idx != -1) {
+                set_bit(already_seen, sorted_idx);
+	      }
+	    }
+	  }
+	}
+        uii = next_set(already_seen, 0, cluster_kr_ct);
+	if (uii < cluster_kr_ct) {
+	  read_idx = uii + 1;
+          for (read_idx = uii + 1; read_idx < cluster_kr_ct; read_idx++) {
+            if (!IS_SET(already_seen, read_idx)) {
+              strcpy(&(sorted_keep_ids[uii * max_cluster_kr_len]), &(sorted_keep_ids[read_idx * max_cluster_kr_len]));
+              uii++;
+	    }
+	  }
+          cluster_kr_ct = uii;
+	}
+	topsize = topsize_bak;
+      }
+    } else {
+      memcpy(indiv_exclude_new, indiv_exclude, unfiltered_indiv_ctl * sizeof(intptr_t));
+      if (remove_flattened) {
+	cluster_name_ptr = remove_flattened;
+	do {
+	  slen = strlen(cluster_name_ptr);
+	  if (slen >= max_cluster_kr_len) {
+	    max_cluster_kr_len = slen + 1;
+	  }
+	  cluster_kr_ct++;
+	  cluster_name_ptr = &(cluster_name_ptr[slen + 1]);
+	} while (*cluster_name_ptr);
+      }
+      if (remove_fname) {
+	if (fopen_checked(&infile, remove_fname, "r")) {
+	  goto load_clusters_ret_OPEN_FAIL;
+	}
+	while (fgets(tbuf, MAXLINELEN, infile)) {
+	  if (!tbuf[MAXLINELEN - 1]) {
+	    logprint("Error: Pathologically long line in --remove-clusters file.\n");
+	    goto load_clusters_ret_INVALID_FORMAT;
+	  }
+	  cluster_name_ptr = skip_initial_spaces(tbuf);
+	  if (is_eoln_kns(*cluster_name_ptr)) {
+	    continue;
+	  }
+	  slen = strlen_se(cluster_name_ptr);
+	  if (slen >= max_cluster_kr_len) {
+	    max_cluster_kr_len = slen + 1;
+	  }
+	  cluster_kr_ct++;
+	}
+      }
+      if (cluster_kr_ct) {
+	sorted_remove_ids = (char*)top_alloc(&topsize, cluster_kr_ct * max_cluster_kr_len);
+	if (!sorted_remove_ids) {
+	  goto load_clusters_ret_NOMEM;
+	}
+	ulii = 0;
+	if (remove_flattened) {
+	  cluster_name_ptr = remove_flattened;
+	  do {
+	    slen = strlen(cluster_name_ptr) + 1;
+	    memcpy(&(sorted_remove_ids[ulii * max_cluster_kr_len]), cluster_name_ptr, slen);
+	    ulii++;
+	    cluster_name_ptr = &(cluster_name_ptr[slen]);
+	  } while (*cluster_name_ptr);
+	}
+	if (remove_fname) {
+	  rewind(infile);
+	  while (fgets(tbuf, MAXLINELEN, infile)) {
+	    cluster_name_ptr = skip_initial_spaces(tbuf);
+	    if (is_eoln_kns(*cluster_name_ptr)) {
+	      continue;
+	    }
+	    slen = strlen_se(cluster_name_ptr);
+	    memcpyx(&(sorted_remove_ids[ulii * max_cluster_kr_len]), cluster_name_ptr, slen, '\0');
+	    ulii++;
+	  }
+	  fclose_null(&infile);
+	}
+	qsort(sorted_remove_ids, cluster_kr_ct, max_cluster_kr_len, strcmp_casted);
+        cluster_kr_ct = collapse_duplicate_ids(sorted_remove_ids, cluster_kr_ct, max_cluster_kr_len, NULL);
+      }
+    }
+  }
   sorted_ids = (char*)top_alloc(&topsize, indiv_ct * max_person_id_len);
   if (!sorted_ids) {
     goto load_clusters_ret_NOMEM;
@@ -130,11 +336,10 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
   //    individual ID appears multiple times
   // intermission. sort cluster names, purge duplicates, allocate memory for
   //               return values
-  // 2. populate return name arrays
+  // 2. populate return arrays
   if (fopen_checked(&infile, fname, "r")) {
     goto load_clusters_ret_OPEN_FAIL;
   }
-  tbuf[MAXLINELEN - 1] = ' ';
   if (!mwithin_col) {
     mwithin_col = 1;
   }
@@ -170,12 +375,17 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
       // ignore cluster=NA lines for the purpose of detecting duplicate indivs
       continue;
     }
+    cluster_name_ptr[slen] = '\0';
+    // cluster won't exist because of --keep-clusters/--remove-clusters?
+    if ((sorted_keep_ids && (bsearch_str(cluster_name_ptr, sorted_keep_ids, max_cluster_kr_len, 0, cluster_kr_ct - 1) == -1)) || (sorted_remove_ids && (bsearch_str(cluster_name_ptr, sorted_remove_ids, max_cluster_kr_len, 0, cluster_kr_ct - 1) != -1))) {
+      continue;
+    }
     if (slen >= max_cluster_id_len) {
       max_cluster_id_len = slen + 1;
     }
     llptr = top_alloc_llstr(&topsize, slen + 1);
     llptr->next = cluster_names;
-    memcpyx(llptr->ss, cluster_name_ptr, slen, '\0');
+    memcpy(llptr->ss, cluster_name_ptr, slen + 1);
     cluster_names = llptr;
     assigned_ct++;
   }
@@ -237,6 +447,19 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
       }
       indiv_uidx = id_map[(uint32_t)sorted_idx];
       cluster_name_ptr[slen] = '\0';
+      if (sorted_keep_ids) {
+        sorted_idx = bsearch_str(cluster_name_ptr, sorted_keep_ids, max_cluster_kr_len, 0, cluster_kr_ct - 1);
+	if (sorted_idx == -1) {
+          set_bit(indiv_exclude_new, indiv_uidx);
+	  continue;
+	}
+      } else if (sorted_remove_ids) {
+        sorted_idx = bsearch_str(cluster_name_ptr, sorted_remove_ids, max_cluster_kr_len, 0, cluster_kr_ct - 1);
+        if (sorted_idx != -1) {
+	  set_bit(indiv_exclude_new, indiv_uidx);
+	  continue;
+	}
+      }
       sorted_idx = bsearch_str_natural(cluster_name_ptr, cluster_ids, max_cluster_id_len, 0, cluster_ct - 1);
       uii = tmp_cluster_starts[(uint32_t)sorted_idx];
       tmp_cluster_starts[(uint32_t)sorted_idx] += 1;
@@ -256,7 +479,21 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
     }
     sprintf(logbuf, "--within: %" PRIuPTR " cluster%s loaded, covering a total of %" PRIuPTR " %s.\n", cluster_ct, (cluster_ct == 1)? "" : "s", assigned_ct, species_str(assigned_ct));
     logprintb();
+    if (indiv_exclude_new) {
+      ulii = popcount_longs(indiv_exclude_new, 0, unfiltered_indiv_ctl);
+      if (ulii != indiv_exclude_ct) {
+	memcpy(indiv_exclude, indiv_exclude_new, unfiltered_indiv_ctl * sizeof(intptr_t));
+	*indiv_exclude_ct_ptr = ulii;
+	ulii -= indiv_exclude_ct;
+	sprintf(logbuf, "%" PRIuPTR " %s removed by cluster filter(s).\n", ulii, species_str(ulii));
+        logprintb();
+      }
+    }
   } else {
+    if (sorted_keep_ids) {
+      logprint("Error: No individuals named in --within file remain in the current analysis, so\n--keep-clusters/--keep-cluster-names excludes everyone.\n");
+      goto load_clusters_ret_INVALID_FORMAT;
+    }
     logprint("Warning: No individuals named in --within file remain in the current analysis.\n");
   }
 
