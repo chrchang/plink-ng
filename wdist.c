@@ -79,7 +79,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (25 Oct 2013)";
+  " (27 Oct 2013)";
 const char ver_str2[] =
 #ifdef PLINK_BUILD
   "    [final website TBD]\n"

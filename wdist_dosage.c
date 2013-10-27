@@ -1271,7 +1271,7 @@ int32_t oxford_distance_calc(FILE* genfile, uint32_t gen_buf_len, double* set_al
 		} else {
 		  SET_BIT(cur_missings, indiv_idx);
 		}
-		g_missing_vals[indiv_idx] |= 1 << marker_idxl;
+		g_missing_vals[indiv_idx] |= ONELU << marker_idxl;
 	      } else {
 #ifdef __LP64__
 		*((uintptr_t*)(&g_missing_dmasks[indiv_idx * BITCT + marker_idxl])) = 0x7fffffffffffffffLLU;

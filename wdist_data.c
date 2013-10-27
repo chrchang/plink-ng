@@ -4636,6 +4636,10 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   marker_allele_cts = (uint32_t*)(&(wkspace_base[wkspace_left - marker_ct * 4LU * sizeof(int32_t)]));
   marker_alleles_tmp = (Ll_str_fixed*)(&(wkspace_base[wkspace_left - marker_ct * (4LU * sizeof(int32_t) + 16)]));
   memset(marker_alleles_tmp, 0, marker_ct * (4LU * sizeof(int32_t) + 16));
+#ifndef STABLE_BUILD
+  sprintf(logbuf, "sizeof(Ll_str_fixed): %" PRIuPTR "\n", sizeof(Ll_str_fixed));
+  logstr(logbuf);
+#endif
 
   if (fclose_null(outfile_ptr)) {
     goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
@@ -4749,9 +4753,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       }
       uii = map_is_unsorted? map_reverse[marker_idx] : marker_idx;
 #ifndef STABLE_BUILD
-      if (indiv_ct == 2) {
-	sprintf(logbuf, "Marker number: %" PRIuPTR "\n", marker_uidx);
-        logstr(logbuf);
+      if (marker_uidx == 316073) {
 	memcpy(logbuf, "Allele 1: ", 10);
 	memcpy(&(logbuf[10]), aptr1, alen1);
         logbuf[10 + alen1] = '\n';
@@ -4762,20 +4764,23 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
         logbuf[10 + alen2] = '\n';
 	logbuf[11 + alen2] = '\0';
 	logstr(logbuf);
-	debug_ptr_w = memcpya(logbuf, "Preexisting alleles: ", 21);
 	debug_ptr_main = marker_alleles_tmp[uii].next;
+	sprintf(logbuf, ".next: %lu\n", (uintptr_t)debug_ptr_main);
+	logstr(logbuf);
         debug_ptr_ss = marker_alleles_tmp[uii].ss;
+	sprintf(logbuf, ".ss: %lu\n", (uintptr_t)debug_ptr_ss);
+	logstr(logbuf);
+	logstr("Preexisting alleles:\n");
         while (1) {
-	  debug_ptr_w = strcpya(debug_ptr_w, debug_ptr_ss);
+	  debug_ptr_w = strcpya(logbuf, debug_ptr_ss);
+	  memcpy(debug_ptr_w, "\n", 2);
+	  logstr(logbuf);
 	  if (!debug_ptr_main) {
 	    break;
 	  }
-	  *debug_ptr_w++ = '\t';
           debug_ptr_ss = debug_ptr_main->ss;
 	  debug_ptr_main = debug_ptr_main->next;
 	}
-	memcpy(debug_ptr_w, "\n", 2);
-	logstr(logbuf);
 	sprintf(logbuf, "Preexisting counts: %u %u\n", marker_allele_cts[4 * uii], marker_allele_cts[4 * uii + 1]);
 	logstr(logbuf);
       }
@@ -4784,11 +4789,6 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       if (retval) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_6;
       }
-#ifndef STABLE_BUILD
-      if (indiv_ct == 2) {
-	logstr("First allele processed.\n");
-      }
-#endif
       retval = incr_text_allele_str(&topsize, aptr2, alen2, (Ll_str*)(&(marker_alleles_tmp[uii])), &(marker_allele_cts[4 * uii]));
       if (retval) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_6;
@@ -12491,14 +12491,14 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
     retval = RET_WRITE_FAIL;
     break;
   merge_main_ret_INVALID_FORMAT:
-    sprintf(logbuf, "Error: Marker %s is not biallelic.\n", &(marker_ids[uii * max_marker_id_len]));
+    sprintf(logbuf, "Error: Either marker %s is not biallelic, or there are multichar\nalleles in the file.  In the latter case, convert to binary before merging.\n", &(marker_ids[uii * max_marker_id_len]));
     putchar('\n');
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   merge_main_ret_INVALID_FORMAT_3:
     fill_idbuf_fam_indiv(idbuf, bufptr, ' ');
-    sprintf(logbuf, "Error: Half-missing call in %s (indiv id %s, marker %u)", bedname, idbuf, marker_in_idx);
+    sprintf(logbuf, "Error: Either there is a half-missing call in %s (indiv id\n%s, marker %u), or there are multichar alleles in the file.\nIn the latter case, convert to binary before merging.\n", bedname, idbuf, marker_in_idx);
     putchar('\n');
     logprintb();
     retval = RET_INVALID_FORMAT;
