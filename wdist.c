@@ -66,7 +66,7 @@ const char ver_str[] =
   "PLINK v1.50a"
 #else
   #ifdef STABLE_BUILD
-  "WDIST v0.22.5b"
+  "WDIST v0.22.5"
   #else
   "WDIST v0.23.0p"
   #endif
@@ -79,7 +79,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (27 Oct 2013)";
+  " (28 Oct 2013)";
 const char ver_str2[] =
 #ifdef PLINK_BUILD
   "    [final website TBD]\n"

@@ -4509,6 +4509,7 @@ int32_t incr_text_allele_str(uintptr_t* topsize_ptr, char* allele_name, uint32_t
 	  return RET_NOMEM;
 	}
         allele_list_start->next = llptr;
+	llptr->next = NULL;
 	cur_allele_name_start = llptr->ss;
       }
       memcpyx(cur_allele_name_start, allele_name, an_len, '\0');
@@ -4541,6 +4542,7 @@ int32_t incr_text_allele_str(uintptr_t* topsize_ptr, char* allele_name, uint32_t
 	    return RET_NOMEM;
 	  }
 	  allele_list_start->next = llptr;
+	  llptr->next = NULL;
 	  cur_allele_name_start = llptr->ss;
 	  memcpyx(cur_allele_name_start, allele_name, an_len, '\0');
 	}
