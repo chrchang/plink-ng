@@ -4637,7 +4637,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   marker_alleles_tmp = (Ll_str_fixed*)(&(wkspace_base[wkspace_left - marker_ct * (4LU * sizeof(int32_t) + 16)]));
   memset(marker_alleles_tmp, 0, marker_ct * (4LU * sizeof(int32_t) + 16));
 #ifndef STABLE_BUILD
-  sprintf(logbuf, "sizeof(Ll_str_fixed): %" PRIuPTR "\n", sizeof(Ll_str_fixed));
+  sprintf(logbuf, "sizeof(Ll_str_fixed): %" PRIuPTR "\n", (uintptr_t)(sizeof(Ll_str_fixed)));
   logstr(logbuf);
 #endif
 
