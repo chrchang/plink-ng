@@ -4765,10 +4765,10 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
 	logbuf[11 + alen2] = '\0';
 	logstr(logbuf);
 	debug_ptr_main = marker_alleles_tmp[uii].next;
-	sprintf(logbuf, ".next: %lu\n", (uintptr_t)debug_ptr_main);
+	sprintf(logbuf, ".next: %" PRIuPTR "\n", (uintptr_t)debug_ptr_main);
 	logstr(logbuf);
         debug_ptr_ss = marker_alleles_tmp[uii].ss;
-	sprintf(logbuf, ".ss: %lu\n", (uintptr_t)debug_ptr_ss);
+	sprintf(logbuf, ".ss: %" PRIuPTR "\n", (uintptr_t)debug_ptr_ss);
 	logstr(logbuf);
 	logstr("Preexisting alleles:\n");
         while (1) {
