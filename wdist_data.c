@@ -13,6 +13,8 @@
 #define PHENO_EPSILON 0.000030517578125
 
 // last prime before 2^19
+// (maybe want to pick the second-to-last prime instead since this is only 1
+// less?  though 19-character offsets are unlikely to matter in practice...)
 #define HASHSIZE 524287
 #define HASHSIZE_S 524287
 
@@ -4441,9 +4443,9 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
 }
 
 // side effect: initializes tbuf to first nonempty line of .map/.bim
-int32_t check_cm_col(FILE* bimfile, char* tbuf, uint32_t is_binary, uint32_t* gd_col_ptr) {
+int32_t check_cm_col(FILE* bimfile, char* tbuf, uint32_t is_binary, uint32_t bufsize, uint32_t* gd_col_ptr) {
   char* bufptr;
-  while (fgets(tbuf, MAXLINELEN - 5, bimfile)) {
+  while (fgets(tbuf, bufsize - 5, bimfile)) {
     bufptr = skip_initial_spaces(tbuf);
     if (is_eoln_or_comment(*bufptr)) {
       continue;
@@ -5190,7 +5192,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     goto ped_to_bed_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 6] = ' ';
-  if (check_cm_col(mapfile, tbuf, 0, &cm_col)) {
+  if (check_cm_col(mapfile, tbuf, 0, MAXLINELEN, &cm_col)) {
     sprintf(logbuf, "Error: Missing token(s) in .map line: %s", skip_initial_spaces(tbuf));
     goto ped_to_bed_ret_INVALID_FORMAT_2;
   }
@@ -5727,12 +5729,12 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 }
 
 // 256 - 32 = 224
-char one_char_strs[448];
+char g_one_char_strs[448];
 
 int32_t heapstr_alloc(char** new_sptr, char* new_str, uint32_t slen) {
   char* sptr;
   if (slen == 1) {
-    *new_sptr = &(one_char_strs[2 * (((unsigned char)(*new_str)) - ' ')]);
+    *new_sptr = &(g_one_char_strs[2 * (((unsigned char)(*new_str)) - ' ')]);
     return 0;
   } else {
     sptr = (char*)malloc(slen + 1);
@@ -5883,7 +5885,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, char m
     logprint("Error: --allele-count must be used with --reference.\n");
     goto lgen_to_bed_ret_INVALID_CMDLINE;
   }
-  cptr = one_char_strs;
+  cptr = g_one_char_strs;
   for (uii = 0; uii < 224; uii++) {
     *cptr++ = (char)(uii + ' ');
     *cptr++ = '\0';
@@ -6275,7 +6277,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, char m
   uii = 2 * marker_ct;
   for (ujj = 0; ujj < uii; ujj++) {
     if (!marker_alleles[ujj]) {
-      marker_alleles[ujj] = &(one_char_strs[(((unsigned char)missing_geno) - ' ') * 2]);
+      marker_alleles[ujj] = &(g_one_char_strs[(((unsigned char)missing_geno) - ' ') * 2]);
     }
   }
   uii = 0;
@@ -6412,10 +6414,10 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, char m
  lgen_to_bed_ret_1:
   if (marker_alleles) {
     ma_end = &(marker_alleles[2 * marker_ct]);
-    cptr = &(one_char_strs[448]);
+    cptr = &(g_one_char_strs[448]);
     while (marker_alleles < ma_end) {
       sptr = *marker_alleles++;
-      if (sptr && (((uintptr_t)sptr < (uintptr_t)one_char_strs) || ((uintptr_t)sptr >= (uintptr_t)cptr))) {
+      if (sptr && (((uintptr_t)sptr < (uintptr_t)g_one_char_strs) || ((uintptr_t)sptr >= (uintptr_t)cptr))) {
 	free(sptr);
       }
     }
@@ -11096,7 +11098,8 @@ static inline int32_t idmatch(char* idtab, char* id0, uint32_t id0_len_p1, char*
 }
 
 static inline uint32_t hashval(char* id1, uint32_t id1_len, char* id2, uint32_t id2_len) {
-  // just interpret as little-endian number and take modulo HASHSIZE_S
+  // just interpret as little-endian number and take modulo HASHSIZE_S for now.
+  // may want to upgrade this later
   unsigned char* ucptr = (unsigned char*)id1;
   unsigned char* ucp_end = &(ucptr[id1_len]);
   uint32_t vv = *ucptr;
@@ -11122,19 +11125,25 @@ static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
   return vv;
 }
 
-int top_alloc_allele_str(uintptr_t* topsize_ptr, char* ss, uint32_t slen, char** new_alloc_ptr) {
-  // variant of top_alloc_llstr() that can point to a fixed one-char str
+int32_t heap_alloc_allele_str(char* ss, uint32_t slen, char** new_alloc_ptr) {
+  // Point to g_one_char_strs[] entry if single character, allocate on heap
+  // otherwise.  (Workspace allocation doesn't play well with .ped merge.)
+  // Caller is responsible for proper cleanup.
+  // Does not assume ss is null-terminated; the terminating null is added by
+  // this function.
+  // Depending on what real datasets look like, we may want to add a
+  // two_char_strs[] array with at least A/C/G/Ts, and maybe even
+  // three_char_strs[]...
   if ((slen == 1) && (*((unsigned char*)ss) > ' ')) {
-    *new_alloc_ptr = &(one_char_strs[2 * ((unsigned char)(*ss) - 32)]);
-    return 0;
+    *new_alloc_ptr = &(g_one_char_strs[2 * ((unsigned char)(*ss) - 32)]);
   } else {
-    *new_alloc_ptr = (char*)top_alloc(topsize_ptr, slen + 1);
+    *new_alloc_ptr = (char*)malloc(slen + 1);
     if (!(*new_alloc_ptr)) {
       return -1;
     }
     memcpyx(*new_alloc_ptr, ss, slen, '\0');
-    return 0;
   }
+  return 0;
 }
 
 static inline Ll_entry* top_alloc_ll(uintptr_t* topsize_ptr, uint32_t size) {
@@ -11321,13 +11330,15 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
   return retval;
 }
 
-int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_id_len_ptr, uintptr_t* max_marker_allele_len_ptr, Ll_entry2** htable2, uintptr_t* topsize_ptr, uint64_t* tot_marker_ct_ptr, uint32_t* cur_marker_ct_ptr, uint32_t* position_warning_ct_ptr, Ll_str** non_biallelics_ptr, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr) {
+int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_id_len_ptr, Ll_entry2** htable2, uintptr_t* topsize_ptr, uint32_t* max_bim_linelen_ptr, uint64_t* tot_marker_ct_ptr, uint32_t* cur_marker_ct_ptr, uint32_t* position_warning_ct_ptr, Ll_str** non_biallelics_ptr, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr) {
+  unsigned char* wkspace_mark = wkspace_base;
   uintptr_t max_marker_id_len = *max_marker_id_len_ptr;
-  uintptr_t max_marker_allele_len = *max_marker_allele_len_ptr;
   uintptr_t topsize = *topsize_ptr;
+  uint32_t max_bim_linelen = *max_bim_linelen_ptr;
   uint64_t tot_marker_ct = *tot_marker_ct_ptr;
   uint32_t cur_marker_ct = *cur_marker_ct_ptr;
   uint32_t position_warning_ct = *position_warning_ct_ptr;
+  uint32_t loadbuf_size = MAXLINELEN;
   double cm = 0.0;
   FILE* infile = NULL;
   int32_t retval = 0;
@@ -11335,15 +11346,16 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
   uint32_t alen2 = 1;
   uint32_t cm_col;
   int64_t llxx;
+  char* loadbuf;
   char* bufptr;
   char* bufptr2;
   char* bufptr3;
-  int32_t ii;
-  int32_t jj;
   uint32_t name_match;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
+  int32_t ii;
+  int32_t jj;
   Ll_entry2** ll_pptr;
   Ll_entry2* ll_ptr;
   Ll_str* ll_string_new;
@@ -11355,11 +11367,30 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
   if (fopen_checked(&infile, bimname, "r")) {
     goto merge_bim_scan_ret_OPEN_FAIL;
   }
-  if (check_cm_col(infile, tbuf, is_binary, &cm_col)) {
+  if (is_binary) {
+    if (wkspace_left - topsize > 0x7fffff7f) {
+      loadbuf_size = 0x3fffffc0;
+    } else if (wkspace_left - topsize >= MAXLINELEN * 2) {
+      loadbuf_size = ((wkspace_left - topsize) / 2) & (~(CACHELINE - 1));
+    } else {
+      goto merge_bim_scan_ret_NOMEM;
+    }
+  }
+  loadbuf = (char*)wkspace_alloc(loadbuf_size);
+  loadbuf[loadbuf_size - 1] = ' ';
+  if (check_cm_col(infile, loadbuf, is_binary, loadbuf_size, &cm_col)) {
     goto merge_bim_scan_ret_INVALID_FORMAT_2;
   }
   do {
-    bufptr = skip_initial_spaces(tbuf);
+    if (!loadbuf[loadbuf_size - 1]) {
+      sprintf(logbuf, "Error: Pathologically long line in %s.\n", bimname);
+      goto merge_bim_scan_ret_INVALID_FORMAT;
+    }
+    uii = strlen(loadbuf);
+    if (uii >= max_bim_linelen) {
+      max_bim_linelen = uii + 1;
+    }
+    bufptr = skip_initial_spaces(loadbuf);
     if (is_eoln_or_comment(*bufptr)) {
       continue;
     }
@@ -11399,12 +11430,6 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	}
 	alen1 = strlen_se(aptr1);
 	alen2 = strlen_se(aptr2);
-	if (alen1 > max_marker_allele_len) {
-	  max_marker_allele_len = alen1;
-	}
-	if (alen2 > max_marker_allele_len) {
-	  max_marker_allele_len = alen2;
-	}
 	if ((alen1 == 1) && (*aptr1 == '0')) {
 	  aptr1 = NULL;
 	}
@@ -11454,7 +11479,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 		  memcpy(ll_string_new->ss, bufptr, uii);
 		  *non_biallelics_ptr = ll_string_new;
 		} else {
-		  if (top_alloc_allele_str(&topsize, aptr2, alen2, &new_aptr)) {
+		  if (heap_alloc_allele_str(aptr2, alen2, &new_aptr)) {
 		    goto merge_bim_scan_ret_NOMEM;
 		  }
 		  if (!ll_ptr->allele[1]) {
@@ -11482,7 +11507,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 		  memcpy(ll_string_new->ss, bufptr, uii);
 		  *non_biallelics_ptr = ll_string_new;
 		} else {
-		  if (top_alloc_allele_str(&topsize, aptr1, alen1, &new_aptr)) {
+		  if (heap_alloc_allele_str(aptr1, alen1, &new_aptr)) {
 		    goto merge_bim_scan_ret_NOMEM;
 		  }
 		  if (!ll_ptr->allele[1]) {
@@ -11532,14 +11557,14 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	ll_ptr->pos = llxx;
 	ll_ptr->cm = cm;
 	if (aptr1) {
-	  if (top_alloc_allele_str(&topsize, aptr1, alen1, &(ll_ptr->allele[0]))) {
+	  if (heap_alloc_allele_str(aptr1, alen1, &(ll_ptr->allele[0]))) {
 	    goto merge_bim_scan_ret_NOMEM;
 	  }
 	} else {
 	  ll_ptr->allele[0] = NULL;
 	}
 	if (aptr2) {
-	  if (top_alloc_allele_str(&topsize, aptr2, alen2, &(ll_ptr->allele[1]))) {
+	  if (heap_alloc_allele_str(aptr2, alen2, &(ll_ptr->allele[1]))) {
 	    goto merge_bim_scan_ret_NOMEM;
 	  }
 	} else {
@@ -11554,7 +11579,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
       sprintf(logbuf, "Error: Invalid base-pair position in %s.\n", bimname);
       goto merge_bim_scan_ret_INVALID_FORMAT;
     }
-  } while (fgets(tbuf, MAXLINELEN, infile));
+  } while (fgets(loadbuf, loadbuf_size, infile));
   if (!feof(infile)) {
     goto merge_bim_scan_ret_READ_FAIL;
   }
@@ -11562,14 +11587,16 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
     sprintf(logbuf, "Error: No markers in %s.\n", bimname);
     goto merge_bim_scan_ret_INVALID_FORMAT;
   }
-  *max_marker_allele_len_ptr = max_marker_allele_len;
   *max_marker_id_len_ptr = max_marker_id_len;
   *topsize_ptr = topsize;
+  *max_bim_linelen_ptr = max_bim_linelen;
   *tot_marker_ct_ptr = tot_marker_ct;
   *cur_marker_ct_ptr = cur_marker_ct;
   *position_warning_ct_ptr = position_warning_ct;
   
   while (0) {
+  merge_bim_scan_ret_NOMEM2:
+    wkspace_left += topsize;
   merge_bim_scan_ret_NOMEM:
     retval = RET_NOMEM;
     break;
@@ -11587,6 +11614,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
   }
  merge_bim_scan_ret_1:
   fclose_cond(infile);
+  wkspace_reset(wkspace_base);
   return retval;
 }
 
@@ -11701,35 +11729,32 @@ void merge_alleles_update_str(char* marker_allele_ptr, char** allele_ptrs, uint3
   allele_ptrs[distinct_allele_ct] = marker_allele_ptr;
 }
 
-uint32_t merge_alleles(char* marker_alleles, uintptr_t max_marker_allele_len, uint32_t marker_uidx, uint32_t marker_uidx2) {
+uint32_t merge_alleles(char** marker_allele_ptrs, uint32_t marker_uidx, uint32_t marker_uidx2) {
   uint32_t distinct_allele_ct = 0;
   char* allele_ptrs[2];
   allele_ptrs[0] = NULL;
   allele_ptrs[1] = NULL;
-  if (max_marker_allele_len == 1) {
-    merge_alleles_update_char(&(marker_alleles[2 * marker_uidx]), allele_ptrs, &distinct_allele_ct);
-    merge_alleles_update_char(&(marker_alleles[2 * marker_uidx + 1]), allele_ptrs, &distinct_allele_ct);
-    merge_alleles_update_char(&(marker_alleles[2 * marker_uidx2]), allele_ptrs, &distinct_allele_ct);
-    merge_alleles_update_char(&(marker_alleles[2 * marker_uidx2 + 1]), allele_ptrs, &distinct_allele_ct);
-  } else {
-    merge_alleles_update_str(&(marker_alleles[2 * marker_uidx * max_marker_allele_len]), allele_ptrs, &distinct_allele_ct);
-    merge_alleles_update_str(&(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), allele_ptrs, &distinct_allele_ct);
-    merge_alleles_update_str(&(marker_alleles[2 * marker_uidx2 * max_marker_allele_len]), allele_ptrs, &distinct_allele_ct);
-    merge_alleles_update_str(&(marker_alleles[(2 * marker_uidx2 + 1) * max_marker_allele_len]), allele_ptrs, &distinct_allele_ct);
-  }
+  merge_alleles_update_str(marker_allele_ptrs[2 * marker_uidx], allele_ptrs, &distinct_allele_ct);
+  merge_alleles_update_str(marker_allele_ptrs[2 * marker_uidx + 1], allele_ptrs, &distinct_allele_ct);
+  merge_alleles_update_str(marker_allele_ptrs[2 * marker_uidx2], allele_ptrs, &distinct_allele_ct);
+  merge_alleles_update_str(marker_allele_ptrs[2 * marker_uidx2 + 1], allele_ptrs, &distinct_allele_ct);
   if (distinct_allele_ct > 2) {
     return 1;
   }
-  if (allele_ptrs[0] && (allele_ptrs[0] != (&(marker_alleles[2 * marker_uidx * max_marker_allele_len])))) {
-    memcpy(&(marker_alleles[2 * marker_uidx * max_marker_allele_len]), allele_ptrs[0], max_marker_allele_len);
+  if (allele_ptrs[0] && (allele_ptrs[0] != marker_allele_ptrs[2 * marker_uidx])) {
+    marker_allele_ptrs[2 * marker_uidx] = allele_ptrs[0];
   }
-  if (allele_ptrs[1] && (allele_ptrs[1] != (&(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len])))) {
-    memcpy(&(marker_alleles[2 * marker_uidx * max_marker_allele_len]), allele_ptrs[0], max_marker_allele_len);
+  if (allele_ptrs[1]) {
+    if (allele_ptrs[1] != marker_allele_ptrs[2 * marker_uidx + 1]) {
+      marker_allele_ptrs[2 * marker_uidx + 1] = allele_ptrs[1];
+    }
+  } else if ((marker_allele_ptrs[2 * marker_uidx + 1][0] != '0') || marker_allele_ptrs[2 * marker_uidx + 1][1]) {
+    marker_allele_ptrs[2 * marker_uidx + 1] = g_one_char_strs[32];
   }
   return 0;
 }
 
-static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_map, uint32_t* pos_buf, int64_t* ll_buf, uint32_t* chrom_start, uint32_t* chrom_id, uint32_t chrom_ct, uint32_t* dedup_marker_ct_ptr, uint32_t merge_equal_pos, char* marker_alleles, uintptr_t max_marker_allele_len, Chrom_info* chrom_info_ptr) {
+static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_map, uint32_t* pos_buf, int64_t* ll_buf, uint32_t* chrom_start, uint32_t* chrom_id, uint32_t chrom_ct, uint32_t* dedup_marker_ct_ptr, uint32_t merge_equal_pos, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr) {
   // Input: ll_buf is a sequence of sorted arrays (one per chromosome) with
   // base-pair positions in high 32 bits, and pre-sort indices in low 32 bits.
   // Chromosome boundaries are stored in chrom_start[].
@@ -11769,7 +11794,7 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
       presort_idx = (uint32_t)llxx;
       cur_bp = (uint32_t)(llxx >> 32);
       if (prev_bp == cur_bp) {
-	if (merge_equal_pos && merge_alleles(marker_alleles, max_marker_allele_len, ((uint32_t)ll_buf[read_pos - 1]), presort_idx)) {
+	if (merge_equal_pos && merge_alleles(marker_allele_ptrs, ((uint32_t)ll_buf[read_pos - 1]), presort_idx)) {
 	  sprintf(logbuf, "Error: --merge-equal-pos failure.  Markers %s and %s\nhave the same position, but do not share the same alleles.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
 	  logprintb();
 	  return 1;
@@ -11807,7 +11832,7 @@ static inline int32_t merge_first_mode(int32_t mm, uint32_t merge_equal_pos) {
   }
 }
 
-int32_t merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* person_id, unsigned char newval, unsigned char oldval, char* marker_alleles, uintptr_t max_marker_allele_len) {
+int32_t merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* person_id, unsigned char newval, unsigned char oldval, char** marker_allele_ptrs) {
   char* bufptr = item_endnn(person_id);
   uint32_t slen = strlen_se(marker_id);
   char ma1[4];
@@ -11821,25 +11846,14 @@ int32_t merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* pers
   slen = (bufptr++) - person_id;
   memcpyx(idbuf, person_id, slen, 0);
   fprintf(outfile, " %20s %20s", idbuf, bufptr);
-  if (max_marker_allele_len == 1) {
-    ma1[0] = marker_alleles[0];
-    ma1[1] = '0';
-    ma1[2] = marker_alleles[0];
-    ma1[3] = marker_alleles[1];
-    ma2[0] = marker_alleles[0];
-    ma2[1] = '0';
-    ma2[2] = marker_alleles[1];
-    ma2[3] = marker_alleles[1];
-    return (fprintf(outfile, "      %c/%c      %c/%c \n", ma1[newval], ma2[newval], ma1[oldval], ma2[oldval]) < 0);
-  }
-  ma1p[0] = marker_alleles;
-  ma1p[1] = &(one_char_strs[32]);
-  ma1p[2] = marker_alleles;
-  ma1p[3] = &(marker_alleles[max_marker_allele_len]);
-  ma2p[0] = marker_alleles;
-  ma2p[1] = &(one_char_strs[32]);
-  ma2p[2] = &(marker_alleles[max_marker_allele_len]);
-  ma2p[3] = &(marker_alleles[max_marker_allele_len]);
+  ma1p[0] = marker_allele_ptrs;
+  ma1p[1] = &(g_one_char_strs[32]);
+  ma1p[2] = marker_allele_ptrs;
+  ma1p[3] = marker_allele_ptrs[1];
+  ma2p[0] = marker_allele_ptrs;
+  ma2p[1] = &(g_one_char_strs[32]);
+  ma2p[2] = marker_allele_ptrs[1];
+  ma2p[3] = marker_allele_ptrs[1];
   slen = strlen(ma1p[newval]);
   slen2 = strlen(ma2p[newval]);
   if (slen + slen2 > 6) {
@@ -11863,7 +11877,7 @@ int32_t merge_diff_print(FILE* outfile, char* idbuf, char* marker_id, char* pers
   return ferror(outfile);
 }
 
-int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_indiv_ct, uint32_t tot_marker_ct, uint32_t dedup_marker_ct, uint32_t start_marker_idx, uint32_t marker_window_size, char* marker_alleles, uintptr_t max_marker_allele_len, char* marker_ids, uintptr_t max_marker_id_len, char* person_ids, uintptr_t max_person_id_len, uint32_t merge_nsort, uint32_t* indiv_nsmap, uint32_t* flex_map, uint32_t* marker_map, char* idbuf, unsigned char* readbuf, unsigned char* writebuf, uint32_t merge_mode, uintptr_t* markbuf, FILE* outfile, uint64_t* diff_total_overlap_ptr, uint64_t* diff_not_both_genotyped_ptr, uint64_t* diff_discordant_ptr, uint32_t ped_buflen, unsigned char* bmap_raw) {
+int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbuf, uint32_t max_bim_linelen, uint32_t tot_indiv_ct, uint32_t tot_marker_ct, uint32_t dedup_marker_ct, uint32_t start_marker_idx, uint32_t marker_window_size, char** marker_allele_ptrs, char* marker_ids, uintptr_t max_marker_id_len, char* person_ids, uintptr_t max_person_id_len, uint32_t merge_nsort, uint32_t* indiv_nsmap, uint32_t* flex_map, uint32_t* marker_map, char* idbuf, unsigned char* readbuf, unsigned char* writebuf, uint32_t merge_mode, uintptr_t* markbuf, FILE* outfile, uint64_t* diff_total_overlap_ptr, uint64_t* diff_not_both_genotyped_ptr, uint64_t* diff_discordant_ptr, uint32_t ped_buflen, unsigned char* bmap_raw) {
   // flex_map maps individuals for binary filesets, and markers for text
   // filesets.
   uint32_t is_binary = famname? 1 : 0;
@@ -11884,6 +11898,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
   uint64_t diff_discordant = 0;
   uint32_t cur_indiv_ct4 = 0;
   uint32_t cur_indiv_ctd4 = 0;
+  uint32_t is_ped_compound = 0;
   uintptr_t uljj = 0;
   uintptr_t* mbufptr2;
   unsigned char* bmap;
@@ -11892,17 +11907,18 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
   char* bufptr2;
   char* bufptr3;
   char* bufptr4;
+  char* bufptr5;
   unsigned char* rbufptr;
   unsigned char* wbufptr;
   unsigned char* wbufptr2;
   uintptr_t ulii;
+  uint32_t alen1;
+  uint32_t alen2;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
   uint32_t umm;
   uint32_t unn;
-  uint32_t alen1;
-  uint32_t alen2;
   uintptr_t indiv_idx;
   uint32_t marker_out_idx;
   unsigned char ucc;
@@ -11950,18 +11966,21 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
     fclose_null(&infile2);
     cur_indiv_ct4 = (cur_indiv_ct + 3) / 4;
     cur_indiv_ctd4 = cur_indiv_ct / 4;
+  } else {
+    bim_loadbuf = tbuf;
+    max_bim_linelen = MAXLINELEN;
   }
   if (fopen_checked(&infile2, bimname, "r")) {
     goto merge_main_ret_OPEN_FAIL;
   }
-  if (check_cm_col(infile2, tbuf, is_binary, &cm_col)) {
+  if (check_cm_col(infile2, bim_loadbuf, is_binary, max_bim_linelen, &cm_col)) {
     goto merge_main_ret_READ_FAIL;
   }
   if (fopen_checked(&bedfile, bedname, is_binary? "rb" : "r")) {
     goto merge_main_ret_OPEN_FAIL;
   }
   do {
-    bufptr = skip_initial_spaces(tbuf);
+    bufptr = skip_initial_spaces(bim_loadbuf);
     if (is_eoln_or_comment(*bufptr)) {
       continue;
     }
@@ -11984,7 +12003,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
     if (ii == -1) {
       goto merge_main_ret_READ_FAIL;
     }
-    marker_out_idx = marker_map[ii];
+    marker_out_idx = marker_map[(uint32_t)ii];
     if ((marker_out_idx < start_marker_idx) || (marker_out_idx >= end_marker_idx)) {
       if (!is_binary) {
 	flex_map[marker_in_idx] = 0xffffffffU;
@@ -12002,23 +12021,16 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
       if (no_more_items_kns(bufptr3)) {
 	goto merge_main_ret_READ_FAIL;
       }
-      if (max_marker_allele_len == 1) {
-	cc = *bufptr2;
-	cc2 = *bufptr3;
-	if (((cc != '0') && (cc == marker_alleles[ii * 2 + 1])) || ((cc2 == marker_alleles[ii * 2]) && (cc2 != '0'))) {
-	  bmap = &(bmap_raw[256]);
-	} else {
-	  bmap = bmap_raw;
-	}
+      alen1 = strlen_se(bufptr2);
+      bufptr2[alen1] = '\0';
+      alen2 = strlen_se(bufptr3);
+      bufptr3[alen2] = '\0';
+      bufptr4 = marker_allele_ptrs[((uint32_t)ii) * 2];
+      bufptr5 = marker_allele_ptrs[((uint32_t)ii) * 2 + 1];
+      if ((((*bufptr2 != '0') || (alen1 != 1)) && (!strcmp(bufptr2, bufptr5)))  || (((*bufptr3 != '0') || (alen2 != 1)) && (!strcmp(bufptr3, bufptr4)))) {
+	bmap = &(bmap_raw[256]);
       } else {
-	alen1 = strlen_se(bufptr2);
-	alen2 = strlen_se(bufptr3);
-	bufptr4 = &(marker_alleles[((uintptr_t)(ii * 2)) * max_marker_allele_len]);
-	if ((((*bufptr2 != '0') || (alen1 != 1)) && ((!memcmp(bufptr2, &(bufptr4[max_marker_allele_len]), alen1)) && (!bufptr4[max_marker_allele_len + alen1]))) || (((*bufptr3 != '0') || (alen2 != 1)) && ((!memcmp(bufptr3, bufptr4, alen2)) && (!bufptr4[alen2])))) {
-	  bmap = &(bmap_raw[256]);
-	} else {
-	  bmap = bmap_raw;
-	}
+	bmap = bmap_raw;
       }
 
       last_marker_in_idx = marker_in_idx;
@@ -12203,7 +12215,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 		if (!umm) {
 		  diff_discordant++;
 		}
-		if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_alleles[((uintptr_t)(ii * 2)) * max_marker_allele_len]), max_marker_allele_len)) {
+		if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_allele_ptrs[((uint32_t)ii) * 2]))) {
 		  goto merge_main_ret_WRITE_FAIL;
 		}
 	      }
@@ -12227,7 +12239,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 	      if (!umm) {
 		diff_discordant++;
 	      }
-	      if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_alleles[((uintptr_t)(ii * 2)) * max_marker_allele_len]), max_marker_allele_len)) {
+	      if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_allele_ptrs[((uint32_t)ii) * 2]))) {
 		goto merge_main_ret_WRITE_FAIL;
 	      }
 	    }
@@ -12250,7 +12262,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 		diff_not_both_genotyped++;
 	      } else if (ucc2 != ucc3) {
 		diff_discordant++;
-		if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_alleles[((uintptr_t)(ii * 2)) * max_marker_allele_len]), max_marker_allele_len)) {
+		if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_allele_ptrs[((uint32_t)ii) * 2]))) {
 		  goto merge_main_ret_WRITE_FAIL;
 		}
 	      }
@@ -12270,7 +12282,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 	      diff_not_both_genotyped++;
 	    } else if (ucc2 != ucc3) {
 	      diff_discordant++;
-	      if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_alleles[((uintptr_t)(ii * 2)) * max_marker_allele_len]), max_marker_allele_len)) {
+	      if (merge_diff_print(outfile, idbuf, bufptr, &(person_ids[ujj * max_person_id_len]), ucc2, ucc3, &(marker_allele_ptrs[((uint32_t)ii) * 2]))) {
 		goto merge_main_ret_WRITE_FAIL;
 	      }
 	    }
@@ -12282,7 +12294,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
     } else {
       flex_map[marker_in_idx] = marker_out_idx - start_marker_idx;
     }
-  } while (fgets(tbuf, MAXLINELEN, infile2));
+  } while (fgets(bim_loadbuf, max_bim_linelen, infile2));
   if (!feof(infile2)) {
     goto merge_main_ret_READ_FAIL;
   }
@@ -12315,13 +12327,13 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
       if (!bufptr3) {
 	goto merge_main_ret_READ_FAIL;
       }
-      wbufptr = &(writebuf[ii / 4]);
-      ujj = (ii % 4) * 2;
+      wbufptr = &(writebuf[((uint32_t)ii) / 4]);
+      ujj = (((uint32_t)ii) % 4) * 2;
       ucc = ~(3U << ujj);
       ucc4 = (1U << ujj);
       if (merge_must_track_write(merge_mode)) {
-	mbufptr = &(markbuf[ii / BITCT]);
-	uljj = ONELU << (ii % BITCT);
+	mbufptr = &(markbuf[((uint32_t)ii) / BITCT]);
+	uljj = ONELU << (((uint32_t)ii) % BITCT);
       }
       for (marker_in_idx = 0; marker_in_idx < last_marker_in_idx; marker_in_idx++) {
 	cc = *bufptr3;
@@ -12347,20 +12359,16 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 	  goto merge_main_ret_INVALID_FORMAT_3;
 	} else {
 	  ucc2 = 0; // A2 count
-	  if (max_marker_allele_len == 1) {
-	    cc3 = marker_alleles[uii * 2];
-	    cc4 = marker_alleles[uii * 2 + 1];
+	  // todo
+	  if (marker_alleles[uii * 2 * max_marker_allele_len + 1]) {
+	    cc3 = ' ';
 	  } else {
-	    if (marker_alleles[uii * 2 * max_marker_allele_len + 1]) {
-	      cc3 = ' ';
-	    } else {
-	      cc3 = marker_alleles[uii * 2 * max_marker_allele_len];
-	    }
-	    if (marker_alleles[(uii * 2 + 1) * max_marker_allele_len + 1]) {
-	      cc4 = ' ';
-	    } else {
-	      cc4 = marker_alleles[(uii * 2 + 1) * max_marker_allele_len];
-	    }
+	    cc3 = marker_alleles[uii * 2 * max_marker_allele_len];
+	  }
+	  if (marker_alleles[(uii * 2 + 1) * max_marker_allele_len + 1]) {
+	    cc4 = ' ';
+	  } else {
+	    cc4 = marker_alleles[(uii * 2 + 1) * max_marker_allele_len];
 	  }
 	  if (cc == cc4) {
 	    ucc2++;
@@ -12446,7 +12454,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 	      if (!umm) {
 		diff_discordant++;
 	      }
-	      if (merge_diff_print(outfile, idbuf, &(marker_ids[uii * max_marker_id_len]), &(person_ids[((uint32_t)ii) * max_person_id_len]), ucc2, ucc3, &(marker_alleles[uii * 2 * max_marker_allele_len]), max_marker_allele_len)) {
+	      if (merge_diff_print(outfile, idbuf, &(marker_ids[uii * max_marker_id_len]), &(person_ids[((uint32_t)ii) * max_person_id_len]), ucc2, ucc3, &(marker_allele_ptrs[uii * 2]))) {
 		goto merge_main_ret_WRITE_FAIL;
 	      }
 	    }
@@ -12460,7 +12468,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, uint32_t tot_ind
 	      diff_not_both_genotyped++;
 	    } else if (ucc2 != ucc3) {
 	      diff_discordant++;
-	      if (merge_diff_print(outfile, idbuf, &(marker_ids[uii * max_marker_id_len]), &(person_ids[((uint32_t)ii) * max_person_id_len]), ucc2, ucc3, &(marker_alleles[uii * 2 * max_marker_allele_len]), max_marker_allele_len)) {
+	      if (merge_diff_print(outfile, idbuf, &(marker_ids[uii * max_marker_id_len]), &(person_ids[((uint32_t)ii) * max_person_id_len]), ucc2, ucc3, &(marker_allele_ptrs[uii * 2]))) {
 		goto merge_main_ret_WRITE_FAIL;
 	      }
 	    }
@@ -12526,7 +12534,6 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   uintptr_t max_person_id_len = 0;
   uint32_t max_person_full_len = 0;
   uintptr_t max_marker_id_len = 0;
-  uintptr_t max_marker_allele_len = 1;
   uint32_t keep_allele_order = (misc_flags / MISC_KEEP_ALLELE_ORDER) & 1;
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint32_t zero_extra_chroms = (misc_flags / MISC_ZERO_EXTRA_CHROMS) & 1;
@@ -12538,6 +12545,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   Ll_entry2** htable2 = (Ll_entry2**)(&(wkspace_base[wkspace_left - HASHMEM]));
   Ll_str* non_biallelics = NULL;
   uint32_t ped_buflen = MAXLINELEN;
+  uint32_t max_bim_linelen = 0;
   char* pheno_c_char = NULL;
   double* pheno_d = NULL;
   uint32_t* indiv_nsmap = NULL;
@@ -12551,6 +12559,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   uint32_t position_warning_ct = 0;
   uint32_t* map_reverse = NULL;
   uintptr_t* reversed = NULL;
+  char* bim_loadbuf = NULL;
   unsigned char bmap_raw[576];
   unsigned char* bmap;
   unsigned char* bmap2;
@@ -12563,8 +12572,8 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   char* person_ids;
   char* person_fids;
   char* marker_ids;
-  // N.B. marker_alleles are ordered by marker_id instead of position
-  char* marker_alleles;
+  // N.B. marker_allele_ptrs are ordered by marker_id instead of position
+  char** marker_allele_ptrs;
   uint32_t* marker_map;
   uint32_t* flex_map;
   double* marker_cms;
@@ -12609,7 +12618,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   unsigned char ucc;
   int32_t retval;
 
-  bufptr = one_char_strs;
+  bufptr = g_one_char_strs;
   for (uii = 0; uii < 224; uii++) {
     *bufptr++ = (char)(uii + ' ');
     *bufptr++ = '\0';
@@ -12626,7 +12635,12 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     ullxx = 0;
     // first pass: determine merge_ct, mergelist_buf size, verify no lines have
     // > 3 entries
+    tbuf[MAXLINELEN - 1] = ' ';
     while (fgets(tbuf, MAXLINELEN, mergelistfile)) {
+      if (!tbuf[MAXLINELEN - 1]) {
+	logprint("Error: Pathologically long line in --merge-list file.\n");
+	goto merge_datasets_ret_INVALID_FORMAT;
+      }
       bufptr = skip_initial_spaces(tbuf);
       if (no_more_items_kns(bufptr)) {
 	continue;
@@ -12925,7 +12939,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   ullxx = 0;
   mlpos = 0;
   do {
-    retval = merge_bim_scan(mergelist_bim[mlpos], (mergelist_fam[mlpos])? 1 : 0, &max_marker_id_len, &max_marker_allele_len, htable2, &topsize, &ullxx, &cur_marker_ct, &position_warning_ct, &non_biallelics, allow_extra_chroms, chrom_info_ptr);
+    retval = merge_bim_scan(mergelist_bim[mlpos], (mergelist_fam[mlpos])? 1 : 0, &max_marker_id_len, htable2, &topsize, &max_bim_linelen, &ullxx, &cur_marker_ct, &position_warning_ct, &non_biallelics, allow_extra_chroms, chrom_info_ptr);
     if (retval) {
       goto merge_datasets_ret_1;
     }
@@ -12958,11 +12972,19 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   // "allocate" second hash table off far side of stack before making regular
   // stack allocations
   wkspace_left -= topsize;
-  if (max_marker_allele_len > 1) {
-    max_marker_allele_len++;
+  marker_allele_ptrs = (char**)wkspace_alloc(tot_marker_ct * 2 * sizeof(intptr_t));
+  if (!marker_allele_ptrs) {
+    goto merge_datasets_ret_NOMEM2;
+  }
+  for (uii = 0; uii < tot_marker_ct * 2; uii++) {
+    marker_allele_ptrs[uii] = NULL;
+  }
+  if (max_bim_linelen) {
+    if (wkspace_alloc_c_checked(&bim_loadbuf, max_bim_linelen)) {
+      goto merge_datasets_ret_NOMEM2;
+    }
   }
   if (wkspace_alloc_c_checked(&marker_ids, max_marker_id_len * tot_marker_ct) ||
-      wkspace_alloc_c_checked(&marker_alleles, (tot_marker_ct * max_marker_allele_len) * 2) ||
       wkspace_alloc_ui_checked(&marker_map, tot_marker_ct * sizeof(int32_t)) ||
       wkspace_alloc_d_checked(&marker_cms, tot_marker_ct * sizeof(double)) ||
       wkspace_alloc_ui_checked(&pos_buf, tot_marker_ct * sizeof(int32_t)) ||
@@ -12993,53 +13015,34 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   }
   wkspace_left += topsize; // deallocate second hash table
   ulii = 0;
-  if (max_marker_allele_len == 1) {
-    for (uii = 0; uii < HASHSIZE; uii++) {
-      if (htable2[uii]) {
-	ll_ptr2 = htable2[uii];
-	do {
-	  ujj = marker_map[ulii++];
-	  llxx = ll_ptr2->pos;
-	  pos_buf[ujj] = (uint32_t)llxx;
-	  bufptr = ll_ptr2->allele[0];
-	  marker_alleles[ujj * 2] = bufptr? (*bufptr) : '0';
-	  bufptr = ll_ptr2->allele[1];
-	  marker_alleles[ujj * 2 + 1] = bufptr? (*bufptr) : '0';
-	  marker_cms[ujj] = ll_ptr2->cm;
-	  ll_buf[ujj] = (llxx & 0xffffffff00000000LL) | ujj;
-	  ll_ptr2 = ll_ptr2->next;
-	} while (ll_ptr2);
-      }
-    }
-  } else {
-    for (uii = 0; uii < HASHSIZE; uii++) {
-      if (htable2[uii]) {
-	ll_ptr2 = htable2[uii];
-	do {
-	  ujj = marker_map[ulii++];
-	  llxx = ll_ptr2->pos;
-	  pos_buf[ujj] = (uint32_t)llxx;
-	  bufptr = ll_ptr2->allele[0];
-	  if (bufptr) {
-	    strcpy(&(marker_alleles[(ujj * 2) * max_marker_allele_len]), bufptr);
-	  } else {
-	    memcpy(&(marker_alleles[(ujj * 2) * max_marker_allele_len]), "0", 2);
-	  }
-	  bufptr = ll_ptr2->allele[1];
-	  if (bufptr) {
-	    strcpy(&(marker_alleles[(ujj * 2 + 1) * max_marker_allele_len]), bufptr);
-	  } else {
-	    memcpy(&(marker_alleles[(ujj * 2 + 1) * max_marker_allele_len]), "0", 2);
-	  }
-	  marker_cms[ujj] = ll_ptr2->cm;
-	  ll_buf[ujj] = (llxx & 0xffffffff00000000LL) | ujj;
-	  ll_ptr2 = ll_ptr2->next;
-	} while (ll_ptr2);
-      }
+  for (uii = 0; uii < HASHSIZE; uii++) {
+    if (htable2[uii]) {
+      ll_ptr2 = htable2[uii];
+      do {
+	ujj = marker_map[ulii++];
+	llxx = ll_ptr2->pos;
+	pos_buf[ujj] = (uint32_t)llxx;
+	bufptr = ll_ptr2->allele[0];
+	if (bufptr) {
+          marker_allele_ptrs[ujj * 2] = bufptr;
+	} else {
+	  // '0'
+	  marker_allele_ptrs[ujj * 2] = &(g_one_char_strs[32]);
+	}
+	bufptr = ll_ptr2->allele[1];
+	if (bufptr) {
+	  marker_allele_ptrs[ujj * 2 + 1] = bufptr;
+	} else {
+	  marker_allele_ptrs[ujj * 2 + 1] = &(g_one_char_strs[32]);
+	}
+	marker_cms[ujj] = ll_ptr2->cm;
+	ll_buf[ujj] = (llxx & 0xffffffff00000000LL) | ujj;
+	ll_ptr2 = ll_ptr2->next;
+      } while (ll_ptr2);
     }
   }
   sort_marker_chrom_pos(ll_buf, tot_marker_ct, pos_buf, chrom_start, chrom_id, &chrom_ct);
-  if (merge_post_msort_update_maps(marker_ids, max_marker_id_len, marker_map, pos_buf, ll_buf, chrom_start, chrom_id, chrom_ct, &dedup_marker_ct, merge_equal_pos, marker_alleles, max_marker_allele_len, chrom_info_ptr)) {
+  if (merge_post_msort_update_maps(marker_ids, max_marker_id_len, marker_map, pos_buf, ll_buf, chrom_start, chrom_id, chrom_ct, &dedup_marker_ct, merge_equal_pos, marker_allele_ptrs, chrom_info_ptr)) {
     goto merge_datasets_ret_INVALID_FORMAT;
   }
   if (!dedup_marker_ct) {
@@ -13135,7 +13138,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       fill_ulong_zero(markbuf, ujj * ulii);
     }
     for (mlpos = 0; mlpos < merge_ct; mlpos++) {
-      retval = merge_main(mergelist_bed[mlpos], mergelist_bim[mlpos], mergelist_fam[mlpos], tot_indiv_ct, tot_marker_ct, dedup_marker_ct, uii * markers_per_pass, ujj, marker_alleles, max_marker_allele_len, marker_ids, max_marker_id_len, person_ids, max_person_id_len, merge_nsort, indiv_nsmap, flex_map, marker_map, idbuf, readbuf, writebuf, mlpos? merge_mode : merge_first_mode(merge_mode, merge_equal_pos), markbuf, outfile, &diff_total_overlap, &diff_not_both_genotyped, &diff_discordant, ped_buflen, bmap_raw);
+      retval = merge_main(mergelist_bed[mlpos], mergelist_bim[mlpos], mergelist_fam[mlpos], bim_loadbuf, max_bim_linelen, tot_indiv_ct, tot_marker_ct, dedup_marker_ct, uii * markers_per_pass, ujj, marker_allele_ptrs, marker_ids, max_marker_id_len, person_ids, max_person_id_len, merge_nsort, indiv_nsmap, flex_map, marker_map, idbuf, readbuf, writebuf, mlpos? merge_mode : merge_first_mode(merge_mode, merge_equal_pos), markbuf, outfile, &diff_total_overlap, &diff_not_both_genotyped, &diff_discordant, ped_buflen, bmap_raw);
       if (retval) {
 	goto merge_datasets_ret_1;
       }
@@ -13190,49 +13193,25 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     while (uii--) {
       map_reverse[marker_map[uii]] = uii;
     }
-    if (max_marker_allele_len == 1) {
-      for (ulii = 0; ulii < chrom_ct; ulii++) {
-	uii = chrom_start[ulii + 1];
-	ujj = chrom_start[ulii];
-	ukk = chrom_id[ulii];
-	for (; ujj < uii; ujj++) {
-	  umm = map_reverse[ujj];
-	  if (keep_allele_order || (!IS_SET(reversed, ujj))) {
-	    cc = marker_alleles[2 * umm];
-	    cc2 = marker_alleles[2 * umm + 1];
-	  } else {
-	    cc = marker_alleles[2 * umm + 1];
-	    cc2 = marker_alleles[2 * umm];
-	  }
-	  bufptr = chrom_name_write(tbuf, chrom_info_ptr, ukk, zero_extra_chroms);
-	  fwrite(tbuf, 1, bufptr - tbuf, outfile);
-	  fprintf(outfile, "\t%s\t%g\t%u\t%c\t%c\n", &(marker_ids[map_reverse[ujj] * max_marker_id_len]), marker_cms[ujj], pos_buf[ujj], cc, cc2);
-	  if (ferror(outfile)) {
-	    goto merge_datasets_ret_WRITE_FAIL;
-	  }
+    for (ulii = 0; ulii < chrom_ct; ulii++) {
+      uii = chrom_start[ulii + 1];
+      ujj = chrom_start[ulii];
+      ukk = chrom_id[ulii];
+      for (; ujj < uii; ujj++) {
+	umm = map_reverse[ujj];
+	bufptr = chrom_name_write(tbuf, chrom_info_ptr, ukk, zero_extra_chroms);
+	fwrite(tbuf, 1, bufptr - tbuf, outfile);
+	if (keep_allele_order || (!IS_SET(reversed, ujj))) {
+	  bufptr = marker_allele_ptrs[2 * umm];
+	  bufptr2 = marker_allele_ptrs[2 * umm + 1];
+	} else {
+	  bufptr = marker_allele_ptrs[2 * umm + 1];
+	  bufptr2 = marker_allele_ptrs[2 * umm];
 	}
+	fprintf(outfile, "\t%s\t%g\t%u\t%s\t%s\n", &(marker_ids[map_reverse[ujj] * max_marker_id_len]), marker_cms[ujj], pos_buf[ujj], bufptr, bufptr2);
       }
-    } else {
-      for (ulii = 0; ulii < chrom_ct; ulii++) {
-	uii = chrom_start[ulii + 1];
-	ujj = chrom_start[ulii];
-	ukk = chrom_id[ulii];
-	for (; ujj < uii; ujj++) {
-	  umm = map_reverse[ujj];
-	  bufptr = chrom_name_write(tbuf, chrom_info_ptr, ukk, zero_extra_chroms);
-	  fwrite(tbuf, 1, bufptr - tbuf, outfile);
-	  if (keep_allele_order || (!IS_SET(reversed, ujj))) {
-	    bufptr = &(marker_alleles[(2 * umm) * max_marker_allele_len]);
-	    bufptr2 = &(marker_alleles[(2 * umm + 1) * max_marker_allele_len]);
-	  } else {
-	    bufptr = &(marker_alleles[(2 * umm + 1) * max_marker_allele_len]);
-	    bufptr2 = &(marker_alleles[(2 * umm) * max_marker_allele_len]);
-	  }
-	  fprintf(outfile, "\t%s\t%g\t%u\t%s\t%s\n", &(marker_ids[map_reverse[ujj] * max_marker_id_len]), marker_cms[ujj], pos_buf[ujj], bufptr, bufptr2);
-	}
-	if (ferror(outfile)) {
-	  goto merge_datasets_ret_WRITE_FAIL;
-	}
+      if (ferror(outfile)) {
+	goto merge_datasets_ret_WRITE_FAIL;
       }
     }
     if (fclose_null(&outfile)) {
@@ -13271,6 +13250,14 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     break;
   }
  merge_datasets_ret_1:
+  if (marker_allele_ptrs) {
+    for (uii = 0; uii < tot_marker_ct * 2; uii++) {
+      bufptr = marker_allele_ptrs[uii];
+      if (bufptr && ((bufptr < g_one_char_strs) || (bufptr >= (&(g_one_char_strs[448]))))) {
+	free(bufptr);
+      }
+    }
+  }
   fclose_cond(mergelistfile);
   fclose_cond(outfile);
   wkspace_reset(wkspace_mark);
