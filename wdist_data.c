@@ -4445,7 +4445,7 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
 // side effect: initializes tbuf to first nonempty line of .map/.bim
 int32_t check_cm_col(FILE* bimfile, char* tbuf, uint32_t is_binary, uint32_t bufsize, uint32_t* gd_col_ptr) {
   char* bufptr;
-  while (fgets(tbuf, bufsize - 5, bimfile)) {
+  while (fgets(tbuf, bufsize, bimfile)) {
     bufptr = skip_initial_spaces(tbuf);
     if (is_eoln_or_comment(*bufptr)) {
       continue;
@@ -5192,7 +5192,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     goto ped_to_bed_ret_OPEN_FAIL;
   }
   tbuf[MAXLINELEN - 6] = ' ';
-  if (check_cm_col(mapfile, tbuf, 0, MAXLINELEN, &cm_col)) {
+  if (check_cm_col(mapfile, tbuf, 0, MAXLINELEN - 5, &cm_col)) {
     sprintf(logbuf, "Error: Missing token(s) in .map line: %s", skip_initial_spaces(tbuf));
     goto ped_to_bed_ret_INVALID_FORMAT_2;
   }
@@ -11924,7 +11924,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
       } else {
 	ii = bsearch_str(idbuf, person_ids, max_person_id_len, 0, tot_indiv_ct - 1);
 	if (indiv_nsmap && (ii != -1)) {
-	  ii = indiv_nsmap[ii];
+	  ii = indiv_nsmap[(uint32_t)ii];
 	}
       }
       if (ii == -1) {
@@ -12266,7 +12266,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	break;
       }
     } else {
-      flex_map[marker_in_idx] = marker_out_idx - start_marker_idx;
+      flex_map[marker_in_idx] = ii;
     }
   } while (fgets(bim_loadbuf, max_bim_linelen, infile2));
   if (!feof(infile2)) {
@@ -12291,7 +12291,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
       } else {
 	ii = bsearch_str(idbuf, person_ids, max_person_id_len, 0, tot_indiv_ct - 1);
 	if (indiv_nsmap && (ii != -1)) {
-	  ii = indiv_nsmap[ii];
+	  ii = indiv_nsmap[(uint32_t)ii];
 	}
       }
       if (ii == -1) {
@@ -12359,10 +12359,15 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	  aptr2 = &(g_one_char_strs[(((unsigned char)cc) - 32) * 2]);
 	  bufptr4 = skip_initial_spaces(&(bufptr4[1]));
 	}
+
+	// lexicographic position (or 0xffffffffU skip indicator)
 	uii = flex_map[marker_in_idx];
 	if (uii == 0xffffffffU) {
 	  continue;
 	}
+	// actual relative position
+	marker_out_idx = marker_map[uii] - start_marker_idx;
+
 	if ((*aptr1 == '0') && (alen1 == 1)) {
           if ((*aptr2 != '0') || (alen2 != 1)) {
 	    goto merge_main_ret_INVALID_FORMAT_3;
@@ -12383,6 +12388,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	    } else if (marker_allele_ptrs[uii * 2] == &(g_one_char_strs[32])) {
 	      ukk = uii * 2;
 	    } else {
+	      // printf("%u %u %u %s %s %s\n", marker_in_idx, uii, marker_out_idx, marker_allele_ptrs[marker_out_idx * 2], marker_allele_ptrs[marker_out_idx * 2 + 1], aptr1);
 	      goto merge_main_ret_INVALID_FORMAT;
 	    }
 	    if (heap_alloc_allele_str(aptr1, alen1, &(marker_allele_ptrs[ukk]))) {
@@ -12413,8 +12419,8 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	}
 	switch (merge_mode) {
 	case 1:
-	  mbufptr2 = &(mbufptr[uii * tot_indiv_ctl]);
-	  wbufptr2 = &(wbufptr[uii * tot_indiv_ct4]);
+	  mbufptr2 = &(mbufptr[marker_out_idx * tot_indiv_ctl]);
+	  wbufptr2 = &(wbufptr[marker_out_idx * tot_indiv_ct4]);
 	  if ((*mbufptr2) & uljj) {
 	    ucc3 = *wbufptr2;
 	    if (((ucc3 >> ujj) & 3) != ucc2) {
@@ -12426,7 +12432,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	  }
 	  break;
 	case 2:
-	  wbufptr2 = &(wbufptr[uii * tot_indiv_ct4]);
+	  wbufptr2 = &(wbufptr[marker_out_idx * tot_indiv_ct4]);
 	  ucc3 = *wbufptr2;
 	  if (((ucc3 >> ujj) & 3) == 1) {
 	    *wbufptr2 = (ucc3 & ucc) | (ucc2 << ujj);
@@ -12438,21 +12444,21 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	  }
 	  // fall through
 	case 5:
-	  wbufptr2 = &(wbufptr[uii * tot_indiv_ct4]);
+	  wbufptr2 = &(wbufptr[marker_out_idx * tot_indiv_ct4]);
 	  *wbufptr2 = ((*wbufptr2) & ucc) | (ucc2 << ujj);
 	  break;
 	case 4:
-	  mbufptr2 = &(mbufptr[uii * tot_indiv_ctl]);
+	  mbufptr2 = &(mbufptr[marker_out_idx * tot_indiv_ctl]);
 	  if (!((*mbufptr2) & uljj)) {
 	    *mbufptr2 |= uljj;
-	    wbufptr2 = &(wbufptr[uii * tot_indiv_ct4]);
+	    wbufptr2 = &(wbufptr[marker_out_idx * tot_indiv_ct4]);
 	    *wbufptr2 = ((*wbufptr2) & ucc) | (ucc2 << ujj);
 	  }
 	  break;
 	case 6:
-	  if (mbufptr[uii * tot_indiv_ctl] & uljj) {
+	  if (mbufptr[marker_out_idx * tot_indiv_ctl] & uljj) {
 	    diff_total_overlap++;
-	    ucc3 = ((wbufptr[uii * tot_indiv_ct4] >> ujj) & 3);
+	    ucc3 = ((wbufptr[marker_out_idx * tot_indiv_ct4] >> ujj) & 3);
 	    umm = ((ucc2 == 1) || (ucc3 == 1));
 	    if (umm) {
 	      diff_not_both_genotyped++;
@@ -12468,9 +12474,9 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	  }
 	  break;
 	case 7:
-	  if (mbufptr[uii * tot_indiv_ctl] & uljj) {
+	  if (mbufptr[marker_out_idx * tot_indiv_ctl] & uljj) {
 	    diff_total_overlap++;
-	    ucc3 = ((wbufptr[uii * tot_indiv_ct4] >> ujj) & 3);
+	    ucc3 = ((wbufptr[marker_out_idx * tot_indiv_ct4] >> ujj) & 3);
 	    if ((ucc2 == 1) || (ucc3 == 1)) {
 	      diff_not_both_genotyped++;
 	    } else if (ucc2 != ucc3) {
@@ -12482,9 +12488,9 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	  }
 	}
       }
-      if (!is_eoln_kns(*bufptr3)) {
+      if (!is_eoln_kns(*bufptr4)) {
 	fill_idbuf_fam_indiv(idbuf, bufptr, ' ');
-	sprintf(logbuf, "Error: %s line has too many tokens (indiv id %s).\nIf this file has multi-character alleles, convert to binary before merging.\n", bedname, idbuf);
+	sprintf(logbuf, "Error: %s line has too many tokens (indiv id %s).\n", bedname, idbuf);
 	goto merge_main_ret_INVALID_FORMAT_4;
       }
     }
@@ -12518,7 +12524,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
     break;
   merge_main_ret_INVALID_FORMAT_3:
     fill_idbuf_fam_indiv(idbuf, bufptr, ' ');
-    sprintf(logbuf, "Error: Half-missing call in %s (indiv id %s, marker %u).\n", bedname, idbuf, marker_in_idx);
+    sprintf(logbuf, "Error: Half-missing call in %s (indiv id %s, marker %s).\n", bedname, idbuf, &(marker_ids[uii * max_marker_id_len]));
     putchar('\n');
     logprintb();
     retval = RET_INVALID_FORMAT;
@@ -12567,6 +12573,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   uint64_t diff_discordant = 0;
   uint32_t orig_idx = 0;
   uint32_t position_warning_ct = 0;
+  uint32_t cur_marker_ct = 0;
   uint32_t tot_marker_ct = 0;
   uint32_t* map_reverse = NULL;
   uintptr_t* reversed = NULL;
@@ -12598,7 +12605,6 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   char** mergelist_bim;
   char** mergelist_fam;
   uint32_t cur_indiv_ct;
-  uint32_t cur_marker_ct;
   uint32_t tot_indiv_ct;
   uint32_t tot_indiv_ct4;
   uint32_t dedup_marker_ct;
@@ -12989,6 +12995,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     marker_allele_ptrs[uii] = NULL;
   }
   if (max_bim_linelen) {
+    max_bim_linelen++;
     if (wkspace_alloc_c_checked(&bim_loadbuf, max_bim_linelen)) {
       goto merge_datasets_ret_NOMEM2;
     }
@@ -13086,13 +13093,14 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     ulii = (tot_indiv_ct + (BITCT - 1)) / BITCT;
     markers_per_pass = wkspace_left / (3 * sizeof(intptr_t) * ulii);
     if (markers_per_pass > dedup_marker_ct) {
-      uii = dedup_marker_ct;
-    } else {
-      uii = markers_per_pass;
+      markers_per_pass = dedup_marker_ct;
     }
-    markbuf = (uintptr_t*)wkspace_alloc(uii * ulii * sizeof(intptr_t));
+    markbuf = (uintptr_t*)wkspace_alloc(markers_per_pass * ulii * sizeof(intptr_t));
   } else {
     markers_per_pass = wkspace_left / tot_indiv_ct4;
+    if (markers_per_pass > dedup_marker_ct) {
+      markers_per_pass = dedup_marker_ct;
+    }
   }
   if (!markers_per_pass) {
     goto merge_datasets_ret_NOMEM;
