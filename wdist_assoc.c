@@ -9955,7 +9955,7 @@ static uint32_t g_include_sex;
 static uint32_t g_male_x_01;
 static uintptr_t* g_sex_male_collapsed;
 #ifndef NOLAPACK
-static int32_t g_dgels_lwork;
+static __CLPK_integer g_dgels_lwork;
 #endif
 static uint32_t g_cluster_ct1;
 static double* g_constraints_con_major;
@@ -9993,8 +9993,8 @@ THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
   uintptr_t cur_param_ct = g_cur_param_ct;
   uintptr_t cur_constraint_ct = g_cur_constraint_ct;
   char dgels_trans = 'N';
-  int32_t dgels_n = (int32_t)((uint32_t)cur_param_ct);
-  int32_t dgels_lwork = g_dgels_lwork;
+  __CLPK_integer dgels_n = (int32_t)((uint32_t)cur_param_ct);
+  __CLPK_integer dgels_lwork = g_dgels_lwork;
   uint32_t standard_beta = g_standard_beta;
   uint32_t hethom = g_hethom;
   uint32_t glm_xchr_model = g_glm_xchr_model;
@@ -10045,10 +10045,10 @@ THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
   uint32_t cur_attempts;
   uint32_t perm_fail_ct;
   uint32_t cur_fail_ct;
-  int32_t dgels_m;
-  int32_t dgels_nrhs;
-  int32_t dgels_ldb;
-  int32_t dgels_info;
+  __CLPK_integer dgels_m;
+  __CLPK_integer dgels_nrhs;
+  __CLPK_integer dgels_ldb;
+  __CLPK_integer dgels_info;
   double stat_high;
   double stat_low;
   double pval;
@@ -10331,8 +10331,8 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
   uintptr_t cur_param_ct = g_cur_param_ct;
   uintptr_t cur_constraint_ct = g_cur_constraint_ct;
   char dgels_trans = 'N';
-  int32_t dgels_n = (int32_t)((uint32_t)cur_param_ct);
-  int32_t dgels_lwork = g_dgels_lwork;
+  __CLPK_integer dgels_n = (int32_t)((uint32_t)cur_param_ct);
+  __CLPK_integer dgels_lwork = g_dgels_lwork;
   uint32_t standard_beta = g_standard_beta;
   uint32_t hethom = g_hethom;
   uint32_t glm_xchr_model = g_glm_xchr_model;
@@ -10380,10 +10380,10 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
   uint32_t marker_idx;
   uint32_t success_2incr;
   uint32_t perm_fail_ct;
-  int32_t dgels_m;
-  int32_t dgels_nrhs;
-  int32_t dgels_ldb;
-  int32_t dgels_info;
+  __CLPK_integer dgels_m;
+  __CLPK_integer dgels_nrhs;
+  __CLPK_integer dgels_ldb;
+  __CLPK_integer dgels_info;
   double stat_high;
   double stat_low;
   double dxx;
@@ -10676,14 +10676,14 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   int32_t retval = 0;
 #ifndef NOLAPACK
   char dgels_trans = 'N';
-  int32_t dgels_m = 0;
-  int32_t dgels_n = 0;
-  int32_t dgels_nrhs = 0;
-  int32_t dgels_ldb = 0;
+  __CLPK_integer dgels_m = 0;
+  __CLPK_integer dgels_n = 0;
+  __CLPK_integer dgels_nrhs = 0;
+  __CLPK_integer dgels_ldb = 0;
   uintptr_t* ulptr;
   double* dptr3;
   uintptr_t cur_word;
-  int32_t dgels_info;
+  __CLPK_integer dgels_info;
 #endif
   double* constraints_con_major = NULL;
   uintptr_t* loadbuf_raw = NULL;
@@ -12460,17 +12460,17 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
   int32_t retval = 0;
 #ifndef NOLAPACK
   char dgels_trans = 'N';
-  int32_t dgels_m = 0;
-  int32_t dgels_n = 0;
-  int32_t dgels_nrhs = 0;
+  __CLPK_integer dgels_m = 0;
+  __CLPK_integer dgels_n = 0;
+  __CLPK_integer dgels_nrhs = 0;
   double* dgels_a = NULL;
   double* dgels_b = NULL;
   double* dgels_work = NULL;
   double* param_df_buf = NULL;
   double* param_df_buf2 = NULL;
-  int32_t dgels_ldb = 0;
-  int32_t dgels_lwork = -1;
-  int32_t dgels_info;
+  __CLPK_integer dgels_ldb = 0;
+  __CLPK_integer dgels_lwork = -1;
+  __CLPK_integer dgels_info;
   double dzz;
 #endif
   double* regression_results = NULL;

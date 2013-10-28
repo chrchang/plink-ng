@@ -11831,7 +11831,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
   uint64_t diff_discordant = 0;
   uint32_t cur_indiv_ct4 = 0;
   uint32_t cur_indiv_ctd4 = 0;
-  uint32_t is_ped_compound = 0;
+  uint32_t is_ped_compound = 1; // 0 = no, 1 = unresolved, 2 = yes
   uint32_t alen1 = 1;
   uint32_t alen2 = 1;
   uintptr_t uljj = 0;
@@ -12259,6 +12259,19 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
       if (!bufptr3) {
 	goto merge_main_ret_READ_FAIL;
       }
+      if (is_ped_compound == 1) {
+	bufptr4 = bufptr3;
+	for (marker_in_idx = 0; marker_in_idx < 2 * last_marker_in_idx; marker_in_idx++) {
+          if (is_eoln_kns(*bufptr4)) {
+	    is_ped_compound = 2;
+	    break;
+	  }
+	  bufptr4 = skip_initial_spaces(item_endnn(bufptr4));
+	}
+	if (is_ped_compound == 1) {
+	  is_ped_compound = 0;
+	}
+      }
       wbufptr = &(writebuf[((uint32_t)ii) / 4]);
       ujj = (((uint32_t)ii) % 4) * 2;
       ucc = ~(3U << ujj);
@@ -12267,55 +12280,37 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	mbufptr = &(markbuf[((uint32_t)ii) / BITCT]);
 	uljj = ONELU << (((uint32_t)ii) % BITCT);
       }
-      if (0) {
-      merge_main_retry_compound:
-	bufptr5 = bufptr3;
-	// lots of spaces were set to null; reset them to spaces
-	while (1) {
-          bufptr5 = (char*)strchr(bufptr5, '\0');
-	  if (bufptr5 >= bufptr4) {
-	    break;
-	  }
-	  *bufptr5++ = '\t';
-	  bufptr5 = skip_initial_spaces(bufptr5);
-	}
-	is_ped_compound = 1;
-	alen1 = 1;
-	alen2 = 1;
-      }
-      // bufptr3 = beginning of alleles
-      bufptr4 = bufptr3;
       for (marker_in_idx = 0; marker_in_idx < last_marker_in_idx; marker_in_idx++) {
 	if (!is_ped_compound) {
-	  if (is_eoln_kns(*bufptr4)) {
-	    goto merge_main_retry_compound;
+	  if (is_eoln_kns(*bufptr3)) {
+	    goto merge_main_ret_INVALID_FORMAT_2;
 	  }
-	  aptr1 = bufptr4;
-	  bufptr4 = item_endnn(bufptr4);
-	  alen1 = (uintptr_t)(bufptr4 - aptr1);
-	  bufptr4 = skip_initial_spaces(bufptr4);
+	  aptr1 = bufptr3;
+	  bufptr3 = item_endnn(bufptr3);
+	  alen1 = (uintptr_t)(bufptr3 - aptr1);
+	  bufptr3 = skip_initial_spaces(bufptr3);
 	  aptr1[alen1] = '\0';
-	  if (is_eoln_kns(*bufptr4)) {
-	    goto merge_main_retry_compound;
+	  if (is_eoln_kns(*bufptr3)) {
+	    goto merge_main_ret_INVALID_FORMAT_2;
 	  }
-	  aptr2 = bufptr4;
-	  bufptr4 = item_endnn(bufptr4);
-	  alen2 = (uintptr_t)(bufptr4 - aptr2);
-	  bufptr4 = skip_initial_spaces(bufptr4);
+	  aptr2 = bufptr3;
+	  bufptr3 = item_endnn(bufptr3);
+	  alen2 = (uintptr_t)(bufptr3 - aptr2);
+	  bufptr3 = skip_initial_spaces(bufptr3);
 	  aptr2[alen2] = '\0';
 	} else {
-	  cc = *bufptr4;
+	  cc = *bufptr3;
 	  if (is_eoln_kns(cc)) {
 	    goto merge_main_ret_INVALID_FORMAT_2;
 	  }
           aptr1 = &(g_one_char_strs[(((unsigned char)cc) - 32) * 2]);
-          bufptr4 = skip_initial_spaces(&(bufptr4[1]));
-          cc = *bufptr4;
+          bufptr3 = skip_initial_spaces(&(bufptr3[1]));
+          cc = *bufptr3;
           if (is_eoln_kns(cc)) {
 	    goto merge_main_ret_INVALID_FORMAT_2;
 	  }
 	  aptr2 = &(g_one_char_strs[(((unsigned char)cc) - 32) * 2]);
-	  bufptr4 = skip_initial_spaces(&(bufptr4[1]));
+	  bufptr3 = skip_initial_spaces(&(bufptr3[1]));
 	}
 
 	// lexicographic position (or 0xffffffffU skip indicator)
@@ -12346,7 +12341,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	    } else if (marker_allele_ptrs[uii * 2] == &(g_one_char_strs[32])) {
 	      ukk = uii * 2;
 	    } else {
-	      // printf("%u %u %u %s %s %s\n", marker_in_idx, uii, marker_out_idx, marker_allele_ptrs[marker_out_idx * 2], marker_allele_ptrs[marker_out_idx * 2 + 1], aptr1);
+	      printf("%s %s %s\n", marker_allele_ptrs[uii * 2 + 1], marker_allele_ptrs[uii * 2], aptr1);
 	      goto merge_main_ret_INVALID_FORMAT;
 	    }
 	    if (heap_alloc_allele_str(aptr1, alen1, &(marker_allele_ptrs[ukk]))) {
@@ -12446,7 +12441,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	  }
 	}
       }
-      if (!is_eoln_kns(*bufptr4)) {
+      if (!is_eoln_kns(*bufptr3)) {
 	fill_idbuf_fam_indiv(idbuf, bufptr, ' ');
 	sprintf(logbuf, "Error: %s line has too many tokens (indiv id %s).\n", bedname, idbuf);
 	goto merge_main_ret_INVALID_FORMAT_4;
