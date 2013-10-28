@@ -4627,11 +4627,6 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   uint32_t ii_shift;
   unsigned char* writebuf;
   unsigned char* wbufptr;
-#ifndef STABLE_BUILD
-  Ll_str* debug_ptr_main;
-  char* debug_ptr_w;
-  char* debug_ptr_ss;
-#endif
   wkspace_reset((unsigned char*)marker_alleles_f);
   if ((wkspace_left / (4LU * sizeof(int32_t) + 16)) <= marker_ct) {
     goto ped_to_bed_multichar_allele_ret_NOMEM;
@@ -4640,10 +4635,6 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   marker_allele_cts = (uint32_t*)(&(wkspace_base[wkspace_left - marker_ct * 4LU * sizeof(int32_t)]));
   marker_alleles_tmp = (Ll_str_fixed*)(&(wkspace_base[wkspace_left - marker_ct * (4LU * sizeof(int32_t) + 16)]));
   memset(marker_alleles_tmp, 0, marker_ct * (4LU * sizeof(int32_t) + 16));
-#ifndef STABLE_BUILD
-  sprintf(logbuf, "sizeof(Ll_str_fixed): %" PRIuPTR "\n", (uintptr_t)(sizeof(Ll_str_fixed)));
-  logstr(logbuf);
-#endif
 
   if (fclose_null(outfile_ptr)) {
     goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
@@ -4756,39 +4747,6 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
 	max_marker_allele_len = alen2;
       }
       uii = map_is_unsorted? map_reverse[marker_idx] : marker_idx;
-#ifndef STABLE_BUILD
-      if (marker_uidx == 316073) {
-	memcpy(logbuf, "Allele 1: ", 10);
-	memcpy(&(logbuf[10]), aptr1, alen1);
-        logbuf[10 + alen1] = '\n';
-	logbuf[11 + alen1] = '\0';
-	logstr(logbuf);
-	memcpy(logbuf, "Allele 2: ", 10);
-	memcpy(&(logbuf[10]), aptr2, alen2);
-        logbuf[10 + alen2] = '\n';
-	logbuf[11 + alen2] = '\0';
-	logstr(logbuf);
-	debug_ptr_main = marker_alleles_tmp[uii].next;
-	sprintf(logbuf, ".next: %" PRIuPTR "\n", (uintptr_t)debug_ptr_main);
-	logstr(logbuf);
-        debug_ptr_ss = marker_alleles_tmp[uii].ss;
-	sprintf(logbuf, ".ss: %" PRIuPTR "\n", (uintptr_t)debug_ptr_ss);
-	logstr(logbuf);
-	logstr("Preexisting alleles:\n");
-        while (1) {
-	  debug_ptr_w = strcpya(logbuf, debug_ptr_ss);
-	  memcpy(debug_ptr_w, "\n", 2);
-	  logstr(logbuf);
-	  if (!debug_ptr_main) {
-	    break;
-	  }
-          debug_ptr_ss = debug_ptr_main->ss;
-	  debug_ptr_main = debug_ptr_main->next;
-	}
-	sprintf(logbuf, "Preexisting counts: %u %u\n", marker_allele_cts[4 * uii], marker_allele_cts[4 * uii + 1]);
-	logstr(logbuf);
-      }
-#endif
       retval = incr_text_allele_str(&topsize, aptr1, alen1, (Ll_str*)(&(marker_alleles_tmp[uii])), &(marker_allele_cts[4 * uii]));
       if (retval) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_6;
