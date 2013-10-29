@@ -9,6 +9,12 @@ const char errstr_phenotype_format[] = "Error: Improperly formatted phenotype fi
 
 char tbuf[MAXLINELEN * 4 + 256];
 
+// No need to represent allele codes < 32; 256 - 32 = 224,
+// 224 * 2 (null terminator) = 448.
+// Initialized by main() before autoconversions.
+char g_one_char_strs[448];
+char* g_missing_geno_ptr;
+
 sfmt_t sfmt;
 
 FILE* logfile = NULL;
@@ -2386,6 +2392,25 @@ char* chrom_print_human(char* buf, uint32_t num) {
     memcpy(buf, "MT", 2);
     return &(buf[2]);
   }
+}
+
+uint32_t allele_set(char** allele_ptr, char* newval, uint32_t slen) {
+  // slen does not include terminating null of newval
+  char* newptr;
+  if (slen == 1) {
+    newptr = &(g_one_char_strs[(((unsigned char)*newval) - ' ') * 2]);
+  } else {
+    newptr = (char*)malloc(slen + 1);
+    if (!newptr) {
+      return 1;
+    }
+    memcpyx(newptr, newval, slen, '\0');
+  }
+  if (allele_ptr[0][1]) {
+    free(*allele_ptr);
+  }
+  *allele_ptr = newptr;
+  return 0;
 }
 
 void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* pre_shiftp, uint32_t* post_shiftp, uint32_t* incrp) {
@@ -6667,10 +6692,10 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
   // is scanned.
   // Includes terminating null in lengths.
   FILE* infile = NULL;
-  char* loadbuf = (char*)wkspace_base;
   uintptr_t loadbuf_size = wkspace_left;
   uintptr_t max_str_len = *max_str_len_ptr;
   uintptr_t max_str2_len = 0;
+  char* loadbuf = (char*)wkspace_base;
   uint32_t colmin;
   uint32_t coldiff;
   char* str1_ptr;
@@ -6680,8 +6705,7 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
   int32_t retval;
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
-  }
-  if (loadbuf_size <= MAXLINELEN) {
+  } else if (loadbuf_size <= MAXLINELEN) {
     goto scan_max_strlen_ret_NOMEM;
   }
   retval = open_and_skip_first_lines(&infile, fname, loadbuf, loadbuf_size, headerskip);
@@ -6704,7 +6728,12 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
   }
   while (fgets(loadbuf, loadbuf_size, infile)) {
     if (!(loadbuf[loadbuf_size - 1])) {
-      goto scan_max_strlen_ret_NOMEM;
+      if (loadbuf_size == MAXLINEBUFLEN) {
+        sprintf(logbuf, "Error: Pathologically long line in %s.\n", fname);
+	goto scan_max_strlen_ret_INVALID_FORMAT;
+      } else {
+        goto scan_max_strlen_ret_NOMEM;
+      }
     }
     str1_ptr = skip_initial_spaces(loadbuf);
     cc = *str1_ptr;
@@ -6769,9 +6798,9 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
   // assumed to follow.
   // Includes terminating null in lengths.
   FILE* infile = NULL;
-  char* loadbuf = (char*)wkspace_base;
   uintptr_t loadbuf_size = wkspace_left;
   uintptr_t max_person_id_len = *max_person_id_len_ptr;
+  char* loadbuf = (char*)wkspace_base;
   char* bufptr;
   char* bufptr2;
   uintptr_t cur_person_id_len;
@@ -6779,8 +6808,7 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_p
   colnum--;
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
-  }
-  if (loadbuf_size <= MAXLINELEN) {
+  } else if (loadbuf_size <= MAXLINELEN) {
     goto scan_max_fam_indiv_strlen_ret_NOMEM;
   }
   retval = open_and_skip_first_lines(&infile, fname, loadbuf, loadbuf_size, 0);
