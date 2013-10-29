@@ -858,8 +858,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #endif
     if (!param_ct) {
       fputs(
-"The following other flags are supported.  (Order of operations is described at\n"
-"https://www.cog-genomics.org/wdist/order .)\n"
+"The following other flags are supported."
+#ifndef PLINK_BUILD
+"  (Order of operations is described at\n"
+"https://www.cog-genomics.org/wdist/order .)"
+#endif
+"\n"
 , stdout);
     }
     help_print("script", &help_ctrl, 0,
@@ -894,7 +898,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    negative.  Given diploid autosomes, the remaining modifiers indicate the\n"
 "    absence of the named non-autosomal chromosomes.\n"
 "  --cow/--dog/--horse/--mouse/--rice/--sheep : Shortcuts for those species.\n"
-"  --autosome-num [value]   : Alias for '--chr-set [value] no-y no-xy no-mt'.\n"
+"  --autosome-num [value]    : Alias for '--chr-set [value] no-y no-xy no-mt'.\n"
 	       );
     help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
 "  --simulate-ncases [num]   : Set --simulate case count (default 1000).\n"
@@ -1094,6 +1098,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --set-hh-missing : Cause --make-bed and --recode to set heterozygous haploid\n"
 "                     genotypes to missing.\n"
 	       );
+    help_print("output-missing-genotype\toutput-missing-phenotype", &help_ctrl, 0,
+"  --output-missing-genotype [ch] : Code for missing genotype when creating new\n"
+"                                   text fileset (--recode).\n"
+"  --output-missing-phenotype [n] : Numeric code for missing phenotype when\n"
+"                                   creating new fileset (--make-bed/--recode).\n"
+	       );
     help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,
 "  --update-chr  [f] {chrcol} {IDcol}  {skip} : Update marker chromosome codes.\n"
 "  --update-cm   [f] {cmcol}  {IDcol}  {skip} : Update centimorgan positions.\n"
@@ -1286,12 +1296,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("d\tsnps", &help_ctrl, 0,
 "  --d [char]       : Change marker range delimiter (would otherwise be '-').\n"
 	       );
-    help_print("output-missing-genotype\toutput-missing-phenotype", &help_ctrl, 0,
-"  --output-missing-genotype [ch] : Code for missing genotype when creating new\n"
-"                                   text fileset (--recode).\n"
-"  --output-missing-phenotype [n] : Numeric code for missing phenotype when\n"
-"                                   creating new fileset (--make-bed/--recode).\n"
-	       );
     help_print("seed", &help_ctrl, 0,
 "  --seed [val...]  : Set random number seed(s).  Each value must be an integer\n"
 "                     between 0 and 4294967295 inclusive.\n"
@@ -1365,6 +1369,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                             (optional) or --cnv-enrichment-test (required).\n"
 	       );
 #endif
+#ifndef PLINK_BUILD
     if (!param_ct) {
       fputs(
 "\nFor further documentation and support, consult the main webpage\n"
@@ -1372,6 +1377,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "(https://groups.google.com/d/forum/wdist-users ).\n"
 , stdout);
     }
+#endif
   } while (help_ctrl.iters_left--);
   if (help_ctrl.unmatched_ct) {
     net_unmatched_ct = help_ctrl.unmatched_ct;
