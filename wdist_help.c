@@ -693,7 +693,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      and all predictors to zero mean and unit variance before regression.\n\n"
 	       );
     help_print("lasso", &help_ctrl, 1,
-"  --lasso [h2 estimate] <report-zeroes>\n"
+"  --lasso [h2 estimate] {min lambda} <report-zeroes>\n"
 "    Given a quantitative trait, estimate marker effect sizes via the LASSO\n"
 "    regression discussed in Vattikuti S, Lee J, Hsu S, Chow CC (2013)\n"
 "    Application of compressed sensing to genome wide association studies and\n"
