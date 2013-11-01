@@ -66,7 +66,7 @@ const char ver_str[] =
   "PLINK v1.50b1"
 #else
   #ifdef STABLE_BUILD
-  "WDIST v0.22.6b"
+  "WDIST v0.22.6"
   #else
   "WDIST v0.23.0p"
   #endif

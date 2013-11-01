@@ -4503,12 +4503,7 @@ typedef struct ll_str_fixed_struct {
 #endif
 } Ll_str_fixed;
 
-#ifdef STABLE_BUILD
-int32_t incr_text_allele_str(uintptr_t* topsize_ptr, char* allele_name, uint32_t an_len, Ll_str* allele_list_start, uint32_t* marker_allele_cts)
-#else
-int32_t incr_text_allele_str(uintptr_t* topsize_ptr, char* allele_name, uint32_t an_len, Ll_str* allele_list_start, uint32_t* marker_allele_cts, uint32_t trace)
-#endif
-{
+int32_t incr_text_allele_str(uintptr_t* topsize_ptr, char* allele_name, uint32_t an_len, Ll_str* allele_list_start, uint32_t* marker_allele_cts) {
   // Start with preallocated array of 16-byte Ll_strs.
   // Ll_str.ss is a null-terminated sequence of ordered, tab-delimited allele
   // names.  If the starting 8 (or 12 bytes, on 32-bit systems) is adequate,
@@ -4560,21 +4555,10 @@ int32_t incr_text_allele_str(uintptr_t* topsize_ptr, char* allele_name, uint32_t
 	  cur_allele_name_start[slen] = '\t';
 	  memcpyx(&(cur_allele_name_start[slen + 1]), allele_name, an_len, '\0');
 	} else {
-#ifndef STABLE_BUILD
-          if (trace) {
-	    sprintf(logbuf, "an_len: %u  topsize pre: %" PRIuPTR "  sizeof(Ll_str): %u\n", an_len, *topsize_ptr, (uint32_t)sizeof(Ll_str));
-	    logstr(logbuf);
-	  }
-#endif
 	  llptr = top_alloc_llstr(topsize_ptr, an_len + 1);
 	  if (!llptr) {
 	    return RET_NOMEM;
 	  }
-#ifndef STABLE_BUILD
-	  if (trace) {
-            sprintf(logbuf, "topsize post: %" PRIuPTR "  llptr->ss: %" PRIuPTR "\n", *topsize_ptr, (uintptr_t)llptr->ss);
-	  }
-#endif
 	  allele_list_start->next = llptr;
 	  llptr->next = NULL;
 	  cur_allele_name_start = llptr->ss;
@@ -4753,6 +4737,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
         goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
       }
     }
+    wkspace_base += cur_slen_rdup;
     wkspace_left -= cur_slen_rdup;
     for (marker_uidx = 0, marker_idx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
       alen1 = strlen_se(bufptr);
@@ -4760,6 +4745,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       bufptr = skip_initial_spaces(&(bufptr[alen1]));
       alen2 = strlen_se(bufptr);
       if (!alen2) {
+	wkspace_base -= cur_slen_rdup;
 	wkspace_left += cur_slen_rdup;
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_3;
       }
@@ -4784,28 +4770,17 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
 	max_marker_allele_len = alen2;
       }
       uii = map_is_unsorted? map_reverse[marker_idx] : marker_idx;
-#ifdef STABLE_BUILD
       retval = incr_text_allele_str(&topsize, aptr1, alen1, (Ll_str*)(&(marker_alleles_tmp[uii])), &(marker_allele_cts[4 * uii]));
-#else
-      if (((uii == 196248) || (uii == 196249) || (uii == 316073)) && marker_alleles_tmp[316073].next) {
-        sprintf(logbuf, "marker: %" PRIuPTR "  debug_save->next: %" PRIuPTR "\n", marker_uidx, (uintptr_t)(marker_alleles_tmp[316073].next));
-	logstr(logbuf);
-      }
-      retval = incr_text_allele_str(&topsize, aptr1, alen1, (Ll_str*)(&(marker_alleles_tmp[uii])), &(marker_allele_cts[4 * uii]), (uii == 196248)? 1 : 0);
-#endif
       if (retval) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_6;
       }
-#ifdef STABLE_BUILD
       retval = incr_text_allele_str(&topsize, aptr2, alen2, (Ll_str*)(&(marker_alleles_tmp[uii])), &(marker_allele_cts[4 * uii]));
-#else
-      retval = incr_text_allele_str(&topsize, aptr2, alen2, (Ll_str*)(&(marker_alleles_tmp[uii])), &(marker_allele_cts[4 * uii]), (uii == 196248)? 1 : 0);
-#endif
       if (retval) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_6;
       }
       marker_idx++;
     }
+    wkspace_base -= cur_slen_rdup;
     wkspace_left += cur_slen_rdup;
     if (!is_eoln_kns(*bufptr)) {
       putchar('\n');
@@ -5112,6 +5087,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
     retval = RET_WRITE_FAIL;
     break;
   ped_to_bed_multichar_allele_ret_INVALID_FORMAT_6:
+    wkspace_base -= cur_slen_rdup;
     wkspace_left += cur_slen_rdup;
     putchar('\n');
     if (retval != RET_NOMEM) {
@@ -5120,6 +5096,7 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
     }
     break;
   ped_to_bed_multichar_allele_ret_INVALID_FORMAT_4:
+    wkspace_base -= cur_slen_rdup;
     wkspace_left += cur_slen_rdup;
     putchar('\n');
     sprintf(logbuf, "Error: Half-missing call in .ped file at marker %" PRIuPTR ", indiv %" PRIuPTR ".\n", marker_uidx + 1, indiv_ct + 1);
