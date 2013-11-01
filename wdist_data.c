@@ -4597,7 +4597,7 @@ char* get_llstr(Ll_str* llptr, uint32_t allele_idx) {
   return cptr;
 }
 
-int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** mapfile_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_alleles_f, uint32_t map_is_unsorted, uint32_t fam_cols, uint32_t ped_col_skip, uint32_t gd_col, uint32_t* map_reverse, int64_t ped_size) {
+int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char* outname, char* outname_end, FILE** mapfile_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_alleles_f, uint32_t map_is_unsorted, uint32_t fam_cols, uint32_t ped_col_skip, uint32_t gd_col, uint32_t* map_reverse, int64_t ped_size) {
   // maintain allele counts and linked lists of observed alleles at FAR end of
   // wkspace.
   int32_t retval = 0;
@@ -4759,12 +4759,6 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
       } else if ((*aptr2 == '0') && (alen2 == 1)) {
 	goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_4;
       }
-      if (alen1 > max_marker_allele_len) {
-	max_marker_allele_len = alen1;
-      }
-      if (alen2 > max_marker_allele_len) {
-	max_marker_allele_len = alen2;
-      }
       uii = map_is_unsorted? map_reverse[marker_idx] : marker_idx;
       retval = incr_text_allele_str(&topsize, aptr1, alen1, (Ll_str*)(&(marker_alleles_tmp[uii])), &(marker_allele_cts[4 * uii]));
       if (retval) {
@@ -4810,7 +4804,6 @@ int32_t ped_to_bed_multichar_allele(uintptr_t max_marker_allele_len, FILE** pedf
   if (fclose_null(outfile_ptr)) {
     goto ped_to_bed_multichar_allele_ret_WRITE_FAIL;
   }
-  max_marker_allele_len++;
   if (marker_ct * 2 * sizeof(intptr_t) + topsize > wkspace_left) {
     goto ped_to_bed_multichar_allele_ret_NOMEM;
   }
@@ -5675,7 +5668,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       }
     }
   } else {
-    retval = ped_to_bed_multichar_allele(max_marker_allele_len, &pedfile, &outfile, outname, outname_end, &mapfile, unfiltered_marker_ct, marker_exclude, marker_ct, marker_alleles_f, map_is_unsorted, fam_cols, ped_col_skip, cm_col, map_reverse, ped_size);
+    retval = ped_to_bed_multichar_allele(&pedfile, &outfile, outname, outname_end, &mapfile, unfiltered_marker_ct, marker_exclude, marker_ct, marker_alleles_f, map_is_unsorted, fam_cols, ped_col_skip, cm_col, map_reverse, ped_size);
     if (retval) {
       goto ped_to_bed_ret_1;
     }
