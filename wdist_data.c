@@ -9153,7 +9153,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   unsigned char ucc;
   unsigned char ucc2;
   char cc;
-  char cur_mk_alleles[8];
   char* cur_mk_allelesx_buf = NULL;
   char* cur_mk_allelesx[6];
   uint32_t cmalen[4];
@@ -9169,7 +9168,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   uint32_t shiftmax;
   uint32_t cur_fid;
   int32_t ii;
-  memset(cur_mk_alleles, 0, 4);
   if (!hh_exists) {
     set_hh_missing = 0;
   }
@@ -9367,7 +9365,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     // + 4, or (2 * max_marker_allele_len)
     // + indiv_ct * max_person_id_len + 1
     ulii = 3 + max_marker_id_len + 2 * max_marker_allele_len + indiv_ct * max_person_id_len;
-    if (recode_modifier & RECODE_LIST) {
+    if ((recode_modifier & RECODE_LIST) && (max_marker_allele_len != 2)) {
       logprint("Error: --recode list cannot be used with multi-character allele names.\n");
       goto recode_ret_INVALID_FORMAT;
     }
@@ -10465,15 +10463,16 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     }
     if (rlist) {
       sprintf(logbuf, "--recode rlist to %s + .map + .fam... ", outname);
-      cur_mk_allelesx[1][0] = missing_geno;
-      cur_mk_allelesx[1][1] = delimiter;
-      cur_mk_allelesx[1][2] = missing_geno;
-      cmalen[1] = 3;
     } else {
       sprintf(logbuf, "--recode list to %s... ", outname);
     }
     logprintb();
     fputs("0%", stdout);
+    fflush(stdout);
+    cur_mk_allelesx[1][0] = missing_geno;
+    cur_mk_allelesx[1][1] = delimiter;
+    cur_mk_allelesx[1][2] = missing_geno;
+    cmalen[1] = 3;
     for (pct = 1; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * marker_ct) / 100;
       for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
@@ -10521,8 +10520,11 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	      break;
 	    }
 	    *wbufptr++ = delimiter;
+	    wbufptr = memcpya(wbufptr, cur_mk_allelesx[ulii], cmalen[ulii]);
+	  } else {
+	    *wbufptr++ = cur_mk_allelesx[ulii][0];
+	    *wbufptr++ = cur_mk_allelesx[ulii][2];
 	  }
-	  wbufptr = memcpya(wbufptr, cur_mk_allelesx[ulii], cmalen[ulii]);
 	  writebuflp[ulii] = wbufptr;
 	}
 	ulptr = loadbuf_collapsed;
