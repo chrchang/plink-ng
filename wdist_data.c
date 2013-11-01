@@ -10250,6 +10250,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     sprintf(logbuf, "--recode lgen%s to %s + .map + .fam%s... ", lgen_ref? "-ref" : "", outname, lgen_ref? " + .ref" : "");
     logprintb();
     fputs("0%", stdout);
+    fflush(stdout);
     ref_word = 4;
     writebuf[0] = delimiter;
     for (pct = 1; pct <= 100; pct++) {
@@ -10274,7 +10275,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	wbufptr = &(marker_ids[marker_uidx * max_marker_id_len]);
 	cptr = strcpya(&(writebuf[1]), wbufptr);
 	cptr = memseta(cptr, delimiter, 2);
-	ulii = (uintptr_t)(cptr - tbuf);
+	ulii = (uintptr_t)(cptr - writebuf);
 	alen = 2 * max_marker_allele_len + ulii;
 	cur_mk_allelesx[0] = cptr;
 	cur_mk_allelesx[1] = &(cptr[alen]);
