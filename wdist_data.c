@@ -663,6 +663,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   uint32_t snp_pos = 0;
   uint32_t mcm2 = 1;
   uint32_t split_chrom = 0;
+  uint32_t max_loadbuf = 0;
   int32_t exclude_window_start = 0;
   int32_t exclude_window_end = -1;
   char* missing_geno_ptr = g_missing_geno_ptr;
@@ -671,11 +672,14 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   uint32_t* sf_str_pos = NULL;
   uint32_t* sf_str_lens = NULL;
   uint32_t* sf_llbuf = NULL;
+  char* loadbuf2 = NULL; // on heap, second pass
   char** marker_allele_ptrs = NULL;
   uintptr_t loaded_chrom_mask[CHROM_MASK_WORDS];
   uintptr_t sf_mask[CHROM_MASK_WORDS];
   uint32_t sf_start_idxs[MAX_POSSIBLE_CHROM + 1];
   uintptr_t* marker_exclude;
+  char* loadbuf; // on stack, first pass
+  uintptr_t loadbuf_size;
   uintptr_t unfiltered_marker_ctl;
   uint32_t sf_entry_ct;
   uint32_t sf_lltop;
@@ -713,16 +717,31 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   // first pass: count columns, determine raw marker count, determine maximum
   // marker ID length and/or marker allele length if necessary, save
   // nonstandard chromosome names.
-  tbuf[MAXLINELEN - 6] = ' ';
-  while (fgets(tbuf, MAXLINELEN - 5, bimfile) != NULL) {
-    if (!tbuf[MAXLINELEN - 6]) {
-      sprintf(logbuf, "Error: Excessively long line in .bim file (max %u chars).\n", MAXLINELEN - 8);
-      goto load_bim_ret_INVALID_FORMAT_2;
+  loadbuf_size = wkspace_left;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (loadbuf_size <= MAXLINELEN) {
+    goto load_bim_ret_NOMEM;
+  }
+  loadbuf = (char*)wkspace_base;
+  loadbuf[loadbuf_size - 1] = ' ';
+  while (fgets(loadbuf, loadbuf_size, bimfile) != NULL) {
+    if (!loadbuf[loadbuf_size - 1]) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
+        logprint("Error: Pathologically long line in .bim file.\n");
+        goto load_bim_ret_INVALID_FORMAT;
+      } else {
+	goto load_bim_ret_NOMEM;
+      }
     }
     // bufptr = col 1 start
-    bufptr = skip_initial_spaces(tbuf);
+    bufptr = skip_initial_spaces(loadbuf);
     if (is_eoln_or_comment(*bufptr)) {
       continue;
+    }
+    uii = strlen(loadbuf);
+    if (uii >= max_loadbuf) {
+      max_loadbuf = uii + 1;
     }
     jj = marker_code(chrom_info_ptr, bufptr);
     if (jj == -1) {
@@ -1043,10 +1062,17 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   }
 
   // second pass: actually load stuff
+  loadbuf2 = (char*)malloc(max_loadbuf);
+  if (!loadbuf2) {
+    goto load_bim_ret_NOMEM;
+  }
   for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-    if (get_next_noncomment(bimfile, &bufptr)) {
-      goto load_bim_ret_READ_FAIL;
-    }
+    do {
+      if (!fgets(loadbuf2, max_loadbuf, bimfile)) {
+	goto load_bim_ret_READ_FAIL;
+      }
+      bufptr = skip_initial_spaces(loadbuf2);
+    } while (is_eoln_or_comment(*bufptr));
     jj = marker_code(chrom_info_ptr, bufptr);
     if (jj != prev_chrom) {
       if (!split_chrom) {
@@ -1197,6 +1223,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
  load_bim_ret_1:
   fclose_cond(bimfile);
   free_cond(sf_pos);
+  free_cond(loadbuf2);
   return retval;
 }
 
