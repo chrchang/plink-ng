@@ -4080,6 +4080,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   double* marker_weights = NULL;
   uint32_t marker_weight_sum = 0;
   uint32_t* marker_weights_i = NULL;
+  char* one_char_strs = g_one_char_strs;
   char* person_ids = NULL;
   uintptr_t max_person_id_len = 4;
   char* paternal_ids = NULL;
@@ -5306,6 +5307,15 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   fclose_cond(phenofile);
   fclose_cond(famfile);
   fclose_cond(bedfile);
+  if (marker_allele_ptrs) {
+    ulii = unfiltered_marker_ct * 2;
+    for (marker_uidx = 0; marker_uidx < ulii; marker_uidx++) {
+      cptr = marker_allele_ptrs[marker_uidx];
+      if ((cptr < one_char_strs) || (cptr >= &(one_char_strs[448]))) {
+	free(cptr);
+      }
+    }
+  }
   return retval;
 }
 

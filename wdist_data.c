@@ -1020,11 +1020,11 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   }
   if (marker_alleles_needed) {
     *max_marker_allele_len_ptr = max_marker_allele_len;
-    marker_allele_pp = (char***)wkspace_alloc(unfiltered_marker_ct * 2 * sizeof(intptr_t));
-    if (!marker_allele_pp) {
+    marker_allele_ptrs = (char**)wkspace_alloc(unfiltered_marker_ct * 2 * sizeof(intptr_t));
+    if (!marker_allele_ptrs) {
       goto load_bim_ret_NOMEM;
     }
-    marker_allele_ptrs = *marker_allele_pp;
+    *marker_allele_pp = marker_allele_ptrs;
     ujj = unfiltered_marker_ct * 2;
     for (uii = 0; uii < ujj; uii++) {
       marker_allele_ptrs[uii] = missing_geno_ptr;
@@ -9446,7 +9446,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	goto recode_ret_INVALID_CMDLINE;
       }
       if (max_marker_allele_len == 2) {
-        ulii = max_chrom_size * 2;
+        ulii = max_chrom_size * 4;
       } else {
         ulii = 0;
 	for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
@@ -9470,7 +9470,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       max_chrom_size = marker_ct;
       // calculate maximum length of .ped line
       if (max_marker_allele_len == 2) {
-	ulii = marker_ct * 2;
+	ulii = marker_ct * 4;
       } else {
 	ulii = marker_ct;
 	for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
