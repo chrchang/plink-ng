@@ -600,7 +600,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
 }
 */
 
-int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t pheno_nm_ct, double lasso_h2, uint32_t report_zeroes, uintptr_t* pheno_nm, double* pheno_d, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_male, uint32_t hh_exists) {
+int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t pheno_nm_ct, double lasso_h2, uint32_t report_zeroes, uintptr_t* pheno_nm, double* pheno_d, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_male, uint32_t hh_exists) {
   // Coordinate descent LASSO.  Based on a MATLAB script by Shashaank
   // Vattikuti.
   // Not yet multithreaded.  (Main loop is fairly tightly coupled, so getting
@@ -634,6 +634,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   uintptr_t* loadbuf_collapsed;
   uintptr_t* polymorphic_markers;
   char* wptr;
+  char* wptr2;
   double sqrt_n_recip;
   double dxx;
   double dyy;
@@ -755,6 +756,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   if (fputs_checked("CHR\tSNP\tA1\tEFFECT\n", outfile)) {
     goto lasso_ret_WRITE_FAIL;
   }
+  tbuf[MAXLINELEN] = '\t';
   for (marker_uidx = 0, marker_idx = 0, marker_idx2 = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
     next_unset_unsafe_ck(marker_exclude, &marker_uidx);
     if (marker_uidx >= chrom_end) {
@@ -765,27 +767,25 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
       *wptr_start++ = '\t';
     }
     wptr = strcpyax(wptr_start, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
-    if (max_marker_allele_len == 1) {
-      *wptr++ = marker_alleles[2 * marker_uidx];
-    } else {
-      wptr = strcpya(wptr, &(marker_alleles[2 * marker_uidx * max_marker_allele_len]));
-    }
-    *wptr++ = '\t';
     if (IS_SET(polymorphic_markers, marker_uidx)) {
       dxx = xhat[covar_ct + (marker_idx2++)];
       if ((!report_zeroes) && (dxx == 0)) {
 	continue;
       }
-      wptr = double_g_writex(wptr, dxx, '\n');
+      wptr2 = double_g_writex(&(tbuf[MAXLINELEN + 1]), dxx, '\n');
     } else {
       if (!report_zeroes) {
 	continue;
       }
-      wptr = memcpyl3a(wptr, "NA\n");
+      wptr2 = memcpyl3a(&(tbuf[MAXLINELEN + 1]), "NA\n");
     }
     if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
       goto lasso_ret_WRITE_FAIL;
-    }    
+    }
+    fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
+    if (fwrite_checked(&(tbuf[MAXLINELEN]), (uintptr_t)(wptr2 - (&(tbuf[MAXLINELEN]))), outfile)) {
+      goto lasso_ret_WRITE_FAIL;
+    }
   }
   if (fclose_null(&outfile)) {
     goto lasso_ret_WRITE_FAIL;

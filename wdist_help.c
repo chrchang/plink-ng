@@ -858,12 +858,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #endif
     if (!param_ct) {
       fputs(
-"The following other flags are supported."
-#ifndef PLINK_BUILD
-"  (Order of operations is described at\n"
-"https://www.cog-genomics.org/wdist/order .)"
+"The following other flags are supported.  (Order of operations is described at\n"
+#ifdef PLINK_BUILD
+"[website TBD].)\n"
+#else
+"https://www.cog-genomics.org/wdist/order .)\n"
 #endif
-"\n"
 , stdout);
     }
     help_print("script", &help_ctrl, 0,
@@ -1369,15 +1369,17 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                             (optional) or --cnv-enrichment-test (required).\n"
 	       );
 #endif
-#ifndef PLINK_BUILD
     if (!param_ct) {
       fputs(
 "\nFor further documentation and support, consult the main webpage\n"
+#ifdef PLINK_BUILD
+"([TBD]) and/or the mailing list ([TBD]).\n"
+#else
 "(https://www.cog-genomics.org/wdist ) and/or the wdist-users mailing list\n"
 "(https://groups.google.com/d/forum/wdist-users ).\n"
+#endif
 , stdout);
     }
-#endif
   } while (help_ctrl.iters_left--);
   if (help_ctrl.unmatched_ct) {
     net_unmatched_ct = help_ctrl.unmatched_ct;

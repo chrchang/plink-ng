@@ -3542,7 +3542,7 @@ void normalize_phenos(double* new_phenos, uint32_t indiv_ct, uintptr_t* indiv_ex
   }
 }
 
-int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t max_pcs, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char* marker_alleles, uintptr_t max_marker_allele_len, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, double* pheno_d, double missing_phenod, char* outname, char* outname_end, uint32_t hh_exists) {
+int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t max_pcs, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, double* pheno_d, double missing_phenod, char* outname, char* outname_end, uint32_t hh_exists) {
   FILE* outfile = NULL;
   FILE* evecfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
@@ -3776,20 +3776,11 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
     tbuf[0] = ' ';
     bufptr = uint32_writex(&(tbuf[1]), marker_pos[marker_uidx], ' ');
-    if (max_marker_allele_len == 1) {
-      bufptr[0] = marker_alleles[2 * marker_uidx];
-      bufptr[1] = ' ';
-      bufptr[2] = marker_alleles[2 * marker_uidx + 1];
-      if (fwrite_checked(tbuf, 3 + (uintptr_t)(bufptr - tbuf), outfile)) {
-        goto calc_regress_pcs_ret_WRITE_FAIL;
-      }
-    } else {
-      fwrite(tbuf, 1, bufptr - tbuf, outfile);
-      fputs(&(marker_alleles[2 * marker_uidx * max_marker_allele_len]), outfile);
-      putc(' ', outfile);
-      if (fputs_checked(&(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), outfile)) {
-        goto calc_regress_pcs_ret_WRITE_FAIL;
-      }
+    fwrite(tbuf, 1, bufptr - tbuf, outfile);
+    fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
+    putc(' ', outfile);
+    if (fputs_checked(marker_allele_ptrs[2 * marker_uidx + 1], outfile)) {
+      goto calc_regress_pcs_ret_WRITE_FAIL;
     }
     memcpy(pc_prod_sums, pc_orig_prod_sums, pc_ct_p1 * pc_ct_p1 * sizeof(double));
     fill_double_zero(x_prime_y, pc_ct_p1);

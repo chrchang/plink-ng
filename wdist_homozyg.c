@@ -1307,7 +1307,7 @@ char* roh_pool_write_middle(char* wptr, char* marker_ids, uintptr_t max_marker_i
   return wptr;
 }
 
-int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* outname, char* outname_end, uintptr_t* rawbuf, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* missing_pheno_str, uint32_t missing_pheno_len, uint32_t is_new_lengths, uintptr_t roh_ct, uint32_t* roh_list, uintptr_t* roh_list_chrom_starts, uint32_t max_pool_size, uint32_t max_roh_len) {
+int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* outname, char* outname_end, uintptr_t* rawbuf, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* missing_pheno_str, uint32_t missing_pheno_len, uint32_t is_new_lengths, uintptr_t roh_ct, uint32_t* roh_list, uintptr_t* roh_list_chrom_starts, uint32_t max_pool_size, uint32_t max_roh_len) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uint64_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -1327,9 +1327,9 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   uint64_t* verbose_group_sort_buf = NULL;
   uint32_t* verbose_uidx_bounds = NULL;
   uint32_t* verbose_indiv_uidx = NULL;
+  char* writebuf = NULL;
   int32_t retval = 0;
   uint32_t chrom_fo_idx_to_pidx[MAX_POSSIBLE_CHROM + 1]; // decreasing order
-  char allele_chars[4];
   char* allele_strs[4];
 
   // Circular lookahead buffer.  This is one of the few analyses which is
@@ -1442,7 +1442,8 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   if (is_verbose) {
     if (wkspace_alloc_ull_checked(&verbose_group_sort_buf, max_pool_size * sizeof(int64_t)) ||
         wkspace_alloc_ui_checked(&verbose_uidx_bounds, max_pool_size * 2 * sizeof(int32_t)) ||
-        wkspace_alloc_ui_checked(&verbose_indiv_uidx, max_pool_size * sizeof(int32_t))) {
+        wkspace_alloc_ui_checked(&verbose_indiv_uidx, max_pool_size * sizeof(int32_t)) ||
+        wkspace_alloc_c_checked(&writebuf, 2 * max_marker_allele_len + 5)) {
       goto roh_pool_ret_NOMEM;
     }
   }
@@ -1930,77 +1931,41 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	  wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx1 * max_marker_id_len]), tbuf);
 	  *wptr++ = ' ';
           fwrite(tbuf, 1, wptr - tbuf, outfile);
-	  if (max_marker_allele_len == 1) {
-	    tbuf[2] = '/';
-	    tbuf[5] = ' ';
-	    allele_chars[2] = marker_alleles[marker_uidx1 * 2];
-	    allele_chars[3] = marker_alleles[marker_uidx1 * 2 + 1];
-	    allele_chars[0] = allele_chars[2 + IS_SET(marker_reverse, marker_uidx1)];
-            allele_chars[1] = allele_chars[3 - IS_SET(marker_reverse, marker_uidx1)];
-	    for (slot_idx1 = 0; slot_idx1 < pool_size; slot_idx1++) {
-	      indiv_uidx1 = verbose_indiv_uidx[slot_idx1];
-	      if ((marker_uidx1 >= verbose_uidx_bounds[slot_idx1 * 2]) && (marker_uidx1 <= verbose_uidx_bounds[slot_idx1 * 2 + 1])) {
-		tbuf[0] = '[';
-		tbuf[4] = ']';
-	      } else {
-		tbuf[0] = ' ';
-		tbuf[4] = ' ';
-	      }
-	      ulii = (lookahead_row[indiv_uidx1 / BITCT2] >> (2 * (indiv_uidx1 % BITCT2))) & (3 * ONELU);
-	      if (ulii == 1) {
-	        tbuf[1] = '0';
-	        tbuf[3] = '0';
-	      } else {
-		if (ulii == 3) {
-		  tbuf[1] = allele_chars[1];
-		  tbuf[3] = allele_chars[1];
-		} else if (ulii) {
-		  tbuf[1] = allele_chars[2];
-		  tbuf[3] = allele_chars[3];
-		} else {
-		  tbuf[1] = allele_chars[0];
-		  tbuf[3] = allele_chars[0];
-		}
-	      }
-	      fwrite(tbuf, 1, 6, outfile);
+	  allele_strs[2] = marker_allele_ptrs[marker_uidx1 * 2];
+	  allele_strs[3] = marker_allele_ptrs[marker_uidx1 * 2 + 1];
+	  allele_strs[0] = allele_strs[2 + IS_SET(marker_reverse, marker_uidx1)];
+	  allele_strs[1] = allele_strs[3 - IS_SET(marker_reverse, marker_uidx1)];
+	  for (slot_idx1 = 0; slot_idx1 < pool_size; slot_idx1++) {
+	    indiv_uidx1 = verbose_indiv_uidx[slot_idx1];
+	    ujj = ((marker_uidx1 >= verbose_uidx_bounds[slot_idx1 * 2]) && (marker_uidx1 <= verbose_uidx_bounds[slot_idx1 * 2 + 1]))? 1 : 0;
+	    if (ujj) {
+	      writebuf[0] = '[';
+	    } else {
+	      writebuf[0] = ' ';
 	    }
-	  } else {
-	    allele_strs[2] = &(marker_alleles[marker_uidx1 * 2 * max_marker_allele_len]);
-	    allele_strs[3] = &(marker_alleles[(marker_uidx1 * 2 + 1) * max_marker_allele_len]);
-	    allele_strs[0] = allele_strs[2 + IS_SET(marker_reverse, marker_uidx1)];
-	    allele_strs[1] = allele_strs[3 - IS_SET(marker_reverse, marker_uidx1)];
-	    for (slot_idx1 = 0; slot_idx1 < pool_size; slot_idx1++) {
-	      indiv_uidx1 = verbose_indiv_uidx[slot_idx1];
-	      ujj = ((marker_uidx1 >= verbose_uidx_bounds[slot_idx1 * 2]) && (marker_uidx1 <= verbose_uidx_bounds[slot_idx1 * 2 + 1]))? 1 : 0;
-	      if (ujj) {
-		tbuf[0] = '[';
+	    ulii = (lookahead_row[(indiv_uidx1 / BITCT2)] >> (2 * (indiv_uidx1 % BITCT2))) & (3 * ONELU);
+	    wptr = &(writebuf[1]);
+	    if (ulii == 1) {
+	      wptr = memcpyl3a(wptr, "0/0");
+	    } else {
+	      if (ulii == 3) {
+		wptr = strcpyax(wptr, allele_strs[1], '/');
+		wptr = strcpya(wptr, allele_strs[1]);
+	      } else if (ulii) {
+		wptr = strcpyax(wptr, allele_strs[2], '/');
+		wptr = strcpya(wptr, allele_strs[3]);
 	      } else {
-		tbuf[0] = ' ';
+		wptr = strcpyax(wptr, allele_strs[0], '/');
+		wptr = strcpya(wptr, allele_strs[0]);
 	      }
-	      ulii = (lookahead_row[(indiv_uidx1 / BITCT2)] >> (2 * (indiv_uidx1 % BITCT2))) & (3 * ONELU);
-	      wptr = &(tbuf[1]);
-	      if (ulii == 1) {
-		wptr = memcpyl3a(wptr, "0/0");
-	      } else {
-		if (ulii == 3) {
-		  wptr = strcpyax(wptr, allele_strs[1], '/');
-		  wptr = strcpya(wptr, allele_strs[1]);
-		} else if (ulii) {
-		  wptr = strcpyax(wptr, allele_strs[2], '/');
-		  wptr = strcpya(wptr, allele_strs[3]);
-		} else {
-		  wptr = strcpyax(wptr, allele_strs[0], '/');
-		  wptr = strcpya(wptr, allele_strs[0]);
-		}
-	      }
-	      if (ujj) {
-		*wptr++ = ']';
-	      } else {
-		*wptr++ = ' ';
-	      }
+	    }
+	    if (ujj) {
+	      *wptr++ = ']';
+	    } else {
 	      *wptr++ = ' ';
-	      fwrite(tbuf, 1, wptr - tbuf, outfile);
 	    }
+	    *wptr++ = ' ';
+	    fwrite(writebuf, 1, wptr - writebuf, outfile);
 	  }
           if (putc_checked('\n', outfile)) {
 	    goto roh_pool_ret_WRITE_FAIL;
@@ -2080,6 +2045,9 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	    lookahead_row = &(lookahead_buf[ulii * unfiltered_indiv_ctl2]);
 	    wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx1 * max_marker_id_len]), tbuf);
 	    *wptr++ = ' ';
+	    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	      goto roh_pool_ret_WRITE_FAIL;
+	    }
 	    ujj = 0; // A1 hom ct
 	    ukk = 0; // A2 hom ct
 	    for (slot_idx2 = slot_idx1; slot_idx2 < group_slot_end; slot_idx2++) {
@@ -2094,96 +2062,50 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 		}
 	      }
 	    }
-	    if (max_marker_allele_len == 1) {
-	      allele_chars[2] = marker_alleles[marker_uidx1 * 2];
-	      allele_chars[3] = marker_alleles[marker_uidx1 * 2 + 1];
-	      allele_chars[0] = allele_chars[2 + IS_SET(marker_reverse, marker_uidx1)];
-	      allele_chars[1] = allele_chars[3 - IS_SET(marker_reverse, marker_uidx1)];
-	      *wptr++ = ' ';
-	      if (ukk > ujj) {
-		*wptr++ = allele_chars[1];
-	      } else if (ujj > ukk) {
-		*wptr++ = allele_chars[0];
-	      } else {
-		*wptr++ = '?';
-	      }
-	      wptr = memseta(wptr, 32, 6);
-	      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-		goto roh_pool_ret_WRITE_FAIL;
-	      }
-	      tbuf[2] = '/';
-	      tbuf[5] = ' ';
-	      for (slot_idx2 = slot_idx1; slot_idx2 < group_slot_end; slot_idx2++) {
-		indiv_uidx1 = verbose_indiv_uidx[slot_idx2];
-		if ((marker_uidx1 >= verbose_uidx_bounds[slot_idx2 * 2]) && (marker_uidx1 <= verbose_uidx_bounds[slot_idx2 * 2 + 1])) {
-		  tbuf[0] = '[';
-		  tbuf[4] = ']';
-		} else {
-		  tbuf[0] = ' ';
-		  tbuf[4] = ' ';
-		}
-		ulii = (lookahead_row[indiv_uidx1 / BITCT2] >> (2 * (indiv_uidx1 % BITCT2))) & (3 * ONELU);
-		if (ulii == 3) {
-		  tbuf[1] = allele_chars[1];
-		  tbuf[3] = allele_chars[1];
-		} else if (ulii == 2) {
-		  tbuf[1] = allele_chars[2];
-		  tbuf[3] = allele_chars[3];
-		} else if (ulii) {
-		  tbuf[1] = '0';
-		  tbuf[3] = '0';
-		} else {
-		  tbuf[1] = allele_chars[0];
-		  tbuf[3] = allele_chars[0];
-		}
-		fwrite(tbuf, 1, 6, outfile);
-	      }
+	    allele_strs[2] = marker_allele_ptrs[marker_uidx1 * 2];
+	    allele_strs[3] = marker_allele_ptrs[marker_uidx1 * 2 + 1];
+	    allele_strs[0] = allele_strs[2 + IS_SET(marker_reverse, marker_uidx1)];
+	    allele_strs[1] = allele_strs[3 - IS_SET(marker_reverse, marker_uidx1)];
+	    if (ukk > ujj) {
+	      wptr = fw_strcpy(2, allele_strs[1], writebuf);
+	    } else if (ujj > ukk) {
+	      wptr = fw_strcpy(2, allele_strs[0], writebuf);
 	    } else {
-	      allele_strs[2] = &(marker_alleles[marker_uidx1 * 2 * max_marker_allele_len]);
-	      allele_strs[3] = &(marker_alleles[(marker_uidx1 * 2 + 1) * max_marker_allele_len]);
-	      allele_strs[0] = allele_strs[2 + IS_SET(marker_reverse, marker_uidx1)];
-	      allele_strs[1] = allele_strs[3 - IS_SET(marker_reverse, marker_uidx1)];
-	      if (ukk > ujj) {
-		wptr = fw_strcpy(2, allele_strs[1], wptr);
-	      } else if (ujj > ukk) {
-		wptr = fw_strcpy(2, allele_strs[0], wptr);
+	      wptr = memcpya(writebuf, " ?", 2);
+	    }
+	    wptr = memseta(wptr, 32, 6);
+	    if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
+	      goto roh_pool_ret_WRITE_FAIL;
+	    }
+	    for (slot_idx2 = slot_idx1; slot_idx2 < group_slot_end; slot_idx2++) {
+	      indiv_uidx1 = verbose_indiv_uidx[slot_idx2];
+	      ujj = ((marker_uidx1 >= verbose_uidx_bounds[slot_idx2 * 2]) && (marker_uidx1 <= verbose_uidx_bounds[slot_idx2 * 2 + 1]))? 1 : 0;
+	      if (ujj) {
+		writebuf[0] = '[';
 	      } else {
-		wptr = memcpya(wptr, " ?", 2);
+		writebuf[0] = ' ';
 	      }
-	      wptr = memseta(wptr, 32, 6);
-	      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-		goto roh_pool_ret_WRITE_FAIL;
+	      ulii = (lookahead_row[(indiv_uidx1 / BITCT2)] >> (2 * (indiv_uidx1 % BITCT2))) & (3 * ONELU);
+	      wptr = &(writebuf[1]);
+	      if (ulii == 3) {
+		wptr = strcpyax(wptr, allele_strs[1], '/');
+		wptr = strcpya(wptr, allele_strs[1]);
+	      } else if (ulii == 2) {
+		wptr = strcpyax(wptr, allele_strs[2], '/');
+		wptr = strcpya(wptr, allele_strs[3]);
+	      } else if (ulii) {
+		wptr = memcpyl3a(wptr, "0/0");
+	      } else {
+		wptr = strcpyax(wptr, allele_strs[0], '/');
+		wptr = strcpya(wptr, allele_strs[0]);
 	      }
-	      for (slot_idx2 = slot_idx1; slot_idx2 < group_slot_end; slot_idx2++) {
-		indiv_uidx1 = verbose_indiv_uidx[slot_idx2];
-		ujj = ((marker_uidx1 >= verbose_uidx_bounds[slot_idx2 * 2]) && (marker_uidx1 <= verbose_uidx_bounds[slot_idx2 * 2 + 1]))? 1 : 0;
-		if (ujj) {
-		  tbuf[0] = '[';
-		} else {
-		  tbuf[0] = ' ';
-		}
-		ulii = (lookahead_row[(indiv_uidx1 / BITCT2)] >> (2 * (indiv_uidx1 % BITCT2))) & (3 * ONELU);
-		wptr = &(tbuf[1]);
-		if (ulii == 3) {
-		  wptr = strcpyax(wptr, allele_strs[1], '/');
-		  wptr = strcpya(wptr, allele_strs[1]);
-		} else if (ulii == 2) {
-		  wptr = strcpyax(wptr, allele_strs[2], '/');
-		  wptr = strcpya(wptr, allele_strs[3]);
-		} else if (ulii) {
-		  wptr = memcpyl3a(wptr, "0/0");
-		} else {
-		  wptr = strcpyax(wptr, allele_strs[0], '/');
-		  wptr = strcpya(wptr, allele_strs[0]);
-		}
-		if (ujj) {
-		  *wptr++ = ']';
-		} else {
-		  *wptr++ = ' ';
-		}
+	      if (ujj) {
+		*wptr++ = ']';
+	      } else {
 		*wptr++ = ' ';
-		fwrite(tbuf, 1, wptr - tbuf, outfile);
 	      }
+	      *wptr++ = ' ';
+	      fwrite(writebuf, 1, wptr - writebuf, outfile);
 	    }
 	    if (putc_checked('\n', outfile)) {
 	      goto roh_pool_ret_WRITE_FAIL;
@@ -2220,17 +2142,8 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	    goto roh_pool_ret_WRITE_FAIL;
 	  }
 
-	  if (max_marker_allele_len == 1) {
-	    allele_chars[0] = marker_alleles[marker_uidx1 * 2];
-	    allele_chars[1] = '\0';
-	    allele_chars[2] = marker_alleles[marker_uidx1 * 2 + 1];
-	    allele_chars[3] = '\0';
-	    allele_strs[0] = &(allele_chars[0]);
-	    allele_strs[1] = &(allele_chars[2]);
-	  } else {
-	    allele_strs[0] = &(marker_alleles[marker_uidx1 * 2 * max_marker_allele_len]);
-	    allele_strs[1] = &(marker_alleles[(marker_uidx1 * 2 + 1) * max_marker_allele_len]);
-	  }
+	  allele_strs[0] = marker_allele_ptrs[marker_uidx1 * 2];
+	  allele_strs[1] = marker_allele_ptrs[marker_uidx1 * 2 + 1];
 	  slot_idx1 = 0;
 	  do {
 	    group_slot_end = slot_idx1 + 1;
@@ -2486,7 +2399,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   return retval;
 }
 
-int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char* marker_alleles, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* outname, char* outname_end, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, int32_t missing_pheno, uintptr_t* sex_male) {
+int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* outname, char* outname_end, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, int32_t missing_pheno, uintptr_t* sex_male) {
   unsigned char* wkspace_mark = wkspace_base;
   uint64_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
@@ -2807,7 +2720,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     } else {
       wptr = double_g_writewx4(missing_pheno_str, (double)missing_pheno, 8);
       missing_pheno_len = (uintptr_t)(wptr - missing_pheno_str);
-      retval = roh_pool(hp, bedfile, bed_offset, outname, outname_end, rawbuf, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, marker_alleles, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, marker_pos, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, pheno_nm, pheno_c, pheno_d, missing_pheno_str, missing_pheno_len, is_new_lengths, roh_ct, roh_list, roh_list_chrom_starts, max_pool_size, max_roh_len);
+      retval = roh_pool(hp, bedfile, bed_offset, outname, outname_end, rawbuf, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_len, marker_reverse, zero_extra_chroms, chrom_info_ptr, marker_pos, indiv_ct, unfiltered_indiv_ct, indiv_exclude, person_ids, plink_maxfid, plink_maxiid, max_person_id_len, pheno_nm, pheno_c, pheno_d, missing_pheno_str, missing_pheno_len, is_new_lengths, roh_ct, roh_list, roh_list_chrom_starts, max_pool_size, max_roh_len);
       if (retval) {
 	goto calc_homozyg_ret_1;
       }
