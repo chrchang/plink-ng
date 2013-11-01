@@ -579,7 +579,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Cluster individuals using a pairwise similarity statistic (normally IBS).\n"
 "    * The 'cc' modifier forces every cluster to have at least one case and one\n"
 "      control.\n"
-"    * The 'group-avg' modifier causes clusters to be joined based on average\t"
+"    * The 'group-avg' modifier causes clusters to be joined based on average\n"
 "      instead of minimum pairwise similarity.\n"
 "    * The 'missing' modifier causes clustering to be based on\n"
 "      identity-by-missingness instead of identity-by-state, and writes a\n"
