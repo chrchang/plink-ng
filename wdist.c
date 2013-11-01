@@ -2795,7 +2795,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
     retval = RET_INVALID_FORMAT;
     break;
   read_external_freqs_ret_ALLELE_MISMATCH:
-    sprintf(logbuf, "Error: Mismatch between .bim/.ped and --freq alleles at %s.\n", next_item_mult(loadbuf, 2));
+    sprintf(logbuf, "Error: Mismatch between .bim/.ped and --read-freq alleles at %s.\n", next_item(skip_initial_spaces(loadbuf)));
     logprintb();
     retval = RET_ALLELE_MISMATCH;
     break;
