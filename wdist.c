@@ -66,7 +66,7 @@ const char ver_str[] =
   "PLINK v1.50b1"
 #else
   #ifdef STABLE_BUILD
-  "WDIST v0.22.6"
+  "WDIST v0.22.7b"
   #else
   "WDIST v0.23.0p"
   #endif
@@ -79,7 +79,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (1 Nov 2013)";
+  " (2 Nov 2013)";
 const char ver_str2[] =
 #ifdef PLINK_BUILD
   "    [final website TBD]\n"
@@ -2892,7 +2892,7 @@ int32_t write_freqs(char* outname, uint32_t plink_maxsnp, uintptr_t unfiltered_m
       } else {
 	bufptr = width_force(4, tbuf2, chrom_name_write(tbuf2, chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), zero_extra_chroms));
 	fwrite(tbuf2, 1, bufptr - tbuf2, outfile);
-	fprintf(outfile, tbuf, &(marker_ids[marker_uidx * max_marker_id_len]), minor_ptr, major_ptr, reverse? set_allele_freqs[marker_uidx] : (1.0 - set_allele_freqs[marker_uidx]), 2 * (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]) + hapl_cts[marker_uidx] + haph_cts[marker_uidx]);
+	fprintf(outfile, tbuf, &(marker_ids[marker_uidx * max_marker_id_len]), minor_ptr, major_ptr, (reverse? set_allele_freqs[marker_uidx] : (1.0 - set_allele_freqs[marker_uidx])) + SMALL_EPSILON, 2 * (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]) + hapl_cts[marker_uidx] + haph_cts[marker_uidx]);
       }
       if (ferror(outfile)) {
 	goto write_freqs_ret_WRITE_FAIL;
