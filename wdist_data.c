@@ -734,14 +734,14 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	goto load_bim_ret_NOMEM;
       }
     }
+    uii = strlen(loadbuf);
+    if (uii >= max_loadbuf) {
+      max_loadbuf = uii + 1;
+    }
     // bufptr = col 1 start
     bufptr = skip_initial_spaces(loadbuf);
     if (is_eoln_or_comment(*bufptr)) {
       continue;
-    }
-    uii = strlen(loadbuf);
-    if (uii >= max_loadbuf) {
-      max_loadbuf = uii + 1;
     }
     jj = marker_code(chrom_info_ptr, bufptr);
     if (jj == -1) {
