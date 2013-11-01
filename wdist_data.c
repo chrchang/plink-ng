@@ -9457,6 +9457,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       writebuf2[18] = delimiter;
       writebuf2[21] = delimiter;
     }
+    max_chrom_size = marker_ct;
     if (recode_modifier & RECODE_AD) {
       ulii = 6;
     } else if (recode_modifier & (RECODE_A | RECODE_COMPOUND)) {
@@ -9465,7 +9466,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	goto recode_ret_INVALID_FORMAT;
       }
       ulii = 3;
-      max_chrom_size = marker_ct;
     } else if (recode_modifier & (RECODE_HV | RECODE_HV_1CHR)) {
       max_chrom_size = get_max_chrom_size(chrom_info_ptr, marker_exclude, &last_chrom_fo_idx);
       if ((recode_modifier & RECODE_HV_1CHR) && (max_chrom_size != marker_ct)) {
@@ -9494,7 +9494,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       }
     } else {
       // all chromosomes at once
-      max_chrom_size = marker_ct;
       // calculate maximum length of .ped line
       if (max_marker_allele_len == 2) {
 	ulii = marker_ct * 4;
