@@ -4778,10 +4778,6 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       goto ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2;
     }
     indiv_ct++;
-#ifndef STABLE_BUILD
-    sprintf(logbuf, "indiv_ct: %" PRIuPTR "  wkspace_left: %" PRIuPTR "  topsize: %" PRIuPTR "\n", indiv_ct, wkspace_left, topsize);
-    logstr(logbuf);
-#endif
     if (ftello(*pedfile_ptr) >= ped_next_thresh) {
       uii = (ftello(*pedfile_ptr) * 100) / ped_size;
       if (pct >= 10) {
