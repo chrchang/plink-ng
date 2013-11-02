@@ -1333,27 +1333,6 @@ static inline void free_cond(void* memptr) {
   }
 }
 
-#define FTOKEN_BUFLEN 131072
-
-typedef struct {
-  // when lines are too long for fgets()
-  FILE* infile;
-  char* buf; // main read buffer; assumed to be length FTOKEN_BUFLEN
-  char* buf_end;
-
-  // token buffer used when overflow happens; variable length, but assumed to
-  // be larger than FTOKEN_BUFLEN
-  char* tokbuf;
-  char* bufptr;
-  uintptr_t tokbuf_len;
-} Ftoken_status;
-
-uint32_t ftoken_init(Ftoken_status* fsp, char* buf, char* tokbuf, uintptr_t tokbuf_len);
-
-uint32_t ftoken_read(Ftoken_status* fsp, char** tok_ptr, uintptr_t* toklen_ptr);
-
-uint32_t ftoken_nextline(Ftoken_status* fsp);
-
 static inline double get_maf(double allele_freq) {
   if (allele_freq < 0.5) {
     return allele_freq;
