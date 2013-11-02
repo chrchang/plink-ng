@@ -538,8 +538,9 @@
 // fit 4 pathologically long IDs plus a bit extra
 extern char tbuf[];
 
-extern char g_one_char_strs[];
-extern char* g_missing_geno_ptr;
+extern const char g_one_char_strs[];
+extern const char* g_missing_geno_ptr;
+extern const char* g_output_missing_geno_ptr;
 
 extern sfmt_t sfmt;
 
@@ -1060,6 +1061,8 @@ static inline void read_next_terminate(char* target, char* source) {
 char* chrom_print_human(char* buf, uint32_t num);
 
 uint32_t allele_set(char** allele_ptr, char* newval, uint32_t slen);
+
+uint32_t allele_reset(char** allele_ptr, char* newval, uint32_t slen);
 
 void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* pre_shiftp, uint32_t* post_shiftp, uint32_t* incrp);
 
