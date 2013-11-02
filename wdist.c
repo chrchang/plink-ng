@@ -79,7 +79,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (2 Nov 2013)";
+  " (3 Nov 2013)";
 const char ver_str2[] =
 #ifdef PLINK_BUILD
   "               [final website TBD]\n"
@@ -7214,44 +7214,56 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
       } else if (!memcmp(argptr2, "perm", 5)) {
-	if (enforce_param_ct_range(param_ct, argv[cur_arg], 6, 6)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 6)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	ii = atoi(argv[cur_arg + 1]);
-	if (ii < 1) {
+	if ((ii < 1) || ((param_ct == 1) && (ii >= ((int32_t)aperm_max) - 1))) {
 	  sprintf(logbuf, "Error: Invalid --aperm min permutation count '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	aperm_min = ii + 1;
-	ii = atoi(argv[cur_arg + 2]);
-	if ((ii <= ((int32_t)aperm_min)) || (ii > APERM_MAX)) {
-	  sprintf(logbuf, "Error: Invalid --aperm max permutation count '%s'.%s", argv[cur_arg + 2], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	if (param_ct > 1) {
+	  ii = atoi(argv[cur_arg + 2]);
+	  // may as well disallow equality since there's no reason not to use
+	  // max(T) then...
+	  if ((ii <= (int32_t)aperm_min) || (ii > APERM_MAX)) {
+	    sprintf(logbuf, "Error: Invalid --aperm max permutation count '%s'.%s", argv[cur_arg + 2], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  aperm_max = ii;
 	}
-	aperm_max = ii;
-	if (scan_double(argv[cur_arg + 3], &aperm_alpha)) {
-	  sprintf(logbuf, "Error: Invalid --aperm alpha threshold '%s'.%s", argv[cur_arg + 3], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	if (scan_double(argv[cur_arg + 4], &aperm_beta)) {
-	  sprintf(logbuf, "Error: Invalid --aperm beta '%s'.%s", argv[cur_arg + 4], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	if (scan_double(argv[cur_arg + 5], &aperm_init_interval)) {
-	  sprintf(logbuf, "Error: Invalid --aperm initial pruning interval '%s'.%s", argv[cur_arg + 5], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	if ((aperm_init_interval < 1) || (aperm_init_interval > 1000000)) {
-	  sprintf(logbuf, "Error: Invalid --aperm initial pruning interval '%s'.%s", argv[cur_arg + 5], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	if (scan_double(argv[cur_arg + 6], &aperm_interval_slope)) {
-	  sprintf(logbuf, "Error: Invalid --aperm pruning interval slope '%s'.%s", argv[cur_arg + 6], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-	if ((aperm_interval_slope < 0) || (aperm_interval_slope > 1)) {
-	  sprintf(logbuf, "Error: Invalid --aperm pruning interval slope '%s'.%s", argv[cur_arg + 6], errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
+	if (param_ct > 2) {
+	  if (scan_double(argv[cur_arg + 3], &aperm_alpha)) {
+	    sprintf(logbuf, "Error: Invalid --aperm alpha threshold '%s'.%s", argv[cur_arg + 3], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  if (param_ct > 3) {
+	    if (scan_double(argv[cur_arg + 4], &aperm_beta) || (aperm_beta <= 0)) {
+	      sprintf(logbuf, "Error: Invalid --aperm beta '%s'.%s", argv[cur_arg + 4], errstr_append);
+	      goto main_ret_INVALID_CMDLINE_3;
+	    }
+	    if (param_ct > 4) {
+	      if (scan_double(argv[cur_arg + 5], &aperm_init_interval)) {
+		sprintf(logbuf, "Error: Invalid --aperm initial pruning interval '%s'.%s", argv[cur_arg + 5], errstr_append);
+		goto main_ret_INVALID_CMDLINE_3;
+	      }
+	      if ((aperm_init_interval < 1) || (aperm_init_interval > 1000000)) {
+		sprintf(logbuf, "Error: Invalid --aperm initial pruning interval '%s'.%s", argv[cur_arg + 5], errstr_append);
+		goto main_ret_INVALID_CMDLINE_3;
+	      }
+	      if (param_ct == 6) {
+		if (scan_double(argv[cur_arg + 6], &aperm_interval_slope)) {
+		  sprintf(logbuf, "Error: Invalid --aperm pruning interval slope '%s'.%s", argv[cur_arg + 6], errstr_append);
+		  goto main_ret_INVALID_CMDLINE_3;
+		}
+		if ((aperm_interval_slope < 0) || (aperm_interval_slope > 1)) {
+		  sprintf(logbuf, "Error: Invalid --aperm pruning interval slope '%s'.%s", argv[cur_arg + 6], errstr_append);
+		  goto main_ret_INVALID_CMDLINE_3;
+		}
+	      }
+	    }
+	  }
 	}
       } else if (!memcmp(argptr2, "1-allele", 9)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 4)) {

@@ -1262,7 +1262,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --pfilter [val]  : Filter out association test results with higher p-values.\n"
 	       );
     help_print("aperm", &help_ctrl, 0,
-"  --aperm [min perms] [max perms] [alpha] [beta] [init interval] [slope] :\n"
+"  --aperm [min perms] {max perms} {alpha} {beta} {init interval} {slope} :\n"
 "    This sets six parameters controlling adaptive permutation tests.  Defaults\n"
 "    are 5, 1000000, 0, 0.0001, 1, and 0.001, respectively.\n"
 	       );

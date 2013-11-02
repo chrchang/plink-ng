@@ -5082,14 +5082,8 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     retval = RET_INVALID_FORMAT;
     break;
   }
-  if (marker_allele_ptrs) {
-    for (marker_idx = 0; marker_idx < 2 * marker_ct; marker_idx++) {
-      bufptr = marker_allele_ptrs[marker_idx];
-      if ((bufptr < g_one_char_strs) || (bufptr >= &(g_one_char_strs[512]))) {
-	free(bufptr);
-      }
-    }
-  }
+  // no marker_allele_ptrs free since all strings were allocated on top of
+  // stack
   return retval;
 }
 
