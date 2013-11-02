@@ -6359,7 +6359,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
     ma_end = &(marker_allele_ptrs[2 * marker_ct]);
     while (marker_allele_ptrs < ma_end) {
       sptr = *marker_allele_ptrs++;
-      if (sptr && (sptr < g_one_char_strs) || (sptr >= (&(g_one_char_strs[512])))) {
+      if (sptr && ((sptr < g_one_char_strs) || (sptr >= (&(g_one_char_strs[512]))))) {
 	free(sptr);
       }
     }
