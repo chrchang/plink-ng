@@ -66,7 +66,7 @@ const char ver_str[] =
   "PLINK v1.50b1"
 #else
   #ifdef STABLE_BUILD
-  "WDIST v0.22.7b"
+  "WDIST v0.22.7"
   #else
   "WDIST v0.23.0p"
   #endif
@@ -5308,7 +5308,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   fclose_cond(phenofile);
   fclose_cond(famfile);
   fclose_cond(bedfile);
-  if (marker_allele_ptrs) {
+  if (marker_allele_ptrs && (max_marker_allele_len > 2)) {
     ulii = unfiltered_marker_ct * 2;
     for (marker_uidx = 0; marker_uidx < ulii; marker_uidx++) {
       cptr = marker_allele_ptrs[marker_uidx];
