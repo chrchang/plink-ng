@@ -9536,7 +9536,7 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
     ulptr_end = ulptr_end_init;
     indiv_idx = 0;
     indiv_idx_stop = BITCT2;
-    if (!hethom) {
+    if ((!hethom) && (!is_nonx_haploid)) {
       if (!male_x_01) {
 	while (1) {
 	  while (ulptr < ulptr_end) {
@@ -9566,10 +9566,7 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
 	    for (; indiv_idx < indiv_idx_stop; indiv_idx++, cur_word >>= 2) {
 	      cur_genotype = cur_word & 3;
 	      if (cur_genotype != 1) {
-		// 0/1/2, i.e.
-		//   3 = hom A2 -> 0
-		//   2 = het -> 1
-		//   0 = hom A1 -> 2
+		// 0/1/2, but downshifted for males
 		*dptr++ = (double)((intptr_t)((2 + (cur_genotype / 2) - cur_genotype) >> IS_SET(sex_male_collapsed, indiv_idx)));
 	      }
 	    }
