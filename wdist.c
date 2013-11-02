@@ -12195,8 +12195,8 @@ int32_t main(int32_t argc, char** argv) {
     rseeds = NULL;
   }
 
-  // guarantee 64MB of contiguous malloc space outside of main workspace
-  bubble = (char*)malloc(67108864 * sizeof(char));
+  // guarantee contiguous malloc space outside of main workspace
+  bubble = (char*)malloc(NON_WKSPACE_MIN * sizeof(char));
   if (!bubble) {
     goto main_ret_NOMEM;
   }
@@ -12300,8 +12300,7 @@ int32_t main(int32_t argc, char** argv) {
       if (load_rare == LOAD_RARE_LGEN) {
         retval = lgen_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, lgen_modifier, lgen_reference_fname, &chrom_info);
       } else if (load_rare & LOAD_RARE_TRANSPOSE_MASK) {
-        // retval = transposed_to_bed(pedname, famname, outname, sptr, misc_flags, &chrom_info);
-	retval = 0;
+        retval = transposed_to_bed(pedname, famname, outname, sptr, misc_flags, &chrom_info);
       } else if (load_rare == LOAD_RARE_23) {
         retval = bed_from_23(pedname, outname, sptr, modifier_23, fid_23, iid_23, (pheno_23 == INFINITY)? ((double)missing_pheno) : pheno_23, paternal_id_23, maternal_id_23, convert_xy_23, &chrom_info);
       } else if (load_rare & LOAD_RARE_DUMMY) {

@@ -3735,7 +3735,6 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
   FILE* outfile = NULL;
   uint32_t max_code = chrom_info_ptr->max_code;
   int32_t retval = 0;
-  char* zstr = (char*)(&(g_one_char_strs[96]));
   const char* missing_geno_ptr = g_missing_geno_ptr;
   const char* output_missing_geno_ptr = g_output_missing_geno_ptr;
   char wbuf[16];
@@ -3781,7 +3780,7 @@ int32_t sort_and_write_bim(uint32_t* map_reverse, uint32_t map_cols, char* outna
       chrom_ptr = uint32_write(wbuf, cur_chrom);
       *chrom_ptr = '\0';
     } else if (zero_extra_chroms) {
-      chrom_ptr = zstr;
+      chrom_ptr = (char*)(&(g_one_char_strs[96]));
     } else {
       chrom_ptr = chrom_info_ptr->nonstd_names[cur_chrom];
     }
@@ -6367,42 +6366,19 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   return retval;
 }
 
-uint32_t update_alleles_and_cts(char** alleles, uint32_t* allele_cts, char* ss, uint32_t slen) {
-  if ((!memcmp(ss, alleles[0], slen)) && (alleles[0][slen] == '\0')) {
-    allele_cts[0] += 1;
-    return 0;
-  } else if (!alleles[0][0]) {
-    memcpy(alleles[0], ss, slen);
-    alleles[0][slen] = '\0';
-    allele_cts[0] = 1;
-    return 0;
-  } else if ((!memcmp(ss, alleles[1], slen)) && (alleles[1][slen] == '\0')) {
-    allele_cts[1] += 1;
-    return 1;
-  } else if (!alleles[1][0]) {
-    memcpy(alleles[1], ss, slen);
-    alleles[1][slen] = '\0';
-    allele_cts[1] = 1;
-    return 1;
-  } else if ((!memcmp(ss, alleles[2], slen)) && (alleles[2][slen] == '\0')) {
-    allele_cts[2] += 1;
-    return 2;
-  } else if (!alleles[2][0]) {
-    memcpy(alleles[2], ss, slen);
-    alleles[2][slen] = '\0';
-    allele_cts[2] = 1;
-    return 2;
-  } else if ((!memcmp(ss, alleles[3], slen)) && (alleles[3][slen] == '\0')) {
-    allele_cts[3] += 1;
-    return 3;
-  } else if (!alleles[2][0]) {
-    memcpy(alleles[3], ss, slen);
-    alleles[3][slen] = '\0';
-    allele_cts[3] = 1;
-    return 3;
-  } else {
-    return 4;
+uint32_t update_tped_alleles_and_cts(char** alleles, uint32_t* allele_cts, char* ss) {
+  uint32_t allele_idx;
+  for (allele_idx = 0; allele_idx < 4; allele_idx++) {
+    if (!alleles[allele_idx]) {
+      allele_cts[allele_idx] = 1;
+      alleles[allele_idx] = ss;
+      break;
+    } else if (!strcmp(alleles[allele_idx], ss)) {
+      allele_cts[allele_idx] += 1;
+      break;
+    }
   }
+  return allele_idx;
 }
 
 void transposed_to_bed_print_pct(uint32_t pct) {
@@ -6410,24 +6386,24 @@ void transposed_to_bed_print_pct(uint32_t pct) {
   fflush(stdout);
 }
 
-/*
 int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* outname_end, uint64_t misc_flags, Chrom_info* chrom_info_ptr) {
+  unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   FILE* bimfile = NULL;
   FILE* outfile = NULL;
   char** marker_allele_ptrs = NULL;
-  char* one_char_strs = g_one_char_strs;
+  uintptr_t topsize = 0;
   uintptr_t indiv_ct = 0;
   uint32_t no_extra_cols = 1;
   int32_t retval = 0;
   uint32_t pct = 0;
-  uintptr_t marker_idx = 0;
-  int64_t last_mapval = 0;
-  uint32_t fullmem = 0;
   uint32_t map_is_unsorted = 0;
+  int64_t last_mapval = 0;
+  uintptr_t marker_ct = 0;
   uintptr_t max_marker_id_len = 0;
   uintptr_t max_marker_allele_len = 2; // for .bim.tmp reloading
-  char missing_geno = *g_missing_geno_ptr;
+  const char* missing_geno_ptr = g_missing_geno_ptr;
+  char missing_geno = *missing_geno_ptr;
 
   // We include handling of nonstandard chromosome names here since our own
   // pipeline requires this.  (To set them to zero, --make-bed must be used
@@ -6442,6 +6418,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   unsigned char writemap[17];
   uint32_t chrom_start[MAX_POSSIBLE_CHROM + 1];
   uint32_t chrom_id[MAX_POSSIBLE_CHROM];
+  Ftoken_status fs;
+  uintptr_t max_markers;
   uintptr_t indiv_ct4;
   uintptr_t indiv_idx;
   uintptr_t ulii;
@@ -6452,6 +6430,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   unsigned char* prewritebuf;
   unsigned char ucc;
   uint32_t loadbuf_size;
+  char* tokstr;
+  char* tokbuf;
   char* loadbuf;
   char* cptr;
   char* cptr2;
@@ -6459,16 +6439,14 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   char* cptr4;
   char* a1ptr;
   char* a2ptr;
-  uint32_t a1len;
-  uint32_t a2len;
   unsigned char* ucptr;
   unsigned char* ucptr2;
-  char cc;
   int64_t tped_size;
   int64_t tped_next_thresh;
   int64_t cur_mapval;
+  uintptr_t toklen;
   int64_t* mapvals;
-  uintptr_t marker_ct;
+  uintptr_t marker_idx;
   uintptr_t marker_uidx;
   uint32_t* map_reverse;
   int64_t* ll_buf;
@@ -6481,6 +6459,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   logstr("Processing .tped file.\n");
   transposed_to_bed_print_pct(0);
   fflush(stdout);
+  fs.infile = NULL;
   if (fopen_checked(&infile, tfamname, "r")) {
     goto transposed_to_bed_ret_OPEN_FAIL;
   }
@@ -6517,15 +6496,6 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   indiv_ct4 = (indiv_ct + 3) / 4;
   fclose_null(&infile);
   fclose_null(&outfile);
-  if (fopen_checked(&infile, tpedname, "r")) {
-    goto transposed_to_bed_ret_OPEN_FAIL;
-  }
-  if (fseeko(infile, 0, SEEK_END)) {
-    goto transposed_to_bed_ret_READ_FAIL;
-  }
-  tped_size = ftello(infile);
-  rewind(infile);
-  tped_next_thresh = tped_size / 100;
 
   memcpy(outname_end, ".bim.tmp", 9);
   if (fopen_checked(&bimfile, outname, "w")) {
@@ -6535,48 +6505,89 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   if (fopen_checked(&outfile, outname, "wb")) {
     goto transposed_to_bed_ret_OPEN_FAIL;
   }
-  if (wkspace_alloc_uc_checked(&writebuf, indiv_ct4)) {
+  if (wkspace_alloc_uc_checked(&writebuf, indiv_ct4) ||
+      wkspace_alloc_uc_checked(&prewritebuf, indiv_ct)) {
     goto transposed_to_bed_ret_NOMEM;
   }
-  if (wkspace_alloc_uc_checked(&prewritebuf, indiv_ct)) {
+  // long allele names are allocated outside workspace anyway, so it makes
+  // sense for max allele length to be related to reserved non-workspace memory
+  tokbuf = (char*)top_alloc(&topsize, NON_WKSPACE_MIN);
+  if (!tokbuf) {
     goto transposed_to_bed_ret_NOMEM;
   }
+  max_markers = (wkspace_left - topsize) / sizeof(int64_t);
   mapvals = (int64_t*)wkspace_base;
-  loadbuf = (char*)(&(wkspace_base[sizeof(int64_t)]));
-  if (wkspace_left > (MAXLINEBUFLEN + 8)) {
-    fullmem = 1;
-    loadbuf_size = MAXLINEBUFLEN;
-  } else if (wkspace_left > MAXLINELEN + 8) {
-    loadbuf_size = wkspace_left - 8;
-  } else {
-    goto transposed_to_bed_ret_NOMEM;
-  }
-  loadbuf[loadbuf_size - 1] = ' ';
   writemap[16] = 1;
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
     goto transposed_to_bed_ret_WRITE_FAIL;
   }
-  while (fgets(loadbuf, loadbuf_size, infile)) {
-    if (!loadbuf[loadbuf_size - 1]) {
-      if (fullmem) {
-        logprint("Error: Pathologically long line in .tped file.\n");
-	goto transposed_to_bed_ret_INVALID_FORMAT;
-      } else {
-	goto transposed_to_bed_ret_NOMEM;
-      }
-    }
-    cptr = skip_initial_spaces(loadbuf);
-    if (is_eoln_kns(*cptr)) {
+
+  // given e.g. 6MB indels in real datasets, there's legitimate reason for a
+  // .tped line to be even longer than 2GB, so we use ftoken_...() over
+  // fgets().
+  if (fopen_checked(&(fs.infile), tpedname, "rb")) {
+    goto transposed_to_bed_ret_OPEN_FAIL;
+  }
+  if (fseeko(fs.infile, 0, SEEK_END)) {
+    goto transposed_to_bed_ret_READ_FAIL;
+  }
+  tped_size = ftello(fs.infile);
+  rewind(fs.infile);
+  if (ftoken_init(&fs, tbuf, tokbuf, NON_WKSPACE_MIN)) {
+    goto transposed_to_bed_ret_READ_FAIL;
+  }
+  tped_next_thresh = tped_size / 100;
+
+  do {
+    retval = ftoken_read(&fs, &tokstr, &toklen);
+    if (retval) {
+      goto transposed_to_bed_ret_1;
+    } else if (!toklen) {
       continue;
     }
-    cptr2 = next_item(cptr);
-    cptr3 = next_item_mult(cptr2, 2);
-    cptr4 = next_item(cptr3);
-    if (no_more_items_kns(cptr4)) {
-      goto transposed_to_bed_ret_INVALID_FORMAT;
+    fwrite(tokstr, 1, toklen, bimfile);
+    putc('\t', bimfile);
+    ii = marker_code(chrom_info_ptr, tokstr);
+    if (ii == -1) {
+      if (!allow_extra_chroms) {
+	logprint("Error: Unrecognized chromosome code in .tped file.  (Did you forget\n--allow-extra-chroms?).\n");
+	goto transposed_to_bed_ret_INVALID_FORMAT_2;
+      }
+      retval = resolve_or_add_chrom_name(chrom_info_ptr, tokstr, &ii);
+      if (retval) {
+	goto transposed_to_bed_ret_1;
+      }
     }
-    if (ftello(infile) >= tped_next_thresh) {
-      uii = (ftello(infile) * 100) / tped_size;
+    if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+      goto transposed_to_bed_nextline;
+    }
+    for (uii = 0; uii < 3; uii++) {
+      retval = ftoken_read(&fs, &tokstr, &toklen);
+      if (retval) {
+	goto transposed_to_bed_ret_1;
+      } else if (!toklen) {
+	goto transposed_to_bed_ret_INVALID_FORMAT;
+      }
+      if (!uii) {
+	if (toklen >= max_marker_id_len) {
+	  max_marker_id_len = toklen + 1;
+	}
+      }
+      fwrite(tokstr, 1, toklen, bimfile);
+      putc('\t', bimfile);
+    }
+    cur_mapval = (int64_t)((((uint64_t)((uint32_t)ii)) << 32) | ((uint32_t)atoi(tokstr)));
+    if (marker_ct == max_markers) {
+      goto transposed_to_bed_ret_NOMEM;
+    }
+    mapvals[marker_ct++] = cur_mapval;
+    if (last_mapval > cur_mapval) {
+      map_is_unsorted = 1;
+    } else {
+      last_mapval = cur_mapval;
+    }
+    if (ftello(fs.infile) >= tped_next_thresh) {
+      uii = (ftello(fs.infile) * 100) / tped_size;
       if (pct >= 10) {
 	putchar('\b');
       }
@@ -6585,107 +6596,68 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       pct = uii;
       tped_next_thresh = ((pct + 1) * tped_size) / 100;
     }
-    ii = marker_code(chrom_info_ptr, cptr);
-    if (ii == -1) {
-      if (!allow_extra_chroms) {
-	logprint("Error: Unrecognized chromosome code in .tped file.  (Did you forget\n--allow-extra-chroms?).\n");
-	goto transposed_to_bed_ret_INVALID_FORMAT_2;
-      }
-      retval = resolve_or_add_chrom_name(chrom_info_ptr, cptr, &ii);
-      if (retval) {
-	goto transposed_to_bed_ret_1;
-      }
-    }
-
-    if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
-      continue;
-    }
-    uii = strlen_se(cptr2) + 1;
-    if (uii > max_marker_id_len) {
-      max_marker_id_len = uii;
-    }
-    if (*cptr3 == '-') {
-      continue;
-    }
-    // todo: lift allele length limit here
-    alleles[0] = &(tbuf[MAXLINELEN]);
-    alleles[0][0] = '\0';
-    alleles[1] = &(tbuf[MAXLINELEN + (MAXLINELEN / 2)]);
-    alleles[1][0] = '\0';
-    alleles[2] = &(tbuf[MAXLINELEN * 2]);
-    alleles[2][0] = '\0';
-    alleles[3] = &(tbuf[MAXLINELEN * 2 + (MAXLINELEN / 2)]);
-    alleles[3][0] = '\0';
+    alleles[0] = NULL;
+    alleles[1] = NULL;
+    alleles[2] = NULL;
+    alleles[3] = NULL;
     allele_cts[0] = 0;
     allele_cts[1] = 0;
     allele_cts[2] = 0;
     allele_cts[3] = 0;
-    cur_mapval = (((int64_t)ii) << 32) | atoi(cptr3);
-    mapvals[marker_idx++] = cur_mapval;
-    if (last_mapval > cur_mapval) {
-      map_is_unsorted = 1;
-    } else {
-      last_mapval = cur_mapval;
-    }
-    for (uii = 0; uii < 3; uii++) {
-      cptr2 = item_endnn(cptr);
-      *cptr2++ = '\t';
-      if (fwrite_checked(cptr, (cptr2 - cptr), bimfile)) {
-	goto transposed_to_bed_ret_WRITE_FAIL;
-      }
-      cptr = skip_initial_spaces(cptr2);
-    }
-    cptr2 = item_endnn(cptr);
-    *cptr2++ = '\t';
-    if (fwrite_checked(cptr, (cptr2 - cptr), bimfile)) {
-      goto transposed_to_bed_ret_WRITE_FAIL;
-    }
-    cptr2 = cptr4;
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
-      a1ptr = cptr2;
-      a1len = strlen_se(cptr2);
-      if (a1len >= MAXLINELEN / 2) {
-        goto transposed_to_bed_ret_INVALID_FORMAT_3;
+      retval = ftoken_read(&fs, &tokstr, &toklen);
+      if (retval) {
+	goto transposed_to_bed_ret_1;
+      } else if (!toklen) {
+        goto transposed_to_bed_ret_INVALID_FORMAT;
       }
-      cptr2 = skip_initial_spaces(&(a1ptr[a1len]));
-      a2ptr = cptr2;
-      a2len = strlen_se(cptr2);
-      if (a2len >= MAXLINELEN / 2) {
-        goto transposed_to_bed_ret_INVALID_FORMAT_3;
+      if (allele_set(&a1ptr, tokstr, toklen)) {
+	goto transposed_to_bed_ret_NOMEM;
       }
-      cptr2 = skip_initial_spaces(&(a2ptr[a2len]));
-      if ((a1len == 1) && (*a1ptr == missing_geno)) {
-        if ((a2len != 1) || (*a2ptr != missing_geno)) {
+      retval = ftoken_read(&fs, &tokstr, &toklen);
+      if (retval) {
+	if (a1ptr[1]) {
+	  free(a1ptr);
+	}
+	goto transposed_to_bed_ret_1;
+      } else if (!toklen) {
+	if (a1ptr[1]) {
+	  free(a1ptr);
+	}
+        goto transposed_to_bed_ret_INVALID_FORMAT;
+      }
+      if (allele_set(&a2ptr, tokstr, toklen)) {
+	if (a1ptr[1]) {
+	  free(a1ptr);
+	}
+	goto transposed_to_bed_ret_NOMEM;
+      }
+      if (a1ptr == missing_geno_ptr) {
+        if (a2ptr != missing_geno_ptr) {
+	  if (a2ptr[1]) {
+	    free(a2ptr);
+	  }
 	  goto transposed_to_bed_ret_INVALID_FORMAT_4;
 	}
 	prewritebuf[indiv_idx] = 16;
-      } else if ((a2len == 1) && (*a2ptr == missing_geno)) {
+      } else if (a2ptr == missing_geno_ptr) {
+	if (a1ptr[1]) {
+	  free(a1ptr);
+	}
 	goto transposed_to_bed_ret_INVALID_FORMAT_4;
       } else {
-	uii = update_alleles_and_cts(alleles, allele_cts, a1ptr, a1len);
-	ujj = update_alleles_and_cts(alleles, allele_cts, a2ptr, a2len);
+	uii = update_tped_alleles_and_cts(alleles, allele_cts, a1ptr);
+	ujj = update_tped_alleles_and_cts(alleles, allele_cts, a2ptr);
 	if ((uii == 4) || (ujj == 4)) {
-	  cptr[strlen_se(cptr)] = '\0';
-	  putchar('\r');
-	  sprintf(logbuf, "Error: More than four alleles at marker %s.\n", cptr);
-	  logprintb();
-	  goto transposed_to_bed_ret_INVALID_FORMAT_2;
+          sprintf(logbuf, "Error: More than four alleles at marker %" PRIuPTR ".\n", marker_ct - 1);
+	  for (uii = 0; uii < 4; uii++) {
+	    if (alleles[uii][1]) {
+	      free(alleles[uii]);
+	    }
+	  }
+	  goto transposed_to_bed_ret_INVALID_FORMAT_5;
 	}
         prewritebuf[indiv_idx] = uii * 4 + ujj;
-      }
-    }
-
-    if (no_extra_cols && (!is_eoln_kns(*cptr2))) {
-      no_extra_cols = 0;
-      putchar('\r');
-      logprint("Note: Extra columns in .tped file.  Ignoring.\n");
-      transposed_to_bed_print_pct(pct);
-    }
-    if (loadbuf_size == 1 + strlen(cptr2) + (cptr2 - loadbuf)) {
-      if (loadbuf_size == MAXLINEBUFLEN) {
-	goto transposed_to_bed_ret_INVALID_FORMAT;
-      } else {
-        goto transposed_to_bed_ret_NOMEM;
       }
     }
 
@@ -6697,32 +6669,28 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 	ii = uii;
 	do {
 	  ii--;
-	  salleles[ii + 1] = salleles[ii];
-	  allele_cts[ii + 1] = allele_cts[ii];
-	} while ((ii > 0) && (allele_cts[ii - 1] < ujj));
-	salleles[ii] = a1ptr;
-	allele_cts[ii] = ujj;
+	  salleles[((uint32_t)ii) + 1] = salleles[(uint32_t)ii];
+	  allele_cts[((uint32_t)ii) + 1] = allele_cts[(uint32_t)ii];
+	} while (ii && (allele_cts[((uint32_t)ii) - 1] < ujj));
+	salleles[(uint32_t)ii] = a1ptr;
+	allele_cts[(uint32_t)ii] = ujj;
       }
     }
     if (allele_cts[2]) {
-      ulii = strlen_se(cptr);
-      cc = cptr[ulii];
-      cptr[ulii] = '\0';
       putchar('\r');
-      sprintf(logbuf, "Note: Marker %s is %sallelic.  Setting rarest alleles to missing.\n", cptr, allele_cts[3]? "quad" : "tri");
+      sprintf(logbuf, "Note: Marker %" PRIuPTR " is %sallelic.  Setting rarest alleles to missing.\n", marker_ct - 1, allele_cts[3]? "quad" : "tri");
       logprintb();
       transposed_to_bed_print_pct(pct);
-      cptr[ulii] = cc;
     }
     for (uii = 0; uii < 4; uii++) {
       a1ptr = alleles[uii];
       ucptr = &(writemap[4 * uii]);
-      if (*a1ptr == '\0') {
+      if (!a1ptr) {
 	memset(ucptr, 1, 4);
       } else if (a1ptr == salleles[0]) {
         for (ujj = 0; ujj < 4; ujj++) {
 	  a1ptr = alleles[ujj];
-	  if (*a1ptr == '\0') {
+	  if (!a1ptr) {
 	    *ucptr++ = 1;
 	  } else if (a1ptr == salleles[0]) {
 	    *ucptr++ = 3;
@@ -6735,7 +6703,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       } else if (a1ptr == salleles[1]) {
 	for (ujj = 0; ujj < 4; ujj++) {
 	  a1ptr = alleles[ujj];
-	  if (*a1ptr == '\0') {
+	  if (!a1ptr) {
 	    *ucptr++ = 1;
 	  } else if (a1ptr == salleles[0]) {
 	    *ucptr++ = 2;
@@ -6763,38 +6731,53 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       }
       *ucptr = ucc;
     }
-    if (fwrite_checked(writebuf, indiv_ct4, outfile)) {
-      goto transposed_to_bed_ret_WRITE_FAIL;
-    }
-    if (salleles[1][0] == '\0') {
-      putc('0', bimfile);
+    fwrite(writebuf, 1, indiv_ct4, outfile);
+    if (!salleles[1]) {
+      putc(missing_geno, bimfile);
     } else {
       uii = strlen(salleles[1]);
       if (uii >= max_marker_allele_len) {
 	max_marker_allele_len = uii + 1;
       }
-      fwrite(salleles[1], 1, uii, bimfile);
+      fputs(salleles[1], bimfile);
     }
     putc('\t', bimfile);
-    if (salleles[0][0] == '\0') {
-      putc('0', bimfile);
+    if (!salleles[0]) {
+      putc(missing_geno, bimfile);
     } else {
       uii = strlen(salleles[0]);
       if (uii >= max_marker_allele_len) {
 	max_marker_allele_len = uii + 1;
       }
-      fwrite(salleles[0], 1, uii, bimfile);
+      fputs(salleles[0], bimfile);
+    }
+    for (uii = 0; uii < 4; uii++) {
+      if (alleles[uii] && alleles[uii][1]) {
+	free(alleles[uii]);
+      }
     }
     if (putc_checked('\n', bimfile)) {
       goto transposed_to_bed_ret_WRITE_FAIL;
     }
-    loadbuf = &(loadbuf[8]);
-    loadbuf_size -= 8;
-  }
-  if (!feof(infile)) {
-    goto transposed_to_bed_ret_READ_FAIL;
-  }
-  fclose_null(&infile);
+    if (no_extra_cols) {
+      retval = ftoken_read(&fs, &tokstr, &toklen);
+      if (retval) {
+        goto transposed_to_bed_ret_1;
+      } else if (toklen) {
+        no_extra_cols = 0;
+	putchar('\r');
+	logprint("Note: Extra columns in .tped file.  Ignoring.\n");
+	transposed_to_bed_print_pct(pct);
+	goto transposed_to_bed_nextline;
+      }
+    } else {
+    transposed_to_bed_nextline:
+      retval = ftoken_nextline(&fs);
+      if (retval) {
+	goto transposed_to_bed_ret_1;
+      }
+    }
+  } while (tokstr);
   if (fclose_null(&bimfile)) {
     goto transposed_to_bed_ret_WRITE_FAIL;
   }
@@ -6803,7 +6786,6 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   }
 
   if (map_is_unsorted) {
-    marker_ct = marker_idx;
     loadbuf_size = 2 * max_marker_allele_len + MAXLINELEN;
 
     // mapvals is already positioned here, this just updates wkspace_base and
@@ -6821,6 +6803,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     if (!marker_allele_ptrs) {
       goto transposed_to_bed_ret_NOMEM;
     }
+    // prevent cleanup from failing
+    memset(marker_allele_ptrs, 0, marker_ct * 2 * sizeof(intptr_t));
 
     for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
       pos_buf[marker_idx] = (uint32_t)((uint64_t)mapvals[marker_idx]);
@@ -6852,20 +6836,14 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 	goto transposed_to_bed_ret_INVALID_FORMAT;
       }
       uii = strlen_se(cptr4);
-      if (uii == 1) {
-	marker_allele_ptrs[2 * marker_idx] = one_char_strs;
-      } else {
-	marker_allele_ptrs[2 * marker_idx] = (char*)malloc(uii + 1);
-	if (!marker_allele_ptrs[2 * marker_idx]) {
-          goto transposed_to_bed_ret_NOMEM;
-	}
-        memcpyx(marker_allele_ptrs[2 * marker_idx], cptr4, uii, '\0');
+      if (allele_set(&(marker_allele_ptrs[2 * marker_idx]), cptr4, uii)) {
+	goto transposed_to_bed_ret_NOMEM;
       }
-      ;;;
       cptr4 = skip_initial_spaces(&(cptr4[uii + 1]));
       uii = strlen_se(cptr4);
-      memcpy(&(marker_alleles[(2 * marker_idx + 1) * max_marker_allele_len]), cptr4, uii);
-      marker_alleles[(2 * marker_idx + 1) * max_marker_allele_len + uii] = '\0';
+      if (allele_set(&(marker_allele_ptrs[2 * marker_idx + 1]), cptr4, uii)) {
+	goto transposed_to_bed_ret_NOMEM;
+      }
       marker_idx++;
     }
     if (!feof(infile)) {
@@ -6888,9 +6866,9 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 	if (fwrite_checked(tbuf, (uintptr_t)(cptr - tbuf), outfile)) {
 	  goto transposed_to_bed_ret_WRITE_FAIL;
 	}
-        fputs(&(marker_alleles[2 * marker_uidx * max_marker_allele_len]), outfile);
+        fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
         putc('\t', outfile);
-        fputs(&(marker_alleles[(2 * marker_uidx + 1) * max_marker_allele_len]), outfile);
+        fputs(marker_allele_ptrs[2 * marker_uidx + 1], outfile);
         if (putc_checked('\n', outfile)) {
 	  goto transposed_to_bed_ret_WRITE_FAIL;
 	}
@@ -6977,14 +6955,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   transposed_to_bed_ret_INVALID_FORMAT_2:
     retval = RET_INVALID_FORMAT;
     break;
-  transposed_to_bed_ret_INVALID_FORMAT_3:
-    putchar('\r');
-    logprint("Error: Pathologically long allele code in .tped file.\n");
-    retval = RET_INVALID_FORMAT;
-    break;
   transposed_to_bed_ret_INVALID_FORMAT_4:
-    cptr[strlen_se(cptr)] = '\0';
-    sprintf(logbuf, "Error: half-missing call at marker %s, indiv %" PRIuPTR " in .tped file.\n", cptr, indiv_idx);
+    sprintf(logbuf, "Error: Half-missing call at marker %" PRIuPTR ", indiv %" PRIuPTR " in .tped file.\n", marker_ct - 1, indiv_idx);
   transposed_to_bed_ret_INVALID_FORMAT_5:
     putchar('\r');
     logprintb();
@@ -6992,12 +6964,21 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     break;
   }
  transposed_to_bed_ret_1:
+  if (marker_allele_ptrs) {
+    for (marker_idx = 0; marker_idx < marker_ct * 2; marker_idx++) {
+      cptr = marker_allele_ptrs[marker_idx];
+      if (cptr && ((cptr < g_one_char_strs) || (cptr >= (&(g_one_char_strs[512]))))) {
+	free(cptr);
+      }
+    }
+  }
+  fclose_cond(fs.infile);
   fclose_cond(infile);
   fclose_cond(bimfile);
   fclose_cond(outfile);
+  wkspace_reset(wkspace_mark);
   return retval;
 }
-*/
 
 void announce_make_xylist_complete(uint32_t markers_left, char* outname, char* outname_end) {
   *outname_end = '\0';

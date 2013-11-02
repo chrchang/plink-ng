@@ -2857,6 +2857,124 @@ uint32_t alloc_collapsed_haploid_filters(uint32_t unfiltered_indiv_ct, uint32_t 
   return 0;
 }
 
+uint32_t ftoken_init(Ftoken_status* fsp, char* buf, char* tokbuf, uintptr_t tokbuf_len) {
+  // assumes fsp->infile is opened in "rb" mode
+  uint32_t uii;
+  fsp->buf = buf;
+  uii = fread(buf, 1, FTOKEN_BUFLEN, fsp->infile);
+  if (ferror(fsp->infile)) {
+    return RET_READ_FAIL;
+  }
+  fsp->buf_end = &(buf[uii]);
+  fsp->tokbuf = tokbuf;
+  fsp->bufptr = buf;
+  fsp->tokbuf_len = tokbuf_len;
+  return 0;
+}
+
+uint32_t ftoken_read(Ftoken_status* fsp, char** tok_ptr, uintptr_t* toklen_ptr) {
+  // returned token is usually just space- instead of null-terminated
+  // on eoln, toklen is 0 and tok points to \n
+  // on eof, toklen is 0 is tok is NULL
+  char* bufptr = fsp->bufptr;
+  char* buf_end = fsp->buf_end;
+  char* tok_start;
+  char* tok_write;
+  uintptr_t ulii;
+  char cc;
+  while (1) {
+    while (bufptr < buf_end) {
+      cc = *bufptr;
+      if (((unsigned char)cc) > ' ') {
+	tok_start = bufptr;
+	while ((++bufptr) < buf_end) {
+	  if (((unsigned char)(*bufptr)) <= ' ') {
+            *toklen_ptr = (uintptr_t)(bufptr - tok_start);
+	    *tok_ptr = tok_start;
+	    fsp->bufptr = bufptr;
+	    return 0;
+	  }
+	}
+	*tok_ptr = fsp->tokbuf;
+        tok_write = memcpya(*tok_ptr, tok_start, buf_end - tok_start);
+	while (1) {
+	  bufptr = fsp->buf;
+	  ulii = fread(bufptr, 1, FTOKEN_BUFLEN, fsp->infile);
+	  if (ferror(fsp->infile)) {
+	    return RET_READ_FAIL;
+	  }
+	  fsp->buf_end = &(bufptr[ulii]);
+	  if (!ulii) {
+	    fsp->bufptr = bufptr;
+	    *toklen_ptr = (uintptr_t)(tok_write - fsp->tokbuf);
+	    *tok_write = '\0';
+	    return 0;
+	  }
+          buf_end = fsp->buf_end;
+	  do {
+            if (((unsigned char)(*bufptr)) <= ' ') {
+	      ulii = (uintptr_t)(bufptr - fsp->buf);
+	      *toklen_ptr = ((uintptr_t)(tok_write - fsp->tokbuf)) + ulii;
+              if (*toklen_ptr >= fsp->tokbuf_len) {
+	        return RET_INVALID_FORMAT;
+	      }
+	      fsp->bufptr = bufptr;
+	      memcpyx(tok_write, fsp->buf, ulii, '\0');
+	      return 0;
+	    }
+	  } while ((++bufptr) < buf_end);
+	  ulii = (uintptr_t)(buf_end - fsp->buf);
+	  if ((((uintptr_t)(tok_write - fsp->tokbuf)) + ulii) >= fsp->tokbuf_len) {
+	    return RET_INVALID_FORMAT;
+	  }
+	  tok_write = memcpya(tok_write, fsp->buf, ulii);
+	}
+      } else if (cc == '\n') {
+	*tok_ptr = bufptr;
+	fsp->bufptr = &(bufptr[1]);
+        *toklen_ptr = 0;
+        return 0;
+      }
+      bufptr++;
+    }
+    bufptr = fsp->buf;
+    ulii = fread(bufptr, 1, FTOKEN_BUFLEN, fsp->infile);
+    if (ferror(fsp->infile)) {
+      return RET_READ_FAIL;
+    }
+    fsp->buf_end = &(bufptr[ulii]);
+    if (!ulii) {
+      *tok_ptr = NULL;
+      fsp->bufptr = bufptr;
+      *toklen_ptr = 0;
+      return 0;
+    }
+    buf_end = fsp->buf_end;
+  }
+}
+
+uint32_t ftoken_nextline(Ftoken_status* fsp) {
+  char* bufptr = fsp->bufptr;
+  uintptr_t ulii;
+  while (1) {
+    bufptr = (char*)memchr(bufptr, '\n', fsp->buf_end - bufptr);
+    if (bufptr) {
+      fsp->bufptr = &(bufptr[1]);
+      return 0;
+    }
+    bufptr = fsp->buf;
+    ulii = fread(bufptr, 1, FTOKEN_BUFLEN, fsp->infile);
+    if (ferror(fsp->infile)) {
+      return RET_READ_FAIL;
+    }
+    fsp->buf_end = &(bufptr[ulii]);
+    if (!ulii) {
+      fsp->bufptr = bufptr;
+      return 0;
+    }
+  }
+}
+
 void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc) {
   // assumes there is exactly one delimiter to convert per name
   uintptr_t indiv_uidx = 0;
