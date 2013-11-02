@@ -3603,7 +3603,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 	  }
 	  cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
 	}
-	fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), cptr);
+	fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), cptr0);
 	reverse = IS_SET(marker_reverse, marker_uidx);
 	cptr3 = marker_allele_ptrs[2 * marker_uidx];
 	cptr4 = marker_allele_ptrs[2 * marker_uidx + 1];
