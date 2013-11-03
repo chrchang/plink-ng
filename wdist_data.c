@@ -12782,10 +12782,10 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       bufptr = &(bufptr[max_person_full_len]);
     }
   }
-  if (ferror(outfile)) {
-    goto merge_datasets_ret_WRITE_FAIL;
-  }
   if (merge_mode < 6) {
+    if (ferror(outfile)) {
+      goto merge_datasets_ret_WRITE_FAIL;
+    }
     if (fclose_null(&outfile)) {
       goto merge_datasets_ret_WRITE_FAIL;
     }

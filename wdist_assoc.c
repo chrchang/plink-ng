@@ -3325,16 +3325,14 @@ THREAD_RET_TYPE qassoc_adapt_thread(void* arg) {
     nanal = pheno_nm_ct - missing_ct;
     homcom_ct = homcom_cts[marker_idx];
     het_ct = het_cts[marker_idx];
-    if ((nanal < 3) || (homcom_ct == nanal) || (het_ct == nanal)) {
+    homrar_ct = nanal - het_ct - homcom_ct;
+    if ((nanal < 3) || (homcom_ct == nanal) || (het_ct == nanal) || (homrar_ct == nanal)) {
       // the current code might otherwise report a spurious association if
       // geno_var is zero, so we explicitly check for it here.
-      // yes, that could also be caused by all-homrars if the user actively
-      // tries to shoot themselves in the foot.  that's not my problem.
       perm_adapt_stop[marker_idx] = 1;
       perm_attempt_ct[marker_idx] = 0;
       continue;
     }
-    homrar_ct = nanal - het_ct - homcom_ct;
     sval = orig_chiabs[marker_idx];
     // tstat = beta / vbeta_sqrt
     // tstat^2 = beta * beta / vbeta;

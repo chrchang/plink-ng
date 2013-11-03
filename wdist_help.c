@@ -270,7 +270,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 , stdout);
     fputs(cmdline_format_str, stdout);
     fputs(
-"Each " PROG_NAME_CAPS " run requires exactly one main input fileset.  The following flags\n"
+"Most " PROG_NAME_CAPS " runs require exactly one main input fileset.  The following flags\n"
 "are available for defining its form and location:\n\n"
 , stdout);
   }
@@ -360,8 +360,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("make-bed", &help_ctrl, 1,
 "  --make-bed\n"
 "    Creates a new binary fileset.  Unlike the automatic text-to-binary\n"
-"    converters (which only respect --chr[-excl] and --autosome[-xy]), this\n"
-"    supports all of " PROG_NAME_CAPS "'s filtering flags.\n"
+"    converters (which only heed chromosome filters), this supports all of\n"
+"    " PROG_NAME_CAPS "'s filtering flags.\n"
 	       );
     help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid\trecode-beagle\trecode-bimbam\trecode-fastphase\trecodeHV\trecodehv\trecode-structure", &help_ctrl, 1,
 "  --recode <12> <compound-genotypes> <23 | A | AD | beagle | bimbam |\n"
@@ -406,9 +406,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("write-covar", &help_ctrl, 1,
 "  --write-covar\n"
-"    If a --covar file is loaded, this creates a pruned covariate file after\n"
-"    applying all filters.  (This automatically happens if --make-bed or\n"
-"    --recode is specified.)\n\n"
+"    If a --covar file is loaded, --make-bed and --recode automatically generate\n"
+"    an updated version (after application of individual filters).  However, if\n"
+"    you do not wish to simultaneously generate a new genotype file, you can use\n"
+"    --write-covar to just produce a pruned covariate file.\n\n"
 	       );
     help_print("write-cluster", &help_ctrl, 1,
 "  --write-cluster <omit-unassigned>\n"
@@ -451,9 +452,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    --freq generates a basic allele frequency (or count, if the 'counts'\n"
 "    modifier is present) report.  This can be combined with --within to produce\n"
 "    a cluster-stratified allele frequency/count report instead.\n"
-"    --freqx generates a genotype count report, which (when reloaded with\n"
-"    --read-freq) allows distance matrix terms to be weighted consistently\n"
-"    through multiple filtering runs.\n\n"
+"    --freqx generates a more detailed genotype count report, designed for use\n"
+"    with --read-freq.\n\n"
 		);
     help_print("missing", &help_ctrl, 1,
 "  --missing\n"
@@ -1054,9 +1054,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     the usual j / (j+k).\n"
 	       );
     help_print("read-freq\tupdate-freq", &help_ctrl, 0,
-"  --read-freq [filename]   : Loads MAFs from the given PLINK-style or --freqx\n"
-"    (alias: --update-freq)   frequency report, instead of just setting them to\n"
-"                             frequencies observed in the .ped/.bed file.\n"
+"  --read-freq [filename]   : Estimate MAFs and heterozygote frequencies using\n"
+"    (alias: --update-freq)   the given --freq[x] report, instead of the input\n"
+"                             fileset.\n"
 	       );
     help_print("hwe", &help_ctrl, 0,
 "  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
