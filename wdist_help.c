@@ -329,10 +329,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     binary relationship matrix) filename prefix.\n\n"
 	       );
     help_print("dummy", &help_ctrl, 1,
-"  --dummy [indiv ct] [marker ct] {missing geno freq} {missing pheno freq}\n"
+"  --dummy [indiv ct] [SNP ct] {missing geno freq} {missing pheno freq}\n"
 "          <acgt | 1234 | 12> <scalar-pheno>\n"
 "    This generates a fake input dataset with the specified number of\n"
-"    individuals and markers.  By default, the missing genotype and phenotype\n"
+"    individuals and SNPs.  By default, the missing genotype and phenotype\n"
 "    frequencies are zero, and genotypes are As and Bs (change the latter with\n"
 "    'acgt'/'1234'/'12').  The 'scalar-pheno' modifier causes a normally\n"
 "    distributed scalar phenotype to be generated instead of a binary one.\n\n"
@@ -372,7 +372,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    fileset consists of a .ped and a .map file, readable with --file.\n"
 "    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
 "    * The 'compound-genotypes' modifier removes the space between pairs of\n"
-"      genotype codes for the same marker.\n"
+"      genotype codes for the same variant.\n"
 "    * The '23' modifier causes a 23andMe-formatted file to be generated.  This\n"
 "      can only be used on a single individual's data (--keep may be handy).\n"
 "    * The 'AD' modifier causes an additive + dominant component file, suitable\n"
@@ -407,14 +407,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("write-covar", &help_ctrl, 1,
 "  --write-covar\n"
 "    If a --covar file is loaded, --make-bed and --recode automatically generate\n"
-"    an updated version (after application of individual filters).  However, if\n"
-"    you do not wish to simultaneously generate a new genotype file, you can use\n"
-"    --write-covar to just produce a pruned covariate file.\n\n"
+"    an updated version (with all filters applied).  However, if you do not wish\n"
+"    to simultaneously generate a new genotype file, you can use --write-covar\n"
+"    to just produce a pruned covariate file.\n\n"
 	       );
     help_print("write-cluster", &help_ctrl, 1,
 "  --write-cluster <omit-unassigned>\n"
-"    If a --within file is loaded, this creates a pruned cluster file after\n"
-"    applying all filters.  The 'omit-unassigned' modifier causes unclustered\n"
+"    If a --within file is loaded, this generates another cluster file (with all\n"
+"    filters applied).  The 'omit-unassigned' modifier causes unclustered\n"
 "    individuals to be omitted from the file; otherwise their cluster is \"NA\".\n\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
@@ -425,9 +425,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Merges the given fileset with the initially loaded fileset.  If you specify\n"
 "    --make-bed or '--recode lgen', the initial merge result is written to\n"
 "    {output prefix}-merge.bed + .bim + .fam, filtering is performed, and then\n"
-"    the post-filtering data is written to {output prefix}.bed + .bim + .fam.\n"
-"    Otherwise, the merged data is written directly to\n"
-"    {output prefix}.bed + .bim + .fam.\n"
+"    the post-filtering data are written to {output prefix}.bed + .bim + .fam\n"
+"    and the -merge files are deleted.  Otherwise, the merged data are written\n"
+"    directly to {output prefix}.bed + .bim + .fam.\n"
 "  --merge-list [filename]\n"
 "    Merge all filesets named in the text file with the initially loaded\n"
 "    fileset.  The text file is interpreted as follows:\n"
@@ -441,8 +441,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("write-snplist\tlist-23-indels", &help_ctrl, 1,
 "  --write-snplist\n"
 "  --list-23-indels\n"
-"    --write-snplist writes a .snplist file listing the names of all markers\n"
-"    that pass the filters and inclusion thresholds you've specified, while\n"
+"    --write-snplist writes a .snplist file listing the names of all variants\n"
+"    which pass the filters and inclusion thresholds you've specified, while\n"
 "    --list-23-indels writes the subset with 23andMe-style indel calls (I/D\n"
 "    allele codes).\n\n"
 	       );
@@ -457,17 +457,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 		);
     help_print("missing", &help_ctrl, 1,
 "  --missing\n"
-"    Generates individual- and marker-based missing data reports.  With\n"
-"    --within, the marker-based report is cluster-stratified.\n\n"
+"    Generates individual- and variant-based missing data reports.  If clusters\n"
+"    are defined, the variant-based report is cluster-stratified.\n\n"
 	       );
     help_print("hardy", &help_ctrl, 1,
 "  --hardy\n"
 "    Generates a Hardy-Weinberg exact test p-value report.  (This does NOT\n"
-"    filter on the p-value; use --hwe for that.)\n\n"
+"    simultaneously filter on the p-value any more; use --hwe for that.)\n\n"
 	       );
     help_print("ibc\thet", &help_ctrl, 1,
 "  --ibc\n"
-"    Calculates inbreeding coefficients in three different ways.\n"
+"    Calculates inbreeding coefficients in three different ways.  (The second is\n"
+"    the excess homozygosity coefficient calculated by the old --het command.)\n"
 "    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
 "      a tool for Genome-wide Complex Trait Analysis.  Am J Hum Genet. 2011 Jan\n"
 "      88(1): 76-82.  This paper also describes the relationship matrix\n"
@@ -479,9 +480,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Writes a lower-triangular tab-delimited table of (weighted) genomic\n"
 "    distances in allele count units to {output prefix}.dist, and a list of the\n"
 "    corresponding family/individual IDs to {output prefix}.dist.id.  The first\n"
-"    row of the .dist file contains a single {genotype 1-genotype 2} distance,\n"
-"    the second row has the {genotype 1-genotype 3} and {genotype 2-genotype 3}\n"
-"    distances in that order, etc.\n"
+"    row of the .dist file contains a single {genome 1-genome 2} distance, the\n"
+"    second row has the {genome 1-genome 3} and {genome 2-genome 3} distances in\n"
+"    that order, etc.\n"
 "    * If the 'square' or 'square0' modifier is present, a square matrix is\n"
 "      written instead; 'square0' fills the upper right triangle with zeroes.\n"
 "    * If the 'gz' modifier is present, a compressed .dist.gz file is written\n"
@@ -499,19 +500,19 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * With dosage data, the '3d' modifier considers 0-1-2 allele count\n"
 "      probabilities separately, instead of collapsing them into an expected\n"
 "      value and a missingness probability.\n"
-"    * By default, distance rescaling in the presence of missing markers is\n"
-"      sensitive to allele count distributions: if allele A contributes, on\n"
-"      average, twice as much to other pairwise distances as allele B, a missing\n"
-"      allele A will result in twice as large of a missingness correction.  To\n"
-"      turn this off, use the 'flat-missing' modifier.\n"
+"    * By default, distance rescaling in the presence of missing genotype calls\n"
+"      is sensitive to allele count distributions: if variant A contributes, on\n"
+"      average, twice as much to other pairwise distances as variant B, a\n"
+"      missing call at variant A will result in twice as large of a missingness\n"
+"      correction.  To turn this off (because e.g. your missing calls are highly\n"
+"      nonrandom), use the 'flat-missing' modifier.\n"
 	       );
     help_print("distance-matrix\tmatrix", &help_ctrl, 1,
 "  --distance-matrix\n"
 "  --matrix\n"
-"    These generate space-delimited text matrices, and are included for\n"
-"    backwards compatibility with old scripts.  New scripts should migrate to\n"
-"    '--distance 1-ibs flat-missing' and '--distance ibs flat-missing', which\n"
-"    support output formats better suited to parallel computation.\n\n"
+"    These old commands are equivalent to '--distance 1-ibs flat-missing' and\n"
+"    '--distance ibs flat-missing', respectively, except that they generate\n"
+"    space- instead of tab-delimited text matrices.\n\n"
 		);
     help_print("genome\tZ-genome\trel-check\timpossible\tnudge\tgenome-full\tunbounded", &help_ctrl, 1,
 "  --genome <gz> <rel-check> <full> <unbounded> <nudge>\n"
@@ -528,27 +529,27 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("homozyg\thomozyg-snp\thomozyg-kb\thomozyg-density\thomozyg-gap\thomozyg-het\thomozyg-window-snp\thomozyg-window-het\thomozyg-window-missing\thomozyg-window-threshold", &help_ctrl, 1,
 "  --homozyg <group | group-verbose> <consensus-match> <extend>\n"
 "            <subtract-1-from-lengths>\n"
-"  --homozyg-snp [min SNP count]\n"
+"  --homozyg-snp [min var count]\n"
 "  --homozyg-kb [min length]\n"
-"  --homozyg-density [max inverse density (kb/SNP)]\n"
+"  --homozyg-density [max inverse density (kb/var)]\n"
 "  --homozyg-gap [max internal gap kb length]\n"
 "  --homozyg-het [max hets]\n"
 "  --homozyg-window-snp [scanning window size]\n"
 "  --homozyg-window-het [max hets in scanning window hit]\n"
 "  --homozyg-window-missing [max missing calls in scanning window hit]\n"
 "  --homozyg-window-threshold [min scanning window hit rate]\n"
-"    These flags request a set of run-of-homozygosity reports, and allow you to\n"
-"    customize how they are generated.\n"
+"    These commands request a set of run-of-homozygosity reports, and allow you\n"
+"    to customize how they are generated.\n"
 "    * If you're satisfied with all the default settings described below, just\n"
 "      use --homozyg with no modifiers.  Otherwise, --homozyg lets you change a\n"
 "      few binary settings:\n"
 "      * 'group[-verbose]' adds a report on pools of overlapping runs of\n"
 "        homozygosity.  (Automatically set when --homozyg-match is present.)\n"
 "      * With 'group[-verbose]', 'consensus-match' causes pairwise segmental\n"
-"        matches to be called based on the SNPs in the pool's consensus segment,\n"
-"        rather than the SNPs in the pairwise intersection.\n"
+"        matches to be called based on the variants in the pool's consensus\n"
+"        segment, rather than the variants in the pairwise intersection.\n"
 "      * Due to how the scanning window algorithm works, it is possible for a\n"
-"        reported ROH to be adjacent to a few homozygous sites.  The 'extend'\n"
+"        reported ROH to be adjacent to a few homozygous variants.  The 'extend'\n"
 "        modifier causes them to be included in the reported ROH if that\n"
 "        wouldn't cause a violation of the --homozyg-density bound.\n"
 "      * By default, segment bp lengths are calculated as [end bp position] -\n"
@@ -556,23 +557,23 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "        from PLINK 1.07, which does not add 1 at the end.  For testing\n"
 "        purposes, you can use the 'subtract-1-from-lengths' modifier to apply\n"
 "        the old formula.\n"
-"    * By default, only runs of homozygosity containing at least 100 SNPs, and\n"
-"      of total length >= 1000 kilobases, are noted.  You can change these\n"
+"    * By default, only runs of homozygosity containing at least 100 variants,\n"
+"      and of total length >= 1000 kilobases, are noted.  You can change these\n"
 "      minimums with --homozyg-snp and --homozyg-kb, respectively.\n"
-"    * By default, a ROH must have at least one SNP per 50 kb on average; change\n"
-"      this bound with --homozyg-density.\n"
-"    * By default, if two consecutive SNPs are more than 1000 kb apart, they\n"
+"    * By default, a ROH must have at least one variant per 50 kb on average;\n"
+"      change this bound with --homozyg-density.\n"
+"    * By default, if two consecutive variants are more than 1000 kb apart, they\n"
 "      cannot be in the same ROH; change this bound with --homozyg-gap.\n"
 "    * By default, a ROH can contain an unlimited number of heterozygous calls;\n"
 "      you can impose a limit with --homozyg-het.\n"
-"    * By default, the scanning window contains 50 SNPs; change this with\n"
+"    * By default, the scanning window contains 50 variants; change this with\n"
 "      --homozyg-window-snp.\n"
 "    * By default, a scanning window hit can contain at most 1 heterozygous\n"
 "      call and 5 missing calls; change these limits with --homozyg-window-het\n"
 "      and --homozyg-window-missing, respectively.\n"
-"    * By default, for a SNP to be eligible for inclusion in a ROH, the hit rate\n"
-"      of all scanning windows containing the SNP must be at least 0.05; change\n"
-"      this threshold with --homozyg-window-threshold.\n\n"
+"    * By default, for a variant to be eligible for inclusion in a ROH, the hit\n"
+"      rate of all scanning windows containing the SNP must be at least 0.05;\n"
+"      change this threshold with --homozyg-window-threshold.\n\n"
 	       );
     help_print("cluster\tcc\tgroup-avg\tgroup-average\tcluster-missing", &help_ctrl, 1,
 "  --cluster <cc> <group-avg | old-tiebreaks> <missing> <only2>\n"
@@ -594,7 +595,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("neighbour\tneighbor", &help_ctrl, 1,
 "  --neighbour [n1] [n2]\n"
 "    (alias: --neighbor)\n"
-"    Compute nearest neighbor-based outlier detection diagnostics.\n\n"
+"    Report IBS distances from each individual to their n1th- to n2th-nearest\n"
+"    neighbors, associated Z-scores, and the identities of those neighbors.\n"
+"    Useful for outlier detection.\n\n"
 	       );
     help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means\ttrend", &help_ctrl, 1,
 "  --assoc <perm | mperm=[value]> <perm-count> <fisher> <counts>\n"
@@ -639,8 +642,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("gxe\tmcovar", &help_ctrl, 1,
 "  --gxe {covariate index}\n"
-"    Given both a quantitative phenotype and a case/control covariate loaded with\n"
-"    --covar defining two groups, --gxe compares the regression coefficient\n"
+"    Given both a quantitative phenotype and a case/control covariate loaded\n"
+"    with --covar defining two groups, --gxe compares the regression coefficient\n"
 "    derived from considering only members of one group to the regression\n"
 "    coefficient derived from considering only members of the other.  By\n"
 "    default, the first covariate in the --covar file defines the groups; use\n"
@@ -682,7 +685,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      requested, results are reported for all covariates.\n"
 "    * 'hide-covar' removes covariate-specific lines from the report.\n"
 "    * By default, sex (male = 1, female = 0) is automatically added as a\n"
-"      covariate on X chromosome SNPs, and nowhere else.  The 'sex' modifier\n"
+"      covariate on X chromosome variants, and nowhere else.  The 'sex' modifier\n"
 "      causes it to be added everywhere, while 'no-x-sex' excludes it.\n"
 "    * 'interaction' adds genotype x covariate interactions to the model.  This\n"
 "      cannot be used with the usual permutation tests; use --tests to define\n"
@@ -694,19 +697,19 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("lasso", &help_ctrl, 1,
 "  --lasso [h2 estimate] {min lambda} <report-zeroes>\n"
-"    Given a quantitative trait, estimate marker effect sizes via the LASSO\n"
+"    Given a quantitative trait, estimate variant effect sizes via the LASSO\n"
 "    regression discussed in Vattikuti S, Lee J, Hsu S, Chow CC (2013)\n"
 "    Application of compressed sensing to genome wide association studies and\n"
 "    genomic selection (http://arxiv.org/abs/1310.2264 ).  You must provide an\n"
 "    additive heritability estimate to calibrate the regression.\n"
 "    Note that this method may require a very large sample size (e.g. hundreds\n"
-"    of thousands) to be effective.\n\n"
+"    of thousands) to be effective on complex polygenic traits.\n\n"
 	       );
     help_print("indep\tindep-pairwise", &help_ctrl, 1,
-"  --indep [window size]<kb> [step size (markers)] [VIF threshold]\n"
-"  --indep-pairwise [window size]<kb> [step size (markers)] [r^2 threshold]\n"
+"  --indep [window size]<kb> [step size (variants)] [VIF threshold]\n"
+"  --indep-pairwise [window size]<kb> [step size (variants)] [r^2 threshold]\n"
 "    Generates a list of markers in approximate linkage equilibrium.  With the\n"
-"    'kb' modifier, the window size is in kilobase units instead of marker\n"
+"    'kb' modifier, the window size is in kilobase units instead of variant\n"
 "    count.  (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5'\n"
 "    and '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
 "    Note that you need to rerun " PROG_NAME_CAPS " using --extract or --exclude on the\n"
@@ -736,7 +739,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    --make-grm-gz writes the relationships in GCTA's original gzipped list\n"
 "    format, which describes one pair per line, while --make-grm-bin writes them\n"
 "    in GCTA 1.1+'s single-precision triangular binary format.  Note that these\n"
-"    formats explicitly store the number of valid observations (where neither\n"
+"    formats explicitly report the number of valid observations (where neither\n"
 "    individual has a missing call) for each pair, which is useful input for\n"
 "    some scripts.\n\n"
 	       );
@@ -757,8 +760,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --regress-pcs [.evec or .eigenvec filename] <normalize-pheno> <sex-specific>\n"
 "                <clip> {max PCs}\n"
 "    Linear regression of phenotypes and genotypes on the given list of\n"
-"    principal components (produced by SMARTPCA or GCTA).  Output is a .gen +\n"
-"    .sample fileset in the Oxford IMPUTE/SNPTEST v2 format.\n"
+"    principal components (produced by SMARTPCA or GCTA).  Output is currently a\n"
+"    .gen + .sample fileset in the Oxford IMPUTE/SNPTEST v2 format.\n"
 "    * The 'normalize-pheno' modifier converts all phenotype residuals to\n"
 "      Z-scores.  When combined with 'sex-specific', the Z-scores are evaluated\n"
 "      separately by sex.\n"
@@ -769,15 +772,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      by setting the max PCs parameter.\n\n"
       );
 #endif
-    help_print("regress-distance", &help_ctrl, 1,
+    help_print("regress-distance\tregress-rel", &help_ctrl, 1,
 "  --regress-distance {iters} {d}\n"
 "    Linear regression of pairwise genomic distances on pairwise average\n"
-"    phenotypes and vice versa, using delete-d jackknife for standard errors.\n"
-"    Scalar phenotype data is required.\n"
+"    phenotypes and vice versa, using delete-d jackknife for standard errors.  A\n"
+"    scalar phenotype is required.\n"
 "    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
-"      down.  With no parameters, 100k iterations are run.\n\n"
-	       );
-    help_print("regress-rel", &help_ctrl, 1,
+"      down.  With no parameters, 100k iterations are run.\n"
 "  --regress-rel {iters} {d}\n"
 "    Linear regression of pairwise genomic relationships on pairwise average\n"
 "    phenotypes, and vice versa.  Defaults for iters and d are the same as for\n"
@@ -810,7 +811,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --unrelated-heritability <strict> {tol} {initial covg} {initial covr}\n"
 "    REML estimate of additive heritability, iterating with an accelerated\n"
 "    variant of the EM algorithm until the rate of change of the log likelihood\n"
-"    function is less than tol.  Scalar phenotype data is required.\n"
+"    function is less than tol.  A scalar phenotype is required.\n"
 "    * The 'strict' modifier forces regular EM to be used.  tol defaults to\n"
 "      10^{-7}, genomic covariance prior defaults to 0.45, and residual\n"
 "      covariance prior defaults to (1 - covg).\n"
@@ -866,25 +867,23 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #endif
 , stdout);
     }
-    help_print("script", &help_ctrl, 0,
+    help_print("script\trerun", &help_ctrl, 0,
 "  --script [fname] : Include command-line options from file.\n"
-	       );
-    help_print("rerun", &help_ctrl, 0,
 "  --rerun {log}    : Rerun commands in log (default '" PROG_NAME_STR ".log').\n"
 	       );
     help_print("silent", &help_ctrl, 0,
 "  --silent         : Suppress output to console.\n"
 	       );
     help_print("23file\t23file-convert-xy\t23file-make-xylist", &help_ctrl, 0,
-"  --23file-convert-xy {file} : Separate out XY pseudo-autosomal region.  A\n"
-"                               marker list (from e.g. --23file-make-xylist) is\n"
+"  --23file-convert-xy {file} : Separate out XY pseudo-autosomal region.  A SNP\n"
+"                               list (from e.g. --23file-make-xylist) is\n"
 "                               necessary to use this on a female genome.\n"
 "  --23file-make-xylist : Given a male 23andMe genome, list XY pseudo-autosomal\n"
-"                         region markers in {output prefix}.xylist.\n"
+"                         region SNPs in {output prefix}.xylist.\n"
 	       );
     help_print("missing-genotype\tmissing-phenotype", &help_ctrl, 0,
-"  --missing-genotype [char] : Code for missing genotype (normally '0').\n"
-"  --missing-phenotype [val] : Numeric code for missing phenotype (normally -9).\n"
+"  --missing-genotype [char] : Set missing genotype code (normally '0').\n"
+"  --missing-phenotype [val] : Set missing phenotype value (normally -9).\n"
 	       );
     help_print("allow-extra-chr", &help_ctrl, 0,
 "  --allow-extra-chr <0>     : Permit unrecognized chromosome codes.  The '0'\n"
@@ -893,10 +892,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
                );
     help_print("chr-set\tcow\tdog\thorse\tmouse\trice\tsheep\tautosome-num", &help_ctrl, 0,
 "  --chr-set [autosome ct] <no-x> <no-y> <no-xy> <no-mt> :\n"
-"    Specifies nonhuman chromosome set.  The first parameter specifies the\n"
-"    number of diploid autosome pairs if positive, or haploid chromosomes if\n"
-"    negative.  Given diploid autosomes, the remaining modifiers indicate the\n"
-"    absence of the named non-autosomal chromosomes.\n"
+"    Specify a nonhuman chromosome set.  The first parameter sets the number of\n"
+"    diploid autosome pairs if positive, or haploid chromosomes if negative.\n"
+"    Given diploid autosomes, the remaining modifiers indicate the absence of\n"
+"    the named non-autosomal chromosomes.\n"
 "  --cow/--dog/--horse/--mouse/--rice/--sheep : Shortcuts for those species.\n"
 "  --autosome-num [value]    : Alias for '--chr-set [value] no-y no-xy no-mt'.\n"
 	       );
@@ -916,71 +915,72 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --missing-code {vals}     : Comma-separated list of missing phenotype values,\n"
 "    (alias: --missing_code)   for Oxford-formatted filesets (normally 'NA').\n"
 	       );
-    help_print("pheno\tall-pheno", &help_ctrl, 0,
-"  --pheno [fname]  : Specify alternate phenotype.\n"
+    help_print("pheno\tall-pheno\tmpheno\tpheno-name\tpheno-merge", &help_ctrl, 0,
+"  --pheno [fname]  : Load phenotype data from the specified file, instead of\n"
+"                     using the values in the main input fileset.\n"
 "  --all-pheno      : For basic association tests, loop through all phenotypes\n"
 "                     in --pheno file.\n"
-	       );
-    help_print("mpheno\tpheno", &help_ctrl, 0,
 "  --mpheno [col]   : Specify phenotype column number in --pheno file.\n"
-	       );
-    help_print("pheno-name\tpheno", &help_ctrl, 0,
-"  --pheno-name [c] : If phenotype file has a header row, use column with the\n"
+"  --pheno-name [c] : If --pheno file has a header row, use column with the\n"
 "                     given name.\n"
+"  --pheno-merge    : When the main input fileset contains an phenotype value\n"
+"                     for an individual, but the --pheno file does not, use the\n"
+"                     original value instead of treating the phenotype as\n"
+"                     missing.\n"
 	       );
-    help_print("pheno-merge\tpheno", &help_ctrl, 0,
-"  --pheno-merge    : If a phenotype is present in the original but not the\n"
-"                     alternate file, use the original value instead of setting\n"
-"                     the phenotype to missing.\n"
+    help_print("1\tpheno", &help_ctrl, 0,
+"  --1              : Expect case/control phenotypes to be coded as 0 = control,\n"
+"                     1 = case, instead of the usual 0 = missing, 1 = control,\n"
+"                     2 = case.\n"
 	       );
-    help_print("1", &help_ctrl, 0,
-"  --1              : Affection phenotypes are interpreted as 0 = unaffected,\n"
-"                     1 = affected (instead of 0 = missing, 1 = unaffected,\n"
-"                     2 = affected).\n"
+    help_print("make-pheno\tpheno", &help_ctrl, 0,
+"  --make-pheno [file] [val] : Define a new case/control phenotype.  If the\n"
+"                              val parameter is '*', all individuals listed in\n"
+"                              the given file are cases, and everyone else is a\n"
+"                              control.  Otherwise, only individuals both listed\n"
+"                              in the file and with third column entry identical\n"
+"                              to the val parameter are cases.\n"
 	       );
-    help_print("make-pheno", &help_ctrl, 0,
-"  --make-pheno [file] [val] : Specify case/control phenotype, where cases have\n"
-"                              the given value.  If the value is '*', all\n"
-"                              individuals present in the phenotype file are\n"
-"                              affected (and other individuals in the .ped/.fam\n"
-"                              are unaffected).\n"
-	       );
-    help_print("tail-pheno\tgroupdist", &help_ctrl, 0,
-"  --tail-pheno [Ltop] {Hbt} : Form 'low' (<= Ltop, unaffected) and 'high'\n"
-"                              (greater than Hbt, affected) groups from scalar\n"
-"                              phenotype data.  If Hbt is unspecified, it is set\n"
-"                              equal to Ltop.  Central phenotype values are\n"
-"                              treated as missing.\n"
+    help_print("tail-pheno\tgroupdist\tpheno", &help_ctrl, 0,
+"  --tail-pheno [Ltop] {Hbt} : Downcode a scalar phenotype to a case/control\n"
+"                              phenotype.  All individuals with phenotype values\n"
+"                              greater than Hbt are cases, and all with values\n"
+"                              less than or equal to Ltop are controls.  If Hbt\n"
+"                              is unspecified, it is equal to Ltop; otherwise,\n"
+"                              in-between phenotype values are converted to\n"
+"                              missing.\n"
 	       );
     help_print("covar\tcovar-name\tcovar-number", &help_ctrl, 0,
 "  --covar [filename] <keep-pheno-on-missing-cov> : Specify covariate file.\n"
 "  --covar-name [...]     : Specifies covariate(s) in --covar file by name.\n"
 "                           Separate multiple names with spaces or commas, and\n"
 "                           use dashes to designate ranges.\n"
-"  --covar-number [...]   : Specifies covariate(s) in --covar file by number.\n"
+"  --covar-number [...]   : Specifies covariate(s) in --covar file by index.\n"
 	       );
     help_print("within\tmwithin", &help_ctrl, 0,
-"  --within [f] <keep-NA> : Specify initial cluster assignment.\n"
-"  --mwithin [n]          : Load cluster names from column n+2 of --within file.\n"
+"  --within [f] <keep-NA> : Specify initial cluster assignments.\n"
+"  --mwithin [n]          : Load cluster assignments from column n+2.\n"
 	       );
+#ifndef STABLE_BUILD
     help_print("set\tsubset", &help_ctrl, 0,
 "  --set [filename] : Specify sets.\n"
 "  --subset [fname] : Specify list of subsets to extract from --set file.\n"
 	       );
+#endif
     help_print("loop-assoc", &help_ctrl, 0,
 "  --loop-assoc [f] <keep-NA> : Run specified case/control association commands\n"
 "                               once for each cluster in the file, using cluster\n"
 "                               membership as the phenotype.\n"
 	       );
     help_print("keep\tremove\tkeep-fam\tremove-fam", &help_ctrl, 0,
-"  --keep [fname]   : Exclude all individuals not in the given list.\n"
-"  --remove [fname] : Exclude all individuals in the given list.\n"
-"  --keep-fam [fn]  : Exclude all families not in the given list.\n"
-"  --remove-fam [f] : Exclude all families in the given list.\n"
+"  --keep [fname]   : Exclude all individuals not named in the file.\n"
+"  --remove [fname] : Exclude all individuals named in the file.\n"
+"  --keep-fam [fn]  : Exclude all families not named in the file.\n"
+"  --remove-fam [f] : Exclude all families named in the file.\n"
 	       );
     help_print("extract\texclude", &help_ctrl, 0,
-"  --extract [file] : Exclude all markers not in the given list.\n"
-"  --exclude [file] : Exclude all markers in the given list.\n"
+"  --extract [file] : Exclude all variants not named in the file.\n"
+"  --exclude [file] : Exclude all variants named in the file.\n"
 	       );
     help_print("keep-clusters\tkeep-cluster-names\tremove-clusters\tremove-cluster-names", &help_ctrl, 0,
 "  --keep-clusters [filename]          : These can be used individually or in\n"
@@ -993,74 +993,79 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --remove-cluster-names [name(s)...] : Exclude the named clusters.\n"
 	       );
     help_print("chr\tnot-chr\tchr-excl\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
-"  --chr [chrs...]  : Exclude all markers not on the given chromosome(s).  Valid\n"
-"                     choices for humans are 0 (unplaced), 1-22, X, Y, XY, and\n"
-"                     MT.  Separate multiple chromosomes with spaces and/or\n"
+"  --chr [chrs...]  : Exclude all variants not on the given chromosome(s).\n"
+"                     Valid choices for humans are 0 (unplaced), 1-22, X, Y, XY,\n"
+"                     and MT.  Separate multiple chromosomes with spaces and/or\n"
 "                     commas, and use a dash (no adjacent spaces permitted) to\n"
 "                     denote a range, e.g. '--chr 1-4, 22, xy'.\n"
-"  --not-chr [...]  : Reverse of --chr (excludes markers on listed chromosomes).\n"
+"  --not-chr [...]  : Reverse of --chr (exclude variants on listed chromosomes).\n"
 	       );
     help_print("autosome\tautosome-xy\tchr\tnot-chr\tchr-excl", &help_ctrl, 0,
-"  --autosome       : Exclude all non-autosomal markers.\n"
-"  --autosome-xy    : Exclude all non-autosomal markers, except those with\n"
+"  --autosome       : Exclude all non-autosomal variants.\n"
+"  --autosome-xy    : Exclude all non-autosomal variants, except those with\n"
 "                     chromosome code XY (pseudo-autosomal region of X).\n"
 	       );
     help_print("from\tto\tsnp\twindow\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb\texclude-snp\textract-snp", &help_ctrl, 0,
-"  --from [mkr ID]  : Use ID(s) to specify a marker range to load.  When used\n"
-"  --to   [mkr ID]    together, both markers must be on the same chromosome.\n"
-"  --snp  [mkr ID]  : Specify a single marker to load.\n"
-"  --exclude-snp [m] : Specify a single marker to exclude.\n"
-"  --window  [kbs]  : With --snp or --exclude-snp, loads/excludes all markers\n"
-"                     within half the specified kb distance of the named marker.\n"
-"  --from-bp [pos]  : Use physical position(s) to define a marker range to load.\n"
-"  --to-bp   [pos]    --from-kb/--to-kb/--from-mb/--to-mb allow decimal values.\n"
-"    ...              You're required to specify a single chromosome with these.\n"
+"  --from [var ID]  : Use ID(s) to specify a variant range to load.  When used\n"
+"  --to   [var ID]    together, both variants must be on the same chromosome.\n"
+"  --snp  [var ID]  : Specify a single variant to load.\n"
+"  --exclude-snp [v] : Specify a single variant to exclude.\n"
+"  --window  [kbs]  : With --snp or --exclude-snp, loads/excludes all variants\n"
+"                     within half the specified kb distance of the named one.\n"
+"  --from-bp [pos]  : Use physical position(s) to define a variant range to\n"
+"  --to-bp   [pos]    load.  --from-kb/--to-kb/--from-mb/--to-mb allow decimal\n"
+"    ...              values.  You must also specify a single chromosome (using\n"
+"                     e.g. --chr) when using these flags.\n"
 	       );
     help_print("snps\texclude-snps", &help_ctrl, 0,
-"  --snps [IDs...]      : Use IDs to specify multiple marker ranges to load or\n"
+"  --snps [var IDs...]  : Use IDs to specify variant range(s) to load or\n"
 "  --exclude-snps [...]   exclude.  E.g. '--snps rs1111-rs2222, rs3333, rs4444'.\n"
 	       );
     help_print("thin", &help_ctrl, 0,
-"  --thin [p]       : Remove markers at random (p = retention probability).\n"
+"  --thin [p]       : Remove variants at random (p = retention probability).\n"
 	       );
     help_print("bp-space", &help_ctrl, 0,
-"  --bp-space [bps] : Enforce minimum bp distance between markers.\n"
+"  --bp-space [bps] : Remove variants so that each pair is no closer than the\n"
+"                     given bp distance.\n"
 	       );
     help_print("filter\tmfilter", &help_ctrl, 0,
-"  --filter [f] [val(s)...] : Filter individuals based on covariate value(s).\n"
-"  --mfilter [n]            : Match against (n+2)th column in --filter file.\n"
+"  --filter [f] [val(s)...] : Exclude all individuals without a 3rd column entry\n"
+"                             in the given file matching one of the given\n"
+"                             value(s).\n"
+"  --mfilter [n]            : Match against (n+2)th column instead.\n"
 	       );
     help_print("geno\tmind", &help_ctrl, 0,
-"  --geno {val}     : Maximum per-marker missing (default 0.1).\n"
-"  --mind {val}     : Maximum per-person missing (default 0.1).\n"
+"  --geno {val}     : Exclude variants with missing call frequencies greater\n"
+"                     than a threshold (default 0.1).  (Note that the default\n"
+"                     threshold is only applied if --geno is invoked without a\n"
+"                     parameter; when --geno is not invoked, no per-variant\n"
+"                     missing call frequency ceiling is enforced at all.  Other\n"
+"                     inclusion/exclusion default thresholds work the same way.)\n"
+"  --mind {val}     : Exclude individuals with missing call frequencies greater\n"
+"                     than a threshold (default 0.1).\n"
 	       );
     help_print("prune", &help_ctrl, 0,
 "  --prune          : Remove individuals with missing phenotypes.\n"
 	       );
-    help_print("maf", &help_ctrl, 0,
-"  --maf {val}      : Minor allele frequency minimum threshold (default 0.01).\n"
-"                     Note that the default threshold is only applied if --maf\n"
-"                     is used without an accompanying value; if you do not\n"
-"                     invoke --maf, no MAF inclusion threshold is applied.\n"
-"                     Other inclusion thresholds work the same way.\n"
-	       );
-    help_print("max-maf\tmaf", &help_ctrl, 0,
-"  --max-maf [val]  : Minor allele frequency maximum threshold.\n"
+    help_print("maf\tmax-maf", &help_ctrl, 0,
+"  --maf {val}      : Exclude variants with minor allele frequency lower than a\n"
+"                     threshold (default 0.01).\n"
+"  --max-maf [val]  : Exclude variants with MAF greater than the threshold.\n"
 	       );
     help_print("maf-succ", &help_ctrl, 0,
 "  --maf-succ       : Rule of succession MAF estimation (used in EIGENSTRAT).\n"
 "                     Given j observations of one allele and k >= j observations\n"
 "                     of the other, infer a MAF of (j+1) / (j+k+2), rather than\n"
-"                     the usual j / (j+k).\n"
+"                     the default j / (j+k).\n"
 	       );
     help_print("read-freq\tupdate-freq", &help_ctrl, 0,
-"  --read-freq [filename]   : Estimate MAFs and heterozygote frequencies using\n"
+"  --read-freq [filename]   : Estimate MAFs and heterozygote frequencies from\n"
 "    (alias: --update-freq)   the given --freq[x] report, instead of the input\n"
 "                             fileset.\n"
 	       );
     help_print("hwe", &help_ctrl, 0,
-"  --hwe {val}      : Minimum Hardy-Weinberg disequilibrium p-value (exact),\n"
-"                     default 0.001.\n"
+"  --hwe {val}      : Exclude variants with Hardy-Weinberg equilibrium exact\n"
+"                     test p-values below a threshold (default 0.001).\n"
 	       );
     help_print("hwe-all\thwe", &help_ctrl, 0,
 "  --hwe-all        : Given case-control data, include noncontrols in HWE test.\n"
@@ -1072,7 +1077,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     and --recode.\n"
 	       );
     help_print("filter-cases\tfilter-controls", &help_ctrl, 0,
-"  --filter-cases       : Include only cases.\n"
+"  --filter-cases       : Include only cases in the current analysis.\n"
 "  --filter-controls    : Include only controls.\n"
 	       );
     help_print("filter-males\tfilter-females", &help_ctrl, 0,
@@ -1099,19 +1104,21 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     genotypes to missing.\n"
 	       );
     help_print("output-missing-genotype\toutput-missing-phenotype", &help_ctrl, 0,
-"  --output-missing-genotype [ch] : Code for missing genotype when creating new\n"
-"                                   text fileset (--recode).\n"
-"  --output-missing-phenotype [n] : Numeric code for missing phenotype when\n"
-"                                   creating new fileset (--make-bed/--recode).\n"
+"  --output-missing-genotype [ch] : Set the code used to represent missing\n"
+"                                   genotypes in new filesets (normally the\n"
+"                                   --missing-genotype value).\n"
+"  --output-missing-phenotype [n] : Set the value used to represent missing\n"
+"                                   phenotypes in new filesets (normally the\n"
+"                                   --missing-phenotype value).\n"
 	       );
     help_print("update-chr\tupdate-cm\tupdate-map\tupdate-name", &help_ctrl, 0,
-"  --update-chr  [f] {chrcol} {IDcol}  {skip} : Update marker chromosome codes.\n"
+"  --update-chr  [f] {chrcol} {IDcol}  {skip} : Update variant chromosome codes.\n"
 "  --update-cm   [f] {cmcol}  {IDcol}  {skip} : Update centimorgan positions.\n"
-"  --update-map  [f] {bpcol}  {IDcol}  {skip} : Update marker bp positions.\n"
-"  --update-name [f] {newcol} {oldcol} {skip} : Update marker IDs.\n"
+"  --update-map  [f] {bpcol}  {IDcol}  {skip} : Update variant bp positions.\n"
+"  --update-name [f] {newcol} {oldcol} {skip} : Update variant IDs.\n"
 	       );
     help_print("update-alleles", &help_ctrl, 0,
-"  --update-alleles [f] : Update marker allele codes.\n"
+"  --update-alleles [f] : Update variant allele codes.\n"
 	       );
     help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
 "  --allele1234 <multichar> : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"
@@ -1131,8 +1138,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #endif
 	       );
     help_print("keep-allele-order\tmake-bed\tmerge\tbmerge\tmerge-list", &help_ctrl, 0,
-"  --keep-allele-order  : Keep the original allele order when creating a new\n"
-"                         fileset, instead of forcing A2 to be the major allele.\n"
+"  --keep-allele-order  : Keep the allele order defined in the .bim file,\n"
+"                         instead of forcing A2 to be the major allele.\n"
 	       );
     help_print("a1-allele\treference-allele\tupdate-ref-allele\ta2-allele", &help_ctrl, 0,
 "  --a1-allele [f] {a1col} {IDcol} {skip} : Force alleles in the file to A1.\n"
@@ -1168,14 +1175,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     7 = report mismatching nonmissing calls without merging\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-equal-pos", &help_ctrl, 0,
-"  --merge-equal-pos : Merge markers with different names but identical\n"
+"  --merge-equal-pos : Merge variants with different names but identical\n"
 "                      positions.\n"
 	       );
     help_print("exponent\tdistance", &help_ctrl, 0,
-"  --exponent [x]   : When computing genomic distances, each marker has a weight\n"
-"                     of (2q(1-q))^{-x}, where q is the inferred MAF.  (Use\n"
-"                     --read-freq if you want to explicitly specify some or all\n"
-"                     of the MAFs.)\n"
+"  --exponent [x]   : When computing genomic distances, each variant has a\n"
+"                     weight of (2q(1-q))^{-x}, where q is the inferred MAF.\n"
+"                     (Use --read-freq if you want to explicitly specify some or\n"
+"                     all of the MAFs.)\n"
 	       );
     help_print("read-dists\tload-dists\tibs-test\tgroupdist\tregress-distance\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
 "  --read-dists [dist file] {id file} : Load a triangular binary distance matrix\n"
@@ -1195,12 +1202,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("read-genome\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
 "  --read-genome [f] : Load a --genome report for --cluster/--neighbour, instead\n"
-"                      of recalculating from scratch.\n"
+"                      of recalculating IBS and PPC test p-values from scratch.\n"
 	       );
     help_print("ppc\tmc\tmcc\tK\tk\tibm\tcluster", &help_ctrl, 0,
-"  --ppc [p-val]    : Specify minimum PPC-test p-value within a cluster.\n"
+"  --ppc [p-val]    : Specify minimum PPC test p-value within a cluster.\n"
 "  --mc [max size]  : Specify maximum cluster size.\n"
-"  --mcc [c1] [c2]  : Specify maximum cases and maximum controls per cluster.\n"
+"  --mcc [c1] [c2]  : Specify maximum case and control counts per cluster.\n"
 "  --K [min count]  : Specify minimum cluster count.\n"
 "  --ibm [val]      : Specify minimum identity-by-missingness.\n"
 	       );
@@ -1209,27 +1216,34 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     --match-type, two individuals can only be in the same\n"
 "                     cluster if all covariates match.  The optional second\n"
 "                     parameter specifies a covariate value to treat as missing.\n"
-"  --match-type [f] : Specify that some --match covariates must be unequal\n"
-"                     instead of equal.\n"
+"  --match-type [f] : Refine interpretation of --match file.  The --match-type\n"
+"                     file is expected to be a single line with as many entries\n"
+"                     as the --match file has covariates; '0' entries specify\n"
+"                     'negative matches' (i.e. individuals with equal covariate\n"
+"                     values cannot be in the same cluster), '1' entries specify\n"
+"                     'positive matches' (default), and '-1' causes the\n"
+"                     corresponding covariate to be ignored.\n"
 "  --qmatch [f] {m} : Force all members of a cluster to have similar\n"
-"  --qt [fname]       quantitative covariate values.  (The --qmatch file should\n"
-"                     contain the covariates, and the --qt file should contain\n"
-"                     the tolerances.)\n"
+"  --qt [fname]       quantitative covariate values.  The --qmatch file contains\n"
+"                     the covariate values, while the --qt file is a list of\n"
+"                     nonnegative tolerances (and '-1's marking covariates to\n"
+"                     skip).\n"
 	       );
 #ifndef NOLAPACK
     help_print("cluster\tmds-plot\tmds-cluster", &help_ctrl, 0,
 "  --mds-plot [dims] <by-cluster> <eigvals> : Multidimensional scaling analysis.\n"
+"                                             Requires --cluster.\n"
 	       );
 #endif
     help_print("cell\tmodel", &help_ctrl, 0,
-"  --cell [thresh]  : Specify contingency table threshold for performing all\n"
-"                     --model tests.\n"
+"  --cell [thresh]  : Skip some --model tests when a contingency table entry is\n"
+"                     smaller than the given threshold.\n"
 	       );
     help_print("linear\tlogistic\tcondition\tcondition-list\tparameters\ttests\ttest-all\tvif\txchr-model", &help_ctrl, 0,
-"  --condition [mkr ID] <dominant | recessive> : Add one SNP as a --linear or\n"
-"                                                --logistic covariate.\n"
-"  --condition-list [f] <dominant | recessive> : Add multiple SNPs as --linear\n"
-"                                                or --logistic covariates.\n"
+"  --condition [var ID] <dominant | recessive> : Add one variant as a --linear\n"
+"                                                or --logistic covariate.\n"
+"  --condition-list [f] <dominant | recessive> : Add variants named in the file\n"
+"                                                as --linear/--logistic covs.\n"
 "  --parameters [...]   : Include only the given covariates/interactions in the\n"
 "                         --linear/--logistic models, identified by a list of\n"
 "                         1-based indices and/or ranges of them.\n"
@@ -1262,9 +1276,19 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --pfilter [val]  : Filter out association test results with higher p-values.\n"
 	       );
     help_print("aperm", &help_ctrl, 0,
-"  --aperm [min perms] {max perms} {alpha} {beta} {init interval} {slope} :\n"
-"    This sets six parameters controlling adaptive permutation tests.  Defaults\n"
-"    are 5, 1000000, 0, 0.0001, 1, and 0.001, respectively.\n"
+"  --aperm [min perms - 1] {max perms} {alpha} {beta} {init interval} {slope} :\n"
+"    Sets six parameters controlling adaptive permutation tests.\n"
+"    * The first two control the minimum and maximum number of permutations that\n"
+"      may be run for each variant; default values are 5 and 1000000.\n"
+"    * The next two control the early termination condition.  A\n"
+"      100% * (1 - beta/2T) confidence interval is calculated for each empirical\n"
+"      p-value, where T is the total number of variants; whenever this\n"
+"      confidence interval doesn't contain alpha, the variant is exempted from\n"
+"      further permutation testing.  Default values are 0 and 0.0001.\n"
+"    * The last two control when the early termination condition is checked.  If\n"
+"      a check occurs at permutation #p, the next check occurs after\n"
+"      [slope]p + [init interval] more permutations (rounded down).  Default\n"
+"      initial interval is 1, and default slope is 0.001.\n"
 	       );
     help_print("mperm-save\tmperm-save-all", &help_ctrl, 0,
 "  --mperm-save     : Save best max(T) permutation test statistics.\n"
@@ -1288,13 +1312,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                       instead, and postprocess as necessary.\n"
 	       );
     help_print("memory", &help_ctrl, 0,
-"  --memory [val]   : Set size, in MB, of initial malloc attempt.\n"
+"  --memory [val]   : Set size, in MB, of initial workspace malloc attempt.\n"
 	       );
     help_print("threads\tthread-num\tnum_threads", &help_ctrl, 0,
 "  --threads [val]  : Set maximum number of concurrent threads.\n"
 	       );
     help_print("d\tsnps", &help_ctrl, 0,
-"  --d [char]       : Change marker range delimiter (would otherwise be '-').\n"
+"  --d [char]       : Change variant/covariate range delimiter (normally '-').\n"
 	       );
     help_print("seed", &help_ctrl, 0,
 "  --seed [val...]  : Set random number seed(s).  Each value must be an integer\n"

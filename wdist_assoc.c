@@ -477,7 +477,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
     }
   }
   fputs("\b\b\b", stdout);
-  sprintf(logbuf, "--adjust values (%" PRIuPTR " marker%s) written to %s.\n", chi_ct, (chi_ct == 1)? "" : "s", outname);
+  sprintf(logbuf, "--adjust values (%" PRIuPTR " variant%s) written to %s.\n", chi_ct, (chi_ct == 1)? "" : "s", outname);
   logprintb();
 
   while (0) {
@@ -5552,12 +5552,12 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   } else {
     uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 0);
     if (uii) {
-      sprintf(logbuf, "Excluding %u haploid marker%s from --model analysis.\n", uii, (uii == 1)? "" : "s");
+      sprintf(logbuf, "Excluding %u haploid variant%s from --model analysis.\n", uii, (uii == 1)? "" : "s");
       logprintb();
     }
     marker_ct -= uii;
     if (!marker_ct) {
-      logprint("Error: No markers remaining for --model analysis.\n");
+      logprint("Error: No variants remaining for --model analysis.\n");
       goto model_assoc_ret_INVALID_CMDLINE;
     }
     outname_end2 = memcpyb(outname_end, ".model", 7);
@@ -7238,7 +7238,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     *outname_end2 = '\0';
   }
   if (haploid_chrom_present(chrom_info_ptr)) {
-    logprint("Warning: QT --assoc doesn't handle X/Y/haploid markers normally (try --linear).\n");
+    logprint("Warning: QT --assoc doesn't handle X/Y/haploid variants normally (try\n--linear).\n");
   }
   sprintf(logbuf, "Writing QT --assoc report to %s...", outname);
   logprintb();
@@ -8358,7 +8358,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
     goto gxe_assoc_ret_OPEN_FAIL;
   }
   if (haploid_chrom_present(chrom_info_ptr)) {
-    logprint("Warning: --gxe doesn't currently handle X/Y/haploid markers properly.\n");
+    logprint("Warning: --gxe doesn't currently handle X/Y/haploid variants properly.\n");
   }
   sprintf(logbuf, "Writing --gxe report to %s...", outname);
   logprintb();
@@ -8657,7 +8657,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
   if (condition_mname) {
     ii = get_uidx_from_unsorted(condition_mname, marker_exclude, marker_ct, marker_ids, max_marker_id_len);
     if (ii == -1) {
-      sprintf(logbuf, "Warning: --condition marker ID '%s' not found.\n", condition_mname);
+      sprintf(logbuf, "Warning: --condition variant ID '%s' not found.\n", condition_mname);
       logprintb();
       return 0;
     }
@@ -8704,7 +8704,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
             miss_ct++;
 	  }
 	  if (is_set(already_seen, ii)) {
-	    sprintf(logbuf, "Error: Duplicate marker %s in --condition-list file.\n", bufptr);
+	    sprintf(logbuf, "Error: Duplicate variant %s in --condition-list file.\n", bufptr);
             logprintb();
 	    goto glm_scan_conditions_ret_INVALID_FORMAT;
 	  }
@@ -8729,9 +8729,9 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
       goto glm_scan_conditions_ret_1;
     }
     if (miss_ct) {
-      sprintf(logbuf, "--condition-list: %" PRIuPTR " of %" PRIuPTR " marker ID%s loaded from %s.\n", condition_ct, condition_ct + miss_ct, (condition_ct + miss_ct == 1)? "" : "s", condition_fname);
+      sprintf(logbuf, "--condition-list: %" PRIuPTR " of %" PRIuPTR " variant ID%s loaded from %s.\n", condition_ct, condition_ct + miss_ct, (condition_ct + miss_ct == 1)? "" : "s", condition_fname);
     } else {
-      sprintf(logbuf, "--condition-list: %" PRIuPTR " marker ID%s loaded from %s.\n", condition_ct, (condition_ct == 1)? "" : "s", condition_fname);
+      sprintf(logbuf, "--condition-list: %" PRIuPTR " variant ID%s loaded from %s.\n", condition_ct, (condition_ct == 1)? "" : "s", condition_fname);
     }
     logprintb();
   }
@@ -10766,11 +10766,11 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   if (!glm_xchr_model) {
     uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
     if (uii) {
-      sprintf(logbuf, "Excluding %u nonautosomal marker%s from --linear/--logistic analysis\n(--xchr-model 0).\n", uii, (uii == 1)? "" : "s");
+      sprintf(logbuf, "Excluding %u nonautosomal variant%s from --linear/--logistic analysis\n(--xchr-model 0).\n", uii, (uii == 1)? "" : "s");
       logprintb();
       marker_initial_ct -= uii;
       if (!marker_initial_ct) {
-	logprint("Error: No markers remaining for --linear/--logistic analysis.\n");
+	logprint("Error: No variants remaining for --linear/--logistic analysis.\n");
 	goto glm_assoc_ret_INVALID_CMDLINE;
       }
     }

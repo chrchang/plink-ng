@@ -555,7 +555,7 @@ void random_thin_markers(double thin_keep_prob, uintptr_t unfiltered_marker_ct, 
       }
     } while (++marker_uidx < marker_uidx_stop);
   }
-  sprintf(logbuf, "--thin: %u marker%s removed (%u remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", marker_ct - removed_ct);
+  sprintf(logbuf, "--thin: %u variant%s removed (%u remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", marker_ct - removed_ct);
   logprintb();
   *marker_exclude_ct_ptr += removed_ct;
 }
@@ -3411,7 +3411,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
     goto write_missingness_reports_ret_WRITE_FAIL;
   }
   *outname_end = '\0';
-  sprintf(logbuf, "--missing: Individual missing data report written to %s.imiss, and\nmarker-based %smissing data report written to %s.lmiss.\n", outname, cluster_ct? "cluster-stratified " : "", outname);
+  sprintf(logbuf, "--missing: Individual missing data report written to %s.imiss, and\nvariant-based %smissing data report written to %s.lmiss.\n", outname, cluster_ct? "cluster-stratified " : "", outname);
   logprintb();
   while (0) {
   write_missingness_reports_ret_NOMEM:
@@ -3711,7 +3711,7 @@ void enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct, ui
       removed_ct++;
     }
   }
-  sprintf(logbuf, "%u marker%s removed due to Hardy-Weinberg exact test (--hwe).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  sprintf(logbuf, "%u variant%s removed due to Hardy-Weinberg exact test (--hwe).\n", removed_ct, (removed_ct == 1)? "" : "s");
   logprintb();
   *marker_exclude_ct_ptr += removed_ct;
 }
@@ -3737,7 +3737,7 @@ void enforce_maf_threshold(double min_maf, double max_maf, uintptr_t unfiltered_
       }
     } while (++marker_uidx < marker_uidx_stop);
   }
-  sprintf(logbuf, "%u marker%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  sprintf(logbuf, "%u variant%s removed due to MAF threshold(s) (--maf/--max-maf).\n", removed_ct, (removed_ct == 1)? "" : "s");
   logprintb();
   *marker_exclude_ct_ptr += removed_ct;
 }
@@ -3772,7 +3772,7 @@ void enforce_min_bp_space(int32_t min_bp_space, uint32_t unfiltered_marker_ct, u
       marker_uidx = next_unset(marker_exclude, marker_uidx, unfiltered_marker_ct);
     } while (marker_uidx < chrom_end);
   }
-  sprintf(logbuf, "--bp-space: %u marker%s removed (%u remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", marker_ct - removed_ct);
+  sprintf(logbuf, "--bp-space: %u variant%s removed (%u remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", marker_ct - removed_ct);
   logprintb();
   *marker_exclude_ct_ptr += removed_ct;
 }
@@ -3872,7 +3872,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      sprintf(logbuf, "Error: Duplicate marker %s in --a%c-allele file.\n", colid_ptr, is_a2? '2' : '1');
+      sprintf(logbuf, "Error: Duplicate variant %s in --a%c-allele file.\n", colid_ptr, is_a2? '2' : '1');
       logprintb();
       goto load_ax_alleles_ret_INVALID_FORMAT;
     }
@@ -3893,7 +3893,7 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
       }
       CLEAR_BIT(marker_reverse, marker_uidx);
     } else {
-      sprintf(logbuf, "Warning: Impossible A%c allele assignment for marker %s.\n", is_a2? '2' : '1', colid_ptr);
+      sprintf(logbuf, "Warning: Impossible A%c allele assignment for variant %s.\n", is_a2? '2' : '1', colid_ptr);
       logprintb();
     }
   }
@@ -3991,7 +3991,7 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
   if (fclose_null(&outfile)) {
     goto write_snplist_ret_WRITE_FAIL;
   }
-  sprintf(logbuf, "List of %smarker IDs written to %s.\n", list_23_indels? "indel " : "" , outname);
+  sprintf(logbuf, "List of %svariant IDs written to %s.\n", list_23_indels? "indel " : "" , outname);
   logprintb();
   while (0) {
   write_snplist_ret_OPEN_FAIL:
@@ -4268,7 +4268,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       // only warn on long new marker ID, since if there's a long old marker ID
       // and no long new one, it's reasonable to infer that the user is fixing
       // the problem, so we shouldn't spam them.
-      logprint("Warning: Unusually long new marker ID(s) in --update-name file.  Double-check\nyour file and command-line parameters, and consider changing your naming\nscheme if you encounter memory problems.\n");
+      logprint("Warning: Unusually long new variant ID(s) in --update-name file.  Double-check\nyour file and command-line parameters, and consider changing your naming\nscheme if you encounter memory problems.\n");
     }
     if (ulii > max_marker_id_len) {
       max_marker_id_len = ulii;
@@ -4341,9 +4341,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   count_genders(sex_nm, sex_male, unfiltered_indiv_ct, indiv_exclude, &uii, &ujj, &gender_unk_ct);
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   if (gender_unk_ct) {
-    sprintf(logbuf, "%" PRIuPTR " marker%s and %" PRIuPTR " %s (%d male%s, %d female%s, %u ambiguous) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s", gender_unk_ct);
+    sprintf(logbuf, "%" PRIuPTR " variant%s and %" PRIuPTR " %s (%d male%s, %d female%s, %u ambiguous) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s", gender_unk_ct);
   } else {
-    sprintf(logbuf, "%" PRIuPTR " marker%s and %" PRIuPTR " %s (%d male%s, %d female%s) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s");
+    sprintf(logbuf, "%" PRIuPTR " variant%s and %" PRIuPTR " %s (%d male%s, %d female%s) loaded.\n", marker_ct, (marker_ct == 1)? "" : "s", unfiltered_indiv_ct, species_str(unfiltered_indiv_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s");
   }
   logprintb();
 
@@ -4836,7 +4836,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   if (geno_thresh < 1.0) {
     ulii = binary_geno_filter(geno_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, g_indiv_ct, indiv_male_ct, marker_allele_cts, chrom_info_ptr);
-    sprintf(logbuf, "%" PRIuPTR " marker%s removed due to missing genotype data (--geno).\n", ulii, (ulii == 1)? "" : "s");
+    sprintf(logbuf, "%" PRIuPTR " variant%s removed due to missing genotype data (--geno).\n", ulii, (ulii == 1)? "" : "s");
     logprintb();
   }
   wkspace_reset(marker_allele_cts);
@@ -4862,7 +4862,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   if (!marker_ct) {
-    logprint("Error: All markers fail QC.\n");
+    logprint("Error: All variants fail QC.\n");
     goto wdist_ret_INVALID_FORMAT;
   }
 
@@ -4913,7 +4913,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     } while (marker_idx < marker_ct);
   }
 
-  sprintf(logbuf, "%" PRIuPTR " marker%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", g_indiv_ct, species_str(g_indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
+  sprintf(logbuf, "%" PRIuPTR " variant%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", g_indiv_ct, species_str(g_indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
   logprintb();
 
   if (calculation_type & CALC_WRITE_SNPLIST) {
@@ -4971,7 +4971,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 
   if (calculation_type & CALC_LD_PRUNE) {
     if (map_is_unsorted & UNSORTED_BP) {
-      logprint("Error: LD-based marker pruning requires a sorted .map/.bim.  Retry this command\nafter using --make-bed to sort your data.\n");
+      logprint("Error: LD-based pruning requires a sorted .map/.bim.  Retry this command after\nusing --make-bed to sort your data.\n");
       goto wdist_ret_INVALID_CMDLINE;
     }
     retval = ld_prune(bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, founder_info, sex_male, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, outname, outname_end, misc_flags, hh_exists);
@@ -4987,9 +4987,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  // possibly no more need for marker_ids/marker_alleles, conditional unload to
-  // clear space for IBS matrix, etc.?  (probably want to initially load at far
-  // end of stack to make this workable...)
+  // sometimes no more need for marker_ids/marker_allele_ptrs, conditional
+  // unload to clear space for IBS matrix, etc.?  (probably want to initially
+  // load at far end of stack to make this workable...)
 
   if (calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) {
     wkspace_mark_postcluster = wkspace_base;
@@ -5725,7 +5725,7 @@ int32_t alloc_2col(Two_col_params** tcbuf, char** params_ptr, char* argptr, uint
     if (param_ct > 2) {
       ii = atoi(params_ptr[2]);
       if (ii < 1) {
-	sprintf(logbuf, "Error: Invalid --%s marker ID column number.\n", argptr);
+	sprintf(logbuf, "Error: Invalid --%s variant ID column number.\n", argptr);
 	logprintb();
 	return RET_INVALID_FORMAT;
       }
@@ -8243,7 +8243,7 @@ int32_t main(int32_t argc, char** argv) {
 	dummy_indiv_ct = ii;
 	ii = atoi(argv[cur_arg + 2]);
 	if (ii < 1) {
-	  sprintf(logbuf, "Error: Invalid --dummy marker count.%s", errstr_append);
+	  sprintf(logbuf, "Error: Invalid --dummy variant count.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	dummy_marker_ct = ii;
@@ -11575,14 +11575,14 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (scan_double(argv[cur_arg + 1], &thin_keep_prob)) {
-	  sprintf(logbuf, "Error: Invalid --thin marker retention probability '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  sprintf(logbuf, "Error: Invalid --thin variant retention probability '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         if (thin_keep_prob < (0.5 / 4294967296.0)) {
-	  sprintf(logbuf, "Error: --thin marker retention probability too small.%s", errstr_append);
+	  sprintf(logbuf, "Error: --thin variant retention probability too small.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	} else if (thin_keep_prob >= (4294967295.5 / 4294967296.0)) {
-	  sprintf(logbuf, "Error: --thin marker retention probability too large.%s", errstr_append);
+	  sprintf(logbuf, "Error: --thin variant retention probability too large.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
       } else if (!memcmp(argptr2, "ests", 5)) {

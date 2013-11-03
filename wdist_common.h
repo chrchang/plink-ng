@@ -16,9 +16,9 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
-// Uncomment this to produce a PLINK 1.50 alpha build (with some default
+// Uncomment this to produce a PLINK 1.50 beta build (with some default
 // parameters set to 'plink' instead of 'wdist', etc.).
 // #define PLINK_BUILD
 

@@ -4369,7 +4369,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   // subtract X/haploid markers from marker_ct
   ukk = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
   if (ukk) {
-    sprintf(logbuf, "Excluding %u marker%s on non-autosomes from IBD calculation.\n", ukk, (ukk == 1)? "" : "s");
+    sprintf(logbuf, "Excluding %u variant%s on non-autosomes from IBD calculation.\n", ukk, (ukk == 1)? "" : "s");
     logprintb();
     marker_ct -= ukk;
   }
@@ -5056,7 +5056,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
 
   window_unfiltered_start = ld_prune_next_valid_chrom_start(marker_exclude, 0, chrom_info_ptr, unfiltered_marker_ct);
   if (window_unfiltered_start == unfiltered_marker_ct) {
-    sprintf(logbuf, "Error: No valid markers for --indep%s.\n", pairwise? "-pairwise" : "");
+    sprintf(logbuf, "Error: No valid variants for --indep%s.\n", pairwise? "-pairwise" : "");
     logprintb();
     goto ld_prune_ret_INVALID_FORMAT;
   }
@@ -5396,7 +5396,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
     }
     uii = get_marker_chrom(chrom_info_ptr, window_unfiltered_start - 1);
     putchar('\r');
-    sprintf(logbuf, "Pruned %" PRIuPTR " marker%s from chromosome %u, leaving %" PRIuPTR ".\n", cur_exclude_ct, (cur_exclude_ct == 1)? "" : "s", uii, chrom_info_ptr->chrom_end[uii] - chrom_info_ptr->chrom_start[uii] - cur_exclude_ct);
+    sprintf(logbuf, "Pruned %" PRIuPTR " variant%s from chromosome %u, leaving %" PRIuPTR ".\n", cur_exclude_ct, (cur_exclude_ct == 1)? "" : "s", uii, chrom_info_ptr->chrom_end[uii] - chrom_info_ptr->chrom_start[uii] - cur_exclude_ct);
     logprintb();
     tot_exclude_ct += cur_exclude_ct;
 
@@ -5404,7 +5404,7 @@ int32_t ld_prune(FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintpt
     window_unfiltered_start = ld_prune_next_valid_chrom_start(pruned_arr, window_unfiltered_start, chrom_info_ptr, unfiltered_marker_ct);
   } while (window_unfiltered_start < unfiltered_marker_ct);
 
-  sprintf(logbuf, "Pruning complete.  %d of %d markers removed.\n", tot_exclude_ct, marker_ct);
+  sprintf(logbuf, "Pruning complete.  %d of %d variants removed.\n", tot_exclude_ct, marker_ct);
   logprintb();
   strcpy(outname_end, ".prune.in");
   if (fopen_checked(&outfile_in, outname, "w")) {
@@ -6757,11 +6757,11 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
   if (uii) {
     if (uii == marker_ct) {
-      logprint("Error: No autosomal markers for relationship matrix calculation.\n");
+      logprint("Error: No autosomal variants for relationship matrix calculation.\n");
       retval = RET_INVALID_CMDLINE;
       goto calc_rel_ret_1;
     }
-    sprintf(logbuf, "Excluding %u marker%s on non-autosomes from relationship matrix calc.\n", uii, (uii == 1)? "" : "s");
+    sprintf(logbuf, "Excluding %u variant%s on non-autosomes from relationship matrix calc.\n", uii, (uii == 1)? "" : "s");
     logprintb();
     marker_ct -= uii;
   }
@@ -7322,11 +7322,11 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
   if (uii) {
     if (uii == marker_ct) {
-      logprint("Error: No autosomal markers for relationship matrix calculation.\n");
+      logprint("Error: No autosomal variants for relationship matrix calculation.\n");
       retval = RET_INVALID_CMDLINE;
       goto calc_rel_f_ret_1;
     }
-    sprintf(logbuf, "Excluding %u marker%s on non-autosomes from relationship matrix calc.\n", uii, (uii == 1)? "" : "s");
+    sprintf(logbuf, "Excluding %u variant%s on non-autosomes from relationship matrix calc.\n", uii, (uii == 1)? "" : "s");
     logprintb();
     marker_ct -= uii;
   }
@@ -7729,7 +7729,7 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
   uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
   marker_ct_autosomal = marker_ct - uii;
   if (uii) {
-    sprintf(logbuf, "Excluding %u marker%s on non-autosomes from IBM calculation.\n", uii, (uii == 1)? "" : "s");
+    sprintf(logbuf, "Excluding %u variant%s on non-autosomes from IBM calculation.\n", uii, (uii == 1)? "" : "s");
     logprintb();
   }
   while (marker_idx < marker_ct_autosomal) {
@@ -7904,7 +7904,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   uii = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
   marker_ct_autosomal = marker_ct - uii;
   if (uii) {
-    sprintf(logbuf, "Excluding %u marker%s on non-autosomes from distance matrix calc.\n", uii, (uii == 1)? "" : "s");
+    sprintf(logbuf, "Excluding %u variant%s on non-autosomes from distance matrix calc.\n", uii, (uii == 1)? "" : "s");
     logprintb();
   }
   while (marker_idx < marker_ct_autosomal) {

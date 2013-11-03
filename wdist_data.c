@@ -335,7 +335,7 @@ int32_t indiv_major_to_snp_major(char* indiv_major_fname, char* outname, uintptr
   retval = 0;
   while (0) {
   indiv_major_to_snp_major_ret_INVALID_FORMAT:
-    sprintf(logbuf, "Error: %s's file size is inconsistent with the marker count.\n", indiv_major_fname);
+    sprintf(logbuf, "Error: %s's file size is inconsistent with the variant count.\n", indiv_major_fname);
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
@@ -867,7 +867,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   if (sf_ct) {
     for (uii = 0; uii < sf_ct; uii++) {
       if (sf_str_chroms[uii] == MAX_POSSIBLE_CHROM) {
-	sprintf(logbuf, "Error: Marker '%s' not found in .%s file.\n", &(sf_range_list_ptr->names[uii * sf_max_len]), extension);
+	sprintf(logbuf, "Error: Variant '%s' not found in .%s file.\n", &(sf_range_list_ptr->names[uii * sf_max_len]), extension);
 	goto load_bim_ret_INVALID_FORMAT_2;
       }
     }
@@ -955,16 +955,16 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     goto load_bim_ret_READ_FAIL;
   }
   if (!unfiltered_marker_ct) {
-    sprintf(logbuf, "Error: No markers in .%s file.", extension);
+    sprintf(logbuf, "Error: No variants in .%s file.", extension);
     goto load_bim_ret_INVALID_FORMAT_2;
   }
   if (from_slen || to_slen) {
     if (from_slen && (from_chrom == MAX_POSSIBLE_CHROM)) {
-      sprintf(logbuf, "Error: --from marker '%s' not found.\n", markername_from);
+      sprintf(logbuf, "Error: --from variant '%s' not found.\n", markername_from);
       goto load_bim_ret_INVALID_FORMAT_2;
     }
     if (to_slen && (to_chrom == MAX_POSSIBLE_CHROM)) {
-      sprintf(logbuf, "Error: --to marker '%s' not found.\n", markername_to);
+      sprintf(logbuf, "Error: --to variant '%s' not found.\n", markername_to);
       goto load_bim_ret_INVALID_FORMAT_2;
     }
     if (marker_pos_start == -1) {
@@ -981,7 +981,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   }
   if (snp_slen) {
     if (snp_chrom == MAX_POSSIBLE_CHROM) {
-      sprintf(logbuf, "Error: --%ssnp marker '%s' not found.\n", exclude_snp? "exclude-" : "", markername_snp);
+      sprintf(logbuf, "Error: --%ssnp variant '%s' not found.\n", exclude_snp? "exclude-" : "", markername_snp);
       goto load_bim_ret_INVALID_FORMAT_2;
     }
     if (!exclude_snp) {
@@ -1166,7 +1166,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     }
   }
   if (unfiltered_marker_ct == marker_exclude_ct) {
-    logprint("Error: All markers excluded.\n");
+    logprint("Error: All variants excluded.\n");
     goto load_bim_ret_INVALID_FORMAT;
   }
   for (uii = 0; uii < CHROM_MASK_WORDS; uii++) {
@@ -1193,13 +1193,13 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     retval = RET_INVALID_FORMAT;
     break;
   load_bim_ret_INVALID_FORMAT_4:
-    logprint("Error: --from and --to markers are not on the same chromosome.\n");
+    logprint("Error: --from and --to variants are not on the same chromosome.\n");
     retval = RET_INVALID_FORMAT;
     break;
   load_bim_ret_INVALID_FORMAT_3:
     uii = strlen_se(bufptr);
     bufptr[uii] = '\0';
-    sprintf(logbuf, "Error: Duplicate marker ID '%s' in .%s file.\n", bufptr, extension);
+    sprintf(logbuf, "Error: Duplicate variant ID '%s' in .%s file.\n", bufptr, extension);
   load_bim_ret_INVALID_FORMAT_2:
     logprintb();
   load_bim_ret_INVALID_FORMAT:
@@ -1289,7 +1289,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      sprintf(logbuf, "Error: Duplicate marker %s in --update-cm file.\n", colid_ptr);
+      sprintf(logbuf, "Error: Duplicate variant %s in --update-cm file.\n", colid_ptr);
       logprintb();
       goto update_marker_cms_ret_INVALID_FORMAT;
     }
@@ -1305,7 +1305,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, char* sorted_marker_ids, ui
     goto update_marker_cms_ret_READ_FAIL;
   }
   if (miss_ct) {
-    sprintf(logbuf, "--update-cm: %" PRIuPTR " value%s changed, %" PRIuPTR " marker ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    sprintf(logbuf, "--update-cm: %" PRIuPTR " value%s changed, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
   } else {
     sprintf(logbuf, "--update-cm: %" PRIuPTR " value%s changed.\n", hit_ct, (hit_ct == 1)? "" : "s");
   }
@@ -1412,7 +1412,7 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      sprintf(logbuf, "Error: Duplicate marker %s in --update-map file.\n", colid_ptr);
+      sprintf(logbuf, "Error: Duplicate variant %s in --update-map file.\n", colid_ptr);
       logprintb();
       goto update_marker_pos_ret_INVALID_FORMAT;
     }
@@ -1435,7 +1435,7 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
     goto update_marker_pos_ret_READ_FAIL;
   }
   if (miss_ct) {
-    sprintf(logbuf, "--update-map: %" PRIuPTR " value%s updated, %" PRIuPTR " marker ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    sprintf(logbuf, "--update-map: %" PRIuPTR " value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
   } else {
     sprintf(logbuf, "--update-map: %" PRIuPTR " value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
   }
@@ -1551,7 +1551,7 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      sprintf(logbuf, "Error: Duplicate marker %s in --update-name file.\n", colold_ptr);
+      sprintf(logbuf, "Error: Duplicate variant %s in --update-name file.\n", colold_ptr);
       logprintb();
       goto update_marker_names_ret_INVALID_FORMAT;
     }
@@ -1566,7 +1566,7 @@ int32_t update_marker_names(Two_col_params* update_name, char* sorted_marker_ids
     goto update_marker_names_ret_READ_FAIL;
   }
   if (miss_ct) {
-    sprintf(logbuf, "--update-name: %" PRIuPTR " value%s updated, %" PRIuPTR " marker ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    sprintf(logbuf, "--update-name: %" PRIuPTR " value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
   } else {
     sprintf(logbuf, "--update-name: %" PRIuPTR " value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
   }
@@ -1644,7 +1644,7 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      sprintf(logbuf, "Error: Duplicate marker %s in --update-alleles file.\n", bufptr3);
+      sprintf(logbuf, "Error: Duplicate variant %s in --update-alleles file.\n", bufptr3);
       logprintb();
       goto update_marker_alleles_ret_INVALID_FORMAT;
     }
@@ -1698,9 +1698,9 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
   }
   *max_marker_allele_len_ptr = max_marker_allele_len;
   if (miss_ct) {
-    sprintf(logbuf, "--update-alleles: %" PRIuPTR " marker%s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    sprintf(logbuf, "--update-alleles: %" PRIuPTR " variant%s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
   } else {
-    sprintf(logbuf, "--update-alleles: %" PRIuPTR " marker%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+    sprintf(logbuf, "--update-alleles: %" PRIuPTR " variant%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
   }
   logprintb();
   if (err_ct) {
@@ -2101,7 +2101,7 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uintptr_t marker_
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      sprintf(logbuf, "Error: Duplicate marker %s in --flip file.\n", bufptr);
+      sprintf(logbuf, "Error: Duplicate SNP %s in --flip file.\n", bufptr);
       logprintb();
       goto flip_strand_ret_INVALID_FORMAT;
     }
@@ -2117,13 +2117,13 @@ int32_t flip_strand(char* flip_fname, char* sorted_marker_ids, uintptr_t marker_
     goto flip_strand_ret_READ_FAIL;
   }
   if (miss_ct) {
-    sprintf(logbuf, "--flip: %" PRIuPTR " marker%s flipped, %" PRIuPTR " marker ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    sprintf(logbuf, "--flip: %" PRIuPTR " SNP%s flipped, %" PRIuPTR " SNP ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
   } else {
-    sprintf(logbuf, "--flip: %" PRIuPTR " marker%s flipped.\n", hit_ct, (hit_ct == 1)? "" : "s");
+    sprintf(logbuf, "--flip: %" PRIuPTR " SNP%s flipped.\n", hit_ct, (hit_ct == 1)? "" : "s");
   }
   logprintb();
   if (non_acgt_ct) {
-    sprintf(logbuf, "Warning: %u marker%s had at least one non-A/C/G/T allele name.\n", non_acgt_ct, (non_acgt_ct == 1)? "" : "s");
+    sprintf(logbuf, "Warning: %u variant%s had at least one non-A/C/G/T allele name.\n", non_acgt_ct, (non_acgt_ct == 1)? "" : "s");
     logprintb();
   }
   while (0) {
@@ -3585,7 +3585,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
   }
   colid_ptr = scan_for_duplicate_ids(sorted_marker_ids, marker_ct, max_marker_id_len);
   if (colid_ptr) {
-    sprintf(logbuf, "Error: Duplicate marker ID %s.\n", colid_ptr);
+    sprintf(logbuf, "Error: Duplicate variant ID %s.\n", colid_ptr);
     logprintb();
     goto update_marker_chroms_ret_INVALID_FORMAT;
   }
@@ -3644,7 +3644,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
       continue;
     }
     if (is_set(already_seen, sorted_idx)) {
-      sprintf(logbuf, "Error: Duplicate marker %s in --update-chr file.\n", colid_ptr);
+      sprintf(logbuf, "Error: Duplicate variant %s in --update-chr file.\n", colid_ptr);
       logprintb();
       goto update_marker_chroms_ret_INVALID_FORMAT;
     }
@@ -3668,7 +3668,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
     goto update_marker_chroms_ret_READ_FAIL;
   }
   if (miss_ct) {
-    sprintf(logbuf, "--update-chr: %" PRIuPTR " value%s updated, %" PRIuPTR " marker ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    sprintf(logbuf, "--update-chr: %" PRIuPTR " value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
   } else {
     sprintf(logbuf, "--update-chr: %" PRIuPTR " value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
   }
@@ -4806,9 +4806,9 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     if (marker_allele_cts[4 * marker_idx + 2]) {
       uii = marker_allele_cts[4 * marker_idx + 3];
       if (map_is_unsorted) {
-        sprintf(logbuf, "Warning: Marker %u (post-sort/filter) %sallelic; setting rarest missing.\n", map_reverse[marker_idx] + 1, (uii? "quad" : "tri"));
+        sprintf(logbuf, "Warning: Variant %u (post-sort/filter) %sallelic; setting rarest missing.\n", map_reverse[marker_idx] + 1, (uii? "quad" : "tri"));
       } else {
-        sprintf(logbuf, "Warning: Marker %" PRIuPTR " %sallelic; setting rarest alleles missing.\n", marker_idx + 1, (uii? "quad" : "tri"));
+        sprintf(logbuf, "Warning: Variant %" PRIuPTR " %sallelic; setting rarest alleles missing.\n", marker_idx + 1, (uii? "quad" : "tri"));
       }
       get_top_two(&(marker_allele_cts[4 * marker_idx]), uii? 4 : 3, &ulii, &uljj);
       uii = map_reverse[marker_idx];
@@ -4880,7 +4880,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
   }
   if (wkspace_left >= marker_ct * indiv_ct4) {
     markers_per_pass = marker_ct;
-    sprintf(logbuf, "Performing single-pass .bed write (%" PRIuPTR " marker%s, %" PRIuPTR " %s).\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
+    sprintf(logbuf, "Performing single-pass .bed write (%" PRIuPTR " variant%s, %" PRIuPTR " %s).\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
     pass_ct = 1;
   } else {
     if (!map_is_unsorted) {
@@ -4893,7 +4893,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       goto ped_to_bed_multichar_allele_ret_NOMEM;
     }
     pass_ct = (marker_ct + markers_per_pass - 1) / markers_per_pass;
-    sprintf(logbuf, "Performing %u-pass .bed write (%u/%" PRIuPTR " marker%s/pass, %" PRIuPTR " %s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
+    sprintf(logbuf, "Performing %u-pass .bed write (%u/%" PRIuPTR " variant%s/pass, %" PRIuPTR " %s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
   }
   logprintb();
   writebuf = wkspace_base;
@@ -5062,7 +5062,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     wkspace_left += cur_slen_rdup;
     putchar('\n');
     if (retval != RET_NOMEM) {
-      sprintf(logbuf, "Error: More than 4 different alleles at marker %u%s.\n", uii + 1, map_is_unsorted? " (post-sort/filter)" : "");
+      sprintf(logbuf, "Error: More than 4 different alleles at variant %u%s.\n", uii + 1, map_is_unsorted? " (post-sort/filter)" : "");
       logprintb();
     }
     break;
@@ -5070,13 +5070,13 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
     wkspace_base -= cur_slen_rdup;
     wkspace_left += cur_slen_rdup;
     putchar('\n');
-    sprintf(logbuf, "Error: Half-missing call in .ped file at marker %" PRIuPTR ", indiv %" PRIuPTR ".\n", marker_uidx + 1, indiv_ct + 1);
+    sprintf(logbuf, "Error: Half-missing call in .ped file at variant %" PRIuPTR ", indiv %" PRIuPTR ".\n", marker_uidx + 1, indiv_ct + 1);
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   ped_to_bed_multichar_allele_ret_INVALID_FORMAT_3:
     putchar('\n');
-    sprintf(logbuf, "Error: Not enough markers in .ped line %" PRIuPTR ".\n", indiv_ct + 1);
+    sprintf(logbuf, "Error: Not enough variants in .ped line %" PRIuPTR ".\n", indiv_ct + 1);
   ped_to_bed_multichar_allele_ret_INVALID_FORMAT_2:
     logprintb();
     retval = RET_INVALID_FORMAT;
@@ -5178,7 +5178,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       marker_exclude_ct++;
     } else {
       if ((*bufptr < '0') || (*bufptr > '9')) {
-	logprint("Error: Non-numeric marker position in .map file.\n");
+	logprint("Error: Non-numeric variant position in .map file.\n");
 	goto ped_to_bed_ret_INVALID_FORMAT;
       }
       if (!map_is_unsorted) {
@@ -5196,7 +5196,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     }
     unfiltered_marker_ct++;
     if (unfiltered_marker_ct > 0x7fffffff) {
-      logprint("Error: Too many markers in .map file (max 2147483647).\n");
+      logprint("Error: Too many variants in .map file (max 2147483647).\n");
       goto ped_to_bed_ret_INVALID_FORMAT;
     }
     if (!(unfiltered_marker_ct & (BITCT - 1))) {
@@ -5211,7 +5211,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   }
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   if (!marker_ct) {
-    logprint("Error: No markers in current analysis.\n");
+    logprint("Error: No variants in current analysis.\n");
     goto ped_to_bed_ret_INVALID_FORMAT;
   }
   marker_exclude = (uintptr_t*)wkspace_alloc(((unfiltered_marker_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
@@ -5413,9 +5413,9 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       if (marker_alleles[marker_idx * 4 + 2]) {
 	cc = marker_alleles[marker_idx * 4 + 3];
 	if (map_is_unsorted) {
-	  sprintf(logbuf, "Warning: Marker %u (post-sort/filter) %sallelic; setting rarest missing.\n", map_reverse[marker_idx] + 1, (cc? "quad" : "tri"));
+	  sprintf(logbuf, "Warning: Variant %u (post-sort/filter) %sallelic; setting rarest missing.\n", map_reverse[marker_idx] + 1, (cc? "quad" : "tri"));
 	} else {
-	  sprintf(logbuf, "Warning: Marker %" PRIuPTR " %sallelic; setting rarest alleles missing.\n", marker_idx + 1, (cc? "quad" : "tri"));
+	  sprintf(logbuf, "Warning: Variant %" PRIuPTR " %sallelic; setting rarest alleles missing.\n", marker_idx + 1, (cc? "quad" : "tri"));
 	}
 	logprintb();
 	ujj = (cc? 4 : 3);
@@ -5490,7 +5490,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     }
     if (wkspace_left >= marker_ct * indiv_ct4) {
       markers_per_pass = marker_ct;
-      sprintf(logbuf, "Performing single-pass .bed write (%" PRIuPTR " marker%s, %" PRIuPTR " %s).\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
+      sprintf(logbuf, "Performing single-pass .bed write (%" PRIuPTR " variant%s, %" PRIuPTR " %s).\n", marker_ct, (marker_ct == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
       pass_ct = 1;
     } else {
       if (!map_is_unsorted) {
@@ -5503,7 +5503,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	goto ped_to_bed_ret_NOMEM;
       }
       pass_ct = (marker_ct + markers_per_pass - 1) / markers_per_pass;
-      sprintf(logbuf, "Performing %u-pass .bed write (%u/%" PRIuPTR " marker%s/pass, %" PRIuPTR " %s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
+      sprintf(logbuf, "Performing %u-pass .bed write (%u/%" PRIuPTR " variant%s/pass, %" PRIuPTR " %s).\n", pass_ct, markers_per_pass, marker_ct, (markers_per_pass == 1)? "" : "s", indiv_ct, species_str(indiv_ct));
     }
     logprintb();
     writebuf = wkspace_base;
@@ -5672,7 +5672,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     retval = RET_WRITE_FAIL;
     break;
   ped_to_bed_ret_INVALID_FORMAT_3:
-    sprintf(logbuf, "Error: Not enough markers in .ped line %" PRIuPTR ".\n", indiv_ct + 1);
+    sprintf(logbuf, "Error: Not enough variants in .ped line %" PRIuPTR ".\n", indiv_ct + 1);
   ped_to_bed_ret_INVALID_FORMAT_2:
     logprintb();
   ped_to_bed_ret_INVALID_FORMAT:
@@ -6340,7 +6340,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
     retval = RET_INVALID_FORMAT;
     break;
   lgen_to_bed_ret_INVALID_FORMAT_3:
-    sprintf(logbuf, "Error: Marker %s in .lgen file has 3+ different alleles.\n", id_buf);
+    sprintf(logbuf, "Error: Variant %s in .lgen file has 3+ different alleles.\n", id_buf);
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
@@ -6760,7 +6760,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     }
     if (allele_cts[2]) {
       putchar('\r');
-      sprintf(logbuf, "Note: Marker %" PRIuPTR " is %sallelic.  Setting rarest alleles to missing.\n", marker_ct - 1, allele_cts[3]? "quad" : "tri");
+      sprintf(logbuf, "Note: Variant %" PRIuPTR " is %sallelic.  Setting rarest alleles to missing.\n", marker_ct - 1, allele_cts[3]? "quad" : "tri");
       logprintb();
       transposed_to_bed_print_pct(pct);
     }
@@ -7064,7 +7064,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     retval = RET_INVALID_FORMAT;
     break;
   transposed_to_bed_ret_INVALID_FORMAT_4:
-    sprintf(logbuf, "Error: Half-missing call at marker %" PRIuPTR ", indiv %" PRIuPTR " in .tped file.\n", marker_ct - 1, indiv_idx);
+    sprintf(logbuf, "Error: Half-missing call at variant %" PRIuPTR ", indiv %" PRIuPTR " in .tped file.\n", marker_ct - 1, indiv_idx);
   transposed_to_bed_ret_INVALID_FORMAT_5:
     putchar('\r');
     logprintb();
@@ -7072,7 +7072,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     break;
   transposed_to_bed_ret_INVALID_FORMAT_6:
     putchar('\r');
-    sprintf(logbuf, "Error: More than four alleles at marker %" PRIuPTR ".\n", marker_ct - 1);
+    sprintf(logbuf, "Error: More than four alleles at variant %" PRIuPTR ".\n", marker_ct - 1);
     logprintb();
     break;
   }
@@ -7099,7 +7099,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 
 void announce_make_xylist_complete(uint32_t markers_left, char* outname, char* outname_end) {
   *outname_end = '\0';
-  sprintf(logbuf, "--23file-make-xylist: %u marker ID%s written to %s.xylist.\n", markers_left, (markers_left == 1)? "" : "s", outname);
+  sprintf(logbuf, "--23file-make-xylist: %u variant ID%s written to %s.xylist.\n", markers_left, (markers_left == 1)? "" : "s", outname);
   logprintb();
 }
 
@@ -7310,7 +7310,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
 	  if (bsearch_str(id_start, xylist, xylist_max_id_len, 0, xylist_ct - 1) != -1) {
 	    if (atoiz(pos_start, &ii)) {
 	      pos_start[strlen_se(pos_start)] = '\0';
-	      sprintf(logbuf, "Error: Invalid --23file marker position '%s'.\n", pos_start);
+	      sprintf(logbuf, "Error: Invalid --23file SNP position '%s'.\n", pos_start);
 	      goto bed_from_23_ret_INVALID_FORMAT;
 	    }
 	    if (((uint32_t)ii) > 77000000) {
@@ -7459,10 +7459,10 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   }
   if ((writebuf_cur == &(writebuf[3])) && (writebuf[0] == 'l')) {
     if (chrom_mask_23 == 0x7ffffff) {
-      logprint("Error: No --23file markers.\n");
+      logprint("Error: No --23file SNPs.\n");
       goto bed_from_23_ret_INVALID_FORMAT;
     } else {
-      logprint("Error: No --23file markers pass chromosome filter.\n");
+      logprint("Error: No --23file SNPs pass chromosome filter.\n");
       goto bed_from_23_ret_INVALID_CMDLINE;
     }
   }
@@ -7524,7 +7524,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   sprintf(logbuf, "--23file: binary fileset written to %s.bed + .bim + .fam.\n", outname);
   logprintb();
   if (indel_ct) {
-    sprintf(logbuf, "%u markers with indel calls present.  --list-23-indels may be useful here.\n", indel_ct);
+    sprintf(logbuf, "%u SNPs with indel calls present.  --list-23-indels may be useful here.\n", indel_ct);
     logprintb();
   }
   if (!(modifier_23 & M23_SEX)) {
@@ -7777,7 +7777,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
     }
   }
   putchar('\r');
-  sprintf(logbuf, "Dummy data generated (%" PRIuPTR " %s, %" PRIuPTR " markers).\n", indiv_ct, species_str(indiv_ct), marker_ct);
+  sprintf(logbuf, "Dummy data generated (%" PRIuPTR " %s, %" PRIuPTR " SNP%s).\n", indiv_ct, species_str(indiv_ct), marker_ct, (marker_ct == 1)? "" : "s");
   logprintb();
   while (0) {
   generate_dummy_ret_NOMEM:
@@ -8285,7 +8285,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
       continue;
     }
     if (atoiz(cptr, &ii)) {
-      sprintf(logbuf, "\nError: Invalid marker count in --simulate%s input file.\n", is_qt? "-qt" : "");
+      sprintf(logbuf, "\nError: Invalid SNP count in --simulate%s input file.\n", is_qt? "-qt" : "");
       goto simulate_ret_INVALID_FORMAT_2;
     }
     ullii += ii;
@@ -8294,10 +8294,10 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     goto simulate_ret_READ_FAIL;
   }
   if (!ullii) {
-    sprintf(logbuf, "\nError: --simulate%s input file specifies zero variants/markers.\n", is_qt? "-qt" : "");
+    sprintf(logbuf, "\nError: --simulate%s input file specifies zero SNPs.\n", is_qt? "-qt" : "");
     goto simulate_ret_INVALID_FORMAT_2;
   } else if (ullii > (do_haps? 0x3fffffff : 0x7fffffff)) {
-    sprintf(logbuf, "\nError: --simulate%s input file specifies too many variants/markers.\n", is_qt? "-qt" : "");
+    sprintf(logbuf, "\nError: --simulate%s input file specifies too many SNPs.\n", is_qt? "-qt" : "");
     goto simulate_ret_INVALID_FORMAT_2;
   }
   marker_ct = ullii;
@@ -8341,7 +8341,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     freq_delta -= freq_lb;
     if (tags_or_haps) {
       if (scan_two_doubles(marker_freq_lb_ptr, &marker_freq_lb, &marker_freq_ub) || (marker_freq_lb < 0) || (marker_freq_ub < marker_freq_lb) || (marker_freq_ub > 1)) {
-	sprintf(logbuf, "\nError: Invalid marker allele frequency bound in --simulate%s input file.\n", is_qt? "-qt" : "");
+	sprintf(logbuf, "\nError: Invalid SNP allele frequency bound in --simulate%s input file.\n", is_qt? "-qt" : "");
 	goto simulate_ret_INVALID_FORMAT_2;
       }
       if (scan_double(marker_ld_ptr, &dprime) || (dprime < 0) || (dprime > 1)) {
@@ -9393,7 +9393,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       if (strchr(&(marker_ids[marker_uidx * max_marker_id_len]), ',')) {
-        logprint("Error: Comma present in marker ID during --recode bimbam run.\n");
+        logprint("Error: Comma present in SNP ID during --recode bimbam run.\n");
       }
     }
     // +1 because memcpyl3a() copies an extra character
@@ -9950,7 +9950,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     // chromosomes, though, since chromosome 0 was actually processed
     autosomal_marker_ct = marker_ct - count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1) - count_chrom_markers(chrom_info_ptr, 25, marker_exclude);
     if (!autosomal_marker_ct) {
-      logprint("Error: No autosomal markers for --recode beagle.\n");
+      logprint("Error: No autosomal variants for --recode beagle.\n");
       goto recode_ret_INVALID_FORMAT;
     }
     memcpy(outname_end, ".chr-", 6);
@@ -11288,7 +11288,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	  aptr1 = NULL;
 	}
 	if (aptr1 && (alen1 == alen2) && (!memcmp(aptr1, aptr2, alen1))) {
-	  sprintf(logbuf, "Error: A1 and A2 alleles identical for a marker in %s.\n", bimname);
+	  sprintf(logbuf, "Error: A1 and A2 alleles identical for a variant in %s.\n", bimname);
 	  goto merge_bim_scan_ret_INVALID_FORMAT;
 	}
 	if ((alen2 == 1) && (*aptr2 == '0')) {
@@ -11376,7 +11376,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 	  }
 	  if (ll_ptr->pos != llxx) {
 	    if ((ll_ptr->pos >> 32) == (llxx >> 32)) {
-	      sprintf(logbuf, "Warning: Multiple positions seen for marker %s.\n", bufptr);
+	      sprintf(logbuf, "Warning: Multiple positions seen for variant %s.\n", bufptr);
 	      if (position_warning_ct < 3) {
 		position_warning_ct++;
 		if (position_warning_ct < 3) {
@@ -11389,7 +11389,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
 		logstr(logbuf);
 	      }
 	    } else {
-	      sprintf(logbuf, "Warning: Multiple chromosomes seen for marker %s.\n", bufptr);
+	      sprintf(logbuf, "Warning: Multiple chromosomes seen for variant %s.\n", bufptr);
 	      logprintb();
 	    }
 	  }
@@ -11438,7 +11438,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
     goto merge_bim_scan_ret_READ_FAIL;
   }
   if (!cur_marker_ct) {
-    sprintf(logbuf, "Error: No markers in %s.\n", bimname);
+    sprintf(logbuf, "Error: No variants in %s.\n", bimname);
     goto merge_bim_scan_ret_INVALID_FORMAT;
   }
   *max_marker_id_len_ptr = max_marker_id_len;
@@ -11525,7 +11525,7 @@ int32_t report_non_biallelics(char* outname, char* outname_end, Ll_str* non_bial
   if (fclose_null(&outfile)) {
     goto report_non_biallelics_ret_WRITE_FAIL;
   }
-  sprintf(logbuf, "Error: %" PRIuPTR " marker%s with 3+ alleles present.  Use --flip with\n%s for now.\n", nbmarker_ct, (nbmarker_ct == 1)? "" : "s", outname);
+  sprintf(logbuf, "Error: %" PRIuPTR " variant%s with 3+ alleles present.  Use --flip with\n%s for now.\n", nbmarker_ct, (nbmarker_ct == 1)? "" : "s", outname);
   logprintb();
   while (0) {
   report_non_biallelics_ret_NOMEM:
@@ -11626,11 +11626,11 @@ static inline uint32_t merge_post_msort_update_maps(char* marker_ids, uintptr_t 
       cur_bp = (uint32_t)(llxx >> 32);
       if (prev_bp == cur_bp) {
 	if (merge_equal_pos && merge_alleles(marker_allele_ptrs, ((uint32_t)ll_buf[read_pos - 1]), presort_idx)) {
-	  sprintf(logbuf, "Error: --merge-equal-pos failure.  Markers %s and %s\nhave the same position, but do not share the same alleles.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
+	  sprintf(logbuf, "Error: --merge-equal-pos failure.  Variants %s and %s\nhave the same position, but do not share the same alleles.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
 	  logprintb();
 	  return 1;
 	}
-	sprintf(logbuf, "Warning: Markers %s and %s have the same position.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
+	sprintf(logbuf, "Warning: Variants %s and %s have the same position.\n", &(marker_ids[max_marker_id_len * presort_idx]), &(marker_ids[max_marker_id_len * ((uint32_t)ll_buf[read_pos - 1])]));
 	logprintb();
 	if (merge_equal_pos) {
 	  marker_map[presort_idx] = write_pos - 1;
@@ -12367,14 +12367,14 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
     retval = RET_WRITE_FAIL;
     break;
   merge_main_ret_INVALID_FORMAT:
-    sprintf(logbuf, "Error: Marker %s is not biallelic.\n", &(marker_ids[uii * max_marker_id_len]));
+    sprintf(logbuf, "Error: Variant %s is not biallelic.\n", &(marker_ids[uii * max_marker_id_len]));
     putchar('\n');
     logprintb();
     retval = RET_INVALID_FORMAT;
     break;
   merge_main_ret_INVALID_FORMAT_3:
     fill_idbuf_fam_indiv(idbuf, bufptr, ' ');
-    sprintf(logbuf, "Error: Half-missing call in %s (indiv id %s, marker %s).\n", bedname, idbuf, &(marker_ids[uii * max_marker_id_len]));
+    sprintf(logbuf, "Error: Half-missing call in %s (indiv id %s, variant %s).\n", bedname, idbuf, &(marker_ids[uii * max_marker_id_len]));
     putchar('\n');
     logprintb();
     retval = RET_INVALID_FORMAT;
@@ -12811,12 +12811,12 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   } while (++mlpos < merge_ct);
 #ifdef __LP64__
   if (ullxx > 0x7fffffff) {
-    logprint("Error: Too many markers (max 2147483647).\n");
+    logprint("Error: Too many variants (max 2147483647).\n");
     goto merge_datasets_ret_INVALID_FORMAT;
   }
 #else
   if (ullxx * MAXV(max_marker_id_len, 8) > 0x7fffffff) {
-    logprint("Error: Too many markers for 32-bit " PROG_NAME_CAPS ".\n");
+    logprint("Error: Too many variants for 32-bit " PROG_NAME_CAPS ".\n");
     goto merge_datasets_ret_INVALID_FORMAT;
   }
 #endif
@@ -12906,7 +12906,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     goto merge_datasets_ret_INVALID_FORMAT;
   }
   if (!dedup_marker_ct) {
-    logprint("Error: No markers in merged file.\n");
+    logprint("Error: No variants in merged file.\n");
     goto merge_datasets_ret_INVALID_FORMAT;
   }
   wkspace_reset((unsigned char*)ll_buf);
@@ -12962,9 +12962,9 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       goto merge_datasets_ret_WRITE_FAIL;
     }
     if (pass_ct == 1) {
-      sprintf(logbuf, "Performing single-pass merge (%u %s, %u marker%s).\n", tot_indiv_ct, species_str(tot_indiv_ct), dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
+      sprintf(logbuf, "Performing single-pass merge (%u %s, %u variant%s).\n", tot_indiv_ct, species_str(tot_indiv_ct), dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
     } else {
-      sprintf(logbuf, "Performing %u-pass merge (%u %s, %" PRIuPTR "/%u marker%s per pass).\n", pass_ct, tot_indiv_ct, species_str(tot_indiv_ct), markers_per_pass, dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
+      sprintf(logbuf, "Performing %u-pass merge (%u %s, %" PRIuPTR "/%u variant%s per pass).\n", pass_ct, tot_indiv_ct, species_str(tot_indiv_ct), markers_per_pass, dedup_marker_ct, (dedup_marker_ct == 1)? "" : "s");
     }
   } else {
     memcpy(outname_end, ".diff", 6);
@@ -13084,7 +13084,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   } else {
     // undo the "not"
     diff_not_both_genotyped = diff_total_overlap - diff_not_both_genotyped;
-    sprintf(logbuf, "%" PRIu64 " overlapping markers, %" PRIu64 " genotyped in both filesets.\n%" PRIu64 " concordant, for a concordance rate of %g.\n", diff_total_overlap, diff_not_both_genotyped, diff_not_both_genotyped - diff_discordant, 1.0 - (((double)diff_discordant) / ((double)diff_not_both_genotyped)));
+    sprintf(logbuf, "%" PRIu64 " overlapping variants, %" PRIu64 " genotyped in both filesets.\n%" PRIu64 " concordant, for a concordance rate of %g.\n", diff_total_overlap, diff_not_both_genotyped, diff_not_both_genotyped - diff_discordant, 1.0 - (((double)diff_discordant) / ((double)diff_not_both_genotyped)));
     logprintb();
   }
 
