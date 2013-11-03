@@ -489,7 +489,7 @@ int32_t oxford_gen_load1(FILE* genfile, uint32_t* gen_buf_len_ptr, uintptr_t* un
     return RET_READ_FAIL;
   }
   if (!unfiltered_marker_ct) {
-    logprint("Error: No markers in .gen file.\n");
+    logprint("Error: No variants in .gen file.\n");
     return RET_INVALID_FORMAT;
   }
   putchar('\r');
@@ -1646,7 +1646,7 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
     return RET_READ_FAIL;
   }
   if (!unfiltered_marker_ct) {
-    logprint("Error: No markers in .gen file.\n");
+    logprint("Error: No variants in .gen file.\n");
     return RET_INVALID_FORMAT;
   }
   if (marker_idxl) {

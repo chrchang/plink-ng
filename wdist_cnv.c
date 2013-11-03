@@ -607,9 +607,9 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
   }
   if (!raw_marker_ct) {
     if (cnv_calc_type) {
-      logprint("\nError: No markers.\n");
+      logprint("\nError: No variants.\n");
     } else {
-      logprint("\nError: No markers after filtering.\n");
+      logprint("\nError: No variants after filtering.\n");
     }
     goto cnv_make_map_ret_INVALID_FORMAT;
   }
