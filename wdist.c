@@ -66,7 +66,7 @@ const char ver_str[] =
   "PLINK v1.50b1"
 #else
   #ifdef STABLE_BUILD
-  "WDIST v0.22.7"
+  "WDIST v0.22.8"
   #else
   "WDIST v0.23.0p"
   #endif
@@ -79,7 +79,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (3 Nov 2013)";
+  " (4 Nov 2013)";
 const char ver_str2[] =
 #ifdef PLINK_BUILD
   "               [final website TBD]\n"
@@ -8118,6 +8118,7 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'd':
       if (!memcmp(argptr2, "ata", 4)) {
+	UNSTABLE;
 	if (load_params & 0xff) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
@@ -8585,6 +8586,7 @@ int32_t main(int32_t argc, char** argv) {
 
     case 'g':
       if (!memcmp(argptr2, "en", 3)) {
+	UNSTABLE;
 	if (load_params & 0x17f) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
@@ -11126,6 +11128,7 @@ int32_t main(int32_t argc, char** argv) {
 
     case 's':
       if (!memcmp(argptr2, "ample", 6)) {
+	UNSTABLE;
 	if ((load_params & 0x27f) || load_rare) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
@@ -12268,8 +12271,6 @@ int32_t main(int32_t argc, char** argv) {
   wkspace_left = malloc_size_mb * 1048576 - (uintptr_t)(wkspace - wkspace_ua);
   free(bubble);
 
-  tbuf[MAXLINELEN - 6] = ' ';
-  tbuf[MAXLINELEN - 1] = ' ';
   pigz_init(g_thread_ct);
   if (load_rare & (LOAD_RARE_GRM | LOAD_RARE_GRM_BIN)) {
     // --unrelated-heritability and --rel-cutoff batch mode special cases

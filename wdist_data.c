@@ -1617,7 +1617,7 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
   loadbuf_size = wkspace_left;
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
-  } else if (loadbuf_size < MAXLINELEN) {
+  } else if (loadbuf_size <= MAXLINELEN) {
     goto update_marker_alleles_ret_NOMEM;
   }
   loadbuf = (char*)wkspace_alloc(loadbuf_size);
@@ -5800,6 +5800,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   unsigned char* ucptr;
   unsigned char bmap_short[320];
   unsigned char* bmap2;
+  char* loadbuf;
   char* id_buf;
   char* cptr;
   char* cptr2;
@@ -5812,6 +5813,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   char** ma_end;
   uint32_t a1len;
   uint32_t a2len;
+  uintptr_t loadbuf_size;
   uintptr_t indiv_idx;
   uintptr_t ulii;
   uint32_t uii;
@@ -5895,12 +5897,27 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   } else {
     memset(writebuf, 0x55, marker_ct * indiv_ct4);
   }
+  loadbuf_size = wkspace_left;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (loadbuf_size <= MAXLINELEN) {
+    goto lgen_to_bed_ret_NOMEM;
+  }
+  loadbuf = (char*)wkspace_base;
+  loadbuf[loadbuf_size - 1] = ' ';
   if (lgen_modifier & LGEN_REFERENCE) {
     if (fopen_checked(&infile, lgen_reference_fname, "r")) {
       goto lgen_to_bed_ret_OPEN_FAIL;
     }
-    while (fgets(tbuf, MAXLINELEN, infile)) {
-      cptr = skip_initial_spaces(tbuf);
+    while (fgets(loadbuf, loadbuf_size, infile)) {
+      if (!loadbuf[loadbuf_size - 1]) {
+	if (loadbuf_size == MAXLINEBUFLEN) {
+	  logprint("Error: Pathologically long line in .ref file.\n");
+	  goto lgen_to_bed_ret_INVALID_FORMAT_6;
+	}
+	goto lgen_to_bed_ret_NOMEM;
+      }
+      cptr = skip_initial_spaces(loadbuf);
       if (is_eoln_kns(*cptr)) {
 	continue;
       }
@@ -5978,8 +5995,15 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
   lgen_next_thresh = lgen_size / 100;
   pct = 0;
   if (!lgen_allele_count) {
-    while (fgets(tbuf, MAXLINELEN, infile)) {
-      cptr = skip_initial_spaces(tbuf);
+    while (fgets(loadbuf, loadbuf_size, infile)) {
+      if (!loadbuf[loadbuf_size - 1]) {
+	if (loadbuf_size == MAXLINEBUFLEN) {
+	  logprint("Error: Pathologically long line in .lgen file.\n");
+	  goto lgen_to_bed_ret_INVALID_FORMAT_6;
+	}
+	goto lgen_to_bed_ret_NOMEM;
+      }
+      cptr = skip_initial_spaces(loadbuf);
       if (is_eoln_kns(*cptr)) {
 	continue;
       }
@@ -6002,6 +6026,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       }
       if (!compound_genotypes) {
 	if (no_more_items_kns(a2ptr)) {
+	  printf("fail2\n");
 	  goto lgen_to_bed_ret_INVALID_FORMAT;
 	}
 	a2len = strlen_se(a2ptr);
@@ -6107,8 +6132,15 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
       }
     }
   } else {
-    while (fgets(tbuf, MAXLINELEN, infile)) {
-      cptr = skip_initial_spaces(tbuf);
+    while (fgets(loadbuf, loadbuf_size, infile)) {
+      if (!loadbuf[loadbuf_size - 1]) {
+	if (loadbuf_size == MAXLINEBUFLEN) {
+	  logprint("Error: Pathologically long line in .lgen file.\n");
+	  goto lgen_to_bed_ret_INVALID_FORMAT_6;
+	}
+	goto lgen_to_bed_ret_NOMEM;
+      }
+      cptr = skip_initial_spaces(loadbuf);
       if (is_eoln_kns(*cptr)) {
 	continue;
       }
@@ -6337,6 +6369,7 @@ int32_t lgen_to_bed(char* lgen_namebuf, char* outname, char* outname_end, int32_
     break;
   lgen_to_bed_ret_INVALID_FORMAT:
     logprint("Error: Improperly formatted .lgen file.\n");
+  lgen_to_bed_ret_INVALID_FORMAT_6:
     retval = RET_INVALID_FORMAT;
     break;
   lgen_to_bed_ret_INVALID_FORMAT_3:
@@ -6549,7 +6582,11 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   rewind(infile);
   tped_next_thresh = tped_size / 100;
 
-  while (tbuf[MAXLINELEN - 1] = ' ', fgets(tbuf, MAXLINELEN, infile)) {
+  while (1) {
+    tbuf[MAXLINELEN - 1] = ' ';
+    if (!fgets(tbuf, MAXLINELEN, infile)) {
+      break;
+    }
     // assume first four fields are within MAXLINELEN characters, but after
     // that, anything goes
     cptr = skip_initial_spaces(tbuf);
@@ -8770,7 +8807,7 @@ int32_t recode_allele_load(char* loadbuf, uintptr_t loadbuf_size, char* recode_a
     goto recode_allele_load_ret_1;
   }
   loadbuf[loadbuf_size - 1] = ' ';
-  while (fgets(loadbuf, MAXLINELEN, rafile)) {
+  while (fgets(loadbuf, loadbuf_size, rafile)) {
     if (!loadbuf[loadbuf_size - 1]) {
       logprint("Error: Pathologically long line in --recode-allele file.\n");
       goto recode_allele_load_ret_INVALID_FORMAT;
@@ -9671,6 +9708,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     sprintf(logbuf, "--recode transpose to %s + .tfam... ", outname);
     logprintb();
     fputs("0%", stdout);
+    fflush(stdout);
     if ((recode_modifier & (RECODE_TAB | RECODE_DELIMX)) == RECODE_TAB) {
       delim2 = ' '; // within genotype
     }
@@ -11233,7 +11271,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
   }
   do {
     if (!loadbuf[loadbuf_size - 1]) {
-      if (loadbuf_size == 0x3fffffc0) {
+      if ((loadbuf_size == 0x3fffffc0) || ((!is_binary) && (loadbuf_size == MAXLINELEN))) {
 	sprintf(logbuf, "Error: Pathologically long line in %s.\n", bimname);
 	goto merge_bim_scan_ret_INVALID_FORMAT;
       } else {

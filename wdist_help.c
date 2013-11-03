@@ -311,12 +311,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --23file [fname] {family ID} {indiv. ID} {sex} {pheno} {pat. ID} {mat. ID} :\n"
 "    Specify 23andMe input file.\n\n"
 	       );
+#ifndef STABLE_BUILD
     help_print("data\tgen\tsample", &help_ctrl, 1,
 "  --data {prefix}  : Specify Oxford .gen + .sample prefix (default '" PROG_NAME_STR "').\n"
 "  --gen [filename] : Specify full name of .gen file.\n"
 "  --sample [fname] : Specify full name of .sample file.\n\n"
 	       );
-#ifndef STABLE_BUILD
     help_print("cfile\tcnv-list\tgfile", &help_ctrl, 1,
 "  --cfile [prefix] : Specify .cnv + .fam + .cnv.map (segmental CNV) prefix.\n"
 "  --cnv-list [fn]  : Specify full name of .cnv file.\n"
@@ -422,12 +422,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --merge [text fileset prefix]\n"
 "  --bmerge [.bed filename] [.bim filename] [.fam filename]\n"
 "  --bmerge [binary fileset prefix]\n"
-"    Merges the given fileset with the initially loaded fileset.  If you specify\n"
-"    --make-bed or '--recode lgen', the initial merge result is written to\n"
-"    {output prefix}-merge.bed + .bim + .fam, filtering is performed, and then\n"
-"    the post-filtering data are written to {output prefix}.bed + .bim + .fam\n"
-"    and the -merge files are deleted.  Otherwise, the merged data are written\n"
-"    directly to {output prefix}.bed + .bim + .fam.\n"
+"    Merge the given fileset with the initially loaded fileset, writing the\n"
+"    result to {output prefix}.bed + .bim + .fam.  (It is no longer necessary to\n"
+"    simultaneously specify --make-bed.\n"
 "  --merge-list [filename]\n"
 "    Merge all filesets named in the text file with the initially loaded\n"
 "    fileset.  The text file is interpreted as follows:\n"
@@ -510,9 +507,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("distance-matrix\tmatrix", &help_ctrl, 1,
 "  --distance-matrix\n"
 "  --matrix\n"
-"    These old commands are equivalent to '--distance 1-ibs flat-missing' and\n"
-"    '--distance ibs flat-missing', respectively, except that they generate\n"
-"    space- instead of tab-delimited text matrices.\n\n"
+"    These deprecated commands are equivalent to '--distance 1-ibs flat-missing\n"
+"    square' and '--distance ibs flat-missing square', respectively, except that\n"
+"    they generate space- instead of tab-delimited text matrices.\n\n"
 		);
     help_print("genome\tZ-genome\trel-check\timpossible\tnudge\tgenome-full\tunbounded", &help_ctrl, 1,
 "  --genome <gz> <rel-check> <full> <unbounded> <nudge>\n"
@@ -1257,7 +1254,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                         all terms.\n"
 "  --vif [max VIF]      : Set VIF threshold for --linear/--logistic\n"
 "                         multicollinearity check (default 50).\n"
-"  --xchr-model [code]  : Sets the X chromosome --linear/--logistic model.\n"
+"  --xchr-model [code]  : Set the X chromosome --linear/--logistic model.\n"
 "                         0 = skip sex and haploid chromosomes\n"
 "                         1 (default) = add sex as a covariate on X chromosome\n"
 "                         2 = code male genotypes 0/2 instead of 0/1\n"
@@ -1277,7 +1274,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("aperm", &help_ctrl, 0,
 "  --aperm [min perms - 1] {max perms} {alpha} {beta} {init interval} {slope} :\n"
-"    Sets six parameters controlling adaptive permutation tests.\n"
+"    Set up to six parameters controlling adaptive permutation tests.\n"
 "    * The first two control the minimum and maximum number of permutations that\n"
 "      may be run for each variant; default values are 5 and 1000000.\n"
 "    * The next two control the early termination condition.  A\n"
