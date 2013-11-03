@@ -7310,7 +7310,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
 	  if (bsearch_str(id_start, xylist, xylist_max_id_len, 0, xylist_ct - 1) != -1) {
 	    if (atoiz(pos_start, &ii)) {
 	      pos_start[strlen_se(pos_start)] = '\0';
-	      sprintf(logbuf, "Error: Invalid --23file SNP position '%s'.\n", pos_start);
+	      sprintf(logbuf, "Error: Invalid --23file variant position '%s'.\n", pos_start);
 	      goto bed_from_23_ret_INVALID_FORMAT;
 	    }
 	    if (((uint32_t)ii) > 77000000) {
@@ -7459,10 +7459,10 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   }
   if ((writebuf_cur == &(writebuf[3])) && (writebuf[0] == 'l')) {
     if (chrom_mask_23 == 0x7ffffff) {
-      logprint("Error: No --23file SNPs.\n");
+      logprint("Error: No --23file variants.\n");
       goto bed_from_23_ret_INVALID_FORMAT;
     } else {
-      logprint("Error: No --23file SNPs pass chromosome filter.\n");
+      logprint("Error: No --23file variants pass chromosome filter.\n");
       goto bed_from_23_ret_INVALID_CMDLINE;
     }
   }
@@ -7524,7 +7524,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   sprintf(logbuf, "--23file: binary fileset written to %s.bed + .bim + .fam.\n", outname);
   logprintb();
   if (indel_ct) {
-    sprintf(logbuf, "%u SNPs with indel calls present.  --list-23-indels may be useful here.\n", indel_ct);
+    sprintf(logbuf, "%u variants with indel calls present.  --list-23-indels may be useful here.\n", indel_ct);
     logprintb();
   }
   if (!(modifier_23 & M23_SEX)) {
@@ -8341,7 +8341,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
     freq_delta -= freq_lb;
     if (tags_or_haps) {
       if (scan_two_doubles(marker_freq_lb_ptr, &marker_freq_lb, &marker_freq_ub) || (marker_freq_lb < 0) || (marker_freq_ub < marker_freq_lb) || (marker_freq_ub > 1)) {
-	sprintf(logbuf, "\nError: Invalid SNP allele frequency bound in --simulate%s input file.\n", is_qt? "-qt" : "");
+	sprintf(logbuf, "\nError: Invalid marker allele frequency bound in --simulate%s input file.\n", is_qt? "-qt" : "");
 	goto simulate_ret_INVALID_FORMAT_2;
       }
       if (scan_double(marker_ld_ptr, &dprime) || (dprime < 0) || (dprime > 1)) {

@@ -151,7 +151,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   }
   *polymorphic_marker_ct_ptr = polymorphic_marker_ct;
   if (!polymorphic_marker_ct) {
-    logprint("Warning: Skipping --lasso since no polymorphic markers are present.\n");
+    logprint("Warning: Skipping --lasso since no polymorphic sites are present.\n");
     return 0;
   }
   col_ct = covar_ct + polymorphic_marker_ct;

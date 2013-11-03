@@ -572,8 +572,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      call and 5 missing calls; change these limits with --homozyg-window-het\n"
 "      and --homozyg-window-missing, respectively.\n"
 "    * By default, for a variant to be eligible for inclusion in a ROH, the hit\n"
-"      rate of all scanning windows containing the SNP must be at least 0.05;\n"
-"      change this threshold with --homozyg-window-threshold.\n\n"
+"      rate of all scanning windows containing the variant must be at least\n"
+"      0.05; change this threshold with --homozyg-window-threshold.\n\n"
 	       );
     help_print("cluster\tcc\tgroup-avg\tgroup-average\tcluster-missing", &help_ctrl, 1,
 "  --cluster <cc> <group-avg | old-tiebreaks> <missing> <only2>\n"
@@ -875,11 +875,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --silent         : Suppress output to console.\n"
 	       );
     help_print("23file\t23file-convert-xy\t23file-make-xylist", &help_ctrl, 0,
-"  --23file-convert-xy {file} : Separate out XY pseudo-autosomal region.  A SNP\n"
-"                               list (from e.g. --23file-make-xylist) is\n"
+"  --23file-convert-xy {file} : Separate out XY pseudo-autosomal region.  A\n"
+"                               variant list (from e.g. --23file-make-xylist) is\n"
 "                               necessary to use this on a female genome.\n"
 "  --23file-make-xylist : Given a male 23andMe genome, list XY pseudo-autosomal\n"
-"                         region SNPs in {output prefix}.xylist.\n"
+"                         region variants in {output prefix}.xylist.\n"
 	       );
     help_print("missing-genotype\tmissing-phenotype", &help_ctrl, 0,
 "  --missing-genotype [char] : Set missing genotype code (normally '0').\n"
