@@ -420,7 +420,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     goto load_map_ret_READ_FAIL;
   }
   if (!unfiltered_marker_ct) {
-    logprint("Error: No markers in .map file.");
+    logprint("Error: No variants in .map file.");
     goto load_map_ret_INVALID_FORMAT;
   }
   *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
@@ -518,6 +518,10 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
   chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
   chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
   *marker_exclude_ct_ptr = marker_exclude_ct;
+  if (*marker_exclude_ct_ptr == unfiltered_marker_ct) {
+    logprint("Error: All variants excluded (due to negative position) from .map file.\n");
+    goto load_map_ret_INVALID_FORMAT;
+  }
   while (0) {
   load_map_ret_NOMEM:
     retval = RET_NOMEM;
@@ -1442,6 +1446,10 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
   logprintb();
   marker_uidx = 0;
   marker_ct -= (*marker_exclude_ct_ptr) - orig_exclude_ct;
+  if (!marker_ct) {
+    logprint("Error: All variants excluded by --update-map (due to negative marker\npositions).\n");
+    goto update_marker_pos_ret_INVALID_FORMAT;
+  }
   for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
     next_unset_unsafe_ck(marker_exclude, &marker_uidx);
     while (marker_uidx >= chrom_end) {
@@ -2589,7 +2597,6 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
   return retval;
 }
 
-
 int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* indiv_to_cluster, uint32_t for_cluster_flag, uint32_t is_max_dist, double* dists, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* dist_file = NULL;
@@ -3231,6 +3238,11 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   }
   fclose_cond(covar_file);
   return retval;
+}
+
+int32_t define_sets(char* set_fname, char* subset_fname, uint32_t set_modifier, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, char* marker_ids, uintptr_t max_marker_id_len, char* monster_set_name, char* genekeep_flattened, uint32_t make_set_border, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_name_len_ptr, uint32_t** set_range_pp, uint32_t** set_bounds_pp, uintptr_t** set_bitfield_pp, uintptr_t** set_include_out_of_bounds_ptr) {
+  logprint("Error: --set/--make-set are currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
 }
 
 int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, double missing_phenod, char* output_missing_pheno, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d) {
