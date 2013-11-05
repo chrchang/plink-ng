@@ -494,9 +494,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      proportions (i.e. 1 - IBS) to be written to {output prefix}.mdist.\n"
 "      Combine with 'allele-ct' if you want to generate the usual .dist file as\n"
 "      well.\n"
-"    * With dosage data, the '3d' modifier considers 0-1-2 allele count\n"
-"      probabilities separately, instead of collapsing them into an expected\n"
-"      value and a missingness probability.\n"
 "    * By default, distance rescaling in the presence of missing genotype calls\n"
 "      is sensitive to allele count distributions: if variant A contributes, on\n"
 "      average, twice as much to other pairwise distances as variant B, a\n"
@@ -785,8 +782,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("regress-pcs\tdistance\tregress-pcs-distance", &help_ctrl, 1,
 "  --regress-pcs-distance [.evec/.eigenvec file] <normalize-pheno>\n"
 "                         <sex-specific> {max PCs} <square | square0 | triangle>\n"
-"                         <gz | bin> <ibs> <1-ibs> <allele-ct> <3d>\n"
-"                         <flat-missing>\n"
+"                         <gz | bin> <ibs> <1-ibs> <allele-ct> <flat-missing>\n"
 "    High-speed combination of --regress-pcs and --distance (no .gen + .sample\n"
 "    fileset is written to disk).\n\n"
 	       );
@@ -871,16 +867,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("silent", &help_ctrl, 0,
 "  --silent         : Suppress output to console.\n"
 	       );
-    help_print("23file\t23file-convert-xy\t23file-make-xylist", &help_ctrl, 0,
-"  --23file-convert-xy {file} : Separate out XY pseudo-autosomal region.  A\n"
-"                               variant list (from e.g. --23file-make-xylist) is\n"
-"                               necessary to use this on a female genome.\n"
-"  --23file-make-xylist : Given a male 23andMe genome, list XY pseudo-autosomal\n"
-"                         region variants in {output prefix}.xylist.\n"
-	       );
-    help_print("missing-genotype\tmissing-phenotype", &help_ctrl, 0,
+    help_print("missing-genotype", &help_ctrl, 0,
 "  --missing-genotype [char] : Set missing genotype code (normally '0').\n"
-"  --missing-phenotype [val] : Set missing phenotype value (normally -9).\n"
 	       );
     help_print("allow-extra-chr", &help_ctrl, 0,
 "  --allow-extra-chr <0>     : Permit unrecognized chromosome codes.  The '0'\n"
@@ -895,6 +883,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    the named non-autosomal chromosomes.\n"
 "  --cow/--dog/--horse/--mouse/--rice/--sheep : Shortcuts for those species.\n"
 "  --autosome-num [value]    : Alias for '--chr-set [value] no-y no-xy no-mt'.\n"
+	       );
+    help_print("23file\t23file-convert-xy\t23file-make-xylist", &help_ctrl, 0,
+"  --23file-convert-xy {file} : Separate out XY pseudo-autosomal region.  A\n"
+"                               variant list (from e.g. --23file-make-xylist) is\n"
+"                               necessary to use this on a female genome.\n"
+"  --23file-make-xylist : Given a male 23andMe genome, list XY pseudo-autosomal\n"
+"                         region variants in {output prefix}.xylist.\n"
 	       );
     help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
 "  --simulate-ncases [num]   : Set --simulate case count (default 1000).\n"
@@ -925,10 +920,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     original value instead of treating the phenotype as\n"
 "                     missing.\n"
 	       );
-    help_print("1\tpheno", &help_ctrl, 0,
-"  --1              : Expect case/control phenotypes to be coded as 0 = control,\n"
-"                     1 = case, instead of the usual 0 = missing, 1 = control,\n"
-"                     2 = case.\n"
+    help_print("missing-phenotype\t1", &help_ctrl, 0,
+"  --missing-phenotype [val] : Set missing phenotype value (normally -9).\n"
+"  --1                       : Expect case/control phenotypes to be coded as\n"
+"                              0 = control, 1 = case, instead of the usual\n"
+"                              0 = missing, 1 = control, 2 = case.\n"
 	       );
     help_print("make-pheno\tpheno", &help_ctrl, 0,
 "  --make-pheno [file] [val] : Define a new case/control phenotype.  If the\n"
@@ -958,16 +954,16 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --within [f] <keep-NA> : Specify initial cluster assignments.\n"
 "  --mwithin [n]          : Load cluster assignments from column n+2.\n"
 	       );
-#ifndef STABLE_BUILD
-    help_print("set\tsubset", &help_ctrl, 0,
-"  --set [filename] : Specify sets.\n"
-"  --subset [fname] : Specify list of subsets to extract from --set file.\n"
-	       );
-#endif
     help_print("loop-assoc", &help_ctrl, 0,
 "  --loop-assoc [f] <keep-NA> : Run specified case/control association commands\n"
 "                               once for each cluster in the file, using cluster\n"
 "                               membership as the phenotype.\n"
+	       );
+    help_print("set\tmake-set\tsubset", &help_ctrl, 0,
+"  --set [filename] : Load sets from a file explicitly listing each set's\n"
+"                     variant IDs.\n"
+"  --make-set [fn]  : Define sets from a list of named bp ranges.\n"
+"  --subset [fname] : Throw out sets not named in the file.\n"
 	       );
     help_print("keep\tremove\tkeep-fam\tremove-fam", &help_ctrl, 0,
 "  --keep [fname]   : Exclude all individuals not named in the file.\n"
@@ -988,6 +984,24 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                        cluster names for --keep-cluster-names.\n"
 "  --remove-clusters [filename]        : Exclude all clusters named in the file.\n"
 "  --remove-cluster-names [name(s)...] : Exclude the named clusters.\n"
+	       );
+    help_print("gene", &help_ctrl, 0,
+"  --gene [sets...] : Exclude variants not in a set named on the command line.\n"
+	       );
+    help_print("filter-attrib\tfilter-attrib-indiv", &help_ctrl, 0,
+"  --filter-attrib [f] {att lst} : Given a file assigning attributes to\n"
+"  --filter-attrib-indiv [f] {a}   variants, and a comma-delimited list (with no\n"
+"                                  whitespace) of attribute names, remove\n"
+"                                  variants/individuals which are either missing\n"
+"                                  from the file or don't have any of the listed\n"
+"                                  attributes.  If some attribute names in the\n"
+"                                  list are preceded by '-', they are treated as\n"
+"                                  \"negative match conditions\" instead: variants\n"
+"                                  with all the negative match attributes are\n"
+"                                  removed.\n"
+"                                  The first character in the list cannot be a\n"
+"                                  '-', due to how command-line parsing works;\n"
+"                                  add a comma in front to get around this.\n"
 	       );
     help_print("chr\tnot-chr\tchr-excl\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb", &help_ctrl, 0,
 "  --chr [chrs...]  : Exclude all variants not on the given chromosome(s).\n"
@@ -1175,11 +1189,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --merge-equal-pos : Merge variants with different names but identical\n"
 "                      positions.\n"
 	       );
-    help_print("exponent\tdistance", &help_ctrl, 0,
-"  --exponent [x]   : When computing genomic distances, each variant has a\n"
-"                     weight of (2q(1-q))^{-x}, where q is the inferred MAF.\n"
-"                     (Use --read-freq if you want to explicitly specify some or\n"
-"                     all of the MAFs.)\n"
+    help_print("distance-exp\texponent\tdistance", &help_ctrl, 0,
+"  --distance-exp [x] : When computing genomic distances, assign each variant a\n"
+"                       weight of (2q(1-q))^{-x}, where q is the inferred MAF.\n"
+"                       (Use --read-freq if you want to explicitly specify some\n"
+"                       or all of the MAFs.)\n"
 	       );
     help_print("read-dists\tload-dists\tibs-test\tgroupdist\tregress-distance\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
 "  --read-dists [dist file] {id file} : Load a triangular binary distance matrix\n"
@@ -1267,7 +1281,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --lambda [val]   : Set genomic control lambda for --adjust.\n"
 	       );
     help_print("ci", &help_ctrl, 0,
-"  --ci [size]      : Set size of odds ratio confidence interval to report.\n"
+"  --ci [size]      : Report confidence intervals for odds ratios.\n"
 	       );
     help_print("pfilter", &help_ctrl, 0,
 "  --pfilter [val]  : Filter out association test results with higher p-values.\n"

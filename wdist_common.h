@@ -231,6 +231,7 @@
 #define CALC_CMH 0x80000000LLU
 #define CALC_HOMOG 0x100000000LLU
 #define CALC_LASSO 0x200000000LLU
+#define CALC_WRITE_SET 0x400000000LLU
 
 // necessary to patch heterozygous haploids/female Y chromosome genotypes
 // during loading?
@@ -283,6 +284,13 @@
 #define COVAR_NAME 2
 #define COVAR_NUMBER 4
 
+#define SET_MAKE_FROM_RANGES 1
+#define SET_MAKE_COMPLEMENT 2
+#define SET_MAKE_COLLAPSE_GROUP 4
+#define SET_DROP_NONMEMBERS 8
+#define SET_WRITE_LIST 0x10
+#define SET_WRITE_TABLE 0x20
+
 #define REL_CALC_COV 1
 #define REL_CALC_SQ 2
 #define REL_CALC_SQ0 4
@@ -308,8 +316,7 @@
 #define DISTANCE_ALCT 0x40
 #define DISTANCE_TYPEMASK 0x70
 #define DISTANCE_FLAT_MISSING 0x80
-#define DISTANCE_3D 0x100
-#define DISTANCE_CLUSTER 0x200
+#define DISTANCE_CLUSTER 0x100
 
 #define RECODE_12 1
 #define RECODE_TAB 2
