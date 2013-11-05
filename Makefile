@@ -25,7 +25,7 @@ ZLIB64=zlib-1.2.8/libz-64.a
 endif
 endif
 
-SRC = wdist.c wdist_assoc.c wdist_calc.c wdist_cluster.c wdist_cnv.c wdist_common.c wdist_data.c wdist_dosage.c wdist_help.c wdist_homozyg.c wdist_lasso.c wdist_matrix.c wdist_stats.c SFMT.c dcdflib.c pigz.c yarn.c
+SRC = wdist.c wdist_assoc.c wdist_calc.c wdist_cluster.c wdist_cnv.c wdist_common.c wdist_data.c wdist_dosage.c wdist_help.c wdist_homozyg.c wdist_lasso.c wdist_matrix.c wdist_set.c wdist_stats.c SFMT.c dcdflib.c pigz.c yarn.c
 
 OBJ = $(SRC:.c=.o)
 

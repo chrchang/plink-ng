@@ -34,6 +34,7 @@
 #include "wdist_help.h"
 #include "wdist_homozyg.h"
 #include "wdist_lasso.h"
+#include "wdist_set.h"
 #include "wdist_stats.h"
 #include "pigz.h"
 
@@ -79,7 +80,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (5 Nov 2013)";
+  " (6 Nov 2013)";
 const char ver_str2[] =
 #ifdef PLINK_BUILD
   "               [final website TBD]\n"
@@ -4067,7 +4068,7 @@ inline int32_t distance_wt_req(uint64_t calculation_type, char* read_dists_fname
   return (((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && ((calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))))) && (!(dist_calc_type & DISTANCE_FLAT_MISSING)));
 }
 
-int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* set_fname, char* monster_set_name, char* subset_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* genekeep_flattened, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double thin_keep_prob, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t set_modifier, uint32_t make_set_border, uint32_t rel_calc_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uintptr_t regress_rel_iters, uint32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, uint32_t regress_pcs_modifier, uint32_t max_pcs, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Ll_str** file_delete_list_ptr) {
+int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, char* famname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_indiv_fname, char* filter_attrib_indiv_liststr, double thin_keep_prob, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t filter_binary, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, double exponent, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double rel_cutoff, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t calculation_type, uint32_t rel_calc_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uintptr_t regress_rel_iters, uint32_t regress_rel_d, double unrelated_herit_tol, double unrelated_herit_covg, double unrelated_herit_covr, int32_t ibc_type, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, uint32_t ld_window_size, uint32_t ld_window_kb, uint32_t ld_window_incr, double ld_last_param, uint32_t regress_pcs_modifier, uint32_t max_pcs, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t indiv_sort, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, uint32_t aperm_min, uint32_t aperm_max, double aperm_alpha, double aperm_beta, double aperm_init_interval, double aperm_interval_slope, uint32_t mperm_save, uint32_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Ll_str** file_delete_list_ptr) {
   FILE* bedfile = NULL;
   FILE* famfile = NULL;
   FILE* phenofile = NULL;
@@ -4086,7 +4087,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t* sex_nm = NULL;
   uintptr_t* sex_male = NULL;
   uint32_t genome_skip_write = (cluster_ptr->ppc != 0.0) && (!(calculation_type & CALC_GENOME)) && (!read_genome_fname);
-  uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type, set_fname, min_bp_space, genome_skip_write);
+  uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type, sip->fname, min_bp_space, genome_skip_write);
   uint32_t marker_cms_needed = are_marker_cms_needed(calculation_type, update_cm);
   uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname, homozyg_ptr, a1alleles, a2alleles);
   uint32_t zero_extra_chroms = (misc_flags / MISC_ZERO_EXTRA_CHROMS) & 1;
@@ -4154,38 +4155,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   double* covar_d = NULL;
   uintptr_t* gxe_covar_nm = NULL;
   uintptr_t* gxe_covar_c = NULL;
-  uintptr_t set_ct = 0;
-  char* set_names = NULL;
-  uintptr_t max_set_name_len = 0;
-
-  // The simplest set representation is a bitfield of length
-  // unfiltered_marker_ct.  But with, say, 30k genes and 35m variants, pretty
-  // soon you're talking about some real memory consumption.
-  // However, sets are normally used to represent genes, and genes are
-  // localized.  So, if we track the location of the first and last set
-  // entries, we can usually get away with a much smaller bitfield.  In fact,
-  // often we won't need a bitfield at all; we can check if marker_idx is in a
-  // single range or small list of them (assuming we don't query marker_idx
-  // values which have been excluded elsewhere).
-  // Finally, set_include_out_of_bounds makes small bitfield inversion work.
-
-  // entry is NULL if that set is represented with a bitfield instead of a
-  // range.  otherwise, points to an array of uint32_ts where
-  //   [0]: number of ranges
-  //   [2k+1], [2k+2]: offset and length of range k; sorted
-  uint32_t* set_range_ptrs = NULL;
-
-  // uninitialized if range representation used
-  // otherwise, [2n] is offset and [2n+1] is bit length; 16-bit alignment
-  // forced
-  uint32_t* set_bounds = NULL;
-
-  // entry is NULL if that set is represented with a
-  uintptr_t* set_bitfield_ptrs = NULL;
-
-  // bitfield tracking whether all out-of-bounds variants are in the set
-  uintptr_t* set_include_out_of_bounds = NULL;
-
   uint32_t plink_maxfid = 0;
   uint32_t plink_maxiid = 0;
   unsigned char* wkspace_mark2 = NULL;
@@ -4867,6 +4836,9 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       goto wdist_ret_1;
     }
   }
+
+  // this currently has to come last since covar data structures refer to
+  // filtered individual indices.
   if (covar_fname) {
     // update this as more covariate-referencing commands are added
     if (!(calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_WRITE_COVAR | CALC_GXE | CALC_GLM | CALC_LASSO))) {
@@ -4978,12 +4950,12 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   wkspace_reset(hwe_lls);
 
-  if (set_fname) {
+  if (sip->fname) {
     if (map_is_unsorted & (UNSORTED_BP | UNSORTED_SPLIT_CHROM)) {
       logprint("Error: --set/--make-set requires a sorted .bim file.\n");
       goto wdist_ret_INVALID_FORMAT;
     }
-    retval = define_sets(set_fname, subset_fname, set_modifier, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_ids, max_marker_id_len, monster_set_name, genekeep_flattened, make_set_border, &set_ct, &set_names, &max_set_name_len, &set_range_ptrs, &set_bounds, &set_bitfield_ptrs, &set_include_out_of_bounds);
+    retval = define_sets(sip, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_ids, max_marker_id_len);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -6230,9 +6202,6 @@ int32_t main(int32_t argc, char** argv) {
   char* recode_allele_name = NULL;
   char* lgen_reference_fname = NULL;
   char* covar_fname = NULL;
-  char* set_fname = NULL;
-  char* monster_set_name = NULL;
-  char* subset_fname = NULL;
   char* update_alleles_fname = NULL;
   Two_col_params* update_chr = NULL;
   Two_col_params* update_cm = NULL;
@@ -6247,7 +6216,6 @@ int32_t main(int32_t argc, char** argv) {
   char* read_genome_fname = NULL;
   char* condition_mname = NULL;
   char* condition_fname = NULL;
-  char* genekeep_flattened = NULL;
   char* filter_attrib_fname = NULL;
   char* filter_attrib_liststr = NULL;
   char* filter_attrib_indiv_fname = NULL;
@@ -6329,8 +6297,6 @@ int32_t main(int32_t argc, char** argv) {
   char* simulate_label = NULL;
   double simulate_missing = 0.0;
   uint32_t simulate_qt_indivs = 1000;
-  uint32_t set_modifier = 0;
-  uint32_t make_set_border = 0;
   char* markername_from = NULL;
   char* markername_to = NULL;
   char* markername_snp = NULL;
@@ -6425,6 +6391,7 @@ int32_t main(int32_t argc, char** argv) {
   Chrom_info chrom_info;
   Homozyg_info homozyg;
   Cluster_info cluster;
+  Set_info set_info;
   Range_list snps_range_list;
   Range_list covar_range_list;
   Range_list parameters_range_list;
@@ -6448,6 +6415,7 @@ int32_t main(int32_t argc, char** argv) {
 #endif
   homozyg_init(&homozyg);
   cluster_init(&cluster);
+  set_init(&set_info);
   range_list_init(&snps_range_list);
   range_list_init(&covar_range_list);
   range_list_init(&parameters_range_list);
@@ -8265,7 +8233,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "omplement-sets", 15)) {
-        set_modifier |= SET_COMPLEMENTS;
+        set_info.modifier |= SET_COMPLEMENTS;
 	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -8487,7 +8455,7 @@ int32_t main(int32_t argc, char** argv) {
 	glm_xchr_model = 0;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "rop-nonset", 11)) {
-        set_modifier |= SET_DROP_NONMEMBERS;
+        set_info.modifier |= SET_DROP_NONMEMBERS;
         goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -8988,7 +8956,7 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_and_flatten(&genekeep_flattened, &(argv[cur_arg + 1]), param_ct);
+	retval = alloc_and_flatten(&set_info.genekeep_flattened, &(argv[cur_arg + 1]), param_ct);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -10440,13 +10408,13 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&set_fname, argv[cur_arg + 1], argptr, 0);
+	retval = alloc_fname(&set_info.fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
-        set_modifier |= SET_MAKE_FROM_RANGES;
+        set_info.modifier |= SET_MAKE_FROM_RANGES;
       } else if (!memcmp(argptr2, "ake-set-border", 15)) {
-	if (!set_fname) {
+	if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --make-set-border must be used with --make-set.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -10458,37 +10426,37 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (dxx > 2147483.647) {
-	  make_set_border = 2147483647;
+	  set_info.make_set_border = 2147483647;
 	}
-	make_set_border = ((int32_t)(dxx * 1000 + EPSILON));
+	set_info.make_set_border = ((int32_t)(dxx * 1000 + EPSILON));
       } else if (!memcmp(argptr2, "ake-set-collapse-group", 23)) {
-        if (!set_fname) {
+        if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --make-set-collapse-group must be used with --make-set.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        set_modifier |= SET_MAKE_COLLAPSE_GROUP;
+        set_info.modifier |= SET_MAKE_COLLAPSE_GROUP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ake-set-complement-all", 23)) {
-	if (set_modifier & SET_COMPLEMENTS) {
+	if (set_info.modifier & SET_COMPLEMENTS) {
 	  sprintf(logbuf, "Error: --make-set-complement-all cannot be used with --complement-sets.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (alloc_string(&monster_set_name, argv[cur_arg + 1])) {
+        if (alloc_string(&set_info.merged_set_name, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-	set_modifier |= SET_COMPLEMENTS;
+	set_info.modifier |= SET_COMPLEMENTS;
       } else if (!memcmp(argptr2, "ake-set-complement-group", 25)) {
-        if (!set_fname) {
+        if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --make-set-complement-group must be used with --make-set.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (set_modifier & (SET_COMPLEMENTS | SET_MAKE_COLLAPSE_GROUP)) {
+	} else if (set_info.modifier & (SET_COMPLEMENTS | SET_MAKE_COLLAPSE_GROUP)) {
 	  sprintf(logbuf, "Error: --make-set-complement-group cannot be used with --complement-sets,\n--make-set-collapse-group, or --make-set-complement-all.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        set_modifier |= SET_COMPLEMENTS | SET_MAKE_COLLAPSE_GROUP;
+        set_info.modifier |= SET_COMPLEMENTS | SET_MAKE_COLLAPSE_GROUP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "lma", 4)) {
         logprint("Error: --mlma is not implemented yet.\n");
@@ -11460,43 +11428,43 @@ int32_t main(int32_t argc, char** argv) {
 	misc_flags |= MISC_SET_HH_MISSING;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et", 3)) {
-	if (set_fname) {
+	if (set_info.fname) {
 	  sprintf(logbuf, "Error: --set cannot be used with --make-set.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	retval = alloc_fname(&set_fname, argv[cur_arg + 1], argptr, 0);
+	retval = alloc_fname(&set_info.fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "et-collapse-all", 16)) {
-	if (!set_fname) {
+	if (!set_info.fname) {
 	  logprint("Error: --set-collapse-all must be used with --set/--make-set.\n");
 	  goto main_ret_INVALID_CMDLINE;
-	} else if (set_modifier & SET_MAKE_COLLAPSE_GROUP) {
+	} else if (set_info.modifier & SET_MAKE_COLLAPSE_GROUP) {
 	  logprint("Error: --set-collapse-all cannot be used with --make-set-collapse-group or\n--make-set-complement-group.\n");
 	  goto main_ret_INVALID_CMDLINE;
-	} else if (monster_set_name) {
+	} else if (set_info.merged_set_name) {
 	  logprint("Error: --set-collapse-all cannot be used with --make-set-complement-all.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        if (alloc_string(&monster_set_name, argv[cur_arg + 1])) {
+        if (alloc_string(&set_info.merged_set_name, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
       } else if (!memcmp(argptr2, "ubset", 6)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (!set_fname) {
+	if (!set_info.fname) {
 	  logprint("Error: --subset must be used with --set/--make-set.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	retval = alloc_fname(&subset_fname, argv[cur_arg + 1], argptr, 0);
+	retval = alloc_fname(&set_info.subset_fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
@@ -11654,15 +11622,15 @@ int32_t main(int32_t argc, char** argv) {
 	glm_modifier |= GLM_STANDARD_BETA;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et-table", 9)) {
-	if (!set_fname) {
+	if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --set-table must be used with --set/--make-set.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         calculation_type |= CALC_WRITE_SET;
-	set_modifier |= SET_WRITE_TABLE;
+	set_info.modifier |= SET_WRITE_TABLE;
         goto main_param_zero;
       } else if (!memcmp(argptr2, "et-test", 8)) {
-	if (!set_fname) {
+	if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --set-test must be used with --set/--make-set.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -11671,7 +11639,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_1;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et-p", 5)) {
-	if (!set_fname) {
+	if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --set-p must be used with --set/--make-set.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -11682,7 +11650,7 @@ int32_t main(int32_t argc, char** argv) {
 	retval = RET_CALC_NOT_YET_SUPPORTED;
 	goto main_ret_1;
       } else if (!memcmp(argptr2, "et-r2", 5)) {
-	if (!set_fname) {
+	if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --set-r2 must be used with --set/--make-set.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -11693,7 +11661,7 @@ int32_t main(int32_t argc, char** argv) {
 	retval = RET_CALC_NOT_YET_SUPPORTED;
 	goto main_ret_1;
       } else if (!memcmp(argptr2, "et-max", 5)) {
-	if (!set_fname) {
+	if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --set-max must be used with --set/--make-set.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -12190,7 +12158,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
       } else if (!memcmp(argptr2, "egas", 5)) {
-	if (!set_fname) {
+	if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --vegas must be used with --set.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -12319,12 +12287,12 @@ int32_t main(int32_t argc, char** argv) {
 	}
         calculation_type |= CALC_WRITE_CLUSTER;
       } else if (!memcmp(argptr2, "rite-set", 9)) {
-	if (!set_fname) {
+	if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --write-set must be used with --set/--make-set.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         calculation_type |= CALC_WRITE_SET;
-	set_modifier |= SET_WRITE_LIST;
+	set_info.modifier |= SET_WRITE_LIST;
         goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -12480,10 +12448,10 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_INVALID_CMDLINE;
     }
   }
-  if (!set_fname) {
-    if (set_modifier) {
-      if (set_modifier & SET_COMPLEMENTS) {
-	if (monster_set_name) {
+  if (!set_info.fname) {
+    if (set_info.modifier) {
+      if (set_info.modifier & SET_COMPLEMENTS) {
+	if (set_info.merged_set_name) {
 	  logprint("Error: --make-set-complement-all must be used with --set/--make-set.\n");
 	} else {
 	  logprint("Error: --complement-sets must be used with --set/--make-set.\n");
@@ -12492,7 +12460,7 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Error: --drop-nonset must be used with --set/--make-set.\n");
       }
       goto main_ret_INVALID_CMDLINE;
-    } else if (genekeep_flattened) {
+    } else if (set_info.genekeep_flattened) {
       logprint("Error: --gene must be used with --set/--make-set.\n");
       goto main_ret_INVALID_CMDLINE;
     }
@@ -12717,7 +12685,7 @@ int32_t main(int32_t argc, char** argv) {
     } else if (!ibc_type) {
       ibc_type = 1;
     }
-    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, set_fname, monster_set_name, subset_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filtervals_flattened, condition_mname, condition_fname, genekeep_flattened, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, thin_keep_prob, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_bottom, tail_top, misc_flags, calculation_type, set_modifier, make_set_border, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, sex_missing_pheno, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, regress_pcs_modifier, max_pcs, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &file_delete_list);
+    retval = wdist(outname, outname_end, pedname, mapname, famname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_indiv_fname, filter_attrib_indiv_liststr, thin_keep_prob, min_bp_space, mfilter_col, filter_binary, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, exponent, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, rel_cutoff, tail_bottom, tail_top, misc_flags, calculation_type, rel_calc_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, regress_rel_iters, regress_rel_d, unrelated_herit_tol, unrelated_herit_covg, unrelated_herit_covr, ibc_type, parallel_idx, parallel_tot, ppc_gap, sex_missing_pheno, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, ld_window_size, ld_window_kb, ld_window_incr, ld_last_param, regress_pcs_modifier, max_pcs, recode_modifier, allelexxxx, merge_type, indiv_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, mtest_adjust, adjust_lambda, gxe_mcovar, aperm_min, aperm_max, aperm_alpha, aperm_beta, aperm_init_interval, aperm_interval_slope, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &file_delete_list);
   }
  main_ret_2:
   free(wkspace_ua);
@@ -12793,9 +12761,6 @@ int32_t main(int32_t argc, char** argv) {
   free_range_list(&tests_range_list);
   free_cond(lgen_reference_fname);
   free_cond(covar_fname);
-  free_cond(set_fname);
-  free_cond(monster_set_name);
-  free_cond(subset_fname);
   free_cond(update_alleles_fname);
   free_cond(update_chr);
   free_cond(update_cm);
@@ -12832,7 +12797,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(convert_xy_23);
   free_cond(condition_mname);
   free_cond(condition_fname);
-  free_cond(genekeep_flattened);
+  set_cleanup(&set_info);
   free_cond(filter_attrib_fname);
   free_cond(filter_attrib_liststr);
   free_cond(filter_attrib_indiv_fname);

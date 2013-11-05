@@ -3240,11 +3240,6 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   return retval;
 }
 
-int32_t define_sets(char* set_fname, char* subset_fname, uint32_t set_modifier, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, char* marker_ids, uintptr_t max_marker_id_len, char* monster_set_name, char* genekeep_flattened, uint32_t make_set_border, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_name_len_ptr, uint32_t** set_range_pp, uint32_t** set_bounds_pp, uintptr_t** set_bitfield_pp, uintptr_t** set_include_out_of_bounds_ptr) {
-  logprint("Error: --set/--make-set are currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-}
-
 int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, double missing_phenod, char* output_missing_pheno, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d) {
   FILE* outfile = NULL;
   uint32_t write_pheno = write_covar_modifier & WRITE_COVAR_PHENO;
