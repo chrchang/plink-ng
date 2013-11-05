@@ -234,11 +234,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
       }
     }
     iter = 0;
-    fill_ulong_one(active_set, col_ctl);
-    ulii = col_ct & (BITCT - 1);
-    if (ulii) {
-      active_set[col_ctl - 1] = (~ZEROLU) >> (BITCT - ulii);
-    }
+    fill_all_bits(active_set, col_ct);
     col_nz_ct = col_ct;
     while (1) {
       col_uidx = 0;
@@ -544,11 +540,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
       }
     }
     iter = 0;
-    fill_ulong_one(active_set, col_ctl);
-    ulii = col_ct & (BITCT - 1);
-    if (ulii) {
-      active_set[col_ctl - 1] = (~ZEROLU) >> (BITCT - ulii);
-    }
+    fill_all_bits(active_set, col_ct);
     col_nz_ct = col_ct;
     while (1) {
       col_uidx = 0;

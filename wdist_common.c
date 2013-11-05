@@ -5647,6 +5647,16 @@ uintptr_t count_01(uintptr_t* lptr, uintptr_t word_ct) {
   return acc;
 }
 
+void fill_all_bits(uintptr_t* bit_arr, uintptr_t ct) {
+  // leaves bits beyond the end unset
+  uintptr_t quotient = ct / BITCT;
+  uintptr_t remainder = ct % BITCT;
+  fill_ulong_one(bit_arr, quotient);
+  if (remainder) {
+    bit_arr[quotient] = (ONELU << remainder) - ONELU;
+  }
+}
+
 uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t item_ct, uintptr_t* bitfield, uint32_t offset, uint32_t ignore_overflow) {
   char* names = range_list_ptr->names;
   unsigned char* starts_range = range_list_ptr->starts_range;
@@ -5702,12 +5712,12 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, Range
         goto string_range_list_to_bitfield_ret_INVALID_FORMAT;
       }
       seen_idxs[(uint32_t)ii] = item_idx;
-      if (ii && range_list_ptr->starts_range[(uint32_t)(ii - 1)]) {
-        if (seen_idxs[ii - 1] == -1) {
+      if (ii && range_list_ptr->starts_range[((uint32_t)ii) - 1]) {
+        if (seen_idxs[((uint32_t)ii) - 1] == -1) {
           sprintf(logbuf, "Error: Second element of --%s range appears before first element in\n%s.\n", range_list_flag, file_descrip);
           goto string_range_list_to_bitfield_ret_INVALID_CMDLINE;
 	}
-	fill_bits(bitfield, seen_idxs[ii - 1], (item_idx - seen_idxs[ii - 1]) + 1);
+	fill_bits(bitfield, seen_idxs[((uint32_t)ii) - 1], (item_idx - seen_idxs[((uint32_t)ii) - 1]) + 1);
       } else if (!(range_list_ptr->starts_range[(uint32_t)ii])) {
 	SET_BIT(bitfield, item_idx);
       }

@@ -359,7 +359,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     }
     help_print("make-bed", &help_ctrl, 1,
 "  --make-bed\n"
-"    Creates a new binary fileset.  Unlike the automatic text-to-binary\n"
+"    Create a new binary fileset.  Unlike the automatic text-to-binary\n"
 "    converters (which only heed chromosome filters), this supports all of\n"
 "    " PROG_NAME_CAPS "'s filtering flags.\n"
 	       );
@@ -368,7 +368,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "           bimbam-1chr | fastphase | fastphase-1chr | HV | HV-1chr | lgen |\n"
 "           lgen-ref | list | rlist | structure | transpose | vcf | vcf-fid |\n"
 "           vcf-iid> <tab | tabx | spacex>\n"
-"    Creates a new text fileset with all filters applied.  By default, the\n"
+"    Create a new text fileset with all filters applied.  By default, the\n"
 "    fileset consists of a .ped and a .map file, readable with --file.\n"
 "    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
 "    * The 'compound-genotypes' modifier removes the space between pairs of\n"
@@ -417,6 +417,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    filters applied).  The 'omit-unassigned' modifier causes unclustered\n"
 "    individuals to be omitted from the file; otherwise their cluster is \"NA\".\n\n"
 	       );
+    help_print("write-set\tset-table", &help_ctrl, 1,
+"  --write-set\n"
+"  --set-table\n"
+"    If sets have been defined, --write-set dumps 'END'-terminated set\n"
+"    membership lists to {output prefix}.set, while --set-table writes a\n"
+"    variant-by-set membership table to {output prefix}.set.table.\n\n"
+	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
 "  --merge [.ped filename] [.map filename]\n"
 "  --merge [text fileset prefix]\n"
@@ -454,17 +461,17 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 		);
     help_print("missing", &help_ctrl, 1,
 "  --missing\n"
-"    Generates individual- and variant-based missing data reports.  If clusters\n"
+"    Generate individual- and variant-based missing data reports.  If clusters\n"
 "    are defined, the variant-based report is cluster-stratified.\n\n"
 	       );
     help_print("hardy", &help_ctrl, 1,
 "  --hardy\n"
-"    Generates a Hardy-Weinberg exact test p-value report.  (This does NOT\n"
+"    Generate a Hardy-Weinberg exact test p-value report.  (This does NOT\n"
 "    simultaneously filter on the p-value any more; use --hwe for that.)\n\n"
 	       );
     help_print("ibc\thet", &help_ctrl, 1,
 "  --ibc\n"
-"    Calculates inbreeding coefficients in three different ways.  (The second is\n"
+"    Calculate inbreeding coefficients in three different ways.  (The second is\n"
 "    the excess homozygosity coefficient calculated by the old --het command.)\n"
 "    * For more details, see Yang J, Lee SH, Goddard ME and Visscher PM.  GCTA:\n"
 "      a tool for Genome-wide Complex Trait Analysis.  Am J Hum Genet. 2011 Jan\n"
@@ -474,7 +481,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("distance\tregress-pcs-distance", &help_ctrl, 1,
 "  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <allele-ct>\n"
 "             <3d> <flat-missing>\n"
-"    Writes a lower-triangular tab-delimited table of (weighted) genomic\n"
+"    Write a lower-triangular tab-delimited table of (weighted) genomic\n"
 "    distances in allele count units to {output prefix}.dist, and a list of the\n"
 "    corresponding family/individual IDs to {output prefix}.dist.id.  The first\n"
 "    row of the .dist file contains a single {genome 1-genome 2} distance, the\n"
@@ -510,7 +517,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 		);
     help_print("genome\tZ-genome\trel-check\timpossible\tnudge\tgenome-full\tunbounded", &help_ctrl, 1,
 "  --genome <gz> <rel-check> <full> <unbounded> <nudge>\n"
-"    Generates an identity-by-descent report.\n"
+"    Generate an identity-by-descent report.\n"
 "    * The 'rel-check' modifier excludes pairs of individuals with different\n"
 "      FIDs from the final report.\n"
 "    * 'full' adds raw pairwise comparison data to the report.\n"
@@ -702,7 +709,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep [window size]<kb> [step size (variants)] [VIF threshold]\n"
 "  --indep-pairwise [window size]<kb> [step size (variants)] [r^2 threshold]\n"
-"    Generates a list of markers in approximate linkage equilibrium.  With the\n"
+"    Generate a list of markers in approximate linkage equilibrium.  With the\n"
 "    'kb' modifier, the window size is in kilobase units instead of variant\n"
 "    count.  (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5'\n"
 "    and '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
@@ -712,7 +719,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("make-rel", &help_ctrl, 1,
 "  --make-rel <square | square0 | triangle> <gz | bin> <cov | ibc2 | ibc3>\n"
 "             <single-prec>\n"
-"    Writes a lower-triangular variance-standardized relationship (coancestry)\n"
+"    Write a lower-triangular variance-standardized relationship (coancestry)\n"
 "    matrix to {output prefix}.rel, and corresponding IDs to\n"
 "    {output prefix}.rel.id.\n"
 "    * 'square', 'square0', 'triangle', 'gz', and 'bin' act as they do on\n"
@@ -740,7 +747,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("rel-cutoff\tgrm-cutoff", &help_ctrl, 1,
 "  --rel-cutoff {val}\n"
 "    (alias: --grm-cutoff)\n"
-"    Excludes one member of each pair of individuals with relatedness greater\n"
+"    Exclude one member of each pair of individuals with relatedness greater\n"
 "    than the given cutoff value (default 0.025).  If no later operation will\n"
 "    cause the list of remaining individuals to be written to disk, this will\n"
 "    save it to {output prefix}.rel.id.\n"
@@ -825,9 +832,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("cnv-write", &help_ctrl, 1,
 "  --cnv-write <freq>\n"
-"    Writes a new .cnv fileset, after applying all requested filters.  The\n"
-"    'freq' modifier (which must be used with --cnv-freq-method2) causes an\n"
-"    additional 'FREQ' field to be written with CNV-CNV overlap counts.\n\n"
+"    Write a new .cnv fileset, after applying all requested filters.  The 'freq'\n"
+"    modifier (which must be used with --cnv-freq-method2) causes an additional\n"
+"    'FREQ' field to be written with CNV-CNV overlap counts.\n\n"
 	       );
     /*
     help_print("cnv-check-no-overlap", &help_ctrl, 1,
@@ -945,25 +952,31 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("covar\tcovar-name\tcovar-number", &help_ctrl, 0,
 "  --covar [filename] <keep-pheno-on-missing-cov> : Specify covariate file.\n"
-"  --covar-name [...]     : Specifies covariate(s) in --covar file by name.\n"
+"  --covar-name [...]     : Specify covariate(s) in --covar file by name.\n"
 "                           Separate multiple names with spaces or commas, and\n"
 "                           use dashes to designate ranges.\n"
-"  --covar-number [...]   : Specifies covariate(s) in --covar file by index.\n"
+"  --covar-number [...]   : Specify covariate(s) in --covar file by index.\n"
 	       );
     help_print("within\tmwithin", &help_ctrl, 0,
 "  --within [f] <keep-NA> : Specify initial cluster assignments.\n"
 "  --mwithin [n]          : Load cluster assignments from column n+2.\n"
 	       );
     help_print("loop-assoc", &help_ctrl, 0,
-"  --loop-assoc [f] <keep-NA> : Run specified case/control association commands\n"
-"                               once for each cluster in the file, using cluster\n"
-"                               membership as the phenotype.\n"
+"  --loop-assoc [f] <keep-NA>    : Run specified case/control association\n"
+"                                  commands once for each cluster in the file,\n"
+"                                  using cluster membership as the phenotype.\n"
 	       );
-    help_print("set\tmake-set\tsubset", &help_ctrl, 0,
-"  --set [filename] : Load sets from a file explicitly listing each set's\n"
-"                     variant IDs.\n"
-"  --make-set [fn]  : Define sets from a list of named bp ranges.\n"
-"  --subset [fname] : Throw out sets not named in the file.\n"
+    help_print("set\tsubset\tset-collapse-all\tmake-set-collapse-all\tcomplement-sets\tmake-set-complement-all\tmake-set\tmake-set-border\tborder\tmake-set-collapse-group\t--make-set-complement-group", &help_ctrl, 0,
+"  --set [filename]              : Load sets from a .set file.\n"
+"  --subset [filename]           : Throw out sets not named in the given file.\n"
+"  --set-collapse-all [set name] : Merge all sets.\n"
+"  --complement-sets             : Invert all sets.\n"
+"  --make-set-complement-all [s] : --set-collapse-all + inversion.\n"
+"  --make-set [filename]         : Define sets from a list of named bp ranges.\n"
+"  --make-set-border [kbs]       : Stretch regions in --make-set file.\n"
+"  --make-set-collapse-group     : Define sets from groups instead of sets in\n"
+"                                  --make-set file.\n"
+"  --make-set-complement-group   : --make-set-collapse-group + inversion.\n"
 	       );
     help_print("keep\tremove\tkeep-fam\tremove-fam", &help_ctrl, 0,
 "  --keep [fname]   : Exclude all individuals not named in the file.\n"
@@ -1262,10 +1275,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                         --linear/--logistic model, identified by 1-based\n"
 "                         indices and/or ranges of them.  If permutation was\n"
 "                         requested, it is based on this test.\n"
-"                         Note that, when --parameters is also present, the\n"
-"                         indices refer to the terms remaining AFTER pruning by\n"
-"                         --parameters.  You can use '--tests all' to include\n"
-"                         all terms.\n"
+"                         * Note that, when --parameters is also present, the\n"
+"                           indices refer to the terms remaining AFTER pruning\n"
+"                           by --parameters.\n"
+"                         * You can use '--tests all' to include all terms.\n"
 "  --vif [max VIF]      : Set VIF threshold for --linear/--logistic\n"
 "                         multicollinearity check (default 50).\n"
 "  --xchr-model [code]  : Set the X chromosome --linear/--logistic model.\n"
@@ -1306,7 +1319,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --mperm-save-all : Save all max(T) permutation test statistics.\n"
 	       );
     help_print("indep\tindep-pairwise\tld-xchr", &help_ctrl, 0,
-"  --ld-xchr [code] : Specifies how --indep[-pairwise] handles the X chromosome.\n"
+"  --ld-xchr [code] : Specify X chromosome model for --indep[-pairwise].\n"
 "                     1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
 "                     2 = males coded 0/2\n"
 "                     3 = males coded 0/2, but females given double weighting\n"

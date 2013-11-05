@@ -285,7 +285,7 @@
 #define COVAR_NUMBER 4
 
 #define SET_MAKE_FROM_RANGES 1
-#define SET_MAKE_COMPLEMENT 2
+#define SET_COMPLEMENTS 2
 #define SET_MAKE_COLLAPSE_GROUP 4
 #define SET_DROP_NONMEMBERS 8
 #define SET_WRITE_LIST 0x10
@@ -1630,6 +1630,8 @@ static inline void zero_trailing_bits(uintptr_t* bitfield, uintptr_t unfiltered_
     bitfield[unfiltered_ct / BITCT] &= (ONELU << trail_ct) - ONELU;
   }
 }
+
+void fill_all_bits(uintptr_t* bit_arr, uintptr_t ct);
 
 uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t item_ct, uintptr_t* bitfield, uint32_t offset, uint32_t ignore_overflow);
 

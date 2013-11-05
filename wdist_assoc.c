@@ -10946,8 +10946,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       variation_in_sex = 0;
     }
   } else {
-    active_params[param_raw_ctl - 1] = 0;
-    fill_bits(active_params, 0, param_raw_ct_max);
+    fill_all_bits(active_params, param_raw_ct_max);
     param_ct_max = param_raw_ct_max;
     np_base = np_base_raw;
     np_diploid = np_diploid_raw;
@@ -11107,8 +11106,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       }
     }
   } else {
-    haploid_params[param_ctl_max - 1] = 0;
-    fill_bits(haploid_params, 0, param_ct_max - np_sex);
+    fill_all_bits(haploid_params, param_ct_max - np_sex);
   }
   uii = 0;
   if ((genotypic_or_hethom && ((active_params[0] & 6) == 6)) || tests_range_list_ptr->name_ct || (glm_modifier & GLM_TEST_ALL)) {
@@ -12627,8 +12625,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     numeric_range_list_to_bitfield(parameters_range_list_ptr, param_raw_ct, active_params, 0, 1);
     param_ct = popcount_longs(active_params, 0, param_raw_ctl);
   } else {
-    active_params[param_raw_ctl - 1] = 0;
-    fill_bits(active_params, 0, param_raw_ct);
+    fill_all_bits(active_params, param_raw_ct);
     param_ct = param_raw_ct;
   }
   if (param_ct == 1) {

@@ -1158,8 +1158,7 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
     *pheno_c_ptr = pheno_c;
   }
   if (makepheno_all) {
-    fill_ulong_one(pheno_nm, unfiltered_indiv_ctl);
-    zero_trailing_bits(pheno_nm, unfiltered_indiv_ct);
+    fill_all_bits(pheno_nm, unfiltered_indiv_ct);
   }
   tbuf[MAXLINELEN - 1] = ' ';  
   while (fgets(tbuf, MAXLINELEN, phenofile) != NULL) {
@@ -1341,7 +1340,7 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
       wkspace_alloc_c_checked(&sorted_filtervals, filterval_ct * max_filterval_len)) {
     goto filter_indivs_file_ret_NOMEM;
   }
-  fill_ulong_one(indiv_exclude_new, unfiltered_indiv_ctl);
+  fill_all_bits(indiv_exclude_new, unfiltered_indiv_ct);
   bufptr = filtervals_flattened;
   for (filterval_idx = 0; filterval_idx < filterval_ct; filterval_idx++) {
     slen = strlen(bufptr) + 1;
@@ -4431,7 +4430,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
   }
 
-  uii = update_cm || update_map || update_name || (marker_alleles_needed && (update_alleles_fname || (flip_fname && (!flip_subset_fname)))) || genekeep_flattened;
+  uii = update_cm || update_map || update_name || (marker_alleles_needed && (update_alleles_fname || (flip_fname && (!flip_subset_fname)))) || filter_attrib_fname || genekeep_flattened;
   if (uii || extractname || excludename) {
     wkspace_mark = wkspace_base;
     // only permit duplicate marker IDs for --extract/--exclude
@@ -4493,6 +4492,13 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
         goto wdist_ret_1;
       }
     }
+    if (filter_attrib_fname) {
+      retval = filter_attrib(filter_attrib_fname, filter_attrib_liststr, cptr, ulii, max_marker_id_len, uiptr, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, 0);
+      if (retval) {
+	goto wdist_ret_1;
+      }
+    }
+
     wkspace_reset(wkspace_mark);
   }
 
@@ -4500,7 +4506,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     allelexxxx_recode(allelexxxx, marker_allele_ptrs, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct);
   }
 
-  if (update_ids_fname || update_parents_fname || update_sex_fname || keepname || keepfamname || removename || removefamname || filtername) {
+  if (update_ids_fname || update_parents_fname || update_sex_fname || keepname || keepfamname || removename || removefamname || filter_attrib_indiv_fname || filtername) {
     wkspace_mark = wkspace_base;
     retval = sort_item_ids(&cptr, &uiptr, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, 0, 0, strcmp_deref);
     if (retval) {
@@ -4546,6 +4552,12 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     }
     if (removename) {
       retval = include_or_exclude(removename, cptr, ulii, max_person_id_len, uiptr, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 3);
+      if (retval) {
+	goto wdist_ret_1;
+      }
+    }
+    if (filter_attrib_indiv_fname) {
+      retval = filter_attrib(filter_attrib_indiv_fname, filter_attrib_indiv_liststr, cptr, ulii, max_person_id_len, uiptr, unfiltered_indiv_ct, indiv_exclude, &indiv_exclude_ct, 1);
       if (retval) {
 	goto wdist_ret_1;
       }
@@ -5860,7 +5872,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       chrom_info_ptr->xy_code = -1;
       chrom_info_ptr->mt_code = -1;
       chrom_info_ptr->max_code = ii;
-      fill_bits(chrom_info_ptr->haploid_mask, 0, ii + 1);
+      fill_all_bits(chrom_info_ptr->haploid_mask, ((uint32_t)ii) + 1);
     } else {
       chrom_info_ptr->autosome_ct = ii;
       chrom_info_ptr->x_code = ii + 1;
@@ -6031,9 +6043,9 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
 
 void fill_chrom_mask(Chrom_info* chrom_info_ptr) {
   if (chrom_info_ptr->species != SPECIES_UNKNOWN) {
-    fill_bits(chrom_info_ptr->chrom_mask, 0, chrom_info_ptr->max_code + 1);
+    fill_all_bits(chrom_info_ptr->chrom_mask, chrom_info_ptr->max_code + 1);
   } else {
-    fill_bits(chrom_info_ptr->chrom_mask, 0, chrom_info_ptr->autosome_ct + 1);
+    fill_all_bits(chrom_info_ptr->chrom_mask, chrom_info_ptr->autosome_ct + 1);
     // --chr-set support
     if (chrom_info_ptr->x_code != -1) {
       set_bit(chrom_info_ptr->chrom_mask, chrom_info_ptr->x_code);
@@ -6667,6 +6679,9 @@ int32_t main(int32_t argc, char** argv) {
 	  break;
 	} else if (!strcmp(argptr, "mh1")) {
 	  memcpy(flagptr, "mh", 3);
+	  break;
+	} else if (!strcmp(argptr, "make-set-collapse-all")) {
+	  memcpy(flagptr, "set-collapse-all", 17);
 	  break;
 	}
 	goto main_flag_copy;
@@ -8129,6 +8144,9 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
+      } else if (!memcmp(argptr2, "omplement-sets", 15)) {
+        set_flags |= SET_COMPLEMENTS;
+	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8607,9 +8625,14 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_1;
 	}
 	if (param_ct == 2) {
-	  if (alloc_string(&filter_attrib_liststr, argv[cur_arg + 2])) {
+	  // force comma-terminated string to simplify parsing
+	  uii = strlen(argv[cur_arg + 2]);
+	  filter_attrib_liststr = (char*)malloc(uii + 2);
+	  if (!filter_attrib_liststr) {
 	    goto main_ret_NOMEM;
 	  }
+          memcpy(filter_attrib_liststr, argv[cur_arg + 2], uii);
+	  memcpy(&(filter_attrib_liststr[uii]), ",", 2);
 	}
       } else if (!memcmp(argptr2, "ilter-attrib-indiv", 19)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
@@ -8620,9 +8643,13 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_1;
 	}
 	if (param_ct == 2) {
-	  if (alloc_string(&filter_attrib_indiv_liststr, argv[cur_arg + 2])) {
+	  uii = strlen(argv[cur_arg + 2]);
+	  filter_attrib_indiv_liststr = (char*)malloc(uii + 2);
+	  if (!filter_attrib_indiv_liststr) {
 	    goto main_ret_NOMEM;
 	  }
+          memcpy(filter_attrib_indiv_liststr, argv[cur_arg + 2], uii);
+	  memcpy(&(filter_attrib_indiv_liststr[uii]), ",", 2);
 	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -10321,26 +10348,9 @@ int32_t main(int32_t argc, char** argv) {
 	}
         set_flags |= SET_MAKE_COLLAPSE_GROUP;
 	goto main_param_zero;
-      } else if (!memcmp(argptr2, "ake-set-complement-group", 25)) {
-        if (!set_fname) {
-	  sprintf(logbuf, "Error: --make-set-complement-group must be used with --make-set.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	} else if (set_flags & SET_MAKE_COLLAPSE_GROUP) {
-	  sprintf(logbuf, "Error: --make-set-complement-group cannot be used with\n--make-set-collapse-group.%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-        set_flags |= SET_MAKE_COMPLEMENT;
-	goto main_param_zero;
-      } else if (!memcmp(argptr2, "ake-set-collapse-all", 21)) {
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-        if (alloc_string(&monster_set_name, argv[cur_arg + 1])) {
-	  goto main_ret_NOMEM;
-	}
       } else if (!memcmp(argptr2, "ake-set-complement-all", 23)) {
-	if (monster_set_name) {
-	  sprintf(logbuf, "Error: --make-set-complement-all cannot be used with --make-set-collapse-all.%s", errstr_append);
+	if (set_flags & SET_COMPLEMENTS) {
+	  sprintf(logbuf, "Error: --make-set-complement-all cannot be used with --complement-sets.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
 	}
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -10349,7 +10359,17 @@ int32_t main(int32_t argc, char** argv) {
         if (alloc_string(&monster_set_name, argv[cur_arg + 1])) {
 	  goto main_ret_NOMEM;
 	}
-	set_flags |= SET_MAKE_COMPLEMENT;
+	set_flags |= SET_COMPLEMENTS;
+      } else if (!memcmp(argptr2, "ake-set-complement-group", 25)) {
+        if (!set_fname) {
+	  sprintf(logbuf, "Error: --make-set-complement-group must be used with --make-set.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	} else if (set_flags & (SET_COMPLEMENTS | SET_MAKE_COLLAPSE_GROUP)) {
+	  sprintf(logbuf, "Error: --make-set-complement-group cannot be used with --complement-sets,\n--make-set-collapse-group, or --make-set-complement-all.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        set_flags |= SET_COMPLEMENTS | SET_MAKE_COLLAPSE_GROUP;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "lma", 4)) {
         logprint("Error: --mlma is not implemented yet.\n");
         goto main_ret_INVALID_CMDLINE;
@@ -11330,6 +11350,23 @@ int32_t main(int32_t argc, char** argv) {
 	retval = alloc_fname(&set_fname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
+	}
+      } else if (!memcmp(argptr2, "et-collapse-all", 16)) {
+	if (!set_fname) {
+	  logprint("Error: --set-collapse-all must be used with --set/--make-set.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	} else if (set_flags & SET_MAKE_COLLAPSE_GROUP) {
+	  logprint("Error: --set-collapse-all cannot be used with --make-set-collapse-group or\n--make-set-complement-group.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	} else if (monster_set_name) {
+	  logprint("Error: --set-collapse-all cannot be used with --make-set-complement-all.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (alloc_string(&monster_set_name, argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
 	}
       } else if (!memcmp(argptr2, "ubset", 6)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -12325,10 +12362,13 @@ int32_t main(int32_t argc, char** argv) {
   }
   if (!set_fname) {
     if (set_flags) {
-      if (monster_set_name) {
-	sprintf(logbuf, "Error: --make-set-co%s-all must be used with --set/--make-set.\n", (set_flags & SET_MAKE_COMPLEMENT)? "mplement" : "llapse");
-	logprintb();
-      } else { // make this else-if once there are more ways to get here...
+      if (set_flags & SET_COMPLEMENTS) {
+	if (monster_set_name) {
+	  logprint("Error: --make-set-complement-all must be used with --set/--make-set.\n");
+	} else {
+	  logprint("Error: --complement-sets must be used with --set/--make-set.\n");
+	}
+      } else { // only remaining possibility for now
         logprint("Error: --drop-nonset must be used with --set/--make-set.\n");
       }
       goto main_ret_INVALID_CMDLINE;

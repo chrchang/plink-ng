@@ -155,8 +155,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 	  goto load_clusters_ret_INVALID_FORMAT;
 	}
       }
-      indiv_exclude_new[unfiltered_indiv_ctl - 1] = 0;
-      fill_bits(indiv_exclude_new, 0, unfiltered_indiv_ct);
+      fill_all_bits(indiv_exclude_new, unfiltered_indiv_ct);
       sorted_keep_ids = (char*)top_alloc(&topsize, cluster_kr_ct * max_cluster_kr_len);
       if (!sorted_keep_ids) {
 	goto load_clusters_ret_NOMEM;
