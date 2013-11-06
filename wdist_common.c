@@ -195,7 +195,7 @@ uint32_t scan_two_doubles(char* ss, double* val1p, double* val2p) {
 int32_t scan_token_ct_len(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t* token_ct_ptr, uintptr_t* max_token_len_ptr) {
   // buf must be of size >= (2 * half_bufsize + 2)
   // max_token_len includes trailing null
-  uintptr_t full_bufsize = MAXLINELEN * 2;
+  uintptr_t full_bufsize = half_bufsize * 2;
   uintptr_t curtoklen = 0;
   uintptr_t token_ct = *token_ct_ptr;
   uintptr_t max_token_len = *max_token_len_ptr;
@@ -209,6 +209,13 @@ int32_t scan_token_ct_len(FILE* infile, char* buf, uintptr_t half_bufsize, uintp
       return RET_READ_FAIL;
     }
     if (!bufsize) {
+      if (curtoklen) {
+        // corner case
+        if (curtoklen > max_token_len) {
+	  max_token_len = curtoklen + 1;
+	}
+	token_ct++;
+      }
       break;
     }
     buf_end = &(midbuf[bufsize]);
@@ -260,7 +267,7 @@ int32_t scan_token_ct_len(FILE* infile, char* buf, uintptr_t half_bufsize, uintp
 int32_t read_tokens(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t token_ct, uintptr_t max_token_len, char* token_name_buf) {
   // buf must be of size >= (2 * half_bufsize + 2).
   // max_token_len includes trailing null
-  uintptr_t full_bufsize = MAXLINELEN * 2;
+  uintptr_t full_bufsize = half_bufsize * 2;
   uintptr_t curtoklen = 0;
   uintptr_t token_idx = 0;
   char* midbuf = &(buf[half_bufsize]);
@@ -274,7 +281,13 @@ int32_t read_tokens(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t t
       return RET_READ_FAIL;
     }
     if (!bufsize) {
-      // something very strange has to happen to get here...
+      if (curtoklen) {
+        if (token_idx + 1 == token_ct) {
+          memcpyx(&(token_name_buf[token_idx * max_token_len]), bufptr, curtoklen, '\0');
+	  return 0;
+        }
+      }
+      // something very strange has to happen to get here
       return RET_READ_FAIL;
     }
     buf_end = &(midbuf[bufsize]);

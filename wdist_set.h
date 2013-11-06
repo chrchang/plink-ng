@@ -40,7 +40,7 @@ typedef struct {
   // range.  otherwise, points to an array of uint32_ts where
   //   [0]: number of ranges
   //   [2k+1], [2k+2]: start and end of range k (half-open); sorted
-  uint32_t* range_ptrs;
+  uint32_t** range_ptrs;
 
   // uninitialized if range representation used
   // otherwise, [2n] is offset and [2n+1] is bit length; 16-bit alignment
@@ -48,7 +48,7 @@ typedef struct {
   uint32_t* bounds;
 
   // entry is NULL if that set is represented with a range
-  uintptr_t* bitfield_ptrs;
+  uintptr_t** bitfield_ptrs;
 
   // bitfield tracking whether all out-of-bounds variants are in the set
   uintptr_t* include_out_of_bounds;
