@@ -39,7 +39,7 @@ typedef struct {
   // entry is NULL if that set is represented with a bitfield instead of a
   // range.  otherwise, points to an array of uint32_ts where
   //   [0]: number of ranges
-  //   [2k+1], [2k+2]: offset and length of range k; sorted
+  //   [2k+1], [2k+2]: start and end of range k (half-open); sorted
   uint32_t* range_ptrs;
 
   // uninitialized if range representation used
@@ -47,7 +47,7 @@ typedef struct {
   // forced
   uint32_t* bounds;
 
-  // entry is NULL if that set is represented with a
+  // entry is NULL if that set is represented with a range
   uintptr_t* bitfield_ptrs;
 
   // bitfield tracking whether all out-of-bounds variants are in the set
@@ -58,6 +58,6 @@ void set_init(Set_info* sip);
 
 void set_cleanup(Set_info* sip);
 
-int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, char* marker_ids, uintptr_t max_marker_id_len);
+int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, uintptr_t* marker_exclude_ct_ptr, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr);
 
 #endif // __WDIST_CLUSTER_H__

@@ -4438,9 +4438,6 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   } else if ((calculation_type & CALC_GXE) && (!pheno_d)) {
     logprint("Error: --gxe requires a scalar phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
-  } else if ((calculation_type & CALC_LASSO) && (!pheno_d)) {
-    logprint("Error: --lasso requires a scalar phenotype.\n");
-    goto wdist_ret_INVALID_CMDLINE;
   } else if ((calculation_type & CALC_CMH) && (!pheno_c)) {
     logprint("Error: --mh and --mh2 require a case/control phenotype.\n");
     goto wdist_ret_INVALID_CMDLINE;
@@ -4956,7 +4953,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: --set/--make-set requires a sorted .bim file.\n");
       goto wdist_ret_INVALID_FORMAT;
     }
-    retval = define_sets(sip, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_ids, max_marker_id_len);
+    retval = define_sets(sip, unfiltered_marker_ct, marker_exclude, marker_pos, &marker_exclude_ct, marker_ids, max_marker_id_len, chrom_info_ptr);
     if (retval) {
       goto wdist_ret_1;
     }
@@ -5354,8 +5351,8 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
 	  goto wdist_ret_1;
 	}
       }
-      if ((calculation_type & CALC_LASSO) && pheno_d) {
-	retval = lasso(threads, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm_ct, lasso_h2, lasso_minlambda, (misc_flags / MISC_LASSO_REPORT_ZEROES) & 1, pheno_nm, pheno_d, covar_ct, covar_nm, covar_d, sex_male, hh_exists);
+      if (calculation_type & CALC_LASSO) {
+	retval = lasso(threads, bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_reverse, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm_ct, lasso_h2, lasso_minlambda, misc_flags, pheno_nm, pheno_c, pheno_d, covar_ct, covar_nm, covar_d, sex_male, hh_exists);
         if (retval) {
 	  goto wdist_ret_1;
 	}
@@ -9583,38 +9580,25 @@ int32_t main(int32_t argc, char** argv) {
 	  misc_flags |= MISC_LD_WEIGHTED_X;
 	}
       } else if (!memcmp(argptr2, "asso", 5)) {
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 3)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 4)) {
           goto main_ret_INVALID_CMDLINE_3;
 	}
-        uii = 1;
-	ujj = 0;
-	if (param_ct > 1) {
-          if (!strcmp(argv[cur_arg + 1], "report-zeroes")) {
-	    uii = 2;
-            misc_flags |= MISC_LASSO_REPORT_ZEROES;
-	  } else if (!strcmp(argv[cur_arg + 2], "report-zeroes")) {
-	    if (param_ct == 3) {
-	      ujj = 3;
-	    }
-            misc_flags |= MISC_LASSO_REPORT_ZEROES;
-	  } else {
-            ujj = 2;
-	    if (param_ct == 3) {
-	      if (strcmp(argv[cur_arg + 3], "report-zeroes")) {
-	        sprintf(logbuf, "Error: Invalid --lasso parameter sequence.%s", errstr_append);
-	        goto main_ret_INVALID_CMDLINE_3;
-	      }
-	      misc_flags |= MISC_LASSO_REPORT_ZEROES;
-	    }
-	  }
-	}
-	if (scan_double(argv[cur_arg + uii], &lasso_h2) || (lasso_h2 > 1) || (lasso_h2 <= 0)) {
-	  sprintf(logbuf, "Error: Invalid --lasso heritability estimate '%s'.%s", argv[cur_arg + uii], errstr_append);
+	if (scan_double(argv[cur_arg + 1], &lasso_h2) || (lasso_h2 > 1) || (lasso_h2 <= 0)) {
+	  sprintf(logbuf, "Error: Invalid --lasso heritability estimate '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (ujj) {
-	  if (scan_double(argv[cur_arg + ujj], &lasso_minlambda) || (lasso_minlambda <= 0)) {
-	    sprintf(logbuf, "Error: Invalid --lasso minimum lambda '%s'.%s", argv[cur_arg + ujj], errstr_append);
+	for (uii = 2; uii <= param_ct; uii++) {
+	  if (!strcmp(argv[cur_arg + uii], "report-zeroes")) {
+	    misc_flags |= MISC_LASSO_REPORT_ZEROES;
+#ifndef STABLE_BUILD
+	  } else if (!strcmp(argv[cur_arg + uii], "no-geno-std")) {
+	    misc_flags |= MISC_LASSO_NO_GENO_STD;
+#endif
+	  } else if (lasso_minlambda > 0) {
+            sprintf(logbuf, "Error: Invalid --lasso parameter sequence.%s", errstr_append);
+            goto main_ret_INVALID_CMDLINE_3;
+	  } else if (scan_double(argv[cur_arg + uii], &lasso_minlambda) || (lasso_minlambda <= 0)) {
+	    sprintf(logbuf, "Error: Invalid --lasso minimum lambda '%s'.%s", argv[cur_arg + uii], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}

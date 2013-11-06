@@ -195,7 +195,9 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
           memcpyx(&(sorted_keep_ids[ulii * max_cluster_kr_len]), cluster_name_ptr, slen, '\0');
           ulii++;
 	}
-	fclose_null(&infile);
+	if (fclose_null(&infile)) {
+	  goto load_clusters_ret_READ_FAIL;
+	}
       }
       qsort(sorted_keep_ids, cluster_kr_ct, max_cluster_kr_len, strcmp_casted);
       cluster_kr_ct = collapse_duplicate_ids(sorted_keep_ids, cluster_kr_ct, max_cluster_kr_len, NULL);
@@ -316,10 +318,14 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_indiv_ct, uintptr_t* ind
 	    memcpyx(&(sorted_remove_ids[ulii * max_cluster_kr_len]), cluster_name_ptr, slen, '\0');
 	    ulii++;
 	  }
-	  fclose_null(&infile);
 	}
 	qsort(sorted_remove_ids, cluster_kr_ct, max_cluster_kr_len, strcmp_casted);
         cluster_kr_ct = collapse_duplicate_ids(sorted_remove_ids, cluster_kr_ct, max_cluster_kr_len, NULL);
+      }
+      if (infile) {
+	if (fclose_null(&infile)) {
+	  goto load_clusters_ret_READ_FAIL;
+	}
       }
     }
   }

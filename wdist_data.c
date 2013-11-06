@@ -460,7 +460,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     }
     jj = marker_code(chrom_info_ptr, bufptr);
     if (jj == -1) {
-      logprint("Error: Invalid chromosome index in .map file.\n");
+      logprint("Error: Invalid chromosome code in .map file.\n");
       goto load_map_ret_INVALID_FORMAT;
     }
     if (jj != last_chrom) {
@@ -754,7 +754,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       if (!allow_extra_chroms) {
 	uii = strlen_se(bufptr);
 	bufptr[uii] = '\0';
-	sprintf(logbuf, "Error: Invalid chromosome index '%s' in .bim file.\n(Use --allow-extra-chr to force it to be accepted.)\n", bufptr);
+	sprintf(logbuf, "Error: Invalid chromosome code '%s' in .bim file.\n(Use --allow-extra-chr to force it to be accepted.)\n", bufptr);
 	goto load_bim_ret_INVALID_FORMAT_2;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &jj);
@@ -1170,6 +1170,10 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     load_bim_skip_marker:
       SET_BIT(marker_exclude, marker_uidx);
       marker_exclude_ct++;
+      if (marker_pos_needed) {
+        // support unfiltered marker_pos search
+        (*marker_pos_ptr)[marker_uidx] = last_pos;
+      }
     }
   }
   if (unfiltered_marker_ct == marker_exclude_ct) {

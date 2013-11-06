@@ -197,6 +197,8 @@
 #define MISC_CMH_BD 0x800000LLU
 #define MISC_CMH2 0x1000000LLU
 #define MISC_LASSO_REPORT_ZEROES 0x2000000LLU
+// not yet sure this is actually useful, so only accessible in dev build
+#define MISC_LASSO_NO_GENO_STD 0x4000000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
@@ -615,6 +617,11 @@ static inline int32_t fwrite_checkedz(const void* buf, size_t len, FILE* outfile
   return ferror(outfile);
 }
 
+static inline int32_t fread_checked(char* buf, uintptr_t len, FILE* infile, uintptr_t* bytes_read_ptr) {
+  *bytes_read_ptr = fread(buf, 1, len, infile);
+  return ferror(infile);
+}
+
 static inline void fclose_cond(FILE* fptr) {
   if (fptr) {
     fclose(fptr);
@@ -806,6 +813,10 @@ static inline uint32_t scan_double(char* ss, double* valp) {
 }
 
 uint32_t scan_two_doubles(char* ss, double* val1p, double* val2p);
+
+int32_t scan_token_ct_len(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t* token_ct_ptr, uintptr_t* max_token_len_ptr);
+
+int32_t read_tokens(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t token_ct, uintptr_t max_token_len, char* token_name_buf);
 
 static inline char* memseta(char* target, const unsigned char val, uintptr_t ct) {
   memset(target, val, ct);
@@ -1540,6 +1551,8 @@ int32_t sort_item_ids_noalloc(char* sorted_ids, uint32_t* id_map, uintptr_t unfi
 
 int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t unfiltered_ct, uintptr_t* exclude_arr, uintptr_t exclude_ct, char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t collapse_idxs, int(* comparator_deref)(const void*, const void*));
 
+uint32_t uint32arr_greater_than(uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii);
+
 uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii);
 
 uintptr_t doublearr_greater_than(double* sorted_dbl_arr, uintptr_t arr_length, double dxx);
@@ -1567,6 +1580,8 @@ void bitfield_and(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct);
 void bitfield_andnot(uintptr_t* vv, uintptr_t* exclude_vec, uintptr_t word_ct);
 
 void bitfield_andnot_reversed_args(uintptr_t* vv, uintptr_t* include_vec, uintptr_t word_ct);
+
+void bitfield_or(uintptr_t* vv, uintptr_t* or_vec, uintptr_t word_ct);
 
 void bitfield_ornot(uintptr_t* vv, uintptr_t* inverted_or_vec, uintptr_t word_ct);
 

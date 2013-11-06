@@ -192,6 +192,127 @@ uint32_t scan_two_doubles(char* ss, double* val1p, double* val2p) {
   return (ss == ss2)? 1 : 0;
 }
 
+int32_t scan_token_ct_len(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t* token_ct_ptr, uintptr_t* max_token_len_ptr) {
+  // buf must be of size >= (2 * half_bufsize + 2)
+  // max_token_len includes trailing null
+  uintptr_t full_bufsize = MAXLINELEN * 2;
+  uintptr_t curtoklen = 0;
+  uintptr_t token_ct = *token_ct_ptr;
+  uintptr_t max_token_len = *max_token_len_ptr;
+  char* midbuf = &(buf[half_bufsize]);
+  char* bufptr;
+  char* bufptr2;
+  char* buf_end;
+  uintptr_t bufsize;
+  while (1) {
+    if (fread_checked(midbuf, half_bufsize, infile, &bufsize)) {
+      return RET_READ_FAIL;
+    }
+    if (!bufsize) {
+      break;
+    }
+    buf_end = &(midbuf[bufsize]);
+    *buf_end = ' ';
+    buf_end[1] = '0';
+    bufptr = &(buf[half_bufsize - curtoklen]);
+    bufptr2 = midbuf;
+    if (curtoklen) {
+      goto scan_token_ct_len_tok_start;
+    }
+    while (1) {
+      while (*bufptr <= ' ') {
+	bufptr++;
+      }
+      if (bufptr >= buf_end) {
+	curtoklen = 0;
+	break;
+      }
+      bufptr2 = &(bufptr[1]);
+    scan_token_ct_len_tok_start:
+      while (*bufptr2 > ' ') {
+	bufptr2++;
+      }
+      curtoklen = (uintptr_t)(bufptr2 - bufptr);
+      if ((bufptr2 == buf_end) && (buf_end == &(buf[full_bufsize]))) {
+	if (curtoklen >= half_bufsize) {
+	  return RET_INVALID_FORMAT;
+	}
+	break;
+      }
+      if (curtoklen > max_token_len) {
+	if (curtoklen >= half_bufsize) {
+	  return RET_INVALID_FORMAT;
+	}
+	max_token_len = curtoklen + 1;
+      }
+      token_ct++;
+      bufptr = &(bufptr2[1]);
+    }
+  }
+  if (!feof(infile)) {
+    return RET_READ_FAIL;
+  }
+  *max_token_len_ptr = max_token_len;
+  *token_ct_ptr = token_ct;
+  return 0;
+}
+
+int32_t read_tokens(FILE* infile, char* buf, uintptr_t half_bufsize, uintptr_t token_ct, uintptr_t max_token_len, char* token_name_buf) {
+  // buf must be of size >= (2 * half_bufsize + 2).
+  // max_token_len includes trailing null
+  uintptr_t full_bufsize = MAXLINELEN * 2;
+  uintptr_t curtoklen = 0;
+  uintptr_t token_idx = 0;
+  char* midbuf = &(buf[half_bufsize]);
+  char* bufptr = midbuf;
+  char* bufptr2;
+  char* bufptr3;
+  char* buf_end;
+  uintptr_t bufsize;
+  while (1) {
+    if (fread_checked(midbuf, half_bufsize, infile, &bufsize)) {
+      return RET_READ_FAIL;
+    }
+    if (!bufsize) {
+      // something very strange has to happen to get here...
+      return RET_READ_FAIL;
+    }
+    buf_end = &(midbuf[bufsize]);
+    *buf_end = ' ';
+    buf_end[1] = '0';
+    bufptr2 = midbuf;
+    if (curtoklen) {
+      goto read_tokens_tok_start;
+    }
+    while (1) {
+      while (*bufptr <= ' ') {
+	bufptr++;
+      }
+      if (bufptr >= buf_end) {
+        curtoklen = 0;
+	break;
+      }
+      bufptr2 = &(bufptr[1]);
+    read_tokens_tok_start:
+      while (*bufptr2 > ' ') {
+	bufptr2++;
+      }
+      curtoklen = (uintptr_t)(bufptr2 - bufptr);
+      if ((bufptr2 == buf_end) && (buf_end == &(buf[full_bufsize]))) {
+	bufptr3 = &(buf[half_bufsize - curtoklen]);
+        memcpy(bufptr3, bufptr, curtoklen);
+        bufptr = bufptr3;
+	break;
+      }
+      memcpyx(&(token_name_buf[token_idx * max_token_len]), bufptr, curtoklen, '\0');
+      if (++token_idx == token_ct) {
+	return 0;
+      }
+      bufptr = &(bufptr2[1]);
+    }
+  }
+}
+
 int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr) {
   char* lptr;
   do {
@@ -3617,15 +3738,34 @@ int32_t sort_item_ids(char** sorted_ids_ptr, uint32_t** id_map_ptr, uintptr_t un
   return sort_item_ids_noalloc(*sorted_ids_ptr, *id_map_ptr, unfiltered_ct, exclude_arr, item_ct, item_ids, max_id_len, allow_dups, collapse_idxs, comparator_deref);
 }
 
+uint32_t uint32arr_greater_than(uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii) {
+  // assumes arr_length is nonzero, and sorted_uint32_arr is in nondecreasing
+  // order.  (useful for searching marker_pos.)
+  // uii guaranteed to be larger than sorted_uint32_arr[min_idx - 1] if it
+  // exists, but NOT necessarily sorted_uint32_arr[min_idx].
+  int32_t min_idx = 0;
+  // similarly, uii guaranteed to be no greater than
+  // sorted_uint32_arr[max_idx + 1] if it exists, but not necessarily
+  // sorted_uint32_arr[max_idx].  Signed integer since it could become -1.
+  int32_t max_idx = arr_length - 1;
+  uint32_t mid_idx;
+  while (min_idx < max_idx) {
+    mid_idx = (((uint32_t)min_idx) + ((uint32_t)max_idx)) / 2;
+    if (uii > sorted_uint32_arr[mid_idx]) {
+      min_idx = mid_idx + 1;
+    } else {
+      max_idx = mid_idx - 1;
+    }
+  }
+  if (uii > sorted_uint32_arr[((uint32_t)min_idx)]) {
+    return (min_idx + 1);
+  } else {
+    return min_idx;
+  }
+}
+
 uintptr_t uint64arr_greater_than(uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii) {
-  // assumes arr_length is nonzero, and sorted_uint64_arr is in nondecreasing
-  // order.
-  // ullii guaranteed to be larger than sorted_uint64_arr[min_idx - 1] if it
-  // exists, but NOT necessarily sorted_uint64_arr[min_idx].
   intptr_t min_idx = 0;
-  // similarly, ullii guaranteed to be no greater than
-  // sorted_uint64_arr[max_idx + 1] if it exists, but not necessarily
-  // sorted_uint64_arr[max_idx].  Signed integer since it could become -1.
   intptr_t max_idx = arr_length - 1;
   uintptr_t mid_idx;
   while (min_idx < max_idx) {
@@ -3969,6 +4109,29 @@ void bitfield_andnot_reversed_args(uintptr_t* vv, uintptr_t* include_vec, uintpt
   do {
     *vv = (~(*vv)) & (*include_vec++);
     vv++;
+  } while (vv < vec_end);
+#endif
+}
+
+void bitfield_or(uintptr_t* vv, uintptr_t* or_vec, uintptr_t word_ct) {
+  // vv := vv OR include_vec
+  // on 64-bit systems, assumes vv and include_vec are 16-byte aligned
+#ifdef __LP64__
+  __m128i* vv128 = (__m128i*)vv;
+  __m128i* ov128 = (__m128i*)or_vec;
+  __m128i* vv128_end = &(vv128[word_ct / 2]);
+  while (vv128 < vv128_end) {
+    *vv128 = _mm_or_si128(*ov128++, *vv128);
+    vv128++;
+  }
+  if (word_ct & 1) {
+    word_ct--;
+    vv[word_ct] |= or_vec[word_ct];
+  }
+#else
+  uintptr_t* vec_end = &(vv[word_ct]);
+  do {
+    *vv++ |= *or_vec++;
   } while (vv < vec_end);
 #endif
 }

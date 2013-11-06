@@ -5,7 +5,7 @@
 #define NLAMBDA 100
 #define DELTA_THRESHOLD 0.0001
 
-int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm2, double lasso_h2, double lasso_minlambda, double* pheno_d_collapsed, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, uint32_t hh_exists, uintptr_t indiv_valid_ct, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t* loadbuf_raw, uintptr_t* loadbuf_collapsed, double* rand_matrix, double* misc_arr, double* residuals, uintptr_t* polymorphic_markers, uintptr_t* polymorphic_marker_ct_ptr, uint64_t* iter_tot_ptr, double** xhat_ptr) {
+int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm2, double lasso_h2, double lasso_minlambda, uint32_t geno_std, double* pheno_d_collapsed, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, uint32_t hh_exists, uintptr_t indiv_valid_ct, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t* loadbuf_raw, uintptr_t* loadbuf_collapsed, double* rand_matrix, double* misc_arr, double* residuals, uintptr_t* polymorphic_markers, uintptr_t* polymorphic_marker_ct_ptr, uint64_t* iter_tot_ptr, double** xhat_ptr) {
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   double* data_arr = (double*)wkspace_base; // marker-major
   double sqrt_n_recip = sqrt(1.0 / ((double)((intptr_t)indiv_valid_ct)));
@@ -89,7 +89,11 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
         goto lasso_bigmem_ret_INVALID_CMDLINE;
       }
       dzz = dxx / ((double)((intptr_t)indiv_valid_ct));
-      dyy = sqrt_n_recip * sqrt(((double)((intptr_t)(indiv_valid_ct - 1))) / (dyy - dxx * dzz));
+      if (geno_std) {
+        dyy = sqrt_n_recip * sqrt(((double)((intptr_t)(indiv_valid_ct - 1))) / (dyy - dxx * dzz));
+      } else {
+	dyy = 1;
+      }
       dptr = &(data_arr[covar_idx * indiv_valid_ct]);
       for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
         *dptr = ((*dptr) - dzz) * dyy;
@@ -303,7 +307,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
 }
 
 /*
-int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm2, double lasso_h2, double lasso_minlambda, double* pheno_d_collapsed, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, uint32_t hh_exists, uintptr_t indiv_valid_ct, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t* loadbuf_raw, uintptr_t* loadbuf_collapsed, double* rand_matrix, double* misc_arr, double* residuals, uintptr_t* polymorphic_markers, uintptr_t* polymorphic_marker_ct_ptr, uint64_t* iter_tot_ptr, double** xhat_ptr) {
+int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm2, double lasso_h2, double lasso_minlambda, uint32_t geno_std, double* pheno_d_collapsed, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, uint32_t hh_exists, uintptr_t indiv_valid_ct, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t* loadbuf_raw, uintptr_t* loadbuf_collapsed, double* rand_matrix, double* misc_arr, double* residuals, uintptr_t* polymorphic_markers, uintptr_t* polymorphic_marker_ct_ptr, uint64_t* iter_tot_ptr, double** xhat_ptr) {
   // Instead of populating and normalizing data_arr before the coordinate
   // descent, we reload and renormalize the data every iteration.
   // Since (i) there's probably a larger number of samples involved, and (ii)
@@ -612,7 +616,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
 }
 */
 
-int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t pheno_nm_ct, double lasso_h2, double lasso_minlambda, uint32_t report_zeroes, uintptr_t* pheno_nm, double* pheno_d, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_male, uint32_t hh_exists) {
+int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t pheno_nm_ct, double lasso_h2, double lasso_minlambda, uint64_t misc_flags, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_male, uint32_t hh_exists) {
   // Coordinate descent LASSO.  Based on a MATLAB script by Shashaank
   // Vattikuti.
   // Not yet multithreaded.  (Main loop is fairly tightly coupled, so getting
@@ -629,6 +633,8 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   double* misc_arr = NULL;
   uintptr_t* indiv_male_include2 = NULL;
   char* wptr_start = NULL;
+  uint32_t report_zeroes = (misc_flags / MISC_LASSO_REPORT_ZEROES) & 1;
+  uint32_t geno_std = (misc_flags & MISC_LASSO_NO_GENO_STD)? 0 : 1;
   uint32_t chrom_fo_idx = 0xffffffffU; // exploit overflow
   uint32_t chrom_end = 0;
   uint32_t is_x = 0;
@@ -711,20 +717,34 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   dptr = pheno_d_collapsed;
   indiv_uidx = 0;
   indiv_idx = 0;
-  do {
-    indiv_uidx = next_set_ul_unsafe(pheno_nm2, indiv_uidx);
-    indiv_uidx_stop = next_unset_ul(pheno_nm2, indiv_uidx, unfiltered_indiv_ct);
-    indiv_idx += indiv_uidx_stop - indiv_uidx;
-    dptr2 = &(pheno_d[indiv_uidx]);
-    indiv_uidx = indiv_uidx_stop;
-    dptr3 = &(pheno_d[indiv_uidx_stop]);
+  if (pheno_d) {
     do {
-      dzz = *dptr2++;
-      *dptr++ = dzz;
-      dxx += dzz;
-      dyy += dzz * dzz;
-    } while (dptr2 < dptr3);
-  } while (indiv_idx < indiv_valid_ct);
+      indiv_uidx = next_set_ul_unsafe(pheno_nm2, indiv_uidx);
+      indiv_uidx_stop = next_unset_ul(pheno_nm2, indiv_uidx, unfiltered_indiv_ct);
+      indiv_idx += indiv_uidx_stop - indiv_uidx;
+      dptr2 = &(pheno_d[indiv_uidx]);
+      indiv_uidx = indiv_uidx_stop;
+      dptr3 = &(pheno_d[indiv_uidx_stop]);
+      do {
+	dzz = *dptr2++;
+	*dptr++ = dzz;
+	dxx += dzz;
+	dyy += dzz * dzz;
+      } while (dptr2 < dptr3);
+    } while (indiv_idx < indiv_valid_ct);
+  } else {
+    do {
+      indiv_uidx = next_set_ul_unsafe(pheno_nm2, indiv_uidx);
+      indiv_uidx_stop = next_unset_ul(pheno_nm2, indiv_uidx, unfiltered_indiv_ct);
+      indiv_idx += indiv_uidx_stop - indiv_uidx;
+      do {
+        dzz = ((int32_t)IS_SET(pheno_c, indiv_uidx));
+	*dptr++ = dzz;
+        dxx += dzz;
+      } while ((++indiv_uidx) < indiv_uidx_stop);
+    } while (indiv_idx < indiv_valid_ct);
+    dyy = dxx;
+  }
   if (dyy * ((double)((intptr_t)indiv_valid_ct)) == dxx * dxx) {
     logprint("Warning: Skipping --lasso since phenotype is constant.\n");
     goto lasso_ret_1;
@@ -758,9 +778,9 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
     ullii += CACHEALIGN(((uint64_t)uii) * WARM_START_ITERS * sizeof(double)) + CACHEALIGN(((uint64_t)uii) * sizeof(double)) + CACHEALIGN(((uii + 7) / 8));
   }
   if (ullii <= wkspace_left) {
-    retval = lasso_bigmem(bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm2, lasso_h2, lasso_minlambda, pheno_d_collapsed, covar_ct, covar_nm, covar_d, hh_exists, indiv_valid_ct, indiv_include2, indiv_male_include2, loadbuf_raw, loadbuf_collapsed, rand_matrix, misc_arr, residuals, polymorphic_markers, &polymorphic_marker_ct, &iter_tot, &xhat);
+    retval = lasso_bigmem(bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm2, lasso_h2, lasso_minlambda, geno_std, pheno_d_collapsed, covar_ct, covar_nm, covar_d, hh_exists, indiv_valid_ct, indiv_include2, indiv_male_include2, loadbuf_raw, loadbuf_collapsed, rand_matrix, misc_arr, residuals, polymorphic_markers, &polymorphic_marker_ct, &iter_tot, &xhat);
   } else {
-    // retval = lasso_smallmem(threads, bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm2, lasso_h2, lasso_minlambda, pheno_d_collapsed, covar_ct, covar_nm, covar_d, hh_exists, indiv_valid_ct, indiv_include2, indiv_male_include2, loadbuf_raw, loadbuf_collapsed, rand_matrix, misc_arr, residuals, polymorphic_markers, &polymorphic_marker_ct, &iter_tot, &xhat);
+    // retval = lasso_smallmem(threads, bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm2, lasso_h2, lasso_minlambda, geno_std, pheno_d_collapsed, covar_ct, covar_nm, covar_d, hh_exists, indiv_valid_ct, indiv_include2, indiv_male_include2, loadbuf_raw, loadbuf_collapsed, rand_matrix, misc_arr, residuals, polymorphic_markers, &polymorphic_marker_ct, &iter_tot, &xhat);
     retval = RET_NOMEM;
   }
   if (retval) {
