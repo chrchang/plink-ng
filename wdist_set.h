@@ -6,9 +6,10 @@
 #define SET_MAKE_FROM_RANGES 1
 #define SET_COMPLEMENTS 2
 #define SET_MAKE_COLLAPSE_GROUP 4
-#define SET_DROP_NONMEMBERS 8
-#define SET_WRITE_LIST 0x10
-#define SET_WRITE_TABLE 0x20
+#define SET_C_PREFIX 8
+#define SET_GENE_ALL 0x10
+#define SET_WRITE_LIST 0x20
+#define SET_WRITE_TABLE 0x40
 
 typedef struct {
   // command-line, allocated on heap and freed by main()

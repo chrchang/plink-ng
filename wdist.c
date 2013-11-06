@@ -1396,7 +1396,7 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
   if (!include_ct) {
     sprintf(logbuf, "Error: All %s excluded by --filter.\n", g_species_plural);
     logprintb();
-    goto filter_indivs_file_ret_INVALID_CMDLINE;
+    goto filter_indivs_file_ret_ALL_SAMPLES_EXCLUDED;
   }
   sprintf(logbuf, "--filter: %" PRIuPTR " %s remaining.\n", include_ct, species_str(include_ct));
   logprintb();
@@ -1421,8 +1421,8 @@ int32_t filter_indivs_file(char* filtername, char* sorted_person_ids, uintptr_t 
     logprint("Error: Too few columns in --filter file line.\n");
     retval = RET_INVALID_FORMAT;
     break;
-  filter_indivs_file_ret_INVALID_CMDLINE:
-    retval = RET_INVALID_CMDLINE;
+  filter_indivs_file_ret_ALL_SAMPLES_EXCLUDED:
+    retval = RET_ALL_SAMPLES_EXCLUDED;
     break;
   }
   wkspace_reset(wkspace_mark);
@@ -1595,7 +1595,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, double mind_thresh, uin
   if (*indiv_exclude_ct_ptr == unfiltered_indiv_ct) {
     sprintf(logbuf, "Error: All %s removed due to missing genotype data (--mind).\n", g_species_plural);
     logprintb();
-    goto mind_filter_ret_INVALID_CMDLINE;
+    goto mind_filter_ret_ALL_SAMPLES_EXCLUDED;
   }
   sprintf(logbuf, "%u %s removed due to missing genotype data (--mind).\n", removed_ct, species_str(removed_ct));
   logprintb();
@@ -1606,8 +1606,8 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, double mind_thresh, uin
   mind_filter_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  mind_filter_ret_INVALID_CMDLINE:
-    retval = RET_INVALID_CMDLINE;
+  mind_filter_ret_ALL_SAMPLES_EXCLUDED:
+    retval = RET_ALL_SAMPLES_EXCLUDED;
     break;
   }
   wkspace_reset(wkspace_mark);
@@ -4612,7 +4612,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   if (thin_keep_prob != 1.0) {
     if (random_thin_markers(thin_keep_prob, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct)) {
-      goto wdist_ret_UNLUCKY;
+      goto wdist_ret_ALL_MARKERS_EXCLUDED;
     }
   }
 
@@ -4649,7 +4649,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (indiv_exclude_ct == unfiltered_indiv_ct) {
       sprintf(logbuf, "Error: All %s removed due to case/control status (--filter-%s).\n", g_species_plural, (filter_binary & FILTER_BINARY_CASES)? "cases" : "controls");
       logprintb();
-      goto wdist_ret_INVALID_CMDLINE;
+      goto wdist_ret_ALL_SAMPLES_EXCLUDED;
     }
     ii = indiv_exclude_ct - ii;
     sprintf(logbuf, "%d %s removed due to case/control status (--filter-%s).\n", ii, species_str(ii), (filter_binary & FILTER_BINARY_CASES)? "cases" : "controls");
@@ -4661,7 +4661,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (indiv_exclude_ct == unfiltered_indiv_ct) {
       sprintf(logbuf, "Error: All %s removed due to gender filter (--filter-%s).\n", g_species_plural, (filter_binary & FILTER_BINARY_MALES)? "males" : "females");
       logprintb();
-      goto wdist_ret_INVALID_CMDLINE;
+      goto wdist_ret_ALL_SAMPLES_EXCLUDED;
     }
     ii = indiv_exclude_ct - ii;
     sprintf(logbuf, "%d %s removed due to gender filter (--filter-%s).\n", ii, species_str(ii), (filter_binary & FILTER_BINARY_MALES)? "males" : "females");
@@ -4673,7 +4673,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     if (indiv_exclude_ct == unfiltered_indiv_ct) {
       sprintf(logbuf, "Error: All %s removed due to founder status (--filter-%s).\n", g_species_plural, (filter_binary & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
       logprintb();
-      goto wdist_ret_INVALID_CMDLINE;
+      goto wdist_ret_ALL_SAMPLES_EXCLUDED;
     }
     ii = indiv_exclude_ct - ii;
     sprintf(logbuf, "%d %s removed due to founder status (--filter-%s).\n", ii, species_str(ii), (filter_binary & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
@@ -4754,11 +4754,12 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     // defensive; currently shouldn't happen since we're actually checking at
     // every filter
     sprintf(logbuf, "Error: No %s pass QC.\n", g_species_plural);
-    goto wdist_ret_INVALID_FORMAT_2;
+    logprintb();
+    goto wdist_ret_ALL_SAMPLES_EXCLUDED;
   }
   if ((g_indiv_ct == 1) && (relationship_or_ibc_req(calculation_type) || distance_req(calculation_type, read_dists_fname) || (calculation_type & (CALC_GENOME | CALC_CLUSTER | CALC_NEIGHBOR)))) {
     sprintf(logbuf, "Error: More than 1 %s required for pairwise analysis.\n", g_species_singular);
-    goto wdist_ret_INVALID_FORMAT_2;
+    goto wdist_ret_INVALID_CMDLINE_2;
   }
   unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   bitfield_andnot(pheno_nm, indiv_exclude, unfiltered_indiv_ctl);
@@ -4856,7 +4857,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (unfiltered_marker_ct == marker_exclude_ct) {
     // defensive
     logprint("Error: No variants remaining.\n");
-    goto wdist_ret_INVALID_FORMAT;
+    goto wdist_ret_ALL_MARKERS_EXCLUDED;
   }
   retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_indiv_ct, indiv_exclude, indiv_exclude_ct, person_ids, max_person_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, &marker_reverse, &marker_allele_cts, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), (misc_flags / MISC_HWE_ALL) & 1, (pheno_nm_ct && pheno_c)? (calculation_type & CALC_HARDY) : 0, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &indiv_male_ct, &indiv_f_ct, &indiv_f_male_ct, wt_needed, &topsize, &marker_weights, exponent, chrom_info_ptr, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
   if (retval) {
@@ -4914,7 +4915,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
     ulii = binary_geno_filter(geno_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, g_indiv_ct, indiv_male_ct, marker_allele_cts, chrom_info_ptr);
     if (marker_exclude_ct == unfiltered_marker_ct) {
       logprint("Error: All variants removed due to missing genotype data (--geno).\n");
-      goto wdist_ret_INVALID_CMDLINE;
+      goto wdist_ret_ALL_MARKERS_EXCLUDED;
     }
     sprintf(logbuf, "%" PRIuPTR " variant%s removed due to missing genotype data (--geno).\n", ulii, (ulii == 1)? "" : "s");
     logprintb();
@@ -4929,12 +4930,12 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
   if (hwe_thresh > 0.0) {
     if (enforce_hwe_threshold(hwe_thresh, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, hwe_lls, hwe_lhs, hwe_hhs, (misc_flags / MISC_HWE_ALL) & 1, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs)) {
-      goto wdist_ret_INVALID_CMDLINE;
+      goto wdist_ret_ALL_MARKERS_EXCLUDED;
     }
   }
   if ((min_maf != 0.0) || (max_maf != 0.5)) {
     if (enforce_maf_threshold(min_maf, max_maf, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, set_allele_freqs)) {
-      goto wdist_ret_INVALID_CMDLINE;
+      goto wdist_ret_ALL_MARKERS_EXCLUDED;
     }
   }
   if (min_bp_space) {
@@ -4965,7 +4966,7 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   if (!marker_ct) {
     // defensive
     logprint("Error: All variants fail QC.\n");
-    goto wdist_ret_INVALID_FORMAT;
+    goto wdist_ret_ALL_MARKERS_EXCLUDED;
   }
   sprintf(logbuf, "%" PRIuPTR " variant%s and %" PRIuPTR " %s pass filters and QC%s.\n", marker_ct, (marker_ct == 1)? "" : "s", g_indiv_ct, species_str(g_indiv_ct), (calculation_type & CALC_REL_CUTOFF)? " (before --rel-cutoff)": "");
   logprintb();
@@ -5393,8 +5394,11 @@ int32_t wdist(char* outname, char* outname_end, char* pedname, char* mapname, ch
   wdist_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  wdist_ret_UNLUCKY:
-    retval = RET_UNLUCKY;
+  wdist_ret_ALL_SAMPLES_EXCLUDED:
+    retval = RET_ALL_SAMPLES_EXCLUDED;
+    break;
+  wdist_ret_ALL_MARKERS_EXCLUDED:
+    retval = RET_ALL_MARKERS_EXCLUDED;
     break;
   }
  wdist_ret_1:
@@ -8233,7 +8237,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
       } else if (!memcmp(argptr2, "omplement-sets", 15)) {
-        set_info.modifier |= SET_COMPLEMENTS;
+        set_info.modifier |= SET_COMPLEMENTS | SET_C_PREFIX;
 	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
@@ -8454,9 +8458,6 @@ int32_t main(int32_t argc, char** argv) {
 	glm_modifier |= GLM_DOMINANT | GLM_CONDITION_DOMINANT;
 	glm_xchr_model = 0;
 	goto main_param_zero;
-      } else if (!memcmp(argptr2, "rop-nonset", 11)) {
-        set_info.modifier |= SET_DROP_NONMEMBERS;
-        goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8960,6 +8961,13 @@ int32_t main(int32_t argc, char** argv) {
 	if (retval) {
 	  goto main_ret_1;
 	}
+      } else if (!memcmp(argptr2, "ene-all", 8)) {
+	if (set_info.genekeep_flattened) {
+          sprintf(logbuf, "Error: --gene-all cannot be used with --gene.%s", errstr_append);
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+        set_info.modifier |= SET_GENE_ALL;
+	goto main_param_zero;
       } else if (!memcmp(argptr2, "ates", 5)) {
         logprint("Error: --gates is not implemented yet.\n");
 	retval = RET_CALC_NOT_YET_SUPPORTED;
@@ -10456,7 +10464,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --make-set-complement-group cannot be used with --complement-sets,\n--make-set-collapse-group, or --make-set-complement-all.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        set_info.modifier |= SET_COMPLEMENTS | SET_MAKE_COLLAPSE_GROUP;
+        set_info.modifier |= SET_COMPLEMENTS | SET_C_PREFIX | SET_MAKE_COLLAPSE_GROUP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "lma", 4)) {
         logprint("Error: --mlma is not implemented yet.\n");
@@ -12773,17 +12781,6 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(flip_fname);
   free_cond(flip_subset_fname);
   free_cond(read_genome_fname);
-  free_cond(cluster.fname);
-  free_cond(cluster.match_fname);
-  free_cond(cluster.match_missing_str);
-  free_cond(cluster.match_type_fname);
-  free_cond(cluster.qmatch_fname);
-  free_cond(cluster.qmatch_missing_str);
-  free_cond(cluster.qt_fname);
-  free_cond(cluster.keep_fname);
-  free_cond(cluster.remove_fname);
-  free_cond(cluster.keep_flattened);
-  free_cond(cluster.remove_flattened);
   free_cond(rseeds);
   free_cond(simulate_fname);
   free_cond(simulate_label);
@@ -12797,11 +12794,12 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(convert_xy_23);
   free_cond(condition_mname);
   free_cond(condition_fname);
-  set_cleanup(&set_info);
   free_cond(filter_attrib_fname);
   free_cond(filter_attrib_liststr);
   free_cond(filter_attrib_indiv_fname);
   free_cond(filter_attrib_indiv_liststr);
+  cluster_cleanup(&cluster);
+  set_cleanup(&set_info);
   if (file_delete_list) {
     do {
       ll_str_ptr = file_delete_list->next;

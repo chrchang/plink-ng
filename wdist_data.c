@@ -519,8 +519,8 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
   chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
   *marker_exclude_ct_ptr = marker_exclude_ct;
   if (*marker_exclude_ct_ptr == unfiltered_marker_ct) {
-    logprint("Error: All variants excluded (due to negative position) from .map file.\n");
-    goto load_map_ret_INVALID_FORMAT;
+    logprint("Error: All variants excluded from .map file.\n");
+    goto load_map_ret_ALL_MARKERS_EXCLUDED;
   }
   while (0) {
   load_map_ret_NOMEM:
@@ -534,6 +534,9 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     break;
   load_map_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
+    break;
+  load_map_ret_ALL_MARKERS_EXCLUDED:
+    retval = RET_ALL_MARKERS_EXCLUDED;
     break;
   }
   return retval;
@@ -1171,7 +1174,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   }
   if (unfiltered_marker_ct == marker_exclude_ct) {
     logprint("Error: All variants excluded.\n");
-    goto load_bim_ret_INVALID_FORMAT;
+    goto load_bim_ret_ALL_MARKERS_EXCLUDED;
   }
   for (uii = 0; uii < CHROM_MASK_WORDS; uii++) {
     chrom_info_ptr->chrom_mask[uii] &= loaded_chrom_mask[uii];
@@ -1208,6 +1211,10 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     logprintb();
   load_bim_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
+    break;
+  load_bim_ret_ALL_MARKERS_EXCLUDED:
+    retval = RET_ALL_MARKERS_EXCLUDED;
+    break;
   }
  load_bim_ret_1:
   fclose_cond(bimfile);
@@ -1448,7 +1455,7 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
   marker_ct -= (*marker_exclude_ct_ptr) - orig_exclude_ct;
   if (!marker_ct) {
     logprint("Error: All variants excluded by --update-map (due to negative marker\npositions).\n");
-    goto update_marker_pos_ret_INVALID_FORMAT;
+    goto update_marker_pos_ret_ALL_MARKERS_EXCLUDED;
   }
   for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
     next_unset_unsafe_ck(marker_exclude, &marker_uidx);
@@ -1480,6 +1487,9 @@ int32_t update_marker_pos(Two_col_params* update_map, char* sorted_marker_ids, u
     logprint("Error: Fewer tokens than expected in --update-map file line.\n");
   update_marker_pos_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
+    break;
+  update_marker_pos_ret_ALL_MARKERS_EXCLUDED:
+    retval = RET_ALL_MARKERS_EXCLUDED;
     break;
   }
  update_marker_pos_ret_1:
@@ -2304,7 +2314,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
   if (!(*exclude_ct_ptr == unfiltered_ct)) {
     sprintf(logbuf, "Error: No %s remaining after --%s.\n", (flags & 2)? g_species_plural : "variants", include_or_exclude_flag_str(flags));
     logprintb();
-    goto include_or_exclude_ret_INVALID_CMDLINE;
+    goto include_or_exclude_ret_ALL_SAMPLES_EXCLUDED;
   }
   while (0) {
   include_or_exclude_ret_NOMEM:
@@ -2316,14 +2326,14 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
   include_or_exclude_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
-  include_or_exclude_ret_INVALID_CMDLINE:
-    retval = RET_INVALID_CMDLINE;
-    break;
   include_or_exclude_ret_INVALID_FORMAT_2:
     sprintf(logbuf, "Error: Duplicate ID in --%s file.\n", include_or_exclude_flag_str(flags));
   include_or_exclude_ret_INVALID_FORMAT:
     logprintb();
     retval = RET_INVALID_FORMAT;
+    break;
+  include_or_exclude_ret_ALL_SAMPLES_EXCLUDED:
+    retval = RET_ALL_SAMPLES_EXCLUDED;
     break;
   }
   wkspace_reset(wkspace_mark);
@@ -2566,7 +2576,12 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
   }
   if (!include_ct) {
     sprintf(logbuf, "Error: No %s remaining after --filter-attrib%s.\n", is_indiv? g_species_plural : "variants", is_indiv? "-indiv" : "");
-    goto filter_attrib_ret_INVALID_CMDLINE_2;
+    if (is_indiv) {
+      retval = RET_ALL_SAMPLES_EXCLUDED;
+    } else {
+      retval = RET_ALL_MARKERS_EXCLUDED;
+    }
+    goto filter_attrib_ret_1;
   }
   sprintf(logbuf, "--filter-attrib%s: %" PRIuPTR " %s remaining.\n", is_indiv? "-indiv" : "", include_ct, is_indiv? species_str(include_ct) : "variants");
   logprintb();
@@ -2592,6 +2607,7 @@ int32_t filter_attrib(char* fname, char* condition_str, char* sorted_ids, uintpt
     retval = RET_INVALID_FORMAT;
     break;
   }
+ filter_attrib_ret_1:
   wkspace_reset(wkspace_mark);
   fclose_cond(infile);
   return retval;
@@ -5493,7 +5509,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   marker_ct = unfiltered_marker_ct - marker_exclude_ct;
   if (!marker_ct) {
     logprint("Error: No variants in current analysis.\n");
-    goto ped_to_bed_ret_INVALID_FORMAT;
+    goto ped_to_bed_ret_ALL_MARKERS_EXCLUDED;
   }
   marker_exclude = (uintptr_t*)wkspace_alloc(((unfiltered_marker_ct + (BITCT - 1)) / BITCT) * sizeof(intptr_t));
 
@@ -5958,6 +5974,9 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     logprintb();
   ped_to_bed_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
+    break;
+  ped_to_bed_ret_ALL_MARKERS_EXCLUDED:
+    retval = RET_ALL_MARKERS_EXCLUDED;
     break;
   }
  ped_to_bed_ret_1:
@@ -10270,7 +10289,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     autosomal_marker_ct = marker_ct - count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1) - count_chrom_markers(chrom_info_ptr, 25, marker_exclude);
     if (!autosomal_marker_ct) {
       logprint("Error: No autosomal variants for --recode beagle.\n");
-      goto recode_ret_INVALID_FORMAT;
+      goto recode_ret_ALL_MARKERS_EXCLUDED;
     }
     memcpy(outname_end, ".chr-", 6);
     sprintf(logbuf, "--recode beagle to %s*.dat + %s*.map... ", outname, outname);
@@ -11257,6 +11276,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     // probably want to implement this later
     logprint("Error: --recode does not yet support multipass recoding of very large files;\ncontact the " PROG_NAME_CAPS " developers if you need this.\nFor now, you can try using a machine with more memory, and/or split the file\ninto smaller pieces and recode them separately.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
+    break;
+  recode_ret_ALL_MARKERS_EXCLUDED:
+    retval = RET_ALL_MARKERS_EXCLUDED;
     break;
   }
  recode_ret_1:

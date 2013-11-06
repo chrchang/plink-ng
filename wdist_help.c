@@ -970,7 +970,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --set [filename]              : Load sets from a .set file.\n"
 "  --subset [filename]           : Throw out sets not named in the given file.\n"
 "  --set-collapse-all [set name] : Merge all sets.\n"
-"  --complement-sets             : Invert all sets.\n"
+"  --complement-sets             : Invert all sets.  (Names gain 'C_' prefixes.)\n"
 "  --make-set-complement-all [s] : --set-collapse-all + inversion.\n"
 "  --make-set [filename]         : Define sets from a list of named bp ranges.\n"
 "  --make-set-border [kbs]       : Stretch regions in --make-set file.\n"
@@ -998,8 +998,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --remove-clusters [filename]        : Exclude all clusters named in the file.\n"
 "  --remove-cluster-names [name(s)...] : Exclude the named clusters.\n"
 	       );
-    help_print("gene", &help_ctrl, 0,
+    help_print("set\tmake-set\tgene\tgene-all", &help_ctrl, 0,
 "  --gene [sets...] : Exclude variants not in a set named on the command line.\n"
+"  --gene-all       : Exclude variants which aren't a member of any set.  (PLINK\n"
+"                     1.07 automatically did this under some circumstances.)\n"
 	       );
     help_print("filter-attrib\tfilter-attrib-indiv", &help_ctrl, 0,
 "  --filter-attrib [f] {att lst} : Given a file assigning attributes to\n"
