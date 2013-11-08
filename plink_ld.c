@@ -1,6 +1,5 @@
 #include "plink_ld.h"
 #include "plink_matrix.h"
-#include "pigz.h"
 
 #define MULTIPLEX_LD 1920
 #define MULTIPLEX_2LD (MULTIPLEX_LD * 2)
@@ -470,8 +469,8 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 #else
   uint32_t founder_ct_mld_rem = (MULTIPLEX_LD / 48) - (founder_ct_mld * MULTIPLEX_LD - founder_ct) / 48;
 #endif
-  uintptr_t founder_ct_mld_long = founder_ct_mld * (MULTIPLEX_LD / BITCT2);
-  uint32_t founder_trail_ct = founder_ct_mld_long - founder_ctl * 2;
+  uintptr_t founder_ct_192_long = founder_ct_mld_m1 * (MULTIPLEX_LD / BITCT2) + founder_ct_mld_rem * (192 / BITCT2);
+  uint32_t founder_trail_ct = founder_ct_192_long - founder_ctl * 2;
   uint32_t pairwise = (ldip->modifier / LD_PRUNE_PAIRWISE) & 1;
   uint32_t ignore_x = (ldip->modifier / LD_IGNORE_X) & 1;
   uint32_t weighted_x = (ldip->modifier / LD_WEIGHTED_X) & 1;
@@ -605,25 +604,25 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
       wkspace_alloc_ui_checked(&start_arr, ulii * sizeof(int32_t)) ||
       wkspace_alloc_d_checked(&marker_stdevs, ulii * sizeof(double)) ||
       wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&geno, ulii * founder_ct_mld_long * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&geno_masks, ulii * founder_ct_mld_long * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&geno, ulii * founder_ct_192_long * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&geno_masks, ulii * founder_ct_192_long * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&geno_mmasks, ulii * founder_ctv * sizeof(intptr_t)) ||
       wkspace_alloc_ui_checked(&missing_cts, ulii * sizeof(int32_t))) {
     goto ld_prune_ret_NOMEM;
   }
   if (weighted_x) {
-    if (wkspace_alloc_ul_checked(&nonmale_geno, ulii * founder_ct_mld_long * sizeof(intptr_t)) ||
-        wkspace_alloc_ul_checked(&nonmale_masks, ulii * founder_ct_mld_long * sizeof(intptr_t))) {
+    if (wkspace_alloc_ul_checked(&nonmale_geno, ulii * founder_ct_192_long * sizeof(intptr_t)) ||
+        wkspace_alloc_ul_checked(&nonmale_masks, ulii * founder_ct_192_long * sizeof(intptr_t))) {
       goto ld_prune_ret_NOMEM;
     }
   }
   if (founder_trail_ct) {
     for (ulii = 1; ulii <= window_max; ulii++) {
-      fill_ulong_zero(&(geno[ulii * founder_ct_mld_long - founder_trail_ct - 2]), founder_trail_ct + 2);
-      fill_ulong_zero(&(geno_masks[ulii * founder_ct_mld_long - founder_trail_ct - 2]), founder_trail_ct + 2);
+      fill_ulong_zero(&(geno[ulii * founder_ct_192_long - founder_trail_ct - 2]), founder_trail_ct + 2);
+      fill_ulong_zero(&(geno_masks[ulii * founder_ct_192_long - founder_trail_ct - 2]), founder_trail_ct + 2);
       if (weighted_x) {
-	fill_ulong_zero(&(nonmale_geno[ulii * founder_ct_mld_long - founder_trail_ct - 2]), founder_trail_ct + 2);
-	fill_ulong_zero(&(nonmale_masks[ulii * founder_ct_mld_long - founder_trail_ct - 2]), founder_trail_ct + 2);
+	fill_ulong_zero(&(nonmale_geno[ulii * founder_ct_192_long - founder_trail_ct - 2]), founder_trail_ct + 2);
+	fill_ulong_zero(&(nonmale_masks[ulii * founder_ct_192_long - founder_trail_ct - 2]), founder_trail_ct + 2);
       }
     }
   }
@@ -665,13 +664,13 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	if (fseeko(bedfile, bed_offset + (uii * unfiltered_indiv_ct4), SEEK_SET)) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
-	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(geno[ulii * founder_ct_mld_long]), founder_ct, founder_info, IS_SET(marker_reverse, uii))) {
+	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(geno[ulii * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, uii))) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
-	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno[ulii * founder_ct_mld_long])));
+	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno[ulii * founder_ct_192_long])));
 	}
-        missing_cts[ulii] = ld_process_load(&(geno[ulii * founder_ct_mld_long]), &(geno_masks[ulii * founder_ct_mld_long]), &(geno_mmasks[ulii * founder_ctv]), &(marker_stdevs[ulii]), founder_ct, is_x && (!ignore_x), weighted_x, nonmale_founder_ct, founder_male_include2, nonmale_geno, nonmale_masks, ulii * founder_ct_mld_long);
+        missing_cts[ulii] = ld_process_load(&(geno[ulii * founder_ct_192_long]), &(geno_masks[ulii * founder_ct_192_long]), &(geno_mmasks[ulii * founder_ctv]), &(marker_stdevs[ulii]), founder_ct, is_x && (!ignore_x), weighted_x, nonmale_founder_ct, founder_male_include2, nonmale_geno, nonmale_masks, ulii * founder_ct_192_long);
       }
     }
     pct = 1;
@@ -693,8 +692,8 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	    }
             fixed_missing_ct = missing_cts[uii];
 	    fixed_non_missing_ct = weighted_founder_ct - fixed_missing_ct;
-	    geno_fixed_vec_ptr = &(geno[uii * founder_ct_mld_long]);
-	    mask_fixed_vec_ptr = &(geno_masks[uii * founder_ct_mld_long]);
+	    geno_fixed_vec_ptr = &(geno[uii * founder_ct_192_long]);
+	    mask_fixed_vec_ptr = &(geno_masks[uii * founder_ct_192_long]);
 	    ujj = uii + 1;
 	    while (live_indices[ujj] < start_arr[uii]) {
 	      if (++ujj == cur_window_size) {
@@ -705,8 +704,8 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	      if (IS_SET(pruned_arr, live_indices[ujj])) {
 		continue;
 	      }
-	      geno_var_vec_ptr = &(geno[ujj * founder_ct_mld_long]);
-	      mask_var_vec_ptr = &(geno_masks[ujj * founder_ct_mld_long]);
+	      geno_var_vec_ptr = &(geno[ujj * founder_ct_192_long]);
+	      mask_var_vec_ptr = &(geno_masks[ujj * founder_ct_192_long]);
 
 	      dp_result[0] = weighted_founder_ct;
 	      // reversed from what I initially thought because I'm passing the
@@ -715,8 +714,8 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	      dp_result[2] = missing_cts[ujj] - weighted_founder_ct;
 	      ld_dot_prod(geno_var_vec_ptr, geno_fixed_vec_ptr, mask_var_vec_ptr, mask_fixed_vec_ptr, dp_result, founder_ct_mld_m1, founder_ct_mld_rem);
 	      if (is_x && weighted_x) {
-		non_missing_ct = (popcount_longs_intersect(&(nonmale_masks[uii * founder_ct_mld_long]), &(nonmale_masks[ujj * founder_ct_mld_long]), 2 * founder_ctl) + popcount_longs_intersect(mask_fixed_vec_ptr, mask_var_vec_ptr, 2 * founder_ctl)) / 2;
-		ld_dot_prod(&(nonmale_geno[ujj * founder_ct_mld_long]), &(nonmale_geno[uii * founder_ct_mld_long]), &(nonmale_masks[ujj * founder_ct_mld_long]), &(nonmale_masks[uii * founder_ct_mld_long]), dp_result, founder_ct_mld_m1, founder_ct_mld_rem);
+		non_missing_ct = (popcount_longs_intersect(&(nonmale_masks[uii * founder_ct_192_long]), &(nonmale_masks[ujj * founder_ct_192_long]), 2 * founder_ctl) + popcount_longs_intersect(mask_fixed_vec_ptr, mask_var_vec_ptr, 2 * founder_ctl)) / 2;
+		ld_dot_prod(&(nonmale_geno[ujj * founder_ct_192_long]), &(nonmale_geno[uii * founder_ct_192_long]), &(nonmale_masks[ujj * founder_ct_192_long]), &(nonmale_masks[uii * founder_ct_192_long]), dp_result, founder_ct_mld_m1, founder_ct_mld_rem);
 	      } else {
 	        non_missing_ct = fixed_non_missing_ct - missing_cts[ujj];
 		if (fixed_missing_ct && missing_cts[ujj]) {
@@ -868,11 +867,11 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	if (IS_SET(pruned_arr, live_indices[ujj])) {
 	  continue;
 	}
-	memcpy(&(geno[uii * founder_ct_mld_long]), &(geno[ujj * founder_ct_mld_long]), founder_ct_mld_long * sizeof(intptr_t));
-	memcpy(&(geno_masks[uii * founder_ct_mld_long]), &(geno_masks[ujj * founder_ct_mld_long]), founder_ct_mld_long * sizeof(intptr_t));
+	memcpy(&(geno[uii * founder_ct_192_long]), &(geno[ujj * founder_ct_192_long]), founder_ct_192_long * sizeof(intptr_t));
+	memcpy(&(geno_masks[uii * founder_ct_192_long]), &(geno_masks[ujj * founder_ct_192_long]), founder_ct_192_long * sizeof(intptr_t));
 	if (is_x && weighted_x) {
-	  memcpy(&(nonmale_geno[uii * founder_ct_mld_long]), &(nonmale_geno[ujj * founder_ct_mld_long]), founder_ct_mld_long * sizeof(intptr_t));
-	  memcpy(&(nonmale_masks[uii * founder_ct_mld_long]), &(nonmale_masks[ujj * founder_ct_mld_long]), founder_ct_mld_long * sizeof(intptr_t));
+	  memcpy(&(nonmale_geno[uii * founder_ct_192_long]), &(nonmale_geno[ujj * founder_ct_192_long]), founder_ct_192_long * sizeof(intptr_t));
+	  memcpy(&(nonmale_masks[uii * founder_ct_192_long]), &(nonmale_masks[ujj * founder_ct_192_long]), founder_ct_192_long * sizeof(intptr_t));
 	}
 	memcpy(&(geno_mmasks[uii * founder_ctv]), &(geno_mmasks[ujj * founder_ctv]), founder_ctl * sizeof(intptr_t));
 	marker_stdevs[uii] = marker_stdevs[ujj];
@@ -911,13 +910,13 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	if (fseeko(bedfile, bed_offset + (window_unfiltered_end * unfiltered_indiv_ct4), SEEK_SET)) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
-	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(geno[cur_window_size * founder_ct_mld_long]), founder_ct, founder_info, IS_SET(marker_reverse, window_unfiltered_end))) {
+	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(geno[cur_window_size * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, window_unfiltered_end))) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
-	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno[cur_window_size * founder_ct_mld_long])));
+	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno[cur_window_size * founder_ct_192_long])));
 	}
-	missing_cts[cur_window_size] = ld_process_load(&(geno[cur_window_size * founder_ct_mld_long]), &(geno_masks[cur_window_size * founder_ct_mld_long]), &(geno_mmasks[cur_window_size * founder_ctv]), &(marker_stdevs[cur_window_size]), founder_ct, is_x && (!ignore_x), weighted_x, nonmale_founder_ct, founder_male_include2, nonmale_geno, nonmale_masks, cur_window_size * founder_ct_mld_long);
+	missing_cts[cur_window_size] = ld_process_load(&(geno[cur_window_size * founder_ct_192_long]), &(geno_masks[cur_window_size * founder_ct_192_long]), &(geno_mmasks[cur_window_size * founder_ctv]), &(marker_stdevs[cur_window_size]), founder_ct, is_x && (!ignore_x), weighted_x, nonmale_founder_ct, founder_male_include2, nonmale_geno, nonmale_masks, cur_window_size * founder_ct_192_long);
 	cur_window_size++;
       }
       if (cur_window_size > prev_end) {
