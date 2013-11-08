@@ -1,5 +1,6 @@
 #include "plink_ld.h"
 #include "plink_matrix.h"
+#include "pigz.h"
 
 #define MULTIPLEX_LD 1920
 #define MULTIPLEX_2LD (MULTIPLEX_LD * 2)
@@ -446,7 +447,7 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
   *is_y_ptr = (((int32_t)cur_chrom) == chrom_info_ptr->y_code)? 1 : 0;
 }
 
-int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
+int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
   // for future consideration: chromosome-based multithread/parallel?
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile_in = NULL;
@@ -607,7 +608,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint32_t ma
       wkspace_alloc_ul_checked(&geno, ulii * founder_ct_mld_long * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&geno_masks, ulii * founder_ct_mld_long * sizeof(intptr_t)) ||
       wkspace_alloc_ul_checked(&geno_mmasks, ulii * founder_ctv * sizeof(intptr_t)) ||
-      wkspace_alloc_ui_checked(&missing_cts, founder_ct * sizeof(int32_t))) {
+      wkspace_alloc_ui_checked(&missing_cts, ulii * sizeof(int32_t))) {
     goto ld_prune_ret_NOMEM;
   }
   if (weighted_x) {
@@ -933,7 +934,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint32_t ma
     window_unfiltered_start = ld_prune_next_valid_chrom_start(pruned_arr, window_unfiltered_start, chrom_info_ptr, unfiltered_marker_ct);
   } while (window_unfiltered_start < unfiltered_marker_ct);
 
-  sprintf(logbuf, "Pruning complete.  %d of %d variants removed.\n", tot_exclude_ct, marker_ct);
+  sprintf(logbuf, "Pruning complete.  %u of %" PRIuPTR " variants removed.\n", tot_exclude_ct, marker_ct);
   logprintb();
   strcpy(outname_end, ".prune.in");
   if (fopen_checked(&outfile_in, outname, "w")) {
@@ -1013,4 +1014,230 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint32_t ma
   fclose_cond(outfile_out);
   wkspace_reset(wkspace_mark);
   return retval;
+}
+
+/*
+uint32_t ld_process_load2(uintptr_t* geno_buf, uintptr_t* mask_buf, uintptr_t* missing_buf, double* marker_stdev_ptr, uint32_t founder_ct, uint32_t is_x, uintptr_t* founder_male_include2) {
+  // ld_process_load(), except no missing_buf[] to conserve memory (and no
+  // --ld-xchr 3 support yet)
+  uintptr_t* geno_ptr = geno_buf;
+  uintptr_t founder_ctl2 = (founder_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t* geno_end = &(geno_buf[founder_ctl2]);
+  uintptr_t* mask_buf_ptr = mask_buf;
+  uintptr_t new_missing = 0;
+  uint32_t missing_bit_offset = 0;
+  uint32_t ssq = 0;
+  int32_t sum = -founder_ct;
+  uintptr_t* nm_mask_ptr;
+  double non_missing_recip;
+  uintptr_t cur_geno;
+  uintptr_t shifted_masked_geno;
+  uintptr_t new_geno;
+  uintptr_t new_mask;
+  uint32_t missing_ct = 0;
+  while (1) {
+    cur_geno = *geno_ptr;
+    shifted_masked_geno = (cur_geno >> 1) & FIVEMASK;
+    new_geno = cur_geno - shifted_masked_geno;
+    *geno_ptr++ = new_geno;
+    new_mask = (((~cur_geno) & FIVEMASK) | shifted_masked_geno) * 3;
+    *mask_buf_ptr++ = new_mask;
+    if (geno_ptr == geno_end) {
+      break;
+    }
+  }
+  if (is_x) {
+    geno_ptr = geno_buf;
+    do {
+      new_geno = *geno_ptr;
+      *geno_ptr++ = new_geno + ((~(new_geno | (new_geno >> 1))) & (*founder_male_include2++));
+    } while (geno_ptr < geno_end);
+  }
+  geno_ptr = geno_buf;
+  while (1) {
+    new_geno = *geno_ptr++;
+    sum += popcount2_long(new_geno);
+    new_geno = (new_geno ^ FIVEMASK) & FIVEMASK;
+    if (geno_ptr == geno_end) {
+      break;
+    }
+    ssq += popcount2_long(new_geno);
+  }
+  ssq += popcount2_long(new_geno << (BITCT - 2 * (1 + ((founder_ct - 1) % BITCT2))));
+  if (founder_ct % BITCT2) {
+    mask_buf[founder_ct / BITCT2] &= (ONELU << (2 * (founder_ct % BITCT2))) - ONELU;
+  }
+  missing_ct = founder_ct - (popcount_longs(mask_buf, 0, (founder_ct + (BITCT - 1)) / BITCT2) / 2);
+  non_missing_recip = 1.0 / (founder_ct - missing_ct);
+  *marker_stdev_ptr = non_missing_recip * sqrt(((int64_t)((uint64_t)ssq)) * (founder_ct - missing_ct) - ((int64_t)sum) * sum);
+  return missing_ct;
+}
+
+int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t founder_ct, uintptr_t* founder_include2, uintptr_t* founder_male_include2, char* outname, uint32_t hh_exists) {
+  FILE* outfile = NULL;
+  gzFile gz_outfile = NULL;
+  uint32_t ld_modifier = ldip->modifier;
+  uint32_t is_binary = ld_modifier & LD_MATRIX_BIN;
+  uint32_t output_gz = ld_modifier & LD_REPORT_GZ;
+  uint32_t is_r2 = ld_modifier & LD_R2;
+  uint32_t ignore_x = (ldip->modifier / LD_IGNORE_X) & 1;
+  uintptr_t marker_ctm8 = (marker_ct + 7) & (~(7 * ONELU));
+  uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
+#ifdef __LP64__
+  uintptr_t founder_ctv = 2 * ((founder_ct + 127) / 128);
+#else
+  uintptr_t founder_ctv = founder_ctl;
+#endif
+  uintptr_t founder_ct_mld = (founder_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
+  uint32_t founder_ct_mld_m1 = ((uint32_t)founder_ct_mld) - 1;
+#ifdef __LP64__
+  uint32_t founder_ct_mld_rem = (MULTIPLEX_LD / 192) - (founder_ct_mld * MULTIPLEX_LD - founder_ct) / 192;
+#else
+  uint32_t founder_ct_mld_rem = (MULTIPLEX_LD / 48) - (founder_ct_mld * MULTIPLEX_LD - founder_ct) / 48;
+#endif
+  uintptr_t founder_ct_mld_long = founder_ct_mld * (MULTIPLEX_LD / BITCT2);
+  int32_t retval = 0;
+  uintptr_t* geno = NULL;
+  uintptr_t* geno_masks1;
+  uintptr_t* geno_masks2;
+  double* marker_stdevs1;
+  double* marker_stdevs2;
+  uint32_t* missing_cts1;
+  uint32_t* missing_cts2;
+  double* results;
+  uintptr_t marker_idx1;
+  uintptr_t marker_idx1_end;
+  uintptr_t idx1_block_size;
+  if (!output_gz) {
+    if (fopen_checked(&outfile, outname, is_binary? "wb" : "w")) {
+      goto ld_report_square_ret_OPEN_FAIL;
+    }
+  } else {
+    if (gzopen_checked(&gz_outfile, outname, "wb")) {
+      goto ld_report_square_ret_OPEN_FAIL;
+    }
+  }
+  if (g_thread_ct > 1) {
+    logprint("Note: --r/--r2 square multithreading hasn't been implemented yet.\n");
+  }
+  marker_idx1 = (((uint64_t)parallel_idx) * marker_ct) / parallel_tot;
+  marker_idx1_end = (((uint64_t)(parallel_idx + 1)) * marker_ct) / parallel_tot;
+  // claim up to half of memory with idx1 bufs; each marker costs
+  //   founder_ct_mld_long * sizeof(intptr_t) for genotype buffer
+  // + founder_ct_mld_long * sizeof(intptr_t) for missing mask buffer
+  // + 
+  // + marker_ctm8 * sizeof(double) for results buffer
+  // small idx1 buffer, with missing1_cts
+  // large idx2 buffer, with missing2_cts
+  // results: small * all * 8
+  do {
+    if (idx1_block_size > marker_idx1_end - marker_idx1) {
+      idx1_block_size = marker_idx1_end - marker_idx1;
+    }
+    // ld_process_load(&(geno[ulii * founder_ct_mld_long]), &(geno_masks[ulii * founder_ct_mld_long]), &(geno_mmasks[ulii * founder_ctv]), &(marker_stdevs[ulii]), founder_ct, is_x && (!ignore_x), weighted_x, nonmale_founder_ct, founder_male_include2, nonmale_geno, nonmale_masks, ulii * founder_ct_mld_long);
+    
+    marker_idx1 += idx1_block_size;
+  } while (marker_idx1 < marker_idx1_end);
+  // ...
+  if (!output_gz) {
+    if (fclose_null(&outfile)) {
+      goto ld_report_square_ret_WRITE_FAIL;
+    }
+  } else {
+    gzclose(gz_outfile);
+    gz_outfile = NULL;
+  }
+  while (0) {
+  ld_report_square_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  ld_report_square_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  ld_report_square_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  }
+  fclose_cond(outfile);
+  gzclose_cond(gz_outfile);
+  // parent will free memory
+  return retval;
+}
+*/
+
+int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
+  logprint("Error: --r/--r2 is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+  /*
+  unsigned char* wkspace_mark = wkspace_base;
+  uintptr_t unfiltered_indiv_ctl2 = 2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
+  uintptr_t founder_ct = popcount_longs(founder_info, 0, unfiltered_indiv_ctl2 / 2);
+  uintptr_t* founder_include2 = NULL;
+  uintptr_t* founder_male_include2 = NULL;
+  uint32_t ld_modifier = ldip->modifier;
+  uint32_t is_binary = ld_modifier & LD_MATRIX_BIN;
+  uint32_t output_gz = ld_modifier & LD_REPORT_GZ;
+  uint32_t is_r2 = ld_modifier & LD_R2;
+  char* bufptr = memcpyl3a(outname_end, ".ld");
+  int32_t retval = 0;
+  if (!founder_ct) {
+    sprintf(logbuf, "Warning: Skiping --r%s since there are no founders.\n", is_r2? "2" : "");
+    logprintb();
+    goto ld_report_ret_1;
+  }
+  if ((marker_ct > 400000) && (!(ld_modifier & LD_YES_REALLY)) && (parallel_tot == 1) && ((ld_modifier & LD_MATRIX_SHAPEMASK) || ((ld_modifier & LD_INTER_CHR) && (!ldip->snpstr) && (!ldip->snps_rl.name_ct) && ((!is_r2) || (ldip->window_r2 == 0.0))))) {
+    logprint("Error: Gigantic (over 400k sites) --r/--r2 unfiltered, non-parallel\ncomputation.  Rerun with the 'yes-really' modifier if you are SURE you have\nenough hard drive space and want to do this.\n");
+    goto ld_report_ret_INVALID_CMDLINE;
+  }
+  if (ld_modifier & LD_SINGLE_PREC) {
+    // this will be little more than a copy-and-search-replace job when the
+    // other flags are finished
+    logprint("Error: --r/--r2 'single-prec' has not been implemented yet.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto ld_report_ret_1;
+  }
+  if (output_gz) {
+    logprint("Error: --r/--r2 'gz' is not implemented yet.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto ld_report_ret_1;
+  }
+  if (!(ld_modifier & LD_MATRIX_SQ)) {
+    logprint("Error: --r/--r2 only supports 'square' output for now.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto ld_report_ret_1;
+  }
+  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
+    goto ld_report_ret_NOMEM;
+  }
+  if (parallel_tot > 1) {
+    *bufptr++ = '.';
+    bufptr = uint32_write(bufptr, parallel_idx + 1);
+  }
+  if (output_gz) {
+    bufptr = memcpyl3a(bufptr, ".gz");
+  } else if (is_binary) {
+    bufptr = memcpya(bufptr, ".bin", 4);
+  }
+  *bufptr = '\0';
+  if (ld_modifier & LD_MATRIX_SQ) {
+    retval = ld_report_square(threads, ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, founder_ct, founder_include2, founder_male_include2, outname, hh_exists);
+  } else {
+    // ...
+  }
+  if (retval) {
+    goto ld_report_ret_1;
+  }
+  // great success
+  while (0) {
+  ld_report_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  ld_report_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+ ld_report_ret_1:
+  wkspace_reset(wkspace_mark);
+  return retval;
+  */
 }

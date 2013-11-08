@@ -4043,8 +4043,8 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
   return retval;
 }
 
-static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM)) || set_fname || min_bp_space || genome_skip_write;
+static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier) {
+  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM)) || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR))));
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, Two_col_params* update_cm) {
@@ -4058,8 +4058,8 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, Two_col_
   return 0;
 }
 
-static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || a1alleles || a2alleles);
+static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier) {
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || a1alleles || a2alleles);
 }
 
 inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -4089,9 +4089,9 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   uintptr_t* sex_nm = NULL;
   uintptr_t* sex_male = NULL;
   uint32_t genome_skip_write = (cluster_ptr->ppc != 0.0) && (!(calculation_type & CALC_GENOME)) && (!read_genome_fname);
-  uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type, sip->fname, min_bp_space, genome_skip_write);
+  uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type, sip->fname, min_bp_space, genome_skip_write, ldip->modifier);
   uint32_t marker_cms_needed = are_marker_cms_needed(calculation_type, update_cm);
-  uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname, homozyg_ptr, a1alleles, a2alleles);
+  uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname, homozyg_ptr, a1alleles, a2alleles, ldip->modifier);
   uint32_t zero_extra_chroms = (misc_flags / MISC_ZERO_EXTRA_CHROMS) & 1;
   uint32_t uii = 0;
   int64_t llxx = 0;
@@ -5075,6 +5075,16 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     retval = ld_prune(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_indiv_ct, founder_info, sex_male, outname, outname_end, hh_exists);
     if (retval) {
       goto plink_ret_1;
+    }
+  }
+
+  if (calculation_type & CALC_LD) {
+    if ((!(ldip->modifier & (LD_MATRIX_SHAPEMASK & LD_INTER_CHR))) && (map_is_unsorted & UNSORTED_BP)) {
+      logprint("Error: Windowed --r/--r2 runs require a sorted .map/.bim.  Retry this command\nafter using --make-bed to sort your data.\n");
+      goto plink_ret_INVALID_CMDLINE;
+    }
+    retval = ld_report(threads, ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, outname, outname_end, hh_exists);
+    if (retval) {
     }
   }
 
@@ -9594,12 +9604,61 @@ int32_t main(int32_t argc, char** argv) {
 	}
         calculation_type |= CALC_LASSO;
       } else if (!memcmp(argptr2, "d-window", 9)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        ii = atoi(argv[cur_arg + 1]);
+        if (ii < 1) {
+	  sprintf(logbuf, "Error: Invalid --ld-window window size '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        ld_info.window_size = ii;
       } else if (!memcmp(argptr2, "d-window-kb", 12)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx <= 0)) {
+	  sprintf(logbuf, "Error: Invalid --ld-window-kb parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (dxx > 2147483.647) {
+	  ld_info.window_bp = 2147483647;
+	} else {
+	  ld_info.window_bp = ((int32_t)(dxx * 1000 + EPSILON));
+	}
       } else if (!memcmp(argptr2, "d-window-r2", 12)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0) || (dxx > 1)) {
+	  sprintf(logbuf, "Error: Invalid --ld-window-r2 parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        ld_info.window_r2 = dxx;
       } else if (!memcmp(argptr2, "d-snp", 6)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (alloc_string(&(ld_info.snpstr), argv[cur_arg + 1])) {
+	  goto main_ret_NOMEM;
+	}
       } else if (!memcmp(argptr2, "d-snps", 7)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 0x7fffffff)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = parse_name_ranges(param_ct, range_delim, &(argv[cur_arg]), &(ld_info.snps_rl), 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
       } else if (!memcmp(argptr2, "d-snp-list", 11)) {
-	;;;
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	retval = alloc_fname(&(ld_info.snpstr), argv[cur_arg + 1], argptr, 0);
+	if (retval) {
+	  goto main_ret_1;
+	}
+	ld_info.modifier |= LD_SNP_LIST_FILE;
       } else {
         goto main_ret_INVALID_CMDLINE_2;
       }
@@ -10414,8 +10473,9 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (dxx > 2147483.647) {
 	  set_info.make_set_border = 2147483647;
+	} else {
+	  set_info.make_set_border = ((int32_t)(dxx * 1000 + EPSILON));
 	}
-	set_info.make_set_border = ((int32_t)(dxx * 1000 + EPSILON));
       } else if (!memcmp(argptr2, "ake-set-collapse-group", 23)) {
         if (!set_info.fname) {
 	  sprintf(logbuf, "Error: --make-set-collapse-group must be used with --make-set.%s", errstr_append);
@@ -11342,6 +11402,8 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (*argptr2 == '2') {
           ld_info.modifier |= LD_R2;
+	} else if (ld_info.window_r2 != 0.2) {
+	  logprint("Error: --ld-window-r2 flag cannot be used with --r.\n");
 	}
 	if (matrix_flag_state) {
 	  matrix_flag_state = 2;
@@ -11392,12 +11454,12 @@ int32_t main(int32_t argc, char** argv) {
 	      logprint("Error: --r/--r2 'gz' and 'bin' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
-	    ld_info.modifier |= LD_MATRIX_GZ;
+	    ld_info.modifier |= LD_REPORT_GZ;
 	  } else if (!strcmp(argv[cur_arg + uii], "bin")) {
 	    if (ld_info.modifier & LD_INTER_CHR) {
               logprint("Error: --r/--r2 'inter-chr' and 'bin' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
-	    } else if (ld_info.modifier & LD_MATRIX_GZ) {
+	    } else if (ld_info.modifier & LD_REPORT_GZ) {
 	      logprint("Error: --r/--r2 'gz' and 'bin' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    } else if (ld_info.modifier & LD_MATRIX_SPACES) {
@@ -11426,6 +11488,18 @@ int32_t main(int32_t argc, char** argv) {
 	}
         if ((ld_info.modifier & LD_MATRIX_BIN) && (!(ld_info.modifier & LD_MATRIX_SHAPEMASK))) {
           ld_info.modifier |= LD_MATRIX_SQ;
+	}
+	if ((ld_info.modifier & LD_MATRIX_SPACES) && (!(ld_info.modifier & LD_MATRIX_SHAPEMASK))) {
+	  sprintf(logbuf, "Error: --r/--r2 'spaces' modifier must be used with a shape modifier.%s", errstr_append);
+          goto main_ret_INVALID_CMDLINE_3;
+	}
+        if ((parallel_tot > 1) && (!(ld_info.modifier & LD_MATRIX_SHAPEMASK)) && ((!(ld_info.modifier & LD_INTER_CHR)) || ld_info.snpstr || ld_info.snps_rl.name_ct)) {
+	  sprintf(logbuf, "Error: --parallel cannot be used with most --r/--r2 filters (exception:\n--ld-window-r2 + 'inter-chr' is permitted).%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if ((ld_info.modifier & LD_WEIGHTED_X) && (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR))) {
+	  sprintf(logbuf, "Error: --ld-xchr 3 cannot be used with --r/--r2 non-windowed reports.%s", errstr_append);
+          goto main_ret_INVALID_CMDLINE_3;
 	}
 	calculation_type |= CALC_LD;
       } else {
@@ -12486,7 +12560,7 @@ int32_t main(int32_t argc, char** argv) {
       sprintf(logbuf, "Error: --read-dists cannot be used with a distance matrix calculation.%s", errstr_append);
       goto main_ret_INVALID_CMDLINE_3;
     }
-    if (parallel_tot) {
+    if (parallel_tot > 1) {
       sprintf(logbuf, "Error: --parallel and --ibs-matrix cannot be used together.  Use --distance\ninstead.%s", errstr_append);
       goto main_ret_INVALID_CMDLINE_3;
     }
@@ -12571,6 +12645,38 @@ int32_t main(int32_t argc, char** argv) {
     } else if (set_info.genekeep_flattened) {
       logprint("Error: --gene must be used with --set/--make-set.\n");
       goto main_ret_INVALID_CMDLINE;
+    }
+  }
+  if ((!(calculation_type & CALC_LD)) || ((calculation_type & CALC_LD) && (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR)))) {
+    if ((ld_info.snpstr || ld_info.snps_rl.name_ct) && (!(ld_info.modifier & LD_INTER_CHR))) {
+      if (calculation_type & CALC_LD) {
+	sprintf(logbuf, "Error: --ld-snp/--ld-snps/--ld-snp-list cannot be used with the --r/--r2 matrix\noutput modifiers.%s", errstr_append);
+      } else {
+        sprintf(logbuf, "Error: --ld-snp/--ld-snps/--ld-snp-list must be used with --r/--r2.%s", errstr_append);
+      }
+      goto main_ret_INVALID_CMDLINE_3;
+    } else if (ld_info.window_size != 10) {
+      if (calculation_type & CALC_LD) {
+	sprintf(logbuf, "Error: --ld-window flag cannot be used with the --r/--r2 'inter-chr' or matrix\noutput modifiers.%s", errstr_append);
+      } else {
+        sprintf(logbuf, "Error: --ld-window flag must be used with --r/--r2.%s", errstr_append);
+      }
+      goto main_ret_INVALID_CMDLINE_3;
+    } else if (ld_info.window_bp != 200000) {
+      if (calculation_type & CALC_LD) {
+	sprintf(logbuf, "Error: --ld-window-kb flag cannot be used with the --r/--r2 'inter-chr' or\nmatrix output modifiers.%s", errstr_append);
+      } else {
+        sprintf(logbuf, "Error: --ld-window-kb flag must be used with --r/--r2.%s", errstr_append);
+      }
+      goto main_ret_INVALID_CMDLINE_3;
+    } else if ((ld_info.window_r2 != 0.2) && (!(ld_info.modifier & LD_INTER_CHR))) {
+      if (!(ld_info.modifier & LD_R2)) {
+        logprint("Error: --ld-window-r2 flag must be used with --r2.\n");
+        goto main_ret_INVALID_CMDLINE;
+      } else {
+	sprintf(logbuf, "Error: --ld-window-r2 flag cannot be used with the --r2 matrix output modifiers.%s", errstr_append);
+	goto main_ret_INVALID_CMDLINE_3;
+      }
     }
   }
 
