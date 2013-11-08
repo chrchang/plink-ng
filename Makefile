@@ -25,45 +25,45 @@ ZLIB64=zlib-1.2.8/libz-64.a
 endif
 endif
 
-SRC = wdist.c wdist_assoc.c wdist_calc.c wdist_cluster.c wdist_cnv.c wdist_common.c wdist_data.c wdist_dosage.c wdist_help.c wdist_homozyg.c wdist_lasso.c wdist_matrix.c wdist_set.c wdist_stats.c SFMT.c dcdflib.c pigz.c yarn.c
+SRC = plink.c plink_assoc.c plink_calc.c plink_cluster.c plink_cnv.c plink_common.c plink_data.c plink_dosage.c plink_help.c plink_homozyg.c plink_lasso.c plink_ld.c plink_matrix.c plink_set.c plink_stats.c SFMT.c dcdflib.c pigz.c yarn.c
 
 OBJ = $(SRC:.c=.o)
 
 %.o: %.c
 	g++ -c $(CFLAGS) $(ARCH64) -o $@ $<
 
-wdist: $(SRC)
-	g++ $(CFLAGS) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+plink: $(SRC)
+	g++ $(CFLAGS) $(SRC) -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
-wdistw: $(SRC)
+plinkw: $(SRC)
 	g++ $(CFLAGS) $(SRC) -c
-	gfortran -O2 $(OBJ) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+	gfortran -O2 $(OBJ) -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
-wdistc: $(SRC)
-	gcc $(CFLAGS) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+plinkc: $(SRC)
+	gcc $(CFLAGS) $(SRC) -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
-wdists: $(SRC)
-	g++ $(CFLAGS) $(SRC) -o wdist_linux_s -Wl,-Bstatic $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
+plinks: $(SRC)
+	g++ $(CFLAGS) $(SRC) -o plink_linux_s -Wl,-Bstatic $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
 
-wdistd: $(SRC)
-	g++ $(CFLAGS) $(SRC) -o wdist_linux $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
+plinkd: $(SRC)
+	g++ $(CFLAGS) $(SRC) -o plink_linux $(BLASFLAGS) -Wl,-Bdynamic $(LINKFLAGS) -L. $(ZLIB)
 
-wdistnl: $(SRC)
-	g++ $(CFLAGS) $(SRC) -o wdist $(LINKFLAGS) -Wl,-Bstatic -L. $(ZLIB)
+plinknl: $(SRC)
+	g++ $(CFLAGS) $(SRC) -o plink $(LINKFLAGS) -Wl,-Bstatic -L. $(ZLIB)
 
-wdist64: $(OBJ)
-	g++ $(CFLAGS) $(ARCH64) $(OBJ) -o wdist $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+plink64: $(OBJ)
+	g++ $(CFLAGS) $(ARCH64) $(OBJ) -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 # for clean build, "make clobber" first
 
-wdist64w: $(SRC)
+plink64w: $(SRC)
 	g++ $(CFLAGS) $(ARCH64) $(SRC) -c
-	gfortran -O2 $(OBJ) -o wdist64 $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+	gfortran -O2 $(OBJ) -o plink64 $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
-wdist64c: $(SRC)
-	gcc $(CFLAGS) $(ARCH64) $(SRC) -o wdist $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+plink64c: $(SRC)
+	gcc $(CFLAGS) $(ARCH64) $(SRC) -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
 
-wdist64nl: $(SRC)
-	g++ $(CFLAGS) $(ARCH64) $(SRC) -o wdist $(LINKFLAGS) -L. $(ZLIB64)
+plink64nl: $(SRC)
+	g++ $(CFLAGS) $(ARCH64) $(SRC) -o plink $(LINKFLAGS) -L. $(ZLIB64)
 
 pigz_test: pigz_test.c pigz.c yarn.c
 	g++ -Wall -arch x86_64 -O2 pigz_test.c pigz.c yarn.c -o pigz_test -L. $(ZLIB64)

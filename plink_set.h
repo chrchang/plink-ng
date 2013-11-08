@@ -1,7 +1,7 @@
-#ifndef __WDIST_SET_H__
-#define __WDIST_SET_H__
+#ifndef __PLINK_SET_H__
+#define __PLINK_SET_H__
 
-#include "wdist_common.h"
+#include "plink_common.h"
 
 #define SET_MAKE_FROM_RANGES 1
 #define SET_COMPLEMENTS 2
@@ -60,4 +60,4 @@ void set_cleanup(Set_info* sip);
 
 int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, uintptr_t* marker_exclude_ct_ptr, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr);
 
-#endif // __WDIST_CLUSTER_H__
+#endif // __PLINK_SET_H__

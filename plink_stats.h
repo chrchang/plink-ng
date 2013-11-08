@@ -1,7 +1,7 @@
-#ifndef __WDIST_STATS_H__
-#define __WDIST_STATS_H__
+#ifndef __PLINK_STATS_H__
+#define __PLINK_STATS_H__
 
-#include "wdist_matrix.h"
+#include "plink_matrix.h"
 
 static inline uint32_t realnum(double dd) {
   return (dd == dd) && (dd != INFINITY) && (dd != -INFINITY);
@@ -49,4 +49,4 @@ void ca_trend_precomp_val_bounds(double chisq, intptr_t case_ct, intptr_t het_ct
 
 uint32_t linear_hypothesis_chisq(uintptr_t constraint_ct, uintptr_t param_ct, double* constraints_con_major, double* coefs, double* cov_matrix, double* param_df_buf, double* param_df_buf2, double* df_df_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* df_buf, double* chisq_ptr);
 
-#endif // __WDIST_STATS_H__
+#endif // __PLINK_STATS_H__

@@ -1,6 +1,6 @@
-#include "wdist_cluster.h"
-#include "wdist_matrix.h"
-#include "wdist_stats.h"
+#include "plink_cluster.h"
+#include "plink_matrix.h"
+#include "plink_stats.h"
 
 // load markers in blocks to enable multithreading and, for quantitative
 // phenotypes, PERMORY-style LD exploitation
@@ -2517,8 +2517,8 @@ static uint32_t* g_set_cts;
 static uint32_t* g_het_cts;
 static uint32_t* g_homcom_cts;
 
-// This is *twice* the number of successes, because PLINK counts tie as 0.5.
-// (Actually, PLINK randomizes instead of deterministically adding 0.5; this
+// This is *twice* the number of successes, because PLINK 1.07 counts tie as
+// 0.5.  (Actually, it randomizes instead of deterministically adding 0.5; this
 // randomization just adds noise so we don't replicate it.)
 static uint32_t* g_perm_2success_ct;
 static uint32_t* g_perm_attempt_ct;
@@ -8111,8 +8111,8 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   uintptr_t indiv_ctl = (indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t covar_nm_ct = popcount_longs(gxe_covar_nm, 0, indiv_ctl);
   uintptr_t covar_nm_ctl = (covar_nm_ct + (BITCT - 1)) / BITCT;
-  // gxe_covar_c has opposite truth value from ->bcovar in PLINK gxe.cpp; see
-  // lines 50-58 in gxe.cpp
+  // gxe_covar_c has opposite truth value from ->bcovar in PLINK 1.07 gxe.cpp;
+  // see lines 50-58 in gxe.cpp
   uintptr_t group2_size = popcount_longs(gxe_covar_c, 0, indiv_ctl);
   uintptr_t group1_size = covar_nm_ct - group2_size;
   uintptr_t male_ct = 0;
@@ -8952,7 +8952,8 @@ int32_t glm_check_vif(double vif_thresh, uintptr_t param_ct, uintptr_t indiv_val
 }
 
 uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, uint32_t missing_ct, uintptr_t* loadbuf, uint32_t standard_beta, double pheno_sum_base, double pheno_ssq_base, double* covars_cov_major, double* covars_indiv_major, double* perm_pmajor, double* coef, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* indiv_1d_buf, double* linear_results, uintptr_t constraint_ct, double* constraints_con_major, double* param_df_buf, double* param_df_buf2, double* df_df_buf, double* df_buf, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
-  // See the second half of PLINK linear.cpp fitLM(), and validParameters().
+  // See the second half of PLINK 1.07 linear.cpp fitLM(), and
+  // validParameters().
   // Diagonals of the final covariance matrices (not including the intercept
   // element) are saved to linear_results[(perm_idx * (param_ct - 1))..
   // ((perm_idx + 1) * (param_ct - 1) - 1)].
@@ -9260,7 +9261,7 @@ uint32_t glm_linear_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t par
 #define LOGISTIC_MAX_ITERS 20
 
 uint32_t glm_logistic_robust_cluster_covar(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t indiv_valid_ct, uint32_t missing_ct, uintptr_t* loadbuf, double* covars_cov_major, double* covars_indiv_major, uintptr_t* perm_vecs, double* coef, double* vbuf, double* initial_t2_buf, double* t2_buf, double* t3_buf, double* param_2d_buf, MATRIX_INVERT_BUF1_TYPE* mi_buf, double* param_2d_buf2, uint32_t cluster_ct1, uint32_t* indiv_to_cluster1, double* cluster_param_buf, double* cluster_param_buf2, double* indiv_1d_buf, double* logistic_results, uintptr_t constraint_ct, double* constraints_con_major, double* df_df_buf, double* df_buf, uint32_t* perm_fail_ct_ptr, uintptr_t* perm_fails) {
-  // See PLINK logistic.cpp fitLM().
+  // See PLINK 1.07 logistic.cpp fitLM().
   uintptr_t param_ct_p1 = param_ct + 1;
   uintptr_t param_ct_m1 = param_ct - 1;
   uintptr_t joint_test_requested = (constraints_con_major? 1 : 0);
@@ -12922,7 +12923,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       precompute_mods(indiv_valid_ct, g_precomputed_mods);
     }
     // may want to put a multiple linear regression wrapper function in
-    // wdist_matrix, perhaps with the PLINK 1.07 svdcmp/svbksb no-LAPACK
+    // plink_matrix, perhaps with the PLINK 1.07 svdcmp/svbksb no-LAPACK
     // fallback
 
     // multiple linear regression-specific allocations and preprocessing

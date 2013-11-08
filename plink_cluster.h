@@ -1,7 +1,7 @@
-#ifndef __WDIST_CLUSTER_H__
-#define __WDIST_CLUSTER_H__
+#ifndef __PLINK_CLUSTER_H__
+#define __PLINK_CLUSTER_H__
 
-#include "wdist_common.h"
+#include "plink_common.h"
 
 #define CLUSTER_CC 1
 #define CLUSTER_GROUP_AVG 2
@@ -63,4 +63,4 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
 int32_t mds_plot(char* outname, char* outname_end, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uint32_t* indiv_idx_to_uidx, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, uint32_t cur_cluster_ct, uint32_t merge_ct, uint32_t* orig_indiv_to_cluster, uint32_t* cur_cluster_remap, uint32_t dim_ct, uint32_t is_mds_cluster, uint32_t dump_eigvals, double* dists);
 #endif
 
-#endif // __WDIST_CLUSTER_H__
+#endif // __PLINK_CLUSTER_H__

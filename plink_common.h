@@ -1,7 +1,7 @@
-// Resources needed across all wdist modules.
+// Resources needed across all plink modules.
 
-#ifndef __WDIST_COMMON_H__
-#define __WDIST_COMMON_H__
+#ifndef __PLINK_COMMON_H__
+#define __PLINK_COMMON_H__
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,22 +18,25 @@
 // the command line.
 // #define STABLE_BUILD
 
-// Uncomment this to produce a PLINK 1.50 beta build (with some default
-// parameters set to 'plink' instead of 'wdist', etc.).
+// Comment this to keep the old WDIST name.
 // #define PLINK_BUILD
+
+#ifdef PLINK_BUILD
+  #define PROG_NAME_STR "plink"
+  #define PROG_NAME_CAPS "PLINK"
+  #ifndef STABLE_BUILD
+    // currently forced
+    #define STABLE_BUILD
+  #endif
+#else
+  #define PROG_NAME_STR "wdist"
+  #define PROG_NAME_CAPS "WDIST"
+#endif
 
 #ifdef STABLE_BUILD
   #define UNSTABLE goto main_unstable_disabled
 #else
   #define UNSTABLE
-#endif
-
-#ifdef PLINK_BUILD
-  #define PROG_NAME_STR "plink"
-  #define PROG_NAME_CAPS "PLINK"
-#else
-  #define PROG_NAME_STR "wdist"
-  #define PROG_NAME_CAPS "WDIST"
 #endif
 
 #if _WIN32
@@ -188,23 +191,20 @@
 #define MISC_ALLOW_EXTRA_CHROMS 0x4000LLU
 #define MISC_ZERO_EXTRA_CHROMS 0x8000LLU
 #define MISC_EXCLUDE_MARKERNAME_SNP 0x10000LLU
-#define MISC_LD_PRUNE_PAIRWISE 0x20000LLU
-#define MISC_LD_IGNORE_X 0x40000LLU
-#define MISC_LD_WEIGHTED_X 0x80000LLU
-#define MISC_MAKE_FOUNDERS 0x100000LLU
-#define MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING 0x200000LLU
-#define MISC_MAKE_FOUNDERS_FIRST 0x400000LLU
-#define MISC_CMH_BD 0x800000LLU
-#define MISC_CMH2 0x1000000LLU
-#define MISC_LASSO_REPORT_ZEROES 0x2000000LLU
+#define MISC_MAKE_FOUNDERS 0x20000LLU
+#define MISC_MAKE_FOUNDERS_REQUIRE_2_MISSING 0x40000LLU
+#define MISC_MAKE_FOUNDERS_FIRST 0x80000LLU
+#define MISC_CMH_BD 0x100000LLU
+#define MISC_CMH2 0x200000LLU
+#define MISC_LASSO_REPORT_ZEROES 0x400000LLU
 // not yet sure this is actually useful, so only accessible in dev build
-#define MISC_LASSO_NO_GENO_STD 0x4000000LLU
+#define MISC_LASSO_NO_GENO_STD 0x800000LLU
 
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
 #define CALC_DISTANCE 4LLU
-#define CALC_PLINK_DISTANCE_MATRIX 8LLU
-#define CALC_PLINK_IBS_MATRIX 0x10LLU
+#define CALC_PLINK1_DISTANCE_MATRIX 8LLU
+#define CALC_PLINK1_IBS_MATRIX 0x10LLU
 #define CALC_GDISTANCE_MASK 0x1cLLU
 #define CALC_GROUPDIST 0x20LLU
 #define CALC_REGRESS_DISTANCE 0x40LLU
@@ -236,6 +236,7 @@
 #define CALC_HOMOG 0x100000000LLU
 #define CALC_LASSO 0x200000000LLU
 #define CALC_WRITE_SET 0x400000000LLU
+#define CALC_LD 0x800000000LLU
 
 // necessary to patch heterozygous haploids/female Y chromosome genotypes
 // during loading?
@@ -1370,7 +1371,7 @@ static inline int32_t filename_exists(char* fname, char* fname_end, const char* 
 void indiv_delim_convert(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uint32_t indiv_ct, char* person_ids, uintptr_t max_person_id_len, char oldc, char newc);
 
 // Maximum accepted chromosome index is this minus 1.  Currently cannot exceed
-// 2^14 due to SMALL_INTERVAL_BITS setting in wdist_cnv.c.
+// 2^14 due to SMALL_INTERVAL_BITS setting in plink_cnv.c.
 #define MAX_POSSIBLE_CHROM 128
 #define CHROM_X MAX_POSSIBLE_CHROM
 #define CHROM_Y (MAX_POSSIBLE_CHROM + 1)
@@ -1748,6 +1749,10 @@ static inline double rand_unif(void) {
   return (sfmt_genrand_uint32(&sfmt) + 0.5) * RECIP_2_32;
 }
 
+void range_list_init(Range_list* range_list_ptr);
+
+void free_range_list(Range_list* range_list_ptr);
+
 double normdist(double zz);
 
 double rand_normal(double* secondval_ptr);
@@ -1811,4 +1816,4 @@ typedef struct {
   uint32_t* family_info_offsets; // offset in family_info_space
 } Pedigree_rel_info;
 
-#endif // __WDIST_COMMON_H__
+#endif // __PLINK_COMMON_H__

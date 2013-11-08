@@ -1,4 +1,4 @@
-#include "wdist_common.h"
+#include "plink_common.h"
 #include "pigz.h"
 
 const char errstr_fopen[] = "Error: Failed to open %s.\n";
@@ -1621,7 +1621,7 @@ char* double_f_writew3(char* start, double dxx) {
     return &(start[3]);
   }
   // don't worry about optimizing %f on huge-ass finite numbers for now, since
-  // it should be irrelevant for PLINK
+  // it should be irrelevant for what we're doing
   start += sprintf(start, "%.3f", dxx);
   return start;
 }
@@ -3269,7 +3269,7 @@ int32_t strcmp_casted(const void* s1, const void* s2) {
   return strcmp((char*)s1, (char*)s2);
 }
 
-// WDIST's natural sort uses the following logic:
+// PLINK 2's natural sort uses the following logic:
 // - All alphabetic characters act as if they are capitalized, except for
 // tiebreaking purposes (where ASCII is used).
 // - Numbers are compared by magnitude, with the exception of...
@@ -3585,7 +3585,7 @@ int32_t relationship_req(uint64_t calculation_type) {
 }
 
 int32_t distance_req(uint64_t calculation_type, char* read_dists_fname) {
-  return ((calculation_type & CALC_DISTANCE) || ((calculation_type & (CALC_PLINK_DISTANCE_MATRIX | CALC_PLINK_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!read_dists_fname) && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))));
+  return ((calculation_type & CALC_DISTANCE) || ((calculation_type & (CALC_PLINK1_DISTANCE_MATRIX | CALC_PLINK1_IBS_MATRIX)) && (!(calculation_type & CALC_GENOME))) || ((!read_dists_fname) && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))));
 }
 
 int32_t double_cmp(const void* aa, const void* bb) {
@@ -7853,7 +7853,19 @@ uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max
   return write_idx;
 }
 
-// implementation used in PLINK stats.cpp
+void range_list_init(Range_list* range_list_ptr) {
+  range_list_ptr->names = NULL;
+  range_list_ptr->starts_range = NULL;
+  range_list_ptr->name_ct = 0;
+  range_list_ptr->name_max_len = 0;
+}
+
+void free_range_list(Range_list* range_list_ptr) {
+  free_cond(range_list_ptr->names);
+  free_cond(range_list_ptr->starts_range);
+}
+
+// implementation used in PLINK 1.07 stats.cpp
 double normdist(double zz) {
   double sqrt2pi = 2.50662827463;
   double t0;

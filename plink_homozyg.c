@@ -1,4 +1,4 @@
-#include "wdist_homozyg.h"
+#include "plink_homozyg.h"
 
 void homozyg_init(Homozyg_info* homozyg_ptr) {
   homozyg_ptr->modifier = 0;
@@ -637,7 +637,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
 
 // heap of 64-bit integers with maximum on top
 // root at element 1, heap_size offset by 1
-// slightly more complicated variant of this in wdist_cluster.c
+// slightly more complicated variant of this in plink_cluster.c
 
 void heapmax64_down(uint32_t cur_pos, uint32_t heap_size, uint64_t* heapmax64) {
   uint64_t cur_val = heapmax64[cur_pos];

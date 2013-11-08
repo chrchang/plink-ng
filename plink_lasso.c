@@ -1,5 +1,5 @@
-#include "wdist_lasso.h"
-#include "wdist_matrix.h"
+#include "plink_lasso.h"
+#include "plink_matrix.h"
 
 #define WARM_START_ITERS 1000
 #define NLAMBDA 100

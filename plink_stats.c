@@ -1,4 +1,4 @@
-#include "wdist_stats.h"
+#include "plink_stats.h"
 #include "ipmpar.h"
 #include "dcdflib.h"
 

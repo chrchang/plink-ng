@@ -1,4 +1,4 @@
-#include "wdist_matrix.h"
+#include "plink_matrix.h"
 
 #ifndef NOLAPACK
 #ifndef __APPLE__

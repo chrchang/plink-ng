@@ -1,4 +1,4 @@
-#include "wdist_common.h"
+#include "plink_common.h"
 
 uint32_t edit1_match(uint32_t len1, char* s1, uint32_t len2, char* s2) {
   // permit one difference of the following forms:
@@ -417,6 +417,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    filters applied).  The 'omit-unassigned' modifier causes unclustered\n"
 "    individuals to be omitted from the file; otherwise their cluster is \"NA\".\n\n"
 	       );
+#ifndef STABLE_BUILD
     help_print("write-set\tset-table", &help_ctrl, 1,
 "  --write-set\n"
 "  --set-table\n"
@@ -424,6 +425,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    membership lists to {output prefix}.set, while --set-table writes a\n"
 "    variant-by-set membership table to {output prefix}.set.table.\n\n"
 	       );
+#endif
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 1,
 "  --merge [.ped filename] [.map filename]\n"
 "  --merge [text fileset prefix]\n"
@@ -507,10 +509,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      missing call at variant A will result in twice as large of a missingness\n"
 "      correction.  To turn this off (because e.g. your missing calls are highly\n"
 "      nonrandom), use the 'flat-missing' modifier.\n"
+"    * The computation can be subdivided with --parallel.\n"
 	       );
-    help_print("distance-matrix\tmatrix", &help_ctrl, 1,
+    help_print("distance-matrix\tibs-matrix\tmatrix", &help_ctrl, 1,
 "  --distance-matrix\n"
-"  --matrix\n"
+"  --ibs-matrix\n"
 "    These deprecated commands are equivalent to '--distance 1-ibs flat-missing\n"
 "    square' and '--distance ibs flat-missing square', respectively, except that\n"
 "    they generate space- instead of tab-delimited text matrices.\n\n"
@@ -525,7 +528,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      numbers outside the range [0,1]; by default, these are clipped.  The\n"
 "      'unbounded' modifier turns off this clipping.\n"
 "    * Then, when PI_HAT^2 < P(IBD=2), 'nudge' adjusts the final P(IBD=0/1/2)\n"
-"      estimates to a theoretically possible configuration.\n\n"
+"      estimates to a theoretically possible configuration.\n"
+"    * The computation can be subdivided with --parallel.\n\n"
 		);
     help_print("homozyg\thomozyg-snp\thomozyg-kb\thomozyg-density\thomozyg-gap\thomozyg-het\thomozyg-window-snp\thomozyg-window-het\thomozyg-window-missing\thomozyg-window-threshold", &help_ctrl, 1,
 "  --homozyg <group | group-verbose> <consensus-match> <extend>\n"
@@ -707,15 +711,38 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    of thousands) to be effective on complex polygenic traits.\n\n"
 	       );
     help_print("indep\tindep-pairwise", &help_ctrl, 1,
-"  --indep [window size]<kb> [step size (variants)] [VIF threshold]\n"
-"  --indep-pairwise [window size]<kb> [step size (variants)] [r^2 threshold]\n"
+"  --indep [window size]<kb> [step size (site ct)] [VIF threshold]\n"
+"  --indep-pairwise [window size]<kb> [step size (site ct)] [r^2 threshold]\n"
 "    Generate a list of markers in approximate linkage equilibrium.  With the\n"
-"    'kb' modifier, the window size is in kilobase units instead of variant\n"
-"    count.  (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5'\n"
-"    and '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
+"    'kb' modifier, the window size is in kilobase units instead of site count.\n"
+"    (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5' and\n"
+"    '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
 "    Note that you need to rerun " PROG_NAME_CAPS " using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
 		);
+#ifndef STABLE_BUILD
+    help_print("r\tr2", &help_ctrl, 1,
+"  --r <square | square0 | triangle | inter-chr> <gz | bin> <single-prec>\n"
+"      <spaces> <yes-really>\n"
+"  --r2 <square | square0 | triangle | inter-chr> <gz | bin> <single-prec |\n"
+"       <spaces> <yes-really>\n"
+"    --r calculates and reports raw inter-variant correlations, while --r2\n"
+"    reports their squares.  You can request results for all pairs in matrix\n"
+"    format (if you specify 'bin' or one of the shape modifiers), all pairs in\n"
+"    table format ('inter-chr'), or a limited window in table format (default).\n"
+"    * The 'gz' modifier causes the output text file to be gzipped.\n"
+"    * 'bin' causes the output matrix to be written in binary format.  The\n"
+"      matrix is square if no shape is explicitly specified.\n"
+"    * 'single-prec' causes the computation to use (and with 'bin', results to\n"
+"      be saved as) single-precision instead of double-precision floating point\n"
+"      numbers.\n"
+"    * By default, text matrices are tab-delimited; 'spaces' switches this.\n"
+"    * Since the resulting file can easily be huge, you're required to add the\n"
+"      'yes-really' modifier when requesting an unfiltered all pairs report on\n"
+"      more than 250k variants.\n"
+"    * These computations can be subdivided with --parallel.\n\n"
+	       );
+#endif
     help_print("make-rel", &help_ctrl, 1,
 "  --make-rel <square | square0 | triangle> <gz | bin> <cov | ibc2 | ibc3>\n"
 "             <single-prec>\n"
@@ -733,6 +760,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      point numbers.  The 'single-prec' modifier switches to single-precision\n"
 "      arithmetic, which sacrifices a bit of accuracy to decrease memory usage\n"
 "      and reduce computation time.\n"
+"    * The computation can be subdivided with --parallel.\n"
                );
     help_print("make-grm\tmake-grm-bin\tgrm\tgrm-bin\tmake-grm-gz", &help_ctrl, 1,
 "  --make-grm-gz <no-gz> <cov | ibc2 | ibc3> <single-prec>\n"
@@ -742,7 +770,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    in GCTA 1.1+'s single-precision triangular binary format.  Note that these\n"
 "    formats explicitly report the number of valid observations (where neither\n"
 "    individual has a missing call) for each pair, which is useful input for\n"
-"    some scripts.\n\n"
+"    some scripts.\n"
+"    These computations can be subdivided with --parallel.\n\n"
 	       );
     help_print("rel-cutoff\tgrm-cutoff", &help_ctrl, 1,
 "  --rel-cutoff {val}\n"
@@ -910,10 +939,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --simulate-label [prefix] : Set --simulate(-qt) individual name prefix.\n"
 "  --simulate-missing [freq] : Set --simulate(-qt) missing genotype frequency.\n"
 	       );
+#ifndef STABLE_BUILD
     help_print("missing-code\tmissing_code\tmissing-phenotype", &help_ctrl, 0,
 "  --missing-code {vals}     : Comma-separated list of missing phenotype values,\n"
 "    (alias: --missing_code)   for Oxford-formatted filesets (normally 'NA').\n"
 	       );
+#endif
     help_print("pheno\tall-pheno\tmpheno\tpheno-name\tpheno-merge", &help_ctrl, 0,
 "  --pheno [fname]  : Load phenotype data from the specified file, instead of\n"
 "                     using the values in the main input fileset.\n"
@@ -966,6 +997,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                  commands once for each cluster in the file,\n"
 "                                  using cluster membership as the phenotype.\n"
 	       );
+#ifndef STABLE_BUILD
     help_print("set\tsubset\tset-collapse-all\tmake-set-collapse-all\tcomplement-sets\tmake-set-complement-all\tmake-set\tmake-set-border\tborder\tmake-set-collapse-group\t--make-set-complement-group", &help_ctrl, 0,
 "  --set [filename]              : Load sets from a .set file.\n"
 "  --subset [filename]           : Throw out sets not named in the given file.\n"
@@ -976,8 +1008,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --make-set-border [kbs]       : Stretch regions in --make-set file.\n"
 "  --make-set-collapse-group     : Define sets from groups instead of sets in\n"
 "                                  --make-set file.\n"
-"  --make-set-complement-group   : --make-set-collapse-group + inversion.\n"
 	       );
+#endif
     help_print("keep\tremove\tkeep-fam\tremove-fam", &help_ctrl, 0,
 "  --keep [fname]   : Exclude all individuals not named in the file.\n"
 "  --remove [fname] : Exclude all individuals named in the file.\n"
@@ -998,11 +1030,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --remove-clusters [filename]        : Exclude all clusters named in the file.\n"
 "  --remove-cluster-names [name(s)...] : Exclude the named clusters.\n"
 	       );
+#ifndef STABLE_BUILD
     help_print("set\tmake-set\tgene\tgene-all", &help_ctrl, 0,
 "  --gene [sets...] : Exclude variants not in a set named on the command line.\n"
 "  --gene-all       : Exclude variants which aren't a member of any set.  (PLINK\n"
 "                     1.07 automatically did this under some circumstances.)\n"
 	       );
+#endif
     help_print("filter-attrib\tfilter-attrib-indiv", &help_ctrl, 0,
 "  --filter-attrib [f] {att lst} : Given a file assigning attributes to\n"
 "  --filter-attrib-indiv [f] {a}   variants, and a comma-delimited list (with no\n"
@@ -1144,7 +1178,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --update-name [f] {newcol} {oldcol} {skip} : Update variant IDs.\n"
 	       );
     help_print("update-alleles", &help_ctrl, 0,
-"  --update-alleles [f] : Update variant allele codes.\n"
+"  --update-alleles [f]     : Update variant allele codes.\n"
 	       );
     help_print("allele1234\talleleACGT\talleleacgt", &help_ctrl, 0,
 "  --allele1234 <multichar> : Interpret/recode A/C/G/T alleles as 1/2/3/4.\n"
@@ -1222,9 +1256,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --max [cutoff]   : Specify maximum PI_HAT for inclusion in --genome report.\n"
 	       );
     help_print("homozyg\thomozyg-match\tpool-size", &help_ctrl, 0,
-"  --homozyg-match [x]     : Set min. concordance across jointly homozygous\n"
-"                            sites for a pairwise allelic match to be declared.\n"
-"  --pool-size [ct]        : Set min. size of pools in '--homozyg group' report.\n"
+"  --homozyg-match [x] : Set minimum concordance across jointly homozygous sites\n"
+"                        for a pairwise allelic match to be declared.\n"
+"  --pool-size [ct]    : Set minimum size of pools in '--homozyg group' report.\n"
 	       );
     help_print("read-genome\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
 "  --read-genome [f] : Load a --genome report for --cluster/--neighbour, instead\n"
@@ -1270,24 +1304,24 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                                or --logistic covariate.\n"
 "  --condition-list [f] <dominant | recessive> : Add variants named in the file\n"
 "                                                as --linear/--logistic covs.\n"
-"  --parameters [...]   : Include only the given covariates/interactions in the\n"
-"                         --linear/--logistic models, identified by a list of\n"
-"                         1-based indices and/or ranges of them.\n"
-"  --tests <all> {...}  : Perform a (joint) test on the specified term(s) in the\n"
-"                         --linear/--logistic model, identified by 1-based\n"
-"                         indices and/or ranges of them.  If permutation was\n"
-"                         requested, it is based on this test.\n"
-"                         * Note that, when --parameters is also present, the\n"
-"                           indices refer to the terms remaining AFTER pruning\n"
-"                           by --parameters.\n"
-"                         * You can use '--tests all' to include all terms.\n"
-"  --vif [max VIF]      : Set VIF threshold for --linear/--logistic\n"
-"                         multicollinearity check (default 50).\n"
-"  --xchr-model [code]  : Set the X chromosome --linear/--logistic model.\n"
-"                         0 = skip sex and haploid chromosomes\n"
-"                         1 (default) = add sex as a covariate on X chromosome\n"
-"                         2 = code male genotypes 0/2 instead of 0/1\n"
-"                         3 = test for interaction between genotype and sex\n"
+"  --parameters [...]  : Include only the given covariates/interactions in the\n"
+"                        --linear/--logistic models, identified by a list of\n"
+"                        1-based indices and/or ranges of them.\n"
+"  --tests <all> {...} : Perform a (joint) test on the specified term(s) in the\n"
+"                        --linear/--logistic model, identified by 1-based\n"
+"                        indices and/or ranges of them.  If permutation was\n"
+"                        requested, it is based on this test.\n"
+"                        * Note that, when --parameters is also present, the\n"
+"                          indices refer to the terms remaining AFTER pruning by\n"
+"                          --parameters.\n"
+"                        * You can use '--tests all' to include all terms.\n"
+"  --vif [max VIF]     : Set VIF threshold for --linear/--logistic\n"
+"                        multicollinearity check (default 50).\n"
+"  --xchr-model [code] : Set the X chromosome --linear/--logistic model.\n"
+"                        0 = skip sex and haploid chromosomes\n"
+"                        1 (default) = add sex as a covariate on X chromosome\n"
+"                        2 = code male genotypes 0/2 instead of 0/1\n"
+"                        3 = test for interaction between genotype and sex\n"
 	       );
     help_print("adjust\tgc\tlog10\tqq-plot", &help_ctrl, 0,
 "  --adjust <gc> <log10> <qq-plot> : Report some multiple-testing corrections.\n"
@@ -1320,6 +1354,16 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --mperm-save     : Save best max(T) permutation test statistics.\n"
 "  --mperm-save-all : Save all max(T) permutation test statistics.\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("r\tr2\tld-window-r2\tld-window\tld-window-kb\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
+"  --ld-window [ct]   : Set --r/--r2 max site ct pairwise distance (usually 10).\n"
+"  --ld-window-kb [x] : Set --r/--r2 max kb pairwise distance (usually 200).\n"
+"  --ld-window-r2 [x] : Set threshold for --r2 report inclusion (usually 0.2).\n"
+"  --ld-snp [var ID]  : Set first variant in all --r/--r2 pairs.\n"
+"  --ld-snps [vID...] : Restrict first --r/--r2 variant to the given ranges.\n"
+"  --ld-snp-list [f]  : Restrict first --r/--r2 var. to those named in the file.\n"
+	       );
+#endif
     help_print("indep\tindep-pairwise\tld-xchr", &help_ctrl, 0,
 "  --ld-xchr [code] : Specify X chromosome model for --indep[-pairwise].\n"
 "                     1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"

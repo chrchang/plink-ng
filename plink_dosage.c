@@ -1,4 +1,4 @@
-#include "wdist_common.h"
+#include "plink_common.h"
 
 #ifndef STABLE_BUILD
 // N.B. this code kind of sucks; everything should be rewritten to use
@@ -238,7 +238,7 @@ int32_t oxford_sample_load(char* samplename, uintptr_t* unfiltered_indiv_ct_ptr,
 	// N.B. this is dangerous since missing_code can currently point to a
 	// constant buffer (though not incorrect as of this writing since
 	// strchr(missing_code, ',') is always NULL in that situation).
-	// probably best for wdist.c to allocate a mutable buffer in all cases
+	// probably best for plink.c to allocate a mutable buffer in all cases
 	// instead.
 	*bufptr = '\0';
 	bufptr++;
@@ -525,7 +525,7 @@ static uintptr_t* g_missing_vals; // bit array marking missing values
 static double* g_nonmissing_vals;
 
 #if BITCT < MULTIPLEX_DOSAGE_NM
-#error "Insufficient g_missing_wts[] size in wdist_dosage.c."
+#error "Insufficient g_missing_wts[] size in plink_dosage.c."
 #endif
 // static double g_marker_wts[BITCT]; // --exponent marker weights
 static double g_missing_wts[BITCT]; // missingness rescale weights
@@ -1599,7 +1599,7 @@ int32_t oxford_distance_calc_unscanned(FILE* genfile, uint32_t* gen_buf_len_ptr,
   return retval;
 }
 
-int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* genname, char* samplename, char* outname, char* outname_end, char* missing_code, double exponent, uint32_t maf_succ, uintptr_t regress_iters, uint32_t regress_d, uint32_t thread_ct, uint32_t parallel_idx, uint32_t parallel_tot) {
+int32_t plink_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* genname, char* samplename, char* outname, char* outname_end, char* missing_code, double exponent, uint32_t maf_succ, uintptr_t regress_iters, uint32_t regress_d, uint32_t thread_ct, uint32_t parallel_idx, uint32_t parallel_tot) {
   FILE* genfile = NULL;
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
@@ -1633,15 +1633,15 @@ int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
   if (exponent != 0.0) {
     logprint("Error: --exponent not yet supported with dosage data.\n");
     retval = RET_CALC_NOT_YET_SUPPORTED;
-    goto wdist_dosage_ret_1;
+    goto plink_dosage_ret_1;
   }
   retval = oxford_sample_load(samplename, &unfiltered_indiv_ct, &person_ids, &max_person_id_len, &sex_nm, &sex_male, &pheno_nm, &pheno_c, &pheno_d, &indiv_exclude, missing_code);
   if (retval) {
-    goto wdist_dosage_ret_1;
+    goto plink_dosage_ret_1;
   }
   if ((calculation_type & CALC_REGRESS_DISTANCE) && (!pheno_d)) {
     logprint("Error: --regress-distance calculation requires scalar phenotype.\n");
-    goto wdist_dosage_ret_INVALID_CMDLINE;
+    goto plink_dosage_ret_INVALID_CMDLINE;
   }
   if (fopen_checked(&genfile, genname, "r")) {
     return RET_OPEN_FAIL;
@@ -1649,12 +1649,12 @@ int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
   if (0) { // enable this if filters are requested
     retval = oxford_gen_load1(genfile, &gen_buf_len, &unfiltered_marker_ct, &set_allele_freqs, &is_missing_01, unfiltered_indiv_ct, maf_succ);
     if (retval) {
-      goto wdist_dosage_ret_1;
+      goto plink_dosage_ret_1;
     }
     unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
     marker_ct = unfiltered_marker_ct;
     if (wkspace_alloc_ul_checked(&marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t))) {
-      goto wdist_dosage_ret_NOMEM;
+      goto plink_dosage_ret_NOMEM;
     }
     fill_ulong_zero(marker_exclude, unfiltered_marker_ctl);
     for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
@@ -1669,7 +1669,7 @@ int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
   if (parallel_tot > g_indiv_ct / 2) {
     sprintf(logbuf, "Error: Too many --parallel jobs (maximum %" PRIuPTR "/2 = %" PRIuPTR ").\n", g_indiv_ct, g_indiv_ct / 2);
     logprintb();
-    goto wdist_dosage_ret_INVALID_CMDLINE;
+    goto plink_dosage_ret_INVALID_CMDLINE;
   }
   if (thread_ct > 1) {
     sprintf(logbuf, "Using %d threads (change this with --threads).\n", thread_ct);
@@ -1685,15 +1685,15 @@ int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
       retval = oxford_distance_calc_unscanned(genfile, &gen_buf_len, &set_allele_freqs, &unfiltered_marker_ct, &marker_exclude, &marker_ct, unfiltered_indiv_ct, indiv_exclude, dist_calc_type, exponent, thread_ct, parallel_idx, parallel_tot);
     }
     if (retval) {
-      goto wdist_dosage_ret_1;
+      goto plink_dosage_ret_1;
     }
     if (wkspace_alloc_uc_checked(&membuf, g_indiv_ct * sizeof(double))) {
-      goto wdist_dosage_ret_NOMEM;
+      goto plink_dosage_ret_NOMEM;
     }
     if (calculation_type & CALC_DISTANCE) {
       retval = distance_d_write_ids(outname, outname_end, dist_calc_type, unfiltered_indiv_ct, indiv_exclude, person_ids, max_person_id_len);
       if (retval) {
-	goto wdist_dosage_ret_1;
+	goto plink_dosage_ret_1;
       }
       if ((exponent == 0.0) || (!(dist_calc_type & (DISTANCE_IBS | DISTANCE_1_MINUS_IBS)))) {
         dxx = 0.5 / (double)marker_ct;
@@ -1719,26 +1719,26 @@ int32_t wdist_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
       }
       retval = distance_d_write(&outfile, &outfile2, &outfile3, dist_calc_type, outname, outname_end, g_distance_matrix, dxx, g_indiv_ct, g_thread_start[0], g_thread_start[thread_ct], parallel_idx, parallel_tot, membuf);
       if (retval) {
-        goto wdist_dosage_ret_1;
+        goto plink_dosage_ret_1;
       }
     }
     if (calculation_type & CALC_REGRESS_DISTANCE) {
       retval = regress_distance(calculation_type, g_distance_matrix, pheno_d, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, thread_ct, regress_iters, regress_d);
       if (retval) {
-	goto wdist_dosage_ret_1;
+	goto plink_dosage_ret_1;
       }
     }
     wkspace_reset(wkspace_mark);
   }
   while (0) {
-  wdist_dosage_ret_NOMEM:
+  plink_dosage_ret_NOMEM:
     retval = RET_NOMEM;
     break;
-  wdist_dosage_ret_INVALID_CMDLINE:
+  plink_dosage_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
   }
-  wdist_dosage_ret_1:
+  plink_dosage_ret_1:
   fclose_cond(genfile);
   return retval;
 }

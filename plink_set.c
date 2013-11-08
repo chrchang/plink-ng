@@ -1,4 +1,4 @@
-#include "wdist_set.h"
+#include "plink_set.h"
 
 void set_init(Set_info* sip) {
   sip->fname = NULL;
@@ -6,6 +6,7 @@ void set_init(Set_info* sip) {
   sip->merged_set_name = NULL;
   sip->genekeep_flattened = NULL;
   sip->ct = 0;
+  sip->modifier = 0;
 }
 
 void set_cleanup(Set_info* sip) {

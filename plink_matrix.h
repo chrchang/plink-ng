@@ -1,11 +1,11 @@
-#ifndef __WDIST_MATRIX_H__
-#define __WDIST_MATRIX_H__
+#ifndef __PLINK_MATRIX_H__
+#define __PLINK_MATRIX_H__
 
 // Wrappers for frequent LAPACK calls (sometimes with no-LAPACK fallbacks).
 // May want to make this comprehensive to make linking with Intel MKL practical
 // in the future.
 
-#include "wdist_common.h"
+#include "plink_common.h"
 
 #ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
@@ -100,4 +100,4 @@ void col_major_matrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, _
 
 void transpose_copy(uintptr_t old_maj, uintptr_t new_maj, double* old_matrix, double* new_matrix);
 
-#endif // __WDIST_MATRIX_H__
+#endif // __PLINK_MATRIX_H__
