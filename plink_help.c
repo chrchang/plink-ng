@@ -739,8 +739,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      numbers.\n"
 "    * By default, text matrices are tab-delimited; 'spaces' switches this.\n"
 "    * Since the resulting file can easily be huge, you're required to add the\n"
-"      'yes-really' modifier when requesting an unfiltered, non-parallel all\n"
-"      pairs report on more than 400k variants.\n"
+"      'yes-really' modifier when requesting an unfiltered, non-distributed all\n"
+"      pairs computation on more than 400k variants.\n"
 "    * All pairs computations can be subdivided with --parallel (even with a\n"
 "      square output shape).\n\n"
 	       );

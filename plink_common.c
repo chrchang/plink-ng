@@ -4317,8 +4317,8 @@ static inline uintptr_t popcount_vecs_intersect(__m128i* vptr1, __m128i* vptr2, 
 #endif
 
 uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
-  // given an aligned long array lptr[], this efficiently popcounts
-  // lptr[start_idx..(end_idx - 1)].
+  // Efficiently popcounts lptr[start_idx..(end_idx - 1)].  In the 64-bit case,
+  // lptr[] must be 16-byte aligned.
   uintptr_t tot = 0;
   uintptr_t* lptr_end = &(lptr[end_idx]);
 #ifdef __LP64__
@@ -4401,6 +4401,77 @@ uintptr_t popcount_bit_idx(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_i
     ct += popcount_long(lptr[end_idxl] & ((ONELU << end_idxlr) - ONELU));
   }
   return ct;
+}
+
+uintptr_t jump_forward_unset_unsafe(uintptr_t* bit_arr, uintptr_t cur_pos, uintptr_t forward_ct) {
+  // advances forward_ct unset bits; forward_ct must be positive.  (stays put
+  // if forward_ct == 1 and current bit is unset.)
+  // In usual 64-bit case, also assumes bit_arr is 16-byte aligned and the end
+  // of the trailing 16-byte block can be safely read from.
+  uintptr_t widx = cur_pos / BITCT;
+  uintptr_t ulii = cur_pos % BITCT;
+  uintptr_t* bptr = &(bit_arr[widx]);
+  uintptr_t uljj;
+  uintptr_t ulkk;
+#ifdef __LP64__
+  __m128i* vptr;
+#endif
+  if (ulii) {
+    uljj = (~(*bptr)) >> ulii;
+    ulkk = popcount_long(uljj);
+    if (ulkk >= forward_ct) {
+    jump_forward_unset_unsafe_finish:
+      ulkk = CTZLU(uljj);
+      while (--forward_ct) {
+        uljj &= uljj - 1;
+        ulkk = CTZLU(uljj);
+      }
+      return widx * BITCT + ulii + ulkk;
+    }
+    forward_ct -= ulkk;
+    widx++;
+    bptr++;
+  }
+  ulii = 0;
+#ifdef __LP64__
+  if (widx & 1) {
+    uljj = ~(*bptr);
+    ulkk = popcount_long(uljj);
+    if (ulkk >= forward_ct) {
+      goto jump_forward_unset_unsafe_finish;
+    }
+    forward_ct -= ulkk;
+    bptr++;
+  }
+  vptr = (__m128i*)bptr;
+  while (forward_ct > BITCT * 6) {
+    uljj = (forward_ct / (BITCT * 6)) * 3;
+    ulkk = popcount_vecs(vptr, uljj);
+    vptr = &(vptr[uljj]);
+    forward_ct -= uljj * BITCT * 2 - ulkk;
+  }
+  bptr = (uintptr_t*)vptr;
+  while (forward_ct > BITCT) {
+    forward_ct -= popcount_long(~(*bptr++));
+  }
+#else
+  while (forward_ct > BITCT) {
+    uljj = forward_ct / BITCT;
+    ulkk = popcount_longs(bptr, 0, uljj);
+    bptr = &(bptr[uljj]);
+    forward_ct -= uljj * BITCT - ulkk;
+  }
+#endif
+  while (1) {
+    uljj = ~(*bptr);
+    ulkk = popcount_long(uljj);
+    if (ulkk >= forward_ct) {
+      widx = (uintptr_t)(bptr - bit_arr);
+      goto jump_forward_unset_unsafe_finish;
+    }
+    forward_ct -= ulkk;
+    bptr++;
+  }
 }
 
 uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx) {
