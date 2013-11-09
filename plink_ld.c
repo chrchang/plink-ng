@@ -1013,9 +1013,6 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   return retval;
 }
 
-// multithread globals
-static uint32_t g_ld_thread_ct;
-
 uint32_t ld_process_load2(uintptr_t* geno_buf, uintptr_t* mask_buf, double* marker_stdev_ptr, uint32_t founder_ct, uint32_t is_x, uintptr_t* founder_male_include2) {
   // ld_process_load(), except no missing_buf[] to conserve memory (and no
   // --ld-xchr 3 support yet)
@@ -1069,16 +1066,182 @@ uint32_t ld_process_load2(uintptr_t* geno_buf, uintptr_t* mask_buf, double* mark
   return missing_ct;
 }
 
-int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t founder_ct, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists) {
+uint32_t ld_missing_ct_intersect(uintptr_t* lptr1, uintptr_t* lptr2, uintptr_t word12_ct, uintptr_t word12_rem, uintptr_t lshift_last) {
+  // variant of popcount_longs_intersect()
+  uintptr_t tot = 0;
+  uintptr_t* lptr1_end2;
+#ifdef __LP64__
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  __m128i* vptr1 = (__m128i*)lptr1;
+  __m128i* vptr1_end = &(vptr1[word12_ct * 6]);
+  __m128i* vptr2 = (__m128i*)lptr2;
+  __m128i* vend1;
+  __m128i loader1;
+  __m128i loader2;
+  __m128i count1, count2, half1, half2;
+  __uni16 acc;
+
+  while (word12_ct >= 10) {
+    word12_ct -= 10;
+    acc.vi = _mm_setzero_si128();
+    vend1 = &(vptr1[60]);
+  ld_missing_ct_intersect_main_loop:
+    do {
+      loader1 = _mm_andnot_si128(_mm_or_si128(*vptr2++, *vptr1++), m1);
+      loader2 = _mm_andnot_si128(_mm_or_si128(*vptr2++, *vptr1++), m1);
+      loader1 = _mm_add_epi64(loader1, _mm_andnot_si128(_mm_or_si128(*vptr2++, *vptr1++), m1));
+      loader2 = _mm_add_epi64(loader2, _mm_andnot_si128(_mm_or_si128(*vptr2++, *vptr1++), m1));
+      loader1 = _mm_add_epi64(loader1, _mm_andnot_si128(_mm_or_si128(*vptr2++, *vptr1++), m1));
+      loader2 = _mm_add_epi64(loader2, _mm_andnot_si128(_mm_or_si128(*vptr2++, *vptr1++), m1));
+      loader1 = _mm_add_epi64(_mm_and_si128(loader1, m2), _mm_and_si128(_mm_srli_epi64(loader1, 2), m2));
+      loader1 = _mm_add_epi64(loader1, _mm_add_epi64(_mm_and_si128(loader2, m2), _mm_and_si128(_mm_srli_epi64(loader2, 2), m2)));
+      acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(loader1, m4), _mm_and_si128(_mm_srli_epi64(loader1, 4), m4)));
+    } while (vptr1 < vend1);
+    acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
+    tot += ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
+  }
+  if (word12_ct) {
+    acc.vi = _mm_setzero_si128();
+    vend1 = &(vptr1[word12_ct * 6]);
+    word12_ct = 0;
+    goto ld_missing_ct_intersect_main_loop;
+  }
+  lptr1 = (uintptr_t*)vptr1;
+  lptr2 = (uintptr_t*)vptr2;
+#else
+  uintptr_t* lptr1_end = &(lptr1[word12_ct * 12]);
+  uintptr_t tmp_stor;
+  uintptr_t loader1;
+  uintptr_t loader2;
+  while (lptr1 < lptr1_end) {
+    loader1 = (~((*lptr1++) | (*lptr2++))) & FIVEMASK;
+    loader2 = (~((*lptr1++) | (*lptr2++))) & FIVEMASK;
+    loader1 += (~((*lptr1++) | (*lptr2++))) & FIVEMASK;
+    loader2 += (~((*lptr1++) | (*lptr2++))) & FIVEMASK;
+    loader1 += (~((*lptr1++) | (*lptr2++))) & FIVEMASK;
+    loader2 += (~((*lptr1++) | (*lptr2++))) & FIVEMASK;
+    loader1 = (loader1 & 0x33333333) + ((loader1 >> 2) & 0x33333333);
+    loader1 += (loader2 & 0x33333333) + ((loader2 >> 2) & 0x33333333);
+    tmp_stor = (loader1 & 0x0f0f0f0f) + ((loader1 >> 4) & 0x0f0f0f0f);
+
+    loader1 = (~((*lptr1++) | (*lptr2++))) & FIVEMASK;
+    loader2 = (~((*lptr1++) | (*lptr2++))) & FIVEMASK;
+    loader1 += (~((*lptr1++) | (*lptr2++))) & FIVEMASK;
+    loader2 += (~((*lptr1++) | (*lptr2++))) & FIVEMASK;
+    loader1 += (~((*lptr1++) | (*lptr2++))) & FIVEMASK;
+    loader2 += (~((*lptr1++) | (*lptr2++))) & FIVEMASK;
+    loader1 = (loader1 & 0x33333333) + ((loader1 >> 2) & 0x33333333);
+    loader1 += (loader2 & 0x33333333) + ((loader2 >> 2) & 0x33333333);
+    tmp_stor += (loader1 & 0x0f0f0f0f) + ((loader1 >> 4) & 0x0f0f0f0f);
+    tot += (tmp_stor * 0x01010101) >> 24;
+  }
+#endif
+  lptr1_end2 = &(lptr1[word12_rem]);
+  while (lptr1 < lptr1_end2) {
+    tot += popcount2_long((~((*lptr1++) | (*lptr2++))) & FIVEMASK);
+  }
+  if (lshift_last) {
+    tot += popcount2_long(((~((*lptr1) | (*lptr2))) & FIVEMASK) << lshift_last);
+  }
+  return tot;
+}
+
+// multithread globals
+static uintptr_t* g_ld_geno1;
+static uintptr_t* g_ld_geno2;
+static uintptr_t* g_ld_geno_masks1;
+static uintptr_t* g_ld_geno_masks2;
+static double* g_ld_marker_stdevs1;
+static double* g_ld_marker_stdevs2;
+static uint32_t* g_ld_missing_cts1;
+static uint32_t* g_ld_missing_cts2;
+static double* g_ld_results;
+static uintptr_t g_ld_idx1_block_size;
+static uintptr_t g_ld_idx2_block_size;
+static uintptr_t g_ld_founder_ct;
+static uintptr_t g_ld_founder_ct_192_long;
+static uint32_t g_ld_founder_ct_mld_m1;
+static uint32_t g_ld_founder_ct_mld_rem;
+static uint32_t g_ld_is_r2;
+static uint32_t g_ld_thread_ct;
+
+THREAD_RET_TYPE ld_block_thread(void* arg) {
+  uintptr_t tidx = (uintptr_t)arg;
+  uintptr_t block_idx1_start = (tidx * g_ld_idx1_block_size) / g_ld_thread_ct;
+  uintptr_t block_idx1_end = ((tidx + 1) * g_ld_idx1_block_size) / g_ld_thread_ct;
+  uintptr_t idx2_block_size = g_ld_idx2_block_size;
+  uintptr_t bsrem = ((idx2_block_size + 7) & (~(7 * ONELU))) - idx2_block_size;
+  uintptr_t founder_ct = g_ld_founder_ct;
+  uintptr_t founder_ctwd = founder_ct / BITCT2;
+  uintptr_t founder_ctwd12 = founder_ctwd / 12;
+  uintptr_t founder_ctwd12_rem = founder_ctwd - (12 * founder_ctwd12);
+  uintptr_t lshift_last = 2 * ((0x7fffffc0 - founder_ct) % BITCT2);
+  uintptr_t founder_ct_192_long = g_ld_founder_ct_192_long;
+  uintptr_t* geno1 = g_ld_geno1;
+  uintptr_t* geno2 = g_ld_geno2;
+  uintptr_t* geno_masks1 = g_ld_geno_masks1;
+  uintptr_t* geno_masks2 = g_ld_geno_masks2;
+  double* marker_stdevs1 = g_ld_marker_stdevs1;
+  double* marker_stdevs2 = g_ld_marker_stdevs2;
+  uint32_t* missing_cts1 = g_ld_missing_cts1;
+  uint32_t* missing_cts2 = g_ld_missing_cts2;
+  uint32_t founder_ct_mld_m1 = g_ld_founder_ct_mld_m1;
+  uint32_t founder_ct_mld_rem = g_ld_founder_ct_mld_rem;
+  uint32_t is_r2 = g_ld_is_r2;
+  double* rptr = &(g_ld_results[block_idx1_start * idx2_block_size]);
+  int32_t dp_result[3];
+  uintptr_t* geno_fixed_vec_ptr;
+  uintptr_t* geno_var_vec_ptr;
+  uintptr_t* mask_fixed_vec_ptr;
+  uintptr_t* mask_var_vec_ptr;
+  uintptr_t block_idx1;
+  uintptr_t block_idx2;
+  double dxx;
+  uint32_t fixed_missing_ct;
+  uint32_t fixed_non_missing_ct;
+  uint32_t non_missing_ct;
+
+  for (block_idx1 = block_idx1_start; block_idx1 < block_idx1_end; block_idx1++) {
+    fixed_missing_ct = missing_cts1[block_idx1];
+    fixed_non_missing_ct = founder_ct - fixed_missing_ct;
+    geno_fixed_vec_ptr = &(geno1[block_idx1 * founder_ct_192_long]);
+    mask_fixed_vec_ptr = &(geno_masks1[block_idx1 * founder_ct_192_long]);
+    for (block_idx2 = 0; block_idx2 < idx2_block_size; block_idx2++) {
+      geno_var_vec_ptr = &(geno2[block_idx2 * founder_ct_192_long]);
+      mask_var_vec_ptr = &(geno_masks2[block_idx2 * founder_ct_192_long]);
+      dp_result[0] = founder_ct;
+      dp_result[1] = -fixed_non_missing_ct;
+      dp_result[2] = missing_cts2[block_idx2] - founder_ct;
+      ld_dot_prod(geno_var_vec_ptr, geno_fixed_vec_ptr, mask_var_vec_ptr, mask_fixed_vec_ptr, dp_result, founder_ct_mld_m1, founder_ct_mld_rem);
+      non_missing_ct = fixed_non_missing_ct - missing_cts2[block_idx2];
+      if (fixed_missing_ct && missing_cts2[block_idx2]) {
+        non_missing_ct += ld_missing_ct_intersect(mask_var_vec_ptr, mask_fixed_vec_ptr, founder_ctwd12, founder_ctwd12_rem, lshift_last);
+      }
+      // todo
+
+      if (is_r2) {
+	dxx *= dxx;
+      }
+      *rptr++ = dxx;
+    }
+    rptr = &(rptr[bsrem]);
+  }
+  THREAD_RETURN;
+}
+
+int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists) {
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
   uint32_t ld_modifier = ldip->modifier;
   uint32_t is_binary = ld_modifier & LD_MATRIX_BIN;
   uint32_t output_gz = ld_modifier & LD_REPORT_GZ;
-  uint32_t is_r2 = ld_modifier & LD_R2;
   uint32_t ignore_x = (ldip->modifier / LD_IGNORE_X) & 1;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t marker_ctm8 = (marker_ct + 7) & (~(7 * ONELU));
+  uintptr_t founder_ct = g_ld_founder_ct;
   uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
   uintptr_t founder_ct_mld = (founder_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
   uint32_t founder_ct_mld_m1 = ((uint32_t)founder_ct_mld) - 1;
@@ -1104,24 +1267,15 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uint32_t is_y = 0;
   int32_t retval = 0;
   unsigned char* wkspace_mark2;
-  uintptr_t* geno1;
-  uintptr_t* geno2;
-  uintptr_t* geno_masks1;
-  uintptr_t* geno_masks2;
-  double* marker_stdevs1;
-  double* marker_stdevs2;
-  uint32_t* missing_cts1;
-  uint32_t* missing_cts2;
-  double* results;
-  uintptr_t idx1_block_size;
   uintptr_t thread_workload;
-  uintptr_t idx2_block_size;
   uintptr_t cur_idx2_block_size;
   uintptr_t marker_uidx1_tmp;
   uintptr_t block_idx1;
   uintptr_t marker_uidx2;
   uintptr_t marker_idx2;
   uintptr_t block_idx2;
+  uintptr_t idx1_block_size;
+  uintptr_t idx2_block_size;
   uintptr_t ulii;
   uintptr_t uljj;
   uint32_t chrom_idx;
@@ -1137,12 +1291,15 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     }
   }
   g_ld_thread_ct = thread_ct;
+  g_ld_founder_ct_192_long = founder_ct_192_long;
+  g_ld_founder_ct_mld_m1 = founder_ct_mld_m1;
+  g_ld_founder_ct_mld_rem = founder_ct_mld_rem;
   // claim up to half of memory with idx1 bufs; each marker costs
   //   founder_ct_192_long * sizeof(intptr_t) for genotype buffer
   // + founder_ct_192_long * sizeof(intptr_t) for missing mask buffer
-  // + sizeof(double) for marker_stdevs entry
-  // + sizeof(int32_t) for missing_cts1 entry
-  // + marker_ctm8 * sizeof(double) for results buffer
+  // + sizeof(double) for g_ld_marker_stdevs entry
+  // + sizeof(int32_t) for g_ld_missing_cts1 entry
+  // + marker_ctm8 * sizeof(double) for g_ld_results buffer
   // round down to multiple of thread_ct for better workload distribution
   ulii = founder_ct_192_long * 2 * sizeof(intptr_t) + sizeof(int32_t) + sizeof(double) + marker_ctm8 * sizeof(double);
   idx1_block_size = wkspace_left / (ulii * 2);
@@ -1153,18 +1310,17 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   idx1_block_size = thread_workload * thread_ct;
   if (idx1_block_size > job_size) {
     idx1_block_size = job_size;
-    thread_workload = (idx1_block_size + thread_ct - 1) / thread_ct;
   }
-  geno1 = (uintptr_t*)wkspace_alloc(founder_ct_192_long * idx1_block_size * sizeof(intptr_t));
-  geno_masks1 = (uintptr_t*)wkspace_alloc(founder_ct_192_long * idx1_block_size * sizeof(intptr_t));
-  marker_stdevs1 = (double*)wkspace_alloc(idx1_block_size * sizeof(double));
-  missing_cts1 = (uint32_t*)wkspace_alloc(idx1_block_size * sizeof(int32_t));
-  if (wkspace_alloc_d_checked(&results, founder_ct_192_long * marker_ctm8 * idx1_block_size * sizeof(double))) {
+  g_ld_geno1 = (uintptr_t*)wkspace_alloc(founder_ct_192_long * idx1_block_size * sizeof(intptr_t));
+  g_ld_geno_masks1 = (uintptr_t*)wkspace_alloc(founder_ct_192_long * idx1_block_size * sizeof(intptr_t));
+  g_ld_marker_stdevs1 = (double*)wkspace_alloc(idx1_block_size * sizeof(double));
+  g_ld_missing_cts1 = (uint32_t*)wkspace_alloc(idx1_block_size * sizeof(int32_t));
+  if (wkspace_alloc_d_checked(&g_ld_results, founder_ct_192_long * marker_ctm8 * idx1_block_size * sizeof(double))) {
     goto ld_report_square_ret_NOMEM;
   }
 
-  // claim the other half with idx2 buffer; all but the results buffer cost
-  // apply
+  // claim the other half with idx2 buffer; all but the g_ld_results buffer
+  // cost apply
   ulii -= (marker_ctm8 * sizeof(double) - 4);
   idx2_block_size = (wkspace_left / ulii) & (~(7 * ONELU));
   if (idx2_block_size > marker_ctm8) {
@@ -1175,10 +1331,10 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     if (!idx2_block_size) {
       goto ld_report_square_ret_NOMEM;
     }
-    if (!(wkspace_alloc_ul_checked(&geno2, founder_ct_192_long * idx2_block_size * sizeof(intptr_t)) ||
-          wkspace_alloc_ul_checked(&geno_masks2, founder_ct_192_long * idx2_block_size * sizeof(intptr_t)) ||
-          wkspace_alloc_d_checked(&marker_stdevs2, idx2_block_size * sizeof(double)) ||
-          wkspace_alloc_ui_checked(&missing_cts2, idx2_block_size * sizeof(int32_t)))) {
+    if (!(wkspace_alloc_ul_checked(&g_ld_geno2, founder_ct_192_long * idx2_block_size * sizeof(intptr_t)) ||
+          wkspace_alloc_ul_checked(&g_ld_geno_masks2, founder_ct_192_long * idx2_block_size * sizeof(intptr_t)) ||
+          wkspace_alloc_d_checked(&g_ld_marker_stdevs2, idx2_block_size * sizeof(double)) ||
+          wkspace_alloc_ui_checked(&g_ld_missing_cts2, idx2_block_size * sizeof(int32_t)))) {
       break;
     }
     wkspace_reset(wkspace_mark2);
@@ -1186,17 +1342,17 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   }
   uljj = founder_trail_ct + 2;
   for (ulii = 1; ulii <= idx1_block_size; ulii++) {
-    fill_ulong_zero(&(geno1[ulii * founder_ct_192_long - uljj]), uljj);
-    fill_ulong_zero(&(geno_masks1[ulii * founder_ct_192_long - uljj]), uljj);
+    fill_ulong_zero(&(g_ld_geno1[ulii * founder_ct_192_long - uljj]), uljj);
+    fill_ulong_zero(&(g_ld_geno_masks1[ulii * founder_ct_192_long - uljj]), uljj);
   }
   for (ulii = 1; ulii <= idx2_block_size; ulii++) {
-    fill_ulong_zero(&(geno2[ulii * founder_ct_192_long - uljj]), uljj);
-    fill_ulong_zero(&(geno_masks2[ulii * founder_ct_192_long - uljj]), uljj);
+    fill_ulong_zero(&(g_ld_geno2[ulii * founder_ct_192_long - uljj]), uljj);
+    fill_ulong_zero(&(g_ld_geno_masks2[ulii * founder_ct_192_long - uljj]), uljj);
   }
   if (marker_idx1) {
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude, marker_uidx1 + 1, marker_idx1);
   }
-  sprintf(logbuf, "--r%s square to %s...", is_r2? "2" : "", outname);
+  sprintf(logbuf, "--r%s square to %s...", g_ld_is_r2? "2" : "", outname);
   logprintb();
   fputs(" 0%", stdout);
   fflush(stdout);
@@ -1207,7 +1363,6 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
         thread_ct = idx1_block_size;
         g_ld_thread_ct = thread_ct;
       }
-      thread_workload = (idx1_block_size + thread_ct - 1) / thread_ct;
     }
     marker_uidx1_tmp = marker_uidx1;
     if (fseeko(bedfile, bed_offset + (marker_uidx1 * unfiltered_indiv_ct4), SEEK_SET)) {
@@ -1228,13 +1383,13 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
 	is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
       }
-      if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(geno1[block_idx1 * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, marker_uidx1_tmp))) {
+      if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(g_ld_geno1[block_idx1 * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, marker_uidx1_tmp))) {
 	goto ld_report_square_ret_READ_FAIL;
       }
       if (is_haploid && hh_exists) {
-	haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno1[block_idx1 * founder_ct_192_long])));
+	haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(g_ld_geno1[block_idx1 * founder_ct_192_long])));
       }
-      missing_cts1[block_idx1] = ld_process_load2(&(geno1[block_idx1 * founder_ct_192_long]), &(geno_masks1[block_idx1 * founder_ct_192_long]), &(marker_stdevs1[block_idx1]), founder_ct, is_x && (!ignore_x), founder_male_include2);
+      g_ld_missing_cts1[block_idx1] = ld_process_load2(&(g_ld_geno1[block_idx1 * founder_ct_192_long]), &(g_ld_geno_masks1[block_idx1 * founder_ct_192_long]), &(g_ld_marker_stdevs1[block_idx1]), founder_ct, is_x && (!ignore_x), founder_male_include2);
     }
     marker_uidx2 = marker_uidx_base;
     marker_idx2 = 0;
@@ -1261,17 +1416,23 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	  is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code)? 1 : 0;
 	  is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code)? 1 : 0;
 	}
-	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(geno2[block_idx2 * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, marker_uidx2))) {
+	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_indiv_ct, &(g_ld_geno2[block_idx2 * founder_ct_192_long]), founder_ct, founder_info, IS_SET(marker_reverse, marker_uidx2))) {
 	  goto ld_report_square_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
-	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(geno2[block_idx2 * founder_ct_192_long])));
+	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)(&(g_ld_geno2[block_idx2 * founder_ct_192_long])));
 	}
-	missing_cts2[block_idx2] = ld_process_load2(&(geno2[block_idx2 * founder_ct_192_long]), &(geno_masks2[block_idx2 * founder_ct_192_long]), &(marker_stdevs2[block_idx2]), founder_ct, is_x && (!ignore_x), founder_male_include2);
+	g_ld_missing_cts2[block_idx2] = ld_process_load2(&(g_ld_geno2[block_idx2 * founder_ct_192_long]), &(g_ld_geno_masks2[block_idx2 * founder_ct_192_long]), &(g_ld_marker_stdevs2[block_idx2]), founder_ct, is_x && (!ignore_x), founder_male_include2);
       }
-
-      // now dispatch threads...
-
+      g_ld_idx1_block_size = idx1_block_size;
+      g_ld_idx2_block_size = cur_idx2_block_size;
+      if (spawn_threads(threads, &ld_block_thread, g_thread_ct)) {
+	goto ld_report_square_ret_THREAD_CREATE_FAIL;
+      }
+      ulii = 0;
+      ld_block_thread((void*)0);
+      join_threads(threads, g_thread_ct);
+      
       marker_idx2 += cur_idx2_block_size;
     } while (marker_idx2 < marker_ct);
     
@@ -1311,6 +1472,10 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   ld_report_square_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
+  ld_report_square_ret_THREAD_CREATE_FAIL:
+    logprint(errstr_thread_create);
+    retval = RET_THREAD_CREATE_FAIL;
+    break;
   }
   fclose_cond(outfile);
   gzclose_cond(gz_outfile);
@@ -1327,16 +1492,17 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   uint32_t ld_modifier = ldip->modifier;
   uint32_t is_binary = ld_modifier & LD_MATRIX_BIN;
   uint32_t output_gz = ld_modifier & LD_REPORT_GZ;
-  uint32_t is_r2 = ld_modifier & LD_R2;
   char* bufptr = memcpyl3a(outname_end, ".ld");
   int32_t retval = 0;
   uintptr_t* loadbuf;
+  g_ld_founder_ct = founder_ct;
+  g_ld_is_r2 = ld_modifier & LD_R2;
   if (!founder_ct) {
-    sprintf(logbuf, "Warning: Skiping --r%s since there are no founders.\n", is_r2? "2" : "");
+    sprintf(logbuf, "Warning: Skiping --r%s since there are no founders.\n", g_ld_is_r2? "2" : "");
     logprintb();
     goto ld_report_ret_1;
   }
-  if ((marker_ct > 400000) && (!(ld_modifier & LD_YES_REALLY)) && (parallel_tot == 1) && ((ld_modifier & LD_MATRIX_SHAPEMASK) || ((ld_modifier & LD_INTER_CHR) && (!ldip->snpstr) && (!ldip->snps_rl.name_ct) && ((!is_r2) || (ldip->window_r2 == 0.0))))) {
+  if ((marker_ct > 400000) && (!(ld_modifier & LD_YES_REALLY)) && (parallel_tot == 1) && ((ld_modifier & LD_MATRIX_SHAPEMASK) || ((ld_modifier & LD_INTER_CHR) && (!ldip->snpstr) && (!ldip->snps_rl.name_ct) && ((!g_ld_is_r2) || (ldip->window_r2 == 0.0))))) {
     logprint("Error: Gigantic (over 400k sites) --r/--r2 unfiltered, non-distributed\ncomputation.  Rerun with the 'yes-really' modifier if you are SURE you have\nenough hard drive space and want to do this.\n");
     goto ld_report_ret_INVALID_CMDLINE;
   }
@@ -1369,7 +1535,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   }
   *bufptr = '\0';
   if (ld_modifier & LD_MATRIX_SQ) {
-    retval = ld_report_square(threads, ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, founder_ct, founder_include2, founder_male_include2, loadbuf, outname, hh_exists);
+    retval = ld_report_square(threads, ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, founder_include2, founder_male_include2, loadbuf, outname, hh_exists);
   } else {
     // ...
   }
