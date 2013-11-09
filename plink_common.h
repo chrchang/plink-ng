@@ -19,7 +19,7 @@
 // #define STABLE_BUILD
 
 // Comment this to keep the old WDIST name.
-#define PLINK_BUILD
+// #define PLINK_BUILD
 
 #ifdef PLINK_BUILD
   #define PROG_NAME_STR "plink"

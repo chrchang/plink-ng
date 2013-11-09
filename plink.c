@@ -4796,7 +4796,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto plink_ret_INVALID_CMDLINE_2;
   }
   if (g_thread_ct > 1) {
-    if ((calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LASSO)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname)))) {
+    if ((calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LASSO)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_LD) && (ldip->modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname)))) {
       sprintf(logbuf, "Using %d threads (change this with --threads).\n", g_thread_ct);
       logprintb();
     } else {
@@ -11493,8 +11493,8 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --r/--r2 'spaces' modifier must be used with a shape modifier.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
 	}
-        if ((parallel_tot > 1) && (!(ld_info.modifier & LD_MATRIX_SHAPEMASK)) && ((!(ld_info.modifier & LD_INTER_CHR)) || ld_info.snpstr || ld_info.snps_rl.name_ct)) {
-	  sprintf(logbuf, "Error: --parallel cannot be used with most --r/--r2 filters (exception:\n--ld-window-r2 + 'inter-chr' is permitted).%s", errstr_append);
+        if ((parallel_tot > 1) && (!(ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR)))) {
+	  sprintf(logbuf, "Error: --parallel + --r/--r2 only works with all pairs computations ('square',\n'square0', 'triangle', 'inter-chr', 'bin').%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if ((ld_info.modifier & LD_WEIGHTED_X) && (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR))) {
