@@ -1028,17 +1028,14 @@ uint32_t ld_process_load2(uintptr_t* geno_buf, uintptr_t* mask_buf, double* mark
   uintptr_t new_geno;
   uintptr_t new_mask;
   uint32_t missing_ct = 0;
-  while (1) {
+  do {
     cur_geno = *geno_ptr;
     shifted_masked_geno = (cur_geno >> 1) & FIVEMASK;
     new_geno = cur_geno - shifted_masked_geno;
     *geno_ptr++ = new_geno;
     new_mask = (((~cur_geno) & FIVEMASK) | shifted_masked_geno) * 3;
     *mask_buf_ptr++ = new_mask;
-    if (geno_ptr == geno_end) {
-      break;
-    }
-  }
+  } while (geno_ptr < geno_end);
   if (is_x) {
     geno_ptr = geno_buf;
     do {
@@ -1062,6 +1059,8 @@ uint32_t ld_process_load2(uintptr_t* geno_buf, uintptr_t* mask_buf, double* mark
   }
   missing_ct = founder_ct - (popcount_longs(mask_buf, 0, (founder_ct + (BITCT - 1)) / BITCT2) / 2);
   non_missing_recip = 1.0 / (founder_ct - missing_ct);
+  // okay, this is actually incompatible, need to recalculate x and x^2
+  // whenever other member of pair has discordant missing samples.
   *marker_stdev_ptr = non_missing_recip * sqrt(((int64_t)((uint64_t)ssq)) * (founder_ct - missing_ct) - ((int64_t)sum) * sum);
   return missing_ct;
 }
@@ -1456,7 +1455,6 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       if (spawn_threads(threads, &ld_block_thread, g_thread_ct)) {
 	goto ld_report_square_ret_THREAD_CREATE_FAIL;
       }
-      ulii = 0;
       ld_block_thread((void*)0);
       join_threads(threads, g_thread_ct);
       marker_idx2 += cur_idx2_block_size;
@@ -1577,7 +1575,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   g_ld_is_r2 = ld_modifier & LD_R2;
   g_ld_marker_ctm8 = (marker_ct + 7) & (~(7 * ONELU));
   if (!founder_ct) {
-    sprintf(logbuf, "Warning: Skiping --r%s since there are no founders.\n", g_ld_is_r2? "2" : "");
+    sprintf(logbuf, "Warning: Skipping --r%s since there are no founders.\n", g_ld_is_r2? "2" : "");
     logprintb();
     goto ld_report_ret_1;
   }
