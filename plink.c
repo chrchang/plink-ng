@@ -4053,7 +4053,7 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
 }
 
 static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM)) || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR))));
+  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM)) || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK)));
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, Two_col_params* update_cm) {
@@ -4805,7 +4805,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto plink_ret_INVALID_CMDLINE_2;
   }
   if (g_thread_ct > 1) {
-    if ((calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LASSO)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_LD) && (ldip->modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname)))) {
+    if ((calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LASSO)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_LD) && (ldip->modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR | LD_REPORT_GZ))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname)))) {
       sprintf(logbuf, "Using %d threads (change this with --threads).\n", g_thread_ct);
       logprintb();
     } else {
@@ -5092,7 +5092,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: Windowed --r/--r2 runs require a sorted .map/.bim.  Retry this command\nafter using --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = ld_report(threads, ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, outname, outname_end, hh_exists);
+    retval = ld_report(threads, ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, zero_extra_chroms, chrom_info_ptr, marker_pos, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, outname, outname_end, hh_exists);
     if (retval) {
     }
   }
@@ -9617,7 +9617,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         ii = atoi(argv[cur_arg + 1]);
-        if (ii < 1) {
+        if (ii < 2) {
 	  sprintf(logbuf, "Error: Invalid --ld-window window size '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -11503,13 +11503,12 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: --r/--r2 'spaces' modifier must be used with a shape modifier.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
 	}
-        if ((parallel_tot > 1) && (!(ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR)))) {
-	  sprintf(logbuf, "Error: --parallel + --r/--r2 only works with all pairs computations ('square',\n'square0', 'triangle', 'inter-chr', 'bin').%s", errstr_append);
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
 	if ((ld_info.modifier & LD_WEIGHTED_X) && (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR))) {
 	  sprintf(logbuf, "Error: --ld-xchr 3 cannot be used with --r/--r2 non-windowed reports.%s", errstr_append);
           goto main_ret_INVALID_CMDLINE_3;
+	} else if (ld_info.modifier & LD_WEIGHTED_X) {
+	  logprint("Error: --r/--r2 + --ld-xchr 3 has not been implemented yet.\n");
+	  goto main_ret_INVALID_CMDLINE;
 	}
 	calculation_type |= CALC_LD;
       } else {

@@ -740,8 +740,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * Since the resulting file can easily be huge, you're required to add the\n"
 "      'yes-really' modifier when requesting an unfiltered, non-distributed all\n"
 "      pairs computation on more than 400k variants.\n"
-"    * All pairs computations can be subdivided with --parallel (even with a\n"
-"      square output shape).\n\n"
+"    * These computations can be subdivided with --parallel (even when the\n"
+"      'square' modifier is active).\n\n"
 	       );
     help_print("make-rel", &help_ctrl, 1,
 "  --make-rel <square | square0 | triangle> <gz | bin> <cov | ibc2 | ibc3>\n"
@@ -1356,7 +1356,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #ifndef STABLE_BUILD
     help_print("r\tr2\tld-window-r2\tld-window\tld-window-kb\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
-"  --ld-window [ct]   : Set --r/--r2 max site ct pairwise distance (usually 10).\n"
+"  --ld-window [ct+1] : Set --r/--r2 max site ct pairwise distance (usually 10).\n"
 "  --ld-window-kb [x] : Set --r/--r2 max kb pairwise distance (usually 200).\n"
 "  --ld-window-r2 [x] : Set threshold for --r2 report inclusion (usually 0.2).\n"
 "  --ld-snp [var ID]  : Set first variant in all --r/--r2 pairs.\n"

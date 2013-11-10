@@ -3288,6 +3288,10 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   uint32_t pc_ct = 0;
   uint32_t pct = 1;
   uint32_t is_eigenvec = 0; // GCTA .eigenvec format instead of SMARTPCA .evec?
+  // er, this external file requirement is silly, we should replicate the most
+  // common SMARTPCA options to avoid creating a usability headache (while
+  // still supporting SMARTPCA import for power users)
+
   uint32_t chrom_end = 0;
   uint32_t chrom_fo_idx = 0;
   uint32_t regress_pcs_sex_specific = regress_pcs_modifier & REGRESS_PCS_SEX_SPECIFIC;
