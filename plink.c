@@ -11488,6 +11488,7 @@ int32_t main(int32_t argc, char** argv) {
 	      logprint("Error: --r/--r2 'bin' and 'spaces' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE;
 	    }
+	    ld_info.modifier |= LD_MATRIX_SPACES;
 	  } else if (!strcmp(argv[cur_arg + uii], "yes-really")) {
 	    ld_info.modifier |= LD_YES_REALLY;
 	  } else {

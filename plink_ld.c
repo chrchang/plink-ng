@@ -1,5 +1,6 @@
 #include "plink_ld.h"
 #include "plink_matrix.h"
+#include "pigz.h"
 
 #define MULTIPLEX_LD 1920
 #define MULTIPLEX_2LD (MULTIPLEX_LD * 2)
@@ -1190,6 +1191,8 @@ static double* g_ld_results;
 static uintptr_t g_ld_idx1_block_size;
 static uintptr_t g_ld_idx2_block_size;
 static uintptr_t g_ld_idx2_block_start;
+static uintptr_t g_ld_block_idx1;
+static uintptr_t g_ld_marker_ct;
 static uintptr_t g_ld_marker_ctm8;
 static uintptr_t g_ld_founder_ct;
 static uintptr_t g_ld_founder_ct_192_long;
@@ -1197,6 +1200,7 @@ static uint32_t g_ld_founder_ct_mld_m1;
 static uint32_t g_ld_founder_ct_mld_rem;
 static uint32_t g_ld_is_r2;
 static uint32_t g_ld_thread_ct;
+static char g_ld_delimiter;
 
 THREAD_RET_TYPE ld_block_thread(void* arg) {
   uintptr_t tidx = (uintptr_t)arg;
@@ -1273,9 +1277,41 @@ THREAD_RET_TYPE ld_block_thread(void* arg) {
   THREAD_RETURN;
 }
 
+uint32_t ld_square_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
+  char* sptr_cur = (char*)(&(readbuf[overflow_ct]));
+  char* readbuf_end = (char*)(&(readbuf[PIGZ_BLOCK_SIZE]));
+  uintptr_t block_size1 = g_ld_idx1_block_size;
+  uintptr_t marker_ct = g_ld_marker_ct;
+  uintptr_t marker_ctm8 = g_ld_marker_ctm8;
+  uintptr_t block_idx1 = g_ld_block_idx1;
+  uintptr_t marker_idx = g_ld_idx2_block_start;
+  char delimiter = g_ld_delimiter;
+  double* results = g_ld_results;
+  double* dptr;
+  while (block_idx1 < block_size1) {
+    dptr = &(results[block_idx1 * marker_ctm8 + marker_idx]);
+    while (marker_idx < marker_ct) {
+      sptr_cur = double_g_writex(sptr_cur, *dptr++, delimiter);
+      marker_idx++;
+      if (sptr_cur > readbuf_end) {
+	goto ld_square_emitn_ret;
+      }
+    }
+    if (delimiter == '\t') {
+      sptr_cur--;
+    }
+    *sptr_cur++ = '\n';
+    marker_idx = 0;
+    block_idx1++;
+  }
+ ld_square_emitn_ret:
+  g_ld_block_idx1 = block_idx1;
+  g_ld_idx2_block_start = marker_idx;
+  return (uintptr_t)(((unsigned char*)sptr_cur) - readbuf);
+}
+
 int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists) {
   FILE* outfile = NULL;
-  gzFile gz_outfile = NULL;
   uint32_t ld_modifier = ldip->modifier;
   uint32_t is_binary = ld_modifier & LD_MATRIX_BIN;
   uint32_t output_gz = ld_modifier & LD_REPORT_GZ;
@@ -1301,18 +1337,15 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uintptr_t job_size = marker_idx1_end - marker_idx1;
   uintptr_t pct = 1;
   uint64_t pct_thresh = job_size / 100;
-  char* tbuf_end = &(tbuf[MAXLINELEN]);
-  char* bufptr = tbuf;
   uint32_t founder_trail_ct = founder_ct_192_long - founder_ctl * 2;
   uint32_t thread_ct = g_thread_ct;
   uint32_t chrom_fo_idx = 0;
   uint32_t is_haploid = 0;
   uint32_t is_x = 0;
   uint32_t is_y = 0;
-  char delimiter = (ld_modifier & LD_MATRIX_SPACES)? ' ' : '\t';
+  uint32_t not_first_write = 0;
   int32_t retval = 0;
   unsigned char* wkspace_mark2;
-  double* dptr;
   uintptr_t thread_workload;
   uintptr_t cur_idx2_block_size;
   uintptr_t marker_uidx1_tmp;
@@ -1326,13 +1359,9 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uintptr_t uljj;
   uint32_t chrom_idx;
   uint32_t chrom_end;
-  
-  if (!output_gz) {
-    if (fopen_checked(&outfile, outname, is_binary? "wb" : "w")) {
-      goto ld_report_square_ret_OPEN_FAIL;
-    }
-  } else {
-    if (gzopen_checked(&gz_outfile, outname, "wb")) {
+
+  if (is_binary) {
+    if (fopen_checked(&outfile, outname, "wb")) {
       goto ld_report_square_ret_OPEN_FAIL;
     }
   }
@@ -1408,6 +1437,7 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
         g_ld_thread_ct = thread_ct;
       }
     }
+    g_ld_idx1_block_size = idx1_block_size;
     marker_uidx1_tmp = marker_uidx1;
     if (fseeko(bedfile, bed_offset + (marker_uidx1 * unfiltered_indiv_ct4), SEEK_SET)) {
       goto ld_report_square_ret_READ_FAIL;
@@ -1468,7 +1498,6 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	}
 	ld_process_load2(&(g_ld_geno2[block_idx2 * founder_ct_192_long]), &(g_ld_geno_masks2[block_idx2 * founder_ct_192_long]), &(g_ld_missing_cts2[block_idx2]), founder_ct, is_x && (!ignore_x), founder_male_include2);
       }
-      g_ld_idx1_block_size = idx1_block_size;
       g_ld_idx2_block_size = cur_idx2_block_size;
       g_ld_idx2_block_start = marker_idx2;
       if (spawn_threads(threads, &ld_block_thread, g_thread_ct)) {
@@ -1493,31 +1522,14 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	}
       }
     } else {
-      dptr = g_ld_results;
-      for (block_idx1 = 0; block_idx1 < idx1_block_size; block_idx1++) {
-	for (block_idx2 = 0; block_idx2 < marker_ct; block_idx2++) {
-	  bufptr = double_g_writex(bufptr, *dptr++, delimiter);
-	  if (bufptr > tbuf_end) {
-	    if (output_gz) {
-	      if (!gzwrite(gz_outfile, tbuf, MAXLINELEN)) {
-		goto ld_report_square_ret_WRITE_FAIL;
-	      }
-	    } else {
-	      if (fwrite_checked(tbuf, MAXLINELEN, outfile)) {
-		goto ld_report_square_ret_WRITE_FAIL;
-	      }
-	    }
-	    ulii = (uintptr_t)(bufptr - tbuf_end);
-	    memcpy(tbuf, tbuf_end, ulii);
-	    bufptr = &(tbuf[ulii]);
-	  }
-	}
-	if (delimiter == '\t') {
-	  bufptr--;
-	}
-	*bufptr++ = '\n';
-	dptr = &(dptr[idx2_rem]);
+      g_ld_block_idx1 = 0;
+      g_ld_idx2_block_start = 0;
+      if (output_gz) {
+        parallel_compress(outname, not_first_write, ld_square_emitn);
+      } else {
+        write_uncompressed(outname, not_first_write, ld_square_emitn);
       }
+      not_first_write = 1;
     }
     marker_idx1 += idx1_block_size;
     fputs("\b\b\b\b\b\b\b\b\b\b          \b\b\b\b\b\b\b\b\b\b", stdout);
@@ -1533,26 +1545,12 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       }
     }
   } while (marker_idx1 < marker_idx1_end);
-  if (!is_binary) {
-    if (output_gz) {
-      if (!gzwrite(gz_outfile, tbuf, bufptr - tbuf)) {
-	goto ld_report_square_ret_WRITE_FAIL;
-      }
-    } else {
-      if (fwrite_checked(tbuf, bufptr - tbuf, outfile)) {
-	goto ld_report_square_ret_WRITE_FAIL;
-      }
-    }
-  }
   fputs("\b\b\b", stdout);
   logprint(" done.\n");
-  if (!output_gz) {
+  if (is_binary) {
     if (fclose_null(&outfile)) {
       goto ld_report_square_ret_WRITE_FAIL;
     }
-  } else {
-    gzclose(gz_outfile);
-    gz_outfile = NULL;
   }
   while (0) {
   ld_report_square_ret_NOMEM:
@@ -1573,7 +1571,6 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
     break;
   }
   fclose_cond(outfile);
-  gzclose_cond(gz_outfile);
   // trust parent to free memory for now
   return retval;
 }
@@ -1592,6 +1589,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   uintptr_t* loadbuf;
   g_ld_founder_ct = founder_ct;
   g_ld_is_r2 = ld_modifier & LD_R2;
+  g_ld_marker_ct = marker_ct;
   g_ld_marker_ctm8 = (marker_ct + 7) & (~(7 * ONELU));
   if (!founder_ct) {
     sprintf(logbuf, "Warning: Skipping --r%s since there are no founders.\n", g_ld_is_r2? "2" : "");
@@ -1624,10 +1622,13 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
     *bufptr++ = '.';
     bufptr = uint32_write(bufptr, parallel_idx + 1);
   }
-  if (output_gz) {
-    bufptr = memcpyl3a(bufptr, ".gz");
-  } else if (is_binary) {
+  if (is_binary) {
     bufptr = memcpya(bufptr, ".bin", 4);
+  } else {
+    g_ld_delimiter = (ld_modifier & LD_MATRIX_SPACES)? ' ' : '\t';
+    if (output_gz) {
+      bufptr = memcpyl3a(bufptr, ".gz");
+    }
   }
   *bufptr = '\0';
   if (ld_modifier & LD_MATRIX_SQ) {
