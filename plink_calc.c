@@ -3823,7 +3823,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	g_cg_rel_space_id_fixed = g_cg_pri.family_rel_nf_idxs[g_cg_indiv1idx];
 	g_cg_family_id_fixed = g_cg_pri.family_idxs[g_cg_indiv1idx];
 	founder_ct = g_cg_pri.family_founder_cts[g_cg_family_id_fixed];
-	g_cg_llfct = (int64_t)founder_ct * (founder_ct - 1);
+	g_cg_llfct = ((int64_t)founder_ct * (founder_ct - 1)) - 2 * g_cg_pri.family_rel_space_offsets[g_cg_family_id_fixed];
       }
       g_cg_sptr_start = fw_strcpyn(g_cg_max_person_fid_len - 1, uii, g_cg_fam1, &(tbuf[1]));
       *g_cg_sptr_start++ = ' ';
@@ -3873,6 +3873,7 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	  if (g_cg_is_founder_fixed && oo) {
 	    dxx = 0.0;
 	  } else {
+	    // rel_space[] is a sequence of beheaded triangles.
 	    nn = g_cg_pri.family_rel_nf_idxs[g_cg_indiv2idx];
 	    if (g_cg_is_founder_fixed || ((nn > (int32_t)g_cg_rel_space_id_fixed) && (!oo))) {
 	      dxx = g_cg_pri.rel_space[g_cg_rel_space_id_fixed + ((int64_t)nn * (nn - 1) - g_cg_llfct) / 2];
@@ -4456,14 +4457,14 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
     } else {
       strcpy(outname_end, ".genome.gz");
     }
-    parallel_compress(outname, calc_genome_emitn);
+    parallel_compress(outname, 0, calc_genome_emitn);
   } else {
     if (parallel_tot > 1) {
       sprintf(outname_end, ".genome.%d", parallel_idx + 1);
     } else {
       strcpy(outname_end, ".genome");
     }
-    retval = write_uncompressed(outname, calc_genome_emitn);
+    retval = write_uncompressed(outname, 0, calc_genome_emitn);
     if (retval) {
       goto calc_genome_ret_1;
     }
@@ -5233,10 +5234,10 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       if (load_grm_bin) {
 	if (rel_calc_type & REL_CALC_GZ) {
 	  memcpy(outname_end, ".grm.gz", 8);
-	  parallel_compress(outname, rel_cutoff_batch_rbin_emitn);
+	  parallel_compress(outname, 0, rel_cutoff_batch_rbin_emitn);
 	} else {
 	  memcpy(outname_end, ".grm", 5);
-	  retval = write_uncompressed(outname, rel_cutoff_batch_rbin_emitn);
+	  retval = write_uncompressed(outname, 0, rel_cutoff_batch_rbin_emitn);
 	  if (retval) {
 	    goto rel_cutoff_batch_ret_1;
 	  }
@@ -5244,10 +5245,10 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       } else {
 	if (rel_calc_type & REL_CALC_GZ) {
 	  memcpy(outname_end, ".grm.gz", 8);
-	  parallel_compress(outname, rel_cutoff_batch_emitn);
+	  parallel_compress(outname, 0, rel_cutoff_batch_emitn);
 	} else {
 	  memcpy(outname_end, ".grm", 5);
-	  retval = write_uncompressed(outname, rel_cutoff_batch_emitn);
+	  retval = write_uncompressed(outname, 0, rel_cutoff_batch_emitn);
 	  if (retval) {
 	    goto rel_cutoff_batch_ret_1;
 	  }
@@ -6004,13 +6005,13 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	  } else {
 	    strcpy(outname_end, ".grm.gz");
 	  }
-	  parallel_compress(outname, calc_rel_grm_emitn);
+	  parallel_compress(outname, 0, calc_rel_grm_emitn);
 	} else {
 	  strcpy(outname_end, ".grm");
 	  if (parallel_tot > 1) {
 	    sprintf(&(outname_end[4]), ".%u", parallel_idx + 1);
 	  }
-	  retval = write_uncompressed(outname, calc_rel_grm_emitn);
+	  retval = write_uncompressed(outname, 0, calc_rel_grm_emitn);
 	  if (retval) {
 	    goto calc_rel_ret_1;
 	  }
@@ -6030,9 +6031,9 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	}
 	if (rel_shape == REL_CALC_TRI) {
 	  if (rel_calc_type & REL_CALC_GZ) {
-	    parallel_compress(outname, calc_rel_tri_emitn);
+	    parallel_compress(outname, 0, calc_rel_tri_emitn);
 	  } else {
-	    retval = write_uncompressed(outname, calc_rel_tri_emitn);
+	    retval = write_uncompressed(outname, 0, calc_rel_tri_emitn);
 	    if (retval) {
 	      goto calc_rel_ret_1;
 	    }
@@ -6056,9 +6057,9 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	  }
 	  g_cr_min_indiv = min_indiv;
 	  if (rel_calc_type & REL_CALC_GZ) {
-	    parallel_compress(outname, calc_rel_sq0_emitn);
+	    parallel_compress(outname, 0, calc_rel_sq0_emitn);
 	  } else {
-	    retval = write_uncompressed(outname, calc_rel_sq0_emitn);
+	    retval = write_uncompressed(outname, 0, calc_rel_sq0_emitn);
 	    if (retval) {
 	      goto calc_rel_ret_1;
 	    }
@@ -6066,9 +6067,9 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	} else {
 	  g_cr_min_indiv = min_indiv;
 	  if (rel_calc_type & REL_CALC_GZ) {
-	    parallel_compress(outname, calc_rel_sq_emitn);
+	    parallel_compress(outname, 0, calc_rel_sq_emitn);
 	  } else {
-	    retval = write_uncompressed(outname, calc_rel_sq_emitn);
+	    retval = write_uncompressed(outname, 0, calc_rel_sq_emitn);
 	    if (retval) {
 	      goto calc_rel_ret_1;
 	    }
@@ -6598,13 +6599,13 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
 	  } else {
 	    strcpy(outname_end, ".grm.gz");
 	  }
-	  parallel_compress(outname, calc_rel_f_grm_emitn);
+	  parallel_compress(outname, 0, calc_rel_f_grm_emitn);
 	} else {
 	  strcpy(outname_end, ".grm");
 	  if (parallel_tot > 1) {
 	    sprintf(&(outname_end[4]), ".%u", parallel_idx + 1);
 	  }
-	  retval = write_uncompressed(outname, calc_rel_f_grm_emitn);
+	  retval = write_uncompressed(outname, 0, calc_rel_f_grm_emitn);
 	  if (retval) {
 	    goto calc_rel_f_ret_1;
 	  }
@@ -6624,9 +6625,9 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
 	}
 	if (rel_shape == REL_CALC_TRI) {
 	  if (rel_calc_type & REL_CALC_GZ) {
-	    parallel_compress(outname, calc_rel_f_tri_emitn);
+	    parallel_compress(outname, 0, calc_rel_f_tri_emitn);
 	  } else {
-	    retval = write_uncompressed(outname, calc_rel_f_tri_emitn);
+	    retval = write_uncompressed(outname, 0, calc_rel_f_tri_emitn);
 	    if (retval) {
 	      goto calc_rel_f_ret_1;
 	    }
@@ -6644,9 +6645,9 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
 	  }
 	  g_cr_min_indiv = min_indiv;
 	  if (rel_calc_type & REL_CALC_GZ) {
-	    parallel_compress(outname, calc_rel_f_sq0_emitn);
+	    parallel_compress(outname, 0, calc_rel_f_sq0_emitn);
 	  } else {
-	    retval = write_uncompressed(outname, calc_rel_f_sq0_emitn);
+	    retval = write_uncompressed(outname, 0, calc_rel_f_sq0_emitn);
 	    if (retval) {
 	      goto calc_rel_f_ret_1;
 	    }
@@ -6654,9 +6655,9 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
 	} else {
 	  g_cr_min_indiv = min_indiv;
 	  if (rel_calc_type & REL_CALC_GZ) {
-	    parallel_compress(outname, calc_rel_f_sq_emitn);
+	    parallel_compress(outname, 0, calc_rel_f_sq_emitn);
 	  } else {
-	    retval = write_uncompressed(outname, calc_rel_f_sq_emitn);
+	    retval = write_uncompressed(outname, 0, calc_rel_f_sq_emitn);
 	    if (retval) {
 	      goto calc_rel_f_ret_1;
 	    }

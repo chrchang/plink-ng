@@ -309,10 +309,10 @@ void pigz_init(uint32_t setprocs) {
   return;
 }
 
-void parallel_compress(char* out_fname, uint32_t(* emitn)(uint32_t, unsigned char*)) {
+void parallel_compress(char* out_fname, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*)) {
   unsigned char buf[BLOCKSIZE + SUPERSIZE];
   uint32_t overflow_ct = 0;
-  gzFile gz_outfile = gzopen(out_fname, "wb");
+  gzFile gz_outfile = gzopen(out_fname, do_append? "ab": "wb");
   uint32_t last_size;
   if (!gz_outfile) {
     printf("\nError: Failed to open %s.\n", out_fname);
@@ -1192,7 +1192,7 @@ local void write_thread(void *dummy)
    value calculations and one other thread for writing the output -- compress
    threads will be launched and left running (waiting actually) to support
    subsequent calls of parallel_compress() */
-void parallel_compress(char* out_fname, uint32_t(* emitn)(uint32_t, unsigned char*))
+void parallel_compress(char* out_fname, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*))
 {
     unsigned char overflow_buf[SUPERSIZE];
     uint32_t overflow_ct;
@@ -1205,7 +1205,7 @@ void parallel_compress(char* out_fname, uint32_t(* emitn)(uint32_t, unsigned cha
     size_t len;                     /* for various length computations */
 
     g.outf = out_fname;
-    g.outd = open(g.outf, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    g.outd = open(g.outf, O_CREAT | O_TRUNC | O_WRONLY | (do_append? O_APPEND : 0), 0644);
 
     /* if first time or after an option change, setup the job lists */
     setup_jobs();
@@ -1333,12 +1333,12 @@ void pigz_init(uint32_t setprocs)
 
 // provide identical interface for uncompressed writing, to simplify code that
 // can generate either compressed or uncompressed output
-int32_t write_uncompressed(char* out_fname, uint32_t(* emitn)(uint32_t, unsigned char*)) {
+int32_t write_uncompressed(char* out_fname, uint32_t do_append, uint32_t(* emitn)(uint32_t, unsigned char*)) {
   unsigned char buf[BLOCKSIZE + SUPERSIZE];
   uint32_t overflow_ct = 0;
   // if it's potentially worth compressing, it should be text, hence mode "w"
   // instead of "wb"
-  FILE* outfile = fopen(out_fname, "w");
+  FILE* outfile = fopen(out_fname, do_append? "a" : "w");
   uint32_t last_size;
   if (!outfile) {
     printf("\nError: Failed to open %s.\n", out_fname);

@@ -7648,11 +7648,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  sprintf(outname_end, ".dist.gz");
 	}
 	if (shape == DISTANCE_SQ) {
-	  parallel_compress(outname, distance_d_write_sq_emitn);
+	  parallel_compress(outname, 0, distance_d_write_sq_emitn);
 	} else if (shape == DISTANCE_SQ0) {
-	  parallel_compress(outname, distance_d_write_sq0_emitn);
+	  parallel_compress(outname, 0, distance_d_write_sq0_emitn);
 	} else {
-	  parallel_compress(outname, distance_d_write_tri_emitn);
+	  parallel_compress(outname, 0, distance_d_write_tri_emitn);
 	}
       } else {
 	if (parallel_tot > 1) {
@@ -7661,11 +7661,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  sprintf(outname_end, ".dist");
 	}
 	if (shape == DISTANCE_SQ) {
-	  retval = write_uncompressed(outname, distance_d_write_sq_emitn);
+	  retval = write_uncompressed(outname, 0, distance_d_write_sq_emitn);
 	} else if (shape == DISTANCE_SQ0) {
-	  retval = write_uncompressed(outname, distance_d_write_sq0_emitn);
+	  retval = write_uncompressed(outname, 0, distance_d_write_sq0_emitn);
 	} else {
-	  retval = write_uncompressed(outname, distance_d_write_tri_emitn);
+	  retval = write_uncompressed(outname, 0, distance_d_write_tri_emitn);
 	}
 	if (retval) {
 	  goto distance_d_write_ret_1;
@@ -7686,11 +7686,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  sprintf(outname_end, ".mdist.gz");
 	}
 	if (shape == DISTANCE_SQ) {
-	  parallel_compress(outname, distance_d_write_1mibs_sq_emitn);
+	  parallel_compress(outname, 0, distance_d_write_1mibs_sq_emitn);
 	} else if (shape == DISTANCE_SQ0) {
-	  parallel_compress(outname, distance_d_write_1mibs_sq0_emitn);
+	  parallel_compress(outname, 0, distance_d_write_1mibs_sq0_emitn);
 	} else {
-	  parallel_compress(outname, distance_d_write_1mibs_tri_emitn);
+	  parallel_compress(outname, 0, distance_d_write_1mibs_tri_emitn);
 	}
       } else {
 	if (parallel_tot > 1) {
@@ -7699,11 +7699,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  sprintf(outname_end, ".mdist");
 	}
 	if (shape == DISTANCE_SQ) {
-	  retval = write_uncompressed(outname, distance_d_write_1mibs_sq_emitn);
+	  retval = write_uncompressed(outname, 0, distance_d_write_1mibs_sq_emitn);
 	} else if (shape == DISTANCE_SQ0) {
-	  retval = write_uncompressed(outname, distance_d_write_1mibs_sq0_emitn);
+	  retval = write_uncompressed(outname, 0, distance_d_write_1mibs_sq0_emitn);
 	} else {
-	  retval = write_uncompressed(outname, distance_d_write_1mibs_tri_emitn);
+	  retval = write_uncompressed(outname, 0, distance_d_write_1mibs_tri_emitn);
 	}
 	if (retval) {
 	  goto distance_d_write_ret_1;
@@ -7726,11 +7726,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  sprintf(outname_end, ".mibs.gz");
 	}
 	if (shape == DISTANCE_SQ) {
-	  parallel_compress(outname, distance_d_write_ibs_sq_emitn);
+	  parallel_compress(outname, 0, distance_d_write_ibs_sq_emitn);
 	} else if (shape == DISTANCE_SQ0) {
-	  parallel_compress(outname, distance_d_write_ibs_sq0_emitn);
+	  parallel_compress(outname, 0, distance_d_write_ibs_sq0_emitn);
 	} else {
-	  parallel_compress(outname, distance_d_write_ibs_tri_emitn);
+	  parallel_compress(outname, 0, distance_d_write_ibs_tri_emitn);
 	}
       } else {
 	if (parallel_tot > 1) {
@@ -7739,11 +7739,11 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  sprintf(outname_end, ".mibs");
 	}
 	if (shape == DISTANCE_SQ) {
-	  retval = write_uncompressed(outname, distance_d_write_ibs_sq_emitn);
+	  retval = write_uncompressed(outname, 0, distance_d_write_ibs_sq_emitn);
 	} else if (shape == DISTANCE_SQ0) {
-	  retval = write_uncompressed(outname, distance_d_write_ibs_sq0_emitn);
+	  retval = write_uncompressed(outname, 0, distance_d_write_ibs_sq0_emitn);
 	} else {
-	  retval = write_uncompressed(outname, distance_d_write_ibs_tri_emitn);
+	  retval = write_uncompressed(outname, 0, distance_d_write_ibs_tri_emitn);
 	}
 	if (retval) {
 	  goto distance_d_write_ret_1;

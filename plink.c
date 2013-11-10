@@ -598,19 +598,21 @@ double calc_wt_mean_maf(double exponent, double maf) {
 }
 
 int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfiltered_indiv_ct, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info) {
+  // possible todo: if any families have been entirely filtered out, don't
+  // construct pedigree for them
   unsigned char* wkspace_mark;
   unsigned char* wkspace_mark2;
   int32_t ii;
   int32_t jj;
   int32_t kk;
   int32_t mm;
-  int32_t nn;
-  int32_t oo;
   uint32_t uii;
   uint32_t ujj;
+  uint32_t ukk;
   uint32_t initial_family_blocks;
+  uintptr_t ulii;
   uintptr_t indiv_uidx;
-  int64_t llii;
+  uint64_t ullii;
   char* family_ids;
   char* cur_person_id;
   char* last_family_id = NULL;
@@ -626,14 +628,15 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   uint32_t indiv_idx_write;
   uintptr_t max_family_id_len = 0;
   char* indiv_ids;
+  uint32_t* indiv_id_lookup;
   uintptr_t max_indiv_id_len = 0;
-  int32_t max_pm_id_len;
+  uintptr_t max_pm_id_len;
   uint32_t family_id_ct;
   uint32_t* fis_ptr;
   char* stray_parent_ids;
-  int32_t stray_parent_ct;
+  intptr_t stray_parent_ct;
   uintptr_t* processed_indivs;
-  int32_t founder_ct;
+  uint32_t founder_ct;
   int32_t max_family_nf = 0;
   uintptr_t unfiltered_indiv_ctl = (unfiltered_indiv_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ctlm = unfiltered_indiv_ctl * BITCT;
@@ -750,7 +753,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   pri_ptr->family_sizes = family_sizes;
 
   if (wkspace_alloc_ui_checked(&(pri_ptr->family_info_offsets), (family_id_ct + 1) * sizeof(int32_t)) ||
-      wkspace_alloc_ui_checked(&(pri_ptr->family_rel_space_offsets), (family_id_ct + 1) * sizeof(int32_t)) ||
+      wkspace_alloc_ul_checked(&(pri_ptr->family_rel_space_offsets), (family_id_ct + 1) * sizeof(intptr_t)) ||
       wkspace_alloc_ui_checked(&(pri_ptr->family_founder_cts), family_id_ct * sizeof(int32_t))) {
     return RET_NOMEM;
   }
@@ -766,7 +769,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   if (wkspace_alloc_ui_checked(&uiptr, family_id_ct * sizeof(int32_t))) {
     return RET_NOMEM;
   }
-  memcpy(uiptr, pri_ptr->family_info_offsets, family_id_ct * sizeof(int32_t));
+  fill_uint_zero(uiptr, family_id_ct);
 
   // Fill family_idxs, family_founder_cts, and founder portion of
   // family_rel_nf_idxs.
@@ -777,30 +780,31 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
     kk = bsearch_str(tbuf, family_ids, max_family_id_len, 0, family_id_ct - 1);
     pri_ptr->family_idxs[indiv_uidx] = kk;
     if (IS_SET(founder_info, indiv_uidx)) {
-      pri_ptr->family_founder_cts[kk] += 1;
-      pri_ptr->family_rel_nf_idxs[indiv_uidx] = uiptr[kk];
+      pri_ptr->family_founder_cts[(uint32_t)kk] += 1;
+      pri_ptr->family_rel_nf_idxs[indiv_uidx] = uiptr[(uint32_t)kk];
       uiptr[kk] += 1;
     }
     cur_person_id = &(cur_person_id[max_person_id_len]);
   }
   wkspace_reset(uiptr);
-  jj = 0; // running rel_space offset
+  ulii = 0; // running rel_space offset
   for (fidx = 0; fidx < family_id_ct; fidx++) {
     family_size = pri_ptr->family_sizes[fidx];
-    pri_ptr->family_rel_space_offsets[fidx] = jj;
+    pri_ptr->family_rel_space_offsets[fidx] = ulii;
     kk = pri_ptr->family_founder_cts[fidx];
     if (family_size - kk > max_family_nf) {
       max_family_nf = family_size - kk;
     }
     // No need to explicitly store the (kk * (kk - 1)) / 2 founder-founder
     // relationships.
-    jj += ((int64_t)family_size * (family_size - 1) - (int64_t)kk * (kk - 1)) / 2;
+    ulii += (((int64_t)family_size) * (family_size - 1) - ((int64_t)kk) * (kk - 1)) / 2;
   }
+
   // make it safe to determine size of blocks by subtracting from the next
   // offset, even if we're at the last family
   pri_ptr->family_info_offsets[family_id_ct] = unfiltered_indiv_ct;
-  pri_ptr->family_rel_space_offsets[family_id_ct] = jj;
-  if (wkspace_alloc_d_checked(&(pri_ptr->rel_space), jj * sizeof(double))) {
+  pri_ptr->family_rel_space_offsets[family_id_ct] = ulii;
+  if (wkspace_alloc_d_checked(&(pri_ptr->rel_space), ulii * sizeof(double))) {
     return RET_NOMEM;
   }
 
@@ -835,6 +839,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
       if (wkspace_alloc_ui_checked(&complete_indiv_idxs, family_size * sizeof(int32_t)) ||
           wkspace_alloc_ui_checked(&remaining_indiv_idxs, remaining_indiv_ct * sizeof(int32_t)) ||
           wkspace_alloc_c_checked(&indiv_ids, family_size * max_indiv_id_len) ||
+          wkspace_alloc_ui_checked(&indiv_id_lookup, family_size * sizeof(int32_t)) ||
           wkspace_alloc_i_checked(&remaining_indiv_parent_idxs, remaining_indiv_ct * 2 * sizeof(int32_t)) ||
           wkspace_alloc_c_checked(&stray_parent_ids, remaining_indiv_ct * 2 * max_pm_id_len)) {
 	return RET_NOMEM;
@@ -845,12 +850,16 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
       rel_writer = rs_ptr;
       cur_person_id = indiv_ids;
       for (ii = 0; ii < family_size; ii++) {
-	kk = fis_ptr[ii];
+	kk = fis_ptr[(uint32_t)ii];
 	jj = strlen_se(&(person_ids[kk * max_person_id_len])) + 1;
 	strcpy(cur_person_id, &(person_ids[kk * max_person_id_len + jj]));
 	cur_person_id = &(cur_person_id[max_indiv_id_len]);
+	indiv_id_lookup[(uint32_t)ii] = ii;
       }
 
+      if (qsort_ext(indiv_ids, family_size, max_indiv_id_len, strcmp_deref, (char*)indiv_id_lookup, sizeof(int32_t))) {
+	return RET_NOMEM;
+      }
       // Compile list of non-founder family member indices, and identify
       // parents who are referred to by individual ID but are NOT in the
       // dataset.
@@ -873,7 +882,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	    stray_parent_ct++;
 	    remaining_indiv_parent_idxs[uii * 2] = -2;
 	  } else {
-            remaining_indiv_parent_idxs[uii * 2] = fis_ptr[mm];
+            remaining_indiv_parent_idxs[uii * 2] = fis_ptr[indiv_id_lookup[(uint32_t)mm]];
 	  }
 	} else {
           remaining_indiv_parent_idxs[uii * 2] = -1;
@@ -886,7 +895,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	    stray_parent_ct++;
 	    remaining_indiv_parent_idxs[uii * 2 + 1] = -2;
 	  } else {
-	    remaining_indiv_parent_idxs[uii * 2 + 1] = fis_ptr[mm];
+	    remaining_indiv_parent_idxs[uii * 2 + 1] = fis_ptr[indiv_id_lookup[(uint32_t)mm]];
 	  }
 	} else {
 	  remaining_indiv_parent_idxs[uii * 2 + 1] = -1;
@@ -894,7 +903,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
         remaining_indiv_idxs[uii] = kk;
       }
       while (ii < family_size) {
-	complete_indiv_idxs[complete_indiv_idx_ct++] = fis_ptr[ii];
+	complete_indiv_idxs[complete_indiv_idx_ct++] = fis_ptr[(uint32_t)ii];
 	ii++;
       }
       qsort(stray_parent_ids, stray_parent_ct, max_pm_id_len, strcmp_casted);
@@ -903,7 +912,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
       jj = 0; // write idx
 
       // Now filter out all such parents who aren't referenced at least twice.
-      while (ii < stray_parent_ct - 1) {
+      while (ii + 1 < stray_parent_ct) {
         if (strcmp(&(stray_parent_ids[ii * max_pm_id_len]), &(stray_parent_ids[(ii + 1) * max_pm_id_len]))) {
 	  ii++;
 	  continue;
@@ -912,7 +921,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	strcpy(cur_person_id, &(stray_parent_ids[ii * max_pm_id_len]));
 	do {
 	  ii++;
-        } while (!(strcmp(cur_person_id, &(stray_parent_ids[ii * max_pm_id_len])) || (ii >= stray_parent_ct - 1)));
+        } while (!(strcmp(cur_person_id, &(stray_parent_ids[ii * max_pm_id_len])) || (ii > stray_parent_ct)));
         cur_person_id = &(cur_person_id[max_pm_id_len]);
 	jj++;
       }
@@ -945,7 +954,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	  remaining_indiv_parent_idxs[uii * 2 + 1] = kk;
 	}
       }
-      llii = (int64_t)founder_ct * (founder_ct - 1);
+      ullii = ((uint64_t)founder_ct) * (founder_ct - 1);
       while (remaining_indiv_ct) {
 	indiv_idx_write = 0;
 	for (uii = 0; uii < remaining_indiv_ct; uii++) {
@@ -953,66 +962,66 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	  mm = remaining_indiv_parent_idxs[uii * 2 + 1];
 	  jj = remaining_indiv_idxs[uii];
 	  if (((kk == -1) || is_set(processed_indivs, kk)) && ((mm == -1) || is_set(processed_indivs, mm))) {
-	    for (nn = 0; nn < founder_ct; nn++) {
-	      // relationship between kk and nnth founder
+	    for (ujj = 0; ujj < founder_ct; ujj++) {
+	      // relationship between kk and ujjth founder
 	      if ((kk >= (int32_t)unfiltered_indiv_ct) || (kk == -1)) {
 		dxx = 0.0;
 	      } else if (is_set(founder_info, kk)) {
-		if (kk == (int32_t)complete_indiv_idxs[nn]) {
+		if (kk == (int32_t)complete_indiv_idxs[ujj]) {
 		  dxx = 0.5;
 		} else {
 		  dxx = 0.0;
 		}
 	      } else {
-		oo = pri_ptr->family_rel_nf_idxs[kk];
-                dxx = 0.5 * rs_ptr[((int64_t)oo * (oo - 1) - llii) / 2 + nn];
+		ukk = pri_ptr->family_rel_nf_idxs[(uint32_t)kk];
+                dxx = 0.5 * rs_ptr[((uint64_t)ukk * (ukk - 1) - ullii) / 2 + ujj];
 	      }
 	      if (is_set(founder_info, mm)) {
-		if (mm == (int32_t)complete_indiv_idxs[nn]) {
+		if (mm == (int32_t)complete_indiv_idxs[ujj]) {
 		  dxx += 0.5;
 		}
 	      } else if ((mm != -1) && (mm < (int32_t)unfiltered_indiv_ct)) {
-		oo = pri_ptr->family_rel_nf_idxs[mm];
-		dxx += 0.5 * rs_ptr[((int64_t)oo * (oo - 1) - llii) / 2 + nn];
+		ukk = pri_ptr->family_rel_nf_idxs[(uint32_t)mm];
+		dxx += 0.5 * rs_ptr[((uint64_t)ukk * (ukk - 1) - ullii) / 2 + ujj];
 	      }
 	      *rel_writer++ = dxx;
 	    }
-	    for (; nn < (int32_t)complete_indiv_idx_ct; nn++) {
+	    for (; ujj < complete_indiv_idx_ct; ujj++) {
 	      if (kk == -1) {
 		dxx = 0.0;
 	      } else if (kk >= (int32_t)unfiltered_indiv_ct) {
-		dxx = 0.5 * tmp_rel_space[(nn - founder_ct) * stray_parent_ct + kk - unfiltered_indiv_ctlm];
+		dxx = 0.5 * tmp_rel_space[(ujj - founder_ct) * stray_parent_ct + kk - unfiltered_indiv_ctlm];
 	      } else if (is_set(founder_info, kk)) {
-                dxx = 0.5 * rs_ptr[((int64_t)nn * (nn - 1) - llii) / 2 + pri_ptr->family_rel_nf_idxs[kk]];
+                dxx = 0.5 * rs_ptr[((uint64_t)ujj * (ujj - 1) - ullii) / 2 + pri_ptr->family_rel_nf_idxs[kk]];
 	      } else {
-		oo = pri_ptr->family_rel_nf_idxs[kk];
-		if (oo == nn) {
+		ukk = pri_ptr->family_rel_nf_idxs[kk];
+		if (ukk == ujj) {
 		  dxx = 0.5;
-		} else if (oo < nn) {
-		  dxx = 0.5 * rs_ptr[((int64_t)nn * (nn - 1) - llii) / 2 + oo];
+		} else if (ukk < ujj) {
+		  dxx = 0.5 * rs_ptr[((uint64_t)ujj * (ujj - 1) - ullii) / 2 + ukk];
 		} else {
-		  dxx = 0.5 * rs_ptr[((int64_t)oo * (oo - 1) - llii) / 2 + nn];
+		  dxx = 0.5 * rs_ptr[((uint64_t)ukk * (ukk - 1) - ullii) / 2 + ujj];
 		}
 	      }
 	      if (mm >= (int32_t)unfiltered_indiv_ct) {
-		dxx += 0.5 * tmp_rel_space[(nn - founder_ct) * stray_parent_ct + mm - unfiltered_indiv_ctlm];
+		dxx += 0.5 * tmp_rel_space[(ujj - founder_ct) * stray_parent_ct + mm - unfiltered_indiv_ctlm];
 	      } else if (is_set(founder_info, mm)) {
-		dxx += 0.5 * rs_ptr[((int64_t)nn * (nn - 1) - llii) / 2 + pri_ptr->family_rel_nf_idxs[mm]];
+		dxx += 0.5 * rs_ptr[((uint64_t)ujj * (ujj - 1) - ullii) / 2 + pri_ptr->family_rel_nf_idxs[mm]];
 	      } else if (mm != -1) {
-		oo = pri_ptr->family_rel_nf_idxs[mm];
-		if (oo == nn) {
+		ukk = pri_ptr->family_rel_nf_idxs[mm];
+		if (ukk == ujj) {
 		  dxx += 0.5;
-		} else if (oo < nn) {
-		  dxx += 0.5 * rs_ptr[((int64_t)nn * (nn - 1) - llii) / 2 + oo];
+		} else if (ukk < ujj) {
+		  dxx += 0.5 * rs_ptr[((uint64_t)ujj * (ujj - 1) - ullii) / 2 + ukk];
 		} else {
-		  dxx += 0.5 * rs_ptr[((int64_t)oo * (oo - 1) - llii) / 2 + nn];
+		  dxx += 0.5 * rs_ptr[((uint64_t)ukk * (ukk - 1) - ullii) / 2 + ujj];
 		}
 	      }
 	      *rel_writer++ = dxx;
 	    }
-	    for (nn = 0; nn < stray_parent_ct; nn++) {
+	    for (ujj = 0; ujj < (uintptr_t)stray_parent_ct; ujj++) {
 	      if (kk >= (int32_t)unfiltered_indiv_ct) {
-		if (kk == nn + (int32_t)unfiltered_indiv_ctlm) {
+		if ((uint32_t)kk == ujj + unfiltered_indiv_ctlm) {
 		  dxx = 0.5;
 		} else {
 		  dxx = 0.0;
@@ -1020,21 +1029,21 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 	      } else if (kk == -1) {
                 dxx = 0.0;
 	      } else {
-		oo = pri_ptr->family_rel_nf_idxs[kk];
-		if (oo < founder_ct) {
+		ukk = pri_ptr->family_rel_nf_idxs[kk];
+		if (ukk < founder_ct) {
 		  dxx = 0.0;
 		} else {
-                  dxx = 0.5 * tmp_rel_space[(oo - founder_ct) * stray_parent_ct + nn];
+                  dxx = 0.5 * tmp_rel_space[(ukk - founder_ct) * stray_parent_ct + ujj];
 		}
 	      }
 	      if (mm >= (int32_t)unfiltered_indiv_ct) {
-		if (mm == nn + (int32_t)unfiltered_indiv_ctlm) {
+		if ((uint32_t)mm == ujj + unfiltered_indiv_ctlm) {
 		  dxx += 0.5;
 		}
 	      } else if (mm != -1) {
-		oo = pri_ptr->family_rel_nf_idxs[mm];
-		if (oo >= founder_ct) {
-		  dxx += 0.5 * tmp_rel_space[(oo - founder_ct) * stray_parent_ct + nn];
+		ukk = pri_ptr->family_rel_nf_idxs[mm];
+		if (ukk >= founder_ct) {
+		  dxx += 0.5 * tmp_rel_space[(ukk - founder_ct) * stray_parent_ct + ujj];
 		}
 	      }
 	      *tmp_rel_writer++ = dxx;

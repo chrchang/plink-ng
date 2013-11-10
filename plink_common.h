@@ -1798,7 +1798,7 @@ typedef struct {
   uintptr_t max_family_id_len; // includes trailing null
   uint32_t* family_sizes;
 
-  uint32_t* family_rel_space_offsets; // offset for rel_space lookup
+  uintptr_t* family_rel_space_offsets; // offset for rel_space lookup
   uint32_t* family_founder_cts;
   // direct indiv uidx -> family idx lookup, to reduce number of bsearches
   uint32_t* family_idxs;

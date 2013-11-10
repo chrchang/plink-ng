@@ -2315,7 +2315,7 @@ int32_t include_or_exclude(char* fname, char* sorted_ids, uintptr_t sorted_ids_c
     memcpy(exclude_arr, exclude_arr_new, unfiltered_ctl * sizeof(intptr_t));
     *exclude_ct_ptr = unfiltered_ct - include_ct;
   }
-  if (!(*exclude_ct_ptr == unfiltered_ct)) {
+  if (*exclude_ct_ptr == unfiltered_ct) {
     sprintf(logbuf, "Error: No %s remaining after --%s.\n", (flags & 2)? g_species_plural : "variants", include_or_exclude_flag_str(flags));
     logprintb();
     goto include_or_exclude_ret_ALL_SAMPLES_EXCLUDED;
