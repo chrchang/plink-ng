@@ -720,7 +720,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Note that you need to rerun " PROG_NAME_CAPS " using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
 		);
-#ifndef STABLE_BUILD
     help_print("r\tr2", &help_ctrl, 1,
 "  --r <square | square0 | triangle | inter-chr> <gz | bin> <single-prec>\n"
 "      <spaces> <yes-really>\n"
@@ -744,7 +743,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * All pairs computations can be subdivided with --parallel (even with a\n"
 "      square output shape).\n\n"
 	       );
-#endif
     help_print("make-rel", &help_ctrl, 1,
 "  --make-rel <square | square0 | triangle> <gz | bin> <cov | ibc2 | ibc3>\n"
 "             <single-prec>\n"
