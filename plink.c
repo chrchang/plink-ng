@@ -58,6 +58,9 @@
 #define LOAD_RARE_CNV 0x100
 #define LOAD_RARE_GVAR 0x200
 #define LOAD_RARE_23 0x400
+// er, this won't actually be rare...
+#define LOAD_RARE_VCF 0x800
+#define LOAD_RARE_BCF 0x1000
 
 // maximum number of usable cluster computers, this is arbitrary though it
 // shouldn't be larger than 2^31 - 1
@@ -81,7 +84,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (10 Nov 2013)";
+  " (11 Nov 2013)";
 const char ver_str2[] =
 #ifdef PLINK_BUILD
   "               [final website TBD]\n"
@@ -5780,7 +5783,7 @@ char extract_char_param(char* ss) {
   }
 }
 
-int32_t alloc_string(char** sbuf, char* source) {
+int32_t alloc_string(char** sbuf, const char* source) {
   uint32_t slen = strlen(source) + 1;
   *sbuf = (char*)malloc(slen * sizeof(char));
   if (!(*sbuf)) {
@@ -6230,6 +6233,10 @@ int32_t main(int32_t argc, char** argv) {
   char* filter_attrib_liststr = NULL;
   char* filter_attrib_indiv_fname = NULL;
   char* filter_attrib_indiv_liststr = NULL;
+  char* const_fid = NULL;
+  char* vcf_filter_exceptions_flattened = NULL;
+  double vcf_min_qual = -INFINITY;
+  char id_delim = '\0';
   int32_t retval = 0;
   uint32_t load_params = 0; // describes what file parameters have been provided
   uint32_t load_rare = 0;
@@ -6371,6 +6378,7 @@ int32_t main(int32_t argc, char** argv) {
   Ll_str* file_delete_list = NULL;
   uint32_t chrom_flag_present = 0;
   uintptr_t chrom_exclude[CHROM_MASK_INITIAL_WORDS];
+  // er, except for first four, these should not be preallocated...
   char outname[FNAMESIZE];
   char mapname[FNAMESIZE];
   char pedname[FNAMESIZE];
@@ -7518,6 +7526,16 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --bd flag deprecated.  Use '--mh bd'.\n");
 	calculation_type |= CALC_CMH;
 	misc_flags |= MISC_CMH_BD;
+      } else if (!memcmp(argptr2, "cf", 3)) {
+	if (load_rare || load_params) {
+	  goto main_ret_INVALID_CMDLINE_4;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	logprint("Error: --bcf is not implemented yet.\n");
+	retval = RET_CALC_NOT_YET_SUPPORTED;
+	goto main_ret_1;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8246,6 +8264,13 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "omplement-sets", 15)) {
         set_info.modifier |= SET_COMPLEMENTS | SET_C_PREFIX;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "onst-fid", 9)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (alloc_string(&const_fid, param_ct? argv[cur_arg + 1] : "0")) {
+	  goto main_ret_NOMEM;
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -8465,6 +8490,13 @@ int32_t main(int32_t argc, char** argv) {
 	glm_modifier |= GLM_DOMINANT | GLM_CONDITION_DOMINANT;
 	glm_xchr_model = 0;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "ouble-id", 9)) {
+        if (const_fid) {
+	  sprintf(logbuf, "Error: --double-id cannot be used with --const-fid.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        misc_flags |= MISC_DOUBLE_ID;
+        goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -9339,6 +9371,19 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "bs-matrix", 10)) {
         calculation_type |= CALC_PLINK1_IBS_MATRIX;
         goto main_param_zero;
+      } else if (!memcmp(argptr2, "d-delim", 8)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (param_ct) {
+          id_delim = extract_char_param(argv[cur_arg + 1]);
+	  if (!id_delim) {
+	    sprintf(logbuf, "Error: --id-delim parameter must be a single character.%s", errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	} else {
+          id_delim = '_';
+	}
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -9668,6 +9713,21 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	ld_info.modifier |= LD_SNP_LIST_FILE;
+      } else if (!memcmp(argptr2, "oad-skip3", 10)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        for (uii = 1; uii <= param_ct; uii++) {
+	  if (!strcmp(argv[cur_arg + uii], "strict")) {
+	    misc_flags |= MISC_LOAD_SKIP3_STRICT;
+	  } else if (!strcmp(argv[cur_arg + uii], "list")) {
+	    misc_flags |= MISC_LOAD_SKIP3_LIST;
+	  } else {
+	    sprintf(logbuf, "Error: Invalid --load-skip3 modifier '%s'.%s", argv[cur_arg + uii], errstr_append);
+            goto main_ret_INVALID_CMDLINE_3;
+	  }
+	}
+        misc_flags |= MISC_LOAD_SKIP3;
       } else {
         goto main_ret_INVALID_CMDLINE_2;
       }
@@ -12332,6 +12392,44 @@ int32_t main(int32_t argc, char** argv) {
 	retval = RET_CALC_NOT_YET_SUPPORTED;
 	goto main_ret_1;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "cf", 3)) {
+	if (load_params || load_rare) {
+	  goto main_ret_INVALID_CMDLINE_4;
+	}
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	uii = strlen(argv[cur_arg + 1]);
+	if (uii > FNAMESIZE - 1) {
+	  logprint("Error: --vcf filename too long.\n");
+	  goto main_ret_OPEN_FAIL;
+	}
+	memcpy(pedname, argv[cur_arg + 1], uii + 1);
+	load_rare = LOAD_RARE_VCF;
+      } else if (!memcmp(argptr2, "cf-min-qual", 12)) {
+	if (!(load_rare & (LOAD_RARE_VCF | LOAD_RARE_BCF))) {
+	  logprint("Error: --vcf-min-qual must be used with --vcf/--bcf.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (scan_double(argv[cur_arg + 1], &vcf_min_qual)) {
+	  sprintf(logbuf, "Error: Invalid --vcf-min-qual parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+      } else if (!memcmp(argptr2, "cf-filter", 10)) {
+	if (!(load_rare & (LOAD_RARE_VCF | LOAD_RARE_BCF))) {
+	  logprint("Error: --vcf-filter must be used with --vcf/--bcf.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        if (param_ct) {
+	  retval = alloc_and_flatten(&vcf_filter_exceptions_flattened, &(argv[cur_arg + 1]), param_ct);
+	  if (retval) {
+	    goto main_ret_1;
+	  }
+	}
+	misc_flags |= MISC_VCF_FILTER;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
@@ -12735,7 +12833,7 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_INVALID_CMDLINE_3;
   }
 
-  if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV))) && (famname[0] || load_rare)) {
+  if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF))) && (famname[0] || load_rare)) {
     goto main_ret_NULL_CALC;
   }
   if (!(load_params || load_rare)) {
@@ -12870,6 +12968,8 @@ int32_t main(int32_t argc, char** argv) {
         retval = lgen_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, lgen_modifier, lgen_reference_fname, &chrom_info);
       } else if (load_rare & LOAD_RARE_TRANSPOSE_MASK) {
         retval = transposed_to_bed(pedname, famname, outname, sptr, misc_flags, &chrom_info);
+      } else if (load_rare & LOAD_RARE_VCF) {
+	retval = vcf_to_bed(pedname, outname, sptr, missing_pheno, misc_flags, const_fid, id_delim, vcf_min_qual, vcf_filter_exceptions_flattened, &chrom_info);
       } else if (load_rare == LOAD_RARE_23) {
         retval = bed_from_23(pedname, outname, sptr, modifier_23, fid_23, iid_23, (pheno_23 == INFINITY)? ((double)missing_pheno) : pheno_23, paternal_id_23, maternal_id_23, convert_xy_23, &chrom_info);
       } else if (load_rare & LOAD_RARE_DUMMY) {
@@ -13013,6 +13113,9 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(filter_attrib_liststr);
   free_cond(filter_attrib_indiv_fname);
   free_cond(filter_attrib_indiv_liststr);
+  free_cond(const_fid);
+  free_cond(vcf_filter_exceptions_flattened);
+
   cluster_cleanup(&cluster);
   set_cleanup(&set_info);
   ld_cleanup(&ld_info);

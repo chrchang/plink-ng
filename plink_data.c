@@ -7438,6 +7438,11 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   return retval;
 }
 
+int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, double vcf_min_qual, char* vcf_filter_exceptions_flattened, Chrom_info* chrom_info_ptr) {
+  logprint("Error: --vcf is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+}
+
 void announce_make_xylist_complete(uint32_t markers_left, char* outname, char* outname_end) {
   *outname_end = '\0';
   sprintf(logbuf, "--23file-make-xylist: %u variant ID%s written to %s.xylist.\n", markers_left, (markers_left == 1)? "" : "s", outname);
@@ -9538,9 +9543,16 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   char* writebuf2 = NULL;
   char* writebuf3 = NULL;
   uint32_t* fid_map = NULL;
+  char* cur_mk_allelesx_buf = NULL;
   int32_t retval = 0;
+  char* writebufl[4];
+  char* writebuflp[4];
+  char* writebuflps[4];
+  char* cur_mk_allelesx[6];
+  uint32_t cmalen[4];
   uint32_t recode_compound;
   time_t rawtime;
+  struct tm *loctime;
   uint32_t is_x;
   uint32_t is_y;
   uint32_t is_haploid;
@@ -9557,9 +9569,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   uintptr_t* ulptr;
   uintptr_t* ulptr_end;
   char* writebuf;
-  char* writebufl[4];
-  char* writebuflp[4];
-  char* writebuflps[4];
   unsigned char* bufptr;
   char* wbufptr;
   char* cptr;
@@ -9570,9 +9579,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   unsigned char ucc;
   unsigned char ucc2;
   char cc;
-  char* cur_mk_allelesx_buf = NULL;
-  char* cur_mk_allelesx[6];
-  uint32_t cmalen[4];
   uint32_t pct;
   uint32_t uidx_cur;
   uint32_t uidx_stop;
@@ -10095,12 +10101,19 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       goto recode_ret_OPEN_FAIL;
     }
     if (fputs_checked(
-"##fileformat=VCFv4.0\n"
-"##source=" PROG_NAME_CAPS "\n"
-"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT"
-, outfile)) {
+"##fileformat=VCFv4.1\n"
+"##filedate=", outfile)) {
       goto recode_ret_WRITE_FAIL;
     }
+    time(&rawtime);
+    loctime = localtime(&rawtime);
+    strftime(tbuf, MAXLINELEN, "%Y%m%d", loctime);
+    fputs(tbuf, outfile);
+    fputs(
+"\n##source=" PROG_NAME_CAPS "\n"
+"##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n"
+"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT"
+, outfile);
     indiv_uidx = 0;
     shiftval = 0; // repurposed: underscore seen in ID?
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {

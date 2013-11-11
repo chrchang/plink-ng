@@ -200,6 +200,12 @@
 // not yet sure this is actually useful, so only accessible in dev build
 #define MISC_LASSO_NO_GENO_STD 0x800000LLU
 
+#define MISC_DOUBLE_ID 0x1000000LLU
+#define MISC_LOAD_SKIP3 0x2000000LLU
+#define MISC_LOAD_SKIP3_STRICT 0x4000000LLU
+#define MISC_LOAD_SKIP3_LIST 0x8000000LLU
+#define MISC_VCF_FILTER 0x10000000LLU
+
 #define CALC_RELATIONSHIP 1LLU
 #define CALC_IBC 2LLU
 #define CALC_DISTANCE 4LLU
