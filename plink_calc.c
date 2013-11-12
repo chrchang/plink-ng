@@ -3479,7 +3479,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   }
 
   fill_uint_zero(missing_cts, indiv_ct);
-  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
   // .gen instead of .bgen because latter actually has lower precision(!) (15
   // bits instead of the ~20 you get from printf("%g", dxx)), and there's no
   // need for repeated random access.
@@ -3499,7 +3499,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     }
     if (marker_uidx >= chrom_end) {
       chrom_fo_idx++;
-      refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
     }
     if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf, indiv_ct, indiv_exclude, IS_SET(marker_reverse, marker_uidx))) {
       goto calc_regress_pcs_ret_READ_FAIL;
@@ -4102,7 +4102,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   }
   marker_uidx = 0; // raw marker index
   g_ctrl_ct = 0; // after excluding missing (abuse of variable name, should fix this later)
-  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
   // subtract X/haploid markers from marker_ct
   ukk = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1);
   if (ukk) {
@@ -4132,7 +4132,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       if (marker_uidx >= chrom_end) {
 	while (1) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	  if (!is_haploid) {
 	    break;
 	  }

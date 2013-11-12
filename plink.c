@@ -98,12 +98,12 @@ const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n"
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
 const char notestr_null_calc[] = "Note: No output requested.  Exiting.\n";
 #ifdef STABLE_BUILD
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --distance, --genome, --homozyg, --cluster,\n--neighbour, --model, --gxe, --logistic, --lasso, --indep, --make-rel,\n--make-grm-gz, --rel-cutoff, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --distance, --genome, --homozyg, --cluster,\n--neighbour, --model, --gxe, --logistic, --lasso, --indep, --r2, --make-rel,\n--make-grm-gz, --rel-cutoff, --regress-distance, and --ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
 #else
   #ifndef NOLAPACK
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --distance, --genome, --homozyg, --cluster,\n--neighbour, --model, --gxe, --logistic, --lasso, --indep, --make-rel,\n--make-grm-gz, --rel-cutoff, --regress-pcs, --regress-distance, --ibs-test,\nand --unrelated-heritability.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --distance, --genome, --homozyg, --cluster,\n--neighbour, --model, --gxe, --logistic, --lasso, --indep, --r2, --make-rel,\n--make-grm-gz, --rel-cutoff, --regress-pcs, --regress-distance, --ibs-test,\nand --unrelated-heritability.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #else
-const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --distance, --genome, --homozyg, --cluster,\n--neighbour, --model, --gxe, --logistic, --lasso, --indep, --make-rel,\n--make-grm-gz, --rel-cutoff, --regress-pcs, --regress-distance, and\n--ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
+const char notestr_null_calc2[] = "Commands include --make-bed, --recode, --merge-list, --write-snplist, --freqx,\n--missing, --hardy, --ibc, --distance, --genome, --homozyg, --cluster,\n--neighbour, --model, --gxe, --logistic, --lasso, --indep, --r2, --make-rel,\n--make-grm-gz, --rel-cutoff, --regress-pcs, --regress-distance, and\n--ibs-test.\n\n'" PROG_NAME_STR " --help | more' describes all functions (warning: long).\n";
   #endif
 #endif
 
@@ -3613,7 +3613,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
   fprintf(outfile, writebuf, "SNP");
  
   chrom_fo_idx = 0;
-  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
   cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
   *cptr0++ = ' ';
   cptr = &(cptr0[10 + plink_maxsnp]);
@@ -3631,7 +3631,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 	marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	  cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
 	  *cptr0++ = ' ';
 	  cptr = &(cptr0[10 + plink_maxsnp]);
@@ -3673,7 +3673,7 @@ int32_t hardy_report(char* outname, char* outname_end, uintptr_t unfiltered_mark
 	marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx);
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
-	  refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	  cptr0 = width_force(4, writebuf, chrom_name_write(writebuf, chrom_info_ptr, chrom_info_ptr->chrom_file_order[chrom_fo_idx], zero_extra_chroms));
           memset(&(cptr0[plink_maxsnp]), 32, 20);
 	  cptr = &(cptr0[10 + plink_maxsnp]);

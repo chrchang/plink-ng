@@ -111,7 +111,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
     }
     if (marker_uidx >= chrom_end) {
       chrom_fo_idx++;
-      refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
     }
     if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_collapsed, indiv_valid_ct, pheno_nm2, IS_SET(marker_reverse, marker_uidx))) {
       goto lasso_bigmem_ret_READ_FAIL;
@@ -417,7 +417,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
     }
     if (marker_uidx >= chrom_end) {
       chrom_fo_idx++;
-      refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
     }
     if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbuf_collapsed, indiv_valid_ct, pheno_nm2, IS_SET(marker_reverse, marker_uidx))) {
       goto lasso_smallmem_ret_READ_FAIL;
@@ -798,7 +798,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
     next_unset_unsafe_ck(marker_exclude, &marker_uidx);
     if (marker_uidx >= chrom_end) {
       chrom_fo_idx++;
-      refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       wptr_start = chrom_name_write(tbuf, chrom_info_ptr, uii, zero_extra_chroms);
       *wptr_start++ = '\t';

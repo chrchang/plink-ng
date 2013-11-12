@@ -5918,7 +5918,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       if (model_assoc) {
 	// exploit overflow
 	chrom_fo_idx++;
-	refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &g_is_haploid);
+	refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &g_is_haploid);
 	uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	if (g_is_haploid && (!g_is_x)) {
 	  if (g_is_y) {
@@ -7434,7 +7434,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       g_qblock_start = 0;
       // exploit overflow
       chrom_fo_idx++;
-      refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &g_is_haploid);
+      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &g_is_haploid);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       chrom_name_ptr = chrom_name_buf;
       chrom_name_len = 4;
@@ -8386,7 +8386,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
       }
       if (marker_uidx >= chrom_end) {
 	chrom_fo_idx++;
-	refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+	refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	if (!is_y) {
 	  cur_indiv_ct = covar_nm_ct;
 	  cur_group1_size = group1_size;
@@ -11769,7 +11769,7 @@ int32_t glm_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
       // exploit overflow
       do {
         chrom_fo_idx++;
-        refresh_chrom_info(chrom_info_ptr, marker_uidx, 1, 0, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &g_is_haploid);
+        refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &g_is_x, &g_is_y, &g_is_haploid);
       } while ((!glm_xchr_model) && g_is_haploid);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       if (uii <= chrom_info_ptr->max_code) {
