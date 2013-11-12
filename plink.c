@@ -12421,6 +12421,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(logbuf, "Error: Invalid --vcf-min-qual parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
+	vcf_min_qual -= EPSILON;
       } else if (!memcmp(argptr2, "cf-filter", 10)) {
 	if (!(load_rare & (LOAD_RARE_VCF | LOAD_RARE_BCF))) {
 	  logprint("Error: --vcf-filter must be used with --vcf/--bcf.\n");

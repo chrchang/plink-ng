@@ -1455,8 +1455,6 @@ void forget_extra_chrom_names(Chrom_info* chrom_info_ptr);
 
 uint32_t haploid_chrom_present(Chrom_info* chrom_info_ptr);
 
-// int32_t get_chrom_code_raw(char* sptr);
-
 int32_t get_chrom_code(Chrom_info* chrom_info_ptr, char* sptr);
 
 int32_t get_chrom_code2(Chrom_info* chrom_info_ptr, char* sptr, uint32_t slen);
