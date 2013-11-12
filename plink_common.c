@@ -3046,7 +3046,7 @@ uint32_t haploid_chrom_present(Chrom_info* chrom_info_ptr) {
   return 0;
 }
 
-int32_t marker_code_raw(char* sptr) {
+int32_t get_chrom_code_raw(char* sptr) {
   // any character <= ' ' is considered a terminator
   int32_t ii;
   if (*sptr == 'c') {
@@ -3096,10 +3096,10 @@ int32_t marker_code_raw(char* sptr) {
   return -1;
 }
 
-int32_t marker_code(Chrom_info* chrom_info_ptr, char* sptr) {
+int32_t get_chrom_code(Chrom_info* chrom_info_ptr, char* sptr) {
   // does not require string to be null-terminated, and does not perform
   // exhaustive error-checking
-  int32_t ii = marker_code_raw(sptr);
+  int32_t ii = get_chrom_code_raw(sptr);
   char** nonstd_names = chrom_info_ptr->nonstd_names;
   uint32_t uii;
   uint32_t ujj;
@@ -3135,13 +3135,13 @@ int32_t marker_code(Chrom_info* chrom_info_ptr, char* sptr) {
   return ii;
 }
 
-int32_t marker_code2(Chrom_info* chrom_info_ptr, char* sptr, uint32_t slen) {
+int32_t get_chrom_code2(Chrom_info* chrom_info_ptr, char* sptr, uint32_t slen) {
   // when the chromosome name doesn't end with a space
   char* s_end = &(sptr[slen]);
   char tmpc = *s_end;
   int32_t retval;
   *s_end = ' ';
-  retval = marker_code(chrom_info_ptr, sptr);
+  retval = get_chrom_code(chrom_info_ptr, sptr);
   *s_end = tmpc;
   return retval;
 }

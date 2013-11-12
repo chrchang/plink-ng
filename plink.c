@@ -2657,7 +2657,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	goto read_external_freqs_ret_TOO_LONG_LINE;
       }
       bufptr = skip_initial_spaces(loadbuf);
-      ii = marker_code(chrom_info_ptr, bufptr);
+      ii = get_chrom_code(chrom_info_ptr, bufptr);
       if (ii == -1) {
 	goto read_external_freqs_ret_INVALID_FORMAT;
       }
@@ -2720,7 +2720,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
       if (!loadbuf[loadbuf_size - 1]) {
 	goto read_external_freqs_ret_TOO_LONG_LINE;
       }
-      ii = marker_code(chrom_info_ptr, loadbuf);
+      ii = get_chrom_code(chrom_info_ptr, loadbuf);
       if (ii == -1) {
 	goto read_external_freqs_ret_INVALID_FORMAT;
       }
@@ -5567,8 +5567,8 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
   uint32_t rs_len;
   char* range_end;
   uint32_t re_len;
-  int32_t marker_code_start;
-  int32_t marker_code_end;
+  int32_t chrom_code_start;
+  int32_t chrom_code_end;
   if (param_ct) {
     cur_arg_ptr = argv[1];
     while (1) {
@@ -5579,8 +5579,8 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
       if (!range_start) {
 	break;
       }
-      marker_code_start = marker_code2(chrom_info_ptr, range_start, rs_len);
-      if (marker_code_start == -1) {
+      chrom_code_start = get_chrom_code2(chrom_info_ptr, range_start, rs_len);
+      if (chrom_code_start == -1) {
 	range_start[rs_len] = '\0';
 	if (!allow_extra_chroms) {
 	  sprintf(logbuf, "Error: Invalid --%s chromosome code '%s'.%s", cur_flag_str, range_start, errstr_append);
@@ -5592,8 +5592,8 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	  goto parse_chrom_ranges_ret_NOMEM;
 	}
       } else if (range_end) {
-        marker_code_end = marker_code2(chrom_info_ptr, range_end, re_len);
-	if (marker_code_end == -1) {
+        chrom_code_end = get_chrom_code2(chrom_info_ptr, range_end, re_len);
+	if (chrom_code_end == -1) {
 	  if (!allow_extra_chroms) {
 	    range_end[re_len] = '\0';
 	    sprintf(logbuf, "Error: Invalid --%s chromosome code '%s'.%s", cur_flag_str, range_end, errstr_append);
@@ -5602,15 +5602,15 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	    goto parse_chrom_ranges_ret_INVALID_CMDLINE_2;
 	  }
 	}
-        if (marker_code_end <= marker_code_start) {
+        if (chrom_code_end <= chrom_code_start) {
 	  range_start[rs_len] = '\0';
 	  range_end[re_len] = '\0';
 	  sprintf(logbuf, "Error: --%s chromosome code '%s' is not greater than '%s'.%s", cur_flag_str, range_end, range_start, errstr_append);
 	  goto parse_chrom_ranges_ret_INVALID_CMDLINE;
 	}
-	fill_bits(chrom_mask, marker_code_start, marker_code_end + 1 - marker_code_start);
+	fill_bits(chrom_mask, chrom_code_start, chrom_code_end + 1 - chrom_code_start);
       } else {
-        SET_BIT(chrom_mask, marker_code_start);
+        SET_BIT(chrom_mask, chrom_code_start);
       }
       argct++;
     }

@@ -915,7 +915,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --id-delim {d}   : Parse sample IDs as [FID][d][IID] (default delim '_').\n"
 	       );
     help_print("vcf\tbcf\tbiallelic-only\tvcf-min-qual\tvcf-filter", &help_ctrl, 0,
-"  --biallelic-only <strict> <list> : Skip VCF variants with 3+ alleles.\n"
+"  --biallelic-only <strict> <list> : Skip VCF variants with 2+ alt. alleles.\n"
 "  --vcf-min-qual [val]             : Skip VCF variants with low/missing QUAL.\n"
 "  --vcf-filter {exception(s)...}   : Skip variants which have FILTER failures.\n"
 	       );

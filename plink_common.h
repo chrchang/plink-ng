@@ -1455,11 +1455,11 @@ void forget_extra_chrom_names(Chrom_info* chrom_info_ptr);
 
 uint32_t haploid_chrom_present(Chrom_info* chrom_info_ptr);
 
-int32_t marker_code_raw(char* sptr);
+// int32_t get_chrom_code_raw(char* sptr);
 
-int32_t marker_code(Chrom_info* chrom_info_ptr, char* sptr);
+int32_t get_chrom_code(Chrom_info* chrom_info_ptr, char* sptr);
 
-int32_t marker_code2(Chrom_info* chrom_info_ptr, char* sptr, uint32_t slen);
+int32_t get_chrom_code2(Chrom_info* chrom_info_ptr, char* sptr, uint32_t slen);
 
 uint32_t get_marker_chrom_fo_idx(Chrom_info* chrom_info_ptr, uintptr_t marker_uidx);
 

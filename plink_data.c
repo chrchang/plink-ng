@@ -458,7 +458,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     if (get_next_noncomment(*mapfile_ptr, &bufptr)) {
       goto load_map_ret_READ_FAIL;
     }
-    jj = marker_code(chrom_info_ptr, bufptr);
+    jj = get_chrom_code(chrom_info_ptr, bufptr);
     if (jj == -1) {
       logprint("Error: Invalid chromosome code in .map file.\n");
       goto load_map_ret_INVALID_FORMAT;
@@ -749,7 +749,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     if (is_eoln_or_comment(*bufptr)) {
       continue;
     }
-    jj = marker_code(chrom_info_ptr, bufptr);
+    jj = get_chrom_code(chrom_info_ptr, bufptr);
     if (jj == -1) {
       if (!allow_extra_chroms) {
 	uii = strlen_se(bufptr);
@@ -1079,7 +1079,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       }
       bufptr = skip_initial_spaces(loadbuf2);
     } while (is_eoln_or_comment(*bufptr));
-    jj = marker_code(chrom_info_ptr, bufptr);
+    jj = get_chrom_code(chrom_info_ptr, bufptr);
     if (jj != prev_chrom) {
       if (!split_chrom) {
 	if (prev_chrom != -1) {
@@ -3808,7 +3808,7 @@ int32_t load_bim_split_chrom(char* bimname, uintptr_t* marker_exclude, uintptr_t
       goto load_bim_split_chrom_reread;
     }
     // already validated
-    chrom_idx = ((uint32_t)marker_code(chrom_info_ptr, bufptr));
+    chrom_idx = ((uint32_t)get_chrom_code(chrom_info_ptr, bufptr));
     ll_buf[marker_idx] = (int64_t)((chrom_idx << 32) | ((uint64_t)marker_idx));
   } while ((++marker_idx) < marker_ct);
   while (0) {
@@ -3951,7 +3951,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
     }
     set_bit(already_seen, sorted_idx);
     marker_idx = marker_id_map[((uint32_t)sorted_idx)];
-    sorted_idx = marker_code(chrom_info_ptr, colx_ptr);
+    sorted_idx = get_chrom_code(chrom_info_ptr, colx_ptr);
     if (sorted_idx == -1) {
       if (!allow_extra_chroms) {
 	logprint("Error: Invalid chromosome code in --update-chr file.\n");
@@ -4171,7 +4171,7 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
     if (IS_SET(marker_exclude, marker_uidx)) {
       continue;
     }
-    ll_buf[marker_idx] = (((int64_t)marker_code(chrom_info_ptr, bufptr)) << 32) + marker_idx;
+    ll_buf[marker_idx] = (((int64_t)get_chrom_code(chrom_info_ptr, bufptr)) << 32) + marker_idx;
     bufptr = next_item(bufptr);
     uii = strlen_se(bufptr);
     memcpyx(&(marker_ids[marker_idx * max_marker_id_len]), bufptr, uii, 0);
@@ -5468,7 +5468,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       sprintf(logbuf, "Error: Missing token(s) in .map line: %s", col1_ptr);
       goto ped_to_bed_ret_INVALID_FORMAT_2;
     }
-    ii = marker_code(chrom_info_ptr, col1_ptr);
+    ii = get_chrom_code(chrom_info_ptr, col1_ptr);
     if (ii == -1) {
       // no need to support allow_extra_chroms in .map files
       logprint("Error: Invalid chromosome index in .map file.\n");
@@ -6916,7 +6916,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       pct = uii;
       tped_next_thresh = ((pct + 1) * tped_size) / 100;
     }
-    ii = marker_code(chrom_info_ptr, cptr);
+    ii = get_chrom_code(chrom_info_ptr, cptr);
     if (ii == -1) {
       if (!allow_extra_chroms) {
 	logprint("Error: Unrecognized chromosome code in .tped file.  (Did you forget\n--allow-extra-chroms?).\n");
@@ -7438,6 +7438,9 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   return retval;
 }
 
+// oh, what the hell, may as well be liberal
+#define MAX_VCF_ALT 65534
+
 int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, double vcf_min_qual, char* vcf_filter_exceptions_flattened, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_infile = NULL;
@@ -7452,11 +7455,17 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   uintptr_t indiv_ct = 0;
   int32_t retval = 0;
   char fam_trailer[20];
+  uint32_t* vcf_alt_cts;
   char* loadbuf;
   char* bufptr;
   char* bufptr2;
   char* bufptr3;
   char* wptr;
+  uintptr_t* ref_bitfield;
+  uintptr_t* alt_bitfield;
+  uintptr_t* aux_bitfield;
+  uintptr_t indiv_ctl2;
+  uintptr_t indiv_ctv2;
   uintptr_t loadbuf_size;
   uintptr_t fam_trailer_len;
   uintptr_t ulii;
@@ -7625,6 +7634,39 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   if (fclose_null(&outfile)) {
     goto vcf_to_bed_ret_WRITE_FAIL;
   }
+
+  indiv_ctl2 = (indiv_ct + BITCT2 - 1) / BITCT2;
+  indiv_ctv2 = 2 * ((indiv_ct + BITCT - 1) / BITCT);
+  if (wkspace_alloc_ui_checked(&vcf_alt_cts, MAX_VCF_ALT * sizeof(int32_t)) ||
+      wkspace_alloc_ul_checked(&ref_bitfield, indiv_ctv2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&alt_bitfield, indiv_ctv2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&aux_bitfield, indiv_ctv2 * sizeof(intptr_t))) {
+    goto vcf_to_bed_ret_NOMEM;
+  }
+  loadbuf_size = wkspace_left;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (loadbuf_size <= MAXLINELEN) {
+    goto vcf_to_bed_ret_NOMEM;
+  }
+  
+  loadbuf = (char*)wkspace_base;
+  loadbuf[loadbuf_size - 1] = ' ';
+  while (1) {
+    if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      goto vcf_to_bed_ret_READ_FAIL;
+    }
+    if (!loadbuf[loadbuf_size - 1]) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
+        logprint("Error: Pathologically long line in .vcf file.\n");
+        goto vcf_to_bed_ret_INVALID_FORMAT;
+      }
+      goto vcf_to_bed_ret_NOMEM;
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+    ;;;
+  }
+
   logprint("Error: --vcf is currently under development.\n");
   retval = RET_CALC_NOT_YET_SUPPORTED;
   while (0) {
@@ -7805,7 +7847,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
       logprint("Error: Too many allele calls in --23file line.\n");
       goto bed_from_23_ret_INVALID_FORMAT;
     }
-    ii = marker_code(SPECIES_HUMAN, chrom_start);
+    ii = get_chrom_code(SPECIES_HUMAN, chrom_start);
     if (ii == -1) {
       logprint("Error: Invalid chromosome code in --23file line.\n");
       goto bed_from_23_ret_INVALID_FORMAT;
@@ -11816,7 +11858,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uintptr_t* max_marker_
     if (is_eoln_or_comment(*bufptr)) {
       continue;
     }
-    ii = marker_code(chrom_info_ptr, bufptr);
+    ii = get_chrom_code(chrom_info_ptr, bufptr);
     if (ii == -1) {
       if (!allow_extra_chroms) {
 	sprintf(logbuf, "Error: Invalid chromosome index in %s.\n", bimname);

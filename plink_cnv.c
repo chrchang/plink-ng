@@ -117,7 +117,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
 	sprintf(logbuf, "Error: Fewer items than expected in --cnv-%s file.\n", cnv_intersect_filter_type_to_str(intersect_filter_type));
 	goto cnv_intersect_load_ret_INVALID_FORMAT;
       }
-      ii = marker_code(chrom_info_ptr, bufptr);
+      ii = get_chrom_code(chrom_info_ptr, bufptr);
       if (ii == -1) {
 	if (!allow_extra_chroms) {
 	  sprintf(logbuf, "Error: Invalid chromosome code in --cnv-%s file.\n", cnv_intersect_filter_type_to_str(intersect_filter_type));
@@ -501,7 +501,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	logprint("\nError: Fewer items than expected in .cnv line.\n");
 	goto cnv_make_map_ret_INVALID_FORMAT;
       }
-      ii = marker_code(chrom_info_ptr, bufptr);
+      ii = get_chrom_code(chrom_info_ptr, bufptr);
       if (ii == -1) {
 	if (!allow_extra_chroms) {
 	  logprint("\nError: Invalid chromosome code in .cnv file.\n");
@@ -736,7 +736,7 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    ii = marker_code(chrom_info_ptr, bufptr);
+    ii = get_chrom_code(chrom_info_ptr, bufptr);
     if (ii == -1) {
       if (!allow_extra_chroms) {
 	logprint("Error: Invalid chromosome code in .cnv.map file.\n");
@@ -844,7 +844,7 @@ int32_t load_cnv_map(FILE* mapfile, int32_t marker_pos_start, int32_t marker_pos
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
-    chrom_idx = marker_code(chrom_info_ptr, bufptr);
+    chrom_idx = get_chrom_code(chrom_info_ptr, bufptr);
     if (!IS_SET(chrom_mask, chrom_idx)) {
       continue;
     }

@@ -196,7 +196,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	  logprint("Error: Fewer tokens than expected in --make-set file line.\n");
 	  goto define_sets_ret_INVALID_FORMAT;
 	}
-	ii = marker_code(chrom_info_ptr, bufptr);
+	ii = get_chrom_code(chrom_info_ptr, bufptr);
 	if (ii == -1) {
 	  logprint("Error: Invalid chromosome code in --make-set file.\n");
 	  goto define_sets_ret_INVALID_FORMAT;
@@ -293,7 +293,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	logprint("Error: Fewer tokens than expected in --make-set file line.\n");
 	goto define_sets_ret_INVALID_FORMAT;
       }
-      ii = marker_code(chrom_info_ptr, bufptr);
+      ii = get_chrom_code(chrom_info_ptr, bufptr);
       if (ii == -1) {
 	logprint("Error: Invalid chromosome code in --make-set file.\n");
 	goto define_sets_ret_INVALID_FORMAT;
