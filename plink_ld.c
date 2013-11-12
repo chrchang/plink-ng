@@ -597,7 +597,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     goto ld_prune_ret_NOMEM;
   }
   if (weighted_x) {
-    nonmale_founder_ct = founder_ct - popcount_longs(founder_male_include2, 0, founder_ctl);
+    nonmale_founder_ct = founder_ct - popcount01_longs(founder_male_include2, 0, founder_ctl);
     if (founder_ct + nonmale_founder_ct > 0x7fffffff) {
       // no, this shouldn't ever happen, but may as well document that there
       // theoretically is a 32-bit integer range issue here

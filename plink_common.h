@@ -1599,6 +1599,10 @@ static inline uint32_t popcount_long(uintptr_t val) {
 
 uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
 
+uintptr_t popcount2_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
+
+#define popcount01_longs popcount2_longs
+
 uintptr_t popcount_bit_idx(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
 
 uintptr_t jump_forward_unset_unsafe(uintptr_t* bit_arr, uintptr_t cur_pos, uintptr_t forward_ct);

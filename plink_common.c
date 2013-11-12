@@ -4230,6 +4230,55 @@ static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
   return tot;
 }
 
+static inline uintptr_t popcount2_vecs(__m128i* vptr, uintptr_t ct) {
+  // assumes ct is a multiple of 6.
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+  uintptr_t tot = 0;
+  __m128i* vend;
+  __m128i loader1;
+  __m128i loader2;
+  __m128i count1;
+  __m128i count2;
+  __uni16 acc;
+
+  while (ct >= 30) {
+    ct -= 30;
+    acc.vi = _mm_setzero_si128();
+    vend = &(vptr[30]);
+  popcount2_vecs_main_loop:
+    do {
+      loader1 = *vptr++;
+      loader2 = *vptr++;
+      count1 = _mm_add_epi64(_mm_and_si128(loader1, m2), _mm_and_si128(_mm_srli_epi64(loader1, 2), m2));
+      count2 = _mm_add_epi64(_mm_and_si128(loader2, m2), _mm_and_si128(_mm_srli_epi64(loader2, 2), m2));
+
+      loader1 = *vptr++;
+      loader2 = *vptr++;
+      count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(loader1, m2), _mm_and_si128(_mm_srli_epi64(loader1, 2), m2)));
+      count2 = _mm_add_epi64(count2, _mm_add_epi64(_mm_and_si128(loader2, m2), _mm_and_si128(_mm_srli_epi64(loader2, 2), m2)));
+
+      loader1 = *vptr++;
+      loader2 = *vptr++;
+      count1 = _mm_add_epi64(count1, _mm_add_epi64(_mm_and_si128(loader1, m2), _mm_and_si128(_mm_srli_epi64(loader1, 2), m2)));
+      count2 = _mm_add_epi64(count2, _mm_add_epi64(_mm_and_si128(loader2, m2), _mm_and_si128(_mm_srli_epi64(loader2, 2), m2)));
+
+      acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count1, m4), _mm_and_si128(_mm_srli_epi64(count1, 4), m4)));
+      acc.vi = _mm_add_epi64(acc.vi, _mm_add_epi64(_mm_and_si128(count2, m4), _mm_and_si128(_mm_srli_epi64(count2, 4), m4)));
+    } while (vptr < vend);
+    acc.vi = _mm_add_epi64(_mm_and_si128(acc.vi, m8), _mm_and_si128(_mm_srli_epi64(acc.vi, 8), m8));
+    tot += ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
+  }
+  if (ct) {
+    acc.vi = _mm_setzero_si128();
+    vend = &(vptr[ct]);
+    ct = 0;
+    goto popcount2_vecs_main_loop;
+  }
+  return tot;
+}
+
 static inline uintptr_t popcount_vecs_exclude(__m128i* vptr, __m128i* exclude_ptr, uintptr_t ct) {
   // popcounts vptr ANDNOT exclude_ptr[0..(ct-1)].  ct is a multiple of 3.
   const __m128i m1 = {FIVEMASK, FIVEMASK};
@@ -4378,6 +4427,59 @@ uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx
 #endif
   while (lptr < lptr_end) {
     tot += popcount_long(*lptr++);
+  }
+  return tot;
+}
+
+uintptr_t popcount2_longs(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
+  // treats lptr[] as an array of two-bit instead of one-bit numbers
+  uintptr_t tot = 0;
+  uintptr_t* lptr_end = &(lptr[end_idx]);
+#ifdef __LP64__
+  uintptr_t twelve_ct;
+  __m128i* vptr;
+  if (start_idx == end_idx) {
+    return 0;
+  }
+  if (start_idx & 1) {
+    tot = popcount2_long(lptr[start_idx++]);
+  }
+  vptr = (__m128i*)(&(lptr[start_idx]));
+  twelve_ct = (end_idx - start_idx) / 12;
+  tot += popcount2_vecs(vptr, twelve_ct * 6);
+  lptr = &(lptr[start_idx + twelve_ct * 12]);
+#else
+  uintptr_t* lptr_six_end;
+  uintptr_t loader1;
+  uintptr_t loader2;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  lptr = &(lptr[start_idx]);
+  lptr_six_end = &(lptr[6 * ((end_idx - start_idx) / 6)]);
+  while (lptr < lptr_six_end) {
+    loader1 = *lptr++;
+    loader2 = *lptr++;
+    ulii = (loader1 & 0x33333333) + ((loader1 >> 2) & 0x33333333);
+    uljj = (loader2 & 0x33333333) + ((loader2 >> 2) & 0x33333333);
+    loader1 = *lptr++;
+    loader2 = *lptr++;
+    ulii += (loader1 & 0x33333333) + ((loader1 >> 2) & 0x33333333);
+    uljj += (loader2 & 0x33333333) + ((loader2 >> 2) & 0x33333333);
+    loader1 = *lptr++;
+    loader2 = *lptr++;
+    ulii += (loader1 & 0x33333333) + ((loader1 >> 2) & 0x33333333);
+    uljj += (loader2 & 0x33333333) + ((loader2 >> 2) & 0x33333333);
+    ulii = (ulii & 0x0f0f0f0f) + ((ulii >> 4) & 0x0f0f0f0f);
+    ulii += (uljj & 0x0f0f0f0f) + ((uljj >> 4) & 0x0f0f0f0f);
+
+    // Each 8-bit slot stores a number in 0..48.  Multiplying by 0x01010101 is
+    // equivalent to the left-shifts and adds we need to sum those four 8-bit
+    // numbers in the high-order slot.
+    tot += (ulii * 0x01010101) >> 24;
+  }
+#endif
+  while (lptr < lptr_end) {
+    tot += popcount2_long(*lptr++);
   }
   return tot;
 }

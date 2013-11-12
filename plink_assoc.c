@@ -5756,7 +5756,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     goto model_assoc_ret_NOMEM;
   }
   vec_collapse_init(pheno_c, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, indiv_case_include2);
-  g_case_ct = popcount_longs(indiv_case_include2, 0, pheno_nm_ctl2);
+  g_case_ct = popcount01_longs(indiv_case_include2, 0, pheno_nm_ctl2);
   vec_init_invert(pheno_nm_ct, indiv_ctrl_include2, indiv_case_include2);
   ctrl_ct = pheno_nm_ct - g_case_ct;
   if (gender_req) {
@@ -5770,7 +5770,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     }
     vec_collapse_init(sex_male, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, indiv_male_case_include2);
     bitfield_and(indiv_male_case_include2, indiv_case_include2, pheno_nm_ctl2);
-    case_male_ct = popcount_longs(indiv_male_case_include2, 0, pheno_nm_ctl2);
+    case_male_ct = popcount01_longs(indiv_male_case_include2, 0, pheno_nm_ctl2);
     vec_init_andnot(pheno_nm_ctl2, indiv_male_ctrl_include2, g_indiv_male_include2, indiv_male_case_include2);
     vec_init_andnot(pheno_nm_ctl2, indiv_nonmale_case_include2, indiv_case_include2, indiv_male_case_include2);
     vec_init_andnot(pheno_nm_ctl2, indiv_nonmale_ctrl_include2, indiv_ctrl_include2, indiv_male_ctrl_include2);
@@ -12970,7 +12970,7 @@ int32_t glm_assoc_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
       goto glm_assoc_nosnp_ret_NOMEM;
     }
     vec_collapse_init(pheno_c, unfiltered_indiv_ct, load_mask, indiv_valid_ct, g_perm_vecs);
-    g_case_ct = popcount_longs(g_perm_vecs, 0, indiv_valid_ctv2);
+    g_case_ct = popcount01_longs(g_perm_vecs, 0, indiv_valid_ctv2);
     if ((!g_case_ct) || (g_case_ct == indiv_valid_ct)) {
       goto glm_assoc_nosnp_ret_PHENO_CONSTANT;
     }

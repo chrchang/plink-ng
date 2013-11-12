@@ -7471,19 +7471,23 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   char* alt_alleles;
   char* geno_start;
   char* wptr;
-  uintptr_t* ref_bitfield;
+  uintptr_t* base_bitfields;
   uintptr_t* alt_bitfield;
-  uintptr_t* aux_bitfield;
+  uintptr_t* mask_bitfield;
   uintptr_t indiv_ctl2;
   uintptr_t indiv_ctv2;
+  uintptr_t indiv_idx;
   uintptr_t loadbuf_size;
   uintptr_t fam_trailer_len;
-  uintptr_t indiv_idx;
   uintptr_t slen;
+  uintptr_t alt_idx;
+  uintptr_t alt_ct;
   uintptr_t ulii;
+  uintptr_t uljj;
+  uintptr_t ulkk;
   double dxx;
   uint32_t marker_id_len;
-  uint32_t alt_ct;
+  uint32_t is_haploid;
   int32_t ii;
   char cc;
   if (gzopen_checked(&gz_infile, vcfname, "rb")) {
@@ -7653,9 +7657,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 
   indiv_ctl2 = (indiv_ct + BITCT2 - 1) / BITCT2;
   indiv_ctv2 = 2 * ((indiv_ct + BITCT - 1) / BITCT);
-  if (wkspace_alloc_ul_checked(&ref_bitfield, indiv_ctv2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&alt_bitfield, indiv_ctv2 * sizeof(intptr_t)) ||
-      wkspace_alloc_ul_checked(&aux_bitfield, indiv_ctv2 * sizeof(intptr_t)) ||
+  if (wkspace_alloc_ul_checked(&base_bitfields, indiv_ctv2 * 10 * sizeof(intptr_t)) ||
       wkspace_alloc_ui_checked(&vcf_alt_cts, MAX_VCF_ALT * sizeof(int32_t))) {
     goto vcf_to_bed_ret_NOMEM;
   }
@@ -7678,13 +7680,11 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   loadbuf[loadbuf_size - 1] = ' ';
   while (1) {
     if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-      putchar('\r');
       goto vcf_to_bed_ret_READ_FAIL;
     }
     if (!loadbuf[loadbuf_size - 1]) {
-      putchar('\r');
       if (loadbuf_size == MAXLINEBUFLEN) {
-        logprint("Error: Pathologically long line in .vcf file.\n");
+        logprint("\nError: Pathologically long line in .vcf file.\n");
         goto vcf_to_bed_ret_INVALID_FORMAT;
       }
       goto vcf_to_bed_ret_NOMEM;
@@ -7701,13 +7701,12 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     if (ii == -1) {
       if (!allow_extra_chroms) {
 	*bufptr2 = '\0';
-	putchar('\r');
-        sprintf(logbuf, "Error: Invalid chromosome code '%s' in .vcf file.\n(Use --allow-extra-chr to force it to be accepted.", bufptr);
+        sprintf(logbuf, "\nError: Invalid chromosome code '%s' in .vcf file.\n(Use --allow-extra-chr to force it to be accepted.", bufptr);
 	goto vcf_to_bed_ret_INVALID_FORMAT_2;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii);
       if (retval) {
-        putchar('\n');
+	putchar('\n');
         goto vcf_to_bed_ret_1;
       }
     }
@@ -7722,12 +7721,12 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     }
     marker_id++;
     if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
-      marker_id_len = strlen_se(marker_id);
-      goto vcf_to_bed_marker_skip;
+      marker_skip_ct++;
+      continue;
     }
     if ((((unsigned char)(*bufptr)) - '0') >= 10) {
       marker_id[-1] = '\0';
-      sprintf(logbuf, "Error: Invalid variant position '%s' in .vcf file.\n", bufptr2);
+      sprintf(logbuf, "\nError: Invalid variant position '%s' in .vcf file.\n", bufptr2);
       goto vcf_to_bed_ret_INVALID_FORMAT_2;
     }
     bufptr3 = strchr(marker_id, '\t');
@@ -7752,8 +7751,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     // ',' < '.'
     while (1) {
       if ((unsigned char)cc <= ',') {
-	logprint("Error: Invalid alternate allele in .vcf file.\n");
-	goto vcf_to_bed_ret_INVALID_FORMAT_2;
+	logprint("\nError: Invalid alternate allele in .vcf file.\n");
+	goto vcf_to_bed_ret_INVALID_FORMAT;
       }
       do {
 	cc = *(++bufptr);
@@ -7777,15 +7776,17 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     }
     if (check_qual) {
       if (*bufptr == '.') {
-        goto vcf_to_bed_marker_skip;
+	marker_skip_ct++;
+	continue;
       }
       if (scan_double(bufptr, &dxx)) {
         *bufptr2 = '\0';
-        sprintf(logbuf, "Error: Invalid QUAL value '%s' in .vcf file.\n", bufptr);
+        sprintf(logbuf, "\nError: Invalid QUAL value '%s' in .vcf file.\n", bufptr);
 	goto vcf_to_bed_ret_INVALID_FORMAT_2;
       }
       if (dxx < vcf_min_qual) {
-	goto vcf_to_bed_marker_skip;
+        marker_skip_ct++;
+	continue;
       }
     }
     bufptr = &(bufptr2[1]);
@@ -7797,7 +7798,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       *bufptr2 = '\0';
       ii = bsearch_str(bufptr, sorted_fexcepts, max_fexcept_len, 0, fexcept_ct - 1);
       if (ii == -1) {
-        goto vcf_to_bed_marker_skip;
+	marker_skip_ct++;
+	continue;
       }
     }
     bufptr = &(bufptr2[1]);
@@ -7811,16 +7813,16 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       goto vcf_to_bed_ret_INVALID_FORMAT_3;
     }
     if (memcmp(bufptr, "GT", 2)) {
-      goto vcf_to_bed_marker_skip;
+      marker_skip_ct++;
+      continue;
     }
     bufptr = &(bufptr2[1]);
     // okay, finally done with the line header
     geno_start = bufptr;
-    fill_ulong_zero(ref_bitfield, indiv_ctv2);
-    fill_ulong_zero(alt_bitfield, indiv_ctv2);
-    fill_uint_zero(vcf_alt_cts, alt_ct - 1);
     if (alt_ct < 10) {
-      // slightly faster parsing for non-corner case
+      // slightly faster parsing for non-corner cases
+      fill_ulong_zero(base_bitfields, (alt_ct - 1) * indiv_ctv2);
+      is_haploid = ((bufptr[1] == '/') || (bufptr[1] == '|'))? 0 : 1;
       for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, bufptr = &(bufptr2[1])) {
 	bufptr2 = strchr(bufptr, '\t');
 	if (!bufptr2) {
@@ -7832,10 +7834,28 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	if (*bufptr == '.') {
 	  continue;
 	}
-
+	ulii = (unsigned char)(*bufptr) - '0';
+        set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2);
+	if (!is_haploid) {
+	  ulii = ((unsigned char)bufptr[2]) - '0';
+          base_bitfields[ulii * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+	}
+      }
+      if (alt_ct > 1) {
+        ulii = popcount2_longs(&(base_bitfields[indiv_ctv2]), 0, indiv_ctl2);
+        ulkk = 1;
+        for (alt_idx = 2; alt_idx <= alt_ct; alt_idx++) {
+	  uljj = popcount2_longs(&(base_bitfields[indiv_ctv2 * alt_idx]), 0, indiv_ctl2);
+          if (uljj > ulii) {
+	    ulii = uljj;
+	    ulkk = alt_idx;
+	  }
+	}
       }
     } else {
       // bleah, multi-digit genotype codes
+      fill_uint_zero(vcf_alt_cts, alt_ct);
+      logprint("Error: --\n");
     }
     marker_ct++;
     if (!(marker_ct % 10000)) {
@@ -7872,17 +7892,19 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     retval = RET_OPEN_FAIL;
     break;
   vcf_to_bed_ret_READ_FAIL:
+    putchar('\n');
     retval = RET_READ_FAIL;
     break;
   vcf_to_bed_ret_WRITE_FAIL:
+    putchar('\n');
     retval = RET_WRITE_FAIL;
     break;
   vcf_to_bed_ret_INVALID_FORMAT_4:
-    logprint("Error: Improperly formatted .vcf file.\n");
+    logprint("\nError: Improperly formatted .vcf file.\n");
     retval = RET_INVALID_FORMAT;
     break;
   vcf_to_bed_ret_INVALID_FORMAT_3:
-    logprint("Error: Fewer tokens than expected in .vcf line.\n");
+    logprint("\nError: Fewer tokens than expected in .vcf line.\n");
     retval = RET_INVALID_FORMAT;
     break;
   vcf_to_bed_ret_INVALID_FORMAT_2:
