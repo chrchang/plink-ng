@@ -87,7 +87,7 @@ const char ver_str[] =
   " (12 Nov 2013)";
 const char ver_str2[] =
 #ifdef PLINK_BUILD
-  "               [final website TBD]\n"
+  "              [final website TBD]\n"
   "(C) 2005-2013 Shaun Purcell, Christopher Chang    GNU GPL version 3\n";
 #else
   "    https://www.cog-genomics.org/wdist\n"

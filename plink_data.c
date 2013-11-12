@@ -7966,7 +7966,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     continue;
   vcf_to_bed_skip3:
     if ((!marker_skip_ct) && skip3_list) {
-      memcpy(outname_end, ".skip3", 7);
+      memcpy(outname_end, ".skip.3allele", 14);
       if (fopen_checked(&skip3file, outname, "w")) {
 	goto vcf_to_bed_ret_OPEN_FAIL;
       }
@@ -10724,7 +10724,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     logprintb();
     fputs("0%", stdout);
     tbuf[0] = '\n';
-    if (set_hh_missing && is_haploid && (!is_x)) {
+    if (((!hh_exists) || set_hh_missing) && is_haploid && (!is_x)) {
       uii = 2;
     } else {
       uii = 4;
@@ -10751,7 +10751,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
 	  // todo: only emit one for male X?
-	  if (set_hh_missing && is_haploid && (!is_x)) {
+	  if (((!hh_exists) || set_hh_missing) && is_haploid && (!is_x)) {
 	    uii = 2;
 	  } else {
 	    uii = 4;
@@ -10783,7 +10783,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	ulptr = loadbuf_collapsed;
 	ulptr_end = &(loadbuf_collapsed[indiv_ct / BITCT2]);
 	shiftmax = BITCT2;
-	if ((!set_hh_missing) || (!is_x)) {
+	if ((!is_x) || (hh_exists && (!set_hh_missing))) {
 	  while (1) {
 	    while (ulptr < ulptr_end) {
 	      cur_word = *ulptr++;
