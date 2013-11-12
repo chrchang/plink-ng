@@ -1785,7 +1785,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto ld_report_ret_1;
   } else {
-    logprint("Error: --r/--r2 table reports are currently under development.\n");
+    logprint("Error: --r/--r2 table reports are currently under development.  (Square matrix\noutput is working.)");
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto ld_report_ret_1;
     g_ld_plink_maxsnp = plink_maxsnp;
