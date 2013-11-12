@@ -7460,6 +7460,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   uintptr_t max_fexcept_len = 5;
   uintptr_t const_fid_len = 0;
   uintptr_t indiv_ct = 0;
+  char missing_geno = *g_missing_geno_ptr;
   int32_t retval = 0;
   char fam_trailer[20];
   uint32_t* vcf_alt_cts;
@@ -7473,9 +7474,12 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   char* wptr;
   uintptr_t* base_bitfields;
   uintptr_t* alt_bitfield;
-  uintptr_t* mask_bitfield;
+  uintptr_t* ref_ptr;
+  uintptr_t* alt_ptr;
+  uintptr_t final_mask;
   uintptr_t indiv_ctl2;
   uintptr_t indiv_ctv2;
+  uintptr_t indiv_ct4;
   uintptr_t indiv_idx;
   uintptr_t loadbuf_size;
   uintptr_t fam_trailer_len;
@@ -7485,6 +7489,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   uintptr_t ulii;
   uintptr_t uljj;
   uintptr_t ulkk;
+  uintptr_t alt_allele_idx;
   double dxx;
   uint32_t marker_id_len;
   uint32_t is_haploid;
@@ -7655,8 +7660,10 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     goto vcf_to_bed_ret_WRITE_FAIL;
   }
 
+  indiv_ct4 = (indiv_ct + 3) / 4;
   indiv_ctl2 = (indiv_ct + BITCT2 - 1) / BITCT2;
   indiv_ctv2 = 2 * ((indiv_ct + BITCT - 1) / BITCT);
+  final_mask = (~ZEROLU) >> (2 * ((0x7fffffe0 - indiv_ct) % BITCT2));
   if (wkspace_alloc_ul_checked(&base_bitfields, indiv_ctv2 * 10 * sizeof(intptr_t)) ||
       wkspace_alloc_ui_checked(&vcf_alt_cts, MAX_VCF_ALT * sizeof(int32_t))) {
     goto vcf_to_bed_ret_NOMEM;
@@ -7680,7 +7687,10 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   loadbuf[loadbuf_size - 1] = ' ';
   while (1) {
     if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-      goto vcf_to_bed_ret_READ_FAIL;
+      if (!gzeof(gz_infile)) {
+        goto vcf_to_bed_ret_READ_FAIL;
+      }
+      break;
     }
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
@@ -7710,6 +7720,10 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
         goto vcf_to_bed_ret_1;
       }
     }
+    if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+      marker_skip_ct++;
+      continue;
+    }
     bufptr2++;
     if (fwrite_checked(bufptr, bufptr2 - bufptr, bimfile)) {
       goto vcf_to_bed_ret_WRITE_FAIL;
@@ -7720,10 +7734,6 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       goto vcf_to_bed_ret_INVALID_FORMAT_3;
     }
     marker_id++;
-    if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
-      marker_skip_ct++;
-      continue;
-    }
     if ((((unsigned char)(*bufptr)) - '0') >= 10) {
       marker_id[-1] = '\0';
       sprintf(logbuf, "\nError: Invalid variant position '%s' in .vcf file.\n", bufptr2);
@@ -7735,7 +7745,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     }
     marker_id_len = (uintptr_t)(bufptr3 - marker_id);
     bufptr3++;
-    fwrite(marker_id, 1, marker_id_len, bimfile);
+    fwrite(marker_id, 1, marker_id_len + 1, bimfile);
     putc('0', bimfile);
     putc('\t', bimfile);
     fwrite(bufptr, 1, marker_id - bufptr, bimfile);
@@ -7767,7 +7777,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       goto vcf_to_bed_ret_INVALID_FORMAT_4;
     }
     if (biallelic_strict && (alt_ct > 1)) {
-      goto vcf_to_bed_marker_skip;
+      goto vcf_to_bed_skip3;
     }
     bufptr++;
     bufptr2 = strchr(bufptr, '\t');
@@ -7820,42 +7830,132 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     // okay, finally done with the line header
     geno_start = bufptr;
     if (alt_ct < 10) {
-      // slightly faster parsing for non-corner cases
-      fill_ulong_zero(base_bitfields, (alt_ct - 1) * indiv_ctv2);
+      // slightly faster parsing for the usual case
+      // note that '.' is interpreted as an alternate allele since that doesn't
+      // break anything
+      fill_ulong_zero(base_bitfields, (alt_ct + 1) * indiv_ctv2);
       is_haploid = ((bufptr[1] == '/') || (bufptr[1] == '|'))? 0 : 1;
-      for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, bufptr = &(bufptr2[1])) {
-	bufptr2 = strchr(bufptr, '\t');
-	if (!bufptr2) {
-	  if (indiv_idx != indiv_ct - 1) {
-	    goto vcf_to_bed_ret_INVALID_FORMAT_3;
+      if ((!biallelic_only) || (alt_ct == 1)) {
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, bufptr = &(bufptr2[1])) {
+	  bufptr2 = strchr(bufptr, '\t');
+	  if (!bufptr2) {
+	    if (indiv_idx != indiv_ct - 1) {
+	      goto vcf_to_bed_ret_INVALID_FORMAT_3;
+	    }
+	    bufptr2 = &(bufptr[strlen_se(bufptr)]);
 	  }
-	  bufptr2 = &(bufptr[strlen_se(bufptr)]);
-	}
-	if (*bufptr == '.') {
-	  continue;
-	}
-	ulii = (unsigned char)(*bufptr) - '0';
-        set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2);
-	if (!is_haploid) {
-	  ulii = ((unsigned char)bufptr[2]) - '0';
-          base_bitfields[ulii * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
-	}
-      }
-      if (alt_ct > 1) {
-        ulii = popcount2_longs(&(base_bitfields[indiv_ctv2]), 0, indiv_ctl2);
-        ulkk = 1;
-        for (alt_idx = 2; alt_idx <= alt_ct; alt_idx++) {
-	  uljj = popcount2_longs(&(base_bitfields[indiv_ctv2 * alt_idx]), 0, indiv_ctl2);
-          if (uljj > ulii) {
-	    ulii = uljj;
-	    ulkk = alt_idx;
+	  if (*bufptr == '.') {
+	    continue;
+	  }
+	  ulii = (unsigned char)(*bufptr) - '0';
+	  set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2);
+	  if (!is_haploid) {
+	    ulii = ((unsigned char)bufptr[2]) - '0';
+	    base_bitfields[ulii * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
 	  }
 	}
+	alt_allele_idx = 1;
+	if (alt_ct > 1) {
+	  ulii = popcount2_longs(&(base_bitfields[indiv_ctv2]), 0, indiv_ctl2);
+	  for (alt_idx = 2; alt_idx <= alt_ct; alt_idx++) {
+	    uljj = popcount2_longs(&(base_bitfields[indiv_ctv2 * alt_idx]), 0, indiv_ctl2);
+	    if (uljj > ulii) {
+	      ulii = uljj;
+	      alt_allele_idx = alt_idx;
+	    }
+	  }
+	}
+      } else {
+	// expect early termination in this case
+	alt_allele_idx = 0;
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, bufptr = &(bufptr2[1])) {
+	  bufptr2 = strchr(bufptr, '\t');
+	  if (!bufptr2) {
+	    if (indiv_idx != indiv_ct - 1) {
+	      goto vcf_to_bed_ret_INVALID_FORMAT_3;
+	    }
+	    bufptr2 = &(bufptr[strlen_se(bufptr)]);
+	  }
+	  if (*bufptr == '.') {
+	    continue;
+	  }
+	  ulii = (unsigned char)(*bufptr) - '0';
+	  if (ulii && (ulii != alt_allele_idx)) {
+	    if (alt_allele_idx) {
+	      goto vcf_to_bed_skip3;
+	    }
+	    alt_allele_idx = ulii;
+	  }
+	  set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2);
+	  if (!is_haploid) {
+	    ulii = ((unsigned char)bufptr[2]) - '0';
+	    if (ulii && (ulii != alt_allele_idx)) {
+              if (alt_allele_idx) {
+		goto vcf_to_bed_skip3;
+	      }
+	      alt_allele_idx = ulii;
+	    }
+	    base_bitfields[ulii * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+	  }
+	}
+	if (!alt_allele_idx) {
+	  alt_allele_idx = 1;
+	}
       }
+      alt_bitfield = &(base_bitfields[alt_allele_idx * indiv_ctv2]);
     } else {
       // bleah, multi-digit genotype codes
       fill_uint_zero(vcf_alt_cts, alt_ct);
-      logprint("Error: --\n");
+      logprint("\nError: --vcf does not yet support variants with 10+ alternate alleles.\n");
+      goto vcf_to_bed_ret_1;
+    }
+    if (is_haploid) {
+      // 0/1 -> 0/2
+      ref_ptr = base_bitfields;
+      for (indiv_idx = 0; indiv_idx < indiv_ctl2; indiv_idx++) {
+        *ref_ptr <<= 1;
+        ref_ptr++;
+      }
+      alt_ptr = alt_bitfield;
+      for (indiv_idx = 0; indiv_idx < indiv_ctl2; indiv_idx++) {
+        *alt_ptr <<= 1;
+        alt_ptr++;
+      }
+    }
+    ref_ptr = base_bitfields;
+    alt_ptr = alt_bitfield;
+    for (indiv_idx = 0; indiv_idx < indiv_ctl2; indiv_idx++) {
+      // take ref, then:
+      // * if ref is nonzero, add 1
+      // * if ref + alt is not two, force to 01
+      ulii = *ref_ptr;
+      uljj = *alt_ptr++;
+      ulkk = (ulii + uljj) & AAAAMASK;
+      uljj = ulii + ((ulii | (ulii >> 1)) & FIVEMASK);
+      ulii = ulkk | (ulkk >> 1); // nonmissing?
+      *ref_ptr++ = (uljj & ulii) | (((~ulkk) >> 1) & FIVEMASK);
+    }
+    ref_ptr[-1] &= final_mask;
+    if (fwrite_checked(base_bitfields, indiv_ct4, outfile)) {
+      goto vcf_to_bed_ret_WRITE_FAIL;
+    }
+    if (*alt_alleles == '.') {
+      putc(missing_geno, bimfile);
+    } else {
+      bufptr = alt_alleles;
+      for (alt_idx = 1; alt_idx < alt_allele_idx; alt_idx++) {
+	bufptr = strchr(bufptr, ',');
+	bufptr++;
+      }
+      bufptr2 = strchr(bufptr, (alt_allele_idx == alt_ct)? '\t' : ',');
+      *bufptr2 = '\0';
+      fputs(bufptr, bimfile);
+    }
+    putc('\t', bimfile);
+    alt_alleles[-1] = '\n';
+    *alt_alleles = '\0';
+    if (fputs_checked(bufptr3, bimfile)) {
+      goto vcf_to_bed_ret_WRITE_FAIL;
     }
     marker_ct++;
     if (!(marker_ct % 10000)) {
@@ -7863,7 +7963,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       fflush(stdout);
     }
     continue;
-  vcf_to_bed_marker_skip:
+  vcf_to_bed_skip3:
     if ((!marker_skip_ct) && skip3_list) {
       memcpy(outname_end, ".skip3", 7);
       if (fopen_checked(&skip3file, outname, "w")) {
@@ -7871,7 +7971,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       }
       memcpy(outname_end, ".bed", 5);
     }
-    if (fwrite_checked(marker_id, marker_id_len, skip3file)) {
+    marker_id[marker_id_len] = '\0';
+    if (fputs_checked(marker_id, skip3file)) {
       goto vcf_to_bed_ret_WRITE_FAIL;
     }
     putc('\n', skip3file);
@@ -10626,10 +10727,11 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     cmalen[3] = 4;
     cur_mk_allelesx[0][0] = '\t';
     cur_mk_allelesx[0][2] = '/';
-    memcpy(cur_mk_allelesx[1], "\t.", 2);
+    memcpy(cur_mk_allelesx[1], "\t./.", 2);
     memcpy(cur_mk_allelesx[2], "\t0/1", 4);
     cur_mk_allelesx[3][0] = '\t';
     cur_mk_allelesx[3][2] = '/';
+    // todo: only emit single character for haploid case
     for (pct = 1; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * marker_ct) / 100;
       for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
