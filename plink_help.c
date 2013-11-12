@@ -914,10 +914,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --const-fid {ID} : Set all FIDs to the given constant (default '0').\n"
 "  --id-delim {d}   : Parse sample IDs as [FID][d][IID] (default delim '_').\n"
 	       );
-    help_print("vcf\tbcf\tload-skip3\tvcf-min-qual\tvcf-filter", &help_ctrl, 0,
-"  --load-skip3 <strict> <list> : Skip VCF variants with 3+ alleles.\n"
-"  --vcf-min-qual [val]         : Skip VCF variants with low or missing QUAL.\n"
-"  --vcf-filter {exceptions...} : Skip variants which fail one or more filters.\n"
+    help_print("vcf\tbcf\tbiallelic-only\tvcf-min-qual\tvcf-filter", &help_ctrl, 0,
+"  --biallelic-only <strict> <list> : Skip VCF variants with 3+ alleles.\n"
+"  --vcf-min-qual [val]             : Skip VCF variants with low/missing QUAL.\n"
+"  --vcf-filter {exception(s)...}   : Skip variants which have FILTER failures.\n"
 	       );
     help_print("allow-extra-chr", &help_ctrl, 0,
 "  --allow-extra-chr <0>     : Permit unrecognized chromosome codes.  The '0'\n"
@@ -934,11 +934,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --autosome-num [value]    : Alias for '--chr-set [value] no-y no-xy no-mt'.\n"
 	       );
     help_print("23file\t23file-convert-xy\t23file-make-xylist", &help_ctrl, 0,
-"  --23file-convert-xy {file} : Separate out XY pseudo-autosomal region.  A\n"
-"                               variant list (from e.g. --23file-make-xylist) is\n"
-"                               necessary to use this on a female genome.\n"
-"  --23file-make-xylist : Given a male 23andMe genome, list XY pseudo-autosomal\n"
-"                         region variants in {output prefix}.xylist.\n"
+"  --23file-convert-xy {f}   : Separate out XY pseudo-autosomal region.  A\n"
+"                              variant list (from e.g. --23file-make-xylist) is\n"
+"                              necessary to use this on a female genome.\n"
+"  --23file-make-xylist      : Given a male 23andMe genome, list XY pseudo-\n"
+"                              autosomal region vars in {output prefix}.xylist.\n"
 	       );
     help_print("simulate\tsimulate-ncases\tsimulate-ncontrols\tsimulate-prevalence", &help_ctrl, 0,
 "  --simulate-ncases [num]   : Set --simulate case count (default 1000).\n"
@@ -954,7 +954,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #ifndef STABLE_BUILD
     help_print("missing-code\tmissing_code\tmissing-phenotype", &help_ctrl, 0,
-"  --missing-code {vals}     : Comma-separated list of missing phenotype values,\n"
+"  --missing-code {vals}     : Comma-separated list of missing phenotype values\n"
 "    (alias: --missing_code)   for Oxford-formatted filesets (normally 'NA').\n"
 	       );
 #endif

@@ -3997,7 +3997,6 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 
 int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, uint64_t calculation_type, uint32_t genome_modifier, uint32_t ppc_gap, double min_pi_hat, double max_pi_hat, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri, uint32_t skip_write) {
   FILE* outfile = NULL;
-  gzFile gz_outfile = NULL;
   int32_t retval = 0;
   unsigned char* wkspace_mark = wkspace_base;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -4492,7 +4491,6 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
     break;
   }
  calc_genome_ret_1:
-  gzclose_cond(gz_outfile);
   fclose_cond(outfile);
   if ((!retval) && (calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR))) {
     wkspace_reset(loadbuf);
@@ -4819,7 +4817,6 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   FILE* outfile = NULL;
   FILE* out_bin_nfile = NULL;
   gzFile cur_gzfile = NULL;
-  gzFile gz_outfile = NULL;
   unsigned char* wkspace_mark = wkspace_base;
   uint32_t indivs_excluded = 0;
   uint32_t exactly_one_rel_ct = 0;
@@ -4850,6 +4847,12 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   int32_t kk;
   int32_t mm;
   int32_t cur_prune;
+  ulii = (uintptr_t)(grmname_end - grmname);
+  if ((ulii == (uintptr_t)(outname_end - outname)) && (!memcmp(grmname, outname, ulii))) {
+    sprintf(logbuf, "Error: --rel-cutoff input and output ID filenames cannot match.%s\n", strcmp(outname, PROG_NAME_STR)? "" : "  (Use --out.)");
+    logprintb();
+    goto rel_cutoff_batch_ret_INVALID_CMDLINE;
+  }
   g_rcb_in_binfile = NULL;
   g_rcb_in_bin_nfile = NULL;
   g_rcb_cur_gzfile = NULL;
@@ -5350,6 +5353,9 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   rel_cutoff_batch_ret_INVALID_FORMAT_1:
     retval = RET_INVALID_FORMAT;
     break;
+  rel_cutoff_batch_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
   }
  rel_cutoff_batch_ret_1:
   fclose_cond(idfile);
@@ -5359,7 +5365,6 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   fclose_cond(out_bin_nfile);
   gzclose_cond(cur_gzfile);
   gzclose_cond(g_rcb_cur_gzfile);
-  gzclose_cond(gz_outfile);
   wkspace_reset(wkspace_mark);
   return retval;
 }
@@ -5685,7 +5690,6 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
   FILE* outfile = NULL;
-  gzFile gz_outfile = NULL;
   int32_t retval = 0;
   int64_t llxx = 0;
   double* dist_ptr = NULL;
@@ -6113,7 +6117,6 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   }
  calc_rel_ret_1:
   fclose_cond(outfile);
-  gzclose_cond(gz_outfile);
   return retval;
 }
 
@@ -6258,7 +6261,6 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
   uintptr_t marker_idx = 0;
   FILE* outfile = NULL;
   FILE* out_bin_nfile = NULL;
-  gzFile gz_outfile = NULL;
   int32_t retval = 0;
   uint64_t ullxx = 0;
   float* dist_ptr = NULL;
@@ -6702,7 +6704,6 @@ int32_t calc_rel_f(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_
  calc_rel_f_ret_1:
   fclose_cond(outfile);
   fclose_cond(out_bin_nfile);
-  gzclose_cond(gz_outfile);
   return retval;
 }
 

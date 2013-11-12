@@ -201,9 +201,9 @@
 #define MISC_LASSO_NO_GENO_STD 0x800000LLU
 
 #define MISC_DOUBLE_ID 0x1000000LLU
-#define MISC_LOAD_SKIP3 0x2000000LLU
-#define MISC_LOAD_SKIP3_STRICT 0x4000000LLU
-#define MISC_LOAD_SKIP3_LIST 0x8000000LLU
+#define MISC_BIALLELIC_ONLY 0x2000000LLU
+#define MISC_BIALLELIC_ONLY_STRICT 0x4000000LLU
+#define MISC_BIALLELIC_ONLY_LIST 0x8000000LLU
 #define MISC_VCF_FILTER 0x10000000LLU
 
 #define CALC_RELATIONSHIP 1LLU
@@ -644,17 +644,9 @@ static inline int32_t fclose_null(FILE** fptr_ptr) {
 
 int32_t gzopen_checked(gzFile* target_ptr, const char* fname, const char* mode);
 
-// handle len == 0.  If that's unnecessary, just use !gzwrite instead
-static inline int32_t gzwrite_checked(gzFile gz_outfile, const void* buf, size_t len) {
-  if ((!len) || gzwrite(gz_outfile, buf, len)) {
-    return 0;
-  }
-  return -1;
-}
-
-static inline void gzclose_cond(gzFile gz_outfile) {
-  if (gz_outfile) {
-    gzclose(gz_outfile);
+static inline void gzclose_cond(gzFile gz_infile) {
+  if (gz_infile) {
+    gzclose(gz_infile);
   }
 }
 

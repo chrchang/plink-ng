@@ -7439,8 +7439,88 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 }
 
 int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, double vcf_min_qual, char* vcf_filter_exceptions_flattened, Chrom_info* chrom_info_ptr) {
-  logprint("Error: --vcf is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
+  unsigned char* wkspace_mark = wkspace_base;
+  gzFile gz_infile = NULL;
+  FILE* outfile = NULL;
+  FILE* skip3file = NULL;
+  char* sorted_filtervals = NULL;
+  uint32_t double_id = (misc_flags / MISC_DOUBLE_ID) & 1;
+  uint32_t check_qual = (vcf_min_qual == -INFINITY)? 1 : 0;
+  uintptr_t filter_ct = 0;
+  uintptr_t max_filter_len = 5;
+  int32_t retval = 0;
+  char* loadbuf;
+  char* bufptr;
+  uintptr_t loadbuf_size;
+  uintptr_t ulii;
+  uintptr_t slen;
+  if (gzopen_checked(&gz_infile, vcfname, "rb")) {
+    goto vcf_to_bed_ret_OPEN_FAIL;
+  }
+  if (gzbuffer(gz_infile, 131072)) {
+    goto vcf_to_bed_ret_NOMEM;
+  }
+  if (misc_flags & MISC_VCF_FILTER) {
+    // automatically include "." and "PASS"
+    filter_ct = 2;
+    if (vcf_filter_exceptions_flattened) {
+      bufptr = vcf_filter_exceptions_flattened;
+      do {
+        filter_ct++;
+        slen = strlen(bufptr);
+        if (slen >= max_filter_len) {
+          max_filter_len = slen + 1;
+	}
+	bufptr = &(bufptr[slen + 1]);
+      } while (*bufptr);
+    }
+    if (wkspace_alloc_c_checked(&sorted_filtervals, filter_ct * max_filter_len)) {
+      goto vcf_to_bed_ret_NOMEM;
+    }
+    memcpy(sorted_filtervals, ".", 2);
+    memcpy(&(sorted_filtervals[max_filter_len]), "PASS", 5);
+    if (vcf_filter_exceptions_flattened) {
+      bufptr = vcf_filter_exceptions_flattened;
+      for (ulii = 2; ulii < filter_ct; ulii++) {
+        slen = strlen(bufptr) + 1;
+        memcpy(&(sorted_filtervals[ulii * max_filter_len]), bufptr, slen);
+        bufptr = &(bufptr[slen]);
+      }
+      qsort(sorted_filtervals, filter_ct, max_filter_len, strcmp_casted);
+    }
+  }
+  loadbuf_size = wkspace_left;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (loadbuf_size <= MAXLINELEN) {
+    goto vcf_to_bed_ret_NOMEM;
+  }
+  loadbuf = (char*)wkspace_base;
+  loadbuf[loadbuf_size - 1] = ' ';
+  logprint("Error: --\n");
+  
+  while (0) {
+  vcf_to_bed_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  vcf_to_bed_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  vcf_to_bed_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  vcf_to_bed_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  vcf_to_bed_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  gzclose_cond(gz_infile);
+  fclose_cond(outfile);
+  fclose_cond(skip3file);
+  wkspace_reset(wkspace_mark);
+  return retval;
 }
 
 void announce_make_xylist_complete(uint32_t markers_left, char* outname, char* outname_end) {

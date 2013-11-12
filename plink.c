@@ -71,7 +71,7 @@ const char ver_str[] =
   "PLINK v1.90b1"
 #else
   #ifdef STABLE_BUILD
-  "WDIST v0.22.9"
+  "WDIST v0.22.10"
   #else
   "WDIST v0.23.0p"
   #endif
@@ -84,7 +84,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (11 Nov 2013)";
+  " (12 Nov 2013)";
 const char ver_str2[] =
 #ifdef PLINK_BUILD
   "               [final website TBD]\n"
@@ -4808,7 +4808,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
     goto plink_ret_INVALID_CMDLINE_2;
   }
   if (g_thread_ct > 1) {
-    if ((calculation_type & (CALC_RELATIONSHIP | CALC_IBC | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LASSO)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_LD) && (ldip->modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR | LD_REPORT_GZ))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname)))) {
+    if ((calculation_type & (CALC_RELATIONSHIP | CALC_REL_CUTOFF | CALC_GDISTANCE_MASK | CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE | CALC_GENOME | CALC_REGRESS_REL | CALC_UNRELATED_HERITABILITY | CALC_LASSO)) || ((calculation_type & CALC_MODEL) && (model_modifier & (MODEL_PERM | MODEL_MPERM))) || ((calculation_type & CALC_GLM) && (glm_modifier & (GLM_PERM | GLM_MPERM))) || ((calculation_type & CALC_LD) && (ldip->modifier & (LD_MATRIX_SHAPEMASK | LD_INTER_CHR | LD_REPORT_GZ))) || ((calculation_type & (CALC_CLUSTER | CALC_NEIGHBOR)) && (!read_genome_fname) && ((cluster_ptr->ppc != 0.0) || (!read_dists_fname)))) {
       sprintf(logbuf, "Using %d threads (change this with --threads).\n", g_thread_ct);
       logprintb();
     } else {
@@ -7526,6 +7526,21 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --bd flag deprecated.  Use '--mh bd'.\n");
 	calculation_type |= CALC_CMH;
 	misc_flags |= MISC_CMH_BD;
+      } else if (!memcmp(argptr2, "iallelic-only", 14)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        for (uii = 1; uii <= param_ct; uii++) {
+	  if (!strcmp(argv[cur_arg + uii], "strict")) {
+	    misc_flags |= MISC_BIALLELIC_ONLY_STRICT;
+	  } else if (!strcmp(argv[cur_arg + uii], "list")) {
+	    misc_flags |= MISC_BIALLELIC_ONLY_LIST;
+	  } else {
+	    sprintf(logbuf, "Error: Invalid --biallelic-only modifier '%s'.%s", argv[cur_arg + uii], errstr_append);
+            goto main_ret_INVALID_CMDLINE_3;
+	  }
+	}
+        misc_flags |= MISC_BIALLELIC_ONLY;
       } else if (!memcmp(argptr2, "cf", 3)) {
 	if (load_rare || load_params) {
 	  goto main_ret_INVALID_CMDLINE_4;
@@ -9713,21 +9728,6 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	ld_info.modifier |= LD_SNP_LIST_FILE;
-      } else if (!memcmp(argptr2, "oad-skip3", 10)) {
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 2)) {
-	  goto main_ret_INVALID_CMDLINE_3;
-	}
-        for (uii = 1; uii <= param_ct; uii++) {
-	  if (!strcmp(argv[cur_arg + uii], "strict")) {
-	    misc_flags |= MISC_LOAD_SKIP3_STRICT;
-	  } else if (!strcmp(argv[cur_arg + uii], "list")) {
-	    misc_flags |= MISC_LOAD_SKIP3_LIST;
-	  } else {
-	    sprintf(logbuf, "Error: Invalid --load-skip3 modifier '%s'.%s", argv[cur_arg + uii], errstr_append);
-            goto main_ret_INVALID_CMDLINE_3;
-	  }
-	}
-        misc_flags |= MISC_LOAD_SKIP3;
       } else {
         goto main_ret_INVALID_CMDLINE_2;
       }
