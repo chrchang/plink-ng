@@ -7473,6 +7473,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   char* pos_str;
   char* alt_alleles;
   char* wptr;
+  // will be used for 10+ alt alleles
+  // char* geno_start;
   uintptr_t* base_bitfields;
   uintptr_t* alt_bitfield;
   uintptr_t* ref_ptr;
@@ -7827,7 +7829,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     }
     bufptr = &(bufptr2[1]);
     // okay, finally done with the line header
-    geno_start = bufptr;
+    // geno_start = bufptr;
     if (alt_ct < 10) {
       // slightly faster parsing for the usual case
       // note that '.' is interpreted as an alternate allele since that doesn't
