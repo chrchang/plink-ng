@@ -7443,15 +7443,22 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   gzFile gz_infile = NULL;
   FILE* outfile = NULL;
   FILE* skip3file = NULL;
-  char* sorted_filtervals = NULL;
+  char* sorted_filter_exceptions = NULL;
   uint32_t double_id = (misc_flags / MISC_DOUBLE_ID) & 1;
   uint32_t check_qual = (vcf_min_qual == -INFINITY)? 1 : 0;
-  uintptr_t filter_ct = 0;
-  uintptr_t max_filter_len = 5;
+  uintptr_t fexcept_ct = 0;
+  uintptr_t max_fexcept_len = 5;
+  uintptr_t const_fid_len = 0;
+  uintptr_t indiv_ct = 0;
   int32_t retval = 0;
+  char fam_trailer[20];
   char* loadbuf;
   char* bufptr;
+  char* bufptr2;
+  char* bufptr3;
+  char* wptr;
   uintptr_t loadbuf_size;
+  uintptr_t fam_trailer_len;
   uintptr_t ulii;
   uintptr_t slen;
   if (gzopen_checked(&gz_infile, vcfname, "rb")) {
@@ -7462,43 +7469,164 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   }
   if (misc_flags & MISC_VCF_FILTER) {
     // automatically include "." and "PASS"
-    filter_ct = 2;
+    fexcept_ct = 2;
     if (vcf_filter_exceptions_flattened) {
       bufptr = vcf_filter_exceptions_flattened;
       do {
-        filter_ct++;
+        fexcept_ct++;
         slen = strlen(bufptr);
-        if (slen >= max_filter_len) {
-          max_filter_len = slen + 1;
+        if (slen >= max_fexcept_len) {
+          max_fexcept_len = slen + 1;
 	}
 	bufptr = &(bufptr[slen + 1]);
       } while (*bufptr);
     }
-    if (wkspace_alloc_c_checked(&sorted_filtervals, filter_ct * max_filter_len)) {
+    if (wkspace_alloc_c_checked(&sorted_filter_exceptions, fexcept_ct * max_fexcept_len)) {
       goto vcf_to_bed_ret_NOMEM;
     }
-    memcpy(sorted_filtervals, ".", 2);
-    memcpy(&(sorted_filtervals[max_filter_len]), "PASS", 5);
+    memcpy(sorted_filter_exceptions, ".", 2);
+    memcpy(&(sorted_filter_exceptions[max_fexcept_len]), "PASS", 5);
     if (vcf_filter_exceptions_flattened) {
       bufptr = vcf_filter_exceptions_flattened;
-      for (ulii = 2; ulii < filter_ct; ulii++) {
+      for (ulii = 2; ulii < fexcept_ct; ulii++) {
         slen = strlen(bufptr) + 1;
-        memcpy(&(sorted_filtervals[ulii * max_filter_len]), bufptr, slen);
+        memcpy(&(sorted_filter_exceptions[ulii * max_fexcept_len]), bufptr, slen);
         bufptr = &(bufptr[slen]);
       }
-      qsort(sorted_filtervals, filter_ct, max_filter_len, strcmp_casted);
+      qsort(sorted_filter_exceptions, fexcept_ct, max_fexcept_len, strcmp_casted);
+      fexcept_ct = collapse_duplicate_ids(sorted_filter_exceptions, fexcept_ct, max_fexcept_len, NULL);
+      // there can't be many filter exceptions, so don't bother to free unused
+      // memory in corner case
     }
   }
+  bufptr = memcpya(fam_trailer, "\t0\t0\t0\t", 7);
+  bufptr = int32_writex(bufptr, missing_pheno, '\n');
+  fam_trailer_len = (uintptr_t)(bufptr - fam_trailer);
+
   loadbuf_size = wkspace_left;
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
   } else if (loadbuf_size <= MAXLINELEN) {
     goto vcf_to_bed_ret_NOMEM;
   }
+  
   loadbuf = (char*)wkspace_base;
   loadbuf[loadbuf_size - 1] = ' ';
-  logprint("Error: --\n");
-  
+  while (1) {
+    if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      goto vcf_to_bed_ret_READ_FAIL;
+    }
+    if (!loadbuf[loadbuf_size - 1]) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
+        logprint("Error: Pathologically long line in .vcf file.\n");
+        goto vcf_to_bed_ret_INVALID_FORMAT;
+      }
+      goto vcf_to_bed_ret_NOMEM;
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    if (*bufptr != '#') {
+      logprint("Error: Missing header line in .vcf file.\n");
+      goto vcf_to_bed_ret_INVALID_FORMAT;
+    }
+    if (bufptr[1] != '#') {
+      break;
+    }
+  }
+  if (memcmp(bufptr, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO", 38)) {
+    logprint("Error: Improperly formatted .vcf header line.\n");
+    goto vcf_to_bed_ret_INVALID_FORMAT;
+  }
+  bufptr = &(bufptr[38]);
+  if (memcmp(bufptr, "\tFORMAT\t", 8) || (((unsigned char)bufptr[8]) <= ' ')) {
+    logprint("Error: No genotype data in .vcf file.\n");
+    goto vcf_to_bed_ret_INVALID_FORMAT;
+  }
+  bufptr = &(bufptr[8]);
+  memcpy(outname_end, ".fam", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto vcf_to_bed_ret_OPEN_FAIL;
+  }
+  if (const_fid) {
+    const_fid_len = strlen(const_fid);
+  } else if ((!double_id) && (!id_delim)) {
+    // default: --double-id + --id-delim
+    double_id = 1;
+    id_delim = '_';
+  }
+  do {
+    indiv_ct++;
+    bufptr2 = strchr(bufptr, '\t');
+    if (bufptr2) {
+      slen = (uintptr_t)(bufptr2 - bufptr);
+    } else {
+      slen = strlen_se(bufptr);
+      bufptr2 = &(bufptr[slen]);
+    }
+    if (slen > 65535) {
+      logprint("Error: --vcf does not support sample IDs longer than 65535 characters.\n");
+      goto vcf_to_bed_ret_INVALID_FORMAT;
+    }
+    if ((*bufptr == '0') && (slen == 1)) {
+      logprint("Error: Sample ID cannot be '0'.\n");
+      goto vcf_to_bed_ret_INVALID_FORMAT;
+    }
+    if (id_delim) {
+      if (*bufptr == id_delim) {
+	sprintf(logbuf, "Error: '%c' at beginning of sample ID.\n", id_delim);
+	goto vcf_to_bed_ret_INVALID_FORMAT_2;
+      } else if (bufptr[slen - 1] == id_delim) {
+	sprintf(logbuf, "Error: '%c' at end of sample ID.\n", id_delim);
+	goto vcf_to_bed_ret_INVALID_FORMAT_2;
+      }
+      bufptr3 = (char*)memchr(bufptr, (unsigned char)id_delim, slen);
+      if (!bufptr3) {
+	if (double_id) {
+	  goto vcf_to_bed_double_id;
+	} else if (const_fid) {
+	  goto vcf_to_bed_const_id;
+	} else {
+	  sprintf(logbuf, "Error: No '%c' in sample ID.\n", id_delim);
+	  goto vcf_to_bed_ret_INVALID_FORMAT_2;
+	}
+      }
+      if (memchr(&(bufptr3[1]), (unsigned char)id_delim, slen - (uintptr_t)(bufptr2 - &(bufptr3[1])))) {
+        sprintf(logbuf, "Error: Multiple instances of '%c' in sample ID.\n", id_delim);
+        goto vcf_to_bed_ret_INVALID_FORMAT_2;
+      }
+      wptr = memcpyax(tbuf, bufptr, (uintptr_t)(bufptr3 - bufptr), '\t');
+      bufptr3++;
+      if ((*bufptr3 == '0') && (bufptr2 == &(bufptr3[1]))) {
+        sprintf(logbuf, "Error: Sample ID ends with \"%c0\", which induces an invalid IID of '0'.\n", id_delim);
+        goto vcf_to_bed_ret_INVALID_FORMAT_2;
+      }
+      wptr = memcpya(wptr, bufptr3, (uintptr_t)(bufptr2 - bufptr3));
+    } else {
+      if (double_id) {
+      vcf_to_bed_double_id:
+	wptr = memcpyax(tbuf, bufptr, (uintptr_t)(bufptr2 - bufptr), '\t');
+      } else {
+      vcf_to_bed_const_id:
+        wptr = memcpyax(tbuf, const_fid, const_fid_len, '\t');
+      }
+      wptr = memcpya(wptr, bufptr, (uintptr_t)(bufptr2 - bufptr));
+    }
+    wptr = memcpya(wptr, fam_trailer, fam_trailer_len);
+    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      goto vcf_to_bed_ret_WRITE_FAIL;
+    }
+    if (*bufptr2 != '\t') {
+      break;
+    }
+    bufptr = &(bufptr2[1]);
+  } while (((unsigned char)bufptr[0]) > ' ');
+  if (fclose_null(&outfile)) {
+    goto vcf_to_bed_ret_WRITE_FAIL;
+  }
+  logprint("Error: --vcf is currently under development.\n");
+  retval = RET_CALC_NOT_YET_SUPPORTED;
   while (0) {
   vcf_to_bed_ret_NOMEM:
     retval = RET_NOMEM;
@@ -7512,6 +7640,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   vcf_to_bed_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
+  vcf_to_bed_ret_INVALID_FORMAT_2:
+    logprintb();
   vcf_to_bed_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;

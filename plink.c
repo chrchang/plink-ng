@@ -9395,6 +9395,9 @@ int32_t main(int32_t argc, char** argv) {
 	  if (!id_delim) {
 	    sprintf(logbuf, "Error: --id-delim parameter must be a single character.%s", errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
+	  } else if (((unsigned char)id_delim) <= ' ') {
+	    logprint("Error: --id-delim parameter must be a nonspace character.\n");
+            goto main_ret_INVALID_CMDLINE;
 	  }
 	} else {
           id_delim = '_';
