@@ -7495,7 +7495,6 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   double dxx;
   uint32_t chrom_len;
   uint32_t marker_id_len;
-  uint32_t is_haploid;
   int32_t ii;
   char cc;
   if (gzopen_checked(&gz_infile, vcfname, "rb")) {
@@ -7629,7 +7628,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  goto vcf_to_bed_ret_INVALID_FORMAT_2;
 	}
       }
-      if (memchr(&(bufptr3[1]), (unsigned char)id_delim, slen - (uintptr_t)(bufptr2 - &(bufptr3[1])))) {
+      if (memchr(&(bufptr3[1]), (unsigned char)id_delim, (uintptr_t)(bufptr2 - &(bufptr3[1])))) {
         sprintf(logbuf, "Error: Multiple instances of '%c' in sample ID.\n", id_delim);
         goto vcf_to_bed_ret_INVALID_FORMAT_2;
       }
@@ -7835,7 +7834,6 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       // note that '.' is interpreted as an alternate allele since that doesn't
       // break anything
       fill_ulong_zero(base_bitfields, (alt_ct + 1) * indiv_ctv2);
-      is_haploid = ((bufptr[1] == '/') || (bufptr[1] == '|'))? 0 : 1;
       if ((!biallelic_only) || (alt_ct == 1)) {
 	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, bufptr = &(bufptr2[1])) {
 	  bufptr2 = strchr(bufptr, '\t');
@@ -7849,8 +7847,11 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    continue;
 	  }
 	  ulii = (unsigned char)(*bufptr) - '0';
-	  set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2);
-	  if (!is_haploid) {
+	  cc = bufptr[1];
+	  if ((cc != '/') && (cc != '|')) {
+	    set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2 + 1);
+	  } else {
+	    set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2);
 	    ulii = ((unsigned char)bufptr[2]) - '0';
 	    base_bitfields[ulii * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
 	  }
@@ -7887,8 +7888,11 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    }
 	    alt_allele_idx = ulii;
 	  }
-	  set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2);
-	  if (!is_haploid) {
+	  cc = bufptr[1];
+	  if ((cc != '/') && (cc != '|')) {
+	    set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2 + 1);
+	  } else {
+	    set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2);
 	    ulii = ((unsigned char)bufptr[2]) - '0';
 	    if (ulii && (ulii != alt_allele_idx)) {
               if (alt_allele_idx) {
@@ -7909,19 +7913,6 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       fill_uint_zero(vcf_alt_cts, alt_ct);
       logprint("\nError: --vcf does not yet support variants with 10+ alternate alleles.\n");
       goto vcf_to_bed_ret_1;
-    }
-    if (is_haploid) {
-      // 0/1 -> 0/2
-      ref_ptr = base_bitfields;
-      for (indiv_idx = 0; indiv_idx < indiv_ctl2; indiv_idx++) {
-        *ref_ptr <<= 1;
-        ref_ptr++;
-      }
-      alt_ptr = alt_bitfield;
-      for (indiv_idx = 0; indiv_idx < indiv_ctl2; indiv_idx++) {
-        *alt_ptr <<= 1;
-        alt_ptr++;
-      }
     }
     ref_ptr = base_bitfields;
     alt_ptr = alt_bitfield;
@@ -10156,6 +10147,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   uintptr_t indiv_idx;
   unsigned char* loadbuf;
   uintptr_t* ulptr;
+  uintptr_t* ulptr2;
   uintptr_t* ulptr_end;
   char* writebuf;
   unsigned char* bufptr;
@@ -10179,6 +10171,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   uint32_t shiftval;
   uint32_t shiftmax;
   uint32_t cur_fid;
+  uint32_t uii;
   int32_t ii;
   if (!hh_exists) {
     set_hh_missing = 0;
@@ -10187,7 +10180,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     if (recode_modifier & (RECODE_23 | RECODE_BEAGLE | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_RLIST | RECODE_TRANSPOSE | RECODE_VCF)) {
       // SNP-major and no need for indiv_uidx in inner loop, so we can use
       // collapsed representation
-      if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_ct, hh_exists, 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
+      if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_ct, hh_exists | ((recode_modifier & RECODE_VCF)? XMHH_EXISTS : 0), 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
 	goto recode_ret_NOMEM;
       }
     } else {
@@ -10730,19 +10723,19 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     logprintb();
     fputs("0%", stdout);
     tbuf[0] = '\n';
-    cmalen[0] = 4;
-    cmalen[1] = 4;
-    cmalen[2] = 4;
-    cmalen[3] = 4;
-    cur_mk_allelesx[0][0] = '\t';
-    cur_mk_allelesx[0][2] = '/';
+    if (set_hh_missing && is_haploid && (!is_x)) {
+      uii = 2;
+    } else {
+      uii = 4;
+    }
+    cmalen[0] = uii;
+    cmalen[1] = uii;
+    cmalen[2] = uii;
+    cmalen[3] = uii;
+    memcpy(cur_mk_allelesx[0], "\t1/1", 4);
     memcpy(cur_mk_allelesx[1], "\t./.", 4);
     memcpy(cur_mk_allelesx[2], "\t0/1", 4);
-    cur_mk_allelesx[3][0] = '\t';
-    cur_mk_allelesx[3][2] = '/';
-    if (is_haploid && (!is_x)) {
-      cmalen[1] = 2;
-    }
+    memcpy(cur_mk_allelesx[3], "\t0/0", 4);
     for (pct = 1; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * marker_ct) / 100;
       for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
@@ -10756,23 +10749,21 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	  if (is_haploid && (!is_x)) {
-	    // todo: only emit one for male X?
-	    cmalen[1] = 2;
+	  // todo: only emit one for male X?
+	  if (set_hh_missing && is_haploid && (!is_x)) {
+	    uii = 2;
 	  } else {
-	    cmalen[1] = 4;
+	    uii = 4;
 	  }
+	  cmalen[0] = uii;
+	  cmalen[1] = uii;
+	  cmalen[2] = uii;
+	  cmalen[3] = uii;
 	}
 	wbufptr = chrom_name_write(&(tbuf[1]), chrom_info_ptr, chrom_idx, zero_extra_chroms);
 	*wbufptr++ = '\t';
 	wbufptr = uint32_writex(wbufptr, marker_pos[marker_uidx], '\t');
 	wbufptr = strcpyax(wbufptr, &(marker_ids[marker_uidx * max_marker_id_len]), '\t');
-	ucc = '1';
-	ucc2 = '0';
-	cur_mk_allelesx[0][1] = ucc;
-	cur_mk_allelesx[0][3] = ucc;
-	cur_mk_allelesx[3][1] = ucc2;
-	cur_mk_allelesx[3][3] = ucc2;
 	if (fwrite_checked(tbuf, wbufptr - tbuf, outfile)) {
 	  goto recode_ret_WRITE_FAIL;
 	}
@@ -10791,20 +10782,42 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	ulptr = loadbuf_collapsed;
 	ulptr_end = &(loadbuf_collapsed[indiv_ct / BITCT2]);
 	shiftmax = BITCT2;
-	while (1) {
-	  while (ulptr < ulptr_end) {
-	    cur_word = *ulptr++;
-	    for (shiftval = 0; shiftval < shiftmax; shiftval++) {
-	      ulii = cur_word & 3;
-	      wbufptr = memcpya(wbufptr, cur_mk_allelesx[ulii], cmalen[ulii]);
-	      cur_word >>= 2;
+	if ((!set_hh_missing) || (!is_x)) {
+	  while (1) {
+	    while (ulptr < ulptr_end) {
+	      cur_word = *ulptr++;
+	      for (shiftval = 0; shiftval < shiftmax; shiftval++) {
+		ulii = cur_word & 3;
+		wbufptr = memcpya(wbufptr, cur_mk_allelesx[ulii], cmalen[ulii]);
+		cur_word >>= 2;
+	      }
 	    }
+	    if (ulptr == loadbuf_collapsed_end) {
+	      break;
+	    }
+	    ulptr_end++;
+	    shiftmax = indiv_ct % BITCT2;
 	  }
-	  if (ulptr == loadbuf_collapsed_end) {
-	    break;
+	} else {
+	  ulptr2 = indiv_male_include2;
+	  while (1) {
+	    while (ulptr < ulptr_end) {
+	      cur_word = *ulptr++;
+	      ref_word = (*ulptr2++) << 1;
+	      for (shiftval = 0; shiftval < shiftmax; shiftval++) {
+		ulii = cur_word & 3;
+		uljj = ref_word & 3;
+		wbufptr = memcpya(wbufptr, cur_mk_allelesx[ulii], 4 - uljj);
+		cur_word >>= 2;
+		ref_word >>= 2;
+	      }
+	    }
+	    if (ulptr == loadbuf_collapsed_end) {
+	      break;
+	    }
+	    ulptr_end++;
+	    shiftmax = indiv_ct % BITCT2;
 	  }
-	  ulptr_end++;
-	  shiftmax = indiv_ct % BITCT2;
 	}
 	if (fwrite_checked(writebuf, wbufptr - writebuf, outfile)) {
 	  goto recode_ret_WRITE_FAIL;
