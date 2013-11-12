@@ -7472,7 +7472,6 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   char* marker_id;
   char* pos_str;
   char* alt_alleles;
-  char* geno_start;
   char* wptr;
   uintptr_t* base_bitfields;
   uintptr_t* alt_bitfield;
