@@ -10934,6 +10934,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
       wbufptr = strcpyax(wbufptr, &(aptr[1]), ' ');
       wbufptr = double_g_writex(wbufptr, ((double)((int32_t)missing_cts[indiv_idx])) * dxx, ' ');
       *wbufptr++ = sexchar(sex_nm, sex_male, indiv_uidx);
+      *wbufptr++ = ' ';
       if (pheno_d) {
         wbufptr = double_g_write(wbufptr, pheno_d[indiv_uidx]);
       } else {
