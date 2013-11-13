@@ -1,5 +1,5 @@
-wdist
-=====
+plink-ng
+========
 
 This is mostly a large collection of report-generating functions which do not
 depend on each other.  plink_common contains convenience functions for file
