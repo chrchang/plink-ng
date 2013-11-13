@@ -8880,7 +8880,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "nop")) {
 	    epi_info.modifier |= EPI_FAST_NO_P_VALUE;
 	  } else {
-	    sprintf("Error: Invalid --fast-epistasis modifier '%s'.%s", argv[cur_arg + uii], errstr_append);
+	    sprintf(logbuf, "Error: Invalid --fast-epistasis modifier '%s'.%s", argv[cur_arg + uii], errstr_append);
             goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
@@ -9118,7 +9118,7 @@ int32_t main(int32_t argc, char** argv) {
         set_info.modifier |= SET_GENE_ALL;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ap", 3)) {
-	if ((epi_info.modifier & (EPI_FAST | EPI_FAST_CASE_ONLY)) != EPI_FAST | EPI_FAST_CASE_ONLY) {
+	if ((epi_info.modifier & (EPI_FAST | EPI_FAST_CASE_ONLY)) != (EPI_FAST | EPI_FAST_CASE_ONLY)) {
 	  sprintf(logbuf, "Error: --gap must be used with '--fast-epistasis case-only'.%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
