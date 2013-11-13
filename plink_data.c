@@ -10178,7 +10178,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     set_hh_missing = 0;
   }
   if (set_hh_missing) {
-    if (recode_modifier & (RECODE_23 | RECODE_BEAGLE | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_RLIST | RECODE_TRANSPOSE | RECODE_VCF)) {
+    if (recode_modifier & (RECODE_23 | RECODE_BEAGLE | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_OXFORD | RECODE_RLIST | RECODE_TRANSPOSE | RECODE_VCF)) {
       // SNP-major and no need for indiv_uidx in inner loop, so we can use
       // collapsed representation
       if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_ct, hh_exists | ((recode_modifier & RECODE_VCF)? XMHH_EXISTS : 0), 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
@@ -10203,7 +10203,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     }
     max_marker_allele_len = 2;
   }
-  if (recode_modifier & (RECODE_BEAGLE | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_RLIST | RECODE_TRANSPOSE | RECODE_VCF)) {
+  if (recode_modifier & (RECODE_BEAGLE | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_OXFORD | RECODE_RLIST | RECODE_TRANSPOSE | RECODE_VCF)) {
     if (wkspace_alloc_ul_checked(&loadbuf_collapsed, indiv_ctv2 * sizeof(intptr_t))) {
       goto recode_ret_NOMEM;
     }
@@ -10219,6 +10219,10 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
   }
   if (recode_modifier & RECODE_VCF) {
     if (wkspace_alloc_c_checked(&writebuf, indiv_ct * 4)) {
+      goto recode_ret_NOMEM;
+    }
+  } else if (recode_modifier & RECODE_OXFORD) {
+    if (wkspace_alloc_c_checked(&writebuf, indiv_ct * 6)) {
       goto recode_ret_NOMEM;
     }
   } else if (recode_modifier & RECODE_BEAGLE) {
@@ -10564,7 +10568,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     }
   }
   recode_compound = recode_modifier & RECODE_COMPOUND;
-  if (!(recode_modifier & (RECODE_A | RECODE_AD | RECODE_BEAGLE | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_VCF))) {
+  if (!(recode_modifier & (RECODE_A | RECODE_AD | RECODE_BEAGLE | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_OXFORD | RECODE_VCF))) {
     if (wkspace_alloc_c_checked(&cur_mk_allelesx_buf, 8 * max_marker_allele_len)) {
       goto recode_ret_NOMEM;
     }
@@ -10580,6 +10584,14 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
     cur_mk_allelesx[1] = &(cur_mk_allelesx_buf[4]);
     cur_mk_allelesx[2] = &(cur_mk_allelesx_buf[8]);
     cur_mk_allelesx[3] = &(cur_mk_allelesx_buf[12]);
+  } else if (recode_modifier & RECODE_OXFORD) {
+    if (wkspace_alloc_c_checked(&cur_mk_allelesx_buf, 24)) {
+      goto recode_ret_NOMEM;
+    }
+    cur_mk_allelesx[0] = cur_mk_allelesx_buf;
+    cur_mk_allelesx[1] = &(cur_mk_allelesx_buf[6]);
+    cur_mk_allelesx[2] = &(cur_mk_allelesx_buf[12]);
+    cur_mk_allelesx[3] = &(cur_mk_allelesx_buf[18]);
   }
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
     goto recode_ret_READ_FAIL;

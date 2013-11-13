@@ -32,12 +32,34 @@ typedef struct {
   Range_list snps_rl;
 } Ld_info;
 
-void ld_init(Ld_info* ldip);
+// fast epistasis test is really similar to LD scan so we put it in the same
+// place
+#define EPI_FAST 1
+#define EPI_FAST_CASE_ONLY 2
+#define EPI_FAST_NO_P_VALUE 4
+#define EPI_REG 8
+#define EPI_SET_BY_SET 0x10
+#define EPI_SET_BY_ALL 0x20
 
-void ld_cleanup(Ld_info* ldip);
+typedef struct {
+  uint32_t modifier;
+  uint32_t case_only_gap;
+  double epi1;
+  double epi2;
+  char* twolocus_mkr1;
+  char* twolocus_mkr2;
+} Epi_info;
+
+void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip);
+
+void ld_epi_cleanup(Ld_info* ldip, Epi_info* epi_ip);
 
 int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
 
 int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
+
+int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists);
+
+int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* outname, char* outname_end);
 
 #endif // __PLINK_LD_H__

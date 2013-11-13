@@ -1,3 +1,4 @@
+/*
 #include "plink_common.h"
 
 #ifndef STABLE_BUILD
@@ -1743,3 +1744,4 @@ int32_t plink_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
   return retval;
 }
 #endif // STABLE_BUILD
+*/

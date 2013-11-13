@@ -3275,6 +3275,7 @@ void normalize_phenos(double* new_phenos, uint32_t indiv_ct, uintptr_t* indiv_ex
   }
 }
 
+/*
 int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t max_pcs, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t indiv_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, char* person_ids, uintptr_t max_person_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, double* pheno_d, double missing_phenod, char* outname, char* outname_end, uint32_t hh_exists) {
   FILE* outfile = NULL;
   FILE* evecfile = NULL;
@@ -3739,6 +3740,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   fclose_cond(outfile);
   return retval;
 }
+*/
 
 static uintptr_t g_cg_indiv1idx;
 static uintptr_t g_cg_indiv2idx;

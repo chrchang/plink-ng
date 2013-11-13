@@ -5,7 +5,7 @@
 #define MULTIPLEX_LD 1920
 #define MULTIPLEX_2LD (MULTIPLEX_LD * 2)
 
-void ld_init(Ld_info* ldip) {
+void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip) {
   ldip->modifier = 0;
   ldip->prune_window_size = 0;
   ldip->prune_window_incr = 0;
@@ -16,11 +16,19 @@ void ld_init(Ld_info* ldip) {
   ldip->window_r2 = 0.2;
   ldip->snpstr = NULL;
   range_list_init(&(ldip->snps_rl));
+  epi_ip->modifier = 0;
+  epi_ip->case_only_gap = 1000000;
+  epi_ip->epi1 = 0.0001;
+  epi_ip->epi2 = 0.05;
+  epi_ip->twolocus_mkr1 = NULL;
+  epi_ip->twolocus_mkr2 = NULL;
 }
 
-void ld_cleanup(Ld_info* ldip) {
+void ld_epi_cleanup(Ld_info* ldip, Epi_info* epi_ip) {
   free_cond(ldip->snpstr);
   free_range_list(&(ldip->snps_rl));
+  free_cond(epi_ip->twolocus_mkr1);
+  free_cond(epi_ip->twolocus_mkr2);
 }
 
 #ifdef __LP64__
@@ -1805,4 +1813,14 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
  ld_report_ret_1:
   wkspace_reset(wkspace_mark);
   return retval;
+}
+
+int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
+  logprint("Error: --twolocus is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+}
+
+int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* outname, char* outname_end) {
+  logprint("Error: --epistasis and --fast-epistasis are currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
 }

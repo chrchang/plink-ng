@@ -314,12 +314,14 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --23file [fname] {family ID} {indiv. ID} {sex} {pheno} {pat. ID} {mat. ID} :\n"
 "    Specify 23andMe input file.\n\n"
 	       );
-#ifndef STABLE_BUILD
+    /*
     help_print("data\tgen\tsample", &help_ctrl, 1,
 "  --data {prefix}  : Specify Oxford .gen + .sample prefix (default '" PROG_NAME_STR "').\n"
 "  --gen [filename] : Specify full name of .gen file.\n"
 "  --sample [fname] : Specify full name of .sample file.\n\n"
-	       );
+    	       );
+    */
+#ifndef STABLE_BUILD
     help_print("cfile\tcnv-list\tgfile", &help_ctrl, 1,
 "  --cfile [prefix] : Specify .cnv + .fam + .cnv.map (segmental CNV) prefix.\n"
 "  --cnv-list [fn]  : Specify full name of .cnv file.\n"
@@ -369,8 +371,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid\trecode-beagle\trecode-bimbam\trecode-fastphase\trecodeHV\trecodehv\trecode-structure", &help_ctrl, 1,
 "  --recode <12> <compound-genotypes> <23 | A | AD | beagle | bimbam |\n"
 "           bimbam-1chr | fastphase | fastphase-1chr | HV | HV-1chr | lgen |\n"
-"           lgen-ref | list | rlist | structure | transpose | vcf | vcf-fid |\n"
-"           vcf-iid> <tab | tabx | spacex>\n"
+"           lgen-ref | list | oxford | rlist | structure | transpose | vcf |\n"
+"           vcf-fid | vcf-iid> <tab | tabx | spacex>\n"
 "    Create a new text fileset with all filters applied.  By default, the\n"
 "    fileset consists of a .ped and a .map file, readable with --file.\n"
 "    * The '12' modifier causes all alleles to be coded as 1s and 2s.\n"
@@ -397,6 +399,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      long-format fileset loadable with --lfile + --reference.\n"
 "    * The 'list' modifier creates a genotype-based list, while 'rlist'\n"
 "      creates a rare-genotype fileset.\n"
+"    * 'oxford' causes an Oxford-format .gen + .sample fileset to be generated.\n"
 "    * The 'structure' modifier causes a Structure-format file to be generated.\n"
 "    * 'transpose' creates a transposed text fileset (loadable with --tfile).\n"
 "    * 'vcf', 'vcf-fid', and 'vcf-iid' result in production of a VCFv4.0 file.\n"
@@ -483,9 +486,42 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      88(1): 76-82.  This paper also describes the relationship matrix\n"
 "      computation we implement.\n\n"
 	       );
-    help_print("distance\tregress-pcs-distance", &help_ctrl, 1,
+    help_print("indep\tindep-pairwise", &help_ctrl, 1,
+"  --indep [window size]<kb> [step size (site ct)] [VIF threshold]\n"
+"  --indep-pairwise [window size]<kb> [step size (site ct)] [r^2 threshold]\n"
+"    Generate a list of markers in approximate linkage equilibrium.  With the\n"
+"    'kb' modifier, the window size is in kilobase instead of site count units.\n"
+"    (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5' and\n"
+"    '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
+"    Note that you need to rerun " PROG_NAME_CAPS " using --extract or --exclude on the\n"
+"    .prune.in/.prune.out file to apply the list to another computation.\n\n"
+		);
+    help_print("r\tr2\tmatrix", &help_ctrl, 1,
+"  --r <square | square0 | triangle | inter-chr> <gz | bin> <single-prec>\n"
+"      <spaces> <yes-really>\n"
+"  --r2 <square | square0 | triangle | inter-chr> <gz | bin> <single-prec>\n"
+"       <spaces> <yes-really>\n"
+"    LD statistic reports.  --r yields raw inter-variant correlations, while\n"
+"    --r2 reports their squares.  You can request results for all pairs in\n"
+"    matrix format (if you specify 'bin' or one of the shape modifiers), all\n"
+"    pairs in table format ('inter-chr'), or a limited window in table format\n"
+"    (default).\n"
+"    * The 'gz' modifier causes the output text file to be gzipped.\n"
+"    * 'bin' causes the output matrix to be written in binary format.  The\n"
+"      matrix is square if no shape is explicitly specified.\n"
+"    * 'single-prec' causes the computation to use (and with 'bin', results to\n"
+"      be saved as) single-precision instead of double-precision floating point\n"
+"      numbers.\n"
+"    * By default, text matrices are tab-delimited; 'spaces' switches this.\n"
+"    * Since the resulting file can easily be huge, you're required to add the\n"
+"      'yes-really' modifier when requesting an unfiltered, non-distributed all\n"
+"      pairs computation on more than 400k variants.\n"
+"    * These computations can be subdivided with --parallel (even when the\n"
+"      'square' modifier is active).\n\n"
+	       );
+    help_print("distance", &help_ctrl, 1,
 "  --distance <square | square0 | triangle> <gz | bin> <ibs> <1-ibs> <allele-ct>\n"
-"             <3d> <flat-missing>\n"
+"             <flat-missing>\n"
 "    Write a lower-triangular tab-delimited table of (weighted) genomic\n"
 "    distances in allele count units to {output prefix}.dist, and a list of the\n"
 "    corresponding family/individual IDs to {output prefix}.dist.id.  The first\n"
@@ -583,6 +619,48 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      rate of all scanning windows containing the variant must be at least\n"
 "      0.05; change this threshold with --homozyg-window-threshold.\n\n"
 	       );
+    help_print("make-rel", &help_ctrl, 1,
+"  --make-rel <square | square0 | triangle> <gz | bin> <cov | ibc2 | ibc3>\n"
+"             <single-prec>\n"
+"    Write a lower-triangular variance-standardized relationship (coancestry)\n"
+"    matrix to {output prefix}.rel, and corresponding IDs to\n"
+"    {output prefix}.rel.id.\n"
+"    * 'square', 'square0', 'triangle', 'gz', and 'bin' act as they do on\n"
+"      --distance.\n"
+"    * The 'cov' modifier removes the variance standardization step, causing a\n"
+"      covariance matrix to be calculated instead.\n"
+"    * By default, the diagonal elements in the relationship matrix are based on\n"
+"      --ibc's Fhat1; use the 'ibc2' or 'ibc3' modifiers to base them on Fhat2\n"
+"      or Fhat3 instead.\n"
+"    * " PROG_NAME_CAPS " normally performs this calculation with double-precision floating\n"
+"      point numbers.  The 'single-prec' modifier switches to single-precision\n"
+"      arithmetic, which sacrifices a bit of accuracy to decrease memory usage\n"
+"      and reduce computation time.\n"
+"    * The computation can be subdivided with --parallel.\n"
+               );
+    help_print("make-grm\tmake-grm-bin\tgrm\tgrm-bin\tmake-grm-gz", &help_ctrl, 1,
+"  --make-grm-gz <no-gz> <cov | ibc2 | ibc3> <single-prec>\n"
+"  --make-grm-bin <cov | ibc2 | ibc3>\n"
+"    --make-grm-gz writes the relationships in GCTA's original gzipped list\n"
+"    format, which describes one pair per line, while --make-grm-bin writes them\n"
+"    in GCTA 1.1+'s single-precision triangular binary format.  Note that these\n"
+"    formats explicitly report the number of valid observations (where neither\n"
+"    individual has a missing call) for each pair, which is useful input for\n"
+"    some scripts.\n"
+"    These computations can be subdivided with --parallel.\n\n"
+	       );
+    help_print("rel-cutoff\tgrm-cutoff", &help_ctrl, 1,
+"  --rel-cutoff {val}\n"
+"    (alias: --grm-cutoff)\n"
+"    Exclude one member of each pair of individuals with relatedness greater\n"
+"    than the given cutoff value (default 0.025).  If no later operation will\n"
+"    cause the list of remaining individuals to be written to disk, this will\n"
+"    save it to {output prefix}.rel.id.\n"
+"    Note that maximizing the remaining sample size is equivalent to the NP-hard\n"
+"    maximum independent set problem, so we use a greedy algorithm instead of\n"
+"    guaranteeing optimality.  (Use the --make-rel and --keep/--remove flags if\n"
+"    you want to try to do better.)\n\n"
+	       );
     help_print("cluster\tcc\tgroup-avg\tgroup-average\tcluster-missing", &help_ctrl, 1,
 "  --cluster <cc> <group-avg | old-tiebreaks> <missing> <only2>\n"
 "    Cluster individuals using a pairwise similarity statistic (normally IBS).\n"
@@ -606,6 +684,29 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Report IBS distances from each individual to their n1th- to n2th-nearest\n"
 "    neighbors, associated Z-scores, and the identities of those neighbors.\n"
 "    Useful for outlier detection.\n\n"
+	       );
+    help_print("ibs-test\tgroupdist", &help_ctrl, 1,
+"  --ibs-test {permutation count}\n"
+"  --groupdist {iters} {d}\n"
+"    Given case/control phenotype data, these commands consider three subsets of\n"
+"    the distance matrix: pairs of affected individuals, affected-unaffected\n"
+"    pairs, and pairs of unaffected individuals.  Each of these subsets has a\n"
+"    distribution of pairwise genomic distances; --ibs-test uses permutation to\n"
+"    estimate p-values re: which types of pairs are most similar, while\n"
+"    --groupdist focuses on the differences between the centers of these\n"
+"    distributions and estimates standard errors via delete-d jackknife.\n\n"
+	       );
+    help_print("regress-distance\tregress-rel", &help_ctrl, 1,
+"  --regress-distance {iters} {d}\n"
+"    Linear regression of pairwise genomic distances on pairwise average\n"
+"    phenotypes and vice versa, using delete-d jackknife for standard errors.  A\n"
+"    scalar phenotype is required.\n"
+"    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
+"      down.  With no parameters, 100k iterations are run.\n"
+"  --regress-rel {iters} {d}\n"
+"    Linear regression of pairwise genomic relationships on pairwise average\n"
+"    phenotypes, and vice versa.  Defaults for iters and d are the same as for\n"
+"    --regress-distance.\n\n"
 	       );
     help_print("assoc\tmodel\tfisher\tperm\tmperm\tperm-count\tcounts\tp2\tmodel-dom\tmodel-gen\tmodel-rec\tmodel-trend\tgenedrop\tqt-means\ttrend", &help_ctrl, 1,
 "  --assoc <perm | mperm=[value]> <perm-count> <fisher> <counts>\n"
@@ -713,130 +814,6 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    Note that this method may require a very large sample size (e.g. hundreds\n"
 "    of thousands) to be effective on complex polygenic traits.\n\n"
 	       );
-    help_print("indep\tindep-pairwise", &help_ctrl, 1,
-"  --indep [window size]<kb> [step size (site ct)] [VIF threshold]\n"
-"  --indep-pairwise [window size]<kb> [step size (site ct)] [r^2 threshold]\n"
-"    Generate a list of markers in approximate linkage equilibrium.  With the\n"
-"    'kb' modifier, the window size is in kilobase instead of site count units.\n"
-"    (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 5 0.5' and\n"
-"    '--indep-pairwise 500kb 5 0.5' have the same effect.)\n"
-"    Note that you need to rerun " PROG_NAME_CAPS " using --extract or --exclude on the\n"
-"    .prune.in/.prune.out file to apply the list to another computation.\n\n"
-		);
-    help_print("r\tr2", &help_ctrl, 1,
-"  --r <square | square0 | triangle | inter-chr> <gz | bin> <single-prec>\n"
-"      <spaces> <yes-really>\n"
-"  --r2 <square | square0 | triangle | inter-chr> <gz | bin> <single-prec>\n"
-"       <spaces> <yes-really>\n"
-"    LD statistic reports.  --r yields raw inter-variant correlations, while\n"
-"    --r2 reports their squares.  You can request results for all pairs in\n"
-"    matrix format (if you specify 'bin' or one of the shape modifiers), all\n"
-"    pairs in table format ('inter-chr'), or a limited window in table format\n"
-"    (default).\n"
-"    * The 'gz' modifier causes the output text file to be gzipped.\n"
-"    * 'bin' causes the output matrix to be written in binary format.  The\n"
-"      matrix is square if no shape is explicitly specified.\n"
-"    * 'single-prec' causes the computation to use (and with 'bin', results to\n"
-"      be saved as) single-precision instead of double-precision floating point\n"
-"      numbers.\n"
-"    * By default, text matrices are tab-delimited; 'spaces' switches this.\n"
-"    * Since the resulting file can easily be huge, you're required to add the\n"
-"      'yes-really' modifier when requesting an unfiltered, non-distributed all\n"
-"      pairs computation on more than 400k variants.\n"
-"    * These computations can be subdivided with --parallel (even when the\n"
-"      'square' modifier is active).\n\n"
-	       );
-    help_print("make-rel", &help_ctrl, 1,
-"  --make-rel <square | square0 | triangle> <gz | bin> <cov | ibc2 | ibc3>\n"
-"             <single-prec>\n"
-"    Write a lower-triangular variance-standardized relationship (coancestry)\n"
-"    matrix to {output prefix}.rel, and corresponding IDs to\n"
-"    {output prefix}.rel.id.\n"
-"    * 'square', 'square0', 'triangle', 'gz', and 'bin' act as they do on\n"
-"      --distance.\n"
-"    * The 'cov' modifier removes the variance standardization step, causing a\n"
-"      covariance matrix to be calculated instead.\n"
-"    * By default, the diagonal elements in the relationship matrix are based on\n"
-"      --ibc's Fhat1; use the 'ibc2' or 'ibc3' modifiers to base them on Fhat2\n"
-"      or Fhat3 instead.\n"
-"    * " PROG_NAME_CAPS " normally performs this calculation with double-precision floating\n"
-"      point numbers.  The 'single-prec' modifier switches to single-precision\n"
-"      arithmetic, which sacrifices a bit of accuracy to decrease memory usage\n"
-"      and reduce computation time.\n"
-"    * The computation can be subdivided with --parallel.\n"
-               );
-    help_print("make-grm\tmake-grm-bin\tgrm\tgrm-bin\tmake-grm-gz", &help_ctrl, 1,
-"  --make-grm-gz <no-gz> <cov | ibc2 | ibc3> <single-prec>\n"
-"  --make-grm-bin <cov | ibc2 | ibc3>\n"
-"    --make-grm-gz writes the relationships in GCTA's original gzipped list\n"
-"    format, which describes one pair per line, while --make-grm-bin writes them\n"
-"    in GCTA 1.1+'s single-precision triangular binary format.  Note that these\n"
-"    formats explicitly report the number of valid observations (where neither\n"
-"    individual has a missing call) for each pair, which is useful input for\n"
-"    some scripts.\n"
-"    These computations can be subdivided with --parallel.\n\n"
-	       );
-    help_print("rel-cutoff\tgrm-cutoff", &help_ctrl, 1,
-"  --rel-cutoff {val}\n"
-"    (alias: --grm-cutoff)\n"
-"    Exclude one member of each pair of individuals with relatedness greater\n"
-"    than the given cutoff value (default 0.025).  If no later operation will\n"
-"    cause the list of remaining individuals to be written to disk, this will\n"
-"    save it to {output prefix}.rel.id.\n"
-"    Note that maximizing the remaining sample size is equivalent to the NP-hard\n"
-"    maximum independent set problem, so we use a greedy algorithm instead of\n"
-"    guaranteeing optimality.  (Use the --make-rel and --keep/--remove flags if\n"
-"    you want to try to do better.)\n\n"
-	       );
-#ifndef STABLE_BUILD
-    help_print("regress-pcs\tregress-pcs-distance", &help_ctrl, 1,
-"  --regress-pcs [.evec or .eigenvec filename] <normalize-pheno> <sex-specific>\n"
-"                <clip> {max PCs}\n"
-"    Linear regression of phenotypes and genotypes on the given list of\n"
-"    principal components (produced by SMARTPCA or GCTA).  Output is currently a\n"
-"    .gen + .sample fileset in the Oxford IMPUTE/SNPTEST v2 format.\n"
-"    * The 'normalize-pheno' modifier converts all phenotype residuals to\n"
-"      Z-scores.  When combined with 'sex-specific', the Z-scores are evaluated\n"
-"      separately by sex.\n"
-"    * The 'clip' modifier clips out-of-range genotype residuals.  Without it,\n"
-"      they are represented as negative probabilities in the .gen file, which\n"
-"      are invalid input for some programs.\n"
-"    * By default, principal components beyond the 20th are ignored; change this\n"
-"      by setting the max PCs parameter.\n\n"
-      );
-#endif
-    help_print("regress-distance\tregress-rel", &help_ctrl, 1,
-"  --regress-distance {iters} {d}\n"
-"    Linear regression of pairwise genomic distances on pairwise average\n"
-"    phenotypes and vice versa, using delete-d jackknife for standard errors.  A\n"
-"    scalar phenotype is required.\n"
-"    * With less than two parameters, d is set to {number of people}^0.6 rounded\n"
-"      down.  With no parameters, 100k iterations are run.\n"
-"  --regress-rel {iters} {d}\n"
-"    Linear regression of pairwise genomic relationships on pairwise average\n"
-"    phenotypes, and vice versa.  Defaults for iters and d are the same as for\n"
-"    --regress-distance.\n\n"
-	       );
-    /*
-    help_print("regress-pcs\tdistance\tregress-pcs-distance", &help_ctrl, 1,
-"  --regress-pcs-distance [.evec/.eigenvec file] <normalize-pheno>\n"
-"                         <sex-specific> {max PCs} <square | square0 | triangle>\n"
-"                         <gz | bin> <ibs> <1-ibs> <allele-ct> <flat-missing>\n"
-"    High-speed combination of --regress-pcs and --distance (no .gen + .sample\n"
-"    fileset is written to disk).\n\n"
-	       );
-				     */
-    help_print("ibs-test\tgroupdist", &help_ctrl, 1,
-"  --ibs-test {permutation count}\n"
-"  --groupdist {iters} {d}\n"
-"    Given case/control phenotype data, these commands consider three subsets of\n"
-"    the distance matrix: pairs of affected individuals, affected-unaffected\n"
-"    pairs, and pairs of unaffected individuals.  Each of these subsets has a\n"
-"    distribution of pairwise genomic distances; --ibs-test uses permutation to\n"
-"    estimate p-values re: which types of pairs are most similar, while\n"
-"    --groupdist focuses on the differences between the centers of these\n"
-"    distributions and estimates standard errors via delete-d jackknife.\n\n"
-	       );
 #ifndef STABLE_BUILD
 #ifndef NOLAPACK
     help_print("unrelated-heritability", &help_ctrl, 1,
@@ -855,6 +832,51 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      doi:10.1371/journal.pgen.1002637\n\n"
 	       );
 #endif
+#endif
+    help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop", &help_ctrl, 1,
+"  --fast-epistasis <set-by-set | set-by-all> <case-only> <nop>\n"
+"  --epistasis <set-by-set | set-by-all>\n"
+"    Scan for epistatic interactions.  --fast-epistasis inspects 2x2 allele\n"
+"    count tables and only applies to case/control phenotypes, while --epistasis\n"
+"    performs linear or logistic regression.\n"
+"    * By default, all pairs of variants across the entire genome are tested.\n"
+"      To just test pairs of variants within a single set, add the 'set-by-set'\n"
+"      modifier and load exactly one set with --set/--make-set; with exactly two\n"
+"      sets loaded, all variants in one set are tested against all variants in\"      the other.  'set-by-all' tests all variants in one set against the entire\n"
+"      genome instead.\n"
+"    * 'case-only' requests a case-only instead of a case/control test.\n"
+"    * 'nop' strips p-values from the main report.\n"
+"    * These computations can be subdivided with --parallel.\n\n"
+	       );
+    help_print("twolocus", &help_ctrl, 1,
+"  --twolocus [variant ID] [variant ID]\n"
+"    Two-locus genotype count report.\n\n"
+	       );
+    /*
+    help_print("regress-pcs\tregress-pcs-distance", &help_ctrl, 1,
+"  --regress-pcs [.evec or .eigenvec filename] <normalize-pheno> <sex-specific>\n"
+"                <clip> {max PCs}\n"
+"    Linear regression of phenotypes and genotypes on the given list of\n"
+"    principal components (produced by SMARTPCA or GCTA).  Output is currently a\n"
+"    .gen + .sample fileset in the Oxford IMPUTE/SNPTEST v2 format.\n"
+"    * The 'normalize-pheno' modifier converts all phenotype residuals to\n"
+"      Z-scores.  When combined with 'sex-specific', the Z-scores are evaluated\n"
+"      separately by sex.\n"
+"    * The 'clip' modifier clips out-of-range genotype residuals.  Without it,\n"
+"      they are represented as negative probabilities in the .gen file, which\n"
+"      are invalid input for some programs.\n"
+"    * By default, principal components beyond the 20th are ignored; change this\n"
+"      by setting the max PCs parameter.\n\n"
+      );
+    help_print("regress-pcs\tdistance\tregress-pcs-distance", &help_ctrl, 1,
+"  --regress-pcs-distance [.evec/.eigenvec file] <normalize-pheno>\n"
+"                         <sex-specific> {max PCs} <square | square0 | triangle>\n"
+"                         <gz | bin> <ibs> <1-ibs> <allele-ct> <flat-missing>\n"
+"    High-speed combination of --regress-pcs and --distance (no .gen + .sample\n"
+"    fileset is written to disk).\n\n"
+	       );
+				     */
+#ifndef STABLE_BUILD
     help_print("cnv-make-map", &help_ctrl, 1,
 "  --cnv-make-map <short>\n"
 "    Given a .cnv file, this generates the corresponding .cnv.map file needed\n"
@@ -952,12 +974,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --simulate-label [prefix] : Set --simulate(-qt) individual name prefix.\n"
 "  --simulate-missing [freq] : Set --simulate(-qt) missing genotype frequency.\n"
 	       );
-#ifndef STABLE_BUILD
+    /*
     help_print("missing-code\tmissing_code\tmissing-phenotype", &help_ctrl, 0,
 "  --missing-code {vals}     : Comma-separated list of missing phenotype values\n"
 "    (alias: --missing_code)   for Oxford-formatted filesets (normally 'NA').\n"
 	       );
-#endif
+    */
     help_print("pheno\tall-pheno\tmpheno\tpheno-name\tpheno-merge", &help_ctrl, 0,
 "  --pheno [fname]  : Load phenotype data from the specified file, instead of\n"
 "                     using the values in the main input fileset.\n"
@@ -1251,6 +1273,22 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --merge-equal-pos : Merge variants with different names but identical\n"
 "                      positions.\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("r\tr2\tld-window-r2\tld-window\tld-window-kb\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
+"  --ld-window [ct+1] : Set --r/--r2 max site ct pairwise distance (usually 10).\n"
+"  --ld-window-kb [x] : Set --r/--r2 max kb pairwise distance (usually 200).\n"
+"  --ld-window-r2 [x] : Set threshold for --r2 report inclusion (usually 0.2).\n"
+"  --ld-snp [var ID]  : Set first variant in all --r/--r2 pairs.\n"
+"  --ld-snps [vID...] : Restrict first --r/--r2 variant to the given ranges.\n"
+"  --ld-snp-list [f]  : Restrict first --r/--r2 var. to those named in the file.\n"
+	       );
+#endif
+    help_print("indep\tindep-pairwise\tld-xchr", &help_ctrl, 0,
+"  --ld-xchr [code] : Specify X chromosome model for --indep[-pairwise].\n"
+"                     1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
+"                     2 = males coded 0/2\n"
+"                     3 = males coded 0/2, but females given double weighting\n"
+	       );
     help_print("distance-exp\texponent\tdistance", &help_ctrl, 0,
 "  --distance-exp [x] : When computing genomic distances, assign each variant a\n"
 "                       weight of (2q(1-q))^{-x}, where q is the inferred MAF.\n"
@@ -1367,21 +1405,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --mperm-save     : Save best max(T) permutation test statistics.\n"
 "  --mperm-save-all : Save all max(T) permutation test statistics.\n"
 	       );
-#ifndef STABLE_BUILD
-    help_print("r\tr2\tld-window-r2\tld-window\tld-window-kb\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
-"  --ld-window [ct+1] : Set --r/--r2 max site ct pairwise distance (usually 10).\n"
-"  --ld-window-kb [x] : Set --r/--r2 max kb pairwise distance (usually 200).\n"
-"  --ld-window-r2 [x] : Set threshold for --r2 report inclusion (usually 0.2).\n"
-"  --ld-snp [var ID]  : Set first variant in all --r/--r2 pairs.\n"
-"  --ld-snps [vID...] : Restrict first --r/--r2 variant to the given ranges.\n"
-"  --ld-snp-list [f]  : Restrict first --r/--r2 var. to those named in the file.\n"
-	       );
-#endif
-    help_print("indep\tindep-pairwise\tld-xchr", &help_ctrl, 0,
-"  --ld-xchr [code] : Specify X chromosome model for --indep[-pairwise].\n"
-"                     1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
-"                     2 = males coded 0/2\n"
-"                     3 = males coded 0/2, but females given double weighting\n"
+    help_print("fast-epistasis\tepistasis\tgap\tepi1\tepi2", &help_ctrl, 0,
+"  --gap [kbs]      : Set '--fast-epistasis case-only' min. gap (default 1000).\n"
+"  --epi1 [p-value] : Set --[fast-]epistasis reporting threshold (def. 0.0001).\n"
+"  --epi2 [p-value] : Set threshold for contributing to SIG_E count (def. 0.05).\n"
 	       );
     help_print("parallel\tgenome-lists", &help_ctrl, 0,
 "  --parallel [k] [n] : Divide the output matrix into n pieces, and only compute\n"

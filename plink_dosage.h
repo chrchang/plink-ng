@@ -1,3 +1,4 @@
+/*
 #ifndef __PLINK_DOSAGE_H__
 #define __PLINK_DOSAGE_H__
 
@@ -8,3 +9,4 @@ int32_t plink_dosage(uint64_t calculation_type, uint32_t dist_calc_type, char* g
 #endif
 
 #endif
+*/
