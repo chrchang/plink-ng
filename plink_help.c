@@ -845,8 +845,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      sets loaded, all variants in one set are tested against all variants in\"      the other.  'set-by-all' tests all variants in one set against the entire\n"
 "      genome instead.\n"
 "    * 'case-only' requests a case-only instead of a case/control test.\n"
-"    * 'nop' strips p-values from the main report.\n"
-"    * These computations can be subdivided with --parallel.\n\n"
+"    * 'nop' strips p-values from the main report.\n\n"
 	       );
     help_print("twolocus", &help_ctrl, 1,
 "  --twolocus [variant ID] [variant ID]\n"
