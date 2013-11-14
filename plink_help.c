@@ -834,17 +834,20 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #endif
 #endif
     help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop", &help_ctrl, 1,
-"  --fast-epistasis <set-by-set | set-by-all> <case-only> <nop>\n"
+"  --fast-epistasis <case-only> <ueki> <set-by-set | set-by-all> <nop>\n"
 "  --epistasis <set-by-set | set-by-all>\n"
 "    Scan for epistatic interactions.  --fast-epistasis inspects 2x2 allele\n"
 "    count tables and only applies to case/control phenotypes, while --epistasis\n"
 "    performs linear or logistic regression.\n"
+"    * 'case-only' requests a case-only instead of a case/control test.\n"
+"    * 'ueki' applies the variance correction described in Ueki M, Cordell HJ\n"
+"      (2012) Improved statistics for genome-wide interaction analysis.\n"
 "    * By default, all pairs of variants across the entire genome are tested.\n"
 "      To just test pairs of variants within a single set, add the 'set-by-set'\n"
 "      modifier and load exactly one set with --set/--make-set; with exactly two\n"
-"      sets loaded, all variants in one set are tested against all variants in\"      the other.  'set-by-all' tests all variants in one set against the entire\n"
+"      sets loaded, all variants in one set are tested against all variants in\n"
+"      the other.  'set-by-all' tests all variants in one set against the entire\n"
 "      genome instead.\n"
-"    * 'case-only' requests a case-only instead of a case/control test.\n"
 "    * 'nop' strips p-values from the main report.\n\n"
 	       );
     help_print("twolocus", &help_ctrl, 1,

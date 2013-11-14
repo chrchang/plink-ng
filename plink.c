@@ -4478,6 +4478,9 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: --linear without --all-pheno requires a scalar phenotype.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
+  } else if ((calculation_type & CALC_EPI) && (epi_ip->modifier & EPI_FAST) && (!pheno_c)) {
+    logprint("Error: --fast-epistasis requires a case/control phenotype.\n");
+    goto plink_ret_INVALID_CMDLINE;
   }
 
   uii = update_cm || update_map || update_name || (marker_alleles_needed && (update_alleles_fname || (flip_fname && (!flip_subset_fname)))) || filter_attrib_fname;
@@ -5277,7 +5280,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if ((calculation_type & CALC_EPI) && (epi_ip->modifier & (EPI_FAST | EPI_REG))) {
-    retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, outname, outname_end);
+    retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, outname, outname_end);
     if (retval) {
       goto plink_ret_1;
     }
@@ -8612,6 +8615,7 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
         epi_info.modifier |= EPI_REG;
+	calculation_type |= CALC_EPI;
       } else if (!memcmp(argptr2, "pi1", 4)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_3;
@@ -8862,11 +8866,15 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --fast-epistasis cannot be used with --epistasis.\n");
           goto main_ret_INVALID_CMDLINE;
 	}
-        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 3)) {
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 4)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
         for (uii = 1; uii <= param_ct; uii++) {
-	  if (!strcmp(argv[cur_arg + uii], "set-by-set")) {
+	  if (!strcmp(argv[cur_arg + uii], "case-only")) {
+	    epi_info.modifier |= EPI_FAST_CASE_ONLY;
+	  } else if (!strcmp(argv[cur_arg + uii], "ueki")) {
+	    epi_info.modifier |= EPI_FAST_UEKI;
+	  } else if (!strcmp(argv[cur_arg + uii], "set-by-set")) {
             if (!(epi_info.modifier & EPI_SET_BY_ALL)) {
 	      epi_info.modifier |= EPI_SET_BY_SET;
 	    }
@@ -8875,8 +8883,6 @@ int32_t main(int32_t argc, char** argv) {
 	      epi_info.modifier -= EPI_SET_BY_SET;
 	    }
             epi_info.modifier |= EPI_SET_BY_ALL;
-	  } else if (!strcmp(argv[cur_arg + uii], "case-only")) {
-	    epi_info.modifier |= EPI_FAST_CASE_ONLY;
 	  } else if (!strcmp(argv[cur_arg + uii], "nop")) {
 	    epi_info.modifier |= EPI_FAST_NO_P_VALUE;
 	  } else {
@@ -8885,6 +8891,7 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
         epi_info.modifier |= EPI_FAST;
+	calculation_type |= CALC_EPI;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }

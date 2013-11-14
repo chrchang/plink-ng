@@ -925,10 +925,10 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
     while (words_left >= 120) {
       words_left -= 120;
       vptrl_end = &(vptrl[60]);
+    is_allelic_match_main_loop:
       accj.vi = _mm_setzero_si128();
       accm.vi = _mm_setzero_si128();
       do {
-      is_allelic_match_main_loop:
 	loader_l = *vptrl++;
 	loader_s = *vptrs++;
 	joint_sum1 = _mm_andnot_si128(_mm_or_si128(_mm_xor_si128(loader_l, _mm_srli_epi64(loader_l, 1)), _mm_xor_si128(loader_s, _mm_srli_epi64(loader_s, 1))), m1);
@@ -982,8 +982,6 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
       joint_homozyg_mismatch_ct += ((accm.u8[0] + accm.u8[1]) * 0x1000100010001LLU) >> 48;
     }
     if (words_left) {
-      accj.vi = _mm_setzero_si128();
-      accm.vi = _mm_setzero_si128();
       vptrl_end = &(vptrl[words_left / 2]);
       words_left = 0;
       goto is_allelic_match_main_loop;

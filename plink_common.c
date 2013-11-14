@@ -4174,6 +4174,64 @@ void bitfield_ornot(uintptr_t* vv, uintptr_t* inverted_or_vec, uintptr_t word_ct
 #endif
 }
 
+uint32_t is_monomorphic(uintptr_t* lptr, uint32_t indiv_ct) {
+  uint32_t indiv_ctd2 = indiv_ct / BITCT2;
+  uint32_t indiv_rem = indiv_ct % BITCT2;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  while (indiv_ctd2) {
+    ulii = *lptr++;
+    uljj = (ulii >> 1) & FIVEMASK;
+    ulii = ~ulii;
+    // now ulii & FIVEMASK = low bit zero, uljj = high bit one
+    if (uljj) {
+      if (uljj & ulii) {
+        // heterozygote observed
+        return 0;
+      }
+      // homozyg A2 observed
+      while (1) {
+	// 00 and 10 now both demonstrate marker is polymorphic
+	if (ulii & FIVEMASK) {
+	  return 0;
+	}
+	if (!(--indiv_ctd2)) {
+	  if (indiv_rem) {
+	    if ((~(*lptr)) & (FIVEMASK >> (BITCT - indiv_rem * 2))) {
+	      return 0;
+	    }
+	  }
+	  return 1;
+	}
+	ulii = ~(*lptr++);
+      }
+    } else if (ulii & FIVEMASK) {
+      do {
+        if (!(--indiv_ctd2)) {
+          if (indiv_rem) {
+	    if ((*lptr) & (AAAAMASK >> (BITCT - indiv_rem * 2))) {
+	      return 0;
+	    }
+	  }
+	  return 1;
+	}
+	ulii = *lptr++;
+      } while (!(ulii & AAAAMASK));
+      return 0;
+    }
+    indiv_ctd2--;
+  }
+  if (indiv_rem) {
+    ulii = *lptr;
+    uljj = (ulii >> 1) & FIVEMASK;
+    ulii = ~ulii;
+    if ((uljj & ulii) || (uljj && (ulii & (FIVEMASK >> (BITCT - indiv_rem * 2))))) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 #ifdef __LP64__
 // Basic SSE2 implementation of Lauradoux/Walisch popcount.
 static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
@@ -4192,9 +4250,9 @@ static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
 
   while (ct >= 30) {
     ct -= 30;
-    acc.vi = _mm_setzero_si128();
     vend = &(vptr[30]);
   popcount_vecs_main_loop:
+    acc.vi = _mm_setzero_si128();
     do {
       count1 = *vptr++;
       count2 = *vptr++;
@@ -4219,7 +4277,6 @@ static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
     tot += ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
   }
   if (ct) {
-    acc.vi = _mm_setzero_si128();
     vend = &(vptr[ct]);
     ct = 0;
     goto popcount_vecs_main_loop;
@@ -4242,9 +4299,9 @@ static inline uintptr_t popcount2_vecs(__m128i* vptr, uintptr_t ct) {
 
   while (ct >= 30) {
     ct -= 30;
-    acc.vi = _mm_setzero_si128();
     vend = &(vptr[30]);
   popcount2_vecs_main_loop:
+    acc.vi = _mm_setzero_si128();
     do {
       loader1 = *vptr++;
       loader2 = *vptr++;
@@ -4268,7 +4325,6 @@ static inline uintptr_t popcount2_vecs(__m128i* vptr, uintptr_t ct) {
     tot += ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
   }
   if (ct) {
-    acc.vi = _mm_setzero_si128();
     vend = &(vptr[ct]);
     ct = 0;
     goto popcount2_vecs_main_loop;
@@ -4289,9 +4345,9 @@ static inline uintptr_t popcount_vecs_exclude(__m128i* vptr, __m128i* exclude_pt
 
   while (ct >= 30) {
     ct -= 30;
-    acc.vi = _mm_setzero_si128();
     vend = &(vptr[30]);
   popcount_vecs_exclude_main_loop:
+    acc.vi = _mm_setzero_si128();
     do {
       // nots the FIRST value
       count1 = _mm_andnot_si128(*exclude_ptr++, *vptr++);
@@ -4311,7 +4367,6 @@ static inline uintptr_t popcount_vecs_exclude(__m128i* vptr, __m128i* exclude_pt
     tot += ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
   }
   if (ct) {
-    acc.vi = _mm_setzero_si128();
     vend = &(vptr[ct]);
     ct = 0;
     goto popcount_vecs_exclude_main_loop;
@@ -4332,9 +4387,9 @@ static inline uintptr_t popcount_vecs_intersect(__m128i* vptr1, __m128i* vptr2, 
 
   while (ct >= 30) {
     ct -= 30;
-    acc.vi = _mm_setzero_si128();
     vend1 = &(vptr1[30]);
   popcount_vecs_intersect_main_loop:
+    acc.vi = _mm_setzero_si128();
     do {
       count1 = _mm_and_si128(*vptr2++, *vptr1++);
       count2 = _mm_and_si128(*vptr2++, *vptr1++);
@@ -4353,7 +4408,6 @@ static inline uintptr_t popcount_vecs_intersect(__m128i* vptr1, __m128i* vptr2, 
     tot += ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
   }
   if (ct) {
-    acc.vi = _mm_setzero_si128();
     vend1 = &(vptr1[ct]);
     ct = 0;
     goto popcount_vecs_intersect_main_loop;
@@ -5345,9 +5399,9 @@ uintptr_t count_01_vecs(__m128i* vptr, uintptr_t vct) {
 
   while (vct >= 60) {
     vct -= 60;
-    acc.vi = _mm_setzero_si128();
     vend = &(vptr[60]);
   count_01_vecs_main_loop:
+    acc.vi = _mm_setzero_si128();
     do {
       loader1 = *vptr++;
       loader2 = *vptr++;
@@ -5369,7 +5423,6 @@ uintptr_t count_01_vecs(__m128i* vptr, uintptr_t vct) {
     tot += ((acc.u8[0] + acc.u8[1]) * 0x1000100010001LLU) >> 48;
   }
   if (vct) {
-    acc.vi = _mm_setzero_si128();
     vend = &(vptr[vct]);
     vct = 0;
     goto count_01_vecs_main_loop;
@@ -6321,6 +6374,63 @@ uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfil
     reverse_loadbuf((unsigned char*)mainbuf, indiv_ct);
   }
   return 0;
+}
+
+uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* casebuf, uintptr_t* ctrlbuf, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+  // add do_reverse later if needed
+  uintptr_t* rawbuf_end = &(rawbuf[unfiltered_indiv_ct / BITCT2]);
+  uintptr_t case_word = 0;
+  uintptr_t ctrl_word = 0;
+  uint32_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uint32_t case_shift2 = 0;
+  uint32_t ctrl_shift2 = 0;
+  uint32_t read_shift_max = BITCT2;
+  uint32_t indiv_uidx = 0;
+  uint32_t read_shift;
+  uintptr_t read_word;
+  uintptr_t ulii;
+  if (fread(rawbuf, 1, unfiltered_indiv_ct4, bedfile) < unfiltered_indiv_ct4) {
+    return RET_READ_FAIL;
+  }
+  while (1) {
+    while (rawbuf < rawbuf_end) {
+      read_word = *rawbuf++;
+      for (read_shift = 0; read_shift < read_shift_max; indiv_uidx++, read_shift++) {
+	if (is_set(pheno_nm, indiv_uidx)) {
+	  ulii = read_word & 3;
+	  if (is_set(pheno_c, indiv_uidx)) {
+	    case_word |= ulii << case_shift2;
+	    case_shift2 += 2;
+	    if (case_shift2 == BITCT) {
+	      *casebuf++ = case_word;
+	      case_word = 0;
+	      case_shift2 = 0;
+	    }
+	  } else {
+	    ctrl_word |= ulii << ctrl_shift2;
+	    ctrl_shift2 += 2;
+	    if (ctrl_shift2 == BITCT) {
+	      *ctrlbuf++ = ctrl_word;
+	      ctrl_word = 0;
+	      ctrl_shift2 = 0;
+	    }
+	  }
+	}
+	read_word >>= 2;
+      }
+    }
+    if (indiv_uidx == unfiltered_indiv_ct) {
+      if (case_shift2) {
+	*casebuf = case_word;
+      }
+      if (ctrl_shift2) {
+	*ctrlbuf = ctrl_word;
+      }
+      return 0;
+    }
+    rawbuf_end++;
+    read_shift_max = unfiltered_indiv_ct % BITCT2;
+  }
 }
 
 uint32_t block_load_autosomal(FILE* bedfile, int32_t bed_offset, uintptr_t* marker_exclude, uint32_t marker_ct_autosomal, uint32_t block_max_size, uintptr_t unfiltered_indiv_ct4, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_weights, unsigned char* readbuf, uint32_t* chrom_fo_idx_ptr, uintptr_t* marker_uidx_ptr, uintptr_t* marker_idx_ptr, uint32_t* block_size_ptr, double* set_allele_freq_buf, float* set_allele_freq_buf_fl, uint32_t* wtbuf) {
