@@ -836,9 +836,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop", &help_ctrl, 1,
 "  --fast-epistasis <case-only> <ueki> <set-by-set | set-by-all> <nop>\n"
 "  --epistasis <set-by-set | set-by-all>\n"
-"    Scan for epistatic interactions.  --fast-epistasis inspects 2x2 allele\n"
-"    count tables and only applies to case/control phenotypes, while --epistasis\n"
-"    performs linear or logistic regression.\n"
+"    Scan for epistatic interactions.  --fast-epistasis inspects 2x2 joint\n"
+"    allele count tables and only applies to case/control phenotypes, while\n"
+"    --epistasis performs linear or logistic regression.\n"
 "    * 'case-only' requests a case-only instead of a case/control test.\n"
 "    * 'ueki' applies the variance correction described in Ueki M, Cordell HJ\n"
 "      (2012) Improved statistics for genome-wide interaction analysis.\n"

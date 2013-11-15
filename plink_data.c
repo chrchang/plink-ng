@@ -10752,7 +10752,6 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FI
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	  // todo: only emit one for male X?
 	  if (((!hh_exists) || set_hh_missing) && is_haploid && (!is_x)) {
 	    uii = 2;
 	  } else {
