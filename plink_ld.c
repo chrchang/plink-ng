@@ -2081,6 +2081,7 @@ static inline void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, 
     c21 *= c21;
     c22 *= c22;
     dxx *= dxx;
+
     if (no_adj) {
       *var_ptr = 4 * (4 * (rc11 * (double)((int32_t)counts_3x3[0]) +
 			   rc12 * (double)((int32_t)counts_3x3[2]) +
