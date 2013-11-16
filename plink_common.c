@@ -4598,7 +4598,7 @@ uintptr_t jump_forward_unset_unsafe(uintptr_t* bit_arr, uintptr_t cur_pos, uintp
   }
   vptr = (__m128i*)bptr;
   while (forward_ct > BITCT * 6) {
-    uljj = (forward_ct / (BITCT * 6)) * 3;
+    uljj = ((forward_ct - 1) / (BITCT * 6)) * 3;
     ulkk = popcount_vecs(vptr, uljj);
     vptr = &(vptr[uljj]);
     forward_ct -= uljj * BITCT * 2 - ulkk;
