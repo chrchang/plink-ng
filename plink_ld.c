@@ -2840,12 +2840,12 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
           chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx2];
 	  chrom_end2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx2 + 1];
           wptr_start2 = width_force(4, wptr_start, chrom_name_write(wptr_start, chrom_info_ptr, chrom_idx2, zero_extra_chroms));
-	  *wptr_start2++;
+	  wptr_start2++;
 	  for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, &marker_uidx2, chrom_end2), marker_idx2++, dptr++) {
 	    dxx = *dptr;
 	    if (dxx != 0.0) {
 	      wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr_start2);
-	      *wptr++;
+	      wptr++;
               wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
 	      if (!no_p_value) {
 		wptr = double_g_writewx4x(wptr, normdist(-sqrt(dxx)) * 2, 12, ' ');
@@ -2905,7 +2905,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     }
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     wptr_start = width_force(4, tbuf, chrom_name_write(tbuf, chrom_info_ptr, chrom_idx, zero_extra_chroms));
-    *wptr_start++;
+    wptr_start++;
     for (; marker_uidx < chrom_end; marker_uidx++, next_unset_ul_ck(marker_exclude2, &marker_uidx, chrom_end), marker_idx1++) {
       if (IS_SET(marker_exclude1, marker_uidx)) {
 	// this will be relevant when sets come into the picture
