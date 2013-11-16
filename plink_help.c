@@ -834,14 +834,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #endif
 #endif
     help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop", &help_ctrl, 1,
-"  --fast-epistasis <case-only> <ueki> <set-by-set | set-by-all> <nop>\n"
+"  --fast-epistasis <no-ueki> <case-only> <set-by-set | set-by-all> <nop>\n"
 "  --epistasis <set-by-set | set-by-all>\n"
 "    Scan for epistatic interactions.  --fast-epistasis inspects 2x2 joint\n"
 "    allele count tables and only applies to case/control phenotypes, while\n"
 "    --epistasis performs linear or logistic regression.\n"
+"    * --fast-epistasis normally applies the variance correction described in\n"
+"      Ueki M, Cordell HJ (2012) Improved statistics for genome-wide interaction\n"
+"      analysis.  To disable this for testing purposes, add 'no-ueki'.\n"
 "    * 'case-only' requests a case-only instead of a case/control test.\n"
-"    * 'ueki' applies the variance correction described in Ueki M, Cordell HJ\n"
-"      (2012) Improved statistics for genome-wide interaction analysis.\n"
 "    * By default, all pairs of variants across the entire genome are tested.\n"
 "      To just test pairs of variants within a single set, add the 'set-by-set'\n"
 "      modifier and load exactly one set with --set/--make-set; with exactly two\n"
@@ -1410,7 +1411,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("fast-epistasis\tepistasis\tgap\tepi1\tepi2", &help_ctrl, 0,
 "  --gap [kbs]      : Set '--fast-epistasis case-only' min. gap (default 1000).\n"
 "  --epi1 [p-value] : Set --[fast-]epistasis reporting threshold (def. 0.0001).\n"
-"  --epi2 [p-value] : Set threshold for contributing to SIG_E count (def. 0.05).\n"
+"  --epi2 [p-value] : Set threshold for contributing to SIG_E count (def. 0.01).\n"
 	       );
     help_print("parallel\tgenome-lists", &help_ctrl, 0,
 "  --parallel [k] [n] : Divide the output matrix into n pieces, and only compute\n"
