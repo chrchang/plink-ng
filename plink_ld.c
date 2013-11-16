@@ -2033,7 +2033,6 @@ static inline void two_locus_count_table(uintptr_t* lptr1, uintptr_t* lptr2, uin
 }
 
 static inline void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, double* or_ptr, double* var_ptr) {
-  double adj = 0.0;
   double c11;
   double c12;
   double c21;
@@ -2043,17 +2042,19 @@ static inline void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, 
   double rc21;
   double rc22;
   double dxx;
+  uint32_t no_adj;
 
   c11 = (double)((int32_t)(4 * counts_3x3[0] + 2 * (counts_3x3[1] + counts_3x3[3]) + counts_3x3[4]));
   c12 = (double)((int32_t)(4 * counts_3x3[2] + 2 * (counts_3x3[1] + counts_3x3[5]) + counts_3x3[4]));
   c21 = (double)((int32_t)(4 * counts_3x3[6] + 2 * (counts_3x3[3] + counts_3x3[7]) + counts_3x3[4]));
   c22 = (double)((int32_t)(4 * counts_3x3[8] + 2 * (counts_3x3[5] + counts_3x3[7]) + counts_3x3[4]));
+
   if (!no_ueki) {
     // see AdjustedFastEpistasis::calculateLogOddsAdjustedVariance() in
     // CASSI Statistics.cpp
     // (http://www.staff.ncl.ac.uk/richard.howey/cassi/index.html)
-    if (!(counts_3x3[0] && counts_3x3[1] && counts_3x3[2] && counts_3x3[3] && counts_3x3[4] && counts_3x3[5] && counts_3x3[6] && counts_3x3[7] && counts_3x3[8])) {
-      adj = 0.5;
+    no_adj = (counts_3x3[0] && counts_3x3[1] && counts_3x3[2] && counts_3x3[3] && counts_3x3[4] && counts_3x3[5] && counts_3x3[6] && counts_3x3[7] && counts_3x3[8]);
+    if (!no_adj) {
       c11 += 4.5;
       c12 += 4.5;
       c21 += 4.5;
@@ -2070,15 +2071,37 @@ static inline void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, 
     dxx = rc11 - rc12 - rc21 + rc22; // bit5
     c21 = rc22 - rc12; // bit6
     c22 = rc22 - rc21; // bit8
-    *var_ptr = 4 * (4 * (rc11 * rc11 * ((double)((int32_t)counts_3x3[0]) + adj) +
-			 rc12 * rc12 * ((double)((int32_t)counts_3x3[2]) + adj) +
-			 rc21 * rc21 * ((double)((int32_t)counts_3x3[6]) + adj) +
-			 rc22 * rc22 * ((double)((int32_t)counts_3x3[8]) + adj)) +
-		    c11 * c11 * ((double)((int32_t)counts_3x3[1]) + adj) +
-		    c12 * c12 * ((double)((int32_t)counts_3x3[3]) + adj) +
-		    c21 * c21 * ((double)((int32_t)counts_3x3[5]) + adj) +
-		    c22 * c22 * ((double)((int32_t)counts_3x3[7]) + adj)) +
-               dxx * dxx * ((double)((int32_t)counts_3x3[4]) + adj);
+
+    rc11 *= rc11;
+    rc12 *= rc12;
+    rc21 *= rc21;
+    rc22 *= rc22;
+    c11 *= c11;
+    c12 *= c12;
+    c21 *= c21;
+    c22 *= c22;
+    dxx *= dxx;
+    if (no_adj) {
+      *var_ptr = 4 * (4 * (rc11 * (double)((int32_t)counts_3x3[0]) +
+			   rc12 * (double)((int32_t)counts_3x3[2]) +
+			   rc21 * (double)((int32_t)counts_3x3[6]) +
+			   rc22 * (double)((int32_t)counts_3x3[8])) +
+		      c11 * (double)((int32_t)counts_3x3[1]) +
+		      c12 * (double)((int32_t)counts_3x3[3]) +
+		      c21 * (double)((int32_t)counts_3x3[5]) +
+		      c22 * (double)((int32_t)counts_3x3[7])) +
+                 dxx * (double)((int32_t)counts_3x3[4]);
+    } else {
+      *var_ptr = 4 * (4 * (rc11 * ((double)((int32_t)counts_3x3[0]) + 0.5) +
+			   rc12 * ((double)((int32_t)counts_3x3[2]) + 0.5) +
+			   rc21 * ((double)((int32_t)counts_3x3[6]) + 0.5) +
+			   rc22 * ((double)((int32_t)counts_3x3[8]) + 0.5)) +
+		      c11 * ((double)((int32_t)counts_3x3[1]) + 0.5) +
+		      c12 * ((double)((int32_t)counts_3x3[3]) + 0.5) +
+		      c21 * ((double)((int32_t)counts_3x3[5]) + 0.5) +
+		      c22 * ((double)((int32_t)counts_3x3[7]) + 0.5)) +
+                 dxx * ((double)((int32_t)counts_3x3[4]) + 0.5);
+    }
   } else {
     rc11 = 1.0 / c11;
     rc12 = 1.0 / c12;
