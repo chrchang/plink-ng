@@ -2149,9 +2149,9 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
       best_chisq1[block_delta1] = best_chisq_fixed;
       best_id1[block_delta1] = best_id_fixed;
     }
-    n_sig_ct1[block_idx1] = n_sig_ct_fixed;
+    n_sig_ct1[block_delta1] = n_sig_ct_fixed;
     if (fail_ct_fixed) {
-      fail_ct1[block_idx1] = fail_ct_fixed;
+      fail_ct1[block_delta1] = fail_ct_fixed;
     }
   }
   THREAD_RETURN;
@@ -2556,6 +2556,8 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	join_threads(threads, thread_ct);
 	// merge best_chisq, best_ids, fail_cts
 	// this will have to work differently for SET1 x SET2
+
+	// printf("\nfail_cts: %u\n\n", g_epi_fail_ct1[0]);
 	for (tidx = 0; tidx < thread_ct; tidx++) {
 	  ulii = (tidx * idx1_block_size) / thread_ct;
           uljj = (((tidx + 1) * idx1_block_size) / thread_ct) - ulii;
@@ -2579,7 +2581,6 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
             *uiptr5 += uii;
 	  }
 	}
-	// printf("%g %g %g %g\n", g_epi_best_chisq2[0], g_epi_best_chisq2[1], g_epi_best_chisq2[2753], g_epi_best_chisq2[2754]);
 	for (tidx = 0; tidx < thread_ct; tidx++) {
 	  block_idx2 = g_epi_geno1_offsets[(tidx * idx1_block_size) / thread_ct];
 	  if (block_idx2 <= marker_idx2) {
