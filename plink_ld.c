@@ -2401,7 +2401,10 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     while (marker_uidx < chrom_end) {
       if (is_set(marker_exclude2, marker_uidx)) {
 	marker_uidx = next_unset(marker_exclude2, marker_uidx, chrom_end);
-	if (fseeko(bedfile, (marker_uidx * unfiltered_indiv_ct4), SEEK_SET)) {
+	if (marker_uidx == chrom_end) {
+	  break;
+	}
+	if (fseeko(bedfile, bed_offset + (marker_uidx * unfiltered_indiv_ct4), SEEK_SET)) {
 	  goto epistasis_report_ret_READ_FAIL;
 	}
       }
