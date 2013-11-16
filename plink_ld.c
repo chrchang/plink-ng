@@ -1890,21 +1890,134 @@ uint32_t load_and_split3(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_i
   }
 }
 
-/*
 #ifdef __LP64__
-static inline two_locus_3x3_tablev(__m128i* vec1, __m128i* vec2, uint32_t* counts_3x3, uint32_t indiv_ctv6) {
+static inline void two_locus_3x3_tablev(__m128i* vec1, __m128i* vec2, uint32_t* counts_3x3, uint32_t indiv_ctv6) {
+  const __m128i m1 = {FIVEMASK, FIVEMASK};
+  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
+  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
+  __m128i* vec20;
+  __m128i* vec21;
+  __m128i* vec22;
+  __m128i* vend1;
+  __m128i loader1;
+  __m128i loader20;
+  __m128i loader21;
+  __m128i loader22;
+  __m128i count10;
+  __m128i count11;
+  __m128i count12;
+  __m128i count20;
+  __m128i count21;
+  __m128i count22;
+  __uni16 acc0;
+  __uni16 acc1;
+  __uni16 acc2;
+  uint32_t iter;
+  uint32_t ct;
+  uint32_t ct2;
+  for (iter = 0; iter < 3; iter++) {
+    ct = indiv_ctv6;
+    vec20 = vec2;
+    vec21 = &(vec20[indiv_ctv6]);
+    vec22 = &(vec20[2 * indiv_ctv6]);
+    while (ct >= 30) {
+      ct -= 30;
+      vend1 = &(vec1[30]);
+    two_locus_3x3_tablev_outer:
+      acc0.vi = _mm_setzero_si128();
+      acc1.vi = _mm_setzero_si128();
+      acc2.vi = _mm_setzero_si128();
+      do {
+	loader1 = *vec1++;
+	loader20 = *vec20++;
+	loader21 = *vec21++;
+	loader22 = *vec22++;
+	count10 = _mm_and_si128(loader1, loader20);
+	count11 = _mm_and_si128(loader1, loader21);
+	count12 = _mm_and_si128(loader1, loader22);
+	count10 = _mm_sub_epi64(count10, _mm_and_si128(_mm_srli_epi64(count10, 1), m1));
+	count11 = _mm_sub_epi64(count11, _mm_and_si128(_mm_srli_epi64(count11, 1), m1));
+	count12 = _mm_sub_epi64(count12, _mm_and_si128(_mm_srli_epi64(count12, 1), m1));
+      two_locus_3x3_tablev_two_left:
+	loader1 = *vec1++;
+	loader20 = *vec20++;
+	loader21 = *vec21++;
+	loader22 = *vec22++;
+	count20 = _mm_and_si128(loader1, loader20);
+	count21 = _mm_and_si128(loader1, loader21);
+	count22 = _mm_and_si128(loader1, loader22);
+	count20 = _mm_sub_epi64(count20, _mm_and_si128(_mm_srli_epi64(count20, 1), m1));
+	count21 = _mm_sub_epi64(count21, _mm_and_si128(_mm_srli_epi64(count21, 1), m1));
+	count22 = _mm_sub_epi64(count22, _mm_and_si128(_mm_srli_epi64(count22, 1), m1));
+      two_locus_3x3_tablev_one_left:
+	loader1 = *vec1++;
+	loader20 = *vec20++;
+	loader21 = _mm_and_si128(loader1, loader20); // half1
+	loader22 = _mm_and_si128(_mm_srli_epi64(loader21, 1), m1); // half2
+	count10 = _mm_add_epi64(count10, _mm_and_si128(loader21, m1));
+	count20 = _mm_add_epi64(count20, loader22);
+	loader20 = *vec21++;
+	loader21 = _mm_and_si128(loader1, loader20);
+	loader22 = _mm_and_si128(_mm_srli_epi64(loader21, 1), m1);
+	count11 = _mm_add_epi64(count11, _mm_and_si128(loader21, m1));
+	count21 = _mm_add_epi64(count21, loader22);
+	loader20 = *vec22++;
+	loader21 = _mm_and_si128(loader1, loader20);
+	loader22 = _mm_and_si128(_mm_srli_epi64(loader21, 1), m1);
+	count12 = _mm_add_epi64(count12, _mm_and_si128(loader21, m1));
+	count22 = _mm_add_epi64(count22, loader22);
 
+	count10 = _mm_add_epi64(_mm_and_si128(count10, m2), _mm_and_si128(_mm_srli_epi64(count10, 2), m2));
+	count11 = _mm_add_epi64(_mm_and_si128(count11, m2), _mm_and_si128(_mm_srli_epi64(count11, 2), m2));
+	count12 = _mm_add_epi64(_mm_and_si128(count12, m2), _mm_and_si128(_mm_srli_epi64(count12, 2), m2));
+	count10 = _mm_add_epi64(count10, _mm_add_epi64(_mm_and_si128(count20, m2), _mm_and_si128(_mm_srli_epi64(count20, 2), m2)));
+	count11 = _mm_add_epi64(count11, _mm_add_epi64(_mm_and_si128(count21, m2), _mm_and_si128(_mm_srli_epi64(count21, 2), m2)));
+	count12 = _mm_add_epi64(count12, _mm_add_epi64(_mm_and_si128(count22, m2), _mm_and_si128(_mm_srli_epi64(count22, 2), m2)));
+	acc0.vi = _mm_add_epi64(acc0.vi, _mm_add_epi64(_mm_and_si128(count10, m4), _mm_and_si128(_mm_srli_epi64(count10, 4), m4)));
+	acc1.vi = _mm_add_epi64(acc1.vi, _mm_add_epi64(_mm_and_si128(count11, m4), _mm_and_si128(_mm_srli_epi64(count11, 4), m4)));
+	acc2.vi = _mm_add_epi64(acc2.vi, _mm_add_epi64(_mm_and_si128(count12, m4), _mm_and_si128(_mm_srli_epi64(count12, 4), m4)));
+      } while (vec1 < vend1);
+      const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
+      acc0.vi = _mm_add_epi64(_mm_and_si128(acc0.vi, m8), _mm_and_si128(_mm_srli_epi64(acc0.vi, 8), m8));
+      acc1.vi = _mm_add_epi64(_mm_and_si128(acc1.vi, m8), _mm_and_si128(_mm_srli_epi64(acc1.vi, 8), m8));
+      acc2.vi = _mm_add_epi64(_mm_and_si128(acc2.vi, m8), _mm_and_si128(_mm_srli_epi64(acc2.vi, 8), m8));
+      counts_3x3[0] += ((acc0.u8[0] + acc0.u8[1]) * 0x1000100010001LLU) >> 48;
+      counts_3x3[1] += ((acc1.u8[0] + acc1.u8[1]) * 0x1000100010001LLU) >> 48;
+      counts_3x3[2] += ((acc2.u8[0] + acc2.u8[1]) * 0x1000100010001LLU) >> 48;
+    }
+    if (ct) {
+      vend1 = &(vec1[ct]);
+      ct2 = ct % 3;
+      ct = 0;
+      if (ct2) {
+	acc0.vi = _mm_setzero_si128();
+	acc1.vi = _mm_setzero_si128();
+	acc2.vi = _mm_setzero_si128();
+	count10 = _mm_setzero_si128();
+	count11 = _mm_setzero_si128();
+	count12 = _mm_setzero_si128();
+	if (ct2 == 2) {
+	  goto two_locus_3x3_tablev_two_left;
+	} else {
+	  count20 = _mm_setzero_si128();
+	  count21 = _mm_setzero_si128();
+	  count22 = _mm_setzero_si128();
+	  goto two_locus_3x3_tablev_one_left;
+	}
+      } else {
+	goto two_locus_3x3_tablev_outer;
+      }
+    }
+    counts_3x3 = &(counts_3x3[3]);
+  }
 }
 #endif
-*/
 
 static inline void two_locus_count_table(uintptr_t* lptr1, uintptr_t* lptr2, uint32_t* counts_3x3, uint32_t indiv_ctv3) {
-  /*
 #ifdef __LP64__
   fill_uint_zero(counts_3x3, 9);
-  two_locus_3x3_tablev((__m128i*)lptr1, (__m128i*)lptr2, counts_3x3, indiv_ctv6);
+  two_locus_3x3_tablev((__m128i*)lptr1, (__m128i*)lptr2, counts_3x3, indiv_ctv3 / 2);
 #else
-  */
   counts_3x3[0] = popcount_longs_intersect(lptr1, lptr2, indiv_ctv3);
   counts_3x3[1] = popcount_longs_intersect(lptr1, &(lptr2[indiv_ctv3]), indiv_ctv3);
   counts_3x3[2] = popcount_longs_intersect(lptr1, &(lptr2[2 * indiv_ctv3]), indiv_ctv3);
@@ -1916,6 +2029,7 @@ static inline void two_locus_count_table(uintptr_t* lptr1, uintptr_t* lptr2, uin
   counts_3x3[6] = popcount_longs_intersect(lptr1, lptr2, indiv_ctv3);
   counts_3x3[7] = popcount_longs_intersect(lptr1, &(lptr2[indiv_ctv3]), indiv_ctv3);
   counts_3x3[8] = popcount_longs_intersect(lptr1, &(lptr2[2 * indiv_ctv3]), indiv_ctv3);
+#endif
 }
 
 static inline void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, double* or_ptr, double* var_ptr) {
