@@ -2153,8 +2153,7 @@ static inline void two_locus_3x3_zmiss_tablev(__m128i* veca0, __m128i* vecb0, ui
 static inline void two_locus_count_table_zmiss1(uintptr_t* lptr1, uintptr_t* lptr2, uint32_t* counts_3x3, uint32_t indiv_ctv3, uint32_t is_zmiss2) {
 #ifdef __LP64__
   fill_uint_zero(counts_3x3, 6);
-  if (0) {
-  // if (is_zmiss2) {
+  if (is_zmiss2) {
     two_locus_3x3_zmiss_tablev((__m128i*)lptr1, (__m128i*)lptr2, counts_3x3, indiv_ctv3 / 2);
   } else {
     two_locus_3x3_tablev((__m128i*)lptr1, (__m128i*)lptr2, counts_3x3, indiv_ctv3 / 2, 2);
