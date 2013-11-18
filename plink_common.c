@@ -6090,7 +6090,9 @@ uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t ite
   return 0;
 }
 
-int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, Range_list* range_list_ptr, char* sorted_ids, uint32_t* id_map, int32_t* seen_idxs, const char* range_list_flag, const char* file_descrip, uintptr_t* bitfield) {
+int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint32_t fixed_len, Range_list* range_list_ptr, char* sorted_ids, uint32_t* id_map, int32_t* seen_idxs, const char* range_list_flag, const char* file_descrip, uintptr_t* bitfield) {
+  // if fixed_len is zero, header_line is assumed to be a list of
+  // space-delimited unequal-length names
   uintptr_t max_id_len = range_list_ptr->name_max_len;
   uint32_t name_ct = range_list_ptr->name_ct;
   intptr_t name_ct_m1 = (uintptr_t)(name_ct - 1);
@@ -6124,7 +6126,11 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, Range
     if (++item_idx == item_ct) {
       break;
     }
-    header_line = skip_initial_spaces(&(bufptr[1]));
+    if (fixed_len) {
+      header_line = &(header_line[fixed_len]);
+    } else {
+      header_line = skip_initial_spaces(&(bufptr[1]));
+    }
   }
   for (item_idx = 0; item_idx < name_ct; item_idx++) {
     if (seen_idxs[item_idx] == -1) {
@@ -6143,6 +6149,31 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, Range
     retval = RET_INVALID_FORMAT;
     break;
   }
+  return retval;
+}
+
+int32_t string_range_list_to_bitfield_alloc(char* header_line, uint32_t item_ct, uint32_t fixed_len, Range_list* range_list_ptr, uintptr_t** bitfield_ptr, const char* range_list_flag, const char* file_descrip) {
+  // wrapper for string_range_list_to_bitfield which allocates the bitfield and
+  // temporary buffers on the heap
+  uintptr_t item_ctl = (item_ct + (BITCT - 1)) / BITCT;
+  uintptr_t name_ct = range_list_ptr->name_ct;
+  int32_t retval = 0;
+  int32_t* seen_idxs;
+  char* sorted_ids;
+  uint32_t* id_map;
+  if (wkspace_alloc_ul_checked(bitfield_ptr, item_ctl * sizeof(intptr_t)) ||
+      wkspace_alloc_i_checked(&seen_idxs, name_ct)) {
+    return RET_NOMEM;
+  }
+  fill_ulong_zero(*bitfield_ptr, item_ctl);
+  // kludge to use sort_item_ids()
+  fill_ulong_zero((uintptr_t*)seen_idxs, (name_ct + (BITCT - 1)) / BITCT);
+  if (sort_item_ids(&sorted_ids, &id_map, name_ct, (uintptr_t*)seen_idxs, 0, range_list_ptr->names, range_list_ptr->name_max_len, 0, 0, strcmp_deref)) {
+    return RET_NOMEM;
+  }
+  fill_int_one(seen_idxs, name_ct);
+  retval = string_range_list_to_bitfield(header_line, item_ct, fixed_len, range_list_ptr, sorted_ids, id_map, seen_idxs, range_list_flag, file_descrip, *bitfield_ptr);
+  wkspace_reset((unsigned char*)seen_idxs);
   return retval;
 }
 

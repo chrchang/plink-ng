@@ -2905,6 +2905,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   char* bufptr2;
   uintptr_t covar_uidx;
   uintptr_t covar_idx;
+  uintptr_t ulii;
   uint32_t header_absent;
   uint32_t min_covar_col_ct;
   uint32_t uii;
@@ -2934,23 +2935,24 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
   }
   fill_ulong_zero(already_seen, indiv_ctl);
   if (covar_modifier & COVAR_NAME) {
-    sorted_covar_name_flag_ids = (char*)top_alloc(&topsize, covar_range_list_ptr->name_ct * covar_range_list_ptr->name_max_len);
+    ulii = covar_range_list_ptr->name_ct;
+    sorted_covar_name_flag_ids = (char*)top_alloc(&topsize, ulii * covar_range_list_ptr->name_max_len);
     if (!sorted_covar_name_flag_ids) {
       goto load_covars_ret_NOMEM;
     }
-    covar_name_flag_id_map = (uint32_t*)top_alloc(&topsize, covar_range_list_ptr->name_ct * sizeof(int32_t));
+    covar_name_flag_id_map = (uint32_t*)top_alloc(&topsize, ulii * sizeof(int32_t));
     if (!covar_name_flag_id_map) {
       goto load_covars_ret_NOMEM;
     }
-    covar_name_flag_seen_idxs = (int32_t*)top_alloc(&topsize, covar_range_list_ptr->name_ct * sizeof(int32_t));
+    covar_name_flag_seen_idxs = (int32_t*)top_alloc(&topsize, ulii * sizeof(int32_t));
     if (!covar_name_flag_seen_idxs) {
       goto load_covars_ret_NOMEM;
     }
 
     wkspace_left -= topsize;
     // kludge to use sort_item_ids_noalloc()
-    fill_ulong_zero((uintptr_t*)covar_name_flag_seen_idxs, (covar_range_list_ptr->name_ct + (BITCT - 1)) / BITCT);
-    retval = sort_item_ids_noalloc(sorted_covar_name_flag_ids, covar_name_flag_id_map, covar_range_list_ptr->name_ct, (uintptr_t*)covar_name_flag_seen_idxs, covar_range_list_ptr->name_ct, covar_range_list_ptr->names, covar_range_list_ptr->name_max_len, 0, 0, strcmp_deref);
+    fill_ulong_zero((uintptr_t*)covar_name_flag_seen_idxs, (ulii + (BITCT - 1)) / BITCT);
+    retval = sort_item_ids_noalloc(sorted_covar_name_flag_ids, covar_name_flag_id_map, ulii, (uintptr_t*)covar_name_flag_seen_idxs, ulii, covar_range_list_ptr->names, covar_range_list_ptr->name_max_len, 0, 0, strcmp_deref);
     if (retval) {
       wkspace_left += topsize;
       if (retval == RET_INVALID_FORMAT) {
@@ -2959,7 +2961,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
       }
       goto load_covars_ret_1;
     }
-    fill_int_one(covar_name_flag_seen_idxs, covar_range_list_ptr->name_ct);
+    fill_int_one(covar_name_flag_seen_idxs, ulii);
   } else {
     wkspace_left -= topsize;
   }
@@ -3012,7 +3014,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_indiv_ct, uintptr_t*
 	logprint("Error: --covar file doesn't have a header line for --covar-name.\n");
 	goto load_covars_ret_INVALID_CMDLINE;
       }
-      retval = string_range_list_to_bitfield(bufptr, covar_raw_ct, covar_range_list_ptr, sorted_covar_name_flag_ids, covar_name_flag_id_map, covar_name_flag_seen_idxs, "covar-name", "--covar file header line", covars_active);
+      retval = string_range_list_to_bitfield(bufptr, covar_raw_ct, 0, covar_range_list_ptr, sorted_covar_name_flag_ids, covar_name_flag_id_map, covar_name_flag_seen_idxs, "covar-name", "--covar file header line", covars_active);
       if (retval) {
 	goto load_covars_ret_1;
       }
@@ -7438,7 +7440,8 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   return retval;
 }
 
-// oh, what the hell, may as well be liberal
+// oh, what the hell, may as well be liberal (even BCF2 does not support more
+// than this)
 #define MAX_VCF_ALT 65534
 
 int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, double vcf_min_qual, char* vcf_filter_exceptions_flattened, Chrom_info* chrom_info_ptr) {
@@ -8022,6 +8025,62 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   fclose_cond(skip3file);
   wkspace_reset(wkspace_mark);
   return retval;
+}
+
+int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, double vcf_min_qual, char* vcf_filter_exceptions_flattened, Chrom_info* chrom_info_ptr) {
+  logprint("Error: --bcf is currently under development.\n");
+  return RET_CALC_NOT_YET_SUPPORTED;
+  /*
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile = NULL;
+  FILE* outfile = NULL;
+  FILE* bimfile = NULL;
+  FILE* skip3file = NULL;
+  uint32_t double_id = (misc_flags / MISC_DOUBLE_ID) & 1;
+  uint32_t check_qual = (vcf_min_qual == -INFINITY)? 0 : 1;
+  uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
+  uint32_t biallelic_only = (misc_flags / MISC_BIALLELIC_ONLY) & 1;
+  uint32_t biallelic_strict = (misc_flags / MISC_BIALLELIC_ONLY_STRICT) & 1;
+  uint32_t skip3_list = (misc_flags / MISC_BIALLELIC_ONLY_LIST) & 1;
+  char missing_geno = *g_missing_geno_ptr;
+  uint32_t is_bgzf = 0;
+  uint32_t marker_ct = 0;
+  int32_t retval = 0;
+  char fam_trailer[20];
+  uintptr_t fam_trailer_len;
+  bufptr = memcpya(fam_trailer, "\t0\t0\t0\t", 7);
+  bufptr = int32_writex(bufptr, missing_pheno, '\n');
+  fam_trailer_len = (uintptr_t)(bufptr - fam_trailer);
+  if (fopen_checked(&infile, bcfname, "rb")) {
+    goto bcf_to_bed_ret_OPEN_FAIL;
+  }
+  if (fread(tbuf, 1, 5, infile) < 5) {
+    goto bcf_to_bed_ret_READ_FAIL;
+  }
+  if (memcmp(tbuf, "BCF\2", 4)) {
+    // todo: handle BGZF compression
+  }
+  // 1. add "PASS" to dictionary, scan header for other dictionary strings and
+  //    contigs
+  // 2. if --vcf-filter on command line, convert into bitfield
+  // 3.
+  ;;;
+  while (0) {
+  bcf_to_bed_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  bcf_to_bed_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  }
+ bcf_to_bed_ret_1:
+  fclose_cond(infile);
+  fclose_cond(outfile);
+  fclose_cond(bimfile);
+  fclose_cond(skip3file);
+  wkspace_reset(wkspace_mark);
+  return retval;
+  */
 }
 
 void announce_make_xylist_complete(uint32_t markers_left, char* outname, char* outname_end) {

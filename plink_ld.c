@@ -2298,7 +2298,8 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uintptr_t ctrl_ctsplit = 3 * ctrl_ctv3;
   uintptr_t tot_ctsplit = case_ctsplit + ctrl_ctsplit;
   uintptr_t pct = 1;
-  uint64_t tot_fail_ct = 0;
+  uint64_t tests_thrown_out = 0;
+  uint64_t tests_complete = 0;
   uint32_t thread_ct = g_thread_ct;
   uint32_t chrom_idx = 0;
   int32_t retval = 0;
@@ -2324,6 +2325,8 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t* uiptr3;
   uint32_t* uiptr4;
   uint32_t* uiptr5;
+  uint64_t tests_expected;
+  uint64_t pct_thresh;
   double dxx;
   uintptr_t job_size;
   uintptr_t cur_workload;
@@ -2334,7 +2337,6 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uintptr_t marker_uidx2;
   uintptr_t block_idx1;
   uintptr_t block_idx2;
-  uintptr_t pct_thresh;
   uintptr_t marker_idx2;
   uintptr_t cur_idx2_block_size;
   uintptr_t tidx;
@@ -2443,7 +2445,6 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   marker_ct = ulii;
   job_size = marker_ct;
   is_triangular = 1;
-  pct_thresh = job_size / 100;
   if (thread_ct > job_size) {
     thread_ct = job_size;
   }
@@ -2470,6 +2471,8 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   g_epi_alpha1sq = dxx * dxx;
   dxx = ltqnorm(epi_ip->epi2 / 2);
   g_epi_alpha2sq = dxx * dxx;
+  tests_expected = ((((uint64_t)marker_ct) * (marker_ct - 1)) / 2);
+  pct_thresh = tests_expected / 100;
   if (!is_fast) {
     retval = epistasis_regression();
     if (retval) {
@@ -2596,6 +2599,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
           g_epi_geno1_offsets[block_idx1] = ulii;
 	}
       }
+      tests_complete += cur_workload;
       ulii = 0; // total number of tests
       g_epi_idx1_block_bounds[0] = 0;
       g_epi_idx1_block_bounds16[0] = 0;
@@ -2714,7 +2718,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
             *uiptr4 += *uiptr2++;
 	    uii = *uiptr3++;
 	    // could add fail_cts at end and divide by two instead?
-            tot_fail_ct += (uint64_t)uii;
+            tests_thrown_out += (uint64_t)uii;
             *uiptr5 += uii;
 	  }
 	}
@@ -2739,7 +2743,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
               best_ids[block_idx2 + marker_idx2] = uiptr[block_idx2];
 	    }
 	    *uiptr4 += *uiptr2++;
-	    // don't increment tot_fail_ct here, that would double-count
+	    // don't increment tests_thrown_out here, that would double-count
             *uiptr5 += *uiptr3++;
 	  }
 	}
@@ -2795,15 +2799,15 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       }
       marker_idx1 += idx1_block_size;
       fputs("\b\b\b\b\b\b\b\b\b\b          \b\b\b\b\b\b\b\b\b\b", stdout);
-      if (marker_idx1 >= pct_thresh) {
+      if (tests_complete >= pct_thresh) {
 	if (pct > 10) {
 	  putchar('\b');
 	}
-	pct = (marker_idx1 * 100LLU) / job_size;
+	pct = (tests_complete * 100LLU) / tests_expected;
 	if (pct < 100) {
 	  printf("\b\b%" PRIuPTR "%%", pct);
 	  fflush(stdout);
-	  pct_thresh = ((++pct) * ((uint64_t)job_size)) / 100;
+	  pct_thresh = ((++pct) * ((uint64_t)tests_expected)) / 100;
 	}
       }
     } while (marker_idx1 < job_size);
@@ -2869,7 +2873,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     }
   }
   fputs("\b\b\b", stdout);
-  sprintf(logbuf, " done.\n%" PRIu64 " valid tests performed, summary written to %s.\n", ((((uint64_t)marker_ct) * (marker_ct - 1)) / 2) - tot_fail_ct, outname);
+  sprintf(logbuf, " done.\n%" PRIu64 " valid tests performed, summary written to %s.\n", tests_expected - tests_thrown_out, outname);
   logprintb();
 
   while (0) {

@@ -303,8 +303,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --allele-count   : When used with --lfile + --reference, specifies that the\n"
 "                     .lgen file contains reference allele counts.\n\n"
 	       );
-    help_print("vcf", &help_ctrl, 1,
-"  --vcf [filename] : Specify full name of .vcf or .vcf.gz file.\n\n"
+    help_print("vcf\tbcf", &help_ctrl, 1,
+"  --vcf [filename] : Specify full name of .vcf or .vcf.gz file.\n"
+"  --bcf [filename] : Specify full name of .bcf file.\n\n"
 	       );
     help_print("file\ttfile\tlfile\t23file\tkeep-autoconv", &help_ctrl, 1,
 "  --keep-autoconv  : With --file/--tfile/--lfile/--vcf/--23file, don't delete\n"
@@ -1377,8 +1378,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                        2 = code male genotypes 0/2 instead of 0/1\n"
 "                        3 = test for interaction between genotype and sex\n"
 	       );
+    help_print("lasso\tlasso-select-covars", &help_ctrl, 0,
+"  --lasso-select-covars {cov(s)...} : Subject some or all covariates to LASSO\n"
+"                                      model selection.\n"
+	       );
     help_print("adjust\tgc\tlog10\tqq-plot", &help_ctrl, 0,
-"  --adjust <gc> <log10> <qq-plot> : Report some multiple-testing corrections.\n"
+"  --adjust <gc> <log10> <qq-plot>   : Report some multiple-testing corrections.\n"
 	       );
     help_print("adjust\tlambda", &help_ctrl, 0,
 "  --lambda [val]   : Set genomic control lambda for --adjust.\n"

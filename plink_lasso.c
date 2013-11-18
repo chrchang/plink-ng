@@ -5,7 +5,41 @@
 #define NLAMBDA 100
 #define DELTA_THRESHOLD 0.0001
 
-int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm2, double lasso_h2, double lasso_minlambda, uint32_t geno_std, double* pheno_d_collapsed, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, uint32_t hh_exists, uintptr_t indiv_valid_ct, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t* loadbuf_raw, uintptr_t* loadbuf_collapsed, double* rand_matrix, double* misc_arr, double* residuals, uintptr_t* polymorphic_markers, uintptr_t* polymorphic_marker_ct_ptr, uint64_t* iter_tot_ptr, double** xhat_ptr) {
+int32_t transpose_covar(uintptr_t indiv_valid_ct, uintptr_t covar_ct, uintptr_t* covar_nm, double* readptr, double* writeptr_start, double sqrt_n_recip, double indiv_valid_ct_recip, double indiv_valid_ctm1d, uint32_t geno_std) {
+  // this may migrate to plink_common.c...
+  double sum = 0.0;
+  double ssq = 0.0;
+  double* writeptr = writeptr_start;
+  uintptr_t indiv_uidx;
+  uintptr_t indiv_idx;
+  double subtract_by;
+  double multiply_by;
+  double dxx;
+  for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
+    next_set_ul_unsafe_ck(covar_nm, &indiv_uidx);
+    dxx = readptr[indiv_uidx * covar_ct];
+    sum += dxx;
+    ssq += dxx * dxx;
+    *writeptr++ = dxx;
+  }
+  if (ssq * ((double)indiv_valid_ct) == sum * sum) {
+    return -1;
+  }
+  subtract_by = sum * indiv_valid_ct_recip;
+  if (geno_std) {
+    multiply_by = sqrt_n_recip * sqrt(indiv_valid_ctm1d / (ssq - sum * subtract_by));
+  } else {
+    multiply_by = 1;
+  }
+  writeptr = writeptr_start;
+  for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
+    *writeptr = ((*writeptr) - subtract_by) * multiply_by;
+    writeptr++;
+  }
+  return 0;
+}
+
+int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm2, double lasso_h2, double lasso_minlambda, uint32_t select_covars, uintptr_t* select_covars_bitfield, uint32_t geno_std, double* pheno_d_collapsed, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uint32_t hh_exists, uintptr_t indiv_valid_ct, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t* loadbuf_raw, uintptr_t* loadbuf_collapsed, double* rand_matrix, double* misc_arr, double* residuals, uintptr_t* polymorphic_markers, uintptr_t* polymorphic_marker_ct_ptr, uint64_t* iter_tot_ptr, double** xhat_ptr) {
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   double* data_arr = (double*)wkspace_base; // marker-major
   double sqrt_n_recip = sqrt(1.0 / ((double)((intptr_t)indiv_valid_ct)));
@@ -14,6 +48,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   uint64_t iter_tot = 0;
   uintptr_t indiv_valid_ctl2 = (indiv_valid_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t polymorphic_marker_ct = 0;
+  uintptr_t unselected_covar_ct = 0;
   uint32_t chrom_fo_idx = 0xffffffffU; // exploit overflow
   uint32_t chrom_end = 0;
   uint32_t is_x = 0;
@@ -39,7 +74,6 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   double err_last;
   double dxx;
   double dyy;
-  double dzz;
   double zz;
   uintptr_t cur_word;
   uintptr_t cur_genotype;
@@ -52,7 +86,6 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   uintptr_t col_to_z;
   uintptr_t col_uidx;
   uintptr_t covar_idx;
-  uintptr_t indiv_uidx;
   uintptr_t indiv_idx;
   uintptr_t indiv_idx_stop;
   uintptr_t marker_idx;
@@ -72,32 +105,37 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   fputs("--lasso: Populating data matrix...", stdout);
   fflush(stdout);
   if (covar_ct) {
-    dptr = data_arr;
-    for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
-      dxx = 0; // sum
-      dyy = 0; // ssq
-      dptr2 = &(covar_d[covar_idx]);
-      for (indiv_uidx = 0, indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_uidx++, indiv_idx++) {
-	next_set_ul_unsafe_ck(covar_nm, &indiv_uidx);
-        dzz = dptr2[indiv_uidx * covar_ct];
-        dxx += dzz;
-	dyy += dzz * dzz;
-        *dptr++ = dzz;
+    dxx = 1.0 / ((double)((intptr_t)indiv_valid_ct));
+    dyy = (double)((intptr_t)(indiv_valid_ct - 1));
+    if (!select_covars_bitfield) {
+      for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
+	if (transpose_covar(indiv_valid_ct, covar_ct, covar_nm, &(covar_d[covar_idx]), &(data_arr[covar_idx * indiv_valid_ct]), sqrt_n_recip, dxx, dyy, geno_std)) {
+	  goto lasso_bigmem_ret_CONST_COVAR;
+	}
       }
-      if (dyy * ((double)indiv_valid_ct) == dxx * dxx) {
-        logprint("Error: --lasso covariate is constant.\n");
-        goto lasso_bigmem_ret_INVALID_CMDLINE;
+      if (!select_covars) {
+        unselected_covar_ct = covar_ct;
       }
-      dzz = dxx / ((double)((intptr_t)indiv_valid_ct));
-      if (geno_std) {
-        dyy = sqrt_n_recip * sqrt(((double)((intptr_t)(indiv_valid_ct - 1))) / (dyy - dxx * dzz));
-      } else {
-	dyy = 1;
+    } else {
+      ulii = 0;
+      for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
+	if (IS_SET(select_covars_bitfield, covar_idx)) {
+	  continue;
+	}
+	if (transpose_covar(indiv_valid_ct, covar_ct, covar_nm, &(covar_d[covar_idx]), &(data_arr[ulii * indiv_valid_ct]), sqrt_n_recip, dxx, dyy, geno_std)) {
+          goto lasso_bigmem_ret_CONST_COVAR;
+	}
+	ulii++;
       }
-      dptr = &(data_arr[covar_idx * indiv_valid_ct]);
-      for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
-        *dptr = ((*dptr) - dzz) * dyy;
-        dptr++;
+      unselected_covar_ct = ulii;
+      for (covar_idx = 0; covar_idx < covar_ct; covar_idx++) {
+	if (!IS_SET(select_covars_bitfield, covar_idx)) {
+	  continue;
+	}
+	if (transpose_covar(indiv_valid_ct, covar_ct, covar_nm, &(covar_d[covar_idx]), &(data_arr[ulii * indiv_valid_ct]), sqrt_n_recip, dxx, dyy, geno_std)) {
+          goto lasso_bigmem_ret_CONST_COVAR;
+	}
+	ulii++;
       }
     }
   }
@@ -252,7 +290,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
         for (indiv_idx = 0; indiv_idx < indiv_valid_ct; indiv_idx++) {
           dxx += (*dptr++) * (*dptr2++);
 	}
-	if (col_uidx >= covar_ct) {
+	if (col_uidx >= unselected_covar_ct) {
 	  if (dxx > 0.0) {
 	    dxx = MAXV(dxx - lambda, 0.0);
 	  } else {
@@ -299,6 +337,8 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   lasso_bigmem_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  lasso_bigmem_ret_CONST_COVAR:
+    logprint("Error: --lasso covariate is constant.\n");
   lasso_bigmem_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
@@ -307,7 +347,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
 }
 
 /*
-int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm2, double lasso_h2, double lasso_minlambda, uint32_t geno_std, double* pheno_d_collapsed, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, uint32_t hh_exists, uintptr_t indiv_valid_ct, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t* loadbuf_raw, uintptr_t* loadbuf_collapsed, double* rand_matrix, double* misc_arr, double* residuals, uintptr_t* polymorphic_markers, uintptr_t* polymorphic_marker_ct_ptr, uint64_t* iter_tot_ptr, double** xhat_ptr) {
+int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm2, double lasso_h2, double lasso_minlambda, uint32_t select_covars, uintptr_t* select_covars_bitfield, uint32_t geno_std, double* pheno_d_collapsed, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uint32_t hh_exists, uintptr_t indiv_valid_ct, uintptr_t* indiv_include2, uintptr_t* indiv_male_include2, uintptr_t* loadbuf_raw, uintptr_t* loadbuf_collapsed, double* rand_matrix, double* misc_arr, double* residuals, uintptr_t* polymorphic_markers, uintptr_t* polymorphic_marker_ct_ptr, uint64_t* iter_tot_ptr, double** xhat_ptr) {
   // Instead of populating and normalizing data_arr before the coordinate
   // descent, we reload and renormalize the data every iteration.
   // Since (i) there's probably a larger number of samples involved, and (ii)
@@ -616,7 +656,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
 }
 */
 
-int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t pheno_nm_ct, double lasso_h2, double lasso_minlambda, uint64_t misc_flags, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t covar_ct, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_male, uint32_t hh_exists) {
+int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t* marker_reverse, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t pheno_nm_ct, double lasso_h2, double lasso_minlambda, Range_list* select_covars_range_list_ptr, uint64_t misc_flags, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_male, uint32_t hh_exists) {
   // Coordinate descent LASSO.  Based on a MATLAB script by Shashaank
   // Vattikuti.
   // Not yet multithreaded.  (Main loop is fairly tightly coupled, so getting
@@ -632,9 +672,11 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   double* rand_matrix = NULL;
   double* misc_arr = NULL;
   uintptr_t* indiv_male_include2 = NULL;
+  uintptr_t* select_covars_bitfield = NULL;
   char* wptr_start = NULL;
   uint32_t report_zeroes = (misc_flags / MISC_LASSO_REPORT_ZEROES) & 1;
   uint32_t geno_std = (misc_flags & MISC_LASSO_NO_GENO_STD)? 0 : 1;
+  uint32_t select_covars = (misc_flags / MISC_LASSO_SELECT_COVARS) & 1;
   uint32_t chrom_fo_idx = 0xffffffffU; // exploit overflow
   uint32_t chrom_end = 0;
   uint32_t is_x = 0;
@@ -761,6 +803,16 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_valid_ct, hh_exists, 1, pheno_nm2, sex_male, &indiv_include2, &indiv_male_include2)) {
     goto lasso_ret_NOMEM;
   }
+  if (select_covars && select_covars_range_list_ptr->name_ct) {
+    if (!covar_ct) {
+      logprint("Error: No covariates loaded for --lasso-select-covars.\n");
+      goto lasso_ret_INVALID_CMDLINE;
+    }
+    retval = string_range_list_to_bitfield_alloc(covar_names, covar_ct, max_covar_name_len, select_covars_range_list_ptr, &select_covars_bitfield, "lasso-select-covars", "--covar file");
+    if (retval) {
+      goto lasso_ret_1;
+    }
+  }
   uii = marker_ct + covar_ct;
   // maximum size of remaining allocations, for memory hog mode (col_ct is at
   // most marker_ct + covar_ct):
@@ -778,9 +830,9 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
     ullii += CACHEALIGN(((uint64_t)uii) * WARM_START_ITERS * sizeof(double)) + CACHEALIGN(((uint64_t)uii) * sizeof(double)) + CACHEALIGN(((uii + 7) / 8));
   }
   if (ullii <= wkspace_left) {
-    retval = lasso_bigmem(bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm2, lasso_h2, lasso_minlambda, geno_std, pheno_d_collapsed, covar_ct, covar_nm, covar_d, hh_exists, indiv_valid_ct, indiv_include2, indiv_male_include2, loadbuf_raw, loadbuf_collapsed, rand_matrix, misc_arr, residuals, polymorphic_markers, &polymorphic_marker_ct, &iter_tot, &xhat);
+    retval = lasso_bigmem(bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm2, lasso_h2, lasso_minlambda, select_covars, select_covars_bitfield, geno_std, pheno_d_collapsed, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, hh_exists, indiv_valid_ct, indiv_include2, indiv_male_include2, loadbuf_raw, loadbuf_collapsed, rand_matrix, misc_arr, residuals, polymorphic_markers, &polymorphic_marker_ct, &iter_tot, &xhat);
   } else {
-    // retval = lasso_smallmem(threads, bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm2, lasso_h2, lasso_minlambda, geno_std, pheno_d_collapsed, covar_ct, covar_nm, covar_d, hh_exists, indiv_valid_ct, indiv_include2, indiv_male_include2, loadbuf_raw, loadbuf_collapsed, rand_matrix, misc_arr, residuals, polymorphic_markers, &polymorphic_marker_ct, &iter_tot, &xhat);
+    // retval = lasso_smallmem(threads, bedfile, bed_offset, marker_exclude, marker_ct, marker_reverse, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm2, lasso_h2, lasso_minlambda, select_covars, select_covars_bitfield, geno_std, pheno_d_collapsed, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, hh_exists, indiv_valid_ct, indiv_include2, indiv_male_include2, loadbuf_raw, loadbuf_collapsed, rand_matrix, misc_arr, residuals, polymorphic_markers, &polymorphic_marker_ct, &iter_tot, &xhat);
     retval = RET_NOMEM;
   }
   if (retval) {
@@ -794,6 +846,29 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
     goto lasso_ret_WRITE_FAIL;
   }
   tbuf[MAXLINELEN] = '\t';
+  if (select_covars) {
+    if (select_covars_bitfield) {
+      marker_idx = covar_ct - popcount_longs(select_covars_bitfield, 0, (covar_ct + (BITCT - 1)) / BITCT);
+    } else {
+      marker_idx = 0;
+    }
+    for (marker_uidx = 0; marker_idx < covar_ct; marker_uidx++, marker_idx++) {
+      if (select_covars_bitfield) {
+        next_set_unsafe_ck(select_covars_bitfield, &marker_uidx);
+      }
+      dxx = xhat[marker_idx];
+      if ((!report_zeroes) && (dxx == 0)) {
+	continue;
+      }
+      wptr = memcpya(tbuf, "COV\t", 4);
+      wptr = strcpyax(wptr, &(covar_names[marker_uidx * max_covar_name_len]), '\t');
+      wptr = memcpyl3a(wptr, "NA\t");
+      wptr = double_g_writex(wptr, dxx, '\n');
+      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	goto lasso_ret_WRITE_FAIL;
+      }
+    }
+  }
   for (marker_uidx = 0, marker_idx = 0, marker_idx2 = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
     next_unset_unsafe_ck(marker_exclude, &marker_uidx);
     if (marker_uidx >= chrom_end) {
@@ -840,6 +915,9 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
     break;
   lasso_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  lasso_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
     break;
   }
  lasso_ret_1:

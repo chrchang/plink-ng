@@ -197,8 +197,9 @@
 #define MISC_CMH_BD 0x100000LLU
 #define MISC_CMH2 0x200000LLU
 #define MISC_LASSO_REPORT_ZEROES 0x400000LLU
+#define MISC_LASSO_SELECT_COVARS 0x800000LLU
 // not yet sure this is actually useful, so only accessible in dev build
-#define MISC_LASSO_NO_GENO_STD 0x800000LLU
+#define MISC_LASSO_NO_GENO_STD 0x1000000LLU
 
 #define MISC_DOUBLE_ID 0x1000000LLU
 #define MISC_BIALLELIC_ONLY 0x2000000LLU
@@ -1653,7 +1654,9 @@ void fill_all_bits(uintptr_t* bit_arr, uintptr_t ct);
 
 uint32_t numeric_range_list_to_bitfield(Range_list* range_list_ptr, uint32_t item_ct, uintptr_t* bitfield, uint32_t offset, uint32_t ignore_overflow);
 
-int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, Range_list* range_list_ptr, char* sorted_ids, uint32_t* id_map, int32_t* seen_idx, const char* range_list_flag, const char* file_descrip, uintptr_t* bitfield);
+int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint32_t fixed_len, Range_list* range_list_ptr, char* sorted_ids, uint32_t* id_map, int32_t* seen_idxs, const char* range_list_flag, const char* file_descrip, uintptr_t* bitfield);
+
+int32_t string_range_list_to_bitfield_alloc(char* header_line, uint32_t item_ct, uint32_t fixed_len, Range_list* range_list_ptr, uintptr_t** bitfield_ptr, const char* range_list_flag, const char* file_descrip);
 
 static inline uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude) {
   uint32_t min_idx;
