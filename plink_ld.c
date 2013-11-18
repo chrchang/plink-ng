@@ -1932,11 +1932,11 @@ static inline void two_locus_3x3_tablev(__m128i* vec1, __m128i* vec2, uint32_t* 
     while (ct >= 30) {
       ct -= 30;
       vend1 = &(vec1[30]);
-    two_locus_3x3_tablev_outer:
       acc0.vi = _mm_setzero_si128();
       acc1.vi = _mm_setzero_si128();
       acc2.vi = _mm_setzero_si128();
       do {
+      two_locus_3x3_tablev_outer:
 	loader1 = *vec1++;
 	loader20 = *vec20++;
 	loader21 = *vec21++;
@@ -1948,6 +1948,8 @@ static inline void two_locus_3x3_tablev(__m128i* vec1, __m128i* vec2, uint32_t* 
 	count11 = _mm_sub_epi64(count11, _mm_and_si128(_mm_srli_epi64(count11, 1), m1));
 	count12 = _mm_sub_epi64(count12, _mm_and_si128(_mm_srli_epi64(count12, 1), m1));
       two_locus_3x3_tablev_two_left:
+        // unlike the zmiss variant, this apparently does not suffer from
+	// enough register spill to justify shrinking the inner loop
 	loader1 = *vec1++;
 	loader20 = *vec20++;
 	loader21 = *vec21++;
@@ -1997,11 +1999,11 @@ static inline void two_locus_3x3_tablev(__m128i* vec1, __m128i* vec2, uint32_t* 
     if (ct) {
       vend1 = &(vec1[ct]);
       ct2 = ct % 3;
+      acc0.vi = _mm_setzero_si128();
+      acc1.vi = _mm_setzero_si128();
+      acc2.vi = _mm_setzero_si128();
       ct = 0;
       if (ct2) {
-	acc0.vi = _mm_setzero_si128();
-	acc1.vi = _mm_setzero_si128();
-	acc2.vi = _mm_setzero_si128();
 	count10 = _mm_setzero_si128();
 	count11 = _mm_setzero_si128();
 	count12 = _mm_setzero_si128();
@@ -2046,12 +2048,12 @@ static inline void two_locus_3x3_zmiss_tablev(__m128i* veca0, __m128i* vecb0, ui
   while (indiv_ctv6 >= 30) {
     indiv_ctv6 -= 30;
     vend = &(veca0[30]);
-  two_locus_3x3_zmiss_tablev_outer:
     acc00.vi = _mm_setzero_si128();
     acc01.vi = _mm_setzero_si128();
     acc11.vi = _mm_setzero_si128();
     acc10.vi = _mm_setzero_si128();
     do {
+    two_locus_3x3_zmiss_tablev_outer:
       loadera0 = *veca0++;
       loaderb0 = *vecb0++;
       loaderb1 = *vecb1++;
@@ -2104,11 +2106,11 @@ static inline void two_locus_3x3_zmiss_tablev(__m128i* veca0, __m128i* vecb0, ui
     vend = &(veca0[indiv_ctv6]);
     ct2 = indiv_ctv6 % 2;
     indiv_ctv6 = 0;
+    acc00.vi = _mm_setzero_si128();
+    acc01.vi = _mm_setzero_si128();
+    acc11.vi = _mm_setzero_si128();
+    acc10.vi = _mm_setzero_si128();
     if (ct2) {
-      acc00.vi = _mm_setzero_si128();
-      acc01.vi = _mm_setzero_si128();
-      acc11.vi = _mm_setzero_si128();
-      acc10.vi = _mm_setzero_si128();
       countx00 = _mm_setzero_si128();
       countx01 = _mm_setzero_si128();
       countx11 = _mm_setzero_si128();
