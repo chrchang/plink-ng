@@ -2064,7 +2064,11 @@ static inline void two_locus_3x3_zmiss_tablev(__m128i* veca0, __m128i* vecb0, ui
       countx01 = _mm_sub_epi64(countx01, _mm_and_si128(_mm_srli_epi64(countx01, 1), m1));
       countx11 = _mm_sub_epi64(countx11, _mm_and_si128(_mm_srli_epi64(countx11, 1), m1));
       countx10 = _mm_sub_epi64(countx10, _mm_and_si128(_mm_srli_epi64(countx10, 1), m1));
-    two_locus_3x3_zmiss_tablev_two_left:
+      countx00 = _mm_add_epi64(_mm_and_si128(countx00, m2), _mm_and_si128(_mm_srli_epi64(countx00, 2), m2));
+      countx01 = _mm_add_epi64(_mm_and_si128(countx01, m2), _mm_and_si128(_mm_srli_epi64(countx01, 2), m2));
+      countx11 = _mm_add_epi64(_mm_and_si128(countx11, m2), _mm_and_si128(_mm_srli_epi64(countx11, 2), m2));
+      countx10 = _mm_add_epi64(_mm_and_si128(countx10, m2), _mm_and_si128(_mm_srli_epi64(countx10, 2), m2));
+    two_locus_3x3_zmiss_tablev_one_left:
       loadera0 = *veca0++;
       loaderb0 = *vecb0++;
       loaderb1 = *vecb1++;
@@ -2077,33 +2081,6 @@ static inline void two_locus_3x3_zmiss_tablev(__m128i* veca0, __m128i* vecb0, ui
       county01 = _mm_sub_epi64(county01, _mm_and_si128(_mm_srli_epi64(county01, 1), m1));
       county11 = _mm_sub_epi64(county11, _mm_and_si128(_mm_srli_epi64(county11, 1), m1));
       county10 = _mm_sub_epi64(county10, _mm_and_si128(_mm_srli_epi64(county10, 1), m1));
-    two_locus_3x3_zmiss_tablev_one_left:
-      loadera0 = *veca0++;
-      loaderb0 = *vecb0; // need to reload this, so don't increment yet
-      loadera1 = _mm_and_si128(loadera0, loaderb0); // half1
-      loaderb1 = _mm_and_si128(_mm_srli_epi64(loadera1, 1), m1); // half2
-      countx00 = _mm_add_epi64(countx00, _mm_and_si128(loadera1, m1));
-      county00 = _mm_add_epi64(county00, loaderb1);
-      loaderb0 = *vecb1++;
-      loadera1 = _mm_and_si128(loadera0, loaderb0);
-      loaderb1 = _mm_and_si128(_mm_srli_epi64(loadera1, 1), m1);
-      countx01 = _mm_add_epi64(countx01, _mm_and_si128(loadera1, m1));
-      county01 = _mm_add_epi64(county01, loaderb1);
-      loadera0 = *veca1++;
-      loadera1 = _mm_and_si128(loadera0, loaderb0);
-      loaderb1 = _mm_and_si128(_mm_srli_epi64(loadera1, 1), m1);
-      countx11 = _mm_add_epi64(countx11, _mm_and_si128(loadera1, m1));
-      county11 = _mm_add_epi64(county11, loaderb1);
-      loaderb0 = *vecb0++;
-      loadera1 = _mm_and_si128(loadera0, loaderb0);
-      loaderb1 = _mm_and_si128(_mm_srli_epi64(loadera1, 1), m1);
-      countx10 = _mm_add_epi64(countx10, _mm_and_si128(loadera1, m1));
-      county10 = _mm_add_epi64(county10, loaderb1);
-
-      countx00 = _mm_add_epi64(_mm_and_si128(countx00, m2), _mm_and_si128(_mm_srli_epi64(countx00, 2), m2));
-      countx01 = _mm_add_epi64(_mm_and_si128(countx01, m2), _mm_and_si128(_mm_srli_epi64(countx01, 2), m2));
-      countx11 = _mm_add_epi64(_mm_and_si128(countx11, m2), _mm_and_si128(_mm_srli_epi64(countx11, 2), m2));
-      countx10 = _mm_add_epi64(_mm_and_si128(countx10, m2), _mm_and_si128(_mm_srli_epi64(countx10, 2), m2));
       countx00 = _mm_add_epi64(countx00, _mm_add_epi64(_mm_and_si128(county00, m2), _mm_and_si128(_mm_srli_epi64(county00, 2), m2)));
       countx01 = _mm_add_epi64(countx01, _mm_add_epi64(_mm_and_si128(county01, m2), _mm_and_si128(_mm_srli_epi64(county01, 2), m2)));
       countx11 = _mm_add_epi64(countx11, _mm_add_epi64(_mm_and_si128(county11, m2), _mm_and_si128(_mm_srli_epi64(county11, 2), m2)));
@@ -2125,7 +2102,7 @@ static inline void two_locus_3x3_zmiss_tablev(__m128i* veca0, __m128i* vecb0, ui
   }
   if (indiv_ctv6) {
     vend = &(veca0[indiv_ctv6]);
-    ct2 = indiv_ctv6 % 3;
+    ct2 = indiv_ctv6 % 2;
     indiv_ctv6 = 0;
     if (ct2) {
       acc00.vi = _mm_setzero_si128();
@@ -2136,13 +2113,6 @@ static inline void two_locus_3x3_zmiss_tablev(__m128i* veca0, __m128i* vecb0, ui
       countx01 = _mm_setzero_si128();
       countx11 = _mm_setzero_si128();
       countx10 = _mm_setzero_si128();
-      if (ct2 == 2) {
-	goto two_locus_3x3_zmiss_tablev_two_left;
-      }
-      county00 = _mm_setzero_si128();
-      county01 = _mm_setzero_si128();
-      county11 = _mm_setzero_si128();
-      county10 = _mm_setzero_si128();
       goto two_locus_3x3_zmiss_tablev_one_left;
     }
     goto two_locus_3x3_zmiss_tablev_outer;
