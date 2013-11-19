@@ -1814,8 +1814,25 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   return retval;
 }
 
-// er, 9x6 is silly.  BOOST's 3-row split is better.
-uint32_t load_and_split3(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* casebuf, uintptr_t* pheno_nm, uintptr_t* pheno_c, uint32_t case_ctv, uint32_t ctrl_ctv, uintptr_t* nm_info_ptr) {
+// The following three functions are built around a data representation
+// introduced by Xiang Yan et al.'s BOOST software (the original bitwise
+// representation I came up with was less efficient); see
+// http://bioinformatics.ust.hk/BOOST.html .
+//
+// I add one further optimization: when there is no missing data, it is
+// only necessary to brute-force-sum 4 contingency table entries instead of 9,
+// because the other 5 entries can be determined via subtraction from marginal
+// totals.  (This is what the two_locus_3x3_zmiss_tablev() function does.)
+// Similarly, if one of the variants has missing data but the other doesn't, 6
+// brute force sums suffices, so two_locus_3x3_tablev() can be run in sum-6 or
+// sum-9 mode.
+//
+// If permutation testing is added later, it should exploit the fact that
+// [cell xy value in case 3x3 table] + [cell xy value in ctrl 3x3 table]
+// is constant across permutations; i.e. we just need to determine the new case
+// contingency table, and then the control table falls out via subtraction.
+// Several ideas from PERMORY could also be applied.
+uint32_t load_and_split3(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_indiv_ct, uintptr_t* casebuf, uintptr_t* pheno_nm, uintptr_t* pheno_c, uint32_t case_ctv, uint32_t ctrl_ctv, uint32_t do_reverse, uintptr_t* nm_info_ptr) {
   uintptr_t* rawbuf_end = &(rawbuf[unfiltered_indiv_ct / BITCT2]);
   uintptr_t* ctrlbuf = &(casebuf[3 * case_ctv]);
   uintptr_t case_words[4];
@@ -1825,6 +1842,10 @@ uint32_t load_and_split3(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_i
   uint32_t ctrl_rem = 0;
   uint32_t read_shift_max = BITCT2;
   uint32_t indiv_uidx = 0;
+  uint32_t offset0_case = do_reverse * 2 * case_ctv;
+  uint32_t offset2_case = (1 - do_reverse) * 2 * case_ctv;
+  uint32_t offset0_ctrl = do_reverse * 2 * ctrl_ctv;
+  uint32_t offset2_ctrl = (1 - do_reverse) * 2 * ctrl_ctv;
   uint32_t read_shift;
   uintptr_t read_word;
   uintptr_t ulii;
@@ -1848,9 +1869,9 @@ uint32_t load_and_split3(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_i
 	  if (is_set(pheno_c, indiv_uidx)) {
 	    case_words[ulii] |= ONELU << case_rem;
 	    if (++case_rem == BITCT) {
-	      casebuf[0] = case_words[0];
+	      casebuf[offset0_case] = case_words[0];
 	      casebuf[case_ctv] = case_words[2];
-	      casebuf[2 * case_ctv] = case_words[3];
+	      casebuf[offset2_case] = case_words[3];
 	      casebuf++;
 	      case_words[0] = 0;
 	      case_words[2] = 0;
@@ -1860,9 +1881,9 @@ uint32_t load_and_split3(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_i
 	  } else {
 	    ctrl_words[ulii] |= ONELU << ctrl_rem;
 	    if (++ctrl_rem == BITCT) {
-	      ctrlbuf[0] = ctrl_words[0];
+	      ctrlbuf[offset0_ctrl] = ctrl_words[0];
 	      ctrlbuf[ctrl_ctv] = ctrl_words[2];
-	      ctrlbuf[2 * ctrl_ctv] = ctrl_words[3];
+	      ctrlbuf[offset2_ctrl] = ctrl_words[3];
 	      ctrlbuf++;
 	      ctrl_words[0] = 0;
 	      ctrl_words[2] = 0;
@@ -1876,14 +1897,14 @@ uint32_t load_and_split3(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_i
     }
     if (indiv_uidx == unfiltered_indiv_ct) {
       if (case_rem) {
-	casebuf[0] = case_words[0];
+	casebuf[offset0_case] = case_words[0];
 	casebuf[case_ctv] = case_words[2];
-	casebuf[2 * case_ctv] = case_words[3];
+	casebuf[offset2_case] = case_words[3];
       }
       if (ctrl_rem) {
-	ctrlbuf[0] = ctrl_words[0];
+	ctrlbuf[offset0_ctrl] = ctrl_words[0];
 	ctrlbuf[ctrl_ctv] = ctrl_words[2];
-	ctrlbuf[2 * ctrl_ctv] = ctrl_words[3];
+	ctrlbuf[offset2_ctrl] = ctrl_words[3];
       }
       ulii = 3;
       if (case_words[1]) {
@@ -2164,6 +2185,12 @@ static inline void two_locus_count_table(uintptr_t* lptr1, uintptr_t* lptr2, uin
 #endif
 }
 
+// The following two functions are essentially ported from Statistics.cpp in
+// Richard Howey's CASSI software
+// (http://www.staff.ncl.ac.uk/richard.howey/cassi/index.html).  (CASSI is also
+// GPLv3-licensed; just remember to give credit to Howey if you redistribute a
+// variant of this code.  This would have been a friggin' nightmare to debug if
+// he hadn't already done all the real work.)
 static inline void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, double* or_ptr, double* var_ptr) {
   double c11;
   double c12;
@@ -2182,9 +2209,7 @@ static inline void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, 
   c22 = (double)((int32_t)(4 * counts_3x3[8] + 2 * (counts_3x3[5] + counts_3x3[7]) + counts_3x3[4]));
 
   if (!no_ueki) {
-    // see AdjustedFastEpistasis::calculateLogOddsAdjustedVariance() in
-    // CASSI Statistics.cpp
-    // (http://www.staff.ncl.ac.uk/richard.howey/cassi/index.html)
+    // See AdjustedFastEpistasis::calculateLogOddsAdjustedVariance().
     no_adj = (counts_3x3[0] && counts_3x3[1] && counts_3x3[2] && counts_3x3[3] && counts_3x3[4] && counts_3x3[5] && counts_3x3[6] && counts_3x3[7] && counts_3x3[8]);
     if (!no_adj) {
       c11 += 4.5;
@@ -2245,6 +2270,207 @@ static inline void fepi_counts_to_stats(uint32_t* counts_3x3, uint32_t no_ueki, 
   }
 }
 
+void fepi_counts_to_joint_effects_cc_stats(uint32_t* counts, double* diff_ptr, double* case_var_ptr, double* ctrl_var_ptr) {
+  // See JointEffects::evaluateStatistic().  This is slightly reordered to
+  // avoid a bit of redundant calculation, but the logic is otherwise
+  // identical.
+  //
+  // Two adjustments to the raw counts are applied:
+  // 1. If any cell in either the case or control tables is zero, we add 0.5 to
+  //    all cells in both tables.
+  // 2. Then, if the [hom A2 x hom B2] cell in either the case or control table
+  //    is less than 1% of the total (very unlikely since A2/B2 are normally
+  //    major), multiply all other cells by a reduction factor and increase the
+  //    [hom A2 x hom B2] cell by the total reduction (choosing the factor such
+  //    that the [hom A2 x hom B2] cell ends up at exactly 1%).
+  //
+  // Then, we define
+  //   i22_case := [hom A1 x hom B1] * [hom A2 x hom B2] /
+  //               ([hom A1 x hom B2] * [hom A2 x hom B1])
+  //   i21_case := [hom A1 x het] * [hom A2 x hom B2] /
+  //               ([hom A1 x hom B2] * [hom A2 x het])
+  //   i12_case := [het x hom B1] * [hom A2 x hom B2] /
+  //               ([het x hom B2] * [hom A2 x hom B1])
+  //   i11_case := [het x het] * [hom A2 x hom B2] /
+  //               ([het x hom B2] * [hom A2 x het])
+  //   (analogously for controls)
+  //
+  // At this point, two formulas may be applied to the (adjusted) counts:
+  // 1. If i11 is greater than 0.5 for both cases and controls (this is usually
+   //    true),
+  //      xi0 := 0.5
+  //      xi1 := 1.0
+  //      xi2 := 1.0
+  //      xi3 := 2 * i11_case / (2 * i11_case - 1)
+  //      invq00 := 1.0 / [hom A2 x hom B2]
+  //      invq01 := 1.0 / [hom A2 x het]
+  //      ...
+  //      inverse_matrix := [ (invq22+invq02+invq20+invq00)*xi0*xi0   (invq20+invq00)*xi0*xi1   (invq02+invq00)*xi0*xi2   invq00*xi0*xi3 ]^-1
+  //                        [ ...   (invq21+invq20+invq01+invq00)*xi1*xi1   invq00*xi1*xi2   (invq01+invq00)*xi1*xi3 ]
+  //                        [ ...   ...   (invq12+invq10+invq02+invq00)*xi2*xi2   (invq10+invq00)*xi2*xi3 ]
+  //                        [ ...   ...   ... (invq11+invq10+invq01+invq00)*xi3*xi3 ]
+  //      (bottom left is symmetric copy of upper right)
+  //      row_totals_case[i] := sum(row i of inverse_matrix_case)
+  //      total_inv_v_case := 1.0 / (row_totals_case[0] + [1] + [2] + [3])
+  //      lambda_case := row_totals_case[0] * log(i22_case) * 0.5 +
+  //                     row_totals_case[1] * log(i21_case) +
+  //                     row_totals_case[2] * log(i12_case) +
+  //                     row_totals_case[3] * log(2 * i11_case - 1)
+  //      (analogous formulas for lambda_ctrl)
+  //      diff := lambda_case * total_inv_v_case -
+  //              lambda_ctrl * total_inv_v_ctrl
+  //      chisq := diff * diff / (total_inv_v_case + total_inv_v_ctrl)
+  //
+  // 2. Otherwise,
+  //      xi0 := sqrt(i22) / (2 * sqrt(i22) + 2)
+  //      xi1 := i21 / (i21 + 1)
+  //      xi2 := i12 / (i12 + 1)
+  //      xi3 := 1.0
+  //      (inverse_matrix, row_totals, total_inv_v defined as before)
+  //      mu_case := row_totals_case[0] * log((sqrt(i22_case) + 1) * 0.5) +
+  //                 row_totals_case[1] * log((i21_case + 1) * 0.5) +
+  //                 row_totals_case[2] * log((i12_case + 1) * 0.5) +
+  //                 row_totals_case[3] * log(i11_case)
+  //      (similar for mu_ctrl)
+  //      diff := mu_case * total_inv_v_case - mu_ctrl * total_inv_v_ctrl
+  double dcounts[18];
+  double invcounts[18];
+  double ivv[8]; // i22_case in [0], i21_case in [1], ..., i22_ctrl in [4]...
+  double xiv[8];
+  double row_totals[8];
+  double to_invert[16];
+  MATRIX_INVERT_BUF1_TYPE int_1d_buf[4];
+  double dbl_2d_buf[16];
+  double tot_inv_v[2];
+  double lambda_or_mu[2];
+  double dxx;
+  double dyy;
+  double* dptr;
+  double* dptr2;
+  uint32_t use_reg_stat;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  dptr = dcounts;
+  dptr2 = invcounts;
+  if (counts[0] && counts[1] && counts[2] && counts[3] && counts[4] && counts[5] && counts[6] && counts[7] && counts[8] && counts[9] && counts[10] && counts[11] && counts[12] && counts[13] && counts[14] && counts[15] && counts[16] && counts[17]) {
+    for (uii = 0; uii < 18; uii++) {
+      dxx = (double)((int32_t)(*counts++));
+      *dptr++ = dxx;
+      *dptr2++ = 1.0 / dxx;
+    }
+  } else {
+    for (uii = 0; uii < 18; uii++) {
+      dxx = 0.5 + (double)((int32_t)(*counts++));
+      *dptr++ = dxx;
+      *dptr2++ = 1.0 / dxx;
+    }
+  }
+  dptr2 = ivv;
+  for (uii = 0; uii < 2; uii++) {
+    dptr = &(dcounts[uii * 9]);
+    dxx = dptr[8];
+    *dptr2++ = dxx * dptr[0] / (dptr[2] * dptr[6]);
+    *dptr2++ = dxx * dptr[1] / (dptr[2] * dptr[7]);
+    *dptr2++ = dxx * dptr[3] / (dptr[5] * dptr[6]);
+    *dptr2++ = dxx * dptr[4] / (dptr[5] * dptr[7]);
+  }
+  use_reg_stat = (ivv[3] > 0.5) && (ivv[7] > 0.5);
+  if (use_reg_stat) {
+    dptr2 = xiv;
+    for (uii = 0; uii < 2; uii++) {
+      dxx = 2 * ivv[3 + 4 * uii];
+      *dptr2++ = 0.5;
+      *dptr2++ = 1.0;
+      *dptr2++ = 1.0;
+      *dptr2++ = dxx / (dxx - 1);
+    }
+  } else {
+    for (uii = 0; uii < 2; uii++) {
+      dptr = &(ivv[uii * 4]);
+      dptr2 = &(xiv[uii * 4]);
+      dxx = sqrt(dptr[0]);
+      dptr2[1] = dptr[1] / (dptr[1] + 1);
+      dptr2[2] = dptr[2] / (dptr[2] + 1);
+      dptr2[3] = 1.0;
+      dptr2[0] = dxx / (2 * dxx + 2);
+      dptr[0] = dxx; // original i22 is not used from here on
+    }
+  }
+  for (uii = 0; uii < 2; uii++) {
+    dptr = &(invcounts[uii * 9]);
+    dptr2 = &(xiv[uii * 4]);
+    // invq00 = dptr[8]
+    // invq01 = dptr[7]
+    // ...
+    // thank god this code doesn't need to be edited every day
+    dxx = dptr[8];
+    dyy = dptr2[0];
+    dptr2 = &(xiv[uii * 4]);
+    to_invert[0] = (dptr[0] + dptr[2] + dptr[6] + dxx) * dyy * dyy;
+    to_invert[1] = (dptr[2] + dxx) * dyy * dptr2[1];
+    to_invert[2] = (dptr[6] + dxx) * dyy * dptr2[2];
+    to_invert[3] = dxx * dyy * dptr2[3];
+    dyy = dptr2[1];
+    to_invert[4] = to_invert[1];
+    to_invert[5] = (dptr[1] + dptr[2] + dptr[7] + dxx) * dyy * dyy;
+    to_invert[6] = dxx * dyy * dptr2[2];
+    to_invert[7] = (dptr[7] + dxx) * dyy * dptr2[3];
+    dyy = dptr2[2];
+    to_invert[8] = to_invert[2];
+    to_invert[9] = to_invert[6];
+    to_invert[10] = (dptr[3] + dptr[5] + dptr[6] + dxx) * dyy * dyy;
+    to_invert[11] = (dptr[3] + dxx) * dyy * dptr2[3];
+    dyy = dptr2[3];
+    to_invert[12] = to_invert[3];
+    to_invert[13] = to_invert[7];
+    to_invert[14] = to_invert[11];
+    to_invert[15] = (dptr[4] + dptr[5] + dptr[7] + dxx) * dyy * dyy;
+    invert_matrix(4, to_invert, int_1d_buf, dbl_2d_buf);
+    dptr = to_invert;
+    dptr2 = &(row_totals[uii * 4]);
+    dxx = 0;
+    for (ujj = 0; ujj < 4; ujj++) {
+      dyy = 0;
+      for (ukk = 0; ukk < 4; ukk++) {
+	dyy += (*dptr++);
+      }
+      *dptr2++ = dyy;
+      dxx += dyy;
+    }
+    tot_inv_v[uii] = 1.0 / dyy;
+  }
+  if (use_reg_stat) {
+    for (uii = 0; uii < 2; uii++) {
+      dptr = &(row_totals[uii * 4]);
+      dptr2 = &(ivv[uii * 4]);
+      lambda_or_mu[uii] = dptr[0] * log(dptr2[0]) * 0.5 +
+	                  dptr[1] * log(dptr2[1]) +
+	                  dptr[2] * log(dptr2[2]) +
+                          dptr[3] * log(2 * dptr2[3] - 1);
+    }
+  } else {
+    for (uii = 0; uii < 2; uii++) {
+      dptr = &(row_totals[uii * 4]);
+      dptr2 = &(ivv[uii * 4]);
+      // note that dptr2[0] has sqrt(i22) instead of i22
+      // really minor thing to check: cheaper to subtract log(2) than multiply
+      // by 0.5 inside log?  (I wouldn't think so: multiplication-by-0.5 is the
+      // sort of thing which looks like it's eligible for automatic
+      // optimization.)
+      lambda_or_mu[uii] = dptr[0] * log((dptr2[0] + 1) * 0.5) +
+	                  dptr[1] * log((dptr2[1] + 1) * 0.5) +
+	                  dptr[2] * log((dptr2[2] + 1) * 0.5) +
+	                  dptr[3] * log(dptr2[3]);
+    }
+  }
+  dxx = tot_inv_v[0];
+  dyy = tot_inv_v[1];
+  *diff_ptr = lambda_or_mu[0] * dxx - lambda_or_mu[1] * dyy;
+  *case_var_ptr = dxx;
+  *ctrl_var_ptr = dyy;
+}
+
 // epistasis multithread globals
 static uint32_t* g_epi_geno1_offsets;
 static double* g_epi_all_chisq;
@@ -2266,7 +2492,7 @@ static uint32_t* g_epi_fail_ct2;
 static uint32_t g_epi_thread_ct;
 static uint32_t g_epi_case_ct;
 static uint32_t g_epi_ctrl_ct;
-static uint32_t g_epi_no_ueki;
+static uint32_t g_epi_flag;
 static uintptr_t g_epi_marker_ct;
 static uintptr_t g_epi_marker_idx1;
 static uintptr_t g_epi_idx2_block_size;
@@ -2294,7 +2520,8 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uint32_t tot_ctsplit = case_ctsplit + ctrl_ctsplit;
   uintptr_t* cur_geno1 = &(g_epi_geno1[block_idx1_start * tot_ctsplit]);
   uintptr_t* zmiss1 = g_epi_zmiss1;
-  uint32_t no_ueki = g_epi_no_ueki;
+  uint32_t no_ueki = (g_epi_flag / EPI_FAST_NO_UEKI) & 1;
+  uint32_t do_joint_effects = (g_epi_flag / EPI_FAST_JOINT_EFFECTS) & 1;
   uint32_t best_id_fixed = 0;
   uint32_t* geno1_offsets = g_epi_geno1_offsets;
   uintptr_t* geno2 = g_epi_geno2;
@@ -2312,7 +2539,7 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   double alpha1sq = g_epi_alpha1sq;
   double alpha2sq = g_epi_alpha2sq;
   uint32_t tot1[6];
-  uint32_t counts[9];
+  uint32_t counts[18];
   uintptr_t* cur_geno1_ctrls;
   uintptr_t* cur_geno2;
   double* all_chisq_write;
@@ -2385,27 +2612,31 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	  counts[8] = tot1[2] - counts[2] - counts[5];
 	}
       }
-      fepi_counts_to_stats(counts, no_ueki, &case_or, &case_var);
       cur_zmiss2 >>= 1;
       if (nm_ctrl_fixed) {
-	two_locus_count_table_zmiss1(cur_geno1_ctrls, &(cur_geno2[case_ctsplit]), counts, ctrl_ctv3, cur_zmiss2);
+	two_locus_count_table_zmiss1(cur_geno1_ctrls, &(cur_geno2[case_ctsplit]), &(counts[9]), ctrl_ctv3, cur_zmiss2);
 	if (cur_zmiss2) {
-	  counts[2] = tot1[3] - counts[0] - counts[1];
-	  counts[5] = tot1[4] - counts[3] - counts[4];
+	  counts[11] = tot1[3] - counts[0] - counts[1];
+	  counts[14] = tot1[4] - counts[3] - counts[4];
 	}
-	counts[6] = cur_tot2[3] - counts[0] - counts[3];
-        counts[7] = cur_tot2[4] - counts[1] - counts[4];
-	counts[8] = cur_tot2[5] - counts[2] - counts[5];
+	counts[15] = cur_tot2[3] - counts[0] - counts[3];
+        counts[16] = cur_tot2[4] - counts[1] - counts[4];
+	counts[17] = cur_tot2[5] - counts[2] - counts[5];
       } else {
-        two_locus_count_table(cur_geno1_ctrls, &(cur_geno2[case_ctsplit]), counts, ctrl_ctv3, cur_zmiss2);
+        two_locus_count_table(cur_geno1_ctrls, &(cur_geno2[case_ctsplit]), &(counts[9]), ctrl_ctv3, cur_zmiss2);
 	if (cur_zmiss2) {
-	  counts[6] = tot1[3] - counts[3] - counts[0];
-	  counts[7] = tot1[4] - counts[4] - counts[1];
-	  counts[8] = tot1[5] - counts[5] - counts[2];
+	  counts[15] = tot1[3] - counts[3] - counts[0];
+	  counts[16] = tot1[4] - counts[4] - counts[1];
+	  counts[17] = tot1[5] - counts[5] - counts[2];
 	}
       }
-      fepi_counts_to_stats(counts, no_ueki, &ctrl_or, &ctrl_var);
-      dxx = case_or - ctrl_or;
+      if (!do_joint_effects) {
+        fepi_counts_to_stats(counts, no_ueki, &case_or, &case_var);
+        fepi_counts_to_stats(&(counts[9]), no_ueki, &ctrl_or, &ctrl_var);
+        dxx = case_or - ctrl_or;
+      } else {
+        fepi_counts_to_joint_effects_cc_stats(counts, &dxx, &case_var, &ctrl_var);
+      }
       zsq = dxx * dxx / (case_var + ctrl_var);
       if (realnum(zsq)) {
 	if (zsq >= alpha1sq) {
@@ -2463,7 +2694,7 @@ int32_t epistasis_regression() {
   return RET_CALC_NOT_YET_SUPPORTED;
 }
 
-int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t ctrl_ct, uintptr_t* pheno_c, double* pheno_d, char* outname, char* outname_end) {
+int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t ctrl_ct, uintptr_t* pheno_c, double* pheno_d, char* outname, char* outname_end) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -2476,7 +2707,6 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t modifier = epi_ip->modifier;
   uint32_t is_fast = modifier & EPI_FAST;
   uint32_t is_case_only = (modifier / EPI_FAST_CASE_ONLY) & 1;
-  uint32_t no_ueki = modifier & EPI_FAST_NO_UEKI;
   uint32_t no_p_value = modifier & EPI_FAST_NO_P_VALUE;
   uint32_t case_ct = pheno_nm_ct - ctrl_ct;
   uintptr_t case_ctv2 = 2 * ((case_ct + (BITCT - 1)) / BITCT);
@@ -2655,7 +2885,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   g_epi_thread_ct = thread_ct;
   g_epi_case_ct = case_ct;
   g_epi_ctrl_ct = ctrl_ct;
-  g_epi_no_ueki = no_ueki;
+  g_epi_flag = modifier;
   g_epi_marker_ct = marker_ct;
   dxx = ltqnorm(epi_ip->epi1 / 2);
   g_epi_alpha1sq = dxx * dxx;
@@ -2764,7 +2994,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       g_epi_geno2[block_idx2 * tot_ctsplit + tot_ctsplit - 1] = 0;
     }
     marker_uidx = marker_uidx_base;
-    sprintf(logbuf, "--fast-epistasis%s%s to %s...", is_case_only? " case-only" : "", no_ueki? " no-ueki" : "", outname);
+    sprintf(logbuf, "--fast-epistasis%s%s to %s...", is_case_only? " case-only" : "", (modifier & EPI_FAST_NO_UEKI)? " no-ueki" : "", outname);
     logprintb();
     fputs(" 0%", stdout);
     do {
@@ -2815,7 +3045,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	  }
 	}
 	if (!is_case_only) {
-	  if (load_and_split3(bedfile, loadbuf, unfiltered_indiv_ct, &(g_epi_geno1[block_idx1 * tot_ctsplit]), pheno_nm, pheno_c, case_ctv3, ctrl_ctv3, &ulii)) {
+	  if (load_and_split3(bedfile, loadbuf, unfiltered_indiv_ct, &(g_epi_geno1[block_idx1 * tot_ctsplit]), pheno_nm, pheno_c, case_ctv3, ctrl_ctv3, IS_SET(marker_reverse, marker_uidx_tmp), &ulii)) {
 	    goto epistasis_report_ret_READ_FAIL;
 	  }
 	  if (ulii) {
@@ -2854,7 +3084,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	  }
           if (!is_case_only) {
 	    ulptr = &(g_epi_geno2[block_idx2 * tot_ctsplit]);
-	    if (load_and_split3(bedfile, loadbuf, unfiltered_indiv_ct, ulptr, pheno_nm, pheno_c, case_ctv3, ctrl_ctv3, &ulii)) {
+	    if (load_and_split3(bedfile, loadbuf, unfiltered_indiv_ct, ulptr, pheno_nm, pheno_c, case_ctv3, ctrl_ctv3, IS_SET(marker_reverse, marker_uidx2), &ulii)) {
 	      goto epistasis_report_ret_READ_FAIL;
 	    }
 	    uiptr = &(g_epi_tot2[block_idx2 * 6]);

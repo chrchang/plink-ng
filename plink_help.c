@@ -835,14 +835,17 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 #endif
 #endif
     help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop", &help_ctrl, 1,
-"  --fast-epistasis <no-ueki> <case-only> <set-by-set | set-by-all> <nop>\n"
+"  --fast-epistasis <no-ueki | joint-effects> <case-only>\n"
+"                   <set-by-set | set-by-all> <nop>\n"
 "  --epistasis <set-by-set | set-by-all>\n"
-"    Scan for epistatic interactions.  --fast-epistasis inspects 2x2 joint\n"
+"    Scan for epistatic interactions.  --fast-epistasis inspects 3x3 joint\n"
 "    allele count tables and only applies to case/control phenotypes, while\n"
 "    --epistasis performs linear or logistic regression.\n"
 "    * --fast-epistasis normally applies the variance and empty cell corrections\n"
 "      described in Ueki M, Cordell HJ (2012) Improved statistics for\n"
 "      genome-wide interaction analysis.  To disable them, add 'no-ueki'.\n"
+"    * joint-effects' entirely replaces the original fast-epistasis statistic\n"
+"      with the Ueki-Cordell \"joint effects\" test.\n"
 "    * 'case-only' requests a case-only instead of a case/control test.\n"
 "    * By default, all pairs of variants across the entire genome are tested.\n"
 "      To just test pairs of variants within a single set, add the 'set-by-set'\n"
@@ -998,38 +1001,37 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     missing.\n"
 	       );
     help_print("missing-phenotype\t1", &help_ctrl, 0,
-"  --missing-phenotype [val] : Set missing phenotype value (normally -9).\n"
-"  --1                       : Expect case/control phenotypes to be coded as\n"
-"                              0 = control, 1 = case, instead of the usual\n"
-"                              0 = missing, 1 = control, 2 = case.\n"
+"  --missing-phenotype [v] : Set missing phenotype value (normally -9).\n"
+"  --1                     : Expect case/control phenotypes to be coded as\n"
+"                            0 = control, 1 = case, instead of the usual\n"
+"                            0 = missing, 1 = control, 2 = case.\n"
 	       );
     help_print("make-pheno\tpheno", &help_ctrl, 0,
-"  --make-pheno [file] [val] : Define a new case/control phenotype.  If the\n"
-"                              val parameter is '*', all individuals listed in\n"
-"                              the given file are cases, and everyone else is a\n"
-"                              control.  Otherwise, only individuals both listed\n"
-"                              in the file and with third column entry identical\n"
-"                              to the val parameter are cases.\n"
+"  --make-pheno [fn] [val] : Define a new case/control phenotype.  If the val\n"
+"                            parameter is '*', all individuals listed in the\n"
+"                            the given file are cases, and everyone else is a\n"
+"                            control.  Otherwise, only individuals both listed\n"
+"                            in the file and with third column entry identical\n"
+"                            to the val parameter are cases.\n"
 	       );
     help_print("tail-pheno\tgroupdist\tpheno", &help_ctrl, 0,
-"  --tail-pheno [Ltop] {Hbt} : Downcode a scalar phenotype to a case/control\n"
-"                              phenotype.  All individuals with phenotype values\n"
-"                              greater than Hbt are cases, and all with values\n"
-"                              less than or equal to Ltop are controls.  If Hbt\n"
-"                              is unspecified, it is equal to Ltop; otherwise,\n"
-"                              in-between phenotype values are converted to\n"
-"                              missing.\n"
+"  --tail-pheno [Lt] {Hbt} : Downcode a scalar phenotype to a case/control\n"
+"                            phenotype.  All individuals with phenotype values\n"
+"                            greater than Hbt are cases, and all with values\n"
+"                            less than or equal to Lt are controls.  If Hbt is\n"
+"                            unspecified, it is equal to Lt; otherwise,\n"
+"                            in-between phenotype values are set to missing.\n"
 	       );
     help_print("covar\tcovar-name\tcovar-number", &help_ctrl, 0,
 "  --covar [filename] <keep-pheno-on-missing-cov> : Specify covariate file.\n"
-"  --covar-name [...]     : Specify covariate(s) in --covar file by name.\n"
-"                           Separate multiple names with spaces or commas, and\n"
-"                           use dashes to designate ranges.\n"
-"  --covar-number [...]   : Specify covariate(s) in --covar file by index.\n"
+"  --covar-name [...]      : Specify covariate(s) in --covar file by name.\n"
+"                            Separate multiple names with spaces or commas, and\n"
+"                            use dashes to designate ranges.\n"
+"  --covar-number [...]    : Specify covariate(s) in --covar file by index.\n"
 	       );
     help_print("within\tmwithin", &help_ctrl, 0,
-"  --within [f] <keep-NA> : Specify initial cluster assignments.\n"
-"  --mwithin [n]          : Load cluster assignments from column n+2.\n"
+"  --within [f] <keep-NA>  : Specify initial cluster assignments.\n"
+"  --mwithin [n]           : Load cluster assignments from column n+2.\n"
 	       );
     help_print("loop-assoc", &help_ctrl, 0,
 "  --loop-assoc [f] <keep-NA>    : Run specified case/control association\n"
@@ -1108,7 +1110,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --from [var ID]  : Use ID(s) to specify a variant range to load.  When used\n"
 "  --to   [var ID]    together, both variants must be on the same chromosome.\n"
 "  --snp  [var ID]  : Specify a single variant to load.\n"
-"  --exclude-snp [v] : Specify a single variant to exclude.\n"
+"  --exclude-snp [] : Specify a single variant to exclude.\n"
 "  --window  [kbs]  : With --snp or --exclude-snp, loads/excludes all variants\n"
 "                     within half the specified kb distance of the named one.\n"
 "  --from-bp [pos]  : Use physical position(s) to define a variant range to\n"
@@ -1158,9 +1160,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     the default j / (j+k).\n"
 	       );
     help_print("read-freq\tupdate-freq", &help_ctrl, 0,
-"  --read-freq [filename]   : Estimate MAFs and heterozygote frequencies from\n"
-"    (alias: --update-freq)   the given --freq[x] report, instead of the input\n"
-"                             fileset.\n"
+"  --read-freq [fn] : Estimate MAFs and heterozygote frequencies from the given\n"
+"                     --freq[x] report, instead of the input fileset.\n"
 	       );
     help_print("hwe", &help_ctrl, 0,
 "  --hwe {val}      : Exclude variants with Hardy-Weinberg equilibrium exact\n"
@@ -1264,18 +1265,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                  dummy variables when writing covariate file.\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode", &help_ctrl, 0,
-"  --merge-mode [n] : Adjust --merge/--bmerge/--merge-list behavior based on a\n"
-"                     numeric code.\n"
-"                     1 (default) = difference -> missing\n"
-"                     2 = only overwrite originally missing calls\n"
-"                     3 = only overwrite calls which are nonmissing in new file\n"
-"                     4/5 = never overwrite and always overwrite, respectively\n"
-"                     6 = report all mismatching calls without merging\n"
-"                     7 = report mismatching nonmissing calls without merging\n"
+"  --merge-mode [n]   : Adjust --merge/--bmerge/--merge-list behavior based on a\n"
+"                       numeric code.\n"
+"                       1 (default) = difference -> missing\n"
+"                       2 = only overwrite originally missing calls\n"
+"                       3 = only overwrite when nonmissing in new file\n"
+"                       4/5 = never overwrite and always overwrite, respectively\n"
+"                       6 = report all mismatching calls without merging\n"
+"                       7 = report mismatching nonmissing calls without merging\n"
 	       );
     help_print("merge\tbmerge\tmerge-list\tmerge-mode\tmerge-equal-pos", &help_ctrl, 0,
-"  --merge-equal-pos : Merge variants with different names but identical\n"
-"                      positions.\n"
+"  --merge-equal-pos  : Merge variants with different names but identical\n"
+"                       positions.\n"
 	       );
 #ifndef STABLE_BUILD
     help_print("r\tr2\tld-window-r2\tld-window\tld-window-kb\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
@@ -1288,10 +1289,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #endif
     help_print("indep\tindep-pairwise\tld-xchr", &help_ctrl, 0,
-"  --ld-xchr [code] : Specify X chromosome model for --indep[-pairwise].\n"
-"                     1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
-"                     2 = males coded 0/2\n"
-"                     3 = males coded 0/2, but females given double weighting\n"
+"  --ld-xchr [code]   : Specify X chromosome model for --indep[-pairwise].\n"
+"                       1 (default) = males coded 0/1, females 0/1/2 (A1 dosage)\n"
+"                       2 = males coded 0/2\n"
+"                       3 = males coded 0/2, but females given double weighting\n"
 	       );
     help_print("distance-exp\texponent\tdistance", &help_ctrl, 0,
 "  --distance-exp [x] : When computing genomic distances, assign each variant a\n"
@@ -1304,20 +1305,20 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                                       instead of recalculating from scratch.\n"
 	       );
     help_print("ppc-gap\tmin\tmax\tgenome\tZ-genome", &help_ctrl, 0,
-"  --ppc-gap [val]  : Minimum number of base pairs, in thousands, between\n"
-"                     informative pairs of markers used in --genome PPC test.\n"
-"                     500 if unspecified.\n"
-"  --min [cutoff]   : Specify minimum PI_HAT for inclusion in --genome report.\n"
-"  --max [cutoff]   : Specify maximum PI_HAT for inclusion in --genome report.\n"
+"  --ppc-gap [val]    : Minimum number of base pairs, in thousands, between\n"
+"                       informative pairs of markers used in --genome PPC test.\n"
+"                       500 if unspecified.\n"
+"  --min [cutoff]     : Specify minimum PI_HAT for inclusion in --genome report.\n"
+"  --max [cutoff]     : Specify maximum PI_HAT for inclusion in --genome report.\n"
 	       );
     help_print("homozyg\thomozyg-match\tpool-size", &help_ctrl, 0,
-"  --homozyg-match [x] : Set minimum concordance across jointly homozygous sites\n"
-"                        for a pairwise allelic match to be declared.\n"
-"  --pool-size [ct]    : Set minimum size of pools in '--homozyg group' report.\n"
+"  --homozyg-match [] : Set minimum concordance across jointly homozygous sites\n"
+"                       for a pairwise allelic match to be declared.\n"
+"  --pool-size [ct]   : Set minimum size of pools in '--homozyg group' report.\n"
 	       );
     help_print("read-genome\tcluster\tneighbour\tneighbor", &help_ctrl, 0,
-"  --read-genome [f] : Load a --genome report for --cluster/--neighbour, instead\n"
-"                      of recalculating IBS and PPC test p-values from scratch.\n"
+"  --read-genome [fn] : Load --genome report for --cluster/--neighbour, instead\n"
+"                       of recalculating IBS and PPC test p-values from scratch.\n"
 	       );
     help_print("ppc\tmc\tmcc\tK\tk\tibm\tcluster", &help_ctrl, 0,
 "  --ppc [p-val]    : Specify minimum PPC test p-value within a cluster.\n"
@@ -1425,29 +1426,29 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                       " PROG_NAME_STR ".rel.13.gz if k is 13.  Concatenating these files\n"
 "                       in order will yield the full matrix of interest.  (Yes,\n"
 "                       this can be done before unzipping.)\n"
-"                       N.B. This cannot be used to directly write a symmetric\n"
-"                       square matrix.  Choose the square0 or triangle format\n"
-"                       instead, and postprocess as necessary.\n"
+"                       N.B. This generally cannot be used to directly write a\n"
+"                       symmetric square matrix.  Choose square0 or triangle\n"
+"                       shape instead, and postprocess as necessary.\n"
 	       );
     help_print("memory", &help_ctrl, 0,
-"  --memory [val]   : Set size, in MB, of initial workspace malloc attempt.\n"
+"  --memory [val]     : Set size, in MB, of initial workspace malloc attempt.\n"
 	       );
     help_print("threads\tthread-num\tnum_threads", &help_ctrl, 0,
-"  --threads [val]  : Set maximum number of concurrent threads.\n"
+"  --threads [val]    : Set maximum number of concurrent threads.\n"
 	       );
     help_print("d\tsnps", &help_ctrl, 0,
-"  --d [char]       : Change variant/covariate range delimiter (normally '-').\n"
+"  --d [char]         : Change variant/covariate range delimiter (normally '-').\n"
 	       );
     help_print("seed", &help_ctrl, 0,
-"  --seed [val...]  : Set random number seed(s).  Each value must be an integer\n"
-"                     between 0 and 4294967295 inclusive.\n"
+"  --seed [val...]    : Set random number seed(s).  Each value must be an\n"
+"                       integer between 0 and 4294967295 inclusive.\n"
 	       );
     help_print("perm-batch-size", &help_ctrl, 0,
 "  --perm-batch-size [val] : Set number of permutations per batch in QT\n"
 "                            permutation tests.\n"
 	       );
     help_print("debug", &help_ctrl, 0,
-"  --debug          : Use slower, more crash-resistant logging method.\n"
+"  --debug            : Use slower, more crash-resistant logging method.\n"
 	       );
 #ifndef STABLE_BUILD
     if (!param_ct) {

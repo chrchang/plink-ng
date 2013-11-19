@@ -84,7 +84,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (18 Nov 2013)";
+  " (19 Nov 2013)";
 const char ver_str2[] =
 #ifdef PLINK_BUILD
   "              [final website TBD]\n"
@@ -5280,7 +5280,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if ((calculation_type & CALC_EPI) && (epi_ip->modifier & (EPI_FAST | EPI_REG))) {
-    retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, outname, outname_end);
+    retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, outname, outname_end);
     if (retval) {
       goto plink_ret_1;
     }
@@ -8877,7 +8877,17 @@ int32_t main(int32_t argc, char** argv) {
 	}
         for (uii = 1; uii <= param_ct; uii++) {
 	  if (!strcmp(argv[cur_arg + uii], "no-ueki")) {
+	    if (epi_info.modifier & EPI_FAST_JOINT_EFFECTS) {
+	      logprint("Error: --fast-epistasis 'no-ueki' modifier cannot be used with 'joint-effects.'\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
 	    epi_info.modifier |= EPI_FAST_NO_UEKI;
+	  } else if (!strcmp(argv[cur_arg + uii], "joint-effects")) {
+	    if (epi_info.modifier & EPI_FAST_NO_UEKI) {
+	      logprint("Error: --fast-epistasis 'no-ueki' modifier cannot be used with 'joint-effects.'\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    epi_info.modifier |= EPI_FAST_JOINT_EFFECTS;
 	  } else if (!strcmp(argv[cur_arg + uii], "case-only")) {
 	    epi_info.modifier |= EPI_FAST_CASE_ONLY;
 	  } else if (!strcmp(argv[cur_arg + uii], "set-by-set")) {
@@ -9523,6 +9533,9 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
           id_delim = '_';
 	}
+      } else if (!memcmp(argptr2, "nd-major", 9)) {
+	logprint("Error: --ind-major is retired, to discourage creation of .bed files that\nconstantly have to be transposed back.  --recode exports individual-major files\nwhich are good enough for smaller jobs; we suggest transposing small data\nwindows on the fly when tackling large jobs.\n");
+        goto main_ret_INVALID_CMDLINE;
       } else {
 	goto main_ret_INVALID_CMDLINE_2;
       }
