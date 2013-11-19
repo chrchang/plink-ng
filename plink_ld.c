@@ -2352,24 +2352,42 @@ void fepi_counts_to_joint_effects_cc_stats(uint32_t* counts, double* diff_ptr, d
   uint32_t ujj;
   uint32_t ukk;
   dptr = dcounts;
-  dptr2 = invcounts;
   if (counts[0] && counts[1] && counts[2] && counts[3] && counts[4] && counts[5] && counts[6] && counts[7] && counts[8] && counts[9] && counts[10] && counts[11] && counts[12] && counts[13] && counts[14] && counts[15] && counts[16] && counts[17]) {
-    for (uii = 0; uii < 18; uii++) {
-      dxx = (double)((int32_t)(*counts++));
-      *dptr++ = dxx;
-      *dptr2++ = 1.0 / dxx;
+    for (uii = 0; uii < 2; uii++) {
+      dxx = 0;
+      for (ujj = 0; ujj < 9; ujj++) {
+	dyy = (double)((int32_t)(*counts++));
+	*dptr++ = dyy;
+      }
+      if (dyy * 100 < dxx) {
+	// todo
+	printf("wtf\n");
+	exit(1);
+      }
     }
   } else {
-    for (uii = 0; uii < 18; uii++) {
-      dxx = 0.5 + (double)((int32_t)(*counts++));
-      *dptr++ = dxx;
-      *dptr2++ = 1.0 / dxx;
+    for (uii = 0; uii < 2; uii++) {
+      dxx = 0;
+      for (ujj = 0; ujj < 9; ujj++) {
+	dyy = 0.5 + (double)((int32_t)(*counts++));
+	*dptr++ = dyy;
+      }
+      if (dyy * 100 < dxx) {
+	printf("wtf\n");
+	exit(1);
+      }
     }
+  }
+  dptr = dcounts;
+  dptr2 = invcounts;
+  for (uii = 0; uii < 18; uii++) {
+    *dptr2++ = 1.0 / (*dptr++);
   }
   dptr2 = ivv;
   for (uii = 0; uii < 2; uii++) {
     dptr = &(dcounts[uii * 9]);
     dxx = dptr[8];
+
     *dptr2++ = dxx * dptr[0] / (dptr[2] * dptr[6]);
     *dptr2++ = dxx * dptr[1] / (dptr[2] * dptr[7]);
     *dptr2++ = dxx * dptr[3] / (dptr[5] * dptr[6]);
@@ -2406,7 +2424,6 @@ void fepi_counts_to_joint_effects_cc_stats(uint32_t* counts, double* diff_ptr, d
     // thank god this code doesn't need to be edited every day
     dxx = dptr[8];
     dyy = dptr2[0];
-    dptr2 = &(xiv[uii * 4]);
     to_invert[0] = (dptr[0] + dptr[2] + dptr[6] + dxx) * dyy * dyy;
     to_invert[1] = (dptr[2] + dxx) * dyy * dptr2[1];
     to_invert[2] = (dptr[6] + dxx) * dyy * dptr2[2];
@@ -2420,13 +2437,25 @@ void fepi_counts_to_joint_effects_cc_stats(uint32_t* counts, double* diff_ptr, d
     to_invert[8] = to_invert[2];
     to_invert[9] = to_invert[6];
     to_invert[10] = (dptr[3] + dptr[5] + dptr[6] + dxx) * dyy * dyy;
-    to_invert[11] = (dptr[3] + dxx) * dyy * dptr2[3];
+    to_invert[11] = (dptr[5] + dxx) * dyy * dptr2[3];
     dyy = dptr2[3];
     to_invert[12] = to_invert[3];
     to_invert[13] = to_invert[7];
     to_invert[14] = to_invert[11];
     to_invert[15] = (dptr[4] + dptr[5] + dptr[7] + dxx) * dyy * dyy;
+    /*
+    for (ujj = 0; ujj < 4; ujj++) {
+      printf("%g %g %g %g\n", to_invert[ujj * 4], to_invert[ujj * 4 + 1], to_invert[ujj * 4 + 2], to_invert[ujj * 4 + 3]);
+    }
+    printf("\n");
+    */
     invert_matrix(4, to_invert, int_1d_buf, dbl_2d_buf);
+    /*
+    for (ujj = 0; ujj < 4; ujj++) {
+      printf("%g %g %g %g\n", to_invert[ujj * 4], to_invert[ujj * 4 + 1], to_invert[ujj * 4 + 2], to_invert[ujj * 4 + 3]);
+    }
+    printf("\n\n");
+    */
     dptr = to_invert;
     dptr2 = &(row_totals[uii * 4]);
     dxx = 0;
@@ -2438,7 +2467,7 @@ void fepi_counts_to_joint_effects_cc_stats(uint32_t* counts, double* diff_ptr, d
       *dptr2++ = dyy;
       dxx += dyy;
     }
-    tot_inv_v[uii] = 1.0 / dyy;
+    tot_inv_v[uii] = 1.0 / dxx;
   }
   if (use_reg_stat) {
     for (uii = 0; uii < 2; uii++) {
@@ -2616,18 +2645,18 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
       if (nm_ctrl_fixed) {
 	two_locus_count_table_zmiss1(cur_geno1_ctrls, &(cur_geno2[case_ctsplit]), &(counts[9]), ctrl_ctv3, cur_zmiss2);
 	if (cur_zmiss2) {
-	  counts[11] = tot1[3] - counts[0] - counts[1];
-	  counts[14] = tot1[4] - counts[3] - counts[4];
+	  counts[11] = tot1[3] - counts[9] - counts[10];
+	  counts[14] = tot1[4] - counts[12] - counts[13];
 	}
-	counts[15] = cur_tot2[3] - counts[0] - counts[3];
-        counts[16] = cur_tot2[4] - counts[1] - counts[4];
-	counts[17] = cur_tot2[5] - counts[2] - counts[5];
+	counts[15] = cur_tot2[3] - counts[9] - counts[12];
+        counts[16] = cur_tot2[4] - counts[10] - counts[13];
+	counts[17] = cur_tot2[5] - counts[11] - counts[14];
       } else {
         two_locus_count_table(cur_geno1_ctrls, &(cur_geno2[case_ctsplit]), &(counts[9]), ctrl_ctv3, cur_zmiss2);
 	if (cur_zmiss2) {
-	  counts[15] = tot1[3] - counts[3] - counts[0];
-	  counts[16] = tot1[4] - counts[4] - counts[1];
-	  counts[17] = tot1[5] - counts[5] - counts[2];
+	  counts[15] = tot1[3] - counts[9] - counts[12];
+	  counts[16] = tot1[4] - counts[10] - counts[13];
+	  counts[17] = tot1[5] - counts[11] - counts[14];
 	}
       }
       if (!do_joint_effects) {
