@@ -9152,11 +9152,18 @@ int32_t main(int32_t argc, char** argv) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_3;
 	}
-	if (scan_double(argv[cur_arg + 1], &dxx)) {
+	if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0)) {
 	  sprintf(logbuf, "Error: Invalid --gap parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
-        epi_info.case_only_gap = (int32_t)(dxx * (1 + SMALL_EPSILON));
+	if (dxx > 2147483.647) {
+	  epi_info.case_only_gap = 2147483647;
+	} else {
+          epi_info.case_only_gap = (int32_t)(dxx * 1000 * (1 + SMALL_EPSILON));
+	  if (!epi_info.case_only_gap) {
+	    epi_info.case_only_gap = 1;
+	  }
+	}
       } else if (!memcmp(argptr2, "ates", 5)) {
         logprint("Error: --gates is not implemented yet.\n");
 	retval = RET_CALC_NOT_YET_SUPPORTED;
