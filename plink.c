@@ -4056,7 +4056,7 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
 }
 
 static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier, uint32_t epi_modifier) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM)) || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && ((epi_modifier & (EPI_FAST | EPI_FAST_CASE_ONLY)) == (EPI_FAST | EPI_FAST_CASE_ONLY)));
+  return (calculation_type & (CALC_MAKE_BED | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM)) || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY));
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, Two_col_params* update_cm) {
@@ -5280,7 +5280,11 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if ((calculation_type & CALC_EPI) && (epi_ip->modifier & (EPI_FAST | EPI_REG))) {
-    retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, outname, outname_end);
+    if ((map_is_unsorted & UNSORTED_BP) && (epi_ip->modifier & EPI_FAST_CASE_ONLY)) {
+      logprint("Error: --fast-epistasis case-only requires a sorted .map/.bim.  Retry this\ncommand after using --make-bed to sort your data.\n");
+      goto plink_ret_INVALID_CMDLINE;
+    }
+    retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_pos, plink_maxsnp, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, outname, outname_end);
     if (retval) {
       goto plink_ret_1;
     }
