@@ -858,7 +858,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --epistasis-summary-merge [common file prefix] [ct]\n"
 "    When a --[fast-]epistasis job is subdivided with --parallel, the main\n"
 "    report can be assembled at the end by applying Unix 'cat' in the usual\n"
-"    manner, but the .summary.1, .summary.2, ... files require a specialized\n"
+"    manner, but the .summary.1, .summary.2, ... files may require a specialized\n"
 "    merge.  --epistasis-summary-merge takes care of the latter.\n\n"
 	       );
     help_print("twolocus", &help_ctrl, 1,

@@ -2366,6 +2366,9 @@ void fepi_counts_to_joint_effects_stats(uint32_t group_ct, uint32_t* counts, dou
 	dxx += dyy;
       }
       if (dyy * 100 < dxx) {
+	// This tends to come up with adjacent pairs of markers where MAF
+	// "flips" from one side of 0.5 to the other.  Is this really a good
+	// way to handle it?
 	dyy = dxx / (1.01 * dxx - dyy);
         dptr = &(dptr[-9]);
 	for (ujj = 0; ujj < 8; ujj++) {
@@ -3162,6 +3165,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
   uint32_t modifier = epi_ip->modifier;
   uint32_t is_fast = modifier & EPI_FAST;
+  uint32_t no_ueki = modifier & EPI_FAST_NO_UEKI;
   uint32_t is_case_only = (modifier / EPI_FAST_CASE_ONLY) & 1;
   uint32_t tot_stride = 6 - 3 * is_case_only;
   uint32_t no_p_value = modifier & EPI_FAST_NO_P_VALUE;
@@ -3505,7 +3509,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     if (marker_idx1) {
       marker_uidx = jump_forward_unset_unsafe(marker_exclude1, marker_uidx + 1, marker_idx1);
     }
-    sprintf(logbuf, "--fast-epistasis%s%s to %s...", is_case_only? " case-only" : "", (modifier & EPI_FAST_NO_UEKI)? " no-ueki" : ((modifier & EPI_FAST_JOINT_EFFECTS)? " joint-effects" : ""), outname);
+    sprintf(logbuf, "--fast-epistasis%s%s to %s...", is_case_only? " case-only" : "", no_ueki? " no-ueki" : ((modifier & EPI_FAST_JOINT_EFFECTS)? " joint-effects" : ""), outname);
     logprintb();
     fputs(" 0%", stdout);
     do {
@@ -3756,7 +3760,13 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	    if (dxx != 0.0) {
 	      wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx2 * max_marker_id_len]), wptr_start2);
 	      *wptr++ = ' ';
-              wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
+	      if (!no_ueki) {
+		wptr = width_force(12, wptr, double_g_write(wptr, dxx));
+		*wptr++ = ' ';
+	      } else {
+		// lower precision compatibility mode
+                wptr = double_g_writewx4x(wptr, dxx, 12, ' ');
+	      }
 	      if (!no_p_value) {
 		wptr = double_g_writewx4x(wptr, normdist(-sqrt(dxx)) * 2, 12, ' ');
 	      }
