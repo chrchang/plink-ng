@@ -1,4 +1,4 @@
-# General-purpose Makefile for WDIST
+# General-purpose Makefile for PLINK 1.90
 #
 # Compilation options:
 #   Do not link to LAPACK                    NO_LAPACK
@@ -47,9 +47,12 @@ endif
 
 SRC = plink.c plink_assoc.c plink_calc.c plink_cluster.c plink_cnv.c plink_common.c plink_data.c plink_help.c plink_homozyg.c plink_lasso.c plink_ld.c plink_matrix.c plink_set.c plink_stats.c SFMT.c dcdflib.c pigz.c yarn.c
 
-wdist: $(SRC)
-	g++ $(CFLAGS) $(SRC) -o wdist $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+# In the likely event that you are concurrently using PLINK 1.07, we suggest
+# either renaming that binary to "plink1" or this one to "plink2".
 
-wdistw: $(SRC)
+plink: $(SRC)
+	g++ $(CFLAGS) $(SRC) -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+
+plinkw: $(SRC)
 	g++ $(CFLAGS) $(SRC) -c
-	gfortran -O2 $(OBJ) -o wdist -Wl,-Bstatic $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+	gfortran -O2 $(OBJ) -o plink -Wl,-Bstatic $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)

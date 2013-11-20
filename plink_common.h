@@ -16,22 +16,10 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
-// Comment this to keep the old WDIST name.
-// #define PLINK_BUILD
-
-#ifdef PLINK_BUILD
-  #define PROG_NAME_STR "plink"
-  #define PROG_NAME_CAPS "PLINK"
-  #ifndef STABLE_BUILD
-    // currently forced
-    #define STABLE_BUILD
-  #endif
-#else
-  #define PROG_NAME_STR "wdist"
-  #define PROG_NAME_CAPS "WDIST"
-#endif
+#define PROG_NAME_STR "plink"
+#define PROG_NAME_CAPS "PLINK"
 
 #ifdef STABLE_BUILD
   #define UNSTABLE goto main_unstable_disabled

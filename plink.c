@@ -67,14 +67,10 @@
 #define PARALLEL_MAX 32768
 
 const char ver_str[] =
-#ifdef PLINK_BUILD
-  "PLINK v1.90b1"
+#ifdef STABLE_BUILD
+  "PLINK v1.90a"
 #else
-  #ifdef STABLE_BUILD
-  "WDIST v0.22.12"
-  #else
-  "WDIST v0.23.0p"
-  #endif
+  "PLINK v1.90b1p"
 #endif
 #ifdef NOLAPACK
   "NL"
@@ -84,15 +80,13 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (20 Nov 2013)";
+  " (21 Nov 2013)";
 const char ver_str2[] =
-#ifdef PLINK_BUILD
-  "              [final website TBD]\n"
-  "(C) 2005-2013 Shaun Purcell, Christopher Chang    GNU GPL version 3\n";
-#else
-  "    https://www.cog-genomics.org/wdist\n"
-  "(C) 2013 Christopher Chang, GNU General Public License version 3\n";
+#ifdef STABLE_BUILD
+  "  "
 #endif
+  "                         [final website TBD]\n"
+  "(C) 2005-2013 Shaun Purcell, Christopher Chang    GNU General Public License v3\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
@@ -6688,10 +6682,10 @@ int32_t main(int32_t argc, char** argv) {
   for (uii = cur_arg; uii < (uint32_t)argc; uii++) {
     argptr = is_flag_start(argv[uii]);
     if (argptr) {
-      if (!strcmp("help", argptr)) {
+      if ((!strcmp("help", argptr)) || (!strcmp("h", argptr)) || (!strcmp("?", argptr))) {
 	print_ver();
 	if ((cur_arg != 1) || (uii != 1) || subst_argv) {
-	  fputs("--help present, ignoring other flags.\n", stdout);
+	  printf("--%s present, ignoring other flags.\n", argptr);
 	}
 	retval = disp_help(argc - uii - 1, &(argv[uii + 1]));
 	goto main_ret_1;
@@ -6934,6 +6928,13 @@ int32_t main(int32_t argc, char** argv) {
 	  // GCTA alias
 	  memcpy(flagptr, "a1-allele", 10);
 	  break;
+	}
+	goto main_flag_copy;
+      case 'v':
+	if (!strcmp(argptr, "version")) {
+	  fputs(ver_str, stdout);
+	  putchar('\n');
+          goto main_ret_1;
 	}
 	// fall through
       default:

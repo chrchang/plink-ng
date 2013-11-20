@@ -927,16 +927,15 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     if (!param_ct) {
       fputs(
 "The following other flags are supported.  (Order of operations is described at\n"
-#ifdef PLINK_BUILD
 "[website TBD].)\n"
-#else
-"https://www.cog-genomics.org/wdist/order .)\n"
-#endif
 , stdout);
     }
     help_print("script\trerun", &help_ctrl, 0,
 "  --script [fname] : Include command-line options from file.\n"
 "  --rerun {log}    : Rerun commands in log (default '" PROG_NAME_STR ".log').\n"
+	       );
+    help_print("version", &help_ctrl, 0,
+"  --version        : Display only version number before exiting.\n"
 	       );
     help_print("silent", &help_ctrl, 0,
 "  --silent         : Suppress output to console.\n"
@@ -1521,12 +1520,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     if (!param_ct) {
       fputs(
 "\nFor further documentation and support, consult the main webpage\n"
-#ifdef PLINK_BUILD
 "([TBD]) and/or the mailing list ([TBD]).\n"
-#else
-"(https://www.cog-genomics.org/wdist ) and/or the wdist-users mailing list\n"
-"(https://groups.google.com/d/forum/wdist-users ).\n"
-#endif
 , stdout);
     }
   } while (help_ctrl.iters_left--);

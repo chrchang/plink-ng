@@ -15,6 +15,6 @@ cd zlib-1.2.8
 ./configure
 make
 
-# Compile wdist
+# Compile
 cd ..
-make wdist
+make plink
