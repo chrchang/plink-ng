@@ -1097,6 +1097,12 @@ static inline char* double_g_writewx4x(char* start, double dxx, uint32_t min_wid
   return &(penult[1]);
 }
 
+static inline char* double_g_writewx8x(char* start, double dxx, uint32_t min_width, const char extra_char) {
+  char* penult = double_g_writewx8(start, dxx, min_width);
+  *penult = extra_char;
+  return &(penult[1]);
+}
+
 static inline void read_next_terminate(char* target, char* source) {
   while (!is_space_or_eoln(*source)) {
     *target++ = *source++;

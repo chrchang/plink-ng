@@ -13062,16 +13062,17 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_INVALID_CMDLINE_3;
   }
 
-  uii = 0; // short batch job?
   if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF))) && (famname[0] || load_rare)) {
+    goto main_ret_NULL_CALC;
+  }
+  uii = 0; // short batch job?
+  if (!(load_params || load_rare)) {
     if (!epi_info.summary_merge_prefix) {
-      goto main_ret_NULL_CALC;
+      sprintf(logbuf, "Error: No input dataset.%s", errstr_append);
+      goto main_ret_INVALID_CMDLINE_3;
     }
-    // no input dataset needed in this case, bypass check
+    // no input dataset needed in this case
     uii = 1;
-  } else if (!(load_params || load_rare)) {
-    sprintf(logbuf, "Error: No input dataset.%s", errstr_append);
-    goto main_ret_INVALID_CMDLINE_3;
   }
 
   free_cond(subst_argv);
