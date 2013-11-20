@@ -2287,7 +2287,7 @@ void fepi_counts_to_joint_effects_stats(uint32_t group_ct, uint32_t* counts, dou
   //    is less than 1% of the total (very unlikely since A2/B2 are normally
   //    major), multiply all other cells by a reduction factor and increase the
   //    [hom A2 x hom B2] cell by the total reduction (choosing the factor such
-  //    that the [hom A2 x hom B2] cell ends up at exactly 1%).
+  //    that the [hom A2 x hom B2] cell ends up at about 1%).
   //
   // Then, we define
   //   i22_case := [hom A1 x hom B1] * [hom A2 x hom B2] /
@@ -2363,23 +2363,34 @@ void fepi_counts_to_joint_effects_stats(uint32_t group_ct, uint32_t* counts, dou
       for (ujj = 0; ujj < 9; ujj++) {
 	dyy = (double)((int32_t)(*counts++));
 	*dptr++ = dyy;
+	dxx += dyy;
       }
       if (dyy * 100 < dxx) {
-	// todo
-	printf("wtf\n");
-	exit(1);
+	dyy = dxx / (1.01 * dxx - dyy);
+        dptr = &(dptr[-9]);
+	for (ujj = 0; ujj < 8; ujj++) {
+	  *dptr *= dyy;
+	  dptr++;
+	}
+	*dptr++ = 0.01 * dyy * dxx;
       }
     }
   } else {
     for (uii = 0; uii < group_ct; uii++) {
-      dxx = 0;
+      dxx = -4.5;
       for (ujj = 0; ujj < 9; ujj++) {
 	dyy = 0.5 + (double)((int32_t)(*counts++));
 	*dptr++ = dyy;
+	dxx += dyy;
       }
       if (dyy * 100 < dxx) {
-	printf("wtf\n");
-	exit(1);
+	dyy = dxx / (1.01 * dxx - dyy + 4.5);
+        dptr = &(dptr[-9]);
+	for (ujj = 0; ujj < 8; ujj++) {
+	  *dptr *= dyy;
+	  dptr++;
+	}
+	*dptr++ = 0.01 * dyy * dxx;
       }
     }
   }
