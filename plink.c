@@ -5074,7 +5074,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
   }
 
   if ((calculation_type & CALC_EPI) && epi_ip->twolocus_mkr1) {
-    retval = twolocus(epi_ip, bedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, chrom_info_ptr, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, sex_male, outname, outname_end, hh_exists);
+    retval = twolocus(epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, chrom_info_ptr, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, sex_male, outname, outname_end, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
@@ -12362,6 +12362,10 @@ int32_t main(int32_t argc, char** argv) {
 	}
         if (alloc_string(&(epi_info.twolocus_mkr2), argv[cur_arg + 2])) {
 	  goto main_ret_NOMEM;
+	}
+	if (!strcmp(epi_info.twolocus_mkr1, epi_info.twolocus_mkr2)) {
+          logprint("Error: --twolocus parameters cannot match.\n");
+	  goto main_ret_INVALID_CMDLINE;
 	}
         calculation_type |= CALC_EPI;
       } else {

@@ -863,7 +863,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("twolocus", &help_ctrl, 1,
 "  --twolocus [variant ID] [variant ID]\n"
-"    Two-locus genotype count report.\n\n"
+"    Two-locus joint genotype count report.\n\n"
 	       );
     /*
     help_print("regress-pcs\tregress-pcs-distance", &help_ctrl, 1,

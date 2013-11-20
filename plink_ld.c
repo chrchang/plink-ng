@@ -1725,8 +1725,8 @@ int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, ui
 
 int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
   unsigned char* wkspace_mark = wkspace_base;
-  uintptr_t unfiltered_indiv_ctl2 = 2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
-  uintptr_t founder_ct = popcount_longs(founder_info, 0, unfiltered_indiv_ctl2 / 2);
+  uintptr_t unfiltered_indiv_ctv2 = 2 * ((unfiltered_indiv_ct + (BITCT - 1)) / BITCT);
+  uintptr_t founder_ct = popcount_longs(founder_info, 0, unfiltered_indiv_ctv2 / 2);
   uintptr_t* founder_include2 = NULL;
   uintptr_t* founder_male_include2 = NULL;
   uintptr_t founder_ct_mld = (founder_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
@@ -1771,9 +1771,11 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, founder_ct, XMHH_EXISTS | hh_exists, 1, founder_info, sex_male, &founder_include2, &founder_male_include2)) {
     goto ld_report_ret_NOMEM;
   }
-  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
+  if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctv2 * sizeof(intptr_t))) {
     goto ld_report_ret_NOMEM;
   }
+  loadbuf[unfiltered_indiv_ctv2 - 2] = 0;
+  loadbuf[unfiltered_indiv_ctv2 - 1] = 0;
   if (is_binary) {
     bufptr = memcpya(bufptr, ".bin", 4);
   }
@@ -2716,9 +2718,421 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   THREAD_RETURN;
 }
 
-int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
-  logprint("Error: --twolocus is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
+void twolocus_write_table(FILE* outfile, uint32_t* counts, uint32_t plink_maxsnp, char* mkr1, char* mkr2, char* allele00, char* allele01, char* allele10, char* allele11, uint32_t alen00, uint32_t alen01, uint32_t alen10, uint32_t alen11) {
+  // PLINK 1.07's print settings for this function don't handle large numbers
+  // well so we break byte-for-byte compatibility.
+  char* bufptr = memseta(tbuf, 32, plink_maxsnp + 14);
+  uint32_t* uiptr = counts;
+  uint32_t total = 0;
+  uint32_t marg_a[4];
+  uint32_t marg_b[4];
+  char spaces[7];
+  double tot_recip;
+  uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
+  uint32_t umm;
+  fill_uint_zero(marg_b, 4);
+  memset(spaces, 32, 7);
+  for (uii = 0; uii < 4; uii++) {
+    ukk = 0;
+    for (ujj = 0; ujj < 4; ujj++) {
+      umm = *uiptr++;
+      ukk += umm;
+      marg_b[ujj] += umm;
+    }
+    marg_a[uii] = ukk;
+    total += ukk;
+  }
+  tot_recip = 1.0 / ((double)((int32_t)total));
+  bufptr = strcpyax(bufptr, mkr2, '\n');
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+  fwrite(tbuf, 1, plink_maxsnp + 7, outfile);
+  if (alen10 < 4) {
+    fwrite(spaces, 1, 9 - 2 * alen10, outfile);
+  }
+  fputs(allele10, outfile);
+  putc('/', outfile);
+  fputs(allele10, outfile);
+  putc(' ', outfile);
+  if (alen10 + alen11 < 7) {
+    fwrite(spaces, 1, 9 - alen10 - alen11, outfile);
+  }
+  fputs(allele10, outfile);
+  putc('/', outfile);
+  fputs(allele11, outfile);
+  putc(' ', outfile);
+  if (alen11 < 4) {
+    fwrite(spaces, 1, 9 - 2 * alen11, outfile);
+  }
+  fputs(allele11, outfile);
+  putc('/', outfile);
+  fputs(allele11, outfile);
+  fputs("        0/0        */*\n", outfile);
+
+  bufptr = fw_strcpy(plink_maxsnp, mkr1, tbuf);
+  *bufptr++ = ' ';
+  if (alen00 == 1) {
+    bufptr = memseta(bufptr, 32, 2);
+  }
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+  fputs(allele00, outfile);
+  putc('/', outfile);
+  fputs(allele00, outfile);
+  bufptr = tbuf;
+  *bufptr++ = ' ';
+  bufptr = uint32_writew10x(bufptr, counts[0], ' ');
+  bufptr = uint32_writew10x(bufptr, counts[2], ' ');
+  bufptr = uint32_writew10x(bufptr, counts[3], ' ');
+  bufptr = uint32_writew10x(bufptr, counts[1], ' ');
+  bufptr = uint32_writew10x(bufptr, marg_a[0], '\n');
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+
+  bufptr = memseta(tbuf, 32, plink_maxsnp + 1);
+  if (alen00 + alen01 < 4) {
+    bufptr = memseta(bufptr, 32, 4 - alen00 - alen01);
+  }
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+  fputs(allele00, outfile);
+  putc('/', outfile);
+  fputs(allele01, outfile);
+  bufptr = tbuf;
+  *bufptr++ = ' ';
+  bufptr = uint32_writew10x(bufptr, counts[8], ' ');
+  bufptr = uint32_writew10x(bufptr, counts[10], ' ');
+  bufptr = uint32_writew10x(bufptr, counts[11], ' ');
+  bufptr = uint32_writew10x(bufptr, counts[9], ' ');
+  bufptr = uint32_writew10x(bufptr, marg_a[2], '\n');
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+
+  bufptr = memseta(tbuf, 32, plink_maxsnp + 1);
+  if (alen01 == 1) {
+    bufptr = memseta(bufptr, 32, 2);
+  }
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+  fputs(allele01, outfile);
+  putc('/', outfile);
+  fputs(allele01, outfile);
+  bufptr = tbuf;
+  *bufptr++ = ' ';
+  bufptr = uint32_writew10x(bufptr, counts[12], ' ');
+  bufptr = uint32_writew10x(bufptr, counts[14], ' ');
+  bufptr = uint32_writew10x(bufptr, counts[15], ' ');
+  bufptr = uint32_writew10x(bufptr, counts[13], ' ');
+  bufptr = uint32_writew10x(bufptr, marg_a[3], '\n');
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+
+  bufptr = memseta(tbuf, 32, plink_maxsnp + 3);
+  bufptr = memcpya(bufptr, "0/0 ", 4);
+  bufptr = uint32_writew10x(bufptr, counts[4], ' ');
+  bufptr = uint32_writew10x(bufptr, counts[6], ' ');
+  bufptr = uint32_writew10x(bufptr, counts[7], ' ');
+  bufptr = uint32_writew10x(bufptr, counts[5], ' ');
+  bufptr = uint32_writew10x(bufptr, marg_a[1], '\n');
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+
+  bufptr = memseta(tbuf, 32, plink_maxsnp + 3);
+  bufptr = memcpya(bufptr, "*/* ", 4);
+  bufptr = uint32_writew10x(bufptr, marg_b[0], ' ');
+  bufptr = uint32_writew10x(bufptr, marg_b[2], ' ');
+  bufptr = uint32_writew10x(bufptr, marg_b[3], ' ');
+  bufptr = uint32_writew10x(bufptr, marg_b[1], ' ');
+  bufptr = uint32_writew10x(bufptr, total, '\n');
+  *bufptr++ = '\n';
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+
+  bufptr = memseta(tbuf, 32, plink_maxsnp + 14);
+  bufptr = strcpyax(bufptr, mkr2, '\n');
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+  fwrite(tbuf, 1, plink_maxsnp + 7, outfile);
+  if (alen10 < 4) {
+    fwrite(spaces, 1, 9 - 2 * alen10, outfile);
+  }
+  fputs(allele10, outfile);
+  putc('/', outfile);
+  fputs(allele10, outfile);
+  putc(' ', outfile);
+  if (alen10 + alen11 < 7) {
+    fwrite(spaces, 1, 9 - alen10 - alen11, outfile);
+  }
+  fputs(allele10, outfile);
+  putc('/', outfile);
+  fputs(allele11, outfile);
+  putc(' ', outfile);
+  if (alen11 < 4) {
+    fwrite(spaces, 1, 9 - 2 * alen11, outfile);
+  }
+  fputs(allele11, outfile);
+  putc('/', outfile);
+  fputs(allele11, outfile);
+  fputs("        0/0        */*\n", outfile);
+
+  bufptr = fw_strcpy(plink_maxsnp, mkr1, tbuf);
+  *bufptr++ = ' ';
+  if (alen00 == 1) {
+    bufptr = memseta(bufptr, 32, 2);
+  }
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+  fputs(allele00, outfile);
+  putc('/', outfile);
+  fputs(allele00, outfile);
+  bufptr = memseta(tbuf, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[0]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[2]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[3]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[1]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)marg_a[0]) * tot_recip);
+  *bufptr++ = '\n';
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+
+  bufptr = memseta(tbuf, 32, plink_maxsnp + 1);
+  if (alen00 + alen01 < 4) {
+    bufptr = memseta(bufptr, 32, 4 - alen00 - alen01);
+  }
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+  fputs(allele00, outfile);
+  putc('/', outfile);
+  fputs(allele01, outfile);
+  bufptr = memseta(tbuf, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[8]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[10]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[11]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[9]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)marg_a[2]) * tot_recip);
+  *bufptr++ = '\n';
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+
+  bufptr = memseta(tbuf, 32, plink_maxsnp + 1);
+  if (alen01 == 1) {
+    bufptr = memseta(bufptr, 32, 2);
+  }
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+  fputs(allele01, outfile);
+  putc('/', outfile);
+  fputs(allele01, outfile);
+  bufptr = memseta(tbuf, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[12]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[14]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[15]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[13]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)marg_a[3]) * tot_recip);
+  *bufptr++ = '\n';
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+
+  bufptr = memseta(tbuf, 32, plink_maxsnp + 3);
+  bufptr = memcpya(bufptr, "0/0  ", 5);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[4]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[6]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[7]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)counts[5]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)marg_a[1]) * tot_recip);
+  *bufptr++ = '\n';
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+
+  bufptr = memseta(tbuf, 32, plink_maxsnp + 3);
+  bufptr = memcpya(bufptr, "*/*  ", 5);
+  bufptr = double_f_writew96(bufptr, ((int32_t)marg_b[0]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)marg_b[2]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)marg_b[3]) * tot_recip);
+  bufptr = memseta(bufptr, 32, 2);
+  bufptr = double_f_writew96(bufptr, ((int32_t)marg_b[1]) * tot_recip);
+  bufptr = memcpya(bufptr, "          1\n\n", 13);
+  fwrite(tbuf, 1, bufptr - tbuf, outfile);
+}
+
+int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t pheno_ctrl_ct, uintptr_t* pheno_c, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* outfile = NULL;
+  char* mkr1 = epi_ip->twolocus_mkr1;
+  char* mkr2 = epi_ip->twolocus_mkr2;
+  uintptr_t* indiv_include2 = NULL;
+  uintptr_t* indiv_male_include2 = NULL;
+  uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
+  uintptr_t unfiltered_indiv_ctl2 = (unfiltered_indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
+  uintptr_t ulii = strlen(mkr1) + 1;
+  uintptr_t uljj = strlen(mkr2) + 1;
+  int32_t retval = 0;
+  uint32_t counts_all[16];
+  uint32_t counts_cc[32];
+  uintptr_t* loadbufs[2];
+  uintptr_t marker_uidxs[2];
+  uintptr_t* loadbuf_raw;
+  uintptr_t* loadbuf0_ptr;
+  uintptr_t* loadbuf1_ptr;
+  uintptr_t* loadbuf0_end;
+  char* bufptr;
+  uintptr_t marker_uidx;
+  uintptr_t marker_idx;
+  uintptr_t indiv_uidx;
+  uintptr_t indiv_idx;
+  uintptr_t indiv_idx_end;
+  uintptr_t ulkk;
+  uint32_t chrom_fo_idx;
+  uint32_t chrom_idx;
+  uint32_t is_x;
+  uint32_t is_y;
+  uint32_t alen00;
+  uint32_t alen01;
+  uint32_t alen10;
+  uint32_t alen11;
+  if ((ulii > max_marker_id_len) || (uljj > max_marker_id_len)) {
+    goto twolocus_ret_MARKER_NOT_FOUND;
+  }
+  marker_uidxs[0] = 0;
+  marker_uidxs[1] = 0;
+  for (marker_uidx = 0, marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
+    next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+    bufptr = &(marker_ids[marker_uidx * max_marker_id_len]);
+    if (ulii && (!memcmp(mkr1, bufptr, ulii))) {
+      marker_uidxs[0] = marker_uidx;
+      if (!uljj) {
+	break;
+      }
+      ulii = 0;
+    } else if (uljj && (!memcmp(mkr2, bufptr, uljj))) {
+      marker_uidxs[1] = marker_uidx;
+      if (!ulii) {
+	break;
+      }
+      uljj = 0;
+    }
+  }
+  if (marker_idx == marker_ct) {
+    goto twolocus_ret_MARKER_NOT_FOUND;
+  }  
+  if (wkspace_alloc_ul_checked(&loadbuf_raw, unfiltered_indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&loadbufs[0], indiv_ctl2 * sizeof(intptr_t)) ||
+      wkspace_alloc_ul_checked(&loadbufs[1], indiv_ctl2 * sizeof(intptr_t))) {
+    goto twolocus_ret_NOMEM;
+  }
+  loadbuf_raw[unfiltered_indiv_ctl2 - 1] = 0;
+  loadbufs[0][indiv_ctl2 - 1] = 0;
+  loadbufs[1][indiv_ctl2 - 1] = 0;
+  if (alloc_collapsed_haploid_filters(unfiltered_indiv_ct, indiv_ct, hh_exists, 0, indiv_exclude, sex_male, &indiv_include2, &indiv_male_include2)) {
+    goto twolocus_ret_NOMEM;
+  }
+  for (marker_idx = 0; marker_idx < 2; marker_idx++) {
+    marker_uidx = marker_uidxs[marker_idx];
+    if (fseeko(bedfile, bed_offset + (marker_uidx * unfiltered_indiv_ct4), SEEK_SET)) {
+      goto twolocus_ret_READ_FAIL;
+    }
+    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_indiv_ct, loadbufs[marker_idx], indiv_ct, indiv_exclude, IS_SET(marker_reverse, marker_uidx))) {
+      goto twolocus_ret_READ_FAIL;
+    }
+    chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
+    chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+    if (IS_SET(chrom_info_ptr->haploid_mask, chrom_idx)) {
+      is_x = (chrom_idx == (uint32_t)chrom_info_ptr->x_code);
+      is_y = (chrom_idx == (uint32_t)chrom_info_ptr->y_code);
+      haploid_fix(hh_exists, indiv_include2, indiv_male_include2, indiv_ct, is_x, is_y, (unsigned char*)(loadbufs[marker_idx]));
+    }
+  }
+  fill_uint_zero(counts_all, 16);
+  fill_uint_zero(counts_cc, 32);
+  loadbuf0_ptr = loadbufs[0];
+  loadbuf1_ptr = loadbufs[1];
+  loadbuf0_end = &(loadbuf0_ptr[indiv_ct / BITCT2]);
+  indiv_uidx = 0;
+  indiv_idx = 0;
+  indiv_idx_end = BITCT2;
+  while (1) {
+    while (loadbuf0_ptr < loadbuf0_end) {
+      ulii = *loadbuf0_ptr++;
+      uljj = *loadbuf1_ptr++;
+      if (pheno_c) {
+	for (; indiv_idx < indiv_idx_end; indiv_uidx++, indiv_idx++) {
+          next_unset_ul_unsafe_ck(indiv_exclude, &indiv_uidx);
+	  ulkk = ((ulii & 3) << 2) | (uljj & 3);
+	  ulii >>= 2;
+	  uljj >>= 2;
+	  counts_all[ulkk] += 1;
+          if (IS_SET(pheno_nm, indiv_uidx)) {
+            counts_cc[(16 * IS_SET(pheno_c, indiv_uidx)) + ulkk] += 1;
+	  }
+	}
+      } else {
+	for (; indiv_idx < indiv_idx_end; indiv_idx++) {
+	  ulkk = ((ulii & 3) << 2) | (uljj & 3);
+	  ulii >>= 2;
+	  uljj >>= 2;
+	  counts_all[ulkk] += 1;
+	}
+      }
+      indiv_idx_end += BITCT2;
+    }
+    if (indiv_idx == indiv_ct) {
+      break;
+    }
+    loadbuf0_end++;
+    indiv_idx_end = indiv_ct;
+  }
+
+  memcpy(outname_end, ".twolocus", 10);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto twolocus_ret_OPEN_FAIL;
+  }
+  fputs("\nAll individuals\n===============\n", outfile);
+  alen00 = strlen(marker_allele_ptrs[2 * marker_uidxs[0]]);
+  alen01 = strlen(marker_allele_ptrs[2 * marker_uidxs[0] + 1]);
+  alen10 = strlen(marker_allele_ptrs[2 * marker_uidxs[1]]);
+  alen11 = strlen(marker_allele_ptrs[2 * marker_uidxs[1] + 1]);
+  twolocus_write_table(outfile, counts_all, plink_maxsnp, mkr1, mkr2, marker_allele_ptrs[2 * marker_uidxs[0]], marker_allele_ptrs[2 * marker_uidxs[0] + 1], marker_allele_ptrs[2 * marker_uidxs[1]], marker_allele_ptrs[2 * marker_uidxs[1] + 1], alen00, alen01, alen10, alen11);
+  if (pheno_c) {
+    if (pheno_nm_ct != pheno_ctrl_ct) {
+      fputs("\nCases\n=====\n", outfile);
+      twolocus_write_table(outfile, &(counts_cc[16]), plink_maxsnp, mkr1, mkr2, marker_allele_ptrs[2 * marker_uidxs[0]], marker_allele_ptrs[2 * marker_uidxs[0] + 1], marker_allele_ptrs[2 * marker_uidxs[1]], marker_allele_ptrs[2 * marker_uidxs[1] + 1], alen00, alen01, alen10, alen11);
+    }
+    if (pheno_ctrl_ct) {
+      fputs("\nControls\n========\n", outfile);
+      twolocus_write_table(outfile, counts_cc, plink_maxsnp, mkr1, mkr2, marker_allele_ptrs[2 * marker_uidxs[0]], marker_allele_ptrs[2 * marker_uidxs[0] + 1], marker_allele_ptrs[2 * marker_uidxs[1]], marker_allele_ptrs[2 * marker_uidxs[1] + 1], alen00, alen01, alen10, alen11);
+    }
+  }
+  putc('\n', outfile);
+  if (fclose_null(&outfile)) {
+    goto twolocus_ret_WRITE_FAIL;
+  }
+  sprintf(logbuf, "--twolocus: Report written to %s.\n", outname);
+  logprintb();
+  while (0) {
+  twolocus_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  twolocus_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  twolocus_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  twolocus_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  twolocus_ret_MARKER_NOT_FOUND:
+    logprint("Error: --twolocus variant name not found.\n");
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+  fclose_cond(outfile);
+  wkspace_reset(wkspace_mark);
+  return retval;
 }
 
 int32_t epistasis_regression() {
