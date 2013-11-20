@@ -553,6 +553,23 @@
 // used to size a few tables
 #define EXPECTED_MISSING_FREQ 0.05
 
+// hash table constants for merge operations
+
+// last prime before 2^19
+// (maybe want to pick the second-to-last prime instead since this is only 1
+// less?  though 19-character offsets are unlikely to matter in practice...)
+// size chosen to be likely to fit in L3 cache
+#define HASHSIZE 524287
+#define HASHSIZE_S 524287
+
+#ifdef __LP64__
+#define HASHMEM 4194304
+#define HASHMEM_S 4194304
+#else
+#define HASHMEM 2097152
+#define HASHMEM_S 2097152
+#endif
+
 // fit 4 pathologically long IDs plus a bit extra
 extern char tbuf[];
 
@@ -710,6 +727,16 @@ static inline int32_t wkspace_alloc_ull_checked(uint64_t** ullp_ptr, uintptr_t s
 }
 
 void wkspace_reset(void* new_base);
+
+static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
+  unsigned char* ucptr = (unsigned char*)idstr;
+  unsigned char* ucp_end = &(ucptr[idlen]);
+  uint32_t vv = *ucptr;
+  while (++ucptr != ucp_end) {
+    vv = ((vv << 8) + (*ucptr)) % HASHSIZE;
+  }
+  return vv;
+}
 
 static inline unsigned char* top_alloc(uintptr_t* topsize_ptr, uint32_t size) {
   uintptr_t ts = *topsize_ptr + ((size + 15) & (~(15 * ONELU)));

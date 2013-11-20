@@ -84,7 +84,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (19 Nov 2013)";
+  " (20 Nov 2013)";
 const char ver_str2[] =
 #ifdef PLINK_BUILD
   "              [final website TBD]\n"
@@ -5284,7 +5284,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       logprint("Error: --fast-epistasis case-only requires a sorted .map/.bim.  Retry this\ncommand after using --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_pos, plink_maxsnp, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, outname, outname_end);
+    retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_pos, plink_maxsnp, zero_extra_chroms, chrom_info_ptr, unfiltered_indiv_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, parallel_idx, parallel_tot, outname, outname_end);
     if (retval) {
       goto plink_ret_1;
     }
@@ -8626,6 +8626,21 @@ int32_t main(int32_t argc, char** argv) {
 	}
         epi_info.modifier |= EPI_REG;
 	calculation_type |= CALC_EPI;
+      } else if (!memcmp(argptr2, "pistasis-summary-merge", 23)) {
+	if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	// .summary.32767 = 14 chars
+	retval = alloc_fname(&epi_info.summary_merge_prefix, argv[cur_arg + 1], argptr, 14);
+	if (retval) {
+	  goto main_ret_1;
+	}
+        ii = atoi(argv[cur_arg + 2]);
+	if ((ii < 2) || (ii > PARALLEL_MAX)) {
+	  sprintf(logbuf, "Error: Invalid --epistasis-summary-merge job count '%s'.%s", argv[cur_arg + 2], errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        epi_info.summary_merge_ct = ii;
       } else if (!memcmp(argptr2, "pi1", 4)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_3;
@@ -11197,7 +11212,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
       } else if (!memcmp(argptr2, "el-cutoff", 10)) {
 	if (parallel_tot > 1) {
-	  sprintf(logbuf, "Error: --parallel cannot be used with %s.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", argptr, errstr_append);
+	  sprintf(logbuf, "Error: --parallel cannot be used with --rel-cutoff.  (Use a combination of\n--make-rel, --keep/--remove, and a filtering script.)%s", errstr_append);
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
@@ -11205,7 +11220,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  if (scan_double(argv[cur_arg + 1], &rel_cutoff) || (rel_cutoff <= 0.0) || (rel_cutoff >= 1.0)) {
-	    sprintf(logbuf, "Error: Invalid %s parameter '%s'.%s", argptr, argv[cur_arg + 1], errstr_append);
+	    sprintf(logbuf, "Error: Invalid --rel-cutoff parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
 	    goto main_ret_INVALID_CMDLINE_3;
 	  }
 	}
@@ -13047,13 +13062,18 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_INVALID_CMDLINE_3;
   }
 
+  uii = 0; // short batch job?
   if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF))) && (famname[0] || load_rare)) {
-    goto main_ret_NULL_CALC;
-  }
-  if (!(load_params || load_rare)) {
+    if (!epi_info.summary_merge_prefix) {
+      goto main_ret_NULL_CALC;
+    }
+    // no input dataset needed in this case, bypass check
+    uii = 1;
+  } else if (!(load_params || load_rare)) {
     sprintf(logbuf, "Error: No input dataset.%s", errstr_append);
     goto main_ret_INVALID_CMDLINE_3;
   }
+
   free_cond(subst_argv);
   free_cond(script_buf);
   free_cond(rerun_buf);
@@ -13075,7 +13095,6 @@ int32_t main(int32_t argc, char** argv) {
     free(rseeds);
     rseeds = NULL;
   }
-
   // guarantee contiguous malloc space outside of main workspace
   bubble = (char*)malloc(NON_WKSPACE_MIN * sizeof(char));
   if (!bubble) {
@@ -13136,6 +13155,14 @@ int32_t main(int32_t argc, char** argv) {
   wkspace_base = wkspace;
   wkspace_left = malloc_size_mb * 1048576 - (uintptr_t)(wkspace - wkspace_ua);
   free(bubble);
+
+  if (epi_info.summary_merge_prefix) {
+    retval = epi_summary_merge(&epi_info, outname, outname_end);
+    // quit if there's nothing else to do
+    if (retval || uii) {
+      goto main_ret_1;
+    }
+  }
 
   pigz_init(g_thread_ct);
   if (load_rare & (LOAD_RARE_GRM | LOAD_RARE_GRM_BIN)) {

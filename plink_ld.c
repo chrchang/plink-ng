@@ -22,6 +22,7 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip) {
   epi_ip->epi2 = 0.01;
   epi_ip->twolocus_mkr1 = NULL;
   epi_ip->twolocus_mkr2 = NULL;
+  epi_ip->summary_merge_prefix = NULL;
 }
 
 void ld_epi_cleanup(Ld_info* ldip, Epi_info* epi_ip) {
@@ -29,6 +30,7 @@ void ld_epi_cleanup(Ld_info* ldip, Epi_info* epi_ip) {
   free_range_list(&(ldip->snps_rl));
   free_cond(epi_ip->twolocus_mkr1);
   free_cond(epi_ip->twolocus_mkr2);
+  free_cond(epi_ip->summary_merge_prefix);
 }
 
 #ifdef __LP64__
@@ -1772,13 +1774,14 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   if (wkspace_alloc_ul_checked(&loadbuf, unfiltered_indiv_ctl2 * sizeof(intptr_t))) {
     goto ld_report_ret_NOMEM;
   }
+  if (is_binary) {
+    bufptr = memcpya(bufptr, ".bin", 4);
+  }
   if (parallel_tot > 1) {
     *bufptr++ = '.';
     bufptr = uint32_write(bufptr, parallel_idx + 1);
   }
-  if (is_binary) {
-    bufptr = memcpya(bufptr, ".bin", 4);
-  } else {
+  if (!is_binary) {
     g_ld_delimiter = (ld_modifier & LD_MATRIX_SPACES)? ' ' : '\t';
     if (output_gz) {
       bufptr = memcpyl3a(bufptr, ".gz");
@@ -2723,7 +2726,7 @@ int32_t epistasis_regression() {
   return RET_CALC_NOT_YET_SUPPORTED;
 }
 
-int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t plink_maxsnp, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t ctrl_ct, uintptr_t* pheno_c, double* pheno_d, char* outname, char* outname_end) {
+int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t plink_maxsnp, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_indiv_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t ctrl_ct, uintptr_t* pheno_c, double* pheno_d, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* outfile = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -2731,7 +2734,6 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t marker_uidx_base = next_unset_unsafe(marker_exclude, 0);
   uintptr_t marker_uidx = marker_uidx_base;
-  uintptr_t marker_idx1 = 0;
   uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
   uint32_t modifier = epi_ip->modifier;
   uint32_t is_fast = modifier & EPI_FAST;
@@ -2786,6 +2788,9 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uintptr_t tot_ctsplit;
   uintptr_t job_size;
   uintptr_t cur_workload;
+  uintptr_t marker_idx1_start;
+  uintptr_t marker_idx1;
+  uintptr_t marker_idx1_end;
   uintptr_t idx1_block_size;
   uintptr_t idx2_block_size;
   uintptr_t idx2_block_sizem16;
@@ -2809,7 +2814,8 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   if (marker_ct < 2) {
     goto epistasis_report_ret_TOO_FEW_MARKERS;
   } else if (pheno_nm_ct >= 0x20000000) {
-    // may as well document this overflow even though it'll never happen
+    // may as well document the existence of sub-2b overflow conditions even
+    // though they'll never come up
     logprint("Error: --[fast-]epistasis does not support >= 2^29 samples.\n");
     goto epistasis_report_ret_INVALID_CMDLINE;
   }
@@ -2897,7 +2903,35 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   }
   marker_exclude1 = marker_exclude2;
   marker_ct = ulii;
-  job_size = marker_ct;
+  tests_expected = ((((uint64_t)marker_ct) * (marker_ct - 1)) / 2);
+  if (parallel_tot > 1) {
+    if (marker_ct < 2 * parallel_tot) {
+      sprintf(logbuf, "Error: Too few sites remaining for --parallel %u %u + --%sepistasis.\n", parallel_idx, parallel_tot, is_fast? "fast-" : "");
+      goto epistasis_report_ret_INVALID_CMDLINE;
+    }
+    // If there are n markers, and we're computing the usual upper right
+    // triangle, first row has n-1 entries, second row has n-2, etc.
+    // Total entry count is n(n-1)/2; total entry count starting from row r is
+    // (n-r)(n-r-1)/2... upside-down triangle_divide() calls produce a good
+    // partition.
+    // Divide first to avoid 64-bit integer overflow (!) on really huge jobs.
+    // (Multiply-by-2 is there because triangle-divide() takes n(n-1) instead
+    // of n(n-1)/2 as first parameter.)
+    pct_thresh = (2 * tests_expected) / parallel_tot;
+    // If parallel_idx == 0, the marker_ct >= 2 * parallel_tot condition
+    // ensures the precision loss from dividing and remultiplying does not
+    // cause the first marker to be dropped.
+    marker_idx1_start = triangle_divide(pct_thresh * (parallel_tot - parallel_idx), -1);
+    marker_idx1_end = triangle_divide(pct_thresh * (parallel_tot - parallel_idx - 1), -1);
+    tests_expected = ((((uint64_t)marker_idx1_start) * (marker_idx1_start - 1)) - (((uint64_t)marker_idx1_end) * (marker_idx1_end - 1))) / 2;
+    marker_idx1_start = marker_ct - marker_idx1_start;
+    marker_idx1_end = marker_ct - marker_idx1_end;
+  } else {
+    marker_idx1_start = 0;
+    marker_idx1_end = marker_ct;
+  }
+  marker_idx1 = marker_idx1_start;
+  job_size = marker_idx1_end - marker_idx1_start;
   is_triangular = 1;
   if (thread_ct > job_size) {
     thread_ct = job_size;
@@ -2930,7 +2964,6 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   g_epi_alpha1sq = dxx * dxx;
   dxx = ltqnorm(epi_ip->epi2 / 2);
   g_epi_alpha2sq = dxx * dxx;
-  tests_expected = ((((uint64_t)marker_ct) * (marker_ct - 1)) / 2);
   pct_thresh = tests_expected / 100;
   if (!is_fast) {
     retval = epistasis_regression();
@@ -2947,18 +2980,24 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       g_epi_ctrl_ct = ctrl_ct;
       memcpy(outname_end, ".epi.cc", 8);
     }
+    if (parallel_tot > 1) {
+      outname_end[7] = '.';
+      uint32_writex(&(outname_end[8]), parallel_idx + 1, '\0');
+    }
     tot_ctsplit = case_ctsplit + ctrl_ctsplit;
     if (fopen_checked(&outfile, outname, "w")) {
       goto epistasis_report_ret_OPEN_FAIL;
     }
-    wptr = memcpya(tbuf, "CHR1 ", 5);
-    wptr = fw_strcpyn(plink_maxsnp, 4, "SNP1", wptr);
-    wptr = memcpya(wptr, " CHR2 ", 6);
-    wptr = fw_strcpyn(plink_maxsnp, 4, "SNP2", wptr);
-    wptr = memcpya(wptr, "         STAT            P ", no_p_value? 14 : 27);
-    *wptr++ = '\n';
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-      goto epistasis_report_ret_WRITE_FAIL;
+    if (!parallel_idx) {
+      wptr = memcpya(tbuf, "CHR1 ", 5);
+      wptr = fw_strcpyn(plink_maxsnp, 4, "SNP1", wptr);
+      wptr = memcpya(wptr, " CHR2 ", 6);
+      wptr = fw_strcpyn(plink_maxsnp, 4, "SNP2", wptr);
+      wptr = memcpya(wptr, "         STAT            P ", no_p_value? 14 : 27);
+      *wptr++ = '\n';
+      if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+	goto epistasis_report_ret_WRITE_FAIL;
+      }
     }
     // claim up to half of memory with idx1 bufs; each marker currently costs
     //   (case_ctsplit + ctrl_ctsplit) * sizeof(intptr_t) for loose geno buf
@@ -3038,14 +3077,17 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       g_epi_geno2[block_idx2 * tot_ctsplit + tot_ctsplit - 1] = 0;
     }
     marker_uidx = marker_uidx_base;
+    if (marker_idx1) {
+      marker_uidx = jump_forward_unset_unsafe(marker_exclude1, marker_uidx + 1, marker_idx1);
+    }
     sprintf(logbuf, "--fast-epistasis%s%s to %s...", is_case_only? " case-only" : "", (modifier & EPI_FAST_NO_UEKI)? " no-ueki" : ((modifier & EPI_FAST_JOINT_EFFECTS)? " joint-effects" : ""), outname);
     logprintb();
     fputs(" 0%", stdout);
     do {
       fputs(" [processing]", stdout);
       fflush(stdout);
-      if (idx1_block_size > job_size - marker_idx1) {
-        idx1_block_size = job_size - marker_idx1;
+      if (idx1_block_size > marker_idx1_end - marker_idx1) {
+        idx1_block_size = marker_idx1_end - marker_idx1;
         if (idx1_block_size < thread_ct) {
 	  thread_ct = idx1_block_size;
 	  g_epi_thread_ct = thread_ct;
@@ -3075,6 +3117,9 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       for (tidx = 1; tidx < thread_ct; tidx++) {
         uljj = (((uint64_t)cur_workload) * tidx) / thread_ct;
 	do {
+	  // slightly inaccurate for case-only due to the way --gap is
+	  // supported, but this doesn't affect any calculation results, only
+	  // the progress display
           ulii += marker_ct - g_epi_geno1_offsets[block_idx1++];
 	} while (ulii < uljj);
 	uii = block_idx1 - g_epi_idx1_block_bounds[tidx - 1];
@@ -3314,18 +3359,26 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	  pct_thresh = ((++pct) * ((uint64_t)tests_expected)) / 100;
 	}
       }
-    } while (marker_idx1 < job_size);
+    } while (marker_idx1 < marker_idx1_end);
   }
   if (fclose_null(&outfile)) {
     goto epistasis_report_ret_WRITE_FAIL;
   }
   memcpy(&(outname_end[7]), ".summary", 9);
+  if (parallel_tot > 1) {
+    outname_end[15] = '.';
+    uint32_writex(&(outname_end[16]), parallel_idx + 1, '\0');
+  }
   if (fopen_checked(&outfile, outname, "w")) {
     goto epistasis_report_ret_OPEN_FAIL;
   }
   wptr = memcpya(tbuf, " CHR ", 5);
   wptr = fw_strcpyn(plink_maxsnp, 3, "SNP", wptr);
-  wptr = strcpya(wptr, "        N_SIG        N_TOT         PROP   BEST_CHISQ BEST_CHR ");
+  if (parallel_tot == 1) {
+    wptr = strcpya(wptr, "        N_SIG        N_TOT         PROP   BEST_CHISQ BEST_CHR ");
+  } else {
+    wptr = strcpya(wptr, "        N_SIG        N_TOT   BEST_CHISQ BEST_CHR ");
+  }
   wptr = fw_strcpyn(plink_maxsnp, 8, "BEST_SNP", wptr);
   wptr = memcpya(wptr, " \n", 2);
   if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
@@ -3336,8 +3389,11 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     goto epistasis_report_ret_NOMEM;
   }
   fill_idx_to_uidx(marker_exclude2, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
+  marker_idx1 = marker_idx1_start;
   marker_uidx = marker_uidx_base;
-  marker_idx1 = 0;
+  if (marker_idx1) {
+    marker_uidx = jump_forward_unset_unsafe(marker_exclude1, marker_uidx + 1, marker_idx1);
+  }
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
     chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
     if (marker_uidx >= chrom_end) {
@@ -3357,13 +3413,24 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	ujj += gap_cts[marker_idx1];
       }
       tests_thrown_out += (uint64_t)ujj;
-      ujj = marker_ct - 1 - ujj;
+      // number of tests attempted in this run:
+      // * if this site's entire row was calculated, there are
+      //   marker_ct - 1 - marker_idx1_start cells between the row and the
+      //   same-index column
+      // * if it was not, the column segment has length job_size
+      if (marker_idx1 < marker_idx1_end) {
+	ujj = marker_ct - 1 - marker_idx1_start - ujj;
+      } else {
+        ujj = job_size - ujj;
+      }
       wptr = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), wptr_start);
       wptr = memcpyl3a(wptr, "   ");
       wptr = uint32_writew10(wptr, uii);
       wptr = memcpyl3a(wptr, "   ");
       wptr = uint32_writew10x(wptr, ujj, ' ');
-      wptr = double_g_writewx4x(wptr, ((double)((int32_t)uii)) / ((double)((int32_t)ujj)), 12, ' ');
+      if (parallel_tot == 1) {
+        wptr = double_g_writewx4x(wptr, ((double)((int32_t)uii)) / ((double)((int32_t)ujj)), 12, ' ');
+      }
       if (ujj) {
 	wptr = double_g_writewx4x(wptr, best_chisq[marker_idx1], 12, ' ');
 	uii = marker_idx_to_uidx[best_ids[marker_idx1]];
@@ -3381,7 +3448,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       }
     }
   }
-  tests_thrown_out /= 2; // all fails double-counted
+  tests_thrown_out /= 2; // all fails double-counted in triangle case
   fputs("\b\b\b", stdout);
   sprintf(logbuf, " done.\n%" PRIu64 " valid tests performed, summary written to %s.\n", tests_expected - tests_thrown_out, outname);
   logprintb();
@@ -3416,5 +3483,292 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
  epistasis_report_ret_1:
   fclose_cond(outfile);
   wkspace_reset(wkspace_mark);
+  return retval;
+}
+
+typedef struct ll_epi_summary_struct {
+  struct ll_epi_summary_struct* next;
+  double best_chisq;
+  char* best_chr_and_snp; // separate allocation; tab-delimited
+  uint32_t n_sig;
+  uint32_t n_tot;
+  uint32_t orig_order;
+  uint32_t id_len; // variant ID NOT null-terminated
+  char strbuf[];
+} Ll_epi_summary;
+
+// N.B. moves wkspace_base/wkspace_left in word-size instead of cacheline
+// increments
+Ll_epi_summary* lle_alloc(char* chrom_id, uint32_t chrom_len, char* marker_id, uint32_t marker_id_len, uint32_t nsig, uint32_t ntot, uint32_t order_idx, double chisq) {
+  uintptr_t alloc_size = (sizeof(Ll_epi_summary) + chrom_len + marker_id_len + sizeof(intptr_t)) & (~(sizeof(intptr_t) - ONELU));
+  Ll_epi_summary* newptr = (Ll_epi_summary*)wkspace_base;
+  if (wkspace_left < alloc_size) {
+    return NULL;
+  }
+  wkspace_base = &(wkspace_base[alloc_size]);
+  wkspace_left -= alloc_size;
+  newptr->next = NULL;
+  newptr->best_chisq = chisq;
+  newptr->n_sig = nsig;
+  newptr->n_tot = ntot;
+  newptr->orig_order = order_idx;
+  newptr->id_len = marker_id_len;
+  memcpy(newptr->strbuf, marker_id, marker_id_len);
+  memcpyx(&(newptr->strbuf[marker_id_len]), chrom_id, chrom_len, '\0');
+  return newptr;
+}
+
+int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile = NULL;
+  FILE* outfile = NULL;
+  char* inprefix = epi_ip->summary_merge_prefix;
+  char* inprefix_end = (char*)memchr(inprefix, 0, FNAMESIZE);
+  Ll_epi_summary** htable = NULL;
+  Ll_epi_summary** final_order = NULL;
+  uint32_t file_ct = epi_ip->summary_merge_ct;
+  uint32_t entry_ct = 0;
+  int32_t retval = 0;
+  Ll_epi_summary** lle_pp;
+  char* bufptr;
+  char* id_ptr;
+  char* nsig_ptr;
+  char* ntot_ptr;
+  char* best_chisq_ptr;
+  char* best_chr_ptr;
+  char* best_marker_ptr;
+  uintptr_t ulii;
+  double cur_chisq;
+  uint32_t file_idx;
+  uint32_t has_prop;
+  uint32_t chrom_len;
+  uint32_t id_len;
+  uint32_t uii;
+  int32_t nsig;
+  int32_t ntot;
+  inprefix_end--;
+  if (*inprefix_end == '.') {
+    inprefix_end--;
+  }
+  ulii = (uintptr_t)(inprefix_end - inprefix);
+  if ((ulii >= 16) && (!memcmp(".summary", &(inprefix[ulii - 8]), 8))) {
+    inprefix_end -= 8;
+    ulii -= 8;
+  }
+  bufptr = &(inprefix[ulii - 2]);
+  if (memcmp(".epi.", &(inprefix[ulii - 7]), 5) || (memcmp("cc", bufptr, 2) && memcmp("co", bufptr, 2) && memcmp("qt", bufptr, 2))) {
+    sprintf(logbuf, "Error: Invalid --epistasis-summary-merge filename prefix '%s'.\n(*.epi.cc, *.epi.co, or *.epi.qt expected.)\n", inprefix);
+    logprintb();
+    goto epi_summary_merge_ret_INVALID_CMDLINE;
+  }
+  inprefix_end = memcpya(inprefix_end, ".summary.", 9);
+  memcpyx(outname_end, &(inprefix[ulii - 7]), 15, '\0');
+  // Start out using a hash table, but on second thought, it's unnecessary
+  // given the possibilities for distributed .summary files.
+  // 1. ALL x ALL, SET x SET: First file lists all marker IDs in the final
+  //    order; first entry in remaining files should match an entry in the
+  //    middle and the rest match sequentially from there.
+  // 2. SET1 x ALL, SET1 x SET2: No duplication whatsoever.  Output will be
+  //    such that cat actually works, but asking users to conditionally use cat
+  //    would add confusion for little reason; instead we detect the telltale
+  //    "PROP" in the first file's header line and switch to cat.
+
+  // use hash table to track variant IDs.
+  htable = (Ll_epi_summary**)wkspace_alloc(HASHMEM);
+  // allocation can't currently fail because HASHMEM < min wkspace size
+
+  for (uii = 0; uii < HASHSIZE; uii++) {
+    htable[uii] = NULL;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  for (file_idx = 1; file_idx <= file_ct; file_idx++) {
+    bufptr = uint32_write(inprefix_end, file_idx);
+    *bufptr = '\0';
+    if (fopen_checked(&infile, inprefix, "r")) {
+      goto epi_summary_merge_ret_OPEN_FAIL;
+    }
+
+    // header line
+    do {
+      if (fgets(tbuf, MAXLINELEN, infile)) {
+	if (feof(infile)) {
+	  sprintf(logbuf, "Error: File %s is empty.\n", inprefix);
+	  goto epi_summary_merge_ret_INVALID_FORMAT;
+	}
+	goto epi_summary_merge_ret_READ_FAIL;
+      }
+      if (!tbuf[MAXLINELEN - 1]) {
+	goto epi_summary_merge_ret_LONG_LINE;
+      }
+      bufptr = skip_initial_spaces(tbuf);
+    } while (is_eoln_kns(*bufptr));
+    has_prop = 0;
+    uii = strlen_se(bufptr);
+    if ((uii != 3) || memcmp(bufptr, "CHR", 3)) {
+      goto epi_summary_merge_ret_INVALID_HEADER;
+    }
+    bufptr = skip_initial_spaces(&(bufptr[3]));
+    uii = strlen_se(bufptr);
+    if ((uii != 3) || memcmp(bufptr, "SNP", 3)) {
+      goto epi_summary_merge_ret_INVALID_HEADER;
+    }
+    bufptr = skip_initial_spaces(&(bufptr[3]));
+    uii = strlen_se(bufptr);
+    if ((uii != 5) || memcmp(bufptr, "N_SIG", 5)) {
+      goto epi_summary_merge_ret_INVALID_HEADER;
+    }
+    bufptr = skip_initial_spaces(&(bufptr[5]));
+    uii = strlen_se(bufptr);
+    if ((uii != 5) || memcmp(bufptr, "N_TOT", 5)) {
+      goto epi_summary_merge_ret_INVALID_HEADER;
+    }
+    bufptr = skip_initial_spaces(&(bufptr[5]));
+    uii = strlen_se(bufptr);
+    if (uii == 4) {
+      if (memcmp(bufptr, "PROP", 4)) {
+	goto epi_summary_merge_ret_INVALID_HEADER;
+      }
+      has_prop = 1;
+      bufptr = skip_initial_spaces(&(bufptr[4]));
+      uii = strlen_se(bufptr);
+    }
+    if ((uii != 10) || memcmp(bufptr, "BEST_CHISQ", 10)) {
+      goto epi_summary_merge_ret_INVALID_HEADER;
+    }
+    bufptr = skip_initial_spaces(&(bufptr[10]));
+    uii = strlen_se(bufptr);
+    if ((uii != 8) || memcmp(bufptr, "BEST_CHR", 8)) {
+      goto epi_summary_merge_ret_INVALID_HEADER;
+    }
+    bufptr = skip_initial_spaces(&(bufptr[8]));
+    uii = strlen_se(bufptr);
+    if ((uii != 8) || memcmp(bufptr, "BEST_SNP", 8)) {
+      goto epi_summary_merge_ret_INVALID_HEADER;
+    }
+    bufptr = skip_initial_spaces(&(bufptr[8]));
+    if (!is_eoln_kns(*bufptr)) {
+      goto epi_summary_merge_ret_INVALID_HEADER;
+    }
+    while (fgets(tbuf, MAXLINELEN, infile)) {
+      if (!tbuf[MAXLINELEN - 1]) {
+	goto epi_summary_merge_ret_LONG_LINE;
+      }
+      bufptr = skip_initial_spaces(tbuf);
+      if (is_eoln_kns(*bufptr)) {
+	continue;
+      }
+      chrom_len = strlen_se(bufptr);
+      id_ptr = skip_initial_spaces(&(bufptr[chrom_len]));
+      id_len = strlen_se(id_ptr);
+      nsig_ptr = skip_initial_spaces(&(snp_ptr[id_len]));
+      ntot_ptr = next_item(nsig_ptr);
+      best_chisq_ptr = next_item_mult(ntot_ptr, 1 + has_prop);
+      best_chr_ptr = next_item(best_chisq_ptr);
+      if (no_more_items_kns(best_chr_ptr) || atoiz2(nsig_ptr, &nsig) || atoiz2(ntot_ptr, &ntot)) {
+	goto epi_summary_merge_ret_INVALID_LINE;
+      }
+      if (ntot) {
+        if (scan_double(best_chisq_ptr, &cur_chisq)) {
+	  goto epi_summary_merge_ret_INVALID_LINE;
+	}
+      } else {
+	cur_chisq = 0;
+      }
+      lle_pp = &(htable[hashval2(id_ptr, id_len)]);
+      while (1) {
+	if (!(*lle_pp)) {
+	  if (entry_ct == 0x7fffffff) {
+	    logprint("Error: Too many variants for this --epistasis-summary-merge implementation.\n");
+	    goto epi_summary_merge_ret_INVALID_FORMAT;
+	  }
+	  *lle_pp = lle_alloc(bufptr, chrom_len, id_ptr, id_len, nsig, ntot, entry_ct++, cur_chisq);
+	  if (!(*lle_pp)) {
+	    goto epi_summary_merge_ret_NOMEM;
+	  }
+	  chrom_len = strlen_se(best_chr_ptr);
+          best_marker_ptr = skip_initial_spaces(&(best_chr_ptr[chrom_len]));
+          id_len = strlen_se(best_marker_ptr);
+	  if (!id_len) {
+	    goto epi_summary_merge_ret_INVALID_LINE;
+	  }
+	  ulii = chrom_len + id_len + 2;
+          if (ulii > wkspace_left) {
+	    goto epi_summary_merge_ret_NOMEM;
+	  }
+	  bufptr = (char*)wkspace_base;
+	  memcpyx(bufptr, best_chr_ptr, chrom_len, '\t');
+          memcpyx(&(bufptr[chrom_len + 1]), best_marker_ptr, id_len, '\0');
+	  (*lle_pp)->best_chr_and_snp = bufptr;
+	  // throw in an extra word, to reduce the need for reallocation
+	  ulii = (ulii + 2 * sizeof(intptr_t) - 1) & (~(sizeof(intptr_t) - 1));
+	  wkspace_base = &(wkspace_base[ulii]);
+	  wkspace_left -= ulii;
+	  break;
+	}
+        if (() && (!memcmp())) {
+	}
+      }
+    }
+    if (ferror(infile)) {
+      goto epi_summary_merge_ret_READ_FAIL;
+    }
+    fclose_null(&infile);
+  }
+  ulii = wkspace_left & (CACHELINE - 1);
+  if (ulii) {
+    wkspace_base = &(wkspace_base[ulii]);
+    wkspace_left -= ulii;
+  }
+  final_order = (Ll_epi_summary**)wkspace_alloc(entry_ct * sizeof(intptr_t));
+  if (!final_order) {
+    goto epi_summary_merge_ret_NOMEM;
+  }
+  for (uii = 0; uii < HASHSIZE; uii++) {
+    lle_ptr = htable[uii];
+    while (lle_ptr) {
+      final_order[lle_ptr->orig_order] = lle_ptr;
+      lle_ptr = lle_ptr->next;
+    }
+  }
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto epi_summary_merge_ret_OPEN_FAIL;
+  }
+
+  while (0) {
+  epi_summary_merge_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  epi_summary_merge_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  epi_summary_merge_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  epi_summary_merge_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  epi_summary_merge_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  epi_summary_merge_ret_INVALID_LINE:
+    sprintf(logbuf, "Error: Invalid --epistasis-summary-merge line in %s.\n", inprefix);
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  epi_summary_merge_ret_LONG_LINE:
+    sprintf(logbuf, "Error: Pathologically long line in %s.\n", inprefix);
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  epi_summary_merge_ret_INVALID_HEADER:
+    sprintf(logbuf, "Error: Invalid --epistasis-summary-merge header in %s.\n", inprefix);
+  epi_summary_merge_ret_INVALID_FORMAT:
+    logprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  fclose_cond(infile);
+  fclose_cond(outfile);
+  wkspace_reset(wkspace_base);
   return retval;
 }

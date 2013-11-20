@@ -834,18 +834,18 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #endif
 #endif
-    help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop", &help_ctrl, 1,
+    help_print("fast-epistasis\tepistasis\tset-test\tset-by-all\tcase-only\tnop\tepistasis-summary-merge", &help_ctrl, 1,
 "  --fast-epistasis <no-ueki | joint-effects> <case-only>\n"
 "                   <set-by-set | set-by-all> <nop>\n"
 "  --epistasis <set-by-set | set-by-all>\n"
 "    Scan for epistatic interactions.  --fast-epistasis inspects 3x3 joint\n"
-"    allele count tables and only applies to case/control phenotypes, while\n"
+"    genotype count tables and only applies to case/control phenotypes, while\n"
 "    --epistasis performs linear or logistic regression.\n"
 "    * --fast-epistasis normally applies the variance and empty cell corrections\n"
 "      described in Ueki M, Cordell HJ (2012) Improved statistics for\n"
 "      genome-wide interaction analysis.  To disable them, add 'no-ueki'.\n"
 "    * joint-effects' entirely replaces the original fast-epistasis statistic\n"
-"      with the Ueki-Cordell \"joint effects\" test.\n"
+"      with the Ueki-Cordell 'joint effects' test.\n"
 "    * 'case-only' requests a case-only instead of a case/control test.\n"
 "    * By default, all pairs of variants across the entire genome are tested.\n"
 "      To just test pairs of variants within a single set, add the 'set-by-set'\n"
@@ -853,7 +853,13 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      sets loaded, all variants in one set are tested against all variants in\n"
 "      the other.  'set-by-all' tests all variants in one set against the entire\n"
 "      genome instead.\n"
-"    * 'nop' strips p-values from the main report.\n\n"
+"    * 'nop' strips p-values from the main report.\n"
+"    * These computations can be subdivided with --parallel; however...\n"
+"  --epistasis-summary-merge [common file prefix] [ct]\n"
+"    When a --[fast-]epistasis job is subdivided with --parallel, the main\n"
+"    report can be assembled at the end by applying Unix 'cat' in the usual\n"
+"    manner, but the .summary.1, .summary.2, ... files require a specialized\n"
+"    merge.  --epistasis-summary-merge takes care of the latter.\n\n"
 	       );
     help_print("twolocus", &help_ctrl, 1,
 "  --twolocus [variant ID] [variant ID]\n"

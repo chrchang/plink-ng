@@ -12,20 +12,6 @@
 
 #define PHENO_EPSILON 0.000030517578125
 
-// last prime before 2^19
-// (maybe want to pick the second-to-last prime instead since this is only 1
-// less?  though 19-character offsets are unlikely to matter in practice...)
-#define HASHSIZE 524287
-#define HASHSIZE_S 524287
-
-#ifdef __LP64__
-#define HASHMEM 4194304
-#define HASHMEM_S 4194304
-#else
-#define HASHMEM 2097152
-#define HASHMEM_S 2097152
-#endif
-
 int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_indiv_ct, uintptr_t indiv_exclude_ct, char* sorted_person_ids, uintptr_t max_person_id_len, uint32_t* id_map, int32_t missing_pheno, uint32_t missing_pheno_len, uint32_t affection_01, uint32_t mpheno_col, char* phenoname_str, uintptr_t* pheno_nm, uintptr_t** pheno_c_ptr, double** pheno_d_ptr) {
   uint32_t affection = 1;
   uintptr_t* pheno_c = *pheno_c_ptr;
@@ -12125,16 +12111,6 @@ static inline uint32_t hashval(char* id1, uint32_t id1_len, char* id2, uint32_t 
   do {
     vv = ((vv << 8) + (*ucptr++)) % HASHSIZE_S;
   } while (ucptr != ucp_end);
-  return vv;
-}
-
-static inline uint32_t hashval2(char* idstr, uint32_t idlen) {
-  unsigned char* ucptr = (unsigned char*)idstr;
-  unsigned char* ucp_end = &(ucptr[idlen]);
-  uint32_t vv = *ucptr;
-  while (++ucptr != ucp_end) {
-    vv = ((vv << 8) + (*ucptr)) % HASHSIZE;
-  }
   return vv;
 }
 
