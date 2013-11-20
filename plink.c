@@ -6682,12 +6682,23 @@ int32_t main(int32_t argc, char** argv) {
   for (uii = cur_arg; uii < (uint32_t)argc; uii++) {
     argptr = is_flag_start(argv[uii]);
     if (argptr) {
-      if ((!strcmp("help", argptr)) || (!strcmp("h", argptr)) || (!strcmp("?", argptr))) {
+      if (!strcmp("help", argptr)) {
 	print_ver();
 	if ((cur_arg != 1) || (uii != 1) || subst_argv) {
-	  printf("--%s present, ignoring other flags.\n", argptr);
+	  fputs("--help present, ignoring other flags.\n", stdout);
 	}
 	retval = disp_help(argc - uii - 1, &(argv[uii + 1]));
+	goto main_ret_1;
+      }
+      if ((!strcmp("h", argptr)) || (!strcmp("?", argptr))) {
+	// these just act like the no-parameter case
+	print_ver();
+	if ((cur_arg != 1) || (uii != 1) || subst_argv) {
+	  printf("-%s present, ignoring other flags.\n", argptr);
+	}
+	fputs(cmdline_format_str, stdout);
+	fputs(notestr_null_calc2, stdout);
+        retval = RET_HELP;
 	goto main_ret_1;
       }
       if (strlen(argptr) >= MAX_FLAG_LEN) {
