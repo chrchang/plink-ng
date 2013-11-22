@@ -406,7 +406,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     goto load_map_ret_READ_FAIL;
   }
   if (!unfiltered_marker_ct) {
-    logprint("Error: No variants in .map file.");
+    logprint("Error: No variants in .map file.\n");
     goto load_map_ret_INVALID_FORMAT;
   }
   *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
@@ -948,7 +948,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     goto load_bim_ret_READ_FAIL;
   }
   if (!unfiltered_marker_ct) {
-    sprintf(logbuf, "Error: No variants in .%s file.", extension);
+    sprintf(logbuf, "Error: No variants in .%s file.\n", extension);
     goto load_bim_ret_INVALID_FORMAT_2;
   }
   if (from_slen || to_slen) {
@@ -4742,6 +4742,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   FILE* outfile_bim = NULL;
   uintptr_t mc_ct = 0;
   uintptr_t max_mc_len = 0;
+  double hard_call_floor = 1.0 - hard_call_threshold;
   char* sorted_mc = NULL;
   char* tbuf2 = &(tbuf[MAXLINELEN]); // .fam write
 
@@ -4755,6 +4756,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   uint32_t indiv_ct = 0;
   uint32_t col_ct = 3;
   uint32_t is_binary_pheno = 0;
+  uint32_t is_randomized = (hard_call_threshold == -1);
+  uint32_t marker_ct = 0;
   int32_t retval = 0;
   char missing_pheno_str[12];
   char* loadbuf;
@@ -4762,13 +4765,20 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   char* bufptr2;
   char* wptr;
   uintptr_t* writebuf;
+  uintptr_t* ulptr;
   uintptr_t loadbuf_size;
   uintptr_t ulii;
   uintptr_t uljj;
+  uintptr_t cur_word;
   double dxx;
+  double dyy;
+  double dzz;
   uint32_t missing_pheno_len;
+  uint32_t indiv_ct4;
   uint32_t indiv_ctl2;
+  uint32_t indiv_idx;
   uint32_t col_idx;
+  uint32_t shiftval;
   char cc;
   bufptr = int32_write(missing_pheno_str, missing_pheno);
   missing_pheno_len = (uintptr_t)(bufptr - missing_pheno_str);
@@ -5003,6 +5013,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	logprint("Error: Invalid sex code in .sample file.\n");
         goto oxford_to_bed_ret_INVALID_FORMAT;
       }
+      *wptr++ = cc;
       col_idx++;
     } else {
       *wptr++ = '0';
@@ -5052,12 +5063,17 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     }
     indiv_ct++;
   }
+  if (!indiv_ct) {
+    logprint("Error: No individuals in .sample file.\n");
+    goto oxford_to_bed_ret_INVALID_FORMAT;
+  }
   if (fclose_null(&infile)) {
     goto oxford_to_bed_ret_READ_FAIL;
   }
   if (fclose_null(&outfile)) {
     goto oxford_to_bed_ret_WRITE_FAIL;
   }
+  indiv_ct4 = (indiv_ct + 3) / 4;
   indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
   if (wkspace_alloc_ul_checked(&writebuf, indiv_ctl2 * sizeof(intptr_t))) {
     goto oxford_to_bed_ret_NOMEM;
@@ -5072,12 +5088,16 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   if (fopen_checked(&infile, genname, "r")) {
     goto oxford_to_bed_ret_OPEN_FAIL;
   }
+  memcpy(outname_end, ".bim", 5);
+  if (fopen_checked(&outfile_bim, outname, "w")) {
+    goto oxford_to_bed_ret_OPEN_FAIL;
+  }
   memcpy(outname_end, ".bed", 5);
   if (fopen_checked(&outfile, outname, "wb")) {
     goto oxford_to_bed_ret_OPEN_FAIL;
   }
-  if (fopen_checked(&outfile_bim, outname, "w")) {
-    goto oxford_to_bed_ret_OPEN_FAIL;
+  if (fwrite_checked("l\x1b\x01", 3, outfile)) {
+    goto oxford_to_bed_ret_WRITE_FAIL;
   }
   loadbuf[loadbuf_size - 1] = ' ';
   while (fgets(loadbuf, loadbuf_size, infile)) {
@@ -5092,6 +5112,102 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
+    fill_ulong_zero(writebuf, indiv_ctl2);
+    bufptr2 = next_item_mult(bufptr, 2);
+    if (!bufptr2) {
+      goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
+    }
+    fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
+    putc('0', outfile_bim);
+    if (putc_checked('0', outfile_bim)) {
+      goto oxford_to_bed_ret_WRITE_FAIL;
+    }
+    bufptr = bufptr2;
+    bufptr2 = next_item_mult(bufptr, 2);
+    if (no_more_items_kns(bufptr2)) {
+      goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
+    }
+    bufptr2 = item_endnn(bufptr2);
+    fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
+    if (putc_checked('\n', outfile_bim)) {
+      goto oxford_to_bed_ret_WRITE_FAIL;
+    }
+    bufptr = bufptr2;
+    cur_word = 0;
+    shiftval = 0;
+    ulptr = writebuf;
+    for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+      // fast handling of common cases
+      /*
+      if (!memcmp(bufptr, " 0 0 1", 6)) {
+	ulii = 3;
+	bufptr = &(bufptr[6]);
+      } else if (!memcmp(bufptr, " 0 1 0", 6)) {
+	ulii = 2;
+	bufptr = &(bufptr[6]);
+      } else if (!memcmp(bufptr, " 1 0 0", 6)) {
+	ulii = 0;
+	bufptr = &(bufptr[6]);
+      } else if (!memcmp(bufptr, " 0 0 0", 6)) {
+        ulii = 1;
+	bufptr = &(bufptr[6]);
+      } else {
+      */
+	// okay, gotta do things the slow way
+	dxx = strtod(bufptr, &bufptr2);
+	if (bufptr2 == bufptr) {
+	  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	}
+	bufptr = bufptr2;
+	dyy = strtod(bufptr, &bufptr2);
+	if (bufptr2 == bufptr) {
+	  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	}
+	bufptr = bufptr2;
+        dzz = strtod(bufptr, &bufptr2);
+        if (bufptr2 == bufptr) {
+	  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	}
+	bufptr = bufptr2;
+	if (!is_randomized) {
+	  // could do more validation...
+          if (dzz >= hard_call_floor) {
+	    ulii = 3;
+	  } else if (dyy >= hard_call_floor) {
+	    ulii = 2;
+	  } else if (dxx >= hard_call_floor) {
+	    ulii = 0;
+	  } else {
+	    ulii = 1;
+	  }
+	} else {
+	  logprint("not implemented yet\n");
+	  exit(1);
+	}
+	// }
+      cur_word |= ulii << shiftval;
+      shiftval += 2;
+      if (shiftval == BITCT) {
+	*ulptr++ = cur_word;
+	cur_word = 0;
+	shiftval = 0;
+      }
+    }
+    if (shiftval) {
+      *ulptr++ = cur_word;
+    }
+    if (fwrite_checked(writebuf, indiv_ct4, outfile)) {
+      goto oxford_to_bed_ret_WRITE_FAIL;
+    }
+    marker_ct++;
+    if (!(marker_ct % 1000)) {
+      printf("\r--data: %u variants processed.", marker_ct);
+      fflush(stdout);
+    }
+  }
+  if (!marker_ct) {
+    logprint("Error: Empty .gen file.\n");
+    goto oxford_to_bed_ret_INVALID_FORMAT;
   }
   if (fclose_null(&infile)) {
     goto oxford_to_bed_ret_READ_FAIL;
@@ -5102,6 +5218,9 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   if (fclose_null(&outfile_bim)) {
     goto oxford_to_bed_ret_WRITE_FAIL;
   }
+  putchar('\r');
+  sprintf(logbuf, "--data: binary fileset written to %s + .bim + .fam.\n", outname);
+  logprintb();
   while (0) {
   oxford_to_bed_ret_NOMEM:
     retval = RET_NOMEM;
@@ -5114,6 +5233,14 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     break;
   oxford_to_bed_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
+    break;
+  oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN:
+    logprint("Error: Improperly formatted .gen file.\n");
+    retval = RET_INVALID_FORMAT;
+    break;
+  oxford_to_bed_ret_MISSING_TOKENS_GEN:
+    logprint("Error: Too few tokens in .gen line.\n");
+    retval = RET_INVALID_FORMAT;
     break;
   oxford_to_bed_ret_MISSING_TOKENS:
     logprint("Error: Too few tokens in .sample line.\n");
