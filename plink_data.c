@@ -1141,6 +1141,9 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       if (marker_alleles_needed) {
 	bufptr = next_item(bufptr);
 	bufptr2 = next_item(bufptr);
+	if (!bufptr2) {
+	  goto load_bim_ret_INVALID_FORMAT_5;
+	}
 	uii = strlen_se(bufptr);
 	ulii = marker_uidx * 2;
         if (allele_set(&(marker_allele_ptrs[ulii]), bufptr, uii)) {
@@ -1210,6 +1213,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   fclose_cond(bimfile);
   free_cond(sf_pos);
   free_cond(loadbuf2);
+  printf("step 4\n");
   return retval;
 }
 
@@ -4735,7 +4739,9 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
   return 0;
 }
 
-int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outname_end, double hard_call_threshold, char* missing_code, int32_t missing_pheno, Chrom_info* chrom_info_ptr) {
+#define D_EPSILON 0.000244140625
+
+int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outname_end, double hard_call_threshold, char* missing_code, int32_t missing_pheno, uint64_t misc_flags, Chrom_info* chrom_info_ptr) {
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   FILE* outfile = NULL;
@@ -4753,6 +4759,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   // load first phenotype (not covariate), if present
   uint32_t pheno_col = 0;
 
+  uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint32_t indiv_ct = 0;
   uint32_t col_ct = 3;
   uint32_t is_binary_pheno = 0;
@@ -4775,12 +4782,14 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   double dxx;
   double dyy;
   double dzz;
+  double drand;
   uint32_t missing_pheno_len;
   uint32_t indiv_ct4;
   uint32_t indiv_ctl2;
   uint32_t indiv_idx;
   uint32_t col_idx;
   uint32_t shiftval;
+  int32_t ii;
   char cc;
   bufptr = int32_write(missing_pheno_str, missing_pheno);
   missing_pheno_len = (uintptr_t)(bufptr - missing_pheno_str);
@@ -5114,6 +5123,20 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     if (is_eoln_kns(*bufptr)) {
       continue;
     }
+    ii = get_chrom_code(chrom_info_ptr, bufptr);
+    if (ii == -1) {
+      if (!allow_extra_chroms) {
+	logprint("Error: Unrecognized chromosome code in .gen file.  (Did you forget\n--allow-extra-chroms?).\n");
+	goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+      retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii);
+      if (retval) {
+	goto oxford_to_bed_ret_1;
+      }
+    }
+    if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+      continue;
+    }
     fill_ulong_zero(writebuf, indiv_ctl2);
     bufptr2 = next_item_mult(bufptr, 2);
     if (!bufptr2) {
@@ -5121,7 +5144,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     }
     fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
     putc('0', outfile_bim);
-    if (putc_checked('0', outfile_bim)) {
+    if (putc_checked(' ', outfile_bim)) {
       goto oxford_to_bed_ret_WRITE_FAIL;
     }
     bufptr = bufptr2;
@@ -5154,22 +5177,22 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	bufptr = &(bufptr[6]);
       } else {
 	// okay, gotta do things the slow way
+	do {
+	  bufptr++;
+	} while (*bufptr == ' ');
+	bufptr2 = strchr(bufptr, ' ');
+	if (!bufptr2) {
+	  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	}
+	do {
+	  bufptr2++;
+	} while (*bufptr2 == ' ');
+	bufptr3 = strchr(bufptr2, ' ');
+	if (!bufptr3) {
+	  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	}
+	dzz = strtod(bufptr3, &bufptr4);
 	if (!is_randomized) {
-	  do {
-	    bufptr++;
-	  } while (*bufptr == ' ');
-	  bufptr2 = strchr(bufptr, ' ');
-	  if (!bufptr2) {
-	    goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
-	  }
-	  do {
-	    bufptr2++;
-	  } while (*bufptr2 == ' ');
-	  bufptr3 = strchr(bufptr2, ' ');
-	  if (!bufptr3) {
-	    goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
-	  }
-	  dzz = strtod(bufptr3, &bufptr4);
 	  if (dzz >= hard_call_floor) {
 	    ulii = 3;
 	  } else {
@@ -5194,26 +5217,46 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	      }
 	    }
 	  }
-	  bufptr = bufptr4;
 	} else {
-	  dxx = strtod(bufptr, &bufptr2);
-	  if (bufptr2 == bufptr) {
-	    goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+          drand = rand_unif();
+	  if (drand < dzz) {
+	    ulii = 3;
+	  } else {
+	    if (bufptr3 == bufptr4) {
+	      goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	    }
+	    dyy = strtod(bufptr2, &bufptr3) + dzz;
+            if (drand < dyy) {
+	      ulii = 2;
+	    } else {
+              if (bufptr2 == bufptr3) {
+	        goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	      }
+	      dxx = strtod(bufptr, &bufptr2) + dyy;
+	      if (drand < dyy) {
+		ulii = 0;
+	      } else if (dxx < 1 - D_EPSILON) {
+		ulii = 1;
+	      } else {
+		// fully called genotype probabilities may add up to less than
+		// one due to rounding error.  If this appears to have
+		// happened, do NOT make a missing call; instead rescale
+		// everything to add to one and reinterpret the random number.
+		// (D_EPSILON is currently set to make 4 decimal place
+		// precision safe to use.)
+		drand *= dxx;
+		if (drand < dzz) {
+		  ulii = 3;
+		} else if (drand < dyy) {
+		  ulii = 2;
+		} else {
+		  ulii = 0;
+		}
+	      }
+	    }
 	  }
-	  bufptr = bufptr2;
-	  dyy = strtod(bufptr, &bufptr2);
-	  if (bufptr2 == bufptr) {
-	    goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
-	  }
-	  bufptr = bufptr2;
-	  dzz = strtod(bufptr, &bufptr2);
-	  if (bufptr2 == bufptr) {
-	    goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
-	  }
-	  bufptr = bufptr2;
-	  logprint("not implemented yet\n");
-	  exit(1);
 	}
+	bufptr = bufptr4;
       }
       cur_word |= ulii << shiftval;
       shiftval += 2;
@@ -5297,6 +5340,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     retval = RET_INVALID_CMDLINE;
     break;
   }
+ oxford_to_bed_ret_1:
   fclose_cond(infile);
   fclose_cond(outfile);
   fclose_cond(outfile_bim);

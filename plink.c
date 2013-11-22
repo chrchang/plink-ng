@@ -13247,7 +13247,7 @@ int32_t main(int32_t argc, char** argv) {
 	  simulate_label = NULL;
 	}
       } else if (load_params & 0x380) {
-	retval = oxford_to_bed(pedname, mapname, outname, sptr, hard_call_threshold, missing_code, missing_pheno, &chrom_info);
+	retval = oxford_to_bed(pedname, mapname, outname, sptr, hard_call_threshold, missing_code, missing_pheno, misc_flags, &chrom_info);
       } else {
 	if (load_params & 0x30) {
 	  sprintf(logbuf, "Error: --bed and --bim cannot be used without --bfile or --fam.%s", errstr_append);
