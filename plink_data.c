@@ -4763,6 +4763,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   char* loadbuf;
   char* bufptr;
   char* bufptr2;
+  char* bufptr3;
+  char* bufptr4;
   char* wptr;
   uintptr_t* writebuf;
   uintptr_t* ulptr;
@@ -5138,7 +5140,6 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     ulptr = writebuf;
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       // fast handling of common cases
-      /*
       if (!memcmp(bufptr, " 0 0 1", 6)) {
 	ulii = 3;
 	bufptr = &(bufptr[6]);
@@ -5152,39 +5153,68 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
         ulii = 1;
 	bufptr = &(bufptr[6]);
       } else {
-      */
 	// okay, gotta do things the slow way
-	dxx = strtod(bufptr, &bufptr2);
-	if (bufptr2 == bufptr) {
-	  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
-	}
-	bufptr = bufptr2;
-	dyy = strtod(bufptr, &bufptr2);
-	if (bufptr2 == bufptr) {
-	  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
-	}
-	bufptr = bufptr2;
-        dzz = strtod(bufptr, &bufptr2);
-        if (bufptr2 == bufptr) {
-	  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
-	}
-	bufptr = bufptr2;
 	if (!is_randomized) {
-	  // could do more validation...
-          if (dzz >= hard_call_floor) {
-	    ulii = 3;
-	  } else if (dyy >= hard_call_floor) {
-	    ulii = 2;
-	  } else if (dxx >= hard_call_floor) {
-	    ulii = 0;
-	  } else {
-	    ulii = 1;
+	  do {
+	    bufptr++;
+	  } while (*bufptr == ' ');
+	  bufptr2 = strchr(bufptr, ' ');
+	  if (!bufptr2) {
+	    goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
 	  }
+	  do {
+	    bufptr2++;
+	  } while (*bufptr2 == ' ');
+	  bufptr3 = strchr(bufptr2, ' ');
+	  if (!bufptr3) {
+	    goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	  }
+	  dzz = strtod(bufptr3, &bufptr4);
+	  if (dzz >= hard_call_floor) {
+	    ulii = 3;
+	  } else {
+	    if (bufptr3 == bufptr4) {
+	      goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	    }
+	    dyy = strtod(bufptr2, &bufptr3);
+	    if (dyy >= hard_call_floor) {
+              ulii = 2;
+	    } else {
+	      if (bufptr2 == bufptr3) {
+		goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	      }
+              dxx = strtod(bufptr, &bufptr2);
+	      if (dxx >= hard_call_floor) {
+		ulii = 0;
+	      } else {
+		if (bufptr == bufptr2) {
+		  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+		}
+		ulii = 1;
+	      }
+	    }
+	  }
+	  bufptr = bufptr4;
 	} else {
+	  dxx = strtod(bufptr, &bufptr2);
+	  if (bufptr2 == bufptr) {
+	    goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	  }
+	  bufptr = bufptr2;
+	  dyy = strtod(bufptr, &bufptr2);
+	  if (bufptr2 == bufptr) {
+	    goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	  }
+	  bufptr = bufptr2;
+	  dzz = strtod(bufptr, &bufptr2);
+	  if (bufptr2 == bufptr) {
+	    goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
+	  }
+	  bufptr = bufptr2;
 	  logprint("not implemented yet\n");
 	  exit(1);
 	}
-	// }
+      }
       cur_word |= ulii << shiftval;
       shiftval += 2;
       if (shiftval == BITCT) {
