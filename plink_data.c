@@ -5161,25 +5161,30 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     cur_word = 0;
     shiftval = 0;
     ulptr = writebuf;
+    do {
+      bufptr++;
+    } while (*bufptr == ' ');
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       // fast handling of common cases
-      if (!memcmp(bufptr, " 0 0 1", 6)) {
+      if (!memcmp(bufptr, "0 0 1 ", 6)) {
+	// originally was " 0 0 1", which isn't slower on the last individual,
+	// but unfortunately that can break on something like "0 0 0.9999"...
 	ulii = 3;
 	bufptr = &(bufptr[6]);
-      } else if (!memcmp(bufptr, " 0 1 0", 6)) {
+      } else if (!memcmp(bufptr, "0 1 0 ", 6)) {
 	ulii = 2;
 	bufptr = &(bufptr[6]);
-      } else if (!memcmp(bufptr, " 1 0 0", 6)) {
+      } else if (!memcmp(bufptr, "1 0 0 ", 6)) {
 	ulii = 0;
 	bufptr = &(bufptr[6]);
-      } else if (!memcmp(bufptr, " 0 0 0", 6)) {
+      } else if (!memcmp(bufptr, "0 0 0 ", 6)) {
         ulii = 1;
 	bufptr = &(bufptr[6]);
       } else {
 	// okay, gotta do things the slow way
-	do {
+	while (*bufptr == ' ') {
 	  bufptr++;
-	} while (*bufptr == ' ');
+	}
 	bufptr2 = strchr(bufptr, ' ');
 	if (!bufptr2) {
 	  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
@@ -5257,6 +5262,9 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  }
 	}
 	bufptr = bufptr4;
+	if (*bufptr == ' ') {
+	  bufptr++;
+	}
       }
       cur_word |= ulii << shiftval;
       shiftval += 2;
