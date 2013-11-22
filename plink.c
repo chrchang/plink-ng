@@ -1,4 +1,4 @@
-// PLINK 1.90 beta
+// PLINK 1.90
 // Copyright (C) 2005-2013 Shaun Purcell, Christopher Chang
 
 // This program is free software: you can redistribute it and/or modify
@@ -80,13 +80,16 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (21 Nov 2013)";
+  " (22 Nov 2013)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
 #endif
-  "                         [final website TBD]\n"
-  "(C) 2005-2013 Shaun Purcell, Christopher Chang    GNU General Public License v3\n";
+#ifndef NOLAPACK
+  "  "
+#endif
+  "      https://www.cog-genomics.org/plink2\n"
+  "(C) 2005-2013 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 const char errstr_ped_format[] = "Error: Improperly formatted .ped file.\n";
 const char errstr_filter_format[] = "Error: Improperly formatted filter file.\n";
 const char errstr_freq_format[] = "Error: Improperly formatted frequency file.\n";
@@ -5056,7 +5059,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     }
     if (calculation_type & CALC_RECODE) {
-      retval = recode(recode_modifier, bedfile, bed_offset, famfile, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_cms, marker_allele_ptrs, max_marker_allele_len, marker_pos, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nosex_exclude? pheno_nosex_exclude : pheno_nm, pheno_c, pheno_d, output_missing_pheno, misc_flags, hh_exists, chrom_info_ptr);
+      retval = recode(recode_modifier, bedfile, bed_offset, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_cms, marker_allele_ptrs, max_marker_allele_len, marker_pos, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nosex_exclude? pheno_nosex_exclude : pheno_nm, pheno_c, pheno_d, output_missing_pheno, misc_flags, hh_exists, chrom_info_ptr);
       if (retval) {
         goto plink_ret_1;
       }
@@ -6381,12 +6384,13 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t cnv_test_window = 0;
   uint32_t segment_modifier = 0;
   uint32_t matrix_flag_state = 0; // 1 = present and unclaimed, 2 = claimed
+  double hard_call_threshold = 0.1;
   double tail_bottom = 0.0;
   double tail_top = 0.0;
   double lasso_h2 = 0.0;
   double lasso_minlambda = -INFINITY;
   char* segment_spanning_fname = NULL;
-  // char* missing_code = NULL;
+  char* missing_code = NULL;
   char range_delim = '-';
   uint32_t modifier_23 = 0;
   double pheno_23 = INFINITY;
@@ -7490,7 +7494,7 @@ int32_t main(int32_t argc, char** argv) {
 	memcpy(strcpya(mapname, sptr), ".bim", 5);
 	memcpy(strcpya(famname, sptr), ".fam", 5);
       } else if (!memcmp(argptr2, "ed", 3)) {
-	load_params |= 16;
+	load_params |= 0x10;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -7500,7 +7504,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	strcpy(pedname, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "im", 3)) {
-	load_params |= 32;
+	load_params |= 0x20;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8343,11 +8347,7 @@ int32_t main(int32_t argc, char** argv) {
 	debug_on = 1;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ata", 4)) {
-	logprint("Error: The Oxford-format loader has been temporarily disabled.  Contact the\ndevelopers if you need a build with the old dosage distance calculator\nunlocked.\n");
-        retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
-	/*
-	if (load_params & 0xff) {
+	if (load_rare || load_params) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	load_params |= 0x80;
@@ -8356,20 +8356,16 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (param_ct) {
 	  sptr = argv[cur_arg + 1];
-	  if (strlen(sptr) > (FNAMESIZE - 5)) {
+	  if (strlen(sptr) > (FNAMESIZE - 8)) {
 	    logprint("Error: --data parameter too long.\n");
 	    goto main_ret_OPEN_FAIL;
 	  }
 	} else {
 	  sptr = (char*)PROG_NAME_STR;
 	}
-	if (!(load_params & 0x100)) {
-	  memcpy(strcpya(genname, sptr), ".gen", 5);
-	}
-	if (!(load_params & 0x200)) {
-	  memcpy(strcpya(samplename, sptr), ".sample", 8);
-	}
-	*/
+	memcpy(strcpya(pedname, sptr), ".gen", 5);
+	// cheating: this is of course more like a .fam file
+	memcpy(strcpya(mapname, sptr), ".sample", 8);
       } else if (!memcmp(argptr2, "ecompress", 10)) {
 	logprint("Error: --decompress flag retired.  Use e.g. 'gunzip [filename]'.\n");
 	goto main_ret_INVALID_CMDLINE;
@@ -8704,7 +8700,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (load_params & 0x3c7) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
-	load_params |= 64;
+	load_params |= 0x40;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -8962,11 +8958,7 @@ int32_t main(int32_t argc, char** argv) {
 	  geno_thresh = 0.1;
 	}
       } else if (!memcmp(argptr2, "en", 3)) {
-	logprint("Error: The Oxford-format loader has been temporarily disabled.  Contact the\ndevelopers if you need a build with the old dosage distance calculator\nunlocked.\n");
-        retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
-	/*
-	if (load_params & 0x17f) {
+	if (load_rare || (load_params & 0x7f)) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	load_params |= 0x100;
@@ -8977,8 +8969,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --gen parameter too long.\n");
 	  goto main_ret_OPEN_FAIL;
 	}
-	strcpy(genname, argv[cur_arg + 1]);
-	*/
+	strcpy(pedname, argv[cur_arg + 1]);
       } else if ((!memcmp(argptr2, "enome", 6)) || (!memcmp(argptr2, "enome gz", 9))) {
 	if (argptr2[5] == ' ') {
 	  kk = 1;
@@ -9111,7 +9102,7 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "file", 5)) {
 	UNSTABLE;
-	if (load_rare || (load_params & (~64))) {
+	if (load_rare || (load_params & (~0x40))) {
 	  goto main_ret_INVALID_CMDLINE_4;
 	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -9124,7 +9115,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_OPEN_FAIL;
 	}
 	memcpy(memcpya(pedname, sptr, uii), ".gvar", 6);
-	if (!(load_params & 64)) {
+	if (!(load_params & 0x40)) {
 	  memcpy(memcpya(famname, sptr, uii), ".fam", 5);
 	}
 	memcpy(memcpya(mapname, sptr, uii), ".map", 5);
@@ -9406,6 +9397,23 @@ int32_t main(int32_t argc, char** argv) {
 	logprint("Note: --hide-covar flag deprecated.  Use e.g. '--linear hide-covar'.\n");
 	glm_modifier |= GLM_HIDE_COVAR;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "ard-call-threshold", 19)) {
+        if (!(load_params & 0x180)) {
+	  sprintf(logbuf, "Error: --hard-call-threshold must be used with --data or --gen.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
+	if (!strcmp(argv[cur_arg + 1], "random")) {
+	  hard_call_threshold = -1;
+	} else {
+	  if (scan_double(argv[cur_arg + 1], &dxx) || (dxx < 0.0) || (dxx > (0.5 - SMALL_EPSILON))) {
+	    sprintf(logbuf, "Error: Invalid --hard-call-threshold parameter '%s'.%s", argv[cur_arg + 1], errstr_append);
+	    goto main_ret_INVALID_CMDLINE_3;
+	  }
+	  hard_call_threshold = dxx * (1 + SMALL_EPSILON);
+	}
       } else if (!memcmp(argptr2, "omog", 5)) {
         calculation_type |= CALC_HOMOG;
 	goto main_param_zero;
@@ -9958,10 +9966,6 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
       } else if ((!memcmp(argptr2, "issing-code", 12))) {
-	logprint("Error: The Oxford-format loader has been temporarily disabled.  Contact the\ndevelopers if you need a build with the old dosage distance calculator\nunlocked.\n");
-	retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
-	/*
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_3;
 	}
@@ -9970,7 +9974,6 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  missing_code = (char*)"";
 	}
-	*/
       } else if (!memcmp(argptr2, "ake-pheno", 10)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
 	  goto main_ret_INVALID_CMDLINE_3;
@@ -11799,12 +11802,11 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
       } else if (!memcmp(argptr2, "ample", 6)) {
-	logprint("Error: The Oxford-format loader has been temporarily disabled.  Contact the\ndevelopers if you need a build with the old dosage distance calculator\nunlocked.\n");
-        retval = RET_CALC_NOT_YET_SUPPORTED;
-	goto main_ret_1;
-	/*
-	if ((load_params & 0x27f) || load_rare) {
+	if ((load_params & 0x7f) || load_rare) {
 	  goto main_ret_INVALID_CMDLINE_4;
+	} else if (!(load_params & 0x180)) {
+	  sprintf(logbuf, "Error: --sample cannot be used without --data or --gen.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
 	}
 	load_params |= 0x200;
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -11814,8 +11816,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logprint("Error: --sample parameter too long.\n");
 	  goto main_ret_OPEN_FAIL;
 	}
-	strcpy(samplename, argv[cur_arg + 1]);
-	*/
+	strcpy(mapname, argv[cur_arg + 1]);
       } else if (!memcmp(argptr2, "np", 3)) {
         if (markername_from) {
 	  sprintf(logbuf, "Error: --snp cannot be used with --from.%s", errstr_append);
@@ -13077,7 +13078,10 @@ int32_t main(int32_t argc, char** argv) {
     }
     goto main_ret_INVALID_CMDLINE_3;
   }
-
+  if ((load_params & 0x380) == 0x100) {
+    sprintf(logbuf, "Error: --gen cannot be used without --data or --sample.%s", errstr_append);
+    goto main_ret_INVALID_CMDLINE_3;
+  }
   if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF))) && (famname[0] || load_rare)) {
     goto main_ret_NULL_CALC;
   }
@@ -13210,12 +13214,12 @@ int32_t main(int32_t argc, char** argv) {
   } else if (load_rare & LOAD_RARE_GVAR) {
     retval = plink_gvar(outname, outname_end, pedname, mapname, famname);
   } else {
-  // famname[0] indicates binary vs. text
-  // extractname, excludename, keepname, and removename indicate the presence
-  // of their respective flags
-  // filtername indicates existence of filter
-  // freqname signals --read-freq
-    // if (load_rare) {
+    // famname[0] indicates binary vs. text
+    // extractname, excludename, keepname, and removename indicate the presence
+    // of their respective flags
+    // filtername indicates existence of filter
+    // freqname signals --read-freq
+
     if (load_rare || (!famname[0])) {
       sptr = outname_end;
       if (calculation_type && (!(misc_flags & MISC_KEEP_AUTOCONV))) {
@@ -13242,7 +13246,13 @@ int32_t main(int32_t argc, char** argv) {
 	  free(simulate_label);
 	  simulate_label = NULL;
 	}
+      } else if (load_params & 0x380) {
+	retval = oxford_to_bed(pedname, mapname, outname, sptr, hard_call_threshold, missing_code, missing_pheno, &chrom_info);
       } else {
+	if (load_params & 0x30) {
+	  sprintf(logbuf, "Error: --bed and --bim cannot be used without --bfile or --fam.%s", errstr_append);
+	  goto main_ret_INVALID_CMDLINE_3;
+	}
         retval = ped_to_bed(pedname, mapname, outname, sptr, fam_cols, (misc_flags / MISC_AFFECTION_01) & 1, missing_pheno, &chrom_info);
 	fam_cols |= FAM_COL_1 | FAM_COL_34 | FAM_COL_5;
 	if (!(fam_cols & FAM_COL_6)) {

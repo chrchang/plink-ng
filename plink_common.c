@@ -418,14 +418,6 @@ int32_t intlen(int32_t num) {
   return retval;
 }
 
-int32_t strlen_se(char* ss) {
-  int32_t val = 0;
-  while (!is_space_or_eoln(*ss++)) {
-    val++;
-  }
-  return val;
-}
-
 int32_t strcmp_se(char* s_read, const char* s_const, uint32_t len) {
   return memcmp(s_read, s_const, len) || (!is_space_or_eoln(s_read[len]));
 }

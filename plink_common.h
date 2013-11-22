@@ -898,7 +898,7 @@ char* item_end(char* sptr);
 char* item_endl(char* sptr);
 
 // item_endl without checking if sptr == NULL
-// also assumes we are currently in an item
+// also assumes we are currently in an item -- UNSAFE OTHERWISE
 static inline char* item_endnn(char* sptr) {
   while (!is_space_or_eoln(*(++sptr)));
   return sptr;
@@ -908,7 +908,13 @@ void get_top_two(uint32_t* uint_arr, uintptr_t uia_size, uintptr_t* top_idx_ptr,
 
 int32_t intlen(int32_t num);
 
-int32_t strlen_se(char* ss);
+static inline uintptr_t strlen_se(char* ss) {
+  char* ss2 = ss;
+  while (!is_space_or_eoln(*ss2)) {
+    ss2++;
+  }
+  return (uintptr_t)(ss2 - ss);
+}
 
 int32_t strcmp_se(char* s_read, const char* s_const, uint32_t len);
 

@@ -1658,8 +1658,8 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
     }
     set_bit(already_seen, sorted_idx);
     marker_uidx = marker_id_map[((uint32_t)sorted_idx)];
-    bufptr = item_endnn(bufptr2);
-    len2 = (uintptr_t)(bufptr - bufptr2);
+    len2 = strlen_se(bufptr2);
+    bufptr = &(bufptr2[len2]);
     *bufptr = '\0';
     bufptr = skip_initial_spaces(&(bufptr[1]));
     len = strlen_se(bufptr);
@@ -1740,6 +1740,7 @@ int32_t update_marker_alleles(char* update_alleles_fname, char* sorted_marker_id
 }
 
 int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintptr_t indiv_ct, uintptr_t max_person_id_len, uint32_t* indiv_id_map, char* person_ids) {
+  // file has been pre-scanned
   unsigned char* wkspace_mark = wkspace_base;
   FILE* infile = NULL;
   int32_t retval = 0;
@@ -1799,8 +1800,9 @@ int32_t update_indiv_ids(char* update_ids_fname, char* sorted_person_ids, uintpt
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
     wptr = &(person_ids[indiv_uidx * max_person_id_len]);
     bufptr = skip_initial_spaces(&(bufptr2[len2 + 1]));
-    bufptr2 = item_endnn(bufptr);
-    wptr = memcpyax(wptr, bufptr, (uintptr_t)(bufptr2 - bufptr), '\t');
+    len = strlen_se(bufptr);
+    bufptr2 = &(bufptr[len]);
+    wptr = memcpyax(wptr, bufptr, len, '\t');
     bufptr = skip_initial_spaces(&(bufptr2[1]));
     memcpyx(wptr, bufptr, strlen_se(bufptr), '\0');
     hit_ct++;
@@ -1872,6 +1874,9 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
     len = strlen_se(bufptr);
     bufptr2 = skip_initial_spaces(&(bufptr[len + 1]));
     len2 = strlen_se(bufptr2);
+    if (!len2) {
+      goto update_indiv_parents_ret_MISSING_TOKENS;
+    }
     if (len + len2 + 2 > max_person_id_len) {
       miss_ct++;
       continue;
@@ -1895,12 +1900,18 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
     indiv_uidx = indiv_id_map[((uint32_t)sorted_idx)];
     wptr = &(paternal_ids[indiv_uidx * max_paternal_id_len]);
     bufptr = skip_initial_spaces(&(bufptr2[len2 + 1]));
-    bufptr2 = item_endnn(bufptr);
-    len = (uintptr_t)(bufptr2 - bufptr);
+    len = strlen_se(bufptr);
+    if (!len) {
+      goto update_indiv_parents_ret_MISSING_TOKENS;
+    }
+    bufptr2 = &(bufptr[len]);
     memcpyx(wptr, bufptr, len, '\0');
     wptr = &(maternal_ids[indiv_uidx * max_maternal_id_len]);
     bufptr3 = skip_initial_spaces(&(bufptr2[1]));
     len2 = strlen_se(bufptr3);
+    if (!len2) {
+      goto update_indiv_parents_ret_MISSING_TOKENS;
+    }
     memcpyx(wptr, bufptr3, len2, '\0');
     if ((len == 1) && (*bufptr == '0') && (len2 == 1) && (*bufptr3 == '0')) {
       SET_BIT(founder_info, indiv_uidx);
@@ -1929,6 +1940,8 @@ int32_t update_indiv_parents(char* update_parents_fname, char* sorted_person_ids
   update_indiv_parents_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  update_indiv_parents_ret_MISSING_TOKENS:
+    logprint("Error: Missing token(s) in --update-parents file.\n");
   update_indiv_parents_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
@@ -4720,6 +4733,418 @@ int32_t load_fam(FILE* famfile, uint32_t buflen, uint32_t fam_cols, uint32_t tmp
   *affection_ptr = affection;
   wkspace_reset(wkspace_mark);
   return 0;
+}
+
+int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outname_end, double hard_call_threshold, char* missing_code, int32_t missing_pheno, Chrom_info* chrom_info_ptr) {
+  unsigned char* wkspace_mark = wkspace_base;
+  FILE* infile = NULL;
+  FILE* outfile = NULL;
+  FILE* outfile_bim = NULL;
+  uintptr_t mc_ct = 0;
+  uintptr_t max_mc_len = 0;
+  char* sorted_mc = NULL;
+  char* tbuf2 = &(tbuf[MAXLINELEN]); // .fam write
+
+  // 0 = not present, otherwise zero-based index (this is fine since first
+  //     column has to be FID)
+  uint32_t sex_col = 0;
+
+  // load first phenotype (not covariate), if present
+  uint32_t pheno_col = 0;
+
+  uint32_t indiv_ct = 0;
+  uint32_t col_ct = 3;
+  uint32_t is_binary_pheno = 0;
+  int32_t retval = 0;
+  char missing_pheno_str[12];
+  char* loadbuf;
+  char* bufptr;
+  char* bufptr2;
+  char* wptr;
+  uintptr_t* writebuf;
+  uintptr_t loadbuf_size;
+  uintptr_t ulii;
+  uintptr_t uljj;
+  double dxx;
+  uint32_t missing_pheno_len;
+  uint32_t indiv_ctl2;
+  uint32_t col_idx;
+  char cc;
+  bufptr = int32_write(missing_pheno_str, missing_pheno);
+  missing_pheno_len = (uintptr_t)(bufptr - missing_pheno_str);
+  if (!missing_code) {
+    mc_ct = 1;
+    max_mc_len = 3;
+    if (wkspace_alloc_c_checked(&sorted_mc, 3)) {
+      goto oxford_to_bed_ret_NOMEM;
+    }
+    memcpy(sorted_mc, "NA", 3);
+  } else {
+    bufptr = missing_code;
+    while (*bufptr) {
+      while (*bufptr == ',') {
+	bufptr++;
+      }
+      if (!(*bufptr)) {
+	break;
+      }
+      mc_ct++;
+      bufptr2 = strchr(bufptr, ',');
+      if (!bufptr2) {
+        bufptr2 = strchr(bufptr, '\0');
+      }
+      ulii = (uintptr_t)(bufptr2 - bufptr);
+      if (ulii >= max_mc_len) {
+        max_mc_len = ulii + 1;
+      }
+      bufptr = bufptr2;
+    }
+    if (mc_ct) {
+      if (wkspace_alloc_c_checked(&sorted_mc, mc_ct * max_mc_len)) {
+	goto oxford_to_bed_ret_NOMEM;
+      }
+      bufptr = missing_code;
+      ulii = 0; // current missing-code index
+      do {
+        while (*bufptr == ',') {
+          bufptr++;
+	}
+        if (!(*bufptr)) {
+	  break;
+	}
+        bufptr2 = strchr(bufptr, ',');
+        if (!bufptr2) {
+	  bufptr2 = strchr(bufptr, '\0');
+	}
+	uljj = (uintptr_t)(bufptr2 - bufptr);
+        memcpyx(&(sorted_mc[ulii * max_mc_len]), bufptr, uljj, '\0');
+	bufptr = bufptr2;
+        ulii++;
+      } while (*bufptr);
+      qsort(sorted_mc, mc_ct, max_mc_len, strcmp_casted);
+    }
+  }
+  if (fopen_checked(&infile, samplename, "r")) {
+    goto oxford_to_bed_ret_OPEN_FAIL;
+  }
+  memcpy(outname_end, ".fam", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto oxford_to_bed_ret_OPEN_FAIL;
+  }
+  tbuf[MAXLINELEN - 1] = ' ';
+  do {
+    if (!fgets(tbuf, MAXLINELEN, infile)) {
+      if (ferror(infile)) {
+	goto oxford_to_bed_ret_READ_FAIL;
+      }
+      logprint("Error: Empty --data/--sample file.\n");
+      goto oxford_to_bed_ret_INVALID_FORMAT;
+    }
+    if (!tbuf[MAXLINELEN - 1]) {
+      goto oxford_to_bed_ret_SAMPLE_LONG_LINE;
+    }
+    bufptr = tbuf;
+    // enforce no-tabs
+    while (*bufptr == ' ') {
+      bufptr++;
+    }
+  } while (is_eoln_kns(*bufptr));
+  if (memcmp(bufptr, "ID_1 ", 5)) {
+    goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
+  }
+  bufptr = &(bufptr[5]);
+  while (*bufptr == ' ') {
+    bufptr++;
+  }
+  if (memcmp(bufptr, "ID_2 ", 5)) {
+    goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
+  }
+  bufptr = &(bufptr[5]);
+  while (*bufptr == ' ') {
+    bufptr++;
+  }
+  if (memcmp(bufptr, "missing", 7)) {
+    goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
+  }
+  bufptr = &(bufptr[7]);
+  while (*bufptr == ' ') {
+    bufptr++;
+  }
+  while (!is_eoln_kns(*bufptr)) {
+    bufptr2 = item_endnn(bufptr);
+    ulii = (uintptr_t)(bufptr2 - bufptr);
+    // allow "Sex", "SEX", etc.
+    if ((ulii == 3) && (tolower(bufptr[0]) == 's') && (tolower(bufptr[1]) == 'e') && (tolower(bufptr[2]) == 'x')) {
+      if (sex_col) {
+        goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1;
+      }
+      sex_col = col_ct;
+    }
+    col_ct++;
+    bufptr = bufptr2;
+    while (*bufptr == ' ') {
+      bufptr++;
+    }
+  }
+  do {
+    if (!fgets(tbuf, MAXLINELEN, infile)) {
+      if (ferror(infile)) {
+	goto oxford_to_bed_ret_READ_FAIL;
+      }
+      goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC;
+    }
+    if (!tbuf[MAXLINELEN - 1]) {
+      goto oxford_to_bed_ret_SAMPLE_LONG_LINE;
+    }
+    bufptr = tbuf;
+    while (*bufptr == ' ') {
+      bufptr++;
+    }
+  } while (is_eoln_kns(*bufptr));
+  if (memcmp(bufptr, "0 ", 2)) {
+    goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
+  }
+  bufptr = &(bufptr[2]);
+  while (*bufptr == ' ') {
+    bufptr++;
+  }
+  if (memcmp(bufptr, "0 ", 2)) {
+    goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
+  }
+  bufptr = &(bufptr[2]);
+  while (*bufptr == ' ') {
+    bufptr++;
+  }
+  if (*bufptr++ != '0') {
+    goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
+  }
+  col_idx = 3;
+  while (col_idx < col_ct) {
+    while (*bufptr == ' ') {
+      bufptr++;
+    }
+    if (is_eoln_kns(*bufptr)) {
+      logprint("Error: Second .sample header line has fewer tokens than the first.\n");
+      goto oxford_to_bed_ret_INVALID_FORMAT;
+    }
+    if (bufptr[1] > ' ') {
+      goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
+    }
+    cc = *bufptr;
+    if ((col_idx == sex_col) && (cc != 'D')) {
+      logprint("Error: .sample sex column is not of type 'D'.\n");
+      goto oxford_to_bed_ret_INVALID_FORMAT;
+    }
+    if (!pheno_col) {
+      if ((cc == 'B') || (cc == 'P')) {
+	if (sex_col > col_idx) {
+          logprint("Error: .sample phenotype column(s) should be after sex covariate.\n");
+	  goto oxford_to_bed_ret_INVALID_FORMAT;
+	}
+	pheno_col = col_idx;
+	if (cc == 'B') {
+	  // check for pathological case
+	  if (mc_ct && ((bsearch_str("0", sorted_mc, max_mc_len, 0, mc_ct - 1) == -1) || (bsearch_str("1", sorted_mc, max_mc_len, 0, mc_ct - 1) == -1))) {
+	    logprint("Error: '0' and '1' are unacceptable missing case/control phenotype codes.\n");
+	    goto oxford_to_bed_ret_INVALID_CMDLINE;
+	  }
+	  is_binary_pheno = 1;
+	}
+	break;
+      }
+    }
+    col_idx++;
+    bufptr++;
+  }
+  while (fgets(tbuf, MAXLINELEN, infile)) {
+    if (!tbuf[MAXLINELEN - 1]) {
+      goto oxford_to_bed_ret_SAMPLE_LONG_LINE;
+    }
+    bufptr = tbuf;
+    while (*bufptr == ' ') {
+      bufptr++;
+    }
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+    bufptr2 = strchr(bufptr, ' ');
+    if (!bufptr2) {
+      goto oxford_to_bed_ret_MISSING_TOKENS;
+    }
+    wptr = memcpyax(tbuf2, bufptr, bufptr2 - bufptr, '\t');
+    bufptr = &(bufptr2[1]);
+    while (*bufptr == ' ') {
+      bufptr++;
+    }
+    bufptr2 = strchr(bufptr, ' ');
+    if (!bufptr2) {
+      goto oxford_to_bed_ret_MISSING_TOKENS;
+    }
+    wptr = memcpya(wptr, bufptr, bufptr2 - bufptr);
+    wptr = memcpya(wptr, "\t0\t0\t", 5);
+    col_idx = 2;
+    bufptr = bufptr2;
+    if (sex_col) {
+      while (1) {
+	while (*bufptr == ' ') {
+	  bufptr++;
+	}
+	if (col_idx == sex_col) {
+	  break;
+	}
+        bufptr = strchr(bufptr, ' ');
+        if (!bufptr) {
+	  goto oxford_to_bed_ret_MISSING_TOKENS;
+	}
+	col_idx++;
+      }
+      cc = *bufptr++;
+      if ((cc < '0') || (cc > '2') || ((*bufptr) > ' ')) {
+	logprint("Error: Invalid sex code in .sample file.\n");
+        goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+      col_idx++;
+    } else {
+      *wptr++ = '0';
+    }
+    *wptr++ = '\t';
+    if (pheno_col) {
+      while (1) {
+        while (*bufptr == ' ') {
+	  bufptr++;
+	}
+	if (col_idx == pheno_col) {
+	  break;
+	}
+        bufptr = strchr(bufptr, ' ');
+        if (!bufptr) {
+          goto oxford_to_bed_ret_MISSING_TOKENS;
+	}
+	col_idx++;
+      }
+      bufptr2 = item_endnn(bufptr);
+      if (is_binary_pheno) {
+	cc = *bufptr;
+	if (((uintptr_t)(bufptr2 - bufptr) != 1) || ((cc != '0') && (cc != '1'))) {
+	  goto oxford_to_bed_missing_pheno;
+	} else {
+          *wptr++ = cc + 1;
+	}
+      } else {
+        *bufptr2 = '\0';
+	if ((!mc_ct) || (bsearch_str(bufptr, sorted_mc, max_mc_len, 0, mc_ct - 1) == -1)) {
+	  if (!scan_double(bufptr, &dxx)) {
+            wptr = memcpya(wptr, bufptr, bufptr2 - bufptr);
+	  } else {
+	    goto oxford_to_bed_missing_pheno;
+	  }
+	} else {
+	  goto oxford_to_bed_missing_pheno;
+	}
+      }
+    } else {
+    oxford_to_bed_missing_pheno:
+      wptr = memcpya(wptr, missing_pheno_str, missing_pheno_len);
+    }
+    *wptr++ = '\n';
+    if (fwrite_checked(tbuf2, wptr - tbuf2, outfile)) {
+      goto oxford_to_bed_ret_WRITE_FAIL;
+    }
+    indiv_ct++;
+  }
+  if (fclose_null(&infile)) {
+    goto oxford_to_bed_ret_READ_FAIL;
+  }
+  if (fclose_null(&outfile)) {
+    goto oxford_to_bed_ret_WRITE_FAIL;
+  }
+  indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
+  if (wkspace_alloc_ul_checked(&writebuf, indiv_ctl2 * sizeof(intptr_t))) {
+    goto oxford_to_bed_ret_NOMEM;
+  }
+  loadbuf_size = wkspace_left;
+  if (loadbuf_size > MAXLINEBUFLEN) {
+    loadbuf_size = MAXLINEBUFLEN;
+  } else if (loadbuf_size <= MAXLINELEN) {
+    goto oxford_to_bed_ret_NOMEM;
+  }
+  loadbuf = (char*)wkspace_base;
+  if (fopen_checked(&infile, genname, "r")) {
+    goto oxford_to_bed_ret_OPEN_FAIL;
+  }
+  memcpy(outname_end, ".bed", 5);
+  if (fopen_checked(&outfile, outname, "wb")) {
+    goto oxford_to_bed_ret_OPEN_FAIL;
+  }
+  if (fopen_checked(&outfile_bim, outname, "w")) {
+    goto oxford_to_bed_ret_OPEN_FAIL;
+  }
+  loadbuf[loadbuf_size - 1] = ' ';
+  while (fgets(loadbuf, loadbuf_size, infile)) {
+    if (!loadbuf[loadbuf_size - 1]) {
+      if (loadbuf_size == MAXLINEBUFLEN) {
+	sprintf(logbuf, "Error: Pathologically long line in %s.\n", genname);
+        goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+      goto oxford_to_bed_ret_NOMEM;
+    }
+    bufptr = skip_initial_spaces(loadbuf);
+    if (is_eoln_kns(*bufptr)) {
+      continue;
+    }
+  }
+  if (fclose_null(&infile)) {
+    goto oxford_to_bed_ret_READ_FAIL;
+  }
+  if (fclose_null(&outfile)) {
+    goto oxford_to_bed_ret_WRITE_FAIL;
+  }
+  if (fclose_null(&outfile_bim)) {
+    goto oxford_to_bed_ret_WRITE_FAIL;
+  }
+  while (0) {
+  oxford_to_bed_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  oxford_to_bed_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  oxford_to_bed_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  oxford_to_bed_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  oxford_to_bed_ret_MISSING_TOKENS:
+    logprint("Error: Too few tokens in .sample line.\n");
+    retval = RET_INVALID_FORMAT;
+    break;
+  oxford_to_bed_ret_SAMPLE_LONG_LINE:
+    logprint("Error: Pathologically long line in .sample file.\n");
+    retval = RET_INVALID_FORMAT;
+    break;
+  oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2:
+    logprint("Error: Invalid second header line in .sample file.\n");
+    retval = RET_INVALID_FORMAT;
+    break;
+  oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1:
+    logprint("Error: Invalid first header line in .sample file.\n");
+    retval = RET_INVALID_FORMAT;
+    break;
+  oxford_to_bed_ret_INVALID_FORMAT_GENERIC:
+    logprint("Error: Improperly formatted .sample file.\n");
+  oxford_to_bed_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  oxford_to_bed_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+  fclose_cond(infile);
+  fclose_cond(outfile);
+  fclose_cond(outfile_bim);
+  wkspace_reset(wkspace_mark);
+  return retval;
 }
 
 // side effect: initializes tbuf to first nonempty line of .map/.bim
@@ -10130,7 +10555,7 @@ uint32_t write_haploview_map(FILE* outfile, uintptr_t* marker_exclude, uintptr_t
   return 0;
 }
 
-int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, FILE* famfile, char* outname, char* outname_end, char* recode_allele_name, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uint32_t* marker_pos, uintptr_t* marker_reverse, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint64_t misc_flags, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
+int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* recode_allele_name, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uint32_t* marker_pos, uintptr_t* marker_reverse, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint64_t misc_flags, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -12168,23 +12593,20 @@ int32_t merge_fam_id_scan(char* bedname, char* famname, uintptr_t* max_person_id
       col1_end_ptr = item_endnn(col1_start_ptr);
       col1_len = col1_end_ptr - col1_start_ptr;
       col2_start_ptr = skip_initial_spaces(col1_end_ptr);
-      col2_end_ptr = item_endnn(col2_start_ptr);
-      col2_len = col2_end_ptr - col2_start_ptr;
+      col2_len = strlen_se(col2_start_ptr);
+      col2_end_ptr = &(col2_start_ptr[col2_len]);
       col3_start_ptr = skip_initial_spaces(col2_end_ptr);
-      col4_start_ptr = item_endnn(col3_start_ptr);
-      col3_len = col4_start_ptr - col3_start_ptr;
-      col4_start_ptr = skip_initial_spaces(col4_start_ptr);
-      col5_start_ptr = item_endnn(col4_start_ptr);
-      col4_len = col5_start_ptr - col4_start_ptr;
-      col5_start_ptr = skip_initial_spaces(col5_start_ptr);
-      col6_start_ptr = item_endnn(col5_start_ptr);
-      uii = col6_start_ptr - col5_start_ptr;
-      if (uii != 1) {
-	*col5_start_ptr = '0';
-      }
-      col6_start_ptr = skip_initial_spaces(col6_start_ptr);
+      col3_len = strlen_se(col3_start_ptr);
+      col4_start_ptr = skip_initial_spaces(&(col3_start_ptr[col3_len]));
+      col4_len = strlen_se(col4_start_ptr);
+      col5_start_ptr = skip_initial_spaces(&(col4_start_ptr[col4_len]));
+      uii = strlen_se(col5_start_ptr);
+      col6_start_ptr = skip_initial_spaces(&(col5_start_ptr[uii]));
       if (no_more_items_kns(col6_start_ptr)) {
 	goto merge_fam_id_scan_ret_INVALID_FORMAT;
+      }
+      if (uii != 1) {
+	*col5_start_ptr = '0';
       }
       *col1_end_ptr = '\t';
       *col2_end_ptr = '\t';
@@ -12888,7 +13310,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
       }
       bufptr2 = item_endnn(bufptr);
       bufptr3 = skip_initial_spaces(bufptr2);
-      bufptr4 = item_endnn(bufptr3);
+      bufptr4 = item_endnn(bufptr3); // safe since file was validated
       uii = (bufptr2 - bufptr);
       ujj = (bufptr4 - bufptr3);
       memcpyx(memcpyax(idbuf, bufptr, uii, '\t'), bufptr3, ujj, 0);
