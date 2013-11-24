@@ -601,6 +601,11 @@ typedef struct range_list_struct {
   uint32_t name_max_len;
 } Range_list;
 
+typedef union {
+  float ff;
+  int32_t ii;
+} __floatint32;
+
 uint32_t push_ll_str(Ll_str** ll_stack_ptr, const char* ss);
 
 void logstr(const char* ss);

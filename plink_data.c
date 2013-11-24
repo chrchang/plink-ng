@@ -8329,7 +8329,6 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   if (retval) {
     goto vcf_to_bed_ret_1;
   }
-
   indiv_ct4 = (indiv_ct + 3) / 4;
   indiv_ctl2 = (indiv_ct + BITCT2 - 1) / BITCT2;
   indiv_ctv2 = 2 * ((indiv_ct + BITCT - 1) / BITCT);
@@ -8384,7 +8383,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     if (ii == -1) {
       if (!allow_extra_chroms) {
 	*bufptr2 = '\0';
-        sprintf(logbuf, "\nError: Invalid chromosome code '%s' in .vcf file.\n(Use --allow-extra-chr to force it to be accepted.", bufptr);
+        sprintf(logbuf, "\nError: Invalid chromosome code '%s' in .vcf file.\n(Use --allow-extra-chr to force it to be accepted.)\n", bufptr);
 	goto vcf_to_bed_ret_INVALID_FORMAT_2;
       }
       retval = resolve_or_add_chrom_name(chrom_info_ptr, bufptr, &ii);
@@ -8691,10 +8690,76 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   return retval;
 }
 
+int32_t read_bcf_typed_string(gzFile gz_infile, char* readbuf, uint32_t maxlen, uint32_t* len_ptr) {
+  int32_t retval = 0;
+  uint32_t slen;
+  int32_t ii;
+  ii = gzgetc(gz_infile);
+  if (ii == -1) {
+    goto read_bcf_typed_string_ret_READ_OR_FORMAT_FAIL;
+  }
+  if (((uint32_t)ii) == 0xf7) {
+    ii = gzgetc(gz_infile);
+    if (ii == -1) {
+      goto read_bcf_typed_string_ret_READ_OR_FORMAT_FAIL;
+    }
+    if (ii == 0x11) {
+      ii = gzgetc(gz_infile);
+      if (ii == -1) {
+	goto read_bcf_typed_string_ret_READ_OR_FORMAT_FAIL;
+      } else if (((uint32_t)ii) > 127) {
+	goto read_bcf_typed_string_ret_INVALID_FORMAT_GENERIC;
+      }
+      slen = (uint32_t)ii;
+    } else if (ii == 0x12) {
+      slen = gzgetc(gz_infile);
+      ii = gzgetc(gz_infile);
+      if (ii == -1) {
+	goto read_bcf_typed_string_ret_READ_OR_FORMAT_FAIL;
+      } else if (((uint32_t)ii) > 127) {
+	goto read_bcf_typed_string_ret_INVALID_FORMAT_GENERIC;
+      }
+      slen += ((uint32_t)ii) << 8;
+    } else if (ii == 0x13) {
+      if (gzread(gz_infile, &slen, 4) < 4) {
+	goto read_bcf_typed_string_ret_READ_OR_FORMAT_FAIL;
+      }
+      if (slen > maxlen) {
+	logprint("Error: Excessively long typed string in .bcf file.\n");
+	goto read_bcf_typed_string_ret_INVALID_FORMAT;
+      }
+    } else {
+      goto read_bcf_typed_string_ret_INVALID_FORMAT_GENERIC;
+    }
+  } else if ((((uint32_t)ii) & 0x0f) == 0x07) {
+    slen = ((uint32_t)ii) >> 4;
+  } else if (ii) {
+    goto read_bcf_typed_string_ret_INVALID_FORMAT_GENERIC;
+  } else {
+    slen = 0;
+  }
+  *len_ptr = slen;
+  if (slen) {
+    if ((uint32_t)((uint64_t)gzread(gz_infile, readbuf, slen)) != slen) {
+      goto read_bcf_typed_string_ret_READ_OR_FORMAT_FAIL;
+    }
+  }
+  while (0) {
+  read_bcf_typed_string_ret_READ_OR_FORMAT_FAIL:
+    if (!gzeof(gz_infile)) {
+      retval = RET_READ_FAIL;
+      break;
+    }
+  read_bcf_typed_string_ret_INVALID_FORMAT_GENERIC:
+    logprint("Error: Improperly formatted .bcf file.\n");
+  read_bcf_typed_string_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  return retval;
+}
+
 int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, char* const_fid, char id_delim, double vcf_min_qual, char* vcf_filter_exceptions_flattened, Chrom_info* chrom_info_ptr) {
-  logprint("Error: --bcf is currently under development.\n");
-  return RET_CALC_NOT_YET_SUPPORTED;
-  /*
   unsigned char* wkspace_mark = wkspace_base;
   gzFile gz_infile = NULL;
   FILE* outfile = NULL;
@@ -8717,13 +8782,19 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uint32_t skip3_list = (misc_flags / MISC_BIALLELIC_ONLY_LIST) & 1;
   uint32_t vcf_filter = (misc_flags / MISC_VCF_FILTER) & 1;
   uint32_t format_ct = 0;
-  char missing_geno = *g_missing_geno_ptr;
   uint32_t marker_ct = 0;
+  uint32_t marker_skip_ct = 0;
   uint32_t indiv_ct = 0;
   int32_t retval = 0;
-  char fam_trailer[20];
+  float vcf_min_qualf = vcf_min_qual;
+  char missing_geno = *g_missing_geno_ptr;
   uint32_t bcf_var_header[8];
   Ll_str* ll_ptr;
+  uintptr_t* contig_bitfield;
+  uintptr_t* base_bitfields;
+  uintptr_t* alt_bitfield;
+  uintptr_t* ref_ptr;
+  uintptr_t* alt_ptr;
   char* loadbuf;
   char* loadbuf_end;
   char* linebuf;
@@ -8731,16 +8802,27 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   char* contigdict;
   char* bufptr;
   char* bufptr2;
-  uintptr_t fam_trailer_len;
+  char* marker_id;
+  char* allele_buf;
+  char** allele_ptrs;
+  uint32_t* allele_lens;
+  uint32_t* vcf_alt_cts;
+  uintptr_t final_mask;
+  uintptr_t max_allele_ct;
   uintptr_t slen;
+  uintptr_t ulii;
+  uint64_t lastloc;
   uint32_t indiv_ct4;
   uint32_t indiv_ctl2;
+  uint32_t indiv_ctv2;
   uint32_t header_size;
+  uint32_t marker_id_len;
+  uint32_t n_allele;
   uint32_t uii;
+  uint32_t ujj;
+  uint32_t ukk;
   int32_t ii;
-  bufptr = memcpya(fam_trailer, "\t0\t0\t0\t", 7);
-  bufptr = int32_writex(bufptr, missing_pheno, '\n');
-  fam_trailer_len = (uintptr_t)(bufptr - fam_trailer);
+  __floatint32 fi;
   if (gzopen_checked(&gz_infile, bcfname, "rb")) {
     goto bcf_to_bed_ret_OPEN_FAIL;
   }
@@ -8748,7 +8830,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     goto bcf_to_bed_ret_NOMEM;
   }
   if (gzread(gz_infile, tbuf, 5) < 5) {
-    goto bcf_to_bed_ret_READ_FAIL;
+    goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
   }
   if (memcmp(tbuf, "BCF\2", 4)) {
     sprintf(logbuf, "Error: %s is not a BCF2 file.\n", bcfname);
@@ -8756,7 +8838,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   }
   // er, is this guaranteed to be present?  specs contradict each other!
   if (gzread(gz_infile, &header_size, 4) < 4) {
-    goto bcf_to_bed_ret_READ_FAIL;
+    goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
   }
   // must have at least fileformat, GT, and one contig
   if (header_size < 96) {
@@ -8791,9 +8873,8 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     goto bcf_to_bed_ret_NOMEM;
   }
   loadbuf = (char*)wkspace_alloc(header_size + 1);
-  if (gzread(gz_infile, loadbuf, header_size) < header_size) {
-    // may want more informative error message here
-    goto bcf_to_bed_ret_READ_FAIL;
+  if ((uint32_t)((uint64_t)gzread(gz_infile, loadbuf, header_size)) != header_size) {
+    goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
   }
   if (!(*loadbuf)) {
     goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
@@ -8805,12 +8886,14 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     }
     loadbuf_end++;
     header_size = (uintptr_t)(loadbuf_end - loadbuf);
+  } else {
+    loadbuf_end = &(loadbuf[header_size]);
   }
   *loadbuf_end = '\n';
   header_size++;
   linebuf = loadbuf;
   while (1) {
-    linebuf_end = memchr(linebuf, '\n', header_size);
+    linebuf_end = (char*)memchr(linebuf, '\n', header_size);
     if (linebuf[0] != '#') {
       goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
     }
@@ -8833,7 +8916,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	uii = 1;
       } else if (fexcept_ct && (!memcmp(&(linebuf[3]), "ILTER=<ID=", 10))) {
 	bufptr = &(linebuf[13]);
-	bufptr2 = memchr(bufptr, ',', linebuf_end - bufptr);
+	bufptr2 = (char*)memchr(bufptr, ',', linebuf_end - bufptr);
 	if (bufptr2 == linebuf_end) {
 	  goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
 	}
@@ -8849,7 +8932,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       }
     } else if (!memcmp(&(linebuf[2]), "contig=<ID=", 11)) {
       bufptr = &(linebuf[13]);
-      bufptr2 = memchr(bufptr, ',', linebuf_end - bufptr);
+      bufptr2 = (char*)memchr(bufptr, ',', linebuf_end - bufptr);
       if (bufptr2 == linebuf_end) {
 	goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
       }
@@ -8882,36 +8965,41 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   if (memcmp(linebuf, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t", 46)) {
     goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
   }
-  bufptr = &(linebuf[46]);
-  memcpy(outname_end, ".fam", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto bcf_to_bed_ret_OPEN_FAIL;
+  *linebuf_end = '\0';
+  retval = vcf_sample_line(outname, outname_end, missing_pheno, &(linebuf[46]), const_fid, double_id, id_delim, 'b', &ulii);
+  if (retval) {
+    goto bcf_to_bed_ret_1;
   }
-  if (const_fid) {
-    const_fid_len = strlen(const_fid);
-  } else if ((!double_id) && (!id_delim)) {
-    double_id = 1;
-    id_delim = ' ';
-  }
-  while (1) {
-
-    indiv_ct++;
-  }
-  if (!indiv_ct) {
-    logprint("Error: No samples in .bcf file.\n");
-    goto bcf_to_bed_ret_INVALID_FORMAT;
-  }
+  indiv_ct = ulii;
   indiv_ct4 = (indiv_ct + 3) / 4;
   indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
+  indiv_ctv2 = 2 * ((indiv_ct + (BITCT - 1)) / BITCT);
   wkspace_reset((unsigned char*)loadbuf);
   wkspace_left -= topsize;
-  if (wkspace_alloc_c_checked(&contigdict, contig_ct * max_contig_len)) {
+  ulii = (contig_ct + (BITCT - 1)) / BITCT;
+  if (wkspace_alloc_ul_checked(&contig_bitfield, ulii * sizeof(intptr_t)) ||
+      wkspace_alloc_c_checked(&contigdict, contig_ct * max_contig_len)) {
     goto bcf_to_bed_ret_NOMEM2;
   }
+  fill_ulong_zero(contig_bitfield, ulii);
   ulii = contig_ct;
   do {
     ulii--;
-    strcpy(&(contigdict[ulii * max_contig_len]), contig_list->ss);
+    ii = get_chrom_code(chrom_info_ptr, contig_list->ss);
+    if (ii == -1) {
+      if (!allow_extra_chroms) {
+	sprintf(logbuf, "Error: Invalid contig ID '%s' defined in .bcf file.\n(Use --allow-extra-chr to force it to be accepted.)\n", contig_list->ss);
+	goto bcf_to_bed_ret_INVALID_FORMAT_2;
+      }
+      retval = resolve_or_add_chrom_name(chrom_info_ptr, contig_list->ss, &ii);
+      if (retval) {
+        goto bcf_to_bed_ret_1;
+      }
+    }
+    if (is_set(chrom_info_ptr->chrom_mask, ii)) {
+      set_bit(contig_bitfield, ii);
+      strcpy(&(contigdict[ulii * max_contig_len]), contig_list->ss);
+    }
     contig_list = contig_list->next;
   } while (ulii);
   if (fexcept_ct) {
@@ -8927,21 +9015,128 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   }
   wkspace_left += topsize;
   // topsize = 0;
-  // now process #CHROM... line
 
-  // ...
+  final_mask = (~ZEROLU) >> (2 * ((0x7fffffe0 - indiv_ct) % BITCT2));
+  if (wkspace_alloc_c_checked(&marker_id, 65536) ||
+      wkspace_alloc_c_checked(&allele_buf, NON_WKSPACE_MIN) ||
+      wkspace_alloc_ui_checked(&allele_lens, 65535 * sizeof(int32_t)) ||
+      wkspace_alloc_ui_checked(&vcf_alt_cts, MAX_VCF_ALT * sizeof(int32_t))) {
+    goto bcf_to_bed_ret_NOMEM;
+  }
+  allele_ptrs = (char**)wkspace_alloc(65535 * sizeof(intptr_t));
+  if (!allele_ptrs) {
+    goto bcf_to_bed_ret_NOMEM;
+  }
+  max_allele_ct = wkspace_left / (indiv_ctv2 * sizeof(intptr_t));
+  if (max_allele_ct < 3) {
+    goto bcf_to_bed_ret_NOMEM;
+  } else if (max_allele_ct > 65535) {
+    max_allele_ct = 65535;
+  }
+  base_bitfields = (uintptr_t*)wkspace_alloc(indiv_ctv2 * max_allele_ct * sizeof(intptr_t));
+  memcpy(outname_end, ".bim", 5);
+  if (fopen_checked(&bimfile, outname, "w")) {
+    goto bcf_to_bed_ret_OPEN_FAIL;
+  }
+  memcpy(outname_end, ".bed", 5);
+  if (fopen_checked(&outfile, outname, "wb")) {
+    goto bcf_to_bed_ret_OPEN_FAIL;
+  }
+  if (fwrite_checked("l\x1b\x01", 3, outfile)) {
+    goto bcf_to_bed_ret_WRITE_FAIL;
+  }
   while (1) {
+    lastloc = gztell(gz_infile);
     if (gzread(gz_infile, bcf_var_header, 32) < 32) {
-      if (gzeof(gzfile)) {
-	break;
+      break;
+    }
+    if (bcf_var_header[0] <= 32) {
+      goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+    }
+    if (!is_set(contig_bitfield, bcf_var_header[0])) {
+      goto bcf_to_bed_marker_skip;
+    }
+    if (check_qual) {
+      if (bcf_var_header[5] == 0x7f800001) {
+        goto bcf_to_bed_marker_skip;
       }
+      fi.ii = bcf_var_header[5];
+      if (fi.ii < vcf_min_qualf) {
+	goto bcf_to_bed_marker_skip;
+      }
+    }
+    retval = read_bcf_typed_string(gz_infile, marker_id, 65535, &marker_id_len);
+    if (retval) {
+      goto bcf_to_bed_ret_1;
+    }
+    if (!marker_id_len) {
+      logprint("Error: Missing variant ID.\n");
       goto bcf_to_bed_ret_INVALID_FORMAT;
     }
-    
+    n_allele = bcf_var_header[6] >> 16;
+    if (!n_allele) {
+      // skip instead of error out on zero alleles?
+      goto bcf_to_bed_marker_skip;
+    }
+    if (biallelic_strict && (n_allele > 2)) {
+      goto bcf_to_bed_skip3;
+    }
+    if (n_allele > max_allele_ct) {
+      goto bcf_to_bed_ret_NOMEM;
+    }
+    ujj = NON_WKSPACE_MIN; // remaining allele name buffer space
+    bufptr = allele_buf;
+    for (uii = 0; uii < n_allele; uii++) {
+      retval = read_bcf_typed_string(gz_infile, bufptr, ujj, &ukk);
+      if (retval) {
+	goto bcf_to_bed_ret_1;
+      }
+      if ((!uii) && (!ukk)) {
+	// skip instead of error out on missing ref allele?
+        goto bcf_to_bed_marker_skip;
+      }
+      allele_lens[uii] = ukk;
+      allele_ptrs[uii] = bufptr;
+      bufptr = &(bufptr[ukk]);
+    }
+    continue;
+  bcf_to_bed_skip3:
+    if ((!marker_skip_ct) && skip3_list) {
+      memcpy(outname_end, ".skip.3allele", 14);
+      if (fopen_checked(&skip3file, outname, "w")) {
+	goto bcf_to_bed_ret_OPEN_FAIL;
+      }
+      memcpy(outname_end, ".bed", 5);
+    }
+    fwrite(marker_id, 1, marker_id_len, skip3file);
+    if (putc_checked('\n', skip3file)) {
+      goto bcf_to_bed_ret_OPEN_FAIL;
+    }
+  bcf_to_bed_marker_skip:
+    marker_skip_ct++;
+    gzseek(gz_infile, (lastloc + bcf_var_header[0]) + bcf_var_header[1], SEEK_SET);
   }
   if (!marker_ct) {
     logprint("Error: No variants in .bcf file.\n");
     goto bcf_to_bed_ret_INVALID_FORMAT;
+  }
+  if (gzclose(gz_infile) != Z_OK) {
+    gz_infile = NULL;
+    goto bcf_to_bed_ret_READ_FAIL;
+  }
+  gz_infile = NULL;
+  if (fclose_null(&bimfile)) {
+    goto bcf_to_bed_ret_WRITE_FAIL;
+  }
+  if (fclose_null(&outfile)) {
+    goto bcf_to_bed_ret_WRITE_FAIL;
+  }
+  putchar('\r');
+  sprintf(logbuf, "--bcf: %s + .bim + .fam written.\n", outname);
+  logprintb();
+  if (marker_skip_ct) {
+    sprintf(logbuf, "(%u variant%s skipped.)\n", marker_skip_ct, (marker_skip_ct == 1)? "" : "s");
+    logprintb();
   }
   while (0) {
   bcf_to_bed_ret_NOMEM2:
@@ -8952,8 +9147,15 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   bcf_to_bed_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
+  bcf_to_bed_ret_READ_OR_FORMAT_FAIL:
+    if (gzeof(gz_infile)) {
+      goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+    }
   bcf_to_bed_ret_READ_FAIL:
     retval = RET_READ_FAIL;
+    break;
+  bcf_to_bed_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
     break;
   bcf_to_bed_ret_INVALID_FORMAT_GENERIC:
     logprint("Error: Improperly formatted .bcf file.\n");
@@ -8972,7 +9174,6 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   fclose_cond(skip3file);
   wkspace_reset(wkspace_mark);
   return retval;
-  */
 }
 
 void announce_make_xylist_complete(uint32_t markers_left, char* outname, char* outname_end) {
