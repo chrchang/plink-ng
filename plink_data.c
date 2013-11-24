@@ -8518,9 +8518,13 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  if ((cc != '/') && (cc != '|')) {
 	    set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2 + 1);
 	  } else {
-	    set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2);
-	    ulii = ((unsigned char)bufptr[2]) - '0';
-	    base_bitfields[ulii * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+	    cc = bufptr[3];
+	    if ((cc != '/') && (cc != '|')) {
+	      // code triploids, etc. as missing
+	      set_bit_ul(&(base_bitfields[ulii * indiv_ctv2]), indiv_idx * 2);
+	      ulii = ((unsigned char)bufptr[2]) - '0';
+	      base_bitfields[ulii * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+	    }
 	  }
 	}
 	alt_allele_idx = 1;
@@ -8690,6 +8694,52 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   return retval;
 }
 
+int32_t read_bcf_typed_integer(gzFile gz_infile, uint32_t* int_ptr) {
+  int32_t retval = 0;
+  int32_t ii = gzgetc(gz_infile);
+  uint32_t uii;
+  if (ii == -1) {
+    goto read_bcf_typed_integer_ret_READ_OR_FORMAT_FAIL;
+  }
+  if (ii == 0x11) {
+    ii = gzgetc(gz_infile);
+    if (ii == -1) {
+      goto read_bcf_typed_integer_ret_READ_OR_FORMAT_FAIL;
+    } else if (((uint32_t)ii) > 127) {
+      goto read_bcf_typed_integer_ret_INVALID_FORMAT_GENERIC;
+    }
+    *int_ptr = (uint32_t)ii;
+  } else if (ii == 0x12) {
+    uii = gzgetc(gz_infile);
+    ii = gzgetc(gz_infile);
+    if (ii == -1) {
+      goto read_bcf_typed_integer_ret_READ_OR_FORMAT_FAIL;
+    } else if (((uint32_t)ii) > 127) {
+      goto read_bcf_typed_integer_ret_INVALID_FORMAT_GENERIC;
+    }
+    *int_ptr = uii | (((uint32_t)ii) << 8);
+  } else if (ii == 0x13) {
+    if (gzread(gz_infile, int_ptr, 4) < 4) {
+      goto read_bcf_typed_integer_ret_READ_OR_FORMAT_FAIL;
+    }
+  } else {
+    goto read_bcf_typed_integer_ret_INVALID_FORMAT_GENERIC;
+  }
+  while (0) {
+  read_bcf_typed_integer_ret_READ_OR_FORMAT_FAIL:
+    if (!gzeof(gz_infile)) {
+      retval = RET_READ_FAIL;
+      break;
+    }
+  read_bcf_typed_integer_ret_INVALID_FORMAT_GENERIC:
+    logprint("Error: Improperly formatted .bcf file.\n");
+  read_bcf_typed_integer_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  return retval;
+}
+
 int32_t read_bcf_typed_string(gzFile gz_infile, char* readbuf, uint32_t maxlen, uint32_t* len_ptr) {
   int32_t retval = 0;
   uint32_t slen;
@@ -8699,37 +8749,13 @@ int32_t read_bcf_typed_string(gzFile gz_infile, char* readbuf, uint32_t maxlen, 
     goto read_bcf_typed_string_ret_READ_OR_FORMAT_FAIL;
   }
   if (((uint32_t)ii) == 0xf7) {
-    ii = gzgetc(gz_infile);
-    if (ii == -1) {
-      goto read_bcf_typed_string_ret_READ_OR_FORMAT_FAIL;
+    retval = read_bcf_typed_integer(gz_infile, &slen);
+    if (retval) {
+      goto read_bcf_typed_string_ret_1;
     }
-    if (ii == 0x11) {
-      ii = gzgetc(gz_infile);
-      if (ii == -1) {
-	goto read_bcf_typed_string_ret_READ_OR_FORMAT_FAIL;
-      } else if (((uint32_t)ii) > 127) {
-	goto read_bcf_typed_string_ret_INVALID_FORMAT_GENERIC;
-      }
-      slen = (uint32_t)ii;
-    } else if (ii == 0x12) {
-      slen = gzgetc(gz_infile);
-      ii = gzgetc(gz_infile);
-      if (ii == -1) {
-	goto read_bcf_typed_string_ret_READ_OR_FORMAT_FAIL;
-      } else if (((uint32_t)ii) > 127) {
-	goto read_bcf_typed_string_ret_INVALID_FORMAT_GENERIC;
-      }
-      slen += ((uint32_t)ii) << 8;
-    } else if (ii == 0x13) {
-      if (gzread(gz_infile, &slen, 4) < 4) {
-	goto read_bcf_typed_string_ret_READ_OR_FORMAT_FAIL;
-      }
-      if (slen > maxlen) {
-	logprint("Error: Excessively long typed string in .bcf file.\n");
-	goto read_bcf_typed_string_ret_INVALID_FORMAT;
-      }
-    } else {
-      goto read_bcf_typed_string_ret_INVALID_FORMAT_GENERIC;
+    if (slen > maxlen) {
+      logprint("Error: Excessively long typed string in .bcf file.\n");
+      goto read_bcf_typed_string_ret_INVALID_FORMAT;
     }
   } else if ((((uint32_t)ii) & 0x0f) == 0x07) {
     slen = ((uint32_t)ii) >> 4;
@@ -8756,6 +8782,7 @@ int32_t read_bcf_typed_string(gzFile gz_infile, char* readbuf, uint32_t maxlen, 
     retval = RET_INVALID_FORMAT;
     break;
   }
+ read_bcf_typed_string_ret_1:
   return retval;
 }
 
@@ -8781,7 +8808,9 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uint32_t biallelic_strict = (misc_flags / MISC_BIALLELIC_ONLY_STRICT) & 1;
   uint32_t skip3_list = (misc_flags / MISC_BIALLELIC_ONLY_LIST) & 1;
   uint32_t vcf_filter = (misc_flags / MISC_VCF_FILTER) & 1;
+  uint32_t filter_ct = 0;
   uint32_t format_ct = 0;
+  uint32_t gt_idx = 0xffffffffU;
   uint32_t marker_ct = 0;
   uint32_t marker_skip_ct = 0;
   uint32_t indiv_ct = 0;
@@ -8807,11 +8836,16 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   char** allele_ptrs;
   uint32_t* allele_lens;
   uint32_t* vcf_alt_cts;
+  uint32_t* uiptr;
+  uint16_t* ui16ptr;
+  unsigned char* ucptr;
   uintptr_t final_mask;
   uintptr_t max_allele_ct;
   uintptr_t slen;
   uintptr_t ulii;
   uint64_t lastloc;
+  uint64_t ullii;
+  uint64_t ulljj;
   uint32_t indiv_ct4;
   uint32_t indiv_ctl2;
   uint32_t indiv_ctv2;
@@ -8821,8 +8855,15 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
+  uint32_t umm;
   int32_t ii;
+  uint16_t uii16;
+  uint16_t ujj16;
+  unsigned char ucc;
+  unsigned char ucc2;
   __floatint32 fi;
+  // todo: check if a specialized bgzf reader can do faster forward seeks when
+  // we don't have precomputed virtual offsets
   if (gzopen_checked(&gz_infile, bcfname, "rb")) {
     goto bcf_to_bed_ret_OPEN_FAIL;
   }
@@ -8836,7 +8877,6 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     sprintf(logbuf, "Error: %s is not a BCF2 file.\n", bcfname);
     goto bcf_to_bed_ret_INVALID_FORMAT_2;
   }
-  // er, is this guaranteed to be present?  specs contradict each other!
   if (gzread(gz_infile, &header_size, 4) < 4) {
     goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
   }
@@ -8868,7 +8908,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     fill_uint_zero(fexcept_idxs, fexcept_ct);
   }
   uii = 0; // genotype field present?
-  format_ct = 1; // INFO string dictionary index
+  filter_ct = 1; // FILTER string dictionary index
   if (wkspace_left - topsize <= header_size) {
     goto bcf_to_bed_ret_NOMEM;
   }
@@ -8904,16 +8944,19 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
     }
     if (linebuf[2] == 'F') {
-      if (!memcmp(&(linebuf[3]), "ORMAT=<ID=GT,", 13)) {
-	if (uii) {
-	  logprint("Error: Duplicate GT format specifier in .bcf file.\n");
-	  goto bcf_to_bed_ret_INVALID_FORMAT;
+      if (!memcmp(&(linebuf[3]), "ORMAT=<ID=", 10)) {
+	if (!memcmp(&(linebuf[13]), "GT,", 3)) {
+	  if (uii) {
+	    logprint("Error: Duplicate GT format specifier in .bcf file.\n");
+	    goto bcf_to_bed_ret_INVALID_FORMAT;
+	  }
+	  if (memcmp(&(linebuf[16]), "Number=1,Type=String,Description=\"Genotype\">", 44) || (linebuf[60] > ' ')) {
+	    logprint("Error: Unrecognized GT field format in .bcf file.\n");
+	    goto bcf_to_bed_ret_INVALID_FORMAT;
+	  }
+	  gt_idx = format_ct;
 	}
-	if (memcmp(&(linebuf[16]), "Number=1,Type=String,Description=\"Genotype\">", 44) || (linebuf[60] > ' ')) {
-	  logprint("Error: Unrecognized GT field format in .bcf file.\n");
-          goto bcf_to_bed_ret_INVALID_FORMAT;
-	}
-	uii = 1;
+	format_ct++;
       } else if (fexcept_ct && (!memcmp(&(linebuf[3]), "ILTER=<ID=", 10))) {
 	bufptr = &(linebuf[13]);
 	bufptr2 = (char*)memchr(bufptr, ',', linebuf_end - bufptr);
@@ -8926,9 +8969,9 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
           if (fexcept_idxs[(uint32_t)ii]) {
 	    goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
 	  }
-          fexcept_idxs[(uint32_t)ii] = format_ct;
+          fexcept_idxs[(uint32_t)ii] = filter_ct;
 	}
-	format_ct++;
+	filter_ct++;
       }
     } else if (!memcmp(&(linebuf[2]), "contig=<ID=", 11)) {
       bufptr = &(linebuf[13]);
@@ -8954,7 +8997,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
     }
   }
-  if (!uii) {
+  if (gt_idx == 0xffffffffU) {
     logprint("Error: No GT field in .bcf header.\n");
     goto bcf_to_bed_ret_INVALID_FORMAT;
   }
@@ -9002,14 +9045,15 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     }
     contig_list = contig_list->next;
   } while (ulii);
-  if (fexcept_ct) {
-    uii = (format_ct + (BITCT - 1)) / BITCT;
+  if (vcf_filter) {
+    uii = (filter_ct + (BITCT - 1)) / BITCT;
     if (wkspace_alloc_ul_checked(&fexcept_bitfield, uii * sizeof(intptr_t))) {
       goto bcf_to_bed_ret_NOMEM2;
     }
     fill_ulong_zero(fexcept_bitfield, uii);
     fexcept_bitfield[0] = 1; // 'PASS'
     for (ulii = 0; ulii < fexcept_ct; ulii++) {
+      // fexcept_idxs[] not dereferenced if --vcf-filter had no parameters
       SET_BIT(fexcept_bitfield, fexcept_idxs[ulii]);
     }
   }
@@ -9017,7 +9061,8 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   // topsize = 0;
 
   final_mask = (~ZEROLU) >> (2 * ((0x7fffffe0 - indiv_ct) % BITCT2));
-  if (wkspace_alloc_c_checked(&marker_id, 65536) ||
+  if (wkspace_alloc_c_checked(&loadbuf, indiv_ct * 8) ||
+      wkspace_alloc_c_checked(&marker_id, 65536) ||
       wkspace_alloc_c_checked(&allele_buf, NON_WKSPACE_MIN) ||
       wkspace_alloc_ui_checked(&allele_lens, 65535 * sizeof(int32_t)) ||
       wkspace_alloc_ui_checked(&vcf_alt_cts, MAX_VCF_ALT * sizeof(int32_t))) {
@@ -9050,10 +9095,10 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     if (gzread(gz_infile, bcf_var_header, 32) < 32) {
       break;
     }
-    if (bcf_var_header[0] <= 32) {
+    if ((bcf_var_header[0] <= 32) || (bcf_var_header[2] >= contig_ct)) {
       goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
     }
-    if (!is_set(contig_bitfield, bcf_var_header[0])) {
+    if ((!bcf_var_header[1]) || (!is_set(contig_bitfield, bcf_var_header[2]))) {
       goto bcf_to_bed_marker_skip;
     }
     if (check_qual) {
@@ -9099,6 +9144,191 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       allele_ptrs[uii] = bufptr;
       bufptr = &(bufptr[ukk]);
     }
+    if (vcf_filter) {
+      ii = gzgetc(gz_infile);
+      if (ii == -1) {
+	goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
+      } else {
+	ujj = ((uint32_t)ii) >> 4;
+	if (ujj == 15) {
+          retval = read_bcf_typed_integer(gz_infile, &ujj);
+	  if (retval) {
+	    goto bcf_to_bed_ret_1;
+	  }
+	}
+	if (ujj) {
+	  uii = ((uint32_t)ii) & 0x0f;
+	  if ((uii < 1) || (uii > 3)) {
+	    goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+	  }
+	  if (uii == 1) {
+	    if (ujj > 256) {
+	      goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+	    }
+	    ucptr = (unsigned char*)tbuf;
+	    if (gzread(gz_infile, ucptr, ujj) < ujj) {
+	      goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
+	    }
+	    for (ukk = 0; ukk < ujj; ukk++) {
+	      if (ucptr[ukk] >= filter_ct) {
+		goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+	      }
+	      if (!is_set(fexcept_bitfield, ucptr[ukk])) {
+		goto bcf_to_bed_marker_skip;
+	      }
+	    }
+	  } else if (uii == 2) {
+	    if (ujj > 65536) {
+	      goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+	    }
+            ui16ptr = (uint16_t*)tbuf;
+	    if (gzread(gz_infile, ui16ptr, ujj * sizeof(int16_t)) < ujj * sizeof(int16_t)) {
+	      goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
+	    }
+	    for (ukk = 0; ukk < ujj; ukk++) {
+	      if (ui16ptr[ukk] >= filter_ct) {
+		goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+	      }
+	      if (!is_set(fexcept_bitfield, ui16ptr[ukk])) {
+		goto bcf_to_bed_marker_skip;
+	      }
+	    }
+	  } else {
+	    // a bit more care required to avoid buffer overflow, if for some
+	    // reason there are more than 32k filters...
+            uiptr = (uint32_t*)tbuf;
+	    do {
+	      if (ujj > (MAXLINELEN / sizeof(int32_t))) {
+		ukk = MAXLINELEN / sizeof(int32_t);
+	      } else {
+		ukk = ujj;
+	      }
+	      if (gzread(gz_infile, uiptr, ukk * sizeof(int32_t)) < ukk * sizeof(int32_t)) {
+		goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
+	      }
+              for (umm = 0; umm < ukk; umm++) {
+		if (uiptr[umm] >= filter_ct) {
+		  goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+		}
+                if (!is_set(fexcept_bitfield, uiptr[umm])) {
+		  goto bcf_to_bed_marker_skip;
+		}
+	      }
+	      ujj -= ukk;
+	    } while (ujj);
+	  }
+	}
+      }
+    }
+    // skip INFO
+    ullii = lastloc + bcf_var_header[0];
+    if (gzseek(gz_infile, ullii, SEEK_SET) == -1) {
+      goto bcf_to_bed_ret_READ_FAIL;
+    }
+
+    ullii += bcf_var_header[1];
+    while (1) {
+      retval = read_bcf_typed_integer(gz_infile, &uii);
+      if (retval) {
+	goto bcf_to_bed_ret_1;
+      }
+      ii = gzgetc(gz_infile);
+      if (ii == -1) {
+	goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
+      }
+      ujj = ((uint32_t)ii) >> 4;
+      if (ujj == 15) {
+	retval = read_bcf_typed_integer(gz_infile, &ujj);
+	if (retval) {
+	  goto bcf_to_bed_ret_1;
+	}
+      }
+      if (ujj) {
+        ukk = ((uint32_t)ii) & 0x0f;
+	if ((ukk == 3) || (ukk == 5)) {
+	  umm = 4; // int32, float = 4 bytes
+	} else if (ukk && (ukk > 2)) {
+	  logprint("Error: Unrecognized type in .bcf file.\n");
+	  goto bcf_to_bed_ret_INVALID_FORMAT;
+	} else {
+	  umm = ukk;
+	}
+      }
+      ulljj = gztell(gz_infile) + ujj * umm * indiv_ct;
+      // uii = format code
+      // ujj = vector length
+      // ukk = type code
+      // umm = bytes per entry
+      if (ulljj > ullii) {
+	goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+      }
+      if (uii == gz_idx) {
+	break;
+      }
+      if (ujj) {
+	if (gzseek(gz_infile, ujj * umm * indiv_ct, SEEK_CUR) == -1) {
+	  goto bcf_to_bed_ret_READ_FAIL;
+	}
+	if (ulljj == ullii) {
+	  goto bcf_to_bed_marker_skip2;
+	}
+      }
+    }
+    if (!ujj) {
+      goto bcf_to_bed_marker_skip;
+    }
+    if (ukk == 5) {
+      logprint("Error: GT field cannot contain floating point values.\n");
+      goto bcf_to_bed_ret_INVALID_FORMAT;
+    }
+    if (ujj * umm > 8) {
+      // 8 = 8-ploid, or tetraploid and >= 127 alleles, or diploid and >= 32767
+      // alleles.  this is pretty darn generous.
+      logprint("Error: --bcf does not support GT vectors requiring >8 bytes per sample.\n");
+      goto bcf_to_bed_ret_INVALID_FORMAT;
+    }
+    if (gzread(gz_infile, loadbuf, ujj * umm * indiv_ct) < ujj * umm * indiv_ct) {
+      goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
+    }
+    fill_ulong_zero(base_bitfields, n_allele * indiv_ctv2);
+    if (ukk == 1) {
+      ucptr = (unsigned char*)loadbuf;
+      if (ujj == 2) {
+	for (uii = 0; uii < indiv_ct; uii++, ucptr++) {
+	  // discard all phase bits for now
+	  ujj = (*ucptr++) >> 1;
+	  if (ujj) {
+            ukk = (*ucptr) >> 1;
+	    if (!ukk) {
+              // could be male X.  don't validate for now
+	      ukk = ujj;
+	    }
+	    if (ujj == 1) {
+	    } else {
+	    }
+	  }
+	}
+      } else if (ujj == 1) {
+	for (uii = 0; uii < indiv_ct; uii++, ucptr++) {
+	  ucc = *ucptr;
+	  if (ucc) {
+	  }
+	}
+      } else {
+	for (uii = 0; uii < indiv_ct; uii++) {
+	  if (ucptr[2]) {
+	    ucptr = &(ucptr[ujj]);
+	  } else {
+
+	  }
+	}
+      }
+    } else if (ukk == 2) {
+      ui16ptr = (uint16_t*)loadbuf;
+    } else {
+      uiptr = (uint32_t*)loadbuf;
+    }
+
     continue;
   bcf_to_bed_skip3:
     if ((!marker_skip_ct) && skip3_list) {
@@ -9113,8 +9343,11 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       goto bcf_to_bed_ret_OPEN_FAIL;
     }
   bcf_to_bed_marker_skip:
+    if (gzseek(gz_infile, (lastloc + bcf_var_header[0]) + bcf_var_header[1], SEEK_SET) == -1) {
+      goto bcf_to_bed_ret_READ_FAIL;
+    }
+  bcf_to_bed_marker_skip2:
     marker_skip_ct++;
-    gzseek(gz_infile, (lastloc + bcf_var_header[0]) + bcf_var_header[1], SEEK_SET);
   }
   if (!marker_ct) {
     logprint("Error: No variants in .bcf file.\n");
@@ -9676,8 +9909,6 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
   uint32_t ukk;
   uint32_t pct;
   uint32_t loop_end;
-  unsigned char ucc;
-  unsigned char ucc2;
   unsigned char bmap[320];
   unsigned char* bmap2;
   uint64_t ullii;
