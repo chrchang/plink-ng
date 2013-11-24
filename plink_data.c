@@ -1213,7 +1213,6 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   fclose_cond(bimfile);
   free_cond(sf_pos);
   free_cond(loadbuf2);
-  printf("step 4\n");
   return retval;
 }
 
@@ -5166,21 +5165,32 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     } while (*bufptr == ' ');
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
       // fast handling of common cases
-      if (!memcmp(bufptr, "0 0 1 ", 6)) {
-	// originally was " 0 0 1", which isn't slower on the last individual,
-	// but unfortunately that can break on something like "0 0 0.9999"...
-	ulii = 3;
-	bufptr = &(bufptr[6]);
-      } else if (!memcmp(bufptr, "0 1 0 ", 6)) {
-	ulii = 2;
-	bufptr = &(bufptr[6]);
-      } else if (!memcmp(bufptr, "1 0 0 ", 6)) {
-	ulii = 0;
-	bufptr = &(bufptr[6]);
-      } else if (!memcmp(bufptr, "0 0 0 ", 6)) {
-        ulii = 1;
-	bufptr = &(bufptr[6]);
+      if (bufptr[1] == ' ') {
+	if (*bufptr == '0') {
+	  bufptr2 = &(bufptr[2]);
+	  if (!memcmp(bufptr2, "0 1 ", 4)) {
+	    ulii = 3;
+	    bufptr = &(bufptr2[4]);
+	  } else if (!memcmp(bufptr2, "1 0 ", 4)) {
+	    ulii = 2;
+	    bufptr = &(bufptr2[4]);
+	  } else if (!memcmp(bufptr2, "0 0 ", 4)) {
+	    ulii = 1;
+	    bufptr = &(bufptr2[4]);
+	  } else {
+	    while (*bufptr2 == ' ') {
+	      bufptr2++;
+	    }
+	    goto oxford_to_bed_full_parse_2;
+	  }
+	} else if (!memcmp(bufptr, "1 0 0 ", 6)) {
+	  ulii = 0;
+	  bufptr = &(bufptr[6]);
+	} else {
+	  goto oxford_to_bed_full_parse;
+	}
       } else {
+      oxford_to_bed_full_parse:
 	// okay, gotta do things the slow way
 	while (*bufptr == ' ') {
 	  bufptr++;
@@ -5192,6 +5202,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	do {
 	  bufptr2++;
 	} while (*bufptr2 == ' ');
+      oxford_to_bed_full_parse_2:
 	bufptr3 = strchr(bufptr2, ' ');
 	if (!bufptr3) {
 	  goto oxford_to_bed_ret_INVALID_FORMAT_GENERIC_GEN;
@@ -5282,7 +5293,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     }
     marker_ct++;
     if (!(marker_ct % 1000)) {
-      printf("\r--data: %u variants processed.", marker_ct);
+      printf("\r--data: %uk variants processed.", marker_ct / 1000);
       fflush(stdout);
     }
   }
@@ -8060,6 +8071,123 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   return retval;
 }
 
+int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno, char* bufptr, char* const_fid, uint32_t double_id, char id_delim, char flag_char, uintptr_t* indiv_ct_ptr) {
+  FILE* outfile = NULL;
+  uintptr_t const_fid_len = 0;
+  uintptr_t indiv_ct = 0;
+  int32_t retval = 0;
+  char fam_trailer[20];
+  uintptr_t fam_trailer_len;
+  char* bufptr2;
+  char* bufptr3;
+  char* wptr;
+  uintptr_t slen;
+  bufptr2 = memcpya(fam_trailer, "\t0\t0\t0\t", 7);
+  bufptr2 = int32_writex(bufptr2, missing_pheno, '\n');
+  fam_trailer_len = (uintptr_t)(bufptr2 - fam_trailer);
+
+  memcpy(outname_end, ".fam", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto vcf_sample_line_ret_OPEN_FAIL;
+  }
+  if (const_fid) {
+    const_fid_len = strlen(const_fid);
+  } else if ((!double_id) && (!id_delim)) {
+    // default: --double-id + --id-delim
+    double_id = 1;
+    id_delim = '_';
+  }
+  do {
+    indiv_ct++;
+    bufptr2 = strchr(bufptr, '\t');
+    if (bufptr2) {
+      slen = (uintptr_t)(bufptr2 - bufptr);
+    } else {
+      slen = strlen_se(bufptr);
+      bufptr2 = &(bufptr[slen]);
+    }
+    if (slen > 65535) {
+      sprintf(logbuf, "Error: --%ccf does not support sample IDs longer than 65535 characters.\n", flag_char);
+      goto vcf_sample_line_ret_INVALID_FORMAT_2;
+    }
+    if ((*bufptr == '0') && (slen == 1)) {
+      logprint("Error: Sample ID cannot be '0'.\n");
+      goto vcf_sample_line_ret_INVALID_FORMAT;
+    }
+    if (id_delim) {
+      if (*bufptr == id_delim) {
+	sprintf(logbuf, "Error: '%c' at beginning of sample ID.\n", id_delim);
+	goto vcf_sample_line_ret_INVALID_FORMAT_2;
+      } else if (bufptr[slen - 1] == id_delim) {
+	sprintf(logbuf, "Error: '%c' at end of sample ID.\n", id_delim);
+	goto vcf_sample_line_ret_INVALID_FORMAT_2;
+      }
+      bufptr3 = (char*)memchr(bufptr, (unsigned char)id_delim, slen);
+      if (!bufptr3) {
+	if (double_id) {
+	  goto vcf_sample_line_double_id;
+	} else if (const_fid) {
+	  goto vcf_sample_line_const_id;
+	} else {
+	  sprintf(logbuf, "Error: No '%c' in sample ID.\n", id_delim);
+	  goto vcf_sample_line_ret_INVALID_FORMAT_2;
+	}
+      }
+      if (memchr(&(bufptr3[1]), (unsigned char)id_delim, (uintptr_t)(bufptr2 - &(bufptr3[1])))) {
+        sprintf(logbuf, "Error: Multiple instances of '%c' in sample ID.\n", id_delim);
+        goto vcf_sample_line_ret_INVALID_FORMAT_2;
+      }
+      wptr = memcpyax(tbuf, bufptr, (uintptr_t)(bufptr3 - bufptr), '\t');
+      bufptr3++;
+      if ((*bufptr3 == '0') && (bufptr2 == &(bufptr3[1]))) {
+        sprintf(logbuf, "Error: Sample ID ends with \"%c0\", which induces an invalid IID of '0'.\n", id_delim);
+        goto vcf_sample_line_ret_INVALID_FORMAT_2;
+      }
+      wptr = memcpya(wptr, bufptr3, (uintptr_t)(bufptr2 - bufptr3));
+    } else {
+      if (double_id) {
+      vcf_sample_line_double_id:
+	wptr = memcpyax(tbuf, bufptr, (uintptr_t)(bufptr2 - bufptr), '\t');
+      } else {
+      vcf_sample_line_const_id:
+        wptr = memcpyax(tbuf, const_fid, const_fid_len, '\t');
+      }
+      wptr = memcpya(wptr, bufptr, (uintptr_t)(bufptr2 - bufptr));
+    }
+    wptr = memcpya(wptr, fam_trailer, fam_trailer_len);
+    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
+      goto vcf_sample_line_ret_WRITE_FAIL;
+    }
+    if (*bufptr2 != '\t') {
+      break;
+    }
+    bufptr = &(bufptr2[1]);
+  } while (((unsigned char)bufptr[0]) > ' ');
+  if (fclose_null(&outfile)) {
+    goto vcf_sample_line_ret_WRITE_FAIL;
+  }
+  if (!indiv_ct) {
+    sprintf(logbuf, "Error: No samples in .%ccf file.\n", flag_char);
+    goto vcf_sample_line_ret_INVALID_FORMAT_2;
+  }
+  *indiv_ct_ptr = indiv_ct;
+  while (0) {
+  vcf_sample_line_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  vcf_sample_line_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  vcf_sample_line_ret_INVALID_FORMAT_2:
+    logprintb();
+  vcf_sample_line_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+  fclose_cond(outfile);
+  return retval;
+}
+
 // oh, what the hell, may as well be liberal (even BCF2 does not support more
 // than this)
 #define MAX_VCF_ALT 65534
@@ -8081,11 +8209,9 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   uint32_t marker_skip_ct = 0;
   uintptr_t fexcept_ct = 0;
   uintptr_t max_fexcept_len = 5;
-  uintptr_t const_fid_len = 0;
   uintptr_t indiv_ct = 0;
   char missing_geno = *g_missing_geno_ptr;
   int32_t retval = 0;
-  char fam_trailer[20];
   uint32_t* vcf_alt_cts;
   char* loadbuf;
   char* bufptr;
@@ -8095,7 +8221,6 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   char* marker_id;
   char* pos_str;
   char* alt_alleles;
-  char* wptr;
   // will be used for 10+ alt alleles
   // char* geno_start;
   uintptr_t* base_bitfields;
@@ -8108,7 +8233,6 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
   uintptr_t indiv_ct4;
   uintptr_t indiv_idx;
   uintptr_t loadbuf_size;
-  uintptr_t fam_trailer_len;
   uintptr_t slen;
   uintptr_t alt_idx;
   uintptr_t alt_ct;
@@ -8159,9 +8283,6 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       // memory in corner case
     }
   }
-  bufptr = memcpya(fam_trailer, "\t0\t0\t0\t", 7);
-  bufptr = int32_writex(bufptr, missing_pheno, '\n');
-  fam_trailer_len = (uintptr_t)(bufptr - fam_trailer);
 
   loadbuf_size = wkspace_left;
   if (loadbuf_size > MAXLINEBUFLEN) {
@@ -8204,86 +8325,9 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     logprint("Error: No genotype data in .vcf file.\n");
     goto vcf_to_bed_ret_INVALID_FORMAT;
   }
-  bufptr = &(bufptr[8]);
-  memcpy(outname_end, ".fam", 5);
-  if (fopen_checked(&outfile, outname, "w")) {
-    goto vcf_to_bed_ret_OPEN_FAIL;
-  }
-  if (const_fid) {
-    const_fid_len = strlen(const_fid);
-  } else if ((!double_id) && (!id_delim)) {
-    // default: --double-id + --id-delim
-    double_id = 1;
-    id_delim = '_';
-  }
-  do {
-    indiv_ct++;
-    bufptr2 = strchr(bufptr, '\t');
-    if (bufptr2) {
-      slen = (uintptr_t)(bufptr2 - bufptr);
-    } else {
-      slen = strlen_se(bufptr);
-      bufptr2 = &(bufptr[slen]);
-    }
-    if (slen > 65535) {
-      logprint("Error: --vcf does not support sample IDs longer than 65535 characters.\n");
-      goto vcf_to_bed_ret_INVALID_FORMAT;
-    }
-    if ((*bufptr == '0') && (slen == 1)) {
-      logprint("Error: Sample ID cannot be '0'.\n");
-      goto vcf_to_bed_ret_INVALID_FORMAT;
-    }
-    if (id_delim) {
-      if (*bufptr == id_delim) {
-	sprintf(logbuf, "Error: '%c' at beginning of sample ID.\n", id_delim);
-	goto vcf_to_bed_ret_INVALID_FORMAT_2;
-      } else if (bufptr[slen - 1] == id_delim) {
-	sprintf(logbuf, "Error: '%c' at end of sample ID.\n", id_delim);
-	goto vcf_to_bed_ret_INVALID_FORMAT_2;
-      }
-      bufptr3 = (char*)memchr(bufptr, (unsigned char)id_delim, slen);
-      if (!bufptr3) {
-	if (double_id) {
-	  goto vcf_to_bed_double_id;
-	} else if (const_fid) {
-	  goto vcf_to_bed_const_id;
-	} else {
-	  sprintf(logbuf, "Error: No '%c' in sample ID.\n", id_delim);
-	  goto vcf_to_bed_ret_INVALID_FORMAT_2;
-	}
-      }
-      if (memchr(&(bufptr3[1]), (unsigned char)id_delim, (uintptr_t)(bufptr2 - &(bufptr3[1])))) {
-        sprintf(logbuf, "Error: Multiple instances of '%c' in sample ID.\n", id_delim);
-        goto vcf_to_bed_ret_INVALID_FORMAT_2;
-      }
-      wptr = memcpyax(tbuf, bufptr, (uintptr_t)(bufptr3 - bufptr), '\t');
-      bufptr3++;
-      if ((*bufptr3 == '0') && (bufptr2 == &(bufptr3[1]))) {
-        sprintf(logbuf, "Error: Sample ID ends with \"%c0\", which induces an invalid IID of '0'.\n", id_delim);
-        goto vcf_to_bed_ret_INVALID_FORMAT_2;
-      }
-      wptr = memcpya(wptr, bufptr3, (uintptr_t)(bufptr2 - bufptr3));
-    } else {
-      if (double_id) {
-      vcf_to_bed_double_id:
-	wptr = memcpyax(tbuf, bufptr, (uintptr_t)(bufptr2 - bufptr), '\t');
-      } else {
-      vcf_to_bed_const_id:
-        wptr = memcpyax(tbuf, const_fid, const_fid_len, '\t');
-      }
-      wptr = memcpya(wptr, bufptr, (uintptr_t)(bufptr2 - bufptr));
-    }
-    wptr = memcpya(wptr, fam_trailer, fam_trailer_len);
-    if (fwrite_checked(tbuf, wptr - tbuf, outfile)) {
-      goto vcf_to_bed_ret_WRITE_FAIL;
-    }
-    if (*bufptr2 != '\t') {
-      break;
-    }
-    bufptr = &(bufptr2[1]);
-  } while (((unsigned char)bufptr[0]) > ' ');
-  if (fclose_null(&outfile)) {
-    goto vcf_to_bed_ret_WRITE_FAIL;
+  retval = vcf_sample_line(outname, outname_end, missing_pheno, &(bufptr[8]), const_fid, double_id, id_delim, 'v', &indiv_ct);
+  if (retval) {
+    goto vcf_to_bed_ret_1;
   }
 
   indiv_ct4 = (indiv_ct + 3) / 4;
@@ -8652,49 +8696,277 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   return RET_CALC_NOT_YET_SUPPORTED;
   /*
   unsigned char* wkspace_mark = wkspace_base;
-  FILE* infile = NULL;
+  gzFile gz_infile = NULL;
   FILE* outfile = NULL;
   FILE* bimfile = NULL;
   FILE* skip3file = NULL;
+  char* sorted_fexcepts = NULL;
+  uintptr_t* fexcept_bitfield = NULL;
+  uint32_t* fexcept_idxs = NULL;
+  Ll_str* contig_list = NULL;
+  uintptr_t contig_ct = 0;
+  uintptr_t max_contig_len = 0;
+  uintptr_t max_fexcept_len = 0;
+  uintptr_t fexcept_ct = 0;
+  uintptr_t topsize = 0;
   uint32_t double_id = (misc_flags / MISC_DOUBLE_ID) & 1;
   uint32_t check_qual = (vcf_min_qual == -INFINITY)? 0 : 1;
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint32_t biallelic_only = (misc_flags / MISC_BIALLELIC_ONLY) & 1;
   uint32_t biallelic_strict = (misc_flags / MISC_BIALLELIC_ONLY_STRICT) & 1;
   uint32_t skip3_list = (misc_flags / MISC_BIALLELIC_ONLY_LIST) & 1;
+  uint32_t vcf_filter = (misc_flags / MISC_VCF_FILTER) & 1;
+  uint32_t format_ct = 0;
   char missing_geno = *g_missing_geno_ptr;
-  uint32_t is_bgzf = 0;
   uint32_t marker_ct = 0;
+  uint32_t indiv_ct = 0;
   int32_t retval = 0;
   char fam_trailer[20];
+  uint32_t bcf_var_header[8];
+  Ll_str* ll_ptr;
+  char* loadbuf;
+  char* loadbuf_end;
+  char* linebuf;
+  char* linebuf_end;
+  char* contigdict;
+  char* bufptr;
+  char* bufptr2;
   uintptr_t fam_trailer_len;
+  uintptr_t slen;
+  uint32_t indiv_ct4;
+  uint32_t indiv_ctl2;
+  uint32_t header_size;
+  uint32_t uii;
+  int32_t ii;
   bufptr = memcpya(fam_trailer, "\t0\t0\t0\t", 7);
   bufptr = int32_writex(bufptr, missing_pheno, '\n');
   fam_trailer_len = (uintptr_t)(bufptr - fam_trailer);
-  if (fopen_checked(&infile, bcfname, "rb")) {
+  if (gzopen_checked(&gz_infile, bcfname, "rb")) {
     goto bcf_to_bed_ret_OPEN_FAIL;
   }
-  if (fread(tbuf, 1, 5, infile) < 5) {
+  if (gzbuffer(gz_infile, 131072)) {
+    goto bcf_to_bed_ret_NOMEM;
+  }
+  if (gzread(gz_infile, tbuf, 5) < 5) {
     goto bcf_to_bed_ret_READ_FAIL;
   }
   if (memcmp(tbuf, "BCF\2", 4)) {
-    // todo: handle BGZF compression
+    sprintf(logbuf, "Error: %s is not a BCF2 file.\n", bcfname);
+    goto bcf_to_bed_ret_INVALID_FORMAT_2;
   }
-  // 1. add "PASS" to dictionary, scan header for other dictionary strings and
-  //    contigs
-  // 2. if --vcf-filter on command line, convert into bitfield
-  // 3.
-  ;;;
+  // er, is this guaranteed to be present?  specs contradict each other!
+  if (gzread(gz_infile, &header_size, 4) < 4) {
+    goto bcf_to_bed_ret_READ_FAIL;
+  }
+  // must have at least fileformat, GT, and one contig
+  if (header_size < 96) {
+    goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+  }
+  if (vcf_filter_exceptions_flattened) {
+    // vcf_filter guaranteed to be true
+    bufptr = vcf_filter_exceptions_flattened;
+    do {
+      fexcept_ct++;
+      slen = strlen(bufptr);
+      if (slen >= max_fexcept_len) {
+	max_fexcept_len = slen + 1;
+      }
+      bufptr = &(bufptr[slen + 1]);
+    } while (*bufptr);
+    sorted_fexcepts = (char*)top_alloc(&topsize, fexcept_ct * max_fexcept_len);
+    bufptr = vcf_filter_exceptions_flattened;
+    for (ulii = 0; ulii < fexcept_ct; ulii++) {
+      slen = strlen(bufptr) + 1;
+      memcpy(&(sorted_fexcepts[ulii * max_fexcept_len]), bufptr, slen);
+      bufptr = &(bufptr[slen]);
+    }
+    qsort(sorted_fexcepts, fexcept_ct, max_fexcept_len, strcmp_casted);
+    fexcept_ct = collapse_duplicate_ids(sorted_fexcepts, fexcept_ct, max_fexcept_len, NULL);
+    fexcept_idxs = (uint32_t*)top_alloc(&topsize, fexcept_ct * sizeof(int32_t));
+    fill_uint_zero(fexcept_idxs, fexcept_ct);
+  }
+  uii = 0; // genotype field present?
+  format_ct = 1; // INFO string dictionary index
+  if (wkspace_left - topsize <= header_size) {
+    goto bcf_to_bed_ret_NOMEM;
+  }
+  loadbuf = (char*)wkspace_alloc(header_size + 1);
+  if (gzread(gz_infile, loadbuf, header_size) < header_size) {
+    // may want more informative error message here
+    goto bcf_to_bed_ret_READ_FAIL;
+  }
+  if (!(*loadbuf)) {
+    goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+  }
+  if (!loadbuf[header_size - 1]) {
+    loadbuf_end = &(loadbuf[header_size - 2]);
+    while (!(*loadbuf_end)) {
+      loadbuf_end--;
+    }
+    loadbuf_end++;
+    header_size = (uintptr_t)(loadbuf_end - loadbuf);
+  }
+  *loadbuf_end = '\n';
+  header_size++;
+  linebuf = loadbuf;
+  while (1) {
+    linebuf_end = memchr(linebuf, '\n', header_size);
+    if (linebuf[0] != '#') {
+      goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+    }
+    if (linebuf[1] != '#') {
+      if (linebuf[1] == 'C') {
+        break; // end of meta-info
+      }
+      goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+    }
+    if (linebuf[2] == 'F') {
+      if (!memcmp(&(linebuf[3]), "ORMAT=<ID=GT,", 13)) {
+	if (uii) {
+	  logprint("Error: Duplicate GT format specifier in .bcf file.\n");
+	  goto bcf_to_bed_ret_INVALID_FORMAT;
+	}
+	if (memcmp(&(linebuf[16]), "Number=1,Type=String,Description=\"Genotype\">", 44) || (linebuf[60] > ' ')) {
+	  logprint("Error: Unrecognized GT field format in .bcf file.\n");
+          goto bcf_to_bed_ret_INVALID_FORMAT;
+	}
+	uii = 1;
+      } else if (fexcept_ct && (!memcmp(&(linebuf[3]), "ILTER=<ID=", 10))) {
+	bufptr = &(linebuf[13]);
+	bufptr2 = memchr(bufptr, ',', linebuf_end - bufptr);
+	if (bufptr2 == linebuf_end) {
+	  goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+	}
+	*bufptr2 = '\0';
+	ii = bsearch_str(bufptr, sorted_fexcepts, max_fexcept_len, 0, fexcept_ct - 1) != -1;
+        if (ii != -1) {
+          if (fexcept_idxs[(uint32_t)ii]) {
+	    goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+	  }
+          fexcept_idxs[(uint32_t)ii] = format_ct;
+	}
+	format_ct++;
+      }
+    } else if (!memcmp(&(linebuf[2]), "contig=<ID=", 11)) {
+      bufptr = &(linebuf[13]);
+      bufptr2 = memchr(bufptr, ',', linebuf_end - bufptr);
+      if (bufptr2 == linebuf_end) {
+	goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+      }
+      slen = (uintptr_t)(bufptr2 - bufptr);
+      if (slen >= max_contig_len) {
+	max_contig_len = slen + 1;
+      }
+      ll_ptr = top_alloc_llstr(&topsize, slen + 1);
+      if (!ll_ptr) {
+	goto bcf_to_bed_ret_NOMEM;
+      }
+      ll_ptr->next = contig_list;
+      memcpyx(ll_ptr->ss, bufptr, slen, '\0');
+      contig_list = ll_ptr;
+      contig_ct++;
+    }
+    linebuf = &(linebuf_end[1]);
+    if (linebuf >= loadbuf_end) {
+      goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+    }
+  }
+  if (!uii) {
+    logprint("Error: No GT field in .bcf header.\n");
+    goto bcf_to_bed_ret_INVALID_FORMAT;
+  }
+  if (!contig_ct) {
+    logprint("Error: No contig fields in .bcf header.\n");
+    goto bcf_to_bed_ret_INVALID_FORMAT;
+  }
+  if (memcmp(linebuf, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t", 46)) {
+    goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
+  }
+  bufptr = &(linebuf[46]);
+  memcpy(outname_end, ".fam", 5);
+  if (fopen_checked(&outfile, outname, "w")) {
+    goto bcf_to_bed_ret_OPEN_FAIL;
+  }
+  if (const_fid) {
+    const_fid_len = strlen(const_fid);
+  } else if ((!double_id) && (!id_delim)) {
+    double_id = 1;
+    id_delim = ' ';
+  }
+  while (1) {
+
+    indiv_ct++;
+  }
+  if (!indiv_ct) {
+    logprint("Error: No samples in .bcf file.\n");
+    goto bcf_to_bed_ret_INVALID_FORMAT;
+  }
+  indiv_ct4 = (indiv_ct + 3) / 4;
+  indiv_ctl2 = (indiv_ct + (BITCT2 - 1)) / BITCT2;
+  wkspace_reset((unsigned char*)loadbuf);
+  wkspace_left -= topsize;
+  if (wkspace_alloc_c_checked(&contigdict, contig_ct * max_contig_len)) {
+    goto bcf_to_bed_ret_NOMEM2;
+  }
+  ulii = contig_ct;
+  do {
+    ulii--;
+    strcpy(&(contigdict[ulii * max_contig_len]), contig_list->ss);
+    contig_list = contig_list->next;
+  } while (ulii);
+  if (fexcept_ct) {
+    uii = (format_ct + (BITCT - 1)) / BITCT;
+    if (wkspace_alloc_ul_checked(&fexcept_bitfield, uii * sizeof(intptr_t))) {
+      goto bcf_to_bed_ret_NOMEM2;
+    }
+    fill_ulong_zero(fexcept_bitfield, uii);
+    fexcept_bitfield[0] = 1; // 'PASS'
+    for (ulii = 0; ulii < fexcept_ct; ulii++) {
+      SET_BIT(fexcept_bitfield, fexcept_idxs[ulii]);
+    }
+  }
+  wkspace_left += topsize;
+  // topsize = 0;
+  // now process #CHROM... line
+
+  // ...
+  while (1) {
+    if (gzread(gz_infile, bcf_var_header, 32) < 32) {
+      if (gzeof(gzfile)) {
+	break;
+      }
+      goto bcf_to_bed_ret_INVALID_FORMAT;
+    }
+    
+  }
+  if (!marker_ct) {
+    logprint("Error: No variants in .bcf file.\n");
+    goto bcf_to_bed_ret_INVALID_FORMAT;
+  }
   while (0) {
+  bcf_to_bed_ret_NOMEM2:
+    wkspace_left += topsize;
+  bcf_to_bed_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
   bcf_to_bed_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
   bcf_to_bed_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  bcf_to_bed_ret_INVALID_FORMAT_GENERIC:
+    logprint("Error: Improperly formatted .bcf file.\n");
+    retval = RET_INVALID_FORMAT;
+    break;
+  bcf_to_bed_ret_INVALID_FORMAT_2:
+    logprintb();
+  bcf_to_bed_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
   }
  bcf_to_bed_ret_1:
-  fclose_cond(infile);
+  gzclose_cond(gz_infile);
   fclose_cond(outfile);
   fclose_cond(bimfile);
   fclose_cond(skip3file);

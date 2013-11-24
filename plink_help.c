@@ -1523,7 +1523,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     if (!param_ct) {
       fputs(
 "\nFor further documentation and support, consult the main webpage\n"
-"(https://www.cog-genomics.org/plink2 ) and/or the mailing list ([TBD]).\n"
+"(https://www.cog-genomics.org/plink2 ) and/or the mailing list\n"
+"(https://groups.google.com/d/forum/plink2-users ).\n"
 , stdout);
     }
   } while (help_ctrl.iters_left--);
