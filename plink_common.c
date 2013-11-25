@@ -3870,7 +3870,7 @@ uintptr_t bsearch_str_lb(char* lptr, uintptr_t arr_length, uintptr_t max_id_len,
   }
 }
 
-int32_t bsearch_str(char* id_buf, char* lptr, uintptr_t max_id_len, intptr_t min_idx, intptr_t max_idx) {
+int32_t bsearch_str(const char* id_buf, char* lptr, uintptr_t max_id_len, intptr_t min_idx, intptr_t max_idx) {
   intptr_t mid_idx;
   int32_t ii;
   if (max_idx < min_idx) {

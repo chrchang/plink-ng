@@ -80,7 +80,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (24 Nov 2013)";
+  " (25 Nov 2013)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -5059,7 +5059,7 @@ int32_t plink(char* outname, char* outname_end, char* pedname, char* mapname, ch
       }
     }
     if (calculation_type & CALC_RECODE) {
-      retval = recode(recode_modifier, bedfile, bed_offset, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_cms, marker_allele_ptrs, max_marker_allele_len, marker_pos, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nosex_exclude? pheno_nosex_exclude : pheno_nm, pheno_c, pheno_d, output_missing_pheno, misc_flags, hh_exists, chrom_info_ptr);
+      retval = recode(recode_modifier, bedfile, bed_offset, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_indiv_ct, indiv_exclude, g_indiv_ct, marker_ids, max_marker_id_len, marker_cms, marker_allele_ptrs, max_marker_allele_len, marker_pos, marker_reverse, person_ids, max_person_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nosex_exclude? pheno_nosex_exclude : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted, misc_flags, hh_exists, chrom_info_ptr);
       if (retval) {
         goto plink_ret_1;
       }

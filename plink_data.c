@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <fcntl.h>
 #include <time.h>
 
@@ -8733,7 +8734,6 @@ int32_t read_bcf_typed_integer(gzFile gz_infile, uint32_t* int_ptr) {
     }
   read_bcf_typed_integer_ret_INVALID_FORMAT_GENERIC:
     logprint("Error: Improperly formatted .bcf file.\n");
-  read_bcf_typed_integer_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -8796,6 +8796,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uintptr_t* fexcept_bitfield = NULL;
   uint32_t* fexcept_idxs = NULL;
   Ll_str* contig_list = NULL;
+  char* tbuf2 = &(tbuf[MAXLINELEN]);
   uintptr_t contig_ct = 0;
   uintptr_t max_contig_len = 0;
   uintptr_t max_fexcept_len = 0;
@@ -8810,10 +8811,11 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uint32_t vcf_filter = (misc_flags / MISC_VCF_FILTER) & 1;
   uint32_t filter_ct = 0;
   uint32_t format_ct = 0;
-  uint32_t gt_idx = 0xffffffffU;
+  uint32_t gt_idx = 0;
   uint32_t marker_ct = 0;
   uint32_t marker_skip_ct = 0;
   uint32_t indiv_ct = 0;
+  uint32_t umm = 0;
   int32_t retval = 0;
   float vcf_min_qualf = vcf_min_qual;
   char missing_geno = *g_missing_geno_ptr;
@@ -8821,7 +8823,6 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   Ll_str* ll_ptr;
   uintptr_t* contig_bitfield;
   uintptr_t* base_bitfields;
-  uintptr_t* alt_bitfield;
   uintptr_t* ref_ptr;
   uintptr_t* alt_ptr;
   char* loadbuf;
@@ -8842,25 +8843,24 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   uintptr_t final_mask;
   uintptr_t max_allele_ct;
   uintptr_t slen;
+  uintptr_t indiv_ctv2;
+  uintptr_t alt_allele_idx;
   uintptr_t ulii;
+  uintptr_t uljj;
+  uintptr_t ulkk;
   uint64_t lastloc;
   uint64_t ullii;
   uint64_t ulljj;
   uint32_t indiv_ct4;
   uint32_t indiv_ctl2;
-  uint32_t indiv_ctv2;
   uint32_t header_size;
   uint32_t marker_id_len;
   uint32_t n_allele;
+  uint32_t indiv_idx;
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
-  uint32_t umm;
   int32_t ii;
-  uint16_t uii16;
-  uint16_t ujj16;
-  unsigned char ucc;
-  unsigned char ucc2;
   __floatint32 fi;
   // todo: check if a specialized bgzf reader can do faster forward seeks when
   // we don't have precomputed virtual offsets
@@ -8874,7 +8874,11 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
   }
   if (memcmp(tbuf, "BCF\2", 4)) {
-    sprintf(logbuf, "Error: %s is not a BCF2 file.\n", bcfname);
+    if (memcmp(tbuf, "BCF\4", 4)) {
+      sprintf(logbuf, "Error: %s is not a BCF2 file.\n", bcfname);
+    } else {
+      sprintf(logbuf, "Error: %s appears to be a BCFv1 file; only v2.x is supported.\n", bcfname);
+    }
     goto bcf_to_bed_ret_INVALID_FORMAT_2;
   }
   if (gzread(gz_infile, &header_size, 4) < 4) {
@@ -8945,6 +8949,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     }
     if (linebuf[2] == 'F') {
       if (!memcmp(&(linebuf[3]), "ORMAT=<ID=", 10)) {
+	format_ct++;
 	if (!memcmp(&(linebuf[13]), "GT,", 3)) {
 	  if (uii) {
 	    logprint("Error: Duplicate GT format specifier in .bcf file.\n");
@@ -8956,7 +8961,6 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	  }
 	  gt_idx = format_ct;
 	}
-	format_ct++;
       } else if (fexcept_ct && (!memcmp(&(linebuf[3]), "ILTER=<ID=", 10))) {
 	bufptr = &(linebuf[13]);
 	bufptr2 = (char*)memchr(bufptr, ',', linebuf_end - bufptr);
@@ -8997,7 +9001,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
     }
   }
-  if (gt_idx == 0xffffffffU) {
+  if (!gt_idx) {
     logprint("Error: No GT field in .bcf header.\n");
     goto bcf_to_bed_ret_INVALID_FORMAT;
   }
@@ -9040,7 +9044,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       }
     }
     if (is_set(chrom_info_ptr->chrom_mask, ii)) {
-      set_bit(contig_bitfield, ii);
+      set_bit_ul(contig_bitfield, ulii);
       strcpy(&(contigdict[ulii * max_contig_len]), contig_list->ss);
     }
     contig_list = contig_list->next;
@@ -9061,7 +9065,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   // topsize = 0;
 
   final_mask = (~ZEROLU) >> (2 * ((0x7fffffe0 - indiv_ct) % BITCT2));
-  if (wkspace_alloc_c_checked(&loadbuf, indiv_ct * 8) ||
+  if (wkspace_alloc_c_checked(&loadbuf, indiv_ct * 12) ||
       wkspace_alloc_c_checked(&marker_id, 65536) ||
       wkspace_alloc_c_checked(&allele_buf, NON_WKSPACE_MIN) ||
       wkspace_alloc_ui_checked(&allele_lens, 65535 * sizeof(int32_t)) ||
@@ -9090,12 +9094,13 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
   if (fwrite_checked("l\x1b\x01", 3, outfile)) {
     goto bcf_to_bed_ret_WRITE_FAIL;
   }
+  memcpyl3(tbuf2, "\t0\t");
   while (1) {
-    lastloc = gztell(gz_infile);
+    lastloc = gztell(gz_infile) + 8;
     if (gzread(gz_infile, bcf_var_header, 32) < 32) {
       break;
     }
-    if ((bcf_var_header[0] <= 32) || (bcf_var_header[2] >= contig_ct)) {
+    if ((bcf_var_header[0] <= 24) || (bcf_var_header[2] >= contig_ct)) {
       goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
     }
     if ((!bcf_var_header[1]) || (!is_set(contig_bitfield, bcf_var_header[2]))) {
@@ -9166,7 +9171,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	      goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
 	    }
 	    ucptr = (unsigned char*)tbuf;
-	    if (gzread(gz_infile, ucptr, ujj) < ujj) {
+	    if ((uint32_t)((uint64_t)gzread(gz_infile, ucptr, ujj)) < ujj) {
 	      goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
 	    }
 	    for (ukk = 0; ukk < ujj; ukk++) {
@@ -9182,7 +9187,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	      goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
 	    }
             ui16ptr = (uint16_t*)tbuf;
-	    if (gzread(gz_infile, ui16ptr, ujj * sizeof(int16_t)) < ujj * sizeof(int16_t)) {
+	    if ((uint32_t)((uint64_t)gzread(gz_infile, ui16ptr, ujj * sizeof(int16_t))) < ujj * sizeof(int16_t)) {
 	      goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
 	    }
 	    for (ukk = 0; ukk < ujj; ukk++) {
@@ -9203,7 +9208,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	      } else {
 		ukk = ujj;
 	      }
-	      if (gzread(gz_infile, uiptr, ukk * sizeof(int32_t)) < ukk * sizeof(int32_t)) {
+	      if ((uint32_t)((uint64_t)gzread(gz_infile, uiptr, ukk * sizeof(int32_t))) < ukk * sizeof(int32_t)) {
 		goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
 	      }
               for (umm = 0; umm < ukk; umm++) {
@@ -9262,7 +9267,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       if (ulljj > ullii) {
 	goto bcf_to_bed_ret_INVALID_FORMAT_GENERIC;
       }
-      if (uii == gz_idx) {
+      if (uii == gt_idx) {
 	break;
       }
       if (ujj) {
@@ -9281,54 +9286,210 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       logprint("Error: GT field cannot contain floating point values.\n");
       goto bcf_to_bed_ret_INVALID_FORMAT;
     }
-    if (ujj * umm > 8) {
-      // 8 = 8-ploid, or tetraploid and >= 127 alleles, or diploid and >= 32767
+    if (ujj * umm > 12) {
+      // 12 = 12-ploid, or 6-ploid and >= 127 alleles, or triploid and >= 32767
       // alleles.  this is pretty darn generous.
-      logprint("Error: --bcf does not support GT vectors requiring >8 bytes per sample.\n");
+      logprint("Error: --bcf does not support GT vectors requiring >12 bytes per sample.\n");
       goto bcf_to_bed_ret_INVALID_FORMAT;
     }
-    if (gzread(gz_infile, loadbuf, ujj * umm * indiv_ct) < ujj * umm * indiv_ct) {
+    if ((uint32_t)((uint64_t)gzread(gz_infile, loadbuf, ujj * umm * indiv_ct)) < ujj * umm * indiv_ct) {
       goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
     }
-    fill_ulong_zero(base_bitfields, n_allele * indiv_ctv2);
+    if (n_allele < 2) {
+      fill_ulong_zero(base_bitfields, 2 * indiv_ctv2);
+    } else {
+      fill_ulong_zero(base_bitfields, n_allele * indiv_ctv2);
+    }
     if (ukk == 1) {
       ucptr = (unsigned char*)loadbuf;
       if (ujj == 2) {
-	for (uii = 0; uii < indiv_ct; uii++, ucptr++) {
-	  // discard all phase bits for now
-	  ujj = (*ucptr++) >> 1;
-	  if (ujj) {
-            ukk = (*ucptr) >> 1;
-	    if (!ukk) {
-              // could be male X.  don't validate for now
-	      ukk = ujj;
-	    }
-	    if (ujj == 1) {
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, ucptr++) {
+	  ulii = *ucptr++;
+	  if (ulii) {
+	    // discard all phase bits for now
+	    ulii = ((ulii / 2) - 1) * indiv_ctv2;
+	    uljj = *ucptr;
+	    if (uljj) {
+	      set_bit(&(base_bitfields[ulii]), indiv_idx * 2);
+	      base_bitfields[((uljj / 2) - 1) * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
 	    } else {
+	      // could be male X.  don't validate for now
+	      set_bit(&(base_bitfields[ulii]), indiv_idx * 2 + 1);
 	    }
 	  }
 	}
       } else if (ujj == 1) {
-	for (uii = 0; uii < indiv_ct; uii++, ucptr++) {
-	  ucc = *ucptr;
-	  if (ucc) {
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	  ulii = *ucptr++;
+	  if (ulii) {
+	    set_bit(&(base_bitfields[((ulii / 2) - 1) * indiv_ctv2]), indiv_idx * 2 + 1);
 	  }
 	}
       } else {
-	for (uii = 0; uii < indiv_ct; uii++) {
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
 	  if (ucptr[2]) {
 	    ucptr = &(ucptr[ujj]);
 	  } else {
-
+	    ulii = *ucptr++;
+	    if (ulii) {
+	      ulii = ((ulii / 2) - 1) * indiv_ctv2;
+	      uljj = *ucptr;
+	      if (uljj) {
+		set_bit(&(base_bitfields[ulii]), indiv_idx * 2);
+		base_bitfields[((uljj / 2) - 1) * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+	      } else {
+		set_bit(&(base_bitfields[ulii]), indiv_idx * 2 + 1);
+	      }
+	    }
+	    ucptr = &(ucptr[ujj - 1]);
 	  }
 	}
       }
     } else if (ukk == 2) {
       ui16ptr = (uint16_t*)loadbuf;
+      // bleah, this should totally use templates instead of cut-and-paste
+      if (ujj == 2) {
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, ui16ptr++) {
+	  ulii = *ui16ptr++;
+	  if (ulii) {
+	    ulii = ((ulii / 2) - 1) * indiv_ctv2;
+            uljj = *ui16ptr;
+	    if (uljj) {
+	      set_bit(&(base_bitfields[ulii]), indiv_idx * 2);
+	      base_bitfields[((uljj / 2) - 1) * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+	    } else {
+	      set_bit(&(base_bitfields[ulii]), indiv_idx * 2 + 1);
+	    }
+	  }
+	}
+      } else if (ujj == 1) {
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	  ulii = *ui16ptr++;
+	  if (ulii) {
+	    set_bit(&(base_bitfields[((ulii / 2) - 1) * indiv_ctv2]), indiv_idx * 2 + 1);
+	  }
+	}
+      } else {
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	  if (ui16ptr[2]) {
+	    ui16ptr = &(ui16ptr[ujj]);
+	  } else {
+	    ulii = *ui16ptr++;
+	    if (ulii) {
+	      ulii = ((ulii / 2) - 1) * indiv_ctv2;
+              uljj = *ui16ptr;
+	      if (uljj) {
+		set_bit(&(base_bitfields[ulii]), indiv_idx * 2);
+		base_bitfields[((uljj / 2) - 1) * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+	      } else {
+		set_bit(&(base_bitfields[ulii]), indiv_idx * 2 + 1);
+	      }
+	    }
+	    ui16ptr = &(ui16ptr[ujj - 1]);
+	  }
+	}
+      }
     } else {
       uiptr = (uint32_t*)loadbuf;
+      if (ujj == 2) {
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++, uiptr++) {
+	  ulii = *uiptr++;
+	  if (ulii) {
+	    ulii = ((ulii / 2) - 1) * indiv_ctv2;
+            uljj = *uiptr;
+	    if (uljj) {
+	      set_bit(&(base_bitfields[ulii]), indiv_idx * 2);
+	      base_bitfields[((uljj / 2) - 1) * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+	    } else {
+	      set_bit(&(base_bitfields[ulii]), indiv_idx * 2 + 1);
+	    }
+	  }
+	}
+      } else if (ujj == 1) {
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	  ulii = *uiptr++;
+	  if (ulii) {
+	    set_bit(&(base_bitfields[((ulii / 2) - 1) * indiv_ctv2]), indiv_idx * 2 + 1);
+	  }
+	}
+      } else {
+	for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_idx++) {
+	  if (uiptr[2]) {
+	    uiptr = &(uiptr[ujj]);
+	  } else {
+	    ulii = *uiptr++;
+	    if (ulii) {
+	      ulii = ((ulii / 2) - 1) * indiv_ctv2;
+              uljj = *uiptr;
+	      if (uljj) {
+		set_bit(&(base_bitfields[ulii]), indiv_idx * 2);
+		base_bitfields[((uljj / 2) - 1) * indiv_ctv2 + indiv_idx / BITCT2] += ONELU << (2 * (indiv_idx % BITCT2));
+	      } else {
+		set_bit(&(base_bitfields[ulii]), indiv_idx * 2 + 1);
+	      }
+	    }
+	    uiptr = &(uiptr[ujj - 1]);
+	  }
+	}
+      }
     }
-
+    alt_allele_idx = 1;
+    if (n_allele > 2) {
+      ulii = popcount2_longs(&(base_bitfields[indiv_ctv2]), 0, indiv_ctl2);
+      for (ulkk = 2; ulkk < n_allele; ulkk++) {
+        uljj = popcount2_longs(&(base_bitfields[indiv_ctv2 * ulkk]), 0, indiv_ctl2);
+        if (!biallelic_only) {
+	  if (uljj <= ulii) {
+	    continue;
+	  }
+	} else {
+	  if (!uljj) {
+	    continue;
+	  }
+	  if (ulii) {
+	    goto bcf_to_bed_skip3;
+	  }
+	}
+	ulii = uljj;
+	alt_allele_idx = ulkk;
+      }
+    }
+    ref_ptr = base_bitfields;
+    alt_ptr = &(base_bitfields[alt_allele_idx * indiv_ctv2]);
+    for (indiv_idx = 0; indiv_idx < indiv_ctl2; indiv_idx++) {
+      ulii = *ref_ptr;
+      uljj = *alt_ptr++;
+      ulkk = (ulii + uljj) & AAAAMASK;
+      uljj = ulii + ((ulii | (ulii >> 1)) & FIVEMASK);
+      ulii = ulkk | (ulkk >> 1); // nonmissing?
+      *ref_ptr++ = (uljj & ulii) | (((~ulkk) >> 1) & FIVEMASK);
+    }
+    ref_ptr[-1] &= final_mask;
+    if (fwrite_checked(base_bitfields, indiv_ct4, outfile)) {
+      goto bcf_to_bed_ret_WRITE_FAIL;
+    }
+    fputs(&(contigdict[bcf_var_header[2] * max_contig_len]), bimfile);
+    putc('\t', bimfile);
+    fwrite(marker_id, 1, marker_id_len, bimfile);
+    bufptr = uint32_writex(&(tbuf2[3]), bcf_var_header[3], '\t');
+    if (fwrite_checked(tbuf2, bufptr - tbuf2, bimfile)) {
+      goto bcf_to_bed_ret_WRITE_FAIL;
+    }
+    if (n_allele > 1) {
+      fwrite(allele_ptrs[alt_allele_idx], 1, allele_lens[alt_allele_idx], bimfile);
+    } else {
+      putc(missing_geno, bimfile);
+    }
+    putc('\t', bimfile);
+    fwrite(allele_ptrs[0], 1, allele_lens[0], bimfile);
+    if (putc_checked('\n', bimfile)) {
+      goto bcf_to_bed_ret_WRITE_FAIL;
+    }
+    marker_ct++;
+    if (!(marker_ct % 1000)) {
+      printf("\r--bcf: %uk variants complete.", marker_ct / 1000);
+      fflush(stdout);
+    }
     continue;
   bcf_to_bed_skip3:
     if ((!marker_skip_ct) && skip3_list) {
@@ -9911,6 +10072,8 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
   uint32_t loop_end;
   unsigned char bmap[320];
   unsigned char* bmap2;
+  unsigned char ucc;
+  unsigned char ucc2;
   uint64_t ullii;
   double dxx;
   fill_bmap_short(bmap, indiv_ct % 4);
@@ -11468,7 +11631,7 @@ uint32_t write_haploview_map(FILE* outfile, uintptr_t* marker_exclude, uintptr_t
   return 0;
 }
 
-int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* recode_allele_name, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uint32_t* marker_pos, uintptr_t* marker_reverse, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint64_t misc_flags, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
+int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* recode_allele_name, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exclude, uintptr_t indiv_ct, char* marker_ids, uintptr_t max_marker_id_len, double* marker_cms, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uint32_t* marker_pos, uintptr_t* marker_reverse, char* person_ids, uintptr_t max_person_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t map_is_unsorted, uint64_t misc_flags, uint32_t hh_exists, Chrom_info* chrom_info_ptr) {
   FILE* outfile = NULL;
   FILE* outfile2 = NULL;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
@@ -12088,8 +12251,34 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     fputs(
 "\n##source=" PROG_NAME_CAPS "\n"
 "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n"
-"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT"
 , outfile);
+    uii = 0; // '0' written already?
+    memcpy(tbuf, "##contig=<ID=", 13);
+    for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
+      chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+      cptr = chrom_name_write(&(tbuf[13]), chrom_info_ptr, chrom_idx, zero_extra_chroms);
+      if ((tbuf[13] == '0') && (cptr == &(tbuf[14]))) {
+	if (uii) {
+	  continue;
+	}
+	uii = 1;
+	cptr = memcpya(cptr, ",length=536870911", 17);
+      } else {
+        cptr = memcpya(cptr, ",length=", 8);
+	if (!(map_is_unsorted & UNSORTED_BP)) {
+	  cptr = uint32_write(cptr, marker_pos[chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - 1] - marker_pos[chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx]] + 1);
+	} else {
+	  cptr = memcpya(cptr, "536870911", 9); // unknown
+	}
+      }
+      cptr = memcpya(cptr, ">\n", 2);
+      fwrite(tbuf, 1, cptr - tbuf, outfile);
+    }
+    fputs("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT", outfile);
+
+    chrom_fo_idx = 0;
+    refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
+    chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     indiv_uidx = 0;
     shiftval = 0; // repurposed: underscore seen in ID?
     for (indiv_idx = 0; indiv_idx < indiv_ct; indiv_uidx++, indiv_idx++) {

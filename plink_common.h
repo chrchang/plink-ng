@@ -1594,7 +1594,7 @@ void update_neighbor(uintptr_t indiv_ct, uint32_t neighbor_n2, uintptr_t indiv_i
 
 uintptr_t bsearch_str_lb(char* lptr, uintptr_t arr_length, uintptr_t max_id_len, char* id_buf);
 
-int32_t bsearch_str(char* id_buf, char* lptr, uintptr_t max_id_len, intptr_t min_idx, intptr_t max_idx);
+int32_t bsearch_str(const char* id_buf, char* lptr, uintptr_t max_id_len, intptr_t min_idx, intptr_t max_idx);
 
 int32_t bsearch_str_natural(char* id_buf, char* lptr, uintptr_t max_id_len, intptr_t min_idx, intptr_t max_idx);
 
