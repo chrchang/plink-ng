@@ -80,7 +80,7 @@ const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (25 Nov 2013)";
+  " (26 Nov 2013)";
 const char ver_str2[] =
 #ifdef STABLE_BUILD
   "  "
@@ -1463,7 +1463,7 @@ void filter_indivs_bitfields(uintptr_t unfiltered_indiv_ct, uintptr_t* indiv_exc
       } while (++ieptr < ieend);
     } else {
       do {
-	*ieptr |= (*orfield++) | (~(*ornot++));
+	*ieptr |= *orfield++;
       } while (++ieptr < ieend);
     }
   }
