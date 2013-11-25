@@ -4,7 +4,7 @@
 #   Do not link to LAPACK                    NO_LAPACK
 
 # Leave blank after "=" to disable; put "= 1" to enable
-# (when enabled, "#define NOLAPACK" must be uncommented in wdist_common.h)
+# (when enabled, "#define NOLAPACK" must be uncommented in plink_common.h)
 NO_LAPACK =
 
 
