@@ -8,4 +8,4 @@ operations (which are resolved via LAPACK calls under the hood), and plink.c
 handles command-line parsing and initial dispatch; it's often not necessary to
 deal with any other files when adding a new command.
 
-Additional discussion is at https://www.cog-genomics.org/wdist/dev .
+Additional discussion is at https://www.cog-genomics.org/plink2/dev .
