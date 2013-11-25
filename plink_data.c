@@ -9494,16 +9494,18 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     }
     continue;
   bcf_to_bed_skip3:
-    if ((!marker_skip_ct) && skip3_list) {
-      memcpy(outname_end, ".skip.3allele", 14);
-      if (fopen_checked(&skip3file, outname, "w")) {
+    if (skip3_list) {
+      if (!marker_skip_ct) {
+	memcpy(outname_end, ".skip.3allele", 14);
+	if (fopen_checked(&skip3file, outname, "w")) {
+	  goto bcf_to_bed_ret_OPEN_FAIL;
+	}
+	memcpy(outname_end, ".bed", 5);
+      }
+      fwrite(marker_id, 1, marker_id_len, skip3file);
+      if (putc_checked('\n', skip3file)) {
 	goto bcf_to_bed_ret_OPEN_FAIL;
       }
-      memcpy(outname_end, ".bed", 5);
-    }
-    fwrite(marker_id, 1, marker_id_len, skip3file);
-    if (putc_checked('\n', skip3file)) {
-      goto bcf_to_bed_ret_OPEN_FAIL;
     }
   bcf_to_bed_marker_skip:
     if (gzseek(gz_infile, (lastloc + bcf_var_header[0]) + bcf_var_header[1], SEEK_SET) == -1) {
