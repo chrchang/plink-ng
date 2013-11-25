@@ -1690,6 +1690,8 @@ int32_t string_range_list_to_bitfield(char* header_line, uint32_t item_ct, uint3
 
 int32_t string_range_list_to_bitfield_alloc(char* header_line, uint32_t item_ct, uint32_t fixed_len, Range_list* range_list_ptr, uintptr_t** bitfield_ptr, const char* range_list_flag, const char* file_descrip);
 
+int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintptr_t item_ct, uintptr_t max_id_len, Range_list* range_list_ptr, const char* range_list_flag, uintptr_t* bitfield_excl);
+
 static inline uint32_t count_chrom_markers(Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uintptr_t* marker_exclude) {
   uint32_t min_idx;
   uint32_t max_idx;

@@ -6169,6 +6169,56 @@ int32_t string_range_list_to_bitfield_alloc(char* header_line, uint32_t item_ct,
   return retval;
 }
 
+int32_t string_range_list_to_bitfield2(char* sorted_ids, uint32_t* id_map, uintptr_t item_ct, uintptr_t max_id_len, Range_list* range_list_ptr, const char* range_list_flag, uintptr_t* bitfield_excl) {
+  // sorted_ids/id_map is for e.g. marker IDs instead of command line
+  // parameters.  bitfield_excl is assumed to be initialized (since its length
+  // is not known by this function).
+  char* names = range_list_ptr->names;
+  unsigned char* starts_range = range_list_ptr->starts_range;
+  uintptr_t name_max_len = range_list_ptr->name_max_len;
+  uintptr_t item_ct_m1 = item_ct - 1;
+  uint32_t name_ct = range_list_ptr->name_ct;
+  int32_t retval = 0;
+  uint32_t param_idx;
+  char* bufptr;
+  uint32_t item_uidx;
+  uint32_t item_uidx2;
+  int32_t ii;
+  for (param_idx = 0; param_idx < name_ct; param_idx++) {
+    bufptr = &(names[param_idx * name_max_len]);
+    ii = bsearch_str(bufptr, sorted_ids, max_id_len, 0, item_ct_m1);
+    if (ii == -1) {
+      goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2;
+    }
+    item_uidx = id_map[(uint32_t)ii];
+    if (starts_range[param_idx]) {
+      param_idx++;
+      bufptr = &(names[param_idx * name_max_len]);
+      ii = bsearch_str(bufptr, sorted_ids, max_id_len, 0, item_ct_m1);
+      if (ii == -1) {
+        goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2;
+      }
+      item_uidx2 = id_map[(uint32_t)ii];
+      if (item_uidx2 < item_uidx) {
+	sprintf(logbuf, "Error: Second element of --%s range appears before first.\n", range_list_flag);
+	goto string_range_list_to_bitfield2_ret_INVALID_CMDLINE;
+      }
+      clear_bits(bitfield_excl, item_uidx, item_uidx2 - item_uidx + 1);
+    } else {
+      clear_bit(bitfield_excl, item_uidx);
+    }
+  }
+  while (0) {
+  string_range_list_to_bitfield2_ret_INVALID_CMDLINE_2:
+    sprintf(logbuf, "Error: --%s ID not found.\n", range_list_flag);
+  string_range_list_to_bitfield2_ret_INVALID_CMDLINE:
+    logprintb();
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+  return retval;
+}
+
 uint32_t count_non_autosomal_markers(Chrom_info* chrom_info_ptr, uintptr_t* marker_exclude, uint32_t count_x) {
   // for backward compatibility, unplaced markers are considered to be
   // autosomal here

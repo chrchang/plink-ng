@@ -8636,18 +8636,20 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     }
     continue;
   vcf_to_bed_skip3:
-    if ((!marker_skip_ct) && skip3_list) {
-      memcpy(outname_end, ".skip.3allele", 14);
-      if (fopen_checked(&skip3file, outname, "w")) {
-	goto vcf_to_bed_ret_OPEN_FAIL;
+    if (skip3_list) {
+      if (!marker_skip_ct) {
+	memcpy(outname_end, ".skip.3allele", 14);
+	if (fopen_checked(&skip3file, outname, "w")) {
+	  goto vcf_to_bed_ret_OPEN_FAIL;
+	}
+	memcpy(outname_end, ".bed", 5);
       }
-      memcpy(outname_end, ".bed", 5);
+      marker_id[marker_id_len] = '\0';
+      if (fputs_checked(marker_id, skip3file)) {
+	goto vcf_to_bed_ret_WRITE_FAIL;
+      }
+      putc('\n', skip3file);
     }
-    marker_id[marker_id_len] = '\0';
-    if (fputs_checked(marker_id, skip3file)) {
-      goto vcf_to_bed_ret_WRITE_FAIL;
-    }
-    putc('\n', skip3file);
     marker_skip_ct++;
   }
   putchar('\r');
@@ -8877,7 +8879,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
     if (memcmp(tbuf, "BCF\4", 4)) {
       sprintf(logbuf, "Error: %s is not a BCF2 file.\n", bcfname);
     } else {
-      sprintf(logbuf, "Error: %s appears to be a BCFv1 file; only v2.x is supported.\n", bcfname);
+      sprintf(logbuf, "Error: %s is a BCF1 file; --bcf only supports BCF2.\nUse 'bcftools view' to convert to a readable VCF.\n", bcfname);
     }
     goto bcf_to_bed_ret_INVALID_FORMAT_2;
   }
@@ -12266,7 +12268,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       } else {
         cptr = memcpya(cptr, ",length=", 8);
 	if (!(map_is_unsorted & UNSORTED_BP)) {
-	  cptr = uint32_write(cptr, marker_pos[chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - 1] - marker_pos[chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx]] + 1);
+	  cptr = uint32_write(cptr, marker_pos[chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - 1] + 1);
 	} else {
 	  cptr = memcpya(cptr, "536870911", 9); // unknown
 	}

@@ -1587,15 +1587,18 @@ int32_t ld_report_square(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 }
 
 /*
-int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists) {
+int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_indiv_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists) {
+  FILE* infile = NULL;
   FILE* outfile = NULL;
   gzFile gz_outfile = NULL;
   uint32_t ld_modifier = ldip->modifier;
   uint32_t output_gz = ld_modifier & LD_REPORT_GZ;
   uint32_t ignore_x = (ld_modifier & LD_IGNORE_X) & 1;
   uint32_t is_inter_chr = ld_modifier & LD_INTER_CHR;
+  uint32_t snp_list_file = ld_modifier & LD_SNP_LIST_FILE;
   uintptr_t marker_ct = g_ld_marker_ct;
   uintptr_t marker_ct1 = marker_ct;
+  uintptr_t unfiltered_marker_ctl = (unfiltered_marker_ct + (BITCT - 1)) / BITCT;
   uintptr_t unfiltered_indiv_ct4 = (unfiltered_indiv_ct + 3) / 4;
   uintptr_t founder_ct = g_ld_founder_ct;
   uintptr_t founder_ctl = (founder_ct + BITCT - 1) / BITCT;
@@ -1616,6 +1619,9 @@ int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, ui
   uint32_t is_y = 0;
   uint32_t not_first_write = 0;
   int32_t retval = 0;
+  uint32_t* id_map;
+  char* sorted_ids;
+  char* bufptr;
   uintptr_t marker_idx1_start;
   uintptr_t marker_idx1;
   uintptr_t marker_idx1_end;
@@ -1625,18 +1631,83 @@ int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, ui
   uintptr_t marker_uidx2_base;
   uintptr_t marker_uidx2;
   uintptr_t marker_idx2_maxw_m8;
+  uintptr_t snplist_ct;
+  uintptr_t max_snplist_id_len;
   uint32_t chrom_idx;
   uint32_t chrom_end;
   uint32_t chrom_size;
   uint32_t cur_marker_pos;
+  uint32_t uii;
+  int32_t ii;
   if (idx1_subset) {
-    // todo: allocate marker_exclude mirror if --ld-snp/--ld-snps/--ld-snp-list
-    // present
-    logprint("Error: --ld-snp, --ld-snps, and --ld-snp-list are not implemented yet.\n");
-    return RET_CALC_NOT_YET_SUPPORTED;
-    if (!marker_ct1) {
-      logprint("Error: No valid variants specified by --ld-snp/--ld-snps/--ld-snp-list.\n");
-      goto ld_report_regular_ret_INVALID_CMDLINE;
+    if (wkspace_alloc_ul_checked(&marker_exclude_idx1, unfiltered_marker_ctl * sizeof(intptr_t))) {
+      goto ld_report_regular_ret_NOMEM;
+    }
+    fill_all_bits(marker_exclude_idx1, unfiltered_marker_ct);
+    marker_uidx1 = next_unset_unsafe(marker_exclude, 0);
+    if (ldip->snpstr && (!snp_list_file)) {
+      bufptr = ldip->snpstr;
+      uii = strlen(bufptr) + 1;
+      if (uii > max_marker_id_len) {
+	goto ld_report_regular_ret_EMPTY_SET1;
+      }
+      for (marker_idx1 = 0; marker_idx1 < marker_ct; marker_uidx1++, marker_idx1++) {
+	next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx1);
+        if (!memcmp(&(marker_ids[marker_uidx1 * max_marker_id_len]), bufptr, uii)) {
+	  break;
+	}
+      }
+      if (marker_idx1 == marker_ct) {
+	goto ld_report_regular_ret_EMPTY_SET1;
+      }
+      clear_bit_ul(marker_exclude_idx1, marker_uidx1);
+      marker_ct1 = 1;
+    } else {
+      marker_ct1 = 0;
+      retval = sort_item_ids(&sorted_ids, &id_map, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref);
+      if (retval) {
+	goto ld_report_regular_ret_1;
+      }
+      if (snp_list_file) {
+        if (fopen_checked(&infile, ldip->snpstr, "rb")) {
+	  goto ld_report_regular_ret_OPEN_FAIL;
+	}
+	retval = scan_token_ct_len(infile, tbuf, MAXLINELEN, &snplist_ct, &max_snplist_id_len);
+	if (retval) {
+	  goto ld_report_regular_ret_1;
+	}
+	if (!snplist_ct) {
+	  goto ld_report_regular_ret_EMPTY_SET1;
+	}
+	if (wkspace_alloc_c_checked(&bufptr, snplist_ct * max_snplist_id_len)) {
+	  goto ld_report_regular_ret_NOMEM;
+	}
+	rewind(infile);
+	retval = read_tokens(infile, tbuf, MAXLINELEN, snplist_ct, max_snplist_id_len, sorted_ids);
+        if (fclose_null(&infile)) {
+          goto ld_report_regular_ret_READ_FAIL;
+	}
+	for (marker_idx1 = 0; marker_idx1 < snplist_ct; marker_idx1++) {
+          ii = bsearch_str(&(bufptr[marker_idx1 * max_snplist_id_len]), sorted_ids, max_marker_id_len, 0, marker_ct - 1);
+          if (ii != -1) {
+            uii = id_map[(uint32_t)ii];
+            if (!is_set(marker_exclude_idx1, uii)) {
+	      logprint("Error: Duplicate variant ID in --ld-snp-list file.\n");
+	      goto ld_report_regular_ret_INVALID_FORMAT;
+	    }
+            clear_bit(marker_exclude_idx1, uii);
+            marker_ct1++;
+	  }
+	}
+      } else {
+        retval = string_range_list_to_bitfield2(sorted_ids, id_map, marker_ct, max_marker_id_len, &(ldip->snps_rl), "ld-snps", marker_exclude1);
+        bitfield_or(marker_exclude1, marker_exclude, unfiltered_marker_ctl);
+        marker_ct1 = popcount_longs(marker_exclude_idx1, 0, unfiltered_marker_ctl);
+      }
+      if (!marker_ct1) {
+	goto ld_report_regular_ret_EMPTY_SET1;
+      }
+      wkspace_reset((unsigned char*)id_map);
     }
   }
   if (marker_ct1 < parallel_tot) {
@@ -1657,17 +1728,14 @@ int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, ui
       marker_idx2_maxw = marker_ct - 1;
     }
   } else {
-    if (idx1_subset) {
-      // look backwards and forwards
-      if (window_size < 13) {
-	marker_idx2_maxw = 2 * window_size - 1;
-      } else {
-	// ...
-      }
-    } else if (window_size < 18) {
-      // just don't bother scanning in default case
+    if (idx1_subset && (window_size < 13)) {
+      marker_idx2_maxw = 2 * window_size - 1;
+    } else if ((!idx1_subset) && (window_size < 18)) {
       marker_idx2_maxw = window_size - 1;
     } else {
+      if (idx1_subset) {
+	window_bp *= 2;
+      }
       for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx) {
 	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
 	marker_uidx1 = next_unset(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
@@ -1693,6 +1761,9 @@ int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, ui
 	  }
 	}
       }
+      if (idx1_subset) {
+	window_bp /= 2;
+      }
     }
   }
  ld_report_regular_maxw_ceil:
@@ -1711,13 +1782,23 @@ int32_t ld_report_regular(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, ui
   ld_report_regular_ret_NOMEM:
     retval = RET_NOMEM;
     break;
+  ld_report_regular_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
   ld_report_regular_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  ld_report_regular_ret_EMPTY_SET1:
+    logprint("Error: No valid variants specified by --ld-snp/--ld-snps/--ld-snp-list.\n");
   ld_report_regular_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
     break;
+  ld_report_regular_ret_INVALID_FORMAT:
+    retval = RET_INVALID_FORMAT;
+    break;
   }
+ ld_report_regular_ret_1:
+  fclose_cond(infile);
   // trust parent to free memory
   return retval;
 }
@@ -1803,7 +1884,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
     g_ld_plink_maxsnp = plink_maxsnp;
     g_ld_marker_allele_ptrs = marker_allele_ptrs;
     g_ld_marker_pos = marker_pos;
-    // retval = ld_report_regular(ldip, bedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_reverse, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, founder_include2, founder_male_include2, loadbuf, outname, hh_exists);
+    // retval = ld_report_regular(ldip, bedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, unfiltered_indiv_ct, founder_info, parallel_idx, parallel_tot, sex_male, founder_include2, founder_male_include2, loadbuf, outname, hh_exists);
   }
   // great success
   while (0) {
