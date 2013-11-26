@@ -2605,6 +2605,78 @@ void fepi_counts_to_joint_effects_stats(uint32_t group_ct, uint32_t* counts, dou
   *ctrl_var_ptr = dyy;
 }
 
+double boost_marginal_assoc(uint32_t case0_ct, uint32_t case1_ct, uint32_t case2_ct, uint32_t ctrl0_ct, uint32_t ctrl1_ct, uint32_t ctrl2_ct) {
+  // from BOOSTx64.c lines 556-569:
+  //   MarginalAssociation[] := (-MarginalEntropySNP_Y[] +
+  //                              MarginalEntropySNP[] +
+  //                              MarginalEntropyY[]) * obs_ct * 2
+  //   MarginalEntropyY[] := entropy(case_ct / obs_ct) +
+  //                         entropy(ctrl_ct / obs_ct)
+  //   MarginalEntropySNP[] := entropy(genotype_ct / obs_ct)
+  //                           (summed over 3 genotypes)
+  //   MarginalEntropySNP_Y[] := entropy(geno_and_case_ct / genotype_ct)
+  //                           + entropy(geno_and_ctrl_ct / genotype_ct)
+  //                             (summed over 3 genotypes)
+  // MarginalEntropyY, case_ct, ctrl_ct, and obs_ct are no longer
+  // constant across all variants since we permit missing data; but the
+  // necessary values are cached to minimize relative performance penalty
+  // in the no-missing-data case.
+  double marginal_assoc = 0.0;
+  double totd[6];
+  double totgenod[3];
+  double tot;
+  double dyy;
+  double dzz;
+  double tot_recip;
+  uint32_t uii;
+  totd[0] = (double)((int32_t)case0_ct);
+  totd[1] = (double)((int32_t)case1_ct);
+  totd[2] = (double)((int32_t)case2_ct);
+  totd[3] = (double)((int32_t)ctrl0_ct);
+  totd[4] = (double)((int32_t)ctrl1_ct);
+  totd[5] = (double)((int32_t)ctrl2_ct);
+  for (uii = 0; uii < 3; uii++) {
+    totgenod[uii] = totd[uii] + totd[uii + 3];
+  }
+  tot = totgenod[0] + totgenod[1] + totgenod[2];
+  if (tot == 0.0) {
+    return 0;
+  }
+  tot_recip = 1.0 / tot;
+  // subtract MarginalEntropyY[] (negate everything at the end)
+  dyy = (totd[0] + totd[1] + totd[2]) * tot_recip;
+  if (dyy != 0.0) {
+    marginal_assoc = dyy * log(dyy);
+  }
+  dyy = (totd[3] + totd[4] + totd[5]) * tot_recip;
+  if (dyy != 0.0) {
+    marginal_assoc += dyy * log(dyy);
+  }
+  for (uii = 0; uii < 3; uii++) {
+    dyy = totgenod[uii];
+    if (dyy != 0.0) {
+      // MarginalEntropySNP[]
+      dzz = dyy * tot_recip;
+      marginal_assoc += dzz * log(dzz);
+      // MarginalEntropySNP_Y[]
+      dyy = 1.0 / dyy;
+      if (totd[uii] != 0.0) {
+	dzz = totd[uii] * dyy;
+	marginal_assoc -= dzz * log(dzz);
+      }
+      if (totd[uii + 3] != 0.0) {
+	dzz = totd[uii + 3] * dyy;
+	marginal_assoc -= dzz * log(dzz);
+      }
+    }
+  }
+  return (marginal_assoc * (-2) * tot);
+}
+
+uint32_t fepi_counts_to_boost_chisq(uint32_t* counts, double marginal_assoc1, double marginal_assoc2, double screen_thresh, double* approx_chisq_ptr, double* chisq_ptr) {
+  return 0;
+}
+
 // epistasis multithread globals
 static uint32_t* g_epi_geno1_offsets;
 static double* g_epi_all_chisq;
@@ -2646,6 +2718,7 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uintptr_t idx2_block_end = idx2_block_start + idx2_block_size;
   uintptr_t idx2_block_sizem16 = (idx2_block_size + 15) & (~(15 * ONELU));
   uintptr_t marker_ct = g_epi_marker_ct;
+  double marginal_assoc_fixed = 0.0;
   uint32_t case_ct = g_epi_case_ct;
   uint32_t ctrl_ct = g_epi_ctrl_ct;
   uint32_t case_ctv3 = 2 * ((case_ct + (2 * BITCT - 1)) / (2 * BITCT));
@@ -2653,28 +2726,28 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uint32_t case_ctsplit = 3 * case_ctv3;
   uint32_t ctrl_ctsplit = 3 * ctrl_ctv3;
   uint32_t tot_ctsplit = case_ctsplit + ctrl_ctsplit;
-  uintptr_t* cur_geno1 = &(g_epi_geno1[block_idx1_start * tot_ctsplit]);
-  uintptr_t* zmiss1 = g_epi_zmiss1;
   uint32_t is_case_only = (g_epi_flag / EPI_FAST_CASE_ONLY) & 1;
   uint32_t group_ct = 2 - is_case_only;
   uint32_t tot_stride = group_ct * 3;
   uint32_t no_ueki = (g_epi_flag / EPI_FAST_NO_UEKI) & 1;
   uint32_t is_boost = (g_epi_flag / EPI_FAST_BOOST) & 1;
   uint32_t do_joint_effects = (g_epi_flag / EPI_FAST_JOINT_EFFECTS) & 1;
-  uint32_t obs_ct_fixed = 0;
   uint32_t best_id_fixed = 0;
-  uint32_t* geno1_offsets = g_epi_geno1_offsets;
+  uintptr_t* cur_geno1 = &(g_epi_geno1[block_idx1_start * tot_ctsplit]);
+  uintptr_t* zmiss1 = g_epi_zmiss1;
   uintptr_t* geno2 = g_epi_geno2;
   uintptr_t* zmiss2 = g_epi_zmiss2;
   uintptr_t* cur_geno1_ctrls = NULL;
-  uint32_t* tot2 = g_epi_tot2;
   double* marginal_assoc2 = g_epi_marginal_assoc2;
+  double* cur_marginal_assoc2 = NULL;
   double* all_chisq = &(g_epi_all_chisq[idx2_block_start]);
   double* best_chisq1 = &(g_epi_best_chisq1[idx1_block_start16]);
+  double* best_chisq2 = &(g_epi_best_chisq2[tidx * idx2_block_sizem16]);
+  uint32_t* geno1_offsets = g_epi_geno1_offsets;
+  uint32_t* tot2 = g_epi_tot2;
   uint32_t* best_id1 = &(g_epi_best_id1[idx1_block_start16]);
   uint32_t* n_sig_ct1 = &(g_epi_n_sig_ct1[idx1_block_start16]);
   uint32_t* fail_ct1 = &(g_epi_fail_ct1[idx1_block_start16]);
-  double* best_chisq2 = &(g_epi_best_chisq2[tidx * idx2_block_sizem16]);
   uint32_t* best_id2 = &(g_epi_best_id2[tidx * idx2_block_sizem16]);
   uint32_t* n_sig_ct2 = &(g_epi_n_sig_ct2[tidx * idx2_block_sizem16]);
   uint32_t* fail_ct2 = &(g_epi_fail_ct2[tidx * idx2_block_sizem16]);
@@ -2683,13 +2756,10 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   double ctrl_var = 0;
   uint32_t tot1[6];
   uint32_t counts[18];
-  double tot1d[6];
-  double totgeno1d[3];
   uintptr_t* cur_geno2;
   double* all_chisq_write;
   double* chisq2_ptr;
   uint32_t* cur_tot2;
-  double* cur_marginal_assoc2;
   uintptr_t block_idx1;
   uintptr_t block_delta1;
   uintptr_t block_idx2;
@@ -2698,18 +2768,13 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   double case_var;
   double ctrl_or;
   double dxx;
-  double dyy;
-  double dzz;
-  double tot_recip;
   double zsq;
-  double marginal_assoc_fixed;
   uint32_t nm_case_fixed;
   uint32_t nm_ctrl_fixed;
   uintptr_t cur_zmiss2;
   uintptr_t cur_zmiss2_tmp;
   uint32_t n_sig_ct_fixed;
   uint32_t fail_ct_fixed;
-  uint32_t uii;
   tot1[3] = 0; // suppress warning
   tot1[4] = 0;
   tot1[5] = 0;
@@ -2738,56 +2803,8 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
       tot1[4] = popcount_longs(&(cur_geno1_ctrls[ctrl_ctv3]), 0, ctrl_ctv3);
       tot1[5] = popcount_longs(&(cur_geno1_ctrls[2 * ctrl_ctv3]), 0, ctrl_ctv3);
       if (is_boost) {
-	// from BOOSTx64.c lines 556-569:
-	//   MarginalAssociation[] := (-MarginalEntropySNP_Y[] +
-        //                              MarginalEntropySNP[] +
-	//                              MarginalEntropyY[]) * obs_ct * 2
-	//   MarginalEntropyY[] := entropy(case_ct / obs_ct) +
-	//                         entropy(ctrl_ct / obs_ct)
-	//   MarginalEntropySNP[] := entropy(genotype_ct / obs_ct)
-	//                           (summed over 3 genotypes)
-        //   MarginalEntropySNP_Y[] := entropy(geno_and_case_ct / genotype_ct)
-	//                           + entropy(geno_and_ctrl_ct / genotype_ct)
-	//                             (summed over 3 genotypes)
-	// MarginalEntropyY, case_ct, ctrl_ct, and obs_ct are no longer
-	// constant across all variants since we permit missing data; but the
-	// necessary values are cached to minimize relative performance penalty
-	// in the no-missing-data case.
-
-	for (uii = 0; uii < 6; uii++) {
-	  tot1d[uii] = (double)((int32_t)tot1[uii]);
-	}
-	for (uii = 0; uii < 3; uii++) {
-	  totgeno1d[uii] = tot1d[uii] + tot1d[uii + 3];
-	}
-	dxx = totgeno1d[0] + totgeno1d[1] + totgeno1d[2];
-	tot_recip = 1.0 / dxx;
-	// subtract MarginalEntropyY[] (negate everything at the end)
-	// both case_ct and ctrl_ct guaranteed to be nonzero due to monomorphic
-	// screening step
-	dyy = (tot1d[0] + tot1d[1] + tot1d[2]) * tot_recip;
-	marginal_assoc_fixed = dyy * log(dyy);
-	dyy = (tot1d[3] + tot1d[4] + tot1d[5]) * tot_recip;
-	marginal_assoc_fixed += dyy * log(dyy);
-	for (uii = 0; uii < 3; uii++) {
-	  dyy = totgeno1d[uii];
-	  if (dyy != 0.0) {
-            // MarginalEntropySNP[]
-	    dzz = dyy * tot_recip;
-	    marginal_assoc_fixed += dzz * log(dzz);
-	    // MarginalEntropySNP_Y[]
-	    dyy = 1.0 / dyy;
-	    if (tot1[uii]) {
-	      dzz = tot1d[uii] * dyy;
-              marginal_assoc_fixed -= dzz * log(dzz);
-	    }
-	    if (tot1[uii + 3]) {
-	      dzz = tot1d[uii + 3] * dyy;
-              marginal_assoc_fixed -= dzz * log(dzz);
-	    }
-	  }
-	}
-	marginal_assoc_fixed *= (-2) * dxx;
+	marginal_assoc_fixed = boost_marginal_assoc(tot1[0], tot1[1], tot1[2], tot1[3], tot1[4], tot1[5]);
+	cur_marginal_assoc2 = &(marginal_assoc2[block_idx2]);
       }
     }
     cur_geno2 = &(geno2[block_idx2 * tot_ctsplit]);
@@ -2812,34 +2829,60 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	counts[8] = tot1[2] - counts[6] - counts[7];
       }
       if (!is_case_only) {
-	cur_zmiss2 >>= 1;
+	cur_zmiss2_tmp = cur_zmiss2 >> 1;
 	if (nm_ctrl_fixed) {
-	  two_locus_count_table_zmiss1(cur_geno1_ctrls, &(cur_geno2[case_ctsplit]), &(counts[9]), ctrl_ctv3, cur_zmiss2);
+	  two_locus_count_table_zmiss1(cur_geno1_ctrls, &(cur_geno2[case_ctsplit]), &(counts[9]), ctrl_ctv3, cur_zmiss2_tmp);
 	  counts[15] = cur_tot2[3] - counts[9] - counts[12];
 	  counts[16] = cur_tot2[4] - counts[10] - counts[13];
 	} else {
-	  two_locus_count_table(cur_geno1_ctrls, &(cur_geno2[case_ctsplit]), &(counts[9]), ctrl_ctv3, cur_zmiss2);
+	  two_locus_count_table(cur_geno1_ctrls, &(cur_geno2[case_ctsplit]), &(counts[9]), ctrl_ctv3, cur_zmiss2_tmp);
 	}
-	if (cur_zmiss2) {
+	if (cur_zmiss2_tmp) {
 	  counts[11] = tot1[3] - counts[9] - counts[10];
 	  counts[14] = tot1[4] - counts[12] - counts[13];
 	  counts[17] = tot1[5] - counts[15] - counts[16];
 	}
       }
-      if (!do_joint_effects) {
-        fepi_counts_to_stats(counts, no_ueki, &dxx, &case_var);
-	if (!is_case_only) {
-          fepi_counts_to_stats(&(counts[9]), no_ueki, &ctrl_or, &ctrl_var);
-          dxx -= ctrl_or;
+      if (!is_boost) {
+	if (!do_joint_effects) {
+	  fepi_counts_to_stats(counts, no_ueki, &dxx, &case_var);
+	  if (!is_case_only) {
+	    fepi_counts_to_stats(&(counts[9]), no_ueki, &ctrl_or, &ctrl_var);
+	    dxx -= ctrl_or;
+	  }
+	} else {
+	  fepi_counts_to_joint_effects_stats(group_ct, counts, &dxx, &case_var, &ctrl_var);
 	}
+	zsq = dxx * dxx / (case_var + ctrl_var);
       } else {
-        fepi_counts_to_joint_effects_stats(group_ct, counts, &dxx, &case_var, &ctrl_var);
+	// repurpose ctrl_var and case_var as marginal associations
+	if (nm_case_fixed & nm_ctrl_fixed) {
+	  ctrl_var = *cur_marginal_assoc2; // cached marginal assoc
+	} else {
+	  ctrl_var = boost_marginal_assoc(counts[0] + counts[1] + counts[2], counts[3] + counts[4] + counts[5], counts[6] + counts[7] + counts[8], counts[9] + counts[10] + counts[11], counts[12] + counts[13] + counts[14], counts[15] + counts[16] + counts[17]);
+	}
+	cur_marginal_assoc2++;
+	if (cur_zmiss2 == 3) {
+	  case_var = marginal_assoc_fixed;
+	} else {
+	  case_var = boost_marginal_assoc(counts[0] + counts[3] + counts[6], counts[1] + counts[4] + counts[7], counts[2] + counts[5] + counts[8], counts[9] + counts[12] + counts[15], counts[10] + counts[13] + counts[16], counts[11] + counts[14] + counts[17]);
+	}
+	if (fepi_counts_to_boost_chisq(counts, ctrl_var, case_var, alpha1sq, &zsq, &dxx)) {
+	  // more accurate likelihood ratio.  May be smaller than threshold
+	  // even when the approximation was larger, so we need a bit of extra
+	  // logic here.
+	  all_chisq_write[block_idx2] = dxx;
+	}
+	if (realnum(zsq)) {
+	  goto fast_epi_thread_boost_save;
+	}
+	goto fast_epi_thread_fail;
       }
-      zsq = dxx * dxx / (case_var + ctrl_var);
       if (realnum(zsq)) {
 	if (zsq >= alpha1sq) {
 	  all_chisq_write[block_idx2] = zsq;
 	}
+      fast_epi_thread_boost_save:
 	if (zsq >= alpha2sq) {
 	  n_sig_ct_fixed++;
 	  n_sig_ct2[block_idx2] += 1;
@@ -2854,6 +2897,7 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
 	  best_id2[block_idx2] = marker_idx1;
 	}
       } else {
+      fast_epi_thread_fail:
         fail_ct_fixed++;
 	fail_ct2[block_idx2] += 1;
 	if (alpha1sq == 0.0) {
